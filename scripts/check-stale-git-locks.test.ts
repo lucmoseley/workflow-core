@@ -16,7 +16,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { runInProcess } from "./lib/run-in-process.js";
+import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "check-stale-git-locks.js");
 const STATUS = path.join(__dirname, "status-report.js");
@@ -87,15 +87,13 @@ describe("stale git locks (#1193)", () => {
 		expect(r.stderr).toMatch(/^SKIP: no git repository here/m);
 	});
 
-	it("reaches the founder through npm run status", () => {
+	it("reaches the founder through npm run status", async () => {
 		lock("logs/HEAD.lock", 2 * HOUR);
-		// spawn-kept: status-report.js's async entry has no require.main guard
-		// and no exported main, so runInProcessAsync cannot load it.
-		const out = execFileSync(
-			process.execPath,
-			[STATUS, "--only", "git-locks"],
-			{ cwd: repo, env: env(), encoding: "utf8", stdio: "pipe" },
-		);
-		expect(out).toContain("logs/HEAD.lock");
+		const r = await runInProcessAsync(STATUS, ["--only", "git-locks"], {
+			cwd: repo,
+			env: env(),
+		});
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("logs/HEAD.lock");
 	});
 });

@@ -11,12 +11,12 @@
  * strands an effort unreported while the core's own tests stay green.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
+import { runInProcessAsync } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-idle-efforts.js");
 const DAY = 24 * 60 * 60 * 1000;
@@ -87,7 +87,7 @@ process.stdout.write(JSON.stringify([{ data: { repository: { issues: { pageInfo:
 	);
 }
 
-function run(
+async function run(
 	issues: Record<string, ReturnType<typeof node>[]>,
 	args: string[] = [],
 ) {
@@ -104,18 +104,11 @@ function run(
 	};
 	delete env.WFC_DISPATCH_ROOT;
 	delete env.WFC_REPO_ROOT;
-	// spawn-kept: an async entry — the script calls runCheck at top level, with
-	// no exported `main` and no require.main guard, so runInProcessAsync cannot
-	// await its async run().
-	const r = spawnSync("node", [SCRIPT, ...args], {
-		cwd: dir,
-		env,
-		encoding: "utf8",
-	});
+	const r = await runInProcessAsync(SCRIPT, args, { cwd: dir, env });
 	return {
-		status: r.status ?? -1,
+		status: r.status,
 		out: `${r.stdout}${r.stderr}`,
-		stdout: r.stdout ?? "",
+		stdout: r.stdout,
 		calls: fs
 			.readFileSync(path.join(dir, "calls.log"), "utf8")
 			.trim()
@@ -133,11 +126,11 @@ afterEach(() => {
 });
 
 describe("check-idle-efforts.js", () => {
-	it("reads a shared tracker once, its latest launch across checkouts, a held launch as running, and a stopped loop as serving nothing", () => {
+	it("reads a shared tracker once, its latest launch across checkouts, a held launch as running, and a stopped loop as serving nothing", async () => {
 		checkout("core-a", "o/core", [launch(1, 5 * DAY)]);
 		checkout("core-b", "o/core", [launch(1, DAY), launch(2, 30 * 60 * 1000)]);
 		checkout("prod", "o/product");
-		const r = run({
+		const r = await run({
 			"o/core": [node(1), node(2), node(3)],
 			"o/product": [node(8, ["takes:implement", "urgent"])],
 		});
@@ -153,9 +146,9 @@ describe("check-idle-efforts.js", () => {
 		expect(r.out).toContain("WARN:");
 	});
 
-	it("emits the same findings under --json", () => {
+	it("emits the same findings under --json", async () => {
 		checkout("prod", "o/product");
-		const r = run({ "o/product": [node(8)] }, ["--json"]);
+		const r = await run({ "o/product": [node(8)] }, ["--json"]);
 		const json = JSON.parse(r.stdout);
 		expect(json.outcome).toBe("WARN");
 		expect(json.loopRunning).toBe(false);
@@ -168,9 +161,9 @@ describe("check-idle-efforts.js", () => {
 		]);
 	});
 
-	it("names a tracker that will not read as unread, never as none idle, and does not gate", () => {
+	it("names a tracker that will not read as unread, never as none idle, and does not gate", async () => {
 		checkout("gone", "o/gone");
-		const r = run({});
+		const r = await run({});
 		expect(r.status).toBe(0);
 		expect(r.out).toContain(
 			"o/gone: unread — HTTP 404: Could not resolve to a Repository",
@@ -178,9 +171,9 @@ describe("check-idle-efforts.js", () => {
 		expect(r.out).not.toContain("none idle");
 	});
 
-	it("is OK where nothing is idle", () => {
+	it("is OK where nothing is idle", async () => {
 		checkout("core", "o/core", [launch(1, DAY)]);
-		const r = run({ "o/core": [node(1)] });
+		const r = await run({ "o/core": [node(1)] });
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("OK: no effort idle past 2 days.");
 	});

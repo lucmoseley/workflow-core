@@ -25,7 +25,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ENVELOPE_FRAME_KEYS } from "./envelope-frame-keys";
 import { runRecordFile } from "./notify-report-testkit";
-import { runInProcess } from "./run-in-process";
+import { runInProcess, runInProcessAsync } from "./run-in-process";
 
 const LIB = path.resolve(__dirname, "check.js");
 
@@ -1648,6 +1648,31 @@ describe("persist mode", () => {
 		const report = notify.readReport("fixture");
 		expect(report.outcome).toBe("FAIL");
 		expect(report.text).toBe("detail line\nFAIL: 1 n\n");
+	});
+
+	it("keeps an async checker's report when its main is awaited in-process", async () => {
+		const file = path.join(dir, "fixture-check.js");
+		fs.writeFileSync(
+			file,
+			`const { runCheck } = require(${JSON.stringify(LIB)});
+const main = () => runCheck({
+  name: "fixture",
+  usage: "node fixture-check.js",
+  async run(ctx) { ctx.fail("T", "x"); return { noun: "n" }; },
+});
+module.exports = { main };
+if (require.main === module) main();
+`,
+		);
+		const r = await runInProcessAsync(file, ["--notify"], {
+			cwd: dir,
+			env: { ...process.env, GITHUB_ACTIONS: "", ...persistEnv },
+		});
+
+		expect(r.status).toBe(0);
+		const report = notify.readReport("fixture");
+		expect(report.outcome).toBe("FAIL");
+		expect(report.text).toBe("FAIL: 1 n\n");
 	});
 
 	/* The producer never stamps under persist mode, so the signature travels in

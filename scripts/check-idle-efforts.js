@@ -82,10 +82,10 @@ function readLoop(reportDamaged) {
 	};
 }
 
-runCheck({
+const SPEC = {
 	name: "idle-efforts",
 	usage: "node check-idle-efforts.js [--json]",
-	async run(ctx) {
+	async run(/** @type {import("./lib/check").Ctx} */ ctx) {
 		const now = Date.now();
 		const loopRead = readLoop((line) =>
 			ctx.warn("REFILL-LOOP-FILE-DAMAGED", line),
@@ -148,4 +148,9 @@ runCheck({
 			data: { loopRunning: loopRead.running, trackers: findings },
 		};
 	},
-});
+};
+
+const main = () => runCheck(SPEC);
+
+module.exports = { main };
+if (require.main === module) main();

@@ -15,7 +15,6 @@
  * case and an unrouted issue reaches nobody.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -36,6 +35,7 @@ import {
 	stubGhRoutes,
 	THERE,
 } from "./lib/gh-stub";
+import { runInProcessAsync } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-issue-labels.js");
 
@@ -176,16 +176,12 @@ const stubGh = (
 	};
 };
 
-const run = (
+const run = async (
 	args: string[] = [],
 	stub?: StubGh,
 	extra: Record<string, string> = {},
 ) => {
-	// spawn-kept: an async entry — the script's async run() goes through
-	// runCheck at top level, with no exported `main` and no require.main guard,
-	// so runInProcessAsync cannot load it.
-	const r = spawnSync("node", [SCRIPT, ...args], {
-		encoding: "utf8",
+	const r = await runInProcessAsync(SCRIPT, args, {
 		/* GITHUB_ACTIONS off, deliberately: check.js puts an ::error:: on STDOUT
 		 * per finding when it is set, uncapped, so the --notify cap assertions
 		 * below passed locally and failed in Actions. Annotation behaviour is
@@ -199,11 +195,11 @@ const run = (
 		},
 	});
 	return {
-		status: r.status ?? -1,
-		out: `${r.stdout ?? ""}${r.stderr ?? ""}`,
+		status: r.status,
+		out: `${r.stdout}${r.stderr}`,
 		/* Separately, because --notify's contract is about stdout specifically:
 		 * that is the stream a SessionStart hook injects into the session. */
-		stdout: r.stdout ?? "",
+		stdout: r.stdout,
 	};
 };
 
@@ -228,8 +224,8 @@ afterEach(() => {
 });
 
 describe("children of a wayfinder map", () => {
-	it("flags an unlabelled child as UNLABELLED, naming the issue", () => {
-		const r = run(
+	it("flags an unlabelled child as UNLABELLED, naming the issue", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				MAP,
@@ -242,8 +238,8 @@ describe("children of a wayfinder map", () => {
 		expect(r.out).toContain("no labels at all");
 	});
 
-	it("stays silent on a labelled child", () => {
-		const r = run(
+	it("stays silent on a labelled child", async () => {
+		const r = await run(
 			[],
 			stubGh([MAP, { number: 136, parent: 96, labels: ["wayfinder:task"] }]),
 		);
@@ -255,8 +251,8 @@ describe("children of a wayfinder map", () => {
 	 * A child may carry category, takes: or kind labels and still be missing its
 	 * type — the check is "no member of this family", not "no labels at all".
 	 */
-	it("flags a child labelled only outside the wayfinder family, naming the issue and the label it carries", () => {
-		const r = run(
+	it("flags a child labelled only outside the wayfinder family, naming the issue and the label it carries", async () => {
+		const r = await run(
 			[],
 			stubGh([MAP, { number: 137, parent: 96, labels: ["Tech & Stack"] }]),
 		);
@@ -269,8 +265,8 @@ describe("children of a wayfinder map", () => {
 	 * A spec is a structural node, not a step on the route, so it takes no
 	 * wayfinder type.
 	 */
-	it("exempts a spec sitting under a map", () => {
-		const r = run(
+	it("exempts a spec sitting under a map", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{ number: 8, labels: ["wayfinder:map"] },
@@ -280,8 +276,8 @@ describe("children of a wayfinder map", () => {
 		expect(r.status).toBe(0);
 	});
 
-	it("exempts a brief sitting under a map (#578)", () => {
-		const r = run(
+	it("exempts a brief sitting under a map (#578)", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				MAP,
@@ -291,29 +287,29 @@ describe("children of a wayfinder map", () => {
 		expect(r.status).toBe(0);
 	});
 
-	it("exempts a nested map", () => {
-		const r = run(
+	it("exempts a nested map", async () => {
+		const r = await run(
 			[],
 			stubGh([MAP, { number: 144, parent: 96, labels: ["wayfinder:map"] }]),
 		);
 		expect(r.status).toBe(0);
 	});
 
-	it("ignores a closed child", () => {
-		const r = run(
+	it("ignores a closed child", async () => {
+		const r = await run(
 			[],
 			stubGh([MAP, { number: 138, parent: 96, state: "closed" }]),
 		);
 		expect(r.status).toBe(0);
 	});
 
-	it("ignores an issue with no parent", () => {
-		const r = run([], stubGh([MAP, { number: 139 }]));
+	it("ignores an issue with no parent", async () => {
+		const r = await run([], stubGh([MAP, { number: 139 }]));
 		expect(r.status).toBe(0);
 	});
 
-	it("ignores a child whose parent is not a map", () => {
-		const r = run(
+	it("ignores a child whose parent is not a map", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{ number: 50, labels: ["kind:ticket"] },
@@ -325,8 +321,8 @@ describe("children of a wayfinder map", () => {
 });
 
 describe("children of a spec", () => {
-	it("flags a child of a kind:spec with no kind:ticket, naming the issue", () => {
-		const r = run(
+	it("flags a child of a kind:spec with no kind:ticket, naming the issue", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{ number: 51, labels: ["kind:spec", "takes:to-tickets"] },
@@ -338,8 +334,8 @@ describe("children of a spec", () => {
 		expect(r.out).toContain("kind:ticket");
 	});
 
-	it("stays silent when the child carries kind:ticket", () => {
-		const r = run(
+	it("stays silent when the child carries kind:ticket", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{ number: 51, labels: ["kind:spec", "takes:to-tickets"] },
@@ -355,15 +351,15 @@ describe("children of a spec", () => {
  * exactly one (docs/agents/triage-labels.md §`takes:`; the reader is mantahostels#227).
  */
 describe("the takes: label", () => {
-	it("flags an open issue carrying no takes: at all", () => {
-		const r = run([], stubGh([{ number: 200, noTakes: true }]));
+	it("flags an open issue carrying no takes: at all", async () => {
+		const r = await run([], stubGh([{ number: 200, noTakes: true }]));
 		expect(r.status).toBe(1);
 		expect(r.out).toContain("NO-TAKES");
 		expect(r.out).toContain("#200");
 	});
 
-	it("flags an open issue carrying two", () => {
-		const r = run(
+	it("flags an open issue carrying two", async () => {
+		const r = await run(
 			[],
 			stubGh([{ number: 201, labels: ["takes:implement", "takes:wayfinder"] }]),
 		);
@@ -372,27 +368,30 @@ describe("the takes: label", () => {
 		expect(r.out).toContain("takes:implement, takes:wayfinder");
 	});
 
-	it("stays silent on exactly one", () => {
-		const r = run([], stubGh([{ number: 202, labels: ["takes:triage"] }]));
+	it("stays silent on exactly one", async () => {
+		const r = await run(
+			[],
+			stubGh([{ number: 202, labels: ["takes:triage"] }]),
+		);
 		expect(r.status).toBe(0);
 	});
 
-	it("checks a standalone issue, which the family rules skip", () => {
-		const r = run([], stubGh([{ number: 203, noTakes: true }]));
+	it("checks a standalone issue, which the family rules skip", async () => {
+		const r = await run([], stubGh([{ number: 203, noTakes: true }]));
 		expect(r.out).toContain("#203");
 		expect(r.out).not.toContain("UNLABELLED");
 	});
 
-	it("ignores a closed issue, whose disposition can no longer be typed", () => {
-		const r = run(
+	it("ignores a closed issue, whose disposition can no longer be typed", async () => {
+		const r = await run(
 			[],
 			stubGh([{ number: 204, noTakes: true, state: "closed" }]),
 		);
 		expect(r.status).toBe(0);
 	});
 
-	it("ignores a pull request", () => {
-		const r = run(
+	it("ignores a pull request", async () => {
+		const r = await run(
 			[],
 			stubGh([{ number: 205, noTakes: true, pull_request: {} }]),
 		);
@@ -401,8 +400,8 @@ describe("the takes: label", () => {
 });
 
 describe("a takes: contradicted by the issue's own kind", () => {
-	it("flags takes:implement on a spec as CONTRADICTED, naming the issue", () => {
-		const r = run(
+	it("flags takes:implement on a spec as CONTRADICTED, naming the issue", async () => {
+		const r = await run(
 			[],
 			stubGh([{ number: 210, labels: ["kind:spec", "takes:implement"] }]),
 		);
@@ -411,8 +410,8 @@ describe("a takes: contradicted by the issue's own kind", () => {
 		expect(r.out).toContain("#210");
 	});
 
-	it("flags takes:to-spec on a spec, naming the issue", () => {
-		const r = run(
+	it("flags takes:to-spec on a spec, naming the issue", async () => {
+		const r = await run(
 			[],
 			stubGh([{ number: 211, labels: ["kind:spec", "takes:to-spec"] }]),
 		);
@@ -426,16 +425,16 @@ describe("a takes: contradicted by the issue's own kind", () => {
 	 * protects — "a `kind:ticket` can take `/wayfinder` when it turns out to hide
 	 * a decision".
 	 */
-	it("leaves takes:to-tickets on a ticket alone", () => {
-		const r = run(
+	it("leaves takes:to-tickets on a ticket alone", async () => {
+		const r = await run(
 			[],
 			stubGh([{ number: 212, labels: ["kind:ticket", "takes:to-tickets"] }]),
 		);
 		expect(r.status).toBe(0);
 	});
 
-	it("flags takes:human on a manual-finding as CONTRADICTED, naming the issue (mantahostels#2810, mantahostels#3146)", () => {
-		const r = run(
+	it("flags takes:human on a manual-finding as CONTRADICTED, naming the issue (mantahostels#2810, mantahostels#3146)", async () => {
+		const r = await run(
 			[],
 			stubGh([{ number: 218, labels: ["manual-finding", "takes:human"] }]),
 		);
@@ -445,24 +444,24 @@ describe("a takes: contradicted by the issue's own kind", () => {
 		expect(r.out).toContain("manual-finding");
 	});
 
-	it("leaves a manual-finding on takes:implement alone", () => {
-		const r = run(
+	it("leaves a manual-finding on takes:implement alone", async () => {
+		const r = await run(
 			[],
 			stubGh([{ number: 219, labels: ["manual-finding", "takes:implement"] }]),
 		);
 		expect(r.status).toBe(0);
 	});
 
-	it("leaves takes:human alone where nothing contradicts it", () => {
-		const r = run(
+	it("leaves takes:human alone where nothing contradicts it", async () => {
+		const r = await run(
 			[],
 			stubGh([{ number: 220, labels: ["takes:human"], body: OUTSIDE_BODY }]),
 		);
 		expect(r.status).toBe(0);
 	});
 
-	it("flags takes:children on a map while a step of its route is open, naming the issue", () => {
-		const r = run(
+	it("flags takes:children on a map while a step of its route is open, naming the issue", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{ number: 213, labels: ["wayfinder:map", "takes:children"] },
@@ -474,8 +473,8 @@ describe("a takes: contradicted by the issue's own kind", () => {
 		expect(r.out).toContain("wayfinder:map");
 	});
 
-	it("leaves takes:children on an exhausted map alone (#578)", () => {
-		const r = run(
+	it("leaves takes:children on an exhausted map alone (#578)", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{ number: 217, labels: ["wayfinder:map", "takes:children"] },
@@ -492,8 +491,8 @@ describe("a takes: contradicted by the issue's own kind", () => {
 		expect(r.status).toBe(0);
 	});
 
-	it("still flags an exhausted-looking map whose open child is a nested map, as CONTRADICTED", () => {
-		const r = run(
+	it("still flags an exhausted-looking map whose open child is a nested map, as CONTRADICTED", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{ number: 221, labels: ["wayfinder:map", "takes:children"] },
@@ -508,8 +507,8 @@ describe("a takes: contradicted by the issue's own kind", () => {
 		expect(r.status).toBe(1);
 	});
 
-	it("leaves a map on takes:wayfinder alone", () => {
-		const r = run(
+	it("leaves a map on takes:wayfinder alone", async () => {
+		const r = await run(
 			[],
 			stubGh([{ number: 215, labels: ["wayfinder:map", "takes:wayfinder"] }]),
 		);
@@ -520,8 +519,8 @@ describe("a takes: contradicted by the issue's own kind", () => {
 	 * The override rule: a `takes:` beats a `wayfinder:*` or `kind:` label that
 	 * merely disagrees with it — mantahostels#172 is `wayfinder:task` and takes /implement.
 	 */
-	it("leaves a wayfinder:task taking /implement alone", () => {
-		const r = run(
+	it("leaves a wayfinder:task taking /implement alone", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{ number: 216, labels: ["wayfinder:map"] },
@@ -539,8 +538,8 @@ describe("a takes: contradicted by the issue's own kind", () => {
 describe("a takes:human body saying what finishes it (#983)", () => {
 	const act = "**Outside Claude Code:** email the hostel.";
 
-	it("flags one whose Outside line passes but which has no Close-when line, as NO-CLOSE-WHEN, naming the issue and the founder-deliverable rule", () => {
-		const r = run(
+	it("flags one whose Outside line passes but which has no Close-when line, as NO-CLOSE-WHEN, naming the issue and the founder-deliverable rule", async () => {
+		const r = await run(
 			[],
 			stubGh([{ number: 225, labels: ["takes:human"], body: act }]),
 		);
@@ -551,10 +550,10 @@ describe("a takes:human body saying what finishes it (#983)", () => {
 	});
 
 	// WFC_SCRIPT_ROOT stands in for an install: a root with no package.json.
-	it("names the template at the plugin root in an install (#1248)", () => {
+	it("names the template at the plugin root in an install (#1248)", async () => {
 		const plugin = fs.mkdtempSync(path.join(os.tmpdir(), "labels-plugin-"));
 		try {
-			const r = run(
+			const r = await run(
 				[],
 				stubGh([{ number: 225, labels: ["takes:human"], body: act }]),
 				{ WFC_SCRIPT_ROOT: plugin },
@@ -568,8 +567,8 @@ describe("a takes:human body saying what finishes it (#983)", () => {
 		}
 	});
 
-	it("flags a bare marker with nothing after it, as NO-CLOSE-WHEN", () => {
-		const r = run(
+	it("flags a bare marker with nothing after it, as NO-CLOSE-WHEN", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{
@@ -582,8 +581,8 @@ describe("a takes:human body saying what finishes it (#983)", () => {
 		expect(r.out).toContain("NO-CLOSE-WHEN");
 	});
 
-	it("reports an Outside-line fault alone, never both", () => {
-		const r = run(
+	it("reports an Outside-line fault alone, never both", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{ number: 227, labels: ["takes:human"], body: "Fill the gaps." },
@@ -593,8 +592,8 @@ describe("a takes:human body saying what finishes it (#983)", () => {
 		expect(r.out).not.toContain("NO-CLOSE-WHEN");
 	});
 
-	it("reports but gates nothing under --warn", () => {
-		const r = run(
+	it("reports but gates nothing under --warn", async () => {
+		const r = await run(
 			["--warn"],
 			stubGh([{ number: 228, labels: ["takes:human"], body: act }]),
 		);
@@ -602,8 +601,8 @@ describe("a takes:human body saying what finishes it (#983)", () => {
 		expect(r.out).toContain("NO-CLOSE-WHEN");
 	});
 
-	it("leaves every other takes: value without the line alone", () => {
-		const r = run(
+	it("leaves every other takes: value without the line alone", async () => {
+		const r = await run(
 			[],
 			stubGh([{ number: 229, labels: ["takes:implement"], body: act }]),
 		);
@@ -612,8 +611,8 @@ describe("a takes:human body saying what finishes it (#983)", () => {
 });
 
 describe("a takes:human body naming its outside act", () => {
-	it("flags one with no Outside Claude Code line as NO-OUTSIDE-ACT, naming the issue and offering the line to add (mantahostels#3181)", () => {
-		const r = run(
+	it("flags one with no Outside Claude Code line as NO-OUTSIDE-ACT, naming the issue and offering the line to add (mantahostels#3181)", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{ number: 221, labels: ["takes:human"], body: "Fill the gaps." },
@@ -625,14 +624,14 @@ describe("a takes:human body naming its outside act", () => {
 		expect(r.out).toContain("add the line naming the act");
 	});
 
-	it("flags one with no body at all, as NO-OUTSIDE-ACT", () => {
-		const r = run([], stubGh([{ number: 222, labels: ["takes:human"] }]));
+	it("flags one with no body at all, as NO-OUTSIDE-ACT", async () => {
+		const r = await run([], stubGh([{ number: 222, labels: ["takes:human"] }]));
 		expect(r.status).toBe(1);
 		expect(r.out).toContain("NO-OUTSIDE-ACT");
 	});
 
-	it("flags a bare marker that names no act, as the create guard does", () => {
-		const r = run(
+	it("flags a bare marker that names no act, as the create guard does", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{
@@ -646,16 +645,16 @@ describe("a takes:human body naming its outside act", () => {
 		expect(r.out).toContain("#225");
 	});
 
-	it("leaves the line off any other takes: value alone", () => {
-		const r = run(
+	it("leaves the line off any other takes: value alone", async () => {
+		const r = await run(
 			[],
 			stubGh([{ number: 223, labels: ["takes:implement"], body: "x" }]),
 		);
 		expect(r.status).toBe(0);
 	});
 
-	it("flags the doc-map drain queue too, as NO-OUTSIDE-ACT, naming the issue (mantahostels#3555)", () => {
-		const r = run(
+	it("flags the doc-map drain queue too, as NO-OUTSIDE-ACT, naming the issue (mantahostels#3555)", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{ number: 224, title: DRAIN_QUEUE_TITLE, labels: ["takes:human"] },
@@ -666,8 +665,8 @@ describe("a takes:human body naming its outside act", () => {
 		expect(r.out).toContain("#224");
 	});
 
-	it("flags the roadmap ceiling census too, as NO-OUTSIDE-ACT, naming the issue (mantahostels#3555)", () => {
-		const r = run(
+	it("flags the roadmap ceiling census too, as NO-OUTSIDE-ACT, naming the issue (mantahostels#3555)", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{
@@ -686,8 +685,8 @@ describe("a takes:human body naming its outside act", () => {
 /* BARRED-NOT-IMPOSSIBLE (#140). Mirrors the guard's barred limb, for the
    routes no PreToolUse hook sees — a script, GraphQL, the web UI. */
 describe("a takes:human whose Outside line names a prohibition", () => {
-	it("flags #131's original line as BARRED-NOT-IMPOSSIBLE, not NO-OUTSIDE-ACT, naming the issue", () => {
-		const r = run(
+	it("flags #131's original line as BARRED-NOT-IMPOSSIBLE, not NO-OUTSIDE-ACT, naming the issue", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{
@@ -703,8 +702,8 @@ describe("a takes:human whose Outside line names a prohibition", () => {
 		expect(r.out).not.toContain("NO-OUTSIDE-ACT");
 	});
 
-	it("names the way out in its fix line", () => {
-		const r = run(
+	it("names the way out in its fix line", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{
@@ -735,8 +734,8 @@ describe("a takes:human whose Outside line names a prohibition", () => {
 			"a counterparty's rule",
 			"phone the bank and ask why the account is barred from transfers",
 		],
-	])("leaves %s alone", (_, act) => {
-		const r = run(
+	])("leaves %s alone", async (_, act) => {
+		const r = await run(
 			[],
 			stubGh([
 				{
@@ -752,8 +751,8 @@ describe("a takes:human whose Outside line names a prohibition", () => {
 
 /* REPO-FILE-ACT (mantahostels#3555). */
 describe("a takes:human whose outside act produces a repo file", () => {
-	it("flags a tool and a repo path as REPO-FILE-ACT, not NO-OUTSIDE-ACT, naming the issue", () => {
-		const r = run(
+	it("flags a tool and a repo path as REPO-FILE-ACT, not NO-OUTSIDE-ACT, naming the issue", async () => {
+		const r = await run(
 			[],
 			stubGh([{ number: 240, labels: ["takes:human"], body: REPO_FILE_BODY }]),
 		);
@@ -768,8 +767,8 @@ describe("a takes:human whose outside act produces a repo file", () => {
 		["a source filename alone", "redraw mark-final.svg at 2.85x"],
 		["a file-producing tool alone", "lay the table out in a spreadsheet"],
 		["a tool in lower case", "open it in figma"],
-	])("flags %s as REPO-FILE-ACT", (_, act) => {
-		const r = run(
+	])("flags %s as REPO-FILE-ACT", async (_, act) => {
+		const r = await run(
 			[],
 			stubGh([
 				{
@@ -788,8 +787,8 @@ describe("a takes:human whose outside act produces a repo file", () => {
 		"submit the trade-licence renewal in the council portal as a sole trader, following the walkthrough above, with the founder's own ID details.",
 		"email Bunkward from the founder's own mailbox, by the route recommended above, and log any reply here.",
 		"send the supplier the written request for consent from the founder's own mailbox, once #85 has found a channel, and log the reply here.",
-	])("leaves a real errand alone: %s", (act) => {
-		const r = run(
+	])("leaves a real errand alone: %s", async (act) => {
+		const r = await run(
 			[],
 			stubGh([
 				{
@@ -802,8 +801,8 @@ describe("a takes:human whose outside act produces a repo file", () => {
 		expect(r.status).toBe(0);
 	});
 
-	it("leaves paying in a browser alone — an errand", () => {
-		const r = run(
+	it("leaves paying in a browser alone — an errand", async () => {
+		const r = await run(
 			[],
 			stubGh([{ number: 242, labels: ["takes:human"], body: ERRAND_BODY }]),
 		);
@@ -811,8 +810,8 @@ describe("a takes:human whose outside act produces a repo file", () => {
 		expect(r.out).not.toContain("REPO-FILE-ACT");
 	});
 
-	it("reads the Outside line only, never the rest of the body", () => {
-		const r = run(
+	it("reads the Outside line only, never the rest of the body", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{
@@ -825,8 +824,8 @@ describe("a takes:human whose outside act produces a repo file", () => {
 		expect(r.status).toBe(0);
 	});
 
-	it("leaves the line off any other takes: value alone", () => {
-		const r = run(
+	it("leaves the line off any other takes: value alone", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{ number: 244, labels: ["takes:implement"], body: REPO_FILE_BODY },
@@ -839,8 +838,11 @@ describe("a takes:human whose outside act produces a repo file", () => {
 /* NOT-A-FOUNDER-ACT (#1095), and every other Outside-line verdict, from the
    table file-issue.test.ts reads too. */
 describe("a takes:human body against the shared table", () => {
-	it.each(HUMAN_BODIES)("$reason", ({ body, verdict }) => {
-		const r = run([], stubGh([{ number: 246, labels: ["takes:human"], body }]));
+	it.each(HUMAN_BODIES)("$reason", async ({ body, verdict }) => {
+		const r = await run(
+			[],
+			stubGh([{ number: 246, labels: ["takes:human"], body }]),
+		);
 		if (verdict === "pass") {
 			expect(r.status).toBe(0);
 			return;
@@ -852,8 +854,8 @@ describe("a takes:human body against the shared table", () => {
 			expect(r.out).not.toContain(other);
 	});
 
-	it("names both ways out of NOT-A-FOUNDER-ACT, and the relabel where neither holds, in its fix line", () => {
-		const r = run(
+	it("names both ways out of NOT-A-FOUNDER-ACT, and the relabel where neither holds, in its fix line", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{
@@ -874,8 +876,8 @@ describe("a takes:human nobody has looked at", () => {
 	const daysAgo = (n: number) =>
 		new Date(Date.now() - n * 86_400_000).toISOString();
 
-	it("warns, without gating, on one untouched for exactly 14 days as HUMAN-UNREVIEWED, offering a walk with the founder in chat as the way out", () => {
-		const r = run(
+	it("warns, without gating, on one untouched for exactly 14 days as HUMAN-UNREVIEWED, offering a walk with the founder in chat as the way out", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{
@@ -893,8 +895,8 @@ describe("a takes:human nobody has looked at", () => {
 		expect(r.out).toContain("walk it with the founder in chat");
 	});
 
-	it("stays silent on one touched 13 days ago", () => {
-		const r = run(
+	it("stays silent on one touched 13 days ago", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{
@@ -909,8 +911,8 @@ describe("a takes:human nobody has looked at", () => {
 		expect(r.out).not.toContain("HUMAN-UNREVIEWED");
 	});
 
-	it("leaves an old takes:implement alone", () => {
-		const r = run(
+	it("leaves an old takes:implement alone", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{ number: 229, labels: ["takes:implement"], updated_at: daysAgo(40) },
@@ -920,8 +922,8 @@ describe("a takes:human nobody has looked at", () => {
 		expect(r.out).not.toContain("HUMAN-UNREVIEWED");
 	});
 
-	it("warns HUMAN-UNREVIEWED on the two script-set shapes too, naming both issues (mantahostels#3555)", () => {
-		const r = run(
+	it("warns HUMAN-UNREVIEWED on the two script-set shapes too, naming both issues (mantahostels#3555)", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{
@@ -952,8 +954,8 @@ describe("a takes:human nobody has looked at", () => {
  * (docs/agents/triage-labels.md §`takes:`).
  */
 describe("a stale takes:children", () => {
-	it("flags a container whose last open child has closed, as STALE-CONTAINER, naming the issue", () => {
-		const r = run(
+	it("flags a container whose last open child has closed, as STALE-CONTAINER, naming the issue", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{ number: 220, labels: ["takes:children"] },
@@ -965,14 +967,17 @@ describe("a stale takes:children", () => {
 		expect(r.out).toContain("#220");
 	});
 
-	it("flags one that never had a child at all, naming the issue", () => {
-		const r = run([], stubGh([{ number: 222, labels: ["takes:children"] }]));
+	it("flags one that never had a child at all, naming the issue", async () => {
+		const r = await run(
+			[],
+			stubGh([{ number: 222, labels: ["takes:children"] }]),
+		);
 		expect(r.status).toBe(1);
 		expect(r.out).toContain("#222");
 	});
 
-	it("leaves a container with an open child alone, raising no UNMARKED-CONTAINER either", () => {
-		const r = run(
+	it("leaves a container with an open child alone, raising no UNMARKED-CONTAINER either", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{ number: 223, labels: ["takes:children"] },
@@ -987,8 +992,8 @@ describe("a stale takes:children", () => {
 	 * The inverse, reported at lower confidence: an issue may hold real work of
 	 * its own alongside open children.
 	 */
-	it("warns without gating on open children and no takes:children, as UNMARKED-CONTAINER, naming the issue", () => {
-		const r = run(
+	it("warns without gating on open children and no takes:children, as UNMARKED-CONTAINER, naming the issue", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{ number: 230, labels: ["takes:implement"] },
@@ -1000,8 +1005,8 @@ describe("a stale takes:children", () => {
 		expect(r.out).toContain("#230");
 	});
 
-	it("stays silent on a map, which is never a container", () => {
-		const r = run(
+	it("stays silent on a map, which is never a container", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{ number: 232, labels: ["wayfinder:map", "takes:wayfinder"] },
@@ -1013,8 +1018,8 @@ describe("a stale takes:children", () => {
 
 	/* retire-stale-containers.js retags this one (mantahostels#1663), and this check goes on
 	 * reporting it meanwhile — the same division as STALE-CONTAINER above. */
-	it("still reports a ticketed takes:to-tickets spec", () => {
-		const r = run(
+	it("still reports a ticketed takes:to-tickets spec", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{ number: 234, labels: ["takes:to-tickets"] },
@@ -1027,8 +1032,8 @@ describe("a stale takes:children", () => {
 	});
 
 	/* The open-issue list holds this repo's issues alone (#778). */
-	it("leaves a container whose only open child is in another repo", () => {
-		const r = run(
+	it("leaves a container whose only open child is in another repo", async () => {
+		const r = await run(
 			[],
 			stubGh([{ number: 17, labels: ["takes:children"] }], {
 				children: {
@@ -1040,8 +1045,8 @@ describe("a stale takes:children", () => {
 		expect(r.out).not.toContain("STALE-CONTAINER");
 	});
 
-	it("flags it as STALE-CONTAINER once that child has closed, naming the issue", () => {
-		const r = run(
+	it("flags it as STALE-CONTAINER once that child has closed, naming the issue", async () => {
+		const r = await run(
 			[],
 			stubGh([{ number: 17, labels: ["takes:children"] }], {
 				children: {
@@ -1054,7 +1059,7 @@ describe("a stale takes:children", () => {
 		expect(r.out).toContain("#17");
 	});
 
-	it("never counts a local child of another repo's #17 as a child of local #17", () => {
+	it("never counts a local child of another repo's #17 as a child of local #17", async () => {
 		const stub = stubGh([
 			{ number: 17, labels: ["takes:children"], repository_url: HERE },
 			{
@@ -1063,7 +1068,7 @@ describe("a stale takes:children", () => {
 				parent_issue_url: `${THERE}/issues/17`,
 			},
 		]);
-		const r = run([], stub);
+		const r = await run([], stub);
 		expect(r.status).toBe(1);
 		expect(r.out).toContain("STALE-CONTAINER");
 		expect(r.out).toContain("#17");
@@ -1071,8 +1076,8 @@ describe("a stale takes:children", () => {
 		expect(r.out).toContain("0 of them with a parent");
 	});
 
-	it("reports no STALE-CONTAINER on sub-issues it could not read", () => {
-		const r = run(
+	it("reports no STALE-CONTAINER on sub-issues it could not read", async () => {
+		const r = await run(
 			[],
 			stubGh([{ number: 17, labels: ["takes:children"] }], {
 				children: { 17: "fail" },
@@ -1084,8 +1089,8 @@ describe("a stale takes:children", () => {
 		expect(r.out).toContain("HTTP 404");
 	});
 
-	it("SKIPs, reporting no STALE-CONTAINER, when GitHub goes unreachable on its read", () => {
-		const r = run(
+	it("SKIPs, reporting no STALE-CONTAINER, when GitHub goes unreachable on its read", async () => {
+		const r = await run(
 			[],
 			stubGh([{ number: 17, labels: ["takes:children"] }], {
 				children: { 17: "unreachable" },
@@ -1096,8 +1101,8 @@ describe("a stale takes:children", () => {
 		expect(r.out).not.toContain("STALE-CONTAINER");
 	});
 
-	it("does not count a closed child as keeping it live", () => {
-		const r = run(
+	it("does not count a closed child as keeping it live", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{ number: 225, labels: ["takes:children"] },
@@ -1112,8 +1117,8 @@ describe("a stale takes:children", () => {
 describe("a brief still holding its spec (#609)", () => {
 	const brief = { number: 240, labels: ["kind:brief", "takes:children"] };
 
-	it("reports an open brief with an open spec child, naming the fix", () => {
-		const r = run(
+	it("reports an open brief with an open spec child, naming the fix", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				brief,
@@ -1126,8 +1131,8 @@ describe("a brief still holding its spec (#609)", () => {
 		expect(r.out).toContain("node scripts/promote-spec.js 240");
 	});
 
-	it("names the hand fix where the brief holds two specs", () => {
-		const r = run(
+	it("names the hand fix where the brief holds two specs", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				brief,
@@ -1138,8 +1143,8 @@ describe("a brief still holding its spec (#609)", () => {
 		expect(r.out).toContain("2 open kind:spec children");
 	});
 
-	it("stays silent on a spec under anything but a brief", () => {
-		const r = run(
+	it("stays silent on a spec under anything but a brief", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{ number: 248, labels: ["wayfinder:map", "takes:children"] },
@@ -1149,16 +1154,16 @@ describe("a brief still holding its spec (#609)", () => {
 		expect(r.out).not.toContain("SPECCED-BRIEF");
 	});
 
-	it("stays silent on a brief whose only child is no spec", () => {
-		const r = run(
+	it("stays silent on a brief whose only child is no spec", async () => {
+		const r = await run(
 			[],
 			stubGh([brief, { number: 242, parent: 240, labels: ["kind:ticket"] }]),
 		);
 		expect(r.out).not.toContain("SPECCED-BRIEF");
 	});
 
-	it("stays silent on a brief whose spec child has closed", () => {
-		const r = run(
+	it("stays silent on a brief whose spec child has closed", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{ number: 243, labels: ["kind:brief", "takes:triage"] },
@@ -1168,8 +1173,8 @@ describe("a brief still holding its spec (#609)", () => {
 		expect(r.out).not.toContain("SPECCED-BRIEF");
 	});
 
-	it("stays silent on a closed brief", () => {
-		const r = run(
+	it("stays silent on a closed brief", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{ ...brief, state: "closed" },
@@ -1181,8 +1186,8 @@ describe("a brief still holding its spec (#609)", () => {
 });
 
 describe("reporting discipline", () => {
-	it("never exits non-zero under --warn", () => {
-		const r = run(["--warn"], stubGh([MAP, { number: 135, parent: 96 }]));
+	it("never exits non-zero under --warn", async () => {
+		const r = await run(["--warn"], stubGh([MAP, { number: 135, parent: 96 }]));
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("WARN");
 	});
@@ -1192,14 +1197,14 @@ describe("reporting discipline", () => {
 	 * would pay for, so a clean run must cost nothing: the scan summary
 	 * goes to stderr on every other path and is withheld here.
 	 */
-	it("says nothing on stdout under --notify when every issue is labelled", () => {
-		const r = run(["--notify"], stubGh([{ number: 230 }]));
+	it("says nothing on stdout under --notify when every issue is labelled", async () => {
+		const r = await run(["--notify"], stubGh([{ number: 230 }]));
 		expect(r.status).toBe(0);
 		expect(r.stdout).toBe("");
 	});
 
-	it("still names the faulting issue on stdout under --notify", () => {
-		const r = run(["--notify"], stubGh([{ number: 230, noTakes: true }]));
+	it("still names the faulting issue on stdout under --notify", async () => {
+		const r = await run(["--notify"], stubGh([{ number: 230, noTakes: true }]));
 		expect(r.stdout).toContain("230");
 	});
 
@@ -1214,22 +1219,22 @@ describe("reporting discipline", () => {
 	const named = (text: string) =>
 		backlog.filter((i) => text.includes(`#${i.number}`)).length;
 
-	it("caps the named offenders under --notify and counts the remainder", () => {
-		const r = run(["--notify"], stubGh(backlog));
+	it("caps the named offenders under --notify and counts the remainder", async () => {
+		const r = await run(["--notify"], stubGh(backlog));
 		expect(named(r.stdout)).toBe(3);
 		expect(r.stdout).toContain("and 37 more");
 	});
 
-	it("names every offender when not under --notify", () => {
-		const r = run([], stubGh(backlog));
+	it("names every offender when not under --notify", async () => {
+		const r = await run([], stubGh(backlog));
 		expect(named(r.out)).toBe(40);
 		expect(r.out).not.toContain("and 37 more");
 	});
 
 	/* The cap is per list, so the ceiling is 2 x NOTIFY_CAP plus fixed footers
 	 * (mantahostels#1148). */
-	it("holds stdout under 2 KB with faults of both kinds in the backlog", () => {
-		const r = run(
+	it("holds stdout under 2 KB with faults of both kinds in the backlog", async () => {
+		const r = await run(
 			["--notify"],
 			stubGh([MAP, ...backlog.map((i) => ({ ...i, parent: 96 }))]),
 		);
@@ -1237,8 +1242,8 @@ describe("reporting discipline", () => {
 	});
 
 	/* A WARN early in the scan must not take a slot from a FAIL (mantahostels#1148). */
-	it("names the gating faults before the warning ones under --notify", () => {
-		const r = run(
+	it("names the gating faults before the warning ones under --notify", async () => {
+		const r = await run(
 			["--notify"],
 			stubGh([
 				/* Three UNMARKED-CONTAINER WARNs, scanned before the FAIL below. */
@@ -1254,28 +1259,28 @@ describe("reporting discipline", () => {
 		expect(r.stdout).toContain("#600");
 	});
 
-	it("exits 0 under --notify even on a finding, so a session start is never blocked", () => {
-		const r = run(["--notify"], stubGh([{ number: 230, noTakes: true }]));
+	it("exits 0 under --notify even on a finding, so a session start is never blocked", async () => {
+		const r = await run(["--notify"], stubGh([{ number: 230, noTakes: true }]));
 		expect(r.status).toBe(0);
 	});
 
-	it("skips rather than reports clear when gh is unavailable", () => {
-		const r = run([], stubGh([], { failing: true }));
+	it("skips rather than reports clear when gh is unavailable", async () => {
+		const r = await run([], stubGh([], { failing: true }));
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("SKIP");
 		expect(r.out).not.toContain("OK:");
 	});
 
-	it("emits machine-readable findings under --json", () => {
-		const r = run(["--json"], stubGh([MAP, { number: 135, parent: 96 }]));
+	it("emits machine-readable findings under --json", async () => {
+		const r = await run(["--json"], stubGh([MAP, { number: 135, parent: 96 }]));
 		expect(r.status).toBe(1);
 		const parsed = JSON.parse(r.out);
 		expect(parsed.unlabelledCount).toBe(1);
 		expect(parsed.unlabelled[0].number).toBe(135);
 	});
 
-	it("carries the takes: faults into --json too", () => {
-		const r = run(["--json"], stubGh([{ number: 230, noTakes: true }]));
+	it("carries the takes: faults into --json too", async () => {
+		const r = await run(["--json"], stubGh([{ number: 230, noTakes: true }]));
 		const parsed = JSON.parse(r.out);
 		expect(parsed.takesFaultCount).toBe(1);
 		expect(parsed.takesFaults[0]).toMatchObject({
@@ -1284,15 +1289,15 @@ describe("reporting discipline", () => {
 		});
 	});
 
-	it("issues no gh call that could write", () => {
+	it("issues no gh call that could write", async () => {
 		const stub = stubGh([{ number: 231, noTakes: true }]);
-		run([], stub);
+		await run([], stub);
 		const calls = fs.readFileSync(stub.callLog, "utf8");
 		expect(calls).not.toMatch(/--method|-X (POST|PATCH|PUT|DELETE)|issue edit/);
 	});
 
-	it("ignores pull requests", () => {
-		const r = run(
+	it("ignores pull requests", async () => {
+		const r = await run(
 			[],
 			stubGh([MAP, { number: 143, parent: 96, pull_request: {} }]),
 		);
@@ -1330,33 +1335,33 @@ describe("what it asks GitHub for", () => {
 		return { ...stubGhRoutes(dir, routes, { log: callLog }), callLog };
 	};
 
-	it("never reads the whole tracker", () => {
+	it("never reads the whole tracker", async () => {
 		const stub = stubByState([
 			MAP,
 			{ number: 150, parent: 96, labels: ["wayfinder:task"] },
 		]);
-		const r = run([], stub);
+		const r = await run([], stub);
 		expect(r.status).toBe(0);
 		expect(fs.readFileSync(stub.callLog, "utf8")).not.toContain("state=all");
 	});
 
-	it("still catches a child whose parent map has closed", () => {
+	it("still catches a child whose parent map has closed", async () => {
 		const stub = stubByState([
 			{ ...MAP, state: "closed" },
 			{ number: 151, title: "orphaned by a closed map", parent: 96 },
 		]);
-		const r = run([], stub);
+		const r = await run([], stub);
 		expect(r.status).toBe(1);
 		expect(r.out).toContain("UNLABELLED");
 		expect(r.out).toContain("#151");
 	});
 
-	it("asks for no closed rows at all when every parent is already open", () => {
+	it("asks for no closed rows at all when every parent is already open", async () => {
 		const stub = stubByState([
 			MAP,
 			{ number: 152, parent: 96, labels: ["wayfinder:task"] },
 		]);
-		const r = run([], stub);
+		const r = await run([], stub);
 		expect(r.status).toBe(0);
 		expect(fs.readFileSync(stub.callLog, "utf8")).not.toContain("state=closed");
 	});
@@ -1366,8 +1371,8 @@ describe("a gate whose condition is the founder typing a command (#411)", () => 
 	const gated = (condition: string) =>
 		`**Gated on:** ${condition} — abandon if: the map is abandoned`;
 
-	it("flags #388's original line and names the relabel", () => {
-		const r = run(
+	it("flags #388's original line and names the relabel", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{
@@ -1385,13 +1390,13 @@ describe("a gate whose condition is the founder typing a command (#411)", () => 
 		expect(r.out).toContain("relabel takes:to-spec");
 	});
 
-	it("flags a command no takes: value names, without inventing a label", () => {
+	it("flags a command no takes: value names, without inventing a label", async () => {
 		fs.mkdirSync(path.join(dir, ".claude", "commands"), { recursive: true });
 		fs.writeFileSync(
 			path.join(dir, ".claude", "commands", "card-close.md"),
 			"",
 		);
-		const r = run(
+		const r = await run(
 			[],
 			stubGh([{ number: 389, body: gated("the founder runs /card-close") }]),
 		);
@@ -1401,8 +1406,8 @@ describe("a gate whose condition is the founder typing a command (#411)", () => 
 		expect(r.out).not.toContain("takes:card-close");
 	});
 
-	it("leaves a malformed gate alone, which holds nothing", () => {
-		const r = run(
+	it("leaves a malformed gate alone, which holds nothing", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{ number: 390, body: "**Gated on:** the founder types /implement" },
@@ -1411,8 +1416,8 @@ describe("a gate whose condition is the founder typing a command (#411)", () => 
 		expect(r.status).toBe(0);
 	});
 
-	it("leaves a path or a product route alone", () => {
-		const r = run(
+	it("leaves a path or a product route alone", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{
@@ -1425,16 +1430,16 @@ describe("a gate whose condition is the founder typing a command (#411)", () => 
 		expect(r.status).toBe(0);
 	});
 
-	it("reads the command case-blind", () => {
-		const r = run(
+	it("reads the command case-blind", async () => {
+		const r = await run(
 			[],
 			stubGh([{ number: 396, body: gated("the founder types /To-Spec 396") }]),
 		);
 		expect(r.out).toContain("relabel takes:to-spec");
 	});
 
-	it("leaves a data condition alone", () => {
-		const r = run(
+	it("leaves a data condition alone", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{
@@ -1446,8 +1451,8 @@ describe("a gate whose condition is the founder typing a command (#411)", () => 
 		expect(r.status).toBe(0);
 	});
 
-	it("leaves a path in the condition alone", () => {
-		const r = run(
+	it("leaves a path in the condition alone", async () => {
+		const r = await run(
 			[],
 			stubGh([
 				{
@@ -1459,8 +1464,8 @@ describe("a gate whose condition is the founder typing a command (#411)", () => 
 		expect(r.status).toBe(0);
 	});
 
-	it("ignores a command named outside any gate line", () => {
-		const r = run(
+	it("ignores a command named outside any gate line", async () => {
+		const r = await run(
 			[],
 			stubGh([{ number: 393, body: "The founder types /to-spec 393 later." }]),
 		);
@@ -1473,13 +1478,13 @@ describe("a gate line with no basis (#577)", () => {
 	const on = "**Gated on:** 4 weeks of data — abandon if: the map is abandoned";
 	const basis =
 		"**Gate basis:** the export lands weekly, so four runs is the first sample";
-	const faulted = (body: string) => {
-		const r = run([], stubGh([{ number: 450, body }]));
+	const faulted = async (body: string) => {
+		const r = await run([], stubGh([{ number: 450, body }]));
 		return { r, fault: r.out.includes("NO-GATE-BASIS") };
 	};
 
-	it("warns on a Gated until line with none, naming the line to add", () => {
-		const { r, fault } = faulted(until);
+	it("warns on a Gated until line with none, naming the line to add", async () => {
+		const { r, fault } = await faulted(until);
 		expect(fault).toBe(true);
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("#450");
@@ -1487,45 +1492,45 @@ describe("a gate line with no basis (#577)", () => {
 		expect(r.out).toContain("beneath the Gated until line");
 	});
 
-	it("warns on a Gated on line with none", () => {
-		const { r, fault } = faulted(on);
+	it("warns on a Gated on line with none", async () => {
+		const { r, fault } = await faulted(on);
 		expect(fault).toBe(true);
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("beneath the Gated on line");
 	});
 
-	it("passes either gate carrying a basis", () => {
-		expect(faulted(`${until}\n${basis}`).fault).toBe(false);
-		expect(faulted(`${on}\n${basis}`).fault).toBe(false);
+	it("passes either gate carrying a basis", async () => {
+		expect((await faulted(`${until}\n${basis}`)).fault).toBe(false);
+		expect((await faulted(`${on}\n${basis}`)).fault).toBe(false);
 	});
 
-	it("warns on an empty basis", () => {
-		const { r, fault } = faulted(`${until}\n**Gate basis:**   `);
+	it("warns on an empty basis", async () => {
+		const { r, fault } = await faulted(`${until}\n**Gate basis:**   `);
 		expect(fault).toBe(true);
 		expect(r.status).toBe(0);
 	});
 
-	it("warns where the only basis is quoted in a fenced block", () => {
-		const { r, fault } = faulted(`${on}\n\n\`\`\`\n${basis}\n\`\`\``);
+	it("warns where the only basis is quoted in a fenced block", async () => {
+		const { r, fault } = await faulted(`${on}\n\n\`\`\`\n${basis}\n\`\`\``);
 		expect(fault).toBe(true);
 		expect(r.status).toBe(0);
 	});
 
-	it("raises no basis fault on a date gate quoted in a fenced block (#612)", () => {
-		expect(faulted(`\`\`\`\n${until}\n\`\`\``).fault).toBe(false);
+	it("raises no basis fault on a date gate quoted in a fenced block (#612)", async () => {
+		expect((await faulted(`\`\`\`\n${until}\n\`\`\``)).fault).toBe(false);
 	});
 
-	it("raises no basis fault on a malformed gate line", () => {
-		expect(faulted("**Gated until:** someday").fault).toBe(false);
-		expect(faulted("**Gated on:** 4 weeks of data").fault).toBe(false);
+	it("raises no basis fault on a malformed gate line", async () => {
+		expect((await faulted("**Gated until:** someday")).fault).toBe(false);
+		expect((await faulted("**Gated on:** 4 weeks of data")).fault).toBe(false);
 	});
 
-	it("raises no basis fault on a body carrying both gate markers", () => {
-		expect(faulted(`${until}\n${on}`).fault).toBe(false);
+	it("raises no basis fault on a body carrying both gate markers", async () => {
+		expect((await faulted(`${until}\n${on}`)).fault).toBe(false);
 	});
 
-	it("says nothing where there is no gate", () => {
-		expect(faulted("Plain body.").fault).toBe(false);
+	it("says nothing where there is no gate", async () => {
+		expect((await faulted("Plain body.")).fault).toBe(false);
 	});
 });
 
@@ -1534,20 +1539,20 @@ describe("a ticket left Blocked in a comment alone (#2309)", () => {
 		"**Blocked** — the adopters have not bumped their pin, so nothing to test yet.";
 	const Gate =
 		"**Gated on:** every adopter pins v1.3.16 — check: node scripts/adopter-pins.js — abandon if: the offers are withdrawn\n**Gate basis:** each pin bump is its own ticket, so the last to land sets it";
-	const flagged = (
+	const flagged = async (
 		issue: Omit<Issue, "number">,
 		others: Issue[] = [],
 		foreign: Record<number, string> = {},
 	) => {
-		const r = run(
+		const r = await run(
 			[],
 			stubGh([{ ...issue, number: 520 }, ...others], { foreign }),
 		);
 		return { r, fault: r.out.includes("PROSE-BLOCKED") };
 	};
 
-	it("warns where the latest comment opens **Blocked and nothing gates it, naming both remedies", () => {
-		const { r, fault } = flagged({ comments: ["Started.", Blocked] });
+	it("warns where the latest comment opens **Blocked and nothing gates it, naming both remedies", async () => {
+		const { r, fault } = await flagged({ comments: ["Started.", Blocked] });
 		expect(fault).toBe(true);
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("#520");
@@ -1556,43 +1561,49 @@ describe("a ticket left Blocked in a comment alone (#2309)", () => {
 		expect(r.out).toContain("waiting:external is not a gate");
 	});
 
-	it("warns where every native blocker has closed", () => {
+	it("warns where every native blocker has closed", async () => {
 		expect(
-			flagged({
-				comments: [Blocked],
-				blockers: [{ number: 7, state: "closed" }],
-			}).fault,
+			(
+				await flagged({
+					comments: [Blocked],
+					blockers: [{ number: 7, state: "closed" }],
+				})
+			).fault,
 		).toBe(true);
 	});
 
-	it("stays silent where an open native blocker holds it", () => {
+	it("stays silent where an open native blocker holds it", async () => {
 		expect(
-			flagged({
-				comments: [Blocked],
-				blockers: [
-					{ number: 7, state: "closed" },
-					{ number: 8, state: "open" },
-				],
-			}).fault,
+			(
+				await flagged({
+					comments: [Blocked],
+					blockers: [
+						{ number: 7, state: "closed" },
+						{ number: 8, state: "open" },
+					],
+				})
+			).fault,
 		).toBe(false);
 	});
 
-	it("stays silent where the body names an open prose blocker (#3262)", () => {
+	it("stays silent where the body names an open prose blocker (#3262)", async () => {
 		expect(
-			flagged({ comments: [Blocked], body: "**Blocked on** #8" }, [
-				{ number: 8 },
-			]).fault,
+			(
+				await flagged({ comments: [Blocked], body: "**Blocked on** #8" }, [
+					{ number: 8 },
+				])
+			).fault,
 		).toBe(false);
 	});
 
-	it("warns where every prose blocker has closed", () => {
+	it("warns where every prose blocker has closed", async () => {
 		expect(
-			flagged({ comments: [Blocked], body: "**Blocked on** #8" }).fault,
+			(await flagged({ comments: [Blocked], body: "**Blocked on** #8" })).fault,
 		).toBe(true);
 	});
 
-	it("stays silent where another repo's prose blocker is open", () => {
-		const { r, fault } = flagged(
+	it("stays silent where another repo's prose blocker is open", async () => {
+		const { r, fault } = await flagged(
 			{ comments: [Blocked], body: "**Blocked on** acme/lib#4" },
 			[],
 			{ 4: "open" },
@@ -1601,16 +1612,22 @@ describe("a ticket left Blocked in a comment alone (#2309)", () => {
 		expect(r.out).not.toContain("BLOCKED-UNREADABLE");
 	});
 
-	it("warns where another repo's prose blocker has closed", () => {
+	it("warns where another repo's prose blocker has closed", async () => {
 		expect(
-			flagged({ comments: [Blocked], body: "**Blocked on** acme/lib#4" }, [], {
-				4: "closed",
-			}).fault,
+			(
+				await flagged(
+					{ comments: [Blocked], body: "**Blocked on** acme/lib#4" },
+					[],
+					{
+						4: "closed",
+					},
+				)
+			).fault,
 		).toBe(true);
 	});
 
-	it("warns BLOCKED-UNREADABLE where another repo's prose blocker will not read", () => {
-		const { r, fault } = flagged(
+	it("warns BLOCKED-UNREADABLE where another repo's prose blocker will not read", async () => {
+		const { r, fault } = await flagged(
 			{ comments: [Blocked], body: "**Blocked on** acme/lib#4" },
 			[],
 			{ 4: "fail" },
@@ -1622,8 +1639,8 @@ describe("a ticket left Blocked in a comment alone (#2309)", () => {
 		expect(r.out).toContain("gh issue view 4 --repo acme/lib");
 	});
 
-	it("stays silent where one foreign prose blocker will not read but another is open", () => {
-		const { r, fault } = flagged(
+	it("stays silent where one foreign prose blocker will not read but another is open", async () => {
+		const { r, fault } = await flagged(
 			{ comments: [Blocked], body: "**Blocked on** acme/lib#4, acme/lib#5" },
 			[],
 			{ 4: "fail", 5: "open" },
@@ -1634,8 +1651,8 @@ describe("a ticket left Blocked in a comment alone (#2309)", () => {
 
 	/* #3271: a marker naming its own repo is answered from the open list. */
 	const Here = "https://api.github.com/repos/acme/app";
-	it("judges an own-repo qualified prose blocker against the open list, reading nothing (#3271)", () => {
-		const open = flagged(
+	it("judges an own-repo qualified prose blocker against the open list, reading nothing (#3271)", async () => {
+		const open = await flagged(
 			{
 				comments: [Blocked],
 				body: "**Blocked on** acme/app#8",
@@ -1644,7 +1661,7 @@ describe("a ticket left Blocked in a comment alone (#2309)", () => {
 			[{ number: 8, repository_url: Here }],
 		);
 		expect(open.fault).toBe(false);
-		const closed = flagged({
+		const closed = await flagged({
 			comments: [Blocked],
 			body: "**Blocked on** acme/app#8",
 			repository_url: Here,
@@ -1654,71 +1671,84 @@ describe("a ticket left Blocked in a comment alone (#2309)", () => {
 		expect(calls).not.toContain("repos/acme/app/issues/8");
 	});
 
-	it("stays silent where a gate line holds it", () => {
-		expect(flagged({ comments: [Blocked], body: Gate }).fault).toBe(false);
+	it("stays silent where a gate line holds it", async () => {
+		expect((await flagged({ comments: [Blocked], body: Gate })).fault).toBe(
+			false,
+		);
 	});
 
 	/* #3293: park-blocked.sh parks on the same line, through lib/issue-hold.js. */
-	it("stays silent where a Gated on line lacks its basis, as the shortlist skips on it", () => {
+	it("stays silent where a Gated on line lacks its basis, as the shortlist skips on it", async () => {
 		const bare = Gate.split("\n")[0] ?? "";
-		expect(flagged({ comments: [Blocked], body: bare }).fault).toBe(false);
+		expect((await flagged({ comments: [Blocked], body: bare })).fault).toBe(
+			false,
+		);
 	});
 
-	it("stays silent where the Blocked comment is not the latest", () => {
+	it("stays silent where the Blocked comment is not the latest", async () => {
 		expect(
-			flagged({ comments: [Blocked, "Unblocked: #7 landed."] }).fault,
+			(await flagged({ comments: [Blocked, "Unblocked: #7 landed."] })).fault,
 		).toBe(false);
 	});
 
-	it("stays silent on a comment that names Blocked after its opening", () => {
-		expect(flagged({ comments: ["Not **Blocked** any more."] }).fault).toBe(
-			false,
-		);
+	it("stays silent on a comment that names Blocked after its opening", async () => {
+		expect(
+			(await flagged({ comments: ["Not **Blocked** any more."] })).fault,
+		).toBe(false);
 	});
 
 	/* #3111: #2862 was refused 12 times, each a comment of this shape alone. */
 	const Refused =
 		"**Refused attempt 12, 2026-10-26 17:18:** not quiet. `session_count()` = 9 against `--require-quiet=3`.";
 
-	it("warns where the latest comment opens **Refused attempt and nothing gates it, naming what it opens", () => {
-		const { r, fault } = flagged({ comments: [Blocked, Refused] });
+	it("warns where the latest comment opens **Refused attempt and nothing gates it, naming what it opens", async () => {
+		const { r, fault } = await flagged({ comments: [Blocked, Refused] });
 		expect(fault).toBe(true);
 		expect(r.out).toContain("#520");
 		expect(r.out).toContain("opens **Refused attempt");
 	});
 
-	it("stays silent on a **Refused comment that records no attempt", () => {
+	it("stays silent on a **Refused comment that records no attempt", async () => {
 		expect(
-			flagged({ comments: ["**Refused:** the relabel, as out of scope."] })
-				.fault,
+			(
+				await flagged({
+					comments: ["**Refused:** the relabel, as out of scope."],
+				})
+			).fault,
 		).toBe(false);
 	});
 
-	it("stays silent where a gate line holds a Refused attempt", () => {
-		expect(flagged({ comments: [Refused], body: Gate }).fault).toBe(false);
+	it("stays silent where a gate line holds a Refused attempt", async () => {
+		expect((await flagged({ comments: [Refused], body: Gate })).fault).toBe(
+			false,
+		);
 	});
 
-	it("stays silent where an unexpired Gated until line holds a Refused attempt", () => {
+	it("stays silent where an unexpired Gated until line holds a Refused attempt", async () => {
 		expect(
-			flagged({
-				comments: [Refused],
-				body: "**Gated until:** 2099-01-01 — waiting on a quiet machine\n**Gate basis:** the fleet drains overnight",
-			}).fault,
+			(
+				await flagged({
+					comments: [Refused],
+					body: "**Gated until:** 2099-01-01 — waiting on a quiet machine\n**Gate basis:** the fleet drains overnight",
+				})
+			).fault,
 		).toBe(false);
 	});
 
-	it("stays silent where an open native blocker holds a Refused attempt", () => {
+	it("stays silent where an open native blocker holds a Refused attempt", async () => {
 		expect(
-			flagged({
-				comments: [Refused],
-				blockers: [{ number: 8, state: "open" }],
-			}).fault,
+			(
+				await flagged({
+					comments: [Refused],
+					blockers: [{ number: 8, state: "open" }],
+				})
+			).fault,
 		).toBe(false);
 	});
 
-	it("reads no comment of an issue that has none", () => {
+	it("reads no comment of an issue that has none", async () => {
 		const stub = stubGh([{ number: 521 }]);
-		run([], stub);
+		await run([], stub);
 		expect(fs.readFileSync(stub.callLog, "utf8")).not.toContain("/comments");
 	});
 
@@ -1734,8 +1764,8 @@ describe("a ticket left Blocked in a comment alone (#2309)", () => {
 		],
 	] as [string, Omit<Issue, "number">][])(
 		"warns BLOCKED-UNREADABLE, not PROSE-BLOCKED, where %s",
-		(_, issue) => {
-			const { r, fault } = flagged(issue);
+		async (_, issue) => {
+			const { r, fault } = await flagged(issue);
 			expect(fault).toBe(false);
 			expect(r.out).toContain("BLOCKED-UNREADABLE");
 			expect(r.out).toContain("#520");

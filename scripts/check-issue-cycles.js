@@ -273,7 +273,7 @@ function reportCycles(ctx, cycles) {
 	);
 }
 
-runCheck({
+const SPEC = {
 	name: "issue-cycles",
 	usage: "node check-issue-cycles.js [--warn] [--json]",
 	async run(/** @type {import("./lib/check").Ctx} */ ctx) {
@@ -312,4 +312,9 @@ runCheck({
 			data: { issues: issues.length, cycles, cycleCount: cycles.length },
 		};
 	},
-});
+};
+
+const main = () => runCheck(SPEC);
+
+module.exports = { main };
+if (require.main === module) main();

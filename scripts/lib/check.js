@@ -168,6 +168,20 @@ const isBaselineSide = () => process.env[SIDE_ENV] === "baseline";
 let openedKey = null;
 
 /*
+ * Set once finish() reaches its exit. A real process ends there; under
+ * runInProcessAsync the exit throws instead, and finishWhenSettled must pass
+ * that throw on rather than report it as a crash, whose persist branch would
+ * overwrite the report finish() just wrote (#3616).
+ */
+let finished = false;
+
+/** @param {number} code @returns {never} */
+function exitFinished(code) {
+	finished = true;
+	process.exit(code);
+}
+
+/*
  * The cap on every child-process stream an `--against` run reads, and on the
  * one exported use in check-context-budget.js: lib/child-buffer.js's, whose
  * header carries the derivation (#1440). Per-stream measurements: mantahostels#1940.
@@ -1219,7 +1233,12 @@ process.on("unhandledRejection", reportCrash);
  *                        counted per citation, not per issue)
  *                 data   checker-specific payload for the --json envelope
  *
+ * For an async run() it returns the Promise of that tail, for a script's
+ * exported `main` to hand runInProcessAsync (#3616). A real process exits
+ * inside the tail, so there it never settles.
+ *
  * @param {CheckSpec} spec
+ * @returns {Promise<never> | undefined}
  */
 function runCheck(spec) {
 	const argv = process.argv.slice(2);
@@ -1269,8 +1288,8 @@ function runCheck(spec) {
 	const run = runBody(spec, ctx, () =>
 		flagRefusal(ownArgs, valueFlags, accepted),
 	);
-	if (run instanceof Promise) finishWhenSettled(ctx, spec, run, persist);
-	else finish(ctx, spec, run, persist);
+	if (run instanceof Promise) return finishWhenSettled(ctx, spec, run, persist);
+	finish(ctx, spec, run, persist);
 }
 
 /**
@@ -1280,6 +1299,7 @@ function runCheck(spec) {
  * @param {CheckSpec} spec
  * @param {Promise<Ran>} run
  * @param {Persist | null} persist
+ * @returns {Promise<never>}
  */
 function finishWhenSettled(ctx, spec, run, persist) {
 	/* A rejection run() started but never awaited — the second of two parallel
@@ -1305,7 +1325,12 @@ function finishWhenSettled(ctx, spec, run, persist) {
 			persist,
 		),
 	);
-	run.then((ran) => finish(ctx, spec, ran, persist)).catch(reportCrash);
+	return run
+		.then((ran) => finish(ctx, spec, ran, persist))
+		.catch((e) => {
+			if (finished) throw e;
+			return reportCrash(e);
+		});
 }
 
 /**
@@ -1467,7 +1492,7 @@ function finish(ctx, spec, { outcome, result, message }, persist) {
 
 	if (ctx.asJson) {
 		writeEnvelope(ctx, spec, { outcome, result, count, keys, noun, summary });
-		process.exit(exitFor(ctx, outcome));
+		exitFinished(exitFor(ctx, outcome));
 	}
 
 	annotate(ctx, outcome, message);
@@ -1482,7 +1507,7 @@ function finish(ctx, spec, { outcome, result, message }, persist) {
 	 * SessionStart reader exists yet to serve. */
 	if (!ctx.notify) for (const note of ctx.dirtyNotes) ctx.say(note);
 	if (persist) persistReport(spec, outcome, result, persist);
-	process.exit(exitFor(ctx, outcome));
+	exitFinished(exitFor(ctx, outcome));
 }
 
 /**

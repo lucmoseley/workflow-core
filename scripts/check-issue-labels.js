@@ -748,7 +748,7 @@ async function raiseProseBlocked(commented, openNumbers) {
 	for (const { raise, fault } of judged) if (fault) raise(...fault);
 }
 
-runCheck({
+const SPEC = {
 	name: "issue-labels",
 	usage: "node check-issue-labels.js [--warn] [--json] [--notify]",
 	async run(/** @type {Ctx} */ ctx) {
@@ -822,4 +822,9 @@ runCheck({
 			},
 		};
 	},
-});
+};
+
+const main = () => runCheck(SPEC);
+
+module.exports = { main };
+if (require.main === module) main();

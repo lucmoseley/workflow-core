@@ -111,7 +111,7 @@ describe("check-test-spawn", () => {
 		);
 		test(
 			"scripts/c.test.ts",
-			`// @vitest-environment node\n/*\n * spawn-kept: the script has no require.main guard\n */\n\nimport x from "y";\n${SPAWN}${SPAWN}`,
+			`// @vitest-environment node\n/*\n * spawn-kept: the child needs a real fd\n */\n\nimport x from "y";\n${SPAWN}${SPAWN}`,
 		);
 		const r = run();
 		expect(r.status).toBe(0);
