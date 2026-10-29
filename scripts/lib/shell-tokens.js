@@ -14,6 +14,8 @@
  * as literal text.
  */
 
+const { requiredGroup } = require("./regex-group.js");
+
 /**
  * @typedef {{type: "word", value: string, raw: string, quoted: boolean,
  *   bashOnly: boolean, pieces: (string|null)[], subs: Token[][]}} Word
@@ -49,7 +51,10 @@ const FD = /\d+(?=[<>])/y;
 const NAME = /[A-Za-z_]\w*/y;
 const SPECIAL_PARAMS = "0123456789@*#?!$-";
 const BRACE_EXPANSION = /\{([^\s{}]*)\}/y;
-/* Past this many words, a brace expansion is kept as one null piece. */
+/* Past this many words, a brace expansion is kept as one null piece. A
+ * guess, unmeasured: far above any brace expansion a check_staged command
+ * writes, and low enough that a word of n braces, 2^n words, stays cheap to
+ * lex. */
 const MAX_BRACE_WORDS = 64;
 const ANSI_C_ESCAPE =
 	/\\(x[\dA-Fa-f]{1,2}|u[\dA-Fa-f]{1,4}|U[\dA-Fa-f]{1,8}|[0-7]{1,3}|c.|.)/gs;
@@ -77,8 +82,15 @@ function tokenise(src) {
 /** @param {string} src @param {number} i @param {string[]} list */
 const startsAt = (src, i, list) => list.find((s) => src.startsWith(s, i));
 
+/** Whether `src` has one of `chars` at `i`; past its end it has none.
+ * @param {string} chars @param {string} src @param {number} i */
+const isOneOf = (chars, src, i) => {
+	const c = src[i];
+	return c !== undefined && chars.includes(c);
+};
+
 /** @param {string} src @param {number} i */
-const isMeta = (src, i) => META.includes(src[i] ?? "\n");
+const isMeta = (src, i) => i >= src.length || isOneOf(META, src, i);
 
 /**
  * @param {string} src
@@ -114,7 +126,7 @@ const bracketStep = (t) =>
  * @param {string} src @param {number} i */
 function skip(src, i) {
 	if (src.startsWith("\\\n", i)) return i + 2;
-	if (BLANKS.includes(src[i] ?? "")) return i + 1;
+	if (isOneOf(BLANKS, src, i)) return i + 1;
 	if (src[i] !== "#") return i;
 	const nl = src.indexOf("\n", i);
 	return nl < 0 ? src.length : nl;
@@ -130,7 +142,7 @@ function lexToken(src, i) {
 		src[at + 1] === "(" ? undefined : startsAt(src, at, REDIRECTS);
 	if (redirect) {
 		let k = at + redirect.length;
-		while (BLANKS.includes(src[k] ?? "\n")) k++;
+		while (isOneOf(BLANKS, src, k)) k++;
 		const target = isMeta(src, k) ? undefined : parseWord(src, k);
 		return {
 			tokens: [
@@ -239,7 +251,7 @@ const parseDouble = (src, i, w) => {
 /** One part inside double quotes; its end. @param {string} src
  * @param {number} k @param {WordBuilder} w accumulator: the word being built */
 function parseInDouble(src, k, w) {
-	if (src[k] === "\\" && DOUBLE_ESCAPES.includes(src[k + 1] ?? "")) {
+	if (src[k] === "\\" && isOneOf(DOUBLE_ESCAPES, src, k + 1)) {
 		if (src[k + 1] !== "\n") w.text += src[k + 1];
 		return k + 2;
 	}
@@ -286,7 +298,7 @@ const parseBacktick = (src, i, w) => {
 
 /** `<(…)` and `>(…)`. @type {PartParser} */
 const parseProcess = (src, i, w) => {
-	if (!"<>".includes(src[i] ?? "") || src[i + 1] !== "(") return;
+	if (!isOneOf("<>", src, i) || src[i + 1] !== "(") return;
 	const end = parseSub(src, i + 2, w);
 	w.opaque();
 	w.bashOnly = true;
@@ -297,8 +309,8 @@ const parseProcess = (src, i, w) => {
 const parseBrace = (src, i, w) => {
 	BRACE_EXPANSION.lastIndex = i;
 	const m = BRACE_EXPANSION.exec(src);
-	const inner = m?.[1] ?? "";
 	if (!m) return;
+	const inner = requiredGroup(m, 1, BRACE_EXPANSION);
 	if (inner.includes(",")) w.brace(inner.split(","));
 	else if (inner.includes("..")) {
 		w.opaque();
@@ -404,13 +416,8 @@ function parseSub(src, from, w) {
  * @param {string} src @param {number} from
  */
 function arithmeticEnd(src, from) {
-	let k = from;
-	let inner = -1;
-	for (let d = 2; k < src.length && d > 0; k++) {
-		if (src[k] === "(") d++;
-		else if (src[k] === ")" && --d === 1) inner = k;
-	}
-	return inner === k - 2 ? k : undefined;
+	const end = closing(src, from, "()", 2);
+	return closing(src, from, "()", 1) === end - 1 ? end : undefined;
 }
 
 /**

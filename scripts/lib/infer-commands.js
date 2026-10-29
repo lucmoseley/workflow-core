@@ -46,6 +46,16 @@ class PackageParseError extends Error {
 	}
 }
 
+/** `readPackage(root)`, read at the first call and kept. @param {string} root */
+function packageOnDemand(root) {
+	/** @type {ReturnType<typeof readPackage>|undefined} */
+	let pkg;
+	return () => {
+		pkg ??= readPackage(root);
+		return pkg;
+	};
+}
+
 /**
  * Throws a PackageParseError on a `package.json` that does not parse, which
  * would otherwise read as one naming no script.
@@ -202,12 +212,14 @@ const showHanded = (words) =>
  * `visit` each hop and the path of hops to it; the first result `visit` returns that is
  * not undefined is the walk's.
  * @template T
- * @param {Record<string, unknown>} scripts
+ * @param {() => Record<string, unknown>} scriptsOf called at each run found,
+ *   so a command running none reads no `package.json` (#3546); a caller
+ *   passes one that reads it once
  * @param {string} command
  * @param {(hop: Hop, hops: Hop[]) => T|undefined} visit
  * @returns {T|undefined}
  */
-function walkRunScripts(scripts, command, visit) {
+function walkRunScripts(scriptsOf, command, visit) {
 	const seen = new Set();
 	/**
 	 * @param {Hop} hop
@@ -220,7 +232,7 @@ function walkRunScripts(scripts, command, visit) {
 		for (const simple of allCommands(hop.tokens)) {
 			const run = findRun(simple);
 			if (!run) continue;
-			const raw = scripts[run.name];
+			const raw = scriptsOf()[run.name];
 			if (seen.has(run.name) || typeof raw !== "string") continue;
 			seen.add(run.name);
 			const handed = handedWords(run.runner, simple.slice(run.end));
@@ -256,14 +268,17 @@ const LINT_STAGED = /(?:^|\/)lint-staged(?:@.*)?$/;
  * @returns {boolean}
  */
 function runsLintStaged(root, command) {
-	const { scripts } = readPackage(root);
+	const pkg = packageOnDemand(root);
 	return (
-		walkRunScripts(scripts, command, (hop) =>
-			allCommands(hop.tokens).some((c) =>
-				withoutRun(c).some((w) => LINT_STAGED.test(w.value)),
-			)
-				? true
-				: undefined,
+		walkRunScripts(
+			() => pkg().scripts,
+			command,
+			(hop) =>
+				allCommands(hop.tokens).some((c) =>
+					withoutRun(c).some((w) => LINT_STAGED.test(w.value)),
+				)
+					? true
+					: undefined,
 		) ?? false
 	);
 }
@@ -702,9 +717,9 @@ const onlyCommand = (tokens) => {
  */
 function classifyCheckStaged(root, command, { inferred }) {
 	if (command.trim().startsWith(BIOME_STAGED_COMMAND)) return { kind: "none" };
-	const { scripts, biome } = readPackage(root);
+	const pkg = packageOnDemand(root);
 	const hit = walkRunScripts(
-		scripts,
+		() => pkg().scripts,
 		command,
 		/** @param {Hop} hop @param {Hop[]} hops */
 		({ text, tokens }, hops) => {
@@ -751,7 +766,7 @@ function classifyCheckStaged(root, command, { inferred }) {
 	});
 	if (hit.unread) return refused(UNREAD.shape, UNREAD.wayOut, "may run");
 	if (!single) {
-		const part = mapBiome(hit.segment, biome);
+		const part = mapBiome(hit.segment, pkg().biome);
 		return refused(
 			"holds more than that one command",
 			declareCheckStaged(
@@ -759,7 +774,7 @@ function classifyCheckStaged(root, command, { inferred }) {
 			),
 		);
 	}
-	const mapped = mapAsWritten(hit.segment, biome);
+	const mapped = mapAsWritten(hit.segment, pkg().biome);
 	if (!("command" in mapped)) return refused(mapped.shape, mapped.wayOut);
 	if (!inferred)
 		return refused(
@@ -897,7 +912,7 @@ function main(argv) {
 	} catch (err) {
 		const why =
 			err instanceof PackageParseError
-				? `package.json does not parse (${err.detail}). Fix it, or declare check_staged in .claude/workflow-core.json as '${OWN_FLAGS}' or another command whose text contains neither 'run' nor 'biome', which the hook does not classify.`
+				? `package.json does not parse (${err.detail}). Fix it, or declare check_staged in .claude/workflow-core.json as '${OWN_FLAGS}' or another command holding no npm, pnpm, yarn or bun run and no biome check, which the hook checks without reading package.json.`
 				: caught(err).message;
 		writeFd(2, `${named} cannot be checked: ${why}\n`);
 	}
