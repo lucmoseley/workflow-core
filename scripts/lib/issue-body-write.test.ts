@@ -199,6 +199,10 @@ describe("the PATCH spelling of the same write is denied too", () => {
 			'gh api --method PATCH repos/o/r/issues/96 -f "body=new"',
 			"the whole field quoted, its name read back through the span (#3421)",
 		],
+		[
+			"gh api --method PATCH repos/o/r/issues/96 -f bo\\dy=x",
+			"the name escaped, read as bash reads it (#3518)",
+		],
 	])("%s — %s", (command) => {
 		// exempt (mantahostels#2145): the guard has ONE deny message,
 		// pinned by "%s carries the whole rule — %s" below, and only a body-write

@@ -6,7 +6,7 @@
  * shell-words.js's literal.
  */
 
-const { QUOTED, hasExpansion, literal } = require("./shell-words.js");
+const { literal } = require("./shell-words.js");
 const { trimEndRun } = require("./trim-run.js");
 
 /**
@@ -61,17 +61,12 @@ function scanApi(argv, spans) {
 
 /**
  * Whether a field word's name, read back through literal, still cannot be
- * known: no `=` to end it, an expansion, or a span never recorded.
+ * known: no `=` ends it before an unescaped expansion or a span never
+ * recorded.
  * @param {string} val
  * @param {string[]} spans
  */
-function isNameUnread(val, spans) {
-	const { text } = literal(val, spans);
-	const eq = text.indexOf("=");
-	if (eq < 0) return true;
-	const name = text.slice(0, eq);
-	return hasExpansion(name) || name.includes(QUOTED);
-}
+const isNameUnread = (val, spans) => !literal(val, spans).head.includes("=");
 
 /**
  * @param {ApiCall} call

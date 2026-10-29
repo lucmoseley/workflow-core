@@ -233,9 +233,31 @@ describe("literal (mantahostels#284)", () => {
 		["refs/reviewed/$T", "refs/reviewed/"],
 		["'a$b'\"c$d\"", "a$bc"],
 		["pre`x`", "pre"],
-		["refs/heads/ma\\in", "refs/heads/ma"],
+		["refs/heads/ma\\in$X", "refs/heads/main"],
+		['"a\\$b$c"', "a$b"],
 	])("reads %s as far as %s before its first expansion (#3441)", (w, head) => {
 		expect(read(w).head).toBe(head);
+	});
+
+	it.each([
+		["\\$HOME", "$HOME"],
+		['"\\`x\\`"', "`x`"],
+	])("reads %s, its expansion escaped, as known text %s (#3518)", (w, text) => {
+		expect(read(w)).toEqual({ text, known: true, head: text });
+	});
+
+	it.each([
+		["refs/heads/ma\\in", "refs/heads/main"],
+		["HEAD\\~1", "HEAD~1"],
+		["a\\\\b", "a\\b"],
+		["a\\'b", "a'b"],
+		["'a\\b'", "a\\b"],
+		['"a\\b"', "a\\b"],
+		['"a\\$b\\`c\\"d\\\\e"', 'a$b`c"d\\e'],
+		['"a\\\nb"', "ab"],
+		['x\\\\"y"', "x\\y"],
+	])("reads %s as bash does, %s (#3518)", (w, text) => {
+		expect(read(w).text).toBe(text);
 	});
 
 	it("leaves the spans it reads as they were", () => {

@@ -892,11 +892,11 @@ describe("the takes:human body limb (mantahostels#2775)", () => {
 		expect(readFaults()).toEqual([]);
 	});
 
-	it("refuses #565's own create, whose inline body held escaped backticks, as a body it cannot read", () => {
+	it("refuses #565's own create, reading its escaped backticks as bash does (#3518)", () => {
 		const call =
 			'gh issue create --title "Should the hook skip Explore?" --label "takes:human" --body "\\`scripts/x.sh\\` adds a line. The decision: exempt them or not." 2>&1 | tail -1';
 		expect(verdict(call)).toBe("deny");
-		expect(readDenyReason(call)).toContain(unread);
+		expect(readDenyReason(call)).toContain(human);
 	});
 
 	it("still lets an unreadable body through on any other takes: value", () => {

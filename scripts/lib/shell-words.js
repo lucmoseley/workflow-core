@@ -51,8 +51,7 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
  * The one walk over a masked text's span sentinels (#2785): `onSpan` is
  * handed the text before each sentinel and the span index read up to its
  * closing `\x01` — null where no index stands there — and answers what to
- * write for it and whether to step past the index. The four readers differ
- * only in that answer for a sentinel the masker never wrote.
+ * write for it and whether to step past the index.
  * @param {string} text
  * @param {(lit: string, idx: number | null) => { text: string, stepPast: boolean }} onSpan
  * @returns {{ out: string, rest: string }} what the sentinels gave, and the
@@ -83,55 +82,79 @@ const beforeFirst = (s, sep) => {
 	return at < 0 ? s : s.slice(0, at);
 };
 
+/** What a `"…"` span's backslash escapes; any other backslash there stays. */
+const DOUBLE_ESCAPES = '$`"\\\n';
+
 /**
- * Where a word stops reading as plain text: an expansion, or a backslash,
- * whose escape the masked text still carries (#3441).
+ * Masked text outside a single-quoted span, read as bash reads it (#3518):
+ * `{ text, at }`, `text` with each backslash escape undone — unquoted `\x`
+ * is `x`, a `"…"` span's per DOUBLE_ESCAPES — and `at` where in `text` its
+ * first unescaped `$` or `` ` `` stands, -1 where none does. The masker
+ * already dropped an unquoted backslash-newline.
+ * @param {string} s
+ * @param {boolean} double whether `s` is a `"…"` span's text
  */
-const HEAD_STOP = /[$`\\]/;
+function parseEscapes(s, double) {
+	let text = "";
+	let at = -1;
+	for (let i = 0; i < s.length; i++) {
+		const c = s.charAt(i);
+		const next = s.charAt(i + 1);
+		if (
+			c === "\\" &&
+			next !== "" &&
+			(!double || DOUBLE_ESCAPES.includes(next))
+		) {
+			if (next !== "\n") text += next;
+			i++;
+		} else {
+			if (at < 0 && (c === "$" || c === "`")) at = text.length;
+			text += c;
+		}
+	}
+	return { text, at };
+}
 
 /**
  * A word whose quoted spans were blanked, put back: `{ text, known, head }`,
- * the text printed EITHER WAY so a caller can judge on the visible part,
- * `known` false where any of it could not be read — an unexpanded `$VAR`, a
- * command substitution, or a sentinel naming a span never recorded, which is
- * read on from right after its prefix — and `head` the text before its first
- * expansion, backslash or unrecorded sentinel, so text the shell reads as
- * written (#3441).
+ * the text as bash reads it, backslash escapes undone (#3518), printed
+ * EITHER WAY so a caller can judge on the visible part, `known` false where
+ * any of it could not be read — an unescaped `$VAR`, a command substitution,
+ * or a sentinel naming a span never recorded, which is read on from right
+ * after its prefix — and `head` the text before its first unescaped
+ * expansion or unrecorded sentinel, so text the shell reads as written
+ * (#3441).
  * @param {string} word
  * @param {string[]} spans
  */
 function literal(word, spans) {
-	let known = true;
 	/** @type {string | null} */
 	let head = null;
 	let seen = "";
-	/** @param {string} s the text after `seen`, read as the shell would */
-	const readOn = (s) => {
-		const at = s.search(HEAD_STOP);
-		if (head === null && at >= 0) head = seen + s.slice(0, at);
-		seen += s;
+	/**
+	 * @param {string} s the text after `seen`
+	 * @param {boolean} double whether it is a `"…"` span's
+	 */
+	const readOn = (s, double) => {
+		const r = parseEscapes(s, double);
+		if (head === null && r.at >= 0) head = seen + r.text.slice(0, r.at);
+		seen += r.text;
 	};
-	const { out, rest } = readSentinels(word, (lit, idx) => {
-		if (hasExpansion(lit)) known = false;
-		readOn(lit);
+	const { rest } = readSentinels(word, (lit, idx) => {
+		readOn(lit, false);
 		const recorded = idx === null ? undefined : spans[idx];
 		if (recorded === undefined) {
-			known = false;
 			head ??= seen;
-			return { text: lit, stepPast: false };
+			return { text: "", stepPast: false };
 		}
 		const span = recorded.slice(1);
 		/* A single-quoted span is literal whatever it holds. */
 		if (recorded.charAt(0) === "'") seen += span;
-		else {
-			if (hasExpansion(span)) known = false;
-			readOn(span);
-		}
-		return { text: lit + span, stepPast: true };
+		else readOn(span, true);
+		return { text: "", stepPast: true };
 	});
-	if (hasExpansion(rest)) known = false;
-	readOn(rest);
-	return { text: out + rest, known, head: head ?? seen };
+	readOn(rest, false);
+	return { text: seen, known: head === null, head: head ?? seen };
 }
 
 /** A word as `read -ra` splits one line: on runs of IFS whitespace. */
