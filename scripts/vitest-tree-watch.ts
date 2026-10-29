@@ -6,7 +6,7 @@
  * half-written source out of the repo-global worktree and went red with a
  * different set of failures each run.
  *
- * IMPLICIT:  on every suite run, names the tracked files a parallel session rewrote while the suite ran, and at run start the files already dirty and claimed elsewhere; and, on a verdict the reporter left, records the run's certificate (none where its scope hit the task cap) or red marker in the canonical checkout's marker store, the certificate being what the pre-push gate reads.
+ * IMPLICIT:  on every suite run, names the tracked files a parallel session rewrote while the suite ran, and at run start the files already dirty and claimed elsewhere; and, on a verdict the reporter left, records the run's certificate (none where its scope hit the task cap) or red marker in the canonical checkout's marker store, the certificate being what the pre-push gate reads; on a red one it names which failures were already red on the run's base (#3624).
  * JUSTIFIED: fail-safe — a red caused by a neighbour's half-saved file is otherwise read as your own breakage (mantahostels#273).
  * DEFEAT:    none — it prints and records, and never fails a run.
  */
