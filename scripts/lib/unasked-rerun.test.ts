@@ -1,8 +1,9 @@
 // @vitest-environment node
 /*
  * lib/unasked-rerun.js's `judge` (#815, spec #810, #2800, #2913): whether a
- * bare test run is an unasked re-run — certificates attest what it would test
- * and the session has not been refused before — and what it hands its latch
+ * bare test run is an unasked re-run — certificates attest what it would test,
+ * or a red run already red on its base stands in for one (#3633), and the
+ * session has not been refused before — and what it hands its latch
  * and refusal log on a refusal.
  *
  * Its branches are module cases over lib/unasked-rerun-io-fake.js, each
@@ -44,15 +45,17 @@ const { judge } = require("./unasked-rerun.js") as {
 const { judgeIO } = require("./unasked-rerun-io.js") as {
 	judgeIO: (root: string) => JudgeIO;
 };
-const { fakeIO, HEAD, NEIGHBOUR } = require("./unasked-rerun-io-fake.js") as {
-	fakeIO: (picks?: Record<string, string>) => {
-		io: JudgeIO;
-		latches: { sessionId: string; at: string }[];
-		refusals: Record<string, unknown>[];
+const { BASE, fakeIO, HEAD, NEIGHBOUR } =
+	require("./unasked-rerun-io-fake.js") as {
+		BASE: string;
+		fakeIO: (picks?: Record<string, string>) => {
+			io: JudgeIO;
+			latches: { sessionId: string; at: string }[];
+			refusals: Record<string, unknown>[];
+		};
+		HEAD: string;
+		NEIGHBOUR: string;
 	};
-	HEAD: string;
-	NEIGHBOUR: string;
-};
 
 /** The judge on `command` for SID over the picked answers, and what it wrote. */
 function judged(
@@ -111,7 +114,9 @@ describe("the first bare run over an attested HEAD", () => {
 				session: SID,
 				command: "npm run test",
 				head: HEAD,
-				members: [{ sha: HEAD, at: "RUN-A", full: false, by: "sha" }],
+				members: [
+					{ sha: HEAD, at: "RUN-A", full: false, by: "sha", red: false },
+				],
 			},
 		]);
 	});
@@ -134,6 +139,56 @@ describe("the first bare run over an attested HEAD", () => {
 	it("names the overlay's commit where git will not name HEAD", () => {
 		const { out } = judged("npm run test", { head: "unresolved" });
 		expect(refused(out)).toContain(`at HEAD ${HEAD.slice(0, 12)}, so`);
+	});
+});
+
+describe("a red run whose every failure was already red on its base (#3633)", () => {
+	const red = { attestation: "attestedRed" };
+
+	it("is refused, naming the red, each already-red file with its evidence and the flake note, ending on the retype line", () => {
+		const reason = refused(judged("npm run test", red).out);
+		expect(reason).toContain(
+			`Not run: runs on record already give the verdict on what this run would test at HEAD ${HEAD.slice(0, 12)}, so it can only repeat it.`,
+		);
+		expect(reason).toContain(
+			`The verdict on record from the run at RUN-R on ${HEAD.slice(0, 12)} is a red, not a certificate`,
+		);
+		expect(reason).toContain(
+			`  ALREADY RED on the base ${BASE.slice(0, 12)} (#3624):\n    a.test.ts — by the red store's run at ${NEIGHBOUR.slice(0, 12)}, RUN-EARLIER`,
+		);
+		expect(reason).toContain("repeats only about half the time between runs");
+		expect(reason.split("\n").at(-1)).toBe(
+			"Type the same command again and it runs — this refuses once a session.",
+		);
+	});
+
+	it("logs its member as a red", () => {
+		expect(judged("npm run test", red).refusals).toMatchObject([
+			{
+				members: [
+					{ sha: HEAD, at: "RUN-R", full: false, by: "sha", red: true },
+				],
+			},
+		]);
+	});
+
+	it("latches as any refusal does, so the session's next run goes through", () => {
+		expect(judged("npm run test", red).latches).toHaveLength(1);
+		expect(judged("npm run test", { ...red, latched: "yes" }).out).toEqual({});
+	});
+
+	it("is refused with no certificate store at all", () => {
+		refused(judged("npm run test", { ...red, storeFault: "absent" }).out);
+	});
+
+	it("words the attesting count as runs on record, not certificates", () => {
+		const reason = refused(judged("npm run test", red).out);
+		expect(reason).toContain("1 run(s) on record decide");
+		expect(reason).not.toContain("certificate(s) attest");
+	});
+
+	it("is refused as a changed run too", () => {
+		refused(judged("npm run test:changed", { ...red, selection: "edit" }).out);
 	});
 });
 
@@ -218,7 +273,12 @@ describe("never refused", () => {
 	});
 
 	it("no pass-marker store at all, which is no fault", () => {
-		expect(judged("npm run test", { storeFault: "absent" }).out).toEqual({});
+		expect(
+			judged("npm run test", {
+				storeFault: "absent",
+				attestation: "unattested",
+			}).out,
+		).toEqual({});
 	});
 
 	it("a run from another checkout", () => {
@@ -269,6 +329,12 @@ describe("where it cannot judge, it says why", () => {
 	it("an unattested HEAD over malformed store lines", () => {
 		expect(why({ attestation: "unattested", malformed: "some" })).toEqual({
 			why: "no certificate attests the run's selection and the pass-marker store holds 1 malformed line(s)",
+		});
+	});
+
+	it("an unattested HEAD over a red store that would not read", () => {
+		expect(why({ attestation: "unattestedRedFault" })).toEqual({
+			why: "no certificate attests the run's selection and the red store could not be read (1 malformed line(s))",
 		});
 	});
 

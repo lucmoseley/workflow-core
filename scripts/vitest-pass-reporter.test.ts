@@ -354,6 +354,24 @@ describe("the failing files the reporter records (mantahostels#1942)", () => {
 	 * Absent, not empty. A reader asks "did anything fail" by testing the key, and
 	 * an empty array answers yes-but-nothing — the shape that invites a bug.
 	 */
+	it("counts on a red the module and unhandled errors no failing test carries", async () => {
+		const reporter = new TestPassReporter();
+		reporter.onInit(ctx());
+		await captured(() =>
+			run(
+				reporter,
+				[
+					module_("a.test.ts", ["failed"]),
+					{ ...module_("b.test.ts", []), errors: () => [new Error("import")] },
+				],
+				"failed",
+				[new Error("unhandled")],
+			),
+		);
+
+		expect(takeRunReport().scope?.errors).toBe(2);
+	});
+
 	it("writes no failures key at all on a green run", async () => {
 		const reporter = new TestPassReporter();
 		reporter.onInit(ctx());

@@ -15,7 +15,11 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { readAlreadyRedLines } = require("./already-red.js");
+const {
+	classifyFailures,
+	readAlreadyRedLines,
+	readRedEvidence,
+} = require("./already-red.js");
 const { EDGES_FILE, record, recordFailure } = require("./test-pass-marker.js");
 const { landerFiles } = require("./lander.js");
 
@@ -91,18 +95,21 @@ const run = (o: {
 	roots: ["package.json"],
 });
 
-/** The red run's lines, where `failing` is recorded under the repository. */
+/** The red run, its failing file recorded under the repository. */
+const failingHere = (dir: string, mine: ReturnType<typeof run>) => ({
+	...mine,
+	scope: {
+		...mine.scope,
+		failures: [{ file: path.join(dir, TEST), tests: ["t"] }],
+	},
+});
+
 const linesFor = (dir: string, mine: ReturnType<typeof run>) =>
-	readAlreadyRedLines(
-		{
-			...mine,
-			scope: {
-				...mine.scope,
-				failures: [{ file: path.join(dir, TEST), tests: ["t"] }],
-			},
-		},
-		dir,
-	).join("\n");
+	readAlreadyRedLines(failingHere(dir, mine), dir).join("\n");
+
+/** The red run's classing, the answer the unasked-rerun guard reads (#3633). */
+const classingOf = (dir: string, mine: ReturnType<typeof run>) =>
+	classifyFailures(failingHere(dir, mine), readRedEvidence(dir), { root: dir });
 
 describe("a red run's failures judged against its base (#3624)", () => {
 	it("marks a failure already red where an earlier red holds at the base", () => {
@@ -205,5 +212,55 @@ describe("a red run's failures judged against its base (#3624)", () => {
 		).toBe(
 			"  This run recorded no base, so no failure could be checked against one (#3624).",
 		);
+	});
+});
+
+describe("a red run's classing, one answer for the summary and the guard (#3633)", () => {
+	it("answers all-already-red with each file's evidence where all were already red", () => {
+		const { dir, base } = repo();
+		const elsewhere = commit(dir, "b.js");
+		recordFailure(run({ dir, ...elsewhere, at: "1", failed: true }), {
+			root: dir,
+		});
+
+		expect(
+			classingOf(dir, run({ dir, ...elsewhere, at: "2", failed: true, base })),
+		).toEqual({
+			base,
+			allAlreadyRed: true,
+			files: [
+				{
+					file: TEST,
+					red: { sha: elsewhere.sha, at: "1", by: "red store" },
+				},
+			],
+		});
+	});
+
+	it("answers not all-already-red where a failure is new", () => {
+		const { dir, base } = repo();
+		const edited = commit(dir, "a.js");
+		recordFailure(run({ dir, ...edited, at: "1", failed: true }), {
+			root: dir,
+		});
+
+		expect(
+			classingOf(dir, run({ dir, ...edited, at: "2", failed: true, base })),
+		).toMatchObject({
+			allAlreadyRed: false,
+			files: [{ file: TEST, red: null }],
+		});
+	});
+
+	it("answers not all-already-red where the run recorded no base", () => {
+		const { dir } = repo();
+		const elsewhere = commit(dir, "b.js");
+		recordFailure(run({ dir, ...elsewhere, at: "1", failed: true }), {
+			root: dir,
+		});
+
+		expect(
+			classingOf(dir, run({ dir, ...elsewhere, at: "2", failed: true })),
+		).toEqual({ base: null, files: [], allAlreadyRed: false });
 	});
 });

@@ -1,8 +1,14 @@
 /*
  * unasked-rerun-io.js — the production `JudgeIO` lib/unasked-rerun.js's
  * `judge` decides over (#2913): the latch and refusal log under the markers
- * directory, git, the write ledger, the own-work selection and the
- * pass-marker store, at one repository root.
+ * directory, git, the write ledger, the own-work selection, the
+ * pass-marker store and the red store, at one repository root.
+ *
+ * A CLASSED RED STANDS BESIDE THE CERTIFICATES (#3633), asked only where
+ * certificates alone do not attest: a red-store run whose every failure
+ * lib/already-red.js classes as already red on its base. A torn or
+ * unreadable red store, or a classing that throws, costs the classed reds
+ * alone and goes back as `redFault`.
  *
  * EVERY GIT CALL IS BOUNDED (ADR-0010): `ownSelection`'s and
  * `attestationOf`'s through the ExecFn they take, the arbiter store's under
@@ -22,9 +28,15 @@ const { markersDir } = require("./marker-root.js");
 const {
 	attestationOf,
 	countMalformed,
+	DEFAULT_SUITE,
+	FAIL_STORE,
+	isAdmissibleRun,
+	isFullRun,
 	readMarkers,
 	storePath,
+	suiteOf,
 } = require("./test-pass-marker.js");
+const { classifyFailures, readRedEvidence } = require("./already-red.js");
 const { caught } = require("./caught.js");
 const { gitAnswer, HOOK_GIT_TIMEOUT_MS } = require("./git.js");
 const { budgetMs } = require("./hook-deadline.js");
@@ -113,16 +125,111 @@ function judgeIO(root, { timeoutMs = HOOK_GIT_TIMEOUT_MS } = {}) {
 		},
 		attestation: (tip, within) => {
 			const { exec, seen } = boundedExec();
-			const verdict = attestationOf(tip, readMarkers({ root }), {
-				root,
-				execFn: exec,
-				...(within ? { within } : {}),
-			});
-			return { verdict, timedOut: seen.timedOut };
+			const certificates = readMarkers({ root });
+			/** @param {Marker[]} markers */
+			const judgeOver = (markers) =>
+				attestationOf(tip, markers, {
+					root,
+					execFn: exec,
+					...(within ? { within } : {}),
+				});
+			const alone = judgeOver(certificates);
+			if (seen.timedOut || isSettled(alone))
+				return { verdict: alone, timedOut: seen.timedOut, redFault: null };
+			const { reds, redFault } = readClassedReds(root, exec, seen);
+			const verdict =
+				reds.length === 0 ? alone : judgeOver(byAge(certificates, reds));
+			return { verdict, timedOut: seen.timedOut, redFault };
 		},
 		malformed: () => countMalformed({ root }).malformed,
 		now: () => new Date().toISOString(),
 	};
 }
+
+/**
+ * @typedef {import("./test-pass-marker.js").Marker} Marker
+ * @typedef {import("./unasked-rerun.js").ClassedRed} ClassedRed
+ */
+
+/**
+ * The red store's runs that class as already red, oldest first, or why the
+ * store could not be read for them.
+ *
+ * @param {string} root
+ * @param {typeof execFileSync} exec
+ * @param {{timedOut: boolean}} seen
+ * @returns {{reds: ClassedRed[], redFault: string|null}}
+ */
+function readClassedReds(root, exec, seen) {
+	const fault = readRedStoreFault(root);
+	if (fault)
+		return { reds: [], redFault: `the red store could not be read (${fault})` };
+	try {
+		const record = readRedEvidence(root);
+		/** @type {ClassedRed[]} */
+		const reds = [];
+		for (const m of [...record.reds].reverse()) {
+			if (!isClassable(m)) continue;
+			const classing = classifyFailures(m, record, { root, execFn: exec });
+			if (seen.timedOut) break;
+			if (classing?.allAlreadyRed) reds.unshift({ ...m, alreadyRed: classing });
+		}
+		return { reds, redFault: null };
+	} catch (e) {
+		return {
+			reds: [],
+			redFault: `already-red runs could not be judged (${caught(e).message ?? e})`,
+		};
+	}
+}
+
+/**
+ * Why the red store will not read whole, or null where it does or is absent.
+ * @param {string} root
+ */
+function readRedStoreFault(root) {
+	const at = storePath(root, FAIL_STORE);
+	try {
+		if (!fs.statSync(at).isFile()) return "EISDIR";
+		fs.accessSync(at, fs.constants.R_OK);
+	} catch (e) {
+		const code = String(caught(e).code ?? e);
+		return code === "ENOENT" ? null : code;
+	}
+	const { malformed } = countMalformed({ root, store: FAIL_STORE });
+	return malformed > 0 ? `${malformed} malformed line(s)` : null;
+}
+
+/**
+ * Unjudged, or vitest attested: nothing a classed red could add.
+ * @param {ReturnType<typeof attestationOf>} verdict
+ */
+const isSettled = (verdict) =>
+	!verdict.judged ||
+	verdict.suites.some((s) => s.suite === DEFAULT_SUITE && s.attested);
+
+/**
+ * A red that could hold, and whose every error a failing test names.
+ * @param {Marker} m
+ */
+const isClassable = (m) =>
+	suiteOf(m) === DEFAULT_SUITE &&
+	Boolean(m.base) &&
+	m.scope?.errors === 0 &&
+	(isFullRun(m) || isAdmissibleRun(m));
+
+/**
+ * Certificates and classed reds in one store order, oldest first, so
+ * `attestationOf` asks the newest first whichever store it came from.
+ * @param {Marker[]} certificates
+ * @param {ClassedRed[]} reds
+ * @returns {Marker[]}
+ */
+const byAge = (certificates, reds) =>
+	reds.length === 0
+		? certificates
+		: [...certificates, ...reds].sort((a, b) =>
+				String(a.at ?? "").localeCompare(String(b.at ?? "")),
+			);
 
 module.exports = { judgeIO };

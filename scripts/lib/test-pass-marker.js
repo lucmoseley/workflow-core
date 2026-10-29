@@ -75,7 +75,7 @@ const { appendLedgerLine } = require("./run-ledger.js");
  *   wholeSlot?: boolean, full?: "flag"|"stale-manifest"|"dependency-root"|"expansion-failed",
  *   fullCause?: "push-gate"|"coverage"|"empty-diff"|"sha-moved"|"rule-edit"|"other"|null,
  *   shard?: {index: number, count: number},
- *   failures?: {file: string, tests: string[]}[]}} Scope
+ *   failures?: {file: string, tests: string[]}[], errors?: number}} Scope
  * @typedef {{sha: string, at?: string, suite?: string, scope?: Scope,
  *   startStateUnknown?: boolean, dirtyAtStart?: boolean, dirtyCount?: number,
  *   headMovedDuringRun?: boolean, startedAt?: string, durationMs?: number,
@@ -1851,13 +1851,14 @@ function buildUnattestedFileLines(s, indent) {
  * @param {string} sha
  * @param {ReturnType<typeof attestationOf>} verdict
  * @typedef {(s: SuiteAttestation & {attested: false}) => string[]|null} Advise
- * @param {{pushing?: boolean, pushCheck?: string, advise?: Advise}} [options]
+ * @param {{pushing?: boolean, pushCheck?: string, advise?: Advise, ofRecord?: boolean}} [options]
+ *   `ofRecord` where a member may be a red run, not a certificate (#3633)
  * @returns {{state: "attested"|"owed"|"unjudged", text: string}}
  */
 function attestationReading(
 	sha,
 	verdict,
-	{ pushing = false, pushCheck, advise = () => null } = {},
+	{ pushing = false, pushCheck, advise = () => null, ofRecord = false } = {},
 ) {
 	if (!verdict.judged)
 		return {
@@ -1866,7 +1867,10 @@ function attestationReading(
 		};
 	const parts = verdict.suites.map((s) =>
 		s.attested
-			? buildAttestedLines(sha, s, pushing, Boolean(verdict.within))
+			? buildAttestedLines(sha, s, pushing, {
+					narrowed: Boolean(verdict.within),
+					ofRecord,
+				})
 			: buildOwedLines(sha, verdict.base, s, { pushing, pushCheck, advise }),
 	);
 	return {
@@ -1879,14 +1883,15 @@ function attestationReading(
  * @param {string} sha
  * @param {SuiteAttestation & {attested: true}} s
  * @param {boolean} pushing
- * @param {boolean} [narrowed] the verdict judged `within` paths, not the range
+ * @param {{narrowed: boolean, ofRecord: boolean}} wording `narrowed` where the
+ *   verdict judged `within` paths, not the range
  */
-function buildAttestedLines(sha, s, pushing, narrowed = false) {
+function buildAttestedLines(sha, s, pushing, { narrowed, ofRecord }) {
 	const out = [];
 	if (!pushing) {
 		const { name } = suiteMeta(s.suite);
 		out.push(
-			`✓  ${name}: ${s.members.length} certificate(s) attest ${narrowed ? "every file this run would test" : "the range"}:\n`,
+			`✓  ${name}: ${s.members.length} ${ofRecord ? "run(s) on record decide" : "certificate(s) attest"} ${narrowed ? "every file this run would test" : "the range"}:\n`,
 			...s.members.map(
 				({ marker: m }) =>
 					`     ${m.at ?? "unknown time"} on ${shortSha(m.sha)} — ${isFullRun(m) ? "full run" : `narrowed run over ${(m.changedPaths ?? []).length} changed path(s)`}\n`,

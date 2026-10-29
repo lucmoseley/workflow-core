@@ -95,6 +95,8 @@ interface TestModuleLike {
 			>;
 		};
 	};
+	/* Module-level errors: an import or collection that failed outside any test. */
+	errors?: () => readonly unknown[];
 	children: {
 		allTests: () => Iterable<{
 			name?: string;
@@ -233,7 +235,10 @@ export default class TestPassReporter {
 		let scope = null;
 		let failure: unknown = null;
 		try {
-			scope = await this.describeRun(testModules as TestModuleLike[]);
+			scope = await this.describeRun(
+				testModules as TestModuleLike[],
+				unhandledErrors.length,
+			);
 		} catch (error) {
 			failure = error;
 		}
@@ -364,9 +369,12 @@ export default class TestPassReporter {
 		};
 	}
 
-	private async describeRun(testModules: TestModuleLike[]) {
+	private async describeRun(testModules: TestModuleLike[], unhandled: number) {
 		const { tests, passed, skipped, failed, failures } =
 			countTests(testModules);
+		const errors =
+			unhandled +
+			testModules.filter((m) => (m.errors?.() ?? []).length > 0).length;
 		const launch = readLaunch();
 
 		const pattern = this.vitest?.config?.testNamePattern;
@@ -413,6 +421,9 @@ export default class TestPassReporter {
 						})),
 					}
 				: {}),
+			// On a red, the errors no failing test carries: a red with any is never
+			// read as already red on its base (#3633), its cause being unnamed.
+			...(failures.size > 0 || errors > 0 ? { errors } : {}),
 		};
 	}
 }

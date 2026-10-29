@@ -45,6 +45,10 @@ const WORKTREE = /^\.claude\/worktrees\/[^/]+\//;
  * @typedef {{sha: string, files: string[]}} LanderBaseCheck the lander's
  *   base check that came back red, and the base it ran at
  * @typedef {{m: Marker, red: boolean}} Evidence a run on record
+ * @typedef {{reds: Marker[], certificates: Marker[], lander: LanderBaseCheck|null}} OnRecord
+ *   the evidence on record, as `readRedEvidence` reads it
+ * @typedef {{base: string|null, files: Classified[], allAlreadyRed: boolean}} Classing
+ *   `allAlreadyRed` where the run recorded a base and every failure is already red on it
  */
 
 /**
@@ -62,12 +66,14 @@ function toRepoPath(file, root) {
 /**
  * Each of `run`'s failing files, with the newest record that it was red at
  * the run's base; null where no record holds there or a certificate is newer.
- * Null overall where the run carries no failure to class.
+ * Null overall where the run carries no failure to class. The one
+ * classification the run summary and the unasked-rerun guard
+ * (lib/unasked-rerun-io.js) both read (#3633).
  *
  * @param {Marker} run the red run, as the red store records it
- * @param {{reds: Marker[], certificates: Marker[], lander: LanderBaseCheck|null}} evidence
+ * @param {OnRecord} evidence
  * @param {{root: string, execFn?: typeof execFileSync}} options
- * @returns {{base: string|null, files: Classified[]}|null}
+ * @returns {Classing|null}
  */
 function classifyFailures(run, { reds, certificates, lander }, options) {
 	const failing = (run.scope?.failures ?? []).map((f) =>
@@ -75,7 +81,7 @@ function classifyFailures(run, { reds, certificates, lander }, options) {
 	);
 	if (failing.length === 0) return null;
 	const base = run.base ?? null;
-	if (!base) return { base, files: [] };
+	if (!base) return { base, files: [], allAlreadyRed: false };
 	const gitOpts = {
 		root: options.root,
 		execFn: options.execFn ?? boundedExec,
@@ -106,7 +112,7 @@ function classifyFailures(run, { reds, certificates, lander }, options) {
 			onBase = { sha: base, at: null, by: "lander" };
 		return { file, red: onBase };
 	});
-	return { base, files };
+	return { base, files, allAlreadyRed: files.every((f) => f.red !== null) };
 }
 
 /**
@@ -144,6 +150,18 @@ function readLanderBaseCheck(root) {
 }
 
 /**
+ * The evidence on record at `root`: the red store, the certificate store and
+ * the lander's heartbeat.
+ * @param {string} root the canonical checkout
+ * @returns {OnRecord}
+ */
+const readRedEvidence = (root) => ({
+	reds: readFailures({ root }),
+	certificates: readMarkers({ root }),
+	lander: readLanderBaseCheck(root),
+});
+
+/**
  * The red run's ALREADY RED / NEW lines, read off the stores at `root` and
  * the lander's heartbeat. Never throws: a fault costs the lines and says why.
  * @param {Marker} run
@@ -153,15 +171,7 @@ function readLanderBaseCheck(root) {
 function readAlreadyRedLines(run, root) {
 	try {
 		return buildAlreadyRedLines(
-			classifyFailures(
-				run,
-				{
-					reds: readFailures({ root }),
-					certificates: readMarkers({ root }),
-					lander: readLanderBaseCheck(root),
-				},
-				{ root },
-			),
+			classifyFailures(run, readRedEvidence(root), { root }),
 		);
 	} catch (e) {
 		return [
@@ -172,7 +182,7 @@ function readAlreadyRedLines(run, root) {
 
 /**
  * The lines a red run's summary carries, or none where nothing failed.
- * @param {{base: string|null, files: Classified[]} | null} classed
+ * @param {Classing|null} classed
  * @returns {string[]}
  */
 function buildAlreadyRedLines(classed) {
@@ -196,15 +206,20 @@ function buildAlreadyRedLines(classed) {
 					...already,
 				]
 			: []),
-		...(fresh.length > 0
+		...(classed.allAlreadyRed
 			? [
-					"  NEW — no record shows these red on the base:",
-					...fresh.map(({ file }) => `    ${file}`),
+					"  Every failure here was already red on the base, so no rerun is owed to attribute them — evidence, not a licence: a red's failing set repeats only about half the time between runs (mantahostels#2195).",
 				]
 			: [
-					"  Every failure here was already red on the base, so no rerun is owed to attribute them — evidence, not a licence: a red's failing set repeats only about half the time between runs (mantahostels#2195).",
+					"  NEW — no record shows these red on the base:",
+					...fresh.map(({ file }) => `    ${file}`),
 				]),
 	];
 }
 
-module.exports = { readAlreadyRedLines };
+module.exports = {
+	buildAlreadyRedLines,
+	classifyFailures,
+	readAlreadyRedLines,
+	readRedEvidence,
+};

@@ -36,6 +36,32 @@ const narrowed = (/** @type {string} */ sha, /** @type {string} */ at) => ({
 	changedPaths: ["a.js"],
 });
 
+/** A narrowed red run on `sha` whose one failure was already red on its base. */
+const classedRed = (/** @type {string} */ sha, /** @type {string} */ at) => {
+	const run = narrowed(sha, at);
+	return {
+		...run,
+		base: BASE,
+		scope: {
+			...run.scope,
+			passed: 2,
+			failed: 1,
+			failures: [{ file: "a.test.ts", tests: ["t"] }],
+			errors: 0,
+		},
+		alreadyRed: {
+			base: BASE,
+			allAlreadyRed: true,
+			files: [
+				{
+					file: "a.test.ts",
+					red: { sha: NEIGHBOUR, at: "RUN-EARLIER", by: "red store" },
+				},
+			],
+		},
+	};
+};
+
 /** @param {string} code */
 const fault = (code) => Object.assign(new Error(code), { code });
 
@@ -169,6 +195,7 @@ const ANSWERS = {
 				],
 			},
 			timedOut: false,
+			redFault: null,
 		},
 		/* The overlay's commit, carrying an own edit, attested by its tree. */
 		attestedEdit: {
@@ -192,6 +219,28 @@ const ANSWERS = {
 				],
 			},
 			timedOut: false,
+			redFault: null,
+		},
+		/* A red run whose every failure was already red on its base (#3633). */
+		attestedRed: {
+			verdict: {
+				judged: true,
+				base: BASE,
+				range: ["a.js"],
+				within: true,
+				suites: [
+					{
+						suite: "vitest",
+						attested: true,
+						members: [
+							{ marker: classedRed(HEAD, "RUN-R"), match: { by: "sha" } },
+						],
+						note: null,
+					},
+				],
+			},
+			timedOut: false,
+			redFault: null,
 		},
 		pytestOwed: {
 			verdict: {
@@ -215,6 +264,7 @@ const ANSWERS = {
 				],
 			},
 			timedOut: false,
+			redFault: null,
 		},
 		unattested: {
 			verdict: {
@@ -230,6 +280,25 @@ const ANSWERS = {
 				],
 			},
 			timedOut: false,
+			redFault: null,
+		},
+		/* Nothing attests, and the red store is torn. */
+		unattestedRedFault: {
+			verdict: {
+				judged: true,
+				base: BASE,
+				range: ["a.js"],
+				within: true,
+				suites: [
+					{
+						suite: "vitest",
+						attested: false,
+						unattested: [{ path: "a.js", commit: HEAD }],
+					},
+				],
+			},
+			timedOut: false,
+			redFault: "the red store could not be read (1 malformed line(s))",
 		},
 		unjudged: {
 			verdict: {
@@ -237,6 +306,7 @@ const ANSWERS = {
 				why: `git could not resolve the merge-base of ${HEAD.slice(0, 12)} with origin/main`,
 			},
 			timedOut: false,
+			redFault: null,
 		},
 		timedOut: {
 			verdict: {
@@ -244,6 +314,7 @@ const ANSWERS = {
 				why: `git could not resolve the merge-base of ${HEAD.slice(0, 12)} with origin/main`,
 			},
 			timedOut: true,
+			redFault: null,
 		},
 	},
 	malformed: { none: 0, some: 1 },
@@ -297,4 +368,4 @@ function fakeIO(picks = {}) {
 	return { io, latches, refusals };
 }
 
-module.exports = { ANSWERS, fakeIO, HEAD, NEIGHBOUR, ROOT_GIT_DIR };
+module.exports = { ANSWERS, BASE, fakeIO, HEAD, NEIGHBOUR, ROOT_GIT_DIR };

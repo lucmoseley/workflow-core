@@ -14,7 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach } from "vitest";
 import { defineTemplate } from "./git-fixture";
-import { storePath } from "./test-pass-marker.js";
+import { FAIL_STORE, STORE, storePath } from "./test-pass-marker.js";
 
 export const SID = "sess-815";
 export const REFUSAL_LOG = ".unasked-rerun-refusals.jsonl";
@@ -115,11 +115,46 @@ export function rerunFixture() {
 		changedPaths: rels,
 	});
 
-	const writeStore = (...entries: unknown[]) =>
+	const writeLines = (store: string, entries: unknown[]) =>
 		fs.writeFileSync(
-			storePath(f.project),
+			storePath(f.project, store),
 			`${entries.map((e) => JSON.stringify(e)).join("\n")}\n`,
 		);
+	const writeStore = (...entries: unknown[]) => writeLines(STORE, entries);
+	/** The red store's lines (#3633). */
+	const writeReds = (...entries: unknown[]) => writeLines(FAIL_STORE, entries);
+
+	/** `narrowedOn`'s run gone red on `a.test.ts`, against origin/main where `based`. */
+	function redOn(sha: string, rels: string[], at: string, based = true) {
+		const run = narrowedOn(sha, rels, at);
+		return {
+			...run,
+			...(based ? { base: git("rev-parse", "origin/main") } : {}),
+			scope: {
+				...run.scope,
+				passed: 2,
+				failed: 1,
+				failures: [{ file: "a.test.ts", tests: ["t"] }],
+				errors: 0,
+			},
+		};
+	}
+
+	/** A run red on `a.test.ts` at origin/main's content: the record it was already red there. */
+	const redAtBase = (at: string) => ({
+		sha: git("rev-parse", "origin/main"),
+		at,
+		suite: "vitest",
+		treeAtEnd: git("rev-parse", "origin/main^{tree}"),
+		scope: {
+			modulesRun: 9,
+			modulesTotal: 9,
+			tests: 3,
+			failed: 1,
+			failures: [{ file: "a.test.ts", tests: ["t"] }],
+		},
+		closure: "*",
+	});
 
 	function writeLedger(sid: string, ...rels: string[]) {
 		const at = paths.ledger(sid);
@@ -187,6 +222,9 @@ export function rerunFixture() {
 		commitTouching,
 		narrowedOn,
 		writeStore,
+		writeReds,
+		redOn,
+		redAtBase,
 		writeLedger,
 		writeCommits,
 		attestedHead,

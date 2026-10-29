@@ -12,12 +12,18 @@
  * each points WFC_GIT at a stub that sleeps past a 200 ms bound (§X9) — short
  * enough to keep the file fast, long enough that a real git under a loaded
  * machine never trips it on the other situations, which keep the 3 s default.
+ *
+ * The last block asks the adapter alone which red runs stand beside the
+ * certificates (#3633): which reds class, and how they rank against
+ * certificates, is the adapter's work, so no fake answer can carry it.
+ * Loosen one and a red run with a NEW failure, or one superseded by a newer
+ * certificate, refuses a session's needed run.
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { storePath } from "./test-pass-marker.js";
+import { FAIL_STORE, storePath } from "./test-pass-marker.js";
 import type { JudgeIO } from "./unasked-rerun.js";
 import {
 	LATCH_PREFIX,
@@ -62,6 +68,25 @@ interface Dir {
 type Selected = ReturnType<JudgeIO["selection"]>;
 type Attested = ReturnType<JudgeIO["attestation"]>;
 
+interface Classing {
+	allAlreadyRed: boolean;
+	files: { file: string; red: { by: string } | null }[];
+}
+
+/** A member's already-red classing less its values, or null for a certificate. */
+const classingShape = (marker: object) => {
+	const { alreadyRed } = marker as { alreadyRed?: Classing };
+	return alreadyRed
+		? {
+				allAlreadyRed: alreadyRed.allAlreadyRed,
+				files: alreadyRed.files.map((c) => ({
+					file: typeof c.file,
+					by: c.red?.by ?? null,
+				})),
+			}
+		: null;
+};
+
 /** An answer less its situation's values, keyed by port. */
 const SHAPES: Record<string, (v: unknown, rootDir: string) => unknown> = {
 	latched: (v) => v,
@@ -99,9 +124,10 @@ const SHAPES: Record<string, (v: unknown, rootDir: string) => unknown> = {
 	},
 	storeFault: (v) => v,
 	attestation: (v) => {
-		const { verdict, timedOut } = v as Attested;
+		const { verdict, timedOut, redFault } = v as Attested;
 		return {
 			timedOut,
+			redFault: typeof redFault,
 			keys: Object.keys(verdict).sort(),
 			judged: verdict.judged,
 			suites: verdict.judged
@@ -114,6 +140,7 @@ const SHAPES: Record<string, (v: unknown, rootDir: string) => unknown> = {
 									sha: typeof marker.sha,
 									at: typeof marker.at,
 									by: match.by,
+									alreadyRed: classingShape(marker),
 								}))
 							: null,
 					}))
@@ -262,6 +289,11 @@ const SITUATIONS: Record<string, Record<string, () => unknown>> = {
 			const tip = io().selection(SID).selection?.tip as string;
 			return io().attestation(tip, ["c.js"]);
 		},
+		attestedRed: () => {
+			const sha = fx.commitTouching("a.js");
+			fx.writeReds(fx.redAtBase("RUN-0"), fx.redOn(sha, ["a.js"], "RUN-R"));
+			return io().attestation(sha, ["a.js"]);
+		},
 		pytestOwed: () => {
 			const sha = fx.commitTouching("a.js", "b.py");
 			fx.writeStore(fx.narrowedOn(sha, ["a.js", "b.py"], "RUN-A"));
@@ -270,6 +302,12 @@ const SITUATIONS: Record<string, Record<string, () => unknown>> = {
 		unattested: () => {
 			fx.attestedHead();
 			return io().attestation(fx.commitTouching("b.js"), null);
+		},
+		unattestedRedFault: () => {
+			const sha = fx.commitTouching("a.js");
+			fs.mkdirSync(fx.markers(), { recursive: true });
+			fs.writeFileSync(storePath(f.project, FAIL_STORE), `{"torn\n`);
+			return io().attestation(sha, ["a.js"]);
 		},
 		unjudged: () => {
 			const sha = fx.attestedHead();
@@ -323,4 +361,127 @@ describe("the fake answers as the adapter does", () => {
 			);
 		},
 	);
+});
+
+describe("which red runs stand beside the certificates (#3633)", () => {
+	/** The attesting members' `at`s, or null where nothing attests. */
+	const attesters = (sha: string, within: string[] | null) => {
+		const { verdict } = io().attestation(sha, within);
+		const vitest = verdict.judged
+			? verdict.suites.find((s) => s.suite === "vitest")
+			: null;
+		return vitest?.attested ? vitest.members.map((m) => m.marker.at) : null;
+	};
+
+	it("admits no red whose failure no record shows red on the base", () => {
+		const sha = fx.commitTouching("a.js");
+		fx.writeReds(fx.redOn(sha, ["a.js"], "RUN-R"));
+		expect(attesters(sha, ["a.js"])).toBeNull();
+	});
+
+	it("admits no red that recorded no base", () => {
+		const sha = fx.commitTouching("a.js");
+		fx.writeReds(
+			fx.redAtBase("RUN-0"),
+			fx.redOn(sha, ["a.js"], "RUN-R", false),
+		);
+		expect(attesters(sha, ["a.js"])).toBeNull();
+	});
+
+	it("admits no pytest red", () => {
+		const sha = fx.commitTouching("a.js");
+		fx.writeReds(fx.redAtBase("RUN-0"), {
+			...fx.redOn(sha, ["a.js"], "RUN-R"),
+			suite: "pytest",
+		});
+		expect(attesters(sha, ["a.js"])).toBeNull();
+	});
+
+	it("admits no red whose tree the tip no longer holds", () => {
+		const sha = fx.commitTouching("a.js");
+		fx.writeReds(fx.redAtBase("RUN-0"), fx.redOn(sha, ["a.js"], "RUN-R"));
+		fs.writeFileSync(path.join(f.project, "a.js"), "moved on\n");
+		fx.git("commit", "-q", "-am", "moved on");
+		expect(attesters(fx.git("rev-parse", "HEAD"), ["a.js"])).toBeNull();
+	});
+
+	it("lets a newer certificate decide a path over a red", () => {
+		const sha = fx.commitTouching("a.js");
+		fx.writeReds(fx.redAtBase("RUN-0"), fx.redOn(sha, ["a.js"], "RUN-R"));
+		fx.writeStore(fx.narrowedOn(sha, ["a.js"], "RUN-Z"));
+		expect(attesters(sha, ["a.js"])).toEqual(["RUN-Z"]);
+	});
+
+	it("combines a red with a certificate over a selection neither covers alone", () => {
+		const sha = fx.commitTouching("a.js", "b.js");
+		fx.writeReds(fx.redAtBase("RUN-0"), fx.redOn(sha, ["a.js"], "RUN-R"));
+		fx.writeStore(fx.narrowedOn(sha, ["b.js"], "RUN-A"));
+		expect(attesters(sha, null)?.sort()).toEqual(["RUN-A", "RUN-R"]);
+	});
+
+	it("never reads the red store where certificates attest alone", () => {
+		const sha = fx.attestedHead();
+		fs.writeFileSync(storePath(f.project, FAIL_STORE), `{"torn\n`);
+		expect(attesters(sha, ["a.js"])).toEqual(["RUN-A"]);
+		expect(io().attestation(sha, ["a.js"]).redFault).toBeNull();
+	});
+
+	it("admits a full red run whose every failure was already red", () => {
+		const sha = fx.commitTouching("a.js");
+		const full = fx.redOn(sha, ["a.js"], "RUN-R");
+		fx.writeReds(fx.redAtBase("RUN-0"), {
+			...full,
+			scope: { ...full.scope, changed: null, admissible: false, modulesRun: 9 },
+			closure: "*",
+		});
+		expect(attesters(sha, ["a.js"])).toEqual(["RUN-R"]);
+	});
+
+	it("admits no red carrying an error no failing test names", () => {
+		const sha = fx.commitTouching("a.js");
+		const red = fx.redOn(sha, ["a.js"], "RUN-R");
+		fx.writeReds(fx.redAtBase("RUN-0"), {
+			...red,
+			scope: { ...red.scope, errors: 1 },
+		});
+		expect(attesters(sha, ["a.js"])).toBeNull();
+	});
+
+	it("names a newer certificate over an older red of wider reach", () => {
+		const sha = fx.commitTouching("a.js", "b.js");
+		fx.writeReds(
+			fx.redAtBase("RUN-0"),
+			fx.redOn(sha, ["a.js", "b.js"], "RUN-R"),
+		);
+		fx.writeStore(fx.narrowedOn(sha, ["a.js"], "RUN-Z"));
+		expect(attesters(sha, ["a.js"])).toEqual(["RUN-Z"]);
+	});
+
+	it("answers a classing that throws as a fault, certificates alone judging", () => {
+		const sha = fx.commitTouching("a.js");
+		const red = fx.redOn(sha, ["a.js"], "RUN-R");
+		fx.writeReds({
+			...red,
+			scope: { ...red.scope, failures: [{ file: 7, tests: ["t"] }] },
+		});
+		const { verdict, redFault } = io().attestation(sha, ["a.js"]);
+		expect(verdict.judged && verdict.suites[0]?.attested).toBe(false);
+		expect(redFault).toMatch(/^already-red runs could not be judged \(/);
+	});
+
+	it("answers a git read that times out while classing as timed out", () => {
+		const sha = fx.commitTouching("a.js");
+		fx.writeReds(fx.redAtBase("RUN-0"), fx.redOn(sha, ["a.js"], "RUN-R"));
+		const stub = path.join(f.dir, "tree-slow-git");
+		fs.writeFileSync(
+			stub,
+			`#!/bin/sh\ncase "$*" in *"^{tree}"*) exec sleep 5;; esac\nexec git "$@"\n`,
+			{ mode: 0o755 },
+		);
+		process.env.WFC_GIT = stub;
+		expect(
+			judgeIO(f.project, { timeoutMs: 1000 }).attestation(sha, ["a.js"])
+				.timedOut,
+		).toBe(true);
+	});
 });
