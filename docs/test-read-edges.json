@@ -22065,7 +22065,8 @@
 			"scripts/stale-write-back-gate.test.ts",
 			"scripts/sweep-debts-detached.test.ts",
 			"scripts/vitest-tree-watch.test.ts",
-			"scripts/wayfinder-frontier.test.ts"
+			"scripts/wayfinder-frontier.test.ts",
+			"scripts/write-secret.test.ts"
 		],
 		"scripts/session-arbiter.test.ts": [
 			"scripts/lib/helper-surface.test.ts",

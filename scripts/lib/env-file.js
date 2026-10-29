@@ -189,8 +189,10 @@ function readSecretKeepingIgnore(name) {
 		)
 			return value;
 		ignoreStore(dir);
-	} catch {
-		/* The value is what the caller asked for (#3663). */
+	} catch (e) {
+		/* The value is what the caller asked for (#3663); the store is left
+		 * without its ignore, so the fault goes where check:guard-errors reads. */
+		require("./arbiter-core.js").logError("env-file ignoreStore", e, dir);
 	}
 	return value;
 }
@@ -203,7 +205,7 @@ function readSecretKeepingIgnore(name) {
  * @throws where the file is there but cannot be read, as a masker that
  *   quietly masked fewer names would write their values bare
  */
-function storedNames() {
+function readStoredNames() {
 	let text;
 	try {
 		text = fs.readFileSync(secretsFile(), "utf8");
@@ -228,5 +230,5 @@ module.exports = {
 	secretsFile,
 	secretsOverride,
 	splitEnvLines,
-	storedNames,
+	readStoredNames,
 };

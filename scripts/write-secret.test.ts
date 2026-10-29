@@ -20,6 +20,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { gateway } from "./guard-jev-advisory.js";
+import { freshSandbox } from "./lib/arbiter-testkit";
 import { readEnvFileValue, secretsFile } from "./lib/env-file.js";
 import { runInProcess } from "./lib/run-in-process.js";
 
@@ -148,6 +149,25 @@ describe("write-secret", () => {
 			expect(read()).toBe(`AI_GATEWAY_API_KEY=${SECRET}\n`);
 		},
 	);
+
+	describe("where the .gitignore cannot be written", () => {
+		const sb = freshSandbox();
+		it("the Stop guard's key read keeps the value and logs the fault for check:guard-errors (#3716)", () => {
+			seed(`AI_GATEWAY_API_KEY=${SECRET}\n`);
+			const dir = path.dirname(store());
+			fs.chmodSync(dir, 0o500);
+			try {
+				readFromStore();
+				expect(gateway.readKey()).toBe(SECRET);
+			} finally {
+				fs.chmodSync(dir, 0o700);
+			}
+			expect(fs.existsSync(path.join(dir, ".gitignore"))).toBe(false);
+			expect(fs.readFileSync(sb.errorLog(), "utf8")).toMatch(
+				/\tenv-file ignoreStore\t.*EACCES/,
+			);
+		});
+	});
 
 	it("uses ~/.config where XDG_CONFIG_HOME is unset or relative", () => {
 		const home = path.join(config, "home");
