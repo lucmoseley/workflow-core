@@ -14,25 +14,60 @@
  * no lead and no escape can hide them (#3540).
  *
  * A TERMINAL CONTROL SEQUENCE IS TRANSPARENT after a token's first character,
- * since `grep --color` puts one wherever its pattern ends (#3540, #3547). A
- * body stops before another shape's whole minimum token that its own
- * characters cannot spell, so back-to-back tokens are each masked.
+ * since `grep --color` puts one wherever its pattern ends (#3540, #3547,
+ * #3549). A body stops before another shape's whole minimum token that its
+ * own characters cannot spell, so back-to-back tokens are each masked.
  *
  * RESIDUALS: a token of a vendor not listed passes unmasked, and so do an
  * AWS secret access key (no prefix tells it from any 40-character string) and
  * an `sk-` body holding no digit in its first 300 characters — the digit is
  * what tells a key from a long hyphenated word. An `sk-` token after an
  * escape `ESCAPES` does not list, such as quoted-printable's `=3D`, passes
- * too. An escaped letter or digit (`%41`) counts as a lead, over-masking.
+ * too. An escaped letter or digit (`%41`) counts as a lead, over-masking. A
+ * control sequence with a URL-encoded intermediate byte (`%1B%28B`) still
+ * splits a token, since `%2X` overlaps re-encoding's `%25` and leaves two
+ * readings. So do a URL-encoded OSC (`%1B%5D8%3B`), an OSC whose body spells
+ * ESC or BEL (`%07`, a Windows path's `\a` or `\e`) or runs past 4096
+ * characters, and an ESC after more than 64 backslashes. A body character
+ * after an OSC's closing `ESC \` that spells an escaped ESC with its `\`
+ * (`\e`, `\U0000001b`) is read as one, taking the characters after it as
+ * that sequence's, so a token near its minimum can pass (#3549).
  */
 
-/* ESC, raw or in any common escaped spelling, and the ECMA-48 sequence it
- * opens: a CSI or a two-character one such as
- * `ESC 7` or `ESC ( B` (`tput sgr0`). The two-character form never ends in
- * `[`, so a CSI has one reading and the body's repetition cannot backtrack
- * exponentially over it. */
-const ESC = String.raw`(?:\x1b|\\(?:u001[bB]|u\{0*1[bB]\}|x1[bB]|U0000001[bB]|033|e|E)|%(?:25)*1[bB]|\\?\^\[)`;
-const CONTROL = String.raw`${ESC}(?:\[[0-?]*[ -/]*[@-~]|[ -/]*[0-Z\\\]-~])`;
+/**
+ * The source for a URL-encoded byte at any depth of re-encoding.
+ * @param {string} hex the byte's hex digits, a class allowed
+ */
+const buildUrlEncoded = (hex) => `%(?:25)*${hex}`;
+
+/* ESC and BEL, raw, URL-encoded or in any common escaped spelling, the
+ * backslash doubled up to six times over (a stringified `cat -v` or Python
+ * repr, #3549). An unbounded run overflows the regex stack on a
+ * multi-megabyte one; six doublings is a guess, not measured. */
+const BACKSLASHES = String.raw`\\{1,64}`;
+const ESC_TAIL = String.raw`u001[bB]|u\{0*1[bB]\}|x1[bB]|U0000001[bB]|033|e|E`;
+const BEL_TAIL = String.raw`u0007|u\{0*7\}|x07|U00000007|007|a`;
+const ESC_CARET = String.raw`\^\[`;
+const BEL_CARET = String.raw`\^G`;
+const ESC = String.raw`(?:\x1b|${BACKSLASHES}(?:${ESC_TAIL})|${buildUrlEncoded("1[bB]")}|(?:${BACKSLASHES})?${ESC_CARET})`;
+const BEL = String.raw`(?:\x07|${BACKSLASHES}(?:${BEL_TAIL})|${buildUrlEncoded("07")}|(?:${BACKSLASHES})?${BEL_CARET})`;
+
+/* The ECMA-48 sequence ESC opens: a CSI, its `[` and parameters raw or
+ * URL-encoded; an OSC, its numeric command then `;`, such as an OSC 8
+ * hyperlink, ended by BEL or by ESC and the backslash run of its `\`; or a
+ * two-character one such as `ESC 7` or `ESC ( B` (`tput sgr0`). Each has one
+ * reading, so the body's repetition cannot backtrack exponentially over it:
+ * the two-character form never ends in `[`, starts an encoded `[` or starts a
+ * whole OSC. An OSC body holds any character but a C0 control other than
+ * tab, DEL, ESC and BEL, and takes a backslash run whole, so it never rescans
+ * one; the closing `\` run is taken whole unless an escaped ESC follows it. */
+const CSI = String.raw`(?:\[|${buildUrlEncoded("5[bB]")})(?:[0-?]|${buildUrlEncoded("3[0-9A-Fa-f]")})*[ -/]*[@-~]`;
+const OSC_BODY_UNIT = String.raw`(?!${buildUrlEncoded("(?:1[bB]|07)")}|${ESC_CARET}|${BEL_CARET})[^\x00-\x08\x0a-\x1f\x7f\\]|${BACKSLASHES}(?!\\|${ESC_TAIL}|${BEL_TAIL}|${ESC_CARET}|${BEL_CARET})`;
+/* Unbounded, a multi-megabyte OSC body overflows the regex stack; 4096 is a
+ * guess at the longest an OSC 8 URI runs, not measured. */
+const OSC = String.raw`\][0-9]+;(?:${OSC_BODY_UNIT}){0,4096}(?:${BEL}|${ESC}(?:${BACKSLASHES}(?!\\|${ESC_TAIL}|${ESC_CARET}))?)`;
+const TWO_CHARACTER = String.raw`(?!${buildUrlEncoded("5[bB]")}|${OSC})[ -/]*[0-Z\\\]-~]`;
+const CONTROL = `${ESC}(?:${CSI}|${OSC}|${TWO_CHARACTER})`;
 
 /* The escapes an `sk-` token may follow, each ending in a letter or digit:
  * JSON's and C's (a tool input reaches the masker stringified), octal, a
@@ -44,7 +79,7 @@ const ESCAPES = [
 	String.raw`\\x[0-9A-Fa-f]{2}`,
 	String.raw`(?:\\u|%u)[0-9A-Fa-f]{4}`,
 	String.raw`\\U[0-9A-Fa-f]{8}`,
-	"%(?:25)*[0-9A-Fa-f]{2}",
+	buildUrlEncoded("[0-9A-Fa-f]{2}"),
 	CONTROL,
 ];
 
