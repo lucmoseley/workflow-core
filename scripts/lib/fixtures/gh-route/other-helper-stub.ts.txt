@@ -1,0 +1,8 @@
+const label = (name: string) => `stub ${name}`;
+label("gh");
+const write = (name: string) => path.join(dir, name);
+write("date");
+process.env.WFC_GH = write("gh-fake");
+for (const name of ["date", "git"]) fs.writeFileSync(path.join(bin, name), "");
+process.env.PATH = `${dir}${path.delimiter}${process.env.PATH}`;
+process.env.PATH = `${bin}${path.delimiter}${process.env.PATH}`;

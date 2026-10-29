@@ -782,13 +782,11 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 		["ruff", /check-ruff-introduced\.js/],
 		["`scripts/check-swallowed-errors.js`", /check-swallowed-errors\.js \|\|/],
 		["`scripts/check-cli-args.js`", /check-cli-args\.js --against HEAD/],
-		["`scripts/check-precommit-exit.js`", /check-precommit-exit\.js \|\|/],
 		["`scripts/check-test-spawn.js`", /check-test-spawn\.js --index \|\| exit/],
 		[
 			"`scripts/check-jsonl-reads.js`",
 			/check-jsonl-reads\.js --index \|\| exit/,
 		],
-		["`scripts/check-gh-route.js`", /check-gh-route\.js --index \|\| exit/],
 		[
 			"`scripts/check-clock-copies.js`",
 			/check-clock-copies\.js --index \|\| exit/,
@@ -797,6 +795,7 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 			"`scripts/check-report-programs.js`",
 			/check-report-programs\.js --index \|\| exit/,
 		],
+		["`scripts/check-gh-route.js`", /check-gh-route\.js --index \|\| exit/],
 		["`scripts/check-registrations.js`", /check-registrations\.js --against/],
 		[
 			"`scripts/check-workflow-permissions.js`",

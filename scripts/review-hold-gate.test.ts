@@ -33,7 +33,7 @@ const BACKSTOP = path.resolve(__dirname, "concision-backstop.sh");
 const DISPATCH = path.resolve(__dirname, "guard-dispatch.js");
 const ARBITER = path.resolve(__dirname, "session-arbiter.js");
 const WRITE_MARKER = path.resolve(__dirname, "write-review-marker.js");
-const WIRING = `${coreCall("bash", "scripts/review-hold-gate.sh")} || exit "$?"`;
+const WIRING = `${coreCall("bash", "scripts/review-hold-gate.sh")} || exit 1`;
 const SID = "session-under-test";
 /** code-signal.sh's review floor: a change over it owes a review. */
 const CODE_THRESHOLD = readShellConst(
@@ -836,5 +836,34 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 		const r = commit([], { sid: "" });
 		expect(r.status).toBe(0);
 		expect(trailers()).toBe("");
+	});
+
+	const runTrailer = (msg: string, env: Record<string, string> = {}) =>
+		spawnSync("bash", [Trailer, msg], {
+			cwd: repo,
+			encoding: "utf8",
+			env: { ...quietEnv(), ...env },
+		});
+
+	it("says on stderr that the commit lands with no trailer where git names no git directory (#3716)", () => {
+		const msg = path.join(scratch, "MSG");
+		fs.writeFileSync(msg, "land\n");
+		const r = runTrailer(msg, { GIT_DIR: path.join(scratch, "no-such-git") });
+		expect(r.status).toBe(0);
+		expect(r.stderr).toBe(
+			"prepare-commit-msg: git named no git directory to read the review hold's stamp from, so this commit lands with no Review-Tier: trailer.\n",
+		);
+		expect(fs.readFileSync(msg, "utf8")).toBe("land\n");
+	});
+
+	it("consumes no stamp and logs nothing on an empty message path, as a direct run of the hook hands (#3716)", () => {
+		fs.writeFileSync(
+			stamp(),
+			"t\nescalated; areas=a; base=b; tree=t; paths=p\n",
+		);
+		const r = runTrailer("");
+		expect(r.status).toBe(0);
+		expect(r.stderr).toBe("");
+		expect(fs.existsSync(stamp())).toBe(true);
 	});
 });

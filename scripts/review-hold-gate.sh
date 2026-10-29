@@ -3,7 +3,7 @@
 # review-hold-gate.sh — the pre-commit hold on a declared sensitive path (#1622,
 # spec #1612 §The hold).
 #
-# IMPLICIT:  refuses a session's commit in the shared tree whose staged paths match a glob `sensitivePaths` declares in `.claude/workflow-core.json`, until the session's `.codereview-pass-<sid>` marker records `tier=escalated` or `tier=mission-critical`, `areas=` naming every matched area, `tree=` equal to the tree the commit carries, and `paths=` naming every path it changes; the refusal names the areas, the marker's fault and rule:review-hold. On a pass it leaves the marker's tier, areas, base, tree and paths in the git directory's `wfc-review-tier`, keyed to that tree, for scripts/review-tier-trailer.sh to write as the commit's `Review-Tier:` trailer (#3664).
+# IMPLICIT:  refuses a session's commit in the shared tree whose staged paths match a glob `sensitivePaths` declares in `.claude/workflow-core.json`, until the session's `.codereview-pass-<sid>` marker records `tier=escalated` or `tier=mission-critical`, `areas=` naming every matched area, `tree=` equal to the tree the commit carries, and `paths=` naming every path it changes; the refusal names the areas, the marker's fault and rule:review-hold. On a pass it leaves the marker's tier, areas, base, tree and paths in the git directory's stamp (scripts/lib/review-tier-stamp.sh names it), keyed to that tree, for scripts/review-tier-trailer.sh to write as the commit's `Review-Tier:` trailer (#3664).
 # JUSTIFIED: fail-safe — any neighbour's push publishes shared-`main` commits, and Manta deploys every push, so a review owed on sensitive code is a hold at commit or it is too late.
 # DEFEAT:    writing the marker's four lines by hand with no review behind them; `HUSKY=0` and `core.hooksPath` off .husky/_ skip it with the rest of the stack.
 #
@@ -29,7 +29,7 @@
 #    holds a comma can never be named there.
 #  - A neighbour's commit moves HEAD and so the tree a pathspec commit carries:
 #    `tree=` is then recomputed, with no new review owed.
-#  - An unset name under -u aborts with 127, which pre-commit's `|| exit "$?"`
+#  - An unset name under -u aborts with 127, which pre-commit's `|| exit 1`
 #    turns into a refusal with no gl_log line: fail closed.
 #
 # FAILS OPEN on its own faults — git that will not answer, a library or the
@@ -49,7 +49,19 @@ fi
 
 # Cleared on every run, so a stamp a later gate's refusal stranded stands
 # behind no commit the hold does not pass.
-if stale="$(git rev-parse --absolute-git-dir 2>/dev/null)"; then rm -f "$stale/wfc-review-tier"; fi
+# shellcheck source=scripts/lib/review-tier-stamp.sh
+source "$here/lib/review-tier-stamp.sh" 2>/dev/null || {
+  echo "pre-commit: the review hold could not load scripts/lib/review-tier-stamp.sh — a commit it passes lands with no Review-Tier: trailer." >&2
+  # shellcheck source=scripts/lib/guard-log.sh
+  source "$here/lib/guard-log.sh" 2>/dev/null &&
+    gl_log "review-hold-gate.sh: could not load scripts/lib/review-tier-stamp.sh — a held commit lands with no Review-Tier: trailer"
+  # Nothing to clear or write; the trailer, which loads it too, reads no stamp.
+  review_tier_stamp() { return 1; }
+}
+if gitdir="$(git rev-parse --absolute-git-dir 2>/dev/null)" &&
+  stale="$(review_tier_stamp "$gitdir")"; then
+  rm -f "$stale"
+fi
 
 [[ -n "${CLAUDE_CODE_SESSION_ID:-}" ]] || exit 0
 
@@ -145,6 +157,8 @@ else
 fi
 if [[ -z "$fault" ]]; then
   # Fails open: a stamp unwritten costs the commit its trailer, never the pass.
+  # No stamp path means the library would not load, logged where it was sourced.
+  stamp="$(review_tier_stamp "$gitdir")" || exit 0
   {
     printf '%s\n' "$tree"
     printf '%s; areas=%s; base=%s; tree=%s; paths=%s\n' \
@@ -152,9 +166,9 @@ if [[ -z "$fault" ]]; then
       "$(marker_list "$marker" areas | paste -sd, -)" \
       "$(marker_field "$marker" base | tr -d '[:space:]')" "$tree" \
       "$(marker_list "$marker" paths | paste -sd, -)"
-  } >"$gitdir/wfc-review-tier" 2>/dev/null || {
-    rm -f "$gitdir/wfc-review-tier"
-    gl_log "review-hold-gate.sh: could not write $gitdir/wfc-review-tier — a held commit lands with no Review-Tier: trailer"
+  } >"$stamp" 2>/dev/null || {
+    rm -f "$stamp"
+    gl_log "review-hold-gate.sh: could not write $stamp — a held commit lands with no Review-Tier: trailer"
   }
   exit 0
 fi
