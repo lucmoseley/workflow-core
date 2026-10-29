@@ -6,7 +6,7 @@
  * a stub at that var (base §X2, §N7; #3455, #3559).
  *
  * Usage:
- *   node check-gh-route.js [--root <dir>] [--json] [--warn]
+ *   node check-gh-route.js [--root <dir>] [--against <rev>] [--json] [--warn]
  *
  * LEXICAL, comments aside, over scripts/, .claude/skills/, .husky/ and
  * hooks/, shell files being those lib/formatters.js's shellFiles() names.
@@ -141,7 +141,7 @@ const ROUTES = [
 		calls: "`claudeBin()`",
 		stubWith: "",
 		exemplar: "scripts/run-mod-tests.js",
-		shellExemplar: "scripts/probe-async-hook-timeout.sh",
+		shellExemplar: "scripts/dispatch-sessions.sh",
 		stubExemplar: "scripts/run-mod-tests.test.ts",
 	}),
 ];
@@ -265,8 +265,14 @@ function listFiles(root) {
 
 runCheck({
 	name: "gh-route",
-	usage: "node check-gh-route.js [--root <dir>] [--json] [--warn]",
+	usage:
+		"node check-gh-route.js [--root <dir>] [--against <rev>] [--json] [--warn]",
 	valueFlags: ["--root"],
+	against: {
+		profile: "gh-route",
+		materialise: "blobs",
+		pathspecs: () => ROOTS,
+	},
 	run(/** @type {Ctx} */ ctx) {
 		const root = path.resolve(ctx.value("--root") ?? hostRoot());
 		const files = listFiles(root);
