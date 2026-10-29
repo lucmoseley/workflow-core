@@ -485,6 +485,7 @@ function redOnMain(onMain, checked) {
  * @param {Extract<Verdict, {kind: "red"}>} v
  * @param {string[]} known
  * @param {RedJobs|null} redJobs
+ * @returns {Required<Failing>}
  */
 const beyondMain = (v, known, redJobs) => ({
 	files: v.files.filter((f) => !known.includes(f)),
@@ -492,11 +493,12 @@ const beyondMain = (v, known, redJobs) => ({
 });
 
 /**
- * Whether red `v` is red only on files red on `main`.
+ * Whether red `v` is red only on files red on `main`, and on no CI job the
+ * bisect searches.
  * @param {Extract<Verdict, {kind: "red"}>} v
- * @param {{files: string[], jobs: string[]}} beyond beyondMain's read of `v`
+ * @param {Required<Failing>} beyond beyondMain's read of `v`
  */
-const isRedOnlyOn = (v, beyond) =>
+const isRedOnlyOnMain = (v, beyond) =>
 	v.files.length > 0 && beyond.files.length === 0 && beyond.jobs.length === 0;
 
 /** @param {string[]} files */
@@ -561,7 +563,7 @@ function confirmAction(
 	 * of `main` runs here to judge it. */
 	if (isSearchedRed(before, redJobs)) {
 		const beyond = beyondMain(before, known, redJobs);
-		if (!isRedOnlyOn(before, beyond))
+		if (!isRedOnlyOnMain(before, beyond))
 			return {
 				kind: "hold",
 				reason: parentUnconfirmed(
@@ -683,7 +685,8 @@ const buildAlreadyRedJobsReason = ({ red, shas }) =>
  * The CI jobs the culprit's own red failed, less those red on `main`, which
  * differ from the tip's where `files` is empty and every rerun is the whole
  * suite. A job outside the tip's read is kept, unlike confirmAction's parent
- * hold: mainJobsAction reads these jobs on `main` afresh.
+ * hold: these name the culprit's own red in its hold and revert, and where
+ * its parent is `main`, mainJobsAction reads them there afresh.
  * @param {Red} r
  * @param {string} culprit
  * @param {RedJobs|null} redJobs
