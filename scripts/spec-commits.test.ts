@@ -2,8 +2,7 @@
 /*
  * Guards the commit list a spec's whole-spec review reads (#892): a wrong one
  * reviews a neighbour's work, or the inherited tracker's, as the spec's. The
- * CLI runs against a throwaway git repo and a stub `gh` (WFC_GH), so no test
- * depends on this repo's history or its tracker.
+ * CLI runs against a throwaway git repo and a stub `gh` (WFC_GH).
  */
 
 import { execFileSync } from "node:child_process";
@@ -11,7 +10,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { stubGhScript, subIssuesArm, writeSubIssues } from "./lib/gh-stub";
+import { page, stubGhRoutes } from "./lib/gh-stub";
 import { writeFaultyGit } from "./lib/git-fault-fake";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -45,26 +44,28 @@ describe("spec-commits CLI", () => {
 		);
 	};
 
-	const stub = (kids: unknown[]) => {
-		fs.writeFileSync(
-			path.join(dir, "issue.json"),
-			JSON.stringify({
-				number: 10,
-				created_at: "2026-09-01T00:00:00Z",
-				repository_url: REPO_URL,
-			}),
-		);
-		writeSubIssues(dir, { 10: kids });
-		return stubGhScript(
-			dir,
-			`#!/bin/sh
-case "$2" in
-${subIssuesArm(dir)}
-  *) cat ${dir}/issue.json ;;
-esac
-`,
-		);
-	};
+	/* Each issue's comments; none where unset. */
+	let comments: Record<number, { body: string }[]>;
+
+	const stub = (kids: unknown[]) =>
+		stubGhRoutes(dir, {
+			"repos/{owner}/{repo}/issues/10/sub_issues": page("subIssuesPage", kids),
+			...Object.fromEntries(
+				Object.entries(comments).map(([n, rows]) => [
+					`repos/{owner}/{repo}/issues/${n}/comments`,
+					page("commentsPage", rows),
+				]),
+			),
+			"*/comments": page("commentsPage", []),
+			"repos/{owner}/{repo}/issues/10": {
+				kind: "issue",
+				value: {
+					number: 10,
+					created_at: "2026-09-01T00:00:00Z",
+					repository_url: REPO_URL,
+				},
+			},
+		});
 
 	const run = (kids: unknown[], args: string[] = []) => {
 		const r = runInProcess(SCRIPT, ["10", ...args], {
@@ -75,6 +76,7 @@ esac
 	};
 
 	beforeEach(() => {
+		comments = {};
 		dir = fs.mkdtempSync(path.join(os.tmpdir(), "spec-commits-"));
 		repo = path.join(dir, "repo");
 		fs.mkdirSync(repo);
@@ -376,6 +378,148 @@ esac
 			"a.js",
 			"b.js",
 		]);
+	});
+
+	describe("a commit a closed ticket's resolution names by sha (#3612)", () => {
+		const closeNaming = (n: number, text: string) => {
+			comments[n] = [
+				{ body: "A note naming nothing." },
+				{ body: `${text}\n\n**Door:** two-way — revert it.` },
+				{ body: "A later comment with no Door line." },
+			];
+		};
+		const shaOf = (rev: string) => git(["rev-parse", rev]).trim();
+
+		it("lists one whose message cites no issue, saying the close named it", () => {
+			commit("u.js", "Uncited work", "2026-09-05T00:00:00Z");
+			const sha = shaOf("HEAD");
+			closeNaming(12, `Done in ${sha.slice(0, 9)}.`);
+			const out = JSON.parse(run([ticket(11), ticket(12)], ["--json"]).stdout);
+			expect(out.commits.map((c: { sha: string }) => c.sha)).toContain(sha);
+			expect(out.commits.at(-1).route).toEqual({ by: "named", ticket: 12 });
+			expect(run([ticket(11), ticket(12)]).out).toContain(
+				"Uncited work  [named in #12's close]",
+			);
+		});
+
+		it("lists the landed twin of a named commit HEAD lacks", () => {
+			const base = shaOf("HEAD");
+			git(["checkout", "-q", "-b", "side"]);
+			commit("u.js", "Uncited work", "2026-09-05T00:00:00Z");
+			const named = shaOf("HEAD");
+			git(["checkout", "-q", base]);
+			git(["cherry-pick", named]);
+			const landed = shaOf("HEAD");
+			expect(landed).not.toBe(named);
+			closeNaming(12, `Done in ${named.slice(0, 9)} (cherry-picked).`);
+			const out = JSON.parse(run([ticket(11), ticket(12)], ["--json"]).stdout);
+			expect(out.commits.at(-1)).toMatchObject({
+				sha: landed,
+				route: { by: "twin", ticket: 12, of: named },
+			});
+			expect(out.missing).toEqual([]);
+		});
+
+		it("notes nothing missing where the named commit's twin is listed by its citation", () => {
+			const base = shaOf("HEAD");
+			git(["checkout", "-q", "-b", "side"]);
+			commit("u.js", "Cited work (#12)", "2026-09-05T00:00:00Z");
+			const named = shaOf("HEAD");
+			git(["checkout", "-q", base]);
+			git(["cherry-pick", named]);
+			closeNaming(12, `Done in ${named.slice(0, 9)}.`);
+			const out = JSON.parse(run([ticket(11), ticket(12)], ["--json"]).stdout);
+			expect(out.commits.at(-1).route).toEqual({ by: "cites" });
+			expect(out.missing).toEqual([]);
+		});
+
+		it("notes a named commit HEAD holds under neither hash nor subject", () => {
+			const base = shaOf("HEAD");
+			git(["checkout", "-q", "-b", "side"]);
+			commit("u.js", "Unlanded work", "2026-09-05T00:00:00Z");
+			const named = shaOf("HEAD");
+			git(["checkout", "-q", base]);
+			closeNaming(12, `Done in ${named.slice(0, 9)}.`);
+			const r = run([ticket(11), ticket(12)]);
+			expect(r.out).toContain(
+				`NOTE: #12's close names ${named.slice(0, 12)} Unlanded work, which HEAD holds under neither`,
+			);
+		});
+
+		it("exits 1 naming git's fault, not dropping the commit, where git cannot place a named sha", () => {
+			commit("u.js", "Uncited work", "2026-09-05T00:00:00Z");
+			closeNaming(12, `Done in ${shaOf("HEAD").slice(0, 9)}.`);
+			const fake = writeFaultyGit(
+				{ first: "merge-base" },
+				{ script: 'echo "fatal: broken" >&2; exit 128' },
+				{ under: dir },
+			);
+			const r = runInProcess(SCRIPT, ["10"], {
+				cwd: repo,
+				env: {
+					...process.env,
+					...stub([ticket(11), ticket(12)]).env,
+					WFC_GIT: fake.git,
+				},
+			});
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain(
+				"git could not resolve the shas the closes name",
+			);
+			expect(r.stderr).toContain("fatal: broken");
+		});
+
+		it("reads every Door comment of a closed ticket, and none of an open one", () => {
+			commit("u.js", "First close's work", "2026-09-05T00:00:00Z");
+			const first = shaOf("HEAD");
+			commit("v.js", "Second close's work", "2026-09-06T00:00:00Z");
+			const second = shaOf("HEAD");
+			comments[12] = [
+				{ body: `Done in ${first}.\n**Door:** two-way — revert.` },
+				{ body: "Reopened." },
+				{ body: `Done in ${second}.\n**Door:** two-way — revert.` },
+			];
+			comments[13] = comments[12];
+			const out = JSON.parse(
+				run([ticket(11), ticket(12), ticket(13, "open")], ["--json"]).stdout,
+			);
+			expect(
+				out.commits
+					.filter((c: { route: { by: string } }) => c.route.by === "named")
+					.map((c: { sha: string; route: { ticket: number } }) => [
+						c.sha,
+						c.route.ticket,
+					]),
+			).toEqual([
+				[first, 12],
+				[second, 12],
+			]);
+		});
+
+		it("reads a hand close's last sha-naming comment where none carries a Door line", () => {
+			commit("u.js", "Uncited work", "2026-09-05T00:00:00Z");
+			const sha = shaOf("HEAD");
+			comments[12] = [
+				{ body: `Done in ${sha.slice(0, 9)}.` },
+				{ body: "Closing." },
+			];
+			const out = JSON.parse(run([ticket(11), ticket(12)], ["--json"]).stdout);
+			expect(out.commits.at(-1)).toMatchObject({
+				sha,
+				route: { by: "named", ticket: 12 },
+			});
+		});
+
+		it("notes a sha-shaped word naming no commit in this clone, and passes over a hex word that is no sha", () => {
+			closeNaming(12, "Done in 0badc0de9 on landing; defaced.");
+			const r = run([ticket(11), ticket(12)], ["--json"]);
+			expect(JSON.parse(r.stdout).missing).toEqual([
+				{ ticket: 12, sha: "0badc0de9", subject: null },
+			]);
+			expect(run([ticket(11), ticket(12)]).out).toContain(
+				"NOTE: #12's close names 0badc0de9, which names no commit in this clone",
+			);
+		});
 	});
 
 	it("ignores a sub-issue filed in another repo", () => {

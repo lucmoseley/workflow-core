@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /*
  * spec-commits.js — the commits a spec's whole-spec review reads: every commit
- * on HEAD citing the spec or one of its tickets (#892, ruled at #880).
+ * on HEAD citing the spec or one of its tickets (#892, ruled at #880), and
+ * every one a closed ticket's resolution names by sha (#3612).
  *
  *   node scripts/spec-commits.js <spec> [--since <sha>] [--json]
  *
@@ -35,18 +36,27 @@
  * GENERATED FILES ARE MARKED, NOT DROPPED: a file docs/doc-map-classes.json
  * classes `generated-only` or `derived` is reviewed at its generator.
  *
- * Citation match: `#N` not preceded by a word character, `/`, `#` or `-`, so
- * `mantahostels#N` and `design-vault#N` are not ours. A commit that only
- * mentions a ticket is listed too; the reviewer drops it.
+ * TWO ROUTES FIND A COMMIT, and each listed one says which.
+ * - Citation: `#N` in its message, not preceded by a word character, `/`,
+ *   `#` or `-`, so `mantahostels#N` and `design-vault#N` are not ours. A
+ *   commit that only mentions a ticket is listed too; the reviewer drops it.
+ * - Named: a sha in a closed ticket's resolution — every comment carrying a
+ *   `**Door:**` line, which resolve-ticket.js demands of any close naming a
+ *   sha, else a hand close's last comment naming one. A sha cited only for
+ *   reference is listed too; the reviewer drops it. Words resolve as lib/unlanded-commits.js resolves a close's. A
+ *   named commit HEAD lacks is matched to its landed twin on HEAD, one of the
+ *   same author date and subject, as a cherry-pick between `main` and
+ *   `landing` keeps them; one with neither, or a sha-shaped word naming no
+ *   commit in this clone, is printed as a NOTE and not reviewed.
  *
  * IN NO SCRIPT FAMILY (docs/code-standards-base.md §N3): a read-only lister. Exit 0
- * listed (none found included), 1 the tracker unreadable, 2 bad usage or a
- * --since sha not on HEAD.
+ * listed (none found included), 1 the tracker or git unreadable, 2 bad usage
+ * or a --since sha not on HEAD.
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { ghJson, parseErrLine } = require("./lib/gh");
+const { ghApiSlurp, ghJson, parseErrLine } = require("./lib/gh");
 const { readSubIssues } = require("./lib/issue-tree");
 const { sectionAMatcher } = require("./lib/doc-map");
 const { hostRoot } = require("./lib/host-root");
@@ -54,7 +64,9 @@ const { flagValue, parseOrExit } = require("./lib/cli-args");
 const { cutAt } = require("./lib/cut-at");
 const { citedIssues } = require("./lib/cited-issues.js");
 const { commitSha } = require("./lib/commit-sha.js");
-const { execGit } = require("./lib/git.js");
+const { HEX_WORD_RE, hasSha } = require("./lib/outstanding-line.js");
+const { readNamedCommits } = require("./lib/unlanded-commits.js");
+const { execGit, gitReader } = require("./lib/git.js");
 const { readPatchIds } = require("./lib/patch-ids.js");
 const { VERIFIED_BRANCH } = require("./lib/landing-refs.js");
 const { caught } = require("./lib/caught.js");
@@ -67,6 +79,9 @@ const GENERATED = new Set(["generated-only", "derived"]);
  * 1 MB default would already throw on it. */
 const LOG_MAX_BUFFER = 64e6;
 const SHORT_SHA = 12;
+const HEX_WORDS_RE = new RegExp(HEX_WORD_RE.source, "g");
+const LOG_FORMAT = "--format=%x1e%H%x1f%aI%x1f%B%x1f";
+const DOOR_LINE = /^[ \t]*\*\*Door:\*\*/m;
 
 /** @param {string} sha */
 const short = (sha) => sha.slice(0, SHORT_SHA);
@@ -105,7 +120,7 @@ const logArgs = (filedAt, range) => [
 	"log",
 	"--reverse",
 	`--since=${filedAt}`,
-	"--format=%x1e%H%x1f%aI%x1f%B%x1f",
+	LOG_FORMAT,
 	"--name-only",
 	range,
 ];
@@ -148,17 +163,149 @@ function isOnMain(sha) {
 	}
 }
 
+/** @param {{ authored: string, subject: string }} c */
+const twinKey = (c) => `${c.authored} ${c.subject}`;
+
 /**
- * The commits citing any of `numbers`.
+ * @typedef {{ by: "cites" } | { by: "named", ticket: number }
+ *   | { by: "twin", ticket: number, of: string }} Route
+ * @typedef {ReturnType<typeof parseLog>[number] & { ticket: number }} NamedElsewhere
+ *   a named commit HEAD does not hold under its own hash
+ * @typedef {{ ticket: number, sha: string, subject: string | null }} Missing
+ *   a named commit HEAD holds under no hash, `subject` null where this clone
+ *   holds no commit by the sha
+ * @typedef {{ onHead: Map<string, number>, elsewhere: NamedElsewhere[],
+ *   unresolved: Missing[] }} Named
+ */
+
+/**
+ * Each closed ticket's resolution text: every comment carrying a `**Door:**`
+ * line, a reopened ticket's earlier close included, else its last comment
+ * naming a sha.
+ * @param {{ number: number, state: string }[]} tickets
+ * @returns {{ ticket: number, text: string }[]}
+ */
+function readCloses(tickets) {
+	return tickets
+		.filter((t) => t.state === "closed")
+		.map((t) => {
+			/** @type {string[]} */
+			const bodies = ghApiSlurp([
+				`repos/{owner}/{repo}/issues/${t.number}/comments`,
+			]).map((c) => c.body ?? "");
+			const doors = bodies.filter((b) => DOOR_LINE.test(b));
+			const text =
+				doors.length > 0
+					? doors.join("\n")
+					: (bodies.findLast((b) => hasSha(b)) ?? "");
+			return { ticket: t.number, text };
+		});
+}
+
+/**
+ * Whether HEAD contains `sha`; throws where git cannot tell.
+ * @param {string} sha
+ */
+function isOnHead(sha) {
+	try {
+		execGit(["merge-base", "--is-ancestor", sha, "HEAD"], {
+			stdio: ["ignore", "ignore", "pipe"],
+		});
+		return true;
+	} catch (e) {
+		const { status, stderr, message } = caught(e);
+		if (status === 1) return false;
+		throw new Error(`merge-base on ${sha}: ${(stderr ?? message).trim()}`, {
+			cause: e,
+		});
+	}
+}
+
+/**
+ * The commits `closes` name, through lib/unlanded-commits.js's resolver.
+ * Throws where git would not answer.
+ * @param {{ ticket: number, text: string }[]} closes
+ * @returns {Named}
+ */
+function resolveNamed(closes) {
+	const read = gitReader(process.cwd());
+	/** @type {Named} */
+	const named = { onHead: new Map(), elsewhere: [], unresolved: [] };
+	/** @type {Set<string>} */
+	const seen = new Set();
+	for (const { ticket, text } of closes)
+		for (const word of new Set(text.match(HEX_WORDS_RE) ?? [])) {
+			const shas = readNamedCommits(read, word);
+			if (shas.length === 0 && hasSha(word))
+				named.unresolved.push({ ticket, sha: word, subject: null });
+			for (const sha of shas.filter((x) => !seen.has(x))) {
+				seen.add(sha);
+				placeNamed(named, sha, ticket);
+			}
+		}
+	return named;
+}
+
+/**
+ * Files `sha` under `named`: on HEAD by its hash, else with the author date
+ * and subject its landed twin would keep.
+ * @param {Named} named
+ * @param {string} sha
+ * @param {number} ticket
+ */
+function placeNamed(named, sha, ticket) {
+	if (isOnHead(sha)) {
+		named.onHead.set(sha, ticket);
+		return;
+	}
+	const log = execGit(["log", "-1", LOG_FORMAT, sha], { encoding: "utf8" });
+	for (const c of parseLog(log)) named.elsewhere.push({ ...c, ticket });
+}
+
+/**
+ * The commits citing any of `numbers` or named by a close, each with the
+ * route that found it.
  * @param {ReturnType<typeof parseLog>} log
  * @param {Set<number>} numbers
+ * @param {Named} named
  */
-const specCommits = (log, numbers) =>
-	log.filter((c) => [...citedIssues(c.message)].some((n) => numbers.has(n)));
+function specCommits(log, numbers, named) {
+	/** @type {Map<string, NamedElsewhere>} */
+	const byKey = new Map(named.elsewhere.map((o) => [twinKey(o), o]));
+	return log.flatMap((c) => {
+		/** @type {Route | null} */
+		let route = null;
+		const ticket = named.onHead.get(c.sha);
+		const twinOf = byKey.get(twinKey(c));
+		if ([...citedIssues(c.message)].some((n) => numbers.has(n)))
+			route = { by: "cites" };
+		else if (ticket !== undefined) route = { by: "named", ticket };
+		else if (twinOf !== undefined)
+			route = { by: "twin", ticket: twinOf.ticket, of: twinOf.sha };
+		return route === null ? [] : [{ ...c, route }];
+	});
+}
+
+/**
+ * The named commits HEAD holds under neither their hash nor a twin's.
+ * @param {Named} named
+ * @param {ReturnType<typeof specCommits>} listed every commit listed, reviewed
+ *   ones included
+ * @returns {Missing[]}
+ */
+function missingNamed(named, listed) {
+	const held = new Set(listed.map(twinKey));
+	return [
+		...named.elsewhere
+			.filter((o) => !held.has(twinKey(o)))
+			.map(({ ticket, sha, subject }) => ({ ticket, sha, subject })),
+		...named.unresolved,
+	];
+}
 
 /**
  * @typedef {{ sha: string, patchDiffers: boolean }} Twin
- * @typedef {ReturnType<typeof parseLog>[number] & { twin: Twin | null }} Listed
+ * @typedef {ReturnType<typeof specCommits>[number] & { twin: Twin | null }} Listed
  */
 
 /**
@@ -166,8 +313,8 @@ const specCommits = (log, numbers) =>
  * first, else a commit with the same subject and author date whose patch
  * differs. `twinsRead` is false
  * where git will not give patch-ids, so nothing is marked.
- * @param {ReturnType<typeof parseLog>} commits
- * @param {ReturnType<typeof parseLog>} reviewed
+ * @param {ReturnType<typeof specCommits>} commits
+ * @param {ReturnType<typeof specCommits>} reviewed
  * @returns {{ commits: Listed[], twinsRead: boolean }}
  */
 function markTwins(commits, reviewed) {
@@ -186,14 +333,14 @@ function markTwins(commits, reviewed) {
 	for (const r of reviewed) {
 		const id = ids.get(r.sha);
 		if (id !== undefined) byPatch.set(id, r.sha);
-		bySubject.set(`${r.authored} ${r.subject}`, r.sha);
+		bySubject.set(twinKey(r), r.sha);
 	}
 	const marked = commits.map((c) => {
 		const id = ids.get(c.sha);
 		const patchTwin = id === undefined ? undefined : byPatch.get(id);
 		if (patchTwin !== undefined)
 			return { ...c, twin: { sha: patchTwin, patchDiffers: false } };
-		const subjectTwin = bySubject.get(`${c.authored} ${c.subject}`);
+		const subjectTwin = bySubject.get(twinKey(c));
 		return {
 			...c,
 			twin:
@@ -270,6 +417,7 @@ function readArgs(argv) {
  * @property {{ number: number, state: string }[]} tickets
  * @property {number[]} open
  * @property {Listed[]} commits
+ * @property {Missing[]} missing
  * @property {boolean} twinsRead
  * @property {string[]} files
  * @property {Set<string> | null} marked
@@ -287,11 +435,13 @@ function buildJsonReport(v) {
 			since: v.after,
 			tickets: v.tickets.map((t) => t.number),
 			open: v.open,
-			commits: v.commits.map(({ sha, subject, twin }) => ({
+			commits: v.commits.map(({ sha, subject, route, twin }) => ({
 				sha,
 				subject,
+				route,
 				twin,
 			})),
+			missing: v.missing,
 			twinsRead: v.twinsRead,
 			files: v.files.map((f) => ({ path: f, generated: v.generated.has(f) })),
 			generatedMarked: Boolean(v.marked),
@@ -329,6 +479,30 @@ function buildTwinMark(twin) {
 		: `  [already reviewed (twin ${short(twin.sha)})]`;
 }
 
+/** @param {Route} route */
+function buildRouteMark(route) {
+	if (route.by === "cites") return "";
+	return route.by === "named"
+		? `  [named in #${route.ticket}'s close]`
+		: `  [landed twin of ${short(route.of)}, named in #${route.ticket}'s close]`;
+}
+
+/** @param {Missing} m */
+const buildMissingNote = (m) =>
+	m.subject === null
+		? `NOTE: #${m.ticket}'s close names ${m.sha}, which names no commit in this clone — another repository's, unfetched, or rebased away; not reviewed.`
+		: `NOTE: #${m.ticket}'s close names ${short(m.sha)} ${m.subject}, which HEAD holds under neither its hash nor its author date and subject — not landed here, so not reviewed.`;
+
+/** @param {number[]} open @param {Missing[]} missing */
+const buildNotes = (open, missing) => [
+	...(open.length > 0
+		? [
+				`NOTE: ${cite(open)} still open — the spec is not finished, so this is not yet its whole diff.`,
+			]
+		: []),
+	...missing.map(buildMissingNote),
+];
+
 /** @param {SpecView} v */
 function buildTextReport({
 	n,
@@ -336,6 +510,7 @@ function buildTextReport({
 	tickets,
 	open,
 	commits,
+	missing,
 	twinsRead,
 	files,
 	marked,
@@ -348,29 +523,27 @@ function buildTextReport({
 		tickets.length > 0
 			? `#${n} or its ${tickets.length} ticket(s) (${cite(tickets.map((t) => t.number))})`
 			: `#${n} (no ticket)`;
-	const lines = [];
-	if (open.length > 0)
-		lines.push(
-			`NOTE: ${cite(open)} still open — the spec is not finished, so this is not yet its whole diff.`,
-		);
+	const lines = buildNotes(open, missing);
 	if (commits.length === 0) {
 		lines.push(
 			after
-				? `No commit after ${short(after)} cites ${cites}: nothing new to review. Say so in the triage comment, ending it with:`
-				: `No commit since #${n} was filed cites ${cites}: a decision-only spec. Skip the review, and say so in the triage comment.`,
+				? `No commit after ${short(after)} cites ${cites} or is named in a closed ticket's resolution: nothing new to review. Say so in the triage comment, ending it with:`
+				: `No commit since #${n} was filed cites ${cites} or is named in a closed ticket's resolution: a decision-only spec. Skip the review, and say so in the triage comment.`,
 		);
 		if (after) lines.push(...buildReviewedThroughLines(after, throughOnMain));
 		return `${lines.join("\n")}\n`;
 	}
 	lines.push(
-		`${commits.length} commit(s)${after ? ` after ${short(after)}` : ""} cite ${cites}, oldest first:`,
+		`${commits.length} commit(s)${after ? ` after ${short(after)}` : ""} cite ${cites} or are named in a closed ticket's resolution, oldest first:`,
 	);
 	if (!twinsRead)
 		lines.push(
 			"  NOTE: git gave no patch-ids, so no twin of a reviewed commit is marked.",
 		);
 	for (const c of commits)
-		lines.push(`  ${short(c.sha)} ${c.subject}${buildTwinMark(c.twin)}`);
+		lines.push(
+			`  ${short(c.sha)} ${c.subject}${buildRouteMark(c.route)}${buildTwinMark(c.twin)}`,
+		);
 	if (show === null) {
 		lines.push(
 			"",
@@ -405,19 +578,32 @@ function main(argv) {
 	if (typeof args === "number") return args;
 	const { json, n, after } = args;
 
+	/** @type {{ created_at: string, repository_url: string }} */
 	let spec;
-	let kids;
+	let tickets;
+	let closes;
 	try {
 		spec = ghJson(["api", `repos/{owner}/{repo}/issues/${n}`]);
-		kids = readSubIssues(n);
+		/* A sub-issue in another repo is not cited bare from this one. */
+		tickets = readSubIssues(n)
+			.filter(
+				(k) => !k.pull_request && k.repository_url === spec.repository_url,
+			)
+			.map((k) => ({ number: k.number, state: k.state }));
+		closes = readCloses(tickets);
 	} catch (e) {
 		process.stderr.write(`#${n} unreadable: ${parseErrLine(e)}\n`);
 		return 1;
 	}
-	/* A sub-issue in another repo is not cited bare from this one. */
-	const tickets = kids
-		.filter((k) => !k.pull_request && k.repository_url === spec.repository_url)
-		.map((k) => ({ number: k.number, state: k.state }));
+	let named;
+	try {
+		named = resolveNamed(closes);
+	} catch (e) {
+		process.stderr.write(
+			`git could not resolve the shas the closes name: ${caught(e).message}\n`,
+		);
+		return 1;
+	}
 	const numbers = new Set([n, ...tickets.map((t) => t.number)]);
 	const open = tickets.filter((t) => t.state === "open").map((t) => t.number);
 
@@ -431,12 +617,12 @@ function main(argv) {
 				}),
 			),
 			numbers,
+			named,
 		);
 	const found = readSpecCommits(after ? `${after}..HEAD` : "HEAD");
-	const { commits, twinsRead } = markTwins(
-		found,
-		after ? readSpecCommits(after) : [],
-	);
+	const reviewed = after ? readSpecCommits(after) : [];
+	const { commits, twinsRead } = markTwins(found, reviewed);
+	const missing = missingNamed(named, [...reviewed, ...found]);
 	const unread = commits.filter(isUnreviewed);
 	const files = [...new Set(unread.flatMap((c) => c.files))].sort();
 	const marked = generatedOf(files);
@@ -455,6 +641,7 @@ function main(argv) {
 		tickets,
 		open,
 		commits,
+		missing,
 		twinsRead,
 		files,
 		marked,
