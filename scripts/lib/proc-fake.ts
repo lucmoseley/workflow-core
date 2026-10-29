@@ -13,6 +13,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { REAL_PROC } from "./proc-root.js";
 import { FIELD } from "./proc-stat.js";
 import { USER_HZ } from "./proc-table.js";
 
@@ -173,7 +174,7 @@ export function makeProcRoot(uptime = UPTIME) {
 
 	/** Show the real process `pid` in the root, read live through /proc. */
 	function real(pid: number) {
-		fs.symlinkSync(`/proc/${pid}`, path.join(root, String(pid)));
+		fs.symlinkSync(`${REAL_PROC}/${pid}`, path.join(root, String(pid)));
 	}
 
 	return {

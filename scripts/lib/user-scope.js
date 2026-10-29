@@ -20,6 +20,7 @@ const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
+const { REAL_PROC } = require("./proc-root.js");
 const { writeFd } = require("./write-fd.js");
 
 const SYSTEMD_RUN = "systemd-run";
@@ -179,7 +180,8 @@ const cgroupOf = (text) => text.trim().split("::")[1] ?? "";
 function find(scope, pid) {
 	let line;
 	try {
-		line = fs.readFileSync(`/proc/${String(pid)}/cgroup`, "utf8");
+		/* The child systemd-run started is real, so never a fixture root's (#3587). */
+		line = fs.readFileSync(`${REAL_PROC}/${String(pid)}/cgroup`, "utf8");
 	} catch {
 		/* The child is gone: there is no scope left to find. */
 		stopLooking(scope);
@@ -314,8 +316,9 @@ const capReport = (refused, cap) =>
  */
 function hasOwnScopeHitCap() {
 	let cgroup;
+	/* `self` is this process, which no fixture root holds (#3587). */
 	try {
-		cgroup = cgroupOf(fs.readFileSync("/proc/self/cgroup", "utf8"));
+		cgroup = cgroupOf(fs.readFileSync(`${REAL_PROC}/self/cgroup`, "utf8"));
 	} catch {
 		/* No procfs: no scope was made, so there is no cap to have hit. */
 		return false;

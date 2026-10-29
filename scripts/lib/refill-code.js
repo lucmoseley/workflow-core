@@ -24,6 +24,7 @@ const path = require("node:path");
 const { caught } = require("./caught.js");
 const { commitSha } = require("./commit-sha.js");
 const { isUnder } = require("./is-under.js");
+const { procRoot } = require("./proc-root.js");
 const {
 	REMOTE,
 	trackingRefspec,
@@ -221,10 +222,14 @@ function launchProgram({ scriptsDir, codeDir }) {
  */
 function readRunningCode(pid, codeDir) {
 	try {
-		const args = fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0");
+		const args = fs
+			.readFileSync(`${procRoot()}/${pid}/cmdline`, "utf8")
+			.split("\0");
 		const arg = args.find((a) => path.basename(a) === PROGRAM_NAME);
 		if (!arg) return null;
-		const root = rootOf(path.resolve(fs.readlinkSync(`/proc/${pid}/cwd`), arg));
+		const root = rootOf(
+			path.resolve(fs.readlinkSync(`${procRoot()}/${pid}/cwd`), arg),
+		);
 		if (checkoutOf(root) === null) return "a plugin install";
 		const sha = short(git(root, ["rev-parse", "HEAD"]));
 		return path.dirname(root) === codeDir ? sha : `${sha} in ${root}`;

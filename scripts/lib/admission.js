@@ -23,7 +23,7 @@ const os = require("node:os");
 const { parseErrLine } = require("./gh");
 const { readMachineSetting } = require("./machine-setting.js");
 const { readEnvironVar } = require("./proc-environ.js");
-const { procRoot } = require("./proc-root.js");
+const { procRoot, REAL_PROC } = require("./proc-root.js");
 const { configDirFrom } = require("./config-dir.js");
 const { readParentOf } = require("./proc-stat.js");
 const { isClaudeArgv0 } = require("./claude-argv0.js");
@@ -616,7 +616,8 @@ function readRunningVitestSuites() {
 	return { ok: true, workers, whole };
 }
 
-const MEMINFO = () => process.env.WFC_MEMINFO || "/proc/meminfo";
+/* Its seam is WFC_MEMINFO; a WFC_PROC fake carries no meminfo (#3587). */
+const MEMINFO = () => process.env.WFC_MEMINFO || `${REAL_PROC}/meminfo`;
 
 /** One `ps -eo pid=,rss=,args=` row: pid, RSS in KB, argv. */
 const PS_ROW_RE = /^(\d+)\s+(\d+)\s+(?!\s)(.*)$/;

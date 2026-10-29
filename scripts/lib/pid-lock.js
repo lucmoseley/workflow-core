@@ -17,6 +17,7 @@ const path = require("node:path");
 const { pidAlive } = require("./arbiter-proc.js");
 const { asidePath } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
+const { REAL_PROC } = require("./proc-root.js");
 
 /**
  * A file's text, or null where it cannot be read.
@@ -42,7 +43,8 @@ function pidLock(file, marker) {
 	const liveHolder = (text) => {
 		const pid = Number(String(text).trim());
 		if (!Number.isInteger(pid) || pid <= 0 || !pidAlive(pid)) return null;
-		const cmdline = readText(`/proc/${pid}/cmdline`);
+		/* pidAlive asked the real kernel, so its cmdline is read there too (#3587). */
+		const cmdline = readText(`${REAL_PROC}/${pid}/cmdline`);
 		/* Residual: an unreadable cmdline counts as the daemon's, so a lock is
 		 * never taken from a live holder on doubt. */
 		if (cmdline === null) return pid;

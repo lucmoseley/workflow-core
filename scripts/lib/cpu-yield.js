@@ -24,6 +24,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 
 const { caught } = require("./caught.js");
+const { procRoot } = require("./proc-root.js");
 const {
 	parentInFields,
 	parseStatFields,
@@ -99,8 +100,8 @@ function isSameCgroup(a, b, readCgroup, err) {
 function isForeignWholeRunning({
 	queueDir = defaultQueueDir(),
 	pid = process.pid,
-	readStat = (p) => fs.readFileSync(`/proc/${p}/stat`, "utf8"),
-	readCgroup = (p) => fs.readFileSync(`/proc/${p}/cgroup`, "utf8"),
+	readStat = (p) => fs.readFileSync(`${procRoot()}/${p}/stat`, "utf8"),
+	readCgroup = (p) => fs.readFileSync(`${procRoot()}/${p}/cgroup`, "utf8"),
 	alive,
 	err,
 }) {
