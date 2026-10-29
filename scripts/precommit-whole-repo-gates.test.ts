@@ -76,7 +76,7 @@ const GATES = [
 		profile: "test-spawn",
 		checker: "scripts/check-test-spawn.js",
 		staged: "scripts/a.test.ts",
-		args: "--against HEAD",
+		args: "",
 	},
 ];
 
