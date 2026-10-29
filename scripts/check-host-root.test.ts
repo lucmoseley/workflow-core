@@ -146,6 +146,10 @@ describe("JavaScript", () => {
 			'path.join(import.meta.filename, "..", "..")',
 			"path.dirname(import.meta.dirname)",
 			'new URL("..", import.meta.url)',
+			'nodePath.join(__dirname, "..")',
+			"path.dirname(path.dirname(fileURLToPath(import.meta.url)))",
+			'path.join(path.dirname(import.meta.filename), "..")',
+			'path.resolve(url.fileURLToPath(import.meta.url), "..", "..")',
 		];
 		for (const [i, climb] of climbs.entries())
 			write(`scripts/esm${i}.mjs`, `const ROOT = ${climb};\n`);
@@ -165,6 +169,15 @@ describe("JavaScript", () => {
 		write(
 			"scripts/lib/ok.mjs",
 			'const A = path.join(import.meta.dirname, "..", "x.js");\nconst B = path.resolve(fileURLToPath(import.meta.url), "..");\nconst C = new URL("../x.js", import.meta.url);\n',
+		);
+		expect(run().outcome).toBe("OK");
+	});
+
+	it("says nothing about a resolve or join called on another receiver", () => {
+		clean();
+		write(
+			"scripts/other.mjs",
+			'const a = x.resolve(import.meta.dirname, "..", "..");\nconst b = arr.join(__dirname, "..");\n',
 		);
 		expect(run().outcome).toBe("OK");
 	});
@@ -419,21 +432,54 @@ describe("the mirror fault through a variable (#14)", () => {
 		);
 	});
 
-	it("follows a renamed require or a typed import back to the exported name", () => {
+	it("follows a renamed require, a default, a dynamic import and a multi-line import back to the exported name", () => {
 		clean();
 		write(
 			"scripts/lib/consts.js",
 			'const CAP = "scripts/lib/guard-log.sh";\nmodule.exports = { CAP };\n',
 		);
 		write(
-			"scripts/bad.ts",
+			"scripts/bad.mjs",
 			rooted(
-				'const { CAP: LOG } = require("./lib/consts.js");\nimport { type CAP as T } from "./lib/consts.js";\nconst p = path.join(root, LOG);\nconst q = path.join(root, T);\n',
+				'const { CAP: LOG } = require("./lib/consts.js");\nconst { CAP: D = "x" } = require("./lib/consts.js");\nconst { CAP: Y } = await import("./lib/consts.js");\nimport Z, {\n\tCAP as M,\n} from "./lib/consts.js";\nconst p = join(root, LOG);\nconst q = path.join(root, D);\nconst r = path.join(root, Y);\nconst s = path.join(root, M);\n',
 			),
 		);
 		const text = messages(run());
-		expect(text).toMatch(/bad\.ts:5 — LOG joined onto the root/);
-		expect(text).toMatch(/bad\.ts:6 — T joined onto the root/);
+		for (const [line, name] of [
+			[9, "LOG"],
+			[10, "D"],
+			[11, "Y"],
+			[12, "M"],
+		])
+			expect(text).toContain(`bad.mjs:${line} — ${name} joined onto the root`);
+	});
+
+	it("passes a type-only binding of a core-path constant's name", () => {
+		clean();
+		write(
+			"scripts/lib/consts.js",
+			'const CAP = "scripts/lib/guard-log.sh";\nmodule.exports = { CAP };\n',
+		);
+		write(
+			"scripts/ok.ts",
+			rooted(
+				'import { type CAP } from "./lib/consts.js";\nconst p = path.join(root, CAP);\n',
+			),
+		);
+		expect(run().outcome).toBe("OK");
+	});
+
+	it("fails a core path built and joined with a bare join imported from node:path", () => {
+		clean();
+		write(
+			"scripts/bad.mjs",
+			rooted(
+				'const CAP = join("scripts", "lib", "guard-log.sh");\nconst p = join(root, CAP);\nconst q = join(root, "scripts", "x.js");\n',
+			),
+		);
+		const text = messages(run());
+		expect(text).toContain("bad.mjs:4 — CAP joined onto the root");
+		expect(text).toContain("bad.mjs:5 — a core directory joined onto the root");
 	});
 
 	it("passes a local binding whose exported name is no core-path constant", () => {

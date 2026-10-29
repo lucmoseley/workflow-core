@@ -66,9 +66,10 @@
  * as its own segment, a shell expansion it cannot read as a literal, and code
  * hidden by JSX text or a regex literal right after `)` (#3634): JSX text's
  * `//` or `/*` reads as a comment, and its backtick, or such a regex, can pair
- * with a later literal's quote. Nor does it see a `node:path` function reached
- * through an alias (`join as pjoin`) or a namespace import (`import * as p`)
- * (#3635) — the scan is lexical. It is a gate against the
+ * with a later literal's quote. Nor, in ESM (#3635), a `node:path` function
+ * reached through an alias (`join as pjoin`) or a namespace import (`import *
+ * as p`), a `fileURLToPath(new URL(".", import.meta.url))` base, a template
+ * literal in `new URL`, or `import.meta.resolve` — the scan is lexical. It is a gate against the
  * spellings that drifted, not a proof that no script self-roots.
  * `host-root-plugin-cache.test.ts` is the behavioural half: it runs the rooted
  * scripts from a plugin-cache-shaped path and asserts each resolves the host.
@@ -249,13 +250,13 @@ const isTestFile = (/** @type {string} */ rel) =>
 const pathCall = (/** @type {string} */ names) =>
 	String.raw`(?:\b(?:path|nodePath)\.|(?<![\w$.]))(?:${names})\(\s*`;
 
-const FILE_URL = String.raw`fileURLToPath\(\s*import\.meta\.url\s*\)`;
-
-/** The file's own directory: CommonJS `__dirname` or its ESM spellings. */
-const JS_DIR = String.raw`__dirname\b|import\.meta\.dirname\b|${pathCall("dirname")}${FILE_URL}\s*\)`;
+const FILE_URL = String.raw`(?:\burl\.)?fileURLToPath\(\s*import\.meta\.url\s*\)`;
 
 /** The file's own path, which a `..` segment climbs out of to its directory. */
 const JS_FILE = String.raw`import\.meta\.filename\b|${FILE_URL}`;
+
+/** The file's own directory: CommonJS `__dirname` or its ESM spellings. */
+const JS_DIR = String.raw`__dirname\b|import\.meta\.dirname\b|${pathCall("dirname")}(?:${JS_FILE})\s*\)`;
 
 /**
  * `path.resolve` / `path.join` from the file's directory (group 1) or its own
@@ -290,7 +291,7 @@ const CORE_LITERAL = String.raw`["'\x60](?:scripts|\.husky)(?:["'\x60]|/)`;
  */
 const hostCoreJoin = (root) =>
 	new RegExp(
-		String.raw`(?:path|nodePath)\.(?:resolve|join)\(\s*${root}\s*,\s*(?:${CORE_LITERAL}|([A-Za-z_$][\w$]*)\s*[,)])`,
+		String.raw`${pathCall("resolve|join")}${root}\s*,\s*(?:${CORE_LITERAL}|([A-Za-z_$][\w$]*)\s*[,)])`,
 		"g",
 	);
 
@@ -307,13 +308,14 @@ const JS_ROOT_CALL = /[^;\n]*\bhostRoot\(\)/y;
 
 /** A constant naming a core path: `"scripts/…"` or `path.join("scripts", …)`. */
 const JS_CORE_CONST = new RegExp(
-	String.raw`(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:(?:path|nodePath)\.join\(\s*${CORE_LITERAL}|["'\x60](?:scripts|\.husky)/)`,
+	String.raw`(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:${pathCall("join")}${CORE_LITERAL}|["'\x60](?:scripts|\.husky)/)`,
 	"g",
 );
 
-/** The names a file destructures out of a `require`, or imports by name. */
+/** The names a file destructures out of a `require` or a dynamic `import()`,
+ * or imports by name. */
 const JS_BOUND_NAMES =
-	/(?:const|let|var)\s*\{([^}]*)\}\s*=\s*require\(|\bimport\s+(?:[A-Za-z_$][\w$]*\s*,\s*)?\{([^}]*)\}\s*from\b/g;
+	/(?:const|let|var)\s*\{([^}]*)\}\s*=\s*(?:require|(?:await\s+)?import)\(|\bimport\s+(?:[A-Za-z_$][\w$]*\s*,\s*)?\{([^}]*)\}\s*from\b/g;
 
 /** The seam's two limbs, spelled again outside it. */
 const JS_SECOND_SEAM = [
@@ -437,7 +439,7 @@ const coreConstants = (text) =>
 	);
 
 /**
- * Each name a file binds from a `require` or an `import`, local name to the
+ * Each value name a file binds from a `require` or an `import`, local name to the
  * name it was exported under: `{ CAP: LOG }` and `{ CAP as LOG }` bind LOG to CAP.
  * @param {string} text
  * @returns {Map<string, string>}
@@ -449,8 +451,10 @@ function boundNames(text) {
 		for (const part of (m[1] ?? requiredGroup(m, 2, JS_BOUND_NAMES)).split(
 			",",
 		)) {
+			/* A type-only binding feeds no runtime join. */
+			if (/^\s*type\s+[A-Za-z_$]/.test(part)) continue;
 			const [exported, alias] = part
-				.replace(/^\s*type\s+|=.*/gs, "")
+				.replace(/[=].*/s, "")
 				.split(/:|\bas\b/)
 				.map((n) => n.trim());
 			const local = alias ?? exported;
