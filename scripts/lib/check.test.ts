@@ -1036,6 +1036,102 @@ runCheck({
 		expect(`${r.stdout}${r.stderr}`).not.toContain("findings: b");
 	});
 
+	describe("--index (#3687)", () => {
+		const index = (head: string, staged?: string, worktree?: string) =>
+			gate(head, staged, { worktree, args: ["--index"] });
+
+		it("refuses a staged fault HEAD already carries, which --against would pass", () => {
+			const r = index("a\n", "a\n");
+			expect(r.status).toBe(1);
+			expect(r.out).toContain("FAIL: 1 faults");
+		});
+
+		it("judges the staged bytes, never the working tree", () => {
+			expect(index("", "", "b\n").status).toBe(0);
+			const r = index("", "b\n", "");
+			expect(r.status).toBe(1);
+			expect(r.out).toContain("FAIL: 1 faults");
+		});
+
+		it("re-execs over a materialised tree, streaming the checker's own report", () => {
+			const r = index("", "");
+			expect(r.status).toBe(0);
+			expect(r.roots).toHaveLength(1);
+			expect(r.roots[0]).not.toBe(r.root);
+			expect(r.out).toContain("THE-CHECKER'S-OWN-REPORT");
+		});
+
+		it("carries the index side's findings into its --json envelope", () => {
+			const r = gate("", "a\n", { args: ["--index", "--json"] });
+			expect(r.status).toBe(1);
+			const envelope = JSON.parse(r.stdout);
+			expect(envelope.count).toBe(1);
+			expect(envelope.findings).toMatchObject([{ tag: "F", message: "a" }]);
+		});
+
+		it("judges the private index a pathspec commit hands its hooks", () => {
+			const { root, git } = repo("");
+			// A neighbour's fault, staged in the live index alone.
+			fs.writeFileSync(path.join(root, "faults.txt"), "b\n");
+			git("add", "--", "faults.txt");
+			const r = runInProcess(path.join(root, "fixture-check.js"), ["--index"], {
+				cwd: root,
+				env: {
+					...process.env,
+					GITHUB_ACTIONS: "",
+					GIT_INDEX_FILE: path.join(dir, "alt-index"),
+				},
+			});
+			expect(r.status).toBe(0);
+		});
+
+		it("carries a BROKEN index side, naming the checker's reason", () => {
+			const { root, git } = repo("");
+			fs.writeFileSync(path.join(root, "broken.txt"), "");
+			git("add", "--", "broken.txt");
+			const r = runInProcess(path.join(root, "fixture-check.js"), ["--index"], {
+				cwd: root,
+				env: { ...process.env, GITHUB_ACTIONS: "" },
+			});
+			expect(r.status).toBe(2);
+			expect(`${r.stdout}${r.stderr}`).toContain("BROKEN: apparatus gone.");
+		});
+
+		it("caps the index side's findings under --warn", () => {
+			const r = gate("", "a\n", { args: ["--index", "--warn"] });
+			expect(r.status).toBe(0);
+			expect(r.out).toContain("WARN: 1 faults");
+		});
+
+		it("refuses --index on a checker that declares no materialisation", () => {
+			const r = run(checker("return {};"), ["--index"]);
+			expect(r.status).toBe(2);
+			expect(r.out).toContain("takes no --index");
+		});
+
+		it("refuses --index together with --root or --against", () => {
+			const c = checker("return {};", AGAINST_SPEC);
+			for (const [extra, says] of [
+				[["--root", dir], "cannot be combined with --root"],
+				[["--against", "HEAD"], "--index judges the index alone"],
+			] as const) {
+				const r = run(c, ["--index", ...extra]);
+				expect(r.status).toBe(2);
+				expect(r.out).toContain(says);
+			}
+		});
+
+		it("runs the spec's refuse() before reading the index", () => {
+			const c = checker(
+				"return {};",
+				`against: { profile: "guard-test-isolation", materialise: "tree", refuse: (ctx) => ctx.usageError("NOT-WITH-THIS") },`,
+			);
+			const r = run(c, ["--index"]);
+			expect(r.status).toBe(2);
+			expect(r.out).toContain("NOT-WITH-THIS");
+		});
+	});
+
 	it("reads the baseline only when the index has something to attribute", () => {
 		const clean = gate("", "");
 		expect(clean.status).toBe(0);

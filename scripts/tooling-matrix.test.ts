@@ -783,13 +783,19 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 		["`scripts/check-swallowed-errors.js`", /check-swallowed-errors\.js \|\|/],
 		["`scripts/check-cli-args.js`", /check-cli-args\.js --against HEAD/],
 		["`scripts/check-precommit-exit.js`", /check-precommit-exit\.js \|\|/],
-		["`scripts/check-test-spawn.js`", /check-test-spawn\.js \|\| exit/],
-		["`scripts/check-jsonl-reads.js`", /check-jsonl-reads\.js \|\| exit/],
-		["`scripts/check-gh-route.js`", /check-gh-route\.js \|\| exit/],
-		["`scripts/check-clock-copies.js`", /check-clock-copies\.js \|\| exit/],
+		["`scripts/check-test-spawn.js`", /check-test-spawn\.js --index \|\| exit/],
+		[
+			"`scripts/check-jsonl-reads.js`",
+			/check-jsonl-reads\.js --index \|\| exit/,
+		],
+		["`scripts/check-gh-route.js`", /check-gh-route\.js --index \|\| exit/],
+		[
+			"`scripts/check-clock-copies.js`",
+			/check-clock-copies\.js --index \|\| exit/,
+		],
 		[
 			"`scripts/check-report-programs.js`",
-			/check-report-programs\.js \|\| exit/,
+			/check-report-programs\.js --index \|\| exit/,
 		],
 		["`scripts/check-registrations.js`", /check-registrations\.js --against/],
 		[

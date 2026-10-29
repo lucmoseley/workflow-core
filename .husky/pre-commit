@@ -472,17 +472,23 @@ if armed '^scripts/[^/]+\.js$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-cli-args.js --against HEAD || exit "$?"
 fi
 
+# The five whole-tree heresy gates below run on --index, so each judges the
+# tree this commit makes, never a neighbour's untracked or unstaged file, and
+# still refuses a breach HEAD already carries (#3687). Residual: a pathspec
+# commit judges only its own paths, but a bare `git commit` reads the shared
+# index, so a neighbour's STAGED file is still judged.
+
 # A test spawning node on the program under test rather than running it
 # through runInProcess, with no `spawn-kept: <why>` (§X3), judging the whole
 # tree (#3458).
 if armed "^(scripts|\.claude/skills)/.*$JS_TEST_ERE"; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-test-spawn.js || exit "$?"
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-test-spawn.js --index || exit "$?"
 fi
 
 # A hand split-and-parse of JSONL rather than lib/jsonl.js, judging the whole
 # tree (#3452, #3453).
 if armed '^scripts/.+\.[cm]?js$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-jsonl-reads.js || exit "$?"
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-jsonl-reads.js --index || exit "$?"
 fi
 
 # A `gh` call off lib/gh.js and WFC_GH, or a `claude` call off
@@ -490,20 +496,20 @@ fi
 # shell call or a test's PATH stub (§X2, §N7), judging the whole tree (#3455,
 # #3559).
 if armed '^(scripts|\.claude/skills|\.husky|hooks)/'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-gh-route.js || exit "$?"
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-gh-route.js --index || exit "$?"
 fi
 
 # A program reading WFC_NOW itself rather than lib/check.js's now(), judging
 # the whole tree (#3457).
 if armed '^scripts/.+\.[cm]?js$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-clock-copies.js || exit "$?"
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-clock-copies.js --index || exit "$?"
 fi
 
 # A report-* program writing past writeFd or filing past createIssue, judging
 # the whole tree (#3454). Only a report-* holds either breach, so only staging
 # one arms it.
 if armed '^scripts/report-[^/]+\.[cm]?js$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-report-programs.js || exit "$?"
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-report-programs.js --index || exit "$?"
 fi
 
 # A checker line here or in .husky/pre-commit.local exiting 1 on its failure,
