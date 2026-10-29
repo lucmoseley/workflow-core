@@ -95,18 +95,7 @@ function readUnlandedCommits(root, n, comment, { ceiling = NO_CEILING } = {}) {
 	if (!commitOrThrow(read, pushed))
 		throw new Error(`no ${pushed} to compare against`);
 	const format = "--format=%h%x00%at%x00%s";
-	const named = [...new Set(comment.match(HEX_WORDS_RE) ?? [])]
-		.flatMap((w) => {
-			const sha = commitOrThrow(read, w);
-			if (sha) return [sha];
-			/* No commit, or more than one (#3233): each it may mean is judged,
-			 * since a throw would fail the check open. */
-			return git(["rev-parse", `--disambiguate=${w}`])
-				.split("\n")
-				.filter(Boolean)
-				.map((oid) => commitOrThrow(read, oid))
-				.filter((c) => c !== null);
-		})
+	const named = readNamedCommits(read, comment)
 		/* Empty where the pushed ref holds it: the walk starts at it. */
 		.map((sha) => git(["log", "-1", format, sha, "--not", pushed]));
 	/** @type {Error | null} */
@@ -137,6 +126,29 @@ function readUnlandedCommits(root, n, comment, { ceiling = NO_CEILING } = {}) {
 		candidates.size > 0 ? unlandedOf(git, pushed, candidates) : [];
 	if (commits.length === 0 && headUnread) throw headUnread;
 	return { pushed, commits };
+}
+
+/**
+ * The full sha of each commit `text` names by a hex word, every one an
+ * ambiguous short sha may mean included (#3233), and none for a word naming
+ * no commit. Throws where git would not answer.
+ * @param {GitReader} read
+ * @param {string} text
+ * @returns {string[]}
+ */
+function readNamedCommits(read, text) {
+	const shas = [...new Set(text.match(HEX_WORDS_RE) ?? [])].flatMap((w) => {
+		const sha = commitOrThrow(read, w);
+		if (sha) return [sha];
+		const r = read(["rev-parse", `--disambiguate=${w}`], []);
+		if (!r.ok) throw new Error(`git rev-parse: ${r.why}`);
+		return r.out
+			.split("\n")
+			.filter(Boolean)
+			.map((oid) => commitOrThrow(read, oid))
+			.filter((c) => c !== null);
+	});
+	return [...new Set(shas)];
 }
 
 /**
@@ -185,4 +197,9 @@ ${commits.map((c) => `  ${c.sha} ${c.subject}`).join("\n")}
 Push ${one ? "it" : "them"} first, then close. Pushed from another clone: git fetch ${REMOTE} ${branch}, then re-run. Not this ticket's to land — a neighbour's commit that cites it in passing, or one abandoned: add "**Unlanded:** <why the close stands without ${one ? "it" : "them"}>" to the comment.`;
 }
 
-module.exports = { hasUnlandedLine, readUnlandedCommits, unlandedRefusal };
+module.exports = {
+	hasUnlandedLine,
+	readNamedCommits,
+	readUnlandedCommits,
+	unlandedRefusal,
+};
