@@ -793,6 +793,11 @@ describe("rewinding main is refused (#765)", () => {
 		["git update-ref refs/heads/ma\\in HEAD~1", "main, escaped (#3518)"],
 		["git reset --hard HEAD\\~1", "the commit, escaped (#3518)"],
 		["git branch -D ma\\in", "deleted, escaped (#3518)"],
+		[
+			"git update-ref refs/heads/{main,side} HEAD~1",
+			"main among a brace group's words (#3578)",
+		],
+		["git branch -D {x}y,main}", "main past a literal `}` (#3578)"],
 		["git update-ref main-worktree/HEAD HEAD~1", "the shared tree's HEAD"],
 		['git update-ref "m$X" HEAD~1', "read up to inside main-worktree/HEAD"],
 		["git branch -f main HEAD~1", "forced"],
@@ -1005,6 +1010,7 @@ describe("rewinding main is refused (#765)", () => {
 	it.each([
 		'git checkout -B "$B" --ignore-other-worktrees HEAD',
 		'git update-ref "refs/heads/$B" HEAD',
+		"git update-ref refs/heads/{main,side}",
 	])(
 		"but inside a worktree %s is refused with the main-rewind rule — nothing else stops main",
 		(command) => {

@@ -260,6 +260,31 @@ describe("literal (mantahostels#284)", () => {
 		expect(read(w).text).toBe(text);
 	});
 
+	it.each([
+		["refs/heads/{main,side}", "refs/heads/"],
+		["a{1..3}", "a"],
+		["x{a,{b}}", "x"],
+		["{'a',b}", ""],
+		["{x}y,main}", ""],
+		["refs/heads/{}x,main}", "refs/heads/"],
+	])(
+		"reads %s, a brace group bash expands, only as far as %s (#3578)",
+		(w, head) => {
+			expect(read(w)).toMatchObject({ known: false, head });
+		},
+	);
+
+	it.each([
+		"HEAD@{1}..HEAD@{2}",
+		"main@{u}",
+		"{}",
+		'"{"a,b}',
+		"{a\\,b}",
+		"{a','b}",
+	])("reads %s, braces bash leaves alone, as known (#3578)", (w) => {
+		expect(read(w).known).toBe(true);
+	});
+
 	it("leaves the spans it reads as they were", () => {
 		// Safe in a command substitution, the span count unmoved.
 		const p = parseCommand("-f query='a b'");

@@ -86,33 +86,82 @@ const beforeFirst = (s, sep) => {
 const DOUBLE_ESCAPES = '$`"\\\n';
 
 /**
+ * Whether `c`, followed by `next`, is a backslash escaping it.
+ * @param {string} c
+ * @param {string} next
+ * @param {boolean} double whether inside a `"…"` span
+ */
+const isEscape = (c, next, double) =>
+	c === "\\" && next !== "" && (!double || DOUBLE_ESCAPES.includes(next));
+
+/**
  * Masked text outside a single-quoted span, read as bash reads it (#3518):
- * `{ text, at }`, `text` with each backslash escape undone — unquoted `\x`
- * is `x`, a `"…"` span's per DOUBLE_ESCAPES — and `at` where in `text` its
- * first unescaped `$` or `` ` `` stands, -1 where none does. The masker
- * already dropped an unquoted backslash-newline.
+ * `{ text, at, bare }`, `text` with each backslash escape undone — unquoted
+ * `\x` is `x`, a `"…"` span's per DOUBLE_ESCAPES — `at` where in `text` its
+ * first unescaped `$` or `` ` `` stands, -1 where none does, and `bare`
+ * `text` with every quoted or escaped character as `\0`, for braceAt. The
+ * masker already dropped an unquoted backslash-newline.
  * @param {string} s
  * @param {boolean} double whether `s` is a `"…"` span's text
  */
 function parseEscapes(s, double) {
 	let text = "";
+	let bare = "";
 	let at = -1;
 	for (let i = 0; i < s.length; i++) {
 		const c = s.charAt(i);
 		const next = s.charAt(i + 1);
-		if (
-			c === "\\" &&
-			next !== "" &&
-			(!double || DOUBLE_ESCAPES.includes(next))
-		) {
-			if (next !== "\n") text += next;
+		if (isEscape(c, next, double)) {
+			const kept = next === "\n" ? "" : next;
+			text += kept;
+			bare += "\0".repeat(kept.length);
 			i++;
 		} else {
 			if (at < 0 && (c === "$" || c === "`")) at = text.length;
 			text += c;
+			bare += double ? "\0" : c;
 		}
 	}
-	return { text, at };
+	return { text, at, bare };
+}
+
+/**
+ * Where the first brace group bash would expand opens in a word's `bare`
+ * reading (#3578): an unquoted `{` not after a `$`, closed by its matching
+ * `}`, holding a `,` or `..` at its own depth — `{a,b}`, `{1..3}`. -1 where
+ * none does. Any `..` counts, though bash expands only a well-formed
+ * sequence, so the error is a word read as unknown.
+ * @param {string} bare
+ */
+function braceAt(bare) {
+	for (let i = 0; i < bare.length; i++)
+		if (
+			bare.charAt(i) === "{" &&
+			bare.charAt(i - 1) !== "$" &&
+			hasBraceSplit(bare, i)
+		)
+			return i;
+	return -1;
+}
+
+/**
+ * Whether the `{` at `open` in `bare` is closed and holds a `,` or `..` at
+ * its own depth. A `}` closing it before either is literal to bash, which
+ * scans on: `{x}y,main}` is `x}y` and `main`.
+ * @param {string} bare
+ * @param {number} open
+ */
+function hasBraceSplit(bare, open) {
+	let depth = 0;
+	let sep = false;
+	for (let j = open; j < bare.length; j++) {
+		const c = bare.charAt(j);
+		if (c === "{") depth++;
+		else if (c === "}" && depth === 1 && sep) return true;
+		else if (c === "}" && depth > 1) depth--;
+		else if (depth === 1 && (c === "," || bare.startsWith("..", j))) sep = true;
+	}
+	return false;
 }
 
 /**
@@ -120,10 +169,10 @@ function parseEscapes(s, double) {
  * the text as bash reads it, backslash escapes undone (#3518), printed
  * EITHER WAY so a caller can judge on the visible part, `known` false where
  * any of it could not be read — an unescaped `$VAR`, a command substitution,
- * or a sentinel naming a span never recorded, which is read on from right
- * after its prefix — and `head` the text before its first unescaped
- * expansion or unrecorded sentinel, so text the shell reads as written
- * (#3441).
+ * an unquoted brace group bash expands into several words (#3578), or a
+ * sentinel naming a span never recorded, which is read on from right after
+ * its prefix — and `head` the text before the first of them, so text the
+ * shell reads as written (#3441).
  * @param {string} word
  * @param {string[]} spans
  */
@@ -131,6 +180,17 @@ function literal(word, spans) {
 	/** @type {string | null} */
 	let head = null;
 	let seen = "";
+	let bare = "";
+	/**
+	 * `text` onto `seen` and its `bare` reading onto `bare`, so the two stay
+	 * index-aligned for braceAt's cut.
+	 * @param {string} text
+	 * @param {string} bareText
+	 */
+	const append = (text, bareText) => {
+		seen += text;
+		bare += bareText;
+	};
 	/**
 	 * @param {string} s the text after `seen`
 	 * @param {boolean} double whether it is a `"…"` span's
@@ -138,7 +198,7 @@ function literal(word, spans) {
 	const readOn = (s, double) => {
 		const r = parseEscapes(s, double);
 		if (head === null && r.at >= 0) head = seen + r.text.slice(0, r.at);
-		seen += r.text;
+		append(r.text, r.bare);
 	};
 	const { rest } = readSentinels(word, (lit, idx) => {
 		readOn(lit, false);
@@ -149,12 +209,22 @@ function literal(word, spans) {
 		}
 		const span = recorded.slice(1);
 		/* A single-quoted span is literal whatever it holds. */
-		if (recorded.charAt(0) === "'") seen += span;
+		if (recorded.charAt(0) === "'") append(span, "\0".repeat(span.length));
 		else readOn(span, true);
 		return { text: "", stepPast: true };
 	});
 	readOn(rest, false);
-	return { text: seen, known: head === null, head: head ?? seen };
+	const brace = braceAt(bare);
+	/* tsc narrows `head` to null, blind to the closures' writes. */
+	const exprHead = /** @type {string | null} */ (head);
+	const braceFirst =
+		brace >= 0 && (exprHead === null || brace < exprHead.length);
+	const unknownHead = braceFirst ? seen.slice(0, brace) : exprHead;
+	return {
+		text: seen,
+		known: unknownHead === null,
+		head: unknownHead ?? seen,
+	};
 }
 
 /** A word as `read -ra` splits one line: on runs of IFS whitespace. */
