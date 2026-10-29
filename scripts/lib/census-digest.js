@@ -823,8 +823,10 @@ function libDirsOf(rels) {
 const hasCensusLine = (text) => hasLine(text, "Census", "\\S");
 
 /**
- * readRowsExpiredByTicket over the repo's own anchors file. A repo with none has
- * no census to owe. Throws where git, the file or a formatter cannot answer.
+ * readRowsExpiredByTicket over the repo's own anchors file as HEAD holds it, so
+ * a neighbour's uncommitted copy neither refuses a close nor excuses one
+ * (#3521). A repo with none has no census to owe. Throws where git, the file or
+ * a formatter cannot answer.
  *
  * @param {string} root
  * @param {number} n
@@ -832,9 +834,12 @@ const hasCensusLine = (text) => hasLine(text, "Census", "\\S");
  * @returns {string[]}
  */
 function readExpiredRows(root, n, opts) {
-	const file = path.join(root, DEFAULT_ANCHORS);
-	if (!fs.existsSync(file)) return [];
-	const { guards } = JSON.parse(fs.readFileSync(file, "utf8"));
+	const bytes = readCommittedBytes(root, DEFAULT_ANCHORS, "HEAD", {
+		...opts,
+		disk: false,
+	});
+	if (bytes === null) return [];
+	const { guards } = JSON.parse(bytes.toString("utf8"));
 	return readRowsExpiredByTicket(root, guards ?? {}, n, opts);
 }
 

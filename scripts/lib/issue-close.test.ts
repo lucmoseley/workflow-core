@@ -912,12 +912,26 @@ describe("the census rows it reads", () => {
 		]);
 	});
 
+	it("denies on HEAD's anchors where only a neighbour's dirty copy is broken (#3521)", () => {
+		reword();
+		fs.writeFileSync(
+			path.join(shared, "scripts/instruction-surface-anchors.json"),
+			"{ not json",
+		);
+		expect(readDenyReason("gh issue close 12", lined)).toContain(
+			`  ${guardRel}\n`,
+		);
+		expect(faults).toEqual([]);
+	});
+
 	it("fails open, recorded, where the census read faults", () => {
 		reword();
 		fs.writeFileSync(
 			path.join(shared, "scripts/instruction-surface-anchors.json"),
 			"{ not json",
 		);
+		git("commit", "-qam", "Break the anchors");
+		git("update-ref", "refs/remotes/origin/main", "HEAD");
 		expect(verdict("gh issue close 12", lined)).toBe("allow");
 		expect(faults).toEqual([
 			"the census reader gave no verdict on #12 — census rows unchecked",

@@ -535,10 +535,7 @@ describe("census rows the ticket's commits expired (#1876)", () => {
 		fs.mkdirSync(path.join(sb.repo, "scripts"), { recursive: true });
 		fs.writeFileSync(path.join(sb.repo, guardRel), body);
 	};
-	const anchored = () => {
-		gitRepo(sb);
-		writeGuard("#!/bin/sh\necho rule one\n");
-		commitAll(sb, "seed");
+	const writeAnchors = () =>
 		fs.writeFileSync(
 			path.join(sb.repo, "scripts/instruction-surface-anchors.json"),
 			JSON.stringify({
@@ -547,6 +544,11 @@ describe("census rows the ticket's commits expired (#1876)", () => {
 				},
 			}),
 		);
+	const anchored = () => {
+		gitRepo(sb);
+		writeGuard("#!/bin/sh\necho rule one\n");
+		commitAll(sb, "seed");
+		writeAnchors();
 		commitAll(sb, "anchor");
 	};
 
@@ -634,6 +636,34 @@ describe("census rows the ticket's commits expired (#1876)", () => {
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(`  ${guardRel}\n`);
 		expect(r.stderr).toContain(`  ${core}\n`);
+		untouched();
+	});
+
+	const anchorsRel = "scripts/instruction-surface-anchors.json";
+	const rewordAndReanchor = () => {
+		const stale = fs.readFileSync(path.join(sb.repo, anchorsRel), "utf8");
+		writeGuard("#!/bin/sh\necho rule one, reworded\n");
+		commitAll(sb, "Reword the guard (#534)");
+		writeAnchors();
+		return stale;
+	};
+
+	it("passes where HEAD re-anchored the row and a neighbour's dirty copy holds the old digest (#3521)", () => {
+		setUp({ parentLabels: null });
+		anchored();
+		const stale = rewordAndReanchor();
+		commitAll(sb, "Re-anchor the guard (#534)");
+		fs.writeFileSync(path.join(sb.repo, anchorsRel), stale);
+		expect(run([]).status).toBe(0);
+	});
+
+	it("refuses where only a neighbour's dirty copy re-anchored the row (#3521)", () => {
+		setUp({ parentLabels: null });
+		anchored();
+		rewordAndReanchor();
+		const r = run([]);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(`  ${guardRel}\n`);
 		untouched();
 	});
 
