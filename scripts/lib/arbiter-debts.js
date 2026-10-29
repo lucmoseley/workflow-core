@@ -305,7 +305,7 @@ function clearDebt(rel, issue) {
 	if (first === undefined) return { status: "none" };
 
 	let target;
-	if (issue === undefined || issue === null) {
+	if (issue === undefined) {
 		if (entries.length > 1)
 			return { status: "ambiguous", entries: entries.map((e) => e.record) };
 		target = first;

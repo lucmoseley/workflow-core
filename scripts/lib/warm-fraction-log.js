@@ -731,8 +731,7 @@ const CLAIM = { low: 0.6, high: 0.8, source: "mantahostels#385" };
  * @returns {Verdict}
  */
 function verdictOn(s) {
-	if (!s?.enough || s.pooled === null || s.pooled === undefined)
-		return { state: "provisional" };
+	if (!s?.enough || s.pooled === null) return { state: "provisional" };
 	const half = s.ci95 ?? 0;
 	const low = s.pooled - half;
 	const high = s.pooled + half;

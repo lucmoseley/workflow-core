@@ -120,7 +120,7 @@ describe("the render's helper-surface closure", () => {
 		surface("scripts/lib/h.js", "scripts/lib/g.sh");
 		write("scripts/lib/h.js", '// require("./gone");\n');
 		write("scripts/lib/g.sh", `# source "${STRIPPED}/gone.sh"\n`);
-		buildTree(root, out);
+		expect(() => buildTree(root, out)).not.toThrow();
 	});
 
 	it("refuses a closure that requires an npm package, naming the file and the package", () => {
