@@ -50,14 +50,13 @@
  * `exports.<name> = <name>` per name, rather than replacing it. The namespace
  * takes the family's own name, suffixed `Mod` only where a local of that name
  * already exists in the requiring file. arbiter-proc.js, project-slug.js,
- * hook-record.js, priced-options-limbs.js and parked-marker.js are exempt and
+ * hook-record.js and priced-options-limbs.js are exempt and
  * ARE destructured: each is a leaf outside this set and no cycle can reach any
  * of them.
  * hook-record.js joined at mantahostels#3382, which moved the breadcrumbs off
  * the repo root — arbiter-markers.js asks it where they are rather than keeping
  * a second copy of the path; priced-options-limbs.js at #1474, for the same
- * reason about guard-priced-options.js's prefixes; parked-marker.js at #3372,
- * about the park marker's.
+ * reason about guard-priced-options.js's prefixes.
  *
  * THE OTHER TWELVE FAMILIES WRITE `module.exports = {...}`. The three keep one
  * line per name rather than one `Object.assign(module.exports, {...})`, because
