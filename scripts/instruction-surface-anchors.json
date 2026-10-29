@@ -121,7 +121,7 @@
 			"source": "#3143, #3201, #3468"
 		},
 		"scripts/lib/branch-publish.js": {
-			"digest": "634b1033599fcb17",
+			"digest": "85ec2e2dcd2dd170",
 			"verdict": "at need on the bare and the wrapped spellings — with the landing module on, a push to a branch or to `main` (`main` only the lander moves) and `gh pr create`, bare or behind `env`, `timeout 30`, `timeout 30s` or `command`, are refused with the landing rule (1887–1914 B, re-fed under #3268). A force-push or remote deletion of `main` (`--force`, `-f`, `--force-with-lease` and its abbreviation, a `+` refspec, `heads/main`, `--delete`/`--del main`, `:main`), wrapped or bare, is refused with the main-rewind rule before it runs (`--force` 1074 B, `:main` 1076 B); a push to `landing` and a deletion of another branch pass silent. A `gh pr merge` of a Dependabot PR — its `dependabot/*` branch named, or a `gh pr view` lookup answering true — is refused with the dependabot-merge rule (2298 B by branch name, re-fed under #3373); one the lookup clears, or `--disable-auto`, passes silent (#2020). With landing off a plain push to `main` passes silent (re-fed at #3146). The `gh pr view` lookup carries an 8 s cap under the dispatcher's 30 s budget: re-fed under #3268, a lookup answering true in 5 s still refused, 2413 B, and one answering in 40 s was cut at 8.15 s and the merge passed, logged; with git answering in 8 s the git-dir read was cut and a push passed at 3.2 s, logged. Run as a core of scripts/guard-dispatch.js (#2792); fed through it at 5c45b5a16 under #3201. Byte counts are the whole hook stdout.",
 			"selfSufficient": "yes — rule, both landing recipes and the pass list inline; the force/delete-`main` refusal carries the main-rewind reason, the follow-up-commit fix and the resets that pass; the Dependabot-merge refusal carries the whole local-fix recipe and names the guard-npm-install core that refuses an install without `--ignore-scripts`. With the rule store empty each refusal keeps a one-line rule and names its file: branch-publish.txt, branch-publish-landing.txt, main-rewind.txt, landing-rewind.txt or dependabot-merge.txt (Dependabot 420 B, re-fed under #3201)",
 			"source": "#2792, #3201"
@@ -133,7 +133,7 @@
 			"source": "#3143, #3201"
 		},
 		"scripts/lib/sweep-fire.js": {
-			"digest": "ef94dffb7d482caa",
+			"digest": "5cc0631570cf3380",
 			"verdict": "at need for the deny (4th fire of the UTC day, before it runs). The three allowed fires each spend a unit with 0 B printed — a session learns it spent budget only when the budget is already gone (by design: no injection limb, header cites the route-(f) Bash byte cap). Run as a core of scripts/guard-dispatch.js (#2790)",
 			"selfSufficient": "yes for the deny — budget state, reset time and rule inline.; re-fed at #3146 through the entry with an empty rule store: the rule's place takes the fallback template line naming docs/agents/rules/sweep-fire-budget.txt, the budget state and the command still inline.; re-fed at #1994: fires 1-3 exit 0 with 0 B, fire 4 a 1502 B deny, its why-three now a pointer to scripts/lib/sweep-budget.js.",
 			"source": "#2790"
@@ -169,7 +169,7 @@
 			"source": "#3143, #3279, #3269, #3421, #3426"
 		},
 		"scripts/lib/tracker-rules.js": {
-			"digest": "ef286ce9d3457de4",
+			"digest": "caba42bf1d54bc51",
 			"verdict": "at need on the first engaging call of the session; latched once per session per id thereafter Run as a core of scripts/guard-dispatch.js (#2792: every bash case moved to a module case with mutation proof, the boundary set kept as program cases)",
 			"selfSufficient": "yes — each fragment carries rule, reason and the command shape inline",
 			"source": "#2792"
@@ -205,7 +205,7 @@
 			"source": "#2386, #2529, #2581, #2792"
 		},
 		"scripts/lib/founder-wording.js": {
-			"digest": "31cecedbd1a4a0f4",
+			"digest": "46e5f360d21c6807",
 			"verdict": "at need on both routes — prompt route fires on the founder's message before the reply it governs; Skill route as diagnosing-bugs loads Its Skill route runs as a core of scripts/guard-dispatch.js, its prompt route through scripts/inject-founder-wording.js (#2792: every bash case moved to a module case with mutation proof)",
 			"selfSufficient": "yes — the four checks with the resolved tracker list, and the full re-pitch instructions, are inline; re-fed after #3378: the fault and re-pitch prompts 938 B and 914 B, the control and a loop resume or mod delivery quoting the phrases silent",
 			"source": "#2792, #3378"
@@ -235,7 +235,7 @@
 			"source": "#2791, #3443"
 		},
 		"scripts/lib/agent-poll.js": {
-			"digest": "069e53ab80fc311c",
+			"digest": "e4ec485ff6da6bd0",
 			"verdict": "too late — deny lands on the 3rd call for agents and read:<file> (and for a subagent's read), on the 2nd for noop; check and check:job never deny, warning from the 4th call inside 5 minutes. The harmful look has already run 2 times (1 for noop) before any text reaches the session. Run as a core of scripts/guard-dispatch.js, on Bash, Read and ListAgents since #3224 (#2791: its refusal and warning text byte-identical to the bash guard's, captured before its deletion); at #2896 an import move only (segment from review-suffix.js), measured by agent-poll.test.ts exact-text cases",
 			"selfSufficient": "yes, but late — each deny opens with the corrected command and the #845 mechanism; subagent variant correctly says wait inside the turn instead of ending it, on all five limbs. The parent's check:job warn ends \"the backgrounded watch is what wakes this session\" though its own advice names no backgrounded watch, only `sleep 120` spacing.",
 			"source": "#2791"
@@ -247,7 +247,7 @@
 			"source": "#2791"
 		},
 		"scripts/lib/recursive-dot-read.js": {
-			"digest": "9c477465de30ecf4",
+			"digest": "0bd7a44f9d5a4c55",
 			"verdict": "at need, before the search runs, on a root named (`grep -rn PAT .`) or none (`grep -r PAT`, `rg PAT`). The prompt is named only where the payload's permission mode shows one: in `auto` a recursive grep warns on the node_modules/.git/build-output read it really makes, and an `rg` search passes silent. A path-less `rg` fed by a pipe passes, per its LIMITS. The heavy-tree limb, #2060: fed at 3ef670321 `grep -rn foo node_modules` and `find . -name x` it hands over rule:heavy-tree-search, and the same command again in that session nothing; `grep -rn PAT .` gets the rewrite warning with the rule after it; `grep -rn PAT scripts`, `find scripts -name x` and `rg -l PAT .` in auto mode nothing. Run as a core of scripts/guard-dispatch.js (#2791: its refusal and warning text byte-identical to the bash guard's, captured before its deletion)",
 			"selfSufficient": "yes — the ready-to-run replacement command, keeping what follows the search (`| head -5`), plus the mechanism (grep's read of ignored trees; the prompt, in a mode that shows one) and the expansion's losses are inline; the heavy-tree limb is yes — rule:heavy-tree-search whole, naming the source directories, a root-run `rg` and `-prune` as the routes",
 			"source": "#2791"
@@ -283,7 +283,7 @@
 			"source": "#1604, #2786, #3359, #3449"
 		},
 		"scripts/lib/suite-concurrency.js": {
-			"digest": "bec10299f362fca4",
+			"digest": "425efaaf9d2ba35b",
 			"verdict": "at need — every limb fires on the launch itself, before the suite starts; a second `next build` or `next dev` beside a running one is denied whatever the headroom and with no escape (`WFC_SUITE_CONCURRENT=1` does not stand it down), npm's `run build` and `npx next dev` included; a launch already through `queue-run.js` passes the count cap, `node scripts/queue-run.js -- pytest` beside one running suite drawing the 363 B past-the-ladder warn; fed `npm run test` at 1000 MB it denies under the ~2900 MB whole-suite rung with `Run instead: npm run test -- --queue`, and `pytest` with `node scripts/queue-run.js -- pytest`, a `--queue` launch drawing the headroom warn instead (#2305); fed `npm run test -- a.test.ts` it denies at 1000 MB under that run's own ~1450 MB rung, naming the 1 vitest worker its named files can occupy, and passes it at 1500 (#2558); beside one running whole suite, read off `ps` argv or off a launch record carrying `wholeSlot`, a bare `npm run test:changed` or `--full` run is denied at the count cap, and a bare `npm run test` too in a host with `landing` off (#2680); with `landing` on, as here, a bare `npm run test` beside it is admitted as a touched run, the deny saying when every running one is an open watcher that it never finishes; a running process whose launch record carries 2 resolved files takes no slot and is charged its 2 workers, so `npm run test -- a.test.ts` beside it meets a ~2150 MB rung (#2931); a touched run, four named files or `--retest`, beside a running whole suite is admitted, and beside 3 running suites two or three named files are only warned past the ladder, never at the count cap (#2935); beside one running 1-file run `npm run test -- --full=flag` is denied at 2450 and 2950 MB under the ~3250 MB rung \"for 6 vitest workers, 1 of them already running\" and passes at 3300 (#2772); the first build or whole-suite launch a session makes (`npm run test:py` naming no path included) gets the MemAvailable reading and `rule:memory-figure` before it starts (#2024); in an adopter with `suites` on, fed `npm run test` over a plain `vitest run` script declared as `commands.test`, it hands over `rule:targeted-runs` ahead of `rule:suite-tree-dirty`, and nothing more on the repeat; `npm run test -- a.test.ts` and `npm run test:changed` get no `rule:targeted-runs` (#2237); in a host declaring `cargo test` as `commands.test`, that launch typed bare is handed `rule:targeted-runs` (269 B) once a session, beside three running suites too, and is never counted toward the count cap, as #2586 measured for `npx jest`, `yarn test`, `pnpm test`, `bun test`, `make test` and `go test ./...` through the seven #2303 registrations; a bare `tsc --noEmit` beside a running `.bin/tsc` is denied (275 B) and `npx tsc -p tsconfig.strict.json --noEmit` at 2000 MB under the ~2750 MB type-check rung (302 B), `WFC_SUITE_CONCURRENT=1` not standing it down, while `npm run typecheck` beside a running one and a bare `tsc` on a free slot pass silent (#3163). Fed at main b201208bd and at landing 44b882f87 under #2907, the `tsc` limb at landing c7b451e19 + 63bb56959 under #3163, `ps`, `/proc/meminfo` and `/proc/<pid>/environ` stubbed. Re-fed at 98b633923 under #3490 through `scripts/guard-dispatch.js --only guard-suite-concurrency`, the same stubs, every figure byte-identical at b0802220f (the anchored code): the 363 B and 269 B figures unchanged; the bare-`tsc` and type-check-rung denies 345 and 372 B through the dispatcher, where 275 and 302 were the deleted standalone entry's, and 368 and 395 B with `WFC_SUITE_CONCURRENT=1` prefixed, whose `Run instead:` keeps the prefix; a second `next build` 516 B, `npm run build` 519, `npx next dev` 523, the escape-prefixed build 539; `npm run test` at 1000 MB 642, `pytest` 634, the `--queue` warn 687; `npm run test -- a.test.ts` 652 at 1000 MB and at 2100 beside the 2-file record, passing at 1500 with only rule:suite-tree-dirty (903 B on a session's first launch); the count-cap denies 576 (`test:changed`) and 575 (`--full`), off `ps` argv or a `wholeSlot` record alike, 697 beside an open watcher, 568 for a bare `npm run test` with `landing` off; the past-ladder warns 431 and 441 for two and three named files beside three; `--full=flag` 630 at 2450 and 2950, and at 3300 rule:memory-figure with rule:suite-tree-dirty 1474; `npm run test:py` 643 and a lone `next build` 639 on the memory-figure limb, the repeat silent; the #2237 adopter's `npm run test` 1100; aimed at #3383's trims (61bcf56a0), `npm run test -- a.test.ts` padded with blanks and a tab at 1000 MB refused 652 B, its `Run instead:` trimmed, and `echo hi &&   pytest   # run it` 675 B in the swap-in-compound form, both as at b0802220f. The whole dispatcher prints the same, save `npx tsc -p tsconfig.strict.json --noEmit`, where guard-npm-install's bare-`npx` deny joins it (1234 B).",
 			"selfSufficient": "yes — the count-cap deny and the deny of a test launch under its §6 memory rung, a named-file run's rung set by the vitest workers it can occupy (#2305, #2558), open with the literal command to run instead plus the escape: `--queue` on a run-vitest.js launch, `node scripts/queue-run.js -- <launch>` on any other suite (`node --test`, pytest, a plain npm script), as the whole command or as the launch to swap into a compound one, a loop's keywords dropped; a watcher gets the wait and its launch re-run, never `queue-run.js`, whatever its script body (#1927); both ladder warns name the figure, the shortfall and the lever (reap command / narrow the run, or wait where the run is narrowed as far as it goes); the injection carries the whole rule; the second-build/dev deny carries the never-two rule, the reason and the `ps` line that finds the running one; the memory-figure injection carries the before reading and the whole rule (#2024); the targeted-runs injection carries the whole rule (#2237); the bare-`tsc` deny opens with `node scripts/queue-run.js --tsc -- <launch>` and names the limb, a running `tsc` or the reading against the ~2750 MB rung (#3163)",
 			"source": "#2024, #2237, #2305, #2560, #2586, #2907, #3163, #3490"
@@ -313,13 +313,13 @@
 			"source": "#1780"
 		},
 		"scripts/guard-lost-verdict.js": {
-			"digest": "e1caea86633e08f4",
+			"digest": "c058cce696690360",
 			"verdict": "at need — it lands right after the call whose verdict was cut and before the session would re-run the suite",
 			"selfSufficient": "yes — it hands over the verdict itself and the log path, plus the instruction not to re-run",
 			"source": "#1846"
 		},
 		"scripts/lib/file-claim.js": {
-			"digest": "311a0aabb4d0e8d0",
+			"digest": "a803ead9041cee86",
 			"verdict": "at need — refusal on the contended write itself; cluster on the first clean guarded write, led on a `derived` or `generated-only` doc by the authority-class rule, on the roadmap HTML (roadmap on) by the roadmap-edit rule, on the operating manual (governance and roadmap on) by the manual-sync rule, and on a skill file, CLAUDE.md or AGENTS.md by the writing-for-agents rule, which outside both tiers it prints alone.. Run as a core of scripts/guard-dispatch.js (#2788)",
 			"selfSufficient": "yes — refusal carries holder, wait command, escape, request and debt commands with the literal path; the clean-fire cluster states each rule and its command; fed an Edit of docs/roadmap-digest.md it opens with rule:doc-authority-class, of docs/reference-roadmap.html with rule:roadmap-edit where roadmap is on and with rule:claim-bash-route where it is off, of docs/operating-manual.md with rule:manual-sync where governance and roadmap are on and without it where either is off, of CLAUDE.md with rule:writing-for-agents, of .agents/skills/tdd/SKILL.md with rule:writing-for-agents alone, and of docs/working-contract.md with none of the three.",
 			"source": "#2788"
@@ -361,7 +361,7 @@
 			"source": "#2072, #3157, #3189, #3489"
 		},
 		"scripts/guard-selection-sum.js": {
-			"digest": "7d8562dd4dd21ccf",
+			"digest": "021fb09c08224a87",
 			"verdict": "at need (the dispatch turn's Stop); silent for an unarmed session, as designed. Re-fed under #3377 after #2188's DISPATCH_LINE fix: unarmed 0 B; armed with no accounting line 1,419 B, and the same on a `- **`#341, # 353,  #366`**` line; wrong sum 561 B; correct sum 0 B; a failing 20-number double-spaced line 0 B in 0.1 s.",
 			"selfSufficient": "yes — defect, the run's measured figure and the template all inline",
 			"source": "#1604, #3377"
@@ -379,7 +379,7 @@
 			"source": "#1810, #3157"
 		},
 		"scripts/guard-inventory.js": {
-			"digest": "c1b20308c13e4414",
+			"digest": "53f66237b3f7ffec",
 			"verdict": "at need (the ending turn of a background job)",
 			"selfSufficient": "yes — the defect, the exact shape to write and the whole underlying rule are inline",
 			"source": "#1810"
@@ -397,7 +397,7 @@
 			"source": "#1846, #3272, #3524"
 		},
 		"scripts/guard-automode-refusal.js": {
-			"digest": "e77d62093fffe29e",
+			"digest": "e8e977c9dacc0203",
 			"verdict": "at need (end of the turn carrying the refusal, while the session can still act)",
 			"selfSufficient": "yes — the refused act, its reason and the whole rule with its exception are inline; one cross-reference (`docs/environment.md` §Auto mode…) for the allow-rule detail",
 			"source": "#1604"
@@ -409,7 +409,7 @@
 			"source": "#3070"
 		},
 		"scripts/guard-paste-self-match.js": {
-			"digest": "9be42fd2084af725",
+			"digest": "ab11112b5a44e092",
 			"verdict": "at need (the turn handing the paste over, before the founder runs it)",
 			"selfSufficient": "yes — mechanism, the exact match (or, under `-v`, miss) against the paste or, without `-f`, the shell's name `bash` (#1842), and the fix inline: kill by pid, or for a paste match keep the target out of the rest of the paste, or for a name match use a pattern `bash` does not match",
 			"source": "#1842"
@@ -427,7 +427,7 @@
 			"source": "#1604"
 		},
 		"scripts/lib/blind-dispatch.js": {
-			"digest": "16e34bdf7ae7928d",
+			"digest": "5c574ed050bda78a",
 			"verdict": "at need — refuses the dispatch before the subagent takes its snapshot, on \"blind\" in prompt or description (\"blind spot\" excepted); a stale `Blind-checked:` sha is refused with the subjects landed since, an unknown one with the full snapshot, a fork outright; Explore, Plan and a CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS child pass. A blind dispatch that never says \"blind\" is unseen. Run as a core of scripts/guard-dispatch.js (#2791: its refusal and warning text byte-identical to the bash guard's, captured before its deletion)",
 			"selfSufficient": "yes for the common route — the branch, five subjects and status the subagent would read, the judgement to make, and the literal `Blind-checked: <HEAD>` line to add; the no-snapshot recipe is a pointer to docs/agents/blind-dispatch.md",
 			"source": "#2791"
@@ -439,7 +439,7 @@
 			"source": "#3143, #3201, #3421"
 		},
 		"scripts/check-weakens-line.js": {
-			"digest": "6155ced0b5dd2097",
+			"digest": "95b009717eb3b606",
 			"verdict": "at need — refuses the commit at commit-msg, before it lands, naming each unnamed weakening; fed mantahostels 59c506122's index and message it refused, naming guard-vitest-wrapper.sh and check-snapshot-restatements.js among 27; fed at HEAD 935829f81 and re-fed at landing 2c6d99fe3 under #3157 a commit run with WFC_UPSTREAM_RECORD_OFF=1, it refused naming the variable (1,100 B at 2c6d99fe3), and passed once a Weakens: line named it. Re-fed both at HEAD 694b00352 after #2636 routed its git through WFC_GIT: the same 27 names and the same stand-down refusal and pass. WFC_GIT naming the real git answers as PATH did; fed at b2845e969 and re-fed at 2c6d99fe3 after #3068 put HEAD's read on one fail-closed reader, one that exits 1 or 128 or does not exist refuses as BROKEN, naming git rev-parse HEAD (exit 2), and a repo with no commits still skips (#2864). Fed at b93b04a71 after #3075 made lib/commit-message.js follow git's cleanup mode: under WFC_UPSTREAM_RECORD_OFF=1 a Weakens: line below the scissors line passed on a -F commit, which records it, and refused naming the variable under commit.cleanup=scissors and with no GIT_EDITOR (the editor route), which cut it. New with #2636: at 5b616c699~1 WFC_GIT did not reach the checker and that commit was refused. Fed at e2d6199b7 after #3337 matched the config by the shared CONFIG_PATH: a staged `disabled` entry refused naming guard-foo, and passed once a Weakens: line named it.",
 			"selfSufficient": "yes — each line names the weakening and the Weakens: line to write, and rule:weakens-line follows whole; re-fed at #3157 with an empty rule store: the rule's place takes the fallback template line naming docs/agents/rules/weakens-line.txt (370 B).",
 			"source": "#2761, #2864, #3066, #3068, #3157, #3337"
@@ -457,7 +457,7 @@
 			"source": "#2586"
 		},
 		"scripts/lib/cpu-load.js": {
-			"digest": "53a6581c8e926b32",
+			"digest": "e8ac89edbdbdbe58",
 			"verdict": "at need — before the generator starts, every call, no latch: `yes > /dev/null &`, `stress-ng --cpu 8 --timeout 60`, `while true; do :; done &`, `bash load.sh` (the script backgrounding `yes`, its 490 B net of the longer scratch path it was fed at) and `bash -c 'yes > /dev/null &'` each refused (477, 490, 486, 490 and 496 B, fed at 18a1598da under #3143 with WFC_CPU_COUNT=8); `yes | head -3`, `stress-ng --version`, a `sleep` loop, a script with no generator, `sh -c 'echo hi'` and the `systemd-run -p CPUQuota=400%` and `taskset -c 0-3` forms passed, 0 B; a core that throws refuses (90 B, `guard-cpu-load.js could not judge this command, so it refuses it: …`). Byte counts are the deny reason or context text alone, not hook stdout. Run as a core of scripts/guard-dispatch.js since #3224; not re-measured there, so the figures are the deleted standalone entry's.",
 			"selfSufficient": "yes — the reason, the machine's core count, both capped forms with this machine's cap and the pass shape inline",
 			"source": "#3143"
@@ -499,7 +499,7 @@
 			"source": "#3143"
 		},
 		"scripts/lib/unchecked-rm.js": {
-			"digest": "9bdff9535a986533",
+			"digest": "a33140ac8a17c55c",
 			"verdict": "at need — before the command reaches the harness's removal check, once per command: `rm -rf \"$T\"/*`, `cd build && rm *.log` and `bash -c \"make clean\"; rm a.txt` each refused (1,084, 1,032 and 1,087 B, fed at #2801's Node port), the identical re-send and `rm -rf /tmp/x`, `rm -rf $T` and `R=/tmp; rm -rf $R/a` passed Run as a core of scripts/guard-dispatch.js since #3226; re-fed through it under #3268 with the same figures, those being the reason text alone (1,208, 1,156 and 1,211 B whole hook stdout), and the identical re-send silent.",
 			"selfSufficient": "yes — the limb's reason, the two spellings that never meet the check and the re-send escape inline",
 			"source": "#2586"
