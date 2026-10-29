@@ -1,3 +1,0 @@
-const bin = path.join(dir, "bin");
-fs.writeFileSync(path.join(bin, "gh"), script, { mode: 0o755 });
-const env = { PATH: `${bin}${path.delimiter}${process.env.PATH}` };
