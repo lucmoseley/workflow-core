@@ -182,8 +182,7 @@ link="To link: scripts/link-sub-issue.sh <parent> ${created} — it resolves the
 # MAX_ASK caps the lookups, NOT the asks: issues past it are still named, from
 # the payload alone, at no call each.
 MAX_ASK=2
-gh="${WFC_GH:-gh}"
-ghjson() { timeout "$1" "$gh" issue view "$2" --json "$3" 2>/dev/null || true; }
+ghjson() { timeout "$1" gh issue view "$2" --json "$3" 2>/dev/null || true; }
 labels_of() { printf '%s' "$1" | jq -r '[.labels[]?.name] | join(" ")' 2>/dev/null || true; }
 
 label=""
@@ -191,7 +190,7 @@ takes=""
 overflow=""
 mine=""
 gh_ok=0
-command -v "$gh" >/dev/null 2>&1 && gh_ok=1
+command -v gh >/dev/null 2>&1 && gh_ok=1
 
 # The session's own labels fix the family EVERY issue in this call joins, so they
 # are read once here rather than once per issue.

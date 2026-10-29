@@ -314,7 +314,6 @@ describe("task: one run's sandbox", () => {
 
 		const env = {
 			...process.env,
-			// gh-route-exempt: a session's own Bash `gh` reaches the stub by PATH alone.
 			PATH: `${path.join(to, "bin")}:${process.env.PATH}`,
 		};
 		const gh = (...args: string[]) =>

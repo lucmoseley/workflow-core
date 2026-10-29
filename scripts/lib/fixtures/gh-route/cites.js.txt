@@ -1,1 +1,0 @@
-/* const out = execFileSync(process.env.WFC_GH || "gh", args); */
