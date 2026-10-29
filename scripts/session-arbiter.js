@@ -163,11 +163,9 @@ const {
 } = require("./lib/doc-map.js");
 
 /*
- * NOT ON THE HOOK PATH. cmdCheck stays on the bare id: the oracle costs ~465 ms,
- * which mantahostels#411 bars from a PreToolUse hook, and that hook runs on every Write and
- * Edit.
- *
- * A refusal degrades to the id.
+ * NOT ON THE HOOK PATH. cmdCheck names from the registry alone: the oracle costs
+ * ~465 ms, which mantahostels#411 bars from a PreToolUse hook, and that hook runs on every
+ * Write and Edit.
  */
 /*
  * ONE ORACLE READ FOR THE WHOLE PROCESS, and every field a report needs comes
@@ -187,8 +185,28 @@ function relistSessions() {
 	return listedMemo;
 }
 
+/**
+ * The id-to-name lookup every line naming a session reads: the oracle's name,
+ * then the sessions registry's, so an oracle that times out under load still
+ * names the holder (#3557). Absent where neither names it, which leaves the id.
+ * @param {Map<string, string>|null|undefined} listed the oracle's names, or
+ *   none where the route must not read it
+ * @returns {SessionNames}
+ */
+function sessionNames(listed) {
+	const registry = store.registryNames();
+	return {
+		get: (id) => {
+			const name = listed?.get(id) || registry(id);
+			return name === id ? undefined : name;
+		},
+	};
+}
+
+/** @typedef {{get: (id: string) => string|undefined}} SessionNames */
+
 function holderNames() {
-	return listedOnce().names || null;
+	return sessionNames(listedOnce().names);
 }
 
 /**
@@ -203,7 +221,7 @@ function holderTerminal() {
 function nameResolver() {
 	const names = holderNames();
 	return (/** @type {string|null} */ id) =>
-		(id && names?.get(id)) || id || "an unidentified session";
+		(id && names.get(id)) || id || "an unidentified session";
 }
 
 /** When a holder hears a request: every requester-facing text says it so (#855). */
@@ -330,17 +348,17 @@ function describeSession(id, name, lock = null) {
  * cannot say which verdicts those are, and this file exports nothing, so no
  * test can drive the limb that would prove it.
  * @param {LockRecord|null} lock
- * @param {Map<string, string>|null} [names]
+ * @param {SessionNames} [names]
  */
 function describeHolder(lock, names = holderNames()) {
 	const id = lock?.sessionId;
-	return describeSession(id, (id && names?.get(id)) || null, lock ?? {});
+	return describeSession(id, (id && names.get(id)) || null, lock ?? {});
 }
 
 /**
  * @param {string} rel
  * @param {LockRecord} lock
- * @param {Map<string, string>|null} [names]
+ * @param {SessionNames} [names]
  */
 function buildDenyReason(rel, lock, names) {
 	/*
@@ -732,7 +750,7 @@ function denyWrite(notes, broken, subjects, blocked) {
 				permissionDecisionReason: [
 					...notes,
 					broken,
-					buildDenyReason(blocked.rel, blocked.lock, null),
+					buildDenyReason(blocked.rel, blocked.lock, sessionNames(null)),
 					set,
 				]
 					.filter(Boolean)
@@ -3194,7 +3212,7 @@ function notHeldWhy(w) {
 function buildWaitHolderText(w, h) {
 	if (!h) return "a holder that could not be identified";
 	if (w.issue === null) return describeHolder(h);
-	return describeSession(h.sessionId, holderNames()?.get(h.sessionId) || null);
+	return describeSession(h.sessionId, holderNames().get(h.sessionId) || null);
 }
 
 /**
