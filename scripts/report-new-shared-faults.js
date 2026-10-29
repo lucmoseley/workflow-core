@@ -71,6 +71,7 @@ const CHECKERS = {
 	"gh-route": path.join(CORE_SCRIPTS, "check-gh-route.js"),
 	"clock-copies": path.join(CORE_SCRIPTS, "check-clock-copies.js"),
 	"report-programs": path.join(CORE_SCRIPTS, "check-report-programs.js"),
+	"precommit-exit": path.join(CORE_SCRIPTS, "check-precommit-exit.js"),
 	"cli-args": path.join(CORE_SCRIPTS, "check-cli-args.js"),
 	"test-spawn": path.join(CORE_SCRIPTS, "check-test-spawn.js"),
 };
@@ -179,6 +180,11 @@ const COSTS = {
 		why: "every report-* program's output and issue filing, judged whole-tree in .husky/pre-commit (#3454)",
 		cost: "refuses every other session's commit staging a report-* until that program writes through writeFd and files through createIssue",
 		full: "node scripts/check-report-programs.js",
+	},
+	"precommit-exit": {
+		why: "every checker line in .husky/pre-commit and .husky/pre-commit.local, judged on the index in .husky/pre-commit (#3456)",
+		cost: "refuses every other session's commit staging either hook until that line passes its checker's exit code on",
+		full: "node scripts/check-precommit-exit.js",
 	},
 	"cli-args": {
 		why: "every top-level script's argv reader, direction-gated in .husky/pre-commit (#920)",

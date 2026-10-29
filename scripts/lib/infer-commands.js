@@ -150,15 +150,16 @@ const RUN_VERB = new Map([
 /** @param {Word[]} command @returns {Run|undefined} */
 function findRun(command) {
 	const at = command.findIndex((w) => !isOpaque(w) && RUN_VERB.has(w.value));
-	const isRun = RUN_VERB.get(command[at]?.value ?? "");
-	if (!isRun) return;
+	const verb = command[at];
+	const isRun = RUN_VERB.get(verb?.value ?? "");
+	if (!verb || !isRun) return;
 	let k = command.findIndex((w, i) => i > at && isRun(w.value));
 	if (k < 0) return;
 	do k++;
 	while (command[k]?.value.startsWith("-"));
 	const name = command[k];
 	if (!name || isOpaque(name)) return;
-	return { runner: command[at].value, name: name.value, at, end: k + 1 };
+	return { runner: verb.value, name: name.value, at, end: k + 1 };
 }
 
 /* A command with its run's runner and name shed and its handed-on words

@@ -167,6 +167,7 @@ const buildTemplate = (root: string) => {
 		"scripts/check-commit-message-closes.sh",
 		"scripts/check-commit-subject.sh",
 		"scripts/review-tier-trailer.sh",
+		"scripts/lib/review-tier-stamp.sh",
 		"scripts/lib/rule-text.sh",
 		"docs/agents/rules/commit-closes-keyword.txt",
 		"docs/agents/rules/commit-message.txt",

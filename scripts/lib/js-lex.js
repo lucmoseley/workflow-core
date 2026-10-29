@@ -56,10 +56,13 @@ function isInsideInert(text, i) {
 	let hi = spans.length;
 	while (lo < hi) {
 		const mid = (lo + hi) >> 1;
-		if (spans[mid][0] < i) lo = mid + 1;
+		const span = spans[mid];
+		if (span === undefined) throw new Error(`no inert span at ${mid}`);
+		if (span[0] < i) lo = mid + 1;
 		else hi = mid;
 	}
-	return lo > 0 && spans[lo - 1][1] >= i;
+	const before = spans[lo - 1];
+	return before !== undefined && before[1] >= i;
 }
 
 /**

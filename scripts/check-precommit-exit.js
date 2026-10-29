@@ -5,7 +5,7 @@
  * reaches the committer as a finding (base §N4, #3456).
  *
  * Usage:
- *   node check-precommit-exit.js [--root <dir>] [--json] [--warn]
+ *   node check-precommit-exit.js [--root <dir>] [--against <rev>] [--index] [--json] [--warn]
  *
  * LEXICAL. It reads `.husky/pre-commit` and `.husky/pre-commit.local` at the
  * root, joining backslash-continued lines. A BREACH is a line ending
@@ -125,8 +125,14 @@ function parseBreaches(text) {
 
 runCheck({
 	name: "precommit-exit",
-	usage: "node check-precommit-exit.js [--root <dir>] [--json] [--warn]",
+	usage:
+		"node check-precommit-exit.js [--root <dir>] [--against <rev>] [--index] [--json] [--warn]",
 	valueFlags: ["--root"],
+	against: {
+		profile: "precommit-exit",
+		materialise: "blobs",
+		pathspecs: () => FILES,
+	},
 	run(/** @type {Ctx} */ ctx) {
 		const root = path.resolve(ctx.value("--root") ?? hostRoot());
 		const files = FILES.filter((rel) => fs.existsSync(path.join(root, rel)));

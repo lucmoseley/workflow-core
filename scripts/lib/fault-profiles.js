@@ -235,6 +235,8 @@ const PROFILES = {
 	"clock-copies": findingsProfile(on("severity", "tag", "file", "match")),
 	/* One output call or create per finding, keyed as jsonl-reads is (#3454). */
 	"report-programs": findingsProfile(on("severity", "tag", "file", "match")),
+	/* One checker line exiting 1, keyed on its text, never its line (#3456). */
+	"precommit-exit": findingsProfile(on("severity", "tag", "file", "match")),
 	/* One spawn per finding, at its call's first line, never its line number:
 	 * an edit above an inherited spawn must not read as adding it (#3458). */
 	"test-spawn": findingsProfile(on("severity", "tag", "file", "call", "nth")),
