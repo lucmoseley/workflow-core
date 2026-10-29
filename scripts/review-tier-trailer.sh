@@ -4,7 +4,7 @@
 # commit's own record of its sensitive-path review (#3664, spec #1612
 # §Disposition and records, Reach).
 #
-# IMPLICIT:  consumes the git directory's `wfc-review-tier`, which scripts/review-hold-gate.sh leaves on a pass, and where its tree is the one this commit carries, writes `Review-Tier: <tier>; areas=<a,b>; base=<sha>; tree=<sha>; paths=<p,q>` into the message file, replacing any the message already carries.
+# IMPLICIT:  consumes the stamp scripts/review-hold-gate.sh leaves on a pass (scripts/lib/review-tier-stamp.sh names it), and where its tree is the one this commit carries, writes `Review-Tier: <value>`, in the form that gate builds, into the message file, replacing any the message already carries.
 # JUSTIFIED: reach — scripts/report-remeasure-due.js counts a commit by it where no `**Review findings:**` comment names it.
 # DEFEAT:    any route that skips the hold skips the trailer with it: the founder's own terminal, a linked worktree, `HUSKY=0`.
 #
@@ -27,6 +27,9 @@ if [[ $# -ne 1 ]]; then
   exit 2
 fi
 msg="$1"
+# A direct `sh -e` run of the hook hands no message file; nothing is held
+# there, so no stamp is consumed and no fault logged.
+[[ -n "$msg" ]] || exit 0
 
 # dropped <why> [<detail>] — say this commit lands with no trailer, and log it.
 dropped() {
@@ -37,14 +40,17 @@ dropped() {
   exit 0
 }
 
-gitdir="$(git rev-parse --absolute-git-dir 2>/dev/null)" || exit 0
-stamp="$gitdir/wfc-review-tier"
+# shellcheck source=scripts/lib/review-tier-stamp.sh
+source "${BASH_SOURCE[0]%/*}/lib/review-tier-stamp.sh" 2>/dev/null ||
+  dropped "scripts/lib/review-tier-stamp.sh would not load"
+gitdir="$(git rev-parse --absolute-git-dir 2>/dev/null)" ||
+  dropped "git named no git directory to read the review hold's stamp from"
+stamp="$(review_tier_stamp "$gitdir")"
 [[ -f "$stamp" ]] || exit 0
 # Consumed on read, so a stamp outliving its commit stands behind no other.
 recorded="" value=""
 { read -r recorded && read -r value; } <"$stamp"
 rm -f "$stamp"
-[[ -n "$msg" ]] || exit 0
 [[ -n "$recorded" && -n "$value" ]] || dropped "the review hold's stamp $stamp could not be read"
 
 # git runs the hook from the top level, which a relative GIT_INDEX_FILE names.
