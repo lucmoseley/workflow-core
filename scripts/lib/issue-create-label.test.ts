@@ -129,6 +129,10 @@ const verdict = (command: string, cwd = shared, setup: Gh = {}) => {
 };
 
 /** The refusal `command` earns, as the session reads it. Throws on an allow. */
+/** A REST create carrying a valid label, waiting for its body field. */
+const REST_CREATE =
+	"gh api --method POST repos/o/r/issues -f title=x -f 'labels[]=takes:implement'";
+
 const readDenyReason = (command: string, setup: Gh = {}) => {
 	const d = run(command, shared, setup);
 	if (!d || !("deny" in d)) throw new Error(`expected a deny for: ${command}`);
@@ -1083,6 +1087,18 @@ describe("the blank-body limb (mantahostels#3443)", () => {
 		);
 	});
 
+	it("denies a REST create's empty body field, and passes one with none (#3492)", () => {
+		const out = readDenyReason(`${REST_CREATE} -f body=`);
+		expect(out).toContain(`${blank} is empty`);
+		expect(out).toContain("-F body=@<path>");
+		expect(out).not.toContain("--body-file");
+		expect(readDenyReason(`${REST_CREATE} -f 'body=  '`)).toContain(
+			`${blank} is empty`,
+		);
+		expect(verdict(REST_CREATE)).toBe("allow");
+		expect(verdict(`${REST_CREATE} -f body=why`)).toBe("allow");
+	});
+
 	it("reads an unquoted `~/` --body-file under HOME (#2796)", () => {
 		vi.stubEnv("HOME", shared);
 		fs.writeFileSync(path.join(shared, "present.md"), "why\n");
@@ -1234,11 +1250,19 @@ describe("the basis limb (#672)", () => {
 		}
 	});
 
+	it("denies a REST create's unbased gate line as the flag form's (#3492)", () => {
+		const out = readDenyReason(
+			`${REST_CREATE} -f 'body=**Gated until:** 2026-09-29 — a day live'`,
+		);
+		expect(out).toContain("sets a wait with nothing behind it");
+	});
+
 	it("allows the same bodies once a basis is written, and a measurement window", () => {
 		for (const call of [
 			`${create} --body-file - <<'BODY'\n**Gated until:** 2026-09-29 — a day live\n**Gate basis:** counters live 24 hours\nBODY`,
 			`${create} --body "80 asks in 30 days"`,
 			`${create} --body-file - <<'BODY'\nquoted as \`after a week\` here\nBODY`,
+			`${REST_CREATE} -f 'body=**Gated until:** 2026-09-29 — a day live\n**Gate basis:** counters live 24 hours'`,
 		]) {
 			expect(verdict(call)).toBe("allow");
 		}
@@ -1259,6 +1283,16 @@ describe("the check limb (#3487)", () => {
 	it("lets a runnable check through unrun, warning that nothing says it prints", () => {
 		expect(verdict(gated("`true`"))).toBe("warn");
 		expect(said(gated("`true`"))).toContain("was not run here");
+	});
+
+	it("refuses a REST create's check that cannot run, and warns one that was not run (#3492)", () => {
+		const rest = (check: string) =>
+			`${REST_CREATE} -f 'body=**Gated on:** it lands — check: ${check} — abandon if: it is dropped\n**Gate basis:** the landing sets it'`;
+		expect(readDenyReason(rest("`echo `x``"))).toContain(
+			"reads as NOT-A-COMMAND",
+		);
+		expect(verdict(rest("`true`"))).toBe("warn");
+		expect(said(rest("`true`"))).toContain("was not run here");
 	});
 });
 
