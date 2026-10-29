@@ -11,9 +11,6 @@
  * that the denominator counts silent allows, and that a guard whose trigger
  * cannot be read reports unknown rather than a zero rate.
  *
- * `docs/data/lost-deny-*-2026-09-06.csv` is the real fixture: the dumps the
- * published figures were computed from.
- *
  * EVERY CASE RUNS THE SCRIPT END TO END through runInProcess — against a
  * `WFC_LOST_DENY_ROOT` fixture tree (`fixtureRoot` below) or this checkout's
  * own — and reads its `--json` or its text, never a helper behind it (#1369:

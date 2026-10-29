@@ -8,8 +8,6 @@
  *
  * The fixtures are settings-shaped objects, not the repo's own settings.json:
  * a test asserting the live wiring would fail on any legitimate rewiring.
- * `docs/data/lost-deny-true-invocations-2026-09-06.csv` carries the reading of
- * the live file that the census actually used.
  */
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
