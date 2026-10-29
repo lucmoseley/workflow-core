@@ -123,7 +123,7 @@ Copy a row's exemplar, never the nearest file doing the same job (**Primitive**,
 | Finding the host repository | `hostRoot()` in `scripts/lib/host-root.js` | `scripts/check-stale-git-locks.js` | §0, its floor table | `scripts/check-host-root.js` |
 | Reading a program's command line | `scripts/lib/cli-args.js`, or `node:util`'s strict `parseArgs` | `scripts/check-plugin-gap.js` | §0, its floor table | `scripts/check-cli-args.js` |
 | Reading a JSONL file or text | `readJsonl`, `parseJsonl` or, for a streamed line, `parseJsonlRow` in `scripts/lib/jsonl.js` | `scripts/lib/dispatch-ledger.js` | §0, its floor table | `scripts/check-jsonl-reads.js` |
-| Reading the clock | `now()` in `scripts/lib/check.js`, pinned by `WFC_NOW` | `scripts/check-history-trim.js` | §0, its floor table | `scripts/check-clock-copies.js` |
+| Reading the clock | `now()` in `scripts/lib/check.js`, pinned by `WFC_NOW`; for a guard core, a host port's `now(env)` handed its `ctx.env` | `scripts/check-history-trim.js`, `scripts/lib/sweep-fire-host.js` | §0, its floor table | `scripts/check-clock-copies.js` |
 | Invoking `gh`, and stubbing it in a test | `gh`, `ghJson` and their kin in `scripts/lib/gh.js`, reading `WFC_GH`; `"${WFC_GH:-gh}"` in shell; a test's stub at `WFC_GH` from `scripts/lib/gh-stub.ts` | `scripts/check-issue-orphans.js`, `scripts/link-sub-issue.sh`, `scripts/check-issue-orphans.test.ts` | §X2, §N7 | `scripts/check-gh-route.js` |
 | Writing a program's output | `writeFd` in `scripts/lib/write-fd.js` | `scripts/check-plugin-gap.js` | §N6 | Standards axis criterion |
 | Writing a `report-*` program's output | `writeFd` in `scripts/lib/write-fd.js` | `scripts/report-new-shared-faults.js` | §N6 | `scripts/check-report-programs.js` |
