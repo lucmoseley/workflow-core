@@ -19,11 +19,11 @@ import {
 	ghAnswerNode,
 	ghFakeScript,
 	ghServeLines,
-	quoted,
 	type SubIssuesAnswer,
 	subIssuesAnswer,
 } from "./gh-fake";
 import { buildServerClient } from "./gh-stub-server.js";
+import { shellQuote } from "./sh-quote.js";
 
 const LOGGED_OUT = path.join(__dirname, "fixtures/gh/logged-out.json");
 
@@ -98,7 +98,7 @@ const routeAnswer = (a: RouteAnswer): GhAnswer => {
 };
 
 /** `key` as a shell `case` pattern in which `*` alone is special. */
-const casePattern = (key: string) => key.split("*").map(quoted).join("*");
+const casePattern = (key: string) => key.split("*").map(shellQuote).join("*");
 
 const BLOCKED_BY_ROUTE = /^[^*]*\/issues\/(\d+)\/dependencies\/blocked_by$/;
 
@@ -157,10 +157,10 @@ const blockers = ${JSON.stringify(blockers)};
 serveAnswer(answerBlockedBy(process.argv.slice(2), (n) => blockers[n] ?? null));
 `,
 		);
-		arms.unshift(`  graphql) exec node ${quoted(file)} "$@" ;;`);
+		arms.unshift(`  graphql) exec node ${shellQuote(file)} "$@" ;;`);
 	}
 	const script = `#!/bin/sh
-${log ? `printf '%s\\n' "$*" >> ${quoted(log)}\n` : ""}route_key() {
+${log ? `printf '%s\\n' "$*" >> ${shellQuote(log)}\n` : ""}route_key() {
   [ "$1" = api ] || { printf '%s' "$*"; return; }
   [ "$2" = graphql ] && { printf graphql; return; }
   key=$2 sep='?' fields= get=

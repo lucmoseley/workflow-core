@@ -171,10 +171,10 @@ const {
  * (mantahostels#2196). */
 const {
 	REFUSAL_NAMED_MAX,
-	shellWord,
 	readTrackedStatus,
 	readUntrackedFiles,
 } = require("./lib/dirty-tree.js");
+const { shellQuote } = require("./lib/sh-quote.js");
 const {
 	QUEUE_FLAG,
 	FULL_FLAG,
@@ -1559,7 +1559,7 @@ function isolatedRefusal(mine) {
 		"",
 		rest
 			? "Commit them by pathspec first, reading the full set off `git status --porcelain` — NOT `-uno`, which drops the untracked half of this set (mantahostels#2196)."
-			: `Commit them first — \`git commit -m "<why, in plain language>" -- ${shown.map(shellWord).join(" ")}\`.`,
+			: `Commit them first — \`git commit -m "<why, in plain language>" -- ${shown.map(shellQuote).join(" ")}\`.`,
 		"Or run with --shared to accept a shared-tree run instead.",
 		"",
 	].join("\n");

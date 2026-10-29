@@ -166,7 +166,7 @@ const {
 	newBody,
 } = require("./gh-body.js");
 const { ISSUE_VALUE_FLAGS, issueWord } = require("./gh-issue-ref.js");
-const { shellWord } = require("./script-path.js");
+const { shellQuote } = require("./sh-quote.js");
 const {
 	deny,
 	open,
@@ -556,7 +556,7 @@ function judgeLabels(run, segment, made) {
 	if (takes.length > 0) return;
 	const { fix, flag, key } = made.route;
 	const shown = ["takes:triage", ...made.labels]
-		.map((l) => ` ${flag} ${shellWord(`${key}${l}`)}`)
+		.map((l) => ` ${flag} ${shellQuote(`${key}${l}`)}`)
 		.join("");
 	denyMissing(run, segment, `${fix}${shown}`);
 }

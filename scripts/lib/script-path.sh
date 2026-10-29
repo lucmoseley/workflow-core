@@ -42,10 +42,10 @@ _sp_read_stdin() {
   _sp_into="${_sp_into%"${_sp_into##*[!$'\n']}"}"
 }
 
-# Quoted for a shell only where it needs it — script-path.js's shellWord.
+# Quoted for a shell only where it needs it — sh-quote.js's shellQuote.
 sp_shell_word() {
   local LC_ALL=C
-  if [[ "$1" =~ ^[A-Za-z0-9_@%+=:,./-]+$ ]]; then
+  if [[ "$1" =~ ^[A-Za-z0-9_@%+=:,./~-]+$ && "$1" != "~"* && "$1" != *[=:]"~"* ]]; then
     printf '%s' "$1"
   else
     printf "'%s'" "${1//\'/\'\\\'\'}"

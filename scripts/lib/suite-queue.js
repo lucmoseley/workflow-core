@@ -23,7 +23,7 @@ const {
 	readParentOf,
 	readStatFields,
 } = require("./proc-stat.js");
-const { shellWord } = require("./dirty-tree.js");
+const { shellQuote } = require("./sh-quote.js");
 const { scriptPath } = require("./script-path.js");
 const { weighCarried } = require("./suite-bounded.js");
 const { TSC_PEAK_MB, TSC_QUEUE_NAME } = require("./tsc-slot.js");
@@ -707,7 +707,7 @@ function gateDenies(
 	climbMb = 0,
 ) {
 	const command = ["npm run test", ...(words.length > 0 ? ["--"] : [])]
-		.concat(words.map(shellWord))
+		.concat(words.map(shellQuote))
 		.join(" ");
 	try {
 		return read(command, weight, climbMb);

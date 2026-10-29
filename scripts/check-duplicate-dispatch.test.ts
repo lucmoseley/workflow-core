@@ -26,6 +26,7 @@ import {
 import ledger from "./lib/dispatch-ledger";
 import { stubGhScript } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "check-duplicate-dispatch.js");
 
@@ -49,10 +50,9 @@ function stubOracle(names: string[]) {
 
 /** The same stub, with the records given verbatim — for a malformed shape. */
 function stubOracleRaw(records: unknown) {
-	const quoted = JSON.stringify(records).replaceAll("'", "'\\''");
 	fs.writeFileSync(
 		path.join(root, "claude"),
-		`#!/bin/sh\nprintf '%s' '${quoted}'\n`,
+		`#!/bin/sh\nprintf '%s' ${shellQuote(JSON.stringify(records))}\n`,
 		{ mode: 0o755 },
 	);
 }

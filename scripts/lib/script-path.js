@@ -28,6 +28,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { trimEndRun } = require("./trim-run.js");
+const { shellQuote } = require("./sh-quote.js");
 
 /** @returns {string} absolute path of the core root the running code sits in */
 function coreRoot() {
@@ -37,16 +38,6 @@ function coreRoot() {
 /** @returns {boolean} the core runs from a source checkout rather than an install */
 function inCheckout() {
 	return fs.existsSync(path.join(coreRoot(), "package.json"));
-}
-
-/**
- * A path quoted for a shell only where it needs it, so the common case stays
- * readable.
- * @param {string} p
- * @returns {string}
- */
-function shellWord(p) {
-	return /^[\w@%+=:,./-]+$/.test(p) ? p : `'${p.replaceAll("'", "'\\''")}'`;
 }
 
 /**
@@ -87,7 +78,7 @@ function corePath(rel) {
  */
 function absoluteCorePath(rel) {
 	/* Concatenated, never path.join: the bash twin cannot normalise `..`. */
-	return shellWord(`${coreRoot()}/${rel}`);
+	return shellQuote(`${coreRoot()}/${rel}`);
 }
 
 /**
@@ -109,7 +100,7 @@ function absoluteScriptPath(name) {
 function expandPastePaths(text, host) {
 	/* A replacer, never a string: a `$` in a path is not a replacement pattern. */
 	return text.replace(/\{(?:host-root|script:([\w./-]+))\}/g, (_, name) =>
-		name === undefined ? shellWord(host) : absoluteScriptPath(name),
+		name === undefined ? shellQuote(host) : absoluteScriptPath(name),
 	);
 }
 
@@ -133,14 +124,13 @@ function resolveScriptPaths(text) {
 		const name = trimEndRun(rest, ".");
 		const file = `${coreRoot()}/${dir}/${name}`;
 		if (!name || !fs.existsSync(file)) return whole;
-		return shellWord(file) + rest.slice(name.length);
+		return shellQuote(file) + rest.slice(name.length);
 	});
 }
 
 module.exports = {
 	coreRoot,
 	inCheckout,
-	shellWord,
 	scriptPath,
 	docPath,
 	corePath,

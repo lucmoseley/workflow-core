@@ -16,10 +16,11 @@ None.
 
 ## Primitives
 
-The core's own primitives, beside the base's table. None yet.
+The core's own primitives, beside the base's table.
 
 | Job | Primitive | Exemplar | Rule | Enforcing check |
 |---|---|---|---|---|
+| Quoting a word for sh | `shellQuote` in `scripts/lib/sh-quote.js` | `scripts/check-plugin-gap.js` | §G8 | Standards axis criterion |
 
 ---
 

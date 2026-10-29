@@ -53,7 +53,7 @@ const SECRET_ASK = new RegExp(
 const EXPANDS = "$`\\\\";
 const BARE_CHAR = String.raw`[^\s;&|<>()'"#${EXPANDS}]`;
 /* One shell word that substitutes no command or variable: bare, quoted, or
- * joined segments of both, so a path script-path.js's `shellWord` quotes as
+ * joined segments of both, so a path sh-quote.js's `shellQuote` quotes as
  * `'o'\''b'` reads as one word. Globs, braces and `~` stay readable: none
  * puts a value on the line. */
 const SHELL_WORD = String.raw`(?:${BARE_CHAR}+|'[^'\n]*'|"[^"\n${EXPANDS}]*"|\\')+`;

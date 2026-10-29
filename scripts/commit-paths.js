@@ -147,7 +147,7 @@ const core = require("./lib/arbiter-core.js");
 const { readProcStartOf } = require("./lib/arbiter-proc.js");
 const { readAncestorsOf } = require("./lib/proc-stat.js");
 const { procRoot } = require("./lib/proc-root.js");
-const { shellWord } = require("./lib/dirty-tree.js");
+const { shellQuote } = require("./lib/sh-quote.js");
 const { isUnder } = require("./lib/is-under.js");
 const { numstatPaths } = require("./lib/patch-files.js");
 const { formatHeader, parseHeader } = require("./lib/hunk-header.js");
@@ -1380,7 +1380,7 @@ function warnStagedCopies(changed, patched, base) {
  * @param {string[]} changed
  */
 function resetSharedIndex(changed) {
-	const resetByHand = `Do not re-run this command: the commit has landed. Reset the shared index yourself, or it stages the reverse of this commit for the next bare \`git commit\`:\n  git reset -q -- ${changed.map(shellWord).join(" ")}`;
+	const resetByHand = `Do not re-run this command: the commit has landed. Reset the shared index yourself, or it stages the reverse of this commit for the next bare \`git commit\`:\n  git reset -q -- ${changed.map(shellQuote).join(" ")}`;
 	const sync = gitLocked(
 		["reset", "-q", "--", ...changed],
 		"The commit has landed, but the shared index still holds the old copies.",

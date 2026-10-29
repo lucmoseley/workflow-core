@@ -42,11 +42,8 @@ const hookMessage = require("./lib/hook-message");
 const { isHeldAtBackgroundStart } = require("./lib/background-start.js");
 const loop = require("./lib/refill-loop.js");
 const refillFiles = require("./lib/refill-files.js");
-const {
-	expandPastePaths,
-	scriptPath,
-	shellWord,
-} = require("./lib/script-path.js");
+const { expandPastePaths, scriptPath } = require("./lib/script-path.js");
+const { shellQuote } = require("./lib/sh-quote.js");
 
 /** @type {Partial<Record<import("./lib/refill-decide.js").StopReason, string>>} */
 const STOP_REASON_WORDS = {
@@ -87,7 +84,7 @@ function buildRestartLines(control) {
 		.join("")}`;
 	const perGoal = Object.entries(goals).map(
 		([root, issues]) =>
-			`  CLAUDE_PROJECT_DIR=${shellWord(root)} ${away} --goal ${issues.join(",")}`,
+			`  CLAUDE_PROJECT_DIR=${shellQuote(root)} ${away} --goal ${issues.join(",")}`,
 	);
 	return perGoal.length === 0
 		? [`Restart away mode: ${away}`]

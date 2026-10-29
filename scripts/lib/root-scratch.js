@@ -72,6 +72,7 @@
 const { parseCommand, walkCommands } = require("./shell-parse.js");
 const { absolute, literal } = require("./shell-words.js");
 const { remedyKind } = require("./scratch-remedy.js");
+const { shellQuote } = require("./sh-quote.js");
 
 /**
  * @typedef {import("./guard-dispatch.js").CoreContext} CoreContext
@@ -245,13 +246,6 @@ function mdSpan(s) {
 }
 
 /**
- * A path as ONE shell word, so a recipe the session copies writes one file
- * whatever the name holds.
- * @param {string} s
- */
-const shellWord = (s) => `'${s.replaceAll("'", "'\\''")}'`;
-
-/**
  * @param {string | undefined} tool
  * @param {string} bare the stray's name, its leading dot dropped
  * @param {string} escaped the stray's name as one shell word
@@ -265,7 +259,7 @@ function remedy(tool, bare, escaped, root) {
 		case "move":
 			return [
 				"Move it into the sanctioned directory, then edit it there",
-				`mv ${escaped} .claude/tmp/${shellWord(bare)}`,
+				`mv ${escaped} .claude/tmp/${shellQuote(bare)}`,
 			];
 		case "command":
 			return ["Same command, sanctioned spelling", `.claude/tmp/${bare}`];
@@ -281,7 +275,7 @@ function remedy(tool, bare, escaped, root) {
  */
 function refusal({ shown, name }, ctx) {
 	const bare = name.replace(/^\./, "");
-	const escaped = shellWord(name);
+	const escaped = shellQuote(name);
 	const [same, sanctioned] = remedy(ctx.tool, bare, escaped, ctx.root);
 	return `Refused: ${mdSpan(shown)} is a dot-prefixed file directly at the repo root, which git neither ignores nor tracks. \`docs/environment.md\` §12 puts in-repo scratch in \`.claude/tmp/\` and nowhere else — gitignored, out of Biome's scope and out of vitest's, and swept at 24 hours. ${same}:
 

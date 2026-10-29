@@ -161,14 +161,14 @@ describe("a Write, Edit or NotebookEdit into a repo-root dotfile (mantahostels#3
 		);
 		/* The Bash recipe would be the wrong spelling for a file tool. */
 		expect(refusal).not.toContain("… >");
-		expect(refusal).toContain("| dd of='.concision-design-review-3094.md'");
+		expect(refusal).toContain("| dd of=.concision-design-review-3094.md");
 	});
 
 	it.each(["Edit", "NotebookEdit"] as const)(
 		"refuses %s, naming a move rather than a path that does not exist",
 		(tool) => {
 			const refusal = runTool(tool, `${repo}/.i3380.ipynb`);
-			expect(refusal).toContain("mv '.i3380.ipynb' .claude/tmp/'i3380.ipynb'");
+			expect(refusal).toContain("mv .i3380.ipynb .claude/tmp/i3380.ipynb");
 			expect(refusal).not.toContain("Same write");
 		},
 	);
@@ -438,7 +438,7 @@ describe("the two legitimate root writes the deny now refuses", () => {
 		/* THE ESCAPE MUST NAME THIS STRAY, not merely exist. The surrounding
 		 * sentence is static text present for any input, so asserting on it alone
 		 * would pass whatever the guard put in the recipe. */
-		expect(refusal).toContain("| dd of='.markdownlintrc'");
+		expect(refusal).toContain("| dd of=.markdownlintrc");
 	});
 
 	it("refuses a tsconfig whose relative paths only resolve at the root, offering the dd escape and the .claude/tmp spelling", () => {
@@ -449,7 +449,7 @@ describe("the two legitimate root writes the deny now refuses", () => {
 			"cat > .tsconfig-checkjs.tmp.json <<'EOF'\n{}\nEOF",
 		);
 		expect(refusal).not.toBeNull();
-		expect(refusal).toContain("| dd of='.tsconfig-checkjs.tmp.json'");
+		expect(refusal).toContain("| dd of=.tsconfig-checkjs.tmp.json");
 		expect(refusal).toContain("\n    .claude/tmp/tsconfig-checkjs.tmp.json\n");
 	});
 });
