@@ -2,7 +2,8 @@
  * strip-comments.js — JavaScript source with its comments removed, for the lexical checks that
  * must not count a header's mention of `process.argv` or `ctx.has("--x")` as
  * a read; and the string and template literals it holds, for the readers of a
- * guard core's wording (lib/core-deny-text.js).
+ * guard core's wording (lib/core-deny-text.js); and the stretches that are
+ * not code, for js-lex.js's bracket scanning (#3667).
  *
  * A scan, not a pattern: a `/*` or `//` inside a literal opens no comment, a
  * quote inside a regex literal opens no string, and a template's `${…}` may
@@ -34,11 +35,18 @@ const WORD = /[\w$]/;
 
 /**
  * @typedef {{ at: number, raw: string }} Literal
- * @typedef {{ comments: [number, number][], literals: Literal[] }} Scan
+ * @typedef {{
+ *   comments: [number, number][],
+ *   literals: Literal[],
+ *   inert: [number, number][],
+ * }} Scan `inert` every comment, string, template and regex literal outside
+ *   any template, as `[start, end)` in order; a template is one stretch, its
+ *   interpolations included, and an unclosed one runs to the end
  * @typedef {{
  *   source: string,
  *   comments: [number, number][],
  *   literals: Literal[],
+ *   inert: [number, number][],
  *   placeholders: number[],
  *   templateAt: number,
  *   regexOk: boolean,
@@ -74,7 +82,7 @@ function quotedEnd(source, i) {
 	let j = i + 1;
 	while (j < source.length && !`${quote}\n`.includes(source.charAt(j)))
 		j += source.charAt(j) === "\\" ? 2 : 1;
-	return j + 1;
+	return Math.min(j + 1, source.length);
 }
 
 /**
@@ -92,7 +100,7 @@ function regexEnd(source, i) {
 		else if (r === "]") inClass = false;
 		j += r === "\\" ? 2 : 1;
 	}
-	return wordEnd(source, j + 1);
+	return wordEnd(source, Math.min(j + 1, source.length));
 }
 
 /**
@@ -122,6 +130,7 @@ function templateTextEnd(st, j) {
 					at: st.templateAt,
 					raw: source.slice(st.templateAt, j + 1),
 				});
+				st.inert.push([st.templateAt, j + 1]);
 				st.templateAt = -1;
 			}
 			st.regexOk = false;
@@ -154,6 +163,16 @@ function punctuatorEnd(st, i) {
 }
 
 /**
+ * Record a stretch that is not code, unless it sits inside a template.
+ * @param {State} st accumulator: the scan's literals, comments and position
+ * @param {number} start
+ * @param {number} end
+ */
+function pushInert(st, start, end) {
+	if (st.templateAt < 0) st.inert.push([start, end]);
+}
+
+/**
  * Read the token at `i` into `st`, returning where the next one starts.
  * @param {State} st accumulator: the scan's literals, comments and position
  * @param {number} i
@@ -164,12 +183,14 @@ function step(st, i) {
 	const comment = commentEnd(source, i);
 	if (comment >= 0) {
 		st.comments.push([i, comment]);
+		pushInert(st, i, comment);
 		return comment;
 	}
 	if (c === '"' || c === "'") {
 		const end = quotedEnd(source, i);
 		if (st.placeholders.length === 0 && st.templateAt < 0)
 			st.literals.push({ at: i, raw: source.slice(i, end) });
+		pushInert(st, i, end);
 		st.regexOk = false;
 		return end;
 	}
@@ -179,7 +200,9 @@ function step(st, i) {
 	}
 	if (c === "/" && st.regexOk) {
 		st.regexOk = false;
-		return regexEnd(source, i);
+		const end = regexEnd(source, i);
+		pushInert(st, i, end);
+		return end;
 	}
 	if (WORD.test(c)) {
 		const end = wordEnd(source, i);
@@ -192,8 +215,8 @@ function step(st, i) {
 }
 
 /**
- * The comment spans and the outermost string and template literals of
- * `source`, in source order.
+ * The comment spans, the outermost string and template literals and the
+ * stretches that are not code of `source`, in source order.
  * @param {string} source
  * @returns {Scan}
  */
@@ -203,12 +226,14 @@ function scanJs(source) {
 		source,
 		comments: [],
 		literals: [],
+		inert: [],
 		placeholders: [],
 		templateAt: -1,
 		regexOk: true,
 	};
 	for (let i = 0; i < source.length; ) i = step(st, i);
-	return { comments: st.comments, literals: st.literals };
+	if (st.templateAt >= 0) st.inert.push([st.templateAt, source.length]);
+	return { comments: st.comments, literals: st.literals, inert: st.inert };
 }
 
 /** @param {string} source */

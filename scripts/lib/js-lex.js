@@ -1,57 +1,64 @@
 /*
  * js-lex.js — the bracket and argument scanning a lexical reader of JS or TS
  * source needs, with strings, comments and regex literals skipped so a
- * bracket or comma inside one is never counted (#1770). A guess, not a
- * parser: a `/` is read as opening a regex only after a character no value
- * ends with, so a division after `)` or a name is left alone; and a quoted
- * string closes at its line, so an apostrophe in JSX text hides at most the
- * rest of that line (#3659).
+ * bracket or comma inside one is never counted (#1770). What is a literal or
+ * a comment is strip-comments.js's scanJs to decide, so a reader that blanks
+ * comments with it and finds brackets here never sees the two disagree
+ * (#3667).
  */
+
+const { scanJs } = require("./strip-comments.js");
 
 /**
- * How far back the regex-or-division guess looks for the last character
- * before a `/`, past any whitespace. A guess — 40 covers an indented line
- * break.
+ * How many texts' span ends are kept before the cache is emptied whole. A
+ * reader scans one source and the slices it cuts from it: the most one file
+ * sent through generate-test-read-edges.js was 79 (check-guard-registry.js,
+ * measured at #3667), so emptying costs at most one rescan of the source.
  */
-const REGEX_LOOKBACK = 40;
+const SCANS_KEPT = 256;
 
-/** @param {string} text @param {number} i  a quote @returns {number} */
-function quoteEnd(text, i) {
-	const close = text[i] === "`" ? "`" : `${text[i]}\n`;
-	let j = i + 1;
-	while (j < text.length && !close.includes(text[j]))
-		j += text[j] === "\\" ? 2 : 1;
-	return j;
-}
+/**
+ * @typedef {{ spans: [number, number][], lasts: Map<number, number> }} Inert
+ *   `spans` each stretch that is not code as `[first, last]`, in order;
+ *   `lasts` the same, keyed by its first index
+ */
 
-/** @param {string} text @param {number} i  a `//` or `/*` @returns {number} */
-function commentEnd(text, i) {
-	if (text[i + 1] === "/") {
-		const nl = text.indexOf("\n", i);
-		return nl === -1 ? text.length : nl;
+/** @type {Map<string, Inert>} */
+const inertByText = new Map();
+
+/**
+ * @param {string} text
+ * @returns {Inert}
+ */
+function inertOf(text) {
+	let inert = inertByText.get(text);
+	if (!inert) {
+		if (inertByText.size >= SCANS_KEPT) inertByText.clear();
+		/** @type {[number, number][]} */
+		const spans = scanJs(text).inert.map(([start, end]) => [start, end - 1]);
+		inert = { spans, lasts: new Map(spans) };
+		inertByText.set(text, inert);
 	}
-	const end = text.indexOf("*/", i + 2);
-	return end === -1 ? text.length : end + 1;
+	return inert;
 }
 
 /**
- * A regex literal's closing `/`, or `i` where the `/` at `i` opens none.
+ * Whether `i` falls inside a stretch that is not code, past its first index.
+ * A scan started there reads the text from `i` as code, as a reader handing
+ * an index inside a template's text means it (#3667).
  * @param {string} text
  * @param {number} i
- * @returns {number}
  */
-function regexEnd(text, i) {
-	const before = text.slice(Math.max(0, i - REGEX_LOOKBACK), i);
-	if (!/(?:^|[(,=:[!&|?{};>]|\*\/)\s*$/.test(before)) return i;
-	let inClass = false;
-	for (let j = i + 1; j < text.length; j++) {
-		const d = text[j];
-		if (d === "\\") j++;
-		else if (d === "\n") return i;
-		else if (d === "[" || d === "]") inClass = d === "[";
-		else if (d === "/" && !inClass) return j;
+function insideInert(text, i) {
+	const { spans } = inertOf(text);
+	let lo = 0;
+	let hi = spans.length;
+	while (lo < hi) {
+		const mid = (lo + hi) >> 1;
+		if (spans[mid][0] < i) lo = mid + 1;
+		else hi = mid;
 	}
-	return i;
+	return lo > 0 && spans[lo - 1][1] >= i;
 }
 
 /**
@@ -62,11 +69,7 @@ function regexEnd(text, i) {
  * @returns {number}
  */
 function tokenEnd(text, i) {
-	const c = text.charAt(i);
-	if ("\"'`".includes(c)) return quoteEnd(text, i);
-	if (c !== "/") return i;
-	const next = text[i + 1];
-	return next === "/" || next === "*" ? commentEnd(text, i) : regexEnd(text, i);
+	return inertOf(text).lasts.get(i) ?? i;
 }
 
 /**
@@ -77,11 +80,14 @@ function tokenEnd(text, i) {
  * @returns {number}
  */
 function closeOf(text, open) {
+	if (insideInert(text, open)) {
+		const end = closeOf(text.slice(open), 0);
+		return end === -1 ? -1 : open + end;
+	}
 	let depth = 0;
 	for (let i = open; i < text.length; i++) {
 		const c = text.charAt(i);
-		if (c === "\\") i++;
-		else if (tokenEnd(text, i) !== i) i = tokenEnd(text, i);
+		if (tokenEnd(text, i) !== i) i = tokenEnd(text, i);
 		else if ("([{".includes(c)) depth++;
 		else if (")]}".includes(c) && --depth === 0) return i + 1;
 	}
@@ -122,6 +128,7 @@ function topLevelArgs(inner) {
  * @returns {number}
  */
 function statementEnd(text, from) {
+	if (insideInert(text, from)) return from + statementEnd(text.slice(from), 0);
 	for (let i = from; i < text.length; i++) {
 		const c = text.charAt(i);
 		if ("([{".includes(c)) {
@@ -142,19 +149,7 @@ function statementEnd(text, from) {
  * @returns {[number, number][]}
  */
 function inertSpans(text) {
-	/** @type {[number, number][]} */
-	const out = [];
-	for (let i = 0; i < text.length; i++) {
-		if (text.charAt(i) === "\\") {
-			i++;
-			continue;
-		}
-		const end = tokenEnd(text, i);
-		if (end === i) continue;
-		out.push([i, end]);
-		i = end;
-	}
-	return out;
+	return inertOf(text).spans;
 }
 
 module.exports = {

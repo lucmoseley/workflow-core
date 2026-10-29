@@ -70,4 +70,18 @@ describe("scanJs", () => {
 			expect(source.slice(at, at + raw.length)).toBe(raw);
 		expect(scanJs(source).literals).toHaveLength(2);
 	});
+
+	it("lists the stretches that are not code once each, a template whole and an unclosed one to the end (#3667)", () => {
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: JS source under test, not a template
+		const source = 'a(/x/g, `${/* c */ "y"}`) // z\n`open';
+		expect(
+			scanJs(source).inert.map(([start, end]) => source.slice(start, end)),
+		).toEqual([
+			"/x/g",
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: JS source under test, not a template
+			'`${/* c */ "y"}`',
+			"// z",
+			"`open",
+		]);
+	});
 });
