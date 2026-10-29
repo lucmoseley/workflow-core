@@ -307,7 +307,7 @@ function readAfterCorpus(root, landing, readLanding) {
 		after = corpusFiles(root);
 	} catch (e) {
 		return bailStep(
-			`could not read the source corpus under ${root}: ${parseErrText(e)}`,
+			`could not read the source corpus under ${root}: ${caught(e).message}`,
 		);
 	}
 	if (after.size === 0)
@@ -335,7 +335,7 @@ function readLandingOverlay(before, landing, readLanding) {
 			bytes = readLanding(rel);
 		} catch (e) {
 			return bailStep(
-				`could not read this commit's ${rel}: ${parseErrText(e)}`,
+				`could not read this commit's ${rel}: ${caught(e).message}`,
 			);
 		}
 		if (bytes === null) after.delete(rel);
@@ -361,7 +361,7 @@ function readHeadCorpusText(landing, readHead) {
 			const head = readHead(rel);
 			if (head !== null) headCopies.push(head);
 		} catch (e) {
-			return bailStep(`could not read HEAD's ${rel}: ${parseErrText(e)}`);
+			return bailStep(`could not read HEAD's ${rel}: ${caught(e).message}`);
 		}
 	}
 	return { value: headCopies.join("\n") };
@@ -378,7 +378,7 @@ function readHeadRegistryBytes(readHead) {
 		bytes = readHead(REGISTRY_REL);
 	} catch (e) {
 		return bailStep(
-			`could not read HEAD's ${REGISTRY_REL}: ${parseErrText(e)}`,
+			`could not read HEAD's ${REGISTRY_REL}: ${caught(e).message}`,
 		);
 	}
 	// No registry in HEAD and none landing: there are no needles to judge.
@@ -401,7 +401,7 @@ function readLandingRegistryBytes(root, readLanding) {
 			: fs.readFileSync(path.join(root, REGISTRY_REL), "utf8");
 	} catch (e) {
 		return bailStep(
-			`could not read this commit's ${REGISTRY_REL}: ${parseErrText(e)}`,
+			`could not read this commit's ${REGISTRY_REL}: ${caught(e).message}`,
 		);
 	}
 	if (bytes === null) return noNeedles();
@@ -424,7 +424,7 @@ function addedNeedles(readHead, registryAfter) {
 		headBytes = readHead(REGISTRY_REL);
 	} catch (e) {
 		return bailStep(
-			`could not read HEAD's ${REGISTRY_REL}: ${parseErrText(e)}`,
+			`could not read HEAD's ${REGISTRY_REL}: ${caught(e).message}`,
 		);
 	}
 	// A registry HEAD does not name yet adds no needles, which allows:
@@ -465,19 +465,8 @@ function readRegistry(read) {
 	try {
 		return { value: JSON.parse(read()), error: null };
 	} catch (e) {
-		return { value: null, error: parseErrText(e) };
+		return { value: null, error: caught(e).message };
 	}
-}
-
-/**
- * A thrown value's message. `catch` binds `unknown`, and a throw here can come
- * from execFileSync as easily as from JSON.parse.
- *
- * @param {unknown} e
- * @returns {string}
- */
-function parseErrText(e) {
-	return e instanceof Error ? e.message : String(e);
 }
 
 module.exports = {
