@@ -2,7 +2,8 @@
 /*
  * Holds lib/meminfo-fake.ts, which refill-loop-run.test.ts points
  * `WFC_MEMINFO` at, to the real `/proc/meminfo` and to the parser the refill
- * loop reads the swap hold through (lib/admission.js's readSwapHold, #3093).
+ * loop reads the swap hold through (lib/admission.js's readSwapHold, over
+ * lib/meminfo.js, #3093).
  * The live case reads the real file, a free call. Breaking it costs the
  * loop's swap hold: a fake the parser reads otherwise than the real file
  * passes a refill-loop-run test the loop fails.

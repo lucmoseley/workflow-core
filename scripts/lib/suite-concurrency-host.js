@@ -12,20 +12,15 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { markersDir } = require("./marker-root.js");
-const { meminfoPath } = require("./proc-root.js");
+const { availableFrom, readMeminfoKb } = require("./meminfo.js");
 const { hasWrapperCall } = require("./suite-launch.js");
 const { STANDDOWN_LOG } = require("./suite-concurrency.js");
 const { readCarriedWeightOf, readPs } = require("./suite-ladder.js");
 
 /** MemAvailable in MB, or null where no line reads. */
 function readAvailableMb() {
-	try {
-		const text = fs.readFileSync(meminfoPath(), "utf8");
-		const kb = /^MemAvailable:.*?(?<![0-9])([0-9]+) kB/m.exec(text)?.[1];
-		return kb === undefined ? null : Math.floor(Number(kb) / 1024);
-	} catch {
-		return null;
-	}
+	const read = availableFrom(readMeminfoKb());
+	return read.ok ? read.mb : null;
 }
 
 /**

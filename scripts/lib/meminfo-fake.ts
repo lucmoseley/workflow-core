@@ -1,6 +1,6 @@
 /*
  * The fake of `/proc/meminfo` a program test points `WFC_MEMINFO` at, held to
- * the real file and to lib/admission.js's parser by
+ * the real file and to lib/meminfo.js's parser by
  * lib/meminfo.contract.test.ts (#3093).
  */
 

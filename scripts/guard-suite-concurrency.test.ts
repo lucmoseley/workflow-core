@@ -26,6 +26,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenLog } from "./guard-log-fixture";
 import { admits, readManifest } from "./lib/guard-cores.js";
+import { buildMeminfo } from "./lib/meminfo-fake";
 import {
 	buildBashPayload,
 	dispatchCoreOutput,
@@ -60,7 +61,10 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 const setMb = (mb: number) =>
-	fs.writeFileSync(meminfo, `MemAvailable:    ${mb * 1024} kB\n`);
+	fs.writeFileSync(
+		meminfo,
+		buildMeminfo({ availableMb: mb, swapTotalMb: 0, swapFreeMb: 0 }),
+	);
 
 const psOf = (lines: string[], name: string) =>
 	writePsStub(dir, lines, { name });
