@@ -13,7 +13,8 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { freshSandbox, issueClaims } from "./lib/arbiter-testkit";
 import { subIssuesAnswer } from "./lib/gh-fake";
-import { type RouteAnswer, stubGhRoutes } from "./lib/gh-stub";
+import { printed, type RouteAnswer, stubGhRoutes } from "./lib/gh-stub";
+import { NEEDS_INPUT, POSTED, ROUND } from "./lib/round-ending-fixture";
 import { readStopGuardReason } from "./lib/stop-guard-testkit";
 
 const GUARD = path.join(__dirname, "guard-exhausted-map.js");
@@ -56,13 +57,15 @@ const child = (state: string, repo = "acme/widgets") => ({
 });
 
 /** The guard's refusal for a session claiming the map, served `routes`;
- *  `message: null` leaves the turn's text unreadable. */
+ *  `message: null` leaves the turn's text unreadable, and `job` runs it as a
+ *  background job. */
 const reasonFor = (
 	routes: Record<string, RouteAnswer>,
 	{
 		claim = true,
 		message = "Done.",
-	}: { claim?: boolean; message?: string | null } = {},
+		job = false,
+	}: { claim?: boolean; message?: string | null; job?: boolean } = {},
 ) => {
 	if (claim) issueClaims.claimIssue(MAP, { sessionId: ME });
 	return readStopGuardReason(GUARD, {
@@ -70,6 +73,7 @@ const reasonFor = (
 		sid: ME,
 		config: sb.home,
 		message: message ?? undefined,
+		job,
 		env: stubGhRoutes(sb.dir, routes).env,
 	});
 };
@@ -78,6 +82,26 @@ const EXHAUSTED = {
 	[AT]: mapIssue(),
 	[`${AT}/sub_issues`]: subIssuesAnswer([]),
 };
+
+/** The exhausted map with park-on-round.js's round, hand-off included,
+ *  posted on it. */
+const ROUND_POSTED = {
+	...EXHAUSTED,
+	graphql: printed(
+		JSON.stringify({
+			data: {
+				r0: {
+					[`n${MAP}`]: {
+						__typename: "Issue",
+						state: "OPEN",
+						comments: { nodes: [POSTED] },
+					},
+				},
+			},
+		}),
+	),
+};
+const PARKING_ENDING = NEEDS_INPUT.replaceAll("#31", `#${MAP}`);
 
 describe("a claimed exhausted map", () => {
 	it("refuses, naming steps (a) to (c) in order", () => {
@@ -110,7 +134,16 @@ describe("a claimed exhausted map", () => {
 		expect(rule).toContain(c);
 	});
 
-	it("refuses where the map's date gate has passed", () => {
+	it("refuses a background job's `needs input:` ending that carries no round, naming the map the round is posted on", () => {
+		expect(
+			reasonFor(ROUND_POSTED, {
+				job: true,
+				message: PARKING_ENDING.replace(ROUND, "Blocked on the parser."),
+			}),
+		).toContain(`#${MAP}`);
+	});
+
+	it("refuses where the map's date gate has passed, naming the map", () => {
 		expect(
 			reasonFor({
 				...EXHAUSTED,
@@ -158,6 +191,12 @@ describe("a stop it allows", () => {
 	])("allows where the map is %s", (_, issue) => {
 		expect(
 			reasonFor({ [AT]: issue, [`${AT}/sub_issues`]: subIssuesAnswer([]) }),
+		).toBe("");
+	});
+
+	it("allows a background job's `needs input:` round posted on the map — the parking turn", () => {
+		expect(
+			reasonFor(ROUND_POSTED, { job: true, message: PARKING_ENDING }),
 		).toBe("");
 	});
 
