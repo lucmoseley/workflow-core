@@ -61,10 +61,17 @@
  * group bits do not show, as GNU `ls` tells (#3715). Where lookups can reach
  * a source beyond those files (LDAP, sssd, NIS, a systemd-homed user, an
  * `initgroups` source) no group is judged private, so it refuses, as it does
- * a group with a password. Residual: a group password or member set only in
- * `/etc/gshadow`, which the user cannot read; a process root starts under
- * the gid, which no database shows; and an ACL beyond POSIX's (NFSv4's)
- * granting write where no mode bit does.
+ * a group with a password. On NFS, a parent or the file's directory carrying
+ * any ACL GNU `ls` marks is refused, whatever its mode or sticky bit: an
+ * NFSv4 ACL can grant another user access with no group or other bit set
+ * (#3724). Residual: a group password or member set only in `/etc/gshadow`,
+ * which the user cannot read; a process root starts under the gid, which no
+ * database shows; and an ACL granting access no mode bit shows where `ls`
+ * marks none: an NFSv4 ACL under an `ls` not GNU's, built without ACL
+ * support, whose gnulib predates its NFSv4 reader or misses the ACL where
+ * Linux 6.12+ NFS answers EACCES, or whose entries name only OWNER@, GROUP@
+ * and EVERYONE@, which gnulib calls trivial whatever they grant; and a CIFS,
+ * WSL drvfs or FUSE mount's server-side ACL.
  *
  * CONCURRENT RUNS take turns by `lib/pid-lock.js`'s lock, `secrets.env.lock`,
  * held from the read to the rename, so no run's key is lost to another's
@@ -203,7 +210,7 @@ function dirRefusal(file) {
 		);
 	}
 	if (!isDirectory(dir)) return null;
-	const why = looseWhy(dir);
+	const why = looseWhy(dir) ?? nfsAclWhy(dir);
 	return why === null ? null : refuseLoose(file, `its directory ${dir}`, why);
 }
 
@@ -322,12 +329,43 @@ function swappableWhy(d) {
 	}
 	if (!st.isDirectory()) return null;
 	if (!ownedSafely(st)) return "is owned by neither you nor root";
+	/* Before the sticky pass: an NFSv4 ACL can grant DELETE_CHILD, which a
+	 * server may honour over the sticky bit (RFC 8881 §6.2.1.3.2). */
+	const aclWhy = nfsAclWhy(d);
+	if (aclWhy !== null) return aclWhy;
 	if ((st.mode & 0o1000) !== 0) return null;
 	const othersWrite =
 		(st.mode & 0o002) !== 0 ||
 		((st.mode & 0o020) !== 0 && !(isPrivateGroup(st.gid) && !hasAcl(d)));
 	if (othersWrite) return "is writable by others and not sticky";
 	return null;
+}
+
+/** statfs's type for NFS of every version, Linux's NFS_SUPER_MAGIC. */
+const NFS_MAGIC = 0x69_69;
+
+/**
+ * Why directory `d` may let another user in by an NFSv4 ACL, or null: it lies
+ * on NFS and GNU `ls` marks an ACL on it, reading `system.nfs4_acl` as well
+ * as POSIX's (#3724). Elsewhere a POSIX ACL is judged by the group bits, its
+ * mask, so a read-only entry passes. Where `ls` is not GNU's, no ACL is seen,
+ * so none is judged there.
+ * @param {string} d
+ * @returns {string | null}
+ */
+function nfsAclWhy(d) {
+	if (!isOnNfs(d) || !isGnuLs() || isAclUnmarked(d)) return null;
+	return "carries an ACL on NFS, where an NFSv4 entry can grant another user access no mode bit shows";
+}
+
+/** @param {string} d */
+function isOnNfs(d) {
+	try {
+		return fs.statfsSync(d).type === NFS_MAGIC;
+	} catch {
+		/* Unjudged: an ACL `ls` marks then refuses (#3724). */
+		return true;
+	}
 }
 
 /**
@@ -342,11 +380,10 @@ function swappableWhy(d) {
  * @returns {boolean}
  */
 function hasAcl(d) {
-	gnuLs ??= isGnuLs();
-	return !gnuLs || !lsShowsNoAcl(d);
+	return !isGnuLs() || !isAclUnmarked(d);
 }
 
-/** Whether `ls` is GNU's, asked once per run. @type {boolean | undefined} */
+/** `isGnuLs`'s answer, asked once per run. @type {boolean | undefined} */
 let gnuLs;
 
 /** Where `ls` is run from, never PATH, which any directory on it can outrank. */
@@ -381,23 +418,26 @@ function ls(...args) {
 	});
 }
 
+/** Whether `ls` is GNU's, and so marks an ACL. */
 function isGnuLs() {
+	if (gnuLs !== undefined) return gnuLs;
 	try {
-		return /^ls \(GNU coreutils\) /.test(ls("--version"));
+		gnuLs = /^ls \(GNU coreutils\) /.test(ls("--version"));
 	} catch {
-		/* No trusted `ls` to ask: no ACL can be seen, so every directory is
-		 * judged to carry one (#3715). */
-		return false;
+		/* No trusted `ls` to ask: no ACL can be seen (#3715). */
+		gnuLs = false;
 	}
+	return gnuLs;
 }
 
 /**
- * Whether GNU `ls -ld` shows `d` with no `+` after its mode.
+ * Whether GNU `ls -ldL` shows `d` with no `+` after its mode, a symlinked
+ * config directory judged where it points.
  * @param {string} d
  */
-function lsShowsNoAcl(d) {
+function isAclUnmarked(d) {
 	try {
-		return /^d[-rwxsStT]{9}\.? /.test(ls("-ld", "--", d));
+		return /^d[-rwxsStT]{9}\.? /.test(ls("-ldL", "--", d));
 	} catch {
 		/* It failed on `d`: unjudged, so it refuses (#3715). */
 		return false;

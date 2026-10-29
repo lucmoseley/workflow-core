@@ -863,6 +863,105 @@ describe("write-secret", () => {
 		},
 	);
 
+	const NfsAcl =
+		"carries an ACL on NFS, where an NFSv4 entry can grant another user access no mode bit shows";
+	/* Reports every path under `config` as on NFS. Spied, as a test cannot
+	 * mount NFS: mounting needs root. */
+	const fakeNfs = () => {
+		const real = fs.statfsSync;
+		vi.spyOn(fs, "statfsSync").mockImplementation(((
+			p: fs.PathLike,
+			...rest: [never]
+		) => {
+			const st = real(p, ...rest);
+			return String(p).startsWith(config) ? { ...st, type: 0x69_69 } : st;
+		}) as typeof fs.statfsSync);
+	};
+	/* A directory carrying an ACL entry for another user that its mask, the
+	 * group bits, keeps from writing. */
+	const maskedAclDir = (dir: string) => {
+		fs.mkdirSync(dir, { recursive: true });
+		grantByAcl(dir, me.uid + 1);
+		fs.chmodSync(dir, 0o755);
+		return dir;
+	};
+
+	it("refuses with exit 1, writing nothing, where a directory above the file's carries an ACL on NFS, whatever its mode (#3724)", () => {
+		fakeNfs();
+		const shared = maskedAclDir(path.join(config, "shared"));
+		const r = run(["K"], SECRET, { XDG_CONFIG_HOME: path.join(shared, "cfg") });
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(whyAbove(shared, NfsAcl));
+		expect(fs.readdirSync(shared)).toEqual([]);
+	});
+
+	it("refuses with exit 1, writing nothing, where the file's directory carries an ACL on NFS (#3724)", () => {
+		fakeNfs();
+		const dir = makeStoreDir();
+		grantByAcl(dir, me.uid + 1);
+		fs.chmodSync(dir, 0o700);
+		const r = run(["K"], SECRET);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(`its directory ${dir} ${NfsAcl}`);
+		expect(fs.existsSync(store())).toBe(false);
+	});
+
+	it("refuses with exit 1, writing nothing, where a sticky directory above the file's carries an ACL on NFS (#3724)", () => {
+		fakeNfs();
+		const shared = maskedAclDir(path.join(config, "shared"));
+		fs.chmodSync(shared, 0o1755);
+		const r = run(["K"], SECRET, { XDG_CONFIG_HOME: path.join(shared, "cfg") });
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(whyAbove(shared, NfsAcl));
+		expect(fs.readdirSync(shared)).toEqual([]);
+	});
+
+	it("writes through a symlinked config directory on NFS whose target carries no ACL (#3724)", () => {
+		fakeNfs();
+		const real = path.join(config, "real");
+		fs.mkdirSync(real, { mode: 0o700 });
+		const xdg = path.join(config, "xdg");
+		fs.mkdirSync(xdg, { mode: 0o700 });
+		fs.symlinkSync(real, path.join(xdg, "workflow-core"));
+		expect(run(["K"], SECRET, { XDG_CONFIG_HOME: xdg }).status).toBe(0);
+		expect(readEnvFileValue(path.join(real, "secrets.env"), "K")).toBe(SECRET);
+	});
+
+	it("writes under a directory whose ACL's mask keeps another user from writing, off NFS (#3724)", () => {
+		const xdg = path.join(maskedAclDir(path.join(config, "shared")), "cfg");
+		expect(run(["K"], SECRET, { XDG_CONFIG_HOME: xdg }).status).toBe(0);
+		expect(
+			readEnvFileValue(path.join(xdg, "workflow-core", "secrets.env"), "K"),
+		).toBe(SECRET);
+	});
+
+	/* Hides every fixed-path `ls`, as on a host with no GNU coreutils. Spied,
+	 * as a test cannot remove root's own `ls`. */
+	const noTrustedLs = () => {
+		const real = fs.statSync;
+		vi.spyOn(fs, "statSync").mockImplementation(((
+			p: fs.PathLike,
+			...rest: [never]
+		) => {
+			if (p === "/usr/bin/ls" || p === "/bin/ls")
+				throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+			return real(p, ...rest);
+		}) as typeof fs.statSync);
+	};
+
+	it.each<[string, boolean]>([
+		["", false],
+		[", on a host with no GNU `ls`", true],
+	])(
+		"writes on NFS where no directory carries an ACL or lets others write%s (#3724)",
+		(_l, hideLs) => {
+			fakeNfs();
+			if (hideLs) noTrustedLs();
+			expect(run(["K"], SECRET).status).toBe(0);
+			expect(read()).toBe(`K=${SECRET}\n`);
+		},
+	);
+
 	it("leaves the directory's own .gitignore alone under WFC_SECRETS_FILE, as the reader does (#3715)", () => {
 		const dir = makeStoreDir();
 		const ignore = path.join(dir, ".gitignore");
