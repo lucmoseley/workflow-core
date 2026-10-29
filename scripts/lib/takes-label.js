@@ -54,6 +54,17 @@ function takesValue(value) {
 }
 
 /**
+ * The `takes:` values among an issue's labels, as the frontier and the loop's
+ * launch filter read them.
+ * @param {string[]} labels
+ * @returns {string[]}
+ */
+const takesOf = (labels) =>
+	labels
+		.filter((l) => l.startsWith(TAKES_PREFIX))
+		.map((l) => l.slice(TAKES_PREFIX.length));
+
+/**
  * @param {string} value
  * @returns {string}
  */
@@ -221,6 +232,7 @@ module.exports = {
 	TRIED_MIN,
 	outsideLineFault,
 	takesLabel,
+	takesOf,
 	takesRefusal,
 	takesValue,
 };

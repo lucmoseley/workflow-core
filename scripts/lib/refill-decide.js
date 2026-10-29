@@ -304,7 +304,11 @@ function seatHold(s) {
 	return s.fits === null ? "unsized" : "capped";
 }
 
-/** @param {MergedRow} row */
+/**
+ * Why the loop's launch filter skips a row, or null where it launches it;
+ * also the idle alarm's printed reason (lib/idle-efforts.js).
+ * @param {{labels: string[], takes: string[]}} row
+ */
 function buildSkipReason(row) {
 	if (row.labels.includes(PARKED_LABEL)) return "parked";
 	if (row.labels.includes(WAITING_LABEL)) return WAITING_LABEL;
@@ -488,6 +492,7 @@ module.exports = {
 	RUN_MS,
 	UNREAD,
 	actsRead,
+	buildSkipReason,
 	decideTick,
 	fitsLaunch,
 	hasRoom,

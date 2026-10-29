@@ -46,8 +46,9 @@ const { takesLabel } = require("./lib/takes-label");
 const NEAR_CAP = 90;
 
 // `/to-spec` files the map's spec, `/wayfinder` works the map itself, and
-// `/triage` is the routing this finding asks for (#2267). Residual: a map
-// under one of these that its command never picks up is never reported.
+// `/triage` is the routing this finding asks for (#2267). A map under one of
+// these that its command never picks up is reported by the idle alarm,
+// check-idle-efforts.js, once nothing in it has launched for 2 days (#3641).
 const ROUTED_LABELS = ["to-spec", "wayfinder", "triage"].map(takesLabel);
 
 /* A line break, which no section name holds. */

@@ -111,6 +111,7 @@ const CHECKS = [
 	["harness-canary", "check-harness-canary.js"],
 	["concurrency", "concurrency-readout.js"],
 	["interop-latency", "check-interop-latency.js"],
+	["idle-efforts", "check-idle-efforts.js"],
 ];
 
 /**
