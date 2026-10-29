@@ -9,11 +9,7 @@
 const path = require("node:path");
 const { WAITING_LABEL } = require("./frontier-order.js");
 const { PARKED_LABEL } = require("./parked.js");
-const {
-	COMMAND_VALUES,
-	TAKES_PREFIX,
-	takesValue,
-} = require("./takes-label.js");
+const { COMMAND_VALUES, TAKES_PREFIX } = require("./takes-label.js");
 const { presenceAt } = require("./presence.js");
 
 /* Spec #1995's stops: 24 hours after the last start (#1918), and three
@@ -24,12 +20,6 @@ const NO_PROGRESS_RUN = 3;
 /* A finish whose acts could not be read, counted neither as progress nor as
  * no progress (#2312). */
 const UNREAD = "unread";
-const WAYFINDER = takesValue("wayfinder");
-/* Spec #1995's launch list names these and untyped for a `takes:wayfinder`
- * row, so a map at `takes:wayfinder` is skipped and its children launch on
- * their own; a map at any other kind launches (#1920, #2639). */
-const WAYFINDER_TYPES = new Set(["research", "task", "grilling", "prototype"]);
-const WAYFINDER_PREFIX = "wayfinder:";
 /* Sonnet's founder check does not happen while he is away (#1920). */
 const MODEL = "opus";
 /* A bar reading this refuses the dispatcher's launch (#371); under it, its
@@ -47,7 +37,12 @@ const SHORTLIST_FAILED = "shortlist failed in";
  * tick's log can count it (#2561). */
 const ALREADY_RUNNING = "already running";
 
-/** @typedef {import("./frontier-order.js").FrontierRow & {root: string, takes: string[], labels: string[]}} MergedRow */
+/**
+ * `parkedAt` is when `parked` went on, null where the label is off or its
+ * start would not read.
+ * @typedef {import("./frontier-order.js").FrontierRow & {root: string,
+ *   takes: string[], labels: string[], parkedAt?: string|null}} MergedRow
+ */
 /** @typedef {import("./retro-bundles.js").RetroLaunch & {root: string}} MergedBundle */
 
 /**
@@ -101,6 +96,7 @@ const ALREADY_RUNNING = "already running";
 /**
  * @typedef {object} TickInput
  * @property {number} now ms
+ * @property {"normal"|"away"} mode
  * @property {number} startedAt ms, the last `start` or renewal
  * @property {boolean} stopRequested
  * @property {string|null} [controlDamaged] the control file and why, where it
@@ -127,6 +123,8 @@ const ALREADY_RUNNING = "already running";
  * @property {"opus"} model
  * @property {string} seat
  * @property {true} [gate] a gate judgement's launch (#3092)
+ * @property {true} [parked] a parked ticket's, which resumes the session that
+ *   parked it before `prompt` launches afresh (#3621)
  */
 
 /**
@@ -304,25 +302,25 @@ function seatHold(s) {
 	return s.fits === null ? "unsized" : "capped";
 }
 
+/** @param {{labels: string[]}} row */
+const isParked = (row) => row.labels.includes(PARKED_LABEL);
+
 /**
  * Why the loop's launch filter skips a row, or null where it launches it;
- * also the idle alarm's printed reason (lib/idle-efforts.js).
+ * also the idle alarm's printed reason (lib/idle-efforts.js). A parked row
+ * launches in normal mode alone: away mode leaves its question to the founder's
+ * return (#2355, #3621).
  * @param {{labels: string[], takes: string[]}} row
+ * @param {"normal"|"away"} [mode]
  */
-function buildSkipReason(row) {
-	if (row.labels.includes(PARKED_LABEL)) return "parked";
+function buildSkipReason(row, mode) {
+	if (mode !== "normal" && isParked(row)) return "parked";
 	if (row.labels.includes(WAITING_LABEL)) return WAITING_LABEL;
 	const [kind, ...more] = row.takes;
 	if (kind === undefined || more.length > 0)
 		return `${TAKES_PREFIX}${row.takes.join("+") || "none"}`;
 	if (!COMMAND_VALUES.includes(kind)) return `${TAKES_PREFIX}${kind}`;
-	if (kind !== WAYFINDER) return null;
-	const type = row.labels.find(
-		(l) =>
-			l.startsWith(WAYFINDER_PREFIX) &&
-			!WAYFINDER_TYPES.has(l.slice(WAYFINDER_PREFIX.length)),
-	);
-	return type ?? null;
+	return null;
 }
 
 /**
@@ -331,10 +329,11 @@ function buildSkipReason(row) {
  * @param {MergedRow} row
  * @param {MergedBundle[]} retroBundles
  * @param {(n: number) => boolean} isTaken
+ * @param {"normal"|"away"} mode
  * @returns {{issues: number[], prompt: string} | {why: string}}
  */
-function rowLaunch(row, retroBundles, isTaken) {
-	const why = buildSkipReason(row);
+function rowLaunch(row, retroBundles, isTaken, mode) {
+	const why = buildSkipReason(row, mode);
 	if (why) return { why };
 	const bundle = retroBundles.find(
 		(b) => b.root === row.root && b.issues.includes(row.number),
@@ -387,6 +386,28 @@ function stopOf(input, pick) {
 }
 
 /**
+ * When `row` was parked, ms; an unreadable start sorts as the oldest, as in
+ * pick-next.js's PARKED.
+ * @param {MergedRow} row
+ */
+const parkedMs = (row) => Date.parse(row.parkedAt ?? "") || 0;
+
+/**
+ * The ranking as the loop walks it: in normal mode the parked rows first,
+ * oldest park first, so a question waiting on the founder reaches him before
+ * new work (#3621).
+ * @param {MergedRow[]} frontier
+ * @param {"normal"|"away"} mode
+ */
+function walkOrder(frontier, mode) {
+	if (mode !== "normal") return frontier;
+	const parked = frontier
+		.filter(isParked)
+		.sort((a, b) => parkedMs(a) - parkedMs(b));
+	return [...parked, ...frontier.filter((r) => !isParked(r))];
+}
+
+/**
  * Walk the gate judgements, then the ranking, launching up to `slots`. A
  * judgement goes first: its issue is held out of every ranking until one
  * runs. A retro-bundle member launches its whole bundle, at its best-ranked
@@ -396,7 +417,7 @@ function stopOf(input, pick) {
  * @param {number} slots
  */
 function fill(
-	{ frontier, retroBundles, running, judgements = [] },
+	{ frontier, retroBundles, running, judgements = [], mode },
 	seat,
 	slots,
 ) {
@@ -411,9 +432,9 @@ function fill(
 	);
 	/**
 	 * @param {string} root @param {number[]} issues @param {string} prompt
-	 * @param {boolean} [gate]
+	 * @param {{gate?: boolean, parked?: boolean}} [kind]
 	 */
-	const launch = (root, issues, prompt, gate = false) => {
+	const launch = (root, issues, prompt, { gate, parked } = {}) => {
 		for (const n of issues) taken.add(key(root, n));
 		launches.push({
 			root,
@@ -422,22 +443,23 @@ function fill(
 			model: MODEL,
 			seat,
 			...(gate ? { gate: /** @type {const} */ (true) } : {}),
+			...(parked ? { parked: /** @type {const} */ (true) } : {}),
 		});
 	};
 	for (const j of judgements) {
 		if (launches.length >= slots) break;
 		if (taken.has(key(j.root, j.number)))
 			skipped.push({ root: j.root, number: j.number, why: ALREADY_RUNNING });
-		else launch(j.root, [j.number], j.prompt, true);
+		else launch(j.root, [j.number], j.prompt, { gate: true });
 	}
-	for (const row of frontier) {
+	for (const row of walkOrder(frontier, mode)) {
 		if (launches.length >= slots) break;
 		const next = taken.has(key(row.root, row.number))
 			? { why: ALREADY_RUNNING }
-			: rowLaunch(row, retroBundles, (n) => taken.has(key(row.root, n)));
+			: rowLaunch(row, retroBundles, (n) => taken.has(key(row.root, n)), mode);
 		if ("why" in next)
 			skipped.push({ root: row.root, number: row.number, why: next.why });
-		else launch(row.root, next.issues, next.prompt);
+		else launch(row.root, next.issues, next.prompt, { parked: isParked(row) });
 	}
 	return { launches, skipped };
 }
