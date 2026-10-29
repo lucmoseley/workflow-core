@@ -18,6 +18,8 @@
 #    guess, NOT the minutes-long lag on the child side.
 #  - A 422 naming an existing parent is PROOF THE FIRST CALL WORKED. Never
 #    re-POST on it.
+#  - A closed parent is refused before the POST: the link would hide an open
+#    child from every map that walks open issues (#3650).
 #
 # EXIT 0 only where the link is in place. Anything else exits non-zero WITH a
 # message on stderr.
@@ -85,13 +87,13 @@ wait_for_link() {
   return 1
 }
 
-# A closed parent hides the child from every map that walks open issues, so it
-# is refused here, under every caller, not only under file-issue.js (#3650).
+# Refused here for every caller; file-issue.js refuses the same before it
+# creates the child, to name the nearest open ancestor.
 state="$("$gh" api "repos/$repo/issues/$parent" --jq '.state' 2>/dev/null)" || state=""
 case "$state" in
   open) ;;
   closed) die "#$parent is closed — link #$child under an open issue, or file it with file-issue.js --standalone \"<why>\"; nothing was POSTed" ;;
-  *) die "could not read the state of #$parent (got '${state}') — nothing was POSTed" ;;
+  *) die "could not read the state of #$parent (got '${state}') — nothing was POSTed; check \`gh auth status\` and re-run" ;;
 esac
 
 # The child's numeric database id — NOT its #number, which the endpoint rejects.

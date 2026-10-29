@@ -2,7 +2,8 @@
 /*
  * Pins that linking a child issue under a parent exits 0 only once the parent
  * lists the child, and fails loudly on every other path: `-f` for `-F`, an
- * empty or non-numeric id, a 422, a link that never shows.
+ * empty or non-numeric id, a closed or unreadable parent, a 422, a link that
+ * never shows.
  *
  * link-sub-issue.sh links a child issue under a parent (mantahostels#1150, the build).
  *
@@ -156,7 +157,7 @@ describe("link-sub-issue.sh", () => {
 		expect(readPosts()).toHaveLength(0);
 	});
 
-	it("refuses a closed parent, naming it and the remedy, and POSTs nothing", () => {
+	it("refuses a closed parent, naming it and the remedy, and POSTs nothing (#3650)", () => {
 		const r = run(["40", "63"], { state: "closed", children: ["63"] });
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("#40 is closed");
@@ -169,6 +170,7 @@ describe("link-sub-issue.sh", () => {
 		const r = run(["40", "63"], { state: "" });
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("could not read the state of #40");
+		expect(r.stderr).toContain("gh auth status");
 		expect(readPosts()).toHaveLength(0);
 	});
 
