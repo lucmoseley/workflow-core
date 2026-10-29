@@ -119,6 +119,31 @@ describe("JavaScript", () => {
 		expect(tags(run())).toContain("SELF-ROOTED-JS");
 	});
 
+	it("fails an ESM climb out of scripts/, in each spelling", () => {
+		clean();
+		const climbs = [
+			'path.join(import.meta.dirname, "..")',
+			'resolve(dirname(fileURLToPath(import.meta.url)), "..")',
+			'path.resolve(fileURLToPath(import.meta.url), "..", "..")',
+			'path.join(import.meta.filename, "..", "..")',
+			"path.dirname(import.meta.dirname)",
+			'new URL("..", import.meta.url)',
+		];
+		for (const [i, climb] of climbs.entries())
+			write(`scripts/esm${i}.mjs`, `const ROOT = ${climb};\n`);
+		const text = messages(run());
+		for (const i of climbs.keys()) expect(text).toContain(`esm${i}.mjs:1`);
+	});
+
+	it("passes an ESM walk that names a sibling inside scripts/", () => {
+		clean();
+		write(
+			"scripts/lib/ok.mjs",
+			'const A = path.join(import.meta.dirname, "..", "x.js");\nconst B = path.resolve(fileURLToPath(import.meta.url), "..");\nconst C = new URL("../x.js", import.meta.url);\n',
+		);
+		expect(run().outcome).toBe("OK");
+	});
+
 	it("says nothing about a walk it cannot read as literals", () => {
 		clean();
 		write("scripts/dynamic.js", "const p = path.join(__dirname, name);\n");
@@ -349,6 +374,21 @@ describe("the mirror fault through a variable (#14)", () => {
 			),
 		);
 		expect(tags(run())).toContain("HOST-ROOTED-CORE");
+	});
+
+	it("fails a core-path constant imported by name from a scanned module as HOST-ROOTED-CORE", () => {
+		clean();
+		write(
+			"scripts/lib/consts.mjs",
+			'export const CAP = "scripts/lib/guard-log.sh";\n',
+		);
+		write(
+			"scripts/bad.mjs",
+			'import { hostRoot } from "./lib/host-root.js";\nimport { CAP as LOG } from "./lib/consts.mjs";\nconst root = hostRoot();\nconst p = path.join(root, LOG);\n',
+		);
+		const e = run();
+		expect(tags(e)).toContain("HOST-ROOTED-CORE");
+		expect(messages(e)).toMatch(/bad\.mjs:4 — LOG joined onto the root/);
 	});
 
 	it("fails a core directory templated onto the root as HOST-ROOTED-CORE", () => {
