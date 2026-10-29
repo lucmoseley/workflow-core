@@ -42,6 +42,7 @@ const {
 	passingTurn,
 	PART_PASS_AGE_MS,
 	readLiveRoleMarkers,
+	readQueuesClimbMb,
 	gateDenies,
 	heldSeat,
 	SEAT_ENV,
@@ -1069,6 +1070,16 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 		spawnedIn(tscDir, 22);
 		expect(climbOf(tscDir, 400)).toBe(0);
 		expect(climbOf(suiteDir, 400, () => false)).toBe(0);
+	});
+
+	it("charges both queues' launches to a launch in neither (#3488)", () => {
+		const { suiteDir, tscDir } = queues();
+		spawnedIn(suiteDir, 11);
+		spawnedIn(tscDir, 22);
+		vi.stubEnv("TMPDIR", path.dirname(suiteDir));
+		expect(readQueuesClimbMb({ alive, treePssKb: () => 100 * 1024 })).toBe(
+			2148 + 1538,
+		);
 	});
 
 	/* MemAvailable reads 6,500 MB less what the `tsc` has drawn, against a

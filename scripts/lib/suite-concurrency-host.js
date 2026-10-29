@@ -1,7 +1,8 @@
 /*
- * suite-concurrency-host.js — the production ports the dispatcher wires into
- * the guard-suite-concurrency core, lib/suite-concurrency.js (#3227), and the
- * queue's in-process read of the same gate (lib/suite-queue.js's gateDenies).
+ * suite-concurrency-host.js — the production ports of the
+ * guard-suite-concurrency core, lib/suite-concurrency.js (#3227), the climb
+ * apart (lib/suite-concurrency-hook-host.js adds the hook's), and the queue's
+ * in-process read of the same gate (lib/suite-queue.js's gateDenies).
  *
  * THE SEAMS. WFC_MEMINFO and WFC_PS stand in for /proc/meminfo and `ps`.
  *
@@ -74,7 +75,8 @@ function buildLaunchPorts({ root, log }) {
 /**
  * @param {string} root
  * @param {(what: string, detail?: string) => void} log
- * @returns {import("./suite-concurrency.js").SuitePorts}
+ * @returns {Omit<import("./suite-concurrency.js").SuitePorts, "climbMb">}
+ *   every port but the climb, which each caller charges its own way
  */
 function buildHostPorts(root, log) {
 	const { readCommandFor } = require("./workflow-core-config.js");
@@ -123,9 +125,7 @@ function buildHostPorts(root, log) {
  * poll answer "open"; the session's latches are neither read nor spent. A
  * disabled guard reads open. `weight` is the launch's carried admission
  * weight (#2931), which the gate charges in place of its words' file count.
- * `climbMb`, what the type-check slot's launches have yet to draw (#3416),
- * comes off MemAvailable before the rung reads it; a memory denial gives the
- * reading itself and the charge apart.
+ * `climbMb` is what the type-check slot's launches have yet to draw (#3416).
  * @param {string} command
  * @param {string} [root]
  * @param {import("./suite-handoff.js").CarriedWeight | null} [weight]
@@ -150,28 +150,20 @@ function readGate(command, root, weight = null, climbMb = 0) {
 	const env = { root: host, payload: { cwd: host }, log };
 	const ctx = kitContext(env, sharedReaders(host, log));
 	const { WFC_SUITE_CONCURRENT: _escape, ...vars } = ctx.vars;
-	const ports = buildHostPorts(host, log);
 	const verdict = decide(command, {
 		...ctx,
 		vars,
 		told: () => true,
 		readLatch: () => "",
 		session: "",
-		...ports,
-		availableMb: () => {
-			const mb = ports.availableMb();
-			return mb === null ? null : mb - climbMb;
-		},
+		...buildHostPorts(host, log),
+		climbMb: () => climbMb,
 		launchWeight: weight,
 		/* Never asked: `told` answers yes, so the limb is never weighed. */
 		fullLaunchPlain: () => ({ plain: false }),
 	});
 	if (!verdict || !("deny" in verdict)) return null;
-	if (!("gate" in verdict)) return { limb: "count" };
-	const { gate } = verdict;
-	return gate.limb === "memory" && climbMb > 0
-		? { ...gate, mb: gate.mb + climbMb, climbMb }
-		: gate;
+	return "gate" in verdict ? verdict.gate : { limb: "count" };
 }
 
 module.exports = {

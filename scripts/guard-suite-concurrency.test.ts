@@ -21,6 +21,7 @@
  * goes unjudged in silence, its fail-open line the only trace.
  */
 
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -84,6 +85,8 @@ const seams = (over: Record<string, string | undefined> = {}) => ({
 	WFC_PS: quietPs,
 	WFC_READ_GRAPH_RENDERS: "0",
 	WFC_SUITE_CONCURRENT: "",
+	/* The queues' markers, which the climb charge reads (#3488). */
+	TMPDIR: dir,
 	...over,
 });
 
@@ -393,6 +396,35 @@ describe("the production adapters, crossed for real", () => {
 		expect(out.permissionDecisionReason).toContain(
 			readRuleText("build-concurrency"),
 		);
+	});
+
+	it("charges a spawned suite's remaining climb at a bare `tsc` (#3488)", () => {
+		const { TSC_RUNG_MB } = require("./lib/tsc-slot.js") as {
+			TSC_RUNG_MB: number;
+		};
+		setMb(TSC_RUNG_MB + 500);
+		expect(emission("tsc --noEmit")).toBeNull();
+		const suite = spawn("sleep", ["30"]);
+		try {
+			const queue = path.join(dir, "wfc-suite-queue");
+			fs.mkdirSync(queue);
+			fs.writeFileSync(
+				path.join(queue, `wfc-suite-queue-${suite.pid}.json`),
+				JSON.stringify({
+					pid: suite.pid,
+					at: 0,
+					admitted: true,
+					spawned: true,
+				}),
+			);
+			const out = emission("tsc --noEmit");
+			expect(out.permissionDecision).toBe("deny");
+			expect(out.permissionDecisionReason).toContain(
+				"the queues' running launches have yet to draw",
+			);
+		} finally {
+			suite.kill();
+		}
 	});
 
 	it("reaches the real read-graph render without faulting", () => {

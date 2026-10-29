@@ -274,7 +274,7 @@
 			"core": "suite-concurrency.js",
 			"tools": "Bash",
 			"failure": "open",
-			"host": "suite-concurrency-host.js",
+			"host": "suite-concurrency-hook-host.js",
 			"if": [
 				"Bash(*npm *)",
 				"Bash(*node *)",
