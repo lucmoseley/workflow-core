@@ -7,6 +7,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { procRoot } from "./lib/proc-root.js";
 import type { Arena } from "./proving-run";
 
 /**
@@ -18,7 +19,8 @@ import type { Arena } from "./proving-run";
  */
 function readProcStartOf(pid: number): string | null {
 	try {
-		const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
+		/* procRoot, as the arbiter's own stat read defaults to (#3587). */
+		const stat = fs.readFileSync(`${procRoot()}/${pid}/stat`, "utf8");
 		return stat.slice(stat.lastIndexOf(")") + 2).split(/\s+/)[19] ?? null;
 	} catch {
 		return null;

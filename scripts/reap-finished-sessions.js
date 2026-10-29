@@ -106,6 +106,7 @@ const { buildErrorText } = require("./lib/caught.js");
  */
 const path = require("node:path");
 const { configDir } = require("./lib/config-dir.js");
+const { procRoot } = require("./lib/proc-root.js");
 const { readOwnJob, stopSession } = require("./lib/claude-stop.js");
 const { readRegistryAgents } = require("./lib/registry-agents.js");
 const { readLocks, subjectDirty } = require("./lib/arbiter-store");
@@ -159,7 +160,7 @@ const statePath = () => path.join(configDir(), "wfc-reap-state.json");
 function readPssMb(pid) {
 	try {
 		const m = fs
-			.readFileSync(`/proc/${pid}/smaps_rollup`, "utf8")
+			.readFileSync(`${procRoot()}/${pid}/smaps_rollup`, "utf8")
 			.match(/^Pss:\s+(\d+) kB$/m);
 		return m ? Math.round(Number(m[1]) / 1024) : null;
 	} catch {

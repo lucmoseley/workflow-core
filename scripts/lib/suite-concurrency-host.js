@@ -12,15 +12,17 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { markersDir } = require("./marker-root.js");
+const { REAL_PROC } = require("./proc-root.js");
 const { hasWrapperCall } = require("./suite-launch.js");
 const { STANDDOWN_LOG } = require("./suite-concurrency.js");
 const { readCarriedWeightOf, readPs } = require("./suite-ladder.js");
 
-/** MemAvailable in MB, or null where no line reads. */
+/** MemAvailable in MB, or null where no line reads. Its seam is WFC_MEMINFO;
+ * a WFC_PROC fake carries no meminfo (#3587). */
 function readAvailableMb() {
 	try {
 		const text = fs.readFileSync(
-			process.env.WFC_MEMINFO || "/proc/meminfo",
+			process.env.WFC_MEMINFO || `${REAL_PROC}/meminfo`,
 			"utf8",
 		);
 		const kb = /^MemAvailable:.*?(?<![0-9])([0-9]+) kB/m.exec(text)?.[1];

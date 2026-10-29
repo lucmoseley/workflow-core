@@ -5,6 +5,9 @@
  *
  * Break it and both suites fail at once, or write into the real repo's
  * durable kill and launch logs.
+ *
+ * Its process reads are of REAL_PROC: the wrappers and watchers it finds are
+ * real, and afterEach kills them.
  */
 
 import { spawn, spawnSync } from "node:child_process";
@@ -18,6 +21,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect } from "vitest";
+import { REAL_PROC } from "./proc-root.js";
 import { isDead } from "./process-fixture";
 
 const { TEST_TIMEOUT_MS } = require("./test-ceiling.js");
@@ -53,10 +57,10 @@ export const KILLED_LIFETIME_S = String(TEST_TIMEOUT_MS / 1000 + 30);
  * a case starts owes its own kill. */
 export function readProcessesUnder(dir: string) {
 	const mark = `WFC_BG_ROOT=${dir}`;
-	return readdirSync("/proc").filter((pid) => {
+	return readdirSync(REAL_PROC).filter((pid) => {
 		if (!/^\d+$/.test(pid)) return false;
 		try {
-			return readFileSync(`/proc/${pid}/environ`, "utf8")
+			return readFileSync(`${REAL_PROC}/${pid}/environ`, "utf8")
 				.split("\0")
 				.includes(mark);
 		} catch {
@@ -176,10 +180,12 @@ export const republished = (name: string, oldToken: string) => () => {
 /* Exact argv elements, not a pattern: a pattern also matches whatever
  * process carries it on its own command line. */
 export function readWatcherPids(token: string) {
-	return readdirSync("/proc").filter((pid) => {
+	return readdirSync(REAL_PROC).filter((pid) => {
 		if (!/^\d+$/.test(pid)) return false;
 		try {
-			const argv = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0");
+			const argv = readFileSync(`${REAL_PROC}/${pid}/cmdline`, "utf8").split(
+				"\0",
+			);
 			return argv.includes("__watch") && argv.includes(token);
 		} catch {
 			return false; // exited between the listing and the read

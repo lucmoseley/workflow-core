@@ -20,6 +20,7 @@
 
 const fs = require("node:fs");
 const { caught } = require("./caught.js");
+const { REAL_PROC } = require("./proc-root.js");
 const { FIELD, readStatFields } = require("./proc-stat.js");
 
 /**
@@ -53,8 +54,9 @@ let bootIdCache;
 function readCurrentBootId() {
 	if (bootIdCache === undefined) {
 		try {
+			/* The boot is the machine's, which no fixture root models (#3587). */
 			bootIdCache = fs
-				.readFileSync("/proc/sys/kernel/random/boot_id", "utf8")
+				.readFileSync(`${REAL_PROC}/sys/kernel/random/boot_id`, "utf8")
 				.trim();
 		} catch {
 			bootIdCache = null;

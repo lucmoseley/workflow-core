@@ -27,8 +27,9 @@ import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { copyLibs, readProgramLibs } from "../lib-closure-fixture.js";
+import { makeProcRoot, writeCwd } from "./proc-fake";
 import {
 	codeUpdater,
 	launchProgram,
@@ -160,6 +161,20 @@ async function moreTicks(n: number) {
 	const seen = readTicks().length;
 	await until(() => readTicks().length >= seen + n, `${n} more ticks`);
 }
+
+describe("readRunningCode", () => {
+	it("reads the loop's command line from a WFC_PROC root, not the real /proc (#3587)", () => {
+		const fake = makeProcRoot();
+		vi.stubEnv("WFC_PROC", fake.root);
+		try {
+			fake.proc(4242, { argv: "node scripts/refill-loop.js" });
+			writeCwd(fake.root, "4242", fake.root);
+			expect(readRunningCode(4242, codeDir)).toBe("a plugin install");
+		} finally {
+			fake.remove();
+		}
+	});
+});
 
 describe("launchProgram", () => {
 	it("launches from a loop-owned worktree at origin's tip, never the checkout's working tree", () => {

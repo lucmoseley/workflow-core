@@ -2,18 +2,22 @@
  * process-fixture.ts — starting a real orphan, and reading a real process's
  * fate, in a test that kills one (#2922, #3057).
  *
+ * Every read is of REAL_PROC: the processes it starts and kills are real,
+ * so never an inherited WFC_PROC fixture root's.
+ *
  * FOR TESTS ONLY.
  */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { isInit } from "./orphan-hooks.js";
+import { REAL_PROC } from "./proc-root.js";
 import { FIELD, readStatFields } from "./proc-stat.js";
 import { readProcTable } from "./proc-table.js";
 
 /** A process's state letter and process group, or null where it is gone. */
 function readStat(pid: number | string) {
-	const fields = readStatFields(pid, "/proc");
+	const fields = readStatFields(pid, REAL_PROC);
 	if (!fields) return null;
 	return { state: fields[FIELD.state], pgrp: Number(fields[FIELD.pgrp]) };
 }
@@ -28,7 +32,7 @@ export function isDead(pid: number) {
 /** No member of process group `pgid` alive but as a zombie: one whose leader
  * died first waits on its reaper, and answers a signal 0 to the group. */
 export function isGroupDead(pgid: number) {
-	return fs.readdirSync("/proc").every((pid) => {
+	return fs.readdirSync(REAL_PROC).every((pid) => {
 		if (!/^\d+$/.test(pid)) return true;
 		const stat = readStat(pid);
 		return stat === null || stat.pgrp !== pgid || stat.state === "Z";
@@ -65,7 +69,7 @@ let reapsToInit: boolean | undefined;
 export function orphansReapToInit() {
 	if (reapsToInit !== undefined) return reapsToInit;
 	const pid = startOrphan("-c 'sleep 5'");
-	const table = readProcTable("/proc")?.procs;
+	const table = readProcTable(REAL_PROC)?.procs;
 	const ppid = table?.get(pid)?.ppid ?? 0;
 	try {
 		process.kill(-pid, "SIGKILL");

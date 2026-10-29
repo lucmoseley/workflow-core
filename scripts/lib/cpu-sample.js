@@ -34,6 +34,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const { readMachineSetting } = require("./machine-setting.js");
+const { REAL_PROC } = require("./proc-root.js");
 
 /*
  * The eight fields of `/proc/stat`'s aggregate `cpu` line, in kernel order.
@@ -73,10 +74,11 @@ const NOT_BUSY = new Set(["idle", "iowait"]);
  */
 function readLoad1() {
 	try {
-		/* parseFloat stops at the first whitespace, so it reads the first figure. */
+		/* parseFloat stops at the first whitespace, so it reads the first figure.
+		 * Its seam is WFC_LOADAVG; a WFC_PROC fake carries no loadavg (#3587). */
 		const n = Number.parseFloat(
 			fs
-				.readFileSync(process.env.WFC_LOADAVG || "/proc/loadavg", "utf8")
+				.readFileSync(process.env.WFC_LOADAVG || `${REAL_PROC}/loadavg`, "utf8")
 				.trim(),
 		);
 		return Number.isFinite(n) ? n : null;
@@ -98,8 +100,9 @@ function sample() {
 		 * `cpu0`, `cpu1` … follow it. Matching on the prefix without the space
 		 * would take a per-core line on any kernel that reordered them.
 		 */
+		/* The cpu line is the machine's, which no fixture root models (#3587). */
 		line = fs
-			.readFileSync("/proc/stat", "utf8")
+			.readFileSync(`${REAL_PROC}/stat`, "utf8")
 			.split("\n")
 			.find((l) => l.startsWith("cpu "));
 	} catch {
