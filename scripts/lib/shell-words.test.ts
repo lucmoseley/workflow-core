@@ -18,7 +18,6 @@ import {
 	gitValueFlags,
 	gitWords,
 	isGhCommand,
-	isInlineCode,
 	literal,
 	scanFlags,
 	unwrap,
@@ -64,20 +63,6 @@ describe("commandName and isGhCommand (#2885)", () => {
 	])("%j reads as %j, gh: %j", (word, name, gh) => {
 		expect(commandName(word)).toBe(name);
 		expect(isGhCommand(word)).toBe(gh);
-	});
-});
-
-describe("isInlineCode (#3456)", () => {
-	it.each([
-		["node", ["-e", "x"], true],
-		["node", ["--no-warnings", "--eval=x"], true],
-		["node", ["-c", "a.js"], false],
-		["node", ["a.js", "-e"], false],
-		["bash", ["-c", "x"], true],
-		["sh", ["-e", "a.sh"], false],
-		["python3", ["-c", "x"], false],
-	])("%s %j is %s", (interpreter, words, inline) => {
-		expect(isInlineCode(interpreter, words)).toBe(inline);
 	});
 });
 

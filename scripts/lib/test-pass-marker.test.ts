@@ -2560,11 +2560,12 @@ describe("a red run's recovery command (#3625)", () => {
 	// Distinct `at`s inside the archive's reach, a second apart.
 	const at = (i: number) =>
 		new Date(Date.now() - 10_000 + i * 1000).toISOString();
-	const red = (i: number, file: string) => ({
-		sha: "a".repeat(40),
-		at: at(i),
-		scope: { failures: [{ file, tests: ["fails"] }] },
-	});
+	const red = (i: number, file: string) =>
+		({
+			sha: "a".repeat(40),
+			at: at(i),
+			scope: { failures: [{ file, tests: ["fails"] }] },
+		}) as Parameters<typeof recordFailure>[0] & { at: string };
 	const mine = red(0, "scripts/mine.test.ts");
 	// From a directory that is not the checkout, as from a worktree.
 	const run = (root: string) =>

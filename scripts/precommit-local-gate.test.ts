@@ -100,7 +100,7 @@ describe("the pre-commit.local load point", () => {
 	it("refuses every commit on a missing script, arming path staged or not, naming the script and the way out (#426)", () => {
 		const local = [
 			"if git diff --cached --name-only | grep -q '^docs/tax\\.md$'; then",
-			'\tnode scripts/x.js || exit "$?"',
+			"\tnode scripts/x.js || exit 1",
 			"fi",
 		].join("\n");
 		const r = run(fixture({ local }));
