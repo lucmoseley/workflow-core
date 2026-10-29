@@ -94,6 +94,22 @@ describe("a claimed exhausted map", () => {
 		expect(c).toBeGreaterThan(b);
 	});
 
+	it("restates the rule's own steps", () => {
+		const rule = fs.readFileSync(
+			path.join(__dirname, "../docs/agents/rules/wayfinder-ops-shapes.txt"),
+			"utf8",
+		);
+		const steps = reasonFor(EXHAUSTED)
+			.split("\n")
+			.map((l) => l.trim())
+			.filter((l) => /^\([a-c]\)/.test(l));
+		expect(steps).toHaveLength(3);
+		const [a, b, c] = steps;
+		expect(rule).toContain(a);
+		expect(rule).toContain(b?.split(":")[0]?.replace("exhausted-map ", ""));
+		expect(rule).toContain(c);
+	});
+
 	it("refuses where the map's date gate has passed", () => {
 		expect(
 			reasonFor({

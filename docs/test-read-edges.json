@@ -2127,6 +2127,7 @@
 		],
 		"docs/agents/rules/wayfinder-ops-shapes.txt": [
 			"scripts/count-guard-fires.test.ts",
+			"scripts/guard-exhausted-map.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/review-tier.test.ts",
