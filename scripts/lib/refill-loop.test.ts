@@ -37,6 +37,7 @@ import {
 	parseScope,
 	parseState,
 	readSizedSeats,
+	reviewRunOf,
 	reviewRunRecorded,
 	runningOf,
 	scopeRoots,
@@ -1222,6 +1223,24 @@ describe("when a tick files the morning review (#2017)", () => {
 
 	it("runs a loop started after 07:00 on its first tick", () => {
 		expect(isReviewRunDue(at(15), "2026-10-18")).toBe(true);
+	});
+
+	const filing = {
+		due: true,
+		script: "file-morning-review.js",
+		label: "morning review",
+	};
+	const answering = {
+		due: false,
+		script: "answer-review-reversals.js",
+		label: "morning review reversals",
+	};
+	it.each([
+		["on a due tick", at(12), null, filing],
+		["once today's review is filed", at(12), "2026-10-19", answering],
+		["before REVIEW_HOUR", at(3), null, answering],
+	])("picks the review child %s (#3405, #3478)", (_, now, lastRunOn, run) => {
+		expect(reviewRunOf(now, lastRunOn)).toEqual(run);
 	});
 
 	it("records the day off a due tick's review status, never past a timeout or on a tick not due", () => {

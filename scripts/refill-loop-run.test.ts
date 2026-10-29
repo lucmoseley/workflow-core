@@ -401,10 +401,7 @@ process.stdout.write("Memory kill incident from 2026-10-26 03:56: filed #9.");\n
 
 		/* TZ steers the due rule's clock: runInProcess writes process.env in
 		 * place, and node re-reads its zone on each TZ assignment. */
-		const runTickReviewing = async (
-			reviewRunOn: string | null,
-			zone: string,
-		) => {
+		const runTickReviewing = async (zone: string) => {
 			configureCodeRoot();
 			stub("file-memory-kill-tickets.js", "");
 			for (const name of [
@@ -418,7 +415,7 @@ process.stdout.write(${JSON.stringify(name)});\n`,
 				);
 			fs.writeFileSync(
 				at(".refill-loop-state.json"),
-				JSON.stringify({ launches: [], reviewRunOn }),
+				JSON.stringify({ launches: [], reviewRunOn: null }),
 			);
 			const r = await settled(run(1, { TZ: zone }), "run with a review config");
 			expect(r.status).toBe(0);
@@ -427,7 +424,7 @@ process.stdout.write(${JSON.stringify(name)});\n`,
 
 		it("runs only file-morning-review.js on a due tick, recording today", async () => {
 			const { zone, today } = zoneAt(12);
-			const r = await runTickReviewing(null, zone);
+			const r = await runTickReviewing(zone);
 			expect(readLines(at("reviews"))).toEqual(["file-morning-review.js"]);
 			expect(r.stdout).toContain(
 				"morning review: exit 0\n  file-morning-review.js",
@@ -436,23 +433,6 @@ process.stdout.write(${JSON.stringify(name)});\n`,
 				JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"))
 					.reviewRunOn,
 			).toBe(today);
-		});
-
-		it("runs only answer-review-reversals.js once today's review is filed", async () => {
-			const { zone, today } = zoneAt(12);
-			const r = await runTickReviewing(today, zone);
-			expect(readLines(at("reviews"))).toEqual(["answer-review-reversals.js"]);
-			expect(r.stdout).toContain(
-				"morning review reversals: exit 0\n  answer-review-reversals.js",
-			);
-		});
-
-		it("runs only answer-review-reversals.js before REVIEW_HOUR", async () => {
-			const r = await runTickReviewing(null, zoneAt(3).zone);
-			expect(readLines(at("reviews"))).toEqual(["answer-review-reversals.js"]);
-			expect(r.stdout).toContain(
-				"morning review reversals: exit 0\n  answer-review-reversals.js",
-			);
 		});
 	});
 

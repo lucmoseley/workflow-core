@@ -399,7 +399,7 @@ function readHeadlessSession(jobId) {
  * @param {number} now
  */
 function runReview(lastRunOn, now) {
-	const due = loop.isReviewRunDue(new Date(now), lastRunOn);
+	const { due, script, label } = loop.reviewRunOf(new Date(now), lastRunOn);
 	const today = localDate(new Date(now));
 	if (!hasConfig(REVIEW_ROOT)) {
 		if (due)
@@ -408,9 +408,6 @@ function runReview(lastRunOn, now) {
 			);
 		return due ? today : lastRunOn;
 	}
-	const [script, label] = due
-		? ["file-morning-review.js", "morning review"]
-		: ["answer-review-reversals.js", "morning review reversals"];
 	const ran = runChild(process.execPath, [path.join(SCRIPTS, script)], {
 		cwd: REVIEW_ROOT,
 		env: checkoutEnv(REVIEW_ROOT),
