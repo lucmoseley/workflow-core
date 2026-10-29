@@ -1,5 +1,5 @@
 # Python dependencies for the data-pipeline scripts and their tests: the direct
-# ones, each at an exact `==` pin. Nothing here is installed by `npm install`.
+# ones, each at an exact `==` pin.
 #
 # This file is what a person edits. pip installs requirements-dev.txt, compiled
 # from it with every transitive dependency pinned and each wheel's sha256 beside
@@ -16,38 +16,25 @@ pytest==9.1.1
 # `npm run test:py` passes -n 2, so this is required, not optional: without it
 # pytest exits on an unrecognised argument. Two workers, not `auto` — on this
 # machine a worker per core would fight the parallel Claude sessions for the
-# 8 GB cap.
+# 10 GB cap.
 #
-# This is a LOCAL win only, measured 13 August 2026: 53.4s -> 23.6s here, but
-# 111s -> 103s on a GitHub runner, which is ~7%: the CI job barely moves. Two
-# vCPU do not scale this FP-heavy bootstrap. Kept because the suite is run
-# before every push by hand and halving that is worth having; do not re-argue it
-# as a CI saving.
-#
-# Cutting the CI job took the work itself getting cheaper, at mantahostels#314: vectorising
-# the Spearman bootstrap took the suite to 14.0s serial and 7.3s here, and the
-# CI job from 127s to 30s. Removing work transfers to a runner; spreading it
-# over vCPU there are only two of does not.
+# A local win only; do not argue it as a CI saving (mantahostels#314).
 pytest-xdist==3.8.0
 
 # Already required at import time by scripts/collect-evidence.py, which reads the
-# master sheet, and therefore needed to load that module in a test. Recorded here
-# because it was previously an undeclared assumption about the machine.
+# master sheet, and therefore needed to load that module in a test.
 openpyxl==3.1.5
 
 # Imported by scripts/evidence_audit_stats.py: numpy runs the seeded bootstrap
 # resampling, scipy.stats supplies the pre-registered tests (Spearman,
-# Mann-Whitney, Kruskal-Wallis). Both were undeclared machine assumptions too.
+# Mann-Whitney, Kruskal-Wallis).
 # 2.4.6 rather than 2.4.0: PyPI has yanked 2.4.0 for a backward-compatibility bug,
 # and pip serves a yanked release only to an exact pin (mantahostels#930).
 numpy==2.4.6
 scipy==1.16.3
 
-# The Python linter, adopted at mantahostels#1135. Config, the rule set and why it is not
+# The Python linter (mantahostels#1135). Config, the rule set and why it is not
 # wider: ruff.toml, which owns all of that. Run it with `npm run check:py`;
 # .husky/pre-commit runs it on the commit's own staged .py paths and
 # ci.yml's python job runs it over the repo.
-#
-# 0.16.4 is what mantahostels#1135 measured every candidate rule set against. It ships a
-# prebuilt aarch64 wheel, so there is no Rust toolchain to install here.
 ruff==0.16.4

@@ -93,7 +93,7 @@ jobs:
       # framework rules.
       #
       # .husky/pre-commit runs the same rules on the commit's own staged paths,
-      # and hard-fails too. Do not soften either to match the other.
+      # and hard-fails too.
       - name: ESLint
         if: ${{ !cancelled() }}
         run: npm run check:eslint
@@ -134,8 +134,8 @@ jobs:
       # Runs `npm run check:actions` rather than the binary directly so CI and
       # the local by-hand route are one command; the pre-commit half passes the
       # commit's own staged workflow paths instead, and warns-and-passes when
-      # the binary is absent. Do not soften this one to match it — a runner that
-      # cannot fetch the tarball should fail loudly, not skip. The retries are
+      # the binary is absent. Here a runner that cannot fetch the tarball fails
+      # loudly rather than skipping. The retries are
       # transport-level only (the incident behind them: mantahostels#1137):
       # the checksum below still decides what the retried bytes may be.
       - name: actionlint
@@ -163,8 +163,7 @@ jobs:
       # Hard-fails, deliberately. Its local counterpart in .husky/pre-commit only
       # warns, because that one reads the shared WORKTREE and would otherwise
       # refuse a commit over a parallel session's half-written file. A runner
-      # checks out a clean tree, so here it can be strict. Do not soften this to
-      # match the hook.
+      # checks out a clean tree, so here it can be strict.
       #
       # Except the mods: their three passes (both mods and hooks/register.ts)
       # SKIP here with a warning, since the runner has no Claude Code
@@ -241,8 +240,8 @@ jobs:
           WFC_CLAUDE_BIN="$dir/claude" node scripts/run-mod-tests.js --all
 
   # One job per shard; the matrix's length is the shard count, read back
-  # through `strategy`. Sized on the unsharded step's 449 s (#2413) so each
-  # shard's job, setup included, stays under 180 s. Shards are packed by
+  # through `strategy`. Sized so each shard's job, setup included, stays under
+  # 180 s (#2413). Shards are packed by
   # recorded file times, not file count (scripts/vitest-shard-sequencer.ts).
   # A batch is green only where every shard is.
   vitest:
@@ -334,7 +333,6 @@ jobs:
 
       # vitest run exits non-zero on any failing test and npm propagates that.
       # No continue-on-error, no `|| true` — a failing test fails the build.
-      # Keep it that way.
       #
       # `--full` IS LOAD-BEARING: bare `npm run test` narrows to the diff
       # against merge-base(HEAD, <the pushed ref>) (mantahostels#3208, #2408). On a CI
@@ -364,20 +362,9 @@ jobs:
           retention-days: 14
 
 
-  # A separate job, unlike Biome above: Python needs its own interpreter and pip
-  # cache, not the Node setup, so folding it in would buy no shared steps — only
-  # a serialised run of two suites that have nothing in common. `needs:` nothing,
-  # so the two jobs run in parallel and each failure is attributable.
-  #
-  # What this actually guards is the evidence pipeline behind the partner analysis —
-  # `evidence-audit.py` and `collect-evidence.py`, whose figures mantahostels'
-  # doc-map publishes as its evidence-audit chain. test_doc_map_b7.py re-derives every published figure from the
-  # committed evidence-audit.csv and the script's own constants.
-  #
-  # The corpus test (test_evidence_corpus.py) SKIPS here and that is correct, not a
-  # gap to close: data/ is gitignored, so the 229-property scrape it runs over is not
-  # in the repo. Do not commit the corpus to make it run — the committed CSV is that
-  # run's row-level output and is what the CI-side test checks.
+  # A separate job: Python needs its own interpreter and pip cache, not the Node
+  # setup. `needs:` nothing, so the jobs run in parallel and each failure is
+  # attributable.
   python:
     name: Python
     if: ${{ github.repository == 'lucmoseley/workflow-core' }}
@@ -393,8 +380,7 @@ jobs:
           python-version: "3.12"
           cache: pip
           # setup-python's pip cache looks for requirements.txt by default and this
-          # repo has no such file, so the path is named explicitly. Without it the
-          # cache silently does nothing.
+          # repo has no such file, so the path is named explicitly.
           cache-dependency-path: requirements-dev.txt
 
       # Hash-checking mode, which the hashes in requirements-dev.txt switch on
@@ -407,20 +393,17 @@ jobs:
       # imports, so a module no test reaches is never run, only read statically.
       #
       # A step in this job rather than a job of its own: the pip install this
-      # needs has already run above. No install step for the same reason —
-      # ruff is pinned in requirements-dev.txt, so `Install dependencies` above already fetched it.
+      # needs has already run above.
       #
       # Hard-fails, unlike the .husky/pre-commit half, which warns and passes when
       # ruff is absent only because this step runs `ruff check`: remove it and
-      # the hook refuses such a commit instead (#1563). A runner that has run
-      # the pip install has ruff, so here a missing binary is a real breakage.
-      # Do not soften this to match the hook.
+      # the hook refuses such a commit instead (#1563).
       - name: Ruff
         if: ${{ !cancelled() }}
         run: npm run check:py
 
       # pytest exits non-zero on any failing test. As above, and with no `if:` —
-      # a failing test fails the build. Keep it that way.
+      # a failing test fails the build.
       # Collection is pinned to scripts/ by pytest.ini. Invoked through npm rather
       # than pytest directly so CI exercises the same one command a local run uses —
       # no setup-node step is needed for it: the runner ships node and npm, and
