@@ -56,7 +56,8 @@ function insideInert(text, i) {
 	while (lo < hi) {
 		const mid = (lo + hi) >> 1;
 		const span = spans[mid];
-		if (span !== undefined && span[0] < i) lo = mid + 1;
+		if (span === undefined) throw new Error(`no inert span at ${mid}`);
+		if (span[0] < i) lo = mid + 1;
 		else hi = mid;
 	}
 	const before = spans[lo - 1];
