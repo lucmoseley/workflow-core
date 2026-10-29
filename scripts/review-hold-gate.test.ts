@@ -33,7 +33,7 @@ const BACKSTOP = path.resolve(__dirname, "concision-backstop.sh");
 const DISPATCH = path.resolve(__dirname, "guard-dispatch.js");
 const ARBITER = path.resolve(__dirname, "session-arbiter.js");
 const WRITE_MARKER = path.resolve(__dirname, "write-review-marker.js");
-const WIRING = `${coreCall("bash", "scripts/review-hold-gate.sh")} || exit "$?"`;
+const WIRING = `${coreCall("bash", "scripts/review-hold-gate.sh")} || exit 1`;
 const SID = "session-under-test";
 /** code-signal.sh's review floor: a change over it owes a review. */
 const CODE_THRESHOLD = readShellConst(
