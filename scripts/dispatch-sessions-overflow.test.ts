@@ -35,7 +35,8 @@ const KEY_VAR = "WFC_TEST_OVERFLOW_KEY";
 const seat = () => path.join(fx.dir, ".claude2-api");
 const refill = () => path.join(fx.dir, "refill");
 
-/* A $10-mean cost table sets every figure the cases assert. */
+/* A $10-mean cost table, committed in the fixture checkout the dispatcher
+ * runs in, sets every figure the cases assert. */
 function overflowEnv(
 	grant: number,
 	{ key = true }: { key?: boolean } = {},
@@ -52,9 +53,9 @@ function overflowEnv(
 		path.join(config, "workflow-core", "secrets.env"),
 		key ? `${KEY_VAR}=sk-fake-overflow\n` : "OTHER=1\n",
 	);
-	const table = path.join(fx.dir, "cost-table.json");
+	fs.mkdirSync(path.join(fx.dir, "docs", "data"), { recursive: true });
 	fs.writeFileSync(
-		table,
+		path.join(fx.dir, "docs", "data", "session-cost-table.json"),
 		JSON.stringify({
 			n: 1,
 			meanUsd: 10,
@@ -67,7 +68,7 @@ function overflowEnv(
 		CLAUDE_CONFIG_DIR: seat(),
 		WFC_REFILL_DIR: refill(),
 		WFC_SECRETS_FILE: path.join(config, "workflow-core", "secrets.env"),
-		WFC_SESSION_COST_TABLE: table,
+		CLAUDE_PROJECT_DIR: fx.dir,
 	};
 }
 
