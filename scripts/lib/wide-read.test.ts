@@ -613,3 +613,19 @@ describe("the cases a mutant must not survive (#2791)", () => {
 		expect(said.join("\n")).toContain("could not measure");
 	});
 });
+
+describe("a dumper behind a launcher (#3519)", () => {
+	it("judges a cat, sed or awk behind a launcher as it judges a bare one", () => {
+		expect(run("timeout 5 cat big.md")).toEqual(run("cat big.md"));
+		expect(
+			run(`nohup env X=1 sed -n '1,${WIDE_LINES}p' big.md`).warning,
+		).toContain(`prints ${WIDE_LINES} lines`);
+		expect(run("timeout 5 awk 1 part-*.txt").warning).toContain(
+			`matches at least ${WIDE_MATCHES} files`,
+		);
+	});
+
+	it("stays silent on a dumper inside a shell's -c string", () => {
+		expect(run('sh -c "cat big.md"')).toEqual(silent);
+	});
+});

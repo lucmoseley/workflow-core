@@ -38,9 +38,13 @@
  * fixtures small enough to write.
  *
  * LIMITS
- *  - The Bash narrowings are unanchored, so a `cat` behind a launcher or a
- *    later segment reaches the core; a command holding `cat`, `sed` or `awk`
- *    with no space after it never does.
+ *  - The Bash narrowings are unanchored, so a `cat` in a later segment
+ *    reaches the core, and one behind a launcher is judged as a bare one —
+ *    past every wrapper lib/shell-words.js's unwrap strips (`timeout`, `env`,
+ *    `nohup`, `sudo` and the rest), and no further: `sh -c "cat …"`, and a
+ *    wrapper flag unwrap does not know, leave the dumper unjudged (#3519). A
+ *    command holding `cat`, `sed` or `awk` with no space after it never
+ *    reaches the core.
  *  - The bounded test reads the RAW command string for `|` and `>`, so one
  *    inside a quoted span silences the guard. Fail-silent, which is the right
  *    direction for a warn: a missed nudge costs bytes, a wrong one costs trust.
@@ -95,7 +99,7 @@
 
 const path = require("node:path");
 const { parseCommand, walkCommands } = require("./shell-parse.js");
-const { isGlobPattern, literal } = require("./shell-words.js");
+const { isGlobPattern, literal, unwrap } = require("./shell-words.js");
 
 /**
  * @typedef {object} WideReadPorts
@@ -205,14 +209,14 @@ function decide(subject, ctx) {
 
 /**
  * One command's findings, one per matched shape, in the order matched.
- * @param {string[]} words its own words
+ * @param {string[]} words its own words, launchers and all
  * @param {string[]} spans
  * @param {WideReadContext} ctx
  * @param {Thresholds} t
  * @returns {string[]}
  */
 function judge(words, spans, ctx, t) {
-	const [head, ...args] = words;
+	const [head, ...args] = unwrap(words, spans).words;
 	if (head === undefined) return [];
 	const base = literal(head, spans);
 	if (!base.known) return [];
