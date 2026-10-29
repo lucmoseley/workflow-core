@@ -22,10 +22,6 @@
  *   APPARATUS  what the checker READS THE REPO WITH failed — fs will not read a
  *              tracked file, git will not enumerate the tracked set => BROKEN.
  *
- * lib/gh.js already runs on exactly this split and is the model generalised
- * here: parseGhFailureReason() sends an unreachable GitHub (subject) to SKIP and
- * every other gh failure (apparatus) to BROKEN.
- *
  * Severity is intrinsic to a finding, assigned by the checker that raises it;
  * the outcome is the worst severity present. --warn is a caller-side CAP, not a
  * property of the finding: it lowers the ceiling to WARN so FAIL findings still
@@ -59,10 +55,6 @@
  * whole-tree gate, which refuses every breach the tree holds but must judge
  * this commit's bytes rather than a neighbour's untracked or unstaged file
  * (#3687). Legal wherever `against` is declared.
- *
- * NOT `--baseline`: taken twice in this family already, for a file of anchor
- * text (check-instruction-surface.js) and a number of test files
- * (check-suite-size-drift.js).
  *
  * TWO MATERIALISATIONS, CHOSEN BY THE SPEC AND NEVER BY THE CALLER, because
  * which one is right is a property of how the checker finds its scan scope:

@@ -896,12 +896,6 @@ describe("gaps a review pass found", () => {
  * HEAD and worktree can each be given a different fault list and the reading
  * the gate actually took is readable from the verdict.
  */
-/*
- * mantahostels#2264: carried a 20,000 ms override (mantahostels#1941's 880 ms quiet reading, ~7x
- * margin against the then-5,000 ms default). Removed as a raise made
- * redundant by mantahostels#2262's 90,000 ms repo default — the margin now comes from
- * the file's ceiling, not this block.
- */
 describe("--against <rev>", () => {
 	/** Every --root the re-exec passed, one per line, written outside both trees. */
 	const rootLog = () => path.join(dir, "roots.log");
@@ -1235,12 +1229,10 @@ runCheck({
 	});
 
 	/*
-	 * The seven cases below pass `--against` through `run()` (the converted
+	 * The refusal cases below pass `--against` through `run()` (the converted
 	 * seam), not `gate()`/`gateBlobs()` (real spawns) — safe because every one
-	 * refuses before `runAgainst`/`reread` ever runs, so the real-fd exemption
-	 * (mantahostels#1993, mantahostels#1945) never applies to them. The seventh, "does not swallow the
-	 * rev...", moved to a real spawn at mantahostels#2109 — it needs `reread` to run, so
-	 * it's now in the set this exemption excludes.
+	 * refuses before `reread` or any materialisation runs, so the real-fd exemption
+	 * (mantahostels#1993, mantahostels#1945) never applies to them.
 	 */
 	it("refuses --against on a checker that does not direction-gate", () => {
 		const c = checker("return {};");
@@ -1351,11 +1343,6 @@ runCheck({
  * the spec's pathspecs() names, for one whose scope IS a pathspec. The
  * difference is cost, so what these pin is that the cheap path is the one
  * actually taken.
- */
-/*
- * mantahostels#2264: carried a 20,000 ms override (mantahostels#1941's 0.42 s-a-side quiet reading).
- * Removed as a raise made redundant by mantahostels#2262's 90,000 ms repo default, the
- * same as the block above.
  */
 describe("--against with the blobs materialisation", () => {
 	/**
