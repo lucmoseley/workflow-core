@@ -19,7 +19,13 @@
  *
  * A PARKING TURN PASSES: a `needs input:` ending whose round park-on-round.js
  * parks the map this same Stop is itself the park route, read through the
- * same `parkTargets` that hook uses, since both hooks run at once.
+ * same `parkTargets` that hook uses, since both hooks run at once. A turn
+ * whose message cannot be read may be that turn, so it passes too.
+ *
+ * STEPS (a)–(c) ARE `rule:wayfinder-ops-shapes` §Exhausted map's, restated
+ * in the block because the rule fragment runs to the whole of
+ * `/wayfinder`'s operations; guard-exhausted-map.test.ts pins the two
+ * against each other.
  *
  * IMPLICIT:  at every Stop of a session holding an issue claim, reads each
  *            claimed issue from GitHub and refuses the turn where one is an
@@ -43,18 +49,22 @@ const { PARKED_LABEL } = require("./lib/parked");
 const stopGuard = require("./lib/stop-guard");
 
 const TAKES_WAYFINDER = "takes:wayfinder";
+const EXHAUSTED_MAP_PREFIX = ".exhausted-map-nagged-";
 
-/* Each read's cap: the registration's timeout is 15 s, and a session holding
- * one map makes two reads. */
-const READ_TIMEOUT_MS = 5000;
+/* Every read's cap together: the registration's timeout is 15 s, and the rest
+ * holds node's start and the block's write. A session claims the one issue it
+ * works (`rule:issue-claim-scope`), so a map takes two reads. */
+const READ_BUDGET_MS = 10_000;
 
 /**
  * The issues this session claims, or [] where the store cannot be read whole.
  * @param {string} sid
  * @returns {number[]}
  */
-function claimedIssues(sid) {
+function readClaimedIssues(sid) {
 	const listed = listIssueClaims();
+	/* Fails open (#3639): a store read short could name a map this session
+	 * does not hold. */
 	if (!listed || listed.why) return [];
 	return listed.claims
 		.filter((c) => c?.sessionId === sid && typeof c.issue === "number")
@@ -62,13 +72,19 @@ function claimedIssues(sid) {
 }
 
 /**
- * Whether `n` in `tracker` is an exhausted map. Throws on a read error.
+ * Whether `n` in `tracker` is an exhausted map. Throws on a read error, and
+ * on a read begun past `deadline` (epoch ms).
  * @param {string} tracker
  * @param {number} n
+ * @param {number} deadline
  */
-function isExhaustedMap(tracker, n) {
-	const opts = { timeout: READ_TIMEOUT_MS };
-	const issue = ghJson(["api", `repos/${tracker}/issues/${n}`], opts);
+function isExhaustedMap(tracker, n, deadline) {
+	const opts = () => {
+		const timeout = deadline - Date.now();
+		if (timeout <= 0) throw new Error("read budget spent");
+		return { timeout };
+	};
+	const issue = ghJson(["api", `repos/${tracker}/issues/${n}`], opts());
 	/** @type {string[]} */
 	const labels = (issue.labels ?? []).map(
 		(/** @type {{name: string}} */ l) => l.name,
@@ -78,20 +94,21 @@ function isExhaustedMap(tracker, n) {
 		return false;
 	const { gateHolds, gateOnHolds } = resolveGate(issue.body ?? "");
 	if (gateHolds || gateOnHolds) return false;
-	return !readSubIssues(n, tracker, opts).some(isOpenChild);
+	return !readSubIssues(n, tracker, opts()).some(isOpenChild);
 }
 
 /**
- * The maps this turn's own ending parks, or [] where the message is unread.
+ * The maps this turn's own ending parks, or null where the message is unread.
  * @param {import('./lib/stop-guard.js').StopPayload} payload
  * @param {string} sid
+ * @returns {number[]|null}
  */
-function parkedThisTurn(payload, sid) {
+function readParkedThisTurn(payload, sid) {
 	const transcript = hookMessage.transcriptPath(payload, sid);
 	const message = hookMessage.readMessageText(payload, transcript, (err) =>
 		logError("guard-exhausted-map message", err),
 	);
-	return message ? parkTargets(message, sid) : [];
+	return message ? parkTargets(message, sid) : null;
 }
 
 /**
@@ -112,24 +129,27 @@ function buildReason(maps) {
  * @param {{sessionId: string, payload: import('./lib/stop-guard.js').StopPayload}} ctx
  */
 function judge({ sessionId: sid, payload }) {
-	const claimed = claimedIssues(sid);
+	const claimed = readClaimedIssues(sid);
 	const tracker = trackerOf();
 	if (claimed.length === 0 || !tracker) return;
-	if (hookBlock.capSpent({ prefix: ".exhausted-map-nagged-", sessionId: sid }))
+	if (hookBlock.capSpent({ prefix: EXHAUSTED_MAP_PREFIX, sessionId: sid }))
 		return;
+	const deadline = Date.now() + READ_BUDGET_MS;
 	let exhausted;
 	try {
-		exhausted = claimed.filter((n) => isExhaustedMap(tracker, n));
+		exhausted = claimed.filter((n) => isExhaustedMap(tracker, n, deadline));
 	} catch (err) {
+		/* Fails open (#3639): a map read short may have a route already. */
 		logError("guard-exhausted-map read", err);
 		return;
 	}
 	if (exhausted.length === 0) return;
-	const parking = parkedThisTurn(payload, sid);
+	const parking = readParkedThisTurn(payload, sid);
+	if (parking === null) return;
 	const owed = exhausted.filter((n) => !parking.includes(n));
 	if (owed.length === 0) return;
 	hookBlock.blockStop({
-		prefix: ".exhausted-map-nagged-",
+		prefix: EXHAUSTED_MAP_PREFIX,
 		sessionId: sid,
 		reason: buildReason(owed),
 	});
