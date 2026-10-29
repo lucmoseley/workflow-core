@@ -12,8 +12,7 @@
  *
  * IT ONLY EVER RECORDS. Nothing is refused, nothing is injected, and every
  * failure path exits 0 in silence. A claim that fails to write leaves the
- * issue selectable. Run by hand with arguments, it refuses on exit 1 and
- * names claim-issue.js.
+ * issue selectable.
  *
  * LIMITS
  *  - A PostToolUse hook sees Bash tool calls only, so AN ASSIGNMENT MADE FROM

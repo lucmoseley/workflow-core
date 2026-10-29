@@ -6,12 +6,13 @@
  * bash as the harness runs it, on a harness-shaped payload — the wiring, the
  * session id's two channels, the fail-open record, and the arbiter's claim
  * store and git crossed for real. Which close releases what is
- * lib/issue-claim-hook.test.ts's (#2799).
+ * lib/issue-claim-hook.test.ts's (#2799). One case runs it by hand with an
+ * argument instead, as a session once did and hung (#3556).
  *
  * Break the line and every claim outlives its issue.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -28,7 +29,6 @@ import {
 	guardOutput,
 	readHookLines,
 } from "./lib/pretool-guard-testkit";
-import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = "scripts/release-issue-claim.js";
 const LINES = readHookLines("hooks/hooks.json", SCRIPT);
@@ -128,19 +128,33 @@ describe("each exit", () => {
 	});
 });
 
-describe("run by hand", () => {
-	it("refuses an issue number on exit 1, naming the release command", () => {
-		const r = runInProcess(path.join(CHECKOUT, SCRIPT), ["646"], {
-			cwd: sb.repo,
-			stdin: "",
+describe("run by hand (#3556)", () => {
+	it("refuses an issue number on exit 1 while its stdin stays open, naming the release command", async () => {
+		// spawn-kept: a real stdin pipe held open, the fd the hang blocked on.
+		const child = spawn("node", [SCRIPT, "646"], {
+			cwd: CHECKOUT,
 			env: {
 				...process.env,
 				CLAUDE_PROJECT_DIR: sb.repo,
 				CLAUDE_CONFIG_DIR: sb.home,
 			},
 		});
-		expect(r.status).toBe(1);
-		expect(r.stderr).toContain(
+		let stderr = "";
+		child.stderr.on("data", (d) => {
+			stderr += d;
+		});
+		const status = await new Promise((resolve) => {
+			const timer = setTimeout(() => {
+				child.kill();
+				resolve("hung");
+			}, 10_000);
+			child.on("close", (code) => {
+				clearTimeout(timer);
+				resolve(code);
+			});
+		});
+		expect(status).toBe(1);
+		expect(stderr).toContain(
 			"node scripts/session-arbiter.js release-issue <n>",
 		);
 		expect(claims()).toEqual(ALL);

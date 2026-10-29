@@ -7,8 +7,7 @@
  * IT ONLY EVER RELEASES. Nothing is refused, nothing is injected, and every
  * failure path exits 0 in silence. A release that fails to write leaves the
  * claim standing for pruneIssueClaims's 7-day sweep; it already stops
- * excluding the issue once this session dies. Run by hand with arguments, it
- * refuses on exit 1 and names `session-arbiter.js release-issue`.
+ * excluding the issue once this session dies.
  *
  * LIMITS
  *  - A PostToolUse hook sees Bash tool calls only, so A CLOSE MADE FROM THE

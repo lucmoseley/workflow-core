@@ -156,8 +156,19 @@ describe("the repo it links in (#3556)", () => {
 
 	it("is WFC_LINK_REPO where set, over the declared tracker", () => {
 		hostRepo("owner/tracker");
-		run(["40", "63"], { children: ["63"] });
+		const r = run(["40", "63"], { children: ["63"] });
+		expect(r.status).toBe(0);
 		expect(readPosts()[0]).toContain("repos/owner/repo/issues/40/sub_issues");
+	});
+
+	it("refuses, POSTing nothing, where neither a tracker nor an origin remote resolves", () => {
+		spawnSync("git", ["init", "-q", dir]);
+		const r = run(["40", "63"], { children: ["63"] }, null);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toBe(
+			'link-sub-issue: could not resolve the tracker — declare "tracker" in .claude/workflow-core.json or pass WFC_LINK_REPO\n',
+		);
+		expect(readLog()).toEqual([]);
 	});
 });
 

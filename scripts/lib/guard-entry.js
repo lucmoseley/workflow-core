@@ -18,7 +18,8 @@
  * all fail open, logged to the guard-error log gl_log writes (mantahostels#103),
  * but for an entry run with `onThrow: "refuse"`, whose core's throw refuses.
  * A store fault — a rule the store cannot give, or one too large to emit at
- * all — fails closed (mantahostels#1762).
+ * all — fails closed (mantahostels#1762). An entry run by hand with arguments
+ * is refused on exit 1, before stdin is read (#3556).
  */
 
 const { spawn } = require("node:child_process");
@@ -369,11 +370,12 @@ function subjectFor(payload, { field, top }) {
 
 /**
  * Whether the entry was run by hand with arguments, refused on exit 1 where
- * it was: a hook's payload arrives on stdin, never in argv.
+ * it was, before stdin is read: a stdin that never closes would otherwise
+ * hold it for good (#3556).
  * @param {HookEvent} event
  * @param {string} [byHand] the command to run instead
  */
-function refusedByHand(event, byHand) {
+function refuseIfRunByHand(event, byHand) {
 	if (process.argv.length <= 2) return false;
 	process.stderr.write(
 		`${guardFile()}: a ${event} hook, which reads its payload on stdin and takes no arguments — refused before reading stdin, nothing done${byHand ? `; run ${byHand}` : ""}\n`,
@@ -393,9 +395,7 @@ function refusedByHand(event, byHand) {
  *   `noun` names what goes unchecked in a fail-open record; `name` is what `disabled` lists, the entry's file unless a
  *   dispatcher core shares it; `onThrow: "refuse"`, for an enforcing guard,
  *   applies lib/refuse-on-throw.js; `ports` builds the entry's own;
- *   `byHand` is the command to run instead, named where the entry is run
- *   by hand with arguments, which it refuses on exit 1 before reading stdin —
- *   a stdin that never closes would otherwise hold it for good (#3556)
+ *   `byHand` is the command a hand run's refusal names instead
  */
 function run({
 	field,
@@ -408,7 +408,7 @@ function run({
 	decide,
 	ports,
 }) {
-	if (refusedByHand(event, byHand)) return;
+	if (refuseIfRunByHand(event, byHand)) return;
 	let entryLog = logger(guardFile());
 	try {
 		/* `disabled` lists `name`; a refusal names the file. */
