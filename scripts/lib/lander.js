@@ -22,7 +22,10 @@
  * parent is reverted past (#3329). A push to `main` that is refused holds, so
  * no run retries it (#3329). A run resuming a red batch that `landing` was
  * pushed past tests that tip first, landing it in the batch's place where it
- * is landable (#3410).
+ * is landable (#3410). A confirmed culprit that is a merge has the side it
+ * merged in bisected on the same files, and the first red commit there,
+ * failing twice, is reverted in its place; the merge is reverted only where
+ * that side holds no such commit (#3631).
  *
  * Its green ledger (one `<sha> <iso time>` line per sha it lands), its
  * no-verdict ledger (the same line per parent, culprit or bisected commit
@@ -106,10 +109,11 @@ const NETWORK =
  *   it and `jobs` the failing CI jobs, where the tester read a CI run
  * @typedef {"flake" | "base" | "bisect" | "confirm" | "parent"
  *   | "parent-main"
- *   | "parent-files"} RerunWhy
+ *   | "parent-files" | "side" | "side-confirm"} RerunWhy
  * @typedef {{kind: "test", sha: string} | {kind: "fast-forward", sha: string}
  *   | {kind: "rerun", sha: string, files: string[], why: RerunWhy}
  *   | {kind: "bisect", base: string|null, sha: string}
+ *   | {kind: "read-side", merge: string, parent: string}
  *   | {kind: "read-main-jobs", jobs: string[],
  *       slot: "tipJobsOnMain" | "jobsOnMain", since: string}
  *   | {kind: "revert", culprit: string, parent: string|null, files: string[],
@@ -153,8 +157,21 @@ const NETWORK =
  * @property {{sha: string, verdict: Verdict|null}|null} pushedPast the
  *   `landing` tip a read of the refs found pushed past `sha`, and its own
  *   test's verdict, null until taken
+ * @property {Side|null} side the search of a merge culprit's merged side
  * @property {Revert|null} revert
  * @property {string|null} unfiled why the fix ticket was not filed
+ * @typedef {{culprit: string, parent: string|null}} Culprit a commit the
+ *   bisect named red, and the commit before it on the range it searched
+ * @typedef {object} Side the commits a merge culprit brought in from the
+ *   parent the bisect did not step from
+ * @property {string} merge
+ * @property {string|null} base where that side forks from the bisected one,
+ *   null where `merge` is no two-parent merge
+ * @property {string[]} range the side's commits after `base`, oldest first,
+ *   empty where `merge` is no two-parent merge
+ * @property {Record<string, Verdict>} bisect each run on the side, its base's
+ *   included
+ * @property {Verdict|null} confirm the side culprit's second run
  * @typedef {{row: string, forward: string}} RegistryRow a guard-registry
  *   row, and the fix-forward that clears it
  * @typedef {{sha: string, onto: string, stale?: RegistryRow[]|null} |
@@ -234,9 +251,9 @@ function failingList(f) {
  * The culprit the bisect has narrowed to, or the next commit to test: the
  * first red after the last green, `base` counting as green since `main` only
  * holds a sha the suite passed. A red on nothing searched counts green.
- * @param {Red & {range: string[]}} r
+ * @param {{range: string[], base: string|null, bisect: Record<string, Verdict>}} r
  * @param {RedJobs|null} redJobs
- * @returns {{culprit: string, parent: string|null} | {next: string}}
+ * @returns {Culprit | {next: string}}
  */
 function bisectStep(r, redJobs) {
 	let bad = r.range.length - 1;
@@ -490,7 +507,7 @@ const buildNoVerdictExit = (sha, v) => ({
  * alone, once, and a culprit whose whole suite reached none holds: rerunning
  * the whole suite would end the same way on every start.
  * @param {Red} r
- * @param {{culprit: string, parent: string|null}} bisected
+ * @param {Culprit} bisected
  * @param {Clearing} s
  * @returns {Action|null}
  */
@@ -646,7 +663,13 @@ function culpritJobs(r, culprit, redJobs) {
 	const known = redJobs?.red ?? [];
 	/** @param {string[]} jobs */
 	const unknown = (jobs) => jobs.filter((j) => !known.includes(j));
-	for (const v of [r.confirm[culprit], r.bisect[culprit]]) {
+	const side = r.side?.range.includes(culprit) ? r.side : null;
+	for (const v of [
+		r.confirm[culprit],
+		r.bisect[culprit],
+		side?.confirm,
+		side?.bisect[culprit],
+	]) {
 		const jobs = v?.kind === "red" ? unknown(v.jobs ?? []) : [];
 		if (jobs.length > 0) return jobs;
 	}
@@ -670,23 +693,27 @@ const parentUnconfirmed = (culprit, parent, why) =>
 
 /**
  * What follows a confirmed culprit: land its parent where it is ahead of
- * `main` and passed the whole suite, revert it on `landing`, then file its
- * fix ticket. A parent no CI run passed, where `main` requires one, is
- * reverted past.
+ * `main` and passed the whole suite, revert it, or the commit revertTarget
+ * names in its place, on `landing`, then file its fix ticket. A parent no CI
+ * run passed, where `main` requires one, is reverted past.
  * @param {Red} r
- * @param {{culprit: string, parent: string|null}} confirmed
- * @param {Pick<Clearing, "main" | "requiresRun" | "redJobs">} s
+ * @param {Culprit} confirmed
+ * @param {Pick<Clearing, "main" | "requiresRun" | "redJobs" | "isGreen">} s
  * @returns {Action}
  */
-function culpritAction(r, { culprit, parent }, { main, requiresRun, redJobs }) {
+function culpritAction(r, confirmed, s) {
+	const { main, requiresRun, redJobs } = s;
+	if (
+		confirmed.parent !== null &&
+		confirmed.parent !== main &&
+		isLandable(r.confirm[confirmed.parent], requiresRun)
+	)
+		return { kind: "fast-forward", sha: confirmed.parent };
+	const target = revertTarget(r, confirmed, s);
+	if ("kind" in target) return target;
+	const { culprit, parent } = target;
 	const { files } = r;
 	const jobs = culpritJobs(r, culprit, redJobs);
-	if (
-		parent !== null &&
-		parent !== main &&
-		isLandable(r.confirm[parent], requiresRun)
-	)
-		return { kind: "fast-forward", sha: parent };
 	if (!r.revert)
 		return {
 			kind: "revert",
@@ -721,12 +748,82 @@ function culpritAction(r, { culprit, parent }, { main, requiresRun, redJobs }) {
 }
 
 /**
+ * The commit to revert for a confirmed culprit, or the run that finds it.
+ * Reverting a merge undoes the whole side it merged in, so where the culprit
+ * is one, that side is bisected on `r.files` from where it forks, and its
+ * first red commit, red again on a second run, is reverted instead (#3631).
+ * @param {Red} r
+ * @param {Culprit} confirmed
+ * @param {Pick<Clearing, "redJobs" | "isGreen">} s
+ * @returns {Action | Culprit}
+ */
+function revertTarget(r, confirmed, s) {
+	if (confirmed.parent === null) return confirmed;
+	const { side } = r;
+	/* A revert a run before #3631 made read no side, and reverted the merge. */
+	if (side?.merge !== confirmed.culprit)
+		return r.revert
+			? confirmed
+			: {
+					kind: "read-side",
+					merge: confirmed.culprit,
+					parent: confirmed.parent,
+				};
+	return sideCulprit(r, side, s) ?? confirmed;
+}
+
+/**
+ * The first commit on `side` red on `r.files`, red again on a second run, or
+ * the run that finds it; null where the side holds none: its tip is not red,
+ * its base is not green, its culprit passes the second run or a run there
+ * reaches no verdict.
+ * @param {Red} r
+ * @param {Side} side
+ * @param {Pick<Clearing, "redJobs" | "isGreen">} s
+ * @returns {Action | Culprit | null}
+ */
+function sideCulprit(r, side, { redJobs, isGreen }) {
+	const tip = side.range.at(-1);
+	const runs = [...Object.values(side.bisect), side.confirm];
+	if (tip === undefined || runs.some((v) => v?.kind === "unknown")) return null;
+	/**
+	 * @param {string} sha
+	 * @param {RerunWhy} why
+	 * @returns {Action}
+	 */
+	const rerun = (sha, why) => ({ kind: "rerun", sha, files: r.files, why });
+	const tipRun = side.bisect[tip];
+	if (!tipRun) return rerun(tip, "side");
+	if (!isSearchedRed(tipRun, redJobs)) return null;
+	const { base } = side;
+	if (base !== null && base !== r.base && !isGreen(base)) {
+		const baseRun = side.bisect[base];
+		if (!baseRun) return rerun(base, "side");
+		if (isSearchedRed(baseRun, redJobs)) return null;
+	}
+	const step = bisectStep(side, redJobs);
+	if ("next" in step) return rerun(step.next, "side");
+	if (!side.confirm) return rerun(step.culprit, "side-confirm");
+	return isSearchedRed(side.confirm, redJobs) ? step : null;
+}
+
+/**
  * @param {Red} r
  * @param {Extract<Action, {kind: "rerun"}>} action
  * @param {Verdict} verdict
  * @returns {Red}
  */
 function recordRerun(r, action, verdict) {
+	if (action.why === "side" || action.why === "side-confirm") {
+		if (!r.side) throw new Error(`${action.why} rerun with no side read`);
+		return {
+			...r,
+			side:
+				action.why === "side"
+					? { ...r.side, bisect: { ...r.side.bisect, [action.sha]: verdict } }
+					: { ...r.side, confirm: verdict },
+		};
+	}
 	if (action.why === "flake") return { ...r, flake: verdict };
 	if (action.why === "base") return { ...r, onMain: verdict };
 	if (action.why === "parent-files") return { ...r, parentOnFiles: verdict };
@@ -753,6 +850,7 @@ const redBatch = (sha, base, { files, jobs = [] }) => ({
 	parentOnFiles: null,
 	tipJobsOnMain: null,
 	jobsOnMain: null,
+	side: null,
 	revert: null,
 	unfiled: null,
 	pushedPast: null,
@@ -800,6 +898,16 @@ function resumable(r) {
 		onMain: r.onMain?.kind === "unknown" ? null : (r.onMain ?? null),
 		bisect: reached(r.bisect),
 		confirm: reached(r.confirm),
+		/* Kept whole once a revert is made, as its target was chosen on
+		 * them and no rerun may change it. */
+		side:
+			r.side && !r.revert
+				? {
+						...r.side,
+						bisect: reached(r.side.bisect),
+						confirm: r.side.confirm?.kind === "unknown" ? null : r.side.confirm,
+					}
+				: (r.side ?? null),
 		/* Kept, as the bisect's verdicts were read against it; absent before
 		 * #3586. */
 		tipJobsOnMain: r.tipJobsOnMain ?? null,
@@ -868,6 +976,10 @@ function nextAction(s) {
  *   from `base`, so `main` at `base` can fast-forward to any of them: a
  *   reconcile merge's first parent is the session's side, which need not
  *   (#2996)
+ * @property {(merge: string, parent: string) => {base: string, range: string[]}|null}
+ *   mergedSide where `merge` is a two-parent merge and `parent` one of its
+ *   parents, the other's commits after where it forks from `parent`, oldest
+ *   first, along `chain`; else null
  * @property {(culprit: string, parent: string|null, why: string) => Revert}
  *   revertOnLanding a revert of `culprit` against `parent`, committed on the
  *   remote's current `landing` tip and pushed there without force, `why`
@@ -1047,6 +1159,21 @@ async function advanceRed(deps, action, r) {
 			/* The tip's rerun is the bisect's first red. */
 			bisect: { [action.sha]: /** @type {Verdict} */ (r.flake) },
 		};
+	if (action.kind === "read-side") {
+		const side = await remote(deps, () =>
+			git.mergedSide(action.merge, action.parent),
+		);
+		return {
+			...r,
+			side: {
+				merge: action.merge,
+				base: side?.base ?? null,
+				range: side?.range ?? [],
+				bisect: {},
+				confirm: null,
+			},
+		};
+	}
 	if (action.kind === "read-main-jobs")
 		return {
 			...r,
@@ -1372,6 +1499,8 @@ function buildActionLine(a) {
 			return `rerun ${a.sha} (${a.why}): ${filesLabel(a.files)}`;
 		case "bisect":
 			return `bisect ${a.base ?? "(root)"}..${a.sha}`;
+		case "read-side":
+			return `read-side ${a.merge} (from ${a.parent})`;
 		case "read-main-jobs":
 			return `read-main-jobs ${failingLabel({ files: [], jobs: a.jobs })}`;
 		case "revert":
@@ -1565,6 +1694,54 @@ function remoteGit(root) {
 		if (main === null || isAncestor(main, landing)) return "ahead";
 		return isAncestor(landing, main) ? "behind" : "diverged";
 	};
+	/**
+	 * @param {string|null} base
+	 * @param {string} sha
+	 * @returns {string[]}
+	 */
+	function chain(base, sha) {
+		/* With no `main`, every commit can land, so any parent will do. */
+		if (base === null)
+			return git(["rev-list", "--first-parent", "--reverse", sha])
+				.split("\n")
+				.filter(Boolean);
+		const parentsOf = new Map(
+			git(["rev-list", "--ancestry-path", "--parents", `${base}..${sha}`])
+				.split("\n")
+				.filter(Boolean)
+				.map((line) => {
+					const [commit, ...parents] = line.split(" ");
+					if (commit === undefined)
+						throw new Error(`rev-list printed no commit: ${line}`);
+					return [commit, parents];
+				}),
+		);
+		const commits = [];
+		for (let at = sha; at !== base; ) {
+			commits.push(at);
+			const next = parentsOf
+				.get(at)
+				?.find((p) => p === base || parentsOf.has(p));
+			if (next === undefined)
+				throw new Error(`${short(at)} does not descend from ${short(base)}`);
+			at = next;
+		}
+		return commits.reverse();
+	}
+	/**
+	 * Where `a` and `b` fork, or null where they share no ancestor, which
+	 * `merge-base` exits 1 on; any other failure throws (#3631).
+	 * @param {string} a
+	 * @param {string} b
+	 */
+	const readMergeBase = (a, b) => {
+		try {
+			return git(["merge-base", a, b]).trim();
+		} catch (err) {
+			if (caught(err).status === 1) return null;
+			throw err;
+		}
+	};
 	return {
 		refs() {
 			const listed = git([
@@ -1607,34 +1784,17 @@ function remoteGit(root) {
 				throw new Error(`git log printed no committer time for ${sha}`);
 			return at;
 		},
-		chain(base, sha) {
-			/* With no `main`, every commit can land, so any parent will do. */
-			if (base === null)
-				return git(["rev-list", "--first-parent", "--reverse", sha])
-					.split("\n")
-					.filter(Boolean);
-			const parentsOf = new Map(
-				git(["rev-list", "--ancestry-path", "--parents", `${base}..${sha}`])
-					.split("\n")
-					.filter(Boolean)
-					.map((line) => {
-						const [commit, ...parents] = line.split(" ");
-						if (commit === undefined)
-							throw new Error(`rev-list printed no commit: ${line}`);
-						return [commit, parents];
-					}),
-			);
-			const chain = [];
-			for (let at = sha; at !== base; ) {
-				chain.push(at);
-				const next = parentsOf
-					.get(at)
-					?.find((p) => p === base || parentsOf.has(p));
-				if (next === undefined)
-					throw new Error(`${short(at)} does not descend from ${short(base)}`);
-				at = next;
-			}
-			return chain.reverse();
+		chain,
+		mergedSide(merge, parent) {
+			const parents = git(["rev-list", "--parents", "-n", "1", merge])
+				.trim()
+				.split(" ")
+				.slice(1);
+			const other = parents.find((p) => p !== parent);
+			if (parents.length !== 2 || !parents.includes(parent) || !other)
+				return null;
+			const base = readMergeBase(parent, other);
+			return base === null ? null : { base, range: chain(base, other) };
 		},
 		revertOnLanding(culprit, parent, why) {
 			/* A push refused because `landing` moved is retried on the new tip;

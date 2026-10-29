@@ -41,7 +41,7 @@ const F = "f".repeat(40);
  * distinct shas as landing ahead. A revert lands on `landing` as `R`, onto
  * the tip it found there. `refsFail` throws from the nth read of the refs
  * where it returns an error. `mainJobs`, where given, is the tester's read of
- * CI jobs on `main`.
+ * CI jobs on `main`. `sides` is each merge's merged side, keyed by the merge.
  */
 async function run(
 	remote: { main: string; landing: string | null; relation?: Relation },
@@ -63,6 +63,7 @@ async function run(
 		pushRefused = null as string | null,
 		pushFails = null as (() => Error) | null,
 		mainJobs = null as ((jobs: string[]) => JobsOnMain) | null,
+		sides = {} as Record<string, { base: string; range: string[] }>,
 	} = {},
 ) {
 	const ledger = new Set<string>(ledgered);
@@ -108,6 +109,7 @@ async function run(
 					});
 				remote.main = sha;
 			},
+			mergedSide: (merge) => sides[merge] ?? null,
 			chain: (base, sha) =>
 				history.slice(
 					base === null ? 0 : history.indexOf(base) + 1,
@@ -440,6 +442,7 @@ const redBatch = (
 		lastRed?: Red | null;
 		refsFail?: (nth: number) => Error | null;
 		history?: string[];
+		sides?: Record<string, { base: string; range: string[] }>;
 	} = {},
 ) =>
 	run(
@@ -482,6 +485,7 @@ describe("runLander on a red batch", () => {
 			{ kind: "rerun", sha: C, files: FILES, why: "confirm" },
 			{ kind: "rerun", sha: B, files: [], why: "parent" },
 			{ kind: "fast-forward", sha: B },
+			{ kind: "read-side", merge: C, parent: B },
 			{
 				kind: "revert",
 				culprit: C,
@@ -734,6 +738,95 @@ describe("runLander on a red batch", () => {
 	});
 });
 
+describe("runLander on a culprit that is a merge (#3631)", () => {
+	/* M merges in the side S0 → S1 → S2, forking at S0. */
+	const M = "1".repeat(40);
+	const S0 = "2".repeat(40);
+	const S1 = "3".repeat(40);
+	const S2 = "4".repeat(40);
+	const merged = (filesRed: (sha: string, nth: number) => boolean) =>
+		redBatch(filesRed, {
+			history: [B, M, D],
+			sides: { [M]: { base: S0, range: [S1, S2] } },
+		});
+
+	it("reverts the first red commit on the merged side, not the merge, and files its fix ticket", async () => {
+		const r = await merged((sha) => [M, D, S1, S2].includes(sha));
+		expect(r.actions).toEqual(
+			expect.arrayContaining([
+				{ kind: "read-side", merge: M, parent: B },
+				{ kind: "rerun", sha: S2, files: FILES, why: "side" },
+				{ kind: "rerun", sha: S0, files: FILES, why: "side" },
+				{ kind: "rerun", sha: S1, files: FILES, why: "side" },
+				{ kind: "rerun", sha: S1, files: FILES, why: "side-confirm" },
+			]),
+		);
+		expect(r.reverted).toEqual([{ culprit: S1, parent: S0 }]);
+		expect(r.tickets).toMatchObject([{ culprit: S1, parent: S0, revert: R }]);
+		expect(r.pushes.map((p) => p.sha)).toEqual([B, R]);
+	});
+
+	it("files the fix ticket on the merge a past run reverted where a side run reached no verdict, running the side no more", async () => {
+		const red = {
+			sha: D,
+			base: A,
+			files: FILES,
+			jobs: [],
+			flake: { kind: "red", files: FILES },
+			onMain: { kind: "green" },
+			range: [B, M, D],
+			bisect: {
+				[B]: { kind: "green" },
+				[M]: { kind: "red", files: FILES },
+				[D]: { kind: "red", files: FILES },
+			},
+			confirm: { [M]: { kind: "red", files: FILES }, [B]: { kind: "green" } },
+			parentOnFiles: null,
+			tipJobsOnMain: null,
+			jobsOnMain: null,
+			side: {
+				merge: M,
+				base: S0,
+				range: [S1, S2],
+				bisect: { [S2]: { kind: "unknown", reason: "tester died" } },
+				confirm: null,
+			},
+			revert: { sha: R, onto: D, stale: STALE },
+			unfiled: null,
+			pushedPast: null,
+		} as Red;
+		/* Red on the side, so a rerun there would name S1. */
+		const r = await run(
+			{ main: B, landing: R },
+			(sha) =>
+				[S1, S2].includes(sha) ? { kind: "red", files: FILES } : green(),
+			{
+				history: [B, M, D, R],
+				lastRed: red,
+			},
+		);
+		expect(r.tested.map((t) => t.sha)).not.toContain(S2);
+		expect(r.tickets).toMatchObject([{ culprit: M, parent: B, revert: R }]);
+	});
+
+	it.each([
+		["its tip passes", (sha: string) => [M, D].includes(sha)],
+		["its base fails too", (sha: string) => [M, D, S0, S1, S2].includes(sha)],
+		[
+			"its culprit passes the second run",
+			(sha: string, nth: number) =>
+				[M, D, S2].includes(sha) || (sha === S1 && nth === 1),
+		],
+	])(
+		"reverts the merge where the merged side holds no red commit: %s",
+		async (_, filesRed) => {
+			const r = await merged(filesRed);
+			expect(r.reverted).toEqual([{ culprit: M, parent: B }]);
+			expect(r.tickets).toMatchObject([{ culprit: M, parent: B }]);
+		},
+	);
+});
+
 describe("runLander across runs on a red batch (#2673)", () => {
 	/** A first run whose refs fail once the tip's flake rerun is red. */
 	const cutShort = (remote: { main: string; landing: string }) => {
@@ -805,6 +898,7 @@ describe("runLander across runs on a red batch (#2673)", () => {
 			parentOnFiles: null,
 			tipJobsOnMain: null,
 			jobsOnMain: null,
+			side: null,
 			revert: null,
 			unfiled: null,
 			pushedPast: null,
@@ -978,6 +1072,7 @@ describe("runLander on a red only a CI job names (#3253)", () => {
 				parentOnFiles: null,
 				tipJobsOnMain: redOnMain([job, other]),
 				jobsOnMain: null,
+				side: null,
 				revert: null,
 				unfiled: null,
 				pushedPast: null,
@@ -1081,6 +1176,7 @@ describe("runLander where the culprit's parent reaches no verdict on the whole s
 			{ kind: "rerun", sha: C, files: FILES, why: "confirm" },
 			{ kind: "rerun", sha: B, files: [], why: "parent" },
 			{ kind: "rerun", sha: B, files: FILES, why: "parent-files" },
+			{ kind: "read-side", merge: C, parent: B },
 			{
 				kind: "revert",
 				culprit: C,
@@ -1127,7 +1223,7 @@ describe("runLander where the culprit's parent reaches no verdict on the whole s
 				},
 			},
 		);
-		expect(r.actions.slice(11)).toEqual([
+		expect(r.actions.slice(12)).toEqual([
 			{ kind: "test", sha: R },
 			{ kind: "rerun", sha: R, files: elsewhere.files, why: "flake" },
 			{ kind: "rerun", sha: A, files: elsewhere.files, why: "base" },
@@ -1136,6 +1232,7 @@ describe("runLander where the culprit's parent reaches no verdict on the whole s
 			{ kind: "rerun", sha: B, files: elsewhere.files, why: "bisect" },
 			{ kind: "rerun", sha: B, files: elsewhere.files, why: "confirm" },
 			{ kind: "rerun", sha: A, files: elsewhere.files, why: "parent-main" },
+			{ kind: "read-side", merge: B, parent: A },
 			{
 				kind: "revert",
 				culprit: B,
@@ -1203,6 +1300,7 @@ describe("runLander where the culprit's parent reaches no verdict on the whole s
 			parentOnFiles: null,
 			tipJobsOnMain: null,
 			jobsOnMain: null,
+			side: null,
 			revert: null,
 			unfiled: null,
 			pushedPast: null,
@@ -1479,6 +1577,7 @@ describe("runLander resuming a past run's red batch where the remote moved (#267
 		parentOnFiles: null,
 		tipJobsOnMain: null,
 		jobsOnMain: null,
+		side: null,
 		revert: null,
 		unfiled: null,
 		pushedPast: null,
@@ -1577,6 +1676,7 @@ describe("runLander where the culprit's whole-suite confirm reaches no verdict (
 		parentOnFiles: null,
 		tipJobsOnMain: null,
 		jobsOnMain: null,
+		side: null,
 		revert: null,
 		unfiled: null,
 		pushedPast: null,

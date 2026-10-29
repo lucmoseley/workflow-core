@@ -358,6 +358,18 @@ it("refuses a range whose base the tip does not descend from (#2996)", () => {
 	);
 });
 
+it("reads a merge's other side from where it forks, and none for a plain commit or a parent the merge lacks (#3631)", () => {
+	const { l, s, merge, tip } = reconcileMerge();
+	const seed = git(work, "rev-parse", `${s}^`);
+
+	expect(remoteGit(work).mergedSide(merge, l)).toEqual({
+		base: seed,
+		range: [s],
+	});
+	expect(remoteGit(work).mergedSide(tip, merge)).toBeNull();
+	expect(remoteGit(work).mergedSide(merge, tip)).toBeNull();
+});
+
 it("reverts a merge culprit against the parent the bisect stepped from, undoing the session's side (#2996)", () => {
 	const { l, merge } = reconcileMerge();
 
