@@ -74,6 +74,7 @@ const { isTerminalAgent } = require("./lib/agent-liveness.js");
 const { forgetSession } = require("./lib/session-id.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { stopOn } = require("./lib/claude-stop.js");
+const { claudeBin } = require("./lib/claude-bin.js");
 const { readClaudeVersionOrWhy } = require("./lib/claude-version.js");
 const { jobDirPath } = require("./lib/job-paths.js");
 const { parseJsonl } = require("./lib/jsonl.js");
@@ -114,14 +115,6 @@ const SCORER = path.join(__dirname, "score-session-breaches.js");
 const ARM_SPEC = /^([^=]+)=([^@]+)@(.+)$/;
 /** Of a child's output, enough to name its error in one line; a guess. */
 const ERROR_CHARS = 200;
-/**
- * `WFC_ARM_CLAUDE_BIN` stands a test's stub in for `claude`, which `plan`
- * resolves and `report` runs. Not
- * agent-liveness's `claudeBin`: its `WFC_CLAUDE_BIN` is set on this machine to
- * a wrapper that unions every plan's listing, and an arm's jobs must be read
- * from that arm's config dir alone (#2045).
- */
-const claudeBin = () => process.env.WFC_ARM_CLAUDE_BIN || "claude";
 /**
  * `run`'s clock, monotonic so a wall-clock step neither fires the limit early
  * nor holds it off. `WFC_ARM_CLOCK_STEP_MS` stands a test's clock in for it,

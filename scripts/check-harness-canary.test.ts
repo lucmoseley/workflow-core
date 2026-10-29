@@ -5,7 +5,7 @@
  * green, and speaks at session start only while red (#2037) or while its
  * state file is unreadable (#3436).
  *
- * The live probe is stubbed: WFC_CANARY_CLAUDE points at a stub `claude` that
+ * The live probe is stubbed: WFC_CLAUDE_BIN points at a stub `claude` that
  * replays the transcript rows recorded from a real 2.1.302 probe
  * (scripts/fixtures/harness-canary-listing.jsonl) into a sandbox
  * CLAUDE_CONFIG_DIR, varied per case.
@@ -96,7 +96,7 @@ function run(args: string[], env: Record<string, string> = {}) {
 			GITHUB_ACTIONS: "",
 			CLAUDE_CONFIG_DIR: config,
 			CLAUDE_PROJECT_DIR: dir,
-			WFC_CANARY_CLAUDE: path.join(dir, "claude"),
+			WFC_CLAUDE_BIN: path.join(dir, "claude"),
 			STUB_FIXTURE: FIXTURE,
 			STUB_CALLS: calls,
 			STUB_VERSION: "2.1.302",
