@@ -205,7 +205,7 @@ describe("seatBudget settlement", () => {
 		).toBe(false);
 	});
 
-	it("reads the cost table in the root it is given, not the working directory's checkout", () => {
+	it("reads the cost table in the root it is given, not the working directory's checkout (#3683)", () => {
 		delete process.env.CLAUDE_PROJECT_DIR;
 		const cwd = process.cwd();
 		process.chdir(home);
@@ -216,6 +216,12 @@ describe("seatBudget settlement", () => {
 		} finally {
 			process.chdir(cwd);
 		}
+	});
+
+	it("says why where no checkout is served", () => {
+		expect(seatBudget({ ...seat, dir: seatDir }, undefined)).toEqual({
+			why: "the loop serves no checkout to read the cost table in",
+		});
 	});
 
 	it("says why where the cost table is unreadable", () => {

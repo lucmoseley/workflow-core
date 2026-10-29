@@ -20,11 +20,7 @@ const { refillPath } = require("./refill-dir.js");
 const { readDeclaredSeats, seatOf } = require("./refill-seats.js");
 const { scriptPath } = require("./script-path.js");
 const { budgetOf } = require("./overflow-budget-core.js");
-const {
-	readCostTable,
-	SESSION_COST_TABLE,
-	sessionSpendUsd,
-} = require("./session-spend.js");
+const { readCostTableIn, sessionSpendUsd } = require("./session-spend.js");
 const { findTranscript } = require("./transcript.js");
 const { writeFd } = require("./write-fd.js");
 
@@ -145,11 +141,13 @@ function settle(seat, table) {
  * The cost table is read in `root`, never the working directory's checkout:
  * the loop's daemon runs from the home directory (#3683).
  * @param {OverflowSeat} seat
- * @param {string} root the checkout whose cost table sizes the seat
+ * @param {string|undefined} root the checkout whose cost table sizes the seat
  * @returns {Budget|{why: string}}
  */
 function seatBudget(seat, root) {
-	const table = readCostTable(path.join(root, SESSION_COST_TABLE));
+	if (root === undefined)
+		return { why: "the loop serves no checkout to read the cost table in" };
+	const table = readCostTableIn(root);
 	if (!table) return { why: "the session cost table is unreadable" };
 	let settled;
 	try {

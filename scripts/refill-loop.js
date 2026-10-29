@@ -247,6 +247,7 @@ function stop() {
 
 function status() {
 	const control = readControlFile(log);
+	const served = control ? servedRoots(control.scope).roots : [];
 	const pid = lock.holder();
 	for (const line of commands.buildStatusLines({
 		control,
@@ -254,10 +255,12 @@ function status() {
 		pid,
 		codeSha: pid === null ? null : refillCode.readRunningCode(pid, files.code),
 		runMs: RUN_MS,
-		served: control ? servedRoots(control.scope).roots : [],
+		served,
 	}))
 		say(line);
-	const root = hostRoot();
+	/* The tick's root (refill-tick.js), so status prints the figure it sizes;
+	 * with no loop serving, this checkout's. */
+	const root = served[0] ?? hostRoot();
 	for (const seat of readDeclaredSeats().seats)
 		if (seat.kind === "overflow")
 			say(buildBudgetLine(seat, seatBudget(seat, root)));

@@ -47,7 +47,7 @@ const {
 const { seedCoreCost, COST_TABLE } = require("./core-context-cost.js");
 const { ledgerPath } = require("./dispatch-ledger.js");
 const { MARKERS_REL } = require("./marker-root.js");
-const { SESSION_COST_TABLE, readCostTable } = require("./session-spend.js");
+const { SESSION_COST_TABLE, readCostTableIn } = require("./session-spend.js");
 const { gh, ghJson, parseErrLine } = require("./gh.js");
 const { caught } = require("./caught.js");
 const { isUnder } = require("./is-under.js");
@@ -354,7 +354,7 @@ const SESSION_COST_TIMEOUT_MS = 5 * 60 * 1000;
  * @param {Context} ctx
  */
 function bringSessionCostTable({ root, pluginRoot, dryRun, out }) {
-	if (readCostTable(path.join(root, SESSION_COST_TABLE))) return [];
+	if (readCostTableIn(root)) return [];
 	/* ledgerPath creates the markers directory, which a dry run must not. */
 	if (!fs.existsSync(path.join(root, MARKERS_REL))) return [];
 	if (!readIfPresent(ledgerPath(root))?.trim()) return [];
@@ -376,7 +376,7 @@ function bringSessionCostTable({ root, pluginRoot, dryRun, out }) {
 		encoding: "utf8",
 		timeout: SESSION_COST_TIMEOUT_MS,
 	});
-	if (r.status !== 0 || !readCostTable(path.join(root, SESSION_COST_TABLE))) {
+	if (r.status !== 0 || !readCostTableIn(root)) {
 		const said = (r.stderr || r.error?.message || "").trim().split("\n")[0];
 		out(
 			`FAILED building ${SESSION_COST_TABLE}: ${said || `exit ${r.status}`} — build it by hand: ${command}`,

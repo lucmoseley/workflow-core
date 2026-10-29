@@ -471,9 +471,11 @@ describe("a dry run with overflow seats (#2611)", () => {
 		);
 	};
 
+	/* The served checkout's table, as the tick reads it (#3683). */
 	const dryRun = () => {
+		fs.mkdirSync(path.join(repo, "docs", "data"), { recursive: true });
 		fs.writeFileSync(
-			at("cost-table.json"),
+			path.join(repo, "docs", "data", "session-cost-table.json"),
 			JSON.stringify({
 				n: 2,
 				meanUsd: 4,
@@ -487,10 +489,7 @@ describe("a dry run with overflow seats (#2611)", () => {
 			["dry-run"],
 			{
 				cwd: dir,
-				env: loopEnv({
-					WFC_SESSION_COST_TABLE: at("cost-table.json"),
-					FAKE_SLOTS: "1",
-				}),
+				env: loopEnv({ FAKE_SLOTS: "1" }),
 			},
 		);
 	};
