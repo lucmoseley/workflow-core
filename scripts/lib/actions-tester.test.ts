@@ -306,12 +306,21 @@ const jobsOnMain = (r: ReturnType<typeof reads>, jobs: string[]) =>
 	actionsTester({ root: "/", reads: r, ...clock() }).jobsOnMain?.(jobs);
 
 it("reads a job red in main's newest finished run as red there (#3526)", async () => {
-	const r = mainReads([run(1, "success"), run(2, "failure"), run(3, null)], {
-		1: [{ name: LINT, conclusion: "success" }],
-		2: [{ name: LINT, conclusion: "failure" }],
-		3: [{ name: LINT, conclusion: "success" }],
+	const swept = "7".repeat(40);
+	const r = mainReads(
+		[run(1, "success"), run(2, "failure", { headSha: swept }), run(3, null)],
+		{
+			1: [{ name: LINT, conclusion: "success" }],
+			2: [{ name: LINT, conclusion: "failure" }],
+			3: [{ name: LINT, conclusion: "success" }],
+		},
+	);
+	expect(await jobsOnMain(r, [LINT])).toEqual({
+		kind: "read",
+		red: [LINT],
+		notRed: [],
+		shas: [swept],
 	});
-	expect(await jobsOnMain(r, [LINT])).toEqual({ kind: "read", red: [LINT] });
 });
 
 it("reads a job green in main's newest finished run as not red there", async () => {
@@ -319,7 +328,12 @@ it("reads a job green in main's newest finished run as not red there", async () 
 		1: [{ name: LINT, conclusion: "failure" }],
 		2: [{ name: LINT, conclusion: "success" }],
 	});
-	expect(await jobsOnMain(r, [LINT])).toEqual({ kind: "read", red: [] });
+	expect(await jobsOnMain(r, [LINT])).toEqual({
+		kind: "read",
+		red: [],
+		notRed: [LINT],
+		shas: [],
+	});
 });
 
 it("takes each job from the newest run that passed or failed it", async () => {
@@ -333,6 +347,8 @@ it("takes each job from the newest run that passed or failed it", async () => {
 	expect(await jobsOnMain(r, [LINT, DOCS])).toEqual({
 		kind: "read",
 		red: [DOCS],
+		notRed: [LINT],
+		shas: [SHA],
 	});
 });
 
@@ -369,6 +385,8 @@ it("never reads Suite passed on main, which fails with any job there", async () 
 	expect(await jobsOnMain(r, [LINT, "Suite passed"])).toEqual({
 		kind: "read",
 		red: [],
+		notRed: [LINT],
+		shas: [],
 	});
 });
 
@@ -389,7 +407,7 @@ process.stdout.write(argv[1] === "list" ? a.list : a.jobs);
 	).gh;
 	expect(
 		await actionsTester({ root: tmp, ...clock() }).jobsOnMain?.([LINT]),
-	).toEqual({ kind: "read", red: [LINT] });
+	).toEqual({ kind: "read", red: [LINT], notRed: [], shas: [SHA] });
 });
 
 it("reads a failed run through gh and the tree through git", async () => {

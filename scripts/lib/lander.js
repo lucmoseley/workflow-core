@@ -105,7 +105,8 @@ const NETWORK =
  * @typedef {{kind: "test", sha: string} | {kind: "fast-forward", sha: string}
  *   | {kind: "rerun", sha: string, files: string[], why: RerunWhy}
  *   | {kind: "bisect", base: string|null, sha: string}
- *   | {kind: "read-main-jobs", jobs: string[]}
+ *   | {kind: "read-main-jobs", jobs: string[],
+ *       slot: "tipJobsOnMain" | "jobsOnMain", since: string}
  *   | {kind: "revert", culprit: string, parent: string|null, files: string[],
  *       jobs: string[], parentIsMain: boolean}
  *   | {kind: "file-fix-ticket", culprit: string, parent: string|null,
@@ -115,9 +116,10 @@ const NETWORK =
  *   | {kind: "exit", reason: string}} Action
  * @typedef {Extract<Action, {kind: "exit"}> | Extract<Action, {kind: "hold"}>}
  *   End
- * @typedef {{kind: "read", red: string[]} | {kind: "unread", reason: string}}
- *   JobsOnMain which of a set of CI jobs `main`'s newest run of each failed,
- *   or why that went unread
+ * @typedef {{kind: "read", red: string[], notRed: string[], shas: string[]}
+ *   | {kind: "unread", reason: string}} JobsOnMain which of a set of CI jobs
+ *   `main`'s newest run of each failed, the rest of them, and the shas the
+ *   runs that failed them tested, or why that went unread
  * @typedef {object} Red a red batch while the lander clears it
  * @property {string} sha the batch's tip
  * @property {string|null} base `main` when the batch was tested
@@ -137,6 +139,9 @@ const NETWORK =
  *   culprit it named
  * @property {Verdict|null} parentOnFiles the parent's run on `files`, taken
  *   only where its whole suite reached no verdict
+ * @property {JobsOnMain|null} tipJobsOnMain the tip's failing CI jobs as
+ *   `main` last ran them, read before the bisect where its red names no file:
+ *   those red there are a known breakage the bisect leaves out
  * @property {JobsOnMain|null} jobsOnMain the culprit's failing CI jobs as
  *   `main` last ran them, read where its parent is `main` and its red names
  *   no file
@@ -223,18 +228,21 @@ function failingList(f) {
 /**
  * The culprit the bisect has narrowed to, or the next commit to test: the
  * first red after the last green, `base` counting as green since `main` only
- * holds a sha the suite passed.
+ * holds a sha the suite passed. A red on none of `searched` counts green.
  * @param {Red & {range: string[]}} r
+ * @param {string[]|null} searched
  * @returns {{culprit: string, parent: string|null} | {next: string}}
  */
-function bisectStep(r) {
+function bisectStep(r, searched) {
 	let bad = r.range.length - 1;
 	r.range.forEach((sha, i) => {
-		if (r.bisect[sha]?.kind === "red" && i < bad) bad = i;
+		if (isSearchedRed(r.bisect[sha], searched) && i < bad) bad = i;
 	});
 	let good = -1;
 	r.range.forEach((sha, i) => {
-		if (r.bisect[sha]?.kind === "green" && i < bad) good = i;
+		const v = r.bisect[sha];
+		if (v && v.kind !== "unknown" && !isSearchedRed(v, searched) && i < bad)
+			good = i;
 	});
 	/** @param {number} i */
 	const at = (i) => {
@@ -282,23 +290,67 @@ function redAction(r, s) {
 					reason: `${short(r.sha)} passed ${failingLabel(r)} on a rerun no CI run made, and main takes only a sha a CI run passed`,
 				};
 	const tip = namedOr(r.flake, r.files);
-	/* Never once the bisect has begun: its verdicts were taken over `tip`. */
-	if (!r.onMain && !r.range && r.base !== null && tip.length > 0)
-		return { kind: "rerun", sha: r.base, files: tip, why: "base" };
+	const mainCheck = mainCheckAction(r, tip);
+	if (mainCheck) return mainCheck;
+	const redJobs = redJobsRead(r.tipJobsOnMain);
 	const known = redOnMain(r.onMain, tip);
 	const files = tip.filter((f) => !known.includes(f));
 	if (known.length > 0 && files.length === 0) return buildAlreadyRedHold(known);
-	const action = clearRed({ ...r, files }, { ...s, known });
-	if (
-		action.kind !== "hold" ||
-		known.length === 0 ||
-		action.cause === "already-red"
-	)
-		return action;
-	return {
-		kind: "hold",
-		reason: `${action.reason}; ${buildAlreadyRedReason(known)}`,
-	};
+	const action = clearRed(
+		{ ...r, files },
+		{
+			...s,
+			known,
+			searched: redJobs?.notRed ?? null,
+			knownJobs: redJobs?.red ?? [],
+		},
+	);
+	return withAlreadyRed(action, known, redJobs);
+}
+
+/**
+ * `action`, where it is a hold for another cause, naming what the tip
+ * failed that is red on `main` too.
+ * @param {Action} action
+ * @param {string[]} known the tip's files red on `main`
+ * @param {Extract<JobsOnMain, {kind: "read"}>|null} redJobs the read that
+ *   found its CI jobs red there
+ * @returns {Action}
+ */
+function withAlreadyRed(action, known, redJobs) {
+	if (action.kind !== "hold" || action.cause === "already-red") return action;
+	const also = [
+		...(known.length > 0 ? [buildAlreadyRedReason(known)] : []),
+		...(redJobs ? [buildAlreadyRedJobsReason(redJobs)] : []),
+	];
+	return also.length === 0
+		? action
+		: { kind: "hold", reason: [action.reason, ...also].join("; ") };
+}
+
+/**
+ * The check of what the tip failed against `main`: its failing files rerun
+ * at `base`, or where it names none, its failing CI jobs read there and the
+ * hold where every one is red. Null once taken.
+ * @param {Red} r
+ * @param {string[]} tip the tip's failing files
+ * @returns {Action|null}
+ */
+function mainCheckAction(r, tip) {
+	const read = r.tipJobsOnMain;
+	const redJobs = redJobsRead(read);
+	if (redJobs?.notRed.length === 0) return buildAlreadyRedJobsHold(redJobs);
+	/* Never once the bisect has begun: its verdicts were taken over `tip`. */
+	if (r.range || r.base === null) return null;
+	if (tip.length > 0)
+		return r.onMain
+			? null
+			: { kind: "rerun", sha: r.base, files: tip, why: "base" };
+	if (read) return null;
+	const jobs = jobsOr(r.flake, r.jobs);
+	return jobs.length > 0
+		? { kind: "read-main-jobs", jobs, slot: "tipJobsOnMain", since: r.base }
+		: null;
 }
 
 /**
@@ -318,9 +370,34 @@ function pushedPastAction({ pushedPast }, { isGreen, requiresRun }) {
 
 /**
  * @typedef {Pick<LanderState, "main" | "isGreen" | "isStuck" | "requiresRun">
- *   & {known: string[]}} Clearing `known` the tip's red files that are red
- *   on `main` too
+ *   & {known: string[], searched: string[]|null, knownJobs: string[]}}
+ *   Clearing `known` the tip's red files that are red on `main` too;
+ *   `searched` the tip's failing CI jobs not red there, null where none of
+ *   them is; `knownJobs` those that are
  */
+
+/**
+ * `read` where it found a job red on `main`, else null.
+ * @param {JobsOnMain|null} read
+ * @returns {Extract<JobsOnMain, {kind: "read"}>|null}
+ */
+const redJobsRead = (read) =>
+	read?.kind === "read" && read.red.length > 0 ? read : null;
+
+/**
+ * Whether `v` is red on what the bisect searches: a file, or one of
+ * `searched` where it is not null. Residual (#3586): a commit that breaks a
+ * job already red on `main` again goes unfound, and a resumed bisect keeps
+ * the read it began with though `main` may have gone green since.
+ * @param {Verdict|undefined} v
+ * @param {string[]|null} searched
+ * @returns {v is Extract<Verdict, {kind: "red"}>}
+ */
+const isSearchedRed = (v, searched) =>
+	v?.kind === "red" &&
+	(searched === null ||
+		v.files.length > 0 ||
+		(v.jobs ?? []).some((j) => searched.includes(j)));
 
 /**
  * Whether `main` may move to a sha `v` judged: green, and read off a CI run
@@ -340,7 +417,7 @@ const isLandable = (v, requiresRun) =>
  */
 function clearRed(r, s) {
 	if (!r.range) return { kind: "bisect", base: r.base, sha: r.sha };
-	const step = bisectStep({ ...r, range: r.range });
+	const step = bisectStep({ ...r, range: r.range }, s.searched);
 	if ("next" in step && isWholeSuite(r.files) && s.isStuck(step.next))
 		return {
 			kind: "hold",
@@ -418,16 +495,21 @@ const buildNoVerdictExit = (sha, v) => ({
  * @param {Clearing} s
  * @returns {Action|null}
  */
-function confirmAction(r, { culprit, parent }, { main, isStuck, known }) {
+function confirmAction(
+	r,
+	{ culprit, parent },
+	{ main, isStuck, known, searched, knownJobs },
+) {
 	const { files } = r;
 	const again = r.confirm[culprit];
-	if (again?.kind !== "red") return secondRunAction(r, culprit, again, isStuck);
+	if (!isSearchedRed(again, searched))
+		return secondRunAction(r, culprit, again, { isStuck, knownJobs });
 	if (parent === null) return null;
 	/* `main` only ever holds a sha the full suite passed. */
 	if (parent === main) {
 		const named = namedOr(again, files);
 		if (named.length > 0) return mainConfirmAction(r, parent, named, known);
-		return mainJobsAction(r, parent, culpritJobs(r, culprit));
+		return mainJobsAction(r, parent, culpritJobs(r, culprit, knownJobs));
 	}
 	/* The whole suite, as the parent lands on `main`. */
 	const before = r.confirm[parent];
@@ -435,7 +517,7 @@ function confirmAction(r, { culprit, parent }, { main, isStuck, known }) {
 		return { kind: "rerun", sha: parent, files: [], why: "parent" };
 	/* A parent red only on files red on `main` is reverted past, never landed:
 	 * culpritAction fast-forwards a parent only where its whole suite passed. */
-	if (before?.kind === "red" && !isRedOnlyOn(before, known))
+	if (isSearchedRed(before, searched) && !isRedOnlyOn(before, known))
 		return {
 			kind: "hold",
 			reason: parentUnconfirmed(
@@ -480,19 +562,19 @@ function confirmAction(r, { culprit, parent }, { main, isStuck, known }) {
  * whole suite reached no verdict, now or on a past run, holds.
  * @param {Red} r
  * @param {string} culprit
- * @param {Exclude<Verdict, {kind: "red"}>|undefined} again its second run
- * @param {(sha: string) => boolean} isStuck
+ * @param {Verdict|undefined} again its second run, red on none of `searched`
+ * @param {Pick<Clearing, "isStuck" | "knownJobs">} s
  * @returns {Action}
  */
-function secondRunAction(r, culprit, again, isStuck) {
+function secondRunAction(r, culprit, again, { isStuck, knownJobs }) {
 	const { files } = r;
 	const whole = isWholeSuite(files);
 	if (!again && !(whole && isStuck(culprit)))
 		return { kind: "rerun", sha: culprit, files, why: "confirm" };
-	if (again?.kind === "green")
+	if (again?.kind === "green" || again?.kind === "red")
 		return {
 			kind: "hold",
-			reason: `culprit unconfirmed: ${short(culprit)} passed ${failingLabel({ files, jobs: culpritJobs(r, culprit) })} on its second run`,
+			reason: `culprit unconfirmed: ${short(culprit)} passed ${failingLabel({ files, jobs: culpritJobs(r, culprit, knownJobs) })} on its second run`,
 		};
 	if (again && !whole) return buildNoVerdictExit(culprit, again);
 	return {
@@ -532,26 +614,50 @@ function mainConfirmAction(r, main, files, known) {
 function mainJobsAction(r, main, jobs) {
 	if (jobs.length === 0 || r.confirm[main]) return null;
 	const read = r.jobsOnMain;
-	if (!read) return { kind: "read-main-jobs", jobs };
+	if (!read)
+		return { kind: "read-main-jobs", jobs, slot: "jobsOnMain", since: main };
 	if (read.kind === "unread" || read.red.length === 0) return null;
-	return {
-		kind: "hold",
-		reason: `already red on \`main\`: ${failingLabel({ files: [], jobs: read.red })}`,
-		cause: "already-red",
-	};
+	return buildAlreadyRedJobsHold(read);
 }
 
 /**
- * The CI jobs the culprit's own red failed, which differ from the tip's where
- * `files` is empty and every rerun is the whole suite.
+ * @param {Extract<JobsOnMain, {kind: "read"}>} read
+ * @returns {Extract<Action, {kind: "hold"}>}
+ */
+const buildAlreadyRedJobsHold = (read) => ({
+	kind: "hold",
+	reason: buildAlreadyRedJobsReason(read),
+	cause: "already-red",
+});
+
+/** @param {Extract<JobsOnMain, {kind: "read"}>} read */
+const buildAlreadyRedJobsReason = ({ red, shas }) =>
+	`already red on \`main\` in the run at ${shas.map(short).join(", ")}: ${failingLabel({ files: [], jobs: red })}`;
+
+/**
+ * The CI jobs the culprit's own red failed, less those red on `main`, which
+ * differ from the tip's where `files` is empty and every rerun is the whole
+ * suite.
  * @param {Red} r
  * @param {string} culprit
+ * @param {string[]} knownJobs
  */
-function culpritJobs(r, culprit) {
-	for (const v of [r.confirm[culprit], r.bisect[culprit]])
-		if (v?.kind === "red") return v.jobs ?? [];
-	return r.jobs;
+function culpritJobs(r, culprit, knownJobs) {
+	/** @param {string[]} jobs */
+	const unknown = (jobs) => jobs.filter((j) => !knownJobs.includes(j));
+	for (const v of [r.confirm[culprit], r.bisect[culprit]]) {
+		const jobs = v?.kind === "red" ? unknown(v.jobs ?? []) : [];
+		if (jobs.length > 0) return jobs;
+	}
+	return unknown(r.jobs);
 }
+
+/**
+ * @param {Verdict|null|undefined} v
+ * @param {string[]} jobs
+ */
+const jobsOr = (v, jobs) =>
+	v?.kind === "red" && v.jobs?.length ? v.jobs : jobs;
 
 /**
  * @param {string} culprit
@@ -568,12 +674,16 @@ const parentUnconfirmed = (culprit, parent, why) =>
  * reverted past.
  * @param {Red} r
  * @param {{culprit: string, parent: string|null}} confirmed
- * @param {Pick<LanderState, "main" | "requiresRun">} s
+ * @param {Pick<Clearing, "main" | "requiresRun" | "knownJobs">} s
  * @returns {Action}
  */
-function culpritAction(r, { culprit, parent }, { main, requiresRun }) {
+function culpritAction(
+	r,
+	{ culprit, parent },
+	{ main, requiresRun, knownJobs },
+) {
 	const { files } = r;
-	const jobs = culpritJobs(r, culprit);
+	const jobs = culpritJobs(r, culprit, knownJobs);
 	if (
 		parent !== null &&
 		parent !== main &&
@@ -644,6 +754,7 @@ const redBatch = (sha, base, { files, jobs = [] }) => ({
 	bisect: {},
 	confirm: {},
 	parentOnFiles: null,
+	tipJobsOnMain: null,
 	jobsOnMain: null,
 	revert: null,
 	unfiled: null,
@@ -692,6 +803,9 @@ function resumable(r) {
 		onMain: r.onMain?.kind === "unknown" ? null : (r.onMain ?? null),
 		bisect: reached(r.bisect),
 		confirm: reached(r.confirm),
+		/* Kept, as the bisect's verdicts were read against it; absent before
+		 * #3586. */
+		tipJobsOnMain: r.tipJobsOnMain ?? null,
 		/* Read again, as `main`'s jobs may have run since. */
 		jobsOnMain: null,
 	};
@@ -938,9 +1052,7 @@ async function advanceRed(deps, action, r) {
 	if (action.kind === "read-main-jobs")
 		return {
 			...r,
-			jobsOnMain: deps.tester.jobsOnMain
-				? await deps.tester.jobsOnMain(action.jobs)
-				: { kind: "unread", reason: "the tester reads no CI run" },
+			[action.slot]: await readMainJobs(deps, action.jobs, action.since),
 		};
 	if (action.kind === "revert") {
 		const unread =
@@ -965,6 +1077,30 @@ async function advanceRed(deps, action, r) {
 	} catch (err) {
 		return { ...r, unfiled: caught(err).message };
 	}
+}
+
+/**
+ * `jobs` as `main` last ran them, unread where the tester reads no CI run or
+ * a run that failed one predates `since`, which it then says nothing of.
+ * @param {LanderDeps} deps
+ * @param {string[]} jobs
+ * @param {string} since
+ * @returns {Promise<JobsOnMain>}
+ */
+async function readMainJobs({ tester, git }, jobs, since) {
+	if (!tester.jobsOnMain)
+		return { kind: "unread", reason: "the tester reads no CI run" };
+	const read = await tester.jobsOnMain(jobs);
+	const stale =
+		read.kind === "read"
+			? read.shas.find((sha) => !git.contains(sha, since))
+			: undefined;
+	return stale === undefined
+		? read
+		: {
+				kind: "unread",
+				reason: `the run at ${short(stale)} that failed them predates ${short(since)}`,
+			};
 }
 
 /**
