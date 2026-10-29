@@ -34,7 +34,7 @@ import {
 } from "./lib/precommit-gate-testkit";
 import { runInProcess } from "./lib/run-in-process";
 
-const WIRING = `  ${coreCall("node", "scripts/mutation-hold-gate.js")} || exit 1`;
+const WIRING = `  ${coreCall("node", "scripts/mutation-hold-gate.js")} || exit "$?"`;
 const HOLD_BLOCK = cutHookBlock('mh_why=""', "fi");
 const TEST_GATE_OPEN = `if declared_cmd ${coreCall("node", "scripts/lib/test-gate.js")} commit`;
 const GATES_END = HOOK.split("\n").find((l) =>

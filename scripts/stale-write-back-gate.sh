@@ -26,7 +26,7 @@
 # gives its own arbiter call.
 #
 # EXIT: 0 pass or fail-open · 1 refuse. LIMITS: an unset name under -u aborts
-# with 127, which pre-commit's `|| exit 1` turns into a refusal with no gl_log
+# with 127, which pre-commit's `|| exit "$?"` turns into a refusal with no gl_log
 # line — fail closed, since a gate reading a name it never set is a bug in it.
 
 set -uo pipefail

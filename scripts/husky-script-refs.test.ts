@@ -50,8 +50,8 @@ describe("husky hook script references", () => {
 		const hook = [
 			"# node scripts/commented-out.js",
 			"if git diff --cached --name-only | grep -q '^scripts/x\\.js$'; then",
-			"\tnode scripts/check-compliance-version-dupes.js || exit 1",
-			"\tnode scripts/check-citation-tracker.js || exit 1",
+			'\tnode scripts/check-compliance-version-dupes.js || exit "$?"',
+			'\tnode scripts/check-citation-tracker.js || exit "$?"',
 			"fi",
 		].join("\n");
 		expect(missing(hook)).toEqual([

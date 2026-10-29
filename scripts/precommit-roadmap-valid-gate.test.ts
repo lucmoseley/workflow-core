@@ -91,7 +91,7 @@ function runGate(
 	try {
 		// A trailing no-op stands in for the rest of the hook, which really does
 		// continue past this gate. Without it the fragment's own exit status is the
-		// checker's, and `|| exit 1` could be deleted with every case still green.
+		// checker's, and `|| exit "$?"` could be deleted with every case still green.
 		const out = execFileSync("sh", ["-c", `${LIB}\n${fragment}\n:\n`], {
 			cwd,
 			encoding: "utf8",
@@ -224,10 +224,10 @@ describe("mutations of the gate are caught by the cases above", () => {
 		return mutant;
 	};
 
-	it("stops failing the commit when `|| exit 1` is dropped", () => {
+	it('stops failing the commit when `|| exit "$?"` is dropped', () => {
 		const { root } = fixture({ staged: { [ROADMAP]: "x\n" }, checkerExit: 1 });
 
-		expect(runGate(root, mutate(" || exit 1", "")).code).toBe(0);
+		expect(runGate(root, mutate(' || exit "$?"', "")).code).toBe(0);
 	});
 
 	it("runs the checker out of scope when the path filter is dropped", () => {

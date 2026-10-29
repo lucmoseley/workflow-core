@@ -94,6 +94,7 @@ The floor is every gate in the plugin's own `.husky/pre-commit` that judges code
 | `scripts/check-cli-args.js` | a program reading its command line without a strict parser | a `scripts/*.js` the commit adds or edits; an inherited one only warns |
 | `scripts/check-jsonl-reads.js` | a hand split-and-parse of JSONL rather than `scripts/lib/jsonl.js` | a commit staging a `scripts/` program, judging the whole repo |
 | `scripts/check-guard-test-isolation.js`, `scripts/check-host-root-test-isolation.js`, `scripts/check-git-fixture-identity.js` | a `scripts/` test that spawns a guard without redirecting `CLAUDE_CONFIG_DIR`, spawns a `hostRoot()`- or `gr_root`-rooted script without redirecting `CLAUDE_PROJECT_DIR`, or commits in a git fixture it gave no identity | a commit staging `scripts/` code, each judging the whole repo |
+| `scripts/check-precommit-exit.js` | a checker line in `.husky/pre-commit` or `.husky/pre-commit.local` exiting 1 on its failure, turning its BROKEN into a finding (§N4) | a commit staging either file |
 | `scripts/check-test-spawn.js` | a test spawning `node` on the program under test with no `spawn-kept: <why>` comment (§X3) | a commit staging a test under `scripts/` or `.claude/skills/`, judging the whole repo |
 | `scripts/check-host-root.js` | a script finding the host repository other than through the one host-root seam, or a file shipping with the plugin reached through the host root | a commit staging `scripts/`, `.claude/` or `.husky/`, judging the whole repo; skips in a repo shipping no plugin |
 | `scripts/check-primitives.js` | a primitives row whose exemplar or enforcing check path, or § id, does not resolve, or a local row naming a base row's job; a base row's fault only warns in an adopter | every commit, `--paths-only`, reading the worktree |
@@ -121,6 +122,7 @@ Copy a row's exemplar, never the nearest file doing the same job (**Primitive**,
 | Reading a JSONL file or text | `readJsonl`, `parseJsonl` or, for a streamed line, `parseJsonlRow` in `scripts/lib/jsonl.js` | `scripts/lib/dispatch-ledger.js` | §0, its floor table | `scripts/check-jsonl-reads.js` |
 | Writing a program's output | `writeFd` in `scripts/lib/write-fd.js` | `scripts/check-plugin-gap.js` | §N6 | Standards axis criterion |
 | Running a program under test | `runInProcess` in `scripts/lib/run-in-process.js`, `runInProcessAsync` for an async entry | `scripts/check-cli-args.test.ts` | §X3 | `scripts/check-test-spawn.js` |
+| A pre-commit gate line | the checker's own exit code passed on, `exit "$?"`, or `staged_gate`'s `status` mode in `scripts/lib/precommit-gate.sh` | `.husky/pre-commit` | §N4 | `scripts/check-precommit-exit.js` |
 
 ---
 
