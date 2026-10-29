@@ -67,6 +67,7 @@ describe("the strict patterns", () => {
 		["K3", "a legacy alias for flavour"],
 		["K4", "reads the legacy shape"],
 		["K6", "the checkers that no longer fire at session start"],
+		["K6", "the coverage authority since #1849"],
 		["K7", "Rejected: a paid provider now."],
 	])("%s fires on %j", (kind, line) => {
 		expect(kindsHit(line)).toContain(kind);
