@@ -750,6 +750,33 @@ describe("decideTick on a parked row's session seat (#3669)", () => {
 		});
 	});
 
+	it("names a held row for the idle alarm though the slots fill before the walk reaches it, and none in away mode (#3680)", () => {
+		const full = seat("/s2", 100, 10);
+		const judgement = { root: "wfc", number: 3, prompt: "/triage 3" };
+		const d = tick({
+			mode: "normal",
+			freeSlots: 1,
+			frontier: [parked, row("wfc", 1)],
+			seats: [seat("/s1", 10, 10), full],
+			parkers: [parker()],
+			judgements: [judgement],
+		});
+		expect(launched(d)).toEqual(["wfc#3"]);
+		expect(d.skipped).toEqual([]);
+		expect(d.held).toEqual([
+			{ root: "wfc", number: 2, why: "parked: its session's seat /s2 is full" },
+		]);
+		expect(on(seat("/s2", 40, 20, null)).held).toEqual([]);
+		const away = tick({
+			mode: "away",
+			freeSlots: 1,
+			frontier: [parked],
+			seats: [seat("/s1", 10, 10), full],
+			parkers: [parker()],
+		});
+		expect(away.held).toEqual([]);
+	});
+
 	it("routes it afresh where no resume is possible: no parker, no session id, or a seat the loop does not read", () => {
 		const full = seat("/s2", 100, 10);
 		const afresh = (d: ReturnType<typeof tick>) => d.launches[0].parkedRoute;
