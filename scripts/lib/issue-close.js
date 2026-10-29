@@ -578,7 +578,7 @@ function judgeChildren(run, close, notPlanned) {
 	const { openChildrenRefusal } = require("./open-children.js");
 	const refusal = openChildrenRefusal(
 		close.issue,
-		field(data.url).replace(/[0-9]+$/, ""),
+		field(data.url).replace(/(?<![0-9])[0-9]+$/, ""),
 		nodes.map((/** @type {unknown} */ k) => {
 			const kid = record(k);
 			return {

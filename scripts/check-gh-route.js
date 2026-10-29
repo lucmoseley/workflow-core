@@ -150,7 +150,7 @@ const ROUTES = [
 
 // A local helper's header: its name, then its parameter list (#3638).
 const HELPER =
-	/(?:\bfunction\s+(\w+)|\b(?:const|let)\s+(\w+)\s*=\s*(?:async\s*)?(?:function\s*)?)\s*(?:<[^<>]*>\s*)?\(((?:[^()]|\([^()]*\))*)\)/g;
+	/(?:\bfunction\s+(\w+)\s*|\b(?:const|let)\s+(\w+)\s*=\s*(?:async\s*)?(?:function\s*)?)(?:<[^<>]*>\s*)?\(((?:[^()]|\([^()]*\))*)\)/g;
 
 /**
  * `text` split at its commas outside brackets.
@@ -229,7 +229,7 @@ const PATH_PREPEND =
 
 /** @param {string} expr */
 const normal = (expr) =>
-	expr.replace(/^path\.join\(\s*(.*)\)$/s, "$1").replace(/\s+/g, "");
+	expr.replace(/^path\.join\((.*)\)$/s, "$1").replace(/\s+/g, "");
 
 /**
  * @param {string} rel
