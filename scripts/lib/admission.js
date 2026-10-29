@@ -164,7 +164,7 @@ function cpuSlotsRow(cpu) {
 }
 
 /**
- * @typedef {{ ok: true, mb: number } | { ok: false, error: string }} MbResult
+ * @typedef {import("./meminfo.js").MbResult} MbResult
  * @typedef {import("./claude-sessions.js").SparePair} SparePair
  * @typedef {({ ok: true, mb: number, idlePairs: number, perPairMb: number | null, drift: string[] }) | { ok: false, error: string }} SpareOverhead
  * @typedef {({ ok: true, mb: number, perPairMb: number, pendingMb: number }) | { ok: false, error: string }} PoolReserve
@@ -854,14 +854,6 @@ function readPssKb(pid) {
 	} catch {
 		return null;
 	}
-}
-
-/**
- * MemAvailable, never MemFree — which counts reclaimable cache as spent.
- * @returns {MbResult}
- */
-function readAvailableMb() {
-	return availableFrom(readMeminfoKb());
 }
 
 /*
@@ -2085,7 +2077,6 @@ module.exports = {
 	SUITE_RESTING_MB,
 	SUITE_LADDER_MEASURED_AT,
 	suiteRungMb,
-	readAvailableMb,
 	readTreePssKb,
 	buildMemoryBreakdownLines,
 	reclaimableMb,
