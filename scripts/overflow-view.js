@@ -10,8 +10,8 @@
  * with the answer as its next turn, on the same overflow seat.
  *
  * Usage:
- *   node scripts/overflow-view.js                    live runs, then ended runs
- *                                                    waiting on the founder
+ *   node scripts/overflow-view.js                    each key's spend, ended runs
+ *                                                    waiting on the founder, live runs
  *   node scripts/overflow-view.js --follow <job>     one run's messages and
  *                                                    tool calls as they arrive
  *   node scripts/overflow-view.js --answer <job> <text>
@@ -29,7 +29,10 @@ const {
 	readLiveAgents,
 	readStoredRuns,
 } = require("./lib/headless-sessions.js");
+const { hostRoot } = require("./lib/host-root.js");
+const { buildBudgetLine, seatBudget } = require("./lib/overflow-budget.js");
 const { loopFiles, readJson } = require("./lib/refill-files.js");
+const { readDeclaredSeats } = require("./lib/refill-seats.js");
 
 /* Ended runs older than this are not offered as waiting. Untraced. */
 const WAITING_WINDOW_MS = 48 * 60 * 60 * 1000;
@@ -122,14 +125,15 @@ function loopPrompts() {
  * @param {import("./lib/headless-sessions.js").RunRecord[]} runs
  * @param {Set<string>} live job ids
  */
-function waitingRuns(runs, live, now = Date.now()) {
+function needsInputRuns(runs, live, now = Date.now()) {
 	return runs.filter((r) => {
 		if (live.has(r.jobId) || now - r.launchedAt > WAITING_WINDOW_MS)
 			return false;
 		const later = runs.some(
 			(o) => o.sessionId === r.sessionId && o.launchedAt > r.launchedAt,
 		);
-		return !later && /needs input:/i.test(lastSaid(events(r.log)));
+		const lines = lastSaid(events(r.log)).trim().split("\n");
+		return !later && /^needs input:/i.test(lines.at(-1)?.trim() ?? "");
 	});
 }
 
@@ -151,8 +155,12 @@ function board() {
 	const title = (/** @type {string} */ job) =>
 		clip(prompts.get(job) ?? "(answer or manual run)", 70);
 
-	const waiting = waitingRuns(runs, live, now);
-	console.log(`NEEDS INPUT: ${waiting.length}`);
+	for (const seat of readDeclaredSeats().seats)
+		if (seat.kind === "overflow")
+			console.log(buildBudgetLine(seat, seatBudget(seat, hostRoot())));
+
+	const waiting = needsInputRuns(runs, live, now);
+	console.log(`\nNEEDS INPUT: ${waiting.length}`);
 	for (const r of waiting)
 		console.log(
 			`\n${r.jobId}  ended ${age(now - r.launchedAt)} after start  ${title(r.jobId)}\n  ${clip(lastSaid(events(r.log)), 600)}\n  answer: node scripts/overflow-view.js --answer ${r.jobId} "<your answer>"`,
@@ -204,10 +212,29 @@ function answer(job, text) {
 		console.log(`no run ${job}`);
 		return 1;
 	}
+	const runs = readStoredRuns();
+	const live = new Set(readLiveAgents().map((r) => r.id));
+	if (!needsInputRuns(runs, live).some((r) => r.jobId === job)) {
+		console.error(
+			`not sent: ${job} is not a run waiting on you (still running, already answered, or not ended on needs input:)`,
+		);
+		return 1;
+	}
+	/* Gated as the dispatcher gates a launch (scripts/dispatch-sessions.sh):
+	 * nothing past the key's headroom. */
+	const seat = readDeclaredSeats().seats.find((s) => s.dir === run.seat);
+	const budget =
+		seat?.kind === "overflow" ? seatBudget(seat, hostRoot()) : null;
+	if (!budget || "why" in budget || budget.exhausted || budget.fit === 0) {
+		console.error(
+			`not sent: the key's budget does not fit an answer (${budget && "why" in budget ? budget.why : "no headroom"})`,
+		);
+		return 1;
+	}
 	const out = launch({
 		seat: run.seat,
 		cwd: run.cwd,
-		budgetUsd: ANSWER_BUDGET_USD,
+		budgetUsd: Math.min(ANSWER_BUDGET_USD, budget.headroomUsd),
 		prompt: text,
 		resume: run.sessionId,
 	});
