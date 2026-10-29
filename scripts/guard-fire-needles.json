@@ -1610,15 +1610,6 @@
 				}
 			]
 		},
-		"check-interop-latency.js --notify": {
-			"needles": [
-				{
-					"id": "interop-degraded",
-					"kind": "notice",
-					"text": "INTEROP-DEGRADED — the WSL↔Windows interop bridge is degraded"
-				}
-			]
-		},
 		"check-kernel-stall.js --notify": {
 			"needles": [
 				{
