@@ -4,9 +4,8 @@
  * an exhausted map — open, `takes:wayfinder`, unparked, ungated, no open
  * sub-issue (#3639) — and every exit it lets through.
  *
- * Breaking it either strands the map again, relaunched by the refill loop
- * every tick until its no-progress stop halts the loop, or blocks a session
- * that gave the map a route or never held one.
+ * Breaking it either strands the map again, or blocks a session that gave
+ * the map a route or never held one.
  */
 
 import fs from "node:fs";
@@ -146,7 +145,7 @@ describe("a stop it allows", () => {
 		).toBe("");
 	});
 
-	it("allows where the turn's message cannot be read, as it may be the park", () => {
+	it("allows where the turn's message cannot be read", () => {
 		expect(reasonFor(EXHAUSTED, { message: null })).toBe("");
 	});
 

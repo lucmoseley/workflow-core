@@ -7,9 +7,7 @@
  *
  * WHY. The refill loop launches `/wayfinder <map>` for such a map, and nothing
  * else routes it, so a session that ends having given it no new route leaves
- * it to be relaunched every tick — three such finishes trip the loop's
- * no-progress stop. The routes are an open child, a hand-off relabel, a gate,
- * a park and a close (`rule:wayfinder-ops-shapes` §Exhausted map).
+ * it to be relaunched every tick (#3623).
  *
  * ON Stop, NOT ON THE CLOSE OF THE LAST CHILD: a close-path check cannot see
  * a close made in the web UI or through `gh api`.
