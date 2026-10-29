@@ -24,9 +24,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { fullAttestationOf } from "../vitest-pass-reporter";
 import type { Classing } from "./already-red.js";
-import { FAIL_STORE, markerFrom, storePath } from "./test-pass-marker.js";
+import {
+	FAIL_STORE,
+	fullAttestationOf,
+	markerFrom,
+	storePath,
+} from "./test-pass-marker.js";
 import type { JudgeIO } from "./unasked-rerun.js";
 import {
 	LATCH_PREFIX,

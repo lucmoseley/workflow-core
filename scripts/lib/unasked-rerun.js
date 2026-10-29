@@ -55,13 +55,17 @@
 
 const {
 	DEFAULT_SUITE,
+	EVIDENCE_NOT_LICENCE,
 	FLAKE_NOTE,
 	attestationReading,
 	isFullRun,
 	shortSha,
 } = require("./test-pass-marker.js");
 const { caught } = require("./caught.js");
-const { buildAlreadyRedLines } = require("./already-red.js");
+const {
+	ALL_ALREADY_RED,
+	buildAlreadyRedFileLines,
+} = require("./already-red.js");
 
 /**
  * @typedef {NonNullable<ReturnType<typeof import("./own-selection.js").ownSelection>>} Selection
@@ -311,11 +315,12 @@ function buildRefusalText(head, { mine, scoped }, within, { reading, reds }) {
 		reading,
 		...reds.flatMap((m) => [
 			`The verdict on record from the run at ${m.at ?? "unknown time"} on ${shortSha(m.sha)} is a red, not a certificate: it failed only on files already red on its base.`,
-			...buildAlreadyRedLines(m.alreadyRed, { flakeNote: false }),
+			...buildAlreadyRedFileLines(m.alreadyRed),
+			`${ALL_ALREADY_RED}.`,
 		]),
 		...(reds.length > 0
 			? [
-					`Evidence, not a licence: ${FLAKE_NOTE}, so a repeat re-rolls those flakes rather than testing this session's work.`,
+					`${EVIDENCE_NOT_LICENCE.charAt(0).toUpperCase()}${EVIDENCE_NOT_LICENCE.slice(1)}: ${FLAKE_NOTE}, so a repeat re-rolls those flakes rather than testing this session's work.`,
 				]
 			: []),
 		"Type the same command again and it runs — this refuses once a session.",

@@ -204,7 +204,8 @@ const FULL_CAUSES = [
  */
 const FAIL_STORE = ".test-fail-markers.jsonl";
 
-/* Why a red read off that store is evidence, never a licence. */
+/* What a red read off that store is, and why it is never a licence. */
+const EVIDENCE_NOT_LICENCE = "evidence, not a licence";
 const FLAKE_NOTE =
 	"a red's failing set repeats only about half the time between runs (mantahostels#2195)";
 
@@ -638,6 +639,16 @@ function markerFrom(
 			})),
 		],
 	};
+}
+
+/**
+ * A full run's attestation: `"*"`, beside the base its launch resolved where
+ * one did, so a full red can be classed against it (#3646).
+ * @param {Pick<import("./suite-handoff.js").Launch, "base">} launch
+ * @returns {Attestation & {closure: "*"}}
+ */
+function fullAttestationOf({ base }) {
+	return { closure: "*", ...(base ? { base } : {}) };
 }
 
 /**
@@ -2128,6 +2139,7 @@ module.exports = {
 	STORE,
 	EDGES_FILE,
 	FAIL_STORE,
+	EVIDENCE_NOT_LICENCE,
 	FLAKE_NOTE,
 	recordFailure,
 	failureRecoveryCommand,
@@ -2144,6 +2156,7 @@ module.exports = {
 	isFullRun,
 	isAdmissibleRun,
 	isFullScope,
+	fullAttestationOf,
 	isUnnarrowedScope,
 	holdsAt,
 	holdsTestByTree,
