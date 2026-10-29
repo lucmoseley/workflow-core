@@ -153,7 +153,7 @@ function runVerdict(sha, reads, after) {
  * @param {Reads} reads
  * @returns {import("./lander.js").JobsOnMain}
  */
-function jobsOnMain(asked, reads) {
+function readJobsOnMain(asked, reads) {
 	const jobs = asked.filter((j) => j !== SUITE_PASSED_JOB);
 	const settled = readSettledOnMain(jobs, reads);
 	const failed = [...settled].filter(([, s]) => s.conclusion === "failure");
@@ -402,9 +402,9 @@ function actionsTester({
 			if (files === undefined) return settle(await pollRun(sha, poll, 0), sha);
 			return rerunAt(sha, files, lands);
 		},
-		async jobsOnMain(jobs) {
+		async readJobsOnMain(jobs) {
 			try {
-				return jobsOnMain(jobs, reads);
+				return readJobsOnMain(jobs, reads);
 			} catch (err) {
 				return { kind: "unread", reason: unreadableReason(err) };
 			}
