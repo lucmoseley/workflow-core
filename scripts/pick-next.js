@@ -2602,7 +2602,8 @@ function renderParked(state) {
 		console.log(`  #${i.number}  ${age}  ${String(i.title).slice(0, 50)}`);
 	}
 	console.log(
-		"\n  Choosable here; the refill loop never launches it." +
+		"\n  Choosable here. An away-mode refill loop skips it; a normal-mode one resumes" +
+			"\n  it ahead of new work, oldest park first." +
 			"\n  A loop-stopped park's cause is commented on its ticket. Cleared when the\n" +
 			"  founder types in the parked session, or a session claims the issue.",
 	);

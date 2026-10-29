@@ -632,7 +632,7 @@ const CORE_LABELS = [
 		name: "parked",
 		color: "FEF2C0",
 		description:
-			"A question round on it waits on the founder; the refill loop skips it until answered or claimed.",
+			"Waits on the founder; an away-mode refill loop skips it, a normal-mode one resumes it first.",
 	},
 	{
 		name: "urgent",

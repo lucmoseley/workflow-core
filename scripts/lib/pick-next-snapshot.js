@@ -48,7 +48,8 @@ function readSnapshot(root, repo) {
 
 /**
  * Why the snapshot's run left issue `n` unlaunched: its exclusion, else its
- * park, which the refill loop never launches (lib/refill-decide.js; #2722),
+ * park, which an away-mode refill loop skips and a normal-mode one resumes
+ * first (lib/refill-decide.js; #2722, #3642),
  * else its wait on someone outside, else its not-launched reason, else its
  * place in the launch set. Null where there is no snapshot or it does not list `n`.
  * @param {Snapshot | null} snapshot
@@ -64,7 +65,7 @@ function whyNotLaunched(snapshot, n) {
 	const why =
 		row(snapshot.excluded)?.reason ??
 		(row(snapshot.parked)
-			? "parked — the refill loop never launches it"
+			? "parked — an away-mode refill loop skips it; a normal-mode one resumes it ahead of new work, oldest park first"
 			: null) ??
 		(waiting
 			? `waiting on someone outside${waiting.days === null ? "" : ` for ${waiting.days} days`}`

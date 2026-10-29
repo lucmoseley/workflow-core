@@ -64,10 +64,10 @@ describe("whyNotLaunched (#2693)", () => {
 
 	it("names a parked issue's park over its wait and its place in the launch set, below its exclusion (#2722)", () => {
 		expect(whyNotLaunched(snapshot, 8)).toBe(
-			`parked — the refill loop never launches it (pick-next, ${AT})`,
+			`parked — an away-mode refill loop skips it; a normal-mode one resumes it ahead of new work, oldest park first (pick-next, ${AT})`,
 		);
 		expect(whyNotLaunched(snapshot, 7)).toBe(
-			`parked — the refill loop never launches it (pick-next, ${AT})`,
+			`parked — an away-mode refill loop skips it; a normal-mode one resumes it ahead of new work, oldest park first (pick-next, ${AT})`,
 		);
 	});
 

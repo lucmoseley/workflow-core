@@ -274,7 +274,7 @@ describe("file-morning-review.js (#2011)", () => {
 		expect(r.status).toBe(0);
 		const section = r.stdout.slice(r.stdout.indexOf("## Stuck urgent"));
 		expect(section).toContain(
-			"- acme/wfc#50 — `Stuck for a week` — 8 days — `parked — the refill loop never launches it (pick-next, 2026-10-24T06:00:00Z)`",
+			"- acme/wfc#50 — `Stuck for a week` — 8 days — `parked — an away-mode refill loop skips it; a normal-mode one resumes it ahead of new work, oldest park first (pick-next, 2026-10-24T06:00:00Z)`",
 		);
 		expect(section).not.toContain("#51");
 		const calls = fs.readFileSync(stub("calls.log"), "utf8");

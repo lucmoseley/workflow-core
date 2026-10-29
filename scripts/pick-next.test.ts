@@ -1676,7 +1676,7 @@ describe("the parked label", () => {
 		expect(r.out).toMatch(/^PARKED — /m);
 		expect(r.out).toMatch(/#1\s+3d, since \S+/);
 		expect(r.out).toMatch(
-			/Choosable here; the refill loop never launches it\./,
+			/Choosable here\. An away-mode refill loop skips it; a normal-mode one resumes\n {2}it ahead of new work, oldest park first\./,
 		);
 		expect(r.out).toMatch(/open tally +2 open, 2 frontier/);
 	});
