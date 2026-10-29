@@ -14,7 +14,8 @@
  * names it and records nothing. A compaction is no session start: its hook
  * payload's `source` is `compact`, and it prints and records nothing. The
  * stamp is per machine, as the loop is, so whichever session starts first on
- * any seat or repo spends it — a background job's start included.
+ * any seat or repo spends it; a background job's start prints and records
+ * nothing either (lib/background-start.js, #3707), so the founder's does.
  *
  * THE RESTART MATCHES THE STOPPED SCOPE (#3371): `/pick-next` restarts normal
  * mode only, naming the loop's other repos and goals (#3390). An away-mode
@@ -29,7 +30,7 @@
  * file, read only beside a fresh stop, is named with it, until a `start`
  * rewrites it (#3380); beside the stop it caused, the stop line names it.
  *
- * IMPLICIT:  at every session start, prints the refill loop's last stop where it was no progress, the allowance cut or a damaged control file and is newer than the stamp, then stamps it; and names a damaged state or control file.
+ * IMPLICIT:  at every session start but a background job's, prints the refill loop's last stop where it was no progress, the allowance cut or a damaged control file and is newer than the stamp, then stamps it; and names a damaged state or control file.
  * JUSTIFIED: fail-safe — the loop runs outside any session, so nothing else reports its stopping.
  * DEFEAT:    none needed — it never blocks; deleting the stamp names the last stop again.
  */
@@ -38,6 +39,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const hookMessage = require("./lib/hook-message");
+const { isBackgroundStart } = require("./lib/background-start.js");
 const loop = require("./lib/refill-loop.js");
 const refillFiles = require("./lib/refill-files.js");
 const {
@@ -133,6 +135,8 @@ runCheck({
 		/* Read under --notify alone: a plain run's stdin may be a terminal. */
 		if (ctx.notify && hookMessage.readPayload()?.source === "compact")
 			ctx.skip("a compaction is no session start.");
+		if (ctx.notify && isBackgroundStart())
+			ctx.skip("a background job's start is not the founder's.");
 		const files = refillFiles.loopFiles();
 		/** @param {string} line */
 		const reportDamaged = (line) => {

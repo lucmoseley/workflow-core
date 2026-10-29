@@ -34,6 +34,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { startEnv } from "./lib/background-start-testkit";
 import { runRecordFile } from "./lib/notify-report-testkit";
 import { runInProcess } from "./lib/run-in-process";
 import { useScratchCore } from "./lib/scratch-core-testkit";
@@ -53,10 +54,13 @@ const SCRIPT = path.resolve(__dirname, "replay-notify-reports.js");
 let dir = "";
 const savedEnv = { ...process.env };
 
-/** The script, run over the fixture store. */
-const read = (...args: string[]) => {
+/** The script, run over the fixture store, as an interactive start. */
+const read = (...args: string[]) => readIn("", ...args);
+
+/** The same, as a start in the background job `jobDir` names, if any. */
+const readIn = (jobDir: string, ...args: string[]) => {
 	const r = runInProcess(SCRIPT, args, {
-		env: { ...process.env },
+		env: { ...process.env, ...startEnv(jobDir) },
 		cwd: path.resolve(__dirname, ".."),
 	});
 	return { status: r.status, out: `${r.stdout}${r.stderr}` };
@@ -1001,6 +1005,38 @@ describe("--json", () => {
 		read("--json");
 		expect(stamps.readStamp("ghost-jobs")).toBeNull();
 		expect(read("--notify").out).toContain("WARN: 2 ghost job(s)");
+	});
+});
+
+/* The idle alarm is the founder's: a background job's start, nearly every
+ * start on a refill-loop day, would otherwise spend its daily stamp (#3707). */
+describe("a notice for the founder alone (#3707)", () => {
+	const idle = () =>
+		report("idle-efforts", "IDLE-EFFORTS (1) — o/r: 1 idle\n", {
+			stamp: "o/r@2026-10-30",
+		});
+
+	it("is neither shown nor stamped at a background job's start", () => {
+		idle();
+		const { status, out } = readIn(path.join(dir, "job"), "--notify");
+		expect(status).toBe(0);
+		expect(out).not.toContain("IDLE-EFFORTS (1)");
+		expect(stamps.readStamp("idle-efforts")).toBeNull();
+	});
+
+	it("is shown and stamped at the next interactive start the same day", () => {
+		idle();
+		readIn(path.join(dir, "job"), "--notify");
+		expect(read("--notify").out).toContain("IDLE-EFFORTS (1)");
+		expect(stamps.readStamp("idle-efforts")).not.toBeNull();
+		expect(read("--notify").out).not.toContain("IDLE-EFFORTS (1)");
+	});
+
+	it("still reaches a background job's start where it is no founder notice", () => {
+		report("ghost-jobs", "WARN: 2 ghost job(s)\n");
+		expect(readIn(path.join(dir, "job"), "--notify").out).toContain(
+			"WARN: 2 ghost job(s)",
+		);
 	});
 });
 

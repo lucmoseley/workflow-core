@@ -13,6 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { startEnv } from "./lib/background-start-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "check-refill-loop-stop.js");
@@ -37,9 +38,15 @@ function writeState(reason: string, detail = "the detail", at = STOP_AT) {
 	);
 }
 
-const run = (args: string[], source = "startup") =>
+/** An interactive start unless `jobDir` names a background job's. */
+const run = (args: string[], source = "startup", jobDir = "") =>
 	runInProcess(SCRIPT, args, {
-		env: { ...process.env, GITHUB_ACTIONS: "", WFC_REFILL_DIR: dir },
+		env: {
+			...process.env,
+			GITHUB_ACTIONS: "",
+			WFC_REFILL_DIR: dir,
+			...startEnv(jobDir),
+		},
 		stdin: JSON.stringify({ hook_event_name: "SessionStart", source }),
 	});
 
@@ -80,6 +87,15 @@ describe("at session start (--notify)", () => {
 		expect(r.status).toBe(0);
 		expect(r.stdout).toBe("");
 		expect(run(["--notify"]).stdout).toContain("REFILL-LOOP-STOPPED");
+	});
+
+	it("leaves a stop to the next interactive start, unspent, at a background job's (#3707)", () => {
+		writeState("no-progress");
+		const r = run(["--notify"], "startup", path.join(dir, "job"));
+		expect(r.status).toBe(0);
+		expect(r.stdout).toBe("");
+		expect(run(["--notify"]).stdout).toContain("REFILL-LOOP-STOPPED");
+		expect(run(["--notify"]).stdout).toBe("");
 	});
 
 	it("says nothing of a restart a stop request followed", () => {

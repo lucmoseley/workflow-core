@@ -58,7 +58,8 @@
  * IMPLICIT:  reads the persisted report files at every session start and
  *            injects into the session whatever a slow async producer finished
  *            after the harness had stopped listening to it, bar the reports
- *            `isHeldForStatus` keeps for `npm run status`.
+ *            `isHeldForStatus` keeps for `npm run status` and a founder
+ *            notice at a background job's start.
  * JUSTIFIED: fail-safe — it touches local files and nothing else, under
  *            --notify writing only its own shown-records, start count and
  *            delivery stamps, and under --status only those stamps, so it cannot inherit the cancellation it exists
@@ -93,6 +94,7 @@ const {
 const { hostRoot } = require("./lib/host-root.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { isRepoChecksReport } = require("./lib/repo-checks-reading.js");
+const { isBackgroundStart } = require("./lib/background-start.js");
 const { trimEndRun } = require("./lib/trim-run.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
@@ -172,6 +174,22 @@ const HELD_FOR_STATUS = new Set(["reap-finished-sessions", "reconcile-plugin"]);
 /** @param {string} key */
 const isHeldForStatus = (key) =>
 	HELD_FOR_STATUS.has(key) || isRepoChecksReport(key);
+
+/*
+ * NOTICES FOR THE FOUNDER ALONE, held back from a background job's start
+ * (lib/background-start.js) so his own session start shows and stamps them
+ * (#3707).
+ */
+const FOUNDER_NOTICES = new Set(["idle-efforts"]);
+
+/**
+ * Whether a `--notify` start holds this report's text back.
+ * @param {Pass} pass
+ * @param {string} key
+ */
+const isHeldAtStart = (pass, key) =>
+	pass.ctx.notify &&
+	(isHeldForStatus(key) || (FOUNDER_NOTICES.has(key) && isBackgroundStart()));
 
 /*
  * How many starts a producer may go without a new run before it is named as
@@ -431,10 +449,11 @@ function replayKey(pass, key) {
 		pass.now,
 	);
 	flagSilence(pass, key, r, { wedged, tooOld });
-	const heldAtStart = pass.ctx.notify && isHeldForStatus(key);
 	pass.record.push([
 		key,
-		heldAtStart ? r.next : offer(pass, report, r, heldAs(wedged, tooOld)),
+		isHeldAtStart(pass, key)
+			? r.next
+			: offer(pass, report, r, heldAs(wedged, tooOld)),
 	]);
 }
 
@@ -568,7 +587,7 @@ function flagSilence(pass, key, r, { wedged, tooOld }) {
 		tooOld &&
 		!r.empty &&
 		pass.gated(key) &&
-		!(pass.ctx.notify && isHeldForStatus(key))
+		!isHeldAtStart(pass, key)
 	) {
 		/* Dropped rather than shown: a CI verdict from this morning
 		 * presented as current is worse than no verdict (mantahostels#1949 story 18).
