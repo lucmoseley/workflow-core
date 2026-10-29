@@ -14,6 +14,7 @@
  * `node --test`.
  */
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -24,8 +25,11 @@ import {
 	inferCommands,
 	runsLintStaged,
 } from "./infer-commands.js";
+import { runInProcess } from "./run-in-process";
 
 let dir: string;
+
+const UNREAD = "so whether it runs biome check --staged cannot be read";
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "infer-commands-"));
@@ -254,37 +258,29 @@ describe("classifyCheckStaged", () => {
 			"holds more than",
 			`'${BIOME_STAGED_COMMAND}' for the Biome part`,
 		],
-		[
-			"backtick with no space (#3191)",
-			"npx biome check --staged`x`",
-			"holds more than",
-			`'${BIOME_STAGED_COMMAND} <flags>' for the Biome part`,
-		],
 		...[
 			"biome check --staged&>o",
 			"biome check --staged&>>o",
 			"biome check>o --staged",
 			"biome check<in --staged",
-			"biome check`x` --staged",
 			"biome>o check --staged",
 		].map((script) => [
-			`redirect or backtick touching a word: ${script} (#3191)`,
+			`redirect touching a word: ${script} (#3191)`,
 			script,
 			"holds more than",
 			"for the Biome part",
 		]),
-		[
-			"command substitution, the Biome part still mapped (#3191)",
+		...[
+			"npx biome check --staged`x`",
+			"biome check`x` --staged",
 			"$(biome check --staged --verbose)",
-			"holds more than",
-			`'${BIOME_STAGED_COMMAND} --verbose' for the Biome part`,
-		],
-		[
-			"backtick substitution, the Biome part still mapped (#3191)",
 			"`biome check --staged --verbose`",
-			"holds more than",
-			`'${BIOME_STAGED_COMMAND} --verbose' for the Biome part`,
-		],
+		].map((script) => [
+			`substitution: ${script} (#3191, #3545)`,
+			script,
+			UNREAD,
+			`as an explicit '${BIOME_STAGED_COMMAND} <flags>'`,
+		]),
 		[
 			"brace group, the Biome part still mapped (#3191)",
 			"{ biome check --staged --verbose; }",
@@ -297,8 +293,6 @@ describe("classifyCheckStaged", () => {
 			"biome check '--staged'",
 			"biome check \\--staged",
 			"biome 'check' --staged",
-			"biome check $'--staged'",
-			'biome $"check" --staged',
 			// A quoted flag that would otherwise map is refused, not unquoted.
 			'biome check --staged "--verbose"',
 		].map((script) => [
@@ -527,14 +521,14 @@ describe("classifyCheckStaged", () => {
 		["pnpm run check:staged \\\n--staged", "handed --staged,"],
 		["pnpm run check:staged >o --staged", "holds more than"],
 		["npm run check:staged -- 2>&1 --staged", "holds more than"],
-		["pnpm run check:staged $(echo --staged)", "command substitution"],
-		["pnpm run check:staged `echo --staged`", "command substitution"],
-		["pnpm run check:staged $FLAGS", "a parameter or brace range"],
-		["yarn run check:staged $'--staged'", "handed --staged,"],
-		['pnpm run check:staged -- $"--staged"', "handed -- --staged,"],
+		["pnpm run check:staged $(echo --staged)", UNREAD],
+		["pnpm run check:staged `echo --staged`", UNREAD],
+		["pnpm run check:staged $FLAGS", UNREAD],
+		["yarn run check:staged $'--staged'", UNREAD],
+		['pnpm run check:staged -- $"--staged"', UNREAD],
 		["pnpm run check:staged --sta\\\nged", "handed --staged,"],
-		["pnpm run check:staged --{staged,x}", "handed --staged --x,"],
-		["pnpm run check:staged $'\\x2d\\x2dstaged'", "handed --staged,"],
+		["pnpm run check:staged --{staged,x}", UNREAD],
+		["pnpm run check:staged $'\\x2d\\x2dstaged'", UNREAD],
 		['pnpm run check:staged >"o x" --staged', "holds more than"],
 	])(
 		"refuses %j, reading a continuation, redirect, $-quote or expansion in the words a run hands on (#3422)",
@@ -544,18 +538,27 @@ describe("classifyCheckStaged", () => {
 		},
 	);
 
+	it("maps an inferred continuation near a refused shape (#3422)", () => {
+		expect(
+			classify("biome check --staged", {
+				command: "pnpm run check:staged \\\n--verbose",
+			}),
+		).toEqual({
+			kind: "mapped",
+			command: `${BIOME_STAGED_COMMAND} --verbose`,
+		});
+	});
+
 	it.each([
-		["pnpm run check:staged \\\n--verbose", " --verbose"],
-		["yarn run check:staged $'--verbose'", " --verbose"],
-		['pnpm run check:staged $"--verbose"', " --verbose"],
-		["pnpm run $'check:staged' --verbose", " --verbose"],
+		"yarn run check:staged $'--verbose'",
+		'pnpm run check:staged $"--verbose"',
+		"pnpm run $'check:staged' --verbose",
+		"pnpm run check:staged --{verbose,json}",
 	])(
-		"maps an inferred %j, near a refused shape (#3422)",
-		(command, carried) => {
-			expect(classify("biome check --staged", { command })).toEqual({
-				kind: "mapped",
-				command: `${BIOME_STAGED_COMMAND}${carried}`,
-			});
+		"refuses an inferred %j, which dash reads otherwise than bash (#3545)",
+		(command) => {
+			const c = classify("biome check --staged", { command });
+			expect(c.kind === "refused" && c.refusal).toContain(UNREAD);
 		},
 	);
 
@@ -563,7 +566,6 @@ describe("classifyCheckStaged", () => {
 		"pnpm run nosuch\nbiome check",
 		"pnpm run check:staged >o --verbose",
 		"npm run check:staged --silent>o --staged",
-		"pnpm run tsc $(echo --staged)",
 		"npm run check:staged -- --verbose",
 		"npm run check:staged --staged",
 		'yarn run check:staged "--verbose"',
@@ -575,21 +577,19 @@ describe("classifyCheckStaged", () => {
 	});
 
 	it.each([
-		["bi$@ome check --staged", "a command substitution, or a parameter"],
-		["biome check --sta$@ged", "a command substitution, or a parameter"],
-		["biome ch$1eck --staged", "a command substitution, or a parameter"],
-		["$B check --staged", "a command substitution, or a parameter"],
-		// Decoded and expanded before the shell runs anything.
-		["biome check $'--stag\\x65d'", "quotes or backslash-escapes a word"],
-		["$'bi\\x6fme' check --staged", "quotes or backslash-escapes a word"],
-		["biome check {--staged,}", "writes words as a brace expansion"],
-		["{biome,check} --staged", "writes words as a brace expansion"],
-		["biome {check,--staged}", "writes words as a brace expansion"],
+		["bi$@ome check --staged", UNREAD],
+		["biome check --sta$@ged", UNREAD],
+		["biome ch$1eck --staged", UNREAD],
+		["$B check --staged", UNREAD],
+		["biome check $'--stag\\x65d'", UNREAD],
+		["biome check $'--staged'", UNREAD],
+		['biome $"check" --staged', UNREAD],
+		["$'bi\\x6fme' check --staged", UNREAD],
+		["biome check {--staged,}", UNREAD],
+		["{biome,check} --staged", UNREAD],
+		["biome {check,--staged}", UNREAD],
 		// A $(( whose first ( closes first is a subshell in a substitution.
-		[
-			"echo $((cd /; biome check --staged) )",
-			`'${BIOME_STAGED_COMMAND}' for the Biome part`,
-		],
+		["echo $((cd /; biome check --staged) )", UNREAD],
 		[
 			"biome check --staged <<< x",
 			`'${BIOME_STAGED_COMMAND}' for the Biome part`,
@@ -621,13 +621,46 @@ describe("classifyCheckStaged", () => {
 		expect(refusal).not.toContain("expansion");
 	});
 
-	it.each([
-		// A word that is only an expansion is an unknown value (#3422).
-		"biome check $(git diff --name-only)",
-		"biome check # --staged",
-	])("leaves %j, which runs no --staged, unclassified (#3445)", (script) => {
-		expect(classify(script)).toEqual({ kind: "none" });
+	it("leaves a --staged in a comment unclassified (#3445)", () => {
+		expect(classify("biome check # --staged")).toEqual({ kind: "none" });
 	});
+
+	it.each([
+		"biome check $(git diff --name-only)",
+		"pnpm run tsc $(echo --staged)",
+		"cat <<E\n'\nE\nbiome check --staged",
+		"eval 'biome check' --staged",
+	])(
+		"refuses %j, which it cannot read as dash would, unread (#3545)",
+		(script) => {
+			const c = classify(script);
+			const refusal = c.kind === "refused" ? c.refusal : "";
+			expect(refusal).toMatch(/^may run biome check --staged /);
+			expect(refusal).toContain(UNREAD);
+			expect(refusal).toContain(
+				`as an explicit '${BIOME_STAGED_COMMAND} <flags>'`,
+			);
+		},
+	);
+
+	it.each([";", '"', "'", "$", "`", " "])(
+		"maps a handed value holding %j quoted, so sh -c passes it exactly (#3545)",
+		(ch) => {
+			const value = `--only=a${ch}b`;
+			const written = ch === "'" ? `"${value}"` : `'${value}'`;
+			const c = classify("biome check --staged", {
+				command: `pnpm run check:staged ${written}`,
+			});
+			const command = c.kind === "mapped" ? c.command : "";
+			expect(command.startsWith(`${BIOME_STAGED_COMMAND} `)).toBe(true);
+			const words = command.slice(BIOME_STAGED_COMMAND.length);
+			expect(
+				execFileSync("sh", ["-c", `printf '%s\\0'${words}`], {
+					encoding: "utf8",
+				}),
+			).toBe(`${value}\0`);
+		},
+	);
 
 	it("refuses an npm run whose flag a redirect follows with no space (#3193)", () => {
 		const c = classify("biome check --staged", {
@@ -654,10 +687,89 @@ describe("classifyCheckStaged", () => {
 		["a check with no --staged", "biome check --changed"],
 		["an unrelated command", "eslint ."],
 		["an npm run of an unrelated script", "npm run tsc"],
+		// Fail-closed only where the text mentions Biome or a run (#3545).
+		["an expansion with no biome and no run", "eslint $(git diff --cached)"],
+		["a brace expansion with no biome and no run", "prettier -c {a,b}.js"],
 	])("leaves %s alone", (_, command) => {
 		expect(
 			classify("biome check --staged", { command, inferred: false }),
 		).toEqual({ kind: "none" });
+	});
+});
+
+describe("the check-staged CLI on #3545's fail-open shapes", () => {
+	const Cli = path.join(__dirname, "infer-commands.js");
+
+	beforeEach(() => {
+		fs.writeFileSync(
+			path.join(dir, "package.json"),
+			JSON.stringify({
+				scripts: { cs: "biome check --staged --no-errors-on-unmatched" },
+				devDependencies: { "@biomejs/biome": "2.5.15" },
+			}),
+		);
+	});
+
+	const run = (command: string) =>
+		runInProcess(Cli, ["check-staged", command], { cwd: dir });
+
+	it.each([
+		// A substitution nested in ${…} or $((…)).
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
+		": ${X:-$(biome check --staged)}",
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
+		': "${X:-`biome check --staged`}"',
+		": $(( $(biome check --staged) ))",
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
+		": ${X:-$(npm run cs)}",
+		// Bash-only syntax, read otherwise by dash.
+		": $'#\\' ; biome check --staged #'",
+		"pnpm run cs --{verbose,json}",
+		// An expansion in the check slot, or xargs.
+		"biome $(echo check) --staged",
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
+		"biome ${C:-check} --staged",
+		"echo --staged | xargs biome check",
+		// An expansion in a script name.
+		"npm run cs$X",
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
+		"npm run c${X}s",
+		"node_modules/.bin/$B check --staged",
+		// A quote or backslash splitting the mention, a shell reading stdin, a
+		// hidden command name.
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
+		': ${X:-$(bi""ome check --staged)}',
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
+		": ${X:-$(b\\iome check --staged)}",
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
+		": ${X:-$(npm r\\un cs)}",
+		": $'#\\' ; bi\"\"ome check --staged #'",
+		': $(( $(eval bi""ome check --staged) ))',
+		'printf "biome check --st%sd" age | sh',
+		"printf '\\142iome check --staged' | sh -s",
+		'eval "$(printf x)"',
+		'sh -c "$(printf x)"',
+		"$(printf x)",
+		"FOO=1 $(printf x)",
+		"xargs $(printf x) < f",
+		"parallel < f",
+		"eval 'bi''ome check' --staged",
+	])("refuses %j, naming an explicit biome-staged.js", (command) => {
+		const r = run(command);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("may run biome check --staged");
+		expect(r.stderr).toContain(
+			`as an explicit '${BIOME_STAGED_COMMAND} <flags>'`,
+		);
+	});
+
+	it.each([
+		"eslint $(git diff --cached)",
+		"prettier -c {a,b}.js",
+		"git diff --cached --name-only | xargs eslint",
+		"sh ./scripts/check.sh",
+	])("passes %j, which mentions no biome and no run", (command) => {
+		expect(run(command)).toMatchObject({ status: 0, stderr: "" });
 	});
 });
 

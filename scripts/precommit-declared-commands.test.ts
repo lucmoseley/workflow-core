@@ -317,13 +317,18 @@ describe("the pre-commit check_staged gate on a biome check --staged command (#2
 		},
 	);
 
-	it.each(["bi$@ome check --staged", "bi$*ome check --staged"])(
-		"refuses %s, whose expansion hides the word biome, before it runs (#3445)",
+	it.each([
+		"bi$@ome check --staged",
+		"bi$*ome check --staged",
+		// Reaches node through the hook's `{` arm alone (#3545).
+		"{bi,x}ome check --staged",
+	])(
+		"refuses %s, whose expansion may hide the word biome, before it runs (#3445)",
 		(command) => {
 			const { run: commit } = biomeFixture(command, declaresBiome("unused"));
 			const { code, out, ran } = commit();
 			expect(code).toBe(1);
-			expect(out).toContain("a command substitution, or a parameter");
+			expect(out).toContain("cannot be read");
 			expect(ran("check_staged")).toBe(false);
 		},
 	);
@@ -359,6 +364,16 @@ describe("the pre-commit check_staged gate on a biome check --staged command (#2
 			expect(ran("check_staged"), out).toBe(true);
 		},
 	);
+
+	it("classifies a command holding a brace, and runs it where it mentions no biome or run (#3545)", () => {
+		const { root, run: commit } = biomeFixture("eslint {app,lib}");
+		fs.writeFileSync(path.join(root, "bin/eslint"), MARKER_STUB, {
+			mode: 0o755,
+		});
+		const { code, out, ran } = commit();
+		expect(code, out).toBe(0);
+		expect(ran("check_staged"), out).toBe(true);
+	});
 
 	it("runs an npm run whose script runs no biome check --staged", () => {
 		const { run: commit } = biomeFixture("npm run check:staged", {

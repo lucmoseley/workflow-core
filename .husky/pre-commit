@@ -12,7 +12,7 @@
 #
 # IMPLICIT:  runs every gate below on each commit — the shared-tree branch check, the linters, the secret scan and the repo checkers — and refuses the commit on a red. Deliberately not enumerated: this file has carried ~14 gates and gains more, and a list here is one that goes stale (mantahostels#1261).
 # JUSTIFIED: fail-safe — a commit is the last local moment before work is shared, and a gate skipped here runs next only in CI, after the push: with `landing` on, the lander's run on that push (#2413).
-# DEFEAT:    WFC_ALLOW_BRANCH=1 skips the shared-tree branch check alone, and WFC_ALLOW_GATE_INPUT_DELETE=1 lets one commit delete a staged gate's own required input, for the rare deliberate retirement (mantahostels#2894; the limb is in scripts/lib/precommit-gate.sh, so it reaches every staged_gate caller at once). Both are the founder's to set, and the guard-hook-escape core refuses an agent's spelling of either (#916). WFC_GITLEAKS names the secret scanner's binary (§N7, #224), so a value that exits 0 on everything defeats the scan alone. The stack itself has no escape flag: --no-verify does not skip it, .husky/prepare-commit-msg running it (mantahostels#1705), and the guard-commit-form core denies that flag on `git commit` and `git merge` both. Defeats remain: HUSKY=0 among those disarming every hook (the whole list: scripts/lib/commit-form.js's LIMITS), and a caller setting WFC_TEST_STAMP or WFC_MUTATION_STAMP by hand to a stamp it wrote itself in the git directory, which stands the declared test gate or the mutation hold down (#1650, #1910). WFC_LANDER_REVERT=<sha> stands the guard-registry gate's staleness refusal down where the staged tree is that commit's clean revert onto HEAD, recomputed by scripts/lib/clean-revert.js (#3127): the lander sets it; an agent can too, but what it passes is a clean revert that leaves rows stale, never any other change or fault.
+# DEFEAT:    WFC_ALLOW_BRANCH=1 skips the shared-tree branch check alone, and WFC_ALLOW_GATE_INPUT_DELETE=1 lets one commit delete a staged gate's own required input, for the rare deliberate retirement (mantahostels#2894; the limb is in scripts/lib/precommit-gate.sh, so it reaches every staged_gate caller at once). Both are the founder's to set, and the guard-hook-escape core refuses an agent's spelling of either (#916). WFC_GITLEAKS names the secret scanner's binary (§N7, #224), so a value that exits 0 on everything defeats the scan alone. The stack itself has no escape flag: --no-verify does not skip it, since .husky/prepare-commit-msg runs it and is the one hook the flag cannot turn off (mantahostels#1705), and the guard-commit-form core denies that flag on `git commit` and `git merge` both. Defeats remain: HUSKY=0 among those disarming every hook (the whole list: scripts/lib/commit-form.js's LIMITS), and a caller setting WFC_TEST_STAMP or WFC_MUTATION_STAMP by hand to a stamp it wrote itself in the git directory, which stands the declared test gate or the mutation hold down (#1650, #1910). WFC_LANDER_REVERT=<sha> stands the guard-registry gate's staleness refusal down where the staged tree is that commit's clean revert onto HEAD, recomputed by scripts/lib/clean-revert.js (#3127): the lander sets it; an agent can too, but what it passes is a clean revert that leaves rows stale, never any other change or fault.
 
 set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (#745)
 # The repo this hook runs in, not an inherited CLAUDE_PROJECT_DIR (#3307); skipped where the lib is missing.
@@ -79,12 +79,13 @@ fi
 # One that runs `biome check --staged`, itself or through the package.json
 # script an npm, pnpm, yarn or bun `run` names, is refused before it runs
 # (#2731); node is spent only on a command that could (#2775), a quote,
-# backslash or expansion hiding the words included (#3414, #3445). The first
-# arm is infer-commands.js's BIOME_STAGED_COMMAND, which is never classified.
+# backslash, expansion or brace hiding the words included (#3414, #3445,
+# #3545). The first arm is infer-commands.js's BIOME_STAGED_COMMAND, which is
+# never classified.
 if declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/workflow-core-config.js command check_staged; then
   case "$declared_command" in
     'node "$WFC_PLUGIN_ROOT"/scripts/biome-staged.js'*) ;;
-    *run* | *biome* | *[\\\'\"$\`]*)
+    *run* | *biome* | *[\\\'\"$\`\{]*)
       node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/infer-commands.js check-staged "$declared_command" || exit "$?"
       ;;
   esac

@@ -3,8 +3,10 @@
  * classifier reads words, operators and redirects rather than regexing the
  * text.
  *
- * A word's quotes are removed, its `$'…'` escapes decoded and its
- * backslash-newlines deleted, and a comma brace expansion (`{a,b}`) makes a
+ * A word's quotes are removed and its backslash-newlines deleted. Where
+ * bash and dash read a word differently it is read as bash does and marked
+ * `bashOnly`, for a caller to refuse rather than trust (#3545): `$'…'` is
+ * decoded, `$"…"` unquoted, and a comma brace expansion (`{a,b}`) makes a
  * word of each alternative. An expansion whose text is not known until the
  * shell runs it — a command, process or arithmetic substitution, a parameter,
  * a brace range — is kept as a null piece. Residual: a here-doc's body is
@@ -14,12 +16,11 @@
 
 /**
  * @typedef {{type: "word", value: string, raw: string, quoted: boolean,
- *   braced: boolean, pieces: (string|null)[], subs: Token[][], spans:
- *   string[]}} Word `braced` where a brace expansion made it
- *   `value` is the literal text, quotes removed; `pieces` that text split at
- *   each expansion, a null standing for one; `subs` each substitution's own
- *   tokens; `spans` each quoted span's text, which a runner such as
- *   `concurrently` may run as a command.
+ *   bashOnly: boolean, pieces: (string|null)[], subs: Token[][]}} Word
+ *   `value` is the literal text, quotes removed; `bashOnly` where it holds a
+ *   construct dash reads otherwise; `pieces` that text split at each
+ *   expansion, a null standing for one; `subs` each substitution's own
+ *   tokens.
  * @typedef {{type: "op", value: string}} Op `&&`, `;`, a newline, a group's
  *   bracket or brace, and the like.
  * @typedef {{type: "redirect", op: string, target: Word|null}} Redirect
@@ -155,10 +156,9 @@ class WordBuilder {
 		this.pieces = [];
 		/** @type {Token[][]} */
 		this.subs = [];
-		/** @type {string[]} */
-		this.spans = [];
 		this.text = "";
 		this.quoted = false;
+		this.bashOnly = false;
 	}
 
 	opaque() {
@@ -170,12 +170,12 @@ class WordBuilder {
 	brace(alternatives) {
 		this.pieces.push(this.text, alternatives);
 		this.text = "";
+		this.bashOnly = true;
 	}
 
 	/** A quoted span's literal text. @param {string} span */
 	span(span) {
 		this.text += span;
-		this.spans.push(span);
 		this.quoted = true;
 	}
 }
@@ -211,6 +211,7 @@ const parseAnsiC = (src, i, w) => {
 	if (!src.startsWith("$'", i)) return;
 	const k = scanTo(src, i + 2, "'");
 	w.span(src.slice(i + 2, k).replace(ANSI_C_ESCAPE, decodeAnsiC));
+	w.bashOnly = true;
 	return k + 1;
 };
 
@@ -228,11 +229,10 @@ function decodeAnsiC(_, esc) {
 const parseDouble = (src, i, w) => {
 	const open = startsAt(src, i, ['"', '$"']);
 	if (!open) return;
-	const from = i + open.length;
-	let k = from;
+	let k = i + open.length;
 	while (k < src.length && src[k] !== '"') k = parseInDouble(src, k, w);
-	w.spans.push(src.slice(from, k));
 	w.quoted = true;
+	w.bashOnly ||= open === '$"';
 	return k + 1;
 };
 
@@ -289,6 +289,7 @@ const parseProcess = (src, i, w) => {
 	if (!"<>".includes(src[i] ?? "") || src[i + 1] !== "(") return;
 	const end = parseSub(src, i + 2, w);
 	w.opaque();
+	w.bashOnly = true;
 	return end;
 };
 
@@ -299,8 +300,10 @@ const parseBrace = (src, i, w) => {
 	const inner = m?.[1] ?? "";
 	if (!m) return;
 	if (inner.includes(",")) w.brace(inner.split(","));
-	else if (inner.includes("..")) w.opaque();
-	else return;
+	else if (inner.includes("..")) {
+		w.opaque();
+		w.bashOnly = true;
+	} else return;
 	return i + m[0].length;
 };
 
@@ -346,10 +349,9 @@ function parseWord(src, start) {
 		value: pieces.filter((p) => p !== null).join(""),
 		raw,
 		quoted: w.quoted,
-		braced,
+		bashOnly: w.bashOnly,
 		pieces,
 		subs: w.subs,
-		spans: w.spans,
 	}));
 	/* The shell drops a brace expansion's empty unquoted word. */
 	return {
