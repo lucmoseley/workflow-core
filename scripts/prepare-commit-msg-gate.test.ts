@@ -165,6 +165,7 @@ const buildTemplate = (root: string) => {
 		"scripts/lib/commit-route.sh",
 		"scripts/check-commit-message-closes.sh",
 		"scripts/check-commit-subject.sh",
+		"scripts/review-tier-trailer.sh",
 		"scripts/lib/rule-text.sh",
 		"docs/agents/rules/commit-closes-keyword.txt",
 		"docs/agents/rules/commit-message.txt",
@@ -1093,4 +1094,34 @@ describe("the closing-keyword refusal (#138)", () => {
 		).stdout;
 		expect(set.split("\n")).toContain(".husky/commit-msg");
 	});
+});
+
+describe("the review hold's Review-Tier: trailer (#3664)", () => {
+	/** A pre-commit that leaves the stamp the review hold leaves on a pass. */
+	const holding = (p: Probe) =>
+		p.precommitBody(
+			`t="$(git write-tree)"\nprintf '%s\\nescalated; areas=secrets; base=b; tree=%s; paths=f.txt\\n' "$t" "$t" >"$(git rev-parse --absolute-git-dir)/wfc-review-tier"\n${precommitStub(path.join(p.root, LOG), 0)}`,
+		);
+	const trailer = (p: Probe) =>
+		gitLog(p, "-1", "--format=%(trailers:key=Review-Tier,valueonly)").trim();
+
+	for (const [route, flags] of [
+		["standing down on pre-commit's stamp", []],
+		["running pre-commit itself under --no-verify", ["--no-verify"]],
+	] as const)
+		it(`writes it on a commit ${route}`, () => {
+			const p = probe();
+			holding(p);
+			fs.writeFileSync(path.join(p.root, "f.txt"), "held\n");
+			p.git("add", "--", "f.txt");
+			const tree = execFileSync("git", ["write-tree"], {
+				cwd: p.root,
+				encoding: "utf8",
+			}).trim();
+			const r = attempt(p.root, "commit", "-qm", "land it", ...flags);
+			expect(r.code).toBe(0);
+			expect(trailer(p)).toBe(
+				`escalated; areas=secrets; base=b; tree=${tree}; paths=f.txt`,
+			);
+		});
 });

@@ -240,6 +240,53 @@ function checkout(fx: ReturnType<typeof fixture>) {
 		}).trim();
 }
 
+/**
+ * A checkout under `fx`'s home tracking o/manta, which declares lib/secret.js
+ * sensitive, holding one commit per `commits` entry, dated after the trailer
+ * landed; returns their shas.
+ */
+function trailerCheckout(
+	fx: ReturnType<typeof fixture>,
+	commits: { file: string; trailer?: string }[],
+) {
+	const code = path.join(fx.root, "manta");
+	initGitRepo(code, path.join(fx.root, ".hooks"));
+	fs.mkdirSync(path.join(code, ".claude"));
+	fs.writeFileSync(
+		path.join(code, ".claude", "workflow-core.json"),
+		JSON.stringify({
+			contract: 1,
+			founder: "F",
+			tracker: "o/manta",
+			sensitivePaths: [
+				{
+					name: "secrets",
+					description: "credentials",
+					globs: ["lib/secret.js"],
+				},
+			],
+		}),
+	);
+	const env = {
+		...process.env,
+		GIT_AUTHOR_DATE: "2026-11-01T12:00:00Z",
+		GIT_COMMITTER_DATE: "2026-11-01T12:00:00Z",
+	};
+	const git = (...a: string[]) =>
+		execFileSync("git", a, { cwd: code, encoding: "utf8", env }).trim();
+	return commits.map(({ file, trailer }, i) => {
+		fs.mkdirSync(path.join(code, path.dirname(file)), { recursive: true });
+		fs.writeFileSync(path.join(code, file), `${i}\n`);
+		git("add", "-A");
+		git(
+			"commit",
+			"-qm",
+			`change ${i}${trailer === undefined ? "" : `\n\nReview-Tier: ${trailer}`}`,
+		);
+		return git("rev-parse", "HEAD");
+	});
+}
+
 describe("the re-measure trigger", () => {
 	it("is silent below 15 counted commits with no issue filed, and asks the tracker nothing but the search and that issue", () => {
 		const fx = fixture({ hits: { "o/fleet": [ticket(1, range(1, 14))] } });
@@ -614,6 +661,84 @@ describe("the re-measure trigger", () => {
 		);
 		expect(readGuardErrorsLog(fx.config)).toContain(
 			`report-remeasure-due\t${OWN}#7: could not diff`,
+		);
+	});
+
+	it("counts a commit by its Review-Tier: trailer with no record, once where a record names it too, and reports a malformed trailer and a sensitive commit carrying neither, judged from the repo's first trailer (#3664)", () => {
+		const fx = fixture({
+			hits: {},
+			issues: [
+				{
+					number: 77,
+					title: TITLE,
+					labels: [{ name: "takes:wayfinder" }],
+					closedAt: null,
+					createdAt: "2026-11-02T00:00:00Z",
+				},
+			],
+		});
+		const trailer = (n: number) =>
+			`escalated; areas=secrets; base=${"b".repeat(40)}; tree=${String(n).repeat(40)}; paths=lib/secret.js`;
+		const [, alone, both, neither, , declined, malformed] = trailerCheckout(
+			fx,
+			[
+				{ file: "lib/secret.js" },
+				{ file: "lib/secret.js", trailer: trailer(1) },
+				{ file: "lib/secret.js", trailer: trailer(2) },
+				{ file: "lib/secret.js" },
+				{ file: "app/page.tsx" },
+				{ file: "lib/secret.js" },
+				{ file: "lib/secret.js", trailer: "escalated; no fields" },
+			],
+		);
+		fx.setHits({
+			"o/manta": [
+				{
+					number: 9,
+					updated: "2026-11-05",
+					comments: [
+						`**Escaped defect:** ${alone} — the scan missed a token in a URL`,
+						TIER_LINE,
+						record(2, undefined, both),
+						record(5, ["DECLINED: a rename the precedent rules out"], declined),
+					],
+				},
+			],
+		});
+		const r = run(fx);
+		const fault = `o/manta@${neither} changes the sensitive area secrets and carries neither a Review-Tier: trailer nor a **Review findings:** record, so it is not counted until a record names it, as \`scripts/lib/rule-text.sh review-tier-records\` says`;
+		expect(r).toEqual({
+			code: 0,
+			stdout: "",
+			stderr: `UNPARSEABLE: o/manta@${malformed} has a Review-Tier: trailer not in scripts/review-tier-trailer.sh's form, so it is not counted by it: escalated; no fields\nUNRECORDED: ${fault}\n`,
+		});
+		expect(readGuardErrorsLog(fx.config)).toContain(
+			`report-remeasure-due\t${fault}`,
+		);
+		const body = fx.issueBody.body();
+		expect(body.split("\n")[0]).toMatch(
+			/^2 commits on adopter-declared sensitive paths/,
+		);
+		expect(body).toContain(
+			`- o/manta#9: landed ${both}, base ${sha("b", 2)}, tree ${sha("e", 2)}; 1 fixed or ticketed, 0 escaped`,
+		);
+		expect(body).toContain(
+			`- o/manta@${alone}: Review-Tier: trailer alone, base ${"b".repeat(40)}, landed tree ${"1".repeat(40)}, paths lib/secret.js; 1 escaped`,
+		);
+		expect(body).not.toContain(`@${both}`);
+	});
+
+	it("reports a checkout whose commits git cannot read as unread (#3664)", () => {
+		const fx = fixture({ hits: {} });
+		trailerCheckout(fx, [{ file: "lib/secret.js" }]);
+		fs.writeFileSync(
+			path.join(fx.root, "manta", ".git", "HEAD"),
+			"ref: refs/heads/unborn\n",
+		);
+		const r = run(fx);
+		expect(r.code).toBe(0);
+		expect(r.stderr).toMatch(
+			/^UNREAD: o\/manta: could not read its commits' Review-Tier: trailers in \S+, so none is counted and none unrecorded reported — [^\n]+\n$/,
 		);
 	});
 

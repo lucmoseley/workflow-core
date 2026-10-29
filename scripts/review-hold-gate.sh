@@ -3,7 +3,7 @@
 # review-hold-gate.sh — the pre-commit hold on a declared sensitive path (#1622,
 # spec #1612 §The hold).
 #
-# IMPLICIT:  refuses a session's commit in the shared tree whose staged paths match a glob `sensitivePaths` declares in `.claude/workflow-core.json`, until the session's `.codereview-pass-<sid>` marker records `tier=escalated` or `tier=mission-critical`, `areas=` naming every matched area, `tree=` equal to the tree the commit carries, and `paths=` naming every path it changes; the refusal names the areas, the marker's fault and rule:review-hold.
+# IMPLICIT:  refuses a session's commit in the shared tree whose staged paths match a glob `sensitivePaths` declares in `.claude/workflow-core.json`, until the session's `.codereview-pass-<sid>` marker records `tier=escalated` or `tier=mission-critical`, `areas=` naming every matched area, `tree=` equal to the tree the commit carries, and `paths=` naming every path it changes; the refusal names the areas, the marker's fault and rule:review-hold. On a pass it leaves the marker's tier, areas, base, tree and paths in the git directory's `wfc-review-tier`, keyed to that tree, for scripts/review-tier-trailer.sh to write as the commit's `Review-Tier:` trailer (#3664).
 # JUSTIFIED: fail-safe — any neighbour's push publishes shared-`main` commits, and Manta deploys every push, so a review owed on sensitive code is a hold at commit or it is too late.
 # DEFEAT:    writing the marker's four lines by hand with no review behind them; `HUSKY=0` and `core.hooksPath` off .husky/_ skip it with the rest of the stack.
 #
@@ -46,6 +46,10 @@ if [[ $# -gt 0 ]]; then
   echo "usage: review-hold-gate.sh   (no arguments; the tree a commit carries is node scripts/commit-paths.js --tree's)" >&2
   exit 2
 fi
+
+# Cleared on every run, so a stamp a later gate's refusal stranded stands
+# behind no commit the hold does not pass.
+if stale="$(git rev-parse --absolute-git-dir 2>/dev/null)"; then rm -f "$stale/wfc-review-tier"; fi
 
 [[ -n "${CLAUDE_CODE_SESSION_ID:-}" ]] || exit 0
 
@@ -139,7 +143,21 @@ else
     fi
   fi
 fi
-[[ -z "$fault" ]] && exit 0
+if [[ -z "$fault" ]]; then
+  # Fails open: a stamp unwritten costs the commit its trailer, never the pass.
+  {
+    printf '%s\n' "$tree"
+    printf '%s; areas=%s; base=%s; tree=%s; paths=%s\n' \
+      "$(marker_field "$marker" tier | tr -d '[:space:]')" \
+      "$(marker_list "$marker" areas | paste -sd, -)" \
+      "$(marker_field "$marker" base | tr -d '[:space:]')" "$tree" \
+      "$(marker_list "$marker" paths | paste -sd, -)"
+  } >"$gitdir/wfc-review-tier" 2>/dev/null || {
+    rm -f "$gitdir/wfc-review-tier"
+    gl_log "review-hold-gate.sh: could not write $gitdir/wfc-review-tier — a held commit lands with no Review-Tier: trailer"
+  }
+  exit 0
+fi
 
 {
   echo "pre-commit: this commit changes a declared sensitive path, and no escalated review of exactly this change is recorded (#1622)."

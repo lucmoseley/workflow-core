@@ -765,3 +765,76 @@ describe("review-hold-gate.sh — the marker's other readers", () => {
 		expect(r.status).toBe(2);
 	});
 });
+
+describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)", () => {
+	const Trailer = path.resolve(__dirname, "review-tier-trailer.sh");
+	const Prepare = fs.readFileSync(
+		path.resolve(__dirname, "..", ".husky", "prepare-commit-msg"),
+		"utf8",
+	);
+	const stamp = () => path.join(repo, ".git", "wfc-review-tier");
+	const trailers = () =>
+		git("log", "-1", "--format=%(trailers:key=Review-Tier,valueonly)");
+
+	beforeEach(() => {
+		fs.writeFileSync(
+			path.join(hooks, "prepare-commit-msg"),
+			`#!/bin/sh\nexec bash "${Trailer}" "$1"\n`,
+			{ mode: 0o755 },
+		);
+	});
+
+	it("is run by .husky/prepare-commit-msg on both of a passing commit's exits, through the plugin root", () => {
+		expect(Prepare).toMatch(
+			/^ {2}trailer="\$\{WFC_PLUGIN_ROOT:-\$here\/\.\.\}\/scripts\/review-tier-trailer\.sh"$/m,
+		);
+		expect(
+			Prepare.match(/^ {2}review_tier_trailer "\$\{1-\}"$/gm),
+		).toHaveLength(2);
+	});
+
+	it("writes the marker's tier, areas, base, tree and paths on a held commit, and consumes the stamp", () => {
+		const base = git("rev-parse", "HEAD");
+		write(SECRET, "new\n");
+		write(PRICE, "new\n");
+		const tree = treeOf(["--", SECRET, PRICE]);
+		mark({
+			tier: "mission-critical",
+			areas: "money, secrets",
+			tree,
+			paths: `${SECRET}, ${PRICE}`,
+		});
+		const r = commit([SECRET, PRICE]);
+		expect(r.stderr).toBe("");
+		expect(r.status).toBe(0);
+		expect(trailers()).toBe(
+			`mission-critical; areas=money,secrets; base=${base}; tree=${tree}; paths=${SECRET},${PRICE}`,
+		);
+		expect(fs.existsSync(stamp())).toBe(false);
+	});
+
+	it("writes none on a commit the hold does not reach, and none from a stamp of another tree", () => {
+		write(PLAIN, "new\n");
+		fs.writeFileSync(
+			stamp(),
+			`${"a".repeat(40)}\nescalated; areas=secrets; tree=${"a".repeat(40)}; paths=${SECRET}\n`,
+		);
+		const r = commit([PLAIN]);
+		expect(r.status).toBe(0);
+		expect(trailers()).toBe("");
+		expect(fs.existsSync(stamp())).toBe(false);
+	});
+
+	it("writes none from a stamp of this very tree that a later refusal stranded, on a commit the hold skips", () => {
+		write(SECRET, "new\n");
+		git("add", "--", SECRET);
+		const tree = git("write-tree");
+		fs.writeFileSync(
+			stamp(),
+			`${tree}\nescalated; areas=secrets; base=${"b".repeat(40)}; tree=${tree}; paths=${SECRET}\n`,
+		);
+		const r = commit([], { sid: "" });
+		expect(r.status).toBe(0);
+		expect(trailers()).toBe("");
+	});
+});

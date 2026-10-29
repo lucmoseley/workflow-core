@@ -18,7 +18,9 @@
 #            an issue reference, on every route but a replay and a message
 #            still to be typed into $EDITOR (#138). Which route a commit is
 #            on, per hook: scripts/lib/commit-route.sh, whose absence
-#            refuses every commit.
+#            refuses every commit. On a commit that passes, writes the review
+#            hold's `Review-Tier:` trailer through
+#            scripts/review-tier-trailer.sh, which never refuses (#3664).
 # JUSTIFIED: fail-safe — this is the last hook `--no-verify` cannot turn off,
 #            and a gate skipped here runs next only in CI, after the push.
 # DEFEAT:    `HUSKY=0`, and `core.hooksPath` pointed off `.husky/_`, which
@@ -120,12 +122,24 @@ if [ -z "$replay" ] && [ -n "${1-}" ]; then
   bash "$scanner" "$1" prepare-commit-msg || exit 1
 fi
 
+# The hold's trailer, on both exits a passing commit takes: the hold wrote its
+# stamp in whichever `pre-commit` run passed, the hook's own or this one's.
+review_tier_trailer() {
+  trailer="${WFC_PLUGIN_ROOT:-$here/..}/scripts/review-tier-trailer.sh"
+  if [ -r "$trailer" ]; then
+    bash "$trailer" "$1" || :
+  else
+    echo "prepare-commit-msg: $trailer is missing, so this commit lands with no Review-Tier: trailer." >&2
+  fi
+}
+
 # Stand-down 1: `pre-commit` already ran, on this exact index, and without it
 # every ordinary commit would run the whole stack twice. Written at the foot of
 # that file on its own exit 0, so its presence means every gate passed; keyed to
 # the index tree, so a stamp from a different index does not match.
 tree="$(git write-tree 2>/dev/null || :)"
 if [ -n "$recorded" ] && [ -n "$tree" ] && [ "$recorded" = "$tree" ]; then
+  review_tier_trailer "${1-}"
   exit 0
 fi
 
@@ -143,6 +157,7 @@ sh -e "$here/pre-commit" || status=$?
 # stand down a later `--no-verify` commit.
 rm -f "$stamp"
 if [ "$status" -eq 0 ]; then
+  review_tier_trailer "${1-}"
   exit 0
 fi
 

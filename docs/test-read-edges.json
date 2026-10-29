@@ -401,6 +401,7 @@
 			"scripts/precommit-staged-gate.test.ts",
 			"scripts/precommit-test-stamp.test.ts",
 			"scripts/release-plugin.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/run-vitest.test.ts",
 			"scripts/tooling-matrix.test.ts",
 			"scripts/upgrade.test.ts"
@@ -701,6 +702,7 @@
 			"scripts/pre-merge-commit-gate.test.ts",
 			"scripts/precommit-test-stamp.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/stale-write-back-gate.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -21765,6 +21767,16 @@
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/review-tier-trailer.sh": [
+			"scripts/checker-registrations.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/prepare-commit-msg-gate.test.ts",
+			"scripts/review-hold-gate.test.ts",
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/roadmap-template-render.test.ts": [
 			"scripts/lib/helper-surface.test.ts",

@@ -20,6 +20,21 @@
  * repo apart from its tracker is not searched, and the landed sha is taken as
  * on `main`, never checked against it.
  *
+ * A COMMIT CARRYING A `Review-Tier:` TRAILER, as .husky/prepare-commit-msg
+ * writes from the review hold's marker (scripts/review-tier-trailer.sh), is
+ * counted by it where no record names it, and once where one does (#3664).
+ * Its trailer names no defect, so it counts only once an `**Escaped defect:**`
+ * line names it, and its tree is the landed one, never the pinned pre-fix
+ * tree. Read with `git log` in the checkout on this machine that tracks the
+ * record's repo, at its HEAD, from TRAILER_FROM; there, a commit newer than
+ * the repo's first trailer that changes a path its `sensitivePaths` declares
+ * now and carries neither the trailer nor a record is reported as UNRECORDED,
+ * each run until a record names it, a trailer not in its form as UNPARSEABLE,
+ * and a checkout git cannot read as UNREAD. Judged from the first trailer, as
+ * an adopter pinned to a release before #3664 writes none.
+ * Residual: a repo with no such checkout goes unread, and the founder's own
+ * terminal and a linked worktree, which the hold skips, are reported.
+ *
  * ADOPTER AREAS ONLY (#3431): a commit recorded on this repo's own tracker is
  * never counted, its records still read for the reports below and its
  * `**Escaped defect:**` lines for an adopter's commit.
@@ -84,6 +99,7 @@ const {
 	unreachableRemedy,
 } = require("./lib/gh");
 const { gitOutcome } = require("./lib/git");
+const { matchSensitivePaths } = require("./lib/sensitive-paths");
 const { hostRoot } = require("./lib/host-root");
 const { homeDir, readCheckoutTracking } = require("./lib/refill-repos");
 const { requiredGroup } = require("./lib/regex-group");
@@ -93,7 +109,7 @@ const {
 	findTrackingIssue,
 	refresh,
 } = require("./lib/tracking-issue");
-const { resolveKey } = require("./lib/workflow-core-config");
+const { readConfig, resolveKey } = require("./lib/workflow-core-config");
 
 const WHERE = "report-remeasure-due";
 const TITLE = "Re-measure focused against identical review runs";
@@ -105,6 +121,8 @@ const FLOOR = "2026-10-14";
 /* The day the rule named the pre-fix tree (#3444). The records before it
  * stand as filed, #3425 charting which of their defects replay. */
 const PINNED_FROM = "2026-10-29";
+/* The day #3664 landed: no commit before it carries a trailer. */
+const TRAILER_FROM = "2026-10-30";
 const SEARCH_CAP = 1000;
 /* GitHub's largest page: GraphQL's, for tickets and each ticket's comments,
  * and REST search's, for reverts. */
@@ -146,15 +164,20 @@ const BASE = new RegExp(`\\bbase\\s+${SHA}`);
 const UNPARSED_PATHS = /,[ \t]*paths[ \t]+([^\n]+)/;
 const INDENTED = /^\s+\S/;
 const ESCAPED = new RegExp(`\\*\\*Escaped defect:\\*\\*\\s*${SHA}`, "g");
+/* review-tier-trailer.sh's value, the hold's tier, areas, tree and paths. */
+const TRAILER =
+	/^(escalated|mission-critical);\s*areas=[^;]*;\s*base=([0-9a-f]{40});\s*tree=([0-9a-f]{40});\s*paths=(.+)$/;
 /* `git revert`'s own message line, which names the full sha. */
 const REVERTS = /^This reverts commit ([0-9a-f]{40})\b/gm;
 
 /**
  * @typedef {{ body: string, createdAt: string }} Comment
- * @typedef {{ repo: string, issue: number, base: string, tree: string,
- *   landed: string, paths: string | null, posted: string, tier: string,
- *   fixed: number, fixes: number, escaped: number }} ReviewRecord
+ * @typedef {{ repo: string, issue: number | null, base: string,
+ *   tree: string, landed: string, paths: string | null, posted: string,
+ *   tier: string, fixed: number, fixes: number, escaped: number }} ReviewRecord
+ *   `issue` null on a commit known by its trailer alone
  * @typedef {{ repo: string, issue: number, line: string }} Unparsed
+ * @typedef {{ tag: "UNRECORDED" | "UNPARSEABLE" | "UNREAD", fault: string }} Unseen
  * @typedef {{ at: number, tier: string } | { at: number, record: RegExpExecArray }
  *   | { at: number, unparsed: string }} Mark
  */
@@ -405,14 +428,154 @@ function mergeRecord(seen, r) {
 }
 
 /**
+ * The commits from TRAILER_FROM at HEAD in the checkout under `home` that
+ * tracks `repo`, those carrying a trailer as records, and the sensitive ones
+ * carrying neither it nor one of `records`; none where no checkout tracks it.
+ *
+ * @param {string} repo
+ * @param {ReviewRecord[]} records every record parsed, of any tier
+ * @param {string} home
+ * @returns {{ trailers: ReviewRecord[], unseen: Unseen[] }}
+ */
+function readTrailers(repo, records, home) {
+	const checkout = readCheckoutTracking(repo, home);
+	if (!("root" in checkout)) return { trailers: [], unseen: [] };
+	const log = gitOutcome(
+		[
+			"-c",
+			"core.quotePath=false",
+			"log",
+			"--no-merges",
+			"--no-renames",
+			`--since=${TRAILER_FROM}`,
+			"--format=%x00%H%x1f%(trailers:key=Review-Tier,valueonly,unfold)%x1f",
+			"--name-only",
+			"HEAD",
+		],
+		[],
+		checkout.root,
+	);
+	let declared;
+	try {
+		declared = readConfig({ root: checkout.root, quiet: true }).sensitivePaths;
+	} catch (e) {
+		declared = parseErrLine(e);
+	}
+	if (!log.ok || typeof declared === "string")
+		return {
+			trailers: [],
+			unseen: [
+				{
+					tag: "UNREAD",
+					fault: `${repo}: could not read its commits' Review-Tier: trailers in ${checkout.root}, so none is counted and none unrecorded reported — ${log.ok ? declared : log.why}`,
+				},
+			],
+		};
+	return parseTrailerLog(repo, log.out, declared, records);
+}
+
+/**
+ * readTrailers's reading of `out`, the `git log` it ran.
+ *
+ * @param {string} repo
+ * @param {string} out
+ * @param {import("./lib/workflow-core-config").SensitivePath[] | undefined} declared
+ * @param {ReviewRecord[]} records
+ * @returns {{ trailers: ReviewRecord[], unseen: Unseen[] }}
+ */
+function parseTrailerLog(repo, out, declared, records) {
+	const commits = out
+		.split("\0")
+		.slice(1)
+		.map((chunk) => {
+			const [sha = "", value = "", names = ""] = chunk.split("\x1f");
+			const [trailer = ""] = value.split("\n");
+			return { sha, trailer: trailer.trim(), names };
+		});
+	/* `git log` lists the newest first. */
+	const judged = commits.findLastIndex((c) => c.trailer !== "");
+	/** @type {ReviewRecord[]} */
+	const trailers = [];
+	/** @type {Unseen[]} */
+	const unseen = [];
+	for (const { sha, trailer, names } of commits.slice(0, judged + 1)) {
+		const m = TRAILER.exec(trailer);
+		if (m) {
+			trailers.push({
+				repo,
+				issue: null,
+				base: requiredGroup(m, 2, TRAILER),
+				tree: requiredGroup(m, 3, TRAILER),
+				landed: sha,
+				paths: requiredGroup(m, 4, TRAILER),
+				posted: "",
+				tier: requiredGroup(m, 1, TRAILER),
+				fixed: 0,
+				fixes: 0,
+				escaped: 0,
+			});
+			continue;
+		}
+		if (trailer !== "") {
+			unseen.push({
+				tag: "UNPARSEABLE",
+				fault: `${repo}@${sha} has a Review-Tier: trailer not in scripts/review-tier-trailer.sh's form, so it is not counted by it: ${trailer}`,
+			});
+			continue;
+		}
+		const areas = matchSensitivePaths(
+			declared,
+			names.split("\n").filter(Boolean),
+		).matched.map((a) => a.name);
+		if (
+			areas.length > 0 &&
+			!records.some((r) => r.repo === repo && isSameSha(r.landed, sha))
+		)
+			unseen.push({
+				tag: "UNRECORDED",
+				fault: `${repo}@${sha} changes the sensitive area${areas.length > 1 ? "s" : ""} ${areas.join(", ")} and carries neither a Review-Tier: trailer nor a **Review findings:** record, so it is not counted until a record names it, as \`scripts/lib/rule-text.sh review-tier-records\` says`,
+			});
+	}
+	return { trailers, unseen };
+}
+
+/**
+ * Appends to `commits` each commit known by its trailer alone, returning the
+ * sensitive commits no record or trailer names, and the checkouts unread.
+ *
+ * @param {ReviewRecord[]} commits accumulator: each trailer commit no record
+ *   names is appended
+ * @param {string[]} trackers
+ * @param {ReviewRecord[]} records
+ * @param {string} home
+ * @returns {Unseen[]}
+ */
+function addTrailerCommits(commits, trackers, records, home) {
+	/** @type {Unseen[]} */
+	const unseen = [];
+	for (const repo of trackers) {
+		const found = readTrailers(repo, records, home);
+		unseen.push(...found.unseen);
+		for (const t of found.trailers)
+			if (
+				!commits.some((c) => c.repo === repo && isSameSha(c.landed, t.landed))
+			)
+				commits.push(t);
+	}
+	return unseen;
+}
+
+/**
  * The counted commits across `trackers`, in corpus order, then by ticket,
- * and the unparseable records under a counted tier.
+ * then those known by their trailer alone; the unparseable records under a
+ * counted tier; and the sensitive commits no record or trailer names.
  *
  * @param {string[]} trackers
  * @param {string} today YYYY-MM-DD
- * @returns {{ commits: ReviewRecord[], unparsed: Unparsed[] }}
+ * @param {string} home
+ * @returns {{ commits: ReviewRecord[], unparsed: Unparsed[], unseen: Unseen[] }}
  */
-function countedCommits(trackers, today) {
+function countedCommits(trackers, today, home) {
 	/** @type {ReviewRecord[]} */
 	const records = [];
 	/** @type {string[]} */
@@ -440,6 +603,7 @@ function countedCommits(trackers, today) {
 		if (seen) mergeRecord(seen, r);
 		else commits.push({ ...r });
 	}
+	const unseen = addTrailerCommits(commits, trackers, records, home);
 	/* Across repos, not within one: the line sits on the fixing ticket, which
 	 * may live in another repo, and a 7-hex prefix colliding is negligible. */
 	for (const c of commits)
@@ -447,6 +611,7 @@ function countedCommits(trackers, today) {
 	return {
 		commits: commits.filter((c) => c.fixed + c.escaped > 0),
 		unparsed,
+		unseen,
 	};
 }
 
@@ -538,9 +703,10 @@ function buildBody(commits) {
 	return [
 		`${commits.length} commits on adopter-declared sensitive paths, reviewed at the escalated or mission-critical tier, now carry a known defect: a finding fixed or ticketed, or an escaped defect recorded later. At ${THRESHOLD}, focused against identical review runs (#1545) is re-measured on real code (spec #1612 §The re-measure trigger).`,
 		"",
-		...commits.map(
-			(c) =>
-				`- ${c.repo}#${c.issue}: landed ${c.landed}, base ${c.base}, tree ${c.tree}${c.paths === null ? "" : `, paths ${c.paths}`}; ${c.fixed} fixed or ticketed, ${c.escaped} escaped`,
+		...commits.map((c) =>
+			c.issue === null
+				? `- ${c.repo}@${c.landed}: Review-Tier: trailer alone, base ${c.base}, landed tree ${c.tree}, paths ${c.paths}; ${c.escaped} escaped`
+				: `- ${c.repo}#${c.issue}: landed ${c.landed}, base ${c.base}, tree ${c.tree}${c.paths === null ? "" : `, paths ${c.paths}`}; ${c.fixed} fixed or ticketed, ${c.escaped} escaped`,
 		),
 		"",
 		"Kept current daily by `scripts/report-remeasure-due.js` (#1625), which never files a second.",
@@ -583,12 +749,15 @@ function main() {
 		usage: "usage: node scripts/report-remeasure-due.js",
 	});
 	const root = hostRoot();
+	const home = homeDir();
 	let commits;
 	let unparsed;
+	let unseen;
 	try {
-		({ commits, unparsed } = countedCommits(
+		({ commits, unparsed, unseen } = countedCommits(
 			/** @type {string[]} */ (resolveKey("corpus", { root })),
 			day(now()),
+			home,
 		));
 	} catch (e) {
 		failOpen(
@@ -602,7 +771,7 @@ function main() {
 			"UNPARSEABLE",
 			`${u.repo}#${u.issue} has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: ${u.line}`,
 		);
-	const home = homeDir();
+	for (const u of unseen) reportRecord(u.tag, u.fault);
 	for (const c of commits.filter((r) => isLandedTreeRecord(r, home)))
 		reportRecord(
 			"LANDED TREE",
