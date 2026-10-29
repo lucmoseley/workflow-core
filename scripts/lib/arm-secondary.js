@@ -8,6 +8,7 @@
 const { mainChainRecords, parseContentText } = require("./transcript");
 const { needleIn } = require("./guard-fires");
 const { meanVar } = require("./arm-stats.js");
+const { REF_FORMS, SECTION, scanIssueRefs } = require("./issue-ref.js");
 const {
 	Q_MARKER,
 	OPTION_LABEL,
@@ -177,11 +178,6 @@ function refusingGates(text) {
 
 /** A figure with its band in brackets: `70% (60% - 80%)`. */
 const BANDED = /\d{1,3}\s*%\s*\(\s*\d{1,3}\s*%\s*[-–—]\s*\d{1,3}\s*%\s*\)/g;
-/** An issue (`#12`, `mantahostels#12`) or section (`§N2`, `§6`) identifier.
- * A prefix run is entered only at its first start the lookbehind allows (its
- * head, past its first `.`/`-`, or past the last match's end), not at each. */
-const IDENTIFIER =
-	/(?:(?<![\w.&/-])|(?<=[&/]\w*[.-])|(?<=#\d+[.-])|(?<=§[A-Z]?\d+(?:\.\d+)*(?:-|\.(?!\d)|[A-Za-z_]\w*[.-])))(?:[\w.-]+)?#\d+\b|§[A-Z]?\d+(?:\.\d+)*/g;
 /** A gloss opening straight after an identifier: `#12 (the retry ticket)`. */
 const GLOSS_AFTER = /^\s*\(/;
 const FENCED = /^\s{0,3}```[\s\S]*?^\s{0,3}```/gm;
@@ -224,11 +220,18 @@ function finalMessageChecks(message) {
 	const confidenceLines = lines.filter((l) => CONFIDENCE_ANY.test(l));
 	/** @type {Map<string, boolean>} */
 	const firstMention = new Map();
-	for (const m of prose.matchAll(IDENTIFIER))
-		if (!firstMention.has(m[0]))
+	const identifiers = [
+		...scanIssueRefs(prose, REF_FORMS.identifier),
+		...[...prose.matchAll(SECTION)].map((m) => ({
+			text: m[0],
+			index: m.index,
+		})),
+	].sort((a, b) => a.index - b.index);
+	for (const { text, index } of identifiers)
+		if (!firstMention.has(text))
 			firstMention.set(
-				m[0],
-				GLOSS_AFTER.test(prose.slice(m.index + m[0].length)),
+				text,
+				GLOSS_AFTER.test(prose.slice(index + text.length)),
 			);
 	return {
 		pricedOutsideRound:

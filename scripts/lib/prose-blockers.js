@@ -27,13 +27,15 @@
  */
 const { SPACE } = require("./gh-body.js");
 const { requiredGroup } = require("./regex-group.js");
-const { isInOtherRepo, refKey } = require("./issue-ref.js");
+const {
+	REF_FORMS,
+	isInOtherRepo,
+	refKey,
+	scanIssueRefs,
+} = require("./issue-ref.js");
 
 const BLOCKED_ON_RE =
 	/^[ \t]{0,3}\*\*Blocked on\*\*[ \t]*((?:(?:[\w.-]+\/[\w.-]+)?#\d+(?:[ \t]*(?:,|and)[ \t]*)?)+)/gim;
-/* An owner is read from the head of its run, or from the last match's end. */
-const ISSUE_REF_RE =
-	/(?:(?:(?<![\w.-])|(?!\d)(?<=#\d+))([\w.-]+\/[\w.-]+))?#(\d+)/g;
 
 /*
  * DELIBERATELY NOT ANCHORED TO THE LINE HEAD, unlike `BLOCKED_ON_RE` above:
@@ -68,10 +70,12 @@ function proseRefsOf(body) {
 	/** @type {Map<string, import("./issue-ref.js").IssueRef>} */
 	const out = new Map();
 	for (const m of String(body || "").matchAll(BLOCKED_ON_RE))
-		for (const r of requiredGroup(m, 1, BLOCKED_ON_RE).matchAll(ISSUE_REF_RE)) {
-			const repo = r[1] ?? null;
-			const number = Number(requiredGroup(r, 2, ISSUE_REF_RE));
-			out.set(refKey({ repo, number }), { repo, number });
+		for (const r of scanIssueRefs(
+			requiredGroup(m, 1, BLOCKED_ON_RE),
+			REF_FORMS.blocker,
+		)) {
+			const repo = r.owner === null ? null : `${r.owner}/${r.name}`;
+			out.set(refKey({ repo, number: r.number }), { repo, number: r.number });
 		}
 	return [...out.values()];
 }
