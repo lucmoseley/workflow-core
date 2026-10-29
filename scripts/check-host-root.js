@@ -66,7 +66,9 @@
  * as its own segment, a shell expansion it cannot read as a literal, and code
  * hidden by JSX text or a regex literal right after `)` (#3634): JSX text's
  * `//` or `/*` reads as a comment, and its backtick, or such a regex, can pair
- * with a later literal's quote — the scan is lexical. It is a gate against the
+ * with a later literal's quote. Nor does it see a `node:path` function reached
+ * through an alias (`join as pjoin`) or a namespace import (`import * as p`)
+ * (#3635) — the scan is lexical. It is a gate against the
  * spellings that drifted, not a proof that no script self-roots.
  * `host-root-plugin-cache.test.ts` is the behavioural half: it runs the rooted
  * scripts from a plugin-cache-shaped path and asserts each resolves the host.
@@ -242,14 +244,15 @@ const TEST_FILE = new RegExp(
 const isTestFile = (/** @type {string} */ rel) =>
 	TEST_FILE.test(path.basename(rel));
 
-/** A `node:path` function, called through `path.` or as an ESM named import. */
-const PATH_FN = (/** @type {string} */ names) =>
-	String.raw`(?:\bpath\.|(?<![\w$.]))(?:${names})\(\s*`;
+/** A call to one of `names`, through `path.` or `nodePath.`, or bare as ESM
+ * names a `node:path` import — any bare call of that name, imported or not. */
+const pathCall = (/** @type {string} */ names) =>
+	String.raw`(?:\b(?:path|nodePath)\.|(?<![\w$.]))(?:${names})\(\s*`;
 
 const FILE_URL = String.raw`fileURLToPath\(\s*import\.meta\.url\s*\)`;
 
 /** The file's own directory: CommonJS `__dirname` or its ESM spellings. */
-const JS_DIR = String.raw`__dirname\b|import\.meta\.dirname\b|${PATH_FN("dirname")}${FILE_URL}\s*\)`;
+const JS_DIR = String.raw`__dirname\b|import\.meta\.dirname\b|${pathCall("dirname")}${FILE_URL}\s*\)`;
 
 /** The file's own path, which a `..` segment climbs out of to its directory. */
 const JS_FILE = String.raw`import\.meta\.filename\b|${FILE_URL}`;
@@ -261,13 +264,14 @@ const JS_FILE = String.raw`import\.meta\.filename\b|${FILE_URL}`;
  * about where it lands.
  */
 const JS_CALL = new RegExp(
-	String.raw`${PATH_FN("resolve|join")}(?:(${JS_DIR})|(${JS_FILE}))\s*((?:,\s*(?:"[^"\n]*"|'[^'\n]*'))*)`,
+	String.raw`${pathCall("resolve|join")}(?:(${JS_DIR})|(${JS_FILE}))\s*((?:,\s*(?:"[^"\n]*"|'[^'\n]*'))*)`,
 	"g",
 );
 
-/** `path.dirname(__dirname)` — the same climb, spelled without a literal. */
+/** `path.dirname` of the file's own directory — the same climb, spelled
+ * without a literal. */
 const JS_DIRNAME = new RegExp(
-	String.raw`${PATH_FN("dirname")}(?:${JS_DIR})\s*\)`,
+	String.raw`${pathCall("dirname")}(?:${JS_DIR})\s*\)`,
 	"g",
 );
 
@@ -308,7 +312,7 @@ const JS_CORE_CONST = new RegExp(
 );
 
 /** The names a file destructures out of a `require`, or imports by name. */
-const JS_REQUIRED_NAMES =
+const JS_BOUND_NAMES =
 	/(?:const|let|var)\s*\{([^}]*)\}\s*=\s*require\(|\bimport\s+(?:[A-Za-z_$][\w$]*\s*,\s*)?\{([^}]*)\}\s*from\b/g;
 
 /** The seam's two limbs, spelled again outside it. */
@@ -438,19 +442,19 @@ const coreConstants = (text) =>
  * @param {string} text
  * @returns {Map<string, string>}
  */
-function requiredNames(text) {
+function boundNames(text) {
 	/** @type {Map<string, string>} */
 	const out = new Map();
-	for (const m of text.matchAll(JS_REQUIRED_NAMES))
-		for (const part of (m[1] ?? requiredGroup(m, 2, JS_REQUIRED_NAMES)).split(
+	for (const m of text.matchAll(JS_BOUND_NAMES))
+		for (const part of (m[1] ?? requiredGroup(m, 2, JS_BOUND_NAMES)).split(
 			",",
 		)) {
-			const names = part
-				.replace(/^\s*type\s+/, "")
+			const [exported, alias] = part
+				.replace(/^\s*type\s+|=.*/gs, "")
 				.split(/:|\bas\b/)
 				.map((n) => n.trim());
-			const local = names.at(-1);
-			if (local) out.set(local, names[0] ?? local);
+			const local = alias ?? exported;
+			if (local && exported) out.set(local, exported);
 		}
 	return out;
 }
@@ -470,9 +474,12 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 function judgeHostRootedCore(ctx, rel, text, importable) {
 	let found = false;
 	const local = coreConstants(text);
-	const imported = requiredNames(text);
-	const isCoreConst = (/** @type {string} */ name) =>
-		local.has(name) || importable.has(imported.get(name) ?? "");
+	const imported = boundNames(text);
+	const isCoreConst = (/** @type {string} */ name) => {
+		if (local.has(name)) return true;
+		const exported = imported.get(name);
+		return exported !== undefined && importable.has(exported);
+	};
 	const roots = [
 		"hostRoot\\(\\)",
 		...new Set(
@@ -487,7 +494,7 @@ function judgeHostRootedCore(ctx, rel, text, importable) {
 		const line = lineOf(text, index);
 		ctx.fail(
 			"HOST-ROOTED-CORE",
-			`${rel}:${line} — ${spelling}: a file that ships with the core, reached through the host root. The host repo has none of the core's scripts; name the sibling from __dirname instead.`,
+			`${rel}:${line} — ${spelling}: a file that ships with the core, reached through the host root. The host repo has none of the core's scripts; name the sibling from __dirname (import.meta.dirname in ESM) instead.`,
 			{ file: rel, line },
 			`${rel}:${line}`,
 		);
@@ -550,13 +557,13 @@ function judgeJs(ctx, root, { rel, source, importable }) {
 		found = true;
 		ctx.fail(
 			"SELF-ROOTED-JS",
-			`${rel}:${line} — ${spelling} lands at ${path.relative(root, landing) || "the repo root"}, outside scripts/. Use hostRoot() from lib/host-root.js, or keep __dirname only where the path names a file that ships beside this one.`,
+			`${rel}:${line} — ${spelling} lands at ${path.relative(root, landing) || "the repo root"}, outside scripts/. Use hostRoot() from lib/host-root.js, or keep __dirname (import.meta.dirname in ESM) only where the path names a file that ships beside this one.`,
 			{ file: rel, line },
 			`${rel}:${line}`,
 		);
 	};
 	for (const m of text.matchAll(JS_CALL)) {
-		const segs = segments(m[3] ?? "");
+		const segs = segments(requiredGroup(m, 3, JS_CALL));
 		if (segs.length === 0) continue;
 		const base = m[1] ?? requiredGroup(m, 2, JS_CALL);
 		report(
