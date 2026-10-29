@@ -1031,6 +1031,10 @@ function deriveTracker(root) {
 function deriveLogin() {
 	let login = "";
 	try {
+		/* Not through lib/gh.js, a written exception (#3455): gh.js requires
+		 * this file, and loading it would install lib/check.js's crash handler
+		 * in every hook reading the config, turning a hook's crash into exit 2.
+		 * It reads gh.js's own WFC_GH. */
 		login = execFileSync(
 			process.env.WFC_GH || "gh",
 			["api", "user", "--jq", ".login"],

@@ -1,10 +1,10 @@
 /*
  * Shared scaffolding for faking `gh` in tests. A test answering more than one
  * call passes `stubGhRoutes` a route table, never a router of its own; this
- * owns the stub executable and the two ways to inject it — WFC_GH for
- * the node scripts (via scripts/lib/gh.js), PATH for shell hooks that look
- * `gh` up themselves. The canonical failure mode is gh-fake's logged-out
- * answer, which gh.contract.test.ts holds to the real binary (#2220).
+ * owns the stub executable and its one injection point, WFC_GH, which
+ * scripts/lib/gh.js and every shell caller's "${WFC_GH:-gh}" read. The
+ * canonical failure mode is gh-fake's logged-out answer, which
+ * gh.contract.test.ts holds to the real binary (#2220).
  */
 
 import { spawn } from "node:child_process";
@@ -46,10 +46,8 @@ export const catFixture = (file: string) => `#!/bin/sh\ncat ${file}\n`;
 export interface StubGh {
 	/** The stub executable — what WFC_GH points at. */
 	gh: string;
-	/** For scripts routed through scripts/lib/gh.js. */
+	/** For the program under test's environment. */
 	env: { WFC_GH: string };
-	/** For shell hooks that resolve `gh` on PATH. */
-	PATH: string;
 }
 
 /**
@@ -68,7 +66,6 @@ export function stubGhScript(
 	return {
 		gh,
 		env: { WFC_GH: gh },
-		PATH: `${bin}${path.delimiter}${process.env.PATH}`,
 	};
 }
 

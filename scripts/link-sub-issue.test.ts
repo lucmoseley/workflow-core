@@ -6,7 +6,7 @@
  *
  * link-sub-issue.sh links a child issue under a parent (mantahostels#1150, the build).
  *
- * The oracle is a stubbed `gh` earlier on PATH which logs the argv it was
+ * The oracle is a stubbed `gh` at WFC_GH which logs the argv it was
  * handed and serves programmable answers — the `-F` assertion below reads that
  * log, which is the only place the difference between `-f` and `-F` is visible
  * at all.
@@ -45,7 +45,7 @@ interface Gh {
 	lag?: number;
 }
 
-/** A `gh` stub earlier on PATH, logging one line of argv per call. */
+/** A `gh` stub for WFC_GH, logging one line of argv per call. */
 const stubGh = (g: Gh) => {
 	const bin = path.join(dir, "bin");
 	fs.mkdirSync(bin, { recursive: true });
@@ -72,8 +72,9 @@ case "$args" in
 esac
 exit 0
 `;
-	fs.writeFileSync(path.join(bin, "gh"), script, { mode: 0o755 });
-	return `${bin}${path.delimiter}${process.env.PATH}`;
+	const gh = path.join(bin, "gh");
+	fs.writeFileSync(gh, script, { mode: 0o755 });
+	return gh;
 };
 
 const run = (args: string[], g: Gh = {}) =>
@@ -82,7 +83,7 @@ const run = (args: string[], g: Gh = {}) =>
 		env: {
 			...process.env,
 			CLAUDE_PROJECT_DIR: dir,
-			PATH: stubGh(g),
+			WFC_GH: stubGh(g),
 			WFC_LINK_REPO: "owner/repo",
 			WFC_LINK_RETRIES: "3",
 			WFC_LINK_SLEEP: "0",

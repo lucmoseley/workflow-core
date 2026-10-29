@@ -1,0 +1,2 @@
+// gh-route-exempt: only text
+spawnSync("gh", ["issue", "list"], { encoding: "utf8" });
