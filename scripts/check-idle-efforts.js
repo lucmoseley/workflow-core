@@ -145,7 +145,7 @@ const SPEC = {
 	usage: "node check-idle-efforts.js [--notify] [--json]",
 	async run(/** @type {import("./lib/check").Ctx} */ ctx) {
 		// Residual: the day stamp is written off this clock, so a stray WFC_NOW
-		// skews it (check.js now()).
+		// skews it (check.js now(), mantahostels#2161).
 		const now = clockNow();
 		const loopRead = readLoop((line) =>
 			ctx.warn("REFILL-LOOP-FILE-DAMAGED", line),
