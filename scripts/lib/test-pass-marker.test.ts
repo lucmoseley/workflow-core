@@ -27,6 +27,7 @@ import {
 	EDGES_FILE,
 	FAIL_STORE,
 	FULL_REASONS,
+	failureRecoveryCommand,
 	formatFilteredRun,
 	holdsAt,
 	isAdmissibleRun,
@@ -2547,5 +2548,55 @@ describe("a narrowed certificate judged test by test (#1860)", () => {
 		expect(vitest(attestationOf(own, [session], { root: dir }))?.attested).toBe(
 			true,
 		);
+	});
+});
+
+/*
+ * #3625: the printed recovery command once read the store's newest line, and
+ * every session and worktree appends to that one store — so a neighbour's red
+ * run written after this one answered in its place.
+ */
+describe("a red run's recovery command (#3625)", () => {
+	// Distinct `at`s inside the archive's reach, a second apart.
+	const at = (i: number) =>
+		new Date(Date.now() - 10_000 + i * 1000).toISOString();
+	const red = (i: number, file: string) => ({
+		sha: "a".repeat(40),
+		at: at(i),
+		scope: { failures: [{ file, tests: ["fails"] }] },
+	});
+	const mine = red(0, "scripts/mine.test.ts");
+	// From a directory that is not the checkout, as from a worktree.
+	const run = (root: string) =>
+		execFileSync("sh", ["-c", failureRecoveryCommand(root, mine)], {
+			cwd: sandbox(),
+			encoding: "utf8",
+		});
+
+	it("prints this run's failures, not a neighbour's written after it", () => {
+		const root = sandbox();
+		recordFailure(mine, { root });
+		recordFailure(red(1, "scripts/theirs.test.ts"), {
+			root,
+		});
+
+		expect(run(root)).toBe("scripts/mine.test.ts — fails\n");
+	});
+
+	it("finds the line a prune moved to the archive", () => {
+		const root = sandbox();
+		recordFailure(mine, { root });
+		for (let i = 1; i <= 3; i++)
+			recordFailure(red(i, "scripts/theirs.test.ts"), {
+				root,
+				pruneAt: 3,
+				keep: 2,
+			});
+
+		expect(run(root)).toBe("scripts/mine.test.ts — fails\n");
+	});
+
+	it("says so where neither store holds the line", () => {
+		expect(run(sandbox())).toBe("no line for this run in either store\n");
 	});
 });

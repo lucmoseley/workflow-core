@@ -357,6 +357,29 @@ function recordFailure(entry, options) {
 }
 
 /**
+ * The shell command that prints one red run's failing names (#3625). It
+ * selects the run's own line by `at` and `sha`, never the store's newest:
+ * every session and worktree appends to the one store, so a neighbour's red
+ * run written after this one would otherwise answer. Absolute paths, so it
+ * works from a worktree; the archive too, where a prune moves the line once
+ * KEEP newer runs land; and a line saying so where neither holds it.
+ *
+ * @param {string} root the canonical checkout the line was written under
+ * @param {{at: string, sha: string}} marker
+ * @returns {string}
+ */
+function failureRecoveryCommand(root, marker) {
+	const files = JSON.stringify([
+		storePath(root, FAIL_STORE),
+		archivePath(root, FAIL_STORE),
+	]);
+	const at = JSON.stringify(marker.at);
+	const sha = JSON.stringify(marker.sha);
+	const script = `const fs=require("fs");let n=0;for(const p of ${files}){let t="";try{t=fs.readFileSync(p,"utf8")}catch{}for(const l of t.split("\\n")){let m;try{m=JSON.parse(l)}catch{continue}if(m.at!==${at}||m.sha!==${sha})continue;n++;for(const f of (m.scope?.failures??[]))console.log(f.file,"—",f.tests.join(", "))}}if(!n)console.log("no line for this run in either store")`;
+	return `node -e '${script.replace(/'/g, "'\\''")}'`;
+}
+
+/**
  * The one appender both stores use, so every marker also leaves its run's
  * line in the 30-day ledger (`run-ledger.js`, #2824), landed or not.
  *
@@ -2053,6 +2076,7 @@ module.exports = {
 	EDGES_FILE,
 	FAIL_STORE,
 	recordFailure,
+	failureRecoveryCommand,
 	KEEP,
 	repoRoot,
 	storePath,

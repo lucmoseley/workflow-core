@@ -27,7 +27,9 @@ const {
 	markerFrom,
 	record,
 	recordFailure,
+	failureRecoveryCommand,
 	FAIL_STORE,
+	storePath,
 	repoRoot,
 } = require("./lib/test-pass-marker.js");
 const { readLaunch, takeRunReport } = require("./lib/suite-handoff.js");
@@ -120,12 +122,8 @@ export function runTeardown(rootOverride?: string | null) {
 	 * red or green.
 	 */
 	if (outcome === false && after) {
-		const written = recordFailure(
-			markerFrom(before, after, drifted, buildMarkerRun()),
-			{
-				root,
-			},
-		);
+		const marker = markerFrom(before, after, drifted, buildMarkerRun());
+		const written = recordFailure(marker, { root });
 		/*
 		 * SAYING SO IS HALF THE FEATURE. A store nothing announces is a store
 		 * nobody opens, and the whole point is that a session which piped the run
@@ -138,9 +136,9 @@ export function runTeardown(rootOverride?: string | null) {
 		 */
 		if (written && rootOverride == null)
 			process.stderr.write(
-				`\n  The failing test names are recorded in .claude/tmp/markers/${FAIL_STORE}, so this run\n` +
-					"  need not be repeated to recover them. Newest line, names only:\n" +
-					`    tail -1 .claude/tmp/markers/${FAIL_STORE} | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{for(const f of (JSON.parse(s).scope?.failures??[]))console.log(f.file,"—",f.tests.join(", "))})'\n`,
+				`\n  The failing test names are recorded in ${storePath(root, FAIL_STORE)}, so this run\n` +
+					"  need not be repeated to recover them. This run's line, names only:\n" +
+					`    ${failureRecoveryCommand(root, marker)}\n`,
 			);
 	}
 }
