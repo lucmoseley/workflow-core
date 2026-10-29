@@ -501,24 +501,26 @@ const heldParked = ({ frontier, mode, seats, parkers = [] }) =>
 const parkedMs = (row) => Date.parse(row.parkedAt ?? "") || 0;
 
 /**
- * The ranking as the loop walks it: parked rows first, oldest park first,
- * where the mode routes them (#3621).
+ * The ranking split as the loop walks it: parked rows, oldest park first,
+ * where the mode routes them (#3621), then the rest in rank order.
  * @param {MergedRow[]} frontier
  * @param {"normal"|"away"} mode
  */
 function walkOrder(frontier, mode) {
-	if (!isParkRoutingMode(mode)) return frontier;
+	if (!isParkRoutingMode(mode)) return { parked: [], rest: frontier };
 	const parked = frontier
 		.filter(isParked)
 		.sort((a, b) => parkedMs(a) - parkedMs(b));
-	return [...parked, ...frontier.filter((r) => !isParked(r))];
+	return { parked, rest: frontier.filter((r) => !isParked(r)) };
 }
 
 /**
- * Walk the gate judgements, then the ranking, launching up to `slots`. A
- * judgement goes first: its issue is held out of every ranking until one
- * runs. A retro-bundle member launches its whole bundle, at its best-ranked
- * member's place.
+ * Walk the routed parked rows, then the gate judgements, then the rest of
+ * the ranking, launching up to `slots`. A parked row goes first, ahead of
+ * any new work, its question already waiting on the founder (#3713). A
+ * judgement goes ahead of the ranking: its issue is held out of every
+ * ranking until one runs. A retro-bundle member launches its whole bundle,
+ * at its best-ranked member's place.
  * @param {TickInput} input
  * @param {string} seat
  * @param {number} slots
@@ -553,26 +555,32 @@ function fill(
 			...(parkedRoute ? { parkedRoute } : {}),
 		});
 	};
+	/** @param {MergedRow[]} rows */
+	const walk = (rows) => {
+		for (const row of rows) {
+			if (launches.length >= slots) break;
+			const next = taken.has(key(row.root, row.number))
+				? { why: ALREADY_RUNNING }
+				: routedLaunch(row, { retroBundles, mode, seats, parkers }, (n) =>
+						taken.has(key(row.root, n)),
+					);
+			if ("why" in next)
+				skipped.push({ root: row.root, number: row.number, why: next.why });
+			else
+				launch(row.root, next.issues, next.prompt, {
+					parkedRoute: next.parkedRoute,
+				});
+		}
+	};
+	const { parked, rest } = walkOrder(frontier, mode);
+	walk(parked);
 	for (const j of judgements) {
 		if (launches.length >= slots) break;
 		if (taken.has(key(j.root, j.number)))
 			skipped.push({ root: j.root, number: j.number, why: ALREADY_RUNNING });
 		else launch(j.root, [j.number], j.prompt, { gate: true });
 	}
-	for (const row of walkOrder(frontier, mode)) {
-		if (launches.length >= slots) break;
-		const next = taken.has(key(row.root, row.number))
-			? { why: ALREADY_RUNNING }
-			: routedLaunch(row, { retroBundles, mode, seats, parkers }, (n) =>
-					taken.has(key(row.root, n)),
-				);
-		if ("why" in next)
-			skipped.push({ root: row.root, number: row.number, why: next.why });
-		else
-			launch(row.root, next.issues, next.prompt, {
-				parkedRoute: next.parkedRoute,
-			});
-	}
+	walk(rest);
 	return { launches, skipped };
 }
 

@@ -679,6 +679,26 @@ describe("decideTick on parked rows (#3621)", () => {
 		expect(launched(d)).toEqual(["wfc#4", "wfc#3", "wfc#2", "wfc#1"]);
 	});
 
+	it("launches a parked row ahead of a gate judgement in normal mode (#3713)", () => {
+		const d = tick({
+			mode: "normal",
+			freeSlots: 1,
+			frontier: [parked(2, "2026-10-18T09:00:00Z")],
+			judgements: [{ root: "wfc", number: 7, prompt: "/triage 7" }],
+		});
+		expect(launched(d)).toEqual(["wfc#2"]);
+	});
+
+	it("skips parked rows in away mode, gate judgements still first (#2355)", () => {
+		const d = tick({
+			mode: "away",
+			freeSlots: 1,
+			frontier,
+			judgements: [{ root: "wfc", number: 7, prompt: "/triage 7" }],
+		});
+		expect(launched(d)).toEqual(["wfc#7"]);
+	});
+
 	it("skips parked rows in away mode (#2355)", () => {
 		const d = tick({ mode: "away", freeSlots: 9, frontier });
 		expect(launched(d)).toEqual(["wfc#1"]);
@@ -752,16 +772,21 @@ describe("decideTick on a parked row's session seat (#3669)", () => {
 
 	it("names a held row for the idle alarm though the slots fill before the walk reaches it, and none in away mode (#3680)", () => {
 		const full = seat("/s2", 100, 10);
-		const judgement = { root: "wfc", number: 3, prompt: "/triage 3" };
+		const older = row("wfc", 4, "implement", {
+			labels: ["takes:implement", "parked"],
+			parkedAt: "2026-10-17T09:00:00Z",
+		});
 		const d = tick({
 			mode: "normal",
 			freeSlots: 1,
-			frontier: [parked, row("wfc", 1)],
+			frontier: [parked, older, row("wfc", 1)],
 			seats: [seat("/s1", 10, 10), full],
-			parkers: [parker()],
-			judgements: [judgement],
+			parkers: [
+				parker(),
+				parker({ number: 4, launch: { ...launch, seat: "/s1" } }),
+			],
 		});
-		expect(launched(d)).toEqual(["wfc#3"]);
+		expect(launched(d)).toEqual(["wfc#4"]);
 		expect(d.skipped).toEqual([]);
 		expect(d.held).toEqual([
 			{ root: "wfc", number: 2, why: "parked: its session's seat /s2 is full" },
