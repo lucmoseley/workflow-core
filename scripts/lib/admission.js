@@ -23,7 +23,8 @@ const os = require("node:os");
 const { parseErrLine } = require("./gh");
 const { readMachineSetting } = require("./machine-setting.js");
 const { readEnvironVar } = require("./proc-environ.js");
-const { procRoot, meminfoPath } = require("./proc-root.js");
+const { procRoot } = require("./proc-root.js");
+const { availableFrom, readMeminfoKb } = require("./meminfo.js");
 const { configDirFrom } = require("./config-dir.js");
 const { readParentOf } = require("./proc-stat.js");
 const { isClaudeArgv0 } = require("./claude-argv0.js");
@@ -178,7 +179,7 @@ function cpuSlotsRow(cpu) {
  * @typedef {{ pid: number, chargeMb: number }[]} Landers each lander's charge, its tester's measured tree peak for the run it holds (#3323)
  * @typedef {{ pid: string, rssKb: number, args: string }} PsRow
  * @typedef {{ ok: true, rows: PsRow[] } | { ok: false, error: string }} PsRead
- * @typedef {{ ok: true, totalKb: number | null, availableKb: number, swapTotalKb: number | null, swapFreeKb: number | null } | { ok: false, error: string }} MeminfoRead
+ * @typedef {import("./meminfo.js").MeminfoRead} MeminfoRead
  */
 
 const REAP_SCRIPT = () =>
@@ -862,47 +863,6 @@ function readPssKb(pid) {
 function readAvailableMb() {
 	return availableFrom(readMeminfoKb());
 }
-
-/**
- * MemAvailable, MemTotal and swap in kB off ONE read, so the admission figure,
- * the breakdown's free row and the swap hold cannot disagree. A missing
- * MemTotal leaves `totalKb` null, which only the breakdown reads; missing swap
- * lines leave theirs null, which `swapHoldOf` reads as no hold.
- * @returns {MeminfoRead}
- */
-function readMeminfoKb() {
-	const path = meminfoPath();
-	try {
-		const text = fs.readFileSync(path, "utf8");
-		/** @param {string} key */
-		const kb = (key) => {
-			const m = text.match(new RegExp(`^${key}:\\s+(\\d+) kB$`, "m"));
-			return m ? Number(m[1]) : null;
-		};
-		const availableKb = kb("MemAvailable");
-		if (availableKb === null)
-			return { ok: false, error: `${path} carries no MemAvailable line` };
-		return {
-			ok: true,
-			totalKb: kb("MemTotal"),
-			availableKb,
-			swapTotalKb: kb("SwapTotal"),
-			swapFreeKb: kb("SwapFree"),
-		};
-	} catch (e) {
-		return { ok: false, error: parseErrLine(e) };
-	}
-}
-
-/**
- * `readAvailableMb`'s answer, from a `readMeminfoKb` read already taken.
- * @param {MeminfoRead} read
- * @returns {MbResult}
- */
-const availableFrom = (read) =>
-	read.ok
-		? { ok: true, mb: Math.floor(read.availableKb / 1024) }
-		: { ok: false, error: read.error };
 
 /*
  * The swap hold's two lines (#2668, measured on #2690): swap under a quarter
