@@ -42,11 +42,13 @@ const findings = (
 	trackers: ReturnType<typeof tracker>[],
 	launches: Record<string, number> = {},
 	running: string[] = [],
+	holds: Record<string, { why: string; since: number }> = {},
 ) =>
 	findIdleEfforts({
 		trackers,
 		launches: new Map(Object.entries(launches)),
 		running: new Set(running),
+		holds: new Map(Object.entries(holds)),
 		now: NOW,
 	});
 
@@ -111,6 +113,29 @@ describe("findIdleEfforts", () => {
 			issue(5),
 		]);
 		expect(idleNumbers([t])).toEqual([5]);
+	});
+
+	it("counts a parked issue the loop holds on a full seat past 2 days from the hold's start, naming the hold (#3680)", () => {
+		const parked = { labels: ["takes:implement", "parked"] };
+		const t = tracker([issue(1, parked), issue(2, parked), issue(3, parked)]);
+		const why = "parked: its session's seat /s2 is full";
+		const launched = NOW - 5 * DAY;
+		const idle = findings(
+			[t],
+			{ "o/core#1": launched, "o/core#2": launched, "o/core#3": launched },
+			[],
+			{
+				"o/core#1": { why, since: NOW - 3 * DAY },
+				"o/core#2": { why, since: NOW - IDLE_MS },
+			},
+		)[0].idle;
+		expect(
+			idle.map((i: { number: number; skip: string; idleMs: number }) => [
+				i.number,
+				i.skip,
+				i.idleMs,
+			]),
+		).toEqual([[1, why, 3 * DAY]]);
 	});
 
 	it("leaves out a container every open child of which waits, which pick-next never launches", () => {

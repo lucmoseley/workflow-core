@@ -85,6 +85,7 @@ describe("what status prints", () => {
 			reason: "no-progress",
 			detail: "three in a row",
 		},
+		held: [],
 		reviewRunOn: null,
 	};
 	const runMs = 24 * 60 * MIN;
@@ -224,7 +225,13 @@ describe("what status prints", () => {
 	it("says when the loop is not running or never started", () => {
 		const out = buildStatusLines({
 			control: null,
-			state: { launches: [], lastTick: null, stopped: null, reviewRunOn: null },
+			state: {
+				launches: [],
+				lastTick: null,
+				stopped: null,
+				held: [],
+				reviewRunOn: null,
+			},
 			pid: null,
 			runMs,
 			served: [],
@@ -245,7 +252,13 @@ describe("the launch lines status shows (#2850)", () => {
 				seats: [],
 				scope: normal([DV]),
 			},
-			state: { launches, lastTick: null, stopped: null, reviewRunOn: null },
+			state: {
+				launches,
+				lastTick: null,
+				stopped: null,
+				held: [],
+				reviewRunOn: null,
+			},
 			pid: 1,
 			runMs: 60 * MIN,
 			served: [DV],
@@ -381,6 +394,7 @@ describe("a handed-off launch (#2659)", () => {
 				],
 				lastTick: null,
 				stopped: null,
+				held: [],
 				reviewRunOn: null,
 			},
 			pid: 1,

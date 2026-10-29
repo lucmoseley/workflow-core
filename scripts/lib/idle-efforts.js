@@ -8,11 +8,14 @@
  * One whose own or a descendant's launch is still running is not idle. Blocked,
  * gated, `takes:human` and `parked` issues are not counted: each waits on
  * something other than a launch, as does a container all of whose open
- * children do. A stranding is counted once, at its deepest idle issue, never
- * again at each ancestor.
+ * children do. A parked issue the loop holds on its session's full seat is
+ * counted (#3680), from the hold's start: it waits on that seat's reset, up
+ * to 7 days. A stranding is
+ * counted once, at its deepest idle issue, never again at each ancestor.
  *
- * The reason printed beside a tracker's oldest is the loop's own launch filter
- * (lib/refill-decide.js's buildSkipReason).
+ * The reason printed beside a tracker's oldest is the loop's hold where it
+ * holds it, else its own launch filter (lib/refill-decide.js's
+ * buildSkipReason).
  */
 
 const { buildSkipReason } = require("./refill-decide.js");
@@ -26,7 +29,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const IDLE_DAYS = 2;
 const IDLE_MS = IDLE_DAYS * DAY_MS;
 const URGENT_LABEL = "urgent";
-const EXCLUDED_LABELS = [takesLabel("human"), PARKED_LABEL];
+const HUMAN_LABEL = takesLabel("human");
 /* Blockers read inline per issue, lib/blocked-by-batch.js's INNER: 50 issues
  * of 100 labels, 25 blockers and 100 sub-issues stays far under GitHub's
  * 500,000-node cap. A
@@ -67,6 +70,9 @@ const QUERY =
  * @property {TrackerReading[]} trackers
  * @property {Map<string, number>} launches refKey to its last launch, ms
  * @property {Set<string>} running refKeys of launches still running
+ * @property {Map<string, {why: string, since: number}>} holds refKeys of
+ *   the parked issues the loop holds on a full seat, to the hold's reason and
+ *   start, ms
  * @property {number} now ms
  */
 
@@ -76,8 +82,8 @@ const QUERY =
  * @property {string} title
  * @property {number} idleMs
  * @property {boolean} urgent
- * @property {string|null} skip the launch filter's reason, null where it
- *   passes the row
+ * @property {string|null} skip the loop's hold or its launch filter's
+ *   reason, null where it passes the row
  */
 
 /**
@@ -129,9 +135,15 @@ function parseIssueNodes(pages, now) {
 	});
 }
 
-/** @param {IssueReading} i */
-const isExcluded = (i) =>
-	i.blocked || i.gated || i.labels.some((l) => EXCLUDED_LABELS.includes(l));
+/**
+ * @param {IssueReading} i
+ * @param {boolean} isHeld whether the loop holds it on a full seat
+ */
+const isExcluded = (i, isHeld) =>
+	i.blocked ||
+	i.gated ||
+	i.labels.includes(HUMAN_LABEL) ||
+	(i.labels.includes(PARKED_LABEL) && !isHeld);
 
 /**
  * The open children of `key` this reading holds; a closed child, or one in a
@@ -146,16 +158,17 @@ const openChildKeys = (key, open) =>
  * Whether `key` waits on something other than a launch.
  * @param {string} key
  * @param {Map<string, IssueReading>} open
+ * @param {Readings["holds"]} holds
  * @param {Set<string>} seen accumulator: the keys already walked
  * @returns {boolean}
  */
-function isWaiting(key, open, seen = new Set()) {
+function isWaiting(key, open, holds, seen = new Set()) {
 	const i = open.get(key);
-	if (i === undefined || isExcluded(i)) return true;
+	if (i === undefined || isExcluded(i, holds.has(key))) return true;
 	if (seen.has(key)) return true;
 	seen.add(key);
 	const kids = openChildKeys(key, open);
-	return kids.length > 0 && kids.every((k) => isWaiting(k, open, seen));
+	return kids.length > 0 && kids.every((k) => isWaiting(k, open, holds, seen));
 }
 
 /**
@@ -207,10 +220,14 @@ function findIdleEfforts(readings) {
 	/** @type {Map<string, number>} key to its idle time, past 2 days only */
 	const idleMs = new Map();
 	for (const [key, i] of open) {
-		if (isWaiting(key, open)) continue;
+		if (isWaiting(key, open, readings.holds)) continue;
 		const ms =
 			readings.now -
-			Math.max(i.createdAt, lastLaunchUnder(key, open, readings));
+			Math.max(
+				i.createdAt,
+				lastLaunchUnder(key, open, readings),
+				readings.holds.get(key)?.since ?? Number.NEGATIVE_INFINITY,
+			);
 		if (ms > IDLE_MS) idleMs.set(key, ms);
 	}
 	const idle = new Set(idleMs.keys());
@@ -226,10 +243,12 @@ function findIdleEfforts(readings) {
 				title: i.title,
 				idleMs: Number(idleMs.get(key)),
 				urgent: i.labels.includes(URGENT_LABEL),
-				skip: buildSkipReason({
-					labels: i.labels,
-					takes: takesOf(i.labels),
-				}),
+				skip:
+					readings.holds.get(key)?.why ??
+					buildSkipReason({
+						labels: i.labels,
+						takes: takesOf(i.labels),
+					}),
 			}))
 			.sort((a, b) => b.idleMs - a.idleMs),
 	}));

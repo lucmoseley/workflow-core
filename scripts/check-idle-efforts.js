@@ -10,7 +10,8 @@
  * discoverRepos), each tracker once in one paged GraphQL query, and each
  * checkout's dispatch ledger as its launch log. A launch the ledger still
  * holds counts as running, as does each launch of a loop holding its pid
- * lock. A stopped loop serves no tracker and runs
+ * lock. The loop's state names the parked issues it holds on a full seat,
+ * and since when (#3680). A stopped loop serves no tracker, runs and holds
  * nothing, so its stop is caught rather than masked.
  *
  * WARN, never FAIL. A tracker that will not read is its own line, never
@@ -123,7 +124,7 @@ function report(ctx, findings, loopRunning) {
 function readLoop(reportDamaged) {
 	const files = refillFiles.loopFiles();
 	if (pidLock(files.pid, "refill-loop.js").holder() === null)
-		return { running: false, served: [], launches: [] };
+		return { running: false, served: [], launches: [], held: [] };
 	const control = refillFiles.readControlFile(reportDamaged);
 	const state = loop.parseState(
 		refillFiles.readJson(files.state, reportDamaged),
@@ -132,6 +133,7 @@ function readLoop(reportDamaged) {
 		running: true,
 		served: control ? servedRoots(control.scope).roots : [],
 		launches: loop.runningOf(state.launches),
+		held: state.held,
 	};
 }
 
@@ -154,13 +156,20 @@ const SPEC = {
 		const launches = new Map();
 		/** @type {Set<string>} */
 		const running = new Set();
+		/** The trackers checkout `root` files to. @param {string} root */
+		const reposOf = (root) =>
+			[...rootsOf].filter(([, roots]) => roots.includes(root)).map(([r]) => r);
 		/** @param {string} root @param {number[]} issues */
 		const markRunning = (root, issues) => {
-			for (const [repo, roots] of rootsOf)
-				if (roots.includes(root))
-					for (const n of issues) running.add(refKey({ repo, number: n }));
+			for (const repo of reposOf(root))
+				for (const n of issues) running.add(refKey({ repo, number: n }));
 		};
 		for (const l of loopRead.launches) markRunning(l.root, l.issues);
+		/** @type {Map<string, {why: string, since: number}>} */
+		const holds = new Map();
+		for (const { root, number, why, since } of loopRead.held)
+			for (const repo of reposOf(root))
+				holds.set(refKey({ repo, number }), { why, since });
 		const trackers = await Promise.all(
 			[...rootsOf].map(async ([repo, roots]) => {
 				const served = roots.some((r) => loopRead.served.includes(r));
@@ -170,8 +179,8 @@ const SPEC = {
 							const key = refKey({ repo, number: n });
 							launches.set(key, Math.max(launches.get(key) ?? 0, at));
 						}
-						const held = readRecentEntries(root, DEFAULT_WINDOW_HOURS);
-						for (const e of held.entries) markRunning(root, e.issues);
+						const recent = readRecentEntries(root, DEFAULT_WINDOW_HOURS);
+						for (const e of recent.entries) markRunning(root, e.issues);
 					}
 					const issues = await readIssues(repo, now);
 					return { repo, served, issues, error: null };
@@ -182,7 +191,13 @@ const SPEC = {
 				}
 			}),
 		);
-		const findings = findIdleEfforts({ trackers, launches, running, now });
+		const findings = findIdleEfforts({
+			trackers,
+			launches,
+			running,
+			holds,
+			now,
+		});
 		const { unseen, signature } = ctx.notify
 			? selectUndelivered(findings, now)
 			: { unseen: findings, signature: null };

@@ -103,8 +103,16 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * @property {{at: number, summary: string,
  *   skipped?: import("./refill-decide.js").Skip[]}|null} lastTick
  * @property {{at: number, reason: string, detail: string}|null} stopped
+ * @property {Hold[]} held the parked rows the last tick to read the frontier
+ *   held on a full seat, for the idle alarm (#3680)
  * @property {string|null} reviewRunOn machine-local date of the last morning
  *   review filing
+ */
+
+/**
+ * A parked row held on its session's full seat, and since when, ms: the first
+ * frontier-reading tick of an unbroken run of them that held it.
+ * @typedef {import("./refill-decide.js").Skip & {since: number}} Hold
  */
 
 /** @typedef {import("./refill-decide.js").SeatReading} SeatReading */
@@ -217,6 +225,26 @@ const isSkip = (raw) =>
 	typeof raw.number === "number" &&
 	typeof raw.why === "string";
 
+/** @param {unknown} raw @returns {raw is Hold} */
+const isHold = (raw) =>
+	isRecord(raw) && isSkip(raw) && typeof raw.since === "number";
+
+/**
+ * The holds a frontier-reading tick leaves: each it held, keeping the start of
+ * one it held before.
+ * @param {import("./refill-decide.js").Skip[]} held this tick's
+ * @param {Hold[]} before
+ * @param {number} now
+ * @returns {Hold[]}
+ */
+const holdsOf = (held, before, now) =>
+	held.map((h) => ({
+		...h,
+		since:
+			before.find((b) => b.root === h.root && b.number === h.number)?.since ??
+			now,
+	}));
+
 /** @param {unknown} raw @returns {LoopState["lastTick"]} */
 function parseLastTick(raw) {
 	if (
@@ -236,6 +264,7 @@ function parseState(raw) {
 		launches: Array.isArray(r.launches) ? r.launches : [],
 		lastTick: parseLastTick(r.lastTick),
 		stopped: parseStopped(r.stopped),
+		held: Array.isArray(r.held) ? r.held.filter(isHold) : [],
 		reviewRunOn: typeof r.reviewRunOn === "string" ? r.reviewRunOn : null,
 	};
 }
@@ -876,6 +905,10 @@ function settleTick({ input, decision, state, judged, probes, read }, io) {
 			...("stop" in decision ? {} : { skipped: decision.skipped }),
 		},
 		stopped: stoppedOf(decision, input.now) ?? state.stopped,
+		held:
+			"stop" in decision || read === null
+				? state.held
+				: holdsOf(decision.held, state.held, input.now),
 		reviewRunOn: state.reviewRunOn,
 	};
 	io.writeState(next);

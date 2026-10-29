@@ -560,7 +560,12 @@ describe("which seats are refreshed", () => {
 describe("a tick's log line (#2362)", () => {
 	type Tick = Parameters<typeof settleTick>[0];
 	type Io = Parameters<typeof settleTick>[1];
-	const idle = (why: string) => ({ launches: [], skipped: [], idle: why });
+	const idle = (why: string) => ({
+		launches: [],
+		skipped: [],
+		idle: why,
+		held: [],
+	});
 	function logged(
 		decision: Tick["decision"],
 		freeSlots: number,
@@ -586,11 +591,13 @@ describe("a tick's log line (#2362)", () => {
 			}),
 			read = null,
 			writes = [],
+			state = parseState(null),
 		}: Partial<{
 			dispatch: Io["launchBatch"];
 			readControl: Io["readControl"];
 			read: Tick["read"];
 			writes: Tick["state"][];
+			state: Tick["state"];
 		}> = {},
 	) {
 		const lines: string[] = [];
@@ -610,7 +617,7 @@ describe("a tick's log line (#2362)", () => {
 					history: [],
 				},
 				decision,
-				state: parseState(null),
+				state,
 				judged: [],
 				probes,
 				read,
@@ -619,7 +626,7 @@ describe("a tick's log line (#2362)", () => {
 				readControl,
 				launchBatch: dispatch,
 				runReview: (lastRunOn) => lastRunOn,
-				writeState: (state) => writes.push(state),
+				writeState: (next) => writes.push(next),
 				log: (line) => lines.push(line),
 				now: () => NOW,
 			},
@@ -683,6 +690,7 @@ describe("a tick's log line (#2362)", () => {
 				skip(2471, "takes:triage+implement"),
 			],
 			idle: "nothing launchable",
+			held: [],
 		};
 		const writes: Parameters<typeof settleTick>[0]["state"][] = [];
 		expect(
@@ -693,8 +701,41 @@ describe("a tick's log line (#2362)", () => {
 		expect(writes[0].lastTick?.skipped).toEqual(decision.skipped);
 	});
 
+	const held = skip(2469, "parked: its session's seat /s2 is full");
+	const kept = { ...held, since: NOW - 60_000 };
+
+	it("records a frontier-reading tick's holds, keeping the start of one held before and stamping a new one now (#3680)", () => {
+		const fresh = skip(2470, "parked: its session's seat /s2 is full");
+		const decision = {
+			...idle("nothing launchable"),
+			held: [held, fresh],
+		};
+		const writes: Tick["state"][] = [];
+		const state = { ...parseState(null), held: [kept] };
+		logged(decision, 3, [], { read: { rows: 2, ms: 900 }, writes, state });
+		expect(writes[0].held).toEqual([kept, { ...fresh, since: NOW }]);
+	});
+
+	it("keeps the last holds across a tick that reads no frontier", () => {
+		const writes: Tick["state"][] = [];
+		const state = { ...parseState(null), held: [kept] };
+		logged(idle("no free slot"), 0, [], { state, writes });
+		expect(writes[0].held).toEqual([kept]);
+	});
+
+	it("reads a stored hold with no start, or no skip, as none", () => {
+		expect(
+			parseState({ held: [kept, held, { root: "/r/wfc", since: NOW }] }).held,
+		).toEqual([kept]);
+	});
+
 	it("names an empty frontier's read", () => {
-		const none = { launches: [], skipped: [], idle: "nothing launchable" };
+		const none = {
+			launches: [],
+			skipped: [],
+			idle: "nothing launchable",
+			held: [],
+		};
 		expect(logged(none, 3, [], { read: { rows: 0, ms: 9100 } })).toBe(
 			"idle: nothing launchable (free slots: 3; frontier: 0 rows in 9.1 s)",
 		);
@@ -713,6 +754,7 @@ describe("a tick's log line (#2362)", () => {
 			],
 			skipped: [],
 			idle: null,
+			held: [],
 		};
 		expect(logged(decision, 2, [])).toBe("launch wfc /implement 1");
 		expect(logged(decision, 2, [{ seat: "/s2", outcome: "stopped" }])).toBe(
@@ -737,7 +779,12 @@ describe("a tick's log line (#2362)", () => {
 	});
 
 	it("logs a member the dispatcher refused as refused, with its reason, never as a launch (#2500)", () => {
-		const decision = { launches: [wfc(1), wfc(2)], skipped: [], idle: null };
+		const decision = {
+			launches: [wfc(1), wfc(2)],
+			skipped: [],
+			idle: null,
+			held: [],
+		};
 		const line = logged(decision, 2, [], {
 			dispatch: ([a, b]) => ({
 				launched: [{ ...a, jobId: "job1", launchedAt: NOW, finishedAt: null }],
@@ -761,6 +808,7 @@ describe("a tick's log line (#2362)", () => {
 			launches: [wfc(1), { ...wfc(2), root: "/r/mh" }],
 			skipped: [],
 			idle: null,
+			held: [],
 		};
 		let reads = 0;
 		const line = logged(decision, 2, [], {
@@ -1087,6 +1135,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 			launches: [pick(1), pick(2)],
 			skipped: [],
 			idle: null,
+			held: [],
 		};
 		const result = settleTick(
 			{

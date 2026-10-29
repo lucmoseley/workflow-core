@@ -153,7 +153,9 @@ const ALREADY_RUNNING = "already running";
 
 /**
  * @typedef {{stop: StopReason, detail: string}
- *   | {launches: Launch[], skipped: Skip[], idle: string | null}} Decision
+ *   | {launches: Launch[], skipped: Skip[], idle: string | null,
+ *   held: Skip[]}} Decision `held` is every parked frontier row routeParked
+ *   holds, reached by the walk or not, for the idle alarm (#3680)
  */
 
 /**
@@ -386,10 +388,7 @@ function routedLaunch(
 ) {
 	const next = rowLaunch(row, retroBundles, isTaken, mode);
 	if ("why" in next || !isParked(row)) return next;
-	const parked = routeParked(
-		parkers.find((p) => p.root === row.root && p.number === row.number),
-		seats,
-	);
+	const parked = routeParkedRow(row, parkers, seats);
 	return "hold" in parked
 		? { why: parked.hold }
 		: { ...next, parkedRoute: parked };
@@ -438,9 +437,9 @@ function stopOf(input, pick) {
  * session's seat reads full, a bar at 100% or a cap sized 0 (#3669); else
  * afresh on its `takes:` command, with why. A seat with an unread bar
  * resumes: the loop refreshes no seat behind the first with room, so a hold
- * there would never end. Residual: a weekly-full seat holds its
- * tickets until its week resets, up to 7 days, and the idle alarm counts no
- * parked issue.
+ * there would never end. A weekly-full seat holds its tickets until its
+ * week resets, up to 7 days; the idle alarm counts one held past 2 days
+ * (#3680).
  * @param {ParkerReading|undefined} parker none where no launch of the loop's
  *   parked it
  * @param {SizedSeat[]} seats this tick's
@@ -460,6 +459,34 @@ function routeParked(parker, seats) {
 	const { launch, sessionId, cwd } = parker;
 	return { resume: { launch, sessionId, cwd } };
 }
+
+/**
+ * routeParked for `row`, from the parker the tick read for it.
+ * @param {MergedRow} row
+ * @param {ParkerReading[]} parkers
+ * @param {SizedSeat[]} seats
+ */
+const routeParkedRow = (row, parkers, seats) =>
+	routeParked(
+		parkers.find((p) => p.root === row.root && p.number === row.number),
+		seats,
+	);
+
+/**
+ * Every parked frontier row a normal-mode tick holds on a full seat, whether
+ * or not its walk reaches the row (#3680). Away mode routes none.
+ * @param {Pick<TickInput, "frontier"|"mode"|"seats"|"parkers">} input
+ * @returns {Skip[]}
+ */
+const heldParked = ({ frontier, mode, seats, parkers = [] }) =>
+	mode === "normal"
+		? frontier.filter(isParked).flatMap((row) => {
+				const parked = routeParkedRow(row, parkers, seats);
+				return "hold" in parked
+					? [{ root: row.root, number: row.number, why: parked.hold }]
+					: [];
+			})
+		: [];
 
 /**
  * When `row` was parked, ms; an unreadable start sorts as the oldest, as in
@@ -557,22 +584,25 @@ function decideTick(input) {
 	const free = Math.max(0, input.freeSlots - (present ? 1 : 0));
 	/* Ahead of the seat's wait: with no slot free the loop refreshes no seat,
 	 * so an aged cache reads unread and is not why the tick waits (#2362). */
+	const held = heldParked(input);
 	if (free === 0)
 		return {
 			launches: [],
 			skipped: [],
 			idle: present ? "one free slot is kept for the founder" : "no free slot",
+			held,
 		};
 	if (pick.seat === null)
 		return {
 			launches: [],
 			skipped: [],
 			idle: pick.wait,
+			held,
 		};
 	/* The cap's fits, so a tick asks no dispatcher call for a member the cap
 	 * would drop: each call launches at least one under 100%. */
 	const out = fill(input, pick.seat, Math.min(pick.fits, free));
-	if (out.launches.length > 0) return { ...out, idle: null };
+	if (out.launches.length > 0) return { ...out, idle: null, held };
 	const failed = input.failedShortlists ?? [];
 	return {
 		...out,
@@ -584,6 +614,7 @@ function decideTick(input) {
 						)
 						.join("; ")
 				: NOTHING_LAUNCHABLE,
+		held,
 	};
 }
 
