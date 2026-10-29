@@ -62,6 +62,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { writeFd } = require("./lib/write-fd.js");
 const { configDirs } = require("./lib/arbiter-store");
 const { parseOrExit } = require("./lib/cli-args");
 const { hostRoot } = require("./lib/host-root");
@@ -674,14 +675,18 @@ function main() {
 	});
 	const dryRun = "--dry-run" in flags;
 	if (!isCoreHost(hostRoot())) {
-		process.stderr.write(
+		writeFd(
+			2,
 			"SKIP: the round-check reading is workflow-core's alone; it reads every repo from there.\n",
 		);
 		return;
 	}
 	const filed = readFiledAs();
 	if (filed && !dryRun) {
-		console.log(`The round-check reading is filed as ${filed}; nothing to do.`);
+		writeFd(
+			1,
+			`The round-check reading is filed as ${filed}; nothing to do.\n`,
+		);
 		return;
 	}
 	const nowMs = now();
@@ -756,7 +761,7 @@ function readAndPublish({ nowMs, dryRun, filed, seats, classesFile }) {
 	];
 	if (!point) {
 		out.push("", "Reading point: none yet — no repo is live.");
-		console.log(out.join("\n"));
+		writeFd(1, `${out.join("\n")}\n`);
 		return;
 	}
 	out.push(...buildPointLines(buildPointSentence(point), at));

@@ -258,6 +258,7 @@ const GATE_SOURCES: Record<string, string[]> = {
 	"cli-args": ["scripts/check-cli-args.js"],
 	"jsonl-reads": ["scripts/check-jsonl-reads.js"],
 	"clock-copies": ["scripts/check-clock-copies.js"],
+	"report-programs": ["scripts/check-report-programs.js"],
 	primitives: ["scripts/check-primitives.js"],
 	"test-spawn": ["scripts/check-test-spawn.js"],
 	"doc-map": [".husky/pre-commit", "scripts/lib/precommit-gate.sh"],

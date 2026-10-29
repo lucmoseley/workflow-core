@@ -41,6 +41,7 @@
  * read.
  */
 
+const { writeFd } = require("./lib/write-fd.js");
 const { LOW_TOP } = require("./lib/close-rivals");
 const { parseOrExit } = require("./lib/cli-args");
 const { errMessage } = require("./lib/check");
@@ -211,14 +212,18 @@ function main() {
 	});
 	const dryRun = "--dry-run" in flags;
 	if (!isCoreHost(hostRoot())) {
-		process.stderr.write(
+		writeFd(
+			2,
 			"SKIP: the flip-line reading is workflow-core's alone; it reads every adopter from there.\n",
 		);
 		return;
 	}
 	const filed = readFiledAs();
 	if (filed && !dryRun) {
-		console.log(`The flip-line reading is filed as ${filed}; nothing to file.`);
+		writeFd(
+			1,
+			`The flip-line reading is filed as ${filed}; nothing to file.\n`,
+		);
 		return;
 	}
 	const nowMs = now();
@@ -261,7 +266,7 @@ function readAndPublish({ nowMs, dryRun, filed }) {
 			"",
 			"Reading point: none yet — no repo has logged a low-top refusal.",
 		);
-		console.log(out.join("\n"));
+		writeFd(1, `${out.join("\n")}\n`);
 		return;
 	}
 	const at = readingAt(point, nowMs);

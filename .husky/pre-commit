@@ -490,6 +490,13 @@ if armed '^scripts/.+\.[cm]?js$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-clock-copies.js || exit "$?"
 fi
 
+# A report-* program writing past writeFd or filing past createIssue, judging
+# the whole tree (#3454). Only a report-* holds either breach, so only staging
+# one arms it.
+if armed '^scripts/report-[^/]+\.[cm]?js$'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-report-programs.js || exit "$?"
+fi
+
 # The doc map's own coverage, checked here as well as in roadmap-digest.yml
 # (mantahostels#390, the ticket that moved this local). Rationale and measurement:
 # docs/doc-map.md §A.

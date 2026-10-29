@@ -176,12 +176,13 @@ function main() {
 		process.exit(2);
 	}
 	if (v.skip !== null) {
-		process.stderr.write(`${v.skip}\n`);
+		writeFd(2, `${v.skip}\n`);
 		return;
 	}
 	if (!v.due) {
-		console.log(
-			`Last weekly retro ran ${v.newest}, ${v.age} day(s) before ${date} — nothing to file.`,
+		writeFd(
+			1,
+			`Last weekly retro ran ${v.newest}, ${v.age} day(s) before ${date} — nothing to file.\n`,
 		);
 		return;
 	}
@@ -215,7 +216,7 @@ function main() {
 		);
 		process.exit(2);
 	}
-	console.log(`Weekly retro due. ${filed}`);
+	writeFd(1, `Weekly retro due. ${filed}\n`);
 }
 
 if (require.main === module) main();

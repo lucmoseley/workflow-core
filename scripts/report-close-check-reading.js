@@ -58,6 +58,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { writeFd } = require("./lib/write-fd.js");
 const { configDirs } = require("./lib/arbiter-store");
 const { isRefusal } = require("./lib/close-rivals");
 const { RUNGS } = require("./lib/research-ladder");
@@ -506,15 +507,17 @@ function main() {
 	});
 	const dryRun = "--dry-run" in flags;
 	if (!isCoreHost(hostRoot())) {
-		process.stderr.write(
+		writeFd(
+			2,
 			"SKIP: the close-check reading is workflow-core's alone; it reads every adopter from there.\n",
 		);
 		return;
 	}
 	const filed = readFiledAs();
 	if (filed && !dryRun) {
-		console.log(
-			`The close-check reading is filed as ${filed}; nothing to file.`,
+		writeFd(
+			1,
+			`The close-check reading is filed as ${filed}; nothing to file.\n`,
 		);
 		return;
 	}
@@ -571,7 +574,7 @@ function readAndPublish({ nowMs, dryRun, filed, seats }) {
 	];
 	if (!point) {
 		out.push("", "Reading point: none yet — no repo is live.");
-		console.log(out.join("\n"));
+		writeFd(1, `${out.join("\n")}\n`);
 		return;
 	}
 	out.push(

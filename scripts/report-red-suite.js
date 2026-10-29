@@ -36,10 +36,11 @@
  * refuses its command line.
  */
 
+const { writeFd } = require("./lib/write-fd.js");
 const { parseOrExit } = require("./lib/cli-args");
 const { gh, ghJson } = require("./lib/gh");
 const { readRange, renderRange } = require("./lib/commit-range");
-const { findTrackingIssue } = require("./lib/tracking-issue");
+const { createIssue, findTrackingIssue } = require("./lib/tracking-issue");
 const { codeRepoArgs } = require("./lib/workflow-core-config.js");
 const { takesLabel } = require("./lib/takes-label");
 
@@ -358,13 +359,14 @@ function main() {
 	const at = rows.findIndex((r) => r.verdict);
 	const red = rows[at];
 	if (red === undefined) {
-		console.log(
-			`No ${SWEEP_WORKFLOW} run in the last ${rows.length} carries a suite verdict; nothing to file.`,
+		writeFd(
+			1,
+			`No ${SWEEP_WORKFLOW} run in the last ${rows.length} carries a suite verdict; nothing to file.\n`,
 		);
 		return;
 	}
 	if (GOOD.has(String(red.verdict))) {
-		console.log(`The newest judged sweep is ${red.verdict}; nothing to file.`);
+		writeFd(1, `The newest judged sweep is ${red.verdict}; nothing to file.\n`);
 		return;
 	}
 	const url = red.url || "";
@@ -374,8 +376,9 @@ function main() {
 
 	if (existing) {
 		if (url && isRunNamedOn(existing.number, url)) {
-			console.log(
-				`#${existing.number} already names the newest red sweep, ${url}.`,
+			writeFd(
+				1,
+				`#${existing.number} already names the newest red sweep, ${url}.\n`,
 			);
 			return;
 		}
@@ -386,14 +389,16 @@ function main() {
 			"--body",
 			comment(red, green),
 		]);
-		console.log(
-			`Commented on #${existing.number} — already open for a red sweep.`,
+		writeFd(
+			1,
+			`Commented on #${existing.number} — already open for a red sweep.\n`,
 		);
 		return;
 	}
 	if (isClosedSince(red)) {
-		console.log(
-			`A ${LABEL} issue was closed after the newest red sweep, ${url}; not refiling it.`,
+		writeFd(
+			1,
+			`A ${LABEL} issue was closed after the newest red sweep, ${url}; not refiling it.\n`,
 		);
 		return;
 	}
@@ -401,21 +406,12 @@ function main() {
 	/* Labelled at creation because a create from a script is invisible to
 	 * the guard-issue-create-label core, which sees Bash tool calls only —
 	 * mantahostels#464 is the live instance of an issue reaching the tracker bare (mantahostels#470). */
-	const filed = gh([
-		"issue",
-		"create",
-		"--title",
-		TITLE,
-		"--label",
-		LABEL,
-		"--label",
-		URGENT,
-		"--label",
-		TAKES,
-		"--body",
-		body(red, green),
-	]).trim();
-	console.log(`Filed ${filed}`);
+	const filed = createIssue({
+		title: TITLE,
+		labels: [LABEL, URGENT, TAKES],
+		body: body(red, green),
+	});
+	writeFd(1, `Filed ${filed}\n`);
 }
 
 if (require.main === module) main();

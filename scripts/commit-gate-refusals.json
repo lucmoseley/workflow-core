@@ -213,6 +213,10 @@
 			"lines": ["reads WFC_NOW itself"]
 		},
 		{
+			"id": "report-programs",
+			"lines": ["report-program breach(es)"]
+		},
+		{
 			"id": "primitives",
 			"lines": ["primitives table fault(s)"]
 		},

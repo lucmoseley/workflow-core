@@ -35,6 +35,7 @@
  */
 
 const fs = require("node:fs");
+const { writeFd } = require("./lib/write-fd.js");
 const { parseOrExit } = require("./lib/cli-args");
 const { errMessage } = require("./lib/check");
 const {
@@ -217,7 +218,7 @@ function main({ flags, positionals }) {
 	try {
 		html = fs.readFileSync(roadmapPath, "utf8");
 	} catch (e) {
-		console.error(`cannot read roadmap at ${roadmapPath} — ${errMessage(e)}`);
+		writeFd(2, `cannot read roadmap at ${roadmapPath} — ${errMessage(e)}\n`);
 		return 2;
 	}
 
@@ -225,45 +226,46 @@ function main({ flags, positionals }) {
 	try {
 		({ ITEMS: items } = parseRoadmap(html));
 	} catch (e) {
-		console.error(
-			`cannot parse ${roadmapPath} as a roadmap — ${errMessage(e)}`,
-		);
+		writeFd(2, `cannot parse ${roadmapPath} as a roadmap — ${errMessage(e)}\n`);
 		return 2;
 	}
 
 	const rows = overCeilingRows(items);
-	console.log(verdict(rows));
+	writeFd(1, `${verdict(rows)}\n`);
 	const phase = buildPhaseLine(rows);
-	if (phase) console.log(phase);
+	if (phase) writeFd(1, `${phase}\n`);
 
 	if (rows.length === 0) {
-		console.log("Nothing over — nothing to file.");
+		writeFd(1, "Nothing over — nothing to file.\n");
 		return 0;
 	}
 	if (payable(rows).length === 0) {
-		console.log(
-			"Every over-ceiling row carries a capOk exemption — nothing to file.",
+		writeFd(
+			1,
+			"Every over-ceiling row carries a capOk exemption — nothing to file.\n",
 		);
 		return 0;
 	}
 	if (flags["--dry-run"]) {
-		console.log("--dry-run: no issue filed or refreshed.");
+		writeFd(1, "--dry-run: no issue filed or refreshed.\n");
 		return 0;
 	}
 
 	try {
-		console.log(
-			fileOrRefresh({
+		writeFd(
+			1,
+			`${fileOrRefresh({
 				title: TITLE,
 				label: LABEL,
 				labels: [LABEL],
 				takes: TAKES,
 				body: body(rows),
-			}),
+			})}\n`,
 		);
 	} catch (e) {
-		console.error(
-			`could not file or refresh the tracking issue — ${errMessage(e)}`,
+		writeFd(
+			2,
+			`could not file or refresh the tracking issue — ${errMessage(e)}\n`,
 		);
 		return 2;
 	}

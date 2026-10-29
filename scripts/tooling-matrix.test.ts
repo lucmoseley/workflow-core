@@ -785,6 +785,10 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 		["`scripts/check-test-spawn.js`", /check-test-spawn\.js --against HEAD/],
 		["`scripts/check-jsonl-reads.js`", /check-jsonl-reads\.js \|\| exit/],
 		["`scripts/check-clock-copies.js`", /check-clock-copies\.js \|\| exit/],
+		[
+			"`scripts/check-report-programs.js`",
+			/check-report-programs\.js \|\| exit/,
+		],
 		["`scripts/check-registrations.js`", /check-registrations\.js --against/],
 		[
 			"`scripts/check-workflow-permissions.js`",
