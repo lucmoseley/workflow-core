@@ -53,7 +53,6 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
 const { isNeighbours } = require("./lib/echo-chain.js");
-const { parseJsonl } = require("./lib/jsonl.js");
 const { slugForRepo } = require("./lib/project-slug");
 
 /* Derived, never spelled: scripts/lib/project-slug-scan.test.ts scans this tree for
@@ -131,8 +130,8 @@ const skipped = (tool, input) =>
  * @param {string} file
  */
 function readTranscript(file) {
-	const rows = readRows(file);
-	if (rows === null) return null;
+	const lines = readLines(file);
+	if (lines === null) return null;
 	/** @type {Map<string, string>} */
 	const results = new Map();
 	/** @type {Set<string>} */
@@ -143,8 +142,8 @@ function readTranscript(file) {
 	/** @type {{ turn: number, sig: string, id: string, path?: string }[]} */
 	const calls = [];
 	let turn = 0;
-	for (const row of rows) {
-		const d = mainThreadRecord(row);
+	for (const line of lines) {
+		const d = mainThreadRecord(line);
 		if (!d || !Array.isArray(d.message.content)) continue;
 		if (d.type === "assistant") turn++;
 		recordBlocks(d, turn, { calls, results, shortCircuits, edits });
@@ -176,26 +175,31 @@ function recordBlocks(d, turn, into) {
 
 /**
  * @param {string} file
- * @returns {TranscriptRecord[] | null}
+ * @returns {string[] | null}
  */
-function readRows(file) {
-	let text;
+function readLines(file) {
 	try {
-		text = fs.readFileSync(file, "utf8");
+		return fs.readFileSync(file, "utf8").split("\n");
 	} catch {
 		return null;
 	}
-	return parseJsonl(text).rows;
 }
 
 /**
- * The record where it belongs to the main thread and carries a message, else
- * null.
+ * One transcript line's record where it belongs to the main thread and carries
+ * a message, else null — a blank or unparseable line included.
  *
- * @param {TranscriptRecord} d
+ * @param {string} jsonLine
  * @returns {TranscriptRecord}
  */
-function mainThreadRecord(d) {
+function mainThreadRecord(jsonLine) {
+	if (!jsonLine) return null;
+	let d;
+	try {
+		d = JSON.parse(jsonLine);
+	} catch {
+		return null;
+	}
 	if (d.isSidechain) return null;
 	const m = d.message;
 	if (!m || typeof m !== "object") return null;

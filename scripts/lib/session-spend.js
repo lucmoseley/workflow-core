@@ -20,7 +20,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { hostRoot } = require("./host-root");
-const { parseJsonl } = require("./jsonl.js");
 const { findTranscript, subagentDirOf } = require("./transcript");
 
 /**
@@ -209,9 +208,8 @@ function readFileRequests(file, window) {
 		return best;
 	}
 	let n = 0;
-	const { rows } = parseJsonl(text, (line) => line.includes('"assistant"'));
-	for (const row of rows) {
-		const r = usageRecordOf(row, window);
+	for (const line of text.split("\n")) {
+		const r = usageRecordOf(line, window);
 		if (r === null) continue;
 		const rid = r.requestId || `__norid__${n++}`;
 		const cur = mergeRequest(best, rid, flatUsage(r.message.usage));
@@ -230,19 +228,26 @@ function readFileRequests(file, window) {
  */
 
 /**
- * The transcript record where it is an assistant turn carrying usage,
- * timestamped inside `window` where one is given; else `null`.
- * @param {Record<string, any>} r
+ * The record on one transcript line where it is an assistant turn carrying
+ * usage, timestamped inside `window` where one is given; else `null`.
+ * @param {string} line
  * @param {{ fromMs: number, toMs: number }} [window]
  * @returns {UsageRecord | null}
  */
-function usageRecordOf(r, window) {
-	if (r.type !== "assistant" || !r.message?.usage) return null;
+function usageRecordOf(line, window) {
+	if (!line.includes('"assistant"')) return null;
+	let r;
+	try {
+		r = JSON.parse(line);
+	} catch {
+		return null;
+	}
+	if (r?.type !== "assistant" || !r.message?.usage) return null;
 	if (window) {
 		const at = Date.parse(r.timestamp);
 		if (!(at >= window.fromMs && at <= window.toMs)) return null;
 	}
-	return /** @type {UsageRecord} */ (r);
+	return r;
 }
 
 /**

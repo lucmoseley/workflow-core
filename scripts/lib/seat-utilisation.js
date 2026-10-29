@@ -30,7 +30,6 @@
  */
 
 const fs = require("node:fs");
-const { readJsonl } = require("./jsonl.js");
 const { markersDir } = require("./marker-root.js");
 const path = require("node:path");
 const { configDirs } = require("./arbiter-store");
@@ -805,6 +804,10 @@ function trialReview(history, decl) {
 /**
  * The daily series, newest last, skipping lines that do not parse.
  *
+ * A truncated final line is the expected corruption: the file is appended to
+ * from a session-start hook that can be killed mid-write, and one unusable line
+ * must not cost the whole series.
+ *
  * THE DROPPED COUNT RIDES ON THE ARRAY, not a second return value: every
  * existing caller does `readHistory().filter(...)` or similar, and a run of
  * dropped lines is a coverage gap that changes a verdict — it must be visible
@@ -815,18 +818,26 @@ function trialReview(history, decl) {
  * @returns {{ at: string, seats: any[] }[] & { dropped: number }}
  */
 function readHistory(file = HISTORY_FILE()) {
-	let read = null;
+	let text;
 	try {
-		read = readJsonl(file);
+		text = fs.readFileSync(file, "utf8");
 	} catch {
-		/* An unreadable history is an empty series: the morning review prints
-		 * the gap rather than failing. */
+		return Object.assign([], { dropped: 0 });
 	}
-	if (!read) return Object.assign([], { dropped: 0 });
-	const rows = /** @type {{ at: string, seats: any[] }[]} */ (
-		read.rows.filter((row) => typeof row.at === "string")
-	);
-	const dropped = read.rows.length - rows.length + read.bad.length;
+	/** @type {{ at: string, seats: any[] }[]} */
+	const rows = [];
+	let dropped = 0;
+	for (const line of text.split("\n")) {
+		if (!line.trim()) continue;
+		try {
+			const row = JSON.parse(line);
+			if (typeof row?.at === "string") rows.push(row);
+			else dropped += 1;
+		} catch {
+			/* one unusable line, not a lost series — but counted, not silent */
+			dropped += 1;
+		}
+	}
 	return Object.assign(rows, { dropped });
 }
 

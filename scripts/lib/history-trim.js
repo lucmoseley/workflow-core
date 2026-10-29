@@ -32,7 +32,7 @@ const path = require("node:path");
 
 const { configDirs } = require("./arbiter-store");
 const { hostRoot } = require("./host-root.js");
-const { readJsonl } = require("./jsonl.js");
+const { caught } = require("./caught.js");
 
 /**
  * One root's reading.
@@ -70,17 +70,26 @@ const RECORD_MIN_AGE_HOURS = 24;
 function readRoot(seatDir) {
 	const dir = path.basename(seatDir);
 	const file = path.join(seatDir, "history.jsonl");
-	let read;
+	let text;
 	try {
-		read = readJsonl(file);
-	} catch {
+		text = fs.readFileSync(file, "utf8");
+	} catch (e) {
+		if (caught(e).code === "ENOENT")
+			return { dir, state: "absent", oldestMs: null, lineCount: null };
 		return { dir, state: "unreadable", oldestMs: null, lineCount: null };
 	}
-	if (!read) return { dir, state: "absent", oldestMs: null, lineCount: null };
-	const lineCount = read.rows.length + read.bad.length;
+	const lines = text.split("\n").filter((l) => l.trim() !== "");
 	let oldestMs = null;
-	for (const row of read.rows) {
-		const t = row.timestamp;
+	for (const line of lines) {
+		let parsed;
+		try {
+			parsed = JSON.parse(line);
+		} catch {
+			/* one malformed line is not evidence the file is unreadable — skip it
+			 * and keep looking; only the all-garbage case below gives up. */
+			continue;
+		}
+		const t = parsed?.timestamp;
 		if (
 			typeof t === "number" &&
 			Number.isFinite(t) &&
@@ -92,9 +101,9 @@ function readRoot(seatDir) {
 	 * cannot support the trimming signature — treated as unreadable rather
 	 * than as a root with nothing old in it. An empty file (0 lines) is a
 	 * real, if degenerate, reading: oldestMs null, lineCount 0. */
-	if (lineCount > 0 && oldestMs === null)
+	if (lines.length > 0 && oldestMs === null)
 		return { dir, state: "unreadable", oldestMs: null, lineCount: null };
-	return { dir, state: "ok", oldestMs, lineCount };
+	return { dir, state: "ok", oldestMs, lineCount: lines.length };
 }
 
 /**
@@ -123,20 +132,24 @@ function readRoots(dirs = configDirs()) {
  * @returns {Record<string, RootReading> | null | undefined}
  */
 function readBaseline(watchFile = WATCH_FILE()) {
-	let read;
+	let text;
 	try {
-		read = readJsonl(watchFile);
+		text = fs.readFileSync(watchFile, "utf8");
+	} catch (e) {
+		return caught(e).code === "ENOENT" ? null : undefined;
+	}
+	const lines = text.split("\n").filter((l) => l.trim() !== "");
+	const lastLine = lines.at(-1);
+	if (lastLine === undefined) return null;
+	let last;
+	try {
+		last = JSON.parse(lastLine);
 	} catch {
 		return;
 	}
-	if (!read) return null;
-	const last = read.rows.at(-1);
-	const newestBad = read.bad.at(-1) ?? 0;
-	if (newestBad > (read.rowLines.at(-1) ?? 0)) return;
-	if (!last) return null;
 	/** @type {Record<string, RootReading>} */
 	const byDir = {};
-	for (const r of /** @type {RootReading[]} */ (last.roots || [])) {
+	for (const r of last.roots || []) {
 		if (r && typeof r.dir === "string") byDir[r.dir] = r;
 	}
 	return byDir;

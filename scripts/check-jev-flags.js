@@ -53,7 +53,6 @@ const { scriptPath } = require("./lib/script-path.js");
 const deliveryStamp = require("./lib/delivery-stamp");
 const hookBlock = require("./lib/hook-block");
 const jevLog = require("./lib/jev-log.js");
-const { readJsonl } = require("./lib/jsonl.js");
 const jevTrial = require("./lib/jev-trial.js");
 
 const CHECKER = "jev-flags";
@@ -194,10 +193,11 @@ function buildStandingReport(s) {
  * @param {number | null} since
  */
 function readLogs(root, since) {
-	const live = readJsonl(jevLog.logPath(root));
-	/** @type {import("./lib/jsonl.js").Jsonl | null} */
+	/** @type {{lines: LogLine[], torn: number}|null} */
+	const live = jevLog.readJsonl(jevLog.logPath(root));
+	/** @type {{lines: LogLine[], torn: number}|null} */
 	let rotated = null;
-	const oldestLive = live?.rows.map(jevLog.whenOf).find((ms) => ms !== null);
+	const oldestLive = live?.lines.map(jevLog.whenOf).find((ms) => ms !== null);
 	/* The rotated half is read only where an unreported flag could be
 	 * sitting in it: where nothing has been stamped at all, and where the
 	 * live log's oldest line is itself newer than the stamp, which means
@@ -205,7 +205,7 @@ function readLogs(root, since) {
 	 * every start would cost a second file the size of the cap for
 	 * nothing. */
 	if (since === null || (oldestLive !== undefined && oldestLive > since))
-		rotated = readJsonl(jevLog.previousLogPath(root));
+		rotated = jevLog.readJsonl(jevLog.previousLogPath(root));
 	return { live, rotated };
 }
 
@@ -298,14 +298,8 @@ runCheck({
 		if (live === null)
 			return { okLine: "the Jev advisory guard has logged nothing here yet." };
 
-		const all = /** @type {LogLine[]} */ ([
-			...(rotated?.rows ?? []),
-			...live.rows,
-		]);
-		const torn = [rotated, live].reduce(
-			(n, read) => n + (read?.bad.length ?? 0),
-			0,
-		);
+		const all = [...(rotated?.lines ?? []), ...live.lines];
+		const torn = (rotated?.torn ?? 0) + live.torn;
 
 		const { verdicts, standing } = readStanding(root, all);
 

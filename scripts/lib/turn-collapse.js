@@ -19,7 +19,6 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { parseJsonl } = require("./jsonl.js");
 
 const { configDirs } = require("./arbiter-store");
 const { readSeatProjectDirs } = require("./project-dirs");
@@ -109,15 +108,23 @@ function corpusFiles(roots) {
  * SIDECHAINS ARE KEPT. `lib/transcript.js` skips them because a subagent's
  * context is not the session's; here every turn is spend.
  *
+ * A transcript is appended to while it is read, so a half-written final line is
+ * skipped rather than thrown on.
+ *
  * @param {string} text
  * @returns {Array<[number, string]>}
  */
 function turnsIn(text) {
 	/** @type {Array<[number, string]>} */
 	const out = [];
-	for (const record of /** @type {Record<string, any>[]} */ (
-		parseJsonl(text).rows
-	)) {
+	for (const line of text.split("\n")) {
+		if (!line) continue;
+		let record;
+		try {
+			record = JSON.parse(line);
+		} catch {
+			continue;
+		}
 		if (record.type !== "assistant") continue;
 		const usage = record.message?.usage;
 		const id = record.message?.id;

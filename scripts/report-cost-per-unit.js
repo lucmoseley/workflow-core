@@ -61,7 +61,6 @@ const { gh, parseErrLine } = require("./lib/gh");
 const { commitsSince } = require("./lib/seat-utilisation");
 const { hostRoot } = require("./lib/host-root.js");
 const { caught } = require("./lib/caught.js");
-const { parseJsonlRow, readJsonl } = require("./lib/jsonl.js");
 const { takesLabel } = require("./lib/takes-label.js");
 const { writeFileAtomic } = require("./lib/atomic-write.js");
 
@@ -221,21 +220,30 @@ function reading(now) {
  * A line that will not parse, or parses to something that is not a row with an
  * ISO `taken` date, is REPORTED and skipped — never dropped in silence: the only
  * reader is the founder at a review months later, and a series quietly one row
- * short is indistinguishable from a week nobody ran.
+ * short is indistinguishable from a week nobody ran. Syntax alone is not enough:
+ * a bare `null` or `[]` is valid JSON and would reach `lastTaken` as a row.
  *
  * @returns {{ rows: Row[], bad: number[] }}
  */
 function readSeries() {
-	const read = readJsonl(SERIES);
-	if (!read) return { rows: [], bad: [] };
+	if (!fs.existsSync(SERIES)) return { rows: [], bad: [] };
 	/** @type {Row[]} */
 	const rows = [];
-	const bad = [...read.bad];
-	read.rows.forEach((row, k) => {
-		if (ISO_DATE.test(String(row.taken))) rows.push(/** @type {Row} */ (row));
-		else bad.push(/** @type {number} */ (read.rowLines[k]));
+	/** @type {number[]} */
+	const bad = [];
+	const lines = fs.readFileSync(SERIES, "utf8").split("\n");
+	lines.forEach((line, i) => {
+		if (!line.trim()) return;
+		try {
+			const row = JSON.parse(line);
+			if (!row || typeof row !== "object" || !ISO_DATE.test(row.taken))
+				bad.push(i + 1);
+			else rows.push(row);
+		} catch {
+			bad.push(i + 1);
+		}
 	});
-	return { rows, bad: bad.sort((x, y) => x - y) };
+	return { rows, bad };
 }
 
 /**
@@ -308,8 +316,12 @@ function writeRow(row, replace) {
  * @returns {string | null}
  */
 function takenOf(line) {
-	const taken = parseJsonlRow(line)?.taken;
-	return typeof taken === "string" ? taken : null;
+	try {
+		const taken = JSON.parse(line)?.taken;
+		return typeof taken === "string" ? taken : null;
+	} catch {
+		return null;
+	}
 }
 
 /** @param {number} n */

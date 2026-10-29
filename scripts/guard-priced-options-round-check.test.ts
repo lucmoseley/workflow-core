@@ -59,7 +59,7 @@ const {
 	SHAPE_PREFIX,
 	limbOf,
 } = req("./lib/priced-options-limbs.js");
-const { readJsonl } = req("./lib/jsonl.js");
+const { readJsonl } = req("./lib/jev-log.js");
 const { firstDrafts, MIN_CALLS } = req("./lib/round-check.js");
 const { API_PROMPT } = req("./lib/loop-prompts.js");
 
@@ -122,7 +122,7 @@ const RESENT = "re-sent with no tool call since this check refused it";
 const CLOSE = "so the recommendation could flip";
 
 const { counter, seed } = sessionCounters(() => ({ dir, sid }));
-const readLog = () => readJsonl(logPath(dir, ROUND_CHECK_LOG))?.rows ?? [];
+const readLog = () => readJsonl(logPath(dir, ROUND_CHECK_LOG))?.lines ?? [];
 const line = (fields: Record<string, unknown>) => ({
 	at: expect.any(String),
 	session: sid,
@@ -245,7 +245,7 @@ describe("beside the close-rivals limb", () => {
 		expect(resent).not.toContain(UNDER);
 		expect(counter(ROUND_CHECK_PREFIX)).toBe(0);
 		expect(readLog()).toEqual([]);
-		expect(readJsonl(logPath(dir, CLOSE_CHECK_LOG))?.rows).toEqual([
+		expect(readJsonl(logPath(dir, CLOSE_CHECK_LOG))?.lines).toEqual([
 			expect.objectContaining({ kind: "refused", trigger: "low-top" }),
 			expect.objectContaining({ kind: "refused-ladder" }),
 		]);

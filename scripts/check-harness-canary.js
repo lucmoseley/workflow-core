@@ -58,7 +58,6 @@ const { writeFileAtomic } = require("./lib/atomic-write.js");
 const { runCheck } = require("./lib/check");
 const { probeAgentId } = require("./lib/agent-id-probe.js");
 const { caught } = require("./lib/caught.js");
-const { parseJsonl } = require("./lib/jsonl.js");
 const { launchAuthRefusal } = require("./lib/launch-auth.js");
 const { readClaudeVersion } = require("./lib/claude-version.js");
 const { configDir } = require("./lib/config-dir.js");
@@ -227,7 +226,15 @@ function transcriptOf(sid) {
  * @param {string} text
  */
 function parseTranscript(text) {
-	const rows = /** @type {TranscriptRow[]} */ (parseJsonl(text).rows);
+	/** @type {TranscriptRow[]} */
+	const rows = [];
+	for (const line of text.split("\n")) {
+		try {
+			rows.push(JSON.parse(line));
+		} catch {
+			/* A blank or torn line carries nothing the verdict reads. */
+		}
+	}
 	const listing = rows.find((r) => r?.attachment?.type === "skill_listing");
 	const names = listing ? (listing.attachment?.names ?? []).map(String) : null;
 	const call = rows
