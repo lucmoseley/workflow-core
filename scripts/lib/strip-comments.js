@@ -222,4 +222,21 @@ function stripComments(source) {
 	return out + source.slice(from);
 }
 
-module.exports = { scanJs, stripComments };
+/**
+ * `source` with every comment blanked to spaces, its line breaks kept, so an
+ * offset or line number in the result is the one in `source` (#3634).
+ * @param {string} source
+ */
+function blankComments(source) {
+	let out = "";
+	let from = 0;
+	for (const [start, end] of scanJs(source).comments) {
+		out +=
+			source.slice(from, start) +
+			source.slice(start, end).replace(/[^\n]/g, " ");
+		from = end;
+	}
+	return out + source.slice(from);
+}
+
+module.exports = { blankComments, scanJs, stripComments };

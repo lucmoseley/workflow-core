@@ -119,6 +119,24 @@ describe("JavaScript", () => {
 		expect(tags(run())).toContain("SELF-ROOTED-JS");
 	});
 
+	it("still reads a spelling after JSX text holding an apostrophe, then a glob (#3634)", () => {
+		clean();
+		write(
+			"scripts/a.tsx",
+			'const A = () => <p>don\'t</p>;\nconst G = \'scripts/*.js\';\nconst ROOT = path.join(__dirname, "..", "..");\n',
+		);
+		expect(messages(run())).toMatch(/a\.tsx:3/);
+	});
+
+	it("still reads a spelling after a regex literal holding a quote, then a glob (#3634)", () => {
+		clean();
+		write(
+			"scripts/b.js",
+			'const Q = /"/;\nconst G = "scripts/*.js";\nconst ROOT = path.join(__dirname, "..", "..");\n',
+		);
+		expect(messages(run())).toMatch(/b\.js:3/);
+	});
+
 	it("fails an ESM climb out of scripts/, in each spelling", () => {
 		clean();
 		const climbs = [
