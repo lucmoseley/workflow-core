@@ -99,8 +99,11 @@
  *    read is taken to write it first and passes unread, unrecorded: a script
  *    writing a path the command never names is the false refusal left, and a
  *    same-named file in another directory, or a basename inside a longer
- *    word, the missed one. The REST and GraphQL routes are not judged, and
- *    neither is a create carrying no body flag at all.
+ *    word, the missed one. A REST create's `body` field is judged as the
+ *    flag form's body is (#3492), but for `-F body=@<path>`, which is not
+ *    read: gh refuses a file it cannot open, so an absent one files nothing.
+ *    The GraphQL route is not judged, and neither is a create carrying no
+ *    body at all.
  *  - THE BASIS LIMB (#672) refuses, on a body the blank-body limb read, a
  *    gate line or a prose wait with no `**Gate basis:**`, or a window in
  *    either that the basis does not name (#823), through lib/issue-gate.js.
@@ -226,6 +229,20 @@ const GRAPHQL_FIX =
 
 const FLAG_FORM_COST =
 	"A `gh issue create` naming a label GitHub does not know ABORTS THE WHOLE CREATE AND STILL EXITS 0: nothing is filed, and the call reads as success.";
+const FLAG_FORM_BLANK = `gh files an issue from an absent or empty body file as a blank issue, and exits 0 (mantahostels#3443).
+
+Write the body first. Either check the call that should have written the file really ran — a denied compound command writes nothing — or feed the body in this same command:
+
+  cat <<'BODY' | gh issue create --title "…" --label takes:… --body-file -
+  <the body>
+  BODY
+
+A command that writes the file itself before creating (\`cat > <path> <<'BODY'\`, \`tee <path>\`) is let through: the file's name appearing a second time on the command reads as that write.`;
+const API_FORM_BLANK = `GitHub files an issue from an empty body field as a blank issue (mantahostels#3443).
+
+Write the body into the field, or read it from a file gh opens itself:
+
+  gh api --method POST repos/<owner>/<repo>/issues -f title=… -f 'labels[]=takes:…' -F body=@<path>`;
 const API_FORM_COST =
 	"Whether GitHub creates the misspelt label or drops it, nothing downstream reads it: /pick-next shows `none` in its TAKES column, and the issue is as unroutable as one carrying no label at all.";
 
@@ -299,6 +316,7 @@ function judge(run, cmd) {
  * @property {string} fix the command up to its labels
  * @property {string} flag how it spells one label: the flag
  * @property {string} key and the value's prefix
+ * @property {string} blank why a blank body files anyway, and how to write one
  */
 
 /**
@@ -348,6 +366,7 @@ function judgeCreate(run, cmd, args) {
 		repoHidden: false,
 		route: {
 			cost: FLAG_FORM_COST,
+			blank: FLAG_FORM_BLANK,
 			fix: 'gh issue create --title "…" --body "…"',
 			flag: "--label",
 			key: "",
@@ -365,7 +384,7 @@ function judgeCreate(run, cmd, args) {
 	if (!scanned) return;
 	if (scan.unreadable)
 		open(run.ctx, `${scan.unreadable} — create allowed unchecked`);
-	judgeBody(run, cmd.segment, made.body);
+	judgeBody(run, cmd.segment, made);
 	judgeLabels(run, cmd.segment, made);
 	judgeSecondMap(run, cmd, made);
 	if (made.body.fault)
@@ -434,17 +453,19 @@ function createWord(scan, kind, name, value) {
  * unreadable first.
  * @param {Run} run
  * @param {string} segment
- * @param {Body} body
+ * @param {Creation} made
  */
-function judgeBody(run, segment, body) {
+function judgeBody(run, segment, { body, route }) {
 	if (body.missing)
 		denyBlank(
 			run,
 			segment,
 			`is read from a file that does not exist: \`${body.missing}\``,
+			route,
 		);
 	if (!body.given || body.hidden) return;
-	if (!/[^ \t\n\v\f\r]/.test(body.text)) denyBlank(run, segment, "is empty");
+	if (!/[^ \t\n\v\f\r]/.test(body.text))
+		denyBlank(run, segment, "is empty", route);
 	judgeBasis(run, segment, body.text);
 	judgeCheck(run, segment, body.text);
 }
@@ -453,31 +474,24 @@ function judgeBody(run, segment, body) {
  * @param {Run} run
  * @param {string} segment
  * @param {string} wrong completes "This files an issue whose body …"
+ * @param {Route} route
  * @returns {never}
  */
-function denyBlank(run, segment, wrong) {
+function denyBlank(run, segment, wrong, route) {
 	return deny(
 		run.ctx,
 		segment,
 		`This files an issue whose body ${wrong}: @CMD@
 
-gh files an issue from an absent or empty body file as a blank issue, and exits 0 (mantahostels#3443).
-
-Write the body first. Either check the call that should have written the file really ran — a denied compound command writes nothing — or feed the body in this same command:
-
-  cat <<'BODY' | gh issue create --title "…" --label takes:… --body-file -
-  <the body>
-  BODY
-
-A command that writes the file itself before creating (\`cat > <path> <<'BODY'\`, \`tee <path>\`) is let through: the file's name appearing a second time on the command reads as that write.`,
+${route.blank}`,
 	);
 }
 
 /**
  * The basis limb (#672), read by lib/issue-gate.js, which file-issue.js and
  * issue-body.js share, so the three routes cannot disagree. Only a body this
- * guard read is judged — the REST and GraphQL routes, and a hidden body, pass
- * it unjudged.
+ * guard read is judged — the GraphQL route, and a hidden body, pass it
+ * unjudged.
  * @param {Run} run
  * @param {string} segment
  * @param {string} text
@@ -1023,12 +1037,14 @@ function judgeApi(run, cmd, args) {
 		repoHidden: repo === null,
 		route: {
 			cost: API_FORM_COST,
+			blank: API_FORM_BLANK,
 			fix: "gh api --method POST repos/<owner>/<repo>/issues -f title=…",
 			flag: "-f",
 			key: "labels[]=",
 		},
 	};
 	readApiFields(run, call.fields, made);
+	judgeBody(run, cmd.segment, made);
 	judgeLabels(run, cmd.segment, made);
 	judgeSecondMap(run, cmd, made);
 }
@@ -1056,9 +1072,11 @@ function readApiField(run, field, made) {
 	const { text: raw, known } = literal(field, run.parsed.spans);
 	const text = trimEndRun(raw, "\n");
 	if (text.startsWith("body=")) {
-		/* The body, for the takes:human limb. `@file` is gh's read-from-disk
-		 * spelling on -F, and what follows it is a path rather than the text. */
+		/* The body, for the body limbs and the takes:human one. `@file` is
+		 * gh's read-from-disk spelling on -F, and what follows it is a path
+		 * rather than the text. */
 		const value = text.slice("body=".length);
+		made.body.given = true;
 		if (!known || value.startsWith("@")) made.body.hidden = true;
 		else made.body.text += value;
 		return;
