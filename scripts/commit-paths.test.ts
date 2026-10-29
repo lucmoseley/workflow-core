@@ -32,6 +32,7 @@ import {
 	plantSequencer,
 	ROOT,
 } from "./lib/precommit-gate-testkit";
+import { makeProcRoot, writeCwd } from "./lib/proc-fake";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "commit-paths.js");
@@ -1034,6 +1035,23 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 		const [, code, waited] = readLastOutcome() ?? [];
 		expect(code).toBe("committed");
 		expect(Number(waited)).toBeGreaterThanOrEqual(0.2);
+	});
+
+	it("names the lock's git process from a WFC_PROC root, not the real /proc (#3538)", async () => {
+		const fake = makeProcRoot();
+		fake.proc(4242, { comm: "git", argv: "git commit -m fake" });
+		writeCwd(fake.root, "4242", sb.repo);
+		write("new.md");
+		fs.writeFileSync(lockFile(), "");
+		const r = await waiter(
+			["-m", "after wait", "--", "new.md"],
+			{ ...ceiling(5000), WFC_PROC: fake.root },
+			() => setTimeout(() => fs.rmSync(lockFile()), 200),
+		).finally(fake.remove);
+		expect(r.stderr).toContain(
+			"index.lock is held; git pid 4242 is live in this worktree (`git commit -m fake`)",
+		);
+		expect(r.status).toBe(0);
 	});
 
 	it("waits out a neighbour's commit met at the commit step, naming its git process and session", async () => {

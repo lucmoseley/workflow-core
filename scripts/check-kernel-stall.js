@@ -59,6 +59,7 @@
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const { runCheck } = require("./lib/check");
+const { REAL_PROC } = require("./lib/proc-root.js");
 const { docPath } = require("./lib/script-path.js");
 const { sleepSync } = require("./lib/sleep-sync.js");
 
@@ -183,10 +184,11 @@ function sampleClock() {
 	const fixture = process.env.WFC_SCHED_CLOCK;
 	const read = (/** @type {string} */ dir) =>
 		readClock(`${dir}/schedstat`, `${dir}/stat`);
-	const before = read(fixture ? `${fixture}/before` : "/proc");
+	/* Its seam is WFC_SCHED_CLOCK; a WFC_PROC fake carries no clock. */
+	const before = read(fixture ? `${fixture}/before` : REAL_PROC);
 	if (!before) return null;
 	if (!fixture) sleepSync(CLOCK_WAIT_MS);
-	const after = read(fixture ? `${fixture}/after` : "/proc");
+	const after = read(fixture ? `${fixture}/after` : REAL_PROC);
 	if (!after) return null;
 	return { rq: after.rq - before.rq, busy: after.busy - before.busy };
 }

@@ -19,6 +19,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { makeProcRoot, writeCwd } from "./lib/proc-fake";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.join(__dirname, "cut-mantahostels.js");
@@ -285,6 +286,21 @@ describe("cut-mantahostels.js", () => {
 			expect(f.tagged()).toBe(false);
 		} finally {
 			child.kill();
+		}
+	});
+
+	it("reads the processes inside the adopter from a WFC_PROC root (#3538)", () => {
+		const f = fixture();
+		const fake = makeProcRoot();
+		try {
+			fake.proc(4242, { argv: "claude --resume" });
+			writeCwd(fake.root, "4242", f.dir);
+			const r = f.cut({ WFC_PROC: fake.root });
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain(`pid 4242 (claude) in ${f.dir}`);
+			expect(f.tagged()).toBe(false);
+		} finally {
+			fake.remove();
 		}
 	});
 
