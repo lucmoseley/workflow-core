@@ -108,7 +108,42 @@ function seatCandidates() {
  * write into _A.
  */
 function storeConfigDir() {
-	return isSeat(configDir()) ? seatCandidates()[0] : configDir();
+	const dir = configDir();
+	return isSeat(dir) || isOverflowSeat(dir) ? seatCandidates()[0] : dir;
+}
+
+/** @type {string[]|undefined} */
+let overflowKeys;
+
+/**
+ * Whether `dir` is an overflow seat `~/.claude/refill-seats` declares (#2570):
+ * its headless sessions share the plan seats' store, or the refill loop reads
+ * none of their acts and their claims are invisible to every other session.
+ * STOPGAP: reads the file's overflow lines (`<dir> api …`) here, since
+ * lib/refill-seats.js, the grammar's owner, imports this module (#2611).
+ * @param {string} dir
+ */
+function isOverflowSeat(dir) {
+	if (overflowKeys === undefined) {
+		const home = process.env.HOME ?? "";
+		let text = "";
+		try {
+			text = fs.readFileSync(
+				path.join(home, ".claude", "refill-seats"),
+				"utf8",
+			);
+		} catch {
+			/* No seat file declares no overflow seat. */
+		}
+		overflowKeys = text
+			.split("\n")
+			.map((l) => l.trim().split(/\s+/))
+			.filter((w) => w[1] === "api")
+			.map((w) =>
+				realKey(w[0].startsWith("~/") ? path.join(home, w[0].slice(2)) : w[0]),
+			);
+	}
+	return overflowKeys.includes(realKey(dir));
 }
 
 /*
