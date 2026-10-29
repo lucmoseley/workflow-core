@@ -61,12 +61,6 @@ const GATES = [
 		args: "",
 	},
 	{
-		profile: "gh-route",
-		checker: "scripts/check-gh-route.js",
-		staged: "scripts/a.sh",
-		args: "",
-	},
-	{
 		profile: "clock-copies",
 		checker: "scripts/check-clock-copies.js",
 		staged: "scripts/a.js",

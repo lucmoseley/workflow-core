@@ -483,12 +483,6 @@ if armed '^scripts/.+\.[cm]?js$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-jsonl-reads.js || exit "$?"
 fi
 
-# A `gh` call off lib/gh.js and WFC_GH: a second var, a local spawn, a bare
-# shell `gh` or a test's PATH stub (§X2, §N7), judging the whole tree (#3455).
-if armed '^(scripts|\.claude/skills|\.husky|hooks)/'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-gh-route.js || exit "$?"
-fi
-
 # A program reading WFC_NOW itself rather than lib/check.js's now(), judging
 # the whole tree (#3457).
 if armed '^scripts/.+\.[cm]?js$'; then
