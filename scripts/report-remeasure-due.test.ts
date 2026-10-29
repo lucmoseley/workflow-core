@@ -27,7 +27,8 @@ const TITLE = "Re-measure focused against identical review runs";
 const LABEL = "takes:wayfinder";
 const FLOOR = "2026-10-14";
 const NOW = "2026-11-20T09:00:00Z";
-const CORPUS = ["o/core", "o/manta", "o/books"];
+const OWN = "o/wfc";
+const CORPUS = [OWN, "o/fleet", "o/manta", "o/books"];
 
 const temps: string[] = [];
 afterEach(() => {
@@ -83,8 +84,7 @@ function fixture(opts: {
 		JSON.stringify({
 			contract: 1,
 			founder: "F",
-			tracker: "o/core",
-			codeRepo: "o/core-code",
+			tracker: OWN,
 			corpus: CORPUS,
 		}),
 	);
@@ -139,7 +139,7 @@ function fixture(opts: {
 			`else if (a[1] === 'view') process.stdout.write(fs.readFileSync(${JSON.stringify(issueBody.bodyFile)}, 'utf8'));`,
 			opts.createFails
 				? "else if (a[1] === 'create') { process.stderr.write('HTTP 403: Resource not accessible\\n'); process.exit(1); }"
-				: "else if (a[1] === 'create') process.stdout.write('https://github.com/o/core/issues/999\\n');",
+				: "else if (a[1] === 'create') process.stdout.write('https://github.com/o/fleet/issues/999\\n');",
 		].join("\n"),
 	);
 	return {
@@ -200,17 +200,89 @@ const ticket = (number: number, ns: number[], extra: string[] = []): Hit => ({
 });
 
 describe("the re-measure trigger", () => {
-	it("is silent below 15 counted commits, and asks the tracker nothing but the search", () => {
-		const fx = fixture({ hits: { "o/core": [ticket(1, range(1, 14))] } });
+	it("is silent below 15 counted commits with no issue filed, and asks the tracker nothing but the search and that issue", () => {
+		const fx = fixture({ hits: { "o/fleet": [ticket(1, range(1, 14))] } });
 		const r = run(fx);
 		expect(r).toEqual({ code: 0, stdout: "", stderr: "" });
-		expect(fx.calls().every((c) => c[1] === "graphql")).toBe(true);
+		expect(fx.calls().every((c) => c[1] === "graphql" || c[1] === "list")).toBe(
+			true,
+		);
+	});
+
+	it("counts no commit recorded on this repo's own tracker, still reporting its records and counting its escaped-defect line for an adopter's commit (#3576)", () => {
+		const bad = "**Review findings:** base 1234567 reviewed";
+		const fx = fixture({
+			hits: {
+				[OWN]: [
+					ticket(1, range(1, 20), [bad]),
+					{
+						number: 2,
+						updated: "2026-11-01",
+						comments: [`**Escaped defect:** ${sha("c", 35)}`],
+					},
+				],
+				"o/fleet": [
+					ticket(3, range(21, 14)),
+					ticket(4, [], [record(35, ["DECLINED: a style nit"])]),
+				],
+			},
+		});
+		const r = run(fx);
+		expect(r.code).toBe(0);
+		expect(r.stderr).toBe(
+			`UNPARSEABLE: ${OWN}#1 has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: ${bad}\n`,
+		);
+		expect(r.stdout).toContain("Re-measure due: 15 counted commits. Filed");
+		const body = flag(creates(fx)[0], "--body");
+		expect(body).not.toContain(`${OWN}#`);
+		expect(body).toContain(
+			`- o/fleet#4: landed ${sha("c", 35)}, base ${sha("b", 35)}, tree ${sha("e", 35)}; 0 fixed or ticketed, 1 escaped`,
+		);
+		expect(
+			fx
+				.calls()
+				.filter((c) => c[1]?.startsWith("search/commits?"))
+				.map((c) => / repo:(\S+)/.exec(decodeURIComponent(c[1]))?.[1]),
+		).toEqual(["o/fleet"]);
+	});
+
+	it("refreshes an existing issue below 15 silently, its first line the count less a reverted commit, and never files a second (#3576)", () => {
+		const fx = fixture({
+			hits: {
+				[OWN]: [ticket(1, range(1, 18))],
+				"o/manta": [ticket(2, [19, 20, 21])],
+			},
+			commits: {
+				"o/manta": [
+					{
+						sha: "e".repeat(40),
+						message: `Revert "x"\n\nThis reverts commit ${sha("c", 21).padEnd(40, "0")}.\n`,
+					},
+				],
+			},
+			issues: [
+				{
+					number: 77,
+					title: TITLE,
+					labels: [{ name: "takes:wayfinder" }],
+					closedAt: null,
+					createdAt: "2026-11-02T00:00:00Z",
+				},
+			],
+		});
+		const r = run(fx);
+		expect(r).toEqual({ code: 0, stdout: "", stderr: "" });
+		expect(creates(fx)).toEqual([]);
+		expect(fx.issueBody.body().split("\n")[0]).toMatch(
+			/^2 commits on adopter-declared sensitive paths/,
+		);
+		expect(fx.issueBody.body()).not.toContain(`landed ${sha("c", 21)}`);
 	});
 
 	it("files one issue at 15, pooled across repos, listing each commit's repo, base and tree", () => {
 		const fx = fixture({
 			hits: {
-				"o/core": [ticket(1, range(1, 8))],
+				"o/fleet": [ticket(1, range(1, 8))],
 				"o/books": [ticket(4, range(9, 7))],
 			},
 		});
@@ -224,7 +296,7 @@ describe("the re-measure trigger", () => {
 		const body = flag(create, "--body");
 		expect(body.split("\n").filter((l) => l.startsWith("- "))).toHaveLength(15);
 		expect(body).toContain(
-			`- o/core#1: landed ${sha("c", 1)}, base ${sha("b", 1)}, tree ${sha("e", 1)}; 1 fixed or ticketed, 0 escaped`,
+			`- o/fleet#1: landed ${sha("c", 1)}, base ${sha("b", 1)}, tree ${sha("e", 1)}; 1 fixed or ticketed, 0 escaped`,
 		);
 		expect(body).toContain(`- o/books#4: landed ${sha("c", 15)}`);
 		expect(searches(fx).map((q) => /repo:(\S+)/.exec(q)?.[1])).toEqual(CORPUS);
@@ -263,7 +335,7 @@ describe("the re-measure trigger", () => {
 		const declined = record(15, ["DECLINED: a rename the precedent rules out"]);
 		const fx = fixture({
 			hits: {
-				"o/core": [
+				"o/fleet": [
 					ticket(1, range(1, 14), [
 						`${declined}\n\nAs the earlier review put it:\n- FIXED: something else`,
 					]),
@@ -276,7 +348,7 @@ describe("the re-measure trigger", () => {
 	it("counts that commit once an escaped defect, filed on another repo's ticket, names it", () => {
 		const fx = fixture({
 			hits: {
-				"o/core": [
+				"o/fleet": [
 					ticket(1, range(1, 14), [
 						record(15, ["DECLINED: a rename the precedent rules out"]),
 					]),
@@ -295,14 +367,14 @@ describe("the re-measure trigger", () => {
 		const r = run(fx);
 		expect(r.stdout).toContain("15 counted commits");
 		expect(flag(creates(fx)[0], "--body")).toContain(
-			`- o/core#1: landed ${sha("c", 15)}, base ${sha("b", 15)}, tree ${sha("e", 15)}; 0 fixed or ticketed, 1 escaped`,
+			`- o/fleet#1: landed ${sha("c", 15)}, base ${sha("b", 15)}, tree ${sha("e", 15)}; 0 fixed or ticketed, 1 escaped`,
 		);
 	});
 
 	it("counts neither an ordinary review report under an escalated tier, a record with no escalated tier above it, nor one commit twice by a short and a full sha", () => {
 		const fx = fixture({
 			hits: {
-				"o/core": [
+				"o/fleet": [
 					{
 						number: 3,
 						updated: "2026-11-01",
@@ -323,7 +395,7 @@ describe("the re-measure trigger", () => {
 		const bad = `**Review findings:** base ${sha("b", 1)}, reviewed ${sha("e", 1)} (pinned at refs/reviewed/${sha("e", 1)}), landed ${sha("c", 1)}`;
 		const fx = fixture({
 			hits: {
-				"o/core": [
+				"o/fleet": [
 					{
 						number: 7,
 						updated: "2026-11-01",
@@ -346,7 +418,7 @@ describe("the re-measure trigger", () => {
 			},
 		});
 		const r = run(fx);
-		const fault = `o/core#7 has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: ${bad}`;
+		const fault = `o/fleet#7 has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: ${bad}`;
 		expect(r).toEqual({
 			code: 0,
 			stdout: "",
@@ -362,11 +434,11 @@ describe("the re-measure trigger", () => {
 			/landed (\S+)/,
 			"landed $1 (queued on landing), paths lib/pricing/quote.ts",
 		);
-		const fault = `o/core#2 has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: ${noted.split("\n")[0]}`;
+		const fault = `o/fleet#2 has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: ${noted.split("\n")[0]}`;
 		const alone = run(
 			fixture({
 				hits: {
-					"o/core": [ticket(1, range(1, 14)), ticket(2, [], [noted])],
+					"o/fleet": [ticket(1, range(1, 14)), ticket(2, [], [noted])],
 				},
 			}),
 		);
@@ -381,7 +453,7 @@ describe("the re-measure trigger", () => {
 		);
 		const fx = fixture({
 			hits: {
-				"o/core": [
+				"o/fleet": [
 					ticket(1, range(1, 14)),
 					ticket(
 						2,
@@ -407,11 +479,11 @@ describe("the re-measure trigger", () => {
 		});
 		const r = run(fx);
 		expect(r.stderr).toBe(
-			`UNPARSEABLE: o/core#4 has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: ${stray.split("\n")[0]}\n`,
+			`UNPARSEABLE: o/fleet#4 has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: ${stray.split("\n")[0]}\n`,
 		);
 		expect(r.stdout).toContain("17 counted commits");
 		expect(flag(creates(fx)[0], "--body")).toContain(
-			`- o/core#2: landed ${sha("c", 15)}, base ${sha("b", 15)}, tree ${sha("e", 15)}, paths lib/pricing/quote.ts; 1 fixed or ticketed, 0 escaped`,
+			`- o/fleet#2: landed ${sha("c", 15)}, base ${sha("b", 15)}, tree ${sha("e", 15)}, paths lib/pricing/quote.ts; 1 fixed or ticketed, 0 escaped`,
 		);
 	});
 
@@ -421,7 +493,7 @@ describe("the re-measure trigger", () => {
 		fs.mkdirSync(path.join(code, ".claude"), { recursive: true });
 		fs.writeFileSync(
 			path.join(code, ".claude", "workflow-core.json"),
-			JSON.stringify({ contract: 1, founder: "F", tracker: "o/core" }),
+			JSON.stringify({ contract: 1, founder: "F", tracker: OWN }),
 		);
 		const git = (...a: string[]) =>
 			execFileSync(
@@ -465,8 +537,10 @@ describe("the re-measure trigger", () => {
 				`**Review findings:** base ${base}, reviewed ${reviewed}, landed ${l}${paths}`,
 				`- ${disposed} (Focus)`,
 			].join("\n");
+		/* On this repo's own tracker, which the count skips but this report
+		 * still reads (#3576). */
 		fx.setHits({
-			"o/core": [
+			[OWN]: [
 				{
 					number: 7,
 					updated: "2026-11-01",
@@ -491,7 +565,7 @@ describe("the re-measure trigger", () => {
 			],
 		});
 		const r = run(fx);
-		const fault = `o/core#7 has a record naming reviewed ${tree(landed[0])}, the tree landed ${landed[0]} carries on its paths, so a replay finds none of its fixed defects: name the tree pinned before the first round's dispatch, as \`scripts/lib/rule-text.sh review-tier-records\` says`;
+		const fault = `${OWN}#7 has a record naming reviewed ${tree(landed[0])}, the tree landed ${landed[0]} carries on its paths, so a replay finds none of its fixed defects: name the tree pinned before the first round's dispatch, as \`scripts/lib/rule-text.sh review-tier-records\` says`;
 		expect(r).toEqual({
 			code: 0,
 			stdout: "",
@@ -505,7 +579,7 @@ describe("the re-measure trigger", () => {
 	it("reads a record whose shas are backticked, and a ticket's comments past the first 100", () => {
 		const fx = fixture({
 			hits: {
-				"o/core": [
+				"o/fleet": [
 					ticket(1, range(1, 13), [
 						record(14).replace(/([bec]\d{8})/g, "`$1`"),
 					]),
@@ -524,11 +598,11 @@ describe("the re-measure trigger", () => {
 		const r = run(fx);
 		expect(r.stdout).toContain("15 counted commits");
 		expect(flag(creates(fx)[0], "--body")).toContain(
-			`- o/core#1: landed ${sha("c", 14)}, base ${sha("b", 14)}`,
+			`- o/fleet#1: landed ${sha("c", 14)}, base ${sha("b", 14)}`,
 		);
 		expect(fx.calls()).toContainEqual([
 			"api",
-			"repos/o/core/issues/2/comments",
+			"repos/o/fleet/issues/2/comments",
 			"--paginate",
 			"--slurp",
 		]);
@@ -538,7 +612,7 @@ describe("the re-measure trigger", () => {
 	it("counts a record naming its reviewed paths beside ones naming none, and lists the paths", () => {
 		const fx = fixture({
 			hits: {
-				"o/core": [
+				"o/fleet": [
 					ticket(1, range(1, 14), [
 						record(15).replace(
 							/landed (\S+)/,
@@ -552,7 +626,7 @@ describe("the re-measure trigger", () => {
 		expect(r.stdout).toContain("15 counted commits");
 		const body = flag(creates(fx)[0], "--body");
 		expect(body).toContain(
-			`- o/core#1: landed ${sha("c", 15)}, base ${sha("b", 15)}, tree ${sha("e", 15)}, paths lib/pricing/quote.ts,lib/pricing/tax.ts; 1 fixed or ticketed, 0 escaped`,
+			`- o/fleet#1: landed ${sha("c", 15)}, base ${sha("b", 15)}, tree ${sha("e", 15)}, paths lib/pricing/quote.ts,lib/pricing/tax.ts; 1 fixed or ticketed, 0 escaped`,
 		);
 		expect(body).toContain(
 			`tree ${sha("e", 14)}; 1 fixed or ticketed, 0 escaped`,
@@ -567,7 +641,7 @@ describe("the re-measure trigger", () => {
 	it("keeps a later record's paths, with its ticket, base and tree, where an earlier record of the same commit named none (#2083)", () => {
 		const fx = fixture({
 			hits: {
-				"o/core": [
+				"o/fleet": [
 					ticket(1, range(1, 15)),
 					{
 						number: 2,
@@ -579,19 +653,19 @@ describe("the re-measure trigger", () => {
 		});
 		expect(run(fx).stdout).toContain("15 counted commits");
 		expect(flag(creates(fx)[0], "--body")).toContain(
-			`- o/core#2: landed ${sha("c", 15)}, base ${sha("b", 16)}, tree ${sha("e", 16)}, paths lib/pricing/quote.ts; 2 fixed or ticketed, 0 escaped`,
+			`- o/fleet#2: landed ${sha("c", 15)}, base ${sha("b", 16)}, tree ${sha("e", 16)}, paths lib/pricing/quote.ts; 2 fixed or ticketed, 0 escaped`,
 		);
 	});
 
 	it("keeps an earlier record's paths, base and tree over a later pathless record of the same commit (#2083)", () => {
 		const fx = fixture({
 			hits: {
-				"o/core": [ticket(1, range(1, 14), [withPaths, record(15)])],
+				"o/fleet": [ticket(1, range(1, 14), [withPaths, record(15)])],
 			},
 		});
 		expect(run(fx).stdout).toContain("15 counted commits");
 		expect(flag(creates(fx)[0], "--body")).toContain(
-			`- o/core#1: landed ${sha("c", 15)}, base ${sha("b", 16)}, tree ${sha("e", 16)}, paths lib/pricing/quote.ts; 2 fixed or ticketed, 0 escaped`,
+			`- o/fleet#1: landed ${sha("c", 15)}, base ${sha("b", 16)}, tree ${sha("e", 16)}, paths lib/pricing/quote.ts; 2 fixed or ticketed, 0 escaped`,
 		);
 	});
 
@@ -599,7 +673,7 @@ describe("the re-measure trigger", () => {
 		const fx = fixture({
 			wideDays: 5,
 			hits: {
-				"o/core": range(1, 15).map((n) => ({
+				"o/fleet": range(1, 15).map((n) => ({
 					...ticket(n, [n]),
 					updated: `2026-10-${14 + n}`,
 				})),
@@ -625,7 +699,7 @@ describe("the re-measure trigger", () => {
 		]);
 		const fx = fixture({
 			hits: {
-				"o/core": [
+				"o/fleet": [
 					ticket(1, range(1, 13), [
 						// Record 14's counts line cut and record 15's header indented after
 						// a blank line, so only the header itself ends 14's list.
@@ -658,7 +732,7 @@ describe("the re-measure trigger", () => {
 		expect(creates(fx)).toEqual([]);
 	});
 
-	it("drops a commit whose revert is on main, in the tracker or, for its own tracker alone, its code repo, but not one whose revert was itself reverted (#3395)", () => {
+	it("drops a commit whose revert is on its tracker's main, but not one whose revert was itself reverted (#3395)", () => {
 		const full = (n: number) => sha("c", n).padEnd(40, "0");
 		const revert = (by: string, of: string) => ({
 			sha: by,
@@ -666,13 +740,15 @@ describe("the re-measure trigger", () => {
 		});
 		const revertOf7 = "a".repeat(40);
 		const commits = {
-			"o/core-code": [revert("f".repeat(40), full(3))],
-			"o/core": [revert(revertOf7, full(7)), revert("d".repeat(40), revertOf7)],
+			"o/fleet": [
+				revert(revertOf7, full(7)),
+				revert("d".repeat(40), revertOf7),
+			],
 			"o/manta": [revert("e".repeat(40), full(17))],
 		};
 		const fx = fixture({
 			hits: {
-				"o/core": [ticket(1, range(1, 16))],
+				"o/fleet": [ticket(1, range(1, 15))],
 				"o/manta": [ticket(2, [17])],
 			},
 			commits,
@@ -681,7 +757,6 @@ describe("the re-measure trigger", () => {
 		expect(r.code).toBe(0);
 		expect(r.stdout).toContain("Re-measure due: 15 counted commits. Filed");
 		const body = flag(creates(fx)[0], "--body");
-		expect(body).not.toContain(`landed ${sha("c", 3)}`);
 		expect(body).not.toContain(`landed ${sha("c", 17)}`);
 		expect(body).toContain(`landed ${sha("c", 7)}`);
 		expect(
@@ -689,9 +764,12 @@ describe("the re-measure trigger", () => {
 				.calls()
 				.filter((c) => c[1]?.startsWith("search/commits?"))
 				.map((c) => / repo:(\S+)/.exec(decodeURIComponent(c[1]))?.[1]),
-		).toEqual(["o/core", "o/core-code", "o/manta"]);
+		).toEqual(["o/fleet", "o/manta"]);
 		const below = fixture({
-			hits: { "o/core": [ticket(1, range(1, 15))] },
+			hits: {
+				"o/fleet": [ticket(1, range(1, 14))],
+				"o/manta": [ticket(2, [17])],
+			},
 			commits,
 		});
 		expect(run(below)).toEqual({ code: 0, stdout: "", stderr: "" });
@@ -703,14 +781,14 @@ describe("the re-measure trigger", () => {
 		[
 			"returns fewer hits than its count",
 			{ commitsShort: true },
-			"o/core: revert search returned 0 of 1 hits",
+			"o/fleet: revert search returned 0 of 1 hits",
 		],
 	])(
 		"fails open, logging the fault, where the revert search %s (#3395)",
 		(_, opts, why) => {
 			const fx = fixture({
 				...opts,
-				hits: { "o/core": [ticket(1, range(1, 15))] },
+				hits: { "o/fleet": [ticket(1, range(1, 15))] },
 			});
 			const r = run(fx);
 			expect(r.code).toBe(0);
@@ -727,7 +805,7 @@ describe("the re-measure trigger", () => {
 	it("fails open, logging the fault, where the filing fails (#1698)", () => {
 		const fx = fixture({
 			createFails: true,
-			hits: { "o/core": [ticket(1, range(1, 15))] },
+			hits: { "o/fleet": [ticket(1, range(1, 15))] },
 		});
 		const r = run(fx);
 		expect(r.code).toBe(0);
