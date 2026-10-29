@@ -47,6 +47,7 @@ const {
 	buildRuleFlag,
 	buildShapeOnlyReason,
 } = require("./shape-hold");
+const { REF_FORMS, scanIssueRefs } = require("./issue-ref.js");
 
 /** @typedef {import("./round-marker").QuestionBlock} QuestionBlock */
 
@@ -90,11 +91,6 @@ function bandsOf(block) {
  * lettered extension or a `/`. Lexical, a reading for the log and never a
  * gate (#2010). */
 const URL_CITE = /https?:\/\/[^\s)>\]`"']*[^\s)>\]`"'.,;:]/g;
-/* Each prefix run is entered only at its first start the lookbehind allows
- * (its head, past its first `.`/`-`, or past the last match's end), not at
- * every character of it. */
-const ISSUE_CITE =
-	/(?:(?:(?<![\w.&{$-])|(?<=[&{$]\w*[.-])|(?<=#\d+[.-]))[\w.-]+\/[\w.-]+|(?:(?<![\w&{$-])|(?<=[&{$]\w*-)|(?<=#\d+-))[\w-]+|(?<![\w&{$]))#\d+(?!\w)/g;
 const PATH_LINE_CITE =
 	/(?<![\w/.-])(?:[\w.-]*(?:\/[\w.-]+)*\.[A-Za-z]\w*|[\w.-]+(?:\/[\w.-]+)+):\d+(?::\d+)?(?![\d:])/g;
 
@@ -111,7 +107,7 @@ function citesOf(block) {
 	return [
 		...new Set([
 			...(text.match(URL_CITE) ?? []),
-			...(withoutUrls.match(ISSUE_CITE) ?? []),
+			...scanIssueRefs(withoutUrls, REF_FORMS.citation).map((r) => r.text),
 			...(withoutUrls.match(PATH_LINE_CITE) ?? []),
 		]),
 	];
