@@ -485,6 +485,12 @@ if armed '^scripts/.+\.[cm]?js$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-jsonl-reads.js --against HEAD || exit "$?"
 fi
 
+# A program reading WFC_NOW itself rather than lib/check.js's now(), judging
+# the whole tree (#3457).
+if armed '^scripts/.+\.[cm]?js$'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-clock-copies.js || exit "$?"
+fi
+
 # The doc map's own coverage, checked here as well as in roadmap-digest.yml
 # (mantahostels#390, the ticket that moved this local). Rationale and measurement:
 # docs/doc-map.md §A.

@@ -209,6 +209,10 @@
 			"lines": ["hand-parses JSONL"]
 		},
 		{
+			"id": "clock-copies",
+			"lines": ["reads WFC_NOW itself"]
+		},
+		{
 			"id": "primitives",
 			"lines": ["primitives table fault(s)"]
 		},

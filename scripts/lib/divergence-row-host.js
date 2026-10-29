@@ -6,8 +6,8 @@
  * A PRODUCTION ADAPTER (base §T7): it touches git through lib/git.js and
  * lib/git-tree.js, the workflow-core config through lib/landing-refs.js in
  * process, `ps` at WFC_PS, /proc through lib/claude-sessions.js, the
- * filesystem, and
- * `process.env` for WFC_NO_DIVERGENCE_LOG, WFC_PS and WFC_NOW.
+ * filesystem, the env it is handed for WFC_NO_DIVERGENCE_LOG and WFC_PS, and
+ * lib/check.js's now() for the clock.
  *
  * Every module past node:fs loads where a refusal first needs it,
  * landing-refs.js and arbiter-core.js the heaviest: a load at the top is paid
@@ -50,16 +50,19 @@ function sessionsOff(ps) {
 }
 
 /**
- * The clock, pinned by WFC_NOW where it reads as a date (lib/check.js's
- * convention). RESIDUAL: the stamp is durable, so a session exporting WFC_NOW
- * stamps its rows at that time (mantahostels#2161); one that will not parse
- * is the wall clock, since dropping the row loses the observation.
- * @param {string | undefined} pinned
- * @returns {() => Date}
+ * lib/check.js's clock, loaded where a row first needs it. A WFC_NOW that will
+ * not parse is the wall clock, since dropping the row loses the observation
+ * (#2797). RESIDUAL: the stamp is durable, so a session exporting WFC_NOW
+ * stamps its rows at that time (mantahostels#2161).
+ * @returns {Date}
  */
-const clock = (pinned) => () => {
-	const t = pinned ? Date.parse(pinned) : Number.NaN;
-	return new Date(Number.isNaN(t) ? Date.now() : t);
+const clock = () => {
+	const { now } = require("./check.js");
+	try {
+		return new Date(now());
+	} catch {
+		return new Date();
+	}
 };
 
 /**
@@ -99,7 +102,7 @@ function buildHostPorts(env) {
 		counts: (top, ref) =>
 			git(["-C", top, "rev-list", "--left-right", "--count", `HEAD...${ref}`]),
 		sessions: () => sessionsOff(env.WFC_PS || "ps"),
-		now: clock(env.WFC_NOW),
+		now: clock,
 		projectDir: (top) => require("./arbiter-core.js").stateDirFor(top),
 	};
 }

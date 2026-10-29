@@ -14,7 +14,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
-const { errMessage } = require("./check");
+const { errMessage, now: checkNow } = require("./check");
 const { streamRecords } = require("./encoding-use");
 const { markersDir } = require("./marker-root");
 const { buildSkipLine, periodicReading } = require("./periodic-reading");
@@ -38,19 +38,22 @@ const CLAIM_STALE_MS = 10 * 60_000;
  * @typedef {{ state: "fires" | "undecided" | "holds", text: string }} Verdict
  */
 
-/** @param {string} message */
+/**
+ * @param {string} message
+ * @returns {never}
+ */
 function broken(message) {
 	writeFd(2, `BROKEN: ${message}\n`);
 	process.exit(2);
 }
 
-/** @returns {number} */
+/** lib/check.js's clock, a malformed WFC_NOW BROKEN. @returns {number} */
 function now() {
-	const raw = process.env.WFC_NOW;
-	if (!raw) return Date.now();
-	const t = Date.parse(raw);
-	if (Number.isNaN(t)) broken(`WFC_NOW is not a date: ${raw}`);
-	return t;
+	try {
+		return checkNow();
+	} catch (e) {
+		return broken(errMessage(e));
+	}
 }
 
 /**

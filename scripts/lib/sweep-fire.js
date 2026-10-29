@@ -153,6 +153,7 @@ function decide(command, ctx) {
 		parsed,
 		(cmd) => {
 			if (verdict || !firesSweep(cmd.words, parsed.spans)) return;
+			// clock-kept: the spend port's own parse, a bad pin a fault (mantahostels#2209)
 			const spend = ctx.spendSweep(ctx.env.WFC_NOW);
 			if ("fault" in spend) {
 				/* A budget that cannot be counted refuses nothing (mantahostels#103 §6). */

@@ -3217,6 +3217,22 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/check-clock-copies.js": [
+			"scripts/check-clock-copies.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/lib/arm-secondary.test.ts",
+			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/tooling-matrix.test.ts"
+		],
+		"scripts/check-clock-copies.test.ts": [
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/check-code-standards.js": [
 			"scripts/check-code-standards.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -7267,6 +7283,7 @@
 			"scripts/adopter-hook-shim.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-citation-ceiling.test.ts",
+			"scripts/check-clock-copies.test.ts",
 			"scripts/check-context-budget.test.ts",
 			"scripts/check-digest-render.test.ts",
 			"scripts/check-guard-errors.test.ts",
@@ -7463,6 +7480,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/check.js": [
+			"scripts/check-clock-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -7494,6 +7512,7 @@
 		],
 		"scripts/lib/child-buffer.js": [
 			"scripts/admission.test.ts",
+			"scripts/check-clock-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/check-suite-size-drift.test.ts",
@@ -8320,6 +8339,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/commit-sha.js": [
+			"scripts/check-clock-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -9573,6 +9593,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/envelope-frame-keys.js": [
+			"scripts/check-clock-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -9652,6 +9673,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/fault-diff.js": [
+			"scripts/check-clock-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -9678,6 +9700,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/fault-profiles.js": [
+			"scripts/check-clock-copies.test.ts",
 			"scripts/check-context-budget-session-cap.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
@@ -10541,6 +10564,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/git-mode.js": [
+			"scripts/check-clock-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -10558,6 +10582,7 @@
 		"scripts/lib/git-objects.js": [
 			".claude/skills/new-repo/scripts/new-repo-page.test.ts",
 			"scripts/check-citation-ceiling.test.ts",
+			"scripts/check-clock-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -10647,6 +10672,7 @@
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			".claude/skills/new-repo/scripts/new-repo-page.test.ts",
 			"scripts/check-citation-ceiling.test.ts",
+			"scripts/check-clock-copies.test.ts",
 			"scripts/check-context-budget-materialise.test.ts",
 			"scripts/check-context-budget.test.ts",
 			"scripts/check-guard-errors.test.ts",
@@ -11987,6 +12013,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/is-under.js": [
+			"scripts/check-clock-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -13407,6 +13434,7 @@
 		],
 		"scripts/lib/notify-report.js": [
 			"scripts/check-ci-status.test.ts",
+			"scripts/check-clock-copies.test.ts",
 			"scripts/check-ghost-jobs.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
@@ -13585,6 +13613,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/outcome-error.js": [
+			"scripts/check-clock-copies.test.ts",
 			"scripts/check-doc-map.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
@@ -13891,6 +13920,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/persist-mode.js": [
+			"scripts/check-clock-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -17042,6 +17072,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/session-id.js": [
+			"scripts/check-clock-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -18062,6 +18093,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/sweep-fire.js": [
+			"scripts/check-clock-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -19460,6 +19492,7 @@
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
+			"scripts/check-clock-copies.test.ts",
 			"scripts/check-context-budget.test.ts",
 			"scripts/check-digest-render.test.ts",
 			"scripts/check-guard-errors.test.ts",
@@ -19569,6 +19602,7 @@
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			".claude/skills/new-repo/scripts/new-repo-page.test.ts",
 			"scripts/check-citation-ceiling.test.ts",
+			"scripts/check-clock-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",

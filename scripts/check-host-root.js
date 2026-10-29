@@ -144,6 +144,11 @@ const ALLOWED = {
 		reason:
 			"its subject is the host's own scripts/, which the --against re-run materialises at `root`; __dirname would name the plugin's copies instead (#920, #1532)",
 	},
+	"scripts/check-clock-copies.js": {
+		tags: ["HOST-ROOTED-CORE"],
+		reason:
+			"its subject is the host's own scripts/, which the --against re-run materialises at `root`; __dirname would name the plugin's copies instead (#3457)",
+	},
 	"scripts/check-jsonl-reads.js": {
 		tags: ["HOST-ROOTED-CORE"],
 		reason:
