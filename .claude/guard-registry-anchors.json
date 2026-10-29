@@ -80,7 +80,7 @@
 	"scripts/session-arbiter.js": "dd06a82bd68b8df6",
 	"scripts/stale-write-back-gate.sh": "041c13c6ee40f37b",
 	"scripts/start-lander-on-push.js": "962cb85723ae4e01",
-	"scripts/sweep-debts-detached.sh": "dae85db8365ef4e9",
+	"scripts/sweep-debts-detached.sh": "0686c22f6eb03286",
 	"scripts/unpark-on-prompt.js": "474f0c282128e2a2",
 	"scripts/vitest-inflight-reporter.ts": "a3902de7de4a529b",
 	"scripts/vitest-pass-reporter.ts": "43d93aeb39fe752f",
