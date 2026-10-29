@@ -1,4 +1,0 @@
-const bin = path.join(dir, "bin");
-fs.writeFileSync(path.join(bin, "gh"), script, { mode: 0o755 });
-// gh-route-exempt: a session's own Bash finds gh by PATH
-const env = { PATH: `${bin}${path.delimiter}${process.env.PATH}` };

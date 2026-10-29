@@ -8,7 +8,7 @@
  * survives a hook killed on its deadline (mantahostels#998), so that case is driven with a
  * `gh` that never returns.
  *
- * Every case supplies its own `gh` at WFC_GH: these must never reach the network,
+ * Every case supplies its own `gh` on PATH: these must never reach the network,
  * and a test that silently depended on the founder's live issue titles would
  * change its own expectations whenever an issue was retitled.
  *
@@ -38,7 +38,7 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** A `gh` stub, for WFC_GH. `mode: "slow"` never returns, standing in for the
+/** A `gh` stub on PATH. `mode: "slow"` never returns, standing in for the
  * loaded machine that provoked the timeout; `"fail"` is an unauthenticated or
  * deleted-issue lookup.
  *
@@ -54,13 +54,12 @@ function stubGh(mode: "ok" | "slow" | "fail"): string {
 		fail: "exit 1",
 	};
 	const body = bodies[mode];
-	const gh = path.join(bin, "gh");
 	fs.writeFileSync(
-		gh,
+		path.join(bin, "gh"),
 		`#!/bin/sh\nprintf '%s\\n' "$*" >> ${JSON.stringify(argvLog())}\n${body}\n`,
 		{ mode: 0o755 },
 	);
-	return gh;
+	return bin;
 }
 
 function argvLog(): string {
@@ -102,7 +101,7 @@ function runHook(
 		}),
 	);
 
-	const gh = stubGh(opts.gh ?? "ok");
+	const bin = stubGh(opts.gh ?? "ok");
 	const payload: Record<string, unknown> = {
 		session_id: "s1",
 		cwd: process.cwd(),
@@ -115,7 +114,7 @@ function runHook(
 		encoding: "utf8",
 		env: {
 			...process.env,
-			WFC_GH: gh,
+			PATH: `${bin}:${process.env.PATH}`,
 			CLAUDE_JOB_DIR: jobDir,
 			// Never the founder's live registry: a job-write failure would send
 			// the interactive branch scanning their real sessions.
@@ -366,9 +365,10 @@ describe("an interactive session is found in the registry CLAUDE_CONFIG_DIR name
 			JSON.stringify({ sessionId: "s1", name: "old", nameSource: "auto" }),
 		);
 
+		const bin = stubGh("ok");
 		const env = {
 			...process.env,
-			WFC_GH: stubGh("ok"),
+			PATH: `${bin}:${process.env.PATH}`,
 			CLAUDE_CONFIG_DIR: cfg,
 		};
 		delete (env as Record<string, string | undefined>).CLAUDE_JOB_DIR;
@@ -391,10 +391,15 @@ describe("an interactive session is found in the registry CLAUDE_CONFIG_DIR name
 describe("a long title is truncated rather than filling the list column", () => {
 	/** Drive the hook with a gh that returns this exact title. */
 	function withTitle(title: string, env: Record<string, string> = {}): string {
-		const gh = path.join(dir, "gh-long");
-		fs.writeFileSync(gh, `#!/bin/sh\nprintf '%s\\n' '${title}'\n`, {
-			mode: 0o755,
-		});
+		const bin = path.join(dir, "bin-long");
+		fs.mkdirSync(bin, { recursive: true });
+		fs.writeFileSync(
+			path.join(bin, "gh"),
+			`#!/bin/sh\nprintf '%s\\n' '${title}'\n`,
+			{
+				mode: 0o755,
+			},
+		);
 		const jobDir = fs.mkdtempSync(path.join(dir, "job-trunc-"));
 		fs.writeFileSync(
 			path.join(jobDir, "state.json"),
@@ -409,7 +414,7 @@ describe("a long title is truncated rather than filling the list column", () => 
 			env: {
 				...process.env,
 				...env,
-				WFC_GH: gh,
+				PATH: `${bin}:${process.env.PATH}`,
 				CLAUDE_JOB_DIR: jobDir,
 				CLAUDE_CONFIG_DIR: path.join(dir, "config"),
 			},

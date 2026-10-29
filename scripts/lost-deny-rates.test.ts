@@ -11,6 +11,9 @@
  * that the denominator counts silent allows, and that a guard whose trigger
  * cannot be read reports unknown rather than a zero rate.
  *
+ * `docs/data/lost-deny-*-2026-09-06.csv` is the real fixture: the dumps the
+ * published figures were computed from.
+ *
  * EVERY CASE RUNS THE SCRIPT END TO END through runInProcess — against a
  * `WFC_LOST_DENY_ROOT` fixture tree (`fixtureRoot` below) or this checkout's
  * own — and reads its `--json` or its text, never a helper behind it (#1369:
@@ -294,8 +297,7 @@ describe("the deny rate's Wilson interval, as a row reports it", () => {
 	});
 
 	it("reproduces a published census row to two decimals", () => {
-		// docs/data/lost-deny-census-2026-09-05/rates.md's guard-issue-close
-		// row: 255 denies in 16,057 calls, 1.588% [1.41-1.79].
+		// guard-issue-close.js: 255 denies in 16,057 calls, 1.588% [1.41-1.79].
 		const row = report(sample(255, 16_057)).row();
 		expect(row).toMatchObject({ denies: 255, population: 16_057 });
 		expect(row.ratePct).toBeCloseTo(1.588, 3);
@@ -1006,28 +1008,6 @@ describe("a dispatcher's cores, each its own guard — #3424", () => {
 	});
 });
 
-describe("a transcript that throws mid-parse", () => {
-	// A JSONL line that parses (it is valid JSON) but is not a record — a field
-	// read on a bare `null` throws mid-scan, after the loss before it already
-	// reached a fresh per-file accumulator.
-	const records = [
-		lostRecord("denier.sh", "tu1", "2026-09-01T00:00:00.000Z"),
-		"null",
-	];
-
-	it("does not count the file as scanned, and discards its partial counts", () => {
-		const { corpus, row } = report(records);
-		expect(corpus).toMatchObject({ scanned: 0, unreadable: 1, lostCalls: 0 });
-		expect(row().lost).toBe(0);
-	});
-
-	it("names the file and the parse fault in the text", () => {
-		const out = text(ROOT, records);
-		expect(out).toContain("0 of 1 transcripts read, 1 unreadable");
-		expect(out).toMatch(/t\.jsonl \(parse: /);
-	});
-});
-
 describe("the needles file, refused in one sentence", () => {
 	it("reports a missing file as one sentence, not a thrown stack", () => {
 		const root = fixtureRoot(SETTINGS, null);
@@ -1276,6 +1256,15 @@ describe("skipped malformed lines — mantahostels#3307", () => {
 
 	it("reports zero on a transcript with no malformed line", () => {
 		expect(report([callRecord("git status")]).corpus.skipped).toBe(0);
+	});
+
+	it("skips a line that parses but is no record, keeping the loss before it", () => {
+		const { corpus, row } = report([
+			lostRecord("denier.sh", "tu1", "2026-09-01T00:00:00.000Z"),
+			"null",
+		]);
+		expect(corpus).toMatchObject({ scanned: 1, unreadable: 0, skipped: 1 });
+		expect(row().lost).toBe(1);
 	});
 });
 
