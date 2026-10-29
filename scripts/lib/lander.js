@@ -1375,10 +1375,9 @@ async function actUntilEnd(run, carry) {
 }
 
 /**
- * Closes the held-queue issue once `main` holds its batch: its body is
- * refreshed whole on each hold, so a gate line a session writes there does
- * not survive to close it (#3636). A failed close reports rather than
- * throws, as `main` has already moved; the next move tries it again.
+ * Closes the held-queue issue once `main` holds its batch (#3636). A failed
+ * close reports rather than throws, as `main` has already moved; the next
+ * move tries it again.
  * @param {LanderDeps} deps
  * @param {string} sha `main` once moved
  */
