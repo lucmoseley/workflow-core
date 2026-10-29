@@ -58,7 +58,6 @@
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const readline = require("node:readline");
-const { parseJsonlRow } = require("./lib/jsonl.js");
 const { transcriptDir, readTranscriptFiles } = require("./lib/guard-fires");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
 
@@ -352,12 +351,17 @@ async function scan(file, onCommand) {
 function scanLine(line, file, onCommand) {
 	// Cheap pre-filter, and the whole runtime without it.
 	if (!line.includes('"Bash"')) return;
-	/* A line that holds no row is skipped and NOT counted: counting a killed
-	 * session's truncated tail as a call would inflate every share's
-	 * denominator. A whole file that will not read IS counted, in `unreadable`. */
-	const rec = /** @type {Record<string, any> | null | undefined} */ (
-		parseJsonlRow(line)
-	);
+	let rec;
+	try {
+		rec = JSON.parse(line);
+	} catch {
+		// A transcript line that will not parse is skipped and NOT counted.
+		// Deliberate: the corpus carries truncated tail lines from sessions
+		// killed mid-write, and counting those as calls would inflate the
+		// denominator every share here is taken over. A whole file that
+		// will not read IS counted, in `unreadable`.
+		return;
+	}
 	const content = rec?.message?.content;
 	if (!Array.isArray(content)) return;
 	for (const block of content) {

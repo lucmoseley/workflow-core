@@ -24,7 +24,6 @@
  */
 
 const fs = require("node:fs");
-const { readJsonl } = require("./jsonl.js");
 const { MARKERS_REL } = require("./marker-root.js");
 const nodePath = require("node:path");
 const { caught } = require("./caught.js");
@@ -152,22 +151,38 @@ function appendRun(
  * @returns {{runs: Run[], malformed: number}}
  */
 function readRuns(root) {
-	let read = null;
+	let raw;
 	try {
-		read = readJsonl(logPath(root));
+		raw = fs.readFileSync(logPath(root), "utf8");
 	} catch {
-		/* An unreadable log is none: the reading never fails pick-next's run. */
+		// No log yet is the normal state before the first run, not a fault.
+		return { runs: [], malformed: 0 };
 	}
-	// No log yet is the normal state before the first run, not a fault.
-	if (!read) return { runs: [], malformed: 0 };
-	// A missing count is not a zero. Defaulting one would pull the pooled
-	// fraction towards whatever the gap happened to be.
-	const runs = /** @type {Run[]} */ (
-		read.rows.filter(
-			(rec) => isCount(rec.frontier) && isCount(rec.warm) && isCount(rec.cold),
-		)
-	);
-	const malformed = read.rows.length - runs.length + read.bad.length;
+	/** @type {Run[]} */
+	const runs = [];
+	let malformed = 0;
+	for (const line of raw.split("\n")) {
+		if (!line.trim()) continue;
+		let rec;
+		try {
+			rec = JSON.parse(line);
+		} catch {
+			malformed += 1;
+			continue;
+		}
+		// A missing count is not a zero. Defaulting one would pull the pooled
+		// fraction towards whatever the gap happened to be.
+		if (
+			!rec ||
+			!isCount(rec.frontier) ||
+			!isCount(rec.warm) ||
+			!isCount(rec.cold)
+		) {
+			malformed += 1;
+			continue;
+		}
+		runs.push(rec);
+	}
 	return { runs, malformed };
 }
 

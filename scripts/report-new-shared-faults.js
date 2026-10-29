@@ -158,8 +158,8 @@ const COSTS = {
 		full: "node scripts/check-host-root.js",
 	},
 	"jsonl-reads": {
-		why: "every hand split-and-parse of JSONL, judged whole-tree in .husky/pre-commit (#3452, #3453)",
-		cost: "refuses every other session's commit staging a scripts/ program until that site reads through lib/jsonl.js",
+		why: "every hand split-and-parse of JSONL, direction-gated in .husky/pre-commit (#3452, until #3453)",
+		cost: "warns every other session's commit touching scripts/ until that site reads through lib/jsonl.js",
 		full: "node scripts/check-jsonl-reads.js",
 	},
 	"cli-args": {
@@ -168,8 +168,8 @@ const COSTS = {
 		full: "node scripts/check-cli-args.js",
 	},
 	"test-spawn": {
-		why: "every test's spawn of node on the program under test, judged whole-tree in .husky/pre-commit (#3458)",
-		cost: "refuses every other session's commit staging a test until that spawn runs in-process or states why",
+		why: "every test's spawn of node on the program under test, direction-gated in .husky/pre-commit (#3458)",
+		cost: "refuses every other session's commit that edits that spawn's line until it runs in-process or states why",
 		full: "node scripts/check-test-spawn.js",
 	},
 	registrations: {

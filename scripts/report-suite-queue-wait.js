@@ -44,6 +44,7 @@
  * no wait, not a failure.
  */
 
+const fs = require("node:fs");
 const path = require("node:path");
 const { logError } = require("./lib/arbiter-core");
 const { errMessage, now } = require("./lib/check");
@@ -56,7 +57,6 @@ const { queueExitLogPath } = require("./lib/queue-exit-log");
 const { fileOrRefresh, findTrackingIssue } = require("./lib/tracking-issue");
 const { buildModuleOffLine, moduleOn } = require("./lib/workflow-core-config");
 const { caught } = require("./lib/caught.js");
-const { readJsonl } = require("./lib/jsonl.js");
 const { takesLabel } = require("./lib/takes-label");
 
 const USAGE =
@@ -117,26 +117,31 @@ const HOST_TEXT = {
  * @throws where the log exists and will not read
  */
 function readExits(file) {
-	let read;
+	let text;
 	try {
-		read = readJsonl(file);
+		text = fs.readFileSync(file, "utf8");
 	} catch (e) {
 		const { code, message } = caught(e);
+		if (code === "ENOENT") return { exits: [], unparsed: 0 };
 		throw new Error(`${file} will not read — ${code || message}`, {
 			cause: e,
 		});
 	}
-	if (!read) return { exits: [], unparsed: 0 };
-	const exits = /** @type {QueueExit[]} */ (
-		read.rows.filter(
-			(row) =>
-				!Number.isNaN(Date.parse(String(row.at))) && Number.isFinite(row.waitS),
-		)
-	);
-	return {
-		exits,
-		unparsed: read.bad.length + read.rows.length - exits.length,
-	};
+	/** @type {QueueExit[]} */
+	const exits = [];
+	let unparsed = 0;
+	for (const line of text.split("\n")) {
+		if (!line.trim()) continue;
+		try {
+			const row = JSON.parse(line);
+			if (Number.isNaN(Date.parse(row?.at)) || !Number.isFinite(row?.waitS))
+				throw new Error("no at or waitS");
+			exits.push(row);
+		} catch {
+			unparsed++;
+		}
+	}
+	return { exits, unparsed };
 }
 
 /**

@@ -13,7 +13,6 @@
  */
 
 const fs = require("node:fs");
-const { readJsonl } = require("./jsonl.js");
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -32,22 +31,20 @@ function appendRetained(file, entry, retainMs) {
 	}
 	try {
 		const now = Date.now();
-		const read = readJsonl(file);
-		if (!read) return true;
-		const ageOf = (/** @type {Record<string, unknown>} */ row) =>
-			now - Date.parse(String(row.at));
-		const isFresh = (/** @type {Record<string, unknown>} */ row) =>
-			ageOf(row) <= retainMs;
-		const [oldest] = read.rows;
-		const stale = oldest !== undefined && ageOf(oldest) > retainMs + DAY_MS;
-		if (stale)
-			fs.writeFileSync(
-				file,
-				read.rows
-					.filter(isFresh)
-					.map((row) => `${JSON.stringify(row)}\n`)
-					.join(""),
-			);
+		const lines = String(fs.readFileSync(file, "utf8"))
+			.split("\n")
+			.filter(Boolean);
+		const ageOf = (/** @type {string} */ line) => {
+			try {
+				return now - Date.parse(JSON.parse(line).at);
+			} catch {
+				return Number.POSITIVE_INFINITY;
+			}
+		};
+		const isFresh = (/** @type {string} */ line) => ageOf(line) <= retainMs;
+		const [oldest] = lines;
+		if (oldest !== undefined && ageOf(oldest) > retainMs + DAY_MS)
+			fs.writeFileSync(file, `${lines.filter(isFresh).join("\n")}\n`);
 	} catch {
 		/* the line is written; a failed prune costs disk, not the record */
 	}

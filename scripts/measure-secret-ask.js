@@ -26,7 +26,6 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const readline = require("node:readline");
-const { parseJsonlRow } = require("./lib/jsonl.js");
 const { parseOrExit, flagValue } = require("./lib/cli-args");
 const { readPlanDirs } = require("./lib/plan-dirs");
 const { caught } = require("./lib/caught");
@@ -71,10 +70,13 @@ function classifyRecord(raw) {
 	/* An assistant record without a text part adds nothing and ends nothing. */
 	if (!user && !raw.includes('"type":"text"')) return { kind: "skip" };
 	if (user && raw.includes('"tool_result"')) return { kind: "reset" };
-	const rec = /** @type {Record<string, any> | null | undefined} */ (
-		parseJsonlRow(raw)
-	);
-	if (!rec || rec.isSidechain) return { kind: "skip" };
+	let rec;
+	try {
+		rec = JSON.parse(raw);
+	} catch {
+		return { kind: "skip" };
+	}
+	if (rec.isSidechain) return { kind: "skip" };
 	if (rec.type === "user") return { kind: "prompt" };
 	const content = rec.type === "assistant" ? rec.message?.content : null;
 	if (!Array.isArray(content)) return { kind: "skip" };

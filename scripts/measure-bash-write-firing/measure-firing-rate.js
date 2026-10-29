@@ -25,7 +25,6 @@
  */
 const fs = require("node:fs");
 const readline = require("node:readline");
-const { parseJsonlRow } = require("../lib/jsonl.js");
 
 /** @param {string} p */
 const TIER1 = (p) =>
@@ -126,11 +125,10 @@ const rl = readline.createInterface({
 	crlfDelay: Number.POSITIVE_INFINITY,
 });
 rl.on("line", (line) => {
-	const r = /** @type {Record<string, any> | null | undefined} */ (
-		parseJsonlRow(line)
-	);
-	if (r === null) return;
-	if (r === undefined) {
+	let r;
+	try {
+		r = JSON.parse(line);
+	} catch {
 		unparsed++;
 		return;
 	}

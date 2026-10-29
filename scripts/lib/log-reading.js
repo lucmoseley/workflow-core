@@ -16,7 +16,6 @@ const path = require("node:path");
 const { caught } = require("./caught.js");
 const { errMessage } = require("./check");
 const { streamRecords } = require("./encoding-use");
-const { readJsonl } = require("./jsonl.js");
 const { markersDir } = require("./marker-root");
 const { buildSkipLine, periodicReading } = require("./periodic-reading");
 const { isFounderMessage, textOf } = require("./tool-calls-since");
@@ -177,25 +176,36 @@ function readRepoRoots(files, repos) {
  *
  * @param {string} file
  * @returns {LimbLogLine[]}
- * @throws on a log that will not read or a line that is not a JSON object
+ * @throws on a log that will not read or a line that is not JSON
  */
 function readLog(file) {
-	let read;
+	let text;
 	try {
-		read = readJsonl(file);
+		text = fs.readFileSync(file, "utf8");
 	} catch (e) {
 		const { code, message } = caught(e);
+		if (code === "ENOENT") return [];
 		throw new Error(`${file} will not read — ${code || message}`, {
 			cause: e,
 		});
 	}
-	if (!read) return [];
-	const [bad] = read.bad;
-	if (bad !== undefined) throw new Error(`${file}:${bad} is not a JSON object`);
-	const events = /** @type {LimbLogLine[]} */ (read.rows);
-	for (const [k, row] of events.entries())
-		if (Number.isNaN(Date.parse(row.at)))
-			throw new Error(`${file}:${read.rowLines[k]} has no readable "at"`);
+	/** @type {LimbLogLine[]} */
+	const events = [];
+	const lines = text.split("\n");
+	for (const [i, line] of lines.entries()) {
+		if (!line.trim()) continue;
+		let row;
+		try {
+			row = JSON.parse(line);
+		} catch (e) {
+			throw new Error(`${file}:${i + 1} is not JSON — ${errMessage(e)}`, {
+				cause: e,
+			});
+		}
+		if (Number.isNaN(Date.parse(row?.at)))
+			throw new Error(`${file}:${i + 1} has no readable "at"`);
+		events.push(row);
+	}
 	return events;
 }
 

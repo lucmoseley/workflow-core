@@ -8,7 +8,6 @@
  */
 
 const fs = require("node:fs");
-const { readJsonl } = require("./jsonl.js");
 const { markersDir } = require("./marker-root.js");
 const path = require("node:path");
 
@@ -73,16 +72,24 @@ function recordRun(root, session, run) {
  * @returns {RunRecord[]}
  */
 function readRuns(root, session) {
-	let read = null;
+	let text;
 	try {
-		read = readJsonl(runsPath(root, session));
+		text = fs.readFileSync(runsPath(root, session), "utf8");
 	} catch {
-		/* An unreadable run log is no runs, as a missing one is: its readers
-		 * report what they find and never fail on it. */
+		return [];
 	}
-	return /** @type {RunRecord[]} */ (
-		(read?.rows ?? []).filter((run) => typeof run.log === "string")
-	);
+	/** @type {RunRecord[]} */
+	const runs = [];
+	for (const line of text.split("\n")) {
+		if (!line) continue;
+		try {
+			const run = JSON.parse(line);
+			if (run && typeof run.log === "string") runs.push(run);
+		} catch {
+			/* a line cut by a full disk */
+		}
+	}
+	return runs;
 }
 
 /**

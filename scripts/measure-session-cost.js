@@ -24,7 +24,6 @@ const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { ledgerPath } = require("./lib/dispatch-ledger");
-const { readJsonl } = require("./lib/jsonl.js");
 const { oneCopyEach } = require("./lib/project-dirs");
 const { slugForRepo } = require("./lib/project-slug");
 const { seatsFrom } = require("./lib/seat-args");
@@ -191,14 +190,20 @@ function main() {
 	const { flags, lists } = parsed;
 	const seats = seatsFrom(lists["--config-dir"]);
 	const ledger = ledgerPath();
-	const read = readJsonl(ledger);
-	if (!read) {
+	if (!fs.existsSync(ledger)) {
 		writeFd(2, `no dispatch ledger yet at ${ledger} — nothing to table\n`);
 		return 1;
 	}
+	const lines = fs.readFileSync(ledger, "utf8").split("\n");
 	const sessions = [];
-	for (const rec of read.rows) {
-		const prefix = jobPrefix(rec.jobId);
+	for (const line of lines) {
+		let rec;
+		try {
+			rec = JSON.parse(line);
+		} catch {
+			continue;
+		}
+		const prefix = jobPrefix(rec?.jobId);
 		if (!prefix) continue;
 		const file = findByPrefix(seats, prefix);
 		if (!file) continue;

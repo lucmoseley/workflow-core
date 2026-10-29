@@ -76,7 +76,6 @@ const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { stopOn } = require("./lib/claude-stop.js");
 const { readClaudeVersionOrWhy } = require("./lib/claude-version.js");
 const { jobDirPath } = require("./lib/job-paths.js");
-const { parseJsonl } = require("./lib/jsonl.js");
 const {
 	geoComparison,
 	heterogeneity,
@@ -1171,8 +1170,14 @@ function runJson(cmd, args) {
 function readWallMs(file) {
 	let first = Number.POSITIVE_INFINITY;
 	let last = Number.NEGATIVE_INFINITY;
-	for (const row of parseJsonl(fs.readFileSync(file, "utf8")).rows) {
-		const at = Date.parse(String(row.timestamp));
+	for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+		let at;
+		try {
+			at = Date.parse(JSON.parse(line).timestamp);
+		} catch {
+			// A blank or torn line carries no time.
+			continue;
+		}
 		if (!Number.isFinite(at)) continue;
 		first = Math.min(first, at);
 		last = Math.max(last, at);

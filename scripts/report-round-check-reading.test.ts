@@ -305,7 +305,7 @@ describe("where it runs", () => {
 		const r = run(T0 + DAY);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toMatch(
-			/BROKEN: .*mantahostels.*\.round-check-log\.jsonl:1 is not a JSON object/,
+			/BROKEN: .*mantahostels.*\.round-check-log\.jsonl:1 is not JSON/,
 		);
 		expect(r.stderr).toMatch(REMEDY);
 	});

@@ -124,7 +124,6 @@ const deliveryStamp = require("./lib/delivery-stamp");
 const { hostRoot } = require("./lib/host-root.js");
 const { resolveMarketplace } = require("./lib/plugin-state.js");
 const { caught } = require("./lib/caught.js");
-const { parseJsonlRow } = require("./lib/jsonl.js");
 const { flattenHooks, readOwnHookSources } = require("./lib/core-hooks.js");
 const { spawnGitSync } = require("./lib/git.js");
 
@@ -285,12 +284,29 @@ function countInto(buf, from, days, bare) {
 		let lineEnd = buf.indexOf(0x0a, i);
 		if (lineEnd < 0 || lineEnd > end) lineEnd = end;
 		p = lineEnd + 1;
-		const rec = parseJsonlRow(
-			buf.subarray(lineStart, lineEnd).toString("utf8"),
-		);
-		if (rec) tallyRecord(rec, days, bare);
+		const parsed = parseLine(buf, lineStart, lineEnd);
+		if (parsed) tallyRecord(parsed.rec, days, bare);
 	}
 	return end;
+}
+
+/**
+ * One transcript line parsed, or null where it does not parse.
+ *
+ * @param {Buffer} buf
+ * @param {number} lineStart
+ * @param {number} lineEnd
+ * @returns {{ rec: any } | null}
+ */
+function parseLine(buf, lineStart, lineEnd) {
+	try {
+		return {
+			rec: JSON.parse(buf.subarray(lineStart, lineEnd).toString("utf8")),
+		};
+	} catch {
+		// A line the needle matched inside some other field, or a torn one.
+		return null;
+	}
 }
 
 /**

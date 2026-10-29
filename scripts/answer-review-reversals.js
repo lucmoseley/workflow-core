@@ -27,7 +27,6 @@ const { hostRoot } = require("./lib/host-root.js");
 const { caught } = require("./lib/caught.js");
 const { fileThrough } = require("./lib/file-through.js");
 const { writeFd } = require("./lib/write-fd.js");
-const { readJsonl } = require("./lib/jsonl.js");
 const { readLedger } = require("./lib/delegated-decision.js");
 const review = require("./lib/morning-review.js");
 const reversal = require("./lib/review-reversal.js");
@@ -65,15 +64,21 @@ const requestKey = (r) => `${r.commentUrl} ${r.n}`;
 function readFiled() {
 	/** @type {Map<string, string>} */
 	const filed = new Map();
-	const read = readJsonl(path.join(markersDir(hostRoot()), FILED));
-	for (const r of read?.rows ?? [])
-		if (typeof r.filed === "string")
-			filed.set(
-				requestKey(
-					/** @type {import("./lib/review-reversal.js").Request} */ (r),
-				),
-				r.filed,
-			);
+	let text = "";
+	try {
+		text = fs.readFileSync(path.join(markersDir(hostRoot()), FILED), "utf8");
+	} catch (e) {
+		if (caught(e).code !== "ENOENT") throw e;
+	}
+	for (const line of text.split("\n")) {
+		try {
+			const r = JSON.parse(line);
+			filed.set(requestKey(r), r.filed);
+		} catch {
+			/* A torn last line is a filing whose reply also never landed: the
+			 * next run files it again, the duplicate this record narrows. */
+		}
+	}
 	return filed;
 }
 
