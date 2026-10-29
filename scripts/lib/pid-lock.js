@@ -8,10 +8,11 @@
  * no reader ever sees it empty. A pidfile whose process is gone, or whose
  * command line runs no file named as the daemon's script, is stale and taken
  * over. A process re-exec'd under its own pid (the refill loop's adoption,
- * #2361) already holds it. A directory, FIFO or socket at the lock's path is
- * no pidfile, and taking it over would fail midway or block on the read:
- * `acquire` throws `NotALock`, moving nothing (#3663). A symlink there is
- * moved aside like any stale pidfile.
+ * #2361) already holds it. A directory, FIFO or socket at the lock's path,
+ * or a symlink to one, is no pidfile, and taking it over would fail midway or
+ * block on the read: `acquire` throws `NotALock`, moving nothing (#3663,
+ * #3715). A symlink to a regular file or to nothing is moved aside like any
+ * stale pidfile.
  */
 
 const crypto = require("node:crypto");
@@ -34,13 +35,29 @@ function readText(file) {
 	}
 }
 
-/** Thrown where the lock's path holds neither a file nor a symlink. */
+/** Thrown where the lock's path holds something no pidfile is. */
 class NotALock extends Error {
 	/** @param {string} file */
 	constructor(file) {
 		super(
-			`${file} is neither a file nor a symlink, so no lock can be taken there`,
+			`${file} is neither a regular file nor a symlink to one or to nothing, so no lock can be taken there`,
 		);
+	}
+}
+
+/**
+ * What `file` names once a symlink is followed: null where nothing, or where
+ * the link cannot be followed, which the read then meets as nothing too.
+ * @param {string} file
+ * @returns {fs.Stats | null}
+ */
+function readTargetStat(file) {
+	try {
+		return fs.statSync(file, { throwIfNoEntry: false }) ?? null;
+	} catch {
+		/* A symlink loop or an unreadable hop: readText reads nothing there, so
+		 * it is taken over as a dangling link is (#3715). */
+		return null;
 	}
 }
 
@@ -70,7 +87,8 @@ function pidLock(file, marker) {
 	/** The pidfile's text, or null where it cannot be read. @throws {NotALock} */
 	const readPidfile = () => {
 		const st = fs.lstatSync(file, { throwIfNoEntry: false });
-		if (st && !st.isFile() && !st.isSymbolicLink()) throw new NotALock(file);
+		const target = st?.isSymbolicLink() ? readTargetStat(file) : st;
+		if (target && !target.isFile()) throw new NotALock(file);
 		return readText(file);
 	};
 

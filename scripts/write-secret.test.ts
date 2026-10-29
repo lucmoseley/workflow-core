@@ -606,6 +606,26 @@ describe("write-secret", () => {
 		expect(fs.readdirSync(path.join(shared, "cfg"))).toEqual([]);
 	});
 
+	it("refuses with exit 1 where a symlink the config path passes through mid-way lies in a directory others can write (#3715)", () => {
+		const shared = path.join(config, "shared");
+		const data = path.join(config, "data", "cfg");
+		const home = path.join(config, "home");
+		fs.mkdirSync(shared);
+		fs.chmodSync(shared, 0o777);
+		fs.mkdirSync(data, { recursive: true, mode: 0o700 });
+		fs.mkdirSync(home);
+		fs.symlinkSync(data, path.join(shared, "link2"));
+		fs.symlinkSync(path.join(shared, "link2"), path.join(home, ".config"));
+		const r = run(["K"], SECRET, {
+			XDG_CONFIG_HOME: path.join(home, ".config"),
+		});
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(
+			whyAbove(shared, "is writable by others and not sticky"),
+		);
+		expect(fs.readdirSync(data)).toEqual([]);
+	});
+
 	it("refuses with exit 1 where a directory above the file's cannot be checked (#3663)", () => {
 		const locked = path.join(config, "locked");
 		fs.mkdirSync(path.join(locked, "cfg"), { recursive: true });
@@ -754,6 +774,22 @@ describe("write-secret", () => {
 			{ nsswitch: "passwd: files sss\ngroup: files sss\n" },
 		],
 		[
+			"is named for a user a second, blank-led passwd row also names",
+			{
+				passwd: `${myPasswd} ${me.username}:x:${me.uid + 1}:${me.uid + 1}::/home/o:/bin/sh\n`,
+			},
+		],
+		[
+			"may take members from an `initgroups` source",
+			{ nsswitch: `${FilesOnly}initgroups: sss\n` },
+		],
+		[
+			"is named for a user a second passwd row also names",
+			{
+				passwd: `${myPasswd}${me.username}:x:${me.uid + 1}:${me.uid + 1}::/home/o:/bin/sh\n`,
+			},
+		],
+		[
 			"may hold a systemd userdb record",
 			{ nsswitch: Systemd, dirs: { "/etc/userdb": ["other.user"] } },
 		],
@@ -778,6 +814,80 @@ describe("write-secret", () => {
 			expect(fs.readdirSync(shared)).toEqual([]);
 		},
 	);
+
+	/* An access ACL granting a named user write, set as its raw xattr: no
+	 * `setfacl` is on every host. Its group bits then show the ACL's mask. */
+	const grantByAcl = (dir: string, uid: number) => {
+		execFileSync("python3", [
+			"-c",
+			[
+				"import os, struct, sys",
+				"U = 0xFFFFFFFF",
+				"rows = [(1, 7, U), (2, 7, int(sys.argv[2])), (4, 7, U), (16, 7, U), (32, 5, U)]",
+				"acl = struct.pack('<I', 2) + b''.join(struct.pack('<HHI', *r) for r in rows)",
+				"os.setxattr(sys.argv[1], 'system.posix_acl_access', acl)",
+			].join("\n"),
+			dir,
+			String(uid),
+		]);
+	};
+
+	/* An `ls` first on PATH that claims to be GNU's and marks no ACL. */
+	const fakeLsFirst = () => {
+		const bin = path.join(config, "bin");
+		fs.mkdirSync(bin);
+		fs.writeFileSync(
+			path.join(bin, "ls"),
+			`#!/bin/sh\ncase "$1" in --version) echo 'ls (GNU coreutils) 9.4';; *) echo 'drwxrwxr-x 2 u u 4096 Jan 1 00:00 x';; esac\n`,
+			{ mode: 0o755 },
+		);
+		return { PATH: `${bin}:${process.env.PATH ?? ""}` };
+	};
+
+	it.each<[string, () => Record<string, string>]>([
+		["", () => ({})],
+		[", an `ls` first on PATH hiding it", fakeLsFirst],
+	])(
+		"refuses with exit 1, writing nothing, where an ACL lets another user write a directory above the file's, whatever its owning group%s (#3715)",
+		(_l, env) => {
+			fakeUserDb({});
+			const shared = groupShared();
+			grantByAcl(shared, me.uid + 1);
+			const xdg = path.join(shared, "cfg");
+			const r = run(["K"], SECRET, { XDG_CONFIG_HOME: xdg, ...env() });
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain(
+				whyAbove(shared, "is writable by others and not sticky"),
+			);
+			expect(fs.readdirSync(shared)).toEqual([]);
+		},
+	);
+
+	it("leaves the directory's own .gitignore alone under WFC_SECRETS_FILE, as the reader does (#3715)", () => {
+		const dir = makeStoreDir();
+		const ignore = path.join(dir, ".gitignore");
+		fs.writeFileSync(ignore, "node_modules\n");
+		const r = run(["K"], SECRET, { WFC_SECRETS_FILE: store() });
+		expect(r.status).toBe(0);
+		expect(fs.readFileSync(ignore, "utf8")).toBe("node_modules\n");
+		expect(read()).toBe(`K=${SECRET}\n`);
+	});
+
+	it("checks and writes WFC_SECRETS_FILE as one resolved path where `..` follows a symlink in it (#3715)", () => {
+		const shared = path.join(config, "shared");
+		const sub = path.join(shared, "x", "sub");
+		fs.mkdirSync(sub, { recursive: true, mode: 0o700 });
+		fs.chmodSync(shared, 0o777);
+		const home = path.join(config, "home");
+		fs.mkdirSync(home, { mode: 0o700 });
+		fs.symlinkSync(sub, path.join(home, "lnk"));
+		const r = run(["K"], SECRET, {
+			WFC_SECRETS_FILE: `${home}/lnk/../secrets.env`,
+		});
+		expect(r.status).toBe(0);
+		expect(readEnvFileValue(path.join(home, "secrets.env"), "K")).toBe(SECRET);
+		expect(fs.readdirSync(path.join(shared, "x"))).toEqual(["sub"]);
+	});
 
 	it("replaces a symlinked .gitignore, which git does not follow, keeping the file out of a bare dotfiles repository's `add -A` (#3663)", () => {
 		const dots = path.join(host, "dots.git");

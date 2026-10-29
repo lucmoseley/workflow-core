@@ -37,7 +37,8 @@
  * (`git --git-dir=~/.cfg --work-tree=~`, yadm), has no `.git` to find. The
  * directory's own `.gitignore`, holding `*`, keeps the file out of its `add`
  * (#3539); git follows no symlinked `.gitignore`, so one is replaced
- * (#3663). Residual: ignore rules never reach a file such a repository
+ * (#3663). Under the WFC_SECRETS_FILE test override none is written, as the
+ * reader writes none (#3715). Residual: ignore rules never reach a file such a repository
  * already tracks, nor an `add -f`; that file wants `git rm --cached` there.
  *
  * A DIRECTORY OTHERS CAN REACH IS REFUSED (#3539): the file's directory, and
@@ -46,20 +47,24 @@
  * mode applies only on creation and a mount without
  * `metadata` (WSL's `/mnt/c`) ignores `chmod`, so either can be left loose.
  *
- * A PARENT OTHERS CAN WRITE IS REFUSED (#3663): each directory above the
- * file's, along the path as given and along its real path, must be owned by
- * this user or root and writable by no one else, bar a sticky one (`/tmp`),
- * whose entries only their owner can move. Node holds no directory by
- * descriptor across a write (no `openat`), so the chain is checked instead.
- * Group write passes where the group is this user's private one, as under
- * `pam_umask usergroups` (#3676): their primary gid, listing no other member
- * in `/etc/group` and the primary gid of no other user in `/etc/passwd`, as
- * Debian's OpenSSH StrictModes allows. Where lookups can reach a source
- * beyond those files (LDAP, sssd, NIS, a systemd-homed user) no group is
- * judged private, so it refuses, as it does a group with a password.
- * Residual: a group password or member set only in `/etc/gshadow`, which the
- * user cannot read, and a process root starts under the gid, which no
- * database shows.
+ * A PARENT OTHERS CAN WRITE IS REFUSED (#3663): each directory holding an
+ * entry the path passes through as the kernel resolves it, every symlink's
+ * hops included (#3715), must be owned by this user or root and writable by
+ * no one else, bar a sticky one (`/tmp`), whose entries only their owner can
+ * move; and each symlink met must be theirs or root's. Node holds no
+ * directory by descriptor across a write (no `openat`), so the chain is
+ * checked instead. Group write passes where the group is this user's private
+ * one, as under `pam_umask usergroups` (#3676): their primary gid, under the
+ * one `/etc/passwd` row naming them, listing no other member in `/etc/group`
+ * and the primary gid of no other user, as Debian's OpenSSH StrictModes
+ * allows; and where the directory carries no ACL, whose named entries the
+ * group bits do not show, as GNU `ls` tells (#3715). Where lookups can reach
+ * a source beyond those files (LDAP, sssd, NIS, a systemd-homed user, an
+ * `initgroups` source) no group is judged private, so it refuses, as it does
+ * a group with a password. Residual: a group password or member set only in
+ * `/etc/gshadow`, which the user cannot read; a process root starts under
+ * the gid, which no database shows; and an ACL beyond POSIX's (NFSv4's)
+ * granting write where no mode bit does.
  *
  * CONCURRENT RUNS take turns by `lib/pid-lock.js`'s lock, `secrets.env.lock`,
  * held from the read to the rename, so no run's key is lost to another's
@@ -108,6 +113,7 @@
  * no repository, and the founder's paste has no session to claim with.
  */
 
+const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -124,6 +130,7 @@ const {
 	parseEnvLine,
 	quoteValue,
 	secretsFile,
+	secretsOverride,
 	splitEnvLines,
 } = require("./lib/env-file.js");
 const { hostRoot } = require("./lib/host-root.js");
@@ -200,32 +207,99 @@ function dirRefusal(file) {
 }
 
 /**
- * The first directory above `dir`, along its path as given or its real path,
- * that lets another user replace what it holds, and why; or null. A symlink
- * along the path as given, `dir` included, counts where another user owns it
- * (#3663).
+ * The first directory above `dir` that lets another user replace what it
+ * holds, and why; or null. Every entry the path passes through as the kernel
+ * resolves it, each symlink's own hops included, has its parent checked, and
+ * each symlink met its owner too (#3663, #3715).
  * @param {string} dir
  * @returns {{ dir: string, why: string } | null}
  */
 function swappableAbove(dir) {
-	const given = path.resolve(dir);
-	let existing = given;
-	while (!isDirectory(existing)) existing = path.dirname(existing);
-	const real = path.join(
-		fs.realpathSync(existing),
-		path.relative(existing, given),
-	);
-	const link = foreignLink(given);
-	if (link !== null)
-		return { dir: link, why: "is a symlink owned by neither you nor root" };
-	for (const leaf of new Set([given, real])) {
-		for (let d = path.dirname(leaf); ; d = path.dirname(d)) {
-			const why = swappableWhy(d);
-			if (why !== null) return { dir: d, why };
-			if (d === path.dirname(d)) break;
-		}
+	const checked = new Set();
+	for (const hop of walkHops(path.resolve(dir))) {
+		if ("why" in hop) return hop;
+		if (hop.linkStat && !ownedSafely(hop.linkStat))
+			return {
+				dir: hop.dir,
+				why: "is a symlink owned by neither you nor root",
+			};
+		const parent = path.dirname(hop.dir);
+		if (checked.has(parent)) continue;
+		checked.add(parent);
+		const why = swappableWhy(parent);
+		if (why !== null) return { dir: parent, why };
 	}
 	return null;
+}
+
+/** As Linux's MAXSYMLINKS, past which a resolve fails with ELOOP. */
+const MAX_SYMLINKS = 40;
+
+/** @typedef {{ dir: string, linkStat?: fs.Stats } | { dir: string, why: string }} Hop */
+
+/**
+ * Each entry absolute path `p` passes through, in the order a resolve meets
+ * them: a symlink's target is walked in its place, `..` climbing from where
+ * the walk has reached, so each entry's parent is an entry met before it or
+ * the root. A symlink's entry carries its lstat. The walk stops at the first
+ * entry that is absent, or that cannot be read, naming why.
+ * @param {string} p
+ * @returns {Hop[]}
+ */
+function walkHops(p) {
+	/** @type {Hop[]} */
+	const met = [];
+	const todo = pathParts(p);
+	let at = path.parse(p).root;
+	let links = 0;
+	for (let name = todo.shift(); name !== undefined; name = todo.shift()) {
+		if (name === "..") {
+			at = path.dirname(at);
+			continue;
+		}
+		const entry = path.join(at, name);
+		const { why, absent, st, target } = readEntry(entry);
+		if (why !== undefined) return [...met, { dir: entry, why }];
+		met.push(st === undefined ? { dir: entry } : { dir: entry, linkStat: st });
+		if (absent) return met;
+		if (target === undefined) {
+			at = entry;
+			continue;
+		}
+		if (++links > MAX_SYMLINKS)
+			return [...met, { dir: entry, why: "could not be checked (ELOOP)" }];
+		todo.unshift(...pathParts(target));
+		if (path.isAbsolute(target)) at = path.parse(target).root;
+	}
+	return met;
+}
+
+/**
+ * The names `p` is made of, `..` kept and `.` dropped.
+ * @param {string} p
+ * @returns {string[]}
+ */
+function pathParts(p) {
+	return p.split(path.sep).filter((n) => n !== "" && n !== ".");
+}
+
+/**
+ * Entry `entry` as `walkHops` meets it: absent, a symlink and its target, any
+ * other entry, or why it cannot be read.
+ * @param {string} entry
+ * @returns {{ why?: string, absent?: boolean, st?: fs.Stats, target?: string }}
+ */
+function readEntry(entry) {
+	try {
+		const st = fs.lstatSync(entry);
+		return st.isSymbolicLink() ? { st, target: fs.readlinkSync(entry) } : {};
+	} catch (e) {
+		const code = caught(e).code;
+		/* Absent, or a file where a directory goes: the write creates it under a
+		 * parent checked here, or refuses naming the fault (#3663). */
+		if (code === "ENOENT" || code === "ENOTDIR") return { absent: true };
+		return { why: `could not be checked (${code ?? "error"})` };
+	}
 }
 
 /**
@@ -250,16 +324,91 @@ function swappableWhy(d) {
 	if ((st.mode & 0o1000) !== 0) return null;
 	const othersWrite =
 		(st.mode & 0o002) !== 0 ||
-		((st.mode & 0o020) !== 0 && !isPrivateGroup(st.gid));
+		((st.mode & 0o020) !== 0 && !(isPrivateGroup(st.gid) && !hasAcl(d)));
 	if (othersWrite) return "is writable by others and not sticky";
 	return null;
 }
 
 /**
+ * Whether directory `d` may carry an ACL, as GNU `ls` marks by a `+` after the
+ * mode: its group bits are then the ACL's mask, which a named user's entry
+ * can grant write through whatever the owning group (#3715). Node reads no
+ * extended attribute, and only GNU's `ls` is known to mark one, so where it
+ * is not GNU's, is not root's own copy at a fixed path, or does not answer,
+ * `d` is judged to carry one. Residual: a GNU `ls` built without ACL support
+ * prints no `+`.
+ * @param {string} d
+ * @returns {boolean}
+ */
+function hasAcl(d) {
+	gnuLs ??= isGnuLs();
+	return !gnuLs || !lsShowsNoAcl(d);
+}
+
+/** Whether `ls` is GNU's, asked once per run. @type {boolean | undefined} */
+let gnuLs;
+
+/** Where `ls` is run from, never PATH, which any directory on it can outrank. */
+const LS_PATHS = ["/usr/bin/ls", "/bin/ls"];
+
+/**
+ * The first of LS_PATHS that root owns and no one else can write, or null.
+ * @returns {string | null}
+ */
+function trustedLs() {
+	for (const p of LS_PATHS) {
+		let st;
+		try {
+			st = fs.statSync(p);
+		} catch {
+			/* Not at this path: the next is tried. */
+			continue;
+		}
+		if (st.isFile() && st.uid === 0 && (st.mode & 0o022) === 0) return p;
+	}
+	return null;
+}
+
+/** @param {string[]} args */
+function ls(...args) {
+	const bin = trustedLs();
+	if (bin === null) throw new Error("no root-owned ls at a fixed path");
+	return execFileSync(bin, args, {
+		encoding: "utf8",
+		env: { LC_ALL: "C" },
+		stdio: ["ignore", "pipe", "ignore"],
+	});
+}
+
+function isGnuLs() {
+	try {
+		return /^ls \(GNU coreutils\) /.test(ls("--version"));
+	} catch {
+		/* No trusted `ls` to ask: no ACL can be seen, so every directory is
+		 * judged to carry one (#3715). */
+		return false;
+	}
+}
+
+/**
+ * Whether GNU `ls -ld` shows `d` with no `+` after its mode.
+ * @param {string} d
+ */
+function lsShowsNoAcl(d) {
+	try {
+		return /^d[-rwxsStT]{9}\.? /.test(ls("-ld", "--", d));
+	} catch {
+		/* It failed on `d`: unjudged, so it refuses (#3715). */
+		return false;
+	}
+}
+
+/**
  * Whether `gid` is this user's private group: their primary gid in
- * `/etc/passwd`, with no other member in `/etc/group` and no other user's
- * primary gid (#3676). Only those two files are read, so a host whose user
- * and group lookups can reach another source is judged to have none private.
+ * `/etc/passwd`, under the one row naming them, with no other member in
+ * `/etc/group` and no other user's primary gid (#3676, #3715). Only those two
+ * files are read, so a host whose user and group lookups can reach another
+ * source is judged to have none private.
  * @param {number} gid
  * @returns {boolean}
  */
@@ -271,7 +420,10 @@ function isPrivateGroup(gid) {
 	if (groups === null || users === null) return false;
 	const rows = groups.filter((f) => Number(f[2]) === gid);
 	const mine = users.filter((f) => Number(f[2]) === me.uid);
+	const named = users.filter((f) => f[0] === me.username);
 	return (
+		named.length === 1 &&
+		Number(named[0]?.[2]) === me.uid &&
 		rows.length > 0 &&
 		rows.every(
 			([, password, , members]) =>
@@ -297,25 +449,31 @@ const QUIET_USERDB = new Set([
 
 /**
  * Whether `/etc/passwd` and `/etc/group` are the only sources of users and
- * group members: `nsswitch.conf` names only `files` for each, or `systemd`
- * too where no userdb record or service beyond dynamic users exists. Any
- * line glibc could read as either database's must be in the plain
- * `<db>: <sources>` form, so no looser spelling outranks the one read. A
- * directory service (LDAP, sssd), NIS or a systemd-homed user could hold a
- * member these files never show (#3676).
+ * group members: `nsswitch.conf` names only `files` for each, and for
+ * `initgroups` where it is named, or `systemd` too where no userdb record or
+ * service beyond dynamic users exists. Any line glibc could read as one of
+ * those databases must be in the plain `<db>: <sources>` form, so no looser
+ * spelling outranks the one read. A directory service (LDAP, sssd), NIS or a
+ * systemd-homed user could hold a member these files never show, and
+ * `initgroups` sets each login's groups apart from `group` (#3676, #3715).
  * @returns {boolean}
  */
 function filesAloneNameUsers() {
 	const conf = readLines("/etc/nsswitch.conf");
 	if (conf === null) return false;
+	const dbs = "passwd|group|initgroups";
 	const lines = conf
 		.map((l) => l.replace(/#.*/, ""))
-		.filter((l) => /^(passwd|group)$/.test(l.trim().split(/[\s:]/)[0] ?? ""));
-	const parsed = lines.map((l) => /^(passwd|group):([^\\]*)$/.exec(l));
+		.filter((l) =>
+			new RegExp(`^(${dbs})$`).test(l.trim().split(/[\s:]/)[0] ?? ""),
+		);
+	const parsed = lines.map((l) => new RegExp(`^(${dbs}):([^\\\\]*)$`).exec(l));
 	const sources = parsed.flatMap((m) => m?.[2]?.trim().split(/\s+/) ?? []);
+	const named = new Set(parsed.map((m) => m?.[1]));
 	if (
 		parsed.some((m) => m === null) ||
-		new Set(parsed.map((m) => m?.[1])).size !== 2 ||
+		!named.has("passwd") ||
+		!named.has("group") ||
 		sources.some((x) => x !== "files" && x !== "systemd")
 	)
 		return false;
@@ -351,7 +509,8 @@ function dirEntries(d) {
 
 /**
  * The colon-split rows of an `/etc` database, or null where it cannot be read,
- * holds a NIS compat row (`+`, `-`), whose entries live elsewhere, or a row
+ * holds a NIS compat row (`+`, `-`), whose entries live elsewhere, a row led
+ * by whitespace, whose name glibc reads with it stripped (#3715), or a row
  * whose field at an index in `ids` is not a plain decimal id, which glibc's
  * parse could read as another.
  * @param {string} file
@@ -360,7 +519,7 @@ function dirEntries(d) {
  */
 function readDbRows(file, ids) {
 	const lines = readLines(file);
-	if (lines === null || lines.some((l) => /^[+-]/.test(l))) return null;
+	if (lines === null || lines.some((l) => /^[+\-\s]/.test(l))) return null;
 	const rows = lines.map((l) => l.split(":"));
 	const plain = rows.every((f) => ids.every((i) => /^\d+$/.test(f[i] ?? "")));
 	return plain ? rows : null;
@@ -380,32 +539,6 @@ function readLines(file) {
 			.filter((l) => l.trim() !== "" && !/^\s*#/.test(l));
 	} catch {
 		/* Unreadable: no group is judged private, so the parent refuses. */
-		return null;
-	}
-}
-
-/**
- * The first symlink along `p` or above it that another user owns, or null.
- * @param {string} p
- * @returns {string | null}
- */
-function foreignLink(p) {
-	for (let d = p; ; d = path.dirname(d)) {
-		const st = lstatOrNull(d);
-		if (st?.isSymbolicLink() && !ownedSafely(st)) return d;
-		if (d === path.dirname(d)) return null;
-	}
-}
-
-/**
- * @param {string} p
- * @returns {fs.Stats | null}
- */
-function lstatOrNull(p) {
-	try {
-		return fs.lstatSync(p);
-	} catch {
-		/* Absent, or unreadable: the stat that follows names which (#3663). */
 		return null;
 	}
 }
@@ -685,7 +818,7 @@ function storeValue(file, name, value) {
 		 * leave time for a `git init` or a `chmod` above the file. */
 		const refused = dirRefusal(file);
 		if (refused !== null) return refused;
-		ignoreStore(dir);
+		if (secretsOverride() === null) ignoreStore(dir);
 
 		const read = readSecrets(file);
 		if ("why" in read) return refuse(file, read.why, 1);
