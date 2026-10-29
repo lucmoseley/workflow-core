@@ -760,6 +760,18 @@ describe("buildManifest over a spawned script's dependencies (#657, #1126)", () 
 		expect(edges["docs/zz/d.md"]).toBeUndefined();
 	});
 
+	it("counts a script's readJsonl call as a read (#3553)", () => {
+		const { edges } = build({
+			[T]: drives("scripts/zz/run.js"),
+			"scripts/zz/run.js": [
+				`const RECORD = "docs/zz/runs.jsonl";`,
+				"readJsonl(path.join(hostRoot(), RECORD));",
+			].join("\n"),
+			"docs/zz/runs.jsonl": "",
+		});
+		expect(edges["docs/zz/runs.jsonl"]).toEqual([T]);
+	});
+
 	it("reads a shell script's path operands, never its comments, heredocs or prose", () => {
 		/* Interpolated: a shell `${...}` written in a plain string trips
 		 * Biome's noTemplateCurlyInString. */
@@ -990,6 +1002,13 @@ describe("buildManifest's unseen read sites (#1881)", () => {
 		const body = `${anchored}fs.readFileSync(ROOT + "/${dir}/" + name);`;
 		expect(sitesOf(body).map((s) => s.shape)).toEqual([
 			"a path run spread across an array `join` or `+`",
+		]);
+	});
+
+	it("reports a readJsonl call's untraced segment as it does a readFileSync's (#3553)", () => {
+		const body = `${anchored}const f = pick();\nreadJsonl(path.join(ROOT, "${dir}", f));`;
+		expect(sitesOf(body).map((s) => s.shape)).toEqual([
+			"a path segment held in `f`",
 		]);
 	});
 

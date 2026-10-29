@@ -1144,7 +1144,12 @@ const SHAPE = {
 /** An expression opening as a `path.resolve`/`path.join` call. */
 const PATH_CALL = /^path\.(?:resolve|join)\(/;
 
-const READ_CALL = /\b(readFileSync|readFile|readdirSync|readdir)\(/g;
+/** The calls that read a file's contents, as against listing a directory. */
+const FILE_READS = "readFileSync|readFile|readJsonl";
+
+const FILE_READ = new RegExp(`\\b(?:${FILE_READS})\\(`);
+
+const READ_CALL = new RegExp(`\\b(${FILE_READS}|readdirSync|readdir)\\(`, "g");
 
 const READ_OR_LIST = new RegExp(`${READ_CALL.source}|["']ls-files["']`);
 
@@ -2266,7 +2271,7 @@ function shellReadsOf(source, tracked) {
 
 /**
  * The tracked files a script reads (#2093). A node script's are its
- * `readFileSync`/`readFile` calls in code whose argument is a bare literal or
+ * `FILE_READS` calls in code whose argument is a bare literal or
  * traces to an anchor — the site scan's own resolution — so a path it names
  * for any other reason, a comment's citation included, is no read. A shell
  * script's are every path its code names.
@@ -2277,7 +2282,7 @@ function shellReadsOf(source, tracked) {
  */
 function fileReadsOf(file, source, tracked) {
 	if (!NODE_SCRIPT.test(file)) return shellReadsOf(source, tracked);
-	if (!/\breadFile(?:Sync)?\(/.test(source)) return [];
+	if (!FILE_READ.test(source)) return [];
 	return nodeReadsOf(file, source, tracked);
 }
 

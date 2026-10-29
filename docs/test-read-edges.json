@@ -2249,6 +2249,16 @@
 			"scripts/upgrade.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
+		"docs/data/arch-scan-runs.jsonl": [
+			"scripts/checker-registrations.test.ts",
+			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/report-arch-scan-due.test.ts",
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/sweep-debts-detached.test.ts"
+		],
 		"docs/data/close-rounds-2026-10-09/answered-close-rounds.json": [
 			"scripts/report-close-check-reading.test.ts"
 		],
