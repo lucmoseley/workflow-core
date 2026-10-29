@@ -78,14 +78,14 @@ export class Arena {
 	readonly extraEnv: Record<string, string> = {};
 
 	/**
-	 * A fake `gh` at WFC_GH, so the debt store's issue
+	 * A fake `gh` on the arbiter's lookup path, so the debt store's issue
 	 * lifecycle can be exercised without a network call or a real issue number.
 	 * `body` is the script's shell body — it decides the exit code and stdout.
 	 */
 	ghStub(body: string) {
 		const stub = path.join(this.dir, "gh-stub");
 		fs.writeFileSync(stub, `#!/usr/bin/env bash\n${body}\n`, { mode: 0o755 });
-		this.extraEnv.WFC_GH = stub;
+		this.extraEnv.WFC_ARBITER_GH = stub;
 		return this;
 	}
 

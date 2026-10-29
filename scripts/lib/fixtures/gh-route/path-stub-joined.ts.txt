@@ -1,2 +1,0 @@
-fs.writeFileSync(path.join(dir, "bin", "gh"), s);
-const env = { PATH: `${path.join(dir, "bin")}:${process.env.PATH}` };
