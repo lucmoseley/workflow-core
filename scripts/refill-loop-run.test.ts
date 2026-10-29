@@ -634,10 +634,10 @@ describe("a parked launch (#2699)", () => {
 		JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"))
 			.launches[0];
 
-	const parkComment = (cause: string, mode = "away") =>
+	const parkComment = (cause: string) =>
 		expect.stringMatching(
 			new RegExp(
-				`^issue comment 7 --repo o/r --body Refill loop: stopped ${cause} park repo /implement 7 \\(${mode} mode, blocked since [^)]+\\); labelled parked: #7\\. The conversation is kept: \`claude attach\` reopens it\\.$`,
+				`^issue comment 7 --repo o/r --body Refill loop: stopped ${cause} park repo /implement 7 \\(away mode, blocked since [^)]+\\); labelled parked: #7\\. The conversation is kept: \`claude attach\` reopens it\\.$`,
 			),
 		);
 
@@ -709,31 +709,21 @@ describe("a parked launch (#2699)", () => {
 		expect(readLines(at("gh-calls"))).toContainEqual(parkComment("PERMISSION"));
 	});
 
-	it.each([
-		[59, false],
-		[61, true],
-	])(
-		"in normal mode, a permission park blocked %i min is stopped: %s (#2851)",
-		async (minutes, stopped) => {
-			inMode("normal");
-			const state = JSON.parse(
-				fs.readFileSync(at(".refill-loop-state.json"), "utf8"),
-			);
-			state.launches[0].block = {
-				cause: "PERMISSION",
-				since: Date.now() - minutes * 60 * 1000,
-			};
-			fs.writeFileSync(at(".refill-loop-state.json"), JSON.stringify(state));
-			fakeClaude([LISTED, permissionRow]);
-			const r = await twoTicks();
-			expect(r.status).toBe(0);
-			if (!stopped) return expectNothingActed();
-			expect(readLines(at("stops"))).toEqual([`stop ${Job}`]);
-			expect(readLines(at("gh-calls"))).toContainEqual(
-				parkComment("PERMISSION", "normal"),
-			);
-		},
-	);
+	it("in normal mode, never stops a permission park at any age (#3621)", async () => {
+		inMode("normal");
+		const state = JSON.parse(
+			fs.readFileSync(at(".refill-loop-state.json"), "utf8"),
+		);
+		state.launches[0].block = {
+			cause: "PERMISSION",
+			since: Date.now() - 24 * 60 * 60 * 1000,
+		};
+		fs.writeFileSync(at(".refill-loop-state.json"), JSON.stringify(state));
+		fakeClaude([LISTED, permissionRow]);
+		const r = await twoTicks();
+		expect(r.status).toBe(0);
+		expectNothingActed();
+	});
 
 	/** Rewrites job7's record with `over` merged in. */
 	const jobAs = (over: object) =>

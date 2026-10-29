@@ -1,12 +1,12 @@
 // @vitest-environment node
 /*
- * The cause→act table (#2699, #2705, #2707, spec #2695). The morning cut-off is
- * machine-local, so its cases build local dates.
+ * The cause→act table (#2699, #2705, #2707, #3621, spec #2695). The morning
+ * cut-off is machine-local, so its cases build local dates.
  *
- * Loosen one and a normal-mode park is stopped while the founder may still
- * answer it in place, an away-mode park holds its slot until morning, or an
- * API-error session is resumed past its cap or never, or stopped mid-retry,
- * or a resumed-idle one is handed off before its one resume.
+ * Loosen one and a normal-mode question or permission prompt is stopped before
+ * the founder answers it in place, an away-mode park holds its slot until
+ * morning, or an API-error session is resumed past its cap or never, or
+ * stopped mid-retry, or a resumed-idle one is handed off before its one resume.
  */
 import { describe, expect, it } from "vitest";
 import { blockAct, nextTryAt, RESUME_CAP } from "./block-act.js";
@@ -20,20 +20,18 @@ const block = (cause: import("./block-cause.js").Cause, minutes: number) => ({
 });
 
 describe("the cause→act table", () => {
-	it("QUESTION: away stops on the first tick; normal after 60 min", () => {
+	it("QUESTION: away stops on the first tick; normal waits at any age", () => {
 		expect(blockAct(block("QUESTION", 0), "away", NOW)).toBe("stop-and-park");
-		expect(blockAct(block("QUESTION", 59), "normal", NOW)).toBe("wait");
-		expect(blockAct(block("QUESTION", 60), "normal", NOW)).toBe(
-			"stop-and-park",
-		);
+		for (const minutes of [0, 60, 10 * 24 * 60])
+			expect(blockAct(block("QUESTION", minutes), "normal", NOW)).toBe("wait");
 	});
 
-	it("PERMISSION: away stops on the first tick; normal after 60 min", () => {
+	it("PERMISSION: away stops on the first tick; normal waits at any age", () => {
 		expect(blockAct(block("PERMISSION", 0), "away", NOW)).toBe("stop-and-park");
-		expect(blockAct(block("PERMISSION", 59), "normal", NOW)).toBe("wait");
-		expect(blockAct(block("PERMISSION", 60), "normal", NOW)).toBe(
-			"stop-and-park",
-		);
+		for (const minutes of [0, 60, 10 * 24 * 60])
+			expect(blockAct(block("PERMISSION", minutes), "normal", NOW)).toBe(
+				"wait",
+			);
 	});
 
 	for (const cause of ["LIMIT", "OTHER_DIALOG", "UNKNOWN"] as const)

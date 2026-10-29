@@ -138,9 +138,9 @@ describe("which parks the loop stops (#2699)", () => {
 		expect(stops(parkedFor("PERMISSION", 0), "away")).toEqual(["p"]);
 	});
 
-	it("stops a normal-mode park only after 60 min unanswered", () => {
-		expect(stops(parkedFor("QUESTION", 59), "normal")).toEqual([]);
-		expect(stops(parkedFor("PERMISSION", 60), "normal")).toEqual(["p"]);
+	it("never stops a normal-mode question or permission park (#3621)", () => {
+		expect(stops(parkedFor("QUESTION", 600), "normal")).toEqual([]);
+		expect(stops(parkedFor("PERMISSION", 600), "normal")).toEqual([]);
 	});
 
 	it("leaves every other cause as today", () => {
