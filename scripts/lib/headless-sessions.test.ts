@@ -8,10 +8,6 @@
  *
  * Loosen one and an overflow run leaks its key into Bash, outlives its stop,
  * reads as live on a reused pid, or bills a spent key as a success (#2607).
- *
- * spawn-kept: an async entry runInProcessAsync cannot load — the CLI's
- * `main(argv)` is not exported, and returns its exit code where that seam
- * calls a bare `main()` and reads `process.exitCode`.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -27,6 +23,7 @@ import {
 } from "./auth-status-fake";
 import { headlessStore, writeHeadlessRun } from "./headless-runs-testkit";
 import { endResultOf, launch as launchRun, stop } from "./headless-sessions.js";
+import { runInProcessAsync } from "./run-in-process.js";
 import { TEST_TIMEOUT_MS } from "./test-ceiling";
 
 const SCRIPT = path.join(__dirname, "headless-sessions.js");
@@ -149,10 +146,7 @@ const env = (extra: Record<string, string> = {}) => ({
 });
 
 const cli = (args: string[], extra: Record<string, string> = {}) =>
-	spawnSync(process.execPath, [SCRIPT, ...args], {
-		encoding: "utf8",
-		env: env(extra),
-	});
+	runInProcessAsync(SCRIPT, args, { env: env(extra) });
 
 const launch = (extra: Record<string, string> = {}, at = seat) =>
 	cli(
@@ -186,16 +180,16 @@ function readSeenOrNull(): {
 
 /* A wait on a real process, not a timing assertion: the ceiling and the poll
  * are guesses, generous against a loaded machine. */
-async function until(test: () => boolean, ms = 10_000) {
+async function until(test: () => boolean | Promise<boolean>, ms = 10_000) {
 	for (const end = Date.now() + ms; Date.now() < end; ) {
-		if (test()) return;
+		if (await test()) return;
 		await new Promise((r) => setTimeout(r, 50));
 	}
 	throw new Error("condition not met in time");
 }
 
 const isAlive = (pid: number) => readProcStartOf(pid) !== null;
-const listed = () => JSON.parse(cli(["list"]).stdout);
+const listed = async () => JSON.parse((await cli(["list"])).stdout);
 const flag = (argv: string[], name: string) => argv[argv.indexOf(name) + 1];
 
 /* dispatch-sessions.sh's own job-id parse, run on the launch's output. */
@@ -211,7 +205,7 @@ const dispatcherJobId = (stdout: string) =>
 
 describe("launch", () => {
 	it("prints a job id the dispatcher's parse reads, and spawns claude -p with the run's flags", async () => {
-		const r = launch();
+		const r = await launch();
 		expect(r.status).toBe(0);
 		const jobId = dispatcherJobId(r.stdout);
 		expect(jobId).toMatch(/^[0-9a-f]{8}$/);
@@ -238,7 +232,7 @@ describe("launch", () => {
 	});
 
 	it("hands the key through the settings' apiKeyHelper alone: in neither the child's environment nor the caller's", async () => {
-		const r = launch({
+		const r = await launch({
 			ANTHROPIC_API_KEY: "sk-caller-own",
 			[KEY_VAR]: "sk-caller-copy",
 			CLAUDE_CODE_SESSION_ID: "caller-session",
@@ -285,18 +279,21 @@ describe("launch", () => {
 			"a secrets file without the variable",
 			() => fs.writeFileSync(secrets, "OTHER=1\n"),
 		],
-	])("refuses with %s, naming the variable, and spawns nothing", (_, setUp) => {
-		setUp();
-		const r = launch();
-		expect(r.status).toBe(1);
-		expect(r.stderr).toMatch(/^REFUSED: .*WFC_TEST_OVERFLOW_KEY/);
-		expect(r.stdout).toBe("");
-		expect(readSeenOrNull()).toBeNull();
-		expect(fs.existsSync(path.join(refill, ".headless-runs"))).toBe(false);
-	});
+	])(
+		"refuses with %s, naming the variable, and spawns nothing",
+		async (_, setUp) => {
+			setUp();
+			const r = await launch();
+			expect(r.status).toBe(1);
+			expect(r.stderr).toMatch(/^REFUSED: .*WFC_TEST_OVERFLOW_KEY/);
+			expect(r.stdout).toBe("");
+			expect(readSeenOrNull()).toBeNull();
+			expect(fs.existsSync(path.join(refill, ".headless-runs"))).toBe(false);
+		},
+	);
 
-	it("refuses a plan seat, naming it as not an overflow seat", () => {
-		const r = launch({}, path.join(home, ".claude2"));
+	it("refuses a plan seat, naming it as not an overflow seat", async () => {
+		const r = await launch({}, path.join(home, ".claude2"));
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("is not an overflow seat");
 		expect(readSeenOrNull()).toBeNull();
@@ -308,17 +305,20 @@ describe("the launch's auth (#2236)", () => {
 	 * ANTHROPIC_API_KEY it inherits is admitted on an overflow seat (#2570). */
 	const refused = REFUSED_AUTH.filter(([name]) => name !== "ANTHROPIC_API_KEY");
 
-	it.each(refused)("refuses under %s, spawning nothing", (name, extra) => {
-		const r = launch(extra);
-		expect(r.status).toBe(1);
-		expect(r.stderr).toMatch(new RegExp(`^REFUSED: .*${name} is set.*#2236`));
-		expect(readSeenOrNull()).toBeNull();
-		expect(fs.existsSync(headlessStore(refill))).toBe(false);
-	});
+	it.each(refused)(
+		"refuses under %s, spawning nothing",
+		async (name, extra) => {
+			const r = await launch(extra);
+			expect(r.status).toBe(1);
+			expect(r.stderr).toMatch(new RegExp(`^REFUSED: .*${name} is set.*#2236`));
+			expect(readSeenOrNull()).toBeNull();
+			expect(fs.existsSync(headlessStore(refill))).toBe(false);
+		},
+	);
 
-	it("refuses an apiKeyHelper in the seat's own settings", () => {
+	it("refuses an apiKeyHelper in the seat's own settings", async () => {
 		writeSeatHelper(seat);
-		const r = launch();
+		const r = await launch();
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("apiKeyHelper");
 		expect(readSeenOrNull()).toBeNull();
@@ -328,18 +328,18 @@ describe("the launch's auth (#2236)", () => {
 		...ADMITTED_AUTH,
 		["ANTHROPIC_API_KEY", { ANTHROPIC_API_KEY: "k" }] as const,
 	])("launches on %s", async (_name, extra) => {
-		expect(launch({ ...extra }).status).toBe(0);
+		expect((await launch({ ...extra })).status).toBe(0);
 		await until(() => readSeenOrNull() !== null);
 	});
 });
 
 describe("list and stop", () => {
 	it("lists a live run as an oracle-shaped record; stop ends its whole process group and drops it", async () => {
-		const jobId = launch().stdout.split("\n")[0] ?? "";
+		const jobId = (await launch()).stdout.split("\n")[0] ?? "";
 		await until(() => readSeenOrNull() !== null);
 		const seen = readSeenOrNull();
 		if (!seen?.grandchild) throw new Error("fake never ran");
-		const [run] = listed();
+		const [run] = await listed();
 		expect(run).toMatchObject({
 			id: jobId,
 			sessionId: flag(seen.argv, "--session-id"),
@@ -350,19 +350,20 @@ describe("list and stop", () => {
 		expect(typeof run.pid).toBe("number");
 		expect(typeof run.startedAt).toBe("number");
 
-		const r = cli(["stop", jobId]);
+		const r = await cli(["stop", jobId]);
 		expect(r.stdout.trim()).toBe("stopped");
 		await until(() => !isAlive(seen.grandchild ?? 0));
-		expect(listed()).toEqual([]);
+		expect(await listed()).toEqual([]);
 	});
 
 	it("stops a group whose leader has exited, ending the task it left behind", async () => {
-		const jobId = launch({ FAKE_MODE: "orphan" }).stdout.split("\n")[0] ?? "";
+		const jobId =
+			(await launch({ FAKE_MODE: "orphan" })).stdout.split("\n")[0] ?? "";
 		await until(() => readSeenOrNull() !== null);
 		const grandchild = readSeenOrNull()?.grandchild ?? 0;
-		await until(() => listed().length === 0);
+		await until(async () => (await listed()).length === 0);
 		expect(isAlive(grandchild)).toBe(true);
-		expect(cli(["stop", jobId]).stdout.trim()).toBe("stopped");
+		expect((await cli(["stop", jobId])).stdout.trim()).toBe("stopped");
 		await until(() => !isAlive(grandchild));
 	});
 
@@ -372,12 +373,12 @@ describe("list and stop", () => {
 			events,
 			`${JSON.stringify({ type: "result", is_error: false, total_cost_usd: 0.5 })}\n`,
 		);
-		launch({ FAKE_MODE: "events", FAKE_EVENTS: events });
+		await launch({ FAKE_MODE: "events", FAKE_EVENTS: events });
 		await until(() => readSeenOrNull() !== null);
-		await until(() => listed().length === 0);
+		await until(async () => (await listed()).length === 0);
 	});
 
-	it("drops a run whose pid now belongs to another process", () => {
+	it("drops a run whose pid now belongs to another process", async () => {
 		const dir = path.join(refill, ".headless-runs", "0badf00d");
 		const record = (procStart: string | null) =>
 			writeHeadlessRun(refill, "0badf00d", "s", {
@@ -390,19 +391,22 @@ describe("list and stop", () => {
 				launchedAt: 1,
 			});
 		record(readProcStartOf(process.pid));
-		expect(listed().map((a: { id: string }) => a.id)).toEqual(["0badf00d"]);
+		expect((await listed()).map((a: { id: string }) => a.id)).toEqual([
+			"0badf00d",
+		]);
 		record("1");
-		expect(listed()).toEqual([]);
+		expect(await listed()).toEqual([]);
 	});
 
 	/* Crosses the real clock: the escalation is a signal to a real process
 	 * group, so the grace is shortened, never asserted as elapsed time. */
 	it("kills a group that ignores SIGTERM once the grace period passes", async () => {
-		const jobId = launch({ FAKE_MODE: "stubborn" }).stdout.split("\n")[0] ?? "";
+		const jobId =
+			(await launch({ FAKE_MODE: "stubborn" })).stdout.split("\n")[0] ?? "";
 		await until(() => readSeenOrNull() !== null);
 		expect(await stop(jobId, { graceMs: 300 })).toBe("killed");
 		await until(() => !isAlive(readSeenOrNull()?.grandchild ?? 0));
-		expect(listed()).toEqual([]);
+		expect(await listed()).toEqual([]);
 	});
 });
 

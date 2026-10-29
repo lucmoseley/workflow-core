@@ -473,18 +473,21 @@ function printLive(live, numbersOnly) {
 		process.stdout.write(`#${c.issue}\t${c.sessionId}\tsince ${c.claimedAt}\n`);
 }
 
+module.exports = { main };
+
 // `process.exitCode` rather than `process.exit`, which discards whatever stdout
 // has buffered — `--numbers | head` would lose lines.
-main(process.argv.slice(2)).then(
-	(code) => {
-		process.exitCode = code;
-	},
-	(e) => {
-		// Fail closed on anything unforeseen: an unhandled rejection would exit 0
-		// with an empty stdout.
-		say(
-			`${parseErrLine(e)} — an unexpected failure, so nothing above is an answer. Drop nothing.`,
-		);
-		process.exitCode = 1;
-	},
-);
+if (require.main === module)
+	main(process.argv.slice(2)).then(
+		(code) => {
+			process.exitCode = code;
+		},
+		(e) => {
+			// Fail closed on anything unforeseen: an unhandled rejection would exit 0
+			// with an empty stdout.
+			say(
+				`${parseErrLine(e)} — an unexpected failure, so nothing above is an answer. Drop nothing.`,
+			);
+			process.exitCode = 1;
+		},
+	);

@@ -35,9 +35,14 @@ const APPARATUS_EXIT = 125;
 const APPARATUS_PREFIX = "run-budgeted: ";
 const FORWARDED = /** @type {const} */ (["SIGTERM", "SIGINT", "SIGHUP"]);
 
+/** @param {string} why */
+function sayApparatus(why) {
+	writeFd(2, `${APPARATUS_PREFIX}${why}\n`);
+}
+
 /** @param {string} why @returns {never} */
 function apparatusFailed(why) {
-	writeFd(2, `${APPARATUS_PREFIX}${why}\n`);
+	sayApparatus(why);
 	process.exit(APPARATUS_EXIT);
 }
 
@@ -54,8 +59,13 @@ function dieBy(/** @type {NodeJS.Signals} */ signal) {
 	process.kill(process.pid, signal);
 }
 
-function main() {
-	const [budgetRaw, killAfterRaw, command, ...args] = process.argv.slice(2);
+/**
+ * @param {string[]} argv
+ * @returns {Promise<number>} the code to exit with, where no signal ends this
+ *   process first
+ */
+async function main(argv) {
+	const [budgetRaw, killAfterRaw, command, ...args] = argv;
 	const budgetMs = Number(budgetRaw);
 	const killAfterMs = Number(killAfterRaw);
 	if (!command || !(budgetMs > 0) || !(killAfterMs > 0))
@@ -97,23 +107,32 @@ function main() {
 		}, killAfterMs);
 	}, budgetMs);
 
-	child.on("error", (e) =>
-		apparatusFailed(`${command} would not start: ${caught(e).code ?? ""}`),
-	);
-	child.on("exit", (code, signal) => {
-		clearTimeout(budget);
-		if (sent) {
-			signalGroup("SIGKILL");
-			process.exit(sent === "KILL" ? KILLED_EXIT : TIMEOUT_EXIT);
-		}
-		if (signal) dieBy(signal);
-		else process.exit(code ?? 1);
+	return new Promise((resolve) => {
+		child.on("error", (e) => {
+			clearTimeout(budget);
+			sayApparatus(`${command} would not start: ${caught(e).code ?? ""}`);
+			resolve(APPARATUS_EXIT);
+		});
+		child.on("exit", (code, signal) => {
+			clearTimeout(budget);
+			if (sent) {
+				signalGroup("SIGKILL");
+				resolve(sent === "KILL" ? KILLED_EXIT : TIMEOUT_EXIT);
+			} else if (signal) dieBy(signal);
+			else resolve(code ?? 1);
+		});
 	});
 }
 
-if (require.main === module) main();
+if (require.main === module)
+	main(process.argv.slice(2)).then(
+		(code) => process.exit(code),
+		/* A throw `spawn` makes itself, before any child exists. */
+		(e) => apparatusFailed(caught(e).message),
+	);
 
 module.exports = {
+	main,
 	RUN_BUDGETED: __filename,
 	TIMEOUT_EXIT,
 	KILLED_EXIT,

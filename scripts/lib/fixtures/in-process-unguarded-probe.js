@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 /*
- * No guard around its top-level call at all — `wayfinder-frontier.js`'s
- * shape — for run-in-process.test.ts's "refuses a script with no such guard"
- * case (mantahostels#1944). Deliberately never run for real: `runInProcessAsync` must
+ * No guard around its top-level call at all, for run-in-process.test.ts's
+ * "refuses a script with no such guard" case (mantahostels#1944). Deliberately never run for real: `runInProcessAsync` must
  * refuse this before `entry.load` reaches the line below.
  *
  * Its own source must not spell out the guarded form's identifier in a
