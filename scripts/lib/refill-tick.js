@@ -77,7 +77,7 @@ const {
 	decideTick,
 	hasRoom,
 	isParked,
-	routesParked,
+	isParkRoutingMode,
 } = require("./refill-decide.js");
 const { refillFrontier } = require("./refill-frontier.js");
 const {
@@ -893,7 +893,7 @@ async function decide(input, scope, launches) {
 		merged.frontier
 	);
 	/* A mode that skips parked rows leaves their markers unread. */
-	const parkers = routesParked(input.mode)
+	const parkers = isParkRoutingMode(input.mode)
 		? readParkers(frontier, launches)
 		: [];
 	const decision = decideTick({
