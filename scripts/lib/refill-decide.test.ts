@@ -746,11 +746,11 @@ describe("decideTick on a parked row's session seat (#3669)", () => {
 		labels: ["takes:implement", "parked"],
 		parkedAt: "2026-10-18T09:00:00Z",
 	});
-	const launch = { root: "wfc", issues: [2], seat: "/s2", jobId: "j2" };
+	const job = { seat: "/s2", jobId: "j2" };
 	const parker = (over: Record<string, unknown> = {}) => ({
 		root: "wfc",
 		number: 2,
-		launch,
+		job,
 		sessionId: "s-2",
 		cwd: "wfc",
 		...over,
@@ -784,7 +784,7 @@ describe("decideTick on a parked row's session seat (#3669)", () => {
 		const d = on(seat("/s2", 40, 20, null));
 		expect(launched(d)).toEqual(["wfc#2"]);
 		expect(d.launches[0].parkedRoute).toEqual({
-			resume: { launch, sessionId: "s-2", cwd: "wfc" },
+			resume: { seat: "/s2", sessionId: "s-2", cwd: "wfc" },
 		});
 	});
 
@@ -799,10 +799,7 @@ describe("decideTick on a parked row's session seat (#3669)", () => {
 			freeSlots: 1,
 			frontier: [parked, older, row("wfc", 1)],
 			seats: [seat("/s1", 10, 10), full],
-			parkers: [
-				parker(),
-				parker({ number: 4, launch: { ...launch, seat: "/s1" } }),
-			],
+			parkers: [parker(), parker({ number: 4, job: { seat: "/s1" } })],
 		});
 		expect(launched(d)).toEqual(["wfc#4"]);
 		expect(d.skipped).toEqual([]);
@@ -820,18 +817,21 @@ describe("decideTick on a parked row's session seat (#3669)", () => {
 		expect(away.held).toEqual([]);
 	});
 
-	it("routes it afresh where no resume is possible: no parker, no session id, or a seat the loop does not read", () => {
+	it("routes it afresh where no resume is possible: no parker, a marker naming no job or one whose record will not read, or a seat the loop does not read", () => {
 		const full = seat("/s2", 100, 10);
 		const afresh = (d: ReturnType<typeof tick>) => d.launches[0].parkedRoute;
 		expect(afresh(on(full, []))).toEqual({
 			afresh: "no session that parked it is recorded",
 		});
-		expect(afresh(on(full, [parker({ sessionId: null })]))).toEqual({
-			afresh: "no session id read for its parking launch",
+		expect(afresh(on(full, [parker({ job: null })]))).toEqual({
+			afresh: "its session s-2's marker names no job",
 		});
 		expect(
-			afresh(on(full, [parker({ launch: { ...launch, seat: "/gone" } })])),
+			afresh(on(full, [parker({ job: { ...job, seat: "/gone" } })])),
 		).toEqual({ afresh: "its session's seat /gone is not one the loop reads" });
+		expect(afresh(on(seat("/s2", 10, 10), [parker({ cwd: null })]))).toEqual({
+			afresh: "its marker's job j2 will not read",
+		});
 	});
 });
 

@@ -81,8 +81,8 @@ function claim(n: number, session = sid) {
 	expect(r.status, r.stderr).toBe(0);
 }
 
-/** Run the hook, as a background job unless `job` is false (an interactive session); it never blocks. */
-function run(message: string, job = true) {
+/** Run the hook, as a background job unless `job` is false (an interactive session), a string naming its job dir; it never blocks. */
+function run(message: string, job: boolean | string = true) {
 	expect(
 		readStopGuardBlock(HOOK, { dir, sid, message, job, env: { WFC_GH: gh } }),
 	).toBe(null);
@@ -110,6 +110,13 @@ describe("a round posted on an issue this session claims", () => {
 			"issue edit 31 --repo o/here --add-label parked",
 		]);
 		expect(readMarker()).toBe("31");
+	});
+
+	it("records the seat and job its job dir names, for a normal-mode loop to resume it (#3709)", () => {
+		claim(31);
+		const seat = path.join(dir, "seat");
+		run(NEEDS_INPUT, path.join(seat, "jobs", "abcd1234"));
+		expect(readMarker()).toBe(`seat ${seat}\njob abcd1234\n31`);
 	});
 
 	it("leaves the marker unwritten where the label write fails", () => {

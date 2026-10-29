@@ -111,7 +111,7 @@ describe("a prompt in a session that parked its issue", () => {
 	});
 
 	it("unparks a park recorded through writeParkedBy's root, the refill loop's route (#3584)", () => {
-		writeParkedBy(sid, [31], dir);
+		writeParkedBy(sid, [31], { root: dir });
 		run();
 		expect(readCalls()).toEqual([
 			"issue edit 31 --repo o/here --remove-label parked",

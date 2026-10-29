@@ -31,6 +31,20 @@ const jobStateIn = (jobDir) => path.join(jobDir, "state.json");
 const jobStatePath = (seat, jobId) => jobStateIn(jobDirPath(seat, jobId));
 
 /**
+ * The seat and job id a job directory names, `CLAUDE_JOB_DIR` being
+ * `<seat>/jobs/<jobId>`; null where `jobDir` is empty or not in that layout.
+ * @param {string|undefined} jobDir
+ * @returns {{seat: string, jobId: string}|null}
+ */
+function jobOfDir(jobDir) {
+	if (!jobDir) return null;
+	const dir = path.resolve(jobDir);
+	const store = path.dirname(dir);
+	if (path.basename(store) !== "jobs") return null;
+	return { seat: path.dirname(store), jobId: path.basename(dir) };
+}
+
+/**
  * The daemon roster for `seat`'s job store (mantahostels#2049).
  * @param {string} seat
  */
@@ -61,6 +75,7 @@ function readJobRecord(seat, jobId) {
 
 module.exports = {
 	jobDirPath,
+	jobOfDir,
 	jobStateIn,
 	jobStatePath,
 	jobStorePath,

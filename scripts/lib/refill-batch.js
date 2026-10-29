@@ -77,7 +77,9 @@ function buildWouldRunLine(call, overflow) {
 /**
  * @typedef {{launch: import("./refill-decide.js").Launch, reason: string}} Refusal
  * @typedef {{launched: import("./refill-loop.js").LoopLaunch[], refused: Refusal[]}} BatchOutcome
- * @typedef {{resume: (target: import("./refill-decide.js").ResumeTarget) => import("./refill-blocks.js").Resumed,
+ * @typedef {{resume: (l: import("./refill-decide.js").Launch,
+ *   target: import("./refill-decide.js").ResumeTarget) =>
+ *   import("./refill-blocks.js").Resumed,
  *   recordLaunch: typeof import("./dispatch-ledger.js").record,
  *   log: (line: string) => void, now: () => number}} ResumeIo
  */
@@ -213,7 +215,7 @@ function resumeParked(l, parked, io) {
 		return null;
 	};
 	if ("afresh" in parked) return afresh(parked.afresh);
-	const r = io.resume(parked.resume);
+	const r = io.resume(l, parked.resume);
 	if (r.failed !== null) return afresh(r.failed);
 	io.log(`resumed parked ${launchName(l)} as job ${r.jobId}`);
 	if (
@@ -232,7 +234,7 @@ function resumeParked(l, parked, io) {
 		root: l.root,
 		issues: l.issues,
 		prompt: l.prompt,
-		seat: parked.resume.launch.seat,
+		seat: parked.resume.seat,
 		jobId: r.jobId,
 		launchedAt: io.now(),
 		finishedAt: null,

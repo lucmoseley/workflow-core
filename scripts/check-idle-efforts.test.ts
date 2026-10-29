@@ -200,15 +200,7 @@ describe("check-idle-efforts.js", () => {
 						seat: "/home/u/.claude2",
 						parkedRoute: {
 							resume: {
-								launch: {
-									root,
-									issues: [1],
-									prompt: "/implement 1",
-									seat: "/home/u/.claude2",
-									jobId: "job1",
-									launchedAt: NOW - 3 * DAY,
-									finishedAt: NOW - 2.5 * DAY,
-								},
+								seat: "/home/u/.claude2",
 								sessionId: "s-1",
 								cwd: root,
 							},

@@ -71,7 +71,12 @@ const { stopOn } = require("./claude-stop.js");
 const { launchAuthRefusal } = require("./launch-auth.js");
 const { jobDirPath, readJobRecord } = require("./job-paths.js");
 const { parseJsonl } = require("./jsonl.js");
-const { readParkedBy, setParked, writeParkedBy } = require("./parked.js");
+const {
+	readParkMarkers,
+	readParkedBy,
+	setParked,
+	writeParkedBy,
+} = require("./parked.js");
 const { read: readTranscript } = require("./session-transcript.js");
 const { mainChainRecords } = require("./transcript.js");
 const { hasConfig, resolveKey } = require("./workflow-core-config.js");
@@ -525,8 +530,9 @@ function labelParked(l) {
 }
 
 /**
- * Add `numbers` to session `sessionId`'s `.parked-` marker in `l`'s checkout;
- * null once written, else why not. Fails open: an unwritten marker leaves the
+ * Add `numbers` to session `sessionId`'s `.parked-` marker in `l`'s checkout,
+ * with `l`'s seat and job for a normal-mode loop to resume (#3709); null once
+ * written, else why not. Fails open: an unwritten marker leaves the
  * label for a claim to clear, and the loop line says so (#3584).
  * @param {import("./refill-loop.js").LoopLaunch} l
  * @param {string} sessionId
@@ -534,11 +540,10 @@ function labelParked(l) {
  */
 function recordParked(l, sessionId, numbers) {
 	try {
-		writeParkedBy(
-			sessionId,
-			[...readParkedBy(sessionId, l.root), ...numbers],
-			l.root,
-		);
+		writeParkedBy(sessionId, [...readParkedBy(sessionId, l.root), ...numbers], {
+			root: l.root,
+			job: l.jobId ? { seat: l.seat, jobId: l.jobId } : null,
+		});
 		return null;
 	} catch (e) {
 		return buildErrorText(e);
@@ -584,7 +589,7 @@ function readTimelineOf(l) {
 /**
  * `l`'s job record, its state.json parsed; null where it has no job or the
  * record will not read.
- * @param {import("./refill-loop.js").LoopLaunch} l
+ * @param {Pick<import("./refill-loop.js").LoopLaunch, "seat"|"jobId">} l
  */
 const readJobRecordOf = (l) =>
 	l.jobId ? readJobRecord(l.seat, l.jobId) : null;
@@ -592,7 +597,7 @@ const readJobRecordOf = (l) =>
 /**
  * The environment a `claude` call on `l`'s seat runs in: `stop`, `attach` and
  * the job record are scoped to CLAUDE_CONFIG_DIR.
- * @param {import("./refill-loop.js").LoopLaunch} l
+ * @param {Pick<import("./refill-loop.js").LoopLaunch, "seat">} l
  */
 const seatEnv = (l) => ({ ...process.env, CLAUDE_CONFIG_DIR: l.seat });
 
@@ -630,7 +635,7 @@ function readResumeTargetOf(l) {
 /**
  * `session-arbiter.js <cmd> <n>` as session `sessionId`, in `l`'s checkout;
  * what it printed, or null where it failed.
- * @param {import("./refill-blocks.js").JobLaunch} l
+ * @param {Pick<import("./refill-loop.js").LoopLaunch, "root">} l
  * @param {"claim-issue"|"release-issue"} cmd
  * @param {number} n
  * @param {string} sessionId
@@ -652,7 +657,7 @@ function arbiterAs(l, cmd, n, sessionId) {
 /**
  * Move each issue claim session `from` holds on `l`'s issues to its copy's
  * session `to` (#2963).
- * @param {import("./refill-blocks.js").JobLaunch} l
+ * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"issues">} l
  * @param {string} from
  * @param {string} to
  */
@@ -670,7 +675,7 @@ function moveClaims(l, from, to) {
  * (#2963, #2968). The resume counts where the launcher named the job it
  * started (lib/bg-resume.js) and that job's state.json does not read failed;
  * a later tick judges the resumed turn.
- * @param {import("./refill-blocks.js").JobLaunch} l
+ * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"issues"|"seat">} l
  * @param {string} prompt
  * @param {{sessionId: string, cwd: string}} target
  * @returns {import("./refill-blocks.js").Resumed}
@@ -704,50 +709,61 @@ function resumeStopped(l, prompt, { sessionId, cwd }) {
 }
 
 /**
- * The loop's newest finished launch, with a job, in `root` whose session's
- * `.parked-` marker lists issue `n`. Residual: only the loop writes the
- * launches it reads, so a park by any session it did not launch, the
- * founder's own and `/pick-next`'s dispatches among them, names none, and
- * that ticket launches afresh.
- * @param {string} root
- * @param {number} n
- * @param {import("./refill-loop.js").LoopLaunch[]} launches
- * @returns {import("./refill-blocks.js").JobLaunch|undefined}
- */
-const readParkingLaunch = (root, n, launches) =>
-	/** @type {import("./refill-blocks.js").JobLaunch|undefined} */ (
-		launches.findLast(
-			(r) =>
-				r.root === root &&
-				r.finishedAt !== null &&
-				r.jobId !== null &&
-				[r.sessionId, ...(r.pastSessionIds ?? [])].some(
-					(id) => id !== undefined && readParkedBy(id, r.root).includes(n),
-				),
-		)
-	);
-
-/**
- * Each parked row's parking launch (readParkingLaunch), with the session it
- * resumes, for the decision to route (refill-decide.js's routeParked).
+ * Each parked row's park marker, the newest written where several list it,
+ * with the seat and job it names and the directory its session resumes in,
+ * its job record's cwd: null where that record will not read (#3709).
  * @param {import("./refill-decide.js").MergedRow[]} frontier
- * @param {import("./refill-loop.js").LoopLaunch[]} launches
  * @returns {import("./refill-decide.js").ParkerReading[]}
  */
-function readParkers(frontier, launches) {
+function readParkers(frontier) {
+	/** @type {Map<string, ReturnType<typeof readParkMarkers>>} */
+	const byRoot = new Map();
+	const markersIn = (/** @type {string} */ root) => {
+		const read = byRoot.get(root) ?? readParkMarkers(root);
+		byRoot.set(root, read);
+		return read;
+	};
 	return frontier.flatMap((row) => {
 		if (!isParked(row)) return [];
-		const launch = readParkingLaunch(row.root, row.number, launches);
-		if (!launch) return [];
+		const marker = markersIn(row.root)
+			.filter((m) => m.issues.includes(row.number))
+			.sort((x, y) => y.writtenAt - x.writtenAt)[0];
+		if (!marker) return [];
+		const { job, sessionId } = marker;
+		const record = /** @type {{cwd?: unknown}|null} */ (
+			job ? readJobRecord(job.seat, job.jobId) : null
+		);
 		return [
 			{
 				root: row.root,
 				number: row.number,
-				launch,
-				...readResumeTargetOf(launch),
+				sessionId,
+				job,
+				cwd: typeof record?.cwd === "string" ? record.cwd : null,
 			},
 		];
 	});
+}
+
+/**
+ * Drop `issues` from session `sessionId`'s marker in `root`'s checkout, once
+ * a copy carries its conversation on, so no later tick resumes the old one
+ * (#3709). Fails open: a marker left names a job a resume then falls back
+ * from.
+ * @param {string} root
+ * @param {string} sessionId
+ * @param {number[]} issues
+ */
+function dropParked(root, sessionId, issues) {
+	try {
+		writeParkedBy(
+			sessionId,
+			readParkedBy(sessionId, root).filter((n) => !issues.includes(n)),
+			{ root },
+		);
+	} catch (e) {
+		log(`marker of ${sessionId} not trimmed: ${buildErrorText(e)}`);
+	}
 }
 
 /**
@@ -760,9 +776,7 @@ function readParkers(frontier, launches) {
  */
 const sizeParkerSeats = (seats, parkers, root) =>
 	seats.map((s) =>
-		s.fits === null &&
-		hasRoom(s) &&
-		parkers.some((p) => p.launch.seat === s.seat)
+		s.fits === null && hasRoom(s) && parkers.some((p) => p.job?.seat === s.seat)
 			? { ...s, fits: readCapFits(root, s.seat, 1, "") }
 			: s,
 	);
@@ -775,8 +789,14 @@ const sizeParkerSeats = (seats, parkers, root) =>
  */
 const launchOrResume = (batch) =>
 	refillBatch.launchOrResume(batch, {
-		resume: ({ launch, sessionId, cwd }) =>
-			resumeStopped(launch, PARKED_PROMPT, { sessionId, cwd }),
+		resume: ({ root, issues }, { seat, sessionId, cwd }) => {
+			const r = resumeStopped({ root, issues, seat }, PARKED_PROMPT, {
+				sessionId,
+				cwd,
+			});
+			if (r.failed === null && r.copy) dropParked(root, sessionId, issues);
+			return r;
+		},
 		recordLaunch,
 		launchFresh: launchBatch,
 		log,
@@ -869,12 +889,10 @@ const blockIo = (served) => ({
  * read.
  * @param {import("./refill-decide.js").TickInput} input
  * @param {import("./refill-loop.js").Scope} scope
- * @param {import("./refill-loop.js").LoopLaunch[]} launches the loop's, which
- *   name each parked row's parking session
  * @returns {Promise<{decision: import("./refill-decide.js").Decision,
  *   read: import("./refill-loop.js").FrontierRead|null}>}
  */
-async function decide(input, scope, launches) {
+async function decide(input, scope) {
 	const first = decideTick(input);
 	/* A tick launching gate judgements alone may still have slots for the
 	 * ranking, so it reads the shortlists too. */
@@ -898,9 +916,7 @@ async function decide(input, scope, launches) {
 		merged.frontier
 	);
 	/* A mode that skips parked rows leaves their markers unread. */
-	const parkers = isParkRoutingMode(input.mode)
-		? readParkers(frontier, launches)
-		: [];
+	const parkers = isParkRoutingMode(input.mode) ? readParkers(frontier) : [];
 	const decision = decideTick({
 		...input,
 		seats: sizeParkerSeats(input.seats, parkers, served.roots[0]),
@@ -980,7 +996,7 @@ async function tick({ dryRun }) {
 			.readGateStore(files.gates, log)
 			.pending.filter((j) => served.includes(j.root)),
 	};
-	const { decision, read } = await decide(input, control.scope, judged);
+	const { decision, read } = await decide(input, control.scope);
 	if (dryRun) return { decision, read, startedAt: control.startedAt, agents };
 	const settled = loop.settleTick(
 		{ input, decision, state, judged, probes, read },

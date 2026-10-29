@@ -860,12 +860,11 @@ describe("the launches a tick keeps (#3621)", () => {
 	const kept = (past: Launch[]) =>
 		settleOnce(idle("no free slot"), 0, [], { past }).writes[0].launches;
 
-	it("keeps an older park the loop stopped until a later launch of its issue follows it", () => {
+	it("keeps the last 50 launches, an older park the loop stopped among those dropped (#3709)", () => {
 		const parked = at(1, { parkStopped: 2 });
-		const older = kept(history([parked, at(3)]));
-		expect(older).toHaveLength(51);
-		expect(older[0]).toBe(parked);
-		expect(kept([...history([parked]), at(1)])).not.toContain(parked);
+		const out = kept(history([parked, at(3)]));
+		expect(out).toHaveLength(50);
+		expect(out).not.toContain(parked);
 	});
 });
 

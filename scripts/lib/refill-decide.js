@@ -115,8 +115,8 @@ const ALREADY_RUNNING = "already running";
  *   sweep's queue, launched ahead of the ranking (#2279), behind normal
  *   mode's parked rows (#3713)
  * @property {{root: string, error: string}[]} [failedShortlists]
- * @property {ParkerReading[]} [parkers] each parked frontier row's parking
- *   launch the tick found
+ * @property {ParkerReading[]} [parkers] each parked frontier row's park
+ *   marker the tick found
  */
 
 /**
@@ -136,14 +136,15 @@ const ALREADY_RUNNING = "already running";
  * @typedef {object} ParkerReading
  * @property {string} root
  * @property {number} number the parked issue
- * @property {import("./refill-blocks.js").JobLaunch} launch
- * @property {string|null} sessionId its session, null where unread
- * @property {string} cwd where its session resumes
+ * @property {string} sessionId the session whose marker lists it
+ * @property {import("./parked.js").ParkJob|null} job the seat and job its
+ *   marker names, null where it names none
+ * @property {string|null} cwd where its session resumes: its job record's,
+ *   null where that record will not read
  */
 
 /**
- * @typedef {{launch: import("./refill-blocks.js").JobLaunch, sessionId: string,
- *   cwd: string}} ResumeTarget
+ * @typedef {{seat: string, sessionId: string, cwd: string}} ResumeTarget
  */
 
 /**
@@ -439,31 +440,33 @@ function stopOf(input, pick) {
 
 /**
  * How a parked row launches, from the tick's reading of the session that
- * parked it: resumed in place (#3621); held, a skip with why, where that
+ * parked it, its park marker: resumed in place (#3621); held, a skip with why, where that
  * session's seat reads full, a bar at 100% or a cap sized 0 (#3669); else
  * afresh on its `takes:` command, with why. A seat with an unread bar
  * resumes: the loop refreshes no seat behind the first with room, so a hold
  * there would never end. A weekly-full seat holds its tickets until its
  * week resets, up to 7 days; the idle alarm counts one held past 2 days
  * (#3680).
- * @param {ParkerReading|undefined} parker none where no launch of the loop's
- *   parked it
+ * @param {ParkerReading|undefined} parker none where no marker lists it
  * @param {SizedSeat[]} seats this tick's
  * @returns {{resume: ResumeTarget} | {hold: string} | {afresh: string}}
  */
 function routeParked(parker, seats) {
 	if (!parker) return { afresh: "no session that parked it is recorded" };
-	if (!parker.sessionId)
-		return { afresh: "no session id read for its parking launch" };
-	const seat = seats.find((s) => s.seat === parker.launch.seat);
+	if (!parker.job)
+		return { afresh: `its session ${parker.sessionId}'s marker names no job` };
+	const seat = seats.find((s) => s.seat === parker.job?.seat);
 	if (!seat)
 		return {
-			afresh: `its session's seat ${parker.launch.seat} is not one the loop reads`,
+			afresh: `its session's seat ${parker.job.seat} is not one the loop reads`,
 		};
+	if (parker.cwd === null)
+		return { afresh: `its marker's job ${parker.job.jobId} will not read` };
 	if (readsFull(seat))
 		return { hold: `parked: its session's seat ${seat.seat} is full` };
-	const { launch, sessionId, cwd } = parker;
-	return { resume: { launch, sessionId, cwd } };
+	return {
+		resume: { seat: seat.seat, sessionId: parker.sessionId, cwd: parker.cwd },
+	};
 }
 
 /**

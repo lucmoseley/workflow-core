@@ -385,15 +385,8 @@ describe("launchBatch's records", () => {
 describe("a parked member resumed in place or launched afresh (#3621)", () => {
 	type Io = Parameters<typeof launchOrResume>[1];
 	type Launch = Parameters<typeof launchOrResume>[0][number];
-	const parker = {
-		...launch,
-		seat: "/home/u/.claude2",
-		jobId: "old",
-		launchedAt: 1,
-		finishedAt: 2,
-	};
 	const target = {
-		launch: parker,
+		seat: "/home/u/.claude2",
 		sessionId: "s-1",
 		cwd: "/home/u/design-vault",
 	};
@@ -409,9 +402,9 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 		const resumed: unknown[] = [];
 		const recorded: unknown[] = [];
 		const out = launchOrResume(batch, {
-			resume: (t) => {
+			resume: (l, t) => {
 				resumed.push(t);
-				return resume(t);
+				return resume(l, t);
 			},
 			recordLaunch: (e) => {
 				recorded.push(e);
@@ -496,7 +489,7 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 
 	it("launches afresh, logged with why, a member routed afresh or whose resume failed", () => {
 		const routed = member(1, {
-			parkedRoute: { afresh: "no session id read for its parking launch" },
+			parkedRoute: { afresh: "its session s-1's marker names no job" },
 		});
 		const failing = member(2, { parkedRoute: { resume: target } });
 		const { out, lines, fresh, resumed } = run([routed, failing], () => ({
@@ -506,7 +499,7 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 		expect(fresh).toEqual([[routed, failing]]);
 		expect(out.launched.map((l) => l.jobId)).toEqual(["fresh", "fresh"]);
 		expect(lines).toEqual([
-			"parked design-vault /implement 1 not resumed: no session id read for its parking launch; launching afresh",
+			"parked design-vault /implement 1 not resumed: its session s-1's marker names no job; launching afresh",
 			"parked design-vault /implement 2 not resumed: exit 1; launching afresh",
 		]);
 	});

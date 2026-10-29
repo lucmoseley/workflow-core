@@ -15,13 +15,17 @@
  * lists the issues parked for this session — by park-on-round.js, or by the
  * refill loop where it stopped the session, into that session's checkout — so
  * unpark-on-prompt.js acts off a local read and makes no GitHub call on an
- * ordinary prompt.
+ * ordinary prompt. It also names the seat and job the session ran in, written
+ * at park time, which a normal-mode loop resumes it from whoever launched it
+ * (#3709). One entry a line: `seat <config dir>`, `job <job id>`, or an issue
+ * number.
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
 const { parseErrLine, gh } = require("./gh.js");
 const { markersDir } = require("./marker-root.js");
+const { requiredGroup } = require("./regex-group.js");
 
 const PARKED_LABEL = "parked";
 
@@ -48,47 +52,120 @@ function setParked(repo, n, on) {
 	}
 }
 
+/** @typedef {{seat: string, jobId: string}} ParkJob */
+/** @typedef {{issues: number[], job: ParkJob|null}} ParkMarker */
+
+const MARKER_PREFIX = ".parked-";
+const KEYED_RE = /^(seat|job) (\S+)$/;
+/* park-blocked.sh's record shares the prefix (lib/arbiter-markers.js). */
+const BLOCKED_PREFIX = ".parked-blocked-";
+
 /**
  * @param {string} sessionId
  * @param {string} [root]  the session's checkout; the caller's host by default
  */
 const markerOf = (sessionId, root) =>
-	path.join(markersDir(root), `.parked-${sessionId}`);
+	path.join(markersDir(root), `${MARKER_PREFIX}${sessionId}`);
+
+/**
+ * @param {string} text
+ * @returns {ParkMarker}
+ */
+function parseMarker(text) {
+	/** @type {Record<string, string>} */
+	const keyed = {};
+	const issues = [];
+	for (const line of text.split("\n").map((l) => l.trim())) {
+		if (/^\d+$/.test(line)) issues.push(Number(line));
+		const m = KEYED_RE.exec(line);
+		if (m) keyed[requiredGroup(m, 1, KEYED_RE)] = requiredGroup(m, 2, KEYED_RE);
+	}
+	const { seat, job } = keyed;
+	return { issues, job: seat && job ? { seat, jobId: job } : null };
+}
+
+/**
+ * This session's marker; no issues and no job where none or unreadable.
+ * @param {string} sessionId
+ * @param {string} [root]
+ * @returns {ParkMarker}
+ */
+function readParkMarker(sessionId, root) {
+	try {
+		return parseMarker(fs.readFileSync(markerOf(sessionId, root), "utf8"));
+	} catch {
+		/* Fail open (#2000). */
+		return { issues: [], job: null };
+	}
+}
 
 /**
  * The issues this session parked; [] where none or the marker is unreadable.
  * @param {string} sessionId
  * @param {string} [root]
- * @returns {number[]}
  */
-function readParkedBy(sessionId, root) {
+const readParkedBy = (sessionId, root) =>
+	readParkMarker(sessionId, root).issues;
+
+/**
+ * Every session marker in `root`'s checkout that lists an issue, with its
+ * session and when it was last written; [] where the directory will not read.
+ * @param {string} root
+ * @returns {(ParkMarker & {sessionId: string, writtenAt: number})[]}
+ */
+function readParkMarkers(root) {
+	const dir = markersDir(root);
+	let names;
 	try {
-		return fs
-			.readFileSync(markerOf(sessionId, root), "utf8")
-			.split(/\s+/)
-			.filter((t) => /^\d+$/.test(t))
-			.map(Number);
+		names = fs.readdirSync(dir);
 	} catch {
-		/* Fail open (#2000). */
+		/* Fail open (#3709): with no marker read, each parked row launches
+		 * afresh, logged as no session recorded. */
 		return [];
 	}
+	return names.flatMap((name) => {
+		if (!name.startsWith(MARKER_PREFIX) || name.startsWith(BLOCKED_PREFIX))
+			return [];
+		const sessionId = name.slice(MARKER_PREFIX.length);
+		try {
+			const writtenAt = fs.statSync(path.join(dir, name)).mtimeMs;
+			const marker = readParkMarker(sessionId, root);
+			return marker.issues.length > 0
+				? [{ ...marker, sessionId, writtenAt }]
+				: [];
+		} catch {
+			/* A marker deleted between the listing and its read: no park
+			 * (#3709). */
+			return [];
+		}
+	});
 }
 
 /**
- * Record the issues this session holds parked, replacing the list; an empty
- * list deletes the marker.
+ * Write this session's marker in `root`'s checkout: `numbers` its issues,
+ * replacing the list, and `job` its job, else the one it already names. An
+ * empty list deletes it.
  * @param {string} sessionId
  * @param {number[]} numbers
- * @param {string} [root]
+ * @param {{root?: string, job?: ParkJob|null}} [where]
  */
-function writeParkedBy(sessionId, numbers, root) {
+function writeParkedBy(sessionId, numbers, { root, job = null } = {}) {
 	const file = markerOf(sessionId, root);
-	if (numbers.length === 0) fs.rmSync(file, { force: true });
-	else fs.writeFileSync(file, `${[...new Set(numbers)].join("\n")}\n`);
+	if (numbers.length === 0) {
+		fs.rmSync(file, { force: true });
+		return;
+	}
+	const kept = job ?? readParkMarker(sessionId, root).job;
+	const lines = [
+		...(kept ? [`seat ${kept.seat}`, `job ${kept.jobId}`] : []),
+		...new Set(numbers),
+	];
+	fs.writeFileSync(file, `${lines.join("\n")}\n`);
 }
 
 module.exports = {
 	PARKED_LABEL,
+	readParkMarkers,
 	readParkedBy,
 	setParked,
 	writeParkedBy,
