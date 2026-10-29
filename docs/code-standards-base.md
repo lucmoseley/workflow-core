@@ -131,6 +131,10 @@ Copy a row's exemplar, never the nearest file doing the same job (**Primitive**,
 | A `report-*` program filing an issue | `createIssue` in `scripts/lib/tracking-issue.js`, or its `fileOrRefresh` | `scripts/report-remeasure-due.js` | §N3 | `scripts/check-report-programs.js` |
 | Running a program under test | `runInProcess` in `scripts/lib/run-in-process.js`, `runInProcessAsync` for an async entry | `scripts/check-cli-args.test.ts` | §X3 | `scripts/check-test-spawn.js` |
 | A pre-commit gate line | the checker's own exit code passed on, `exit "$?"`, or `staged_gate`'s `status` mode in `scripts/lib/precommit-gate.sh` | `.husky/pre-commit` | §N4 | `scripts/check-precommit-exit.js` |
+| A pre-commit gate staging blobs out of the index | `staged_gate` in `scripts/lib/precommit-gate.sh` | `.husky/pre-commit` | §S6 | Standards axis criterion |
+| Ending a Stop hook with a block | `blockStop` in `scripts/lib/hook-block.js`, with its `charge` and `capSpent` | `scripts/guard-uncommitted-work.js` | §G10 | Standards axis criterion |
+| Reading or writing an arbiter record | `paths`, `readRecord` and `writeRecord` and their kin in `scripts/lib/arbiter-core.js` | `scripts/lib/arbiter-issue-claims.js` | §N10 | Standards axis criterion |
+| Printing a rule the rule-text store holds | `rule_text` in `scripts/lib/rule-text.sh`; `readRuleText` or `readRuleTextOr` in `scripts/lib/rule-text.js`; a guard core's `ruleOrFallback` in `scripts/lib/guard-verdict.js` | `scripts/stale-write-back-gate.sh`, `scripts/check-weakens-line.js` | §G11 | Standards axis criterion |
 
 ---
 
@@ -226,6 +230,22 @@ The fixes, best first: return the value, so the caller holds it; pass it in, so 
 **The good reason to differ is state a signal or exit handler reads**, since nothing can hand a handler an argument. Each write sits beside its undo in the function that took the thing, and the declaration names the handler, as `heldMarkers` and `heldWorktrees` in `scripts/run-vitest.js` do; `releaseAndExit` drains both on a kill.
 
 **Not test or shell, on purpose.** In a test, a setup hook resets the shared fake and each test writes the answer its own case needs, so the write and its reader sit in one test; a test reading what an earlier test left is order dependence, a different defect. A shell function hands back more than its exit status only by printing or by setting a global, so a global written by several functions is the language's return channel.
+
+### §G10 · A Stop hook's block is counted against a per-session cap and carries its whole correction in `reason` — **hard**
+
+**Program, shell and hook module.** A Stop hook that blocks opens a correction loop with the session (mantahostels#844). So each block is counted in a per-session file, written before the block is emitted, and the hook stops blocking once the count reaches its cap. `reason` is the one channel that reaches the founder and the model alike, so it holds the whole correction (mantahostels#2319, `docs/agents/guard-authoring.md` §Which channel reaches the model). A shell hook writes its own marker before it blocks, as `scripts/concision-backstop.sh` does, once per signal a session.
+
+*House, Node programs only*: the block is `blockStop` from `scripts/lib/hook-block.js`, which owns the counter path, the cap and the last-block notice; a refusal several counters pay for spends the rest through `charge`, and a caller whose work before the block is costly asks `capSpent` first (mantahostels#2383, mantahostels#2786). A program writing `decision: "block"` on a Stop hook's stdout itself is the breach.
+
+**Outside the rule:** a `PostToolUse` deny, whose `decision: "block"` is that event's own control (`scripts/lib/hook-envelope.js`); and `scripts/lib/load-failure-stop.js`, which fires when the guard's own libraries will not load, so it may require none, `hook-block.js` included, and is bounded instead by the payload's `stop_hook_active` to one block a turn (#2645).
+
+### §G11 · A rule the rule-text store holds is printed from it, never copied — **hard**
+
+**Program, shell and hook module.** A rule a guard or hook prints to a session lives once, as a fragment under `docs/agents/rules/` keyed by its id (mantahostels#1641, `docs/agents/rules/README.md`), so a reworded rule reaches every place that prints it. A second copy of a fragment's text, whole or in part, is the breach.
+
+*House*: a shell caller sources `scripts/lib/rule-text.sh` and calls `rule_text <id>`; a Node caller calls `readRuleText` from `scripts/lib/rule-text.js`, or, where it must not crash, `readRuleTextOr` there or a guard core's `ruleOrFallback` in `scripts/lib/guard-verdict.js`. Their fallback for an unreadable store, one clause naming the rule and then the fragment's path, is no copy.
+
+**The good reason to differ is a place the fragment cannot be printed from**: a byte cap it does not fit, or a measuring tool that reads the text literally, as `scripts/check-context-budget.js` reads `scripts/inject-tracker-docs.sh`'s payload. A shortened copy stays there only where a comment beside it names the fragment and the reason, as `ultra`, `gh_empty_result_rule` and the `standards` texts in that file do. A copy a test pins word for word to the fragment, or to such a shortened copy, cannot drift unseen, and stays where a comment names the test, as `STANDING_LINE` in `scripts/lib/vitest-wrapper.js` and `standards_line` in `scripts/concision-backstop.sh` do.
 
 ---
 
@@ -408,6 +428,12 @@ Stream discipline (`scripts/lib/check.js:34-38`): stdout is for machine readers 
 
 **The good reason to differ is a caller-owned accumulator or counter passed in for that purpose** — a findings list, a tally, a cache, the state a split-out loop step advances — the house shape (#1297). It is said at the parameter: in JS the `@param` description opens `accumulator:`, as at `scripts/lib/arbiter-core.js:1057` *"accumulator: each readable entry is pushed here"*; in Python a docstring sentence opens with the backticked parameter and calls it the caller's accumulator, as at `scripts/lib/transcript_corpus.py:232-233` *"accumulator: the skips are counted into it"* (#1375). A record handed in with one field for the callee to fill is an accumulator for that field alone, and the note names it. A record, a regex, a parsed document or a list handed in to be read is never an accumulator.
 
+### §N10 · An arbiter record is reached through the arbiter's one reader and one writer — **hard**
+
+*House*. The session arbiter keeps its records (file claims, issue claims, wants, debts, observations, bases, session bases, breaks, requests) as JSON files in its state directory, and what a reader does with a torn, absent or refused record is decided once: absent and torn read as no record, a refused read throws (mantahostels#174, `scripts/lib/arbiter-core.js:450-458`). A record's path comes from `paths` in `scripts/lib/arbiter-core.js`, or joins one of its directories to a name that directory's listing returned; its bytes are read through `readRecord`, `probeRecord`, `readRecordOrLog` or `readRecordOrFlag` and written through `writeRecord` or `createOnce`, there or through an arbiter family function built on them, such as `heldIssues` in `scripts/lib/arbiter-issue-claims.js`. A path to a record built by hand, or a record opened with `fs` and parsed in place, is the breach.
+
+**Outside the rule:** a file in the state directory that holds no arbiter record, read and written by the one module that names its path, such as the ledgers, the error log, `firstSay`'s sentinels, the parked copies `scripts/lib/arbiter-locks.js` writes, `scripts/lib/notify-report.js`'s reports and `scripts/check-hook-liveness.js`'s state; and a proving run reading the store as an outside observer of the code under test, as `scripts/proving-run.ts`'s `debts` does.
+
 ---
 
 ## §X — tests
@@ -564,4 +590,10 @@ A script that stops at its first failure also sets `-e`: an installer, a mode sw
 A sourced library sets nothing. Husky hooks set `-e` and nothing else (#745): they fail closed, refusing the commit. Any other `sh` script sets `-u` alone, since dash has no `pipefail`.
 
 Under `-u`, a guard reads a positional that may be absent as `${2-}`. An abort still owes §S3's log line. In a gate whose caller refuses on any non-zero exit, as a husky hook does, it fails closed, and the header names that limb.
+
+### §S6 · A pre-commit gate that stages blobs out of the index is one `staged_gate` declaration — **hard**
+
+*House*. A gate in `.husky/pre-commit` or `.husky/pre-commit.local` that copies staged files out of the index for its checker decides the same four things every such gate does: an unreadable blob warns and passes, since apparatus missing is no finding; a required path the commit deletes refuses; and the checker's verdict short of 0 refuses, with the checker's own code so BROKEN stays distinct from a finding, or a fixed one where the checker's BROKEN is the finding (mantahostels#1793, mantahostels#2894). `staged_gate` in `scripts/lib/precommit-gate.sh` decides them once. The gate arms through `armed` and declares itself as `staged_gate <label> <mode> <exit> <paths> <command> <advice>`. A gate staging blobs with its own `git show :`, `git cat-file`, `git checkout-index` or `gate_stage_out` call is the breach.
+
+**Outside the rule:** a checker that reads the index itself, as `scripts/check-injector-margin.sh` does, since it stages nothing for another program; and the doc-map gate in `.husky/pre-commit`, which builds on `staged_gate`'s pieces without it for the three steps no other gate has, as `scripts/lib/precommit-gate.sh`'s header says.
 

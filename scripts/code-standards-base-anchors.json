@@ -2,6 +2,7 @@
 	".claude/skills/concision-pass/scripts/check-facts.js:12": "cc71eccf5ee3ae9b",
 	"scripts/check-hook-liveness.js:397": "6eeec2425fcb3c5e",
 	"scripts/check-self-throttling.js:238-240": "e7596b996294a453",
+	"scripts/lib/arbiter-core.js:450-458": "a6a99e986d7afb94",
 	"scripts/lib/check.js:15-23": "1f11bceb2087b535",
 	"scripts/lib/check.js:1635-1638": "691345f86af000b2",
 	"scripts/lib/check.js:197-198": "6de83a3540253d8d",
