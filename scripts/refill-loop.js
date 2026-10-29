@@ -257,8 +257,10 @@ function status() {
 		served: control ? servedRoots(control.scope).roots : [],
 	}))
 		say(line);
+	const root = hostRoot();
 	for (const seat of readDeclaredSeats().seats)
-		if (seat.kind === "overflow") say(buildBudgetLine(seat, seatBudget(seat)));
+		if (seat.kind === "overflow")
+			say(buildBudgetLine(seat, seatBudget(seat, root)));
 	return 0;
 }
 

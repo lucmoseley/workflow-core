@@ -3,8 +3,9 @@
  * Pins lib/overflow-budget.js: settlement from a run's `result` event, from
  * its transcript, and at Q where it left neither; the exhausted mark from a
  * credit refusal; a running run's reservation; and the CLI's JSON and status
- * line for a fixture seat, every figure read from a fixed
- * WFC_SESSION_COST_TABLE.
+ * line for a fixture seat, every figure read from a fixed cost table in a
+ * fixture checkout, and read there from a working directory that is no
+ * checkout (#3683).
  *
  * Loosen one and a settled run's spend goes uncounted or counted twice, or
  * the CLI reports a figure the gate did not size (#2609).
@@ -34,10 +35,10 @@ let tmp: string;
 let home: string;
 let refill: string;
 let seatDir: string;
-let tableFile: string;
+let root: string;
 const saved = {
 	refill: process.env.WFC_REFILL_DIR,
-	table: process.env.WFC_SESSION_COST_TABLE,
+	project: process.env.CLAUDE_PROJECT_DIR,
 };
 
 beforeEach(() => {
@@ -51,16 +52,19 @@ beforeEach(() => {
 		path.join(home, ".claude", "refill-seats"),
 		`${path.join(home, ".claude2")}\n~/.claude2-api api key=WFC_TEST_KEY grant=200 cycle-day=1\n`,
 	);
-	tableFile = path.join(tmp, "table.json");
-	fs.writeFileSync(tableFile, JSON.stringify(TABLE));
+	root = path.join(tmp, "checkout");
+	fs.mkdirSync(path.join(root, "docs", "data"), { recursive: true });
+	fs.writeFileSync(
+		path.join(root, "docs", "data", "session-cost-table.json"),
+		JSON.stringify(TABLE),
+	);
 	process.env.WFC_REFILL_DIR = refill;
-	process.env.WFC_SESSION_COST_TABLE = tableFile;
 });
 
 afterEach(() => {
 	for (const [k, v] of [
 		["WFC_REFILL_DIR", saved.refill],
-		["WFC_SESSION_COST_TABLE", saved.table],
+		["CLAUDE_PROJECT_DIR", saved.project],
 	] as const)
 		if (v === undefined) delete process.env[k];
 		else process.env[k] = v;
@@ -138,9 +142,9 @@ describe("seatBudget settlement", () => {
 			],
 		});
 		const s = { ...seat, dir: seatDir };
-		const b = seatBudget(s);
+		const b = seatBudget(s, root);
 		expect(b).toMatchObject({ settledUsd: 6, fit: 48, running: 0 });
-		seatBudget(s);
+		seatBudget(s, root);
 		expect(readLedgerLines()).toMatchObject([
 			{ jobId: "0000000a", costUsd: 6, costSource: "result" },
 		]);
@@ -149,7 +153,7 @@ describe("seatBudget settlement", () => {
 	it("prices an ended run with no result from its transcript", () => {
 		const id = storeRun("0000000b");
 		storeTranscript(id, 2_000_000);
-		const b = seatBudget({ ...seat, dir: seatDir });
+		const b = seatBudget({ ...seat, dir: seatDir }, root);
 		expect(b).toMatchObject({ settledUsd: 8 });
 		expect(readLedgerLines()).toMatchObject([
 			{
@@ -163,7 +167,7 @@ describe("seatBudget settlement", () => {
 
 	it("charges Q for an ended run that left neither a result nor a transcript", () => {
 		storeRun("0000000f");
-		expect(seatBudget({ ...seat, dir: seatDir })).toMatchObject({
+		expect(seatBudget({ ...seat, dir: seatDir }, root)).toMatchObject({
 			settledUsd: 4,
 		});
 		expect(readLedgerLines()).toMatchObject([
@@ -182,7 +186,7 @@ describe("seatBudget settlement", () => {
 				},
 			],
 		});
-		expect(seatBudget({ ...seat, dir: seatDir })).toMatchObject({
+		expect(seatBudget({ ...seat, dir: seatDir }, root)).toMatchObject({
 			exhausted: true,
 			fit: 0,
 		});
@@ -191,7 +195,7 @@ describe("seatBudget settlement", () => {
 	it("reserves a running run from its transcript and leaves it unsettled", () => {
 		const id = storeRun("0000000d", { live: true });
 		storeTranscript(id, 1_250_000);
-		const b = seatBudget({ ...seat, dir: seatDir });
+		const b = seatBudget({ ...seat, dir: seatDir }, root);
 		/* spent 5, past u 3: max(4, 5 + 7) = 12 held. */
 		expect(b).toMatchObject({ running: 1, reservedUsd: 12, fit: 47 });
 		expect(
@@ -201,9 +205,21 @@ describe("seatBudget settlement", () => {
 		).toBe(false);
 	});
 
+	it("reads the cost table in the root it is given, not the working directory's checkout", () => {
+		delete process.env.CLAUDE_PROJECT_DIR;
+		const cwd = process.cwd();
+		process.chdir(home);
+		try {
+			expect(seatBudget({ ...seat, dir: seatDir }, root)).toMatchObject({
+				fit: 50,
+			});
+		} finally {
+			process.chdir(cwd);
+		}
+	});
+
 	it("says why where the cost table is unreadable", () => {
-		process.env.WFC_SESSION_COST_TABLE = path.join(tmp, "absent.json");
-		expect(seatBudget({ ...seat, dir: seatDir })).toEqual({
+		expect(seatBudget({ ...seat, dir: seatDir }, tmp)).toEqual({
 			why: "the session cost table is unreadable",
 		});
 	});
@@ -216,7 +232,7 @@ describe("the CLI", () => {
 				PATH: process.env.PATH ?? "",
 				HOME: home,
 				WFC_REFILL_DIR: refill,
-				WFC_SESSION_COST_TABLE: tableFile,
+				CLAUDE_PROJECT_DIR: root,
 			},
 		});
 

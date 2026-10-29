@@ -13,13 +13,18 @@ const path = require("node:path");
 const { parseArgs } = require("node:util");
 const { caught } = require("./caught.js");
 const { endResultOf, readStoredRuns } = require("./headless-sessions.js");
+const { hostRoot } = require("./host-root.js");
 const { readJsonl } = require("./jsonl.js");
 const { localDate } = require("./morning-review.js");
 const { refillPath } = require("./refill-dir.js");
 const { readDeclaredSeats, seatOf } = require("./refill-seats.js");
 const { scriptPath } = require("./script-path.js");
 const { budgetOf } = require("./overflow-budget-core.js");
-const { readCostTable, sessionSpendUsd } = require("./session-spend.js");
+const {
+	readCostTable,
+	SESSION_COST_TABLE,
+	sessionSpendUsd,
+} = require("./session-spend.js");
 const { findTranscript } = require("./transcript.js");
 const { writeFd } = require("./write-fd.js");
 
@@ -137,11 +142,14 @@ function settle(seat, table) {
 
 /**
  * Settle the seat, then size its budget; why not where either cannot be read.
+ * The cost table is read in `root`, never the working directory's checkout:
+ * the loop's daemon runs from the home directory (#3683).
  * @param {OverflowSeat} seat
+ * @param {string} root the checkout whose cost table sizes the seat
  * @returns {Budget|{why: string}}
  */
-function seatBudget(seat) {
-	const table = readCostTable();
+function seatBudget(seat, root) {
+	const table = readCostTable(path.join(root, SESSION_COST_TABLE));
 	if (!table) return { why: "the session cost table is unreadable" };
 	let settled;
 	try {
@@ -215,7 +223,7 @@ function main(args) {
 		writeFd(2, `${seat.dir} is not an overflow seat in the seat file\n`);
 		return 1;
 	}
-	const budget = seatBudget(seat);
+	const budget = seatBudget(seat, hostRoot());
 	if ("why" in budget) {
 		writeFd(2, `${budget.why}\n`);
 		return 1;
