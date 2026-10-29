@@ -50,6 +50,13 @@ const concurrencyOver = (ticks: unknown[], minutes: unknown[] | null) => {
 	return { day: r(DAY), week: r(7 * DAY) };
 };
 
+const COUNT_LINE =
+	"primitives: 2 enforced, 0 open breaches, 1 new heresies since the last sweep";
+const QUIET_PRIMITIVES = {
+	count: { line: COUNT_LINE },
+	history: { commits: [] },
+};
+
 const render = (
 	repos: unknown[],
 	failed: unknown[] = [],
@@ -60,7 +67,12 @@ const render = (
 		since: SINCE,
 		now: NOW,
 		previous,
-		repos: repos.map((r) => ({ urgent: [], parked: [], ...(r as object) })),
+		repos: repos.map((r) => ({
+			urgent: [],
+			parked: [],
+			primitives: QUIET_PRIMITIVES,
+			...(r as object),
+		})),
 		failed,
 		kills,
 		concurrency: concurrencyOver([], []),
@@ -473,6 +485,7 @@ describe("parseEntries (#2017)", () => {
 			[
 				1,
 				{
+					kind: "decision",
 					repo: "acme/a",
 					issue: 11,
 					comment: "https://github.com/acme/a/issues/11#issuecomment-11",
@@ -481,6 +494,7 @@ describe("parseEntries (#2017)", () => {
 			[
 				2,
 				{
+					kind: "decision",
 					repo: "acme/b",
 					issue: 21,
 					comment: "https://github.com/acme/a/issues/21#issuecomment-21",
@@ -590,5 +604,159 @@ describe("parked (#2725)", () => {
 
 	it("says none where nothing is parked", () => {
 		expect(section(render([reading([])]))).toContain("\nNone.\n");
+	});
+});
+
+describe("primitives (#3465)", () => {
+	const Header =
+		"| Job | Primitive | Exemplar | Rule | Enforcing check |\n|---|---|---|---|---|";
+	const table = (...rows: string[]) =>
+		`# Standards\n\n## Primitives\n\n${Header}\n${rows.join("\n")}\n\n## §G\n`;
+	const hostRow = "| Finding the host | `hostRoot()` | `a.js` | §0 | `c.js` |";
+	const cliRow = "| Reading argv | `cli-args.js` | `b.js` | §0 | `d.js` |";
+	const commit = (
+		sha: string,
+		at: string,
+		[before, after]: [string | null, string | null],
+		side = "local",
+	) => ({ sha, at, side, before, after });
+	const repo = (
+		name: string,
+		primitives: unknown,
+		entries: unknown[] = [],
+	) => ({
+		repo: name,
+		entries,
+		stalls: [],
+		closed: [],
+		primitives,
+	});
+	const section = (body: string) =>
+		body.slice(
+			body.indexOf("## Primitives"),
+			body.indexOf("## Closed tickets"),
+		);
+
+	it("lists each row a commit in the window added, removed or rewrote, by job, with its short sha", () => {
+		const body = render([
+			repo("acme/a", {
+				count: { line: COUNT_LINE },
+				history: {
+					commits: [
+						commit(
+							"aaa1111",
+							"2026-10-17T08:00:00Z",
+							[null, table(hostRow)],
+							"base",
+						),
+						commit("bbb2222", "2026-10-17T09:00:00Z", [
+							table(hostRow, cliRow),
+							table(hostRow.replace("`a.js`", "`z.js`").replace("§0", "§N7")),
+						]),
+					],
+				},
+			}),
+		]);
+		expect(section(body)).toBe(
+			[
+				"## Primitives",
+				"",
+				"Each repo's count line, then each primitives-table row added, removed or rewritten in the window, with its commit:",
+				"",
+				"### acme/a",
+				"",
+				`\`${COUNT_LINE}\``,
+				"",
+				"1. acme/a — base row added: `'hostRoot()'` — job `Finding the host` — aaa1111",
+				"2. acme/a — local row rewritten (Exemplar, Rule): `'hostRoot()'` — job `Finding the host` — bbb2222",
+				"3. acme/a — local row removed: `'cli-args.js'` — job `Reading argv` — bbb2222",
+				"",
+				"",
+			].join("\n"),
+		);
+	});
+
+	it("says no row changed where no commit in the window touched a table row", () => {
+		const body = render([
+			repo("acme/a", {
+				count: { line: COUNT_LINE },
+				history: {
+					commits: [
+						commit("ccc3333", "2026-10-16T07:00:00Z", [null, table(hostRow)]),
+						commit("ddd4444", "2026-10-17T08:00:00Z", [
+							table(hostRow),
+							`${table(hostRow)}\nprose\n`,
+						]),
+					],
+				},
+			}),
+		]);
+		expect(section(body)).toContain(
+			`### acme/a\n\n\`${COUNT_LINE}\`\n\nNo row changed in the window.\n`,
+		);
+		expect(parseEntries(body).size).toBe(0);
+	});
+
+	it("names a repo whose count line or history did not read, and a commit whose table did not", () => {
+		const body = render([
+			repo("acme/a", {
+				count: { why: "check-primitives.js: BROKEN: base unreadable" },
+				history: { why: "git log: fatal: not a git repository" },
+			}),
+			repo("acme/b", {
+				count: { line: COUNT_LINE },
+				history: {
+					commits: [
+						commit("eee5555", "2026-10-17T08:00:00Z", [
+							table(hostRow),
+							"## Primitives\n\nno table\n",
+						]),
+					],
+				},
+			}),
+		]);
+		const s = section(body);
+		expect(s).toContain(
+			"### acme/a\n\nCount line not read: `check-primitives.js: BROKEN: base unreadable`.\n\nRow changes not read: `git log: fatal: not a git repository`.\n",
+		);
+		expect(s).toContain(
+			"- eee5555: the local table did not read — `after: its Primitives section holds no table`",
+		);
+	});
+
+	it("numbers its entries on from the still-caught decisions, across repos, and parseEntries reads both kinds back", () => {
+		const changed = {
+			count: { line: COUNT_LINE },
+			history: {
+				commits: [
+					commit("fff6666", "2026-10-17T08:00:00Z", [null, table(cliRow)]),
+				],
+			},
+		};
+		const body = render([
+			repo("acme/a", changed, [entry("2026-10-17T09:00:00Z", 11, true)]),
+			repo("acme/b", changed, [entry("2026-10-17T10:00:00Z", 21, true)]),
+		]);
+		expect(body).toContain("1. acme/a#11 — `Q`");
+		expect(body).toContain("2. acme/b#21 — `Q`");
+		expect(body).toContain(
+			"3. acme/a — local row added: `'cli-args.js'` — job `Reading argv` — fff6666",
+		);
+		expect(body).toContain(
+			"4. acme/b — local row added: `'cli-args.js'` — job `Reading argv` — fff6666",
+		);
+		const entries = parseEntries(body);
+		expect(entries.get(2)).toMatchObject({ kind: "decision", repo: "acme/b" });
+		expect(entries.get(4)).toEqual({
+			kind: "primitive",
+			repo: "acme/b",
+			side: "local",
+			change: "added",
+			cells: [],
+			primitive: "'cli-args.js'",
+			job: "Reading argv",
+			sha: "fff6666",
+		});
+		expect(basisFaults(body)).toEqual([]);
 	});
 });

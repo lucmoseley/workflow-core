@@ -7,6 +7,7 @@
  * founder's `reverse <n>` comments unanswered (#3388).
  */
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -58,6 +59,10 @@ describe("file-morning-review.js (#2011)", () => {
 			/## Memory kills\n\n1 in the window — Claude host 1, test or build 0, other 0\.\n\n- `Memory kill incident from [^`]+` — 1 kill: Claude host 1, test or build 0, other 0 — #61\n/,
 		);
 		expect(issue.body).toContain("- acme/wfc: `1 torn ledger line(s) skipped`");
+		/* The fixture's .git is no repository: the history fails open to a why. */
+		expect(issue.body).toMatch(
+			/### acme\/wfc\n\n.+\n\nRow changes not read: `git: /,
+		);
 
 		const second = run();
 		expect(second.status).toBe(0);
@@ -128,6 +133,66 @@ describe("file-morning-review.js (#2011)", () => {
 				"",
 				"## Parked",
 			].join("\n"),
+		);
+	});
+
+	it("lists the window's primitives-table row changes off the checkout's git history, numbered on from the decisions (#3465)", () => {
+		seed([]);
+		const root = wfc();
+		fs.rmSync(path.join(root, ".git"), { recursive: true });
+		const git = (args: string[], env: object = {}) =>
+			execFileSync("git", args, {
+				cwd: root,
+				env: {
+					...process.env,
+					GIT_AUTHOR_NAME: "T",
+					GIT_AUTHOR_EMAIL: "t@example.com",
+					GIT_COMMITTER_NAME: "T",
+					GIT_COMMITTER_EMAIL: "t@example.com",
+					...env,
+				},
+				encoding: "utf8",
+			});
+		const table = (...rows: string[]) =>
+			[
+				"# Standards",
+				"",
+				"## Primitives",
+				"",
+				"| Job | Primitive | Exemplar | Rule | Enforcing check |",
+				"|---|---|---|---|---|",
+				...rows,
+				"",
+			].join("\n");
+		const commit = (text: string, at: string) => {
+			fs.mkdirSync(path.join(root, "docs"), { recursive: true });
+			fs.writeFileSync(path.join(root, "docs", "code-standards.md"), text);
+			git(["add", "docs/code-standards.md"]);
+			git(["commit", "-qm", "table", "--date", at], {
+				GIT_COMMITTER_DATE: at,
+			});
+			return git(["rev-parse", "--short", "HEAD"]).trim();
+		};
+		git(["init", "-q"]);
+		const kept =
+			"| Argv | `cli-args.js` | `a.js` | §0 | Standards axis criterion |";
+		commit(table(kept), ago(30));
+		const sha = commit(
+			table(
+				kept.replace("`a.js`", "`b.js`"),
+				"| Clock | `now()` | `c.js` | §0 | Standards axis criterion |",
+			),
+			ago(1),
+		);
+		const r = run(["--dry-run"]);
+		expect(r.status).toBe(0);
+		const section = r.stdout.slice(
+			r.stdout.indexOf("## Primitives"),
+			r.stdout.indexOf("## Closed tickets"),
+		);
+		expect(section).toMatch(/### acme\/wfc\n\n`primitives: /);
+		expect(section).toContain(
+			`2. acme/wfc — local row rewritten (Exemplar): \`'cli-args.js'\` — job \`Argv\` — ${sha}\n3. acme/wfc — local row added: \`'now()'\` — job \`Clock\` — ${sha}\n`,
 		);
 	});
 

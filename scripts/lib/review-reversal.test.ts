@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 
 const {
 	buildAckComment,
+	buildPrimitiveReversalTicket,
 	buildReversalTicket,
 	pendingRequests,
 } = require("./review-reversal.js");
@@ -137,6 +138,48 @@ describe("buildReversalTicket", () => {
 		expect(long.title).toBe(
 			`Reverse a delegated decision on #42: ${"x".repeat(79)}…`,
 		);
+	});
+});
+
+describe("buildPrimitiveReversalTicket (#3465)", () => {
+	const primitive = (change: string, cells: string[] = []) =>
+		buildPrimitiveReversalTicket({
+			review: { repo: "acme/wfc", number: 900 },
+			request: { commentUrl: REQ, n: 4 },
+			entry: {
+				kind: "primitive",
+				repo: "acme/wfc",
+				side: "base",
+				change,
+				cells,
+				primitive: "'hostRoot()' in 'scripts/lib/host-root.js'",
+				job: "Finding the host repository",
+				sha: "abc1234",
+			},
+		});
+
+	it("names the commit, the side's file, the job and what undoing it asks", () => {
+		const t = primitive("rewritten", ["Exemplar", "Rule"]);
+		expect(t.title).toBe(
+			"Reverse a primitives-table change in abc1234: 'hostRoot()' in 'scripts/lib/host-root.js'",
+		);
+		expect(t.body).toContain(
+			`entry 4 of the morning review acme/wfc#900 ([#900 comment](${REQ})): commit abc1234 rewrote the base primitives-table row in \`docs/code-standards-base.md\`. Restore the row's Exemplar, Rule cells as they stood before that commit`,
+		);
+		expect(t.body).toContain("- Job: `Finding the host repository`");
+		expect(t.body).toContain(
+			"- Diff: `git show abc1234 -- docs/code-standards-base.md`",
+		);
+		expect(primitive("added").body).toContain("Remove the row it added");
+		expect(primitive("removed").body).toContain(
+			"Restore the row as it stood before that commit",
+		);
+	});
+
+	it("passes the basis and citation checks", () => {
+		const t = primitive("added");
+		expect(basisFaults(t.body)).toEqual([]);
+		expect(titleFirstLinks(t.body, "acme/wfc")).toEqual([]);
 	});
 });
 

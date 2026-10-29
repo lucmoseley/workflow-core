@@ -68,6 +68,31 @@ describe("answer-review-reversals.js (#2017)", () => {
 		expect(notFiled).toContain("the review lists no entry 9");
 	});
 
+	it("files a primitives-table entry's reversal in that entry's repo, off the review line alone (#3465)", () => {
+		seed([
+			{
+				...openReview(),
+				body: "## Primitives\n\n### acme/wfc\n\n2. acme/wfc — local row added: `'cli-args.js'` — job `Reading argv` — fff6666\n",
+				comments: [{ url: Request, body: "reverse 2" }],
+			},
+		]);
+		const r = run();
+		expect(r.stderr).toBe("");
+		expect(r.status).toBe(0);
+		const [ticket, ...more] = readCreated();
+		expect(more).toHaveLength(0);
+		expect(ticket.labels).toEqual(["takes:implement"]);
+		expect(ticket.title).toBe(
+			"Reverse a primitives-table change in fff6666: 'cli-args.js'",
+		);
+		expect(ticket.body).toContain(
+			"commit fff6666 added the local primitives-table row in `docs/code-standards.md`. Remove the row it added",
+		);
+		expect(readReplies()[0]).toMatch(
+			/^\*\*Reversal filed:\*\* entry 2 → acme\/wfc#9\d\d, for/,
+		);
+	});
+
 	it("files nothing for a request already answered", () => {
 		seed([openReview()]);
 		run();

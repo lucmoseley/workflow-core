@@ -11722,6 +11722,7 @@
 			"scripts/lib/pull-form.test.ts",
 			"scripts/lib/push-rules.test.ts",
 			"scripts/lib/python-routes.test.ts",
+			"scripts/lib/review-reversal.test.ts",
 			"scripts/lib/review-rules.test.ts",
 			"scripts/lib/review-tier.test.ts",
 			"scripts/lib/rule-emission.test.ts",

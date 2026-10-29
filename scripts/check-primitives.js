@@ -34,17 +34,16 @@ const { caught } = require("./lib/caught.js");
 const { ghApiSlurp } = require("./lib/gh.js");
 const { findTrackingIssue } = require("./lib/tracking-issue.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
-const { judgePrimitives } = require("./lib/primitives-table.js");
+const {
+	STANDARDS_DOCS: DOCS,
+	judgePrimitives,
+} = require("./lib/primitives-table.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 /** @typedef {import("./lib/primitives-table.js").Count} Count */
 /** @typedef {import("./lib/primitives-table.js").Side} Side */
 const { runCheck } = require("./lib/check");
 
-const DOCS = {
-	base: "docs/code-standards-base.md",
-	local: "docs/code-standards.md",
-};
 const SWEEP_TITLE = "Heresy sweep due";
 
 /**
