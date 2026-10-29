@@ -141,7 +141,7 @@ const {
 	isOtherRunner,
 	suiteLaunchKind,
 } = require("./suite-launch.js");
-const { npmCanon } = require("./npm-options.js");
+const { isNpmRun, npmCanon } = require("./npm-options.js");
 const { TSC_RUNG_MB, isTscLaunch, tscDenial } = require("./tsc-slot.js");
 const { trimEndRun, trimRun, trimStartRun } = require("./trim-run.js");
 
@@ -230,15 +230,6 @@ const hasFullFlag = (words) =>
  * @param {string[]} words
  */
 const hasQueueFlag = (words) => words.includes("--queue");
-
-/**
- * Whether `word` is npm's `run` command as npm 11.16.0's cmd-list derefs it:
- * `run`, its aliases `rum`, `urn` and `run-script`, or an abbreviation of one.
- * @param {string} word
- */
-const isNpmRun = (word) =>
-	["run", "rum", "urn", "ur"].includes(word) ||
-	(word.startsWith("run-") && "run-script".startsWith(word));
 
 /**
  * Whether the words launch `next <sub>`: `npm run <sub>`, its flags read as

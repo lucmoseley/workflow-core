@@ -284,16 +284,19 @@ describe("the pre-commit check_staged gate on a biome check --staged command (#2
 		);
 	});
 
-	it("refuses a pnpm run whose script maps, as the npm one", () => {
-		const { run: commit } = biomeFixture(
-			"pnpm run check:staged",
-			declaresBiome("biome check --staged --no-errors-on-unmatched"),
-		);
-		const { code, out, ran } = commit();
-		expect(code).toBe(1);
-		expect(out).toContain(`Declare check_staged instead as '${MAPPED}'.`);
-		expect(ran("check_staged")).toBe(false);
-	});
+	it.each(["pnpm run", "npm rum", "npm urn", "npm ur"])(
+		"refuses a %s whose script maps, as the npm run one (#3627)",
+		(verb) => {
+			const { run: commit } = biomeFixture(
+				`${verb} check:staged`,
+				declaresBiome("biome check --staged --no-errors-on-unmatched"),
+			);
+			const { code, out, ran } = commit();
+			expect(code).toBe(1);
+			expect(out).toContain(`Declare check_staged instead as '${MAPPED}'.`);
+			expect(ran("check_staged")).toBe(false);
+		},
+	);
 
 	it("refuses a declared check_staged that is itself biome check --staged", () => {
 		const { run: commit } = biomeFixture(

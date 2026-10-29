@@ -611,6 +611,29 @@ describe("classifyCheckStaged", () => {
 		expect(c.kind === "refused" && c.refusal).toContain(shape);
 	});
 
+	it.each([
+		"npm run-script",
+		"npm rum",
+		"npm urn",
+		"npm ur",
+		"npm run-s",
+		"npm runScript",
+		"pnpm run-script",
+	])("follows %s, the runner's own alias of run (#3627)", (verb) => {
+		expect(
+			classify("biome check --staged", { command: `${verb} check:staged` }),
+		).toEqual({ kind: "mapped", command: BIOME_STAGED_COMMAND });
+	});
+
+	it.each(["yarn run-script", "bun rum", "pnpm urn", "npm ru"])(
+		"does not follow %s, which runs no named script there (#3627)",
+		(verb) => {
+			expect(
+				classify("biome check --staged", { command: `${verb} check:staged` }),
+			).toEqual({ kind: "none" });
+		},
+	);
+
 	it("follows a script name quoted in part (#3445)", () => {
 		expect(
 			classify("biome check --staged", { command: 'npm run check:"staged"' }),

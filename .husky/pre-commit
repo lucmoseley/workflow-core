@@ -78,14 +78,15 @@ fi
 # the typecheck and ESLint gates below; declared_cmd owns the reader's exit codes.
 # One that runs `biome check --staged`, itself or through the package.json
 # script an npm, pnpm, yarn or bun `run` names, is refused before it runs
-# (#2731); node is spent only on a command that could (#2775), a quote,
-# backslash, expansion or brace hiding the words included (#3414, #3445,
-# #3545). The first arm is infer-commands.js's BIOME_STAGED_COMMAND, which is
-# never classified.
+# (#2731); node is spent only on a command that could (#2775): one holding
+# `run`, npm's `rum` or `ur…` for it (lib/npm-options.js isNpmRun, #3627),
+# `biome`, or a quote, backslash, expansion or brace hiding those words
+# (#3414, #3445, #3545). The first arm is infer-commands.js's
+# BIOME_STAGED_COMMAND, which is never classified.
 if declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/workflow-core-config.js command check_staged; then
   case "$declared_command" in
     'node "$WFC_PLUGIN_ROOT"/scripts/biome-staged.js'*) ;;
-    *run* | *biome* | *[\\\'\"$\`\{]*)
+    *run* | *rum* | *ur* | *biome* | *[\\\'\"$\`\{]*)
       node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/infer-commands.js check-staged "$declared_command" || exit "$?"
       ;;
   esac

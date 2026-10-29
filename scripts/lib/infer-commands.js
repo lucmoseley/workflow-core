@@ -13,6 +13,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
+const { isNpmRun } = require("./npm-options.js");
 const { isOpaque, tokenise } = require("./shell-tokens.js");
 const { writeFd } = require("./write-fd.js");
 
@@ -126,30 +127,37 @@ function allCommands(tokens, quoted = true) {
 }
 
 /* A command is read through each `npm run`, `pnpm run`, `yarn run` or
- * `bun run` it makes into the script that names, with the runner's flags
- * before the name, and the script is walked with the words the run hands on
- * to it on its end (#3153, #3193). Residual: a runner's run-less shorthand
- * (`yarn <script>`) and a script reached through a shell file are not
- * followed; a script name holding an expansion is refused (#3545). */
-const RUNNERS = new Set(["npm", "pnpm", "yarn", "bun"]);
+ * `bun run` it makes, or a runner's alias of its `run`, into the script that
+ * names, with the runner's flags before the name, and the script is walked
+ * with the words the run hands on to it on its end (#3153, #3193, #3627).
+ * Residual: a runner's run-less shorthand (`yarn <script>`) and a script
+ * reached through a shell file are not followed; a script name holding an
+ * expansion is refused (#3545). */
+/** @type {Map<string, (word: string) => boolean>} Each runner's test for its
+ *  `run`: npm's per `isNpmRun`, pnpm's with its documented `run-script`
+ *  alias; yarn and bun document none. */
+const RUN_VERB = new Map([
+	["npm", isNpmRun],
+	["pnpm", (w) => w === "run" || w === "run-script"],
+	["yarn", (w) => w === "run"],
+	["bun", (w) => w === "run"],
+]);
 
 /** @typedef {{runner: string, name: string, at: number, end: number}} Run
  *  `at` the runner's index in its command, `end` past the script name's. */
 
 /** @param {Word[]} command @returns {Run|undefined} */
 function findRun(command) {
-	const at = command.findIndex((w) => !isOpaque(w) && RUNNERS.has(w.value));
-	const runner = command[at];
-	if (!runner) return;
-	let k = command.findIndex(
-		(w, i) => i > at && (w.value === "run" || w.value === "run-script"),
-	);
+	const at = command.findIndex((w) => !isOpaque(w) && RUN_VERB.has(w.value));
+	const isRun = RUN_VERB.get(command[at]?.value ?? "");
+	if (!isRun) return;
+	let k = command.findIndex((w, i) => i > at && isRun(w.value));
 	if (k < 0) return;
 	do k++;
 	while (command[k]?.value.startsWith("-"));
 	const name = command[k];
 	if (!name || isOpaque(name)) return;
-	return { runner: runner.value, name: name.value, at, end: k + 1 };
+	return { runner: command[at].value, name: name.value, at, end: k + 1 };
 }
 
 /* A command with its run's runner and name shed and its handed-on words

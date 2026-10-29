@@ -2,7 +2,8 @@
  * npm-options.js — npm's option parser, `npmCanon`, read against npm 11.16.0's
  * config list (#563, #571), with the exact-match lookups npx makes instead,
  * `shorthandExact` and `boolExact` (#1972). lib/suite-concurrency.js reads with
- * it whether `npm … run <name>` launches a build or a dev server, and
+ * it whether `npm … run <name>` launches a build or a dev server,
+ * lib/infer-commands.js which script a check_staged runs, and
  * lib/npm-install.js the install and the npx argv it judges.
  *
  * A config a later npm adds is read as a name npm does not know.
@@ -351,4 +352,18 @@ function optionOf(given, eq) {
 	return { flag, kind: bool ? "bool" : "value" };
 }
 
-module.exports = { boolExact, npmCanon, shorthandExact };
+/**
+ * Whether `word` is npm's `run` command as npm 11.16.0's cmd-list derefs it:
+ * `run`, its aliases `rum`, `urn` and `run-script`, or an abbreviation of
+ * one, a camelCase word read as its kebab-case (#3627).
+ * @param {string} word
+ */
+function isNpmRun(word) {
+	const kebab = word.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+	return (
+		["run", "rum", "urn", "ur"].includes(kebab) ||
+		(kebab.startsWith("run-") && "run-script".startsWith(kebab))
+	);
+}
+
+module.exports = { boolExact, isNpmRun, npmCanon, shorthandExact };

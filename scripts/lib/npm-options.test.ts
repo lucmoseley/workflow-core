@@ -13,11 +13,13 @@
 
 import { describe, expect, it } from "vitest";
 
-const { boolExact, npmCanon, shorthandExact } = require("./npm-options.js") as {
-	boolExact: (flag: string) => boolean;
-	npmCanon: (argv: string[]) => string[];
-	shorthandExact: (key: string) => string[] | null;
-};
+const { boolExact, isNpmRun, npmCanon, shorthandExact } =
+	require("./npm-options.js") as {
+		boolExact: (flag: string) => boolean;
+		isNpmRun: (word: string) => boolean;
+		npmCanon: (argv: string[]) => string[];
+		shorthandExact: (key: string) => string[] | null;
+	};
 
 const CANON_CASES: [string[], string[]][] = [
 	[
@@ -220,6 +222,24 @@ const BOOL_CASES: [string, boolean][] = [
 	["", false],
 	["audit", false],
 ];
+
+describe("isNpmRun, npm's cmd-list deref of run (#3627)", () => {
+	it.each([
+		"run",
+		"rum",
+		"urn",
+		"ur",
+		"run-script",
+		"run-s",
+		"run-",
+		"runScript",
+	])("reads %s as run", (word) => expect(isNpmRun(word)).toBe(true));
+
+	it.each(["ru", "r", "Run", "run-scripts", "runner", "install"])(
+		"reads %s as no run",
+		(word) => expect(isNpmRun(word)).toBe(false),
+	);
+});
 
 describe("the exact-match lookups npx makes (#1972)", () => {
 	it.each(SHORTHAND_CASES)("shorthandExact(%j) is %j", (key, exp) => {
