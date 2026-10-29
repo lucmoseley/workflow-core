@@ -22,7 +22,7 @@ const {
 	hasRoom,
 } = require("./refill-decide.js");
 const {
-	childLine,
+	buildChildLine,
 	isHeld,
 	launchName,
 	markParked,
@@ -305,7 +305,7 @@ const reviewSkipOf = ({ due, root, lastRunOn, today }) =>
  * @returns {string[]}
  */
 const buildReviewRunLines = ({ due, label }, ran) =>
-	due || ran.out || ran.failed ? [childLine(label, ran)] : [];
+	due || ran.out || ran.failed ? [buildChildLine(label, ran)] : [];
 
 /**
  * The last HISTORY_KEPT launches, and before them each the loop stopped for a

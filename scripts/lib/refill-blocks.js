@@ -112,7 +112,7 @@ const indented = (text) => text.replace(/\n/g, "\n  ");
  * @param {string} label
  * @param {{out: string, failed?: string|null}} ran
  */
-const childLine = (label, ran) =>
+const buildChildLine = (label, ran) =>
 	`${label}: ${ran.failed ?? "exit 0"}\n  ${indented(ran.out)}`;
 
 /**
@@ -764,7 +764,7 @@ function handOff(b, { agents, now, io }, stopped = false) {
 	}
 	const r = io.postHandOff(b);
 	io.log(
-		childLine(
+		buildChildLine(
 			`stopped ${launchName(l)}, idle after its resume, and handed it off`,
 			r,
 		),
@@ -974,7 +974,7 @@ function unknownNews(logged, key, reading) {
 module.exports = {
 	actOnBlocks,
 	actOnIdle,
-	childLine,
+	buildChildLine,
 	indented,
 	isHeld,
 	isResuming,

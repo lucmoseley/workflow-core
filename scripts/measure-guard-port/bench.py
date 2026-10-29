@@ -58,6 +58,11 @@ FIRST, STEP, CAP = 30, 30, 90
 # Duet's replicate count; Kalibera & Jones's floor is 1,000 (#3210).
 RESAMPLES = 10_000
 PR_SET_CHILD_SUBREAPER = 36
+# include/linux/sched.h: set once a task starts exiting, before its fds close.
+PF_EXITING = 0x4
+# A child already exiting is gone in milliseconds; one still unwaitable after a
+# second is stuck, and counts as running (#3657).
+EXIT_WAIT_S = 1.0
 
 
 def tool_call(event: str, tool: str, cmd: str) -> dict:
@@ -196,13 +201,32 @@ def reap_orphans() -> int:
         except OSError:
             # The process exited between the listing and the read (#3216).
             continue
-        # The command name may hold spaces; the state and ppid are the first
-        # two fields after its closing parenthesis. A zombie exited after the
-        # reap above and is not running.
-        state, ppid = stat[stat.rindex(")") + 2 :].split()[:2]
-        if ppid == me and state != "Z":
-            running += 1
+        # The command name may hold spaces; the fields after its closing
+        # parenthesis start at the state (field 3).
+        fields = stat[stat.rindex(")") + 2 :].split()
+        if fields[1] != me:
+            continue
+        # A child closes its pipes before it exits, so it can still be exiting
+        # after the reap above; its CPU counts only once it is waited for.
+        if (fields[0] == "Z" or int(fields[6]) & PF_EXITING) and reaped(int(d.name)):
+            continue
+        running += 1
     return running
+
+
+def reaped(pid: int) -> bool:
+    """Wait up to EXIT_WAIT_S for an exiting child, saying whether it went."""
+    deadline = time.monotonic() + EXIT_WAIT_S
+    while True:
+        try:
+            if os.waitpid(pid, os.WNOHANG)[0]:
+                return True
+        except ChildProcessError:
+            # Reaped already, so not running (#3657).
+            return True
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.005)
 
 
 def summarise(calls: list[dict]) -> dict:

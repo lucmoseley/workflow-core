@@ -27,6 +27,9 @@ from bench import (
 )
 
 HERE = Path(__file__).parent
+# The loop costs some 200-500 ms of CPU; 50 ms is far under it.
+BURN = "i=0; while [ $i -lt 200000 ]; do i=$((i+1)); done"
+BURN_CPU_FLOOR_MS = 50
 
 
 def test_one_call_runs_every_hook_on_the_payload_and_counts_its_denies(tmp_path):
@@ -155,14 +158,41 @@ sys.path.insert(0, {str(HERE)!r})
 from bench import become_subreaper, one_call
 become_subreaper()
 env, cwd = dict(os.environ), {str(tmp_path)!r}
-# The detached loop costs some 300-500 ms of CPU; 50 ms is far under it.
-burn = "i=0; while [ $i -lt 200000 ]; do i=$((i+1)); done"
-quick = one_call([f"({{burn}}) & exit 0"], b"", env, cwd)
-assert quick["detached"] == 0 and quick["cpu"] > 50, quick
+quick = one_call([{f"({BURN}) & exit 0"!r}], b"", env, cwd)
+assert quick["detached"] == 0 and quick["cpu"] > {BURN_CPU_FLOOR_MS}, quick
 # Long enough to outlive the call.
 held = one_call(["sleep 5 >/dev/null 2>&1 & exit 0"], b"", env, cwd)
 assert held["detached"] == 1, held
 subprocess.run(["pkill", "-P", str(os.getpid()), "sleep"])
+"""
+    done = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+
+
+def test_a_child_exiting_after_the_reap_loop_is_waited_for_and_its_cpu_counted(
+    tmp_path,
+):
+    # The race of #3657: a child that turns zombie only after reap_orphans'
+    # any-child wait.
+    probe = f"""
+import os, resource, subprocess, sys, time
+from pathlib import Path
+sys.path.insert(0, {str(HERE)!r})
+import bench
+child = subprocess.Popen(["/bin/sh", "-c", {BURN!r}])
+stat = Path(f"/proc/{{child.pid}}/stat")
+while stat.read_text().split(") ")[1][0] != "Z":
+    time.sleep(0.01)
+# The real loop finds the zombie at once, and no seam lets it run before the
+# child exits, so its any-child wait is made to miss.
+waitpid = os.waitpid
+os.waitpid = lambda pid, opts: (0, 0) if pid == -1 else waitpid(pid, opts)
+r0 = resource.getrusage(resource.RUSAGE_CHILDREN)
+assert bench.reap_orphans() == 0
+r1 = resource.getrusage(resource.RUSAGE_CHILDREN)
+cpu = (r1.ru_utime - r0.ru_utime + r1.ru_stime - r0.ru_stime) * 1000
+assert cpu > {BURN_CPU_FLOOR_MS}, cpu
+assert not stat.exists()
 """
     done = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True)
     assert done.returncode == 0, done.stderr
