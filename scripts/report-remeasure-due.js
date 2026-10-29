@@ -139,7 +139,9 @@ const RECORD_START = new RegExp(RECORD_HEAD);
 const RECORD_MENTION = new RegExp(`(?<!\`)${RECORD_HEAD}`, "g");
 const REVIEWED = new RegExp(REVIEWED_TREE);
 const BASE = new RegExp(`\\bbase\\s+${SHA}`);
-const UNPARSED_PATHS = /,[ \t]*paths[ \t]+([^\n]+)$/;
+/* Read from an unparsed mention, which `parseMarks` cuts at its first `\n`, so
+ * the run reaches its end unanchored (#3383). */
+const UNPARSED_PATHS = /,[ \t]*paths[ \t]+([^\n]+)/;
 const INDENTED = /^\s+\S/;
 const ESCAPED = new RegExp(`\\*\\*Escaped defect:\\*\\*\\s*${SHA}`, "g");
 /* `git revert`'s own message line, which names the full sha. */
