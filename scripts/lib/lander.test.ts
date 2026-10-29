@@ -1465,7 +1465,8 @@ describe("runLander on a red batch whose files are red on main too (#3324)", () 
 	});
 
 	it("holds a parent red on files red on main plus a CI job, naming the job (#3679)", async () => {
-		/* C breaks Y; X is red on main and after it. */
+		/* C breaks Y; X is red on main and after it; B's whole suite also
+		 * fails CI job 'Lint and types', which no read finds red on main. */
 		const job = "Full suite / Lint and types";
 		const r = await run(
 			{ main: A, landing: D },

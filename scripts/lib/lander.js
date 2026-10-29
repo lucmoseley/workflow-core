@@ -480,16 +480,24 @@ function redOnMain(onMain, checked) {
 }
 
 /**
- * Whether `v` is red only on files of `known` and on no CI job the bisect
- * searches, any job where `redJobs` is null (#3679).
+ * What of red `v` is not red on `main`: its files outside `known`, and its
+ * CI jobs the bisect searches, any job where `redJobs` is null (#3679).
  * @param {Extract<Verdict, {kind: "red"}>} v
  * @param {string[]} known
  * @param {RedJobs|null} redJobs
  */
-const isRedOnlyOn = (v, known, redJobs) =>
-	v.files.length > 0 &&
-	v.files.every((f) => known.includes(f)) &&
-	!(v.jobs ?? []).some((j) => isSearchedJob(j, redJobs));
+const beyondMain = (v, known, redJobs) => ({
+	files: v.files.filter((f) => !known.includes(f)),
+	jobs: (v.jobs ?? []).filter((j) => isSearchedJob(j, redJobs)),
+});
+
+/**
+ * Whether red `v` is red only on files red on `main`.
+ * @param {Extract<Verdict, {kind: "red"}>} v
+ * @param {{files: string[], jobs: string[]}} beyond beyondMain's read of `v`
+ */
+const isRedOnlyOn = (v, beyond) =>
+	v.files.length > 0 && beyond.files.length === 0 && beyond.jobs.length === 0;
 
 /** @param {string[]} files */
 const buildAlreadyRedReason = (files) =>
@@ -548,19 +556,21 @@ function confirmAction(
 	/* A parent red only on files red on `main` — or, where the tip's read
 	 * found a job red there (#3586), only on CI jobs red on `main` or
 	 * outside that read — is reverted past, never landed: culpritAction
-	 * fast-forwards a parent only where its whole suite passed. */
-	if (isSearchedRed(before, redJobs) && !isRedOnlyOn(before, known, redJobs))
-		return {
-			kind: "hold",
-			reason: parentUnconfirmed(
-				culprit,
-				parent,
-				`fails the whole suite: ${failingLabel({
-					files: before.files.filter((f) => !known.includes(f)),
-					jobs: (before.jobs ?? []).filter((j) => isSearchedJob(j, redJobs)),
-				})}`,
-			),
-		};
+	 * fast-forwards a parent only where its whole suite passed. Unlike
+	 * culpritJobs, a job outside the read counts as red on `main`: no read
+	 * of `main` runs here to judge it. */
+	if (isSearchedRed(before, redJobs)) {
+		const beyond = beyondMain(before, known, redJobs);
+		if (!isRedOnlyOn(before, beyond))
+			return {
+				kind: "hold",
+				reason: parentUnconfirmed(
+					culprit,
+					parent,
+					`fails the whole suite: ${failingLabel(beyond)}`,
+				),
+			};
+	}
 	if (before && before.kind !== "unknown") return null;
 	/* Residual (#2910): the revert then rests on `files` alone at the parent,
 	 * so a parent red elsewhere in the suite goes unseen here. Bound:
@@ -672,7 +682,8 @@ const buildAlreadyRedJobsReason = ({ red, shas }) =>
 /**
  * The CI jobs the culprit's own red failed, less those red on `main`, which
  * differ from the tip's where `files` is empty and every rerun is the whole
- * suite.
+ * suite. A job outside the tip's read is kept, unlike confirmAction's parent
+ * hold: mainJobsAction reads these jobs on `main` afresh.
  * @param {Red} r
  * @param {string} culprit
  * @param {RedJobs|null} redJobs
