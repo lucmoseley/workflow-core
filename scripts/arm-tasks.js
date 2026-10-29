@@ -58,9 +58,11 @@ const { caught } = require("./lib/caught.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
 const { writeFd } = require("./lib/write-fd.js");
-const { SELF_PLUGIN_MARKETPLACE } = require("./lib/core-hooks.js");
-const { infixTestName } = require("./lib/test-kind.js");
-const { selfMarketplaceEntry } = require("./build-arm-sandbox.js");
+const {
+	SELF_PLUGIN_MARKETPLACE,
+	buildSelfMarketplaceEntry,
+} = require("./lib/core-hooks.js");
+const { buildInfixTestName } = require("./lib/test-kind.js");
 
 const TASKS_DIR = path.join(__dirname, "arm-tasks");
 const SANDBOX_CLI = path.join(__dirname, "build-arm-sandbox.js");
@@ -400,7 +402,7 @@ function runHiddenTests(task, repo, base) {
 		if (!fs.existsSync(vitest)) return failed("no node_modules/.bin/vitest");
 		/* Its copy's name is the original's own otherwise, and the copy's
 		 * cleanup would delete the original (#3387). */
-		const copy = infixTestName(file, "accept");
+		const copy = buildInfixTestName(file, "accept");
 		if (copy === null) return failed(`${file} is no test file`);
 		const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "arm-accept-"));
 		const hidden = path.join(repo, copy);
@@ -602,7 +604,9 @@ function verifyOne(task, knownGood, { scratch, at, nodeModules }) {
 	fs.mkdirSync(path.join(config, "plugins"), { recursive: true });
 	fs.writeFileSync(
 		path.join(config, "plugins", "known_marketplaces.json"),
-		JSON.stringify({ [SELF_PLUGIN_MARKETPLACE]: selfMarketplaceEntry(config) }),
+		JSON.stringify({
+			[SELF_PLUGIN_MARKETPLACE]: buildSelfMarketplaceEntry(config),
+		}),
 	);
 	const args = ["build", task.id, "--at", at, "--to", to];
 	args.push("--node-modules", nodeModules, "--config-dir", config);

@@ -246,7 +246,7 @@ describe("task: one run's sandbox", () => {
 		return repo;
 	};
 
-	const buildTask = (repo: string) =>
+	const buildTask = (repo: string, ...extra: string[]) =>
 		run([
 			"task",
 			"--repo",
@@ -257,6 +257,7 @@ describe("task: one run's sandbox", () => {
 			path.join(tmp, "run-1"),
 			"--node-modules",
 			fs.mkdtempSync(path.join(tmp, "nm-")),
+			...extra,
 		]);
 
 	it("records the hooks path as none where prepare sets none", () => {
@@ -476,6 +477,20 @@ describe("task: one run's sandbox", () => {
 		);
 		expect(r.err).toContain("f.txt: patch does not apply");
 		expect(fs.readdirSync(to)).toEqual([]);
+	});
+
+	it("reverse-applies an --unapply patch into the task's start commit", () => {
+		const repo = sourceRepo();
+		const patch = path.join(tmp, "landing.patch");
+		fs.writeFileSync(patch, git(repo, "diff", "HEAD~1", "HEAD").stdout);
+		const r = buildTask(repo, "--unapply", patch);
+		expect(r.code, r.err).toBe(0);
+		const { repo: clone } = JSON.parse(r.out);
+		expect(fs.readFileSync(path.join(clone, "f.txt"), "utf8")).toBe("before\n");
+		expect(git(clone, "show", "HEAD:f.txt").stdout).toBe("before\n");
+		expect(git(clone, "log", "-1", "--format=%s").stdout.trim()).toBe(
+			"Start the task",
+		);
 	});
 
 	it("refuses a --revert that conflicts at --at, naming the way out, and builds nothing (#3350)", () => {

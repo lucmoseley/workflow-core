@@ -67,6 +67,7 @@ const {
 	SELF_PLUGIN_DIR,
 	SELF_PLUGIN_ID,
 	SELF_PLUGIN_MARKETPLACE,
+	buildSelfMarketplaceEntry,
 	selfPluginSetup,
 } = require("./lib/core-hooks.js");
 
@@ -451,16 +452,6 @@ function pointDeclaredSelfMarketplace(settingsFile, dir) {
 }
 
 /**
- * The `known_marketplaces.json` entry that registers the `wfc-self`
- * marketplace loaded in place from `dir`.
- * @param {string} dir
- */
-const selfMarketplaceEntry = (dir) => ({
-	source: { source: "directory", path: dir },
-	installLocation: dir,
-});
-
-/**
  * Points `configDir`'s `wfc-self` marketplace, its `settings.json`
  * declaration, and any install record loaded in place from it, at `clone`'s
  * `self-plugin/`.
@@ -483,7 +474,7 @@ function pointSelfPlugin(configDir, clone) {
 			unpointed: `${knownFile} registers no ${SELF_PLUGIN_MARKETPLACE} marketplace`,
 		};
 	const was = entry.installLocation;
-	const pointed = selfMarketplaceEntry(dir);
+	const pointed = buildSelfMarketplaceEntry(dir);
 	known[SELF_PLUGIN_MARKETPLACE] = {
 		...entry,
 		...pointed,
@@ -542,17 +533,17 @@ function startTask(clone, reverts, unapplied, at) {
 		"user.email=sandbox@invalid",
 	];
 	/** @param {string[]} args */
-	const failure = (args) => {
+	const tryGit = (args) => {
 		const r = spawnGitSync(args, { cwd: clone, encoding: "utf8" });
 		return r.status === 0 ? null : String(r.stderr).trim();
 	};
 	for (const sha of reverts) {
-		const err = failure([...identity, "revert", "--no-edit", sha]);
+		const err = tryGit([...identity, "revert", "--no-edit", sha]);
 		if (err !== null)
 			return `--revert ${sha} does not revert cleanly at ${at}; pick an --at it reverts at, then build again:\n${err}`;
 	}
 	for (const patch of unapplied) {
-		const err = failure(["apply", "--reverse", "--3way", "--index", patch]);
+		const err = tryGit(["apply", "--reverse", "--3way", "--index", patch]);
 		if (err !== null)
 			return `--unapply patch ${patch} does not reverse-apply at ${at}; regenerate it against ${at}, then build again:\n${err}`;
 	}
@@ -562,7 +553,7 @@ function startTask(clone, reverts, unapplied, at) {
 }
 
 /**
- * Leaves `root` as the build found it, which `readTaskRefusal` has made
+ * Leaves `root` as the build found it, which `taskRefusal` has made
  * empty or absent.
  * @param {string} root
  * @param {boolean} preexisting
@@ -580,7 +571,7 @@ function unbuild(root, preexisting) {
  * @param {{ repo: string, at: string, to: string, reverts: string[], unapplied: string[] }} inputs
  * @returns {string | null}
  */
-function readTaskRefusal({ repo, at, to, reverts, unapplied }) {
+function taskRefusal({ repo, at, to, reverts, unapplied }) {
 	if (isInsideForbiddenTree(to))
 		return `${to} is inside a config dir's jobs/ tree or a .claude/worktrees tree; build the sandbox outside every one.`;
 	if (!isEmptyOrAbsent(to)) return `${to} exists and is not empty.`;
@@ -605,7 +596,7 @@ function buildTask({ flags, lists }) {
 	if (!repo || !at || !to) return refuse(TASK_USAGE);
 	const reverts = lists["--revert"] ?? [];
 	const unapplied = (lists["--unapply"] ?? []).map((p) => path.resolve(p));
-	const refusal = readTaskRefusal({ repo, at, to, reverts, unapplied });
+	const refusal = taskRefusal({ repo, at, to, reverts, unapplied });
 	if (refusal) return refuse(refusal);
 	const base = git(repo, ["rev-parse", "--verify", `${at}^{commit}`]);
 
@@ -679,4 +670,4 @@ function main(argv) {
 
 if (require.main === module) process.exit(main(process.argv.slice(2)));
 
-module.exports = { main, selfMarketplaceEntry };
+module.exports = { main };

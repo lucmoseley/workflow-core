@@ -6,6 +6,9 @@
  * plus the canary its `.claude/settings.json` keeps (#2473). At
  * an adopter host it is the host's `.claude/settings.json` hooks merged with
  * the core plugin's `hooks/hooks.json` (#940).
+ *
+ * It also builds the `wfc-self` marketplace record, which the sandbox builder
+ * and arm-tasks.js both write (#3552).
  */
 
 const fs = require("node:fs");
@@ -28,6 +31,17 @@ const MARKER_WRITER = "write-self-plugin-marker.sh";
 /* The self-plugin's marketplace and plugin are both `wfc-self` (#2295). */
 const SELF_PLUGIN_MARKETPLACE = "wfc-self";
 const SELF_PLUGIN_ID = `${SELF_PLUGIN_MARKETPLACE}@${SELF_PLUGIN_MARKETPLACE}`;
+
+/**
+ * The `known_marketplaces.json` entry that registers the `wfc-self`
+ * marketplace loaded in place from `dir`.
+ * @param {string} dir
+ */
+const buildSelfMarketplaceEntry = (dir) => ({
+	source: { source: "directory", path: dir },
+	installLocation: dir,
+});
+
 /* The one hook the core's settings keeps: a PreToolUse entry with no matcher
  * that refuses a session the self-plugin did not load (#2447). */
 const CANARY_COMMAND = '"$CLAUDE_PROJECT_DIR"/scripts/self-plugin-canary.sh';
@@ -481,6 +495,7 @@ module.exports = {
 	readOwnHookSources,
 	readOwnHooks,
 	readSettingsAt,
+	buildSelfMarketplaceEntry,
 	ownHooksFile,
 	pluginHooksFile,
 	selfPluginSetup,
