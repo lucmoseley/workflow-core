@@ -1,11 +1,13 @@
 /*
  * refill-batch.js — the refill loop's launch step: a tick's launches grouped
  * into one dispatcher call per repo and seat (#2196), each call run, and its
- * members' records read back from the dispatch ledger. A module of its own
- * (#3265) so the launch step changes alone and is driven directly, with the
- * spawn, the ledger and the clock passed in.
+ * members' records read back from the dispatch ledger, and a parked member
+ * resumed in place instead where the decision routed it so (#3621). A module
+ * of its own (#3265) so the launch step changes alone and is driven directly,
+ * with the spawn, the ledger, the resume and the clock passed in.
  */
 
+const { launchName } = require("./refill-blocks.js");
 const { checkoutEnv } = require("./refill-repos.js");
 
 /* Untraced: the dispatcher call's one-off gates and a `claude --bg` that hangs
@@ -189,9 +191,65 @@ function launchBatch(batch, io) {
 	return { launched, refused, tried: r.failed ? reached : batch, ...r };
 }
 
+/**
+ * Resume the session that parked `l`'s ticket, in place (#3621): its new
+ * launch record, or null, logged, where the decision routed it afresh or the
+ * resume failed, for `l` to launch afresh.
+ * @param {import("./refill-decide.js").Launch} l
+ * @param {NonNullable<import("./refill-decide.js").Launch["parkedRoute"]>} parked
+ * @param {{resume: (target: import("./refill-decide.js").ResumeTarget) => import("./refill-blocks.js").Resumed,
+ *   log: (line: string) => void, now: () => number}} io
+ * @returns {import("./refill-loop.js").LoopLaunch|null}
+ */
+function resumeParked(l, parked, io) {
+	/** @param {string} why */
+	const afresh = (why) => {
+		io.log(`parked ${launchName(l)} not resumed: ${why}; launching afresh`);
+		return null;
+	};
+	if ("afresh" in parked) return afresh(parked.afresh);
+	const r = io.resume(parked.resume);
+	if (r.failed !== null) return afresh(r.failed);
+	io.log(`resumed parked ${launchName(l)} as job ${r.jobId}`);
+	return {
+		root: l.root,
+		issues: l.issues,
+		prompt: l.prompt,
+		seat: parked.resume.launch.seat,
+		jobId: r.jobId,
+		launchedAt: io.now(),
+		finishedAt: null,
+		...(r.sessionId ? { sessionId: r.sessionId } : {}),
+	};
+}
+
+/**
+ * `batch` launched: each parked member the decision routed to resume resumed
+ * in place (resumeParked), the rest and any not resumed through one
+ * dispatcher call, `launchFresh`, which is skipped where none is left.
+ * @param {import("./refill-decide.js").Launch[]} batch one of batchesOf's
+ * @param {{resume: (target: import("./refill-decide.js").ResumeTarget) => import("./refill-blocks.js").Resumed,
+ *   launchFresh: (batch: import("./refill-decide.js").Launch[]) => BatchOutcome,
+ *   log: (line: string) => void, now: () => number}} io
+ * @returns {BatchOutcome}
+ */
+function launchOrResume(batch, io) {
+	const resumed = [];
+	const fresh = [];
+	for (const l of batch) {
+		const r = l.parkedRoute ? resumeParked(l, l.parkedRoute, io) : null;
+		if (r) resumed.push(r);
+		else fresh.push(l);
+	}
+	const out =
+		fresh.length > 0 ? io.launchFresh(fresh) : { launched: [], refused: [] };
+	return { ...out, launched: [...resumed, ...out.launched] };
+}
+
 module.exports = {
 	batchesOf,
 	buildWouldRunLine,
 	dispatchCall,
 	launchBatch,
+	launchOrResume,
 };

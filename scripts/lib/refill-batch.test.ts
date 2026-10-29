@@ -6,10 +6,13 @@
  * writes real ledger lines; the rest touch no disk but the read of
  * dispatch-sessions.sh that pins the member lines a refusal keys on.
  *
+ * The resume cases (#3621) drive launchOrResume with the resume and the
+ * dispatcher call injected.
+ *
  * Loosen one and a loop launch can run outside its repo's gates or on the
  * wrong seat, a batch's launches go unrecorded or mis-stamped, a stale ledger
- * entry pass for a launch, or a member it never reached be dropped from the
- * gate queue.
+ * entry pass for a launch, a member it never reached be dropped from the
+ * gate queue, or a parked ticket lose its conversation to a fresh launch.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -17,7 +20,12 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readRecentEntries } from "./dispatch-ledger.js";
-import { batchesOf, dispatchCall, launchBatch } from "./refill-batch.js";
+import {
+	batchesOf,
+	dispatchCall,
+	launchBatch,
+	launchOrResume,
+} from "./refill-batch.js";
 
 type LoopLaunch = import("./refill-loop.js").LoopLaunch;
 
@@ -370,6 +378,112 @@ describe("launchBatch's records", () => {
 		expect(stale.launched).toEqual([]);
 		expect(stale.refused.map((f) => f.reason)).toEqual([
 			"no ledger entry written for it",
+		]);
+	});
+});
+
+describe("a parked member resumed in place or launched afresh (#3621)", () => {
+	type Io = Parameters<typeof launchOrResume>[1];
+	type Launch = Parameters<typeof launchOrResume>[0][number];
+	const parker = {
+		...launch,
+		seat: "/home/u/.claude2",
+		jobId: "old",
+		launchedAt: 1,
+		finishedAt: 2,
+	};
+	const target = {
+		launch: parker,
+		sessionId: "s-1",
+		cwd: "/home/u/design-vault",
+	};
+	const member = (n: number, over: Partial<Launch> = {}): Launch => ({
+		...launch,
+		issues: [n],
+		prompt: `/implement ${n}`,
+		...over,
+	});
+	function run(batch: Launch[], resume: Io["resume"]) {
+		const lines: string[] = [];
+		const fresh: Launch[][] = [];
+		const resumed: unknown[] = [];
+		const out = launchOrResume(batch, {
+			resume: (t) => {
+				resumed.push(t);
+				return resume(t);
+			},
+			launchFresh: (b) => {
+				fresh.push(b);
+				return {
+					launched: b.map((l) => ({
+						...l,
+						jobId: "fresh",
+						launchedAt: NOW,
+						finishedAt: null,
+					})),
+					refused: [],
+				};
+			},
+			log: (line) => lines.push(line),
+			now: () => NOW,
+		});
+		return { out, lines, fresh, resumed };
+	}
+	const ok: Io["resume"] = () => ({
+		failed: null,
+		jobId: "j-9",
+		sessionId: "s-2",
+		copy: false,
+	});
+
+	it("resumes a member routed to its parker on the parker's seat, the rest through one dispatcher call", () => {
+		const parked = member(1, { parkedRoute: { resume: target } });
+		const { out, lines, fresh, resumed } = run([parked, member(2)], ok);
+		expect(resumed).toEqual([target]);
+		expect(fresh).toEqual([[member(2)]]);
+		expect(out.launched[0]).toEqual({
+			root: launch.root,
+			issues: [1],
+			prompt: "/implement 1",
+			seat: "/home/u/.claude2",
+			jobId: "j-9",
+			launchedAt: NOW,
+			finishedAt: null,
+			sessionId: "s-2",
+		});
+		expect(out.launched.map((l) => l.jobId)).toEqual(["j-9", "fresh"]);
+		expect(lines).toEqual([
+			"resumed parked design-vault /implement 1 as job j-9",
+		]);
+	});
+
+	it("makes no dispatcher call where every member resumed, and records no session a copy left unread", () => {
+		const parked = member(1, { parkedRoute: { resume: target } });
+		const { out, fresh } = run([parked], () => ({
+			failed: null,
+			jobId: "j-9",
+			sessionId: null,
+			copy: true,
+		}));
+		expect(fresh).toEqual([]);
+		expect(out.refused).toEqual([]);
+		expect(out.launched[0]).not.toHaveProperty("sessionId");
+	});
+
+	it("launches afresh, logged with why, a member routed afresh or whose resume failed", () => {
+		const routed = member(1, {
+			parkedRoute: { afresh: "no session id read for its parking launch" },
+		});
+		const failing = member(2, { parkedRoute: { resume: target } });
+		const { out, lines, fresh, resumed } = run([routed, failing], () => ({
+			failed: "exit 1",
+		}));
+		expect(resumed).toEqual([target]);
+		expect(fresh).toEqual([[routed, failing]]);
+		expect(out.launched.map((l) => l.jobId)).toEqual(["fresh", "fresh"]);
+		expect(lines).toEqual([
+			"parked design-vault /implement 1 not resumed: no session id read for its parking launch; launching afresh",
+			"parked design-vault /implement 2 not resumed: exit 1; launching afresh",
 		]);
 	});
 });
