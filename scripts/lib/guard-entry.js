@@ -368,16 +368,34 @@ function subjectFor(payload, { field, top }) {
 }
 
 /**
+ * Whether the entry was run by hand with arguments, refused on exit 1 where
+ * it was: a hook's payload arrives on stdin, never in argv.
+ * @param {HookEvent} event
+ * @param {string} [byHand] the command to run instead
+ */
+function refusedByHand(event, byHand) {
+	if (process.argv.length <= 2) return false;
+	process.stderr.write(
+		`${guardFile()}: a ${event} hook, which reads its payload on stdin and takes no arguments — refused before reading stdin, nothing done${byHand ? `; run ${byHand}` : ""}\n`,
+	);
+	process.exitCode = 1;
+	return true;
+}
+
+/**
  * Run one guard.
  * @template {object} P
  * @param {{ field: string, noun: string, event?: HookEvent,
- *   top?: boolean, name?: string, onThrow?: "refuse",
+ *   top?: boolean, name?: string, onThrow?: "refuse", byHand?: string,
  *   decide: (subject: string, ctx: KitContext & P) => Decision,
  *   ports?: (env: PortEnv) => P }} spec
  *   `field` is the `tool_input` key judged, or with `top` the payload's own;
  *   `noun` names what goes unchecked in a fail-open record; `name` is what `disabled` lists, the entry's file unless a
  *   dispatcher core shares it; `onThrow: "refuse"`, for an enforcing guard,
- *   applies lib/refuse-on-throw.js; `ports` builds the entry's own
+ *   applies lib/refuse-on-throw.js; `ports` builds the entry's own;
+ *   `byHand` is the command to run instead, named where the entry is run
+ *   by hand with arguments, which it refuses on exit 1 before reading stdin —
+ *   a stdin that never closes would otherwise hold it for good (#3556)
  */
 function run({
 	field,
@@ -386,9 +404,11 @@ function run({
 	top,
 	name,
 	onThrow,
+	byHand,
 	decide,
 	ports,
 }) {
+	if (refusedByHand(event, byHand)) return;
 	let entryLog = logger(guardFile());
 	try {
 		/* `disabled` lists `name`; a refusal names the file. */

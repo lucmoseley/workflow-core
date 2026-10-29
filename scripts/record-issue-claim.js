@@ -12,7 +12,8 @@
  *
  * IT ONLY EVER RECORDS. Nothing is refused, nothing is injected, and every
  * failure path exits 0 in silence. A claim that fails to write leaves the
- * issue selectable.
+ * issue selectable. Run by hand with arguments, it refuses on exit 1 and
+ * names claim-issue.js.
  *
  * LIMITS
  *  - A PostToolUse hook sees Bash tool calls only, so AN ASSIGNMENT MADE FROM
@@ -54,6 +55,7 @@ run({
 	field: "command",
 	noun: "command",
 	event: "PostToolUse",
+	byHand: "`node scripts/claim-issue.js <n>` to claim an issue by hand",
 	decide: decideClaim,
 	ports: buildHostPorts,
 });

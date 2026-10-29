@@ -81,6 +81,7 @@ function call(
 		name,
 		capBroken,
 		onThrow,
+		args = [],
 	}: {
 		session?: string | null;
 		agent?: string;
@@ -89,6 +90,7 @@ function call(
 		name?: string;
 		capBroken?: boolean;
 		onThrow?: "refuse";
+		args?: string[];
 	} = {},
 ) {
 	const payload = {
@@ -99,7 +101,7 @@ function call(
 		tool_input: { command: "anything" },
 		cwd: dir,
 	};
-	const r = runInProcess(entry, [], {
+	const r = runInProcess(entry, args, {
 		cwd: dir,
 		stdin: stdin ?? JSON.stringify(payload),
 		env: {
@@ -414,6 +416,19 @@ describe("a decision", () => {
 	it("of null allows in silence", () => {
 		const r = call(null);
 		expect(r).toEqual({ status: 0, stderr: "", out: null });
+		expect(readGuardErrorsLog(config)).toBe("");
+	});
+});
+
+describe("an entry run by hand (#3556)", () => {
+	it("refuses arguments on exit 1 before reading stdin, naming itself and the hook it is", () => {
+		fragment("alpha");
+		const r = call(inject("alpha"), { args: ["3435"] });
+		expect(r.status).toBe(1);
+		expect(r.out).toBeNull();
+		expect(r.stderr).toBe(
+			"guard-fixture.js: a PreToolUse hook, which reads its payload on stdin and takes no arguments — refused before reading stdin, nothing done\n",
+		);
 		expect(readGuardErrorsLog(config)).toBe("");
 	});
 });

@@ -25,7 +25,7 @@
 # message on stderr.
 #
 # Test seams: WFC_LINK_RETRIES (verification attempts), WFC_LINK_SLEEP
-# (seconds between them), WFC_LINK_REPO (owner/name, else the origin remote).
+# (seconds between them), WFC_LINK_REPO (owner/name, else the tracker).
 
 set -euo pipefail
 
@@ -57,12 +57,14 @@ here="${BASH_SOURCE[0]%/*}"
 # of finding F23.
 # shellcheck source=scripts/lib/guard-root.sh
 source "$here/lib/guard-root.sh"
+# The tracker as every tracker script reads it: the config's "tracker", else
+# the origin remote — which names the code repo where the two differ (#3556).
+# shellcheck source=scripts/lib/wfc-config.sh
+source "$here/lib/wfc-config.sh"
 repo="${WFC_LINK_REPO:-}"
 if [[ -z "$repo" ]]; then
-  url="$(git -C "$(gr_root)" config --get remote.origin.url 2>/dev/null)" || url=""
-  [[ "${url%.git}" =~ ([^/:]+)/([^/]+)$ ]] ||
-    die "could not read owner/name off the origin remote — pass WFC_LINK_REPO"
-  repo="${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+  repo="$(wfc_tracker)" ||
+    die "could not resolve the tracker — declare \"tracker\" in $WFC_CONFIG_REL or pass WFC_LINK_REPO"
 fi
 
 retries="${WFC_LINK_RETRIES:-4}"

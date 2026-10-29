@@ -28,6 +28,7 @@ import {
 	guardOutput,
 	readHookLines,
 } from "./lib/pretool-guard-testkit";
+import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = "scripts/release-issue-claim.js";
 const LINES = readHookLines("hooks/hooks.json", SCRIPT);
@@ -123,6 +124,25 @@ describe("each exit", () => {
 
 	it("drops nothing for an issue of a repo other than the checkout's origin", () => {
 		fire("gh issue close https://github.com/someone/elsewhere/issues/12");
+		expect(claims()).toEqual(ALL);
+	});
+});
+
+describe("run by hand", () => {
+	it("refuses an issue number on exit 1, naming the release command", () => {
+		const r = runInProcess(path.join(CHECKOUT, SCRIPT), ["646"], {
+			cwd: sb.repo,
+			stdin: "",
+			env: {
+				...process.env,
+				CLAUDE_PROJECT_DIR: sb.repo,
+				CLAUDE_CONFIG_DIR: sb.home,
+			},
+		});
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(
+			"node scripts/session-arbiter.js release-issue <n>",
+		);
 		expect(claims()).toEqual(ALL);
 	});
 });
