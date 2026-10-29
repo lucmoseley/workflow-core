@@ -53,7 +53,12 @@ function buildJob(intent: string) {
 
 function run(
 	prompt: string,
-	opts: { jobDir?: string; entrypoint?: string; agentId?: string } = {},
+	opts: {
+		jobDir?: string;
+		entrypoint?: string;
+		agentId?: string;
+		configDir?: string;
+	} = {},
 ) {
 	const r = runInProcess(HOOK, [], {
 		stdin: JSON.stringify({
@@ -70,6 +75,7 @@ function run(
 			WFC_PRESENCE_MARKER: marker,
 			CLAUDE_JOB_DIR: opts.jobDir,
 			CLAUDE_CODE_ENTRYPOINT: opts.entrypoint ?? "cli",
+			CLAUDE_CONFIG_DIR: opts.configDir ?? path.join(dir, "seat"),
 		},
 	});
 	expect(r.status).toBe(0);
@@ -79,12 +85,14 @@ function run(
 const isMarked = () => fs.existsSync(marker);
 
 describe("a prompt the founder typed", () => {
-	it("writes the time in an interactive session", () => {
+	it("writes the time and its session's seat in an interactive session", () => {
 		const before = Date.now();
-		run("what is left on #2004?");
-		const at = Date.parse(fs.readFileSync(marker, "utf8").trim());
+		run("what is left on #2004?", { configDir: `${dir}/seat2/` });
+		const [time, seat] = fs.readFileSync(marker, "utf8").split("\n");
+		const at = Date.parse(time);
 		expect(at).toBeGreaterThanOrEqual(before);
 		expect(at).toBeLessThanOrEqual(Date.now());
+		expect(seat).toBe(path.join(dir, "seat2"));
 	});
 
 	it("writes it in a background job, past its launch prompt", () => {

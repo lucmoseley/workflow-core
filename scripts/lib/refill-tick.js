@@ -80,7 +80,7 @@ const {
 const { read: readTranscript } = require("./session-transcript.js");
 const { mainChainRecords } = require("./transcript.js");
 const { hasConfig, resolveKey } = require("./workflow-core-config.js");
-const { readLastTypedAt } = require("./presence.js");
+const { readLastTyped } = require("./presence.js");
 const {
 	NOTHING_LAUNCHABLE,
 	decideTick,
@@ -973,7 +973,8 @@ async function tick({ dryRun }) {
 			);
 	const { slots, admission } = readFreeSlots();
 	const { seats, probes } = readSeats(control.seats, slots, served[0]);
-	const overflow = loop.overflowReadings(readDeclaredSeats(), seats, (seat) =>
+	const declared = readDeclaredSeats();
+	const overflow = loop.overflowReadings(declared, seats, (seat) =>
 		seatBudget(seat, served[0]),
 	);
 	/** @type {import("./refill-decide.js").TickInput} */
@@ -988,7 +989,7 @@ async function tick({ dryRun }) {
 		retroBundles: [],
 		running: loop.runningOf(judged),
 		freeSlots: slots,
-		lastPromptAt: readLastTypedAt(),
+		lastPromptAt: readLastTyped(declared).at,
 		seats,
 		overflow,
 		history: judged,

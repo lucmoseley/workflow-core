@@ -9,12 +9,19 @@
  * other repo and plan. `WFC_PRESENCE_MARKER` overrides it, so a test never
  * touches the machine's real marker.
  *
- * Caller: `readLastTypedAt`, lib/refill-tick.js's tick (#2012)
+ * The marker also names the seat he typed on (#3731): the typing session's
+ * config dir, in the seat file's form, so the refill loop can launch where he
+ * is watching. Line one is the time, line two the seat.
+ *
+ * Caller: `readLastTyped`, lib/refill-tick.js's tick (#2012)
  */
 
 const fs = require("node:fs");
 const { writeFileAtomic } = require("./atomic-write.js");
+const { configDirFrom } = require("./config-dir.js");
 const { machineMarkerPath } = require("./machine-marker.js");
+const { homeDir } = require("./refill-repos.js");
+const { seatDir } = require("./refill-seats.js");
 
 /* Untraced: spec #1995's value, not a measurement. */
 const PRESENT_WINDOW_MS = 30 * 60 * 1000;
@@ -27,28 +34,40 @@ const markerPath = (env) =>
 	env.WFC_PRESENCE_MARKER || machineMarkerPath(".founder-presence", env);
 
 /**
- * Record a typed prompt at `now`, atomically.
+ * Record a prompt typed at `now` in the session `env` belongs to, atomically.
  * @param {Date} now
  * @param {Record<string, string | undefined>} [env]
  */
 function markPresent(now, env = process.env) {
-	writeFileAtomic(markerPath(env), `${now.toISOString()}\n`);
+	const seat = seatDir(configDirFrom(env.CLAUDE_CONFIG_DIR), homeDir());
+	writeFileAtomic(markerPath(env), `${now.toISOString()}\n${seat}\n`);
 }
 
 /**
- * The last typed prompt's time in ms, or null where none is recorded or the
- * marker is unreadable.
+ * The last typed prompt's time in ms and the plan seat it was typed on. `at`
+ * is null where no time is recorded or the marker is unreadable; `seat` is
+ * null where none is recorded or it is not a plan seat `list` declares.
+ * @param {import("./refill-seats.js").SeatList} list
  * @param {Record<string, string | undefined>} [env]
- * @returns {number|null}
+ * @returns {{at: number|null, seat: string|null}}
  */
-function readLastTypedAt(env = process.env) {
+function readLastTyped(list, env = process.env) {
+	let text;
 	try {
-		const at = Date.parse(fs.readFileSync(markerPath(env), "utf8").trim());
-		return Number.isNaN(at) ? null : at;
+		text = fs.readFileSync(markerPath(env), "utf8");
 	} catch {
 		/* Fails open to no record, which reads as away (#2004). */
-		return null;
+		return { at: null, seat: null };
 	}
+	const [time = "", recorded = ""] = text.split("\n").map((l) => l.trim());
+	const at = Date.parse(time);
+	const listed =
+		list.errors.length === 0 &&
+		list.seats.some((s) => s.kind === "plan" && s.dir === recorded);
+	return {
+		at: Number.isNaN(at) ? null : at,
+		seat: recorded && listed ? recorded : null,
+	};
 }
 
 /**
@@ -65,7 +84,7 @@ function presenceAt(lastTyped, now) {
 }
 
 module.exports = {
-	readLastTypedAt,
+	readLastTyped,
 	markPresent,
 	presenceAt,
 };

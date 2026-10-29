@@ -38,8 +38,12 @@ const FIELDS = ["key", "grant", "cycle-day"];
 /** @param {string} home */
 const seatsFile = (home) => path.join(home, ".claude", "refill-seats");
 
-/** @param {string} p @param {string} home */
-function expanded(p, home) {
+/**
+ * A config dir in the form the seat file's entries take, so two spellings of
+ * one dir compare equal.
+ * @param {string} p @param {string} home
+ */
+function seatDir(p, home) {
 	return path.resolve(p.startsWith("~/") ? path.join(home, p.slice(2)) : p);
 }
 
@@ -101,7 +105,7 @@ function parseSeats(text, { home, file }) {
 		if (!line || line.startsWith("#")) continue;
 		const [first, ...rest] = line.split(/\s+/);
 		if (first === undefined) continue;
-		const dir = expanded(first, home);
+		const dir = seatDir(first, home);
 		const fields = rest.length === 0 ? null : overflowFields(rest);
 		if (typeof fields === "string") {
 			errors.push(`${file}:${i + 1}: ${fields}: ${line}`);
@@ -144,7 +148,7 @@ function readDeclaredSeats(home = homeDir()) {
  * @returns {Seat}
  */
 function seatOf(list, dir, home = homeDir()) {
-	const want = expanded(dir, home);
+	const want = seatDir(dir, home);
 	return list.seats.find((s) => s.dir === want) ?? { dir: want, kind: "plan" };
 }
 
@@ -176,6 +180,7 @@ function unlistedSeats(seats) {
 module.exports = {
 	readConfiguredSeats,
 	readDeclaredSeats,
+	seatDir,
 	seatOf,
 	unlistedSeats,
 };
