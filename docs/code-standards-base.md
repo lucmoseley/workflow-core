@@ -150,7 +150,7 @@ The corpus does this three ways: `scripts/check-restatement-edges.js:52-55` cite
 
 A value that was chosen — a threshold, a size, a count, a timeout — states where it came from, and says so when it is a guess, wherever it sits: a module constant, a parameter's default, a call-site argument or a local name (#1406). The derivation explains the value as it stands, never a change to it (#2351). Several sites holding one value for one reason take it from one constant that carries the derivation. A name for a fixed path or label is not one, nor is a value nothing chose, such as a unit conversion or a command's argument count.
 
-`scripts/lib/gh.js:17-32` carries the measurement behind `MAX_BUFFER = 256e6` (*"the widest query any checker makes … was 26.67 MB across 2,456 issues"*); `scripts/lib/hook-block.js:23-25` for `MAX_BLOCKS = 3`; `scripts/lib/report-once.js:16-19` labels `INPUT_CHARS` *"A first guess, and stated as one"* and names what nobody has measured.
+`scripts/lib/gh.js:24-41` carries the measurement behind `MAX_BUFFER = 256e6` (*"the widest query any checker makes … was 26.67 MB across 2,456 issues"*); `scripts/lib/hook-block.js:23-25` for `MAX_BLOCKS = 3`; `scripts/lib/report-once.js:16-19` labels `INPUT_CHARS` *"A first guess, and stated as one"* and names what nobody has measured.
 
 ### §G3 · A retained escape hatch owes a written reason — **hard**
 
@@ -213,7 +213,7 @@ Where neither fits, remove the seam: create the dependency in place, and let the
 
 **Every code kind.** Where the repo has a `GLOSSARY.md`, a new name for a concept the glossary defines uses the glossary's term and none of its *Avoid* words.
 
-A homonym, a name for a different concept that happens to share a word, is outside the rule: `unreachableRemedy` at `scripts/lib/gh.js:310` names GitHub not answering, not the glossary's *Unreachable* page.
+A homonym, a name for a different concept that happens to share a word, is outside the rule: `unreachableRemedy` at `scripts/lib/gh.js:341` names GitHub not answering, not the glossary's *Unreachable* page.
 
 The push gate asks whether certificates attest a commit, so its verdict is `attestationOf` (`scripts/lib/test-pass-marker.js:1256`), never `coverOf`; a standards file's line pins are read by `parseLinePins` (`scripts/lib/standards-pins.js:176`), never `parsePins` (#1373).
 
@@ -396,7 +396,7 @@ Stream discipline (`scripts/lib/check.js:34-38`): stdout is for machine readers 
 
 **An export nothing consumes is a breach of this rule, not a spare part.** Make the name file-local, or **keep it with a comment directly above the entry, naming the caller that wants it**. On the one-line form the comment goes above the whole block. The caller is never a test: an export only tests consume is §G6's.
 
-**An external binary a test needs to stub, or a machine running the code may lack, is injected at one named env var, never by `PATH`** — `scripts/lib/gh.js:6-8` *"The binary is injected at one named point: WFC_GH, pointing at an executable. Tests set it to a stub"*. **One var per binary, repo-wide**, and a shell caller takes that same var rather than minting a name or shadowing `PATH` of its own (mantahostels#1374).
+**An external binary a test needs to stub, or a machine running the code may lack, is injected at one named env var, never by `PATH`** — `scripts/lib/gh.js:5-7` *"The binary is injected at one named point: WFC_GH, pointing at an executable. Tests set it to a stub"*. **One var per binary, repo-wide**, and a shell caller takes that same var rather than minting a name or shadowing `PATH` of its own (mantahostels#1374).
 
 **Outside the rule: `git`, the repo's own runtimes and their package managers (`node`, `npm`, `python3`) and standard system tools (`free`, `tar`, `sh`, `bash`, `setsid` and their like)** — tests run these for real, and the few that fake one need every call to fail, which a decoy ahead of the real one on `PATH` gives as well as a var would (#1283, #1406). A test of a detached launcher can put a stub `node` there, or pass the code under test an exec function. One of these enters the rule when tests feed it chosen output, as they do `ps`, and an exit code chosen per call is chosen output: a decoy cannot pass some calls and fail others (#2266). `git` enters it so at `WFC_GIT` (#2581), `python3` at `WFC_PYTHON`, `npm` at `WFC_NPM` and `node` at `WFC_NODE`; elsewhere `python3` may be missing from a machine, and code that runs it handles that absence rather than taking a var.
 

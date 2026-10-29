@@ -12,17 +12,13 @@
  * Four shapes:
  *   - SECOND-VAR: a `WFC_<name>_GH` var, in any code file.
  *   - NODE-COPY: a non-test Node program spawning a literal `"gh"`, or one
- *     other than lib/gh.js and the written exceptions reading
- *     `process.env.WFC_GH`.
+ *     other than lib/gh.js reading `process.env.WFC_GH`.
  *   - SHELL-BARE: a shell line running `gh` as a command — at a line's
  *     start, after `$(`, an unescaped backtick, `;`, `&`, `|`, `!`, a keyword or
  *     `timeout <n>` — or probing it with `command -v gh`, `type -P gh` or
  *     `which gh`.
  *   - PATH-STUB: a test or test support (lib/test-kind.js), or any `.ts`,
  *     prepending to PATH a directory it joins a `"gh"` onto.
- *
- * THE WRITTEN EXCEPTIONS, WRITTEN_EXCEPTIONS below, may read WFC_GH; a literal
- * `"gh"` spawn fails there too.
  *
  * THE OPT-OUT is a `gh-route-exempt: <why>` comment on the line or the line
  * above, for a shell line naming `gh` only as text, such as a message telling
@@ -49,18 +45,6 @@ const PRIMITIVE = "scripts/lib/gh.js";
 const EXEMPLAR = "scripts/check-issue-orphans.js";
 const STUB_EXEMPLAR = "scripts/check-issue-orphans.test.ts";
 const SHELL_EXEMPLAR = "scripts/link-sub-issue.sh";
-
-/** Program → the reason it keeps its own spawn, as its site comment says. */
-const WRITTEN_EXCEPTIONS = new Map([
-	[
-		"scripts/lib/arbiter-debts.js",
-		"lib/gh.js would load lib/check.js's crash handler into the session arbiter, a hook",
-	],
-	[
-		"scripts/lib/workflow-core-config.js",
-		"lib/gh.js requires it, and would load lib/check.js's crash handler into every hook",
-	],
-]);
 
 const FIX = {
 	"SECOND-VAR": `name the binary through WFC_GH, the one var ${PRIMITIVE} reads, as ${EXEMPLAR} and ${SHELL_EXEMPLAR} do.`,
@@ -107,8 +91,8 @@ function kindOf(rel, shell) {
 function shapeOf(rel, kind, line, ghDirs) {
 	if (SECOND_VAR.test(line)) return "SECOND-VAR";
 	if (kind === "node") {
-		const own = rel === PRIMITIVE || WRITTEN_EXCEPTIONS.has(rel);
-		const copies = LITERAL_SPAWN.test(line) || (!own && ENV_READ.test(line));
+		const copies =
+			LITERAL_SPAWN.test(line) || (rel !== PRIMITIVE && ENV_READ.test(line));
 		return copies ? "NODE-COPY" : null;
 	}
 	if (kind === "shell")

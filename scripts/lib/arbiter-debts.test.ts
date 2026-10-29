@@ -24,7 +24,7 @@ import {
 	readDebtOf,
 	store,
 } from "./arbiter-testkit";
-import { ISSUE_LIST_LIMIT } from "./gh-limits.js";
+import { ISSUE_LIST_LIMIT } from "./gh.js";
 
 const sb = freshSandbox();
 
@@ -359,7 +359,7 @@ describe("debt — the record of an edit a denial abandoned", () => {
 			// The call COUNT cannot see this. Swap --state closed for --state open
 			// and the sweep inverts into deleting exactly the entries that must
 			// survive, with every other assertion here still green.
-			// --limit is the ceiling lib/gh-limits.js holds, asserted from THERE
+			// --limit is the ceiling lib/gh.js holds, asserted from THERE
 			// rather than from the sweep's own copy of that import, which would
 			// agree with any number the sweep passed (mantahostels#2512).
 			ghClosedList(sb, [308]);

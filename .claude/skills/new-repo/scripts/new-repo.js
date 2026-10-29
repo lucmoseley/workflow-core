@@ -81,8 +81,8 @@ const {
 	gh,
 	ghApiSlurp,
 	ghJson,
+	ISSUE_LIST_LIMIT,
 } = require("../../../../scripts/lib/gh.js");
-const { ISSUE_LIST_LIMIT } = require("../../../../scripts/lib/gh-limits.js");
 const {
 	initPaths,
 	readManifestMarketplaceName,

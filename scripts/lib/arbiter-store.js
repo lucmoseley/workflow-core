@@ -36,9 +36,8 @@
  *
  * NOTHING UNDER THIS FACADE MAY LOAD lib/check.js (mantahostels#2512). Its module body
  * installs uncaughtException and unhandledRejection handlers ending in
- * `process.exit`, and the arbiter runs inside hooks. So lib/gh.js is off limits
- * here, and lib/gh-limits.js exists to carry the one constant out of it.
- * arbiter-modules.test.ts pins it.
+ * `process.exit`, and the arbiter runs inside hooks. arbiter-modules.test.ts
+ * pins it.
  *
  * THE SPLIT RULE, ONCE. Three families cite each other both ways — a release
  * drops the content pin, and the content recorder reads the lock — so

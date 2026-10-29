@@ -121,8 +121,6 @@ describe("the two disciplines that make the cycle safe", () => {
  * The arbiter runs inside hooks, so nothing it loads may claim the process's
  * exit. lib/check.js's module body installs uncaughtException and
  * unhandledRejection handlers that end in `process.exit` — right for a checker.
- * mantahostels#2512 split lib/gh-limits.js out of lib/gh.js so arbiter-debts.js could share
- * the tracker ceiling without pulling check.js in behind it.
  */
 /**
  * What a fresh process holds after loading `entry`: the lib/check.js entries in
@@ -152,10 +150,18 @@ describe("check.js never enters the arbiter's require graph", () => {
 		// The positive control. Without it the assertion below passes on a probe
 		// that can no longer find check.js at all — a path regex crossing two
 		// layers of escaping is exactly the thing that breaks silently.
-		expect(crashProbe("gh.js")).toEqual({
+		expect(crashProbe("check.js")).toEqual({
 			check: 1,
 			uncaught: 1,
 			unhandled: 1,
+		});
+	});
+
+	it("loads gh.js with neither, as the arbiter's debt sweep calls through it (#3558)", () => {
+		expect(crashProbe("gh.js")).toEqual({
+			check: 0,
+			uncaught: 0,
+			unhandled: 0,
 		});
 	});
 

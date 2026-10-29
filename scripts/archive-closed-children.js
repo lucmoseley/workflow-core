@@ -70,10 +70,10 @@ const {
 	gh,
 	ghJson,
 	ghApiSlurp,
+	ISSUE_LIST_LIMIT,
 	parseErrLine,
 	raiseGhFailure,
 } = require("./lib/gh");
-const { ISSUE_LIST_LIMIT } = require("./lib/gh-limits.js");
 
 /** @param {number} map */
 const buildContainerTitle = (map) => `Archive: closed children of #${map}`;

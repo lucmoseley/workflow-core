@@ -1,8 +1,8 @@
 // @vitest-environment node
 /*
  * Pins which files check-gh-route.js finds reaching `gh` off its one route,
- * lib/gh.js and WFC_GH, over the whole tree, that its refusal names the
- * primitive and its exemplar, and that the written exceptions pass (#3455).
+ * lib/gh.js and WFC_GH, over the whole tree, and that its refusal names the
+ * primitive and its exemplar (#3455).
  *
  * Fabricated files in a throwaway directory, never this checkout, so a case's
  * findings are only its own. The Node and TypeScript bodies live in
@@ -200,23 +200,6 @@ describe("check-gh-route", () => {
 		const r = run();
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("OK: 7 file(s), every `gh` call on WFC_GH.");
-	});
-
-	it("passes each written exception's own spawn of WFC_GH", () => {
-		fixture("scripts/lib/arbiter-debts.js", "env-read.js.txt");
-		fixture("scripts/lib/workflow-core-config.js", "env-read.js.txt");
-		const r = run();
-		expect(r.status).toBe(0);
-		expect(r.out).toContain("OK: 2 file(s), every `gh` call on WFC_GH.");
-	});
-
-	it("FAILs a written exception spawning a literal gh", () => {
-		fixture("scripts/lib/arbiter-debts.js", "literal-spawn.js.txt");
-		const r = run();
-		expect(r.status).toBe(1);
-		expect(r.out).toContain(
-			"1 second `gh` route(s): scripts/lib/arbiter-debts.js:1.",
-		);
 	});
 
 	it("honours the opt-out marker only where it gives a reason", () => {

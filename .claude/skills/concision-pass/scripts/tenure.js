@@ -840,19 +840,4 @@ function main(argv) {
 	return 0;
 }
 
-/**
- * `main`, with a short `git log` record read as the IO error it is: exit 1,
- * where lib/check.js's crash handler, which lib/gh.js loads, would make it 2.
- * @param {string[]} argv
- */
-function mainOrIoError(argv) {
-	try {
-		return main(argv);
-	} catch (err) {
-		if (!(err instanceof LogRecordShortError)) throw err;
-		out(`${err.message}\n`);
-		return 1;
-	}
-}
-
-if (require.main === module) process.exit(mainOrIoError(process.argv.slice(2)));
+if (require.main === module) process.exit(main(process.argv.slice(2)));

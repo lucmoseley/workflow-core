@@ -1,7 +1,6 @@
 /*
  * The seam between the Node scripts and the `gh` CLI: they route every call
- * through here and never name the binary themselves. check-gh-route.js's
- * WRITTEN_EXCEPTIONS keep their own spawn, and read the same var.
+ * through here and never name the binary themselves.
  *
  * The binary is injected at one named point: WFC_GH, pointing at an
  * executable. Tests set it to a stub (scripts/lib/gh-stub.ts) instead of
@@ -11,9 +10,13 @@
 const { execFile, execFileSync } = require("node:child_process");
 const { promisify } = require("node:util");
 
-const { skipError, brokenError, isOutcomeError } = require("./check");
-const { ISSUE_LIST_LIMIT } = require("./gh-limits.js");
+const {
+	skipError,
+	brokenError,
+	isOutcomeError,
+} = require("./outcome-error.js");
 const { spawnTimeout } = require("./hook-deadline.js");
+// biome-ignore lint/suspicious/noImportCycles: workflow-core-config.js requires this file only inside deriveLogin, once both have loaded.
 const { codeRepoArgs } = require("./workflow-core-config.js");
 
 const pExecFile = promisify(execFile);
@@ -28,14 +31,29 @@ const pExecFile = promisify(execFile);
  * Memory is not the binding constraint: buffering and parsing the full 256 MB
  * costs ~2x payload in heap and ~3.6x in RSS, peaking at 925 MB RSS / 530 MB
  * heap — against ~/.bashrc's 4 GB node heap cap, that ceiling sits at ~1.9 GB
- * of payload, ~175,000 issues (mantahostels#2481). ISSUE_LIST_LIMIT, in
- * lib/gh-limits.js, fires first and loudly, and mantahostels#2481 ruled that raising
- * both constants together when it does is right — narrowing, scoping and
+ * of payload, ~175,000 issues (mantahostels#2481). ISSUE_LIST_LIMIT, below,
+ * fires first and loudly, and mantahostels#2481 ruled that raising both
+ * constants together when it does is right — narrowing, scoping and
  * streaming the full-tracker reads were all priced there and declined as
  * premature. What degrades first is wall time, ~99% of it the GraphQL fetch —
  * mantahostels#2491 owns that, gated on the reading.
  */
 const MAX_BUFFER = 256e6;
+
+/*
+ * The ceiling every full-tracker `gh issue list` passes to --limit. gh returns
+ * at most this many rows and says nothing about the ones it dropped, so a
+ * tracker that reaches the ceiling silently narrows every check to a subset of
+ * itself.
+ *
+ * Set BELOW what MAX_BUFFER carries (~23,500 issues, measured above), so the
+ * check that fires first is this one, which names what to raise, rather than
+ * an ENOBUFS. That ordering holds only while the mean issue
+ * stays under ~12.8 KiB; above it this guard goes silent, since it can fire
+ * only after the response has already fit. A limit larger than the tracker
+ * costs nothing: gh stops at the last issue, not at the ceiling.
+ */
+const ISSUE_LIST_LIMIT = 20_000;
 
 /*
  * Every call's wall-clock cap unless its caller sets its own (#2677). Under
@@ -411,13 +429,9 @@ function buildCollapsedFailureLine(group) {
 
 /**
  * Refuses a `gh issue list` that came back exactly at ISSUE_LIST_LIMIT, which
- * gh reports as a full answer.
- *
- * It stays in this module, not in lib/gh-limits.js beside the ceiling, because
- * `brokenError` is what makes it a guard: the class it throws is how check.js
- * tells a fault in the check from a finding about the tracker. A caller that
- * cannot load check.js (lib/arbiter-debts.js) also cannot use a throw — it must
- * fail toward keeping its register, so it logs and returns null instead (mantahostels#2512).
+ * gh reports as a full answer. It throws `brokenError`, how check.js tells a
+ * fault in the check from a finding about the tracker; lib/arbiter-debts.js
+ * must fail toward keeping its register, so it logs and returns null instead.
  * @template T
  * @param {T[]} rows
  * @param {string} [what]
@@ -428,7 +442,7 @@ function assertWholeTracker(rows, what = "issues") {
 	throw brokenError(
 		`gh returned ${rows.length} ${what} — exactly the --limit ceiling, so\n` +
 			"        the tracker has outgrown it and this check saw only part of it.\n" +
-			"        Raise ISSUE_LIST_LIMIT in scripts/lib/gh-limits.js, and re-check\n" +
+			"        Raise ISSUE_LIST_LIMIT in scripts/lib/gh.js, and re-check\n" +
 			"        MAX_BUFFER in scripts/lib/gh.js against the measurement in its comment.",
 	);
 }
@@ -568,8 +582,6 @@ module.exports = {
 	/* Exported for repo-checks.js, which spawns checkers reading through here
 	 * (#1566). */
 	MAX_BUFFER,
-	/* Re-exported for gh.js's own callers and tests. lib/gh-limits.js OWNS it:
-	 * a new caller imports from there, or it takes check.js with it (mantahostels#2512). */
 	ISSUE_LIST_LIMIT,
 	assertWholeTracker,
 	assertOpenRead,

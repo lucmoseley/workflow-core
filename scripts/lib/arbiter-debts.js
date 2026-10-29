@@ -13,10 +13,9 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { execFileSync } = require("node:child_process");
 const regions = require("./doc-map-regions.js");
 const core = require("./arbiter-core.js");
-const { ISSUE_LIST_LIMIT } = require("./gh-limits.js");
+const { ghJson, ISSUE_LIST_LIMIT } = require("./gh.js");
 const { scriptPath } = require("./script-path.js");
 const { caught } = require("./caught.js");
 
@@ -394,24 +393,13 @@ function debtsOwnedBy(sid) {
  * Fails toward KEEPING every debt. A missing gh, absent auth, a network stall
  * or a rate limit all return null here, and the caller then retires nothing.
  * The other way round, an outage would silently empty the register.
- *
- * Not through lib/gh.js, a written exception (#3455): gh.js loads lib/check.js,
- * whose crash handler would turn a session-arbiter hook's crash into exit 2. It
- * reads gh.js's own WFC_GH.
  * @param {string[]} args
  * @param {number} timeoutMs
  * @param {string} where
  */
-function ghJson(args, timeoutMs, where) {
+function ghJsonOrNull(args, timeoutMs, where) {
 	try {
-		return JSON.parse(
-			execFileSync(process.env.WFC_GH || "gh", args, {
-				cwd: core.repoRoot(),
-				encoding: "utf8",
-				timeout: timeoutMs,
-				stdio: ["ignore", "pipe", "ignore"],
-			}),
-		);
+		return ghJson(args, { cwd: core.repoRoot(), timeout: timeoutMs });
 	} catch (e) {
 		core.logError(where, e);
 		return null;
@@ -534,26 +522,19 @@ function buildManyDebtsNotice(rel, live) {
 
 /**
  * The `--limit` on the sweep's closed-issue read. IT IS the tracker-wide
- * ceiling `lib/gh-limits.js` holds, not a copy of it — so it is one every other
+ * ceiling `lib/gh.js` holds, not a copy of it — so it is one every other
  * checker reaches at the same moment and says so loudly, rather than this sweep
  * meeting a private number alone. Sizing and the measurement behind it: mantahostels#2482.
  *
- * WHY THE CEILING COMES FROM ITS OWN MODULE (mantahostels#2512) rather than
- * lib/gh.js: requiring lib/gh.js pulls lib/check.js, whose module body installs
- * `process.on("uncaughtException")` handlers ending in `process.exit`, and the
- * process here is the arbiter, run from hooks. Nor is gh.js's
- * `assertWholeTracker` used: it throws a check.js error class, and this sweep
- * must fail toward keeping every debt — log and return null, never throw.
- *
- * `ghJson` here sets no `maxBuffer`, so Node's 1 MB default binds: 20,000 rows
- * of `{"number":n}` is ~0.4 MB, and an overrun fails toward keeping every debt.
+ * gh.js's `assertWholeTracker` is not used: it throws, and this sweep must
+ * fail toward keeping every debt — log and return null, never throw.
  */
 const CLOSED_ISSUES_LIMIT = ISSUE_LIST_LIMIT;
 
 /**
  * MEASURED at ~12.4 ms a closed issue (mantahostels#2482), so 300s carries ~24,000 — past
  * CLOSED_ISSUES_LIMIT above, which is the ordering that matters: the ROW
- * ceiling fires and says what to do, where a timeout only lands in `ghJson`'s
+ * ceiling fires and says what to do, where a timeout only lands in `ghJsonOrNull`'s
  * catch and retires nothing. Re-derive from that rate, never by scaling this.
  *
  * It can be this generous because a sweep runs by hand or detached from
@@ -568,10 +549,10 @@ const GH_BATCH_TIMEOUT_MS = 300_000;
  *
  * This is the register's ONLY drain (mantahostels#1251).
  *
- * Fails toward KEEPING every entry — `ghJson` above.
+ * Fails toward KEEPING every entry — `ghJsonOrNull` above.
  */
 function readClosedIssues() {
-	const rows = ghJson(
+	const rows = ghJsonOrNull(
 		[
 			"issue",
 			"list",

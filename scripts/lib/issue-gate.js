@@ -569,7 +569,7 @@ function destinationOf(body) {
  * @returns {string[]}
  */
 function openMapsArgs(repo) {
-	const { ISSUE_LIST_LIMIT } = require("./gh-limits.js");
+	const { ISSUE_LIST_LIMIT } = require("./gh.js");
 	return [
 		"issue",
 		"list",

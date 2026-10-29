@@ -10,7 +10,7 @@
 	"scripts/lib/check.js:34-38": "b6e1b941856eec63",
 	"scripts/lib/check.js:8-13": "bc624cdf147db90c",
 	"scripts/lib/claude-bin.js:9": "a71918578a74fed9",
-	"scripts/lib/gh.js:310": "74904d00bd2c2475",
+	"scripts/lib/gh.js:341": "74904d00bd2c2475",
 	"scripts/lib/guard-entry.js:125-131": "98e7bf91c0cca343",
 	"scripts/lib/hook-block.js:23-25": "c074107efa2a3f47",
 	"scripts/lib/standards-pins.js:176": "7033c4610b0d5372",
