@@ -90,8 +90,23 @@ const SK_LEAD = `(?:(?<![A-Za-z0-9])|(?<=${ESCAPES.join("|")}))`;
  * a `[…]` class is one character.
  * @param {string} prefix
  */
-const buildPrefix = (prefix) =>
-	(prefix.match(/\[[^\]]*\]|./g) ?? []).join(`(?:${CONTROL})*`);
+const buildPrefix = (prefix) => prefixUnits(prefix).join(`(?:${CONTROL})*`);
+
+/**
+ * The units `buildPrefix` joins, read in one pass: a regex alternation
+ * backtracks quadratically on a run of unclosed `[` (#3383).
+ * @param {string} prefix
+ */
+function prefixUnits(prefix) {
+	const units = [];
+	const lastClose = prefix.lastIndexOf("]");
+	for (let i = 0; i < prefix.length; i++) {
+		const end = prefix[i] === "[" && i < lastClose ? prefix.indexOf("]", i) : i;
+		units.push(prefix.slice(i, end + 1));
+		i = end;
+	}
+	return units;
+}
 
 /**
  * The source for one body character, after any control sequences, that
