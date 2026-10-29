@@ -4,7 +4,8 @@
  * are already running, or were already launched a moment ago (mantahostels#1337).
  *
  * TWO ROUTES, BECAUSE EACH COVERS THE OTHER'S BLIND SPOT.
- *   - The LEDGER (`.pick-next/dispatched.jsonl`, written by --record, its holds
+ *   - The LEDGER (`.pick-next/dispatched.jsonl`, written by --record and by the
+ *     refill loop's resume of a parked session (#3704), its holds
  *     released by the refill loop's hand-off, #2744) catches a
  *     set whose sessions have since finished, which a live-session check alone
  *     would wave through to run again against a closed issue.

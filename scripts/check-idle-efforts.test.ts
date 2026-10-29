@@ -6,7 +6,8 @@
  * serving nothing, and reports through runCheck without gating.
  *
  * Its judgement is lib/idle-efforts.test.ts's; this pins the readings the
- * shell hands it. `gh` is a stub injected through WFC_GH and the home
+ * shell hands it, and that a resume the loop writes through
+ * lib/refill-batch.js reads as a launch (#3704). `gh` is a stub injected through WFC_GH and the home
  * directory a temp one, so no real tracker or checkout is read. A break here
  * strands an effort unreported while the core's own tests stay green.
  */
@@ -15,8 +16,10 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { record } from "./lib/dispatch-ledger.js";
 import { stubGhScript } from "./lib/gh-stub";
+import { launchOrResume } from "./lib/refill-batch.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-idle-efforts.js");
@@ -179,6 +182,57 @@ describe("check-idle-efforts.js", () => {
 			"o/gone: unread — HTTP 404: Could not resolve to a Repository",
 		);
 		expect(r.out).not.toContain("none idle");
+	});
+
+	it("dates a parked issue resumed by the loop from its resume, not its first launch (#3704)", async () => {
+		checkout("core", "o/core", [launch(1, 3 * DAY)]);
+		const root = path.join(home, "core");
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(NOW - DAY);
+		try {
+			launchOrResume(
+				[
+					{
+						root,
+						issues: [1],
+						prompt: "/implement 1",
+						model: "opus",
+						seat: "/home/u/.claude2",
+						parkedRoute: {
+							resume: {
+								launch: {
+									root,
+									issues: [1],
+									prompt: "/implement 1",
+									seat: "/home/u/.claude2",
+									jobId: "job1",
+									launchedAt: NOW - 3 * DAY,
+									finishedAt: NOW - 2.5 * DAY,
+								},
+								sessionId: "s-1",
+								cwd: root,
+							},
+						},
+					},
+				],
+				{
+					resume: () => ({
+						failed: null,
+						jobId: "job1b",
+						sessionId: "s-1",
+						copy: false,
+					}),
+					recordLaunch: record,
+					launchFresh: () => ({ launched: [], refused: [] }),
+					log: () => undefined,
+					now: Date.now,
+				},
+			);
+		} finally {
+			vi.useRealTimers();
+		}
+		const r = await run({ "o/core": [node(1)] });
+		expect(r.out).toContain("OK: no effort idle past 2 days.");
 	});
 
 	it("is OK where nothing is idle", async () => {

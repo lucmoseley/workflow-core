@@ -8,7 +8,9 @@
  *
  * READS every checkout the refill loop could serve (lib/refill-repos.js's
  * discoverRepos), each tracker once in one paged GraphQL query, and each
- * checkout's dispatch ledger as its launch log. A launch the ledger still
+ * checkout's dispatch ledger as its launch log: the dispatcher writes each
+ * fresh launch to it, and the refill loop each resume of a parked session
+ * (lib/refill-batch.js's resumeParked, #3704). A launch the ledger still
  * holds counts as running, as does each launch of a loop holding its pid
  * lock. The loop's state names the parked issues it holds on a full seat,
  * and since when (#3680). A stopped loop serves no tracker, runs and holds

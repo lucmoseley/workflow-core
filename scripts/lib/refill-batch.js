@@ -78,7 +78,7 @@ function buildWouldRunLine(call, overflow) {
  * @typedef {{launch: import("./refill-decide.js").Launch, reason: string}} Refusal
  * @typedef {{launched: import("./refill-loop.js").LoopLaunch[], refused: Refusal[]}} BatchOutcome
  * @typedef {{resume: (target: import("./refill-decide.js").ResumeTarget) => import("./refill-blocks.js").Resumed,
- *   record: typeof import("./dispatch-ledger.js").record,
+ *   recordLaunch: typeof import("./dispatch-ledger.js").record,
  *   log: (line: string) => void, now: () => number}} ResumeIo
  */
 
@@ -199,7 +199,8 @@ function launchBatch(batch, io) {
  * launch record, or null, logged, where the decision routed it afresh or the
  * resume failed, for `l` to launch afresh. The resume is written to the
  * dispatch ledger as a launch, so the idle alarm dates the issue from it
- * (#3704).
+ * (#3704); a write that fails is logged and the resume stands
+ * (mantahostels#1528).
  * @param {import("./refill-decide.js").Launch} l
  * @param {NonNullable<import("./refill-decide.js").Launch["parkedRoute"]>} parked
  * @param {ResumeIo} io
@@ -216,7 +217,7 @@ function resumeParked(l, parked, io) {
 	if (r.failed !== null) return afresh(r.failed);
 	io.log(`resumed parked ${launchName(l)} as job ${r.jobId}`);
 	if (
-		!io.record({
+		!io.recordLaunch({
 			issues: l.issues,
 			model: l.model,
 			prompt: l.prompt,
