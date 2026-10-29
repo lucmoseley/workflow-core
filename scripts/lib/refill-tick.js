@@ -77,6 +77,7 @@ const {
 	decideTick,
 	hasRoom,
 	isParked,
+	routesParked,
 } = require("./refill-decide.js");
 const { refillFrontier } = require("./refill-frontier.js");
 const {
@@ -891,9 +892,10 @@ async function decide(input, scope, launches) {
 	const frontier = /** @type {import("./refill-decide.js").MergedRow[]} */ (
 		merged.frontier
 	);
-	/* Away mode skips every parked row, so its markers go unread. */
-	const parkers =
-		input.mode === "normal" ? readParkers(frontier, launches) : [];
+	/* A mode that skips parked rows leaves their markers unread. */
+	const parkers = routesParked(input.mode)
+		? readParkers(frontier, launches)
+		: [];
 	const decision = decideTick({
 		...input,
 		seats: sizeParkerSeats(input.seats, parkers, served.roots[0]),

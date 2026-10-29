@@ -331,15 +331,21 @@ function seatHold(s) {
 const isParked = (row) => row.labels.includes(PARKED_LABEL);
 
 /**
+ * Whether a loop in `mode` routes parked rows: normal mode relaunches them,
+ * away mode leaves their questions to the founder's return (#2355, #3621).
+ * @param {"normal"|"away"} [mode]
+ */
+const routesParked = (mode) => mode === "normal";
+
+/**
  * Why the loop's launch filter skips a row, or null where it launches it;
  * also the idle alarm's printed reason (lib/idle-efforts.js). A parked row
- * launches in normal mode alone: away mode leaves its question to the founder's
- * return (#2355, #3621).
+ * launches only where routesParked(mode).
  * @param {{labels: string[], takes: string[]}} row
  * @param {"normal"|"away"} [mode]
  */
 function buildSkipReason(row, mode) {
-	if (mode !== "normal" && isParked(row)) return "parked";
+	if (!routesParked(mode) && isParked(row)) return "parked";
 	if (row.labels.includes(WAITING_LABEL)) return WAITING_LABEL;
 	const [kind, ...more] = row.takes;
 	if (kind === undefined || more.length > 0)
@@ -479,7 +485,7 @@ const routeParkedRow = (row, parkers, seats) =>
  * @returns {Skip[]}
  */
 const heldParked = ({ frontier, mode, seats, parkers = [] }) =>
-	mode === "normal"
+	routesParked(mode)
 		? frontier.filter(isParked).flatMap((row) => {
 				const parked = routeParkedRow(row, parkers, seats);
 				return "hold" in parked
@@ -502,7 +508,7 @@ const parkedMs = (row) => Date.parse(row.parkedAt ?? "") || 0;
  * @param {"normal"|"away"} mode
  */
 function walkOrder(frontier, mode) {
-	if (mode !== "normal") return frontier;
+	if (!routesParked(mode)) return frontier;
 	const parked = frontier
 		.filter(isParked)
 		.sort((a, b) => parkedMs(a) - parkedMs(b));
@@ -630,4 +636,5 @@ module.exports = {
 	hasRoom,
 	isParked,
 	pickSeat,
+	routesParked,
 };
