@@ -85,7 +85,7 @@ const PARKED_STATE = "blocked";
  *   each of its issues the `parked` label would not go on, with why
  * @property {(l: LoopLaunch, sessionId: string, numbers: number[]) =>
  *   string|null} recordParked  add `numbers` to the session's `.parked-`
- *   marker in its checkout (lib/parked-marker.js)
+ *   marker in its checkout (lib/parked.js)
  * @property {(l: LoopLaunch, body: string) => void} comment  on each of its
  *   issues, a failure logged
  * @property {(l: JobLaunch) => {failed: string|null, out: string}}

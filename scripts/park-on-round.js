@@ -21,8 +21,7 @@
  */
 
 const { parkTargets } = require("./guard-inventory");
-const { setParked } = require("./lib/parked");
-const { readParkedBy, writeParkedBy } = require("./lib/parked-marker.js");
+const { readParkedBy, setParked, writeParkedBy } = require("./lib/parked");
 const stopGuard = require("./lib/stop-guard");
 const { trackerOf } = require("./lib/outstanding-line");
 

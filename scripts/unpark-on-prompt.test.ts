@@ -15,7 +15,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
 import { API_PROMPT, IDLE_PROMPT } from "./lib/loop-prompts.js";
-import { writeParkedBy } from "./lib/parked-marker.js";
+import { writeParkedBy } from "./lib/parked.js";
 import { runInProcess } from "./lib/run-in-process";
 
 const HOOK = path.join(__dirname, "unpark-on-prompt.js");

@@ -72,7 +72,7 @@ const {
  * self-plugin canary, that the self-plugin loaded (#2438).
  * `.parked-blocked-` is park-blocked.sh's record, read by the session-ceiling
  * guard.
- * lib/parked-marker.js's `.parked-<sid>` shares the directory and has no
+ * lib/parked.js's `.parked-<sid>` shares the directory and has no
  * clock: its park waits on the founder for days after the session finishes,
  * and unpark-on-prompt.js deletes it once empty (#3589). Residual: a marker
  * whose session never takes another prompt stays, a few bytes for good.

@@ -24,7 +24,7 @@ import {
 	live,
 	markers as markersMod,
 } from "./arbiter-testkit";
-import { readParkedBy, writeParkedBy } from "./parked-marker.js";
+import { readParkedBy, writeParkedBy } from "./parked.js";
 
 /* An hour past arbiter-markers.js's 24-hour MARKER_AGE_MS. */
 const AGED_MS = 25 * 60 * 60 * 1000;
