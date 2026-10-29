@@ -160,7 +160,7 @@ describe("check-test-spawn", () => {
 		expect(r.out).toContain("Fix: run it through `runInProcess`");
 	});
 
-	describe("--against HEAD, the pre-commit form", () => {
+	describe("--against HEAD, the direction-gated form", () => {
 		let hooks: string;
 		beforeEach(() => {
 			/* An empty hooks dir, so the scratch repo never runs this checkout's
