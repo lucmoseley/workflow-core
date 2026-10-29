@@ -297,6 +297,12 @@ const REGISTRATIONS: Registration[] = [
 	},
 	{
 		event: "Stop",
+		id: "scripts/guard-session-id-prose.js",
+		matcher: null,
+		covers: [],
+	},
+	{
+		event: "Stop",
 		id: "scripts/park-on-round.js",
 		matcher: null,
 		covers: [],
@@ -364,6 +370,14 @@ const REGISTRATIONS: Registration[] = [
 		 * the running boot holds an RCU stall (#867). */
 		event: "SessionStart",
 		id: "scripts/check-kernel-stall.js --notify",
+		matcher: null,
+		covers: [],
+	},
+	{
+		/* Silent on a fast or unprobeable interop bridge; warns at every start
+		 * while two policy queries in a row are slow, logging evidence (#3564). */
+		event: "SessionStart",
+		id: "scripts/check-interop-latency.js --notify",
 		matcher: null,
 		covers: [],
 	},

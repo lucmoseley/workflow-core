@@ -193,6 +193,11 @@
 					},
 					{
 						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-session-id-prose.js || true",
+						"timeout": 15
+					},
+					{
+						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/park-on-round.js || true",
 						"timeout": 15
 					},
@@ -288,6 +293,11 @@
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/check-kernel-stall.js --notify || true",
 						"timeout": 15
+					},
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/check-interop-latency.js --notify || true",
+						"timeout": 60
 					},
 					{
 						"type": "command",

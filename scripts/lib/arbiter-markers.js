@@ -52,7 +52,8 @@ const { MARKER_PREFIX: PARKED_PREFIX } = require("./parked-marker.js");
  * lib/priced-options-limbs.js, which lists them; guard-session-ceiling.js holds three, one per
  * band (mantahostels#2601); guard-selection-sum.js two, one per stake tier (mantahostels#3431);
  * guard-uncommitted-work.js, guard-lost-deny.js, guard-automode-refusal.js,
- * guard-unpushed-commits.js and guard-paste-self-match.js (#921) one each;
+ * guard-unpushed-commits.js, guard-paste-self-match.js (#921) and
+ * guard-session-id-prose.js (#3557) one each;
  * guard-inventory.js two, its draft-and-act limb on its own (#989). `.lost-deny-seen-` is the exception and NOT a counter:
  * guard-lost-deny.js writes it itself, a set of the tool calls it has already
  * reported, and it is swept here because it is session-suffixed in the same
@@ -99,6 +100,7 @@ const MARKER_PREFIXES = [
 	".unpushed-nagged-",
 	".unpushed-seen-",
 	".paste-self-match-nagged-",
+	".session-id-prose-nagged-",
 	PARKED_PREFIX,
 	".jev-advisory-nagged-",
 	".jev-advisory-outage-",
