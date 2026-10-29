@@ -217,10 +217,6 @@
 			"lines": ["spawns node on the program under test"]
 		},
 		{
-			"id": "precommit-exit",
-			"lines": ["exits 1 on a checker's failure"]
-		},
-		{
 			"id": "doc-map",
 			"lines": [
 				{

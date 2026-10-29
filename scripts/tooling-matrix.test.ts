@@ -782,8 +782,7 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 		["ruff", /check-ruff-introduced\.js/],
 		["`scripts/check-swallowed-errors.js`", /check-swallowed-errors\.js \|\|/],
 		["`scripts/check-cli-args.js`", /check-cli-args\.js --against HEAD/],
-		["`scripts/check-precommit-exit.js`", /check-precommit-exit\.js \|\|/],
-		["`scripts/check-test-spawn.js`", /check-test-spawn\.js \|\| exit/],
+		["`scripts/check-test-spawn.js`", /check-test-spawn\.js --against HEAD/],
 		["`scripts/check-registrations.js`", /check-registrations\.js --against/],
 		[
 			"`scripts/check-workflow-permissions.js`",

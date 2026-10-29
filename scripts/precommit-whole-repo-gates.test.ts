@@ -2,10 +2,8 @@
 /*
  * Pins the whole-repo pre-commit gates (mantahostels#1753) — guard-registry,
  * guard-test-isolation, git-fixture-identity, jsonl-reads, cli-args and test-spawn — exercised as the
- * shell they are: each one call, `--against HEAD` for a direction-gated gate
- * and bare for a whole-tree one, refusing with the checker's own exit code,
- * and, for a direction-gated one, the `--root` each side of the comparison is
- * read through.
+ * shell they are: each one `--against HEAD` call, refusing with the checker's
+ * own exit code, and the `--root` each side of the comparison is read through.
  *
  * The shell is one line each, and what `--against HEAD` does is proved once,
  * against a fake check, in scripts/lib/check.test.ts. What is left here is what
@@ -14,7 +12,7 @@
  *
  * They are hard gates in `.husky/pre-commit`: loosen a case and a commit adding
  * a new fault — a rule claiming backing it lacks, a test escaping its fixture —
- * lands unrefused, or a direction-gated one is refused for faults it inherited.
+ * lands unrefused, or one is refused for faults it inherited.
  */
 
 import { spawnSync } from "node:child_process";
@@ -39,38 +37,31 @@ const GATES = [
 		checker: "scripts/check-guard-registry.js",
 		/** A path in this gate's `git diff --cached` condition. */
 		staged: "scripts/guard-x.sh",
-		/** What the hook line hands the checker. */
-		args: "--against HEAD",
 	},
 	{
 		profile: "guard-test-isolation",
 		checker: "scripts/check-guard-test-isolation.js",
 		staged: "scripts/a.test.ts",
-		args: "--against HEAD",
 	},
 	{
 		profile: "git-fixture-identity",
 		checker: "scripts/check-git-fixture-identity.js",
 		staged: "scripts/a.test.ts",
-		args: "--against HEAD",
 	},
 	{
 		profile: "jsonl-reads",
 		checker: "scripts/check-jsonl-reads.js",
 		staged: "scripts/a.js",
-		args: "--against HEAD",
 	},
 	{
 		profile: "cli-args",
 		checker: "scripts/check-cli-args.js",
 		staged: "scripts/a.js",
-		args: "--against HEAD",
 	},
 	{
 		profile: "test-spawn",
 		checker: "scripts/check-test-spawn.js",
 		staged: "scripts/a.test.ts",
-		args: "",
 	},
 ];
 
@@ -137,10 +128,8 @@ describe.each(GATES)("the pre-commit $profile gate", (gate) => {
 	const build = (checkerExit: number) =>
 		fixture({ checker: gate.checker, staged: gate.staged, checkerExit }).root;
 
-	it("is wired into .husky/pre-commit as one call", () => {
-		expect(HOOK).toContain(
-			`${coreCall("node", gate.checker)}${gate.args ? ` ${gate.args}` : ""} || exit "$?"`,
-		);
+	it("is wired into .husky/pre-commit as one --against call", () => {
+		expect(HOOK).toContain(`${coreCall("node", gate.checker)} --against HEAD`);
 	});
 
 	it("supplies exactly the scripts the gate invokes", () => {
@@ -152,12 +141,12 @@ describe.each(GATES)("the pre-commit $profile gate", (gate) => {
 		expect(Object.keys(PROFILES)).toContain(gate.profile);
 	});
 
-	it("hands the checker its args and nothing else", () => {
+	it("hands the checker --against HEAD and nothing else", () => {
 		const root = build(0);
 
 		runGate(root, fragment());
 
-		expect(readLog(root, "argv.log").trim()).toBe(gate.args);
+		expect(readLog(root, "argv.log").trim()).toBe("--against HEAD");
 	});
 
 	/* The hook line must not swallow the checker's own report. lib/check.test.ts

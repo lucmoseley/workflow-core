@@ -7,7 +7,11 @@
  * Usage:
  *   node check-test-spawn.js [--root <dir>] [--against <rev>] [--json] [--warn]
  *
- * `.husky/pre-commit` runs it over the whole tree. Not in the scheduled sweeps.
+ * STOPGAP, DIRECTION-GATED, NEVER WHOLE-REPO (#3458): #3459 and #3460 move
+ * the inherited spawns. Until both close, `.husky/pre-commit` runs this under
+ * `--against HEAD`, so a spawn a commit adds refuses and an inherited one
+ * warns; the whole-tree limb replaces this once they do. Not in the scheduled
+ * sweeps.
  *
  * A SPAWN is one call of spawnSync, spawn, execFileSync or execFile whose
  * program is `"node"` or `process.execPath`, of execSync or exec on a command
@@ -23,7 +27,7 @@
  * above it, or in the file's opening comments, which covers every spawn in
  * the file. A marker with no word after it is no marker.
  *
- * IMPLICIT:  on every commit staging a test under scripts/ or .claude/skills/, refuses any spawn of `node` in the tree without a `spawn-kept: <why>` comment, naming the file, line and run-in-process.js's exemplar.
+ * IMPLICIT:  on every commit staging a test under scripts/ or .claude/skills/, refuses a spawn of `node` that commit adds without a `spawn-kept: <why>` comment, naming the file, line and run-in-process.js's exemplar.
  * JUSTIFIED: fail-safe — a spawn pays node's startup on every case (mantahostels#1907).
  * DEFEAT:    the `spawn-kept: <why>` marker, whatever its reason, the header's covering every later spawn in its file; --warn caps findings below the gating line; a program named through a variable, a helper or a testkit; a spawn inside a template literal, or behind an env prefix in a command string; a spawn swapped for another whose first line reads the same; a test file outside scripts/ and .claude/skills/.
  */
@@ -31,12 +35,11 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
-const { isInlineCode } = require("./lib/shell-words.js");
 const { scanJs } = require("./lib/strip-comments.js");
 const { isJsTestFile } = require("./lib/test-kind.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
-const { runCheck } = require("./lib/check");
+const { isAgainstSide, runCheck } = require("./lib/check");
 
 const ROOTS = ["scripts", path.join(".claude", "skills")];
 const NODE = String.raw`(?:"node"|'node'|\`node\`|process\.execPath)`;
@@ -48,12 +51,13 @@ const SPAWN = new RegExp(
 	].join("|"),
 	"g",
 );
+const INLINE_CODE = new Set(["-e", "--eval", "-p", "--print"]);
 const MARKER = /spawn-kept:\s*\w/;
 
 const EXEMPLAR = "scripts/check-cli-args.test.ts";
 const WHY = "spawns node on the program under test";
 const NOUN = "spawn(s) of node on the program under test";
-const FIX = `run it through \`runInProcess\` in the plugin's scripts/lib/run-in-process.js, \`runInProcessAsync\` for an async entry, as its ${EXEMPLAR} does; or, where §X3 keeps a spawn (a timeout or a signal, two processes at once, a real fd, an async entry runInProcessAsync cannot load), state which in a \`spawn-kept: <why>\` comment on the call or in the file's header (#3458).`;
+const FIX = `run it through \`runInProcess\` in the plugin's scripts/lib/run-in-process.js, as its ${EXEMPLAR} does; or, where §X3 keeps a spawn (a timeout or a signal, two processes at once, a real fd, an async entry runInProcessAsync cannot load), state which in a \`spawn-kept: <why>\` comment on the call or in the file's header (#3458).`;
 
 /**
  * @param {string} dir
@@ -72,6 +76,20 @@ function listTestFiles(dir, rel) {
 		else if (entry.isFile() && isJsTestFile(entry.name)) out.push(name);
 	}
 	return out.sort();
+}
+
+/**
+ * Whether a run of argv strings or a command's words runs inline code: an
+ * inline-code flag before the first word that is not a flag.
+ *
+ * @param {string[]} words
+ */
+function runsInlineCode(words) {
+	for (const w of words) {
+		if (!w.startsWith("-")) return false;
+		if (INLINE_CODE.has(w.split("=")[0] ?? w)) return true;
+	}
+	return false;
 }
 
 /**
@@ -170,9 +188,7 @@ function unstatedSpawns(source) {
 		if (src.isMasked(at)) continue;
 		const open = source.indexOf("(", at);
 		const close = src.closeOf(open);
-		if (
-			isInlineCode("node", nodeWords(source.slice(open, close), Boolean(m[1])))
-		)
+		if (runsInlineCode(nodeWords(source.slice(open, close), Boolean(m[1]))))
 			continue;
 		const lineStart = src.lineStartOf(at);
 		const reasons = [
@@ -220,10 +236,14 @@ runCheck({
 				});
 			}
 		}
+		/* Under --against every commit staging a test prints this report,
+		 * inherited spawns included, so there it names none: the parent
+		 * re-lists a spawn this commit adds in full. */
+		const where = isAgainstSide()
+			? ""
+			: `: ${ctx.findings.map((f) => `${f.file}:${f.line}`).join(", ")}`;
 		if (ctx.findings.length > 0)
-			ctx.say(
-				`  ${ctx.findings.length} ${NOUN}: ${ctx.findings.map((f) => `${f.file}:${f.line}`).join(", ")}.\n  Fix: ${FIX}`,
-			);
+			ctx.say(`  ${ctx.findings.length} ${NOUN}${where}.\n  Fix: ${FIX}`);
 		return {
 			okLine: `${files.length} test file(s), none spawning node on the program under test without a stated reason.`,
 			noun: NOUN,

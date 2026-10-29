@@ -19,7 +19,7 @@
 	"scripts/check-issue-labels.js": "be7d1ab31aa0c164",
 	"scripts/check-jev-flags.js": "c1273d3f6ebb4a50",
 	"scripts/check-kernel-stall.js": "2fd01cd2abafc27e",
-	"scripts/check-lockfile-sync.js": "830c399a9d486f54",
+	"scripts/check-lockfile-sync.js": "1ed56a3f8f91fec5",
 	"scripts/check-orphan-wait-loops.js": "0f82fa737abc0a6f",
 	"scripts/check-orphaned-edits.js": "c258cdebf54ce287",
 	"scripts/check-plugin-gap.js": "d74d413951aaba9c",
