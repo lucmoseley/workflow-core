@@ -54,6 +54,7 @@ beforeEach(() => {
 });
 afterEach(() => {
 	vi.unstubAllEnvs();
+	vi.restoreAllMocks();
 	fs.rmSync(host, { recursive: true, force: true });
 	fs.rmSync(config, { recursive: true, force: true });
 });
@@ -627,6 +628,152 @@ describe("write-secret", () => {
 			readEnvFileValue(path.join(xdg, "workflow-core", "secrets.env"), "K"),
 		).toBe(SECRET);
 	});
+
+	/*
+	 * The user databases are faked by spy, not by a seam the script reads:
+	 * any path or variable pointing it elsewhere would let the environment
+	 * vouch for a group (#3676).
+	 */
+	const me = os.userInfo();
+	const myPasswd = `${me.username}:x:${me.uid}:${me.gid}::/home/me:/bin/sh\n`;
+	const myGroup = `${me.username}:x:${me.gid}:\n`;
+	const FilesOnly = "passwd: files\ngroup: files\n";
+	const Systemd = "passwd: files systemd\ngroup: files systemd\n";
+	type UserDb = {
+		group?: string | null;
+		passwd?: string;
+		nsswitch?: string;
+		dirs?: Record<string, string[]>;
+	};
+	/** Serves the user databases as given (null: unreadable), every other read as is. */
+	const fakeUserDb = ({
+		group = myGroup,
+		passwd = myPasswd,
+		nsswitch = FilesOnly,
+		dirs = {},
+	}: UserDb) => {
+		const files = new Map<unknown, string | null>([
+			["/etc/group", group],
+			["/etc/passwd", passwd],
+			["/etc/nsswitch.conf", nsswitch],
+		]);
+		const realRead = fs.readFileSync;
+		vi.spyOn(fs, "readFileSync").mockImplementation(((
+			p: fs.PathOrFileDescriptor,
+			...rest: [never]
+		) => {
+			if (!files.has(p)) return realRead(p, ...rest);
+			const text = files.get(p);
+			if (text === null)
+				throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+			return text;
+		}) as typeof fs.readFileSync);
+		const realDir = fs.readdirSync;
+		vi.spyOn(fs, "readdirSync").mockImplementation(((
+			p: fs.PathLike,
+			...rest: [never]
+		) => {
+			if (typeof p !== "string" || !p.includes("userdb"))
+				return realDir(p, ...rest);
+			const entries = dirs[p];
+			if (entries === undefined)
+				throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+			return entries;
+		}) as typeof fs.readdirSync);
+	};
+	const groupShared = () => {
+		const shared = path.join(config, "shared");
+		fs.mkdirSync(shared);
+		fs.chmodSync(shared, 0o775);
+		return shared;
+	};
+
+	it.each<[string, UserDb]>([
+		["with lookups reading only the files", {}],
+		[
+			"with systemd serving only dynamic users",
+			{
+				nsswitch: Systemd,
+				dirs: { "/run/systemd/userdb": ["io.systemd.DynamicUser"] },
+			},
+		],
+	])(
+		"writes under a directory writable only by the user's private group, as `pam_umask usergroups` leaves ~/.config, %s (#3676)",
+		(_label, db) => {
+			fakeUserDb(db);
+			const xdg = path.join(groupShared(), "cfg");
+			expect(run(["K"], SECRET, { XDG_CONFIG_HOME: xdg }).status).toBe(0);
+			expect(
+				readEnvFileValue(path.join(xdg, "workflow-core", "secrets.env"), "K"),
+			).toBe(SECRET);
+		},
+	);
+
+	it.each<[string, UserDb]>([
+		[
+			"lists another member",
+			{ group: `${me.username}:x:${me.gid}:${me.username},other\n` },
+		],
+		[
+			"is another user's primary group",
+			{
+				passwd: `${myPasswd}other:x:${me.uid + 1}:${me.gid}::/home/o:/bin/sh\n`,
+			},
+		],
+		[
+			"is not the user's primary group",
+			{
+				passwd: `${me.username}:x:${me.uid}:${me.gid + 1}::/home/me:/bin/sh\n`,
+			},
+		],
+		["is in no /etc/group row", { group: "" }],
+		["has a row with no member field", { group: `g:x:${me.gid}\n` }],
+		["sits in an unreadable /etc/group", { group: null }],
+		["may hold NIS members", { group: `${myGroup}+:::\n` }],
+		["has a password", { group: `${me.username}:$6$salt$hash:${me.gid}:\n` }],
+		[
+			"lists another member behind a `#`",
+			{ group: `${myGroup}a#b:x:${me.gid}:other\n` },
+		],
+		[
+			"is another user's primary group by a wrapping id",
+			{
+				passwd: `${myPasswd}other:x:${me.uid + 1}:-${2 ** 32 - me.gid}::/home/o:/bin/sh\n`,
+			},
+		],
+		[
+			"may hold members by a looser nsswitch line",
+			{ nsswitch: `group : sss\n${FilesOnly}` },
+		],
+		[
+			"may hold directory-service members",
+			{ nsswitch: "passwd: files sss\ngroup: files sss\n" },
+		],
+		[
+			"may hold a systemd userdb record",
+			{ nsswitch: Systemd, dirs: { "/etc/userdb": ["other.user"] } },
+		],
+		[
+			"may hold a systemd-homed member",
+			{
+				nsswitch: Systemd,
+				dirs: { "/run/systemd/userdb": ["io.systemd.Home"] },
+			},
+		],
+	])(
+		"refuses with exit 1, writing nothing, where the group that can write a directory above the file's %s (#3676)",
+		(_label, db) => {
+			fakeUserDb(db);
+			const shared = groupShared();
+			const xdg = path.join(shared, "cfg");
+			const r = run(["K"], SECRET, { XDG_CONFIG_HOME: xdg });
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain(
+				whyAbove(shared, "is writable by others and not sticky"),
+			);
+			expect(fs.readdirSync(shared)).toEqual([]);
+		},
+	);
 
 	it("replaces a symlinked .gitignore, which git does not follow, keeping the file out of a bare dotfiles repository's `add -A` (#3663)", () => {
 		const dots = path.join(host, "dots.git");
