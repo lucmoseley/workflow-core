@@ -22,7 +22,6 @@ const hookRecord = require("./hook-record");
 const sessionId = require("./session-id");
 const { projectSlug } = require("./project-slug.js");
 const { configDir } = require("./config-dir.js");
-const { parseJsonl } = require("./jsonl.js");
 
 /**
  * @typedef {{
@@ -42,11 +41,17 @@ const { parseJsonl } = require("./jsonl.js");
  * @returns {string}
  */
 function readOutgoingMessage(file) {
-	const { rows } = parseJsonl(fs.readFileSync(file, "utf8"));
+	const lines = fs.readFileSync(file, "utf8").split("\n");
 	const parts = [];
-	for (const rec of /** @type {Array<TranscriptRecord & Record<string, unknown>>} */ (
-		rows
-	).reverse()) {
+	for (const line of [...lines].reverse()) {
+		const raw = line.trim();
+		if (!raw) continue;
+		let rec;
+		try {
+			rec = JSON.parse(raw);
+		} catch {
+			continue;
+		}
 		/* A subagent writes into the same file; its messages are not outgoing. */
 		if (rec.isSidechain) continue;
 		if (rec.type === "user") break;

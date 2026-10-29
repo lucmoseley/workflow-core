@@ -50,7 +50,6 @@
  */
 
 const fs = require("node:fs");
-const { parseJsonl, readJsonl } = require("./jsonl.js");
 const { markersDir } = require("./marker-root.js");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
@@ -59,6 +58,7 @@ const { delta: cpuDelta } = require("./cpu-sample.js");
 const idSeam = require("./session-id.js");
 const { readCommandOrDefault } = require("./workflow-core-config.js");
 const { pushedRef, VERIFIED_REF } = require("./landing-refs.js");
+const { caught } = require("./caught.js");
 const { shellWord } = require("./dirty-tree.js");
 const { JS_TEST_FILE } = require("./test-kind.js");
 const { appendLedgerLine } = require("./run-ledger.js");
@@ -317,15 +317,23 @@ const archivePath = (root, store = STORE) =>
  */
 function archive(root, store, dropped) {
 	const file = archivePath(root, store);
-	const kept = readJsonl(file)?.rows ?? [];
+	/** @type {string[]} */
+	let kept = [];
+	try {
+		kept = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);
+	} catch (e) {
+		if (caught(e).code !== "ENOENT") throw e;
+	}
 	const cutoff = Date.now() - ARCHIVE_MS;
-	const lines = [
-		...new Set(
-			[...kept, ...parseJsonl(dropped.join("\n")).rows]
-				.filter((row) => Date.parse(String(row.at)) >= cutoff)
-				.map((row) => JSON.stringify(row)),
-		),
-	];
+	/** @param {string} line */
+	const inReach = (line) => {
+		try {
+			return Date.parse(JSON.parse(line).at) >= cutoff;
+		} catch {
+			return false;
+		}
+	};
+	const lines = [...new Set([...kept, ...dropped])].filter(inReach);
 	fs.writeFileSync(file, lines.length > 0 ? `${lines.join("\n")}\n` : "");
 }
 
@@ -404,23 +412,28 @@ function append(
  * @returns {{markers: Marker[], malformed: number, total: number}}
  */
 function parseStore(file) {
-	let read = null;
+	let text;
 	try {
-		read = readJsonl(file);
+		text = fs.readFileSync(file, "utf8");
 	} catch {
-		/* An unreadable store holds no markers: a gate reading it then finds no
-		 * pass, the fail-safe answer. */
+		return { markers: [], malformed: 0, total: 0 };
 	}
-	if (!read) return { markers: [], malformed: 0, total: 0 };
-	const markers = /** @type {Marker[]} */ (
-		read.rows.filter((entry) => typeof entry.sha === "string")
-	);
-	const bad = read.bad.length;
-	return {
-		markers,
-		malformed: read.rows.length - markers.length + bad,
-		total: read.rows.length + bad,
-	};
+	const markers = [];
+	let malformed = 0;
+	let total = 0;
+	for (const line of text.split("\n")) {
+		if (!line.trim()) continue;
+		total++;
+		try {
+			const entry = JSON.parse(line);
+			if (entry && typeof entry.sha === "string") markers.push(entry);
+			else malformed++;
+		} catch {
+			/* a torn or hand-mangled line is not a marker */
+			malformed++;
+		}
+	}
+	return { markers, malformed, total };
 }
 
 /**

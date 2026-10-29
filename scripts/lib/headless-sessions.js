@@ -50,7 +50,7 @@ const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
 const { claudeBin } = require("./claude-bin.js");
 const { readEnvFileValue, secretsFile } = require("./env-file.js");
-const { readJsonl } = require("./jsonl.js");
+const { readJsonl } = require("./jev-log.js");
 const { launchAuthRefusal } = require("./launch-auth.js");
 const { refillPath } = require("./refill-dir.js");
 const { readDeclaredSeats, seatOf } = require("./refill-seats.js");
@@ -322,8 +322,8 @@ async function stop(jobId, { graceMs = STOP_GRACE_MS } = {}) {
  * @returns {EndResult}
  */
 function endResultOf(run) {
-	const results = (readJsonl(run.log)?.rows ?? []).filter(
-		(e) => e.type === "result",
+	const results = (readJsonl(run.log)?.lines ?? []).filter(
+		(e) => e?.type === "result",
 	);
 	const last = results.reduce(
 		(a, e) =>

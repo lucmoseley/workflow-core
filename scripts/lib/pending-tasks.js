@@ -66,7 +66,6 @@
  */
 
 const fs = require("node:fs");
-const { parseJsonl } = require("./jsonl.js");
 const { requiredGroup } = require("./regex-group.js");
 
 /* The tool-use id inside a `<task-notification>` block — the harness's own
@@ -169,19 +168,29 @@ function readPendingTasks(file) {
 		bashCallNames: new Map(),
 		skillCallNames: new Map(),
 	};
-	const text = fs.readFileSync(file, "utf8");
+	let records = 0;
 
-	/* The settlement scan runs over the raw text, before the parse: the
-	 * notification is a string field wherever it lands, so the tag survives
-	 * JSON escaping intact and the record's own shape does not matter. */
-	SETTLED_ID.lastIndex = 0;
-	for (let m = SETTLED_ID.exec(text); m; m = SETTLED_ID.exec(text))
-		census.settled.add(requiredGroup(m, 1, SETTLED_ID));
+	for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+		if (!line.trim()) continue;
+		/* The settlement scan runs over the raw line, before the parse: the
+		 * notification is a string field wherever it lands, so the tag survives
+		 * JSON escaping intact and the record's own shape does not matter. */
+		SETTLED_ID.lastIndex = 0;
+		for (let m = SETTLED_ID.exec(line); m; m = SETTLED_ID.exec(line))
+			census.settled.add(requiredGroup(m, 1, SETTLED_ID));
 
-	const { rows } = parseJsonl(text);
-	for (const rec of /** @type {TranscriptRecord[]} */ (rows))
+		/** @type {TranscriptRecord} */
+		let rec;
+		try {
+			rec = JSON.parse(line);
+		} catch {
+			continue;
+		}
+		/* A line parsing to `null`, a scalar or an array is no record (#1531). */
+		if (typeof rec !== "object" || rec === null || Array.isArray(rec)) continue;
+		records += 1;
 		readRecord(census, rec);
-	const records = rows.length;
+	}
 
 	const all = [...census.launches.values()];
 	return {

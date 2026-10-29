@@ -12,7 +12,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readJsonl } from "./jsonl";
+import { readJsonl } from "./jev-log";
 import { CLOSE_CHECK_LOG } from "./priced-options-limbs";
 import { appendEvents, logPath } from "./refusal-log";
 
@@ -29,7 +29,7 @@ afterEach(() => {
 	fs.rmSync(path.dirname(root), { recursive: true, force: true });
 });
 
-const read = () => readJsonl(logPath(root, CLOSE_CHECK_LOG))?.rows;
+const read = () => readJsonl(logPath(root, CLOSE_CHECK_LOG))?.lines;
 
 describe("appendEvents", () => {
 	it("appends one line per event, naming the repo by its root and keeping a given time", () => {
@@ -84,7 +84,7 @@ describe("appendEvents", () => {
 			[{ session: "s1", round: "1", kind: "passed-unrefused" }],
 			".other-log.jsonl",
 		);
-		expect(readJsonl(logPath(root, ".other-log.jsonl"))?.rows).toEqual([
+		expect(readJsonl(logPath(root, ".other-log.jsonl"))?.lines).toEqual([
 			expect.objectContaining({ kind: "passed-unrefused" }),
 		]);
 		expect(fs.existsSync(logPath(root, CLOSE_CHECK_LOG))).toBe(false);

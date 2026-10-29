@@ -58,7 +58,7 @@ const GATES = [
 		profile: "jsonl-reads",
 		checker: "scripts/check-jsonl-reads.js",
 		staged: "scripts/a.js",
-		args: "",
+		args: "--against HEAD",
 	},
 	{
 		profile: "cli-args",

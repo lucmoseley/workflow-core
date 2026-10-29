@@ -31,7 +31,7 @@ const { CLOSE_CHECK_LOG, RESEARCH_LADDER_PREFIX, limbOf } = createRequire(
 	__filename,
 )("./lib/priced-options-limbs.js");
 const { logPath } = createRequire(__filename)("./lib/refusal-log.js");
-const { readJsonl } = createRequire(__filename)("./lib/jsonl.js");
+const { readJsonl } = createRequire(__filename)("./lib/jev-log.js");
 const { markersDir } = createRequire(__filename)("./lib/marker-root.js");
 
 const { reset, founder } = transcriptRecords("2026-09-27T10:00:00Z");
@@ -112,7 +112,7 @@ const QUALIFYING: Record<Rung, string> = {
 /** Refuse Q1 on first sight, as the close-rivals limb does. */
 const refuseOnce = () => expect(stop(CLOSE_ROUND)).toContain(CLOSE);
 
-const closeLog = () => readJsonl(logPath(dir, CLOSE_CHECK_LOG))?.rows ?? [];
+const closeLog = () => readJsonl(logPath(dir, CLOSE_CHECK_LOG))?.lines ?? [];
 const { counter, seed } = sessionCounters(() => ({ dir, sid }));
 
 describe("which rungs are missing", () => {

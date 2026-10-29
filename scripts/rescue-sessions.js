@@ -42,7 +42,6 @@ const { parseOrExit } = require("./lib/cli-args");
 const { requiredGroup } = require("./lib/regex-group");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { caught } = require("./lib/caught.js");
-const { parseJsonl } = require("./lib/jsonl.js");
 const { FIELD, readStatFields } = require("./lib/proc-stat.js");
 const { procRoot } = require("./lib/proc-root.js");
 const { readOwnJob, stopOn } = require("./lib/claude-stop.js");
@@ -269,7 +268,15 @@ function extractNarration(records) {
  * @returns {any[]}
  */
 function readTranscriptRecords(transcriptPath) {
-	return parseJsonl(fs.readFileSync(transcriptPath, "utf8")).rows;
+	const records = [];
+	for (const line of fs.readFileSync(transcriptPath, "utf8").split("\n")) {
+		try {
+			records.push(JSON.parse(line));
+		} catch {
+			// A blank line, or a torn last one from a session killed mid-write.
+		}
+	}
+	return records;
 }
 
 /**
@@ -1000,9 +1007,13 @@ function readLastTurnMarker(transcript) {
 		// takeSample has already stat'd it, so an unreadable transcript is UNKNOWN there.
 		return "";
 	}
-	for (const j of /** @type {Record<string, any>[]} */ (
-		parseJsonl(text).rows
-	).reverse()) {
+	for (const line of text.split("\n").reverse()) {
+		let j;
+		try {
+			j = JSON.parse(line);
+		} catch {
+			continue;
+		}
 		if (isUserPrompt(j)) return "prompt";
 		if (j.type !== "assistant" || !Array.isArray(j.message?.content)) continue;
 		/** @type {ContentBlock[]} */

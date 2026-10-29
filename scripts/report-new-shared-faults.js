@@ -158,8 +158,8 @@ const COSTS = {
 		full: "node scripts/check-host-root.js",
 	},
 	"jsonl-reads": {
-		why: "every hand split-and-parse of JSONL, judged whole-tree in .husky/pre-commit (#3452, #3453)",
-		cost: "refuses every other session's commit staging a scripts/ program until that site reads through lib/jsonl.js",
+		why: "every hand split-and-parse of JSONL, direction-gated in .husky/pre-commit (#3452, until #3453)",
+		cost: "warns every other session's commit touching scripts/ until that site reads through lib/jsonl.js",
 		full: "node scripts/check-jsonl-reads.js",
 	},
 	"cli-args": {
