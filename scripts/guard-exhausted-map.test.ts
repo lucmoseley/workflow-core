@@ -56,19 +56,28 @@ const child = (state: string, repo = "acme/widgets") => ({
 	repository_url: `https://api.github.com/repos/${repo}`,
 });
 
-/** The guard's refusal for a session claiming the map, served `routes`. */
+/** The guard's refusal for a session claiming the map, served `routes`;
+ *  `message: null` leaves the turn's text unreadable. */
 const reasonFor = (
 	routes: Record<string, RouteAnswer>,
-	{ claim = true }: { claim?: boolean } = {},
+	{
+		claim = true,
+		message = "Done.",
+	}: { claim?: boolean; message?: string | null } = {},
 ) => {
 	if (claim) issueClaims.claimIssue(MAP, { sessionId: ME });
 	return readStopGuardReason(GUARD, {
 		dir: sb.repo,
 		sid: ME,
 		config: sb.home,
-		message: "Done.",
+		message: message ?? undefined,
 		env: stubGhRoutes(sb.dir, routes).env,
 	});
+};
+
+const EXHAUSTED = {
+	[AT]: mapIssue(),
+	[`${AT}/sub_issues`]: subIssuesAnswer([]),
 };
 
 describe("a claimed exhausted map", () => {
@@ -84,6 +93,17 @@ describe("a claimed exhausted map", () => {
 		expect(a).toBeGreaterThan(-1);
 		expect(b).toBeGreaterThan(a);
 		expect(c).toBeGreaterThan(b);
+	});
+
+	it("refuses where the map's date gate has passed", () => {
+		expect(
+			reasonFor({
+				...EXHAUSTED,
+				[AT]: mapIssue({
+					body: "**Gated until:** 2020-01-01 — the vendor ships v2.\n",
+				}),
+			}),
+		).toContain(`#${MAP}`);
 	});
 });
 
@@ -108,6 +128,12 @@ describe("a stop it allows", () => {
 				body: "**Gated on:** the vendor ships v2 — abandon if: the vendor folds.\n\nBody.\n",
 			}),
 		],
+		[
+			"gated until a date still ahead",
+			mapIssue({
+				body: "**Gated until:** 2099-01-01 — the vendor ships v2.\n",
+			}),
+		],
 		["closed", mapIssue({ state: "closed" })],
 		[
 			"relabelled off takes:wayfinder",
@@ -120,7 +146,11 @@ describe("a stop it allows", () => {
 		).toBe("");
 	});
 
-	it("allows a session holding no claim, reading nothing", () => {
+	it("allows where the turn's message cannot be read, as it may be the park", () => {
+		expect(reasonFor(EXHAUSTED, { message: null })).toBe("");
+	});
+
+	it("allows a session holding no claim", () => {
 		expect(
 			reasonFor(
 				{ [AT]: mapIssue(), [`${AT}/sub_issues`]: subIssuesAnswer([]) },

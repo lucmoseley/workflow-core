@@ -6,9 +6,6 @@
 const { REVIEW_HOUR } = require("./morning-review.js");
 
 const MIN_MS = 60 * 1000;
-/* Normal mode: the founder may answer in place while at the machine — house:
- * #2393. */
-const NORMAL_GRACE_MS = 60 * MIN_MS;
 /* A transient API stop's resumes, at about these offsets from the stop, then
  * every RESUME_EVERY_MS: untraced (#2359, chosen to land inside the prompt
  * cache's hour). */
@@ -81,8 +78,7 @@ function morningAfter(since) {
 /** @type {Rule} */
 const stopAtOnce = () => "stop-and-park";
 /** @type {Rule} */
-const stopAfterGrace = (block, now) =>
-	now - block.since >= NORMAL_GRACE_MS ? "stop-and-park" : "wait";
+const waitForAnswer = () => "wait";
 /** @type {Rule} */
 const leave = () => "none";
 
@@ -150,13 +146,16 @@ const resumedIdle = (block, now) => {
 };
 
 /**
- * Away-mode QUESTION: #2355. PERMISSION as a question: #2360. API_ERROR:
- * #2359. LIMIT: #2125. UNKNOWN: #2358 F9. RESUMED_IDLE: #2659, #2978.
+ * Away-mode QUESTION: #2355. Normal-mode QUESTION and PERMISSION wait until
+ * answered, so they stay in needs input: #3621; residual: each holds a launch
+ * slot until then, admission's memory gate bounding the count. PERMISSION as
+ * a question: #2360. API_ERROR: #2359. LIMIT: #2125. UNKNOWN: #2358 F9.
+ * RESUMED_IDLE: #2659, #2978.
  * @type {Record<Cause, {away: Rule, normal: Rule}>}
  */
 const TABLE = {
-	QUESTION: { away: stopAtOnce, normal: stopAfterGrace },
-	PERMISSION: { away: stopAtOnce, normal: stopAfterGrace },
+	QUESTION: { away: stopAtOnce, normal: waitForAnswer },
+	PERMISSION: { away: stopAtOnce, normal: waitForAnswer },
 	API_ERROR: { away: apiError(true), normal: apiError(false) },
 	LIMIT: { away: leave, normal: leave },
 	OTHER_DIALOG: { away: leave, normal: leave },
