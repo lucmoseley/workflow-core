@@ -335,17 +335,16 @@ const isParked = (row) => row.labels.includes(PARKED_LABEL);
  * away mode leaves their questions to the founder's return (#2355, #3621).
  * @param {"normal"|"away"} [mode]
  */
-const routesParked = (mode) => mode === "normal";
+const isParkRoutingMode = (mode) => mode === "normal";
 
 /**
  * Why the loop's launch filter skips a row, or null where it launches it;
- * also the idle alarm's printed reason (lib/idle-efforts.js). A parked row
- * launches only where routesParked(mode).
+ * also the idle alarm's printed reason (lib/idle-efforts.js).
  * @param {{labels: string[], takes: string[]}} row
  * @param {"normal"|"away"} [mode]
  */
 function buildSkipReason(row, mode) {
-	if (!routesParked(mode) && isParked(row)) return "parked";
+	if (!isParkRoutingMode(mode) && isParked(row)) return "parked";
 	if (row.labels.includes(WAITING_LABEL)) return WAITING_LABEL;
 	const [kind, ...more] = row.takes;
 	if (kind === undefined || more.length > 0)
@@ -479,13 +478,13 @@ const routeParkedRow = (row, parkers, seats) =>
 	);
 
 /**
- * Every parked frontier row a normal-mode tick holds on a full seat, whether
- * or not its walk reaches the row (#3680). Away mode routes none.
+ * Every parked frontier row a tick holds on a full seat, whether or not its
+ * walk reaches the row (#3680); none where the mode routes no parked rows.
  * @param {Pick<TickInput, "frontier"|"mode"|"seats"|"parkers">} input
  * @returns {Skip[]}
  */
 const heldParked = ({ frontier, mode, seats, parkers = [] }) =>
-	routesParked(mode)
+	isParkRoutingMode(mode)
 		? frontier.filter(isParked).flatMap((row) => {
 				const parked = routeParkedRow(row, parkers, seats);
 				return "hold" in parked
@@ -502,13 +501,13 @@ const heldParked = ({ frontier, mode, seats, parkers = [] }) =>
 const parkedMs = (row) => Date.parse(row.parkedAt ?? "") || 0;
 
 /**
- * The ranking as the loop walks it: in normal mode the parked rows first,
- * oldest park first (#3621).
+ * The ranking as the loop walks it: parked rows first, oldest park first,
+ * where the mode routes them (#3621).
  * @param {MergedRow[]} frontier
  * @param {"normal"|"away"} mode
  */
 function walkOrder(frontier, mode) {
-	if (!routesParked(mode)) return frontier;
+	if (!isParkRoutingMode(mode)) return frontier;
 	const parked = frontier
 		.filter(isParked)
 		.sort((a, b) => parkedMs(a) - parkedMs(b));
@@ -636,5 +635,5 @@ module.exports = {
 	hasRoom,
 	isParked,
 	pickSeat,
-	routesParked,
+	isParkRoutingMode,
 };
