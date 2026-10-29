@@ -67,16 +67,17 @@ const { stopOn } = require("./claude-stop.js");
 const { launchAuthRefusal } = require("./launch-auth.js");
 const { jobDirPath, readJobRecord } = require("./job-paths.js");
 const { parseJsonl } = require("./jsonl.js");
-const { readParkedBy, setParked, writeParkedBy } = require("./parked.js");
+const {
+	PARKED_LABEL,
+	readParkedBy,
+	setParked,
+	writeParkedBy,
+} = require("./parked.js");
 const { read: readTranscript } = require("./session-transcript.js");
 const { mainChainRecords } = require("./transcript.js");
 const { hasConfig, resolveKey } = require("./workflow-core-config.js");
 const { readLastTypedAt } = require("./presence.js");
-const {
-	NOTHING_LAUNCHABLE,
-	decideTick,
-	fitsLaunch,
-} = require("./refill-decide.js");
+const { NOTHING_LAUNCHABLE, decideTick } = require("./refill-decide.js");
 const { refillFrontier } = require("./refill-frontier.js");
 const {
 	appendTick,
@@ -698,59 +699,76 @@ function resumeStopped(l, prompt, { sessionId, cwd }) {
 }
 
 /**
- * The loop's newest finished launch, with a job, in `l`'s checkout whose
- * session's `.parked-` marker lists one of `l`'s issues. Residual: a park by
- * a session the loop never launched names none.
- * @param {import("./refill-decide.js").Launch} l
+ * The loop's newest finished launch, with a job, in `root` whose session's
+ * `.parked-` marker lists issue `n`. Residual: only the loop writes the
+ * launches it reads, so a park by any session it did not launch, the
+ * founder's own and `/pick-next`'s dispatches among them, names none, and
+ * that ticket launches afresh.
+ * @param {string} root
+ * @param {number} n
  * @param {import("./refill-loop.js").LoopLaunch[]} launches
  * @returns {import("./refill-blocks.js").JobLaunch|undefined}
  */
-const parkingLaunchOf = (l, launches) =>
+const parkingLaunchOf = (root, n, launches) =>
 	/** @type {import("./refill-blocks.js").JobLaunch|undefined} */ (
 		launches.findLast(
 			(r) =>
-				r.root === l.root &&
+				r.root === root &&
 				r.finishedAt !== null &&
 				r.jobId !== null &&
 				[r.sessionId, ...(r.pastSessionIds ?? [])].some(
-					(id) =>
-						id !== undefined &&
-						readParkedBy(id, r.root).some((n) => l.issues.includes(n)),
+					(id) => id !== undefined && readParkedBy(id, r.root).includes(n),
 				),
 		)
 	);
 
 /**
- * Resume the session that parked `l`'s ticket, in place (#3621): its new
- * launch record, or null, logged, where none is recorded or the resume
- * failed, for `l` to launch afresh.
- * @param {import("./refill-decide.js").Launch} l
+ * Each parked row's parking launch (parkingLaunchOf), with the session it
+ * resumes, for the decision to route (refill-decide.js's routeParked).
+ * @param {import("./refill-decide.js").MergedRow[]} frontier
  * @param {import("./refill-loop.js").LoopLaunch[]} launches
- * @param {import("./refill-decide.js").SizedSeat[]} seats this tick's
+ * @returns {import("./refill-decide.js").ParkerReading[]}
+ */
+function readParkers(frontier, launches) {
+	return frontier.flatMap((row) => {
+		if (!row.labels.includes(PARKED_LABEL)) return [];
+		const launch = parkingLaunchOf(row.root, row.number, launches);
+		if (!launch) return [];
+		return [
+			{
+				root: row.root,
+				number: row.number,
+				launch,
+				...readResumeTargetOf(launch),
+			},
+		];
+	});
+}
+
+/**
+ * Resume the session that parked `l`'s ticket, in place (#3621): its new
+ * launch record, or null, logged, where the decision routed it afresh or the
+ * resume failed, for `l` to launch afresh.
+ * @param {import("./refill-decide.js").Launch} l
+ * @param {NonNullable<import("./refill-decide.js").Launch["parkedRoute"]>} parked
  * @returns {import("./refill-loop.js").LoopLaunch|null}
  */
-function resumeParked(l, launches, seats) {
+function resumeParked(l, parked) {
 	/** @param {string} why */
 	const afresh = (why) => {
 		log(`parked ${blocks.launchName(l)} not resumed: ${why}; launching afresh`);
 		return null;
 	};
-	const parker = parkingLaunchOf(l, launches);
-	if (!parker) return afresh("no session that parked it is recorded");
-	/* Its session lives on its own seat, which the decision did not size. */
-	const seat = seats.find((s) => s.seat === parker.seat);
-	if (!seat || !fitsLaunch(seat))
-		return afresh(`its session's seat ${parker.seat} fits no launch`);
-	const { sessionId, cwd } = readResumeTargetOf(parker);
-	if (!sessionId) return afresh("no session id read for its parking launch");
-	const r = resumeStopped(parker, PARKED_PROMPT, { sessionId, cwd });
+	if ("afresh" in parked) return afresh(parked.afresh);
+	const { launch, sessionId, cwd } = parked.resume;
+	const r = resumeStopped(launch, PARKED_PROMPT, { sessionId, cwd });
 	if (r.failed !== null) return afresh(r.failed);
 	log(`resumed parked ${blocks.launchName(l)} as job ${r.jobId}`);
 	return {
 		root: l.root,
 		issues: l.issues,
 		prompt: l.prompt,
-		seat: parker.seat,
+		seat: launch.seat,
 		jobId: r.jobId,
 		launchedAt: Date.now(),
 		finishedAt: null,
@@ -762,14 +780,12 @@ function resumeParked(l, launches, seats) {
  * `batch` launched: each parked member resumed (resumeParked), the rest and
  * any not resumed through one dispatcher call (launchBatch).
  * @param {import("./refill-decide.js").Launch[]} batch
- * @param {import("./refill-loop.js").LoopLaunch[]} launches
- * @param {import("./refill-decide.js").SizedSeat[]} seats
  */
-function launchOrResume(batch, launches, seats) {
+function launchOrResume(batch) {
 	const resumed = [];
 	const fresh = [];
 	for (const l of batch) {
-		const r = l.parked ? resumeParked(l, launches, seats) : null;
+		const r = l.parkedRoute ? resumeParked(l, l.parkedRoute) : null;
 		if (r) resumed.push(r);
 		else fresh.push(l);
 	}
@@ -864,10 +880,12 @@ const blockIo = (served) => ({
  * read.
  * @param {import("./refill-decide.js").TickInput} input
  * @param {import("./refill-loop.js").Scope} scope
+ * @param {import("./refill-loop.js").LoopLaunch[]} launches the loop's, which
+ *   name each parked row's parking session
  * @returns {Promise<{decision: import("./refill-decide.js").Decision,
  *   read: import("./refill-loop.js").FrontierRead|null}>}
  */
-async function decide(input, scope) {
+async function decide(input, scope, launches) {
 	const first = decideTick(input);
 	/* A tick launching gate judgements alone may still have slots for the
 	 * ranking, so it reads the shortlists too. */
@@ -887,13 +905,15 @@ async function decide(input, scope) {
 		log(
 			`held outside the loop: ${h.ref} (${h.why}), holding ${h.holds.join(", ")}`,
 		);
+	const frontier = /** @type {import("./refill-decide.js").MergedRow[]} */ (
+		merged.frontier
+	);
 	const decision = decideTick({
 		...input,
-		frontier: /** @type {import("./refill-decide.js").MergedRow[]} */ (
-			merged.frontier
-		),
+		frontier,
 		retroBundles: merged.retroBundles,
 		failedShortlists: merged.failed,
+		parkers: input.mode === "normal" ? readParkers(frontier, launches) : [],
 	});
 	return { decision, read };
 }
@@ -968,13 +988,13 @@ async function tick({ dryRun }) {
 			.readGateStore(files.gates, log)
 			.pending.filter((j) => served.includes(j.root)),
 	};
-	const { decision, read } = await decide(input, control.scope);
+	const { decision, read } = await decide(input, control.scope, judged);
 	if (dryRun) return { decision, read, startedAt: control.startedAt, agents };
 	const settled = loop.settleTick(
 		{ input, decision, state, judged, probes, read },
 		{
 			readControl,
-			launchBatch: (batch) => launchOrResume(batch, judged, seats),
+			launchBatch: launchOrResume,
 			runReview,
 			writeState: (next) => writeJson(files.state, next),
 			log,

@@ -1659,6 +1659,72 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 		});
 	});
 
+	it("holds it while its session's seat is weekly-full, launching the next row, then resumes it once that seat has room (#3669)", async () => {
+		seed();
+		const seat2 = at("seat2");
+		fs.cpSync(path.join(seat, "jobs"), path.join(seat2, "jobs"), {
+			recursive: true,
+		});
+		const cache = (week: number) =>
+			fs.writeFileSync(
+				path.join(seat2, ".claude.json"),
+				JSON.stringify(buildUsageCache({ session: 10, week }, Date.now())),
+			);
+		cache(100);
+		const control = at(".refill-loop-control.json");
+		fs.writeFileSync(
+			control,
+			JSON.stringify({
+				...JSON.parse(fs.readFileSync(control, "utf8")),
+				seats: [seat, seat2],
+			}),
+		);
+		const state = at(".refill-loop-state.json");
+		const read = JSON.parse(fs.readFileSync(state, "utf8"));
+		read.launches[0].seat = seat2;
+		fs.writeFileSync(state, JSON.stringify(read));
+		const pickNext = path.join(scripts, "pick-next.js");
+		fs.writeFileSync(
+			pickNext,
+			fs
+				.readFileSync(pickNext, "utf8")
+				.replace(
+					"frontier: [",
+					'frontier: [{ number: 6, urgent: false, goal: false, stallDays: 0, asksQuestions: false, reach: 0, collision: "", takes: ["implement"], labels: ["takes:implement"] }, ',
+				),
+		);
+		fakeResumeClaude(Job, [LISTED], stopOnResume(), "woke");
+
+		const held = await settled(run(1), ParkedRun);
+		expect(held.status).toBe(0);
+		expect(readLines(at("calls"))).toEqual([]);
+		expect(readLines(at("dispatches"))).toEqual(["opus /implement 6"]);
+		expect(
+			JSON.parse(fs.readFileSync(state, "utf8")).lastTick.skipped,
+		).toContainEqual({
+			root: repo,
+			number: 5,
+			why: `parked: its session's seat ${seat2} is full`,
+		});
+
+		cache(10);
+		/* A fresh start: the first run's own stop is still recorded. */
+		fs.writeFileSync(
+			control,
+			JSON.stringify({
+				...JSON.parse(fs.readFileSync(control, "utf8")),
+				startedAt: Date.now(),
+				stopRequested: false,
+			}),
+		);
+		const resumed = await settled(run(1), ParkedRun);
+		expect(resumed.status).toBe(0);
+		expect(readLines(at("calls"))).toEqual([
+			`--bg --resume s-job5 ${PARKED_PROMPT}`,
+		]);
+		expect(launches().at(-1)).toMatchObject({ issues: [5], seat: seat2 });
+	});
+
 	it("launches afresh on its takes: command where the resume names no job", async () => {
 		seed();
 		fakeResumeClaude(Job, [LISTED]);
@@ -1675,7 +1741,7 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 		);
 	});
 
-	it("launches afresh where its session's seat is not one the tick sized", async () => {
+	it("launches afresh where its session's seat is not one the loop reads", async () => {
 		seed();
 		const state = at(".refill-loop-state.json");
 		const read = JSON.parse(fs.readFileSync(state, "utf8"));
@@ -1685,7 +1751,7 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 		expect(r.status).toBe(0);
 		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
 		expect(r.stdout).toContain(
-			`its session's seat ${at("elsewhere")} fits no launch; launching afresh`,
+			`its session's seat ${at("elsewhere")} is not one the loop reads; launching afresh`,
 		);
 	});
 

@@ -113,6 +113,8 @@ const ALREADY_RUNNING = "already running";
  * @property {import("./gate-sweep.js").Judgement[]} [judgements] the gate
  *   sweep's queue, launched ahead of the ranking (#2279)
  * @property {{root: string, error: string}[]} [failedShortlists]
+ * @property {ParkerReading[]} [parkers] each parked frontier row's parking
+ *   launch the tick found
  */
 
 /**
@@ -123,8 +125,25 @@ const ALREADY_RUNNING = "already running";
  * @property {"opus"} model
  * @property {string} seat
  * @property {true} [gate] a gate judgement's launch (#3092)
- * @property {true} [parked] a parked ticket's, which resumes the session that
- *   parked it before `prompt` launches afresh (#3621)
+ * @property {{resume: ResumeTarget}|{afresh: string}} [parkedRoute] a parked
+ *   ticket's: the session that parked it to resume in place, else why
+ *   `prompt` launches afresh (#3621)
+ */
+
+/**
+ * The loop's launch whose session parked a frontier row, as the tick read it.
+ * @typedef {object} ParkerReading
+ * @property {string} root
+ * @property {number} number the parked issue
+ * @property {import("./refill-blocks.js").JobLaunch} launch
+ * @property {string|null} sessionId its session, null where unread
+ * @property {string} cwd where its session resumes
+ */
+
+/**
+ * A parked row's session to resume in place.
+ * @typedef {{launch: import("./refill-blocks.js").JobLaunch, sessionId: string,
+ *   cwd: string}} ResumeTarget
  */
 
 /**
@@ -349,6 +368,31 @@ function rowLaunch(row, retroBundles, isTaken, mode) {
 }
 
 /**
+ * rowLaunch, with a parked row routed by routeParked: held as a skip, else
+ * carrying how it launches.
+ * @param {MergedRow} row
+ * @param {Pick<TickInput, "retroBundles"|"mode"|"seats"|"parkers">} input
+ * @param {(n: number) => boolean} isTaken
+ * @returns {{why: string} | {issues: number[], prompt: string,
+ *   parkedRoute?: Launch["parkedRoute"]}}
+ */
+function routedLaunch(
+	row,
+	{ retroBundles, mode, seats, parkers = [] },
+	isTaken,
+) {
+	const next = rowLaunch(row, retroBundles, isTaken, mode);
+	if ("why" in next || !isParked(row)) return next;
+	const parked = routeParked(
+		parkers.find((p) => p.root === row.root && p.number === row.number),
+		seats,
+	);
+	return "hold" in parked
+		? { why: parked.hold }
+		: { ...next, parkedRoute: parked };
+}
+
+/**
  * The stop that ends launching, checked in this order, or null.
  * @param {TickInput} input
  * @param {ReturnType<typeof pickSeat>} pick
@@ -386,6 +430,36 @@ function stopOf(input, pick) {
 }
 
 /**
+ * How a parked row launches, from the tick's reading of the session that
+ * parked it: resumed in place (#3621); held, a skip with why, where that
+ * session's seat reads full, a bar at 100% or a cap sized 0, so a later tick
+ * resumes the conversation rather than discarding it (#3669); else afresh on
+ * its `takes:` command, with why. A seat with room but unsized or unread
+ * resumes: only the first seat with room is sized, and the resume's own
+ * outcome is the reading there. Residual: a weekly-full seat holds its
+ * tickets until its week resets, up to 7 days, and the idle alarm counts no
+ * parked issue.
+ * @param {ParkerReading|undefined} parker none where no launch of the loop's
+ *   parked it
+ * @param {SizedSeat[]} seats this tick's
+ * @returns {{resume: ResumeTarget} | {hold: string} | {afresh: string}}
+ */
+function routeParked(parker, seats) {
+	if (!parker) return { afresh: "no session that parked it is recorded" };
+	if (!parker.sessionId)
+		return { afresh: "no session id read for its parking launch" };
+	const seat = seats.find((s) => s.seat === parker.launch.seat);
+	if (!seat)
+		return {
+			afresh: `its session's seat ${parker.launch.seat} is not one the loop reads`,
+		};
+	if (seat.weekFull || seat.sessionFull || seat.fits === 0)
+		return { hold: `parked: its session's seat ${seat.seat} is full` };
+	const { launch, sessionId, cwd } = parker;
+	return { resume: { launch, sessionId, cwd } };
+}
+
+/**
  * When `row` was parked, ms; an unreadable start sorts as the oldest, as in
  * pick-next.js's PARKED.
  * @param {MergedRow} row
@@ -416,7 +490,7 @@ function walkOrder(frontier, mode) {
  * @param {number} slots
  */
 function fill(
-	{ frontier, retroBundles, running, judgements = [], mode },
+	{ frontier, retroBundles, running, judgements = [], mode, seats, parkers },
 	seat,
 	slots,
 ) {
@@ -431,9 +505,9 @@ function fill(
 	);
 	/**
 	 * @param {string} root @param {number[]} issues @param {string} prompt
-	 * @param {{gate?: boolean, parked?: boolean}} [kind]
+	 * @param {{gate?: boolean, parkedRoute?: Launch["parkedRoute"]}} [kind]
 	 */
-	const launch = (root, issues, prompt, { gate, parked } = {}) => {
+	const launch = (root, issues, prompt, { gate, parkedRoute } = {}) => {
 		for (const n of issues) taken.add(key(root, n));
 		launches.push({
 			root,
@@ -442,7 +516,7 @@ function fill(
 			model: MODEL,
 			seat,
 			...(gate ? { gate: /** @type {const} */ (true) } : {}),
-			...(parked ? { parked: /** @type {const} */ (true) } : {}),
+			...(parkedRoute ? { parkedRoute } : {}),
 		});
 	};
 	for (const j of judgements) {
@@ -455,10 +529,15 @@ function fill(
 		if (launches.length >= slots) break;
 		const next = taken.has(key(row.root, row.number))
 			? { why: ALREADY_RUNNING }
-			: rowLaunch(row, retroBundles, (n) => taken.has(key(row.root, n)), mode);
+			: routedLaunch(row, { retroBundles, mode, seats, parkers }, (n) =>
+					taken.has(key(row.root, n)),
+				);
 		if ("why" in next)
 			skipped.push({ root: row.root, number: row.number, why: next.why });
-		else launch(row.root, next.issues, next.prompt, { parked: isParked(row) });
+		else
+			launch(row.root, next.issues, next.prompt, {
+				parkedRoute: next.parkedRoute,
+			});
 	}
 	return { launches, skipped };
 }
@@ -518,4 +597,5 @@ module.exports = {
 	fitsLaunch,
 	hasRoom,
 	pickSeat,
+	routeParked,
 };

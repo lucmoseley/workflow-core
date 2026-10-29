@@ -664,11 +664,10 @@ describe("decideTick on parked rows (#3621)", () => {
 	it("launches parked rows first in normal mode, oldest park first, flagged parked", () => {
 		const d = tick({ mode: "normal", freeSlots: 9, frontier });
 		expect(launched(d)).toEqual(["wfc#3", "wfc#2", "wfc#1"]);
-		expect(d.launches.map((l: { parked?: true }) => l.parked)).toEqual([
-			true,
-			true,
-			undefined,
-		]);
+		const unread = { afresh: "no session that parked it is recorded" };
+		expect(
+			d.launches.map((l: { parkedRoute?: unknown }) => l.parkedRoute),
+		).toEqual([unread, unread, undefined]);
 	});
 
 	it("puts an unreadable park start first, as the oldest", () => {
@@ -701,6 +700,68 @@ describe("decideTick on parked rows (#3621)", () => {
 			"/wayfinder 6",
 			"/wayfinder 5",
 		]);
+	});
+});
+
+describe("decideTick on a parked row's session seat (#3669)", () => {
+	const parked = row("wfc", 2, "implement", {
+		labels: ["takes:implement", "parked"],
+		parkedAt: "2026-10-18T09:00:00Z",
+	});
+	const launch = { root: "wfc", issues: [2], seat: "/s2", jobId: "j2" };
+	const parker = (over: Record<string, unknown> = {}) => ({
+		root: "wfc",
+		number: 2,
+		launch,
+		sessionId: "s-2",
+		cwd: "wfc",
+		...over,
+	});
+	const on = (s2: ReturnType<typeof seat>, parkers = [parker()]) =>
+		tick({
+			mode: "normal",
+			freeSlots: 1,
+			frontier: [parked, row("wfc", 1)],
+			seats: [seat("/s1", 10, 10), s2],
+			parkers,
+		});
+
+	it("holds a row whose session's seat is full, its slot going to the next row, and resumes it once the seat has room", () => {
+		for (const full of [
+			seat("/s2", 100, 10),
+			seat("/s2", 40, 100),
+			seat("/s2", 40, 20, 0),
+		]) {
+			const d = on(full);
+			expect(launched(d)).toEqual(["wfc#1"]);
+			expect(d.skipped).toEqual([
+				{
+					root: "wfc",
+					number: 2,
+					why: "parked: its session's seat /s2 is full",
+				},
+			]);
+		}
+		/* Unsized, as every seat behind the first with room is. */
+		const d = on(seat("/s2", 40, 20, null));
+		expect(launched(d)).toEqual(["wfc#2"]);
+		expect(d.launches[0].parkedRoute).toEqual({
+			resume: { launch, sessionId: "s-2", cwd: "wfc" },
+		});
+	});
+
+	it("routes it afresh where no resume is possible: no parker, no session id, or a seat the loop does not read", () => {
+		const full = seat("/s2", 100, 10);
+		const afresh = (d: ReturnType<typeof tick>) => d.launches[0].parkedRoute;
+		expect(afresh(on(full, []))).toEqual({
+			afresh: "no session that parked it is recorded",
+		});
+		expect(afresh(on(full, [parker({ sessionId: null })]))).toEqual({
+			afresh: "no session id read for its parking launch",
+		});
+		expect(
+			afresh(on(full, [parker({ launch: { ...launch, seat: "/gone" } })])),
+		).toEqual({ afresh: "its session's seat /gone is not one the loop reads" });
 	});
 });
 
