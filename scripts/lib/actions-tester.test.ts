@@ -302,8 +302,8 @@ const mainReads = (runs: Run[], jobsByRun: Record<number, Job[]>) => ({
 	jobsOf: (id: number) => jobsByRun[id] ?? [],
 });
 
-const jobsOnMain = (r: ReturnType<typeof reads>, jobs: string[]) =>
-	actionsTester({ root: "/", reads: r, ...clock() }).jobsOnMain?.(jobs);
+const readJobsOnMain = (r: ReturnType<typeof reads>, jobs: string[]) =>
+	actionsTester({ root: "/", reads: r, ...clock() }).readJobsOnMain?.(jobs);
 
 it("reads a job red in main's newest finished run as red there (#3526)", async () => {
 	const swept = "7".repeat(40);
@@ -315,7 +315,7 @@ it("reads a job red in main's newest finished run as red there (#3526)", async (
 			3: [{ name: LINT, conclusion: "success" }],
 		},
 	);
-	expect(await jobsOnMain(r, [LINT])).toEqual({
+	expect(await readJobsOnMain(r, [LINT])).toEqual({
 		kind: "read",
 		red: [LINT],
 		notRed: [],
@@ -328,7 +328,7 @@ it("reads a job green in main's newest finished run as not red there", async () 
 		1: [{ name: LINT, conclusion: "failure" }],
 		2: [{ name: LINT, conclusion: "success" }],
 	});
-	expect(await jobsOnMain(r, [LINT])).toEqual({
+	expect(await readJobsOnMain(r, [LINT])).toEqual({
 		kind: "read",
 		red: [],
 		notRed: [LINT],
@@ -344,7 +344,7 @@ it("takes each job from the newest run that passed or failed it", async () => {
 			{ name: DOCS, conclusion: "skipped" },
 		],
 	});
-	expect(await jobsOnMain(r, [LINT, DOCS])).toEqual({
+	expect(await readJobsOnMain(r, [LINT, DOCS])).toEqual({
 		kind: "read",
 		red: [DOCS],
 		notRed: [LINT],
@@ -354,7 +354,7 @@ it("takes each job from the newest run that passed or failed it", async () => {
 
 it("reads a job no run on main settled as unread", async () => {
 	const r = mainReads([run(1, "success")], { 1: [] });
-	expect(await jobsOnMain(r, [LINT])).toEqual({
+	expect(await readJobsOnMain(r, [LINT])).toEqual({
 		kind: "unread",
 		reason: `no finished scheduled-checks.yml run on main passed or failed '${LINT}'`,
 	});
@@ -367,7 +367,7 @@ it("reads an unreadable main listing as unread", async () => {
 			throw new Error("HTTP 403");
 		},
 	};
-	const v = await jobsOnMain(r, [LINT]);
+	const v = await readJobsOnMain(r, [LINT]);
 	expect(v).toMatchObject({
 		kind: "unread",
 		reason: expect.stringContaining("runs unreadable: HTTP 403"),
@@ -382,7 +382,7 @@ it("never reads Suite passed on main, which fails with any job there", async () 
 			{ name: "Suite passed", conclusion: "failure" },
 		],
 	});
-	expect(await jobsOnMain(r, [LINT, "Suite passed"])).toEqual({
+	expect(await readJobsOnMain(r, [LINT, "Suite passed"])).toEqual({
 		kind: "read",
 		red: [],
 		notRed: [LINT],
@@ -406,7 +406,7 @@ process.stdout.write(argv[1] === "list" ? a.list : a.jobs);
 `,
 	).gh;
 	expect(
-		await actionsTester({ root: tmp, ...clock() }).jobsOnMain?.([LINT]),
+		await actionsTester({ root: tmp, ...clock() }).readJobsOnMain?.([LINT]),
 	).toEqual({ kind: "read", red: [LINT], notRed: [], shas: [SHA] });
 });
 

@@ -130,7 +130,7 @@ async function run(
 		tester: {
 			requiresRun,
 			...(mainJobs && {
-				jobsOnMain: async (jobs: string[]) => {
+				readJobsOnMain: async (jobs: string[]) => {
 					mainJobsRead.push(jobs);
 					return mainJobs(jobs);
 				},
