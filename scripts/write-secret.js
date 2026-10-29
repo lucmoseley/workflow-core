@@ -81,8 +81,9 @@
  * residual: a vendor it does not list passes as a name.
  *
  * A VALUE IS CLEAN UTF-8 WITH NO NUL, as the file must be: one holding a NUL,
- * piped bytes that are not UTF-8, or what a lossy decode leaves (U+FFFD, a
- * lone surrogate — the hidden prompt decodes leniently) is refused (#3663).
+ * piped bytes that are not UTF-8, or a U+FFFD or lone surrogate is refused
+ * (#3663). The hidden prompt decodes strictly: typed bytes that are not UTF-8
+ * get their own refusal naming that cause, never "interrupted" (#3675, #3708).
  *
  * THE UPSERT replaces the value on every line `lib/env-file.js`'s grammar
  * reads as assigning <NAME> (`NAME=`, `export NAME =`), keeping that line's
@@ -128,7 +129,7 @@ const {
 } = require("./lib/env-file.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { emptyWhy } = require("./lib/empty-secret.js");
-const { readHidden } = require("./lib/read-hidden.js");
+const { NOT_UTF8, readHidden } = require("./lib/read-hidden.js");
 const { caught } = require("./lib/caught.js");
 const { SHELL_VAR_NAME } = require("./lib/shell-var-name.js");
 
@@ -789,12 +790,20 @@ function main(argv) {
 			process.stderr.write("\n");
 			return upsertEnv(file, name, raw, true);
 		},
-		() => {
+		(e) => {
 			process.stderr.write("\n");
+			if (caught(e).message === NOT_UTF8)
+				return refuse(
+					file,
+					"the typed value holds bytes that are not valid UTF-8, as a terminal set to another encoding sends. Set the terminal to UTF-8, then re-run.",
+					2,
+				);
 			return refuse(file, "interrupted. Re-run to enter the value.", 2);
 		},
 	);
 }
+
+module.exports = { main };
 
 if (require.main === module) {
 	const status = main(process.argv.slice(2));
