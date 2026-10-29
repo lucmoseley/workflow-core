@@ -70,6 +70,38 @@ describe("file-morning-review.js (#2011)", () => {
 		expect(readCreated()).toHaveLength(1);
 	});
 
+	it("files the idle alarm's section, read with the loop stopped (#3644)", () => {
+		/* The section is "check-idle-efforts.js"'s --json, which the review spawns. */
+		seed([]);
+		fs.writeFileSync(
+			stub("idle.json"),
+			JSON.stringify([
+				{
+					number: 12,
+					title: "Stranded effort",
+					createdAt: ago(5 * 24),
+					body: "",
+					labels: { nodes: [{ name: "takes:implement" }] },
+					blockedBy: { totalCount: 0, nodes: [] },
+					subIssues: { nodes: [] },
+				},
+			]),
+		);
+		expect(run().status).toBe(0);
+		const [issue] = readCreated();
+		expect(issue.body).toContain(
+			[
+				"## Idle efforts",
+				"",
+				"Each tracker's open efforts nothing has launched lately, the oldest, and why the refill loop skips it:",
+				"",
+				"- `The refill loop is not running, so it serves no tracker.`",
+				"- `acme/wfc: 1 idle past 2 days (the refill loop does not serve it); oldest #12 (Stranded effort), idle 5.0 days; skip reason: none, the launch filter passes it`",
+				"",
+			].join("\n"),
+		);
+	});
+
 	it("files the concurrency section from the refill loop's ticks and memwatch's minutes (#3321)", () => {
 		seed([]);
 		/* One base instant, so a minute line and its paired tick share a time. */
@@ -242,7 +274,7 @@ describe("file-morning-review.js (#2011)", () => {
 		expect(r.status).toBe(0);
 		const section = r.stdout.slice(r.stdout.indexOf("## Stuck urgent"));
 		expect(section).toContain(
-			"- acme/wfc#50 — `Stuck for a week` — 8 days — `parked — the refill loop never launches it (pick-next, 2026-10-24T06:00:00Z)`",
+			"- acme/wfc#50 — `Stuck for a week` — 8 days — `parked — an away-mode refill loop skips it; a normal-mode one resumes it first (pick-next, 2026-10-24T06:00:00Z)`",
 		);
 		expect(section).not.toContain("#51");
 		const calls = fs.readFileSync(stub("calls.log"), "utf8");

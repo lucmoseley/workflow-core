@@ -13,6 +13,7 @@ const {
 	buildIdleLines,
 	findIdleEfforts,
 	parseIssueNodes,
+	selectUnseen,
 } = require("./idle-efforts.js");
 
 const NOW = Date.parse("2026-10-29T12:00:00Z");
@@ -267,5 +268,78 @@ describe("parseIssueNodes", () => {
 		expect(() => parseIssueNodes([{ data: null }], NOW)).toThrow(
 			"named no issues",
 		);
+	});
+});
+
+describe("selectUnseen", () => {
+	const idle = (number: number) => ({
+		number,
+		title: `issue ${number}`,
+		idleMs: 3 * DAY,
+		urgent: false,
+		skip: null,
+	});
+	const finding = (
+		repo: string,
+		numbers: number[],
+		error: string | null = null,
+	) => ({
+		repo,
+		served: true,
+		error,
+		idle: numbers.map(idle),
+	});
+	const stamp = (day: string, seen: unknown) => JSON.stringify({ day, seen });
+
+	it("names every finding with no stamp, and signs them for the day", () => {
+		const both = [finding("o/a", [1]), finding("o/b", [])];
+		const { unseen, signature } = selectUnseen(both, null, "2026-10-29");
+		expect(unseen.map((f: { repo: string }) => f.repo)).toEqual(["o/a"]);
+		expect(signature).toBe(stamp("2026-10-29", ["o/a#1"]));
+	});
+
+	it("names nothing delivered the same day, and signs nothing", () => {
+		expect(
+			selectUnseen(
+				[finding("o/a", [1])],
+				stamp("2026-10-29", ["o/a#1"]),
+				"2026-10-29",
+			),
+		).toEqual({ unseen: [], signature: null });
+	});
+
+	it("names a tracker whole once it holds a finding undelivered that day", () => {
+		const { unseen, signature } = selectUnseen(
+			[finding("o/a", [1, 2])],
+			stamp("2026-10-29", ["o/a#1"]),
+			"2026-10-29",
+		);
+		expect(unseen[0]?.idle.map((i: { number: number }) => i.number)).toEqual([
+			1, 2,
+		]);
+		expect(signature).toBe(stamp("2026-10-29", ["o/a#1", "o/a#2"]));
+	});
+
+	it("names a finding again the next day, and an unread tracker once a day", () => {
+		const unread = finding("o/A", [], "HTTP 502");
+		const day1 = selectUnseen([unread], null, "2026-10-29");
+		expect(day1.signature).toBe(stamp("2026-10-29", ["o/a unread"]));
+		expect(selectUnseen([unread], day1.signature, "2026-10-29").unseen).toEqual(
+			[],
+		);
+		expect(selectUnseen([unread], day1.signature, "2026-10-30").unseen).toEqual(
+			[unread],
+		);
+	});
+
+	it("reads a damaged stamp, or its entries that are no key, as none", () => {
+		const one = [finding("o/a", [1])];
+		expect(selectUnseen(one, "{torn", "2026-10-29").unseen).toHaveLength(1);
+		expect(
+			selectUnseen(one, stamp("2026-10-29", "x"), "2026-10-29").unseen,
+		).toHaveLength(1);
+		expect(
+			selectUnseen(one, stamp("2026-10-29", [1]), "2026-10-29").signature,
+		).toBe(stamp("2026-10-29", ["o/a#1"]));
 	});
 });

@@ -3636,6 +3636,7 @@
 		"scripts/check-idle-efforts.js": [
 			"scripts/check-idle-efforts.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
@@ -9020,6 +9021,7 @@
 		"scripts/lib/delivery-stamp.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-idle-efforts.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
@@ -13775,6 +13777,7 @@
 			"scripts/check-ghost-jobs.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-idle-efforts.test.ts",
 			"scripts/check-stop-guard-outcomes.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",

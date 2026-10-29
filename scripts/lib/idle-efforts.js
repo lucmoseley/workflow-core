@@ -269,10 +269,66 @@ function buildIdleLines(findings, loopRunning) {
 		: ["The refill loop is not running, so it serves no tracker.", ...lines];
 }
 
+/**
+ * @typedef {object} SeenStamp
+ * @property {string} day machine-local `YYYY-MM-DD`
+ * @property {string[]} seen
+ */
+
+/**
+ * A finding is an idle issue, or a tracker that would not read.
+ * @param {TrackerFinding} f
+ */
+const findingKeys = (f) =>
+	f.error === null
+		? f.idle.map((i) => refKey({ repo: f.repo, number: i.number }))
+		: [`${f.repo.toLowerCase()} unread`];
+
+/**
+ * The findings a delivered stamp records for `day`.
+ * @param {string|null} stamp
+ * @param {string} day
+ * @returns {Set<string>}
+ */
+function seenOn(stamp, day) {
+	try {
+		const { day: at, seen } = JSON.parse(stamp ?? "null") ?? {};
+		return new Set(
+			at === day && Array.isArray(seen)
+				? seen.filter((k) => typeof k === "string")
+				: [],
+		);
+	} catch {
+		/* Damaged only repeats today's notice (#3644). */
+		return new Set();
+	}
+}
+
+/**
+ * The trackers a session start names, once per finding per day: each holding
+ * a finding the delivered stamp does not record for `day`, whole.
+ * @param {TrackerFinding[]} findings
+ * @param {string|null} stamp the last delivered signature
+ * @param {string} day
+ * @returns {{unseen: TrackerFinding[], signature: string|null}}
+ */
+function selectUnseen(findings, stamp, day) {
+	const seen = seenOn(stamp, day);
+	const unseen = findings.filter((f) =>
+		findingKeys(f).some((k) => !seen.has(k)),
+	);
+	if (unseen.length === 0) return { unseen, signature: null };
+	for (const k of unseen.flatMap(findingKeys)) seen.add(k);
+	/** @type {SeenStamp} */
+	const next = { day, seen: [...seen] };
+	return { unseen, signature: JSON.stringify(next) };
+}
+
 module.exports = {
 	IDLE_DAYS,
 	QUERY,
 	buildIdleLines,
 	findIdleEfforts,
 	parseIssueNodes,
+	selectUnseen,
 };

@@ -117,9 +117,10 @@ describe("the producer table", () => {
 	 * mantahostels#2574) — pinned so a new persisting producer trips this test and forces
 	 * a look at whether it needs a PRODUCER_META entry, rather than silently
 	 * inheriting the checker default with nobody having judged it. */
-	it("holds exactly the two producers the settings block currently wires as persisting", () => {
+	it("holds exactly the three producers the settings block currently wires as persisting", () => {
 		expect(PRODUCERS.map((p: { key: string }) => p.key).sort()).toEqual([
 			"ci-status",
+			"idle-efforts",
 			"reap-finished-sessions",
 		]);
 	});
@@ -195,16 +196,22 @@ describe("the producer table against another wiring", () => {
 		);
 
 	it("refuses a meta key that names no wired producer", () => {
-		wire("check-ci-status.js");
+		wire("check-ci-status.js", "check-idle-efforts.js");
 		expect(() => replay.readPersistingProducers(root)).toThrow(
 			/PRODUCER_META names reap-finished-sessions,/,
 		);
 	});
 
 	it("overlays each producer's meta where every key is wired", () => {
-		wire("check-ci-status.js", "reap-finished-sessions.js", "check-x.js");
+		wire(
+			"check-ci-status.js",
+			"check-idle-efforts.js",
+			"reap-finished-sessions.js",
+			"check-x.js",
+		);
 		expect(replay.readPersistingProducers(root)).toEqual([
 			{ key: "ci-status", script: "check-ci-status.js", volatile: true },
+			{ key: "idle-efforts", script: "check-idle-efforts.js", volatile: true },
 			{
 				key: "reap-finished-sessions",
 				script: "reap-finished-sessions.js",

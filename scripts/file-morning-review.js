@@ -42,6 +42,10 @@
  * the core `npm run status` renders from, over the refill loop's tick record
  * and memwatch's minute record.
  *
+ * IDLE EFFORTS (#3644, spec #3623): check-idle-efforts.js's `--json`
+ * findings, which lib/morning-review.js renders through the lines
+ * `npm run status` prints. A plain run, so it spends no session-start stamp.
+ *
  * REVERSALS (#3388): after filing, it answers each unanswered `reverse <n>`
  * through scripts/answer-review-reversals.js (#2017), so a hand run while the
  * loop is stopped answers them too. `--dry-run` passes to both.
@@ -87,6 +91,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const URGENT = "urgent";
 /* Untraced: the count line runs every enforcing check over the whole tree. */
 const COUNT_TIMEOUT_MS = 5 * 60 * 1000;
+/* The session-start hook's own 60 s: one paged GraphQL read per tracker, run
+ * side by side, measured 10 s across six trackers on 29 Oct (#3644). */
+const IDLE_TIMEOUT_MS = 60 * 1000;
 
 const io = scriptIo("file-morning-review");
 
@@ -158,29 +165,43 @@ function readPrimitives(root, since) {
  * @returns {import("./lib/morning-review.js").PrimitivesReading["count"]}
  */
 function readCountLine(root) {
+	const read = readEnvelope(
+		"check-primitives.js",
+		["--root", root],
+		COUNT_TIMEOUT_MS,
+		root,
+	);
+	if ("why" in read) return read;
+	return typeof read.envelope.countLine === "string"
+		? { line: read.envelope.countLine }
+		: { why: read.missing };
+}
+
+/**
+ * A core checker's `--json` envelope, or why it gave none.
+ * @param {string} script
+ * @param {string[]} args
+ * @param {number} timeout ms
+ * @param {string} [cwd]
+ * @returns {{envelope: Record<string, any>, missing: string} | {why: string}}
+ *   `missing` is the `why` to give where the envelope lacks a field wanted
+ */
+function readEnvelope(script, args, timeout, cwd) {
 	const r = spawnSync(
 		process.execPath,
-		[
-			path.join(coreRoot(), "scripts", "check-primitives.js"),
-			"--json",
-			"--root",
-			root,
-		],
+		[path.join(coreRoot(), "scripts", script), "--json", ...args],
 		{
-			cwd: root,
+			cwd,
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "pipe"],
-			timeout: COUNT_TIMEOUT_MS,
+			timeout,
 			maxBuffer: CHILD_MAX_BUFFER,
 		},
 	);
-	if (r.error) return { why: `check-primitives.js: ${r.error.message}` };
+	if (r.error) return { why: `${script}: ${r.error.message}` };
 	const envelope = parseEnvelope(r.stdout ?? "");
-	if (typeof envelope?.countLine === "string")
-		return { line: envelope.countLine };
-	return {
-		why: `check-primitives.js: ${envelope?.summary ?? `no --json envelope (exit ${r.status})`}`,
-	};
+	const missing = `${script}: ${envelope?.summary ?? `no --json envelope (exit ${r.status})`}`;
+	return envelope === null ? { why: missing } : { envelope, missing };
 }
 
 /* A `git log` line: full sha, short sha, commit time, then the parents. */
@@ -303,6 +324,16 @@ function readConcurrency(now) {
 		day: concurrency.readout({ ...records, now, windowMs: day.ms }),
 		week: concurrency.readout({ ...records, now, windowMs: week.ms }),
 	};
+}
+
+/** @returns {import("./lib/morning-review.js").IdleReading} */
+function readIdle() {
+	const read = readEnvelope("check-idle-efforts.js", [], IDLE_TIMEOUT_MS);
+	if ("why" in read) return read;
+	const { trackers, loopRunning } = read.envelope;
+	return Array.isArray(trackers) && typeof loopRunning === "boolean"
+		? { trackers, loopRunning }
+		: { why: read.missing };
 }
 
 /**
@@ -446,6 +477,7 @@ function fileReview(tracker, dryRun) {
 		failed: read.flatMap((r) => r.unread),
 		kills: readKills(tracker, since),
 		concurrency: readConcurrency(now.getTime()),
+		idle: readIdle(),
 	});
 
 	if (dryRun) {

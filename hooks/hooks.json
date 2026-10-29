@@ -311,6 +311,12 @@
 					},
 					{
 						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && WFC_NOTIFY_PERSIST=1 node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/check-idle-efforts.js --notify || true",
+						"timeout": 60,
+						"async": true
+					},
+					{
+						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/check-harness-canary.js --notify || true",
 						"timeout": 15
 					},

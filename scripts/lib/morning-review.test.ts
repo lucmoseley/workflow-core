@@ -43,6 +43,8 @@ const closed = (number: number, closedAt: string, door?: string) => ({
 
 const MIN = 60 * 1000;
 
+const QUIET_IDLE = { trackers: [], loopRunning: true };
+
 /** The readout core's 24-hour and 7-day readouts ending at NOW. */
 const concurrencyOver = (ticks: unknown[], minutes: unknown[] | null) => {
 	const r = (windowMs: number) =>
@@ -76,6 +78,7 @@ const render = (
 		failed,
 		kills,
 		concurrency: concurrencyOver([], []),
+		idle: QUIET_IDLE,
 	});
 
 describe("renderReview (#2011)", () => {
@@ -225,6 +228,7 @@ describe("renderReview (#2011)", () => {
 			failed: [],
 			kills: { incidents: [], tickets: new Map(), why: null },
 			concurrency: concurrencyOver(ticks, minutes),
+			idle: QUIET_IDLE,
 		});
 		expect(body).toContain(
 			"Admission ceiling: unread at the last refill-loop tick",
@@ -244,6 +248,7 @@ describe("renderReview (#2011)", () => {
 			failed: [],
 			kills: { incidents: [], tickets: new Map(), why: null },
 			concurrency: concurrencyOver([], null),
+			idle: QUIET_IDLE,
 		});
 		expect(body).toContain(
 			"- unread over the last 24 h — memwatch's minute record did not read\n- unread over the last 7 days — memwatch's minute record did not read\n",
@@ -575,7 +580,7 @@ describe("parked (#2725)", () => {
 		parked,
 	});
 	const section = (body: string) =>
-		body.slice(body.indexOf("## Parked"), body.indexOf("## Still-caught"));
+		body.slice(body.indexOf("## Parked"), body.indexOf("## Idle efforts"));
 
 	it("lists every parked issue with its age in whole days, and one whose start will not read as age unknown", () => {
 		const body = render([
@@ -758,5 +763,62 @@ describe("primitives (#3465)", () => {
 			sha: "fff6666",
 		});
 		expect(basisFaults(body)).toEqual([]);
+	});
+});
+
+describe("the idle efforts section (#3644)", () => {
+	const idleRender = (idle: unknown) =>
+		renderReview({
+			since: SINCE,
+			now: NOW,
+			previous: 7,
+			repos: [],
+			failed: [],
+			kills: { incidents: [], tickets: new Map(), why: null },
+			concurrency: concurrencyOver([], []),
+			idle,
+		});
+	const section = (body: string) =>
+		body.slice(
+			body.indexOf("## Idle efforts"),
+			body.indexOf("## Still-caught"),
+		);
+
+	it("renders the alarm's lines, each as a code span, an unserved tracker's urgent issues nested", () => {
+		const body = idleRender({
+			loopRunning: false,
+			trackers: [
+				{ repo: "acme/a", served: true, error: null, idle: [] },
+				{
+					repo: "acme/b",
+					served: false,
+					error: null,
+					idle: [
+						{
+							number: 8,
+							title: "Ship it",
+							idleMs: 3 * 24 * 60 * MIN,
+							urgent: true,
+							skip: null,
+						},
+					],
+				},
+			],
+		});
+		expect(section(body)).toContain(
+			[
+				"- `The refill loop is not running, so it serves no tracker.`",
+				"- `acme/a: none idle past 2 days`",
+				"- `acme/b: 1 idle past 2 days (the refill loop does not serve it); oldest #8 (Ship it), idle 3.0 days; skip reason: none, the launch filter passes it`",
+				"  - `urgent #8 (Ship it), idle 3.0 days`",
+				"",
+			].join("\n"),
+		);
+	});
+
+	it("says why where the alarm did not read", () => {
+		expect(
+			section(idleRender({ why: "check-idle-efforts.js: boom" })),
+		).toContain("Not read: `check-idle-efforts.js: boom`\n");
 	});
 });

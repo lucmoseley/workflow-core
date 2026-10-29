@@ -24,6 +24,7 @@ const {
 } = require("./concurrency.js");
 const { DAY_MS } = require("./retained-jsonl.js");
 const { rowChanges } = require("./primitives-table.js");
+const { buildIdleLines } = require("./idle-efforts.js");
 
 const TITLE = /^Morning review — (\d{4}-\d{2}-\d{2})$/;
 /* An `urgent` older than this is listed as stuck: #2693's figure, a guess,
@@ -97,8 +98,12 @@ function parseOneWayDoor(comments) {
  *   (lib/stall-ticket.js, #2692), its urgent issues and its parked ones
  * @typedef {{since: string, now: string, previous: number | null,
  *   repos: RepoReading[], failed: Unread[], kills: KillReading,
- *   concurrency: ConcurrencyReading}} Reading the machine's earlyoom kills
- *   and its concurrency are read once, not per repo (#3094, #3321)
+ *   concurrency: ConcurrencyReading, idle: IdleReading}} Reading the
+ *   machine's earlyoom kills, its concurrency and the idle alarm are read
+ *   once, not per repo (#3094, #3321, #3644)
+ * @typedef {{trackers: import("./idle-efforts.js").TrackerFinding[],
+ *   loopRunning: boolean} | {why: string}} IdleReading the idle alarm's
+ *   findings, or why check-idle-efforts.js gave none
  * @typedef {ReturnType<typeof import("./concurrency.js").readout>} Readout
  * @typedef {Record<keyof typeof CONCURRENCY_WINDOWS, Readout>}
  *   ConcurrencyReading the readout core's readout over each window, all
@@ -305,6 +310,7 @@ function renderReview({
 	failed,
 	kills,
 	concurrency,
+	idle,
 }) {
 	const lo = Date.parse(since);
 	const hi = Date.parse(now);
@@ -380,6 +386,13 @@ function renderReview({
 		),
 	);
 
+	const idleLines =
+		"why" in idle
+			? [`Not read: ${quoted(idle.why)}`]
+			: buildIdleLines(idle.trackers, idle.loopRunning).map((l) =>
+					l.startsWith(" ") ? `  - ${quoted(l.trim())}` : `- ${quoted(l)}`,
+				);
+
 	return [
 		"## Question",
 		"",
@@ -411,6 +424,12 @@ function renderReview({
 		"Open issues labelled `parked`, with how long each has been parked:",
 		"",
 		...(parked.length === 0 ? ["None."] : parked),
+		"",
+		"## Idle efforts",
+		"",
+		"Each tracker's open efforts nothing has launched lately, the oldest, and why the refill loop skips it:",
+		"",
+		...idleLines,
 		"",
 		"## Still-caught delegated decisions",
 		"",

@@ -19,7 +19,8 @@ import { runInProcess } from "./run-in-process";
 /**
  * `gh` over one tracker's review issues (`reviews.json`), closes
  * (`closed.json`), and open `urgent` and `parked` issues (`urgent.json`,
- * `parked.json`) with their timelines (`timelines.json`), logging every call
+ * `parked.json`) with their timelines (`timelines.json`), the idle alarm's
+ * GraphQL read of its open issues (`idle.json`'s nodes), logging every call
  * to `calls.log`. A review's create appends to `reviews.json`, so a second
  * run sees the first's issue, and fails where `fail-review-create` exists; a
  * comment appends to its issue there unless `fail-comment` exists.
@@ -35,6 +36,7 @@ const read = (n) => JSON.parse(fs.readFileSync(f(n), "utf8"));
 const say = (o) => { process.stdout.write(JSON.stringify(o)); process.exit(0); };
 fs.appendFileSync(f("calls.log"), a.join(" ") + "\\n");
 const timeline = (a[1] ?? "").split("/");
+if (a[0] === "api" && a[1] === "graphql") say([{ data: { repository: { issues: { pageInfo: { hasNextPage: false }, nodes: read("idle.json") } } } }]);
 if (a[0] === "api" && timeline[5] === "timeline") say([read("timelines.json")[timeline[4]] ?? []]);
 if (a[0] === "issue" && a[1] === "list" && a[a.indexOf("--label") + 1] === "urgent") say(read("urgent.json"));
 if (a[0] === "issue" && a[1] === "list" && a[a.indexOf("--label") + 1] === "parked") say(read("parked.json"));
@@ -122,6 +124,7 @@ export function morningReviewFixture(
 		fs.writeFileSync(stub("urgent.json"), "[]");
 		fs.writeFileSync(stub("parked.json"), "[]");
 		fs.writeFileSync(stub("timelines.json"), "{}");
+		fs.writeFileSync(stub("idle.json"), "[]");
 		/* One earlyoom kill 3 h ago, its incident ticketed as #61. */
 		const killedAt = Date.now() - 3 * HOUR;
 		writeJournalctl(path.join(sb.dir, "gh"), [

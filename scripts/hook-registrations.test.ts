@@ -396,6 +396,14 @@ const REGISTRATIONS: Registration[] = [
 		covers: [],
 	},
 	{
+		/* Silent unless a tracker holds an effort idle past 2 days, or will not
+		 * read, not yet shown that day (#3644). */
+		event: "SessionStart",
+		id: "scripts/check-idle-efforts.js --notify",
+		matcher: null,
+		covers: [],
+	},
+	{
 		/* Silent unless the installed Claude Code's probe went red; a version
 		 * neither passed nor probed launches the probe detached (#2037). */
 		event: "SessionStart",

@@ -1633,6 +1633,20 @@
 				}
 			]
 		},
+		"check-idle-efforts.js --notify": {
+			"needles": [
+				{
+					"id": "idle-efforts",
+					"kind": "notice",
+					"text": " idle past 2 days"
+				},
+				{
+					"id": "idle-efforts-unread",
+					"kind": "notice",
+					"text": ": unread — "
+				}
+			]
+		},
 		"check-refill-loop-stop.js --notify": {
 			"needles": [
 				{

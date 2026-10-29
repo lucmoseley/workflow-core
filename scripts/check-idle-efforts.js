@@ -4,7 +4,7 @@
  * tracker, the open efforts nothing has launched for 2 days, the oldest, and
  * the loop's skip reason for it.
  *
- * Usage:  node scripts/check-idle-efforts.js [--json]
+ * Usage:  node scripts/check-idle-efforts.js [--notify] [--json]
  *
  * READS every checkout the refill loop could serve (lib/refill-repos.js's
  * discoverRepos), each tracker once in one paged GraphQL query, and each
@@ -15,6 +15,21 @@
  *
  * WARN, never FAIL. A tracker that will not read is its own line, never
  * "none idle".
+ *
+ * ONCE PER FINDING PER DAY under `--notify` (#3644): a finding is an idle
+ * issue or an unread tracker, and a session start names each tracker holding
+ * one its delivery stamp (lib/delivery-stamp.js) does not record for that
+ * machine-local day. The stamp is written only once a report is shown: by this
+ * run under plain `--notify`, and under persist mode by the replay reader, from
+ * the signature this run carries. So it is read under persist mode too, which
+ * readSeenStamp declines: nothing it records went unshown. A plain run, the
+ * morning review's included, names every tracker and records nothing. A
+ * compaction is no session start: it exits before a persisted run opens, so
+ * it neither prints nor replaces a report not yet shown.
+ *
+ * IMPLICIT:  at every session start, reads every adopting checkout's tracker and reports each tracker holding an effort idle past 2 days, or unread, whose finding was not yet shown that machine-local day.
+ * JUSTIFIED: fail-safe — a stopped loop, or a route it skips, strands an effort with nothing else to say so.
+ * DEFEAT:    none needed — it never blocks; deleting its delivery stamp names today's findings again.
  */
 
 const { runCheck } = require("./lib/check");
@@ -26,6 +41,9 @@ const {
 	readRecentEntries,
 } = require("./lib/dispatch-ledger.js");
 const { refKey } = require("./lib/issue-ref.js");
+const hookMessage = require("./lib/hook-message");
+const deliveryStamp = require("./lib/delivery-stamp.js");
+const { localDate } = require("./lib/morning-review.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const loop = require("./lib/refill-loop.js");
 const refillFiles = require("./lib/refill-files.js");
@@ -41,6 +59,7 @@ const {
 	buildIdleLines,
 	findIdleEfforts,
 	parseIssueNodes,
+	selectUnseen,
 } = require("./lib/idle-efforts.js");
 
 /**
@@ -64,6 +83,40 @@ async function readIssues(repo, now) {
 	return parseIssueNodes(JSON.parse(out), now);
 }
 
+const CHECKER = "idle-efforts";
+
+/**
+ * The findings not shown yet today, and the signature recording them shown.
+ * @param {import("./lib/idle-efforts.js").TrackerFinding[]} findings
+ * @param {number} now ms
+ */
+const selectUndelivered = (findings, now) =>
+	selectUnseen(
+		findings,
+		deliveryStamp.readStamp(CHECKER),
+		localDate(new Date(now)),
+	);
+
+/**
+ * @param {import("./lib/check").Ctx} ctx
+ * @param {import("./lib/idle-efforts.js").TrackerFinding[]} findings
+ * @param {boolean} loopRunning
+ */
+function report(ctx, findings, loopRunning) {
+	if (findings.length === 0) return;
+	for (const line of buildIdleLines(findings, loopRunning)) ctx.say(line);
+	for (const f of findings) {
+		if (f.error !== null)
+			ctx.warn("IDLE-EFFORTS-UNREAD", `${f.repo} would not read: ${f.error}`);
+		else if (f.idle.length > 0)
+			ctx.warn(
+				"IDLE-EFFORTS",
+				`${f.repo}: ${f.idle.length} effort(s) idle past ${IDLE_DAYS} days`,
+				{ repo: f.repo, idle: f.idle },
+			);
+	}
+}
+
 /**
  * @param {(line: string) => void} reportDamaged
  */
@@ -83,8 +136,8 @@ function readLoop(reportDamaged) {
 }
 
 const SPEC = {
-	name: "idle-efforts",
-	usage: "node check-idle-efforts.js [--json]",
+	name: CHECKER,
+	usage: "node check-idle-efforts.js [--notify] [--json]",
 	async run(/** @type {import("./lib/check").Ctx} */ ctx) {
 		const now = Date.now();
 		const loopRead = readLoop((line) =>
@@ -130,19 +183,16 @@ const SPEC = {
 			}),
 		);
 		const findings = findIdleEfforts({ trackers, launches, running, now });
-		for (const line of buildIdleLines(findings, loopRead.running))
-			ctx.say(line);
-		for (const f of findings) {
-			if (f.error !== null)
-				ctx.warn("IDLE-EFFORTS-UNREAD", `${f.repo} would not read: ${f.error}`);
-			else if (f.idle.length > 0)
-				ctx.warn(
-					"IDLE-EFFORTS",
-					`${f.repo}: ${f.idle.length} effort(s) idle past ${IDLE_DAYS} days`,
-					{ repo: f.repo, idle: f.idle },
-				);
-		}
+		const { unseen, signature } = ctx.notify
+			? selectUndelivered(findings, now)
+			: { unseen: findings, signature: null };
+		report(ctx, unseen, loopRead.running);
+		/* After the report is out, so a run killed between repeats rather than
+		 * swallows it. */
+		if (signature !== null)
+			deliveryStamp.markDelivered(ctx, CHECKER, signature);
 		return {
+			...(signature !== null && { stamp: signature }),
 			okLine: `no effort idle past ${IDLE_DAYS} days.`,
 			noun: "tracker(s) with idle efforts or unread",
 			data: { loopRunning: loopRead.running, trackers: findings },
@@ -150,7 +200,16 @@ const SPEC = {
 	},
 };
 
-const main = () => runCheck(SPEC);
+const main = () => {
+	/* Read under --notify alone: a plain run's stdin may be a terminal.
+	 * cli-args-exempt: a peek before runCheck, which parses the argv. */
+	if (
+		process.argv.includes("--notify") &&
+		hookMessage.readPayload()?.source === "compact"
+	)
+		return;
+	return runCheck(SPEC);
+};
 
 module.exports = { main };
 if (require.main === module) main();

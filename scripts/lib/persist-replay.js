@@ -50,6 +50,11 @@ const PRODUCER_META = {
 		 * can push, between the two phases. */
 		volatile: true,
 	},
+	"idle-efforts": {
+		/* It reads live trackers, where an issue can cross the threshold or a
+		 * launch land between the two phases. */
+		volatile: true,
+	},
 	"reap-finished-sessions": {
 		/* Its own alphabet, not the checker one: BROKEN where it could judge no
 		 * candidate at all, WARN where it had a line, OK where it had none.
