@@ -6,6 +6,10 @@
  *
  * Breaking it either strands the map again, or blocks a session that gave
  * the map a route or never held one.
+ *
+ * Each case runs the guard through stop-guard-testkit against a sandboxed
+ * arbiter store and `gh` served by stubGhRoutes, so a claim and a map's
+ * sub-issues are set per case and no real tracker is read.
  */
 
 import fs from "node:fs";

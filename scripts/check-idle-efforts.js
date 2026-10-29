@@ -33,7 +33,7 @@
  * DEFEAT:    none needed — it never blocks; deleting its delivery stamp names today's findings again.
  */
 
-const { runCheck } = require("./lib/check");
+const { now: clockNow, runCheck } = require("./lib/check");
 const { ghAsync } = require("./lib/gh");
 const { caught } = require("./lib/caught.js");
 const {
@@ -141,7 +141,9 @@ const SPEC = {
 	name: CHECKER,
 	usage: "node check-idle-efforts.js [--notify] [--json]",
 	async run(/** @type {import("./lib/check").Ctx} */ ctx) {
-		const now = Date.now();
+		// Residual: the day stamp is written off this clock, so a stray WFC_NOW
+		// skews it (check.js now()).
+		const now = clockNow();
 		const loopRead = readLoop((line) =>
 			ctx.warn("REFILL-LOOP-FILE-DAMAGED", line),
 		);

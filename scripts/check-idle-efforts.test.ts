@@ -25,7 +25,10 @@ const DAY = 24 * 60 * 60 * 1000;
 let dir: string;
 let home: string;
 
-const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+/* The run reads its clock from WFC_NOW, so a day stamp never crosses midnight
+ * mid-test. */
+const NOW = Date.parse("2026-10-30T12:00:00Z");
+const ago = (ms: number) => new Date(NOW - ms).toISOString();
 
 function checkout(name: string, tracker: string, ledger: object[] = []) {
 	const root = path.join(home, name);
@@ -103,6 +106,7 @@ async function run(
 		WFC_REFILL_DIR: refill,
 		CLAUDE_PROJECT_DIR: dir,
 		GITHUB_ACTIONS: "",
+		WFC_NOW: new Date(NOW).toISOString(),
 	};
 	delete env.WFC_DISPATCH_ROOT;
 	delete env.WFC_REPO_ROOT;

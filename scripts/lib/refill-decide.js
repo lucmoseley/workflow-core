@@ -1,7 +1,8 @@
 /*
- * refill-decide.js — away mode's decision core (#2007, spec #1995): one pure
- * function from a tick's readings to either the launches to make or the stop
- * that ends launching.
+ * refill-decide.js — the refill loop's decision core, in normal and away mode
+ * (#2007, spec #1995; parked rows by mode, #3621): one pure function from a
+ * tick's readings to either the launches to make or the stop that ends
+ * launching.
  *
  * Caller: lib/refill-tick.js's tick (#2012)
  */

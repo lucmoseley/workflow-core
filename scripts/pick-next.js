@@ -595,8 +595,6 @@ const isQuestionType = (issue) =>
 const HUMAN = takesValue("human");
 const CHILDREN = takesValue("children");
 const RETRO_LABEL = takesLabel("triage");
-/** @param {RawIssue} issue */
-const issueTakes = (issue) => takesOf(issue.labels);
 // "none" is a fault, not a state — every open issue carries one.
 /** @param {string[]} takes */
 const takesCell = (takes) => (takes.length > 0 ? takes.join("+") : "none");
@@ -3343,7 +3341,7 @@ function enrichIssue(i, ctx) {
 		i.labels.includes(PARKED_LABEL) && timeline
 			? labelAge(timeline, PARKED_LABEL)
 			: null;
-	const takes = issueTakes(i);
+	const takes = takesOf(i.labels);
 	const resolved = resolveGate(i.body);
 	/*
 	 * Computed before the chain so the flag below can say whether THIS limb

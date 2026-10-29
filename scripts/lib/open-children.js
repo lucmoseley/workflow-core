@@ -1,6 +1,7 @@
 /*
  * open-children.js — the refusal of a close that leaves a sub-issue open
- * (#3637).
+ * (#3637). One module, because guard-issue-close, resolve-ticket.js and
+ * promote-spec.js each refuse that close, and three copies would drift.
  */
 
 /**
