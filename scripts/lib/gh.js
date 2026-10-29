@@ -1,11 +1,11 @@
 /*
  * The seam between the Node scripts and the `gh` CLI: they route every call
- * through here and never name the binary themselves. check-gh-route.js's
- * WRITTEN_EXCEPTIONS keep their own spawn, and read the same var.
+ * through here and never name the binary themselves. The shell hooks
+ * (guard-*.sh) and session-arbiter.js still resolve `gh` on their own.
  *
  * The binary is injected at one named point: WFC_GH, pointing at an
  * executable. Tests set it to a stub (scripts/lib/gh-stub.ts) instead of
- * prepending PATH; a shell caller runs "${WFC_GH:-gh}".
+ * prepending PATH.
  */
 
 const { execFile, execFileSync } = require("node:child_process");

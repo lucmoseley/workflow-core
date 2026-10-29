@@ -1247,7 +1247,7 @@ describe("init in a fresh repository", () => {
 		const { dir } = repo();
 		expect(init(dir, "--founder", "A Founder", "--no-tracker").status).toBe(0);
 		const local = path.join(dir, ".husky/pre-commit.local");
-		const body = '# mine\nnode scripts/own-gate.js || exit "$?"\n';
+		const body = "# mine\nnode scripts/own-gate.js || exit 1\n";
 		fs.writeFileSync(local, body);
 		expect(init(dir, "--founder", "A Founder", "--no-tracker").status).toBe(0);
 		expect(fs.readFileSync(local, "utf8")).toBe(body);

@@ -1,2 +1,0 @@
-const { ghJson } = require("./lib/gh.js");
-const issue = ghJson(["issue", "view", "7"]);
