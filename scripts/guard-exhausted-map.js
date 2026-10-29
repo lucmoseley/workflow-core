@@ -20,10 +20,10 @@
  * same `parkTargets` that hook uses, since both hooks run at once. A turn
  * whose message cannot be read may be that turn, so it passes too.
  *
- * STEPS (a)–(c) ARE `rule:wayfinder-ops-shapes` §Exhausted map's, restated
- * in the block because the rule fragment runs to the whole of
- * `/wayfinder`'s operations; guard-exhausted-map.test.ts pins the two
- * against each other.
+ * STEPS (a)–(c) AND EACH BRANCH'S OPENING ARE `rule:wayfinder-ops-shapes`
+ * §Exhausted map's, restated in the block because the rule fragment runs to
+ * the whole of `/wayfinder`'s operations; guard-exhausted-map.test.ts pins
+ * the two against each other.
  *
  * IMPLICIT:  at every Stop of a session holding an issue claim, reads each
  *            claimed issue from GitHub and refuses the turn where one is an
@@ -117,8 +117,12 @@ function buildReason(maps) {
 	return (
 		`This session claims ${named}, a \`wayfinder:map\` still \`takes:wayfinder\` with no open sub-issue, no gate and no \`parked\` label — so it routes nowhere but back to this command (\`rule:wayfinder-ops-shapes\` §Exhausted map). Before ending, in order:\n` +
 		"  (a) While *Not yet specified* holds anything, graduate at least one patch into a ticket under the map — or into a grilling ticket for the founder where it is too vague to phrase precisely — or rule it out of scope.\n" +
-		"  (b) Once *Not yet specified* is empty, take one of the three exhausted-map branches: relabel the map to the hand-off command's `takes:` value, label it `takes:children` with one `kind:brief` per deliverable, or write the dormant gate line.\n" +
+		"  (b) Once *Not yet specified* is empty, take one of the three branches below.\n" +
 		"  (c) Where the map's destination is reached, close it.\n" +
+		"The three branches:\n" +
+		"  - **The map's destination is a hand-off to another command — a spec, tickets, an implementation:** relabel it to that command's `takes:` value (`takes:to-spec` for `/to-spec <map>`) and write no gate.\n" +
+		"  - **The map ends in several destinations, one brief filed under it per deliverable:** label each brief `kind:brief`, and the map `takes:children`.\n" +
+		"  - **The map is dormant on something outside the tracker:** write the gate line — `rule:roadmap-gating`'s condition row, the condition being what would re-open the map.\n" +
 		"Then re-send the message this turn was going to end on, its status marker included — this block discarded it."
 	);
 }
