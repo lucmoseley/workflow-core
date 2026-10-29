@@ -577,7 +577,7 @@ describe("write-secret", () => {
 	}, 30_000);
 
 	const whyAbove = (dir: string, why: string) =>
-		`${dir}, above its directory, ${why}, so another user could swap the directory for one of theirs. Point XDG_CONFIG_HOME at a directory whose every parent is yours or root's and writable by no one else, then re-run.`;
+		`${dir}, above its directory, ${why}, so another user could swap the directory for one of theirs. Point XDG_CONFIG_HOME at a directory on a local filesystem whose every parent is yours or root's and writable by no one else, then re-run.`;
 
 	it("refuses with exit 1, writing nothing, where a directory above the file's is writable by others (#3663)", () => {
 		const shared = path.join(config, "shared");
@@ -863,20 +863,88 @@ describe("write-secret", () => {
 		},
 	);
 
-	const NfsAcl =
-		"carries an ACL on NFS, where an NFSv4 entry can grant another user access no mode bit shows";
-	/* Reports every path under `config` as on NFS. Spied, as a test cannot
-	 * mount NFS: mounting needs root. */
-	const fakeNfs = () => {
+	/* Reports `under` and every path below it as of statfs type `type`, or
+	 * throws EACCES where `type` is null. Spied, as a test cannot mount CIFS,
+	 * 9p or FUSE: mounting needs root. */
+	const fakeMount = (under: string, type: number | null) => {
 		const real = fs.statfsSync;
 		vi.spyOn(fs, "statfsSync").mockImplementation(((
 			p: fs.PathLike,
 			...rest: [never]
 		) => {
 			const st = real(p, ...rest);
-			return String(p).startsWith(config) ? { ...st, type: 0x69_69 } : st;
+			const rel = path.relative(under, String(p));
+			if (rel.startsWith("..") || path.isAbsolute(rel)) return st;
+			if (type === null)
+				throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+			return { ...st, type };
 		}) as typeof fs.statfsSync);
 	};
+	const onMount = (kind: string) =>
+		`lies on a ${kind} mount, whose server decides access whatever its mode shows`;
+
+	it.each<[string, number]>([
+		["CIFS", 0xff_53_4d_42],
+		["SMB2", 0xfe_53_4d_42],
+		["9p (WSL's drvfs)", 0x01_02_19_97],
+		["FUSE", 0x65_73_55_46],
+		["wslfs (WSL 1's drvfs)", 0x53_46_48_46],
+		["AFS", 0x53_46_41_4f],
+		["AFS", 0x6b_41_46_53],
+		["Coda", 0x73_75_72_45],
+		["GPFS", 0x47_50_46_53],
+	])(
+		"refuses with exit 1, writing nothing, where the file's directory lies on a %s mount, whatever its mode (#3726)",
+		(kind, type) => {
+			const dir = makeStoreDir();
+			fakeMount(dir, type);
+			const r = run(["K"], SECRET);
+			expect(r.status).toBe(1);
+			expect(r.stderr).toBe(
+				`write-secret: refused, ${store()} untouched — its directory ${dir} ${onMount(kind)}, so another user could read or swap the file. Point XDG_CONFIG_HOME at a directory on a local filesystem, then re-run.\n`,
+			);
+			expect(fs.existsSync(store())).toBe(false);
+		},
+	);
+
+	it("refuses with exit 1, writing nothing, where a sticky directory above the file's lies on a 9p mount (#3726)", () => {
+		const shared = path.join(config, "shared");
+		fs.mkdirSync(shared, { mode: 0o1755 });
+		fs.chmodSync(shared, 0o1755);
+		fakeMount(shared, 0x01_02_19_97);
+		const r = run(["K"], SECRET, { XDG_CONFIG_HOME: path.join(shared, "cfg") });
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(whyAbove(shared, onMount("9p (WSL's drvfs)")));
+		expect(fs.readdirSync(shared)).toEqual([]);
+	});
+
+	it("refuses with exit 1, writing nothing, where a directory's filesystem cannot be read (#3726)", () => {
+		const dir = makeStoreDir();
+		fakeMount(dir, null);
+		const r = run(["K"], SECRET);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(
+			`its directory ${dir} could not have its filesystem read (EACCES)`,
+		);
+		expect(fs.existsSync(store())).toBe(false);
+	});
+
+	it.each<[string, number]>([
+		["ext4", 0xef_53],
+		["xfs", 0x58_46_53_42],
+		["btrfs", 0x91_23_68_3e],
+		["tmpfs", 0x01_02_19_94],
+		["overlayfs", 0x79_4c_76_30],
+	])("writes where every directory lies on %s (#3726)", (_kind, type) => {
+		fakeMount("/", type);
+		expect(run(["K"], SECRET).status).toBe(0);
+		expect(read()).toBe(`K=${SECRET}\n`);
+	});
+
+	const NfsAcl =
+		"carries an ACL on NFS, where an NFSv4 entry can grant another user access no mode bit shows";
+	/* Reports every path under `config` as on NFS. */
+	const fakeNfs = () => fakeMount(config, 0x69_69);
 	/* A directory carrying an ACL entry for another user that its mask, the
 	 * group bits, keeps from writing. */
 	const maskedAclDir = (dir: string) => {
@@ -1033,7 +1101,8 @@ describe("write-secret", () => {
 
 	it("refuses with exit 1 where the mount ignores modes, so the written file would be loose, the file untouched (#3539)", () => {
 		seed("A=1\n");
-		/* A mount without `metadata`: chmod is a no-op and a new file is 0644.
+		/* A mount that ignores modes, as vfat: chmod is a no-op and a new file
+		 * is 0644.
 		 * Spied, as a test cannot mount one: mounting needs root. */
 		const writeFileSync = fs.writeFileSync;
 		vi.spyOn(fs, "chmodSync").mockImplementation(() => {
@@ -1051,7 +1120,7 @@ describe("write-secret", () => {
 			expect(r.status).toBe(1);
 			expect(r.stderr).toBe(
 				refused(
-					`the file as written gives access to others, so another user could read or swap the file. Make ${path.dirname(store())} yours with no access for anyone else (\`chmod 700\`), on a filesystem that keeps modes (not a Windows drive under WSL), then re-run.`,
+					`the file as written gives access to others, so another user could read or swap the file. Make ${path.dirname(store())} yours with no access for anyone else (\`chmod 700\`), on a filesystem that keeps modes, then re-run.`,
 				),
 			);
 		} finally {
@@ -1076,7 +1145,7 @@ describe("write-secret", () => {
 			expect(r.status).toBe(1);
 			expect(r.stderr).toBe(
 				refused(
-					`its directory ${path.dirname(store())} gives access to others, so another user could read or swap the file. Make ${path.dirname(store())} yours with no access for anyone else (\`chmod 700\`), on a filesystem that keeps modes (not a Windows drive under WSL), then re-run.`,
+					`its directory ${path.dirname(store())} gives access to others, so another user could read or swap the file. Make ${path.dirname(store())} yours with no access for anyone else (\`chmod 700\`), on a filesystem that keeps modes, then re-run.`,
 				),
 			);
 			expect(read()).toBe("A=1\n");

@@ -44,8 +44,7 @@
  * A DIRECTORY OTHERS CAN REACH IS REFUSED (#3539): the file's directory, and
  * the aside before its rename, must be the user's own with no group or other
  * access, checked before the prompt and again before the write. `mkdir`'s
- * mode applies only on creation and a mount without
- * `metadata` (WSL's `/mnt/c`) ignores `chmod`, so either can be left loose.
+ * mode applies only on creation, so it can be left loose.
  *
  * A PARENT OTHERS CAN WRITE IS REFUSED (#3663): each directory holding an
  * entry the path passes through as the kernel resolves it, every symlink's
@@ -70,8 +69,16 @@
  * marks none: an NFSv4 ACL under an `ls` not GNU's, built without ACL
  * support, whose gnulib predates its NFSv4 reader or misses the ACL where
  * Linux 6.12+ NFS answers EACCES, or whose entries name only OWNER@, GROUP@
- * and EVERYONE@, which gnulib calls trivial whatever they grant; and a CIFS,
- * WSL drvfs or FUSE mount's server-side ACL.
+ * and EVERYONE@, which gnulib calls trivial whatever they grant.
+ *
+ * A MOUNT WHOSE SERVER DECIDES ACCESS IS REFUSED (#3726): the file's
+ * directory, or a directory above it, on CIFS/SMB, 9p (WSL 2's drvfs, as
+ * `/mnt/c`), WSL 1's wslfs, FUSE (sshfs, virtiofs), AFS, Coda or GPFS. Its
+ * mode comes from mount options, is stored beside an ACL that decides, or is
+ * ignored by the daemon, so another account may read or swap the file while
+ * every mode check passes. A directory whose filesystem cannot be read is
+ * refused too. Residual: a filesystem off that list whose server or ACL
+ * decides access, as NFS (#3724 judges its ACL) or panfs.
  *
  * CONCURRENT RUNS take turns by `lib/pid-lock.js`'s lock, `secrets.env.lock`,
  * held from the read to the rename, so no run's key is lost to another's
@@ -171,23 +178,24 @@ function refuse(file, why, status) {
 /**
  * @param {string} file
  * @param {string} what the directory or file found loose
- * @param {string} why `looseWhy`'s reason
+ * @param {string} why `looseWhy`'s or `remoteAccessWhy`'s reason
+ * @param {string} [fix] the way out, where `chmod` is not it
  * @returns {number}
  */
-function refuseLoose(file, what, why) {
+function refuseLoose(file, what, why, fix) {
 	const dir = path.dirname(file);
 	return refuse(
 		file,
-		`${what} ${why}, so another user could read or swap the file. Make ${dir} yours with no access for anyone else (\`chmod 700\`), on a filesystem that keeps modes (not a Windows drive under WSL), then re-run.`,
+		`${what} ${why}, so another user could read or swap the file. ${fix ?? `Make ${dir} yours with no access for anyone else (\`chmod 700\`), on a filesystem that keeps modes, then re-run.`}`,
 		1,
 	);
 }
 
 /**
  * The refusal `file`'s directory earns, or null: it lies under a directory
- * others can write, in a git working tree, or exists and is reachable by
- * others. The parents come first, as the tree's walk throws on one it cannot
- * read.
+ * others can write, in a git working tree, or exists and lies on a mount
+ * whose server decides access or is reachable by others. The parents come
+ * first, as the tree's walk throws on one it cannot read.
  * @param {string} file
  * @returns {number | null}
  */
@@ -197,7 +205,7 @@ function dirRefusal(file) {
 	if (above !== null) {
 		return refuse(
 			file,
-			`${above.dir}, above its directory, ${above.why}, so another user could swap the directory for one of theirs. Point XDG_CONFIG_HOME at a directory whose every parent is yours or root's and writable by no one else, then re-run.`,
+			`${above.dir}, above its directory, ${above.why}, so another user could swap the directory for one of theirs. Point XDG_CONFIG_HOME at a directory on a local filesystem whose every parent is yours or root's and writable by no one else, then re-run.`,
 			1,
 		);
 	}
@@ -210,6 +218,15 @@ function dirRefusal(file) {
 		);
 	}
 	if (!isDirectory(dir)) return null;
+	const mount = remoteAccessWhy(dir);
+	if (mount !== null) {
+		return refuseLoose(
+			file,
+			`its directory ${dir}`,
+			mount,
+			"Point XDG_CONFIG_HOME at a directory on a local filesystem, then re-run.",
+		);
+	}
 	const why = looseWhy(dir) ?? nfsAclWhy(dir);
 	return why === null ? null : refuseLoose(file, `its directory ${dir}`, why);
 }
@@ -329,8 +346,11 @@ function swappableWhy(d) {
 	}
 	if (!st.isDirectory()) return null;
 	if (!ownedSafely(st)) return "is owned by neither you nor root";
-	/* Before the sticky pass: an NFSv4 ACL can grant DELETE_CHILD, which a
-	 * server may honour over the sticky bit (RFC 8881 §6.2.1.3.2). */
+	/* Before the sticky pass, which such a server need not honour; nor need
+	 * NFS, where an NFSv4 ACL can grant DELETE_CHILD over it (RFC 8881
+	 * §6.2.1.3.2). */
+	const mount = remoteAccessWhy(d);
+	if (mount !== null) return mount;
 	const aclWhy = nfsAclWhy(d);
 	if (aclWhy !== null) return aclWhy;
 	if ((st.mode & 0o1000) !== 0) return null;
@@ -366,6 +386,42 @@ function isOnNfs(d) {
 		/* Unjudged: an ACL `ls` marks then refuses (#3724). */
 		return true;
 	}
+}
+
+/**
+ * statfs types whose server, daemon or ACL decides access, as Linux's magic.h
+ * and coreutils' `stat -f` name them.
+ */
+const REMOTE_ACCESS_MOUNTS = new Map([
+	[0xff_53_4d_42, "CIFS"],
+	[0xfe_53_4d_42, "SMB2"],
+	[0x01_02_19_97, "9p (WSL's drvfs)"],
+	[0x53_46_48_46, "wslfs (WSL 1's drvfs)"],
+	[0x65_73_55_46, "FUSE"],
+	[0x53_46_41_4f, "AFS"],
+	[0x6b_41_46_53, "AFS"],
+	[0x73_75_72_45, "Coda"],
+	[0x47_50_46_53, "GPFS"],
+]);
+
+/**
+ * Why directory `d` may let another account in whatever its mode shows, or
+ * null: it lies on a mount whose server or daemon decides access (#3726).
+ * @param {string} d
+ * @returns {string | null}
+ */
+function remoteAccessWhy(d) {
+	let type;
+	try {
+		type = fs.statfsSync(d).type;
+	} catch (e) {
+		return `could not have its filesystem read (${caught(e).code ?? "error"})`;
+	}
+	/* Unsigned, as a 32-bit kernel's signed f_type would sign-extend CIFS's. */
+	const kind = REMOTE_ACCESS_MOUNTS.get(type >>> 0);
+	return kind === undefined
+		? null
+		: `lies on a ${kind} mount, whose server decides access whatever its mode shows`;
 }
 
 /**
