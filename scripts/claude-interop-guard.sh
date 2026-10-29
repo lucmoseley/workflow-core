@@ -33,5 +33,6 @@ claude() {
   # runs in the interactive shell, and exec would replace it, closing the
   # terminal when Claude exits. "$@" passes every argument through untouched,
   # so `agents`, `--resume`, `--bg`, `attach` and the rest behave as before.
+  # claude-route-exempt: wraps the user's own `claude` in their interactive shell
   command claude "$@"
 }

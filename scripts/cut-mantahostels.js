@@ -48,6 +48,7 @@ const { spawnSync } = require("node:child_process");
 const { execGit, spawnGitSync } = require("./lib/git.js");
 const { procRoot } = require("./lib/proc-root.js");
 const { readProcCwd } = require("./lib/claude-sessions.js");
+const { claudeBin } = require("./lib/claude-bin.js");
 const { materialisePlugin, fixByHand } = require("./lib/materialise-plugin.js");
 const {
 	CONFIG_PATH,
@@ -1384,7 +1385,7 @@ function installPinned({ at, p, pin }) {
 	const { root, out } = at;
 	const result = materialisePlugin({
 		root,
-		claudeBin: process.env.WFC_CLAUDE_BIN || "claude",
+		claudeBin: claudeBin(),
 		addSource: `${CORE_URL}#${pin}`,
 		pluginId: `workflow-core@${MARKETPLACE}`,
 		configDir: at.configDir,

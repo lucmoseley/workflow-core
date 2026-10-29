@@ -605,6 +605,7 @@ describe("the CLI — §N4's outcome alphabet", () => {
 			mode: 0o755,
 		});
 		const r = runCli(["--issues", "972"], {
+			// claude-route-exempt: asserts a bare `claude` on PATH goes unread
 			PATH: `${shadow}:${process.env.PATH}`,
 		});
 		expect(r.status).toBe(1);

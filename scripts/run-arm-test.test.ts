@@ -126,6 +126,7 @@ describe("plan", () => {
 		expect(
 			run(planArgs(root, "1"), {
 				...env,
+				// claude-route-exempt: asserts the plan pins PATH's versioned `claude`
 				PATH: `${bin}${path.delimiter}${process.env.PATH}`,
 			}).code,
 		).toBe(0);
@@ -663,6 +664,7 @@ const id="job"+Math.random().toString(16).slice(2,8);fs.appendFileSync(${JSON.st
 		const { WFC_CLAUDE_BIN: _, ...rest } = env;
 		const onPath = {
 			...rest,
+			// claude-route-exempt: asserts the plan pins PATH's versioned `claude`
 			PATH: `${bin}${path.delimiter}${process.env.PATH}`,
 		};
 		const root = path.join(tmp, "p");

@@ -95,7 +95,7 @@ The floor is every gate in the plugin's own `.husky/pre-commit` that judges code
 | `scripts/check-jsonl-reads.js` | a hand split-and-parse of JSONL rather than `scripts/lib/jsonl.js` | a commit staging a `scripts/` program, judging the whole repo |
 | `scripts/check-clock-copies.js` | a program reading `WFC_NOW` itself rather than `now()` in `scripts/lib/check.js`, with no `clock-kept: <why>` comment | a commit staging a `scripts/` program, judging the whole repo |
 | `scripts/check-report-programs.js` | a `report-*` program writing through `console` or `process.stdout.write` / `process.stderr.write` rather than `writeFd`, or building its own `gh issue create` rather than `createIssue` | a commit staging a `scripts/report-*` program, judging the whole repo |
-| `scripts/check-gh-route.js` | a `gh` call off `scripts/lib/gh.js` and `WFC_GH`: a second var, a Node program's own spawn, a bare shell `gh`, or a test's `gh` stub on `PATH` (§X2, §N7) | a commit staging `scripts/`, `.claude/skills/`, `.husky/` or `hooks/`, judging the whole repo |
+| `scripts/check-gh-route.js` | a `gh` call off `scripts/lib/gh.js` and `WFC_GH`, or a `claude` call off `scripts/lib/claude-bin.js` and `WFC_CLAUDE_BIN`: a second var, a Node program's own spawn, a bare shell call, or a test's stub on `PATH` (§X2, §N7) | a commit staging `scripts/`, `.claude/skills/`, `.husky/` or `hooks/`, judging the whole repo |
 | `scripts/check-guard-test-isolation.js`, `scripts/check-host-root-test-isolation.js`, `scripts/check-git-fixture-identity.js` | a `scripts/` test that spawns a guard without redirecting `CLAUDE_CONFIG_DIR`, spawns a `hostRoot()`- or `gr_root`-rooted script without redirecting `CLAUDE_PROJECT_DIR`, or commits in a git fixture it gave no identity | a commit staging `scripts/` code, each judging the whole repo |
 | `scripts/check-precommit-exit.js` | a checker line in `.husky/pre-commit` or `.husky/pre-commit.local` exiting 1 on its failure, turning its BROKEN into a finding (§N4) | a commit staging either file |
 | `scripts/check-test-spawn.js` | a test spawning `node` on the program under test with no `spawn-kept: <why>` comment (§X3) | a commit staging a test under `scripts/` or `.claude/skills/`, judging the whole repo |
@@ -126,6 +126,7 @@ Copy a row's exemplar, never the nearest file doing the same job (**Primitive**,
 | Reading a JSONL file or text | `readJsonl`, `parseJsonl` or, for a streamed line, `parseJsonlRow` in `scripts/lib/jsonl.js` | `scripts/lib/dispatch-ledger.js` | §0, its floor table | `scripts/check-jsonl-reads.js` |
 | Reading the clock | `now()` in `scripts/lib/check.js`, pinned by `WFC_NOW` | `scripts/check-history-trim.js` | §0, its floor table | `scripts/check-clock-copies.js` |
 | Invoking `gh`, and stubbing it in a test | `gh`, `ghJson` and their kin in `scripts/lib/gh.js`, reading `WFC_GH`; `"${WFC_GH:-gh}"` in shell; a test's stub at `WFC_GH` from `scripts/lib/gh-stub.ts` | `scripts/check-issue-orphans.js`, `scripts/link-sub-issue.sh`, `scripts/check-issue-orphans.test.ts` | §X2, §N7 | `scripts/check-gh-route.js` |
+| Invoking `claude`, and stubbing it in a test | `claudeBin()` in `scripts/lib/claude-bin.js`, reading `WFC_CLAUDE_BIN`; `"${WFC_CLAUDE_BIN:-claude}"` in shell; a test's stub at `WFC_CLAUDE_BIN` | `scripts/run-mod-tests.js`, `scripts/probe-async-hook-timeout.sh`, `scripts/run-mod-tests.test.ts` | §X2, §N7 | `scripts/check-gh-route.js` |
 | Writing a program's output | `writeFd` in `scripts/lib/write-fd.js` | `scripts/check-plugin-gap.js` | §N6 | Standards axis criterion |
 | Writing a `report-*` program's output | `writeFd` in `scripts/lib/write-fd.js` | `scripts/report-new-shared-faults.js` | §N6 | `scripts/check-report-programs.js` |
 | A `report-*` program filing an issue | `createIssue` in `scripts/lib/tracking-issue.js`, or its `fileOrRefresh` | `scripts/report-remeasure-due.js` | §N3 | `scripts/check-report-programs.js` |
@@ -453,7 +454,7 @@ A test fills its seam with a real temp directory, a real subprocess, an injected
 Prefer a shared testkit's fake to a hand-rolled one; for a port the repo owns, §G7 requires it.
 
 - *Stack (Vitest config)*: the breach is `vi.mock`; `vi` itself is for spies, env stubs and waits.
-- *House*: a test reaches `gh` through `WFC_GH`, pointed at a stub executable, never through a `PATH` prepended with a fake.
+- *House*: a test reaches `gh` through `WFC_GH` and `claude` through `WFC_CLAUDE_BIN`, each pointed at a stub executable, never through a `PATH` prepended with a fake.
 
 ### §X3 · A program test is black-box, and asserts the message as well as the code — **hard**
 

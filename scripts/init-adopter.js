@@ -55,6 +55,7 @@ const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
 const { readPluginRecord } = require("./lib/plugin-record.js");
+const { claudeBin: resolveClaudeBin } = require("./lib/claude-bin.js");
 const {
 	run,
 	installFailure: reason,
@@ -650,10 +651,8 @@ function init(at) {
 	 * `update` call rather than left at whatever it was (`install` alone
 	 * no-ops there without re-fetching, #103). Non-fatal: a session with no
 	 * `claude` on PATH, or a source it can't reach, leaves
-	 * the repo usable, one hand-run command short of loading. `WFC_CLAUDE_BIN`
-	 * overrides the binary, matching every other script that shells out to
-	 * `claude` (docs/code-standards-base.md §N7, scripts/lib/agent-liveness.js). */
-	const claudeBin = process.env.WFC_CLAUDE_BIN || "claude";
+	 * the repo usable, one hand-run command short of loading. */
+	const claudeBin = resolveClaudeBin();
 	const pluginId = `workflow-core@${at.marketplace}`;
 	const result = materialiseStep({ at, source, claudeBin, pluginId });
 

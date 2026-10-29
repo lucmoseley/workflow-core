@@ -250,6 +250,7 @@ describe("the WFC_CLAUDE_BIN seam (mantahostels#1374)", () => {
 		);
 		const r = spawnSync("bash", [SCRIPT, "sonnet", "/implement 341"], {
 			encoding: "utf8",
+			// claude-route-exempt: asserts a bare `claude` on PATH goes unread
 			env: baseEnv({ PATH: `${shadowDir}:${process.env.PATH}` }),
 		});
 		expect(r.status).toBe(0);

@@ -499,6 +499,7 @@ describe("init in a fresh repository", () => {
 					 * the default `claude` (#775). */
 					env: {
 						...withoutClaudeBin,
+						// claude-route-exempt: asserts the bare `claude` fallback
 						PATH: `${stub}${path.delimiter}${process.env.PATH}`,
 					},
 				},

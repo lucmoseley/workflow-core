@@ -116,6 +116,7 @@ const {
 const { parseOrCode } = require("./lib/cli-args");
 const { scriptPath } = require("./lib/script-path.js");
 const { isClaudeArgv0 } = require("./lib/claude-argv0.js");
+const { claudeBin } = require("./lib/claude-bin.js");
 const { requiredGroup } = require("./lib/regex-group.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { fixByHand, materialisePlugin } = require("./lib/materialise-plugin.js");
@@ -288,7 +289,7 @@ function loadWalker(installPath) {
  * @returns {{action: string, lines: string[]}}
  */
 function reconcile({ root, pluginRoot, emit }) {
-	const claudeBin = process.env.WFC_CLAUDE_BIN || "claude";
+	const bin = claudeBin();
 	/** @type {string[]} */
 	const lines = [];
 	/** @param {string} line */
@@ -353,7 +354,7 @@ function reconcile({ root, pluginRoot, emit }) {
 
 	const result = materialisePlugin({
 		root,
-		claudeBin,
+		claudeBin: bin,
 		addSource,
 		pluginId,
 		configDir: cfg,
@@ -420,7 +421,7 @@ function reconcile({ root, pluginRoot, emit }) {
 			pluginRoot: installPath,
 			out: say,
 			configDir: cfg,
-			claudeBin,
+			claudeBin: bin,
 		});
 		if (walked.action !== "committed" && walked.action !== "up-to-date") {
 			say(

@@ -7993,6 +7993,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/claude-bin.js": [
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -8000,6 +8001,7 @@
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-overflow.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/init-adopter.test.ts",
 			"scripts/lib/agents-stop.contract.test.ts",
 			"scripts/lib/claude-attach.contract.test.ts",
 			"scripts/lib/git.test.ts",
@@ -10005,6 +10007,30 @@
 			"scripts/usage-probe.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/cites.js.txt": [
+			"scripts/check-gh-route.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/lib/fixtures/gh-route/claude-copies.js.txt": [
+			"scripts/check-gh-route.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/lib/fixtures/gh-route/claude-lib.js.txt": [
+			"scripts/check-gh-route.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/lib/fixtures/gh-route/claude-on-primitive.js.txt": [
+			"scripts/check-gh-route.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/lib/fixtures/gh-route/claude-path-stub.ts.txt": [
+			"scripts/check-gh-route.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/lib/fixtures/gh-route/claude-second-var.js.txt": [
+			"scripts/check-gh-route.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/lib/fixtures/gh-route/claude-wfc-stub.ts.txt": [
 			"scripts/check-gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],

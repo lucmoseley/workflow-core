@@ -1,0 +1,2 @@
+const out = execFileSync(process.env.WFC_CLAUDE_BIN || "claude", ["agents"]);
+spawnSync("claude", ["--version"], { encoding: "utf8" });

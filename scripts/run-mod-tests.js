@@ -51,6 +51,7 @@ const { pushedRef } = require("./lib/landing-refs.js");
 const { caught } = require("./lib/caught.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { readClaudeVersion } = require("./lib/claude-version.js");
+const { claudeBin } = require("./lib/claude-bin.js");
 
 const MODS = [".claude/skills/wfc-delivery", ".claude/skills/wfc-liveness"];
 /* A guess at a ceiling for a hung runner, not a measurement (#857). */
@@ -64,9 +65,6 @@ const FOLDER_REFUSED = "claude plugin test: ";
 /* The README sentence carrying a mod's test floor (#896, #901). */
 const TEST_FLOOR =
 	/\*\*The tests need Claude Code (\d+\.\d+\.\d+) or later\*\*/;
-
-/* §N7: `claude` is injected at WFC_CLAUDE_BIN repo-wide, never by PATH. */
-const claudeBin = () => process.env.WFC_CLAUDE_BIN || "claude";
 
 /** @param {string[]} args */
 const git = (args) =>

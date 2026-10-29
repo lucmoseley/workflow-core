@@ -1,0 +1,3 @@
+const claude = path.join(dir, "bin", "claude");
+fs.writeFileSync(claude, script, { mode: 0o755 });
+const env = { WFC_CLAUDE_BIN: claude, WFC_CLAUDE_CONFIG_A: dir };

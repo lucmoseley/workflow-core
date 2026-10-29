@@ -296,6 +296,7 @@ roster_remedy() {
   printf '  bg-pty-host) and replPid (the bg-spare). Confirm each against\n' >&2
   printf '  /proc/<pid>/stat field 22 (procStart/replProcStart) to rule out pid\n' >&2
   printf '  reuse, then SIGTERM both — the entry leaves the roster and\n' >&2
+  # claude-route-exempt: only text
   printf '  `claude agents --json` within seconds, with no daemon restart.\n' >&2
   # The plan dirs come from lib/plan-dirs.js, the one definition of them (#2580),
   # at one `node` spawn per run: `remedy_printed` prints this block once.
@@ -674,6 +675,7 @@ if [[ $overflow -eq 0 && $force -eq 0 ]]; then
   # automatic retry follows (#280 ruling 4).
   if [[ "$week_trust" != "fresh" || "$session_trust" != "fresh" ]]; then
     printf 'REFUSED: no trustworthy allowance reading (the usage cache is stale or\n' >&2
+    # claude-route-exempt: only text
     printf '  absent, and the printed bars from `claude -p "/usage"` were unparseable).\n' >&2
     printf '  This is likely transient — re-run, or --force.\n' >&2
     exit 3

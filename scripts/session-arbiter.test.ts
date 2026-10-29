@@ -121,7 +121,7 @@ describe("the sandbox's isolation from the machine (mantahostels#1902)", () => {
 	});
 
 	it("routes an unstubbed gh call to a stub that refuses", () => {
-		const unstubbed = path.join(sb.dir, "gh-unstubbed");
+		const unstubbed = sandboxOf("gh-unstubbed");
 		expect(process.env.WFC_GH).toBe(unstubbed);
 		const r = spawnSync(unstubbed, ["issue", "view", "1"], {
 			encoding: "utf8",
@@ -138,13 +138,11 @@ describe("the sandbox's isolation from the machine (mantahostels#1902)", () => {
 		expect(ghCallCount(sb)).toBe(0);
 	});
 
-	it("resolves a bare `claude` to its stub too", () => {
-		// The knob is belt; PATH is braces, for a caller not reading it.
-		expect(
-			spawnSync("sh", ["-c", "command -v claude"], {
-				encoding: "utf8",
-			}).stdout.trim(),
-		).toBe(sandboxOf("claude"));
+	it("stubs claude at WFC_CLAUDE_BIN alone, never on PATH", () => {
+		expect(process.env.WFC_CLAUDE_BIN).toBe(sandboxOf("claude"));
+		expect(process.env.PATH?.split(path.delimiter)).not.toContain(
+			path.dirname(sandboxOf("claude")),
+		);
 	});
 });
 

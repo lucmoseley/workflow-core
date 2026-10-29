@@ -259,6 +259,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 			],
 			{
 				encoding: "utf8",
+				// claude-route-exempt: the user-shell wrapper runs PATH's `claude`
 				env: { ...process.env, PATH: `${onPath}:${process.env.PATH}` },
 			},
 		);

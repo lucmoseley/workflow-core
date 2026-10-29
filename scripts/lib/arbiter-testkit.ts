@@ -109,8 +109,9 @@ function dropSiblingConfigs(env: NodeJS.ProcessEnv) {
  * every unshimmed case down the refusal branch the real oracle never took.
  *
  * The `gh` stub refuses loudly: a case that needs one says so with `fakeGh`
- * rather than reaching the network. It sits at WFC_GH alone, never on PATH,
- * since every `gh` caller reads that var (#3455).
+ * rather than reaching the network. Each stub sits at its var alone, WFC_GH
+ * or WFC_CLAUDE_BIN, never on PATH, since every caller reads that var (#3455,
+ * #3559).
  *
  * RESIDUAL: a real session also exports `CLAUDE_PID`, `CLAUDECODE` and
  * `CLAUDE_CODE_MESSAGING_SOCKET`, and the sandbox leaves `HOME` alone
@@ -120,8 +121,8 @@ function stubOracles(sb: Sandbox) {
 	const dir = path.join(sb.dir, "stubs");
 	fs.mkdirSync(dir, { recursive: true });
 
-	const write = (name: string, body: string, at = dir) => {
-		const bin = path.join(at, name);
+	const write = (name: string, body: string) => {
+		const bin = path.join(dir, name);
 		fs.writeFileSync(bin, `#!/bin/sh\n${body}\n`);
 		fs.chmodSync(bin, 0o755);
 		return bin;
@@ -147,12 +148,7 @@ function stubOracles(sb: Sandbox) {
 	process.env.WFC_GH = write(
 		"gh-unstubbed",
 		'echo "arbiter sandbox: unstubbed gh call: $*" >&2\nexit 1',
-		sb.dir,
 	);
-	// No trailing delimiter on an unset PATH: an empty field is the cwd.
-	process.env.PATH = process.env.PATH
-		? `${dir}${path.delimiter}${process.env.PATH}`
-		: dir;
 }
 
 /**

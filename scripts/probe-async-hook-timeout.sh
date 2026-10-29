@@ -83,7 +83,7 @@ EOF
   status=0
   (cd "$probe" && env -u CLAUDE_CODE_SESSION_ID -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT \
     -u CLAUDE_CODE_CHILD_SESSION timeout "$((HOLD * 5))" \
-    claude -p "reply with the two letters OK and nothing else" --model "$MODEL" >/dev/null 2>&1) || status=$?
+    "${WFC_CLAUDE_BIN:-claude}" -p "reply with the two letters OK and nothing else" --model "$MODEL" >/dev/null 2>&1) || status=$?
   if [[ "$status" -ne 0 ]]; then
     echo "the ${async}-wired arm's own \`claude -p\` exited $status — nothing was measured" >&2
     exit 2

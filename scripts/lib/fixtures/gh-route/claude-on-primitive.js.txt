@@ -1,0 +1,2 @@
+const { claudeBin } = require("./lib/claude-bin.js");
+spawnSync(claudeBin(), ["agents", "--json"], { encoding: "utf8" });
