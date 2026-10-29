@@ -31,8 +31,6 @@ const { markersDir } = require("./marker-root.js");
 const {
 	PREFIXES: pricedOptionsPrefixes,
 } = require("./priced-options-limbs.js");
-/* The park marker's prefix, off its owner for the same reason. */
-const { MARKER_PREFIX: PARKED_PREFIX } = require("./parked-marker.js");
 
 // ---------------------------------------------------------------------------
 // The hook markers — under .claude/tmp/markers (F8, mantahostels#3515, issue #2),
@@ -72,6 +70,12 @@ const { MARKER_PREFIX: PARKED_PREFIX } = require("./parked-marker.js");
  * inject-compaction-count.js's hand-off from PreCompact to SessionStart (#1148).
  * `.self-plugin-loaded-` is write-self-plugin-marker.sh's proof, read by the
  * self-plugin canary, that the self-plugin loaded (#2438).
+ * `.parked-blocked-` is park-blocked.sh's record, read by the session-ceiling
+ * guard.
+ * lib/parked-marker.js's `.parked-<sid>` shares the directory and has no
+ * clock: its park waits on the founder for days after the session finishes,
+ * and unpark-on-prompt.js deletes it once empty (#3589). Residual: a marker
+ * whose session never takes another prompt stays, a few bytes for good.
  * .gitignore hides them all under `.claude/tmp/`. A new one needs this list
  * and its writer edited; hook-block.test.ts pins that against the
  * call sites for the counters (mantahostels#1308).
@@ -101,7 +105,7 @@ const MARKER_PREFIXES = [
 	".unpushed-seen-",
 	".paste-self-match-nagged-",
 	".session-id-prose-nagged-",
-	PARKED_PREFIX,
+	".parked-blocked-",
 	".jev-advisory-nagged-",
 	".jev-advisory-outage-",
 	".jev-advisory-malformed-",
