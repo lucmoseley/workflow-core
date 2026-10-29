@@ -861,8 +861,7 @@ JOINERS_QUOTED=$(quoted_list "$TAIL_JOINERS" " or ")
 ALLOWLIST_TEXT="ASCII letters and digits, spaces, $(quoted_list "$TAIL_MARKS" ", "), and a $JOINERS_QUOTED inside a word"
 readonly JOINERS_QUOTED ALLOWLIST_TEXT
 # Unicode's Zs spaces past U+0020 as UTF-8, read as plain spaces, and U+200B,
-# deleted, and read as a space when judging a second clause (#3491, #3594,
-# #3603).
+# deleted (#3491, #3594).
 readonly ODD_SPACES=($'\xc2\xa0' $'\xe1\x9a\x80' $'\xe2\x81\x9f' $'\xe3\x80\x80' $'\xe2\x80\xaf' $'\xe2\x80\x80' $'\xe2\x80\x81' $'\xe2\x80\x82' $'\xe2\x80\x83' $'\xe2\x80\x84'
   $'\xe2\x80\x85' $'\xe2\x80\x86' $'\xe2\x80\x87' $'\xe2\x80\x88' $'\xe2\x80\x89' $'\xe2\x80\x8a')
 readonly ZERO_WIDTH=$'\xe2\x80\x8b'
@@ -921,8 +920,7 @@ tail_fault() {
 # The fault in the skipped kind "$1", matched with U+200B deleted; empty where
 # it is an exempt kind. Deleting U+200B joins "a<U+200B>nd" into a JOINS word,
 # and reading it as a space parts one from "commit<U+200B>and", so the tail
-# after the kind's phrase is judged both ways, a second clause either shows
-# refused and named in the form that shows it.
+# after the kind's phrase is judged both ways.
 skipped_fault() {
   local named phrase tail end spaced reason i
   named=${1//"$ZERO_WIDTH"/} named=${named//+([[:space:]])/ }
