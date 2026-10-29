@@ -114,6 +114,6 @@ describe("the pre-commit swallowed-error gate", () => {
 		const r = fixture({ [PY]: SWALLOW });
 		const { code, output } = runGate(r, pathWithoutPython(r));
 		expect(output).toMatch(/cannot run python3/);
-		expect(code).toBe(1);
+		expect(code).toBe(2);
 	});
 });

@@ -31,6 +31,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
+const { isInlineCode } = require("./lib/shell-words.js");
 const { scanJs } = require("./lib/strip-comments.js");
 const { isJsTestFile } = require("./lib/test-kind.js");
 
@@ -47,7 +48,6 @@ const SPAWN = new RegExp(
 	].join("|"),
 	"g",
 );
-const INLINE_CODE = new Set(["-e", "--eval", "-p", "--print"]);
 const MARKER = /spawn-kept:\s*\w/;
 
 const EXEMPLAR = "scripts/check-cli-args.test.ts";
@@ -72,20 +72,6 @@ function listTestFiles(dir, rel) {
 		else if (entry.isFile() && isJsTestFile(entry.name)) out.push(name);
 	}
 	return out.sort();
-}
-
-/**
- * Whether a run of argv strings or a command's words runs inline code: an
- * inline-code flag before the first word that is not a flag.
- *
- * @param {string[]} words
- */
-function runsInlineCode(words) {
-	for (const w of words) {
-		if (!w.startsWith("-")) return false;
-		if (INLINE_CODE.has(w.split("=")[0] ?? w)) return true;
-	}
-	return false;
 }
 
 /**
@@ -184,7 +170,9 @@ function unstatedSpawns(source) {
 		if (src.isMasked(at)) continue;
 		const open = source.indexOf("(", at);
 		const close = src.closeOf(open);
-		if (runsInlineCode(nodeWords(source.slice(open, close), Boolean(m[1]))))
+		if (
+			isInlineCode("node", nodeWords(source.slice(open, close), Boolean(m[1])))
+		)
 			continue;
 		const lineStart = src.lineStartOf(at);
 		const reasons = [

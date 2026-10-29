@@ -34,7 +34,7 @@ import { runInProcess } from "./lib/run-in-process";
 
 const sb = freshSandbox();
 
-const WIRING = `${coreCall("bash", "scripts/stale-write-back-gate.sh")} || exit 1`;
+const WIRING = `${coreCall("bash", "scripts/stale-write-back-gate.sh")} || exit "$?"`;
 
 const DOC = "docs/doc-map.md";
 const OTHER = "scripts/evidence-audit.py";
