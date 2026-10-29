@@ -1464,6 +1464,31 @@ describe("runLander on a red batch whose files are red on main too (#3324)", () 
 		expect(r.pushes.map((p) => p.sha)).not.toContain(B);
 	});
 
+	it("holds a parent red on files red on main plus a CI job, naming the job (#3679)", async () => {
+		/* C breaks Y; X is red on main and after it. */
+		const job = "Full suite / Lint and types";
+		const r = await run(
+			{ main: A, landing: D },
+			(sha, files) => {
+				if (files === undefined) return { kind: "red", files: [X, Y] };
+				if (files.length === 0) return { kind: "red", files: [X], jobs: [job] };
+				const failing = files.filter((f) => f === X || sha === C || sha === D);
+				return failing.length > 0
+					? { kind: "red", files: failing }
+					: { kind: "green" };
+			},
+			{ history: [B, C, D] },
+		);
+		expect(r.tested).toContainEqual({ sha: B, files: [] });
+		expect(r.end).toEqual({
+			kind: "hold",
+			reason:
+				"culprit unconfirmed: ccccccccc's parent bbbbbbbbb fails the whole suite: the CI jobs 'Full suite / Lint and types'; already red on `main`: x.test.ts",
+		});
+		expect(r.reverted).toEqual([]);
+		expect(r.pushes).toEqual([]);
+	});
+
 	it("names every file red on main once where the main confirm fails too", async () => {
 		/* B breaks Y, which main then fails as well; X is red on main. */
 		const r = await scripted((sha, nth) =>

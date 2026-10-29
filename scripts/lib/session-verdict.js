@@ -324,7 +324,9 @@ function buildLastRedNote(root, log) {
 		"\n\nCheck that against your own diff. Where the two do not intersect, " +
 		"the red predates you: take the exemption, say which one and name these " +
 		"files, write `result:` and stop again — no suite. Where they do " +
-		"intersect, run it. THIS IS EVIDENCE, NOT A LICENCE: it says what was " +
+		"intersect, run it. THIS IS " +
+		markerLib.EVIDENCE_NOT_LICENCE.toUpperCase() +
+		": it says what was " +
 		`red, never whose work it is, and ${markerLib.FLAKE_NOTE}, so a file ` +
 		"absent here can be red now."
 	);

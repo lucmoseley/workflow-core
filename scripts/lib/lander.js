@@ -413,7 +413,16 @@ const isSearchedRed = (v, redJobs) =>
 	v?.kind === "red" &&
 	(redJobs === null ||
 		v.files.length > 0 ||
-		(v.jobs ?? []).some((j) => redJobs.notRed.includes(j)));
+		(v.jobs ?? []).some((j) => isSearchedJob(j, redJobs)));
+
+/**
+ * Whether the bisect searches CI job `job`: every job where `redJobs` is
+ * null, else those of `redJobs.notRed`.
+ * @param {string} job
+ * @param {RedJobs|null} redJobs
+ */
+const isSearchedJob = (job, redJobs) =>
+	redJobs === null || redJobs.notRed.includes(job);
 
 /**
  * Whether `main` may move to a sha `v` judged: green, and read off a CI run
@@ -471,11 +480,16 @@ function redOnMain(onMain, checked) {
 }
 
 /**
+ * Whether `v` is red only on files of `known` and on no CI job the bisect
+ * searches, any job where `redJobs` is null (#3679).
  * @param {Extract<Verdict, {kind: "red"}>} v
  * @param {string[]} known
+ * @param {RedJobs|null} redJobs
  */
-const isRedOnlyOn = (v, known) =>
-	v.files.length > 0 && v.files.every((f) => known.includes(f));
+const isRedOnlyOn = (v, known, redJobs) =>
+	v.files.length > 0 &&
+	v.files.every((f) => known.includes(f)) &&
+	!(v.jobs ?? []).some((j) => isSearchedJob(j, redJobs));
 
 /** @param {string[]} files */
 const buildAlreadyRedReason = (files) =>
@@ -535,13 +549,16 @@ function confirmAction(
 	 * found a job red there (#3586), only on CI jobs red on `main` or
 	 * outside that read — is reverted past, never landed: culpritAction
 	 * fast-forwards a parent only where its whole suite passed. */
-	if (isSearchedRed(before, redJobs) && !isRedOnlyOn(before, known))
+	if (isSearchedRed(before, redJobs) && !isRedOnlyOn(before, known, redJobs))
 		return {
 			kind: "hold",
 			reason: parentUnconfirmed(
 				culprit,
 				parent,
-				`fails the whole suite: ${failingLabel(before)}`,
+				`fails the whole suite: ${failingLabel({
+					files: before.files.filter((f) => !known.includes(f)),
+					jobs: (before.jobs ?? []).filter((j) => isSearchedJob(j, redJobs)),
+				})}`,
 			),
 		};
 	if (before && before.kind !== "unknown") return null;

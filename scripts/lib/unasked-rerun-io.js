@@ -114,7 +114,7 @@ function judgeIO(root, { timeoutMs = HOOK_GIT_TIMEOUT_MS } = {}) {
 			);
 			return { selection: value, timedOut: seen.timedOut || overran };
 		},
-		storeFault: () => storeFaultAt(storePath(root)),
+		storeFault: () => readStoreFault(storePath(root)),
 		attestation: (tip, within) => {
 			const { exec, seen } = boundedExec();
 			const certificates = readMarkers({ root });
@@ -181,7 +181,7 @@ function readClassedReds(root, exec, seen) {
  * @param {string} at
  * @returns {string|null}
  */
-function storeFaultAt(at) {
+function readStoreFault(at) {
 	try {
 		if (!fs.statSync(at).isFile()) return "EISDIR";
 		fs.accessSync(at, fs.constants.R_OK);
@@ -196,7 +196,7 @@ function storeFaultAt(at) {
  * @param {string} root
  */
 function readRedStoreFault(root) {
-	const code = storeFaultAt(storePath(root, FAIL_STORE));
+	const code = readStoreFault(storePath(root, FAIL_STORE));
 	if (code) return code === "ENOENT" ? null : code;
 	const { malformed } = countMalformed({ root, store: FAIL_STORE });
 	return malformed > 0 ? `${malformed} malformed line(s)` : null;

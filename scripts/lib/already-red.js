@@ -1,6 +1,7 @@
 /*
  * already-red.js — which of a red run's failing files were already red on
- * the base it was narrowed against (#3624).
+ * the base its launch recorded: the one a narrowed run was narrowed against
+ * (#3624), or the one a full run resolved (#3646).
  *
  * THE EVIDENCE IS WHAT IS ALREADY ON RECORD, never a run of its own:
  * - the red store's earlier runs, any session's, and the certificate store's,
@@ -25,6 +26,7 @@ const {
 	holdsTestByTree,
 	readFailures,
 	readMarkers,
+	EVIDENCE_NOT_LICENCE,
 	FLAKE_NOTE,
 	shortSha,
 	suiteOf,
@@ -181,19 +183,42 @@ function readAlreadyRedLines(run, root) {
 	}
 }
 
+/* The verdict on a red whose every failure was already red on its base. */
+const ALL_ALREADY_RED =
+	"  Every failure here was already red on the base, so no rerun is owed to attribute them";
+
 /**
  * The lines a red run's summary carries, or none where nothing failed.
  * @param {Classing|null} classed
- * @param {{flakeNote?: boolean}} [options] `flakeNote: false` where the caller
- *   prints FLAKE_NOTE once over several reds
  * @returns {string[]}
  */
-function buildAlreadyRedLines(classed, { flakeNote = true } = {}) {
+function buildAlreadyRedLines(classed) {
 	if (!classed) return [];
 	if (!classed.base)
 		return [
 			"  This run recorded no base, so no failure could be checked against one (#3624).",
 		];
+	return [
+		...buildAlreadyRedFileLines(classed),
+		...(classed.allAlreadyRed
+			? [`${ALL_ALREADY_RED} — ${EVIDENCE_NOT_LICENCE}: ${FLAKE_NOTE}.`]
+			: [
+					"  NEW — no record shows these red on the base:",
+					...classed.files
+						.filter((f) => !f.red)
+						.map(({ file }) => `    ${file}`),
+				]),
+	];
+}
+
+/**
+ * The files a classing shows already red on its base, each with the run that
+ * shows it, under one heading, or none where no file is.
+ * @param {Classing} classed
+ * @returns {string[]}
+ */
+function buildAlreadyRedFileLines(classed) {
+	if (!classed.base) return [];
 	const already = classed.files.flatMap(({ file, red }) =>
 		red
 			? [
@@ -201,26 +226,17 @@ function buildAlreadyRedLines(classed, { flakeNote = true } = {}) {
 				]
 			: [],
 	);
-	const fresh = classed.files.filter((f) => !f.red);
-	return [
-		...(already.length > 0
-			? [
-					`  ALREADY RED on the base ${shortSha(classed.base)} (#3624):`,
-					...already,
-				]
-			: []),
-		...(classed.allAlreadyRed
-			? [
-					`  Every failure here was already red on the base, so no rerun is owed to attribute them${flakeNote ? ` — evidence, not a licence: ${FLAKE_NOTE}` : ""}.`,
-				]
-			: [
-					"  NEW — no record shows these red on the base:",
-					...fresh.map(({ file }) => `    ${file}`),
-				]),
-	];
+	return already.length > 0
+		? [
+				`  ALREADY RED on the base ${shortSha(classed.base)} (#3624):`,
+				...already,
+			]
+		: [];
 }
 
 module.exports = {
+	ALL_ALREADY_RED,
+	buildAlreadyRedFileLines,
 	buildAlreadyRedLines,
 	classifyFailures,
 	readAlreadyRedLines,

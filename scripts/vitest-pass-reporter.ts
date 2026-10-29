@@ -42,6 +42,7 @@ const {
 	isFullScope,
 	EDGES_FILE,
 	docsReadBy,
+	fullAttestationOf,
 } = require("./lib/test-pass-marker.js");
 const { readLaunch, fillRunReport } = require("./lib/suite-handoff.js");
 const { sample: sampleCpu } = require("./lib/cpu-sample.js");
@@ -169,14 +170,6 @@ function fullRunFields(launch: import("./lib/suite-handoff.js").Launch) {
 		// `fullCause: null`.
 		fullCause: launch.fullCause,
 	};
-}
-
-/* A full run's attestation: `"*"`, beside the base its launch resolved where
- * one did, so a full red can be classed against it (#3646). */
-export function fullAttestationOf({
-	base,
-}: Pick<import("./lib/suite-handoff.js").Launch, "base">) {
-	return { closure: "*" as const, ...(base ? { base } : {}) };
 }
 
 export default class TestPassReporter {
