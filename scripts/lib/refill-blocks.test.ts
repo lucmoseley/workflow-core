@@ -19,7 +19,7 @@ import { API_PROMPT, IDLE_PROMPT } from "./loop-prompts.js";
 import {
 	actOnBlocks,
 	actOnIdle,
-	childLine,
+	buildChildLine,
 	isHeld,
 	markParked,
 	unknownNews,
@@ -909,19 +909,19 @@ describe("unknownNews (#3200)", () => {
 	});
 });
 
-describe("childLine (#3645)", () => {
+describe("buildChildLine (#3645)", () => {
 	it.each([
 		[
-			"an exit-0 run with output",
+			"puts exit 0 after the label and indents each output line under it",
 			{ out: "filed #9\nfiled #10", failed: null },
 			"memory kills: exit 0\n  filed #9\n  filed #10",
 		],
 		[
-			"a failed run",
+			"puts the run's failure after the label, ahead of its output",
 			{ out: "boom", failed: "exit 1" },
 			"memory kills: exit 1\n  boom",
 		],
 	])("%s", (_, ran, line) => {
-		expect(childLine("memory kills", ran)).toBe(line);
+		expect(buildChildLine("memory kills", ran)).toBe(line);
 	});
 });

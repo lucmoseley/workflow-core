@@ -200,7 +200,7 @@ function superviseLanding(roots) {
 			[path.join(SCRIPTS, "supervise-landing.js")],
 			{ cwd: root, env: checkoutEnv(root) },
 		);
-		if (r.out || r.failed) log(blocks.childLine(`landing in ${root}`, r));
+		if (r.out || r.failed) log(blocks.buildChildLine(`landing in ${root}`, r));
 	}
 }
 
@@ -216,7 +216,7 @@ function fileKillTickets() {
 		[path.join(SCRIPTS, "file-memory-kill-tickets.js")],
 		{ cwd: REVIEW_ROOT, env: checkoutEnv(REVIEW_ROOT) },
 	);
-	if (r.out || r.failed) log(blocks.childLine("memory kills", r));
+	if (r.out || r.failed) log(blocks.buildChildLine("memory kills", r));
 }
 
 /**
@@ -367,7 +367,7 @@ function launchBatch(batch) {
 		sessionOf: readHeadlessSession,
 		now: Date.now,
 	});
-	log(blocks.childLine(`dispatch ${loop.buildLaunchesLine(batch)}`, r));
+	log(blocks.buildChildLine(`dispatch ${loop.buildLaunchesLine(batch)}`, r));
 	gates.dropTried(files.gates, r.tried, log);
 	return { launched: r.launched, refused: r.refused };
 }
