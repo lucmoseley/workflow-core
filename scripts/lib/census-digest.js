@@ -54,6 +54,7 @@ const {
 	directRuleCounts,
 	emissionMatches,
 	firstUnreadInjection,
+	namesAnEmission,
 } = require("./rule-emission.js");
 const { bareCitationGrep } = require("./qualify-citations.js");
 const { requiredGroup } = require("./regex-group.js");
@@ -276,10 +277,10 @@ function readLibFacts(snap, rel) {
 			path.posix.join(dir, path.posix.extname(name) ? name : `${name}.js`),
 		)
 		.filter((lib) => lib.endsWith(".js"));
-	/* The raw text's ids are a superset of the reprint's, comments included,
-	 * so a lib naming none is never reprinted. */
-	let ruleFiles = ruleFilesIn(text, emissionMatches(text));
-	if (ruleFiles.length > 0) {
+	/* Only the reprint's ids count, and a lib naming no emission has none. */
+	/** @type {string[]} */
+	let ruleFiles = [];
+	if (namesAnEmission(text)) {
 		const code = String(readCode(snap, rel));
 		ruleFiles = ruleFilesIn(code, emissionMatches(code));
 	}

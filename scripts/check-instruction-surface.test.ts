@@ -976,7 +976,19 @@ describe("the behavioural verdicts", () => {
 			);
 			write(
 				"scripts/lib/deeper.js",
-				'const { parse } = require("./shared.js");\nmodule.exports = { refusal: () => readRuleTextOr("deep", parse("x")) };\n',
+				'const { parse } = require("./shared.js");\nrequire("./noted-inject.js");\nrequire("./noted-fallback.js");\nrequire("./noted-text.js");\nmodule.exports = { refusal: () => readRuleTextOr("deep", parse("x")) };\n',
+			);
+			write(
+				"scripts/lib/noted-inject.js",
+				'module.exports = {\n\tdecide: () => ({ injectRules: ["noted-a", // why\n\t\t"noted-b"] }),\n};\n',
+			);
+			write(
+				"scripts/lib/noted-fallback.js",
+				'module.exports = {\n\tfallback: (ctx) => ruleOrFallback(ctx, /* why */ "noted-c"),\n};\n',
+			);
+			write(
+				"scripts/lib/noted-text.js",
+				'module.exports = { text: () => readRuleText(/* why */ "noted-d") };\n',
 			);
 			write(
 				"scripts/lib/shared.js",
@@ -997,6 +1009,8 @@ describe("the behavioural verdicts", () => {
 				}),
 			);
 			write("docs/agents/rules/deep.txt", "Deep.\n");
+			for (const id of ["noted-a", "noted-b", "noted-c", "noted-d"])
+				write(`docs/agents/rules/${id}.txt`, `Rule ${id}.\n`);
 			write("docs/agents/rules/other.txt", "Another rule.\n");
 			write(
 				BASELINE,
@@ -1045,6 +1059,15 @@ describe("the behavioural verdicts", () => {
 			write("docs/agents/rules/deep.txt", "Deep, reworded.\n");
 			expectExpired();
 		});
+
+		it.each(["noted-a", "noted-b", "noted-c", "noted-d"])(
+			"expires the core on a reworded %s, which a deeper lib names past a comment inside its emission (#3481)",
+			(id) => {
+				anchorCore();
+				write(`docs/agents/rules/${id}.txt`, `Rule ${id}, reworded.\n`);
+				expectExpired();
+			},
+		);
 
 		it("expires nothing on a code edit to a deeper lib", () => {
 			anchorCore();

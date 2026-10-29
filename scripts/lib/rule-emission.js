@@ -88,6 +88,19 @@ const EVENT = "PreToolUse";
 const CAP_SOURCE = path.join("scripts", "lib", "hook-limits.sh");
 
 const RULE_ID = "(?:rule:)?[a-z0-9]+(?:-[a-z0-9]+)*";
+
+/**
+ * The name each emission below opens on, by the regex that reads it. A
+ * comment can split an emission so it only matches once the comment is
+ * stripped (#3481), but never takes its name away, so namesAnEmission gates
+ * on these alone.
+ */
+const EMISSION_NAMES = {
+	inject: ["injectRules"],
+	shell: ["rule_text", "rule_or_path"],
+	nodeIdFirst: ["readRuleText", "readRuleTextOr", "ruleText"],
+	nodeIdSecond: ["ruleOrFallback"],
+};
 /**
  * The pre-emptive emission, a Node guard core's `{ injectRules: [<id>…] }`
  * decision, which lib/guard-entry.js latches and caps (#2784). Shared with
@@ -95,7 +108,7 @@ const RULE_ID = "(?:rule:)?[a-z0-9]+(?:-[a-z0-9]+)*";
  * must be quoted literals in the array: one held in a constant is invisible.
  */
 const INJECT_RULES_RE = new RegExp(
-	`\\binjectRules:\\s*\\[((?:\\s*["']${RULE_ID}["']\\s*,?)+)\\s*\\]`,
+	`\\b${EMISSION_NAMES.inject.join("|")}:\\s*\\[((?:\\s*["']${RULE_ID}["']\\s*,?)+)\\s*\\]`,
 	"g",
 );
 
@@ -151,8 +164,10 @@ const RULE_ARG_RE = /["']?(?:rule:)?([a-z0-9]+(?:-[a-z0-9]+)*)["']?/g;
  * own statement. The cost is that a mention in a comment matches, which
  * over-reports the census.
  */
-const DIRECT_RULE_RE =
-	/\brule_(?:text|or_path)\s+(?:"(?:rule:)?([a-z0-9-]+)"|'(?:rule:)?([a-z0-9-]+)'|(?:rule:)?([a-z0-9-]+))/g;
+const DIRECT_RULE_RE = new RegExp(
+	`\\b(?:${EMISSION_NAMES.shell.join("|")})\\s+(?:"(?:rule:)?([a-z0-9-]+)"|'(?:rule:)?([a-z0-9-]+)'|(?:rule:)?([a-z0-9-]+))`,
+	"g",
+);
 /**
  * The Node accessors' direct call, the id a quoted literal first, split across
  * lines as Biome formats it: `readRuleText`, `readRuleTextOr`, and `ruleText`,
@@ -160,8 +175,21 @@ const DIRECT_RULE_RE =
  * lib/guard-verdict.js's `ruleOrFallback`, the id second after the core's
  * context (#3146).
  */
-const NODE_DIRECT_RULE_RE =
-	/\b(?:(?:readRuleText|readRuleTextOr|ruleText)\(|ruleOrFallback\(\s*[\w.]+\s*,)\s*["']([a-z0-9-]+)["']\s*[),]/g;
+const NODE_DIRECT_RULE_RE = new RegExp(
+	`\\b(?:(?:${EMISSION_NAMES.nodeIdFirst.join("|")})\\(|(?:${EMISSION_NAMES.nodeIdSecond.join("|")})\\(\\s*[\\w.]+\\s*,)\\s*["']([a-z0-9-]+)["']\\s*[),]`,
+	"g",
+);
+
+const EMISSION_NAME_RE = new RegExp(
+	`\\b(?:${Object.values(EMISSION_NAMES).flat().join("|")})\\b`,
+);
+
+/**
+ * Whether `text` names any emission's opening name, comments included: one
+ * naming none emits no rule.
+ * @param {string} text
+ */
+const namesAnEmission = (text) => EMISSION_NAME_RE.test(text);
 
 /**
  * The bound on a direct call: a Node core's `ctx.told("<id>")`, which asks
@@ -1595,6 +1623,7 @@ module.exports = {
 	registrationsOn,
 	directAccessorCalls,
 	emissionMatches,
+	namesAnEmission,
 	firstUnreadInjection,
 	RULE_ARG_RE,
 	WIRED_SCRIPT_RE,
