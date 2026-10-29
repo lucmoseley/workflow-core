@@ -189,8 +189,9 @@ const WAITING_STALL_DAYS = 7;
  * `parked` — a session posted a house question round on the issue and ended
  * `needs input:`, so relaunching it re-asks the round (#2000, spec #1995); or
  * the refill loop stopped a blocked session on it, whatever the cause (#2699).
- * Writers: lib/parked.js. Choosable here (#2355, #2703); the refill loop is
- * what holds it out of a launch (lib/refill-decide.js). Listed under PARKED
+ * Writers: lib/parked.js. Choosable here (#2355, #2703); an away-mode refill
+ * loop holds it out of a launch, and a normal-mode one resumes it first
+ * (lib/refill-decide.js, #3621). Listed under PARKED
  * with its age: the block is the label's reader, without which a park goes
  * quiet (mantahostels#243, mantahostels#259).
  */
@@ -1763,6 +1764,8 @@ function frontierJson(i) {
 		pathsNamed: i.paths,
 		group: i.group,
 		labels: i.labels,
+		// the loop's oldest-park-first order (#3621)
+		parkedAt: i.parked && !i.parked.unknown ? i.parked.appliedAt : null,
 	};
 }
 

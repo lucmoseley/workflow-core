@@ -47,6 +47,7 @@ import {
 	settleTick,
 	stopNeverStarted,
 	summaryOf,
+	trimmed,
 } from "./refill-loop.js";
 import {
 	away,
@@ -346,6 +347,7 @@ describe("a finished launch's progress, from its session's acts ledger (#2312)",
 	const stopOn = (history: Launch[]) =>
 		decideTick({
 			now: NOW,
+			mode: "normal" as const,
 			startedAt: NOW - 60 * MIN,
 			stopRequested: false,
 			frontier: [],
@@ -471,6 +473,7 @@ describe("a seat's reading (#2606)", () => {
 		) =>
 			decideTick({
 				now: NOW,
+				mode: "normal" as const,
 				startedAt: NOW - 60 * MIN,
 				stopRequested: false,
 				frontier: [],
@@ -595,6 +598,7 @@ describe("a tick's log line (#2362)", () => {
 			{
 				input: {
 					now: NOW,
+					mode: "normal" as const,
 					startedAt: NOW,
 					stopRequested: false,
 					frontier: [],
@@ -640,6 +644,7 @@ describe("a tick's log line (#2362)", () => {
 	it("names the 5-hour wait on an idle tick and in a dry run's summary (#2606)", () => {
 		const d = decideTick({
 			now: NOW,
+			mode: "normal" as const,
 			startedAt: NOW - 60 * MIN,
 			stopRequested: false,
 			frontier: [],
@@ -1041,6 +1046,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 	type Tick = Parameters<typeof settleTick>[0];
 	const input = {
 		now: 100,
+		mode: "normal" as const,
 		startedAt: 10,
 		stopRequested: false,
 		frontier: [],
@@ -1481,5 +1487,32 @@ describe("the loop's resumes after a transient API stop (#2705)", () => {
 		const [out] = judged([resuming({ resumes })], [agent("p", "working")]);
 		expect(out?.block).toBeUndefined();
 		expect(out?.resumes).toEqual(resumes);
+	});
+});
+
+describe("trimmed (#3621)", () => {
+	const at = (n: number, over: Record<string, unknown> = {}) =>
+		({
+			root: WFC,
+			issues: [n],
+			prompt: `/implement ${n}`,
+			seat: "/s",
+			jobId: `job${n}`,
+			launchedAt: n,
+			finishedAt: n + 1,
+			...over,
+		}) as Launch;
+	const history = (extra: Launch[]) => [
+		...extra,
+		...Array.from({ length: 50 }, (_, i) => at(100 + i)),
+	];
+
+	it("keeps an older park the loop stopped until a later launch of its issue follows it", () => {
+		const parked = at(1, { parkStopped: 2 });
+		const kept = trimmed(history([parked, at(3)]));
+		expect(kept).toHaveLength(51);
+		expect(kept[0]).toBe(parked);
+		const followed = trimmed([...history([parked]), at(1)]);
+		expect(followed).not.toContain(parked);
 	});
 });

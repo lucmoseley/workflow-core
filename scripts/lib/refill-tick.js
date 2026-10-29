@@ -72,7 +72,11 @@ const { read: readTranscript } = require("./session-transcript.js");
 const { mainChainRecords } = require("./transcript.js");
 const { hasConfig, resolveKey } = require("./workflow-core-config.js");
 const { readLastTypedAt } = require("./presence.js");
-const { NOTHING_LAUNCHABLE, decideTick } = require("./refill-decide.js");
+const {
+	NOTHING_LAUNCHABLE,
+	decideTick,
+	fitsLaunch,
+} = require("./refill-decide.js");
 const { refillFrontier } = require("./refill-frontier.js");
 const {
 	appendTick,
@@ -98,6 +102,7 @@ const {
 const refillBatch = require("./refill-batch.js");
 const blocks = require("./refill-blocks.js");
 const { localDate } = require("./morning-review.js");
+const { PARKED_PROMPT } = require("./loop-prompts.js");
 const { writeFd } = require("./write-fd.js");
 
 /* Every child but the review and the `/usage` probe; untraced. */
@@ -195,10 +200,7 @@ function superviseLanding(roots) {
 			[path.join(SCRIPTS, "supervise-landing.js")],
 			{ cwd: root, env: checkoutEnv(root) },
 		);
-		if (r.out || r.failed)
-			log(
-				`landing in ${root}: ${r.failed ?? "exit 0"}\n  ${blocks.indented(r.out)}`,
-			);
+		if (r.out || r.failed) log(blocks.childLine(`landing in ${root}`, r));
 	}
 }
 
@@ -214,8 +216,7 @@ function fileKillTickets() {
 		[path.join(SCRIPTS, "file-memory-kill-tickets.js")],
 		{ cwd: REVIEW_ROOT, env: checkoutEnv(REVIEW_ROOT) },
 	);
-	if (r.out || r.failed)
-		log(`memory kills: ${r.failed ?? "exit 0"}\n  ${blocks.indented(r.out)}`);
+	if (r.out || r.failed) log(blocks.childLine("memory kills", r));
 }
 
 /**
@@ -366,9 +367,7 @@ function launchBatch(batch) {
 		sessionOf: readHeadlessSession,
 		now: Date.now,
 	});
-	log(
-		`dispatch ${loop.buildLaunchesLine(batch)}: ${r.failed ?? "exit 0"}\n  ${blocks.indented(r.out)}`,
-	);
+	log(blocks.childLine(`dispatch ${loop.buildLaunchesLine(batch)}`, r));
 	gates.dropTried(files.gates, r.tried, log);
 	return { launched: r.launched, refused: r.refused };
 }
@@ -699,6 +698,87 @@ function resumeStopped(l, prompt, { sessionId, cwd }) {
 }
 
 /**
+ * The loop's newest finished launch, with a job, in `l`'s checkout whose
+ * session's `.parked-` marker lists one of `l`'s issues. Residual: a park by
+ * a session the loop never launched names none.
+ * @param {import("./refill-decide.js").Launch} l
+ * @param {import("./refill-loop.js").LoopLaunch[]} launches
+ * @returns {import("./refill-blocks.js").JobLaunch|undefined}
+ */
+const parkingLaunchOf = (l, launches) =>
+	/** @type {import("./refill-blocks.js").JobLaunch|undefined} */ (
+		launches.findLast(
+			(r) =>
+				r.root === l.root &&
+				r.finishedAt !== null &&
+				r.jobId !== null &&
+				[r.sessionId, ...(r.pastSessionIds ?? [])].some(
+					(id) =>
+						id !== undefined &&
+						readParkedBy(id, r.root).some((n) => l.issues.includes(n)),
+				),
+		)
+	);
+
+/**
+ * Resume the session that parked `l`'s ticket, in place (#3621): its new
+ * launch record, or null, logged, where none is recorded or the resume
+ * failed, for `l` to launch afresh.
+ * @param {import("./refill-decide.js").Launch} l
+ * @param {import("./refill-loop.js").LoopLaunch[]} launches
+ * @param {import("./refill-decide.js").SizedSeat[]} seats this tick's
+ * @returns {import("./refill-loop.js").LoopLaunch|null}
+ */
+function resumeParked(l, launches, seats) {
+	/** @param {string} why */
+	const afresh = (why) => {
+		log(`parked ${blocks.launchName(l)} not resumed: ${why}; launching afresh`);
+		return null;
+	};
+	const parker = parkingLaunchOf(l, launches);
+	if (!parker) return afresh("no session that parked it is recorded");
+	/* Its session lives on its own seat, which the decision did not size. */
+	const seat = seats.find((s) => s.seat === parker.seat);
+	if (!seat || !fitsLaunch(seat))
+		return afresh(`its session's seat ${parker.seat} fits no launch`);
+	const { sessionId, cwd } = readResumeTargetOf(parker);
+	if (!sessionId) return afresh("no session id read for its parking launch");
+	const r = resumeStopped(parker, PARKED_PROMPT, { sessionId, cwd });
+	if (r.failed !== null) return afresh(r.failed);
+	log(`resumed parked ${blocks.launchName(l)} as job ${r.jobId}`);
+	return {
+		root: l.root,
+		issues: l.issues,
+		prompt: l.prompt,
+		seat: parker.seat,
+		jobId: r.jobId,
+		launchedAt: Date.now(),
+		finishedAt: null,
+		...(r.sessionId ? { sessionId: r.sessionId } : {}),
+	};
+}
+
+/**
+ * `batch` launched: each parked member resumed (resumeParked), the rest and
+ * any not resumed through one dispatcher call (launchBatch).
+ * @param {import("./refill-decide.js").Launch[]} batch
+ * @param {import("./refill-loop.js").LoopLaunch[]} launches
+ * @param {import("./refill-decide.js").SizedSeat[]} seats
+ */
+function launchOrResume(batch, launches, seats) {
+	const resumed = [];
+	const fresh = [];
+	for (const l of batch) {
+		const r = l.parked ? resumeParked(l, launches, seats) : null;
+		if (r) resumed.push(r);
+		else fresh.push(l);
+	}
+	const out =
+		fresh.length > 0 ? launchBatch(fresh) : { launched: [], refused: [] };
+	return { ...out, launched: [...resumed, ...out.launched] };
+}
+
+/**
  * Every main-chain row of `l`'s transcript, at the path its job record
  * `job` names; null, logged where the file will not read.
  * @param {import("./refill-loop.js").LoopLaunch} l
@@ -871,6 +951,7 @@ async function tick({ dryRun }) {
 	/** @type {import("./refill-decide.js").TickInput} */
 	const input = {
 		now,
+		mode: control.scope.mode,
 		startedAt: control.startedAt,
 		stopRequested: control.stopRequested,
 		/* A dry run previews launches over any control, as over none. */
@@ -893,7 +974,7 @@ async function tick({ dryRun }) {
 		{ input, decision, state, judged, probes, read },
 		{
 			readControl,
-			launchBatch,
+			launchBatch: (batch) => launchOrResume(batch, judged, seats),
 			runReview,
 			writeState: (next) => writeJson(files.state, next),
 			log,

@@ -22,7 +22,7 @@ const {
 	hasRoom,
 } = require("./refill-decide.js");
 const {
-	indented,
+	childLine,
 	isHeld,
 	launchName,
 	markParked,
@@ -305,12 +305,27 @@ const reviewSkipOf = ({ due, root, lastRunOn, today }) =>
  * @returns {string[]}
  */
 const buildReviewRunLines = ({ due, label }, ran) =>
-	due || ran.out || ran.failed
-		? [`${label}: ${ran.failed ?? "exit 0"}\n  ${indented(ran.out)}`]
-		: [];
+	due || ran.out || ran.failed ? [childLine(label, ran)] : [];
 
-/** @param {LoopLaunch[]} launches */
-const trimmed = (launches) => launches.slice(-HISTORY_KEPT);
+/**
+ * The last HISTORY_KEPT launches, and before them each the loop stopped for a
+ * park that no later launch of its issue has followed: a normal-mode loop
+ * resumes its session, oldest park first (#3621).
+ * @param {LoopLaunch[]} launches
+ */
+const trimmed = (launches) => {
+	const older = launches.slice(0, Math.max(0, launches.length - HISTORY_KEPT));
+	const followed = (/** @type {LoopLaunch} */ l, /** @type {number} */ i) =>
+		launches
+			.slice(i + 1)
+			.some(
+				(m) => m.root === l.root && m.issues.some((n) => l.issues.includes(n)),
+			);
+	return [
+		...older.filter((l, i) => l.parkStopped !== undefined && !followed(l, i)),
+		...launches.slice(older.length),
+	];
+};
 
 /**
  * dispatch-sessions.sh's cap thresholds, from the variables it reads.
@@ -938,4 +953,5 @@ module.exports = {
 	parseState,
 	stopNeverStarted,
 	summaryOf,
+	trimmed,
 };

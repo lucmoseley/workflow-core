@@ -43,7 +43,7 @@ import {
 	ledgerPath,
 	readRecentEntries,
 } from "./lib/dispatch-ledger.js";
-import { API_PROMPT, IDLE_PROMPT } from "./lib/loop-prompts.js";
+import { API_PROMPT, IDLE_PROMPT, PARKED_PROMPT } from "./lib/loop-prompts.js";
 import { buildMeminfo } from "./lib/meminfo-fake";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 import { buildUsageCache } from "./lib/usage-probe-fake";
@@ -1577,6 +1577,134 @@ describe("a daemon whose cwd is outside every checkout (#2937)", () => {
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(
 			`fault: cap on ${seat} unsized: the loop serves no checkout to size it in`,
+		);
+	});
+});
+
+describe("a parked ticket in a normal-mode loop (#3621)", () => {
+	const Job = "job5";
+	const ParkedRun = "run with a parked ticket";
+
+	/** The shortlist's one row #5 parked, and, unless `parker` is false, the
+	 * loop's finished launch that parked it, its job record naming its
+	 * session. */
+	const seed = (parker = true) => {
+		stub(
+			"pick-next.js",
+			`process.stdout.write(JSON.stringify({
+	frontier: [{ number: 5, urgent: false, goal: false, stallDays: 0, asksQuestions: false, reach: 0, collision: "", takes: ["implement"], labels: ["takes:implement", "parked"], parkedAt: "2026-10-28T07:41:00Z" }],
+	retroBundles: [],
+	pulledIn: [],
+	pulledInUnread: [],
+}));\n`,
+		);
+		if (!parker) return;
+		const markers = path.join(repo, ".claude", "tmp", "markers");
+		fs.mkdirSync(markers, { recursive: true });
+		fs.writeFileSync(path.join(markers, ".parked-s-job5"), "5\n");
+		const jobDir = path.join(seat, "jobs", Job);
+		fs.mkdirSync(jobDir, { recursive: true });
+		fs.writeFileSync(
+			path.join(jobDir, "state.json"),
+			JSON.stringify({ state: "stopped", sessionId: "s-job5", cwd: repo }),
+		);
+		fs.writeFileSync(
+			at(".refill-loop-state.json"),
+			JSON.stringify({
+				launches: [
+					{
+						root: repo,
+						issues: [5],
+						prompt: "/implement 5",
+						seat,
+						jobId: Job,
+						launchedAt: Date.now() - 3 * 60 * 60 * 1000,
+						finishedAt: Date.now() - 2 * 60 * 60 * 1000,
+						acts: {},
+						sessionId: "s-job5",
+						parkStopped: Date.now() - 2 * 60 * 60 * 1000,
+					},
+				],
+			}),
+		);
+	};
+
+	/* The resume's stop: one requested before the tick's launches holds them
+	 * back. */
+	const stopOnResume = () =>
+		`node ${JSON.stringify(path.join(scripts, "request-stop.js"))};`;
+
+	const launches = () =>
+		JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8")).launches;
+
+	it("resumes the session that parked it, in place, and dispatches nothing", async () => {
+		seed();
+		fakeResumeClaude(Job, [LISTED], stopOnResume(), "woke");
+		const r = await settled(run(1), ParkedRun);
+		expect(r.status).toBe(0);
+		expect(readLines(at("calls"))).toEqual([
+			`--bg --resume s-job5 ${PARKED_PROMPT}`,
+		]);
+		expect(readLines(at("dispatches"))).toEqual([]);
+		expect(r.stdout).toContain(
+			`resumed parked ${path.basename(repo)} /implement 5 as job ${Job}`,
+		);
+		expect(launches().at(-1)).toMatchObject({
+			root: repo,
+			issues: [5],
+			seat,
+			jobId: Job,
+			finishedAt: null,
+			sessionId: "s-job5",
+		});
+	});
+
+	it("launches afresh on its takes: command where the resume names no job", async () => {
+		seed();
+		fakeResumeClaude(Job, [LISTED]);
+		fs.writeFileSync(at("bg-stdout"), "");
+		fs.writeFileSync(at("bg-stderr"), "");
+		const r = await settled(run(1), ParkedRun);
+		expect(r.status).toBe(0);
+		expect(readLines(at("calls"))).toEqual([
+			`--bg --resume s-job5 ${PARKED_PROMPT}`,
+		]);
+		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
+		expect(r.stdout).toMatch(
+			/parked .* \/implement 5 not resumed: the launcher never said what it started/,
+		);
+	});
+
+	it("launches afresh where its session's seat is not one the tick sized", async () => {
+		seed();
+		const state = at(".refill-loop-state.json");
+		const read = JSON.parse(fs.readFileSync(state, "utf8"));
+		read.launches[0].seat = at("elsewhere");
+		fs.writeFileSync(state, JSON.stringify(read));
+		const r = await settled(run(1), ParkedRun);
+		expect(r.status).toBe(0);
+		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
+		expect(r.stdout).toContain(
+			`its session's seat ${at("elsewhere")} fits no launch; launching afresh`,
+		);
+	});
+
+	it("launches afresh where its loop launch's session never parked it", async () => {
+		seed();
+		fs.rmSync(path.join(repo, ".claude", "tmp", "markers", ".parked-s-job5"));
+		const r = await settled(run(1), ParkedRun);
+		expect(r.status).toBe(0);
+		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
+		expect(r.stdout).toMatch(/no session that parked it is recorded/);
+	});
+
+	it("launches afresh where none of the loop's launches parked it", async () => {
+		seed(false);
+		const r = await settled(run(1), ParkedRun);
+		expect(r.status).toBe(0);
+		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
+		expect(r.stdout).toMatch(
+			/not resumed: no session that parked it is recorded; launching afresh/,
 		);
 	});
 });

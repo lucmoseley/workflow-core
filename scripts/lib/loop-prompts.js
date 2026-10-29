@@ -12,8 +12,10 @@ const LOOP_PROMPT_PREFIX = "[refill loop] ";
 const API_PROMPT = `${LOOP_PROMPT_PREFIX}resume — your last turn ended on an API error. Before repeating your last tool call, check whether it already took effect.`;
 /* #2659's wording. */
 const IDLE_PROMPT = `${LOOP_PROMPT_PREFIX}resume — your host was restarted and your last turn never ran. Before repeating your last tool call, check whether it already took effect.`;
+/* A parked session resumed by a normal-mode loop (#3621). */
+const PARKED_PROMPT = `${LOOP_PROMPT_PREFIX}resume — the founder may be back. Repeat your open question round here as it stands, without posting it to the issue again, and end your turn waiting on his answer.`;
 
 /** @param {string} text */
 const isLoopPrompt = (text) => text.trimStart().startsWith(LOOP_PROMPT_PREFIX);
 
-module.exports = { API_PROMPT, IDLE_PROMPT, isLoopPrompt };
+module.exports = { API_PROMPT, IDLE_PROMPT, PARKED_PROMPT, isLoopPrompt };

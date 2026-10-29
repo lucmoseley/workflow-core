@@ -153,7 +153,7 @@ The machine's one refill loop scoped to every included workflow-core repo, bar a
 _Avoid_: night mode, night loop (it is not tied to the clock), autopilot (says nothing of the 24-hour bound)
 
 **Parked**:
-Said of a ticket whose session ended waiting on the founder: it posted a house-decision round there, or the refill loop stopped it at a block it will not resume, such as a question, a permission prompt or an API error past retrying. The `parked` label marks it, applied by a `Stop` hook or the refill loop and never by a session by hand, so the loop never relaunches it, though `/pick-next` may still choose it. It comes off when a session claims the ticket or when he answers in the parked session.
+Said of a ticket whose session ended waiting on the founder: it posted a house-decision round there, or the refill loop stopped it at a block it will not resume, such as a question, a permission prompt or an API error past retrying. The `parked` label marks it, applied by a `Stop` hook or the refill loop and never by a session by hand. An away-mode loop never relaunches it; a normal-mode one resumes the session that parked it ahead of new work (#3621). `/pick-next` may still choose it. It comes off when a session claims the ticket or when he answers in the parked session.
 _Avoid_: blocked (a native dependency edge), waiting (the `waiting:external` label, for someone outside), paused
 
 **Morning review issue**:

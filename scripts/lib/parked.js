@@ -1,9 +1,10 @@
 /*
  * parked.js — the `parked` label and its session marker (#2000, spec #1995).
  * The label says the issue waits on the founder, on a question round its
- * session posted or on a session the refill loop stopped whatever its cause,
- * so the loop never launches it (lib/refill-decide.js); pick-next.js lists it
- * under PARKED and may still choose it (#2703).
+ * session posted or on a session the refill loop stopped whatever its cause.
+ * An away-mode loop never launches it; a normal-mode one resumes the session
+ * that parked it ahead of new work (lib/refill-decide.js, #3621). pick-next.js
+ * lists it under PARKED and may still choose it (#2703).
  *
  * WRITERS: park-on-round.js applies it at Stop; refill-loop.js on a park it
  * stops (#2699), commenting the cause on the issue (#2846). unpark-on-prompt.js

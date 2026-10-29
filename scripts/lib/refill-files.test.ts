@@ -60,6 +60,7 @@ describe("the tick's control read (#3389)", () => {
 	const decided = (damaged: string | null) =>
 		decideTick({
 			now: NOW,
+			mode: "normal" as const,
 			startedAt: NOW,
 			stopRequested: true,
 			controlDamaged: damaged,
