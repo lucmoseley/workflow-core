@@ -18,7 +18,7 @@ const fs = require("node:fs");
 const { sessionDirs } = require("./arbiter-core.js");
 const { caught } = require("./caught.js");
 const { realKey } = require("./deref.js");
-const { configDir } = require("./config-dir.js");
+const { configDir, seatDir } = require("./config-dir.js");
 const { homeDir } = require("./refill-repos.js");
 const { scriptPath } = require("./script-path.js");
 const { writeFd } = require("./write-fd.js");
@@ -37,15 +37,6 @@ const FIELDS = ["key", "grant", "cycle-day"];
 
 /** @param {string} home */
 const seatsFile = (home) => path.join(home, ".claude", "refill-seats");
-
-/**
- * A config dir in the form the seat file's entries take, so two spellings of
- * one dir compare equal.
- * @param {string} p @param {string} home
- */
-function seatDir(p, home) {
-	return path.resolve(p.startsWith("~/") ? path.join(home, p.slice(2)) : p);
-}
 
 /**
  * Each `name=value` word by name, or why the words are not those fields.
@@ -180,7 +171,6 @@ function unlistedSeats(seats) {
 module.exports = {
 	readConfiguredSeats,
 	readDeclaredSeats,
-	seatDir,
 	seatOf,
 	unlistedSeats,
 };

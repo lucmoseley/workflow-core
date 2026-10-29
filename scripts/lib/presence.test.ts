@@ -5,7 +5,8 @@
  *
  * WHAT BREAKING IT COSTS: read as away while he is present, the loop takes
  * the slot kept for him; read as present while he sleeps, a slot idles all
- * night.
+ * night. The marker's seat line (#3731) names the seat he typed on; read
+ * wrong, the loop launches into an agents view he is not watching.
  */
 
 import fs from "node:fs";
@@ -13,6 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { markPresent, presenceAt, readLastTyped } from "./presence";
+import { readDeclaredSeats } from "./refill-seats";
 
 const NOW = new Date("2026-10-18T09:00:00.000Z");
 const ago = (ms: number) => NOW.getTime() - ms;
@@ -75,11 +77,18 @@ describe("the marker", () => {
 		expect(fs.readdirSync(dir)).toEqual(["marker"]);
 	});
 
-	it("records the default dir where CLAUDE_CONFIG_DIR is unset", () => {
+	it("matches a seat file's spelling of the dir typed on", () => {
+		fs.mkdirSync(path.join(dir, ".claude"));
+		fs.writeFileSync(
+			path.join(dir, ".claude", "refill-seats"),
+			"~/seat-a/\n~/.claude\n",
+		);
+		const declared = readDeclaredSeats(dir);
+		markPresent(NOW, { ...env, HOME: dir, CLAUDE_CONFIG_DIR: seatA });
+		expect(readLastTyped(declared, env).seat).toBe(seatA);
 		const { CLAUDE_CONFIG_DIR: _, ...unset } = env;
-		markPresent(NOW, unset);
-		const home = path.join(os.homedir(), ".claude");
-		expect(readLastTyped(list(home), unset).seat).toBe(home);
+		markPresent(NOW, { ...unset, HOME: dir });
+		expect(readLastTyped(declared, env).seat).toBe(path.join(dir, ".claude"));
 	});
 
 	it("reads a time-only marker as a time with no seat", () => {
@@ -106,6 +115,10 @@ describe("the marker", () => {
 			errors: [],
 		};
 		expect(readLastTyped(overflow, env).seat).toBeNull();
+	});
+
+	it("reads every seat as none while the seat file refuses", () => {
+		markPresent(NOW, env);
 		expect(readLastTyped({ ...plans, errors: ["bad"] }, env).seat).toBeNull();
 	});
 

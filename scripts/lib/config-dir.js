@@ -27,8 +27,17 @@ function configDirFrom(value) {
 	return value ?? path.join(os.homedir(), ".claude");
 }
 
+/**
+ * A config dir in the form `~/.claude/refill-seats` entries take, so two
+ * spellings of one dir compare equal.
+ * @param {string} p @param {string} home
+ */
+function seatDir(p, home) {
+	return path.resolve(p.startsWith("~/") ? path.join(home, p.slice(2)) : p);
+}
+
 function configDir() {
 	return configDirFrom(process.env.CLAUDE_CONFIG_DIR);
 }
 
-module.exports = { configDir, configDirFrom };
+module.exports = { configDir, configDirFrom, seatDir };

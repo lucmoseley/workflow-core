@@ -1752,7 +1752,7 @@
 		},
 		"mark-presence.js": {
 			"needles": [],
-			"silent": "Writes the time of a prompt the founder typed to the machine's presence marker, and prints nothing (#2004)."
+			"silent": "Writes the time of a prompt the founder typed, and the typing session's seat, to the machine's presence marker, and prints nothing (#2004, #3731)."
 		},
 		"unpark-on-prompt.js": {
 			"needles": [],
