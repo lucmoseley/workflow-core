@@ -4,7 +4,8 @@
  * working tree (#640, #3202).
  *
  * Every CLI case drives the script in-process from a throwaway git repo, the
- * value on piped stdin and XDG_CONFIG_HOME on a throwaway directory, and reads
+ * value on piped stdin, or for the hidden-prompt cases on a fake terminal, and
+ * XDG_CONFIG_HOME on a throwaway directory, and reads
  * back only what the founder sees: the exit, the printed lines, the file's
  * bytes and mode. Every run is checked for the value leaking into stdout or
  * stderr.
@@ -18,10 +19,11 @@ import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { gateway } from "./guard-jev-advisory.js";
 import { readEnvFileValue, secretsFile } from "./lib/env-file.js";
-import { runInProcess } from "./lib/run-in-process.js";
+import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "write-secret.js");
 
@@ -351,6 +353,62 @@ describe("write-secret", () => {
 				),
 			);
 			expect(r.stdout).toBe("");
+			expect(read()).toBe("A=1\n");
+		},
+	);
+
+	/* A fake terminal on process.stdin carries the typed bytes: no test
+	 * process can hold a real one's raw mode, and a pty spawn would need a
+	 * native dependency this repo does not carry. */
+	const typeAtPrompt = async (bytes: number[]) => {
+		const tty = Object.assign(new PassThrough(), {
+			isTTY: true,
+			setRawMode() {
+				return tty;
+			},
+		});
+		tty.write(Buffer.from(bytes));
+		const real = Object.getOwnPropertyDescriptor(process, "stdin");
+		if (real === undefined) throw new Error("process.stdin has no descriptor");
+		Object.defineProperty(process, "stdin", { value: tty, configurable: true });
+		try {
+			return await runInProcessAsync(SCRIPT, ["K"], {
+				cwd: host,
+				env: isolatedEnv({ CLAUDE_PROJECT_DIR: host }),
+			});
+		} finally {
+			Object.defineProperty(process, "stdin", real);
+		}
+	};
+	const Prompt = "Value for K (typing hidden, Enter to finish): \n";
+
+	it("stores a multibyte value typed at the hidden prompt", async () => {
+		seed("A=1\n");
+		const r = await typeAtPrompt([...Buffer.from("café\r")]);
+		expect(r.status).toBe(0);
+		expect(r.stderr.startsWith(Prompt)).toBe(true);
+		expect(r.stderr).not.toContain("café");
+		expect(read()).toBe("A=1\nK=café\n");
+	});
+
+	it.each([
+		[
+			"bytes that are not UTF-8, naming that cause (#3708)",
+			[0x61, 0xe9, 0x0d],
+			"the typed value holds bytes that are not valid UTF-8, as a terminal set to another encoding sends. Set the terminal to UTF-8, then re-run.",
+		],
+		[
+			"a Ctrl-C as interrupted",
+			[0x61, 0x03],
+			"interrupted. Re-run to enter the value.",
+		],
+	])(
+		"refuses %s at the hidden prompt with exit 2, the file untouched",
+		async (_l, bytes, why) => {
+			seed("A=1\n");
+			const r = await typeAtPrompt(bytes);
+			expect(r.status).toBe(2);
+			expect(r.stderr).toBe(`${Prompt}${refused(why)}`);
 			expect(read()).toBe("A=1\n");
 		},
 	);
