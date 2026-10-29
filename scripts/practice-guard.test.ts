@@ -443,8 +443,13 @@ describe("the Stop limb", () => {
 			},
 		);
 
-		it.each(["revert of\u200b one commit", "ver\u200bsion bump"])(
-			"skipped — an exempt kind holding a zero-width space, which is deleted, passes: %s (#3594, #3603)",
+		it.each([
+			"revert of\u200b one commit",
+			"ver\u200bsion bump",
+			"version bump of foo.\u200bbar",
+			"revert o\u200bf one commit",
+		])(
+			"skipped — an exempt kind holding a zero-width space, which is deleted, passes: %s (#3594, #3603, #3611)",
 			(kind) => {
 				expect(stop([wrote(code()), declared(`skipped — ${kind}`)])).toBeNull();
 			},
@@ -556,6 +561,11 @@ describe("the Stop limb", () => {
 				kind,
 				noKind,
 			]),
+			[
+				'an article before "or": typo the or wording fix (#3611)',
+				"typo the or wording fix",
+				noKind,
+			],
 			...[
 				["revert plus a new feature", "revert"],
 				["concision cut of 400 lines plus new guard", "concision cut"],
@@ -641,7 +651,7 @@ describe("the Stop limb", () => {
 			]),
 		])("skipped — %s", (_, kind, says) => {
 			const reason = stop([wrote(code()), declared(`skipped — ${kind}`)]);
-			// fault_in strips an aside's closing bracket and deletes U+200B before it names the line.
+			// fault_in strips an aside's closing bracket and skipped_fault deletes U+200B before the line is named.
 			const named = kind.replace(/\)$/, "").replaceAll("\u200b", "");
 			expect(reason).toContain(`skipped names "${named}", which ${says}`);
 			expect(reason).toContain(list);
@@ -663,8 +673,18 @@ describe("the Stop limb", () => {
 				"revert of one commit and built y",
 				"revert",
 			],
+			[
+				"revert o\u200bf one commit\u200band built a scheduler",
+				"revert o f one commit and built a scheduler",
+				"revert",
+			],
+			[
+				"version bump fr\u200bom x\u200band rewrote y",
+				"version bump fr om x and rewrote y",
+				"version bump",
+			],
 		])(
-			"skipped — a JOINS word a zero-width space parts off a word, named with it read as a space: %s (#3603)",
+			"skipped — a JOINS word a zero-width space parts off a word, named with it read as a space: %s (#3603, #3611)",
 			(kind, named, phrase) => {
 				const reason = stop([wrote(code()), declared(`skipped — ${kind}`)]);
 				expect(reason).toContain(
