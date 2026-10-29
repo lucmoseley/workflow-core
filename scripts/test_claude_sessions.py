@@ -4,13 +4,16 @@ sampler charges as admission does (docs/environment.md §5, #2231).
 
 Break it and the gate refuses a machine one session quieter than it states, or
 admits one busier: the daemon's standing spare is always resident (#1798). The
-cwds are injected, or read from a fake WFC_PROC, so no case reads this
-machine's /proc.
+cwds are injected, or read from a fake WFC_PROC, save one case: it reads this
+process's own cwd off the kernel, to pin that an empty WFC_PROC falls back to
+/proc as the shell and Node twins do.
 """
 
 import os
 import sys
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 from claude_sessions import (
@@ -124,6 +127,8 @@ def test_a_session_pairs_through_its_spare_socket_and_alone_without_one():
 def test_live_cwd_reads_under_wfc_proc_and_is_none_for_a_pid_with_no_link(
     tmp_path, monkeypatch
 ):
+    # Built by hand: lib/proc-fake.ts, the TS suites' fake /proc, has no
+    # Python twin, and one cwd symlink carries no behaviour to drift (#3674).
     (tmp_path / "41").mkdir()
     (tmp_path / "41" / "cwd").symlink_to(SPARE)
     monkeypatch.setenv("WFC_PROC", str(tmp_path))
@@ -131,6 +136,9 @@ def test_live_cwd_reads_under_wfc_proc_and_is_none_for_a_pid_with_no_link(
     assert live_cwd(42) is None
 
 
+@pytest.mark.skipif(
+    not os.path.exists("/proc/self/cwd"), reason="no /proc on this platform"
+)
 def test_live_cwd_reads_proc_where_wfc_proc_is_empty(monkeypatch):
     # As the shell and Node twins do: an empty root is no root.
     monkeypatch.setenv("WFC_PROC", "")

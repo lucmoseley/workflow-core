@@ -158,7 +158,7 @@ function parseCeilingKillReason(out) {
  * batch for its next run (#2542).
  * @param {{chargeMb: number, pollMs?: number, timeoutMs?: number,
  *   gate?: (climbMb: number) => import("./suite-queue.js").GateDenial | null,
- *   memory?: () => import("./admission.js").MbResult, queueDir?: string}}
+ *   memory?: () => import("./meminfo.js").MbResult, queueDir?: string}}
  *   options `gate` answers which limb of the suite gate denies a suite, if
  *   any; the poll and ceiling default to the suite queue's
  * @returns {Promise<Admission>}
