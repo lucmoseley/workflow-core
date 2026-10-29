@@ -643,12 +643,12 @@ describe("write-secret", () => {
 	const myGroup = `${me.username}:x:${me.gid}:\n`;
 	const FilesOnly = "passwd: files\ngroup: files\n";
 	const Systemd = "passwd: files systemd\ngroup: files systemd\n";
-	type UserDb = {
+	interface UserDb {
 		group?: string | null;
 		passwd?: string;
 		nsswitch?: string;
 		dirs?: Record<string, string[]>;
-	};
+	}
 	/** Serves the user databases as given (null: unreadable), every other read as is. */
 	const fakeUserDb = ({
 		group = myGroup,
