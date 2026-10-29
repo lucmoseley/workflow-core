@@ -103,6 +103,7 @@ case "$*" in
     touch "${at("linked")}"; exit 0 ;;
   *"/sub_issues"*) [ -f "${at("linked")}" ] && echo ${NEW}; exit 0 ;;
   *"--jq .id"*) echo 987654; exit 0 ;;
+  *"--jq .state"*) echo open; exit 0 ;;
   "api "*)
     f="${at("api")}/$(echo "$2" | tr / _)"
     [ -f "$f" ] && cat "$f" && exit 0

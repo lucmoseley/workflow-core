@@ -97,7 +97,7 @@ if (a[0] === "api") {
 		const find = (n) => s.issues.find((x) => x.number === n) ?? die("HTTP 404: Not Found");
 		const rest = (i) => ({ id: 1000 + i.number, number: i.number, title: i.title, state: i.state.toLowerCase(), body: i.body, labels: i.labels.map((name) => ({ name })), parent_issue_url: i.parent ? "https://api.github.com/repos/" + is[1] + "/issues/" + i.parent : null });
 		const issue = find(Number(is[2]));
-		if (!is[3]) print(flag("--jq") === ".id" ? String(1000 + issue.number) : rest(issue));
+		if (!is[3]) print(flag("--jq") === ".id" ? String(1000 + issue.number) : flag("--jq") === ".state" ? rest(issue).state : rest(issue));
 		if (flag("--method") === "POST") {
 			const child = find(Number(flag("-F").split("=")[1]) - 1000);
 			if (child.parent) die("HTTP 422: Sub issue may only have one parent");

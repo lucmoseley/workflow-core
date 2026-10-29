@@ -43,6 +43,8 @@ interface Gh {
 	/** Parent-side reads: numbers listed, once `lag` reads have gone by. */
 	children?: string[];
 	lag?: number;
+	/** What `gh api repos/o/r/issues/<parent> --jq .state` prints. */
+	state?: string;
 }
 
 /** A `gh` stub for WFC_GH, logging one line of argv per call. */
@@ -65,6 +67,9 @@ case "$args" in
     printf '%s' "$((n + 1))" > "${counter}"
     (( n < ${g.lag ?? 0} )) && exit 0
     ${(g.children ?? []).map((c) => `echo ${c}`).join("; ") || "true"}
+    exit 0 ;;
+  *"--jq .state"*)
+    printf '%s\\n' '${g.state ?? "open"}'
     exit 0 ;;
   *"--jq"*)
     ${g.idFails ? "echo 'gh: network is unreachable' >&2; exit 1" : `printf '%s\\n' '${g.dbId ?? "987654"}'`}
@@ -148,6 +153,22 @@ describe("link-sub-issue.sh", () => {
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("could not resolve the database id of #63");
 		expect(r.stderr).toContain("nothing was POSTed");
+		expect(readPosts()).toHaveLength(0);
+	});
+
+	it("refuses a closed parent, naming it and the remedy, and POSTs nothing", () => {
+		const r = run(["40", "63"], { state: "closed", children: ["63"] });
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("#40 is closed");
+		expect(r.stderr).toContain("under an open issue");
+		expect(r.stderr).toContain("--standalone");
+		expect(readPosts()).toHaveLength(0);
+	});
+
+	it("refuses where the parent's state cannot be read, POSTing nothing", () => {
+		const r = run(["40", "63"], { state: "" });
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("could not read the state of #40");
 		expect(readPosts()).toHaveLength(0);
 	});
 

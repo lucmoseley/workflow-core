@@ -85,6 +85,15 @@ wait_for_link() {
   return 1
 }
 
+# A closed parent hides the child from every map that walks open issues, so it
+# is refused here, under every caller, not only under file-issue.js (#3650).
+state="$("$gh" api "repos/$repo/issues/$parent" --jq '.state' 2>/dev/null)" || state=""
+case "$state" in
+  open) ;;
+  closed) die "#$parent is closed — link #$child under an open issue, or file it with file-issue.js --standalone \"<why>\"; nothing was POSTed" ;;
+  *) die "could not read the state of #$parent (got '${state}') — nothing was POSTed" ;;
+esac
+
 # The child's numeric database id — NOT its #number, which the endpoint rejects.
 db_id="$("$gh" api "repos/$repo/issues/$child" --jq '.id' 2>/dev/null)" || db_id=""
 [[ "$db_id" =~ ^[0-9]+$ ]] ||
