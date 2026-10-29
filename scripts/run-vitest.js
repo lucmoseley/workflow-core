@@ -1121,6 +1121,15 @@ function withSession(route, options) {
 const committedBase = (base) => (base === "HEAD" ? null : base);
 
 /**
+ * The default's base read in `root`, `committedBase`'s: what a typed `--full`
+ * and a bare `--changed` record, so the two cannot disagree.
+ * @param {string} root
+ * @param {ExecFn} execFn
+ */
+const readCommittedBase = (root, execFn) =>
+	committedBase(readDefaultChangedBase(root, execFn));
+
+/**
  * The launch fields a default run sets once it planned, narrowed or
  * escalated: its synthesised `--changed <base>` is not the `test:changed`
  * route it looks like, and its base is `committedBase`'s.
@@ -1146,8 +1155,7 @@ const defaultLaunch = (base) => ({
 function readRunBase(launch, plan, root, execFn = execFileSync) {
 	if (launch.base !== undefined) return launch.base;
 	if (plan?.base) return plan.base;
-	if (launch.full === "flag")
-		return committedBase(readDefaultChangedBase(root, execFn));
+	if (launch.full === "flag") return readCommittedBase(root, execFn);
 	return null;
 }
 
@@ -2252,7 +2260,7 @@ function withChangedBase(route, opts) {
 	if (!isBareChanged(route)) return opts;
 	const { root = TREE_ROOT, execFn = execFileSync } = opts;
 	return withLaunch(opts, {
-		base: committedBase(readDefaultChangedBase(root, execFn)),
+		base: readCommittedBase(root, execFn),
 	});
 }
 

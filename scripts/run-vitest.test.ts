@@ -7303,10 +7303,9 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		it.each([
 			["the overlay", [], 0],
 			["the worktree an --isolated overlay fell back to", ["--isolated"], 1],
-			/* A bare `--changed` takes the same base on its overlay (#3678). */
 			["a bare --changed's overlay", ["--changed"], 0],
 		])(
-			"records the merge-base on %s, and no base on the HEAD fallback (#3660)",
+			"records the merge-base on %s, and no base on the HEAD fallback (#3660, #3678)",
 			async (_route, argv, failedAdds) => {
 				const based = async (pushed: boolean) => {
 					const dir = repoWithDeps();
