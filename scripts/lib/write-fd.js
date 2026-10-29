@@ -57,4 +57,4 @@ function writeFd(fd, text) {
 	}
 }
 
-module.exports = { writeFd };
+module.exports = { EAGAIN_CEILING_MS, EAGAIN_PAUSE_MS, writeFd };

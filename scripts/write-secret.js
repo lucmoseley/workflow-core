@@ -18,10 +18,11 @@
  * directory is created owner-only.
  *
  * NO FAMILY (§N3), as `grant-permission.js`: 0 written; 1 the file sits in a
- * git working tree, is a symlink, lies in a directory others can reach, is
- * not clean UTF-8, is held by another run too long, holds a line assigning
- * <NAME> it cannot replace, or cannot be written; 2 bad arguments or a value
- * no line can carry. Every refusal leaves the file untouched, and one about
+ * git working tree, is a symlink, lies in a directory others can reach or
+ * under one others can write, is not clean UTF-8, is held by another run too
+ * long or its lock's path holds no file, holds a line assigning <NAME> it
+ * cannot replace, or cannot be written; 2 bad arguments or a value no line
+ * can carry. Every refusal leaves the file untouched, and one about
  * the file itself comes before the value is asked for, bar that line, which
  * is read only under the lock, and a fault reading or writing it, met at the
  * write.
@@ -35,7 +36,8 @@
  * A BARE REPOSITORY whose work tree is set elsewhere, as a bare dotfiles setup
  * (`git --git-dir=~/.cfg --work-tree=~`, yadm), has no `.git` to find. The
  * directory's own `.gitignore`, holding `*`, keeps the file out of its `add`
- * (#3539). Residual: ignore rules never reach a file such a repository
+ * (#3539); git follows no symlinked `.gitignore`, so one is replaced
+ * (#3663). Residual: ignore rules never reach a file such a repository
  * already tracks, nor an `add -f`; that file wants `git rm --cached` there.
  *
  * A DIRECTORY OTHERS CAN REACH IS REFUSED (#3539): the file's directory, and
@@ -43,6 +45,12 @@
  * access, checked before the prompt and again before the write. `mkdir`'s
  * mode applies only on creation and a mount without
  * `metadata` (WSL's `/mnt/c`) ignores `chmod`, so either can be left loose.
+ *
+ * A PARENT OTHERS CAN WRITE IS REFUSED (#3663): each directory above the
+ * file's, along the path as given and along its real path, must be owned by
+ * this user or root and writable by no one else, bar a sticky one (`/tmp`),
+ * whose entries only their owner can move. Node holds no directory by
+ * descriptor across a write (no `openat`), so the chain is checked instead.
  *
  * CONCURRENT RUNS take turns by `lib/pid-lock.js`'s lock, `secrets.env.lock`,
  * held from the read to the rename, so no run's key is lost to another's
@@ -58,8 +66,14 @@
  * would stay. Checked before the prompt and again under the lock.
  *
  * NOTHING OF THE VALUE IS PRINTED — not it, its length or any part of it — and
- * nor is a malformed name, which is most likely the secret pasted in the
- * wrong place.
+ * nor is any argument but one well-formed name, as a stray one is most likely
+ * the secret pasted in the wrong place (#3663). A name shaped as a token
+ * `lib/token-shapes.js` knows (`ghp_…`, `sk-ant-…`) is refused the same way;
+ * residual: a vendor it does not list passes as a name.
+ *
+ * A VALUE IS CLEAN UTF-8 WITH NO NUL, as the file must be: one holding a NUL,
+ * piped bytes that are not UTF-8, or what a lossy decode leaves (U+FFFD, a
+ * lone surrogate — the hidden prompt decodes leniently) is refused (#3663).
  *
  * THE UPSERT replaces the value on every line `lib/env-file.js`'s grammar
  * reads as assigning <NAME> (`NAME=`, `export NAME =`), keeping that line's
@@ -89,11 +103,14 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { pidAlive } = require("./lib/arbiter-proc.js");
 const { asidePid, writeFileAtomic } = require("./lib/atomic-write.js");
-const { pidLock } = require("./lib/pid-lock.js");
+const { NotALock, pidLock } = require("./lib/pid-lock.js");
 const { sleepSync } = require("./lib/sleep-sync.js");
-const { parseOrCode } = require("./lib/cli-args");
+const { HELP, parseOrCode } = require("./lib/cli-args");
+const { readFdAll } = require("./lib/read-fd.js");
+const { maskTokens } = require("./lib/token-shapes.js");
 const {
 	assignsAcrossBreak,
+	ignoreStore,
 	parseEnvLine,
 	secretsFile,
 	splitEnvLines,
@@ -141,13 +158,23 @@ function refuseLoose(file, what, why) {
 }
 
 /**
- * The refusal `file`'s directory earns, or null: it lies in a git working
- * tree, or exists and is reachable by others.
+ * The refusal `file`'s directory earns, or null: it lies under a directory
+ * others can write, in a git working tree, or exists and is reachable by
+ * others. The parents come first, as the tree's walk throws on one it cannot
+ * read.
  * @param {string} file
  * @returns {number | null}
  */
 function dirRefusal(file) {
 	const dir = path.dirname(file);
+	const above = swappableAbove(dir);
+	if (above !== null) {
+		return refuse(
+			file,
+			`${above.dir}, above its directory, ${above.why}, so another user could swap the directory for one of theirs. Point XDG_CONFIG_HOME at a directory whose every parent is yours or root's and writable by no one else, then re-run.`,
+			1,
+		);
+	}
 	const tree = findEnclosingTree(dir);
 	if (tree !== null) {
 		return refuse(
@@ -159,6 +186,90 @@ function dirRefusal(file) {
 	if (!isDirectory(dir)) return null;
 	const why = looseWhy(dir);
 	return why === null ? null : refuseLoose(file, `its directory ${dir}`, why);
+}
+
+/**
+ * The first directory above `dir`, along its path as given or its real path,
+ * that lets another user replace what it holds, and why; or null. A symlink
+ * along the path as given, `dir` included, counts where another user owns it
+ * (#3663).
+ * @param {string} dir
+ * @returns {{ dir: string, why: string } | null}
+ */
+function swappableAbove(dir) {
+	const given = path.resolve(dir);
+	let existing = given;
+	while (!isDirectory(existing)) existing = path.dirname(existing);
+	const real = path.join(
+		fs.realpathSync(existing),
+		path.relative(existing, given),
+	);
+	const link = foreignLink(given);
+	if (link !== null)
+		return { dir: link, why: "is a symlink owned by neither you nor root" };
+	for (const leaf of new Set([given, real])) {
+		for (let d = path.dirname(leaf); ; d = path.dirname(d)) {
+			const why = swappableWhy(d);
+			if (why !== null) return { dir: d, why };
+			if (d === path.dirname(d)) break;
+		}
+	}
+	return null;
+}
+
+/**
+ * Why directory `d` lets another user replace its entries, or null.
+ * @param {string} d
+ * @returns {string | null}
+ */
+function swappableWhy(d) {
+	let st;
+	try {
+		st = fs.statSync(d);
+	} catch (e) {
+		/* Not there yet, or a file where it goes: the write creates it under a
+		 * parent checked here, or refuses naming the fault (#3663). Any other
+		 * fault leaves it unjudged, so it refuses. */
+		if (caught(e).code === "ENOENT" || caught(e).code === "ENOTDIR")
+			return null;
+		return `could not be checked (${caught(e).code ?? "error"})`;
+	}
+	if (!st.isDirectory()) return null;
+	if (!ownedSafely(st)) return "is owned by neither you nor root";
+	if ((st.mode & 0o022) !== 0 && (st.mode & 0o1000) === 0)
+		return "is writable by others and not sticky";
+	return null;
+}
+
+/**
+ * The first symlink along `p` or above it that another user owns, or null.
+ * @param {string} p
+ * @returns {string | null}
+ */
+function foreignLink(p) {
+	for (let d = p; ; d = path.dirname(d)) {
+		const st = lstatOrNull(d);
+		if (st?.isSymbolicLink() && !ownedSafely(st)) return d;
+		if (d === path.dirname(d)) return null;
+	}
+}
+
+/**
+ * @param {string} p
+ * @returns {fs.Stats | null}
+ */
+function lstatOrNull(p) {
+	try {
+		return fs.lstatSync(p);
+	} catch {
+		/* Absent, or unreadable: the stat that follows names which (#3663). */
+		return null;
+	}
+}
+
+/** @param {fs.Stats} st */
+function ownedSafely(st) {
+	return st.uid === process.getuid?.() || st.uid === 0;
 }
 
 /** Thrown before the rename where the aside is reachable by others. */
@@ -306,11 +417,19 @@ function sweepAsides(file) {
 }
 
 /**
- * The value from piped stdin, less one trailing line break.
- * @returns {string}
+ * The value from piped stdin, less one trailing line break; or null where its
+ * bytes are not valid UTF-8.
+ * @returns {string | null}
+ * @throws where stdin cannot be read
  */
 function readPiped() {
-	return fs.readFileSync(0, "utf8").replace(/\r?\n$/, "");
+	const bytes = readFdAll(0);
+	try {
+		return UTF8.decode(bytes).replace(/\r?\n$/, "");
+	} catch {
+		/* The fatal decoder's only throw (#3663). */
+		return null;
+	}
 }
 
 /**
@@ -354,11 +473,23 @@ function upsert(text, name, value) {
  * Upserts the value, once it is in hand, into `file`.
  * @param {string} file
  * @param {string} name
- * @param {string} raw
+ * @param {string | null} raw null where its bytes were not valid UTF-8
  * @param {boolean} fromTerminal whether `raw` was typed at the hidden prompt
  * @returns {number}
  */
 function upsertEnv(file, name, raw, fromTerminal) {
+	if (
+		raw === null ||
+		raw.includes("\0") ||
+		raw.includes("\uFFFD") ||
+		!raw.isWellFormed()
+	) {
+		return refuse(
+			file,
+			"the value is not valid UTF-8, or holds a NUL byte or U+FFFD, which the file could not carry intact. Re-run and give it as UTF-8 text.",
+			2,
+		);
+	}
 	const trimmed = raw.trim();
 	if (trimmed === "") {
 		return refuse(file, emptyWhy(name, hostRoot(), fromTerminal), 2);
@@ -379,16 +510,6 @@ function upsertEnv(file, name, raw, fromTerminal) {
 		);
 	}
 	return storeValue(file, name, value);
-}
-
-/**
- * Writes `<dir>/.gitignore` holding `*`, where it holds anything else.
- * @param {string} dir
- */
-function ignoreAll(dir) {
-	const ignore = path.join(dir, ".gitignore");
-	if (!fs.existsSync(ignore) || fs.readFileSync(ignore, "utf8") !== "*\n")
-		writeFileAtomic(ignore, "*\n", { mode: 0o600 });
 }
 
 /**
@@ -431,7 +552,7 @@ function storeValue(file, name, value) {
 		 * leave time for a `git init` or a `chmod` above the file. */
 		const refused = dirRefusal(file);
 		if (refused !== null) return refused;
-		ignoreAll(dir);
+		ignoreStore(dir);
 
 		const read = readSecrets(file);
 		if ("why" in read) return refuse(file, read.why, 1);
@@ -456,6 +577,13 @@ function storeValue(file, name, value) {
 	} catch (e) {
 		if (e instanceof LooseAside)
 			return refuseLoose(file, "the file as written", e.message);
+		if (e instanceof NotALock) {
+			return refuse(
+				file,
+				`${file}.lock is not a regular file, so it is no lock any run can take. Remove it by hand, then re-run.`,
+				1,
+			);
+		}
 		return refuse(
 			file,
 			`it could not be written (${caught(e).code ?? "error"}). Check it is a regular file you can write, then re-run.`,
@@ -474,19 +602,27 @@ function storeValue(file, name, value) {
  */
 function main(argv) {
 	const file = secretsFile();
-	const parsed = parseOrCode(argv, { usage: USAGE, min: 1 });
-	if (typeof parsed === "number") return parsed;
-	const { positionals } = parsed;
-	const [name] = positionals;
-	if (name === undefined)
-		throw new Error("parse passed no <NAME> despite min: 1");
-	if (!VAR_NAME.test(name)) {
-		return refuse(
+	/* Before the parser, whose refusals quote the argument (#3663). */
+	const [only] = argv;
+	if (
+		argv.length !== 1 ||
+		only === undefined ||
+		!(VAR_NAME.test(only) || HELP.has(only)) ||
+		maskTokens(only).count > 0
+	) {
+		const status = refuse(
 			file,
-			"the argument is not a shell variable name (letters, digits and underscores, not starting with a digit). The value is asked for afterwards, never given on the command line.",
+			"it takes one argument, a shell variable name (letters, digits and underscores, not starting with a digit), and shows none it is given, as one may be the secret. The value is asked for afterwards, never given on the command line.",
 			2,
 		);
+		process.stderr.write(`${USAGE}\n`);
+		return status;
 	}
+	const parsed = parseOrCode(argv, { usage: USAGE, min: 1 });
+	if (typeof parsed === "number") return parsed;
+	const [name] = parsed.positionals;
+	if (name === undefined)
+		throw new Error("parse passed no <NAME> despite min: 1");
 
 	sweepAsides(file);
 	const refused = dirRefusal(file);
@@ -501,7 +637,19 @@ function main(argv) {
 	const unclean = encodingRefusal(file);
 	if (unclean !== null) return unclean;
 
-	if (!process.stdin.isTTY) return upsertEnv(file, name, readPiped(), false);
+	if (!process.stdin.isTTY) {
+		let piped;
+		try {
+			piped = readPiped();
+		} catch (e) {
+			return refuse(
+				file,
+				`stdin could not be read (${caught(e).code ?? "error"}). Re-run in your own terminal.`,
+				2,
+			);
+		}
+		return upsertEnv(file, name, piped, false);
+	}
 	process.stderr.write(`Value for ${name} (typing hidden, Enter to finish): `);
 	return readHidden(process.stdin).then(
 		(raw) => {
