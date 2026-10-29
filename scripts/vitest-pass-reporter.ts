@@ -171,6 +171,14 @@ function fullRunFields(launch: import("./lib/suite-handoff.js").Launch) {
 	};
 }
 
+/* A full run's attestation: `"*"`, beside the base its launch resolved where
+ * one did, so a full red can be classed against it (#3646). */
+export function fullAttestationOf({
+	base,
+}: Pick<import("./lib/suite-handoff.js").Launch, "base">) {
+	return { closure: "*" as const, ...(base ? { base } : {}) };
+}
+
 export default class TestPassReporter {
 	private vitest: {
 		config?: {
@@ -294,7 +302,8 @@ export default class TestPassReporter {
 	}
 
 	/**
-	 * The paths the verdict depended on: `"*"` for a full run; otherwise the
+	 * The paths the verdict depended on: `"*"` for a full run
+	 * (`fullAttestationOf`); otherwise the
 	 * selected tests, their transitive imports off vitest's module graph, the
 	 * documents the manifest maps to those tests, and the dependency-graph
 	 * roots — repo-relative, sorted, deduplicated — with the selected tests
@@ -318,7 +327,7 @@ export default class TestPassReporter {
 		testModules: TestModuleLike[],
 		scope: { modulesRun: number; modulesTotal: number } | null,
 	) {
-		if (scope && isFullScope(scope)) return { closure: "*" as const };
+		if (scope && isFullScope(scope)) return fullAttestationOf(readLaunch());
 		const root = this.vitest?.config?.root;
 		if (!root) throw new Error("vitest reported no root to resolve against");
 		const rel = (file: string) =>

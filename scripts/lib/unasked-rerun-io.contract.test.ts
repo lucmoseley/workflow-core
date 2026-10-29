@@ -24,8 +24,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { fullAttestationOf } from "../vitest-pass-reporter";
 import type { Classing } from "./already-red.js";
-import { FAIL_STORE, storePath } from "./test-pass-marker.js";
+import { FAIL_STORE, markerFrom, storePath } from "./test-pass-marker.js";
 import type { JudgeIO } from "./unasked-rerun.js";
 import {
 	LATCH_PREFIX,
@@ -432,15 +433,38 @@ describe("which red runs stand beside the certificates (#3633)", () => {
 		expect(io().attestation(sha, ["a.js"]).redFault).toBeNull();
 	});
 
-	it("admits a full red run whose every failure was already red", () => {
-		const sha = fx.commitTouching("a.js");
-		const full = fx.redOn(sha, ["a.js"], "RUN-R");
-		fx.writeReds(fx.redAtBase("RUN-0"), {
-			...full,
-			scope: { ...full.scope, changed: null, admissible: false, modulesRun: 9 },
-			closure: "*",
+	/* Before `markerFrom`'s clock time, which a run-name `at` sorts after. */
+	const earlier = "2000-01-01T00:00:00.000Z";
+	/* A full red as production writes it (#3646): `markerFrom` over the
+	 * reporter's own full-run attestation. */
+	const fullRed = (sha: string, base: string | null) =>
+		markerFrom({ head: sha, files: {} }, { head: sha, files: {} }, null, {
+			scope: {
+				modulesRun: 9,
+				modulesTotal: 9,
+				tests: 3,
+				skipped: 0,
+				nameFilter: null,
+				fileFilters: [],
+				failures: [{ file: "a.test.ts", tests: ["t"] }],
+				errors: 0,
+			},
+			treeAtEnd: fx.git("rev-parse", `${sha}^{tree}`),
+			sessionId: null,
+			attestation: fullAttestationOf({ base }),
 		});
-		expect(deciders(sha, ["a.js"])).toEqual(["RUN-R"]);
+
+	it("admits a full red run whose every failure was already red on its launch's base", () => {
+		const sha = fx.commitTouching("a.js");
+		const red = fullRed(sha, fx.git("rev-parse", "origin/main"));
+		fx.writeReds(fx.redAtBase(earlier), red);
+		expect(deciders(sha, ["a.js"])).toEqual([red.at]);
+	});
+
+	it("admits no full red run whose launch resolved no base", () => {
+		const sha = fx.commitTouching("a.js");
+		fx.writeReds(fx.redAtBase(earlier), fullRed(sha, null));
+		expect(deciders(sha, ["a.js"])).toBeNull();
 	});
 
 	it("admits no red carrying an error no failing test names", () => {

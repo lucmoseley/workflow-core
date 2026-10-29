@@ -66,8 +66,10 @@ const LAUNCH_ENV = "WFC_SUITE_LAUNCH";
  *   could not be counted, and whether that count took the whole-suite slot.
  *   The queue and the `ps` weighers read these.
  * - `changedPaths`, `base`: the diff the narrowed selection was computed from
- *   and what it was diffed against (#189); absent on a full run and on an
- *   expansion that failed open, so such a certificate attests no path by them.
+ *   and what it was diffed against (#189); absent on an expansion that failed
+ *   open, so such a certificate attests no path by them. A full run carries
+ *   `base` alone, where its launch resolved one, to class its failures
+ *   against (#3646).
  *
  * @typedef {{
  *   admissible: boolean,

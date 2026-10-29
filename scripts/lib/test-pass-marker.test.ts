@@ -1547,7 +1547,7 @@ describe("attesting a sha by tree (#189)", () => {
 			expect(bad).not.toHaveProperty("selected");
 		});
 
-		it("writes closure '*' for a full run and neither selected, changedPaths nor base beside it", () => {
+		it("writes closure '*' for a full run with its base beside it, and neither selected nor changedPaths (#3646)", () => {
 			const m = make({
 				closure: "*",
 				selected: ["a.test.ts"],
@@ -1555,9 +1555,10 @@ describe("attesting a sha by tree (#189)", () => {
 				base: baseSha,
 			});
 			expect(m.closure).toBe("*");
+			expect(m.base).toBe(baseSha);
 			expect(m).not.toHaveProperty("selected");
 			expect(m).not.toHaveProperty("changedPaths");
-			expect(m).not.toHaveProperty("base");
+			expect(make({ closure: "*" })).not.toHaveProperty("base");
 		});
 
 		it("omits both where the reporter handed nothing, or a malformed closure", () => {
