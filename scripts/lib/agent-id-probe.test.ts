@@ -2,10 +2,12 @@
 /*
  * Pins that the agent_id probe reads 2.1.310's two-argument builder calls as
  * "not fixed", a third argument or a named agent_id as "fixed", and an absent
- * anchor or unknown shape as unprobed, never "fixed" (#2819).
+ * anchor or unknown shape as unprobed, never "fixed" (#2819), and that a
+ * namesake of the builder reads as no definition of it (#1837).
  *
- * The excerpts (scripts/fixtures/agent-id-2.1.310.txt) are 2.1.310's own
- * bytes around each anchor.
+ * The excerpts (scripts/fixtures/agent-id-2.1.310.txt and
+ * scripts/fixtures/agent-id-2.1.312.txt) are each release's own bytes around
+ * each anchor.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -94,6 +96,59 @@ describe("probeAgentId", () => {
 		expect(f.reasons).toContain(
 			"no definition of the SessionStart builder Xq reads agent_id off a parameter",
 		);
+	});
+
+	it("skips a namesake definition that reads no agent_id, as 2.1.312's zero-parameter `lf()` does (#1837)", () => {
+		const f = probeOn(
+			/* Padded past the probe's 4096-byte window, so the real builder's
+			 * agent_id is out of the namesake's reach. */
+			`function Vu(){return 1}${"\0".repeat(5000)}`,
+			PRE_COMPACT_2_1_310,
+			SESSION_START_2_1_310,
+		);
+		expect(f.verdict).toBe("not fixed");
+		expect(f.reasons).toContain(
+			"the PreCompact builder Vu gets 2 arguments, short of parameter 4, which carries agent_id",
+		);
+	});
+
+	it("reads agent_id only inside the definition's own body (#1837)", () => {
+		const f = probeOn(
+			"function Vu(e){return e}function Zz(e){return{agent_id:e?.agentId}}",
+			PRE_COMPACT_2_1_310,
+			SESSION_START_2_1_310,
+		);
+		expect(f.verdict).toBe("not fixed");
+		expect(f.reasons).toContain(
+			"the SessionStart builder Vu gets 2 arguments, short of parameter 4, which carries agent_id",
+		);
+	});
+
+	it("is unprobed, not fixed, when two namesakes read agent_id off different parameters (#1837)", () => {
+		const f = probeOn(
+			"function Vu(e){return{agent_id:e?.agentId}}",
+			PRE_COMPACT_2_1_310,
+			SESSION_START_2_1_310,
+		);
+		expect(f.verdict).toBe("unprobed");
+	});
+
+	it("is not fixed on 2.1.312's own excerpts, its namesake `lf()` included (#1837)", () => {
+		const [namesake = "", preCompact = "", sessionStart = "", builder = ""] = fs
+			.readFileSync(
+				path.join(__dirname, "..", "fixtures", "agent-id-2.1.312.txt"),
+				"utf8",
+			)
+			.split("\n");
+		/* The namesake sits past the probe's 4096-byte window from the rest. */
+		const bytes = [preCompact, sessionStart, builder].join("\0padding\0");
+		fs.writeFileSync(bin, `${namesake}${"\0".repeat(5000)}${bytes}\0`);
+		const f = probeAgentId(bin);
+		expect(f.verdict).toBe("not fixed");
+		expect(f.reasons).toEqual([
+			"the PreCompact builder lf gets 2 arguments, short of parameter 4, which carries agent_id",
+			"the SessionStart builder lf gets 2 arguments, short of parameter 4, which carries agent_id",
+		]);
 	});
 
 	it("is unprobed, not fixed, when an anchor is absent", () => {
