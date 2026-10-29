@@ -423,8 +423,11 @@ describe("the Stop limb", () => {
 			"propagating already-settled fact",
 			"propagating already-settled facts",
 			"reply that only answers questions",
+			"typo or a wording fix",
+			"reply that only answers the question",
+			"a re-anchor or a regeneration",
 		])(
-			"skipped — %s, an exempt kind (#2601, #2806, #3077, #3491, #3594)",
+			"skipped — %s, an exempt kind (#2601, #2806, #3077, #3491, #3594, #3603)",
 			(kind) => {
 				expect(stop([wrote(code()), declared(`skipped — ${kind}`)])).toBeNull();
 			},
@@ -440,10 +443,12 @@ describe("the Stop limb", () => {
 			},
 		);
 
-		it("skipped — an exempt kind beside a zero-width space, which is deleted, passes (#3594)", () => {
-			const kind = "revert of\u200b one commit";
-			expect(stop([wrote(code()), declared(`skipped — ${kind}`)])).toBeNull();
-		});
+		it.each(["revert of\u200b one commit", "ver\u200bsion bump"])(
+			"skipped — an exempt kind holding a zero-width space, which is deleted, passes: %s (#3594, #3603)",
+			(kind) => {
+				expect(stop([wrote(code()), declared(`skipped — ${kind}`)])).toBeNull();
+			},
+		);
 
 		it("an Edit counts as the session writing the note", () => {
 			const edit = toolUse("Edit", { file_path: path.join(repo, fresh) });
@@ -576,7 +581,7 @@ describe("the Stop limb", () => {
 				["revert of x@and built y", "revert"],
 				["revert of one commit a\u200bnd built a scheduler", "revert"],
 			].map(([kind, phrase]) => [
-				`an exempt kind with a second clause: ${kind} (#2806, #3077, #3491, #3594)`,
+				`an exempt kind with a second clause: ${kind} (#2806, #3077, #3491, #3594, #3603)`,
 				kind,
 				clause(phrase),
 			]),
@@ -641,6 +646,33 @@ describe("the Stop limb", () => {
 			expect(reason).toContain(`skipped names "${named}", which ${says}`);
 			expect(reason).toContain(list);
 		});
+
+		it.each([
+			[
+				"revert of one commit\u200band built a scheduler",
+				"revert of one commit and built a scheduler",
+				"revert",
+			],
+			[
+				"ver\u200bsion bump of x\u200band built y",
+				"version bump of x and built y",
+				"version bump",
+			],
+			[
+				"re\u200bvert of one commit\u200band built y",
+				"revert of one commit and built y",
+				"revert",
+			],
+		])(
+			"skipped — a JOINS word a zero-width space parts off a word, named with it read as a space: %s (#3603)",
+			(kind, named, phrase) => {
+				const reason = stop([wrote(code()), declared(`skipped — ${kind}`)]);
+				expect(reason).toContain(
+					`skipped names "${named}", which ${clause(phrase)}`,
+				);
+				expect(reason).toContain(list);
+			},
+		);
 
 		it.each([
 			[

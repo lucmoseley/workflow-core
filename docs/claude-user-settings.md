@@ -729,16 +729,17 @@ and GNU `date`.
 # none of the four forms; covered names a note that is missing, has no
 # Researched: date, is 6 months old or more, or is off the list; ran names a
 # note this session did not write; skipped names a kind off the exempt list,
-# matched on its whole phrase, an article inside it optional, its last word
-# singular or plural and no word before it but an article, or adds a second
-# clause after it; none-fits names an off-list craft. After a skipped kind's
-# phrase may come only an aside in brackets or one phrase opening with a word
-# in PREPOSITIONS, its words each a TAIL_WORD, an allowlist of characters, and
-# none a word in JOINS, alone or glued on by any mark but "-" (#3077, #3491,
-# #3594); ODD_SPACES read as plain spaces and U+200B deleted first. A
+# matched on its whole phrase, an article before any word but "or" optional,
+# its last word singular or plural and no word before it but an article, or
+# adds a second clause after it; none-fits names an off-list craft. After a
+# skipped kind's phrase may come only an aside in brackets or one phrase
+# opening with a word in PREPOSITIONS, its words each a TAIL_WORD, an allowlist
+# of characters, and none a word in JOINS, alone or glued on by any mark but
+# "-" (#3077, #3491, #3594); ODD_SPACES read as plain spaces first, and a
+# second clause refused with U+200B deleted or read as a space (#3603). A
 # qualifier before the kind, as in "biome version bump", and a bare range
 # after it, as in "version bump 4.1 to 5.0", are refused, the reason naming the
-# shape wanted; so is a line holding a kept $'...' escape. A
+# shape wanted; so is a skipped line holding a kept $'...' escape. A
 # docs/research/<asset class>-precedent.md path, design-vault's, stands for a
 # note in covered and ran. It refuses rather
 # than warns because refusing once is the only Stop channel that reaches the
@@ -752,7 +753,8 @@ and GNU `date`.
 #
 # Known false refusals: a real path or name whose part after a glue mark is a
 # JOINS word, as in "version bump of libfoo.so", is refused as a second
-# clause.
+# clause; so is a word a U+200B splits a JOINS word off, as in
+# "so<U+200B>lar".
 #
 # **Unenforceable**: whether the craft a note is named for is the right one for
 # the task; a false skipped on non-trivial work, with no diff-size cross-check
@@ -760,9 +762,7 @@ and GNU `date`.
 # prepositional phrase says, so a second clause joined by no listed word or
 # mark, as in "revert of one commit built a scheduler", passes; whether a
 # plural is a word, so "typo fixs" passes; a JOINS word glued on by a hyphen,
-# as in "x-and", since "so-called" passes; two words a U+200B joins into
-# one, as in "commit<U+200B>and"; a kind's inner article dropped, as in
-# "propagating already-settled facts"; whether the practice was used;
+# as in "x-and", since "so-called" passes; whether the practice was used;
 # evidence quality.
 #
 # Reference copy, restore step and drift check: workflow-core's
@@ -850,9 +850,9 @@ readonly TAIL_MARKS="#'@" TAIL_JOINERS="-./"
 readonly TAIL_GLUE=$TAIL_MARKS${TAIL_JOINERS#-}
 readonly TAIL_WORD="[$ASCII_ALNUM$TAIL_MARKS]+([$TAIL_JOINERS][$ASCII_ALNUM$TAIL_MARKS]+)*"
 quoted_list() {
-  local i out=\"${1:0:1}\"
+  local i last_sep=$2 out=\"${1:0:1}\"
   for ((i = 1; i < ${#1}; i++)); do
-    ((i == ${#1} - 1)) && out+=$2 || out+=", "
+    ((i == ${#1} - 1)) && out+=$last_sep || out+=", "
     out+=\"${1:i:1}\"
   done
   echo "$out"
@@ -861,39 +861,40 @@ JOINERS_QUOTED=$(quoted_list "$TAIL_JOINERS" " or ")
 ALLOWLIST_TEXT="ASCII letters and digits, spaces, $(quoted_list "$TAIL_MARKS" ", "), and a $JOINERS_QUOTED inside a word"
 readonly JOINERS_QUOTED ALLOWLIST_TEXT
 # Unicode's Zs spaces past U+0020 as UTF-8, read as plain spaces, and U+200B,
-# deleted (#3491, #3594).
+# deleted, and read as a space when judging a second clause (#3491, #3594,
+# #3603).
 readonly ODD_SPACES=($'\xc2\xa0' $'\xe1\x9a\x80' $'\xe2\x81\x9f' $'\xe3\x80\x80' $'\xe2\x80\xaf' $'\xe2\x80\x80' $'\xe2\x80\x81' $'\xe2\x80\x82' $'\xe2\x80\x83' $'\xe2\x80\x84'
   $'\xe2\x80\x85' $'\xe2\x80\x86' $'\xe2\x80\x87' $'\xe2\x80\x88' $'\xe2\x80\x89' $'\xe2\x80\x8a')
 readonly ZERO_WIDTH=$'\xe2\x80\x8b'
+readonly ARTICLE='((a|an|the) )?'
 
-# Each kind's whole phrase, its articles optional, its last word singular or
-# plural, and each side of an "or" standing alone. The phrase is its third
-# group and the words after it its last.
+# Each kind's whole phrase, an article before any word but "or" optional, its
+# last word singular or plural, and each side of an "or" standing alone. The
+# phrase is its third group and the words after it its last.
 exempt_pattern() {
-  local kind kinds pattern bare form forms phrases=() IFS=,
+  local kind kinds pattern phrases=() IFS=,
   read -ra kinds <<<"$EXEMPT_KINDS"
   for kind in "${kinds[@]}"; do
-    kind=${kind# } kind=${kind#a } kind=${kind#an }
-    bare=${kind// a / } bare=${bare// an / }
-    forms=("$kind")
-    [ "$bare" = "$kind" ] || forms+=("$bare")
-    for form in "${forms[@]}"; do
-      phrases+=("$form")
-      [[ $form =~ ^(.*\ )?([^ ]+)\ or\ ([^ ]+)(.*)$ ]] || continue
-      phrases+=("${BASH_REMATCH[1]}${BASH_REMATCH[2]}${BASH_REMATCH[4]}" "${BASH_REMATCH[1]}${BASH_REMATCH[3]}${BASH_REMATCH[4]}")
-    done
+    kind=" ${kind# } " kind=${kind// a / } kind=${kind// an / }
+    kind=${kind# } kind=${kind% }
+    phrases+=("$kind")
+    [[ $kind =~ ^(.*\ )?([^ ]+)\ or\ ([^ ]+)(.*)$ ]] || continue
+    phrases+=("${BASH_REMATCH[1]}${BASH_REMATCH[2]}${BASH_REMATCH[4]}" "${BASH_REMATCH[1]}${BASH_REMATCH[3]}${BASH_REMATCH[4]}")
   done
   pattern=$(printf '%s\n' "${phrases[@]}" | sed 's/[][\.^$*+?(){}|]/\\&/g' | paste -sd'|')
-  echo "^((a|an|the) )?(($pattern)(e?s)?)([^[:alnum:]'-].*)?$"
+  pattern=${pattern// / $ARTICLE} pattern=${pattern//" ${ARTICLE}or "/ or }
+  echo "^$ARTICLE(($pattern)(e?s)?)([^[:alnum:]'-].*)?$"
 }
+
+readonly SECOND_CLAUSE="adds a second clause"
 
 # The fault in "$1", the words after the exempt kind's phrase "$2"; empty
 # where it is nothing, an aside in brackets, or a phrase opening with a word in
 # PREPOSITIONS, whose words are each a TAIL_WORD and none a JOINS word, alone
-# or glued on by a TAIL_GLUE mark (#2806, #3077, #3491, #3594). Any other character, a
+# or glued on by a TAIL_GLUE mark (#2806, #3077, #3491, #3594, #3603). Any other character, a
 # range's dash in "pages 3–5" included, is refused.
 tail_fault() {
-  local clause="adds a second clause to the exempt kind \"$2\"" words off
+  local clause="$SECOND_CLAUSE to the exempt kind \"$2\"" words off
   [[ -z $1 ]] && return
   if [[ $1 =~ ^\ \(\ *(.*)$ ]]; then
     # fault_in strips the aside's closing bracket, so one left means words follow it.
@@ -917,6 +918,37 @@ tail_fault() {
   fi
 }
 
+# The fault in the skipped kind "$1", matched with U+200B deleted; empty where
+# it is an exempt kind. Deleting U+200B joins "a<U+200B>nd" into a JOINS word,
+# and reading it as a space parts one from "commit<U+200B>and", so the tail
+# after the kind's phrase is judged both ways, a second clause either shows
+# refused and named in the form that shows it.
+skipped_fault() {
+  local named phrase tail end spaced reason i
+  named=${1//"$ZERO_WIDTH"/} named=${named//+([[:space:]])/ }
+  shopt -s nocasematch
+  [[ $named =~ $EXEMPT_PATTERN ]] && phrase=${BASH_REMATCH[3]} tail=${BASH_REMATCH[-1]}
+  if [ -n "${phrase:-}" ]; then
+    reason=$(tail_fault "$tail" "$phrase")
+    # The shortest end of "$1" that is the tail once U+200B is deleted.
+    for ((i = ${#1}; i >= 0; i--)); do
+      end=${1:i} end=${end//"$ZERO_WIDTH"/} end=${end//+([[:space:]])/ }
+      [ "$end" = "$tail" ] && spaced=${1:i} && break
+    done
+    if [[ -z $reason && ${spaced:-} == *"$ZERO_WIDTH"* ]]; then
+      spaced=${spaced//"$ZERO_WIDTH"/ } spaced=${spaced//+([[:space:]])/ }
+      reason=$(tail_fault "$spaced" "$phrase")
+      [[ $reason == "$SECOND_CLAUSE"* ]] && named=${named%"$tail"}$spaced || reason=
+    fi
+  fi
+  shopt -u nocasematch
+  if [ -z "${phrase:-}" ]; then
+    echo "skipped names \"$named\", which is no exempt kind: the line opens with a kind's whole phrase, its last word singular or plural, and no word before it but \"a\", \"an\" or \"the\", as in \"version bump of biome\""
+  elif [ -n "${reason:-}" ]; then
+    echo "skipped names \"$named\", which $reason"
+  fi
+}
+
 # PRACTICE_GUARD_TODAY is the seam scripts/practice-guard.test.ts fills.
 readonly TODAY=${PRACTICE_GUARD_TODAY:-$(date +%F)}
 
@@ -930,7 +962,7 @@ readonly BODY_FILE_FLAGS='--body-file|--comment-file|-F'
 # The fault in the declaration "$1", judged against the work tree roots in
 # $roots and the paths in $written; empty where it holds up.
 fault_in() {
-  local decl=$1 form rest note path root found date expiry phrase tail_reason space
+  local decl=$1 form rest note path root found date expiry space
   [ -n "$decl" ] || { echo "no **Practice:** line"; return; }
   if ! [[ $decl =~ ^${MARKER}[[:space:]]*(ran|covered|skipped|none-fits)[[:space:]]*(—|–|-)+[[:space:]]*(.*)$ ]]; then
     echo "\"$decl\" is none of the four forms"
@@ -942,15 +974,7 @@ fault_in() {
   case $form in
     skipped)
       for space in "${ODD_SPACES[@]}"; do rest=${rest//"$space"/ }; done
-      rest=${rest//"$ZERO_WIDTH"/}
-      shopt -s nocasematch
-      [[ ${rest//+([[:space:]])/ } =~ $EXEMPT_PATTERN ]] && phrase=${BASH_REMATCH[3]} && tail_reason=$(tail_fault "${BASH_REMATCH[-1]}" "$phrase")
-      shopt -u nocasematch
-      if [ -z "${phrase:-}" ]; then
-        echo "skipped names \"$rest\", which is no exempt kind: the line opens with a kind's whole phrase, its last word singular or plural, and no word before it but \"a\", \"an\" or \"the\", as in \"version bump of biome\""
-      elif [ -n "${tail_reason:-}" ]; then
-        echo "skipped names \"$rest\", which $tail_reason"
-      fi
+      skipped_fault "$rest"
       return
       ;;
     none-fits)
