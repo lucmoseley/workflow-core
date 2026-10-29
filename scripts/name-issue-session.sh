@@ -282,8 +282,7 @@ stem="${label} ${joined}"
 apply_name "$stem"
 
 # --- the title ---------------------------------------------------------------
-gh="${WFC_GH:-gh}"
-command -v "$gh" >/dev/null 2>&1 || {
+command -v gh >/dev/null 2>&1 || {
   [[ $renamed -eq 1 ]] && announce "$stem"
   exit 0
 }
@@ -300,9 +299,9 @@ fi
 # Capped under the hook's budget: the title must never be why it is killed.
 first="${uniq_numbers[0]}"
 if [[ -n "$repo" ]]; then
-  title="$(timeout 12 "$gh" issue view "$first" --repo "$repo" --json title -q .title 2>/dev/null || true)"
+  title="$(timeout 12 gh issue view "$first" --repo "$repo" --json title -q .title 2>/dev/null || true)"
 else
-  title="$(timeout 12 "$gh" issue view "$first" --json title -q .title 2>/dev/null || true)"
+  title="$(timeout 12 gh issue view "$first" --json title -q .title 2>/dev/null || true)"
 fi
 
 # No title means the lookup failed — unauthenticated, wrong repo, issue gone,
