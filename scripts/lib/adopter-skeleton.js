@@ -300,6 +300,12 @@ const renderAgentsMd = () => readTemplate("AGENTS.md");
 const renderDocMap = ({ project, date }) =>
 	substitute(readTemplate("doc-map.md"), { project, date });
 
+/** The day-one `docs/code-standards.md`: the header and an empty primitives
+ * table, where a new adopter meets the table at adoption (#3466).
+ * @param {{project: string}} at */
+const renderCodeStandards = ({ project }) =>
+	substitute(readTemplate("code-standards.md"), { project });
+
 /** The day-one `docs/called-cards.md`, under `roadmap`.
  * @param {{founder: string}} at */
 const renderCalledCards = ({ founder }) =>
@@ -757,6 +763,7 @@ module.exports = {
 	withIgnoreBlock,
 	appendLines,
 	renderDocMap,
+	renderCodeStandards,
 	renderCalledCards,
 	renderRoadmap,
 	renderHookShim,

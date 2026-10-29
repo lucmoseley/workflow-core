@@ -24,6 +24,7 @@ import {
 	isHookShim,
 	labelPlan,
 	renderClaudeMd,
+	renderCodeStandards,
 	renderConfig,
 	renderDocMap,
 	renderHookShim,
@@ -477,6 +478,63 @@ describe("a rules-file command rewritten for an adopter (#654)", () => {
 		} finally {
 			fs.rmSync(adopter, { recursive: true, force: true });
 		}
+	});
+});
+
+describe("the day-one code standards (#3466)", () => {
+	const Template = path.join(
+		CORE,
+		"scripts/templates/adopter/code-standards.md",
+	);
+	const Row =
+		"| Retry a call | `withRetry()` | `scripts/lib/no-such-file.js` | §G1 | none |";
+
+	/** check-primitives.js over a fresh adopter holding `text`. */
+	const checkTable = (text: string) => {
+		const adopter = fs.mkdtempSync(path.join(os.tmpdir(), "day-one-std-"));
+		try {
+			execFileSync("git", ["init", "-q"], { cwd: adopter });
+			fs.mkdirSync(path.join(adopter, "docs"));
+			fs.writeFileSync(path.join(adopter, "docs/code-standards.md"), text);
+			const r = runInProcess(
+				path.join(CORE, "scripts/check-primitives.js"),
+				["--root", adopter, "--paths-only", "--json"],
+				{
+					cwd: adopter,
+					env: {
+						...process.env,
+						CLAUDE_PROJECT_DIR: adopter,
+						GITHUB_ACTIONS: "",
+					},
+				},
+			);
+			return { status: r.status, envelope: JSON.parse(r.stdout) };
+		} finally {
+			fs.rmSync(adopter, { recursive: true, force: true });
+		}
+	};
+
+	it("fills every placeholder its template carries", () => {
+		expect(fs.readFileSync(Template, "utf8").match(/\{\{\w+\}\}/g)).toEqual([
+			"{{project}}",
+		]);
+		expect(renderCodeStandards({ project: "demo" })).not.toMatch(/\{\{/);
+	});
+
+	it("passes the table checker, which reads its empty table as the local one", () => {
+		const seeded = renderCodeStandards({ project: "demo" });
+		expect(checkTable(seeded)).toMatchObject({
+			status: 0,
+			envelope: { outcome: "OK", findings: [] },
+		});
+		// A row under the seeded header is judged, so the table is the one read.
+		const { status, envelope } = checkTable(`${seeded}${Row}\n`);
+		expect(status).toBe(1);
+		expect(envelope.findings.length).toBeGreaterThan(0);
+		for (const f of envelope.findings)
+			expect(f.message).toContain(
+				'docs/code-standards.md:11 (row "Retry a call")',
+			);
 	});
 });
 
