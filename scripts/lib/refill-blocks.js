@@ -85,7 +85,8 @@ const PARKED_STATE = "blocked";
  *   each of its issues the `parked` label would not go on, with why
  * @property {(l: LoopLaunch, sessionId: string, numbers: number[]) =>
  *   string|null} recordParked  add `numbers` to the session's `.parked-`
- *   marker in its checkout (lib/parked.js)
+ *   marker in its checkout (lib/parked.js); null, else why not, which may
+ *   carry a stack
  * @property {(l: LoopLaunch, body: string) => void} comment  on each of its
  *   issues, a failure logged
  * @property {(l: JobLaunch) => {failed: string|null, out: string}}
@@ -403,18 +404,23 @@ const buildIdleResumeLine = (l, failed) =>
 	`${failed ? "could not resume" : "resumed"} ${launchName(l)}, idle since its host's restart, by ${ATTACH_ROUTE}, try ${l.idleResumes?.tries ?? 0} of ${IDLE_TRIES}${failed ? `: ${failed}` : ""}`;
 
 /**
- * The loop log's line for a park it stopped, or could not.
+ * The loop log's line for a park it stopped, or could not; `brief`, the
+ * issue comment's, each reason cut to its first line, never a stack (#3670).
  * @param {BlockedLaunch & {act?: Act}} l
  * @param {"away"|"normal"} mode
  * @param {{failed: string|null, unlabelled: {n: number, why: string}[],
  *   unmarkedWhy?: string|null}} outcome  `unmarkedWhy`, why the labelled issues are
  *   not in the session's marker
+ * @param {boolean} [brief]
  */
 function buildParkStopLine(
 	l,
 	mode,
 	{ failed, unlabelled, unmarkedWhy = null },
+	brief = false,
 ) {
+	const reason = (/** @type {string} */ why) =>
+		brief ? why.split(/\r?\n/)[0] : why;
 	const tried = l.resumes ? `, ${l.resumes.tries} resumes` : "";
 	const morning = l.act === "park-at-morning" ? ", at the morning cut-off" : "";
 	const what = `${l.block.cause} park ${launchName(l)} (${mode} mode, blocked since ${iso(l.block.since)}${tried}${morning})`;
@@ -423,9 +429,9 @@ function buildParkStopLine(
 	return [
 		`stopped ${what}`,
 		`labelled parked: ${labelled.map((n) => `#${n}`).join(", ") || "none"}`,
-		...unlabelled.map((u) => `not labelled #${u.n}: ${u.why}`),
+		...unlabelled.map((u) => `not labelled #${u.n}: ${reason(u.why)}`),
 		...(unmarkedWhy
-			? [`left parked until claimed, not on his typing: ${unmarkedWhy}`]
+			? [`left parked until claimed, not on his typing: ${reason(unmarkedWhy)}`]
 			: []),
 	].join("; ");
 }
@@ -484,15 +490,15 @@ function stopPark(l, act, mode, { now, io }) {
 		return l;
 	}
 	const unlabelled = io.labelParked(l);
-	const line = buildParkStopLine({ ...l, act }, mode, {
+	const outcome = {
 		failed: null,
 		unlabelled,
 		unmarkedWhy: markLabelled(l, labelledOf(l, unlabelled), io),
-	});
-	io.log(line);
+	};
+	io.log(buildParkStopLine({ ...l, act }, mode, outcome));
 	io.comment(
 		l,
-		`Refill loop: ${line}. The conversation is kept: \`claude attach\` reopens it.`,
+		`Refill loop: ${buildParkStopLine({ ...l, act }, mode, outcome, true)}. The conversation is kept: \`claude attach\` reopens it.`,
 	);
 	return { ...l, parkStopped: now };
 }

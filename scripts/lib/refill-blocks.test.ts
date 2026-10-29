@@ -15,6 +15,7 @@ import {
 	resumedIdleSince,
 	turnedSince,
 } from "./block-cause.js";
+import { buildErrorText } from "./caught.js";
 import { API_PROMPT, IDLE_PROMPT } from "./loop-prompts.js";
 import {
 	actOnBlocks,
@@ -228,6 +229,31 @@ describe("which parks the loop stops (#2699)", () => {
 		expect(logs(unwritten.calls)[0]).toMatch(
 			/; left parked until claimed, not on his typing: EACCES$/,
 		);
+	});
+
+	it("comments only each failure's first line, logging it in full (#3670)", () => {
+		const stack = buildErrorText(new Error("EACCES: permission denied"));
+		const { calls } = blocks(
+			[parkedFor("QUESTION", 0, { issues: [42, 43] })],
+			blocked,
+			"away",
+			{
+				io: {
+					labelParked: () => [{ n: 43, why: "HTTP 502\r\nretry later" }],
+					recordParked: () => stack,
+				},
+			},
+		);
+		expect(logs(calls)[0]).toContain(`not on his typing: ${stack}`);
+		expect(logs(calls)[0]).toContain(
+			"not labelled #43: HTTP 502\r\nretry later",
+		);
+		const comment = calls.find((c) => c.startsWith("comment "));
+		expect(comment).toContain("; not labelled #43: HTTP 502;");
+		expect(comment).toMatch(
+			/; left parked until claimed, not on his typing: Error: EACCES: permission denied\. The conversation is kept/,
+		);
+		expect(comment).not.toMatch(/[\r\n]/);
 	});
 });
 
