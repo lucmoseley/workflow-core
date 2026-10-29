@@ -40,7 +40,11 @@ afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));
 const run = (args: string[]) =>
 	runInProcess(SCRIPT, args, {
 		cwd: repo,
-		env: { ...process.env, CLAUDE_PROJECT_DIR: repo },
+		env: {
+			...process.env,
+			CLAUDE_PROJECT_DIR: repo,
+			WFC_SECRETS_FILE: path.join(repo, "secrets.env"),
+		},
 	});
 
 const writeLog = (file: string, records: unknown[]) =>
@@ -272,6 +276,30 @@ describe("token masking (#1031)", () => {
 		);
 	});
 
+	it("masks the value of a name the secrets file holds, in any shape (#3661)", () => {
+		const value = `vck_${"aB3".repeat(16)}`;
+		fs.writeFileSync(path.join(repo, "secrets.env"), "AI_GATEWAY_API_KEY=x\n");
+		const log = sessionLog([
+			buildBashCall(`AI_GATEWAY_API_KEY=${value} node a.js`, "t", {
+				timestamp: T,
+			}),
+		]);
+		const r = run([log]);
+		expect(r.status).toBe(0);
+		const out = readTranscript(r.stdout).join("\n");
+		expect(out).not.toContain(value);
+		expect(out).toContain("AI_GATEWAY_API_KEY=[REDACTED:stored]");
+	});
+
+	it("stops before writing a line where the secrets file is there but unreadable (#3661)", () => {
+		fs.mkdirSync(path.join(repo, "secrets.env"));
+		const log = sessionLog([toolResult("AI_GATEWAY_API_KEY=x")]);
+		const r = run([log]);
+		expect(r.status).not.toBe(0);
+		expect(r.stderr).toContain("EISDIR");
+		expect(r.stdout).toBe("");
+	});
+
 	it("masks a token on its own line inside an object tool input", () => {
 		const token = TOKENS[0][1];
 		const log = sessionLog([
@@ -458,14 +486,20 @@ describe("memory bound", () => {
 			`process.on("exit", () => require("fs").writeFileSync(${JSON.stringify(record)}, String(process.resourceUsage().maxRSS)));`,
 		);
 		/* A small heap and nursery so GC runs promptly: without them a streaming
-		 * read's garbage lingers and its peak tracks the file size anyway. */
-		const env: NodeJS.ProcessEnv = { ...process.env, CLAUDE_PROJECT_DIR: repo };
+		 * read's garbage lingers and its peak tracks the file size anyway. 24 MB:
+		 * compiling lib/token-shapes.js's patterns peaked at 13.7 MB of heap,
+		 * measured on a one-line log, too close to 16 (#3661). */
+		const env: NodeJS.ProcessEnv = {
+			...process.env,
+			CLAUDE_PROJECT_DIR: repo,
+			WFC_SECRETS_FILE: path.join(repo, "secrets.env"),
+		};
 		/* So the heap flags below are the only ones in force. */
 		delete env.NODE_OPTIONS;
 		const r = spawnSync(
 			process.execPath,
 			[
-				"--max-old-space-size=16",
+				"--max-old-space-size=24",
 				"--max-semi-space-size=1",
 				"--require",
 				preload,

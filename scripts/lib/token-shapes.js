@@ -31,7 +31,16 @@
  * characters, and an ESC after more than 64 backslashes. A body character
  * after an OSC's closing `ESC \` that spells an escaped ESC with its `\`
  * (`\e`, `\U0000001b`) is read as one, taking the characters after it as
- * that sequence's, so a token near its minimum can pass (#3549).
+ * that sequence's, so a token near its minimum can pass (#3549). A chain of
+ * tokens each shorter than any vendor issues and spelling the next one's
+ * prefix masks only its last links, one more per pass; and an `sk-` token a
+ * control sequence leads, inside such a token's minimum, loses its prefix to
+ * that body and passes (#3661).
+ *
+ * A STORED SECRET'S VALUE is masked after its `NAME=` for each name a caller
+ * passes, whatever its shape (#3661). One after `NAME:` or a JSON key passes,
+ * and so does one under a name the secrets file does not hold, a key set
+ * only in the environment included.
  */
 
 /**
@@ -154,16 +163,30 @@ const NEXT_TOKEN = [HUGGINGFACE, SK, GITHUB, GITHUB_PAT]
 	.map(buildShortest)
 	.join("|");
 
+/* The shortest whole token of each lead-free shape: inside its minimum a
+ * body stops before one of these alone. A stop before an `sk-` there would
+ * cut the body short and mask neither when that `sk-` has no lead (#3661). */
+const NEXT_LEAD_FREE = [HUGGINGFACE, GITHUB, GITHUB_PAT]
+	.map(buildShortest)
+	.join("|");
+
 /**
  * The source for a shape's prefix, `guard`, then a body of at least its
- * minimum whose characters do not start `stop`.
+ * minimum whose characters do not start `early`, ending at the first place
+ * past the minimum where, after any control sequences, `stop` starts or no
+ * body character follows. One lookahead ends it rather than one per
+ * character, which would hold `stop` twice and double the compiled code.
  * @param {Shape} shape
- * @param {{ stop?: string, guard?: string }} [options]
+ * @param {{ stop?: string, early?: string, guard?: string }} [options]
  */
-const buildToken = ({ prefix, chars, min }, { stop, guard = "" } = {}) =>
-	`${prefix}${guard}(?:${buildBodyUnit(chars, stop)}){${min},}`;
+const buildToken = ({ prefix, chars, min }, { stop, early, guard = "" } = {}) =>
+	`${prefix}${guard}(?:${buildBodyUnit(chars, early)}){${min},}${
+		stop ? `?(?=(?:${CONTROL})*(?:${stop})|(?!(?:${CONTROL})*${chars}))` : ""
+	}`;
 
-/* The digit lookahead is bounded so a long digitless run stays linear. */
+/* The digit lookahead is bounded so a long digitless run stays linear. 300
+ * is a guess, not measured; a random body of the class holds no digit in its
+ * first 300 characters with odds of (54/64)^300, under 1e-22. */
 const SK_DIGIT = `(?=(?:${CONTROL}|${SK.chars}){0,300}?\\d)`;
 
 /** @param {Shape} shape */
@@ -183,11 +206,15 @@ const TOKEN_SHAPES = [
 	},
 	{
 		rule: "huggingface",
-		pattern: new RegExp(buildToken(HUGGINGFACE, { stop: NEXT_TOKEN })),
+		pattern: new RegExp(
+			buildToken(HUGGINGFACE, { stop: NEXT_TOKEN, early: NEXT_LEAD_FREE }),
+		),
 	},
 	{
 		rule: "github",
-		pattern: new RegExp(buildToken(GITHUB, { stop: NEXT_TOKEN })),
+		pattern: new RegExp(
+			buildToken(GITHUB, { stop: NEXT_TOKEN, early: NEXT_LEAD_FREE }),
+		),
 	},
 	{
 		rule: "aws",
@@ -199,21 +226,44 @@ const TOKEN_SHAPES = [
 	},
 ];
 
+/* A second pass masks an `sk-` token a first-pass mask gave its lead; a
+ * mask gives no other token a lead or a body. */
+const PASSES = 2;
+
 /**
- * `text` with every token-shaped substring replaced by `[REDACTED:<rule>]`.
- * Shapes apply in list order: `sk-ant-` is named before the bare `sk-` rule
- * can claim it, and the shapes whose bodies hold `_` or `-` run before the
- * lead-free ones, which would otherwise split them at an `hf_` or `ghp_`
- * inside. The list reruns until a pass masks nothing, so an `sk-` token a
- * later shape's mask uncovers is caught.
+ * Each `<name>=` assignment, as a log spells one, in three groups: the name,
+ * what runs to its value, the value. The name follows no name character
+ * unless a control sequence ends there. Before the value may sit spaces, an
+ * escaped tab, control sequences (`grep --color` on the secrets file), `$`
+ * for bash's `$'…'`, and a quote behind any run of backslashes, as each
+ * stringification adds one.
+ * @param {string[]} names
+ */
+const buildStored = (names) =>
+	`(?=${names.join("|")})(?:(?<![A-Za-z0-9_])|(?<=${CONTROL}))(${names.join("|")})((?:${CONTROL}|[ \\t])*=(?:${CONTROL}|[ \\t]|\\\\t)*\\$?(?:\\\\*["'])?)([^\\s"'\\\\\`]+)`;
+
+/**
+ * `text` with every token-shaped substring, and the value of an assignment
+ * to any of `names`, replaced by `[REDACTED:<rule>]`. Shapes apply in list
+ * order: `sk-ant-` is named before the bare `sk-` rule can claim it, and the
+ * shapes whose bodies hold `_` or `-` run before the lead-free ones, which
+ * would otherwise split them at an `hf_` or `ghp_` inside.
  * @param {string} text
+ * @param {string[]} [names] the secrets file's names, from
+ *   `lib/env-file.js`'s `storedNames`: identifiers, put in the pattern as
+ *   they are
  * @returns {{ text: string, count: number }}
  */
-function maskTokens(text) {
+function maskTokens(text, names = []) {
 	let count = 0;
 	let out = text;
-	let found;
-	do {
+	if (names.length > 0) {
+		const stored = new RegExp(buildStored(names), "g");
+		count += out.match(stored)?.length ?? 0;
+		out = out.replace(stored, "$1$2[REDACTED:stored]");
+	}
+	let found = 0;
+	for (let pass = 0; pass < PASSES && (pass === 0 || found > 0); pass++) {
 		found = 0;
 		for (const { rule, pattern } of TOKEN_SHAPES) {
 			const every = new RegExp(pattern.source, "g");
@@ -221,7 +271,7 @@ function maskTokens(text) {
 			out = out.replace(every, `[REDACTED:${rule}]`);
 		}
 		count += found;
-	} while (found > 0);
+	}
 	return { text: out, count };
 }
 

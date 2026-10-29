@@ -33,7 +33,8 @@
  * rule are restated in `parseLine` and `records` over streamed lines.
  *
  * TOKEN-SHAPED SUBSTRINGS ARE MASKED (#1031) to `[REDACTED:<rule>]` in every
- * line written, by `lib/token-shapes.js`: a token pasted into a session would
+ * line written, by `lib/token-shapes.js`, and so is the value after `NAME=`
+ * for each name the secrets file holds: a token pasted into a session would
  * otherwise reach every retro that reads it, and the issues they file. Masked
  * before the per-item cut, so a token straddling it leaves no fragment.
  *
@@ -51,6 +52,7 @@ const { hostRoot } = require("./lib/host-root");
 const { requiredGroup } = require("./lib/regex-group");
 const { isLoopPrompt } = require("./lib/loop-prompts");
 const { maskTokens } = require("./lib/token-shapes");
+const { storedNames } = require("./lib/env-file.js");
 const {
 	STOP_FEEDBACK,
 	parseContentText,
@@ -95,11 +97,15 @@ const LIMIT = {
 /* Substrings masked so far, reported in the stdout summary. */
 let masked = 0;
 
+/* Read once: the secrets file's names, whose assigned values are masked. */
+let storedSecretNames;
+
 /**
  * @param {string} text
  */
 function mask(text) {
-	const result = maskTokens(text);
+	storedSecretNames ??= storedNames();
+	const result = maskTokens(text, storedSecretNames);
 	masked += result.count;
 	return result.text;
 }

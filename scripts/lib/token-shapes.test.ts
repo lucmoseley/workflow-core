@@ -10,7 +10,7 @@
  * through scripts/retro-transcript.js.
  */
 import { createRequire } from "node:module";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
 const { maskTokens } = require("./token-shapes.js");
@@ -256,4 +256,107 @@ describe("maskTokens back-to-back (#3540)", () => {
 			});
 		},
 	);
+});
+
+describe("maskTokens on a cascading chain (#3661)", () => {
+	/* Each link's `hf_` body stops before the next `sk-`, which only the
+	 * `hf_` mask after it gives a lead. */
+	const chain = (links: number) =>
+		`${`hf_${"a".repeat(29)}sk-`.repeat(links)}x`;
+
+	/** The regex replacements one call makes, the masker's unit of work: no
+	 * return value shows how many passes it ran. */
+	function replacements(text: string) {
+		const spy = vi.spyOn(RegExp.prototype, Symbol.replace);
+		try {
+			const result = maskTokens(text);
+			return { result, calls: spy.mock.calls.length };
+		} finally {
+			spy.mockRestore();
+		}
+	}
+
+	it("masks every link", () => {
+		expect(maskTokens(chain(3))).toEqual({
+			text: `${"[REDACTED:huggingface]-".repeat(3)}x`,
+			count: 3,
+		});
+	});
+
+	it("makes as many replacements on 2,000 links as on one", () => {
+		const one = replacements(chain(1));
+		const many = replacements(chain(2000));
+		expect(many.result.count).toBe(2000);
+		expect(many.calls).toBe(one.calls);
+	});
+});
+
+describe("maskTokens across a colour code past the minimum (#3661)", () => {
+	it.each([
+		["a github-pat", `github_pat_${"a".repeat(30)}`, "github-pat"],
+		["a github token", `ghp_${"a".repeat(32)}`, "github"],
+		["a huggingface token", `hf_${"a".repeat(31)}`, "huggingface"],
+	])("masks the whole of %s", (_name, head, rule) => {
+		for (const colour of ["\u001b[01;31m\u001b[K", "\\u001b[1m"])
+			expect(maskTokens(`${head}${colour}${"b".repeat(8)}`)).toEqual({
+				text: `[REDACTED:${rule}]`,
+				count: 1,
+			});
+	});
+});
+
+describe("maskTokens on a stored name (#3661)", () => {
+	const gatewayKey = `vck_${"aB3".repeat(16)}`;
+	const stored = ["AI_GATEWAY_API_KEY"];
+
+	it.each([
+		[
+			"bare",
+			`AI_GATEWAY_API_KEY=${gatewayKey}`,
+			"AI_GATEWAY_API_KEY=[REDACTED:stored]",
+		],
+		[
+			"exported, spaced and quoted",
+			`export AI_GATEWAY_API_KEY = "${gatewayKey}" next`,
+			'export AI_GATEWAY_API_KEY = "[REDACTED:stored]" next',
+		],
+		[
+			"behind a doubled escaped quote",
+			`export AI_GATEWAY_API_KEY=\\\\\\"${gatewayKey}\\\\\\"`,
+			'export AI_GATEWAY_API_KEY=\\\\\\"[REDACTED:stored]\\\\\\"',
+		],
+		[
+			"in bash's $'…' quoting",
+			`AI_GATEWAY_API_KEY=$'${gatewayKey}'`,
+			"AI_GATEWAY_API_KEY=$'[REDACTED:stored]'",
+		],
+		[
+			"after an escaped tab",
+			`AI_GATEWAY_API_KEY=\\t${gatewayKey}`,
+			"AI_GATEWAY_API_KEY=\\t[REDACTED:stored]",
+		],
+		[
+			"under grep --color",
+			`\u001b[01;31m\u001b[KAI_GATEWAY_API_KEY\u001b[m\u001b[K=${gatewayKey}`,
+			"\u001b[01;31m\u001b[KAI_GATEWAY_API_KEY\u001b[m\u001b[K=[REDACTED:stored]",
+		],
+		[
+			"stringified in a tool input",
+			`{"command":"AI_GATEWAY_API_KEY=\\"${gatewayKey}\\" node a.js"}`,
+			'{"command":"AI_GATEWAY_API_KEY=\\"[REDACTED:stored]\\" node a.js"}',
+		],
+	])("masks the value %s", (_name, text, masked) => {
+		expect(maskTokens(text, stored)).toEqual({ text: masked, count: 1 });
+	});
+
+	it.each<[string, string, string[]]>([
+		[
+			"a longer name ending in it",
+			`MY_AI_GATEWAY_API_KEY=${gatewayKey}`,
+			stored,
+		],
+		["no names passed", `AI_GATEWAY_API_KEY=${gatewayKey}`, []],
+	])("leaves %s alone", (_name, text, names) => {
+		expect(maskTokens(text, names)).toEqual({ text, count: 0 });
+	});
 });

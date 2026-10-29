@@ -21,6 +21,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { caught } = require("./caught.js");
 const { requiredGroup } = require("./regex-group");
 
 /* `\s` less the line breaks `.` stops at, so a value holding one reads back
@@ -112,10 +113,32 @@ function readEnvFileValue(file, name) {
 	return null;
 }
 
+/**
+ * Every name the secrets file assigns, never a value: what a log masker
+ * masks the value after (#3661).
+ * @returns {string[]} empty where there is no file
+ * @throws where the file is there but cannot be read, as a masker that
+ *   quietly masked fewer names would write their values bare
+ */
+function storedNames() {
+	let text;
+	try {
+		text = fs.readFileSync(secretsFile(), "utf8");
+	} catch (err) {
+		if (caught(err).code === "ENOENT") return [];
+		throw err;
+	}
+	const names = splitEnvLines(text).lines.map(
+		({ body }) => parseEnvLine(body)?.name,
+	);
+	return [...new Set(names.filter((name) => name !== undefined))];
+}
+
 module.exports = {
 	assignsAcrossBreak,
 	parseEnvLine,
 	readEnvFileValue,
 	secretsFile,
 	splitEnvLines,
+	storedNames,
 };
