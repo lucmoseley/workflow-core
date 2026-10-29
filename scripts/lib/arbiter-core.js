@@ -138,9 +138,14 @@ function isOverflowSeat(dir) {
 		overflowKeys = text
 			.split("\n")
 			.map((l) => l.trim().split(/\s+/))
-			.filter((w) => w[1] === "api")
-			.map((w) =>
-				realKey(w[0].startsWith("~/") ? path.join(home, w[0].slice(2)) : w[0]),
+			.flatMap(([seat, kind]) =>
+				kind === "api" && seat !== undefined
+					? [
+							realKey(
+								seat.startsWith("~/") ? path.join(home, seat.slice(2)) : seat,
+							),
+						]
+					: [],
 			);
 	}
 	return overflowKeys.includes(realKey(dir));
