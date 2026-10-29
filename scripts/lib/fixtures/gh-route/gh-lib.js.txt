@@ -1,0 +1,1 @@
+const ghBinary = () => process.env.WFC_GH || "gh";

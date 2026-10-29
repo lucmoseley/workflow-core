@@ -789,6 +789,7 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 			"`scripts/check-report-programs.js`",
 			/check-report-programs\.js \|\| exit/,
 		],
+		["`scripts/check-gh-route.js`", /check-gh-route\.js \|\| exit/],
 		["`scripts/check-registrations.js`", /check-registrations\.js --against/],
 		[
 			"`scripts/check-workflow-permissions.js`",

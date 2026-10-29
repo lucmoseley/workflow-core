@@ -364,7 +364,7 @@ export function sandbox({
 	fs.mkdirSync(path.join(sb, "tmp"));
 	if (bashrc !== null) fs.writeFileSync(path.join(home, ".bashrc"), bashrc);
 	const stub = stubGhScript(sb, ghServer.script);
-	let searchPath = stub.PATH;
+	let searchPath = process.env.PATH ?? "";
 	if (failBashN) {
 		const realBash = execFileSync("sh", ["-c", "command -v bash"], {
 			encoding: "utf8",
@@ -558,6 +558,9 @@ function asideByHand(s: Sandbox) {
 
 type Step = [string, (s: Sandbox, g: Golden) => void];
 
+/** The sandbox's `gh` stub, which a fixture step drives as the script does. */
+const ghOf = (s: Sandbox) => s.env.WFC_GH ?? "";
+
 /**
  * A flow's steps as report lines, each with a fixture leaving the world as
  * that step would — half-finished states built directly, never by stopping
@@ -567,15 +570,16 @@ const steps = (copy: boolean): Step[] => [
 	[
 		"github repo",
 		(s) =>
-			execFileSync("gh", ["repo", "create", "lucmoseley/tides", "--private"], {
-				env: s.env,
-				stdio: "ignore",
-			}),
+			execFileSync(
+				ghOf(s),
+				["repo", "create", "lucmoseley/tides", "--private"],
+				{ env: s.env, stdio: "ignore" },
+			),
 	],
 	[
 		"clone",
 		(s) => {
-			execFileSync("gh", ["repo", "clone", "lucmoseley/tides", s.clone], {
+			execFileSync(ghOf(s), ["repo", "clone", "lucmoseley/tides", s.clone], {
 				env: s.env,
 				stdio: "ignore",
 			});

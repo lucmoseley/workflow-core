@@ -98,8 +98,8 @@ function dropSiblingConfigs(env: NodeJS.ProcessEnv) {
  * WITHOUT THIS THE SUITE READS THE MACHINE (mantahostels#1902). A case reaching
  * the liveness oracle without a shim of its own runs the real `claude` over the
  * founder's three live session registries, asking which sessions are running
- * RIGHT NOW, and answers differently minute to minute. `WFC_ARBITER_GH` is unset there,
- * falling the debt lifecycle back on the real `gh`. NEITHER BINARY IS REACHABLE
+ * RIGHT NOW, and answers differently minute to minute. `WFC_GH` is unset there,
+ * falling every `gh` call back on the real `gh`. NEITHER BINARY IS REACHABLE
  * IN CI, so a green CI run says nothing about this.
  *
  * THE AGENTS STUB LISTS THE CALLER AND NOBODY ELSE, which is what the real
@@ -109,7 +109,8 @@ function dropSiblingConfigs(env: NodeJS.ProcessEnv) {
  * every unshimmed case down the refusal branch the real oracle never took.
  *
  * The `gh` stub refuses loudly: a case that needs one says so with `fakeGh`
- * rather than reaching the network.
+ * rather than reaching the network. It sits at WFC_GH alone, never on PATH,
+ * since every `gh` caller reads that var (#3455).
  *
  * RESIDUAL: a real session also exports `CLAUDE_PID`, `CLAUDECODE` and
  * `CLAUDE_CODE_MESSAGING_SOCKET`, and the sandbox leaves `HOME` alone
@@ -119,8 +120,8 @@ function stubOracles(sb: Sandbox) {
 	const dir = path.join(sb.dir, "stubs");
 	fs.mkdirSync(dir, { recursive: true });
 
-	const write = (name: string, body: string) => {
-		const bin = path.join(dir, name);
+	const write = (name: string, body: string, at = dir) => {
+		const bin = path.join(at, name);
 		fs.writeFileSync(bin, `#!/bin/sh\n${body}\n`);
 		fs.chmodSync(bin, 0o755);
 		return bin;
@@ -143,9 +144,10 @@ function stubOracles(sb: Sandbox) {
 		'sid=$CLAUDE_CODE_SESSION_ID\n[ -n "$sid" ] || sid=sandbox\n' +
 			'printf \'[{"sessionId":"%s"}]\\n\' "$sid"',
 	);
-	process.env.WFC_ARBITER_GH = write(
-		"gh",
+	process.env.WFC_GH = write(
+		"gh-unstubbed",
 		'echo "arbiter sandbox: unstubbed gh call: $*" >&2\nexit 1',
+		sb.dir,
 	);
 	// No trailing delimiter on an unset PATH: an empty field is the cwd.
 	process.env.PATH = process.env.PATH
@@ -339,7 +341,7 @@ export function finished(sb: Sandbox, sessionId: string) {
 }
 
 /**
- * A `gh` stand-in wired through WFC_ARBITER_GH, and a count of its
+ * A `gh` stand-in wired through WFC_GH, and a count of its
  * invocations — the debt lifecycle's only network call.
  */
 export function fakeGh(sb: Sandbox, body: string) {
@@ -349,7 +351,7 @@ export function fakeGh(sb: Sandbox, body: string) {
 		`#!/bin/sh\necho "$*" >> "${path.join(sb.dir, "gh-calls")}"\n${body}\n`,
 	);
 	fs.chmodSync(bin, 0o755);
-	process.env.WFC_ARBITER_GH = bin;
+	process.env.WFC_GH = bin;
 }
 
 /**

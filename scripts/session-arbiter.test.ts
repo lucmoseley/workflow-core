@@ -120,9 +120,10 @@ describe("the sandbox's isolation from the machine (mantahostels#1902)", () => {
 		expect(r.stdout).toContain("Force-released docs/doc-map.md");
 	});
 
-	it("routes an unstubbed debt-lifecycle gh call to a stub that refuses", () => {
-		expect(process.env.WFC_ARBITER_GH).toBe(sandboxOf("gh"));
-		const r = spawnSync(sandboxOf("gh"), ["issue", "view", "1"], {
+	it("routes an unstubbed gh call to a stub that refuses", () => {
+		const unstubbed = path.join(sb.dir, "gh-unstubbed");
+		expect(process.env.WFC_GH).toBe(unstubbed);
+		const r = spawnSync(unstubbed, ["issue", "view", "1"], {
 			encoding: "utf8",
 		});
 		expect(r.status).not.toBe(0);
@@ -130,21 +131,20 @@ describe("the sandbox's isolation from the machine (mantahostels#1902)", () => {
 	});
 
 	it("still lets fakeGh take the gh seam from the default", () => {
-		// stubOracles claims WFC_ARBITER_GH in the sandbox's own beforeEach, and
-		// a case arranging its own `gh` must still win.
+		// stubOracles claims WFC_GH in the sandbox's own beforeEach, and a case
+		// arranging its own `gh` must still win.
 		fakeGh(sb, 'echo \'{"state":"CLOSED"}\'');
-		expect(process.env.WFC_ARBITER_GH).not.toBe(sandboxOf("gh"));
+		expect(process.env.WFC_GH).toBe(path.join(sb.dir, "gh-fake"));
 		expect(ghCallCount(sb)).toBe(0);
 	});
 
-	it("resolves a bare `claude` and `gh` to those stubs too", () => {
-		// The knobs are belt; PATH is braces, for a caller reading neither.
-		for (const name of ["claude", "gh"])
-			expect(
-				spawnSync("sh", ["-c", `command -v ${name}`], {
-					encoding: "utf8",
-				}).stdout.trim(),
-			).toBe(sandboxOf(name));
+	it("resolves a bare `claude` to its stub too", () => {
+		// The knob is belt; PATH is braces, for a caller not reading it.
+		expect(
+			spawnSync("sh", ["-c", "command -v claude"], {
+				encoding: "utf8",
+			}).stdout.trim(),
+		).toBe(sandboxOf("claude"));
 	});
 });
 

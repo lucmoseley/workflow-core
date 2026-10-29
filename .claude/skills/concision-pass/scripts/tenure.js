@@ -26,6 +26,7 @@ const fs = require("node:fs");
 const { writeFd } = require("../../../../scripts/lib/write-fd.js");
 const { execFileSync } = require("node:child_process");
 const { execGit } = require("../../../../scripts/lib/git.js");
+const { gh: runGh } = require("../../../../scripts/lib/gh.js");
 const { requiredGroup } = require("../../../../scripts/lib/regex-group.js");
 const { caught } = require("../../../../scripts/lib/caught.js");
 
@@ -63,7 +64,6 @@ const MAX_IDENTIFIER_COMMIT_MATCHES = 20;
  * truncating. */
 const MAX_BUFFER = 64e6;
 
-const GH = process.env.WFC_GH || "gh";
 const GREP_TARGETS = ["scripts", "docs/doc-map.md"];
 
 let readerGone = false;
@@ -502,18 +502,23 @@ function identifierRulingAxis(pathspec, identifier) {
 /** An earlier pass may already have ruled on this passage. @param {string} needle */
 function ghAxis(needle) {
 	const term = `"${needle.replace(/"/g, " ")}"`;
-	const res = run(GH, [
-		"issue",
-		"list",
-		"--state",
-		"all",
-		"--search",
-		term,
-		"--limit",
-		String(MAX_ISSUES),
-		"--json",
-		"number,state,title",
-	]);
+	const res = settle(() =>
+		runGh(
+			[
+				"issue",
+				"list",
+				"--state",
+				"all",
+				"--search",
+				term,
+				"--limit",
+				String(MAX_ISSUES),
+				"--json",
+				"number,state,title",
+			],
+			READ_OPTS,
+		),
+	);
 	if (res.status !== 0) {
 		return {
 			state: "unresolved",
@@ -835,4 +840,19 @@ function main(argv) {
 	return 0;
 }
 
-if (require.main === module) process.exit(main(process.argv.slice(2)));
+/**
+ * `main`, with a short `git log` record read as the IO error it is: exit 1,
+ * where lib/check.js's crash handler, which lib/gh.js loads, would make it 2.
+ * @param {string[]} argv
+ */
+function mainOrIoError(argv) {
+	try {
+		return main(argv);
+	} catch (err) {
+		if (!(err instanceof LogRecordShortError)) throw err;
+		out(`${err.message}\n`);
+		return 1;
+	}
+}
+
+if (require.main === module) process.exit(mainOrIoError(process.argv.slice(2)));
