@@ -158,6 +158,7 @@ function spawnable(bin) {
 const regions = require("./lib/doc-map-regions.js");
 const {
 	DATA_FILES,
+	HIGH_WATER_MARK_REMEDY,
 	idNumber,
 	parseHighWaterMark,
 } = require("./lib/doc-map.js");
@@ -3928,7 +3929,7 @@ function readHighWaterMarkFor(rel) {
 		const { code, message } = caught(e);
 		writeStderr(
 			code === "ENOENT"
-				? `session-arbiter: ${file} is missing, so the id below may be one a removed entry held, and check-doc-map.js reads the map BROKEN until it exists. Write it as { "highWaterMark": <n> }, n being the number of the highest §B id ever removed (0 where none has been).\n`
+				? `session-arbiter: ${file} is missing, so the id below may be one a removed entry held, and check-doc-map.js reads the map BROKEN until it exists. ${HIGH_WATER_MARK_REMEDY}\n`
 				: `session-arbiter: ${file} could not be read (${code || message}), so the id below may be one a removed entry held; check-doc-map.js will refuse it if so.\n`,
 		);
 	}

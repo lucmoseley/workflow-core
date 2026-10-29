@@ -1494,7 +1494,7 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 			claude: region(rule),
 			files: {
 				[guard]: buildGuardBody(
-					"# PreToolUse guard.\n#\n# LIMITS\n#  - Wired with `if: Bash(*git*)` since #2061.",
+					"# PreToolUse guard.\n#\n# LIMITS\n#  - Wired with `if: Bash(*git*)` (#2061).",
 				),
 				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard, "Bash(*git*)"),
 			},
@@ -1509,7 +1509,7 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 			claude: region(rule),
 			files: {
 				[guard]: buildGuardBody(
-					"# PreToolUse guard.\n#\n# LIMITS\n#  - Wired with `if: Bash(*git*)` since #2061.",
+					"# PreToolUse guard.\n#\n# LIMITS\n#  - Wired with `if: Bash(*git*)` (#2061).",
 				),
 				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard),
 			},
@@ -1526,7 +1526,7 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 			claude: region(rule),
 			files: {
 				[guard]: buildGuardBody(
-					"# PreToolUse guard.\n#\n#  - Wired with `if: Bash(*gh*)` since #2061.",
+					"# PreToolUse guard.\n#\n#  - Wired with `if: Bash(*gh*)` (#2061).",
 				),
 				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard, "Bash(*git*)"),
 			},
@@ -1572,7 +1572,7 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 			claude: region(rule),
 			files: {
 				[guard]: buildGuardBody(
-					"# PreToolUse guard.\n#  - Wired with `if: Bash(*git*)` since #2061.",
+					"# PreToolUse guard.\n#  - Wired with `if: Bash(*git*)` (#2061).",
 				),
 				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard, "Bash(*git*)"),
 			},
@@ -1593,7 +1593,7 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 			claude: region(rule),
 			files: {
 				[guard]: buildGuardBody(
-					"# PreToolUse guard.\n#  - Wired with `if: Bash(*gh*)` since #2061.",
+					"# PreToolUse guard.\n#  - Wired with `if: Bash(*gh*)` (#2061).",
 				),
 				[SELF_PLUGIN_HOOKS]: JSON.stringify({
 					hooks: {
@@ -1629,7 +1629,7 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 			claude: region(rule),
 			files: {
 				[guard]: buildGuardBody(
-					"# PreToolUse guard.\n#\n#  - Wired with `if: Bash(*git*)` since #2061.",
+					"# PreToolUse guard.\n#\n#  - Wired with `if: Bash(*git*)` (#2061).",
 				),
 				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard),
 			},
@@ -1673,7 +1673,7 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 			claude: region(rule),
 			files: {
 				[guard]: buildGuardBody(
-					"# PreToolUse guard.\n#\n#  - Wired with `if: Bash(*git*)` since #2061.",
+					"# PreToolUse guard.\n#\n#  - Wired with `if: Bash(*git*)` (#2061).",
 				),
 				[SELF_PLUGIN_HOOKS]: JSON.stringify({ hooks: {} }),
 			},
@@ -1695,7 +1695,7 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 			claude: region(rule),
 			files: {
 				[guard]: buildGuardBody(
-					"# PreToolUse guard.\n#\n#  - Wired with `if: Bash(*git*)` since #2061.",
+					"# PreToolUse guard.\n#\n#  - Wired with `if: Bash(*git*)` (#2061).",
 				),
 				[SELF_PLUGIN_HOOKS]: JSON.stringify({
 					hooks: {
@@ -1727,7 +1727,7 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 			claude: region(rule),
 			files: {
 				[guard]: buildGuardBody(
-					"# PreToolUse guard.\n#\n#  - Wired with `if: Bash(*git*)` since #2061.",
+					"# PreToolUse guard.\n#\n#  - Wired with `if: Bash(*git*)` (#2061).",
 				),
 				[SELF_PLUGIN_HOOKS]: JSON.stringify({
 					hooks: {
@@ -1761,7 +1761,7 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 			files: {
 				[other]: buildGuardBody("# PreToolUse guard."),
 				[retired]: buildGuardBody(
-					"# Retired guard, kept for reference.\n#  - Wired with `if: Bash(*gh*)` since #2061.",
+					"# Retired guard, kept for reference.\n#  - Wired with `if: Bash(*gh*)` (#2061).",
 				),
 				[SELF_PLUGIN_HOOKS]: wiringWithIf(other),
 			},

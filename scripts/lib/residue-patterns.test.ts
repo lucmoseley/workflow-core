@@ -67,7 +67,6 @@ describe("the strict patterns", () => {
 		["K3", "a legacy alias for flavour"],
 		["K4", "reads the legacy shape"],
 		["K6", "the checkers that no longer fire at session start"],
-		["K6", "the coverage authority since mantahostels#1849"],
 		["K7", "Rejected: a paid provider now."],
 	])("%s fires on %j", (kind, line) => {
 		expect(kindsHit(line)).toContain(kind);
@@ -78,8 +77,15 @@ describe("the strict patterns", () => {
 		"Kill a background process as soon as nothing needs it.",
 		"The fallback font stack is system-ui.",
 		"The adversary's accusations, including those the pass turned down.",
+		"It blocks since the hook reads stdin.",
 	])("stays silent on the live line %j", (line) => {
 		expect(kindsHit(line)).toEqual([]);
+	});
+
+	it("fires K6 on a repo-qualified `since <repo>#N` clause (#3356)", () => {
+		expect(
+			kindsHit("the coverage authority since mantahostels#1849"),
+		).toContain("K6");
 	});
 
 	it("reads K5 in a test file only", () => {

@@ -374,6 +374,7 @@ const {
 	parseRetiredVocabularyText,
 	newOverCapEntries,
 	unrecordedAdmissions,
+	HIGH_WATER_MARK_REMEDY,
 	parseHighWaterMark,
 	readHeadHighWaterMark,
 	newIdsAtOrBelowMark,
@@ -1822,9 +1823,7 @@ function readHighWaterMark(ctx, markFile) {
 		const { code, message } = caught(e);
 		ctx.broken(
 			code === "ENOENT"
-				? `high-water mark file ${markFile} is missing. Write it as ` +
-						'{ "highWaterMark": <n> }, n being the number of the highest ' +
-						"§B id ever removed from the map (0 where none has been)."
+				? `high-water mark file ${markFile} is missing. ${HIGH_WATER_MARK_REMEDY}`
 				: `high-water mark file unreadable — ${message}`,
 		);
 	}

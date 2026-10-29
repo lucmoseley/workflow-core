@@ -4483,7 +4483,7 @@ function sayFindings(
 			`  An \`if\` field in ${hooksFile()}, or on a core's row in ${MANIFEST_REL},\n` +
 				"  decides whether the script runs at all, so every blind spot its header enumerates is\n" +
 				"  computed against it. State the narrowing verbatim in that header —\n\n" +
-				"    #  - Wired with `if: Bash(*git*)` since mantahostels#2061 (best-effort: <what it costs>)\n\n" +
+				"    #  - Wired with `if: Bash(*git*)` (mantahostels#2061; best-effort: <what it costs>)\n\n" +
 				"  — one line where its LIMITS section already runs long, its own paragraph\n" +
 				"  where it does not (docs/agents/guard-authoring.md, surface 4). A header\n" +
 				"  stating a narrowing the wiring no longer carries fails the same way: that\n" +

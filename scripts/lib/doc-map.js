@@ -1297,6 +1297,11 @@ function parseHighWaterMark(raw) {
 	}
 }
 
+/** How to write a missing high-water mark file, for every reader that finds none. */
+const HIGH_WATER_MARK_REMEDY =
+	'Write it as { "highWaterMark": <n> }, n being the number of the highest ' +
+	"§B id ever removed from the map (0 where none has been).";
+
 /**
  * HEAD's high-water mark, read from `file`'s committed copy (the tracked
  * default path standing in for a pre-commit temp copy, as `readMapTextAt` does), or
@@ -3208,8 +3213,8 @@ function reportWholeFile(ctx, notes) {
  */
 
 /**
- * One needle-ledger entry, superseded or machinery: its needles, each with a
- * stated `scanned` flag, and an optional allowlist.
+ * Validates a NeedleEntry: its needles, each with a stated `scanned` flag, and
+ * an optional allowlist.
  * @param {string} file
  * @param {string} id
  * @param {unknown} entry
@@ -4624,6 +4629,7 @@ module.exports = {
 	readCommittedRevs,
 	newOverCapEntries,
 	unrecordedAdmissions,
+	HIGH_WATER_MARK_REMEDY,
 	parseHighWaterMark,
 	readHeadHighWaterMark,
 	newIdsAtOrBelowMark,
