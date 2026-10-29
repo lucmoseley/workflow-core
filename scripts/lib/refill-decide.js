@@ -131,7 +131,6 @@ const ALREADY_RUNNING = "already running";
  */
 
 /**
- * The loop's launch whose session parked a frontier row, as the tick read it.
  * @typedef {object} ParkerReading
  * @property {string} root
  * @property {number} number the parked issue
@@ -141,7 +140,6 @@ const ALREADY_RUNNING = "already running";
  */
 
 /**
- * A parked row's session to resume in place.
  * @typedef {{launch: import("./refill-blocks.js").JobLaunch, sessionId: string,
  *   cwd: string}} ResumeTarget
  */
@@ -218,6 +216,12 @@ const isFitted = (s) => s.fits !== null && s.fits > 0;
  * @returns {s is S & {fits: number}}
  */
 const fitsLaunch = (s) => hasRoom(s) && isFitted(s);
+
+/**
+ * Whether a seat reads full: a bar at 100% or a cap sized 0.
+ * @param {SizedSeat} s
+ */
+const readsFull = (s) => s.weekFull || s.sessionFull || s.fits === 0;
 
 /**
  * The first plan seat with room whose cap fits a launch, else, once every
@@ -368,8 +372,7 @@ function rowLaunch(row, retroBundles, isTaken, mode) {
 }
 
 /**
- * rowLaunch, with a parked row routed by routeParked: held as a skip, else
- * carrying how it launches.
+ * rowLaunch, with a parked row routed by routeParked, a hold as a skip.
  * @param {MergedRow} row
  * @param {Pick<TickInput, "retroBundles"|"mode"|"seats"|"parkers">} input
  * @param {(n: number) => boolean} isTaken
@@ -432,11 +435,10 @@ function stopOf(input, pick) {
 /**
  * How a parked row launches, from the tick's reading of the session that
  * parked it: resumed in place (#3621); held, a skip with why, where that
- * session's seat reads full, a bar at 100% or a cap sized 0, so a later tick
- * resumes the conversation rather than discarding it (#3669); else afresh on
- * its `takes:` command, with why. A seat with room but unsized or unread
- * resumes: only the first seat with room is sized, and the resume's own
- * outcome is the reading there. Residual: a weekly-full seat holds its
+ * session's seat reads full, a bar at 100% or a cap sized 0 (#3669); else
+ * afresh on its `takes:` command, with why. A seat with an unread bar
+ * resumes: the loop refreshes no seat behind the first with room, so a hold
+ * there would never end. Residual: a weekly-full seat holds its
  * tickets until its week resets, up to 7 days, and the idle alarm counts no
  * parked issue.
  * @param {ParkerReading|undefined} parker none where no launch of the loop's
@@ -453,7 +455,7 @@ function routeParked(parker, seats) {
 		return {
 			afresh: `its session's seat ${parker.launch.seat} is not one the loop reads`,
 		};
-	if (seat.weekFull || seat.sessionFull || seat.fits === 0)
+	if (readsFull(seat))
 		return { hold: `parked: its session's seat ${seat.seat} is full` };
 	const { launch, sessionId, cwd } = parker;
 	return { resume: { launch, sessionId, cwd } };
@@ -596,6 +598,6 @@ module.exports = {
 	decideTick,
 	fitsLaunch,
 	hasRoom,
+	isParked,
 	pickSeat,
-	routeParked,
 };

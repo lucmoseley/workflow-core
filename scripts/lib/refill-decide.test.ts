@@ -661,7 +661,7 @@ describe("decideTick on parked rows (#3621)", () => {
 		parked(3, "2026-10-17T09:00:00Z"),
 	];
 
-	it("launches parked rows first in normal mode, oldest park first, flagged parked", () => {
+	it("launches parked rows first in normal mode, oldest park first, each carrying its route", () => {
 		const d = tick({ mode: "normal", freeSlots: 9, frontier });
 		expect(launched(d)).toEqual(["wfc#3", "wfc#2", "wfc#1"]);
 		const unread = { afresh: "no session that parked it is recorded" };

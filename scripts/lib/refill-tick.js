@@ -67,17 +67,17 @@ const { stopOn } = require("./claude-stop.js");
 const { launchAuthRefusal } = require("./launch-auth.js");
 const { jobDirPath, readJobRecord } = require("./job-paths.js");
 const { parseJsonl } = require("./jsonl.js");
-const {
-	PARKED_LABEL,
-	readParkedBy,
-	setParked,
-	writeParkedBy,
-} = require("./parked.js");
+const { readParkedBy, setParked, writeParkedBy } = require("./parked.js");
 const { read: readTranscript } = require("./session-transcript.js");
 const { mainChainRecords } = require("./transcript.js");
 const { hasConfig, resolveKey } = require("./workflow-core-config.js");
 const { readLastTypedAt } = require("./presence.js");
-const { NOTHING_LAUNCHABLE, decideTick } = require("./refill-decide.js");
+const {
+	NOTHING_LAUNCHABLE,
+	decideTick,
+	hasRoom,
+	isParked,
+} = require("./refill-decide.js");
 const { refillFrontier } = require("./refill-frontier.js");
 const {
 	appendTick,
@@ -731,7 +731,7 @@ const parkingLaunchOf = (root, n, launches) =>
  */
 function readParkers(frontier, launches) {
 	return frontier.flatMap((row) => {
-		if (!row.labels.includes(PARKED_LABEL)) return [];
+		if (!isParked(row)) return [];
 		const launch = parkingLaunchOf(row.root, row.number, launches);
 		if (!launch) return [];
 		return [
@@ -744,6 +744,23 @@ function readParkers(frontier, launches) {
 		];
 	});
 }
+
+/**
+ * `seats` with each parker's seat that has room but no cap sized, sized for
+ * one resume: only the first seat with room is sized for the decision, and a
+ * resume is held to the same cap as a launch (#3669).
+ * @param {import("./refill-decide.js").SizedSeat[]} seats
+ * @param {import("./refill-decide.js").ParkerReading[]} parkers
+ * @param {string|undefined} root the checkout the cap is sized in
+ */
+const sizeParkerSeats = (seats, parkers, root) =>
+	seats.map((s) =>
+		s.fits === null &&
+		hasRoom(s) &&
+		parkers.some((p) => p.launch.seat === s.seat)
+			? { ...s, fits: capFits(root, s.seat, 1, "") }
+			: s,
+	);
 
 /**
  * Resume the session that parked `l`'s ticket, in place (#3621): its new
@@ -908,12 +925,16 @@ async function decide(input, scope, launches) {
 	const frontier = /** @type {import("./refill-decide.js").MergedRow[]} */ (
 		merged.frontier
 	);
+	/* Away mode skips every parked row, so its markers go unread. */
+	const parkers =
+		input.mode === "normal" ? readParkers(frontier, launches) : [];
 	const decision = decideTick({
 		...input,
+		seats: sizeParkerSeats(input.seats, parkers, served.roots[0]),
 		frontier,
 		retroBundles: merged.retroBundles,
 		failedShortlists: merged.failed,
-		parkers: input.mode === "normal" ? readParkers(frontier, launches) : [],
+		parkers,
 	});
 	return { decision, read };
 }
