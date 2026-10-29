@@ -55,21 +55,22 @@
  * checked instead. Group write passes where the group is this user's private
  * one, as under `pam_umask usergroups` (#3676): their primary gid, under the
  * one `/etc/passwd` row naming them, listing no other member in `/etc/group`
- * and the primary gid of no other user, as Debian's OpenSSH StrictModes
- * allows; and where the directory carries no ACL, whose named entries the
- * group bits do not show, as GNU `ls` tells (#3715). Where lookups can reach
- * a source beyond those files (LDAP, sssd, NIS, a systemd-homed user, an
- * `initgroups` source) no group is judged private, so it refuses, as it does
- * a group with a password. On NFS, a parent or the file's directory carrying
- * any ACL GNU `ls` marks is refused, whatever its mode or sticky bit: an
- * NFSv4 ACL can grant another user access with no group or other bit set
- * (#3724). Residual: a group password or member set only in `/etc/gshadow`,
- * which the user cannot read; a process root starts under the gid, which no
- * database shows; and an ACL granting access no mode bit shows where `ls`
- * marks none: an NFSv4 ACL under an `ls` not GNU's, built without ACL
- * support, whose gnulib predates its NFSv4 reader or misses the ACL where
- * Linux 6.12+ NFS answers EACCES, or whose entries name only OWNER@, GROUP@
- * and EVERYONE@, which gnulib calls trivial whatever they grant.
+ * and the primary gid of no other user, as Debian's OpenSSH StrictModes allows;
+ * and where the directory carries no ACL, whose named entries the group bits do
+ * not show, as an ACL-marking `ls` tells (#3715, #3737). Where lookups can
+ * reach a source beyond those files (LDAP, sssd, NIS, a systemd-homed user, an
+ * `initgroups` source) no group is judged private, so it refuses, as it does a
+ * group with a password. On NFS, a parent or the file's directory carrying any
+ * ACL that `ls` marks is refused, whatever its mode or sticky bit: an NFSv4 ACL
+ * can grant another user access with no group or other bit set (#3724).
+ * Residual: a group password or member set only in `/etc/gshadow`, which the
+ * user cannot read; a process root starts under the gid, which no database
+ * shows; and an ACL granting access no mode bit shows where `ls` marks none: an
+ * NFSv4 ACL under an `ls` neither GNU's nor uutils' from 0.0.24, or under a GNU
+ * `ls` built without ACL support, whose gnulib predates its NFSv4 reader or
+ * misses the ACL where Linux 6.12+ NFS answers EACCES, or whose entries name
+ * only OWNER@, GROUP@ and EVERYONE@, which gnulib calls trivial whatever they
+ * grant.
  *
  * A MOUNT WHOSE SERVER DECIDES ACCESS IS REFUSED (#3726): the file's
  * directory, or a directory above it, on CIFS/SMB, 9p (WSL 2's drvfs, as
@@ -366,15 +367,15 @@ const NFS_MAGIC = 0x69_69;
 
 /**
  * Why directory `d` may let another user in by an NFSv4 ACL, or null: it lies
- * on NFS and GNU `ls` marks an ACL on it, reading `system.nfs4_acl` as well
- * as POSIX's (#3724). Elsewhere a POSIX ACL is judged by the group bits, its
- * mask, so a read-only entry passes. Where `ls` is not GNU's, no ACL is seen,
+ * on NFS and `ls` marks an ACL on it, reading `system.nfs4_acl` as well as
+ * POSIX's (#3724). Elsewhere a POSIX ACL is judged by the group bits, its
+ * mask, so a read-only entry passes. Where `ls` marks no ACL, none is seen,
  * so none is judged there.
  * @param {string} d
  * @returns {string | null}
  */
 function nfsAclWhy(d) {
-	if (!isOnNfs(d) || !isGnuLs() || isAclUnmarked(d)) return null;
+	if (!isOnNfs(d) || !lsMarksAcl() || isAclUnmarked(d)) return null;
 	return "carries an ACL on NFS, where an NFSv4 entry can grant another user access no mode bit shows";
 }
 
@@ -425,22 +426,21 @@ function remoteAccessWhy(d) {
 }
 
 /**
- * Whether directory `d` may carry an ACL, as GNU `ls` marks by a `+` after the
+ * Whether directory `d` may carry an ACL, as `ls` marks by a `+` after the
  * mode: its group bits are then the ACL's mask, which a named user's entry
  * can grant write through whatever the owning group (#3715). Node reads no
- * extended attribute, and only GNU's `ls` is known to mark one, so where it
- * is not GNU's, is not root's own copy at a fixed path, or does not answer,
- * `d` is judged to carry one. Residual: a GNU `ls` built without ACL support
- * prints no `+`.
+ * extended attribute, so where `ls` marks no ACL, is not root's own copy at a
+ * fixed path, or does not answer, `d` is judged to carry one. Residual: a GNU
+ * `ls` built without ACL support prints no `+`.
  * @param {string} d
  * @returns {boolean}
  */
 function hasAcl(d) {
-	return !isGnuLs() || !isAclUnmarked(d);
+	return !lsMarksAcl() || !isAclUnmarked(d);
 }
 
-/** `isGnuLs`'s answer, asked once per run. @type {boolean | undefined} */
-let gnuLs;
+/** `lsMarksAcl`'s answer, asked once per run. @type {boolean | undefined} */
+let marksAcl;
 
 /** Where `ls` is run from, never PATH, which any directory on it can outrank. */
 const LS_PATHS = ["/usr/bin/ls", "/bin/ls"];
@@ -474,26 +474,37 @@ function ls(...args) {
 	});
 }
 
-/** Whether `ls` is GNU's, and so marks an ACL. */
-function isGnuLs() {
-	if (gnuLs !== undefined) return gnuLs;
+/**
+ * Whether `ls` marks an ACL: GNU's, or uutils' from 0.0.24, Ubuntu's own from
+ * 25.10 (#3737). uutils' marks any extended attribute, so it refuses more,
+ * never less.
+ */
+function lsMarksAcl() {
+	if (marksAcl !== undefined) return marksAcl;
 	try {
-		gnuLs = /^ls \(GNU coreutils\) /.test(ls("--version"));
+		const version = ls("--version");
+		const [, major, minor, patch] =
+			/^ls \(uutils coreutils\) (\d+)\.(\d+)\.(\d+)/.exec(version) ?? [];
+		marksAcl =
+			/^ls \(GNU coreutils\) /.test(version) ||
+			(patch !== undefined &&
+				(Number(major) > 0 || Number(minor) > 0 || Number(patch) >= 24));
 	} catch {
 		/* No trusted `ls` to ask: no ACL can be seen (#3715). */
-		gnuLs = false;
+		marksAcl = false;
 	}
-	return gnuLs;
+	return marksAcl;
 }
 
 /**
- * Whether GNU `ls -ldL` shows `d` with no `+` after its mode, a symlinked
- * config directory judged where it points.
+ * Whether `ls -ld` shows `d` with no `+` after its mode, a symlinked config
+ * directory judged where it points: resolved here, as uutils' `ls -L` read
+ * the link's own attributes until uutils#13368 (#3737).
  * @param {string} d
  */
 function isAclUnmarked(d) {
 	try {
-		return /^d[-rwxsStT]{9}\.? /.test(ls("-ldL", "--", d));
+		return /^d[-rwxsStT]{9}\.? /.test(ls("-ld", "--", fs.realpathSync(d)));
 	} catch {
 		/* It failed on `d`: unjudged, so it refuses (#3715). */
 		return false;
