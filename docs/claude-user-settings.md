@@ -887,10 +887,8 @@ exempt_pattern() {
   echo "^$ARTICLE(($pattern)(e?s)?)([^[:alnum:]'-].*)?$"
 }
 
-readonly SECOND_CLAUSE="adds a second clause"
-
 # The second-clause fault on the exempt kind's phrase "$1".
-second_clause() { echo "$SECOND_CLAUSE to the exempt kind \"$1\""; }
+second_clause() { echo "adds a second clause to the exempt kind \"$1\""; }
 
 # Whether "$1" holds a JOINS word, alone or glued on by a TAIL_GLUE mark.
 has_joins_word() { [[ " ${1//[$TAIL_GLUE]/ } " =~ \ ($JOINS)\  ]]; }
@@ -898,11 +896,10 @@ has_joins_word() { [[ " ${1//[$TAIL_GLUE]/ } " =~ \ ($JOINS)\  ]]; }
 # The fault in "$1", the words after the exempt kind's phrase "$2"; empty
 # where it is nothing, an aside in brackets, or a phrase opening with a word in
 # PREPOSITIONS, whose words are each a TAIL_WORD and none a JOINS word, alone
-# or glued on by a TAIL_GLUE mark (#2806, #3077, #3491, #3594, #3603). Any other character, a
-# range's dash in "pages 3–5" included, is refused.
+# or glued on by a TAIL_GLUE mark (#2806, #3077, #3491, #3594). Any other
+# character, a range's dash in "pages 3–5" included, is refused.
 tail_fault() {
-  local clause words off
-  clause=$(second_clause "$2")
+  local words off
   [[ -z $1 ]] && return
   if [[ $1 =~ ^\ \(\ *(.*)$ ]]; then
     # fault_in strips the aside's closing bracket, so one left means words follow it.
@@ -910,7 +907,7 @@ tail_fault() {
   elif [[ $1 =~ ^\ ($PREPOSITIONS)\ (.*)$ ]]; then
     words=${BASH_REMATCH[-1]}
   elif [[ $1 =~ ^\ ($JOINS)\  || ! $1 =~ ^\ [[:alnum:]] ]]; then
-    echo "$clause"
+    second_clause "$2"
     return
   else
     echo "follows the exempt kind \"$2\" with neither an aside in brackets nor a phrase opening with one of: ${PREPOSITIONS//|/, }; write it as \"$2 (<aside>)\" or \"$2 of <what>\""
@@ -920,7 +917,7 @@ tail_fault() {
   if [[ -n $off ]]; then
     echo "holds \"${off:0:1}\", off the tail's allowlist: $ALLOWLIST_TEXT"
   elif has_joins_word "$words"; then
-    echo "$clause"
+    second_clause "$2"
   elif ! [[ " $words " =~ ^(\ $TAIL_WORD)+\ $ ]]; then
     echo "puts a $JOINERS_QUOTED outside a word"
   fi

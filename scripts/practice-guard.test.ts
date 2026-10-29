@@ -455,6 +455,20 @@ describe("the Stop limb", () => {
 			},
 		);
 
+		// skipped_fault searches a U+200B-spaced tail whole, its opening preposition included, for a JOINS word (#3622).
+		it("no word is in both PREPOSITIONS and JOINS (#3622)", () => {
+			const source = fs.readFileSync(hook, "utf8");
+			const words = (name: string) =>
+				source
+					.match(new RegExp(`^readonly ${name}='([^']+)'$`, "m"))?.[1]
+					.split("|") ?? [];
+			const joins = new Set(words("JOINS"));
+			expect(joins.size).toBeGreaterThan(0);
+			expect(words("PREPOSITIONS").filter((word) => joins.has(word))).toEqual(
+				[],
+			);
+		});
+
 		it("an Edit counts as the session writing the note", () => {
 			const edit = toolUse("Edit", { file_path: path.join(repo, fresh) });
 			expect(stop([edit, declared(`ran — ${fresh}`)])).toBeNull();
