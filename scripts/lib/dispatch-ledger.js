@@ -157,18 +157,21 @@ const isLaunch = (rec) => !("released" in rec);
 
 /**
  * Launches inside the window that still hold: a launch a later release row
- * names is dropped.
+ * names is dropped. Later is by line, the append order, so an in-place resume
+ * that keeps a released job's id holds again (#3722).
  * @param {string|undefined} root
  * @param {number} windowHours
  * @returns {{ok: boolean, entries: DispatchRecord[], error?: string}}
  */
 function readRecentEntries(root, windowHours) {
 	const { rows, ...read } = readWindowRows(root, windowHours);
-	const released = new Set(
-		rows.flatMap((r) => (isLaunch(r) ? [] : [r.released])),
-	);
+	/** @type {Map<string, number>} each job's last release, by line */
+	const lastRelease = new Map();
+	rows.forEach((r, i) => {
+		if (!isLaunch(r)) lastRelease.set(r.released, i);
+	});
 	const entries = rows.filter(
-		(r) => isLaunch(r) && !(r.jobId && released.has(r.jobId)),
+		(r, i) => isLaunch(r) && !(r.jobId && i < (lastRelease.get(r.jobId) ?? -1)),
 	);
 	return { ...read, entries: /** @type {DispatchRecord[]} */ (entries) };
 }
