@@ -20,7 +20,9 @@
  *
  *   SELF-ROOTED-JS      a `path.resolve(__dirname, …)` or `path.join(__dirname,
  *                       …)` whose LITERAL leading segments already climb out of
- *                       `scripts/`. `path.join(__dirname, "..", "session-
+ *                       `scripts/`, called through `path.`, `nodePath.` or
+ *                       bare (`join(`, `resolve(`, as ESM names a `node:path`
+ *                       import). `path.join(__dirname, "..", "session-
  *                       arbiter.js")` from `scripts/lib/` lands back inside
  *                       `scripts/` and is fine — it names a sibling that ships
  *                       with the core, which in a plugin install is exactly
@@ -50,14 +52,17 @@
  *                       variable first (`const root = hostRoot()`), and the
  *                       core path in a constant (`"scripts/…"` or
  *                       `path.join("scripts", …)`) — this file's, or one it
- *                       destructures from a `require` of a scanned module or
- *                       names in an `import {…} from` of one.
+ *                       destructures from a `require` or an `await import()`
+ *                       of a scanned module or names in an `import {…} from`
+ *                       of one.
  *
  * WHAT IS NOT SCANNED. A test, a fixture and a test harness root at the CORE
  * checkout because that checkout is their subject: `__dirname` there is the copy
  * under test, and pointing them at a host root would aim them at whatever tree
- * the suite happened to run in. lib/test-kind.js's `JS_TEST_FILE` (`*.test.*`
- * and `*.spec.*`), `*-fixture.*`, `*-testkit.*` and the vitest configs are
+ * the suite happened to run in. lib/test-kind.js's `isTestKind` (test and spec
+ * files, pytest's tests and `conftest.py`, testkit, harness, fixture, stub and
+ * fake modules, and anything under a `test/`, `tests/`, `fixtures/`,
+ * `testkits/`, `stubs/` or `fakes/` directory) and the vitest configs are
  * therefore out of scope, by name.
  *
  * WHAT IT CANNOT SEE. A root passed as a parameter rather than assigned from
@@ -69,15 +74,15 @@
  * with a later literal's quote. Nor, in ESM (#3635), a `node:path` function
  * reached through an alias (`join as pjoin`) or a namespace import (`import *
  * as p`), a `fileURLToPath(new URL(".", import.meta.url))` base, a template
- * literal in `new URL`, or `import.meta.resolve` — the scan is lexical. It is a gate against the
- * spellings that drifted, not a proof that no script self-roots.
+ * literal in `new URL`, or `import.meta.resolve` — the scan is lexical. It is a
+ * gate against the spellings that drifted, not a proof that no script
+ * self-roots.
  * `host-root-plugin-cache.test.ts` is the behavioural half: it runs the rooted
  * scripts from a plugin-cache-shaped path and asserts each resolves the host.
  *
- * THE ALLOWLIST is for a file that roots elsewhere on purpose — a suite
- * harness reading the core's own files, a measurement run over this checkout,
- * a checker whose subject is the working directory's checkout. Each entry
- * carries its reason.
+ * THE ALLOWLIST is for a file that roots elsewhere on purpose — a measurement
+ * run over this checkout, a checker whose subject is the working directory's
+ * checkout. Each entry carries its reason.
  *
  * An allowlist entry whose file is ABSENT is silent — the scanned root is
  * simply not this one, which is the ordinary case under `--root`.
@@ -92,7 +97,7 @@ const { hostRoot } = require("./lib/host-root.js");
 const {
 	JS_EXT_SOURCE,
 	JS_EXTENSIONS,
-	JS_TEST_FILE,
+	isTestKind,
 } = require("./lib/test-kind.js");
 const { segmentTailMatches } = require("./lib/line-scan.js");
 const { blankComments } = require("./lib/strip-comments.js");
@@ -113,11 +118,6 @@ const ALLOWED = {
 		tags: ["HOST-ROOTED-CORE"],
 		reason:
 			"the heresy checks' subject is the host's own scripts/, which the --against re-run materialises at `root`; __dirname would name the plugin's copies instead (#3555)",
-	},
-	"scripts/lib/precommit-gate-harness.js": {
-		tags: ["SELF-ROOTED-JS"],
-		reason:
-			"a suite harness reading THIS checkout's .husky/pre-commit to compare it against the checkers it calls — the subject is the core's own hook, not a host's",
 	},
 	"scripts/lib/husky-shim.js": {
 		tags: ["SECOND-SEAM-JS"],
@@ -239,15 +239,15 @@ const SCANNED = ["scripts"];
 const JS_EXT = new Set(JS_EXTENSIONS.map((ext) => `.${ext}`));
 
 /* The suite and its apparatus — see WHAT IS NOT SCANNED above. */
-const TEST_FILE = new RegExp(
-	String.raw`(?:${JS_TEST_FILE.source}|-(?:fixture|testkit)${JS_EXT_SOURCE}$|^vitest\.(?:config|setup)${JS_EXT_SOURCE}$)`,
+const VITEST_CONFIG = new RegExp(
+	String.raw`^vitest\.(?:config|setup)${JS_EXT_SOURCE}$`,
 );
 const isTestFile = (/** @type {string} */ rel) =>
-	TEST_FILE.test(path.basename(rel));
+	isTestKind(rel) || VITEST_CONFIG.test(path.basename(rel));
 
 /** A call to one of `names`, through `path.` or `nodePath.`, or bare as ESM
  * names a `node:path` import — any bare call of that name, imported or not. */
-const pathCall = (/** @type {string} */ names) =>
+const buildPathCall = (/** @type {string} */ names) =>
 	String.raw`(?:\b(?:path|nodePath)\.|(?<![\w$.]))(?:${names})\(\s*`;
 
 const FILE_URL = String.raw`(?:\burl\.)?fileURLToPath\(\s*import\.meta\.url\s*\)`;
@@ -256,7 +256,7 @@ const FILE_URL = String.raw`(?:\burl\.)?fileURLToPath\(\s*import\.meta\.url\s*\)
 const JS_FILE = String.raw`import\.meta\.filename\b|${FILE_URL}`;
 
 /** The file's own directory: CommonJS `__dirname` or its ESM spellings. */
-const JS_DIR = String.raw`__dirname\b|import\.meta\.dirname\b|${pathCall("dirname")}(?:${JS_FILE})\s*\)`;
+const JS_DIR = String.raw`__dirname\b|import\.meta\.dirname\b|${buildPathCall("dirname")}(?:${JS_FILE})\s*\)`;
 
 /**
  * `path.resolve` / `path.join` from the file's directory (group 1) or its own
@@ -265,14 +265,14 @@ const JS_DIR = String.raw`__dirname\b|import\.meta\.dirname\b|${pathCall("dirnam
  * about where it lands.
  */
 const JS_CALL = new RegExp(
-	String.raw`${pathCall("resolve|join")}(?:(${JS_DIR})|(${JS_FILE}))\s*((?:,\s*(?:"[^"\n]*"|'[^'\n]*'))*)`,
+	String.raw`${buildPathCall("resolve|join")}(?:(${JS_DIR})|(${JS_FILE}))\s*((?:,\s*(?:"[^"\n]*"|'[^'\n]*'))*)`,
 	"g",
 );
 
 /** `path.dirname` of the file's own directory — the same climb, spelled
  * without a literal. */
 const JS_DIRNAME = new RegExp(
-	String.raw`${pathCall("dirname")}(?:${JS_DIR})\s*\)`,
+	String.raw`${buildPathCall("dirname")}(?:${JS_DIR})\s*\)`,
 	"g",
 );
 
@@ -291,7 +291,7 @@ const CORE_LITERAL = String.raw`["'\x60](?:scripts|\.husky)(?:["'\x60]|/)`;
  */
 const hostCoreJoin = (root) =>
 	new RegExp(
-		String.raw`${pathCall("resolve|join")}${root}\s*,\s*(?:${CORE_LITERAL}|([A-Za-z_$][\w$]*)\s*[,)])`,
+		String.raw`${buildPathCall("resolve|join")}${root}\s*,\s*(?:${CORE_LITERAL}|([A-Za-z_$][\w$]*)\s*[,)])`,
 		"g",
 	);
 
@@ -308,7 +308,7 @@ const JS_ROOT_CALL = /[^;\n]*\bhostRoot\(\)/y;
 
 /** A constant naming a core path: `"scripts/…"` or `path.join("scripts", …)`. */
 const JS_CORE_CONST = new RegExp(
-	String.raw`(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:${pathCall("join")}${CORE_LITERAL}|["'\x60](?:scripts|\.husky)/)`,
+	String.raw`(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:${buildPathCall("join")}${CORE_LITERAL}|["'\x60](?:scripts|\.husky)/)`,
 	"g",
 );
 
@@ -444,7 +444,7 @@ const coreConstants = (text) =>
  * @param {string} text
  * @returns {Map<string, string>}
  */
-function boundNames(text) {
+function parseBoundNames(text) {
 	/** @type {Map<string, string>} */
 	const out = new Map();
 	for (const m of text.matchAll(JS_BOUND_NAMES))
@@ -478,7 +478,7 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 function judgeHostRootedCore(ctx, rel, text, importable) {
 	let found = false;
 	const local = coreConstants(text);
-	const imported = boundNames(text);
+	const imported = parseBoundNames(text);
 	const isCoreConst = (/** @type {string} */ name) => {
 		if (local.has(name)) return true;
 		const exported = imported.get(name);

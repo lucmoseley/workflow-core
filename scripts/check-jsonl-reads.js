@@ -22,7 +22,7 @@
  * DEFEAT:    the `jsonl-read-exempt: <why>` marker; --warn caps findings below the gating line; a parse further than WINDOW lines from its split, a split on a variable, or a line-by-line `readline` read.
  */
 
-const { lineSites, runHeresyCheck } = require("./lib/heresy-scan.js");
+const { parseLineSites, runHeresyCheck } = require("./lib/heresy-scan.js");
 
 /* The widest split-to-parse gap among the sites live at #3452:
  * lib/pending-tasks.js, 12 lines. */
@@ -42,7 +42,7 @@ runHeresyCheck({
 		{
 			tag: "JSONL-READ",
 			sites: (program) =>
-				lineSites(
+				parseLineSites(
 					program,
 					(line, i, lines) =>
 						NEWLINE_SPLIT.test(line) &&
@@ -53,11 +53,8 @@ runHeresyCheck({
 				`${rel}:${site.line} hand-parses JSONL (\`${site.text}\`). Fix: ${FIX}`,
 		},
 	],
-	finish(ctx, scanned) {
-		if (ctx.findings.length > 0)
-			ctx.say(
-				`  ${ctx.findings.length} site(s) hand-parse JSONL: ${ctx.findings.map((f) => `${f.file}:${f.line}`).join(", ")}.\n  Fix: ${FIX}`,
-			);
+	summary: { phrase: "hand-parse JSONL", fix: FIX },
+	finish(_ctx, scanned) {
 		return {
 			okLine: `${scanned} program(s), no hand-parsed JSONL.`,
 			noun: "hand-parsed JSONL read(s)",

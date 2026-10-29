@@ -14,6 +14,7 @@ const { scanJs } = require("./strip-comments.js");
  * reader scans one source and the slices it cuts from it: the most one file
  * sent through generate-test-read-edges.js was 79 (check-guard-registry.js,
  * measured at #3667), so emptying costs at most one rescan of the source.
+ * 256 is that peak about three times over, the margin a guess.
  */
 const SCANS_KEPT = 256;
 
@@ -49,7 +50,7 @@ function inertOf(text) {
  * @param {string} text
  * @param {number} i
  */
-function insideInert(text, i) {
+function isInsideInert(text, i) {
 	const { spans } = inertOf(text);
 	let lo = 0;
 	let hi = spans.length;
@@ -80,7 +81,7 @@ function tokenEnd(text, i) {
  * @returns {number}
  */
 function closeOf(text, open) {
-	if (insideInert(text, open)) {
+	if (isInsideInert(text, open)) {
 		const end = closeOf(text.slice(open), 0);
 		return end === -1 ? -1 : open + end;
 	}
@@ -128,7 +129,8 @@ function topLevelArgs(inner) {
  * @returns {number}
  */
 function statementEnd(text, from) {
-	if (insideInert(text, from)) return from + statementEnd(text.slice(from), 0);
+	if (isInsideInert(text, from))
+		return from + statementEnd(text.slice(from), 0);
 	for (let i = from; i < text.length; i++) {
 		const c = text.charAt(i);
 		if ("([{".includes(c)) {

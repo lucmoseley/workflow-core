@@ -48,6 +48,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { isTestKind, JS_EXTENSIONS } from "./lib/test-kind.js";
 
 const REPO = path.resolve(__dirname, "..");
 
@@ -187,11 +188,13 @@ afterAll(() => {
 	if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-/** Is `full` a non-test JS/TS script that requires or imports the seam? */
-const isSeamCaller = (full: string, name: string): boolean => {
-	if (!/\.(?:[cm]?js|ts)$/.test(name) || name.endsWith(".test.ts"))
-		return false;
-	const text = fs.readFileSync(full, "utf8");
+const JS_EXT = new Set(JS_EXTENSIONS.map((ext) => `.${ext}`));
+
+/** Is `rel` a JS/TS script that requires or imports the seam, and no test
+ * check-host-root.js leaves unscanned? */
+const isSeamCaller = (rel: string): boolean => {
+	if (!JS_EXT.has(path.extname(rel)) || isTestKind(rel)) return false;
+	const text = fs.readFileSync(path.join(REPO, rel), "utf8");
 	return /(?:require\(|from )["']\.(?:\/lib)?\/host-root(?:\.js)?["']/.test(
 		text,
 	);
@@ -211,7 +214,7 @@ const rootedScripts = (): string[] => {
 			if (e.isDirectory()) {
 				if (e.name === "node_modules" || e.name === "__pycache__") continue;
 				walk(full);
-			} else if (e.isFile() && isSeamCaller(full, e.name)) {
+			} else if (e.isFile() && isSeamCaller(path.relative(REPO, full))) {
 				out.push(path.relative(REPO, full));
 			}
 		}

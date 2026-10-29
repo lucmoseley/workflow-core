@@ -22,7 +22,7 @@
  * DEFEAT:    the `clock-kept: <why>` marker; --warn caps findings below the gating line; a read split across lines, or one through a computed key.
  */
 
-const { lineSites, runHeresyCheck } = require("./lib/heresy-scan.js");
+const { parseLineSites, runHeresyCheck } = require("./lib/heresy-scan.js");
 
 /* Built from VAR, so this file's own patterns read as no site. */
 const VAR = "WFC_NOW";
@@ -43,7 +43,7 @@ runHeresyCheck({
 		{
 			tag: "CLOCK-COPY",
 			sites: (program) =>
-				lineSites(
+				parseLineSites(
 					program,
 					(line) => READ_SHAPES.some((re) => re.test(line)),
 					KEPT,
@@ -52,11 +52,8 @@ runHeresyCheck({
 				`${rel}:${site.line} reads WFC_NOW itself (\`${site.text}\`). Fix: ${FIX}`,
 		},
 	],
-	finish(ctx, scanned) {
-		if (ctx.findings.length > 0)
-			ctx.say(
-				`  ${ctx.findings.length} site(s) read WFC_NOW outside now(): ${ctx.findings.map((f) => `${f.file}:${f.line}`).join(", ")}.\n  Fix: ${FIX}`,
-			);
+	summary: { phrase: "read WFC_NOW outside now()", fix: FIX },
+	finish(_ctx, scanned) {
 		return {
 			okLine: `${scanned} program(s), no WFC_NOW read outside now().`,
 			noun: "WFC_NOW read(s) outside now()",

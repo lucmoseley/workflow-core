@@ -38,7 +38,7 @@ const collapse = (line) => line.trim().replace(/\s+/g, " ");
  * @param {RegExp} optOut
  * @returns {Site[]}
  */
-function lineSites({ source, code }, matches, optOut) {
+function parseLineSites({ source, code }, matches, optOut) {
 	const raw = source.split("\n");
 	const lines = code.split("\n");
 	return lines.flatMap((line, i) =>
@@ -55,7 +55,7 @@ function lineSites({ source, code }, matches, optOut) {
  * @param {RegExp} re
  * @returns {Site[]}
  */
-function matchSites({ code }, re) {
+function parseMatchSites({ code }, re) {
 	return [...code.matchAll(re)].map((m) => ({
 		line: code.slice(0, m.index).split("\n").length,
 		text: m[0].replace(/\s+/g, " "),
@@ -107,12 +107,14 @@ function failSites(ctx, rel, program, breaches) {
 /**
  * Run one heresy check over the tree at `--root`, or the host root.
  * `include` takes a path relative to scripts/; `skip` names the primitive's
- * own home, repo-relative.
+ * own home, repo-relative. Where `summary` is given, any finding prints one
+ * line: the count, its `phrase`, each site, then its `fix`.
  * @param {{
  *   name: string,
  *   include?: (rel: string) => boolean,
  *   skip?: string[],
  *   breaches: Breach[],
+ *   summary?: { phrase: string, fix: string },
  *   finish: (ctx: Ctx, scanned: number) => { okLine: string, noun: string },
  * }} spec
  */
@@ -121,6 +123,7 @@ function runHeresyCheck({
 	include = () => true,
 	skip = [],
 	breaches,
+	summary,
 	finish,
 }) {
 	runCheck({
@@ -144,6 +147,10 @@ function runHeresyCheck({
 				const source = fs.readFileSync(path.join(dir, name), "utf8");
 				failSites(ctx, rel, { source, code: blankComments(source) }, breaches);
 			}
+			if (summary && ctx.findings.length > 0)
+				ctx.say(
+					`  ${ctx.findings.length} site(s) ${summary.phrase}: ${ctx.findings.map((f) => `${f.file}:${f.line}`).join(", ")}.\n  Fix: ${summary.fix}`,
+				);
 			return {
 				...finish(ctx, names.length),
 				count: ctx.findings.length,
@@ -153,4 +160,4 @@ function runHeresyCheck({
 	});
 }
 
-module.exports = { lineSites, matchSites, runHeresyCheck };
+module.exports = { parseLineSites, parseMatchSites, runHeresyCheck };

@@ -188,17 +188,31 @@ describe("JavaScript", () => {
 		expect(run().outcome).toBe("OK");
 	});
 
-	it("does not judge a test, a spec, a fixture or a testkit", () => {
+	it("does not judge what test-kind.js calls a test, nor a vitest config", () => {
 		clean();
 		for (const name of [
 			"scripts/a.test.ts",
 			"scripts/a2.spec.ts",
 			"scripts/b-fixture.ts",
 			"scripts/c-testkit.ts",
+			"scripts/d-harness.js",
+			"scripts/e-stub.ts",
+			"scripts/f-fake.ts",
 			"scripts/vitest.config.ts",
 		])
 			write(name, 'const ROOT = path.resolve(__dirname, "..");\n');
+		write("scripts/test_g.py", "ROOT = Path(__file__).resolve().parents[2]\n");
+		write("scripts/lib/fixtures/h.sh", 'git -C "$here" status\n');
 		expect(run().outcome).toBe("OK");
+	});
+
+	it("still judges a script whose name only contains a test-support word", () => {
+		clean();
+		write(
+			"scripts/check-harness-canary.js",
+			'const ROOT = path.resolve(__dirname, "..");\n',
+		);
+		expect(run().outcome).toBe("FAIL");
 	});
 
 	it("judges every JS or TS extension, and passes over their tests (#3628)", () => {

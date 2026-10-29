@@ -28,7 +28,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildMissingSiblingNames } from "./lib/registrations.js";
+import { spellSiblingTestsIfUntested } from "./lib/registrations.js";
 
 const SCRIPTS = __dirname;
 const ROOT = path.join(SCRIPTS, "..");
@@ -155,7 +155,7 @@ describe("checker registrations", () => {
 	it("every scripts/check-*.js has a sibling test", () => {
 		const untested = CHECKER_FILES.filter(
 			(file) =>
-				buildMissingSiblingNames(file, (p) =>
+				spellSiblingTestsIfUntested(file, (p) =>
 					fs.existsSync(path.join(ROOT, p)),
 				) !== null,
 		);

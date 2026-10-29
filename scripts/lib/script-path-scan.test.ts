@@ -13,6 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { COMMAND_SHAPED, PLAIN_POINTER } from "./script-path-testkit";
+import { isJsTestFile } from "./test-kind.js";
 
 const SCRIPTS = path.join(__dirname, "..");
 const COMMENT_LINE = /^\s*(\/\/|\*|\/\*|#)/;
@@ -45,7 +46,7 @@ describe("guard and lib messages", () => {
 
 	const guardFiles = fs
 		.readdirSync(SCRIPTS)
-		.filter((f) => /^guard-.*\.(js|sh)$/.test(f) && !f.includes(".test."))
+		.filter((f) => /^guard-.*\.(js|sh)$/.test(f) && !isJsTestFile(f))
 		.map((f) => path.join(SCRIPTS, f));
 	const libNames = fs
 		.readdirSync(__dirname)

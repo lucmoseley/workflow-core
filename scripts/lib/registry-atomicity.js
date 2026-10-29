@@ -147,7 +147,7 @@ const {
 	allRegistrations,
 	buildCommandLine,
 	isPinnedBy,
-	buildMissingSiblingNames,
+	spellSiblingTestsIfUntested,
 } = require("./registrations.js");
 const {
 	parseCommand,
@@ -929,7 +929,7 @@ function hasCoreNeedle(view, key) {
  * @param {string} file its basename
  */
 function siblingFault(view, file) {
-	const names = buildMissingSiblingNames(file, (p) => view.willExist(p));
+	const names = spellSiblingTestsIfUntested(file, (p) => view.willExist(p));
 	return names === null
 		? ""
 		: `  - no sibling test: no ${names} in this commit or in HEAD\n`;

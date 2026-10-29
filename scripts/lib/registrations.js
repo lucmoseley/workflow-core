@@ -255,7 +255,7 @@ function hookFaults(rows, regs) {
  * @param {string} file a guard's or checker's basename
  * @param {(rel: string) => boolean} exists
  */
-const buildMissingSiblingNames = (file, exists) => {
+const spellSiblingTestsIfUntested = (file, exists) => {
 	const stem = `scripts/${file.replace(/\.[^.]*$/, "")}`;
 	return siblingTests(stem).some(exists) ? null : spellSiblingTests(stem);
 };
@@ -267,7 +267,7 @@ const buildMissingSiblingNames = (file, exists) => {
  * @returns {Fault[]}
  */
 const untestedFaults = (file, exists) => {
-	const names = buildMissingSiblingNames(file, exists);
+	const names = spellSiblingTestsIfUntested(file, exists);
 	return names === null
 		? []
 		: [
@@ -371,6 +371,6 @@ module.exports = {
 	hookFaults,
 	guardFaults,
 	checkerFaults,
-	buildMissingSiblingNames,
+	spellSiblingTestsIfUntested,
 	unexplained,
 };

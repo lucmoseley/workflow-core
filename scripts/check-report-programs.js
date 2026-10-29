@@ -21,7 +21,7 @@
  * DEFEAT:    --warn caps findings below the gating line; console reached through a destructure or `globalThis`, or a create through `gh api` on the issues endpoint.
  */
 
-const { matchSites, runHeresyCheck } = require("./lib/heresy-scan.js");
+const { parseMatchSites, runHeresyCheck } = require("./lib/heresy-scan.js");
 
 /* Directly under scripts/: `[^/]+` keeps a subdirectory's file out. */
 const REPORT = /^report-[^/]+$/;
@@ -42,13 +42,13 @@ runHeresyCheck({
 	breaches: [
 		{
 			tag: "REPORT-OUTPUT",
-			sites: (program) => matchSites(program, OUTPUT),
+			sites: (program) => parseMatchSites(program, OUTPUT),
 			message: (rel, site) =>
 				`${rel}:${site.line} writes past writeFd (\`${site.text}\`). Fix: ${OUTPUT_FIX}`,
 		},
 		{
 			tag: "REPORT-ISSUE-CREATE",
-			sites: (program) => matchSites(program, ISSUE_CREATE),
+			sites: (program) => parseMatchSites(program, ISSUE_CREATE),
 			message: (rel, site) =>
 				`${rel}:${site.line} files past createIssue (\`${site.text}\`). Fix: ${CREATE_FIX}`,
 		},
