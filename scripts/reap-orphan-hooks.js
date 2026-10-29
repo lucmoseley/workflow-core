@@ -62,7 +62,7 @@ const {
 	readProcTable,
 	readUptime,
 } = require("./lib/proc-table.js");
-const { procRoot } = require("./lib/proc-root.js");
+const { procRoot, REAL_PROC } = require("./lib/proc-root.js");
 const { sweepOrphanedRuns } = require("./lib/suite-ceiling.js");
 
 const REAP_LOG = ".orphan-hook-reaps.jsonl";
@@ -137,7 +137,7 @@ runCheck({
 		});
 
 		const fixture =
-			root !== "/proc" && process.env.WFC_REAP_FAKE_ROOT !== "kill";
+			root !== REAL_PROC && process.env.WFC_REAP_FAKE_ROOT !== "kill";
 		const canonical = fixture ? null : repoRoot();
 		const logFile = canonical
 			? path.join(markersDir(canonical), REAP_LOG)

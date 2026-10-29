@@ -46,6 +46,8 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { execGit, spawnGitSync } = require("./lib/git.js");
+const { procRoot } = require("./lib/proc-root.js");
+const { readProcCwd } = require("./lib/claude-sessions.js");
 const { materialisePlugin, fixByHand } = require("./lib/materialise-plugin.js");
 const {
 	CONFIG_PATH,
@@ -512,19 +514,16 @@ function readProcessesInside(root) {
 	const inside = (/** @type {string} */ p) => isUnder(p, trees, path.sep);
 	/** @type {string[]} */
 	const hits = [];
-	for (const pid of fs.readdirSync("/proc")) {
+	const proc = procRoot();
+	for (const pid of fs.readdirSync(proc)) {
 		if (!/^\d+$/.test(pid)) continue;
-		let cwd;
-		try {
-			cwd = fs.readlinkSync(`/proc/${pid}/cwd`);
-		} catch {
-			continue; // another user's process, or one that just exited
-		}
+		const cwd = readProcCwd(pid, proc);
+		if (cwd === null) continue; // another user's process, or one that just exited
 		if (!inside(cwd)) continue;
 		let argv0 = "?";
 		try {
 			argv0 = fs
-				.readFileSync(`/proc/${pid}/cmdline`, "utf8")
+				.readFileSync(`${proc}/${pid}/cmdline`, "utf8")
 				.replace(/\0.*$/s, "");
 		} catch {} // exited between the two reads; the cwd line still names it
 		hits.push(`pid ${pid} (${argv0}) in ${cwd}`);

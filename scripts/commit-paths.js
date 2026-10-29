@@ -146,6 +146,7 @@ const path = require("node:path");
 const core = require("./lib/arbiter-core.js");
 const { readProcStartOf } = require("./lib/arbiter-proc.js");
 const { readAncestorsOf } = require("./lib/proc-stat.js");
+const { procRoot } = require("./lib/proc-root.js");
 const { shellWord } = require("./lib/dirty-tree.js");
 const { isUnder } = require("./lib/is-under.js");
 const { numstatPaths } = require("./lib/patch-files.js");
@@ -394,7 +395,7 @@ function gitProcesses() {
  */
 function readProcPids() {
 	try {
-		return fs.readdirSync("/proc").filter((d) => /^\d+$/.test(d));
+		return fs.readdirSync(procRoot()).filter((d) => /^\d+$/.test(d));
 	} catch {
 		return null;
 	}
@@ -421,8 +422,9 @@ function registrySessions(entries) {
  */
 function readProc(pid) {
 	try {
-		const argv = fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0");
-		const cwd = fs.realpathSync(`/proc/${pid}/cwd`);
+		const dir = `${procRoot()}/${pid}`;
+		const argv = fs.readFileSync(`${dir}/cmdline`, "utf8").split("\0");
+		const cwd = fs.realpathSync(`${dir}/cwd`);
 		return { argv, cwd };
 	} catch {
 		return null;
@@ -438,7 +440,7 @@ function readProc(pid) {
 function isWorktreeGit({ pid, argv, cwd, root, others }) {
 	const [argv0] = argv;
 	if (argv0 === undefined)
-		throw new Error(`/proc/${pid}/cmdline split into no fields`);
+		throw new Error(`${procRoot()}/${pid}/cmdline split into no fields`);
 	if (path.basename(argv0) !== "git" || readProcStartOf(pid) === null)
 		return false;
 	if (!isUnder(cwd, [root])) return false;

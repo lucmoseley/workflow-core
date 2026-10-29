@@ -28,7 +28,7 @@ const fs = require("node:fs");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
 const { readEnvironVar } = require("./proc-environ.js");
-const { procRoot } = require("./proc-root.js");
+const { procRoot, REAL_PROC } = require("./proc-root.js");
 
 /* 14 minutes, so bg-run's backstop at the deadline plus 60 s still lands
  * inside #2667's 15. */
@@ -240,7 +240,10 @@ function sweepOrphanedRuns({
  */
 function sweepAtStart({ err = process.stderr, ...options } = {}) {
 	/* Its kills are real, so never from an inherited fixture root. */
-	const { killed, unkilled } = sweepOrphanedRuns({ proc: "/proc", ...options });
+	const { killed, unkilled } = sweepOrphanedRuns({
+		proc: REAL_PROC,
+		...options,
+	});
 	if (killed.length > 0)
 		err.write(
 			`killed ${String(killed.length)} process(es) left by a killed run (wrapper pid ${[...new Set(killed.map((k) => k.owner))].join(", ")}).\n`,
