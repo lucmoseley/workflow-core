@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /*
  * report-remeasure-due.js — tells the founder, through one filed issue, once
- * 15 sensitive-path commits carry known defects, so the focused-against-
- * identical-runs question (#1545) is re-measured on real code (#1625, spec
- * #1612 §The re-measure trigger).
+ * 15 commits on adopter-declared sensitive paths carry known defects, so the
+ * focused-against-identical-runs question (#1545) is re-measured on real code
+ * (#1625, spec #1612 §The re-measure trigger).
  *
  * A COUNTED COMMIT is a `**Review findings:** base <sha>, reviewed <tree>,
  * landed <sha>[, paths <paths>]` record (docs/agents/rules/review-tier-records.txt) on a
@@ -14,11 +14,15 @@
  * corpus naming its landed sha. One commit recorded twice, by a short sha or
  * a full one, is counted once, its defects summed. A commit a revert on
  * `main` names is not counted, unless that revert was itself reverted:
- * searched only once the count reaches the threshold, since dropping one can
- * only lower it, in the tracker's repo and, for this repo's own tracker, its
- * `codeRepo` too, whose history before 2.0.0 lives in the tracker (#3395).
- * Residual: an adopter's code repo apart from its tracker is not searched,
- * and the landed sha is taken as on `main`, never checked against it.
+ * searched in the tracker's repo only once the count reaches the threshold
+ * or an issue of TITLE exists to refresh, since dropping one can only lower
+ * it (#3395). Residual: an adopter's code
+ * repo apart from its tracker is not searched, and the landed sha is taken as
+ * on `main`, never checked against it.
+ *
+ * ADOPTER AREAS ONLY (#3431): a commit recorded on this repo's own tracker is
+ * never counted, its records still read for the reports below and its
+ * `**Escaped defect:**` lines for an adopter's commit.
  *
  * AN UNPARSEABLE RECORD — a `**Review findings:**` not in backticks, under a
  * counted tier, that the record form does not match — counts nothing and is
@@ -52,9 +56,10 @@
  *
  * AT THRESHOLD it files TITLE, `takes:wayfinder`, listing each counted
  * commit; while an issue of that title exists, open or closed, it only
- * rewrites that issue's body, never filing a second. Found by title alone,
- * since the session that takes it may relabel it. Below the threshold it
- * prints nothing but those reports, and calls no tracker but the search.
+ * rewrites that issue's body, never filing a second, below the threshold too,
+ * since a gate reads the count from its first line (#3576). Found by title
+ * alone, since the session that takes it may relabel it. Below the threshold
+ * it prints nothing but those reports.
  *
  * WORKFLOW-CORE ONLY, by its repo-checks gate: one reading covers the whole
  * corpus, and Actions' token cannot read the private adopter repos.
@@ -473,53 +478,45 @@ function readLandedTreeRecords(commits, home) {
 }
 
 /**
- * The shas the reverts on `repos`' default branches since FLOOR name, less
+ * The shas the reverts on `repo`'s default branch since FLOOR name, less
  * each whose revert was itself reverted. Commit search reads the default
  * branch alone.
  *
- * @param {string[]} repos
+ * @param {string} repo
  */
-function readRevertedShas(repos) {
+function readRevertedShas(repo) {
 	/** @type {Map<string, string[]>} each target to the commits reverting it */
 	const reverts = new Map();
-	for (const repo of repos) {
-		/* A revert postdates its target, which postdates FLOOR. */
-		const q = `"This reverts commit" repo:${repo} committer-date:>=${FLOOR}`;
-		/** @type {{ total_count: number, items: { sha: string, commit: { message: string } }[] }[]} */
-		const pages = ghApiSlurp([
-			`search/commits?q=${encodeURIComponent(q)}&per_page=${PAGE}`,
-		]);
-		const first = pages[0];
-		if (!first) throw new Error(`${repo}: revert search returned no page`);
-		const items = pages.flatMap((p) => p.items);
-		if (items.length !== first.total_count)
-			throw new Error(
-				`${repo}: revert search returned ${items.length} of ${first.total_count} hits`,
-			);
-		for (const c of items)
-			for (const m of c.commit.message.matchAll(REVERTS)) {
-				const target = group(m, 1, REVERTS);
-				reverts.set(target, [...(reverts.get(target) ?? []), c.sha]);
-			}
-	}
+	/* A revert postdates its target, which postdates FLOOR. */
+	const q = `"This reverts commit" repo:${repo} committer-date:>=${FLOOR}`;
+	/** @type {{ total_count: number, items: { sha: string, commit: { message: string } }[] }[]} */
+	const pages = ghApiSlurp([
+		`search/commits?q=${encodeURIComponent(q)}&per_page=${PAGE}`,
+	]);
+	const first = pages[0];
+	if (!first) throw new Error(`${repo}: revert search returned no page`);
+	const items = pages.flatMap((p) => p.items);
+	if (items.length !== first.total_count)
+		throw new Error(
+			`${repo}: revert search returned ${items.length} of ${first.total_count} hits`,
+		);
+	for (const c of items)
+		for (const m of c.commit.message.matchAll(REVERTS)) {
+			const target = group(m, 1, REVERTS);
+			reverts.set(target, [...(reverts.get(target) ?? []), c.sha]);
+		}
 	/** @param {string} sha @returns {boolean} */
 	const isReverted = (sha) =>
 		(reverts.get(sha) ?? []).some((r) => !isReverted(r));
 	return [...reverts.keys()].filter(isReverted);
 }
 
-/**
- * @param {ReviewRecord[]} commits
- * @param {string} own this repo's tracker
- * @param {string} code this repo's code repo
- */
-function withoutReverted(commits, own, code) {
+/** @param {ReviewRecord[]} commits */
+function withoutReverted(commits) {
 	const reverted = new Map(
 		[...new Set(commits.map((c) => c.repo))].map((tracker) => [
 			tracker,
-			readRevertedShas(
-				tracker === own && code !== own ? [tracker, code] : [tracker],
-			),
+			readRevertedShas(tracker),
 		]),
 	);
 	return commits.filter(
@@ -530,7 +527,7 @@ function withoutReverted(commits, own, code) {
 /** @param {ReviewRecord[]} commits */
 function buildBody(commits) {
 	return [
-		`${commits.length} commits on declared sensitive paths, reviewed at the escalated or mission-critical tier, now carry a known defect: a finding fixed or ticketed, or an escaped defect recorded later. At ${THRESHOLD}, focused against identical review runs (#1545) is re-measured on real code (spec #1612 §The re-measure trigger).`,
+		`${commits.length} commits on adopter-declared sensitive paths, reviewed at the escalated or mission-critical tier, now carry a known defect: a finding fixed or ticketed, or an escaped defect recorded later. At ${THRESHOLD}, focused against identical review runs (#1545) is re-measured on real code (spec #1612 §The re-measure trigger).`,
 		"",
 		...commits.map(
 			(c) =>
@@ -601,13 +598,21 @@ function main() {
 			"LANDED TREE",
 			`${c.repo}#${c.issue} has a record naming reviewed ${c.tree}, the tree landed ${c.landed} carries on its paths, so a replay finds none of its fixed defects: name the tree pinned before the first round's dispatch, as \`scripts/lib/rule-text.sh review-tier-records\` says`,
 		);
-	if (commits.length < THRESHOLD) return;
+	const own = resolveKey("tracker", { root });
+	commits = commits.filter((c) => c.repo !== own);
+	let existing;
 	try {
-		commits = withoutReverted(
-			commits,
-			/** @type {string} */ (resolveKey("tracker", { root })),
-			/** @type {string} */ (resolveKey("codeRepo", { root })),
+		existing = findTrackingIssue({ title: TITLE }, "all");
+	} catch (e) {
+		failOpen(
+			`could not file or refresh "${TITLE}" — ${parseErrLine(e)}`,
+			`${remedy(e)}The next day's run retries.`,
 		);
+		return;
+	}
+	if (!existing && commits.length < THRESHOLD) return;
+	try {
+		commits = withoutReverted(commits);
 	} catch (e) {
 		failOpen(
 			`could not read the corpus's reverts — ${parseErrLine(e)}`,
@@ -615,7 +620,8 @@ function main() {
 		);
 		return;
 	}
-	if (commits.length < THRESHOLD) return;
+	const due = commits.length >= THRESHOLD;
+	if (!existing && !due) return;
 	const text = buildBody(commits);
 	/* No PreToolUse hook sees a script's own gh call, so the create guard's
 	 * takes: check is made here. */
@@ -625,12 +631,15 @@ function main() {
 		return;
 	}
 	try {
-		const existing = findTrackingIssue({ title: TITLE }, "all");
 		if (existing) refresh(existing.number, text);
 		const did = existing
 			? `Refreshed #${existing.number}`
 			: `Filed ${createIssue({ title: TITLE, labels: [LABEL], body: text })}`;
-		console.log(`Re-measure due: ${commits.length} counted commits. ${did}.`);
+		if (due)
+			writeFd(
+				1,
+				`Re-measure due: ${commits.length} counted commits. ${did}.\n`,
+			);
 	} catch (e) {
 		/* Not e.message: a failed gh call's message holds its whole argv, the body
 		 * included. */
