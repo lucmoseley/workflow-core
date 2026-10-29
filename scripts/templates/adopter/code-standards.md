@@ -4,7 +4,7 @@ This repo's own choices beside the plugin's standards base, which holds every ru
 
 ## Primitives
 
-This repo's own primitives, beside the base's table. None yet.
+This repo's own primitives, beside the base's table.
 
 | Job | Primitive | Exemplar | Rule | Enforcing check |
 |---|---|---|---|---|

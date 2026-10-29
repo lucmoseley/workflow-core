@@ -527,7 +527,6 @@ describe("the day-one code standards (#3466)", () => {
 			status: 0,
 			envelope: { outcome: "OK", findings: [] },
 		});
-		// A row under the seeded header is judged, so the table is the one read.
 		const { status, envelope } = checkTable(`${seeded}${Row}\n`);
 		expect(status).toBe(1);
 		expect(envelope.findings.length).toBeGreaterThan(0);
