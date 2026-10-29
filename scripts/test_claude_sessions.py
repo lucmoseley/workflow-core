@@ -4,9 +4,11 @@ sampler charges as admission does (docs/environment.md §5, #2231).
 
 Break it and the gate refuses a machine one session quieter than it states, or
 admits one busier: the daemon's standing spare is always resident (#1798). The
-cwds are injected, so no case reads this machine's /proc.
+cwds are injected, or read from a fake WFC_PROC, so no case reads this
+machine's /proc.
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -14,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 from claude_sessions import (
     count_sessions,
     is_claude,
+    live_cwd,
     parse_ps,
     session_pair,
     spare_socket,
@@ -116,3 +119,19 @@ def test_a_session_pairs_through_its_spare_socket_and_alone_without_one():
     sockets = {10: "aa", 11: "aa", 20: "bb", 21: "bb"}
     assert sorted(session_pair(11, sockets)) == [10, 11]
     assert session_pair(30, sockets) == [30]
+
+
+def test_live_cwd_reads_under_wfc_proc_and_is_none_for_a_pid_with_no_link(
+    tmp_path, monkeypatch
+):
+    (tmp_path / "41").mkdir()
+    (tmp_path / "41" / "cwd").symlink_to(SPARE)
+    monkeypatch.setenv("WFC_PROC", str(tmp_path))
+    assert live_cwd(41) == SPARE
+    assert live_cwd(42) is None
+
+
+def test_live_cwd_reads_proc_where_wfc_proc_is_empty(monkeypatch):
+    # As the shell and Node twins do: an empty root is no root.
+    monkeypatch.setenv("WFC_PROC", "")
+    assert live_cwd(os.getpid()) == os.getcwd()

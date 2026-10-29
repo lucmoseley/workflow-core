@@ -273,7 +273,9 @@ available_mb() {
 # with bash's own file-read builtin (no per-file `cat`, no per-pid `pgrep`,
 # whose per-call cost is a full /proc scan — mantahostels#2683's benchmarks against a
 # per-visit `pgrep` walk are on the issue). One /proc scan here, however wide
-# the tree, is what actually bounds the cost.
+# the tree, is what actually bounds the cost. It and children_rss_kb read
+# the real /proc, never WFC_PROC's fake: the tree is the run this wrapper
+# launched (#3608).
 # Values are a space-separated pid list, deliberately unquoted everywhere
 # they're read (`${CHILDREN_OF[$x]:-}` below) so the caller's `for` splits on
 # them rather than treating the whole list as one word.
@@ -1206,7 +1208,9 @@ read_deadline() {
 # Whether group $1 is this run's, for a run launched at epoch $2. A pgid of 0
 # or 1 never is: `kill -- -1` reaches every process this user owns. A leader
 # started before the launch is a recycled pid. A leader gone while its group
-# lives keeps the pgid from reuse, so a missing leader still counts.
+# lives keeps the pgid from reuse, so a missing leader still counts. It reads
+# the real /proc, never WFC_PROC's fake, since its answer gates a real kill
+# (#3608).
 group_is_runs() {
   local pgid="$1" started="$2" stat btime
   [[ "$pgid" -gt 1 ]] || return 1

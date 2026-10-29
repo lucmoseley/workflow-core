@@ -51,9 +51,9 @@ def _role(argv):
 
 
 def live_cwd(pid):
-    """`pid`'s cwd, or None where it has exited or is not ours to read."""
+    """`pid`'s cwd under WFC_PROC's root, or None where it has exited or is not ours to read."""
     try:
-        return os.readlink(f"/proc/{pid}/cwd")
+        return os.readlink(f"{os.environ.get('WFC_PROC') or '/proc'}/{pid}/cwd")
     except OSError:
         # None reads as claimed, so the count errs high (#1798).
         return None

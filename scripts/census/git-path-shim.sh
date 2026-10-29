@@ -7,6 +7,8 @@
 # before the real binary runs. Run both instruments together; see this
 # directory's header comment in git-spawn-wrapper.setup.ts for the combined
 # method and why one instrument alone systematically undercounts (mantahostels#2181).
+# The parent chain reads the real /proc, never WFC_PROC's fake: it is the
+# real git spawn's (#3608).
 # -u alone: dash has no pipefail, and no -e, since a failed log write must
 # still reach the exec below.
 set -u

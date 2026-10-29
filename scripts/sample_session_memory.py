@@ -134,6 +134,8 @@ def percentile(values, p):
 
 
 # --- /proc readers -----------------------------------------------------------
+# The real /proc, never WFC_PROC's fake: the sampler measures this machine
+# (#3608).
 
 
 def read_proc_table():

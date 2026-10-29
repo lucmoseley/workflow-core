@@ -33,6 +33,9 @@ An aborted row is degenerate under that check: the suites are killed rather than
 drained, so the shift approaches the dip and the row reads contaminated whether
 or not it was.
 
+Every /proc read is the real /proc, never WFC_PROC's fake: the bench measures
+this machine and adjusts its own suites' oom scores (#3608).
+
 Usage:  OUTDIR=<dir> python3 scripts/bench_suite_concurrency.py [N ...]
         [--workers=<w>] [--floor-mb=<n>] [--require-quiet=<n>] [--measure-drift=<n>]
         [--no-warmup]

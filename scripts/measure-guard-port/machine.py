@@ -1,5 +1,6 @@
 """machine.py — the machine state every guard-port figure is read beside:
-`date -Is`, load1 and `free -m` (#2733, #2783)."""
+`date -Is`, load1 and `free -m` (#2733, #2783). load1 reads the real /proc,
+never WFC_PROC's fake: the state is this machine's (#3608)."""
 
 from __future__ import annotations
 
