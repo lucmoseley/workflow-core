@@ -49,7 +49,13 @@ fi
 
 # Cleared on every run, so a stamp a later gate's refusal stranded stands
 # behind no commit the hold does not pass.
-if stale="$(git rev-parse --absolute-git-dir 2>/dev/null)"; then rm -f "$stale/wfc-review-tier"; fi
+# A library that will not load leaves no path to clear, and the trailer, which
+# loads it too, then reads no stamp.
+# shellcheck source=scripts/lib/review-tier-stamp.sh
+source "$here/lib/review-tier-stamp.sh" 2>/dev/null
+if gitdir="$(git rev-parse --absolute-git-dir 2>/dev/null)"; then
+  rm -f "$(review_tier_stamp "$gitdir" 2>/dev/null)"
+fi
 
 [[ -n "${CLAUDE_CODE_SESSION_ID:-}" ]] || exit 0
 
@@ -145,6 +151,7 @@ else
 fi
 if [[ -z "$fault" ]]; then
   # Fails open: a stamp unwritten costs the commit its trailer, never the pass.
+  stamp="$(review_tier_stamp "$gitdir" 2>/dev/null)"
   {
     printf '%s\n' "$tree"
     printf '%s; areas=%s; base=%s; tree=%s; paths=%s\n' \
@@ -152,9 +159,9 @@ if [[ -z "$fault" ]]; then
       "$(marker_list "$marker" areas | paste -sd, -)" \
       "$(marker_field "$marker" base | tr -d '[:space:]')" "$tree" \
       "$(marker_list "$marker" paths | paste -sd, -)"
-  } >"$gitdir/wfc-review-tier" 2>/dev/null || {
-    rm -f "$gitdir/wfc-review-tier"
-    gl_log "review-hold-gate.sh: could not write $gitdir/wfc-review-tier — a held commit lands with no Review-Tier: trailer"
+  } >"$stamp" 2>/dev/null || {
+    rm -f "$stamp"
+    gl_log "review-hold-gate.sh: could not write the stamp '$stamp' — a held commit lands with no Review-Tier: trailer"
   }
   exit 0
 fi
