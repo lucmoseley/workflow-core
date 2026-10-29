@@ -531,8 +531,9 @@ function confirmAction(
 	const before = r.confirm[parent];
 	if (!before && !isStuck(parent))
 		return { kind: "rerun", sha: parent, files: [], why: "parent" };
-	/* A parent red only on files or CI jobs red on `main`, or on jobs outside
-	 * the tip's read, is reverted past, never landed: culpritAction
+	/* A parent red only on files red on `main` — or, where the tip's read
+	 * found a job red there (#3586), only on CI jobs red on `main` or
+	 * outside that read — is reverted past, never landed: culpritAction
 	 * fast-forwards a parent only where its whole suite passed. */
 	if (isSearchedRed(before, redJobs) && !isRedOnlyOn(before, known))
 		return {
