@@ -197,6 +197,7 @@ module.exports = {
 	relativeToRepo: core.relativeToRepo,
 	release: locksMod.release,
 	releaseIssue: issues.releaseIssue,
+	registryLookup: core.registryLookup,
 	registryNames: core.registryNames,
 	resumedHolderTest: core.resumedHolderTest,
 	buildRequestNotice: requests.buildRequestNotice,

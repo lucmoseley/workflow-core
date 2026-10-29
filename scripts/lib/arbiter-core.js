@@ -1492,15 +1492,34 @@ function sweepSparingLive(name, dir, ageMs, nameFor) {
  * @returns {(sessionId: string|null) => string}
  */
 function registryNames() {
-	/** @type {ReturnType<typeof readSessionEntries>|undefined} */
-	let entries;
+	const find = registryLookup();
 	return (sessionId) => {
 		if (!sessionId) return "an unidentified session";
+		return find(sessionId)?.name || sessionId;
+	};
+}
+
+/**
+ * The registry's record of the session a full id, or an id's 8-hex prefix,
+ * names — a named entry over a nameless one for the same id — or undefined
+ * where it holds none. A factory, for `registryNames`' reason.
+ * @returns {(key: string) => {sessionId: string, name: string|null}|undefined}
+ */
+function registryLookup() {
+	/** @type {ReturnType<typeof readSessionEntries>|undefined} */
+	let entries;
+	return (key) => {
 		entries ??= readSessionEntries("best-effort");
-		for (const { entry } of entries ?? [])
-			if (entry.sessionId === sessionId && entry.name)
-				return String(entry.name);
-		return sessionId;
+		const wanted = key.toLowerCase();
+		/** @type {{sessionId: string, name: string|null}|undefined} */
+		let found;
+		for (const { entry } of entries ?? []) {
+			const id = String(entry.sessionId ?? "").toLowerCase();
+			if (!id || (id !== wanted && !id.startsWith(`${wanted}-`))) continue;
+			if (entry.name) return { sessionId: id, name: String(entry.name) };
+			found ??= { sessionId: id, name: null };
+		}
+		return found;
 	};
 }
 
@@ -1532,6 +1551,7 @@ module.exports = {
 	readRecordOrLog,
 	buildRecordText,
 	REFUSING,
+	registryLookup,
 	registryNames,
 	relativeToRepo,
 	repoRoot,
