@@ -112,7 +112,8 @@ const ALREADY_RUNNING = "already running";
  *   order
  * @property {LaunchRecord[]} history
  * @property {import("./gate-sweep.js").Judgement[]} [judgements] the gate
- *   sweep's queue, launched ahead of the ranking (#2279)
+ *   sweep's queue, launched ahead of the ranking (#2279), behind normal
+ *   mode's parked rows (#3713)
  * @property {{root: string, error: string}[]} [failedShortlists]
  * @property {ParkerReading[]} [parkers] each parked frontier row's parking
  *   launch the tick found
@@ -501,12 +502,12 @@ const heldParked = ({ frontier, mode, seats, parkers = [] }) =>
 const parkedMs = (row) => Date.parse(row.parkedAt ?? "") || 0;
 
 /**
- * The ranking split as the loop walks it: parked rows, oldest park first,
- * where the mode routes them (#3621), then the rest in rank order.
+ * The ranking split for the walk: parked rows, oldest park first, where the
+ * mode routes them (#3621), then the rest in rank order.
  * @param {MergedRow[]} frontier
  * @param {"normal"|"away"} mode
  */
-function walkOrder(frontier, mode) {
+function splitParked(frontier, mode) {
 	if (!isParkRoutingMode(mode)) return { parked: [], rest: frontier };
 	const parked = frontier
 		.filter(isParked)
@@ -516,11 +517,14 @@ function walkOrder(frontier, mode) {
 
 /**
  * Walk the routed parked rows, then the gate judgements, then the rest of
- * the ranking, launching up to `slots`. A parked row goes first, ahead of
- * any new work, its question already waiting on the founder (#3713). A
- * judgement goes ahead of the ranking: its issue is held out of every
- * ranking until one runs. A retro-bundle member launches its whole bundle,
- * at its best-ranked member's place.
+ * the ranking, launching up to `slots`. A parked row goes first, its
+ * question already waiting on the founder (spec #3623, #3713); one with a
+ * judgement queued walks behind that judgement, which a launch of its issue
+ * would drop from the queue. A judgement goes ahead of the ranking: its
+ * issue is held out of every ranking until one runs. A retro-bundle member
+ * launches its whole bundle, at its best-ranked member's place. Residual:
+ * enough resumable parked rows to fill every slot hold the judgements back a
+ * tick.
  * @param {TickInput} input
  * @param {string} seat
  * @param {number} slots
@@ -572,15 +576,18 @@ function fill(
 				});
 		}
 	};
-	const { parked, rest } = walkOrder(frontier, mode);
-	walk(parked);
+	const judged = new Set(judgements.map((j) => key(j.root, j.number)));
+	const isJudged = (/** @type {MergedRow} */ r) =>
+		judged.has(key(r.root, r.number));
+	const { parked, rest } = splitParked(frontier, mode);
+	walk(parked.filter((r) => !isJudged(r)));
 	for (const j of judgements) {
 		if (launches.length >= slots) break;
 		if (taken.has(key(j.root, j.number)))
 			skipped.push({ root: j.root, number: j.number, why: ALREADY_RUNNING });
 		else launch(j.root, [j.number], j.prompt, { gate: true });
 	}
-	walk(rest);
+	walk([...parked.filter(isJudged), ...rest]);
 	return { launches, skipped };
 }
 

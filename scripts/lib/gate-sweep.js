@@ -5,7 +5,7 @@
  * reading differs from the one stored for it, a first sighting included.
  * Residual: the first sweep, or one over an unreadable store, queues a
  * judgement for every gated issue in every served checkout, each launched
- * ahead of the ranking as slots allow.
+ * ahead of the ranking, behind normal mode's parked rows, as slots allow.
  *
  * NO EXIT CODE IS A VERDICT HERE (mantahostels#1332). A reading's change only
  * summons a judge; the launched session reads it against the condition and

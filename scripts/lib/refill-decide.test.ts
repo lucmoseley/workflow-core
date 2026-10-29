@@ -679,29 +679,47 @@ describe("decideTick on parked rows (#3621)", () => {
 		expect(launched(d)).toEqual(["wfc#4", "wfc#3", "wfc#2", "wfc#1"]);
 	});
 
-	it("launches a parked row ahead of a gate judgement in normal mode (#3713)", () => {
-		const d = tick({
+	const judgement = { root: "wfc", number: 7, prompt: "/triage 7" };
+
+	it("launches parked rows ahead of gate judgements in normal mode, judgements ahead of the rest (#3713)", () => {
+		const one = tick({
 			mode: "normal",
 			freeSlots: 1,
 			frontier: [parked(2, "2026-10-18T09:00:00Z")],
-			judgements: [{ root: "wfc", number: 7, prompt: "/triage 7" }],
+			judgements: [judgement],
 		});
-		expect(launched(d)).toEqual(["wfc#2"]);
+		expect(launched(one)).toEqual(["wfc#2"]);
+		const d = tick({
+			mode: "normal",
+			freeSlots: 2,
+			frontier: [row("wfc", 1), parked(2, "2026-10-18T09:00:00Z")],
+			judgements: [judgement],
+		});
+		expect(launched(d)).toEqual(["wfc#2", "wfc#7"]);
 	});
 
-	it("skips parked rows in away mode, gate judgements still first (#2355)", () => {
+	it("walks a parked row behind its own issue's queued judgement (#3713)", () => {
+		const d = tick({
+			mode: "normal",
+			freeSlots: 9,
+			frontier: [parked(2, "2026-10-18T09:00:00Z"), parked(7, null)],
+			judgements: [judgement],
+		});
+		expect(launched(d)).toEqual(["wfc#2", "wfc#7"]);
+		expect(d.launches[1].gate).toBe(true);
+		expect(d.skipped).toEqual([
+			{ root: "wfc", number: 7, why: "already running" },
+		]);
+	});
+
+	it("skips parked rows in away mode, gate judgements still first (#2355, #3713)", () => {
 		const d = tick({
 			mode: "away",
-			freeSlots: 1,
+			freeSlots: 9,
 			frontier,
-			judgements: [{ root: "wfc", number: 7, prompt: "/triage 7" }],
+			judgements: [judgement],
 		});
-		expect(launched(d)).toEqual(["wfc#7"]);
-	});
-
-	it("skips parked rows in away mode (#2355)", () => {
-		const d = tick({ mode: "away", freeSlots: 9, frontier });
-		expect(launched(d)).toEqual(["wfc#1"]);
+		expect(launched(d)).toEqual(["wfc#7", "wfc#1"]);
 		expect(d.skipped).toEqual([
 			{ root: "wfc", number: 2, why: "parked" },
 			{ root: "wfc", number: 3, why: "parked" },
