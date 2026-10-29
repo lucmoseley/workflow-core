@@ -35,7 +35,7 @@ const { scanJs } = require("./lib/strip-comments.js");
 const { isJsTestFile } = require("./lib/test-kind.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
-const { isAgainstSide, runCheck } = require("./lib/check");
+const { runCheck } = require("./lib/check");
 
 const ROOTS = ["scripts", path.join(".claude", "skills")];
 const NODE = String.raw`(?:"node"|'node'|\`node\`|process\.execPath)`;
@@ -53,7 +53,7 @@ const MARKER = /spawn-kept:\s*\w/;
 const EXEMPLAR = "scripts/check-cli-args.test.ts";
 const WHY = "spawns node on the program under test";
 const NOUN = "spawn(s) of node on the program under test";
-const FIX = `run it through \`runInProcess\` in the plugin's scripts/lib/run-in-process.js, as its ${EXEMPLAR} does; or, where §X3 keeps a spawn (a timeout or a signal, two processes at once, a real fd, an async entry runInProcessAsync cannot load), state which in a \`spawn-kept: <why>\` comment on the call or in the file's header (#3458).`;
+const FIX = `run it through \`runInProcess\` in the plugin's scripts/lib/run-in-process.js, \`runInProcessAsync\` for an async entry, as its ${EXEMPLAR} does; or, where §X3 keeps a spawn (a timeout or a signal, two processes at once, a real fd, an async entry runInProcessAsync cannot load), state which in a \`spawn-kept: <why>\` comment on the call or in the file's header (#3458).`;
 
 /**
  * @param {string} dir
@@ -232,14 +232,10 @@ runCheck({
 				});
 			}
 		}
-		/* Under --against every commit staging a test prints this report,
-		 * inherited spawns included, so there it names none: the parent
-		 * re-lists a spawn this commit adds in full. */
-		const where = isAgainstSide()
-			? ""
-			: `: ${ctx.findings.map((f) => `${f.file}:${f.line}`).join(", ")}`;
 		if (ctx.findings.length > 0)
-			ctx.say(`  ${ctx.findings.length} ${NOUN}${where}.\n  Fix: ${FIX}`);
+			ctx.say(
+				`  ${ctx.findings.length} ${NOUN}: ${ctx.findings.map((f) => `${f.file}:${f.line}`).join(", ")}.\n  Fix: ${FIX}`,
+			);
 		return {
 			okLine: `${files.length} test file(s), none spawning node on the program under test without a stated reason.`,
 			noun: NOUN,
