@@ -1,12 +1,14 @@
 // @vitest-environment node
 /*
- * The landing queue's one open issue per condition: filed urgent and bug, and
- * a label taken off put back on refresh (#2694, ruled at #2672).
+ * The landing queue's one open issue per condition: filed urgent and bug, a
+ * label taken off put back on refresh (#2694, ruled at #2672), and a gate a
+ * session wrote kept through the refresh (#3636).
  *
- * Loosen it and a held or stalled queue's issue ranks with ordinary work.
+ * Loosen it and a held or stalled queue's issue ranks with ordinary work, or
+ * loses the gate that would close it.
  */
 import { expect, it } from "vitest";
-import { queueIssueFiler } from "./queue-issue.js";
+import { queueIssueCloser, queueIssueFiler } from "./queue-issue.js";
 
 const LABELS = ["urgent", "bug", "takes:implement", "kind:ticket"];
 const ISSUE = {
@@ -22,7 +24,8 @@ const filer = (
 ) => {
 	const filed: string[][] = [];
 	const file = queueIssueFiler({
-		openIssue: () => (labels === null ? null : { number: 7, labels }),
+		openIssue: () =>
+			labels === null ? null : { number: 7, labels, body: "body" },
 		similar: () => [],
 		fileIssue: (args) => {
 			filed.push(args);
@@ -30,6 +33,7 @@ const filer = (
 		},
 		refresh: () => "Refreshed #7.",
 		addLabels,
+		close: () => undefined,
 	});
 	return { line: file(ISSUE, "body"), filed };
 };
@@ -73,4 +77,45 @@ it("reports a failed re-add on the refresh line rather than throwing, naming gh'
 	expect(line).toMatch(
 		/^queue issue: Refreshed #7\. Could not re-add urgent, takes:implement, kind:ticket: .*403/,
 	);
+});
+
+it("keeps a gate a session wrote on the body through a refresh (#3636)", () => {
+	const gate =
+		"**Gated on:** b9f96e964 is on main — check: git merge-base --is-ancestor b9f96e964 origin/main && echo on — abandon if: it is reverted";
+	const refreshed: string[] = [];
+	const file = queueIssueFiler({
+		openIssue: () => ({
+			number: 7,
+			labels: LABELS,
+			body: `old body\n\n${gate}\n`,
+		}),
+		similar: () => [],
+		fileIssue: () => ({ status: 0, stdout: "", stderr: "" }),
+		refresh: (_, body) => {
+			refreshed.push(body);
+			return "Refreshed #7.";
+		},
+		addLabels: () => undefined,
+		close: () => undefined,
+	});
+
+	file(ISSUE, "new body");
+
+	expect(refreshed[0]).toContain("new body");
+	expect(refreshed[0]).not.toContain("old body");
+	expect(refreshed[0]).toContain(gate);
+});
+
+it("closes the open issue with the comment its body earns, and none where the body earns none (#3636)", () => {
+	const closed: [number, string][] = [];
+	const close = queueIssueCloser({
+		openIssue: () => ({ number: 7, labels: LABELS, body: "ready" }),
+		close: (n, c) => {
+			closed.push([n, c]);
+		},
+	});
+
+	expect(close(ISSUE.title, (b) => (b === "ready" ? "done" : null))).toBe(7);
+	expect(close(ISSUE.title, () => null)).toBeNull();
+	expect(closed).toEqual([[7, "done"]]);
 });

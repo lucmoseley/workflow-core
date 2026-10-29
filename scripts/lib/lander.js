@@ -1009,6 +1009,9 @@ function nextAction(s) {
  *   returning a line naming it
  * @property {(h: Held) => string} holdQueue files the held-queue issue, or
  *   refreshes the open one, returning a line naming it
+ * @property {(sha: string, holds: (batch: string) => boolean) =>
+ *   string|null} releaseQueue closes the open held-queue issue where `main`,
+ *   moved to `sha`, holds its batch, returning a line naming it, else null
  * @typedef {object} Ledger
  * @property {(sha: string) => boolean} has
  * @property {(sha: string) => void} add
@@ -1364,9 +1367,29 @@ async function actUntilEnd(run, carry) {
 		if (action.kind === "hold") holdQueue(run, action, state, refs.main);
 		if (action.kind === "exit" || action.kind === "hold") return action;
 		carry.state = await act(run, action, state, refs.main);
-		if (action.kind === "fast-forward" && !carry.state.refused)
+		if (action.kind === "fast-forward" && !carry.state.refused) {
 			carry.movedAt = new Date().toISOString();
+			releaseQueue(run, action.sha);
+		}
 	}
+}
+
+/**
+ * Closes the held-queue issue once `main` holds its batch: its body is
+ * refreshed whole on each hold, so a gate line a session writes there does
+ * not survive to close it (#3636). A failed close reports rather than
+ * throws, as `main` has already moved; the next move tries it again.
+ * @param {LanderDeps} deps
+ * @param {string} sha `main` once moved
+ */
+function releaseQueue({ tracker, git, say = () => undefined }, sha) {
+	let line;
+	try {
+		line = tracker.releaseQueue(sha, (batch) => git.contains(sha, batch));
+	} catch (err) {
+		line = `held-queue issue not closed: ${caught(err).message}`;
+	}
+	if (line !== null) say(line);
 }
 
 /**

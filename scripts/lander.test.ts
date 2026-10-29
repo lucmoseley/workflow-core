@@ -191,7 +191,11 @@ it("does nothing with the landing module off", async () => {
 	expect(git(remote, "rev-parse", "main")).toBe(seed);
 });
 
-it("files one held-queue issue over two holds in a row, urgent and bug, refreshing its body to the second batch and re-adding a label taken off (#2694)", async () => {
+/**
+ * A tracker of issues held in a JSON file, served by a gh stub, with the
+ * config naming it.
+ */
+const stubTracker = () => {
 	const store = path.join(tmp, "issues.json");
 	fs.writeFileSync(store, "[]");
 	const gh = stubGhScript(
@@ -219,6 +223,12 @@ if (is("issue", "list")) {
 } else if (is("issue", "view")) {
 	const issue = read().find((i) => String(i.number) === a[2]);
 	out(a.includes("--jq") ? issue.body : { body: issue.body });
+} else if (is("issue", "close")) {
+	const all = read();
+	const issue = all.find((i) => String(i.number) === a[2]);
+	issue.state = "CLOSED";
+	issue.closing = flag("--comment");
+	write(all);
 } else if (is("issue", "edit")) {
 	const all = read();
 	const issue = all.find((i) => String(i.number) === a[2]);
@@ -233,12 +243,17 @@ if (is("issue", "list")) {
 		path.join(work, ".claude", "workflow-core.json"),
 		JSON.stringify({ tracker: "o/here" }),
 	);
+	const readStore = () => JSON.parse(fs.readFileSync(store, "utf8"));
+	return { store, gh, readStore };
+};
+
+it("files one held-queue issue over two holds in a row, urgent and bug, refreshing its body to the second batch and re-adding a label taken off (#2694)", async () => {
+	const { store, gh, readStore } = stubTracker();
 	const tester = stubTester(1, "scripts/x.test.ts");
 
 	const first = commit("first");
 	git(work, "push", "-q", "origin", "HEAD:landing");
 	const r1 = await runLander(tester, "landing", gh.env);
-	const readStore = () => JSON.parse(fs.readFileSync(store, "utf8"));
 	const readLabelNames = () =>
 		readStore()[0].labels.map((l: { name: string }) => l.name);
 	expect(readLabelNames()).toEqual([
@@ -278,6 +293,32 @@ if (is("issue", "list")) {
 			filed: "held-queue issue: Refreshed #100. Re-added urgent.",
 		},
 	});
+});
+
+it("closes the held-queue issue once a later run lands past its batch, naming the sha it landed, over a gate a session wrote on it (#3636)", async () => {
+	const { store, gh, readStore } = stubTracker();
+	commit("bad");
+	git(work, "push", "-q", "origin", "HEAD:landing");
+	const held = await runLander(
+		stubTester(1, "scripts/x.test.ts"),
+		"landing",
+		gh.env,
+	);
+	const gated = readStore();
+	gated[0].body += "\n**Gated on:** b lands — check: true\n";
+	fs.writeFileSync(store, JSON.stringify(gated));
+	const fix = commit("fix");
+	git(work, "push", "-q", "origin", "HEAD:landing");
+
+	const moved = await runLander(stubTester(0), "landing", gh.env);
+
+	expect(held.status, held.stderr).toBe(0);
+	expect(moved.status, moved.stderr).toBe(0);
+	expect(git(remote, "rev-parse", "main")).toBe(fix);
+	const [issue] = readStore();
+	expect(issue.state).toBe("CLOSED");
+	expect(issue.closing).toContain(fix);
+	expect(moved.stdout).toContain(`held-queue issue: closed #${issue.number}.`);
 });
 
 it("takes a revert already on landing as landed rather than reverting twice, reading the rows it left stale, as a retried push finds one (#2673, #3127)", () => {

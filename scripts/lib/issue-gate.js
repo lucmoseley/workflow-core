@@ -136,6 +136,16 @@ function firstLiveMatch(re, body) {
 }
 
 /**
+ * The body's first live `**Gated on:**` line as written, for a writer that
+ * replaces a body to carry over (#3636), or null.
+ * @param {string} body
+ * @returns {string|null}
+ */
+function gateOnLineOf(body) {
+	return firstLiveMatch(GATE_ON_RE, body)?.[0].trim() ?? null;
+}
+
+/**
  * @param {RegExp} re a `/gm` regex
  * @param {string} body
  * @returns {RegExpExecArray[]} every match outside a fenced block
@@ -639,6 +649,7 @@ function secondMapVerdict(labels, readMaps) {
 module.exports = {
 	gateOf,
 	gateOnOf,
+	gateOnLineOf,
 	resolveGate,
 	basisFaults,
 	introducedBasisFaults,

@@ -55,6 +55,8 @@ async function run(
 		revertFails = null as string | null,
 		fileFails = null as string | null,
 		holdFails = null as string | null,
+		heldOpen = null as string | null,
+		releaseFails = null as string | null,
 		lastHold = null as HoldNote | null,
 		lastRed = null as Red | null,
 		lastMoved = null as string | null,
@@ -73,6 +75,7 @@ async function run(
 	const landing: { sha: string; files: string[] }[] = [];
 	const tickets: FixTicket[] = [];
 	const holds: Held[] = [];
+	const closed: { sha: string; batch: string }[] = [];
 	const beats: {
 		batch: string | null;
 		hold?: HoldNote;
@@ -159,6 +162,13 @@ async function run(
 				holds.push(h);
 				return "Filed #2";
 			},
+			releaseQueue: (sha, holdsBatch) => {
+				if (releaseFails !== null) throw new Error(releaseFails);
+				if (heldOpen === null || !holdsBatch(heldOpen)) return null;
+				closed.push({ sha, batch: heldOpen });
+				heldOpen = null;
+				return "Closed #2";
+			},
 		},
 		ledger: {
 			has: (sha) => ledger.has(sha),
@@ -202,6 +212,7 @@ async function run(
 		landing,
 		tickets,
 		holds,
+		closed,
 		beats,
 		said,
 		revertWhys,
@@ -595,6 +606,32 @@ describe("runLander on a red batch", () => {
 		const r = await run({ main: A, landing: B }, green);
 		expect(r.holds).toEqual([]);
 		expect(r.beats.every((b) => b.hold === undefined)).toBe(true);
+	});
+
+	it("closes the open held-queue issue once main moves past its batch (#3636)", async () => {
+		const r = await run({ main: A, landing: C }, green, {
+			history: [B, C],
+			heldOpen: B,
+		});
+		expect(r.closed).toEqual([{ sha: C, batch: B }]);
+		expect(r.said).toContain("Closed #2");
+	});
+
+	it("leaves the held-queue issue open where main moves short of its batch (#3636)", async () => {
+		const r = await run({ main: A, landing: B }, green, {
+			history: [B, C],
+			heldOpen: C,
+		});
+		expect(r.pushes.map((p) => p.sha)).toEqual([B]);
+		expect(r.closed).toEqual([]);
+	});
+
+	it("still lands, naming the failure, where the held-queue issue cannot be closed (#3636)", async () => {
+		const r = await run({ main: A, landing: B }, green, {
+			releaseFails: "gh down",
+		});
+		expect(r.end).toEqual({ kind: "exit", reason: "landing equals main" });
+		expect(r.said).toContain("held-queue issue not closed: gh down");
 	});
 
 	it("leaves a tip the last run held on untested, beating the hold again", async () => {

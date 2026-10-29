@@ -843,7 +843,11 @@ it("lands a green fixture batch on main, plugged into the lander", async () => {
 	/* A variable, not a literal: a green batch files no ticket, and the red
 	 * path's tracker (#2404) is only typed where that lander is. */
 	const deps = {
-		tracker: { fileFixTicket: () => "", holdQueue: () => "" },
+		tracker: {
+			fileFixTicket: () => "",
+			holdQueue: () => "",
+			releaseQueue: () => null,
+		},
 		git: {
 			...origin,
 			pushMain: (sha: string) => {
