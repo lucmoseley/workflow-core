@@ -38,13 +38,12 @@ const {
 	STANDARDS_DOCS: DOCS,
 	judgePrimitives,
 } = require("./lib/primitives-table.js");
+const { SWEEP_TITLE } = require("./lib/heresy-sweep.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 /** @typedef {import("./lib/primitives-table.js").Count} Count */
 /** @typedef {import("./lib/primitives-table.js").Side} Side */
 const { runCheck } = require("./lib/check");
-
-const SWEEP_TITLE = "Heresy sweep due";
 
 /**
  * The FAIL findings `script` reports over the whole tree.

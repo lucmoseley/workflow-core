@@ -102,6 +102,8 @@ A spec whose tickets are all *closed* is not a container either — nothing open
 
 **`scripts/report-arch-scan-due.js` files one `takes:implement` issue, *Architecture scan due*, from session start in every repo**, and refreshes it while growth stays over the threshold, finding it by title alone and never reconciling the label (#1378).
 
+**`scripts/report-heresy-sweep-due.js` files one `takes:implement` issue, *Heresy sweep due*, from session start in every repo**, 30 days after the last one's close, and refreshes it while it is open and due, finding it by title alone and never reconciling the label (#3464).
+
 **The rest file with one fixed value each:**
 
 - `scripts/report-retro-due.js` — `takes:implement`, *Weekly retro due* (#969).

@@ -5765,6 +5765,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/proving-run.test.ts",
 			"scripts/report-arch-scan-due.test.ts",
+			"scripts/report-heresy-sweep-due.test.ts",
 			"scripts/report-suite-queue-wait.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
@@ -10113,6 +10114,7 @@
 			"scripts/report-close-check-reading.test.ts",
 			"scripts/report-cycle-review-due.test.ts",
 			"scripts/report-flip-line-reading.test.ts",
+			"scripts/report-heresy-sweep-due.test.ts",
 			"scripts/report-manual-staleness.test.ts",
 			"scripts/report-remeasure-due.test.ts",
 			"scripts/report-round-check-reading.test.ts",
@@ -11411,6 +11413,20 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/heresy-sweep.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
@@ -21313,6 +21329,21 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/report-flip-line-reading.test.ts": [
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/report-heresy-sweep-due.js": [
+			"scripts/checker-registrations.test.ts",
+			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/report-heresy-sweep-due.test.ts",
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/sweep-debts-detached.test.ts"
+		],
+		"scripts/report-heresy-sweep-due.test.ts": [
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"

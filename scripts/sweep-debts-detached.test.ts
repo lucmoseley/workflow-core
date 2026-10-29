@@ -264,6 +264,14 @@ describe("the SessionStart debt drain", () => {
 		expect(await reached(test.log, "report-arch-scan-due.js")).toBe(false);
 	});
 
+	it("launches the heresy sweep filer, and never under VITEST (#3464)", async () => {
+		const live = launcherReach({ VITEST: undefined });
+		expect(await reached(live.log, "report-heresy-sweep-due.js")).toBe(true);
+		const test = launcherReach({ VITEST: "1" });
+		expect(await reached(test.log, "session-arbiter.js")).toBe(true);
+		expect(await reached(test.log, "report-heresy-sweep-due.js")).toBe(false);
+	});
+
 	it("launches the lander starter, and never under VITEST (#2405)", async () => {
 		const live = launcherReach({ VITEST: undefined });
 		expect(await reached(live.log, "start-lander.js")).toBe(true);

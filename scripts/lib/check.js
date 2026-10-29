@@ -1647,6 +1647,18 @@ const toOneLine = (s) =>
 const errMessage = (e) => (e instanceof Error ? e.message : String(e));
 
 /**
+ * Why a git or gh call failed: its stderr, else its message. The message holds
+ * the call's whole argv, a filed body included, so stderr comes first.
+ *
+ * @param {unknown} e
+ */
+function failureReason(e) {
+	const stderr =
+		e && typeof e === "object" && "stderr" in e ? String(e.stderr).trim() : "";
+	return stderr || errMessage(e);
+}
+
+/**
  * The wall clock, injectable through WFC_NOW so a check's tests do not depend
  * on the time of day or the calendar date they happen to run at (mantahostels#2176, mantahostels#2209).
  *
@@ -1686,7 +1698,8 @@ const now = (env = process.env) => {
 /* The outcome errors and the outcome table stay internal: `lib/gh.js` raises
  * a SKIP or BROKEN through skipError/brokenError and never inspects one. */
 // CheckContext is exported for its TYPE alone (also reachable as `Ctx`), and
-// errMessage for its narrowing logic, so a checker imports either instead of
+// errMessage and failureReason for their narrowing logic, so a checker imports
+// either instead of
 // re-deriving it locally (mantahostels#1315).
 module.exports = {
 	runCheck,
@@ -1695,6 +1708,7 @@ module.exports = {
 	brokenError,
 	isOutcomeError,
 	errMessage,
+	failureReason,
 	CheckContext,
 	MAX_BUFFER,
 	/* biome-staged.js extracts the index and runs git through them (#2429). */
