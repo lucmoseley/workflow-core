@@ -366,8 +366,8 @@ function readSessionFiles(mainFile) {
 
 /**
  * The committed table, or null where it is missing or malformed.
- * `WFC_SESSION_COST_TABLE` points it elsewhere, so a test fixes the figures a
- * refresh would otherwise move.
+ * `WFC_SESSION_COST_TABLE` points the default elsewhere, so a test fixes the
+ * figures a refresh would otherwise move; readCostTableIn's never moves.
  * @param {string} [file]
  * @returns {CostTable | null}
  */
@@ -399,6 +399,14 @@ function readCostTable(
 	}
 	return null;
 }
+
+/**
+ * The table committed in the checkout `root`, as readCostTable reads it.
+ * @param {string} root
+ * @returns {CostTable | null}
+ */
+const readCostTableIn = (root) =>
+	readCostTable(path.join(root, SESSION_COST_TABLE));
 
 /**
  * E[cost − spent | cost > spent], with the table's equally weighted quantiles
@@ -490,6 +498,7 @@ function runningRemainders({ agents, table, configDir, now = Date.now() }) {
 module.exports = {
 	LIST_PRICES,
 	priceFor,
+	readCostTableIn,
 	SESSION_COST_TABLE,
 	tablePath,
 	fileSpend,

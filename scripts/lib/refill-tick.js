@@ -330,17 +330,6 @@ function readCapFits(root, seat, members, usageText) {
 }
 
 /**
- * An overflow seat's budget, its cost table read in the first served checkout
- * as plan seats are sized (readSeats).
- * @param {import("./refill-seats.js").OverflowSeat} seat
- * @param {string|undefined} root
- */
-const readOverflowBudget = (seat, root) =>
-	root === undefined
-		? { why: "the loop serves no checkout to read the cost table in" }
-		: seatBudget(seat, root);
-
-/**
  * Each seat's reading, refreshed and sized for this tick by
  * lib/refill-loop.js's readSizedSeats; with the refreshing probes' outcomes.
  * Seats are sized before any repo is picked, so against the first served
@@ -962,7 +951,7 @@ async function tick({ dryRun }) {
 	const { slots, admission } = readFreeSlots();
 	const { seats, probes } = readSeats(control.seats, slots, served[0]);
 	const overflow = loop.overflowReadings(readDeclaredSeats(), seats, (seat) =>
-		readOverflowBudget(seat, served[0]),
+		seatBudget(seat, served[0]),
 	);
 	/** @type {import("./refill-decide.js").TickInput} */
 	const input = {

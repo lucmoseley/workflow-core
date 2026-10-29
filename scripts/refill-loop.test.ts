@@ -284,9 +284,9 @@ describe("stop and status", () => {
 			path.join(dir, ".claude", "refill-seats"),
 			`${path.join(dir, ".claude3")}\n~/.claude2-api api key=WFC_TEST_KEY grant=200 cycle-day=20\n`,
 		);
-		const table = path.join(dir, "table.json");
+		fs.mkdirSync(path.join(dir, "docs", "data"), { recursive: true });
 		fs.writeFileSync(
-			table,
+			path.join(dir, "docs", "data", "session-cost-table.json"),
 			JSON.stringify({
 				n: 2,
 				meanUsd: 4,
@@ -295,7 +295,7 @@ describe("stop and status", () => {
 				landedByHours: [[1, 1]],
 			}),
 		);
-		const r = await runEnv({ WFC_SESSION_COST_TABLE: table }, "status");
+		const r = await run("status");
 		const line = r.stdout
 			.split("\n")
 			.find((l) =>
