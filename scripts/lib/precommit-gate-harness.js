@@ -57,7 +57,7 @@ const GATE_HEAD = /^if (armed |armed_shell;|git diff --cached)/;
  *
  * `anchor` is an arbitrary substring, not a script path: the superseded gate is
  * identified by its `--broken-only` flag. `hook` defaults to the live file, and
- * is overridden to exercise the two throws a well-formed hook cannot reach.
+ * is overridden to exercise the throws a well-formed hook cannot reach.
  * @param {string} anchor
  * @param {string} [hook] an adopter's own hook text; left out, this
  *   checkout's `.husky/pre-commit`
@@ -73,9 +73,12 @@ function cutGateFragment(anchor, hook = HOOK) {
 	const start = lines
 		.slice(0, body + 1)
 		.findLastIndex((l) => GATE_HEAD.test(l));
-	if (start < 0)
-		throw new Error(`the ${anchor} gate in .husky/pre-commit has no \`if\``);
 	const end = lines.findIndex((l, i) => i > start && l === "fi");
+	// A later gate's head before `end` means the earlier gate's closer was not a
+	// bare `fi` (`fi # …`, `fi;`), so the anchor fell between the two.
+	const strays = lines.slice(body + 1, end).some((l) => GATE_HEAD.test(l));
+	if (start < 0 || (end !== -1 && (end < body || strays)))
+		throw new Error(`${anchor} in .husky/pre-commit sits outside any gate`);
 	if (end === -1)
 		throw new Error(`the ${anchor} gate in .husky/pre-commit is unclosed`);
 	return lines.slice(start, end + 1).join("\n");

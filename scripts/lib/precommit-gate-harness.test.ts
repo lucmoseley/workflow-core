@@ -68,10 +68,10 @@ describe("cutGateFragment", () => {
 		);
 	});
 
-	it("reports a gate with no `if` line above it", () => {
+	it("names an anchor with no gate above it", () => {
 		expect(() =>
 			cutGateFragment("scripts/x.js", "echo hi\nnode scripts/x.js\n"),
-		).toThrow(/has no `if`/);
+		).toThrow(/scripts\/x\.js .*outside any gate/);
 	});
 
 	it("reports an unclosed gate", () => {
@@ -81,6 +81,24 @@ describe("cutGateFragment", () => {
 				"if git diff --cached; then\n\tnode scripts/x.js\n",
 			),
 		).toThrow(/is unclosed/);
+	});
+
+	it("names an anchor outside any gate rather than returning the gate above it (#3511)", () => {
+		expect(() =>
+			cutGateFragment(
+				"scripts/x.js",
+				"if armed 'a'; then\n\tnode scripts/a.js\nfi\nnode scripts/x.js\n",
+			),
+		).toThrow(/scripts\/x\.js .*outside any gate/);
+	});
+
+	it("names an anchor after a gate closed by `fi # …`, not cutting through to the next gate's `fi` (#3511)", () => {
+		expect(() =>
+			cutGateFragment(
+				"scripts/x.js",
+				"if armed 'a'; then\n\t:\nfi # a\nnode scripts/x.js\nif armed 'b'; then\n\t:\nfi\n",
+			),
+		).toThrow(/scripts\/x\.js .*outside any gate/);
 	});
 });
 
