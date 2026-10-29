@@ -123,8 +123,9 @@ describe("guard and lib messages", () => {
 	const hookFiles = [
 		...guardFiles,
 		...libNames
-			/* The release render, the doc-map classifier, the test read map and
-			 * the /implement carve-out list hold these paths as data, never as a
+			/* The release render, the doc-map classifier, the test read map, the
+			 * primitives tables' file paths and the /implement carve-out list
+			 * hold these paths as data, never as a
 			 * pointer printed to a session; main-rewind.js's text reaches one
 			 * only through branch-publish.js's and pull-form.js's corePaths. */
 			.filter(
@@ -133,6 +134,7 @@ describe("guard and lib messages", () => {
 						"plugin-tree.js",
 						"doc-map.js",
 						"test-read-edges.js",
+						"primitives-table.js",
 						"implement-carveout.js",
 						"main-rewind.js",
 					].includes(f),
