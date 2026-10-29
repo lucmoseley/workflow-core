@@ -21,8 +21,8 @@
 #            refuses every commit. On a commit that passes, writes the review
 #            hold's `Review-Tier:` trailer through
 #            scripts/review-tier-trailer.sh, which never refuses (#3664).
-# JUSTIFIED: fail-safe — this is the one hook able to refuse a commit that
-#            `--no-verify` cannot turn off, and a gate skipped here runs next
+# JUSTIFIED: fail-safe — this is the one hook that can refuse a commit and
+#            that `--no-verify` leaves running, and a gate skipped here runs next
 #            only in CI, after the push.
 # DEFEAT:    `HUSKY=0`, and `core.hooksPath` pointed off `.husky/_`, which
 #            turn off every hook in the repo at once.
