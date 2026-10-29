@@ -799,6 +799,42 @@ describe("the review dispatch sentence (#1618, #1697)", () => {
 	);
 });
 
+describe("a rule store that cannot supply the dispatch shape (#3514)", () => {
+	const empty = fs.mkdtempSync(path.join(SCRATCH, "no-rules-"));
+	const noRules = { WFC_RULES_DIR: empty, WFC_RULES_FALLBACK_DIR: empty };
+	const misses = () =>
+		readGuardErrorsLog(SCRATCH).split("rule:review-dispatch-shape unreadable")
+			.length;
+
+	it("names the dispatch shape's path and logs the miss once per printing", () => {
+		const fire = () =>
+			run(
+				{
+					prompt: "/code-review",
+					hook_event_name: "UserPromptSubmit",
+					session_id: "dispatch-miss",
+				},
+				noRules,
+			);
+		const before = misses();
+		expect(fire()).toContain(
+			"Dispatch the review runs as docs/agents/rules/review-dispatch-shape.txt says.",
+		);
+		expect(fire(), "the duplicate firing prints nothing").toBe("");
+		expect(misses()).toBe(before + 1);
+	});
+
+	it("logs nothing for a command that prints no dispatch shape", () => {
+		const before = misses();
+		const ctx = run(
+			{ prompt: "/implement 1", hook_event_name: "UserPromptSubmit" },
+			noRules,
+		);
+		expect(ctx).toContain("You invoked /implement");
+		expect(misses()).toBe(before);
+	});
+});
+
 /*
  * #1697 — the dispatcher's inject-review-tier core fires on the Skill tool
  * alone, so a /code-review the founder types reaches it only through this

@@ -366,11 +366,14 @@ style_read="$(wfc_output_style 2>/dev/null)" && output_style="$style_read"
 # (#1697). It names the subagent type and Artefact paths as "named above", so
 # they lead. check-context-budget.js reads this one `rule_text` spelling as the
 # fragment's text; any other is unparsed. So the load, fallback and lead-in are
-# repeated in concision-backstop.sh rather than shared: it would count a
+# repeated, and the miss logged, in concision-backstop.sh rather than shared: it would count a
 # helper's output as zero.
 # shellcheck source=scripts/lib/rule-text.sh
 source "$here/lib/rule-text.sh" 2>/dev/null
 dispatch_shape="$(rule_text review-dispatch-shape 2>/dev/null)"
+# The miss is logged where $dispatch is printed, below, so a /code-review that
+# reserve() suppresses logs none (#3514).
+[[ -n "$dispatch_shape" ]] || dispatch_shape_missed=1
 [[ -n "$dispatch_shape" ]] || dispatch_shape="Dispatch the review runs as docs/agents/rules/review-dispatch-shape.txt says."
 dispatch="Reviewer type \`${review_type}\`; Artefact paths \`.claude/tmp/review-standards${sid_suffix}.md\` and \`.claude/tmp/review-spec${sid_suffix}.md\`. ${dispatch_shape}"
 
@@ -463,6 +466,10 @@ review_tier() {
 if [[ "$matched" == "code-review" ]]; then
   review_standards_log_missing_base 2>/dev/null
   reserve || exit 0
+  # shellcheck source=scripts/lib/guard-log.sh
+  if [[ -n "${dispatch_shape_missed:-}" ]] && source "$here/lib/guard-log.sh" 2>/dev/null; then
+    gl_log "rule:review-dispatch-shape unreadable — /code-review named its path instead"
+  fi
   tier="$(review_tier)"
   # Unloaded, the threshold reads 0 and the tier leads: the order that survives
   # persistence (#1746).
