@@ -17,6 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
+import { defineTemplate, initGitRepo } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { fakeIssueBody } from "./lib/issue-body-testkit";
 import { runInProcess } from "./lib/run-in-process";
@@ -198,6 +199,46 @@ const ticket = (number: number, ns: number[], extra: string[] = []): Hit => ({
 	updated: "2026-11-01",
 	comments: [TIER_LINE, ...ns.map((n) => record(n)), ...extra],
 });
+
+/* A checkout of quote.ts: `base` seeds it, `refs/pre-fix` is the staged
+ * pre-fix tree, and tags l1..l5 are five landed commits. */
+const checkoutTemplate = defineTemplate((dir) => {
+	const hooks = path.join(dir, ".hooks");
+	fs.mkdirSync(hooks);
+	initGitRepo(dir, hooks);
+	const git = (...a: string[]) =>
+		execFileSync("git", a, { cwd: dir, encoding: "utf8" }).trim();
+	/** Stages `text` as quote.ts. */
+	const stage = (text: string) => {
+		fs.writeFileSync(path.join(dir, "quote.ts"), text);
+		git("add", "quote.ts");
+	};
+	stage("price = 0\n");
+	git("commit", "-qm", "seed");
+	git("tag", "base");
+	stage("price = 1 // leak\n");
+	git("update-ref", "refs/pre-fix", git("write-tree"));
+	for (const n of [1, 2, 3, 4, 5]) {
+		stage(`price = ${n}\n`);
+		git("commit", "-qm", `price = ${n}`);
+		git("tag", `l${n}`);
+	}
+});
+
+/** That checkout under `fx`'s home, tracking OWN; reads a rev in it. */
+function checkout(fx: ReturnType<typeof fixture>) {
+	const code = checkoutTemplate.instantiate(path.join(fx.root, "code"));
+	fs.mkdirSync(path.join(code, ".claude"));
+	fs.writeFileSync(
+		path.join(code, ".claude", "workflow-core.json"),
+		JSON.stringify({ contract: 1, founder: "F", tracker: OWN }),
+	);
+	return (rev: string) =>
+		execFileSync("git", ["rev-parse", rev], {
+			cwd: code,
+			encoding: "utf8",
+		}).trim();
+}
 
 describe("the re-measure trigger", () => {
 	it("is silent below 15 counted commits with no issue filed, and asks the tracker nothing but the search and that issue", () => {
@@ -489,44 +530,11 @@ describe("the re-measure trigger", () => {
 
 	it("reports a record naming the tree its landed commit carries on its paths, judged in the checkout tracking its repo, and not one naming the pre-fix tree, one posted before the rule, one naming no paths, nor one that fixed nothing (#3444)", () => {
 		const fx = fixture({ hits: {} });
-		const code = path.join(fx.root, "code");
-		fs.mkdirSync(path.join(code, ".claude"), { recursive: true });
-		fs.writeFileSync(
-			path.join(code, ".claude", "workflow-core.json"),
-			JSON.stringify({ contract: 1, founder: "F", tracker: OWN }),
-		);
-		const git = (...a: string[]) =>
-			execFileSync(
-				"git",
-				[
-					"-c",
-					"user.name=t",
-					"-c",
-					"user.email=t@t",
-					"-c",
-					"core.hooksPath=/dev/null",
-					...a,
-				],
-				{ cwd: code, encoding: "utf8" },
-			).trim();
-		git("init", "-q");
-		/** Stages `text` as quote.ts. */
-		const stage = (text: string) => {
-			fs.writeFileSync(path.join(code, "quote.ts"), text);
-			git("add", "quote.ts");
-		};
-		stage("price = 0\n");
-		git("commit", "-qm", "seed");
-		const base = git("rev-parse", "HEAD");
-		const land = (text: string) => {
-			stage(text);
-			git("commit", "-qm", text);
-			return git("rev-parse", "HEAD");
-		};
-		stage("price = 1 // leak\n");
-		const preFix = git("write-tree");
-		const landed = [1, 2, 3, 4, 5].map((n) => land(`price = ${n}\n`));
-		const tree = (c: string) => git("rev-parse", `${c}^{tree}`);
+		const rev = checkout(fx);
+		const base = rev("base");
+		const preFix = rev("refs/pre-fix");
+		const landed = [1, 2, 3, 4, 5].map((n) => rev(`l${n}`));
+		const tree = (c: string) => rev(`${c}^{tree}`);
 		const line = (
 			reviewed: string,
 			l: string,
@@ -573,6 +581,39 @@ describe("the re-measure trigger", () => {
 		});
 		expect(readGuardErrorsLog(fx.config)).toContain(
 			`report-remeasure-due\t${fault}`,
+		);
+	});
+
+	it("reports a record its checkout cannot diff as unjudged, one line, and nothing more of it (#3544)", () => {
+		const fx = fixture({ hits: {} });
+		const rev = checkout(fx);
+		const missing = "f".repeat(40);
+		const reviewed = rev("refs/pre-fix");
+		fx.setHits({
+			[OWN]: [
+				{
+					number: 7,
+					updated: "2026-11-01",
+					comments: [
+						TIER_LINE,
+						[
+							`**Review findings:** base ${rev("base")}, reviewed ${reviewed}, landed ${missing}, paths quote.ts`,
+							"- FIXED: a leak in the log line (Focus)",
+						].join("\n"),
+					],
+				},
+			],
+		});
+		const r = run(fx);
+		expect(r.code).toBe(0);
+		expect(r.stdout).toBe("");
+		expect(r.stderr).toMatch(
+			new RegExp(
+				`^UNJUDGED: ${OWN}#7: could not diff reviewed ${reviewed} against landed ${missing} in \\S+, so whether its record names the landed tree is not judged until that checkout holds both — [^\\n]+\\n$`,
+			),
+		);
+		expect(readGuardErrorsLog(fx.config)).toContain(
+			`report-remeasure-due\t${OWN}#7: could not diff`,
 		);
 	});
 

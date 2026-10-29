@@ -1,8 +1,11 @@
 /*
  * Tests for lib/scratch-git-host.js's isTracked: git's exit 128 reads as
- * "untracked" only where git says there is no repository (#3396). The fatal
- * that is not that is driven through a stub at WFC_GIT (base §N7); the rest
- * cross the real git in a temp directory.
+ * "untracked" only where git says there is no repository (#3396). Break it
+ * and lib/scratch-git.js either refuses a tracked script on a git fault, or
+ * lets an unguarded script outside any repository write git state, the
+ * #3162 incident. The fatal that is not that is driven through
+ * git-fault-fake.ts at WFC_GIT (base §N7); the rest cross the real git in a
+ * temp directory.
  */
 
 import { execFileSync } from "node:child_process";
@@ -11,6 +14,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { writeFaultyGit } from "./git-fault-fake";
 
 // biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
 const lib: any = createRequire(__filename)("./scratch-git-host.js");
@@ -49,13 +53,11 @@ describe("isTracked", () => {
 	});
 
 	it("cannot say on any other exit 128", () => {
-		const stub = path.join(dir, "git");
-		fs.writeFileSync(
-			stub,
-			"#!/bin/sh\necho 'fatal: unable to read index' >&2\nexit 128\n",
-		);
-		fs.chmodSync(stub, 0o755);
-		process.env.WFC_GIT = stub;
+		process.env.WFC_GIT = writeFaultyGit(
+			{ all: true },
+			{ script: "echo 'fatal: unable to read index' >&2\nexit 128" },
+			{ under: dir },
+		).git;
 		expect(isTracked(path.join(dir, "a.sh"))).toBeNull();
 	});
 });

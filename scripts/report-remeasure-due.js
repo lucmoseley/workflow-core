@@ -40,10 +40,12 @@
  * reported the same way, since a replay finds none of its fixed defects
  * (#3444). A commit that fixed nothing lands its pre-fix tree, so is not
  * judged. Judged in the checkout on this machine that tracks the record's
- * repo; a record posted before PINNED_FROM, one naming no paths, and one no
- * such checkout answers for (none there, a sha it does not hold, git
- * failing) go unjudged. Residual: a session that never took the pin cannot
- * correct its record, which is reported each run.
+ * repo; a record posted before PINNED_FROM, one naming no paths, and one
+ * with no such checkout go unjudged. One whose diff there fails, a sha it
+ * does not hold included, goes unjudged too and is reported as UNJUDGED
+ * (#3544).
+ * Residual: a session that never took the pin cannot correct its record,
+ * which is reported each run.
  *
  * THE SEARCH. Every `corpus` tracker, one GraphQL search a page of 100
  * tickets, each with its comments, for "Review tier" or "Escaped defect"
@@ -449,34 +451,39 @@ function countedCommits(trackers, today) {
 }
 
 /**
- * The commits whose record the header's A RECORD NAMING THE LANDED TREE
- * reports, judged in the checkouts under `home`.
+ * Whether `c`'s record is one the header's A RECORD NAMING THE LANDED TREE
+ * reports, judged in the checkout under `home`; git failing there is reported
+ * as UNJUDGED (#3544) and reads false.
  *
- * @param {ReviewRecord[]} commits
+ * @param {ReviewRecord} c
  * @param {string} home
  */
-function readLandedTreeRecords(commits, home) {
-	return commits.filter((c) => {
-		if (c.fixes === 0 || c.paths === null || c.posted < PINNED_FROM)
-			return false;
-		const checkout = readCheckoutTracking(c.repo, home);
-		if (!("root" in checkout)) return false;
-		const paths = c.paths.split(/[\s,]+/).filter(Boolean);
-		const diff = gitOutcome(
-			[
-				"--literal-pathspecs",
-				"diff",
-				"--name-only",
-				c.tree,
-				c.landed,
-				"--",
-				...paths,
-			],
-			[],
-			checkout.root,
+function isLandedTreeRecord(c, home) {
+	if (c.fixes === 0 || c.paths === null || c.posted < PINNED_FROM) return false;
+	const checkout = readCheckoutTracking(c.repo, home);
+	if (!("root" in checkout)) return false;
+	const paths = c.paths.split(/[\s,]+/).filter(Boolean);
+	const diff = gitOutcome(
+		[
+			"--literal-pathspecs",
+			"diff",
+			"--name-only",
+			c.tree,
+			c.landed,
+			"--",
+			...paths,
+		],
+		[],
+		checkout.root,
+	);
+	if (!diff.ok) {
+		reportRecord(
+			"UNJUDGED",
+			`${c.repo}#${c.issue}: could not diff reviewed ${c.tree} against landed ${c.landed} in ${checkout.root}, so whether its record names the landed tree is not judged until that checkout holds both — ${diff.why}`,
 		);
-		return diff.ok && diff.out === "";
-	});
+		return false;
+	}
+	return diff.out === "";
 }
 
 /**
@@ -560,8 +567,8 @@ function failOpen(fault, next) {
 }
 
 /**
- * A faulty record: one line to stderr and to the guard-error log, each run
- * until it is corrected.
+ * A faulty record, or one its checkout cannot judge: one line to stderr and
+ * to the guard-error log, each run until it is corrected or can be judged.
  *
  * @param {string} tag
  * @param {string} fault
@@ -595,7 +602,8 @@ function main() {
 			"UNPARSEABLE",
 			`${u.repo}#${u.issue} has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: ${u.line}`,
 		);
-	for (const c of readLandedTreeRecords(commits, homeDir()))
+	const home = homeDir();
+	for (const c of commits.filter((r) => isLandedTreeRecord(r, home)))
 		reportRecord(
 			"LANDED TREE",
 			`${c.repo}#${c.issue} has a record naming reviewed ${c.tree}, the tree landed ${c.landed} carries on its paths, so a replay finds none of its fixed defects: name the tree pinned before the first round's dispatch, as \`scripts/lib/rule-text.sh review-tier-records\` says`,
