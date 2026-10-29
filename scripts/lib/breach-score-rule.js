@@ -23,6 +23,7 @@ const STOP_CLASS = {
 	"guard-unpushed-commits": "breach",
 	"guard-selection-sum": "breach",
 	"guard-uncommitted-work": "breach",
+	"guard-exhausted-map": "breach",
 	"guard-paste-self-match": "breach",
 	"guard-session-id-prose": "breach",
 	"guard-session-ceiling": "notice",
