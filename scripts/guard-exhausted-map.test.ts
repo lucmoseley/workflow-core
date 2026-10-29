@@ -122,20 +122,32 @@ describe("a claimed exhausted map", () => {
 		expect(c).toBeGreaterThan(b);
 	});
 
-	it("restates the rule's own steps", () => {
+	it("restates the rule's steps whole and each branch's opening, in order", () => {
 		const rule = fs.readFileSync(
 			path.join(__dirname, "../docs/agents/rules/wayfinder-ops-shapes.txt"),
 			"utf8",
 		);
-		const steps = reasonFor(EXHAUSTED)
+		const lines = reasonFor(EXHAUSTED)
 			.split("\n")
-			.map((l) => l.trim())
-			.filter((l) => /^\([a-c]\)/.test(l));
+			.map((l) => l.trim());
+		const steps = lines.filter((l) => /^\([a-c]\)/.test(l));
 		expect(steps).toHaveLength(3);
-		const [a, b, c] = steps;
-		expect(rule).toContain(a);
-		expect(rule).toContain(b?.split(":")[0]?.replace("exhausted-map ", ""));
-		expect(rule).toContain(c);
+		for (const step of steps) expect(rule).toContain(step);
+		const branches = lines.filter((l) => l.startsWith("- "));
+		const after = rule
+			.slice(rule.indexOf("The three branches:"))
+			.split("\n")
+			.slice(1);
+		const end = after.findIndex((l) => !l.startsWith("  - "));
+		const ruleBranches = after
+			.slice(0, end === -1 ? after.length : end)
+			.map((l) => l.trim());
+		expect(branches).toHaveLength(ruleBranches.length);
+		branches.forEach((branch, i) => {
+			/* A branch cut mid-sentence takes a full stop the rule's lacks. */
+			const opening = branch.replace(/\.$/, "");
+			expect(ruleBranches[i]?.slice(0, opening.length)).toBe(opening);
+		});
 	});
 
 	it("refuses a background job's `needs input:` ending that carries no round, naming the map the round is posted on", () => {
