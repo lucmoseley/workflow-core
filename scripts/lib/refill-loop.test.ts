@@ -556,116 +556,87 @@ describe("which seats are refreshed", () => {
 	});
 });
 
-describe("a tick's log line (#2362)", () => {
-	type Tick = Parameters<typeof settleTick>[0];
-	type Io = Parameters<typeof settleTick>[1];
-	const idle = (why: string) => ({
-		launches: [],
-		skipped: [],
-		idle: why,
-		held: [],
-	});
-	function logged(
-		decision: Tick["decision"],
-		freeSlots: number,
-		probes: Tick["probes"],
+type Tick = Parameters<typeof settleTick>[0];
+type Io = Parameters<typeof settleTick>[1];
+const idle = (why: string) => ({
+	launches: [],
+	skipped: [],
+	idle: why,
+	held: [],
+});
+function settleOnce(
+	decision: Tick["decision"],
+	freeSlots: number,
+	probes: Tick["probes"],
+	{
+		dispatch = (batch) => ({
+			launched: batch.map((l) => ({
+				...l,
+				jobId: "job",
+				launchedAt: NOW,
+				finishedAt: null,
+			})),
+			refused: [],
+		}),
+		readControl = () => ({
+			control: {
+				startedAt: NOW,
+				stopRequested: false,
+				seats: [],
+				scope: away([]),
+			},
+			damaged: null,
+		}),
+		read = null,
+		writes = [],
+		state = parseState(null),
+		past = [],
+	}: Partial<{
+		dispatch: Io["launchBatch"];
+		readControl: Io["readControl"];
+		read: Tick["read"];
+		writes: Tick["state"][];
+		state: Tick["state"];
+		past: Tick["judged"];
+	}> = {},
+) {
+	const lines: string[] = [];
+	settleTick(
 		{
-			dispatch = (batch) => ({
-				launched: batch.map((l) => ({
-					...l,
-					jobId: "job",
-					launchedAt: NOW,
-					finishedAt: null,
-				})),
-				refused: [],
-			}),
-			readControl = () => ({
-				control: {
-					startedAt: NOW,
-					stopRequested: false,
-					seats: [],
-					scope: away([]),
-				},
-				damaged: null,
-			}),
-			read = null,
-			writes = [],
-			state = parseState(null),
-			past = [],
-		}: Partial<{
-			dispatch: Io["launchBatch"];
-			readControl: Io["readControl"];
-			read: Tick["read"];
-			writes: Tick["state"][];
-			state: Tick["state"];
-			past: Tick["judged"];
-		}> = {},
-	) {
-		const lines: string[] = [];
-		settleTick(
-			{
-				input: {
-					now: NOW,
-					mode: "normal" as const,
-					startedAt: NOW,
-					stopRequested: false,
-					frontier: [],
-					retroBundles: [],
-					running: [],
-					freeSlots,
-					lastPromptAt: null,
-					seats: [],
-					history: past,
-				},
-				decision,
-				state,
-				judged: past,
-				probes,
-				read,
+			input: {
+				now: NOW,
+				mode: "normal" as const,
+				startedAt: NOW,
+				stopRequested: false,
+				frontier: [],
+				retroBundles: [],
+				running: [],
+				freeSlots,
+				lastPromptAt: null,
+				seats: [],
+				history: past,
 			},
-			{
-				readControl,
-				launchBatch: dispatch,
-				runReview: (lastRunOn) => lastRunOn,
-				writeState: (next) => writes.push(next),
-				log: (line) => lines.push(line),
-				now: () => NOW,
-			},
-		);
-		return lines[0];
-	}
+			decision,
+			state,
+			judged: past,
+			probes,
+			read,
+		},
+		{
+			readControl,
+			launchBatch: dispatch,
+			runReview: (lastRunOn) => lastRunOn,
+			writeState: (next) => writes.push(next),
+			log: (line) => lines.push(line),
+			now: () => NOW,
+		},
+	);
+	return { line: lines[0], writes };
+}
+const logged = (...args: Parameters<typeof settleOnce>) =>
+	settleOnce(...args).line;
 
-	describe("the launches it keeps (#3621)", () => {
-		const at = (n: number, over: Record<string, unknown> = {}) =>
-			({
-				root: WFC,
-				issues: [n],
-				prompt: `/implement ${n}`,
-				seat: "/s",
-				jobId: `job${n}`,
-				launchedAt: n,
-				finishedAt: n + 1,
-				...over,
-			}) as Launch;
-		const history = (extra: Launch[]) => [
-			...extra,
-			...Array.from({ length: 50 }, (_, i) => at(100 + i)),
-		];
-		const kept = (past: Launch[]) => {
-			const writes: Tick["state"][] = [];
-			logged(idle("no free slot"), 0, [], { past, writes });
-			return writes[0].launches;
-		};
-
-		it("keeps an older park the loop stopped until a later launch of its issue follows it", () => {
-			const parked = at(1, { parkStopped: 2 });
-			const older = kept(history([parked, at(3)]));
-			expect(older).toHaveLength(51);
-			expect(older[0]).toBe(parked);
-			expect(kept([...history([parked]), at(1)])).not.toContain(parked);
-		});
-	});
-
+describe("a tick's log line (#2362)", () => {
 	it("names the free slots on an idle tick and each probed seat's outcome", () => {
 		expect(logged(idle("no free slot"), 0, [])).toBe(
 			"idle: no free slot (free slots: 0)",
@@ -867,6 +838,34 @@ describe("a tick's log line (#2362)", () => {
 		expect(parseProbeOutcome("", "exit null (spawnSync node ETIMEDOUT)")).toBe(
 			"no outcome line, exit null (spawnSync node ETIMEDOUT)",
 		);
+	});
+});
+
+describe("the launches a tick keeps (#3621)", () => {
+	const at = (n: number, over: Record<string, unknown> = {}) =>
+		({
+			root: WFC,
+			issues: [n],
+			prompt: `/implement ${n}`,
+			seat: "/s",
+			jobId: `job${n}`,
+			launchedAt: n,
+			finishedAt: n + 1,
+			...over,
+		}) as Launch;
+	const history = (extra: Launch[]) => [
+		...extra,
+		...Array.from({ length: 50 }, (_, i) => at(100 + i)),
+	];
+	const kept = (past: Launch[]) =>
+		settleOnce(idle("no free slot"), 0, [], { past }).writes[0].launches;
+
+	it("keeps an older park the loop stopped until a later launch of its issue follows it", () => {
+		const parked = at(1, { parkStopped: 2 });
+		const older = kept(history([parked, at(3)]));
+		expect(older).toHaveLength(51);
+		expect(older[0]).toBe(parked);
+		expect(kept([...history([parked]), at(1)])).not.toContain(parked);
 	});
 });
 
@@ -1123,7 +1122,6 @@ describe("the control file", () => {
 });
 
 describe("a stop landing mid-tick (#2126, #2286)", () => {
-	type Tick = Parameters<typeof settleTick>[0];
 	const input = {
 		now: 100,
 		mode: "normal" as const,

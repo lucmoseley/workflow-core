@@ -1113,8 +1113,8 @@ function claimedIssues(listed) {
 /** @typedef {import("./lib/dispatch-ledger").DispatchRecord} DispatchRecord */
 
 /**
- * The issues `scripts/dispatch-sessions.sh` has already launched, read off the
- * ledger it writes at launch (`.pick-next/dispatched.jsonl`) — the same file,
+ * The issues `scripts/dispatch-sessions.sh` has already launched or the refill
+ * loop resumed (#3704), read off the ledger both write (`.pick-next/dispatched.jsonl`) — the same file,
  * on the same window, that `check-duplicate-dispatch.js` drops a member on.
  *
  * WHY THIS RUN MUST READ IT (mantahostels#1528). Offering an already-dispatched issue is

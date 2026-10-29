@@ -411,13 +411,13 @@ const buildIdleResumeLine = (l, failed) =>
  * @param {{failed: string|null, unlabelled: {n: number, why: string}[],
  *   unmarkedWhy?: string|null}} outcome  `unmarkedWhy`, why the labelled issues are
  *   not in the session's marker
- * @param {boolean} [brief]
+ * @param {{brief?: boolean}} [opts]
  */
 function buildParkStopLine(
 	l,
 	mode,
 	{ failed, unlabelled, unmarkedWhy = null },
-	brief = false,
+	{ brief = false } = {},
 ) {
 	const reason = (/** @type {string} */ why) =>
 		brief ? why.split(/\r?\n/)[0] : why;
@@ -498,7 +498,7 @@ function stopPark(l, act, mode, { now, io }) {
 	io.log(buildParkStopLine({ ...l, act }, mode, outcome));
 	io.comment(
 		l,
-		`Refill loop: ${buildParkStopLine({ ...l, act }, mode, outcome, true)}. The conversation is kept: \`claude attach\` reopens it.`,
+		`Refill loop: ${buildParkStopLine({ ...l, act }, mode, outcome, { brief: true })}. The conversation is kept: \`claude attach\` reopens it.`,
 	);
 	return { ...l, parkStopped: now };
 }

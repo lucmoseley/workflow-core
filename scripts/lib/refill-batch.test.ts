@@ -403,14 +403,19 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 		prompt: `/implement ${n}`,
 		...over,
 	});
-	function run(batch: Launch[], resume: Io["resume"]) {
+	function run(batch: Launch[], resume: Io["resume"], written = true) {
 		const lines: string[] = [];
 		const fresh: Launch[][] = [];
 		const resumed: unknown[] = [];
+		const recorded: unknown[] = [];
 		const out = launchOrResume(batch, {
 			resume: (t) => {
 				resumed.push(t);
 				return resume(t);
+			},
+			recordLaunch: (e) => {
+				recorded.push(e);
+				return written;
 			},
 			launchFresh: (b) => {
 				fresh.push(b);
@@ -427,7 +432,7 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 			log: (line) => lines.push(line),
 			now: () => NOW,
 		});
-		return { out, lines, fresh, resumed };
+		return { out, lines, fresh, resumed, recorded };
 	}
 	const ok: Io["resume"] = () => ({
 		failed: null,
@@ -455,6 +460,25 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 		expect(lines).toEqual([
 			"resumed parked design-vault /implement 1 as job j-9",
 		]);
+	});
+
+	it("writes each resume to the dispatch ledger as a launch of its issues, and logs a write that failed (#3704)", () => {
+		const parked = member(1, { parkedRoute: { resume: target } });
+		const { recorded } = run([parked, member(2)], ok);
+		expect(recorded).toEqual([
+			{
+				issues: [1],
+				model: "opus",
+				prompt: "/implement 1",
+				root: launch.root,
+				jobId: "j-9",
+			},
+		]);
+		const { out, lines } = run([parked], ok, false);
+		expect(out.launched.map((l) => l.jobId)).toEqual(["j-9"]);
+		expect(lines).toContain(
+			"resume of design-vault /implement 1 not written to the dispatch ledger: the idle alarm dates it from its last launch",
+		);
 	});
 
 	it("makes no dispatcher call where every member resumed, and records no session a copy left unread", () => {

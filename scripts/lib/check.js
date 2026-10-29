@@ -54,6 +54,12 @@
  * `--head <rev>` beside `--against <rev>` names a commit as the judged side in
  * place of the index (#3074).
  *
+ * --index. The same materialised index and re-exec as step 1, with no <rev>:
+ * every finding the index side holds is this commit's, inherited or not. For a
+ * whole-tree gate, which refuses every breach the tree holds but must judge
+ * this commit's bytes rather than a neighbour's untracked or unstaged file
+ * (#3687). Legal wherever `against` is declared.
+ *
  * NOT `--baseline`: taken twice in this family already, for a file of anchor
  * text (check-instruction-surface.js) and a number of test files
  * (check-suite-size-drift.js).
@@ -116,6 +122,7 @@ const loadNotify = () => require(NOTIFY_REPORT);
 
 const AGAINST = "--against";
 const HEAD_FLAG = "--head";
+const INDEX_FLAG = "--index";
 
 /* The flags this library reads itself, which every checker accepts without
  * declaring them (#938). */
@@ -127,9 +134,10 @@ const LIBRARY_FLAGS = [
 	"--help",
 	AGAINST,
 	HEAD_FLAG,
+	INDEX_FLAG,
 ];
 
-/* What a direction-gating checker accepts on top: the re-exec passes it. */
+/* What a checker declaring `against` accepts on top: the re-exec passes it. */
 const AGAINST_FLAGS = ["--root"];
 
 /*
@@ -646,7 +654,7 @@ const MATERIALISERS = {
 		 * it never looked at. */
 		if (pathspecs.length === 0)
 			throw brokenError(
-				`${AGAINST} asked for a blob fetch at ${rev} and the spec named no pathspec.`,
+				`a blob fetch at ${rev} was asked for and the spec named no pathspec.`,
 			);
 		const entries = listTree(rev, pathspecs);
 
@@ -842,11 +850,7 @@ function runAgainst(spec, ctx) {
 				"no rule for what makes two of this check's faults the same fault.",
 		);
 
-	const materialise = MATERIALISERS[against.materialise];
-	if (!materialise)
-		ctx.broken(
-			`no ${against.materialise} materialisation — expected one of ${Object.keys(MATERIALISERS).join(", ")}.`,
-		);
+	const materialise = materialiserOf(against, ctx);
 
 	const baseRev = baselineOf(rev);
 
@@ -912,6 +916,124 @@ function runAgainst(spec, ctx) {
 	};
 }
 
+/**
+ * @param {CheckSpec} spec
+ * @param {CheckContext} ctx
+ * @returns {CheckResult}
+ */
+function runIndex(spec, ctx) {
+	const against = materialisedSpec(
+		spec,
+		ctx,
+		INDEX_FLAG,
+		"declares no materialisation",
+	);
+	if (ctx.has(AGAINST))
+		ctx.usageError(
+			`${INDEX_FLAG} judges the index alone, so it cannot be combined with ${AGAINST}.`,
+		);
+	if (against.refuse) against.refuse(ctx);
+	const materialise = materialiserOf(against, ctx);
+	const work = fs.mkdtempSync(
+		path.join(os.tmpdir(), `check-index-${spec.name}-`),
+	);
+	try {
+		const tree = indexTree(path.join(work, "index-copy"));
+		const index = readSide(ctx, { against, materialise, work }, tree, {
+			label: "the index",
+			which: "index",
+		});
+		carryUnfinished(ctx, index);
+		const { envelope } = index;
+		ctx.findings.push(
+			.../** @type {Finding[]} */ (
+				Array.isArray(envelope.findings) ? envelope.findings : []
+			),
+		);
+		return {
+			okLine: index.summary.replace(/^OK: /, ""),
+			noun: String(envelope.noun ?? "finding(s)"),
+			count: Number(envelope.count ?? ctx.findings.length),
+			data: { indexSummary: index.summary },
+		};
+	} finally {
+		fs.rmSync(work, { recursive: true, force: true });
+	}
+}
+
+/**
+ * The spec's `against`, refusing a checker that declares none and a `--root`,
+ * which a materialising flag sets for itself.
+ *
+ * @param {CheckSpec} spec
+ * @param {CheckContext} ctx
+ * @param {string} flag
+ * @param {string} absent why a checker with no `against` cannot take `flag`
+ * @returns {AgainstSpec}
+ */
+function materialisedSpec(spec, ctx, flag, absent) {
+	const against = spec.against;
+	if (!against)
+		ctx.usageError(`${spec.name} ${absent}, so it takes no ${flag}.`);
+	if (ctx.has("--root"))
+		ctx.usageError(
+			`${flag} materialises its own trees, so it cannot be combined with --root.`,
+		);
+	return against;
+}
+
+/**
+ * This checker re-run over `rev` materialised in a fresh directory under
+ * `work`. Its pathspecs are resolved per side, not once: a pathspec set read
+ * out of the tree it describes — check-context-budget.js's injected-docs array
+ * is one — can legitimately differ between the index and <rev>, and pinning
+ * one side's list onto the other would measure a file the rev does not name.
+ *
+ * @param {CheckContext} ctx
+ * @param {{ against: AgainstSpec,
+ *   materialise: (rev: string, dir: string, pathspecs: string[]) => void,
+ *   work: string }} at
+ * @param {string} rev
+ * @param {{ label: string, which: "index" | "baseline" }} side
+ */
+function readSide(ctx, { against, materialise, work }, rev, { label, which }) {
+	const dir = fs.mkdtempSync(path.join(work, "tree-"));
+	materialise(rev, dir, against.pathspecs?.(ctx, rev) ?? []);
+	return reread(
+		dir,
+		label,
+		{ stream: which === "index" && !ctx.asJson, side: which },
+		ctx.args,
+	);
+}
+
+/**
+ * @param {AgainstSpec} against
+ * @param {CheckContext} ctx
+ */
+function materialiserOf(against, ctx) {
+	const materialise = MATERIALISERS[against.materialise];
+	if (!materialise)
+		ctx.broken(
+			`no ${against.materialise} materialisation — expected one of ${Object.keys(MATERIALISERS).join(", ")}.`,
+		);
+	return materialise;
+}
+
+/**
+ * A re-exec that did not finish has no findings to judge, so its verdict is
+ * carried rather than one invented. Its summary is stripped of its outcome
+ * word: `broken()` adds one, and "BROKEN: BROKEN: …" reads as two failures.
+ *
+ * @param {CheckContext} ctx
+ * @param {{ outcome: Outcome, summary: string }} side
+ */
+function carryUnfinished(ctx, { outcome, summary }) {
+	const carried = summary.replace(/^\w+: /, "");
+	if (outcome === "BROKEN") ctx.broken(carried);
+	if (outcome === "SKIP") ctx.skip(carried);
+}
+
 /** @typedef {{ key: string, item: unknown, line: string }} FaultItem */
 
 /**
@@ -935,15 +1057,12 @@ function againstRevs(ctx) {
  * @returns {{ against: AgainstSpec, rev: string, head: string | undefined }}
  */
 function readAgainst(spec, ctx) {
-	const against = spec.against;
-	if (!against)
-		ctx.usageError(
-			`${spec.name} does not direction-gate, so it takes no ${AGAINST}.`,
-		);
-	if (ctx.has("--root"))
-		ctx.usageError(
-			`${AGAINST} materialises its own trees, so it cannot be combined with --root.`,
-		);
+	const against = materialisedSpec(
+		spec,
+		ctx,
+		AGAINST,
+		"does not direction-gate",
+	);
 
 	const rev = ctx.value(AGAINST, "");
 	if (!rev) ctx.usageError(`${AGAINST} needs a rev.`);
@@ -981,20 +1100,7 @@ function compareSides(spec, ctx, { against, profile, materialise, revs }) {
 		/** @type {string} */ rev_,
 		/** @type {string} */ label,
 		/** @type {"index" | "baseline"} */ which,
-	) => {
-		const dir = fs.mkdtempSync(path.join(work, "tree-"));
-		/* Resolved PER SIDE, not once: a pathspec set read out of the tree it
-		 * describes — check-context-budget.js's injected-docs array is one — can
-		 * legitimately differ between the index and <rev>, and pinning one side's
-		 * list onto the other would measure a file the rev does not name. */
-		materialise(rev_, dir, against.pathspecs?.(ctx, rev_) ?? []);
-		return reread(
-			dir,
-			label,
-			{ stream: which === "index" && !ctx.asJson, side: which },
-			ctx.args,
-		);
-	};
+	) => readSide(ctx, { against, materialise, work }, rev_, { label, which });
 
 	let added = /** @type {FaultItem[]} */ ([]);
 	let inherited = /** @type {string[]} */ ([]);
@@ -1011,14 +1117,7 @@ function compareSides(spec, ctx, { against, profile, materialise, revs }) {
 		const commitSide = headTree ?? indexTree(path.join(work, "index-copy"));
 		const commit = read(commitSide, head ?? "the index", "index");
 
-		/* The index side did not finish, so it has no fault list to compare —
-		 * carry its verdict rather than inventing one. */
-		/* The summary already carries its own outcome word, so it is stripped
-		 * rather than passed whole: `broken()` adds one, and "BROKEN: BROKEN: …"
-		 * reads as two failures. */
-		const carry = (/** @type {string} */ s) => s.replace(/^\w+: /, "");
-		if (commit.outcome === "BROKEN") ctx.broken(carry(commit.summary));
-		if (commit.outcome === "SKIP") ctx.skip(carry(commit.summary));
+		carryUnfinished(ctx, commit);
 
 		/* Every gating fault the index side has, by diffing it against nothing. */
 		const gating = newFaultItems(commit.envelope, {}, profile);
@@ -1216,8 +1315,9 @@ process.on("unhandledRejection", reportCrash);
  *   flags       the boolean flags run() reads (`["--all"]`). Any flag outside
  *               these two lists and the library's own is refused as BROKEN
  *               before any work (#938)
- *   against     present on a direction-gating checker alone, and what makes
- *               `--against <rev>` legal at all — see the header. Names the
+ *   against     present on a direction-gating or index-judged checker alone,
+ *               and what makes `--against <rev>` and `--index` legal at all —
+ *               see the header. Names the
  *               lib/fault-profiles.js profile that decides what makes two of
  *               its faults the same fault, the materialisation its scan scope
  *               needs, and optionally a refuse() for any argument it cannot
@@ -1371,7 +1471,10 @@ function runBody(spec, ctx, refusalOf) {
 			ctx.usageError(
 				`${HEAD_FLAG} names the judged side of ${AGAINST}, so it needs one.`,
 			);
-		const returned = ctx.has(AGAINST) ? runAgainst(spec, ctx) : spec.run(ctx);
+		let returned;
+		if (ctx.has(INDEX_FLAG)) returned = runIndex(spec, ctx);
+		else if (ctx.has(AGAINST)) returned = runAgainst(spec, ctx);
+		else returned = spec.run(ctx);
 		if (!isThenable(returned)) return fromReturn(ctx, returned);
 		if (spec.against) {
 			/* A plain function returning a thenable reaches here instead (#1586).

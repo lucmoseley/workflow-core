@@ -86,8 +86,9 @@
  * residual: a vendor it does not list passes as a name.
  *
  * A VALUE IS CLEAN UTF-8 WITH NO NUL, as the file must be: one holding a NUL,
- * piped bytes that are not UTF-8, or what a lossy decode leaves (U+FFFD, a
- * lone surrogate — the hidden prompt decodes leniently) is refused (#3663).
+ * piped bytes that are not UTF-8, or a U+FFFD or lone surrogate is refused
+ * (#3663). The hidden prompt decodes strictly: typed bytes that are not UTF-8
+ * get their own refusal naming that cause, never "interrupted" (#3675, #3708).
  *
  * THE UPSERT replaces the value on every line `lib/env-file.js`'s grammar
  * reads as assigning <NAME> (`NAME=`, `export NAME =`), keeping that line's

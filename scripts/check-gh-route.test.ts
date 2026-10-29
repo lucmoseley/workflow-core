@@ -333,3 +333,42 @@ describe("check-gh-route", () => {
 		expect(r.out).toContain("1 second binary route(s): scripts/wrap.sh:3.");
 	});
 });
+
+describe("--index (#3687)", () => {
+	const git = (...args: string[]) =>
+		execFileSync("git", args, { cwd: root, stdio: "pipe" });
+	const bare = "#!/usr/bin/env bash\ngh issue list\n";
+
+	beforeEach(() => {
+		git("config", "user.email", "test@example.com");
+		git("config", "user.name", "test");
+		file(
+			"scripts/hook.sh",
+			`#!/usr/bin/env bash\n"\${WFC_GH:-gh}" issue list\n`,
+		);
+		git("add", ".");
+		git("commit", "-qm", "seed");
+	});
+
+	it("passes a bare `gh` in an untracked shell file and in an unstaged edit", () => {
+		file(".husky/loose.sh", bare);
+		file("scripts/hook.sh", bare);
+		expect(run().status).toBe(1);
+		const r = run("--index");
+		expect(r.status).toBe(0);
+		expect(r.out).toContain("OK: 1 file(s)");
+	});
+
+	it("refuses the same `gh` once staged, naming its file and line", () => {
+		file(".husky/loose.sh", bare);
+		git("add", ".husky/loose.sh");
+		const r = run("--index", "--json");
+		expect(r.status).toBe(1);
+		expect(JSON.parse(r.out).findings).toMatchObject([
+			{ tag: "SHELL-BARE", file: ".husky/loose.sh", line: 2 },
+		]);
+		expect(JSON.parse(r.out).findings[0].message).toContain(
+			`Fix: run "\${WFC_GH:-gh}"`,
+		);
+	});
+});

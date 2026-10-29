@@ -291,6 +291,26 @@ describe("token masking (#1031)", () => {
 		expect(out).toContain("AI_GATEWAY_API_KEY=[REDACTED:stored]");
 	});
 
+	it.each([
+		["CR alone", "\r"],
+		["U+2028", "\u2028"],
+	])(
+		"masks the value of a name in a secrets file split by %s (#3710)",
+		(_name, br) => {
+			const value = `vck_${"aB3".repeat(16)}`;
+			fs.writeFileSync(
+				path.join(repo, "secrets.env"),
+				`OTHER=y${br}AI_GATEWAY_API_KEY=x${br}`,
+			);
+			const log = sessionLog([toolResult(`AI_GATEWAY_API_KEY=${value}`)]);
+			const r = run([log]);
+			expect(r.status).toBe(0);
+			const out = readTranscript(r.stdout).join("\n");
+			expect(out).not.toContain(value);
+			expect(out).toContain("AI_GATEWAY_API_KEY=[REDACTED:stored]");
+		},
+	);
+
 	it("stops before writing a line where the secrets file is there but unreadable (#3661)", () => {
 		fs.mkdirSync(path.join(repo, "secrets.env"));
 		const log = sessionLog([toolResult("AI_GATEWAY_API_KEY=x")]);

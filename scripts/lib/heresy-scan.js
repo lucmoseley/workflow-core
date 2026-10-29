@@ -125,7 +125,7 @@ function runHeresyCheck({
 }) {
 	runCheck({
 		name: checkName,
-		usage: `node check-${checkName}.js [--root <dir>] [--against <rev>] [--json] [--warn]`,
+		usage: `node check-${checkName}.js [--root <dir>] [--against <rev>] [--index] [--json] [--warn]`,
 		valueFlags: ["--root"],
 		against: {
 			profile: checkName,

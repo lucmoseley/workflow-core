@@ -1,8 +1,8 @@
 /*
  * dispatch-ledger.js — `.pick-next/dispatched.jsonl`, the record
  * scripts/dispatch-sessions.sh appends to as each session launches, and the
- * refill loop appends a release row to as it hands one off (#2744), ending
- * that launch's hold inside the window.
+ * refill loop appends to as it resumes a parked one (#3704) and, as it hands
+ * one off, a release row (#2744), ending that launch's hold inside the window.
  *
  * TWO READERS, ONE SEAM (mantahostels#1528). check-duplicate-dispatch.js drops a set member
  * whose issues are already in here; pick-next.js holds those same issues out of
@@ -108,8 +108,8 @@ function entryHolds(rec, command) {
 /**
  * One launch line of `.pick-next/dispatched.jsonl`.
  *
- * `session` is the LAUNCHING session — the one that ran dispatch-sessions.sh —
- * never the launched job's own session (mantahostels#3488). `jobId` is that
+ * `session` is the LAUNCHING session — the one that ran dispatch-sessions.sh,
+ * or the refill loop's own, null outside a session, on a resume (#3704) — never the launched job's own session (mantahostels#3488). `jobId` is that
  * job's own short id, the one `claude --bg` prints and
  * `claude stop`/`claude attach` take, or `null` where unknown.
  * @typedef {{ts: string, issues: number[], model: string, prompt: string,

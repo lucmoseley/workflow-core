@@ -77,6 +77,9 @@ function buildWouldRunLine(call, overflow) {
 /**
  * @typedef {{launch: import("./refill-decide.js").Launch, reason: string}} Refusal
  * @typedef {{launched: import("./refill-loop.js").LoopLaunch[], refused: Refusal[]}} BatchOutcome
+ * @typedef {{resume: (target: import("./refill-decide.js").ResumeTarget) => import("./refill-blocks.js").Resumed,
+ *   recordLaunch: typeof import("./dispatch-ledger.js").record,
+ *   log: (line: string) => void, now: () => number}} ResumeIo
  */
 
 /* The dispatcher's per-member lines parseRefusalReason keys on, which a test
@@ -194,11 +197,13 @@ function launchBatch(batch, io) {
 /**
  * Resume the session that parked `l`'s ticket, in place (#3621): its new
  * launch record, or null, logged, where the decision routed it afresh or the
- * resume failed, for `l` to launch afresh.
+ * resume failed, for `l` to launch afresh. The resume is written to the
+ * dispatch ledger as a launch, so the idle alarm dates the issue from it
+ * (#3704); a write that fails is logged and the resume stands
+ * (mantahostels#1528).
  * @param {import("./refill-decide.js").Launch} l
  * @param {NonNullable<import("./refill-decide.js").Launch["parkedRoute"]>} parked
- * @param {{resume: (target: import("./refill-decide.js").ResumeTarget) => import("./refill-blocks.js").Resumed,
- *   log: (line: string) => void, now: () => number}} io
+ * @param {ResumeIo} io
  * @returns {import("./refill-loop.js").LoopLaunch|null}
  */
 function resumeParked(l, parked, io) {
@@ -211,6 +216,18 @@ function resumeParked(l, parked, io) {
 	const r = io.resume(parked.resume);
 	if (r.failed !== null) return afresh(r.failed);
 	io.log(`resumed parked ${launchName(l)} as job ${r.jobId}`);
+	if (
+		!io.recordLaunch({
+			issues: l.issues,
+			model: l.model,
+			prompt: l.prompt,
+			root: l.root,
+			jobId: r.jobId,
+		})
+	)
+		io.log(
+			`resume of ${launchName(l)} not written to the dispatch ledger: the idle alarm dates it from its last launch`,
+		);
 	return {
 		root: l.root,
 		issues: l.issues,
@@ -228,9 +245,7 @@ function resumeParked(l, parked, io) {
  * in place (resumeParked), the rest and any not resumed through one
  * dispatcher call, `launchFresh`, which is skipped where none is left.
  * @param {import("./refill-decide.js").Launch[]} batch one of batchesOf's
- * @param {{resume: (target: import("./refill-decide.js").ResumeTarget) => import("./refill-blocks.js").Resumed,
- *   launchFresh: (batch: import("./refill-decide.js").Launch[]) => BatchOutcome,
- *   log: (line: string) => void, now: () => number}} io
+ * @param {ResumeIo & {launchFresh: (batch: import("./refill-decide.js").Launch[]) => BatchOutcome}} io
  * @returns {BatchOutcome}
  */
 function launchOrResume(batch, io) {

@@ -456,14 +456,20 @@ describe("the Stop limb", () => {
 		);
 
 		// skipped_fault searches a U+200B-spaced tail whole, its opening preposition included, for a JOINS word (#3622).
+		// Both lists are compared word by word, so `as well as` also bars `as` and `well` from PREPOSITIONS (#3719).
 		it("no word is in both PREPOSITIONS and JOINS (#3622)", () => {
 			const source = fs.readFileSync(hook, "utf8");
-			const words = (name: string) =>
-				source
-					.match(new RegExp(`^readonly ${name}='([^']+)'$`, "m"))?.[1]
-					.split("|") ?? [];
+			const words = (name: string) => {
+				const found = source.match(
+					new RegExp(`^readonly ${name}=(['"])([^'"]+)\\1$`, "m"),
+				);
+				if (!found)
+					throw new Error(
+						`no line "readonly ${name}='a|b'" (one name, quoted) in ${hook}`,
+					);
+				return found[2].split(/[| ]/);
+			};
 			const joins = new Set(words("JOINS"));
-			expect(joins.size).toBeGreaterThan(0);
 			expect(words("PREPOSITIONS").filter((word) => joins.has(word))).toEqual(
 				[],
 			);
