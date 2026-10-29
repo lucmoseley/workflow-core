@@ -237,7 +237,8 @@ async function blockerGraph(served, ownRepo, read) {
 		return Math.max(0, s.openSubIssues - local);
 	});
 	toRead.forEach(({ s, local }, i) => {
-		if (foreignOpen[i] > 0) openChildren.set(s.number, local + foreignOpen[i]);
+		const n = foreignOpen[i] ?? 0;
+		if (n > 0) openChildren.set(s.number, local + n);
 	});
 	return { nodes, holds, parentOf, openChildren, childrenUnread, ownRepo };
 }
