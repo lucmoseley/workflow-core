@@ -3,6 +3,9 @@ AN UNASKED RE-RUN IS REFUSED ONCE A SESSION (#815, ruled at #790 Q3): a bare
 any sessions already attest what it would test (ADR-0009). It reads HEAD plus
 this session's own uncommitted files, and attestation is judged on that same
 tree, so it can only repeat the verdict those certificates record.
+A red run whose every failure was already red on its base stands in for a
+certificate here alone (#3633): the refusal names it a red and each failing
+file with the record showing it red on the base. It never licenses a push.
 
 Before a push, run the tests you touched; the lander runs the full suite.
 Re-typing the refused command runs it — a reason you can name is reason enough.
