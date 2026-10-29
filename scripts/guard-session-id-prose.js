@@ -27,6 +27,7 @@
 
 const hookBlock = require("./lib/hook-block");
 const stopGuard = require("./lib/stop-guard");
+const { scriptPath } = require("./lib/script-path");
 const { CODE_SPAN } = require("./lib/secret-ask");
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
@@ -77,7 +78,7 @@ function buildRefusal(hits) {
 				`  ${id} → ${name ?? "no name in the registry: name it by its role and what it is doing"}`,
 		),
 		"",
-		"Rewrite each before ending the turn. Where a tool printed only an id, `node scripts/session-arbiter.js list` or `claude agents --json` gives the name.",
+		`Rewrite each before ending the turn. Where a tool printed only an id, \`node ${scriptPath("session-arbiter.js")} list\` or \`claude agents --json\` gives the name.`,
 	].join("\n");
 }
 
