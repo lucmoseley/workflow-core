@@ -140,8 +140,9 @@ const SEARCH = `query($q: String!, $after: String) {
 const SHA = "`?([0-9a-f]{7,40})(?![0-9a-z])`?";
 const RECORD_HEAD = "\\*\\*Review findings:\\*\\*";
 const REVIEWED_TREE = `reviewed\\s+${SHA}`;
+const PATHS_CLAUSE = ",[ \\t]*paths[ \\t]+([^\\n]+)";
 const FINDINGS = new RegExp(
-	`${RECORD_HEAD}\\s*base\\s+${SHA},\\s*${REVIEWED_TREE},\\s*landed\\s+${SHA}(?:,[ \\t]*paths[ \\t]+([^\\n]+)|[ \\t\\r]*(?=\\n|$))`,
+	`${RECORD_HEAD}\\s*base\\s+${SHA},\\s*${REVIEWED_TREE},\\s*landed\\s+${SHA}(?:${PATHS_CLAUSE}|[ \\t\\r]*(?=\\n|$))`,
 	"g",
 );
 const TIER = /\*\*Review tier:\*\*\s*`?([A-Za-z-]+)/g;
@@ -161,7 +162,7 @@ const REVIEWED = new RegExp(REVIEWED_TREE);
 const BASE = new RegExp(`\\bbase\\s+${SHA}`);
 /* Read from an unparsed mention, which `parseMarks` cuts at its first `\n`, so
  * the run reaches its end unanchored (#3383). */
-const UNPARSED_PATHS = /,[ \t]*paths[ \t]+([^\n]+)/;
+const UNPARSED_PATHS = new RegExp(PATHS_CLAUSE);
 const INDENTED = /^\s+\S/;
 const ESCAPED = new RegExp(`\\*\\*Escaped defect:\\*\\*\\s*${SHA}`, "g");
 /* review-tier-trailer.sh's value, the hold's tier, areas, tree and paths. */
@@ -178,6 +179,7 @@ const REVERTS = /^This reverts commit ([0-9a-f]{40})\b/gm;
  *   `issue` null on a commit known by its trailer alone
  * @typedef {{ repo: string, issue: number, line: string }} Unparsed
  * @typedef {{ tag: "UNRECORDED" | "UNPARSEABLE" | "UNREAD", fault: string }} Unseen
+ * @typedef {{ tag: Unseen["tag"] | "LANDED TREE" | "UNJUDGED", fault: string }} RecordFault
  * @typedef {{ at: number, tier: string } | { at: number, record: RegExpExecArray }
  *   | { at: number, unparsed: string }} Mark
  */
@@ -288,13 +290,14 @@ const pathsOf = (m) =>
 	m[4] === undefined ? null : m[4].replace(/`/g, "").trim();
 
 /** @param {string} paths */
-const pathSetOf = (paths) =>
+const pathListOf = (paths) =>
 	paths
 		.replace(/`/g, "")
 		.split(/[\s,]+/)
-		.filter(Boolean)
-		.sort()
-		.join(",");
+		.filter(Boolean);
+
+/** @param {string} paths */
+const pathSetOf = (paths) => pathListOf(paths).sort().join(",");
 
 /**
  * @param {string} body
@@ -616,18 +619,19 @@ function countedCommits(trackers, today, home) {
 }
 
 /**
- * Whether `c`'s record is one the header's A RECORD NAMING THE LANDED TREE
- * reports, judged in the checkout under `home`; git failing there is reported
- * as UNJUDGED (#3544) and reads false.
+ * The report the header's A RECORD NAMING THE LANDED TREE owes `c`'s record,
+ * judged in the checkout under `home`: UNJUDGED where git fails there (#3544),
+ * null where it owes none.
  *
  * @param {ReviewRecord} c
  * @param {string} home
+ * @returns {RecordFault | null}
  */
-function isLandedTreeRecord(c, home) {
-	if (c.fixes === 0 || c.paths === null || c.posted < PINNED_FROM) return false;
+function landedTreeReport(c, home) {
+	if (c.fixes === 0 || c.paths === null || c.posted < PINNED_FROM) return null;
 	const checkout = readCheckoutTracking(c.repo, home);
-	if (!("root" in checkout)) return false;
-	const paths = c.paths.split(/[\s,]+/).filter(Boolean);
+	if (!("root" in checkout)) return null;
+	const paths = pathListOf(c.paths);
 	const diff = gitOutcome(
 		[
 			"--literal-pathspecs",
@@ -641,14 +645,16 @@ function isLandedTreeRecord(c, home) {
 		[],
 		checkout.root,
 	);
-	if (!diff.ok) {
-		reportRecord(
-			"UNJUDGED",
-			`${c.repo}#${c.issue}: could not diff reviewed ${c.tree} against landed ${c.landed} in ${checkout.root}, so whether its record names the landed tree is not judged until that checkout holds both — ${diff.why}`,
-		);
-		return false;
-	}
-	return diff.out === "";
+	if (!diff.ok)
+		return {
+			tag: "UNJUDGED",
+			fault: `${c.repo}#${c.issue}: could not diff reviewed ${c.tree} against landed ${c.landed} in ${checkout.root}, so whether its record names the landed tree is not judged until that checkout holds both — ${diff.why}`,
+		};
+	if (diff.out !== "") return null;
+	return {
+		tag: "LANDED TREE",
+		fault: `${c.repo}#${c.issue} has a record naming reviewed ${c.tree}, the tree landed ${c.landed} carries on its paths, so a replay finds none of its fixed defects: name the tree pinned before the first round's dispatch, as \`scripts/lib/rule-text.sh review-tier-records\` says`,
+	};
 }
 
 /**
@@ -736,10 +742,9 @@ function failOpen(fault, next) {
  * A faulty record, or one its checkout cannot judge: one line to stderr and
  * to the guard-error log, each run until it is corrected or can be judged.
  *
- * @param {string} tag
- * @param {string} fault
+ * @param {RecordFault} record
  */
-function reportRecord(tag, fault) {
+function reportRecord({ tag, fault }) {
 	logError(WHERE, fault);
 	writeFd(2, `${tag}: ${fault}\n`);
 }
@@ -767,16 +772,15 @@ function main() {
 		return;
 	}
 	for (const u of unparsed)
-		reportRecord(
-			"UNPARSEABLE",
-			`${u.repo}#${u.issue} has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: ${u.line}`,
-		);
-	for (const u of unseen) reportRecord(u.tag, u.fault);
-	for (const c of commits.filter((r) => isLandedTreeRecord(r, home)))
-		reportRecord(
-			"LANDED TREE",
-			`${c.repo}#${c.issue} has a record naming reviewed ${c.tree}, the tree landed ${c.landed} carries on its paths, so a replay finds none of its fixed defects: name the tree pinned before the first round's dispatch, as \`scripts/lib/rule-text.sh review-tier-records\` says`,
-		);
+		reportRecord({
+			tag: "UNPARSEABLE",
+			fault: `${u.repo}#${u.issue} has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: ${u.line}`,
+		});
+	for (const r of [
+		...unseen,
+		...commits.flatMap((c) => landedTreeReport(c, home) ?? []),
+	])
+		reportRecord(r);
 	const own = resolveKey("tracker", { root });
 	commits = commits.filter((c) => c.repo !== own);
 	let existing;

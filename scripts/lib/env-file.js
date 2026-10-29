@@ -1,5 +1,6 @@
 /*
- * env-file.js — the secrets file and one variable's value from it.
+ * env-file.js — the secrets file, its line grammar, and one variable's value
+ * from it.
  *
  * THE SECRETS FILE is `$XDG_CONFIG_HOME/workflow-core/secrets.env`, with
  * `~/.config` where XDG_CONFIG_HOME is unset, empty or relative (the XDG Base
@@ -13,7 +14,7 @@
  * trailing `\r` are no part of any line; the spaces between its parts are any
  * whitespace but a line break (#3542). This grammar is the writer's too:
  * `scripts/write-secret.js` replaces the value of exactly the lines this
- * reader reads.
+ * reader reads, quoting it with quoteValue so unquoteValue reads it back.
  *
  * THE RETURN VALUE IS A SECRET: a caller puts it in no log line or message.
  */
@@ -86,6 +87,26 @@ function assignsAcrossBreak(body, name) {
 	);
 }
 
+/**
+ * A line's raw right-hand side as the value it assigns.
+ * @param {string} raw
+ * @returns {string}
+ */
+function unquoteValue(raw) {
+	return raw.trim().replace(/^["']|["']$/g, "");
+}
+
+/**
+ * A trimmed `value` as a line's right-hand side that unquoteValue reads back
+ * unchanged, or null where none does.
+ * @param {string} value
+ * @returns {string | null}
+ */
+function quoteValue(value) {
+	if (!/[#$`]|^["'`]|["'`]$/.test(value)) return value;
+	return value.includes("'") ? null : `'${value}'`;
+}
+
 /** @returns {string} */
 function secretsFile() {
 	const override = process.env.WFC_SECRETS_FILE;
@@ -107,7 +128,7 @@ function readEnvFileValue(file, name) {
 	for (const { body } of splitEnvLines(fs.readFileSync(file, "utf8")).lines) {
 		const assignment = parseEnvLine(body);
 		if (assignment?.name !== name) continue;
-		const value = assignment.raw.trim().replace(/^["']|["']$/g, "");
+		const value = unquoteValue(assignment.raw);
 		if (value) return value;
 	}
 	return null;
@@ -137,6 +158,7 @@ function storedNames() {
 module.exports = {
 	assignsAcrossBreak,
 	parseEnvLine,
+	quoteValue,
 	readEnvFileValue,
 	secretsFile,
 	splitEnvLines,

@@ -95,6 +95,7 @@ const { parseOrCode } = require("./lib/cli-args");
 const {
 	assignsAcrossBreak,
 	parseEnvLine,
+	quoteValue,
 	secretsFile,
 	splitEnvLines,
 } = require("./lib/env-file.js");
@@ -311,16 +312,6 @@ function sweepAsides(file) {
  */
 function readPiped() {
 	return fs.readFileSync(0, "utf8").replace(/\r?\n$/, "");
-}
-
-/**
- * `value` as a .env line's right-hand side, or null where none reads back.
- * @param {string} value
- * @returns {string | null}
- */
-function quoteValue(value) {
-	if (!/[#$`]|^["'`]|["'`]$/.test(value)) return value;
-	return value.includes("'") ? null : `'${value}'`;
 }
 
 /**

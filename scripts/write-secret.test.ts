@@ -442,6 +442,10 @@ describe("write-secret", () => {
 			),
 		);
 
+	/* 8 rounds of 4 runs lost a key before the lock (#3539's close), a count
+	 * chosen there, not a measured minimum. The case measured 0.6-1.6 s
+	 * across 16 runs beside ~10 sessions; 60 s is a margin chosen for a loaded
+	 * machine, not measured (#3666). */
 	it("keeps every key when runs write at once (#3539)", async () => {
 		const names = ["K1", "K2", "K3", "K4"];
 		for (let round = 0; round < 8; round++) {
@@ -493,7 +497,8 @@ describe("write-secret", () => {
 
 	it("refuses with exit 1 where the mount ignores modes, so the written file would be loose, the file untouched (#3539)", () => {
 		seed("A=1\n");
-		/* A mount without `metadata`: chmod is a no-op and a new file is 0644. */
+		/* A mount without `metadata`: chmod is a no-op and a new file is 0644.
+		 * Spied, as a test cannot mount one: mounting needs root. */
 		const writeFileSync = fs.writeFileSync;
 		vi.spyOn(fs, "chmodSync").mockImplementation(() => {
 			/* the mount drops it */
