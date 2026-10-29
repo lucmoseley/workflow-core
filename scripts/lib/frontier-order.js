@@ -17,6 +17,8 @@ const WAITING_LABEL = "waiting:external";
  * @property {number} stallDays 0 unless a stalled wait
  * @property {boolean} asksQuestions
  * @property {number} depth the longest chain to the highest tier it holds out
+ * @property {number} closes the ancestors its closing closes, ranked added to
+ *   `depth`, so an ancestor it closes counts in both, as #3613 ruled
  * @property {number} reach
  * @property {boolean|number} collision writes repo files
  */
@@ -37,7 +39,7 @@ const WAITING_LABEL = "waiting:external";
 
 /**
  * Lexicographic, highest first: bug → urgent → goal set → stalled wait →
- * ticket type → chain depth → reach → collision (comment-only first). 0 on a full tie, so
+ * ticket type → chain depth + closes → reach → collision (comment-only first). 0 on a full tie, so
  * each caller appends its own tie-break.
  * @param {SortLevels} a
  * @param {SortLevels} b
@@ -49,7 +51,7 @@ function compareLevels(a, b) {
 		Number(b.goal) - Number(a.goal) ||
 		b.stallDays - a.stallDays ||
 		Number(b.asksQuestions) - Number(a.asksQuestions) ||
-		b.depth - a.depth ||
+		b.depth + b.closes - (a.depth + a.closes) ||
 		b.reach - a.reach ||
 		Number(a.collision) - Number(b.collision)
 	);

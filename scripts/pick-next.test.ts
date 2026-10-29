@@ -1116,8 +1116,26 @@ describe("ordering", () => {
 		});
 	});
 
+	it("ranks a map's last open child on depth plus closes, carrying both in --json (#3613)", async () => {
+		// #11 is #10's only open child, so it closes #10; #3 shares parent #2
+		// with #4. Both score depth 1, reach 1; closes lifts #11.
+		const fx = {
+			issues: [
+				{ number: 2 },
+				{ number: 3, parent: 2 },
+				{ number: 4, parent: 2 },
+				{ number: 10 },
+				{ number: 11, parent: 10 },
+			],
+		};
+		const rows = (await run(fx, ["--json"])).json().frontier;
+		expect(rows.map((f: { number: number }) => f.number)).toEqual([11, 3, 4]);
+		expect(rows[0]).toMatchObject({ depth: 1, closes: 1, reach: 1 });
+		expect(rows[1]).toMatchObject({ depth: 1, closes: 0, reach: 1 });
+	});
+
 	it("passes an urgent map's tier through its child to that child's blocker (#3222)", async () => {
-		// #10 urgent map, its child #11, which #20 blocks. #1 outranks #20 on
+		// #10 urgent map, its child #11, which #20 blocks. #1 ties #20 on
 		// reach, so only the inherited tier can lift #20 above it.
 		const fx = {
 			issues: [
@@ -1142,8 +1160,9 @@ describe("ordering", () => {
 		expect(rows[0]).toMatchObject({
 			urgent: true,
 			urgentVia: { number: 10, path: ["#11", "#10"] },
-			depth: 1,
-			reach: 1,
+			depth: 2,
+			closes: 0,
+			reach: 2,
 		});
 		const text = await run(fx);
 		expect(text.out).toMatch(

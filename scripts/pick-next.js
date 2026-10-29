@@ -39,7 +39,9 @@
  * The sort, lexicographic (mantahostels#106, mantahostels#259, #2001, #2664, #3222):
  *   open `bug` -> `urgent`, own or inherited -> goal-set membership
  *   -> stalled wait -> ticket type
- *   -> chain depth -> transitive reach -> collision -> number
+ *   -> chain depth + closes -> transitive reach -> collision -> number
+ * Depth and reach count each open ancestor; closes counts the ancestors that
+ * close with the issue, each its parent's only open child (#3613).
  *
  * Beneath the table sit three annotations, NONE a sort input: pairs of
  * shortlisted issues whose bodies name the same repo file (mantahostels#192), pairs of
@@ -277,6 +279,7 @@ async function ghGet(path) {
  * @property {import("./lib/blocker-graph").Via|null} [bugVia] the held `bug` it inherits, null where none does
  * @property {import("./lib/blocker-graph").Via|null} [goalVia] the held goal-set member it inherits, null where none does
  * @property {number} [depth]
+ * @property {number} [closes]
  * @property {boolean} [bug]
  * @property {boolean} [urgent]
  * @property {ReturnType<typeof waitFrom>|null} [wait]
@@ -1755,6 +1758,7 @@ function frontierJson(i) {
 		asksQuestions: i.asksQuestions,
 		stallDays: i.stallDays,
 		depth: i.depth,
+		closes: i.closes,
 		reach: i.reach,
 		collision: i.collision ? "writes repo files" : "comment-only",
 		// Always a list: an issue may carry none or, wrongly, several.
@@ -2131,7 +2135,7 @@ function goalCell(i) {
 /** @param {State} state */
 function renderShortlist(state) {
 	const { shown } = state;
-	const header = `${pad("#", 6)}${pad("URG", 5)}${pad("GOAL", 6)}${pad("WAIT", 6)}${pad("DEPTH", 7)}${pad("REACH", 7)}${pad("COLL", 6)}${pad("GROUP", 16)}${pad("TAKES", 12)}`;
+	const header = `${pad("#", 6)}${pad("URG", 5)}${pad("GOAL", 6)}${pad("WAIT", 6)}${pad("DEPTH", 7)}${pad("CLOSES", 8)}${pad("REACH", 7)}${pad("COLL", 6)}${pad("GROUP", 16)}${pad("TAKES", 12)}`;
 	console.log(`${header}TITLE`);
 	// The title column is cut at 42 characters below.
 	console.log("-".repeat(header.length + 42));
@@ -2140,7 +2144,7 @@ function renderShortlist(state) {
 			`${pad(`#${i.number}`, 6)}${pad(urgentCell(i), 5)}${pad(
 				goalCell(i),
 				6,
-			)}${pad(waitCell(i), 6)}${pad(i.depth, 7)}${pad(i.reach, 7)}${pad(
+			)}${pad(waitCell(i), 6)}${pad(i.depth, 7)}${pad(i.closes, 8)}${pad(i.reach, 7)}${pad(
 				i.collision ? "w" : "-",
 				6,
 			)}${pad(i.group, 16)}${pad(takesCell(i.takes), 12)}${String(i.title).slice(0, 42)}`,
@@ -3165,21 +3169,6 @@ function pulledInRows(graph, inherit) {
 /**
  * @param {Enriching[]} issues
  */
-function openChildrenOf(issues) {
-	const openChildren = new Map(issues.map((i) => [i.number, 0]));
-	for (const i of issues) {
-		const ref = parseIssueRef(i.parent);
-		// A parent in another repo shares only its number with one here.
-		if (!ref || isInOtherRepo(ref, i.repo)) continue;
-		if (openChildren.has(ref.number))
-			openChildren.set(ref.number, (openChildren.get(ref.number) ?? 0) + 1);
-	}
-	return openChildren;
-}
-
-/**
- * @param {Enriching[]} issues
- */
 async function timelinesByIssue(issues) {
 	// Only issues actually carrying an age-sensitive label cost a timeline call.
 	const timelineCandidates = issues.filter(
@@ -3346,6 +3335,7 @@ function enrichIssue(i, ctx) {
 		openBlockers,
 		reach: blockerGraph.reachOf(ctx.blockers, i.number),
 		depth: tiers.depth,
+		closes: blockerGraph.closesOf(ctx.blockers, i.number),
 		urgency,
 		urgentVia,
 		bugVia,
@@ -3720,7 +3710,7 @@ async function main() {
 
 	const byNumber = new Map(issues.map((i) => [i.number, i]));
 	const { withDeps, blockers } = await resolveBlockers(issues, byNumber);
-	const openChildren = openChildrenOf(issues);
+	const { openChildren } = blockers;
 
 	const mapNumbers = new Set(
 		issues

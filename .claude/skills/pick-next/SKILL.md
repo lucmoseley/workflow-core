@@ -104,11 +104,13 @@ report leaves the previous one untouched.
 `--json` prints that same report. The sort levels, in order:
 open `bug` → `urgent` (#2664, #3250) → goal-set membership → a `waiting:external` stall past 7 days →
 ticket type (`wayfinder:grilling`, `wayfinder:prototype` and untyped
-`takes:wayfinder` first, #2001) → chain depth → transitive downstream reach →
+`takes:wayfinder` first, #2001) → chain depth plus CLOSES → transitive downstream reach →
 collision estimate → issue number. The first three pass to an issue from
 anything it holds out, as a blocker or as a child, so a blocker ranks with the
 urgent issue it holds and a child with its urgent parent
-(#3222); DEPTH is the longest chain to that tier.
+(#3222); DEPTH is the longest chain to that tier. DEPTH and REACH count each
+open ancestor, and CLOSES the ancestors that close with the issue, each its
+parent's only open child (#3613).
 
 The **TAKES** column is which command opens that issue (the values:
 `docs/agents/triage-labels.md` §`takes:`). It is no filter, and a sort input
