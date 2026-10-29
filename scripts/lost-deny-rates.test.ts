@@ -294,7 +294,8 @@ describe("the deny rate's Wilson interval, as a row reports it", () => {
 	});
 
 	it("reproduces a published census row to two decimals", () => {
-		// guard-issue-close.js: 255 denies in 16,057 calls, 1.588% [1.41-1.79].
+		// docs/data/lost-deny-census-2026-09-05/rates.md's guard-issue-close
+		// row: 255 denies in 16,057 calls, 1.588% [1.41-1.79].
 		const row = report(sample(255, 16_057)).row();
 		expect(row).toMatchObject({ denies: 255, population: 16_057 });
 		expect(row.ratePct).toBeCloseTo(1.588, 3);
