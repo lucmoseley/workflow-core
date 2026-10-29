@@ -65,13 +65,23 @@ function readSentinels(text, onSpan) {
 		const at = s.indexOf(QUOTED);
 		const lit = s.slice(0, at);
 		s = s.slice(at + QUOTED.length);
-		const digits = s.split("\x01")[0] ?? "";
+		const digits = beforeFirst(s, "\x01");
 		const r = onSpan(lit, /^[0-9]+$/.test(digits) ? Number(digits) : null);
 		if (r.stepPast && s.includes("\x01")) s = s.slice(s.indexOf("\x01") + 1);
 		out += r.text;
 	}
 	return { out, rest: s };
 }
+
+/**
+ * `s` up to the first `sep`, or all of `s` where it carries none.
+ * @param {string} s
+ * @param {string} sep
+ */
+const beforeFirst = (s, sep) => {
+	const at = s.indexOf(sep);
+	return at < 0 ? s : s.slice(0, at);
+};
 
 /**
  * Where a word stops reading as plain text: an expansion, or a backslash,
@@ -441,9 +451,7 @@ function skipWatch(words, spans) {
  * @param {string[]} spans
  */
 const splitString = (word, spans) =>
-	(literal(word, spans).text.split("\n")[0] ?? "")
-		.split(IFS_SPLIT)
-		.filter(Boolean);
+	beforeFirst(literal(word, spans).text, "\n").split(IFS_SPLIT).filter(Boolean);
 
 /**
  * Does the command carry `name` set to a non-empty value (#1499), as an escape
@@ -495,15 +503,18 @@ const isGitValueOption = (w) => GIT_VALUE_OPTIONS.includes(w);
  */
 function gitWords(words, spans) {
 	const ws = unwrap(words, spans).words;
-	if (afterSlash(literal(ws[0] ?? "", spans).text) !== "git") return null;
+	const [cmd] = ws;
+	if (cmd === undefined || afterSlash(literal(cmd, spans).text) !== "git")
+		return null;
 	let i = 1;
-	while ((ws[i] ?? "").startsWith("-")) {
-		const step = isGitValueOption(ws[i] ?? "") ? 2 : 1;
+	for (let w = ws[i]; w?.startsWith("-"); w = ws[i]) {
+		const step = isGitValueOption(w) ? 2 : 1;
 		if (i + step > ws.length) return null;
 		i += step;
 	}
-	if (i >= ws.length) return null;
-	return { sub: literal(ws[i] ?? "", spans).text, args: ws.slice(i + 1) };
+	const sub = ws[i];
+	if (sub === undefined) return null;
+	return { sub: literal(sub, spans).text, args: ws.slice(i + 1) };
 }
 
 /**
@@ -520,10 +531,9 @@ function gitWords(words, spans) {
  * @returns {{ args: string[], repo: string } | null}
  */
 function ghWords(words, spans) {
-	const ws = unwrap(words, spans).words;
-	if (!isGhCommand(literal(ws[0] ?? "", spans).text)) return null;
+	const [cmd, ...args] = unwrap(words, spans).words;
+	if (cmd === undefined || !isGhCommand(literal(cmd, spans).text)) return null;
 	const read = (/** @type {string} */ w) => literal(w, spans).text;
-	const args = ws.slice(1);
 	if (args.some((w) => read(w) === "--help" || read(w) === "-h")) return null;
 	return stepGhFlags(args, read);
 }
@@ -539,16 +549,14 @@ function ghWords(words, spans) {
 function stepGhFlags(words, read) {
 	let args = words;
 	let repo = "";
-	for (
-		let f = read(args[0] ?? "");
-		f.startsWith("-");
-		f = read(args[0] ?? "")
-	) {
-		const raw = args[0] ?? "";
+	for (let raw = args[0]; raw !== undefined; raw = args[0]) {
+		const f = read(raw);
+		if (!f.startsWith("-")) break;
 		let step = 1;
 		if (f === "-R" || f === "--repo") {
-			if (args.length < 2) return null;
-			repo = args[1] ?? "";
+			const value = args[1];
+			if (value === undefined) return null;
+			repo = value;
 			step = 2;
 		} else if (f.startsWith("--repo=")) repo = stripPrefix(raw, "--repo=");
 		else if (f.startsWith("-R")) repo = stripPrefix(raw, "-R");
@@ -590,16 +598,21 @@ const NODE_VALUE_FLAGS = [
  */
 function commitPathsArgs(words, spans) {
 	const ws = unwrap(words, spans).words;
-	const head = afterSlash(literal(ws[0] ?? "", spans).text);
+	const [cmd] = ws;
+	if (cmd === undefined) return null;
+	const head = afterSlash(literal(cmd, spans).text);
 	if (head !== "node" && head !== "nodejs") return null;
 	let i = 1;
-	while ((ws[i] ?? "").startsWith("-")) {
-		const step = NODE_VALUE_FLAGS.includes(ws[i] ?? "") ? 2 : 1;
+	for (let w = ws[i]; w?.startsWith("-"); w = ws[i]) {
+		const step = NODE_VALUE_FLAGS.includes(w) ? 2 : 1;
 		if (i + step > ws.length) return null;
 		i += step;
 	}
-	const script = afterSlash(literal(ws[i] ?? "", spans).text);
-	return script === "commit-paths.js" ? ws.slice(i + 1) : null;
+	const script = ws[i];
+	if (script === undefined) return null;
+	return afterSlash(literal(script, spans).text) === "commit-paths.js"
+		? ws.slice(i + 1)
+		: null;
 }
 
 /**
@@ -623,8 +636,8 @@ function commitPathsParse(args, spans) {
 		message: "",
 		tree: false,
 	};
-	for (let i = 0; i < args.length; i++) {
-		const opt = literal(args[i] ?? "", spans).text;
+	for (let i = 0, arg = args[0]; arg !== undefined; arg = args[++i]) {
+		const opt = literal(arg, spans).text;
 		if (opt === "--") return { ...out, paths: args.slice(i + 1) };
 		if (opt === "--tree") out.tree = true;
 		else if (takeCommitValue(out, opt, args[i + 1])) i++;
@@ -676,29 +689,33 @@ const FIND_EXPRESSION_OPENERS = ["(", "\\(", "!", "\\!", ","];
  * @returns {string[]}
  */
 function findStarts(words, spans) {
-	const read = (/** @type {number} */ i) => literal(words[i] ?? "", spans).text;
+	const texts = words.map((w) => literal(w, spans).text);
 	/** @type {string[]} */
 	const starts = [];
-	for (let i = skipFindOptions(words.length, read); i < words.length; i++) {
-		const w = read(i);
+	for (
+		let i = skipFindOptions(texts), w = texts[i];
+		w !== undefined;
+		w = texts[++i]
+	) {
+		const word = words[i];
+		if (word === undefined)
+			throw new Error(`findStarts: no word ${i} beside its text`);
 		if (w.startsWith("-") || FIND_EXPRESSION_OPENERS.includes(w)) break;
-		starts.push(words[i] ?? "");
+		starts.push(word);
 	}
 	return starts;
 }
 
 /**
- * The index past `find`'s leading options; `n` where a `-D` runs out of
- * words, which leaves no start point.
- * @param {number} n
- * @param {(i: number) => string} read
+ * The index past `find`'s leading options; `texts.length` where a `-D` runs
+ * out of words, which leaves no start point.
+ * @param {string[]} texts the words after `find`, read through literal
  */
-function skipFindOptions(n, read) {
+function skipFindOptions(texts) {
 	let i = 0;
-	for (; i < n; i++) {
-		const w = read(i);
+	for (let w = texts[0]; w !== undefined; w = texts[++i]) {
 		if (w === "-D") {
-			if (i + 1 >= n) return n;
+			if (i + 1 >= texts.length) return texts.length;
 			i++;
 		} else if (w === "--") return i + 1;
 		else if (!["-H", "-L", "-P"].includes(w) && !w.startsWith("-O")) break;
@@ -748,8 +765,8 @@ function scanFlags(spec, words, fn) {
 		ended: false,
 		stopped: false,
 	};
-	for (let i = 0; i < words.length && !ctx.stopped; i++)
-		i += scanWord(words[i] ?? "", words[i + 1], ctx);
+	for (let i = 0, w = words[0]; w !== undefined && !ctx.stopped; w = words[++i])
+		i += scanWord(w, words[i + 1], ctx);
 	return !ctx.stopped;
 }
 
