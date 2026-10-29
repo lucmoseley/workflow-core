@@ -839,6 +839,7 @@ readonly EXEMPT_KINDS="a typo or wording fix, a re-anchor or regeneration, a con
 readonly PREPOSITIONS='of|in|on|to|for|from|over|after|before|since|across|at|by|into|under|via|per|during|through|between|within'
 # The English coordinating conjunctions bar "for", which opens a PREPOSITIONS
 # phrase, and the other words reviews found joining a clause on (#3077, #3491).
+# No word is in both lists, so a whole tail can be searched for a JOINS word.
 readonly JOINS='and|but|or|nor|yet|so|plus|with|then|also|as well as'
 # A word an exempt kind's tail may hold, its ASCII letters and digits spelt
 # out as a range or [:alnum:] follows the locale (#3491).
@@ -861,7 +862,8 @@ JOINERS_QUOTED=$(quoted_list "$TAIL_JOINERS" " or ")
 ALLOWLIST_TEXT="ASCII letters and digits, spaces, $(quoted_list "$TAIL_MARKS" ", "), and a $JOINERS_QUOTED inside a word"
 readonly JOINERS_QUOTED ALLOWLIST_TEXT
 # Unicode's Zs spaces past U+0020 as UTF-8, read as plain spaces, and U+200B,
-# deleted (#3491, #3594).
+# deleted (#3491, #3594), or read as a space where skipped_fault re-judges a
+# tail (#3603).
 readonly ODD_SPACES=($'\xc2\xa0' $'\xe1\x9a\x80' $'\xe2\x81\x9f' $'\xe3\x80\x80' $'\xe2\x80\xaf' $'\xe2\x80\x80' $'\xe2\x80\x81' $'\xe2\x80\x82' $'\xe2\x80\x83' $'\xe2\x80\x84'
   $'\xe2\x80\x85' $'\xe2\x80\x86' $'\xe2\x80\x87' $'\xe2\x80\x88' $'\xe2\x80\x89' $'\xe2\x80\x8a')
 readonly ZERO_WIDTH=$'\xe2\x80\x8b'
@@ -887,13 +889,20 @@ exempt_pattern() {
 
 readonly SECOND_CLAUSE="adds a second clause"
 
+# The second-clause fault on the exempt kind's phrase "$1".
+second_clause() { echo "$SECOND_CLAUSE to the exempt kind \"$1\""; }
+
+# Whether "$1" holds a JOINS word, alone or glued on by a TAIL_GLUE mark.
+has_joins_word() { [[ " ${1//[$TAIL_GLUE]/ } " =~ \ ($JOINS)\  ]]; }
+
 # The fault in "$1", the words after the exempt kind's phrase "$2"; empty
 # where it is nothing, an aside in brackets, or a phrase opening with a word in
 # PREPOSITIONS, whose words are each a TAIL_WORD and none a JOINS word, alone
 # or glued on by a TAIL_GLUE mark (#2806, #3077, #3491, #3594, #3603). Any other character, a
 # range's dash in "pages 3–5" included, is refused.
 tail_fault() {
-  local clause="$SECOND_CLAUSE to the exempt kind \"$2\"" words off
+  local clause words off
+  clause=$(second_clause "$2")
   [[ -z $1 ]] && return
   if [[ $1 =~ ^\ \(\ *(.*)$ ]]; then
     # fault_in strips the aside's closing bracket, so one left means words follow it.
@@ -910,7 +919,7 @@ tail_fault() {
   off=${words//[$TAIL_JOINERS $TAIL_MARKS$ASCII_ALNUM]/}
   if [[ -n $off ]]; then
     echo "holds \"${off:0:1}\", off the tail's allowlist: $ALLOWLIST_TEXT"
-  elif [[ " ${words//[$TAIL_GLUE]/ } " =~ \ ($JOINS)\  ]]; then
+  elif has_joins_word "$words"; then
     echo "$clause"
   elif ! [[ " $words " =~ ^(\ $TAIL_WORD)+\ $ ]]; then
     echo "puts a $JOINERS_QUOTED outside a word"
@@ -920,7 +929,8 @@ tail_fault() {
 # The fault in the skipped kind "$1", matched with U+200B deleted; empty where
 # it is an exempt kind. Deleting U+200B joins "a<U+200B>nd" into a JOINS word,
 # and reading it as a space parts one from "commit<U+200B>and", so the tail
-# after the kind's phrase is judged both ways.
+# after the kind's phrase is judged with U+200B deleted, then searched for a
+# JOINS word with it read as a space.
 skipped_fault() {
   local named phrase tail end spaced reason i
   named=${1//"$ZERO_WIDTH"/} named=${named//+([[:space:]])/ }
@@ -935,8 +945,13 @@ skipped_fault() {
     done
     if [[ -z $reason && ${spaced:-} == *"$ZERO_WIDTH"* ]]; then
       spaced=${spaced//"$ZERO_WIDTH"/ } spaced=${spaced//+([[:space:]])/ }
-      reason=$(tail_fault "$spaced" "$phrase")
-      [[ $reason == "$SECOND_CLAUSE"* ]] && named=${named%"$tail"}$spaced || reason=
+      # Only a second clause found the spaced way refuses, named in that form.
+      # Its JOINS word is sought directly, not through tail_fault, whose opener
+      # check a U+200B in the preposition, as in "o<U+200B>f", would end first
+      # (#3611).
+      if has_joins_word "$spaced"; then
+        named=${named%"$tail"}$spaced reason=$(second_clause "$phrase")
+      fi
     fi
   fi
   shopt -u nocasematch
