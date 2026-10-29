@@ -115,11 +115,12 @@ const iss = (number: number, labels: string[], over: Partial<Iss> = {}) => ({
 const setUp = ({
 	brief = {} as Partial<Iss>,
 	mapLabels = ["wayfinder:map", "takes:children"],
+	mapState = "open",
 	extra = [] as ReturnType<typeof iss>[],
 	spec = true,
 } = {}) => {
 	const all = [
-		iss(MAP, mapLabels),
+		iss(MAP, mapLabels, { state: mapState }),
 		iss(BRIEF, ["kind:brief", "takes:children"], { parent: MAP, ...brief }),
 		...(spec
 			? [iss(SPEC, ["kind:spec", "takes:to-tickets"], { parent: BRIEF })]
@@ -274,6 +275,15 @@ describe("refusals, all before any write", () => {
 		untouched();
 	});
 
+	it("refuses a closed map, naming it and the replace_parent=true re-parent, and writes nothing (#3651)", () => {
+		setUp({ mapState: "closed" });
+		const r = run();
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(`map #${MAP} is closed`);
+		expect(r.stderr).toContain("replace_parent=true");
+		untouched();
+	});
+
 	it("refuses a roadmap card's own issue, pointing at /card-close", () => {
 		setUp({ brief: { title: "search-v1 — Build search", parent: null } });
 		const r = run();
@@ -397,6 +407,19 @@ describe("a re-run", () => {
 		const again = run();
 		expect(again.status).toBe(0);
 		expect(again.stdout).toContain("already closed");
+		expect(readWrites()).toEqual([]);
+	});
+
+	it("after a full run whose map has since closed, still exits 0, refusing only a move (#3651)", () => {
+		setUp();
+		expect(run().status).toBe(0);
+		put("issues.json", {
+			...get("issues.json"),
+			[MAP]: { ...at(MAP), state: "closed" },
+		});
+		fs.rmSync(state("calls"));
+		const again = run();
+		expect(again.status).toBe(0);
 		expect(readWrites()).toEqual([]);
 	});
 });

@@ -12,8 +12,9 @@
  * NO HOOK SEES A gh CALL A SCRIPT MAKES, so this holds for itself what
  * the guard-issue-close core holds on the hand spelling — `**Outstanding:**`, a
  * roadmap card's own issue going to /card-close, and no open child but the
- * spec it moves (#3637) — and does what
- * release-issue-claim.js does after it.
+ * spec it moves (#3637) — refuses to move the spec under a closed map, as
+ * link-sub-issue.sh does (#3651), and does what release-issue-claim.js does
+ * after it.
  *
  * ORDER: every refusal, then re-parent, read-back, comment, close, release.
  * Nothing is written on the spec, and the brief is never closed before the
@@ -366,7 +367,14 @@ function main() {
 			? readPriorSpecOrFail({ repo, n, brief, map }, mapKids)
 			: held.number;
 
-	if (held !== undefined) moveSpecOrFail(repo, n, map, held);
+	if (held !== undefined) {
+		if (map.state !== "open")
+			io.fail(
+				`#${n}'s map #${map.number} is ${map.state}, so moving #${held.number} there would hide an open spec under a closed map — move #${n} under an open map (the sub-issues POST with -F replace_parent=true), then re-run. Nothing written.`,
+				2,
+			);
+		moveSpecOrFail(repo, n, map, held);
+	}
 
 	if (brief.state === "closed") {
 		io.out(`#${n} is already closed — comment and close skipped.\n`);
