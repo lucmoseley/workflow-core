@@ -8,7 +8,6 @@ import { describe, expect, it } from "vitest";
 
 const { FULL, NOTHING_LAUNCHABLE } = require("./refill-decide.js");
 const {
-	STALE_MS,
 	buildBlockText,
 	readout,
 	buildTickRecord,
@@ -17,6 +16,8 @@ const {
 const T0 = Date.parse("2026-10-28T00:00:00Z");
 const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
+/* The module's own staleness bound, which a tick past reads as loop off. */
+const STALE_MS = 15 * MIN;
 const iso = (ms: number) => new Date(ms).toISOString();
 /* A live reader a fresh tick must never call. */
 const unread = () => {

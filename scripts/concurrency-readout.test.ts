@@ -28,7 +28,8 @@ import { buildMeminfo } from "./lib/meminfo-fake";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcess } from "./lib/run-in-process";
 
-const { STALE_MS } = require("./lib/concurrency.js");
+/* Past lib/concurrency.js's staleness bound. */
+const STALE_AGE_MS = 30 * 60 * 1000;
 
 const SCRIPT = path.resolve(__dirname, "concurrency-readout.js");
 
@@ -49,7 +50,7 @@ const run = ({ refused = false, empty = false, fresh = false } = {}) => {
 	fs.writeFileSync(
 		path.join(refill, "concurrency.jsonl"),
 		`${JSON.stringify({
-			at: new Date(Date.now() - (fresh ? 0 : 2 * STALE_MS)).toISOString(),
+			at: new Date(Date.now() - (fresh ? 0 : STALE_AGE_MS)).toISOString(),
 			working: 1,
 			ceiling: 2,
 			binding: null,

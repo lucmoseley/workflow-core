@@ -63,7 +63,11 @@ const {
 	readUptime,
 } = require("./lib/proc-table.js");
 const { procRoot, REAL_PROC } = require("./lib/proc-root.js");
-const { sweepOrphanedRuns } = require("./lib/suite-ceiling.js");
+const {
+	carrierUnkilled,
+	killPid,
+	sweepOrphanedRuns,
+} = require("./lib/suite-ceiling.js");
 
 const REAP_LOG = ".orphan-hook-reaps.jsonl";
 /* 30 days, chosen and not measured: a month of incident traces, the span
@@ -146,7 +150,7 @@ runCheck({
 			? reaps.map((r) => ({ ...r, killed: [], errors: [], logged: false }))
 			: killReaps(reaps, {
 					root,
-					kill: (pid, signal) => process.kill(pid, signal),
+					kill: killPid,
 					log: (entry) => appendRetained(logFile, entry, RETAIN_MS),
 				});
 
@@ -154,9 +158,7 @@ runCheck({
 
 		const runs = sweepOrphanedRuns({
 			proc: root,
-			kill: fixture
-				? () => undefined
-				: (pid, signal) => process.kill(pid, signal),
+			kill: fixture ? () => undefined : killPid,
 		});
 		for (const k of runs.killed)
 			ctx.warn(
@@ -166,7 +168,7 @@ runCheck({
 			);
 		if (runs.unkilled)
 			ctx.say(
-				`ORPHAN-RUN: a suite run's process could not be killed: ${runs.unkilled}`,
+				`ORPHAN-RUN: ${carrierUnkilled(runs.unkilled, "a suite run").trimEnd()}`,
 			);
 
 		return {

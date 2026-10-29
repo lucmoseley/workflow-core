@@ -167,9 +167,15 @@ function killWhere(key, doomed, { proc, self, kill }) {
 	return { killed, unkilled };
 }
 
-/** @param {string} reason why a carrier kill failed */
-const carrierUnkilled = (reason) =>
-	`a process of this run could not be killed (${reason}); it may outlive this report.\n`;
+/**
+ * @param {string} reason why a carrier kill failed
+ * @param {string} [run] whose process it was
+ */
+const carrierUnkilled = (reason, run = "this run") =>
+	`a process of ${run} could not be killed (${reason}); it may still hold memory.\n`;
+
+/** @param {number} pid @param {NodeJS.Signals} signal */
+const killPid = (pid, signal) => process.kill(pid, signal);
 
 /**
  * SIGKILLs every process whose environment sets `key` to `value`, but `self`,
@@ -183,11 +189,7 @@ const carrierUnkilled = (reason) =>
 function killCarrying(
 	key,
 	value,
-	{
-		proc = procRoot(),
-		self = process.pid,
-		kill = (pid, signal) => process.kill(pid, signal),
-	} = {},
+	{ proc = procRoot(), self = process.pid, kill = killPid } = {},
 ) {
 	return killWhere(key, (v) => v === value, { proc, self, kill }).unkilled;
 }
@@ -195,8 +197,10 @@ function killCarrying(
 /* Names the wrapper pid whose run a process belongs to. */
 const OWNER_ENV = "WFC_INFLIGHT_OWNER";
 
-/** @param {number} pid @returns {boolean} whether `pid` still exists */
-function exists(pid) {
+/* Any error but ESRCH reads as present, unlike lib/arbiter-proc.js's
+ * pidAlive: a doubtful owner's run is left, never killed. */
+/** @param {number} pid */
+function isPidPresent(pid) {
 	try {
 		process.kill(pid, 0);
 		return true;
@@ -219,8 +223,8 @@ function exists(pid) {
 function sweepOrphanedRuns({
 	proc = procRoot(),
 	self = process.pid,
-	alive = exists,
-	kill = (pid, signal) => process.kill(pid, signal),
+	alive = isPidPresent,
+	kill = killPid,
 } = {}) {
 	const { killed, unkilled } = killWhere(
 		OWNER_ENV,
@@ -248,10 +252,7 @@ function sweepAtStart({ err = process.stderr, ...options } = {}) {
 		err.write(
 			`killed ${String(killed.length)} process(es) left by a killed run (wrapper pid ${[...new Set(killed.map((k) => k.owner))].join(", ")}).\n`,
 		);
-	if (unkilled)
-		err.write(
-			`a killed run's process could not be killed (${unkilled}); it may still hold memory.\n`,
-		);
+	if (unkilled) err.write(carrierUnkilled(unkilled, "a killed run"));
 }
 
 /**
@@ -326,6 +327,7 @@ module.exports = {
 	groupUnkilled,
 	killCarrying,
 	killGroup,
+	killPid,
 	monotonicMs,
 	sweepAtStart,
 	sweepOrphanedRuns,
