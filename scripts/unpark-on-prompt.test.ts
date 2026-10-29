@@ -15,6 +15,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
 import { API_PROMPT, IDLE_PROMPT } from "./lib/loop-prompts.js";
+import { writeParkedBy } from "./lib/parked-marker.js";
 import { runInProcess } from "./lib/run-in-process";
 
 const HOOK = path.join(__dirname, "unpark-on-prompt.js");
@@ -107,6 +108,15 @@ describe("a prompt in a session that parked its issue", () => {
 		run({ failOn: 32 });
 		expect(readCalls()).toHaveLength(2);
 		expect(fs.readFileSync(markerPath(), "utf8").trim()).toBe("32");
+	});
+
+	it("unparks a park recorded through writeParkedBy's root, the refill loop's route (#3584)", () => {
+		writeParkedBy(sid, [31], dir);
+		run();
+		expect(readCalls()).toEqual([
+			"issue edit 31 --repo o/here --remove-label parked",
+		]);
+		expect(fs.existsSync(markerPath())).toBe(false);
 	});
 });
 

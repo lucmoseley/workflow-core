@@ -693,6 +693,9 @@ describe("a parked launch (#2699)", () => {
 			block: { cause: "QUESTION" },
 		});
 		expect(launchState().parkStopped).toEqual(expect.any(Number));
+		expect(
+			readLines(path.join(repo, ".claude", "tmp", "markers", ".parked-s-job7")),
+		).toEqual(["7"]);
 	});
 
 	it("stops a 2.1.310 question park, whose row carries state and no status (#3200)", async () => {

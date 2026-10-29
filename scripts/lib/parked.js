@@ -7,10 +7,10 @@
  *
  * WRITERS: park-on-round.js applies it at Stop; refill-loop.js on a park it
  * stops (#2699), commenting the cause on the issue (#2846). unpark-on-prompt.js
- * removes it when the founder types in a session park-on-round.js parked, and
+ * removes it when the founder types in a session either parked (#3584), and
  * claim-issue.js when a session claims the issue.
  *
- * The session marker those two hooks share is lib/parked-marker.js's.
+ * The session marker they share is lib/parked-marker.js's.
  */
 
 const { parseErrLine, gh } = require("./gh.js");
