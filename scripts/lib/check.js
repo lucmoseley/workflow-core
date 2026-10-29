@@ -159,6 +159,9 @@ const SIDE_ENV = "WFC_CHECK_SIDE";
 /** @returns {boolean} whether this run is an --against re-exec over <rev> */
 const isBaselineSide = () => process.env[SIDE_ENV] === "baseline";
 
+/** @returns {boolean} whether this run is either side's --against re-exec */
+const isAgainstSide = () => Boolean(process.env[SIDE_ENV]);
+
 /*
  * The checker name a persist-mode run opened its record under, so the crash
  * reporter closes THAT record rather than one it guessed — see persistCrash.
@@ -1741,6 +1744,7 @@ module.exports = {
 	indexTree,
 	extractTree,
 	baselineOf,
+	isAgainstSide,
 	isBaselineSide,
 	againstRevs,
 };
