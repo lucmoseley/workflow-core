@@ -310,6 +310,7 @@ describe("accept: work done against work not done", () => {
 						hiddenTests: [
 							{ file: "lib.test.ts", names: ["adds", "subtracts"] },
 							{ file: "lib.test.ts", names: ["adds"], patch: "stale.patch" },
+							{ file: "notes.md", names: ["adds"] },
 						],
 						docChecks: [],
 						neighbour: null,
@@ -433,7 +434,7 @@ describe("accept: work done against work not done", () => {
 		]);
 	});
 
-	it("fails a hidden test whose names select no case, or whose patch no longer applies (#2069)", () => {
+	it("fails a hidden test whose names select no case, whose patch no longer applies (#2069), or that is no test file (#3387)", () => {
 		const good = build("stale", "--known-good");
 		const r = run(["accept", "add-stale", "--sandbox", good.root], env);
 		expect(r.code).toBe(1);
@@ -443,6 +444,10 @@ describe("accept: work done against work not done", () => {
 		expect(r.out).toContain(
 			"✗ hidden test lib.test.ts — stale.patch no longer applies",
 		);
+		expect(r.out).toContain(
+			"✗ hidden test notes.md — notes.md is no test file",
+		);
+		expect(fs.existsSync(path.join(good.sandbox, "notes.md"))).toBe(true);
 	});
 
 	it("fails work left unpushed, or pushed to a remote that is not the sandbox's own", () => {

@@ -312,8 +312,8 @@ fi
 # script, and either half can be the one this commit stages — and on --against
 # for the same reason too (mantahostels#1753, mantahostels#1833).
 #
-# This gate, host-root-test-isolation's, git-fixture-identity's and
-# test-read-edges' open on JS_TEST_ERE, set at the top.
+# This gate, host-root-test-isolation's, git-fixture-identity's,
+# test-read-edges' and test-spawn's open on JS_TEST_ERE, set at the top.
 if armed "^scripts/.*$JS_TEST_ERE|^scripts/.*\.(ts|sh)\$"; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-guard-test-isolation.js --against HEAD || exit "$?"
 fi
@@ -473,7 +473,7 @@ fi
 # A test spawning node on the program under test rather than running it
 # through runInProcess, with no `spawn-kept: <why>` (§X3), judging the whole
 # tree (#3458).
-if armed '^(scripts|\.claude/skills)/.*\.(test|spec)\.[cm]?[jt]sx?$'; then
+if armed "^(scripts|\.claude/skills)/.*$JS_TEST_ERE"; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-test-spawn.js || exit "$?"
 fi
 

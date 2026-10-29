@@ -78,7 +78,7 @@ describe("check-jsonl-reads", () => {
 		expect(r.out).toContain("1 site(s) hand-parse JSONL: scripts/split.js:1.");
 	});
 
-	it("passes a program on the reader, a split with no parse near it, one in a comment, a test and the reader itself", () => {
+	it("passes a program on the reader, a split with no parse near it, one in a comment, a test or spec of any extension and the reader itself (#3484)", () => {
 		program("on.js", ON_READER);
 		program(
 			"far.js",
@@ -86,6 +86,7 @@ describe("check-jsonl-reads", () => {
 		);
 		program("cites.js", '/* text.split("\\n").map(JSON.parse) */\n');
 		program("loop.test.js", LOOP);
+		program("loop.spec.cjs", LOOP);
 		program("lib/jsonl.js", LOOP);
 		const r = run();
 		expect(r.status).toBe(0);

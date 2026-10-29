@@ -26,6 +26,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
 const { scanJs } = require("./lib/strip-comments.js");
+const { isJsTestFile } = require("./lib/test-kind.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 const { runCheck } = require("./lib/check");
@@ -38,7 +39,6 @@ const NEWLINE_SPLIT =
 const PARSE = /\bJSON\.parse\b/;
 const EXEMPT = /jsonl-read-exempt:\s*\w/;
 const PROGRAM = /\.(?:c|m)?js$/;
-const TEST = /\.test\.[cm]?[jt]s$/;
 const READER = "scripts/lib/jsonl.js";
 
 const FIX = `read it through readJsonl (a file), parseJsonl (text) or parseJsonlRow (one streamed line) in ${READER}, as scripts/lib/dispatch-ledger.js's readWindowRows does; or mark it \`jsonl-read-exempt: <why>\` where the text is no JSONL (#3452).`;
@@ -90,7 +90,7 @@ function readPrograms(dir) {
 		.filter(
 			(rel) =>
 				PROGRAM.test(rel) &&
-				!TEST.test(rel) &&
+				!isJsTestFile(rel) &&
 				!rel.split(path.sep).includes("node_modules"),
 		)
 		.map((rel) => rel.split(path.sep).join("/"))

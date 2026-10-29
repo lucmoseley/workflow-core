@@ -22,16 +22,17 @@
  * the guard-<name> or check-<name> file check-registrations.js and
  * registry-atomicity.js never count as a guard or checker and file-claim.js
  * never points at guard-authoring (#2869, #3012), the test files the
- * isolation and fixture-identity checkers read, and the suffix arm-tasks.js
- * names a hidden test's copy by;
+ * isolation and fixture-identity checkers read and check-jsonl-reads.js
+ * skips, and the suffix `infixTestName` keeps, for the copy arm-tasks.js
+ * makes of a hidden test;
  * `PY_TEST_FILE` is a pytest test file alone, pytest's default `python_files`.
  * `isJsTestFile` is `JS_TEST_FILE` as a predicate. .husky/pre-commit's
  * test-file gates arm on its `JS_TEST_ERE`, `JS_TEST_FILE` in grep's ERE,
  * pinned equal by test-kind.test.ts. `siblingTests` is every name a test of one
  * script may take, by `JS_TEST_FILE` and `PY_COLLECTED_TEST`: the files
- * registrations.js, registry-atomicity.js, the core's hook- and
- * checker-registrations tests and doc-map.js's self-filter take as a script's
- * own test; `pytestSiblings` is its pytest half, touched-tests.js's.
+ * registrations.js (and through its `hasSibling` the core's hook- and
+ * checker-registrations tests), registry-atomicity.js and doc-map.js's
+ * self-filter take as a script's own test; `pytestSiblings` is its pytest half, touched-tests.js's.
  * check-host-root.js adds the suite's apparatus to `JS_TEST_FILE`.
  *
  * One reading asks another runner's question and stays apart:
@@ -40,13 +41,10 @@
  * their `.ts` family is left out, for the reason infer-commands.js gives.
  */
 
-// Vitest's default include collects both kinds (#2271).
-const JS_TEST_PARTS = {
-	kind: ["test", "spec"],
-	module: ["", "c", "m"],
-	lang: ["j", "t"],
-	jsx: ["", "x"],
-};
+// Vitest's default include collects both kinds (#2271). Each part of the
+// extension after the kind, in order.
+const JS_TEST_KINDS = ["test", "spec"];
+const JS_EXT_PARTS = [["", "c", "m"], ["j", "t"], ["s"], ["", "x"]];
 /**
  * A part of single characters as a character class, `?` where it may be empty.
  * @param {string[]} chars
@@ -56,16 +54,16 @@ const buildCharClass = (chars) => {
 	const one = set.length === 1 ? set[0] : `[${set.join("")}]`;
 	return chars.includes("") ? `${one}?` : one;
 };
-const JS_TEST_SOURCE = String.raw`\.(?:${JS_TEST_PARTS.kind.join("|")})\.${buildCharClass(
-	JS_TEST_PARTS.module,
-)}${buildCharClass(JS_TEST_PARTS.lang)}s${buildCharClass(JS_TEST_PARTS.jsx)}$`;
+/* `\.[cm]?[jt]sx?`, every JS or TS extension. */
+const JS_EXT_SOURCE = String.raw`\.${JS_EXT_PARTS.map(buildCharClass).join("")}`;
+const JS_TEST_SOURCE = String.raw`\.(?:${JS_TEST_KINDS.join("|")})${JS_EXT_SOURCE}$`;
 const JS_TEST_FILE = new RegExp(JS_TEST_SOURCE);
-const JS_TEST_SUFFIXES = JS_TEST_PARTS.kind.flatMap((kind) =>
-	JS_TEST_PARTS.module.flatMap((module) =>
-		JS_TEST_PARTS.lang.flatMap((lang) =>
-			JS_TEST_PARTS.jsx.map((jsx) => `.${kind}.${module}${lang}s${jsx}`),
-		),
-	),
+const JS_EXTENSIONS = JS_EXT_PARTS.reduce(
+	(heads, part) => heads.flatMap((head) => part.map((c) => head + c)),
+	[""],
+);
+const JS_TEST_SUFFIXES = JS_TEST_KINDS.flatMap((kind) =>
+	JS_EXTENSIONS.map((ext) => `.${kind}.${ext}`),
 );
 const PY_TEST = String.raw`(?:^|\/)(?:test_[^/]*|[^/]*_test)\.py$`;
 const PY_TEST_FILE = new RegExp(PY_TEST);
@@ -87,11 +85,22 @@ const COLLECTED_TEST = new RegExp(
  * `conftest.py`.
  */
 const TEST_KIND = new RegExp(
-	String.raw`(?:${JS_TEST_SOURCE}|(?:^|\/)(?:tests?|fixtures|testkits?|stubs|fakes)\/|[-_.]${SUPPORT_NAME}\.[cm]?[jt]sx?$|(?:^|\/)${SUPPORT_NAME}(?:[-_.][^/]*)?\.[cm]?[jt]sx?$|${PY_TEST}|${CONFTEST.source})`,
+	String.raw`(?:${JS_TEST_SOURCE}|(?:^|\/)(?:tests?|fixtures|testkits?|stubs|fakes)\/|[-_.]${SUPPORT_NAME}${JS_EXT_SOURCE}$|(?:^|\/)${SUPPORT_NAME}(?:[-_.][^/]*)?${JS_EXT_SOURCE}$|${PY_TEST}|${CONFTEST.source})`,
 );
 
 /** @param {string} rel repo-relative or a basename, forward slashes */
 const isJsTestFile = (rel) => JS_TEST_FILE.test(rel);
+
+/**
+ * `rel` with `.<infix>` before its `JS_TEST_FILE` suffix, a test of the same
+ * form beside it, or null where `rel` is no JS test file.
+ * @param {string} rel
+ * @param {string} infix
+ */
+const infixTestName = (rel, infix) =>
+	isJsTestFile(rel)
+		? rel.replace(JS_TEST_FILE, (suffix) => `.${infix}${suffix}`)
+		: null;
 
 /**
  * The pytest test names of `stem`, by its default `python_files`.
@@ -128,10 +137,10 @@ function siblingTests(stem) {
  */
 function spellSiblingTests(stem) {
 	const { dir, base } = splitStem(stem);
-	const { kind, module, lang, jsx } = JS_TEST_PARTS;
-	return `${stem}.{${kind}}.{${module}}{${lang}}s{${jsx}}, ${pytestSiblings(
-		base,
-	)
+	const ext = JS_EXT_PARTS.map((part) =>
+		part.length === 1 ? part[0] : `{${part}}`,
+	).join("");
+	return `${stem}.{${JS_TEST_KINDS}}.${ext}, ${pytestSiblings(base)
 		.map((n) => `${dir}${n}`)
 		.join(", ")} or ${stem}.test.py`;
 }
@@ -151,6 +160,7 @@ module.exports = {
 	PYTEST_DEFAULT_FILES,
 	isCollectedTestOrConftest,
 	isJsTestFile,
+	infixTestName,
 	isTestKind,
 	pytestSiblings,
 	siblingTests,
