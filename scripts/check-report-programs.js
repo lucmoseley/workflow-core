@@ -27,9 +27,9 @@ const { blankComments } = require("./lib/js-lex.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 const { runCheck } = require("./lib/check");
+const { isJsTestFile } = require("./lib/test-kind.js");
 
 const REPORT = /^report-[^/]+\.(?:c|m)?js$/;
-const TEST = /\.test\.[cm]?[jt]s$/;
 /* A call is matched whole so its message quotes it; any other reach for
  * console or a std stream, an alias or a bracket access, is matched bare. */
 const OUTPUT =
@@ -62,7 +62,7 @@ function parseSites(code, re) {
 function readReports(dir) {
 	return fs
 		.readdirSync(dir)
-		.filter((name) => REPORT.test(name) && !TEST.test(name))
+		.filter((name) => REPORT.test(name) && !isJsTestFile(name))
 		.sort();
 }
 

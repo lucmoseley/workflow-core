@@ -39,6 +39,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { caught } from "./lib/caught.js";
+import { isJsTestFile } from "./lib/test-kind.js";
 
 const ROOT = path.resolve(__dirname, "..");
 
@@ -59,9 +60,10 @@ const TOOLCHAIN = [
 
 /* The surfaces that can actually RUN a check. Deliberately not every tracked
  * file: `CLAUDE.md` and `docs/` have to state the hazard in order to warn about
- * it, and a `*.test.*` file carries the offending string as a fixture or a
- * comment (scripts/lib/encoding-use.test.ts parses "npx vitest run …" as input;
- * scripts/lib/post-write.test.ts names `npx biome` in a comment).
+ * it, and a JS or TS test or spec file carries the offending string as a
+ * fixture or a comment (scripts/lib/encoding-use.test.ts parses "npx vitest
+ * run …" as input; scripts/lib/post-write.test.ts names `npx biome` in a
+ * comment).
  *
  * `.claude/skills/` is excluded for both reasons at once: 24 of its 46 tracked
  * entries are symlinks to directories under `.agents/skills/`, and the rest are
@@ -79,7 +81,7 @@ function readExecutableSurfaces(root = ROOT): string[] {
 		.filter(Boolean);
 
 	return tracked.filter((f) => {
-		if (/(^|\/)[^/]*\.test\.[^/]+$/.test(f)) return false;
+		if (isJsTestFile(f)) return false;
 		if (f.startsWith(".github/workflows/")) return true;
 		if (f.startsWith(".husky/")) return true;
 		if (f === "package.json") return true;

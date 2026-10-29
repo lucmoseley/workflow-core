@@ -82,8 +82,8 @@
 	"scripts/start-lander-on-push.js": "a4473fb1f017830e",
 	"scripts/sweep-debts-detached.sh": "0686c22f6eb03286",
 	"scripts/unpark-on-prompt.js": "474f0c282128e2a2",
-	"scripts/vitest-inflight-reporter.ts": "c8bd61a02ebf7309",
-	"scripts/vitest-pass-reporter.ts": "a2c619355fa4299f",
+	"scripts/vitest-inflight-reporter.ts": "c33a5affb6d2cab5",
+	"scripts/vitest-pass-reporter.ts": "1f5c9a4b50e12312",
 	"scripts/vitest-tree-watch.ts": "7ef05c266bb53ed4",
 	"scripts/watch-artefact.js": "b1996640daf4cc7e",
 	"scripts/write-self-plugin-marker.sh": "ecbf6c767782ff76"

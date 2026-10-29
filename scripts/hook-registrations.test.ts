@@ -32,7 +32,7 @@ import {
 	type HookEvent,
 	registrationsOf,
 } from "./lib/hook-wiring";
-import { hasSibling } from "./lib/registrations.js";
+import { buildMissingSiblingNames } from "./lib/registrations.js";
 
 /**
  * Guards invoked by another script rather than by a hook, so no
@@ -602,9 +602,9 @@ describe("hook registrations", () => {
 	it("every scripts/guard-*.{sh,js} has a sibling test", () => {
 		const untested = guardFiles.filter(
 			(file) =>
-				!hasSibling(file.replace(/\.(sh|js)$/, ""), (p) =>
+				buildMissingSiblingNames(file, (p) =>
 					fs.existsSync(path.join(__dirname, "..", p)),
-				),
+				) !== null,
 		);
 
 		expect(untested).toEqual([]);

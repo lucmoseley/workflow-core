@@ -116,6 +116,7 @@ describe("check-report-programs", () => {
 	it("passes a report-* on writeFd and createIssue, and leaves tests, libraries and other programs alone", () => {
 		program("report-clean.js", CLEAN);
 		program("report-clean.test.js", 'console.log("x");\n');
+		program("report-clean.spec.js", 'console.log("x");\n'); // #3618
 		program("lib/report-lib.js", 'console.log("x");\n');
 		program("check-other.js", 'gh(["issue", "create"]);\nconsole.log("x");\n');
 		const r = run();

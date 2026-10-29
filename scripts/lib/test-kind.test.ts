@@ -23,8 +23,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+	buildInfixTestName,
 	COLLECTED_TEST,
-	infixTestName,
 	isCollectedTestOrConftest,
 	isTestKind,
 	JS_TEST_FILE,
@@ -34,20 +34,20 @@ import {
 	spellSiblingTests,
 } from "./test-kind";
 
-describe("infixTestName", () => {
+describe("buildInfixTestName", () => {
 	it.each([
 		["lib.test.ts", "lib.accept.test.ts"],
 		["lib.spec.ts", "lib.accept.spec.ts"],
 		["lib.test.mts", "lib.accept.test.mts"],
 		["a/b.spec.jsx", "a/b.accept.spec.jsx"],
 	])("names %s's copy %s (#3387)", (rel, copy) => {
-		expect(infixTestName(rel, "accept")).toBe(copy);
+		expect(buildInfixTestName(rel, "accept")).toBe(copy);
 	});
 
 	it.each(["notes.md", "lib.ts"])(
 		"names no copy of %s, no test file",
 		(rel) => {
-			expect(infixTestName(rel, "accept")).toBeNull();
+			expect(buildInfixTestName(rel, "accept")).toBeNull();
 		},
 	);
 });

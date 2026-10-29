@@ -120,7 +120,10 @@ describe("the tree rendered from the core", () => {
 		// #1734: the one way an adopter builds the table its launch cap reads.
 		expect(shipped).toContain("scripts/measure-session-cost.js");
 		expect(
-			shipped.filter((f) => /\.test\.|\.tsx?$|(^|\/)fixtures\//.test(f)),
+			shipped.filter(
+				(f) =>
+					isCollectedTestOrConftest(f) || /\.tsx?$|(^|\/)fixtures\//.test(f),
+			),
 		).toEqual(
 			[...VITEST_LOADED, ...SHIPPED_MOD_TS, ENTRY, HOST_CONTRACT].sort(),
 		);

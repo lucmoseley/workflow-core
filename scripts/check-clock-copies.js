@@ -28,6 +28,7 @@ const { blankComments } = require("./lib/js-lex.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 const { runCheck } = require("./lib/check");
+const { isJsTestFile } = require("./lib/test-kind.js");
 
 /* Built from VAR, so this file's own patterns read as no site. */
 const VAR = "WFC_NOW";
@@ -38,7 +39,6 @@ const READ_SHAPES = [
 ];
 const KEPT = /clock-kept:\s*\w/;
 const PROGRAM = /\.(?:c|m)?js$/;
-const TEST = /\.test\.[cm]?[jt]s$/;
 const CLOCK = "scripts/lib/check.js";
 
 const FIX = `call now() from ${CLOCK}, as scripts/check-history-trim.js does, where runCheck turns its throw on a malformed WFC_NOW into BROKEN; outside runCheck, catch that throw as scripts/lib/log-reading.js's now does; in a guard core, pass its env as scripts/lib/sweep-fire-host.js's now(env) does; or mark the read \`clock-kept: <why>\` (#3457).`;
@@ -71,7 +71,7 @@ function readPrograms(dir) {
 		.filter(
 			(rel) =>
 				PROGRAM.test(rel) &&
-				!TEST.test(rel) &&
+				!isJsTestFile(rel) &&
 				!rel.split(path.sep).includes("node_modules"),
 		)
 		.map((rel) => rel.split(path.sep).join("/"))
