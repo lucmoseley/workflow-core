@@ -51,6 +51,15 @@
  * this user or root and writable by no one else, bar a sticky one (`/tmp`),
  * whose entries only their owner can move. Node holds no directory by
  * descriptor across a write (no `openat`), so the chain is checked instead.
+ * Group write passes where the group is this user's private one, as under
+ * `pam_umask usergroups` (#3676): their primary gid, listing no other member
+ * in `/etc/group` and the primary gid of no other user in `/etc/passwd`, as
+ * Debian's OpenSSH StrictModes allows. Where lookups can reach a source
+ * beyond those files (LDAP, sssd, NIS, a systemd-homed user) no group is
+ * judged private, so it refuses, as it does a group with a password.
+ * Residual: a group password or member set only in `/etc/gshadow`, which the
+ * user cannot read, and a process root starts under the gid, which no
+ * database shows.
  *
  * CONCURRENT RUNS take turns by `lib/pid-lock.js`'s lock, `secrets.env.lock`,
  * held from the read to the rename, so no run's key is lost to another's
@@ -100,6 +109,7 @@
  */
 
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { pidAlive } = require("./lib/arbiter-proc.js");
 const { asidePid, writeFileAtomic } = require("./lib/atomic-write.js");
@@ -236,9 +246,141 @@ function swappableWhy(d) {
 	}
 	if (!st.isDirectory()) return null;
 	if (!ownedSafely(st)) return "is owned by neither you nor root";
-	if ((st.mode & 0o022) !== 0 && (st.mode & 0o1000) === 0)
-		return "is writable by others and not sticky";
+	if ((st.mode & 0o1000) !== 0) return null;
+	const othersWrite =
+		(st.mode & 0o002) !== 0 ||
+		((st.mode & 0o020) !== 0 && !isPrivateGroup(st.gid));
+	if (othersWrite) return "is writable by others and not sticky";
 	return null;
+}
+
+/**
+ * Whether `gid` is this user's private group: their primary gid in
+ * `/etc/passwd`, with no other member in `/etc/group` and no other user's
+ * primary gid (#3676). Only those two files are read, so a host whose user
+ * and group lookups can reach another source is judged to have none private.
+ * @param {number} gid
+ * @returns {boolean}
+ */
+function isPrivateGroup(gid) {
+	const me = os.userInfo();
+	if (gid !== me.gid || !filesAloneNameUsers()) return false;
+	const groups = readDbRows("/etc/group", [2]);
+	const users = readDbRows("/etc/passwd", [2, 3]);
+	if (groups === null || users === null) return false;
+	const rows = groups.filter((f) => Number(f[2]) === gid);
+	const mine = users.filter((f) => Number(f[2]) === me.uid);
+	return (
+		rows.length > 0 &&
+		rows.every(
+			([, password, , members]) =>
+				NO_GROUP_PASSWORD.has(password ?? "") &&
+				members?.split(",").every((m) => m === "" || m === me.username),
+		) &&
+		mine.length > 0 &&
+		mine.every((f) => Number(f[3]) === gid) &&
+		users.every((f) => Number(f[3]) !== gid || Number(f[2]) === me.uid)
+	);
+}
+
+/** A group password field through which no one can `newgrp` in. */
+const NO_GROUP_PASSWORD = new Set(["", "x", "!", "*"]);
+
+/** systemd's userdb services that name no user beyond NSS's own files. */
+const QUIET_USERDB = new Set([
+	"io.systemd.DropIn",
+	"io.systemd.DynamicUser",
+	"io.systemd.Multiplexer",
+	"io.systemd.NameServiceSwitch",
+]);
+
+/**
+ * Whether `/etc/passwd` and `/etc/group` are the only sources of users and
+ * group members: `nsswitch.conf` names only `files` for each, or `systemd`
+ * too where no userdb record or service beyond dynamic users exists. Any
+ * line glibc could read as either database's must be in the plain
+ * `<db>: <sources>` form, so no looser spelling outranks the one read. A
+ * directory service (LDAP, sssd), NIS or a systemd-homed user could hold a
+ * member these files never show (#3676).
+ * @returns {boolean}
+ */
+function filesAloneNameUsers() {
+	const conf = readLines("/etc/nsswitch.conf");
+	if (conf === null) return false;
+	const lines = conf
+		.map((l) => l.replace(/#.*/, ""))
+		.filter((l) => /^(passwd|group)$/.test(l.trim().split(/[\s:]/)[0] ?? ""));
+	const parsed = lines.map((l) => /^(passwd|group):([^\\]*)$/.exec(l));
+	const sources = parsed.flatMap((m) => m?.[2]?.trim().split(/\s+/) ?? []);
+	if (
+		parsed.some((m) => m === null) ||
+		new Set(parsed.map((m) => m?.[1])).size !== 2 ||
+		sources.some((x) => x !== "files" && x !== "systemd")
+	)
+		return false;
+	if (!sources.includes("systemd")) return true;
+	const dropIns = [
+		"/etc/userdb",
+		"/run/userdb",
+		"/run/host/userdb",
+		"/usr/local/lib/userdb",
+		"/usr/lib/userdb",
+	];
+	return (
+		dropIns.every((d) => dirEntries(d)?.length === 0) &&
+		dirEntries("/run/systemd/userdb")?.every((e) => QUIET_USERDB.has(e)) ===
+			true
+	);
+}
+
+/**
+ * The names in directory `d`: none where it is absent, null where it cannot
+ * be read.
+ * @param {string} d
+ * @returns {string[] | null}
+ */
+function dirEntries(d) {
+	try {
+		return fs.readdirSync(d);
+	} catch (e) {
+		/* Absent holds no record; any other fault leaves it unjudged. */
+		return caught(e).code === "ENOENT" ? [] : null;
+	}
+}
+
+/**
+ * The colon-split rows of an `/etc` database, or null where it cannot be read,
+ * holds a NIS compat row (`+`, `-`), whose entries live elsewhere, or a row
+ * whose field at an index in `ids` is not a plain decimal id, which glibc's
+ * parse could read as another.
+ * @param {string} file
+ * @param {number[]} ids
+ * @returns {string[][] | null}
+ */
+function readDbRows(file, ids) {
+	const lines = readLines(file);
+	if (lines === null || lines.some((l) => /^[+-]/.test(l))) return null;
+	const rows = lines.map((l) => l.split(":"));
+	const plain = rows.every((f) => ids.every((i) => /^\d+$/.test(f[i] ?? "")));
+	return plain ? rows : null;
+}
+
+/**
+ * The lines of `file` less blank ones and those glibc skips as comments, or
+ * null where it cannot be read.
+ * @param {string} file
+ * @returns {string[] | null}
+ */
+function readLines(file) {
+	try {
+		return fs
+			.readFileSync(file, "utf8")
+			.split("\n")
+			.filter((l) => l.trim() !== "" && !/^\s*#/.test(l));
+	} catch {
+		/* Unreadable: no group is judged private, so the parent refuses. */
+		return null;
+	}
 }
 
 /**
