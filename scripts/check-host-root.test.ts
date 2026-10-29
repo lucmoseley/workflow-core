@@ -137,7 +137,7 @@ describe("JavaScript", () => {
 		expect(messages(run())).toMatch(/b\.js:3/);
 	});
 
-	it("fails an ESM climb out of scripts/, in each spelling", () => {
+	it("fails an ESM climb out of scripts/ as SELF-ROOTED-JS, in each spelling, naming each file and line", () => {
 		clean();
 		const climbs = [
 			'path.join(import.meta.dirname, "..")',
@@ -149,8 +149,15 @@ describe("JavaScript", () => {
 		];
 		for (const [i, climb] of climbs.entries())
 			write(`scripts/esm${i}.mjs`, `const ROOT = ${climb};\n`);
-		const text = messages(run());
-		for (const i of climbs.keys()) expect(text).toContain(`esm${i}.mjs:1`);
+		const e = run();
+		expect(e.outcome).toBe("FAIL");
+		for (const i of climbs.keys()) {
+			const f = e.findings.find((x) =>
+				x.message.startsWith(`scripts/esm${i}.mjs:1 `),
+			);
+			expect(f?.tag).toBe("SELF-ROOTED-JS");
+			expect(f?.message).toMatch(/hostRoot\(\).*import\.meta\.dirname/);
+		}
 	});
 
 	it("passes an ESM walk that names a sibling inside scripts/", () => {
@@ -394,7 +401,7 @@ describe("the mirror fault through a variable (#14)", () => {
 		expect(tags(run())).toContain("HOST-ROOTED-CORE");
 	});
 
-	it("fails a core-path constant imported by name from a scanned module as HOST-ROOTED-CORE", () => {
+	it("fails a core-path constant imported by name from a scanned module as HOST-ROOTED-CORE, naming the local binding", () => {
 		clean();
 		write(
 			"scripts/lib/consts.mjs",
@@ -406,7 +413,42 @@ describe("the mirror fault through a variable (#14)", () => {
 		);
 		const e = run();
 		expect(tags(e)).toContain("HOST-ROOTED-CORE");
-		expect(messages(e)).toMatch(/bad\.mjs:4 — LOG joined onto the root/);
+		expect(e.outcome).toBe("FAIL");
+		expect(messages(e)).toMatch(
+			/bad\.mjs:4 — LOG joined onto the root.*import\.meta\.dirname/,
+		);
+	});
+
+	it("follows a renamed require or a typed import back to the exported name", () => {
+		clean();
+		write(
+			"scripts/lib/consts.js",
+			'const CAP = "scripts/lib/guard-log.sh";\nmodule.exports = { CAP };\n',
+		);
+		write(
+			"scripts/bad.ts",
+			rooted(
+				'const { CAP: LOG } = require("./lib/consts.js");\nimport { type CAP as T } from "./lib/consts.js";\nconst p = path.join(root, LOG);\nconst q = path.join(root, T);\n',
+			),
+		);
+		const text = messages(run());
+		expect(text).toMatch(/bad\.ts:5 — LOG joined onto the root/);
+		expect(text).toMatch(/bad\.ts:6 — T joined onto the root/);
+	});
+
+	it("passes a local binding whose exported name is no core-path constant", () => {
+		clean();
+		write(
+			"scripts/lib/consts.js",
+			'const CAP = "scripts/lib/guard-log.sh";\nconst DOC = "docs/x.md";\nmodule.exports = { CAP, DOC };\n',
+		);
+		write(
+			"scripts/ok.js",
+			rooted(
+				'const { DOC: CAP } = require("./lib/consts.js");\nconst p = path.join(root, CAP);\n',
+			),
+		);
+		expect(run().outcome).toBe("OK");
 	});
 
 	it("fails a core directory templated onto the root as HOST-ROOTED-CORE", () => {
