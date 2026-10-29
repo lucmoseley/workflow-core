@@ -16,10 +16,11 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { startEnv } from "./lib/background-start-testkit";
-import { record } from "./lib/dispatch-ledger.js";
+import { ledgerPath, record } from "./lib/dispatch-ledger.js";
 import { stubGhScript } from "./lib/gh-stub";
+import { readJsonl } from "./lib/jsonl.js";
 import { launchOrResume } from "./lib/refill-batch.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 
@@ -188,43 +189,41 @@ describe("check-idle-efforts.js", () => {
 	it("dates a parked issue resumed by the loop from its resume, not its first launch (#3704)", async () => {
 		checkout("core", "o/core", [launch(1, 3 * DAY)]);
 		const root = path.join(home, "core");
-		vi.useFakeTimers({ toFake: ["Date"] });
-		vi.setSystemTime(NOW - DAY);
-		try {
-			launchOrResume(
-				[
-					{
-						root,
-						issues: [1],
-						prompt: "/implement 1",
-						model: "opus",
-						seat: "/home/u/.claude2",
-						parkedRoute: {
-							resume: {
-								seat: "/home/u/.claude2",
-								sessionId: "s-1",
-								cwd: root,
-							},
+		const { launched } = launchOrResume(
+			[
+				{
+					root,
+					issues: [1],
+					prompt: "/implement 1",
+					model: "opus",
+					seat: "/home/u/.claude2",
+					parkedRoute: {
+						resume: {
+							seat: "/home/u/.claude2",
+							sessionId: "s-1",
+							cwd: root,
 						},
 					},
-				],
-				{
-					resume: () => ({
-						failed: null,
-						jobId: "job1b",
-						sessionId: "s-1",
-						copy: false,
-					}),
-					recordLaunch: record,
-					launchFresh: () => ({ launched: [], refused: [] }),
-					log: () => undefined,
-					now: Date.now,
 				},
-			);
-		} finally {
-			vi.useRealTimers();
-		}
+			],
+			{
+				resume: () => ({
+					failed: null,
+					jobId: "job1b",
+					sessionId: "s-1",
+					copy: false,
+				}),
+				recordLaunch: record,
+				launchFresh: () => ({ launched: [], refused: [] }),
+				log: () => undefined,
+				now: () => NOW - DAY,
+			},
+		);
+		expect(readJsonl(ledgerPath(root))?.rows.at(-1)?.ts).toBe(
+			new Date(launched[0].launchedAt).toISOString(),
+		);
 		const r = await run({ "o/core": [node(1)] });
+		expect(r.status).toBe(0);
 		expect(r.out).toContain("OK: no effort idle past 2 days.");
 	});
 

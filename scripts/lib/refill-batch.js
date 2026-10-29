@@ -218,6 +218,7 @@ function resumeParked(l, parked, io) {
 	const r = io.resume(l, parked.resume);
 	if (r.failed !== null) return afresh(r.failed);
 	io.log(`resumed parked ${launchName(l)} as job ${r.jobId}`);
+	const launchedAt = io.now();
 	if (
 		!io.recordLaunch({
 			issues: l.issues,
@@ -225,6 +226,7 @@ function resumeParked(l, parked, io) {
 			prompt: l.prompt,
 			root: l.root,
 			jobId: r.jobId,
+			launchedAt,
 		})
 	)
 		io.log(
@@ -236,7 +238,7 @@ function resumeParked(l, parked, io) {
 		prompt: l.prompt,
 		seat: parked.resume.seat,
 		jobId: r.jobId,
-		launchedAt: io.now(),
+		launchedAt,
 		finishedAt: null,
 		...(r.sessionId ? { sessionId: r.sessionId } : {}),
 	};

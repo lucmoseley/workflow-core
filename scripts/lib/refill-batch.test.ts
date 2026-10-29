@@ -465,6 +465,7 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 				prompt: "/implement 1",
 				root: launch.root,
 				jobId: "j-9",
+				launchedAt: NOW,
 			},
 		]);
 		const { out, lines } = run([parked], ok, false);

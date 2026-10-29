@@ -108,9 +108,10 @@ function entryHolds(rec, command) {
 /**
  * One launch line of `.pick-next/dispatched.jsonl`.
  *
- * `session` is the LAUNCHING session — the one that ran dispatch-sessions.sh,
- * or the refill loop's own, null outside a session, on a resume (#3704) — never the launched job's own session (mantahostels#3488). `jobId` is that
- * job's own short id, the one `claude --bg` prints and
+ * `session` is the LAUNCHING session — the one that ran dispatch-sessions.sh —
+ * never the launched job's own session (mantahostels#3488). On a refill-loop
+ * resume (#3704) it is null: the loop forgets its session id at start.
+ * `jobId` is that job's own short id, the one `claude --bg` prints and
  * `claude stop`/`claude attach` take, or `null` where unknown.
  * @typedef {{ts: string, issues: number[], model: string, prompt: string,
  *            session: string|null, jobId: string|null}} DispatchRecord
@@ -221,15 +222,16 @@ function readLaunchTimes(root) {
  * reports the false.
  * @param {string|undefined} root
  * @param {object} rec
+ * @param {number} [at] epoch ms of the event, now where absent
  * @returns {boolean} whether it was written
  */
-function append(root, rec) {
+function append(root, rec, at = Date.now()) {
 	const file = ledgerPath(root);
 	try {
 		fs.mkdirSync(path.dirname(file), { recursive: true });
 		fs.appendFileSync(
 			file,
-			`${JSON.stringify({ ts: new Date().toISOString(), ...rec })}\n`,
+			`${JSON.stringify({ ts: new Date(at).toISOString(), ...rec })}\n`,
 		);
 		return true;
 	} catch {
@@ -246,17 +248,23 @@ function release(entry) {
 }
 
 /**
- * @param {{issues: number[], model: string, prompt: string, root?: string, jobId?: string|null}} entry
+ * `launchedAt` is the launch's epoch ms, from a caller whose own record of the
+ * launch reads the same clock; now where absent.
+ * @param {{issues: number[], model: string, prompt: string, root?: string, jobId?: string|null, launchedAt?: number}} entry
  * @returns {boolean} whether it was written
  */
 function record(entry) {
-	return append(entry.root, {
-		issues: entry.issues,
-		model: entry.model,
-		prompt: entry.prompt,
-		session: process.env.CLAUDE_CODE_SESSION_ID || null,
-		jobId: entry.jobId || null,
-	});
+	return append(
+		entry.root,
+		{
+			issues: entry.issues,
+			model: entry.model,
+			prompt: entry.prompt,
+			session: process.env.CLAUDE_CODE_SESSION_ID || null,
+			jobId: entry.jobId || null,
+		},
+		entry.launchedAt,
+	);
 }
 
 module.exports = {
