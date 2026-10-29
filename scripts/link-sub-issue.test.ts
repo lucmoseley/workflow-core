@@ -83,18 +83,41 @@ exit 0
 	return gh;
 };
 
-const run = (args: string[], g: Gh = {}) =>
-	spawnSync("bash", [SCRIPT, ...args], {
-		encoding: "utf8",
-		env: {
-			...process.env,
-			CLAUDE_PROJECT_DIR: dir,
-			WFC_GH: stubGh(g),
-			WFC_LINK_REPO: "owner/repo",
-			WFC_LINK_RETRIES: "3",
-			WFC_LINK_SLEEP: "0",
-		},
-	});
+const run = (
+	args: string[],
+	g: Gh = {},
+	linkRepo: string | null = "owner/repo",
+) => {
+	const env: NodeJS.ProcessEnv = {
+		...process.env,
+		CLAUDE_PROJECT_DIR: dir,
+		WFC_GH: stubGh(g),
+		WFC_LINK_RETRIES: "3",
+		WFC_LINK_SLEEP: "0",
+	};
+	if (linkRepo === null) delete env.WFC_LINK_REPO;
+	else env.WFC_LINK_REPO = linkRepo;
+	return spawnSync("bash", [SCRIPT, ...args], { encoding: "utf8", env });
+};
+
+/** The host repo: its origin the code repo, and `tracker` where given. */
+const hostRepo = (tracker?: string) => {
+	spawnSync("git", ["init", "-q", dir]);
+	spawnSync("git", [
+		"-C",
+		dir,
+		"remote",
+		"add",
+		"origin",
+		"https://github.com/owner/code.git",
+	]);
+	if (tracker === undefined) return;
+	fs.mkdirSync(path.join(dir, ".claude"));
+	fs.writeFileSync(
+		path.join(dir, ".claude", "workflow-core.json"),
+		JSON.stringify({ tracker }),
+	);
+};
 
 /** Every stubbed gh invocation, in call order. */
 const readLog = () =>
@@ -112,6 +135,30 @@ beforeEach(() => {
 
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
+});
+
+describe("the repo it links in (#3556)", () => {
+	it("is the declared tracker, not the origin remote, where WFC_LINK_REPO is unset", () => {
+		hostRepo("owner/tracker");
+		const r = run(["40", "63"], { children: ["63"] }, null);
+		expect(r.status).toBe(0);
+		expect(readPosts()[0]).toContain(
+			"repos/owner/tracker/issues/40/sub_issues",
+		);
+	});
+
+	it("is the origin remote where no tracker is declared", () => {
+		hostRepo();
+		const r = run(["40", "63"], { children: ["63"] }, null);
+		expect(r.status).toBe(0);
+		expect(readPosts()[0]).toContain("repos/owner/code/issues/40/sub_issues");
+	});
+
+	it("is WFC_LINK_REPO where set, over the declared tracker", () => {
+		hostRepo("owner/tracker");
+		run(["40", "63"], { children: ["63"] });
+		expect(readPosts()[0]).toContain("repos/owner/repo/issues/40/sub_issues");
+	});
 });
 
 describe("link-sub-issue.sh", () => {
