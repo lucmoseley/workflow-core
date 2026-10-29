@@ -33,6 +33,8 @@ import { runInProcess } from "./lib/run-in-process";
 let dir: string;
 let store: string;
 let counter: string;
+/** The fake `gh` below, as written into `dir`. */
+let gh: string;
 let savedEnv: NodeJS.ProcessEnv;
 
 /**
@@ -94,7 +96,8 @@ beforeEach(() => {
 	store = path.join(dir, "body.md");
 	counter = path.join(dir, "edits");
 	fs.writeFileSync(counter, "0");
-	process.env.WFC_GH = stubGhScript(dir, STUB).gh;
+	gh = stubGhScript(dir, STUB).gh;
+	process.env.WFC_GH = gh;
 	process.env.STUB_STORE = store;
 	process.env.STUB_COUNTER = counter;
 	// Never the real ~/.claude: the lock lands under CLAUDE_CONFIG_DIR, and a
@@ -914,7 +917,11 @@ describe("the lock is never observable without its holder (mantahostels#139)", (
 
 describe("the gate act (#3301)", () => {
 	const Me = "issue-body-gate-session";
-	const sb = freshSandbox();
+	// freshSandbox points WFC_GH at its refusing stub; re-point it at the fake
+	// above, which answers issue-body's calls (#3577).
+	const sb = freshSandbox(() => {
+		process.env.WFC_GH = gh;
+	});
 	const Gate = "**Gated until:** 2026-10-09 — x\n**Gate basis:** y";
 	const acts = () => arbiter.readActsBy(Me, [sb.repo]).acts;
 	const run = (...args: string[]) =>

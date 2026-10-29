@@ -3197,7 +3197,6 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -3967,22 +3966,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-plugin-gap.test.ts": [
-			"scripts/lib/helper-surface.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
-		"scripts/check-precommit-exit.js": [
-			"scripts/check-precommit-exit.test.ts",
-			"scripts/checker-registrations.test.ts",
-			"scripts/lib/arm-secondary.test.ts",
-			"scripts/lib/check.declared-flags.test.ts",
-			"scripts/lib/git.test.ts",
-			"scripts/lib/project-slug-scan.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts",
-			"scripts/tooling-matrix.test.ts"
-		],
-		"scripts/check-precommit-exit.test.ts": [
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
@@ -10042,6 +10025,10 @@
 			"scripts/check-gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
+		"scripts/lib/fixtures/gh-route/claude-helper-stub.ts.txt": [
+			"scripts/check-gh-route.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
 		"scripts/lib/fixtures/gh-route/claude-lib.js.txt": [
 			"scripts/check-gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
@@ -10070,6 +10057,10 @@
 			"scripts/check-gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
+		"scripts/lib/fixtures/gh-route/helper-stub.ts.txt": [
+			"scripts/check-gh-route.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
 		"scripts/lib/fixtures/gh-route/literal-spawn-marked.js.txt": [
 			"scripts/check-gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
@@ -10079,6 +10070,10 @@
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/on-primitive.js.txt": [
+			"scripts/check-gh-route.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/lib/fixtures/gh-route/other-helper-stub.ts.txt": [
 			"scripts/check-gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
