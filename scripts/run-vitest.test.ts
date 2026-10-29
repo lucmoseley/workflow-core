@@ -3580,6 +3580,35 @@ describe("the launch record each route hands the child (#1596)", () => {
 		});
 	});
 
+	/* A bare `--changed` plans against `HEAD`, which holds the session's own
+	 * commits, so it records the default's base instead (#3678). */
+	it.each([
+		["the merge-base where one resolved", true, "merge-base-sha"],
+		["no base on the HEAD fallback", false, null],
+	])(
+		"hands a bare --changed %s, never its plan's HEAD (#3678)",
+		async (_what, hasOrigin, base) => {
+			const env = await childEnv([SHARED_FLAG, "--changed"], {
+				execFn: fakeExec({ hasOrigin }),
+				expand: () => ({
+					argv: ["a.test.ts"],
+					files: ["a.test.ts"],
+					own: ["a.test.ts"],
+					added: [],
+					admissible: true,
+					changed: ["lib/a.js"],
+					base: "head-sha",
+					banner: "selection\n",
+				}),
+			});
+			expect(readLaunch(env)).toMatchObject({
+				viaChanged: true,
+				changedPaths: ["lib/a.js"],
+				base,
+			});
+		},
+	);
+
 	it("hands the child the typed flag and its cause on a --full=<cause> run, isolated", async () => {
 		const argv = ["--full=coverage"];
 		expect(readLaunch(await childEnv(argv))).toEqual({
@@ -7274,6 +7303,8 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		it.each([
 			["the overlay", [], 0],
 			["the worktree an --isolated overlay fell back to", ["--isolated"], 1],
+			/* A bare `--changed` takes the same base on its overlay (#3678). */
+			["a bare --changed's overlay", ["--changed"], 0],
 		])(
 			"records the merge-base on %s, and no base on the HEAD fallback (#3660)",
 			async (_route, argv, failedAdds) => {

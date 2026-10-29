@@ -399,6 +399,19 @@ describe("which red runs stand beside the certificates (#3633)", () => {
 		expect(deciders(sha, ["a.js"])).toBeNull();
 	});
 
+	/* A bare `--changed` records the default's base, never `HEAD` (#3678):
+	 * a red at the session's own commit is no record its failure was red
+	 * before that commit, though against `HEAD` it classes as one. */
+	it("admits no red whose only record on its base is a red at the session's own commit (#3678)", () => {
+		const sha = fx.commitTouching("a.js");
+		const own = fx.redOn(sha, ["a.js"], "RUN-0", false);
+		const red = fx.redOn(sha, ["a.js"], "RUN-R", false);
+		fx.writeReds(own, { ...red, base: fx.git("rev-parse", "origin/main") });
+		expect(deciders(sha, ["a.js"])).toBeNull();
+		fx.writeReds(own, { ...red, base: sha });
+		expect(deciders(sha, ["a.js"])).toEqual(["RUN-R"]);
+	});
+
 	it("admits no pytest red", () => {
 		const sha = fx.commitTouching("a.js");
 		fx.writeReds(fx.redAtBase("RUN-0"), {

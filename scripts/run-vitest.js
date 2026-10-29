@@ -1132,9 +1132,9 @@ const defaultLaunch = (base) => ({
 });
 
 /**
- * The base a run records: the default's, narrowed or escalated, set when it
- * planned, before its plan's, which on the `HEAD` fallback is `HEAD`'s sha
- * where `committedBase` records none (#3660); else its plan's; a typed
+ * The base a run records: the default's, set when it planned, or a bare
+ * `--changed`'s, set on its route, `committedBase`'s either way (#3660,
+ * #3678); else its plan's, an explicit `--changed <ref>`'s; a typed
  * `--full`'s, the default's read in the tree the run starts in, so a commit
  * made while it queued moves it (#3646).
  * @param {LauncherLaunch} launch
@@ -2224,11 +2224,36 @@ function queueLogFile(options) {
 function runByRoute(route, opts) {
 	if (route.kind === "bare") return runDefault(route, opts);
 	if (route.kind === "touched") return runTouched(route, opts);
-	const noted = withCommittedNote(route, opts);
+	const noted = withCommittedNote(route, withChangedBase(route, opts));
 	return onTree(route, {
 		overlay: () => runChangedOverlaid(route, withSession(route, noted)),
 		worktree: () => runIsolated(route.rest, noted),
 		shared: () => runOnce(route.rest, noted),
+	});
+}
+
+/**
+ * Whether the route is a bare `--changed`, one naming no ref.
+ * @param {LaunchRoute} route
+ */
+const isBareChanged = (route) =>
+	route.kind === "changed" && !changedFlag(route.rest)?.ref;
+
+/**
+ * A bare `--changed` selects over uncommitted files, diffed against `HEAD`,
+ * but records the default's base, `committedBase`'s: `HEAD` holds the
+ * session's own commits, so a failure already red there may be its own
+ * (#3678). An explicit `--changed <ref>` records its plan's.
+ *
+ * @param {LaunchRoute} route
+ * @param {RunOptions} opts
+ * @returns {RunOptions}
+ */
+function withChangedBase(route, opts) {
+	if (!isBareChanged(route)) return opts;
+	const { root = TREE_ROOT, execFn = execFileSync } = opts;
+	return withLaunch(opts, {
+		base: committedBase(readDefaultChangedBase(root, execFn)),
 	});
 }
 
@@ -2245,7 +2270,7 @@ function runByRoute(route, opts) {
  * @returns {RunOptions}
  */
 function withCommittedNote(route, opts) {
-	if (route.kind !== "changed" || changedFlag(route.rest)?.ref) return opts;
+	if (!isBareChanged(route)) return opts;
 	const expand = opts.expand ?? expandChanged;
 	return {
 		...opts,
