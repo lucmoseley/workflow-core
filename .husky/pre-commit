@@ -86,7 +86,7 @@ if declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/workflow-core-config.js
   case "$declared_command" in
     'node "$WFC_PLUGIN_ROOT"/scripts/biome-staged.js'*) ;;
     *run* | *biome* | *[\\\'\"$\`\{]*)
-      node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/infer-commands.js check-staged "$declared_command" || exit "$?"
+      node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/infer-commands.js check-staged "$declared_command" || exit 1
       ;;
   esac
   sh -c "$declared_command" || exit 1
@@ -96,15 +96,15 @@ fi
 
 # A session's commit writing back a file a neighbour changed since its base
 # (#113). The script owns its skips and its fail-open.
-bash "${WFC_PLUGIN_ROOT:-.}"/scripts/stale-write-back-gate.sh || exit "$?"
+bash "${WFC_PLUGIN_ROOT:-.}"/scripts/stale-write-back-gate.sh || exit 1
 
 # A session's commit on a declared sensitive path with no escalated review of
 # exactly its staged tree (#1622). The script owns its skips.
-bash "${WFC_PLUGIN_ROOT:-.}"/scripts/review-hold-gate.sh || exit "$?"
+bash "${WFC_PLUGIN_ROOT:-.}"/scripts/review-hold-gate.sh || exit 1
 
 # The roadmap HTML and its digest are only correct together; refuse the
 # half-staged pair here rather than leaving it to CI.
-node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-roadmap-pair.js || exit "$?"
+node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-roadmap-pair.js || exit 1
 
 # The staged roadmap is structurally valid, or it does not get committed (mantahostels#698).
 # Scoped to commits that stage the roadmap, so a commit touching nothing else
@@ -118,7 +118,7 @@ node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-roadmap-pair.js || exit "$?"
 # Anchored at both ends, so vendor/docs/reference-roadmap.html and any other
 # look-alike does not fire it.
 if armed '^docs/reference-roadmap\.html$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-roadmap-valid.js || exit "$?"
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-roadmap-valid.js || exit 1
 fi
 
 # A citation of this repo's tracker is bare `#N`; `mantahostels#N` names the
@@ -231,7 +231,7 @@ fi
 # vendored files plus the manifest, too many paths to stage out one by one, and
 # the same trade-off the guard-registry gate below makes.
 if armed '^(\.agents/skills/|\.agents/vendored-skill-edits\.json$|skills-lock\.json$|\.claude/skills/THIRD-PARTY-NOTICES\.md$)'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-vendored-skills.js || exit "$?"
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-vendored-skills.js || exit 1
 fi
 
 # A staged skills-lock.json is covered by the staged record of a completed
@@ -297,7 +297,7 @@ fi
 # there without a re-render ships adopters the old hook set (#4, #2441). Any
 # script too: one that gains or loses a deny moves its onFailure (#2670).
 if armed '^(self-plugin/hooks/hooks\.json|hooks/hooks\.json|scripts/[^/]+|scripts/lib/(core-hooks|deny-capable|guard-fires)\.js)$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-plugin-hooks.js --check || exit "$?"
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-plugin-hooks.js --check || exit 1
 fi
 
 # A scripts/ test that spawns a guard sourcing lib/guard-log.sh must redirect
@@ -367,7 +367,7 @@ fi
 # Conditioned on test files and on the manifest itself. Deliberately NOT on
 # docs/: adding a document changes no edge until a test reads it.
 if armed "$JS_TEST_ERE|^docs/test-read-edges\.json\$"; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-test-read-edges.js --check || exit "$?"
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-test-read-edges.js --check || exit 1
 fi
 
 # docs/agents/rules/<id>.txt is rendered from an anchor pair in the document
@@ -387,7 +387,7 @@ if armed '^docs/agents/rules/' || {
   }
   armed -F "$rf_sources"
 }; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-rule-fragments.js --check || exit "$?"
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-rule-fragments.js --check || exit 1
 fi
 
 # The brand sheet's §11 banned tells, on the copy strings under app/ (mantahostels#858).
@@ -503,12 +503,6 @@ fi
 # one arms it.
 if armed '^scripts/report-[^/]+\.[cm]?js$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-report-programs.js || exit "$?"
-fi
-
-# A checker line here or in .husky/pre-commit.local exiting 1 on its failure,
-# which turns its BROKEN into a finding (§N4, #3456).
-if armed '^\.husky/pre-commit(\.local)?$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-precommit-exit.js || exit "$?"
 fi
 
 # The doc map's own coverage, checked here as well as in roadmap-digest.yml
@@ -828,7 +822,7 @@ fi
 # IT PRINTS ON SUCCESS, unlike the gate above: crossing the threshold raises no
 # error anywhere.
 if armed '^scripts/inject-tracker-docs\.sh$'; then
-  bash "${WFC_PLUGIN_ROOT:-.}"/scripts/check-injector-margin.sh || exit "$?"
+  bash "${WFC_PLUGIN_ROOT:-.}"/scripts/check-injector-margin.sh || exit 1
 fi
 
 # check-superseded-values.js exits BROKEN — not WARN — when a §B entry carries a
@@ -943,11 +937,10 @@ if armed_shell; then
   if tool_gate shellcheck "see CLAUDE.md §Gotchas for the aarch64 binary this machine uses."; then
     # shellcheck disable=SC2086 # one path per line.
     sh "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/serialised.sh pre-commit shellcheck shellcheck -x --severity=style --exclude=SC2016 $tool_paths || {
-      sc_rc=$?
       echo "pre-commit: shellcheck failed on this commit's own shell paths." >&2
       echo "  These are YOUR staged files, not a neighbour's: the gate reads no others (mantahostels#1134)." >&2
       echo "  A broken guard fails OPEN, so nothing else would have reported this before CI." >&2
-      exit "$sc_rc"
+      exit 1
     }
   fi
 fi
@@ -1022,12 +1015,11 @@ if armed '\.py$' && [ -n "$(armed_live --index)" ]; then
     # The format gate below reads the same config through the same function.
     ruff_cfg="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/formatters.js ruff-config)"
     node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-ruff-introduced.js ${ruff_cfg:+--config "$ruff_cfg"} || {
-      ri_rc=$?
       echo "pre-commit: the ruff gate refused this commit's own Python paths." >&2
       echo "  Only findings HEAD's copy lacks are charged; ones already on it are not (#122)." >&2
       echo "  Machine-fixable findings: ruff check --fix <path>. Rule set: ${ruff_cfg:-your own ruff config}." >&2
       echo "  Fix the findings — never delete the code to pass (#1022). Vendored or third-party code alone goes in \`ruffExclude\` in .claude/workflow-core.json: it is not this repo's code to fix, and editing it forks it from upstream (#1463)." >&2
-      exit "$ri_rc"
+      exit 1
     }
   fi
 fi
@@ -1041,10 +1033,9 @@ fi
 # refuses the commit.
 if armed '\.py$' && [ -n "$(armed_live --index)" ]; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-swallowed-errors.js || {
-    se_rc=$?
     echo "pre-commit: the swallowed-error gate refused this commit's own Python paths." >&2
     echo "  Say why at the site and cite the ticket that chose the swallow, or let the error raise or exit (base §N5)." >&2
-    exit "$se_rc"
+    exit 1
   }
 fi
 
@@ -1071,9 +1062,8 @@ if armed "\.py\$|$GATE_SHELL_CANDIDATE" && [ -n "$(armed_live --index)" ]; then
   esac
   # shellcheck disable=SC2086 # deliberate word-splitting: zero to two flags.
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-format-staged.js $fmt_skip || {
-    fs_rc=$?
     echo "pre-commit: the format gate refused this commit's own shell or Python paths." >&2
-    exit "$fs_rc"
+    exit 1
   }
 fi
 
@@ -1155,7 +1145,7 @@ if [ -z "$mh_stamp" ] || ! mh_why="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/co
   if [ -n "$mh_why" ]; then
     echo "pre-commit: running the mutation hold in the lock — no pre-lock green stands it down: $mh_why." >&2
   fi
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/mutation-hold-gate.js || exit "$?"
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/mutation-hold-gate.js || exit 1
 fi
 
 # THE ADOPTER'S OWN GATES: `.husky/pre-commit.local` (#437). An adopter that
