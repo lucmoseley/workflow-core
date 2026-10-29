@@ -39,11 +39,6 @@
  * binary for `agent_id` on a subagent's `PreCompact` and `SessionStart`
  * payloads (lib/agent-id-probe.js). It edits no label (mantahostels#136).
  *
- * WFC_CANARY_CLAUDE replaces the `claude` binary; the tests stub the live
- * probe through it. Not WFC_CLAUDE_BIN: this machine points that at a wrapper
- * for `claude agents` (lib/oracle-cache.js), which a `-p` turn must not go
- * through.
- *
  * IMPLICIT:  at every session start, reads the installed Claude Code version; where no probe has passed on it, launches one detached `claude -p` haiku turn against a throwaway plugin, and prints a red verdict at each start until a version passes, or a fault reading its state file at the start that finds it (#3436). In the core's checkout, also reads the binary once per version for `agent_id` on a subagent's compaction payloads, and on finding it comments once on #1837 and prints it at each start.
  * JUSTIFIED: fail-safe — nothing else notices a harness update restoring the listing cost or breaking every description-less skill, and an unreadable version or a failed probe is silence at start, never a block. The agent_id probe replaces #1837's hand re-check per release (#2819).
  * DEFEAT:    none at the hook; a later version that passes ends it, and `--probe` re-runs the probe by hand for a red suspected false; `--probe-agent-id` re-reads the binary for a fixed suspected false.
@@ -58,6 +53,7 @@ const { writeFileAtomic } = require("./lib/atomic-write.js");
 const { runCheck } = require("./lib/check");
 const { probeAgentId } = require("./lib/agent-id-probe.js");
 const { caught } = require("./lib/caught.js");
+const { claudeBin } = require("./lib/claude-bin.js");
 const { parseJsonl } = require("./lib/jsonl.js");
 const { launchAuthRefusal } = require("./lib/launch-auth.js");
 const { readClaudeVersion } = require("./lib/claude-version.js");
@@ -82,7 +78,6 @@ const RETRY_MS = 6 * 3_600_000;
 /** Of a failed `claude -p`'s output, enough to name the error in one line; a guess. */
 const ERROR_CHARS = 200;
 
-const claudeBin = () => process.env.WFC_CANARY_CLAUDE || "claude";
 const statePath = () => path.join(configDir(), "wfc-harness-canary.json");
 const lockPath = () => path.join(configDir(), "wfc-harness-canary.lock");
 const rerun = (flag = "--probe") =>

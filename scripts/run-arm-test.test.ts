@@ -64,7 +64,7 @@ afterEach(() => {
 /** `plan` resolves the stub every case's `beforeEach` writes, which later stubs overwrite in place. */
 const planEnv = () => ({
 	...process.env,
-	WFC_ARM_CLAUDE_BIN: path.join(tmp, "claude"),
+	WFC_CLAUDE_BIN: path.join(tmp, "claude"),
 });
 
 const run = (args: string[], env: NodeJS.ProcessEnv = planEnv()) => {
@@ -121,7 +121,7 @@ describe("plan", () => {
 		fs.mkdirSync(bin);
 		fs.renameSync(path.join(tmp, "claude"), path.join(versions, STUB_VERSION));
 		fs.symlinkSync(path.join(versions, STUB_VERSION), path.join(bin, "claude"));
-		const { WFC_ARM_CLAUDE_BIN: _, ...env } = process.env;
+		const { WFC_CLAUDE_BIN: _, ...env } = process.env;
 		const root = path.join(tmp, "p");
 		expect(
 			run(planArgs(root, "1"), {
@@ -149,7 +149,7 @@ describe("plan", () => {
 			const root = path.join(tmp, path.basename(bin));
 			const r = run(planArgs(root, "1"), {
 				...process.env,
-				WFC_ARM_CLAUDE_BIN: bin,
+				WFC_CLAUDE_BIN: bin,
 			});
 			expect(r.code).toBe(2);
 			expect(r.err).toContain(why);
@@ -193,7 +193,7 @@ describe("launch", () => {
 			env: {
 				...process.env,
 				WFC_ARM_TASKS_CLI: builder,
-				WFC_ARM_CLAUDE_BIN: claudeStub(agents, log),
+				WFC_CLAUDE_BIN: claudeStub(agents, log),
 				WFC_ADMISSION_CLI: admission(2),
 			},
 			log,
@@ -383,7 +383,7 @@ const id="job"+Math.random().toString(16).slice(2,8);fs.appendFileSync(${JSON.st
 			env: {
 				...process.env,
 				WFC_ARM_TASKS_CLI: builder,
-				WFC_ARM_CLAUDE_BIN: file,
+				WFC_CLAUDE_BIN: file,
 				WFC_ADMISSION_CLI: admission,
 			},
 			jobs,
@@ -493,7 +493,7 @@ const id="job"+Math.random().toString(16).slice(2,8);fs.appendFileSync(${JSON.st
 		// No claude but the plan's, so the stop goes through it (#2289).
 		const r = run(runArgs(root, "--ceiling-min", "40"), {
 			...env,
-			WFC_ARM_CLAUDE_BIN: path.join(tmp, "absent"),
+			WFC_CLAUDE_BIN: path.join(tmp, "absent"),
 			WFC_STUB_EXTRA: extra,
 		});
 		expect(r.code).toBe(0);
@@ -660,7 +660,7 @@ const id="job"+Math.random().toString(16).slice(2,8);fs.appendFileSync(${JSON.st
 			onLaunch: `fs.rmSync(${JSON.stringify(link)});fs.symlinkSync(${JSON.stringify(newer)},${JSON.stringify(link)});`,
 		});
 		fs.symlinkSync(path.join(versions, STUB_VERSION), link);
-		const { WFC_ARM_CLAUDE_BIN: _, ...rest } = env;
+		const { WFC_CLAUDE_BIN: _, ...rest } = env;
 		const onPath = {
 			...rest,
 			PATH: `${bin}${path.delimiter}${process.env.PATH}`,
@@ -977,7 +977,7 @@ describe("report", () => {
 		];
 		const r = run(["report", "--root", root, "--baseline", "A", "--json"], {
 			...process.env,
-			WFC_ARM_CLAUDE_BIN: claudeStub(agents),
+			WFC_CLAUDE_BIN: claudeStub(agents),
 		});
 		expect(r.code).toBe(0);
 		const { rows, summary } = JSON.parse(r.out);
@@ -1019,7 +1019,7 @@ describe("report", () => {
 				"--json",
 				"--every-version",
 			],
-			{ ...process.env, WFC_ARM_CLAUDE_BIN: claudeStub(agents) },
+			{ ...process.env, WFC_CLAUDE_BIN: claudeStub(agents) },
 		);
 		const { rows, summary } = JSON.parse(r.out);
 		expect(summary.scored).toBe(3);
@@ -1039,7 +1039,7 @@ describe("report", () => {
 		];
 		const r = run(
 			["report", "--root", root, "--baseline", "A", "--json", "--periods", "3"],
-			{ ...process.env, WFC_ARM_CLAUDE_BIN: claudeStub(agents) },
+			{ ...process.env, WFC_CLAUDE_BIN: claudeStub(agents) },
 		);
 		const { periods, armByPeriod } = JSON.parse(r.out).summary.byPeriod;
 		expect(periods.map((p: { fromPair: number }) => p.fromPair)).toEqual([
@@ -1090,7 +1090,7 @@ describe("report", () => {
 				"--ceiling-min",
 				"60",
 			],
-			{ ...process.env, WFC_ARM_CLAUDE_BIN: claudeStub(agents) },
+			{ ...process.env, WFC_CLAUDE_BIN: claudeStub(agents) },
 		);
 		const { summary } = JSON.parse(r.out);
 		const [first, second] = summary.byPeriod.periods;
@@ -1122,7 +1122,7 @@ describe("report", () => {
 		);
 		const r = run(["report", "--root", root, "--baseline", "A", "--json"], {
 			...process.env,
-			WFC_ARM_CLAUDE_BIN: claudeStub(agents),
+			WFC_CLAUDE_BIN: claudeStub(agents),
 		});
 		const { spend } = JSON.parse(r.out).summary;
 		expect(spend.tokens.leftOut).toEqual([{ id: "r2", value: 0 }]);
@@ -1153,7 +1153,7 @@ describe("report", () => {
 		const r = run(["report", "--root", root, "--baseline", "A", "--json"], {
 			...process.env,
 			CLAUDE_PROJECT_DIR: ROOT,
-			WFC_ARM_CLAUDE_BIN: claudeStub(agents),
+			WFC_CLAUDE_BIN: claudeStub(agents),
 		});
 		const { secondary } = JSON.parse(r.out).summary;
 		expect(secondary.A).toMatchObject({
