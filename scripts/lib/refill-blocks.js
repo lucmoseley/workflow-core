@@ -107,6 +107,15 @@ const launchName = (l) => `${path.basename(l.root)} ${l.prompt}`;
 const indented = (text) => text.replace(/\n/g, "\n  ");
 
 /**
+ * A child run's log line: its label, its failure or `exit 0`, then its output
+ * indented under it.
+ * @param {string} label
+ * @param {{out: string, failed?: string|null}} ran
+ */
+const childLine = (label, ran) =>
+	`${label}: ${ran.failed ?? "exit 0"}\n  ${indented(ran.out)}`;
+
+/**
  * Whether the loop may act on `l`'s session: unfinished, tied to a job, and
  * not stopped already for a park.
  * @param {LoopLaunch} l
@@ -755,7 +764,10 @@ function handOff(b, { agents, now, io }, stopped = false) {
 	}
 	const r = io.postHandOff(b);
 	io.log(
-		`stopped ${launchName(l)}, idle after its resume, and handed it off: ${r.failed ?? "exit 0"}\n  ${indented(r.out)}`,
+		childLine(
+			`stopped ${launchName(l)}, idle after its resume, and handed it off`,
+			r,
+		),
 	);
 	const tries = (l.handOffTries ?? 0) + 1;
 	if (r.failed && tries < HAND_OFF_TRIES) return { ...l, handOffTries: tries };
@@ -962,6 +974,7 @@ function unknownNews(logged, key, reading) {
 module.exports = {
 	actOnBlocks,
 	actOnIdle,
+	childLine,
 	indented,
 	isHeld,
 	isResuming,

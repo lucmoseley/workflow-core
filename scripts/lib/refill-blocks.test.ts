@@ -19,6 +19,7 @@ import { API_PROMPT, IDLE_PROMPT } from "./loop-prompts.js";
 import {
 	actOnBlocks,
 	actOnIdle,
+	childLine,
 	isHeld,
 	markParked,
 	unknownNews,
@@ -905,5 +906,22 @@ describe("unknownNews (#3200)", () => {
 		expect(unknownNews(logged, "job43", unread("no job record"))).toBe(
 			"no job record",
 		);
+	});
+});
+
+describe("childLine (#3645)", () => {
+	it.each([
+		[
+			"an exit-0 run with output",
+			{ out: "filed #9\nfiled #10", failed: null },
+			"memory kills: exit 0\n  filed #9\n  filed #10",
+		],
+		[
+			"a failed run",
+			{ out: "boom", failed: "exit 1" },
+			"memory kills: exit 1\n  boom",
+		],
+	])("%s", (_, ran, line) => {
+		expect(childLine("memory kills", ran)).toBe(line);
 	});
 });
