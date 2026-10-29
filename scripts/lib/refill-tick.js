@@ -33,7 +33,7 @@
  * budget gate and never probed with `/usage` (#2611, spec #2570). Host
  * configuration, not code, because the plugin ships to adopters. Every
  * listing a tick and its reaper read must span them all
- * (scripts/refill-loop.js's union oracle).
+ * (scripts/refill-loop.js's LISTING).
  *
  * A failed read inside a tick is logged and the tick carries on with what it
  * has.

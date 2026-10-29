@@ -15,7 +15,9 @@
 
 const path = require("node:path");
 const fs = require("node:fs");
+const { sessionDirs } = require("./arbiter-core.js");
 const { caught } = require("./caught.js");
+const { realKey } = require("./deref.js");
 const { configDir } = require("./config-dir.js");
 const { homeDir } = require("./refill-repos.js");
 const { scriptPath } = require("./script-path.js");
@@ -161,7 +163,22 @@ function readConfiguredSeats() {
 	return [configDir()];
 }
 
-module.exports = { readConfiguredSeats, readDeclaredSeats, seatOf };
+/**
+ * The seats outside arbiter-core's sessionDirs(), so whose sessions no
+ * listing shows.
+ * @param {string[]} seats
+ */
+function unlistedSeats(seats) {
+	const listed = new Set(sessionDirs().map(realKey));
+	return seats.filter((s) => !listed.has(realKey(s)));
+}
+
+module.exports = {
+	readConfiguredSeats,
+	readDeclaredSeats,
+	seatOf,
+	unlistedSeats,
+};
 
 /*
  * CLI mode, for the dispatcher.

@@ -20,11 +20,10 @@
  * Each tick is lib/refill-tick.js's; the seats it reads, lib/refill-seats.js's;
  * what `start` and `status` print, lib/refill-commands.js's.
  *
- * UNION ORACLE: every listing the loop and its reaper read must span all its
- * seats, so the loop takes the union oracle as dispatch-sessions.sh does
- * where WFC_CLAUDE_BIN is unset. Without that wrapper, a launch on a seat
- * other than the loop's own is unlisted and judged finished once its grace
- * passes.
+ * LISTING: every listing the loop and its reaper read must span all its
+ * seats. lib/agent-liveness.js and lib/registry-agents.js both read
+ * arbiter-core's sessionDirs() (#3512), so a launch on a seat outside them is
+ * unlisted and judged finished once its grace passes; `start` warns of one.
  *
  * CODE: in a git checkout, the loop runs from a detached worktree of its own
  * at the verified ref's tip, never from the checkout `start` was typed in, and
@@ -56,6 +55,7 @@ const { buildBudgetLine, seatBudget } = require("./lib/overflow-budget.js");
 const {
 	readConfiguredSeats,
 	readDeclaredSeats,
+	unlistedSeats,
 } = require("./lib/refill-seats.js");
 const wakes = require("./lib/refill-wake.js");
 const { parseIssueNumbers } = require("./lib/issue-number.js");
@@ -224,9 +224,9 @@ function start(parsed) {
 	child.unref();
 	say(`refill loop started: pid ${child.pid}`);
 	for (const line of scopeText) say(line);
-	if (!env.WFC_CLAUDE_BIN && control.seats.length > 1)
+	for (const seat of unlistedSeats(control.seats))
 		say(
-			"WARNING: no union oracle, so launches on a seat other than this one go unlisted and are judged finished early.",
+			`WARNING: seat ${seat} is outside the dirs the agents listing reads, so its launches go unlisted and are judged finished early.`,
 		);
 	say(`log: ${files.log}`);
 	return 0;

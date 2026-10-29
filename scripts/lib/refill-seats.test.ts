@@ -12,8 +12,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readDeclaredSeats } from "./refill-seats.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readDeclaredSeats, unlistedSeats } from "./refill-seats.js";
 import { runInProcess } from "./run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "refill-seats.js");
@@ -23,7 +23,10 @@ beforeEach(() => {
 	home = fs.mkdtempSync(path.join(os.tmpdir(), "refill-seats-"));
 	fs.mkdirSync(path.join(home, ".claude"));
 });
-afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
+afterEach(() => {
+	vi.unstubAllEnvs();
+	fs.rmSync(home, { recursive: true, force: true });
+});
 
 const file = () => path.join(home, ".claude", "refill-seats");
 const parse = (text: string) => {
@@ -121,5 +124,17 @@ describe("the kind command", () => {
 		expect(r.status).toBe(2);
 		expect(r.stdout).toBe("");
 		expect(r.stderr).toContain(`${file()}:2: missing cycle-day=`);
+	});
+});
+
+describe("unlistedSeats", () => {
+	it("names only the seats arbiter-core's sessionDirs() leaves out", () => {
+		const own = path.join(home, ".claude");
+		const b = path.join(home, "plan-b");
+		const outside = path.join(home, "plan-elsewhere");
+		vi.stubEnv("CLAUDE_CONFIG_DIR", own);
+		vi.stubEnv("WFC_CLAUDE_CONFIG_B", b);
+
+		expect(unlistedSeats([own, b, outside])).toEqual([outside]);
 	});
 });
