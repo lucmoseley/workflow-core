@@ -229,10 +229,10 @@
 			"source": "#2790"
 		},
 		"scripts/lib/wide-read.js": {
-			"digest": "1ed371f04f11e372",
-			"verdict": "at need, all four limbs, before the read runs, warn only. Census Part 2's payload: `cat docs/reference-roadmap.html` (47,346 B) warned 791 B, and again on the same session's repeat (the Bash limbs are unlatched); `sed -n 1,400p scripts/lib/wide-read.js` 379 B; `awk 1 scripts/guard-*.js` 518 B; a `Read` of the roadmap with no limit 597 B at a 41-char root, the same session's second `Read` of it silent. The census's stray backslash in the cat limb's redirect example is gone. Aimed at the #3227 fold, which narrowed its Bash limbs to the row's unanchored `Bash(*cat *)`, `Bash(*sed *)`, `Bash(*awk *)` clauses: `X=1 cat …` and `true && cat …` warn 791 B; `timeout 5 cat …` reaches the core and passes silent, as `judge()` reads only the first word (#3519), as do `cat<file`, `cat … | head -50` and `cd docs && cat reference-roadmap.html` (relative to the hook's directory, per its LIMITS). Byte counts are the whole hook stdout; no other core spoke on these calls. Fed through scripts/guard-dispatch.js at 0e59b60a9 under #3443.",
+			"digest": "ed0d3f6f2f764c9e",
+			"verdict": "at need, all four limbs, before the read runs, warn only. Census Part 2's payload: `cat docs/reference-roadmap.html` (47,346 B) warned 791 B, and again on the same session's repeat (the Bash limbs are unlatched); `sed -n 1,400p scripts/lib/wide-read.js` 379 B; `awk 1 scripts/guard-*.js` 518 B; a `Read` of the roadmap with no limit 597 B at a 41-char root, the same session's second `Read` of it silent. The census's stray backslash in the cat limb's redirect example is gone. Aimed at the #3227 fold, which narrowed its Bash limbs to the row's unanchored `Bash(*cat *)`, `Bash(*sed *)`, `Bash(*awk *)` clauses: `X=1 cat …` and `true && cat …` warn 791 B, and so, past lib/shell-words.js's unwrap, do `timeout 5 cat …` and `nohup cat …` (re-fed at c703770af under #3519); `sh -c \"cat …\"` reaches the core and passes silent, as do `cat<file`, `cat … | head -50` and `cd docs && cat reference-roadmap.html` (relative to the hook's directory, per its LIMITS). Byte counts are the whole hook stdout; no other core spoke on these calls. Fed through scripts/guard-dispatch.js at 0e59b60a9 under #3443.",
 			"selfSufficient": "yes — every limb carries the concrete cheaper command for its own file inline; docs/agents/tool-output.md is named only for the why",
-			"source": "#2791, #3443"
+			"source": "#2791, #3443, #3519"
 		},
 		"scripts/lib/agent-poll.js": {
 			"digest": "e4ec485ff6da6bd0",
