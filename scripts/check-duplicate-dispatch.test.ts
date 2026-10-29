@@ -250,6 +250,19 @@ describe("the ledger limb — catches a set whose sessions have finished", () =>
 		expect(verdict("833,834").hits.map((h) => h.issue)).toEqual([834]);
 	});
 
+	it("holds a launch written after its job's release — an in-place resume (#3722)", () => {
+		const first = new Date(Date.now() - 60_000).toISOString();
+		const resumed = new Date().toISOString();
+		writeLedger([
+			{ ts: first, issues: [833], prompt: "/implement 833", jobId: "job1" },
+			{ ts: first, released: "job1" },
+			{ ts: resumed, issues: [833], prompt: "/implement 833", jobId: "job1" },
+		]);
+		const { hits } = verdict("833");
+		expect(hits).toHaveLength(1);
+		expect(hits[0]?.detail).toContain(`launched ${resumed}`);
+	});
+
 	it("treats a ledger that has never been written as clear, not as broken", () => {
 		const r = verdict("833");
 		expect(r.status).toBe(0);
