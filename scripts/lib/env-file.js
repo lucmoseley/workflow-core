@@ -6,7 +6,9 @@
  * Directory spec). `scripts/write-secret.js` writes it owner-only. It sits
  * outside every working tree, so a script that writes a relative `.env` from
  * whatever cwd it lands in cannot reach it (#3202). An absolute
- * WFC_SECRETS_FILE stands in for it, for tests only.
+ * WFC_SECRETS_FILE stands in for it, for tests only. Its directory holds a
+ * `.gitignore` of `*`, keeping it out of a bare dotfiles repository's `add`
+ * (#3539).
  *
  * A LINE is `NAME=value` or `export NAME = value`, the value trimmed and one
  * quote stripped from each end. The file's leading BOM and each line's
@@ -21,6 +23,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
 const { requiredGroup } = require("./regex-group");
 
@@ -134,10 +137,52 @@ function storedNames() {
 	return [...new Set(names.filter((name) => name !== undefined))];
 }
 
+/**
+ * Writes `<dir>/.gitignore` holding `*`, where anything else is there: git
+ * follows no symlinked `.gitignore`, so a symlink is replaced too (#3663).
+ * @param {string} dir
+ */
+function ignoreStore(dir) {
+	const ignore = path.join(dir, ".gitignore");
+	const st = fs.lstatSync(ignore, { throwIfNoEntry: false });
+	if (!st?.isFile() || fs.readFileSync(ignore, "utf8") !== "*\n")
+		writeFileAtomic(ignore, "*\n", { mode: 0o600 });
+}
+
+/**
+ * `readEnvFileValue` on the secrets file, then `ignoreStore` on its directory
+ * where its `.gitignore` is missing or a symlink (#3663). Under the WFC_SECRETS_FILE
+ * override it writes nothing: that file's directory may be a repository whose
+ * own `.gitignore` this would replace.
+ * @param {string} name
+ * @returns {string|null}
+ * @throws as `readEnvFileValue`, before anything is written
+ */
+function readSecretKeepingIgnore(name) {
+	const file = secretsFile();
+	const value = readEnvFileValue(file, name);
+	if (file === process.env.WFC_SECRETS_FILE) return value;
+	const dir = path.dirname(file);
+	try {
+		if (
+			fs
+				.lstatSync(path.join(dir, ".gitignore"), { throwIfNoEntry: false })
+				?.isFile()
+		)
+			return value;
+		ignoreStore(dir);
+	} catch {
+		/* The value is what the caller asked for (#3663). */
+	}
+	return value;
+}
+
 module.exports = {
 	assignsAcrossBreak,
+	ignoreStore,
 	parseEnvLine,
 	readEnvFileValue,
+	readSecretKeepingIgnore,
 	secretsFile,
 	splitEnvLines,
 	storedNames,
