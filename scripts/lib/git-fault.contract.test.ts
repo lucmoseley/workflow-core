@@ -75,6 +75,24 @@ describe.each(matches)("a %s match", (_, match) => {
 	});
 });
 
+describe("an all match whose script does not exit", () => {
+	let wrapper: ReturnType<typeof writeFaultyGit>;
+	beforeAll(() => {
+		wrapper = writeFaultyGit({ all: true }, { script: ":" });
+		dirs.push(wrapper.dir);
+	});
+
+	it.each(unmatched)("answers $args as git does", ({ args, input }) => {
+		expect(call(wrapper.git, args, input)).toEqual(
+			call(resolveRealGit(), args, input),
+		);
+	});
+
+	it("counts a hit for every argv", () => {
+		expect(wrapper.hits()).toBe(unmatched.length);
+	});
+});
+
 describe("a matched argv", () => {
 	it("exits with the code given, counting the hit", () => {
 		const w = writeFaultyGit({ argPrefix: "HEAD:" }, { exit: 7 });
@@ -102,6 +120,14 @@ describe("a matched argv", () => {
 		const some = ["diff", "--name-only"];
 		expect(call(w.git, some)).toEqual(call(resolveRealGit(), some));
 		expect(w.hits()).toBe(1);
+	});
+
+	it("faults every argv under an all match, counting each hit", () => {
+		const w = writeFaultyGit({ all: true }, { exit: 7 });
+		dirs.push(w.dir);
+		expect(call(w.git, ["--version"]).status).toBe(7);
+		expect(call(w.git, ["rev-parse", "HEAD"]).status).toBe(7);
+		expect(w.hits()).toBe(2);
 	});
 
 	it("runs a script body that sees the argv and $REAL_GIT, falling through to git where it does not exit", () => {

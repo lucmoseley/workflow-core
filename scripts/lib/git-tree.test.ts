@@ -3,9 +3,8 @@
  * Cases for scripts/lib/git-tree.js, the git calls the guard parser's git
  * walk takes (#2785): which tree a directory is, and which files a patch
  * touches. Against a real trio of repositories: `shared`, its linked worktree `wt`, and an unrelated
- * `elsewhere`. Where a case counts or slows git, the stub at lib/git.js's
- * WFC_GIT seam passes every call to the real binary; the case that must
- * outlive a timeout answers `git apply` from the fault fake instead.
+ * `elsewhere`. Where a case counts git's calls, slows git, or needs git to
+ * outlive a timeout, the fault fake sits at lib/git.js's WFC_GIT seam.
  *
  * The classifier keeps one outcome per git argument list for the process, so
  * every case asks of a directory no earlier case has named.
@@ -14,7 +13,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { resolveRealGit, shellQuote, writeFaultyGit } from "./git-fault-fake";
+import { shellQuote, writeFaultyGit } from "./git-fault-fake";
 import {
 	defineTemplate,
 	mkDirOutsideRepo,
@@ -57,19 +56,24 @@ const brokenRepo = () => {
 };
 
 /**
- * Point WFC_GIT at a stub that logs each call's arguments, waits `delay`
- * seconds, and runs the real git; `calls` reads the log.
+ * Point WFC_GIT at the fault fake as a pass-through: an `all` match whose
+ * script logs each call's arguments, waits `delay` seconds, and falls through
+ * to the real git; `calls` reads the log.
  */
 const stubGit = (delay = 0) => {
 	const at = fresh("stub");
-	const bin = path.join(at, "git");
 	const log = path.join(at, "calls");
-	fs.writeFileSync(
-		bin,
-		`#!/bin/sh\necho "$* @ $(pwd -P)" >> ${shellQuote(log)}\n${delay ? `sleep ${delay}\n` : ""}exec ${shellQuote(resolveRealGit())} "$@"\n`,
-		{ mode: 0o755 },
+	const { git } = writeFaultyGit(
+		{ all: true },
+		{
+			script: [
+				`echo "$* @ $(pwd -P)" >> ${shellQuote(log)}`,
+				...(delay ? [`sleep ${delay}`] : []),
+			].join("\n"),
+		},
+		{ under: at },
 	);
-	vi.stubEnv("WFC_GIT", bin);
+	vi.stubEnv("WFC_GIT", git);
 	return {
 		calls: () =>
 			fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n") : [],
