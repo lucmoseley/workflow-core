@@ -97,7 +97,7 @@ const {
 	isHookShim,
 	NO_CORE_FIX,
 } = require("./lib/adopter-skeleton.js");
-const { shellWord } = require("./lib/dirty-tree.js");
+const { shellQuote } = require("./lib/sh-quote.js");
 const {
 	predictedRefConflict,
 	refConflictExplanation,
@@ -153,20 +153,20 @@ function buildOwedBlock(root, pluginRoot) {
 		return null;
 	}
 	if (owed.length === 0) return null;
-	const cli = shellWord(`${pluginRoot}/scripts/steps-owed.js`);
+	const cli = shellQuote(`${pluginRoot}/scripts/steps-owed.js`);
 	const lines = [
 		`${owed.length} step${owed.length === 1 ? "" : "s"} owed from a prior walk, carried forward from its migration note:`,
 	];
 	for (const e of owed) {
 		lines.push(`  [${e.type}] (${e.tag}) ${e.text}`);
-		/* shellWord, never JSON.stringify's double quotes, inside which a step
+		/* shellQuote, never JSON.stringify's double quotes, inside which a step
 		 * text's backticks and `$` run when pasted (#430). */
 		if (e.type === "choice")
 			lines.push(
-				`    node ${cli} decline ${shellWord(e.tag)} ${shellWord(e.text)}`,
+				`    node ${cli} decline ${shellQuote(e.tag)} ${shellQuote(e.text)}`,
 			);
 		lines.push(
-			`    node ${cli} clear ${shellWord(e.tag)} ${e.type} ${shellWord(e.text)}`,
+			`    node ${cli} clear ${shellQuote(e.tag)} ${e.type} ${shellQuote(e.text)}`,
 		);
 	}
 	return lines.join("\n");
@@ -257,8 +257,8 @@ function buildHookRootBlock(root, runningRoot) {
 					"commits are judged by a different core than this session's guards.",
 			);
 	const upgrade = running
-		? `node ${shellWord(`${running}/scripts/upgrade.js`)} --root ${shellWord(root)} --plugin-root ${shellWord(running)}`
-		: `node <installed plugin root>/scripts/upgrade.js --root ${shellWord(root)} --plugin-root <installed plugin root>`;
+		? `node ${shellQuote(`${running}/scripts/upgrade.js`)} --root ${shellQuote(root)} --plugin-root ${shellQuote(running)}`
+		: `node <installed plugin root>/scripts/upgrade.js --root ${shellQuote(root)} --plugin-root <installed plugin root>`;
 	lines.push(
 		"Turn them into shims with upgrade.js, which rewrites every core hook on any run, up to date or not:",
 		`  ${upgrade}`,
@@ -441,8 +441,8 @@ function buildReport({ root, pluginRoot, runningRoot }) {
 	lines.push(
 		"",
 		"Put this to the founder as a priced yes/no. Record the answer once given — never invent another route (#245):",
-		`  node ${shellWord(consentCli)} accept  ${shellWord(root)} ${shellWord(state.pin.ref)}`,
-		`  node ${shellWord(consentCli)} decline ${shellWord(root)} ${shellWord(state.pin.ref)}`,
+		`  node ${shellQuote(consentCli)} accept  ${shellQuote(root)} ${shellQuote(state.pin.ref)}`,
+		`  node ${shellQuote(consentCli)} decline ${shellQuote(root)} ${shellQuote(state.pin.ref)}`,
 	);
 	return join(lines.join("\n"));
 }

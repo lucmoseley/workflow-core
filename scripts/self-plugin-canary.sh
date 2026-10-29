@@ -37,7 +37,7 @@ fault=""
 
 # shellcheck disable=SC2329 # invoked by the EXIT trap below, which shellcheck does not follow
 refuse() {
-  local root common main="" setup quote="'" quote_escaped="'\\''"
+  local root common main="" setup
   # The main checkout, never a worktree: a marketplace registered at a
   # worktree breaks once the worktree is deleted (#2461). DUPLICATED BY HAND
   # from lib/main-checkout.js's mainCheckout, since this runs with no node.
@@ -46,7 +46,9 @@ refuse() {
     [[ "$common" == */.git ]] && main="${common%/.git}"
   main="${main:-<absolute path to the main checkout>}"
   # DUPLICATED BY HAND as lib/core-hooks.js's selfPluginSetup.
-  setup="claude plugin marketplace add '${main//"$quote"/"$quote_escaped"}/self-plugin' --scope user"
+  # shellcheck source=scripts/lib/script-path.sh
+  source "$here/lib/script-path.sh"
+  setup="claude plugin marketplace add $(sp_shell_word "$main/self-plugin") --scope user"
   [[ -n "$fault" ]] && printf 'The self-plugin canary could not check this session (%s), so it refuses as if the self-plugin had not loaded.\n\n' "$fault" >&2
   cat >&2 <<EOF
 Refused: the wfc-self self-plugin did not load in this session, so none of workflow-core's guards are running here. They register from self-plugin/hooks/hooks.json, which loads only once its marketplace is set up on this machine.

@@ -154,37 +154,3 @@ describe("readUntrackedEntries", () => {
 		expect(tree.readUntrackedEntries(outside)).toBeNull();
 	});
 });
-
-describe("shellWord", () => {
-	it("leaves an ordinary path bare", () => {
-		expect(tree.shellWord("scripts/lib/dirty-tree.js")).toBe(
-			"scripts/lib/dirty-tree.js",
-		);
-	});
-
-	it("quotes a path holding a space", () => {
-		expect(tree.shellWord("two words.txt")).toBe("'two words.txt'");
-	});
-
-	it("survives a path holding a single quote", () => {
-		// The escape has to close, escape and reopen.
-		const quoted = tree.shellWord("it's.txt");
-		expect(quoted).toBe(`'it'\\''s.txt'`);
-		expect(
-			execFileSync("sh", ["-c", `printf %s ${quoted}`], {
-				encoding: "utf8",
-			}),
-		).toBe("it's.txt");
-	});
-
-	it("leaves a ref or script name bare, and quotes a ~ bash would expand (#2284)", () => {
-		const words = ["HEAD~1", "test:changed", "--full=flake", "~/x", "a=~/x"];
-		const shell = words.map(tree.shellWord);
-		expect(shell.slice(0, 3)).toEqual(words.slice(0, 3));
-		expect(
-			execFileSync("bash", ["-c", `printf '%s\\n' ${shell.join(" ")}`], {
-				encoding: "utf8",
-			}),
-		).toBe(`${words.join("\n")}\n`);
-	});
-});

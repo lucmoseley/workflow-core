@@ -100,7 +100,8 @@
 const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const { docPath } = require("./lib/script-path.js");
-const { shellWord, readUntrackedEntries } = require("./lib/dirty-tree.js");
+const { readUntrackedEntries } = require("./lib/dirty-tree.js");
+const { shellQuote } = require("./lib/sh-quote.js");
 const { listedAgents } = require("./lib/agent-liveness");
 const { earliestStart, writtenAtMs } = require("./lib/scratch-sweep");
 const { hostRoot } = require("./lib/host-root.js");
@@ -260,7 +261,7 @@ function sayBucket(ctx, { paths, heading, listAll, remedy }) {
 	const hidden = paths.length - named.length;
 
 	ctx.say(heading);
-	for (const p of named) ctx.say(`  ${shellWord(p)}`);
+	for (const p of named) ctx.say(`  ${shellQuote(p)}`);
 	if (hidden) {
 		ctx.say(`  … and ${hidden} more, not listed. See them all:`);
 		ctx.say(`    ${listAll}`);

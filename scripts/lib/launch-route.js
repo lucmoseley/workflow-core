@@ -6,7 +6,7 @@
  * exported for the test (#1633).
  */
 
-const { shellWord } = require("./dirty-tree.js");
+const { shellQuote } = require("./sh-quote.js");
 const { RETEST_FLAG } = require("./test-pass-marker.js");
 const { JS_TEST_FILE } = require("./test-kind.js");
 const { runnerTestFileCount } = require("./suite-bounded.js");
@@ -275,7 +275,7 @@ function npmSwallowedRefusal(argv, env) {
 		.map((w) => w.replace(/^["']|["']$/g, ""));
 	const runner = script.findIndex((w) => w.endsWith("run-vitest.js"));
 	const baked = runner === -1 ? 0 : script.length - runner - 1;
-	const typed = argv.slice(baked).map(shellWord);
+	const typed = argv.slice(baked).map(shellQuote);
 	const takingWords = swallowed.filter(
 		({ flag, word }) => VALUED_FLAGS.has(flag) && word === flag,
 	);
@@ -287,7 +287,7 @@ function npmSwallowedRefusal(argv, env) {
 		: [...swallowed.map(({ word }) => word), ...typed];
 	const command = [
 		"npm run",
-		shellWord(env.npm_lifecycle_event || "test"),
+		shellQuote(env.npm_lifecycle_event || "test"),
 		"--",
 		...words,
 	].join(" ");

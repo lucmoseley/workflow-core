@@ -8,13 +8,17 @@
 
 /**
  * `s` as one sh word: bare where every character is safe, single-quoted
- * otherwise, the empty string included. As with shlex.quote, a bare
- * `NAME=value` placed first in a command reads as an assignment.
+ * otherwise, the empty string included. A `~` is safe only where bash never
+ * expands it: not first, nor after `=` or `:` (#2284), so `HEAD~1` stays bare.
+ * As with shlex.quote, a bare `NAME=value` placed first in a command reads as
+ * an assignment.
  * @param {string} s
  * @returns {string}
  */
 function shellQuote(s) {
-	return /^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`;
+	return /^(?!~)(?!.*[=:]~)[\w@%+=:,./~-]+$/.test(s)
+		? s
+		: `'${s.replace(/'/g, `'\\''`)}'`;
 }
 
 module.exports = { shellQuote };

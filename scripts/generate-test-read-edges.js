@@ -35,6 +35,7 @@ const { flagValue, parseOrCode } = require("./lib/cli-args.js");
 const { gitList } = require("./lib/test-read-edges.js");
 const { execGit, GIT_TIMEOUT_MS } = require("./lib/git.js");
 const { OUT, hasHead, render } = require("./lib/read-edges-render.js");
+const { shellQuote } = require("./lib/sh-quote.js");
 
 /**
  * Files this render actually read — every test file `buildManifest` scanned
@@ -145,10 +146,8 @@ function regenerateCommand(root, text) {
 			"-z",
 			"HEAD",
 		]).filter((p) => p !== OUT);
-		const q = (/** @type {string} */ p) =>
-			/^[\w./@+-]+$/.test(p) ? p : `'${p.replaceAll("'", "'\\''")}'`;
 		return (
-			`${plain} -- --only ${[...paths, OUT].map(q).join(" ")}\n` +
+			`${plain} -- --only ${[...paths, OUT].map(shellQuote).join(" ")}\n` +
 			"  (the tree holds changes this commit leaves out, so a plain regenerate would not converge)"
 		);
 	} catch {

@@ -116,7 +116,7 @@ const { writeFileAtomic } = require("./lib/atomic-write.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { caught } = require("./lib/caught.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
-const { shellWord } = require("./lib/dirty-tree.js");
+const { shellQuote } = require("./lib/sh-quote.js");
 const { failOpenLogger } = require("./lib/fail-open-logger.js");
 const { parseErrorFirstLine, parseFirstLine } = require("./lib/first-line.js");
 const { hostRoot } = require("./lib/host-root.js");
@@ -975,7 +975,7 @@ function runStryker({ root, work, mutate, tree, voice }) {
 	const r = runInTree(
 		root,
 		tree,
-		`${shellWord(stryker)} run ${shellWord(configPath)}`,
+		`${shellQuote(stryker)} run ${shellQuote(configPath)}`,
 	);
 	// Its results hold whatever the verdict, a refusing one included.
 	writeBackCache(incremental, cache, seeded, voice);

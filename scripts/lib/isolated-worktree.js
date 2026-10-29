@@ -26,7 +26,7 @@ const {
 const fs = require("node:fs");
 const path = require("node:path");
 const { pidAlive } = require("./arbiter-proc.js");
-const { shellWord } = require("./dirty-tree.js");
+const { shellQuote } = require("./sh-quote.js");
 const { caught } = require("./caught.js");
 const { isUnder } = require("./is-under.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
@@ -146,7 +146,7 @@ function removeIsolated(
 		);
 	} catch (error) {
 		err.write(
-			`isolated worktree: could not remove the worktree at ${dir} (${error}) — remove it by hand with \`git worktree remove --force ${shellWord(dir)}\`.\n`,
+			`isolated worktree: could not remove the worktree at ${dir} (${error}) — remove it by hand with \`git worktree remove --force ${shellQuote(dir)}\`.\n`,
 		);
 	}
 }

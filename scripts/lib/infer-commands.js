@@ -16,6 +16,7 @@ const { caught } = require("./caught.js");
 const { isNpmRun } = require("./npm-options.js");
 const { isOpaque, tokenise } = require("./shell-tokens.js");
 const { writeFd } = require("./write-fd.js");
+const { shellQuote } = require("./sh-quote.js");
 
 /** @typedef {import("./shell-tokens.js").Word} Word */
 /** @typedef {import("./shell-tokens.js").Token} Token */
@@ -196,13 +197,6 @@ function handedWords(runner, words) {
 			: words;
 	return kept.map((w) => ({ ...w, quoted: false }));
 }
-
-/* What `sh -c` reads as a literal word unquoted. */
-const SHELL_SAFE = /^[\w@%+=:,./-]+$/;
-
-/** `text` as one word `sh -c` passes on exactly (#3545). @param {string} text */
-const shellQuote = (text) =>
-	SHELL_SAFE.test(text) ? text : `'${text.replaceAll("'", "'\\''")}'`;
 
 /** @param {Word[]} words */
 const showHanded = (words) =>

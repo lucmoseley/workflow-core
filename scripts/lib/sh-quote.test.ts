@@ -37,4 +37,14 @@ describe("shellQuote", () => {
 		);
 		expect(out.split("\0").slice(0, -1)).toEqual(words);
 	});
+
+	it("quotes every ~, so bash expands none (#2284)", () => {
+		const words = ["~/x", "a=~/x", "HEAD~1", "PATH=a:~/b"];
+		const out = execFileSync(
+			"bash",
+			["-c", `printf '%s\\0' ${words.map(shellQuote).join(" ")}`],
+			{ encoding: "utf8" },
+		);
+		expect(out.split("\0").slice(0, -1)).toEqual(words);
+	});
 });

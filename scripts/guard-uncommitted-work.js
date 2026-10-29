@@ -88,8 +88,8 @@ const {
 	REFUSAL_NAMED_MAX,
 	readDirtyTracked,
 	gitRead,
-	shellWord,
 } = require("./lib/dirty-tree.js");
+const { shellQuote } = require("./lib/sh-quote.js");
 const { gitCommonDir, GIT_TIMEOUT_MS } = require("./lib/git.js");
 const hookBlock = require("./lib/hook-block");
 const store = require("./lib/arbiter-store");
@@ -285,7 +285,7 @@ function refuseUncommitted(payload, sid) {
 	if (mine.length === 0) return false;
 
 	const truncated = mine.length > REFUSAL_NAMED_MAX;
-	const named = mine.slice(0, REFUSAL_NAMED_MAX).map(shellWord);
+	const named = mine.slice(0, REFUSAL_NAMED_MAX).map(shellQuote);
 	const list = truncated
 		? `${named.join(" ")} (and ${String(mine.length - named.length)} more)`
 		: named.join(" ");

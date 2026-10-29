@@ -43,7 +43,7 @@ const {
 /** @typedef {import("./lib/test-pass-marker.js").Unattested} Unattested */
 const { pushGateState } = require("./lib/test-gate.js");
 const { caught } = require("./lib/caught.js");
-const { shellWord } = require("./lib/dirty-tree.js");
+const { shellQuote } = require("./lib/sh-quote.js");
 const { pushedRef } = require("./lib/landing-refs.js");
 const { execGit } = require("./lib/git.js");
 
@@ -138,7 +138,7 @@ function buildOwnerAdviceLines(
 		...(adopted.length > 0
 			? [
 					`   ${list(orphans)}: made by session(s) that have ended${live ? "" : ", or that an unreadable sessions registry cannot call live"} — adopt them with one run, then push (#1213):`,
-					`     ${gate} -- --adopt ${adopted.map((u) => shellWord(u.path)).join(" ")}`,
+					`     ${gate} -- --adopt ${adopted.map((u) => shellQuote(u.path)).join(" ")}`,
 				]
 			: []),
 	];

@@ -198,23 +198,10 @@ function readUntrackedEntries(root) {
 	return paths.sort();
 }
 
-/**
- * A string as a single shell word, quoted only where it needs it, so a
- * pasted command survives a space, a quote, `$` or a backtick. A `~` goes
- * unquoted only where bash never expands it: not first, nor after `=` or `:`.
- * @param {string} p
- */
-function shellWord(p) {
-	return /^(?!~)(?!.*[=:]~)[\w./:=@%+,~-]+$/.test(p)
-		? p
-		: `'${p.replaceAll("'", `'\\''`)}'`;
-}
-
 module.exports = {
 	REFUSAL_NAMED_MAX,
 	readDirtyTracked,
 	gitRead,
-	shellWord,
 	readTrackedStatus,
 	readUntrackedEntries,
 	readUntrackedFiles,

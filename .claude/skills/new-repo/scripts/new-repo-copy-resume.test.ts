@@ -11,6 +11,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { shellQuote } from "../../../../scripts/lib/sh-quote.js";
 import {
 	cleanRun,
 	HAS_GITLEAKS,
@@ -103,7 +104,7 @@ describe.skipIf(!HAS_GITLEAKS)(
 			const r = s.run();
 			expect(r.status, r.stdout).toBe(0);
 			expect(r.stdout).toContain(
-				`This is a workflow-core checkout. Once per machine, first run:\nclaude plugin marketplace add '${s.clone}/self-plugin' --scope user\n\nOpen a new terminal tab`,
+				`This is a workflow-core checkout. Once per machine, first run:\nclaude plugin marketplace add ${shellQuote(`${s.clone}/self-plugin`)} --scope user\n\nOpen a new terminal tab`,
 			);
 		}, 170_000);
 

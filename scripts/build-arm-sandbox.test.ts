@@ -17,6 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const ROOT = path.resolve(__dirname, "..");
 const cliPath = path.join(ROOT, "scripts", "build-arm-sandbox.js");
@@ -681,7 +682,7 @@ describe("task: one run's sandbox", () => {
 		expect(r.code).toBe(1);
 		expect(r.err).toContain("the revision enables wfc-self@wfc-self but");
 		expect(r.err).toContain(
-			`CLAUDE_CONFIG_DIR=${configDir} claude plugin marketplace add '${path.join(tmp, "run-1", "repo")}/self-plugin' --scope user`,
+			`CLAUDE_CONFIG_DIR=${configDir} claude plugin marketplace add ${shellQuote(`${path.join(tmp, "run-1", "repo")}/self-plugin`)} --scope user`,
 		);
 	});
 });

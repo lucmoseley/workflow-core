@@ -18,6 +18,7 @@ const { caught } = require("./caught.js");
 const { mainCheckout } = require("./main-checkout.js");
 const { writeFd } = require("./write-fd.js");
 const { execGit } = require("./git.js");
+const { shellQuote } = require("./sh-quote.js");
 
 const SELF_PLUGIN_DIR = "self-plugin";
 const SELF_PLUGIN_HOOKS = `${SELF_PLUGIN_DIR}/hooks/hooks.json`;
@@ -443,7 +444,7 @@ function selfPluginSetup(root) {
 	/* Never a worktree: a marketplace registered at one breaks once the
 	 * worktree is deleted (#2461). */
 	const dir = `${mainCheckout(root) ?? "<absolute path to the main checkout>"}/${SELF_PLUGIN_DIR}`;
-	return `claude plugin marketplace add '${dir.replace(/'/g, "'\\''")}' --scope user`;
+	return `claude plugin marketplace add ${shellQuote(dir)} --scope user`;
 }
 
 /**

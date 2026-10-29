@@ -43,6 +43,7 @@ import SUB_ISSUES_NOT_FOUND from "./fixtures/gh/sub-issues-not-found.json" with 
 import TIMELINE_PAGE from "./fixtures/gh/timeline-page.json" with {
 	type: "json",
 };
+import { shellQuote } from "./sh-quote.js";
 
 /** What one gh call answers: its exit status and both streams, verbatim. */
 export interface GhAnswer {
@@ -85,14 +86,11 @@ export function ghServe({
 
 export const ghFake = (fixture: string) => ghServe(ghAnswer(fixture));
 
-/** `s` as one single-quoted shell word. */
-export const quoted = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
-
 /** The shell lines that print `answer`, for a stub's own `case` arm. */
 export function ghServeLines({ status, stdout, stderr }: GhAnswer): string {
 	return (
-		(stdout ? `printf '%s' ${quoted(stdout)}\n` : "") +
-		(stderr ? `printf '%s' ${quoted(stderr)} >&2\n` : "") +
+		(stdout ? `printf '%s' ${shellQuote(stdout)}\n` : "") +
+		(stderr ? `printf '%s' ${shellQuote(stderr)} >&2\n` : "") +
 		`exit ${status}\n`
 	);
 }

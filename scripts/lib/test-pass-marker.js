@@ -59,7 +59,7 @@ const { delta: cpuDelta } = require("./cpu-sample.js");
 const idSeam = require("./session-id.js");
 const { readCommandOrDefault } = require("./workflow-core-config.js");
 const { pushedRef, VERIFIED_REF } = require("./landing-refs.js");
-const { shellWord } = require("./dirty-tree.js");
+const { shellQuote } = require("./sh-quote.js");
 const { JS_TEST_FILE } = require("./test-kind.js");
 const { appendLedgerLine } = require("./run-ledger.js");
 
@@ -384,7 +384,7 @@ function failureRecoveryCommand(root, marker) {
 	const at = JSON.stringify(marker.at);
 	const sha = JSON.stringify(marker.sha);
 	const script = `const fs=require("fs");let n=0;for(const p of ${files}){let t="";try{t=fs.readFileSync(p,"utf8")}catch{}for(const l of t.split("\\n")){let m;try{m=JSON.parse(l)}catch{continue}if(m.at!==${at}||m.sha!==${sha})continue;n++;for(const f of (m.scope?.failures??[]))console.log(f.file,"—",f.tests.join(", "))}}if(!n)console.log("no line for this run in either store")`;
-	return `node -e '${script.replace(/'/g, "'\\''")}'`;
+	return `node -e ${shellQuote(script)}`;
 }
 
 /**
@@ -1970,7 +1970,7 @@ const namesTests = (u) => (u.tests?.length ?? 0) > 0;
 function retestCommand(unattested, gate) {
 	const tests = [...new Set(unattested.flatMap((u) => u.tests ?? []))].sort();
 	return tests.length > 0
-		? `${gate} -- ${RETEST_FLAG} ${tests.map(shellWord).join(" ")}`
+		? `${gate} -- ${RETEST_FLAG} ${tests.map(shellQuote).join(" ")}`
 		: null;
 }
 

@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenLog } from "./guard-log-fixture";
 import { sweptMarkers } from "./lib/arbiter-testkit";
 import { initGitRepo } from "./lib/git-fixture";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const CANARY = path.resolve(__dirname, "self-plugin-canary.sh");
 const WRITER = path.resolve(__dirname, "write-self-plugin-marker.sh");
@@ -170,12 +171,12 @@ describe("the setup line", () => {
 		return at;
 	}
 
-	it("names the checkout the session runs in, quoted", () => {
+	it("names the checkout the session runs in, quoted as sh-quote.js quotes it", () => {
 		const main = checkout("main");
 		const r = call(bash(SID), { CLAUDE_PROJECT_DIR: main });
 		expectRefused(r, main);
 		expect(r.stderr).toContain(
-			`\n! claude plugin marketplace add '${main}/self-plugin' --scope user\n`,
+			`\n! claude plugin marketplace add ${shellQuote(`${main}/self-plugin`)} --scope user\n`,
 		);
 	});
 

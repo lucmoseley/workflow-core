@@ -56,7 +56,8 @@ const { createHash } = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { brokenError, runCheck } = require("./lib/check");
-const { readDirtyTracked, gitRead, shellWord } = require("./lib/dirty-tree.js");
+const { readDirtyTracked, gitRead } = require("./lib/dirty-tree.js");
+const { shellQuote } = require("./lib/sh-quote.js");
 const { gitCommonDir, GIT_TIMEOUT_MS } = require("./lib/git.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { readDistinctFromHint } = require("./lib/similar-titles.js");
@@ -209,7 +210,7 @@ function readLiveSessionPaths(listed) {
 
 /** @param {Orphan} o */
 function buildCommands(o) {
-	const p = shellWord(o.path);
+	const p = shellQuote(o.path);
 	return {
 		inspect: `git diff HEAD -- ${p}`,
 		commit: `git commit -m "<why, in plain language>" -- ${p}`,
