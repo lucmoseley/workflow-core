@@ -157,7 +157,7 @@
 			"source": "#3143, #3201, #3411"
 		},
 		"scripts/lib/issue-create-label.js": {
-			"digest": "3b06f510e7cd96f4",
+			"digest": "89cdeca663f2f70e",
 			"verdict": "at need — a create with no takes: label is refused on the flag, REST and GraphQL routes (1372–1427 B), as is a misspelt value (1360 B, re-fed under #3269), a blank `--body \"\"` or a missing body file (803/866 B), a blank REST `-f body=` (489 B, fed under #3492, naming the `-F body=@<path>` spelling), a REST body failing the basis or check limb as the flag form's does, and a takes:human create or relabel failing its body checks (2242/2215 B). A GraphQL create with labelIds gets a warn instead (839 B). A valid label and mentions pass silent. A relabel whose body fetch fails or hangs fails open, logged; the hang is cut at 3.2 s by the host's 3 s gh timeout. A throw in the core refuses, 195 B, logged (fed through scripts/guard-dispatch.js at 5c45b5a16 under #3201). Byte counts are the whole hook stdout.",
 			"selfSufficient": "yes for the fix — the seven values are inline in both refusals, and the missing-label refusal adds a corrected command keeping your own labels plus the file-issue.js route. The misspelt-value refusal gives the values but no corrected command. What each value routes to is still only pointed at. With the rule unreadable it still refuses (797 B) with the values, the fix and the rule file. A throw's refusal names only the core and the error",
 			"source": "#3143, #3201, #3269, #3492"
