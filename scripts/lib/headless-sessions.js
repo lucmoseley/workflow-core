@@ -135,11 +135,14 @@ function freshRunDir() {
 }
 
 /**
- * Launch a headless run on an overflow seat.
- * @param {{seat: string, cwd: string, budgetUsd: number, prompt: string}} opts
+ * Launch a headless run on an overflow seat. `resume`, a session id, continues
+ * that session with `prompt` as its next turn, as the founder answering one
+ * that ended on a question (#3685).
+ * @param {{seat: string, cwd: string, budgetUsd: number, prompt: string,
+ *   resume?: string}} opts
  * @returns {{record: RunRecord}|{why: string}}
  */
-function launch({ seat: seatDir, cwd, budgetUsd, prompt }) {
+function launch({ seat: seatDir, cwd, budgetUsd, prompt, resume }) {
 	const list = readDeclaredSeats();
 	if (list.errors.length > 0) return { why: list.errors.join("\n") };
 	const seat = seatOf(list, seatDir);
@@ -168,7 +171,7 @@ function launch({ seat: seatDir, cwd, budgetUsd, prompt }) {
 	env.CLAUDE_JOB_DIR = jobDir;
 	const log = path.join(dir, "out.jsonl");
 	const stderr = path.join(dir, "stderr.log");
-	const sessionId = crypto.randomUUID();
+	const sessionId = resume ?? crypto.randomUUID();
 	const helper = [process.execPath, __filename, "key", seat.keyVar, key.file]
 		.map(shellQuote)
 		.join(" ");
@@ -179,7 +182,7 @@ function launch({ seat: seatDir, cwd, budgetUsd, prompt }) {
 		claudeBin(),
 		[
 			"-p",
-			"--session-id",
+			resume ? "--resume" : "--session-id",
 			sessionId,
 			"--output-format",
 			"stream-json",
