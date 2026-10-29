@@ -1003,6 +1003,9 @@ describe("write-secret", () => {
 		).toBe(SECRET);
 	});
 
+	/* Where write-secret.js runs `ls` from. */
+	const FixedLs = ["/usr/bin/ls", "/bin/ls"];
+
 	/* Hides every fixed-path `ls`, as on a host with none. Spied, as a test
 	 * cannot remove root's own `ls`. */
 	const noTrustedLs = () => {
@@ -1011,7 +1014,7 @@ describe("write-secret", () => {
 			p: fs.PathLike,
 			...rest: [never]
 		) => {
-			if (p === "/usr/bin/ls" || p === "/bin/ls")
+			if (FixedLs.includes(String(p)))
 				throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
 			return real(p, ...rest);
 		}) as typeof fs.statSync);
@@ -1031,8 +1034,10 @@ describe("write-secret", () => {
 	);
 
 	/* Has root's own `ls` answer `--version` as `version`, every other call
-	 * reaching the host's `ls`. Spied, as a test cannot swap root's `ls`;
-	 * write-secret.js binds execFileSync at load, which `run` repeats. */
+	 * reaching the host's `ls`. Spied, as a test cannot swap root's `ls`, and
+	 * write-secret.js takes no variable naming another: it runs `ls` only from
+	 * a fixed root-owned path, so no environment can feed it a lying one
+	 * (#3715). write-secret.js binds execFileSync at load, which `run` repeats. */
 	const lsVersion = (version: string) => {
 		const cp = require("node:child_process");
 		const real = cp.execFileSync;
@@ -1041,7 +1046,7 @@ describe("write-secret", () => {
 			args: string[],
 			...rest: [never]
 		) =>
-			(file === "/usr/bin/ls" || file === "/bin/ls") && args[0] === "--version"
+			FixedLs.includes(file) && args[0] === "--version"
 				? `${version}\n`
 				: real(file, args, ...rest)) as typeof cp.execFileSync);
 	};
@@ -1065,19 +1070,33 @@ describe("write-secret", () => {
 		},
 	);
 
-	it.each([
-		["ls (uutils coreutils) 0.2.2", 0],
-		["ls (uutils coreutils) 0.0.23", 1],
-		["ls (BusyBox) 1.36", 1],
-	])(
-		"judges a directory writable only by the user's private group under %s by whether that `ls` marks an ACL (#3737)",
-		(version, status) => {
+	it.each(["ls (uutils coreutils) 0.2.2", "ls (uutils coreutils) 1.0.0"])(
+		"writes under a directory writable only by the user's private group, under %s (#3737)",
+		(version) => {
 			lsVersion(version);
 			fakeUserDb({});
+			const xdg = path.join(groupShared(), "cfg");
+			expect(run(["K"], SECRET, { XDG_CONFIG_HOME: xdg }).status).toBe(0);
+			expect(
+				readEnvFileValue(path.join(xdg, "workflow-core", "secrets.env"), "K"),
+			).toBe(SECRET);
+		},
+	);
+
+	it.each(["ls (uutils coreutils) 0.0.23", "ls (BusyBox) 1.36"])(
+		"refuses with exit 1, writing nothing, under a directory writable only by the user's private group, under %s, which marks no ACL (#3737)",
+		(version) => {
+			lsVersion(version);
+			fakeUserDb({});
+			const shared = groupShared();
 			const r = run(["K"], SECRET, {
-				XDG_CONFIG_HOME: path.join(groupShared(), "cfg"),
+				XDG_CONFIG_HOME: path.join(shared, "cfg"),
 			});
-			expect(r.status).toBe(status);
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain(
+				whyAbove(shared, "is writable by others and not sticky"),
+			);
+			expect(fs.readdirSync(shared)).toEqual([]);
 		},
 	);
 

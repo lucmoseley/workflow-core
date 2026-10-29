@@ -70,7 +70,9 @@
  * `ls` built without ACL support, whose gnulib predates its NFSv4 reader or
  * misses the ACL where Linux 6.12+ NFS answers EACCES, or whose entries name
  * only OWNER@, GROUP@ and EVERYONE@, which gnulib calls trivial whatever they
- * grant.
+ * grant. uutils' `ls` marks any extended attribute, so under it every
+ * directory on an NFSv4 mount whose server supports ACLs is refused, the
+ * client listing `system.nfs4_acl` on each.
  *
  * A MOUNT WHOSE SERVER DECIDES ACCESS IS REFUSED (#3726): the file's
  * directory, or a directory above it, on CIFS/SMB, 9p (WSL 2's drvfs, as
@@ -367,15 +369,15 @@ const NFS_MAGIC = 0x69_69;
 
 /**
  * Why directory `d` may let another user in by an NFSv4 ACL, or null: it lies
- * on NFS and `ls` marks an ACL on it, reading `system.nfs4_acl` as well as
- * POSIX's (#3724). Elsewhere a POSIX ACL is judged by the group bits, its
+ * on NFS and `ls` marks an ACL on it, GNU's reading `system.nfs4_acl` as
+ * well as POSIX's, uutils' marking any extended attribute (#3724, #3737). Elsewhere a POSIX ACL is judged by the group bits, its
  * mask, so a read-only entry passes. Where `ls` marks no ACL, none is seen,
  * so none is judged there.
  * @param {string} d
  * @returns {string | null}
  */
 function nfsAclWhy(d) {
-	if (!isOnNfs(d) || !lsMarksAcl() || isAclUnmarked(d)) return null;
+	if (!isOnNfs(d) || !isAclMarkingLs() || isAclUnmarked(d)) return null;
 	return "carries an ACL on NFS, where an NFSv4 entry can grant another user access no mode bit shows";
 }
 
@@ -436,10 +438,10 @@ function remoteAccessWhy(d) {
  * @returns {boolean}
  */
 function hasAcl(d) {
-	return !lsMarksAcl() || !isAclUnmarked(d);
+	return !isAclMarkingLs() || !isAclUnmarked(d);
 }
 
-/** `lsMarksAcl`'s answer, asked once per run. @type {boolean | undefined} */
+/** `isAclMarkingLs`'s answer, asked once per run. @type {boolean | undefined} */
 let marksAcl;
 
 /** Where `ls` is run from, never PATH, which any directory on it can outrank. */
@@ -479,7 +481,7 @@ function ls(...args) {
  * 25.10 (#3737). uutils' marks any extended attribute, so it refuses more,
  * never less.
  */
-function lsMarksAcl() {
+function isAclMarkingLs() {
 	if (marksAcl !== undefined) return marksAcl;
 	try {
 		const version = ls("--version");
@@ -487,6 +489,7 @@ function lsMarksAcl() {
 			/^ls \(uutils coreutils\) (\d+)\.(\d+)\.(\d+)/.exec(version) ?? [];
 		marksAcl =
 			/^ls \(GNU coreutils\) /.test(version) ||
+			/* uutils#5816 added the mark, released in 0.0.24. */
 			(patch !== undefined &&
 				(Number(major) > 0 || Number(minor) > 0 || Number(patch) >= 24));
 	} catch {
