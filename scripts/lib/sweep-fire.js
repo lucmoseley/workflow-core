@@ -125,7 +125,7 @@ function firesSweep(words, spans) {
 /**
  * @param {{ spent: number, cap: number, day: string }} spend the day it is out
  * @param {string} segment
- * @param {CoreContext & { spendSweep: (now: string | undefined) => Spend }} ctx
+ * @param {CoreContext & { spendSweep: (env: CoreContext["env"]) => Spend }} ctx
  */
 function refusal({ spent, cap, day }, segment, ctx) {
 	const rule = ruleOrFallback(
@@ -142,7 +142,7 @@ function refusal({ spent, cap, day }, segment, ctx) {
  * Spend a unit for every sweep the command fires, in order; refuse the first
  * the day has no unit left for.
  * @param {string} command
- * @param {CoreContext & { spendSweep: (now: string | undefined) => Spend }} ctx
+ * @param {CoreContext & { spendSweep: (env: CoreContext["env"]) => Spend }} ctx
  * @returns {Decision}
  */
 function decide(command, ctx) {
@@ -153,8 +153,7 @@ function decide(command, ctx) {
 		parsed,
 		(cmd) => {
 			if (verdict || !firesSweep(cmd.words, parsed.spans)) return;
-			// clock-kept: the spend port's own parse, a bad pin a fault (mantahostels#2209)
-			const spend = ctx.spendSweep(ctx.env.WFC_NOW);
+			const spend = ctx.spendSweep(ctx.env);
 			if ("fault" in spend) {
 				/* A budget that cannot be counted refuses nothing (mantahostels#103 §6). */
 				ctx.log(
