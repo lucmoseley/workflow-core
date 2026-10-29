@@ -2241,9 +2241,8 @@ const isBareChanged = (route) =>
 
 /**
  * A bare `--changed` selects over uncommitted files, diffed against `HEAD`,
- * but records the default's base, `committedBase`'s: `HEAD` holds the
- * session's own commits, so a failure already red there may be its own
- * (#3678). An explicit `--changed <ref>` records its plan's.
+ * but records the default's base, `committedBase`'s (#3678). An explicit
+ * `--changed <ref>` records its plan's.
  *
  * @param {LaunchRoute} route
  * @param {RunOptions} opts
