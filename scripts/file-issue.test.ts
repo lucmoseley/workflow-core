@@ -62,6 +62,7 @@ const LABELS = [
 	"wayfinder:map",
 	"wayfinder:grilling",
 	"wayfinder:research",
+	"urgent",
 ];
 
 const issue = (number: number, labels: string[], over: object = {}) => ({
@@ -529,6 +530,75 @@ describe("a closed parent (#3637)", () => {
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("No ancestor of #528 in acme/widgets is open");
 		expect(readGhCalls().some((c) => c.includes("acme/other"))).toBe(false);
+	});
+});
+
+describe("urgent under an urgent chain (#3648)", () => {
+	const Api = "https://api.github.com/repos/acme/widgets/issues/";
+
+	it("is refused with exit 2 before any create where the parent carries it", () => {
+		setUp(["kind:spec", "urgent"]);
+		const r = run(filing(["takes:implement", "urgent"]));
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("#528 carries urgent");
+		expect(r.stderr).toContain(
+			"where only some children are urgent, move urgent off #528 onto them, or order them with blocking edges. Nothing filed.",
+		);
+		expect(readCreates()).toEqual([]);
+	});
+
+	it.each([
+		["a grandparent", 400],
+		["a great-grandparent", 300],
+	])("is refused where %s carries it, naming that ancestor", (_, carrier) => {
+		setUp(["kind:spec"], { parent_issue_url: `${Api}500` });
+		for (const n of [500, 400, 300])
+			serve(
+				`repos/acme/widgets/issues/${n}`,
+				issue(n, n === carrier ? ["urgent"] : [], {
+					parent_issue_url: `${Api}${n - 100}`,
+				}),
+			);
+		const r = run(filing(["takes:implement", "urgent"]));
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(
+			`#${carrier}, an ancestor of #528, carries urgent`,
+		);
+		expect(r.stderr).toContain(`move urgent off #${carrier} onto them`);
+		expect(readCreates()).toEqual([]);
+	});
+
+	it("files where the urgent ancestor sits above a closed one, which passes nothing down", () => {
+		setUp(["kind:spec"], { parent_issue_url: `${Api}500` });
+		serve(
+			"repos/acme/widgets/issues/500",
+			issue(500, [], { state: "closed", parent_issue_url: `${Api}400` }),
+		);
+		serve("repos/acme/widgets/issues/400", issue(400, ["urgent"]));
+		const r = run(filing(["takes:implement", "urgent"]));
+		expect(r.status).toBe(0);
+		expect(readCreates()).toHaveLength(1);
+	});
+
+	it.each([
+		["a chain with no urgent", ["--parent", "528"]],
+		["--standalone", ["--standalone", "cross-cutting"]],
+	])("files under %s", (_, placement) => {
+		setUp(["kind:spec"], { parent_issue_url: `${Api}500` });
+		serve("repos/acme/widgets/issues/500", issue(500, []));
+		const r = run(filing(["takes:implement", "urgent"], placement));
+		expect(r.status).toBe(0);
+		expect(readCreates()[0]).toContain("--label urgent");
+	});
+
+	it("files where an ancestor cannot be read, saying the check was skipped", () => {
+		setUp(["kind:spec"], { parent_issue_url: `${Api}500` });
+		const r = run(filing(["takes:implement", "urgent"]));
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(
+			"Could not read #528's ancestors (HTTP 404: Not Found) — filing without the urgent check.",
+		);
+		expect(readCreates()).toHaveLength(1);
 	});
 });
 

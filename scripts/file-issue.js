@@ -26,8 +26,9 @@
  * spelling: exactly one `takes:` value, the `takes:human` Outside-line tests
  * (lib/takes-label.js), every label known to the tracker — a label GitHub
  * does not know aborts `gh issue create` while it exits 0 — and the family
- * label the parent implies, and no second `wayfinder:map` while an open one's
- * Destination is unfilled (lib/issue-gate.js, #717).
+ * label the parent implies, no second `wayfinder:map` while an open one's
+ * Destination is unfilled (lib/issue-gate.js, #717), and no `urgent` an open
+ * ancestor already passes down (#3648).
  *
  * ORDER: every other refusal, then the similar-title list's, then create,
  * then link, then (--assign-self, or a map under a session id) claim.
@@ -60,6 +61,7 @@ const { fromEnv } = require("./lib/session-id.js");
 const { takesLabel, takesRefusal } = require("./lib/takes-label.js");
 
 const HUMAN_LABEL = takesLabel("human");
+const URGENT = "urgent";
 const {
 	basisFaults,
 	basisRefusal,
@@ -336,26 +338,63 @@ function checkSecondMap(repo, labels) {
 const MAX_DEPTH = 7;
 
 /**
- * Where a child of closed `issue` goes instead: its nearest open ancestor in
- * this repository, which link-sub-issue.sh can link under, or --standalone.
+ * Each ancestor of `issue` in this repository, nearest first: the only ones
+ * link-sub-issue.sh can link under. A failed read throws.
+ * @param {string} repo
+ * @param {ReturnType<typeof readIssue>} issue
+ * @returns {Generator<ReturnType<typeof readIssue>>}
+ */
+function* readAncestors(repo, issue) {
+	let at = issue;
+	for (let depth = 0; depth < MAX_DEPTH; depth++) {
+		if (!at.parentPath?.startsWith(`repos/${repo}/issues/`)) return;
+		const up = readIssueParent(at);
+		if (!up) return;
+		yield up;
+		at = up;
+	}
+}
+
+/**
+ * Where a child of closed `issue` goes instead: its nearest open ancestor, or
+ * --standalone.
  * @param {string} repo
  * @param {ReturnType<typeof readIssue>} issue
  */
 function openAncestorRemedy(repo, issue) {
-	let at = issue;
 	try {
-		for (let depth = 0; depth < MAX_DEPTH; depth++) {
-			if (!at.parentPath?.startsWith(`repos/${repo}/issues/`)) break;
-			const up = readIssueParent(at);
-			if (!up) break;
+		for (const up of readAncestors(repo, issue))
 			if (up.state === "open")
 				return `Its nearest open ancestor is #${up.number} (${up.title}): --parent ${up.number}, or --standalone "<why>".`;
-			at = up;
-		}
 	} catch (e) {
 		return `Its ancestors could not be read (${parseErrLine(e)}): place it under an open issue, or --standalone "<why>".`;
 	}
 	return `No ancestor of #${issue.number} in ${repo} is open: place it under another open issue, or --standalone "<why>".`;
+}
+
+/**
+ * The issue already passing `urgent` down to a child of open `parent`: the
+ * parent, or an ancestor reached through open ones, as pick-next passes tiers
+ * only from an open parent (#3250, #3637). Null where none is, or where an
+ * ancestor cannot be read, saying so: a hard-coded urgent is only redundant,
+ * so this check never blocks filing on a failed read (#3648).
+ * @param {string} repo
+ * @param {ReturnType<typeof readIssue>} parent
+ */
+function readUrgentCarrier(repo, parent) {
+	if (parent.labels.includes(URGENT)) return parent;
+	try {
+		for (const up of readAncestors(repo, parent)) {
+			if (up.state !== "open") return null;
+			if (up.labels.includes(URGENT)) return up;
+		}
+	} catch (e) {
+		io.out(
+			`Could not read #${parent.number}'s ancestors (${parseErrLine(e)}) — filing without the urgent check.\n`,
+		);
+		return null;
+	}
+	return null;
 }
 
 /**
@@ -380,6 +419,12 @@ function readParent({ repo, number, labels }) {
 	if (parent.state !== "open")
 		io.fail(
 			`#${number} is ${parent.state} — a child filed under it drops off every map (#3637). ${openAncestorRemedy(repo, parent)} Nothing filed.`,
+			2,
+		);
+	const carrier = labels.includes(URGENT) && readUrgentCarrier(repo, parent);
+	if (carrier)
+		io.fail(
+			`${carrier === parent ? `#${number}` : `#${carrier.number}, an ancestor of #${number},`} carries urgent, which already covers every descendant (rule:urgent-label, #3250); a hard-coded copy keeps outranking once it is removed there. Drop --label urgent; where only some children are urgent, move urgent off #${carrier.number} onto them, or order them with blocking edges. Nothing filed.`,
 			2,
 		);
 	const added =
