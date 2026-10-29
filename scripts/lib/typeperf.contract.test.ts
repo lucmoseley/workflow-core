@@ -46,7 +46,7 @@ const CASE_MS = CALL_MS + 5000;
 
 const CASES = [
 	{
-		name: "one sample of the three counters is one CSV row parseTypeperf reads whole",
+		name: "one sample is one CSV row whose every named counter parseTypeperf reads",
 		check(bin: string) {
 			const r = spawnSync(bin, [...COUNTERS, "-sc", "1"], {
 				encoding: "utf8",
@@ -55,11 +55,17 @@ const CASES = [
 			if (r.error) throw r.error;
 			expect(r.status).toBe(0);
 			const header = r.stdout.split(/\r?\n/).find((l) => l.startsWith('"('));
-			expect(header?.split('","'), r.stdout).toHaveLength(COUNTERS.length + 1);
-			for (const v of Object.values(parseTypeperf(r.stdout))) {
-				expect(typeof v).toBe("number");
-				expect(v).toBeGreaterThanOrEqual(0);
-			}
+			// typeperf has twice dropped one column under load (#3564), which
+			// parseTypeperf reads as that counter alone missing: so every column
+			// the header names must be one asked for, and must parse.
+			const named = COUNTERS.filter((c) => header?.includes(c));
+			expect(named.length, r.stdout).toBeGreaterThan(0);
+			expect(header?.split('","'), r.stdout).toHaveLength(named.length + 1);
+			const parsed = parseTypeperf(r.stdout);
+			const keys = ["cpuPct", "availableMb", "vmmemMb"];
+			for (const [i, c] of COUNTERS.entries())
+				if (named.includes(c))
+					expect(parsed[keys[i] ?? ""], r.stdout).toBeGreaterThanOrEqual(0);
 		},
 	},
 ];

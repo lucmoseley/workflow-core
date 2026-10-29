@@ -13,16 +13,22 @@ interface Reading {
 	s: number;
 	expired: boolean;
 }
-const { countHvsProbeFailures, countInterop, judgeBridge, parseTypeperf } =
-	require("./interop-latency.js") as {
-		countHvsProbeFailures: (text: string) => Record<string, number>;
-		countInterop: (procs: { argv: string[] }[]) => number;
-		judgeBridge: (
-			ports: object,
-			names: { logFile: string; doc: string },
-		) => Record<string, unknown> & { state: string };
-		parseTypeperf: (stdout: string) => Record<string, number | null>;
-	};
+const {
+	COUNTERS,
+	countHvsProbeFailures,
+	countInterop,
+	judgeBridge,
+	parseTypeperf,
+} = require("./interop-latency.js") as {
+	COUNTERS: string[];
+	countHvsProbeFailures: (text: string) => Record<string, number>;
+	countInterop: (procs: { argv: string[] }[]) => number;
+	judgeBridge: (
+		ports: object,
+		names: { logFile: string; doc: string },
+	) => Record<string, unknown> & { state: string };
+	parseTypeperf: (stdout: string) => Record<string, number | null>;
+};
 
 const EVIDENCE = {
 	uptimeS: 68_400,
@@ -169,11 +175,34 @@ describe("countInterop", () => {
 });
 
 describe("parseTypeperf", () => {
-	it("reads nulls from output with a counter missing", () => {
+	const header = (counters: string[]) =>
+		["(PDH-CSV 4.0)", ...counters.map((c) => `\\\\H${c}`)]
+			.map((c) => `"${c}"`)
+			.join(",");
+	const row = (values: string[]) =>
+		["10/29/2026 12:00:00.000", ...values].map((v) => `"${v}"`).join(",");
+
+	it("reads each counter by its header name", () => {
 		expect(
 			parseTypeperf(
-				'\r\n"(PDH-CSV 4.0)","\\\\H\\A","\\\\H\\B"\r\n"10/29/2026 12:00:00.000","1.0","2.0"\r\n',
+				`\r\n${header(COUNTERS)}\r\n${row(["62.5", "1700.0", String(6.5 * 2 ** 30)])}\r\n`,
 			),
-		).toEqual({ cpuPct: null, availableMb: null, vmmemMb: null });
+		).toEqual({ cpuPct: 62.5, availableMb: 1700, vmmemMb: 6656 });
+	});
+
+	it("reads a dropped counter as null and the rest as read", () => {
+		expect(
+			parseTypeperf(
+				`\r\n${header([COUNTERS[0] ?? "", COUNTERS[1] ?? ""])}\r\n${row(["62.5", "1700.0"])}\r\n`,
+			),
+		).toEqual({ cpuPct: 62.5, availableMb: 1700, vmmemMb: null });
+	});
+
+	it("reads nothing from output with no sample row", () => {
+		expect(parseTypeperf("")).toEqual({
+			cpuPct: null,
+			availableMb: null,
+			vmmemMb: null,
+		});
 	});
 });

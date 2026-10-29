@@ -68,22 +68,29 @@ const finite = (n) => (Number.isFinite(n) ? n : null);
 
 /**
  * One `typeperf <COUNTERS> -sc 1` sample: CPU %, Available MBytes and
- * vmmemWSL's working set in MiB, nulls where the output is not in shape. Its
- * CSV is a header row, then the time and one quoted value a counter.
+ * vmmemWSL's working set in MiB. Its CSV is a header row naming each counter
+ * as `\\HOST<counter>`, then the time and one quoted value a counter. Read
+ * by header name, since typeperf has twice dropped one column under load
+ * (#3564): a counter missing or unparseable is null, the rest still read.
  * @param {string} stdout
  */
 function parseTypeperf(stdout) {
-	const none = { cpuPct: null, availableMb: null, vmmemMb: null };
-	const row = stdout.split(/\r?\n/).find((l) => /^"\d/.test(l));
-	if (!row) return none;
-	const values = [...row.matchAll(/"([^"]*)"/g)]
-		.slice(1)
-		.map((m) => finite(Number.parseFloat(m[1] ?? "")));
-	if (values.length !== COUNTERS.length) return none;
-	const [cpuPct = null, availableMb = null, wsBytes = null] = values;
+	const lines = stdout.split(/\r?\n/);
+	/** @param {string | undefined} line */
+	const cells = (line) =>
+		[...(line ?? "").matchAll(/"([^"]*)"/g)].map((m) => m[1] ?? "").slice(1);
+	const names = cells(lines.find((l) => l.startsWith('"(')));
+	const values = cells(lines.find((l) => /^"\d/.test(l)));
+	/** @param {string} counter */
+	const read = (counter) => {
+		const at = names.findIndex((n) => n.endsWith(counter));
+		return at === -1 ? null : finite(Number.parseFloat(values[at] ?? ""));
+	};
+	const [cpu = "", available = "", workingSet = ""] = COUNTERS;
+	const wsBytes = read(workingSet);
 	return {
-		cpuPct,
-		availableMb,
+		cpuPct: read(cpu),
+		availableMb: read(available),
 		vmmemMb: wsBytes === null ? null : Math.round(wsBytes / 2 ** 20),
 	};
 }
