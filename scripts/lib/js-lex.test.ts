@@ -6,12 +6,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import {
-	blankComments,
-	closeOf,
-	statementEnd,
-	topLevelArgs,
-} from "./js-lex.js";
+import { closeOf, statementEnd, topLevelArgs } from "./js-lex.js";
 
 describe("closeOf", () => {
 	it("finds the bracket closing the one at the index, past nested ones", () => {
@@ -26,6 +21,11 @@ describe("closeOf", () => {
 
 	it("reads a / after a value as division, not a regex", () => {
 		expect(closeOf("f(a / b, c)", 1)).toBe(11);
+	});
+
+	it("closes a quoted string at its line, so an apostrophe in JSX text hides no bracket below (#3659)", () => {
+		const text = "f(<p>don't</p>,\n x)";
+		expect(closeOf(text, 1)).toBe(text.length);
 	});
 
 	it("returns -1 for a bracket never closed", () => {
@@ -57,21 +57,5 @@ describe("statementEnd", () => {
 
 	it("runs to the end of a text with no `;`", () => {
 		expect(statementEnd("a = b\n", 0)).toBe(6);
-	});
-});
-
-describe("blankComments", () => {
-	it("blanks line and block comments, keeping offsets and line breaks", () => {
-		const text = 'a("x"); // "y"\n/* "z"\n */ b(/\\//);';
-		const out = blankComments(text);
-		expect(out).toHaveLength(text.length);
-		expect(out.split("\n")).toHaveLength(3);
-		expect(out).toContain('a("x");');
-		expect(out).toContain("b(/\\//);");
-		expect(out).not.toMatch(/"[yz]"/);
-	});
-
-	it("leaves a comment opener inside a string alone", () => {
-		expect(blankComments('f("a // b")')).toBe('f("a // b")');
 	});
 });

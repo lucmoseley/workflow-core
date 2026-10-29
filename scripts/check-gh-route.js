@@ -38,7 +38,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
 const { readWorktreeHead, shellFiles } = require("./lib/formatters.js");
-const { blankComments } = require("./lib/js-lex.js");
+const { blankComments } = require("./lib/strip-comments.js");
 const { isTestKind } = require("./lib/test-kind.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */

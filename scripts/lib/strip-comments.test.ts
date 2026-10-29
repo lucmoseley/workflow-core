@@ -37,6 +37,20 @@ describe("blankComments", () => {
 		expect(out).toBe('a     \n      "//k"     \nb');
 		expect(out).toHaveLength(source.length);
 	});
+
+	it("leaves a comment opener inside a string or regex literal alone", () => {
+		const source = 'f("a // b", /\\/*/, /\\//);';
+		expect(blankComments(source)).toBe(source);
+	});
+
+	it("reads code below an apostrophe in JSX text, keeping a glob and blanking a comment (#3659)", () => {
+		const source = [
+			"const A = () => <p>don't</p>;",
+			"const G = 'scripts/*.js'; // x",
+			'const ROOT = path.join(__dirname, "..", "..");',
+		].join("\n");
+		expect(blankComments(source)).toBe(source.replace("// x", "    "));
+	});
 });
 
 describe("scanJs", () => {

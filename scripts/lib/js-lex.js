@@ -1,10 +1,11 @@
 /*
  * js-lex.js — the bracket and argument scanning a lexical reader of JS or TS
  * source needs, with strings, comments and regex literals skipped so a
- * bracket or comma inside one is never counted (#1770), and comment blanking,
- * so a path a comment cites is never read as code (#2093). A guess, not a
+ * bracket or comma inside one is never counted (#1770). A guess, not a
  * parser: a `/` is read as opening a regex only after a character no value
- * ends with, so a division after `)` or a name is left alone.
+ * ends with, so a division after `)` or a name is left alone; and a quoted
+ * string closes at its line, so an apostrophe in JSX text hides at most the
+ * rest of that line (#3659).
  */
 
 /**
@@ -16,8 +17,10 @@ const REGEX_LOOKBACK = 40;
 
 /** @param {string} text @param {number} i  a quote @returns {number} */
 function quoteEnd(text, i) {
+	const close = text[i] === "`" ? "`" : `${text[i]}\n`;
 	let j = i + 1;
-	while (j < text.length && text[j] !== text[i]) j += text[j] === "\\" ? 2 : 1;
+	while (j < text.length && !close.includes(text[j]))
+		j += text[j] === "\\" ? 2 : 1;
 	return j;
 }
 
@@ -154,27 +157,7 @@ function inertSpans(text) {
 	return out;
 }
 
-/**
- * `text` with every comment blanked to spaces, its line breaks kept, so an
- * offset or line number in the result is the one in `text` (#2093).
- * @param {string} text
- * @returns {string}
- */
-function blankComments(text) {
-	let out = "";
-	let at = 0;
-	for (const [first, last] of inertSpans(text)) {
-		if (text[first] !== "/" || !"/*".includes(text.charAt(first + 1))) continue;
-		out +=
-			text.slice(at, first) +
-			text.slice(first, last + 1).replace(/[^\n]/g, " ");
-		at = last + 1;
-	}
-	return out + text.slice(at);
-}
-
 module.exports = {
-	blankComments,
 	closeOf,
 	inertSpans,
 	statementEnd,

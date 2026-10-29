@@ -133,12 +133,8 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { execGit, GIT_TIMEOUT_MS } = require("./git.js");
-const {
-	blankComments,
-	closeOf,
-	inertSpans,
-	topLevelArgs,
-} = require("./js-lex.js");
+const { closeOf, inertSpans, topLevelArgs } = require("./js-lex.js");
+const { blankComments } = require("./strip-comments.js");
 const { requiredGroup } = require("./regex-group.js");
 const { byCodeUnit } = require("./by-code-unit.js");
 const { JS_TEST_FILE, isJsTestFile } = require("./test-kind.js");

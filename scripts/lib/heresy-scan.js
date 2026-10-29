@@ -8,7 +8,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { hostRoot } = require("./host-root.js");
-const { blankComments } = require("./js-lex.js");
+const { blankComments } = require("./strip-comments.js");
 const { isJsTestFile } = require("./test-kind.js");
 
 /** @typedef {import("./check").CheckContext} Ctx */

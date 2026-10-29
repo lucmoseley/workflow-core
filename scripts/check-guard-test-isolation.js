@@ -71,7 +71,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { readTrackedScripts } = require("./lib/tracked-scripts.js");
 const { isJsTestFile } = require("./lib/test-kind.js");
-const { blankComments, inertSpans } = require("./lib/js-lex.js");
+const { inertSpans } = require("./lib/js-lex.js");
+const { blankComments } = require("./lib/strip-comments.js");
 
 const { runCheck, errMessage } = require("./lib/check.js");
 const { requiredGroup } = require("./lib/regex-group.js");

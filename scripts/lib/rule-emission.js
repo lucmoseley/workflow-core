@@ -65,7 +65,8 @@ const { requiredGroup } = require("./regex-group.js");
 const { caught } = require("./caught.js");
 const { readOwnHooks } = require("./core-hooks.js");
 const { AFTER_EVENTS } = require("./hook-events.js");
-const { blankComments, closeOf, statementEnd } = require("./js-lex.js");
+const { closeOf, statementEnd } = require("./js-lex.js");
+const { blankComments } = require("./strip-comments.js");
 const {
 	expandDispatched,
 	manifestAt,
