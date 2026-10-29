@@ -28,6 +28,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { writeFd } = require("./lib/write-fd.js");
 const { parseOrExit } = require("./lib/cli-args");
 const { hostRoot } = require("./lib/host-root");
 const { requiredGroup } = require("./lib/regex-group");
@@ -237,9 +238,7 @@ function main() {
 	const logPath = cycleLogPath();
 	const file = path.join(hostRoot(), logPath);
 	if (!fs.existsSync(file)) {
-		process.stderr.write(
-			`SKIP: no cycle log at ${logPath} yet — nothing to be due.\n`,
-		);
+		writeFd(2, `SKIP: no cycle log at ${logPath} yet — nothing to be due.\n`);
 		return;
 	}
 
@@ -250,27 +249,27 @@ function main() {
 	const v = verdict(parseCycles(fs.readFileSync(file, "utf8"), logPath), today);
 
 	if (v.kind === "empty") {
-		process.stderr.write(
-			`SKIP: ${logPath} declares no cycle yet — nothing to be due.\n`,
-		);
+		writeFd(2, `SKIP: ${logPath} declares no cycle yet — nothing to be due.\n`);
 		return;
 	}
 
 	if (v.kind === "current") {
 		const c = soleOpen(v);
-		console.log(
-			`Cycle ${c.n} runs to ${c.end} — nothing to file (today ${today}).`,
+		writeFd(
+			1,
+			`Cycle ${c.n} runs to ${c.end} — nothing to file (today ${today}).\n`,
 		);
 		return;
 	}
 
-	console.log(
+	writeFd(
+		1,
 		`${HEADLINE[v.kind]}. ${fileOrRefresh({
 			title: TITLE,
 			label: LABEL,
 			labels: [LABEL, AREA],
 			body: body(v, today, logPath),
-		})}`,
+		})}\n`,
 	);
 }
 

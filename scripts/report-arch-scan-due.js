@@ -496,7 +496,7 @@ function dryRun() {
 		filing,
 		"Dry run: nothing filed.",
 	];
-	process.stdout.write(`${lines.join("\n")}\n`);
+	writeFd(1, `${lines.join("\n")}\n`);
 }
 
 /**
@@ -614,12 +614,13 @@ function daily() {
 			},
 			fileRun,
 		);
-		console.log(gate.ran ? gate.value : buildSkipLine(gate, "a day"));
+		writeFd(1, `${gate.ran ? gate.value : buildSkipLine(gate, "a day")}\n`);
 	} catch (e) {
 		/* Fails open (#1378): a session start never waits on, or fails for, a
 		 * count nobody asked for. */
 		logError(WHERE, e);
-		process.stderr.write(
+		writeFd(
+			2,
 			`FAILED OPEN: ${reason(e)} — recorded in the guard-error log; the next day's reading retries.\n`,
 		);
 	}
@@ -639,10 +640,12 @@ function nextThreshold(raw) {
 	const inForce = thresholdInForce(rows, config.threshold);
 	const learned = learnedThreshold(rows);
 	const y = Number(raw);
-	process.stderr.write(
+	writeFd(
+		2,
 		`From ${learned.threshold} (${learned.source}), yield ${y}; ${inForce.threshold} (${inForce.source}) in force.\n`,
 	);
-	process.stdout.write(
+	writeFd(
+		1,
 		`${JSON.stringify({ threshold: inForce.threshold, nextThreshold: recalibrate(learned.threshold, y) })}\n`,
 	);
 }
@@ -675,7 +678,7 @@ const buildSaveHint = (file) =>
 
 /** @param {string} file a saved `--dry-run` output */
 function hotFiles(file) {
-	process.stdout.write(`${JSON.stringify(readSavedRun(file).hot)}\n`);
+	writeFd(1, `${JSON.stringify(readSavedRun(file).hot)}\n`);
 }
 
 /**
@@ -701,7 +704,8 @@ function partners(file) {
 		requiredGroup(m, 3, WINDOW_RE),
 		readArchScanConfig().config.exclude,
 	);
-	process.stdout.write(
+	writeFd(
+		1,
 		`${JSON.stringify(hot.map((f) => ({ path: f.path, partners: partnersOf(commits, f.path) })))}\n`,
 	);
 }

@@ -45,6 +45,7 @@
  */
 
 const path = require("node:path");
+const { writeFd } = require("./lib/write-fd.js");
 const { logError } = require("./lib/arbiter-core");
 const { errMessage, now } = require("./lib/check");
 const { parseOrExit } = require("./lib/cli-args");
@@ -321,7 +322,7 @@ function main() {
 	const dryRun = "--dry-run" in flags;
 	try {
 		if (!moduleOn("suites")) {
-			process.stderr.write(`SKIP: ${buildModuleOffLine("suites")}\n`);
+			writeFd(2, `SKIP: ${buildModuleOffLine("suites")}\n`);
 			return;
 		}
 		const core = isCoreHost(hostRoot());
@@ -329,7 +330,7 @@ function main() {
 		if (!logFile) throw new Error("git names no canonical checkout");
 		const nowMs = now();
 		if (dryRun) {
-			console.log(readAndFile(logFile, nowMs, true, core));
+			writeFd(1, `${readAndFile(logFile, nowMs, true, core)}\n`);
 			return;
 		}
 		const dir = path.dirname(logFile);
@@ -342,10 +343,11 @@ function main() {
 			},
 			() => readAndFile(logFile, nowMs, false, core),
 		);
-		console.log(gate.ran ? gate.value : buildSkipLine(gate, "an hour"));
+		writeFd(1, `${gate.ran ? gate.value : buildSkipLine(gate, "an hour")}\n`);
 	} catch (e) {
 		logError(WHERE, e);
-		process.stderr.write(
+		writeFd(
+			2,
 			`FAILED OPEN: ${errMessage(e)} — recorded in the guard-error log; the next hourly reading retries.\n`,
 		);
 	}

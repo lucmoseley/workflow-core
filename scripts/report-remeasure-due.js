@@ -630,7 +630,7 @@ function main() {
 		const did = existing
 			? `Refreshed #${existing.number}`
 			: `Filed ${createIssue({ title: TITLE, labels: [LABEL], body: text })}`;
-		console.log(`Re-measure due: ${commits.length} counted commits. ${did}.`);
+		writeFd(1, `Re-measure due: ${commits.length} counted commits. ${did}.\n`);
 	} catch (e) {
 		/* Not e.message: a failed gh call's message holds its whole argv, the body
 		 * included. */

@@ -93,6 +93,7 @@ The floor is every gate in the plugin's own `.husky/pre-commit` that judges code
 | `scripts/check-swallowed-errors.js` | an `except` the commit adds that neither raises nor exits and cites no ticket (§N5) | staged program-routed `.py`; a missing `python3` refuses |
 | `scripts/check-cli-args.js` | a program reading its command line without a strict parser | a `scripts/*.js` the commit adds or edits; an inherited one only warns |
 | `scripts/check-jsonl-reads.js` | a hand split-and-parse of JSONL rather than `scripts/lib/jsonl.js` | a commit staging a `scripts/` program, judging the whole repo |
+| `scripts/check-report-programs.js` | a `report-*` program writing through `console` or `process.stdout.write` / `process.stderr.write` rather than `writeFd`, or building its own `gh issue create` rather than `createIssue` | a commit staging a `scripts/report-*` program, judging the whole repo |
 | `scripts/check-guard-test-isolation.js`, `scripts/check-host-root-test-isolation.js`, `scripts/check-git-fixture-identity.js` | a `scripts/` test that spawns a guard without redirecting `CLAUDE_CONFIG_DIR`, spawns a `hostRoot()`- or `gr_root`-rooted script without redirecting `CLAUDE_PROJECT_DIR`, or commits in a git fixture it gave no identity | a commit staging `scripts/` code, each judging the whole repo |
 | `scripts/check-precommit-exit.js` | a checker line in `.husky/pre-commit` or `.husky/pre-commit.local` exiting 1 on its failure, turning its BROKEN into a finding (§N4) | a commit staging either file |
 | `scripts/check-test-spawn.js` | a test spawning `node` on the program under test with no `spawn-kept: <why>` comment (§X3) | a commit staging a test under `scripts/` or `.claude/skills/`, judging the whole repo |
@@ -121,6 +122,8 @@ Copy a row's exemplar, never the nearest file doing the same job (**Primitive**,
 | Reading a program's command line | `scripts/lib/cli-args.js`, or `node:util`'s strict `parseArgs` | `scripts/check-plugin-gap.js` | §0, its floor table | `scripts/check-cli-args.js` |
 | Reading a JSONL file or text | `readJsonl`, `parseJsonl` or, for a streamed line, `parseJsonlRow` in `scripts/lib/jsonl.js` | `scripts/lib/dispatch-ledger.js` | §0, its floor table | `scripts/check-jsonl-reads.js` |
 | Writing a program's output | `writeFd` in `scripts/lib/write-fd.js` | `scripts/check-plugin-gap.js` | §N6 | Standards axis criterion |
+| Writing a `report-*` program's output | `writeFd` in `scripts/lib/write-fd.js` | `scripts/report-new-shared-faults.js` | §N6 | `scripts/check-report-programs.js` |
+| A `report-*` program filing an issue | `createIssue` in `scripts/lib/tracking-issue.js`, or its `fileOrRefresh` | `scripts/report-remeasure-due.js` | §N3 | `scripts/check-report-programs.js` |
 | Running a program under test | `runInProcess` in `scripts/lib/run-in-process.js`, `runInProcessAsync` for an async entry | `scripts/check-cli-args.test.ts` | §X3 | `scripts/check-test-spawn.js` |
 | A pre-commit gate line | the checker's own exit code passed on, `exit "$?"`, or `staged_gate`'s `status` mode in `scripts/lib/precommit-gate.sh` | `.husky/pre-commit` | §N4 | `scripts/check-precommit-exit.js` |
 
@@ -322,6 +325,8 @@ A filename prefix selects a contract. Where the repo has families for a program'
 | `generate-*` | writes a file, returns 0/1 from `main` and exits on it |
 | `report-*` | files a GitHub issue, exits 0 — never fails a build |
 
+*House, Node programs only*: a `report-*` files through `createIssue` in `scripts/lib/tracking-issue.js`, directly or through its `fileOrRefresh`, never a `gh issue create` of its own (lucmoseley/mantahostels#2762).
+
 The prefix selects a family only under `scripts/`. A skill's own scripts join none by name, so citing §N3 or §N4 against one on the strength of a coincidental prefix is a false finding (mantahostels#1189) — `.claude/skills/concision-pass/scripts/check-facts.js:12` answers to its own three-code alphabet. §G4 still binds it.
 
 ### §N4 · One place owns process exit, and the body returns a result — **hard**
@@ -358,7 +363,7 @@ Node programs. On any path whose output precedes a `process.exit` **and** whose 
 
 A bare `fs.writeSync` is not enough — `scripts/lib/write-fd.js:7-8` *"it drops the tail of a partial write without saying so, and it throws EAGAIN on a full pipe that is non-blocking"*. The writer loops until every byte is taken, waiting out EAGAIN up to a ceiling.
 
-*House, Node programs only*: that writer is `writeFd` from `scripts/lib/write-fd.js` (#1676). A bare `fs.writeSync` to fd 1 or 2 stays only where a comment says why.
+*House, Node programs only*: that writer is `writeFd` from `scripts/lib/write-fd.js` (#1676). A bare `fs.writeSync` to fd 1 or 2 stays only where a comment says why. A `report-*` writes every path through it, a terminal-only one included (#3454).
 
 Stream discipline (`scripts/lib/check.js:34-38`): stdout is for machine readers (a `--json` envelope, Actions `::error::` commands); human text goes to stderr. A `SessionStart` hook inverts it, because its stdout is what is injected into the session — and it exits 0 unconditionally, BROKEN included, because a non-zero `SessionStart` hook is read as broken and dropped (`scripts/lib/check.js:1635-1638`).
 

@@ -30,6 +30,7 @@
  */
 
 const fs = require("node:fs");
+const { writeFd } = require("./lib/write-fd.js");
 const { parseOrExit } = require("./lib/cli-args");
 const { errMessage } = require("./lib/check");
 const {
@@ -299,22 +300,23 @@ function main({ flags, positionals }) {
 	try {
 		text = fs.readFileSync(mapPath, "utf8");
 	} catch (e) {
-		console.error(`cannot read doc map at ${mapPath} — ${errMessage(e)}`);
+		writeFd(2, `cannot read doc map at ${mapPath} — ${errMessage(e)}\n`);
 		return 2;
 	}
 
 	// Split from the count: an absent heading and an empty section both measure
 	// zero words, and only the first means the file handed in is not the map.
 	if (!sectionBRange(text.split("\n"))) {
-		console.error(
+		writeFd(
+			2,
 			`no "## Section B" heading in ${mapPath}, so there is no section to ` +
-				"measure. Nothing filed.",
+				"measure. Nothing filed.\n",
 		);
 		return 2;
 	}
 
 	const words = sectionBWords(text);
-	console.log(verdict(words));
+	writeFd(1, `${verdict(words)}\n`);
 
 	if (words <= BUDGET_WORDS) {
 		// Under budget this touches gh not at all — the property mantahostels#894 built it
@@ -331,11 +333,11 @@ function main({ flags, positionals }) {
 		// that costs a `gh issue list` on every quiet run, and would have to
 		// refresh the body too, or the label disagrees with the queue printed
 		// under it (the same-scan invariant below).
-		console.log("Under budget — nothing to file.");
+		writeFd(1, "Under budget — nothing to file.\n");
 		return 0;
 	}
 	if (flags["--dry-run"]) {
-		console.log("--dry-run: no issue filed or refreshed.");
+		writeFd(1, "--dry-run: no issue filed or refreshed.\n");
 		return 0;
 	}
 
@@ -351,8 +353,9 @@ function main({ flags, positionals }) {
 		// under a label saying there is none.
 		const overCap = overCapEntries(text);
 		const takes = takesNow(overCap);
-		console.log(
-			fileOrRefresh({
+		writeFd(
+			1,
+			`${fileOrRefresh({
 				title: TITLE,
 				label: LABEL,
 				labels: [LABEL],
@@ -363,11 +366,12 @@ function main({ flags, positionals }) {
 					births: readSectionBBirths(mapPath),
 					malformedMarkers: malformedExemptionMarkers(text),
 				}),
-			}),
+			})}\n`,
 		);
 	} catch (e) {
-		console.error(
-			`could not file or refresh the tracking issue — ${errMessage(e)}`,
+		writeFd(
+			2,
+			`could not file or refresh the tracking issue — ${errMessage(e)}\n`,
 		);
 		return 2;
 	}

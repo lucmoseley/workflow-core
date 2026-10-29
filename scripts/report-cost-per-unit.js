@@ -56,6 +56,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { writeFd } = require("./lib/write-fd.js");
 const { parse, exitWith, CliExit } = require("./lib/cli-args");
 const { gh, parseErrLine } = require("./lib/gh");
 const { commitsSince } = require("./lib/seat-utilisation");
@@ -338,20 +339,22 @@ function main(argv) {
 	 * and then surfaces as "the closed-issue series could not be assembled" —
 	 * blaming the subject for a typo, and exiting 0. */
 	if (!ISO_DATE.test(today) || Number.isNaN(Date.parse(`${today}T00:00:00Z`))) {
-		console.error(`COST_TODAY is not an ISO date: ${today}`);
+		writeFd(2, `COST_TODAY is not an ISO date: ${today}\n`);
 		return 2;
 	}
 	const { rows, bad } = readSeries();
 	if (bad.length > 0)
-		console.log(
-			`⚠ ${bad.length} unparseable line(s) in ${SERIES_LABEL}, skipped: ${bad.join(", ")}. Repair them by hand.`,
+		writeFd(
+			1,
+			`⚠ ${bad.length} unparseable line(s) in ${SERIES_LABEL}, skipped: ${bad.join(", ")}. Repair them by hand.\n`,
 		);
 
 	const last = lastTaken(rows);
 	if (last && last > today)
-		console.log(
+		writeFd(
+			1,
 			`⚠ The newest row is dated ${last}, which is after ${today}. The cadence gate ` +
-				"reads that as never due; delete or correct that row, or pass --force.",
+				"reads that as never due; delete or correct that row, or pass --force.\n",
 		);
 	const dueIn =
 		last === null
@@ -363,9 +366,10 @@ function main(argv) {
 	 * appends nothing cannot do that, and gating it made the documented read-only
 	 * route print "Not due" and no figure on six days in seven. */
 	if (dueIn > 0 && !flags["--force"] && !flags["--dry-run"]) {
-		console.log(
+		writeFd(
+			1,
 			`Not due: the series was last read ${last}, next in ${dueIn} day(s). ` +
-				"Pass --force to take a reading anyway.",
+				"Pass --force to take a reading anyway.\n",
 		);
 		return 0;
 	}
@@ -377,29 +381,32 @@ function main(argv) {
 	try {
 		r = reading(new Date(`${today}T00:00:00Z`));
 	} catch (e) {
-		console.log(
+		writeFd(
+			1,
 			`No reading taken: the closed-issue series could not be assembled (${parseErrLine(e)}). ` +
-				"Nothing written; run it again.",
+				"Nothing written; run it again.\n",
 		);
 		return 0;
 	}
 	const perUnit =
 		r.costPerUnit === null ? "no units" : `$${r.costPerUnit.toFixed(3)}/unit`;
-	console.log(
-		/* The commit co-indicator beside the unit, printed and never stored: it
-		 * re-expresses the meter at one remove, so it corroborates the unit rather
-		 * than standing in for it (mantahostels#1737, mantahostels#1738 — 0.07 s, r = 0.918 against turns). */
+	/* The commit co-indicator beside the unit, printed and never stored: it
+	 * re-expresses the meter at one remove, so it corroborates the unit rather
+	 * than standing in for it (mantahostels#1737, mantahostels#1738 — 0.07 s, r = 0.918 against turns). */
+	writeFd(
+		1,
 		`${r.from}..${r.to}: ${commas(r.counted)} units, ${perUnit} at $${MONTHLY_BILL}/month across ${LIVE_SEATS} seats ` +
-			`(co-indicator: ${commitsSince(WINDOW_DAYS * 24) ?? "?"} commits).`,
+			`(co-indicator: ${commitsSince(WINDOW_DAYS * 24) ?? "?"} commits).\n`,
 	);
 	if (r.truncated.length > 0)
-		console.log(
+		writeFd(
+			1,
 			`⚠ ${r.truncated.length} day(s) hit the ${commas(SEARCH_CAP)}-result search cap: ${r.truncated.join(", ")}. ` +
-				"The unit count is a FLOOR and the cost per unit a ceiling.",
+				"The unit count is a FLOOR and the cost per unit a ceiling.\n",
 		);
 
 	if (flags["--dry-run"]) {
-		console.log(`--dry-run: nothing appended to ${SERIES_LABEL}.`);
+		writeFd(1, `--dry-run: nothing appended to ${SERIES_LABEL}.\n`);
 		return 0;
 	}
 
@@ -411,12 +418,15 @@ function main(argv) {
 	 * script broken, not its subject unavailable — so it throws to the top-level
 	 * catch and exits 1 rather than reporting a reading it did not store. */
 	writeRow(rowFor(r, today), sameDay > 0);
-	console.log(
-		sameDay
-			? `Replaced the row dated ${today} in ${SERIES_LABEL} (${rows.length - sameDay + 1} row(s)).`
-			: `Appended to ${SERIES_LABEL} (${rows.length + 1} row(s)).`,
+	writeFd(
+		1,
+		`${
+			sameDay
+				? `Replaced the row dated ${today} in ${SERIES_LABEL} (${rows.length - sameDay + 1} row(s)).`
+				: `Appended to ${SERIES_LABEL} (${rows.length + 1} row(s)).`
+		}\n`,
 	);
-	console.log(`Commit it: git commit -m "…" -- ${SERIES_LABEL}`);
+	writeFd(1, `Commit it: git commit -m "…" -- ${SERIES_LABEL}\n`);
 	return 0;
 }
 
@@ -425,7 +435,7 @@ if (require.main === module) {
 		process.exit(main(process.argv.slice(2)));
 	} catch (e) {
 		if (e instanceof CliExit) exitWith(e);
-		process.stderr.write(`${caught(e).message}\n`);
+		writeFd(2, `${caught(e).message}\n`);
 		process.exit(1);
 	}
 }

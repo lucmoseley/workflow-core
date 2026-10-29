@@ -20,6 +20,7 @@
  */
 
 const fs = require("node:fs");
+const { writeFd } = require("./lib/write-fd.js");
 const { parseOrExit } = require("./lib/cli-args");
 const { fileOrRefresh } = require("./lib/tracking-issue");
 const { exitUnlessModule, MANUAL_HALF } = require("./lib/workflow-core-config");
@@ -133,7 +134,8 @@ function main() {
 	// Lazy for the reason freshness() gives: the checker loads lib/check.
 	const { MANUAL } = require("./check-manual-freshness");
 	if (!fs.existsSync(MANUAL)) {
-		process.stderr.write(
+		writeFd(
+			2,
 			`SKIP: no operating manual at ${MANUAL} yet — nothing to be stale.\n`,
 		);
 		return;
@@ -141,20 +143,21 @@ function main() {
 	const { stale, report } = freshness();
 
 	if (!stale) {
-		console.log("Operating manual is fresh — nothing to file.");
-		console.log(report.trim());
+		writeFd(1, "Operating manual is fresh — nothing to file.\n");
+		writeFd(1, `${report.trim()}\n`);
 		return;
 	}
 
 	/* `triage` because none of the seven `takes:` values names a skill run: the
 	 * fix is a manual-sync, so a session has to decide whether to run one now. */
-	console.log(
+	writeFd(
+		1,
 		`Operating manual is stale. ${fileOrRefresh({
 			title: TITLE,
 			label: LABEL,
 			labels: [LABEL, TAKES],
 			body: body(report),
-		})}`,
+		})}\n`,
 	);
 }
 
