@@ -175,12 +175,21 @@ describe("checker registrations", () => {
 			// and untracked-entry replay (mantahostels#1793).
 			"doc-map": "gated in .husky/pre-commit via gate_direction (#1793, #1801)",
 		};
+		const heresyScan = stripComments(
+			fs.readFileSync(path.join(SCRIPTS, "lib/heresy-scan.js"), "utf8"),
+		);
+		const heresyScanTakesAgainst =
+			heresyScan.includes("profile: checkName") &&
+			heresyScan.includes("[--against <rev>]");
 		/* Comments stripped, per this file's header: a checker MENTIONING
 		 * either token in prose has not declared anything. */
 		const hasAgainstFlag = (file: string, profile: string) => {
 			const source = stripComments(
 				fs.readFileSync(path.join(SCRIPTS, file), "utf8"),
 			);
+			/* lib/heresy-scan.js declares --against under the check's name (#3555). */
+			if (source.includes("runHeresyCheck("))
+				return heresyScanTakesAgainst && source.includes(`name: "${profile}"`);
 			return (
 				source.includes(`profile: "${profile}"`) &&
 				source.includes("[--against <rev>]")

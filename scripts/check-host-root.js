@@ -99,6 +99,11 @@ const CWD_SUITE_CHECKER = {
  * @type {Record<string, {tags: string[], reason: string}>}
  */
 const ALLOWED = {
+	"scripts/lib/heresy-scan.js": {
+		tags: ["HOST-ROOTED-CORE"],
+		reason:
+			"the heresy checks' subject is the host's own scripts/, which the --against re-run materialises at `root`; __dirname would name the plugin's copies instead (#3555)",
+	},
 	"scripts/lib/precommit-gate-harness.js": {
 		tags: ["SELF-ROOTED-JS"],
 		reason:
@@ -147,21 +152,6 @@ const ALLOWED = {
 		tags: ["HOST-ROOTED-CORE"],
 		reason:
 			"its subject is the host's own scripts/, which the --against re-run materialises at `root`; __dirname would name the plugin's copies instead (#920, #1532)",
-	},
-	"scripts/check-clock-copies.js": {
-		tags: ["HOST-ROOTED-CORE"],
-		reason:
-			"its subject is the host's own scripts/, which the --against re-run materialises at `root`; __dirname would name the plugin's copies instead (#3457)",
-	},
-	"scripts/check-jsonl-reads.js": {
-		tags: ["HOST-ROOTED-CORE"],
-		reason:
-			"its subject is the host's own scripts/, which the --against re-run materialises at `root`; __dirname would name the plugin's copies instead (#3452)",
-	},
-	"scripts/check-report-programs.js": {
-		tags: ["HOST-ROOTED-CORE"],
-		reason:
-			"its subject is the host's own scripts/report-*, which the --against re-run materialises at `root`; __dirname would name the plugin's copies instead (#3454)",
 	},
 	"scripts/check-registrations.js": {
 		tags: ["HOST-ROOTED-CORE"],
