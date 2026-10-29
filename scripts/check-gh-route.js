@@ -141,7 +141,7 @@ const ROUTES = [
 		calls: "`claudeBin()`",
 		stubWith: "",
 		exemplar: "scripts/run-mod-tests.js",
-		shellExemplar: "scripts/probe-async-hook-timeout.sh",
+		shellExemplar: "scripts/dispatch-sessions.sh",
 		stubExemplar: "scripts/run-mod-tests.test.ts",
 	}),
 ];
