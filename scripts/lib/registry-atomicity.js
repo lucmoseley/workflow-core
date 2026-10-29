@@ -146,8 +146,8 @@ const {
 	HOST_REGISTRATIONS,
 	allRegistrations,
 	buildCommandLine,
-	hasSibling,
 	isPinnedBy,
+	buildMissingSiblingNames,
 } = require("./registrations.js");
 const {
 	parseCommand,
@@ -161,7 +161,7 @@ const {
 	literal,
 	scanFlags,
 } = require("./shell-words.js");
-const { JS_TEST_FILE, spellSiblingTests } = require("./test-kind.js");
+const { JS_TEST_FILE } = require("./test-kind.js");
 
 const HOST_SETTINGS = ".claude/settings.json";
 
@@ -923,15 +923,16 @@ function hasCoreNeedle(view, key) {
 }
 
 /**
- * The refusal line for scripts/`stem` having no sibling test after this
+ * The refusal line for scripts/`file` having no sibling test after this
  * commit, or "".
  * @param {View} view
- * @param {string} stem
+ * @param {string} file its basename
  */
-function siblingFault(view, stem) {
-	return hasSibling(stem, (p) => view.willExist(p))
+function siblingFault(view, file) {
+	const names = buildMissingSiblingNames(file, (p) => view.willExist(p));
+	return names === null
 		? ""
-		: `  - no sibling test: no ${spellSiblingTests(`scripts/${stem}`)} in this commit or in HEAD\n`;
+		: `  - no sibling test: no ${names} in this commit or in HEAD\n`;
 }
 
 /**
@@ -976,7 +977,6 @@ function callerSurfaces(view) {
  * @param {View} view
  */
 function judgeChecker(file, view) {
-	const stem = file.replace(/\.js$/, "");
 	const { checkerReg, regFile } = view.registries();
 	/* The allowlist escape, taken first: with it, the checker needs no caller.
 	 * Else the disk finds the candidates and the tree after the commit judges
@@ -997,7 +997,7 @@ function judgeChecker(file, view) {
 	let missing = "";
 	if (!wired)
 		missing += `  - no caller: nothing in .husky/, .github/workflows/, ${regFile} or another scripts/ file names it after this commit\n`;
-	missing += siblingFault(view, stem);
+	missing += siblingFault(view, file);
 	if (!missing) return "";
 	const allowEntry = isHost(checkerReg)
 		? `a \`calledElsewhere\` entry to ${checkerReg}, keyed by the file name with its reason,`
@@ -1018,7 +1018,6 @@ Name the wiring in the same commit — the hook, workflow or script that calls i
  * @param {View} view
  */
 function judgeGuard(file, view) {
-	const stem = file.replace(/\.[^.]*$/, "");
 	const { hookReg, regFile, needleReg } = view.registries();
 	const host = isHost(hookReg);
 	const pin = host ? "`hooks` row" : "REGISTRATIONS entry";
@@ -1036,7 +1035,7 @@ function judgeGuard(file, view) {
 		if (!view.willHold(needleReg, `"${file}`))
 			missing += `  - not counted: ${needleReg} has no entry for it after this commit\n`;
 	}
-	missing += siblingFault(view, stem);
+	missing += siblingFault(view, file);
 	if (!missing) return "";
 	return `scripts/${file} is a new guard, and this commit does not carry its wiring:
 

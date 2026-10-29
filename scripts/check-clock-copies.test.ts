@@ -82,6 +82,7 @@ describe("check-clock-copies", () => {
 		program("pins.js", 'spawn("x", { env: { WFC_NOW: "2026-01-01" } });\n');
 		program("cites.js", "/* process.env.WFC_NOW */\n");
 		program("copy.test.js", COPY);
+		program("copy.spec.js", COPY); // #3618
 		program("lib/check.js", COPY);
 		const r = run();
 		expect(r.status).toBe(0);

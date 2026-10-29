@@ -80,7 +80,7 @@ const { runCheck } = require("./lib/check");
 const { isUnder } = require("./lib/is-under.js");
 const { requiredGroup } = require("./lib/regex-group");
 const { hostRoot } = require("./lib/host-root.js");
-const { JS_TEST_FILE } = require("./lib/test-kind.js");
+const { JS_EXT_SOURCE, JS_TEST_FILE } = require("./lib/test-kind.js");
 const { segmentTailMatches } = require("./lib/line-scan.js");
 
 const CWD_SUITE_CHECKER = {
@@ -236,7 +236,7 @@ const JS_EXT = new Set([".js", ".ts", ".mjs", ".cjs"]);
 
 /* The suite and its apparatus — see WHAT IS NOT SCANNED above. */
 const TEST_FILE = new RegExp(
-	String.raw`(?:${JS_TEST_FILE.source}|-fixture\.[cm]?[jt]s$|-testkit\.[cm]?[jt]s$|^vitest\.(?:config|setup)\.[cm]?[jt]s$)`,
+	String.raw`(?:${JS_TEST_FILE.source}|-(?:fixture|testkit)${JS_EXT_SOURCE}$|^vitest\.(?:config|setup)${JS_EXT_SOURCE}$)`,
 );
 const isTestFile = (/** @type {string} */ rel) =>
 	TEST_FILE.test(path.basename(rel));

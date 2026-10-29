@@ -250,27 +250,30 @@ function hookFaults(rows, regs) {
 }
 
 /**
- * Does `scripts/<stem>` have a test of any form a runner collects?
- * @param {string} stem
+ * Every name a test of scripts/`file` may take, spelt for a refusal, where it
+ * has none of any form a runner collects; null where it has one.
+ * @param {string} file a guard's or checker's basename
  * @param {(rel: string) => boolean} exists
  */
-const hasSibling = (stem, exists) =>
-	siblingTests(`scripts/${stem}`).some(exists);
+const buildMissingSiblingNames = (file, exists) => {
+	const stem = `scripts/${file.replace(/\.[^.]*$/, "")}`;
+	return siblingTests(stem).some(exists) ? null : spellSiblingTests(stem);
+};
 
 /**
- * The fault for scripts/`file` having no sibling test, or none.
+ * The fault for scripts/`file` having no sibling test: one, or none.
  * @param {string} file a guard's or checker's basename
  * @param {(rel: string) => boolean} exists
  * @returns {Fault[]}
  */
-const untestedFault = (file, exists) => {
-	const stem = file.replace(/\.(sh|js)$/, "");
-	return hasSibling(stem, exists)
+const untestedFaults = (file, exists) => {
+	const names = buildMissingSiblingNames(file, exists);
+	return names === null
 		? []
 		: [
 				{
 					key: `untested scripts/${file}`,
-					message: `scripts/${file} has no sibling test (${spellSiblingTests(`scripts/${stem}`)})`,
+					message: `scripts/${file} has no sibling test (${names})`,
 				},
 			];
 };
@@ -294,7 +297,7 @@ function guardFaults({ guards, regs, elsewhere, exists }) {
 				key: `unwired ${rel}`,
 				message: `${rel} is run by no hook in .claude/settings.json — register it, or give it a \`registeredElsewhere\` entry naming the script that runs it`,
 			});
-		out.push(...untestedFault(file, exists));
+		out.push(...untestedFaults(file, exists));
 	}
 	return out;
 }
@@ -335,7 +338,7 @@ function checkerFaults({ checkers, callers, elsewhere, exists }) {
 				key: `uncalled ${rel}`,
 				message: `${rel} is run by no husky hook, workflow, .claude/settings.json hook or other script — wire it, or give it a \`calledElsewhere\` entry with its reason`,
 			});
-		out.push(...untestedFault(file, exists));
+		out.push(...untestedFaults(file, exists));
 	}
 	for (const file of Object.keys(elsewhere))
 		if (!checkers.includes(file))
@@ -368,6 +371,6 @@ module.exports = {
 	hookFaults,
 	guardFaults,
 	checkerFaults,
-	hasSibling,
+	buildMissingSiblingNames,
 	unexplained,
 };

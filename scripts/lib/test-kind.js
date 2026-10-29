@@ -23,17 +23,18 @@
  * registry-atomicity.js never count as a guard or checker and file-claim.js
  * never points at guard-authoring (#2869, #3012), the test files the
  * isolation and fixture-identity checkers read and check-jsonl-reads.js
- * skips, and the suffix `infixTestName` keeps, for the copy arm-tasks.js
+ * skips, and the suffix `buildInfixTestName` keeps, for the copy arm-tasks.js
  * makes of a hidden test;
  * `PY_TEST_FILE` is a pytest test file alone, pytest's default `python_files`.
  * `isJsTestFile` is `JS_TEST_FILE` as a predicate. .husky/pre-commit's
  * test-file gates arm on its `JS_TEST_ERE`, `JS_TEST_FILE` in grep's ERE,
  * pinned equal by test-kind.test.ts. `siblingTests` is every name a test of one
  * script may take, by `JS_TEST_FILE` and `PY_COLLECTED_TEST`: the files
- * registrations.js (and through its `hasSibling` the core's hook- and
- * checker-registrations tests), registry-atomicity.js and doc-map.js's
+ * registrations.js (and through its `buildMissingSiblingNames` the core's hook-
+ * and checker-registrations tests), registry-atomicity.js and doc-map.js's
  * self-filter take as a script's own test; `pytestSiblings` is its pytest half, touched-tests.js's.
- * check-host-root.js adds the suite's apparatus to `JS_TEST_FILE`.
+ * check-host-root.js adds the suite's apparatus to `JS_TEST_FILE`, on
+ * `JS_EXT_SOURCE`, every JS or TS extension.
  *
  * One reading asks another runner's question and stays apart:
  * infer-commands.js's `NODE_TEST_FILE` is the `.js` family of node --test's own
@@ -97,7 +98,7 @@ const isJsTestFile = (rel) => JS_TEST_FILE.test(rel);
  * @param {string} rel
  * @param {string} infix
  */
-const infixTestName = (rel, infix) =>
+const buildInfixTestName = (rel, infix) =>
 	isJsTestFile(rel)
 		? rel.replace(JS_TEST_FILE, (suffix) => `.${infix}${suffix}`)
 		: null;
@@ -154,13 +155,14 @@ const isCollectedTestOrConftest = (rel) =>
 
 module.exports = {
 	COLLECTED_TEST,
+	JS_EXT_SOURCE,
 	JS_TEST_FILE,
 	PY_COLLECTED_TEST,
 	PY_TEST_FILE,
 	PYTEST_DEFAULT_FILES,
 	isCollectedTestOrConftest,
 	isJsTestFile,
-	infixTestName,
+	buildInfixTestName,
 	isTestKind,
 	pytestSiblings,
 	siblingTests,
