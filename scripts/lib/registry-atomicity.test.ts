@@ -635,35 +635,38 @@ describe("a repo judged against its host registries (#1456)", () => {
 		expect(v.reason).not.toContain("hook-registrations.test.ts");
 	});
 
-	it("allows a new guard landing with its registration, host row, host needle and a .test.js sibling", () => {
-		adopter();
-		add("scripts/guard-new.sh", "#!/usr/bin/env bash\n");
-		add("scripts/guard-new.test.js", "// covered\n");
-		edit(
-			".claude/settings.json",
-			hooksFileFor(["scripts/guard-existing.sh", "scripts/guard-new.sh"]),
-		);
-		edit(
-			".claude/registrations.json",
-			registrations({
-				hooks: [row("guard-existing.sh"), row("guard-new.sh")],
-			}),
-		);
-		edit(
-			".claude/guard-fire-needles.json",
-			needles({
-				"guard-existing.sh": { needles: [] },
-				"guard-new.sh": { needles: [] },
-			}),
-		);
-		expect(
-			run(
-				commit(
-					"scripts/guard-new.sh scripts/guard-new.test.js .claude/settings.json .claude/registrations.json .claude/guard-fire-needles.json",
-				),
-			).denied,
-		).toBe(false);
-	});
+	it.each(["test.js", "spec.ts"])(
+		"allows a new guard landing with its registration, host row, host needle and a .%s sibling (#3387)",
+		(suffix) => {
+			adopter();
+			add("scripts/guard-new.sh", "#!/usr/bin/env bash\n");
+			add(`scripts/guard-new.${suffix}`, "// covered\n");
+			edit(
+				".claude/settings.json",
+				hooksFileFor(["scripts/guard-existing.sh", "scripts/guard-new.sh"]),
+			);
+			edit(
+				".claude/registrations.json",
+				registrations({
+					hooks: [row("guard-existing.sh"), row("guard-new.sh")],
+				}),
+			);
+			edit(
+				".claude/guard-fire-needles.json",
+				needles({
+					"guard-existing.sh": { needles: [] },
+					"guard-new.sh": { needles: [] },
+				}),
+			);
+			expect(
+				run(
+					commit(
+						`scripts/guard-new.sh scripts/guard-new.${suffix} .claude/settings.json .claude/registrations.json .claude/guard-fire-needles.json`,
+					),
+				).denied,
+			).toBe(false);
+		},
+	);
 
 	it("takes a registeredElsewhere key as the escape, naming the host key in the refusal", () => {
 		adopter();

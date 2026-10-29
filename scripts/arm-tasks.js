@@ -58,7 +58,7 @@ const { hostRoot } = require("./lib/host-root.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
 const { writeFd } = require("./lib/write-fd.js");
 const { SELF_PLUGIN_MARKETPLACE } = require("./lib/core-hooks.js");
-const { JS_TEST_FILE } = require("./lib/test-kind.js");
+const { infixTestName } = require("./lib/test-kind.js");
 const { selfMarketplaceEntry } = require("./build-arm-sandbox.js");
 
 const TASKS_DIR = path.join(__dirname, "arm-tasks");
@@ -398,13 +398,11 @@ function runHiddenTests(task, repo, base) {
 		const failed = (detail) => ({ check, kind: "work", ok: false, detail });
 		if (!fs.existsSync(vitest)) return failed("no node_modules/.bin/vitest");
 		/* Its copy's name is the original's own otherwise, and the copy's
-		 * cleanup would delete the original. */
-		if (!JS_TEST_FILE.test(file)) return failed(`${file} is no test file`);
+		 * cleanup would delete the original (#3387). */
+		const copy = infixTestName(file, "accept");
+		if (copy === null) return failed(`${file} is no test file`);
 		const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "arm-accept-"));
-		const hidden = path.join(
-			repo,
-			file.replace(JS_TEST_FILE, (suffix) => `.accept${suffix}`),
-		);
+		const hidden = path.join(repo, copy);
 		try {
 			const original = git(repo, ["show", `${base}:${file}`]);
 			const text = patch

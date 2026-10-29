@@ -258,6 +258,24 @@ const hasSibling = (stem, exists) =>
 	siblingTests(`scripts/${stem}`).some(exists);
 
 /**
+ * The fault for scripts/`file` having no sibling test, or none.
+ * @param {string} file a guard's or checker's basename
+ * @param {(rel: string) => boolean} exists
+ * @returns {Fault[]}
+ */
+const untestedFault = (file, exists) => {
+	const stem = file.replace(/\.(sh|js)$/, "");
+	return hasSibling(stem, exists)
+		? []
+		: [
+				{
+					key: `untested scripts/${file}`,
+					message: `scripts/${file} has no sibling test (${spellSiblingTests(`scripts/${stem}`)})`,
+				},
+			];
+};
+
+/**
  * The guards half: every scripts/guard-* run by a hook or allowlisted, and
  * every one with a sibling test.
  * @param {{guards: string[], regs: Registration[], elsewhere: Record<string, string>, exists: (rel: string) => boolean}} at
@@ -276,12 +294,7 @@ function guardFaults({ guards, regs, elsewhere, exists }) {
 				key: `unwired ${rel}`,
 				message: `${rel} is run by no hook in .claude/settings.json — register it, or give it a \`registeredElsewhere\` entry naming the script that runs it`,
 			});
-		const stem = file.replace(/\.(sh|js)$/, "");
-		if (!hasSibling(stem, exists))
-			out.push({
-				key: `untested ${rel}`,
-				message: `${rel} has no sibling test (${spellSiblingTests(`scripts/${stem}`)})`,
-			});
+		out.push(...untestedFault(file, exists));
 	}
 	return out;
 }
@@ -322,12 +335,7 @@ function checkerFaults({ checkers, callers, elsewhere, exists }) {
 				key: `uncalled ${rel}`,
 				message: `${rel} is run by no husky hook, workflow, .claude/settings.json hook or other script — wire it, or give it a \`calledElsewhere\` entry with its reason`,
 			});
-		const stem = file.replace(/\.js$/, "");
-		if (!hasSibling(stem, exists))
-			out.push({
-				key: `untested ${rel}`,
-				message: `${rel} has no sibling test (${spellSiblingTests(`scripts/${stem}`)})`,
-			});
+		out.push(...untestedFault(file, exists));
 	}
 	for (const file of Object.keys(elsewhere))
 		if (!checkers.includes(file))

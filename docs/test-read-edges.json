@@ -13415,6 +13415,7 @@
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/lib/git.test.ts",
+			"scripts/lib/local-tester.test.ts",
 			"scripts/lib/meminfo.contract.test.ts",
 			"scripts/lib/proc.contract.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
@@ -15872,7 +15873,6 @@
 		"scripts/lib/registrations.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
-			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
@@ -18411,6 +18411,7 @@
 		"scripts/lib/test-kind.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",

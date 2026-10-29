@@ -24,6 +24,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	COLLECTED_TEST,
+	infixTestName,
 	isCollectedTestOrConftest,
 	isTestKind,
 	JS_TEST_FILE,
@@ -32,6 +33,24 @@ import {
 	siblingTests,
 	spellSiblingTests,
 } from "./test-kind";
+
+describe("infixTestName", () => {
+	it.each([
+		["lib.test.ts", "lib.accept.test.ts"],
+		["lib.spec.ts", "lib.accept.spec.ts"],
+		["lib.test.mts", "lib.accept.test.mts"],
+		["a/b.spec.jsx", "a/b.accept.spec.jsx"],
+	])("names %s's copy %s (#3387)", (rel, copy) => {
+		expect(infixTestName(rel, "accept")).toBe(copy);
+	});
+
+	it.each(["notes.md", "lib.ts"])(
+		"names no copy of %s, no test file",
+		(rel) => {
+			expect(infixTestName(rel, "accept")).toBeNull();
+		},
+	);
+});
 
 describe("isTestKind", () => {
 	it.each([
@@ -231,8 +250,10 @@ describe("JS_TEST_FILE in grep's ERE", () => {
 
 	it("is .husky/pre-commit's JS_TEST_ERE, set once", () => {
 		expect(
-			[...hook().matchAll(/^JS_TEST_ERE='([^']*)'$/gm)].map((m) => m[1]),
-		).toEqual([JS_TEST_ERE]);
+			hook()
+				.split("\n")
+				.filter((line) => /^\s*(?:export\s+)?JS_TEST_ERE=/.test(line)),
+		).toEqual([`JS_TEST_ERE='${JS_TEST_ERE}'`]);
 	});
 
 	it.each([
@@ -240,6 +261,7 @@ describe("JS_TEST_FILE in grep's ERE", () => {
 		["check-host-root-test-isolation", "^scripts/.*$JS_TEST_ERE"],
 		["check-git-fixture-identity", "^scripts/.*$JS_TEST_ERE"],
 		["generate-test-read-edges", "$JS_TEST_ERE"],
+		["check-test-spawn", String.raw`^(scripts|\.claude/skills)/.*$JS_TEST_ERE`],
 	])(
 		"opens .husky/pre-commit's %s gate on every test file vitest collects",
 		(checker, opening) => {
