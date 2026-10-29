@@ -254,7 +254,7 @@ function addCall(into, guard, id) {
  */
 function callIds(record) {
 	const attached = record?.attachment?.toolUseID;
-	if (attached) return [attached];
+	if (typeof attached === "string" && attached) return [attached];
 	const content = record?.message?.content;
 	const ids = [];
 	if (Array.isArray(content))
@@ -266,7 +266,7 @@ function callIds(record) {
 			)
 				ids.push(part.tool_use_id);
 	if (ids.length > 0) return ids;
-	return [record?.uuid || ""];
+	return [typeof record?.uuid === "string" ? record.uuid : ""];
 }
 
 /**
@@ -646,8 +646,10 @@ function countPopulation(record, acc, ctx) {
 			acc.population.set(guard, (acc.population.get(guard) || 0) + 1);
 		if (!ctx.union || routed.length === 0) continue;
 		// A block with no id counts once, keyed off its line and place in it. Two
-		// id-less, uuid-less blocks at one index would collapse to one call.
-		const id = call.id ?? `${record.uuid ?? ""}#${i}`;
+		// id-less blocks at one index on lines with no string uuid would
+		// collapse to one call.
+		const uuid = typeof record.uuid === "string" ? record.uuid : "";
+		const id = call.id ?? `${uuid}#${i}`;
 		const entry = unionEntry(acc.union, call.name);
 		entry.calls.add(id);
 		entry.blocks++;
@@ -698,7 +700,7 @@ function routedGuards(triggers, call) {
 	return routed;
 }
 
-/** A fresh, empty accumulator — one corpus-wide, one per file (below). */
+/** A fresh, empty accumulator. */
 function freshAcc() {
 	return {
 		lost: new Map(),
@@ -715,66 +717,6 @@ function freshAcc() {
 		last: null,
 		skipped: 0,
 	};
-}
-
-/**
- * Folds `from` into `into` — how a per-file accumulator's counts join the
- * corpus-wide one, once that file is known to have parsed clean.
- * @param {ReturnType<typeof freshAcc>} into accumulator: the corpus-wide one, `from`'s counts folded in
- * @param {ReturnType<typeof freshAcc>} from
- */
-function mergeAcc(into, from) {
-	addCounts(into.lost, from.lost);
-	addIdSets(into.denyCalls, from.denyCalls);
-	addIdSets(into.anyCalls, from.anyCalls);
-	addCounts(into.population, from.population);
-	for (const id of from.lostCalls) into.lostCalls.add(id);
-	addCounts(into.failures, from.failures);
-	mergeUnion(into.union, from.union);
-	into.undated += from.undated;
-	into.unresolved += from.unresolved;
-	into.skipped += from.skipped;
-	if (from.first && (!into.first || from.first < into.first))
-		into.first = from.first;
-	if (from.last && (!into.last || from.last > into.last)) into.last = from.last;
-}
-
-/**
- * Adds each count in `from` to its key's count in `into`.
- * @param {Map<string, number>} into accumulator: each of `from`'s counts is added
- * @param {Map<string, number>} from
- */
-function addCounts(into, from) {
-	for (const [key, n] of from) into.set(key, (into.get(key) || 0) + n);
-}
-
-/**
- * Unions each guard's call ids in `from` into its set in `into`.
- * @param {Map<string, Set<string>>} into accumulator: each of `from`'s ids is added
- * @param {Map<string, Set<string>>} from
- */
-function addIdSets(into, from) {
-	for (const [guard, ids] of from) {
-		const set = into.get(guard) ?? new Set();
-		for (const id of ids) set.add(id);
-		into.set(guard, set);
-	}
-}
-
-/**
- * Folds one accumulator's `--union` counts into another's, tool by tool.
- * @param {Map<string, UnionEntry>} into accumulator: each of `from`'s entries is folded in
- * @param {Map<string, UnionEntry>} from
- */
-function mergeUnion(into, from) {
-	for (const [tool, entry] of from) {
-		const to = unionEntry(into, tool);
-		for (const id of entry.calls) to.calls.add(id);
-		addCounts(to.failed, entry.failed);
-		to.blocks += entry.blocks;
-		to.records += entry.records;
-		to.idless += entry.idless;
-	}
 }
 
 /**
@@ -806,19 +748,8 @@ function scan(files, triggers, needles, options) {
 			unreadable.push(file);
 			continue;
 		}
-		// A per-file accumulator: a throw mid-parse must not leave the records it
-		// already read before the throw counted, nor count the file as scanned —
-		// it read only PART of the file, which is what "unreadable" already means
-		// for a file that could not be opened at all.
-		const fileAcc = freshAcc();
-		try {
-			scanTranscript(text, fileAcc, { ...options, tier, triggers, needles });
-		} catch (e) {
-			unreadable.push(`${file} (parse: ${e instanceof Error ? e.message : e})`);
-			continue;
-		}
+		scanTranscript(text, acc, { ...options, tier, triggers, needles });
 		scanned++;
-		mergeAcc(acc, fileAcc);
 	}
 	return { acc, unreadable, scanned };
 }
