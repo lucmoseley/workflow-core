@@ -154,8 +154,7 @@ const ALREADY_RUNNING = "already running";
 /**
  * @typedef {{stop: StopReason, detail: string}
  *   | {launches: Launch[], skipped: Skip[], idle: string | null,
- *   held: Skip[]}} Decision `held` is every parked frontier row routeParked
- *   holds, reached by the walk or not, for the idle alarm (#3680)
+ *   held: Skip[]}} Decision `held` is heldParked's
  */
 
 /**

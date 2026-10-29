@@ -103,8 +103,8 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * @property {{at: number, summary: string,
  *   skipped?: import("./refill-decide.js").Skip[]}|null} lastTick
  * @property {{at: number, reason: string, detail: string}|null} stopped
- * @property {Hold[]} held the parked rows the last tick to read the frontier
- *   held on a full seat, for the idle alarm (#3680)
+ * @property {Hold[]} held the last frontier-reading tick's, for the idle
+ *   alarm (#3680)
  * @property {string|null} reviewRunOn machine-local date of the last morning
  *   review filing
  */
@@ -230,8 +230,7 @@ const isHold = (raw) =>
 	isRecord(raw) && isSkip(raw) && typeof raw.since === "number";
 
 /**
- * The holds a frontier-reading tick leaves: each it held, keeping the start of
- * one it held before.
+ * The holds a frontier-reading tick leaves.
  * @param {import("./refill-decide.js").Skip[]} held this tick's
  * @param {Hold[]} before
  * @param {number} now
