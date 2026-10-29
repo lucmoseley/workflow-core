@@ -69,7 +69,6 @@ const finished = (number: number, over: Record<string, unknown> = {}) => ({
 const tick = (over: Record<string, unknown> = {}) =>
 	decideTick({
 		now: NOW,
-		mode: "away",
 		startedAt: NOW - 4 * HOUR,
 		stopRequested: false,
 		frontier: [row("wfc", 1), row("wfc", 2), row("wfc", 3)],
@@ -645,61 +644,6 @@ describe("decideTick launch filter", () => {
 				model: "opus",
 			}),
 			expect.objectContaining({ issues: [6], prompt: "/implement 6" }),
-		]);
-	});
-});
-
-describe("decideTick on parked rows (#3621)", () => {
-	const parked = (number: number, parkedAt: string | null) =>
-		row("wfc", number, "implement", {
-			labels: ["takes:implement", "parked"],
-			parkedAt,
-		});
-	const frontier = [
-		row("wfc", 1),
-		parked(2, "2026-10-18T09:00:00Z"),
-		parked(3, "2026-10-17T09:00:00Z"),
-	];
-
-	it("launches parked rows first in normal mode, oldest park first, flagged parked", () => {
-		const d = tick({ mode: "normal", freeSlots: 9, frontier });
-		expect(launched(d)).toEqual(["wfc#3", "wfc#2", "wfc#1"]);
-		expect(d.launches.map((l: { parked?: true }) => l.parked)).toEqual([
-			true,
-			true,
-			undefined,
-		]);
-	});
-
-	it("puts an unreadable park start first, as the oldest", () => {
-		const d = tick({
-			mode: "normal",
-			freeSlots: 9,
-			frontier: [...frontier, parked(4, null)],
-		});
-		expect(launched(d)).toEqual(["wfc#4", "wfc#3", "wfc#2", "wfc#1"]);
-	});
-
-	it("skips parked rows in away mode (#2355)", () => {
-		const d = tick({ mode: "away", freeSlots: 9, frontier });
-		expect(launched(d)).toEqual(["wfc#1"]);
-		expect(d.skipped).toEqual([
-			{ root: "wfc", number: 2, why: "parked" },
-			{ root: "wfc", number: 3, why: "parked" },
-		]);
-	});
-
-	it("launches an untyped takes:wayfinder ticket, as the morning review is filed, parked or not", () => {
-		const review = (n: number, labels: string[]) =>
-			row("wfc", n, "wayfinder", { labels: ["takes:wayfinder", ...labels] });
-		const d = tick({
-			mode: "normal",
-			freeSlots: 9,
-			frontier: [review(5, []), review(6, ["parked"])],
-		});
-		expect(d.launches.map((l: { prompt: string }) => l.prompt)).toEqual([
-			"/wayfinder 6",
-			"/wayfinder 5",
 		]);
 	});
 });
