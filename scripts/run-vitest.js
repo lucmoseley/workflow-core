@@ -118,9 +118,11 @@ const {
 	groupUnkilled,
 	killCarrying,
 	killGroup,
+	killPid,
 	sweepAtStart,
 } = require("./lib/suite-ceiling.js");
 const { spawnInRunScope, endRunScope } = require("./lib/user-scope.js");
+const { writeFd } = require("./lib/write-fd.js");
 const {
 	CHANGED_FLAG,
 	PACKAGE_JSON,
@@ -541,7 +543,8 @@ function withLaunch(options, fields) {
  *   execFn?: ExecFn, loadEdges?: () => Record<string, string[]>, err?: { write: (s: string) => unknown },
  *   launch?: LauncherLaunch, onSpawn?: () => void, emptyOnly?: boolean,
  *   escalationRequeues?: boolean, session?: string|null,
- *   yieldCpu?: (child: { pid?: number }, options: { err: Writer }) => unknown }} [options]
+ *   yieldCpu?: (child: { pid?: number }, options: { err: Writer }) => unknown,
+ *   killCarrier?: typeof killPid }} [options]
  * @returns {Promise<number>}
  */
 function runOnce(
@@ -578,6 +581,8 @@ function runOnce(
 		session = idSeam.fromEnv(),
 		yieldCpu = yieldToWhole,
 		err = process.stderr,
+		/* What SIGKILLs the run's carriers, here and in `releaseAndExit`. */
+		killCarrier = killPid,
 		...expandOptions
 	} = {},
 ) {
@@ -657,7 +662,7 @@ function runOnce(
 		 * the handlers exit, and the exit kills every group still held. Armed
 		 * before the spawn, so no signal lands between it and them. */
 		armSignals(fs);
-		heldRuns.add(inflightFile);
+		heldRuns.set(inflightFile, killCarrier);
 		/* A group of its own, so a kill reaches every worker vitest forks. */
 		const child = spawnFn(
 			bin,
@@ -826,7 +831,9 @@ function runOnce(
 		 * (#3494). */
 		child.on("exit", (_code, signal) => {
 			if (!signal) return;
-			const unkilled = killCarrying(inflight.INFLIGHT_ENV, inflightFile);
+			const unkilled = killCarrying(inflight.INFLIGHT_ENV, inflightFile, {
+				kill: killCarrier,
+			});
 			if (unkilled) err.write(carrierUnkilled(unkilled));
 		});
 
@@ -905,9 +912,9 @@ const heldWorktrees = new Set();
 /** @type {Set<(signal: string) => void>} */
 const waitingExits = new Set();
 /* Each live run's in-flight file, whose carriers `releaseAndExit` kills
- * (#3494). */
-/** @type {Set<string>} */
-const heldRuns = new Set();
+ * (#3494), and its run's kill. */
+/** @type {Map<string, typeof killPid>} */
+const heldRuns = new Map();
 let signalsArmed = false;
 
 /**
@@ -918,9 +925,14 @@ let signalsArmed = false;
  */
 function releaseAndExit(signal, code, queueFs) {
 	for (const logExit of waitingExits) logExit(signal);
-	for (const file of heldRuns) {
-		const unkilled = killCarrying(inflight.INFLIGHT_ENV, file);
-		if (unkilled) process.stderr.write(carrierUnkilled(unkilled));
+	for (const [file, kill] of heldRuns) {
+		const unkilled = killCarrying(inflight.INFLIGHT_ENV, file, { kill });
+		if (!unkilled) continue;
+		try {
+			writeFd(2, carrierUnkilled(unkilled));
+		} catch {
+			/* A lost line must not strand the removals below (#3585). */
+		}
 	}
 	for (const file of heldMarkers) {
 		try {

@@ -8519,7 +8519,6 @@
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
-			"scripts/concurrency-readout.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/lib/concurrency.test.ts",
 			"scripts/lib/git.test.ts",

@@ -491,7 +491,6 @@ function appendTick(record) {
 module.exports = {
 	NONE,
 	SPREAD_CAP,
-	STALE_MS,
 	SUSTAINED_WINDOW,
 	appendTick,
 	buildBlockText,

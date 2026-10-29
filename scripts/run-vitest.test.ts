@@ -1878,16 +1878,15 @@ describe("a reparented worker with no user scope", {
 		expect(await diedWithin(pidIn(root, "worker"))).toBe(true);
 	});
 
-	/** The wrapper in a process of its own over the stand-in, `prelude` run
-	 * first, resolved once the worker has started; `stderr` collects what the
-	 * wrapper writes there. */
-	async function launchWrapper(root: string, prelude = "") {
+	/** The wrapper in a process of its own over the stand-in, with
+	 * `killCarrierSource` as its carrier kill where given, resolved once the
+	 * worker has started; `stderr` collects what the wrapper writes there. */
+	async function launchWrapper(root: string, killCarrierSource = "") {
 		const wrapper = realSpawn(
 			process.execPath,
 			[
 				"-e",
-				`${prelude}
-				require(${JSON.stringify(path.resolve("scripts/run-vitest.js"))}).main(
+				`require(${JSON.stringify(path.resolve("scripts/run-vitest.js"))}).main(
 					[${JSON.stringify(SHARED_FLAG)}],
 					{
 						root: ${JSON.stringify(root)},
@@ -1898,6 +1897,7 @@ describe("a reparented worker with no user scope", {
 						out: { write: () => true },
 						err: { write: () => true },
 						inflightFile: ${JSON.stringify(path.join(root, "run.inflight.json"))},
+						${killCarrierSource && `killCarrier: ${killCarrierSource},`}
 					},
 				);`,
 			],
@@ -1933,15 +1933,10 @@ describe("a reparented worker with no user scope", {
 
 	it("names a carrier kill that fails on a SIGTERM (#3528)", async () => {
 		const root = repo();
-		/* Refuses every SIGKILL to a pid, leaving the group kill's through. */
+		/* Refuses every carrier kill; the group kill is not the port's. */
 		const wrapper = await launchWrapper(
 			root,
-			`const kill = process.kill.bind(process);
-			process.kill = (pid, signal) => {
-				if (pid > 0 && signal === "SIGKILL")
-					throw Object.assign(new Error("EPERM"), { code: "EPERM" });
-				return kill(pid, signal);
-			};`,
+			`() => { throw Object.assign(new Error("EPERM"), { code: "EPERM" }); }`,
 		);
 		await wrapper.kill("SIGTERM");
 		const worker = pidIn(root, "worker");
@@ -1999,7 +1994,7 @@ it("names what the start sweep killed and what it could not (#3528)", () => {
 	});
 	expect(said).toBe(
 		"killed 1 process(es) left by a killed run (wrapper pid 900).\n" +
-			"a killed run's process could not be killed (EPERM); it may still hold memory.\n",
+			"a process of a killed run could not be killed (EPERM); it may still hold memory.\n",
 	);
 });
 
