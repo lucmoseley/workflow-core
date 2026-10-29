@@ -837,4 +837,33 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 		expect(r.status).toBe(0);
 		expect(trailers()).toBe("");
 	});
+
+	const runTrailer = (msg: string, env: Record<string, string> = {}) =>
+		spawnSync("bash", [Trailer, msg], {
+			cwd: repo,
+			encoding: "utf8",
+			env: { ...quietEnv(), ...env },
+		});
+
+	it("says on stderr that the commit lands with no trailer where git names no git directory (#3716)", () => {
+		const msg = path.join(scratch, "MSG");
+		fs.writeFileSync(msg, "land\n");
+		const r = runTrailer(msg, { GIT_DIR: path.join(scratch, "no-such-git") });
+		expect(r.status).toBe(0);
+		expect(r.stderr).toBe(
+			"prepare-commit-msg: git named no git directory to read the review hold's stamp from, so this commit lands with no Review-Tier: trailer.\n",
+		);
+		expect(fs.readFileSync(msg, "utf8")).toBe("land\n");
+	});
+
+	it("consumes no stamp and logs nothing on an empty message path, as a direct run of the hook hands (#3716)", () => {
+		fs.writeFileSync(
+			stamp(),
+			"t\nescalated; areas=a; base=b; tree=t; paths=p\n",
+		);
+		const r = runTrailer("");
+		expect(r.status).toBe(0);
+		expect(r.stderr).toBe("");
+		expect(fs.existsSync(stamp())).toBe(true);
+	});
 });

@@ -8,8 +8,7 @@
 
 const fs = require("node:fs");
 const { caught } = require("./caught.js");
-const sleep = require("./sleep-sync.js");
-const { EAGAIN_CEILING_MS, EAGAIN_PAUSE_MS } = require("./write-fd.js");
+const { pauseOrThrow } = require("./write-fd.js");
 
 /* So one read takes what a pipe buffer holds. */
 const CHUNK = 64 * 1024;
@@ -24,21 +23,19 @@ function readFdAll(fd) {
 	/** @type {Buffer[]} */
 	const chunks = [];
 	const buf = Buffer.alloc(CHUNK);
-	let stalledMs = 0;
+	const stall = { ms: 0 };
 	for (;;) {
 		let n;
 		try {
 			n = fs.readSync(fd, buf, 0, buf.length, null);
 		} catch (e) {
-			if (caught(e).code !== "EAGAIN" || stalledMs >= EAGAIN_CEILING_MS)
-				throw e;
-			sleep.sleepSync(EAGAIN_PAUSE_MS);
-			stalledMs += EAGAIN_PAUSE_MS;
+			if (caught(e).code !== "EAGAIN") throw e;
+			pauseOrThrow(stall, e);
 			continue;
 		}
 		if (n === 0) return Buffer.concat(chunks);
 		chunks.push(Buffer.from(buf.subarray(0, n)));
-		stalledMs = 0;
+		stall.ms = 0;
 	}
 }
 

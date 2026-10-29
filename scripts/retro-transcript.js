@@ -52,7 +52,7 @@ const { hostRoot } = require("./lib/host-root");
 const { requiredGroup } = require("./lib/regex-group");
 const { isLoopPrompt } = require("./lib/loop-prompts");
 const { maskTokens } = require("./lib/token-shapes");
-const { storedNames } = require("./lib/env-file.js");
+const { readStoredNames } = require("./lib/env-file.js");
 const {
 	STOP_FEEDBACK,
 	parseContentText,
@@ -104,7 +104,7 @@ let storedSecretNames;
  * @param {string} text
  */
 function mask(text) {
-	storedSecretNames ??= storedNames();
+	storedSecretNames ??= readStoredNames();
 	const result = maskTokens(text, storedSecretNames);
 	masked += result.count;
 	return result.text;

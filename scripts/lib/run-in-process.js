@@ -699,11 +699,14 @@ function mutatePatches({ saved }, { script, args, options }, state) {
 	);
 
 	/* Only fd 0, and only when the caller supplied one: everything else has to
-	 * keep reading the real filesystem, the script's own fixture included. */
+	 * keep reading the real filesystem, the script's own fixture included.
+	 * The `any`s, as on writeSync's patch: neither function's overloads can be
+	 * assigned one arrow without a cast, and each argument is whatever the
+	 * script passes, handed on to the real function untouched off fd 0. */
 	if (options.stdin !== undefined) {
 		const stdin = Buffer.from(options.stdin);
 		/** @type {any} */ (fs).readFileSync = (
-			/** @type {any} */ target,
+			/** @type {fs.PathOrFileDescriptor} */ target,
 			/** @type {any} */ opts,
 		) => {
 			if (target !== 0) return saved.readFileSync(target, opts);
@@ -712,8 +715,8 @@ function mutatePatches({ saved }, { script, args, options }, state) {
 		};
 		let consumed = 0;
 		/** @type {any} */ (fs).readSync = (
-			/** @type {any} */ target,
-			/** @type {any} */ buffer,
+			/** @type {number} */ target,
+			/** @type {Buffer} */ buffer,
 			/** @type {any[]} */ ...rest
 		) => {
 			if (target !== 0) return saved.readSync(target, buffer, ...rest);
