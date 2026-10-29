@@ -188,7 +188,7 @@ const CRITERIA_HEADING_RE = new RegExp(
  * @property {string} fetched the repo#number `issue` belongs to: one call can
  *   close two issues, and a cache without its key answers the second close
  *   from the first one's payload
- * @property {Issue | null} issue
+ * @property {Issue | null} issue null where the read under `fetched` failed
  * @typedef {object} Close one `gh issue close`, as scanClose read it
  * @property {string} segment
  * @property {string} issue the number, as written
@@ -393,7 +393,9 @@ function elsewhere(run, close) {
 /**
  * The issue as GitHub describes it, re-fetched only when the repo#number
  * differs from the last one fetched. Null where GitHub could not be asked,
- * which is a fail-open the caller records rather than a confident answer.
+ * which is a fail-open the caller records rather than a confident answer —
+ * and is remembered like an answer, so a hanging gh costs one cut call per
+ * run rather than one per rule (#3581).
  *
  * ONE request serves every rule: `title`, `parent`, `body` and `subIssues`
  * ride the comments' read, so the card, children and criteria checks cost no
@@ -404,9 +406,9 @@ function elsewhere(run, close) {
  */
 function fetchIssue(run, close) {
 	const key = `${close.repo}#${close.issue}`;
-	if (run.issue && run.fetched === key) return run.issue;
+	if (run.fetched === key) return run.issue;
 	run.issue = null;
-	run.fetched = "";
+	run.fetched = key;
 	const left = callBudget(run);
 	if (left < MIN_CALL_MS) return null;
 	let out;
@@ -436,7 +438,6 @@ function fetchIssue(run, close) {
 		data = undefined;
 	}
 	run.issue = { data };
-	run.fetched = key;
 	return run.issue;
 }
 

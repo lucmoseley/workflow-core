@@ -1421,6 +1421,17 @@ describe("the fail-opens it records", () => {
 		]);
 	});
 
+	it("reads a hanging gh's issue once per run, not once per rule (#3581)", () => {
+		expect(
+			verdict('gh issue close 12 --comment "**Outstanding:** none"', {
+				fail: true,
+				slow: 4000,
+			}),
+		).toBe("allow");
+		expect(calls.filter((c) => c.startsWith("issue view 12 "))).toHaveLength(1);
+		expect(faults.length).toBeGreaterThan(0);
+	});
+
 	it("allows and records a close when gh cannot be started", () => {
 		expect(verdict("gh issue close 12", { absent: true })).toBe("allow");
 		expect(faults).toEqual([
