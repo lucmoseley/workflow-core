@@ -3575,6 +3575,47 @@ describe("the launch record each route hands the child (#1596)", () => {
 		});
 	});
 
+	/* A full red is classed against its base (#3646), so both whole-suite
+	 * routes carry the one their launch resolved — and none where it fell
+	 * back to `HEAD`, as the case above does with no pushed ref. */
+	it("hands the child the resolved base on a typed --full (#3646)", async () => {
+		const env = await childEnv([SHARED_FLAG, "--full=coverage"], {
+			execFn: fakeExec({ hasOrigin: true }),
+		});
+		expect(readLaunch(env)).toMatchObject({
+			full: "flag",
+			changedPaths: null,
+			base: "merge-base-sha",
+		});
+	});
+
+	it("hands the child the default's base on its escalation to the whole suite (#3646)", async () => {
+		const env = await childEnv([SHARED_FLAG], {
+			execFn: fakeExec({ hasOrigin: true, diff: ["a.test.ts"] }),
+			loadEdges: () => ({}),
+			renderEdges: renderFails,
+			sessionId: "",
+		});
+		expect(readLaunch(env)).toMatchObject({
+			full: "stale-manifest",
+			changedPaths: null,
+			base: "merge-base-sha",
+		});
+	});
+
+	it("hands the child no base on an escalation whose default fell back to HEAD (#3646)", async () => {
+		const env = await childEnv([SHARED_FLAG], {
+			execFn: fakeExec({ diff: ["a.test.ts"] }),
+			loadEdges: () => ({}),
+			renderEdges: renderFails,
+			sessionId: "",
+		});
+		expect(readLaunch(env)).toMatchObject({
+			full: "stale-manifest",
+			base: null,
+		});
+	});
+
 	/* A full run is weighed against its own repo's suite, never the core's. */
 	it.each([
 		["a small repo's", repo, false],

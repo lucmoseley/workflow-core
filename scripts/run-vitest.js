@@ -366,9 +366,9 @@ function neverStarted(record) {
 /**
  * The environment `runOnce` hands vitest: the parent's own, the in-flight
  * file, and the launch record the certificate is written from.
- * @param {{ inflightFile: string, timingsFile: string, plan: ReturnType<typeof expandChanged>, launch: LauncherLaunch }} run
+ * @param {{ inflightFile: string, timingsFile: string, plan: ReturnType<typeof expandChanged>, launch: LauncherLaunch, base: string|null }} run
  */
-function vitestEnv({ inflightFile, timingsFile, plan, launch }) {
+function vitestEnv({ inflightFile, timingsFile, plan, launch, base }) {
 	/* The deadline file is this run's alone: a runner a test drives inside
 	 * vitest would otherwise overwrite it, then remove it, disarming bg-run's
 	 * backstop (#2704). A runner a test drives must queue as its own launch,
@@ -387,7 +387,7 @@ function vitestEnv({ inflightFile, timingsFile, plan, launch }) {
 			...launch,
 			admissible: plan?.admissible === true,
 			changedPaths: plan ? (plan.changed ?? []) : null,
-			base: plan?.base ?? null,
+			base,
 		}),
 		...(process.stdout.isTTY ? { FORCE_COLOR: "1" } : {}),
 	};
@@ -402,7 +402,7 @@ function vitestEnv({ inflightFile, timingsFile, plan, launch }) {
  * `slotFree`: `isTouchedRun`'s reading of the route, a run that never takes
  * the whole-suite slot and whose workers are capped at its files; the child's
  * record does not carry it.
- * @typedef {Partial<Omit<import("./lib/suite-handoff.js").Launch, "admissible"|"changedPaths"|"base">> & { slotFree?: boolean }} LauncherLaunch
+ * @typedef {Partial<Omit<import("./lib/suite-handoff.js").Launch, "admissible"|"changedPaths">> & { slotFree?: boolean }} LauncherLaunch
  */
 
 /**
@@ -675,6 +675,7 @@ function runOnce(
 					timingsFile,
 					plan,
 					launch: weighed,
+					base: readRunBase(weighed, plan, root, expandOptions.execFn),
 				}),
 				detached: true,
 			},
@@ -1111,6 +1112,32 @@ function withSession(route, options) {
  */
 
 /**
+ * A full run's base, against which its failures are classed as already red
+ * (#3646): the default's merge-base, null where it fell back to `HEAD`,
+ * which holds the session's own commits, so a failure already red there may
+ * be its own.
+ * @param {string} base
+ */
+const committedBase = (base) => (base === "HEAD" ? null : base);
+
+/**
+ * The base a run records: its plan's; an escalation's, set when it planned;
+ * a typed `--full`'s, the default's read in the tree the run starts in, so a
+ * commit made while it queued moves it (#3646).
+ * @param {LauncherLaunch} launch
+ * @param {ReturnType<typeof expandChanged>} plan
+ * @param {string} root
+ * @param {ExecFn} [execFn]
+ * @returns {string|null}
+ */
+function readRunBase(launch, plan, root, execFn = execFileSync) {
+	if (plan?.base) return plan.base;
+	if (launch.full === "flag")
+		return committedBase(readDefaultChangedBase(root, execFn));
+	return launch.base ?? null;
+}
+
+/**
  * One line of why bare argv escalated to the whole suite (mantahostels#3208).
  * Either way out is an explicit --changed: a manifest or render that fails
  * still narrows under it (uncertified), and a dependency-root diff narrows
@@ -1355,7 +1382,7 @@ function narrowDefault(
 		const planned = planDefault(route.rest, at, options);
 		if ("reason" in planned) {
 			teardown();
-			return escalateDefault(route, planned.reason, options);
+			return escalateDefault(route, planned, options);
 		}
 		out.write(
 			`DEFAULT NARROWED TO THE DIFF AGAINST ${planned.base} (mantahostels#3208).\n`,
@@ -1381,11 +1408,11 @@ function narrowDefault(
  * used a worktree.
  *
  * @param {LaunchRoute} route
- * @param {"stale-manifest"|"dependency-root"} reason
+ * @param {{ base: string, reason: "stale-manifest"|"dependency-root" }} planned
  * @param {Parameters<typeof runDefault>[1] & {}} options
  * @returns {Promise<number>}
  */
-function escalateDefault(route, reason, options) {
+function escalateDefault(route, { base, reason }, options) {
 	/* A run that left the queue holds no slot, so its escalation queues again
 	 * rather than run whole (#1158, #2931). */
 	if (options.emptyOnly) return Promise.resolve(REQUEUE);
@@ -1399,7 +1426,12 @@ function escalateDefault(route, reason, options) {
 	} = options.launch ?? {};
 	const escalated = {
 		...options,
-		launch: { ...unweighed, full: reason, viaChanged: false },
+		launch: {
+			...unweighed,
+			full: reason,
+			viaChanged: false,
+			base: committedBase(base),
+		},
 	};
 	return route.escalation === "shared"
 		? runOnce(route.rest, escalated)

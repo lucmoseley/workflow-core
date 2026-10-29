@@ -698,6 +698,23 @@ describe("the closure the reporter records (#189)", () => {
 		expect(takeRunReport().attestation).toEqual({ closure: "*" });
 	});
 
+	it("records the launch's base beside a full run's '*', so a full red can be classed (#3646)", async () => {
+		scratch({});
+		const r = new TestPassReporter();
+		r.onInit(vitest({ filenamePattern: [] }));
+		stubLaunch({ full: "flag", base: "b".repeat(40) });
+		await captured(() =>
+			run(r, [
+				module_("a.test.ts", ["passed"]),
+				module_("b.test.ts", ["passed"]),
+			]),
+		);
+		expect(takeRunReport().attestation).toEqual({
+			closure: "*",
+			base: "b".repeat(40),
+		});
+	});
+
 	it("unions the graph walk, the manifest's mapped documents and the roots, repo-relative and sorted", async () => {
 		const graph: Record<string, Node> = {};
 		const { withProject } = scratch(

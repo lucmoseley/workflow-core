@@ -112,7 +112,8 @@ const { appendLedgerLine } = require("./run-ledger.js");
  * roots `run-vitest.js` escalates on. `selected` is the tests the run
  * selected, which the manifest is re-read against at the sha judged (#799).
  * `changedPaths` is the diff the selection was computed from and `base` what
- * it was diffed against (#151). `holdsAt` reads the closure and `selected`,
+ * it was diffed against (#151); beside `"*"`, `base` alone is the base a full
+ * run's failures are classed against (#3646). `holdsAt` reads the closure and `selected`,
  * `attestationOf` the `changedPaths`; no gate reads `base` (#814). A certificate
  * carrying none of them holds at its own sha alone.
  *
@@ -640,21 +641,22 @@ function markerFrom(
 }
 
 /**
- * The attestation's closure where well-formed, and beside a narrowed one the
- * well-formed fields saying what narrowed it.
+ * The attestation's closure where well-formed, the base the launch resolved
+ * beside any closure, so a full red can be classed against it (#3646), and
+ * beside a narrowed one the well-formed fields saying what narrowed it.
  * @param {Attestation|null} attestation
  * @returns {Pick<Marker, "closure"|"selected"|"changedPaths"|"base"|"imports"|"roots">}
  */
 function attestedFields(attestation) {
 	if (!attestation || !isClosure(attestation.closure)) return {};
 	const { closure, selected, changedPaths, base, imports, roots } = attestation;
-	/* Only beside a narrowed closure: a full run selected on nothing. */
-	if (closure === "*") return { closure };
+	const based = typeof base === "string" && base ? { base } : {};
+	if (closure === "*") return { closure, ...based };
 	return {
 		closure,
 		...(isStringList(selected) ? { selected } : {}),
 		...(Array.isArray(changedPaths) ? { changedPaths } : {}),
-		...(typeof base === "string" && base ? { base } : {}),
+		...based,
 		...(isImportMap(imports) && isStringList(roots) ? { imports, roots } : {}),
 	};
 }
