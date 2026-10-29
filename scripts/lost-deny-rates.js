@@ -254,7 +254,7 @@ function addCall(into, guard, id) {
  */
 function callIds(record) {
 	const attached = record?.attachment?.toolUseID;
-	if (attached) return [attached];
+	if (typeof attached === "string" && attached) return [attached];
 	const content = record?.message?.content;
 	const ids = [];
 	if (Array.isArray(content))
@@ -266,7 +266,7 @@ function callIds(record) {
 			)
 				ids.push(part.tool_use_id);
 	if (ids.length > 0) return ids;
-	return [record?.uuid || ""];
+	return [typeof record?.uuid === "string" ? record.uuid : ""];
 }
 
 /**
@@ -646,8 +646,10 @@ function countPopulation(record, acc, ctx) {
 			acc.population.set(guard, (acc.population.get(guard) || 0) + 1);
 		if (!ctx.union || routed.length === 0) continue;
 		// A block with no id counts once, keyed off its line and place in it. Two
-		// id-less, uuid-less blocks at one index would collapse to one call.
-		const id = call.id ?? `${record.uuid ?? ""}#${i}`;
+		// id-less blocks at one index on lines with no string uuid would
+		// collapse to one call.
+		const uuid = typeof record.uuid === "string" ? record.uuid : "";
+		const id = call.id ?? `${uuid}#${i}`;
 		const entry = unionEntry(acc.union, call.name);
 		entry.calls.add(id);
 		entry.blocks++;
@@ -698,7 +700,7 @@ function routedGuards(triggers, call) {
 	return routed;
 }
 
-/** A fresh, empty accumulator — one corpus-wide, one per file (below). */
+/** A fresh, empty accumulator. */
 function freshAcc() {
 	return {
 		lost: new Map(),

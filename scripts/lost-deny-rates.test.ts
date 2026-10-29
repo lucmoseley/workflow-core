@@ -25,7 +25,13 @@
  * the lost-deny-recoverability note (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/lost-deny-recoverability.md)'s figures, and the choice of
  * which guard to harden, rest on a miscount.
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path, { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -1008,6 +1014,41 @@ describe("a dispatcher's cores, each its own guard — #3424", () => {
 	});
 });
 
+describe("a transcript it could not open", () => {
+	/** A corpus of one readable transcript holding a loss and one shut to its
+	 * reader. */
+	function shutRun(...args: string[]) {
+		const dir = tempDir("ldr-shut-corpus-");
+		writeFileSync(
+			join(dir, "t.jsonl"),
+			`${JSON.stringify(lostRecord("denier.sh", "tu1", "2026-09-01T00:00:00.000Z"))}\n`,
+		);
+		const shut = join(dir, "shut.jsonl");
+		writeFileSync(shut, "{}\n");
+		chmodSync(shut, 0o000);
+		const r = runInProcess(SCRIPT, ["--dir", dir, ...args], {
+			env: { WFC_LOST_DENY_ROOT: ROOT },
+		});
+		chmodSync(shut, 0o600);
+		expect(r.status).toBe(0);
+		return r.stdout;
+	}
+
+	it("counts it unreadable, not scanned, and still reads the rest", () => {
+		const { corpus, rows } = JSON.parse(shutRun("--json"));
+		expect(corpus).toMatchObject({ scanned: 1, unreadable: 1, lostCalls: 1 });
+		expect(
+			rows.find((r: { guard: string }) => r.guard === "denier.sh").lost,
+		).toBe(1);
+	});
+
+	it("names the file in the text", () => {
+		const out = shutRun();
+		expect(out).toContain("1 of 2 transcripts read, 1 unreadable");
+		expect(out).toMatch(/shut\.jsonl/);
+	});
+});
+
 describe("the needles file, refused in one sentence", () => {
 	it("reports a missing file as one sentence, not a thrown stack", () => {
 		const root = fixtureRoot(SETTINGS, null);
@@ -1744,6 +1785,27 @@ describe("--union — the nameless records' deduped base (mantahostels#3372)", (
 		const summed = out.rows.reduce((n, r) => n + (r.population ?? 0), 0);
 		expect(summed).toBe(3);
 		expect(out.union.total.calls).toBe(1);
+	});
+
+	const idless = (uuid: unknown) => ({
+		type: "assistant",
+		uuid,
+		message: {
+			content: [{ type: "tool_use", name: "Bash", input: { command: "" } }],
+		},
+	});
+
+	it("keys an id-less block off its line's uuid, one call per uuid", () => {
+		expect(unionOf([idless("u1"), idless("u2")]).total.calls).toBe(2);
+		expect(unionOf([idless("u1"), idless("u1")]).total).toMatchObject({
+			calls: 1,
+			blocks: 2,
+		});
+	});
+
+	it("keys an id-less block off a non-string uuid without throwing — #3619", () => {
+		const u = unionOf([idless({ toString: 1 })]);
+		expect(u.total).toMatchObject({ calls: 1, blocks: 1 });
 	});
 
 	it("dedupes a block written twice under one id, and says so in the block count", () => {
