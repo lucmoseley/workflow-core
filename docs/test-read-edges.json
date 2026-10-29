@@ -4891,6 +4891,10 @@
 			"scripts/lib/agent-id-probe.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
+		"scripts/fixtures/agent-id-2.1.312.txt": [
+			"scripts/lib/agent-id-probe.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
 		"scripts/fixtures/agents-stop.json": [
 			"scripts/agents-listing-count.test.ts",
 			"scripts/concurrency-readout.test.ts",

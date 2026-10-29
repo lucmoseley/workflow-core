@@ -24,7 +24,7 @@ const { caught } = require("./caught.js");
 const EVENTS = ["PreCompact", "SessionStart"];
 
 /** Either side of an anchor. Both 2.1.310 literals fit in 400 bytes, and
- * `Vu`'s `agent_id` sits 400 bytes into its body; a guess. */
+ * `Vu`'s whole body, which must fit, in 619; a guess. */
 const WINDOW = 4096;
 
 /** The binary is read in pieces, as 2.1.310's is 291 MB; the size is a guess. */
@@ -156,20 +156,34 @@ function siteOf(text, at) {
 /**
  * Which parameter of `builder` its `agent_id` is read from — the `s` of
  * 2.1.310's `agent_id:s?.agentId` — or null where no definition of it reads
- * one off a parameter. Minified names repeat across modules, so the first
- * definition that does is taken.
+ * one off a parameter. Minified names repeat across modules, so only a
+ * definition whose own body reads it counts, and null where two disagree;
+ * 2.1.312 has two zero-parameter namesakes of its builder `lf` (#1837).
+ * Residual: `closeOf` counts brackets inside string literals, and a body
+ * longer than WINDOW is skipped; either reads as no definition, so unprobed.
  * @param {string} file
  * @param {string} builder
  */
 function readContextIndexOf(file, builder) {
+	const found = new Set();
 	for (const w of readWindowsOf(file, `function ${builder}(`)) {
 		const def = w.text.slice(w.at);
-		const params = /^function [\w$]+\(([^)]*)\)/.exec(def)?.[1];
-		const from = /agent_id:([\w$]+)\??\.agentId/.exec(def)?.[1];
-		const at = params?.split(",").indexOf(from ?? "") ?? -1;
-		if (at !== -1) return at;
+		const head = /^function [\w$]+\(([^)]*)\)\{/.exec(def);
+		if (!head) continue;
+		const params = head[1];
+		if (params === undefined)
+			throw new Error(`no parameter group took part in ${head[0]}`);
+		const close = closeOf(def, head[0].length - 1);
+		if (close === -1) continue;
+		const from = /agent_id:([\w$]+)\??\.agentId/.exec(
+			def.slice(0, close + 1),
+		)?.[1];
+		if (!from) continue;
+		const at = params.split(",").indexOf(from);
+		if (at !== -1) found.add(at);
 	}
-	return null;
+	const [only] = found;
+	return found.size === 1 && only !== undefined ? only : null;
 }
 
 /**
