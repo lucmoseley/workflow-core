@@ -3,15 +3,18 @@
  * Pins the blocked-by graph the shortlist ranks on (#2427): the walk out of
  * the served repo into any repo, the issues it pulls in as launch
  * candidates, and keys that keep a foreign number from crediting the served
- * issue sharing it. Driven through fake reads, so no `gh` runs. Loosen a
- * case and the refill loop launches a ticket another repo's open issue still
- * blocks, or ranks a served issue on a foreign issue's reach.
+ * issue sharing it. Loosen a case and the refill loop launches a ticket
+ * another repo's open issue still blocks, or ranks a served issue on a
+ * foreign issue's reach. It pins too
+ * that each open ancestor counts in reach and depth, and closesOf's chain of
+ * sole open children (#3613).
  */
 
 import { describe, expect, it } from "vitest";
 
 const {
 	blockerGraph,
+	closesOf,
 	inheritance,
 	openBlockersOf,
 	proseOf,
@@ -172,7 +175,6 @@ describe("a foreign number shared with a served issue", () => {
 });
 
 describe("what an issue inherits from what it holds out (#3222)", () => {
-	/** `urgent` from each issue in `urgent`. */
 	const urgentOf = (graph: unknown, urgent: number[]) =>
 		inheritance(graph, { urgent: (n: number) => urgent.includes(n) });
 	const own = (number: number) => ({ repo: OWN, number });
@@ -227,17 +229,37 @@ describe("what an issue inherits from what it holds out (#3222)", () => {
 		}
 	});
 
-	it("holds a child's open parent, counting it in neither reach nor depth", async () => {
+	it("holds a child's open parent, counting it in reach and depth (#3613)", async () => {
 		const { graph } = await graphOf({
 			1: {},
 			2: { deps: [`${OWN}#1`], parent: 5 },
 			5: {},
 		});
-		expect(reachOf(graph, 1)).toBe(1);
+		expect(reachOf(graph, 1)).toBe(2);
 		expect(urgentOf(graph, [5])(own(1))).toEqual({
 			via: { urgent: { number: 5, path: ["#2", "#5"] } },
-			depth: 1,
+			depth: 2,
 		});
+	});
+
+	it("counts every open ancestor in reach and depth", async () => {
+		const { graph } = await graphOf({
+			1: { parent: 2 },
+			2: { parent: 3 },
+			3: {},
+		});
+		expect(reachOf(graph, 1)).toBe(2);
+		expect(urgentOf(graph, [])(own(1)).depth).toBe(2);
+	});
+
+	it("stays finite on a parent cycle, counting both members in reach and none outside it in depth", async () => {
+		const { graph } = await graphOf({
+			1: { parent: 2 },
+			2: { parent: 1 },
+		});
+		expect(reachOf(graph, 1)).toBe(2);
+		expect(urgentOf(graph, [])(own(1)).depth).toBe(0);
+		expect(closesOf(graph, 1)).toBe(1);
 	});
 
 	it("passes urgency down a parent link to a child, then on to its blockers (#3250)", async () => {
@@ -250,7 +272,7 @@ describe("what an issue inherits from what it holds out (#3222)", () => {
 		});
 		expect(urgentOf(graph, [5])(own(3))).toEqual({
 			via: { urgent: { number: 5, path: ["#1", "#2", "#5"] } },
-			depth: 1,
+			depth: 3,
 		});
 	});
 
@@ -328,5 +350,32 @@ describe("proseOf: a served issue's markers as judged (#3277)", () => {
 			{ label: "o/y#10", native: true },
 		]);
 		expect(reads.filter((r: string) => r === "issue o/y#10")).toEqual([]);
+	});
+});
+
+describe("closesOf (#3613)", () => {
+	it("counts the parent of its only open child", async () => {
+		const { graph } = await graphOf({ 1: { parent: 2 }, 2: {} });
+		expect(closesOf(graph, 1)).toBe(1);
+	});
+
+	it("counts none where the parent has another open child", async () => {
+		const { graph } = await graphOf({
+			1: { parent: 3 },
+			2: { parent: 3 },
+			3: {},
+		});
+		expect(closesOf(graph, 1)).toBe(0);
+	});
+
+	it("cascades while each ancestor is its parent's only open child", async () => {
+		const { graph } = await graphOf({
+			1: { parent: 2 },
+			2: { parent: 3 },
+			3: { parent: 4 },
+			5: { parent: 4 },
+			4: {},
+		});
+		expect(closesOf(graph, 1)).toBe(2);
 	});
 });

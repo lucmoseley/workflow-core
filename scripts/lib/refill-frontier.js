@@ -249,11 +249,12 @@ async function refillFrontier(roots, goals, readList = readShortlist) {
 				root,
 				result: {
 					...result,
-					// Its reach and depth count chains in a repo this scope does not
-					// serve, so only what pulled it in ranks it; its own labels stand.
+					// Its reach, depth and closes count chains in a repo this scope
+					// does not serve, so only what pulled it in ranks it; its own
+					// labels stand.
 					rows: result.rows
 						.filter((r) => pulledByRoot.get(root)?.has(r.number))
-						.map((r) => ({ ...r, reach: 0, depth: 0 })),
+						.map((r) => ({ ...r, reach: 0, depth: 0, closes: 0 })),
 					retroBundles: [],
 				},
 			});

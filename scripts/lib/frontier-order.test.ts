@@ -10,6 +10,7 @@ const row = (number: number, over: Record<string, unknown> = {}) => ({
 	stallDays: 0,
 	asksQuestions: false,
 	depth: 0,
+	closes: 0,
 	reach: 0,
 	collision: "comment-only",
 	...over,
@@ -58,6 +59,22 @@ describe("mergeFrontiers (#2003)", () => {
 			"b#4",
 			"a#1",
 		]);
+	});
+
+	it("ranks on depth plus closes, not depth alone (#3613)", () => {
+		const merged = mergeFrontiers([
+			{
+				root: "a",
+				lastLaunchAt: null,
+				retroBundles: [],
+				rows: [
+					row(1, { depth: 2, reach: 9 }),
+					row(2, { depth: 2, closes: 1 }),
+					row(3, { depth: 1, closes: 2, reach: 1 }),
+				],
+			},
+		]);
+		expect(ranked(merged)).toEqual(["a#3", "a#2", "a#1"]);
 	});
 
 	it("gives a full tie to the repo launched least recently, a never-launched repo first", () => {

@@ -10,10 +10,11 @@
  * one blocked_by read, plus one issue read where a marker alone names it.
  *
  * An issue holds out what it blocks and its own open parent in the served
- * repo, which cannot close while it is open (#3222). A parent in another repo
- * is not read.
+ * repo, which cannot close while it is open (#3222), so each open ancestor
+ * counts in its reach and depth (#3613). A parent in another repo is not read.
  *
- * Callers: scripts/pick-next.js, which ranks on reachOf and inheritance,
+ * Callers: scripts/pick-next.js, which ranks on reachOf, inheritance and
+ * closesOf,
  * holds on openBlockersOf, and reports pulledInOf's rows and proseOf's
  * markers; and through its `--json` lib/refill-frontier.js.
  */
@@ -192,15 +193,19 @@ async function blockerGraph(served, ownRepo, read) {
 	const holds = new Map([...nodes.keys()].map((k) => [k, []]));
 	for (const [k, n] of nodes)
 		for (const b of n.blockers) holds.get(b.key)?.push(k);
-	/** @type {Set<string>} open served parents: headings, not work */
-	const containers = new Set();
+	/** @type {Map<number, number>} served issue -> its open served parent */
+	const parentOf = new Map();
+	/** @type {Map<number, number>} open served parent -> its open children,
+	 * pick-next.js's heading test */
+	const openChildren = new Map();
 	for (const s of served) {
 		if (s.parent === null || !openServed.has(s.parent)) continue;
 		const p = refKey({ repo: ownRepo, number: s.parent });
 		holds.get(refKey({ repo: ownRepo, number: s.number }))?.push(p);
-		containers.add(p);
+		parentOf.set(s.number, s.parent);
+		openChildren.set(s.parent, (openChildren.get(s.parent) ?? 0) + 1);
 	}
-	return { nodes, holds, containers, ownRepo };
+	return { nodes, holds, parentOf, openChildren, ownRepo };
 }
 
 /**
@@ -217,12 +222,11 @@ function nodeAt(nodes, k) {
 /** @typedef {Awaited<ReturnType<typeof blockerGraph>>} Graph */
 
 /**
- * Whether `k` is work this repo serves: a served node that is no container.
+ * Whether `k` is an issue in the served repo.
  * @param {Graph} graph
  * @param {string} k
  */
-const isWork = (graph, k) =>
-	graph.nodes.get(k)?.served === true && !graph.containers.has(k);
+const isServedKey = (graph, k) => graph.nodes.get(k)?.served === true;
 
 /**
  * Orders node keys by issue number, then by key, as numbers repeat across
@@ -236,8 +240,8 @@ const byNumber = (graph) => (a, b) =>
 
 /**
  * The served issues `key` transitively holds out, sorted: what its reach
- * counts. A foreign node or a container on the way passes the walk on but is
- * not counted.
+ * counts, each open ancestor included. A foreign node on the way passes the
+ * walk on but is not counted.
  * @param {Graph} graph
  * @param {string} key
  */
@@ -253,7 +257,7 @@ function heldBy(graph, key) {
 	}
 	return [...seen]
 		.flatMap((k) =>
-			isWork(graph, k) ? [nodeAt(graph.nodes, k).ref.number] : [],
+			isServedKey(graph, k) ? [nodeAt(graph.nodes, k).ref.number] : [],
 		)
 		.sort((a, b) => a - b);
 }
@@ -396,7 +400,7 @@ function unitsOf(graph) {
 	const units = members.map((keys, u) => {
 		const holds = keys.flatMap((k) => graph.holds.get(k) ?? []);
 		return {
-			work: keys.filter((k) => isWork(graph, k)).length,
+			work: keys.filter((k) => isServedKey(graph, k)).length,
 			out: holds.filter((k) => unitIndex.get(k) !== u).sort(order),
 			inner: holds.filter((k) => unitIndex.get(k) === u),
 		};
@@ -419,6 +423,27 @@ function unitsOf(graph) {
  */
 const reachOf = (graph, n) =>
 	heldBy(graph, refKey({ repo: graph.ownRepo, number: n })).length;
+
+/**
+ * How many ancestors close when served issue `n` closes: its parent where it
+ * is that parent's only open child, then that parent's where the parent is
+ * its only open child, and on up (#3613).
+ * @param {Graph} graph
+ * @param {number} n
+ */
+function closesOf(graph, n) {
+	const seen = new Set([n]);
+	let closes = 0;
+	for (
+		let p = graph.parentOf.get(n);
+		p !== undefined && !seen.has(p) && graph.openChildren.get(p) === 1;
+		p = graph.parentOf.get(p)
+	) {
+		seen.add(p);
+		closes++;
+	}
+	return closes;
+}
 
 /**
  * The node of served issue `n`, undefined where the graph has none.
@@ -533,6 +558,7 @@ function pulledInOf(graph) {
 
 module.exports = {
 	blockerGraph,
+	closesOf,
 	inheritance,
 	openBlockersOf,
 	proseOf,

@@ -38,6 +38,7 @@ const row = (number: number, over: Record<string, unknown> = {}) => ({
 	stallDays: 0,
 	asksQuestions: false,
 	depth: 0,
+	closes: 0,
 	reach: 0,
 	collision: "comment-only",
 	takes: ["implement"],
