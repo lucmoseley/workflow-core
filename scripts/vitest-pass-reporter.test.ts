@@ -350,11 +350,7 @@ describe("the failing files the reporter records (mantahostels#1942)", () => {
 		]);
 	});
 
-	/*
-	 * Absent, not empty. A reader asks "did anything fail" by testing the key, and
-	 * an empty array answers yes-but-nothing — the shape that invites a bug.
-	 */
-	it("counts on a red the module and unhandled errors no failing test carries", async () => {
+	it("counts on a red the unhandled errors and the files that errored outside any test", async () => {
 		const reporter = new TestPassReporter();
 		reporter.onInit(ctx());
 		await captured(() =>
@@ -372,6 +368,22 @@ describe("the failing files the reporter records (mantahostels#1942)", () => {
 		expect(takeRunReport().scope?.errors).toBe(2);
 	});
 
+	// `lib/unasked-rerun-io.js`'s `isClassable` keys on `errors === 0`: without
+	// this write every red reads as unclassable (#3633).
+	it("writes errors: 0 on a red with no module or unhandled error", async () => {
+		const reporter = new TestPassReporter();
+		reporter.onInit(ctx());
+		await captured(() =>
+			run(reporter, [module_("a.test.ts", ["failed"])], "failed"),
+		);
+
+		expect(takeRunReport().scope?.errors).toBe(0);
+	});
+
+	/*
+	 * Absent, not empty. A reader asks "did anything fail" by testing the key, and
+	 * an empty array answers yes-but-nothing — the shape that invites a bug.
+	 */
 	it("writes no failures key at all on a green run", async () => {
 		const reporter = new TestPassReporter();
 		reporter.onInit(ctx());

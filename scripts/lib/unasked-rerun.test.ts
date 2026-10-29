@@ -190,6 +190,16 @@ describe("a red run whose every failure was already red on its base (#3633)", ()
 	it("is refused as a changed run too", () => {
 		refused(judged("npm run test:changed", { ...red, selection: "edit" }).out);
 	});
+
+	it("prints the flake note once, after every red, where two reds decide", () => {
+		const reason = refused(
+			judged("npm run test", { attestation: "attestedTwoReds" }).out,
+		);
+		expect(reason.match(/half the time/g)).toHaveLength(1);
+		expect(reason.indexOf("half the time")).toBeGreaterThan(
+			reason.indexOf("RUN-S"),
+		);
+	});
 });
 
 describe("attestation judged on the session's own work, not all of HEAD (#1218)", () => {

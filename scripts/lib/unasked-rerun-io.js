@@ -114,15 +114,7 @@ function judgeIO(root, { timeoutMs = HOOK_GIT_TIMEOUT_MS } = {}) {
 			);
 			return { selection: value, timedOut: seen.timedOut || overran };
 		},
-		storeFault: () => {
-			try {
-				if (!fs.statSync(storePath(root)).isFile()) return "EISDIR";
-				fs.accessSync(storePath(root), fs.constants.R_OK);
-				return null;
-			} catch (e) {
-				return String(caught(e).code ?? e);
-			}
-		},
+		storeFault: () => storeFaultAt(storePath(root)),
 		attestation: (tip, within) => {
 			const { exec, seen } = boundedExec();
 			const certificates = readMarkers({ root });
@@ -184,18 +176,28 @@ function readClassedReds(root, exec, seen) {
 }
 
 /**
+ * Why the store file at `at` will not read, as an error code — `ENOENT` where
+ * it is absent — or null where it reads.
+ * @param {string} at
+ * @returns {string|null}
+ */
+function storeFaultAt(at) {
+	try {
+		if (!fs.statSync(at).isFile()) return "EISDIR";
+		fs.accessSync(at, fs.constants.R_OK);
+		return null;
+	} catch (e) {
+		return String(caught(e).code ?? e);
+	}
+}
+
+/**
  * Why the red store will not read whole, or null where it does or is absent.
  * @param {string} root
  */
 function readRedStoreFault(root) {
-	const at = storePath(root, FAIL_STORE);
-	try {
-		if (!fs.statSync(at).isFile()) return "EISDIR";
-		fs.accessSync(at, fs.constants.R_OK);
-	} catch (e) {
-		const code = String(caught(e).code ?? e);
-		return code === "ENOENT" ? null : code;
-	}
+	const code = storeFaultAt(storePath(root, FAIL_STORE));
+	if (code) return code === "ENOENT" ? null : code;
 	const { malformed } = countMalformed({ root, store: FAIL_STORE });
 	return malformed > 0 ? `${malformed} malformed line(s)` : null;
 }

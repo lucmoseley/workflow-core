@@ -25,6 +25,7 @@ const {
 	holdsTestByTree,
 	readFailures,
 	readMarkers,
+	FLAKE_NOTE,
 	shortSha,
 	suiteOf,
 } = require("./test-pass-marker.js");
@@ -183,9 +184,11 @@ function readAlreadyRedLines(run, root) {
 /**
  * The lines a red run's summary carries, or none where nothing failed.
  * @param {Classing|null} classed
+ * @param {{flakeNote?: boolean}} [options] `flakeNote: false` where the caller
+ *   prints FLAKE_NOTE once over several reds
  * @returns {string[]}
  */
-function buildAlreadyRedLines(classed) {
+function buildAlreadyRedLines(classed, { flakeNote = true } = {}) {
 	if (!classed) return [];
 	if (!classed.base)
 		return [
@@ -208,7 +211,7 @@ function buildAlreadyRedLines(classed) {
 			: []),
 		...(classed.allAlreadyRed
 			? [
-					"  Every failure here was already red on the base, so no rerun is owed to attribute them — evidence, not a licence: a red's failing set repeats only about half the time between runs (mantahostels#2195).",
+					`  Every failure here was already red on the base, so no rerun is owed to attribute them${flakeNote ? ` — evidence, not a licence: ${FLAKE_NOTE}` : ""}.`,
 				]
 			: [
 					"  NEW — no record shows these red on the base:",

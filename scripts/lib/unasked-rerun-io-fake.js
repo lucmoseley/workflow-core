@@ -242,6 +242,28 @@ const ANSWERS = {
 			timedOut: false,
 			redFault: null,
 		},
+		/* Two such reds, each covering a file the other does not. */
+		attestedTwoReds: {
+			verdict: {
+				judged: true,
+				base: BASE,
+				range: ["a.js", "b.js"],
+				within: true,
+				suites: [
+					{
+						suite: "vitest",
+						attested: true,
+						members: [
+							{ marker: classedRed(HEAD, "RUN-S"), match: { by: "sha" } },
+							{ marker: classedRed(HEAD, "RUN-R"), match: { by: "sha" } },
+						],
+						note: null,
+					},
+				],
+			},
+			timedOut: false,
+			redFault: null,
+		},
 		pytestOwed: {
 			verdict: {
 				judged: true,

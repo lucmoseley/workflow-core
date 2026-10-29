@@ -55,6 +55,7 @@
 
 const {
 	DEFAULT_SUITE,
+	FLAKE_NOTE,
 	attestationReading,
 	isFullRun,
 	shortSha,
@@ -83,7 +84,9 @@ const { buildAlreadyRedLines } = require("./already-red.js");
  *   read, as an error code — `ENOENT` where it is absent — or null where it reads
  * @property {(tip: string, within: string[]|null) => { verdict: Attestation, timedOut: boolean, redFault: string|null }} attestation
  *   `attestationOf` at `tip` over the store and the classed reds, narrowed to
- *   `within`; `redFault` why the red store could not be read for them
+ *   `within`; a classed red counts among the `attested: true` members, deciding
+ *   the verdict as a certificate attests one; `redFault` why the red store
+ *   could not be read for them
  * @property {() => number} malformed
  * @property {() => string} now an ISO timestamp
  */
@@ -214,7 +217,7 @@ function judgeAttestation(io, sessionId, command, selection) {
 		reading: attestationReading(
 			tip,
 			{ ...verdict, suites: [vitest] },
-			{ ofRecord: reds.length > 0 },
+			{ redsAmongMembers: reds.length > 0 },
 		).text.trimEnd(),
 		reds,
 	});
@@ -308,11 +311,11 @@ function buildRefusalText(head, { mine, scoped }, within, { reading, reds }) {
 		reading,
 		...reds.flatMap((m) => [
 			`The verdict on record from the run at ${m.at ?? "unknown time"} on ${shortSha(m.sha)} is a red, not a certificate: it failed only on files already red on its base.`,
-			...buildAlreadyRedLines(m.alreadyRed),
+			...buildAlreadyRedLines(m.alreadyRed, { flakeNote: false }),
 		]),
 		...(reds.length > 0
 			? [
-					"A repeat re-rolls those flakes rather than testing this session's work.",
+					`Evidence, not a licence: ${FLAKE_NOTE}, so a repeat re-rolls those flakes rather than testing this session's work.`,
 				]
 			: []),
 		"Type the same command again and it runs — this refuses once a session.",

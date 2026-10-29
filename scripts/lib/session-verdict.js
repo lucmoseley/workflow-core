@@ -325,8 +325,8 @@ function buildLastRedNote(root, log) {
 		"the red predates you: take the exemption, say which one and name these " +
 		"files, write `result:` and stop again — no suite. Where they do " +
 		"intersect, run it. THIS IS EVIDENCE, NOT A LICENCE: it says what was " +
-		"red, never whose work it is, and a red's failing set repeats only about " +
-		"half the time between runs (mantahostels#2195), so a file absent here can be red now."
+		`red, never whose work it is, and ${markerLib.FLAKE_NOTE}, so a file ` +
+		"absent here can be red now."
 	);
 }
 

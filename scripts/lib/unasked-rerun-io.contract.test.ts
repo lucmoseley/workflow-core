@@ -9,9 +9,10 @@
  *
  * The timed-out situations cross the real clock: the adapter's bound is a
  * child-process timeout, which only a git that really overruns trips, so
- * each points WFC_GIT at a stub that sleeps past a 200 ms bound (§X9) — short
- * enough to keep the file fast, long enough that a real git under a loaded
- * machine never trips it on the other situations, which keep the 3 s default.
+ * each points WFC_GIT at a stub that sleeps past a short bound (§X9) — 200 ms,
+ * or 1 s in the one case its site explains — short enough to keep the file
+ * fast. The other situations keep the 3 s default, which a real git under a
+ * loaded machine never trips.
  *
  * The last block asks the adapter alone which red runs stand beside the
  * certificates (#3633): which reds class, and how they rank against
@@ -23,6 +24,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import type { Classing } from "./already-red.js";
 import { FAIL_STORE, storePath } from "./test-pass-marker.js";
 import type { JudgeIO } from "./unasked-rerun.js";
 import {
@@ -67,11 +69,6 @@ interface Dir {
 }
 type Selected = ReturnType<JudgeIO["selection"]>;
 type Attested = ReturnType<JudgeIO["attestation"]>;
-
-interface Classing {
-	allAlreadyRed: boolean;
-	files: { file: string; red: { by: string } | null }[];
-}
 
 /** A member's already-red classing less its values, or null for a certificate. */
 const classingShape = (marker: object) => {
@@ -294,6 +291,15 @@ const SITUATIONS: Record<string, Record<string, () => unknown>> = {
 			fx.writeReds(fx.redAtBase("RUN-0"), fx.redOn(sha, ["a.js"], "RUN-R"));
 			return io().attestation(sha, ["a.js"]);
 		},
+		attestedTwoReds: () => {
+			const sha = fx.commitTouching("a.js", "b.js");
+			fx.writeReds(
+				fx.redAtBase("RUN-0"),
+				fx.redOn(sha, ["a.js"], "RUN-R"),
+				fx.redOn(sha, ["b.js"], "RUN-S"),
+			);
+			return io().attestation(sha, ["a.js", "b.js"]);
+		},
 		pytestOwed: () => {
 			const sha = fx.commitTouching("a.js", "b.py");
 			fx.writeStore(fx.narrowedOn(sha, ["a.js", "b.py"], "RUN-A"));
@@ -364,8 +370,8 @@ describe("the fake answers as the adapter does", () => {
 });
 
 describe("which red runs stand beside the certificates (#3633)", () => {
-	/** The attesting members' `at`s, or null where nothing attests. */
-	const attesters = (sha: string, within: string[] | null) => {
+	/** The deciding members' `at`s, or null where nothing decides. */
+	const deciders = (sha: string, within: string[] | null) => {
 		const { verdict } = io().attestation(sha, within);
 		const vitest = verdict.judged
 			? verdict.suites.find((s) => s.suite === "vitest")
@@ -376,7 +382,7 @@ describe("which red runs stand beside the certificates (#3633)", () => {
 	it("admits no red whose failure no record shows red on the base", () => {
 		const sha = fx.commitTouching("a.js");
 		fx.writeReds(fx.redOn(sha, ["a.js"], "RUN-R"));
-		expect(attesters(sha, ["a.js"])).toBeNull();
+		expect(deciders(sha, ["a.js"])).toBeNull();
 	});
 
 	it("admits no red that recorded no base", () => {
@@ -385,7 +391,7 @@ describe("which red runs stand beside the certificates (#3633)", () => {
 			fx.redAtBase("RUN-0"),
 			fx.redOn(sha, ["a.js"], "RUN-R", false),
 		);
-		expect(attesters(sha, ["a.js"])).toBeNull();
+		expect(deciders(sha, ["a.js"])).toBeNull();
 	});
 
 	it("admits no pytest red", () => {
@@ -394,7 +400,7 @@ describe("which red runs stand beside the certificates (#3633)", () => {
 			...fx.redOn(sha, ["a.js"], "RUN-R"),
 			suite: "pytest",
 		});
-		expect(attesters(sha, ["a.js"])).toBeNull();
+		expect(deciders(sha, ["a.js"])).toBeNull();
 	});
 
 	it("admits no red whose tree the tip no longer holds", () => {
@@ -402,27 +408,27 @@ describe("which red runs stand beside the certificates (#3633)", () => {
 		fx.writeReds(fx.redAtBase("RUN-0"), fx.redOn(sha, ["a.js"], "RUN-R"));
 		fs.writeFileSync(path.join(f.project, "a.js"), "moved on\n");
 		fx.git("commit", "-q", "-am", "moved on");
-		expect(attesters(fx.git("rev-parse", "HEAD"), ["a.js"])).toBeNull();
+		expect(deciders(fx.git("rev-parse", "HEAD"), ["a.js"])).toBeNull();
 	});
 
 	it("lets a newer certificate decide a path over a red", () => {
 		const sha = fx.commitTouching("a.js");
 		fx.writeReds(fx.redAtBase("RUN-0"), fx.redOn(sha, ["a.js"], "RUN-R"));
 		fx.writeStore(fx.narrowedOn(sha, ["a.js"], "RUN-Z"));
-		expect(attesters(sha, ["a.js"])).toEqual(["RUN-Z"]);
+		expect(deciders(sha, ["a.js"])).toEqual(["RUN-Z"]);
 	});
 
 	it("combines a red with a certificate over a selection neither covers alone", () => {
 		const sha = fx.commitTouching("a.js", "b.js");
 		fx.writeReds(fx.redAtBase("RUN-0"), fx.redOn(sha, ["a.js"], "RUN-R"));
 		fx.writeStore(fx.narrowedOn(sha, ["b.js"], "RUN-A"));
-		expect(attesters(sha, null)?.sort()).toEqual(["RUN-A", "RUN-R"]);
+		expect(deciders(sha, null)?.sort()).toEqual(["RUN-A", "RUN-R"]);
 	});
 
 	it("never reads the red store where certificates attest alone", () => {
 		const sha = fx.attestedHead();
 		fs.writeFileSync(storePath(f.project, FAIL_STORE), `{"torn\n`);
-		expect(attesters(sha, ["a.js"])).toEqual(["RUN-A"]);
+		expect(deciders(sha, ["a.js"])).toEqual(["RUN-A"]);
 		expect(io().attestation(sha, ["a.js"]).redFault).toBeNull();
 	});
 
@@ -434,7 +440,7 @@ describe("which red runs stand beside the certificates (#3633)", () => {
 			scope: { ...full.scope, changed: null, admissible: false, modulesRun: 9 },
 			closure: "*",
 		});
-		expect(attesters(sha, ["a.js"])).toEqual(["RUN-R"]);
+		expect(deciders(sha, ["a.js"])).toEqual(["RUN-R"]);
 	});
 
 	it("admits no red carrying an error no failing test names", () => {
@@ -444,7 +450,7 @@ describe("which red runs stand beside the certificates (#3633)", () => {
 			...red,
 			scope: { ...red.scope, errors: 1 },
 		});
-		expect(attesters(sha, ["a.js"])).toBeNull();
+		expect(deciders(sha, ["a.js"])).toBeNull();
 	});
 
 	it("names a newer certificate over an older red of wider reach", () => {
@@ -454,7 +460,7 @@ describe("which red runs stand beside the certificates (#3633)", () => {
 			fx.redOn(sha, ["a.js", "b.js"], "RUN-R"),
 		);
 		fx.writeStore(fx.narrowedOn(sha, ["a.js"], "RUN-Z"));
-		expect(attesters(sha, ["a.js"])).toEqual(["RUN-Z"]);
+		expect(deciders(sha, ["a.js"])).toEqual(["RUN-Z"]);
 	});
 
 	it("answers a classing that throws as a fault, certificates alone judging", () => {
@@ -479,6 +485,9 @@ describe("which red runs stand beside the certificates (#3633)", () => {
 			{ mode: 0o755 },
 		);
 		process.env.WFC_GIT = stub;
+		// Every other git call runs for real through the stub's shell, and must
+		// finish under the bound so the tree read is the one that trips it; 1 s
+		// is a guess at that headroom, unmeasured.
 		expect(
 			judgeIO(f.project, { timeoutMs: 1000 }).attestation(sha, ["a.js"])
 				.timedOut,

@@ -421,8 +421,9 @@ export default class TestPassReporter {
 						})),
 					}
 				: {}),
-			// On a red, the errors no failing test carries: a red with any is never
-			// read as already red on its base (#3633), its cause being unnamed.
+			// On a red, the unhandled errors plus the files that errored outside any
+			// test (`Scope.errors`): a red with any is never read as already red on
+			// its base (#3633), its cause being unnamed.
 			...(failures.size > 0 || errors > 0 ? { errors } : {}),
 		};
 	}

@@ -66,7 +66,9 @@ const { appendLedgerLine } = require("./run-ledger.js");
 /**
  * One run as either store records it, and how much of the suite it covered.
  * Everything but the sha is optional: a record written before the field existed
- * carries none, and every reader below is written to that.
+ * carries none, and every reader below is written to that. `errors`, written on
+ * a red, counts the run's unhandled errors plus the test files that errored
+ * outside any test, such as on import — 0 where every failure is a test's.
  *
  * @typedef {{modulesRun: number, modulesTotal: number, tests: number,
  *   skipped: number, nameFilter?: string|null,
@@ -200,6 +202,10 @@ const FULL_CAUSES = [
  * run still records no certificate, exactly as before.
  */
 const FAIL_STORE = ".test-fail-markers.jsonl";
+
+/* Why a red read off that store is evidence, never a licence. */
+const FLAKE_NOTE =
+	"a red's failing set repeats only about half the time between runs (mantahostels#2195)";
 
 /* Above this many lines the store is rewritten down to KEEP. Pruning races an
  * append from a parallel suite; the loss is one marker, whose cost is one
@@ -1851,14 +1857,19 @@ function buildUnattestedFileLines(s, indent) {
  * @param {string} sha
  * @param {ReturnType<typeof attestationOf>} verdict
  * @typedef {(s: SuiteAttestation & {attested: false}) => string[]|null} Advise
- * @param {{pushing?: boolean, pushCheck?: string, advise?: Advise, ofRecord?: boolean}} [options]
- *   `ofRecord` where a member may be a red run, not a certificate (#3633)
+ * @param {{pushing?: boolean, pushCheck?: string, advise?: Advise, redsAmongMembers?: boolean}} [options]
+ *   `redsAmongMembers` where a member may be a red run, not a certificate (#3633)
  * @returns {{state: "attested"|"owed"|"unjudged", text: string}}
  */
 function attestationReading(
 	sha,
 	verdict,
-	{ pushing = false, pushCheck, advise = () => null, ofRecord = false } = {},
+	{
+		pushing = false,
+		pushCheck,
+		advise = () => null,
+		redsAmongMembers = false,
+	} = {},
 ) {
 	if (!verdict.judged)
 		return {
@@ -1869,7 +1880,7 @@ function attestationReading(
 		s.attested
 			? buildAttestedLines(sha, s, pushing, {
 					narrowed: Boolean(verdict.within),
-					ofRecord,
+					redsAmongMembers,
 				})
 			: buildOwedLines(sha, verdict.base, s, { pushing, pushCheck, advise }),
 	);
@@ -1883,15 +1894,15 @@ function attestationReading(
  * @param {string} sha
  * @param {SuiteAttestation & {attested: true}} s
  * @param {boolean} pushing
- * @param {{narrowed: boolean, ofRecord: boolean}} wording `narrowed` where the
+ * @param {{narrowed: boolean, redsAmongMembers: boolean}} wording `narrowed` where the
  *   verdict judged `within` paths, not the range
  */
-function buildAttestedLines(sha, s, pushing, { narrowed, ofRecord }) {
+function buildAttestedLines(sha, s, pushing, { narrowed, redsAmongMembers }) {
 	const out = [];
 	if (!pushing) {
 		const { name } = suiteMeta(s.suite);
 		out.push(
-			`✓  ${name}: ${s.members.length} ${ofRecord ? "run(s) on record decide" : "certificate(s) attest"} ${narrowed ? "every file this run would test" : "the range"}:\n`,
+			`✓  ${name}: ${s.members.length} ${redsAmongMembers ? "run(s) on record decide" : "certificate(s) attest"} ${narrowed ? "every file this run would test" : "the range"}:\n`,
 			...s.members.map(
 				({ marker: m }) =>
 					`     ${m.at ?? "unknown time"} on ${shortSha(m.sha)} — ${isFullRun(m) ? "full run" : `narrowed run over ${(m.changedPaths ?? []).length} changed path(s)`}\n`,
@@ -2115,6 +2126,7 @@ module.exports = {
 	STORE,
 	EDGES_FILE,
 	FAIL_STORE,
+	FLAKE_NOTE,
 	recordFailure,
 	failureRecoveryCommand,
 	KEEP,
