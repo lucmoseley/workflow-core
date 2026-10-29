@@ -5,9 +5,9 @@
  * stop read lib/registry-agents.js instead, which needs no CLI (#2665).
  *
  * THIS HEADER OWNS THE ~465 ms FIGURE, and every other statement of it in
- * `scripts/` restates this line. Measured at mantahostels#317, written up in
- * https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/session-liveness-oracle.md. A site citing **mantahostels#411 cites the BAR the
- * figure justifies**, never the measurement.
+ * `scripts/` restates this line. Measured at mantahostels#317. A site citing
+ * **mantahostels#411 cites the BAR the figure justifies**, never the
+ * measurement.
  *
  * NO `docs/doc-map.md` §B ENTRY, because it is repo machinery (mantahostels#2504).
  *
@@ -29,8 +29,6 @@
  * No caller, waived or not, is ever offered an AGED cache hit
  * (mantahostels#1960): a cached success can be served back across a daemon
  * failure in between (mantahostels#1946).
- * Single-flight (`readListing`, below) still serves
- * concurrent readers — `npm run status`'s more than a start's (#1446).
  * The self-test protects a reader whose judgement IS an absence — a session
  * missing from a short list reads dead. A reader that acts only on fields
  * present in a record can merely act less on a short list; and at
@@ -337,8 +335,7 @@ function readListing(opts) {
 		 * the spawn this saves would be given straight back. */
 		cache.write(bin, raw);
 	} finally {
-		/* On every exit including the two refusals: a follower must not be held
-		 * past the spawn it is waiting for. */
+		/* A follower must not be held past the spawn it is waiting for. */
 		if (leading) cache.release(bin);
 	}
 
@@ -483,9 +480,9 @@ function listedAgents(opts) {
  * Whether an oracle record is a background session that has FINISHED and not
  * exited — the reaper's gate 1.
  *
- * `status` IS DELIBERATELY NOT READ (mantahostels#768, https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/session-state-status-skew.md): a `shell` session
- * emits `state: done` with `status: busy`, so reading `status` drops finished
- * sessions.
+ * `status` IS DELIBERATELY NOT READ (mantahostels#768, research at
+ * mantahostels#765): a `shell` session emits `state: done` with `status: busy`,
+ * so reading `status` drops finished sessions.
  *
  * `tempo: "active"` IS NOT FINISHED (#2980): a forced Stop-hook turn runs
  * under `state: done`, and `claude stop` itself counts a job settled only where
@@ -501,7 +498,7 @@ const isFinishedAgent = (a) =>
 
 /**
  * The three states the oracle emits for a background session that has REACHED A
- * TERMINAL STATE (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/session-state-status-skew.md §F1).
+ * TERMINAL STATE (mantahostels#765's research, §F1).
  */
 const TERMINAL_STATES = new Set(["done", "failed", "stopped"]);
 
