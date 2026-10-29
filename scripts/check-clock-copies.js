@@ -13,8 +13,8 @@
  * lib/check.js.
  *
  * THE OPT-OUT is a `clock-kept: <why>` comment on the read's line or the line
- * above, as the sweep-budget clock carries (mantahostels#2209). A marker with
- * no word after it is no marker.
+ * above. A marker with no word after it is no marker. A guard core passes its
+ * `ctx.env` to `now(env)` rather than reading the variable itself (#3566).
  *
  * IMPLICIT:  on every commit staging a scripts/ program, refuses any WFC_NOW read outside lib/check.js in the tree, naming the file, line, `now()` and its exemplar.
  * JUSTIFIED: fail-safe — each copy answers a malformed pin its own way, and one a test does not pin reads the wall clock; the fix is one `now()` call.

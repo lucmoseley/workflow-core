@@ -85,11 +85,8 @@ describe("check-clock-copies", () => {
 		expect(r.out).toContain("OK: 4 program(s), no WFC_NOW read outside now().");
 	});
 
-	it("passes the sweep-budget clock's written exception, and only where the marker gives a reason", () => {
-		program(
-			"lib/sweep-fire.js",
-			"// clock-kept: the spend port's own parse, a bad pin a fault (mantahostels#2209)\nconst spend = ctx.spendSweep(ctx.env.WFC_NOW);\n",
-		);
+	it("passes a read the marker gives a reason for, and only that one", () => {
+		program("kept.js", `// clock-kept: pinned by its own caller\n${COPY}`);
 		program("bare.js", `// clock-kept:\n${COPY}`);
 		const r = run();
 		expect(r.status).toBe(1);

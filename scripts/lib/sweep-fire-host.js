@@ -4,8 +4,8 @@
  * counter the autofire also writes, in the host root's git common dir.
  *
  * Every fault comes back as a `fault` — a git that will not name a common
- * dir, a marker that will not read or write, a clock that is not a date, a
- * budget module that will not load — never a throw: a budget that cannot be
+ * dir, a marker that will not read or write, a `WFC_NOW` pin `now()` will not
+ * parse, a budget module that will not load — never a throw: a budget that cannot be
  * counted refuses nothing (mantahostels#103 §6), and a throw would take the
  * core's fail-closed policy instead. The module loads on first spend, so a
  * Bash call that fires no sweep pays nothing and a module mid-save is a fault
@@ -28,15 +28,13 @@ const { caught } = require("./caught.js");
 function buildHostPorts(root, _log, load = () => require("./sweep-budget.js")) {
 	return {
 		/**
-		 * @param {string | undefined} now `WFC_NOW`, which pins the clock as it
-		 *   does for check-ci-status.js; the wall clock where unset
+		 * @param {Record<string, string | undefined>} env the core's, whose
+		 *   `WFC_NOW` pins the clock
 		 * @returns {Spend}
 		 */
-		spendSweep: (now) => {
+		spendSweep: (env) => {
 			try {
-				const t = now ? Date.parse(now) : Date.now();
-				if (Number.isNaN(t)) return { fault: `WFC_NOW is not a date: ${now}` };
-				return load().spendHandFire(root, t);
+				return load().spendHandFire(root, require("./check.js").now(env));
 			} catch (e) {
 				return { fault: caught(e).message };
 			}

@@ -1662,10 +1662,12 @@ const errMessage = (e) => (e instanceof Error ? e.message : String(e));
  * not just its in-test reading (mantahostels#2161). A caller that persists a timestamp
  * inherits that and should say so at its own call site.
  *
- * @type {() => number}
+ * A guard core passes its injected `ctx.env`, never the process's (#3566).
+ *
+ * @type {(env?: NodeJS.ProcessEnv | Record<string, string | undefined>) => number}
  */
-const now = () => {
-	const raw = process.env.WFC_NOW;
+const now = (env = process.env) => {
+	const raw = env.WFC_NOW;
 	if (!raw) return Date.now();
 	const t = Date.parse(raw);
 	if (Number.isNaN(t)) throw new Error(`WFC_NOW is not a date: ${raw}`);

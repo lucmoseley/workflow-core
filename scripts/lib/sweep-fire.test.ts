@@ -47,7 +47,7 @@ const { buildHostPorts } = req("./sweep-fire-host.js") as {
 		root: string,
 		log: unknown,
 		load?: () => unknown,
-	) => { spendSweep: (now: string | undefined) => Record<string, unknown> };
+	) => { spendSweep: (env: Record<string, string>) => Record<string, unknown> };
 };
 
 const FIRE = "gh workflow run scheduled-checks.yml";
@@ -413,13 +413,13 @@ describe("a budget it cannot count refuses nothing", () => {
 		const port = buildHostPorts(shared, null, () => {
 			throw new SyntaxError("Unexpected token '{'");
 		});
-		expect(port.spendSweep(NOON)).toEqual({
+		expect(port.spendSweep({ WFC_NOW: NOON })).toEqual({
 			fault: "Unexpected token '{'",
 		});
 	});
 
 	it("spends through the real module where it loads", () => {
-		expect(buildHostPorts(shared, null).spendSweep(NOON)).toEqual({
+		expect(buildHostPorts(shared, null).spendSweep({ WFC_NOW: NOON })).toEqual({
 			out: false,
 			spent: 1,
 			cap: budget.AUTOFIRE_DAILY_CAP,
