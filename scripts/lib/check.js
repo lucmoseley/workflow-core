@@ -1664,7 +1664,7 @@ const errMessage = (e) => (e instanceof Error ? e.message : String(e));
  *
  * A guard core passes its injected `ctx.env`, never the process's (#3566).
  *
- * @type {(env?: NodeJS.ProcessEnv | Record<string, string | undefined>) => number}
+ * @type {(env?: Record<string, string | undefined>) => number}
  */
 const now = (env = process.env) => {
 	const raw = env.WFC_NOW;

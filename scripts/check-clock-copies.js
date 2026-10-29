@@ -10,11 +10,11 @@
  * LEXICAL. A site is a read of WFC_NOW — `.WFC_NOW`, `["WFC_NOW"]` or a
  * destructuring `{ … WFC_NOW … } =` on one line — in the code, comments
  * aside, of any non-test `.js`, `.cjs` or `.mjs` under scripts/ but
- * lib/check.js.
+ * lib/check.js. A guard core, whose environment is its injected `ctx.env`,
+ * calls `now(ctx.env)` (#3566).
  *
  * THE OPT-OUT is a `clock-kept: <why>` comment on the read's line or the line
- * above. A marker with no word after it is no marker. A guard core passes its
- * `ctx.env` to `now(env)` rather than reading the variable itself (#3566).
+ * above. A marker with no word after it is no marker.
  *
  * IMPLICIT:  on every commit staging a scripts/ program, refuses any WFC_NOW read outside lib/check.js in the tree, naming the file, line, `now()` and its exemplar.
  * JUSTIFIED: fail-safe — each copy answers a malformed pin its own way, and one a test does not pin reads the wall clock; the fix is one `now()` call.
@@ -41,7 +41,7 @@ const PROGRAM = /\.(?:c|m)?js$/;
 const TEST = /\.test\.[cm]?[jt]s$/;
 const CLOCK = "scripts/lib/check.js";
 
-const FIX = `call now() from ${CLOCK}, as scripts/check-history-trim.js does, where runCheck turns its throw on a malformed WFC_NOW into BROKEN; outside runCheck, catch that throw as scripts/lib/log-reading.js's now does; or mark the read \`clock-kept: <why>\` (#3457).`;
+const FIX = `call now() from ${CLOCK}, as scripts/check-history-trim.js does, where runCheck turns its throw on a malformed WFC_NOW into BROKEN; outside runCheck, catch that throw as scripts/lib/log-reading.js's now does; in a guard core, pass its env as scripts/lib/sweep-fire-host.js's now(env) does; or mark the read \`clock-kept: <why>\` (#3457).`;
 
 /**
  * Each WFC_NOW read in `source`: its 1-based line and its text.
