@@ -11,6 +11,9 @@ Per sample it records:
   * the session count the oracle itself reported, and a process-count census
   * the daemon's RSS and cumulative CPU either side of the call
 
+It reads the real /proc, never WFC_PROC's fake: the figures are this
+machine's (#3608).
+
 Usage: bench_agents_oracle.py [n_samples] [gap_seconds]
 """
 

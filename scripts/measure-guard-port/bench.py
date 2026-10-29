@@ -186,6 +186,8 @@ def reap_orphans() -> int:
             break
     me = str(os.getpid())
     running = 0
+    # The real /proc, never WFC_PROC's fake: these are the bench's own
+    # children (#3608).
     for d in Path("/proc").iterdir():
         if not d.name.isdigit():
             continue

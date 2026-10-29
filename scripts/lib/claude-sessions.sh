@@ -13,7 +13,7 @@ wfc_session_count() {
   while read -r kind pid dir host; do
     if [[ "$kind" == host ]]; then
       n=$((n + 1))
-    elif [[ "$gone" != *" $host "* && "/proc/$pid/cwd" -ef "$dir" ]]; then
+    elif [[ "$gone" != *" $host "* && "${WFC_PROC:-/proc}/$pid/cwd" -ef "$dir" ]]; then
       gone+="$host "
       n=$((n - 1))
     fi

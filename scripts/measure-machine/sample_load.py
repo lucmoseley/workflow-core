@@ -31,6 +31,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from claude_sessions import PS_ARGS, count_sessions, is_claude, live_cwd, parse_ps
 from wfc_bin import bin_path
 
+# The real /proc, never WFC_PROC's fake, here and for load1: the sampler
+# measures this machine (#3608).
 MEMINFO = "/proc/meminfo"
 STAT = "/proc/stat"
 

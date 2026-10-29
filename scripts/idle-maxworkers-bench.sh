@@ -53,6 +53,7 @@ ARMS="${WFC_BENCH_ARMS:-2 4 6 2}"
 say() { printf '%s %s\n' "$(date -Is)" "$*" >>"$LOG"; }
 
 available_mb() { free -m | awk 'NR==2{print $7}'; }
+# The real /proc, never WFC_PROC's fake: the bench times this machine (#3608).
 load1() { awk '{print $1}' /proc/loadavg; }
 suite_running() { pgrep -f "vitest" >/dev/null 2>&1; }
 
