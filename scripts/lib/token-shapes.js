@@ -38,10 +38,14 @@
  * that body and passes (#3661).
  *
  * A STORED SECRET'S VALUE is masked after its `NAME=` for each name a caller
- * passes, whatever its shape (#3661). One after `NAME:` or a JSON key passes,
- * and so does one under a name the secrets file does not hold, a key set
- * only in the environment included.
+ * passes, whatever its shape (#3661), to the end of its line (#3710). One
+ * after `NAME:` or a JSON key passes, and so does one under a name the
+ * secrets file does not hold, a key set only in the environment included. A
+ * value opening `\t`, or a spelling of a control sequence (`\e7`, `%1B7`,
+ * `^[[1m`), keeps that opening.
  */
+
+const { SPACE } = require("./env-file.js");
 
 /**
  * The source for a URL-encoded byte at any depth of re-encoding.
@@ -92,7 +96,15 @@ const ESCAPES = [
 	CONTROL,
 ];
 
-const SK_LEAD = `(?:(?<![A-Za-z0-9])|(?<=${ESCAPES.join("|")}))`;
+/**
+ * The source for a lead: no `nameChars` character before, unless an escape
+ * `ESCAPES` lists ends there.
+ * @param {string} nameChars a class body
+ */
+const buildLead = (nameChars) =>
+	`(?:(?<![${nameChars}])|(?<=${ESCAPES.join("|")}))`;
+
+const SK_LEAD = buildLead("A-Za-z0-9");
 
 /**
  * The source for a prefix with any control sequences between its characters;
@@ -230,17 +242,25 @@ const TOKEN_SHAPES = [
  * mask gives no other token a lead or a body. */
 const PASSES = 2;
 
+/* A space env-file reads around `=`, escaped as JSON, C or Python spell it. */
+const ESCAPED_SPACE = `${BACKSLASHES}(?:[tfv]|x(?:09|0[bBcC]|[aA]0)|u(?:0009|000[bBcC]|00[aA]0|1680|200[0-9aA]|202[fF]|205[fF]|3000|[fF][eE][fF][fF]))`;
+
 /**
- * Each `<name>=` assignment, as a log spells one, in three groups: the name,
- * what runs to its value, the value. The name follows no name character
- * unless a control sequence ends there. Before the value may sit spaces, an
- * escaped tab, control sequences (`grep --color` on the secrets file), `$`
- * for bash's `$'…'`, and a quote behind any run of backslashes, as each
- * stringification adds one.
+ * Each `<name>=` assignment, as a log spells one, in two groups: the name and
+ * what runs to its value. The name, control sequences allowed between its
+ * characters as `grep --color` puts them, follows no name character unless
+ * an escape `ESCAPES` lists ends there. Before `=` may sit
+ * `lib/env-file.js`'s spaces, raw or escaped, and control sequences; after
+ * it, the raw ones, an escaped tab and control sequences. The value takes
+ * any quote around it.
  * @param {string[]} names
  */
-const buildStored = (names) =>
-	`(?=${names.join("|")})(?:(?<![A-Za-z0-9_])|(?<=${CONTROL}))(${names.join("|")})((?:${CONTROL}|[ \\t])*=(?:${CONTROL}|[ \\t]|\\\\t)*\\$?(?:\\\\*["'])?)([^\\s"'\\\\\`]+)`;
+function buildStored(names) {
+	const nameAlternation = names.map(buildPrefix).join("|");
+	const firsts = [...new Set(names.map((name) => name[0]))].join("");
+	const gap = String.raw`(?:${CONTROL}|${SPACE}|${ESCAPED_SPACE})*=(?:${CONTROL}|${SPACE}|\\t)*`;
+	return `(?=[${firsts}])${buildLead("A-Za-z0-9_")}(${nameAlternation})(${gap})(?!${SPACE}).+`;
+}
 
 /**
  * `text` with every token-shaped substring, and the value of an assignment
@@ -258,9 +278,13 @@ function maskTokens(text, names = []) {
 	let count = 0;
 	let out = text;
 	if (names.length > 0) {
-		const stored = new RegExp(buildStored(names), "g");
-		count += out.match(stored)?.length ?? 0;
-		out = out.replace(stored, "$1$2[REDACTED:stored]");
+		out = out.replace(
+			new RegExp(buildStored(names), "g"),
+			(_match, name, gap) => {
+				count++;
+				return `${name}${gap}[REDACTED:stored]`;
+			},
+		);
 	}
 	let found = 0;
 	for (let pass = 0; pass < PASSES && (pass === 0 || found > 0); pass++) {

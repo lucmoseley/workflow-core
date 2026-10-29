@@ -14,6 +14,7 @@ import { describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
 const { maskTokens } = require("./token-shapes.js");
+const { quoteValue } = require("./env-file.js");
 
 const GITHUB = `ghp_${"a".repeat(36)}`;
 const GITHUB_PAT = `github_pat_${"a".repeat(82)}`;
@@ -318,17 +319,17 @@ describe("maskTokens on a stored name (#3661)", () => {
 		[
 			"exported, spaced and quoted",
 			`export AI_GATEWAY_API_KEY = "${gatewayKey}" next`,
-			'export AI_GATEWAY_API_KEY = "[REDACTED:stored]" next',
+			"export AI_GATEWAY_API_KEY = [REDACTED:stored]",
 		],
 		[
 			"behind a doubled escaped quote",
 			`export AI_GATEWAY_API_KEY=\\\\\\"${gatewayKey}\\\\\\"`,
-			'export AI_GATEWAY_API_KEY=\\\\\\"[REDACTED:stored]\\\\\\"',
+			"export AI_GATEWAY_API_KEY=[REDACTED:stored]",
 		],
 		[
 			"in bash's $'…' quoting",
 			`AI_GATEWAY_API_KEY=$'${gatewayKey}'`,
-			"AI_GATEWAY_API_KEY=$'[REDACTED:stored]'",
+			"AI_GATEWAY_API_KEY=[REDACTED:stored]",
 		],
 		[
 			"after an escaped tab",
@@ -343,7 +344,7 @@ describe("maskTokens on a stored name (#3661)", () => {
 		[
 			"stringified in a tool input",
 			`{"command":"AI_GATEWAY_API_KEY=\\"${gatewayKey}\\" node a.js"}`,
-			'{"command":"AI_GATEWAY_API_KEY=\\"[REDACTED:stored]\\" node a.js"}',
+			'{"command":"AI_GATEWAY_API_KEY=[REDACTED:stored]',
 		],
 	])("masks the value %s", (_name, text, masked) => {
 		expect(maskTokens(text, stored)).toEqual({ text: masked, count: 1 });
@@ -358,5 +359,74 @@ describe("maskTokens on a stored name (#3661)", () => {
 		["no names passed", `AI_GATEWAY_API_KEY=${gatewayKey}`, []],
 	])("leaves %s alone", (_name, text, names) => {
 		expect(maskTokens(text, names)).toEqual({ text, count: 0 });
+	});
+});
+
+describe("maskTokens on a stored value as the secrets file holds it (#3710)", () => {
+	const stored = ["JEV_KEY"];
+
+	it.each([
+		["a literal \\n", "\\n"],
+		["a literal \\t", "\\t"],
+		["a \\x escape", "\\x0a"],
+		["a \\u escape", "\\u000a"],
+		["a URL-encoded byte", "%0A"],
+	])("masks the value after %s", (_name, lead) => {
+		expect(maskTokens(`${lead}JEV_KEY=Zq9Lr2XpVt`, stored)).toEqual({
+			text: `${lead}JEV_KEY=[REDACTED:stored]`,
+			count: 1,
+		});
+	});
+
+	it.each([
+		["a leading backslash", "\\Zq9Lr2XpVt"],
+		["a leading backtick", "`Zq9Lr2XpVt"],
+		["a leading double quote", '"Zq9Lr2XpVt'],
+		["a space", "Zq9 Lr2XpVt"],
+		["a single quote", "Zq9'Lr2XpVt"],
+		["a double quote", 'Zq9"Lr2XpVt'],
+		["a backslash", "Zq9\\Lr2XpVt"],
+		["a hash and a space", "Zq9#Lr2 XpVt"],
+		["words", "pass phrase words"],
+		["an escaped quote pair mid-way", '\\"Zq9\\"Lr2XpVt'],
+		["an unclosed escaped quote", '\\"Zq9Lr2XpVt'],
+		["an escaped quote pair before a space", '\\"Zq9\\" Lr2XpVt'],
+	])(
+		"masks the whole of a value holding %s, as write-secret stores it",
+		(_name, value) => {
+			expect(maskTokens(`JEV_KEY=${quoteValue(value)}`, stored)).toEqual({
+				text: "JEV_KEY=[REDACTED:stored]",
+				count: 1,
+			});
+		},
+	);
+
+	it("masks the whole of a hand-quoted value holding its quote", () => {
+		expect(maskTokens('JEV_KEY="Zq9" Lr2XpVt"', stored)).toEqual({
+			text: "JEV_KEY=[REDACTED:stored]",
+			count: 1,
+		});
+	});
+
+	it.each([
+		["a no-break space after =", "JEV_KEY=\u00a0", "Zq9Lr2XpVt"],
+		["ideographic spaces around =", "JEV_KEY\u3000=\u3000", "Zq9Lr2XpVt"],
+		["a stringified tab before =", "JEV_KEY\\t=", "Zq9Lr2XpVt"],
+		["a Python-escaped no-break space before =", "JEV_KEY\\xa0=", "Zq9Lr2XpVt"],
+		[
+			"grep --color inside the name",
+			"JEV_\u001b[01;31m\u001b[KKEY\u001b[m\u001b[K=",
+			"Zq9Lr2XpVt",
+		],
+		[
+			"a stringified colour code inside the name",
+			"JEV_\\u001b[1mKEY\\u001b[m=",
+			"Zq9Lr2XpVt",
+		],
+	])("masks the value across %s", (_name, assignment, value) => {
+		expect(maskTokens(`${assignment}${value}`, stored)).toEqual({
+			text: `${assignment}[REDACTED:stored]`,
+			count: 1,
+		});
 	});
 });

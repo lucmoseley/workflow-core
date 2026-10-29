@@ -73,6 +73,16 @@ function parseEnvLine(body) {
 }
 
 /**
+ * The name each part of `body` assigns, split at every break inside it;
+ * undefined for a part that assigns none.
+ * @param {string} body a line from `splitEnvLines`
+ * @returns {(string | undefined)[]}
+ */
+function namesAcrossBreaks(body) {
+	return body.split(INNER_BREAK).map((part) => parseEnvLine(part)?.name);
+}
+
+/**
  * Whether `body` holds an assignment to `name` that a break inside the line
  * keeps `parseEnvLine` from reading, as a CR-only file or a pasted U+2028
  * leaves.
@@ -81,10 +91,7 @@ function parseEnvLine(body) {
  * @returns {boolean}
  */
 function assignsAcrossBreak(body, name) {
-	return (
-		parseEnvLine(body) === null &&
-		body.split(INNER_BREAK).some((part) => parseEnvLine(part)?.name === name)
-	);
+	return parseEnvLine(body) === null && namesAcrossBreaks(body).includes(name);
 }
 
 /**
@@ -136,7 +143,8 @@ function readEnvFileValue(file, name) {
 
 /**
  * Every name the secrets file assigns, never a value: what a log masker
- * masks the value after (#3661).
+ * masks the value after (#3661), a line split at each break inside it, as
+ * assignsAcrossBreak reads one (#3710).
  * @returns {string[]} empty where there is no file
  * @throws where the file is there but cannot be read, as a masker that
  *   quietly masked fewer names would write their values bare
@@ -149,8 +157,8 @@ function storedNames() {
 		if (caught(err).code === "ENOENT") return [];
 		throw err;
 	}
-	const names = splitEnvLines(text).lines.map(
-		({ body }) => parseEnvLine(body)?.name,
+	const names = splitEnvLines(text).lines.flatMap(({ body }) =>
+		namesAcrossBreaks(body),
 	);
 	return [...new Set(names.filter((name) => name !== undefined))];
 }
@@ -160,6 +168,7 @@ module.exports = {
 	parseEnvLine,
 	quoteValue,
 	readEnvFileValue,
+	SPACE,
 	secretsFile,
 	splitEnvLines,
 	storedNames,
