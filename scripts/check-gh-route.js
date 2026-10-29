@@ -21,7 +21,9 @@
  *     `command` or `timeout <n>` — or probing it with `command -v`, `type -P`
  *     or `which`.
  *   - PATH-STUB: a test or test support (lib/test-kind.js), or any `.ts`,
- *     prepending to PATH a directory it joins the binary's name onto.
+ *     prepending to PATH a directory it joins the binary's name onto, or one
+ *     a local helper joins a parameter onto where a call passes that helper
+ *     the binary's name first.
  *
  * THE OPT-OUT is a `gh-route-exempt: <why>` or `claude-route-exempt: <why>`
  * comment on the line or the line above, for a shell line naming the binary
@@ -31,7 +33,7 @@
  *
  * IMPLICIT:  on every commit staging a path under scripts/, .claude/skills/, .husky/ or hooks/, refuses any second `gh` or `claude` route in the tree, naming the file, line, the binary's primitive and its exemplar.
  * JUSTIFIED: fail-safe — a `gh` call off WFC_GH escapes every test's stub and reaches the founder's live tracker, and a `claude` call off WFC_CLAUDE_BIN reads or launches his live sessions.
- * DEFEAT:    the `<binary>-route-exempt: <why>` marker; --warn caps findings below the gating line; a binary named through a variable; a PATH stub whose directory is spelt differently where it is joined and where it is prepended, or written by a helper, built with `/<binary>` in a string, or prepended by `join` or `+`; a shell call after a word this list does not name; a command-string spawn such as `execSync("gh …")`; a test's own literal spawn; Python, which reaches each binary through lib/wfc_bin.py.
+ * DEFEAT:    the `<binary>-route-exempt: <why>` marker; --warn caps findings below the gating line; a binary named through a variable; a PATH stub whose directory is spelt differently where it is joined and where it is prepended, or written by a helper taking the name after its first parameter or into a directory a call passes it, built with `/<binary>` in a string, or prepended by `join` or `+`; a shell call after a word this list does not name; a command-string spawn such as `execSync("gh …")`; a test's own literal spawn; Python, which reaches each binary through lib/wfc_bin.py.
  */
 
 const fs = require("node:fs");
@@ -141,10 +143,86 @@ const ROUTES = [
 		calls: "`claudeBin()`",
 		stubWith: "",
 		exemplar: "scripts/run-mod-tests.js",
-		shellExemplar: "scripts/probe-async-hook-timeout.sh",
+		shellExemplar: "scripts/dispatch-sessions.sh",
 		stubExemplar: "scripts/run-mod-tests.test.ts",
 	}),
 ];
+
+// A local helper's header: its name, then its parameter list (#3638).
+const HELPER =
+	/(?:\bfunction\s+(\w+)|\b(?:const|let)\s+(\w+)\s*=\s*(?:async\s*)?(?:function\s*)?)\s*(?:<[^<>]*>\s*)?\(((?:[^()]|\([^()]*\))*)\)/g;
+
+/**
+ * `text` split at its commas outside brackets.
+ * @param {string} text
+ */
+function topLevel(text) {
+	/** @type {string[]} */
+	const parts = [""];
+	let depth = 0;
+	for (const ch of text) {
+		if ("([{".includes(ch)) depth++;
+		else if (")]}".includes(ch)) depth--;
+		if (ch === "," && depth === 0) parts.push("");
+		else parts[parts.length - 1] += ch;
+	}
+	return parts;
+}
+
+/**
+ * Where the helper body opening at `from` ends: its block's closing brace, or
+ * the `;`, `,` or closing bracket ending an expression body.
+ * @param {string} code
+ * @param {number} from
+ */
+function bodyEnd(code, from) {
+	let depth = 0;
+	for (let i = from; i < code.length; i++) {
+		const ch = code[i] ?? "";
+		if ("([{".includes(ch)) depth++;
+		else if (")]}".includes(ch)) {
+			depth--;
+			if (depth < 0 || (depth === 0 && ch === "}")) return i;
+		} else if (depth === 0 && (ch === ";" || ch === ",")) return i;
+	}
+	return code.length;
+}
+
+/**
+ * The directories local helpers join their first parameter onto, a directory
+ * that is itself a parameter read off its default, for each helper a call
+ * passes `bin` first.
+ * @param {string} bin
+ * @param {string} code
+ * @returns {string[]}
+ */
+function helperDirs(bin, code) {
+	return [...code.matchAll(HELPER)].flatMap((h) => {
+		const name = h[1] ?? h[2] ?? "";
+		const params = topLevel(h[3] ?? "").map((p) => {
+			const at = p.indexOf("=");
+			const id = at < 0 ? p : p.slice(0, at);
+			return {
+				id: id.replace(/[?]?:.*$/s, "").trim(),
+				fallback: at < 0 ? "" : p.slice(at + 1).trim(),
+			};
+		});
+		const first = params[0]?.id ?? "";
+		if (!/^[$\w]+$/.test(first)) return [];
+		const called = new RegExp(`\\b${name}\\s*\\(\\s*(["'\`])${bin}\\1`);
+		if (!called.test(code)) return [];
+		const start = (h.index ?? 0) + h[0].length;
+		const body = code.slice(start, bodyEnd(code, start));
+		const join = new RegExp(
+			`path\\.join\\(\\s*([^()]*?)\\s*,\\s*${first.replace(/\$/g, "\\$")}\\s*\\)`,
+			"g",
+		);
+		return [...body.matchAll(join)].map((m) => {
+			const dir = m[1] ?? "";
+			return params.find((p) => p.id === dir)?.fallback || dir;
+		});
+	});
+}
 
 const PATH_PREPEND =
 	/`\$\{([^}]+)\}(?:\$\{path\.delimiter\}|:)\$\{process\.env\.PATH\b/g;
@@ -165,7 +243,8 @@ function kindOf(rel, shell) {
 }
 
 /**
- * `binDirs` holds the directories a test joins the route's binary onto.
+ * `binDirs` holds the directories a test joins the route's binary onto,
+ * itself or through a helper.
  * @param {{ r: Route, rel: string, kind: "node" | "test" | "shell", binDirs: Set<string> }} at
  * @param {string} line
  * @returns {Shape | null}
@@ -202,9 +281,11 @@ const MARKABLE = new Set(["SHELL-BARE", "PATH-STUB"]);
 function routeFindings(r, rel, kind, { raw, code }) {
 	/** @type {Set<string>} */
 	const binDirs = new Set();
-	if (kind === "test")
-		for (const m of code.join("\n").matchAll(r.joinBin))
-			binDirs.add(normal(m[1] ?? ""));
+	if (kind === "test") {
+		const text = code.join("\n");
+		for (const m of text.matchAll(r.joinBin)) binDirs.add(normal(m[1] ?? ""));
+		for (const dir of helperDirs(r.bin, text)) binDirs.add(normal(dir));
+	}
 	const at = { r, rel, kind, binDirs };
 	/** @type {Found[]} */
 	const found = [];
