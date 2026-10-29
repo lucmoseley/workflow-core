@@ -803,6 +803,7 @@ describe("runLander across runs on a red batch (#2673)", () => {
 			bisect: {},
 			confirm: {},
 			parentOnFiles: null,
+			tipJobsOnMain: null,
 			jobsOnMain: null,
 			revert: null,
 			unfiled: null,
@@ -864,28 +865,143 @@ describe("runLander on a red only a CI job names (#3253)", () => {
 	it("runs no whole suite at a culprit's parent that is main, reverting where the job is green there (#3493)", async () => {
 		const r = await jobRed(
 			(sha) => sha !== A,
-			() => ({ kind: "read", red: [] }),
+			(jobs) => ({ kind: "read", red: [], notRed: jobs, shas: [] }),
 		);
 		expect(r.tested).not.toContainEqual({ sha: A, files: [] });
-		expect(r.mainJobsRead).toEqual([[job]]);
+		/* The tip's jobs before the bisect, then the culprit's at its confirm. */
+		expect(r.mainJobsRead).toEqual([[job], [job]]);
 		expect(r.reverted).toEqual([{ culprit: B, parent: A }]);
 		expect(r.revertWhys).toEqual([
 			`The lander found it red on the CI jobs '${job}', twice, with its parent aaaaaaaaa at \`main\`.`,
 		]);
 	});
 
-	it("holds, never reverting, where the job is already red on main (#3526)", async () => {
+	it("holds with no bisect where every failing job is already red on main, naming the run's sha (#3586)", async () => {
 		const r = await jobRed(
 			(sha) => sha !== A,
-			(jobs) => ({ kind: "read", red: jobs }),
+			(jobs) => ({ kind: "read", red: jobs, notRed: [], shas: [A] }),
 		);
+		expect(r.tested).toEqual([{ sha: D }, { sha: D, files: [] }]);
+		expect(r.mainJobsRead).toEqual([[job]]);
 		expect(r.reverted).toEqual([]);
 		expect(r.tickets).toEqual([]);
 		expect(r.end).toEqual({
 			kind: "hold",
-			reason: `already red on \`main\`: the CI jobs '${job}'`,
+			reason: `already red on \`main\` in the run at aaaaaaaaa: the CI jobs '${job}'`,
 			cause: "already-red",
 		});
+	});
+
+	it("holds, never reverting, where the job reads red on main only at the culprit's confirm (#3526)", async () => {
+		let reads = 0;
+		const r = await jobRed(
+			(sha) => sha !== A,
+			(jobs) =>
+				++reads === 1
+					? { kind: "unread", reason: "gh down" }
+					: { kind: "read", red: jobs, notRed: [], shas: [A] },
+		);
+		expect(r.reverted).toEqual([]);
+		expect(r.end).toEqual({
+			kind: "hold",
+			reason: `already red on \`main\` in the run at aaaaaaaaa: the CI jobs '${job}'`,
+			cause: "already-red",
+		});
+	});
+
+	it("bisects only the jobs green on main, a red on the rest counting green (#3586)", async () => {
+		const other = "Full suite / Document guards";
+		const r = await run(
+			{ main: A, landing: D },
+			(sha) => {
+				if (sha === R) return { kind: "green" };
+				if (sha === B) return { kind: "red", files: [], jobs: [job] };
+				return { kind: "red", files: [], jobs: [job, other] };
+			},
+			{
+				history: [B, C, D],
+				mainJobs: (jobs) => ({
+					kind: "read",
+					red: [job],
+					notRed: jobs.filter((j) => j !== job),
+					shas: [A],
+				}),
+			},
+		);
+		expect(r.mainJobsRead).toEqual([[job, other]]);
+		expect(r.reverted).toEqual([{ culprit: C, parent: B }]);
+		expect(r.tickets).toMatchObject([{ culprit: C, jobs: [other] }]);
+	});
+
+	describe("where one job is red on main and the other not (#3586)", () => {
+		const other = "Full suite / Document guards";
+		const redOnMain = (jobs: string[]): JobsOnMain => ({
+			kind: "read",
+			red: [job],
+			notRed: jobs.filter((j) => j !== job),
+			shas: [A],
+		});
+		/** B, after main, fails `job` alone; C and D fail `other` too. */
+		const verdict = (sha: string): Verdict => {
+			if (sha === R) return { kind: "green" };
+			if (sha === B) return { kind: "red", files: [], jobs: [job] };
+			return { kind: "red", files: [], jobs: [job, other] };
+		};
+
+		it("names the job red on main in a hold the bisect ends on", async () => {
+			const r = await run(
+				{ main: A, landing: D },
+				(sha, _files, nth) =>
+					sha === C && nth === 2
+						? { kind: "red", files: [], jobs: [job] }
+						: verdict(sha),
+				{ history: [B, C, D], mainJobs: redOnMain },
+			);
+			expect(r.reverted).toEqual([]);
+			expect(r.end).toEqual({
+				kind: "hold",
+				reason: `culprit unconfirmed: ccccccccc passed the CI jobs '${other}' on its second run; already red on \`main\` in the run at aaaaaaaaa: the CI jobs '${job}'`,
+			});
+		});
+
+		it("keeps the read a resumed bisect began with, reading main no more", async () => {
+			const red: Red = {
+				sha: D,
+				base: A,
+				files: [],
+				jobs: [job, other],
+				flake: { kind: "red", files: [], jobs: [job, other] },
+				onMain: null,
+				range: [B, C, D],
+				bisect: { [D]: { kind: "red", files: [], jobs: [job, other] } },
+				confirm: {},
+				parentOnFiles: null,
+				tipJobsOnMain: redOnMain([job, other]),
+				jobsOnMain: null,
+				revert: null,
+				unfiled: null,
+				pushedPast: null,
+			};
+			const r = await run({ main: A, landing: D }, verdict, {
+				history: [B, C, D],
+				lastRed: red,
+				mainJobs: () => ({ kind: "read", red: [], notRed: [], shas: [] }),
+			});
+			expect(r.mainJobsRead).toEqual([]);
+			expect(r.reverted).toEqual([{ culprit: C, parent: B }]);
+		});
+	});
+
+	it("bisects as today where the run that failed the job on main predates the batch's base", async () => {
+		const swept = "9".repeat(40);
+		const r = await jobRed(
+			(sha) => sha !== A,
+			(jobs) => ({ kind: "read", red: jobs, notRed: [], shas: [swept] }),
+		);
+		expect(r.reverted).toEqual([{ culprit: B, parent: A }]);
+		expect(r.revertWhys).toEqual([
+			`The lander found it red on the CI jobs '${job}', twice, with its parent aaaaaaaaa at \`main\`. Their state on \`main\` was unread: the run at 999999999 that failed them predates aaaaaaaaa.`,
+		]);
 	});
 
 	it("reverts where the job's state on main went unread, saying so (#3526)", async () => {
@@ -1085,6 +1201,7 @@ describe("runLander where the culprit's parent reaches no verdict on the whole s
 				[B]: { kind: "unknown", reason: ceiling },
 			},
 			parentOnFiles: null,
+			tipJobsOnMain: null,
 			jobsOnMain: null,
 			revert: null,
 			unfiled: null,
@@ -1360,6 +1477,7 @@ describe("runLander resuming a past run's red batch where the remote moved (#267
 		bisect: {},
 		confirm: {},
 		parentOnFiles: null,
+		tipJobsOnMain: null,
 		jobsOnMain: null,
 		revert: null,
 		unfiled: null,
@@ -1457,6 +1575,7 @@ describe("runLander where the culprit's whole-suite confirm reaches no verdict (
 		},
 		confirm: {},
 		parentOnFiles: null,
+		tipJobsOnMain: null,
 		jobsOnMain: null,
 		revert: null,
 		unfiled: null,

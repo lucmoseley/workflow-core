@@ -147,7 +147,8 @@ function runVerdict(sha, reads, after) {
 
 /**
  * Which of `asked` failed in the newest finished run on `main` to pass or fail
- * each, or why none settled where none failed.
+ * each, and the shas those runs tested, or why none settled where none
+ * failed.
  * @param {string[]} asked
  * @param {Reads} reads
  * @returns {import("./lander.js").JobsOnMain}
@@ -155,7 +156,8 @@ function runVerdict(sha, reads, after) {
 function jobsOnMain(asked, reads) {
 	const jobs = asked.filter((j) => j !== SUITE_PASSED_JOB);
 	const settled = readSettledOnMain(jobs, reads);
-	const red = jobs.filter((j) => settled.get(j) === "failure");
+	const failed = [...settled].filter(([, s]) => s.conclusion === "failure");
+	const red = failed.map(([j]) => j);
 	const unsettled = jobs.filter((j) => !settled.has(j));
 	if (jobs.length === 0)
 		return {
@@ -167,18 +169,23 @@ function jobsOnMain(asked, reads) {
 			kind: "unread",
 			reason: `no finished ${SUITE_WORKFLOW} run on ${MAIN} passed or failed ${unsettled.map((j) => `'${j}'`).join(", ")}`,
 		};
-	return { kind: "read", red };
+	return {
+		kind: "read",
+		red,
+		notRed: jobs.filter((j) => !red.includes(j)),
+		shas: [...new Set(failed.map(([, s]) => s.headSha))],
+	};
 }
 
 /**
  * Each of `jobs` with its conclusion in the newest finished run on `main`
- * that passed or failed it.
+ * that passed or failed it, and that run's sha.
  * @param {string[]} jobs
  * @param {Reads} reads
- * @returns {Map<string, string>}
+ * @returns {Map<string, {conclusion: string, headSha: string}>}
  */
 function readSettledOnMain(jobs, reads) {
-	/** @type {Map<string, string>} */
+	/** @type {Map<string, {conclusion: string, headSha: string}>} */
 	const settled = new Map();
 	const finished = reads
 		.mainRuns()
@@ -192,7 +199,7 @@ function readSettledOnMain(jobs, reads) {
 				!settled.has(name) &&
 				(conclusion === "success" || conclusion === "failure")
 			)
-				settled.set(name, conclusion);
+				settled.set(name, { conclusion, headSha: run.headSha });
 	}
 	return settled;
 }
