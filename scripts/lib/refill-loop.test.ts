@@ -571,6 +571,7 @@ function sizedRead(
 			return { usage: new Map(stale.map((s) => [s, ""])), probes: [] };
 		},
 		sizeOf,
+		typedSeat: null,
 	});
 	return { probed, seats };
 }
@@ -1000,6 +1001,7 @@ describe("a tick's seat read past a seat sized 0 (#2432)", () => {
 				asked.push(`${s}:${members}`);
 				return s === "a" ? 0 : 2;
 			},
+			typedSeat: null,
 		};
 	}
 
@@ -1026,6 +1028,31 @@ describe("a tick's seat read past a seat sized 0 (#2432)", () => {
 		readSizedSeats(0, fake);
 		expect(fake.probed).toEqual([]);
 		expect(fake.asked).toEqual([]);
+	});
+});
+
+describe("a tick's seat read in launch order (#3740)", () => {
+	it("probes and sizes the typed seat first, though it is last in the seat file and stale", () => {
+		const probed: string[][] = [];
+		const asked: string[] = [];
+		const out = readSizedSeats(2, {
+			read: (usage: Map<string, string>) => [
+				seat("a", 10, 10),
+				usage.has("b") ? seat("b", 10, 10) : seat("b", null, null),
+			],
+			probe: (seats: string[]) => {
+				probed.push(seats);
+				return { usage: new Map(seats.map((s) => [s, ""])), probes: [] };
+			},
+			sizeOf: (s: string) => {
+				asked.push(s);
+				return 2;
+			},
+			typedSeat: "b",
+		});
+		expect(probed).toEqual([["b"]]);
+		expect(asked).toEqual(["b"]);
+		expect(out.seats.map((s: { seat: string }) => s.seat)).toEqual(["b", "a"]);
 	});
 });
 

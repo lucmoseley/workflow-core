@@ -87,7 +87,6 @@ const {
 	hasRoom,
 	isParked,
 	isParkRoutingMode,
-	orderPlanSeats,
 } = require("./refill-decide.js");
 const { refillFrontier } = require("./refill-frontier.js");
 const {
@@ -346,8 +345,6 @@ function readCapFits(root, seat, members, usageText) {
  * Seats are sized before any repo is picked, so against the first served
  * checkout, `root` (#2937). Residual: a launch into a later served checkout
  * whose cost table differs is capped by the dispatcher on that table instead.
- * The seats are read in the decision core's launch order (#3732), so the
- * seats refreshed and sized are those ahead of the one it launches on.
  * @param {string[]} seats in seat-file order
  * @param {number} slots
  * @param {string|undefined} root
@@ -355,10 +352,11 @@ function readCapFits(root, seat, members, usageText) {
  */
 function readSeats(seats, slots, root, typedSeat) {
 	return loop.readSizedSeats(slots, {
-		read: (usage) => orderPlanSeats(readSeatReadings(seats, usage), typedSeat),
+		read: (usage) => readSeatReadings(seats, usage),
 		probe: readPrintedUsage,
 		sizeOf: (seat, members, usageText) =>
 			readCapFits(root, seat, members, usageText),
+		typedSeat,
 	});
 }
 

@@ -763,6 +763,15 @@ describe("the duplicate gate (mantahostels#1337)", () => {
 		expect(reasons()).toEqual(["own seat", "last typed on"]);
 	});
 
+	it("leaves the loop's seat reason out of a launched session's environment (#3740)", () => {
+		const envLog = path.join(fx.dir, "launch-env");
+		stubClaude({ envLog });
+		run(["sonnet", "/implement 342"], { WFC_SEAT_REASON: "last typed on" });
+		const env = fs.readFileSync(envLog, "utf8");
+		expect(env).toContain("WFC_CLAUDE_BIN=");
+		expect(env).not.toContain("WFC_SEAT_REASON");
+	});
+
 	it("refuses a second launch of an issue it already launched, naming the issue", () => {
 		stubClaude({});
 		run(["sonnet", "/implement 341"]);

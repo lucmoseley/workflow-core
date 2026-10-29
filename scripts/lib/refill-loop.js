@@ -20,6 +20,7 @@ const {
 	decideTick,
 	fitsLaunch,
 	hasRoom,
+	orderPlanSeats,
 } = require("./refill-decide.js");
 const {
 	buildChildLine,
@@ -420,19 +421,23 @@ function sizedSeats(readings, slots, sizeOf) {
 }
 
 /**
- * Each seat read and sized for a tick: the stale seats ahead of the first one
- * free to launch are refreshed by `/usage` first, then those behind a seat the
- * cap sizes 0, so the fall-through reaches them (#2432). Each seat is probed
- * and sized at most once; with no slot free nothing is refreshed or sized.
+ * Each seat read and sized for a tick, in the decision core's launch order
+ * (#3732): the stale seats ahead of the first one free to launch are
+ * refreshed by `/usage` first, then those behind a seat the cap sizes 0, so
+ * the fall-through reaches them (#2432). Each seat is probed and sized at
+ * most once; with no slot free nothing is refreshed or sized.
  * @param {number} slots
  * @param {{
  *   read: (usage: Map<string, string>) => SeatReading[],
  *   probe: (seats: string[]) => {usage: Map<string, string>, probes: Probe[]},
  *   sizeOf: (seat: string, members: number, usageText: string) => number|null,
- * }} io `read` takes each refreshed seat's printed `/usage`
+ *   typedSeat: string|null,
+ * }} io `read` takes each refreshed seat's printed `/usage` and returns the
+ *   seats in seat-file order; `typedSeat` is the seat the founder last typed
+ *   on, null where none is recorded
  * @returns {{seats: SizedSeat[], probes: Probe[]}}
  */
-function readSizedSeats(slots, { read, probe, sizeOf }) {
+function readSizedSeats(slots, { read, probe, sizeOf, typedSeat }) {
 	/** @type {Map<string, string>} */
 	const usage = new Map();
 	/** @type {Probe[]} */
@@ -448,14 +453,15 @@ function readSizedSeats(slots, { read, probe, sizeOf }) {
 		fits.set(seat, sized);
 		return sized;
 	};
-	let readings = read(usage);
+	const readOrdered = () => orderPlanSeats(read(usage), typedSeat);
+	let readings = readOrdered();
 	let stale = slots > 0 ? seatsToRefresh(readings) : [];
 	for (;;) {
 		if (stale.length > 0) {
 			const printed = probe(stale);
 			for (const [seat, text] of printed.usage) usage.set(seat, text);
 			probes.push(...printed.probes);
-			readings = read(usage);
+			readings = readOrdered();
 		}
 		const sized = sizedSeats(readings, slots, sizeOnce);
 		stale =

@@ -86,6 +86,9 @@ export interface StubClaudeOptions {
 	 * say which of them a call actually reached rather than reading a union of
 	 * both (#275). */
 	argvLog?: string;
+	/** Where each launch call records its environment, one `env` dump
+	 * appended per launch. */
+	envLog?: string;
 	/** The probe rewrites this seat's usage cache, freshly stamped, with these
 	 * bars, after writing its advisor line and before printing its own, as
 	 * #2189 measured. */
@@ -247,6 +250,7 @@ export function dispatchFixture(): DispatchFixture {
 			agentsJson = agentsListing(),
 			launchOutput = "launched",
 			argvLog = path.join(fx.dir, "argv"),
+			envLog,
 			probeRefreshes,
 			probeHangs = false,
 		} = opts;
@@ -278,6 +282,7 @@ export function dispatchFixture(): DispatchFixture {
 			"  exit 0",
 			"fi",
 			`if [ "$1" = "agents" ]; then printf '%s\\n' '${agentsJson}'; exit 0; fi`,
+			envLog ? `env >> "${envLog}"` : "",
 			launchFails
 				? "printf 'could not start\\n' >&2\nexit 1"
 				: `printf '%s\\n' '${launchOutput}'`,

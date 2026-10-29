@@ -516,6 +516,7 @@ describe("decideTick on a seat whose cap fits only the floor's member (#2432)", 
 						}),
 					}),
 				).fits,
+			typedSeat: null,
 		}).seats;
 
 	it("launches on the next seat with room", () => {
