@@ -194,12 +194,9 @@ function relistSessions() {
  * @returns {SessionNames}
  */
 function sessionNames(listed) {
-	const registry = store.registryNames();
+	const registry = store.registryLookup();
 	return {
-		get: (id) => {
-			const name = listed?.get(id) || registry(id);
-			return name === id ? undefined : name;
-		},
+		get: (id) => listed?.get(id) || registry(id)?.name || undefined,
 	};
 }
 
@@ -341,6 +338,13 @@ function describeSession(id, name, lock = null) {
 }
 
 /**
+ * A session named the one way, its id behind the name where one is known.
+ * @param {string|null|undefined} id
+ */
+const nameSession = (id) =>
+	describeSession(id, (id && holderNames().get(id)) || null);
+
+/**
  * How a denial names its holder, so the message says who to go and ask.
  *
  * The null limb is UNVERIFIED and, from the CLI, unreachable: every verdict
@@ -418,7 +422,7 @@ function buildClobberNotice(rel, was, closing) {
  */
 function foreignClobberHeadline(rel, content) {
 	const whose = content.by
-		? `its claimant ${content.by}`
+		? `its claimant ${nameSession(content.by)}`
 		: "the claim that held it";
 	return `${rel} no longer holds what ${whose} last wrote: something reached it by a route no hook watches — ${CLOBBER_ROUTES}.`;
 }
@@ -450,8 +454,8 @@ function buildForeignClobberNotice(rel, content, closing) {
 function buildForcedNotice(rel, lock, me, record) {
 	const pinned = record?.blob ?? lock?.blob ?? null;
 	return (
-		`The claim on ${rel} was broken, not handed over: session ${lock?.sessionId ?? "an unidentified session"} never released it and is not listed as live.\n\n` +
-		`Broken by ${me.sessionId || "an unidentified session"}${record ? "" : ` — and the break record would NOT write, so the holder will never be told and the recovery below is not pinned. See: node ${scriptPath("check-guard-errors.js")}`}.\n\n` +
+		`The claim on ${rel} was broken, not handed over: session ${nameSession(lock?.sessionId)} never released it and is not listed as live.\n\n` +
+		`Broken by ${nameSession(me.sessionId)}${record ? "" : ` — and the break record would NOT write, so the holder will never be told and the recovery below is not pinned. See: node ${scriptPath("check-guard-errors.js")}`}.\n\n` +
 		(pinned
 			? `What that session last wrote is recoverable for a week:\n  git cat-file -p ${pinned} > /tmp/recovered\n\nDiff it against the file before you overwrite anything.`
 			: "What the file held was never recorded against that claim, so there is nothing to recover here — look for a committed copy before overwriting.")
@@ -2107,7 +2111,7 @@ function releaseDirty({ rel, lock, content, force, own }) {
 		writeStderr(
 			`session-arbiter: ${
 				force
-					? `${rel} holds neither what its claimant ${lock?.sessionId ?? "an unidentified session"} last wrote nor a committed version: something reached it by a route no hook watches.\n\n` +
+					? `${rel} holds neither what its claimant ${nameSession(lock?.sessionId)} last wrote nor a committed version: something reached it by a route no hook watches.\n\n` +
 						`That claimant's version is recoverable while its claim stands:\n  git cat-file -p ${content.was} > /tmp/recovered\n\n` +
 						"The refusal below says to commit or discard. Do neither until you have diffed that copy: committing puts somebody else's bytes under your own message (mantahostels#63)."
 					: buildClobberNotice(rel, content.was, CLOBBER_AT_DIRTY_RELEASE)
@@ -2981,7 +2985,9 @@ function cmdClaimIssue(issue, sessionId) {
 	const { status } = store.claimIssue(issue, me);
 	if (status === "invalid") return refuseIssue(issue);
 	if (status === "claimed") {
-		writeStdout(`Recorded #${issue} as claimed by session ${me.sessionId}.\n`);
+		writeStdout(
+			`Recorded #${issue} as claimed by session ${nameSession(me.sessionId)}.\n`,
+		);
 		return 0;
 	}
 	writeStderr(
@@ -3042,7 +3048,9 @@ function cmdIssueClaims() {
 		return listed.why ? 1 : 0;
 	}
 	for (const c of claims.sort((a, b) => a.issue - b.issue))
-		writeStdout(`#${c.issue}\t${c.sessionId}\tsince ${c.claimedAt}\n`);
+		writeStdout(
+			`#${c.issue}\t${nameSession(c.sessionId)}\tsince ${c.claimedAt}\n`,
+		);
 	return listed.why ? 1 : 0;
 }
 

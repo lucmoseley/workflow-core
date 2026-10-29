@@ -1,9 +1,10 @@
 // @vitest-environment node
 /*
  * guard-session-id-prose.js sends a reply back once where its prose names a
- * session by id rather than by name (#3557) — black-box, driven in process
- * through `lib/stop-guard-testkit` with every root redirected into a temp
- * directory, the sessions registry included.
+ * session by id rather than by name (#3557).
+ *
+ * It runs at every `Stop` (`self-plugin/hooks/hooks.json`, `hooks/hooks.json`):
+ * a break here lets bare session ids reach the founder unchallenged.
  */
 
 import fs from "node:fs";
@@ -49,12 +50,17 @@ describe("#3557: a reply naming a session by id is sent back", () => {
 		expect(out?.reason).toContain("5c650936 → Wayfinder 1162");
 	});
 
-	it("sends back `session <8-hex>` the registry does not know", () => {
+	it("sends back `session <8-hex>` the registry does not know, saying it has no name for it", () => {
 		const out = run("Session 08efab58 holds it.");
 		expect(out?.reason).toContain("08efab58 → no name in the registry");
 	});
 
-	it("sends back a bare full UUID or 8-hex prefix the registry knows", () => {
+	it("sends back a code span holding a registered session's id and nothing else", () => {
+		const out = run("Held by `5c650936`.");
+		expect(out?.reason).toContain("5c650936 → Wayfinder 1162");
+	});
+
+	it("sends back a bare full UUID or 8-hex prefix of a registered session's id, named or not", () => {
 		expect(run(`Held by ${ALICE}.`)?.decision).toBe("block");
 		const out = run("Held by 21b6d552, still running.");
 		expect(out?.reason).toContain("21b6d552 → no name in the registry");
@@ -82,7 +88,7 @@ describe("what passes", () => {
 		expect(run("Waiting on Wayfinder 1162 to release it.")).toBeNull();
 	});
 
-	it("sends a reply back once: a turn a Stop hook already sent back passes", () => {
+	it("passes a turn a Stop hook already sent back", () => {
 		expect(
 			run("Held by session 5c650936.", { stop_hook_active: true }),
 		).toBeNull();

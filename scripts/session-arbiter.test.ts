@@ -767,6 +767,22 @@ describe("naming a holder by its session name, not its id (mantahostels#1196)", 
 		expect(oracleCalls()).toBe(0);
 	});
 
+	it("names the holder in list from the sessions registry when the oracle cannot be read", () => {
+		registerSession(sb, "alice", process.ppid, { name: "Wayfinder 1162" });
+		fakeClaude([], 3);
+		const r = runAs(["list"], "bob");
+		expect(r.stdout).toMatch(/HELD .*docs\/doc-map\.md.*Wayfinder 1162/);
+	});
+
+	it("names the claimant in issue-claims from the sessions registry", () => {
+		registerSession(sb, "alice", process.ppid, { name: "Wayfinder 1162" });
+		fakeClaude([], 3);
+		store.claimIssue(645, store.identify("alice"));
+		expect(runAs(["issue-claims"], "bob").stdout).toMatch(
+			/^#645\tWayfinder 1162 \(id alice\)\tsince /m,
+		);
+	});
+
 	it("falls back to the bare id when neither the oracle nor the registry names it", () => {
 		fakeClaude([["alice", "Wayfinder 1162"]], 3);
 		const r = runAs(["claim", inRepo(rel)], "bob");
@@ -5058,6 +5074,21 @@ describe("wait: one call waits on a file or issue claim (#540)", () => {
 		expect(r.stdout).toContain("request docs/held.md");
 		expect(r.status).toBe(5);
 		expect(wantOf("bob")).toBeNull();
+	});
+
+	it("names the holder at CEILING from the sessions registry when the oracle cannot be read (#3557)", async () => {
+		aliceHolds();
+		registerSession(sb, "alice", process.ppid, { name: "Wayfinder 1162" });
+		const bin = path.join(sb.dir, "bin", "claude");
+		fs.mkdirSync(path.dirname(bin), { recursive: true });
+		fs.writeFileSync(bin, "#!/bin/sh\nexit 3\n");
+		fs.chmodSync(bin, 0o755);
+		const r = await waitAs("bob", [inRepo(rel), "0.3"], {
+			WFC_CLAUDE_BIN: bin,
+		}).done;
+		expect(r.stdout).toMatch(
+			/^CEILING .*still held by Wayfinder 1162 \(id alice/m,
+		);
 	});
 
 	it("shows its want under `list` while it runs, and drops it when killed", async () => {
