@@ -34,7 +34,8 @@
  * and checker-registrations tests), registry-atomicity.js and doc-map.js's
  * self-filter take as a script's own test; `pytestSiblings` is its pytest half, touched-tests.js's.
  * check-host-root.js adds the suite's apparatus to `JS_TEST_FILE`, on
- * `JS_EXT_SOURCE`, every JS or TS extension.
+ * `JS_EXT_SOURCE`, every JS or TS extension, and scans `JS_EXTENSIONS`, the
+ * same family listed.
  *
  * One reading asks another runner's question and stays apart:
  * infer-commands.js's `NODE_TEST_FILE` is the `.js` family of node --test's own
@@ -156,6 +157,7 @@ const isCollectedTestOrConftest = (rel) =>
 module.exports = {
 	COLLECTED_TEST,
 	JS_EXT_SOURCE,
+	JS_EXTENSIONS,
 	JS_TEST_FILE,
 	PY_COLLECTED_TEST,
 	PY_TEST_FILE,
