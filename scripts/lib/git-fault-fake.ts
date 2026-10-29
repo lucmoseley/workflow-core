@@ -14,6 +14,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { shellQuote } from "./sh-quote.js";
 
 /**
  * Which calls fault: `words`, those arguments in a row anywhere in the argv
@@ -33,7 +34,7 @@ export type GitFaultMatch =
  * `sleep` that many seconds, as the process a timeout kills; or run `script`,
  * an sh body seeing the call's argv and the real git at `$REAL_GIT`, which
  * falls through to the real git where it does not exit. A value the body
- * names goes in through `shellQuote`.
+ * names goes in through sh-quote.js's `shellQuote`.
  */
 export type GitFaultAction =
 	| { exit: number }
@@ -58,9 +59,6 @@ export const resolveRealGit = (): string => {
 	}).trim();
 	return realGit;
 };
-
-/** `s` as one sh word. */
-export const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
 const matchLines = (match: GitFaultMatch): string[] => {
 	if ("all" in match) return ['fault "$@"'];

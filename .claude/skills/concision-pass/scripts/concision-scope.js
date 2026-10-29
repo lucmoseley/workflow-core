@@ -38,6 +38,7 @@
 const fs = require("node:fs");
 const { writeFd } = require("../../../../scripts/lib/write-fd.js");
 const { execGit } = require("../../../../scripts/lib/git.js");
+const { shellQuote } = require("../../../../scripts/lib/sh-quote.js");
 
 /**
  * The floor that decides whether step 3 spawns a fresh reader agent, per file.
@@ -173,11 +174,6 @@ function measure(fixedPoint, target) {
 		origin: UNTRACKED,
 	};
 }
-
-/** Shell-quotes a path only where it needs it — scripts/lib/dispatch-rewrite.js's
- * unexported shellQuote. @param {string} p */
-const shellQuote = (p) =>
-	/^[\w./@%+=:,-]+$/.test(p) ? p : `'${p.replace(/'/g, "'\\''")}'`;
 
 /**
  * An untracked path has no diff and costs the cap nothing; an unresolved or unchanged one prints nothing.

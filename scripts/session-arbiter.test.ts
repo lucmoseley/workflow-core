@@ -37,10 +37,11 @@ import {
 	store,
 } from "./lib/arbiter-testkit";
 import { throughFullPipe } from "./lib/full-pipe-testkit";
-import { shellQuote, writeFaultyGit } from "./lib/git-fault-fake";
+import { writeFaultyGit } from "./lib/git-fault-fake";
 import { runCore } from "./lib/guard-core-testkit";
 import { cutInReplay, cutShellFunction } from "./lib/precommit-gate-testkit";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 
 /* The breadcrumb directory, from the module that owns it (mantahostels#3382). */
 const hookRecord = createRequire(__filename)("./lib/hook-record.js");

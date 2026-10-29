@@ -24,7 +24,8 @@ import {
 	noSessions,
 	store,
 } from "./arbiter-testkit";
-import { shellQuote, writeFaultyGit } from "./git-fault-fake";
+import { writeFaultyGit } from "./git-fault-fake";
+import { shellQuote } from "./sh-quote.js";
 import { sleepSync } from "./sleep-sync.js";
 
 const sb = freshSandbox();

@@ -66,6 +66,7 @@ const path = require("node:path");
 const { caught } = require("./caught.js");
 const { injectArtefact, buildWatchNote } = require("./dispatch-artefact.js");
 const { tierDeparture, untrackedSearch } = require("./dispatch-rules.js");
+const { shellQuote } = require("./sh-quote.js");
 
 /**
  * @typedef {Pick<import("./guard-dispatch.js").CoreContext, "agent" |
@@ -76,15 +77,6 @@ const { tierDeparture, untrackedSearch } = require("./dispatch-rules.js");
  *   the making of a directory, false where it could not be made
  * @typedef {import("./guard-entry.js").Injection} Injection
  */
-
-/**
- * A path quoted for a shell only where it needs it.
- * @param {string} p
- * @returns {string}
- */
-function shellQuote(p) {
-	return /^[\w@%+=:,./-]+$/.test(p) ? p : `'${p.replace(/'/g, `'\\''`)}'`;
-}
 
 // Resolved from this file, so an adopter is handed the plugin's copy (#541).
 const WATCHER = path.resolve(__dirname, "..", "watch-artefact.js");
@@ -231,4 +223,4 @@ function decide(_prompt, ctx) {
 	};
 }
 
-module.exports = { decide, field, noun, shellQuote };
+module.exports = { decide, field, noun };

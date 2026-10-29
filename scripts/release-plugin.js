@@ -89,6 +89,7 @@ const { validateNote, parseNote } = require("./lib/migration-note.js");
 const { upgrade } = require("./lib/upgrade-walk.js");
 const { gh, ghApiSlurp, parseErrLine } = require("./lib/gh.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
+const { shellQuote } = require("./lib/sh-quote.js");
 const { takesLabel } = require("./lib/takes-label.js");
 
 const MIGRATION_LABEL = takesLabel("implement");
@@ -450,10 +451,6 @@ function release(root, { dryRunAdopter } = {}) {
 	}
 }
 
-/** @param {string} s */
-const shQuote = (s) =>
-	/[^\w./:-]/.test(s) ? `'${s.replace(/'/g, "'\\''")}'` : s;
-
 const BUMP_TITLE = "Bump workflow-core to ";
 
 /**
@@ -496,7 +493,7 @@ function fileBumpIssues(repos, tag) {
 			failed.push({
 				repo,
 				reason: parseErrLine(err),
-				retry: `gh ${args.map(shQuote).join(" ")}`,
+				retry: `gh ${args.map(shellQuote).join(" ")}`,
 			});
 			return null;
 		}

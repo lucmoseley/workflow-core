@@ -55,6 +55,7 @@ const { launchAuthRefusal } = require("./launch-auth.js");
 const { refillPath } = require("./refill-dir.js");
 const { readDeclaredSeats, seatOf } = require("./refill-seats.js");
 const { scriptPath } = require("./script-path.js");
+const { shellQuote } = require("./sh-quote.js");
 const { writeFd } = require("./write-fd.js");
 
 const CONTRACT = path.join(__dirname, "headless-contract.md");
@@ -94,9 +95,6 @@ const KEY_EXHAUSTED = /credit balance is too low|billing_error/i;
  */
 
 const storeDir = () => refillPath(".headless-runs");
-
-/** @param {string} s */
-const shellQuoted = (s) => `'${s.replaceAll("'", "'\\''")}'`;
 
 /**
  * Why the seat's key cannot be read, or null where it can. Names the variable
@@ -172,7 +170,7 @@ function launch({ seat: seatDir, cwd, budgetUsd, prompt }) {
 	const stderr = path.join(dir, "stderr.log");
 	const sessionId = crypto.randomUUID();
 	const helper = [process.execPath, __filename, "key", seat.keyVar, key.file]
-		.map(shellQuoted)
+		.map(shellQuote)
 		.join(" ");
 
 	const out = fs.openSync(log, "a");

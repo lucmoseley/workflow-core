@@ -22,7 +22,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stampFile, writeStamp } from "./lib/commit-key.js";
-import { shellQuote, writeFaultyGit } from "./lib/git-fault-fake";
+import { writeFaultyGit } from "./lib/git-fault-fake";
 import { mkScratchDir } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import {
@@ -33,6 +33,7 @@ import {
 	ROOT,
 } from "./lib/precommit-gate-testkit";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const WIRING = `  ${coreCall("node", "scripts/mutation-hold-gate.js")} || exit 1`;
 const HOLD_BLOCK = cutHookBlock('mh_why=""', "fi");

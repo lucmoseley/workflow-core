@@ -26,10 +26,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { core, freshSandbox, store } from "./arbiter-testkit";
-import { shellQuote, writeFaultyGit } from "./git-fault-fake";
+import { writeFaultyGit } from "./git-fault-fake";
 import { initGitRepo, mkDirOutsideRepo } from "./git-fixture";
 import { runCore } from "./guard-core-testkit";
 import { runInProcess } from "./run-in-process";
+import { shellQuote } from "./sh-quote.js";
 import { readShellConst } from "./shell-const-testkit";
 
 const { emissionMatches, RULE_ARG_RE } = require("./rule-emission.js") as {
