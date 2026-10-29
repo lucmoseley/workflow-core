@@ -14,7 +14,7 @@
  * `.env` write reaches it, or mangles the file's other entries.
  */
 
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -166,6 +166,29 @@ describe("write-secret", () => {
 		expect(fs.readFileSync(errorLog(), "utf8")).toMatch(
 			/\tenv-file ignoreStore\t.*EACCES/,
 		);
+	});
+
+	it("exits 0 with the value stored where stdout's reader has gone before the success line (#3716)", () => {
+		const r = spawnSync(
+			"bash",
+			[
+				"-c",
+				// biome-ignore lint/suspicious/noTemplateCurlyInString: bash's expansion, not a template
+				'printf %s "$1" | "$2" "$3" K | true; echo "${PIPESTATUS[1]}"',
+				"_",
+				SECRET,
+				process.execPath,
+				SCRIPT,
+			],
+			{
+				cwd: host,
+				encoding: "utf8",
+				env: isolatedEnv({ CLAUDE_PROJECT_DIR: host }),
+			},
+		);
+		expect(r.stdout).toBe("0\n");
+		expect(r.stderr).not.toContain("untouched");
+		expect(read()).toBe(`K=${SECRET}\n`);
 	});
 
 	it("uses ~/.config where XDG_CONFIG_HOME is unset or relative", () => {
@@ -680,21 +703,46 @@ describe("write-secret", () => {
 	 * (#3676, #3716).
 	 */
 	const me = os.userInfo();
-	/** Serves the user databases as the user's private group, every other read as is. */
-	const fakeUserDb = () => {
+	interface UserDb {
+		group?: string;
+		nsswitch?: string;
+		userdb?: Record<string, string[]>;
+	}
+	/**
+	 * Serves the user databases, by default as the user's private group under
+	 * lookups reading only the files, every userdb directory absent unless
+	 * named; every other read as is.
+	 */
+	const fakeUserDb = ({
+		group = `${me.username}:x:${me.gid}:\n`,
+		nsswitch = "passwd: files\ngroup: files\n",
+		userdb = {},
+	}: UserDb = {}) => {
 		const files = new Map<unknown, string>([
-			["/etc/group", `${me.username}:x:${me.gid}:\n`],
+			["/etc/group", group],
 			[
 				"/etc/passwd",
 				`${me.username}:x:${me.uid}:${me.gid}::/home/me:/bin/sh\n`,
 			],
-			["/etc/nsswitch.conf", "passwd: files\ngroup: files\n"],
+			["/etc/nsswitch.conf", nsswitch],
 		]);
 		const realRead = fs.readFileSync;
 		vi.spyOn(fs, "readFileSync").mockImplementation(
 			((p: fs.PathOrFileDescriptor, ...rest: [never]) =>
 				files.get(p) ?? realRead(p, ...rest)) as typeof fs.readFileSync,
 		);
+		const realDir = fs.readdirSync;
+		vi.spyOn(fs, "readdirSync").mockImplementation(((
+			p: fs.PathLike,
+			...rest: [never]
+		) => {
+			if (typeof p !== "string" || !p.includes("userdb"))
+				return realDir(p, ...rest);
+			const entries = userdb[p];
+			if (entries === undefined)
+				throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+			return entries;
+		}) as typeof fs.readdirSync);
 	};
 	const groupShared = () => {
 		const shared = path.join(config, "shared");
@@ -703,13 +751,36 @@ describe("write-secret", () => {
 		return shared;
 	};
 
-	it("writes under a directory writable only by the user's private group, as `pam_umask usergroups` leaves ~/.config (#3676)", () => {
-		fakeUserDb();
-		const xdg = path.join(groupShared(), "cfg");
-		expect(run(["K"], SECRET, { XDG_CONFIG_HOME: xdg }).status).toBe(0);
-		expect(
-			readEnvFileValue(path.join(xdg, "workflow-core", "secrets.env"), "K"),
-		).toBe(SECRET);
+	it.each<[string, UserDb]>([
+		["with lookups reading only the files", {}],
+		[
+			"with systemd serving only dynamic users",
+			{
+				nsswitch: "passwd: files systemd\ngroup: files systemd\n",
+				userdb: { "/run/systemd/userdb": ["io.systemd.DynamicUser"] },
+			},
+		],
+	])(
+		"writes under a directory writable only by the user's private group, as `pam_umask usergroups` leaves ~/.config, %s (#3676)",
+		(_label, db) => {
+			fakeUserDb(db);
+			const xdg = path.join(groupShared(), "cfg");
+			expect(run(["K"], SECRET, { XDG_CONFIG_HOME: xdg }).status).toBe(0);
+			expect(
+				readEnvFileValue(path.join(xdg, "workflow-core", "secrets.env"), "K"),
+			).toBe(SECRET);
+		},
+	);
+
+	it("refuses with exit 1, writing nothing, where the group that can write a directory above the file's lists another member (#3676)", () => {
+		fakeUserDb({ group: `${me.username}:x:${me.gid}:${me.username},other\n` });
+		const shared = groupShared();
+		const r = run(["K"], SECRET, { XDG_CONFIG_HOME: path.join(shared, "cfg") });
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(
+			whyAbove(shared, "is writable by others and not sticky"),
+		);
+		expect(fs.readdirSync(shared)).toEqual([]);
 	});
 
 	/* An access ACL granting a named user write, set as its raw xattr: no

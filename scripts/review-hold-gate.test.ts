@@ -856,14 +856,14 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 		expect(fs.readFileSync(msg, "utf8")).toBe("land\n");
 	});
 
-	it("refuses an empty message path as usage, before any stamp is consumed (#3716)", () => {
+	it("consumes no stamp and logs nothing on an empty message path, as a direct run of the hook hands (#3716)", () => {
 		fs.writeFileSync(
 			stamp(),
 			"t\nescalated; areas=a; base=b; tree=t; paths=p\n",
 		);
 		const r = runTrailer("");
-		expect(r.status).toBe(2);
-		expect(r.stderr).toBe("usage: review-tier-trailer.sh <message file>\n");
+		expect(r.status).toBe(0);
+		expect(r.stderr).toBe("");
 		expect(fs.existsSync(stamp())).toBe(true);
 	});
 });

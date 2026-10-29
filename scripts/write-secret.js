@@ -823,6 +823,7 @@ function storeValue(file, name, value) {
 	const dir = path.dirname(file);
 	const lock = pidLock(`${file}.lock`, path.basename(__filename));
 	let locked = false;
+	let replaced = false;
 	try {
 		fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
 		locked = waitForLock(lock);
@@ -856,10 +857,7 @@ function storeValue(file, name, value) {
 				if (why !== null) throw new LooseAside(why);
 			},
 		});
-		writeFd(
-			1,
-			`write-secret: ${next.replaced ? "replaced" : "added"} ${name} in ${file}\n`,
-		);
+		replaced = next.replaced;
 	} catch (e) {
 		if (e instanceof LooseAside)
 			return refuseLoose(file, "the file as written", e.message);
@@ -878,8 +876,26 @@ function storeValue(file, name, value) {
 	} finally {
 		if (locked) lock.release();
 	}
-
+	reportStored(file, name, replaced);
 	return 0;
+}
+
+/**
+ * Says the value is stored, once the write and the lock are done with.
+ * @param {string} file
+ * @param {string} name
+ * @param {boolean} replaced
+ */
+function reportStored(file, name, replaced) {
+	try {
+		writeFd(
+			1,
+			`write-secret: ${replaced ? "replaced" : "added"} ${name} in ${file}\n`,
+		);
+	} catch {
+		/* stdout's reader has gone; the value is stored all the same, so the
+		 * run still succeeds rather than calling the file untouched (#3716). */
+	}
 }
 
 /**

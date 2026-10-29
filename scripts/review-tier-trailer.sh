@@ -22,11 +22,14 @@
 
 set -uo pipefail
 
-if [[ $# -ne 1 || -z "$1" ]]; then
+if [[ $# -ne 1 ]]; then
   echo "usage: review-tier-trailer.sh <message file>" >&2
   exit 2
 fi
 msg="$1"
+# A direct `sh -e` run of the hook hands no message file; nothing is held
+# there, so no stamp is consumed and no fault logged.
+[[ -n "$msg" ]] || exit 0
 
 # dropped <why> [<detail>] — say this commit lands with no trailer, and log it.
 dropped() {

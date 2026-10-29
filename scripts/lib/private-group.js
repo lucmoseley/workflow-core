@@ -56,8 +56,8 @@ const NO_GROUP_PASSWORD = new Set(["", "x", "!", "*"]);
  */
 function isPrivateGroup(gid, me, db) {
 	if (gid !== me.gid || !isFilesOnlyUserSource(db)) return false;
-	const groups = dbRows(db.group, [2]);
-	const users = dbRows(db.passwd, [2, 3]);
+	const groups = parseDbRows(db.group, [2]);
+	const users = parseDbRows(db.passwd, [2, 3]);
 	if (groups === null || users === null) return false;
 	const rows = groups.filter((f) => Number(f[2]) === gid);
 	const mine = users.filter((f) => Number(f[2]) === me.uid);
@@ -90,7 +90,7 @@ function isPrivateGroup(gid, me, db) {
  * @returns {boolean}
  */
 function isFilesOnlyUserSource(db) {
-	const conf = contentLines(db.nsswitch);
+	const conf = splitContentLines(db.nsswitch);
 	if (conf === null) return false;
 	const dbs = "passwd|group|initgroups";
 	const lines = conf
@@ -125,8 +125,8 @@ function isFilesOnlyUserSource(db) {
  * @param {number[]} ids
  * @returns {string[][] | null}
  */
-function dbRows(text, ids) {
-	const lines = contentLines(text);
+function parseDbRows(text, ids) {
+	const lines = splitContentLines(text);
 	if (lines === null || lines.some((l) => /^[+\-\s]/.test(l))) return null;
 	const rows = lines.map((l) => l.split(":"));
 	const plain = rows.every((f) => ids.every((i) => /^\d+$/.test(f[i] ?? "")));
@@ -139,7 +139,7 @@ function dbRows(text, ids) {
  * @param {string | null} text
  * @returns {string[] | null}
  */
-function contentLines(text) {
+function splitContentLines(text) {
 	if (text === null) return null;
 	return text.split("\n").filter((l) => l.trim() !== "" && !/^\s*#/.test(l));
 }

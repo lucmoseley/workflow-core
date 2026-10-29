@@ -51,7 +51,7 @@ describe("isPrivateGroup", () => {
 				userdb: { "/run/systemd/userdb": ["io.systemd.DynamicUser"] },
 			},
 		],
-	])("judges the user's own group private %s", (_label, db) => {
+	])("judges the user's own group private %s (#3676)", (_label, db) => {
 		expect(judge(db)).toBe(true);
 	});
 
@@ -115,11 +115,11 @@ describe("isPrivateGroup", () => {
 			"sits on a host whose userdb directory cannot be read",
 			{ nsswitch: Systemd, userdb: { "/run/systemd/userdb": null } },
 		],
-	])("judges a group not private where it %s", (_label, db) => {
+	])("judges a group not private where it %s (#3676, #3715)", (_label, db) => {
 		expect(judge(db)).toBe(false);
 	});
 
-	it("judges no group but the user's primary one private", () => {
+	it("judges no group but the user's primary one private (#3676)", () => {
 		expect(
 			isPrivateGroup(me.gid + 1, me, {
 				group: `g:x:${me.gid + 1}:\n`,
