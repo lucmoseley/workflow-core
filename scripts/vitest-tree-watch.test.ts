@@ -59,6 +59,22 @@ function sandboxTree() {
 	return tree;
 }
 
+/** What `fn` wrote to stderr. */
+function captureStderr(fn: () => void) {
+	const err: string[] = [];
+	const original = process.stderr.write.bind(process.stderr);
+	process.stderr.write = ((chunk: string) => {
+		err.push(String(chunk));
+		return true;
+	}) as typeof process.stderr.write;
+	try {
+		fn();
+	} finally {
+		process.stderr.write = original;
+	}
+	return err.join("");
+}
+
 /*
  * The branch the mantahostels#1942 resolution first declared untestable, on the wrong
  * grounds — code review corrected it. Under the correct code a null outcome
@@ -135,6 +151,50 @@ describe("a red run's timing (mantahostels#2182)", () => {
 		const [marker] = markerLib.readFailures({ root: redSandbox });
 		expect(marker.startedAt).toBe(new Date(startedAtMs).toISOString());
 		expect(marker.durationMs).toBe(5000);
+	});
+});
+
+describe("a red run's failures already red on its base (#3624)", () => {
+	const tree = sandboxTree();
+	const test = "scripts/a.test.ts";
+	const scope = (file: string) => ({
+		modulesRun: 1,
+		modulesTotal: 9,
+		tests: 1,
+		skipped: 0,
+		failures: [{ file, tests: ["t"] }],
+	});
+
+	afterEach(() => {
+		takeRunReport();
+	});
+
+	it("names on stderr the failure an earlier red at the base's tree already shows", () => {
+		const base = execFileSync("git", ["rev-parse", "HEAD"], {
+			cwd: sb.repo,
+			encoding: "utf8",
+		}).trim();
+		markerLib.recordFailure(
+			{
+				sha: base,
+				at: "2026-01-01T00:00:00.000Z",
+				treeAtEnd: tree.sha,
+				closure: [test],
+				scope: scope(path.join(sb.repo, test)),
+			},
+			{ root: sb.repo },
+		);
+		fillRunReport({
+			outcome: false,
+			scope: scope(path.join(sb.repo, test)),
+			attestation: { closure: [test], selected: [test], base },
+		});
+
+		const err = captureStderr(() => runTeardown(sb.repo));
+
+		expect(err).toContain(
+			`ALREADY RED on the base ${base.slice(0, 12)} (#3624):\n    ${test} — by the red store's run at ${base.slice(0, 12)}`,
+		);
 	});
 });
 
@@ -234,18 +294,8 @@ describe("a neighbour's claim on a file dirty at the run's start (mantahostels#3
 		putLock("scripts/x.js", { sessionId: "them", ...liveHolder() });
 
 		setup({ config: { root: sb.repo } });
-		const err: string[] = [];
-		const original = process.stderr.write.bind(process.stderr);
-		process.stderr.write = ((chunk: string) => {
-			err.push(String(chunk));
-			return true;
-		}) as typeof process.stderr.write;
-		try {
-			runTeardown(path.join(sb.dir, "markers"));
-		} finally {
-			process.stderr.write = original;
-		}
+		const err = captureStderr(() => runTeardown(path.join(sb.dir, "markers")));
 
-		expect(err.join("")).toContain("scripts/x.js  held by them");
+		expect(err).toContain("scripts/x.js  held by them");
 	});
 });

@@ -1245,6 +1245,41 @@ function testsHeldAt(m, view) {
 	}
 }
 
+/**
+ * Whether `m`'s verdict on `test` holds at `sha` BY CONTENT ALONE (#3624):
+ * the tree the run read against `sha`'s, never the sha stamped on it, which
+ * is HEAD and says nothing of the uncommitted files the run also read. Test
+ * by test where the run recorded its imports (`testsHeldAt`'s reads), else
+ * `holdsAt`'s whole-run judgement. A run recording no tree, and every git
+ * fault, holds nothing.
+ *
+ * @param {Marker} m
+ * @param {string} test repo-relative
+ * @param {string} sha
+ * @param {GitOptions} [options]
+ * @returns {boolean}
+ */
+function holdsTestByTree(m, test, sha, options = {}) {
+	if (!m.treeAtEnd) return false;
+	if (!(isPerTest(m) && m.imports[test]))
+		return holdsAt({ ...m, sha: "" }, sha, options) !== null;
+	const { git, root } = gitReader(options);
+	if (!root) return false;
+	try {
+		const view = shaView(sha, { git, countedPaths: null });
+		const touched = view.touched(m.treeAtEnd);
+		const reads = [
+			test,
+			...m.imports[test],
+			...(view.docsOf().get(test) ?? []),
+			...m.roots,
+		];
+		return !reads.some((p) => touched.has(p));
+	} catch {
+		return false;
+	}
+}
+
 /** git's spelling of "no such sha" in a pre-push line: the remote has no tip. */
 const ZERO_SHA = /^0+$/;
 
@@ -2092,6 +2127,7 @@ module.exports = {
 	isFullScope,
 	isUnnarrowedScope,
 	holdsAt,
+	holdsTestByTree,
 	docsReadBy,
 	attestationOf,
 	buildRerunLines,

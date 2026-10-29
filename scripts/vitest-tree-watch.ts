@@ -34,6 +34,7 @@ const {
 } = require("./lib/test-pass-marker.js");
 const { readLaunch, takeRunReport } = require("./lib/suite-handoff.js");
 const { hasOwnScopeHitCap } = require("./lib/user-scope.js");
+const { readAlreadyRedLines } = require("./lib/already-red.js");
 
 /*
  * The tree under test: vitest's own root, handed to `setup`. Never this file's
@@ -140,5 +141,9 @@ export function runTeardown(rootOverride?: string | null) {
 					"  need not be repeated to recover them. This run's line, names only:\n" +
 					`    ${failureRecoveryCommand(root, marker)}\n`,
 			);
+		/* Whose failures these are, off the record, so no run is repeated to
+		 * find out (#3624). */
+		const owners = readAlreadyRedLines(marker, root);
+		if (owners.length > 0) process.stderr.write(`\n${owners.join("\n")}\n`);
 	}
 }
