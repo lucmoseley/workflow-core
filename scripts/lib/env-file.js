@@ -117,27 +117,6 @@ function readEnvFileValue(file, name) {
 }
 
 /**
- * Every name the secrets file assigns, never a value: what a log masker
- * masks the value after (#3661).
- * @returns {string[]} empty where there is no file
- * @throws where the file is there but cannot be read, as a masker that
- *   quietly masked fewer names would write their values bare
- */
-function storedNames() {
-	let text;
-	try {
-		text = fs.readFileSync(secretsFile(), "utf8");
-	} catch (err) {
-		if (caught(err).code === "ENOENT") return [];
-		throw err;
-	}
-	const names = splitEnvLines(text).lines.map(
-		({ body }) => parseEnvLine(body)?.name,
-	);
-	return [...new Set(names.filter((name) => name !== undefined))];
-}
-
-/**
  * Writes `<dir>/.gitignore` holding `*`, where anything else is there: git
  * follows no symlinked `.gitignore`, so a symlink is replaced too (#3663).
  * @param {string} dir
@@ -175,6 +154,27 @@ function readSecretKeepingIgnore(name) {
 		/* The value is what the caller asked for (#3663). */
 	}
 	return value;
+}
+
+/**
+ * Every name the secrets file assigns, never a value: what a log masker
+ * masks the value after (#3661).
+ * @returns {string[]} empty where there is no file
+ * @throws where the file is there but cannot be read, as a masker that
+ *   quietly masked fewer names would write their values bare
+ */
+function storedNames() {
+	let text;
+	try {
+		text = fs.readFileSync(secretsFile(), "utf8");
+	} catch (err) {
+		if (caught(err).code === "ENOENT") return [];
+		throw err;
+	}
+	const names = splitEnvLines(text).lines.map(
+		({ body }) => parseEnvLine(body)?.name,
+	);
+	return [...new Set(names.filter((name) => name !== undefined))];
 }
 
 module.exports = {
