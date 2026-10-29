@@ -7,6 +7,11 @@
  * rejects, Ctrl-D ends it where it stands. Every other control byte is dropped
  * — an arrow key's whole escape sequence included, which would otherwise leave
  * `[D` inside the value.
+ *
+ * Bytes are decoded as strict UTF-8 across reads, so a character split
+ * between two chunks arrives whole and invalid input rejects rather than
+ * becoming U+FFFD (#3675). Backspace removes one code point, never half a
+ * surrogate pair; a combining accent or a ZWJ emoji part goes one at a time.
  */
 
 /* `esc` is 0 outside an escape sequence; 1 after ESC; 2 inside `ESC [` or
@@ -15,23 +20,32 @@
 
 /**
  * @param {Pick<NodeJS.ReadStream, "setRawMode" | "on" | "removeListener" | "pause" | "resume">} input
- * @returns {Promise<string>} rejects with "interrupted" on Ctrl-C
+ * @returns {Promise<string>} rejects with "interrupted" on Ctrl-C and
+ *   "not UTF-8" on bytes that are not valid UTF-8
  */
 function readHidden(input) {
 	return new Promise((resolve, reject) => {
 		/** @type {HiddenLine} */
 		const line = { value: "", esc: 0 };
-		const done = (/** @type {boolean} */ interrupted) => {
+		const decoder = new TextDecoder("utf-8", { fatal: true });
+		const done = (/** @type {string | null} */ failure) => {
 			input.setRawMode(false);
 			input.pause();
 			input.removeListener("data", onData);
-			if (interrupted) reject(new Error("interrupted"));
-			else resolve(line.value);
+			if (failure === null) resolve(line.value);
+			else reject(new Error(failure));
 		};
 		const onData = (/** @type {Buffer|string} */ chunk) => {
-			for (const ch of String(chunk)) {
+			let text;
+			try {
+				text = decoder.decode(Buffer.from(chunk), { stream: true });
+			} catch {
+				return done("not UTF-8");
+			}
+			for (const ch of text) {
 				const outcome = readChar(line, ch);
-				if (outcome !== null) return done(outcome === "interrupt");
+				if (outcome !== null)
+					return done(outcome === "interrupt" ? "interrupted" : null);
 			}
 		};
 		input.setRawMode(true);
@@ -56,7 +70,8 @@ function readChar(line, ch) {
 	}
 	if (ch === "\r" || ch === "\n" || ch === "\x04") return "end";
 	if (ch === "\x03") return "interrupt";
-	if (ch === "\x7f" || ch === "\b") line.value = line.value.slice(0, -1);
+	if (ch === "\x7f" || ch === "\b")
+		line.value = line.value.replace(/[\s\S]$/u, "");
 	else if (ch >= " ") line.value += ch;
 	return null;
 }
