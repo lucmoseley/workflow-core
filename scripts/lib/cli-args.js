@@ -276,6 +276,7 @@ function flagValue(flags, name) {
 }
 
 module.exports = {
+	HELP,
 	parse,
 	parseOrExit,
 	parseOrCode,
