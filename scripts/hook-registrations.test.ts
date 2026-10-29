@@ -368,6 +368,14 @@ const REGISTRATIONS: Registration[] = [
 		covers: [],
 	},
 	{
+		/* Silent on a fast or unprobeable interop bridge; warns at every start
+		 * while two policy queries in a row are slow, logging evidence (#3564). */
+		event: "SessionStart",
+		id: "scripts/check-interop-latency.js --notify",
+		matcher: null,
+		covers: [],
+	},
+	{
 		/* Silent unless the refill loop stopped on no progress or the allowance
 		 * cut since the stop it last named; names each such stop once (#2014). */
 		event: "SessionStart",

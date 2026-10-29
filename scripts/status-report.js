@@ -63,6 +63,8 @@ const POOL_WIDTH = 4;
  * prints only a red verdict, and the agent_id probe's "fixed" (#2819): here it
  * also shows a version not yet probed, a probe that could not run, and the
  * agent_id verdict. `concurrency` (#3317) prints a standing, never a fault.
+ * `interop-latency` (#3564) also runs at SessionStart, which prints only a
+ * degraded bridge: here a healthy one prints its latency.
  *
  * `jev-flags` takes `--notify`, the one hook-style run here: it shows only the
  * flags logged since the last one it showed, and records them — a hand run
@@ -108,6 +110,7 @@ const CHECKS = [
 	["config-links", "link-config-dirs.js", "--check"],
 	["harness-canary", "check-harness-canary.js"],
 	["concurrency", "concurrency-readout.js"],
+	["interop-latency", "check-interop-latency.js"],
 ];
 
 /**

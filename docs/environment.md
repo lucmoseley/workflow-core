@@ -417,6 +417,7 @@ pooled with it as separate sessions.
 - **Single runaway (30 Jul 2026) — the real failure mode.** One `claude.exe` grew 3826 → 7317 MB in ~60s; total hit 7841/7924 MiB. Recurred within the hour. The heap bound did **not** apply.
 - **Concurrent sessions (31 Jul 2026) — normal operation.** 5–6 sessions at 250–500 MB, baseline never below 4 GB, some resident 3+ hours.
 - **Interop-bridge wedge (1 Aug 2026) — not a memory fault.** Every `claude` launch hung with no output; memory was fine. §9.
+- **Degraded interop bridge (29 Oct 2026) — not load.** Every interop call returned 100–1000x slow for at least 80 minutes, idle or not, until `wsl --shutdown`. §9.
 - **Host suspend (27 Aug 2026) — a freeze no recorder here can catch.** Windows entered Modern Standby on its 60-minute mains idle timeout at 17:20:53 and the WSL2 VM froze for 22 minutes: the guest journal is silent 17:25:36 → 17:47:52, `earlyoom` missed its 17:39 report and `wsl-pro` its ~17:45 restart. **Memory was not the cause and never close to it** — `earlyoom` read 6765 of 9924 MiB available at 16:39 and `~/memwatch.log` has no block after 12:11. On resume `claude agents` crashed and a new session would not start, their daemon sockets under `/tmp/cc-daemon-1000/` having died in the freeze. **Fixed by `powercfg /change standby-timeout-ac 0`**, so mains sleep is now never; **battery is still 25 minutes and a closed lid still suspends**, which is the residual. This is an ARM64 machine, so Modern Standby is the only sleep state available — `powercfg /a` reports S1, S2 and S3 all unavailable.
 - **CPU saturation (4 Oct 2026).** Between 20:43 and 21:35 WSL froze repeatedly and the founder restarted Windows at 21:34:58 (Event 1074). `~/memwatch.log` read **load 112, 143 and 171** at 21:06, 21:29 and 21:35, at 705–781% of 800% busy, almost all of it `nice` — Claude sessions and what they spawn — with only **3.3–4.2 GB used**. At 21:28–21:29 systemd's 3-minute watchdog SIGABRTed journald, resolved, udevd and timesyncd, the kernel reported an RCU stall, and the interop vsock timed out (`accept4 failed 110`), which is what froze the terminals. Ruled out: memory (`earlyoom` read 7,059 MiB available at 21:18 and killed nothing) and host suspend (no Kernel-Power 506/507 between 19:51 and the restart). In the window: a full suite at 20:43 (605 s), a 51-file run at 21:05 that took 260 s, and a run at 21:24 the stall detector killed at ~21:35. **What filled the run queue went unrecorded** — memwatch then listed the top six processes by RSS only. New work now holds at the load ceiling (§6) (#830).
 - **Battery standby, resumed broken (7 Oct 2026) — the 27 Aug residual, firing.** Unplugged, Windows entered Modern Standby on the 25-minute battery idle timeout at 09:08, deepened it at 12:24 ("Austerity Battery Drain Budget Exceeded") and woke on the lid at 22:39:30 (Kernel-Power 506/507). Unlike 27 Aug the VM did not simply pause and resume: from 22:43 the kernel reported RCU stalls (`timer wakeup didn't happen … Possible timer handling issue on cpu=0`), at 22:52 a Claude process sat stuck in-kernel in `link_path_walk` on CPU 1, the interop bridge wedged (§9), and `~/memwatch.log` read **load 27 at 60% busy** at 22:54 — tasks queued, not working. The guest journal stops at 23:02:53; Hyper-V removed the VM's NIC at 23:17:24. **Not the workload** — three Claude sessions, 2,370 MB combined, and `earlyoom` read 2,636 MiB available at 23:02 and killed nothing. **Why a resume breaks CPU 0's timer is unknown.** An RCU stall now warns at session start and refuses a dispatch — `scripts/check-kernel-stall.js` (#867). Battery standby stays on: never-sleep on battery was declined (#867). **Remedy after any long battery sleep: `sync`, then `wsl --shutdown`, before carrying on.**
@@ -475,7 +476,7 @@ Claude Code queries Windows managed policy on every launch, via the interop brid
 /init /mnt/c/Windows/System32/reg.exe query HKCU\SOFTWARE\Policies\ClaudeCode /v Settings
 ```
 
-**1 Aug 2026, ~11:12.** These stopped returning and accumulated, all state `S` at 0:00 CPU — nothing in `D` state, so not a storage stall. **Root cause unknown.** A healthy query takes 0.03–0.04s, so seconds is already pathological.
+**1 Aug 2026, ~11:12.** These stopped returning and accumulated, all state `S` at 0:00 CPU — nothing in `D` state, so not a storage stall. **Root cause unknown.** A healthy query takes 0.03–0.07s (0.03–0.04s on 1 Aug, 0.03–0.07s after the 29 Oct restart), so seconds is already pathological.
 
 **Recovery:** close every WSL/terminal window → `wsl --shutdown` in PowerShell → reopen.
 
@@ -487,13 +488,15 @@ Claude Code queries Windows managed policy on every launch, via the interop brid
 
 **The stall is per-call and about 10s, and the next call is normal.** So the old 5s attempt and its 10s retry would each have hit a fresh stall and both expired — inferred from one timed sample, not measured across the pair. The refusals clustered on session spawns (load average 3.19–7.01), not at rest.
 
-**Two fault modes, and only one wants `wsl --shutdown`:**
+**29 Oct 2026, 10:20–11:40 (#3564) — a THIRD mode.** Every call returned, slowly: the policy query took **3.9–7.4s**. It held with every session idle and with none running, and only `wsl --shutdown` cleared it; afterwards the query took 0.03–0.07s.  **Root cause unknown.** Ruled out: fragmentation (order-7+ blocks free in both zones), PSI memory and I/O pressure (near 0), the hvsock buffer (28672, as §1 sets it), the agent-listing storm (#3561), and a vmbus channel leak (one sample).
 
-| | Wedge (1 Aug, 5 Sep) | Vsock stall (7 Sep) |
-| --- | --- | --- |
-| Shape | queries accumulate, never return | one ~10s call, then normal |
-| Clears itself | no | yes, within minutes |
-| Remedy | `wsl --shutdown` | none — retry |
+**Three fault modes:**
+
+| | Wedge (1 Aug, 5 Sep) | Vsock stall (7 Sep) | Degraded (29 Oct) |
+| --- | --- | --- | --- |
+| Shape | queries accumulate, never return | one ~10s call, then normal | every call returns, 100–1000x slow |
+| Clears itself | no | yes, within minutes | no |
+| Remedy | `wsl --shutdown` | none — retry | `sync`, then `wsl --shutdown` |
 
 **The vsock stall's cause is known: a failed order-7 ring allocation** (fantasy-books#1268); see §1's socket-buffer file.
 
@@ -506,6 +509,15 @@ Claude Code queries Windows managed policy on every launch, via the interop brid
 - **Fails open** — no `reg.exe`, a non-executable one, no `timeout`, not WSL, or a library the shell cannot parse → the caller launches. The probe must never be why Claude won't start. A non-integer or zero value of either override is the one thing reset rather than honoured, and both are tested numerically so `00` cannot slip through: `timeout 0` never expires, and zero attempts would fall straight through to *wedged* with no probe made.
 - **Worst case 42s** at the defaults — 3 x (12 + 2), the graces elapsing only against a TERM-ignoring target, against the **45s** ceiling `scripts/dispatch-sessions-bridge.test.ts` pins. Raise the budget or the count and Guard 3's reporting time goes with it.
 - **Simulate a wedge** by pointing `CLAUDE_INTEROP_REG` at an executable that sleeps.
+
+### The latency check — the degraded mode
+
+`scripts/check-interop-latency.js`, at every session start and in `npm run status` (#3564). The wedge probe reads a degraded bridge as healthy, since each call returns inside its 12s budget.
+
+- **Times the probe's own policy query, at the probe's seam `CLAUDE_INTEROP_REG`.** Over **1s** is slow — a guess between healthy's 0.07s and degraded's 3.9s, nothing between them measured. **DEGRADED takes two slow queries in a row**, so a single vsock stall reads OK. Each query is capped at the probe's 12s.
+- **On DEGRADED it appends one evidence record** to `.interop-degraded.jsonl` under `.claude/tmp/markers`, kept 30 days: both latencies, uptime, `dmesg`'s failed `hvs_probe` ring allocations by order (order 7 is §7's fragmentation, order 4 this fault), the `/sys/bus/vmbus/devices` count, Windows' CPU and Available MBytes and vmmemWSL's working set (one `typeperf` sample), and the interop calls in flight. A reading it cannot take is `null`, never 0.
+- **At session start it prints only a degraded bridge**, with the recovery; a plain run exits 1 on one. No `reg.exe` is a silent SKIP. Worst case ~45s, two expired queries and a slow `typeperf`, under the hook's 60s.
+- **Simulate the mode** by pointing `CLAUDE_INTEROP_REG` at an executable that sleeps 3s.
 
 ### Guard 1 — pre-flight wrapper
 
