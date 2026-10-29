@@ -4,7 +4,9 @@
  *
  * Run in process through runInProcessAsync (§X3), its python3 a fake injected at
  * WFC_PYTHON (§N7: the fake feeds chosen hand-offs) — all but the last case,
- * which spawns the wrapper as a script against a real pytest.
+ * which spawns the wrapper as a script against a real pytest, and the module
+ * cases on `lib/pytest-child.js`'s `runPytest`, which fire the ceiling on an
+ * event (#3520).
  *
  * `.husky/pre-push` and `npm run push:check` read the certificate it leaves:
  * loosen a case and a red or dead run leaves one the push gate counts as
@@ -16,7 +18,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { freshSandbox, ledger } from "./lib/arbiter-testkit";
 import { runInProcessAsync } from "./lib/run-in-process";
 
@@ -24,10 +26,17 @@ const require = createRequire(import.meta.url);
 const { readMarkers } = require("./lib/test-pass-marker.js");
 const { CEILING_ENV, DEADLINE_ENV } = require("./lib/suite-ceiling.js");
 const { pythonSpawnRemedy } = require("./lib/python-bin.js");
+const { runPytest } = require("./lib/pytest-child.js");
 
 const SCRIPT = path.join(__dirname, "run-pytest.js");
 
 const dirs: string[] = [];
+
+/* Each wait on an event here polls every 50 ms for up to 5 s, half the 10 s
+ * test timeout, so an event that never comes fails on the case's own
+ * assertion, not the timeout. */
+const POLL_MS = 50;
+const POLL_TRIES = 100;
 
 /** Whether this machine can run the wrapper's real child: pytest plus xdist. */
 function hasPytest(): boolean {
@@ -120,10 +129,10 @@ if (result !== null) fs.writeFileSync(process.env.WFC_PYTEST_SCOPE_OUT, result);
 if (hang?.inflight !== undefined)
 	fs.writeFileSync(process.env.WFC_PYTEST_INFLIGHT_OUT, JSON.stringify(hang.inflight));
 // The wrapper writes the deadline once pytest has a pid; wait on that write
-// rather than on the order of two processes starting (#3516). Up to 5 s, half
-// the 10 s test timeout; a hanging fake skips it, as it would spend the ceiling.
-for (let i = 0; !hang && deadlineFile && !fs.existsSync(deadlineFile) && i < 100; i++)
-	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+// rather than on the order of two processes starting (#3516). A hanging fake
+// skips it, as it would spend the ceiling.
+for (let i = 0; !hang && deadlineFile && !fs.existsSync(deadlineFile) && i < ${POLL_TRIES}; i++)
+	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${POLL_MS});
 const grandchild = hang?.grandchild
 	? require("node:child_process").spawn("sleep", ["60"], { stdio: "ignore" }).pid
 	: undefined;
@@ -685,12 +694,9 @@ describe("the hand-off file", () => {
 	});
 });
 
-// The fake hangs past a lowered ceiling. Each case waits on the kill itself,
+// The fake hangs past the ceiling. Each case waits on the kill itself,
 // not on elapsed time (docs/practice/test-design-and-reliability.md).
 describe("the suite ceiling (#2702)", () => {
-	/* The fake must start node and write its files before the kill, which a
-	 * load-24 run missed at 1 s (#3516); the cases that need the kill still
-	 * race it (#3520). */
 	/** Lowered still, but far past any fake's exit. */
 	const FarCeiling = "60000";
 	const lowered = (dir: string) => ({
@@ -698,21 +704,82 @@ describe("the suite ceiling (#2702)", () => {
 		[DEADLINE_ENV]: path.join(dir, "deadline"),
 	});
 
-	/** Whether `pid` has gone, polled since init reaps it on its own clock:
-	 * up to 5 s, half the 10 s test timeout. */
+	/** Whether `pid` has gone, polled since init reaps it on its own clock. */
 	async function gone(pid: number): Promise<boolean> {
-		for (let i = 0; i < 100; i++) {
+		for (let i = 0; i < POLL_TRIES; i++) {
 			try {
 				process.kill(pid, 0);
 			} catch {
 				return true;
 			}
-			await new Promise((r) => setTimeout(r, 50));
+			await new Promise((r) => setTimeout(r, POLL_MS));
 		}
 		return false;
 	}
 
-	it("kills pytest and its children, exits 1 and records no marker, though the plugin said green", async () => {
+	/**
+	 * `runPytest` with its ceiling fired once the hanging fake has recorded
+	 * its call, so the kill never races node's start (#3520). Unrecorded once
+	 * the poll runs out, it fires anyway, for the assertions to name what is
+	 * missing.
+	 */
+	async function killedOnceRecorded(
+		python: string,
+		readCalls: () => PytestCall[],
+		root: string,
+	) {
+		for (const [key, value] of Object.entries({
+			...lowered(root),
+			WFC_PYTHON: python,
+		}))
+			vi.stubEnv(key, value);
+		/* A line read mid-append is no record yet. */
+		const recorded = () => {
+			try {
+				return readCalls().length > 0;
+			} catch {
+				return false;
+			}
+		};
+		const schedule = (fire: () => void) => {
+			let tries = 0;
+			const poll = () => {
+				if (recorded() || ++tries >= POLL_TRIES) fire();
+				else timer = setTimeout(poll, POLL_MS);
+			};
+			let timer = setTimeout(poll, 0);
+			return () => clearTimeout(timer);
+		};
+		/* runInProcessAsync captures a whole program's streams; this is one
+		 * module call. */
+		const stderr: Buffer[] = [];
+		const realWriteSync = fs.writeSync;
+		const spy = vi
+			.spyOn(fs, "writeSync")
+			.mockImplementation((fd, data, ...rest) => {
+				if (fd !== 2)
+					// biome-ignore lint/suspicious/noExplicitAny: passthrough to the real overloaded call
+					return (realWriteSync as any)(fd, data, ...rest);
+				// writeFd hands over a Buffer and the offset it has written up to.
+				const chunk = (data as unknown as Buffer).subarray(
+					(rest[0] as number) ?? 0,
+				);
+				stderr.push(chunk);
+				return chunk.length;
+			});
+		try {
+			const result = await runPytest([], root, {
+				handOff: path.join(root, "scope.json"),
+				inflightFile: path.join(root, "inflight.json"),
+				schedule,
+			});
+			return { ...result, stderr: Buffer.concat(stderr).toString("utf8") };
+		} finally {
+			spy.mockRestore();
+		}
+	}
+
+	it("kills pytest and its children and forces the run red, though the plugin said green", async () => {
 		const root = repo();
 		const [python, readCalls] = fakePytest(
 			{ passed: true, scope: scope() },
@@ -722,27 +789,28 @@ describe("the suite ceiling (#2702)", () => {
 				inflight: { open: [], finished: 0, collected: 0 },
 			},
 		);
-		const r = await wrap(python, root, [], lowered(root));
+		const r = await killedOnceRecorded(python, readCalls, root);
 
-		expect(r.status).toBe(1);
+		expect(r.forcedRed).toBe(true);
 		expect(r.stderr).toContain("SUITE CEILING");
 		expect(fs.existsSync(lowered(root)[DEADLINE_ENV])).toBe(false);
 		const [call] = readCalls();
-		expect(await gone(call?.pid ?? 0)).toBe(true);
-		expect(await gone(call?.grandchild ?? 0)).toBe(true);
-		expect(readMarkers({ root })).toEqual([]);
+		expect(call?.pid).toBeTypeOf("number");
+		expect(call?.grandchild).toBeTypeOf("number");
+		expect(await gone(call?.pid as number)).toBe(true);
+		expect(await gone(call?.grandchild as number)).toBe(true);
 	});
 
 	it("names the tests pytest reported in flight with their stage, how many never started and how many finished", async () => {
 		const root = repo();
-		const [python] = fakePytest(undefined, 0, {
+		const [python, readCalls] = fakePytest(undefined, 0, {
 			inflight: {
 				open: [{ nodeid: "scripts/test_slow.py::test_crawls", stage: "call" }],
 				finished: 41,
 				collected: 50,
 			},
 		});
-		const r = await wrap(python, root, [], lowered(root));
+		const r = await killedOnceRecorded(python, readCalls, root);
 
 		expect(r.stderr).toMatch(/at the 1\.0s ceiling \(#2667\)/);
 		expect(r.stderr).toContain(
@@ -754,13 +822,27 @@ describe("the suite ceiling (#2702)", () => {
 
 	it("says the never-started count is unavailable where pytest reported no collected count", async () => {
 		const root = repo();
-		const [python] = fakePytest(undefined, 0, {
+		const [python, readCalls] = fakePytest(undefined, 0, {
 			inflight: { open: [], finished: 3, collected: null },
 		});
-		const r = await wrap(python, root, [], lowered(root));
+		const r = await killedOnceRecorded(python, readCalls, root);
 
 		expect(r.stderr).toContain("Never started: unavailable");
 		expect(r.stderr).toContain("Finished: 3 test(s).");
+	});
+
+	/* The whole wrapper on the real 1 s timer, which none of these can lose: a
+	 * fake killed before it starts writes no verdict and reports no tests in
+	 * flight. RESIDUAL: such a kill leaves the green case unable to tell a
+	 * green verdict refused from none written. */
+	it("exits 1 and records no marker on a ceiling kill, though the plugin said green", async () => {
+		const root = repo();
+		const [python] = fakePytest({ passed: true, scope: scope() }, 0, {});
+		const r = await wrap(python, root, [], lowered(root));
+
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("SUITE CEILING");
+		expect(readMarkers({ root })).toEqual([]);
 	});
 
 	it("says the list is unavailable where pytest reported none", async () => {

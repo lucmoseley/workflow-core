@@ -67,19 +67,9 @@ const { appendEmptyTouchedLine } = require("./lib/run-ledger.js");
 const idSeam = require("./lib/session-id.js");
 const { reportForRun } = require("./lib/run-cost-report.js");
 const { writeFd } = require("./lib/write-fd.js");
-const { pythonBin, pythonSpawnRemedy } = require("./lib/python-bin.js");
-const { spawnInRunScope, endRunScope } = require("./lib/user-scope.js");
-const {
-	CEILING_CLOSE,
-	SETTLE_MS,
-	armCeiling,
-	ceilingHeadline,
-	ceilingMs,
-	deadlineUnwritten,
-	groupUnkilled,
-	killGroup,
-	monotonicMs,
-} = require("./lib/suite-ceiling.js");
+const { pythonSpawnRemedy } = require("./lib/python-bin.js");
+const { monotonicMs } = require("./lib/suite-ceiling.js");
+const { runPytest } = require("./lib/pytest-child.js");
 
 /* Resolved through the host-root seam (#1), never `__dirname`: the pytest suite,
  * its `scripts/` on PYTHONPATH and the tree-drift snapshot all belong to the
@@ -88,20 +78,9 @@ const {
  * plugin cache instead. */
 const TREE_ROOT = worktreeRoot();
 
-/* `-n 2` more than halves the local suite but gains only ~7% on the 2-vCPU CI
- * runner (mantahostels#313). No other worker count was ever measured;
- * requirements-dev.txt has why two, not one per core. */
-/* `-p` here rather than in pytest.ini's addopts, so a bare `pytest` run
- * writes no marker. */
-const DEFAULT_ARGS = ["-n", "2", "-p", "pytest_pass_plugin"];
-
 /* No cause, unlike run-vitest.js's `--full=<cause>` (#182): the whole pytest
  * suite takes seconds, so nothing rations it. */
 const FULL = "--full";
-
-/* Passed on to pytest's group rather than left to end this wrapper, so pytest
- * still prints its own interrupted summary. */
-const FORWARDED = /** @type {const} */ (["SIGINT", "SIGTERM", "SIGHUP"]);
 
 /**
  * Sets the exit code rather than returning it, the shape runInProcessAsync
@@ -131,7 +110,7 @@ async function runAndRecord({ args, resolvedFiles }, root) {
 	const inflightFile = handOff
 		? path.join(path.dirname(handOff), "inflight.json")
 		: null;
-	const run = await runPytest(args, root, handOff, inflightFile);
+	const run = await runPytest(args, root, { handOff, inflightFile });
 	// Set only when the spawn itself fails; a failing pytest sets status instead.
 	if (run.error)
 		writeFd(
@@ -244,154 +223,6 @@ function pytestPlan(argv, root) {
 		);
 		return 1;
 	}
-}
-
-/**
- * @param {string[]} argv
- * @param {string} root
- * @param {string|null} handOff
- * @param {string|null} inflightFile
- * @returns {Promise<{ status: number|null, error: Error|null,
- *   forcedRed: boolean }>} `forcedRed` on a run killed at the ceiling or one
- *   that hit its scope's task cap, which fails whatever pytest said
- */
-function runPytest(argv, root, handOff, inflightFile) {
-	const ceiling = ceilingMs();
-	return new Promise((resolve) => {
-		/* Injected at WFC_PYTHON, never by PATH, because the tests feed it chosen
-		 * hand-offs (§N7, #2102). */
-		const child = spawnInRunScope(
-			pythonBin(),
-			["-m", "pytest", ...DEFAULT_ARGS, ...argv],
-			{
-				cwd: root,
-				stdio: "inherit",
-				detached: true,
-				env: {
-					...process.env,
-					...(handOff ? { WFC_PYTEST_SCOPE_OUT: handOff } : {}),
-					...(inflightFile ? { WFC_PYTEST_INFLIGHT_OUT: inflightFile } : {}),
-					// The plugin is loaded by name before conftest puts `scripts/` on
-					// sys.path, so the path has to be given here. It ships beside this
-					// wrapper, not in the host's `scripts/`, so a plugin install needs
-					// `__dirname` too; the host's goes first so its own imports win (#1285).
-					PYTHONPATH: [
-						path.join(root, "scripts"),
-						__dirname,
-						process.env.PYTHONPATH,
-					]
-						.filter(Boolean)
-						.join(path.delimiter),
-				},
-			},
-		);
-		const spawnedAtMono = monotonicMs();
-		let ceilingKilled = false;
-		const forward = (/** @type {NodeJS.Signals} */ signal) => {
-			const unreached = child.pid ? killGroup(child.pid, signal) : null;
-			if (unreached)
-				writeFd(
-					2,
-					`${signal} could not be passed on to pytest's process group (${unreached}); it may run on.\n`,
-				);
-		};
-		for (const signal of FORWARDED) process.on(signal, forward);
-
-		/** @type {ReturnType<typeof setTimeout>|null} */
-		let giveUp = null;
-		const held = armCeiling({
-			pgid: child.pid,
-			ms: ceiling,
-			now: spawnedAtMono,
-			onCeiling: () => {
-				ceilingKilled = true;
-				writeFd(
-					2,
-					buildCeilingReport(readInflight(inflightFile), {
-						ceiling,
-						elapsed: monotonicMs() - spawnedAtMono,
-					}),
-				);
-				const unkilled = child.pid ? killGroup(child.pid) : null;
-				if (unkilled) writeFd(2, groupUnkilled("pytest", unkilled));
-				giveUp = setTimeout(() => {
-					/* A child that never closed would keep this process alive past
-					 * its own verdict. */
-					child.unref();
-					settle(null, null);
-				}, SETTLE_MS);
-				giveUp.unref?.();
-			},
-		});
-		if (held.error) writeFd(2, deadlineUnwritten(held.error));
-
-		let settled = false;
-		/** @param {number|null} status @param {Error|null} error */
-		const settle = (status, error) => {
-			if (settled) return;
-			settled = true;
-			if (giveUp) clearTimeout(giveUp);
-			held.release();
-			for (const signal of FORWARDED) process.off(signal, forward);
-			const capped = endRunScope(child);
-			if (capped) writeFd(2, capped);
-			resolve({ status, error, forcedRed: ceilingKilled || capped !== null });
-		};
-		child.on("error", (error) => settle(null, error));
-		child.on("close", (status) => settle(status, null));
-	});
-}
-
-/**
- * @typedef {{ open: { nodeid: string, stage: string }[], finished: number,
- *   collected: number|null }} PytestInflight
- */
-
-/**
- * @param {string|null} file
- * @returns {PytestInflight|null}
- */
-function readInflight(file) {
-	if (!file) return null;
-	try {
-		const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-		return Array.isArray(parsed.open) && Number.isInteger(parsed.finished)
-			? parsed
-			: null;
-	} catch {
-		/* A missing or torn file costs the report its names, never the kill
-		 * itself (#2702). */
-		return null;
-	}
-}
-
-/**
- * @param {PytestInflight|null} inflight
- * @param {{ ceiling: number, elapsed: number }} run
- */
-function buildCeilingReport(inflight, run) {
-	const lines = ["", `${ceilingHeadline("pytest", run)}.`, ""];
-	if (inflight === null)
-		lines.push(
-			"pytest reported no tests in flight, so the list is unavailable: the kill",
-			"came before a test started, or the plugin could not write it.",
-		);
-	else {
-		if (inflight.open.length > 0) {
-			lines.push("In flight:");
-			for (const row of inflight.open)
-				lines.push(`  ${row.nodeid} — ${row.stage}`);
-		} else lines.push("No test was in flight.");
-		lines.push(
-			"",
-			inflight.collected === null
-				? "Never started: unavailable, as pytest reported no collected count."
-				: `Never started: ${String(inflight.collected - inflight.finished - inflight.open.length)} test(s).`,
-			`Finished: ${String(inflight.finished)} test(s).`,
-		);
-	}
-	lines.push("", ...CEILING_CLOSE, "");
-	return lines.join("\n");
 }
 
 /** Where the plugin should write its verdict, or null where tmp will not have it. */

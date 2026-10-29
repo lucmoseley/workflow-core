@@ -256,16 +256,31 @@ function sweepAtStart({ err = process.stderr, ...options } = {}) {
 }
 
 /**
+ * Calls `fire` once `ms` passes, on a timer that never by itself keeps this
+ * process alive.
+ * @param {() => void} fire
+ * @param {number} ms
+ * @returns {() => void} cancels the call
+ */
+function afterMs(fire, ms) {
+	const timer = setTimeout(fire, ms);
+	timer.unref?.();
+	return () => clearTimeout(timer);
+}
+
+/**
  * Start the ceiling on `pgid`, the leader of a group spawned with
  * `detached: true`: write the deadline where the environment names a file,
  * hold the group for the exit-time kill, and call `onCeiling` once the
- * ceiling passes. The timer never by itself keeps this process alive.
+ * ceiling passes. `schedule` is `afterMs` but in a test, which fires the
+ * ceiling on an event rather than racing a timer (#3520).
  *
- * `release` stops the timer, drops the deadline file and the group's hold;
+ * `release` cancels the ceiling, drops the deadline file and the group's hold;
  * call it once the run has closed.
  *
  * @param {{ pgid: number|undefined, ms: number, onCeiling: () => void,
- *   env?: NodeJS.ProcessEnv, now?: number }} options `now` is CLOCK_MONOTONIC ms
+ *   env?: NodeJS.ProcessEnv, now?: number, schedule?: typeof afterMs }} options
+ *   `now` is CLOCK_MONOTONIC ms
  * @returns {{ release: () => void, error: string|null }}
  *   `error` is why the deadline file was not written, else null
  */
@@ -275,6 +290,7 @@ function armCeiling({
 	onCeiling,
 	env = process.env,
 	now = monotonicMs(),
+	schedule = afterMs,
 }) {
 	const deadline = now + ms;
 	const file = env[DEADLINE_ENV] || null;
@@ -291,12 +307,11 @@ function armCeiling({
 				error = caught(e).message;
 			}
 	}
-	const timer = setTimeout(onCeiling, ms);
-	timer.unref?.();
+	const cancel = schedule(onCeiling, ms);
 	return {
 		error,
 		release: () => {
-			clearTimeout(timer);
+			cancel();
 			if (!pgid) return;
 			live.delete(pgid);
 			if (file)
