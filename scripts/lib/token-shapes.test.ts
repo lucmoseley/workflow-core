@@ -4,7 +4,8 @@
  * an `sk-` token after a non-alphanumeric character or after an escape whose
  * last character is a letter or digit (#3394), every other shape after
  * anything (#3540), and a control sequence anywhere after a token's first
- * character (#3547). Break it and a token in a URL, a stringified tool input or
+ * character (#3547), doubly escaped, URL-encoded or an OSC 8 hyperlink
+ * included (#3549). Break it and a token in a URL, a stringified tool input or
  * coloured command output reaches the scratch files other sessions read,
  * through scripts/retro-transcript.js.
  */
@@ -157,6 +158,44 @@ describe("maskTokens across a colour code in the prefix (#3547)", () => {
 			});
 		},
 	);
+});
+
+const HYPERLINK = "\u001b]8;;https://example.com/a?b=1\u001b\\";
+
+/* Each raw; a test reads it stringified as well. */
+const CONTROLS_3549 = [
+	["a doubly escaped caret ESC", "\\\\^[[m"],
+	["a Python repr's \\x1b inside JSON", "\\\\x1b[m"],
+	["a URL-encoded CSI", "%1B%5Bm"],
+	["a URL-encoded CSI with parameters", "%1B%5B01%3B31m"],
+	["a doubly URL-encoded CSI", "%251B%255Bm"],
+	["an OSC 8 hyperlink", HYPERLINK],
+	["an OSC 8 hyperlink ended by BEL", "\u001b]8;;https://example.com\u0007"],
+	["an OSC 8 hyperlink then a colour reset", `${HYPERLINK}${CLOSE}`],
+	["an OSC 8 hyperlink to a non-ASCII path", "\u001b]8;;file:///tmp/é\u001b\\"],
+	["an OSC 8 hyperlink holding a tab", "\u001b]8;;a\tb\u001b\\"],
+];
+
+describe("maskTokens across other control spellings (#3549)", () => {
+	it.each(CONTROLS_3549)("masks a token %s splits", (_name, seq) => {
+		for (const spelling of [seq, JSON.stringify(seq).slice(1, -1)]) {
+			expectMasked("", `gh${spelling}p_${"a".repeat(36)}`, "github");
+			expectMasked("", `sk${spelling}-${"a1".repeat(12)}`, "openai");
+			expectMasked("", `ghp_${spelling}${"a".repeat(36)}`, "github");
+		}
+	});
+
+	it.each(CONTROLS_3549)("masks an sk- token after %s", (_name, seq) => {
+		for (const spelling of [seq, JSON.stringify(seq).slice(1, -1)]) {
+			expectMasked(`x${spelling}`, OPENAI, "openai");
+		}
+	});
+
+	it("leaves a digitless sk- word whose only digits are an OSC 8 link's", () => {
+		expect(
+			maskTokens(`sk-${HYPERLINK}learn-is-a-python-library-name`).count,
+		).toBe(0);
+	});
 });
 
 describe("maskTokens prefixes (#3540)", () => {
