@@ -10029,6 +10029,10 @@
 			"scripts/check-gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
+		"scripts/lib/fixtures/gh-route/claude-helper-stub.ts.txt": [
+			"scripts/check-gh-route.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
 		"scripts/lib/fixtures/gh-route/claude-lib.js.txt": [
 			"scripts/check-gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
@@ -10057,6 +10061,10 @@
 			"scripts/check-gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
+		"scripts/lib/fixtures/gh-route/helper-stub.ts.txt": [
+			"scripts/check-gh-route.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
 		"scripts/lib/fixtures/gh-route/literal-spawn-marked.js.txt": [
 			"scripts/check-gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
@@ -10066,6 +10074,10 @@
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/on-primitive.js.txt": [
+			"scripts/check-gh-route.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/lib/fixtures/gh-route/other-helper-stub.ts.txt": [
 			"scripts/check-gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
