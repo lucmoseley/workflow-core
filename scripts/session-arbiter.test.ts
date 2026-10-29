@@ -749,7 +749,25 @@ describe("naming a holder by its session name, not its id (mantahostels#1196)", 
 		expect(r.stdout).toMatch(/HELD .*docs\/doc-map\.md.*Wayfinder 1162/);
 	});
 
-	it("falls back to the bare id when the oracle cannot be read", () => {
+	it("names the holder from the sessions registry when the oracle cannot be read (#3557)", () => {
+		// Its own pid file: the registry is keyed by pid, so bob's entry on
+		// process.pid has overwritten alice's.
+		registerSession(sb, "alice", process.ppid, { name: "Wayfinder 1162" });
+		fakeClaude([], 3);
+		const r = runAs(["claim", inRepo(rel)], "bob");
+		expect(r.status).toBe(1);
+		expect(r.stderr).toMatch(/Wayfinder 1162 \(id alice, pid \d+\)/);
+	});
+
+	it("names the holder from the sessions registry on the hook path, still with no oracle call", () => {
+		registerSession(sb, "alice", process.ppid, { name: "Wayfinder 1162" });
+		fakeClaude([["alice", "Wayfinder 1162"]]);
+		const r = runAs(["check", inRepo(rel), "bob"], "bob");
+		expect(r.stdout).toContain("Wayfinder 1162 (id alice");
+		expect(oracleCalls()).toBe(0);
+	});
+
+	it("falls back to the bare id when neither the oracle nor the registry names it", () => {
 		fakeClaude([["alice", "Wayfinder 1162"]], 3);
 		const r = runAs(["claim", inRepo(rel)], "bob");
 		expect(r.status).toBe(1);
