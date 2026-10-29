@@ -114,10 +114,11 @@ A gate that skips here refuses nothing, so a finding it would have refused is no
 
 ## Primitives
 
-Copy a row's exemplar, never the nearest file doing the same job (**Primitive**, `GLOSSARY.md`). Base rows' paths resolve at the plugin root, local rows' at the host root.
+Copy a row's exemplar, never the nearest file doing the same job (**Primitive**, `GLOSSARY.md`). Base rows' paths resolve at the plugin root, local rows' at the host root. No program refuses a breach of a `Standards axis criterion` row: `/code-review`'s Standards axis judges it against every diff, and a diff doing the row's job without its primitive is a finding citing the row's Rule.
 
 | Job | Primitive | Exemplar | Rule | Enforcing check |
 |---|---|---|---|---|
+| Keeping a new program's decisions out of its I/O | a core taking every read through injected ports, and a shell that builds the adapters, delegates to the core and turns its outcome into output and an exit | `scripts/lib/primitives-table.js`, behind `scripts/check-primitives.js` | §0, its Core and Shell; §T7, §X11 | Standards axis criterion |
 | Ending a guard's hook call with a decision | `scripts/lib/guard-entry.js`'s `run`, the core returning a decision | `scripts/guard-failed-call-rules.js` | §S4 | Standards axis criterion |
 | A checker's outcome, report and exit | `runCheck` in `scripts/lib/check.js` and its five-outcome alphabet | `scripts/check-cli-args.js` | §N3, §N4 | Standards axis criterion |
 | Finding the host repository | `hostRoot()` in `scripts/lib/host-root.js` | `scripts/check-stale-git-locks.js` | §0, its floor table | `scripts/check-host-root.js` |
