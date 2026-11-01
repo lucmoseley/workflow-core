@@ -957,6 +957,19 @@ const fakeResumeClaude = (
 	]);
 };
 
+const blockedJobRecord = (detail: string, linkScanPath: string) =>
+	JSON.stringify({
+		state: "blocked",
+		detail,
+		tempo: "blocked",
+		inFlight: { tasks: 0, queued: 0, kinds: [], drainableMonitors: 0 },
+		needs: null,
+		cliVersion: "2.1.309",
+		sessionId: "s-job7",
+		cwd: repo,
+		linkScanPath,
+	});
+
 const launchState = () =>
 	JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"))
 		.launches[0];
@@ -1002,17 +1015,7 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 		fs.mkdirSync(jobDir(), { recursive: true });
 		fs.writeFileSync(
 			path.join(jobDir(), "state.json"),
-			JSON.stringify({
-				state: "blocked",
-				detail: "API Error: 529 overloaded",
-				tempo: "blocked",
-				inFlight: { tasks: 0, queued: 0, kinds: [], drainableMonitors: 0 },
-				needs: null,
-				cliVersion: "2.1.309",
-				sessionId: "s-job7",
-				cwd: repo,
-				linkScanPath: transcript,
-			}),
+			blockedJobRecord("API Error: 529 overloaded", transcript),
 		);
 		fs.writeFileSync(
 			at(".refill-loop-state.json"),
@@ -1254,10 +1257,13 @@ describe("a session held on its seat's limit (#3735)", () => {
 	const Job = "job7";
 	const Run = "run with a limit-held launch";
 	const jobFile = () => path.join(seat, "jobs", Job, "state.json");
+	const Admitted = ADMISSION_VERDICT.memory.working.count;
+	const concurrencyRow = () =>
+		JSON.parse(readLines(at("concurrency.jsonl"))[0]);
 
-	/** A normal-mode loop holding one launch stopped on its limit, its job
-	 * record reading session `recorded`. */
-	const seed = (recorded = "s-job7") => {
+	/** A normal-mode loop with one limit-blocked launch, held where `held` says
+	 * so, its job record reading session `recorded`. */
+	const seed = (recorded = "s-job7", held = true) => {
 		fs.writeFileSync(
 			path.join(repo, ".claude", "workflow-core.json"),
 			JSON.stringify({ tracker: "o/r" }),
@@ -1281,12 +1287,14 @@ describe("a session held on its seat's limit (#3735)", () => {
 						finishedAt: null,
 						parked: true,
 						block: { cause: "LIMIT", since: Date.now() - 60 * 60 * 1000 },
-						limitHeld: {
-							at: Date.now() - 60 * 60 * 1000,
-							sessionId: "s-job7",
-							cwd: repo,
-							limit: { bar: "weekly", resets: "2026-11-01T00:00:00.000Z" },
-						},
+						...(held && {
+							limitHeld: {
+								at: Date.now() - 60 * 60 * 1000,
+								sessionId: "s-job7",
+								cwd: repo,
+								limit: { bar: "weekly", resets: "2026-11-01T00:00:00.000Z" },
+							},
+						}),
 					},
 				],
 			}),
@@ -1311,7 +1319,7 @@ describe("a session held on its seat's limit (#3735)", () => {
 		expect(r.stdout).toContain("limit-held session waits");
 	});
 
-	it("resumes under its own seat once a fresh reading reads open, takes its slot, comments", async () => {
+	it("resumes under its own seat once a fresh reading reads open, takes its slot, comments, counts it working (#3778)", async () => {
 		seed();
 		weekAt(10);
 		fakeResumeClaude(
@@ -1336,6 +1344,36 @@ describe("a session held on its seat's limit (#3735)", () => {
 		);
 		/* Its slot went to the resume, so the frontier's #5 launched nothing. */
 		expect(r.stdout).toContain("no free slot");
+		expect(concurrencyRow()).toMatchObject({
+			working: Admitted + 1,
+			ceiling: Admitted + 1,
+		});
+	});
+
+	it("stops a live session at its spent limit, and takes it off the record's working figure (#3778)", async () => {
+		seed("s-job7", false);
+		const transcript = at("transcript.jsonl");
+		fs.writeFileSync(
+			transcript,
+			`${JSON.stringify({
+				type: "assistant",
+				message: { content: [{ type: "text", text: "Working." }] },
+			})}\n`,
+		);
+		fs.writeFileSync(
+			jobFile(),
+			blockedJobRecord("You've hit your weekly limit", transcript),
+		);
+		weekAt(100);
+		fakeResumeClaude(Job, [LISTED, buildJobRow(Job, "blocked")], "", "woke");
+		const r = await oneTick(Run, 1);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(`held ${Job}`);
+		expect(launchState().limitHeld).toMatchObject({ sessionId: "s-job7" });
+		expect(concurrencyRow()).toMatchObject({
+			working: Admitted - 1,
+			ceiling: Admitted + 1,
+		});
 	});
 
 	it("waits on a free slot, its seat open", async () => {
