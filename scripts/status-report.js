@@ -112,6 +112,7 @@ const CHECKS = [
 	["concurrency", "concurrency-readout.js"],
 	["interop-latency", "check-interop-latency.js"],
 	["idle-efforts", "check-idle-efforts.js"],
+	["unclosed-launches", "check-unclosed-launches.js"],
 ];
 
 /**

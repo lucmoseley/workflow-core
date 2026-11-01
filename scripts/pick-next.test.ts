@@ -827,6 +827,43 @@ describe("readiness", () => {
 		).toContain(9);
 	});
 
+	it("marks a frontier row whose latest loop launch committed and did not close (#3782)", async () => {
+		const refill = path.join(dir, "refill");
+		fs.mkdirSync(refill);
+		fs.writeFileSync(
+			path.join(refill, ".refill-loop-state.json"),
+			JSON.stringify({
+				launches: [
+					{
+						root: repoRoot,
+						issues: [9],
+						prompt: "/implement 9",
+						launchedAt: Date.parse("2026-10-29T18:00:00Z"),
+						finishedAt: Date.parse("2026-10-29T19:00:00Z"),
+						sessionId: "s9",
+						acts: { commit: 1 },
+					},
+				],
+			}),
+		);
+		const r = await run(
+			{ issues: [{ number: 8 }, { number: 9 }] },
+			["--json"],
+			{
+				env: { WFC_REFILL_DIR: refill },
+			},
+		);
+		const rows = r.json().frontier;
+		const of = (n: number) =>
+			rows.find((f: { number: number }) => f.number === n).unclosedLaunch;
+		expect(of(8)).toBeNull();
+		expect(of(9)).toEqual({
+			launchedAt: "2026-10-29T18:00:00.000Z",
+			sessionId: "s9",
+			acts: { commit: 1 },
+		});
+	});
+
 	it("carries every prose blocker in --json, resolved or not", async () => {
 		const r = await run(
 			{

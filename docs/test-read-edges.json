@@ -4507,6 +4507,20 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/check-unclosed-launches.js": [
+			"scripts/check-unclosed-launches.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/check-unclosed-launches.test.ts": [
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/check-user-settings-drift.js": [
 			"scripts/check-user-settings-drift.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -10198,6 +10212,7 @@
 			"scripts/check-primitives.test.ts",
 			"scripts/check-stale-claims.test.ts",
 			"scripts/check-ticket-criteria.test.ts",
+			"scripts/check-unclosed-launches.test.ts",
 			"scripts/claim-issue.test.ts",
 			"scripts/deliver-to-session-ci.test.ts",
 			"scripts/file-issue.test.ts",
@@ -19623,6 +19638,31 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/unchecked-rm.test.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/unclosed-launch.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/unclosed-launch.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/unclosed-launch.test.ts": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/commit-paths.test.ts",

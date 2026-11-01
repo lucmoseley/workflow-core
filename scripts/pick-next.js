@@ -130,6 +130,9 @@ const {
 	readCheckoutTracking,
 	readHostTracker,
 } = require("./lib/refill-repos");
+const { loopFiles, readJson } = require("./lib/refill-files.js");
+const { parseState } = require("./lib/refill-loop.js");
+const { unclosedLaunchOf } = require("./lib/unclosed-launch.js");
 const conflictGraph = require("./lib/conflict-graph");
 const strandedCount = require("./lib/stranded-count");
 const {
@@ -1791,6 +1794,34 @@ function frontierJson(i) {
 }
 
 /**
+ * Each frontier row with `unclosedLaunch`: its latest loop launch where that
+ * committed and did not close (#3782), else null; the loop's next launch of it
+ * checks first whether the work landed. A damaged loop state reads as none, and
+ * says so on stderr.
+ * @template {{number: number}} R
+ * @param {R[]} rows
+ */
+function withUnclosedLaunch(rows) {
+	const { launches } = parseState(
+		readJson(loopFiles().state, (line) =>
+			process.stderr.write(`pick-next: ${line}\n`),
+		),
+	);
+	const root = arbiter.paths.repoRoot();
+	return rows.map((row) => {
+		const l = unclosedLaunchOf(launches, root, row.number);
+		return {
+			...row,
+			unclosedLaunch: l && {
+				launchedAt: new Date(l.launchedAt).toISOString(),
+				sessionId: l.sessionId ?? null,
+				acts: l.acts,
+			},
+		};
+	});
+}
+
+/**
  * The launcher's ledger, as this run read it (mantahostels#1528). `degraded` non-null
  * means NOTHING was excluded on it, so a consumer must not read an empty
  * `issues` as "nothing is running".
@@ -1908,7 +1939,7 @@ function buildPayload(state) {
 		})),
 		waiting: waitingAll.map(waitingJson),
 		parked: parkedAll.map(parkedJson),
-		frontier: pathed.map(frontierJson),
+		frontier: withUnclosedLaunch(pathed.map(frontierJson)),
 		// Launch candidates in other repos, for lib/refill-frontier.js (#2427).
 		pulledIn: state.pulledIn.rows,
 		pulledInUnread: state.pulledIn.unread,

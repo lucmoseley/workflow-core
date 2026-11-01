@@ -12,6 +12,7 @@ const { WAITING_LABEL } = require("./frontier-order.js");
 const { PARKED_LABEL } = require("./parked.js");
 const { COMMAND_VALUES, TAKES_PREFIX } = require("./takes-label.js");
 const { presenceAt } = require("./presence.js");
+const { buildVerifyPrompt, unclosedLaunchOf } = require("./unclosed-launch.js");
 
 /* Spec #1995's stops: 24 hours after the last start (#1918), and three
  * finishes in a row with no progress (#1920). */
@@ -92,6 +93,7 @@ const ALREADY_RUNNING = "already running";
  * @typedef {object} LaunchRecord
  * @property {string} root
  * @property {number[]} issues
+ * @property {string} [prompt] what it launched on
  * @property {number} launchedAt ms
  * @property {number|null} finishedAt ms of the tick that saw the finish, not
  *   of the finish itself, used only to order the last three finishes; null
@@ -428,15 +430,27 @@ function buildSkipReason(row, mode) {
 }
 
 /**
+ * The prompt a lone row launches on: its `takes:` command, checking first
+ * whether the work landed where an `/implement` launch committed and did not
+ * close (#3782).
+ * @param {MergedRow} row
+ * @param {LaunchRecord[]} history
+ */
+const rowPrompt = (row, history) =>
+	row.takes[0] === "implement" &&
+	unclosedLaunchOf(history, row.root, row.number)
+		? buildVerifyPrompt(row.number)
+		: `/${row.takes[0]} ${row.number}`;
+
+/**
  * What one ranked row launches, its whole retro bundle where it sits in one,
  * or why it is skipped.
  * @param {MergedRow} row
- * @param {MergedBundle[]} retroBundles
+ * @param {Pick<TickInput, "retroBundles"|"mode"|"history">} input
  * @param {(n: number) => boolean} isTaken
- * @param {"normal"|"away"} mode
  * @returns {{issues: number[], prompt: string} | {why: string}}
  */
-function rowLaunch(row, retroBundles, isTaken, mode) {
+function rowLaunch(row, { retroBundles, mode, history }, isTaken) {
 	const why = buildSkipReason(row, mode);
 	if (why) return { why };
 	const bundle = retroBundles.find(
@@ -448,24 +462,24 @@ function rowLaunch(row, retroBundles, isTaken, mode) {
 		return { why: `its retro bundle's #${busy} is running` };
 	return {
 		issues,
-		prompt: bundle ? bundle.prompt : `/${row.takes[0]} ${row.number}`,
+		prompt: bundle ? bundle.prompt : rowPrompt(row, history),
 	};
 }
 
 /**
  * rowLaunch, with a parked row routed by routeParked, a hold as a skip.
  * @param {MergedRow} row
- * @param {Pick<TickInput, "retroBundles"|"mode"|"seats"|"parkers">} input
+ * @param {Pick<TickInput, "retroBundles"|"mode"|"seats"|"parkers"|"history">} input
  * @param {(n: number) => boolean} isTaken
  * @returns {{why: string} | {issues: number[], prompt: string,
  *   parkedRoute?: Launch["parkedRoute"]}}
  */
 function routedLaunch(
 	row,
-	{ retroBundles, mode, seats, parkers = [] },
+	{ retroBundles, mode, seats, parkers = [], history },
 	isTaken,
 ) {
-	const next = rowLaunch(row, retroBundles, isTaken, mode);
+	const next = rowLaunch(row, { retroBundles, mode, history }, isTaken);
 	if ("why" in next || !isParked(row)) return next;
 	const parked = routeParkedRow(row, parkers, seats);
 	return "hold" in parked
@@ -609,7 +623,16 @@ function splitParked(frontier, mode) {
  * @param {number} slots
  */
 function fill(
-	{ frontier, retroBundles, running, judgements = [], mode, seats, parkers },
+	{
+		frontier,
+		retroBundles,
+		running,
+		judgements = [],
+		mode,
+		seats,
+		parkers,
+		history,
+	},
 	{ seat, reason },
 	slots,
 ) {
@@ -645,8 +668,10 @@ function fill(
 			if (launches.length >= slots) break;
 			const next = taken.has(key(row.root, row.number))
 				? { why: ALREADY_RUNNING }
-				: routedLaunch(row, { retroBundles, mode, seats, parkers }, (n) =>
-						taken.has(key(row.root, n)),
+				: routedLaunch(
+						row,
+						{ retroBundles, mode, seats, parkers, history },
+						(n) => taken.has(key(row.root, n)),
 					);
 			if ("why" in next)
 				skipped.push({ root: row.root, number: row.number, why: next.why });

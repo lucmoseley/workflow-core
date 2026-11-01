@@ -16,6 +16,7 @@ const { capSet } = require("./allowance.js");
 const { FULL, decideTick, pickMoveSeat } = require("./refill-decide.js");
 const { parseCapFits, readSizedSeats } = require("./refill-loop.js");
 const { mergeFrontiers } = require("./frontier-order.js");
+const { buildVerifyPrompt } = require("./unclosed-launch.js");
 
 const NOW = Date.parse("2026-10-18T12:00:00Z");
 const PRESENT_WINDOW_MS = 30 * 60 * 1000;
@@ -735,6 +736,41 @@ describe("decideTick launch filter", () => {
 		expect(d.skipped.map((s: { number: number }) => s.number)).toEqual([
 			1, 2, 3, 4, 5, 6,
 		]);
+	});
+
+	it("checks first where the row's latest /implement launch committed and did not close (#3782)", () => {
+		const d = tick({
+			freeSlots: 1,
+			frontier: [row("wfc", 1)],
+			history: [finished(1, { prompt: "/implement 1", acts: { commit: 1 } })],
+		});
+		expect(d.launches).toEqual([
+			expect.objectContaining({
+				issues: [1],
+				prompt: buildVerifyPrompt(1),
+			}),
+		]);
+	});
+
+	it("hands back plain /implement once a later launch left the row open (#3782)", () => {
+		const d = tick({
+			freeSlots: 1,
+			frontier: [row("wfc", 1)],
+			history: [
+				finished(1, { prompt: "/implement 1", acts: { commit: 1 } }),
+				finished(1, { prompt: buildVerifyPrompt(1), acts: {} }),
+			],
+		});
+		expect(d.launches[0].prompt).toBe("/implement 1");
+	});
+
+	it("launches a relabelled row on its own command, whatever its last launch did (#3782)", () => {
+		const d = tick({
+			freeSlots: 1,
+			frontier: [row("wfc", 1, "triage")],
+			history: [finished(1, { prompt: "/implement 1", acts: { commit: 1 } })],
+		});
+		expect(d.launches[0].prompt).toBe("/triage 1");
 	});
 
 	it("launches a map at any kind, an exhausted takes:wayfinder map as /wayfinder (#2639, #3569)", () => {
