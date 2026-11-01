@@ -9,7 +9,7 @@
  * time, or misreports what it did.
  */
 import { describe, expect, it } from "vitest";
-import { RESUME_CAP } from "./block-act.js";
+import { LIMIT_HOLD_BOUND_DAYS, RESUME_CAP } from "./block-act.js";
 import {
 	hasTurnedSince,
 	type IdleReading,
@@ -29,6 +29,7 @@ import {
 import { judgedLaunches } from "./refill-loop.js";
 
 const MIN = 60 * 1000;
+const DAY = 24 * 60 * MIN;
 const NOW = Date.parse("2026-10-18T12:00:00Z");
 
 type Launch = import("./refill-loop.js").LoopLaunch;
@@ -1184,6 +1185,46 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 				limits([failedTo(RESUME_CAP)], []),
 				`${RESUME_CAP} failed resumes in place`,
 			);
+		});
+
+		describe("held on a seat that never reads open (#3793)", () => {
+			const heldFor = (ms: number) =>
+				held({ limitHeld: { ...LimitHeld, at: NOW - ms } });
+			const weekFull = planSeat({
+				week: 100,
+				weekFull: true,
+				weekResets: NOW + DAY,
+				fits: null,
+			});
+
+			it("parks past the bound with no resume tried, and it finishes", () => {
+				expectParked(
+					limits([heldFor(LIMIT_HOLD_BOUND_DAYS * DAY)], [], {
+						seats: [{ ...weekFull, readAt: NOW - LIMIT_HOLD_BOUND_DAYS * DAY }],
+					}),
+					`past the ${LIMIT_HOLD_BOUND_DAYS}-day bound`,
+				);
+			});
+
+			it("parks past the bound on a stand-in seat list, and not within it", () => {
+				const standIn = { seats: [], seatListRead: false };
+				expectParked(
+					limits([heldFor(LIMIT_HOLD_BOUND_DAYS * DAY)], [], standIn),
+					`past the ${LIMIT_HOLD_BOUND_DAYS}-day bound`,
+				);
+				const within = limits([heldFor(7 * DAY)], [], standIn);
+				expect(within.launches[0]).toHaveProperty("limitHeld");
+			});
+
+			it("stays held within the bound, waiting on a weekly reset", () => {
+				const { launches, calls } = limits([heldFor(7 * DAY)], [], {
+					seats: [weekFull],
+				});
+				expect(launches[0]).toMatchObject({ finishedAt: null });
+				expect(launches[0]).toHaveProperty("limitHeld");
+				expect(launches[0]).not.toHaveProperty("parkStopped");
+				expect(calls).not.toContain("stop job42");
+			});
 		});
 
 		it("parks where its seat has gone from the seats read, and it finishes", () => {

@@ -9,11 +9,17 @@
  * stopped mid-retry, or a resumed-idle one is handed off before its one resume.
  */
 import { describe, expect, it } from "vitest";
-import { blockAct, nextTryAt, RESUME_CAP } from "./block-act.js";
+import {
+	blockAct,
+	LIMIT_HOLD_BOUND_DAYS,
+	nextTryAt,
+	RESUME_CAP,
+} from "./block-act.js";
 import { pickMoveSeat } from "./refill-decide.js";
 
 const NOW = Date.parse("2026-10-24T03:00:00Z");
 const MIN = 60 * 1000;
+const DAY = 24 * 60 * MIN;
 
 const block = (cause: import("./block-cause.js").Cause, minutes: number) => ({
 	cause,
@@ -114,6 +120,22 @@ describe("the LIMIT row (#3735)", () => {
 			expect(blockAct(at(RESUME_CAP, { held: false }), mode, NOW)).toBe(
 				"resume-in-place",
 			);
+		});
+
+		it(`${mode}: parks a session held past the bound that cannot resume, and stays held within it (#3793)`, () => {
+			const weekShut = { ...reading("own", 100, null), weekFull: true };
+			const heldFor = (ms: number) =>
+				limited([weekShut], { held: true, heldAt: NOW - ms });
+			expect(blockAct(heldFor(7 * DAY), mode, NOW)).toBe("wait");
+			const bound = LIMIT_HOLD_BOUND_DAYS * DAY;
+			expect(blockAct(heldFor(bound - 1), mode, NOW)).toBe("wait");
+			expect(blockAct(heldFor(bound), mode, NOW)).toBe("stop-and-park");
+			const open = limited([reading("own", 10)], {
+				held: true,
+				heldAt: NOW - bound,
+				slotFree: true,
+			});
+			expect(blockAct(open, mode, NOW)).toBe("resume-in-place");
 		});
 
 		it(`${mode}: parks a session, held or live, at the cap of resumes that bought no reply (#3792)`, () => {

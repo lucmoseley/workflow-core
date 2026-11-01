@@ -4,6 +4,7 @@
  */
 
 const { REVIEW_HOUR } = require("./morning-review.js");
+const { DAY_MS } = require("./retained-jsonl.js");
 
 const MIN_MS = 60 * 1000;
 /* A transient API stop's resumes, at about these offsets from the stop, then
@@ -16,6 +17,12 @@ const RESUME_EVERY_MS = 30 * MIN_MS;
  * bought no reply (#3792) reuse the figure, which on the 30-minute backoff
  * outlasts a 5-hour limit. */
 const RESUME_CAP = 16;
+/* How long a limit hold may last: the weekly window's 7 days
+ * (measure-points-per-usd.js), the longest one reset can keep a seat shut, and
+ * a day for the seat to read open with a slot free. Untraced (#3793, delegated).
+ * Residual: a seat that refills or stays out of slots past that day parks the
+ * hold, and a normal-mode loop routes its ticket back. */
+const LIMIT_HOLD_BOUND_DAYS = 8;
 /* A resume starts a retry cycle that reads blocked again about 3 min 13 s
  * later where the API is still down (#2354 F8); a session is held only past
  * it, so none is stopped mid-cycle. Rounded up. */
@@ -41,7 +48,7 @@ const IDLE_TRIES = 2;
  *   since: number, tries?: number, nextAt?: number, triedAt?: number,
  *   held?: boolean, typing?: boolean, swapHeld?: boolean, seat?: string,
  *   movePick?: string|null, slotFree?: boolean,
- *   dryResumes?: number}} Block  `since`,
+ *   dryResumes?: number, heldAt?: number}} Block  `since`,
  *   the first tick that
  *   read this cause, ms, or for RESUMED_IDLE the later of the harness's
  *   restart row and the loop's last resume; `sub`, an API_ERROR's kind;
@@ -51,8 +58,8 @@ const IDLE_TRIES = 2;
  *   hold (#2690) binding this tick; for a LIMIT, `seat`, its session's seat,
  *   `movePick`, the seat lib/refill-decide.js's pickMoveSeat walks to,
  *   `slotFree`, whether admission has a slot for one held stopped,
- *   `tries`, this hold's failed resumes alone, and `dryResumes`, its resumes
- *   in a row that took and bought no reply
+ *   `tries`, this hold's failed resumes alone, `dryResumes`, its resumes in a
+ *   row that took and bought no reply, and `heldAt`, when this hold began
  * @typedef {(block: Block, now: number) => Act} Rule
  */
 
@@ -157,11 +164,20 @@ const resumedIdle = (block, now) => {
 };
 
 /**
+ * Whether a limit hold begun at `heldAt` has outlasted LIMIT_HOLD_BOUND_DAYS.
+ * @param {number} heldAt ms
+ * @param {number} now ms
+ */
+const isHeldPastBound = (heldAt, now) =>
+	now - heldAt >= LIMIT_HOLD_BOUND_DAYS * DAY_MS;
+
+/**
  * A limit-blocked session goes back on its own seat where the move pick walks
  * there, one held stopped only into a free slot, as it holds none (#3735).
  * `nextAt` spaces out the tries of one whose limit the seat's bars do not show.
  * One held whose resumes failed to the cap parks (#3790), as does one, held or
- * live, whose resumes took and re-blocked with no reply to the cap (#3792).
+ * live, whose resumes took and re-blocked with no reply to the cap (#3792), and
+ * one held past the bound that cannot resume now, tried or not (#3793).
  * @type {Rule}
  */
 const limit = (block, now) => {
@@ -174,6 +190,8 @@ const limit = (block, now) => {
 		(!block.held || block.slotFree)
 	)
 		return "resume-in-place";
+	if (block.heldAt !== undefined && isHeldPastBound(block.heldAt, now))
+		return "stop-and-park";
 	return block.held ? "wait" : "hold";
 };
 
@@ -203,4 +221,12 @@ const TABLE = {
  */
 const blockAct = (block, mode, now) => TABLE[block.cause][mode](block, now);
 
-module.exports = { IDLE_TRIES, RESUME_CAP, blockAct, nextTryAt, resumeDueAt };
+module.exports = {
+	IDLE_TRIES,
+	LIMIT_HOLD_BOUND_DAYS,
+	RESUME_CAP,
+	blockAct,
+	isHeldPastBound,
+	nextTryAt,
+	resumeDueAt,
+};
