@@ -46,6 +46,10 @@
  * findings, which lib/morning-review.js renders through the lines
  * `npm run status` prints. A plain run, so it spends no session-start stamp.
  *
+ * KEPT READS (#3765): each repo's count line and each label age, once read,
+ * are kept for the day (lib/review-reads.js), so a run killed part way
+ * resumes from them.
+ *
  * REVERSALS (#3388): after filing, it answers each unanswered `reverse <n>`
  * through scripts/answer-review-reversals.js (#2017), so a hand run while the
  * loop is stopped answers them too. `--dry-run` passes to both.
@@ -55,7 +59,8 @@
  * with its code, so the loop that runs it can tell a filing from a failure.
  * The exit code is the worse of the filing's and the answering's.
  *
- * Caller: the refill loop, on its first tick after 07:00
+ * Caller: the refill loop's detached review runner
+ * (scripts/refill-review-run.js), started on its first tick after 07:00
  * (lib/refill-tick.js).
  */
 
@@ -85,6 +90,7 @@ const { STALL_TITLE } = require("./lib/stall-ticket.js");
 const { scriptIo } = require("./lib/tracker-ops.js");
 const { requireKey } = require("./lib/workflow-core-config.js");
 const { REVIEW_LABEL, readReviewIssues } = require("./lib/review-issues.js");
+const { reviewReads } = require("./lib/review-reads.js");
 
 const USAGE = "usage: node scripts/file-morning-review.js [--dry-run]";
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -98,14 +104,16 @@ const IDLE_TIMEOUT_MS = 60 * 1000;
 const io = scriptIo("file-morning-review");
 
 /** @typedef {import("./lib/morning-review.js").Unread} Unread */
+/** @typedef {ReturnType<typeof reviewReads>} Reads */
 
 /**
  * One included checkout's ledger and closes, and what of it could not be read.
  * @param {string} root
  * @param {string} since
+ * @param {Reads} reads
  * @returns {{reading: import("./lib/morning-review.js").RepoReading | null, unread: Unread[]}}
  */
-function readRepo(root, since) {
+function readRepo(root, since, reads) {
 	let repo = path.basename(root);
 	try {
 		repo = requireKey("tracker", { root });
@@ -121,9 +129,9 @@ function readRepo(root, since) {
 			"number,title,url,closedAt,comments",
 		]);
 		const stalls = readStalls(repo);
-		const urgent = readUrgent(root, repo);
-		const parked = readParked(repo);
-		const primitives = readPrimitives(root, since);
+		const urgent = readUrgent(root, repo, reads);
+		const parked = readParked(repo, reads);
+		const primitives = readPrimitives(root, since, reads);
 		return {
 			reading: {
 				repo,
@@ -154,10 +162,18 @@ function readRepo(root, since) {
 /**
  * @param {string} root
  * @param {string} since
+ * @param {Reads} reads
  * @returns {import("./lib/morning-review.js").PrimitivesReading}
  */
-function readPrimitives(root, since) {
-	return { count: readCountLine(root), history: readTableHistory(root, since) };
+function readPrimitives(root, since, reads) {
+	return {
+		count: reads.read(
+			`count-line ${root}`,
+			() => readCountLine(root),
+			(count) => "line" in count,
+		),
+		history: readTableHistory(root, since),
+	};
 }
 
 /**
@@ -343,9 +359,10 @@ function readIdle() {
  * unread, never dropped or taken as fresh.
  * @param {string} root
  * @param {string} repo
+ * @param {Reads} reads
  * @returns {{read: import("./lib/morning-review.js").UrgentIssue[], unread: Unread[]}}
  */
-function readUrgent(root, repo) {
+function readUrgent(root, repo, reads) {
 	const { snapshot, why } = readSnapshot(root, repo);
 	/** @type {import("./lib/morning-review.js").UrgentIssue[]} */
 	const read = [];
@@ -355,7 +372,7 @@ function readUrgent(root, repo) {
 	const listed = readOpenLabelled(repo, URGENT);
 	if ("why" in listed) return { read, unread: [...unread, listed] };
 	for (const { number, title } of listed.open) {
-		const age = readLabelAgeOn(repo, number, URGENT);
+		const age = readLabelAgeOn(repo, number, URGENT, reads);
 		if (age.unknown)
 			unread.push({ repo, why: `#${number}'s urgent age: ${age.error}` });
 		else
@@ -374,13 +391,14 @@ function readUrgent(root, repo) {
  * records the label applied (#2725). One whose start will not read is listed
  * with its age unknown, never dropped.
  * @param {string} repo
+ * @param {Reads} reads
  * @returns {{read: import("./lib/morning-review.js").ParkedIssue[], unread: Unread[]}}
  */
-function readParked(repo) {
+function readParked(repo, reads) {
 	const listed = readOpenLabelled(repo, PARKED_LABEL);
 	if ("why" in listed) return { read: [], unread: [listed] };
 	const read = listed.open.map(({ number, title }) => {
-		const age = readLabelAgeOn(repo, number, PARKED_LABEL);
+		const age = readLabelAgeOn(repo, number, PARKED_LABEL, reads);
 		return age.unknown
 			? { number, title, appliedAt: null, ageError: String(age.error) }
 			: { number, title, appliedAt: age.appliedAt };
@@ -417,12 +435,26 @@ function readOpenLabelled(repo, label) {
 }
 
 /**
- * `label`'s age on issue `number`, off its timeline.
+ * `label`'s age on issue `number`, off its timeline, kept for the day once read.
+ * @param {string} repo
+ * @param {number} number
+ * @param {string} label
+ * @param {Reads} reads
+ */
+function readLabelAgeOn(repo, number, label, reads) {
+	return reads.read(
+		`label-age ${repo}#${number} ${label}`,
+		() => readTimelineAge(repo, number, label),
+		(age) => !age.unknown,
+	);
+}
+
+/**
  * @param {string} repo
  * @param {number} number
  * @param {string} label
  */
-function readLabelAgeOn(repo, number, label) {
+function readTimelineAge(repo, number, label) {
 	/** @type {Parameters<typeof labelAge>[0]} */
 	let timeline;
 	try {
@@ -466,8 +498,9 @@ function fileReview(tracker, dryRun) {
 	const since =
 		previous?.createdAt ?? new Date(now.getTime() - DAY_MS).toISOString();
 
+	const reads = reviewReads(review.localDate(now));
 	const read = discoverRepos(homeDir()).included.map((root) =>
-		readRepo(root, since),
+		readRepo(root, since, reads),
 	);
 	const body = review.renderReview({
 		since,

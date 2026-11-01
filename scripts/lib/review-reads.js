@@ -1,0 +1,70 @@
+/*
+ * review-reads.js — the morning review's slow reads kept for the day it files
+ * (#3765): each repo's check-primitives.js count line and each label age read
+ * off a timeline. A filing killed part way, by the refill loop's runner bound
+ * or by hand, resumes from them on its retry instead of starting again.
+ *
+ * Kept per machine-local date in lib/refill-dir.js's directory, beside the
+ * loop's own files, and written after each read. A file from another day,
+ * or one that will not parse, is read as empty. Only a read that succeeded is kept: a failed one is retried.
+ */
+
+const fs = require("node:fs");
+const { caught } = require("./caught.js");
+const { writeFileAtomic } = require("./atomic-write.js");
+const { refillPath } = require("./refill-dir.js");
+const { writeFd } = require("./write-fd.js");
+
+const READS_FILE = ".morning-review-reads.json";
+
+/**
+ * @param {string} file
+ * @param {string} day
+ * @returns {Record<string, unknown>}
+ */
+function load(file, day) {
+	try {
+		const kept = JSON.parse(fs.readFileSync(file, "utf8"));
+		return kept?.day === day && kept.reads && typeof kept.reads === "object"
+			? kept.reads
+			: {};
+	} catch (err) {
+		/* Fail open (#3765). Any other fault is printed, so it is not taken for
+		 * a fresh day. */
+		if (caught(err).code !== "ENOENT" && !(err instanceof SyntaxError))
+			writeFd(2, `review reads unread: ${caught(err).message}\n`);
+		return {};
+	}
+}
+
+/**
+ * The day's kept reads: `read(key, fresh, keep)` answers the kept value under
+ * `key`, else runs `fresh` and keeps its value where `keep` accepts it.
+ * @param {string} day machine-local date (lib/morning-review.js's localDate)
+ * @param {string} [file]
+ */
+function reviewReads(day, file = refillPath(READS_FILE)) {
+	let reads = load(file, day);
+	return {
+		/**
+		 * @template T
+		 * @param {string} key
+		 * @param {() => T} fresh
+		 * @param {(value: T) => boolean} keep
+		 * @returns {T}
+		 */
+		read(key, fresh, keep) {
+			if (Object.hasOwn(reads, key)) return /** @type {T} */ (reads[key]);
+			const value = fresh();
+			if (keep(value)) {
+				reads = { ...reads, [key]: value };
+				writeFileAtomic(file, `${JSON.stringify({ day, reads })}\n`, {
+					mkdir: true,
+				});
+			}
+			return value;
+		},
+	};
+}
+
+module.exports = { reviewReads };

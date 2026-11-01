@@ -22,8 +22,10 @@
  * (scripts/supervise-landing.js, #2692): a dead lander started, a stall
  * ticketed, and each earlyoom kill incident that is over is ticketed
  * (scripts/file-memory-kill-tickets.js, #3094). Last, the morning review is
- * filed on the first tick after 07:00, and its reversals are answered on
- * every tick (scripts/answer-review-reversals.js, #2017). Then the tick's line is
+ * filed from the first tick after 07:00, and its reversals are answered on
+ * every tick (scripts/answer-review-reversals.js, #2017), each by a detached
+ * runner the tick never waits on (scripts/refill-review-run.js, #3765). Then
+ * the tick's line is
  * appended to the concurrency record (lib/concurrency.js, #2497).
  *
  * SEATS, in failover order, are the plan seats `~/.claude/refill-seats`
@@ -39,7 +41,7 @@
  * has.
  */
 
-const { spawnSync } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { listedAgents } = require("./agent-liveness.js");
@@ -49,7 +51,7 @@ const { PROBE_TIMEOUT_MS } = require("./usage-probe.js");
 const { readAllowance } = require("./allowance.js");
 const { claudeBin } = require("./claude-bin.js");
 const { buildTypedAttach } = require("./claude-attach.js");
-const { buildErrorText } = require("./caught.js");
+const { buildErrorText, caught } = require("./caught.js");
 const { childFailure, childVerdict } = require("./child-failure.js");
 const { parseErrLine, gh } = require("./gh.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
@@ -106,6 +108,7 @@ const {
 const loop = require("./refill-loop.js");
 const {
 	loopFiles,
+	REVIEW_RUNNER,
 	readControlChecked,
 	readJson,
 	writeJson,
@@ -113,18 +116,15 @@ const {
 const refillBatch = require("./refill-batch.js");
 const blocks = require("./refill-blocks.js");
 const { localDate } = require("./morning-review.js");
+const { pidLock } = require("./pid-lock.js");
 const { PARKED_PROMPT } = require("./loop-prompts.js");
 const { writeFd } = require("./write-fd.js");
 
-/* Every child but the review and the `/usage` probe; untraced. */
+/* Every child but the `/usage` probe; untraced. */
 const CHILD_TIMEOUT_MS = 120 * 1000;
 /* The probe's ceiling plus node's start, so the probe meets its own ceiling
  * and stops its group before this one kills the wrapper; the 15 s is a guess. */
 const PROBE_CHILD_TIMEOUT_MS = PROBE_TIMEOUT_MS + 15 * 1000;
-/* Untraced: room for the filing's reads of every included repo's closes with
- * their comments, and the reversals answered after it, kept under the
- * dispatch ceiling since it holds the tick. */
-const REVIEW_TIMEOUT_MS = 5 * 60 * 1000;
 /* The ledger's own hour, ample for one dispatcher call. */
 const LEDGER_WINDOW_HOURS = 1;
 
@@ -402,34 +402,89 @@ function readHeadlessSession(jobId) {
 }
 
 /**
- * File the morning review where due, which answers its reversals too, or
- * else answer them alone (scripts/answer-review-reversals.js), returning the
- * date of the last filing (lib/refill-loop.js's reviewRunRecorded). A missing
- * config at REVIEW_ROOT is logged once a day.
+ * The review runner's finished run, moved aside before it is read so a
+ * result written meanwhile is never removed unread; null where none waits
+ * or it will not parse, which is logged.
+ * @returns {import("./refill-loop.js").ReviewResult|null}
+ */
+function takeReviewResult() {
+	const taken = `${files.review}.${process.pid}`;
+	try {
+		fs.renameSync(files.review, taken);
+	} catch (err) {
+		if (caught(err).code === "ENOENT") return null;
+		throw err;
+	}
+	try {
+		return /** @type {import("./refill-loop.js").ReviewResult|null} */ (
+			readJson(taken, log)
+		);
+	} finally {
+		fs.rmSync(taken, { force: true });
+	}
+}
+
+/** Whether a review runner is running now. */
+const reviewRunning = () =>
+	pidLock(files.reviewPid, REVIEW_RUNNER).holder() !== null;
+
+/**
+ * Take the morning review's step (lib/refill-loop.js's reviewStep), returning
+ * the date of the last filing. A missing config at REVIEW_ROOT is
+ * logged once a day.
  * @param {string|null} lastRunOn
  * @param {number} now
  */
 function runReview(lastRunOn, now) {
-	const run = loop.reviewRunOf(new Date(now), lastRunOn);
-	const { due } = run;
-	const today = localDate(new Date(now));
 	if (!hasConfig(REVIEW_ROOT)) {
 		const skip = loop.buildReviewSkip({
-			due,
+			due: loop.isReviewRunDue(new Date(now), lastRunOn),
 			root: REVIEW_ROOT,
 			lastRunOn,
-			today,
+			today: localDate(new Date(now)),
 		});
 		for (const line of skip.lines) log(line);
 		return skip.runOn;
 	}
-	const ran = runChild(process.execPath, [path.join(SCRIPTS, run.script)], {
-		cwd: REVIEW_ROOT,
-		env: checkoutEnv(REVIEW_ROOT),
-		timeout: REVIEW_TIMEOUT_MS,
+	/* The holder first: a runner writes its result before letting go (#3765). */
+	const running = reviewRunning();
+	const step = loop.reviewStep({
+		lastRunOn,
+		now: new Date(now),
+		running,
+		finished: takeReviewResult(),
 	});
-	for (const line of loop.buildReviewRunLines(run, ran)) log(line);
-	return loop.reviewRunRecorded({ due, status: ran.status, lastRunOn, today });
+	for (const line of step.lines) log(line);
+	if (step.start) startReview(step.start);
+	return step.runOn;
+}
+
+/**
+ * Start the review runner detached in REVIEW_ROOT, its stderr the loop's
+ * log; a failed start is logged and the next tick tries again. A stop
+ * leaves a started run to finish, its result logged on the next start.
+ * @param {import("./refill-loop.js").ReviewStart} start
+ */
+function startReview(start) {
+	/** @param {unknown} err */
+	const notStarted = (err) =>
+		log(`${start.label}: not started (${buildErrorText(err)})`);
+	try {
+		const child = spawn(
+			process.execPath,
+			[path.join(SCRIPTS, REVIEW_RUNNER), JSON.stringify(start)],
+			{
+				cwd: REVIEW_ROOT,
+				env: checkoutEnv(REVIEW_ROOT),
+				detached: true,
+				stdio: ["ignore", "ignore", "inherit"],
+			},
+		);
+		child.on("error", notStarted);
+		child.unref();
+	} catch (err) {
+		notStarted(err);
+	}
 }
 
 /**
@@ -1028,6 +1083,7 @@ module.exports = {
 	DISPATCHER,
 	files,
 	log,
+	reviewRunning,
 	say,
 	servedRoots,
 	tick,

@@ -2,12 +2,15 @@
  * refill-files.js — the refill loop's files, read and written (#2012, spec
  * #1995, #3392); what they hold, lib/refill-loop.js parses.
  *
- * THREE FILES, ONE WRITER EACH, under lib/refill-dir.js's directory, so
+ * ITS FILES, ONE WRITER EACH, under lib/refill-dir.js's directory, so
  * `start` and `stop` never race the loop's own tick:
  *   - control, written by `start` and `stop`;
  *   - state, written by the loop;
- *   - pidfile, created by the loop exclusively, so a second loop exits.
- * `WFC_REFILL_DIR` moves all three, with the log, the stop-seen stamp
+ *   - pidfile, created by the loop exclusively, so a second loop exits;
+ *   - the review runner's pidfile and result (scripts/refill-review-run.js,
+ *     #3765), written by the runner, the result removed by the tick that
+ *     reads it.
+ * `WFC_REFILL_DIR` moves them all, with the log, the stop-seen stamp
  * check-refill-loop-stop.js writes, and the code directory of worktrees the
  * loop runs from (lib/refill-code.js).
  */
@@ -28,8 +31,13 @@ function loopFiles() {
 		wake: refillPath(".refill-loop-wake"),
 		gates: refillPath(".refill-gate-readings.json"),
 		code: refillPath(".refill-loop-code"),
+		review: refillPath(".refill-review-result.json"),
+		reviewPid: refillPath(".refill-review.pid"),
 	};
 }
+
+/* The review runner, by the name its pidfile's holder runs (lib/pid-lock.js). */
+const REVIEW_RUNNER = "refill-review-run.js";
 
 /**
  * The file's read: `found` false where it is absent, else its parsed `value`,
@@ -103,6 +111,7 @@ const readControlFile = (log) => readControlChecked(log).control;
 
 module.exports = {
 	loopFiles,
+	REVIEW_RUNNER,
 	readControlChecked,
 	readControlFile,
 	readJson,

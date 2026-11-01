@@ -399,40 +399,82 @@ process.stdout.write("Memory kill incident from 2026-10-26 03:56: filed #9.");\n
 			};
 		};
 
+		/* The control `start` writes, so a run after a stopped one ticks. */
+		const restart = () => {
+			const file = at(".refill-loop-control.json");
+			fs.writeFileSync(
+				file,
+				JSON.stringify({
+					...JSON.parse(fs.readFileSync(file, "utf8")),
+					stopRequested: false,
+				}),
+			);
+		};
+
+		const appeared = async (file: string) => {
+			const deadline = Date.now() + SETTLE_MS;
+			while (!fs.existsSync(file)) {
+				if (Date.now() > deadline) throw new Error(`${file} never appeared`);
+				await new Promise((r) => setTimeout(r, 50));
+			}
+		};
+
 		/* TZ steers the due rule's clock: runInProcess writes process.env in
-		 * place, and node re-reads its zone on each TZ assignment. */
-		const runTickReviewing = async (zone: string) => {
+		 * place, and node re-reads its zone on each TZ assignment. The filing's
+		 * stub holds until `release` exists. */
+		it("launches and writes its concurrency row on every tick while the filing runs detached, then logs it and records today (#3765)", async () => {
+			const { zone, today } = zoneAt(12);
 			configureCodeRoot();
+			fs.copyFileSync(
+				path.join(__dirname, "refill-review-run.js"),
+				path.join(scripts, "refill-review-run.js"),
+			);
 			stub("file-memory-kill-tickets.js", "");
-			for (const name of [
+			const release = JSON.stringify(at("release"));
+			const record = (name: string) =>
+				`const fs = require("node:fs");
+fs.appendFileSync(${JSON.stringify(at("reviews"))}, ${JSON.stringify(`${name}\n`)});`;
+			stub(
 				"file-morning-review.js",
-				"answer-review-reversals.js",
-			])
-				stub(
-					name,
-					`require("node:fs").appendFileSync(${JSON.stringify(at("reviews"))}, ${JSON.stringify(`${name}\n`)});
-process.stdout.write(${JSON.stringify(name)});\n`,
-				);
+				`${record("file-morning-review.js")}
+while (!fs.existsSync(${release})) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+process.stdout.write("filed #900");\n`,
+			);
+			stub("answer-review-reversals.js", record("answer-review-reversals.js"));
 			fs.writeFileSync(
 				at(".refill-loop-state.json"),
 				JSON.stringify({ launches: [], reviewRunOn: null }),
 			);
-			const r = await settled(run(1, { TZ: zone }), "run with a review config");
-			expect(r.status).toBe(0);
-			return r;
-		};
-
-		it("runs only file-morning-review.js on a due tick, recording today", async () => {
-			const { zone, today } = zoneAt(12);
-			const r = await runTickReviewing(zone);
-			expect(readLines(at("reviews"))).toEqual(["file-morning-review.js"]);
-			expect(r.stdout).toContain(
-				"morning review: exit 0\n  file-morning-review.js",
-			);
-			expect(
+			const tick = async () => {
+				restart();
+				const r = await settled(run(1, { TZ: zone }), "run reviewing");
+				expect(r.status).toBe(0);
+				return r;
+			};
+			const reviewRunOn = () =>
 				JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"))
-					.reviewRunOn,
-			).toBe(today);
+					.reviewRunOn;
+
+			await tick();
+			await appeared(at("reviews"));
+			const second = await tick();
+			expect(readLines(at("dispatches"))).toHaveLength(2);
+			expect(readLines(at("reviews"))).toEqual(["file-morning-review.js"]);
+			expect(second.stdout).not.toContain("morning review:");
+			expect(reviewRunOn()).toBeNull();
+			expect(readLines(at("concurrency.jsonl"))).toHaveLength(2);
+
+			fs.writeFileSync(at("release"), "");
+			await appeared(at(".refill-review-result.json"));
+			const third = await tick();
+			expect(third.stdout).toContain("morning review: exit 0\n  filed #900");
+			expect(reviewRunOn()).toBe(today);
+			expect(readLines(at("dispatches"))).toHaveLength(3);
+			await appeared(at(".refill-review-result.json"));
+			expect(readLines(at("reviews"))).toEqual([
+				"file-morning-review.js",
+				"answer-review-reversals.js",
+			]);
 		});
 	});
 

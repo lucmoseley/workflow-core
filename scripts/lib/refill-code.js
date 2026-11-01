@@ -318,8 +318,8 @@ function codeUpdater({ program, codeDir, log }) {
 	return {
 		/**
 		 * Fetch the verified ref and adopt its tip where it changes the
-		 * closure, unless `hold`: a gate sweep the loop started still runs, or
-		 * a stop is pending.
+		 * closure, unless `hold`: a gate sweep or review runner the loop
+		 * started still runs, or a stop is pending.
 		 * @param {{hold: boolean}} opts
 		 */
 		adoptIfMoved({ hold }) {

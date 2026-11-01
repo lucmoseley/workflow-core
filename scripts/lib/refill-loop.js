@@ -329,14 +329,44 @@ const buildReviewSkip = ({ due, root, lastRunOn, today }) =>
 		: { lines: [], runOn: lastRunOn };
 
 /**
- * The review child's log lines: one on a due tick, else one only where it
- * printed or failed, so a quiet reversals pass logs none.
- * @param {{due: boolean, label: string}} run reviewRunOf's pick
- * @param {{out: string, failed?: string|null}} ran
+ * A finished review run's log lines: one where it was due, else one only
+ * where it printed or failed, so a quiet reversals pass logs none.
+ * @param {ReviewResult} ran
  * @returns {string[]}
  */
-const buildReviewRunLines = ({ due, label }, ran) =>
-	due || ran.out || ran.failed ? [buildChildLine(label, ran)] : [];
+const buildReviewRunLines = (ran) =>
+	ran.due || ran.out || ran.failed ? [buildChildLine(ran.label, ran)] : [];
+
+/**
+ * @typedef {{due: boolean, script: string, label: string, today: string}}
+ *   ReviewStart a review child to start (reviewRunOf's pick) and the
+ *   machine-local date it is started on
+ * @typedef {ReviewStart & {status: number|null, out: string,
+ *   failed: string|null}} ReviewResult a finished run, as
+ *   scripts/refill-review-run.js writes it
+ */
+
+/**
+ * A tick's review step, where the review child runs detached
+ * (scripts/refill-review-run.js, #3765) so the tick never waits on it: a
+ * finished run's log lines and the filing date it records
+ * (reviewRunRecorded), then the run to start, none while one still runs.
+ * @param {{lastRunOn: string|null, now: Date, running: boolean,
+ *   finished: ReviewResult|null}} step
+ * @returns {{runOn: string|null, lines: string[], start: ReviewStart|null}}
+ */
+function reviewStep({ lastRunOn, now, running, finished }) {
+	const runOn = finished
+		? reviewRunRecorded({ ...finished, lastRunOn })
+		: lastRunOn;
+	return {
+		runOn,
+		lines: finished ? buildReviewRunLines(finished) : [],
+		start: running
+			? null
+			: { ...reviewRunOf(now, runOn), today: localDate(now) },
+	};
+}
 
 /**
  * dispatch-sessions.sh's cap thresholds, from the variables it reads.
@@ -878,8 +908,8 @@ const stoppedOf = (d, at) =>
 
 /**
  * A tick from its decision on: dispatch its launches while the control asks
- * for no stop, write the state before the morning review runs, so the
- * review's minutes cannot lose this tick's launches to a kill, then run it.
+ * for no stop, write the state, then take the morning review's step, which
+ * starts its child detached and returns at once (reviewStep).
  * A stop that landed during the dispatches or the review is logged and
  * recorded as `stop: explicit`, or `control-damaged` where the re-read found
  * the control damaged, so the loop ends at this tick's end, which
@@ -981,10 +1011,8 @@ module.exports = {
 	buildFrontierReadText,
 	buildSkipText,
 	isReviewRunDue,
-	reviewRunOf,
-	reviewRunRecorded,
 	buildReviewSkip,
-	buildReviewRunLines,
+	reviewStep,
 	runningOf,
 	parseScope,
 	scopeRoots,

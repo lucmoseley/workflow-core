@@ -317,6 +317,47 @@ describe("file-morning-review.js (#2011)", () => {
 		expect(calls).not.toMatch(/issue edit|--(add|remove)-label|labels\/parked/);
 	});
 
+	it("resumes a killed run from the day's kept reads, re-reading only what failed (#3765)", () => {
+		seed([]);
+		fs.writeFileSync(
+			stub("parked.json"),
+			JSON.stringify([
+				{ number: 60, title: "Waits on a round" },
+				{ number: 61, title: "Labelled off the timeline" },
+			]),
+		);
+		fs.writeFileSync(
+			stub("timelines.json"),
+			JSON.stringify({
+				60: [
+					{
+						event: "labeled",
+						label: { name: "parked" },
+						created_at: ago(3 * 24 + 1),
+					},
+				],
+				61: [],
+			}),
+		);
+		const timelineReads = () =>
+			fs
+				.readFileSync(stub("calls.log"), "utf8")
+				.split("\n")
+				.filter((l) => l.includes("/timeline"))
+				.map((l) => l.match(/issues\/(\d+)\/timeline/)?.[1]);
+		expect(run(["--dry-run"]).status).toBe(0);
+		expect(timelineReads()).toEqual(["60", "61"]);
+		fs.writeFileSync(stub("calls.log"), "");
+		/* The timeline gone: a kept age is the only way #60's still reads. */
+		fs.writeFileSync(stub("timelines.json"), JSON.stringify({ 61: [] }));
+		const second = run(["--dry-run"]);
+		expect(second.status).toBe(0);
+		expect(timelineReads()).toEqual(["61"]);
+		expect(second.stdout).toContain(
+			"- acme/wfc#60 — `Waits on a round` — 3 days\n",
+		);
+	});
+
 	describe("answering reversals on the same run (#3388)", () => {
 		const reviewWithRequest = () => ({
 			number: 5,
