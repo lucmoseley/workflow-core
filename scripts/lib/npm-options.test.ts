@@ -2,7 +2,8 @@
 /*
  * lib/npm-options.js's `npmCanon`, npm 11.16.0's option parser in Node, and
  * the exact-match lookups npx makes instead, `shorthandExact` and `boolExact`
- * (#563, #571, #1972), pinned over one fixture set. lib/suite-concurrency.js
+ * (#563, #571, #1972), pinned over one fixture set, and `isNpmRun`'s deref of
+ * `run` (#3627). lib/suite-concurrency.js
  * reads with it whether `npm … run <name>` launches a build or a dev server,
  * and lib/npm-install.js the install and the npx argv it judges.
  *

@@ -241,8 +241,10 @@ function decodeAnsiC(_, esc) {
 	if (/^[xuU]/.test(esc))
 		return String.fromCodePoint(Number.parseInt(esc.slice(1), 16));
 	if (/^[0-7]/.test(esc)) return String.fromCodePoint(Number.parseInt(esc, 8));
-	if (esc[0] === "c")
-		return String.fromCharCode((esc.codePointAt(1) ?? 0) & 31);
+	if (esc[0] === "c") {
+		const control = esc.codePointAt(1);
+		return control === undefined ? "\\c" : String.fromCharCode(control & 31);
+	}
 	return ANSI_C_LETTERS.get(esc) ?? esc;
 }
 

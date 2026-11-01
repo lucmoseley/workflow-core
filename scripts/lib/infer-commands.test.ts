@@ -97,6 +97,22 @@ describe("whether a command runs lint-staged (#2587)", () => {
 	});
 });
 
+describe("a command naming a script or directory by a bare `$'\\c'` (#3853)", () => {
+	it("follows the script named as bash reads it, the literal \\c", () => {
+		fs.writeFileSync(
+			path.join(dir, "package.json"),
+			JSON.stringify({ scripts: { "\\c": "lint-staged" } }),
+		);
+		expect(isLintStagedCommand(dir, "npm run $'\\c'")).toBe(true);
+	});
+
+	it("reads a directory so named, in a repo with no Biome evidence", () => {
+		expect(
+			classifyCheckStaged(dir, "cd $'\\c' && npm run loop", { inferred: true }),
+		).toEqual({ kind: "none" });
+	});
+});
+
 describe("classifyCheckStaged", () => {
 	const classify = (
 		script: string,
