@@ -415,7 +415,12 @@ function replayGuard(guard, payload, dirs) {
 		? [process.execPath, [script, ...args]]
 		: [script, args];
 	const run = spawnSync(bin, argv, { input: payload, encoding: "utf8" });
-	if (run.error) {
+	/* EPIPE is the guard exiting before it read the payload, as a `DENIES-BY:
+	 * exit 2` guard may: it ran, and its status stands (#3794). */
+	if (
+		run.error &&
+		/** @type {NodeJS.ErrnoException} */ (run.error).code !== "EPIPE"
+	) {
 		process.stdout.write(`could not run it: ${run.error.message}\n`);
 		return false;
 	}

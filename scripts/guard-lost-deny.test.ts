@@ -53,6 +53,10 @@ const guardFile = (name: string, denies: boolean) => {
 	return file;
 };
 
+/** Past a Linux pipe's 64 KiB: 300 of 300 spawns of a guard that reads nothing
+ * raised EPIPE at this size, where 200 bytes raised it on 25 of 300. */
+const PAST_THE_PIPE_BYTES = 2_000_000;
+
 /** The core's guard-branch.sh, written with this script body. */
 const branchGuard = (body: string) => {
 	const guard = path.join(core, "scripts", "guard-branch.sh");
@@ -765,6 +769,36 @@ describe("replay", () => {
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("refused\nexit 2\n");
 		expect(r.stdout).toContain("1 of 1 DENY this call. Undo it.");
+	});
+
+	it("counts an exit 2 from a guard that never read a payload too big for the pipe — #3794", () => {
+		branchGuard("# DENIES-BY: exit 2\necho refused >&2\nexit 2\n");
+		const file = transcript([
+			fileCall(
+				`git worktree add /tmp/${"w".repeat(PAST_THE_PIPE_BYTES)}`,
+				"toolu_A",
+			),
+			killed(),
+		]);
+
+		const r = replay(file, "toolu_A");
+
+		expect(r.stdout).toContain("refused\nexit 2\n");
+		expect(r.stdout).toContain("1 of 1 DENY this call. Undo it.");
+	});
+
+	it("says a guard that cannot start did not run, and counts no deny", () => {
+		branchGuard("# DENIES-BY: exit 2\nexit 2\n");
+		fs.chmodSync(path.join(core, "scripts", "guard-branch.sh"), 0o644);
+		const file = transcript([
+			fileCall("git worktree add /tmp/w", "toolu_A"),
+			killed(),
+		]);
+
+		const r = replay(file, "toolu_A");
+
+		expect(r.stdout).toContain("could not run it:");
+		expect(r.stdout).toContain("None of the 1 lost guard(s) deny this call.");
 	});
 
 	it("counts no other non-zero exit as a deny", () => {

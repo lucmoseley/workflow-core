@@ -1746,26 +1746,22 @@ function ageFromSec(sec, nowMs) {
 }
 
 /**
- * How old a doc-map pairing fault's half is — the one seam UNCOVERED and
- * DEAD-ENTRY both date through, so the two assertions cannot drift apart in
- * how they read git history (mantahostels#1785).
+ * How old a doc-map pairing fault's register half is, DEAD-ENTRY's dating;
+ * UNCOVERED's file half is `buildFileAgeReader`'s (mantahostels#1785).
  *
- * Two datings, chosen by whether `mapPath` is given:
- *  - omitted: `target` is a tracked path, dated by the oldest commit that
- *    touches it — UNCOVERED's file half.
- *  - given: `target` is a Section A path string, dated by the oldest commit
- *    whose Section A register genuinely BIRTHS it — present in the commit's
- *    own register, absent from its parent's — the same present-not-in-parent
- *    test `readSectionBBirths` above runs for a `### B<n>` heading. A bare
- *    pickaxe (`-S`) hit is not enough: docs/doc-map.md is ~79,000 words, and
- *    the same path string routinely appears in Section B prose, a Consumes
- *    cell or a route, any of which would misdate a brand-new row as ancient
- *    and silently defeat the grace window. Pickaxe still narrows the commit
- *    set cheaply; each candidate, oldest first, is then verified against the
- *    real register before being trusted. `mapPath` is tried first and
- *    `DEFAULT_MAP_PATH` second, as `readMapTextAt` does above: a pre-commit
- *    invocation hands this a `$(mktemp -d)` copy with no git identity of its
- *    own, and only the tracked path answers (mantahostels#1191, mantahostels#1384).
+ * `target` is a Section A path string, dated by the oldest commit whose
+ * Section A register genuinely BIRTHS it — present in the commit's own
+ * register, absent from its parent's — the same present-not-in-parent test
+ * `readSectionBBirths` above runs for a `### B<n>` heading. A bare pickaxe
+ * (`-S`) hit is not enough: docs/doc-map.md is ~79,000 words, and the same path
+ * string routinely appears in Section B prose, a Consumes cell or a route, any
+ * of which would misdate a brand-new row as ancient and silently defeat the
+ * grace window. Pickaxe still narrows the commit set cheaply; each candidate,
+ * oldest first, is then verified against the real register before being
+ * trusted. `mapPath` is tried first and `DEFAULT_MAP_PATH` second, as
+ * `readMapTextAt` does above: a pre-commit invocation hands this a
+ * `$(mktemp -d)` copy with no git identity of its own, and only the tracked
+ * path answers (mantahostels#1191, mantahostels#1384).
  *
  * Returns the half's age in ms as of `now` (injectable for tests, defaulting
  * to the live clock). `null` on unavailable history — no commit touches the
@@ -1774,13 +1770,11 @@ function ageFromSec(sec, nowMs) {
  * silent pass.
  *
  * @param {string} target
- * @param {string | null} [mapPath]
+ * @param {string} mapPath
  * @param {number} [now]
  * @returns {number | null}
  */
-function pairingHalfAgeMs(target, mapPath = null, now = Date.now()) {
-	if (mapPath === null) return oldestTouchAgeMs(target, now);
-
+function pairingHalfAgeMs(target, mapPath, now = Date.now()) {
 	const show = cachedGitShow();
 
 	for (const p of [...new Set([repoRelative(mapPath), DEFAULT_MAP_PATH])]) {
@@ -1803,19 +1797,50 @@ function pairingHalfAgeMs(target, mapPath = null, now = Date.now()) {
 }
 
 /**
- * `pairingHalfAgeMs`'s file dating: the age of the oldest commit touching
- * `target`, null where none does or git fails.
- * @param {string} target
- * @param {number} now
+ * A reader of each tracked file's age, UNCOVERED's dating: the age of the oldest
+ * commit touching it, null where none does or git fails. It walks the history
+ * once, on the first ask: a map that faults on every tracked file costs one
+ * walk, where a `git log` per file overran the suite's test timeout (#3794).
+ * @param {number} [now]
+ * @returns {(target: string) => number | null}
  */
-function oldestTouchAgeMs(target, now) {
-	const out = gitOrNull(["log", "--format=%ct", "--", target]);
-	if (out === null) return null;
-	// Newest-first by default; the oldest commit is the last line.
-	const lines = out.split("\n").filter(Boolean);
-	if (lines.length === 0) return null;
-	const sec = Number(lines.at(-1));
-	return ageFromSec(Number.isFinite(sec) ? sec : null, now);
+function buildFileAgeReader(now = Date.now()) {
+	/** @type {Map<string, number> | undefined} */
+	let oldestSec;
+	return (target) => {
+		oldestSec ??= readOldestTouchSecs();
+		return ageFromSec(oldestSec.get(target) ?? null, now);
+	};
+}
+
+/**
+ * Each path's oldest touching commit's date in seconds, empty where git fails.
+ * `--no-renames` and `--diff-merges=combined` keep a rename's old path and a file
+ * only a merge's resolution touched. A commit on a merged side branch counts,
+ * where `git log -- <path>` drops the side its file matches.
+ * @returns {Map<string, number>}
+ */
+function readOldestTouchSecs() {
+	const out = gitOrNull([
+		"log",
+		"--format=%x01%ct",
+		"--name-only",
+		"--no-renames",
+		"--diff-merges=combined",
+		"--relative",
+		"-z",
+	]);
+	/** @type {Map<string, number>} */
+	const oldest = new Map();
+	// Newest-first by default, so the last write for a path is its oldest commit.
+	for (const commit of (out ?? "").split("\x01").slice(1)) {
+		const [sec, ...paths] = commit.split("\0");
+		for (const p of paths) {
+			const name = p.replace(/^\n/, "");
+			if (name !== "") oldest.set(name, Number(sec));
+		}
+	}
+	return oldest;
 }
 
 /**
@@ -4646,6 +4671,7 @@ module.exports = {
 	compactionVerdictFaults,
 	readSectionBBirths,
 	PAIRING_GRACE_MS,
+	buildFileAgeReader,
 	pairingHalfAgeMs,
 	repoRelative,
 	readTrackedFiles,

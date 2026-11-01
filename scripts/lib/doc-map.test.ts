@@ -64,6 +64,7 @@ const {
 	droppedExemptionMarkers,
 	readTrackedFiles,
 	PAIRING_GRACE_MS,
+	buildFileAgeReader,
 	pairingHalfAgeMs,
 	loadDocClasses,
 	overCapRoles,
@@ -1604,12 +1605,12 @@ describe("sectionBEntryRate", () => {
 });
 
 /*
- * pairingHalfAgeMs (mantahostels#1785) — the one seam check-doc-map.js's UNCOVERED and
- * DEAD-ENTRY grace windows both date through. Same throwaway-repo pattern as
+ * buildFileAgeReader and pairingHalfAgeMs (mantahostels#1785) — what check-doc-map.js's
+ * UNCOVERED and DEAD-ENTRY grace windows date through. Same throwaway-repo pattern as
  * sectionBEntryRate above, with commits pinned by GIT_AUTHOR_DATE/
  * GIT_COMMITTER_DATE.
  */
-describe("pairingHalfAgeMs", () => {
+describe("the pairing faults' datings", () => {
 	let repo: string;
 	let cwd: string;
 	const mapPath = "docs/doc-map.md";
@@ -1621,15 +1622,26 @@ describe("pairingHalfAgeMs", () => {
 			env: { ...process.env, ...env },
 		});
 
-	/** Commits `rel`'s currently-written content, dated `hoursAgo` back. */
-	const commitFile = (rel: string, hoursAgo: number, msg = `add ${rel}`) => {
+	/** Commits what `pathArgs` name, or the index, dated `hoursAgo` back. */
+	const commitDated = (
+		hoursAgo: number,
+		msg: string,
+		pathArgs: string[] = [],
+	) => {
 		const date = new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString();
-		git(["add", "--", rel]);
-		git(["commit", "-qm", msg, "--", rel], {
+		git(["commit", "-qm", msg, ...pathArgs], {
 			GIT_AUTHOR_DATE: date,
 			GIT_COMMITTER_DATE: date,
 		});
 	};
+
+	/** Commits `rel`'s currently-written content, dated `hoursAgo` back. */
+	const commitFile = (rel: string, hoursAgo: number, msg = `add ${rel}`) => {
+		git(["add", "--", rel]);
+		commitDated(hoursAgo, msg, ["--", rel]);
+	};
+
+	const hours = (ms: number | null) => (ms as number) / (60 * 60 * 1000);
 
 	beforeEach(() => {
 		repo = fs.mkdtempSync(path.join(os.tmpdir(), "doc-map-pairing-"));
@@ -1651,7 +1663,7 @@ describe("pairingHalfAgeMs", () => {
 		commitFile("docs/notes.md", 3);
 
 		const now = Date.now();
-		const ageMs = pairingHalfAgeMs("docs/notes.md", null, now);
+		const ageMs = buildFileAgeReader(now)("docs/notes.md");
 		expect(ageMs).not.toBeNull();
 		expect((ageMs as number) / (60 * 60 * 1000)).toBeCloseTo(3, 1);
 	});
@@ -1715,7 +1727,7 @@ describe("pairingHalfAgeMs", () => {
 	});
 
 	it("returns null when no commit ever touches the path", () => {
-		expect(pairingHalfAgeMs("docs/never-committed.md")).toBeNull();
+		expect(buildFileAgeReader()("docs/never-committed.md")).toBeNull();
 	});
 
 	it("returns null outside a git repo", () => {
@@ -1723,7 +1735,7 @@ describe("pairingHalfAgeMs", () => {
 		const outside = fs.mkdtempSync(path.join(os.tmpdir(), "doc-map-nogit-"));
 		process.chdir(outside);
 		try {
-			expect(pairingHalfAgeMs("docs/whatever.md")).toBeNull();
+			expect(buildFileAgeReader()("docs/whatever.md")).toBeNull();
 		} finally {
 			process.chdir(cwd);
 			fs.rmSync(outside, { recursive: true, force: true });
@@ -1768,8 +1780,93 @@ describe("pairingHalfAgeMs", () => {
 		// A "now" 4h past the real clock, against a commit dated 3h before the
 		// real clock: the injected reference makes it read as 7h old.
 		const frozen = Date.now() + 4 * 60 * 60 * 1000;
-		const ageMs = pairingHalfAgeMs("docs/notes.md", null, frozen) as number;
+		const ageMs = buildFileAgeReader(frozen)("docs/notes.md") as number;
 		expect(ageMs / (60 * 60 * 1000)).toBeCloseTo(7, 0);
+	});
+
+	it("dates every file from one history walk, its oldest commit each (#3794)", () => {
+		fs.mkdirSync(path.join(repo, "docs"), { recursive: true });
+		for (const [name, hoursAgo] of [
+			["a.md", 9],
+			["b.md", 3],
+		] as const) {
+			fs.writeFileSync(path.join(repo, "docs", name), "x\n");
+			commitFile(`docs/${name}`, hoursAgo);
+		}
+		fs.writeFileSync(path.join(repo, "docs", "a.md"), "y\n");
+		commitFile("docs/a.md", 1);
+
+		const now = Date.now();
+		const ageOf = buildFileAgeReader(now);
+		expect(hours(ageOf("docs/a.md"))).toBeCloseTo(9, 1);
+
+		// No git from here on: only the first ask's walk can answer.
+		fs.rmSync(path.join(repo, ".git"), { recursive: true, force: true });
+		expect(hours(ageOf("docs/b.md"))).toBeCloseTo(3, 1);
+		expect(ageOf("docs/never-committed.md")).toBeNull();
+	});
+
+	it("dates a renamed file's new path by the rename, its old path by its first commit", () => {
+		fs.mkdirSync(path.join(repo, "docs"), { recursive: true });
+		fs.writeFileSync(path.join(repo, "docs", "old.md"), "x\n");
+		commitFile("docs/old.md", 9);
+		git(["mv", "docs/old.md", "docs/new.md"]);
+		commitDated(2, "rename");
+
+		const ageOf = buildFileAgeReader();
+		expect(hours(ageOf("docs/new.md"))).toBeCloseTo(2, 1);
+		expect(hours(ageOf("docs/old.md"))).toBeCloseTo(9, 1);
+	});
+
+	it("dates a file only a merge's resolution added, by that merge", () => {
+		fs.writeFileSync(path.join(repo, "base.md"), "x\n");
+		commitFile("base.md", 9);
+		git(["checkout", "-qb", "side"]);
+		fs.writeFileSync(path.join(repo, "side.md"), "x\n");
+		commitFile("side.md", 8);
+		git(["checkout", "-q", "main"]);
+		fs.writeFileSync(path.join(repo, "main.md"), "x\n");
+		commitFile("main.md", 7);
+		git(["merge", "-q", "--no-commit", "--no-ff", "side"]);
+		fs.writeFileSync(path.join(repo, "merged.md"), "x\n");
+		git(["add", "merged.md"]);
+		commitDated(5, "merge");
+
+		expect(hours(buildFileAgeReader()("merged.md"))).toBeCloseTo(5, 1);
+	});
+
+	it("counts a commit on a merged side branch whose merge left the file as main had it", () => {
+		fs.writeFileSync(path.join(repo, "base.md"), "x\n");
+		commitFile("base.md", 20);
+		git(["checkout", "-qb", "side"]);
+		fs.writeFileSync(path.join(repo, "both.md"), "same\n");
+		commitFile("both.md", 9);
+		git(["checkout", "-q", "main"]);
+		fs.writeFileSync(path.join(repo, "both.md"), "same\n");
+		commitFile("both.md", 3);
+		git(["merge", "-q", "--no-edit", "side"]);
+
+		expect(hours(buildFileAgeReader()("both.md"))).toBeCloseTo(9, 1);
+	});
+
+	it("reads paths relative to the cwd, as ls-files lists them", () => {
+		fs.mkdirSync(path.join(repo, "docs"), { recursive: true });
+		fs.writeFileSync(path.join(repo, "docs", "notes.md"), "x\n");
+		commitFile("docs/notes.md", 3);
+		fs.writeFileSync(path.join(repo, "above.md"), "x\n");
+		commitFile("above.md", 3);
+
+		process.chdir(path.join(repo, "docs"));
+		const ageOf = buildFileAgeReader();
+		expect(hours(ageOf("notes.md"))).toBeCloseTo(3, 1);
+		expect(ageOf("above.md")).toBeNull();
+	});
+
+	it("reads a path git would quote, byte for byte", () => {
+		fs.writeFileSync(path.join(repo, "caf\u00e9 b.md"), "x\n");
+		commitFile("caf\u00e9 b.md", 3);
+
+		expect(hours(buildFileAgeReader()("caf\u00e9 b.md"))).toBeCloseTo(3, 1);
 	});
 
 	it("PAIRING_GRACE_MS is 6 hours", () => {
@@ -1784,7 +1881,7 @@ describe("pairingHalfAgeMs", () => {
 		fs.writeFileSync(path.join(repo, "docs", "notes.md"), "x\n");
 		commitFile("docs/notes.md", -3); // 3h in the future
 
-		expect(pairingHalfAgeMs("docs/notes.md")).toBeNull();
+		expect(buildFileAgeReader()("docs/notes.md")).toBeNull();
 	});
 });
 

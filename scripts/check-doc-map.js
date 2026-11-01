@@ -341,7 +341,7 @@
  * untracked files at all, so resolving them against the root would answer
  * "absent" for every one and turn each softened WARN back into the refusal
  * those two tickets removed. The rev-keyed reads — readMapTextAt,
- * readCommittedRevs, pairingHalfAgeMs, the always-loaded pool's `cat-file -s` and
+ * readCommittedRevs, pairingHalfAgeMs, buildFileAgeReader, the always-loaded pool's `cat-file -s` and
  * the conflicted-index SKIP — ask the real repo too, and are about revisions
  * rather than about the worktree, so --root has nothing to say to them.
  *
@@ -408,6 +408,7 @@ const {
 	LEDGER_ENTRY_CAP_BYTES,
 	PROSE_CAP_WORDS,
 	PAIRING_GRACE_MS,
+	buildFileAgeReader,
 	pairingHalfAgeMs,
 	parseEntries,
 	parseRoutes,
@@ -554,10 +555,9 @@ const humanDuration = (ms) => {
  * Splits an UNCOVERED/DEAD-ENTRY item list by the grace window (mantahostels#1785): an
  * item whose half is young WARNs, everything else — including an item
  * whose age git cannot answer — FAILs exactly as before. `dateItem` is
- * `pairingHalfAgeMs` pre-bound to the half's kind, so this stays the one
- * seam that turns an age into a verdict; it does not date anything itself.
- * The loop below never runs on an empty `items`, so `dateItem` — and so
- * git — is invoked once per faulting item and not at all on a clean run.
+ * the half's dating, so this stays the one seam that turns an age into a
+ * verdict; it does not date anything itself. The loop below never runs on an
+ * empty `items`, so `dateItem` — and so git — is not invoked on a clean run.
  * @param {string[]} items
  * @param {(item: string) => number | null} dateItem
  */
@@ -778,7 +778,7 @@ function checkCoverage(r) {
 		.filter((m) => entryPresentOnDisk(m.entry))
 		.map((m) => m.entry);
 
-	const uncoveredSplit = splitByGrace(uncovered, pairingHalfAgeMs);
+	const uncoveredSplit = splitByGrace(uncovered, buildFileAgeReader());
 	const uncoveredAge = new Map(
 		uncoveredSplit.inGrace.map((d) => [d.item, d.ageMs]),
 	);

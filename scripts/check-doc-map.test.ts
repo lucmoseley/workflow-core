@@ -688,13 +688,12 @@ describe("check-doc-map", () => {
 
 		/*
 		 * Acceptance criterion 8 (mantahostels#1785): a clean run raises neither UNCOVERED nor
-		 * DEAD-ENTRY, so `splitByGrace` never runs its loop body and `dateItem` —
-		 * `pairingHalfAgeMs`, the only caller of `git` in this path — is never
-		 * invoked. Not directly observable from outside a spawned process (no seam
+		 * DEAD-ENTRY, so `splitByGrace` never runs its loop body and `dateItem`,
+		 * the only caller of `git` in this path, is never invoked. Not directly observable from outside a spawned process (no seam
 		 * to intercept the child's own `execFileSync` calls), so this is the
 		 * closest available proxy: a repo whose git history is entirely absent
 		 * (every fixture above `track()`s but never commits) still passes clean.
-		 * If a clean run called `pairingHalfAgeMs` on some item, that item would
+		 * If a clean run called `dateItem` on some item, that item would
 		 * have to exist — and none does, so there is nothing for it to be called
 		 * with. Stated here rather than claimed covered on faith.
 		 */
