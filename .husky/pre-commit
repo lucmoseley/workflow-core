@@ -868,6 +868,8 @@ fi
 # .git/index.lock throughout, so a wait here stops every commit in the tree.
 # WFC_TSC_NO_WAIT has a `queue-run.js --tsc` command try the slot once and exit
 # 75 on a held one (lib/tsc-slot.js); any other command ignores it.
+# queue-run.js's exit log records that refusal, and guard-typecheck-owed.js
+# asks the session for a type-check at Stop (#3803).
 # Residual: a declared command that exits 75 for a reason of its own is
 # reported as a held slot, its output unshown.
 #
@@ -1033,10 +1035,14 @@ if armed '\.py$' && [ -n "$(armed_live --index)" ]; then
     ruff_cfg="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/formatters.js ruff-config)"
     node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-ruff-introduced.js ${ruff_cfg:+--config "$ruff_cfg"} || {
       ri_rc=$?
-      echo "pre-commit: the ruff gate refused this commit's own Python paths." >&2
-      echo "  Only findings HEAD's copy lacks are charged; ones already on it are not (#122)." >&2
-      echo "  Machine-fixable findings: ruff check --fix <path>. Rule set: ${ruff_cfg:-your own ruff config}." >&2
-      echo "  Fix the findings — never delete the code to pass (#1022). Vendored or third-party code alone goes in \`ruffExclude\` in .claude/workflow-core.json: it is not this repo's code to fix, and editing it forks it from upstream (#1463)." >&2
+      if [ "$ri_rc" -ne 1 ]; then
+        echo "pre-commit: the ruff gate refused this commit, its checker unable to run." >&2
+      else
+        echo "pre-commit: the ruff gate refused this commit's own Python paths." >&2
+        echo "  Only findings HEAD's copy lacks are charged; ones already on it are not (#122)." >&2
+        echo "  Machine-fixable findings: ruff check --fix <path>. Rule set: ${ruff_cfg:-your own ruff config}." >&2
+        echo "  Fix the findings — never delete the code to pass (#1022). Vendored or third-party code alone goes in \`ruffExclude\` in .claude/workflow-core.json: it is not this repo's code to fix, and editing it forks it from upstream (#1463)." >&2
+      fi
       exit "$ri_rc"
     }
   fi
@@ -1086,7 +1092,11 @@ if armed "\.py\$|$GATE_SHELL_CANDIDATE" && [ -n "$(armed_live --index)" ]; then
   # shellcheck disable=SC2086 # deliberate word-splitting: zero to two flags.
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-format-staged.js $fmt_skip || {
     fs_rc=$?
-    echo "pre-commit: the format gate refused this commit's own shell or Python paths." >&2
+    if [ "$fs_rc" -ne 1 ]; then
+      echo "pre-commit: the format gate refused this commit, its checker unable to run." >&2
+    else
+      echo "pre-commit: the format gate refused this commit's own shell or Python paths." >&2
+    fi
     exit "$fs_rc"
   }
 fi

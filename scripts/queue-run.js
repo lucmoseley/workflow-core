@@ -295,7 +295,13 @@ function slotWait(slot, options) {
 		};
 		const gate = { gate: options.gate ?? tscGate, ...TSC_WAIT };
 		if (process.env[TSC_NO_WAIT_ENV] === "1")
-			return { queue, join: queue, wait: tryOn(gate), refused: sayTscHeld };
+			return {
+				queue,
+				join: queue,
+				wait: tryOn(gate),
+				refused: sayTscHeld,
+				exitExtra: { noWait: true },
+			};
 		return { queue, join: queue, wait: waitOn(gate), refused: refusedRun };
 	}
 	return {
@@ -375,7 +381,7 @@ async function run(words, slot, options, err) {
 	/* A `--tsc` launch inside a `--tsc` command's process tree: its slot is
 	 * held already, and queueing would wait behind it forever (#3404). */
 	const held = slot === "tsc" && heldMarker(TSC_SLOT_ENV, options) !== null;
-	const { queue, join, wait, refused } = slotWait(slot, options);
+	const { queue, join, wait, refused, exitExtra } = slotWait(slot, options);
 	const ticket = held ? "" : queueJoin(join);
 	const started = Date.now();
 	/** @type {import("node:child_process").ChildProcess | null} */
@@ -421,7 +427,10 @@ async function run(words, slot, options, err) {
 			...wait(queueStamps(ticket, queue)),
 			onExit: (reason, waitMs, heldBy) => {
 				waiting = false;
-				logExit(reason, waitMs, exitFields(reason, heldBy));
+				logExit(reason, waitMs, {
+					...exitFields(reason, heldBy),
+					...exitExtra,
+				});
 			},
 		});
 		if (outcome === "refused") {

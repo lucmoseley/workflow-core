@@ -21,6 +21,7 @@ const STOP_CLASS = {
 	"guard-inventory": "breach",
 	"guard-priced-options": "breach",
 	"guard-unpushed-commits": "breach",
+	"guard-typecheck-owed": "breach",
 	"guard-selection-sum": "breach",
 	"guard-uncommitted-work": "breach",
 	"guard-paste-self-match": "breach",

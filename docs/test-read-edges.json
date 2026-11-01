@@ -5588,6 +5588,23 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/guard-typecheck-owed.js": [
+			"scripts/checker-registrations.test.ts",
+			"scripts/guard-typecheck-owed.test.ts",
+			"scripts/hook-registrations.test.ts",
+			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/core-deny-text.live.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/guard-typecheck-owed.test.ts": [
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/guard-ugrep-pattern.test.ts": [
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
@@ -11626,6 +11643,7 @@
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/guard-jev-advisory.test.ts",
+			"scripts/guard-typecheck-owed.test.ts",
 			"scripts/guard-uncommitted-work.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/hook-block.test.ts",
@@ -15496,6 +15514,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/guard-typecheck-owed.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/queue-exit-log.test.ts",

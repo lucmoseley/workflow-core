@@ -458,6 +458,23 @@ describe("queue-run.js", () => {
 				},
 			);
 
+			it("marks its exit line as a try, held or admitted (#3803)", async () => {
+				const held = fixture();
+				machine(held.dir, ["node /r/node_modules/.bin/tsc --noEmit"], 9000);
+				await main(typecheck, own(held));
+				expect(held.readLog()).toEqual([
+					expect.objectContaining({ reason: "refused", noWait: true }),
+				]);
+
+				const free = fixture();
+				machine(free.dir, ["bash -l"], 9000);
+				main(typecheck, own(free));
+				await tick();
+				expect(free.readLog()).toEqual([
+					expect.objectContaining({ reason: "opened", noWait: true }),
+				]);
+			});
+
 			it("exits 75 at once, never sleeping a poll, where a rival is admitted on the same poll", async () => {
 				const f = fixture();
 				machine(f.dir, ["bash -l"], 9000);

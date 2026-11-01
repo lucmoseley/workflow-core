@@ -50,7 +50,7 @@ const {
  * lib/priced-options-limbs.js, which lists them; guard-session-ceiling.js holds three, one per
  * band (mantahostels#2601); guard-selection-sum.js two, one per stake tier (mantahostels#3431);
  * guard-uncommitted-work.js, guard-lost-deny.js, guard-automode-refusal.js,
- * guard-unpushed-commits.js, guard-paste-self-match.js (#921) and
+ * guard-unpushed-commits.js, guard-typecheck-owed.js (#3803), guard-paste-self-match.js (#921) and
  * guard-session-id-prose.js (#3557) one each;
  * guard-inventory.js two, its draft-and-act limb on its own (#989). `.lost-deny-seen-` is the exception and NOT a counter:
  * guard-lost-deny.js writes it itself, a set of the tool calls it has already
@@ -102,6 +102,7 @@ const MARKER_PREFIXES = [
 	".lost-deny-seen-",
 	".automode-refusal-nagged-",
 	".automode-refusal-seen-",
+	".typecheck-owed-nagged-",
 	".unpushed-nagged-",
 	".unpushed-seen-",
 	".exhausted-map-nagged-",

@@ -26,6 +26,8 @@
  * held it, `count`, `memory` or `turn`. A `timeout` ran anyway, a part-suite
  * past the bound; a `refused` did not run, and carries no `limb` where the
  * load hold refused it (#2421, #2714).
+ * `noWait`, true on a `--tsc` line from a try under TSC_NO_WAIT_ENV, the
+ * pre-commit hook's, absent otherwise (#3803).
  * `passed`, on an `opened` part-suite line, counts the older part-suites the
  * memory rung held that its turn passed (#3058, #3115), 0 where none. Absent
  * from a whole suite's line, every other reason's, and a `seat` line, whose
