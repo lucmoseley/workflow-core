@@ -123,7 +123,7 @@ const NETWORK =
  *   | {kind: "file-fix-ticket", culprit: string, parent: string|null,
  *       revert: string, files: string[], jobs: string[],
  *       stale: RegistryRow[]|null}
- *   | {kind: "hold", reason: string, cause?: "already-red"}
+ *   | {kind: "hold", reason: string, cause?: "already-red", ticket?: FixTicket}
  *   | {kind: "exit", reason: string}} Action
  * @typedef {Extract<Action, {kind: "exit"}> | Extract<Action, {kind: "hold"}>}
  *   End
@@ -340,7 +340,7 @@ function withAlreadyRed(action, known, redJobs) {
 	];
 	return also.length === 0
 		? action
-		: { kind: "hold", reason: [action.reason, ...also].join("; ") };
+		: { ...action, reason: [action.reason, ...also].join("; ") };
 }
 
 /**
@@ -765,13 +765,7 @@ function culpritAction(r, confirmed, s) {
 			kind: "hold",
 			reason: `the revert of ${short(culprit)} did not land on landing: ${r.revert.failed}`,
 		};
-	if (r.unfiled !== null)
-		return {
-			kind: "hold",
-			reason: `${short(culprit)} is reverted in ${short(r.revert.sha)}, but its fix ticket is not filed: ${r.unfiled}`,
-		};
-	return {
-		kind: "file-fix-ticket",
+	const ticket = {
 		culprit,
 		parent,
 		revert: r.revert.sha,
@@ -779,6 +773,13 @@ function culpritAction(r, confirmed, s) {
 		jobs,
 		stale: r.revert.stale ?? null,
 	};
+	if (r.unfiled !== null)
+		return {
+			kind: "hold",
+			reason: `${short(culprit)} is reverted in ${short(r.revert.sha)}, but its fix ticket is not filed: ${r.unfiled}`,
+			ticket,
+		};
+	return { kind: "file-fix-ticket", ...ticket };
 }
 
 /**
@@ -1029,15 +1030,17 @@ function nextAction(s) {
  *   a CI run passed, so only a green naming its `run` lands. `readJobsOnMain`
  *   where it reads CI runs, as only then does a red name jobs
  * @typedef {Omit<Extract<Action, {kind: "file-fix-ticket"}>, "kind">} FixTicket
- * @typedef {{batch: string|null, reason: string, failing: Failing|null}}
- *   Held a hold, with its batch and what failed there, null where it held on
- *   a refused push and no red batch
- * @typedef {{landing: string|null, reason: string, filed: string}} HoldNote
- *   the last hold a run filed: its tip as `heldTip` pins it, and what the
- *   held-queue filing printed
- * @typedef {{hold: HoldNote, red?: Red} | {red: Red}} BeatNote a heartbeat's
- *   hold, with the batch it hands the next run, or the red batch the run is
- *   clearing
+ * @typedef {{batch: string|null, reason: string, failing: Failing|null,
+ *   owed: FixTicket[]}} Held a hold, with its batch and what failed there,
+ *   null where it held on a refused push and no red batch, and the fix tickets
+ *   still owed
+ * @typedef {{landing: string|null, reason: string, filed: string,
+ *   owes?: string}} HoldNote the last hold a run filed: its tip as `heldTip`
+ *   pins it, what the held-queue filing printed, and the culprit whose unfiled
+ *   fix ticket is its cause
+ * @typedef {{hold?: HoldNote, red?: Red, owed?: FixTicket[]}} BeatNote a
+ *   heartbeat's hold, with the batch it hands the next run, or the red batch
+ *   the run is clearing, and the fix tickets still owed
  * @typedef {object} LanderTracker
  * @property {(t: FixTicket) => string} fileFixTicket files the fix ticket,
  *   returning a line naming it
@@ -1064,6 +1067,8 @@ function nextAction(s) {
  *   as the last run's final beat carried it
  * @property {() => Red|null} [lastRed] the red batch the last run's final
  *   beat carried
+ * @property {() => FixTicket[]} [lastOwed] the fix tickets the last run's
+ *   final beat still owed
  * @property {(ms: number) => Promise<void>} [wait] the backoff between
  *   tries of a remote call
  * @property {(action: Action) => void} [log]
@@ -1304,6 +1309,7 @@ async function runLander(deps) {
 		log = () => undefined,
 		lastHold = () => null,
 		lastRed = () => null,
+		lastOwed = () => [],
 		lastMoved = () => null,
 	} = deps;
 	if (!lock.acquire()) {
@@ -1317,13 +1323,21 @@ async function runLander(deps) {
 		state: { tested: null, red: null, refused: null },
 		held: lastHold(),
 		unread: lastRed(),
+		owed: lastOwed(),
 		movedAt: lastMoved(),
 	};
 	/** @type {LanderDeps} */
 	const run = {
 		...deps,
 		beat: (batch, note) =>
-			deps.beat(batch, note ?? carried(carry), carry.movedAt),
+			deps.beat(
+				batch,
+				{
+					...(note ?? carried(carry)),
+					...(carry.owed.length > 0 ? { owed: carry.owed } : {}),
+				},
+				carry.movedAt,
+			),
 	};
 	try {
 		return await actUntilEnd(run, carry);
@@ -1346,6 +1360,9 @@ async function runLander(deps) {
  * @property {HoldNote|null} held the last run's hold, until the remote says
  *   whether its tip still stands
  * @property {Red|null} unread the last run's red batch, likewise
+ * @property {FixTicket[]} owed the fix tickets that failed to file, the
+ *   heartbeat being their only sure record, as a held-queue issue may not have
+ *   filed either
  * @property {string|null} movedAt when a lander last moved `main`, which the
  *   stall check counts from (#2692)
  */
@@ -1372,6 +1389,7 @@ async function actUntilEnd(run, carry) {
 	const requiresRun = run.tester.requiresRun === true;
 	const isGreen = (/** @type {string} */ sha) => ledger.has(sha);
 	const isStuck = (/** @type {string} */ sha) => noVerdict.has(sha);
+	await fileOwed(run, carry);
 	for (;;) {
 		run.beat(carry.state.red?.sha ?? carry.state.tested?.sha ?? null);
 		const refs = await remote(run, () => git.refs());
@@ -1405,11 +1423,50 @@ async function actUntilEnd(run, carry) {
 			continue;
 		}
 		carry.state = await act(run, action, state, refs.main);
-		if (action.kind === "fast-forward" && !carry.state.refused) {
-			carry.movedAt = new Date().toISOString();
-			releaseQueue(run, action.sha);
-		}
+		if (action.kind === "fast-forward") recordMove(run, carry, action.sha);
 	}
+}
+
+/**
+ * Notes a push of `sha` to `main` that was not refused, and closes the
+ * held-queue issue unless it names a fix ticket still owed (#3777).
+ * @param {LanderDeps} run
+ * @param {Carry} carry accumulator: when `main` last moved
+ * @param {string} sha
+ */
+function recordMove(run, carry, sha) {
+	if (carry.state.refused) return;
+	carry.movedAt = new Date().toISOString();
+	if (carry.owed.length === 0) releaseQueue(run, sha);
+}
+
+/**
+ * Tries each fix ticket a past run failed to file, once a run, as the filer
+ * finds one already open (#3777). A filed ticket releases the hold it caused,
+ * and the last one the held-queue issue that `main` has since passed.
+ * @param {LanderDeps} run
+ * @param {Carry} carry accumulator: the tickets still owed and the last hold
+ */
+async function fileOwed(run, carry) {
+	if (carry.owed.length === 0) return;
+	const { git, tracker, say = () => undefined } = run;
+	carry.owed = carry.owed.filter((t) => {
+		try {
+			say(tracker.fileFixTicket(t));
+			return false;
+		} catch (err) {
+			say(
+				`fix ticket for ${short(t.culprit)} still owed: ${caught(err).message}`,
+			);
+			return true;
+		}
+	});
+	const owes = carry.held?.owes;
+	if (owes && !carry.owed.some((t) => t.culprit === owes)) carry.held = null;
+	run.beat(null);
+	if (carry.owed.length > 0) return;
+	const { main } = await remote(run, () => git.refs());
+	if (main !== null) releaseQueue(run, main);
 }
 
 /**
@@ -1423,7 +1480,8 @@ async function actUntilEnd(run, carry) {
 function takeUpPastHold(run, carry, hold, refs) {
 	const { state } = carry;
 	const next = state.red && buildHandedOnBatch(state.red, refs.main);
-	holdQueue(run, hold, state, next);
+	if (hold.ticket) carry.owed = [...carry.owed, hold.ticket];
+	holdQueue(run, hold, carry, next);
 	if (!isHoldPassed(run.git, state, refs.landing)) return false;
 	carry.state = { tested: null, red: next, refused: null };
 	return true;
@@ -1528,16 +1586,16 @@ function isStillOwed(git, red, { main, landing }) {
  * instead.
  * @param {LanderDeps} deps
  * @param {Extract<Action, {kind: "hold"}>} hold
- * @param {RunState} state its red batch, else its refused push
+ * @param {Carry} carry its red batch, else its refused push, and the fix
+ *   tickets still owed
  * @param {Red|null} next the batch the hold hands on
  */
 function holdQueue(
 	{ tracker, beat, say = () => undefined },
 	hold,
-	state,
+	{ state: { red, refused }, owed },
 	next,
 ) {
-	const { red, refused } = state;
 	/* A push refused while clearing a red batch, its culprit's parent's,
 	 * pins the batch, so a push to `landing` releases it. */
 	const batch = red?.sha ?? refused?.sha;
@@ -1549,6 +1607,7 @@ function holdQueue(
 			batch,
 			reason: hold.reason,
 			failing: red ? { files: red.files, jobs: red.jobs } : null,
+			owed,
 		});
 	} catch (err) {
 		/* The hold stands unfiled, named in the beat the stall check prints
@@ -1557,7 +1616,12 @@ function holdQueue(
 	}
 	say(filed);
 	beat(batch, {
-		hold: { landing: red ? heldTip(red) : batch, reason: hold.reason, filed },
+		hold: {
+			landing: red ? heldTip(red) : batch,
+			reason: hold.reason,
+			filed,
+			...(hold.ticket ? { owes: hold.ticket.culprit } : {}),
+		},
 		...(next ? { red: next } : {}),
 	});
 }
@@ -1565,15 +1629,14 @@ function holdQueue(
 /**
  * Whether `landing` holds a tip past the one a hold pins, for the run to take
  * up (#3769). Never on a refused push, as the tip may be the sha refused
- * (#3329), nor where the fix ticket went unfiled, as landing that tip closes
- * the held-queue issue naming it. Residual: a push made while the hold is
- * filed goes unread until a later run takes it up.
+ * (#3329). Residual: a push made while the hold is filed goes unread until a
+ * later run takes it up.
  * @param {LanderGit} git
  * @param {RunState} state
  * @param {string|null} landing
  */
 function isHoldPassed(git, { red, refused }, landing) {
-	if (!red || refused || red.unfiled !== null) return false;
+	if (!red || refused) return false;
 	return isPast(git, landing, heldTip(red));
 }
 
@@ -1658,7 +1721,7 @@ function fileLedger(file) {
 
 /**
  * @typedef {{pid: number, at: string, batch: string|null, hold?: HoldNote,
- *   red?: Red, movedAt?: string}} Heartbeat
+ *   red?: Red, owed?: FixTicket[], movedAt?: string}} Heartbeat
  * @param {string} file
  * @returns {LanderDeps["beat"]}
  */

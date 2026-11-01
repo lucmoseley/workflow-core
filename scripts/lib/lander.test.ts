@@ -59,6 +59,7 @@ async function run(
 		releaseFails = null as string | null,
 		lastHold = null as HoldNote | null,
 		lastRed = null as Red | null,
+		lastOwed = [] as FixTicket[],
 		lastMoved = null as string | null,
 		refsFail = ((_nth: number) => null) as (nth: number) => Error | null,
 		requiresRun = false,
@@ -80,6 +81,7 @@ async function run(
 		batch: string | null;
 		hold?: HoldNote;
 		red?: Red;
+		owed?: FixTicket[];
 		movedAt?: string | null;
 	}[] = [];
 	const said: string[] = [];
@@ -193,6 +195,7 @@ async function run(
 		},
 		lastHold: () => lastHold,
 		lastRed: () => lastRed,
+		lastOwed: () => lastOwed,
 		lastMoved: () => lastMoved,
 		wait: async (ms) => {
 			waits.push(ms);
@@ -338,7 +341,9 @@ describe("runLander", () => {
 		});
 		expect(first.end).toEqual({ kind: "hold", reason });
 		expect(first.pushes.map((p) => p.sha)).toEqual([B]);
-		expect(first.holds).toEqual([{ batch: B, reason, failing: null }]);
+		expect(first.holds).toEqual([
+			{ batch: B, reason, failing: null, owed: [] },
+		]);
 		const hold = first.beats.at(-1)?.hold;
 		expect(hold).toEqual({ landing: B, reason, filed: "Filed #2" });
 		expect(first.beats.some((b) => b.movedAt)).toBe(false);
@@ -451,6 +456,7 @@ const redBatch = (
 		holdFails?: string;
 		onTest?: (sha: string) => void;
 		lastRed?: Red | null;
+		lastOwed?: FixTicket[];
 		refsFail?: (nth: number) => Error | null;
 		history?: string[];
 		sides?: Record<string, { base: string; range: string[] }>;
@@ -585,7 +591,7 @@ describe("runLander on a red batch", () => {
 		const reason =
 			"culprit unconfirmed: ccccccccc passed x.test.ts on its second run";
 		expect(r.holds).toEqual([
-			{ batch: D, reason, failing: { files: FILES, jobs: [] } },
+			{ batch: D, reason, failing: { files: FILES, jobs: [] }, owed: [] },
 		]);
 		expect(r.said).toContain("Filed #2");
 		expect(r.beats.at(-1)).toEqual({
@@ -814,12 +820,94 @@ describe("runLander on a red batch", () => {
 			fileFails: "fix ticket for ccccccccc not filed: gh down",
 		});
 		expect(r.beats.at(-1)?.hold?.landing).toBe(R);
-		expect(r.end).toEqual({
+		expect(r.end).toMatchObject({
 			kind: "hold",
 			reason:
 				"ccccccccc is reverted in eeeeeeeee, but its fix ticket is not filed: fix ticket for ccccccccc not filed: gh down",
 		});
 		expect(r.pushes.map((p) => p.sha)).toEqual([B]);
+	});
+
+	describe("a fix ticket that failed to file (#3777)", () => {
+		const ticket: FixTicket = {
+			culprit: C,
+			parent: B,
+			revert: R,
+			files: FILES,
+			jobs: [],
+			stale: null,
+		};
+		const hold: HoldNote = {
+			landing: R,
+			reason: "ccccccccc is reverted, but its fix ticket is not filed",
+			filed: "Filed #2",
+			owes: C,
+		};
+
+		it("hands it on in the hold's last beat, naming it on the held-queue issue", async () => {
+			const r = await redBatch((sha) => sha === C || sha === D, {
+				fileFails: "gh down",
+			});
+			expect(r.beats.at(-1)?.hold?.owes).toBe(C);
+			expect(r.beats.at(-1)?.owed).toMatchObject([{ culprit: C, revert: R }]);
+			expect(r.holds.at(-1)?.owed).toMatchObject([{ culprit: C, revert: R }]);
+		});
+
+		it("files it on a later run, then lands the held tip and closes the issue", async () => {
+			const r = await run({ main: B, landing: R }, green, {
+				history: [B, C, D],
+				lastHold: hold,
+				lastOwed: [ticket],
+				heldOpen: D,
+			});
+			expect(r.tickets).toEqual([ticket]);
+			expect(r.pushes.map((p) => p.sha)).toEqual([R]);
+			expect(r.closed).toEqual([{ sha: R, batch: D }]);
+			expect(r.beats.at(-1)?.owed).toBeUndefined();
+		});
+
+		it("keeps the hold on a tip no push has moved while filing still fails", async () => {
+			const r = await run({ main: B, landing: R }, green, {
+				history: [B, C, D],
+				lastHold: hold,
+				lastOwed: [ticket],
+				fileFails: "gh down",
+			});
+			expect(r.end).toMatchObject({ kind: "exit" });
+			expect(r.pushes).toEqual([]);
+			expect(r.said).toContain("fix ticket for ccccccccc still owed: gh down");
+			expect(r.beats.at(-1)).toMatchObject({ hold, owed: [ticket] });
+		});
+
+		it("lands a tip pushed past the hold, leaving the issue open and the ticket owed, until a later run files it and closes the issue", async () => {
+			const history = [B, C, D, F];
+			const first = await run({ main: B, landing: F }, green, {
+				history,
+				lastHold: hold,
+				lastOwed: [ticket],
+				fileFails: "gh down",
+				heldOpen: D,
+			});
+			expect(first.pushes.map((p) => p.sha)).toEqual([F]);
+			expect(first.closed).toEqual([]);
+			expect(first.beats.at(-1)?.owed).toEqual([ticket]);
+			const second = await run({ main: F, landing: F }, green, {
+				history,
+				lastOwed: first.beats.at(-1)?.owed ?? [],
+				heldOpen: D,
+			});
+			expect(second.tickets).toEqual([ticket]);
+			expect(second.closed).toEqual([{ sha: F, batch: D }]);
+			expect(second.beats.at(-1)?.owed).toBeUndefined();
+		});
+
+		it("names it on a later batch's hold", async () => {
+			const r = await redBatch(unconfirmedC, {
+				lastOwed: [ticket],
+				fileFails: "gh down",
+			});
+			expect(r.holds.at(-1)?.owed).toEqual([ticket]);
+		});
 	});
 
 	it("pins the red batch, not its revert, where the revert was committed on a tip pushed mid-run (#2477)", async () => {
@@ -832,8 +920,9 @@ describe("runLander on a red batch", () => {
 				if (sha === C) remote.landing = F;
 			},
 		});
-		expect(r.end).toMatchObject({ kind: "hold" });
-		expect(r.beats.at(-1)?.hold?.landing).toBe(D);
+		expect(r.beats.find((b) => b.hold)?.hold?.landing).toBe(D);
+		expect(r.pushes.map((p) => p.sha)).toEqual([B, R]);
+		expect(r.beats.at(-1)?.owed).toMatchObject([{ culprit: C }]);
 	});
 
 	it("exits with no verdict, moving nothing, where a rerun reads none", async () => {
@@ -1253,7 +1342,7 @@ describe("runLander on a red only a CI job names (#3253)", () => {
 		const reason = `culprit unconfirmed: ccccccccc passed the CI jobs '${job}' on its second run`;
 		expect(r.end).toEqual({ kind: "hold", reason });
 		expect(r.holds).toEqual([
-			{ batch: D, reason, failing: { files: [], jobs: [job] } },
+			{ batch: D, reason, failing: { files: [], jobs: [job] }, owed: [] },
 		]);
 	});
 });

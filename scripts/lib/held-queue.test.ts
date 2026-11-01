@@ -6,6 +6,7 @@
  */
 import { expect, it } from "vitest";
 import { heldQueueFiler } from "./held-queue.js";
+import type { FixTicket } from "./lander.js";
 
 const B = "b".repeat(40);
 const C = "c".repeat(40);
@@ -45,4 +46,33 @@ it("closes a body naming no batch on any move of main", () => {
 	const r = release("- Batch: (none read)\n", []);
 
 	expect(r.closed).toEqual([`The lander moved \`main\` to \`${C}\`.`]);
+});
+
+it("names on the issue each fix ticket still owed, and none where none is", () => {
+	const filed = (owed: FixTicket[]) => {
+		const bodies: string[] = [];
+		heldQueueFiler({
+			openIssue: () => null,
+			similar: () => [],
+			fileIssue: (_, body) => {
+				bodies.push(body);
+				return { status: 0, stdout: "Filed #9", stderr: "" };
+			},
+			refresh: () => "",
+			addLabels: () => undefined,
+			close: () => undefined,
+		}).holdQueue({ batch: B, reason: "r", failing: null, owed });
+		return bodies[0];
+	};
+	const ticket = {
+		culprit: B,
+		parent: null,
+		revert: C,
+		files: [],
+		jobs: [],
+		stale: null,
+	};
+
+	expect(filed([ticket])).toContain("- `bbbbbbbbb`, reverted in `ccccccccc`");
+	expect(filed([])).not.toContain("Fix tickets");
 });

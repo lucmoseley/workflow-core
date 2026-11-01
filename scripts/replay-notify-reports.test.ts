@@ -34,7 +34,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { startEnv } from "./lib/background-start-testkit";
+import { startEnv, writeJobRecord } from "./lib/background-start-testkit";
 import { runRecordFile } from "./lib/notify-report-testkit";
 import { runInProcess } from "./lib/run-in-process";
 import { useScratchCore } from "./lib/scratch-core-testkit";
@@ -65,6 +65,14 @@ const readIn = (jobDir: string, ...args: string[]) => {
 	});
 	return { status: r.status, out: `${r.stdout}${r.stderr}` };
 };
+
+/** The script under `--notify`, as a compaction's start. */
+const readAtCompaction = () =>
+	runInProcess(SCRIPT, ["--notify"], {
+		env: { ...process.env, ...startEnv() },
+		cwd: path.resolve(__dirname, ".."),
+		stdin: JSON.stringify({ source: "compact" }),
+	});
 
 /** A finished report, `agoMs` old. */
 const report = (
@@ -1030,6 +1038,36 @@ describe("a notice for the founder alone (#3707)", () => {
 		expect(read("--notify").out).toContain("IDLE-EFFORTS (1)");
 		expect(stamps.readStamp("idle-efforts")).not.toBeNull();
 		expect(read("--notify").out).not.toContain("IDLE-EFFORTS (1)");
+	});
+
+	it("is shown and stamped at a job he launched from the agents view (#3772)", () => {
+		idle();
+		const job = writeJobRecord(path.join(dir, "his"), "claude");
+		expect(readIn(job, "--notify").out).toContain("IDLE-EFFORTS (1)");
+		expect(stamps.readStamp("idle-efforts")).not.toBeNull();
+	});
+
+	it("is neither shown nor stamped at a plain `claude --bg` job (#3772)", () => {
+		idle();
+		const job = writeJobRecord(path.join(dir, "loops"), "bg");
+		expect(readIn(job, "--notify").out).not.toContain("IDLE-EFFORTS (1)");
+		expect(stamps.readStamp("idle-efforts")).toBeNull();
+	});
+
+	it("is neither shown nor stamped at a compaction, and waits for the next start (#3772)", () => {
+		idle();
+		const compaction = readAtCompaction();
+		expect(`${compaction.stdout}${compaction.stderr}`).not.toContain(
+			"IDLE-EFFORTS (1)",
+		);
+		expect(stamps.readStamp("idle-efforts")).toBeNull();
+		expect(read("--notify").out).toContain("IDLE-EFFORTS (1)");
+	});
+
+	it("still reaches a compaction where it is no founder notice", () => {
+		report("ghost-jobs", "WARN: 2 ghost job(s)\n");
+		const compaction = readAtCompaction();
+		expect(compaction.stdout).toContain("WARN: 2 ghost job(s)");
 	});
 
 	it("still reaches a background job's start where it is no founder notice", () => {

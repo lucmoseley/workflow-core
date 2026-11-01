@@ -25,17 +25,18 @@
  * machine-local day. The stamp is written only once a report is shown: by this
  * run under plain `--notify`, and under persist mode by the replay reader, from
  * the signature this run carries. So it is read under persist mode too, which
- * readSeenStamp declines: nothing it records went unshown. A background job's
- * start is taken as unwatched, so it records nothing either: this report is
- * among lib/background-start.js's FOUNDER_NOTICES, which the replay holds back
- * there, and a plain `--notify` run there names what is unseen but writes no
- * stamp, leaving the founder's own session start to show it (#3707, #3725).
+ * readSeenStamp declines: nothing it records went unshown. A dispatcher's or the
+ * loop's job start is taken as unwatched, so it records nothing either: this
+ * report is among lib/background-start.js's FOUNDER_NOTICES, which the replay
+ * holds back there, and a plain `--notify` run there names what is unseen but
+ * writes no stamp, leaving the founder's own start, in a terminal or from the
+ * agents view, to show it (#3707, #3725, #3772).
  * A plain run, the morning review's included, names every tracker and
  * records nothing. A compaction is no session start: it exits before a
  * persisted run opens, so it neither prints nor replaces a report not yet
  * shown.
  *
- * IMPLICIT:  at every session start, reads every adopting checkout's tracker and reports each tracker holding an effort idle past 2 days, or unread, whose finding was not yet shown that machine-local day; a background job's start stamps none of it, and through the hooks shows none of it.
+ * IMPLICIT:  at every session start, reads every adopting checkout's tracker and reports each tracker holding an effort idle past 2 days, or unread, whose finding was not yet shown that machine-local day; a dispatcher's or the loop's job start stamps none of it, and through the hooks shows none of it.
  * JUSTIFIED: fail-safe — a stopped loop, or a route it skips, strands an effort with nothing else to say so.
  * DEFEAT:    none needed — it never blocks; deleting its delivery stamp names today's findings again.
  */
@@ -50,7 +51,10 @@ const {
 } = require("./lib/dispatch-ledger.js");
 const hookMessage = require("./lib/hook-message");
 const deliveryStamp = require("./lib/delivery-stamp.js");
-const { isHeldAtBackgroundStart } = require("./lib/background-start.js");
+const {
+	isFounderNoticeHeld,
+	relayLines,
+} = require("./lib/background-start.js");
 const { localDate } = require("./lib/morning-review.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const loop = require("./lib/refill-loop.js");
@@ -107,6 +111,11 @@ const selectUndelivered = (findings, now) =>
 		localDate(new Date(now)),
 	);
 
+/* A stopped loop launches no job to refresh this report, so a founder start
+ * days later must still show it (#3772), as with repo-checks' daily reading
+ * (spec #1510 §Staleness). */
+const REPORT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
 /**
  * @param {import("./lib/check").Ctx} ctx
  * @param {import("./lib/idle-efforts.js").TrackerFinding[]} findings
@@ -116,6 +125,7 @@ function report(ctx, findings, loopRunning) {
 	if (findings.length === 0) return;
 	for (const { text, nested } of buildIdleLines(findings, loopRunning))
 		ctx.say(nested ? `  ${text}` : text);
+	for (const line of relayLines(ctx.notify)) ctx.say(line);
 	for (const r of buildFindingRecords(findings))
 		ctx.warn(r.code, r.text, r.data);
 }
@@ -195,10 +205,11 @@ const SPEC = {
 		report(ctx, unseen, loopRead.running);
 		/* After the report is out, so a run killed between repeats rather than
 		 * swallows it. */
-		if (signature !== null && !isHeldAtBackgroundStart(CHECKER))
+		if (signature !== null && !isFounderNoticeHeld(CHECKER))
 			deliveryStamp.markDelivered(ctx, CHECKER, signature);
 		return {
 			...(signature !== null && { stamp: signature }),
+			maxAgeMs: REPORT_MAX_AGE_MS,
 			okLine: `no effort idle past ${IDLE_DAYS} days.`,
 			noun: "tracker(s) with idle efforts or unread",
 			data: { loopRunning: loopRead.running, trackers: findings },

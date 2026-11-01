@@ -13,7 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { startEnv } from "./lib/background-start-testkit";
+import { startEnv, writeJobRecord } from "./lib/background-start-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "check-refill-loop-stop.js");
@@ -190,6 +190,22 @@ describe("at session start (--notify)", () => {
 		expect(r.stdout).toBe("");
 		expect(run(["--notify"]).stdout).toContain("REFILL-LOOP-STOPPED");
 		expect(run(["--notify"]).stdout).toBe("");
+	});
+
+	it("names and spends a stop at a job he launched from the agents view, telling the session to relay it (#3772)", () => {
+		writeState("no-progress");
+		const his = writeJobRecord(path.join(dir, "his"), "claude");
+		const r = run(["--notify"], "startup", his);
+		expect(r.stdout).toContain("REFILL-LOOP-STOPPED");
+		expect(r.stdout).toContain("Tell the founder this in your next reply");
+		expect(run(["--notify"], "startup", his).stdout).toBe("");
+	});
+
+	it("neither names nor spends a stop at a plain `claude --bg` job (#3772)", () => {
+		writeState("no-progress");
+		const loops = writeJobRecord(path.join(dir, "loops"), "bg");
+		expect(run(["--notify"], "startup", loops).stdout).toBe("");
+		expect(run(["--notify"]).stdout).toContain("REFILL-LOOP-STOPPED");
 	});
 
 	it("says nothing of a restart a stop request followed", () => {
