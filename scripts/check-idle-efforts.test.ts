@@ -352,6 +352,22 @@ describe("at session start (--notify, #3644)", () => {
 		expect(fs.existsSync(stampPath())).toBe(true);
 	});
 
+	it("stamps nothing at a resume of his own job, which the loop may have woken, and stamps at its start (#3841)", async () => {
+		Object.assign(
+			process.env,
+			buildStartEnv(writeJobRecord(path.join(dir, "his"), "claude")),
+		);
+		const resume = await run(oneIdle, ["--notify"], "resume");
+		expect(resume.status).toBe(0);
+		expect(resume.stdout).toContain("o/core: 1 idle past 2 days");
+		expect(fs.existsSync(stampPath())).toBe(false);
+
+		const start = await run(oneIdle, ["--notify"], "startup");
+		expect(start.status).toBe(0);
+		expect(start.stdout).toContain("o/core: 1 idle past 2 days");
+		expect(fs.existsSync(stampPath())).toBe(true);
+	});
+
 	describe("under persist mode", () => {
 		beforeEach(() => {
 			process.env.WFC_NOTIFY_PERSIST = "1";
