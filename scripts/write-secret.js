@@ -21,9 +21,9 @@
  * git working tree, is a symlink, lies in a directory others can reach or
  * under one others can write, is not clean UTF-8, is held by another run too
  * long or its lock's path holds no file, holds a line assigning <NAME> it
- * cannot replace, or cannot be written; 2 bad arguments or a value no line
- * can carry. Every refusal leaves the file untouched, and one about
- * the file itself comes before the value is asked for, bar that line, which
+ * cannot replace, or cannot be written; 2 bad arguments, a value no line
+ * can carry or a hidden prompt that ended without one. Every refusal leaves
+ * the file untouched, and one about the file itself comes before the value is asked for, bar that line, which
  * is read only under the lock, and a fault reading or writing it, met at the
  * write.
  *
@@ -107,6 +107,10 @@
  * piped bytes that are not UTF-8, or a U+FFFD or lone surrogate is refused
  * (#3663). The hidden prompt decodes strictly: typed bytes that are not UTF-8
  * get their own refusal naming that cause, never "interrupted" (#3675, #3708).
+ * Input after the line end, as a multi-line paste sends, a control key and a
+ * terminal closing first are each refused by name too, and none reaches the
+ * shell (`lib/read-hidden.js`, #3817). A PEM header alone is refused on either
+ * route, being a key's first line and never a secret.
  *
  * THE UPSERT replaces the value on every line `lib/env-file.js`'s grammar
  * reads as assigning <NAME> (`NAME=`, `export NAME =`), keeping that line's
@@ -159,7 +163,7 @@ const {
 } = require("./lib/env-file.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { emptyWhy } = require("./lib/empty-secret.js");
-const { NOT_UTF8, readHidden } = require("./lib/read-hidden.js");
+const { readHidden } = require("./lib/read-hidden.js");
 const { caught } = require("./lib/caught.js");
 const { SHELL_VAR_NAME } = require("./lib/shell-var-name.js");
 
@@ -770,6 +774,13 @@ function upsertEnv(file, name, raw, fromTerminal) {
 	if (trimmed === "") {
 		return refuse(file, emptyWhy(name, hostRoot(), fromTerminal), 2);
 	}
+	if (/^-----BEGIN [^-]*-----$/.test(trimmed)) {
+		return refuse(
+			file,
+			"the value is only the first line of a PEM key, which one line cannot carry. Re-run and give the whole key base64-encoded onto one line.",
+			2,
+		);
+	}
 	if (parseEnvLine(`${name}=${trimmed}`)?.raw !== trimmed) {
 		return refuse(
 			file,
@@ -950,14 +961,14 @@ function main(argv) {
 			return upsertEnv(file, name, raw, true);
 		},
 		(e) => {
-			writeFd(2, "\n");
-			if (caught(e).message === NOT_UTF8)
-				return refuse(
-					file,
-					"the typed value holds bytes that are not valid UTF-8, as a terminal set to another encoding sends. Set the terminal to UTF-8, then re-run.",
-					2,
-				);
-			return refuse(file, "interrupted. Re-run to enter the value.", 2);
+			try {
+				writeFd(2, "\n");
+				return refuse(file, caught(e).message, 2);
+			} catch (w) {
+				/* A closed terminal takes the refusal's screen with it (#3817). */
+				if (caught(w).code !== "EIO") throw w;
+				return 2;
+			}
 		},
 	);
 }

@@ -408,6 +408,11 @@ describe("write-secret", () => {
 			"the value holds a line break (CR, LF, U+2028 or U+2029), which one line cannot carry. Re-run and give it on one line.",
 		]),
 		[
+			"a PEM header alone (#3817)",
+			"-----BEGIN PRIVATE KEY-----\n",
+			"the value is only the first line of a PEM key, which one line cannot carry. Re-run and give the whole key base64-encoded onto one line.",
+		],
+		[
 			"a value needing quotes that holds a single quote",
 			"it's#mine",
 			"the value holds a single quote as well as #, $, a backtick or a quote at an end, which no .env quoting reads back intact. Store it elsewhere, or rotate to a value without them.",
