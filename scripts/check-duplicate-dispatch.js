@@ -82,6 +82,7 @@ const { fromEnv } = require("./lib/session-id");
 const {
 	DEFAULT_WINDOW_HOURS,
 	issuesIn,
+	buildHeldText,
 	commandOf,
 	entryHolds,
 	readRecentEntries,
@@ -175,7 +176,7 @@ function memberOf(prompt) {
 /**
  * One refused issue. `prompt` is the ledger entry's own, on a `ledger` hit
  * alone: it is what scopes the hit to the members running the same command.
- * @typedef {{issue: number, via: string, detail: string, prompt?: string}} Duplicate
+ * @typedef {{issue: number, via: string, detail: string, prompt?: string, heldUntil?: string}} Duplicate
  */
 
 /**
@@ -337,7 +338,7 @@ function readParentOfIssue(n) {
  * did not, for a member running the entry's command — once per issue and
  * command.
  * @param {number[]} wanted
- * @param {DispatchRecord[]} entries the ledger's entries inside the window
+ * @param {DispatchRecord[]} entries the ledger's entries that hold
  * @param {{members: {command: string | null, issues: number[]}[], seen: Set<number>}} set
  * @returns {Duplicate[]}
  */
@@ -357,7 +358,8 @@ function ledgerDuplicates(wanted, entries, { members, seen }) {
 				issue: n,
 				via: "ledger",
 				prompt: rec.prompt,
-				detail: `launched ${rec.ts} as \`${rec.prompt || "?"}\``,
+				...(rec.heldUntil ? { heldUntil: rec.heldUntil } : {}),
+				detail: `launched ${rec.ts} as \`${rec.prompt || "?"}\`${buildHeldText(rec)}`,
 			});
 		}
 	}
@@ -369,7 +371,7 @@ function ledgerDuplicates(wanted, entries, { members, seen }) {
  * ledger hit drops only the members running its entry's command (#752); any
  * other hit drops every member naming the issue.
  * @param {string[]} prompts one launch prompt per member, in dispatch order
- * @param {{issue: number, via?: string, prompt?: string}[]} duplicates
+ * @param {{issue: number, via?: string, prompt?: string, heldUntil?: string}[]} duplicates
  * @returns {number[]} zero-based indices of the members to drop
  */
 function dropIndices(prompts, duplicates) {

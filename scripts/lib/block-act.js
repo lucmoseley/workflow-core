@@ -166,12 +166,17 @@ const resumedIdle = (block, now) => {
 };
 
 /**
- * Whether a limit hold begun at `heldAt` has outlasted LIMIT_HOLD_BOUND_DAYS.
+ * When a limit hold begun at `heldAt` reaches LIMIT_HOLD_BOUND_DAYS.
+ * @param {number} heldAt ms
+ */
+const holdBoundAt = (heldAt) => heldAt + LIMIT_HOLD_BOUND_DAYS * DAY_MS;
+
+/**
+ * Whether a limit hold begun at `heldAt` has outlasted its bound.
  * @param {number} heldAt ms
  * @param {number} now ms
  */
-const isHeldPastBound = (heldAt, now) =>
-	now - heldAt >= LIMIT_HOLD_BOUND_DAYS * DAY_MS;
+const isHeldPastBound = (heldAt, now) => now >= holdBoundAt(heldAt);
 
 /**
  * Whether a limit-blocked session can leave its hold now: the move pick walks
@@ -246,6 +251,7 @@ module.exports = {
 	RESUME_CAP,
 	blockAct,
 	buildLimitParkWhy,
+	holdBoundAt,
 	nextTryAt,
 	resumeDueAt,
 };

@@ -1967,7 +1967,7 @@ async function stopGhost(io, who, { dir, rec, row }, ceiling) {
 /**
  * The command that re-launches a ghost's intent as it was launched: its model,
  * and `--no-advisor` where it ran with none. `--force` where its own launch is
- * still inside the dispatch ledger's window, which would otherwise refuse it.
+ * still held by the dispatch ledger, which would otherwise refuse it.
  * @param {any} rec  the ghost's job record, as `GhostJob` carries it
  * @param {string} kept  where that record was copied
  */
@@ -2001,7 +2001,7 @@ function buildRedispatchText(rec, kept) {
 		model,
 		shellQuote(intent),
 	];
-	return `Re-dispatch it:\n  ${command.join(" ")}${held ? "\n--force because its own launch is still inside the dispatch ledger's window; it skips the allowance gate too, so read the allowance first (rescue-sessions skill)." : ""}`;
+	return `Re-dispatch it:\n  ${command.join(" ")}${held ? "\n--force because the dispatch ledger still holds its own launch; it skips the allowance gate too, so read the allowance first (rescue-sessions skill)." : ""}`;
 }
 
 /**

@@ -233,6 +233,49 @@ describe("the ledger limb — catches a set whose sessions have finished", () =>
 		expect(r.hits).toEqual([]);
 	});
 
+	describe("a row holding past the window (#3785)", () => {
+		const hoursAgo = (h: number) =>
+			new Date(Date.now() - h * 3600 * 1000).toISOString();
+		const held = (heldUntil: string) => ({
+			ts: hoursAgo(7),
+			issues: [833],
+			prompt: "/implement 833",
+			jobId: "job42",
+			heldUntil,
+		});
+		const verdictOn = (rows: object[]) => {
+			writeLedger(rows);
+			return verdict("833", ["--window-hours", "1"]);
+		};
+
+		it("refuses its issue, saying why, until its time", () => {
+			const until = hoursAgo(-24);
+			const r = verdictOn([held(until)]);
+			expect(r.status).toBe(1);
+			expect(JSON.stringify(r.hits)).toContain(`held until ${until}`);
+		});
+
+		it("refuses it under any other command too", () => {
+			writeLedger([held(hoursAgo(-24))]);
+			expect(verdict("/triage 833").status).toBe(1);
+		});
+
+		it("permits it once its time has passed", () => {
+			const r = verdictOn([held(hoursAgo(1))]);
+			expect(r.status).toBe(0);
+			expect(r.hits).toEqual([]);
+		});
+
+		it("stays released by a release row itself aged out of the window", () => {
+			const r = verdictOn([
+				held(hoursAgo(-24)),
+				{ ts: hoursAgo(5), released: "job42" },
+			]);
+			expect(r.status).toBe(0);
+			expect(r.hits).toEqual([]);
+		});
+	});
+
 	it("catches an issue that has since CLOSED — what a live check cannot", () => {
 		writeLedger([
 			{ ts: new Date().toISOString(), issues: [565], prompt: "/wayfinder 565" },

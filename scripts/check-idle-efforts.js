@@ -161,10 +161,9 @@ const SPEC = {
 							recent: [],
 						};
 						ledgers.push(ledger);
-						ledger.recent = readRecentEntries(
-							root,
-							DEFAULT_WINDOW_HOURS,
-						).entries.map((e) => e.issues);
+						ledger.recent = readRecentEntries(root, DEFAULT_WINDOW_HOURS)
+							.entries.filter((e) => !e.heldUntil)
+							.map((e) => e.issues);
 					}
 					const issues = await readIssues(repo, now);
 					return { repo, issues, error: null, ledgers };

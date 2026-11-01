@@ -1,8 +1,9 @@
 /*
  * dispatch-ledger.js — `.pick-next/dispatched.jsonl`, the record
  * scripts/dispatch-sessions.sh appends to as each session launches, and the
- * refill loop appends to as it resumes a parked one (#3704) and, as it hands
- * one off, a release row (#2744), ending that launch's hold inside the window.
+ * refill loop appends to as it resumes a parked one (#3704), as it stops one on
+ * its seat's limit, a row holding past the window until released (#3785), and,
+ * as it hands one off or a limit hold ends, a release row (#2744).
  *
  * TWO READERS, ONE SEAM (mantahostels#1528). check-duplicate-dispatch.js drops a set member
  * whose issues are already in here; pick-next.js holds those same issues out of
@@ -92,15 +93,26 @@ function commandOf(prompt) {
 }
 
 /**
+ * @param {{heldUntil?: string}|undefined} rec
+ */
+const buildHeldText = (rec) =>
+	rec?.heldUntil
+		? `, its session stopped on a seat's limit, held until ${rec.heldUntil}`
+		: "";
+
+/**
  * Whether a ledger entry holds its issues against a launch of `command` (#752).
  * The hold keys on issue AND command, so `/wayfinder 34` after `/triage 34`
  * passes and a second `/triage 34` does not. It FAILS TOWARD THE HOLD: an
  * entry or a launch whose command cannot be read — a hand-written
- * prompt, a flat `--issues 341,353` — holds.
- * @param {{prompt?: unknown}|undefined} rec
+ * prompt, a flat `--issues 341,353` — holds. A row with `heldUntil` holds against
+ * every command: its stopped session has work on the issue, and no live limb
+ * sees it (#3785).
+ * @param {{prompt?: unknown, heldUntil?: string}|undefined} rec
  * @param {string|null} command
  */
 function entryHolds(rec, command) {
+	if (rec?.heldUntil) return true;
 	const held = commandOf(rec?.prompt);
 	return held === null || command === null || held === command;
 }
@@ -115,9 +127,11 @@ function entryHolds(rec, command) {
  * `claude stop`/`claude attach` take, or `null` where unknown.
  * @typedef {{ts: string, issues: number[], model: string, prompt: string,
  *            session: string|null, jobId: string|null,
- *            seatReason?: string}} DispatchRecord `seatReason` is why the
- *   launch went on its seat: the refill loop's pick (lib/refill-decide.js's
- *   SeatReason), or `own seat` for a direct dispatch-sessions.sh run (#3732)
+ *            seatReason?: string, heldUntil?: string}} DispatchRecord
+ *   `seatReason` is why the launch went on its seat: the refill loop's pick
+ *   (lib/refill-decide.js's SeatReason), or `own seat` for a direct
+ *   dispatch-sessions.sh run (#3732). `heldUntil` holds its issues to that time
+ *   for a session stopped with no loop left running (#3785)
  */
 
 /**
@@ -128,14 +142,23 @@ function entryHolds(rec, command) {
  */
 
 /**
- * Every row inside the window, launches and releases alike. A malformed line
- * is skipped rather than failing the read (lib/jsonl.js) — the ledger is
- * append-only and a torn write must not disarm every later check.
+ * Whether a row counts whatever the window: a launch before its `heldUntil`,
+ * and any release, as one aged out would revive the held launch it ended.
+ * @param {DispatchRecord|ReleaseRecord} rec
+ * @param {number} now ms
+ */
+const isKeptPastWindow = (rec, now) =>
+	"released" in rec || Date.parse(String(rec.heldUntil)) > now;
+
+/**
+ * Every row inside the window or outlasting it, launches and releases alike. A
+ * malformed line is skipped rather than failing the read (lib/jsonl.js) — the
+ * ledger is append-only and a torn write must not disarm every later check.
  * @param {string|undefined} root
  * @param {number} windowHours
  * @returns {{ok: boolean, rows: (DispatchRecord|ReleaseRecord)[], error?: string}}
  */
-function readWindowRows(root, windowHours) {
+function readCountedRows(root, windowHours) {
 	let read;
 	try {
 		read = readJsonl(ledgerPath(root));
@@ -143,12 +166,15 @@ function readWindowRows(root, windowHours) {
 		return { ok: false, rows: [], error: String(err) };
 	}
 	if (!read) return { ok: true, rows: [] }; // never launched from here: not a failure
-	const cutoff = Date.now() - windowHours * 3600 * 1000;
+	const now = Date.now();
+	const cutoff = now - windowHours * 3600 * 1000;
 	const rows = /** @type {(DispatchRecord|ReleaseRecord)[]} */ ([]);
 	for (const rec of read.rows) {
-		const at = Date.parse(String(rec.ts));
-		if (Number.isNaN(at) || at < cutoff) continue;
-		rows.push(/** @type {DispatchRecord|ReleaseRecord} */ (rec));
+		const row = /** @type {DispatchRecord|ReleaseRecord} */ (rec);
+		const at = Date.parse(String(row.ts));
+		if (Number.isNaN(at) || (at < cutoff && !isKeptPastWindow(row, now)))
+			continue;
+		rows.push(row);
 	}
 	return { ok: true, rows };
 }
@@ -160,7 +186,7 @@ function readWindowRows(root, windowHours) {
 const isLaunch = (rec) => !("released" in rec);
 
 /**
- * Launches inside the window that still hold: a launch a later release row
+ * Launches inside the window or held past it that still hold: a launch a later release row
  * names is dropped. Later is by line, the append order, so an in-place resume
  * that keeps a released job's id holds again (#3722).
  * @param {string|undefined} root
@@ -168,7 +194,7 @@ const isLaunch = (rec) => !("released" in rec);
  * @returns {{ok: boolean, entries: DispatchRecord[], error?: string}}
  */
 function readRecentEntries(root, windowHours) {
-	const { rows, ...read } = readWindowRows(root, windowHours);
+	const { rows, ...read } = readCountedRows(root, windowHours);
 	/** @type {Map<string, number>} each job's last release, by line */
 	const lastRelease = new Map();
 	rows.forEach((r, i) => {
@@ -190,7 +216,7 @@ function readRecentEntries(root, windowHours) {
  * @returns {number|null}
  */
 function readLastLaunchAt(root) {
-	const { rows } = readWindowRows(root, Number.POSITIVE_INFINITY);
+	const { rows } = readCountedRows(root, Number.POSITIVE_INFINITY);
 	return rows
 		.filter(isLaunch)
 		.reduce(
@@ -208,7 +234,7 @@ function readLastLaunchAt(root) {
  * @returns {Map<number, number>}
  */
 function readLaunchTimes(root) {
-	const { ok, rows, error } = readWindowRows(root, Number.POSITIVE_INFINITY);
+	const { ok, rows, error } = readCountedRows(root, Number.POSITIVE_INFINITY);
 	if (!ok) throw new Error(`${ledgerPath(root)} would not read: ${error}`);
 	/** @type {Map<number, number>} */
 	const last = new Map();
@@ -253,7 +279,7 @@ function release(entry) {
 /**
  * `launchedAt` is the launch's epoch ms, from a caller whose own record of the
  * launch reads the same clock; now where absent.
- * @param {{issues: number[], model: string, prompt: string, root?: string, jobId?: string|null, launchedAt?: number, seatReason?: string}} entry
+ * @param {{issues: number[], model: string, prompt: string, root?: string, jobId?: string|null, launchedAt?: number, seatReason?: string, heldUntil?: number}} entry
  * @returns {boolean} whether it was written
  */
 function record(entry) {
@@ -266,6 +292,9 @@ function record(entry) {
 			session: process.env.CLAUDE_CODE_SESSION_ID || null,
 			jobId: entry.jobId || null,
 			...(entry.seatReason ? { seatReason: entry.seatReason } : {}),
+			...(entry.heldUntil === undefined
+				? {}
+				: { heldUntil: new Date(entry.heldUntil).toISOString() }),
 		},
 		entry.launchedAt,
 	);
@@ -276,6 +305,7 @@ module.exports = {
 	ledgerPath,
 	issuesIn,
 	commandOf,
+	buildHeldText,
 	entryHolds,
 	readRecentEntries,
 	readLastLaunchAt,

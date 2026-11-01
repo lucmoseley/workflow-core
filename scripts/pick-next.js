@@ -146,6 +146,7 @@ const { execGit, gitCommonDir, gitOrNull } = require("./lib/git.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
 const {
 	readRecentEntries: recentDispatches,
+	buildHeldText,
 	entryHolds,
 	DEFAULT_WINDOW_HOURS: DISPATCH_WINDOW_HOURS,
 } = require("./lib/dispatch-ledger");
@@ -1202,7 +1203,7 @@ function dispatchAge(rec) {
 	const age = Number.isNaN(at)
 		? "at an unreadable time"
 		: `${Math.max(0, (Date.now() - at) / 3_600_000).toFixed(1)}h ago`;
-	return `${age} — ${rec?.prompt || "prompt not recorded"}`;
+	return `${age}${buildHeldText(rec)} — ${rec?.prompt || "prompt not recorded"}`;
 }
 
 /*

@@ -161,6 +161,22 @@ describe("check-idle-efforts.js", () => {
 		expect(r.out).toContain("WARN:");
 	});
 
+	it("reads a limit hold's row as no running launch, so a stopped loop's held ticket still alarms (#3785)", async () => {
+		checkout("prod", "o/product", [
+			{
+				...launch(8, 3 * DAY),
+				heldUntil: new Date(Date.now() + 5 * DAY).toISOString(),
+			},
+		]);
+		const r = await run({ "o/product": [node(8)] }, ["--json"]);
+		expect(JSON.parse(r.stdout).trackers).toEqual([
+			expect.objectContaining({
+				repo: "o/product",
+				idle: [expect.objectContaining({ number: 8 })],
+			}),
+		]);
+	});
+
 	it("emits the same findings under --json", async () => {
 		checkout("prod", "o/product");
 		const r = await run({ "o/product": [node(8)] }, ["--json"]);

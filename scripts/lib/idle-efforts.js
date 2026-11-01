@@ -104,7 +104,8 @@ const QUERY =
  * @property {string} root the checkout
  * @property {Map<number, number>} launchTimes issue to its last launch, ms
  * @property {number[][]} recent the issues of each launch still in the
- *   ledger's window, so running
+ *   ledger's window, so running; none for a limit hold's row, whose session
+ *   is stopped, and a stopped loop's left to the alarm (#3785)
  */
 
 /**

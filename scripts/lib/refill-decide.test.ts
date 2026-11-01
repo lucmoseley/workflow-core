@@ -488,7 +488,11 @@ describe("decideTick with a limit-held launch (#3735)", () => {
 
 	it("keeps a run on spent seats alive, so the loop can resume it", () => {
 		expect(tick(spent)).toHaveProperty("stop", "allowance");
-		const held = tick({ ...spent, limitHeld: true });
+		expect(tick({ ...spent, limitHeldLines: [] })).toHaveProperty(
+			"stop",
+			"allowance",
+		);
+		const held = tick({ ...spent, limitHeldLines: ["job42 on ~/.claude2"] });
 		expect(held).not.toHaveProperty("stop");
 		expect(held).toMatchObject({
 			launches: [],
@@ -498,8 +502,23 @@ describe("decideTick with a limit-held launch (#3735)", () => {
 
 	it("leaves every other stop standing", () => {
 		expect(
-			tick({ ...spent, limitHeld: true, stopRequested: true }),
+			tick({ ...spent, limitHeldLines: ["job42"], stopRequested: true }),
 		).toHaveProperty("stop", "explicit");
+	});
+
+	it("names each session a stop leaves held (#3785)", () => {
+		expect(
+			tick({
+				...spent,
+				limitHeldLines: ["job42 on ~/.claude2", "job43 on ~/.claude3"],
+				stopRequested: true,
+			}),
+		).toMatchObject({
+			stop: "explicit",
+			detail: expect.stringMatching(
+				/stop was requested; .*next start: job42 on ~\/\.claude2; job43 on ~\/\.claude3$/,
+			),
+		});
 	});
 });
 

@@ -33,7 +33,7 @@ const PARSE = /\bJSON\.parse\b/;
 const EXEMPT = /jsonl-read-exempt:\s*\w/;
 const READER = "scripts/lib/jsonl.js";
 
-const FIX = `read it through readJsonl (a file), parseJsonl (text) or parseJsonlRow (one streamed line) in ${READER}, as scripts/lib/dispatch-ledger.js's readWindowRows does; or mark it \`jsonl-read-exempt: <why>\` where the text is no JSONL (#3452).`;
+const FIX = `read it through readJsonl (a file), parseJsonl (text) or parseJsonlRow (one streamed line) in ${READER}, as scripts/lib/dispatch-ledger.js's readCountedRows does; or mark it \`jsonl-read-exempt: <why>\` where the text is no JSONL (#3452).`;
 
 runHeresyCheck({
 	name: "jsonl-reads",

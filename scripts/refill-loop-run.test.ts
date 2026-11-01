@@ -1543,16 +1543,47 @@ describe("a session held on its seat's limit (#3735)", () => {
 		expect(r.stdout).toContain("state.json reads stopped");
 	});
 
-	it("writes its dispatch-ledger hold again, so a direct dispatch cannot take #7", async () => {
+	it("writes a dispatch-ledger hold past the run, and its stop names the session and seat (#3785)", async () => {
 		seed();
 		weekAt(100);
 		fakeResumeClaude(Job, [LISTED], "", "woke");
 		await oneTick(Run, 1);
+		const { ledgerHeldUntil } = launchState().limitHeld;
+		const heldUntil = new Date(ledgerHeldUntil).toISOString();
 		const rows = readLines(ledgerPath(repo)).map((l) => JSON.parse(l));
 		expect(rows).toEqual([
+			expect.objectContaining({ issues: [7], jobId: Job, heldUntil }),
+		]);
+		expect(readStopped()).toMatchObject({ reason: "explicit" });
+		for (const named of [
+			Job,
+			`on ~/${path.basename(seat)},`,
+			`held from dispatch until ${heldUntil}`,
+		])
+			expect(readStopped().detail).toContain(named);
+	});
+
+	it("swaps its dispatch-ledger hold for an ordinary row once it resumes (#3785)", async () => {
+		seed();
+		const state = JSON.parse(
+			fs.readFileSync(at(".refill-loop-state.json"), "utf8"),
+		);
+		state.launches[0].limitHeld.ledgerHeldUntil = Date.now() + 60 * 60 * 1000;
+		fs.writeFileSync(at(".refill-loop-state.json"), JSON.stringify(state));
+		weekAt(10);
+		fakeResumeClaude(
+			Job,
+			[LISTED],
+			writesWokenRecord(jobFile(), "s-job7"),
+			"woke",
+		);
+		await oneTick(Run, 1);
+		const rows = readLines(ledgerPath(repo)).map((l) => JSON.parse(l));
+		expect(rows).toEqual([
+			expect.objectContaining({ released: Job }),
 			expect.objectContaining({ issues: [7], jobId: Job }),
 		]);
-		expect(launchState().limitHeld.ledgerAt).toEqual(expect.any(Number));
+		expect(rows[1]).not.toHaveProperty("heldUntil");
 	});
 
 	it("stays held and names the failure where state.json reads another session", async () => {

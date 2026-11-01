@@ -13,6 +13,7 @@ const {
 	RESUME_CAP,
 	blockAct,
 	buildLimitParkWhy,
+	holdBoundAt,
 	nextTryAt,
 	resumeDueAt,
 } = require("./block-act.js");
@@ -36,9 +37,6 @@ const ATTACH_ROUTE = "typing into the live session";
 const LIMIT_LOSS_TEXT =
 	"Lost: its in-flight subagents, background tasks and monitors, and the warm prompt cache (one cache rewrite of its context).";
 const FALLBACK_ROUTE = "stop and --bg --resume";
-/* Half the dispatch ledger's hour, so a hold never lapses between ticks;
- * untraced. */
-const LEDGER_RENEW_MS = 30 * 60 * 1000;
 /* The hand-offs of a stopped resumed-idle session tried before the loop gives
  * up on posting it and finishes the launch; untraced. */
 const HAND_OFF_TRIES = 3;
@@ -71,13 +69,14 @@ const PARKED_STATE = "blocked";
  *   limit a seat's reading shows a session stopped on, null where neither bar
  *   read, with its reset as read; from the reading, never the limit's text
  * @typedef {{at: number, sessionId: string, cwd: string, limit: LimitRead,
- *   resumedAt?: number, ledgerAt?: number, failedTries?: number,
+ *   resumedAt?: number, ledgerHeldUntil?: number, failedTries?: number,
  *   movedFrom?: {seat: string,
  *   reason?: import("./refill-decide.js").SeatReason}}}
  *   LimitHeld  a limit-blocked session the loop stopped (#3735): when, the
  *   session and directory its resume runs in, read before the stop, and its
  *   limit, read then, as a reset seat no longer shows it; `resumedAt`, a
- *   resume not yet judged; `ledgerAt`, when its ledger hold was last written;
+ *   resume not yet judged; `ledgerHeldUntil`, when the ledger hold written for
+ *   it ends;
  *   `failedTries`, its failed resumes this hold, which park it at the cap;
  *   `movedFrom`, the seat and reason a move not yet judged left, for a failed
  *   one to go back to
@@ -130,8 +129,9 @@ const PARKED_STATE = "blocked";
  *   keeps transcripts
  * @property {(l: JobLaunch) => {state?: unknown, detail?: unknown}|null}
  *   jobStateOf  its job's state.json, null unread
- * @property {(l: LoopLaunch) => boolean} renewLedgerHold  its dispatch-ledger
- *   hold written again; whether it was
+ * @property {(l: LoopLaunch, until?: number) => boolean} writeLedgerHold  a
+ *   dispatch-ledger row on its issues, held past the window to `until` where
+ *   given; whether it was written
  * @property {(l: JobLaunch) => unknown[]|null} readTimeline  its job's
  *   timeline rows, null unread
  * @property {(l: JobLaunch) => import("./block-cause.js").IdleReading}
@@ -1357,20 +1357,103 @@ function judgeTakenResume(l, io) {
 }
 
 /**
- * `l`, held past the dispatch ledger's window, with its hold written again:
- * its stopped session leaves the listing and its claim unread, so nothing else
- * keeps a direct dispatch off its issues. A write that fails is logged, and
- * the next tick tries again.
+ * `l`, held, with a dispatch-ledger hold written to the hold's bound: its
+ * stopped session leaves the listing and its claim unread, so nothing else
+ * keeps a direct dispatch off its issues, and the hold must outlast the run,
+ * which may end with no tick left to write another (#3785).
+ * Residual: a session the founder resumes by hand while the loop is stopped
+ * keeps its ticket refused, once it ends, until the next `start` or the bound;
+ * `--force` is the way out.
  * @param {LoopLaunch & {limitHeld: LimitHeld}} l
- * @param {LimitTick} seen
+ * @param {BlockIo} io
  * @returns {LoopLaunch}
  */
-function renewLedgerHold(l, { now, io }) {
-	if (now - (l.limitHeld.ledgerAt ?? 0) < LEDGER_RENEW_MS) return l;
-	if (io.renewLedgerHold(l))
-		return { ...l, limitHeld: { ...l.limitHeld, ledgerAt: now } };
-	io.log(`could not renew ${launchName(l)}'s dispatch-ledger hold`);
+function writeLedgerHold(l, io) {
+	if (l.limitHeld.ledgerHeldUntil !== undefined) return l;
+	const until = holdBoundAt(l.limitHeld.at);
+	if (io.writeLedgerHold(l, until))
+		return { ...l, limitHeld: { ...l.limitHeld, ledgerHeldUntil: until } };
+	io.log(`could not write ${launchName(l)}'s dispatch-ledger hold`);
 	return l;
+}
+
+/**
+ * `l` with the ledger state its hold owes: a session stopped holds past the
+ * window; one resumed and unjudged is live and may end while the loop is
+ * stopped, so it gives the hold up (releaseEndedHolds).
+ * @param {LoopLaunch} l
+ * @param {BlockIo} io
+ * @returns {LoopLaunch}
+ */
+function syncLedgerHold(l, io) {
+	if (!isLimitHeld(l)) return l;
+	if (!isResumeUnjudged(l)) return writeLedgerHold(l, io);
+	const { ledgerHeldUntil: _, ...limitHeld } = l.limitHeld;
+	return { ...l, limitHeld };
+}
+
+/**
+ * The job a launch's ledger rows name, which a copy keeps.
+ * @template {string|null} J
+ * @param {{copiedFrom?: string, jobId: J}} l
+ * @returns {string|J}
+ */
+const ledgerJobOf = (l) => l.copiedFrom ?? l.jobId;
+
+/**
+ * @param {LoopLaunch} l
+ * @returns {l is JobLaunch & {limitHeld: LimitHeld & {ledgerHeldUntil: number}}}
+ */
+const isLedgerHolding = (l) =>
+	l.jobId !== null &&
+	l.finishedAt === null &&
+	l.limitHeld?.ledgerHeldUntil !== undefined;
+
+/**
+ * Release the ledger hold of each launch in `before` whose hold ended by
+ * `after`. One whose session runs on takes an ordinary row in its place, so its
+ * ticket has the window any launch has. A release that fails, the ledger
+ * unwritable, is logged and not retried (#3785): its issues wait to the hold's
+ * bound or a `--force`.
+ * @param {LoopLaunch[]} before
+ * @param {LoopLaunch[]} after
+ * @param {Pick<BlockIo, "release"|"writeLedgerHold"|"log">} io
+ */
+function releaseEndedHolds(before, after, io) {
+	const kept = new Set(after.filter(isLedgerHolding).map(ledgerJobOf));
+	const running = new Map(
+		after
+			.filter((l) => l.finishedAt === null && l.parkStopped === undefined)
+			.map((l) => [ledgerJobOf(l), l]),
+	);
+	for (const l of before.filter(isLedgerHolding)) {
+		const job = ledgerJobOf(l);
+		if (kept.has(job)) continue;
+		if (!io.release(l))
+			io.log(
+				`could not release ${launchName(l)}'s dispatch-ledger hold: its issues wait until ${iso(l.limitHeld.ledgerHeldUntil)}`,
+			);
+		const live = running.get(job);
+		if (live && !io.writeLedgerHold(live))
+			io.log(`could not write ${launchName(l)}'s dispatch-ledger row`);
+	}
+}
+
+/**
+ * A held launch for a stop line (#3785): the session, its seat and what its
+ * ticket is open to from now, as nothing judges it until the next `start`.
+ * @param {LoopLaunch & {limitHeld: LimitHeld}} l
+ */
+function buildHeldStopText(l) {
+	const { ledgerHeldUntil: until, limit, resumedAt } = l.limitHeld;
+	const what = `${l.jobId} ${launchName(l)} on ${buildSeatName(l.seat)}`;
+	if (resumedAt !== undefined)
+		return `${what}, resumed at ${iso(resumedAt)} after its ${buildLimitText(limit)}, not yet judged`;
+	return `${what}, stopped at its ${buildLimitText(limit)}, ${
+		until === undefined
+			? "its dispatch-ledger hold unwritten, so a direct dispatch may take its ticket"
+			: `its ticket held from dispatch until ${iso(until)}`
+	}`;
 }
 
 /**
@@ -1535,7 +1618,8 @@ function actOnLimits(launches, mode, seen) {
 	const blocked = blockedIdsOf(seen.agents);
 	const acted = launches.map((l) => {
 		if (!isLimitBlocked(l)) return l;
-		if (isResumeUnjudged(l)) return settleLimitResume(l, seen);
+		if (isResumeUnjudged(l))
+			return syncLedgerHold(settleLimitResume(l, seen), seen.io);
 		const own = moveSeats.find((s) => s.seat === l.seat);
 		if (!own) return parkOffList(l, mode, seen);
 		if (!(blocked.has(l.jobId) || isLimitHeld(l))) return l;
@@ -1551,7 +1635,7 @@ function actOnLimits(launches, mode, seen) {
 		const change = limitWorkingChange(l, out);
 		if (change > 0) slots -= 1;
 		workingChange += change;
-		return isLimitHeld(out) ? renewLedgerHold(out, seen) : out;
+		return syncLedgerHold(out, seen.io);
 	});
 	return { launches: acted, slots, workingChange };
 }
@@ -1611,6 +1695,7 @@ module.exports = {
 	actOnIdle,
 	actOnLimits,
 	buildChildLine,
+	buildHeldStopText,
 	buildLimitText,
 	indented,
 	isHeld,
@@ -1621,7 +1706,9 @@ module.exports = {
 	isSwapHeld,
 	iso,
 	launchName,
+	ledgerJobOf,
 	markParked,
 	nextResumeAt,
+	releaseEndedHolds,
 	unknownNews,
 };

@@ -324,6 +324,8 @@ function readPrintedUsage(seats) {
  * @param {string} seat
  * @param {number} members
  * @param {string} usageText
+ * @returns {{fits: number, why?: undefined, fault?: undefined}
+ *   | {fits: null, why: string, fault: boolean}}
  */
 function readCap(root, seat, members, usageText) {
 	if (root === undefined)
@@ -1021,13 +1023,14 @@ const blockIo = (served) => ({
 	moveSession,
 	removeJobRecord,
 	jobStateOf: readJobRecordOf,
-	renewLedgerHold: (l) =>
+	writeLedgerHold: (l, until) =>
 		recordLaunch({
 			issues: l.issues,
 			model: MODEL,
 			prompt: l.prompt,
 			root: l.root,
-			jobId: l.copiedFrom ?? l.jobId,
+			jobId: blocks.ledgerJobOf(l),
+			heldUntil: until,
 		}),
 	readTimeline: readTimelineOf,
 	idleSince: readIdleSince,
@@ -1039,7 +1042,7 @@ const blockIo = (served) => ({
 	recordParked,
 	comment: commentOn,
 	postHandOff,
-	release: (l) => release({ jobId: l.copiedFrom ?? l.jobId, root: l.root }),
+	release: (l) => release({ jobId: blocks.ledgerJobOf(l), root: l.root }),
 	progressOf: (l) => readProgress(l, served),
 	log,
 });
@@ -1096,6 +1099,19 @@ async function decide(input, scope) {
 const isSeatListRead = (parsed) => parsed !== null && parsed.seats.length > 0;
 
 /**
+ * `actOnLimits`, then the ledger holds it ended released.
+ * @param {import("./refill-loop.js").LoopLaunch[]} before the launches as the last tick left them
+ * @param {Parameters<typeof blocks.actOnLimits>[0]} judged
+ * @param {Parameters<typeof blocks.actOnLimits>[1]} mode
+ * @param {Parameters<typeof blocks.actOnLimits>[2]} seen
+ */
+function actOnLimitsAndRelease(before, judged, mode, seen) {
+	const acted = blocks.actOnLimits(judged, mode, seen);
+	blocks.releaseEndedHolds(before, acted.launches, seen.io);
+	return acted;
+}
+
+/**
  * One tick: its decision and the start it judged against. Under `dryRun`
  * nothing is reaped, launched or written.
  * @param {{dryRun: boolean}} opts
@@ -1147,7 +1163,7 @@ async function tick({ dryRun }) {
 		workingChange: limitChange,
 	} = dryRun
 		? { launches: judged, slots: free, workingChange: 0 }
-		: blocks.actOnLimits(judged, control.scope.mode, {
+		: actOnLimitsAndRelease(state.launches, judged, control.scope.mode, {
 				...seen,
 				typedSeat: typed.seat,
 				readMoveSeats: () =>
@@ -1176,7 +1192,9 @@ async function tick({ dryRun }) {
 		retroBundles: [],
 		running: loop.runningOf(launches),
 		freeSlots: slots,
-		limitHeld: launches.some(blocks.isLimitHeld),
+		limitHeldLines: launches
+			.filter(blocks.isLimitHeld)
+			.map(blocks.buildHeldStopText),
 		lastPromptAt: typed.at,
 		typedSeat: typed.seat,
 		seats,

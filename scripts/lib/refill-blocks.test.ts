@@ -22,12 +22,15 @@ import {
 	actOnIdle,
 	actOnLimits,
 	buildChildLine,
+	buildHeldStopText,
 	isHeld,
 	markParked,
+	releaseEndedHolds,
 	unknownNews,
 } from "./refill-blocks.js";
 import { buildLimitCapText, LIMIT_PARK_CAP } from "./refill-decide.js";
 import { judgedLaunches } from "./refill-loop.js";
+import { buildSeatName } from "./refill-seats.js";
 
 const MIN = 60 * 1000;
 const DAY = 24 * 60 * MIN;
@@ -99,8 +102,8 @@ function fakeIo(over: Partial<BlockIo> = {}) {
 			return null;
 		},
 		jobStateOf: () => ({ state: "working" }),
-		renewLedgerHold: (l) => {
-			calls.push(`ledger ${l.jobId}`);
+		writeLedgerHold: (l, until) => {
+			calls.push(`ledger ${l.jobId} ${until}`);
 			return true;
 		},
 		readTimeline: () => [],
@@ -1693,26 +1696,121 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 				[agent("job42", "blocked")],
 				{ seats },
 			);
-			expect(calls).toContain("ledger job42");
-			expect(launches[0]?.limitHeld).toMatchObject({ ledgerAt: NOW });
+			const until = NOW + LIMIT_HOLD_BOUND_DAYS * DAY;
+			expect(calls).toContain(`ledger job42 ${until}`);
+			expect(launches[0]?.limitHeld).toMatchObject({ ledgerHeldUntil: until });
 		});
 
-		it("is written again only past half its window", () => {
-			const at = (ledgerAt: number) =>
-				held({ limitHeld: { ...LimitHeld, ledgerAt } });
-			expect(limits([at(NOW - 29 * MIN)], [], { seats }).calls).toEqual([]);
-			expect(limits([at(NOW - 30 * MIN)], [], { seats }).calls).toEqual([
-				"ledger job42",
-			]);
+		it("is written once, as it outlasts the run", () => {
+			const written = held({
+				limitHeld: { ...LimitHeld, ledgerHeldUntil: NOW + DAY },
+			});
+			expect(limits([written], [], { seats }).calls).toEqual([]);
 		});
 
 		it("is logged where the write fails, and tried again next tick", () => {
 			const { launches, calls } = limits([held()], [], {
 				seats,
-				io: { renewLedgerHold: () => false },
+				io: { writeLedgerHold: () => false },
 			});
 			expect(logs(calls).join("\n")).toContain("dispatch-ledger hold");
-			expect(launches[0]?.limitHeld).not.toHaveProperty("ledgerAt");
+			expect(launches[0]?.limitHeld).not.toHaveProperty("ledgerHeldUntil");
+		});
+
+		describe("once the hold ends", () => {
+			const holding = held({
+				limitHeld: { ...LimitHeld, ledgerHeldUntil: NOW + DAY },
+			});
+			const released = (
+				after: Launch[],
+				before: Launch[] = [holding],
+				ok = true,
+			) => {
+				const calls: string[] = [];
+				releaseEndedHolds(before, after, {
+					release: (l) => {
+						calls.push(`release ${l.jobId}`);
+						return ok;
+					},
+					writeLedgerHold: (l, until) => {
+						calls.push(`row ${l.jobId} ${until}`);
+						return true;
+					},
+					log: (line) => calls.push(`log ${line}`),
+				});
+				return calls;
+			};
+
+			it("is released on a launch gone off the hold, its running session taking an ordinary row", () => {
+				const { limitHeld: _, ...ended } = holding;
+				expect(released([ended])).toEqual([
+					"release job42",
+					"row job42 undefined",
+				]);
+			});
+
+			it("takes no row where the launch parked or finished", () => {
+				const { limitHeld: _, ...ended } = holding;
+				for (const over of [{ parkStopped: NOW }, { finishedAt: NOW }])
+					expect(released([{ ...ended, ...over }])).toEqual(["release job42"]);
+			});
+
+			it("comes back where a resume that gave it up fails", () => {
+				const unjudged = { ...LimitHeld, resumedAt: NOW - MIN };
+				const failed = limits([held({ limitHeld: unjudged })], [], {
+					io: { jobStateOf: () => ({ state: "failed", detail: "no" }) },
+				});
+				expect(failed.calls).toContain(
+					`ledger job42 ${Since + LIMIT_HOLD_BOUND_DAYS * DAY}`,
+				);
+				expect(failed.launches[0]?.limitHeld).toMatchObject({
+					ledgerHeldUntil: Since + LIMIT_HOLD_BOUND_DAYS * DAY,
+				});
+			});
+
+			it("is kept on one still held, a copy included", () => {
+				expect(released([holding])).toEqual([]);
+				const copy = { ...holding, jobId: "job99", copiedFrom: "job42" };
+				expect(released([copy])).toEqual([]);
+			});
+
+			it("is left alone on one whose hold was never written", () => {
+				const { limitHeld: _, ...ended } = held();
+				expect(released([ended], [held()])).toEqual([]);
+			});
+
+			it("names how long its issues wait where the release fails", () => {
+				const { limitHeld: _, ...ended } = holding;
+				expect(released([ended], [holding], false).join("\n")).toContain(
+					new Date(NOW + DAY).toISOString(),
+				);
+			});
+		});
+	});
+
+	describe("a stop's line for a held launch", () => {
+		const text = (limitHeld: object) =>
+			buildHeldStopText(
+				held({ limitHeld: { ...LimitHeld, ...limitHeld } }) as never,
+			);
+
+		it("names the session, its seat, and how long its ticket is held", () => {
+			const line = text({ ledgerHeldUntil: NOW + DAY });
+			expect(line).toContain("job42");
+			expect(line).toContain(buildSeatName(held().seat));
+			expect(line).toContain(
+				`held from dispatch until ${new Date(NOW + DAY).toISOString()}`,
+			);
+		});
+
+		it("says a session resumed and unjudged is that, not stopped", () => {
+			const line = text({ resumedAt: NOW });
+			expect(line).toContain(`resumed at ${new Date(NOW).toISOString()}`);
+			expect(line).not.toContain("stopped at");
+		});
+
+		it("says a direct dispatch may take the ticket where no hold was written", () => {
+			expect(text({})).toContain("a direct dispatch may take its ticket");
 		});
 	});
 

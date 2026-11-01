@@ -61,7 +61,7 @@ describe("check-jsonl-reads", () => {
 			"2 site(s) hand-parse JSONL: scripts/lib/chained.js:1, scripts/loop.js:2.",
 		);
 		expect(r.out).toContain(
-			"Fix: read it through readJsonl (a file), parseJsonl (text) or parseJsonlRow (one streamed line) in scripts/lib/jsonl.js, as scripts/lib/dispatch-ledger.js's readWindowRows does",
+			"Fix: read it through readJsonl (a file), parseJsonl (text) or parseJsonlRow (one streamed line) in scripts/lib/jsonl.js, as scripts/lib/dispatch-ledger.js's readCountedRows does",
 		);
 	});
 

@@ -148,8 +148,9 @@ const ALREADY_RUNNING = "already running";
  * @property {{root: string, error: string}[]} [failedShortlists]
  * @property {ParkerReading[]} [parkers] each parked frontier row's park
  *   marker the tick found
- * @property {boolean} [limitHeld] a launch waits stopped on its seat's limit,
- *   so spent seats end no run: only a running loop resumes it (#3735)
+ * @property {string[]} [limitHeldLines] each launch waiting stopped on its seat's
+ *   limit, for a stop line to name (#3785): spent seats end no run while any
+ *   waits, as only a running loop resumes it (#3735)
  */
 
 /**
@@ -544,7 +545,7 @@ function stopOf(input, pick) {
 				.map((r) => `${r.root} #${r.issues.join(", #")}`)
 				.join("; ")}`,
 		};
-	if (pick.seat === null && pick.allCut && !input.limitHeld) {
+	if (pick.seat === null && pick.allCut && !input.limitHeldLines?.length) {
 		const { overflow = [] } = input;
 		return {
 			stop: "allowance",
@@ -767,7 +768,13 @@ function fill(
 function decideTick(input) {
 	const pick = pickSeat(input);
 	const stop = stopOf(input, pick);
-	if (stop) return stop;
+	if (stop)
+		return input.limitHeldLines?.length
+			? {
+					...stop,
+					detail: `${stop.detail}; left on a seat's limit, acted on only by the next start: ${input.limitHeldLines.join("; ")}`,
+				}
+			: stop;
 	const present =
 		presenceAt(input.lastPromptAt, new Date(input.now)) === "present";
 	const free = Math.max(0, input.freeSlots - (present ? 1 : 0));
