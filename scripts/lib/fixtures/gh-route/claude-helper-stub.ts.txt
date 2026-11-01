@@ -1,0 +1,15 @@
+function stubOracles(sb: Sandbox) {
+	const dir = path.join(sb.dir, "stubs");
+	const write = <T extends string>(name: T, body: string, at = path.join(sb.dir, "stubs")) => {
+		const mode = () => 0o755;
+		const bin = path.join(at, name);
+		fs.writeFileSync(bin, `#!/bin/sh\n${body}\n`, { mode: mode() });
+		return bin;
+	};
+	process.env.WFC_CLAUDE_BIN = write(
+		// a comment between the call and its name
+		"claude",
+		"exit 0",
+	);
+	process.env.PATH = `${path.join(sb.dir, "stubs")}${path.delimiter}${process.env.PATH}`;
+}
