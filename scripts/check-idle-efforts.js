@@ -63,7 +63,7 @@ const { LONG_STALE_MS } = require("./lib/notify-report");
 const deliveryStamp = require("./lib/delivery-stamp.js");
 const { isFounderNoticeHeld } = require("./lib/background-start.js");
 const { localDate } = require("./lib/morning-review.js");
-const { listParkMarkers } = require("./lib/parked.js");
+const { readParkMarkersOrThrow } = require("./lib/parked.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const loop = require("./lib/refill-loop.js");
 const refillFiles = require("./lib/refill-files.js");
@@ -181,7 +181,7 @@ const buildSpec = (source) => ({
 							.entries.filter((e) => !e.heldUntil)
 							.map((e) => e.issues);
 					}
-					const markers = roots.map(listParkMarkers);
+					const markers = roots.map(readParkMarkersOrThrow);
 					const issues = await readIssues(repo, now);
 					return { repo, issues, error: null, ledgers, markers };
 				} catch (err) {
