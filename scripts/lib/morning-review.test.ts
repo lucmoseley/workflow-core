@@ -12,6 +12,8 @@ const {
 	parseReviewDate,
 	renderReview,
 	buildReviewTitle,
+	closeEdge,
+	parseHistoryCursor,
 	windowStart,
 } = require("./morning-review.js");
 const { basisFaults } = require("./issue-gate.js");
@@ -55,9 +57,10 @@ const concurrencyOver = (ticks: unknown[], minutes: unknown[] | null) => {
 
 const COUNT_LINE =
 	"primitives: 2 enforced, 0 open breaches, 1 new heresies since the last sweep";
+const HEAD = "a".repeat(40);
 const QUIET_PRIMITIVES = {
 	count: { line: COUNT_LINE },
-	history: { commits: [] },
+	history: { commits: [], tip: HEAD, whyByTime: null },
 };
 
 const render = (
@@ -368,7 +371,43 @@ describe("renderReview (#2011)", () => {
 		});
 	});
 
-	it("holds the window to (since, now]: an entry or close at the previous issue's instant is that issue's, one at now is this one's", () => {
+	it("names the newest review's commit for each repo, past a review that could not read it (#3827)", () => {
+		const line = (sha: string, repo: string) =>
+			`Table history read to ${sha.repeat(40)} in ${repo}.`;
+		const reviews = [
+			{ body: "Row changes not read: `git: fatal`.\n" },
+			{ body: `${line("b", "acme/b")}\n${line("c", "acme/a")}\n` },
+			{ body: `${line("d", "acme/a")}\n` },
+		];
+		expect(parseHistoryCursor(reviews, "acme/a")).toBe("c".repeat(40));
+		expect(parseHistoryCursor(reviews, "acme/b")).toBe("b".repeat(40));
+		expect(parseHistoryCursor(reviews, "acme/z")).toBeNull();
+	});
+
+	it("reads back the commit a rendered body read to, and says where it fell back on commit time (#3827)", () => {
+		const body = render([
+			{
+				repo: "acme/a",
+				entries: [],
+				stalls: [],
+				closed: [],
+				primitives: {
+					...QUIET_PRIMITIVES,
+					history: {
+						commits: [],
+						tip: HEAD,
+						whyByTime: "no earlier review read this history",
+					},
+				},
+			},
+		]);
+		expect(parseHistoryCursor([{ body }], "acme/a")).toBe(HEAD);
+		expect(body).toContain(
+			"Found by commit time, as no earlier review read this history: a commit that reached the branch after its window may be missing.",
+		);
+	});
+
+	it("holds entries to (since, now] and closes to the same span 15 minutes behind it: at the start edge is the earlier issue's, at the end edge this one's", () => {
 		const body = render([
 			{
 				repo: "acme/a",
@@ -379,17 +418,21 @@ describe("renderReview (#2011)", () => {
 				],
 				stalls: [],
 				closed: [
-					closed(40, SINCE, "one-way — at since"),
-					closed(41, NOW, "one-way — at now"),
+					closed(40, closeEdge(SINCE), "one-way — at since"),
+					closed(41, closeEdge(NOW), "one-way — at now"),
+					closed(42, NOW, "one-way — not yet settled"),
 				],
 			},
 		]);
 		expect(body).not.toContain("At since");
 		expect(body).toContain("1. acme/a#2 — `At now`");
 		expect(body).not.toContain("After now");
-		expect(body).toContain("1 closed in the window");
+		expect(body).toContain(
+			`1 closed across included repos, ${closeEdge(SINCE)} → ${closeEdge(NOW)}, 15 minutes behind the window`,
+		);
 		expect(body).toContain("acme/a#41 — `Ticket 41` — `at now`");
 		expect(body).not.toContain("acme/a#40");
+		expect(body).not.toContain("acme/a#42");
 	});
 
 	it("lists every one-way close and every still-caught entry uncapped, off each close's last Door line", () => {
@@ -411,7 +454,7 @@ describe("renderReview (#2011)", () => {
 		expect(body).toContain("40. acme/a#139");
 		expect(body.match(/^- acme\/a#\d+ — `Ticket/gm)).toHaveLength(40);
 		expect(body).toContain("- acme/a#139 — `Ticket 139` — `undo 139`");
-		expect(body).toContain("42 closed in the window");
+		expect(body).toContain("42 closed across included repos");
 		expect(body).not.toContain("acme/a#200 —");
 	});
 
@@ -435,7 +478,7 @@ describe("renderReview (#2011)", () => {
 		);
 		expect(body).toContain("## Still-caught delegated decisions\n\nNone");
 		expect(body).toContain("## Clear delegated decisions\n\nNone");
-		expect(body).toContain("1 closed in the window");
+		expect(body).toContain("1 closed across included repos");
 		expect(body).toContain("- acme/c: `HTTP 502`");
 		expect(body).toContain("no previous review issue");
 		expect(body).toContain("comment `reverse <entry number>`");
@@ -653,20 +696,25 @@ describe("primitives (#3465)", () => {
 	const cliRow = "| Reading argv | `cli-args.js` | `b.js` | §0 | `d.js` |";
 	const commit = (
 		sha: string,
-		at: string,
 		[before, after]: [string | null, string | null],
 		side = "local",
-	) => ({ sha, at, side, before, after });
+	) => ({ sha, side, before, after });
 	const repo = (
 		name: string,
-		primitives: unknown,
+		primitives: { count: unknown; history: object },
 		entries: unknown[] = [],
 	) => ({
 		repo: name,
 		entries,
 		stalls: [],
 		closed: [],
-		primitives,
+		primitives: {
+			...primitives,
+			history:
+				"why" in primitives.history
+					? primitives.history
+					: { tip: HEAD, whyByTime: null, ...primitives.history },
+		},
 	});
 	const section = (body: string) =>
 		body.slice(
@@ -680,13 +728,8 @@ describe("primitives (#3465)", () => {
 				count: { line: COUNT_LINE },
 				history: {
 					commits: [
-						commit(
-							"aaa1111",
-							"2026-10-17T08:00:00Z",
-							[null, table(hostRow)],
-							"base",
-						),
-						commit("bbb2222", "2026-10-17T09:00:00Z", [
+						commit("aaa1111", [null, table(hostRow)], "base"),
+						commit("bbb2222", [
 							table(hostRow, cliRow),
 							table(hostRow.replace("`a.js`", "`z.js`").replace("§0", "§N7")),
 						]),
@@ -698,7 +741,7 @@ describe("primitives (#3465)", () => {
 			[
 				"## Primitives",
 				"",
-				"Each repo's count line, then each primitives-table row added, removed or rewritten in the window, with its commit:",
+				"Each repo's count line, then each primitives-table row added, removed or rewritten since the last review's read, with its commit:",
 				"",
 				"### acme/a",
 				"",
@@ -707,6 +750,8 @@ describe("primitives (#3465)", () => {
 				"1. acme/a — base row added: `'hostRoot()'` — job `Finding the host` — aaa1111",
 				"2. acme/a — local row rewritten (Exemplar, Rule): `'hostRoot()'` — job `Finding the host` — bbb2222",
 				"3. acme/a — local row removed: `'cli-args.js'` — job `Reading argv` — bbb2222",
+				"",
+				`Table history read to ${HEAD} in acme/a.`,
 				"",
 				"",
 			].join("\n"),
@@ -719,17 +764,13 @@ describe("primitives (#3465)", () => {
 				count: { line: COUNT_LINE },
 				history: {
 					commits: [
-						commit("ccc3333", "2026-10-16T07:00:00Z", [null, table(hostRow)]),
-						commit("ddd4444", "2026-10-17T08:00:00Z", [
-							table(hostRow),
-							`${table(hostRow)}\nprose\n`,
-						]),
+						commit("ddd4444", [table(hostRow), `${table(hostRow)}\nprose\n`]),
 					],
 				},
 			}),
 		]);
 		expect(section(body)).toContain(
-			`### acme/a\n\n\`${COUNT_LINE}\`\n\nNo row changed in the window.\n`,
+			`### acme/a\n\n\`${COUNT_LINE}\`\n\nNo row changed since the last read.\n\nTable history read to ${HEAD} in acme/a.\n`,
 		);
 		expect(parseEntries(body).size).toBe(0);
 	});
@@ -744,10 +785,7 @@ describe("primitives (#3465)", () => {
 				count: { line: COUNT_LINE },
 				history: {
 					commits: [
-						commit("eee5555", "2026-10-17T08:00:00Z", [
-							table(hostRow),
-							"## Primitives\n\nno table\n",
-						]),
+						commit("eee5555", [table(hostRow), "## Primitives\n\nno table\n"]),
 					],
 				},
 			}),
@@ -765,9 +803,7 @@ describe("primitives (#3465)", () => {
 		const changed = {
 			count: { line: COUNT_LINE },
 			history: {
-				commits: [
-					commit("fff6666", "2026-10-17T08:00:00Z", [null, table(cliRow)]),
-				],
+				commits: [commit("fff6666", [null, table(cliRow)])],
 			},
 		};
 		const body = render([

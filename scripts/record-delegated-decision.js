@@ -17,6 +17,8 @@
  * RE-RUN FINISHES ONLY WHAT IS MISSING: a comment by this account with the
  * same body is not posted again, and a ledger line already keyed to that
  * comment's URL is not appended again.
+ * A ledger line is stamped when appended, not with its comment's time, so a
+ * re-run's line reaches the next morning review rather than a filed one (#3827).
  * A second decision with every field identical on the same ticket is therefore
  * read as the re-run, not recorded twice.
  *
@@ -42,7 +44,7 @@ const io = scriptIo("record-delegated-decision");
  * @param {string} repo
  * @param {number} n
  * @param {string} comment
- * @returns {{url: string, at: string}}
+ * @returns {string} the comment's URL
  */
 function postOnce(repo, n, comment) {
 	let found;
@@ -58,7 +60,7 @@ function postOnce(repo, n, comment) {
 		io.out(
 			`#${n}: this decision's comment is there already — ${found.html_url}\n`,
 		);
-		return { url: found.html_url, at: found.created_at };
+		return found.html_url;
 	}
 	let printed;
 	try {
@@ -79,7 +81,7 @@ function postOnce(repo, n, comment) {
 			1,
 		);
 	io.out(`#${n}: comment posted — ${url}\n`);
-	return { url, at: new Date().toISOString() };
+	return url;
 }
 
 function main() {
@@ -102,7 +104,7 @@ function main() {
 
 	const repo = io.trackerOrFail();
 	const file = decision.ledgerPath();
-	const { url, at } = postOnce(repo, n, decision.renderComment(entry));
+	const url = postOnce(repo, n, decision.renderComment(entry));
 
 	try {
 		if (decision.hasEntry(file, url)) {
@@ -110,7 +112,7 @@ function main() {
 			return;
 		}
 		decision.appendEntry(file, {
-			at,
+			at: new Date().toISOString(),
 			repo,
 			issue: n,
 			comment: url,

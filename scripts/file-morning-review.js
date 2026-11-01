@@ -10,8 +10,8 @@
  *
  * Files on the tracker of the checkout it runs in — the loop runs it in
  * workflow-core's — and reads every repo lib/refill-repos.js includes: each
- * one's delegated-decision ledger, its issues closed in the window with
- * their comments, for the `**Door:**` line, its open stall ticket
+ * one's delegated-decision ledger, its closes (a span 15 minutes behind the
+ * window, lib/morning-review.js's CLOSE_SETTLE_MS) with their comments, for the `**Door:**` line, its open stall ticket
  * (lib/stall-ticket.js, #2692), its open `urgent` issues with each one's
  * timeline and pick-next's last run there (#2693), and its open `parked`
  * issues with each one's timeline (#2725), read only: it never writes or
@@ -27,7 +27,10 @@
  *
  * WINDOW (#3813): `since` is where the previous review's window ended, off its
  * body, and `now` is fixed before this run's reads, so no event falls between two
- * reviews however long a filing runs (lib/morning-review.js's windowStart).
+ * reviews however long a filing runs (lib/morning-review.js's windowStart). That
+ * file's header gives each source's edge for an event readable after this run's
+ * reads (#3827). A repo that does not read loses its closes and decisions for the
+ * window, named in the body (#3831).
  *
  * Files through file-issue.js, so the `takes:` and known-label refusals bind
  * this script as they bind a session: no hook sees a gh call a script makes.
@@ -41,7 +44,8 @@
  * (lib/earlyoom-kills.js), not per repo.
  *
  * PRIMITIVES (#3465): each repo's check-primitives.js count line, and every
- * commit on its HEAD touching either standards file, with the file's text
+ * commit on its default branch since the last review's read touching either
+ * standards file, with the file's text
  * either side, which
  * lib/morning-review.js diffs into row changes.
  *
@@ -123,9 +127,10 @@ const io = scriptIo("file-morning-review");
  * @param {string} root
  * @param {string} since
  * @param {Reads} reads
+ * @param {{body: string}[]} reviews newest first
  * @returns {{reading: import("./lib/morning-review.js").RepoReading | null, unread: Unread[]}}
  */
-function readRepo(root, since, reads) {
+function readRepo(root, since, reads, reviews) {
 	let repo = path.basename(root);
 	try {
 		repo = requireKey("tracker", { root });
@@ -136,14 +141,19 @@ function readRepo(root, since, reads) {
 			"--state",
 			"closed",
 			"--search",
-			`closed:>=${review.searchTime(since)}`,
+			`closed:>=${review.searchTime(review.closeEdge(since))}`,
 			"--json",
 			"number,title,url,closedAt,comments",
 		]);
 		const stalls = readStalls(repo);
 		const urgent = readUrgent(root, repo, reads);
 		const parked = readParked(repo, reads);
-		const primitives = readPrimitives(root, since, reads);
+		const primitives = readPrimitives(
+			root,
+			since,
+			reads,
+			review.parseHistoryCursor(reviews, repo),
+		);
 		return {
 			reading: {
 				repo,
@@ -175,16 +185,17 @@ function readRepo(root, since, reads) {
  * @param {string} root
  * @param {string} since
  * @param {Reads} reads
+ * @param {string | null} cursor the commit an earlier review read to
  * @returns {import("./lib/morning-review.js").PrimitivesReading}
  */
-function readPrimitives(root, since, reads) {
+function readPrimitives(root, since, reads, cursor) {
 	return {
 		count: reads.read(
 			`count-line ${root}`,
 			() => readCountLine(root),
 			(count) => "line" in count,
 		),
-		history: readTableHistory(root, since),
+		history: readTableHistory(root, since, cursor),
 	};
 }
 
@@ -232,17 +243,21 @@ function readEnvelope(script, args, timeout, cwd) {
 	return envelope === null ? { why: missing } : { envelope, missing };
 }
 
-/* A `git log` line: full sha, short sha, commit time, then the parents. */
-const LOG_LINE = /^([0-9a-f]+) ([0-9a-f]+) (\S+) ?([0-9a-f]*)/;
+/* A `git log` line: full sha, short sha, then the parents. */
+const LOG_LINE = /^([0-9a-f]+) ([0-9a-f]+) ?([0-9a-f]*)/;
 
 /**
- * An adopter's history holds no base file, so its base log is empty. A git
+ * The table commits that reached the default branch since `cursor`, however old
+ * their stamps, whichever branch is checked out; HEAD's where the checkout names
+ * no default. With no cursor on it, the commits stamped since `since`, saying
+ * why. An adopter's history holds no base file, so its base log is empty. A git
  * failure is the history's `why`, never read as an absent file (base §N5).
  * @param {string} root
  * @param {string} since
+ * @param {string | null} cursor
  * @returns {import("./lib/morning-review.js").PrimitivesReading["history"]}
  */
-function readTableHistory(root, since) {
+function readTableHistory(root, since, cursor) {
 	/** @param {string[]} args */
 	const git = (args) =>
 		String(
@@ -258,37 +273,63 @@ function readTableHistory(root, since) {
 		git(["ls-tree", "--name-only", rev, "--", file]).trim() === ""
 			? null
 			: git(["show", `${rev}:${file}`]);
+	/* A "no" from git, against a fault: exit 1, or a commit the repo no longer
+	 * holds, which merge-base exits 128 on (#3827). */
+	/** @param {string[]} args */
+	const gitAnswer = (args) => {
+		try {
+			return git(args);
+		} catch (e) {
+			const { status, stderr } =
+				/** @type {{status?: number, stderr?: string}} */ (e);
+			if (status === 1 || /not a valid/i.test(String(stderr))) return null;
+			throw e;
+		}
+	};
 	/** @type {import("./lib/morning-review.js").TableCommit[]} */
 	const commits = [];
 	try {
+		const remoteHead = gitAnswer([
+			"symbolic-ref",
+			"--short",
+			"-q",
+			"refs/remotes/origin/HEAD",
+		]);
+		const branch = remoteHead?.trim().replace(/^origin\//, "") ?? "HEAD";
+		const tip = git(["rev-parse", branch]).trim();
+		const why = review.whyByTime(
+			cursor,
+			cursor !== null &&
+				gitAnswer(["merge-base", "--is-ancestor", cursor, tip]) !== null,
+		);
+		const range =
+			why === null ? [`${cursor}..${tip}`] : [`--since=${since}`, tip];
 		for (const side of /** @type {const} */ (["base", "local"])) {
 			const file = STANDARDS_DOCS[side];
 			const log = git([
 				"log",
 				"--reverse",
-				"--format=%H %h %cI %P",
-				`--since=${since}`,
-				"HEAD",
+				"--format=%H %h %P",
+				...range,
 				"--",
 				file,
 			]);
 			for (const line of log.split("\n").filter(Boolean)) {
 				const m = LOG_LINE.exec(line);
 				if (!m) throw new Error(`unreadable log line: ${line}`);
-				const parent = m[4];
+				const parent = m[3];
 				commits.push({
 					sha: requiredGroup(m, 2, LOG_LINE),
-					at: requiredGroup(m, 3, LOG_LINE),
 					side,
 					before: parent ? textAt(parent, file) : null,
 					after: textAt(requiredGroup(m, 1, LOG_LINE), file),
 				});
 			}
 		}
+		return { commits, tip, whyByTime: why };
 	} catch (e) {
 		return { why: `git: ${parseErrLine(e)}` };
 	}
-	return { commits };
 }
 
 /**
@@ -537,7 +578,7 @@ function fileUnlessFiledToday(tracker, dryRun) {
 
 	const reads = dryRun ? freshReads() : reviewReads(review.localDate(now));
 	const read = discoverRepos(homeDir()).included.map((root) =>
-		readRepo(root, since, reads),
+		readRepo(root, since, reads, reviews),
 	);
 	const body = review.renderReview({
 		since,

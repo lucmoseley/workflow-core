@@ -34,6 +34,47 @@ const localDate = (d: Date) =>
 		.join("-");
 const TODAY = `Morning review — ${localDate(new Date())}`;
 
+/** The fixture checkout as a real git repository with a standards file to commit. */
+function tableRepo() {
+	const root = wfc();
+	fs.rmSync(path.join(root, ".git"), { recursive: true });
+	const git = (args: string[], env: object = {}) =>
+		execFileSync("git", args, {
+			cwd: root,
+			env: {
+				...process.env,
+				GIT_AUTHOR_NAME: "T",
+				GIT_AUTHOR_EMAIL: "t@example.com",
+				GIT_COMMITTER_NAME: "T",
+				GIT_COMMITTER_EMAIL: "t@example.com",
+				...env,
+			},
+			encoding: "utf8",
+		});
+	const table = (...rows: string[]) =>
+		[
+			"# Standards",
+			"",
+			"## Primitives",
+			"",
+			"| Job | Primitive | Exemplar | Rule | Enforcing check |",
+			"|---|---|---|---|---|",
+			...rows,
+			"",
+		].join("\n");
+	const commit = (text: string, at: string) => {
+		fs.mkdirSync(path.join(root, "docs"), { recursive: true });
+		fs.writeFileSync(path.join(root, "docs", "code-standards.md"), text);
+		git(["add", "docs/code-standards.md"]);
+		git(["commit", "-qm", "table", "--date", at], {
+			GIT_COMMITTER_DATE: at,
+		});
+		return git(["rev-parse", "--short", "HEAD"]).trim();
+	};
+	git(["init", "-q"]);
+	return { git, table, commit };
+}
+
 describe("file-morning-review.js (#2011)", () => {
 	it("files today's review once, through file-issue.js, windowed from the previous review issue", () => {
 		seed([
@@ -42,6 +83,7 @@ describe("file-morning-review.js (#2011)", () => {
 				title: "Morning review — 2000-01-01",
 				state: "OPEN",
 				createdAt: ago(24),
+				body: "",
 			},
 		]);
 		const first = run();
@@ -175,42 +217,7 @@ describe("file-morning-review.js (#2011)", () => {
 
 	it("lists the window's primitives-table row changes off the checkout's git history, numbered on from the decisions (#3465)", () => {
 		seed([]);
-		const root = wfc();
-		fs.rmSync(path.join(root, ".git"), { recursive: true });
-		const git = (args: string[], env: object = {}) =>
-			execFileSync("git", args, {
-				cwd: root,
-				env: {
-					...process.env,
-					GIT_AUTHOR_NAME: "T",
-					GIT_AUTHOR_EMAIL: "t@example.com",
-					GIT_COMMITTER_NAME: "T",
-					GIT_COMMITTER_EMAIL: "t@example.com",
-					...env,
-				},
-				encoding: "utf8",
-			});
-		const table = (...rows: string[]) =>
-			[
-				"# Standards",
-				"",
-				"## Primitives",
-				"",
-				"| Job | Primitive | Exemplar | Rule | Enforcing check |",
-				"|---|---|---|---|---|",
-				...rows,
-				"",
-			].join("\n");
-		const commit = (text: string, at: string) => {
-			fs.mkdirSync(path.join(root, "docs"), { recursive: true });
-			fs.writeFileSync(path.join(root, "docs", "code-standards.md"), text);
-			git(["add", "docs/code-standards.md"]);
-			git(["commit", "-qm", "table", "--date", at], {
-				GIT_COMMITTER_DATE: at,
-			});
-			return git(["rev-parse", "--short", "HEAD"]).trim();
-		};
-		git(["init", "-q"]);
+		const { table, commit } = tableRepo();
 		const kept =
 			"| Argv | `cli-args.js` | `a.js` | §0 | Standards axis criterion |";
 		commit(table(kept), ago(30));
@@ -381,6 +388,133 @@ describe("file-morning-review.js (#2011)", () => {
 		expect(dry.status).toBe(0);
 		expect(dry.stdout).not.toContain("a stale count line");
 		expect(fs.readFileSync(readsFile(), "utf8")).toBe(found);
+	});
+
+	describe("an event readable only after a window's reads (#3827)", () => {
+		afterEach(() => vi.useRealTimers());
+		const reviewAt = (at: string) => {
+			vi.useFakeTimers({ toFake: ["Date"], now: new Date(at) });
+			const r = run();
+			vi.useRealTimers();
+			expect(r.status).toBe(0);
+		};
+		const row = (primitive: string) =>
+			`| ${primitive} | \`${primitive}\` | \`a.js\` | §0 | Standards axis criterion |`;
+
+		it("puts a commit stamped before a window's end that reaches HEAD after it in the next review only", () => {
+			seed([]);
+			const { table, commit } = tableRepo();
+			commit(table(row("Old")), "2026-10-10T01:00:00Z");
+			reviewAt("2026-10-10T07:00:00.000Z");
+			const sha = commit(
+				table(row("Old"), row("Late")),
+				"2026-10-10T06:59:00Z",
+			);
+			reviewAt("2026-10-11T07:00:00.000Z");
+			reviewAt("2026-10-12T07:00:00.000Z");
+
+			const created = readCreated();
+			expect(created).toHaveLength(3);
+			expect(created[0].body).not.toContain("Late");
+			expect(created[1].body).toContain(
+				`local row added: \`'Late'\` — job \`Late\` — ${sha}`,
+			);
+			expect(created[2].body).not.toContain("Late");
+		});
+
+		it("reads the default branch's table commits once, whichever branch the checkout is on", () => {
+			seed([]);
+			const { git, table, commit } = tableRepo();
+			git(["checkout", "-q", "-b", "main"]);
+			git([
+				"symbolic-ref",
+				"refs/remotes/origin/HEAD",
+				"refs/remotes/origin/main",
+			]);
+			commit(table(row("Old")), "2026-10-10T01:00:00Z");
+			reviewAt("2026-10-10T07:00:00.000Z");
+			const landed = commit(
+				table(row("Old"), row("Landed")),
+				"2026-10-10T08:00:00Z",
+			);
+			git(["checkout", "-q", "-b", "side", "HEAD~1"]);
+			commit(table(row("Old"), row("Unmerged")), "2026-10-10T09:00:00Z");
+			reviewAt("2026-10-11T07:00:00.000Z");
+			git(["checkout", "-q", "main"]);
+			reviewAt("2026-10-12T07:00:00.000Z");
+
+			const [, onSide, back] = readCreated();
+			expect(onSide.body).toContain(`job \`Landed\` — ${landed}`);
+			expect(onSide.body).not.toContain("Unmerged");
+			expect(back.body).not.toContain("Landed");
+			expect(back.body).not.toContain("Found by commit time");
+		});
+
+		it("falls back on commit time, saying so, where the last review's commit left HEAD", () => {
+			seed([]);
+			const { git, table, commit } = tableRepo();
+			commit(table(row("Old")), "2026-10-10T01:00:00Z");
+			reviewAt("2026-10-10T07:00:00.000Z");
+			git(["commit", "-q", "--amend", "-m", "rewritten"]);
+			reviewAt("2026-10-11T07:00:00.000Z");
+			expect(readCreated()[1].body).toMatch(
+				/Found by commit time, as [0-9a-f]{40}, where the last review read to, is not on the branch read: /,
+			);
+		});
+
+		it("puts a close stamped just before a window's end in the next review only, where the search index missed it", () => {
+			seed([]);
+			const late = {
+				number: 79,
+				title: "Closed as the review read",
+				url: "https://github.com/acme/wfc/issues/79",
+				closedAt: "2026-10-10T06:59:00.000Z",
+				comments: [{ body: "**Door:** one-way — late" }],
+			};
+			fs.writeFileSync(stub("closed.json"), JSON.stringify([]));
+			reviewAt("2026-10-10T07:00:00.000Z");
+			fs.writeFileSync(stub("closed.json"), JSON.stringify([late]));
+			reviewAt("2026-10-11T07:00:00.000Z");
+			reviewAt("2026-10-12T07:00:00.000Z");
+
+			const created = readCreated();
+			expect(created[0].body).not.toContain("acme/wfc#79");
+			expect(created[1].body).toContain("acme/wfc#79");
+			expect(created[2].body).not.toContain("acme/wfc#79");
+		});
+
+		it("puts a ledger line appended after a window's end, for an older comment, in the next review only", () => {
+			seed([]);
+			reviewAt("2026-10-10T07:00:00.000Z");
+			/* The stamp record-delegated-decision.js gives a re-run: its append's. */
+			fs.appendFileSync(
+				path.join(
+					wfc(),
+					".claude",
+					"tmp",
+					"markers",
+					"delegated-decisions.jsonl",
+				),
+				`${JSON.stringify({
+					at: "2026-10-10T08:00:00.000Z",
+					repo: "acme/wfc",
+					issue: 3,
+					comment: "https://github.com/acme/wfc/issues/3#issuecomment-1",
+					question: "Re-run decision",
+					taken: { option: "(A) keep", figure: 52 },
+					runnerUp: { option: "(B) drop", figure: 48 },
+					rungs: { rulings: "none", web: "none", subagent: "none" },
+					stillClose: true,
+					reverse: "drop it",
+				})}\n`,
+			);
+			reviewAt("2026-10-11T07:00:00.000Z");
+			reviewAt("2026-10-12T07:00:00.000Z");
+
+			const created = readCreated();
+			expect(created[1].body).toContain("Re-run decision");
+			expect(created[2].body).not.toContain("Re-run decision");
+		});
 	});
 
 	describe("the window between two reviews (#3813)", () => {

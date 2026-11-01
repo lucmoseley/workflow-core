@@ -7,8 +7,14 @@
  * not a calendar day. Its end is taken before a filing's reads and printed on
  * the issue, so an event during a filing falls in the next window (windowStart,
  * #3813). Both edges are applied here, after the reads, so the reads may
- * over-fetch: an entry or close at `since` belongs to the earlier issue, one at
- * `now` to this.
+ * over-fetch: an entry at `since` belongs to the earlier issue, one at `now` to
+ * this.
+ *
+ * Each source's edge sits where an event is sure to be readable (#3827). A
+ * ledger line is stamped when appended, on the machine that reads it. Closes
+ * run CLOSE_SETTLE_MS behind the window, as they are read off a search index on
+ * GitHub's clock. Row changes take no time edge: each review prints the commit
+ * it read each repo's default branch to, and the next reads on from it.
  *
  * Entry numbers run 1…n across every repo, so `reverse <n>` names one entry;
  * each line links the decision's own comment, which keys its ledger line.
@@ -30,6 +36,12 @@ const { buildIdleLines } = require("./idle-efforts.js");
 
 const TITLE = /^Morning review — (\d{4}-\d{2}-\d{2})$/;
 const WINDOW_LINE = /^Window: \S+ → ([^\s,]+)/m;
+const HISTORY_LINE = /^Table history read to ([0-9a-f]{40}) in (\S+)\.$/gm;
+/* How far closes run behind the window: about 70 times the worst search lag
+ * measured, 12.3 s (#3827), as GitHub publishes no bound and the sample is small.
+ * A guess at the tail. A close slower than this reaches no review; too wide only
+ * moves a close to the next day's. */
+const CLOSE_SETTLE_MS = 15 * 60 * 1000;
 /* An `urgent` older than this is listed as stuck: #2693's figure, a guess,
  * unmeasured. */
 const STUCK_URGENT_DAYS = 7;
@@ -91,6 +103,40 @@ function windowStart(previous, now) {
 }
 
 /**
+ * @param {string} at
+ * @returns {string}
+ */
+const closeEdge = (at) =>
+	new Date(Date.parse(at) - CLOSE_SETTLE_MS).toISOString();
+
+/**
+ * Why a history must be read by commit time, or null where `cursor` serves.
+ * @param {string | null} cursor
+ * @param {boolean} isOnTip whether the branch read holds `cursor`
+ * @returns {string | null}
+ */
+function whyByTime(cursor, isOnTip) {
+	if (cursor === null) return "no earlier review read this history";
+	return isOnTip
+		? null
+		: `${cursor}, where the last review read to, is not on the branch read`;
+}
+
+/**
+ * The commit the newest review that read `repo`'s history read it to. A review
+ * that could not read it prints none, so the next reads on from the one before.
+ * @param {{body: string}[]} reviews newest first
+ * @param {string} repo
+ * @returns {string | null}
+ */
+function parseHistoryCursor(reviews, repo) {
+	for (const { body } of reviews)
+		for (const [, sha, named] of body.matchAll(HISTORY_LINE))
+			if (named === repo) return sha ?? null;
+	return null;
+}
+
+/**
  * The `**Door:**` line of an issue's resolution — the last comment carrying
  * one — when it reads one-way: its text after `one-way`, or null.
  * @param {{body: string}[]} comments oldest first
@@ -120,14 +166,16 @@ function parseOneWayDoor(comments) {
  *   | {appliedAt: null, ageError: string})} ParkedIssue an open issue carrying
  *   `parked`, and when the label was last applied, or why that did not read
  * @typedef {import("./primitives-table.js").Side} Side
- * @typedef {{sha: string, at: string, side: Side, before: string | null,
+ * @typedef {{sha: string, side: Side, before: string | null,
  *   after: string | null}} TableCommit a commit touching a side's standards
  *   file, with the file's text either side of it,
  *   null where absent
  * @typedef {{count: {line: string} | {why: string},
- *   history: {commits: TableCommit[]} | {why: string}}} PrimitivesReading
- *   check-primitives.js's count line, and the commits touching each
- *   standards file the repo's history holds; or why either did not read
+ *   history: {commits: TableCommit[], tip: string, whyByTime: string | null}
+ *   | {why: string}}} PrimitivesReading
+ *   check-primitives.js's count line, and the commits touching each standards
+ *   file up to `tip` that no earlier review read, with why they were found by
+ *   commit time where they were; or why either did not read
  * @typedef {{repo: string, entries: LedgerLine[], closed: ClosedIssue[],
  *   stalls: OpenIssue[], urgent: UrgentIssue[], parked: ParkedIssue[],
  *   primitives: PrimitivesReading}}
@@ -294,48 +342,64 @@ const primitiveLine = (n, repo, { side, sha }, c) =>
 
 /**
  * @param {string} repo
- * @param {PrimitivesReading["history"]} history
- * @param {(at: string) => boolean} inWindow
+ * @param {{commits: TableCommit[]}} history
  * @param {() => number} next the next entry number free
  * @returns {string[]}
  */
-function renderRowChanges(repo, history, inWindow, next) {
+function renderRowChanges(repo, history, next) {
+	return history.commits.flatMap((commit) => {
+		const read = rowChanges(commit.side, commit.before, commit.after);
+		return "unreadable" in read
+			? [
+					`- ${commit.sha}: the ${commit.side} table did not read — ${quoted(read.unreadable)}`,
+				]
+			: read.changes.map((c) => primitiveLine(next(), repo, commit, c));
+	});
+}
+
+/**
+ * @param {string} repo
+ * @param {PrimitivesReading["history"]} history
+ * @param {() => number} next the next entry number free
+ * @returns {string[]}
+ */
+function renderHistoryLines(repo, history, next) {
 	if ("why" in history)
 		return [`Row changes not read: ${quoted(history.why)}.`];
-	return history.commits
-		.filter((commit) => inWindow(commit.at))
-		.flatMap((commit) => {
-			const read = rowChanges(commit.side, commit.before, commit.after);
-			return "unreadable" in read
-				? [
-						`- ${commit.sha}: the ${commit.side} table did not read — ${quoted(read.unreadable)}`,
-					]
-				: read.changes.map((c) => primitiveLine(next(), repo, commit, c));
-		});
+	const changed = renderRowChanges(repo, history, next);
+	return [
+		...(changed.length === 0
+			? ["No row changed since the last read."]
+			: changed),
+		...(history.whyByTime === null
+			? []
+			: [
+					"",
+					`Found by commit time, as ${history.whyByTime}: a commit that reached the branch after its window may be missing.`,
+				]),
+		"",
+		`Table history read to ${history.tip} in ${repo}.`,
+	];
 }
 
 /**
  * The "Primitives" lines.
  * @param {RepoReading[]} repos
- * @param {(at: string) => boolean} inWindow
  * @param {number} first the first entry number free
  * @returns {string[]}
  */
-function renderPrimitivesLines(repos, inWindow, first) {
+function renderPrimitivesLines(repos, first) {
 	let n = first;
-	return repos.flatMap(({ repo, primitives: { count, history } }) => {
-		const changed = renderRowChanges(repo, history, inWindow, () => n++);
-		return [
-			`### ${repo}`,
-			"",
-			"line" in count
-				? quoted(count.line)
-				: `Count line not read: ${quoted(count.why)}.`,
-			"",
-			...(changed.length === 0 ? ["No row changed in the window."] : changed),
-			"",
-		];
-	});
+	return repos.flatMap(({ repo, primitives: { count, history } }) => [
+		`### ${repo}`,
+		"",
+		"line" in count
+			? quoted(count.line)
+			: `Count line not read: ${quoted(count.why)}.`,
+		"",
+		...renderHistoryLines(repo, history, () => n++),
+		"",
+	]);
 }
 
 /**
@@ -354,8 +418,13 @@ function renderReview({
 }) {
 	const lo = Date.parse(since);
 	const hi = Date.parse(now);
-	/** @param {string} at */
-	const inWindow = (at) => Date.parse(at) > lo && Date.parse(at) <= hi;
+	/** @param {string} from @param {string} to */
+	const between = (from, to) => (/** @type {string} */ at) =>
+		Date.parse(at) > Date.parse(from) && Date.parse(at) <= Date.parse(to);
+	const inWindow = between(since, now);
+	const closedFrom = closeEdge(since);
+	const closedTo = closeEdge(now);
+	const isClosedInSpan = between(closedFrom, closedTo);
 
 	const readings = repos.map(({ repo, entries, closed }) => {
 		const decided = entries.filter((e) => inWindow(e.at));
@@ -363,7 +432,7 @@ function renderReview({
 			repo,
 			caught: decided.filter((e) => e.stillClose),
 			clear: decided.filter((e) => !e.stillClose).length,
-			closed: closed.filter((c) => inWindow(c.closedAt)),
+			closed: closed.filter((c) => isClosedInSpan(c.closedAt)),
 		};
 	});
 
@@ -392,7 +461,7 @@ function renderReview({
 	const perRepo = readings.map(
 		(r) =>
 			`- ${r.repo}: ${r.closed.length} — [search](${issueSearch(
-				`repo:${r.repo} is:issue is:closed closed:>=${searchTime(since)}`,
+				`repo:${r.repo} is:issue is:closed closed:>=${searchTime(closedFrom)}`,
 			)})`,
 	);
 	const stuck = repos.flatMap(({ repo, urgent }) =>
@@ -480,18 +549,18 @@ function renderReview({
 		"",
 		"## Primitives",
 		"",
-		"Each repo's count line, then each primitives-table row added, removed or rewritten in the window, with its commit:",
+		"Each repo's count line, then each primitives-table row added, removed or rewritten since the last review's read, with its commit:",
 		"",
-		...renderPrimitivesLines(repos, inWindow, numbered.length + 1),
+		...renderPrimitivesLines(repos, numbered.length + 1),
 		"## Closed tickets",
 		"",
-		`${closedCount} closed in the window across included repos:`,
+		`${closedCount} closed across included repos, ${closedFrom} → ${closedTo}, ${CLOSE_SETTLE_MS / 60_000} minutes behind the window so that GitHub's search holds them:`,
 		"",
 		...perRepo,
 		"",
 		"One-way closes:",
 		"",
-		...(oneWay.length === 0 ? ["None in the window."] : oneWay),
+		...(oneWay.length === 0 ? ["None."] : oneWay),
 		"",
 		"## Stuck urgent",
 		"",
@@ -584,6 +653,9 @@ module.exports = {
 	quoted,
 	renderReview,
 	buildReviewTitle,
+	closeEdge,
+	parseHistoryCursor,
+	whyByTime,
 	windowStart,
 	searchTime,
 };

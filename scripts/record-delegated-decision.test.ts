@@ -13,7 +13,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { freshSandbox } from "./lib/arbiter-testkit";
 import { stubGhScript } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
@@ -218,13 +218,15 @@ describe("a failed write", () => {
 		expect(readPosted()).toHaveLength(1);
 
 		fs.rmSync(ledger(), { recursive: true });
-		expect(run().status).toBe(0);
+		const appended = "2026-10-18T05:00:00.000Z";
+		vi.useFakeTimers({ toFake: ["Date"], now: new Date(appended) });
+		const rerun = run();
+		vi.useRealTimers();
+		expect(rerun.status).toBe(0);
 		expect(readPosted()).toHaveLength(1);
-		// The comment's own time, so the line falls in the review window the
-		// comment did.
-		expect(readLedger()).toEqual([
-			expect.objectContaining({ at: "2026-10-18T01:00:00Z" }),
-		]);
+		// Stamped when appended, not with the comment's 01:00, so a review filed
+		// between the two does not swallow the line (#3827).
+		expect(readLedger()).toEqual([expect.objectContaining({ at: appended })]);
 	});
 
 	it("a comment posted with no URL printed names the half-done state", () => {
