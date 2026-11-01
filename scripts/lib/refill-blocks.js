@@ -1027,6 +1027,7 @@ function resumableOf(launches, { agents, io, swapHold }) {
 	}
 	return due.map((l) => ({
 		jobId: l.jobId,
+		seat: l.seat,
 		root: l.root,
 		at: l.swapHeld.at,
 		line: `${l.jobId} ${buildSwapHeldText(l)}`,

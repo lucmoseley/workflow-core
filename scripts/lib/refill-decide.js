@@ -170,9 +170,10 @@ const ALREADY_RUNNING = "already running";
  */
 
 /**
- * A stopped session due back: its launch's job and checkout, when it was
+ * A stopped session due back: its launch's job, seat and checkout, when it was
  * stopped, and its line for a stop to name.
- * @typedef {{jobId: string, root: string, at: number, line: string}} HeldResume
+ * @typedef {{jobId: string, seat: string, root: string, at: number,
+ *   line: string}} HeldResume
  */
 
 /**
@@ -728,7 +729,8 @@ function splitParked(frontier, mode) {
 }
 
 /**
- * `seats` with one launch's fit spent on `seat`, where its cap is sized.
+ * `seats` with one launch's or resume's fit spent on `seat`, where its cap is
+ * sized.
  * @param {SizedSeat[]} seats
  * @param {string} seat
  * @returns {SizedSeat[]}
@@ -737,6 +739,30 @@ const spendSeatFit = (seats, seat) =>
 	seats.map((s) =>
 		s.seat === seat && s.fits !== null ? { ...s, fits: s.fits - 1 } : s,
 	);
+
+/**
+ * The resumes this tick starts, oldest first, up to `slots`, and `seats` with
+ * a fit spent on each one's seat (#3895). One whose seat has no fit left waits
+ * for a later tick. Only the cap holds it, not a full bar as a parked row: it
+ * was running on that seat, and a limit it meets there moves it (#3735). A seat
+ * outside `seats` or unsized has no cap to charge.
+ * @param {TickInput} input
+ * @param {number} slots
+ */
+function takeResumes({ resumable = [], holds, seats }, slots) {
+	const stopped = buildProbeHeldRoots(holds);
+	/** @type {HeldResume[]} */
+	const resumes = [];
+	let seatsLeft = seats;
+	for (const r of resumable.toSorted((a, b) => a.at - b.at)) {
+		if (resumes.length >= slots) break;
+		const onCap = seatsLeft.find((s) => s.seat === r.seat)?.fits === 0;
+		if (stopped.has(r.root) || onCap) continue;
+		resumes.push(r);
+		seatsLeft = spendSeatFit(seatsLeft, r.seat);
+	}
+	return { resumes, seatsLeft };
+}
 
 /**
  * Walk the routed parked rows, then the gate judgements, then the rest of
@@ -929,25 +955,24 @@ function decideUnpaused(input) {
 			present ? "one free slot is kept for the founder" : "no free slot",
 			[],
 		);
-	/* A resume goes back to its own seat, so no seat's wait or cap holds it.
-	 * Residual: the pick seat's cap is not charged for one going back to that
-	 * seat, so the tick's launches and resumes together can pass it. */
-	const stopped = buildProbeHeldRoots(input.holds);
-	const resumes = (input.resumable ?? [])
-		.filter((r) => !stopped.has(r.root))
-		.toSorted((a, b) => a.at - b.at)
-		.slice(0, free);
-	if (pick.seat === null)
+	const { resumes, seatsLeft } = takeResumes(input, free);
+	const launchSlots = free - resumes.length;
+	if (launchSlots === 0) return idleOn(RESUMES_TAKE_SLOTS, resumes);
+	const chargedInput = { ...input, seats: seatsLeft };
+	const launchPick = pickSeat(chargedInput);
+	if (launchPick.seat === null)
 		return idleOn(
-			pick.wait ||
+			launchPick.wait ||
 				(input.limitHeldLines?.length ? LIMIT_HELD_WAIT : RESUME_DUE_WAIT),
 			resumes,
 		);
-	const launchSlots = free - resumes.length;
-	if (launchSlots === 0) return idleOn(RESUMES_TAKE_SLOTS, resumes);
 	/* The cap's fits, so a tick asks no dispatcher call for a member the cap
 	 * would drop: each call launches at least one under 100%. */
-	const out = fill(input, pick, Math.min(pick.fits, launchSlots));
+	const out = fill(
+		chargedInput,
+		launchPick,
+		Math.min(launchPick.fits, launchSlots),
+	);
 	if (out.launches.length > 0) return { ...out, idle: null, held, resumes };
 	const failed = input.failedShortlists ?? [];
 	return {

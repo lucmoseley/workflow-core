@@ -1971,6 +1971,11 @@ process.exit(${handOffExit});\n`,
 
 		it("resumes as far as admission allows, oldest first, the rest on later ticks, none dropped", async () => {
 			seedHeld([10, 30, 20], ["job8", "job9"]);
+			/* Over every tick's slots, so admission alone paces them. */
+			stub(
+				"allowance.js",
+				"process.stdout.write(JSON.stringify({ cap: { launch: 9 } }));\n",
+			);
 			const first = await tickUntil(2, () => readResumedCount() === 2);
 			expect(first.status).toBe(0);
 			expect(readLines(at("calls"))).toEqual([
@@ -1986,6 +1991,34 @@ process.exit(${handOffExit});\n`,
 			expect(last.status).toBe(0);
 			expect(readLines(at("calls")).at(-1)).toBe(resumeOf("s-job7"));
 			expect(readStillHeld()).toEqual([]);
+		});
+
+		it("holds resumes on a seat behind the first to that seat's own cap (#3895)", async () => {
+			seedHeld([10, 20], ["job8"]);
+			const seat2 = at("seat2");
+			fs.mkdirSync(seat2, { recursive: true });
+			fs.writeFileSync(
+				path.join(seat2, ".claude.json"),
+				JSON.stringify(buildUsageCache({ session: 10, week: 10 }, Date.now())),
+			);
+			const control = at(".refill-loop-control.json");
+			fs.writeFileSync(
+				control,
+				JSON.stringify({
+					...JSON.parse(fs.readFileSync(control, "utf8")),
+					seats: [seat, seat2],
+				}),
+			);
+			const state = readState();
+			state.launches = state.launches.map((l: object) => ({
+				...l,
+				seat: seat2,
+			}));
+			fs.writeFileSync(at(".refill-loop-state.json"), JSON.stringify(state));
+			const r = await tickUntil(2, () => readResumedCount() === 1);
+			expect(r.status).toBe(0);
+			expect(readLines(at("calls"))).toEqual([resumeOf("s-job8")]);
+			expect(r.stdout).toMatch(/resumed 1 of 2 due/);
 		});
 
 		it("waits on a resume the per-member re-read refuses, its tries untouched", async () => {

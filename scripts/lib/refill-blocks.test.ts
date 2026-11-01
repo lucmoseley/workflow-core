@@ -923,6 +923,12 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 				},
 			});
 
+		it("carries each due session's seat, for the decision to charge (#3895)", () => {
+			expect(resumeDue([held()]).due).toMatchObject([
+				{ jobId: "job42", seat: "/home/u/.claude3" },
+			]);
+		});
+
 		it("finds nothing due while the hold binds", () => {
 			const { io } = fakeIo();
 			expect(
