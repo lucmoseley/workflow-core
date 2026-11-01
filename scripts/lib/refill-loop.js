@@ -131,8 +131,15 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  *   alarm (#3680)
  * @property {string|null} reviewRunOn machine-local date of the last morning
  *   review filing
+ * @property {LaunchCount|null} launchCount
  * @property {import("./overflow-notice.js").OverflowStart|null} overflowStart
  *   the newest first overflow launch after a plan-seat launch
+ */
+
+/**
+ * The launches since `from`, the control's noProgressFrom, which outlast the
+ * rows keptLaunches trims (#3889).
+ * @typedef {{from: number, count: number}} LaunchCount
  */
 
 /**
@@ -291,6 +298,12 @@ function parseLastTick(raw) {
 	return { at: raw.at, summary: raw.summary, skipped };
 }
 
+/** @param {unknown} raw @returns {LaunchCount|null} */
+const parseLaunchCount = (raw) =>
+	isRecord(raw) && typeof raw.from === "number" && typeof raw.count === "number"
+		? { from: raw.from, count: raw.count }
+		: null;
+
 /** @param {unknown} raw @returns {LoopState} */
 function parseState(raw) {
 	const r = isRecord(raw) ? raw : {};
@@ -300,6 +313,7 @@ function parseState(raw) {
 		stopped: parseStopped(r.stopped),
 		held: Array.isArray(r.held) ? r.held.filter(isHold) : [],
 		reviewRunOn: typeof r.reviewRunOn === "string" ? r.reviewRunOn : null,
+		launchCount: parseLaunchCount(r.launchCount),
 		overflowStart: parseOverflowStart(r.overflowStart),
 	};
 }
@@ -695,6 +709,19 @@ function keptLaunches(launches) {
 	);
 	return launches.filter((l) => isLive(l) || capped.has(l));
 }
+
+/**
+ * How many launches the loop made since `from`, the control's noProgressFrom:
+ * the stored count from there, else the kept rows, for a state with none or a
+ * noProgressFrom since moved. Residual: a state from before the counter seeds it
+ * from rows already trimmed, so a run crossing this change undercounts.
+ * @param {Pick<LoopState, "launches"|"launchCount">} state
+ * @param {number} from
+ */
+const launchesSince = ({ launches, launchCount }, from) =>
+	launchCount?.from === from
+		? launchCount.count
+		: launches.filter((l) => l.launchedAt >= from).length;
 
 /**
  * The launches with `sessionId` taken from the listing for each that has none
@@ -1132,6 +1159,11 @@ function settleTick({ input, decision, state, judged, probes, read }, io) {
 				? state.held
 				: holdsOf(decision.held, state.held, input.now, input.mode),
 		reviewRunOn: state.reviewRunOn,
+		launchCount: {
+			from: input.noProgressFrom,
+			count:
+				launchesSince(state, input.noProgressFrom) + outcome.launched.length,
+		},
 		overflowStart: overflowStart ?? state.overflowStart,
 	};
 	io.writeState(next);
@@ -1211,6 +1243,7 @@ module.exports = {
 	seatReadingOf,
 	settleTick,
 	readSizedSeats,
+	launchesSince,
 	parseState,
 	stopNeverStarted,
 	summaryOf,

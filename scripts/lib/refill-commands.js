@@ -28,7 +28,11 @@ const {
 	pickSeat,
 	seatHold,
 } = require("./refill-decide.js");
-const { buildSeatText, buildSkipText } = require("./refill-loop.js");
+const {
+	buildSeatText,
+	buildSkipText,
+	launchesSince,
+} = require("./refill-loop.js");
 const { buildSeatName } = require("./refill-seats.js");
 
 /* Untraced. */
@@ -381,9 +385,7 @@ function shownLaunches(control, state) {
 function buildControlLines(control, state, opts) {
 	const lines = [`started:   ${iso(control.noProgressFrom)}`];
 	lines.push(...buildScopeLines(control, opts));
-	const since = state.launches.filter(
-		(l) => l.launchedAt >= control.noProgressFrom,
-	).length;
+	const since = launchesSince(state, control.noProgressFrom);
 	const { shown, listed } = shownLaunches(control, state);
 	const kinds = shown.map(launchKindOf);
 	const running = kinds.filter(

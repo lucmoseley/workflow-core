@@ -21,6 +21,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readAllowance } from "./allowance";
 import { AS_ROOT, freshSandbox, store } from "./arbiter-testkit";
+import { buildStatusLines } from "./refill-commands.js";
 import { decideTick, FULL, hasRoom } from "./refill-decide.js";
 import {
 	actsOf,
@@ -1194,6 +1195,74 @@ describe("the launches a tick keeps (#3621)", () => {
 	];
 	const kept = (past: Launch[]) =>
 		settleOnce(idle("no free slot"), 0, [], { past }).writes[0].launches;
+
+	describe("the launches-since-start count (#3889)", () => {
+		const since = (n: number) =>
+			Array.from({ length: n }, (_, i) =>
+				at(i, { launchedAt: NOW + i, finishedAt: NOW + i + 1 }),
+			);
+		const printed = (state: Tick["state"], noProgressFrom = NOW) =>
+			buildStatusLines({
+				seats: {
+					readings: [],
+					next: null,
+					wait: "every seat is spent",
+					passedOver: [],
+					callerSeat: null,
+				},
+				now: NOW,
+				control: {
+					noProgressFrom,
+					stopRequested: false,
+					seats: [],
+					scope: away([]),
+				},
+				state,
+				pid: 123,
+				served: [],
+			}).find((line) => line.startsWith("launches:"));
+		const settled = (
+			state: Tick["state"],
+			decision: Tick["decision"] = idle("no free slot"),
+		) => settleOnce(decision, 1, [], { state, past: state.launches }).writes[0];
+
+		it("prints the true count past what the trim keeps, across ticks and a launch", () => {
+			const uncounted = parseState({ launches: since(60) });
+			const first = settled(uncounted);
+			expect(first.launches).toHaveLength(50);
+			expect(printed(first)).toContain("launches:  60 since");
+			const second = settled(parseState(JSON.parse(JSON.stringify(first))));
+			expect(printed(second)).toContain("launches:  60 since");
+			const launched = settled(second, {
+				launches: [
+					{
+						root: "/r/wfc",
+						issues: [5],
+						prompt: "/implement 5",
+						model: "opus" as const,
+						seat: "/s",
+						reason: "overflow" as const,
+					},
+				],
+				skipped: [],
+				idle: null,
+				held: [],
+				resumes: [],
+			});
+			expect(printed(launched)).toContain("launches:  61 since");
+		});
+
+		it("reads a state with no counter from its kept rows", () => {
+			expect(printed(parseState({ launches: since(3) }))).toContain(
+				"launches:  3 since",
+			);
+		});
+
+		it("counts from the kept rows again once the start moves", () => {
+			const moved = settled(parseState({ launches: since(60) }));
+			expect(printed(moved, NOW + 55)).toContain("launches:  5 since");
+		});
+	});
 
 	it("keeps the last 50 finished launches, an older park the loop stopped among those dropped (#3709)", () => {
 		const parked = at(1, { parkStopped: 2 });

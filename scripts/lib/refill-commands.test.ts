@@ -96,6 +96,7 @@ describe("what status prints", () => {
 		},
 		held: [],
 		reviewRunOn: null,
+		launchCount: null,
 		overflowStart: null,
 	};
 	const served = [WFC, MH];
@@ -249,6 +250,7 @@ describe("what status prints", () => {
 				stopped: null,
 				held: [],
 				reviewRunOn: null,
+				launchCount: null,
 				overflowStart: null,
 			},
 			pid: null,
@@ -278,6 +280,7 @@ describe("the launch lines status shows (#2850)", () => {
 				stopped: null,
 				held: [],
 				reviewRunOn: null,
+				launchCount: null,
 				overflowStart: null,
 			},
 			pid: 1,
@@ -424,6 +427,7 @@ describe("a launch row's seat and reason (#3732)", () => {
 		stopped: null,
 		held: [],
 		reviewRunOn: null,
+		launchCount: null,
 		overflowStart: null,
 	});
 	const seat = `${process.env.HOME}/.claude2`;
@@ -496,6 +500,7 @@ describe("a handed-off launch (#2659)", () => {
 				stopped: null,
 				held: [],
 				reviewRunOn: null,
+				launchCount: null,
 				overflowStart: null,
 			},
 			pid: 1,
