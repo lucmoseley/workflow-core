@@ -311,6 +311,58 @@ describe("token masking (#1031)", () => {
 		},
 	);
 
+	it.each([
+		["a subscript", (v: string) => `os.environ["AI_GATEWAY_API_KEY"]="${v}"`],
+		["a URL-encoded =", (v: string) => `AI_GATEWAY_API_KEY%3D${v}`],
+		["a label", (v: string) => `AI_GATEWAY_API_KEY: ${v}`],
+		["no name at all", (v: string) => `Authorization: Bearer ${v}`],
+	])("writes no stored value after %s (#3821)", (_name, spell) => {
+		const value = `vck_${"aB3".repeat(16)}`;
+		fs.writeFileSync(
+			path.join(repo, "secrets.env"),
+			`AI_GATEWAY_API_KEY=${value}\n`,
+		);
+		const log = sessionLog([toolResult(spell(value))]);
+		const r = run([log]);
+		expect(r.status).toBe(0);
+		const out = readTranscript(r.stdout).join("\n");
+		expect(out).not.toContain(value);
+		expect(out).toContain("[REDACTED:stored]");
+	});
+
+	it.each([
+		[
+			"a UTF-16 file with its mark",
+			(v: string) =>
+				Buffer.from(`\uFEFFAI_GATEWAY_API_KEY=${v}\r\n`, "utf16le"),
+			"utf16",
+		],
+		[
+			"a UTF-16 file without its mark",
+			(v: string) => Buffer.from(`AI_GATEWAY_API_KEY=${v}\n`, "utf16le"),
+			"utf16",
+		],
+		[
+			"a file holding an invalid UTF-8 byte",
+			(v: string) =>
+				Buffer.concat([
+					Buffer.from(`AI_GATEWAY_API_KEY=${v}\nA=caf`),
+					Buffer.from([0xe9]),
+				]),
+			"invalid",
+		],
+	])("stops before writing a line on %s (#3821)", (_name, bytes, fault) => {
+		const value = `vck_${"aB3".repeat(16)}`;
+		fs.writeFileSync(path.join(repo, "secrets.env"), bytes(value));
+		const log = sessionLog([toolResult(`AI_GATEWAY_API_KEY=${value}`)]);
+		const r = run([log]);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(`secrets.env is not clean UTF-8 (${fault})`);
+		expect(r.stderr).toContain("Re-save it as UTF-8");
+		expect(r.stderr).not.toContain(value);
+		expect(r.stdout).toBe("");
+	});
+
 	it("stops before writing a line where the secrets file is there but unreadable (#3661)", () => {
 		fs.mkdirSync(path.join(repo, "secrets.env"));
 		const log = sessionLog([toolResult("AI_GATEWAY_API_KEY=x")]);
