@@ -29,6 +29,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { caught } = require("./caught.js");
 const { parseErrLine, gh } = require("./gh.js");
 const { markersDir } = require("./marker-root.js");
 const { requiredGroup } = require("./regex-group.js");
@@ -103,6 +104,9 @@ function parseMarker(text) {
 	};
 }
 
+/** @param {string} file */
+const readMarkerFile = (file) => parseMarker(fs.readFileSync(file, "utf8"));
+
 /**
  * This session's marker; no issues and no job where none or unreadable.
  * @param {string} sessionId
@@ -111,7 +115,7 @@ function parseMarker(text) {
  */
 function readParkMarker(sessionId, root) {
 	try {
-		return parseMarker(fs.readFileSync(markerOf(sessionId, root), "utf8"));
+		return readMarkerFile(markerOf(sessionId, root));
 	} catch {
 		/* Fail open (#2000). */
 		return { issues: [], job: null };
@@ -128,39 +132,58 @@ const readParkedBy = (sessionId, root) =>
 
 /**
  * Every session marker in `root`'s checkout that lists an issue, with its
- * session and when it was last written. Throws where the directory will not
- * read, for the idle alarm, which must not read that as no hold (#3840).
+ * session and when it was last written. A marker deleted between the listing
+ * and its read is no park (#3709); `onUnreadable` answers for one that exists
+ * and will not read. Throws where the directory will not read.
  * @param {string} root
+ * @param {(err: unknown) => ParkMarkerRead[]} onUnreadable
  * @returns {ParkMarkerRead[]}
  */
-function listParkMarkers(root) {
+function scanParkMarkers(root, onUnreadable) {
 	const dir = markersDir(root);
 	return fs.readdirSync(dir).flatMap((name) => {
 		if (!name.startsWith(MARKER_PREFIX) || name.startsWith(BLOCKED_PREFIX))
 			return [];
-		const sessionId = name.slice(MARKER_PREFIX.length);
+		const file = path.join(dir, name);
 		try {
-			const writtenAt = fs.statSync(path.join(dir, name)).mtimeMs;
-			const marker = readParkMarker(sessionId, root);
+			const writtenAt = fs.statSync(file).mtimeMs;
+			const marker = readMarkerFile(file);
 			return marker.issues.length > 0
-				? [{ ...marker, sessionId, writtenAt }]
+				? [
+						{
+							...marker,
+							sessionId: name.slice(MARKER_PREFIX.length),
+							writtenAt,
+						},
+					]
 				: [];
-		} catch {
-			/* A marker deleted between the listing and its read: no park
-			 * (#3709). */
-			return [];
+		} catch (err) {
+			return caught(err).code === "ENOENT" ? [] : onUnreadable(err);
 		}
 	});
 }
 
 /**
- * listParkMarkers for the loop; [] where the directory will not read.
+ * The markers for the idle alarm, which must not read a marker or directory
+ * that will not read as no hold (#3840, #3893): either throws.
+ * @param {string} root
+ * @returns {ParkMarkerRead[]}
+ */
+const listParkMarkers = (root) =>
+	scanParkMarkers(root, (err) => {
+		throw err;
+	});
+
+/**
+ * The markers for the loop, leaving out what will not read.
  * @param {string} root
  * @returns {ParkMarkerRead[]}
  */
 function readParkMarkers(root) {
 	try {
-		return listParkMarkers(root);
+		/* One marker that will not read costs only its own row a fresh launch
+		 * (#3893). */
+		return scanParkMarkers(root, () => []);
 	} catch {
 		/* Fail open (#3709): with no marker read, each parked row launches
 		 * afresh, logged as no session recorded. */
