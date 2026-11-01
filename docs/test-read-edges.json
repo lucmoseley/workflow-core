@@ -21937,6 +21937,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/replay-notify-reports.js": [
+			"scripts/check-idle-efforts.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/deliver-to-session.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",

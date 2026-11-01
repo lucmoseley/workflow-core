@@ -26,7 +26,7 @@ import { stubGhScript } from "./lib/gh-stub";
 import { readJsonl } from "./lib/jsonl.js";
 import { writeParkedBy } from "./lib/parked.js";
 import { launchOrResume } from "./lib/refill-batch.js";
-import { runInProcessAsync } from "./lib/run-in-process.js";
+import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-idle-efforts.js");
 const DAY = 24 * 60 * 60 * 1000;
@@ -603,6 +603,35 @@ describe("at session start (--notify, #3644)", () => {
 			const r = await run(nothingIdle, ["--notify"], "compact");
 			expect(r.stdout).toBe("");
 			expect(fs.existsSync(stampPath())).toBe(false);
+		});
+
+		it("prints it again through the real reader the next day, its text unchanged", async () => {
+			process.env.WFC_NOTIFY_PERSIST = "1";
+			const replay = () =>
+				runInProcess(
+					path.join(__dirname, "replay-notify-reports.js"),
+					["--notify"],
+					{
+						cwd: dir,
+						env: { ...process.env, HOME: home, CLAUDE_PROJECT_DIR: dir },
+						stdin: JSON.stringify({
+							hook_event_name: "SessionStart",
+							source: "startup",
+						}),
+					},
+				).stdout;
+			await run(nothingIdle, ["--notify"]);
+			expect(replay()).toContain(STOP_LINE);
+			await run(nothingIdle, ["--notify"]);
+			expect(replay()).not.toContain(STOP_LINE);
+
+			const { seen } = JSON.parse(delivery.readStamp("idle-efforts"));
+			delivery.recordDelivery(
+				"idle-efforts",
+				JSON.stringify({ day: "2000-01-01", seen }),
+			);
+			await run(nothingIdle, ["--notify"]);
+			expect(replay()).toContain(STOP_LINE);
 		});
 
 		it("reaches the persisted report for the reader to stamp", async () => {
