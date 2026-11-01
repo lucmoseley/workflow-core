@@ -3007,20 +3007,161 @@ process.stdout.write("Filed #${Issue}\\n");
 		expect(readFiled()).toHaveLength(1);
 	});
 
+	const setOriginUrl = (url: string) => {
+		const config = dotGit("config");
+		fs.writeFileSync(
+			config,
+			fs.readFileSync(config, "utf8").replace(/url = .*/, `url = ${url}`),
+		);
+	};
+	const breakOrigin = () => setOriginUrl(at("gone"));
+	const repairOrigin = () => setOriginUrl(path.join(repo, ".origin.git"));
+	/* This fixture serves one checkout, so one store. */
+	const outageFile = () =>
+		at(`repo-holds/${fs.readdirSync(at("repo-holds"))[0] ?? ""}/probe.outage`);
+	const ageOutage = (over: { since?: number; last?: number }) =>
+		fs.writeFileSync(
+			outageFile(),
+			JSON.stringify({
+				...JSON.parse(fs.readFileSync(outageFile(), "utf8")),
+				...over,
+			}),
+		);
+
+	describe("an outage (#3899)", () => {
+		const OutageLine = "a hold rises at 15m";
+
+		it("stops launches on each failing tick, raising no hold and filing no issue", async () => {
+			const close = serveClose();
+			breakOrigin();
+
+			for (const _ of [1, 2]) {
+				const { status, stdout } = await tickRun(close.gh);
+
+				expect(status).toBe(0);
+				expect(stdout).toContain(`probe failed in ${repo}: fetch origin:`);
+				expect(stdout).toContain(OutageLine);
+				expect(stdout).not.toContain("repo hold raised");
+			}
+			expect(fs.existsSync(at("dispatches"))).toBe(false);
+			expect(readFiled()).toHaveLength(0);
+			expect(await readStatus()).toContain("holds:     none open");
+		});
+
+		it("reads a git that never answers the same way", async () => {
+			const { status, stdout } = await tickRun(serveClose().gh, {
+				WFC_GIT: at("no-such-git"),
+			});
+
+			expect(status).toBe(0);
+			expect(stdout).toContain(`probe failed in ${repo}: fetch origin:`);
+			expect(stdout).toContain(OutageLine);
+			expect(stdout).not.toContain("repo hold raised");
+			expect(fs.existsSync(at("dispatches"))).toBe(false);
+			expect(readFiled()).toHaveLength(0);
+		});
+
+		it("launches again the tick the fetch passes, with nothing filed", async () => {
+			const close = serveClose();
+			breakOrigin();
+			await tickRun(close.gh);
+			repairOrigin();
+
+			const { stdout } = await tickRun(close.gh);
+
+			expect(stdout).not.toContain("probe failed");
+			expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
+			expect(readFiled()).toHaveLength(0);
+		});
+
+		it("raises the hold and files its issue once it has lasted the window", async () => {
+			const close = serveClose();
+			breakOrigin();
+			await tickRun(close.gh);
+			ageOutage({ since: 0 });
+
+			const { status, stdout } = await tickRun(close.gh);
+
+			expect(status).toBe(0);
+			expect(stdout).toContain("repo hold raised: probe in");
+			expect(readFiled()).toHaveLength(1);
+			expect(await readStatus()).toContain("stops launches: yes");
+		});
+
+		it("begins anew after a fetch that passes", async () => {
+			const close = serveClose();
+			breakOrigin();
+			await tickRun(close.gh);
+			ageOutage({ since: 0 });
+			repairOrigin();
+			await tickRun(close.gh);
+			breakOrigin();
+
+			const { status, stdout } = await tickRun(close.gh);
+
+			expect(status).toBe(0);
+			expect(stdout).toContain(OutageLine);
+			expect(stdout).not.toContain("repo hold raised");
+			expect(readFiled()).toHaveLength(0);
+		});
+
+		it("begins anew where no tick has seen the last one for the window", async () => {
+			const close = serveClose();
+			breakOrigin();
+			await tickRun(close.gh);
+			ageOutage({ since: 0, last: 0 });
+
+			const { status, stdout } = await tickRun(close.gh);
+
+			expect(status).toBe(0);
+			expect(stdout).toContain(OutageLine);
+			expect(stdout).not.toContain("repo hold raised");
+			expect(readFiled()).toHaveLength(0);
+		});
+
+		it("begins anew, logged, on a torn record", async () => {
+			const close = serveClose();
+			breakOrigin();
+			await tickRun(close.gh);
+			fs.writeFileSync(outageFile(), "{ torn");
+
+			const { status, stdout } = await tickRun(close.gh);
+
+			expect(status).toBe(0);
+			expect(stdout).toContain("outage record torn, begun anew:");
+			expect(stdout).toContain(OutageLine);
+			expect(readFiled()).toHaveLength(0);
+		});
+
+		it("raises at once where a ref fails too", async () => {
+			const close = serveClose();
+			breakOrigin();
+			fs.writeFileSync(dotGit("refs/heads/main"), "");
+
+			const { stdout } = await tickRun(close.gh);
+
+			expect(stdout).toContain("repo hold raised: probe in");
+			expect(readFiled()).toHaveLength(1);
+		});
+
+		it("keeps a hold already open, then clears it the tick the fetch passes", async () => {
+			const close = serveClose();
+			const main = fs.readFileSync(dotGit("refs/heads/main"));
+			breakOrigin();
+			fs.writeFileSync(dotGit("refs/heads/main"), "");
+			await tickRun(close.gh);
+			fs.writeFileSync(dotGit("refs/heads/main"), main);
+
+			await tickRun(close.gh);
+			expect(await readStatus()).toContain("stops launches: yes");
+
+			repairOrigin();
+			const { stdout } = await tickRun(close.gh);
+			expect(stdout).toContain("repo hold cleared: probe in");
+		});
+	});
+
 	it.each<[string, () => void, NodeJS.ProcessEnv]>([
-		[
-			"fetch origin:",
-			() => {
-				const config = dotGit("config");
-				fs.writeFileSync(
-					config,
-					fs
-						.readFileSync(config, "utf8")
-						.replace(/url = .*/, `url = ${at("gone")}`),
-				);
-			},
-			{},
-		],
 		[
 			"resolve main:",
 			() => fs.writeFileSync(dotGit("refs/heads/main"), ""),

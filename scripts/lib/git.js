@@ -181,7 +181,8 @@ const HOOK_GIT_TIMEOUT_MS = 3000;
 const GIT_TIMEOUT_MS = 30_000;
 
 /**
- * @typedef {{ ok: true, out: string } | { ok: false, why: string }} GitRead
+ * @typedef {{ ok: true, out: string } | { ok: false, why: string, isUnrun?: true }} GitRead
+ *   `isUnrun`: git never answered, its spawn failing or outliving its time
  * @typedef {(args: string[], noMatch: number[]) => GitRead} GitReader
  */
 
@@ -206,7 +207,7 @@ function gitOutcome(args, noMatch, cwd, timeout = GIT_TIMEOUT_MS) {
 		timeout,
 		stdio: ["ignore", "pipe", "pipe"],
 	});
-	if (r.error) return { ok: false, why: r.error.message };
+	if (r.error) return { ok: false, why: r.error.message, isUnrun: true };
 	if (r.status === 0) return { ok: true, out: String(r.stdout) };
 	if (r.status !== null && noMatch.includes(r.status))
 		return { ok: true, out: "" };

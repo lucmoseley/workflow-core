@@ -22,9 +22,18 @@
  * checkout that fails holds the one `probe` hold its store can hold, under a
  * fixed id, so a raise never makes a second and a torn one is written over. The
  * failing roots are also returned to the tick, which stops launches on them even
- * where no record could be written (#3860). A probe hold's issue is filed once
- * its record stands, and the filing retried each tick; a hand lift of one still
- * failing is raised anew, with a new issue, on the next tick.
+ * where no record could be written (#3860). A ref git says will not resolve
+ * raises the hold on its tick. A failed fetch, or a git that never answered, is
+ * an outage: it reads the same as a network blip or a failed fork, so it stops
+ * launches on its tick and raises the hold only once it has lasted
+ * OUTAGE_HOLD_AFTER_MS, on a file of its own beside the holds (#3899). A probe
+ * hold's issue is filed once its record stands, and the filing retried each tick;
+ * a hand lift of one still failing is raised anew, with a new issue, on the next
+ * tick, unless it now fails as an outage younger than the window.
+ *
+ * RESIDUAL: during an outage's window launches are withheld with no hold to show
+ * for it, so `status` reads no hold open, only the log says why, and no notice is
+ * sent. A hold rises on the first tick past the window, so a tick's gap later.
  *
  * RESIDUAL: a close that fails on a clear is logged and not retried, there being
  * no hold left to retry it from. The issue's body says what to do, and the fetch
@@ -81,6 +90,8 @@ const { moduleReader, resolveKey } = require("./workflow-core-config.js");
  *   and write, the morning review's to read; nothing writes it yet
  *
  * @typedef {(line: string) => void} Log
+ *
+ * @typedef {{text: string, isOutage: boolean}} ProbeFailure
  */
 
 /* Untraced: a clear check runs inside a tick, which it must not hold for long,
@@ -96,6 +107,12 @@ const CLEAR_CHECK_KILL_AFTER_MS = 5000;
 const ID_BYTES = 3;
 
 const PROBE_ID = "probe";
+
+/* How long an outage lasts before it raises a hold, and how long it may go unseen
+ * by any tick and still be one outage. Past the longest in the loop's log, about 7
+ * minutes across two ticks on 29 Oct 2026 (#3899); the margin, about double, is a
+ * guess. */
+const OUTAGE_HOLD_AFTER_MS = 15 * 60_000;
 
 const ID_PATTERN = new RegExp(`^(?:[0-9a-f]+|${PROBE_ID})$`);
 
@@ -487,6 +504,7 @@ function isIssueClosed(hold, issue, log) {
  * landing module off.
  * @param {string} root
  * @param {Log} log
+ * @returns {ProbeFailure|null}
  */
 function readProbeFailure(root, log) {
 	const hasLanding = moduleReader(root, (what, detail) =>
@@ -504,15 +522,31 @@ function readProbeFailure(root, log) {
 			? [{ name: "origin/landing", rev: "refs/remotes/origin/landing" }]
 			: []),
 	];
+	const unresolved = refs.flatMap(({ name, rev }) => {
+		const read = readCommit(gitReader(root), rev);
+		if (!read.ok)
+			return [
+				{
+					text: `resolve ${name}: ${read.why}`,
+					isOutage: read.isUnrun === true,
+				},
+			];
+		return read.sha === null
+			? [{ text: `resolve ${name}: names no commit`, isOutage: false }]
+			: [];
+	});
 	const failed = [
-		...(fetched.ok ? [] : [`fetch origin: ${fetched.why}`]),
-		...refs.flatMap(({ name, rev }) => {
-			const read = readCommit(gitReader(root), rev);
-			if (!read.ok) return [`resolve ${name}: ${read.why}`];
-			return read.sha === null ? [`resolve ${name}: names no commit`] : [];
-		}),
+		...(fetched.ok
+			? []
+			: [{ text: `fetch origin: ${fetched.why}`, isOutage: true }]),
+		...unresolved,
 	];
-	return failed.length > 0 ? failed.join("; ") : null;
+	return failed.length > 0
+		? {
+				text: failed.map((f) => f.text).join("; "),
+				isOutage: failed.every((f) => f.isOutage),
+			}
+		: null;
 }
 
 /**
@@ -544,7 +578,7 @@ function closeProbeIssue(hold, why) {
 
 /**
  * @param {RepoHold} hold
- * @param {(root: string) => string|null} readFailure  the tick's one probe of a
+ * @param {(root: string) => ProbeFailure|null} readFailure  the tick's one probe of a
  *   checkout, shared with its failing-tick raise
  * @param {Log} log
  */
@@ -568,7 +602,7 @@ const readStoreRoots = (roots) => [
  * and costs this hold alone its tick, never the launches (#3857).
  * @param {string} root
  * @param {RepoHold} hold
- * @param {(root: string) => string|null} readFailure  as isCheckPassed's
+ * @param {(root: string) => ProbeFailure|null} readFailure  as isCheckPassed's
  * @param {Log} log
  */
 function settleHold(root, hold, readFailure, log) {
@@ -699,22 +733,78 @@ function fileProbeIssue(root, hold, failure, log) {
 }
 
 /**
+ * An outage's start off its file; `now` where none is there or no tick has seen it
+ * for the window, so a loop stopped for a day does not raise on one blip (#3899). A
+ * torn record, logged, begins it anew, the next tick's write mending it. Any other
+ * failure throws.
+ * @param {string} file
+ * @param {number} now
+ * @param {Log} log
+ */
+function readOutageSince(file, now, log) {
+	try {
+		const { since, last } = JSON.parse(fs.readFileSync(file, "utf8"));
+		return typeof since === "number" &&
+			typeof last === "number" &&
+			now - last <= OUTAGE_HOLD_AFTER_MS
+			? since
+			: now;
+	} catch (err) {
+		if (caught(err).code === "ENOENT") return now;
+		if (!(err instanceof SyntaxError)) throw err;
+		log(`outage record torn, begun anew: ${file}`);
+		return now;
+	}
+}
+
+/**
+ * When `root`'s outage began, advanced to this tick, or dropped where the tick reads
+ * anything else. Its file's name is neither a hold's nor an attach's. A throw is
+ * logged and reads as just begun, the tick stopping launches whatever the store took
+ * (#3899).
+ * @param {string} root
+ * @param {ProbeFailure|null} failure
+ * @param {number} now
+ * @param {Log} log
+ * @returns {number} the outage's start, `now` where there is none
+ */
+function tendOutage(root, failure, now, log) {
+	const file = path.join(holdsDir(root), `${PROBE_ID}.outage`);
+	try {
+		if (!failure?.isOutage) {
+			fs.rmSync(file, { force: true });
+			return now;
+		}
+		const since = readOutageSince(file, now, log);
+		writeFileAtomic(file, JSON.stringify({ since, last: now }), {
+			mkdir: true,
+		});
+		return since;
+	} catch (err) {
+		log(`probe of ${root}: outage record unkept: ${caught(err).message}`);
+		return now;
+	}
+}
+
+/**
  * Raise or keep `root`'s probe hold, and file its issue where it has none. Any
  * throw is logged and fails open on the record alone, the caller stopping
  * launches whatever the store took (#3860).
  * @param {string} root
- * @param {string} failure
+ * @param {{failureText: string, isRaiseDue: boolean}} probed  `isRaiseDue`,
+ *   whether a hold not yet open may be raised
  * @param {number} now
  * @param {Log} log
  */
-function keepProbeHold(root, failure, now, log) {
+function keepProbeHold(root, { failureText, isRaiseDue }, now, log) {
 	try {
 		let hold = readProbeHold(root);
 		if (hold === null) {
+			if (!isRaiseDue) return;
 			hold = raiseHold(root, {
 				id: PROBE_ID,
 				kind: "probe",
-				act: `repair the shared .git: ${failure}`,
+				act: `repair the shared .git: ${failureText}`,
 				issue: null,
 				clearCheck: { probe: true },
 				session: null,
@@ -722,7 +812,7 @@ function keepProbeHold(root, failure, now, log) {
 			});
 			log(buildRaisedLine(hold));
 		}
-		if (hold.issue === null) fileProbeIssue(root, hold, failure, log);
+		if (hold.issue === null) fileProbeIssue(root, hold, failureText, log);
 	} catch (err) {
 		log(`repo hold ${PROBE_ID} in ${root}: not kept: ${caught(err).message}`);
 	}
@@ -740,7 +830,7 @@ function keepProbeHold(root, failure, now, log) {
  * @returns {string[]} the served checkouts whose probe failed
  */
 function tendHolds(roots, served, now, log) {
-	/** @type {Map<string, string|null>} */
+	/** @type {Map<string, ProbeFailure|null>} */
 	const probed = new Map();
 	/** One fetch a checkout a tick, for its hold's check and its probe alike.
 	 * @param {string} root */
@@ -759,9 +849,13 @@ function tendHolds(roots, served, now, log) {
 	}
 	return served.filter((root) => {
 		const failure = readFailure(root);
+		const lasted = now - tendOutage(root, failure, now, log);
 		if (failure === null) return false;
-		log(`probe failed in ${root}: ${failure}`);
-		keepProbeHold(root, failure, now, log);
+		const isRaiseDue = !failure.isOutage || lasted >= OUTAGE_HOLD_AFTER_MS;
+		log(
+			`probe failed in ${root}: ${failure.text}${isRaiseDue ? "" : `; an outage for ${buildAgeText(lasted)}, a hold rises at ${buildAgeText(OUTAGE_HOLD_AFTER_MS)}`}`,
+		);
+		keepProbeHold(root, { failureText: failure.text, isRaiseDue }, now, log);
 		return true;
 	});
 }

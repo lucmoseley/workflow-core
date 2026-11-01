@@ -35,7 +35,7 @@ const PRINTED_CHARS_SHOWN = 80;
  * An exit 1 stands as "no commit" only once `rev-parse --git-dir` answers.
  * @param {GitReader} read
  * @param {string} rev
- * @returns {{ ok: true, sha: string | null } | { ok: false, why: string }}
+ * @returns {{ ok: true, sha: string | null } | { ok: false, why: string, isUnrun?: true }}
  */
 function readCommit(read, rev) {
 	const r = read(["rev-parse", "--verify", "--quiet", `${rev}^{commit}`], [1]);
