@@ -1285,23 +1285,40 @@ function actOnLimit(l, own, seen, { mode, slots, moveSeats }) {
 }
 
 /**
+ * The sessions an act on `l` added to the listing (#3778): one resumed from
+ * held adds one, and one live left held, no resume made, is gone. A live one
+ * stopped and resumed in place adds none.
+ * @param {LoopLaunch} l
+ * @param {LoopLaunch} out
+ * @returns {-1|0|1}
+ */
+function limitWorkingChange(l, out) {
+	if (!isLimitHeld(out)) return 0;
+	const resumed = out.limitHeld.resumedAt !== undefined;
+	if (isLimitHeld(l)) return resumed ? 1 : 0;
+	return resumed ? 0 : -1;
+}
+
+/**
  * The tick's acts on limit-blocked launches, on the seats they read (#3735):
  * each resume made a tick ago judged, then for each on a plan seat its act; one
  * held whose seat has left the loop's list is parked (#3790), so a restart on
  * fewer seats parks each hold on those dropped. A move to another seat is not
  * made here, so that session is held. Each one
  * resumed from held takes a slot, so a seat's reset lets them back only as
- * admission has room. The launches, and the slots left. Nothing off an unread
- * listing, and with none limit-blocked no seat is read.
+ * admission has room. The launches, the slots left, and the net sessions added
+ * to those admission read. Nothing off an unread listing, and with none
+ * limit-blocked no seat is read.
  * @param {LoopLaunch[]} launches
  * @param {"away"|"normal"} mode
  * @param {LimitTick} seen
- * @returns {{launches: LoopLaunch[], slots: number}}
+ * @returns {{launches: LoopLaunch[], slots: number, workingChange: number}}
  */
 function actOnLimits(launches, mode, seen) {
 	let { slots } = seen;
+	let workingChange = 0;
 	if (!seen.agents || !launches.some(isLimitBlocked))
-		return { launches, slots };
+		return { launches, slots, workingChange };
 	const moveSeats = seen.readMoveSeats();
 	const blocked = blockedIdsOf(seen.agents);
 	const acted = launches.map((l) => {
@@ -1311,11 +1328,12 @@ function actOnLimits(launches, mode, seen) {
 		if (!own) return parkOffList(l, mode, seen);
 		if (!(blocked.has(l.jobId) || isLimitHeld(l))) return l;
 		const out = actOnLimit(l, own, seen, { mode, slots, moveSeats });
-		if (isLimitHeld(l) && isLimitHeld(out) && out.limitHeld.resumedAt)
-			slots -= 1;
+		const change = limitWorkingChange(l, out);
+		if (change > 0) slots -= 1;
+		workingChange += change;
 		return isLimitHeld(out) ? renewLedgerHold(out, seen) : out;
 	});
-	return { launches: acted, slots };
+	return { launches: acted, slots, workingChange };
 }
 
 /**

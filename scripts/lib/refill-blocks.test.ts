@@ -1383,7 +1383,78 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 			seatListRead: true,
 			slots: 2,
 		});
-		expect(out.slots).toBe(2);
+		expect(out).toMatchObject({ slots: 2, workingChange: 0 });
+	});
+
+	describe("the tick's working figure (#3778)", () => {
+		const Open = { seats: [planSeat()] };
+		const FailedResume = { resumeStopped: () => ({ failed: "no" }) };
+		const live = [agent("job42", "blocked")];
+		it.each<[string, () => { workingChange: number }, number]>([
+			["a held one resumed adds one", () => limits([held()], [], Open), 1],
+			[
+				"a live one stopped for its limit takes one off",
+				() => limits([blocked()], live, { seats: [fiveHourFull] }),
+				-1,
+			],
+			[
+				"a live one resumed in place moves nothing",
+				() => limits([blocked()], live, Open),
+				0,
+			],
+			[
+				"a held one staying held moves nothing",
+				() => limits([held()], [], { seats: [fiveHourFull] }),
+				0,
+			],
+			[
+				"a held one whose resume failed moves nothing",
+				() =>
+					limits([held()], [], {
+						...Open,
+						io: FailedResume,
+					}),
+				0,
+			],
+			[
+				"a live one whose resume failed after its stop takes one off",
+				() =>
+					limits([blocked()], live, {
+						...Open,
+						io: FailedResume,
+					}),
+				-1,
+			],
+			[
+				"a live one whose stop failed moves nothing",
+				() =>
+					limits([blocked()], live, {
+						seats: [fiveHourFull],
+						io: {
+							stop: () => ({
+								ok: false,
+								why: "no",
+								said: null,
+								timedOut: false,
+								noJob: false,
+							}),
+						},
+					}),
+				0,
+			],
+			[
+				"last tick's resume, judged now, moves nothing",
+				() =>
+					limits(
+						[held({ limitHeld: { ...LimitHeld, resumedAt: NOW - MIN } })],
+						[],
+						Open,
+					),
+				0,
+			],
+		])("%s", (_, run, change) => {
+			expect(run().workingChange).toBe(change);
+		});
 	});
 
 	it("a live one whose resume failed after its stop is held, its target kept", () => {

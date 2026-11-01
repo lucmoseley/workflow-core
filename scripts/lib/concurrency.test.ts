@@ -24,10 +24,10 @@ const unread = () => {
 	throw new Error("read admission over a fresh tick");
 };
 
-/* A tick that launched nothing, the case every test but #3770's reads. */
+/* A tick that moved no session after its read, the case nearly every test reads. */
 const record = (
-	tick: Omit<Parameters<typeof buildTickRecord>[0], "launched">,
-) => buildTickRecord({ ...tick, launched: 0 });
+	tick: Omit<Parameters<typeof buildTickRecord>[0], "workingChange">,
+) => buildTickRecord({ ...tick, workingChange: 0 });
 
 const minute = (ms: number, sessions: number | null) => ({
 	ts: iso(ms),
@@ -603,11 +603,23 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 			input: input({ freeSlots: 2 }),
 			decision: { launches: [{}, {}], skipped: [], idle: null },
 			admission: admission({ slots: 2 }),
-			launched: 2,
+			workingChange: 2,
 		});
 		const { count } = admission().memory.working;
 		expect(r.working).toBe(count + 2);
 		expect(r.ceiling).toBe(count + 2);
+	});
+
+	it("takes a session the tick stopped off working, leaving the ceiling where admission set it (#3778)", () => {
+		const r = buildTickRecord({
+			input: input({ freeSlots: 0 }),
+			decision: { launches: [], skipped: [], idle: null },
+			admission: admission({ slots: 0 }),
+			workingChange: -1,
+		});
+		const { count } = admission().memory.working;
+		expect(r.working).toBe(count - 1);
+		expect(r.ceiling).toBe(count);
 	});
 
 	it("says the last tick filled the free slots, not that one is free, where its launches reached the ceiling (#3770)", () => {
@@ -615,7 +627,7 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 			input: input({ freeSlots: 2 }),
 			decision: { launches: [{}, {}], skipped: [], idle: null },
 			admission: admission({ slots: 2 }),
-			launched: 2,
+			workingChange: 2,
 		});
 		const r = readout({
 			ticks: [tick],

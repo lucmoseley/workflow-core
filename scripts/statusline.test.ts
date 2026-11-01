@@ -98,7 +98,7 @@ const tick = (
 			input: { now: Date.now() - agoMs, freeSlots: 0, lastPromptAt: null },
 			decision,
 			admission: admitted,
-			launched,
+			workingChange: launched,
 		}),
 	)}\n`;
 
