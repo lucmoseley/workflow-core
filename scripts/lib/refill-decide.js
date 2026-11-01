@@ -692,6 +692,17 @@ function splitParked(frontier, mode) {
 }
 
 /**
+ * `seats` with one launch's fit spent on `seat`, where its cap is sized.
+ * @param {SizedSeat[]} seats
+ * @param {string} seat
+ * @returns {SizedSeat[]}
+ */
+const spendSeatFit = (seats, seat) =>
+	seats.map((s) =>
+		s.seat === seat && s.fits !== null ? { ...s, fits: s.fits - 1 } : s,
+	);
+
+/**
  * Walk the routed parked rows, then the gate judgements, then the rest of
  * the ranking, launching up to `slots`. A parked row goes first, its
  * question already waiting on the founder (spec #3623, #3713); one with a
@@ -728,6 +739,9 @@ function fill(
 	const taken = new Set(
 		running.flatMap((r) => r.issues.map((n) => key(r.root, n))),
 	);
+	/* A resume is held to its own seat's cap, which the pick seat's fits does
+	 * not bound where it is another seat (#3872). */
+	let seatsLeft = seats;
 	/**
 	 * @param {string} root @param {number[]} issues @param {string} prompt
 	 * @param {{gate?: boolean, parkedRoute?: Launch["parkedRoute"]}} [kind]
@@ -753,15 +767,18 @@ function fill(
 				? { why: ALREADY_RUNNING }
 				: routedLaunch(
 						row,
-						{ retroBundles, mode, seats, parkers, history },
+						{ retroBundles, mode, seats: seatsLeft, parkers, history },
 						(n) => taken.has(key(row.root, n)),
 					);
-			if ("why" in next)
+			if ("why" in next) {
 				skipped.push({ root: row.root, number: row.number, why: next.why });
-			else
-				launch(row.root, next.issues, next.prompt, {
-					parkedRoute: next.parkedRoute,
-				});
+				continue;
+			}
+			if (next.parkedRoute && "resume" in next.parkedRoute)
+				seatsLeft = spendSeatFit(seatsLeft, next.parkedRoute.resume.seat);
+			launch(row.root, next.issues, next.prompt, {
+				parkedRoute: next.parkedRoute,
+			});
 		}
 	};
 	const queued = new Set(judgements.map((j) => key(j.root, j.number)));

@@ -25,6 +25,7 @@ import {
 	buildHeldStopText,
 	isHeld,
 	markParked,
+	releaseAwayParks,
 	releaseEndedHolds,
 	resumableOf,
 	resumeHeldLaunches,
@@ -1029,6 +1030,51 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 			expect(last.launches[0]).not.toHaveProperty("swapHeld");
 			expect(last.started).toBe(0);
 		});
+	});
+});
+
+describe("releasing an away park's ledger row in normal mode (#3872)", () => {
+	const parkedAway = record({ jobId: "a", parkStopped: NOW, parkedAway: true });
+	const parkedNormal = record({ jobId: "n", parkStopped: NOW });
+	const released = (
+		ok = true,
+		mode: "away" | "normal" = "normal",
+		served = [parkedAway.root],
+	) => {
+		const calls: string[] = [];
+		const out = releaseAwayParks([parkedAway, parkedNormal], mode, served, {
+			release: (l) => {
+				calls.push(`release ${l.jobId}`);
+				return ok;
+			},
+			log: (line) => calls.push(`log ${line}`),
+		});
+		return { out, calls };
+	};
+
+	it("releases only the park away mode made, once, in normal mode", () => {
+		const { out, calls } = released();
+		expect(calls).toEqual(["release a"]);
+		expect(out[0]).not.toHaveProperty("parkedAway");
+		expect(out[1]).toBe(parkedNormal);
+	});
+
+	it("releases none in away mode", () => {
+		const { out, calls } = released(true, "away");
+		expect(calls).toEqual([]);
+		expect(out[0]).toBe(parkedAway);
+	});
+
+	it("releases none in a checkout normal mode does not serve", () => {
+		const { out, calls } = released(true, "normal", ["/elsewhere"]);
+		expect(calls).toEqual([]);
+		expect(out[0]).toBe(parkedAway);
+	});
+
+	it("keeps it due and logs it where the release fails", () => {
+		const { out, calls } = released(false);
+		expect(calls[1]).toContain("could not release");
+		expect(out[0]).toBe(parkedAway);
 	});
 });
 

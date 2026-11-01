@@ -89,7 +89,8 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * A loop launch, as lib/refill-decide.js reads it, plus what the loop needs
  * to judge it. `parked` is the last read listing's word on whether its
  * session waits on a question, and `block` why (lib/block-cause.js, #2699).
- * `parkStopped` is when the loop stopped it for that park. `resumes` counts
+ * `parkStopped` is when the loop stopped it for that park; `parkedAway`, that
+ * away mode did and its ledger row awaits normal mode's release. `resumes` counts
  * the loop's resumes of it after an API error, kept across spells so the cap
  * is the session's (#2705), with when the last was made; `attachAt`, a typed
  * resume not yet seen arrive; `heldAt`, when the loop stopped the session to
@@ -110,7 +111,7 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * @typedef {import("./refill-decide.js").LaunchRecord & {
  *   prompt: string, seat: string, jobId: string|null,
  *   parked?: boolean, block?: import("./block-act.js").Block,
- *   parkStopped?: number, sessionId?: string,
+ *   parkStopped?: number, parkedAway?: boolean, sessionId?: string,
  *   resumes?: import("./refill-blocks.js").Resumes,
  *   idleResumes?: import("./refill-blocks.js").IdleResumes, idleSince?: number,
  *   swapHeld?: import("./refill-blocks.js").SwapHeld,
@@ -882,6 +883,16 @@ function launchUntilStopped(batches, readControl, launch) {
 		const r = launch(batch);
 		outcome.launched.push(...r.launched);
 		outcome.refused.push(...r.refused);
+		const { resumeRefused: reason } = r;
+		if (reason) {
+			outcome.refused.push(
+				...batches
+					.slice(i + 1)
+					.flat()
+					.map((l) => ({ launch: l, reason })),
+			);
+			break;
+		}
 	}
 	return outcome;
 }

@@ -592,7 +592,8 @@ function stopJob(l, io) {
 /**
  * Park `l`, its session stopped: label its issues `parked`, record them in its
  * session's marker and comment its cause on them, since a stopped session's own
- * words may not say why it waits (#2846). `l`, marked `parkStopped`.
+ * words may not say why it waits (#2846). `l`, marked `parkStopped`, and
+ * `parkedAway` in away mode.
  * @param {BlockedLaunch} l
  * @param {ParkWhy} why
  * @param {"away"|"normal"} mode
@@ -612,7 +613,46 @@ function parkOnceStopped(l, why, mode, { now, io }) {
 		l,
 		`Refill loop: ${buildParkStopLine(parking, mode, outcome, { brief: true })}. The conversation is kept: \`claude attach\` reopens it.${outcome.unmarkedWhy ? "" : buildRelaunchEndText(why.limitParks)}`,
 	);
-	return { ...l, parkStopped: now };
+	return {
+		...l,
+		parkStopped: now,
+		...(mode === "away" ? { parkedAway: true } : {}),
+	};
+}
+
+/**
+ * @param {LoopLaunch} l
+ * @returns {l is JobLaunch}
+ */
+const isAwayPark = (l) => l.parkedAway === true && l.jobId !== null;
+
+/**
+ * `launches` once normal mode is live, each stopped for a park in away mode with
+ * its dispatch-ledger row released, so its ticket reaches the frontier now and
+ * not at the window's end (#3872). A park made in normal mode keeps the window:
+ * its session was stopped at a block with the founder there, and an instant
+ * relaunch would meet the same block. A release that fails, the ledger
+ * unwritable, is logged and tried again next tick.
+ * @param {LoopLaunch[]} launches
+ * @param {"away"|"normal"} mode
+ * @param {string[]} served the checkouts this tick can resume in; another's
+ *   row waits, as nothing would take its ticket up
+ * @param {Pick<BlockIo, "release"|"log">} io
+ * @returns {LoopLaunch[]}
+ */
+function releaseAwayParks(launches, mode, served, io) {
+	if (mode !== "normal") return launches;
+	return launches.map((l) => {
+		if (!isAwayPark(l) || !served.includes(l.root)) return l;
+		if (!io.release(l)) {
+			io.log(
+				`could not release ${launchName(l)}'s dispatch-ledger row: its park waits out the window unless a later tick's release takes`,
+			);
+			return l;
+		}
+		const { parkedAway: _, ...released } = l;
+		return released;
+	});
 }
 
 /**
@@ -1809,6 +1849,7 @@ module.exports = {
 	limitWaitOf,
 	markParked,
 	nextResumeAt,
+	releaseAwayParks,
 	releaseEndedHolds,
 	resumableOf,
 	resumeHeldLaunches,

@@ -818,6 +818,42 @@ function settleOnce(
 const logged = (...args: Parameters<typeof settleOnce>) =>
 	settleOnce(...args).line;
 
+it("refuses every batch behind a parked resume the re-read made wait, naming why (#3872)", () => {
+	const member = (root: string, n: number) => ({
+		root,
+		issues: [n],
+		prompt: `/implement ${n}`,
+		model: "opus" as const,
+		seat: "/s",
+		reason: "parked session's seat" as const,
+	});
+	const called: string[] = [];
+	const reason = "admission's re-read finds no free slot";
+	const { line } = settleOnce(
+		{
+			launches: [member("/a", 1), member("/b", 9)],
+			skipped: [],
+			idle: null,
+			held: [],
+			resumes: [],
+		},
+		2,
+		[],
+		{
+			dispatch: ([l]) => {
+				called.push(l.root);
+				return {
+					launched: [],
+					refused: [{ launch: l, reason }],
+					resumeRefused: reason,
+				};
+			},
+		},
+	);
+	expect(called).toEqual(["/a"]);
+	expect(line).toContain(`refused b /implement 9: ${reason}`);
+});
+
 describe("the first overflow launch's record (#3767)", () => {
 	const apiSeat = "/h/.claude3-api";
 	const planSeat = (dir: string, percent: number, weekFull: boolean) => ({

@@ -426,12 +426,20 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 		prompt: `/implement ${n}`,
 		...over,
 	});
-	function run(batch: Launch[], resume: Io["resume"], written = true) {
+	function run(
+		batch: Launch[],
+		resume: Io["resume"],
+		written = true,
+		admit: Io["admitResume"] = () => null,
+	) {
 		const lines: string[] = [];
 		const fresh: Launch[][] = [];
 		const resumed: unknown[] = [];
 		const recorded: unknown[] = [];
+		const staggers: number[] = [];
 		const out = launchOrResume(batch, {
+			admitResume: admit,
+			stagger: () => staggers.push(resumed.length),
 			resume: (l, t) => {
 				resumed.push(t);
 				return resume(l, t);
@@ -455,7 +463,7 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 			log: (line) => lines.push(line),
 			now: () => NOW,
 		});
-		return { out, lines, fresh, resumed, recorded };
+		return { out, lines, fresh, resumed, recorded, staggers };
 	}
 	const ok: Io["resume"] = () => ({
 		failed: null,
@@ -484,6 +492,35 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 		expect(lines).toEqual([
 			"resumed parked design-vault /implement 1 as job j-9",
 		]);
+	});
+
+	it("refuses a resume the re-read refuses and all behind it, resuming and dispatching nothing past it (#3872)", () => {
+		const parked = (n: number) =>
+			member(n, { parkedRoute: { resume: target } });
+		let reads = 0;
+		const { out, fresh, resumed, staggers } = run(
+			[parked(1), parked(2), member(3)],
+			ok,
+			true,
+			() => (reads++ === 0 ? null : "no free slot"),
+		);
+		expect(reads).toBe(2);
+		expect(resumed).toHaveLength(1);
+		expect(staggers).toEqual([1]);
+		expect(fresh).toEqual([]);
+		expect(out.refused).toEqual([
+			{ launch: parked(2), reason: "no free slot" },
+			{ launch: member(3), reason: "no free slot" },
+		]);
+	});
+
+	it("asks no re-read for a member routed afresh, which the dispatcher re-reads itself (#3872)", () => {
+		const afresh = member(1, { parkedRoute: { afresh: "no marker" } });
+		const { out, fresh } = run([afresh], ok, true, () => {
+			throw new Error("re-read asked");
+		});
+		expect(fresh).toEqual([[afresh]]);
+		expect(out.refused).toEqual([]);
 	});
 
 	it("writes each resume to the dispatch ledger as a launch of its issues, and logs a write that failed (#3704)", () => {

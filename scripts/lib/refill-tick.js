@@ -922,6 +922,15 @@ const sizeParkerSeats = (seats, parkers, root) =>
 	);
 
 /**
+ * The dispatcher's per-member re-read for a resume: null, or why it waits.
+ * @returns {string|null}
+ */
+const admitResume = () =>
+	readFreeSlots().slots > 0 ? null : "admission's re-read finds no free slot";
+
+const staggerResume = () => sleepSync(refillBatch.readStaggerMs());
+
+/**
  * `batch` launched (lib/refill-batch.js's launchOrResume): each parked member
  * routed to resume resumed in place (resumeStopped), the rest through one
  * dispatcher call (launchBatch).
@@ -937,6 +946,8 @@ const launchOrResume = (batch) =>
 			if (r.failed === null && r.copy) dropParked(root, sessionId, issues);
 			return r;
 		},
+		admitResume,
+		stagger: staggerResume,
 		recordLaunch,
 		launchFresh: launchBatch,
 		log,
@@ -1011,9 +1022,8 @@ const blockIo = (served) => ({
 	type: typeResume,
 	resumeTargetOf: readResumeTargetOf,
 	resumeStopped,
-	admitResume: () =>
-		readFreeSlots().slots > 0 ? null : "admission's re-read finds no free slot",
-	stagger: () => sleepSync(refillBatch.readStaggerMs()),
+	admitResume,
+	stagger: staggerResume,
 	moveSession,
 	removeJobRecord,
 	jobStateOf: readJobRecordOf,
@@ -1153,10 +1163,15 @@ async function tick({ dryRun }) {
 	};
 	const judged = dryRun
 		? listed
-		: blocks.actOnIdle(
-				blocks.actOnBlocks(listed, control.scope.mode, seen),
+		: blocks.releaseAwayParks(
+				blocks.actOnIdle(
+					blocks.actOnBlocks(listed, control.scope.mode, seen),
+					control.scope.mode,
+					seen,
+				),
 				control.scope.mode,
-				seen,
+				served,
+				seen.io,
 			);
 	const { slots: free, admission } = readFreeSlots();
 	const declared = readDeclaredSeats();

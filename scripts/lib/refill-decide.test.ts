@@ -1025,9 +1025,21 @@ describe("decideTick on parked rows (#3621)", () => {
 			mode: "normal",
 			freeSlots: 1,
 			frontier: [row("wfc", 1), parked(2, "2026-10-18T09:00:00Z")],
+			seats: [seat("/s1", 10, 10)],
+			parkers: [
+				{
+					root: "wfc",
+					number: 2,
+					sessionId: "s-2",
+					job: { seat: "/s1", jobId: "j-2" },
+					resumeCwd: "wfc",
+				},
+			],
 		});
 		expect(launched(d)).toEqual(["wfc#2"]);
-		expect(d.launches[0].parkedRoute).toBeDefined();
+		expect(d.launches[0].parkedRoute).toEqual({
+			resume: { seat: "/s1", sessionId: "s-2", cwd: "wfc" },
+		});
 	});
 
 	it("leaves a row whose label has gone in its rank, resuming nothing though a marker still lists it (#3872)", () => {
@@ -1144,6 +1156,27 @@ describe("decideTick on a parked row's session seat (#3669)", () => {
 			seats: [seat("/s1", 10, 10), s2],
 			parkers,
 		});
+
+	it("holds resumes to their own seat's cap within one tick, naming no held ticket for the idle alarm (#3872)", () => {
+		const at = (number: number) => ({
+			...row("wfc", number, "implement", {
+				labels: ["takes:implement", "parked"],
+				parkedAt: `2026-10-1${number}T09:00:00Z`,
+			}),
+		});
+		const d = tick({
+			mode: "normal",
+			freeSlots: 3,
+			frontier: [at(2), at(3), row("wfc", 1)],
+			seats: [seat("/s1", 10, 10), seat("/s2", 40, 20, 1)],
+			parkers: [parker(), parker({ number: 3, sessionId: "s-3" })],
+		});
+		expect(launched(d)).toEqual(["wfc#2", "wfc#1"]);
+		expect(d.skipped).toEqual([
+			{ root: "wfc", number: 3, why: "parked: its session's seat /s2 is full" },
+		]);
+		expect(d.held).toEqual([]);
+	});
 
 	it("holds a row whose session's seat is full, its slot going to the next row, and resumes it once the seat has room", () => {
 		for (const full of [

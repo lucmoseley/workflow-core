@@ -94,10 +94,13 @@ function buildWouldRunLine(call, overflow) {
 
 /**
  * @typedef {{launch: import("./refill-decide.js").Launch, reason: string}} Refusal
- * @typedef {{launched: import("./refill-loop.js").LoopLaunch[], refused: Refusal[]}} BatchOutcome
+ * @typedef {{launched: import("./refill-loop.js").LoopLaunch[], refused: Refusal[],
+ *   resumeRefused?: string|null}} BatchOutcome  `resumeRefused`, why a resume
+ *   waits, which holds back every batch behind it
  * @typedef {{resume: (l: import("./refill-decide.js").Launch,
  *   target: import("./refill-decide.js").ResumeTarget) =>
  *   import("./refill-blocks.js").Resumed,
+ *   admitResume: () => string|null, stagger: () => void,
  *   recordLaunch: typeof import("./dispatch-ledger.js").record,
  *   log: (line: string) => void, now: () => number}} ResumeIo
  */
@@ -277,7 +280,11 @@ function resumeParked(l, parked, io) {
 /**
  * `batch` launched: each parked member the decision routed to resume resumed
  * in place (resumeParked), the rest and any not resumed through one
- * dispatcher call, `launchFresh`, which is skipped where none is left.
+ * dispatcher call, `launchFresh`, which is skipped where none is left. Each
+ * resume first passes the re-read the tick's resume step gives a stopped
+ * session (#3872, #3855), and the next re-read waits out its spare; the first
+ * it refuses is refused with every member behind it, for a later tick, so none
+ * overtakes it.
  * @param {import("./refill-decide.js").Launch[]} batch one of batchesOf's
  * @param {ResumeIo & {launchFresh: (batch: import("./refill-decide.js").Launch[]) => BatchOutcome}} io
  * @returns {BatchOutcome}
@@ -285,14 +292,31 @@ function resumeParked(l, parked, io) {
 function launchOrResume(batch, io) {
 	const resumed = [];
 	const fresh = [];
+	/** @type {Refusal[]} */
+	const refused = [];
+	/** @type {string|null} */
+	let refusal = null;
 	for (const l of batch) {
+		if (refusal === null && l.parkedRoute && "resume" in l.parkedRoute)
+			refusal = io.admitResume();
+		if (refusal !== null) {
+			refused.push({ launch: l, reason: refusal });
+			continue;
+		}
 		const r = l.parkedRoute ? resumeParked(l, l.parkedRoute, io) : null;
-		if (r) resumed.push(r);
-		else fresh.push(l);
+		if (r) {
+			resumed.push(r);
+			io.stagger();
+		} else fresh.push(l);
 	}
 	const out =
 		fresh.length > 0 ? io.launchFresh(fresh) : { launched: [], refused: [] };
-	return { ...out, launched: [...resumed, ...out.launched] };
+	return {
+		...out,
+		launched: [...resumed, ...out.launched],
+		refused: [...refused, ...out.refused],
+		resumeRefused: refusal,
+	};
 }
 
 module.exports = {

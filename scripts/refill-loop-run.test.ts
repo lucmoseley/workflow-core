@@ -2515,6 +2515,66 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 			/not resumed: no session that parked it is recorded; launching afresh/,
 		);
 	});
+
+	it("releases an away park's ledger row before the tick reads its shortlist, so the ticket resumes (#3872)", async () => {
+		seed();
+		const pickNext = path.join(scripts, "pick-next.js");
+		const ledger = ledgerPath(repo);
+		fs.writeFileSync(
+			pickNext,
+			`require("node:fs").copyFileSync(${JSON.stringify(ledger)}, ${JSON.stringify(at("ledger-at-read"))});\n${fs.readFileSync(pickNext, "utf8")}`,
+		);
+		fs.mkdirSync(path.dirname(ledger), { recursive: true });
+		fs.writeFileSync(ledger, "");
+		fs.writeFileSync(
+			at(".refill-loop-state.json"),
+			JSON.stringify({
+				launches: [
+					{
+						root: repo,
+						issues: [5],
+						prompt: "/implement 5",
+						seat,
+						jobId: Job,
+						launchedAt: Date.now() - 2000,
+						finishedAt: Date.now() - 1000,
+						parkStopped: Date.now() - 1500,
+						parkedAway: true,
+					},
+				],
+			}),
+		);
+		fakeResumeClaude(Job, [LISTED], stopOnResume());
+		const r = await settled(run(1), ParkedRun);
+		expect(r.status).toBe(0);
+		expect(
+			readLines(at("ledger-at-read")).map((l) => JSON.parse(l).released),
+		).toContain(Job);
+		expect(readLines(at("calls"))).toEqual([
+			`--bg --resume s-job5 ${PARKED_PROMPT}`,
+		]);
+		expect(launches()[0]).not.toHaveProperty("parkedAway");
+	});
+
+	it("launches it on its takes: command, resuming nothing, once the label has gone though its marker stays (#3872)", async () => {
+		seed();
+		const pickNext = path.join(scripts, "pick-next.js");
+		fs.writeFileSync(
+			pickNext,
+			fs
+				.readFileSync(pickNext, "utf8")
+				.replace(
+					'"takes:implement", "parked"], parkedAt: "2026-10-28T07:41:00Z"',
+					'"takes:implement"], parkedAt: null',
+				),
+		);
+		fakeResumeClaude(Job, [LISTED]);
+		const r = await settled(run(1), ParkedRun);
+		expect(r.status).toBe(0);
+		expect(readLines(at("calls"))).toEqual([]);
+		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
+		expect(r.stdout).not.toContain("not resumed");
+	});
 });
 
 describe("boot-resume after a restart (#3878)", () => {

@@ -400,6 +400,8 @@ describe("check-idle-efforts.js", () => {
 					sessionId: "s-1",
 					copy: false,
 				}),
+				admitResume: () => null,
+				stagger: () => undefined,
 				recordLaunch: record,
 				launchFresh: () => ({ launched: [], refused: [] }),
 				log: () => undefined,
