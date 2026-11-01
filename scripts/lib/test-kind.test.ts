@@ -20,6 +20,8 @@
  * never runs, or misses one it does (#3743). Drift .sonarcloud.properties from
  * them and Sonar judges a test as source (#3810). Set pytest.ini's python_files
  * and PY_TEST_FILE's readers call a file a test pytest never collects (#3810).
+ * Widen PY_TEST_FILE past PYTEST_DEFAULT_FILES and the Sonar pin stays green,
+ * its Python half built from those globs, while the two disagree (#3849).
  */
 
 import { execFileSync } from "node:child_process";
@@ -241,6 +243,17 @@ describe("the test readings outside test-kind.js", () => {
 		expect(globs("sonar.test.inclusions")).toEqual(expected);
 	});
 
+	it("leaves python_files unset in pytest.ini, so pytest collects PY_TEST_FILE's both names (#3810)", () => {
+		const ini = fs.readFileSync(
+			path.resolve(__dirname, "..", "..", "pytest.ini"),
+			"utf8",
+		);
+		expect(ini).toContain("[pytest]");
+		expect(ini).not.toMatch(/^\s*python_files\b/m);
+	});
+});
+
+describe("PY_TEST_FILE against pytest's default names", () => {
 	it.each([
 		["test_a.py", true],
 		["a_test.py", true],
@@ -259,15 +272,6 @@ describe("the test readings outside test-kind.js", () => {
 				path.matchesGlob(path.basename(name), glob),
 			),
 		).toBe(collected);
-	});
-
-	it("leaves python_files unset in pytest.ini, so pytest collects PY_TEST_FILE's both names (#3810)", () => {
-		const ini = fs.readFileSync(
-			path.resolve(__dirname, "..", "..", "pytest.ini"),
-			"utf8",
-		);
-		expect(ini).toContain("[pytest]");
-		expect(ini).not.toMatch(/^\s*python_files\b/m);
 	});
 });
 
