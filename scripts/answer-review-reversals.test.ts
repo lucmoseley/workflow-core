@@ -8,17 +8,27 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
-import { freshSandbox } from "./lib/arbiter-testkit";
+import { describe, expect, it, vi } from "vitest";
+import { endedPid, freshSandbox } from "./lib/arbiter-testkit";
+import { buildReviewTitle, localDate } from "./lib/morning-review.js";
 import { morningReviewFixture } from "./lib/morning-review-fixture";
 
 const SCRIPT = path.resolve(__dirname, "answer-review-reversals.js");
+const FILING = path.resolve(__dirname, "file-morning-review.js");
 
 const sb = freshSandbox();
-const { ago, readCreated, run, seed, stub, wfc } = morningReviewFixture(
+const { ago, readCreated, run, runEnv, seed, stub, wfc } = morningReviewFixture(
 	sb,
 	SCRIPT,
 );
+const { run: runFiling } = morningReviewFixture(sb, FILING);
+
+/* A guess: a node start and its gh reads, on a machine running full suites. */
+const HOLDER_START_MS = 30_000;
+const HOLDER_TEST_MS = 2 * HOLDER_START_MS;
+
+const lockFile = () =>
+	path.join(wfc(), ".claude", "tmp", "markers", "review-reversals.lock");
 
 describe("answer-review-reversals.js (#2017)", () => {
 	const Request = "https://github.com/acme/wfc/issues/5#issuecomment-50";
@@ -110,6 +120,13 @@ describe("answer-review-reversals.js (#2017)", () => {
 		expect(readReplies()).toHaveLength(2);
 	});
 
+	it("files once for a review the open and closed reads both return", () => {
+		seed([openReview(), { ...openReview(), state: "CLOSED" }]);
+		expect(run().status).toBe(0);
+		const calls = fs.readFileSync(stub("calls.log"), "utf8").split("\n");
+		expect(calls.filter((c) => c.startsWith("issue create"))).toHaveLength(1);
+	});
+
 	it("files once when the reply fails, and replies on the next run", () => {
 		seed([openReview()]);
 		fs.writeFileSync(stub("fail-comment"), "");
@@ -141,10 +158,7 @@ describe("answer-review-reversals.js (#2017)", () => {
 			stdio: "ignore",
 		});
 		try {
-			fs.writeFileSync(
-				path.join(wfc(), ".claude", "tmp", "markers", "review-reversals.lock"),
-				String(holder.pid),
-			);
+			fs.writeFileSync(lockFile(), String(holder.pid));
 			const r = run();
 			expect(r.status).toBe(0);
 			expect(r.stdout).toContain("another run is answering reversals");
@@ -154,19 +168,59 @@ describe("answer-review-reversals.js (#2017)", () => {
 		}
 	});
 
+	it.each([
+		["file-morning-review.js", "answer-review-reversals.js", FILING, run],
+		["answer-review-reversals.js", "file-morning-review.js", SCRIPT, runFiling],
+	])(
+		"with %s mid-answer, a run of %s leaves the answering to it (#3815)",
+		async (_holder, _other, holderScript, runOther) => {
+			/* Today's review is already filed, so a filing run goes straight to
+			 * answering. */
+			seed([
+				{ ...openReview(), title: buildReviewTitle(localDate(new Date())) },
+			]);
+			fs.writeFileSync(stub("hold-create"), "");
+			// spawn-kept: two processes at once — the lock's holder is a real program, read by its command line, while the other runs.
+			const holder = spawn(process.execPath, [holderScript], {
+				cwd: wfc(),
+				env: runEnv(),
+				stdio: "ignore",
+			});
+			const exited = new Promise((done) => holder.on("exit", done));
+			try {
+				await vi.waitFor(
+					() => expect(fs.existsSync(stub("holding"))).toBe(true),
+					{ timeout: HOLDER_START_MS },
+				);
+				const r = runOther();
+				expect(r.status).toBe(0);
+				expect(r.stdout).toContain("another run is answering reversals");
+				expect(readCreated()).toHaveLength(0);
+				fs.writeFileSync(stub("release"), "");
+				expect(await exited).toBe(0);
+				expect(readCreated()).toHaveLength(1);
+			} finally {
+				fs.writeFileSync(stub("release"), "");
+				holder.kill();
+			}
+		},
+		HOLDER_TEST_MS,
+	);
+
+	it("takes a reversal lock whose holder is dead", () => {
+		seed([openReview()]);
+		fs.writeFileSync(lockFile(), endedPid());
+		expect(run().status).toBe(0);
+		expect(readCreated()).toHaveLength(1);
+		expect(fs.existsSync(lockFile())).toBe(false);
+	});
+
 	it("takes over a reversal lock a live process holds that answers no reversals", () => {
 		seed([openReview()]);
-		const lock = path.join(
-			wfc(),
-			".claude",
-			"tmp",
-			"markers",
-			"review-reversals.lock",
-		);
-		fs.writeFileSync(lock, String(process.ppid));
+		fs.writeFileSync(lockFile(), String(process.ppid));
 		const r = run();
 		expect(r.status).toBe(0);
 		expect(readCreated()).toHaveLength(1);
-		expect(fs.existsSync(lock)).toBe(false);
+		expect(fs.existsSync(lockFile())).toBe(false);
 	});
 });

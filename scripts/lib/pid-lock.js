@@ -62,13 +62,14 @@ function readTargetStat(file) {
 }
 
 /**
- * The lock at `file` for the script named `marker`: a holder's command line
- * must carry an argument whose basename is `marker`, so `start-lander.js`
- * never passes for `lander.js` (#2675).
+ * The lock at `file` for the script or scripts named `marker`: a holder's
+ * command line must carry an argument whose basename is one of them, so
+ * `start-lander.js` never passes for `lander.js` (#2675).
  * @param {string} file
- * @param {string} marker
+ * @param {string | string[]} marker
  */
 function pidLock(file, marker) {
+	const markers = [marker].flat();
 	/** @param {string|null} text @returns {number|null} the live holder's pid */
 	const liveHolder = (text) => {
 		const pid = Number(String(text).trim());
@@ -80,7 +81,7 @@ function pidLock(file, marker) {
 		if (cmdline === null) return pid;
 		const runs = cmdline
 			.split("\0")
-			.some((arg) => path.basename(arg) === marker);
+			.some((arg) => markers.includes(path.basename(arg)));
 		return runs ? pid : null;
 	};
 

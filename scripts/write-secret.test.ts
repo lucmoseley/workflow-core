@@ -23,7 +23,11 @@ import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { gateway } from "./guard-jev-advisory.js";
 import { errorLog } from "./lib/arbiter-core.js";
-import { readEnvFileValue, secretsFile } from "./lib/env-file.js";
+import {
+	readEnvFileValue,
+	readStoredNames,
+	secretsFile,
+} from "./lib/env-file.js";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "write-secret.js");
@@ -138,8 +142,24 @@ describe("write-secret", () => {
 					path.join(path.dirname(store()), ".gitignore"),
 				),
 		],
+		[
+			"a blanked",
+			() =>
+				fs.writeFileSync(path.join(path.dirname(store()), ".gitignore"), ""),
+		],
+		[
+			"an unreadable",
+			() =>
+				fs.writeFileSync(
+					path.join(path.dirname(store()), ".gitignore"),
+					"*\n",
+					{
+						mode: 0o000,
+					},
+				),
+		],
 	])(
-		"the Stop guard's key read writes %s .gitignore beside a store from before #3539, keeping the value (#3663)",
+		"the Stop guard's key read writes %s .gitignore beside a store from before #3539, keeping the value (#3663, #3822)",
 		(_l, plantIgnore) => {
 			seed(`AI_GATEWAY_API_KEY=${SECRET}\n`);
 			plantIgnore();
@@ -580,8 +600,106 @@ describe("write-secret", () => {
 		expect(fs.readFileSync(target, "utf8")).toBe("A=1\n");
 	});
 
+	const notRegular =
+		"it is no regular file (a FIFO, socket, device or directory), so it can hold no secrets. Remove it, then re-run.";
+
+	const plantFifo = () =>
+		execFileSync("mkfifo", [store()], { env: isolatedEnv() });
+
+	it("refuses by name with exit 1 where the file is a FIFO, without hanging (#3822)", () => {
+		makeStoreDir();
+		plantFifo();
+		// spawn-kept: a timeout, as a block on open(2) stops an in-process run (§X3)
+		const r = spawnSync(process.execPath, [SCRIPT, "K"], {
+			cwd: host,
+			env: isolatedEnv({ CLAUDE_PROJECT_DIR: host }),
+			input: SECRET,
+			encoding: "utf8",
+			timeout: 10_000,
+		});
+		expect(r.signal).toBeNull();
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(notRegular);
+		expect(fs.readdirSync(path.dirname(store()))).toEqual(["secrets.env"]);
+	});
+
+	it.each([
+		["a directory", () => fs.mkdirSync(store(), { mode: 0o700 })],
+		[
+			"a socket",
+			/* A listener that exits at once leaves its path behind. */
+			() =>
+				execFileSync(
+					process.execPath,
+					[
+						"-e",
+						"require('node:net').createServer().listen(process.argv[1],()=>process.exit(0))",
+						store(),
+					],
+					{ env: isolatedEnv() },
+				),
+		],
+	])(
+		"refuses by name with exit 1 where the file is %s, without hanging (#3822)",
+		(_l, plantStore) => {
+			makeStoreDir();
+			plantStore();
+			const r = run(["K"], SECRET);
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain(notRegular);
+			expect(fs.readdirSync(path.dirname(store()))).toEqual(["secrets.env"]);
+		},
+	);
+
+	it("the Stop guard's key read treats a FIFO at the file as no key, without hanging (#3822)", () => {
+		makeStoreDir();
+		plantFifo();
+		readFromStore();
+		expect(gateway.readKey()).toBeNull();
+	});
+
+	it("a stored-names read throws on a FIFO at the file rather than hanging, so no masker masks fewer (#3822)", () => {
+		makeStoreDir();
+		plantFifo();
+		readFromStore();
+		expect(() => readStoredNames()).toThrow(/is no regular file/);
+	});
+
+	it.each([
+		[0o000, "000"],
+		[0o600, "600"],
+	])(
+		"refuses by name with exit 1 where the file's directory has mode %i (%s), so no search (#3822)",
+		(mode) => {
+			const dir = makeStoreDir();
+			/* At mode 600 the sweep can list this aside but not lstat it. */
+			fs.writeFileSync(path.join(dir, "secrets.env.999999.abcd.tmp"), "A=1\n");
+			fs.chmodSync(dir, mode);
+			try {
+				const r = run(["K"], SECRET);
+				expect(r.status).toBe(1);
+				expect(r.stderr).toContain(
+					`its directory ${dir} cannot be searched (EACCES), so no file in it can be read or written. Give yourself access (\`chmod 700 ${dir}\`), then re-run.`,
+				);
+			} finally {
+				fs.chmodSync(dir, 0o700);
+			}
+			expect(fs.existsSync(store())).toBe(false);
+		},
+	);
+
+	it("refuses naming the .gitignore, with exit 1, where it is a directory it cannot replace (#3822)", () => {
+		const ignore = path.join(makeStoreDir(), ".gitignore");
+		fs.mkdirSync(ignore);
+		const r = run(["K"], SECRET);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(`${ignore} could not be made to hold \`*\``);
+		expect(fs.existsSync(store())).toBe(false);
+	});
+
 	it("refuses with exit 1 when the file cannot be written, leaving no temp file or lock", () => {
-		fs.mkdirSync(store(), { recursive: true, mode: 0o700 });
+		seed("A=1\n");
+		fs.chmodSync(store(), 0o000);
 		const r = run(["K"], SECRET);
 		expect(r.status).toBe(1);
 		expect(r.stderr).toMatch(
@@ -1003,7 +1121,10 @@ describe("write-secret", () => {
 		fs.chmodSync(dir, 0o700);
 		const r = run(["K"], SECRET);
 		expect(r.status).toBe(1);
-		expect(r.stderr).toContain(`its directory ${dir} ${NfsAcl}`);
+		expect(r.stderr).toContain(
+			`its directory ${dir} ${NfsAcl}, so another user could read or swap the file. Point XDG_CONFIG_HOME at a directory on a local filesystem, then re-run.`,
+		);
+		expect(r.stderr).not.toContain("chmod");
 		expect(fs.existsSync(store())).toBe(false);
 	});
 

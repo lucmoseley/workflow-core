@@ -4949,6 +4949,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/file-morning-review.js": [
+			"scripts/answer-review-reversals.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/file-morning-review.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
@@ -22289,6 +22290,7 @@
 			"scripts/lib/hook-block.test.ts",
 			"scripts/lib/issue-claim-hook.test.ts",
 			"scripts/lib/pick-next-snapshot.test.ts",
+			"scripts/lib/pid-lock.test.ts",
 			"scripts/lib/plugin-tree.test.ts",
 			"scripts/lib/post-write.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",

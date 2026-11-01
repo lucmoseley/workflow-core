@@ -18,12 +18,14 @@
  * directory is created owner-only.
  *
  * NO FAMILY (§N3), as `grant-permission.js`: 0 written; 1 the file sits in a
- * git working tree, is a symlink, lies in a directory others can reach or
- * under one others can write, is not clean UTF-8, is held by another run too
- * long or its lock's path holds no file, holds a line assigning <NAME> it
- * cannot replace, or cannot be written; 2 bad arguments, a value no line
- * can carry or a hidden prompt that ended without one. Every refusal leaves
- * the file untouched, and one about the file itself comes before the value is asked for, bar that line, which
+ * git working tree, is a symlink or no regular file, lies in a directory others
+ * can reach or you cannot search, or under one others can write, is not clean
+ * UTF-8, is held by another run too long or its lock's path holds no file, holds
+ * a line assigning <NAME> it cannot replace, has a `.gitignore` it cannot
+ * replace, or cannot be written; 2 bad arguments, a value no line can carry or
+ * a hidden prompt that ended without one. Every refusal leaves the file
+ * untouched, and one about the file itself comes before the value is asked for,
+ * bar that line, which
  * is read only under the lock, and a fault reading or writing it, met at the
  * write.
  *
@@ -37,14 +39,22 @@
  * (`git --git-dir=~/.cfg --work-tree=~`, yadm), has no `.git` to find. The
  * directory's own `.gitignore`, holding `*`, keeps the file out of its `add`
  * (#3539); git follows no symlinked `.gitignore`, so one is replaced
- * (#3663). Under the WFC_SECRETS_FILE test override none is written, as the
- * reader writes none (#3715). Residual: ignore rules never reach a file such a repository
- * already tracks, nor an `add -f`; that file wants `git rm --cached` there.
+ * (#3663). A write, and `readSecretKeepingIgnore`, the one read that heals,
+ * replace any `.gitignore` not holding exactly `*`, an unreadable one included
+ * (#3822). Under the WFC_SECRETS_FILE test override none is written, as the
+ * reader writes none (#3715). Residual: ignore rules never reach a file such a
+ * repository already tracks, nor an `add -f`; that file wants `git rm --cached`
+ * there. A blanked `.gitignore` ignores nothing until that read or a write, the
+ * key read skipping the store where the key is in the environment; and one that
+ * is a directory cannot be replaced, so a write refuses and that read only logs
+ * it (#3822).
  *
  * A DIRECTORY OTHERS CAN REACH IS REFUSED (#3539): the file's directory, and
  * the aside before its rename, must be the user's own with no group or other
  * access, checked before the prompt and again before the write. `mkdir`'s
- * mode applies only on creation, so it can be left loose.
+ * mode applies only on creation, so it can be left loose. One this user cannot
+ * search is refused by name too, its modes 000 and 600 hiding nothing from
+ * others yet leaving no file in it reachable (#3822).
  *
  * A PARENT OTHERS CAN WRITE IS REFUSED (#3663): each directory holding an
  * entry the path passes through as the kernel resolves it, every symlink's
@@ -89,6 +99,8 @@
  * rename (#3539). A lock whose run is gone is taken over.
  *
  * A SYMLINK IS REFUSED: its target may lie in a working tree (#640 review).
+ * SO IS ANY OTHER NON-REGULAR FILE, a FIFO, socket, device or directory: a
+ * plain read of a FIFO would block for good (#3822).
  *
  * A FILE NOT CLEAN UTF-8 IS REFUSED (#3550): a lossy decode would write each
  * bad byte back as U+FFFD, so a UTF-16 file (Notepad's "Unicode") or a
@@ -153,8 +165,10 @@ const {
 	assignsAcrossBreak,
 	decodeSecrets,
 	ignoreStore,
+	NotRegularFile,
 	parseEnvLine,
 	quoteValue,
+	readRegularFile,
 	RESAVE_UTF8,
 	secretsFile,
 	secretsOverride,
@@ -204,11 +218,16 @@ function refuseLoose(file, what, why, fix) {
 	);
 }
 
+/** The way out where `chmod` cannot be: a mount's server or an ACL decides (#3822). */
+const USE_LOCAL_FS =
+	"Point XDG_CONFIG_HOME at a directory on a local filesystem, then re-run.";
+
 /**
  * The refusal `file`'s directory earns, or null: it lies under a directory
- * others can write, in a git working tree, or exists and lies on a mount
- * whose server decides access or is reachable by others. The parents come
- * first, as the tree's walk throws on one it cannot read.
+ * others can write, cannot be searched, lies in a git working tree, or exists
+ * and lies on a mount whose server decides access or is reachable by others.
+ * The parents, then the mount and ACL, whose way out `chmod` is not, then the
+ * search come first, as the tree's walk throws on a directory it cannot read.
  * @param {string} file
  * @returns {number | null}
  */
@@ -222,6 +241,20 @@ function dirRefusal(file) {
 			1,
 		);
 	}
+	const isDir = isDirectory(dir);
+	/* `chmod 700` removes no named NFSv4 entry (#3822). */
+	const decided = isDir ? (remoteAccessWhy(dir) ?? nfsAclWhy(dir)) : null;
+	if (decided !== null) {
+		return refuseLoose(file, `its directory ${dir}`, decided, USE_LOCAL_FS);
+	}
+	const denied = searchFaultCode(dir);
+	if (denied !== null) {
+		return refuse(
+			file,
+			`its directory ${dir} cannot be searched (${denied}), so no file in it can be read or written. Give yourself access (\`chmod 700 ${dir}\`), then re-run.`,
+			1,
+		);
+	}
 	const tree = findEnclosingTree(dir);
 	if (tree !== null) {
 		return refuse(
@@ -230,18 +263,27 @@ function dirRefusal(file) {
 			1,
 		);
 	}
-	if (!isDirectory(dir)) return null;
-	const mount = remoteAccessWhy(dir);
-	if (mount !== null) {
-		return refuseLoose(
-			file,
-			`its directory ${dir}`,
-			mount,
-			"Point XDG_CONFIG_HOME at a directory on a local filesystem, then re-run.",
-		);
+	if (!isDir) return null;
+	const loose = looseWhy(dir);
+	return loose === null
+		? null
+		: refuseLoose(file, `its directory ${dir}`, loose);
+}
+
+/**
+ * The error code that keeps this user from searching `dir`, or null where it
+ * can, is absent or is a file where a directory goes, which the write meets.
+ * @param {string} dir
+ * @returns {string | null}
+ */
+function searchFaultCode(dir) {
+	try {
+		fs.accessSync(dir, fs.constants.X_OK);
+		return null;
+	} catch (e) {
+		const code = caught(e).code;
+		return code === "ENOENT" || code === "ENOTDIR" ? null : (code ?? "error");
 	}
-	const why = looseWhy(dir) ?? nfsAclWhy(dir);
-	return why === null ? null : refuseLoose(file, `its directory ${dir}`, why);
 }
 
 /**
@@ -403,18 +445,21 @@ function isOnNfs(d) {
 }
 
 /**
- * statfs types whose server, daemon or ACL decides access, as Linux's magic.h
- * and coreutils' `stat -f` name them.
+ * statfs types whose server, daemon or ACL decides access. Each is Linux's
+ * include/uapi/linux/magic.h constant its comment names, bar the two no kernel
+ * defines, which cite their vendor.
  */
 const REMOTE_ACCESS_MOUNTS = new Map([
-	[0xff_53_4d_42, "CIFS"],
-	[0xfe_53_4d_42, "SMB2"],
-	[0x01_02_19_97, "9p (WSL's drvfs)"],
+	[0xff_53_4d_42, "CIFS"], // CIFS_SUPER_MAGIC
+	[0xfe_53_4d_42, "SMB2"], // SMB2_SUPER_MAGIC
+	[0x01_02_19_97, "9p (WSL's drvfs)"], // V9FS_MAGIC
+	/* Microsoft: devblogs.microsoft.com/commandline/wsl-adds-inotify-filesystem-change-notification-support/ */
 	[0x53_46_48_46, "wslfs (WSL 1's drvfs)"],
-	[0x65_73_55_46, "FUSE"],
-	[0x53_46_41_4f, "AFS"],
-	[0x6b_41_46_53, "AFS"],
-	[0x73_75_72_45, "Coda"],
+	[0x65_73_55_46, "FUSE"], // FUSE_SUPER_MAGIC
+	[0x53_46_41_4f, "AFS"], // AFS_SUPER_MAGIC
+	[0x6b_41_46_53, "AFS"], // AFS_FS_MAGIC, kAFS
+	[0x73_75_72_45, "Coda"], // CODA_SUPER_MAGIC
+	/* IBM: ibm.com/docs/en/storage-scale/6.0.1?topic=cga-determining-if-file-system-is-controlled-by-gpfs */
 	[0x47_50_46_53, "GPFS"],
 ]);
 
@@ -628,14 +673,26 @@ function looseWhy(p) {
 }
 
 /**
- * `file`'s text, empty where it is absent; or, where its bytes are not clean
- * UTF-8, why not.
+ * `file`'s text, empty where it is absent; or, where it is no regular file or
+ * its bytes are not clean UTF-8, why not.
  * @param {string} file
  * @returns {{ text: string } | { why: string }}
  */
 function readSecrets(file) {
-	if (!fs.existsSync(file)) return { text: "" };
-	const decoded = decodeSecrets(fs.readFileSync(file));
+	let bytes;
+	try {
+		/* A symlink swapped in since `main`'s check meets ELOOP: the write refuses. */
+		bytes = readRegularFile(file, fs.constants.O_NOFOLLOW);
+	} catch (e) {
+		if (e instanceof NotRegularFile) {
+			return {
+				why: "it is no regular file (a FIFO, socket, device or directory), so it can hold no secrets. Remove it, then re-run.",
+			};
+		}
+		if (caught(e).code === "ENOENT") return { text: "" };
+		throw e;
+	}
+	const decoded = decodeSecrets(bytes);
 	if (!("fault" in decoded)) return decoded;
 	return {
 		why:
@@ -682,27 +739,37 @@ function sweepAsides(file) {
 		);
 		return;
 	}
+	/* Listed but not searchable, as mode 600: `dirRefusal` names it next, and the
+	 * run after its `chmod` sweeps (#3822). */
+	if (searchFaultCode(dir) !== null) return;
 	for (const name of names) {
 		const pid = asidePid(path.basename(file), name);
-		if (pid === null) continue;
-		const aside = path.join(dir, name);
-		if (!fs.lstatSync(aside, { throwIfNoEntry: false })?.isFile()) continue;
-		if (pidAlive(pid)) {
-			writeFd(
-				2,
-				`write-secret: left ${aside}, a copy of the secrets file: its pid ${pid} is running, so it may be a run still writing. Delete it once no write-secret runs.\n`,
-			);
-			continue;
-		}
-		try {
-			fs.rmSync(aside);
-			writeFd(2, `write-secret: removed ${aside}, ${LEFT}.\n`);
-		} catch (e) {
-			writeFd(
-				2,
-				`write-secret: warning — ${aside}, ${LEFT}, could not be removed (${caught(e).code ?? "error"}). Delete it by hand.\n`,
-			);
-		}
+		if (pid !== null) sweepAside(path.join(dir, name), pid);
+	}
+}
+
+/**
+ * Removes `aside`, or names and leaves it where its pid runs.
+ * @param {string} aside
+ * @param {number} pid
+ */
+function sweepAside(aside, pid) {
+	if (!fs.lstatSync(aside, { throwIfNoEntry: false })?.isFile()) return;
+	if (pidAlive(pid)) {
+		writeFd(
+			2,
+			`write-secret: left ${aside}, a copy of the secrets file: its pid ${pid} is running, so it may be a run still writing. Delete it once no write-secret runs.\n`,
+		);
+		return;
+	}
+	try {
+		fs.rmSync(aside);
+		writeFd(2, `write-secret: removed ${aside}, ${LEFT}.\n`);
+	} catch (e) {
+		writeFd(
+			2,
+			`write-secret: warning — ${aside}, ${LEFT}, could not be removed (${caught(e).code ?? "error"}). Delete it by hand.\n`,
+		);
 	}
 }
 
@@ -814,6 +881,26 @@ function waitForLock(lock) {
 }
 
 /**
+ * Writes the `.gitignore` beside `file`; the refusal where it cannot, which
+ * names that file, not the store (#3822), or null.
+ * @param {string} file
+ * @returns {number | null}
+ */
+function ignoreRefusal(file) {
+	const dir = path.dirname(file);
+	try {
+		ignoreStore(dir);
+		return null;
+	} catch (e) {
+		return refuse(
+			file,
+			`${path.join(dir, ".gitignore")} could not be made to hold \`*\` (${caught(e).code ?? "error"}), so a bare dotfiles repository's \`add\` could take the file. Replace it with a regular file, then re-run.`,
+			1,
+		);
+	}
+}
+
+/**
  * Upserts the checked value into `file` under the lock, once its directory is
  * created and checked.
  * @param {string} file
@@ -840,7 +927,8 @@ function storeValue(file, name, value) {
 		 * leave time for a `git init` or a `chmod` above the file. */
 		const refused = dirRefusal(file);
 		if (refused !== null) return refused;
-		if (secretsOverride() === null) ignoreStore(dir);
+		const unignored = secretsOverride() === null ? ignoreRefusal(file) : null;
+		if (unignored !== null) return unignored;
 
 		const read = readSecrets(file);
 		if ("why" in read) return refuse(file, read.why, 1);

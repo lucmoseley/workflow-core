@@ -27,16 +27,28 @@
  * Its trailer names no defect, so it counts only once an `**Escaped defect:**`
  * line names it, and its tree is the landed one, never the pinned pre-fix
  * tree. Read with `git log` in the checkout on this machine that tracks the
- * record's repo, at its HEAD, from TRAILER_FROM; there, a commit that changes
- * a path its `sensitivePaths` declares now and carries neither the trailer nor
- * a record is reported as UNRECORDED, each run until a record names it, a
- * trailer not in its form as UNPARSEABLE, and a checkout git cannot read as
- * UNREAD. Judged from that fixed instant, not the repo's own first trailer, as
- * a repo whose sessions never write a marker, or an adopter pinned before
- * #3664, would never have one (#3714).
- * Residual: a repo with no such checkout goes unread, and a commit from the
- * founder's own terminal, which the hold skips, or a linked worktree's whose
- * marker would not pass, is reported.
+ * record's repo, at `origin/main` once fetched, from TRAILER_FROM, since the
+ * lander moves `main` and nothing obliges that checkout's HEAD to hold the
+ * commits being judged (#3819); there, a commit that changes a path
+ * `sensitivePaths` declares at that ref and carries neither the trailer nor a
+ * record is reported as UNRECORDED, each run until a record covers it, a
+ * trailer not in its form as UNPARSEABLE, and a checkout git cannot fetch or
+ * read as UNREAD. Judged from that fixed instant, not the repo's own first
+ * trailer, as a repo whose sessions never write a marker, or an adopter pinned
+ * before #3664, would never have one (#3714).
+ * A RECORD COVERS ITS TICKET'S COMMITS, so one record owes no twin per commit:
+ * its landed sha, and each commit in its `base..landed` whose message cites
+ * its ticket, a citation alone reaching a later commit's passing mention and
+ * the range alone a neighbour's (#3819). A commit an unparseable record names
+ * as landed is reported by that record, never as UNRECORDED too.
+ * A record whose range git cannot read there covers only its landed sha, and
+ * is reported as UNREAD.
+ * Residual: a repo with no such checkout goes unread, a repo whose branch is
+ * not `main` reads as UNREAD, an `origin` that is a fork of the tracked repo is
+ * judged as it, a record's range spans landing merges so a neighbour's commit
+ * there citing its ticket reads as covered, and a commit from the founder's own terminal, which
+ * the hold skips, or a linked worktree's whose marker would not pass, is
+ * reported.
  *
  * ADOPTER AREAS ONLY (#3431): a commit recorded on this repo's own tracker is
  * never counted, its records still read for the reports below and its
@@ -140,7 +152,8 @@ const SEARCH = `query($q: String!, $after: String) {
     nodes { ... on Issue { number comments(first: ${PAGE}) { totalCount nodes { body createdAt } } } }
   }
 }`;
-const SHA = "`?([0-9a-f]{7,40})(?![0-9a-z])`?";
+const HEX_RUN = "[0-9a-f]{7,40}";
+const SHA = `\`?(${HEX_RUN})(?![0-9a-z])\`?`;
 const RECORD_HEAD = "\\*\\*Review findings:\\*\\*";
 const REVIEWED_TREE = `reviewed\\s+${SHA}`;
 const PATHS_CLAUSE = ",[ \\t]*paths[ \\t]+([^\\n]+)";
@@ -173,6 +186,11 @@ const TRAILER =
 	/^(escalated|mission-critical);\s*areas=[^;]*;\s*base=([0-9a-f]{40});\s*tree=([0-9a-f]{40});\s*paths=(.+)$/;
 /* `git revert`'s own message line, which names the full sha. */
 const REVERTS = /^This reverts commit ([0-9a-f]{40})\b/gm;
+const JUDGED_REF = "refs/remotes/origin/main";
+/* An unparseable record's landed clause, a sha anywhere in it: "landed pending
+ * (5d3f65283 on `landing`)". Residual: a hex-only word ahead of the sha reads
+ * as it, so that commit stays reported as UNRECORDED too. */
+const LANDED_CLAUSE = new RegExp(`\\blanded\\b[^,]*?\\b(${HEX_RUN})\\b`);
 
 /**
  * @typedef {{ body: string, createdAt: string }} Comment
@@ -181,6 +199,8 @@ const REVERTS = /^This reverts commit ([0-9a-f]{40})\b/gm;
  *   tier: string, fixed: number, fixes: number, escaped: number }} ReviewRecord
  *   `issue` null on a commit known by its trailer alone
  * @typedef {{ repo: string, issue: number, line: string }} Unparsed
+ * @typedef {{ records: ReviewRecord[], unparsed: Unparsed[] }} Parsed every
+ *   record parsed, of any tier, and the unparseable ones under a counted tier
  * @typedef {{ tag: "UNRECORDED" | "UNPARSEABLE" | "UNREAD", fault: string }} Unseen
  * @typedef {{ tag: Unseen["tag"] | "LANDED TREE" | "UNJUDGED", fault: string }} RecordFault
  * @typedef {{ at: number, tier: string } | { at: number, record: RegExpExecArray }
@@ -434,18 +454,31 @@ function mergeRecord(seen, r) {
 }
 
 /**
- * The commits from TRAILER_FROM at HEAD in the checkout under `home` that
- * tracks `repo`, those carrying a trailer as records, and the sensitive ones
- * carrying neither it nor one of `records`; none where no checkout tracks it.
+ * The commits from TRAILER_FROM at a fresh `origin/main` in the checkout under
+ * `home` that tracks `repo`, those carrying a trailer as records, and the
+ * sensitive ones no record covers; none where no checkout tracks it.
  *
  * @param {string} repo
- * @param {ReviewRecord[]} records every record parsed, of any tier
+ * @param {Parsed} parsed
  * @param {string} home
  * @returns {{ trailers: ReviewRecord[], unseen: Unseen[] }}
  */
-function readTrailers(repo, records, home) {
+function readTrailers(repo, parsed, home) {
 	const checkout = readCheckoutTracking(repo, home);
 	if (!("root" in checkout)) return { trailers: [], unseen: [] };
+	const { root } = checkout;
+	/** @param {string} why @returns {{ trailers: ReviewRecord[], unseen: Unseen[] }} */
+	const buildUnread = (why) => ({
+		trailers: [],
+		unseen: [
+			{
+				tag: "UNREAD",
+				fault: `${repo}: could not read its commits' Review-Tier: trailers in ${root}, so none is counted and none unrecorded reported — ${why}`,
+			},
+		],
+	});
+	const fetched = fetchJudgedRef(root);
+	if (!fetched.ok) return buildUnread(fetched.why);
 	const log = gitOutcome(
 		[
 			"-c",
@@ -454,30 +487,103 @@ function readTrailers(repo, records, home) {
 			"--no-merges",
 			"--no-renames",
 			`--since=${TRAILER_FROM}`,
-			"--format=%x00%H%x1f%(trailers:key=Review-Tier,valueonly,unfold)%x1f",
+			"--format=%x00%H%x1f%(trailers:key=Review-Tier,valueonly,unfold)%x1f%B%x1f",
 			"--name-only",
-			"HEAD",
+			JUDGED_REF,
 		],
 		[],
-		checkout.root,
+		root,
 	);
+	if (!log.ok) return buildUnread(log.why);
 	let declared;
 	try {
-		declared = readConfig({ root: checkout.root, quiet: true }).sensitivePaths;
+		declared = readConfig({
+			root,
+			rev: JUDGED_REF,
+			quiet: true,
+		}).sensitivePaths;
 	} catch (e) {
-		declared = parseErrLine(e);
+		return buildUnread(parseErrLine(e));
 	}
-	if (!log.ok || typeof declared === "string")
-		return {
-			trailers: [],
-			unseen: [
-				{
+	const { isCovered, rangeFaults } = buildCoverage(repo, parsed, root);
+	const found = parseTrailerLog(repo, log.out, declared, isCovered);
+	return { ...found, unseen: [...rangeFaults, ...found.unseen] };
+}
+
+/**
+ * Moves JUDGED_REF to the remote's `main`, in a checkout other sessions share.
+ *
+ * @param {string} root
+ */
+function fetchJudgedRef(root) {
+	return gitOutcome(
+		[
+			"fetch",
+			"--quiet",
+			"--no-tags",
+			/* A daily reader starts no gc under its neighbours. */
+			"--no-auto-maintenance",
+			"origin",
+			`+refs/heads/main:${JUDGED_REF}`,
+		],
+		[],
+		root,
+	);
+}
+
+/**
+ * Whether a commit is one the header's A RECORD COVERS ITS TICKET'S COMMITS
+ * answers for, or an unparseable record's report already names; and the range
+ * faults that answer met, filled as it is asked.
+ *
+ * @param {string} repo
+ * @param {Parsed} parsed
+ * @param {string} root the checkout git reads each record's range in
+ * @returns {{ isCovered: (sha: string, message: string) => boolean, rangeFaults: Unseen[] }}
+ */
+function buildCoverage(repo, { records, unparsed }, root) {
+	const own = records.filter((r) => r.repo === repo);
+	const reported = unparsed
+		.filter((u) => u.repo === repo)
+		.flatMap((u) => {
+			const m = LANDED_CLAUSE.exec(u.line);
+			return m ? [group(m, 1, LANDED_CLAUSE)] : [];
+		});
+	/** @type {Unseen[]} */
+	const rangeFaults = [];
+	/** @type {Map<ReviewRecord, string[]>} */
+	const ranges = new Map();
+	/** @param {ReviewRecord} r */
+	const readRange = (r) => {
+		let shas = ranges.get(r);
+		if (!shas) {
+			const read = gitOutcome(
+				["rev-list", "--no-merges", `${r.base}..${r.landed}`],
+				[],
+				root,
+			);
+			shas = read.ok ? read.out.split("\n") : [];
+			if (!read.ok)
+				rangeFaults.push({
 					tag: "UNREAD",
-					fault: `${repo}: could not read its commits' Review-Tier: trailers in ${checkout.root}, so none is counted and none unrecorded reported — ${log.ok ? declared : log.why}`,
-				},
-			],
-		};
-	return parseTrailerLog(repo, log.out, declared, records);
+					fault: `${repo}#${r.issue}: could not read its record's range ${r.base}..${r.landed} in ${root}, so it covers only its landed sha — ${read.why}`,
+				});
+			ranges.set(r, shas);
+		}
+		return shas;
+	};
+	/* The lookbehind leaves another repo's `mantahostels#9` to that repo. */
+	return {
+		isCovered: (sha, message) =>
+			reported.some((s) => isSameSha(s, sha)) ||
+			own.some(
+				(r) =>
+					isSameSha(r.landed, sha) ||
+					(new RegExp(`(?<![\\w/#-])#${r.issue}(?!\\d)`).test(message) &&
+						readRange(r).includes(sha)),
+			),
+		rangeFaults,
+	};
 }
 
 /**
@@ -486,23 +592,24 @@ function readTrailers(repo, records, home) {
  * @param {string} repo
  * @param {string} out
  * @param {import("./lib/workflow-core-config").SensitivePath[] | undefined} declared
- * @param {ReviewRecord[]} records
+ * @param {(sha: string, message: string) => boolean} isCovered
  * @returns {{ trailers: ReviewRecord[], unseen: Unseen[] }}
  */
-function parseTrailerLog(repo, out, declared, records) {
+function parseTrailerLog(repo, out, declared, isCovered) {
 	const commits = out
 		.split("\0")
 		.slice(1)
 		.map((chunk) => {
-			const [sha = "", value = "", names = ""] = chunk.split("\x1f");
+			const [sha = "", value = "", message = "", names = ""] =
+				chunk.split("\x1f");
 			const [trailer = ""] = value.split("\n");
-			return { sha, trailer: trailer.trim(), names };
+			return { sha, trailer: trailer.trim(), message, names };
 		});
 	/** @type {ReviewRecord[]} */
 	const trailers = [];
 	/** @type {Unseen[]} */
 	const unseen = [];
-	for (const { sha, trailer, names } of commits) {
+	for (const { sha, trailer, message, names } of commits) {
 		const m = TRAILER.exec(trailer);
 		if (m) {
 			trailers.push({
@@ -531,13 +638,10 @@ function parseTrailerLog(repo, out, declared, records) {
 			declared,
 			names.split("\n").filter(Boolean),
 		).matched.map((a) => a.name);
-		if (
-			areas.length > 0 &&
-			!records.some((r) => r.repo === repo && isSameSha(r.landed, sha))
-		)
+		if (areas.length > 0 && !isCovered(sha, message))
 			unseen.push({
 				tag: "UNRECORDED",
-				fault: `${repo}@${sha} changes the sensitive area${areas.length > 1 ? "s" : ""} ${areas.join(", ")} and carries neither a Review-Tier: trailer nor a **Review findings:** record, so it is not counted until a record names it, as \`scripts/lib/rule-text.sh review-tier-records\` says`,
+				fault: `${repo}@${sha} changes the sensitive area${areas.length > 1 ? "s" : ""} ${areas.join(", ")} and carries neither a Review-Tier: trailer nor a **Review findings:** record, so nothing answers for it until a record names it as landed, or its message cites that record's ticket within the record's base..landed; \`scripts/lib/rule-text.sh review-tier-records\` gives the record's form`,
 			});
 	}
 	return { trailers, unseen };
@@ -550,15 +654,15 @@ function parseTrailerLog(repo, out, declared, records) {
  * @param {ReviewRecord[]} commits accumulator: each trailer commit no record
  *   names is appended
  * @param {string[]} trackers
- * @param {ReviewRecord[]} records
+ * @param {Parsed} parsed
  * @param {string} home
  * @returns {Unseen[]}
  */
-function addTrailerCommits(commits, trackers, records, home) {
+function addTrailerCommits(commits, trackers, parsed, home) {
 	/** @type {Unseen[]} */
 	const unseen = [];
 	for (const repo of trackers) {
-		const found = readTrailers(repo, records, home);
+		const found = readTrailers(repo, parsed, home);
 		unseen.push(...found.unseen);
 		for (const t of found.trailers)
 			if (
@@ -607,7 +711,12 @@ function countedCommits(trackers, today, home) {
 		if (seen) mergeRecord(seen, r);
 		else commits.push({ ...r });
 	}
-	const unseen = addTrailerCommits(commits, trackers, records, home);
+	const unseen = addTrailerCommits(
+		commits,
+		trackers,
+		{ records, unparsed },
+		home,
+	);
 	/* Across repos, not within one: the line sits on the fixing ticket, which
 	 * may live in another repo, and a 7-hex prefix colliding is negligible. */
 	for (const c of commits)
