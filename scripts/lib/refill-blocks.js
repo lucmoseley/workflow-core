@@ -1196,9 +1196,9 @@ function settleLimitResume(l, { now, io }) {
 
 /**
  * `l`, limit-blocked again, with its last resume that took judged, once: no
- * reply since adds to its dry resumes, a reply clears them, so a session that
- * works between its limits never nears the cap (#3792). An unread transcript
- * judges nothing, and the next resume replaces what it would have judged.
+ * reply since adds to its dry resumes, a reply clears them (#3792). An unread
+ * transcript judges nothing, and the next resume replaces what it would have
+ * judged.
  * Residual: a launch whose transcript never reads is never counted, though one
  * that reads LIMIT has read its transcript that tick.
  * @template {JobLaunch} L
