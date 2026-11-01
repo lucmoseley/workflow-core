@@ -16,6 +16,10 @@
  * GitHub's clock. Row changes take no time edge: each review prints the commit
  * it read each repo's default branch to, and the next reads on from it.
  *
+ * A repo that does not read keeps its closes and decisions (#3831): the review
+ * prints where its events went unread from, and the next starts that repo there
+ * (repoStart), so each lands in the first review to read the repo.
+ *
  * Entry numbers run 1…n across every repo, so `reverse <n>` names one entry;
  * each line links the decision's own comment, which keys its ledger line.
  * The primitives-table row changes (#3465) carry on the numbering after the
@@ -37,6 +41,7 @@ const { buildIdleLines } = require("./idle-efforts.js");
 const TITLE = /^Morning review — (\d{4}-\d{2}-\d{2})$/;
 const WINDOW_LINE = /^Window: \S+ → ([^\s,]+)/m;
 const HISTORY_LINE = /^Table history read to ([0-9a-f]{40}) in (\S+)\.$/gm;
+const UNREAD_LINE = /^Events unread since (\S+) in (.+)\.$/gm;
 /* How far closes run behind the window: about 70 times the worst search lag
  * measured, 12.3 s (#3827), as GitHub publishes no bound and the sample is small.
  * A guess at the tail. A close slower than this reaches no review; too wide only
@@ -100,6 +105,38 @@ function windowStart(previous, now) {
 				why: `#${previous.number}'s Window line, so an event during its filing`,
 			}
 		: { since: end, why: null };
+}
+
+/**
+ * Where a review's body says a checkout's events went unread from, or null.
+ * @param {string} body
+ * @param {string} checkout
+ * @returns {string | null}
+ */
+function parseUnreadStart(body, checkout) {
+	for (const [, at, named] of body.matchAll(UNREAD_LINE))
+		if (named === checkout) return at ?? null;
+	return null;
+}
+
+/**
+ * Where a checkout's events start: where the previous review says they went
+ * unread from, else the window's start. Residual: a line whose time will not
+ * read, as after a hand edit, starts at the window's start, and `why` says so.
+ * @param {{number: number, body: string} | undefined} previous
+ * @param {string} checkout its directory name, which a read of no config still has
+ * @param {string} since
+ * @returns {{since: string, why: string | null}}
+ */
+function repoStart(previous, checkout, since) {
+	const at = previous ? parseUnreadStart(previous.body, checkout) : null;
+	if (at === null) return { since, why: null };
+	return Number.isNaN(Date.parse(at))
+		? {
+				since,
+				why: `#${previous?.number}'s Events unread line, so events before ${since}`,
+			}
+		: { since: at, why: null };
 }
 
 /**
@@ -176,16 +213,19 @@ function parseOneWayDoor(comments) {
  *   check-primitives.js's count line, and the commits touching each standards
  *   file up to `tip` that no earlier review read, with why they were found by
  *   commit time where they were; or why either did not read
- * @typedef {{repo: string, entries: LedgerLine[], closed: ClosedIssue[],
- *   stalls: OpenIssue[], urgent: UrgentIssue[], parked: ParkedIssue[],
- *   primitives: PrimitivesReading}}
- *   RepoReading the repo's ledger, its closes, its open stall ticket
- *   (lib/stall-ticket.js, #2692), its urgent issues and its parked ones
+ * @typedef {{repo: string, since: string, entries: LedgerLine[],
+ *   closed: ClosedIssue[], stalls: OpenIssue[], urgent: UrgentIssue[],
+ *   parked: ParkedIssue[], primitives: PrimitivesReading}}
+ *   RepoReading where the repo's events start (repoStart), its ledger, its
+ *   closes, its open stall ticket (lib/stall-ticket.js, #2692), its urgent
+ *   issues and its parked ones
+ * @typedef {{checkout: string, since: string}} UnreadEvents a checkout that did
+ *   not read, and where its events start
  * @typedef {{since: string, now: string, previous: number | null,
- *   repos: RepoReading[], failed: Unread[], kills: KillReading,
- *   concurrency: ConcurrencyReading, idle: IdleReading}} Reading the
- *   machine's earlyoom kills, its concurrency and the idle alarm are read
- *   once, not per repo (#3094, #3321, #3644)
+ *   repos: RepoReading[], failed: Unread[], unreadEvents: UnreadEvents[],
+ *   kills: KillReading, concurrency: ConcurrencyReading, idle: IdleReading}}
+ *   Reading the machine's earlyoom kills, its concurrency and the idle alarm
+ *   are read once, not per repo (#3094, #3321, #3644)
  * @typedef {{trackers: import("./idle-efforts.js").TrackerFinding[],
  *   loopRunning: boolean} | {why: string}} IdleReading the idle alarm's
  *   findings, or why check-idle-efforts.js gave none
@@ -412,6 +452,7 @@ function renderReview({
 	previous,
 	repos,
 	failed,
+	unreadEvents,
 	kills,
 	concurrency,
 	idle,
@@ -421,15 +462,15 @@ function renderReview({
 	/** @param {string} from @param {string} to */
 	const between = (from, to) => (/** @type {string} */ at) =>
 		Date.parse(at) > Date.parse(from) && Date.parse(at) <= Date.parse(to);
-	const inWindow = between(since, now);
 	const closedFrom = closeEdge(since);
 	const closedTo = closeEdge(now);
-	const isClosedInSpan = between(closedFrom, closedTo);
 
-	const readings = repos.map(({ repo, entries, closed }) => {
-		const decided = entries.filter((e) => inWindow(e.at));
+	const readings = repos.map(({ repo, since: start, entries, closed }) => {
+		const decided = entries.filter((e) => between(start, now)(e.at));
+		const isClosedInSpan = between(closeEdge(start), closedTo);
 		return {
 			repo,
+			start,
 			caught: decided.filter((e) => e.stillClose),
 			clear: decided.filter((e) => !e.stillClose).length,
 			closed: closed.filter((c) => isClosedInSpan(c.closedAt)),
@@ -446,24 +487,29 @@ function renderReview({
 	]);
 
 	const clearCount = readings.reduce((sum, r) => sum + r.clear, 0);
-	const clearRepos = readings.filter((r) => r.clear > 0).map((r) => r.repo);
+	const clearRepos = readings.filter((r) => r.clear > 0);
+	const clearFrom = clearRepos.reduce(
+		(earliest, r) =>
+			Date.parse(r.start) < Date.parse(earliest) ? r.start : earliest,
+		since,
+	);
 	/* Comments recorded before #2594 print `Still close:` and are never
 	 * rewritten. `updated:` is the issue's last activity, not the comment's
 	 * date, so any old issue can re-enter the window: both wordings for good. */
 	const clearLine =
 		clearCount === 0
 			? "None in the window."
-			: `${clearCount} made in the window — [search](${issueSearch(
-					`${clearRepos.map((r) => `repo:${r}`).join(" ")} ("Still caught: no" OR "Still close: no") in:comments updated:>=${searchTime(since)}`,
+			: `${clearCount} made ${clearFrom === since ? "in the window" : `since ${clearFrom}, as a review since did not read a repo`} — [search](${issueSearch(
+					`${clearRepos.map((r) => `repo:${r.repo}`).join(" ")} ("Still caught: no" OR "Still close: no") in:comments updated:>=${searchTime(clearFrom)}`,
 				)}).`;
 
 	const closedCount = readings.reduce((sum, r) => sum + r.closed.length, 0);
-	const perRepo = readings.map(
-		(r) =>
-			`- ${r.repo}: ${r.closed.length} — [search](${issueSearch(
-				`repo:${r.repo} is:issue is:closed closed:>=${searchTime(closedFrom)}`,
-			)})`,
-	);
+	const perRepo = readings.map((r) => {
+		const from = closeEdge(r.start);
+		return `- ${r.repo}: ${r.closed.length}${r.start === since ? "" : ` from ${from}, as the reviews since did not read it`} — [search](${issueSearch(
+			`repo:${r.repo} is:issue is:closed closed:>=${searchTime(from)}`,
+		)})`;
+	});
 	const stuck = repos.flatMap(({ repo, urgent }) =>
 		urgent.flatMap((i) => {
 			const age = hi - Date.parse(i.appliedAt);
@@ -514,6 +560,16 @@ function renderReview({
 					"",
 					"**Not read, so missing below:**",
 					...failed.map((f) => `- ${f.repo}: ${quoted(f.why)}`),
+				]),
+		...(unreadEvents.length === 0
+			? []
+			: [
+					"",
+					"The next review to read each of these lists its closes and decisions:",
+					"",
+					...unreadEvents.map(
+						(u) => `Events unread since ${u.since} in ${u.checkout}.`,
+					),
 				]),
 		"",
 		"## Landing stalls",
@@ -655,6 +711,7 @@ module.exports = {
 	buildReviewTitle,
 	closeEdge,
 	parseHistoryCursor,
+	repoStart,
 	whyByTime,
 	windowStart,
 	searchTime,

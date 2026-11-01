@@ -28,6 +28,39 @@ const lockFile = () => refillFile(".morning-review-filing.pid");
  * and stub gh starts. */
 const TWO_FILINGS_TIMEOUT_MS = 120_000;
 
+/** One filing, with the machine's clock at `at`. */
+const reviewAt = (at: string) => {
+	vi.useFakeTimers({ toFake: ["Date"], now: new Date(at) });
+	const r = run();
+	vi.useRealTimers();
+	expect(r.status).toBe(0);
+};
+
+/** Appends a still-caught decision to a checkout's ledger, stamped `at`. */
+const appendDecision = (
+	root: string,
+	at: string,
+	issue: number,
+	question: string,
+) => {
+	const repo = `acme/${path.basename(root)}`;
+	fs.appendFileSync(
+		path.join(root, ".claude", "tmp", "markers", "delegated-decisions.jsonl"),
+		`${JSON.stringify({
+			at,
+			repo,
+			issue,
+			comment: `https://github.com/${repo}/issues/${issue}#issuecomment-1`,
+			question,
+			taken: { option: "(A) keep", figure: 52 },
+			runnerUp: { option: "(B) drop", figure: 48 },
+			rungs: { rulings: "none", web: "none", subagent: "none" },
+			stillClose: true,
+			reverse: "drop it",
+		})}\n`,
+	);
+};
+
 const localDate = (d: Date) =>
 	[d.getFullYear(), d.getMonth() + 1, d.getDate()]
 		.map((v) => String(v).padStart(2, "0"))
@@ -392,12 +425,6 @@ describe("file-morning-review.js (#2011)", () => {
 
 	describe("an event readable only after a window's reads (#3827)", () => {
 		afterEach(() => vi.useRealTimers());
-		const reviewAt = (at: string) => {
-			vi.useFakeTimers({ toFake: ["Date"], now: new Date(at) });
-			const r = run();
-			vi.useRealTimers();
-			expect(r.status).toBe(0);
-		};
 		const row = (primitive: string) =>
 			`| ${primitive} | \`${primitive}\` | \`a.js\` | §0 | Standards axis criterion |`;
 
@@ -487,27 +514,7 @@ describe("file-morning-review.js (#2011)", () => {
 			seed([]);
 			reviewAt("2026-10-10T07:00:00.000Z");
 			/* The stamp record-delegated-decision.js gives a re-run: its append's. */
-			fs.appendFileSync(
-				path.join(
-					wfc(),
-					".claude",
-					"tmp",
-					"markers",
-					"delegated-decisions.jsonl",
-				),
-				`${JSON.stringify({
-					at: "2026-10-10T08:00:00.000Z",
-					repo: "acme/wfc",
-					issue: 3,
-					comment: "https://github.com/acme/wfc/issues/3#issuecomment-1",
-					question: "Re-run decision",
-					taken: { option: "(A) keep", figure: 52 },
-					runnerUp: { option: "(B) drop", figure: 48 },
-					rungs: { rulings: "none", web: "none", subagent: "none" },
-					stillClose: true,
-					reverse: "drop it",
-				})}\n`,
-			);
+			appendDecision(wfc(), "2026-10-10T08:00:00.000Z", 3, "Re-run decision");
 			reviewAt("2026-10-11T07:00:00.000Z");
 			reviewAt("2026-10-12T07:00:00.000Z");
 
@@ -517,16 +524,114 @@ describe("file-morning-review.js (#2011)", () => {
 		});
 	});
 
+	describe("a repo that does not read (#3831)", () => {
+		afterEach(() => vi.useRealTimers());
+
+		const second = () => path.join(path.dirname(wfc()), "second");
+		/** No tracker makes the checkout's read fail, with its config in place. */
+		const configureSecond = (config: object) =>
+			fs.writeFileSync(
+				path.join(second(), ".claude", "workflow-core.json"),
+				JSON.stringify({ contract: 1, founder: "T", ...config }),
+			);
+		const close = (number: number, closedAt: string) => ({
+			number,
+			title: `Close ${number}`,
+			url: `https://github.com/acme/wfc/issues/${number}`,
+			closedAt,
+			comments: [{ body: `**Door:** one-way — close ${number}` }],
+		});
+		const once = (body: string, text: string) =>
+			expect(body.split(text)).toHaveLength(2);
+
+		it("lists its closes and decisions in the first review to read it, and a repo that read throughout lists each event once", () => {
+			seed([
+				{
+					number: 800,
+					title: "Morning review — 2026-10-10",
+					state: "CLOSED",
+					createdAt: "2026-10-10T07:00:00.000Z",
+					body: "Window: 2026-10-09T07:00:00.000Z → 2026-10-10T07:00:00.000Z, from #1\n",
+					labels: [],
+				},
+			]);
+			fs.mkdirSync(path.join(second(), ".git"), { recursive: true });
+			fs.mkdirSync(path.join(second(), ".claude", "tmp", "markers"), {
+				recursive: true,
+			});
+			configureSecond({});
+			const c80 = close(80, "2026-10-10T12:00:00.000Z");
+			const c81 = close(81, "2026-10-11T12:00:00.000Z");
+			const c82 = close(82, "2026-10-12T12:00:00.000Z");
+			const closes = (...issues: object[]) =>
+				fs.writeFileSync(stub("closed.json"), JSON.stringify(issues));
+
+			appendDecision(second(), "2026-10-10T12:00:00.000Z", 3, "Second: failed");
+			appendDecision(wfc(), "2026-10-10T12:00:00.000Z", 3, "Wfc: read");
+			closes(c80);
+			reviewAt("2026-10-11T07:00:00.000Z");
+
+			appendDecision(
+				second(),
+				"2026-10-11T12:00:00.000Z",
+				4,
+				"Second: failed again",
+			);
+			closes(c80, c81);
+			reviewAt("2026-10-12T07:00:00.000Z");
+
+			appendDecision(second(), "2026-10-12T12:00:00.000Z", 5, "Second: read");
+			closes(c80, c81, c82);
+			configureSecond({ tracker: "acme/second" });
+			reviewAt("2026-10-13T07:00:00.000Z");
+			reviewAt("2026-10-14T07:00:00.000Z");
+
+			const [failed, failedAgain, recovered, after] = readCreated().map(
+				(c: { body: string }) => c.body,
+			);
+			for (const body of [failed, failedAgain]) {
+				expect(body).toContain(
+					"Events unread since 2026-10-10T07:00:00.000Z in second.",
+				);
+				expect(body).not.toContain("acme/second#8");
+				expect(body).not.toContain("Second:");
+			}
+			once(failed, "acme/wfc#80");
+			once(failed, "Wfc: read");
+
+			for (const event of [
+				"Second: failed`",
+				"Second: failed again",
+				"Second: read",
+				"acme/second#80",
+				"acme/second#81",
+				"acme/second#82",
+				"acme/wfc#82",
+			])
+				once(recovered, event);
+			expect(recovered).not.toContain("acme/wfc#80");
+			expect(recovered).not.toContain("Wfc: read");
+			expect(recovered).not.toContain("Events unread since");
+			expect(recovered).toContain(
+				"- acme/second: 3 from 2026-10-10T06:45:00.000Z, as the reviews since did not read it",
+			);
+			const searches = fs.readFileSync(stub("calls.log"), "utf8");
+			expect(searches).toContain(
+				"--repo acme/second --state closed --search closed:>=2026-10-10T06:45:00+00:00",
+			);
+			expect(searches).toContain(
+				"--repo acme/wfc --state closed --search closed:>=2026-10-12T06:45:00+00:00",
+			);
+
+			for (const event of ["acme/second#8", "acme/wfc#8", "Second:"])
+				expect(after).not.toContain(event);
+		});
+	});
+
 	describe("the window between two reviews (#3813)", () => {
 		afterEach(() => vi.useRealTimers());
 
 		it("puts a close stamped after a filing's reads begin and before its issue exists in the next review only", () => {
-			const reviewAt = (at: string) => {
-				vi.useFakeTimers({ toFake: ["Date"], now: new Date(at) });
-				const r = run();
-				vi.useRealTimers();
-				expect(r.status).toBe(0);
-			};
 			seed([]);
 			const during = {
 				number: 78,

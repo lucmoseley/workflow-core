@@ -29,8 +29,8 @@
  * body, and `now` is fixed before this run's reads, so no event falls between two
  * reviews however long a filing runs (lib/morning-review.js's windowStart). That
  * file's header gives each source's edge for an event readable after this run's
- * reads (#3827). A repo that does not read loses its closes and decisions for the
- * window, named in the body (#3831).
+ * reads (#3827). A repo that does not read is named in the body with where its
+ * events went unread from, and the next review starts that repo there (#3831).
  *
  * Files through file-issue.js, so the `takes:` and known-label refusals bind
  * this script as they bind a session: no hook sees a gh call a script makes.
@@ -125,13 +125,18 @@ const io = scriptIo("file-morning-review");
 /**
  * One included checkout's ledger and closes, and what of it could not be read.
  * @param {string} root
- * @param {string} since
+ * @param {string} windowSince
  * @param {Reads} reads
- * @param {{body: string}[]} reviews newest first
- * @returns {{reading: import("./lib/morning-review.js").RepoReading | null, unread: Unread[]}}
+ * @param {{number: number, body: string}[]} reviews newest first
+ * @returns {{reading: import("./lib/morning-review.js").RepoReading | null, unread: Unread[],
+ *   unreadEvents: import("./lib/morning-review.js").UnreadEvents[]}}
  */
-function readRepo(root, since, reads, reviews) {
-	let repo = path.basename(root);
+function readRepo(root, windowSince, reads, reviews) {
+	const checkout = path.basename(root);
+	const { since, why } = review.repoStart(reviews[0], checkout, windowSince);
+	/** @type {Unread[]} */
+	const unreadStart = why === null ? [] : [{ repo: checkout, why }];
+	let repo = checkout;
 	try {
 		repo = requireKey("tracker", { root });
 		const { lines, torn } = readLedger(root);
@@ -157,6 +162,7 @@ function readRepo(root, since, reads, reviews) {
 		return {
 			reading: {
 				repo,
+				since,
 				entries: lines,
 				closed,
 				stalls: stalls.read,
@@ -165,6 +171,7 @@ function readRepo(root, since, reads, reviews) {
 				primitives,
 			},
 			unread: [
+				...unreadStart,
 				...(torn === 0
 					? []
 					: [{ repo, why: `${torn} torn ledger line(s) skipped` }]),
@@ -172,11 +179,13 @@ function readRepo(root, since, reads, reviews) {
 				...urgent.unread,
 				...parked.unread,
 			],
+			unreadEvents: [],
 		};
 	} catch (e) {
 		return {
 			reading: null,
-			unread: [{ repo, why: parseErrLine(e) }],
+			unread: [...unreadStart, { repo, why: parseErrLine(e) }],
+			unreadEvents: [{ checkout, since }],
 		};
 	}
 }
@@ -589,6 +598,7 @@ function fileUnlessFiledToday(tracker, dryRun) {
 			...(why === null ? [] : [{ repo: tracker, why }]),
 			...read.flatMap((r) => r.unread),
 		],
+		unreadEvents: read.flatMap((r) => r.unreadEvents),
 		kills: readKills(tracker, since),
 		concurrency: readConcurrency(now.getTime()),
 		idle: readIdle(),

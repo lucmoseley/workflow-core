@@ -14,6 +14,7 @@ const {
 	buildReviewTitle,
 	closeEdge,
 	parseHistoryCursor,
+	repoStart,
 	windowStart,
 } = require("./morning-review.js");
 const { basisFaults } = require("./issue-gate.js");
@@ -63,17 +64,32 @@ const QUIET_PRIMITIVES = {
 	history: { commits: [], tip: HEAD, whyByTime: null },
 };
 
+const QUIET_KILLS = { incidents: [], tickets: new Map(), why: null };
+
+const renderWith = (overrides: object) =>
+	renderReview({
+		since: SINCE,
+		now: NOW,
+		previous: 7,
+		repos: [],
+		failed: [],
+		unreadEvents: [],
+		kills: QUIET_KILLS,
+		concurrency: concurrencyOver([], []),
+		idle: QUIET_IDLE,
+		...overrides,
+	});
+
 const render = (
 	repos: unknown[],
 	failed: unknown[] = [],
 	previous: number | null = 7,
-	kills: unknown = { incidents: [], tickets: new Map(), why: null },
+	kills: unknown = QUIET_KILLS,
 ) =>
-	renderReview({
-		since: SINCE,
-		now: NOW,
+	renderWith({
 		previous,
 		repos: repos.map((r) => ({
+			since: SINCE,
 			urgent: [],
 			parked: [],
 			primitives: QUIET_PRIMITIVES,
@@ -81,11 +97,92 @@ const render = (
 		})),
 		failed,
 		kills,
-		concurrency: concurrencyOver([], []),
-		idle: QUIET_IDLE,
 	});
 
+describe("repoStart (#3831)", () => {
+	const previous = {
+		number: 7,
+		body: `Events unread since ${SINCE} in other.\nEvents unread since 2026-10-16T07:00:00Z in my wfc.\n`,
+	};
+
+	it("starts a checkout the previous review could not read where its events went unread from", () => {
+		expect(repoStart(previous, "my wfc", NOW)).toEqual({
+			since: "2026-10-16T07:00:00Z",
+			why: null,
+		});
+	});
+
+	it("starts any other checkout at the window's start", () => {
+		const atWindowStart = { since: NOW, why: null };
+		expect(repoStart(previous, "acme", NOW)).toEqual(atWindowStart);
+		expect(repoStart(undefined, "my wfc", NOW)).toEqual(atWindowStart);
+	});
+
+	it("starts at the window's start, saying so, where the line's time will not read", () => {
+		const body = "Events unread since soon in wfc.\n";
+		expect(repoStart({ number: 7, body }, "wfc", NOW)).toEqual({
+			since: NOW,
+			why: `#7's Events unread line, so events before ${NOW}`,
+		});
+	});
+});
+
 describe("renderReview (#2011)", () => {
+	it("takes a repo's events from its own start, and says so on its closes (#3831)", () => {
+		const start = "2026-10-16T07:00:00Z";
+		const body = render(
+			[
+				{
+					repo: "acme/a",
+					since: start,
+					stalls: [],
+					entries: [
+						entry("2026-10-16T07:00:00Z", 1, true, "At the start"),
+						entry("2026-10-16T08:00:00Z", 2, true, "Unread window"),
+						entry("2026-10-16T09:00:00Z", 3, false),
+					],
+					closed: [
+						closed(4, "2026-10-16T08:00:00Z", "one-way — gone"),
+						closed(6, "2026-10-16T06:45:00Z", "one-way — at the edge"),
+					],
+				},
+				{
+					repo: "acme/b",
+					stalls: [],
+					entries: [entry("2026-10-16T08:00:00Z", 5, true, "Read before")],
+					closed: [],
+				},
+			],
+			[],
+		);
+		expect(body).toContain("Unread window");
+		expect(body).not.toContain("At the start");
+		expect(body).not.toContain("Read before");
+		expect(body).toContain("acme/a#4");
+		expect(body).not.toContain("acme/a#6");
+		expect(body).toContain(
+			"1 made since 2026-10-16T07:00:00Z, as a review since did not read a repo — [search]",
+		);
+		expect(body).toContain(
+			"- acme/a: 1 from 2026-10-16T06:45:00.000Z, as the reviews since did not read it — [search]",
+		);
+		expect(body).toMatch(/- acme\/b: 0 — \[search\]/);
+		expect(body).toContain(
+			encodeURIComponent("updated:>=2026-10-16T07:00:00+00:00"),
+		);
+	});
+
+	it("prints where an unread checkout's events start, for the next review to read back (#3831)", () => {
+		const quiet = render([]);
+		expect(quiet).not.toContain("Events unread since");
+		const body = renderWith({
+			failed: [{ repo: "acme/wfc", why: "HTTP 502" }],
+			unreadEvents: [{ checkout: "wfc", since: SINCE }],
+		});
+		expect(repoStart({ number: 7, body }, "wfc", NOW).since).toBe(SINCE);
+		expect(body).toContain("- acme/wfc: `HTTP 502`");
+	});
+
 	it("lists each repo's open stall ticket, and says none is open where none is (#2692)", () => {
 		const quiet = render([
 			{ repo: "acme/a", entries: [], stalls: [], closed: [] },
@@ -231,16 +328,7 @@ describe("renderReview (#2011)", () => {
 				memory: null,
 			},
 		];
-		const body = renderReview({
-			since: SINCE,
-			now: NOW,
-			previous: 7,
-			repos: [],
-			failed: [],
-			kills: { incidents: [], tickets: new Map(), why: null },
-			concurrency: concurrencyOver(ticks, minutes),
-			idle: QUIET_IDLE,
-		});
+		const body = renderWith({ concurrency: concurrencyOver(ticks, minutes) });
 		expect(body).toContain(
 			"Admission ceiling: unread at the last refill-loop tick",
 		);
@@ -251,16 +339,7 @@ describe("renderReview (#2011)", () => {
 	});
 
 	it("reads the sustained figures and hours unread where the minute record did not read (mantahostels#1206)", () => {
-		const body = renderReview({
-			since: SINCE,
-			now: NOW,
-			previous: 7,
-			repos: [],
-			failed: [],
-			kills: { incidents: [], tickets: new Map(), why: null },
-			concurrency: concurrencyOver([], null),
-			idle: QUIET_IDLE,
-		});
+		const body = renderWith({ concurrency: concurrencyOver([], null) });
 		expect(body).toContain(
 			"- unread over the last 24 h — memwatch's minute record did not read\n- unread over the last 7 days — memwatch's minute record did not read\n",
 		);
@@ -835,17 +914,7 @@ describe("primitives (#3465)", () => {
 });
 
 describe("the idle efforts section (#3644)", () => {
-	const idleRender = (idle: unknown) =>
-		renderReview({
-			since: SINCE,
-			now: NOW,
-			previous: 7,
-			repos: [],
-			failed: [],
-			kills: { incidents: [], tickets: new Map(), why: null },
-			concurrency: concurrencyOver([], []),
-			idle,
-		});
+	const idleRender = (idle: unknown) => renderWith({ idle });
 	const section = (body: string) =>
 		body.slice(
 			body.indexOf("## Idle efforts"),
