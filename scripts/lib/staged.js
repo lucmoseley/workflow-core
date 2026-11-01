@@ -15,16 +15,25 @@ const { spawnGitSync } = require("./git.js");
 /** @typedef {import("./check").CheckContext} Ctx */
 
 /**
+ * A child that exits before reading all of `input` leaves spawnSync an EPIPE
+ * beside its real exit status, which is the answer, so the EPIPE is dropped
+ * (#3825).
+ *
  * @param {string} cmd
  * @param {string[]} args
  * @param {string} [input]
  */
 function spawn(cmd, args, input) {
-	return spawnSync(cmd, args, {
+	const run = spawnSync(cmd, args, {
 		input,
 		encoding: "utf8",
 		maxBuffer: CHILD_MAX_BUFFER,
 	});
+	const code = /** @type {NodeJS.ErrnoException | undefined} */ (run.error)
+		?.code;
+	return code === "EPIPE" && run.status !== null
+		? { ...run, error: undefined }
+		: run;
 }
 
 /**

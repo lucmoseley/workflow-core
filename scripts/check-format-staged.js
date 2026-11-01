@@ -41,6 +41,7 @@ const { readBlob, spawn, readStagedDiff } = require("./lib/staged");
 /**
  * @typedef {(tag: "UNFORMATTED" | "UNPARSEABLE", p: string, message: string) => void} Refuse
  * @typedef {{ readStagedBlob: (p: string) => string, refuse: Refuse }} Judge
+ * @typedef {import("node:child_process").SpawnSyncReturns<string>} RuffRun
  */
 
 /**
@@ -87,25 +88,62 @@ function checkPython(ctx, python, { readStagedBlob, refuse }) {
 	];
 	let checked = 0;
 	for (const p of python) {
-		const r = spawn(
-			RUFF,
-			[...base, "--stdin-filename", p, "-"],
-			readStagedBlob(p),
-		);
+		const args = [...base, "--stdin-filename", p, "-"];
+		const r = spawn(RUFF, args, readStagedBlob(p));
 		if (r.error)
 			ctx.broken(
 				`cannot run ${RUFF} (${r.error.message}) for ${python.length} staged Python path(s) — install it: ${RUFF_INSTALL}`,
 			);
 		checked++;
 		if (r.status === 1) refuse("UNFORMATTED", p, "not ruff-formatted");
-		else if (r.status !== 0)
+		else if (r.status !== 0) {
+			const toolFault = readRuffToolFault(r, args);
+			if (toolFault)
+				ctx.broken(
+					`${RUFF} format cannot run: ${toolFault}\nFix its config, or reinstall it: ${RUFF_INSTALL}`,
+				);
 			refuse(
 				"UNPARSEABLE",
 				p,
 				`ruff format exited ${r.status}: ${r.stderr.trim()}`,
 			);
+		}
 	}
 	return checked;
+}
+
+/**
+ * Why ruff itself failed rather than the blob, or "" where the blob is at
+ * fault. Ruff exits 2 on a syntax error and on a config it cannot load alike,
+ * so the same arguments rerun over an empty blob, which has no syntax to fail
+ * on, tell the two apart (#3825).
+ *
+ * Residual: a ruff that panics on one blob alone, the rerun passing, still
+ * reads as that blob's fault.
+ *
+ * @param {RuffRun} failed
+ * @param {string[]} args
+ * @returns {string}
+ */
+function readRuffToolFault(failed, args) {
+	const died = readRunDeath(failed);
+	if (died) return died;
+	const empty = spawn(RUFF, args, "");
+	const rerunDied = readRunDeath(empty);
+	if (rerunDied) return rerunDied;
+	if (empty.status === 0) return "";
+	return empty.stderr.trim() || `exited ${empty.status} on an empty blob`;
+}
+
+/**
+ * Why a ruff run ended without an exit status, or "" where it has one.
+ *
+ * @param {RuffRun} run
+ * @returns {string}
+ */
+function readRunDeath(run) {
+	if (run.error) return run.error.message;
+	return run.signal ? `killed by ${run.signal}` : "";
 }
 
 /** check-shfmt.js, relative inside the repo, absolute from an adopter's plugin cache. */

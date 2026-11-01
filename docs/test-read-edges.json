@@ -2704,6 +2704,7 @@
 			"scripts/lib/formatters.test.ts",
 			"scripts/lib/plugin-tree.test.ts",
 			"scripts/lib/post-write.test.ts",
+			"scripts/lib/ruff.contract.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
 			"scripts/precommit-ruff-gate.test.ts",
 			"scripts/tooling-matrix.test.ts"
@@ -16974,6 +16975,16 @@
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/ruff.contract.test.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
