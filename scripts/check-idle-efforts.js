@@ -26,17 +26,18 @@
  * run under plain `--notify`, and under persist mode by the replay reader, from
  * the signature this run carries. So it is read under persist mode too, which
  * readSeenStamp declines: nothing it records went unshown. A dispatcher's or the
- * loop's job start is taken as unwatched, so it records nothing either: this
- * report is among lib/background-start.js's FOUNDER_NOTICES, which the replay
- * holds back there, and a plain `--notify` run there names what is unseen but
- * writes no stamp, leaving the founder's own start, in a terminal or from the
- * agents view, to show it (#3707, #3725, #3772).
+ * loop's job start is taken as unwatched, as is any job's resume, his own
+ * included, since the loop wakes a parked job whoever launched it (#3841), so it
+ * records nothing either: this report is among lib/background-start.js's
+ * FOUNDER_NOTICES, which the replay holds back there, and a plain `--notify` run
+ * there names what is unseen but writes no stamp, leaving the founder's own
+ * start, in a terminal or from the agents view, to show it (#3707, #3725, #3772).
  * A plain run, the morning review's included, names every tracker and
  * records nothing. A compaction is no session start: it exits before a
  * persisted run opens, so it neither prints nor replaces a report not yet
  * shown.
  *
- * IMPLICIT:  at every session start, reads every adopting checkout's tracker and reports each tracker holding an effort idle past 2 days, or unread, whose finding was not yet shown that machine-local day; a dispatcher's or the loop's job start stamps none of it, and through the hooks shows none of it.
+ * IMPLICIT:  at every session start, reads every adopting checkout's tracker and reports each tracker holding an effort idle past 2 days, or unread, whose finding was not yet shown that machine-local day; a dispatcher's or the loop's job start, or any job's resume, stamps none of it, and through the hooks shows none of it.
  * JUSTIFIED: fail-safe — a stopped loop, or a route it skips, strands an effort with nothing else to say so.
  * DEFEAT:    none needed — it never blocks; deleting its delivery stamp names today's findings again.
  */
@@ -129,7 +130,8 @@ function readLoop(reportDamaged) {
 	};
 }
 
-const SPEC = {
+/** @param {string} [source] the hook payload's `source`; absent on a plain run */
+const buildSpec = (source) => ({
 	name: CHECKER,
 	usage: "node check-idle-efforts.js [--notify] [--json]",
 	async run(/** @type {import("./lib/check").Ctx} */ ctx) {
@@ -184,7 +186,7 @@ const SPEC = {
 				? {
 						stamp: deliveryStamp.readStamp(CHECKER),
 						day: localDate(new Date(now)),
-						held: isFounderNoticeHeld(CHECKER),
+						held: isFounderNoticeHeld(CHECKER, source),
 					}
 				: null,
 		);
@@ -201,17 +203,16 @@ const SPEC = {
 			data: { loopRunning: loopRead.running, trackers: findings },
 		};
 	},
-};
+});
 
 const main = () => {
 	/* Read under --notify alone: a plain run's stdin may be a terminal.
 	 * cli-args-exempt: a peek before runCheck, which parses the argv. */
-	if (
-		process.argv.includes("--notify") &&
-		hookMessage.readPayload()?.source === "compact"
-	)
-		return;
-	return runCheck(SPEC);
+	const source = process.argv.includes("--notify")
+		? hookMessage.readPayload()?.source
+		: undefined;
+	if (source === "compact") return;
+	return runCheck(buildSpec(source));
 };
 
 module.exports = { main };
