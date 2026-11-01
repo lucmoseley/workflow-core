@@ -41,10 +41,11 @@ const IDLE_TRIES = 2;
 /**
  * @typedef {import("./block-cause.js").Cause} Cause
  * @typedef {"stop-and-park"|"park-at-morning"|"resume"|"hold"
- *   |"resume-in-place"|"handoff-relaunch"|"wait"|"none"} Act  `hold`, stop the
+ *   |"resume-in-place"|"move"|"handoff-relaunch"|"wait"|"none"} Act  `hold`, stop the
  *   session until its next resume is due, a resumed-idle one until the swap
  *   hold clears, or a limit-blocked one until a seat has room for it;
- *   `resume-in-place`, a limit-blocked one back on its own seat
+ *   `resume-in-place`, a limit-blocked one back on its own seat; `move`, one
+ *   onto the other seat the move pick walks to, under its own session id
  * @typedef {{cause: Cause, sub?: import("./block-cause.js").ApiErrorKind,
  *   since: number, tries?: number, nextAt?: number, triedAt?: number,
  *   held?: boolean, typing?: boolean, swapHeld?: boolean, seat?: string,
@@ -59,8 +60,8 @@ const IDLE_TRIES = 2;
  *   hold (#2690) binding this tick; for a LIMIT, `seat`, its session's seat,
  *   `movePick`, the seat lib/refill-decide.js's pickMoveSeat walks to,
  *   `slotFree`, whether admission has a slot for one held stopped,
- *   `tries`, this hold's failed resumes alone, `dryResumes`, its resumes in a
- *   row that took and bought no reply, and `heldAt`, when this hold began
+ *   `tries`, this hold's failed resumes and moves alone, `dryResumes`, those in
+ *   a row that took and bought no reply, and `heldAt`, when this hold began
  * @typedef {(block: Block, now: number) => Act} Rule
  */
 
@@ -173,16 +174,15 @@ const isHeldPastBound = (heldAt, now) =>
 	now - heldAt >= LIMIT_HOLD_BOUND_DAYS * DAY_MS;
 
 /**
- * Whether a limit-blocked session goes back on its own seat now: the move
- * pick walks there, one held stopped only into a free slot, as it holds none
- * (#3735). `nextAt` spaces out the tries of one whose limit the seat's bars do
- * not show.
+ * Whether a limit-blocked session can leave its hold now: the move pick walks
+ * to a seat, one held stopped only into a free slot, as it holds none (#3735).
+ * `nextAt` spaces out the tries of one whose limit the seat's bars do not show.
  * @param {Block} block
  * @param {number} now ms
  */
-const isResumableInPlace = (block, now) =>
+const isFreeToGo = (block, now) =>
 	Boolean(block.seat) &&
-	block.movePick === block.seat &&
+	Boolean(block.movePick) &&
 	now >= (block.nextAt ?? 0) &&
 	(!block.held || Boolean(block.slotFree));
 
@@ -199,18 +199,19 @@ const isResumableInPlace = (block, now) =>
 function buildLimitParkWhy(block, now) {
 	const failed = block.tries ?? 0;
 	if (block.held && failed >= RESUME_CAP)
-		return `${failed} failed resumes in place`;
+		return `${failed} failed resumes or moves`;
 	const dry = block.dryResumes ?? 0;
 	if (dry >= RESUME_CAP)
-		return `${dry} resumes in place in a row with no reply`;
-	if (block.heldAt === undefined || isResumableInPlace(block, now)) return;
+		return `${dry} resumes or moves in a row with no reply`;
+	if (block.heldAt === undefined || isFreeToGo(block, now)) return;
 	return isHeldPastBound(block.heldAt, now) ? HOLD_BOUND_WHY : undefined;
 }
 
 /** @type {Rule} */
 const limit = (block, now) => {
 	if (buildLimitParkWhy(block, now)) return "stop-and-park";
-	if (isResumableInPlace(block, now)) return "resume-in-place";
+	if (isFreeToGo(block, now))
+		return block.movePick === block.seat ? "resume-in-place" : "move";
 	return block.held ? "wait" : "hold";
 };
 

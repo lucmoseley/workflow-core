@@ -239,8 +239,10 @@ function parseListing(raw, call) {
 
 /**
  * The runner's per-dir stdouts as one JSON array, the first record per
- * session id kept, or `{why}` where any one is not an array. A record with no
- * id is kept for `mergedListing` to judge.
+ * session id kept, unless it is terminal and a later one is not: a session
+ * moved between seats reads live though its old seat's dir leads (#3734). `{why}`
+ * where any one is not an array. A record with no id is kept for
+ * `mergedListing` to judge.
  *
  * @param {string} out  the runner's stdout
  * @param {string} call
@@ -255,22 +257,38 @@ function unionOf(out, call) {
 	}
 	if (!Array.isArray(raws) || !raws.every((r) => typeof r === "string"))
 		return { why: `${call} gave no listing per dir` };
-	/** @type {unknown[]} */
+	/* `any`, as parseListing's records are. */
+	/** @type {any[]} */
 	const all = [];
 	for (const raw of raws) {
 		const parsed = parseListing(raw, call);
 		if ("why" in parsed) return parsed;
 		all.push(...parsed.agents);
 	}
-	const seen = new Set();
-	const union = all.filter((a) => {
+	return { raw: JSON.stringify(preferLiveRecords(all)) };
+}
+
+/**
+ * `records` with one per session id, in first-seen order: the first, unless it
+ * is terminal and a later one is not. A record with no id is always kept. `any`,
+ * as `mergedListing` takes them: each is judged there field by field.
+ * @param {any[]} records
+ * @returns {any[]}
+ */
+function preferLiveRecords(records) {
+	/** @type {any[]} */
+	const union = [];
+	/** @type {Map<string, number>} */
+	const at = new Map();
+	for (const a of records) {
 		const id = sessionIdOf(a);
-		if (id === null) return true;
-		if (seen.has(id)) return false;
-		seen.add(id);
-		return true;
-	});
-	return { raw: JSON.stringify(union) };
+		const i = id === null ? undefined : at.get(id);
+		if (i === undefined) {
+			if (id !== null) at.set(id, union.length);
+			union.push(a);
+		} else if (isTerminalAgent(union[i]) && !isTerminalAgent(a)) union[i] = a;
+	}
+	return union;
 }
 
 /**

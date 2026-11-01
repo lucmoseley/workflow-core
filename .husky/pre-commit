@@ -1036,8 +1036,10 @@ if armed '\.py$' && [ -n "$(armed_live --index)" ]; then
     ruff_cfg="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/formatters.js ruff-config)"
     node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-ruff-introduced.js ${ruff_cfg:+--config "$ruff_cfg"} || {
       ri_rc=$?
+      # Residual: a checker crashing at load exits 1, so it still prints the findings text (#3812).
       if [ "$ri_rc" -ne 1 ]; then
         echo "pre-commit: the ruff gate refused this commit, its checker unable to run." >&2
+        echo "  This is the tool, not your change: repair what the line above names, and commit again." >&2
       else
         echo "pre-commit: the ruff gate refused this commit's own Python paths." >&2
         echo "  Only findings HEAD's copy lacks are charged; ones already on it are not (#122)." >&2
@@ -1093,6 +1095,7 @@ if armed "\.py\$|$GATE_SHELL_CANDIDATE" && [ -n "$(armed_live --index)" ]; then
   # shellcheck disable=SC2086 # deliberate word-splitting: zero to two flags.
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-format-staged.js $fmt_skip || {
     fs_rc=$?
+    # Residual: a checker crashing at load exits 1, so it still blames the staged paths (#3812).
     if [ "$fs_rc" -ne 1 ]; then
       echo "pre-commit: the format gate refused this commit, its checker unable to run." >&2
     else

@@ -12,8 +12,13 @@ const LOOP_PROMPT_PREFIX = "[refill loop] ";
 const API_PROMPT = `${LOOP_PROMPT_PREFIX}resume — your last turn ended on an API error. Before repeating your last tool call, check whether it already took effect.`;
 /* #2659's wording. */
 const IDLE_PROMPT = `${LOOP_PROMPT_PREFIX}resume — your host was restarted and your last turn never ran. Before repeating your last tool call, check whether it already took effect.`;
+const LIMIT_LOSS =
+	"Your in-flight subagents, background tasks and monitors are gone. Before repeating your last tool call, check whether it already took effect, then continue your task.";
 /* A session its seat's limit stopped, resumed on that seat (#3735). */
-const LIMIT_PROMPT = `${LOOP_PROMPT_PREFIX}resume — your seat's usage limit stopped you and has since reset, so you were resumed on the same seat. Your in-flight subagents, background tasks and monitors are gone. Before repeating your last tool call, check whether it already took effect, then continue your task.`;
+const LIMIT_PROMPT = `${LOOP_PROMPT_PREFIX}resume — your seat's usage limit stopped you and has since reset, so you were resumed on the same seat. ${LIMIT_LOSS}`;
+/* A session its seat's limit stopped, moved to another seat under its own id
+ * (#3734). */
+const MOVED_PROMPT = `${LOOP_PROMPT_PREFIX}resume — your seat's usage limit stopped you, so you were moved to another seat, in the same directory and under the same session id. ${LIMIT_LOSS}`;
 /* A parked session resumed by a normal-mode loop (#3621). */
 const PARKED_PROMPT = `${LOOP_PROMPT_PREFIX}resume — the founder may be back. Repeat your open question round here as it stands, without posting it to the issue again, and end your turn waiting on his answer.`;
 
@@ -24,6 +29,7 @@ module.exports = {
 	API_PROMPT,
 	IDLE_PROMPT,
 	LIMIT_PROMPT,
+	MOVED_PROMPT,
 	PARKED_PROMPT,
 	isLoopPrompt,
 };

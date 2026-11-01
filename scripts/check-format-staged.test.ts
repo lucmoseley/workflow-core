@@ -228,7 +228,9 @@ describe("the .husky/pre-commit format gate", () => {
 
 	it("refuses the commit on an unformatted staged script", () => {
 		const { code, output } = gate(repo({ "scripts/a.sh": SH_BAD }));
-		expect(output).toMatch(/the format gate refused/);
+		expect(output).toMatch(
+			/the format gate refused this commit's own shell or Python paths/,
+		);
 		expect(code).toBe(1);
 	});
 
@@ -265,10 +267,13 @@ describe("the .husky/pre-commit format gate", () => {
 	const envNoShfmt = { WFC_SHFMT: "/nonexistent/shfmt" };
 	const envNoRuff = { WFC_RUFF: "/nonexistent/ruff" };
 
-	it("refuses a shell path where shfmt is missing and no workflow runs it, naming the install line (#1463)", () => {
+	it("refuses a shell path where shfmt is missing and no workflow runs it, naming the install line and blaming no staged paths (#1463, #3812)", () => {
 		const { code, output } = gate(repo({ "scripts/a.sh": SH_OK }), envNoShfmt);
 		expect(output).toContain(SHFMT_INSTALL);
-		expect(output).toMatch(/the format gate refused/);
+		expect(output).toMatch(
+			/the format gate refused this commit, its checker unable to run/,
+		);
+		expect(output).not.toMatch(/own shell or Python paths/);
 		expect(code).toBe(2);
 	});
 
@@ -283,6 +288,7 @@ describe("the .husky/pre-commit format gate", () => {
 		const { code, output } = gate(repo({ "pkg/a.py": PY_OK }), envNoRuff);
 		expect(output).toContain(RUFF_INSTALL);
 		expect(output).toMatch(/the format gate refused/);
+		expect(output).not.toMatch(/own shell or Python paths/);
 		expect(code).toBe(2);
 	});
 

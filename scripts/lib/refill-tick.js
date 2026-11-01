@@ -12,7 +12,7 @@
  * tries (#2705), resume each its host restarted that took no turn and hand
  * one still idle after that to a fresh launch (#2707), read
  * admission, the allowance per seat and what its cap would launch, and
- * founder presence, hold or resume in place each blocked on its seat's limit
+ * founder presence, hold, resume or move each blocked on its seat's limit
  * (#3735), ask lib/refill-decide.js, and launch each repo's picks
  * through one dispatch-sessions.sh call in its checkout, so that repo's ledger,
  * duplicate drop, memory re-read and allowance cap apply. The decision core
@@ -73,7 +73,13 @@ const {
 const { parseResumed } = require("./bg-resume.js");
 const { stopOn } = require("./claude-stop.js");
 const { launchAuthRefusal } = require("./launch-auth.js");
-const { jobDirPath, readJobCwd, readJobRecord } = require("./job-paths.js");
+const {
+	jobDirPath,
+	readJobCwd,
+	readJobRecord,
+	shortJobId,
+} = require("./job-paths.js");
+const { copyTranscript } = require("./seat-move.js");
 const { parseJsonl } = require("./jsonl.js");
 const {
 	readParkMarkers,
@@ -374,15 +380,17 @@ function readCapFits(root, seat, members, usageText) {
  * @param {string[]} seats in seat-file order
  * @param {number} slots
  * @param {string|undefined} root
- * @param {string|null} typedSeat
+ * @param {{typedSeat: string|null, sizeAll?: boolean}} how  `sizeAll`, each
+ *   seat with room sized, for a move
  */
-function readSeats(seats, slots, root, typedSeat) {
+function readSeats(seats, slots, root, { typedSeat, sizeAll = false }) {
 	return loop.readSizedSeats(slots, {
 		read: (usage) => readSeatReadings(seats, usage),
 		probe: readPrintedUsage,
 		sizeOf: (seat, members, usageText) =>
 			readCapFits(root, seat, members, usageText),
 		typedSeat,
+		sizeAll,
 	});
 }
 
@@ -804,6 +812,52 @@ function resumeStopped(l, prompt, { sessionId, cwd }) {
 }
 
 /**
+ * Remove any job record for session `sessionId`'s short id on seat `seat`
+ * (`claude rm`, which keeps transcripts); null once none is left, else why not.
+ * @param {string} seat
+ * @param {string} sessionId
+ * @param {string} cwd
+ */
+function removeJobRecord(seat, sessionId, cwd) {
+	const jobId = shortJobId(sessionId);
+	if (!fs.existsSync(jobDirPath(seat, jobId))) return null;
+	const failed = childFailure(
+		runChild(claudeBin(), ["rm", jobId], {
+			cwd,
+			env: seatEnv({ seat }),
+		}),
+	);
+	return failed && `removing its stale job record on ${seat}: ${failed}`;
+}
+
+/**
+ * Carry `l`'s stopped session to seat `target` and resume it there under its
+ * own session id (#2159's steps, #3734): its transcript copied, any job record
+ * for it on `target` removed so its resume keeps the id instead of starting a
+ * copy, then resumeStopped under `target`, which reads back the job's state. A resume that failed may still be starting, so it is
+ * stopped, and two live processes never share the id; the old seat's
+ * transcript is left whole, for its next try.
+ * @param {import("./refill-blocks.js").JobLaunch} l
+ * @param {string} target
+ * @param {string} prompt
+ * @param {{sessionId: string, cwd: string}} ids
+ * @returns {import("./refill-blocks.js").Resumed}
+ */
+function moveSession(l, target, prompt, ids) {
+	const { sessionId, cwd } = ids;
+	const prepared =
+		copyTranscript({ from: l.seat, to: target, sessionId, cwd }) ??
+		removeJobRecord(target, sessionId, cwd);
+	if (prepared) return { failed: prepared };
+	const r = resumeStopped({ ...l, seat: target }, prompt, ids);
+	if (r.failed === null) return r;
+	const stop = stopOn(target, shortJobId(sessionId));
+	if (!stop.ok && !stop.noJob)
+		log(`could not stop ${shortJobId(sessionId)}'s failed resume: ${stop.why}`);
+	return r;
+}
+
+/**
  * Each parked row's park marker, the newest written where several list it,
  * with the seat and job it names and the directory its session resumes in,
  * its marker's, else the checkout holding the marker (#3773).
@@ -964,6 +1018,8 @@ const blockIo = (served) => ({
 	type: typeResume,
 	resumeTargetOf: readResumeTargetOf,
 	resumeStopped,
+	moveSession,
+	removeJobRecord,
 	jobStateOf: readJobRecordOf,
 	renewLedgerHold: (l) =>
 		recordLaunch({
@@ -1095,16 +1151,16 @@ async function tick({ dryRun }) {
 				...seen,
 				typedSeat: typed.seat,
 				readMoveSeats: () =>
-					readSeats(control.seats, 1, served[0], typed.seat).seats,
+					readSeats(control.seats, 1, served[0], {
+						typedSeat: typed.seat,
+						sizeAll: true,
+					}).seats,
 				seatListRead: isSeatListRead(parsed),
 				slots: free,
 			});
-	const { seats, probes } = readSeats(
-		control.seats,
-		slots,
-		served[0],
-		typed.seat,
-	);
+	const { seats, probes } = readSeats(control.seats, slots, served[0], {
+		typedSeat: typed.seat,
+	});
 	const overflow = loop.overflowReadings(declared, seats, (seat) =>
 		seatBudget(seat, served[0]),
 	);

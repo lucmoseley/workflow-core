@@ -342,7 +342,32 @@ function findTranscript(configDir, sessionId) {
 	return null;
 }
 
+/**
+ * The most recently written of `sessionId`'s transcripts across `dirs`, as a
+ * session moved between seats leaves a stale one on the seat it left (#3734);
+ * null where none is found or stats.
+ * @param {string[]} dirs
+ * @param {string} sessionId
+ * @returns {{file: string, mtimeMs: number}|null}
+ */
+function findNewestTranscript(dirs, sessionId) {
+	/** @type {{file: string, mtimeMs: number}|null} */
+	let newest = null;
+	for (const dir of dirs) {
+		const file = findTranscript(dir, sessionId);
+		if (!file) continue;
+		try {
+			const { mtimeMs } = fs.statSync(file);
+			if (!newest || mtimeMs > newest.mtimeMs) newest = { file, mtimeMs };
+		} catch {
+			/* Found but unstattable: another dir's may still read. */
+		}
+	}
+	return newest;
+}
+
 module.exports = {
+	findNewestTranscript,
 	standingContext,
 	isSubagentTranscript,
 	subagentDirOf,

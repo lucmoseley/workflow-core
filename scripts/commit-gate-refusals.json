@@ -299,20 +299,25 @@
 			"lines": [
 				{
 					"text": "the ruff gate refused this commit",
-					"sites": 2
+					"sites": 3
 				}
 			]
 		},
 		{
 			"id": "swallowed-errors",
-			"lines": ["the swallowed-error gate refused this commit"]
+			"lines": [
+				{
+					"text": "the swallowed-error gate refused this commit",
+					"sites": 2
+				}
+			]
 		},
 		{
 			"id": "format",
 			"lines": [
 				{
 					"text": "the format gate refused this commit",
-					"sites": 2
+					"sites": 3
 				}
 			]
 		},
