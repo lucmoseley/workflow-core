@@ -42,7 +42,8 @@ function main() {
 		min: 1,
 	});
 	const [start] = positionals;
-	if (start === undefined) throw new Error(USAGE);
+	if (start === undefined)
+		throw new Error("parseOrExit passed no reviewStep start despite min: 1");
 	/** @type {import("./lib/refill-loop.js").ReviewStart} */
 	const run = JSON.parse(start);
 	const files = loopFiles();
