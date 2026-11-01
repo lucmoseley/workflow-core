@@ -31,7 +31,7 @@ const {
 } = require("./lib/headless-sessions.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { buildBudgetLine, seatBudget } = require("./lib/overflow-budget.js");
-const { loopFiles, readJson } = require("./lib/refill-files.js");
+const { readStateFile } = require("./lib/refill-files.js");
 const { readDeclaredSeats } = require("./lib/refill-seats.js");
 
 /* Ended runs older than this are not offered as waiting. Untraced. */
@@ -110,12 +110,8 @@ const lastSaid = (evs) => evs.findLast((e) => e.kind === "says")?.text ?? "";
 /** @returns {Map<string, string>} job id to the loop's prompt */
 function loopPrompts() {
 	const prompts = new Map();
-	/** @type {{launches?: {jobId?: string, prompt?: string}[]}|null} */
-	const state = /** @type {any} */ (
-		readJson(loopFiles().state, (/** @type {string} */ m) => console.error(m))
-	);
-	for (const l of state?.launches ?? [])
-		if (l.jobId) prompts.set(l.jobId, l.prompt ?? "");
+	const { launches } = readStateFile((m) => console.error(m));
+	for (const l of launches) if (l.jobId) prompts.set(l.jobId, l.prompt ?? "");
 	return prompts;
 }
 

@@ -51,6 +51,7 @@ const {
 	readRecentEntries,
 } = require("./lib/dispatch-ledger.js");
 const hookMessage = require("./lib/hook-message");
+const { LONG_STALE_MS } = require("./lib/notify-report");
 const deliveryStamp = require("./lib/delivery-stamp.js");
 const { isFounderNoticeHeld } = require("./lib/background-start.js");
 const { localDate } = require("./lib/morning-review.js");
@@ -96,11 +97,6 @@ async function readIssues(repo, now) {
 
 const CHECKER = "idle-efforts";
 
-/* A stopped loop launches no job to refresh this report, so a founder start
- * days later must still show it (#3772), as with repo-checks' daily reading
- * (spec #1510 §Staleness). */
-const REPORT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-
 /**
  * @param {import("./lib/check").Ctx} ctx
  * @param {import("./lib/idle-efforts.js").IdleReport} idleReport
@@ -119,9 +115,7 @@ function readLoop(reportDamaged) {
 	if (pidLock(files.pid, "refill-loop.js").holder() === null)
 		return { running: false, served: [], launches: [], held: [] };
 	const control = refillFiles.readControlFile(reportDamaged);
-	const state = loop.parseState(
-		refillFiles.readJson(files.state, reportDamaged),
-	);
+	const state = refillFiles.readStateFile(reportDamaged);
 	return {
 		running: true,
 		served: control ? servedRoots(control.scope).roots : [],
@@ -197,7 +191,7 @@ const buildSpec = (source) => ({
 		if (stampNow !== null) deliveryStamp.markDelivered(ctx, CHECKER, stampNow);
 		return {
 			...(signature !== null && { stamp: signature }),
-			maxAgeMs: REPORT_MAX_AGE_MS,
+			maxAgeMs: LONG_STALE_MS,
 			okLine: `no effort idle past ${IDLE_DAYS} days.`,
 			noun: "tracker(s) with idle efforts or unread",
 			data: { loopRunning: loopRead.running, trackers: findings },

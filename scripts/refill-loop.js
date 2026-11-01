@@ -71,7 +71,7 @@ const { checkoutEnv, exclusionOf, homeDir } = require("./lib/refill-repos.js");
 const loop = require("./lib/refill-loop.js");
 const {
 	readControlFile,
-	readJson,
+	readStateFile,
 	writeJson,
 } = require("./lib/refill-files.js");
 const refillBatch = require("./lib/refill-batch.js");
@@ -317,7 +317,7 @@ function status({ flags }) {
 	const control = readControlFile(log);
 	const served = control ? servedRoots(control.scope).roots : [];
 	const pid = lock.holder();
-	const state = loop.parseState(readJson(files.state, log));
+	const state = readStateFile(log);
 	const root = sizingRoot(served);
 	const seats = readSeatsView(control?.seats ?? readConfiguredSeats(), root);
 	if (flags["--json"]) {
@@ -393,7 +393,7 @@ async function printDryRun() {
 	const { decision: d, read } = await tick({ dryRun: true });
 	say(`dry run: ${loop.summaryOf(d)}`);
 	if (read) say(loop.buildFrontierReadText(read));
-	const { reviewRunOn } = loop.parseState(readJson(files.state, log));
+	const { reviewRunOn } = readStateFile(log);
 	say(
 		`morning review: ${loop.isReviewRunDue(new Date(), reviewRunOn) ? "the filing is due, then reversals" : "reversals only"}`,
 	);

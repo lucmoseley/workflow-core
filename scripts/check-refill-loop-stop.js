@@ -176,9 +176,7 @@ runCheck({
 			ctx.warn("REFILL-LOOP-FILE-DAMAGED", line);
 			ctx.sayNotice(`REFILL-LOOP-FILE-DAMAGED — ${line}.`);
 		};
-		const { stopped, overflowStart } = loop.parseState(
-			refillFiles.readJson(files.state, reportDamaged),
-		);
+		const { stopped, overflowStart } = refillFiles.readStateFile(reportDamaged);
 		const why = stopped
 			? STOP_REASON_WORDS[
 					/** @type {import("./lib/refill-decide.js").StopReason} */ (

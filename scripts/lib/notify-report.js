@@ -261,6 +261,13 @@ function ageMs(report, now = Date.now()) {
  */
 const DEFAULT_STALE_MS = 4 * 60 * 60 * 1000;
 
+/*
+ * For a report whose producer may not run again for days, a daily reading or a
+ * stopped loop's: long enough that it reaches a session starting days after it
+ * (spec #1510 §Staleness, #3772). Untraced.
+ */
+const LONG_STALE_MS = 7 * 24 * 60 * 60 * 1000;
+
 /**
  * Whether `report` is too old to show as current. An unparseable timestamp is
  * treated as stale rather than fresh: never show a bad reading as though it
@@ -355,6 +362,7 @@ function isCancelled(run) {
 }
 
 module.exports = {
+	LONG_STALE_MS,
 	// Consumed by mantahostels#1949's synchronous reader, scripts/replay-notify-reports.js
 	// — exported rather than inlined so the bound is set in one place.
 	DEFAULT_STALE_MS,

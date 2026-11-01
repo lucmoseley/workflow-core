@@ -141,9 +141,6 @@ const RUN_MS = 30 * 60_000;
 const UNEXAMINED = "unexamined, not clean.";
 /* A guess, unmeasured: room for one error line, short of flooding a summary. */
 const STDERR_LINE_MAX_CHARS = 300;
-/* Spec #1510 §Staleness: long enough that a daily reading reaches a session
- * starting days after it. */
-const REPORT_MAX_AGE_MS = 7 * DAY_MS;
 
 /**
  * @typedef {import("./lib/repo-checks-registry").RepoCheck} RepoCheck
@@ -676,7 +673,7 @@ function writeNotifyReport(host, jobs, { startMs, result }) {
 		text,
 		stamps,
 		owner: sessionFromEnv(),
-		maxAgeMs: REPORT_MAX_AGE_MS,
+		maxAgeMs: notify.LONG_STALE_MS,
 	});
 	if (!landed)
 		logError(

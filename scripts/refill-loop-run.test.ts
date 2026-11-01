@@ -1025,7 +1025,7 @@ const fakeResumeClaude = (
 	]);
 };
 
-const blockedJobRecord = (detail: string, linkScanPath: string) =>
+const buildBlockedJobRecord = (detail: string, linkScanPath: string) =>
 	JSON.stringify({
 		state: "blocked",
 		detail,
@@ -1083,7 +1083,7 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 		fs.mkdirSync(jobDir(), { recursive: true });
 		fs.writeFileSync(
 			path.join(jobDir(), "state.json"),
-			blockedJobRecord("API Error: 529 overloaded", transcript),
+			buildBlockedJobRecord("API Error: 529 overloaded", transcript),
 		);
 		fs.writeFileSync(
 			at(".refill-loop-state.json"),
@@ -1430,7 +1430,7 @@ describe("a session held on its seat's limit (#3735)", () => {
 		);
 		fs.writeFileSync(
 			jobFile(),
-			blockedJobRecord("You've hit your weekly limit", transcript),
+			buildBlockedJobRecord("You've hit your weekly limit", transcript),
 		);
 		weekAt(100);
 		fakeResumeClaude(Job, [LISTED, buildJobRow(Job, "blocked")], "", "woke");
@@ -1478,7 +1478,10 @@ describe("a session held on its seat's limit (#3735)", () => {
 				jobFile(),
 				JSON.stringify({
 					...JSON.parse(
-						blockedJobRecord("You've hit your weekly limit", oldTranscript()),
+						buildBlockedJobRecord(
+							"You've hit your weekly limit",
+							oldTranscript(),
+						),
 					),
 					sessionId: Session,
 					cwd: repo,

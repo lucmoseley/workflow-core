@@ -19,7 +19,7 @@ const fs = require("node:fs");
 const { caught } = require("./caught.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { refillPath } = require("./refill-dir.js");
-const { parseControl } = require("./refill-loop.js");
+const { parseControl, parseState } = require("./refill-loop.js");
 
 function loopFiles() {
 	return {
@@ -111,11 +111,20 @@ function readControlChecked(log) {
 /** @param {(line: string) => void} log */
 const readControlFile = (log) => readControlChecked(log).control;
 
+/**
+ * The state file the loop writes, parsed; absent or damaged reads as parseState's
+ * defaults, with `log` told of damage.
+ * @param {(line: string) => void} log
+ * @returns {import("./refill-loop.js").LoopState}
+ */
+const readStateFile = (log) => parseState(readJson(loopFiles().state, log));
+
 module.exports = {
 	loopFiles,
 	REVIEW_RUNNER,
 	readControlChecked,
 	readControlFile,
 	readJson,
+	readStateFile,
 	writeJson,
 };

@@ -130,8 +130,7 @@ const {
 	readCheckoutTracking,
 	readHostTracker,
 } = require("./lib/refill-repos");
-const { loopFiles, readJson } = require("./lib/refill-files.js");
-const { parseState } = require("./lib/refill-loop.js");
+const { readStateFile } = require("./lib/refill-files.js");
 const { unclosedLaunchOf } = require("./lib/unclosed-launch.js");
 const { writeFd } = require("./lib/write-fd.js");
 const conflictGraph = require("./lib/conflict-graph");
@@ -1804,8 +1803,8 @@ function frontierJson(i) {
  * @param {R[]} rows
  */
 function withUnclosedLaunch(rows) {
-	const { launches } = parseState(
-		readJson(loopFiles().state, (line) => writeFd(2, `pick-next: ${line}\n`)),
+	const { launches } = readStateFile((line) =>
+		writeFd(2, `pick-next: ${line}\n`),
 	);
 	const root = arbiter.paths.repoRoot();
 	return rows.map((row) => {

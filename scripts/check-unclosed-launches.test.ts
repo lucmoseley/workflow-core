@@ -18,7 +18,7 @@ const SCRIPT = path.resolve(__dirname, "check-unclosed-launches.js");
 let dir: string;
 let root: string;
 
-const launch = (n: number, over: Record<string, unknown> = {}) => ({
+const buildLaunch = (n: number, over: Record<string, unknown> = {}) => ({
 	root,
 	issues: [n],
 	prompt: `/implement ${n}`,
@@ -29,7 +29,7 @@ const launch = (n: number, over: Record<string, unknown> = {}) => ({
 	...over,
 });
 
-const issue = (number: number, labels = ["takes:implement"]) => ({
+const buildIssue = (number: number, labels = ["takes:implement"]) => ({
 	number,
 	title: `issue ${number}`,
 	labels: labels.map((name) => ({ name })),
@@ -70,7 +70,7 @@ afterEach(() => {
 
 describe("check-unclosed-launches (#3782)", () => {
 	it("names an open implement ticket whose latest launch committed and did not close", async () => {
-		const r = await run([launch(7)], [issue(7)]);
+		const r = await run([buildLaunch(7)], [buildIssue(7)]);
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("o/r#7 issue 7");
 		expect(r.out).toContain("2026-10-29T18:00Z");
@@ -79,16 +79,19 @@ describe("check-unclosed-launches (#3782)", () => {
 
 	it.each([
 		["closed since", []],
-		["parked", [issue(7, ["takes:implement", "parked"])]],
-		["relabelled", [issue(7, ["takes:triage"])]],
+		["parked", [buildIssue(7, ["takes:implement", "parked"])]],
+		["relabelled", [buildIssue(7, ["takes:triage"])]],
 	])("passes over a ticket %s", async (_, open) => {
-		const r = await run([launch(7)], open);
+		const r = await run([buildLaunch(7)], open);
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("OK:");
 	});
 
 	it("reads no tracker where no launch reads as unclosed", async () => {
-		const r = await run([launch(7, { acts: { commit: 1, close: 1 } })], null);
+		const r = await run(
+			[buildLaunch(7, { acts: { commit: 1, close: 1 } })],
+			null,
+		);
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("OK:");
 	});
@@ -96,13 +99,13 @@ describe("check-unclosed-launches (#3782)", () => {
 	it("says a launch's checkout has no tracker, never that there are none", async () => {
 		const bare = path.join(dir, "bare");
 		fs.mkdirSync(bare);
-		const r = await run([launch(7, { root: bare })], []);
+		const r = await run([buildLaunch(7, { root: bare })], []);
 		expect(r.status).toBe(0);
 		expect(r.out).toContain(`${bare}: no tracker configured`);
 	});
 
 	it("says a tracker would not read, never that there are none", async () => {
-		const r = await run([launch(7)], null);
+		const r = await run([buildLaunch(7)], null);
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("o/r: tracker would not read");
 		expect(r.out).not.toContain("OK:");

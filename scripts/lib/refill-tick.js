@@ -124,6 +124,7 @@ const {
 	REVIEW_RUNNER,
 	readControlChecked,
 	readJson,
+	readStateFile,
 	writeJson,
 } = require("./refill-files.js");
 const refillBatch = require("./refill-batch.js");
@@ -1115,7 +1116,7 @@ async function tick({ dryRun }) {
 		scope: loop.parseScope(null),
 	};
 	reapFinished(dryRun);
-	const state = loop.parseState(readJson(files.state, log));
+	const state = readStateFile(log);
 	const served = servedRoots(control.scope).roots;
 	/* Relief first, off the registry alone: the CLI listing below can outrun
 	 * its caps under the very pressure relief exists for (#2665). */

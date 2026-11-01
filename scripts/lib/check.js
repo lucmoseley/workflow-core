@@ -1652,7 +1652,7 @@ function finish(ctx, spec, { outcome, result, message }, persist) {
 	try {
 		result.afterReport?.();
 	} catch (e) {
-		/* The report is out, so a failed stamp only repeats it. */
+		/* The report is out, so a failed stamp only repeats it (#3776). */
 		writeFd(2, `${spec.name}: afterReport failed: ${caught(e).message}\n`);
 	}
 	exitFinished(exitFor(ctx, outcome));

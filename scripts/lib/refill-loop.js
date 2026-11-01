@@ -46,6 +46,9 @@ const { OUTCOME_PREFIX } = require("./usage-probe.js");
 const LISTING_GRACE_MS = 2 * 60 * 1000;
 /* Enough for the no-progress run and for `status`. Untraced. */
 const HISTORY_KEPT = 50;
+/* A bound on the state file, since a ticket outranked for weeks must keep its
+ * record: roomy against the 7 the live file held on 2 Nov 2026. A guess. */
+const UNCLOSED_KEPT = 50;
 /* The skipped rows an idle tick's log line names. Untraced. */
 const LINE_SKIPS = 3;
 /* dispatch-sessions.sh's WEEK_CEILING and SESSION_CEILING defaults, the
@@ -665,7 +668,7 @@ function newlyFinished(launches, agents, now) {
  * the rest the HISTORY_KEPT latest to finish, or to launch where none did.
  * Admission bounds the running ones; a limit-held launch, stopped so outside
  * admission, stays until it resumes or parks (#3790, #3793).
- * Also the HISTORY_KEPT latest unclosed launches, which a low-ranked ticket can
+ * Also the UNCLOSED_KEPT latest unclosed launches, which a low-ranked ticket can
  * otherwise outwait, as #3609's record did (#3782).
  * @param {LoopLaunch[]} launches
  */
@@ -677,7 +680,7 @@ function keptLaunches(launches) {
 			.filter((l) => !isLive(l))
 			.sort((a, b) => settledAt(a) - settledAt(b))
 			.slice(-HISTORY_KEPT)
-			.concat(unclosedLaunches(launches).slice(-HISTORY_KEPT)),
+			.concat(unclosedLaunches(launches).slice(-UNCLOSED_KEPT)),
 	);
 	return launches.filter((l) => isLive(l) || capped.has(l));
 }

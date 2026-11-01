@@ -559,10 +559,10 @@ function stopOf(input, pick) {
 	return null;
 }
 
-/* A park at block-act.js's RESUME_CAP spans about 6.5 hours of resumes, past a
- * 5-hour limit, and one at its hold bound 8 days, past a weekly one, so a second
- * in a row with no model reply means a limit no relaunch has outlasted. Untraced
- * (#3804, delegated). */
+/* A limit-cap park has spent block-act.js's RESUME_CAP of resumes or its hold
+ * bound, whose comments say which limit each outlasts, so a second in a row with
+ * no model reply means a limit no relaunch has outlasted. Untraced (#3804,
+ * delegated). */
 const LIMIT_PARK_CAP = 2;
 
 /**

@@ -12,7 +12,7 @@ const {
 	unclosedLaunches,
 } = require("./unclosed-launch.js");
 
-const launch = (n: number, over: Record<string, unknown> = {}) => ({
+const buildLaunch = (n: number, over: Record<string, unknown> = {}) => ({
 	root: "wfc",
 	issues: [n],
 	prompt: `/implement ${n}`,
@@ -23,7 +23,7 @@ const launch = (n: number, over: Record<string, unknown> = {}) => ({
 
 describe("unclosedLaunches (#3782)", () => {
 	it("reads a finished /implement launch that committed and did not close", () => {
-		const l = launch(1);
+		const l = buildLaunch(1);
 		expect(unclosedLaunches([l])).toEqual([l]);
 		expect(unclosedLaunchOf([l], "wfc", 1)).toBe(l);
 	});
@@ -37,23 +37,26 @@ describe("unclosedLaunches (#3782)", () => {
 		["ran another command", { prompt: "/wayfinder 1" }],
 		["ran a retro bundle", { issues: [1, 2] }],
 	])("passes over a launch that %s", (_, over) => {
-		expect(unclosedLaunches([launch(1, over)])).toEqual([]);
+		expect(unclosedLaunches([buildLaunch(1, over)])).toEqual([]);
 	});
 
 	it("is superseded by any later launch of the ticket", () => {
-		const later = launch(1, { acts: {} });
-		expect(unclosedLaunches([launch(1), later])).toEqual([]);
+		const later = buildLaunch(1, { acts: {} });
+		expect(unclosedLaunches([buildLaunch(1), later])).toEqual([]);
 		expect(
-			unclosedLaunches([launch(1), launch(1, { finishedAt: null })]),
+			unclosedLaunches([buildLaunch(1), buildLaunch(1, { finishedAt: null })]),
 		).toEqual([]);
 		expect(
-			unclosedLaunches([launch(1), launch(1, { issues: [1, 2], acts: {} })]),
+			unclosedLaunches([
+				buildLaunch(1),
+				buildLaunch(1, { issues: [1, 2], acts: {} }),
+			]),
 		).toEqual([]);
 	});
 
 	it("is not superseded by a gate judgement's launch", () => {
-		const l = launch(1);
-		const judge = launch(1, {
+		const l = buildLaunch(1);
+		const judge = buildLaunch(1, {
 			prompt: "/triage 1",
 			acts: {},
 			gate: true,
@@ -62,8 +65,8 @@ describe("unclosedLaunches (#3782)", () => {
 	});
 
 	it("keeps checkouts apart, as their issue numbers are", () => {
-		const other = launch(1, { root: "other" });
-		expect(unclosedLaunches([launch(1), other])).toHaveLength(2);
+		const other = buildLaunch(1, { root: "other" });
+		expect(unclosedLaunches([buildLaunch(1), other])).toHaveLength(2);
 		expect(unclosedLaunchOf([other], "wfc", 1)).toBeNull();
 	});
 });
