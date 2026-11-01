@@ -51,6 +51,10 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const RECENTLY_CLOSED_MS = 2 * DAY_MS;
 const FILED = "review-reversals.jsonl";
 const LOCK = "review-reversals.lock";
+/* Each program answerReversals runs in, as a holder is read by its command
+ * line (#3815). Residual: a third program requiring it must be listed here, or
+ * its live holder reads as stale and is taken over. */
+const ANSWERERS = [path.basename(__filename), "file-morning-review.js"];
 
 const io = scriptIo("answer-review-reversals");
 
@@ -250,15 +254,16 @@ function answerReversals(tracker, dryRun) {
 		);
 		return 1;
 	}
-	const pending = reviews.flatMap((i) => {
+	/* A review closed between the two reads is in both, and one pass over it
+	 * reads the filed record once. */
+	const pending = [
+		...new Map(reviews.map((i) => [i.number, i])).values(),
+	].flatMap((i) => {
 		const requests = reversal.pendingRequests(i.comments ?? []);
 		return requests.length === 0 ? [] : [{ issue: i, requests }];
 	});
 	if (pending.length === 0) return 0;
-	const lock = pidLock(
-		path.join(markersDir(hostRoot()), LOCK),
-		path.basename(__filename),
-	);
+	const lock = pidLock(path.join(markersDir(hostRoot()), LOCK), ANSWERERS);
 	if (!dryRun && !lock.acquire()) {
 		io.out("another run is answering reversals; left to it.\n");
 		return 0;

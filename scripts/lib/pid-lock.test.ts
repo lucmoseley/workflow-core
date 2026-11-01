@@ -5,11 +5,12 @@
  * Loosen it and two landers, or two refill loops, run at once, or a dead
  * holder's pidfile locks every later start out.
  */
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { endedPid } from "./arbiter-testkit";
 import { pidLock } from "./pid-lock.js";
 
 let dir: string;
@@ -20,10 +21,6 @@ beforeEach(() => {
 	file = path.join(dir, ".daemon.pid");
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
-
-/** A pid whose process has ended. */
-const endedPid = () =>
-	spawnSync("sh", ["-c", "echo $$"], { encoding: "utf8" }).stdout.trim();
 
 describe("pidLock", () => {
 	it("creates the pidfile holding this pid, leaving no aside, and releases it", () => {
@@ -77,11 +74,14 @@ describe("pidLock", () => {
 	});
 
 	it.each([
-		["start-lander.js", "is no holder", false],
-		["lander.js", "is the holder", true],
+		["start-lander.js", "lander.js", "is no holder", false],
+		["lander.js", "lander.js", "is the holder", true],
+		["lander.js", ["lander.js", "other-entry.js"], "is the holder", true],
+		["other-entry.js", ["lander.js", "other-entry.js"], "is the holder", true],
+		["start-lander.js", ["lander.js", "other-entry.js"], "is no holder", false],
 	])(
-		"a live `node …/%s` %s for marker lander.js (#2675)",
-		(script, _, holds) => {
+		"a live `node …/%s`, for marker %j, %s (#2675, #3815)",
+		(script, marker, _, holds) => {
 			const scriptPath = path.join(dir, "scripts", script);
 			fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
 			fs.writeFileSync(scriptPath, "setInterval(() => {}, 1000);\n");
@@ -89,9 +89,7 @@ describe("pidLock", () => {
 			const proc = spawn(process.execPath, [scriptPath], { stdio: "ignore" });
 			try {
 				fs.writeFileSync(file, String(proc.pid));
-				expect(pidLock(file, "lander.js").holder()).toBe(
-					holds ? proc.pid : null,
-				);
+				expect(pidLock(file, marker).holder()).toBe(holds ? proc.pid : null);
 			} finally {
 				proc.kill();
 			}

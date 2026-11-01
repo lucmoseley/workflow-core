@@ -23,7 +23,9 @@ import { runInProcess } from "./run-in-process";
  * GraphQL read of its open issues (`idle.json`'s nodes), logging every call
  * to `calls.log`. A review's create appends to `reviews.json`, so a second
  * run sees the first's issue, and fails where `fail-review-create` exists; a
- * comment appends to its issue there unless `fail-comment` exists.
+ * comment appends to its issue there unless `fail-comment` exists. The first
+ * create after `hold-create` is written renames it to `holding` and waits for
+ * `release`, so its program is seen mid-answer.
  * file-issue.js's similar-title list also holds an open lookalike, #1995,
  * among enough unrelated titles that it scores above the cut.
  */
@@ -59,6 +61,11 @@ if (a[0] === "issue" && a[1] === "list") say([
 	...Array.from({ length: 100 }, (_, i) => ({ number: i + 1, title: "Fix widget " + i, state: "CLOSED" })),
 ]);
 if (a[0] === "issue" && a[1] === "create") {
+	if (fs.existsSync(f("hold-create"))) {
+		fs.renameSync(f("hold-create"), f("holding"));
+		/* A guess: quick beside a node start, and idle between looks. */
+		while (!fs.existsSync(f("release"))) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+	}
 	const reviews = read("reviews.json");
 	const number = 900 + reviews.length;
 	const title = a[a.indexOf("--title") + 1];

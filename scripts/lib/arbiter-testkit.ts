@@ -259,6 +259,10 @@ export const ledgerHead = (tree: string, env: NodeJS.ProcessEnv) => {
 	arbiterOk(["record-commit", head], { env });
 };
 
+/** A pid whose process has ended. */
+export const endedPid = () =>
+	execFileSync("sh", ["-c", "echo $$"], { encoding: "utf8" }).trim();
+
 export function freshSandbox(setUp?: (sb: Sandbox) => void): Sandbox {
 	const sb: Sandbox = {
 		dir: "",
