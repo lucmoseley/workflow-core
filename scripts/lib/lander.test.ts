@@ -655,7 +655,7 @@ describe("runLander on a red batch", () => {
 		expect(r.pushes.map((p) => p.sha)).toEqual([D]);
 	});
 
-	it("pins a hold to the batch it tested, handing a red tip pushed mid-run to the next run (#2477, #3415)", async () => {
+	it("pins a hold to the batch it tested, handing on a red tip pushed mid-run, which this run or the next takes up (#2477, #3415, #3769)", async () => {
 		const remote = { main: A, landing: D };
 		const first = await redBatch(unconfirmedC, {
 			remote,
@@ -664,12 +664,16 @@ describe("runLander on a red batch", () => {
 				if (sha === C) remote.landing = F;
 			},
 		});
-		expect(first.end).toMatchObject({ kind: "hold" });
-		expect(first.tested).toContainEqual({ sha: F });
-		const { hold = null, red = null } = first.beats.at(-1) ?? {};
+		const { hold = null, red = null } = first.beats.find((b) => b.hold) ?? {};
 		expect(hold?.landing).toBe(D);
 		expect(red?.sha).toBe(F);
-		const second = await run(remote, green, {
+		expect(first.tested.filter((t) => t.sha === F)).toEqual([
+			{ sha: F },
+			{ sha: F, files: FILES },
+		]);
+		expect(first.pushes.map((p) => p.sha)).toEqual([F]);
+		/* A run that died on that beat leaves the same work to the next. */
+		const second = await run({ main: A, landing: F }, green, {
 			history: [B, C, D, F],
 			lastHold: hold,
 			lastRed: red,
@@ -704,6 +708,80 @@ describe("runLander on a red batch", () => {
 			{ kind: "exit", reason: "landing equals main" },
 		]);
 		expect(r.reverted).toEqual([]);
+	});
+
+	it("takes up a tip the hold's batch was passed by where that tip's test reached no verdict, landing it on a second read (#3769)", async () => {
+		const remote = { main: A, landing: D };
+		let readsOfF = 0;
+		const r = await run(
+			remote,
+			(sha, files, nth) => {
+				if (sha === F)
+					return ++readsOfF === 1
+						? { kind: "unknown", reason: "gh unreadable" }
+						: green();
+				if (files === undefined) return { kind: "red", files: FILES };
+				return (sha === C && nth === 1) || sha === D
+					? { kind: "red", files: FILES }
+					: green();
+			},
+			{
+				history: [B, C, D, F],
+				onTest: (sha) => {
+					if (sha === B) remote.landing = F;
+				},
+			},
+		);
+		expect(r.actions.slice(-4)).toEqual([
+			expect.objectContaining({ kind: "hold" }),
+			{ kind: "test", sha: F },
+			{ kind: "fast-forward", sha: F },
+			{ kind: "exit", reason: "landing equals main" },
+		]);
+		expect(readsOfF).toBe(2);
+		expect(r.holds.map((h) => h.batch)).toEqual([D]);
+		expect(r.pushes.map((p) => p.sha)).toEqual([F]);
+		expect(r.beats.at(-1)?.hold).toBeUndefined();
+	});
+
+	it("lands a pushed-past tip that passed before taking up the tip pushed during its test (#3769)", async () => {
+		const G = "1".repeat(40);
+		const remote = { main: A, landing: D };
+		const r = await run(
+			remote,
+			(sha, files) =>
+				sha === F ||
+				sha === G ||
+				(files !== undefined && sha !== C && sha !== D)
+					? green()
+					: { kind: "red", files: FILES },
+			{
+				history: [B, C, D, F, G],
+				onTest: (sha) => {
+					if (sha === B) remote.landing = F;
+					if (sha === F) remote.landing = G;
+				},
+			},
+		);
+		expect(r.actions.slice(-5)).toEqual([
+			{ kind: "test", sha: F },
+			{ kind: "fast-forward", sha: F },
+			{ kind: "test", sha: G },
+			{ kind: "fast-forward", sha: G },
+			{ kind: "exit", reason: "landing equals main" },
+		]);
+	});
+
+	it("ends on the hold where a tip pushed past the batch does not descend from it", async () => {
+		const remote = { main: A, landing: D };
+		const r = await redBatch(unconfirmedC, {
+			remote,
+			onTest: (sha) => {
+				if (sha === B) remote.landing = F;
+			},
+		});
+		expect(r.end).toMatchObject({ kind: "hold" });
+		expect(r.tested).not.toContainEqual({ sha: F });
 	});
 
 	it("bisects on past a tip pushed mid-bisect that does not descend from the batch", async () => {
@@ -1822,6 +1900,19 @@ describe("runLander where the culprit's whole-suite confirm reaches no verdict (
 		expect(remote.main).toBe(F);
 	});
 
+	it("ends on a refused push of a pushed-past tip, never pushing it again, though landing has passed the held batch (#3329, #3769)", async () => {
+		const r = await run({ main: A, landing: F }, stalls, {
+			history: [B, C, D, F],
+			lastRed: bisected(),
+			pushRefused: "error: GH013: refused",
+		});
+		expect(r.pushes.map((p) => p.sha)).toEqual([F]);
+		expect(r.end).toMatchObject({
+			kind: "hold",
+			reason: expect.stringContaining("the push of fffffffff to main"),
+		});
+	});
+
 	it("tests no pushed-past tip once the batch's culprit is reverted, filing its fix ticket", async () => {
 		const r = await run({ main: A, landing: F }, stalls, {
 			history: [B, C, D, F],
@@ -1910,27 +2001,22 @@ describe("runLander where the culprit's whole-suite confirm reaches no verdict (
 	const wholeSuiteRunsOfF = (tested: { sha: string; files?: string[] }[]) =>
 		tested.filter((t) => t.sha === F && t.files === undefined);
 
-	it("starts the batch after a held one from its red pushed-past tip's test, running that tip's whole suite once across the two (#3415)", async () => {
-		const remote = { main: A, landing: F };
-		const history = [B, C, D, F];
-		const first = await run(remote, redAtF, { history, lastRed: bisected() });
-		expect(first.end).toMatchObject({ kind: "hold" });
-		const last = first.beats.at(-1);
-		const second = await run(remote, redAtF, {
-			history,
-			lastHold: last?.hold ?? null,
-			lastRed: last?.red ?? null,
-			stuck: first.stuck,
+	it("takes up the batch after a held one from its red pushed-past tip's test, running that tip's whole suite once (#3415, #3769)", async () => {
+		const r = await run({ main: A, landing: F }, redAtF, {
+			history: [B, C, D, F],
+			lastRed: bisected(),
 		});
-		expect(second.actions[0]).toEqual({
+		const held = r.actions.findIndex(
+			(a) => (a as { kind: string }).kind === "hold",
+		);
+		expect(held).toBeGreaterThan(-1);
+		expect(r.actions[held + 1]).toEqual({
 			kind: "rerun",
 			sha: F,
 			files: FILES,
 			why: "flake",
 		});
-		expect(wholeSuiteRunsOfF([...first.tested, ...second.tested])).toEqual([
-			{ sha: F },
-		]);
+		expect(wholeSuiteRunsOfF(r.tested)).toEqual([{ sha: F }]);
 	});
 
 	it("starts the batch after one it landed from its red pushed-past tip's test (#3415)", async () => {
@@ -1957,7 +2043,7 @@ describe("runLander where the culprit's whole-suite confirm reaches no verdict (
 		expect(wholeSuiteRunsOfF(r.tested)).toEqual([{ sha: F }]);
 	});
 
-	it("starts the batch after one held on a revert that did not land from its red pushed-past tip's test (#3415)", async () => {
+	it("hands on a red pushed-past tip's test from a hold on a failed revert (#3415)", async () => {
 		const r = await run({ main: B, landing: F }, redAtF, {
 			history: [B, C, D, F],
 			lastRed: {
@@ -1967,8 +2053,20 @@ describe("runLander where the culprit's whole-suite confirm reaches no verdict (
 				pushedPast: { sha: F, verdict: { kind: "red", files: FILES } },
 			},
 		});
-		expect(r.end).toMatchObject({ kind: "hold" });
-		expect(r.beats.at(-1)?.red).toMatchObject({ sha: F, base: B });
+		expect(r.beats.find((b) => b.hold)?.red).toMatchObject({
+			sha: F,
+			base: B,
+		});
+		const held = r.actions.findIndex(
+			(a) => (a as { kind: string }).kind === "hold",
+		);
+		expect(held).toBeGreaterThan(-1);
+		expect(r.actions[held + 1]).toEqual({
+			kind: "rerun",
+			sha: F,
+			files: FILES,
+			why: "flake",
+		});
 	});
 
 	it("hands on no batch from a hold whose pushed-past tip's test was not red (#3415)", async () => {
@@ -1978,7 +2076,12 @@ describe("runLander where the culprit's whole-suite confirm reaches no verdict (
 				sha === F ? { kind: "unknown", reason: ceiling } : stalls(sha, files),
 			{ history: [B, C, D, F], lastRed: bisected() },
 		);
-		expect(r.end).toMatchObject({ kind: "hold" });
-		expect(r.beats.at(-1)?.red).toBeUndefined();
+		expect(r.end).toEqual({
+			kind: "exit",
+			reason: `no verdict at fffffffff: ${ceiling}`,
+		});
+		const held = r.beats.find((b) => b.hold);
+		expect(held?.hold?.landing).toBe(D);
+		expect(held?.red).toBeUndefined();
 	});
 });
