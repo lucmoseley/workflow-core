@@ -96,6 +96,51 @@ const tick = (over: Record<string, unknown> = {}) =>
 const launched = (d: { launches?: { root: string; issues: number[] }[] }) =>
 	(d.launches ?? []).map((l) => `${l.root}#${l.issues.join("+")}`);
 
+describe("a repo hold (#3860)", () => {
+	const frontier = [row("wfc", 1), row("other", 2)];
+	const withheld = {
+		root: "wfc",
+		number: 1,
+		why: "a probe hold stops launches into its checkout",
+	};
+
+	it("withholds a probe-held checkout's launches and no other's", () => {
+		const d = tick({ frontier, holds: [{ root: "wfc", kind: "probe" }] });
+
+		expect(launched(d)).toEqual(["other#2"]);
+		expect(d).toMatchObject({ skipped: [withheld] });
+	});
+
+	it("withholds a probe-held checkout's gate judgements too", () => {
+		const d = tick({
+			frontier: [],
+			judgements: [{ root: "wfc", number: 1, prompt: "/judge 1" }],
+			holds: [{ root: "wfc", kind: "probe" }],
+		});
+
+		expect(launched(d)).toEqual([]);
+		expect(d).toMatchObject({ skipped: [withheld] });
+	});
+
+	it("keeps a probe-held checkout's held session back, its slot free for the other", () => {
+		const d = tick({
+			frontier,
+			freeSlots: 1,
+			resumable: [{ jobId: "j", root: "wfc", at: NOW - HOUR, line: "j" }],
+			holds: [{ root: "wfc", kind: "probe" }],
+		});
+
+		expect(d).toMatchObject({ resumes: [] });
+		expect(launched(d)).toEqual(["other#2"]);
+	});
+
+	it("withholds nothing for a park hold", () => {
+		const d = tick({ frontier, holds: [{ root: "wfc", kind: "park" }] });
+
+		expect(launched(d)).toEqual(["wfc#1", "other#2"]);
+	});
+});
+
 describe("decideTick stops (#2007)", () => {
 	it("stops on an explicit stop", () => {
 		expect(tick({ stopRequested: true })).toMatchObject({ stop: "explicit" });

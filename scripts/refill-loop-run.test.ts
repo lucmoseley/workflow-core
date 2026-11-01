@@ -16,7 +16,7 @@
  * Loosen it and a fault in the program's own wiring, of its libs, children
  * and exits, passes unseen (#2851).
  */
-import { spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -45,6 +45,7 @@ import {
 } from "./lib/dispatch-ledger.js";
 import { ghAnswer } from "./lib/gh-fake";
 import { printed, stubGhRoutes } from "./lib/gh-stub";
+import { defineTemplate, initGitRepo } from "./lib/git-fixture";
 import {
 	API_PROMPT,
 	IDLE_PROMPT,
@@ -79,6 +80,18 @@ let repo: string;
 let seat: string;
 
 const at = (name: string) => path.join(dir, name);
+/* A served checkout's shared `.git` the tick's probe passes (#3860): `main`, and
+ * an origin it fetches from, kept inside the copy so each case has its own. */
+const gitRepo = defineTemplate((root) => {
+	const hooks = path.join(root, ".no-hooks");
+	fs.mkdirSync(hooks);
+	initGitRepo(root, hooks);
+	const origin = path.join(root, ".origin.git");
+	execFileSync("git", ["init", "-q", "--bare", "-b", "main", origin]);
+	execFileSync("git", ["remote", "add", "origin", origin], { cwd: root });
+	execFileSync("git", ["push", "-q", "origin", "main"], { cwd: root });
+});
+
 /* Swap under a quarter free and MemAvailable under the hold's line (#2690),
  * or neither. */
 const MEMINFO_HOLD = buildMeminfo({
@@ -138,6 +151,7 @@ beforeEach(() => {
 		fs.copyFileSync(path.join(__dirname, f), path.join(scripts, f));
 
 	repo = at("repo");
+	gitRepo.instantiate(repo);
 	fs.mkdirSync(path.join(repo, ".claude"), { recursive: true });
 	fs.writeFileSync(path.join(repo, ".claude", "workflow-core.json"), "{}\n");
 	seat = at("seat");
@@ -2820,5 +2834,331 @@ describe("a repo hold on the real tick (#3857)", () => {
 		expect(dryRun.status).toBe(0);
 		expect(dryRun.stdout).toContain("dry run:");
 		expect(listed()).toContain("repair main");
+	});
+});
+
+describe("a probe hold on the real tick (#3860)", () => {
+	const Issue = 77;
+	const stateFile = () => at(".refill-loop-state.json");
+	const dotGit = (name: string) => path.join(repo, ".git", name);
+	const breakHead = () => fs.writeFileSync(dotGit("HEAD"), "junk\n");
+	const repairHead = () =>
+		fs.writeFileSync(dotGit("HEAD"), "ref: refs/heads/main\n");
+
+	const writeConfig = (root: string) =>
+		fs.writeFileSync(
+			path.join(root, ".claude", "workflow-core.json"),
+			JSON.stringify({ tracker: "o/r" }),
+		);
+	/* The suite's injection point for the modules a config declares. */
+	const LandingOn = { WFC_MODULES: "landing" };
+
+	const ProbeTitle = "Refill loop probe: shared .git failing in repo";
+	const serveClose = (open: { number: number; title: string }[] = []) => {
+		fs.mkdirSync(at("gh-routes"), { recursive: true });
+		return stubGhRoutes(at("gh-routes"), {
+			"issue list *": printed(JSON.stringify(open)),
+			[`issue close ${Issue} *`]: printed(""),
+			"*": ghAnswer(LOGGED_OUT),
+		});
+	};
+
+	/* The filer's seam: lib/file-through.js spawns it by path. */
+	const stubFiler = () =>
+		stub(
+			"file-issue.js",
+			`const fs = require("node:fs");
+if (fs.existsSync(${JSON.stringify(at("refuse-filing"))})) {
+	process.stderr.write("label list unread\\n");
+	process.exit(1);
+}
+fs.appendFileSync(${JSON.stringify(at("filed"))}, JSON.stringify({ args: process.argv.slice(2), body: fs.readFileSync(0, "utf8"), cwd: process.cwd() }) + "\\n");
+process.stdout.write("Filed #${Issue}\\n");
+`,
+		);
+	const readFiled = () =>
+		readLines(at("filed")).map(
+			(l) =>
+				JSON.parse(l) as {
+					args: string[];
+					body: string;
+					cwd: string;
+				},
+		);
+
+	beforeEach(() => {
+		writeConfig(repo);
+		stubFiler();
+	});
+
+	const controlFile = () => at(".refill-loop-control.json");
+	const updateControl = (over: Record<string, unknown>) =>
+		fs.writeFileSync(
+			controlFile(),
+			JSON.stringify({
+				...JSON.parse(fs.readFileSync(controlFile(), "utf8")),
+				...over,
+			}),
+		);
+
+	/** One run whose stop follows its first tick's state: two real ticks. */
+	const tickRun = async (gh = "", over: NodeJS.ProcessEnv = {}) => {
+		fs.rmSync(stateFile(), { force: true });
+		updateControl({ stopRequested: false });
+		const running = run(1, { ...over, ...(gh ? { WFC_GH: gh } : {}) });
+		await polled(
+			() =>
+				fs.existsSync(stateFile()) &&
+				Boolean(JSON.parse(fs.readFileSync(stateFile(), "utf8")).lastTick),
+			"no tick wrote its state",
+		);
+		requestStop();
+		return settled(running, "run with a probe hold");
+	};
+
+	const holdCli = (gh: string, ...args: string[]) =>
+		runInProcess(path.join(__dirname, "repo-hold.js"), args, {
+			cwd: repo,
+			env: loopEnv({
+				CLAUDE_PROJECT_DIR: repo,
+				CLAUDE_JOB_DIR: "",
+				CLAUDE_CODE_SESSION_ID: "",
+				WFC_GH: gh,
+			}),
+		});
+	const readStatus = async () =>
+		(
+			await runInProcessAsync(
+				path.join(scripts, "refill-loop.js"),
+				["status"],
+				{
+					cwd: dir,
+					env: loopEnv({}),
+				},
+			)
+		).stdout;
+
+	it("stops launches within a tick of a broken .git, and the tick after its repair clears it, closes its issue and launches", async () => {
+		const close = serveClose();
+		breakHead();
+
+		const broken = await tickRun(close.gh);
+
+		expect(broken.status).toBe(0);
+		expect(broken.stdout).toContain(`probe failed in ${repo}: fetch origin:`);
+		expect(broken.stdout).toContain("repo hold raised: probe in");
+		expect(fs.existsSync(at("dispatches"))).toBe(false);
+		expect(await readStatus()).toMatch(
+			new RegExp(`probe repo: .*issue #${Issue}, .*stops launches: yes`),
+		);
+		const filed = readFiled();
+		expect(filed).toHaveLength(1);
+		expect(filed[0]?.args).toContain("takes:triage");
+		expect(filed[0]?.body).toContain(repo);
+		expect(filed[0]?.body).toContain("resolve main:");
+
+		repairHead();
+		const repaired = await tickRun(close.gh);
+
+		expect(repaired.status).toBe(0);
+		expect(repaired.stdout).toContain("repo hold cleared: probe in");
+		expect(repaired.stdout).not.toContain("could not close");
+		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
+		expect(await readStatus()).toContain("holds:     none open");
+		expect(readFiled()).toHaveLength(1);
+	});
+
+	it.each<[string, () => void, NodeJS.ProcessEnv]>([
+		[
+			"fetch origin:",
+			() => {
+				const config = dotGit("config");
+				fs.writeFileSync(
+					config,
+					fs
+						.readFileSync(config, "utf8")
+						.replace(/url = .*/, `url = ${at("gone")}`),
+				);
+			},
+			{},
+		],
+		[
+			"resolve main:",
+			() => fs.writeFileSync(dotGit("refs/heads/main"), ""),
+			{},
+		],
+		["resolve origin/landing:", () => undefined, LandingOn],
+	])(
+		"logs a failing probe's %s text and raises the hold",
+		async (text, breakIt, over) => {
+			breakIt();
+
+			const { status, stdout } = await tickRun(serveClose().gh, over);
+
+			expect(status).toBe(0);
+			expect(stdout).toContain(`probe failed in ${repo}: `);
+			expect(stdout).toContain(text);
+			expect(fs.existsSync(at("dispatches"))).toBe(false);
+			expect(await readStatus()).toContain("stops launches: yes");
+		},
+	);
+
+	it("passes with the landing module on once origin/landing resolves", async () => {
+		fs.mkdirSync(dotGit("refs/remotes/origin"), { recursive: true });
+		fs.copyFileSync(
+			dotGit("refs/heads/main"),
+			dotGit("refs/remotes/origin/landing"),
+		);
+
+		const { stdout } = await tickRun(serveClose().gh, LandingOn);
+
+		expect(stdout).not.toContain("probe failed");
+		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
+	});
+
+	it("keeps launching into the other served checkout", async () => {
+		const other = at("other");
+		gitRepo.instantiate(other);
+		fs.mkdirSync(path.join(other, ".claude"));
+		writeConfig(other);
+		updateControl({
+			scope: { mode: "normal", repos: [repo, other], exclude: [], goals: {} },
+		});
+		stub(
+			"dispatch-sessions.sh",
+			`printf '%s\\n' "$PWD" >> ${JSON.stringify(at("dispatches"))}
+node ${JSON.stringify(path.join(scripts, "request-stop.js"))}\n`,
+		);
+		breakHead();
+
+		const { status, stdout } = await tickRun(serveClose().gh);
+
+		expect(status).toBe(0);
+		expect(stdout).toContain(`probe failed in ${repo}`);
+		expect(stdout).not.toContain(`probe failed in ${other}`);
+		expect(readLines(at("dispatches"))).toEqual([other]);
+	});
+
+	it("stands with no issue where the filing fails, logged, and files on a later tick", async () => {
+		const close = serveClose();
+		fs.writeFileSync(at("refuse-filing"), "");
+		breakHead();
+
+		const refused = await tickRun(close.gh);
+
+		expect(refused.stdout).toContain(
+			"issue not filed, the next tick retries: label list unread",
+		);
+		expect(readFiled()).toHaveLength(0);
+		expect(await readStatus()).toMatch(
+			/no issue filed yet.*stops launches: yes/,
+		);
+		expect(fs.existsSync(at("dispatches"))).toBe(false);
+
+		fs.rmSync(at("refuse-filing"));
+		const filed = await tickRun(close.gh);
+
+		expect(filed.stdout).toContain(
+			`repo hold probe in ${repo}: filed #${Issue}`,
+		);
+		expect(readFiled()).toHaveLength(1);
+		expect(await readStatus()).toContain(`issue #${Issue}`);
+	});
+
+	it("files nothing where it cannot tell whether an issue is already open", async () => {
+		const routes = at("gh-routes-out");
+		fs.mkdirSync(routes);
+		breakHead();
+
+		const { stdout } = await tickRun(
+			stubGhRoutes(routes, { "*": ghAnswer(LOGGED_OUT) }).gh,
+		);
+
+		expect(stdout).toContain("could not look for an open one");
+		expect(readFiled()).toHaveLength(0);
+		expect(await readStatus()).toContain("no issue filed yet");
+	});
+
+	it("clears, logged, where its issue will not close", async () => {
+		breakHead();
+		await tickRun(serveClose().gh);
+		repairHead();
+
+		const { stdout } = await tickRun();
+
+		expect(stdout).toContain("repo hold cleared: probe in");
+		expect(stdout).toContain(`could not close #${Issue}:`);
+		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
+	});
+
+	it("stops launches where the store takes no record, filing nothing", async () => {
+		fs.writeFileSync(at("repo-holds"), "a file, not a directory\n");
+		breakHead();
+
+		const { status, stdout } = await tickRun(serveClose().gh);
+
+		expect(status).toBe(0);
+		expect(stdout).toContain("repo holds unread, read as not open this tick");
+		expect(stdout).toContain(`repo hold probe in ${repo}: not kept:`);
+		expect(fs.existsSync(at("dispatches"))).toBe(false);
+		expect(readFiled()).toHaveLength(0);
+	});
+
+	it("writes over a torn record of its hold", async () => {
+		const close = serveClose();
+		breakHead();
+		await tickRun(close.gh);
+		const store = fs.readdirSync(at("repo-holds"))[0] ?? "";
+		fs.writeFileSync(at(`repo-holds/${store}/probe.json`), "{ torn");
+
+		await tickRun(serveClose([{ number: Issue, title: ProbeTitle }]).gh);
+
+		expect(await readStatus()).not.toContain("unread:");
+		expect(await readStatus()).toContain("stops launches: yes");
+		expect(await readStatus()).toContain(`issue #${Issue}`);
+		expect(readFiled()).toHaveLength(1);
+		expect(fs.readdirSync(at(`repo-holds/${store}`))).toEqual(["probe.json"]);
+	});
+
+	it("closes its issue on a hand lift, and a still-broken .git raises it anew", async () => {
+		const close = serveClose();
+		breakHead();
+		await tickRun(close.gh);
+
+		const lifted = holdCli(close.gh, "lift", "probe");
+
+		expect(lifted.status).toBe(0);
+		expect(lifted.stdout).toContain("repo hold lifted by hand: probe in");
+		expect(lifted.stdout).not.toContain("could not close");
+		expect(holdCli(close.gh, "list").stdout).toContain("none open");
+
+		await tickRun(close.gh);
+
+		expect(holdCli(close.gh, "list").stdout).toContain("stops launches: yes");
+		expect(readFiled()).toHaveLength(2);
+	});
+
+	it("probes nothing on a dry run, and leaves a stored hold's launches out of its preview", async () => {
+		breakHead();
+
+		const clean = await runInProcessAsync(
+			path.join(scripts, "refill-loop.js"),
+			["dry-run"],
+			{ cwd: dir, env: loopEnv({ FAKE_SLOTS: "1" }) },
+		);
+
+		expect(clean.stdout).toContain("dry run:");
+		expect(clean.stdout).not.toContain("probe failed");
+		expect(await readStatus()).toContain("none open");
+		expect(readFiled()).toHaveLength(0);
+
+		await tickRun(serveClose().gh);
+		const held = await runInProcessAsync(
+			path.join(scripts, "refill-loop.js"),
+			["dry-run"],
+			{ cwd: dir, env: loopEnv({ FAKE_SLOTS: "1" }) },
+		);
+
+		expect(held.stdout).not.toContain("/implement 5");
 	});
 });

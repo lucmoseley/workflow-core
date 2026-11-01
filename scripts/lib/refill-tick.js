@@ -22,8 +22,9 @@
  * a recorded launch ran in, is supervised
  * (scripts/supervise-landing.js, #2692): a dead lander started, a stall
  * ticketed, each earlyoom kill incident that is over is ticketed
- * (scripts/file-memory-kill-tickets.js, #3094), and each repo hold whose clear
- * check passes is lifted (lib/repo-holds.js, #3857). Last, the morning review is
+ * (scripts/file-memory-kill-tickets.js, #3094), each repo hold whose clear
+ * check passes is lifted (lib/repo-holds.js, #3857), and each served checkout's
+ * shared `.git` is probed, a failure stopping launches into it (#3860). Last, the morning review is
  * filed from the first tick after 07:00, and its reversals are answered on
  * every tick (scripts/answer-review-reversals.js, #2017), each by a detached
  * runner the tick never waits on (scripts/refill-review-run.js, #3765). Then
@@ -130,7 +131,7 @@ const {
 } = require("./refill-files.js");
 const refillBatch = require("./refill-batch.js");
 const blocks = require("./refill-blocks.js");
-const { settleHolds } = require("./repo-holds.js");
+const { readTickHolds, tendHolds } = require("./repo-holds.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { localDate } = require("./morning-review.js");
 const { pidLock } = require("./pid-lock.js");
@@ -1052,15 +1053,17 @@ const blockIo = (served) => ({
 });
 
 /**
- * What a real tick does for its checkouts ahead of its decision.
+ * What a real tick does for its checkouts ahead of its decision; the served
+ * checkouts whose probe failed.
  * @param {string[]} served
  * @param {import("./refill-loop.js").LoopLaunch[]} launches
+ * @param {number} now
  */
-function tendCheckouts(served, launches) {
+function tendCheckouts(served, launches, now) {
 	const roots = loop.landingRoots(served, launches);
 	superviseLanding(roots);
 	fileKillTickets();
-	settleHolds(roots, log);
+	return tendHolds(roots, served, now, log);
 }
 
 /**
@@ -1148,7 +1151,7 @@ async function tick({ dryRun }) {
 	 * its caps under the very pressure relief exists for (#2665). */
 	const registry = readRegistryAgents();
 	if (!dryRun) for (const line of stopNeverStarted(registry)) log(line);
-	if (!dryRun) tendCheckouts(served, state.launches);
+	const broken = dryRun ? [] : tendCheckouts(served, state.launches, now);
 	const agents = listedAgents({ requireSelf: false }).agents ?? null;
 	/* Read side by side here anyway, so the undocumented registry the relief
 	 * steps trust is checked against the documented listing every tick. */
@@ -1223,6 +1226,7 @@ async function tick({ dryRun }) {
 			.readGateStore(files.gates, log)
 			.pending.filter((j) => served.includes(j.root)),
 		resumable: blocks.resumableOf(launches, seen),
+		holds: readTickHolds(served, broken),
 	};
 	const { decision, read } = await decide(input, control.scope);
 	if (dryRun)

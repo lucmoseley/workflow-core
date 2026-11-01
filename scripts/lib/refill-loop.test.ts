@@ -2180,7 +2180,7 @@ describe("the loop's resumes after a transient API stop (#2705)", () => {
 });
 
 describe("a resume the tick's step left held (#3855)", () => {
-	const due = { jobId: "j1", at: NOW - 60, line: "j1 held" };
+	const due = { jobId: "j1", root: "wfc", at: NOW - 60, line: "j1 held" };
 	const launch = {
 		root: "/r",
 		issues: [5],

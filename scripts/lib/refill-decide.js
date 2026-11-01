@@ -44,6 +44,8 @@ const LIMIT_HELD_WAIT =
 const RESUME_DUE_WAIT = "every seat is spent; a resume is due";
 /* The idle reason of a tick whose resumes take every free slot. */
 const RESUMES_TAKE_SLOTS = "resumes take every free slot";
+/* A row in a checkout whose probe hold stops launches (#3860). */
+const PROBE_HELD = "a probe hold stops launches into its checkout";
 /* A row a running launch already holds, skipped as any other so an idle
  * tick's log can count it (#2561). */
 const ALREADY_RUNNING = "already running";
@@ -154,12 +156,17 @@ const ALREADY_RUNNING = "already running";
  *   waits, as only a running loop resumes it (#3735)
  * @property {HeldResume[]} [resumable] each session the loop stopped whose
  *   cause has cleared (#3855)
+ * @property {TickHold[]} [holds] each checkout's open repo holds (#3860)
  */
 
 /**
- * A stopped session due back: its launch's job, when it was stopped, and its
- * line for a stop to name.
- * @typedef {{jobId: string, at: number, line: string}} HeldResume
+ * @typedef {{root: string, kind: "probe"|"park"}} TickHold
+ */
+
+/**
+ * A stopped session due back: its launch's job and checkout, when it was
+ * stopped, and its line for a stop to name.
+ * @typedef {{jobId: string, root: string, at: number, line: string}} HeldResume
  */
 
 /**
@@ -447,6 +454,14 @@ function seatHold(s) {
 	return s.fits === null ? "unsized" : "capped";
 }
 
+/**
+ * The checkouts launches are stopped from: those with a `probe` hold, the only
+ * kind that stops any (#3860).
+ * @param {TickHold[]} [holds]
+ */
+const buildProbeHeldRoots = (holds = []) =>
+	new Set(holds.filter((h) => h.kind === "probe").map((h) => h.root));
+
 /** @param {{labels: string[]}} row */
 const isParked = (row) => row.labels.includes(PARKED_LABEL);
 
@@ -732,6 +747,7 @@ function fill(
 		seats,
 		parkers,
 		history,
+		holds,
 	},
 	{ seat, reason },
 	slots,
@@ -745,6 +761,13 @@ function fill(
 	const taken = new Set(
 		running.flatMap((r) => r.issues.map((n) => key(r.root, n))),
 	);
+	const stopped = buildProbeHeldRoots(holds);
+	/** Why `number` in `root` launches nothing whatever its row reads, or null.
+	 * @param {string} root @param {number} number */
+	const buildHeldWhy = (root, number) => {
+		if (stopped.has(root)) return PROBE_HELD;
+		return taken.has(key(root, number)) ? ALREADY_RUNNING : null;
+	};
 	/* A resume is held to its own seat's cap, which the pick seat's fits does
 	 * not bound where it is another seat (#3872). */
 	let seatsLeft = seats;
@@ -765,17 +788,21 @@ function fill(
 			...(parkedRoute ? { parkedRoute } : {}),
 		});
 	};
+	/** @param {MergedRow} row */
+	const nextOf = (row) => {
+		const why = buildHeldWhy(row.root, row.number);
+		if (why !== null) return { why };
+		return routedLaunch(
+			row,
+			{ retroBundles, mode, seats: seatsLeft, parkers, history },
+			(n) => taken.has(key(row.root, n)),
+		);
+	};
 	/** @param {MergedRow[]} rows */
 	const walk = (rows) => {
 		for (const row of rows) {
 			if (launches.length >= slots) break;
-			const next = taken.has(key(row.root, row.number))
-				? { why: ALREADY_RUNNING }
-				: routedLaunch(
-						row,
-						{ retroBundles, mode, seats: seatsLeft, parkers, history },
-						(n) => taken.has(key(row.root, n)),
-					);
+			const next = nextOf(row);
 			if ("why" in next) {
 				skipped.push({ root: row.root, number: row.number, why: next.why });
 				continue;
@@ -794,9 +821,9 @@ function fill(
 	walk(parked.filter((r) => !hasQueuedJudgement(r)));
 	for (const j of judgements) {
 		if (launches.length >= slots) break;
-		if (taken.has(key(j.root, j.number)))
-			skipped.push({ root: j.root, number: j.number, why: ALREADY_RUNNING });
-		else launch(j.root, [j.number], j.prompt, { gate: true });
+		const why = buildHeldWhy(j.root, j.number);
+		if (why === null) launch(j.root, [j.number], j.prompt, { gate: true });
+		else skipped.push({ root: j.root, number: j.number, why });
 	}
 	walk([...parked.filter(hasQueuedJudgement), ...rest]);
 	return { launches, skipped };
@@ -856,7 +883,9 @@ function decideTick(input) {
 	/* A resume goes back to its own seat, so no seat's wait or cap holds it.
 	 * Residual: the pick seat's cap is not charged for one going back to that
 	 * seat, so the tick's launches and resumes together can pass it. */
+	const stopped = buildProbeHeldRoots(input.holds);
 	const resumes = (input.resumable ?? [])
+		.filter((r) => !stopped.has(r.root))
 		.toSorted((a, b) => a.at - b.at)
 		.slice(0, free);
 	if (pick.seat === null)

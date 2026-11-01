@@ -4926,6 +4926,7 @@
 			"scripts/lib/queue-issue.test.ts",
 			"scripts/link-sub-issue.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/refill-loop-run.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/file-issue.test.ts": [

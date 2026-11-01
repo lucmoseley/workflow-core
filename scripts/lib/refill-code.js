@@ -348,4 +348,10 @@ function codeUpdater({ program, codeDir, log }) {
 	};
 }
 
-module.exports = { codeUpdater, launchProgram, readRunningCode, SHA_SHOWN };
+module.exports = {
+	FETCH_TIMEOUT_MS,
+	codeUpdater,
+	launchProgram,
+	readRunningCode,
+	SHA_SHOWN,
+};
