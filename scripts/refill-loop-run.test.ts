@@ -43,7 +43,12 @@ import {
 	ledgerPath,
 	readRecentEntries,
 } from "./lib/dispatch-ledger.js";
-import { API_PROMPT, IDLE_PROMPT, PARKED_PROMPT } from "./lib/loop-prompts.js";
+import {
+	API_PROMPT,
+	IDLE_PROMPT,
+	LIMIT_PROMPT,
+	PARKED_PROMPT,
+} from "./lib/loop-prompts.js";
 import { buildMeminfo } from "./lib/meminfo-fake";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 import { buildUsageCache } from "./lib/usage-probe-fake";
@@ -685,10 +690,6 @@ describe("a parked launch (#2699)", () => {
 		return settled(running, "run with a parked launch");
 	};
 
-	const launchState = () =>
-		JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"))
-			.launches[0];
-
 	const parkComment = (cause: string) =>
 		expect.stringMatching(
 			new RegExp(
@@ -836,15 +837,24 @@ describe("a parked launch (#2699)", () => {
 	);
 
 	it.each(["away", "normal"] as const)(
-		"leaves a LIMIT park be in %s mode (#2851)",
+		"holds a LIMIT park on a spent seat in %s mode, with no comment (#3735)",
 		async (mode) => {
 			inMode(mode);
 			jobAs({ needs: "usage limit reached — check plan" });
+			weekAt(100);
 			fakeClaude([LISTED, blockedRow]);
 			const r = await twoTicks();
 			expect(r.status).toBe(0);
-			expectNothingActed();
-			expect(launchState()).toMatchObject({ block: { cause: "LIMIT" } });
+			expect(readLines(at("stops"))[0]).toBe(`stop ${Job}`);
+			expect(readLines(at("gh-calls"))).toEqual([]);
+			expect(r.stdout).toContain(
+				`held ${Job} repo /implement 7 on ${seat}, at its weekly limit`,
+			);
+			expect(launchState()).toMatchObject({
+				finishedAt: null,
+				block: { cause: "LIMIT" },
+				limitHeld: { sessionId: "s-job7" },
+			});
 		},
 	);
 
@@ -885,6 +895,12 @@ const writesCopyRecord = (record: string) => {
 	return `mkdir -p ${JSON.stringify(jobDir)}; echo '${record}' > ${JSON.stringify(path.join(jobDir, "state.json"))};`;
 };
 
+/* What a real wake leaves: the stopped job's own record, running again. */
+const writesWokenRecord = (jobFile: string, sessionId: string) => {
+	const record = JSON.stringify({ state: "running", sessionId, cwd: repo });
+	return `echo '${record}' > ${JSON.stringify(jobFile)};`;
+};
+
 /** `claude` for a resume of job `job`: `agents` lists `listing`, or fails
  * where it is null; `attach` records the line typed at it on a terminal
  * (lib/claude-attach-fake.ts); `--bg` prints the launcher's recorded
@@ -907,13 +923,17 @@ const fakeResumeClaude = (
 	]);
 };
 
-const oneTick = async (what: string) => {
+const launchState = () =>
+	JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"))
+		.launches[0];
+
+const oneTick = async (what: string, slots = 0) => {
 	const running = runInProcessAsync(
 		path.join(scripts, "refill-loop.js"),
 		["run"],
 		{
 			cwd: dir,
-			env: loopEnv({ WFC_GH: at("gh"), FAKE_SLOTS: "0" }),
+			env: loopEnv({ WFC_GH: at("gh"), FAKE_SLOTS: String(slots) }),
 		},
 	);
 	await ticked(1);
@@ -989,10 +1009,6 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 			{ mode: 0o755 },
 		);
 	};
-
-	const launchState = () =>
-		JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"))
-			.launches[0];
 
 	const tried = (over = {}) => ({
 		tries: 1,
@@ -1200,6 +1216,145 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 	});
 });
 
+describe("a session held on its seat's limit (#3735)", () => {
+	const Job = "job7";
+	const Run = "run with a limit-held launch";
+	const jobFile = () => path.join(seat, "jobs", Job, "state.json");
+
+	/** A normal-mode loop holding one launch stopped on its limit, its job
+	 * record reading session `recorded`. */
+	const seed = (recorded = "s-job7") => {
+		fs.writeFileSync(
+			path.join(repo, ".claude", "workflow-core.json"),
+			JSON.stringify({ tracker: "o/r" }),
+		);
+		fs.mkdirSync(path.dirname(jobFile()), { recursive: true });
+		fs.writeFileSync(
+			jobFile(),
+			JSON.stringify({ state: "stopped", sessionId: recorded, cwd: repo }),
+		);
+		fs.writeFileSync(
+			at(".refill-loop-state.json"),
+			JSON.stringify({
+				launches: [
+					{
+						root: repo,
+						issues: [7],
+						prompt: "/implement 7",
+						seat,
+						jobId: Job,
+						launchedAt: Date.now() - 60 * 60 * 1000,
+						finishedAt: null,
+						parked: true,
+						block: { cause: "LIMIT", since: Date.now() - 60 * 60 * 1000 },
+						limitHeld: {
+							at: Date.now() - 60 * 60 * 1000,
+							sessionId: "s-job7",
+							cwd: repo,
+							limit: { bar: "weekly", resets: "2026-11-01T00:00:00.000Z" },
+						},
+					},
+				],
+			}),
+		);
+		fs.writeFileSync(
+			at("gh"),
+			`#!/bin/bash\nprintf '%s\\n' "$*" >> ${JSON.stringify(at("gh-calls"))}\n`,
+			{ mode: 0o755 },
+		);
+	};
+	it("stays held, unfinished and unstopped, while its seat is spent", async () => {
+		seed();
+		weekAt(100);
+		fakeResumeClaude(Job, [LISTED], "", "woke");
+		const r = await oneTick(Run, 1);
+		expect(r.status).toBe(0);
+		expect(readLines(at("calls"))).toEqual([]);
+		expect(launchState()).toMatchObject({
+			finishedAt: null,
+			limitHeld: { sessionId: "s-job7" },
+		});
+		expect(r.stdout).toContain("limit-held session waits");
+	});
+
+	it("resumes under its own seat once a fresh reading reads open, takes its slot, comments", async () => {
+		seed();
+		weekAt(10);
+		fakeResumeClaude(
+			Job,
+			[LISTED],
+			`echo "dir $CLAUDE_CONFIG_DIR" >> "$calls"; ${writesWokenRecord(jobFile(), "s-job7")}`,
+			"woke",
+		);
+		const r = await oneTick(Run, 1);
+		expect(r.status).toBe(0);
+		expect(readLines(at("calls"))).toEqual([
+			`--bg --resume s-job7 ${LIMIT_PROMPT}`,
+			`dir ${seat}`,
+		]);
+		expect(launchState()).toMatchObject({
+			jobId: Job,
+			finishedAt: null,
+			relaunchedAt: expect.any(Number),
+		});
+		expect(readLines(at("gh-calls")).join("\n")).toMatch(
+			/^issue comment 7 --repo o\/r --body Refill loop: resumed this session after its weekly limit \(reset 2026-11-01T00:00:00.000Z\): same seat, .*Lost: /,
+		);
+		/* Its slot went to the resume, so the frontier's #5 launched nothing. */
+		expect(r.stdout).toContain("no free slot");
+	});
+
+	it("waits on a free slot, its seat open", async () => {
+		seed();
+		weekAt(10);
+		fakeResumeClaude(Job, [LISTED], "", "woke");
+		const r = await oneTick(Run, 0);
+		expect(r.status).toBe(0);
+		expect(readLines(at("calls"))).toEqual([]);
+		expect(launchState()).toHaveProperty("limitHeld");
+		expect(r.stdout).toContain("reads open, and waits on a free slot");
+	});
+
+	it("stays held where the launcher named a job its state.json reads stopped", async () => {
+		seed();
+		weekAt(10);
+		fakeResumeClaude(Job, [LISTED], "", "woke");
+		const r = await oneTick(Run, 1);
+		expect(r.status).toBe(0);
+		expect(launchState().limitHeld).not.toHaveProperty("resumedAt");
+		expect(r.stdout).toContain("state.json reads stopped");
+	});
+
+	it("writes its dispatch-ledger hold again, so a direct dispatch cannot take #7", async () => {
+		seed();
+		weekAt(100);
+		fakeResumeClaude(Job, [LISTED], "", "woke");
+		await oneTick(Run, 1);
+		const rows = readLines(ledgerPath(repo)).map((l) => JSON.parse(l));
+		expect(rows).toEqual([
+			expect.objectContaining({ issues: [7], jobId: Job }),
+		]);
+		expect(launchState().limitHeld.ledgerAt).toEqual(expect.any(Number));
+	});
+
+	it("stays held and names the failure where state.json reads another session", async () => {
+		seed("s-other");
+		weekAt(10);
+		fakeResumeClaude(Job, [LISTED], "", "woke");
+		const r = await oneTick(Run, 1);
+		expect(r.status).toBe(0);
+		expect(launchState()).toMatchObject({
+			finishedAt: null,
+			limitHeld: { sessionId: "s-job7" },
+			limitResumes: { tries: 1 },
+		});
+		expect(r.stdout).toContain("session s-other, not s-job7");
+		expect(readLines(at("gh-calls")).join("\n")).toContain(
+			"session s-other, not s-job7",
+		);
+	});
+});
+
 describe("a session its host restarted that never takes a turn (#2707, #2978)", () => {
 	const Job = "job7";
 	const Prompt = IDLE_PROMPT;
@@ -1293,9 +1448,6 @@ process.exit(${handOffExit});\n`,
 		);
 	};
 
-	const launchState = () =>
-		JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"))
-			.launches[0];
 	const readHandOffs = () =>
 		readLines(at("hand-offs")).map((l) => JSON.parse(l));
 	it("types the resume once the restart row has waited 5 min, aged by the row, not the file", async () => {
@@ -1679,7 +1831,12 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 
 	it("resumes the session that parked it, in place, from its marker though the loop never launched it, and dispatches nothing", async () => {
 		seed();
-		fakeResumeClaude(Job, [LISTED], stopOnResume(), "woke");
+		fakeResumeClaude(
+			Job,
+			[LISTED],
+			`${stopOnResume()} ${writesWokenRecord(path.join(seat, "jobs", Job, "state.json"), "s-job5")}`,
+			"woke",
+		);
 		const r = await settled(run(1), ParkedRun);
 		expect(r.status).toBe(0);
 		expect(readLines(at("calls"))).toEqual([
@@ -1742,7 +1899,12 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 					'frontier: [{ number: 6, urgent: false, goal: false, stallDays: 0, asksQuestions: false, reach: 0, collision: "", takes: ["implement"], labels: ["takes:implement"] }, ',
 				),
 		);
-		fakeResumeClaude(Job, [LISTED], stopOnResume(), "woke");
+		fakeResumeClaude(
+			Job,
+			[LISTED],
+			`${stopOnResume()} ${writesWokenRecord(path.join(seat2, "jobs", Job, "state.json"), "s-job5")}`,
+			"woke",
+		);
 
 		const held = await settled(run(1), ParkedRun);
 		expect(held.status).toBe(0);

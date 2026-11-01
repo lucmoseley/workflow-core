@@ -30,18 +30,23 @@ const IDLE_TRIES = 2;
 /**
  * @typedef {import("./block-cause.js").Cause} Cause
  * @typedef {"stop-and-park"|"park-at-morning"|"resume"|"hold"
- *   |"handoff-relaunch"|"wait"|"none"} Act  `hold`, stop the session until
- *   its next resume is due, or a resumed-idle one until the swap hold clears
+ *   |"resume-in-place"|"handoff-relaunch"|"wait"|"none"} Act  `hold`, stop the
+ *   session until its next resume is due, a resumed-idle one until the swap
+ *   hold clears, or a limit-blocked one until a seat has room for it;
+ *   `resume-in-place`, a limit-blocked one back on its own seat
  * @typedef {{cause: Cause, sub?: import("./block-cause.js").ApiErrorKind,
  *   since: number, tries?: number, nextAt?: number, triedAt?: number,
- *   held?: boolean, typing?: boolean, swapHeld?: boolean}} Block  `since`,
+ *   held?: boolean, typing?: boolean, swapHeld?: boolean, seat?: string,
+ *   movePick?: string|null, slotFree?: boolean}} Block  `since`,
  *   the first tick that
  *   read this cause, ms, or for RESUMED_IDLE the later of the harness's
  *   restart row and the loop's last resume; `sub`, an API_ERROR's kind;
  *   `tries`, the resumes made for the launch so far, the last at `triedAt`,
  *   and `nextAt`, when the next is due; `held`, its session stopped until
  *   then; `typing`, a typed resume not yet seen arrive; `swapHeld`, the swap
- *   hold (#2690) binding this tick
+ *   hold (#2690) binding this tick; for a LIMIT, `seat`, its session's seat,
+ *   `movePick`, the seat lib/refill-decide.js's pickMoveSeat walks to, and
+ *   `slotFree`, whether admission has a slot for one held stopped
  * @typedef {(block: Block, now: number) => Act} Rule
  */
 
@@ -146,10 +151,27 @@ const resumedIdle = (block, now) => {
 };
 
 /**
+ * A limit-blocked session goes back on its own seat where the move pick walks
+ * there, one held stopped only into a free slot, as it holds none (#3735).
+ * `nextAt` spaces out the tries of one whose limit the seat's bars do not show.
+ * @type {Rule}
+ */
+const limit = (block, now) => {
+	const isOwnSeat = Boolean(block.seat) && block.movePick === block.seat;
+	if (
+		isOwnSeat &&
+		now >= (block.nextAt ?? 0) &&
+		(!block.held || block.slotFree)
+	)
+		return "resume-in-place";
+	return block.held ? "wait" : "hold";
+};
+
+/**
  * Away-mode QUESTION: #2355. Normal-mode QUESTION and PERMISSION wait until
  * answered, so they stay in needs input: #3621; residual: each holds a launch
  * slot until then, admission's memory gate bounding the count. PERMISSION as
- * a question: #2360. API_ERROR: #2359. LIMIT: #2125. UNKNOWN: #2358 F9.
+ * a question: #2360. API_ERROR: #2359. LIMIT: #2125, #3735. UNKNOWN: #2358 F9.
  * RESUMED_IDLE: #2659, #2978.
  * @type {Record<Cause, {away: Rule, normal: Rule}>}
  */
@@ -157,7 +179,7 @@ const TABLE = {
 	QUESTION: { away: stopAtOnce, normal: waitForAnswer },
 	PERMISSION: { away: stopAtOnce, normal: waitForAnswer },
 	API_ERROR: { away: apiError(true), normal: apiError(false) },
-	LIMIT: { away: leave, normal: leave },
+	LIMIT: { away: limit, normal: limit },
 	OTHER_DIALOG: { away: leave, normal: leave },
 	RESUMED_IDLE: { away: resumedIdle, normal: resumedIdle },
 	UNKNOWN: { away: leave, normal: leave },

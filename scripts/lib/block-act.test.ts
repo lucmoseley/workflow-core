@@ -10,6 +10,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { blockAct, nextTryAt, RESUME_CAP } from "./block-act.js";
+import { pickMoveSeat } from "./refill-decide.js";
 
 const NOW = Date.parse("2026-10-24T03:00:00Z");
 const MIN = 60 * 1000;
@@ -34,11 +35,76 @@ describe("the cause→act table", () => {
 			);
 	});
 
-	for (const cause of ["LIMIT", "OTHER_DIALOG", "UNKNOWN"] as const)
+	for (const cause of ["OTHER_DIALOG", "UNKNOWN"] as const)
 		it(`${cause}: none in either mode`, () => {
 			expect(blockAct(block(cause, 600), "away", NOW)).toBe("none");
 			expect(blockAct(block(cause, 600), "normal", NOW)).toBe("none");
 		});
+});
+
+describe("the LIMIT row (#3735)", () => {
+	const reading = (seat: string, session: number, fits: number | null = 1) => ({
+		seat,
+		week: 50,
+		session,
+		weekFull: false,
+		sessionFull: session >= 100,
+		sessionResets: null,
+		weekResets: null,
+		readAt: NOW,
+		weekRead: { percent: 50, atMs: NOW },
+		fits,
+	});
+	/** The block a tick builds from these seats' readings, its seat "own". */
+	const limited = (seats: ReturnType<typeof reading>[], over = {}) => ({
+		cause: "LIMIT" as const,
+		since: NOW - 10 * MIN,
+		seat: "own",
+		movePick: pickMoveSeat({
+			seats,
+			typedSeat: null,
+			ownSeat: "own",
+			since: NOW - 10 * MIN,
+		}).seat,
+		...over,
+	});
+
+	for (const mode of ["away", "normal"] as const) {
+		it(`${mode}: holds a session while its limit holds and nothing has room`, () => {
+			expect(blockAct(limited([reading("own", 100, null)]), mode, NOW)).toBe(
+				"hold",
+			);
+		});
+
+		it(`${mode}: resumes a live session once its seat reads open`, () => {
+			expect(blockAct(limited([reading("own", 10)]), mode, NOW)).toBe(
+				"resume-in-place",
+			);
+		});
+
+		it(`${mode}: waits once held, until its seat reads open and a slot is free`, () => {
+			const shut = limited([reading("own", 100, null)], { held: true });
+			expect(blockAct(shut, mode, NOW)).toBe("wait");
+			const open = [reading("own", 10)];
+			expect(blockAct(limited(open, { held: true }), mode, NOW)).toBe("wait");
+			expect(
+				blockAct(limited(open, { held: true, slotFree: true }), mode, NOW),
+			).toBe("resume-in-place");
+		});
+
+		it(`${mode}: holds where the walk goes to another seat`, () => {
+			const seats = [reading("own", 100, null), reading("other", 10)];
+			expect(blockAct(limited(seats), mode, NOW)).toBe("hold");
+			expect(blockAct(limited(seats, { held: true }), mode, NOW)).toBe("wait");
+		});
+
+		it(`${mode}: holds until a re-blocked session's next try is due`, () => {
+			const open = [reading("own", 10)];
+			const b = limited(open, { nextAt: NOW + MIN });
+			expect(blockAct(b, mode, NOW)).toBe("hold");
+			expect(blockAct(b, mode, NOW + MIN)).toBe("resume-in-place");
+		});
+	}
 });
 
 describe("the API_ERROR row (#2359)", () => {

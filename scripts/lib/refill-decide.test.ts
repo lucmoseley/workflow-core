@@ -13,7 +13,7 @@
 import { describe, expect, it } from "vitest";
 
 const { capSet } = require("./allowance.js");
-const { FULL, decideTick } = require("./refill-decide.js");
+const { FULL, decideTick, pickMoveSeat } = require("./refill-decide.js");
 const { parseCapFits, readSizedSeats } = require("./refill-loop.js");
 const { mergeFrontiers } = require("./frontier-order.js");
 
@@ -55,6 +55,7 @@ const seat = (
 	sessionFull: session !== null && session >= FULL,
 	sessionResets: null,
 	weekResets: null,
+	readAt: NOW,
 	weekRead: { percent: null, atMs: null },
 	fits,
 });
@@ -375,6 +376,88 @@ describe("decideTick on overflow seats (#2611)", () => {
 			expect(tick({ seats: plan, overflow: [] })).toEqual(
 				tick({ seats: plan }),
 			);
+	});
+});
+
+describe("pickMoveSeat (#3735)", () => {
+	const Blocked = NOW - 10 * 60 * 1000;
+	const own = (week: number | null, session: number | null, over = {}) => ({
+		...seat("own", week, session),
+		readAt: NOW,
+		...over,
+	});
+	const pick = (
+		seats: object[],
+		typedSeat: string | null = null,
+		overflow = {},
+	) =>
+		pickMoveSeat({
+			seats,
+			typedSeat,
+			ownSeat: "own",
+			since: Blocked,
+			...overflow,
+		});
+	const api = { seat: "api", fits: 2, spentUntil: null, why: null };
+
+	it("never returns the blocked seat while its limit holds", () => {
+		expect(pick([own(50, FULL, { fits: null })]).seat).toBeNull();
+		expect(pick([own(FULL, 10, { fits: null })]).seat).toBeNull();
+		expect(pick([own(95, 95, { fits: 0 })]).seat).toBeNull();
+		expect(pick([own(null, null, { fits: null })]).seat).toBeNull();
+	});
+
+	it("passes over a reading older than the block, however low it reads", () => {
+		expect(pick([own(50, 50, { readAt: Blocked })]).seat).toBeNull();
+		expect(pick([own(50, 50, { readAt: Blocked - 1 })]).seat).toBeNull();
+	});
+
+	it("returns it once a reading since the block shows it under the cut", () => {
+		expect(pick([own(50, 50)]).seat).toBe("own");
+	});
+
+	it("walks a launch's order: the typed seat, then the soonest reset", () => {
+		const other = seat("other", 10, 10);
+		expect(pick([own(50, 50), other], "other").seat).toBe("other");
+		expect(pick([own(50, 50), other], "own").seat).toBe("own");
+		expect(
+			pick([
+				{ ...own(50, 50), weekResets: NOW + 2 * HOUR },
+				{ ...other, weekResets: NOW + HOUR },
+			]).seat,
+		).toBe("other");
+	});
+
+	it("takes overflow only once every plan seat is weekly-full", () => {
+		const overflow = { overflow: [api] };
+		const fiveHourOwn = own(50, FULL, { fits: null });
+		const weeklyOther = seat("other", FULL, 10, null);
+		expect(pick([fiveHourOwn, weeklyOther], null, overflow).seat).toBeNull();
+		const weeklyOwn = own(FULL, 10, { fits: null });
+		expect(pick([weeklyOwn, weeklyOther], null, overflow).seat).toBe("api");
+	});
+});
+
+describe("decideTick with a limit-held launch (#3735)", () => {
+	const spent = {
+		seats: [seat("a", FULL, 10, null)],
+		frontier: [row("/r", 1)],
+	};
+
+	it("keeps a run on spent seats alive, so the loop can resume it", () => {
+		expect(tick(spent)).toHaveProperty("stop", "allowance");
+		const held = tick({ ...spent, limitHeld: true });
+		expect(held).not.toHaveProperty("stop");
+		expect(held).toMatchObject({
+			launches: [],
+			idle: expect.stringContaining("limit-held"),
+		});
+	});
+
+	it("leaves every other stop standing", () => {
+		expect(
+			tick({ ...spent, limitHeld: true, stopRequested: true }),
+		).toHaveProperty("stop", "explicit");
 	});
 });
 
@@ -838,7 +921,7 @@ describe("decideTick on a parked row's session seat (#3669)", () => {
 		number: 2,
 		job,
 		sessionId: "s-2",
-		cwd: "wfc",
+		resumeCwd: "wfc",
 		...over,
 	});
 	const on = (s2: ReturnType<typeof seat>, parkers = [parker()]) =>

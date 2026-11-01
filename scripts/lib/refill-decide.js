@@ -34,6 +34,10 @@ const NOTHING_LAUNCHABLE = "nothing launchable";
  * launchable" even where the checkouts read held only skipped rows: the
  * unread work may have launched (#2561). */
 const SHORTLIST_FAILED = "shortlist failed in";
+/* The idle reason of a tick whose seats are all spent, with a limit-held
+ * launch keeping the run alive. */
+const LIMIT_HELD_WAIT =
+	"every seat is spent; a limit-held session waits on one";
 /* A row a running launch already holds, skipped as any other so an idle
  * tick's log can count it (#2561). */
 const ALREADY_RUNNING = "already running";
@@ -57,10 +61,10 @@ const ALREADY_RUNNING = "already running";
  * @property {number|null} session the 5-hour bar
  * @property {boolean} weekFull
  * @property {boolean} sessionFull
- * @property {string|null} sessionResets the 5-hour bar's reset, as read,
- *   where it is full; else null
+ * @property {string|null} sessionResets the 5-hour bar's reset, as read
  * @property {number|null} weekResets the weekly bar's reset, ms, from the
  *   same reading; null where it is unread, will not parse or has passed
+ * @property {number} readAt ms, when the older of its bars was read
  * @property {{percent: number|null, atMs: number|null}} weekRead the weekly
  *   bar as read, whatever its trust, and when; for reporting alone
  */
@@ -133,6 +137,8 @@ const ALREADY_RUNNING = "already running";
  * @property {{root: string, error: string}[]} [failedShortlists]
  * @property {ParkerReading[]} [parkers] each parked frontier row's park
  *   marker the tick found
+ * @property {boolean} [limitHeld] a launch waits stopped on its seat's limit,
+ *   so spent seats end no run: only a running loop resumes it (#3735)
  */
 
 /**
@@ -296,6 +302,25 @@ function pickSeat({ seats, overflow = [], typedSeat = null }) {
 		allCut: overflow.every((o) => o.spentUntil !== null),
 		wait: `every plan seat is weekly-full; overflow ${overflowHolds(overflow)}`,
 	};
+}
+
+/**
+ * The seat a session blocked on its seat's limit goes to (#3735): pickSeat's
+ * walk over `seats` sized for one session, as it already holds its slot, with
+ * its own seat passed over until a reading taken since the block shows room,
+ * so an older one never sends it back into the limit. Passed over, not left
+ * out: a seat full on its 5-hour bar still keeps overflow shut (#2570).
+ * @param {Pick<TickInput, "seats"|"overflow"|"typedSeat"> &
+ *   {ownSeat: string, since: number}} input `since`, ms, when it blocked
+ */
+function pickMoveSeat({ seats, overflow, typedSeat, ownSeat, since }) {
+	return pickSeat({
+		seats: seats.map((s) =>
+			s.seat === ownSeat && s.readAt <= since ? { ...s, fits: 0 } : s,
+		),
+		overflow,
+		typedSeat,
+	});
 }
 
 /** @param {OverflowReading[]} overflow */
@@ -473,7 +498,7 @@ function stopOf(input, pick) {
 				.map((r) => `${r.root} #${r.issues.join(", #")}`)
 				.join("; ")}`,
 		};
-	if (pick.seat === null && pick.allCut) {
+	if (pick.seat === null && pick.allCut && !input.limitHeld) {
 		const { overflow = [] } = input;
 		return {
 			stop: "allowance",
@@ -668,7 +693,7 @@ function decideTick(input) {
 		return {
 			launches: [],
 			skipped: [],
-			idle: pick.wait,
+			idle: pick.wait || LIMIT_HELD_WAIT,
 			held,
 		};
 	/* The cap's fits, so a tick asks no dispatcher call for a member the cap
@@ -701,7 +726,9 @@ module.exports = {
 	fitsLaunch,
 	hasRoom,
 	isParked,
+	MODEL,
 	orderPlanSeats,
+	pickMoveSeat,
 	pickSeat,
 	isParkRoutingMode,
 };

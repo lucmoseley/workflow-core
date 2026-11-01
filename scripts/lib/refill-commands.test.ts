@@ -296,6 +296,18 @@ describe("the launch lines status shows (#2850)", () => {
 		);
 	});
 
+	it("shows a launch stopped on its seat's limit, past the launch window (#3735)", () => {
+		const limitHeld = {
+			at: NOW - 6 * MIN,
+			sessionId: "s",
+			cwd: "/",
+			limit: { bar: "weekly", resets: "2026-10-20T00:00:00.000Z" },
+		};
+		expect(statusOf([record({ limitHeld })])).toContain(
+			"stopped since 2026-10-18T11:54:00.000Z on its weekly limit (reset 2026-10-20T00:00:00.000Z), resumed once its seat reads under the cut",
+		);
+	});
+
 	it("shows an API-error launch's tries and its next try's time", () => {
 		const block = {
 			cause: "API_ERROR",

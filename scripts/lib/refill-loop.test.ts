@@ -365,6 +365,7 @@ describe("a finished launch's progress, from its session's acts ledger (#2312)",
 					sessionFull: false,
 					sessionResets: null,
 					weekResets: null,
+					readAt: NOW,
 					weekRead: { percent: null, atMs: null },
 					fits: 1,
 				},
@@ -409,6 +410,7 @@ const seat = (name: string, week: number | null, session: number | null) => ({
 	sessionFull: session !== null && session >= FULL,
 	sessionResets: null,
 	weekResets: null,
+	readAt: NOW,
 	weekRead: { percent: null, atMs: null },
 });
 
@@ -527,8 +529,9 @@ describe("a seat's reading (#2606)", () => {
 			session: null,
 			weekFull: true,
 			sessionFull: false,
-			sessionResets: null,
+			sessionResets: Ahead,
 			weekResets: Date.parse(Ahead),
+			readAt: NOW,
 			weekRead: { percent: 100, atMs: null },
 		});
 	});
@@ -555,7 +558,6 @@ describe("a seat's reading (#2606)", () => {
 		expect(readOn(bar(100, "stale", Passed), week)).toMatchObject({
 			session: null,
 			sessionFull: false,
-			sessionResets: null,
 		});
 	});
 
@@ -751,6 +753,7 @@ describe("the first overflow launch's record (#3767)", () => {
 		sessionFull: false,
 		sessionResets: null,
 		weekResets: null,
+		readAt: NOW,
 		weekRead: { percent, atMs: NOW - 120_000 },
 		fits: null,
 	});

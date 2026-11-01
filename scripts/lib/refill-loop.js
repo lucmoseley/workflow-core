@@ -89,7 +89,8 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * resumed-idle session (#2659), cleared once the session takes a turn;
  * `idleSince`, the time of the harness restart row it last read resumed-idle
  * on (#2978). `swapHeld`, set while the loop holds one it stopped under the
- * swap hold (#3093). `handOffTries` counts the hand-offs of
+ * swap hold (#3093). `limitHeld`, while it holds one stopped on its seat's
+ * limit, and `limitResumes`, its resumes in place (#3735). `handOffTries` counts the hand-offs of
  * one stopped still idle that failed, and
  * `handedOff` is when one went to a fresh launch. `relaunchedAt` is when a
  * stop and `--bg --resume` last restarted its job, from which it has the
@@ -103,6 +104,8 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  *   resumes?: import("./refill-blocks.js").Resumes,
  *   idleResumes?: import("./refill-blocks.js").IdleResumes, idleSince?: number,
  *   swapHeld?: import("./refill-blocks.js").SwapHeld,
+ *   limitHeld?: import("./refill-blocks.js").LimitHeld,
+ *   limitResumes?: import("./refill-blocks.js").LimitResumes,
  *   handOffTries?: number, handedOff?: number, copiedFrom?: string,
  *   relaunchedAt?: number, pastSessionIds?: string[]}} LoopLaunch
  */
@@ -409,12 +412,14 @@ function seatReadingOf(seat, { session, weekly_all: week }, now) {
 	const sessionFull = full(session);
 	const weekResets = Date.parse(week.resetsAt ?? "");
 	return {
+		/* An unstamped bar is a printed `/usage`, read now, or unread. */
+		readAt: Math.min(session.fetchedAtMs ?? now, week.fetchedAtMs ?? now),
 		seat,
 		week: sizedPercent(week),
 		session: sizedPercent(session),
 		weekFull: full(week),
 		sessionFull,
-		sessionResets: sessionFull ? session.resetsAt : null,
+		sessionResets: session.resetsAt,
 		weekResets: weekResets > now ? weekResets : null,
 		weekRead: {
 			percent: week.percent,

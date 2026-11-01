@@ -9,6 +9,8 @@
 const path = require("node:path");
 const { RESUME_CAP } = require("./block-act.js");
 const {
+	buildLimitText,
+	isLimitHeld,
 	isResuming,
 	isSwapHeld,
 	iso,
@@ -92,7 +94,8 @@ function buildScopeLines(control, { runMs, served, running }) {
 /**
  * Where a launch stands, for `status`.
  * @typedef {"park-stopped"|"handed-off"|"hand-off-owed"|"finished"
- *   |"resuming"|"swap-held"|"resumed-idle"|"parked"|"running"} LaunchKind
+ *   |"resuming"|"swap-held"|"limit-held"|"resumed-idle"|"parked"|"running"}
+ *   LaunchKind
  * @param {LoopLaunch} l
  * @returns {LaunchKind}
  */
@@ -103,6 +106,7 @@ function launchKindOf(l) {
 	if (l.finishedAt !== null) return "finished";
 	if (isResuming(l)) return "resuming";
 	if (isSwapHeld(l)) return "swap-held";
+	if (isLimitHeld(l)) return "limit-held";
 	if (l.idleSince !== undefined) return "resumed-idle";
 	return l.parked ? "parked" : "running";
 }
@@ -114,6 +118,7 @@ const UNSETTLED = new Set([
 	"hand-off-owed",
 	"resuming",
 	"swap-held",
+	"limit-held",
 	"resumed-idle",
 	"parked",
 ]);
@@ -140,6 +145,14 @@ function launchStateOf(l) {
 		}
 		case "swap-held":
 			return `stopped under the swap hold since ${iso(/** @type {number} */ (l.swapHeld?.at))}, resumed once it clears`;
+		case "limit-held": {
+			const held = /** @type {import("./refill-blocks.js").LimitHeld} */ (
+				l.limitHeld
+			);
+			return held.resumedAt === undefined
+				? `stopped since ${iso(held.at)} on its ${buildLimitText(held.limit)}, resumed once its seat reads under the cut`
+				: `resumed at ${iso(held.resumedAt)} after its ${buildLimitText(held.limit)}, not yet seen live`;
+		}
 		case "resumed-idle": {
 			const r = l.idleResumes;
 			return `resumed-idle since ${iso(/** @type {number} */ (l.idleSince))}, ${r ? `resumed ${r.tries} times, last at ${iso(r.triedAt)}` : "not yet resumed"}`;
