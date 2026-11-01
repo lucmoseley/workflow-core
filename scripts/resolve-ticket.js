@@ -34,8 +34,8 @@
  * through the same lib/review-findings.js (#3846). The record may name a sha
  * still queued on `landing`, so a close never waits for the lander. It fails
  * open, with a note, where the ticket's comments cannot be read. Residual: a
- * record posted by a separate `gh issue comment` goes unchecked here: the report
- * catches its form, and nothing yet its cut-off lines (#3847).
+ * record posted by a separate `gh issue comment` goes unchecked here, and the
+ * report catches it (#3847).
  *
  * ORDER: every refusal, then comment, close, release, map line. The assignee
  * is never removed.

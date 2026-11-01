@@ -59,6 +59,15 @@
  * `base` and paths. Residual: two commits a ticket records from one base over
  * the same paths hide each other's unparseable record.
  *
+ * A RECORD WITH CUT-OFF LINES — `- FIXED` or `- TICKETED` lines, under a counted
+ * tier, past a line that ends its list, which resolve-ticket.js refuses at a close
+ * and a separate `gh issue comment` can still post — counts none of those lines
+ * and is reported each run until a later record restates it (#3847): one under a
+ * counted tier with none cut off, at least as many lines as the earlier held in
+ * all, and the same reviewed tree, or the same base, paths and landed sha, as two
+ * commits from one base over the same paths are separate reviews here. What the
+ * earlier one did count is then dropped rather than summed with the restatement.
+ *
  * A RECORD NAMING THE LANDED TREE — a counted commit with a `- FIXED` line
  * whose `reviewed` tree equals its landed commit's on the record's paths, the
  * marker's post-fix `tree=` copied in place of the pin — still counts, and is
@@ -117,6 +126,7 @@ const { requiredGroup } = require("./lib/regex-group");
 const {
 	COUNTED_TIERS,
 	day,
+	describeCutOff,
 	isSameReview,
 	isSameSha,
 	parseIssue,
@@ -168,7 +178,7 @@ const REVERTS = /^This reverts commit ([0-9a-f]{40})\b/gm;
  * @typedef {import("./lib/review-findings").ReviewRecord} ReviewRecord
  * @typedef {import("./lib/review-findings").Unparsed} Unparsed
  * @typedef {{ tag: "UNRECORDED" | "UNPARSEABLE" | "UNREAD", fault: string }} Unseen
- * @typedef {{ tag: Unseen["tag"] | "LANDED TREE" | "OFF MAIN" | "UNJUDGED", fault: string }} RecordFault
+ * @typedef {{ tag: Unseen["tag"] | "CUT OFF" | "LANDED TREE" | "OFF MAIN" | "UNJUDGED", fault: string }} RecordFault
  */
 
 /**
@@ -401,10 +411,47 @@ function addTrailerCommits(commits, trackers, records, home) {
 }
 
 /**
+ * Whether `later` restates `r`, as the header's A RECORD WITH CUT-OFF LINES says.
+ *
+ * @param {ReviewRecord} later
+ * @param {ReviewRecord} r
+ */
+const restates = (later, r) =>
+	later.cutOff === 0 &&
+	COUNTED_TIERS.has(later.tier) &&
+	later.fixed >= r.fixed + r.cutOff &&
+	isSameReview(later, r) &&
+	(isSameSha(later.tree, r.tree) || isSameSha(later.landed, r.landed));
+
+/**
+ * One ticket's records as counted, and the reports the header's A RECORD WITH
+ * CUT-OFF LINES owes them.
+ *
+ * @param {ReviewRecord[]} found in comment order
+ * @returns {{ records: ReviewRecord[], faults: RecordFault[] }}
+ */
+function settleCutOff(found) {
+	/** @type {RecordFault[]} */
+	const faults = [];
+	const records = found.map((r, i) => {
+		if (r.cutOff === 0) return r;
+		if (found.slice(i + 1).some((later) => restates(later, r)))
+			return { ...r, fixed: 0, fixes: 0 };
+		if (COUNTED_TIERS.has(r.tier))
+			faults.push({
+				tag: "CUT OFF",
+				fault: `${r.repo}#${r.issue} has a record, landed ${r.landed}, with ${describeCutOff(r.cutOff)}, so they count 0 until it is corrected: post a record of the same review with its whole list straight under it and the prose after, as \`scripts/lib/rule-text.sh review-tier-records\` says`,
+			});
+		return r;
+	});
+	return { records, faults };
+}
+
+/**
  * The counted commits across `trackers`, in corpus order, then by ticket,
  * then those known by their trailer alone; the unparseable records under a
- * counted tier; and the faults of what was read: the sensitive commits no record
- * or trailer names, then each record's own.
+ * counted tier; and the faults of what was read: the cut-off records, the
+ * sensitive commits no record or trailer names, then each record's own.
  *
  * @param {string[]} trackers
  * @param {string} today YYYY-MM-DD
@@ -418,13 +465,17 @@ function countedCommits(trackers, today, home) {
 	const escaped = [];
 	/** @type {Unparsed[]} */
 	const unparsed = [];
+	/** @type {RecordFault[]} */
+	const cutOffFaults = [];
 	for (const repo of trackers) {
 		const tickets = searchTickets(repo, FLOOR, today).sort(
 			(a, b) => a.issue - b.issue,
 		);
 		for (const { issue, comments } of tickets) {
 			const found = parseIssue(repo, issue, comments);
-			records.push(...found.records);
+			const settled = settleCutOff(found.records);
+			records.push(...settled.records);
+			cutOffFaults.push(...settled.faults);
 			escaped.push(...found.escaped);
 			unparsed.push(...found.unparsed);
 		}
@@ -448,7 +499,7 @@ function countedCommits(trackers, today, home) {
 	return {
 		commits: commits.filter((c) => c.fixed + c.escaped > 0),
 		unparsed,
-		faults: [...unseen, ...recordFaults],
+		faults: [...cutOffFaults, ...unseen, ...recordFaults],
 	};
 }
 
