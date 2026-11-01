@@ -35,6 +35,7 @@ import {
 	JS_TEST_FILE,
 	PY_COLLECTED_TEST,
 	PY_TEST_FILE,
+	PYTEST_DEFAULT_FILES,
 	pytestSiblings,
 	siblingTests,
 	spellSiblingTests,
@@ -238,6 +239,26 @@ describe("the test readings outside test-kind.js", () => {
 		);
 		expect(globs("sonar.exclusions")).toEqual(expected);
 		expect(globs("sonar.test.inclusions")).toEqual(expected);
+	});
+
+	it.each([
+		["test_a.py", true],
+		["a_test.py", true],
+		["scripts/test_a.py", true],
+		["scripts/a_test.py", true],
+		["tests_a.py", false],
+		["a_tests.py", false],
+		["testa.py", false],
+		["atest.py", false],
+		["a.test.py", false],
+		["test_a.pyc", false],
+	])("reads %s as pytest's default names do: %s (#3849)", (name, collected) => {
+		expect(PY_TEST_FILE.test(name)).toBe(collected);
+		expect(
+			PYTEST_DEFAULT_FILES.some((glob) =>
+				path.matchesGlob(path.basename(name), glob),
+			),
+		).toBe(collected);
 	});
 
 	it("leaves python_files unset in pytest.ini, so pytest collects PY_TEST_FILE's both names (#3810)", () => {
