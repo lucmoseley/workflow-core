@@ -986,7 +986,7 @@ describe("decideTick on a parked row's session seat (#3669)", () => {
 		expect(away.held).toEqual([]);
 	});
 
-	it("routes it afresh where no resume is possible: no parker, a marker naming no job or one whose record will not read, or a seat the loop does not read", () => {
+	it("routes it afresh where no resume is possible: no parker, a marker naming no job, or a seat the loop does not read", () => {
 		const full = seat("/s2", 100, 10);
 		const afresh = (d: ReturnType<typeof tick>) => d.launches[0].parkedRoute;
 		expect(afresh(on(full, []))).toEqual({
@@ -998,9 +998,6 @@ describe("decideTick on a parked row's session seat (#3669)", () => {
 		expect(
 			afresh(on(full, [parker({ job: { ...job, seat: "/gone" } })])),
 		).toEqual({ afresh: "its session's seat /gone is not one the loop reads" });
-		expect(afresh(on(seat("/s2", 10, 10), [parker({ cwd: null })]))).toEqual({
-			afresh: "its marker's job j2 will not read",
-		});
 	});
 });
 

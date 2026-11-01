@@ -15,16 +15,26 @@
  * FAILS OPEN (lib/stop-guard.js): an unreadable claim store, tracker or
  * GitHub parks nothing, and a failed label write leaves the issue unmarked.
  *
- * IMPLICIT:  at a background job's `needs input:` Stop whose round is posted on an issue this session claims, adds the `parked` label to that issue and records it, with the session's seat and job, in its `.parked-` marker.
+ * IMPLICIT:  at a background job's `needs input:` Stop whose round is posted on an issue this session claims, adds the `parked` label to that issue and records it, with the session's seat, job and cwd, in its `.parked-` marker.
  * JUSTIFIED: fail-safe — a parked ticket left on the frontier is relaunched every refill, and each relaunch re-asks the same round (#1995).
  * DEFEAT:    none needed — it never blocks.
  */
 
 const { parkTargets } = require("./guard-inventory");
-const { jobOfDir } = require("./lib/job-paths");
+const { jobOfDir, readJobCwd } = require("./lib/job-paths");
 const { readParkedBy, setParked, writeParkedBy } = require("./lib/parked");
 const stopGuard = require("./lib/stop-guard");
 const { trackerOf } = require("./lib/outstanding-line");
+
+/**
+ * The seat and job this session runs in, with the cwd its job record names,
+ * for a normal-mode loop to resume it from (#3773).
+ * @returns {import("./lib/parked").ParkJob|null}
+ */
+function readOwnJob() {
+	const job = jobOfDir(process.env.CLAUDE_JOB_DIR);
+	return job && { ...job, cwd: readJobCwd(job.seat, job.jobId) };
+}
 
 /** @param {{sessionId: string, message: string}} ctx */
 function review({ sessionId, message }) {
@@ -34,7 +44,7 @@ function review({ sessionId, message }) {
 	const parked = targets.filter((n) => setParked(tracker, n, true) === null);
 	if (parked.length > 0)
 		writeParkedBy(sessionId, [...readParkedBy(sessionId), ...parked], {
-			job: jobOfDir(process.env.CLAUDE_JOB_DIR),
+			job: readOwnJob(),
 		});
 }
 

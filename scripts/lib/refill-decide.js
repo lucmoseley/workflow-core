@@ -162,8 +162,7 @@ const ALREADY_RUNNING = "already running";
  * @property {string} sessionId the session whose marker lists it
  * @property {import("./parked.js").ParkJob|null} job the seat and job its
  *   marker names, null where it names none
- * @property {string|null} cwd where its session resumes: its job record's,
- *   null where that record will not read
+ * @property {string} resumeCwd where its session resumes
  */
 
 /**
@@ -519,7 +518,9 @@ function stopOf(input, pick) {
  * resumes: the loop refreshes no seat behind the first with room, so a hold
  * there would never end. A weekly-full seat holds its tickets until its
  * week resets, up to 7 days; the idle alarm counts one held past 2 days
- * (#3680).
+ * (#3680). A seat outside `seats` goes afresh: the loop launches on no such
+ * seat, with no bar or cap to hold a resume to, and an overflow seat's key
+ * bars a resume (lib/launch-auth.js) (#3773).
  * @param {ParkerReading|undefined} parker none where no marker lists it
  * @param {SizedSeat[]} seats this tick's
  * @returns {{resume: ResumeTarget} | {hold: string} | {afresh: string}}
@@ -533,12 +534,14 @@ function routeParked(parker, seats) {
 		return {
 			afresh: `its session's seat ${parker.job.seat} is not one the loop reads`,
 		};
-	if (parker.cwd === null)
-		return { afresh: `its marker's job ${parker.job.jobId} will not read` };
 	if (readsFull(seat))
 		return { hold: `parked: its session's seat ${seat.seat} is full` };
 	return {
-		resume: { seat: seat.seat, sessionId: parker.sessionId, cwd: parker.cwd },
+		resume: {
+			seat: seat.seat,
+			sessionId: parker.sessionId,
+			cwd: parker.resumeCwd,
+		},
 	};
 }
 

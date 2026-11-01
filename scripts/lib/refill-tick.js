@@ -72,7 +72,7 @@ const {
 const { parseResumed } = require("./bg-resume.js");
 const { stopOn } = require("./claude-stop.js");
 const { launchAuthRefusal } = require("./launch-auth.js");
-const { jobDirPath, readJobRecord } = require("./job-paths.js");
+const { jobDirPath, readJobCwd, readJobRecord } = require("./job-paths.js");
 const { parseJsonl } = require("./jsonl.js");
 const {
 	readParkMarkers,
@@ -594,8 +594,8 @@ function labelParked(l) {
 
 /**
  * Add `numbers` to session `sessionId`'s `.parked-` marker in `l`'s checkout,
- * with `l`'s seat and job for a normal-mode loop to resume (#3709); null once
- * written, else why not. Fails open: an unwritten marker leaves the
+ * with `l`'s seat, job and cwd for a normal-mode loop to resume (#3709); null
+ * once written, else why not. Fails open: an unwritten marker leaves the
  * label for a claim to clear, and the loop line says so (#3584).
  * @param {import("./refill-loop.js").LoopLaunch} l
  * @param {string} sessionId
@@ -605,7 +605,9 @@ function recordParked(l, sessionId, numbers) {
 	try {
 		writeParkedBy(sessionId, [...readParkedBy(sessionId, l.root), ...numbers], {
 			root: l.root,
-			job: l.jobId ? { seat: l.seat, jobId: l.jobId } : null,
+			job: l.jobId
+				? { seat: l.seat, jobId: l.jobId, cwd: readJobCwd(l.seat, l.jobId) }
+				: null,
 		});
 		return null;
 	} catch (e) {
@@ -782,7 +784,7 @@ function resumeStopped(l, prompt, { sessionId, cwd }) {
 /**
  * Each parked row's park marker, the newest written where several list it,
  * with the seat and job it names and the directory its session resumes in,
- * its job record's cwd: null where that record will not read (#3709).
+ * its marker's, else the checkout holding the marker (#3773).
  * @param {import("./refill-decide.js").MergedRow[]} frontier
  * @returns {import("./refill-decide.js").ParkerReading[]}
  */
@@ -801,16 +803,13 @@ function readParkers(frontier) {
 			.sort((x, y) => y.writtenAt - x.writtenAt)[0];
 		if (!marker) return [];
 		const { job, sessionId } = marker;
-		const record = /** @type {{cwd?: unknown}|null} */ (
-			job ? readJobRecord(job.seat, job.jobId) : null
-		);
 		return [
 			{
 				root: row.root,
 				number: row.number,
 				sessionId,
 				job,
-				cwd: typeof record?.cwd === "string" ? record.cwd : null,
+				resumeCwd: job?.cwd ?? row.root,
 			},
 		];
 	});

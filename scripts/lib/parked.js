@@ -15,10 +15,11 @@
  * lists the issues parked for this session — by park-on-round.js, or by the
  * refill loop where it stopped the session, into that session's checkout — so
  * unpark-on-prompt.js acts off a local read and makes no GitHub call on an
- * ordinary prompt. It also names the seat and job the session ran in, written
- * at park time, which a normal-mode loop resumes it from whoever launched it
- * (#3709). One entry a line: `seat <config dir>`, `job <job id>`, or an issue
- * number.
+ * ordinary prompt. It also names the seat, job and directory the session ran
+ * in, written at park time, which a normal-mode loop resumes it from whoever
+ * launched it (#3709), with no read of a job record that may be torn or gone
+ * by then (#3773). One entry a line: `seat <config dir>`, `job <job id>`,
+ * `cwd <directory>`, or an issue number.
  */
 
 const fs = require("node:fs");
@@ -52,11 +53,14 @@ function setParked(repo, n, on) {
 	}
 }
 
-/** @typedef {{seat: string, jobId: string}} ParkJob */
+/**
+ * `cwd` null where the job's record would not read at park time.
+ * @typedef {{seat: string, jobId: string, cwd: string|null}} ParkJob
+ */
 /** @typedef {{issues: number[], job: ParkJob|null}} ParkMarker */
 
 const MARKER_PREFIX = ".parked-";
-const KEYED_RE = /^(seat|job) (\S+)$/;
+const KEYED_RE = /^(seat|job|cwd) (.+)$/;
 /* park-blocked.sh's record shares the prefix (lib/arbiter-markers.js). */
 const BLOCKED_PREFIX = ".parked-blocked-";
 
@@ -80,8 +84,11 @@ function parseMarker(text) {
 		const m = KEYED_RE.exec(line);
 		if (m) keyed[requiredGroup(m, 1, KEYED_RE)] = requiredGroup(m, 2, KEYED_RE);
 	}
-	const { seat, job } = keyed;
-	return { issues, job: seat && job ? { seat, jobId: job } : null };
+	const { seat, job, cwd } = keyed;
+	return {
+		issues,
+		job: seat && job ? { seat, jobId: job, cwd: cwd ?? null } : null,
+	};
 }
 
 /**
@@ -143,8 +150,8 @@ function readParkMarkers(root) {
 
 /**
  * Write this session's marker in `root`'s checkout: `numbers` its issues,
- * replacing the list, and `job` its job, else the one it already names. An
- * empty list deletes it.
+ * replacing the list, and `job` its job, else the one it already names, as is
+ * its cwd where `job` read none. An empty list deletes it.
  * @param {string} sessionId
  * @param {number[]} numbers
  * @param {{root?: string, job?: ParkJob|null}} [where]
@@ -155,9 +162,11 @@ function writeParkedBy(sessionId, numbers, { root, job = null } = {}) {
 		fs.rmSync(file, { force: true });
 		return;
 	}
-	const kept = job ?? readParkMarker(sessionId, root).job;
+	const prior = readParkMarker(sessionId, root).job;
+	const kept = job ? { ...job, cwd: job.cwd ?? prior?.cwd ?? null } : prior;
 	const lines = [
 		...(kept ? [`seat ${kept.seat}`, `job ${kept.jobId}`] : []),
+		...(kept?.cwd ? [`cwd ${kept.cwd}`] : []),
 		...new Set(numbers),
 	];
 	fs.writeFileSync(file, `${lines.join("\n")}\n`);

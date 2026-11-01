@@ -80,12 +80,24 @@ function readJobRecordIn(jobDir) {
  */
 const readJobRecord = (seat, jobId) => readJobRecordIn(jobDirPath(seat, jobId));
 
+/**
+ * The cwd job `jobId`'s record on `seat` names, null where it names none.
+ * @param {string} seat
+ * @param {string} jobId
+ * @returns {string|null}
+ */
+function readJobCwd(seat, jobId) {
+	const cwd = readJobRecord(seat, jobId)?.cwd;
+	return typeof cwd === "string" ? cwd : null;
+}
+
 module.exports = {
 	jobDirPath,
 	jobOfDir,
 	jobStateIn,
 	jobStatePath,
 	jobStorePath,
+	readJobCwd,
 	readJobRecord,
 	readJobRecordIn,
 	rosterPath,

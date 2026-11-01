@@ -119,6 +119,38 @@ describe("a round posted on an issue this session claims", () => {
 		expect(readMarker()).toBe(`seat ${seat}\njob abcd1234\n31`);
 	});
 
+	it("records the cwd its job record names, so the resume needs no later read of that record (#3773)", () => {
+		claim(31);
+		const seat = path.join(dir, "seat");
+		const jobDir = path.join(seat, "jobs", "abcd1234");
+		fs.mkdirSync(jobDir, { recursive: true });
+		fs.writeFileSync(
+			path.join(jobDir, "state.json"),
+			JSON.stringify({ cwd: "/a checkout" }),
+		);
+		run(NEEDS_INPUT, jobDir);
+		expect(readMarker()).toBe(
+			`seat ${seat}\njob abcd1234\ncwd /a checkout\n31`,
+		);
+	});
+
+	it("keeps the recorded cwd through a later park whose job record will not read (#3773)", () => {
+		claim(31);
+		const seat = path.join(dir, "seat");
+		const jobDir = path.join(seat, "jobs", "abcd1234");
+		fs.mkdirSync(jobDir, { recursive: true });
+		fs.writeFileSync(
+			path.join(jobDir, "state.json"),
+			JSON.stringify({ cwd: "/a checkout" }),
+		);
+		run(NEEDS_INPUT, jobDir);
+		fs.writeFileSync(path.join(jobDir, "state.json"), "{");
+		run(NEEDS_INPUT, jobDir);
+		expect(readMarker()).toBe(
+			`seat ${seat}\njob abcd1234\ncwd /a checkout\n31`,
+		);
+	});
+
 	it("leaves the marker unwritten where the label write fails", () => {
 		serve({ r0: { n31: issue([POSTED]) } }, true);
 		claim(31);

@@ -2,10 +2,11 @@
 /*
  * record-claude-responses.js — re-records the installed launcher's responses
  * the refill loop reads, as fixtures:
- *   - scripts/fixtures/bg-resume.json: the two `claude --bg --resume <session
+ *   - scripts/fixtures/bg-resume.json: the three `claude --bg --resume <session
  *     id> "<prompt>"` responses lib/bg-resume.js parses (#2968), of a job
- *     still running, which starts a copy, and of a stopped one, which wakes
- *     in place;
+ *     still running, which starts a copy, of a stopped one, which wakes in
+ *     place, and of one whose job directory is gone, which continues under
+ *     its own id (#3773);
  *   - scripts/fixtures/agents-stop.json: the job's `claude agents --json` rows
  *     as it works, once settled, while a second job waits on its question
  *     (#3005) and while a third waits on a permission prompt (#3008), which
@@ -27,9 +28,10 @@
  * scripts/lib/claude-attach.contract.test.ts
  * scripts/lib/usage-probe.contract.test.ts`.
  * It launches one throwaway Haiku session in the repo root and resumes it
- * while it works, then again once stopped, launches a second told to ask one
- * question and a third told to run one command it must ask leave for, and
- * stops every job it started, so it spends up to six short turns. The command never
+ * while it works, then again once stopped, then once more with its job
+ * directory deleted, launches a second told to ask one question and a third
+ * told to run one command it must ask leave for, and stops every job it
+ * started, so it spends up to seven short turns. The command never
  * runs: the prompt is never answered. The `/usage` probe spends no turn, but
  * first waits up to two minutes for the seat's cache to age into a refresh.
  *
@@ -49,6 +51,7 @@ const {
 const { claudeBin } = require("./lib/claude-bin.js");
 const { configDir } = require("./lib/config-dir.js");
 const { hostRoot } = require("./lib/host-root.js");
+const { jobDirPath } = require("./lib/job-paths.js");
 const { launchAuthRefusal } = require("./lib/launch-auth.js");
 const {
 	PROBE_ARGV,
@@ -394,6 +397,14 @@ async function main() {
 		const noJob = claude(["stop", NO_JOB]);
 		const woke = resume(working.sessionId, original, false);
 		await settled(woke.startedAs, original);
+		const stoppedAgain = claude(["stop", original]);
+		if (stoppedAgain.status !== 0)
+			throw new Error(
+				`could not stop ${original}: ${stoppedAgain.stderr.trim()}`,
+			);
+		fs.rmSync(jobDirPath(configDir(), original), { recursive: true });
+		const continued = resume(working.sessionId, original, false);
+		await settled(continued.startedAs, original);
 		const asker = launch(ASK);
 		started.push(asker);
 		await untilState(asker, (state) => state === "blocked", "never blocked");
@@ -443,6 +454,7 @@ async function main() {
 			responses: {
 				copy: syntheticResponse(copy),
 				woke: syntheticResponse(woke),
+				continued: syntheticResponse(continued),
 			},
 		});
 		writeFixture(ATTACH_FIXTURE, {

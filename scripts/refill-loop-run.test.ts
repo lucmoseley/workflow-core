@@ -644,7 +644,7 @@ describe("a parked launch (#2699)", () => {
 		fs.mkdirSync(path.dirname(jobFile()), { recursive: true });
 		fs.writeFileSync(
 			jobFile(),
-			JSON.stringify({ ...SeededJob, linkScanPath: transcript }),
+			JSON.stringify({ ...SeededJob, cwd: repo, linkScanPath: transcript }),
 		);
 		fs.writeFileSync(
 			at(".refill-loop-state.json"),
@@ -675,16 +675,15 @@ describe("a parked launch (#2699)", () => {
 			buildStopBranch(at("stops")),
 		]);
 
+	const startRun = () =>
+		runInProcessAsync(path.join(scripts, "refill-loop.js"), ["run"], {
+			cwd: dir,
+			env: loopEnv({ WFC_GH: at("gh"), FAKE_SLOTS: "0" }),
+		});
+
 	/** Two ticks of the loop, ended by a stop after the first. */
 	const twoTicks = async () => {
-		const running = runInProcessAsync(
-			path.join(scripts, "refill-loop.js"),
-			["run"],
-			{
-				cwd: dir,
-				env: loopEnv({ WFC_GH: at("gh"), FAKE_SLOTS: "0" }),
-			},
-		);
+		const running = startRun();
 		await ticked(1);
 		requestStop();
 		return settled(running, "run with a parked launch");
@@ -731,7 +730,7 @@ describe("a parked launch (#2699)", () => {
 		expect(launchState().parkStopped).toEqual(expect.any(Number));
 		expect(
 			readLines(path.join(repo, ".claude", "tmp", "markers", ".parked-s-job7")),
-		).toEqual([`seat ${seat}`, `job ${Job}`, "7"]);
+		).toEqual([`seat ${seat}`, `job ${Job}`, `cwd ${repo}`, "7"]);
 	});
 
 	it("stops a 2.1.310 question park, whose row carries state and no status (#3200)", async () => {
@@ -1200,13 +1199,13 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 		expect(arbiterAs("s-job7", "issue-claims")).toContain("s-job7");
 	});
 
-	it("reads a launcher line naming no copy as a failed resume, the session held for its next (#2963)", async () => {
+	it("reads a launcher line naming no job as a failed resume, the session held for its next (#2963)", async () => {
 		seed(heldDue);
-		fakeResumeClaude(Job, [LISTED], `echo "backgrounded · ${Job}"; exit 0;`);
+		fakeResumeClaude(Job, [LISTED], `echo "no job named"; exit 0;`);
 		const r = await oneTick(ApiRun);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toMatch(
-			/could not resume .*: the launcher never said what it started: backgrounded · job7/,
+			/could not resume .*: the launcher never said what it started: no job named/,
 		);
 		expect(launchState()).toMatchObject({
 			jobId: Job,
@@ -1793,8 +1792,8 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 	const ParkedRun = "run with a parked ticket";
 
 	/** The shortlist's one row #5 parked, and, unless `parker` is false, the
-	 * park marker of a session the loop never launched, naming `parkSeat` and
-	 * its job, whose record names its cwd (#3709). */
+	 * park marker of a session the loop never launched, naming `parkSeat`, its
+	 * job and its cwd (#3709). */
 	const seed = (parker = true, parkSeat = seat) => {
 		stub(
 			"pick-next.js",
@@ -1806,7 +1805,7 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 }));\n`,
 		);
 		if (!parker) return;
-		writeMarker(`seat ${parkSeat}\njob ${Job}\n5\n`);
+		writeMarker(`seat ${parkSeat}\njob ${Job}\ncwd ${repo}\n5\n`);
 		const jobDir = path.join(parkSeat, "jobs", Job);
 		fs.mkdirSync(jobDir, { recursive: true });
 		fs.writeFileSync(
@@ -1825,6 +1824,8 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 	 * back. */
 	const stopOnResume = () =>
 		`node ${JSON.stringify(path.join(scripts, "request-stop.js"))};`;
+
+	const logsResumeDir = ' echo "dir $PWD" >> "$calls";';
 
 	const launches = () =>
 		JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8")).launches;
@@ -1936,17 +1937,67 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 		expect(launches().at(-1)).toMatchObject({ issues: [5], seat: seat2 });
 	});
 
-	it("launches afresh, never resuming, where its marker's job no longer exists", async () => {
+	/* What the launcher leaves on a gone job: a new directory under its id. */
+	const restoresJobRecord = () => {
+		const jobDir = path.join(seat, "jobs", Job);
+		const record = JSON.stringify({
+			state: "working",
+			sessionId: "s-job5",
+			cwd: repo,
+		});
+		return ` mkdir -p ${JSON.stringify(jobDir)}; echo '${record}' > ${JSON.stringify(path.join(jobDir, "state.json"))};`;
+	};
+
+	it.each([
+		{
+			record: "gone",
+			damage: () =>
+				fs.rmSync(path.join(seat, "jobs", Job), { recursive: true }),
+			resumeAs: "continued",
+			onResume: restoresJobRecord,
+		},
+		{
+			record: "torn",
+			damage: () =>
+				fs.writeFileSync(path.join(seat, "jobs", Job, "state.json"), "{"),
+			resumeAs: "copy",
+			onResume: () => "",
+		},
+	] as const)(
+		"resumes from its marker alone, launching nothing fresh, where its job's record is $record (#3773)",
+		async ({ damage, resumeAs, onResume }) => {
+			seed();
+			damage();
+			const parkedIn = at("parked-in");
+			fs.mkdirSync(parkedIn);
+			writeMarker(`seat ${seat}\njob ${Job}\ncwd ${parkedIn}\n5\n`);
+			fakeResumeClaude(
+				Job,
+				[LISTED],
+				stopOnResume() + logsResumeDir + onResume(),
+				resumeAs,
+			);
+			const r = await settled(run(1), ParkedRun);
+			expect(r.status).toBe(0);
+			expect(readLines(at("calls"))).toEqual([
+				`--bg --resume s-job5 ${PARKED_PROMPT}`,
+				`dir ${parkedIn}`,
+			]);
+			expect(readLines(at("dispatches"))).toEqual([]);
+		},
+	);
+
+	it("resumes from its checkout where its marker names a job and no cwd (#3773)", async () => {
 		seed();
-		fs.rmSync(path.join(seat, "jobs", Job), { recursive: true });
-		fakeResumeClaude(Job, [LISTED], stopOnResume(), "woke");
+		writeMarker(`seat ${seat}\njob ${Job}\n5\n`);
+		fakeResumeClaude(Job, [LISTED], stopOnResume() + logsResumeDir);
 		const r = await settled(run(1), ParkedRun);
 		expect(r.status).toBe(0);
-		expect(readLines(at("calls"))).toEqual([]);
-		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
-		expect(r.stdout).toContain(
-			`not resumed: its marker's job ${Job} will not read; launching afresh`,
-		);
+		expect(readLines(at("calls"))).toEqual([
+			`--bg --resume s-job5 ${PARKED_PROMPT}`,
+			`dir ${repo}`,
+		]);
+		expect(readLines(at("dispatches"))).toEqual([]);
 	});
 
 	it("launches afresh on its takes: command where the resume names no job", async () => {

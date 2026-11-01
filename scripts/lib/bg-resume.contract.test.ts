@@ -20,6 +20,7 @@ import {
 const cases: { kind: ResumeKind; copy: boolean }[] = [
 	{ kind: "copy", copy: true },
 	{ kind: "woke", copy: false },
+	{ kind: "continued", copy: false },
 ];
 
 describe.each(cases)("the $kind response", ({ kind, copy }) => {
@@ -46,7 +47,5 @@ it.each([
 });
 
 it("reads a response naming no job as null", () => {
-	expect(
-		parseResumed({ stdout: "backgrounded · job7", stderr: "" }),
-	).toBeNull();
+	expect(parseResumed({ stdout: "something else", stderr: "" })).toBeNull();
 });
