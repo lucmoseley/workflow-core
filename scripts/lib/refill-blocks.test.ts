@@ -1380,6 +1380,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 			readMoveSeats: () => {
 				throw new Error("read");
 			},
+			seatListRead: true,
 			slots: 2,
 		});
 		expect(out.slots).toBe(2);
