@@ -14,7 +14,11 @@
  * harness is still retrying.
  */
 import { describe, expect, it } from "vitest";
-import { blockCause, resumedIdleSince } from "./block-cause.js";
+import {
+	blockCause,
+	hasRepliedSince,
+	resumedIdleSince,
+} from "./block-cause.js";
 
 const row = (over: Record<string, unknown> = {}) => ({
 	pid: 2_339_100,
@@ -564,5 +568,36 @@ describe("a session its host restarted that never takes a turn (#2659, #2978)", 
 					rows: [{ ...shellStopped("x"), timestamp }],
 				}),
 			).toBe("unread");
+	});
+});
+
+describe("hasRepliedSince (#3792)", () => {
+	const At = Date.parse("2026-10-18T12:00:00Z");
+	const after = "2026-10-18T12:00:01Z";
+	const buildReply = (timestamp: string, model = "claude-opus-5-5") => ({
+		type: "assistant",
+		timestamp,
+		message: { model },
+	});
+
+	it("reads a model's reply after the resume as work", () => {
+		expect(hasRepliedSince([buildReply(after)], At)).toBe(true);
+	});
+
+	it.each([
+		["a reply from before the resume", [buildReply("2026-10-18T11:59:59Z")]],
+		["the harness's synthetic limit row", [buildReply(after, "<synthetic>")]],
+		[
+			"a request that drew no reply",
+			[{ type: "api-request", timestamp: after }],
+		],
+		["a reply with no timestamp", [{ type: "assistant", message: {} }]],
+		["no rows", []],
+	])("reads %s as none", (_, rows) => {
+		expect(hasRepliedSince(rows, At)).toBe(false);
+	});
+
+	it("reads an unread transcript as null, not as no work", () => {
+		expect(hasRepliedSince(null, At)).toBeNull();
 	});
 });

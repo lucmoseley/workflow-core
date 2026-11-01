@@ -11,9 +11,9 @@
 import { describe, expect, it } from "vitest";
 import { RESUME_CAP } from "./block-act.js";
 import {
+	hasTurnedSince,
 	type IdleReading,
 	resumedIdleSince,
-	turnedSince,
 } from "./block-cause.js";
 import { buildErrorText } from "./caught.js";
 import { API_PROMPT, IDLE_PROMPT, LIMIT_PROMPT } from "./loop-prompts.js";
@@ -89,7 +89,8 @@ function fakeIo(over: Partial<BlockIo> = {}) {
 		},
 		readTimeline: () => [],
 		idleSince: () => null,
-		turnedSince: () => false,
+		hasTurnedSince: () => false,
+		hasRepliedSince: () => false,
 		labelParked: () => [],
 		recordParked: (_, sid, ns) => {
 			calls.push(`record ${sid} ${ns.join(",")}`);
@@ -578,7 +579,7 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 		const off = (seen: object[]): Partial<BlockIo> => ({
 			idleSince: () =>
 				resumedIdleSince({ job: { state: "working" }, rows: seen }),
-			turnedSince: (_, at) => turnedSince(seen, at),
+			hasTurnedSince: (_, at) => hasTurnedSince(seen, at),
 		});
 		const r = idle(typed(1, 6), null, { agents: listed, io: off(rows) });
 		expect(r.calls).toEqual([]);
@@ -593,7 +594,7 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 	it("drops the count of an episode a turn ended before a later restart", () => {
 		const r = idle(typed(2, 30), 2, {
 			agents: listed,
-			io: { turnedSince: () => true },
+			io: { hasTurnedSince: () => true },
 		});
 		expect(r.calls).toEqual([]);
 		expect(r.out).not.toHaveProperty("idleResumes");
@@ -671,7 +672,7 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 			return r.out;
 		};
 		const turned = spared(
-			{ turnedSince: landing(false, true) },
+			{ hasTurnedSince: landing(false, true) },
 			"it took a turn after its resume",
 		);
 		expect(turned).not.toHaveProperty("idleResumes");
@@ -1006,11 +1007,13 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 			slots = 1,
 			mode = "away",
 			seatListRead = true,
+			now = NOW,
 			io: over = {},
 		}: {
 			seats?: Sized[];
 			seatListRead?: boolean;
 			slots?: number;
+			now?: number;
 			mode?: "away" | "normal";
 			io?: Partial<BlockIo>;
 		} = {},
@@ -1029,7 +1032,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 		});
 		const out = actOnLimits(launches, mode, {
 			agents,
-			now: NOW,
+			now,
 			io,
 			swapHold: NO_HOLD,
 			typedSeat: null,
@@ -1293,6 +1296,184 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 			);
 			expect(launches[0]).toEqual(blocked());
 			expect(comments(calls)).toEqual([]);
+		});
+	});
+
+	describe("a resume that takes and re-blocks (#3792)", () => {
+		const live = [agent("job42", "blocked")];
+		const buildDryResumes = (
+			dryResumes: number,
+			over: Record<string, unknown> = {},
+		) => ({
+			tries: dryResumes + 1,
+			triedAt: NOW - 60 * MIN,
+			nextAt: NOW - MIN,
+			takenAt: NOW - 60 * MIN,
+			dryResumes,
+			...over,
+		});
+
+		/** Each tick's act, then the next listing showing it blocked again, each
+		 * tick at its next try, until it parks or `ticks` run out. */
+		function reblocking(ticks: number, io: Partial<BlockIo>) {
+			let launch = blocked();
+			let now = NOW;
+			let resumes = 0;
+			for (let i = 0; i < ticks; i += 1) {
+				const out = limits([launch], live, { now, io });
+				launch = out.launches[0] as Launch;
+				resumes += out.calls.filter((c) => c.startsWith("confirmed")).length;
+				if (launch.parkStopped !== undefined) break;
+				[launch] = markParked(
+					[launch],
+					live,
+					() => ({ cause: "LIMIT" }),
+					now + MIN,
+				) as [Launch];
+				now = launch.limitResumes?.nextAt ?? now;
+			}
+			return { launch, resumes };
+		}
+
+		it("parks past the bound of resumes with no reply, and it finishes", () => {
+			const { launch, resumes } = reblocking(RESUME_CAP * 2, {
+				hasRepliedSince: () => false,
+			});
+			expect(resumes).toBe(RESUME_CAP);
+			expect(launch.parkStopped).toBeDefined();
+			const at = launch.parkStopped as number;
+			const [judged] = judgedLaunches([launch], [], at, {
+				progressOf: () => ({}),
+				causeOf: () => ({ cause: "LIMIT" }),
+			});
+			expect(judged?.finishedAt).toBe(at);
+		});
+
+		it("resumes one that replies between its blocks however many it has met", () => {
+			const { launch, resumes } = reblocking(RESUME_CAP * 3, {
+				hasRepliedSince: () => true,
+			});
+			expect(resumes).toBe(RESUME_CAP * 3);
+			expect(launch.parkStopped).toBeUndefined();
+			expect(launch.limitResumes?.tries).toBe(RESUME_CAP * 3);
+		});
+
+		it("clears the count on a reply, so the bound is on resumes in a row", () => {
+			const { launches, calls } = limits(
+				[blocked({ limitResumes: buildDryResumes(RESUME_CAP - 1) })],
+				live,
+				{ io: { hasRepliedSince: () => true } },
+			);
+			expect(calls).toContain(`confirmed ${Seat} s ${LIMIT_PROMPT}`);
+			expect(launches[0]?.limitResumes).not.toHaveProperty("dryResumes");
+		});
+
+		it("counts the block once, however many ticks it then waits", () => {
+			const replied: number[] = [];
+			const io = {
+				hasRepliedSince: (_: unknown, at: number) => {
+					replied.push(at);
+					return false;
+				},
+			};
+			const first = limits(
+				[blocked({ limitResumes: buildDryResumes(2) })],
+				live,
+				{
+					seats: [fiveHourFull],
+					io,
+				},
+			);
+			expect(first.launches[0]?.limitResumes).toMatchObject({ dryResumes: 3 });
+			const next = limits(first.launches as Launch[], [], {
+				seats: [fiveHourFull],
+				io,
+			});
+			expect(next.launches[0]?.limitResumes).toMatchObject({ dryResumes: 3 });
+			expect(replied).toHaveLength(1);
+		});
+
+		it("parks one held on a full seat once its count reaches the bound", () => {
+			const { launches, calls } = limits(
+				[held({ limitResumes: buildDryResumes(RESUME_CAP - 1) })],
+				[],
+				{ seats: [fiveHourFull] },
+			);
+			expect(launches[0]).toMatchObject({ parkStopped: NOW });
+			expect(comments(calls)[0]).toContain(
+				`${RESUME_CAP} resumes in place in a row with no reply`,
+			);
+		});
+
+		it("judges nothing off an unread transcript", () => {
+			const { launches, calls } = limits(
+				[blocked({ limitResumes: buildDryResumes(RESUME_CAP - 1) })],
+				live,
+				{ seats: [fiveHourFull], io: { hasRepliedSince: () => null } },
+			);
+			expect(launches[0]?.limitResumes).toMatchObject({
+				dryResumes: RESUME_CAP - 1,
+				takenAt: NOW - 60 * MIN,
+			});
+			expect(launches[0]).not.toHaveProperty("parkStopped");
+			expect(calls).toContain("stop job42");
+		});
+
+		it("keeps the count through a resume that runs as a copy", () => {
+			const { launches } = limits(
+				[blocked({ limitResumes: buildDryResumes(3) })],
+				live,
+				{
+					io: {
+						resumeStopped: () => ({
+							failed: null,
+							jobId: "job99",
+							sessionId: "s2",
+							copy: true,
+						}),
+					},
+				},
+			);
+			expect(launches[0]).toMatchObject({
+				jobId: "job99",
+				limitResumes: { dryResumes: 4, takenAt: NOW },
+			});
+		});
+
+		it("keeps the count through a resume that fails", () => {
+			const { launches } = limits(
+				[held({ limitResumes: buildDryResumes(3) })],
+				[],
+				{
+					io: { resumeStopped: () => ({ failed: "no" }) },
+				},
+			);
+			expect(launches[0]?.limitResumes).toMatchObject({
+				dryResumes: 4,
+				failed: "no",
+			});
+			expect(launches[0]?.limitResumes).not.toHaveProperty("takenAt");
+		});
+
+		it("stays blocked and logs why where a live one's stop fails, and parks once it holds", () => {
+			const stuck = [blocked({ limitResumes: buildDryResumes(RESUME_CAP) })];
+			const { launches, calls } = limits(stuck, live, {
+				io: {
+					stop: () => ({
+						ok: false,
+						why: "seat busy",
+						said: null,
+						timedOut: false,
+						noJob: false,
+					}),
+				},
+			});
+			expect(launches[0]).not.toHaveProperty("parkStopped");
+			expect(comments(calls)).toEqual([]);
+			expect(logs(calls).join("\n")).toContain("seat busy");
+			const parked = limits(launches as Launch[], live);
+			expect(parked.launches[0]).toMatchObject({ parkStopped: NOW });
+			expect(parked.workingChange).toBe(-1);
 		});
 	});
 

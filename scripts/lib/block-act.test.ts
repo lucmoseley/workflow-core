@@ -115,6 +115,17 @@ describe("the LIMIT row (#3735)", () => {
 				"resume-in-place",
 			);
 		});
+
+		it(`${mode}: parks a session, held or live, at the cap of resumes that bought no reply (#3792)`, () => {
+			const open = [reading("own", 10)];
+			const at = (dryResumes: number, over = {}) =>
+				limited(open, { dryResumes, ...over });
+			expect(blockAct(at(RESUME_CAP - 1), mode, NOW)).toBe("resume-in-place");
+			expect(blockAct(at(RESUME_CAP), mode, NOW)).toBe("stop-and-park");
+			expect(
+				blockAct(at(RESUME_CAP, { held: true, slotFree: true }), mode, NOW),
+			).toBe("stop-and-park");
+		});
 	}
 });
 

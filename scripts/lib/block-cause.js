@@ -298,23 +298,53 @@ function resumedIdleSince({ job, rows }) {
 }
 
 /**
+ * Whether `r` is a row stamped after `at`, ms.
+ * @param {unknown} r
+ * @param {number} at
+ * @returns {r is Record<string, any>}
+ */
+const isRowAfter = (r, at) =>
+	isObject(r) &&
+	typeof r.timestamp === "string" &&
+	Date.parse(r.timestamp) > at;
+
+/**
  * Whether `rows` hold an `api-request` or assistant row stamped after `at`,
  * ms: a turn the session took after the loop's resume, whatever user rows
  * followed it (#2979). False where `rows` is unread.
  * @param {unknown} rows  as resumedIdleSince's
  * @param {number} at
  */
-function turnedSince(rows, at) {
+function hasTurnedSince(rows, at) {
 	return (
 		Array.isArray(rows) &&
-		rows.some(
-			(r) =>
-				isObject(r) &&
-				TURN_ROWS.has(r.type) &&
-				typeof r.timestamp === "string" &&
-				Date.parse(r.timestamp) > at,
-		)
+		rows.some((r) => isRowAfter(r, at) && TURN_ROWS.has(r.type))
 	);
 }
 
-module.exports = { blockCause, resumedIdleSince, turnedSince };
+/**
+ * Whether `rows` hold a reply the model wrote, stamped after `at`, ms: the
+ * work a resume bought (#3792). A resume its limit refuses writes only the
+ * harness's `<synthetic>` error row, so hasTurnedSince cannot tell the two
+ * apart.
+ * Null where `rows` is unread.
+ * @param {unknown} rows  as resumedIdleSince's
+ * @param {number} at
+ * @returns {boolean|null}
+ */
+function hasRepliedSince(rows, at) {
+	if (!Array.isArray(rows)) return null;
+	return rows.some(
+		(r) =>
+			isRowAfter(r, at) &&
+			r.type === "assistant" &&
+			r.message?.model !== "<synthetic>",
+	);
+}
+
+module.exports = {
+	blockCause,
+	hasRepliedSince,
+	hasTurnedSince,
+	resumedIdleSince,
+};

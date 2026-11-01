@@ -649,8 +649,8 @@ function newlyFinished(launches, agents, now) {
  * however old, since blockedActs and runningOf see only what is kept, and of
  * the rest the HISTORY_KEPT latest to finish, or to launch where none did.
  * Admission bounds the running ones. Residual: a limit-held launch, stopped so
- * outside admission, stays until it resumes or parks (#3790); #3792 and #3793
- * name where that is still unbounded.
+ * outside admission, stays until it resumes or parks (#3790); #3793 names
+ * where that is still unbounded.
  * Also the HISTORY_KEPT latest unclosed launches, which a low-ranked ticket can
  * otherwise outwait, as #3609's record did (#3782).
  * @param {LoopLaunch[]} launches

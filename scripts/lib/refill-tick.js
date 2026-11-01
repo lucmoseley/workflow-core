@@ -67,7 +67,8 @@ const { readSwapHold } = require("./admission.js");
 const {
 	blockCause,
 	resumedIdleSince,
-	turnedSince,
+	hasRepliedSince,
+	hasTurnedSince,
 } = require("./block-cause.js");
 const { parseResumed } = require("./bg-resume.js");
 const { stopOn } = require("./claude-stop.js");
@@ -952,8 +953,10 @@ const blockIo = (served) => ({
 		}),
 	readTimeline: readTimelineOf,
 	idleSince: readIdleSince,
-	turnedSince: (l, at) =>
-		turnedSince(readTranscriptRows(l, readJobRecordOf(l)), at),
+	hasTurnedSince: (l, at) =>
+		hasTurnedSince(readTranscriptRows(l, readJobRecordOf(l)), at),
+	hasRepliedSince: (l, at) =>
+		hasRepliedSince(readTranscriptRows(l, readJobRecordOf(l)), at),
 	labelParked,
 	recordParked,
 	comment: commentOn,

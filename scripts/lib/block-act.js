@@ -12,7 +12,9 @@ const MIN_MS = 60 * 1000;
 const RESUME_OFFSETS_MS = [1, 5, 15, 30].map((m) => m * MIN_MS);
 const RESUME_EVERY_MS = 30 * MIN_MS;
 /* Untraced (#2359): a guard against a loop that never ends. A limit hold's
- * failed resumes reuse the figure (#3790). */
+ * failed resumes (#3790) and a limit-blocked launch's resumes in a row that
+ * bought no reply (#3792) reuse the figure, which on the 30-minute backoff
+ * outlasts a 5-hour limit. */
 const RESUME_CAP = 16;
 /* A resume starts a retry cycle that reads blocked again about 3 min 13 s
  * later where the API is still down (#2354 F8); a session is held only past
@@ -38,7 +40,8 @@ const IDLE_TRIES = 2;
  * @typedef {{cause: Cause, sub?: import("./block-cause.js").ApiErrorKind,
  *   since: number, tries?: number, nextAt?: number, triedAt?: number,
  *   held?: boolean, typing?: boolean, swapHeld?: boolean, seat?: string,
- *   movePick?: string|null, slotFree?: boolean}} Block  `since`,
+ *   movePick?: string|null, slotFree?: boolean,
+ *   dryResumes?: number}} Block  `since`,
  *   the first tick that
  *   read this cause, ms, or for RESUMED_IDLE the later of the harness's
  *   restart row and the loop's last resume; `sub`, an API_ERROR's kind;
@@ -47,8 +50,9 @@ const IDLE_TRIES = 2;
  *   then; `typing`, a typed resume not yet seen arrive; `swapHeld`, the swap
  *   hold (#2690) binding this tick; for a LIMIT, `seat`, its session's seat,
  *   `movePick`, the seat lib/refill-decide.js's pickMoveSeat walks to,
- *   `slotFree`, whether admission has a slot for one held stopped, and
- *   `tries`, this hold's failed resumes alone
+ *   `slotFree`, whether admission has a slot for one held stopped,
+ *   `tries`, this hold's failed resumes alone, and `dryResumes`, its resumes
+ *   in a row that took and bought no reply
  * @typedef {(block: Block, now: number) => Act} Rule
  */
 
@@ -156,11 +160,13 @@ const resumedIdle = (block, now) => {
  * A limit-blocked session goes back on its own seat where the move pick walks
  * there, one held stopped only into a free slot, as it holds none (#3735).
  * `nextAt` spaces out the tries of one whose limit the seat's bars do not show.
- * One held whose resumes failed to the cap parks (#3790).
+ * One held whose resumes failed to the cap parks (#3790), as does one, held or
+ * live, whose resumes took and re-blocked with no reply to the cap (#3792).
  * @type {Rule}
  */
 const limit = (block, now) => {
 	if (block.held && (block.tries ?? 0) >= RESUME_CAP) return "stop-and-park";
+	if ((block.dryResumes ?? 0) >= RESUME_CAP) return "stop-and-park";
 	const isOwnSeat = Boolean(block.seat) && block.movePick === block.seat;
 	if (
 		isOwnSeat &&
