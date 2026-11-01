@@ -3,6 +3,7 @@
  * .claude/workflow-core.json disagrees with its code-standards local file's
  * route table on Python (#1863). The swallowed-error gate routes by
  * `pythonRoutes`, a copy of the table's Python rows (#1830); the table wins.
+ * `pythonRouteKind` is that gate's lookup of a path's row in `pythonRoutes`.
  *
  * WHICH ROWS: the table under the local file's `## Route rows` heading, each
  * backticked glob in a row's path cell taken alone, the prose beside them
@@ -17,6 +18,7 @@
  * gate judges programs alone, and the table makes none of these one.
  */
 
+const { globMatches } = require("./pathspec-glob.js");
 const { PYTHON_KINDS } = require("./workflow-core-config.js");
 const { requiredGroup } = require("./regex-group.js");
 
@@ -190,4 +192,14 @@ function pythonRouteDrift(text, declared = {}) {
 	};
 }
 
-module.exports = { pythonRouteDrift };
+/**
+ * The kind of the first `pythonRoutes` row whose glob matches `rel`, or
+ * undefined where none does.
+ * @param {Record<string, PythonKind> | undefined} declared
+ * @param {string} rel
+ * @returns {PythonKind | undefined}
+ */
+const pythonRouteKind = (declared, rel) =>
+	Object.entries(declared ?? {}).find(([glob]) => globMatches(glob, rel))?.[1];
+
+module.exports = { pythonRouteDrift, pythonRouteKind };

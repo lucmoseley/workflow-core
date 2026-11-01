@@ -24,8 +24,9 @@
  *
  * REPO KEY extraction has two shapes. Where the call names its target
  * explicitly — `git(VAR, "init"/"commit", ...)`, or an
- * execFileSync/spawnSync("git", [...], { cwd: VAR }) — VAR is the key. Where
- * it does not — a file-fixed wrapper like `const git = (...args) =>
+ * execFileSync/spawnSync("git", [...]) with `["-C", VAR, ...]`, `{ cwd: VAR }`
+ * or, for an init alone, `["init", ..., VAR]` — VAR is the key. Where it does
+ * not — a file-fixed wrapper like `const git = (...args) =>
  * execFileSync("git", args, { cwd: dir })` called as `git("init", ...)` with
  * no leading target argument — every site in the file shares one key,
  * `__default__`, which is exactly file-scoped: correct because there is only
@@ -45,12 +46,19 @@
  * `dir`) are conflated into one key — a raw-inited, identity-less `dir` in one
  * `it()` and an unrelated already-identitied `dir` in another, PAIRED IN THE
  * SAME STATEMENT, would let the first hide behind the second's config.
- * Cheaper to accept than a real scope-aware parse.
+ * Cheaper to accept than a real scope-aware parse. An init array's last bare
+ * variable is read as its directory even where it is a flag's value
+ * (`["init", "-b", branch]`), which adds a key nothing commits to, so no
+ * finding (#3843).
  *
  * NOT SEEN, all residuals of scanning text rather than parsing it (mantahostels#2355's
  * spec review): a wrapper whose own name does not start with `git` (a local
  * `const run = (...args) => spawnSync("git", ["-C", dir, ...args])` reads as
- * nothing here, however it commits); identity set through an env var
+ * nothing here, however it commits); a wrapper called with `-C`
+ * (`git("-C", dir, "commit", ...)`) or with an array (`git(["commit", ...])`);
+ * a verb held in a loop's array of arrays; a `-C` target or init directory that
+ * is no bare variable (`path.join(...)`, `wt()`); a flag other than `-C` or `-c`
+ * before the verb; identity set through an env var
  * (`GIT_AUTHOR_EMAIL`) rather than `git config`; identity set by a helper
  * function called with the repo var rather than inlined; and a `git`
  * invocation built from string concatenation rather than a quoted
@@ -74,11 +82,14 @@ const { readTrackedScripts } = require("./lib/tracked-scripts.js");
 const { isJsTestFile } = require("./lib/test-kind.js");
 
 const { runCheck, errMessage } = require("./lib/check.js");
+const { requiredGroup } = require("./lib/regex-group.js");
 
 /** The comment that drops a file, with its reason: `git-identity-exempt: <why>`. */
 const EXEMPT = /git-identity-exempt:[ \t]*[A-Za-z0-9]/;
 
 const QUOTE = `["'\`]`;
+/** A repo named by a bare variable or property path. */
+const REPO_VAR = "[A-Za-z_$][\\w.]*";
 
 /**
  * `git(VAR, "init"/"commit", ...)` — the wrapper most fixtures in this repo
@@ -86,7 +97,7 @@ const QUOTE = `["'\`]`;
  * the key.
  */
 const VAR_CALL = new RegExp(
-	`\\bgit\\w*\\(\\s*([A-Za-z_$][\\w.]*)\\s*,\\s*(${QUOTE})(init|commit)\\2\\s*[,)]`,
+	`\\bgit\\w*\\(\\s*(${REPO_VAR})\\s*,\\s*(${QUOTE})(init|commit)\\2\\s*[,)]`,
 );
 
 /**
@@ -100,13 +111,23 @@ const DEFAULT_CALL = new RegExp(
 
 /**
  * `execFileSync("git", ["init"/"commit", ...], { cwd: VAR })` or the
- * `spawnSync` twin — the array-argument shape. VAR from `cwd:` on the same
- * line is the key; absent a `cwd:` on the line, `__default__`.
+ * `spawnSync` twin — the array-argument shape, whose verb may follow `-C VAR`
+ * and inline `-c key=value` pairs, in either order. `-C`'s VAR is the key, then
+ * VAR from `cwd:` in the statement, then `__default__`. Group 1 is `-C`'s VAR,
+ * 3 the verb, 4 the array after the verb.
  */
+const INLINE_CONFIGS = `(?:${QUOTE}-c${QUOTE}\\s*,\\s*${QUOTE}[^"'\`]*${QUOTE}\\s*,\\s*)*`;
 const EXEC_ARRAY_CALL = new RegExp(
-	`\\b(?:execFileSync|execFile|spawnSync|spawn)\\(\\s*${QUOTE}git${QUOTE}\\s*,\\s*\\[\\s*(${QUOTE})(init|commit)\\1`,
+	`\\b(?:execFileSync|execFile|spawnSync|spawn)\\(\\s*${QUOTE}git${QUOTE}\\s*,\\s*\\[\\s*` +
+		INLINE_CONFIGS +
+		`(?:${QUOTE}-C${QUOTE}\\s*,\\s*(${REPO_VAR})\\s*,\\s*)?` +
+		INLINE_CONFIGS +
+		`(${QUOTE})(init|commit)\\2([^\\]]*)`,
+	"g",
 );
-const CWD_VAR = /\bcwd:\s*([A-Za-z_$][\w.]*)/;
+const CWD_VAR = new RegExp(`\\bcwd:\\s*(${REPO_VAR})`);
+/** `git init`'s directory, where the array ends on a bare variable. */
+const INIT_PATH_VAR = new RegExp(`,\\s*(${REPO_VAR})\\s*,?\\s*$`);
 
 /**
  * The file collapsed to one line and split on `;` — a JS STATEMENT, not a
@@ -150,8 +171,15 @@ function* statementCallSites(/** @type {string} */ stmt) {
 	for (const m of stmt.matchAll(new RegExp(VAR_CALL.source, "g"))) {
 		yield { key: m[1], verb: m[3] };
 	}
-	for (const m of stmt.matchAll(new RegExp(EXEC_ARRAY_CALL.source, "g"))) {
-		yield { key: stmt.match(CWD_VAR)?.[1] ?? "__default__", verb: m[2] };
+	for (const m of stmt.matchAll(EXEC_ARRAY_CALL)) {
+		const verb = requiredGroup(m, 3, EXEC_ARRAY_CALL);
+		yield { key: m[1] ?? stmt.match(CWD_VAR)?.[1] ?? "__default__", verb };
+		// An init's directory is a second key, not a replacement: a commit
+		// may name that directory, or reach it through a closed-over wrapper
+		// that names nothing, which only the first key pairs with (#3843).
+		if (verb !== "init") continue;
+		const initDir = requiredGroup(m, 4, EXEC_ARRAY_CALL).match(INIT_PATH_VAR);
+		if (initDir?.[1]) yield { key: initDir[1], verb };
 	}
 	// DEFAULT_CALL only where the statement did not already match
 	// VAR_CALL — a `git(fresh, "init", ...)` statement's "init" is not
