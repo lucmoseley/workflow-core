@@ -7,11 +7,14 @@
 # Where CLAUDE_PROJECT_DIR shares this repository's git common dir it is
 # kept: the harness sets it to the shared tree for a commit in a linked
 # worktree, and the arbiter's state is keyed on that tree. Anything else,
-# unset or unreadable included, becomes this working tree's top level; where
-# there is none, a bare repository's push, CLAUDE_PROJECT_DIR is unset.
+# unset or unreadable included, becomes the tree the harness would have named:
+# in a linked worktree, the shared tree that owns a common dir called `.git`, so
+# a shell with the variable unset reads the review marker from the store its
+# writer used (#3830); else this working tree's top level. Where there is no top level, a
+# bare repository's push, CLAUDE_PROJECT_DIR is unset.
 #
-# scripts/lib/host-root.js's worktreeRoot() makes the same common-dir
-# comparison for a test run; change the two together.
+# scripts/lib/host-root.js's resolveCommitHost() is the JS half, and its worktreeRoot()
+# makes the same common-dir comparison for a test run; change them together.
 #
 # GIT_DIR, GIT_WORK_TREE and GIT_INDEX_FILE are unset for the -C read: git
 # exports them to a hook, and they would answer for this repository wherever
@@ -24,6 +27,9 @@ if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
 fi
 if [ -z "$hr_theirs" ] || [ "$hr_theirs" != "$hr_mine" ]; then
   if hr_top=$(git rev-parse --show-toplevel 2>/dev/null); then
+    if [ "$(git rev-parse --absolute-git-dir 2>/dev/null)" != "$hr_mine" ]; then
+      case "$hr_mine" in */.git) hr_top=${hr_mine%/.git} ;; esac
+    fi
     CLAUDE_PROJECT_DIR=$hr_top
     export CLAUDE_PROJECT_DIR
   else

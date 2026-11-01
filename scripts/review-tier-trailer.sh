@@ -55,7 +55,7 @@ rm -f "$stamp"
 
 # git runs the hook from the top level, which a relative GIT_INDEX_FILE names.
 tree="$(git write-tree 2>/dev/null)" || dropped "git could not read the staged tree"
-[[ "$recorded" == "$tree" ]] || exit 0
+[[ "$recorded" == "$tree" ]] || dropped "the review hold passed tree $recorded, and this commit carries $tree"
 
 out="$(git interpret-trailers --in-place --if-exists replace \
   --trailer "Review-Tier: $value" "$msg" 2>&1)" ||

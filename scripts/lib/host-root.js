@@ -4,6 +4,8 @@
  *
  * THE CONTRACT, in order: `CLAUDE_PROJECT_DIR` where the harness sets it, else
  * the git top level of the working directory, symlinks dereferenced either way.
+ * `resolveCommitHost()` is the other contract, the host a git hook is handed,
+ * for a script that must agree with one; its docblock states it.
  *
  * NEVER `__dirname`. In a plugin install the core's files live in the plugin
  * cache, so a root resolved from this file's own location names the cache and
@@ -25,6 +27,7 @@
  * shell half; change the two together.
  */
 
+const path = require("node:path");
 const { execGit, gitCommonDir } = require("./git.js");
 const { caught } = require("./caught.js");
 const { deref } = require("./deref.js");
@@ -124,4 +127,38 @@ function worktreeRoot(cwd = process.cwd(), { host: given } = {}) {
 	return mine !== null && mine === gitCommonDir(host) ? top : host;
 }
 
-module.exports = { gitTopLevel, hostRoot, worktreeRoot };
+/**
+ * The host a git hook at `cwd` is handed: `scripts/lib/hook-root.sh`'s answer,
+ * for a script that must agree with the hook whatever its shell inherited
+ * (#3830). `CLAUDE_PROJECT_DIR` where it shares this repository's git common
+ * dir; else, in a linked worktree, the shared tree owning a common dir called
+ * `.git`; else the top level. A bare repository has no top level and git will not say, so that and
+ * a directory outside any repository answer `hostRoot()`'s fail-open, the
+ * working directory.
+ *
+ * Residual: a linked worktree of a bare repository cloned to a directory named
+ * `.git`, or of a `--separate-git-dir` checkout whose git directory has that
+ * name, answers a parent holding no working tree, as hook-root.sh does.
+ * @param {string} [cwd]
+ * @returns {string}
+ */
+function resolveCommitHost(cwd = process.cwd()) {
+	const common = gitCommonDir(cwd);
+	if (common === null) return hostRoot(cwd);
+	const declared = process.env.CLAUDE_PROJECT_DIR;
+	if (declared && gitCommonDir(declared) === common) return hostRoot(cwd);
+	try {
+		const gitDir = execGit(["rev-parse", "--absolute-git-dir"], {
+			cwd,
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "ignore"],
+		}).trim();
+		if (gitDir !== common && path.basename(common) === ".git")
+			return deref(path.dirname(common));
+		return gitTopLevel(cwd);
+	} catch {
+		return deref(cwd);
+	}
+}
+
+module.exports = { gitTopLevel, hostRoot, resolveCommitHost, worktreeRoot };

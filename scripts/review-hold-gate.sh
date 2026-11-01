@@ -21,7 +21,9 @@
 # declaration read is the committing repo's, the marker the session's own.
 #
 # A LINKED WORKTREE is held to nothing (#3714): the same check runs, a marker
-# that would pass leaves the stamp, and one that would not passes in silence.
+# that would pass leaves the stamp, and one that would not passes, naming on
+# stderr why the commit lands with no trailer (#3830). With no marker at all it
+# passes in silence.
 #
 # LIMITS
 #  - The declaration is read at HEAD and as staged, never from the working
@@ -169,12 +171,17 @@ if [[ -z "$fault" ]]; then
       "$(marker_list "$marker" paths | paste -sd, -)"
   } >"$stamp" 2>/dev/null || {
     rm -f "$stamp"
+    echo "pre-commit: could not write $stamp, so this commit lands with no Review-Tier: trailer." >&2
     gl_log "review-hold-gate.sh: could not write $stamp — a held commit lands with no Review-Tier: trailer"
   }
   exit 0
 fi
 # A linked worktree is held to nothing: only a marker that passes marks it (#3714).
-[[ "$gitdir" == "$common" ]] || exit 0
+if [[ "$gitdir" != "$common" ]]; then
+  [[ ! -f "$marker" ]] ||
+    echo "pre-commit: this commit lands with no Review-Tier: trailer. The marker $marker does not clear it: $fault. To trail it, git reset --soft HEAD~, record the review of exactly this change with scripts/write-review-marker.js, and commit again (rule:review-hold)." >&2
+  exit 0
+fi
 
 {
   echo "pre-commit: this commit changes a declared sensitive path, and no escalated review of exactly this change is recorded (#1622)."

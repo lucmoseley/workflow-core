@@ -273,6 +273,20 @@ describe("an adopter's hook shims (#1839)", () => {
 		expect(r.log).not.toContain(tree);
 	});
 
+	it("hands the main tree for a commit in a linked worktree where CLAUDE_PROJECT_DIR is empty (#3830)", () => {
+		const a = buildAdopter();
+		const core = rootCore(path.join(a.work, "core"), a.log);
+		const tree = path.join(a.work, "tree");
+		a.git("worktree", "add", "-q", "-b", "side", tree);
+		const r = a.commit(tree, {
+			WORKFLOW_CORE_DIR: core,
+			CLAUDE_PROJECT_DIR: "",
+		});
+		expect(r.landed).toBe(true);
+		expect(r.log).toContain(`pre-commit ${a.root}\n`);
+		expect(r.log).not.toContain(tree);
+	});
+
 	it("hands the committed repo where CLAUDE_PROJECT_DIR is empty (#3307)", () => {
 		const a = buildAdopter();
 		const core = rootCore(path.join(a.work, "core"), a.log);

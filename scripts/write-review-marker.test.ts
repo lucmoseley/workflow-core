@@ -105,6 +105,24 @@ describe("run from a linked worktree (#3714)", () => {
 		expect(fs.existsSync(marker())).toBe(true);
 	});
 
+	it("finds the shared tree's artefacts and writes its store with CLAUDE_PROJECT_DIR unset (#3830)", () => {
+		artefact("standards");
+		artefact("spec");
+		const { CLAUDE_PROJECT_DIR: _, ...unset } = env;
+		const r = runInProcess(SCRIPT, Flags, {
+			cwd: wt(),
+			env: { ...unset, CLAUDE_CODE_SESSION_ID: SID },
+		});
+		expect(r.stderr).toBe("");
+		expect(r.status).toBe(0);
+		expect(fs.existsSync(marker())).toBe(true);
+		expect(
+			fs.existsSync(
+				path.join(wt(), ".claude", "tmp", "markers", `.codereview-pass-${SID}`),
+			),
+		).toBe(false);
+	});
+
 	it("refuses, writing nothing, where neither tree holds an artefact", () => {
 		const r = inWorktree(Flags);
 		expect(r.status).toBe(2);
