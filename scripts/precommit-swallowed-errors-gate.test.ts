@@ -60,8 +60,8 @@ function pathWithoutPython(r: TempRepo): string {
 }
 
 function runGate(r: TempRepo, Path = process.env.PATH ?? "") {
-	// The trailing no-op stands in for the rest of the hook, so the fragment's
-	// own exit is not the checker's and the `|| { … exit 1; }` block is pinned.
+	// The trailing no-op stands in for the rest of the hook and masks a bare
+	// checker status, so a non-zero exit pins the block's `exit "$se_rc"`.
 	const script = `exec 2>&1\n${LIB}\n${cutGateFragment(ANCHOR)}\n:\n`;
 	try {
 		const output = execFileSync("sh", ["-c", script], {
@@ -114,6 +114,6 @@ describe("the pre-commit swallowed-error gate", () => {
 		const r = fixture({ [PY]: SWALLOW });
 		const { code, output } = runGate(r, pathWithoutPython(r));
 		expect(output).toMatch(/cannot run python3/);
-		expect(code).toBe(1);
+		expect(code).toBe(2);
 	});
 });
