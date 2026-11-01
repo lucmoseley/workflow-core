@@ -10,8 +10,9 @@ RemainAfterExit=yes
 @ENVIRONMENT@
 ExecStart=@SHELL@ -lic "exec node @SCRIPT@ boot-resume"
 # Past any failure boot-resume itself could not log: code that will not load, or
-# no node.
-ExecStopPost=/bin/sh -c 'if [ "$$SERVICE_RESULT" != success ]; then echo "$$(date -u +%%FT%%TZ) boot resume: the unit failed ($$EXIT_CODE $$EXIT_STATUS), its last journal lines follow" >> @LOG@; journalctl --user -u refill-loop-boot.service -n 5 -o cat --no-pager >> @LOG@ 2>&1; fi'
+# no node. Untraced: 25 lines holds node's load error and stack, measured at 17
+# with systemd's own lines, and -b keeps out an earlier boot's.
+ExecStopPost=/bin/sh -c 'if [ "$$SERVICE_RESULT" != success ]; then echo "$$(date -u +%%FT%%TZ) boot resume: the unit failed ($$EXIT_CODE $$EXIT_STATUS), its last journal lines follow" >> @LOG@; journalctl --user -u refill-loop-boot.service -b -n 25 -o cat --no-pager >> @LOG@ 2>&1; fi'
 WorkingDirectory=%h
 # The loop outlives this process and runs until `refill-loop.js stop`, so no
 # stop of this unit, and no kill inside its cgroup, may take it down.
