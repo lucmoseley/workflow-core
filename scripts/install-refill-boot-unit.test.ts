@@ -3,7 +3,8 @@
  * The boot unit's installer (#3878) against fake systemctl and loginctl on
  * PATH, its unit written under a sandbox XDG_CONFIG_HOME. Loosen it and a host
  * can believe the loop returns at boot with the unit disabled or linger off,
- * or a unit can run the loop without the installer's seat and PATH.
+ * a unit can run the loop without the installer's seat and PATH, can start from
+ * a working copy mid-edit, or a failed boot can leave the loop's log silent.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -39,7 +40,7 @@ function writeFakes({ enabled = "enabled", linger = "yes" } = {}) {
 	);
 }
 
-const installEnv = (env: NodeJS.ProcessEnv = {}) => ({
+const buildInstallEnv = (env: NodeJS.ProcessEnv = {}) => ({
 	PATH: `${at("bin")}:/usr/bin:/bin`,
 	HOME: dir,
 	XDG_CONFIG_HOME: at("config"),
@@ -49,7 +50,7 @@ const installEnv = (env: NodeJS.ProcessEnv = {}) => ({
 });
 
 const install = (env: NodeJS.ProcessEnv = {}, ...argv: string[]) =>
-	runInProcess(SCRIPT, argv, { cwd: dir, env: installEnv(env) });
+	runInProcess(SCRIPT, argv, { cwd: dir, env: buildInstallEnv(env) });
 
 /* The unit's ExecStopPost= as its shell receives it, systemd's escapes undone. */
 function readStopPostCommand() {
@@ -110,15 +111,10 @@ describe("install-refill-boot-unit", () => {
 			"refill-loop-boot.service.template",
 		])
 			fs.copyFileSync(path.resolve(__dirname, f), path.join(plugin, f));
-		/* A real child: the fixture's __dirname is the point. */
-		const r = spawnSync(
-			process.execPath,
-			[
-				"-e",
-				"require(process.argv[1]).main([])",
-				path.join(plugin, "install-refill-boot-unit.js"),
-			],
-			{ cwd: dir, env: installEnv(), encoding: "utf8" },
+		const r = runInProcess(
+			path.join(plugin, "install-refill-boot-unit.js"),
+			[],
+			{ cwd: dir, env: buildInstallEnv() },
 		);
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
@@ -128,16 +124,14 @@ describe("install-refill-boot-unit", () => {
 		expect(fs.existsSync(bootLink())).toBe(false);
 	});
 
-	it.each([
-		["a failed run", "exit-code", 1],
-		["a clean stop", "success", 0],
-	])("leaves %s's line in the loop's log or none", (_name, result, lines) => {
+	const runStopPost = (result: string) => {
 		expect(install().status).toBe(0);
+		writeFake("journalctl", "echo SyntaxError: boom");
 		fs.mkdirSync(path.dirname(logFile()), { recursive: true });
 		fs.writeFileSync(logFile(), "");
 		const r = spawnSync("/bin/sh", ["-c", readStopPostCommand()], {
 			env: {
-				PATH: "/usr/bin:/bin",
+				PATH: `${at("bin")}:/usr/bin:/bin`,
 				SERVICE_RESULT: result,
 				EXIT_CODE: "exited",
 				EXIT_STATUS: "1",
@@ -145,15 +139,17 @@ describe("install-refill-boot-unit", () => {
 			encoding: "utf8",
 		});
 		expect(r.status).toBe(0);
-		const logged = fs
-			.readFileSync(logFile(), "utf8")
-			.split("\n")
-			.filter(Boolean);
-		expect(logged).toHaveLength(lines);
-		if (lines)
-			expect(logged[0]).toMatch(
-				/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ boot resume: the unit failed \(exited 1\), its error in journalctl --user -u refill-loop-boot\.service$/,
-			);
+		return fs.readFileSync(logFile(), "utf8");
+	};
+
+	it("logs a failed unit's exit and last journal lines", () => {
+		expect(runStopPost("exit-code")).toMatch(
+			/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ boot resume: the unit failed \(exited 1\), its last journal lines follow\nSyntaxError: boom\n$/,
+		);
+	});
+
+	it("logs nothing for a unit that succeeded", () => {
+		expect(runStopPost("success")).toBe("");
 	});
 
 	it("escapes the captured values for systemd and carries a listing wrapper", () => {
