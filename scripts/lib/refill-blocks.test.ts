@@ -9,7 +9,7 @@
  * time, or misreports what it did.
  */
 import { describe, expect, it } from "vitest";
-import { LIMIT_HOLD_BOUND_DAYS, RESUME_CAP } from "./block-act.js";
+import { RESUME_CAP } from "./block-act.js";
 import {
 	hasTurnedSince,
 	type IdleReading,
@@ -31,6 +31,7 @@ import { judgedLaunches } from "./refill-loop.js";
 const MIN = 60 * 1000;
 const DAY = 24 * 60 * MIN;
 const NOW = Date.parse("2026-10-18T12:00:00Z");
+const LIMIT_HOLD_BOUND_DAYS = 8;
 
 type Launch = import("./refill-loop.js").LoopLaunch;
 type Cause = import("./block-cause.js").Cause;
@@ -1216,6 +1217,16 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 				expect(within.launches[0]).toHaveProperty("limitHeld");
 			});
 
+			it("parks one at the failed-resume cap on a stand-in seat list (#3800)", () => {
+				expectParked(
+					limits([failedTo(RESUME_CAP)], [], {
+						seats: [],
+						seatListRead: false,
+					}),
+					`${RESUME_CAP} failed resumes in place`,
+				);
+			});
+
 			it("stays held within the bound, waiting on a weekly reset", () => {
 				const { launches, calls } = limits([heldFor(7 * DAY)], [], {
 					seats: [weekFull],
@@ -1444,6 +1455,23 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 			expect(comments(calls)[0]).toContain(
 				`${RESUME_CAP} resumes in place in a row with no reply`,
 			);
+		});
+
+		it("names the cap the table parked on, for one held at both (#3800)", () => {
+			const { calls } = limits(
+				[
+					held({
+						limitHeld: { ...LimitHeld, failedTries: RESUME_CAP },
+						limitResumes: buildDryResumes(RESUME_CAP),
+					}),
+				],
+				[],
+				{ seats: [fiveHourFull] },
+			);
+			expect(comments(calls)[0]).toContain(
+				`${RESUME_CAP} failed resumes in place`,
+			);
+			expect(comments(calls)[0]).not.toContain("with no reply");
 		});
 
 		it("judges nothing off an unread transcript", () => {

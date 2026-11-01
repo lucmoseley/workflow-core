@@ -23,6 +23,7 @@ const RESUME_CAP = 16;
  * Residual: a seat that refills or stays out of slots past that day parks the
  * hold, and a normal-mode loop routes its ticket back. */
 const LIMIT_HOLD_BOUND_DAYS = 8;
+const HOLD_BOUND_WHY = `held on its limit past the ${LIMIT_HOLD_BOUND_DAYS}-day bound`;
 /* A resume starts a retry cycle that reads blocked again about 3 min 13 s
  * later where the API is still down (#2354 F8); a session is held only past
  * it, so none is stopped mid-cycle. Rounded up. */
@@ -172,26 +173,44 @@ const isHeldPastBound = (heldAt, now) =>
 	now - heldAt >= LIMIT_HOLD_BOUND_DAYS * DAY_MS;
 
 /**
- * A limit-blocked session goes back on its own seat where the move pick walks
- * there, one held stopped only into a free slot, as it holds none (#3735).
- * `nextAt` spaces out the tries of one whose limit the seat's bars do not show.
- * One held whose resumes failed to the cap parks (#3790), as does one, held or
- * live, whose resumes took and re-blocked with no reply to the cap (#3792), and
- * one held past the bound that cannot resume now, tried or not (#3793).
- * @type {Rule}
+ * Whether a limit-blocked session goes back on its own seat now: the move
+ * pick walks there, one held stopped only into a free slot, as it holds none
+ * (#3735). `nextAt` spaces out the tries of one whose limit the seat's bars do
+ * not show.
+ * @param {Block} block
+ * @param {number} now ms
  */
+const isResumableInPlace = (block, now) =>
+	Boolean(block.seat) &&
+	block.movePick === block.seat &&
+	now >= (block.nextAt ?? 0) &&
+	(!block.held || Boolean(block.slotFree));
+
+/**
+ * The park's line for a limit-blocked session at a cap, the first it reached in
+ * this order, or undefined where it is at none: one held whose resumes failed
+ * to the cap (#3790), one, held or live, whose resumes took and re-blocked with
+ * no reply to the cap (#3792), and one held past the bound that cannot resume
+ * now, tried or not (#3793). The table and the line both read it (#3800).
+ * @param {Block} block
+ * @param {number} now ms
+ * @returns {string|undefined}
+ */
+function buildLimitParkWhy(block, now) {
+	const failed = block.tries ?? 0;
+	if (block.held && failed >= RESUME_CAP)
+		return `${failed} failed resumes in place`;
+	const dry = block.dryResumes ?? 0;
+	if (dry >= RESUME_CAP)
+		return `${dry} resumes in place in a row with no reply`;
+	if (block.heldAt === undefined || isResumableInPlace(block, now)) return;
+	return isHeldPastBound(block.heldAt, now) ? HOLD_BOUND_WHY : undefined;
+}
+
+/** @type {Rule} */
 const limit = (block, now) => {
-	if (block.held && (block.tries ?? 0) >= RESUME_CAP) return "stop-and-park";
-	if ((block.dryResumes ?? 0) >= RESUME_CAP) return "stop-and-park";
-	const isOwnSeat = Boolean(block.seat) && block.movePick === block.seat;
-	if (
-		isOwnSeat &&
-		now >= (block.nextAt ?? 0) &&
-		(!block.held || block.slotFree)
-	)
-		return "resume-in-place";
-	if (block.heldAt !== undefined && isHeldPastBound(block.heldAt, now))
-		return "stop-and-park";
+	if (buildLimitParkWhy(block, now)) return "stop-and-park";
+	if (isResumableInPlace(block, now)) return "resume-in-place";
 	return block.held ? "wait" : "hold";
 };
 
@@ -223,10 +242,9 @@ const blockAct = (block, mode, now) => TABLE[block.cause][mode](block, now);
 
 module.exports = {
 	IDLE_TRIES,
-	LIMIT_HOLD_BOUND_DAYS,
 	RESUME_CAP,
 	blockAct,
-	isHeldPastBound,
+	buildLimitParkWhy,
 	nextTryAt,
 	resumeDueAt,
 };

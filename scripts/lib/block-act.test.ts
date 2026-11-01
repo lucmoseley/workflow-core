@@ -11,13 +11,14 @@
 import { describe, expect, it } from "vitest";
 import {
 	blockAct,
-	LIMIT_HOLD_BOUND_DAYS,
+	buildLimitParkWhy,
 	nextTryAt,
 	RESUME_CAP,
 } from "./block-act.js";
 import { pickMoveSeat } from "./refill-decide.js";
 
 const NOW = Date.parse("2026-10-24T03:00:00Z");
+const LIMIT_HOLD_BOUND_DAYS = 8;
 const MIN = 60 * 1000;
 const DAY = 24 * 60 * MIN;
 
@@ -149,6 +150,26 @@ describe("the LIMIT row (#3735)", () => {
 			).toBe("stop-and-park");
 		});
 	}
+
+	it("names the first cap reached, and none below every cap (#3800)", () => {
+		const weekShut = { ...reading("own", 100, null), weekFull: true };
+		const atAll = {
+			held: true,
+			tries: RESUME_CAP,
+			dryResumes: RESUME_CAP,
+			heldAt: NOW - LIMIT_HOLD_BOUND_DAYS * DAY,
+		};
+		const capOf = (over = {}) =>
+			buildLimitParkWhy(limited([weekShut], over), NOW);
+		expect(capOf(atAll)).toBe(`${RESUME_CAP} failed resumes in place`);
+		expect(capOf({ ...atAll, tries: RESUME_CAP - 1 })).toBe(
+			`${RESUME_CAP} resumes in place in a row with no reply`,
+		);
+		expect(
+			capOf({ ...atAll, tries: RESUME_CAP - 1, dryResumes: RESUME_CAP - 1 }),
+		).toBe(`held on its limit past the ${LIMIT_HOLD_BOUND_DAYS}-day bound`);
+		expect(capOf({ held: true, tries: RESUME_CAP - 1 })).toBeUndefined();
+	});
 });
 
 describe("the API_ERROR row (#2359)", () => {

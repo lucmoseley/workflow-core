@@ -10,10 +10,9 @@ const { isTerminalAgent } = require("./agent-liveness.js");
 const { swapHoldText } = require("./admission.js");
 const {
 	IDLE_TRIES,
-	LIMIT_HOLD_BOUND_DAYS,
 	RESUME_CAP,
 	blockAct,
-	isHeldPastBound,
+	buildLimitParkWhy,
 	nextTryAt,
 	resumeDueAt,
 } = require("./block-act.js");
@@ -1242,7 +1241,7 @@ function renewLedgerHold(l, { now, io }) {
  * isLimitHeld has no parkStopped guard; its session id kept for the marker.
  * @param {JobLaunch & {block: import("./block-act.js").Block,
  *   limitHeld: LimitHeld}} l
- * @param {string} whyEnded  for the park's line
+ * @param {string|undefined} whyEnded  for the park's line
  * @param {"away"|"normal"} mode
  * @param {LimitTick} seen
  * @returns {LoopLaunch}
@@ -1260,11 +1259,23 @@ function parkHeld(l, whyEnded, mode, seen) {
 	return parked;
 }
 
-const HOLD_BOUND_WHY = `held on its limit past the ${LIMIT_HOLD_BOUND_DAYS}-day bound`;
+/**
+ * `l`'s block as the table reads it, short of what its seat's reading adds.
+ * @param {JobLaunch & {block: import("./block-act.js").Block}} l
+ * @returns {import("./block-act.js").Block}
+ */
+const limitBlockOf = (l) => ({
+	...l.block,
+	held: isLimitHeld(l),
+	heldAt: l.limitHeld?.at,
+	tries: l.limitHeld?.failedTries,
+	nextAt: l.limitResumes?.nextAt,
+	dryResumes: l.limitResumes?.dryResumes,
+});
 
 /**
  * `l`, whose seat the seats read do not hold: parked where it is held and the
- * seats are the loop's own list, or, whatever the list, held past the bound.
+ * seats are the loop's own list, or, whatever the list, held at a cap.
  * @param {JobLaunch & {block: import("./block-act.js").Block}} l
  * @param {"away"|"normal"} mode
  * @param {LimitTick} seen
@@ -1274,23 +1285,8 @@ function parkOffList(l, mode, seen) {
 	if (!isLimitHeld(l)) return l;
 	if (seen.seatListRead)
 		return parkHeld(l, `its seat ${l.seat} off the loop's seats`, mode, seen);
-	return isHeldPastBound(l.limitHeld.at, seen.now)
-		? parkHeld(l, HOLD_BOUND_WHY, mode, seen)
-		: l;
-}
-
-/**
- * Why the table parked limit-blocked `l`, for the park's line.
- * @param {LoopLaunch} l
- */
-function buildLimitParkWhy(l) {
-	const dry = l.limitResumes?.dryResumes ?? 0;
-	if (dry >= RESUME_CAP)
-		return `${dry} resumes in place in a row with no reply`;
-	const failedTries = l.limitHeld?.failedTries ?? 0;
-	return failedTries >= RESUME_CAP
-		? `${failedTries} failed resumes in place`
-		: HOLD_BOUND_WHY;
+	const whyEnded = buildLimitParkWhy(limitBlockOf(l), seen.now);
+	return whyEnded ? parkHeld(l, whyEnded, mode, seen) : l;
 }
 
 /**
@@ -1309,23 +1305,15 @@ function actOnLimit(l, own, seen, { mode, slots, moveSeats }) {
 		ownSeat: l.seat,
 		since: l.block.since,
 	});
-	const act = blockAct(
-		{
-			...l.block,
-			seat: l.seat,
-			movePick,
-			slotFree: slots > 0,
-			held: isLimitHeld(l),
-			heldAt: l.limitHeld?.at,
-			tries: l.limitHeld?.failedTries,
-			nextAt: l.limitResumes?.nextAt,
-			dryResumes: l.limitResumes?.dryResumes,
-		},
-		mode,
-		seen.now,
-	);
+	const block = {
+		...limitBlockOf(l),
+		seat: l.seat,
+		movePick,
+		slotFree: slots > 0,
+	};
+	const act = blockAct(block, mode, seen.now);
 	if (act === "stop-and-park") {
-		const whyEnded = buildLimitParkWhy(l);
+		const whyEnded = buildLimitParkWhy(block, seen.now);
 		return isLimitHeld(l)
 			? parkHeld(l, whyEnded, mode, seen)
 			: stopPark(l, { act, whyEnded }, mode, seen);
