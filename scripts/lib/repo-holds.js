@@ -43,11 +43,12 @@ const path = require("node:path");
 const { createHash, randomBytes } = require("node:crypto");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
+const { readCommit } = require("./commit-sha.js");
 const { spawnChild } = require("./child-spawn.js");
 const { deref } = require("./deref.js");
 const { fileThrough } = require("./file-through.js");
 const { gh, ghJson, parseErrLine } = require("./gh.js");
-const { gitCommonDir, gitOutcome } = require("./git.js");
+const { gitCommonDir, gitOutcome, gitReader } = require("./git.js");
 const { hostRoot } = require("./host-root.js");
 const { parseJobDir } = require("./job-paths.js");
 const { mainCheckout } = require("./main-checkout.js");
@@ -491,39 +492,26 @@ function readProbeFailure(root, log) {
 	const hasLanding = moduleReader(root, (what, detail) =>
 		log(`probe of ${root}: ${what}: ${detail}`),
 	)("landing");
-	const steps = [
-		{
-			name: "fetch origin",
-			args: [
-				"fetch",
-				"--quiet",
-				"--no-tags",
-				"--no-write-fetch-head",
-				"origin",
-			],
-			timeout: FETCH_TIMEOUT_MS,
-		},
-		{
-			name: "resolve main",
-			args: ["rev-parse", "--verify", "refs/heads/main^{commit}"],
-		},
+	const fetched = gitOutcome(
+		["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "origin"],
+		[],
+		root,
+		FETCH_TIMEOUT_MS,
+	);
+	const refs = [
+		{ name: "main", rev: "refs/heads/main" },
 		...(hasLanding
-			? [
-					{
-						name: "resolve origin/landing",
-						args: [
-							"rev-parse",
-							"--verify",
-							"refs/remotes/origin/landing^{commit}",
-						],
-					},
-				]
+			? [{ name: "origin/landing", rev: "refs/remotes/origin/landing" }]
 			: []),
 	];
-	const failed = steps.flatMap(({ name, args, timeout }) => {
-		const read = gitOutcome(args, [], root, timeout);
-		return read.ok ? [] : [`${name}: ${read.why}`];
-	});
+	const failed = [
+		...(fetched.ok ? [] : [`fetch origin: ${fetched.why}`]),
+		...refs.flatMap(({ name, rev }) => {
+			const read = readCommit(gitReader(root), rev);
+			if (!read.ok) return [`resolve ${name}: ${read.why}`];
+			return read.sha === null ? [`resolve ${name}: names no commit`] : [];
+		}),
+	];
 	return failed.length > 0 ? failed.join("; ") : null;
 }
 
