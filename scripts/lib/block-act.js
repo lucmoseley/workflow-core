@@ -11,7 +11,8 @@ const MIN_MS = 60 * 1000;
  * cache's hour). */
 const RESUME_OFFSETS_MS = [1, 5, 15, 30].map((m) => m * MIN_MS);
 const RESUME_EVERY_MS = 30 * MIN_MS;
-/* Untraced (#2359): a guard against a loop that never ends. */
+/* Untraced (#2359): a guard against a loop that never ends. A limit hold's
+ * failed resumes reuse the figure (#3790). */
 const RESUME_CAP = 16;
 /* A resume starts a retry cycle that reads blocked again about 3 min 13 s
  * later where the API is still down (#2354 F8); a session is held only past
@@ -45,8 +46,9 @@ const IDLE_TRIES = 2;
  *   and `nextAt`, when the next is due; `held`, its session stopped until
  *   then; `typing`, a typed resume not yet seen arrive; `swapHeld`, the swap
  *   hold (#2690) binding this tick; for a LIMIT, `seat`, its session's seat,
- *   `movePick`, the seat lib/refill-decide.js's pickMoveSeat walks to, and
- *   `slotFree`, whether admission has a slot for one held stopped
+ *   `movePick`, the seat lib/refill-decide.js's pickMoveSeat walks to,
+ *   `slotFree`, whether admission has a slot for one held stopped, and
+ *   `tries`, this hold's failed resumes alone
  * @typedef {(block: Block, now: number) => Act} Rule
  */
 
@@ -154,9 +156,11 @@ const resumedIdle = (block, now) => {
  * A limit-blocked session goes back on its own seat where the move pick walks
  * there, one held stopped only into a free slot, as it holds none (#3735).
  * `nextAt` spaces out the tries of one whose limit the seat's bars do not show.
+ * One held whose resumes failed to the cap parks (#3790).
  * @type {Rule}
  */
 const limit = (block, now) => {
+	if (block.held && (block.tries ?? 0) >= RESUME_CAP) return "stop-and-park";
 	const isOwnSeat = Boolean(block.seat) && block.movePick === block.seat;
 	if (
 		isOwnSeat &&

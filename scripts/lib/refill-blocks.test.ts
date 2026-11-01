@@ -26,6 +26,7 @@ import {
 	markParked,
 	unknownNews,
 } from "./refill-blocks.js";
+import { judgedLaunches } from "./refill-loop.js";
 
 const MIN = 60 * 1000;
 const NOW = Date.parse("2026-10-18T12:00:00Z");
@@ -1004,9 +1005,11 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 			seats = [planSeat()],
 			slots = 1,
 			mode = "away",
+			seatListRead = true,
 			io: over = {},
 		}: {
 			seats?: Sized[];
+			seatListRead?: boolean;
 			slots?: number;
 			mode?: "away" | "normal";
 			io?: Partial<BlockIo>;
@@ -1031,6 +1034,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 			swapHold: NO_HOLD,
 			typedSeat: null,
 			readMoveSeats: () => seats,
+			seatListRead,
 			slots,
 		});
 		return { ...out, calls };
@@ -1145,6 +1149,151 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 			{ io },
 		);
 		expect(comments(changed.calls)).toHaveLength(1);
+	});
+
+	describe("a held one whose resume can never take (#3790)", () => {
+		const failedTo = (failedTries: number) =>
+			held({ limitHeld: { ...LimitHeld, failedTries } });
+		const otherSeat = [planSeat({ seat: "/home/u/.claude2" })];
+
+		function expectParked(
+			{ launches, calls, slots }: ReturnType<typeof limits>,
+			why: string,
+		) {
+			const parked = launches[0] as Launch;
+			expect(parked).toMatchObject({ parkStopped: NOW, finishedAt: null });
+			expect(parked).not.toHaveProperty("limitHeld");
+			expect(isHeld(parked)).toBe(false);
+			const [judged] = judgedLaunches([parked], [], NOW, {
+				progressOf: () => ({}),
+				causeOf: () => ({ cause: "LIMIT" }),
+			});
+			expect(judged?.finishedAt).toBe(NOW);
+			expect(comments(calls)[0]).toContain("labelled parked: #42");
+			expect(comments(calls)[0]).toContain(why);
+			expect(calls.some((c) => c.startsWith("confirmed"))).toBe(false);
+			expect(calls).toContain("stop job42");
+			expect(slots).toBe(1);
+		}
+
+		it("parks at the cap of failed resumes, and it finishes", () => {
+			expectParked(
+				limits([failedTo(RESUME_CAP)], []),
+				`${RESUME_CAP} failed resumes in place`,
+			);
+		});
+
+		it("parks where its seat has gone from the seats read, and it finishes", () => {
+			expectParked(
+				limits([held()], [], { seats: otherSeat }),
+				`its seat ${Seat} off the loop's seats`,
+			);
+		});
+
+		it("parks though its stop fails, and logs why", () => {
+			const { launches, calls } = limits([failedTo(RESUME_CAP)], [], {
+				io: {
+					stop: () => ({
+						ok: false,
+						why: "seat gone",
+						said: null,
+						timedOut: false,
+						noJob: false,
+					}),
+				},
+			});
+			expect(launches[0]).toMatchObject({ parkStopped: NOW });
+			expect(logs(calls).join("\n")).toContain("seat gone");
+		});
+
+		it("marks its park under the hold's session id, where the launch has none", () => {
+			const { launches, calls } = limits([held({ sessionId: undefined })], [], {
+				seats: otherSeat,
+			});
+			expect(calls).toContain("record s-job42 42");
+			expect(launches[0]).toMatchObject({ sessionId: "s-job42" });
+		});
+
+		it("stays held off a damaged or empty control's stand-in seats", () => {
+			const { launches, calls } = limits([held()], [], {
+				seats: otherSeat,
+				seatListRead: false,
+			});
+			expect(isHeld(launches[0] as Launch)).toBe(true);
+			expect(comments(calls)).toEqual([]);
+		});
+
+		it("parks on the tick after the failure that reaches the cap", () => {
+			const io = { resumeStopped: () => ({ failed: "still failing" }) };
+			const failed = limits([failedTo(RESUME_CAP - 1)], [], { io });
+			expect(isHeld(failed.launches[0] as Launch)).toBe(true);
+			expect(failed.launches[0]?.limitHeld).toMatchObject({
+				failedTries: RESUME_CAP,
+			});
+			const next = limits(failed.launches as Launch[], [], { io });
+			expect(next.launches[0]).toMatchObject({ parkStopped: NOW });
+		});
+
+		it("resumes a try short of the cap", () => {
+			const { launches, calls } = limits([failedTo(RESUME_CAP - 1)], []);
+			expect(calls).toContain(`confirmed ${Seat} s-job42 ${LIMIT_PROMPT}`);
+			expect(launches[0]).toMatchObject({ limitHeld: { resumedAt: NOW } });
+			expect(launches[0]).not.toHaveProperty("parkStopped");
+		});
+
+		it("counts a resume its record later shows failed", () => {
+			const { launches } = limits(
+				[held({ limitHeld: { ...LimitHeld, resumedAt: NOW - MIN } })],
+				[],
+				{ io: { jobStateOf: () => null } },
+			);
+			expect(launches[0]?.limitHeld).toMatchObject({ failedTries: 1 });
+		});
+
+		it("counts no resume that took, however many the launch has made", () => {
+			const { launches } = limits(
+				[
+					held({
+						limitResumes: {
+							tries: RESUME_CAP + 5,
+							triedAt: NOW - 60 * MIN,
+							nextAt: NOW - MIN,
+						},
+					}),
+				],
+				[],
+			);
+			expect(launches[0]).toMatchObject({ limitHeld: { resumedAt: NOW } });
+			expect(launches[0]?.limitHeld).not.toHaveProperty("failedTries");
+		});
+
+		it("counts a new hold's failures from none, a resume having taken", () => {
+			const { launches: settled } = limits(
+				[
+					held({
+						limitHeld: { ...LimitHeld, resumedAt: NOW - MIN, failedTries: 3 },
+					}),
+				],
+				[],
+			);
+			const reheld = limits(
+				[{ ...settled[0], block: blocked().block } as Launch],
+				[agent("job42", "blocked")],
+				{ seats: [fiveHourFull] },
+			);
+			expect(isHeld(reheld.launches[0] as Launch)).toBe(true);
+			expect(reheld.launches[0]?.limitHeld).not.toHaveProperty("failedTries");
+		});
+
+		it("leaves a live one alone off a seat the loop does not read", () => {
+			const { launches, calls } = limits(
+				[blocked()],
+				[agent("job42", "blocked")],
+				{ seats: otherSeat },
+			);
+			expect(launches[0]).toEqual(blocked());
+			expect(comments(calls)).toEqual([]);
+		});
 	});
 
 	describe("a resume judged a tick on", () => {

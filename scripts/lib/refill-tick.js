@@ -1008,6 +1008,13 @@ async function decide(input, scope) {
 }
 
 /**
+ * Whether a tick's seats are the loop's own list: read off a sound control that
+ * names some (#3790).
+ * @param {{seats: string[]}|null} parsed
+ */
+const isSeatListRead = (parsed) => parsed !== null && parsed.seats.length > 0;
+
+/**
  * One tick: its decision and the start it judged against. Under `dryRun`
  * nothing is reaped, launched or written.
  * @param {{dryRun: boolean}} opts
@@ -1060,6 +1067,7 @@ async function tick({ dryRun }) {
 				typedSeat: typed.seat,
 				readMoveSeats: () =>
 					readSeats(control.seats, 1, served[0], typed.seat).seats,
+				seatListRead: isSeatListRead(parsed),
 				slots: free,
 			});
 	const { seats, probes } = readSeats(

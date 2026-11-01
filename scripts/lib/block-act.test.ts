@@ -104,6 +104,17 @@ describe("the LIMIT row (#3735)", () => {
 			expect(blockAct(b, mode, NOW)).toBe("hold");
 			expect(blockAct(b, mode, NOW + MIN)).toBe("resume-in-place");
 		});
+
+		it(`${mode}: parks a held session whose resumes failed to the cap, and no other (#3790)`, () => {
+			const open = [reading("own", 10)];
+			const at = (tries: number, over = {}) =>
+				limited(open, { held: true, slotFree: true, tries, ...over });
+			expect(blockAct(at(RESUME_CAP - 1), mode, NOW)).toBe("resume-in-place");
+			expect(blockAct(at(RESUME_CAP), mode, NOW)).toBe("stop-and-park");
+			expect(blockAct(at(RESUME_CAP, { held: false }), mode, NOW)).toBe(
+				"resume-in-place",
+			);
+		});
 	}
 });
 
