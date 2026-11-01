@@ -452,7 +452,6 @@ describe("buildReadings", () => {
 			writtenAt,
 			limitParks: LIMIT_PARK_CAP,
 		});
-		/* What a stopped loop and a tick in away mode both leave: nothing held. */
 		const idleOf = (issues: object[], markers: object[], held: object[] = []) =>
 			findIdleEfforts(
 				read([{ repo: REPO, issues, markers: [markers] }], { held }),
