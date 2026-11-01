@@ -23,6 +23,7 @@ const regions = require("./doc-map-regions.js");
 const { holderAlive, readProcStartOf } = require("./arbiter-proc.js");
 const { projectSlug, UNRESOLVED_ROOT_SLUG } = require("./project-slug.js");
 const { realKey } = require("./deref.js");
+const { requiredGroup } = require("./regex-group.js");
 const { hostRoot } = require("./host-root.js");
 const { caught } = require("./caught.js");
 
@@ -115,6 +116,9 @@ function storeConfigDir() {
 /** @type {string[]|undefined} */
 let overflowKeys;
 
+/* A refill-seats overflow line: `<dir> api …`. */
+const OVERFLOW_LINE = /^(\S+)\s+api(?:\s|$)/;
+
 /**
  * Whether `dir` is an overflow seat `~/.claude/refill-seats` declares (#2570):
  * its headless sessions share the plan seats' store, or the refill loop reads
@@ -135,18 +139,14 @@ function isOverflowSeat(dir) {
 		} catch {
 			/* No seat file declares no overflow seat. */
 		}
-		overflowKeys = text
-			.split("\n")
-			.map((l) => l.trim().split(/\s+/))
-			.flatMap(([seat, kind]) =>
-				kind === "api" && seat !== undefined
-					? [
-							realKey(
-								seat.startsWith("~/") ? path.join(home, seat.slice(2)) : seat,
-							),
-						]
-					: [],
-			);
+		overflowKeys = text.split("\n").flatMap((line) => {
+			const m = OVERFLOW_LINE.exec(line.trim());
+			if (!m) return [];
+			const seat = requiredGroup(m, 1, OVERFLOW_LINE);
+			return [
+				realKey(seat.startsWith("~/") ? path.join(home, seat.slice(2)) : seat),
+			];
+		});
 	}
 	return overflowKeys.includes(realKey(dir));
 }
