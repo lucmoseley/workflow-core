@@ -1799,8 +1799,7 @@ function pairingHalfAgeMs(target, mapPath, now = Date.now()) {
 /**
  * A reader of each tracked file's age, UNCOVERED's dating: the age of the oldest
  * commit touching it, null where none does or git fails. It walks the history
- * once, on the first ask: a map that faults on every tracked file costs one
- * walk, where a `git log` per file overran the suite's test timeout (#3794).
+ * once, on the first ask, however many files fault (#3794).
  * @param {number} [now]
  * @returns {(target: string) => number | null}
  */

@@ -1,8 +1,8 @@
 // @vitest-environment node
 /*
  * check-husky-shim.js reports, from any worktree, a canonical checkout whose
- * husky shim has lost #3138's own-tree lookup, and names the rerun that
- * restores it (#3172).
+ * husky shim has lost #3138's own-tree lookup, or whose core.hooksPath is off
+ * the absolute pin, and names the rerun that restores it (#3172, #3819).
  *
  * The shim is the real one: husky writes it, as `npm install` does, and
  * scripts/install-hooks.js patches it, as `prepare` does.
@@ -73,6 +73,22 @@ describe("check-husky-shim.js (#3172)", () => {
 		expect(r.stderr).toContain("STOCK-SHIM");
 		expect(r.stderr).toContain(shim());
 		expect(r.stderr).toContain("husky's stock shim");
+		expect(r.stderr).toContain("node scripts/install-hooks.js");
+		expect(r.status).toBe(1);
+
+		install();
+		expect(check().status).toBe(0);
+	});
+
+	it("fails the relative core.hooksPath a bare husky writes, naming install-hooks.js, and passes once it reruns (#3819)", () => {
+		husky();
+		install();
+		execFileSync("git", ["config", "core.hooksPath", ".husky/_"], {
+			cwd: shared,
+		});
+		const r = check();
+		expect(r.stderr).toContain("UNPINNED-HOOKS-PATH");
+		expect(r.stderr).toContain('core.hooksPath reads ".husky/_"');
 		expect(r.stderr).toContain("node scripts/install-hooks.js");
 		expect(r.status).toBe(1);
 
