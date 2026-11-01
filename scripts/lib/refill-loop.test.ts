@@ -1175,7 +1175,7 @@ describe("a tick's log line (#2362)", () => {
 			}),
 		});
 		expect(line).toBe(
-			"launch wfc /implement 1 on /s2 (soonest reset); not dispatched mh /implement 2: a stop landed first",
+			"launch wfc /implement 1 on /s2 (soonest reset); not dispatched mh /implement 2: a stop or a pause landed first",
 		);
 	});
 
@@ -1594,6 +1594,32 @@ describe("the control file", () => {
 		});
 	});
 
+	it("reads a control from before pauses as a loop to carry on from (#3856)", () => {
+		const raw = {
+			startedAt: 5,
+			noProgressFrom: 5,
+			stopRequested: false,
+			seats: ["/a"],
+			scope: { mode: "normal", repos: ["/r"], exclude: [], goals: {} },
+		};
+		const control = parseControl(raw);
+		expect(control).toEqual({
+			noProgressFrom: 5,
+			stopRequested: false,
+			seats: ["/a"],
+			scope: raw.scope,
+		});
+		expect(control).not.toHaveProperty("paused");
+	});
+
+	it("reads who paused and when, and a garbled pause as paused (#3856)", () => {
+		const read = (paused: unknown) =>
+			parseControl({ noProgressFrom: 5, paused })?.paused;
+		expect(read({ by: "founder", at: 9 })).toEqual({ by: "founder", at: 9 });
+		expect(read(null)).toBeUndefined();
+		expect(read(true)).toEqual({ by: "an unreadable record", at: 0 });
+	});
+
 	it("reads a control from before scopes as away mode over every repo", () => {
 		expect(parseControl({ noProgressFrom: 5 })?.scope).toEqual(away([]));
 	});
@@ -1663,12 +1689,17 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 		gone = false,
 		damaged = false,
 		refused = [] as number[],
-		onLaunch = (_n: number, _stop: () => void): unknown => undefined,
+		onLaunch = (_n: number, _stop: () => void, _pause: () => void): unknown =>
+			undefined,
 		onReview = (_stop: () => void): unknown => undefined,
 	} = {}) {
 		let stopWritten = stopFirst;
 		const stop = () => {
 			stopWritten = true;
+		};
+		let pauseWritten = false;
+		const pause = () => {
+			pauseWritten = true;
 		};
 		const dispatched: string[] = [];
 		const writes: Tick["state"][] = [];
@@ -1699,6 +1730,9 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 								control: {
 									noProgressFrom: 10,
 									stopRequested: stopWritten,
+									...(pauseWritten
+										? { paused: { by: "founder", at: 60 } }
+										: {}),
 									seats: [],
 									scope: away([]),
 								},
@@ -1707,7 +1741,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 				launchBatch: ([l]) => {
 					const [n] = l.issues;
 					dispatched.push(l.prompt);
-					onLaunch(n, stop);
+					onLaunch(n, stop, pause);
 					return refused.includes(n)
 						? { launched: [], refused: [{ launch: l, reason: "refused" }] }
 						: {
@@ -1749,6 +1783,58 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 		expect(prompts(r.state)).toEqual(["/implement 1"]);
 		expect(r.state?.stopped).toMatchObject({ reason: "explicit" });
 		expect(r.result).toMatchObject({ stop: "explicit" });
+	});
+
+	it("makes no further dispatch call once a pause lands during the first of two, and records no stop (#3856)", () => {
+		const r = settle({ onLaunch: (n, _stop, pause) => n === 1 && pause() });
+		expect(r.dispatched).toEqual(["/implement 1"]);
+		expect(prompts(r.state)).toEqual(["/implement 1"]);
+		expect(r.state?.stopped).toBeNull();
+		expect(r.state?.lastTick?.summary).toContain(
+			"not dispatched repo2 /implement 2: a stop or a pause landed first",
+		);
+		expect(r.result).toBe(r.decision);
+	});
+
+	it("still takes the morning review's step on a tick with no launch (#3856)", () => {
+		const reviews: unknown[] = [];
+		const paused = settleTick(
+			{
+				input: { ...input, paused: { by: "founder", at: 60 } },
+				decision: {
+					launches: [],
+					skipped: [],
+					idle: "paused by founder",
+					held: [],
+					resumes: [],
+				},
+				state: parseState(null),
+				judged: [],
+				probes: [],
+				read: null,
+			},
+			{
+				readControl: () => ({ control: null, damaged: null }),
+				launchBatch: () => ({ launched: [], refused: [] }),
+				resumeHeld: (_resumes, launches) => ({
+					launches,
+					started: 0,
+					waiting: false,
+				}),
+				readOmittedDirs: () => [],
+				runReview: (lastRunOn) => {
+					reviews.push(lastRunOn);
+					return lastRunOn;
+				},
+				writeState: () => undefined,
+				log: (line) => {
+					expect(line).not.toContain("free slots");
+				},
+				now: () => NOW,
+			},
+		);
+		expect(reviews).toHaveLength(1);
+		expect(paused.launched).toBe(0);
 	});
 
 	it("records a stop written during the morning review the same way", () => {

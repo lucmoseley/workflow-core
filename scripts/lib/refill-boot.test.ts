@@ -34,7 +34,7 @@ describe("bootVerdictOf", () => {
 	])("resumes on %s, naming the start it keeps", (_name, over) => {
 		expect(bootVerdictOf({ ...found, ...over })).toEqual({
 			resume: true,
-			line: `boot resume: resumed the loop started ${new Date(START).toISOString()}`,
+			line: `boot resume: resumed the loop counting from ${new Date(START).toISOString()}`,
 		});
 	});
 

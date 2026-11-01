@@ -2,7 +2,7 @@
  * pid-lock.js — a single-instance lock held as a pidfile, for a daemon only
  * one copy of may run per machine or checkout: the refill loop and the
  * lander (#2402); and for a short read-to-rename write, write-secret.js's
- * (#3539).
+ * (#3539) and the refill control's (#3856), which waitForLock takes.
  *
  * The pidfile is linked into place from a file already holding the pid, so
  * no reader ever sees it empty. A pidfile whose process is gone, or whose
@@ -18,6 +18,13 @@ const { pidAlive } = require("./arbiter-proc.js");
 const { asidePath } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
 const { REAL_PROC } = require("./proc-root.js");
+const { sleepSync } = require("./sleep-sync.js");
+
+/* First guesses, and stated as ones: a short write holds its lock for
+ * milliseconds, so a run waits 10 s for another's before refusing, polling
+ * every 20 ms. */
+const LOCK_WAIT_MS = 10_000;
+const LOCK_POLL_MS = 20;
 
 /**
  * A file's text, or null where it cannot be read.
@@ -114,4 +121,20 @@ function pidLock(file, marker) {
 	};
 }
 
-module.exports = { pidLock };
+/**
+ * Takes `lock`, one held only around a short write, waiting up to LOCK_WAIT_MS
+ * for a live holder.
+ * @param {ReturnType<typeof pidLock>} lock
+ * @param {number} [waitMs]
+ * @returns {boolean} whether it is held
+ */
+function waitForLock(lock, waitMs = LOCK_WAIT_MS) {
+	const deadline = performance.now() + waitMs;
+	while (!lock.acquire()) {
+		if (performance.now() > deadline) return false;
+		sleepSync(LOCK_POLL_MS);
+	}
+	return true;
+}
+
+module.exports = { LOCK_WAIT_MS, pidLock, waitForLock };

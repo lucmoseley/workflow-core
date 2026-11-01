@@ -130,6 +130,7 @@ const ALREADY_RUNNING = "already running";
  * @property {"normal"|"away"} mode
  * @property {number} noProgressFrom ms, where the no-progress count counts from
  * @property {boolean} stopRequested
+ * @property {Pause} [paused] absent where the loop is not paused
  * @property {string|null} [controlDamaged] the control file and why, where it
  *   exists but is not a control
  * @property {MergedRow[]} frontier lib/frontier-order.js's merged ranking
@@ -161,6 +162,11 @@ const ALREADY_RUNNING = "already running";
 
 /**
  * @typedef {{root: string, kind: "probe"|"park"}} TickHold
+ */
+
+/**
+ * Who paused the loop, and when, ms.
+ * @typedef {{by: string, at: number}} Pause
  */
 
 /**
@@ -547,16 +553,25 @@ function routedLaunch(
 }
 
 /**
- * The stop that ends launching, checked in this order, or null.
+ * The stop a damaged control or a `stop` command asks for, or null.
+ * @param {TickInput} input
+ * @returns {Extract<Decision, {stop: StopReason}> | null}
+ */
+function requestedStopOf(input) {
+	if (input.controlDamaged)
+		return { stop: "control-damaged", detail: input.controlDamaged };
+	if (input.stopRequested)
+		return { stop: "explicit", detail: "stop was requested" };
+	return null;
+}
+
+/**
+ * The stop the loop's own record calls for, checked in this order, or null.
  * @param {TickInput} input
  * @param {ReturnType<typeof pickSeat>} pick
  * @returns {Extract<Decision, {stop: StopReason}> | null}
  */
 function stopOf(input, pick) {
-	if (input.controlDamaged)
-		return { stop: "control-damaged", detail: input.controlDamaged };
-	if (input.stopRequested)
-		return { stop: "explicit", detail: "stop was requested" };
 	const stalled = noProgressRun(input);
 	if (stalled)
 		return {
@@ -830,6 +845,32 @@ function fill(
 }
 
 /**
+ * @param {Extract<Decision, {stop: StopReason}>} stop
+ * @param {TickInput} input
+ */
+const buildStopDecision = (stop, input) => ({
+	...stop,
+	detail: buildStopDetail(stop.detail, input),
+});
+
+/**
+ * @param {string} idle
+ * @param {Skip[]} held
+ * @param {HeldResume[]} resumes
+ */
+const buildIdleDecision = (idle, held, resumes) => ({
+	launches: [],
+	skipped: [],
+	idle,
+	held,
+	resumes,
+});
+
+/** @param {Pause} pause */
+const buildPauseText = ({ by, at }) =>
+	`paused by ${by} at ${new Date(at).toISOString()}`;
+
+/**
  * A stop's detail with what it leaves for the next start to act on.
  * @param {string} detail
  * @param {TickInput} input
@@ -851,13 +892,27 @@ function buildStopDetail(detail, { limitHeldLines = [], resumable = [] }) {
 }
 
 /**
+ * A requested stop outranks a pause, so `stop` still ends a paused loop; a pause
+ * outranks every other reason, as the reads they rest on are barred (#3856).
  * @param {TickInput} input
  * @returns {Decision}
  */
 function decideTick(input) {
+	const requested = requestedStopOf(input);
+	if (requested) return buildStopDecision(requested, input);
+	if (input.paused)
+		return buildIdleDecision(buildPauseText(input.paused), [], []);
+	return decideUnpaused(input);
+}
+
+/**
+ * @param {TickInput} input
+ * @returns {Decision}
+ */
+function decideUnpaused(input) {
 	const pick = pickSeat(input);
 	const stop = stopOf(input, pick);
-	if (stop) return { ...stop, detail: buildStopDetail(stop.detail, input) };
+	if (stop) return buildStopDecision(stop, input);
 	const present =
 		presenceAt(input.lastPromptAt, new Date(input.now)) === "present";
 	const free = Math.max(0, input.freeSlots - (present ? 1 : 0));
@@ -868,13 +923,7 @@ function decideTick(input) {
 	 * @param {string} idle
 	 * @param {HeldResume[]} due
 	 */
-	const idleOn = (idle, due) => ({
-		launches: [],
-		skipped: [],
-		idle,
-		held,
-		resumes: due,
-	});
+	const idleOn = (idle, due) => buildIdleDecision(idle, held, due);
 	if (free === 0)
 		return idleOn(
 			present ? "one free slot is kept for the founder" : "no free slot",
@@ -918,6 +967,7 @@ function decideTick(input) {
 
 module.exports = {
 	buildOverflowHoldText,
+	buildPauseText,
 	seatHold,
 	FULL,
 	buildLimitCapHoldWhy,

@@ -323,6 +323,24 @@ describe("the loop's resumes after a transient API stop (#2705)", () => {
 			blocks([l], agents, "away").out.filter((o) => o.resumes?.heldAt === NOW),
 		);
 
+	it("makes no resume and checks no typed one on a paused tick (#3856)", () => {
+		for (const l of [
+			resuming(),
+			resuming({ resumes: tried(1, 10, 0, { attachAt: NOW - 10 * MIN }) }),
+		]) {
+			const { io, calls } = fakeIo();
+			const out = actOnBlocks([l], "away", {
+				agents: blocked,
+				now: NOW,
+				io,
+				swapHold: NO_HOLD,
+				paused: true,
+			});
+			expect(calls).toEqual([]);
+			expect(out).toEqual([l]);
+		}
+	});
+
 	it("resumes a due one, live or held, but not off an unread listing", () => {
 		expect(resumed(resuming())).toEqual(["p"]);
 		expect(
@@ -573,6 +591,20 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 		expect(r.calls[0]).toBe("type job42");
 		expect(r.calls).not.toContain("stop job42");
 		expect(r.out?.idleResumes).toEqual({ tries: 2, triedAt: NOW });
+	});
+
+	it("types and hands off nothing on a paused tick, leaving them for the tick after (#3856)", () => {
+		for (const l of [record(), typed(2, 5), record({ handOffTries: 1 })]) {
+			const { io, calls } = fakeIo({ idleSince: idleFor(30) });
+			actOnIdle([l], "away", {
+				agents: listed,
+				now: NOW,
+				io,
+				swapHold: NO_HOLD,
+				paused: true,
+			});
+			expect(calls).toEqual([]);
+		}
 	});
 
 	it("hands off one still idle 5 min after its second typed resume", () => {

@@ -2,9 +2,10 @@
 /*
  * The refill loop's commands (#2012) against a sandboxed WFC_REFILL_DIR:
  * `start` on a running loop rather than starting a second, `stop`
- * asking the loop to end, and the command line. Driven in process; `start`
- * with no loop running spawns the real detached loop, so it is left to the
- * manual dry run.
+ * asking the loop to end, `set` pausing and resuming it (#3856), and the command
+ * line. Driven in process, bar a command that must wait on a lock this test
+ * frees; `start` with no loop running spawns the real detached loop, so it is
+ * left to the manual dry run.
  *
  * The running loop is a second process whose command line names the script,
  * holding the pidfile: liveness is read off /proc, which only another process
@@ -25,6 +26,7 @@ const SCRIPT = path.resolve(__dirname, "refill-loop.js");
 
 let dir: string;
 let fakeLoop: ChildProcess | null = null;
+let lockHolder: ChildProcess | null = null;
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "refill-loop-"));
@@ -33,22 +35,22 @@ beforeEach(() => {
 afterEach(() => {
 	fakeLoop?.kill();
 	fakeLoop = null;
+	lockHolder?.kill();
+	lockHolder = null;
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
+const commandEnv = (extra: Record<string, string> = {}) => ({
+	...process.env,
+	WFC_REFILL_DIR: dir,
+	CLAUDE_PROJECT_DIR: dir,
+	HOME: dir,
+	CLAUDE_CONFIG_DIR: path.join(dir, ".claude3"),
+	WFC_CLAUDE_BIN: path.join(dir, "no-claude"),
+	...extra,
+});
 const runEnv = (extra: Record<string, string>, ...argv: string[]) =>
-	runInProcessAsync(SCRIPT, argv, {
-		cwd: dir,
-		env: {
-			...process.env,
-			WFC_REFILL_DIR: dir,
-			CLAUDE_PROJECT_DIR: dir,
-			HOME: dir,
-			CLAUDE_CONFIG_DIR: path.join(dir, ".claude3"),
-			WFC_CLAUDE_BIN: path.join(dir, "no-claude"),
-			...extra,
-		},
-	});
+	runInProcessAsync(SCRIPT, argv, { cwd: dir, env: commandEnv(extra) });
 const run = (...argv: string[]) => runEnv({}, ...argv);
 
 const readControl = () =>
@@ -56,14 +58,13 @@ const readControl = () =>
 		fs.readFileSync(path.join(dir, ".refill-loop-control.json"), "utf8"),
 	);
 
+const spawnIdle = (name = "refill-loop.js") =>
+	spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", name], {
+		stdio: "ignore",
+	});
+
 function holdPidfile(name = "refill-loop.js") {
-	fakeLoop = spawn(
-		process.execPath,
-		["-e", "setInterval(() => {}, 1000)", name],
-		{
-			stdio: "ignore",
-		},
-	);
+	fakeLoop = spawnIdle(name);
 	fs.writeFileSync(path.join(dir, ".refill-loop.pid"), String(fakeLoop.pid));
 	return fakeLoop.pid;
 }
@@ -529,12 +530,218 @@ describe("stop and status", () => {
 	});
 });
 
+describe("set (#3856)", () => {
+	const controlFile = () => path.join(dir, ".refill-loop-control.json");
+	const lockFile = () => `${controlFile()}.lock`;
+	const wakeFile = () => path.join(dir, ".refill-loop-wake");
+	/* The control file as #3854's `start` wrote it. */
+	const plainControl = {
+		startedAt: 5,
+		noProgressFrom: 5,
+		stopRequested: false,
+		seats: ["/seat"],
+		scope: { mode: "normal", repos: ["/repo"], exclude: [], goals: {} },
+	};
+	const writeControl = (over: Record<string, unknown> = {}) =>
+		fs.writeFileSync(
+			controlFile(),
+			JSON.stringify({ ...plainControl, ...over }),
+		);
+	const paused = { by: "founder", at: 7 };
+
+	/* A live process the lock names as its holder; kill it to free the lock. */
+	function holdLock() {
+		const holder = spawnIdle();
+		lockHolder = holder;
+		fs.writeFileSync(lockFile(), String(holder.pid));
+		return holder;
+	}
+	function spawnCommand(...argv: string[]) {
+		/* spawn-kept: the command waits on a lock this test frees, which an
+		 * in-process run would block it from freeing. */
+		const child = spawn(process.execPath, [SCRIPT, ...argv], {
+			cwd: dir,
+			env: commandEnv(),
+			stdio: "ignore",
+		});
+		return new Promise<number | null>((resolve) => child.on("close", resolve));
+	}
+	/* A guess: long enough for a spawned command to reach the lock; a command
+	 * that had not would pass the "still waiting" checks without testing them. */
+	const settle = () => new Promise((r) => setTimeout(r, 500));
+
+	it("pauses, writing only the pause, touching the wake and printing it", async () => {
+		writeControl();
+		const before = Date.now();
+		const r = await run("set", "--pause");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toMatch(/^paused by founder at \S+Z$/m);
+		const { paused: written, ...rest } = readControl();
+		expect(rest).toEqual(plainControl);
+		expect(written.by).toBe("founder");
+		expect(written.at).toBeGreaterThanOrEqual(before);
+		expect(fs.existsSync(wakeFile())).toBe(true);
+		expect(fs.existsSync(lockFile())).toBe(false);
+	});
+
+	it("resumes, dropping the pause and moving only the no-progress count's point", async () => {
+		writeControl({ paused });
+		holdPidfile();
+		const before = Date.now();
+		const r = await run("set", "--resume");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("not paused");
+		expect(r.stdout).toContain("counting:  no-progress count from ");
+		const { noProgressFrom, startedAt, ...rest } = readControl();
+		const { noProgressFrom: _n, startedAt: _s, ...kept } = plainControl;
+		expect(rest).toEqual(kept);
+		expect(noProgressFrom).toBeGreaterThanOrEqual(before);
+		expect(startedAt).toBe(noProgressFrom);
+	});
+
+	it("leaves the count's point on a resume with no process, so a loop that ended itself stays ended", async () => {
+		writeControl({ paused });
+		const r = await run("set", "--resume");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("not paused");
+		expect(r.stdout).not.toContain("counting:");
+		expect(readControl().paused).toBeUndefined();
+		expect(readControl().noProgressFrom).toBe(5);
+	});
+
+	it("changes nothing asked for twice, but still wakes the loop", async () => {
+		writeControl({ paused });
+		const repeat = await run("set", "--pause");
+		expect(repeat.status).toBe(0);
+		expect(repeat.stdout).toContain("unchanged: paused by founder at");
+		expect(readControl().paused).toEqual(paused);
+		expect(fs.existsSync(wakeFile())).toBe(true);
+
+		writeControl();
+		const idle = await run("set", "--resume");
+		expect(idle.status).toBe(0);
+		expect(idle.stdout).toContain("unchanged: not paused");
+		expect(readControl().noProgressFrom).toBe(5);
+	});
+
+	it("says a change to a stopped loop holds from its next start", async () => {
+		writeControl();
+		const r = await run("set", "--pause");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("not running; this holds from its next start");
+	});
+
+	it("never undoes a stop that landed while it waited on the lock", async () => {
+		writeControl();
+		const holder = holdLock();
+		const done = spawnCommand("set", "--pause");
+		await settle();
+		expect(readControl()).not.toHaveProperty("paused");
+		writeControl({ stopRequested: true });
+		holder.kill();
+		expect(await done).toBe(0);
+		expect(readControl().stopRequested).toBe(true);
+		expect(readControl().paused.by).toBe("founder");
+	});
+
+	it("makes stop wait on the same lock, losing neither change", async () => {
+		writeControl({ paused });
+		const holder = holdLock();
+		const done = spawnCommand("stop");
+		await settle();
+		expect(readControl().stopRequested).toBe(false);
+		holder.kill();
+		expect(await done).toBe(0);
+		expect(readControl().stopRequested).toBe(true);
+		expect(readControl().paused).toEqual(paused);
+	});
+
+	it("makes start wait on the same lock, keeping the pause", async () => {
+		holdPidfile();
+		writeControl({ paused });
+		const holder = holdLock();
+		const done = spawnCommand("start");
+		await settle();
+		expect(readControl().seats).toEqual(["/seat"]);
+		holder.kill();
+		expect(await done).toBe(0);
+		expect(readControl().seats).not.toEqual(["/seat"]);
+		expect(readControl().paused).toEqual(paused);
+	});
+
+	it("takes over a dead holder's lock", async () => {
+		writeControl();
+		const holder = holdLock();
+		holder.kill();
+		await new Promise((resolve) => holder.on("close", resolve));
+		expect((await run("set", "--pause")).status).toBe(0);
+		expect(readControl().paused.by).toBe("founder");
+		expect(fs.existsSync(lockFile())).toBe(false);
+	});
+
+	it("keeps a pause across a start, after a stop too", async () => {
+		writeControl({ paused, stopRequested: true });
+		fs.mkdirSync(path.join(dir, "code"));
+		holdPidfile();
+		const r = await run("start");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("paused by founder at");
+		expect(readControl().paused).toEqual(paused);
+		expect(readControl().stopRequested).toBe(false);
+	});
+
+	it("shows the pause in status and status --json", async () => {
+		writeControl({ paused });
+		const r = await run("status");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(
+			`paused by founder at ${new Date(7).toISOString()}; launches nothing until \`set --resume\``,
+		);
+		expect(JSON.parse((await run("status", "--json")).stdout).paused).toEqual(
+			paused,
+		);
+		writeControl();
+		expect(
+			JSON.parse((await run("status", "--json")).stdout).paused,
+		).toBeNull();
+	});
+
+	it.each([
+		["no flag", []],
+		["both flags", ["--pause", "--resume"]],
+	])("refuses %s as a usage error on stderr", async (_name, flags) => {
+		writeControl();
+		const r = await run("set", ...flags);
+		expect(r.status).toBe(2);
+		expect(r.stdout).toBe("");
+		expect(r.stderr).toContain("one of --pause and --resume");
+		expect(r.stderr).toContain("usage:");
+		expect(readControl()).toEqual(plainControl);
+	});
+
+	it("refuses with exit 1 where the loop was never started, writing nothing", async () => {
+		const r = await run("set", "--pause");
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("never started; run `start` first");
+		expect(fs.existsSync(controlFile())).toBe(false);
+	});
+
+	it("refuses with exit 1 on a damaged control, leaving its bytes", async () => {
+		fs.writeFileSync(controlFile(), "{ not json");
+		const r = await run("set", "--pause");
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("is damaged");
+		expect(r.stderr).toContain("`start` rewrites it");
+		expect(fs.readFileSync(controlFile(), "utf8")).toBe("{ not json");
+	});
+});
+
 describe("the command line", () => {
 	it("refuses an unknown command, naming it, with the usage", async () => {
 		const r = await run("go");
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("unknown command: go");
-		expect(r.stderr).toContain("start | stop | status | dry-run");
+		expect(r.stderr).toContain("start | stop | set | status | dry-run");
 	});
 
 	it("refuses a stray flag or no command at all", async () => {

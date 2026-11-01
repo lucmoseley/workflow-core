@@ -4,12 +4,17 @@
  * file stops the loop or goes unlogged, or a damaged control reads as a loop
  * nobody started.
  */
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { decideTick } from "./refill-decide.js";
-import { readControlChecked, readJson } from "./refill-files.js";
+import {
+	readControlChecked,
+	readJson,
+	withControlLock,
+} from "./refill-files.js";
 import { NOW } from "./refill-loop-fixture";
 
 describe("a loop file's read (#3380)", () => {
@@ -37,6 +42,54 @@ describe("a loop file's read (#3380)", () => {
 		expect(lines).toHaveLength(1);
 		expect(lines[0]).toContain(file);
 		expect(lines[0]).toMatch(/JSON/);
+	});
+});
+
+describe("the control lock (#3856)", () => {
+	const saved = process.env.WFC_REFILL_DIR;
+	let tmp: string;
+	beforeEach(() => {
+		tmp = fs.mkdtempSync(path.join(os.tmpdir(), "refill-lock-"));
+		process.env.WFC_REFILL_DIR = tmp;
+	});
+	afterEach(() => {
+		if (saved === undefined) delete process.env.WFC_REFILL_DIR;
+		else process.env.WFC_REFILL_DIR = saved;
+		fs.rmSync(tmp, { recursive: true, force: true });
+	});
+
+	it("refuses past its wait while a live holder keeps it, running nothing and saying what to do", () => {
+		const holder = spawn(
+			process.execPath,
+			["-e", "setInterval(() => {}, 1000)", "refill-loop.js"],
+			{ stdio: "ignore" },
+		);
+		try {
+			const file = path.join(tmp, ".refill-loop-control.json.lock");
+			fs.writeFileSync(file, String(holder.pid));
+			let ran = false;
+			const r = withControlLock(() => {
+				ran = true;
+			}, 0);
+			expect(ran).toBe(false);
+			expect(r).toEqual({
+				busy: `${file} is held by pid ${holder.pid}; re-run once it finishes`,
+			});
+		} finally {
+			holder.kill();
+		}
+	});
+
+	it("releases the lock after the write, a throwing one too", () => {
+		const file = path.join(tmp, ".refill-loop-control.json.lock");
+		expect(withControlLock(() => 1)).toEqual({ done: 1 });
+		expect(fs.existsSync(file)).toBe(false);
+		expect(() =>
+			withControlLock(() => {
+				throw new Error("no");
+			}),
+		).toThrow("no");
+		expect(fs.existsSync(file)).toBe(false);
 	});
 });
 

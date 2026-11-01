@@ -873,6 +873,31 @@ describe("a parked launch (#2699)", () => {
 		expect(listed).toContain(`sessions: raiser, ${Job}`);
 	});
 
+	it("still stops and parks a question on a paused tick, launching nothing (#3856)", async () => {
+		const control = JSON.parse(
+			fs.readFileSync(at(".refill-loop-control.json"), "utf8"),
+		);
+		fs.writeFileSync(
+			at(".refill-loop-control.json"),
+			JSON.stringify({ ...control, paused: { by: "founder", at: 7 } }),
+		);
+		fakeClaude([LISTED, blockedRow]);
+		const running = startRun();
+		await polled(
+			() => readLines(at("stops")).length > 0,
+			"a paused tick never acted on the block",
+		);
+		requestStop();
+		const r = await settled(running, "paused run with a parked launch");
+		expect(r.status).toBe(0);
+		expect(readLines(at("stops"))).toEqual([`stop ${Job}`]);
+		expect(readLines(at("gh-calls"))).toContain(
+			"issue edit 7 --repo o/r --add-label parked",
+		);
+		expect(fs.existsSync(at("ticks"))).toBe(false);
+		expect(fs.existsSync(at("dispatches"))).toBe(false);
+	});
+
 	it("stops and parks, on a switch to away, a question held past 50 newer launches (#3775)", async () => {
 		const seeded = at(".refill-loop-state.json");
 		const { launches } = JSON.parse(fs.readFileSync(seeded, "utf8"));
@@ -2684,7 +2709,7 @@ describe("boot-resume after a restart (#3878)", () => {
 			JSON.parse(fs.readFileSync(controlFile(), "utf8")).noProgressFrom,
 		).toBe(startedAt);
 		expect(readLog()).toContain(
-			`boot resume: resumed the loop started ${new Date(startedAt).toISOString()}, pid `,
+			`boot resume: resumed the loop counting from ${new Date(startedAt).toISOString()}, pid `,
 		);
 	});
 
@@ -2732,6 +2757,90 @@ describe("boot-resume after a restart (#3878)", () => {
 		expect((await command("boot-resume")).status).toBe(1);
 		expect(readLog()).toMatch(/boot resume: not resumed: no \S+ in /);
 		expect(fs.existsSync(at("ticks"))).toBe(false);
+	});
+});
+
+describe("a paused loop on the real tick (#3856)", () => {
+	const control = () => at(".refill-loop-control.json");
+	const stateFile = () => at(".refill-loop-state.json");
+	const pauseControl = () =>
+		fs.writeFileSync(
+			control(),
+			JSON.stringify({
+				...JSON.parse(fs.readFileSync(control(), "utf8")),
+				paused: { by: "founder", at: 7 },
+			}),
+		);
+	const readState = () => JSON.parse(fs.readFileSync(stateFile(), "utf8"));
+	const ticksDone = () =>
+		polled(() => fs.existsSync(stateFile()), "no paused tick wrote its state");
+	const recording = (name: string) =>
+		`require("node:fs").appendFileSync(${JSON.stringify(at(name))}, "called\\n");\n`;
+
+	const setCommand = (flag: string) =>
+		/* spawn-kept: two processes at once, as requestStop's. */
+		spawnSync(
+			process.execPath,
+			[path.join(scripts, "refill-loop.js"), "set", flag],
+			{ cwd: dir, env: loopEnv({}), encoding: "utf8" },
+		);
+
+	it("keeps the housekeeping, launches nothing and makes no slot, usage or cap read", async () => {
+		stub("reap-finished-sessions.js", recording("reaped"));
+		stub("allowance.js", recording("capped"));
+		/* Past any listing grace, and listed nowhere, so judged finished. */
+		fs.writeFileSync(
+			stateFile(),
+			JSON.stringify({
+				launches: [
+					{
+						root: repo,
+						issues: [9],
+						prompt: "/implement 9",
+						seat,
+						jobId: "gone",
+						launchedAt: Date.now() - 3600 * 1000,
+						finishedAt: null,
+					},
+				],
+			}),
+		);
+		pauseControl();
+		const running = run(1);
+		await polled(
+			() => readState().lastTick !== undefined && readState().lastTick !== null,
+			"no paused tick wrote its state",
+		);
+		requestStop();
+		const r = await settled(running, "run while paused");
+
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(
+			`idle: paused by founder at ${new Date(7).toISOString()}`,
+		);
+		expect(r.stdout).not.toContain("free slots");
+		expect(r.stdout).not.toContain("resumed 0 of");
+		expect(readLines(at("reaped")).length).toBeGreaterThan(0);
+		expect(readLines(at("supervised")).length).toBeGreaterThan(0);
+		expect(readState().launches[0].finishedAt).not.toBeNull();
+		expect(fs.existsSync(at("ticks"))).toBe(false);
+		expect(fs.existsSync(at("capped"))).toBe(false);
+		expect(fs.existsSync(at("dispatches"))).toBe(false);
+	});
+
+	it("launches again on a resume, with no restart", async () => {
+		pauseControl();
+		const running = run(1);
+		await ticksDone();
+		expect(fs.existsSync(at("dispatches"))).toBe(false);
+
+		const resumed = setCommand("--resume");
+		expect(resumed.status).toBe(0);
+		/* The stub dispatcher asks for the stop that ends this run. */
+		const r = await settled(running, "run after a resume");
+
+		expect(r.status).toBe(0);
+		expect(readLines(at("dispatches")).join("\n")).toContain("/implement 5");
 	});
 });
 

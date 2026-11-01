@@ -152,6 +152,50 @@ describe("decideTick stops (#2007)", () => {
 		).toEqual({ stop: "control-damaged", detail: "/c is damaged (bad)" });
 	});
 
+	describe("a paused loop (#3856)", () => {
+		const paused = { by: "founder", at: NOW - HOUR };
+		const idle = {
+			launches: [],
+			skipped: [],
+			idle: `paused by founder at ${new Date(NOW - HOUR).toISOString()}`,
+			held: [],
+			resumes: [],
+		};
+
+		it("idles, launching nothing, ranked tickets and gate judgements alike", () => {
+			expect(
+				tick({
+					paused,
+					judgements: [{ root: "wfc", number: 4, prompt: "/judge 4" }],
+					resumable: [{ jobId: "j", at: NOW - HOUR, line: "j" }],
+				}),
+			).toEqual(idle);
+		});
+
+		it("yields to an explicit stop and to a damaged control", () => {
+			expect(tick({ paused, stopRequested: true })).toMatchObject({
+				stop: "explicit",
+			});
+			expect(tick({ paused, controlDamaged: "/c is damaged" })).toMatchObject({
+				stop: "control-damaged",
+			});
+		});
+
+		it("comes ahead of the no-progress and the allowance stops", () => {
+			expect(
+				tick({ paused, history: [finished(7), finished(8), finished(9)] }),
+			).toEqual(idle);
+			expect(tick({ paused, seats: [seat("~/.claude3", FULL, 20)] })).toEqual(
+				idle,
+			);
+		});
+
+		it("counts no finish before a resume's new count point", () => {
+			const history = [finished(7), finished(8), finished(9)];
+			expect(tick({ history, noProgressFrom: NOW })).not.toHaveProperty("stop");
+		});
+	});
+
 	it("gives a loop started any length of time ago no stop for its age", () => {
 		expect(tick({ noProgressFrom: 0 })).not.toHaveProperty("stop");
 	});

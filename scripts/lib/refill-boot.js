@@ -24,12 +24,12 @@ function bootVerdictOf({ control, damaged, stopped, pid, self }) {
 	if (damaged !== null) return refused(damaged);
 	if (control === null) return refused("no start on record");
 	if (control.stopRequested) return refused("stopped by command");
-	/* A stop record older than the start belongs to an earlier run. */
+	/* A stop record older than the count's point belongs to an earlier run. */
 	if (stopped !== null && stopped.at >= control.noProgressFrom)
 		return refused(`the loop ended itself: ${stopped.detail}`);
 	return {
 		resume: true,
-		line: `boot resume: resumed the loop started ${new Date(control.noProgressFrom).toISOString()}`,
+		line: `boot resume: resumed the loop counting from ${new Date(control.noProgressFrom).toISOString()}`,
 	};
 }
 

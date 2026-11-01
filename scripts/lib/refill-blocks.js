@@ -92,9 +92,9 @@ const PARKED_STATE = "blocked";
  * @typedef {{sessionId: string|null, cwd: string}} ResumeTarget  a job's
  *   full session id, null unread, and the directory its resume runs in
  * @typedef {{agents: AgentRecord[]|null, now: number, io: BlockIo,
- *   swapHold: import("./admission.js").SwapHold}} Tick  a tick's listing,
- *   null unread; its clock; the program's I/O; the swap hold (#2690) as read
- *   this tick
+ *   swapHold: import("./admission.js").SwapHold, paused?: boolean}} Tick  a
+ *   tick's listing, null unread; its clock; the program's I/O; the swap hold
+ *   (#2690) as read this tick; whether the loop is paused
  * @typedef {Tick & {typedSeat: string|null, slots: number,
  *   readMoveSeats: () => import("./refill-decide.js").SizedSeat[],
  *   seatListRead: boolean}} LimitTick  `seatListRead`, whether the seats read
@@ -1134,6 +1134,10 @@ const ACTS = {
 	"handoff-relaunch": (l, seen) => handOff(l, seen),
 };
 
+/* The acts that set a session running, which spends allowance, so a paused
+ * tick leaves them for the tick after the resume (#3856). */
+const RUNNING_ACTS = new Set(["resume", "handoff-relaunch"]);
+
 /**
  * Each of `acts` done through ACTS, by job id.
  * @param {{l: BlockedLaunch, act: Act}[]} acts
@@ -1145,7 +1149,8 @@ function actedOn(acts, seen, how) {
 	const acted = new Map();
 	for (const { l, act } of acts) {
 		const handler = ACTS[act];
-		if (handler) acted.set(l.jobId, handler(l, seen, how));
+		if (handler && !(seen.paused && RUNNING_ACTS.has(act)))
+			acted.set(l.jobId, handler(l, seen, how));
 	}
 	return acted;
 }
@@ -1160,13 +1165,14 @@ const withActed = (launches, acted) =>
 
 /**
  * The tick's acts on blocked launches: each typed resume checked, then the
- * table's act on each (blockedActs).
+ * table's act on each (blockedActs). A paused tick checks none, as a failed
+ * check falls back to a resume.
  * @param {LoopLaunch[]} launches markParked's, off `seen`'s listing
  * @param {"away"|"normal"} mode
  * @param {Tick} seen
  */
 function actOnBlocks(launches, mode, seen) {
-	const settled = settleTyped(launches, seen);
+	const settled = seen.paused ? launches : settleTyped(launches, seen);
 	const acts = blockedActs(settled, mode, seen);
 	return withActed(
 		settled,
@@ -1794,7 +1800,7 @@ function actOnLimits(launches, mode, seen) {
  */
 function actOnIdle(launches, mode, seen) {
 	const owed = launches.map((l) =>
-		isActionable(l) && l.handOffTries !== undefined
+		isActionable(l) && l.handOffTries !== undefined && !seen.paused
 			? handOff(l, seen, true)
 			: l,
 	);

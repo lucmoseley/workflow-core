@@ -63,6 +63,7 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * @typedef {object} Control
  * @property {number} noProgressFrom ms, where the no-progress count counts from
  * @property {boolean} stopRequested
+ * @property {import("./refill-decide.js").Pause} [paused] absent where not paused
  * @property {string[]} seats config dirs, in failover order
  * @property {Scope} scope
  */
@@ -187,6 +188,23 @@ function parseScope(raw) {
 }
 
 /**
+ * The control file's pause (#3856): absent or null is no pause, and any other
+ * value is one, so a garbled pause launches nothing.
+ * @param {unknown} raw
+ * @returns {{paused?: import("./refill-decide.js").Pause}}
+ */
+function parsePause(raw) {
+	if (raw === undefined || raw === null) return {};
+	const r = isRecord(raw) ? raw : {};
+	return {
+		paused: {
+			by: typeof r.by === "string" ? r.by : "an unreadable record",
+			at: typeof r.at === "number" ? r.at : 0,
+		},
+	};
+}
+
+/**
  * The control file's fields, or null where it is not one. A file a start before
  * #3854 wrote names noProgressFrom `startedAt`. A stopgap: #3888 removes it.
  * @param {unknown} raw
@@ -199,6 +217,7 @@ function parseControl(raw) {
 	return {
 		noProgressFrom,
 		stopRequested: raw.stopRequested === true,
+		...parsePause(raw.paused),
 		seats: parseStrings(raw.seats),
 		scope: parseScope(raw.scope),
 	};
@@ -847,7 +866,7 @@ const limitHoldsOf = (launches) =>
 	});
 
 /**
- * Whether a `start` began the loop afresh after `since`, so a stop decided
+ * Whether a `start` or a resume moved the count on after `since`, so a stop decided
  * before it is stale.
  * @param {Control|null} control
  * @param {number} since
@@ -863,20 +882,28 @@ const isRestartedSince = (control, since) =>
 const isStopRequested = (control) => control?.stopRequested !== false;
 
 /**
+ * Whether a control read mid-tick holds back the tick's next launch: a stop or
+ * a pause.
+ * @param {Control|null} control
+ */
+const isLaunchBarred = (control) =>
+	isStopRequested(control) || control?.paused !== undefined;
+
+/**
  * What the dispatches did, dispatching each batch in turn after re-reading the
- * control, and none once it asks for a stop (#2126): one dispatch can hold
- * the tick for minutes. Residual: a dispatch already running still launches
+ * control, and none once it asks for a stop (#2126) or a pause: one dispatch can
+ * hold the tick for minutes. Residual: a dispatch already running still launches
  * every member.
  * @param {import("./refill-decide.js").Launch[][]} batches
  * @param {() => Control|null} readControl
  * @param {(batch: import("./refill-decide.js").Launch[]) => BatchOutcome} launch
  * @returns {Outcome}
  */
-function launchUntilStopped(batches, readControl, launch) {
+function launchUntilBarred(batches, readControl, launch) {
 	/** @type {Outcome} */
 	const outcome = { launched: [], refused: [], unreached: [] };
 	for (const [i, batch] of batches.entries()) {
-		if (isStopRequested(readControl())) {
+		if (isLaunchBarred(readControl())) {
 			outcome.unreached = batches.slice(i).flat();
 			break;
 		}
@@ -992,7 +1019,7 @@ const buildOutcomeLine = (o) =>
 		),
 		...(o.unreached.length > 0
 			? [
-					`not dispatched ${buildLaunchesLine(o.unreached)}: a stop landed first`,
+					`not dispatched ${buildLaunchesLine(o.unreached)}: a stop or a pause landed first`,
 				]
 			: []),
 	].join("; ");
@@ -1005,7 +1032,7 @@ const buildOutcomeLine = (o) =>
  * that had a slot from one that had none (#2362).
  * @param {import("./refill-decide.js").Decision} d
  * @param {Outcome} outcome
- * @param {{freeSlots: number, probes: Probe[], read: FrontierRead|null,
+ * @param {{freeSlots: number|null, probes: Probe[], read: FrontierRead|null,
  *   resumesDue: number, resumesStarted: number}} seen
  */
 function buildTickLine(
@@ -1020,7 +1047,10 @@ function buildTickLine(
 			? [`resumed ${resumesStarted} of ${resumesDue} due`]
 			: []),
 		...(d.launches.length === 0
-			? [`free slots: ${freeSlots}`, ...frontierNotes(d, read)]
+			? [
+					...(freeSlots === null ? [] : [`free slots: ${freeSlots}`]),
+					...frontierNotes(d, read),
+				]
 			: []),
 		...(d.launches.length > 0 && read ? [buildFrontierReadText(read)] : []),
 		...(probes.length > 0
@@ -1086,7 +1116,7 @@ const resumeDecided = (decision, launches, io) =>
 	"stop" in decision
 		? { launches, started: 0, waiting: false }
 		: io.resumeHeld(decision.resumes, launches, () =>
-				isStopRequested(io.readControl().control),
+				isLaunchBarred(io.readControl().control),
 			);
 
 /** @param {import("./refill-decide.js").TickInput} input */
@@ -1113,7 +1143,7 @@ const batchesToLaunch = (decision, waiting) =>
 
 /**
  * A tick from its decision on: dispatch its launches while the control asks
- * for no stop, write the state, then take the morning review's step, which
+ * for no stop or pause, write the state, then take the morning review's step, which
  * starts its child detached and returns at once (reviewStep).
  * A stop that landed during the dispatches or the review is logged and
  * recorded as `stop: explicit`, or `control-damaged` where the re-read found
@@ -1139,13 +1169,13 @@ function settleTick({ input, decision, state, judged, probes, read }, io) {
 		started,
 		waiting,
 	} = resumeDecided(decision, judged, io);
-	const outcome = launchUntilStopped(
+	const outcome = launchUntilBarred(
 		batchesToLaunch(decision, waiting),
 		() => io.readControl().control,
 		io.launchBatch,
 	);
 	const summary = buildTickLine(decision, outcome, {
-		freeSlots: input.freeSlots,
+		freeSlots: input.paused ? null : input.freeSlots,
 		probes,
 		read,
 		resumesDue: dueCount(input),

@@ -1,7 +1,7 @@
 /*
- * refill-commands.js — what the refill loop's `start` and `status` commands
- * compute and print, pure (#2012, #2123, spec #1995): the scope a `start`
- * writes over a running loop's, and the lines naming a loop's scope, its
+ * refill-commands.js — what the refill loop's `start`, `set` and `status`
+ * commands compute and print, pure (#2012, #2123, spec #1995): the scope a
+ * `start` writes over a running loop's, the field a `set` changes, and the lines naming a loop's scope, its
  * launches and its last tick. The control and state they read are
  * lib/refill-loop.js's.
  */
@@ -23,6 +23,7 @@ const {
 } = require("./overflow-notice.js");
 const {
 	buildOverflowHoldText,
+	buildPauseText,
 	hasRoom,
 	orderPlanSeats,
 	pickSeat,
@@ -65,6 +66,65 @@ function mergedScope(running, asked, root) {
 	if (running.mode === "away") return { ...running, goals };
 	const repos = [...new Set([...running.repos, ...asked.repos])];
 	return { ...asked, repos, goals };
+}
+
+/** @param {number} from */
+const buildCountingLine = (from) =>
+	`counting:  no-progress count from ${iso(from)}`;
+
+/**
+ * What a `set` does to the control just read under the lock: why it refuses, or
+ * the control to write, null where none, and the lines to print.
+ * @param {import("./refill-loop.js").ControlRead} read
+ * @param {{pause: boolean, running: boolean, now: number}} asked `pause`,
+ *   `--pause`, else `--resume`
+ * @returns {{refused: string}|{write: Control|null, lines: string[]}}
+ */
+function planSet({ control, damaged }, { pause, running, now }) {
+	if (damaged !== null) return { refused: `${damaged}; \`start\` rewrites it` };
+	if (control === null)
+		return { refused: "the loop was never started; run `start` first" };
+	const { write, lines } = buildSetChange(control, { pause, running, now });
+	return {
+		write,
+		lines: [
+			...lines,
+			...(running
+				? []
+				: ["refill loop: not running; this holds from its next start"]),
+		],
+	};
+}
+
+/**
+ * Only the field a `set` names changed. A resume of a running loop moves the
+ * point the no-progress count counts from, so the finishes before it do not
+ * count (#3856). With no process the point stays, so a loop that ended itself
+ * still reads as ended until a `start`. Asking for what already holds changes
+ * nothing, a repeat pause keeping its time.
+ * @param {Control} control
+ * @param {{pause: boolean, running: boolean, now: number}} asked
+ * @returns {{write: Control|null, lines: string[]}}
+ */
+function buildSetChange(control, { pause, running, now }) {
+	if (pause === (control.paused !== undefined))
+		return {
+			write: null,
+			lines: [
+				`unchanged: ${control.paused ? buildPauseText(control.paused) : "not paused"}`,
+			],
+		};
+	if (pause) {
+		const paused = { by: "founder", at: now };
+		return { write: { ...control, paused }, lines: [buildPauseText(paused)] };
+	}
+	const { paused: _resumed, ...rest } = control;
+	return running
+		? {
+				write: { ...rest, noProgressFrom: now },
+				lines: ["not paused", buildCountingLine(now)],
+			}
+		: { write: rest, lines: ["not paused"] };
 }
 
 /**
@@ -273,6 +333,11 @@ function buildScopeLines(control, { served, running, seatsLine }) {
 	);
 	const away = scope.mode === "away";
 	return [
+		...(control.paused
+			? [
+					`${buildPauseText(control.paused)}; launches nothing until \`set --resume\``,
+				]
+			: []),
 		away ? "mode:      away (every included repo)" : "mode:      normal",
 		`repos:     ${names(served)}`,
 		...(away ? [`excluding: ${names(scope.exclude)}`] : []),
@@ -358,8 +423,8 @@ function launchStateOf(l) {
 }
 
 /**
- * The launches `status` counts, those since the start and any still running
- * from before it, and of them those it lists: the last
+ * The launches `status` counts, those since the no-progress count's point and
+ * any still running from before it, and of them those it lists: the last
  * STATUS_LAUNCHES and every unsettled one.
  * @param {Control} control
  * @param {LoopState} state
@@ -376,14 +441,14 @@ function shownLaunches(control, state) {
 }
 
 /**
- * The lines a recorded start gives `status`: launches since it, and any still
- * running from before it.
+ * The lines a recorded control gives `status`: launches since the no-progress
+ * count's point, and any still running from before it.
  * @param {Control} control
  * @param {LoopState} state
  * @param {{served: string[], running: boolean, seatsLine: string}} opts
  */
 function buildControlLines(control, state, opts) {
-	const lines = [`started:   ${iso(control.noProgressFrom)}`];
+	const lines = [buildCountingLine(control.noProgressFrom)];
 	lines.push(...buildScopeLines(control, opts));
 	const since = launchesSince(state, control.noProgressFrom);
 	const { shown, listed } = shownLaunches(control, state);
@@ -395,7 +460,7 @@ function buildControlLines(control, state, opts) {
 		(k) => k === "park-stopped" || k === "parked",
 	).length;
 	lines.push(
-		`launches:  ${since} since start, ${running} running, ${parked} parked`,
+		`launches:  ${since} since then, ${running} running, ${parked} parked`,
 	);
 	for (const l of listed) {
 		const at = launchStateOf(l);
@@ -506,7 +571,7 @@ function buildOverflowBasisLines({
 }
 
 /**
- * `status --json`: whether the loop runs, the launch rows `status` lists,
+ * `status --json`: whether the loop runs, its pause, the launch rows `status` lists,
  * each with its seat as a tilde path and why it was picked (#3732), null on a
  * record from before that, and the `seats:` line's fields (#3733).
  * @param {{control: Control|null, state: LoopState, pid: number|null,
@@ -516,6 +581,7 @@ function buildStatusJson({ control, state, pid, seats }) {
 	return {
 		running: pid !== null,
 		pid,
+		paused: control?.paused ?? null,
 		seats,
 		launches: control
 			? shownLaunches(control, state).listed.map((l) => ({
@@ -541,4 +607,5 @@ module.exports = {
 	buildStatusLines,
 	foreseeSeat,
 	mergedScope,
+	planSet,
 };
