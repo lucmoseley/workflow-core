@@ -82,11 +82,11 @@
 	"scripts/session-arbiter.js": "dd06a82bd68b8df6",
 	"scripts/stale-write-back-gate.sh": "041c13c6ee40f37b",
 	"scripts/start-lander-on-push.js": "28c8ed206c44a609",
-	"scripts/sweep-debts-detached.sh": "7a61efb9bcba604b",
+	"scripts/sweep-debts-detached.sh": "5e84c75d2aeed973",
 	"scripts/unpark-on-prompt.js": "0cd5e513142cdf49",
 	"scripts/vitest-inflight-reporter.ts": "58f3f5d8d8517763",
 	"scripts/vitest-pass-reporter.ts": "f9b54539bcfef244",
-	"scripts/vitest-tree-watch.ts": "87efa6074bb60f4f",
+	"scripts/vitest-tree-watch.ts": "436d4afe168aaf7c",
 	"scripts/watch-artefact.js": "b1996640daf4cc7e",
 	"scripts/write-self-plugin-marker.sh": "ecbf6c767782ff76"
 }
