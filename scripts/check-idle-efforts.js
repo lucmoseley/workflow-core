@@ -12,7 +12,7 @@
  * fresh launch to it, and the refill loop each resume of a parked session
  * (lib/refill-batch.js's resumeParked, #3704). A launch the ledger still
  * holds counts as running, as does each launch of a loop holding its pid
- * lock. The loop's state names the parked issues it holds on a full seat,
+ * lock. The loop's state names the parked issues it holds,
  * and since when (#3680). A stopped loop serves no tracker, runs and holds
  * nothing, so its stop is caught rather than masked.
  *
@@ -51,10 +51,7 @@ const {
 } = require("./lib/dispatch-ledger.js");
 const hookMessage = require("./lib/hook-message");
 const deliveryStamp = require("./lib/delivery-stamp.js");
-const {
-	isFounderNoticeHeld,
-	relayLines,
-} = require("./lib/background-start.js");
+const { isFounderNoticeHeld } = require("./lib/background-start.js");
 const { localDate } = require("./lib/morning-review.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const loop = require("./lib/refill-loop.js");
@@ -189,7 +186,6 @@ const SPEC = {
 						stamp: deliveryStamp.readStamp(CHECKER),
 						day: localDate(new Date(now)),
 						held: isFounderNoticeHeld(CHECKER),
-						relay: relayLines(true),
 					}
 				: null,
 		);

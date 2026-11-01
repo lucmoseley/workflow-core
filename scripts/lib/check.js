@@ -194,6 +194,7 @@ function exitFinished(code) {
 const { CHILD_MAX_BUFFER: MAX_BUFFER } = require("./child-buffer.js");
 const { caught } = require("./caught.js");
 const { writeFd } = require("./write-fd.js");
+const { envelope: hookEnvelope } = require("./hook-envelope.js");
 
 const OUTCOMES = {
 	OK: { rank: 0, exit: 0 },
@@ -210,11 +211,13 @@ const OUTCOMES = {
  *   reader may compare (mantahostels#2490).
  * @typedef {{ okLine?: string, noun?: string, count?: number, data?: object,
  *   stamp?: string, stamps?: Record<string, string>,
- *   maxAgeMs?: number }} CheckResult `stamp` is
+ *   maxAgeMs?: number, afterReport?: () => void }} CheckResult `stamp` is
  *   the once-only delivery signature a persisted report carries so the reader
  *   can stamp it once shown (mantahostels#1975); `stamps` is the same idea for a checker
  *   whose findings do not reduce to one signature — a name-to-signature map
- *   the reader applies entry by entry (mantahostels#2277)
+ *   the reader applies entry by entry (mantahostels#2277); `afterReport` runs once a
+ *   non-`--json` report is out, so a run killed before it repeats its report
+ *   rather than swallows it
  * @typedef {{
  *   profile: string,
  *   materialise: "tree" | "blobs",
@@ -231,8 +234,10 @@ const OUTCOMES = {
  *   flags?: string[],
  *   module?: import("./workflow-core-config.js").ModuleGate,
  *   against?: AgainstSpec,
+ *   screenNotices?: boolean,
  *   run: (ctx: CheckContext) => CheckResult | void | Promise<CheckResult | void>,
- * }} CheckSpec
+ * }} CheckSpec `screenNotices` buffers a `--notify` run's stdout, for
+ *   sayNotice() to reach the founder's screen as well (finish()).
  *
  * @typedef {{ lines: string[], notify: typeof import("./notify-report.js"),
  *   startedAtMono: number }} Persist
@@ -262,7 +267,7 @@ class CheckContext {
 	/**
 	 * @param {string[]} argv
 	 * @param {{ usage: string, valueFlags?: string[], capture?: string[],
-	 *   persisting?: boolean }} opts
+	 *   screen?: string[], persisting?: boolean }} opts
 	 */
 	constructor(argv, opts) {
 		this.argv = argv;
@@ -290,6 +295,8 @@ class CheckContext {
 		 * without spawning it (mantahostels#2062). Takes priority over every other say()
 		 * route, --json included, since capturing IS the point of passing it. */
 		this._capture = opts.capture || null;
+		/** The sayNotice() text of a run that buffers for the founder's screen. */
+		this._screen = opts.screen ?? null;
 		/** say()'s text under --json-text, which the envelope carries as `text`. */
 		this._jsonLines = /** @type {string[]} */ ([]);
 		/* See SAY_FD_ENV. A non-numeric or absent value leaves say() alone. */
@@ -388,6 +395,38 @@ class CheckContext {
 			return;
 		}
 		writeFd(this.notify ? 1 : 2, `${message}\n`);
+	}
+
+	/**
+	 * say(), and under a `screenNotices` `--notify` run the founder's screen too.
+	 * @param {string} message
+	 */
+	sayNotice(message) {
+		this.say(message);
+		this._screen?.push(message);
+	}
+
+	/**
+	 * Writes a buffering run's stdout: one JSON document where it holds a notice,
+	 * as a hook's stdout parses only whole, else the plain text. `systemMessage`
+	 * reaches the screen and not the model, `additionalContext` the reverse
+	 * (#3776). Residual: a run killed before this says
+	 * nothing, where unbuffered text would have streamed.
+	 */
+	flushBuffered() {
+		if (!this._screen) return;
+		const context = (this._capture ?? []).join("\n");
+		const screen = this._screen.join("\n");
+		if (!context) return;
+		writeFd(
+			1,
+			screen
+				? JSON.stringify({
+						systemMessage: screen,
+						...hookEnvelope("SessionStart", { additionalContext: context }),
+					})
+				: `${context}\n`,
+		);
 	}
 
 	/**
@@ -1342,7 +1381,7 @@ function runCheck(spec) {
 	exitOnHelp(ownArgs, spec.usage);
 	/* Persist mode routes say() into an array instead of a fd, so the decision
 	 * is taken here — before the ctx exists — and the captured lines become the
-	 * report file's text in finish(). `capture`'s other user builds its own ctx
+	 * report file's text in finish(). `capture`'s in-process user builds its own ctx
 	 * (mantahostels#2062), so the two never contend. */
 	const persist = persisting(argv)
 		? {
@@ -1351,6 +1390,11 @@ function runCheck(spec) {
 				startedAtMono: performance.now(),
 			}
 		: null;
+	const buffering =
+		spec.screenNotices &&
+		argv.includes("--notify") &&
+		!argv.includes("--json") &&
+		!persist;
 	/* --against is the library's own flag, so its rev is declared a flag VALUE
 	 * for every checker rather than by each spec — otherwise the rev lands in
 	 * ctx.args as a positional in whichever checker forgot. */
@@ -1368,7 +1412,8 @@ function runCheck(spec) {
 	const ctx = new CheckContext(argv, {
 		usage: spec.usage,
 		valueFlags,
-		capture: persist ? persist.lines : undefined,
+		capture: persist?.lines ?? (buffering ? [] : undefined),
+		screen: buffering ? [] : undefined,
 		persisting: Boolean(persist),
 	});
 	/* Opened before any work and closed in finish(), so a run cut off midway
@@ -1603,6 +1648,13 @@ function finish(ctx, spec, { outcome, result, message }, persist) {
 	 * SessionStart reader exists yet to serve. */
 	if (!ctx.notify) for (const note of ctx.dirtyNotes) ctx.say(note);
 	if (persist) persistReport(spec, outcome, result, persist);
+	ctx.flushBuffered();
+	try {
+		result.afterReport?.();
+	} catch (e) {
+		/* The report is out, so a failed stamp only repeats it. */
+		writeFd(2, `${spec.name}: afterReport failed: ${caught(e).message}\n`);
+	}
 	exitFinished(exitFor(ctx, outcome));
 }
 

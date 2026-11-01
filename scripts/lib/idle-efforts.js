@@ -8,9 +8,9 @@
  * One whose own or a descendant's launch is still running is not idle. Blocked,
  * gated, `takes:human` and `parked` issues are not counted: each waits on
  * something other than a launch, as does a container all of whose open
- * children do. A parked issue the loop holds on its session's full seat is
- * counted (#3680), from the hold's start: it waits on that seat's reset, up
- * to 7 days. A stranding is
+ * children do. A parked issue the loop holds is counted, from the hold's start:
+ * on its session's full seat it waits on that seat's reset, up to 7 days
+ * (#3680), and at the limit-cap parks' cap on the founder (#3804). A stranding is
  * counted once, at its deepest idle issue, never again at each ancestor.
  *
  * The reason printed beside a tracker's oldest is the loop's hold where it
@@ -75,7 +75,7 @@ const QUERY =
  * @property {Map<string, number>} launches refKey to its last launch, ms
  * @property {Set<string>} running refKeys of launches still running
  * @property {Map<string, {why: string, since: number}>} holds refKeys of
- *   the parked issues the loop holds on a full seat, to the hold's reason and
+ *   the parked issues the loop holds, to the hold's reason and
  *   start, ms
  * @property {number} now ms
  */
@@ -123,7 +123,7 @@ const QUERY =
  * @property {{root: string, issues: number[]}[]} launches its running
  *   launches
  * @property {{root: string, number: number, why: string, since: number}[]}
- *   held the parked issues it holds on a full seat
+ *   held the parked issues it holds
  */
 
 /**
@@ -220,7 +220,7 @@ function parseIssueNodes(pages, now) {
 
 /**
  * @param {IssueReading} i
- * @param {boolean} isHeld whether the loop holds it on a full seat
+ * @param {boolean} isHeld whether the loop holds it
  */
 const isExcluded = (i, isHeld) =>
 	i.blocked ||
@@ -485,8 +485,8 @@ function selectUnseen(findings, stamp, day) {
 /**
  * @typedef {object} IdleReport
  * @property {TrackerFinding[]} unseen the trackers this run names
- * @property {string[]} lines its text, nested lines indented and any relay
- *   lines last; empty where it names none
+ * @property {string[]} lines its text, nested lines indented; empty where it
+ *   names none
  * @property {string|null} signature what records `unseen` as shown
  * @property {string|null} stampNow the signature to write now; null where this
  *   start holds the notice or has nothing new to record
@@ -498,7 +498,7 @@ function selectUnseen(findings, stamp, day) {
  * records nothing.
  * @param {TrackerFinding[]} findings
  * @param {boolean} loopRunning
- * @param {{stamp: string|null, day: string, held: boolean, relay: string[]}|null} notice
+ * @param {{stamp: string|null, day: string, held: boolean}|null} notice
  * @returns {IdleReport}
  */
 function buildIdleReport(findings, loopRunning, notice) {
@@ -510,12 +510,9 @@ function buildIdleReport(findings, loopRunning, notice) {
 		lines:
 			unseen.length === 0
 				? []
-				: [
-						...buildIdleLines(unseen, loopRunning).map(({ text, nested }) =>
-							nested ? `  ${text}` : text,
-						),
-						...(notice?.relay ?? []),
-					],
+				: buildIdleLines(unseen, loopRunning).map(({ text, nested }) =>
+						nested ? `  ${text}` : text,
+					),
 		signature,
 		stampNow: notice?.held ? null : signature,
 	};

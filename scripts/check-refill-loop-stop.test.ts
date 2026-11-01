@@ -90,9 +90,8 @@ describe("the first overflow launch (#3767)", () => {
 		writeStart();
 		const { status, stdout } = run(["--notify"]);
 		expect(status).toBe(0);
-		expect(stdout).toContain("REFILL-LOOP-OVERFLOW");
+		expect(JSON.parse(stdout).systemMessage).toContain("REFILL-LOOP-OVERFLOW");
 		expect(stdout).toContain("Its status:");
-		expect(stdout).toContain("Tell the founder");
 		expect(stdout).toContain("2026-11-01T09:00:00.000Z");
 		expect(stdout).toContain("~/.claude3-api");
 		expect(stdout).toContain(
@@ -192,13 +191,34 @@ describe("at session start (--notify)", () => {
 		expect(run(["--notify"]).stdout).toBe("");
 	});
 
-	it("names and spends a stop at a job he launched from the agents view, telling the session to relay it (#3772)", () => {
+	it("names and spends a stop at a job he launched from the agents view (#3772)", () => {
 		writeState("no-progress");
 		const his = writeJobRecord(path.join(dir, "his"), "claude");
-		const r = run(["--notify"], "startup", his);
-		expect(r.stdout).toContain("REFILL-LOOP-STOPPED");
-		expect(r.stdout).toContain("Tell the founder this in your next reply");
+		expect(run(["--notify"], "startup", his).stdout).toContain(
+			"REFILL-LOOP-STOPPED",
+		);
 		expect(run(["--notify"], "startup", his).stdout).toBe("");
+	});
+
+	it("puts the stop on his screen and in the session's context (#3776)", () => {
+		writeState("no-progress");
+		const r = run(["--notify"]);
+		expect(r.status).toBe(0);
+		const { systemMessage, hookSpecificOutput } = JSON.parse(r.stdout);
+		expect(systemMessage).toContain(
+			"REFILL-LOOP-STOPPED — the refill loop stopped on no progress",
+		);
+		expect(systemMessage).toContain("/pick-next");
+		expect(hookSpecificOutput.hookEventName).toBe("SessionStart");
+		expect(hookSpecificOutput.additionalContext).toContain(systemMessage);
+	});
+
+	it("keeps a plain run's report plain and its stamp unspent (#3776)", () => {
+		writeState("no-progress");
+		const plain = run([]);
+		expect(plain.status).toBe(0);
+		expect(plain.stderr).toContain("REFILL-LOOP-STOPPED");
+		expect(run(["--notify"]).stdout).toContain("REFILL-LOOP-STOPPED");
 	});
 
 	it("neither names nor spends a stop at a plain `claude --bg` job (#3772)", () => {
@@ -277,6 +297,10 @@ describe("at session start (--notify)", () => {
 });
 
 describe("the restart it names (#3371)", () => {
+	/** What reaches his screen, its lines unescaped. */
+	const screenOf = (r: { stdout: string }) =>
+		JSON.parse(r.stdout).systemMessage as string;
+
 	function writeControl(scope: object, startedAt = STOP_AT - 60_000) {
 		fs.writeFileSync(
 			path.join(dir, ".refill-loop-control.json"),
@@ -303,7 +327,7 @@ describe("the restart it names (#3371)", () => {
 		});
 		const r = run(["--notify"]);
 		expect(r.status).toBe(0);
-		expect(r.stdout).toContain(
+		expect(screenOf(r)).toContain(
 			"  Restart it in workflow-core: /pick-next #116 #117 mantahostels\n",
 		);
 	});
@@ -316,7 +340,7 @@ describe("the restart it names (#3371)", () => {
 		writeControl({ mode: "normal", repos, goals });
 		const r = run(["--notify"]);
 		expect(r.status).toBe(0);
-		expect(r.stdout).toContain(`  Restart it in workflow-core: ${line}\n`);
+		expect(screenOf(r)).toContain(`  Restart it in workflow-core: ${line}\n`);
 	});
 
 	it("names one /pick-next per goal's checkout for a normal stop", () => {
@@ -328,7 +352,7 @@ describe("the restart it names (#3371)", () => {
 		});
 		const r = run(["--notify"]);
 		expect(r.status).toBe(0);
-		expect(r.stdout).toContain(
+		expect(screenOf(r)).toContain(
 			"  Restart it with /pick-next, one per goal's checkout:\n" +
 				"    in workflow-core: /pick-next design-vault\n" +
 				"    in design-vault: /pick-next #9\n",
@@ -340,7 +364,7 @@ describe("the restart it names (#3371)", () => {
 		writeControl({ mode: "away", exclude: ["/h/mantahostels"], goals: {} });
 		const r = run(["--notify"]);
 		expect(r.status).toBe(0);
-		const out = r.stdout;
+		const out = screenOf(r);
 		expect(out).toContain(
 			`Restart away mode: node ${path.join(__dirname, "refill-loop.js")} start --away --exclude mantahostels\n`,
 		);
@@ -356,7 +380,7 @@ describe("the restart it names (#3371)", () => {
 		});
 		const r = run(["--notify"]);
 		expect(r.status).toBe(0);
-		const out = r.stdout;
+		const out = screenOf(r);
 		const away = `node ${path.join(__dirname, "refill-loop.js")} start --away --exclude mantahostels --exclude fantasy-books`;
 		expect(out).toContain(
 			`  CLAUDE_PROJECT_DIR=/h/workflow-core ${away} --goal 116,117\n`,

@@ -11676,6 +11676,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/hook-envelope.js": [
+			"scripts/check-clock-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/check-guard-test-isolation.test.ts",

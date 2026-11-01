@@ -7,7 +7,8 @@
  * start no one is watching, by the producer and by the replay alike, through
  * isFounderNoticeHeld: a notice's delivery stamp is per machine, and with
  * the refill loop launching about 120 jobs a day, a job would otherwise spend
- * it almost every day before his own session started.
+ * it almost every day before his own session started. The replay also shows
+ * them on his screen, through isFounderNotice (#3776).
  *
  * BACKGROUND: `CLAUDE_JOB_DIR` set, as in every `claude --bg` job, or a
  * print-mode run (`CLAUDE_CODE_ENTRYPOINT` `sdk-cli`, `claude -p`).
@@ -60,6 +61,9 @@ function isHisOwnJob(env) {
 
 const FOUNDER_NOTICES = new Set(["idle-efforts", "refill-loop-stop"]);
 
+/** @param {string} checker */
+const isFounderNotice = (checker) => FOUNDER_NOTICES.has(checker);
+
 /**
  * Whether this start holds back the founder notice `checker` reports: a
  * compaction, or a background start that is not his job's own launch.
@@ -68,20 +72,13 @@ const FOUNDER_NOTICES = new Set(["idle-efforts", "refill-loop-stop"]);
  * @param {NodeJS.ProcessEnv} [env]
  */
 const isFounderNoticeHeld = (checker, source, env = process.env) => {
-	if (!FOUNDER_NOTICES.has(checker)) return false;
+	if (!isFounderNotice(checker)) return false;
 	if (source === "compact") return true;
 	return isBackgroundStart(env) && (source === "resume" || !isHisOwnJob(env));
 };
 
-/** What a `--notify` founder notice ends on: `SessionStart` stdout reaches the model. */
-const RELAY_LINE =
-	"Tell the founder this in your next reply: it reaches only you.";
-
-/** @param {boolean} notifying */
-const relayLines = (notifying) => (notifying ? [RELAY_LINE] : []);
-
 module.exports = {
 	isHisJobRecord,
+	isFounderNotice,
 	isFounderNoticeHeld,
-	relayLines,
 };

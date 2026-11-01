@@ -10,7 +10,7 @@
  * READS the loop's state file (lib/refill-files.js) for its last stop. An
  * expiry or an explicit stop is not named.
  *
- * ONCE PER STOP. A `--notify` run records the stop's time in the stop-seen
+ * ONCE PER STOP. A `--notify` run, bar under `--json`, records the stop's time in the stop-seen
  * stamp beside the state file, and names no stop at or before it. A plain run
  * names it and records nothing. A compaction is no session start: its hook
  * payload's `source` is `compact`, and it prints and records nothing. The
@@ -32,6 +32,10 @@
  * file, read only beside a fresh stop, is named with it, until a `start`
  * rewrites it (#3380); beside the stop it caused, the stop line names it.
  *
+ * ITS NOTICES REACH THE FOUNDER'S SCREEN as a `systemMessage`, and the model as
+ * context (lib/check.js's screenNotices, #3776). A stamp is written once the
+ * notice is out.
+ *
  * IMPLICIT:  at every session start but a dispatcher's or the loop's job, prints the refill loop's last stop where it was no progress, the allowance cut or a damaged control file and is newer than the stamp, then stamps it; prints its newest first overflow launch where newer than that launch's stamp, then stamps it; and names a damaged state or control file.
  * JUSTIFIED: fail-safe — the loop runs outside any session, so nothing else reports its stopping or its spending.
  * DEFEAT:    none needed — it never blocks; deleting a stamp names its last event again.
@@ -41,10 +45,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const hookMessage = require("./lib/hook-message");
-const {
-	isFounderNoticeHeld,
-	relayLines,
-} = require("./lib/background-start.js");
+const { isFounderNoticeHeld } = require("./lib/background-start.js");
 const { buildOverflowStartLines } = require("./lib/overflow-notice.js");
 const loop = require("./lib/refill-loop.js");
 const refillFiles = require("./lib/refill-files.js");
@@ -138,9 +139,10 @@ function buildPickNextLines({ repos, goals }) {
  * @param {import("./lib/check").CheckContext} ctx
  * @param {import("./lib/overflow-notice.js").OverflowStart|null} start
  * @param {string} seenFile
+ * @returns {number|null} the launch time it named, for the stamp
  */
 function reportOverflowStart(ctx, start, seenFile) {
-	if (start === null || start.at <= readSeen(seenFile)) return;
+	if (start === null || start.at <= readSeen(seenFile)) return null;
 	const at = new Date(start.at).toISOString();
 	const seat = buildSeatName(start.seat);
 	ctx.warn(
@@ -148,22 +150,19 @@ function reportOverflowStart(ctx, start, seenFile) {
 		`the refill loop began spending API credits on ${seat} at ${at}`,
 		{ ...start },
 	);
-	ctx.say(
+	ctx.sayNotice(
 		`REFILL-LOOP-OVERFLOW — the refill loop began spending API credits at ${at}: its first overflow launch after a plan-seat launch, on ${seat}. Overflow launches only once every plan seat is weekly-full, and it read:\n` +
-			[
-				...buildOverflowStartLines(start),
-				`Its status: ${STATUS}`,
-				...relayLines(ctx.notify),
-			]
+			[...buildOverflowStartLines(start), `Its status: ${STATUS}`]
 				.map((l) => `  ${l}\n`)
 				.join(""),
 	);
-	if (ctx.notify) fs.writeFileSync(seenFile, `${start.at}\n`);
+	return start.at;
 }
 
 runCheck({
 	name: CHECKER,
 	usage: "node check-refill-loop-stop.js [--notify] [--json]",
+	screenNotices: true,
 	run(ctx) {
 		/* Read under --notify alone: a plain run's stdin may be a terminal. */
 		if (
@@ -175,7 +174,7 @@ runCheck({
 		/** @param {string} line */
 		const reportDamaged = (line) => {
 			ctx.warn("REFILL-LOOP-FILE-DAMAGED", line);
-			ctx.say(`REFILL-LOOP-FILE-DAMAGED — ${line}.`);
+			ctx.sayNotice(`REFILL-LOOP-FILE-DAMAGED — ${line}.`);
 		};
 		const { stopped, overflowStart } = loop.parseState(
 			refillFiles.readJson(files.state, reportDamaged),
@@ -204,21 +203,29 @@ runCheck({
 			const lines = [
 				...(renewed ? [] : buildRestartLines(control)),
 				`Its status: ${STATUS}`,
-				...relayLines(ctx.notify),
 			];
 			ctx.warn(
 				"REFILL-LOOP-STOPPED",
 				`the refill loop stopped on ${why} at ${at}`,
 				{ reason: stopped.reason, at, detail: stopped.detail },
 			);
-			ctx.say(
+			ctx.sayNotice(
 				`REFILL-LOOP-STOPPED — the refill loop stopped on ${why} at ${at}: ${stopped.detail}.${since}\n` +
 					lines.map((l) => `  ${l}\n`).join(""),
 			);
-			if (ctx.notify) fs.writeFileSync(files.stopSeen, `${stopped.at}\n`);
 		}
-		reportOverflowStart(ctx, overflowStart, files.overflowSeen);
+		const overflowAt = reportOverflowStart(
+			ctx,
+			overflowStart,
+			files.overflowSeen,
+		);
 		return {
+			afterReport() {
+				if (!ctx.notify) return;
+				if (fresh) fs.writeFileSync(files.stopSeen, `${stopped.at}\n`);
+				if (overflowAt !== null)
+					fs.writeFileSync(files.overflowSeen, `${overflowAt}\n`);
+			},
 			okLine: "no refill loop stop or overflow start to name.",
 			noun: "refill loop stop(s), overflow start(s) or damaged file(s)",
 			data: { stopped, overflowStart },

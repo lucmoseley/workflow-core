@@ -322,12 +322,15 @@ a doc.**
   wrong channel for anything an agent must act on** — put that in a `Stop`
   block's `reason` (mantahostels#2337). **The residual:** the probe rendered a
   `UserPromptSubmit` `systemMessage`, no `Stop` hook emitting one to test
-  against (mantahostels#2349); the reading above takes the CLI to render the channel
-  uniformly across events, which is assumed and not measured.
+  against (mantahostels#2349). A `SessionStart` `systemMessage` renders too, in a
+  foreground terminal and in a job from the agents view, and stays off the model
+  (Claude Code `2.1.316`, #3776). A `Stop` one remains assumed.
 - **`SessionStart` stdout** reaches the model, as the session's opening context
   and again straight after each compaction (`source: "compact"`, #1142).
   It refuses nothing and is spent unconditionally at every start, so it carries
-  a *report*, never a correction.
+  a *report*, never a correction. A report for the founder's eyes goes out as
+  one JSON document, on `systemMessage` and `additionalContext` both, since
+  stdout parses only whole: `runCheck`'s `screenNotices` and `ctx.sayNotice`.
 
 **The silence past the block cap.** `scripts/lib/hook-block.js` counts every
 `Stop` block against a per-session, per-prefix counter and returns `false` once

@@ -327,13 +327,12 @@ describe("at session start (--notify, #3644)", () => {
 		expect(fs.existsSync(stampPath())).toBe(true);
 	});
 
-	it("names and stamps a finding at a job he launched from the agents view, telling the session to relay it (#3772)", async () => {
+	it("names and stamps a finding at a job he launched from the agents view (#3772)", async () => {
 		const job = writeJobRecord(path.join(dir, "his"), "claude");
 		Object.assign(process.env, buildStartEnv(job));
 		const { stdout } = await run(oneIdle, ["--notify"]);
 		Object.assign(process.env, buildStartEnv());
 		expect(stdout).toContain("o/core: 1 idle past 2 days");
-		expect(stdout).toContain("Tell the founder this in your next reply");
 		expect(fs.existsSync(stampPath())).toBe(true);
 	});
 

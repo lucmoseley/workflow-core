@@ -1032,6 +1032,19 @@ describe("a notice for the founder alone (#3707)", () => {
 		expect(stamps.readStamp("idle-efforts")).toBeNull();
 	});
 
+	it("goes on his screen and in context, another report in context alone (#3776)", () => {
+		idle();
+		report("ci-status", "CI-STATUS (1) — red\n");
+		const r = read("--notify");
+		expect(r.status).toBe(0);
+		const { systemMessage, hookSpecificOutput } = JSON.parse(r.out);
+		expect(systemMessage).toContain("IDLE-EFFORTS (1) — o/r: 1 idle");
+		expect(systemMessage).not.toContain("CI-STATUS (1)");
+		expect(hookSpecificOutput.hookEventName).toBe("SessionStart");
+		expect(hookSpecificOutput.additionalContext).toContain("IDLE-EFFORTS (1)");
+		expect(hookSpecificOutput.additionalContext).toContain("CI-STATUS (1)");
+	});
+
 	it("is shown and stamped at the next interactive start the same day", () => {
 		idle();
 		readIn(path.join(dir, "job"), "--notify");

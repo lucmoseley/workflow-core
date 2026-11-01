@@ -60,7 +60,8 @@
  *            after the harness had stopped listening to it, bar the reports
  *            `isHeldForStatus` keeps for `npm run status` and a founder
  *            notice at a start not his: a dispatcher's or the loop's job, a
- *            wake, a print-mode run, or a compaction.
+ *            wake, a print-mode run, or a compaction. A founder notice also
+ *            reaches his screen (lib/check.js's screenNotices, #3776).
  * JUSTIFIED: fail-safe — it touches local files and nothing else, under
  *            --notify writing only its own shown-records, start count and
  *            delivery stamps, and under --status only those stamps, so it cannot inherit the cancellation it exists
@@ -95,7 +96,10 @@ const {
 const { hostRoot } = require("./lib/host-root.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { isRepoChecksReport } = require("./lib/repo-checks-reading.js");
-const { isFounderNoticeHeld } = require("./lib/background-start.js");
+const {
+	isFounderNotice,
+	isFounderNoticeHeld,
+} = require("./lib/background-start.js");
 const hookMessage = require("./lib/hook-message");
 const { trimEndRun } = require("./lib/trim-run.js");
 
@@ -347,7 +351,7 @@ const digestOf = (text) =>
  *   startNo: number,
  *   gated: (key: string) => boolean,
  *   record: [string, Shown][],
- *   blocks: string[],
+ *   blocks: { text: string, notice: boolean }[],
  *   injected: { checker: string, outcome: Report["outcome"], age: number|null }[],
  *   stale: { checker: string, age: number|null }[],
  *   silent: { checker: string, starts: number, age: number|null }[],
@@ -656,11 +660,13 @@ function alreadyShown(held, r, stamps) {
  */
 function inject(pass, report, r, { held, stamps }) {
 	pass.injected.push({ checker: r.name, outcome: report.outcome, age: r.age });
-	pass.blocks.push(
-		`▸ ${r.name} — ${humanAge(r.age)}` +
+	pass.blocks.push({
+		text:
+			`▸ ${r.name} — ${humanAge(r.age)}` +
 			`${held ? ` (${held}: a session start would not be shown this)` : ""}\n` +
 			trimEndRun(report.text, "\n"),
-	);
+		notice: isFounderNotice(r.name),
+	});
 	/* The producer carried its once-only signature(s) rather than applying
 	 * them, so this — the delivery — is where they are spent (mantahostels#1975, mantahostels#2277). */
 	if (pass.spending) for (const [k, stamp] of stamps) recordDelivery(k, stamp);
@@ -764,8 +770,9 @@ function persistShown(ctx, record, startNo) {
  * @param {string[]} unwired
  */
 function printSummary(ctx, { blocks, stale }, unwired) {
-	for (const block of blocks) {
-		ctx.say(block);
+	for (const { text, notice } of blocks) {
+		if (notice) ctx.sayNotice(text);
+		else ctx.say(text);
 		ctx.say("");
 	}
 	for (const f of ctx.findings) ctx.say(f.message);
@@ -823,8 +830,8 @@ function statusView(ctx) {
 		gated: () => false,
 	});
 	for (const key of notify.list().filter(isHeldForStatus)) replayKey(pass, key);
-	for (const block of pass.blocks) {
-		ctx.say(block);
+	for (const { text } of pass.blocks) {
+		ctx.say(text);
 		ctx.say("");
 	}
 	/* A WARN, or `npm run status` folds the blocks away as clean. */
@@ -840,6 +847,7 @@ function statusView(ctx) {
 runCheck({
 	name: SELF,
 	usage: `node ${scriptPath("replay-notify-reports.js")} [--notify | --status] [--json]`,
+	screenNotices: true,
 	flags: ["--status"],
 	run(/** @type {Ctx} */ ctx) {
 		if (ctx.has("--status")) return statusView(ctx);

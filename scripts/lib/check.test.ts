@@ -217,6 +217,62 @@ describe("--notify", () => {
 	});
 });
 
+describe("a screen notice (#3776)", () => {
+	const Buffering = "screenNotices: true,";
+	const said = `ctx.say("for the model"); ctx.sayNotice("for him"); ctx.warn("T","x"); return { noun: "n" };`;
+
+	it("goes out as one JSON document: the notice on the screen, everything in context", () => {
+		const r = run(checker(said, Buffering), ["--notify"]);
+		expect(r.status).toBe(0);
+		expect(JSON.parse(r.stdout)).toEqual({
+			systemMessage: "for him",
+			hookSpecificOutput: {
+				hookEventName: "SessionStart",
+				additionalContext: "for the model\nfor him\nWARN: 1 n",
+			},
+		});
+	});
+
+	it("leaves a run with no notice plain text", () => {
+		const r = run(checker(`ctx.say("for the model"); return {};`, Buffering), [
+			"--notify",
+		]);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toBe("for the model\n");
+	});
+
+	it("prints nothing where there is nothing to say", () => {
+		const r = run(checker("return {};", Buffering), ["--notify"]);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toBe("");
+	});
+
+	it("is plain text off --notify", () => {
+		const r = run(checker(said, Buffering));
+		expect(r.status).toBe(0);
+		expect(r.stderr).toContain("for him");
+		expect(r.stdout).toBe("");
+	});
+
+	it("runs afterReport under --notify, and not under --json", () => {
+		const mark = path.join(dir, "after");
+		const body = `ctx.sayNotice("for him"); return { afterReport: () => require("node:fs").writeFileSync(${JSON.stringify(mark)}, "x") };`;
+		const file = checker(body, Buffering);
+		expect(run(file, ["--notify", "--json"]).status).toBe(0);
+		expect(fs.existsSync(mark)).toBe(false);
+		expect(run(file, ["--notify"]).status).toBe(0);
+		expect(fs.existsSync(mark)).toBe(true);
+	});
+
+	it("keeps the document whole when afterReport throws, naming it on stderr", () => {
+		const body = `ctx.sayNotice("for him"); return { afterReport() { throw new Error("no stamp"); } };`;
+		const r = run(checker(body, Buffering), ["--notify"]);
+		expect(r.status).toBe(0);
+		expect(JSON.parse(r.stdout).systemMessage).toBe("for him");
+		expect(r.stderr).toContain("no stamp");
+	});
+});
+
 describe("stream discipline", () => {
 	it("puts human-readable output on stderr by default", () => {
 		const c = checker(`ctx.say("a detail"); return { okLine: "clean." };`);

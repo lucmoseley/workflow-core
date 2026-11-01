@@ -401,7 +401,6 @@ describe("buildIdleReport", () => {
 			stamp: deliveredStamp,
 			day,
 			held: false,
-			relay: [],
 		});
 
 	const idle = (number: number) => ({
@@ -458,29 +457,17 @@ describe("buildIdleReport", () => {
 			stamp: null,
 			day: "2026-10-29",
 			held: true,
-			relay: [],
 		});
 		expect(signature).not.toBeNull();
 		expect(stampNow).toBeNull();
 	});
 
-	it("ends what it names on the relay lines", () => {
-		const { lines } = buildIdleReport([unservedUrgent], true, {
-			stamp: null,
-			day: "2026-10-29",
-			held: false,
-			relay: ["relay it"],
-		});
-		expect(lines.at(-1)).toBe("relay it");
-	});
-
-	it("gives no lines where nothing is unseen, neither the stopped loop's nor a relay", () => {
+	it("gives no lines where nothing is unseen, not even the stopped loop's", () => {
 		const { signature } = reportAtStart([unservedUrgent], null, "2026-10-29");
 		const seen = buildIdleReport([unservedUrgent], false, {
 			stamp: signature,
 			day: "2026-10-29",
 			held: false,
-			relay: ["relay it"],
 		});
 		expect(seen).toMatchObject({ unseen: [], lines: [], stampNow: null });
 	});
