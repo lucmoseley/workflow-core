@@ -237,7 +237,6 @@ function buildAlreadyRedFileLines(classed) {
 module.exports = {
 	ALL_ALREADY_RED,
 	buildAlreadyRedFileLines,
-	buildAlreadyRedLines,
 	classifyFailures,
 	readAlreadyRedLines,
 	readRedEvidence,

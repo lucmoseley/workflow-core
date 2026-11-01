@@ -18,10 +18,11 @@
  * directory is created owner-only.
  *
  * NO FAMILY (§N3), as `grant-permission.js`: 0 written; 1 the file sits in a
- * git working tree, is a symlink, lies in a directory others can reach, is
- * not clean UTF-8, is held by another run too long, holds a line assigning
- * <NAME> it cannot replace, or cannot be written; 2 bad arguments or a value
- * no line can carry. Every refusal leaves the file untouched, and one about
+ * git working tree, is a symlink, lies in a directory others can reach or
+ * under one others can write, is not clean UTF-8, is held by another run too
+ * long or its lock's path holds no file, holds a line assigning <NAME> it
+ * cannot replace, or cannot be written; 2 bad arguments or a value no line
+ * can carry. Every refusal leaves the file untouched, and one about
  * the file itself comes before the value is asked for, bar that line, which
  * is read only under the lock, and a fault reading or writing it, met at the
  * write.
@@ -35,14 +36,53 @@
  * A BARE REPOSITORY whose work tree is set elsewhere, as a bare dotfiles setup
  * (`git --git-dir=~/.cfg --work-tree=~`, yadm), has no `.git` to find. The
  * directory's own `.gitignore`, holding `*`, keeps the file out of its `add`
- * (#3539). Residual: ignore rules never reach a file such a repository
+ * (#3539); git follows no symlinked `.gitignore`, so one is replaced
+ * (#3663). Under the WFC_SECRETS_FILE test override none is written, as the
+ * reader writes none (#3715). Residual: ignore rules never reach a file such a repository
  * already tracks, nor an `add -f`; that file wants `git rm --cached` there.
  *
  * A DIRECTORY OTHERS CAN REACH IS REFUSED (#3539): the file's directory, and
  * the aside before its rename, must be the user's own with no group or other
  * access, checked before the prompt and again before the write. `mkdir`'s
- * mode applies only on creation and a mount without
- * `metadata` (WSL's `/mnt/c`) ignores `chmod`, so either can be left loose.
+ * mode applies only on creation, so it can be left loose.
+ *
+ * A PARENT OTHERS CAN WRITE IS REFUSED (#3663): each directory holding an
+ * entry the path passes through as the kernel resolves it, every symlink's
+ * hops included (#3715), must be owned by this user or root and writable by
+ * no one else, bar a sticky one (`/tmp`), whose entries only their owner can
+ * move; and each symlink met must be theirs or root's. Node holds no
+ * directory by descriptor across a write (no `openat`), so the chain is
+ * checked instead. Group write passes where the group is this user's private
+ * one (`lib/private-group.js` judges it from the databases read here), as
+ * under `pam_umask usergroups` (#3676): their primary gid, under the
+ * one `/etc/passwd` row naming them, listing no other member in `/etc/group`
+ * and the primary gid of no other user, as Debian's OpenSSH StrictModes allows;
+ * and where the directory carries no ACL, whose named entries the group bits do
+ * not show, as an ACL-marking `ls` tells (#3715, #3737). Where lookups can
+ * reach a source beyond those files (LDAP, sssd, NIS, a systemd-homed user, an
+ * `initgroups` source) no group is judged private, so it refuses, as it does a
+ * group with a password. On NFS, a parent or the file's directory carrying any
+ * ACL that `ls` marks is refused, whatever its mode or sticky bit: an NFSv4 ACL
+ * can grant another user access with no group or other bit set (#3724).
+ * Residual: a group password or member set only in `/etc/gshadow`, which the
+ * user cannot read; a process root starts under the gid, which no database
+ * shows; and an ACL granting access no mode bit shows where `ls` marks none: an
+ * NFSv4 ACL under an `ls` neither GNU's nor uutils' from 0.0.24, or under a GNU
+ * `ls` built without ACL support, whose gnulib predates its NFSv4 reader or
+ * misses the ACL where Linux 6.12+ NFS answers EACCES, or whose entries name
+ * only OWNER@, GROUP@ and EVERYONE@, which gnulib calls trivial whatever they
+ * grant. uutils' `ls` marks any extended attribute, so under it every
+ * directory on an NFSv4 mount whose server supports ACLs is refused, the
+ * client listing `system.nfs4_acl` on each.
+ *
+ * A MOUNT WHOSE SERVER DECIDES ACCESS IS REFUSED (#3726): the file's
+ * directory, or a directory above it, on CIFS/SMB, 9p (WSL 2's drvfs, as
+ * `/mnt/c`), WSL 1's wslfs, FUSE (sshfs, virtiofs), AFS, Coda or GPFS. Its
+ * mode comes from mount options, is stored beside an ACL that decides, or is
+ * ignored by the daemon, so another account may read or swap the file while
+ * every mode check passes. A directory whose filesystem cannot be read is
+ * refused too. Residual: a filesystem off that list whose server or ACL
+ * decides access, as NFS (#3724 judges its ACL) or panfs.
  *
  * CONCURRENT RUNS take turns by `lib/pid-lock.js`'s lock, `secrets.env.lock`,
  * held from the read to the rename, so no run's key is lost to another's
@@ -58,8 +98,15 @@
  * would stay. Checked before the prompt and again under the lock.
  *
  * NOTHING OF THE VALUE IS PRINTED — not it, its length or any part of it — and
- * nor is a malformed name, which is most likely the secret pasted in the
- * wrong place.
+ * nor is any argument but one well-formed name, as a stray one is most likely
+ * the secret pasted in the wrong place (#3663). A name shaped as a token
+ * `lib/token-shapes.js` knows (`ghp_…`, `sk-ant-…`) is refused the same way;
+ * residual: a vendor it does not list passes as a name.
+ *
+ * A VALUE IS CLEAN UTF-8 WITH NO NUL, as the file must be: one holding a NUL,
+ * piped bytes that are not UTF-8, or a U+FFFD or lone surrogate is refused
+ * (#3663). The hidden prompt decodes strictly: typed bytes that are not UTF-8
+ * get their own refusal naming that cause, never "interrupted" (#3675, #3708).
  *
  * THE UPSERT replaces the value on every line `lib/env-file.js`'s grammar
  * reads as assigning <NAME> (`NAME=`, `export NAME =`), keeping that line's
@@ -85,18 +132,26 @@
  * no repository, and the founder's paste has no session to claim with.
  */
 
+const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { pidAlive } = require("./lib/arbiter-proc.js");
 const { asidePid, writeFileAtomic } = require("./lib/atomic-write.js");
-const { pidLock } = require("./lib/pid-lock.js");
+const { NotALock, pidLock } = require("./lib/pid-lock.js");
 const { sleepSync } = require("./lib/sleep-sync.js");
-const { parseOrCode } = require("./lib/cli-args");
+const { HELP, parseOrCode } = require("./lib/cli-args");
+const { isPrivateGroup, USERDB_DIRS } = require("./lib/private-group.js");
+const { readFdAll } = require("./lib/read-fd.js");
+const { writeFd } = require("./lib/write-fd.js");
+const { maskTokens } = require("./lib/token-shapes.js");
 const {
 	assignsAcrossBreak,
+	ignoreStore,
 	parseEnvLine,
 	quoteValue,
 	secretsFile,
+	secretsOverride,
 	splitEnvLines,
 } = require("./lib/env-file.js");
 const { hostRoot } = require("./lib/host-root.js");
@@ -122,33 +177,44 @@ const USAGE = `usage: write-secret.js <NAME>
  * @returns {number}
  */
 function refuse(file, why, status) {
-	process.stderr.write(`write-secret: refused, ${file} untouched — ${why}\n`);
+	writeFd(2, `write-secret: refused, ${file} untouched — ${why}\n`);
 	return status;
 }
 
 /**
  * @param {string} file
  * @param {string} what the directory or file found loose
- * @param {string} why `looseWhy`'s reason
+ * @param {string} why `looseWhy`'s or `remoteAccessWhy`'s reason
+ * @param {string} [fix] the way out, where `chmod` is not it
  * @returns {number}
  */
-function refuseLoose(file, what, why) {
+function refuseLoose(file, what, why, fix) {
 	const dir = path.dirname(file);
 	return refuse(
 		file,
-		`${what} ${why}, so another user could read or swap the file. Make ${dir} yours with no access for anyone else (\`chmod 700\`), on a filesystem that keeps modes (not a Windows drive under WSL), then re-run.`,
+		`${what} ${why}, so another user could read or swap the file. ${fix ?? `Make ${dir} yours with no access for anyone else (\`chmod 700\`), on a filesystem that keeps modes, then re-run.`}`,
 		1,
 	);
 }
 
 /**
- * The refusal `file`'s directory earns, or null: it lies in a git working
- * tree, or exists and is reachable by others.
+ * The refusal `file`'s directory earns, or null: it lies under a directory
+ * others can write, in a git working tree, or exists and lies on a mount
+ * whose server decides access or is reachable by others. The parents come
+ * first, as the tree's walk throws on one it cannot read.
  * @param {string} file
  * @returns {number | null}
  */
 function dirRefusal(file) {
 	const dir = path.dirname(file);
+	const above = swappableAbove(dir);
+	if (above !== null) {
+		return refuse(
+			file,
+			`${above.dir}, above its directory, ${above.why}, so another user could swap the directory for one of theirs. Point XDG_CONFIG_HOME at a directory on a local filesystem whose every parent is yours or root's and writable by no one else, then re-run.`,
+			1,
+		);
+	}
 	const tree = findEnclosingTree(dir);
 	if (tree !== null) {
 		return refuse(
@@ -158,8 +224,344 @@ function dirRefusal(file) {
 		);
 	}
 	if (!isDirectory(dir)) return null;
-	const why = looseWhy(dir);
+	const mount = remoteAccessWhy(dir);
+	if (mount !== null) {
+		return refuseLoose(
+			file,
+			`its directory ${dir}`,
+			mount,
+			"Point XDG_CONFIG_HOME at a directory on a local filesystem, then re-run.",
+		);
+	}
+	const why = looseWhy(dir) ?? nfsAclWhy(dir);
 	return why === null ? null : refuseLoose(file, `its directory ${dir}`, why);
+}
+
+/**
+ * The first directory above `dir` that lets another user replace what it
+ * holds, and why; or null. Every entry the path passes through as the kernel
+ * resolves it, each symlink's own hops included, has its parent checked, and
+ * each symlink met its owner too (#3663, #3715).
+ * @param {string} dir
+ * @returns {{ dir: string, why: string } | null}
+ */
+function swappableAbove(dir) {
+	const checked = new Set();
+	for (const hop of walkHops(path.resolve(dir))) {
+		if ("why" in hop) return hop;
+		if (hop.linkStat && !isOwnedByMeOrRoot(hop.linkStat))
+			return {
+				dir: hop.dir,
+				why: "is a symlink owned by neither you nor root",
+			};
+		const parent = path.dirname(hop.dir);
+		if (checked.has(parent)) continue;
+		checked.add(parent);
+		const why = swappableWhy(parent);
+		if (why !== null) return { dir: parent, why };
+	}
+	return null;
+}
+
+/** As Linux's MAXSYMLINKS, past which a resolve fails with ELOOP. */
+const MAX_SYMLINKS = 40;
+
+/** @typedef {{ dir: string, linkStat?: fs.Stats } | { dir: string, why: string }} Hop */
+
+/**
+ * Each entry absolute path `p` passes through, in the order a resolve meets
+ * them: a symlink's target is walked in its place, `..` climbing from where
+ * the walk has reached, so each entry's parent is an entry met before it or
+ * the root. A symlink's entry carries its lstat. The walk stops at the first
+ * entry that is absent, or that cannot be read, naming why.
+ * @param {string} p
+ * @returns {Hop[]}
+ */
+function walkHops(p) {
+	/** @type {Hop[]} */
+	const met = [];
+	const todo = pathParts(p);
+	let at = path.parse(p).root;
+	let links = 0;
+	for (let name = todo.shift(); name !== undefined; name = todo.shift()) {
+		if (name === "..") {
+			at = path.dirname(at);
+			continue;
+		}
+		const entry = path.join(at, name);
+		const { why, absent, st, target } = readEntry(entry);
+		if (why !== undefined) return [...met, { dir: entry, why }];
+		met.push(st === undefined ? { dir: entry } : { dir: entry, linkStat: st });
+		if (absent) return met;
+		if (target === undefined) {
+			at = entry;
+			continue;
+		}
+		if (++links > MAX_SYMLINKS)
+			return [...met, { dir: entry, why: "could not be checked (ELOOP)" }];
+		todo.unshift(...pathParts(target));
+		if (path.isAbsolute(target)) at = path.parse(target).root;
+	}
+	return met;
+}
+
+/**
+ * The names `p` is made of, `..` kept and `.` dropped.
+ * @param {string} p
+ * @returns {string[]}
+ */
+function pathParts(p) {
+	return p.split(path.sep).filter((n) => n !== "" && n !== ".");
+}
+
+/**
+ * Entry `entry` as `walkHops` meets it: absent, a symlink and its target, any
+ * other entry, or why it cannot be read.
+ * @param {string} entry
+ * @returns {{ why?: string, absent?: boolean, st?: fs.Stats, target?: string }}
+ */
+function readEntry(entry) {
+	try {
+		const st = fs.lstatSync(entry);
+		return st.isSymbolicLink() ? { st, target: fs.readlinkSync(entry) } : {};
+	} catch (e) {
+		const code = caught(e).code;
+		/* Absent, or a file where a directory goes: the write creates it under a
+		 * parent checked here, or refuses naming the fault (#3663). */
+		if (code === "ENOENT" || code === "ENOTDIR") return { absent: true };
+		return { why: `could not be checked (${code ?? "error"})` };
+	}
+}
+
+/**
+ * Why directory `d` lets another user replace its entries, or null.
+ * @param {string} d
+ * @returns {string | null}
+ */
+function swappableWhy(d) {
+	let st;
+	try {
+		st = fs.statSync(d);
+	} catch (e) {
+		/* Not there yet, or a file where it goes: the write creates it under a
+		 * parent checked here, or refuses naming the fault (#3663). Any other
+		 * fault leaves it unjudged, so it refuses. */
+		if (caught(e).code === "ENOENT" || caught(e).code === "ENOTDIR")
+			return null;
+		return `could not be checked (${caught(e).code ?? "error"})`;
+	}
+	if (!st.isDirectory()) return null;
+	if (!isOwnedByMeOrRoot(st)) return "is owned by neither you nor root";
+	/* Before the sticky pass, which such a server need not honour; nor need
+	 * NFS, where an NFSv4 ACL can grant DELETE_CHILD over it (RFC 8881
+	 * §6.2.1.3.2). */
+	const mount = remoteAccessWhy(d);
+	if (mount !== null) return mount;
+	const aclWhy = nfsAclWhy(d);
+	if (aclWhy !== null) return aclWhy;
+	if ((st.mode & 0o1000) !== 0) return null;
+	const othersWrite =
+		(st.mode & 0o002) !== 0 ||
+		((st.mode & 0o020) !== 0 &&
+			!(isPrivateGroup(st.gid, os.userInfo(), readUserDb()) && !hasAcl(d)));
+	if (othersWrite) return "is writable by others and not sticky";
+	return null;
+}
+
+/** statfs's type for NFS of every version, Linux's NFS_SUPER_MAGIC. */
+const NFS_MAGIC = 0x69_69;
+
+/**
+ * Why directory `d` may let another user in by an NFSv4 ACL, or null: it lies
+ * on NFS and `ls` marks an ACL on it, GNU's reading `system.nfs4_acl` as
+ * well as POSIX's, uutils' marking any extended attribute (#3724, #3737). Elsewhere a POSIX ACL is judged by the group bits, its
+ * mask, so a read-only entry passes. Where `ls` marks no ACL, none is seen,
+ * so none is judged there.
+ * @param {string} d
+ * @returns {string | null}
+ */
+function nfsAclWhy(d) {
+	if (!isOnNfs(d) || !isAclMarkingLs() || isAclUnmarked(d)) return null;
+	return "carries an ACL on NFS, where an NFSv4 entry can grant another user access no mode bit shows";
+}
+
+/** @param {string} d */
+function isOnNfs(d) {
+	try {
+		return fs.statfsSync(d).type === NFS_MAGIC;
+	} catch {
+		/* Unjudged: an ACL `ls` marks then refuses (#3724). */
+		return true;
+	}
+}
+
+/**
+ * statfs types whose server, daemon or ACL decides access, as Linux's magic.h
+ * and coreutils' `stat -f` name them.
+ */
+const REMOTE_ACCESS_MOUNTS = new Map([
+	[0xff_53_4d_42, "CIFS"],
+	[0xfe_53_4d_42, "SMB2"],
+	[0x01_02_19_97, "9p (WSL's drvfs)"],
+	[0x53_46_48_46, "wslfs (WSL 1's drvfs)"],
+	[0x65_73_55_46, "FUSE"],
+	[0x53_46_41_4f, "AFS"],
+	[0x6b_41_46_53, "AFS"],
+	[0x73_75_72_45, "Coda"],
+	[0x47_50_46_53, "GPFS"],
+]);
+
+/**
+ * Why directory `d` may let another account in whatever its mode shows, or
+ * null: it lies on a mount whose server or daemon decides access (#3726).
+ * @param {string} d
+ * @returns {string | null}
+ */
+function remoteAccessWhy(d) {
+	let type;
+	try {
+		type = fs.statfsSync(d).type;
+	} catch (e) {
+		return `could not have its filesystem read (${caught(e).code ?? "error"})`;
+	}
+	/* Unsigned, as a 32-bit kernel's signed f_type would sign-extend CIFS's. */
+	const kind = REMOTE_ACCESS_MOUNTS.get(type >>> 0);
+	return kind === undefined
+		? null
+		: `lies on a ${kind} mount, whose server decides access whatever its mode shows`;
+}
+
+/**
+ * Whether directory `d` may carry an ACL, as `ls` marks by a `+` after the
+ * mode: its group bits are then the ACL's mask, which a named user's entry
+ * can grant write through whatever the owning group (#3715). Node reads no
+ * extended attribute, so where `ls` marks no ACL, is not root's own copy at a
+ * fixed path, or does not answer, `d` is judged to carry one. Residual: a GNU
+ * `ls` built without ACL support prints no `+`.
+ * @param {string} d
+ * @returns {boolean}
+ */
+function hasAcl(d) {
+	return !isAclMarkingLs() || !isAclUnmarked(d);
+}
+
+/** `isAclMarkingLs`'s answer, asked once per run. @type {boolean | undefined} */
+let marksAcl;
+
+/** Where `ls` is run from, never PATH, which any directory on it can outrank. */
+const LS_PATHS = ["/usr/bin/ls", "/bin/ls"];
+
+/**
+ * The first of LS_PATHS that root owns and no one else can write, or null.
+ * @returns {string | null}
+ */
+function trustedLs() {
+	for (const p of LS_PATHS) {
+		let st;
+		try {
+			st = fs.statSync(p);
+		} catch {
+			/* Not at this path: the next is tried. */
+			continue;
+		}
+		if (st.isFile() && st.uid === 0 && (st.mode & 0o022) === 0) return p;
+	}
+	return null;
+}
+
+/** @param {string[]} args */
+function ls(...args) {
+	const bin = trustedLs();
+	if (bin === null) throw new Error("no root-owned ls at a fixed path");
+	return execFileSync(bin, args, {
+		encoding: "utf8",
+		env: { LC_ALL: "C" },
+		stdio: ["ignore", "pipe", "ignore"],
+	});
+}
+
+/**
+ * Whether `ls` marks an ACL: GNU's, or uutils' from 0.0.24, Ubuntu's own from
+ * 25.10 (#3737). uutils' marks any extended attribute, so it refuses more,
+ * never less.
+ */
+function isAclMarkingLs() {
+	if (marksAcl !== undefined) return marksAcl;
+	try {
+		const version = ls("--version");
+		const [, major, minor, patch] =
+			/^ls \(uutils coreutils\) (\d+)\.(\d+)\.(\d+)/.exec(version) ?? [];
+		marksAcl =
+			/^ls \(GNU coreutils\) /.test(version) ||
+			/* uutils#5816 added the mark, released in 0.0.24. */
+			(patch !== undefined &&
+				(Number(major) > 0 || Number(minor) > 0 || Number(patch) >= 24));
+	} catch {
+		/* No trusted `ls` to ask: no ACL can be seen (#3715). */
+		marksAcl = false;
+	}
+	return marksAcl;
+}
+
+/**
+ * Whether `ls -ld` shows `d` with no `+` after its mode, a symlinked config
+ * directory judged where it points: resolved here, as uutils' `ls -L` read
+ * the link's own attributes until uutils#13368 (#3737).
+ * @param {string} d
+ */
+function isAclUnmarked(d) {
+	try {
+		return /^d[-rwxsStT]{9}\.? /.test(ls("-ld", "--", fs.realpathSync(d)));
+	} catch {
+		/* It failed on `d`: unjudged, so it refuses (#3715). */
+		return false;
+	}
+}
+
+/**
+ * The user databases private-group.js judges, read from their fixed paths.
+ * @returns {import("./lib/private-group.js").UserDb}
+ */
+function readUserDb() {
+	return {
+		passwd: readText("/etc/passwd"),
+		group: readText("/etc/group"),
+		nsswitch: readText("/etc/nsswitch.conf"),
+		userdb: Object.fromEntries(USERDB_DIRS.map((d) => [d, readDirEntries(d)])),
+	};
+}
+
+/**
+ * @param {string} file
+ * @returns {string | null} null where it cannot be read
+ */
+function readText(file) {
+	try {
+		return fs.readFileSync(file, "utf8");
+	} catch {
+		/* Unreadable: no group is judged private, so the parent refuses. */
+		return null;
+	}
+}
+
+/**
+ * The names in directory `d`: none where it is absent, null where it cannot
+ * be read.
+ * @param {string} d
+ * @returns {string[] | null}
+ */
+function readDirEntries(d) {
+	try {
+		return fs.readdirSync(d);
+	} catch (e) {
+		/* Absent holds no record; any other fault leaves it unjudged. */
+		return caught(e).code === "ENOENT" ? [] : null;
+	}
+}
+
+/** @param {fs.Stats} st */
+function isOwnedByMeOrRoot(st) {
+	return st.uid === process.getuid?.() || st.uid === 0;
 }
 
 /** Thrown before the rename where the aside is reachable by others. */
@@ -279,7 +681,8 @@ function sweepAsides(file) {
 		/* No directory yet, so no aside, and the write creates it; or a file
 		 * where it goes, and the write refuses. */
 		if (caught(e).code === "ENOENT" || caught(e).code === "ENOTDIR") return;
-		process.stderr.write(
+		writeFd(
+			2,
 			`write-secret: warning — ${dir} could not be listed (${caught(e).code ?? "error"}), so ${LEFT} may remain there. Look for ${path.basename(file)}.*.tmp by hand.\n`,
 		);
 		return;
@@ -290,16 +693,18 @@ function sweepAsides(file) {
 		const aside = path.join(dir, name);
 		if (!fs.lstatSync(aside, { throwIfNoEntry: false })?.isFile()) continue;
 		if (pidAlive(pid)) {
-			process.stderr.write(
+			writeFd(
+				2,
 				`write-secret: left ${aside}, a copy of the secrets file: its pid ${pid} is running, so it may be a run still writing. Delete it once no write-secret runs.\n`,
 			);
 			continue;
 		}
 		try {
 			fs.rmSync(aside);
-			process.stderr.write(`write-secret: removed ${aside}, ${LEFT}.\n`);
+			writeFd(2, `write-secret: removed ${aside}, ${LEFT}.\n`);
 		} catch (e) {
-			process.stderr.write(
+			writeFd(
+				2,
 				`write-secret: warning — ${aside}, ${LEFT}, could not be removed (${caught(e).code ?? "error"}). Delete it by hand.\n`,
 			);
 		}
@@ -307,11 +712,19 @@ function sweepAsides(file) {
 }
 
 /**
- * The value from piped stdin, less one trailing line break.
- * @returns {string}
+ * The value from piped stdin, less one trailing line break; or null where its
+ * bytes are not valid UTF-8.
+ * @returns {string | null}
+ * @throws where stdin cannot be read
  */
 function readPiped() {
-	return fs.readFileSync(0, "utf8").replace(/\r?\n$/, "");
+	const bytes = readFdAll(0);
+	try {
+		return UTF8.decode(bytes).replace(/\r?\n$/, "");
+	} catch {
+		/* The fatal decoder's only throw (#3663). */
+		return null;
+	}
 }
 
 /**
@@ -345,11 +758,23 @@ function upsert(text, name, value) {
  * Upserts the value, once it is in hand, into `file`.
  * @param {string} file
  * @param {string} name
- * @param {string} raw
+ * @param {string | null} raw null where its bytes were not valid UTF-8
  * @param {boolean} fromTerminal whether `raw` was typed at the hidden prompt
  * @returns {number}
  */
 function upsertEnv(file, name, raw, fromTerminal) {
+	if (
+		raw === null ||
+		raw.includes("\0") ||
+		raw.includes("\uFFFD") ||
+		!raw.isWellFormed()
+	) {
+		return refuse(
+			file,
+			"the value is not valid UTF-8, or holds a NUL byte or U+FFFD, which the file could not carry intact. Re-run and give it as UTF-8 text.",
+			2,
+		);
+	}
 	const trimmed = raw.trim();
 	if (trimmed === "") {
 		return refuse(file, emptyWhy(name, hostRoot(), fromTerminal), 2);
@@ -370,16 +795,6 @@ function upsertEnv(file, name, raw, fromTerminal) {
 		);
 	}
 	return storeValue(file, name, value);
-}
-
-/**
- * Writes `<dir>/.gitignore` holding `*`, where it holds anything else.
- * @param {string} dir
- */
-function ignoreAll(dir) {
-	const ignore = path.join(dir, ".gitignore");
-	if (!fs.existsSync(ignore) || fs.readFileSync(ignore, "utf8") !== "*\n")
-		writeFileAtomic(ignore, "*\n", { mode: 0o600 });
 }
 
 /**
@@ -408,6 +823,7 @@ function storeValue(file, name, value) {
 	const dir = path.dirname(file);
 	const lock = pidLock(`${file}.lock`, path.basename(__filename));
 	let locked = false;
+	let replaced = false;
 	try {
 		fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
 		locked = waitForLock(lock);
@@ -422,7 +838,7 @@ function storeValue(file, name, value) {
 		 * leave time for a `git init` or a `chmod` above the file. */
 		const refused = dirRefusal(file);
 		if (refused !== null) return refused;
-		ignoreAll(dir);
+		if (secretsOverride() === null) ignoreStore(dir);
 
 		const read = readSecrets(file);
 		if ("why" in read) return refuse(file, read.why, 1);
@@ -441,12 +857,17 @@ function storeValue(file, name, value) {
 				if (why !== null) throw new LooseAside(why);
 			},
 		});
-		process.stdout.write(
-			`write-secret: ${next.replaced ? "replaced" : "added"} ${name} in ${file}\n`,
-		);
+		replaced = next.replaced;
 	} catch (e) {
 		if (e instanceof LooseAside)
 			return refuseLoose(file, "the file as written", e.message);
+		if (e instanceof NotALock) {
+			return refuse(
+				file,
+				`${file}.lock is not a regular file, so it is no lock any run can take. Remove it by hand, then re-run.`,
+				1,
+			);
+		}
 		return refuse(
 			file,
 			`it could not be written (${caught(e).code ?? "error"}). Check it is a regular file you can write, then re-run.`,
@@ -455,8 +876,26 @@ function storeValue(file, name, value) {
 	} finally {
 		if (locked) lock.release();
 	}
-
+	reportStored(file, name, replaced);
 	return 0;
+}
+
+/**
+ * Says the value is stored, once the write and the lock are done with.
+ * @param {string} file
+ * @param {string} name
+ * @param {boolean} replaced
+ */
+function reportStored(file, name, replaced) {
+	try {
+		writeFd(
+			1,
+			`write-secret: ${replaced ? "replaced" : "added"} ${name} in ${file}\n`,
+		);
+	} catch {
+		/* stdout's reader has gone; the value is stored all the same, so the
+		 * run still succeeds rather than calling the file untouched (#3716). */
+	}
 }
 
 /**
@@ -465,19 +904,27 @@ function storeValue(file, name, value) {
  */
 function main(argv) {
 	const file = secretsFile();
-	const parsed = parseOrCode(argv, { usage: USAGE, min: 1 });
-	if (typeof parsed === "number") return parsed;
-	const { positionals } = parsed;
-	const [name] = positionals;
-	if (name === undefined)
-		throw new Error("parse passed no <NAME> despite min: 1");
-	if (!VAR_NAME.test(name)) {
-		return refuse(
+	/* Before the parser, whose refusals quote the argument (#3663). */
+	const [only] = argv;
+	if (
+		argv.length !== 1 ||
+		only === undefined ||
+		!(VAR_NAME.test(only) || HELP.has(only)) ||
+		maskTokens(only).count > 0
+	) {
+		const status = refuse(
 			file,
-			"the argument is not a shell variable name (letters, digits and underscores, not starting with a digit). The value is asked for afterwards, never given on the command line.",
+			"it takes one argument, a shell variable name (letters, digits and underscores, not starting with a digit), and shows none it is given, as one may be the secret. The value is asked for afterwards, never given on the command line.",
 			2,
 		);
+		writeFd(2, `${USAGE}\n`);
+		return status;
 	}
+	const parsed = parseOrCode(argv, { usage: USAGE, min: 1 });
+	if (typeof parsed === "number") return parsed;
+	const [name] = parsed.positionals;
+	if (name === undefined)
+		throw new Error("parse passed no <NAME> despite min: 1");
 
 	sweepAsides(file);
 	const refused = dirRefusal(file);
@@ -492,15 +939,27 @@ function main(argv) {
 	const unclean = encodingRefusal(file);
 	if (unclean !== null) return unclean;
 
-	if (!process.stdin.isTTY) return upsertEnv(file, name, readPiped(), false);
-	process.stderr.write(`Value for ${name} (typing hidden, Enter to finish): `);
+	if (!process.stdin.isTTY) {
+		let piped;
+		try {
+			piped = readPiped();
+		} catch (e) {
+			return refuse(
+				file,
+				`stdin could not be read (${caught(e).code ?? "error"}). Re-run in your own terminal.`,
+				2,
+			);
+		}
+		return upsertEnv(file, name, piped, false);
+	}
+	writeFd(2, `Value for ${name} (typing hidden, Enter to finish): `);
 	return readHidden(process.stdin).then(
 		(raw) => {
-			process.stderr.write("\n");
+			writeFd(2, "\n");
 			return upsertEnv(file, name, raw, true);
 		},
 		() => {
-			process.stderr.write("\n");
+			writeFd(2, "\n");
 			return refuse(file, "interrupted. Re-run to enter the value.", 2);
 		},
 	);
@@ -517,7 +976,7 @@ if (require.main === module) {
 				process.exitCode = s;
 			},
 			(e) => {
-				process.stderr.write(`write-secret: ${e}\n`);
+				writeFd(2, `write-secret: ${e}\n`);
 				process.exitCode = 1;
 			},
 		);
