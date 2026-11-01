@@ -47,6 +47,7 @@ require(${JSON.stringify(KIT)}).run({ field: "command", noun: "command",
 	event: process.env.WFC_TEST_EVENT || undefined,
 	name: process.env.WFC_TEST_NAME || undefined,
 	onThrow: process.env.WFC_TEST_ON_THROW || undefined,
+	byHand: process.env.WFC_TEST_BY_HAND || undefined,
 	decide: (subject, ctx) => {
 		const d = JSON.parse(process.env.WFC_TEST_DECISION || "null");
 		if (d === "throw") throw new Error("core broke");
@@ -82,6 +83,7 @@ function call(
 		capBroken,
 		onThrow,
 		args = [],
+		env = {},
 	}: {
 		session?: string | null;
 		agent?: string;
@@ -91,6 +93,7 @@ function call(
 		capBroken?: boolean;
 		onThrow?: "refuse";
 		args?: string[];
+		env?: Record<string, string>;
 	} = {},
 ) {
 	const payload = {
@@ -114,6 +117,7 @@ function call(
 			...(name ? { WFC_TEST_NAME: name } : {}),
 			...(capBroken ? { WFC_TEST_CAP_BROKEN: "1" } : {}),
 			...(onThrow ? { WFC_TEST_ON_THROW: onThrow } : {}),
+			...env,
 		},
 	});
 	const out = r.stdout.trim();
@@ -430,6 +434,23 @@ describe("an entry run by hand (#3556)", () => {
 			"guard-fixture.js: a PreToolUse hook, which reads its payload on stdin and takes no arguments — refused before reading stdin, nothing done\n",
 		);
 		expect(readGuardErrorsLog(config)).toBe("");
+	});
+
+	it("spells the command it names at the plugin root in an install", () => {
+		const plugin = path.join(dir, "plugin");
+		fs.mkdirSync(path.join(plugin, "scripts"), { recursive: true });
+		fs.writeFileSync(path.join(plugin, "scripts", "claim-issue.js"), "");
+		const r = call(null, {
+			args: ["3435"],
+			env: {
+				WFC_SCRIPT_ROOT: plugin,
+				WFC_TEST_BY_HAND: "`node scripts/claim-issue.js <n>` to claim",
+			},
+		});
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(
+			`; run \`node ${plugin}/scripts/claim-issue.js <n>\` to claim\n`,
+		);
 	});
 });
 
