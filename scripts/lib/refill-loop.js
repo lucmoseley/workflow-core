@@ -136,6 +136,9 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * @property {LaunchCount|null} launchCount
  * @property {import("./overflow-notice.js").OverflowStart|null} overflowStart
  *   the newest first overflow launch after a plan-seat launch
+ * @property {string[]} probeBrokenRoots the last settled tick's served checkouts
+ *   whose probe failed, for the idle alarm: such a failure may leave no hold on
+ *   file (#3903)
  */
 
 /**
@@ -335,6 +338,7 @@ function parseState(raw) {
 		reviewRunOn: typeof r.reviewRunOn === "string" ? r.reviewRunOn : null,
 		launchCount: parseLaunchCount(r.launchCount),
 		overflowStart: parseOverflowStart(r.overflowStart),
+		probeBrokenRoots: parseStrings(r.probeBrokenRoots),
 	};
 }
 
@@ -1176,7 +1180,8 @@ const batchesToLaunch = (decision, waiting) =>
  * `stop` promises (#2126).
  * @param {{input: import("./refill-decide.js").TickInput,
  *   decision: import("./refill-decide.js").Decision, state: LoopState,
- *   judged: LoopLaunch[], probes: Probe[], read: FrontierRead|null}} tick
+ *   judged: LoopLaunch[], probes: Probe[], read: FrontierRead|null,
+ *   probeBrokenRoots: string[]}} tick
  * @param {{readControl: () => ControlRead,
  *   launchBatch: (batch: import("./refill-decide.js").Launch[]) => BatchOutcome,
  *   resumeHeld: ResumeHeld,
@@ -1188,7 +1193,10 @@ const batchesToLaunch = (decision, waiting) =>
  *   launched: number}} the late stop where one landed, else the tick's
  *   decision, and how many sessions the tick started
  */
-function settleTick({ input, decision, state, judged, probes, read }, io) {
+function settleTick(
+	{ input, decision, state, judged, probes, read, probeBrokenRoots },
+	io,
+) {
 	const {
 		launches: afterResumes,
 		started,
@@ -1231,6 +1239,7 @@ function settleTick({ input, decision, state, judged, probes, read }, io) {
 				launchesSince(state, input.noProgressFrom) + outcome.launched.length,
 		},
 		overflowStart: overflowStart ?? state.overflowStart,
+		probeBrokenRoots,
 	};
 	io.writeState(next);
 	const reviewRunOn = io.runReview(state.reviewRunOn, input.now);

@@ -800,6 +800,7 @@ function settleOnce(
 			judged: past,
 			probes,
 			read,
+			probeBrokenRoots: [],
 		},
 		{
 			readControl,
@@ -1719,6 +1720,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 				judged: [],
 				probes: [],
 				read: null,
+				probeBrokenRoots: [],
 			},
 			{
 				readControl: () =>
@@ -1813,6 +1815,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 				judged: [],
 				probes: [],
 				read: null,
+				probeBrokenRoots: [],
 			},
 			{
 				readControl: () => ({ control: null, damaged: null }),
@@ -2404,6 +2407,7 @@ describe("a resume the tick's step left held (#3855)", () => {
 				judged: [heldLaunch],
 				probes: [],
 				read: null,
+				probeBrokenRoots: [],
 			},
 			{
 				readControl: () => ({

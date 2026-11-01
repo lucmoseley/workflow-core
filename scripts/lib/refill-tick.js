@@ -1309,7 +1309,15 @@ async function tick({ dryRun }) {
 			agents,
 		};
 	const { decision: settled, launched } = loop.settleTick(
-		{ input, decision, state, judged: launches, probes, read },
+		{
+			input,
+			decision,
+			state,
+			judged: launches,
+			probes,
+			read,
+			probeBrokenRoots: broken,
+		},
 		{
 			readControl,
 			launchBatch: launchOrResume,

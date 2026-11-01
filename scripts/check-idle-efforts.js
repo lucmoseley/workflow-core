@@ -21,8 +21,10 @@
  * tick's reading keeps their start (#3850). Each checkout's park
  * markers name the tickets held at the limit-cap parks' cap, and since when,
  * with or without a loop (#3840). A running loop's served checkouts' repo holds
- * come off the store its tick reads (#3898). RESIDUAL: a probe hold the tick
- * could not write is the tick's alone, so its tracker's line still names rank.
+ * come off the store its tick reads (#3898), with the probe failures its last
+ * settled tick recorded in its state, which a store that took no write cannot
+ * show (#3903). RESIDUAL: a tick that throws before settling, or a refill
+ * directory refusing the state file too, leaves that record a tick or more old.
  *
  * WARN, never FAIL. A tracker that will not read is its own line, never
  * "none idle".
@@ -148,7 +150,7 @@ function readLoop(reportDamaged) {
 		served,
 		launches: loop.workingOf(state.launches),
 		held: [...state.held, ...loop.limitHoldsOf(state.launches)],
-		repoHolds: readTickHolds(served, []),
+		repoHolds: readTickHolds(served, state.probeBrokenRoots),
 	};
 }
 

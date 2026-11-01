@@ -3085,6 +3085,11 @@ process.stdout.write("Filed #${Issue}\\n");
 	/** One run whose stop follows its first tick's state: two real ticks. */
 	const tickRun = async (gh = "", over: NodeJS.ProcessEnv = {}) => {
 		fs.rmSync(stateFile(), { force: true });
+		return tickOnState(gh, over);
+	};
+
+	/* The state file must read no lastTick, or the wait below ends at once. */
+	const tickOnState = async (gh = "", over: NodeJS.ProcessEnv = {}) => {
 		updateControl({ stopRequested: false });
 		const running = run(1, { ...over, ...(gh ? { WFC_GH: gh } : {}) });
 		await polled(
@@ -3424,6 +3429,26 @@ node ${JSON.stringify(path.join(scripts, "request-stop.js"))}\n`,
 		expect(stdout).toContain(`repo hold probe in ${repo}: not kept:`);
 		expect(fs.existsSync(at("dispatches"))).toBe(false);
 		expect(readFiled()).toHaveLength(0);
+	});
+
+	it("records a failed probe in the loop's state, and drops it the tick the probe passes (#3903)", async () => {
+		const readState = () => JSON.parse(fs.readFileSync(stateFile(), "utf8"));
+		fs.writeFileSync(at("repo-holds"), "a file, not a directory\n");
+		breakHead();
+
+		const failed = await tickRun(serveClose().gh);
+
+		expect(failed.status).toBe(0);
+		expect(failed.stdout).toContain(`repo hold probe in ${repo}: not kept:`);
+		expect(readState().probeBrokenRoots).toEqual([repo]);
+
+		repairHead();
+		fs.writeFileSync(
+			stateFile(),
+			JSON.stringify({ ...readState(), lastTick: null }),
+		);
+		expect((await tickOnState(serveClose().gh)).status).toBe(0);
+		expect(readState().probeBrokenRoots).toEqual([]);
 	});
 
 	it("writes over a torn record of its hold", async () => {

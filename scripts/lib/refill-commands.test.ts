@@ -98,6 +98,7 @@ describe("what status prints", () => {
 		reviewRunOn: null,
 		launchCount: null,
 		overflowStart: null,
+		probeBrokenRoots: [],
 	};
 	const served = [WFC, MH];
 
@@ -252,6 +253,7 @@ describe("what status prints", () => {
 				reviewRunOn: null,
 				launchCount: null,
 				overflowStart: null,
+				probeBrokenRoots: [],
 			},
 			pid: null,
 			served: [],
@@ -282,6 +284,7 @@ describe("the launch lines status shows (#2850)", () => {
 				reviewRunOn: null,
 				launchCount: null,
 				overflowStart: null,
+				probeBrokenRoots: [],
 			},
 			pid: 1,
 			served: [DV],
@@ -429,6 +432,7 @@ describe("a launch row's seat and reason (#3732)", () => {
 		reviewRunOn: null,
 		launchCount: null,
 		overflowStart: null,
+		probeBrokenRoots: [],
 	});
 	const seat = `${process.env.HOME}/.claude2`;
 	const typed = record({ seat, reason: "last typed on" });
@@ -502,6 +506,7 @@ describe("a handed-off launch (#2659)", () => {
 				reviewRunOn: null,
 				launchCount: null,
 				overflowStart: null,
+				probeBrokenRoots: [],
 			},
 			pid: 1,
 			served: [DV],

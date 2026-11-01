@@ -478,6 +478,28 @@ describe("check-idle-efforts.js", () => {
 			});
 		});
 
+		const writeProbeBrokenRoots = (refill: string, roots: string[]) =>
+			fs.writeFileSync(
+				path.join(refill, ".refill-loop-state.json"),
+				JSON.stringify({ launches: [], probeBrokenRoots: roots }),
+			);
+
+		it("names the hold where the tick's probe failed with no hold on file, and rank once it passes again (#3903)", async () => {
+			const refill = serveCore();
+			writeProbeBrokenRoots(refill, [path.join(home, "core")]);
+			await withLiveLoop(refill, async () => {
+				const failing = await run({ "o/core": [node(3)] });
+				expect(failing.status).toBe(0);
+				expect(failing.out).toContain(`skip reason: ${PROBE_HELD}`);
+				expect(failing.out).not.toContain("rank");
+
+				writeProbeBrokenRoots(refill, []);
+				const passing = await run({ "o/core": [node(3)] });
+				expect(passing.status).toBe(0);
+				expect(passing.out).toContain("so it waits on rank");
+			});
+		});
+
 		it("still names rank in an unheld served checkout", async () => {
 			const refill = serveCore();
 			await withLiveLoop(refill, async () => {
