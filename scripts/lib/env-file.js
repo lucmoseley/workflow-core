@@ -110,6 +110,64 @@ function unquoteValue(raw) {
 	return raw.trim().replace(/^["']|["']$/g, "");
 }
 
+const QUOTES = "\"'`";
+
+/**
+ * `cut` less the quotes, backticks and spaces off each end, walked by hand as a
+ * regex would rescan a long run inside the value at every start (#3661).
+ * @param {string} cut
+ * @returns {string}
+ */
+function stripReadingEdge(cut) {
+	/** @param {string} char */
+	const isEdge = (char) => QUOTES.includes(char) || char.trim() === "";
+	let start = 0;
+	let end = cut.length;
+	while (start < end && isEdge(cut.charAt(start))) start++;
+	while (end > start && isEdge(cut.charAt(end - 1))) end--;
+	return cut.slice(start, end);
+}
+
+/**
+ * A line's raw right-hand side cut as a hand-writer may mean it, none of it the
+ * writer's grammar (#3908): through the first closing quote and through the
+ * last where a quote opens it, as a comment may hold one and a value may too;
+ * else up to the first `#`. Each goes through stripReadingEdge.
+ * @param {string} raw
+ * @returns {string[]}
+ */
+function parseHandWrittenValues(raw) {
+	const trimmed = raw.trim();
+	const quote = trimmed.charAt(0);
+	const closes =
+		quote && QUOTES.includes(quote) ? trimmed.indexOf(quote, 1) : -1;
+	const cuts =
+		closes === -1
+			? [trimmed.replace(/#.*/, "")]
+			: [
+					trimmed.slice(1, closes),
+					trimmed.slice(1, trimmed.lastIndexOf(quote)),
+				];
+	return cuts.map(stripReadingEdge);
+}
+
+const EXPANDED_ESCAPES = new Map([
+	["n", "\n"],
+	["r", "\r"],
+]);
+
+/**
+ * `value` with its backslash escapes expanded, as a shell or dotenv would.
+ * @param {string} value
+ * @returns {string}
+ */
+function unescapeValue(value) {
+	return value.replace(
+		/\\(.)/g,
+		(_match, char) => EXPANDED_ESCAPES.get(char) ?? char,
+	);
+}
+
 /**
  * A trimmed `value` as a line's right-hand side that unquoteValue reads back
  * unchanged, or null where none does.
@@ -259,6 +317,8 @@ const UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 const RESAVE_UTF8 = "Re-save it as UTF-8, then re-run.";
 
+const UNMASKABLE = "so its secrets cannot be masked.";
+
 /**
  * The secrets file's bytes as text, or the fault that keeps them from being
  * read as lines: `utf16` for a UTF-16 mark or a NUL byte, which no line
@@ -288,7 +348,8 @@ function decodeSecrets(bytes) {
  * it, as assignsAcrossBreak reads one (#3710).
  * @returns {{ name: string, raw: string }[]} empty where there is no file
  * @throws where the file is there but cannot be read as UTF-8 lines, as a
- *   masker that quietly masked fewer secrets would write their values bare
+ *   masker that quietly masked fewer secrets would write their values bare,
+ *   its message naming the fault and the way out
  */
 function readStoredAssignments() {
 	const file = secretsFile();
@@ -296,13 +357,23 @@ function readStoredAssignments() {
 	try {
 		bytes = readRegularFile(file);
 	} catch (err) {
-		if (caught(err).code === "ENOENT") return [];
-		throw err;
+		const { code, message } = caught(err);
+		/* ENOENT from a dangling symlink is a store gone wrong, not no store. */
+		if (code === "ENOENT" && !fs.lstatSync(file, { throwIfNoEntry: false }))
+			return [];
+		const fault =
+			err instanceof NotRegularFile
+				? message
+				: `${file} cannot be read (${code})`;
+		throw new Error(
+			`${fault}, ${UNMASKABLE} Make it a readable regular file, then re-run.`,
+			{ cause: err },
+		);
 	}
 	const decoded = decodeSecrets(bytes);
 	if ("fault" in decoded) {
 		throw new Error(
-			`${file} is not clean UTF-8 (${decoded.fault}), so its secrets cannot be masked. ${RESAVE_UTF8}`,
+			`${file} is not clean UTF-8 (${decoded.fault}), ${UNMASKABLE} ${RESAVE_UTF8}`,
 		);
 	}
 	return splitEnvLines(decoded.text)
@@ -311,28 +382,23 @@ function readStoredAssignments() {
 }
 
 /**
- * Every name the secrets file assigns, never a value: what a log masker
- * masks the value after (#3661).
- * @returns {string[]} empty where there is no file
+ * Every name the secrets file assigns, what a log masker masks the value after
+ * (#3661), and every non-empty value, what it masks wherever it appears
+ * (#3821), from one read of the file. A line gives its value whole, as
+ * readEnvFileValue reads it, and as parseHandWrittenValues cuts it, each with
+ * its escapes as written and expanded (#3908).
+ * @returns {{ names: string[], values: string[] }} empty where there is no file
  * @throws as readStoredAssignments does
  */
-function readStoredNames() {
-	return [...new Set(readStoredAssignments().map(({ name }) => name))];
-}
-
-/**
- * Every non-empty value the secrets file assigns: what a log masker masks
- * wherever it appears (#3821). A line with a ` #` gives its value both whole,
- * as readEnvFileValue reads it, and before that comment, as dotenv reads it.
- * @returns {string[]} empty where there is no file
- * @throws as readStoredAssignments does
- */
-function readStoredValues() {
-	const values = readStoredAssignments().flatMap(({ raw }) => [
-		unquoteValue(raw),
-		unquoteValue(raw.replace(/\s#.*/, "")),
-	]);
-	return [...new Set(values.filter(Boolean))];
+function readStoredSecrets() {
+	const assignments = readStoredAssignments();
+	const values = assignments
+		.flatMap(({ raw }) => [unquoteValue(raw), ...parseHandWrittenValues(raw)])
+		.flatMap((value) => [value, unescapeValue(value)]);
+	return {
+		names: [...new Set(assignments.map(({ name }) => name))],
+		values: [...new Set(values.filter(Boolean))],
+	};
 }
 
 module.exports = {
@@ -349,8 +415,7 @@ module.exports = {
 	secretsFile,
 	secretsOverride,
 	splitEnvLines,
-	readStoredNames,
-	readStoredValues,
+	readStoredSecrets,
 	RESAVE_UTF8,
 	UTF8,
 };

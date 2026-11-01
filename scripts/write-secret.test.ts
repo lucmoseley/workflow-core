@@ -25,7 +25,7 @@ import { gateway } from "./guard-jev-advisory.js";
 import { errorLog } from "./lib/arbiter-core.js";
 import {
 	readEnvFileValue,
-	readStoredNames,
+	readStoredSecrets,
 	secretsFile,
 } from "./lib/env-file.js";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
@@ -681,7 +681,7 @@ describe("write-secret", () => {
 		makeStoreDir();
 		plantFifo();
 		readFromStore();
-		expect(() => readStoredNames()).toThrow(/is no regular file/);
+		expect(() => readStoredSecrets()).toThrow(/is no regular file/);
 	});
 
 	it.each([

@@ -40,8 +40,9 @@
  * before the per-item cut, so a token straddling it leaves no fragment.
  *
  * IN NO SCRIPT FAMILY (docs/code-standards-base.md §N3): a scratch writer. Exit 0
- * written, printing the output path, line count and any masked count; 1 the log unreadable; 2 bad
- * usage or a refused output path.
+ * written, printing the output path, line count and any masked count; 1 the log
+ * or the secrets file unreadable, which leaves the output as it was; 2 bad usage
+ * or a refused output path.
  */
 
 const fs = require("node:fs");
@@ -53,7 +54,7 @@ const { hostRoot } = require("./lib/host-root");
 const { requiredGroup } = require("./lib/regex-group");
 const { isLoopPrompt } = require("./lib/loop-prompts");
 const { maskTokens } = require("./lib/token-shapes");
-const { readStoredNames, readStoredValues } = require("./lib/env-file.js");
+const { readStoredSecrets } = require("./lib/env-file.js");
 const {
 	STOP_FEEDBACK,
 	parseContentText,
@@ -98,14 +99,16 @@ const LIMIT = {
 /* Substrings masked so far, reported in the stdout summary. */
 let masked = 0;
 
-/* Read once: the secrets file's names and values, both masked. */
+/* The secrets file's names and values, both masked: read by `main` before it
+ * opens the output. */
+/** @type {{ names: string[], values: string[] } | undefined} */
 let storedSecrets;
 
 /**
  * @param {string} text
  */
 function mask(text) {
-	storedSecrets ??= { names: readStoredNames(), values: readStoredValues() };
+	if (!storedSecrets) throw new Error("mask ran before main read the secrets");
 	const result = maskTokens(text, storedSecrets.names, storedSecrets.values);
 	masked += result.count;
 	return result.text;
@@ -539,6 +542,18 @@ function main() {
 			2,
 			`retro-transcript: cannot read ${log} as a log file. Pass a session's <id>.jsonl, as listed under <config dir>/projects/<project>/.\n`,
 		);
+		process.exit(1);
+	}
+
+	try {
+		const { names, values } = readStoredSecrets();
+		/* An object's text reaches `mask` JSON-escaped, so a value does both ways. */
+		storedSecrets = {
+			names,
+			values: values.flatMap((v) => [v, JSON.stringify(v).slice(1, -1)]),
+		};
+	} catch (e) {
+		writeFd(2, `retro-transcript: refused: ${caught(e).message}\n`);
 		process.exit(1);
 	}
 

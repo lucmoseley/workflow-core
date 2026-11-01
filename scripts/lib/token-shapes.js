@@ -325,10 +325,10 @@ function maskValues(text, values) {
  * them at an `hf_` or `ghp_` inside.
  * @param {string} text
  * @param {string[]} [names] the secrets file's names, from
- *   `lib/env-file.js`'s `readStoredNames`: identifiers, put in the pattern as
+ *   `lib/env-file.js`'s `readStoredSecrets`: identifiers, put in the pattern as
  *   they are
  * @param {string[]} [values] the secrets file's values, from
- *   `lib/env-file.js`'s `readStoredValues`
+ *   `lib/env-file.js`'s `readStoredSecrets`
  * @returns {{ text: string, count: number }}
  */
 function maskTokens(text, names = [], values = []) {

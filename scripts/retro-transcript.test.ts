@@ -363,12 +363,83 @@ describe("token masking (#1031)", () => {
 		expect(r.stdout).toBe("");
 	});
 
-	it("stops before writing a line where the secrets file is there but unreadable (#3661)", () => {
+	it("refuses a secrets file it cannot read by name, with the way out (#3661, #3908)", () => {
 		fs.writeFileSync(path.join(repo, "secrets.env"), "K=v\n", { mode: 0o000 });
 		const log = sessionLog([toolResult("AI_GATEWAY_API_KEY=x")]);
 		const r = run([log]);
-		expect(r.status).not.toBe(0);
-		expect(r.stderr).toContain("EACCES");
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("retro-transcript: refused:");
+		expect(r.stderr).toContain("secrets.env cannot be read (EACCES)");
+		expect(r.stderr).toContain("Make it a readable regular file");
+		expect(r.stderr).not.toMatch(/^\s+at /m);
+		expect(r.stdout).toBe("");
+	});
+
+	it("leaves a prior --out file untouched where the secrets file is refused (#3908)", () => {
+		const out = path.join(repo, ".claude/tmp/prior.txt");
+		fs.mkdirSync(path.dirname(out), { recursive: true });
+		fs.writeFileSync(out, "prior transcript\n");
+		fs.writeFileSync(
+			path.join(repo, "secrets.env"),
+			Buffer.from("K=madeupvalue\n", "utf16le"),
+		);
+		const r = run([sessionLog([toolResult("hello")]), "--out", out]);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(
+			"retro-transcript: refused: " +
+				`${path.join(repo, "secrets.env")} is not clean UTF-8 (utf16)`,
+		);
+		expect(r.stderr).toContain("Re-save it as UTF-8");
+		expect(r.stderr).not.toMatch(/^\s+at /m);
+		expect(r.stderr).not.toContain("madeupvalue");
+		expect(fs.readFileSync(out, "utf8")).toBe("prior transcript\n");
+	});
+
+	it.each([
+		["no space before its #", "THR=threadmadeup#note", "threadmadeup"],
+		["backticks", "K=`backtickmadeup`", "backtickmadeup"],
+		["spaces inside its quotes", 'K=" spacedmadeup "', "spacedmadeup"],
+		["a # inside its quotes", 'Q="q madeup #inner" # note', "q madeup #inner"],
+	])(
+		"masks the bare value of a stored line with %s (#3908)",
+		(_n, line, value) => {
+			fs.writeFileSync(path.join(repo, "secrets.env"), `${line}\n`);
+			const r = run([
+				sessionLog([toolResult(`the log holds (${value}) here`)]),
+			]);
+			expect(r.status).toBe(0);
+			const out = readTranscript(r.stdout).join("\n");
+			expect(out).toContain("the log holds ([REDACTED:stored]) here");
+		},
+	);
+
+	it("masks a stored value an object's JSON text escapes (#3908)", () => {
+		const value = 'abcd"madeupvalue';
+		fs.writeFileSync(path.join(repo, "secrets.env"), `K='${value}'\n`);
+		const log = sessionLog([toolUse("t", "Grep", { pattern: value })]);
+		const r = run([log]);
+		expect(r.status).toBe(0);
+		expect(readTranscript(r.stdout).join("\n")).toContain(
+			'TOOL Grep: {"pattern":"[REDACTED:stored]"}',
+		);
+	});
+
+	it("masks a stored value's expanded escape in a log (#3908)", () => {
+		fs.writeFileSync(
+			path.join(repo, "secrets.env"),
+			'K="abcd\\"madeupvalue"\n',
+		);
+		const r = run([sessionLog([toolResult('(abcd"madeupvalue)')])]);
+		expect(readTranscript(r.stdout).join("\n")).toContain(
+			"([REDACTED:stored])",
+		);
+	});
+
+	it("refuses a store whose symlink target is gone, writing nothing (#3908)", () => {
+		fs.symlinkSync(path.join(repo, "gone"), path.join(repo, "secrets.env"));
+		const r = run([sessionLog([toolResult("hello")])]);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("secrets.env cannot be read (ENOENT)");
 		expect(r.stdout).toBe("");
 	});
 

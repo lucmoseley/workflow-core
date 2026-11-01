@@ -13,7 +13,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { readStoredNames, readStoredValues } = require("./env-file.js");
+const { readStoredSecrets } = require("./env-file.js");
 
 describe("the secrets file's stored names and values (#3821)", () => {
 	let dir: string;
@@ -31,8 +31,7 @@ describe("the secrets file's stored names and values (#3821)", () => {
 	});
 
 	it("reads none where there is no file", () => {
-		expect(readStoredNames()).toEqual([]);
-		expect(readStoredValues()).toEqual([]);
+		expect(readStoredSecrets()).toEqual({ names: [], values: [] });
 	});
 
 	it("reads each name and each non-empty value once, unquoted", () => {
@@ -40,17 +39,80 @@ describe("the secrets file's stored names and values (#3821)", () => {
 			file,
 			"\uFEFF# a comment\nA=one\nexport B = 'two#x'\r\nC=\nA=one\nA=three\rD=four\n",
 		);
-		expect(readStoredNames()).toEqual(["A", "B", "C", "D"]);
-		expect(readStoredValues()).toEqual(["one", "two#x", "three", "four"]);
+		expect(readStoredSecrets().names).toEqual(["A", "B", "C", "D"]);
+		expect(readStoredSecrets().values).toEqual([
+			"one",
+			"two#x",
+			"three",
+			"four",
+		]);
 	});
 
 	it.each([
 		["an unquoted value", "K=abcdefgh # prod", ["abcdefgh # prod", "abcdefgh"]],
 		["a quoted value", 'K="abcdefgh" # prod', ['abcdefgh" # prod', "abcdefgh"]],
-		["a # inside a word", "K=abc#defgh", ["abc#defgh"]],
-	])("reads %s both whole and before its comment", (_name, line, values) => {
-		fs.writeFileSync(file, line);
-		expect(readStoredValues()).toEqual(values);
+		["a # inside a word", "K=abcd#efgh", ["abcd#efgh", "abcd"]],
+		["backticks", "K=`abcdefgh`", ["`abcdefgh`", "abcdefgh"]],
+		["spaces inside quotes", 'K=" abcdefgh "', [" abcdefgh ", "abcdefgh"]],
+		[
+			"a # inside quotes, then a comment",
+			'K="abcd #efgh" # prod',
+			['abcd #efgh" # prod', "abcd #efgh"],
+		],
+		[
+			"an escaped quote",
+			'K="abcd\\"efgh"',
+			['abcd\\"efgh', 'abcd"efgh', "abcd\\"],
+		],
+		[
+			"a # inside a quoted value holding its own quote, then a comment",
+			"K='abcd'efgh #inner' # prod",
+			["abcd'efgh #inner' # prod", "abcd", "abcd'efgh #inner"],
+		],
+		["an expanded newline", "K=abcd\\nefgh", ["abcd\\nefgh", "abcd\nefgh"]],
+		[
+			"text after the closing quote",
+			'K="abcdefgh" junk',
+			['abcdefgh" junk', "abcdefgh"],
+		],
+		["nested quotes", "K=\"'abcdefgh'\"", ["'abcdefgh'", "abcdefgh"]],
+		["a quote the value never closes", 'K="abcd#efgh', ["abcd#efgh", "abcd"]],
+		[
+			"a quote inside a quoted value, then a comment",
+			"K='abcd'efgh' # prod",
+			["abcd'efgh' # prod", "abcd", "abcd'efgh"],
+		],
+		["a comment and no value", "K=#abcdefgh", ["#abcdefgh"]],
+	])(
+		"reads %s both whole and as a hand-writer means it",
+		(_name, line, values) => {
+			fs.writeFileSync(file, line);
+			expect(readStoredSecrets().values).toEqual(values);
+		},
+	);
+
+	it("reads an unclosed quote of 9M characters without overflowing the stack", () => {
+		fs.writeFileSync(file, `K="${"a".repeat(9_000_000)}`);
+		expect(readStoredSecrets().values).toHaveLength(1);
+	});
+
+	it("reads a long run of spaces inside a value in linear time", () => {
+		fs.writeFileSync(file, `K=abcd${" ".repeat(2_000_000)}efgh`);
+		const started = Date.now();
+		expect(readStoredSecrets().names).toEqual(["K"]);
+		expect(Date.now() - started).toBeLessThan(2000);
+	});
+
+	it("refuses a symlink whose target is gone, not reading it as no store", () => {
+		fs.symlinkSync(path.join(dir, "gone"), file);
+		expect(readStoredSecrets).toThrow("cannot be read (ENOENT)");
+	});
+
+	it("names the fault and the way out where the file cannot be read", () => {
+		fs.mkdirSync(file);
+		expect(readStoredSecrets).toThrow(
+			"is no regular file (a FIFO, socket, device or directory), so its secrets cannot be masked. Make it a readable regular file, then re-run.",
+		);
 	});
 
 	it.each([
@@ -68,7 +130,6 @@ describe("the secrets file's stored names and values (#3821)", () => {
 		["an invalid UTF-8 byte", Buffer.from([0x41, 0x3d, 0xe9]), "invalid"],
 	])("throws on %s, naming the fault", (_name, bytes, fault) => {
 		fs.writeFileSync(file, bytes);
-		expect(readStoredNames).toThrow(`(${fault})`);
-		expect(readStoredValues).toThrow(`(${fault})`);
+		expect(readStoredSecrets).toThrow(`(${fault})`);
 	});
 });
