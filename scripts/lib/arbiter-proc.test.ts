@@ -21,7 +21,7 @@
  * live session's claim is broken and its work clobbered.
  */
 
-import { type ChildProcess, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import { describe, expect, it } from "vitest";
 import { proc } from "./arbiter-testkit";
@@ -57,35 +57,48 @@ describe("procStart — the kernel token that makes a recycled pid detectable", 
 });
 
 describe("what /proc calls alive", () => {
-	/** `pid`, or the child's own, once its /proc stat matches `ready`. */
-	const started = async (child: ChildProcess, ready: RegExp, pid?: number) => {
-		for (let tries = 0; tries < 100; tries += 1) {
-			const who = pid ?? child.pid;
-			try {
-				if (ready.test(fs.readFileSync(`/proc/${who}/stat`, "utf8")))
-					return who as number;
-			} catch {
-				/* not exec'd yet */
-			}
+	/*
+	 * The 20 s ceiling is a guess, no stall having been measured; the case's two
+	 * waits stack to 40 s, under TEST_TIMEOUT_MS (lib/test-ceiling.js). A pid that
+	 * has gone throws at once: nothing here brings one back.
+	 */
+	const waitForStat = async (pid: number, ready: RegExp) => {
+		let stat = "";
+		for (const deadline = Date.now() + 20_000; Date.now() < deadline; ) {
+			stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
+			if (ready.test(stat)) return;
 			await new Promise((r) => setTimeout(r, 20));
 		}
-		throw new Error(`no ${ready} in /proc after 2s`);
+		throw new Error(`no ${ready} in /proc/${pid}/stat, last: ${stat}`);
 	};
 
 	it("counts a ZOMBIE as no process at all", async () => {
 		// A zombie keeps its stat entry, start time intact, until its parent reaps
 		// it — possibly never — and writes nothing, so counting it alive holds files
-		// for a session that no longer exists. The shell's exec'd sleep inherits
-		// the exited child and never waits on it.
-		const parent = spawn("sh", ["-c", "sleep 0 & echo $!; exec sleep 5"]);
+		// for a session that no longer exists.
+		//
+		// The child dies only once the shell has exec'd, because dash reaps any
+		// child already exited as it reaches `exec` (wait4 WNOHANG), leaving no
+		// zombie to read (#3914). The exec'd sleep never waits on it. Both sleeps
+		// need only outlast the case's timeout, and the `finally` kills them.
+		const parent = spawn("sh", ["-c", "sleep 600 & echo $!; exec sleep 600"]);
+		let zpid: number | undefined;
 		try {
-			const zpid = await new Promise<number>((resolve) =>
+			zpid = await new Promise<number>((resolve) =>
 				parent.stdout.once("data", (d) => resolve(Number(String(d).trim()))),
 			);
-			await started(parent, /^\d+ \(sleep\) Z /, zpid);
+			await waitForStat(parent.pid as number, /^\d+ \(sleep\) /);
+			process.kill(zpid);
+			// Any comm: a child killed before its own exec is still `sh`.
+			await waitForStat(zpid, /^\d+ \(\w+\) Z /);
 			expect(proc.readProcStartOf(zpid)).toBeNull();
 		} finally {
 			parent.kill();
+			try {
+				if (zpid) process.kill(zpid);
+			} catch {
+				/* ESRCH: already gone, which is all this kill wants */
+			}
 		}
 	});
 });
