@@ -240,6 +240,23 @@ describe("the pre-commit ruff gate", () => {
 		expect(output).not.toMatch(/F401/);
 	});
 
+	it("prints no fix-the-findings remedy when its checker exits 2 on a ruff that cannot lint (#3812)", () => {
+		const repo = fixture({ staged: { [PY]: BODY }, ruffExit: 3 });
+		const { code, output } = runGate(repo);
+		expect(code).toBe(2);
+		expect(output).toMatch(/BROKEN: ruff exited 3/);
+		expect(output).toMatch(
+			/the ruff gate refused this commit, its checker unable to run/,
+		);
+		expect(output).toMatch(
+			/This is the tool, not your change: repair what the line above names/,
+		);
+		expect(output).not.toMatch(/own Python paths/);
+		expect(output).not.toMatch(/ruff check --fix/);
+		expect(output).not.toMatch(/Fix the findings/);
+		expect(output).not.toMatch(/ruffExclude/);
+	});
+
 	it("passes a one-line addition to a file whose findings predate the commit", () => {
 		// The added line sits ABOVE the finding, so a line-keyed comparison
 		// would read the moved finding as new.

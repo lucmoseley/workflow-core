@@ -302,7 +302,7 @@
 			"lines": [
 				{
 					"text": "the ruff gate refused this commit",
-					"sites": 2
+					"sites": 3
 				}
 			]
 		},
@@ -320,7 +320,7 @@
 			"lines": [
 				{
 					"text": "the format gate refused this commit",
-					"sites": 2
+					"sites": 3
 				}
 			]
 		},
