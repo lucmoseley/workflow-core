@@ -436,7 +436,7 @@ describe("an entry run by hand (#3556)", () => {
 		expect(readGuardErrorsLog(config)).toBe("");
 	});
 
-	it("spells the command it names at the plugin root in an install", () => {
+	it("spells the command it names at the plugin root in an install (#3690)", () => {
 		const plugin = path.join(dir, "plugin");
 		fs.mkdirSync(path.join(plugin, "scripts"), { recursive: true });
 		fs.writeFileSync(path.join(plugin, "scripts", "claim-issue.js"), "");

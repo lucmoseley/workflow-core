@@ -374,7 +374,7 @@ function subjectFor(payload, { field, top }) {
  * hold it for good (#3556).
  * @param {HookEvent} event
  * @param {string} [byHand] the command to run instead, its core paths spelled
- *   at the plugin root here
+ *   at the plugin root here, so no entry can print one bare to an adopter (#3690)
  */
 function refuseIfRunByHand(event, byHand) {
 	if (process.argv.length <= 2) return false;
