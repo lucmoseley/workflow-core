@@ -13,8 +13,11 @@ import {
 	signalLine,
 	writeJournalctl,
 } from "./earlyoom-journal-fake";
+import { ghAnswerNode, RECORDED_SHAPES } from "./gh-fake";
 import { stubGhScript } from "./gh-stub";
 import { runInProcess } from "./run-in-process";
+
+const NOT_FOUND = path.join(__dirname, "fixtures/gh/not-found.json");
 
 /**
  * `gh` over one tracker's review issues (`reviews.json`), closes
@@ -31,30 +34,39 @@ import { runInProcess } from "./run-in-process";
  * does; `fail-after-create` makes a create land and report failure.
  * file-issue.js's similar-title list also holds an open lookalike, #1995,
  * among enough unrelated titles that it scores above the cut.
+ *
+ * It routes its own calls (#3833) because `stubGhRoutes` fixes each key's answer
+ * when the table is written, and these change within a run. A table hands no
+ * call on, so the reads that stay fixed stay here too. `serveGhStub` answers one
+ * call at a time, so a create waiting mid-answer would stall the second program
+ * it is waiting for. Residual, #3842: the answers that skip `asRecorded` are held
+ * to no recording.
  */
 const Stub = `#!/usr/bin/env node
+${RECORDED_SHAPES}
 const fs = require("node:fs");
 const path = require("node:path");
 const f = (n) => path.join(process.env.STUB_DIR, n);
 const a = process.argv.slice(2);
 const read = (n) => JSON.parse(fs.readFileSync(f(n), "utf8"));
 const say = (o) => { process.stdout.write(JSON.stringify(o)); process.exit(0); };
+const page = (kind, rows) => { process.stdout.write(asRecorded(kind, [rows])); process.exit(0); };
 fs.appendFileSync(f("calls.log"), a.join(" ") + "\\n");
 const timeline = (a[1] ?? "").split("/");
 if (a[0] === "api" && a[1] === "graphql") say([{ data: { repository: { issues: { pageInfo: { hasNextPage: false }, nodes: read("idle.json") } } } }]);
-if (a[0] === "api" && timeline[5] === "timeline") say([read("timelines.json")[timeline[4]] ?? []]);
+if (a[0] === "api" && timeline[5] === "timeline") page("timelinePage", read("timelines.json")[timeline[4]] ?? []);
 if (a[0] === "issue" && a[1] === "list" && a[a.indexOf("--label") + 1] === "urgent") say(read("urgent.json"));
 if (a[0] === "issue" && a[1] === "list" && a[a.indexOf("--label") + 1] === "parked") say(read("parked.json"));
 if (a[0] === "api" && ["repos/acme/wfc/labels", "repos/acme/other/labels"].includes(a[1])) say([[{ name: "takes:wayfinder" }, { name: "takes:implement" }]]);
 if (a[0] === "api" && ["repos/acme/wfc/issues", "repos/acme/other/issues"].includes(a[1]) && a.some((x) => x.startsWith("since="))) {
-	if (fs.existsSync(f("fail-issues-since"))) { process.stderr.write("HTTP 502\\n"); process.exit(1); }
-	if (fs.existsSync(f("empty-issues-since"))) { fs.rmSync(f("empty-issues-since")); say([[]]); }
-	say([fs.readdirSync(process.env.STUB_DIR).flatMap((n) => {
+	if (fs.existsSync(f("fail-issues-since"))) { ${ghAnswerNode(NOT_FOUND)} }
+	if (fs.existsSync(f("empty-issues-since"))) { fs.rmSync(f("empty-issues-since")); page("issuesPage", []); }
+	page("issuesPage", fs.readdirSync(process.env.STUB_DIR).flatMap((n) => {
 		const number = /^created-(\\d+)\\.json$/.exec(n)?.[1];
 		if (!number) return [];
 		const { title, body } = read(n);
 		return [{ number: Number(number), title, state: "open", body }];
-	})]);
+	}));
 }
 if (a[0] === "issue" && a[1] === "list" && a.includes('in:title "Memory kill incident from"')) say(read("kills.json"));
 if (a[0] === "issue" && a[1] === "list" && a.includes("--search") && !a.includes("--label")) say(read("closed.json"));

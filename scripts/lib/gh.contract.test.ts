@@ -563,6 +563,43 @@ describe("live: computed answers", () => {
 		).toEqual(real);
 	});
 
+	/* Production's own flags, narrowed to the issue-list page's rows so #948
+	 * stays first and the read stays a few pages (#3833). */
+	it("lib/gh.js's issues-since read answers alike from the real gh, the stub and the in-process fake", async ({
+		skip,
+	}) => {
+		liveSkip ??= { reason: liveSkipReason() };
+		if (liveSkip.reason) return skip(liveSkip.reason);
+		const { ghIssuesUpdatedSince } = await import(LIB);
+		const log = path.join(dir, "since-calls");
+		process.env.WFC_GH = computedStub(
+			BLOCKED_BY_GRAPHQL_FAKE,
+			JSON.stringify(ghAnswer(ISSUES_PAGE)),
+			log,
+		);
+		ghIssuesUpdatedSince("{owner}/{repo}", "2020-01-01T00:00:00Z");
+		const sent: string[] = JSON.parse(
+			fs.readFileSync(log, "utf8").trim().split("\n")[0] as string,
+		);
+		expect(sent).toContain("since=2020-01-01T00:00:00Z");
+		const args = [
+			...sent,
+			"-f",
+			"labels=enhancement,takes:triage,kind:spec",
+			"-f",
+			"sort=created",
+			"-f",
+			"direction=asc",
+		];
+		const real = await throughSeam(realGh as string, args);
+		expect(withoutText(await throughSeam(stubbed(ISSUES_PAGE), args))).toEqual(
+			withoutText(real),
+		);
+		expect(withoutText(await observe(ghFake(ISSUES_PAGE), args))).toEqual(
+			withoutText(real),
+		);
+	});
+
 	/* GRAPHQL_NO_REPO is static: verdict and shape only, its repository name
 	 * being synthetic. */
 	it("lib/blocked-by-batch.js's batched read of a missing repository answers alike from the real gh, the stub and the in-process fake", async ({

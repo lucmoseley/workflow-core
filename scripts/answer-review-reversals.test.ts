@@ -259,7 +259,7 @@ describe("answer-review-reversals.js (#2017)", () => {
 		const r = run();
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain(
-			"entry 1 of #5: could not look for a ticket already filed (HTTP 502), left for the next run",
+			"entry 1 of #5: could not look for a ticket already filed (gh: Not Found (HTTP 404)), left for the next run",
 		);
 		expect(readCreated()).toHaveLength(0);
 	});

@@ -1,6 +1,7 @@
 /*
  * Shared scaffolding for faking `gh` in tests. A test answering more than one
- * call passes `stubGhRoutes` a route table, never a router of its own; this
+ * call passes `stubGhRoutes` a route table, or `serveGhStub` a handler where its
+ * answers change within a run, never a router of its own; this
  * owns the stub executable and its one injection point, WFC_GH, which
  * scripts/lib/gh.js and every shell caller's "${WFC_GH:-gh}" read. The
  * canonical failure mode is gh-fake's logged-out answer, which

@@ -9627,12 +9627,14 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/earlyoom-kills.js": [
+			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/lib/earlyoom-journal.contract.test.ts",
 			"scripts/lib/earlyoom-kills.test.ts",
 			"scripts/lib/git.test.ts",
@@ -10313,6 +10315,8 @@
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh/not-found.json": [
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/lib/gh.contract.test.ts",
 			"scripts/lib/gh.test.ts",
 			"scripts/lib/issue-create-label.test.ts",
