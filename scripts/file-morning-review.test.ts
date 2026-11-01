@@ -564,6 +564,27 @@ describe("file-morning-review.js (#2011)", () => {
 		};
 		const stubCloses = (...issues: object[]) =>
 			fs.writeFileSync(stub("closed.json"), JSON.stringify(issues));
+		const dotGit = () => path.join(second(), ".git");
+		const configPath = () =>
+			path.join(second(), ".claude", "workflow-core.json");
+		const makeLinkedWorktree = () => {
+			fs.rmSync(dotGit(), { recursive: true });
+			fs.writeFileSync(dotGit(), "gitdir: elsewhere\n");
+		};
+		const Absences = [
+			{
+				absence: "its .git missing",
+				why: "no .git",
+				remove: () => fs.rmSync(dotGit(), { recursive: true }),
+				restore: () => fs.mkdirSync(dotGit()),
+			},
+			{
+				absence: "its config deleted",
+				why: "no workflow-core config",
+				remove: () => fs.rmSync(configPath()),
+				restore: () => configureSecond({ tracker: "acme/second" }),
+			},
+		];
 
 		it("lists its closes and decisions in the first review to read it, and a repo that read throughout lists each event once", () => {
 			seed([previousReview()]);
@@ -729,23 +750,8 @@ describe("file-morning-review.js (#2011)", () => {
 				makeSecond();
 				configureSecond({ tracker: "acme/second" });
 			};
-			const dotGit = () => path.join(second(), ".git");
-			const config = () => path.join(second(), ".claude", "workflow-core.json");
 
-			it.each([
-				{
-					absence: "its .git missing",
-					why: "no .git",
-					remove: () => fs.rmSync(dotGit(), { recursive: true }),
-					restore: () => fs.mkdirSync(dotGit()),
-				},
-				{
-					absence: "its config deleted",
-					why: "no workflow-core config",
-					remove: () => fs.rmSync(config()),
-					restore: () => configureSecond({ tracker: "acme/second" }),
-				},
-			])(
+			it.each(Absences)(
 				"names one with $absence under the same start, and lands its events in the first review to read it",
 				({ why, remove, restore }) => {
 					seedCarried();
@@ -794,8 +800,7 @@ describe("file-morning-review.js (#2011)", () => {
 
 			it("keeps a linked worktree out, unnamed, whether or not a line names it", () => {
 				seedCarried();
-				fs.rmSync(dotGit(), { recursive: true });
-				fs.writeFileSync(dotGit(), "gitdir: elsewhere\n");
+				makeLinkedWorktree();
 				reviewAt("2026-10-11T07:00:00.000Z");
 				reviewAt("2026-10-12T07:00:00.000Z");
 
@@ -817,6 +822,82 @@ describe("file-morning-review.js (#2011)", () => {
 				);
 				expect(ended).not.toContain("Events unread since");
 				expect(later).not.toMatch(/\bsecond\b/);
+			});
+		});
+
+		describe("a checkout's first absence from discovery (#3844)", () => {
+			const firstReview = "2026-10-11T07:00:00.000Z";
+			const seedSecond = (previous: string) => {
+				seed([previousReview(previous)]);
+				makeSecond();
+				configureSecond({ tracker: "acme/second" });
+			};
+
+			it.each(Absences)(
+				"names one read last review with $absence, and lands the absent window's events in the first review to read it",
+				({ why, remove, restore }) => {
+					seedSecond("");
+					const c80 = close(80, "2026-10-10T12:00:00.000Z");
+					const c81 = close(81, "2026-10-11T12:00:00.000Z");
+					appendDecision(
+						second(),
+						"2026-10-10T12:00:00.000Z",
+						3,
+						"Second: before",
+					);
+					appendDecision(
+						second(),
+						"2026-10-11T12:00:00.000Z",
+						4,
+						"Second: absent",
+					);
+					stubCloses(c80, c81);
+
+					reviewAt(firstReview);
+					remove();
+					reviewAt("2026-10-12T07:00:00.000Z");
+					restore();
+					reviewAt("2026-10-13T07:00:00.000Z");
+					reviewAt("2026-10-14T07:00:00.000Z");
+
+					const [read, absent, back, after] = bodies();
+					expect(read).toContain("Events read in second.");
+					once(read, "Second: before");
+					once(read, "acme/second#80");
+					expect(absent).toContain(`- second: \`${why}\``);
+					expect(absent).toContain(
+						`Events unread since ${firstReview} in second.`,
+					);
+					expect(absent).not.toContain("Events read in second.");
+					expect(absent).not.toContain("Second:");
+					expect(absent).not.toContain("acme/second#8");
+					once(back, "Second: absent");
+					once(back, "acme/second#81");
+					expect(back).not.toContain("Second: before");
+					expect(back).not.toContain("acme/second#80");
+					expect(back).not.toContain("Events unread since");
+					expect(after).not.toContain("Second:");
+					expect(after).not.toContain("acme/second#8");
+				},
+			);
+
+			it.each([
+				{
+					out: "its owner opted out",
+					leave: () =>
+						configureSecond({ tracker: "acme/second", refillLoop: false }),
+				},
+				{
+					out: "now a linked worktree",
+					leave: makeLinkedWorktree,
+				},
+			])("keeps one read last review out, unnamed, $out", ({ leave }) => {
+				seedSecond("Events read in second.\n");
+				leave();
+				reviewAt(firstReview);
+
+				const [out] = bodies();
+				expect(out).not.toMatch(/\bsecond\b/);
 			});
 		});
 	});

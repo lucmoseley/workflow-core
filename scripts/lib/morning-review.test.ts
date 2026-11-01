@@ -91,6 +91,7 @@ const render = (
 	renderWith({
 		previous,
 		repos: repos.map((r) => ({
+			checkout: "wfc",
 			since: SINCE,
 			urgent: [],
 			parked: [],
@@ -157,6 +158,57 @@ describe("absentRepos (#3835)", () => {
 				absenceOf: missing,
 			}),
 		).toEqual([]);
+	});
+});
+
+describe("absentRepos on a checkout the previous review read (#3844)", () => {
+	const read = (body: string) =>
+		absentRepos({
+			previous: { number: 7, body },
+			listed: new Set(["listed"]),
+			since: SINCE,
+			nowMs: Date.parse(NOW),
+			absenceOf: () => ({ carried: true, why: "no .git" }),
+		});
+
+	it("carries one with no Events unread line from the window's start, and skips one discovery lists", () => {
+		expect(read("Events read in my wfc.\nEvents read in listed.\n")).toEqual([
+			{
+				reading: null,
+				unread: [{ repo: "my wfc", why: "no .git" }],
+				unreadEvents: [{ checkout: "my wfc", since: SINCE }],
+			},
+		]);
+	});
+});
+
+describe("the Checkouts read section (#3844)", () => {
+	it("prints a line absentRepos reads back for each checkout read", () => {
+		const body = render([
+			{
+				checkout: "my wfc",
+				repo: "acme/a",
+				entries: [],
+				stalls: [],
+				closed: [],
+			},
+		]);
+		expect(body).toContain("Events read in my wfc.");
+		expect(
+			absentRepos({
+				previous: { number: 7, body },
+				listed: new Set(),
+				since: SINCE,
+				nowMs: Date.parse(NOW),
+				absenceOf: () => ({ carried: true, why: "no .git" }),
+			}).flatMap((r: { unreadEvents: object[] }) => r.unreadEvents),
+		).toEqual([{ checkout: "my wfc", since: SINCE }]);
+	});
+
+	it("says None where no checkout read", () => {
+		expect(render([])).toContain(
+			"## Checkouts read\n\nThe next review checks each of these for absence from discovery:\n\nNone.\n",
+		);
 	});
 });
 

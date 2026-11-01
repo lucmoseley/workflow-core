@@ -20,7 +20,8 @@
  * prints where its events went unread from, and the next starts that repo there
  * (repoStart), so each lands in the first review to read the repo. The line
  * outlives the checkout's absence from discovery, to the end absentRepos gives
- * it (#3835).
+ * it (#3835). Each review also prints the checkouts it read, so one's first
+ * absence is carried from that review's window end (#3844).
  *
  * Entry numbers run 1…n across every repo, so `reverse <n>` names one entry;
  * each line links the decision's own comment, which keys its ledger line.
@@ -44,6 +45,7 @@ const TITLE = /^Morning review — (\d{4}-\d{2}-\d{2})$/;
 const WINDOW_LINE = /^Window: \S+ → ([^\s,]+)/m;
 const HISTORY_LINE = /^Table history read to ([0-9a-f]{40}) in (\S+)\.$/gm;
 const UNREAD_LINE = /^Events unread since (\S+) in (.+)\.$/gm;
+const READ_LINE = /^Events read in (.+)\.$/gm;
 /* How far closes run behind the window: about 70 times the worst search lag
  * measured, 12.3 s (#3827), as GitHub publishes no bound and the sample is small.
  * A guess at the tail. A close slower than this reaches no review; too wide only
@@ -128,13 +130,19 @@ function parseUnreadStart(body, checkout) {
  * @param {{body: string} | undefined} previous
  * @returns {string[]}
  */
-const parseCarriedCheckouts = (previous) => [
-	...new Set(
-		[...(previous?.body ?? "").matchAll(UNREAD_LINE)].map((m) =>
-			requiredGroup(m, 2, UNREAD_LINE),
-		),
-	),
-];
+const parseKnownCheckouts = (previous) => {
+	const body = previous?.body ?? "";
+	return [
+		...new Set([
+			...[...body.matchAll(UNREAD_LINE)].map((m) =>
+				requiredGroup(m, 2, UNREAD_LINE),
+			),
+			...[...body.matchAll(READ_LINE)].map((m) =>
+				requiredGroup(m, 1, READ_LINE),
+			),
+		]),
+	];
+};
 
 /**
  * Where a checkout's events start: where the previous review says they went
@@ -198,9 +206,9 @@ const endedRepo = (checkout, start, why) => ({
 });
 
 /**
- * The review's parts for the checkouts the previous review carried and discovery
- * no longer lists (#3835): each named and carried until its directory is gone or
- * its start is ABSENT_CARRY_DAYS old.
+ * The review's parts for the checkouts the previous review read or carried and
+ * discovery no longer lists (#3835, #3844): each named and carried until its
+ * directory is gone or its start is ABSENT_CARRY_DAYS old.
  * @param {object} reading
  * @param {{number: number, body: string} | undefined} reading.previous
  * @param {Set<string>} reading.listed the checkouts discovery answers for
@@ -211,7 +219,7 @@ const endedRepo = (checkout, start, why) => ({
  * @returns {RepoRead[]}
  */
 function absentRepos({ previous, listed, since, nowMs, absenceOf }) {
-	return parseCarriedCheckouts(previous).flatMap((checkout) => {
+	return parseKnownCheckouts(previous).flatMap((checkout) => {
 		if (listed.has(checkout)) return [];
 		const absence = absenceOf(checkout);
 		if (absence === null) return [];
@@ -305,10 +313,11 @@ function parseOneWayDoor(comments) {
  *   check-primitives.js's count line, and the commits touching each standards
  *   file up to `tip` that no earlier review read, with why they were found by
  *   commit time where they were; or why either did not read
- * @typedef {{repo: string, since: string, entries: LedgerLine[],
+ * @typedef {{checkout: string, repo: string, since: string, entries: LedgerLine[],
  *   closed: ClosedIssue[], stalls: OpenIssue[], urgent: UrgentIssue[],
  *   parked: ParkedIssue[], primitives: PrimitivesReading}}
- *   RepoReading where the repo's events start (repoStart), its ledger, its
+ *   RepoReading its directory name, which the next review looks it up by; its
+ *   tracker; where the repo's events start (repoStart), its ledger, its
  *   closes, its open stall ticket (lib/stall-ticket.js, #2692), its urgent
  *   issues and its parked ones
  * @typedef {{checkout: string, since: string}} UnreadEvents a checkout that did
@@ -717,6 +726,14 @@ function renderReview({
 		`Open issues labelled \`urgent\` more than ${STUCK_URGENT_DAYS} days ago, with why pick-next's last run in that checkout left each unlaunched:`,
 		"",
 		...(stuck.length === 0 ? ["None."] : stuck),
+		"",
+		"## Checkouts read",
+		"",
+		"The next review checks each of these for absence from discovery:",
+		"",
+		...(repos.length === 0
+			? ["None."]
+			: repos.map(({ checkout }) => `Events read in ${checkout}.`)),
 		"",
 		"## How to reverse",
 		"",
