@@ -189,11 +189,12 @@ const ALREADY_RUNNING = "already running";
  */
 
 /** @typedef {{root: string, number: number, why: string}} Skip */
+/** @typedef {Skip & {atCap?: boolean}} HeldRow `atCap`: at LIMIT_PARK_CAP, so waiting on the founder */
 
 /**
  * @typedef {{stop: StopReason, detail: string}
  *   | {launches: Launch[], skipped: Skip[], idle: string | null,
- *   held: Skip[]}} Decision `held` is heldParked's
+ *   held: HeldRow[]}} Decision `held` is heldParked's
  */
 
 /**
@@ -612,14 +613,14 @@ function routeParkedSession(parker, seats) {
  * routeParkedSession says, with the count carried on.
  * @param {ParkerReading|undefined} parker none where no marker lists it
  * @param {SizedSeat[]} seats this tick's
- * @returns {{hold: string} | NonNullable<Launch["parkedRoute"]>}
+ * @returns {{hold: string, atCap?: boolean} | NonNullable<Launch["parkedRoute"]>}
  */
 function routeParked(parker, seats) {
 	if (!parker) return { afresh: "no session that parked it is recorded" };
 	const { limitParks } = parker;
 	if (limitParks === undefined) return routeParkedSession(parker, seats);
 	if (limitParks >= LIMIT_PARK_CAP)
-		return { hold: `parked: ${buildLimitCapText(limitParks)}` };
+		return { hold: `parked: ${buildLimitCapText(limitParks)}`, atCap: true };
 	return { ...routeParkedSession(parker, seats), limitParks };
 }
 
@@ -640,14 +641,21 @@ const routeParkedRow = (row, parkers, seats) =>
  * parks' cap, whether or not its
  * walk reaches the row (#3680); none where the mode routes no parked rows.
  * @param {Pick<TickInput, "frontier"|"mode"|"seats"|"parkers">} input
- * @returns {Skip[]}
+ * @returns {HeldRow[]}
  */
 const heldParked = ({ frontier, mode, seats, parkers = [] }) =>
 	isParkRoutingMode(mode)
 		? frontier.filter(isParked).flatMap((row) => {
 				const parked = routeParkedRow(row, parkers, seats);
 				return "hold" in parked
-					? [{ root: row.root, number: row.number, why: parked.hold }]
+					? [
+							{
+								root: row.root,
+								number: row.number,
+								why: parked.hold,
+								atCap: parked.atCap,
+							},
+						]
 					: [];
 			})
 		: [];

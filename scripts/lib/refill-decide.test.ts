@@ -1090,7 +1090,7 @@ describe("decideTick on a parked row's session seat (#3669)", () => {
 			expect(launched(d)).toEqual(["wfc#1"]);
 			const why = `parked: ${buildLimitCapText(LIMIT_PARK_CAP)}`;
 			expect(d.skipped).toEqual([{ root: "wfc", number: 2, why }]);
-			expect(d.held).toEqual([{ root: "wfc", number: 2, why }]);
+			expect(d.held).toEqual([{ root: "wfc", number: 2, why, atCap: true }]);
 		});
 
 		it("holds it however its session would have routed", () => {

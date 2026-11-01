@@ -45,7 +45,7 @@ const findings = (
 	trackers: ReturnType<typeof tracker>[],
 	launches: Record<string, number> = {},
 	running: string[] = [],
-	holds: Record<string, { why: string; since: number }> = {},
+	holds: Record<string, { why: string; since: number; atCap?: boolean }> = {},
 ) =>
 	findIdleEfforts({
 		trackers,
@@ -222,6 +222,71 @@ describe("buildIdleLines", () => {
 		]);
 	});
 
+	describe("a ticket held at the limit-cap parks' cap (#3809)", () => {
+		const parked = { labels: ["takes:implement", "parked"] };
+		const capWhy = "the cap's why";
+		const hold = (over: Record<string, unknown> = {}) => ({
+			why: capWhy,
+			since: NOW - 3 * DAY,
+			atCap: true,
+			...over,
+		});
+
+		it("names it beneath the line though an older issue is the oldest", () => {
+			const lines = buildIdleLines(
+				findings([tracker([issue(1), issue(2, parked)])], {}, [], {
+					"o/core#2": hold(),
+				}),
+				true,
+			);
+			expect(lines).toEqual([
+				top(
+					"o/core: 2 idle past 2 days; oldest #1 (issue 1), idle 10.0 days; skip reason: none, the launch filter passes it",
+				),
+				{
+					text: `held #2 (issue 2), idle 3.0 days; skip reason: ${capWhy}`,
+					nested: true,
+				},
+			]);
+		});
+
+		it("names it once where it is the oldest", () => {
+			const lines = buildIdleLines(
+				findings([tracker([issue(2, parked)])], {}, [], {
+					"o/core#2": hold(),
+				}),
+				true,
+			);
+			expect(lines).toEqual([
+				top(
+					`o/core: 1 idle past 2 days; oldest #2 (issue 2), idle 3.0 days; skip reason: ${capWhy}`,
+				),
+			]);
+		});
+
+		it("does not name it before its hold is 2 days old", () => {
+			const lines = buildIdleLines(
+				findings([tracker([issue(1), issue(2, parked)])], {}, [], {
+					"o/core#2": hold({ since: NOW - IDLE_MS }),
+				}),
+				true,
+			);
+			expect(lines).toHaveLength(1);
+			expect(lines[0].text).toMatch(/^o\/core: 1 idle /);
+		});
+
+		it("leaves a full seat's hold, which ends with the seat's reset, in the count", () => {
+			const lines = buildIdleLines(
+				findings([tracker([issue(1), issue(2, parked)])], {}, [], {
+					"o/core#2": hold({ why: "seat full", atCap: undefined }),
+				}),
+				true,
+			);
+			expect(lines).toHaveLength(1);
+			expect(lines[0].text).toMatch(/^o\/core: 2 idle /);
+		});
+	});
+
 	it("says first where no loop runs, so the unserved trackers are not read as out of scope", () => {
 		const lines = buildIdleLines(
 			findings([tracker([], { served: false })]),
@@ -308,11 +373,17 @@ describe("buildReadings", () => {
 	it("joins the loop's running launches and holds from checkout to tracker", () => {
 		const r = read([{ repo: REPO }, { repo: OTHER }], {
 			launches: [{ root: "/r/product", issues: [4, 5] }],
-			held: [{ root: "/r/core2", number: 6, why: "seat full", since: NOW }],
+			held: [
+				{ root: "/r/core2", number: 6, why: "seat full", since: NOW },
+				{ root: "/r/core2", number: 7, why: "cap", since: NOW, atCap: true },
+			],
 		});
 		expect([...r.running]).toEqual([`${OTHER}#4`, `${OTHER}#5`]);
 		expect(r.holds).toEqual(
-			new Map([[`${REPO}#6`, { why: "seat full", since: NOW }]]),
+			new Map([
+				[`${REPO}#6`, { why: "seat full", since: NOW }],
+				[`${REPO}#7`, { why: "cap", since: NOW, atCap: true }],
+			]),
 		);
 	});
 

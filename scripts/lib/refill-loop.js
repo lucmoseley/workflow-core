@@ -133,7 +133,7 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * A parked row held, on its session's full seat or at the limit-cap parks' cap,
  * and since when, ms: the first
  * frontier-reading tick of an unbroken run of them that held it.
- * @typedef {import("./refill-decide.js").Skip & {since: number}} Hold
+ * @typedef {import("./refill-decide.js").HeldRow & {since: number}} Hold
  */
 
 /** @typedef {import("./refill-decide.js").SeatReading} SeatReading */
@@ -252,7 +252,7 @@ const isHold = (raw) =>
 
 /**
  * The holds a frontier-reading tick leaves.
- * @param {import("./refill-decide.js").Skip[]} held this tick's
+ * @param {import("./refill-decide.js").HeldRow[]} held this tick's
  * @param {Hold[]} before
  * @param {number} now
  * @returns {Hold[]}

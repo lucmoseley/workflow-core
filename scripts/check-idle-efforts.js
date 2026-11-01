@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /*
  * check-idle-efforts.js — the idle alarm (#3641, spec #3623): name, per
- * tracker, the open efforts nothing has launched for 2 days, the oldest, and
- * the loop's skip reason for it.
+ * tracker, the open efforts nothing has launched for 2 days, the oldest, the
+ * loop's skip reason for it, and each ticket held at the limit-cap parks' cap.
  *
  * Usage:  node scripts/check-idle-efforts.js [--notify] [--json]
  *

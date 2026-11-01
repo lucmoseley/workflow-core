@@ -922,6 +922,19 @@ describe("a tick's log line (#2362)", () => {
 		expect(writes[0].held).toEqual([kept, { ...fresh, since: NOW }]);
 	});
 
+	it("carries a hold's mark of the limit-cap parks' cap into the state and back (#3809)", () => {
+		const atCap = { ...skip(2470, "at the cap"), atCap: true };
+		const writes: Tick["state"][] = [];
+		logged({ ...idle("nothing launchable"), held: [atCap] }, 3, [], {
+			read: { rows: 1, ms: 900 },
+			writes,
+			state: parseState(null),
+		});
+		expect(parseState(JSON.parse(JSON.stringify(writes[0]))).held).toEqual([
+			{ ...atCap, since: NOW },
+		]);
+	});
+
 	it("keeps the last holds across a tick that reads no frontier", () => {
 		const writes: Tick["state"][] = [];
 		const state = { ...parseState(null), held: [kept] };

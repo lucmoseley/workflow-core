@@ -10,7 +10,9 @@
  * something other than a launch, as does a container all of whose open
  * children do. A parked issue the loop holds is counted, from the hold's start:
  * on its session's full seat it waits on that seat's reset, up to 7 days
- * (#3680), and at the limit-cap parks' cap on the founder (#3804). A stranding is
+ * (#3680), and at the limit-cap parks' cap on the founder (#3804). One at the
+ * cap, which no reset ends, is named beneath its tracker's line, however old
+ * its tracker's oldest (#3809); a full seat's stays in the count. A stranding is
  * counted once, at its deepest idle issue, never again at each ancestor.
  *
  * The reason printed beside a tracker's oldest is the loop's hold where it
@@ -74,9 +76,9 @@ const QUERY =
  * @property {TrackerReading[]} trackers
  * @property {Map<string, number>} launches refKey to its last launch, ms
  * @property {Set<string>} running refKeys of launches still running
- * @property {Map<string, {why: string, since: number}>} holds refKeys of
- *   the parked issues the loop holds, to the hold's reason and
- *   start, ms
+ * @property {Map<string, {why: string, since: number, atCap?: boolean}>} holds
+ *   refKeys of the parked issues the loop holds, to the hold's reason, start,
+ *   ms, and whether it is at the limit-cap parks' cap
  * @property {number} now ms
  */
 
@@ -86,6 +88,7 @@ const QUERY =
  * @property {string} title
  * @property {number} idleMs
  * @property {boolean} urgent
+ * @property {boolean} heldAtCap the loop holds it at the limit-cap parks' cap
  * @property {string|null} skip the loop's hold or its launch filter's
  *   reason, null where it passes the row
  */
@@ -123,8 +126,7 @@ const QUERY =
  * @property {string[]} served the checkouts its scope serves
  * @property {{root: string, issues: number[]}[]} launches its running
  *   launches
- * @property {{root: string, number: number, why: string, since: number}[]}
- *   held the parked issues it holds
+ * @property {import("./refill-loop.js").Hold[]} held the parked issues it holds
  */
 
 /**
@@ -153,9 +155,9 @@ function buildReadings({ rootsOf, trackers, loop, now }) {
 	for (const l of loop.launches) markRunning(l.root, l.issues);
 	/** @type {Readings["holds"]} */
 	const holds = new Map();
-	for (const { root, number, why, since } of loop.held)
+	for (const { root, number, why, since, atCap } of loop.held)
 		for (const repo of reposOf(root))
-			holds.set(refKey({ repo, number }), { why, since });
+			holds.set(refKey({ repo, number }), { why, since, atCap });
 	for (const t of trackers)
 		for (const { root, launchTimes, recent } of t.ledgers) {
 			for (const [n, at] of launchTimes) {
@@ -327,6 +329,7 @@ function findIdleEfforts(readings) {
 				title: i.title,
 				idleMs: Number(idleMs.get(key)),
 				urgent: i.labels.includes(URGENT_LABEL),
+				heldAtCap: readings.holds.get(key)?.atCap === true,
 				skip:
 					readings.holds.get(key)?.why ??
 					buildSkipReason({
@@ -351,9 +354,10 @@ const named = (i) => `#${i.number} (${i.title}), idle ${days(i.idleMs)}`;
  */
 
 /**
- * One line per tracker, and beneath a tracker the loop does not serve, each
- * `urgent` issue past the threshold; first, where no loop runs, a line saying
- * so.
+ * One line per tracker, beneath it each issue past the threshold held at the
+ * limit-cap parks' cap that the line does not already name as its oldest, and
+ * beneath a tracker the loop does not serve, each `urgent` one; first, where no
+ * loop runs, a line saying so.
  * @param {TrackerFinding[]} findings
  * @param {boolean} loopRunning
  * @returns {IdleLine[]}
@@ -361,6 +365,8 @@ const named = (i) => `#${i.number} (${i.title}), idle ${days(i.idleMs)}`;
 function buildIdleLines(findings, loopRunning) {
 	/** @param {string} text */
 	const buildTopLine = (text) => ({ text, nested: false });
+	/** @param {string} text */
+	const buildNestedLine = (text) => ({ text, nested: true });
 	const lines = findings.flatMap((f) => {
 		const unserved = f.served ? "" : " (the refill loop does not serve it)";
 		if (f.error !== null)
@@ -375,11 +381,16 @@ function buildIdleLines(findings, loopRunning) {
 			buildTopLine(
 				`${f.repo}: ${f.idle.length} idle past ${IDLE_DAYS} days${unserved}; oldest ${named(oldest)}; skip reason: ${skip}`,
 			),
+			...f.idle
+				.filter((i) => i.heldAtCap && i !== oldest)
+				.map((i) =>
+					buildNestedLine(`held ${named(i)}; skip reason: ${i.skip}`),
+				),
 			...(f.served
 				? []
 				: f.idle
 						.filter((i) => i.urgent)
-						.map((i) => ({ text: `urgent ${named(i)}`, nested: true }))),
+						.map((i) => buildNestedLine(`urgent ${named(i)}`))),
 		];
 	});
 	return loopRunning
