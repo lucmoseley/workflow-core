@@ -41,8 +41,10 @@ function main() {
 		usage: USAGE,
 		min: 1,
 	});
+	const [start] = positionals;
+	if (start === undefined) throw new Error(USAGE);
 	/** @type {import("./lib/refill-loop.js").ReviewStart} */
-	const run = JSON.parse(positionals[0]);
+	const run = JSON.parse(start);
 	const files = loopFiles();
 	const lock = pidLock(files.reviewPid, REVIEW_RUNNER);
 	if (!lock.acquire()) return;
