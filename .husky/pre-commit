@@ -472,9 +472,10 @@ if armed '^scripts/[^/]+\.js$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-cli-args.js --against HEAD || exit "$?"
 fi
 
-# The five whole-tree heresy gates below run on --index, so each judges the
-# tree this commit makes, never a neighbour's untracked or unstaged file, and
-# still refuses a breach HEAD already carries (#3687). Residual: a pathspec
+# The five whole-tree heresy gates below, and the pre-commit exit gate after
+# them, run on --index, so each judges the tree this commit makes, never a
+# neighbour's untracked or unstaged file, and still refuses a breach HEAD
+# already carries (#3687). Residual: a pathspec
 # commit judges only its own paths, but a bare `git commit` reads the shared
 # index, so a neighbour's STAGED file is still judged.
 
@@ -515,7 +516,7 @@ fi
 # A checker line here or in .husky/pre-commit.local exiting 1 on its failure,
 # which turns its BROKEN into a finding (§N4, #3456).
 if armed '^\.husky/pre-commit(\.local)?$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-precommit-exit.js || exit "$?"
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-precommit-exit.js --index || exit "$?"
 fi
 
 # The doc map's own coverage, checked here as well as in roadmap-digest.yml
