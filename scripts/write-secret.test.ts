@@ -3,10 +3,10 @@
  * write-secret.js writes one secret into the secrets file, outside every
  * working tree (#640, #3202).
  *
- * Every CLI case drives the script in-process from a throwaway git repo, the
- * value on piped stdin, or for the hidden-prompt cases on a fake terminal, and
- * XDG_CONFIG_HOME on a throwaway directory, and reads
- * back only what the founder sees: the exit, the printed lines, the file's
+ * Every CLI case drives the script from a throwaway git repo, in-process bar
+ * the spawns marked `spawn-kept:`, the value on piped stdin, or for the
+ * hidden-prompt cases on a fake terminal, and XDG_CONFIG_HOME on a throwaway
+ * directory, and reads back only what the founder sees: the exit, the printed lines, the file's
  * bytes and mode. Every run is checked for the value leaking into stdout or
  * stderr.
  *
@@ -190,26 +190,45 @@ describe("write-secret", () => {
 		);
 	});
 
-	it("exits 0 with the value stored where stdout's reader has gone before the success line (#3716)", () => {
-		const r = spawnSync(
-			"bash",
-			[
-				"-c",
-				// biome-ignore lint/suspicious/noTemplateCurlyInString: bash's expansion, not a template
-				'printf %s "$1" | "$2" "$3" K | true; echo "${PIPESTATUS[1]}"',
-				"_",
-				SECRET,
-				process.execPath,
-				SCRIPT,
-			],
-			{
-				cwd: host,
-				encoding: "utf8",
-				env: isolatedEnv({ CLAUDE_PROJECT_DIR: host }),
-			},
+	/* Runs the script with each named stream's reader gone before it is given
+	 * the value, so its first write to one meets a closed pipe. */
+	const runWithReaderGone = async (gone: ("stdout" | "stderr")[]) => {
+		// spawn-kept: a real fd, a pipe whose reader has gone, which run-in-process cannot give (§X3)
+		const child = spawn(process.execPath, [SCRIPT, "K"], {
+			cwd: host,
+			env: isolatedEnv({ CLAUDE_PROJECT_DIR: host }),
+			stdio: "pipe",
+		});
+		let stderr = "";
+		if (!gone.includes("stderr"))
+			child.stderr.on("data", (d) => {
+				stderr += d;
+			});
+		const exited = new Promise<number | null>((resolve) =>
+			child.on("close", resolve),
 		);
-		expect(r.stdout).toBe("0\n");
-		expect(r.stderr).not.toContain("untouched");
+		await Promise.all(
+			gone.map(
+				(name) =>
+					new Promise((closed) => child[name].destroy().once("close", closed)),
+			),
+		);
+		child.stdin.end(SECRET);
+		return { status: await exited, stderr };
+	};
+
+	it("exits 0 and says so on stderr where stdout's reader has gone before the success line (#3716, #3823)", async () => {
+		const r = await runWithReaderGone(["stdout"]);
+		expect(r.status).toBe(0);
+		expect(r.stderr).toBe(
+			`write-secret: K is stored in ${store()}, but its success line could not be printed (EPIPE).\n`,
+		);
+		expect(read()).toBe(`K=${SECRET}\n`);
+	});
+
+	it("exits 0 with the value stored where stderr's reader has gone as well (#3823)", async () => {
+		const r = await runWithReaderGone(["stdout", "stderr"]);
+		expect(r.status).toBe(0);
 		expect(read()).toBe(`K=${SECRET}\n`);
 	});
 
