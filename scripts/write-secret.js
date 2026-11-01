@@ -205,7 +205,7 @@ function refuse(file, why, status) {
 /**
  * @param {string} file
  * @param {string} what the directory or file found loose
- * @param {string} why `looseWhy`'s or `remoteAccessWhy`'s reason
+ * @param {string} why `looseWhy`'s or `mountAccessWhy`'s reason
  * @param {string} [fix] the way out, where `chmod` is not it
  * @returns {number}
  */
@@ -243,7 +243,7 @@ function dirRefusal(file) {
 	}
 	const isDir = isDirectory(dir);
 	/* `chmod 700` removes no named NFSv4 entry (#3822). */
-	const decided = isDir ? (remoteAccessWhy(dir) ?? nfsAclWhy(dir)) : null;
+	const decided = isDir ? mountAccessWhy(dir) : null;
 	if (decided !== null) {
 		return refuseLoose(file, `its directory ${dir}`, decided, USE_LOCAL_FS);
 	}
@@ -281,8 +281,7 @@ function searchFaultCode(dir) {
 		fs.accessSync(dir, fs.constants.X_OK);
 		return null;
 	} catch (e) {
-		const code = caught(e).code;
-		return code === "ENOENT" || code === "ENOTDIR" ? null : (code ?? "error");
+		return isAbsentFault(e) ? null : (caught(e).code ?? "error");
 	}
 }
 
@@ -329,7 +328,7 @@ const MAX_SYMLINKS = 40;
 function walkHops(p) {
 	/** @type {Hop[]} */
 	const met = [];
-	const todo = pathParts(p);
+	const todo = parsePathParts(p);
 	let at = path.parse(p).root;
 	let links = 0;
 	for (let name = todo.shift(); name !== undefined; name = todo.shift()) {
@@ -348,7 +347,7 @@ function walkHops(p) {
 		}
 		if (++links > MAX_SYMLINKS)
 			return [...met, { dir: entry, why: "could not be checked (ELOOP)" }];
-		todo.unshift(...pathParts(target));
+		todo.unshift(...parsePathParts(target));
 		if (path.isAbsolute(target)) at = path.parse(target).root;
 	}
 	return met;
@@ -359,7 +358,7 @@ function walkHops(p) {
  * @param {string} p
  * @returns {string[]}
  */
-function pathParts(p) {
+function parsePathParts(p) {
 	return p.split(path.sep).filter((n) => n !== "" && n !== ".");
 }
 
@@ -374,12 +373,29 @@ function readEntry(entry) {
 		const st = fs.lstatSync(entry);
 		return st.isSymbolicLink() ? { st, target: fs.readlinkSync(entry) } : {};
 	} catch (e) {
-		const code = caught(e).code;
-		/* Absent, or a file where a directory goes: the write creates it under a
-		 * parent checked here, or refuses naming the fault (#3663). */
-		if (code === "ENOENT" || code === "ENOTDIR") return { absent: true };
-		return { why: `could not be checked (${code ?? "error"})` };
+		return isAbsentFault(e) ? { absent: true } : { why: uncheckedWhy(e) };
 	}
+}
+
+/**
+ * Whether fault `e` says an entry is absent, or a file sits where a directory
+ * goes: the write creates it under a parent checked here, or refuses naming
+ * the fault (#3663).
+ * @param {unknown} e
+ * @returns {boolean}
+ */
+function isAbsentFault(e) {
+	const { code } = caught(e);
+	return code === "ENOENT" || code === "ENOTDIR";
+}
+
+/**
+ * Why an entry that fault `e` left unjudged refuses.
+ * @param {unknown} e
+ * @returns {string}
+ */
+function uncheckedWhy(e) {
+	return `could not be checked (${caught(e).code ?? "error"})`;
 }
 
 /**
@@ -392,22 +408,15 @@ function swappableWhy(d) {
 	try {
 		st = fs.statSync(d);
 	} catch (e) {
-		/* Not there yet, or a file where it goes: the write creates it under a
-		 * parent checked here, or refuses naming the fault (#3663). Any other
-		 * fault leaves it unjudged, so it refuses. */
-		if (caught(e).code === "ENOENT" || caught(e).code === "ENOTDIR")
-			return null;
-		return `could not be checked (${caught(e).code ?? "error"})`;
+		return isAbsentFault(e) ? null : uncheckedWhy(e);
 	}
 	if (!st.isDirectory()) return null;
 	if (!isOwnedByMeOrRoot(st)) return "is owned by neither you nor root";
 	/* Before the sticky pass, which such a server need not honour; nor need
 	 * NFS, where an NFSv4 ACL can grant DELETE_CHILD over it (RFC 8881
 	 * §6.2.1.3.2). */
-	const mount = remoteAccessWhy(d);
+	const mount = mountAccessWhy(d);
 	if (mount !== null) return mount;
-	const aclWhy = nfsAclWhy(d);
-	if (aclWhy !== null) return aclWhy;
 	if ((st.mode & 0o1000) !== 0) return null;
 	const othersWrite =
 		(st.mode & 0o002) !== 0 ||
@@ -419,30 +428,6 @@ function swappableWhy(d) {
 
 /** statfs's type for NFS of every version, Linux's NFS_SUPER_MAGIC. */
 const NFS_MAGIC = 0x69_69;
-
-/**
- * Why directory `d` may let another user in by an NFSv4 ACL, or null: it lies
- * on NFS and `ls` marks an ACL on it, GNU's reading `system.nfs4_acl` as
- * well as POSIX's, uutils' marking any extended attribute (#3724, #3737). Elsewhere a POSIX ACL is judged by the group bits, its
- * mask, so a read-only entry passes. Where `ls` marks no ACL, none is seen,
- * so none is judged there.
- * @param {string} d
- * @returns {string | null}
- */
-function nfsAclWhy(d) {
-	if (!isOnNfs(d) || !isAclMarkingLs() || isAclUnmarked(d)) return null;
-	return "carries an ACL on NFS, where an NFSv4 entry can grant another user access no mode bit shows";
-}
-
-/** @param {string} d */
-function isOnNfs(d) {
-	try {
-		return fs.statfsSync(d).type === NFS_MAGIC;
-	} catch {
-		/* Unjudged: an ACL `ls` marks then refuses (#3724). */
-		return true;
-	}
-}
 
 /**
  * statfs types whose server, daemon or ACL decides access. Each is Linux's
@@ -465,11 +450,16 @@ const REMOTE_ACCESS_MOUNTS = new Map([
 
 /**
  * Why directory `d` may let another account in whatever its mode shows, or
- * null: it lies on a mount whose server or daemon decides access (#3726).
+ * null: it lies on a mount whose server or daemon decides access (#3726), or
+ * on NFS with an ACL `ls` marks, GNU's reading `system.nfs4_acl` as well as
+ * POSIX's, uutils' marking any extended attribute (#3724, #3737). Elsewhere a
+ * POSIX ACL is judged by the group bits, its mask, so a read-only entry
+ * passes. Where `ls` marks no ACL, none is seen, so none is judged there. A
+ * statfs that fails leaves `d` unjudged, so it refuses.
  * @param {string} d
  * @returns {string | null}
  */
-function remoteAccessWhy(d) {
+function mountAccessWhy(d) {
 	let type;
 	try {
 		type = fs.statfsSync(d).type;
@@ -478,9 +468,10 @@ function remoteAccessWhy(d) {
 	}
 	/* Unsigned, as a 32-bit kernel's signed f_type would sign-extend CIFS's. */
 	const kind = REMOTE_ACCESS_MOUNTS.get(type >>> 0);
-	return kind === undefined
-		? null
-		: `lies on a ${kind} mount, whose server decides access whatever its mode shows`;
+	if (kind !== undefined)
+		return `lies on a ${kind} mount, whose server decides access whatever its mode shows`;
+	if (type !== NFS_MAGIC || !isAclMarkingLs() || isAclUnmarked(d)) return null;
+	return "carries an ACL on NFS, where an NFSv4 entry can grant another user access no mode bit shows";
 }
 
 /**
@@ -732,7 +723,7 @@ function sweepAsides(file) {
 	} catch (e) {
 		/* No directory yet, so no aside, and the write creates it; or a file
 		 * where it goes, and the write refuses. */
-		if (caught(e).code === "ENOENT" || caught(e).code === "ENOTDIR") return;
+		if (isAbsentFault(e)) return;
 		writeFd(
 			2,
 			`write-secret: warning — ${dir} could not be listed (${caught(e).code ?? "error"}), so ${LEFT} may remain there. Look for ${path.basename(file)}.*.tmp by hand.\n`,
@@ -971,7 +962,10 @@ function storeValue(file, name, value) {
 }
 
 /**
- * Says the value is stored, once the write and the lock are done with.
+ * Says the value is stored, once the write and the lock are done with. The
+ * value is stored whatever becomes of this line, so a fault here is said on
+ * stderr and the run still exits 0 rather than calling the file untouched
+ * (#3716, #3823).
  * @param {string} file
  * @param {string} name
  * @param {boolean} replaced
@@ -982,9 +976,15 @@ function reportStored(file, name, replaced) {
 			1,
 			`write-secret: ${replaced ? "replaced" : "added"} ${name} in ${file}\n`,
 		);
-	} catch {
-		/* stdout's reader has gone; the value is stored all the same, so the
-		 * run still succeeds rather than calling the file untouched (#3716). */
+	} catch (e) {
+		try {
+			writeFd(
+				2,
+				`write-secret: ${name} is stored in ${file}, but its success line could not be printed (${caught(e).code ?? "error"}).\n`,
+			);
+		} catch {
+			/* stderr failed as well, so nothing is left to print on (#3823). */
+		}
 	}
 }
 

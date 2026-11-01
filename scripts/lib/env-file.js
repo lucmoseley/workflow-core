@@ -25,6 +25,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { logError } = require("./arbiter-core.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
 const { requiredGroup } = require("./regex-group");
@@ -249,7 +250,7 @@ function readSecretKeepingIgnore(name) {
 	} catch (e) {
 		/* The value is what the caller asked for (#3663); the store is left
 		 * without its ignore, so the fault goes where check:guard-errors reads. */
-		require("./arbiter-core.js").logError("env-file ignoreStore", e, dir);
+		logError("env-file ignoreStore", e, dir);
 	}
 	return value;
 }
