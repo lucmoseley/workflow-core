@@ -10,7 +10,7 @@
  *
  * A bar the account does not report reads UNREPORTED, never ABSENT: a source
  * that read fresh named other bars and not this one, as a plan with no
- * 5-hour bar reads (#3758). ABSENT stays a reading that failed.
+ * 5-hour bar reads (#3758).
  *
  * Returns raw figures and a TRUST verdict, never a ceiling verdict (#293
  * ruling 2): each caller owns its own ceilings and its own refusal text.
