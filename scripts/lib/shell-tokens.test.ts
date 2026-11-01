@@ -2,7 +2,9 @@
 /*
  * lib/shell-tokens.js's `tokenise` (#3445): the words a command's text makes.
  * The check_staged classifier reads Biome's flags from them, so a word read
- * wrong there maps or refuses a command on text the shell never runs.
+ * wrong there maps or refuses a command on text the shell never runs. Each
+ * row hands `tokenise` the text alone, with no shell and no repo, so a failure
+ * is the lexing's and never a classifier rule's above it.
  */
 
 import { describe, expect, it } from "vitest";
@@ -43,6 +45,16 @@ describe("tokenise — $(( arithmetic or a subshell (#3546)", () => {
 	it("reads an unclosed $(( as a command substitution", () => {
 		const [, word] = tokenise("echo $(( (a))");
 		expect(word?.type === "word" && word.subs).toHaveLength(1);
+	});
+});
+
+describe("tokenise — a `$'…'` control escape (#3853)", () => {
+	it.each([
+		["$'\\cA'", "\x01"],
+		["$'\\c'", "\\c"],
+		["$'a\\c'", "a\\c"],
+	])("reads %s as bash does", (src, value) => {
+		expect(values(src)).toEqual([value]);
 	});
 });
 

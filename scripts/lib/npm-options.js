@@ -1,8 +1,10 @@
 /*
- * npm-options.js — npm's option parser, `npmCanon`, read against npm 11.16.0's
- * config list (#563, #571), with the exact-match lookups npx makes instead,
- * `shorthandExact` and `boolExact` (#1972). lib/suite-concurrency.js reads with
- * it whether `npm … run <name>` launches a build or a dev server,
+ * npm-options.js — how npm 11.16.0 reads its command line, one file as all of
+ * it is re-measured on one npm version: its option parser, `npmCanon`, against
+ * its config list (#563, #571), with the exact-match lookups npx makes instead,
+ * `shorthandExact` and `boolExact` (#1972), and the command words its cmd-list
+ * derefs, `isNpmRun` and `npmScriptCommand` (#3627, #3851).
+ * lib/suite-concurrency.js reads with it whether `npm … run <name>` launches a build or a dev server,
  * lib/infer-commands.js which script a check_staged runs, and
  * lib/npm-install.js the install and the npx argv it judges.
  *

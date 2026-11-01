@@ -48,8 +48,8 @@ class PackageParseError extends Error {
 	}
 }
 
-/** `readPackage`, each directory's read at its first call and kept. */
-function packagesOnDemand() {
+/** A `readPackage` that reads each directory at its first call and keeps it. */
+function buildPackageReader() {
 	/** @type {Map<string, ReturnType<typeof readPackage>>} */
 	const read = new Map();
 	return (/** @type {string} */ dir) => {
@@ -149,6 +149,15 @@ function allCommands(tokens, quoted = true) {
 		}),
 	);
 }
+
+/**
+ * `allCommands` without reading a quoted word as a script: what `tokens` run
+ * whatever their runner. A quoted word is a command only where a runner runs
+ * it, and reading it as one calls `echo '$X'` a hidden command (#3545).
+ * Residual: `concurrently '$X'` reads as not hidden.
+ * @param {Token[]} tokens
+ */
+const writtenCommands = (tokens) => allCommands(tokens, false);
 
 /* A command is read through each `npm run`, `pnpm run`, `yarn run` or
  * `bun run` it makes, or a runner's alias of its `run`, into the script that
@@ -479,9 +488,9 @@ function runHops(run, handed, dir, scripts) {
  * directories before and after it.
  * @param {Hop} hop
  * @param {string} root
- * @param {(dir: string) => Record<string, unknown>} scriptsOf
+ * @param {(dir: string) => Record<string, unknown>} readScripts
  */
-function* hopsFrom(hop, root, scriptsOf) {
+function* hopsFrom(hop, root, readScripts) {
 	let dirs = [hop.dir];
 	const settled = settledCds(hop.tokens);
 	for (const simple of allCommands(hop.tokens)) {
@@ -496,7 +505,7 @@ function* hopsFrom(hop, root, scriptsOf) {
 		const handed = handedWords(run.runner, simple.slice(run.end));
 		for (const base of new Set(dirs)) {
 			const dir = findPackageDir(path.resolve(base, run.dir), root);
-			yield* runHops(run, handed, dir, scriptsOf(dir));
+			yield* runHops(run, handed, dir, readScripts(dir));
 		}
 	}
 }
@@ -507,14 +516,14 @@ function* hopsFrom(hop, root, scriptsOf) {
  * the first result `visit` returns that is not undefined is the walk's.
  * @template T
  * @param {string} root the directory the command starts in
- * @param {(dir: string) => Record<string, unknown>} scriptsOf called at each
+ * @param {(dir: string) => Record<string, unknown>} readScripts called at each
  *   run found, so a command running none reads no `package.json` (#3546); a
  *   caller passes one that reads each once
  * @param {string} command
  * @param {(hop: Hop, hops: Hop[]) => T|undefined} visit
  * @returns {T|undefined}
  */
-function walkRunScripts(root, scriptsOf, command, visit) {
+function walkRunScripts(root, readScripts, command, visit) {
 	const seen = new Set();
 	/**
 	 * @param {Hop} hop
@@ -524,7 +533,7 @@ function walkRunScripts(root, scriptsOf, command, visit) {
 	const walk = (hop, hops) => {
 		const hit = visit(hop, hops);
 		if (hit !== undefined) return hit;
-		for (const { next, key } of hopsFrom(hop, root, scriptsOf)) {
+		for (const { next, key } of hopsFrom(hop, root, readScripts)) {
 			if (seen.has(key)) continue;
 			seen.add(key);
 			const found = walk(next, [...hops, next]);
@@ -554,11 +563,11 @@ const LINT_STAGED = /(?:^|\/)lint-staged(?:@.*)?$/;
  * @returns {boolean}
  */
 function isLintStagedCommand(root, command) {
-	const pkg = packagesOnDemand();
+	const readCachedPackage = buildPackageReader();
 	return (
 		walkRunScripts(
 			path.resolve(root),
-			(dir) => pkg(dir).scripts,
+			(dir) => readCachedPackage(dir).scripts,
 			command,
 			(hop) =>
 				allCommands(hop.tokens).some((c) =>
@@ -658,7 +667,7 @@ function parseBiomeSubcommand(command) {
  *
  * Residual, read as it stands: a hop mentioning neither (`./lint.sh $(…)`, even
  * where the file runs Biome); a global `biome` reached through a file, in a
- * repo with no other evidence; a runner outside HIDING with an expansion for
+ * repo with no other evidence; a runner other than `parallel`, `xargs`, `eval` or a shell with an expansion for
  * its command (`find -exec`, `su -c`, `env $X`, `exec $X`, `time $X`); and a glob outside
  * a command name's or Biome's slot (`npm run c?`, `biome check --st?ged`), which
  * makes its word only from a file of that name where it runs. */
@@ -667,12 +676,14 @@ const MENTIONS = new RegExp(
 	`biome|(?:^|[\\s;&|(\`$"'=/])(?:${PACKAGE_MANAGERS.join("|")})(?=$|[\\s;&|)\`"'@])|\\$'[^']*\\\\`,
 );
 
-/* A command whose command line is built from its input, so it can hold what
- * the text never mentions (#3545). */
-const HIDING = new Set(["parallel"]);
 /* Commands that re-read their words as shell text, or append their input to
- * them, so the words written are not the words run (#3545). */
-const INDIRECT = new Set(["xargs", "eval"]);
+ * them, so the words written are not the words run (#3545), each with whether
+ * the words after it hide what it runs. */
+/** @type {Map<string, (rest: Word[]) => boolean>} */
+const INDIRECT = new Map([
+	["xargs", (rest) => isHiddenCommand(xargsCommand(rest))],
+	["eval", (rest) => rest.some(isUnreadWord)],
+]);
 const SHELLS = new Set(["sh", "bash", "dash", "zsh", "ksh"]);
 /* A shell's flag word holding `c`: it runs its operand as script text. */
 const SCRIPT_FLAG = /^-[a-z]*c/;
@@ -760,8 +771,8 @@ function parseShellScript(command) {
 
 /**
  * Whether `command` runs what its text does not show, mentioned or not: its
- * name is an expansion or a glob, it is a HIDING command, a shell reading its
- * script from stdin, a shell whose script, or an `eval` whose words, hold an
+ * name is an expansion or a glob, it is `parallel`, whose command line is built
+ * from its input, a shell reading its script from stdin, a shell whose script, or an `eval` whose words, hold an
  * expansion, or an `xargs` whose command's name is one (#3545, #3851). A shell's
  * single-quoted `-c` script holding one only past its command's name is read:
  * there it can only be an argument.
@@ -772,9 +783,9 @@ function isHiddenCommand(command) {
 	if (!head) return false;
 	if (isUnreadWord(head) || head.glob) return true;
 	const name = path.posix.basename(head.value);
-	if (HIDING.has(name)) return true;
-	if (name === "xargs") return isHiddenCommand(xargsCommand(rest));
-	if (name === "eval") return rest.some(isUnreadWord);
+	if (name === "parallel") return true;
+	const indirect = INDIRECT.get(name);
+	if (indirect) return indirect(rest);
 	if (!SHELLS.has(name)) return false;
 	if (!rest.some((w) => SCRIPT_FLAG.test(w.value)))
 		return rest.every((w) => w.value.startsWith("-"));
@@ -782,7 +793,7 @@ function isHiddenCommand(command) {
 	return (
 		script !== undefined &&
 		(isUnreadWord(script) ||
-			allCommands(tokenise(script.value), false).some(isHiddenCommand))
+			writtenCommands(tokenise(script.value)).some(isHiddenCommand))
 	);
 }
 
@@ -1144,7 +1155,7 @@ const onlyCommand = (tokens) => {
 function classifyCheckStaged(root, command, { inferred }) {
 	if (command.trim().startsWith(BIOME_STAGED_COMMAND)) return { kind: "none" };
 	const top = path.resolve(root);
-	const pkg = packagesOnDemand();
+	const readCachedPackage = buildPackageReader();
 	/**
 	 * Evidence this repo runs Biome at all: `biome` written in the hop, or
 	 * declared or in a script of the `package.json` at the top, the hop's
@@ -1152,7 +1163,8 @@ function classifyCheckStaged(root, command, { inferred }) {
 	 * @param {Hop} hop
 	 */
 	const hasBiomeEvidence = ({ text, tokens, dir }) => {
-		const hasEvidence = (/** @type {string} */ d) => pkg(d).biomeEvident;
+		const hasEvidence = (/** @type {string} */ d) =>
+			readCachedPackage(d).biomeEvident;
 		return (
 			hasMatch(BIOME_TEXT, text, tokens) ||
 			hasEvidence(top) ||
@@ -1164,7 +1176,7 @@ function classifyCheckStaged(root, command, { inferred }) {
 	};
 	const hit = walkRunScripts(
 		top,
-		(dir) => pkg(dir).scripts,
+		(dir) => readCachedPackage(dir).scripts,
 		command,
 		/** @param {Hop} hop @param {Hop[]} hops */
 		(hop, hops) => {
@@ -1178,7 +1190,7 @@ function classifyCheckStaged(root, command, { inferred }) {
 			const unread =
 				((biomeCommand || hasMatch(MENTIONS, text, tokens)) &&
 					isUnreadable(tokens)) ||
-				allCommands(tokens, false).some(isHiddenCommand);
+				writtenCommands(tokens).some(isHiddenCommand);
 			if ((!unread && !biomeCommand) || !hasBiomeEvidence(hop)) return;
 			if (unread) return { hops, unread: /** @type {const} */ (true) };
 			if (segment === undefined)
@@ -1231,7 +1243,7 @@ function classifyCheckStaged(root, command, { inferred }) {
 			OWN_FLAGS_WAY_OUT,
 		);
 	if (!single) {
-		const part = mapBiome(hit.segment, pkg(top).biome);
+		const part = mapBiome(hit.segment, readCachedPackage(top).biome);
 		return refused(
 			"holds more than that one command",
 			declareCheckStaged(
@@ -1239,7 +1251,7 @@ function classifyCheckStaged(root, command, { inferred }) {
 			),
 		);
 	}
-	const mapped = mapAsWritten(hit.segment, pkg(top).biome);
+	const mapped = mapAsWritten(hit.segment, readCachedPackage(top).biome);
 	if (!("command" in mapped)) return refused(mapped.shape, mapped.wayOut);
 	if (!inferred)
 		return refused(
