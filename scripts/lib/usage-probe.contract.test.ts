@@ -4,8 +4,8 @@
  * and refreshes the seat's cache through, to the installed harness's
  * recording of one real probe (scripts/fixtures/usage-probe.json, re-recorded
  * by `node scripts/record-claude-responses.js`), read through the same
- * lib/allowance.js and lib/usage-cache.js parses; and, on the founder's
- * machine, to the live seat's cache (#3266). Breaking it costs the allowance
+ * lib/allowance.js and lib/usage-cache.js parses; and, on a plan seat on the
+ * founder's machine, to the live seat's cache (#3266). Breaking it costs the allowance
  * gate: a stub printing bars or a cache the harness no longer writes passes
  * tests while the probe reads nothing, or never sees its stamp move and runs
  * a minute past every refresh.
@@ -42,6 +42,9 @@ beforeEach(() => {
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
+
+const writeConfig = (text: string) =>
+	fs.writeFileSync(path.join(dir, ".claude.json"), text);
 
 const recordedPercent = (kind: string) => recordedLimit(kind).percent;
 
@@ -90,7 +93,7 @@ describe("the /usage fake against the recording (#3266)", () => {
 		const { cachedUsageUtilization: cache } = written;
 		expect(keyTypes(cache)).toEqual(keyTypes(recorded.cache));
 		expectRecordedBars(cache.utilization.limits, ["session", "weekly_all"]);
-		fs.writeFileSync(path.join(dir, ".claude.json"), JSON.stringify(written));
+		writeConfig(JSON.stringify(written));
 		const { session, weekly_all } = readAllowance({ configDir: dir });
 		expect([session.trust, session.percent]).toEqual(["fresh", 40]);
 		expect([weekly_all.trust, weekly_all.percent]).toEqual(["fresh", 50]);
@@ -105,7 +108,7 @@ describe("the /usage fake against the recording (#3266)", () => {
 		const { cachedUsageUtilization: cache } = written;
 		expect(keyTypes(cache)).toEqual(keyTypes(recorded.cache));
 		expectRecordedBars(cache.utilization.limits, ["session", "weekly_all"]);
-		fs.writeFileSync(path.join(dir, ".claude.json"), JSON.stringify(written));
+		writeConfig(JSON.stringify(written));
 		const read = readUsageCache(dir);
 		expect(read.state === "ok" && read.accountUuid).toBe("uuid-case");
 		const { weekly_all } = readAllowance({ configDir: dir });
@@ -130,7 +133,7 @@ describe("the /usage fake against the recording (#3266)", () => {
 		expect(keyTypes(scope(limits[2]).model)).toEqual(
 			keyTypes(scope(recordedScoped).model),
 		);
-		fs.writeFileSync(path.join(dir, ".claude.json"), JSON.stringify(written));
+		writeConfig(JSON.stringify(written));
 		const read = readUsageCache(dir);
 		expect(
 			read.state === "ok" && read.bars.find((b) => b.kind === "weekly_scoped"),
@@ -161,40 +164,94 @@ const readLiveSeat = () =>
 		.find((entry) => entry.startsWith("CLAUDE_CONFIG_DIR="))
 		?.slice("CLAUDE_CONFIG_DIR=".length) ?? path.join(os.homedir(), ".claude");
 
-// Residual: off the founder's machine this skips, and the recording goes unchecked.
+const readSeatConfig = (seat: string) =>
+	JSON.parse(fs.readFileSync(path.join(seat, ".claude.json"), "utf8"));
+
+/** Why `seat` has no cache to check: an API-key seat's `.claude.json` holds
+ * neither a usage cache nor a sign-in (#3768). A signed-in seat with no cache
+ * still runs, so a harness renaming the key fails here; so does a file that
+ * fails to parse, or a cache of the wrong shape. */
+function seatSkipReason(seat: string): string | undefined {
+	if (readUsageCache(seat).state === "missing")
+		return `no .claude.json in ${seat}`;
+	let config: { cachedUsageUtilization?: unknown; oauthAccount?: unknown };
+	try {
+		config = readSeatConfig(seat);
+	} catch {
+		return undefined;
+	}
+	return config?.cachedUsageUtilization === undefined &&
+		config?.oauthAccount === undefined
+		? `${seat} is an API-key seat: its .claude.json holds no usage cache and no sign-in`
+		: undefined;
+}
+
+// Residual: off the founder's machine, or on an API-key seat on it, this skips,
+// and the recording goes unchecked.
 function liveSkipReason(): string | undefined {
 	if (process.env.CI)
 		return "CI: the live seat's cache is read on the founder's machine only";
 	if (!fs.existsSync("/proc/self/environ")) return "no /proc/self/environ";
-	if (readUsageCache(readLiveSeat()).state === "missing")
-		return `no .claude.json in ${readLiveSeat()}`;
-	return undefined;
+	return seatSkipReason(readLiveSeat());
 }
 
-it.skipIf(liveSkipReason())(
-	"the live seat's cache carries the bars the reader reads",
-	() => {
-		const live = readUsageCache(readLiveSeat());
-		expect(live.state).toBe("ok");
-		if (live.state !== "ok") return;
-		expect(typeof live.fetchedAtMs).toBe("number");
-		expect(live.bars.find((b) => b.kind === "weekly_all")).toMatchObject({
-			percent: expect.any(Number),
-		});
-		// A plan with no 5-hour bar lists none (#3758); one listed carries a figure.
-		const session = live.bars.find((b) => b.kind === "session");
-		if (session) expect(session.percent).toEqual(expect.any(Number));
-	},
-);
+const expectCarriesBars = (seat: string) => {
+	const cache = readUsageCache(seat);
+	expect(cache.state).toBe("ok");
+	if (cache.state !== "ok") return;
+	expect(typeof cache.fetchedAtMs).toBe("number");
+	expect(cache.bars.find((b) => b.kind === "weekly_all")).toMatchObject({
+		percent: expect.any(Number),
+	});
+	// A plan with no 5-hour bar lists none (#3758); one listed carries a figure.
+	const session = cache.bars.find((b) => b.kind === "session");
+	if (session) expect(session.percent).toEqual(expect.any(Number));
+};
+
+it("the live seat's cache carries the bars the reader reads", ({ skip }) => {
+	const reason = liveSkipReason();
+	if (reason) return skip(reason);
+	expectCarriesBars(readLiveSeat());
+});
+
+describe("which seats the live case skips (#3768)", () => {
+	it("skips a seat with no .claude.json", () => {
+		expect(seatSkipReason(dir)).toBe(`no .claude.json in ${dir}`);
+	});
+
+	it("skips, naming why, a seat with no usage cache and no sign-in", () => {
+		writeConfig(JSON.stringify({ numStartups: 1 }));
+		expect(seatSkipReason(dir)).toContain("is an API-key seat");
+	});
+
+	it.each([
+		["a file that fails to parse", "{ not json"],
+		["a signed-in seat with no cache", '{"oauthAccount":{"accountUuid":"u"}}'],
+		["a cache of the wrong type", '{"cachedUsageUtilization":"x"}'],
+		["a null cache", '{"cachedUsageUtilization":null}'],
+		["a cache with no bars", '{"cachedUsageUtilization":{"fetchedAtMs":1}}'],
+	])("runs and fails on %s", (_name, text) => {
+		writeConfig(text);
+		expect(seatSkipReason(dir)).toBeUndefined();
+		expect(() => expectCarriesBars(dir)).toThrow();
+	});
+
+	it("runs and passes on a plan seat's cache", () => {
+		writeConfig(
+			JSON.stringify(buildUsageCache({ session: 40, week: 50 }, Date.now())),
+		);
+		expect(seatSkipReason(dir)).toBeUndefined();
+		expectCarriesBars(dir);
+	});
+});
 
 /** The live seat's raw `weekly_scoped` bar, parsed by hand because the
  * shape check needs the keys lib/usage-cache.js drops; a seat on no model
  * allowance caches none. */
 function readLiveScopedLimit(): Record<string, unknown> | undefined {
-	const parsed = JSON.parse(
-		fs.readFileSync(path.join(readLiveSeat(), ".claude.json"), "utf8"),
-	);
-	return parsed?.cachedUsageUtilization?.utilization?.limits?.find(
+	return readSeatConfig(
+		readLiveSeat(),
+	)?.cachedUsageUtilization?.utilization?.limits?.find(
 		(l: { kind?: unknown }) => l?.kind === "weekly_scoped",
 	);
 }
@@ -207,21 +264,22 @@ const scopedSkipReason = () =>
 		? undefined
 		: "the live seat caches no weekly_scoped bar");
 
-it.skipIf(scopedSkipReason())(
-	"the live seat's weekly_scoped bar has the recorded shape (#3282)",
-	() => {
-		const live = readLiveScopedLimit() as Record<string, unknown>;
-		const recordedScoped = recordedLimit("weekly_scoped");
-		expect(keyTypes(live)).toEqual(keyTypes(recordedScoped));
-		const model = (l: Record<string, unknown>) =>
-			(l.scope as { model: object }).model;
-		expect(keyTypes(live.scope as object)).toEqual(
-			keyTypes(recordedScoped.scope as object),
-		);
-		expect(keyTypes(model(live))).toEqual(keyTypes(model(recordedScoped)));
-		const read = readUsageCache(readLiveSeat());
-		expect(
-			read.state === "ok" && read.bars.find((b) => b.kind === "weekly_scoped"),
-		).toMatchObject({ model: expect.any(String), percent: expect.any(Number) });
-	},
-);
+it("the live seat's weekly_scoped bar has the recorded shape (#3282)", ({
+	skip,
+}) => {
+	const reason = scopedSkipReason();
+	if (reason) return skip(reason);
+	const live = readLiveScopedLimit() as Record<string, unknown>;
+	const recordedScoped = recordedLimit("weekly_scoped");
+	expect(keyTypes(live)).toEqual(keyTypes(recordedScoped));
+	const model = (l: Record<string, unknown>) =>
+		(l.scope as { model: object }).model;
+	expect(keyTypes(live.scope as object)).toEqual(
+		keyTypes(recordedScoped.scope as object),
+	);
+	expect(keyTypes(model(live))).toEqual(keyTypes(model(recordedScoped)));
+	const read = readUsageCache(readLiveSeat());
+	expect(
+		read.state === "ok" && read.bars.find((b) => b.kind === "weekly_scoped"),
+	).toMatchObject({ model: expect.any(String), percent: expect.any(Number) });
+});
