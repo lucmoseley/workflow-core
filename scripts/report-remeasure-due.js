@@ -11,14 +11,27 @@
  * escalated or mission-critical, and which has a known defect: a `- FIXED`
  * or `- TICKETED` line among the bullets under it (`- DECLINED`
  * does not count), or an `**Escaped defect:** <sha>` line anywhere in the
- * corpus naming its landed sha. One commit recorded twice, by a short sha or
- * a full one, is counted once, its defects summed. A commit a revert on
- * `main` names is not counted, unless that revert was itself reverted:
- * searched in the tracker's repo only once the count reaches the threshold
- * or an issue of TITLE exists to refresh, since dropping one can only lower
- * it (#3395). Residual: an adopter's code
+ * corpus naming its landed sha or a commit it covers (below). One commit
+ * recorded twice, by a short sha or a full one, is counted once, its defects
+ * summed. A commit a revert on `main` names is not counted, unless that revert
+ * was itself reverted: searched in the tracker's repo only once the count
+ * reaches the threshold or an issue of TITLE exists to refresh, since dropping
+ * one can only lower it (#3395). Residual: an adopter's code
  * repo apart from its tracker is not searched, and the landed sha is taken as
  * on `main`, never checked against it.
+ *
+ * AN ESCAPE ON A COVERED COMMIT counts once on the first counted record
+ * covering it, where no counted commit names it as landed (#3832). A commit
+ * carrying a trailer that a counted record covers adds no row of its own, so
+ * its escape counts on that record. A revert takes only what it names (#3832):
+ * of a covered commit, the escape credited through it, its record standing as
+ * its tip is on `main`; of the tip, the record's findings and an escape on the
+ * tip, a row standing only on an escape through a commit still there. An escape
+ * no checkout on this machine holds, and no counted commit names, is reported
+ * as UNHELD, each run until one holds it or the line is corrected. Residual:
+ * one on a commit a checkout holds that no counted record covers, a merge or a
+ * lower tier's included, counts on nothing unreported, as UNRECORDED answers
+ * for a sensitive one from TRAILER_FROM.
  *
  * A COMMIT CARRYING A `Review-Tier:` TRAILER, whose value the review hold
  * builds from its marker (scripts/review-hold-gate.sh) and
@@ -91,7 +104,13 @@
  * rewrites that issue's body, never filing a second, below the threshold too,
  * since a gate reads the count from its first line (#3576). Found by title
  * alone, since the session that takes it may relabel it. Below the threshold
- * it prints nothing but those reports.
+ * it prints nothing but those reports. A run that undercounts — a tracker's
+ * checkout UNREAD, or an escape it could not place, as a git failure or a
+ * citing record's unread range leaves it — leaves an issue whose first line it
+ * would lower, reported as HELD, and the next run retries (#3832). A record's
+ * unread range that no escape rests on holds nothing. Residual: a real drop
+ * waits until the read recovers, and a read that stays failed freezes the
+ * count's fall.
  *
  * WORKFLOW-CORE ONLY, by its repo-checks gate: one reading covers the whole
  * corpus, and Actions' token cannot read the private adopter repos.
@@ -107,6 +126,7 @@ const { logError } = require("./lib/arbiter-core");
 const { parseOrExit } = require("./lib/cli-args");
 const { now } = require("./lib/check");
 const {
+	gh,
 	parseErrLine,
 	ghApiSlurp,
 	parseGhFailureReason,
@@ -192,17 +212,26 @@ const JUDGED_REF = "refs/remotes/origin/main";
  * as it, so that commit stays reported as UNRECORDED too. */
 const LANDED_CLAUSE = new RegExp(`\\blanded\\b[^,]*?\\b(${HEX_RUN})\\b`);
 
+/* buildBody's first line, whose count a gate reads (#3576). */
+const COUNT_LINE = /^(\d+) commits\b/;
+
 /**
  * @typedef {{ body: string, createdAt: string }} Comment
  * @typedef {{ repo: string, issue: number | null, base: string,
  *   tree: string, landed: string, paths: string | null, posted: string,
- *   tier: string, fixed: number, fixes: number, escaped: number }} ReviewRecord
+ *   tier: string, fixed: number, fixes: number, escapes: string[] }} ReviewRecord
  *   `issue` null on a commit known by its trailer alone
  * @typedef {{ repo: string, issue: number, line: string }} Unparsed
  * @typedef {{ records: ReviewRecord[], unparsed: Unparsed[] }} Parsed every
  *   record parsed, of any tier, and the unparseable ones under a counted tier
- * @typedef {{ tag: "UNRECORDED" | "UNPARSEABLE" | "UNREAD", fault: string }} Unseen
- * @typedef {{ tag: Unseen["tag"] | "LANDED TREE" | "UNJUDGED", fault: string }} RecordFault
+ * @typedef {{ tag: "UNRECORDED" | "UNPARSEABLE" | "UNREAD" | "UNHELD", fault: string }} Unseen
+ * @typedef {{ tag: Unseen["tag"] | "LANDED TREE" | "UNJUDGED" | "HELD", fault: string }} Report
+ * @typedef {{ covers: (r: ReviewRecord, sha: string, message: string, root: string) => boolean,
+ *   isRangeLost: (r: ReviewRecord, message: string) => boolean,
+ *   rangeFaults: Unseen[] }} RecordCover
+ * @typedef {{ isCovered: (sha: string, message: string) => boolean,
+ *   isOnCountedRecord: (sha: string, message: string) => boolean }} CommitJudge
+ * @typedef {{ trackers: string[], parsed: Parsed, cover: RecordCover, home: string }} Reading
  * @typedef {{ at: number, tier: string } | { at: number, record: RegExpExecArray }
  *   | { at: number, unparsed: string }} Mark
  */
@@ -387,7 +416,7 @@ function parseIssue(repo, issue, comments) {
 				tier,
 				fixed: countDisposed(body.slice(m.index), KNOWN),
 				fixes: countDisposed(body.slice(m.index), FIXED),
-				escaped: 0,
+				escapes: [],
 			});
 		}
 	}
@@ -459,26 +488,29 @@ function mergeRecord(seen, r) {
  * sensitive ones no record covers; none where no checkout tracks it.
  *
  * @param {string} repo
- * @param {Parsed} parsed
- * @param {string} home
+ * @param {Reading} reading
  * @returns {{ trailers: ReviewRecord[], unseen: Unseen[] }}
  */
-function readTrailers(repo, parsed, home) {
+function readTrailers(repo, { parsed, cover, home }) {
 	const checkout = readCheckoutTracking(repo, home);
-	if (!("root" in checkout)) return { trailers: [], unseen: [] };
-	const { root } = checkout;
-	/** @param {string} why @returns {{ trailers: ReviewRecord[], unseen: Unseen[] }} */
-	const buildUnread = (why) => ({
+	/** @param {string} where @param {string} why @returns {{ trailers: ReviewRecord[], unseen: Unseen[] }} */
+	const buildUnread = (where, why) => ({
 		trailers: [],
 		unseen: [
 			{
 				tag: "UNREAD",
-				fault: `${repo}: could not read its commits' Review-Tier: trailers in ${root}, so none is counted and none unrecorded reported — ${why}`,
+				fault: `${repo}: could not read its commits' Review-Tier: trailers ${where}, so none is counted and none unrecorded reported — ${why}`,
 			},
 		],
 	});
+	if (!("root" in checkout))
+		return checkout.unreadable
+			? buildUnread(`under ${home}`, checkout.why)
+			: { trailers: [], unseen: [] };
+	const { root } = checkout;
+	const inRoot = `in ${root}`;
 	const fetched = fetchJudgedRef(root);
-	if (!fetched.ok) return buildUnread(fetched.why);
+	if (!fetched.ok) return buildUnread(inRoot, fetched.why);
 	const log = gitOutcome(
 		[
 			"-c",
@@ -494,7 +526,7 @@ function readTrailers(repo, parsed, home) {
 		[],
 		root,
 	);
-	if (!log.ok) return buildUnread(log.why);
+	if (!log.ok) return buildUnread(inRoot, log.why);
 	let declared;
 	try {
 		declared = readConfig({
@@ -503,11 +535,14 @@ function readTrailers(repo, parsed, home) {
 			quiet: true,
 		}).sensitivePaths;
 	} catch (e) {
-		return buildUnread(parseErrLine(e));
+		return buildUnread(inRoot, parseErrLine(e));
 	}
-	const { isCovered, rangeFaults } = buildCoverage(repo, parsed, root);
-	const found = parseTrailerLog(repo, log.out, declared, isCovered);
-	return { ...found, unseen: [...rangeFaults, ...found.unseen] };
+	return parseTrailerLog(
+		repo,
+		log.out,
+		declared,
+		buildCommitJudge(repo, parsed, cover, root),
+	);
 }
 
 /**
@@ -532,29 +567,28 @@ function fetchJudgedRef(root) {
 }
 
 /**
- * Whether a commit is one the header's A RECORD COVERS ITS TICKET'S COMMITS
- * answers for, or an unparseable record's report already names; and the range
- * faults that answer met, filled as it is asked.
+ * The header's A RECORD COVERS ITS TICKET'S COMMITS, one per run so a record's
+ * range is read, and its fault reported, once.
  *
- * @param {string} repo
- * @param {Parsed} parsed
- * @param {string} root the checkout git reads each record's range in
- * @returns {{ isCovered: (sha: string, message: string) => boolean, rangeFaults: Unseen[] }}
+ * @returns {RecordCover}
  */
-function buildCoverage(repo, { records, unparsed }, root) {
-	const own = records.filter((r) => r.repo === repo);
-	const reported = unparsed
-		.filter((u) => u.repo === repo)
-		.flatMap((u) => {
-			const m = LANDED_CLAUSE.exec(u.line);
-			return m ? [group(m, 1, LANDED_CLAUSE)] : [];
-		});
+function buildRecordCover() {
 	/** @type {Unseen[]} */
 	const rangeFaults = [];
 	/** @type {Map<ReviewRecord, string[]>} */
 	const ranges = new Map();
-	/** @param {ReviewRecord} r */
-	const readRange = (r) => {
+	/** @type {Set<ReviewRecord>} */
+	const lost = new Set();
+	/**
+	 * The lookbehind leaves another repo's `mantahostels#9` to that repo.
+	 *
+	 * @param {ReviewRecord} r
+	 * @param {string} message
+	 */
+	const isCited = (r, message) =>
+		new RegExp(`(?<![\\w/#-])#${r.issue}(?!\\d)`).test(message);
+	/** @param {ReviewRecord} r @param {string} root */
+	const readRange = (r, root) => {
 		let shas = ranges.get(r);
 		if (!shas) {
 			const read = gitOutcome(
@@ -563,26 +597,53 @@ function buildCoverage(repo, { records, unparsed }, root) {
 				root,
 			);
 			shas = read.ok ? read.out.split("\n") : [];
-			if (!read.ok)
+			if (!read.ok) {
+				lost.add(r);
 				rangeFaults.push({
 					tag: "UNREAD",
-					fault: `${repo}#${r.issue}: could not read its record's range ${r.base}..${r.landed} in ${root}, so it covers only its landed sha — ${read.why}`,
+					fault: `${r.repo}#${r.issue}: could not read its record's range ${r.base}..${r.landed} in ${root}, so it covers only its landed sha — ${read.why}`,
 				});
+			}
 			ranges.set(r, shas);
 		}
 		return shas;
 	};
-	/* The lookbehind leaves another repo's `mantahostels#9` to that repo. */
+	return {
+		covers: (r, sha, message, root) =>
+			isSameSha(r.landed, sha) ||
+			(isCited(r, message) && readRange(r, root).includes(sha)),
+		isRangeLost: (r, message) => lost.has(r) && isCited(r, message),
+		rangeFaults,
+	};
+}
+
+/**
+ * Whether a commit is one a record of `repo` covers, or an unparseable
+ * record's report already names; and whether a counted record covers it, so
+ * its trailer adds no row.
+ *
+ * @param {string} repo
+ * @param {Parsed} parsed
+ * @param {RecordCover} cover
+ * @param {string} root the checkout git reads each record's range in
+ * @returns {CommitJudge}
+ */
+function buildCommitJudge(repo, { records, unparsed }, cover, root) {
+	const own = records.filter((r) => r.repo === repo);
+	const reported = unparsed
+		.filter((u) => u.repo === repo)
+		.flatMap((u) => {
+			const m = LANDED_CLAUSE.exec(u.line);
+			return m ? [group(m, 1, LANDED_CLAUSE)] : [];
+		});
 	return {
 		isCovered: (sha, message) =>
 			reported.some((s) => isSameSha(s, sha)) ||
+			own.some((r) => cover.covers(r, sha, message, root)),
+		isOnCountedRecord: (sha, message) =>
 			own.some(
-				(r) =>
-					isSameSha(r.landed, sha) ||
-					(new RegExp(`(?<![\\w/#-])#${r.issue}(?!\\d)`).test(message) &&
-						readRange(r).includes(sha)),
+				(r) => COUNTED_TIERS.has(r.tier) && cover.covers(r, sha, message, root),
 			),
-		rangeFaults,
 	};
 }
 
@@ -592,16 +653,16 @@ function buildCoverage(repo, { records, unparsed }, root) {
  * @param {string} repo
  * @param {string} out
  * @param {import("./lib/workflow-core-config").SensitivePath[] | undefined} declared
- * @param {(sha: string, message: string) => boolean} isCovered
+ * @param {CommitJudge} judge
  * @returns {{ trailers: ReviewRecord[], unseen: Unseen[] }}
  */
-function parseTrailerLog(repo, out, declared, isCovered) {
+function parseTrailerLog(repo, out, declared, judge) {
 	const commits = out
 		.split("\0")
 		.slice(1)
 		.map((chunk) => {
-			const [sha = "", value = "", message = "", names = ""] =
-				chunk.split("\x1f");
+			const [sha, value = "", message = "", names = ""] = chunk.split("\x1f");
+			if (!sha) throw new Error(`${repo}: a git log entry named no sha`);
 			const [trailer = ""] = value.split("\n");
 			return { sha, trailer: trailer.trim(), message, names };
 		});
@@ -612,6 +673,7 @@ function parseTrailerLog(repo, out, declared, isCovered) {
 	for (const { sha, trailer, message, names } of commits) {
 		const m = TRAILER.exec(trailer);
 		if (m) {
+			if (judge.isOnCountedRecord(sha, message)) continue;
 			trailers.push({
 				repo,
 				issue: null,
@@ -623,7 +685,7 @@ function parseTrailerLog(repo, out, declared, isCovered) {
 				tier: requiredGroup(m, 1, TRAILER),
 				fixed: 0,
 				fixes: 0,
-				escaped: 0,
+				escapes: [],
 			});
 			continue;
 		}
@@ -638,7 +700,7 @@ function parseTrailerLog(repo, out, declared, isCovered) {
 			declared,
 			names.split("\n").filter(Boolean),
 		).matched.map((a) => a.name);
-		if (areas.length > 0 && !isCovered(sha, message))
+		if (areas.length > 0 && !judge.isCovered(sha, message))
 			unseen.push({
 				tag: "UNRECORDED",
 				fault: `${repo}@${sha} changes the sensitive area${areas.length > 1 ? "s" : ""} ${areas.join(", ")} and carries neither a Review-Tier: trailer nor a **Review findings:** record, so nothing answers for it until a record names it as landed, or its message cites that record's ticket within the record's base..landed; \`scripts/lib/rule-text.sh review-tier-records\` gives the record's form`,
@@ -651,26 +713,109 @@ function parseTrailerLog(repo, out, declared, isCovered) {
  * Appends to `commits` each commit known by its trailer alone, returning the
  * sensitive commits no record or trailer names, and the checkouts unread.
  *
- * @param {ReviewRecord[]} commits accumulator: each trailer commit no record
- *   names is appended
- * @param {string[]} trackers
- * @param {Parsed} parsed
- * @param {string} home
+ * @param {ReviewRecord[]} commits accumulator: each trailer commit no counted
+ *   record covers is appended
+ * @param {Reading} reading
  * @returns {Unseen[]}
  */
-function addTrailerCommits(commits, trackers, parsed, home) {
+function addTrailerCommits(commits, reading) {
 	/** @type {Unseen[]} */
 	const unseen = [];
-	for (const repo of trackers) {
-		const found = readTrailers(repo, parsed, home);
+	for (const repo of reading.trackers) {
+		const found = readTrailers(repo, reading);
 		unseen.push(...found.unseen);
-		for (const t of found.trailers)
-			if (
-				!commits.some((c) => c.repo === repo && isSameSha(c.landed, t.landed))
-			)
-				commits.push(t);
+		commits.push(...found.trailers);
 	}
 	return unseen;
+}
+
+/**
+ * Places `s`, an escaped sha no commit names as landed, on the first counted
+ * record covering it in the checkouts that hold it.
+ *
+ * @param {string} s
+ * @param {ReviewRecord[]} commits accumulator: the credited commit's `escapes`
+ *   gains the sha
+ * @param {{ repo: string, root: string }[]} checkouts
+ * @param {Reading} reading
+ * @returns {{ held: boolean, faults: Unseen[], undercounts: boolean }}
+ */
+function placeEscape(s, commits, checkouts, { parsed, cover }) {
+	/** @type {Unseen[]} */
+	const faults = [];
+	let held = false;
+	let undercounts = false;
+	for (const { repo, root } of checkouts) {
+		const resolved = gitOutcome(
+			["rev-parse", "--verify", "--quiet", `${s}^{commit}`],
+			[1],
+			root,
+		);
+		const sha = resolved.ok ? resolved.out.trim() : "";
+		const read =
+			sha === ""
+				? resolved
+				: gitOutcome(["log", "-1", "--format=%B", sha], [], root);
+		if (!read.ok) {
+			undercounts = true;
+			held = true;
+			faults.push({
+				tag: "UNREAD",
+				fault: `${repo}: could not read escaped ${s} in ${root}, so it counts on no record it covers — ${read.why}`,
+			});
+			continue;
+		}
+		if (sha === "") continue;
+		held = true;
+		const own = parsed.records.filter(
+			(c) => COUNTED_TIERS.has(c.tier) && c.repo === repo,
+		);
+		const r = own.find((c) => cover.covers(c, sha, read.out, root));
+		const commit =
+			r &&
+			commits.find((c) => c.repo === repo && isSameSha(c.landed, r.landed));
+		if (commit) {
+			commit.escapes.push(s);
+			return { held, faults, undercounts: false };
+		}
+		if (own.some((c) => cover.isRangeLost(c, read.out))) undercounts = true;
+	}
+	return { held, faults, undercounts };
+}
+
+/**
+ * Credits each escaped sha to the commits naming it as landed, or else as the
+ * header's AN ESCAPE ON A COVERED COMMIT says. Across repos, not within one:
+ * the line sits on the fixing ticket, which may live in another repo, and a
+ * 7-hex prefix colliding is negligible.
+ *
+ * @param {ReviewRecord[]} commits accumulator: each credited commit's `escapes`
+ *   gains the sha
+ * @param {string[]} escaped
+ * @param {Reading} reading
+ * @returns {{ faults: Unseen[], undercounts: boolean }}
+ */
+function creditEscapes(commits, escaped, reading) {
+	const checkouts = reading.trackers.flatMap((repo) => {
+		const checkout = readCheckoutTracking(repo, reading.home);
+		return "root" in checkout ? [{ repo, root: checkout.root }] : [];
+	});
+	/** @type {Map<string, Unseen>} one report a fault, however often it is named */
+	const faults = new Map();
+	let undercounts = false;
+	for (const s of escaped) {
+		const named = commits.filter((c) => isSameSha(s, c.landed));
+		for (const c of named) c.escapes.push(s);
+		if (named.length > 0) continue;
+		const placed = placeEscape(s, commits, checkouts, reading);
+		undercounts ||= placed.undercounts;
+		for (const f of placed.faults) faults.set(f.fault, f);
+		if (!placed.held) {
+			const fault = `an **Escaped defect:** names ${s}, which no counted record names as landed and no checkout on this machine holds, so it counts on no record until a checkout holds it or the line is corrected`;
+			faults.set(fault, { tag: "UNHELD", fault });
+		}
+	}
+	return { undercounts, faults: [...faults.values()] };
 }
 
 /**
@@ -681,7 +826,7 @@ function addTrailerCommits(commits, trackers, parsed, home) {
  * @param {string[]} trackers
  * @param {string} today YYYY-MM-DD
  * @param {string} home
- * @returns {{ commits: ReviewRecord[], unparsed: Unparsed[], unseen: Unseen[] }}
+ * @returns {{ commits: ReviewRecord[], unparsed: Unparsed[], unseen: Unseen[], undercounts: boolean }}
  */
 function countedCommits(trackers, today, home) {
 	/** @type {ReviewRecord[]} */
@@ -711,20 +856,21 @@ function countedCommits(trackers, today, home) {
 		if (seen) mergeRecord(seen, r);
 		else commits.push({ ...r });
 	}
-	const unseen = addTrailerCommits(
-		commits,
+	const cover = buildRecordCover();
+	const reading = {
 		trackers,
-		{ records, unparsed },
+		parsed: { records, unparsed },
+		cover,
 		home,
-	);
-	/* Across repos, not within one: the line sits on the fixing ticket, which
-	 * may live in another repo, and a 7-hex prefix colliding is negligible. */
-	for (const c of commits)
-		c.escaped = escaped.filter((s) => isSameSha(s, c.landed)).length;
+	};
+	const trailerFaults = addTrailerCommits(commits, reading);
+	const credited = creditEscapes(commits, escaped, reading);
 	return {
-		commits: commits.filter((c) => c.fixed + c.escaped > 0),
+		commits: commits.filter((c) => c.fixed + c.escapes.length > 0),
 		unparsed,
-		unseen,
+		unseen: [...cover.rangeFaults, ...trailerFaults, ...credited.faults],
+		undercounts:
+			credited.undercounts || trailerFaults.some((f) => f.tag === "UNREAD"),
 	};
 }
 
@@ -735,7 +881,7 @@ function countedCommits(trackers, today, home) {
  *
  * @param {ReviewRecord} c
  * @param {string} home
- * @returns {RecordFault | null}
+ * @returns {Report | null}
  */
 function landedTreeReport(c, home) {
 	if (c.fixes === 0 || c.paths === null || c.posted < PINNED_FROM) return null;
@@ -809,9 +955,14 @@ function withoutReverted(commits) {
 			readRevertedShas(tracker),
 		]),
 	);
-	return commits.filter(
-		(c) => !reverted.get(c.repo)?.some((s) => isSameSha(s, c.landed)),
-	);
+	return commits.flatMap((c) => {
+		/** @param {string} sha */
+		const isGone = (sha) =>
+			reverted.get(c.repo)?.some((s) => isSameSha(s, sha)) ?? false;
+		const fixed = isGone(c.landed) ? 0 : c.fixed;
+		const escapes = c.escapes.filter((s) => !isGone(s));
+		return fixed + escapes.length > 0 ? [{ ...c, fixed, escapes }] : [];
+	});
 }
 
 /** @param {ReviewRecord[]} commits */
@@ -821,12 +972,25 @@ function buildBody(commits) {
 		"",
 		...commits.map((c) =>
 			c.issue === null
-				? `- ${c.repo}@${c.landed}: Review-Tier: trailer alone, base ${c.base}, landed tree ${c.tree}, paths ${c.paths}; ${c.escaped} escaped`
-				: `- ${c.repo}#${c.issue}: landed ${c.landed}, base ${c.base}, tree ${c.tree}${c.paths === null ? "" : `, paths ${c.paths}`}; ${c.fixed} fixed or ticketed, ${c.escaped} escaped`,
+				? `- ${c.repo}@${c.landed}: Review-Tier: trailer alone, base ${c.base}, landed tree ${c.tree}, paths ${c.paths}; ${c.escapes.length} escaped`
+				: `- ${c.repo}#${c.issue}: landed ${c.landed}, base ${c.base}, tree ${c.tree}${c.paths === null ? "" : `, paths ${c.paths}`}; ${c.fixed} fixed or ticketed, ${c.escapes.length} escaped`,
 		),
 		"",
 		"Kept current daily by `scripts/report-remeasure-due.js` (#1625), which never files a second.",
 	].join("\n");
+}
+
+/**
+ * The count on the first line of issue `number`'s body, null where it holds
+ * none.
+ *
+ * @param {number} number
+ */
+function readFiledCount(number) {
+	const m = COUNT_LINE.exec(
+		gh(["issue", "view", String(number), "--json", "body", "--jq", ".body"]),
+	);
+	return m ? Number(m[1]) : null;
 }
 
 /** @param {unknown} e */
@@ -849,14 +1013,63 @@ function failOpen(fault, next) {
 }
 
 /**
- * A faulty record, or one its checkout cannot judge: one line to stderr and
- * to the guard-error log, each run until it is corrected or can be judged.
+ * A fault, or a refresh held: one line to stderr and to the guard-error log,
+ * each run until it is corrected or can be judged.
  *
- * @param {RecordFault} record
+ * @param {Report} report
  */
-function reportRecord({ tag, fault }) {
+function writeReport({ tag, fault }) {
 	logError(WHERE, fault);
 	writeFd(2, `${tag}: ${fault}\n`);
+}
+
+/**
+ * Files the tracking issue at the threshold, or refreshes `existing`, unless
+ * the header's AT THRESHOLD holds it.
+ *
+ * @param {{ number: number } | null} existing
+ * @param {ReviewRecord[]} commits
+ * @param {boolean} undercounts
+ */
+function fileOrHold(existing, commits, undercounts) {
+	const due = commits.length >= THRESHOLD;
+	if (!existing && !due) return;
+	const text = buildBody(commits);
+	/* No PreToolUse hook sees a script's own gh call, so the create guard's
+	 * takes: check is made here. */
+	const refused = takesRefusal([LABEL], text);
+	if (refused) {
+		failOpen(refused, "Nothing was filed.");
+		return;
+	}
+	try {
+		if (existing && undercounts) {
+			const filed = readFiledCount(existing.number);
+			if (filed !== null && commits.length < filed) {
+				writeReport({
+					tag: "HELD",
+					fault: `#${existing.number} stays at ${filed} commits, this run reading ${commits.length}; the next day's run retries`,
+				});
+				return;
+			}
+		}
+		if (existing) refresh(existing.number, text);
+		const did = existing
+			? `Refreshed #${existing.number}`
+			: `Filed ${createIssue({ title: TITLE, labels: [LABEL], body: text })}`;
+		if (due)
+			writeFd(
+				1,
+				`Re-measure due: ${commits.length} counted commits. ${did}.\n`,
+			);
+	} catch (e) {
+		/* Not e.message: a failed gh call's message holds its whole argv, the body
+		 * included. */
+		failOpen(
+			`could not file or refresh "${TITLE}" — ${parseErrLine(e)}`,
+			`${remedy(e)}The next day's run retries.`,
+		);
+	}
 }
 
 function main() {
@@ -868,8 +1081,9 @@ function main() {
 	let commits;
 	let unparsed;
 	let unseen;
+	let undercounts;
 	try {
-		({ commits, unparsed, unseen } = countedCommits(
+		({ commits, unparsed, unseen, undercounts } = countedCommits(
 			/** @type {string[]} */ (resolveKey("corpus", { root })),
 			day(now()),
 			home,
@@ -882,7 +1096,7 @@ function main() {
 		return;
 	}
 	for (const u of unparsed)
-		reportRecord({
+		writeReport({
 			tag: "UNPARSEABLE",
 			fault: `${u.repo}#${u.issue} has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: ${u.line}`,
 		});
@@ -890,7 +1104,7 @@ function main() {
 		...unseen,
 		...commits.flatMap((c) => landedTreeReport(c, home) ?? []),
 	])
-		reportRecord(r);
+		writeReport(r);
 	const own = resolveKey("tracker", { root });
 	commits = commits.filter((c) => c.repo !== own);
 	let existing;
@@ -913,34 +1127,7 @@ function main() {
 		);
 		return;
 	}
-	const due = commits.length >= THRESHOLD;
-	if (!existing && !due) return;
-	const text = buildBody(commits);
-	/* No PreToolUse hook sees a script's own gh call, so the create guard's
-	 * takes: check is made here. */
-	const refused = takesRefusal([LABEL], text);
-	if (refused) {
-		failOpen(refused, "Nothing was filed.");
-		return;
-	}
-	try {
-		if (existing) refresh(existing.number, text);
-		const did = existing
-			? `Refreshed #${existing.number}`
-			: `Filed ${createIssue({ title: TITLE, labels: [LABEL], body: text })}`;
-		if (due)
-			writeFd(
-				1,
-				`Re-measure due: ${commits.length} counted commits. ${did}.\n`,
-			);
-	} catch (e) {
-		/* Not e.message: a failed gh call's message holds its whole argv, the body
-		 * included. */
-		failOpen(
-			`could not file or refresh "${TITLE}" — ${parseErrLine(e)}`,
-			`${remedy(e)}The next day's run retries.`,
-		);
-	}
+	fileOrHold(existing, commits, undercounts);
 }
 
 if (require.main === module) main();

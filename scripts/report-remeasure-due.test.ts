@@ -76,6 +76,8 @@ function fixture(opts: {
 	/** Every commit search reports one hit more than it serves. */
 	commitsShort?: boolean;
 	createFails?: boolean;
+	/** The filed issue's body as the run finds it; absent, empty. */
+	body?: string;
 }) {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "remeasure-"));
 	temps.push(root);
@@ -102,7 +104,15 @@ function fixture(opts: {
 			commitsShort: opts.commitsShort ?? false,
 		}),
 	);
-	const issueBody = fakeIssueBody(root);
+	const writeData = (fields: object) =>
+		fs.writeFileSync(
+			data,
+			JSON.stringify({
+				...JSON.parse(fs.readFileSync(data, "utf8")),
+				...fields,
+			}),
+		);
+	const issueBody = fakeIssueBody(root, opts.body);
 	const argvLog = path.join(root, "gh-argv.log");
 	const { gh } = stubGhScript(
 		root,
@@ -149,14 +159,10 @@ function fixture(opts: {
 		issueBody,
 		config: path.join(root, "config"),
 		/** Replaces what the search serves, for hits built after the root. */
-		setHits: (hits: Record<string, Hit[]>) =>
-			fs.writeFileSync(
-				data,
-				JSON.stringify({
-					...JSON.parse(fs.readFileSync(data, "utf8")),
-					hits,
-				}),
-			),
+		setHits: (hits: Record<string, Hit[]>) => writeData({ hits }),
+		/** Replaces what commit search finds, for shas built after the root. */
+		setCommits: (commits: Record<string, { sha: string; message: string }[]>) =>
+			writeData({ commits }),
 		calls: (): string[][] =>
 			fs.existsSync(argvLog)
 				? fs
@@ -319,6 +325,58 @@ function trailerCheckout(
 	pushToNewOrigin(code);
 	return shas;
 }
+
+/** The issue already filed, so a count below the threshold reaches its body. */
+const FILED = [
+	{
+		number: 77,
+		title: TITLE,
+		labels: [{ name: LABEL }],
+		closedAt: null,
+		createdAt: "2026-11-02T00:00:00Z",
+	},
+];
+const STANDARD_TIER = "**Review tier:** standard — no sensitive path.";
+const buildEscapeTicket = (escaped: string, number = 1): Hit => ({
+	number,
+	updated: "2026-11-05",
+	comments: [`**Escaped defect:** ${escaped.slice(0, 9)} — it missed a case`],
+});
+const buildMantaFindings = (
+	base: string,
+	landed: string,
+	disposed: string[] = [],
+) =>
+	[
+		`**Review findings:** base ${base}, reviewed ${"e".repeat(40)}, landed ${landed}, paths lib/secret.js`,
+		...disposed.map((d) => `- ${d}`),
+	].join("\n");
+/** A record on o/manta#9, of `tier`. */
+const buildMantaRecord = (
+	base: string,
+	landed: string,
+	disposed: string[] = [],
+	tier = TIER_LINE,
+): Hit => ({
+	number: 9,
+	updated: "2026-11-05",
+	comments: [tier, buildMantaFindings(base, landed, disposed)],
+});
+const buildMantaRow = (
+	base: string,
+	landed: string,
+	fixed: number,
+	escaped: number,
+) =>
+	`- o/manta#9: landed ${landed}, base ${base}, tree ${"e".repeat(40)}, paths lib/secret.js; ${fixed} fixed or ticketed, ${escaped} escaped`;
+/** A seed, a commit citing #9, then the tip: what a two-commit ticket lands. */
+const TWO_COMMIT_TICKET = [
+	{ file: "app/page.tsx" },
+	{ file: "lib/secret.js", message: "first of the ticket (#9)" },
+	{ file: "lib/secret.js", message: "the tip" },
+];
+const readCountLine = (fx: { issueBody: { body: () => string } }) =>
+	fx.issueBody.body().split("\n")[0];
 
 describe("the re-measure trigger", () => {
 	it("is silent below 15 counted commits with no issue filed, and asks the tracker nothing but the search and that issue", () => {
@@ -888,6 +946,296 @@ describe("the re-measure trigger", () => {
 			),
 		);
 		expect(r.stderr).toContain(`UNRECORDED: ${buildUnrecordedFault(cited)}`);
+	});
+
+	it("credits an escape naming a covered commit to the record covering it (#3832)", () => {
+		const fx = fixture({ hits: {}, issues: FILED });
+		const [base = "", cited = "", tip = ""] = trailerCheckout(
+			fx,
+			TWO_COMMIT_TICKET,
+		);
+		fx.setHits({
+			"o/manta": [buildMantaRecord(base, tip)],
+			"o/fleet": [buildEscapeTicket(cited)],
+		});
+		const r = run(fx);
+		expect(r).toEqual({ code: 0, stdout: "", stderr: "" });
+		expect(readCountLine(fx)).toMatch(/^1 commits /);
+		expect(fx.issueBody.body()).toContain(buildMantaRow(base, tip, 0, 1));
+	});
+
+	it("credits an escape once, to the record naming it as landed over a later one covering it (#3832)", () => {
+		const fx = fixture({ hits: {}, issues: FILED });
+		const [base = "", cited = "", tip = ""] = trailerCheckout(
+			fx,
+			TWO_COMMIT_TICKET,
+		);
+		fx.setHits({
+			"o/manta": [
+				{
+					number: 9,
+					updated: "2026-11-05",
+					comments: [
+						TIER_LINE,
+						buildMantaFindings(base, cited),
+						buildMantaFindings(base, tip),
+					],
+				},
+			],
+			"o/fleet": [buildEscapeTicket(cited)],
+		});
+		expect(run(fx)).toEqual({ code: 0, stdout: "", stderr: "" });
+		expect(readCountLine(fx)).toMatch(/^1 commits /);
+		expect(fx.issueBody.body()).toContain(buildMantaRow(base, cited, 0, 1));
+	});
+
+	it("credits no record with an escape on a commit none of a counted tier covers, and reports nothing (#3832)", () => {
+		const fx = fixture({ hits: {}, issues: FILED });
+		const [base = "", cited = "", tip = "", after = ""] = trailerCheckout(fx, [
+			...TWO_COMMIT_TICKET,
+			{ file: "app/page.tsx", message: "after the tip, citing #9" },
+		]);
+		fx.setHits({
+			"o/manta": [buildMantaRecord(base, tip)],
+			"o/fleet": [buildEscapeTicket(after)],
+		});
+		expect(run(fx)).toEqual({ code: 0, stdout: "", stderr: "" });
+		expect(readCountLine(fx)).toMatch(/^0 commits /);
+		fx.setHits({
+			"o/manta": [buildMantaRecord(base, tip, [], STANDARD_TIER)],
+			"o/fleet": [buildEscapeTicket(cited)],
+		});
+		expect(run(fx)).toEqual({ code: 0, stdout: "", stderr: "" });
+		expect(readCountLine(fx)).toMatch(/^0 commits /);
+	});
+
+	it("reports an escape on a sha no record names and no checkout holds, once however often it is named (#3832)", () => {
+		const gone = "f".repeat(40);
+		const fx = fixture({
+			hits: {
+				"o/fleet": [buildEscapeTicket(gone), buildEscapeTicket(gone, 2)],
+			},
+		});
+		const fault = `an **Escaped defect:** names ${gone.slice(0, 9)}, which no counted record names as landed and no checkout on this machine holds, so it counts on no record until a checkout holds it or the line is corrected`;
+		expect(run(fx)).toEqual({
+			code: 0,
+			stdout: "",
+			stderr: `UNHELD: ${fault}\n`,
+		});
+	});
+
+	it("keeps a record when a covered commit is reverted, dropping only an escape credited through that commit (#3832)", () => {
+		const fx = fixture({ hits: {}, issues: FILED });
+		const [base = "", cited = "", tip = ""] = trailerCheckout(
+			fx,
+			TWO_COMMIT_TICKET,
+		);
+		fx.setCommits({
+			"o/manta": [
+				{
+					sha: "d".repeat(40),
+					message: `Revert "x"\n\nThis reverts commit ${cited}.\n`,
+				},
+			],
+		});
+		fx.setHits({
+			"o/manta": [
+				buildMantaRecord(base, tip, ["TICKETED: a leak (Standards)"]),
+			],
+			"o/fleet": [buildEscapeTicket(cited)],
+		});
+		expect(run(fx)).toEqual({ code: 0, stdout: "", stderr: "" });
+		expect(readCountLine(fx)).toMatch(/^1 commits /);
+		expect(fx.issueBody.body()).toContain(buildMantaRow(base, tip, 1, 0));
+		fx.setHits({
+			"o/manta": [buildMantaRecord(base, tip)],
+			"o/fleet": [buildEscapeTicket(cited)],
+		});
+		expect(run(fx)).toEqual({ code: 0, stdout: "", stderr: "" });
+		expect(readCountLine(fx)).toMatch(/^0 commits /);
+	});
+
+	it("holds the tracking issue where an unread tracker would lower its count, and refreshes it where it would not (#3832)", () => {
+		const prior = (n: number) =>
+			`${n} commits on adopter-declared sensitive paths, as last read.`;
+		const fx = fixture({
+			hits: { "o/fleet": [ticket(1, [1, 2])] },
+			issues: FILED,
+			body: prior(3),
+		});
+		trailerCheckout(fx, [{ file: "lib/secret.js" }]);
+		gitIn(
+			path.join(fx.root, "manta"),
+			"remote",
+			"set-url",
+			"origin",
+			`${fx.root}/gone.git`,
+		);
+		const held = run(fx);
+		expect(held.code).toBe(0);
+		expect(fx.issueBody.calls()).toEqual([]);
+		expect(fx.issueBody.body()).toBe(prior(3));
+		expect(held.stderr).toMatch(/^UNREAD: o\/manta: /);
+		expect(held.stderr).toContain(
+			"HELD: #77 stays at 3 commits, this run reading 2; the next day's run retries\n",
+		);
+		for (const body of [prior(2), prior(1), "hand-written, no count"]) {
+			fs.writeFileSync(fx.issueBody.bodyFile, body);
+			const r = run(fx);
+			expect(r.code).toBe(0);
+			expect(r.stderr).not.toContain("HELD");
+			expect(readCountLine(fx)).toMatch(/^2 commits /);
+		}
+	});
+
+	it("holds the tracking issue where a checkout's config will not read, reporting it unread (#3832)", () => {
+		const fx = fixture({
+			hits: { "o/fleet": [ticket(1, [1, 2])] },
+			issues: FILED,
+			body: "3 commits on adopter-declared sensitive paths, as last read.",
+		});
+		trailerCheckout(fx, [{ file: "lib/secret.js" }]);
+		fs.writeFileSync(
+			path.join(fx.root, "manta", ".claude", "workflow-core.json"),
+			"{ not json",
+		);
+		const r = run(fx);
+		expect(r.code).toBe(0);
+		expect(r.stderr).toContain("would not read");
+		expect(r.stderr).toMatch(/UNREAD: o\/manta: could not read .* under /);
+		expect(r.stderr).toContain("HELD: #77 stays at 3 commits");
+		expect(fx.issueBody.calls()).toEqual([]);
+	});
+
+	it("refreshes on a record's unread range no escape rests on (#3832)", () => {
+		const fx = fixture({
+			hits: {},
+			issues: FILED,
+			body: "3 commits on adopter-declared sensitive paths, as last read.",
+		});
+		const [, , tip = ""] = trailerCheckout(fx, TWO_COMMIT_TICKET);
+		fx.setHits({
+			"o/manta": [buildMantaRecord("b".repeat(40), tip, ["FIXED: a leak"])],
+		});
+		const r = run(fx);
+		expect(r.code).toBe(0);
+		expect(r.stderr).toMatch(/^UNREAD: o\/manta#9: could not read/);
+		expect(r.stderr).not.toContain("HELD");
+		expect(readCountLine(fx)).toMatch(/^1 commits /);
+	});
+
+	it("credits a covered escape to a commit recorded by a short sha and then a full one (#3832)", () => {
+		const fx = fixture({ hits: {}, issues: FILED });
+		const [base = "", cited = "", tip = ""] = trailerCheckout(
+			fx,
+			TWO_COMMIT_TICKET,
+		);
+		fx.setHits({
+			"o/manta": [
+				{
+					number: 9,
+					updated: "2026-11-05",
+					comments: [
+						TIER_LINE,
+						buildMantaFindings(base, tip.slice(0, 9)),
+						buildMantaFindings(base, tip),
+					],
+				},
+			],
+			"o/fleet": [buildEscapeTicket(cited)],
+		});
+		expect(run(fx)).toEqual({ code: 0, stdout: "", stderr: "" });
+		expect(fx.issueBody.body()).toContain(buildMantaRow(base, tip, 0, 1));
+	});
+
+	it("keeps an escape on a surviving covered commit where the record's tip is reverted, dropping the tip's findings and escape (#3832)", () => {
+		const fx = fixture({ hits: {}, issues: FILED });
+		const [base = "", cited = "", tip = ""] = trailerCheckout(
+			fx,
+			TWO_COMMIT_TICKET,
+		);
+		fx.setCommits({
+			"o/manta": [
+				{
+					sha: "d".repeat(40),
+					message: `Revert "x"\n\nThis reverts commit ${tip}.\n`,
+				},
+			],
+		});
+		fx.setHits({
+			"o/manta": [
+				buildMantaRecord(base, tip, ["TICKETED: a leak (Standards)"]),
+			],
+			"o/fleet": [buildEscapeTicket(cited), buildEscapeTicket(tip, 2)],
+		});
+		expect(run(fx)).toEqual({ code: 0, stdout: "", stderr: "" });
+		expect(fx.issueBody.body()).toContain(buildMantaRow(base, tip, 0, 1));
+		fx.setHits({
+			"o/manta": [
+				buildMantaRecord(base, tip, ["TICKETED: a leak (Standards)"]),
+			],
+		});
+		expect(run(fx)).toEqual({ code: 0, stdout: "", stderr: "" });
+		expect(readCountLine(fx)).toMatch(/^0 commits /);
+	});
+
+	it("gives a covered commit carrying a trailer no row of its own, its escape counting on the record (#3832)", () => {
+		const fx = fixture({ hits: {}, issues: FILED });
+		const trailer = `escalated; areas=secrets; base=${"b".repeat(40)}; tree=${"1".repeat(40)}; paths=lib/secret.js`;
+		const [base = "", cited = "", tip = ""] = trailerCheckout(fx, [
+			{ file: "app/page.tsx" },
+			{ file: "lib/secret.js", message: "first of the ticket (#9)", trailer },
+			{ file: "lib/secret.js", message: "the tip" },
+		]);
+		fx.setHits({
+			"o/manta": [
+				buildMantaRecord(base, tip, ["TICKETED: a leak (Standards)"]),
+			],
+			"o/fleet": [buildEscapeTicket(cited)],
+		});
+		expect(run(fx)).toEqual({ code: 0, stdout: "", stderr: "" });
+		expect(readCountLine(fx)).toMatch(/^1 commits /);
+		expect(fx.issueBody.body()).toContain(buildMantaRow(base, tip, 1, 1));
+	});
+
+	it("reports an escape git fails on as unread, not unheld, and holds the count (#3832)", () => {
+		const fx = fixture({
+			hits: {},
+			issues: FILED,
+			body: "1 commits on adopter-declared sensitive paths, as last read.",
+		});
+		const [cited = ""] = trailerCheckout(fx, [{ file: "lib/secret.js" }]);
+		fx.setHits({ "o/fleet": [buildEscapeTicket(cited)] });
+		gitIn(
+			path.join(fx.root, "manta"),
+			"config",
+			"core.repositoryformatversion",
+			"99",
+		);
+		const r = run(fx);
+		expect(r.code).toBe(0);
+		expect(r.stderr).toContain(
+			`o/manta: could not read escaped ${cited.slice(0, 9)}`,
+		);
+		expect(r.stderr).not.toContain("UNHELD");
+		expect(r.stderr).toContain("HELD: #77 stays at 1 commits");
+	});
+
+	it("holds the count on a record's unread range too, whose escape it may have lost (#3832)", () => {
+		const fx = fixture({
+			hits: {},
+			issues: FILED,
+			body: "1 commits on adopter-declared sensitive paths, as last read.",
+		});
+		const [, cited = "", tip = ""] = trailerCheckout(fx, TWO_COMMIT_TICKET);
+		fx.setHits({
+			"o/manta": [buildMantaRecord("b".repeat(40), tip)],
+			"o/fleet": [buildEscapeTicket(cited)],
+		});
+		const r = run(fx);
+		expect(r.stderr).toMatch(/^UNREAD: o\/manta#9: could not read/);
+		expect(r.stderr).toContain("HELD: #77 stays at 1 commits");
+		expect(fx.issueBody.calls()).toEqual([]);
 	});
 
 	it("reports a checkout whose config at origin/main will not read as unread, however its working copy reads (#3819)", () => {

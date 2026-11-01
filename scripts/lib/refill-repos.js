@@ -143,22 +143,23 @@ function readHostTracker(root) {
 	return typeof tracker === "string" ? tracker : null;
 }
 
-/** @type {Map<string, {root: string} | {why: string}>} */
+/** @type {Map<string, {root: string} | {why: string, unreadable: boolean}>} */
 const checkoutMemo = new Map();
 
 /**
  * The main checkout under `home` whose tracker is `repo`, as `{root}`, or
  * `{why}` where none tracks it or `home` will not read. An adopter whose config
  * will not read is skipped, so it hides no other's, and is named in the `why`.
+ * `unreadable` says either fault may be hiding a checkout that does track it.
  * @param {string} repo
  * @param {string} home
- * @returns {{root: string} | {why: string}}
+ * @returns {{root: string} | {why: string, unreadable: boolean}}
  */
 function readCheckoutTracking(repo, home) {
 	const key = `${home}\0${repo.toLowerCase()}`;
 	const memo = checkoutMemo.get(key);
 	if (memo) return memo;
-	/** @type {{root: string} | {why: string}} */
+	/** @type {{root: string} | {why: string, unreadable: boolean}} */
 	let found;
 	try {
 		/** @type {string[]} */
@@ -175,9 +176,15 @@ function readCheckoutTracking(repo, home) {
 			unread.length > 0 ? `, and ${unread.join(", ")} would not read` : "";
 		found = root
 			? { root }
-			: { why: `no checkout under ${home} tracks ${repo}${skipped}` };
+			: {
+					why: `no checkout under ${home} tracks ${repo}${skipped}`,
+					unreadable: unread.length > 0,
+				};
 	} catch (e) {
-		found = { why: `${home} could not be read (${errMessageOf(e)})` };
+		found = {
+			why: `${home} could not be read (${errMessageOf(e)})`,
+			unreadable: true,
+		};
 	}
 	checkoutMemo.set(key, found);
 	return found;
