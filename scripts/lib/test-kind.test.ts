@@ -17,7 +17,9 @@
  * JS_TEST_ERE, and a commit staging only a `.spec.` or `.mjs` test skips the
  * gates that read it (#3170, #3387). Drift vitest.config.ts's include from
  * JS_TEST_FILE and every reader of JS_TEST_FILE calls a file a test the suite
- * never runs, or misses one it does (#3743).
+ * never runs, or misses one it does (#3743). Drift .sonarcloud.properties from
+ * them and Sonar judges a test as source (#3810). Set pytest.ini's python_files
+ * and PY_TEST_FILE's readers call a file a test pytest never collects (#3810).
  */
 
 import { execFileSync } from "node:child_process";
@@ -28,9 +30,11 @@ import {
 	buildInfixTestName,
 	COLLECTED_TEST,
 	isCollectedTestOrConftest,
+	isJsTestFile,
 	isTestKind,
 	JS_TEST_FILE,
 	PY_COLLECTED_TEST,
+	PY_TEST_FILE,
 	pytestSiblings,
 	siblingTests,
 	spellSiblingTests,
@@ -214,6 +218,35 @@ describe("siblingTests", () => {
 			"test_corpus.py",
 			"corpus_test.py",
 		]);
+	});
+});
+
+describe("the test readings outside test-kind.js", () => {
+	it("gives Sonar both test keys as globs of what JS_TEST_FILE and PY_TEST_FILE take (#3810)", () => {
+		const properties = fs.readFileSync(
+			path.resolve(__dirname, "..", "..", ".sonarcloud.properties"),
+			"utf8",
+		);
+		const globs = (key: string) =>
+			properties
+				.split("\n")
+				.find((line) => line.startsWith(`${key}=`))
+				?.slice(key.length + 1)
+				.split(",");
+		const expected = siblingTests("**/*").filter(
+			(glob) => isJsTestFile(glob) || PY_TEST_FILE.test(glob),
+		);
+		expect(globs("sonar.exclusions")).toEqual(expected);
+		expect(globs("sonar.test.inclusions")).toEqual(expected);
+	});
+
+	it("leaves python_files unset in pytest.ini, so pytest collects PY_TEST_FILE's both names (#3810)", () => {
+		const ini = fs.readFileSync(
+			path.resolve(__dirname, "..", "..", "pytest.ini"),
+			"utf8",
+		);
+		expect(ini).toContain("[pytest]");
+		expect(ini).not.toMatch(/^\s*python_files\b/m);
 	});
 });
 

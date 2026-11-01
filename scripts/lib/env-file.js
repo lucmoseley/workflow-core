@@ -1,13 +1,16 @@
 /*
- * env-file.js — the secrets file, its line grammar, and one variable's value
- * from it.
+ * env-file.js — the secrets file, its line grammar, and the values and names
+ * read from it.
  *
  * THE SECRETS FILE is `$XDG_CONFIG_HOME/workflow-core/secrets.env`, with
  * `~/.config` where XDG_CONFIG_HOME is unset, empty or relative (the XDG Base
  * Directory spec). `scripts/write-secret.js` writes it owner-only. It sits
  * outside every working tree, so a script that writes a relative `.env` from
  * whatever cwd it lands in cannot reach it (#3202). An absolute
- * WFC_SECRETS_FILE stands in for it, for tests only.
+ * WFC_SECRETS_FILE stands in for it, for tests only, resolved so the path
+ * checked is the path written (#3715). Its directory holds a `.gitignore` of
+ * `*`, keeping it out of a bare dotfiles repository's `add` (#3539), bar
+ * under the override, whose directory may be a repository with its own.
  *
  * A LINE is `NAME=value` or `export NAME = value`, the value trimmed and one
  * quote stripped from each end. The file's leading BOM and each line's
@@ -16,12 +19,14 @@
  * `scripts/write-secret.js` replaces the value of exactly the lines this
  * reader reads, quoting it with quoteValue so unquoteValue reads it back.
  *
- * THE RETURN VALUE IS A SECRET: a caller puts it in no log line or message.
+ * A RETURNED VALUE IS A SECRET: a caller puts it in no log line or message.
  */
 
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { logError } = require("./arbiter-core.js");
+const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
 const { requiredGroup } = require("./regex-group");
 
@@ -73,13 +78,12 @@ function parseEnvLine(body) {
 }
 
 /**
- * The name each part of `body` assigns, split at every break inside it;
- * undefined for a part that assigns none.
+ * The assignment each part of `body` makes, split at every break inside it;
+ * null for a part that makes none.
  * @param {string} body a line from `splitEnvLines`
- * @returns {(string | undefined)[]}
  */
-function namesAcrossBreaks(body) {
-	return body.split(INNER_BREAK).map((part) => parseEnvLine(part)?.name);
+function parseAcrossBreaks(body) {
+	return body.split(INNER_BREAK).map((part) => parseEnvLine(part));
 }
 
 /**
@@ -91,7 +95,10 @@ function namesAcrossBreaks(body) {
  * @returns {boolean}
  */
 function assignsAcrossBreak(body, name) {
-	return parseEnvLine(body) === null && namesAcrossBreaks(body).includes(name);
+	return (
+		parseEnvLine(body) === null &&
+		parseAcrossBreaks(body).some((part) => part?.name === name)
+	);
 }
 
 /**
@@ -114,14 +121,67 @@ function quoteValue(value) {
 	return value.includes("'") ? null : `'${value}'`;
 }
 
+/**
+ * The secrets file WFC_SECRETS_FILE names, resolved, or null where it names
+ * none.
+ * @returns {string | null}
+ */
+function secretsOverride() {
+	const override = process.env.WFC_SECRETS_FILE;
+	return override && path.isAbsolute(override) ? path.resolve(override) : null;
+}
+
 /** @returns {string} */
 function secretsFile() {
-	const override = process.env.WFC_SECRETS_FILE;
-	if (override && path.isAbsolute(override)) return override;
+	const override = secretsOverride();
+	if (override !== null) return override;
 	const xdg = process.env.XDG_CONFIG_HOME;
 	const config =
 		xdg && path.isAbsolute(xdg) ? xdg : path.join(os.homedir(), ".config");
 	return path.join(config, "workflow-core", "secrets.env");
+}
+
+/** Thrown where a secrets file's path holds something no regular file is. */
+class NotRegularFile extends Error {
+	/**
+	 * @param {string} file
+	 * @param {ErrorOptions} [options]
+	 */
+	constructor(file, options) {
+		super(
+			`${file} is no regular file (a FIFO, socket, device or directory)`,
+			options,
+		);
+	}
+}
+
+/**
+ * `file`'s bytes, opened without blocking and judged by that descriptor, as a
+ * FIFO blocks a plain read for good, so nothing swapped in after a check can
+ * hang it (#3822).
+ * @param {string} file
+ * @param {number} [flags] ORed into the open, as `O_NOFOLLOW`
+ * @returns {Buffer}
+ * @throws NotRegularFile on a FIFO, socket, device or directory; otherwise as
+ *   the open or read fails, ENOENT where it is absent
+ */
+function readRegularFile(file, flags = 0) {
+	const { O_NONBLOCK, O_RDONLY } = fs.constants;
+	let fd;
+	try {
+		fd = fs.openSync(file, O_RDONLY | O_NONBLOCK | flags);
+	} catch (e) {
+		/* What opening a socket answers. */
+		if (caught(e).code === "ENXIO")
+			throw new NotRegularFile(file, { cause: e });
+		throw e;
+	}
+	try {
+		if (!fs.fstatSync(fd).isFile()) throw new NotRegularFile(file);
+		return fs.readFileSync(fd);
+	} finally {
+		fs.closeSync(fd);
+	}
 }
 
 /**
@@ -132,7 +192,8 @@ function secretsFile() {
  * @throws where the file cannot be read; ENOENT where it is absent
  */
 function readEnvFileValue(file, name) {
-	for (const { body } of splitEnvLines(fs.readFileSync(file, "utf8")).lines) {
+	const text = readRegularFile(file).toString("utf8");
+	for (const { body } of splitEnvLines(text).lines) {
 		const assignment = parseEnvLine(body);
 		if (assignment?.name !== name) continue;
 		const value = unquoteValue(assignment.raw);
@@ -142,34 +203,154 @@ function readEnvFileValue(file, name) {
 }
 
 /**
- * Every name the secrets file assigns, never a value: what a log masker
- * masks the value after (#3661), a line split at each break inside it, as
- * assignsAcrossBreak reads one (#3710).
- * @returns {string[]} empty where there is no file
- * @throws where the file is there but cannot be read, as a masker that
- *   quietly masked fewer names would write their values bare
+ * Whether `ignore` is a regular file holding exactly `*`. git follows no
+ * symlinked `.gitignore` and skips an unreadable one, so neither counts
+ * (#3663, #3822).
+ * @param {string} ignore
+ * @returns {boolean}
  */
-function storedNames() {
-	let text;
+function ignoresAll(ignore) {
 	try {
-		text = fs.readFileSync(secretsFile(), "utf8");
+		const bytes = readRegularFile(ignore, fs.constants.O_NOFOLLOW);
+		return bytes.toString("utf8") === "*\n";
+	} catch {
+		/* Absent, a symlink, unreadable or no regular file: all get replaced, and
+		 * a rename that cannot replace one throws in ignoreStore. */
+		return false;
+	}
+}
+
+/**
+ * Writes `<dir>/.gitignore` holding `*`, where anything else is there.
+ * @param {string} dir
+ * @throws where it cannot be replaced, as a directory cannot
+ */
+function ignoreStore(dir) {
+	const ignore = path.join(dir, ".gitignore");
+	if (!ignoresAll(ignore)) writeFileAtomic(ignore, "*\n", { mode: 0o600 });
+}
+
+/**
+ * `readEnvFileValue` on the secrets file, then `ignoreStore` on its directory,
+ * so a `.gitignore` missing, symlinked, unreadable or holding anything else is
+ * healed (#3663, #3822). Under the WFC_SECRETS_FILE override it writes nothing: that
+ * file's directory may be a repository whose own `.gitignore` this would
+ * replace.
+ * @param {string} name
+ * @returns {string|null}
+ * @throws as `readEnvFileValue`, before anything is written
+ */
+function readSecretKeepingIgnore(name) {
+	const file = secretsFile();
+	const value = readEnvFileValue(file, name);
+	if (secretsOverride() !== null) return value;
+	const dir = path.dirname(file);
+	try {
+		ignoreStore(dir);
+	} catch (e) {
+		/* The value is what the caller asked for (#3663); the store is left
+		 * without its ignore, so the fault goes where check:guard-errors reads. */
+		logError("env-file ignoreStore", e, dir);
+	}
+	return value;
+}
+
+const UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+
+const RESAVE_UTF8 = "Re-save it as UTF-8, then re-run.";
+
+/**
+ * The secrets file's bytes as text, or the fault that keeps them from being
+ * read as lines: `utf16` for a UTF-16 mark or a NUL byte, which no line
+ * carries and which ASCII in UTF-16 without its mark holds (#3550); `invalid`
+ * for bytes that are not valid UTF-8.
+ * @param {Buffer} bytes
+ * @returns {{ text: string } | { fault: "utf16" | "invalid" }}
+ */
+function decodeSecrets(bytes) {
+	if (
+		(bytes[0] === 0xff && bytes[1] === 0xfe) ||
+		(bytes[0] === 0xfe && bytes[1] === 0xff) ||
+		bytes.includes(0)
+	) {
+		return { fault: "utf16" };
+	}
+	try {
+		return { text: UTF8.decode(bytes) };
+	} catch {
+		/* The fatal decoder's only throw (#3663). */
+		return { fault: "invalid" };
+	}
+}
+
+/**
+ * Every assignment the secrets file makes, a line split at each break inside
+ * it, as assignsAcrossBreak reads one (#3710).
+ * @returns {{ name: string, raw: string }[]} empty where there is no file
+ * @throws where the file is there but cannot be read as UTF-8 lines, as a
+ *   masker that quietly masked fewer secrets would write their values bare
+ */
+function readStoredAssignments() {
+	const file = secretsFile();
+	let bytes;
+	try {
+		bytes = readRegularFile(file);
 	} catch (err) {
 		if (caught(err).code === "ENOENT") return [];
 		throw err;
 	}
-	const names = splitEnvLines(text).lines.flatMap(({ body }) =>
-		namesAcrossBreaks(body),
-	);
-	return [...new Set(names.filter((name) => name !== undefined))];
+	const decoded = decodeSecrets(bytes);
+	if ("fault" in decoded) {
+		throw new Error(
+			`${file} is not clean UTF-8 (${decoded.fault}), so its secrets cannot be masked. ${RESAVE_UTF8}`,
+		);
+	}
+	return splitEnvLines(decoded.text)
+		.lines.flatMap(({ body }) => parseAcrossBreaks(body))
+		.filter((assignment) => assignment !== null);
+}
+
+/**
+ * Every name the secrets file assigns, never a value: what a log masker
+ * masks the value after (#3661).
+ * @returns {string[]} empty where there is no file
+ * @throws as readStoredAssignments does
+ */
+function readStoredNames() {
+	return [...new Set(readStoredAssignments().map(({ name }) => name))];
+}
+
+/**
+ * Every non-empty value the secrets file assigns: what a log masker masks
+ * wherever it appears (#3821). A line with a ` #` gives its value both whole,
+ * as readEnvFileValue reads it, and before that comment, as dotenv reads it.
+ * @returns {string[]} empty where there is no file
+ * @throws as readStoredAssignments does
+ */
+function readStoredValues() {
+	const values = readStoredAssignments().flatMap(({ raw }) => [
+		unquoteValue(raw),
+		unquoteValue(raw.replace(/\s#.*/, "")),
+	]);
+	return [...new Set(values.filter(Boolean))];
 }
 
 module.exports = {
 	assignsAcrossBreak,
+	decodeSecrets,
+	ignoreStore,
+	NotRegularFile,
 	parseEnvLine,
 	quoteValue,
 	readEnvFileValue,
+	readRegularFile,
+	readSecretKeepingIgnore,
 	SPACE,
 	secretsFile,
+	secretsOverride,
 	splitEnvLines,
-	storedNames,
+	readStoredNames,
+	readStoredValues,
+	RESAVE_UTF8,
+	UTF8,
 };

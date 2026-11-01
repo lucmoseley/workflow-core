@@ -215,6 +215,18 @@ describe("JavaScript", () => {
 		expect(run().outcome).toBe("FAIL");
 	});
 
+	it("judges arm-gh-stub.js, a stub by name that ships into the arm sandbox (#3743)", () => {
+		clean();
+		write(
+			"scripts/lib/arm-gh-stub.js",
+			'const ROOT = path.resolve(__dirname, "..", "..");\n',
+		);
+		const result = run();
+		expect(result.outcome).toBe("FAIL");
+		expect(messages(result)).toContain("scripts/lib/arm-gh-stub.js");
+		expect(messages(result)).toMatch(/hostRoot\(\)/);
+	});
+
 	it("judges every JS or TS extension, and passes over their tests (#3628)", () => {
 		clean();
 		for (const ext of ["mts", "cts", "jsx", "tsx"]) {
