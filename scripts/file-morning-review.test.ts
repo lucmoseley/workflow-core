@@ -547,6 +547,7 @@ describe("file-morning-review.js (#2011)", () => {
 		});
 		const once = (body: string, text: string) =>
 			expect(body.split(text)).toHaveLength(2);
+		const bodies = () => readCreated().map((c: { body: string }) => c.body);
 		const previousReview = (body = "") => ({
 			number: 800,
 			title: "Morning review — 2026-10-10",
@@ -592,9 +593,7 @@ describe("file-morning-review.js (#2011)", () => {
 			reviewAt("2026-10-13T07:00:00.000Z");
 			reviewAt("2026-10-14T07:00:00.000Z");
 
-			const [failed, failedAgain, recovered, after] = readCreated().map(
-				(c: { body: string }) => c.body,
-			);
+			const [failed, failedAgain, recovered, after] = bodies();
 			for (const body of [failed, failedAgain]) {
 				expect(body).toContain(
 					"Events unread since 2026-10-10T07:00:00.000Z in second.",
@@ -665,9 +664,7 @@ describe("file-morning-review.js (#2011)", () => {
 				stubCloses(c80, c81, c82);
 				reviewAt("2026-10-13T07:00:00.000Z");
 
-				const [, broken, fixed] = readCreated().map(
-					(c: { body: string }) => c.body,
-				);
+				const [, broken, fixed] = bodies();
 				expect(broken).toMatch(/^- second: `.*does not parse.*`$/m);
 				expect(broken).toContain(
 					"Events unread since 2026-10-10T07:00:00.000Z in second.",
@@ -718,12 +715,108 @@ describe("file-morning-review.js (#2011)", () => {
 				configureSecond({ tracker: "acme/second" });
 				reviewAt("2026-10-12T07:00:00.000Z");
 
-				const [optedOut, back] = readCreated().map(
-					(c: { body: string }) => c.body,
-				);
+				const [optedOut, back] = bodies();
 				expect(optedOut).not.toMatch(/\bsecond\b/);
 				expect(back).not.toContain("Second: unread");
 				expect(back).not.toContain("Events unread since");
+			});
+		});
+
+		describe("a carried checkout discovery no longer lists (#3835)", () => {
+			const carried = "Events unread since 2026-10-09T07:00:00.000Z in second.";
+			const seedCarried = () => {
+				seed([previousReview(`${carried}\n`)]);
+				makeSecond();
+				configureSecond({ tracker: "acme/second" });
+			};
+			const dotGit = () => path.join(second(), ".git");
+			const config = () => path.join(second(), ".claude", "workflow-core.json");
+
+			it.each([
+				{
+					absence: "its .git missing",
+					why: "no .git",
+					remove: () => fs.rmSync(dotGit(), { recursive: true }),
+					restore: () => fs.mkdirSync(dotGit()),
+				},
+				{
+					absence: "its config deleted",
+					why: "no workflow-core config",
+					remove: () => fs.rmSync(config()),
+					restore: () => configureSecond({ tracker: "acme/second" }),
+				},
+			])(
+				"names one with $absence under the same start, and lands its events in the first review to read it",
+				({ why, remove, restore }) => {
+					seedCarried();
+					const c80 = close(80, "2026-10-09T12:00:00.000Z");
+					const c81 = close(81, "2026-10-11T12:00:00.000Z");
+					appendDecision(
+						second(),
+						"2026-10-09T12:00:00.000Z",
+						3,
+						"Second: old",
+					);
+					appendDecision(
+						second(),
+						"2026-10-11T12:00:00.000Z",
+						4,
+						"Second: new",
+					);
+					stubCloses(c80, c81);
+
+					remove();
+					reviewAt("2026-10-11T07:00:00.000Z");
+					reviewAt("2026-10-12T07:00:00.000Z");
+					restore();
+					reviewAt("2026-10-13T07:00:00.000Z");
+					reviewAt("2026-10-14T07:00:00.000Z");
+
+					const [absent, absentAgain, read, after] = bodies();
+					for (const body of [absent, absentAgain]) {
+						expect(body).toContain(`- second: \`${why}\``);
+						expect(body).toContain(carried);
+						expect(body).not.toContain("Second:");
+						expect(body).not.toContain("acme/second#8");
+					}
+					for (const event of [
+						"Second: old",
+						"Second: new",
+						"acme/second#80",
+						"acme/second#81",
+					])
+						once(read, event);
+					expect(read).not.toContain("Events unread since");
+					expect(after).not.toContain("Second:");
+					expect(after).not.toContain("acme/second#8");
+				},
+			);
+
+			it("keeps a linked worktree out, unnamed, whether or not a line names it", () => {
+				seedCarried();
+				fs.rmSync(dotGit(), { recursive: true });
+				fs.writeFileSync(dotGit(), "gitdir: elsewhere\n");
+				reviewAt("2026-10-11T07:00:00.000Z");
+				reviewAt("2026-10-12T07:00:00.000Z");
+
+				for (const body of bodies()) {
+					expect(body).not.toMatch(/\bsecond\b/);
+					expect(body).not.toContain("Events unread since");
+				}
+			});
+
+			it("ends the carry of one whose directory is gone: named once, with what it gives up, then never", () => {
+				seedCarried();
+				fs.rmSync(second(), { recursive: true });
+				reviewAt("2026-10-11T07:00:00.000Z");
+				reviewAt("2026-10-12T07:00:00.000Z");
+
+				const [ended, later] = bodies();
+				expect(ended).toContain(
+					"- second: `directory gone, so its events since 2026-10-09T07:00:00.000Z reach no review`",
+				);
+				expect(ended).not.toContain("Events unread since");
+				expect(later).not.toMatch(/\bsecond\b/);
 			});
 		});
 	});

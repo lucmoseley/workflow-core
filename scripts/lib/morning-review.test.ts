@@ -14,6 +14,7 @@ const {
 	buildReviewTitle,
 	closeEdge,
 	parseHistoryCursor,
+	absentRepos,
 	repoStart,
 	unreadRepo,
 	windowStart,
@@ -99,6 +100,65 @@ const render = (
 		failed,
 		kills,
 	});
+
+describe("absentRepos (#3835)", () => {
+	const carriedSince = (start: string) => ({
+		number: 7,
+		body: `Events unread since ${start} in gone.\nEvents unread since ${start} in listed.\n`,
+	});
+	const missing = () => ({ carried: true, why: "no .git" });
+	const at = "2026-10-01T07:00:00.000Z";
+	const reads = (
+		sinceAt: string,
+		nowAt: string,
+		absence: () => { carried: boolean; why: string } | null,
+	) =>
+		absentRepos({
+			previous: carriedSince(sinceAt),
+			listed: new Set(["listed"]),
+			since: SINCE,
+			nowMs: Date.parse(nowAt),
+			absenceOf: absence,
+		});
+
+	it("carries a missing checkout at its 30th day, with the start it had, and skips one discovery lists", () => {
+		expect(reads(at, "2026-10-31T07:00:00.000Z", missing)).toEqual([
+			{
+				reading: null,
+				unread: [{ repo: "gone", why: "no .git" }],
+				unreadEvents: [{ checkout: "gone", since: at }],
+			},
+		]);
+	});
+
+	it("ends one past its 30th day, naming what that gives up", () => {
+		expect(reads(at, "2026-10-31T07:00:00.001Z", missing)).toEqual([
+			{
+				reading: null,
+				unread: [
+					{
+						repo: "gone",
+						why: `no .git and carried over 30 days, so its events since ${at} reach no review`,
+					},
+				],
+				unreadEvents: [],
+			},
+		]);
+	});
+
+	it("gives no part for one that stays out, and none with no previous review", () => {
+		expect(reads(at, "2026-10-02T07:00:00.000Z", () => null)).toEqual([]);
+		expect(
+			absentRepos({
+				previous: undefined,
+				listed: new Set(),
+				since: SINCE,
+				nowMs: 0,
+				absenceOf: missing,
+			}),
+		).toEqual([]);
+	});
+});
 
 describe("repoStart (#3831)", () => {
 	const previous = {

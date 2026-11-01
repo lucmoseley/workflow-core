@@ -31,8 +31,12 @@
  * file's header gives each source's edge for an event readable after this run's
  * reads (#3827). A repo that does not read, or whose config discovery will not
  * read (#3834), is named in the body with where its events went unread from, and
- * the next review starts that repo there (#3831). Residual: one its owner opted
- * out is neither named nor carried, so a start it carried ends there (#3834).
+ * the next review starts that repo there (#3831). So is one carrying such a line
+ * that discovery no longer lists, its `.git` or config missing; the review that
+ * finds its directory gone, or its start over 30 days old, names what that gives
+ * up and ends the line (#3835). Residual: one its owner opted out is neither named
+ * nor carried, so a start it carried ends there (#3834). A linked worktree likewise
+ * (#3835). A checkout with no line to carry loses its first absent window.
  *
  * Files through file-issue.js, so the `takes:` and known-label refusals bind
  * this script as they bind a session: no hook sees a gh call a script makes.
@@ -96,7 +100,7 @@ const { readLedger } = require("./lib/delegated-decision.js");
 const concurrency = require("./lib/concurrency.js");
 const kills = require("./lib/earlyoom-kills.js");
 const review = require("./lib/morning-review.js");
-const { discoverRepos, homeDir } = require("./lib/refill-repos.js");
+const { absenceOf, discoverRepos, homeDir } = require("./lib/refill-repos.js");
 const { labelAge } = require("./lib/label-age.js");
 const { PARKED_LABEL } = require("./lib/parked.js");
 const { readSnapshot, whyNotLaunched } = require("./lib/pick-next-snapshot.js");
@@ -596,10 +600,23 @@ function fileUnlessFiledToday(tracker, dryRun) {
 	const { since, why } = review.windowStart(previous, now);
 
 	const reads = dryRun ? freshReads() : reviewReads(review.localDate(now));
-	const { included, faulted } = discoverRepos(homeDir());
+	const home = homeDir();
+	const { included, faulted } = discoverRepos(home);
 	const read = [
 		...included.map((root) => readRepo(root, since, reads, reviews)),
 		...faulted.map((f) => faultedRepo(f, since, reviews)),
+		...review.absentRepos({
+			previous,
+			listed: new Set(
+				[...included, ...faulted.map((f) => f.root)].map((root) =>
+					path.basename(root),
+				),
+			),
+			since,
+			nowMs: now.getTime(),
+			absenceOf: (/** @type {string} */ checkout) =>
+				absenceOf(path.join(home, checkout)),
+		}),
 	];
 	const body = review.renderReview({
 		since,

@@ -114,6 +114,25 @@ function exclusionOf(root) {
 }
 
 /**
+ * Why a checkout discovery did not list is missing, for one the morning review
+ * carries (#3835): `carried` while what it lost may come back, false once its
+ * directory is gone. Null for one that stays out unnamed: a linked worktree, or
+ * one its owner opted out.
+ * @param {string} root
+ * @returns {{carried: boolean, why: string} | null}
+ */
+function absenceOf(root) {
+	const stat = fs.statSync(root, { throwIfNoEntry: false });
+	if (!stat?.isDirectory()) return { carried: false, why: "directory gone" };
+	const git = fs.statSync(path.join(root, ".git"), { throwIfNoEntry: false });
+	if (git?.isFile()) return null;
+	if (!hasConfig(root))
+		return { carried: true, why: "no workflow-core config" };
+	if (exclusionOf(root) === OPT_OUT) return null;
+	return git ? null : { carried: true, why: "no .git" };
+}
+
+/**
  * The home directory discovery reads, off HOME first: os.homedir() reads the
  * OS environment, which a test setting HOME from a worker thread never
  * reaches, so it would discover the real checkouts.
@@ -195,6 +214,7 @@ module.exports = {
 	readHostTracker,
 	checkoutEnv,
 	discoverRepos,
+	absenceOf,
 	exclusionOf,
 	homeDir,
 };

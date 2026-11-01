@@ -7,6 +7,7 @@ const {
 	readAdopterCheckouts,
 	readCheckoutTracking,
 	discoverRepos,
+	absenceOf,
 } = require("./refill-repos.js");
 
 let home: string;
@@ -76,6 +77,42 @@ describe("discoverRepos (#2003)", () => {
 			excluded: [],
 			faulted: [{ root, why: '"refillLoop" is not a boolean' }],
 		});
+	});
+});
+
+describe("absenceOf (#3835)", () => {
+	it("carries a checkout with no config or no .git, and ends one whose directory is gone", () => {
+		const noConfig = checkout("no-config", null);
+		const noGit = checkout("no-git", {});
+		fs.rmSync(path.join(noGit, ".git"), { recursive: true });
+
+		expect(absenceOf(noConfig)).toEqual({
+			carried: true,
+			why: "no workflow-core config",
+		});
+		expect(absenceOf(noGit)).toEqual({ carried: true, why: "no .git" });
+		expect(absenceOf(path.join(home, "gone"))).toEqual({
+			carried: false,
+			why: "directory gone",
+		});
+	});
+
+	it("reads a plain file where the directory was as gone", () => {
+		const root = path.join(home, "now-a-file");
+		fs.writeFileSync(root, "");
+		expect(absenceOf(root)).toEqual({ carried: false, why: "directory gone" });
+	});
+
+	it("gives nothing for a linked worktree, with or without a config, or a checkout whole enough for discovery", () => {
+		expect(absenceOf(checkout("worktree", {}, "file"))).toBeNull();
+		expect(absenceOf(checkout("bare-worktree", null, "file"))).toBeNull();
+		expect(absenceOf(checkout("opted-out", { refillLoop: false }))).toBeNull();
+	});
+
+	it("gives nothing for one its owner opted out, its .git missing too", () => {
+		const root = checkout("opted-out", { refillLoop: false });
+		fs.rmSync(path.join(root, ".git"), { recursive: true });
+		expect(absenceOf(root)).toBeNull();
 	});
 });
 

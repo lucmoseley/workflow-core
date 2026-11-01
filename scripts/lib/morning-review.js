@@ -18,7 +18,9 @@
  *
  * A repo that does not read keeps its closes and decisions (#3831): the review
  * prints where its events went unread from, and the next starts that repo there
- * (repoStart), so each lands in the first review to read the repo.
+ * (repoStart), so each lands in the first review to read the repo. The line
+ * outlives the checkout's absence from discovery, to the end absentRepos gives
+ * it (#3835).
  *
  * Entry numbers run 1…n across every repo, so `reverse <n>` names one entry;
  * each line links the decision's own comment, which keys its ledger line.
@@ -47,6 +49,9 @@ const UNREAD_LINE = /^Events unread since (\S+) in (.+)\.$/gm;
  * A guess at the tail. A close slower than this reaches no review; too wide only
  * moves a close to the next day's. */
 const CLOSE_SETTLE_MS = 15 * 60 * 1000;
+/* How old a start may grow on a checkout discovery no longer lists. Untraced, a
+ * guess: past any repair, and a repo that left workflow-core stops being named. */
+const ABSENT_CARRY_DAYS = 30;
 /* An `urgent` older than this is listed as stuck: #2693's figure, a guess,
  * unmeasured. */
 const STUCK_URGENT_DAYS = 7;
@@ -120,6 +125,18 @@ function parseUnreadStart(body, checkout) {
 }
 
 /**
+ * @param {{body: string} | undefined} previous
+ * @returns {string[]}
+ */
+const parseCarriedCheckouts = (previous) => [
+	...new Set(
+		[...(previous?.body ?? "").matchAll(UNREAD_LINE)].map((m) =>
+			requiredGroup(m, 2, UNREAD_LINE),
+		),
+	),
+];
+
+/**
  * Where a checkout's events start: where the previous review says they went
  * unread from, else the window's start. Residual: a line whose time will not
  * read, as after a hand edit, starts at the window's start, and `why` says so.
@@ -161,6 +178,58 @@ const unreadRepo = (checkout, start, repo, why) => ({
 	unread: [...startFaults(checkout, start), { repo, why }],
 	unreadEvents: [{ checkout, since: start.since }],
 });
+
+/**
+ * @param {string} checkout
+ * @param {{since: string, why: string | null}} start its repoStart
+ * @param {string} why
+ * @returns {RepoRead}
+ */
+const endedRepo = (checkout, start, why) => ({
+	reading: null,
+	unread: [
+		...startFaults(checkout, start),
+		{
+			repo: checkout,
+			why: `${why}, so its events since ${start.since} reach no review`,
+		},
+	],
+	unreadEvents: [],
+});
+
+/**
+ * The review's parts for the checkouts the previous review carried and discovery
+ * no longer lists (#3835): each named and carried until its directory is gone or
+ * its start is ABSENT_CARRY_DAYS old.
+ * @param {object} reading
+ * @param {{number: number, body: string} | undefined} reading.previous
+ * @param {Set<string>} reading.listed the checkouts discovery answers for
+ * @param {string} reading.since the window's start
+ * @param {number} reading.nowMs
+ * @param {(checkout: string) => {carried: boolean, why: string} | null} reading.absenceOf
+ *   null for a checkout that stays out unnamed
+ * @returns {RepoRead[]}
+ */
+function absentRepos({ previous, listed, since, nowMs, absenceOf }) {
+	return parseCarriedCheckouts(previous).flatMap((checkout) => {
+		if (listed.has(checkout)) return [];
+		const absence = absenceOf(checkout);
+		if (absence === null) return [];
+		const { carried, why } = absence;
+		const start = repoStart(previous, checkout, since);
+		if (!carried) return [endedRepo(checkout, start, why)];
+		const limit = ABSENT_CARRY_DAYS * DAY_MS;
+		return nowMs - Date.parse(start.since) > limit
+			? [
+					endedRepo(
+						checkout,
+						start,
+						`${why} and carried over ${ABSENT_CARRY_DAYS} days`,
+					),
+				]
+			: [unreadRepo(checkout, start, checkout, why)];
+	});
+}
 
 /**
  * @param {string} at
@@ -736,6 +805,7 @@ module.exports = {
 	buildReviewTitle,
 	closeEdge,
 	parseHistoryCursor,
+	absentRepos,
 	repoStart,
 	startFaults,
 	unreadRepo,
