@@ -59,10 +59,11 @@ const SPREAD_CAP = 10;
  * @typedef {object} TickRecord
  * @property {string} at
  * @property {number|null} working admission's working count, the founder's
- *   own session included, plus what the tick launched after that read
- *   (#3770); one launched that dies still counts until the next tick's read
+ *   own session included, plus what the tick started and less what it stopped
+ *   after that read (#3770, #3778); one started that dies still counts until
+ *   the next tick's read
  * @property {number|null} ceiling admission's working count plus its slots,
- *   which a launch does not move
+ *   which a start or stop does not move
  * @property {Failing|null} binding
  * @property {Failing[]} also
  * @property {TickMemory|null} memory
@@ -198,8 +199,9 @@ function failingAt({ input, decision, admission }) {
 /**
  * @typedef {{input: import("./refill-decide.js").TickInput,
  *   decision: import("./refill-decide.js").Decision,
- *   admission: AdmissionJson|null, launched: number}} Tick `launched` counts
- *   the sessions the tick started after reading `admission`
+ *   admission: AdmissionJson|null, workingChange: number}} Tick
+ *   `workingChange` nets the sessions the tick started and stopped after
+ *   reading `admission`
  */
 
 /**
@@ -208,13 +210,13 @@ function failingAt({ input, decision, admission }) {
  * @returns {TickRecord}
  */
 function buildTickRecord(tick) {
-	const { input, admission: a, launched } = tick;
+	const { input, admission: a, workingChange } = tick;
 	const [binding = null, ...also] = failingAt(tick);
 	const count = a?.memory?.working?.count;
 	const admitted = typeof count === "number" ? count : null;
 	return {
 		at: new Date(input.now).toISOString(),
-		working: admitted === null ? null : admitted + launched,
+		working: admitted === null ? null : admitted + workingChange,
 		ceiling:
 			admitted !== null && typeof a?.slots === "number"
 				? admitted + a.slots

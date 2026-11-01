@@ -1060,8 +1060,12 @@ async function tick({ dryRun }) {
 	const { slots: free, admission } = readFreeSlots();
 	const declared = readDeclaredSeats();
 	const typed = readLastTyped(declared);
-	const { launches, slots } = dryRun
-		? { launches: judged, slots: free }
+	const {
+		launches,
+		slots,
+		workingChange: limitChange,
+	} = dryRun
+		? { launches: judged, slots: free, workingChange: 0 }
 		: blocks.actOnLimits(judged, control.scope.mode, {
 				...seen,
 				typedSeat: typed.seat,
@@ -1117,7 +1121,12 @@ async function tick({ dryRun }) {
 	);
 	if (
 		!appendTick(
-			buildTickRecord({ input, decision: settled, admission, launched }),
+			buildTickRecord({
+				input,
+				decision: settled,
+				admission,
+				workingChange: limitChange + launched,
+			}),
 		)
 	)
 		log(`concurrency record: not written to ${concurrencyFiles().record}`);

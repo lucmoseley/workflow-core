@@ -1,20 +1,18 @@
 #!/usr/bin/env node
 /*
  * check-unclosed-launches.js — name each open `takes:implement` ticket whose
- * latest refill-loop launch committed and ended without closing it (#3782). Its
- * session may have finished and died before its close; the loop's next launch
- * of it checks first (lib/unclosed-launch.js), so this says what is waiting on
- * that launch, at whatever rank.
+ * latest refill-loop launch committed and ended without closing it
+ * (lib/unclosed-launch.js, #3782).
  *
  * Usage:  node scripts/check-unclosed-launches.js [--json]
  *
  * WARN, never FAIL: a ticket here may hold work still to do. A parked ticket is
  * left out: its question is what it waits on. A tracker that will not read, or a
  * damaged state, is a WARN rather than a SKIP or BROKEN, as in
- * check-idle-efforts.js: a run names what it could read beside what it could not.
+ * check-idle-efforts.js.
  *
- * LOCAL ONLY. It reads the loop's state under ~/.claude; a stopped loop's state
- * still reads, so a stop does not hide a stranded ticket.
+ * LOCAL ONLY. It reads the loop's state under ~/.claude, which a stopped loop
+ * leaves readable.
  *
  * IMPLICIT:  on `npm run status` (scripts/status-report.js), reads the loop's state and each launch's tracker, and names the tickets above.
  * JUSTIFIED: fail-safe — such a ticket otherwise waits unreported at its rank, as #3609 did for three days.

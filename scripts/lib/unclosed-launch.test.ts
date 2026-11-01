@@ -51,6 +51,16 @@ describe("unclosedLaunches (#3782)", () => {
 		).toEqual([]);
 	});
 
+	it("is not superseded by a gate judgement's launch", () => {
+		const l = launch(1);
+		const judge = launch(1, {
+			prompt: "/triage 1",
+			acts: {},
+			gate: true,
+		});
+		expect(unclosedLaunches([l, judge])).toEqual([l]);
+	});
+
 	it("keeps checkouts apart, as their issue numbers are", () => {
 		const other = launch(1, { root: "other" });
 		expect(unclosedLaunches([launch(1), other])).toHaveLength(2);
