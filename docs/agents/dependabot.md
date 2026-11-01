@@ -55,6 +55,8 @@ Both analyse the public `lucmoseley/workflow-core` on every push to `main`, non-
 
 Most of what both raise is false here. The rules triaged false across the board: Sonar's javascript:S3403 (the `undefined` checks `noUncheckedIndexedAccess` requires), shelldre:S7688, S2871, S4036, and the `*security:S87xx` taint rules (every source is argv); and CodeQL's js/clear-text-logging (it reads session ids as secrets). The rules that found real defects are Sonar's javascript:S5852 and its githubactions:* rules (#3363), and CodeQL's js/redos.
 
+The Sonar classes to switch off are the rows listed in `.sonarcloud.properties`'s comment. They go in the project's **Ignore Issues on Multiple Criteria** setting, because automatic analysis cannot read it from a file (#3797 applies them). With them set, a red quality gate means a new finding outside those classes: triage it, fixing a true one and marking a false one False Positive with its reason (#3579).
+
 ## What the config does
 
 `.github/dependabot.yml` governs **version** updates only, and sets `open-pull-requests-limit: 0` on both ecosystems, so Dependabot opens none (mantahostels#3351).

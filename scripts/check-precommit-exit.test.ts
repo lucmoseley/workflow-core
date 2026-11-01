@@ -71,6 +71,7 @@ describe("check-precommit-exit", () => {
 			"if armed x; then\n  node scripts/c.js || exit 1\nfi",
 		],
 		["a trailing comment", "node scripts/c.js || exit 1 # why"],
+		["a case arm's terminator", "node scripts/c.js || exit 1 ;; # why"],
 		["a variable assignment", "X=1 node scripts/c.js || exit 1"],
 	])("FAILs %s", (_, line) => {
 		hook("pre-commit", `${line}\n`);
@@ -91,6 +92,13 @@ describe("check-precommit-exit", () => {
 			"pre-commit",
 			'node scripts/c.js || {\n  echo "refused" >&2\n  exit 1\n}\n',
 		);
+		const r = run();
+		expect(r.status).toBe(1);
+		expect(r.out).toContain(".husky/pre-commit:2.");
+	});
+
+	it("FAILs a block whose exit 1 carries a semicolon and a comment", () => {
+		hook("pre-commit", "node scripts/c.js || {\n  exit 1 ; # why\n}\n");
 		const r = run();
 		expect(r.status).toBe(1);
 		expect(r.out).toContain(".husky/pre-commit:2.");
