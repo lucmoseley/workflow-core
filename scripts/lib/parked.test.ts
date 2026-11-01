@@ -13,9 +13,9 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-	listParkMarkers,
 	readParkedBy,
 	readParkMarkers,
+	readParkMarkersOrThrow,
 	writeParkedBy,
 } from "./parked.js";
 
@@ -66,7 +66,7 @@ describe("a marker that will not read (#3893)", () => {
 
 	it("throws from the alarm's listing", () => {
 		withLockedMarker(() => {
-			expect(() => listParkMarkers(root)).toThrow(/EACCES/);
+			expect(() => readParkMarkersOrThrow(root)).toThrow(/EACCES/);
 		});
 	});
 
@@ -88,7 +88,7 @@ describe("a marker that will not read (#3893)", () => {
 		writeParkedBy("s1", [7], { root });
 		/* Listed by readdir, gone to stat and read: the race, held still. */
 		fs.symlinkSync(path.join(root, "gone"), markerFile("s2"));
-		expect(listParkMarkers(root)).toMatchObject([
+		expect(readParkMarkersOrThrow(root)).toMatchObject([
 			{ sessionId: "s1", issues: [7] },
 		]);
 	});
