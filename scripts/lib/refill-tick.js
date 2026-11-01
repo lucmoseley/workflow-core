@@ -1107,7 +1107,7 @@ async function tick({ dryRun }) {
 	const now = Date.now();
 	const { control: parsed, damaged } = readControl();
 	const control = parsed ?? {
-		startedAt: now,
+		noProgressFrom: now,
 		/* No control file is a loop nobody started: a real tick stops. */
 		stopRequested: !dryRun,
 		seats: readConfiguredSeats(),
@@ -1171,7 +1171,7 @@ async function tick({ dryRun }) {
 	const input = {
 		now,
 		mode: control.scope.mode,
-		startedAt: control.startedAt,
+		noProgressFrom: control.noProgressFrom,
 		stopRequested: control.stopRequested,
 		/* A dry run previews launches over any control, as over none. */
 		controlDamaged: dryRun ? null : damaged,
@@ -1192,7 +1192,13 @@ async function tick({ dryRun }) {
 			.pending.filter((j) => served.includes(j.root)),
 	};
 	const { decision, read } = await decide(input, control.scope);
-	if (dryRun) return { decision, read, startedAt: control.startedAt, agents };
+	if (dryRun)
+		return {
+			decision,
+			read,
+			noProgressFrom: control.noProgressFrom,
+			agents,
+		};
 	const { decision: settled, launched } = loop.settleTick(
 		{ input, decision, state, judged: launches, probes, read },
 		{
@@ -1216,7 +1222,11 @@ async function tick({ dryRun }) {
 		)
 	)
 		log(`concurrency record: not written to ${concurrencyFiles().record}`);
-	return { decision: settled, startedAt: control.startedAt, agents };
+	return {
+		decision: settled,
+		noProgressFrom: control.noProgressFrom,
+		agents,
+	};
 }
 
 module.exports = {

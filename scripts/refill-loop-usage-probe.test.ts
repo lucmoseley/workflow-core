@@ -43,7 +43,7 @@ beforeEach(() => {
 	ghLog = path.join(dir, "gh-calls");
 	fs.writeFileSync(
 		path.join(dir, ".refill-loop-control.json"),
-		JSON.stringify({ startedAt: Date.now(), stopRequested: false, seats }),
+		JSON.stringify({ noProgressFrom: Date.now(), stopRequested: false, seats }),
 	);
 	// Any figure over admission's memory floor for one slot.
 	fs.writeFileSync(path.join(dir, "meminfo"), "MemAvailable: 20000000 kB\n");

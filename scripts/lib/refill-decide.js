@@ -18,10 +18,7 @@ const {
 const { presenceAt } = require("./presence.js");
 const { buildVerifyPrompt, unclosedLaunchOf } = require("./unclosed-launch.js");
 
-/* Spec #1995's stops: 24 hours after the last start (#1918), and three
- * finishes in a row with no progress (#1920). */
-const RUN_HOURS = 24;
-const RUN_MS = RUN_HOURS * 60 * 60 * 1000;
+/* Spec #1995's stop: three finishes in a row with no progress (#1920). */
 const NO_PROGRESS_RUN = 3;
 /* A finish whose acts could not be read, counted neither as progress nor as
  * no progress (#2312). */
@@ -125,7 +122,7 @@ const ALREADY_RUNNING = "already running";
  * @typedef {object} TickInput
  * @property {number} now ms
  * @property {"normal"|"away"} mode
- * @property {number} startedAt ms, the last `start` or renewal
+ * @property {number} noProgressFrom ms, where the no-progress count counts from
  * @property {boolean} stopRequested
  * @property {string|null} [controlDamaged] the control file and why, where it
  *   exists but is not a control
@@ -184,8 +181,8 @@ const ALREADY_RUNNING = "already running";
  */
 
 /**
- * @typedef {"control-damaged" | "explicit" | "expired" | "no-progress"
- *   | "allowance"} StopReason
+ * @typedef {"control-damaged" | "explicit" | "no-progress" | "allowance"}
+ *   StopReason
  */
 
 /** @typedef {{root: string, number: number, why: string}} Skip */
@@ -208,21 +205,21 @@ const hasProgressed = (r) =>
 	Object.values(actsRead(r) ?? {}).some((n) => n > 0);
 
 /**
- * The last three read finishes since the last start, if none progressed: an
+ * The last three read finishes since noProgressFrom, if none progressed: an
  * unread one is passed over, and so is a gate judgement with no act, since
- * judging a gate unmet ends with none (#3092). A renewal starts the count
- * afresh, or a restart after this stop would stop at once. Residual: a judge
+ * judging a gate unmet ends with none (#3092). A start of a stopped loop moves
+ * noProgressFrom, or a restart after this stop would stop at once. Residual: a judge
  * that crashed or did nothing is passed over too, so a run of gate launches
  * alone never stops the loop; JUDGE_EVERY_MS in lib/gate-sweep.js bounds how
  * often each issue's runs.
  * @param {TickInput} input
  */
-function noProgressRun({ history, startedAt }) {
+function noProgressRun({ history, noProgressFrom }) {
 	const recent = history
 		.filter(
 			(r) =>
 				r.finishedAt !== null &&
-				r.launchedAt >= startedAt &&
+				r.launchedAt >= noProgressFrom &&
 				r.acts !== UNREAD &&
 				!(r.gate && !hasProgressed(r)),
 		)
@@ -532,11 +529,6 @@ function stopOf(input, pick) {
 		return { stop: "control-damaged", detail: input.controlDamaged };
 	if (input.stopRequested)
 		return { stop: "explicit", detail: "stop was requested" };
-	if (input.now >= input.startedAt + RUN_MS)
-		return {
-			stop: "expired",
-			detail: `${RUN_HOURS} hours since the last start at ${new Date(input.startedAt).toISOString()}`,
-		};
 	const stalled = noProgressRun(input);
 	if (stalled)
 		return {
@@ -829,7 +821,6 @@ module.exports = {
 	LIMIT_PARK_CAP,
 	limitCapHoldOf,
 	NOTHING_LAUNCHABLE,
-	RUN_MS,
 	UNREAD,
 	actsRead,
 	buildLimitCapText,

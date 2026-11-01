@@ -6,13 +6,13 @@
  * launches the next tickets into free slots across the repos its scope
  * serves (lib/refill-loop.js's Scope).
  *
- *   node scripts/refill-loop.js start …  start the loop, or renew a running
- *                                        loop's 24 hours; modes in USAGE
+ *   node scripts/refill-loop.js start …  start the loop, or widen a running
+ *                                        loop's scope; modes in USAGE
  *   node scripts/refill-loop.js stop     end launching before the next
  *                                        dispatch call; running sessions
  *                                        finish
- *   node scripts/refill-loop.js status   mode, repos, goal, stop time,
- *                                        launches with their seats, the
+ *   node scripts/refill-loop.js status   mode, repos, goal, launches with
+ *                                        their seats, the
  *                                        last stop reason, each overflow
  *                                        seat's budget and the plan seats
  *                                        overflow rests on; `--json` the launch
@@ -53,7 +53,6 @@ const { parseOrCode } = require("./lib/cli-args.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const { hasConfig } = require("./lib/workflow-core-config.js");
-const { RUN_MS } = require("./lib/refill-decide.js");
 const { readAllowance } = require("./lib/allowance.js");
 const { buildBudgetLine, seatBudget } = require("./lib/overflow-budget.js");
 const { planSeatBasisOf } = require("./lib/overflow-notice.js");
@@ -72,7 +71,7 @@ const loop = require("./lib/refill-loop.js");
 const {
 	readControlFile,
 	readStateFile,
-	writeJson,
+	writeControlFile,
 } = require("./lib/refill-files.js");
 const refillBatch = require("./lib/refill-batch.js");
 const { scriptPath } = require("./lib/script-path.js");
@@ -157,19 +156,13 @@ function buildNextControl(pid, asked, root) {
 	/* A loop whose stop is pending is ending: this start begins afresh,
 	 * dropping its scope (#2123). */
 	const running = pid !== null && prior && !prior.stopRequested ? prior : null;
-	const { scope, renew } = commands.mergedScope(
-		running?.scope ?? null,
-		asked,
-		root,
-	);
 	/** @type {import("./lib/refill-loop.js").Control} */
-	const control = {
-		startedAt: running && !renew ? running.startedAt : Date.now(),
+	return {
+		noProgressFrom: running?.noProgressFrom ?? Date.now(),
 		stopRequested: false,
 		seats: readConfiguredSeats(),
-		scope,
+		scope: commands.mergedScope(running?.scope ?? null, asked, root),
 	};
-	return { control, renewed: renew };
 }
 
 /**
@@ -240,13 +233,12 @@ function start(parsed) {
 		return 2;
 	}
 	const pid = lock.holder();
-	const { control, renewed } = buildNextControl(pid, asked, root);
-	writeJson(files.control, control);
+	const control = buildNextControl(pid, asked, root);
+	writeControlFile(control);
 	wakes.touchWake(files.wake);
 	const served = servedRoots(control.scope).roots;
 	const scopeText = commands
 		.buildScopeLines(control, {
-			runMs: RUN_MS,
 			served,
 			running: true,
 			seatsLine: commands.buildSeatsLine(
@@ -260,11 +252,7 @@ function start(parsed) {
 		})
 		.map((l) => `  ${l}`);
 	if (pid !== null) {
-		say(
-			renewed
-				? `refill loop renewed: pid ${pid}`
-				: `refill loop: away mode is running and is left as it is, bar this checkout's goal; pid ${pid}`,
-		);
+		say(commands.buildRunningLine(asked.mode, control.scope.mode, pid));
 		for (const line of scopeText) say(line);
 		return 0;
 	}
@@ -302,7 +290,7 @@ function start(parsed) {
 function stop() {
 	const control = readControlFile(log);
 	const pid = lock.holder();
-	if (control) writeJson(files.control, { ...control, stopRequested: true });
+	if (control) writeControlFile({ ...control, stopRequested: true });
 	if (pid !== null) wakes.touchWake(files.wake);
 	say(
 		pid === null
@@ -331,7 +319,6 @@ function status({ flags }) {
 		state,
 		pid,
 		codeSha: pid === null ? null : refillCode.readRunningCode(pid, files.code),
-		runMs: RUN_MS,
 		served,
 		seats,
 		now: Date.now(),
@@ -468,13 +455,17 @@ async function run() {
 					readControlFile(log)?.stopRequested === true,
 			});
 			startGateSweep(sweeper);
-			const { decision, startedAt, agents } = await tick({ dryRun: false });
+			const { decision, noProgressFrom, agents } = await tick({
+				dryRun: false,
+			});
 			updater?.afterTick();
-			/* A `start` that landed mid-tick saw this pid and spawned nothing,
-			 * so the stop it overtook must not end the loop. */
+			/* A `start` that overtook a pending stop mid-tick saw this pid and
+			 * spawned nothing, so that stop must not end the loop. Residual: one
+			 * landing on a no-progress or allowance stop moves nothing, so it prints
+			 * `running` and the loop still exits, until #3859 removes those stops. */
 			const done =
 				"stop" in decision &&
-				!loop.isRenewedSince(readControlFile(log), startedAt);
+				!loop.isRestartedSince(readControlFile(log), noProgressFrom);
 			return { done, agents };
 		} catch (err) {
 			log(`tick failed: ${buildErrorText(err)}`);

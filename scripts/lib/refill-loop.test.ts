@@ -29,7 +29,7 @@ import {
 	capArgs,
 	ceilingsOf,
 	FREE_SLOT_ARGS,
-	isRenewedSince,
+	isRestartedSince,
 	isReviewRunDue,
 	judgedLaunches,
 	landingRoots,
@@ -417,7 +417,7 @@ describe("a finished launch's progress, from its session's acts ledger (#2312)",
 		decideTick({
 			now: NOW,
 			mode: "normal" as const,
-			startedAt: NOW - 60 * MIN,
+			noProgressFrom: NOW - 60 * MIN,
 			stopRequested: false,
 			frontier: [],
 			retroBundles: [],
@@ -637,7 +637,7 @@ describe("a seat's reading (#2606)", () => {
 			decideTick({
 				now: NOW,
 				mode: "normal" as const,
-				startedAt: NOW - 60 * MIN,
+				noProgressFrom: NOW - 60 * MIN,
 				stopRequested: false,
 				frontier: [],
 				retroBundles: [],
@@ -745,7 +745,7 @@ function settleOnce(
 		}),
 		readControl = () => ({
 			control: {
-				startedAt: NOW,
+				noProgressFrom: NOW,
 				stopRequested: false,
 				seats: [],
 				scope: away([]),
@@ -779,7 +779,7 @@ function settleOnce(
 			input: {
 				now: NOW,
 				mode: "normal" as const,
-				startedAt: NOW,
+				noProgressFrom: NOW,
 				stopRequested: false,
 				frontier: [],
 				retroBundles: [],
@@ -926,7 +926,7 @@ describe("a tick's log line (#2362)", () => {
 		const d = decideTick({
 			now: NOW,
 			mode: "normal" as const,
-			startedAt: NOW - 60 * MIN,
+			noProgressFrom: NOW - 60 * MIN,
 			stopRequested: false,
 			frontier: [],
 			retroBundles: [],
@@ -994,7 +994,7 @@ describe("a tick's log line (#2362)", () => {
 		const decision = decideTick({
 			now: NOW,
 			mode: "away",
-			startedAt: NOW,
+			noProgressFrom: NOW,
 			stopRequested: false,
 			frontier: [
 				{
@@ -1141,7 +1141,7 @@ describe("a tick's log line (#2362)", () => {
 		const line = logged(decision, 2, [], {
 			readControl: () => ({
 				control: {
-					startedAt: NOW,
+					noProgressFrom: NOW,
 					stopRequested: reads++ > 0,
 					seats: [],
 					scope: away([]),
@@ -1483,14 +1483,18 @@ describe("dispatch's cap thresholds", () => {
 describe("the control file", () => {
 	it("reads a malformed file as no start", () => {
 		expect(parseControl(null)).toBeNull();
-		expect(parseControl({ startedAt: "soon" })).toBeNull();
+		expect(parseControl({ noProgressFrom: "soon" })).toBeNull();
 	});
 
 	it("keeps only string seats and a literal true stop", () => {
 		expect(
-			parseControl({ startedAt: 5, stopRequested: "yes", seats: ["/a", 3] }),
+			parseControl({
+				noProgressFrom: 5,
+				stopRequested: "yes",
+				seats: ["/a", 3],
+			}),
 		).toEqual({
-			startedAt: 5,
+			noProgressFrom: 5,
 			stopRequested: false,
 			seats: ["/a"],
 			scope: away([]),
@@ -1498,7 +1502,7 @@ describe("the control file", () => {
 	});
 
 	it("reads a control from before scopes as away mode over every repo", () => {
-		expect(parseControl({ startedAt: 5 })?.scope).toEqual(away([]));
+		expect(parseControl({ noProgressFrom: 5 })?.scope).toEqual(away([]));
 	});
 
 	it("keeps a normal scope's repos and only whole-number goals", () => {
@@ -1511,17 +1515,25 @@ describe("the control file", () => {
 		).toEqual(normal([WFC], { [WFC]: [1] }));
 	});
 
-	it("lets a renewal after the tick's read overtake its stop", () => {
-		const renewed = {
-			startedAt: 20,
+	it("reads a control a start before #3854 wrote, its count's start named startedAt", () => {
+		expect(
+			parseControl({ startedAt: 5, stopRequested: false, seats: ["/a"] }),
+		).toMatchObject({ noProgressFrom: 5, stopRequested: false, seats: ["/a"] });
+	});
+
+	it("lets a restart after the tick's read overtake its stop", () => {
+		const restarted = {
+			noProgressFrom: 20,
 			stopRequested: false,
 			seats: [],
 			scope: away([]),
 		};
-		expect(isRenewedSince(renewed, 10)).toBe(true);
-		expect(isRenewedSince({ ...renewed, stopRequested: true }, 10)).toBe(false);
-		expect(isRenewedSince(renewed, 20)).toBe(false);
-		expect(isRenewedSince(null, 10)).toBe(false);
+		expect(isRestartedSince(restarted, 10)).toBe(true);
+		expect(isRestartedSince({ ...restarted, stopRequested: true }, 10)).toBe(
+			false,
+		);
+		expect(isRestartedSince(restarted, 20)).toBe(false);
+		expect(isRestartedSince(null, 10)).toBe(false);
 	});
 });
 
@@ -1529,7 +1541,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 	const input = {
 		now: 100,
 		mode: "normal" as const,
-		startedAt: 10,
+		noProgressFrom: 10,
 		stopRequested: false,
 		frontier: [],
 		retroBundles: [],
@@ -1591,7 +1603,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 							}
 						: {
 								control: {
-									startedAt: 10,
+									noProgressFrom: 10,
 									stopRequested: stopWritten,
 									seats: [],
 									scope: away([]),

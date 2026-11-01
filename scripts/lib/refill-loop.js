@@ -60,7 +60,7 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
 
 /**
  * @typedef {object} Control
- * @property {number} startedAt ms, the last `start` or renewal
+ * @property {number} noProgressFrom ms, where the no-progress count counts from
  * @property {boolean} stopRequested
  * @property {string[]} seats config dirs, in failover order
  * @property {Scope} scope
@@ -178,14 +178,17 @@ function parseScope(raw) {
 }
 
 /**
- * The control file's fields, or null where it is not one.
+ * The control file's fields, or null where it is not one. A file a start before
+ * #3854 wrote names noProgressFrom `startedAt`. A stopgap: #3888 removes it.
  * @param {unknown} raw
  * @returns {Control|null}
  */
 function parseControl(raw) {
-	if (!isRecord(raw) || typeof raw.startedAt !== "number") return null;
+	if (!isRecord(raw)) return null;
+	const noProgressFrom = raw.noProgressFrom ?? raw.startedAt;
+	if (typeof noProgressFrom !== "number") return null;
 	return {
-		startedAt: raw.startedAt,
+		noProgressFrom,
 		stopRequested: raw.stopRequested === true,
 		seats: parseStrings(raw.seats),
 		scope: parseScope(raw.scope),
@@ -815,13 +818,13 @@ const limitHoldsOf = (launches) =>
 	});
 
 /**
- * Whether `start` renewed the loop after a tick read `startedAt`, so a stop
- * that tick decided is stale.
+ * Whether a `start` began the loop afresh after `since`, so a stop decided
+ * before it is stale.
  * @param {Control|null} control
- * @param {number} startedAt
+ * @param {number} since
  */
-const isRenewedSince = (control, startedAt) =>
-	control !== null && !control.stopRequested && control.startedAt > startedAt;
+const isRestartedSince = (control, since) =>
+	control !== null && !control.stopRequested && control.noProgressFrom > since;
 
 /**
  * Whether a control read mid-tick asks the loop to stop. A control gone
@@ -1126,7 +1129,7 @@ module.exports = {
 	ceilingsOf,
 	parseControl,
 	buildFinishLine,
-	isRenewedSince,
+	isRestartedSince,
 	judgedLaunches,
 	buildLaunchesLine,
 	buildSeatText,

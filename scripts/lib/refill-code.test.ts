@@ -269,7 +269,7 @@ describe("adoption", () => {
 		for (const f of kept)
 			fs.writeFileSync(
 				path.join(dir, f),
-				`{"stopRequested":true,"startedAt":1,"of":"${f}"}\n`,
+				`{"stopRequested":true,"noProgressFrom":1,"of":"${f}"}\n`,
 			);
 		const before = kept.map((f) => fs.readFileSync(path.join(dir, f)));
 		const tip = push({ "scripts/lib/marker.js": 'module.exports = "two";\n' });

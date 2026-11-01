@@ -962,12 +962,12 @@ hold, an admission refusal or a launcher refusal: run once
 node scripts/refill-loop.js start [--repo <dir>]… [--goal <§1's set>]
 ```
 
-It starts or renews, for 24 hours, the machine's one loop in **normal mode**:
-this repo, plus each sibling checkout the founder's command named, passed by
-its directory name. The goal is §1's set, if there is one (#2119). Never pass
-`--away`: away mode, every included repo, starts only on the founder's explicit
+It starts the machine's one loop, which runs until stopped, in **normal mode**,
+or adds to the running one: this repo, plus each sibling checkout the founder's
+command named, passed by its directory name. The goal is §1's set, if there is
+one (#2119). Never pass `--away`: away mode, every included repo, starts only on the founder's explicit
 ask. A running away mode is left as it is. Copy the lines `start` prints —
-mode, repos, goal, stop time, seats — and any `WARNING:`, into the message.
+mode, repos, goal, seats — and any `WARNING:`, into the message.
 **Unenforced**: no hook checks the call was made.
 
 ---

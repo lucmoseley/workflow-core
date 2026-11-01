@@ -45,34 +45,23 @@ const STATUS_SKIPS = 10;
  * The scope a `start` writes, given the running loop's (null where none
  * runs) and the one asked for from `root`. A normal start adds its repos to
  * a running normal loop's; an away start widens whatever runs; a normal
- * start never narrows a running away mode, nor renews its 24 hours. In
- * every case the asked goal replaces `root`'s, a bare start clearing it
- * (#2119, #2123).
+ * start never narrows a running away mode. In every case the asked goal
+ * replaces `root`'s, a bare start clearing it (#2119, #2123).
  * @param {Scope|null} running
  * @param {Scope} asked
  * @param {string} root
- * @returns {{scope: Scope, renew: boolean}}
+ * @returns {Scope}
  */
 function mergedScope(running, asked, root) {
-	if (running === null) return { scope: asked, renew: true };
+	if (running === null) return asked;
 	const goals = { ...running.goals };
 	delete goals[root];
 	Object.assign(goals, asked.goals);
-	if (asked.mode === "away") return { scope: { ...asked, goals }, renew: true };
-	if (running.mode === "away")
-		return { scope: { ...running, goals }, renew: false };
+	if (asked.mode === "away") return { ...asked, goals };
+	if (running.mode === "away") return { ...running, goals };
 	const repos = [...new Set([...running.repos, ...asked.repos])];
-	return { scope: { ...asked, repos, goals }, renew: true };
+	return { ...asked, repos, goals };
 }
-
-/**
- * @param {Control} control
- * @param {number} runMs
- */
-const buildStopLine = (control, runMs) =>
-	control.stopRequested
-		? "stops:     at its next tick, on request"
-		: `stops by:  ${iso(control.startedAt + runMs)}`;
 
 /**
  * @typedef {import("./refill-decide.js").SizedSeat} SizedSeat
@@ -254,12 +243,23 @@ function buildSeatsLine(view, now) {
 }
 
 /**
- * The lines naming what a loop serves, on which seats and until when.
+ * What `start` says of a loop already running.
+ * @param {Scope["mode"]} askedMode
+ * @param {Scope["mode"]} runningMode the mode the merged scope kept
+ * @param {number} pid
+ */
+const buildRunningLine = (askedMode, runningMode, pid) =>
+	askedMode === "normal" && runningMode === "away"
+		? `refill loop: away mode is running and is left as it is, bar this checkout's goal; pid ${pid}`
+		: `refill loop running: pid ${pid}`;
+
+/**
+ * The lines naming what a loop serves and on which seats.
  * @param {Control} control
- * @param {{runMs: number, served: string[], running: boolean, seatsLine: string}} opts
+ * @param {{served: string[], running: boolean, seatsLine: string}} opts
  *   `served`, scopeRoots's roots; `seatsLine`, buildSeatsLine's
  */
-function buildScopeLines(control, { runMs, served, running, seatsLine }) {
+function buildScopeLines(control, { served, running, seatsLine }) {
 	const { scope } = control;
 	const names = (/** @type {string[]} */ roots) =>
 		roots.map((r) => path.basename(r)).join(", ") || "none";
@@ -273,7 +273,9 @@ function buildScopeLines(control, { runMs, served, running, seatsLine }) {
 		`repos:     ${names(served)}`,
 		...(away ? [`excluding: ${names(scope.exclude)}`] : []),
 		`goal:      ${goals.join("; ") || "none"}`,
-		...(running ? [buildStopLine(control, runMs)] : []),
+		...(running && control.stopRequested
+			? ["stops:     at its next tick, on request"]
+			: []),
 		seatsLine,
 	];
 }
@@ -353,14 +355,14 @@ function launchStateOf(l) {
 
 /**
  * The launches `status` counts, those since the start and any still running
- * from before a renewal, and of them those it lists: the last
+ * from before it, and of them those it lists: the last
  * STATUS_LAUNCHES and every unsettled one.
  * @param {Control} control
  * @param {LoopState} state
  */
 function shownLaunches(control, state) {
 	const shown = state.launches.filter(
-		(l) => l.launchedAt >= control.startedAt || l.finishedAt === null,
+		(l) => l.launchedAt >= control.noProgressFrom || l.finishedAt === null,
 	);
 	const listed = shown.filter(
 		(l, i) =>
@@ -371,16 +373,16 @@ function shownLaunches(control, state) {
 
 /**
  * The lines a recorded start gives `status`: launches since it, and any still
- * running from before a renewal.
+ * running from before it.
  * @param {Control} control
  * @param {LoopState} state
- * @param {{runMs: number, served: string[], running: boolean, seatsLine: string}} opts
+ * @param {{served: string[], running: boolean, seatsLine: string}} opts
  */
 function buildControlLines(control, state, opts) {
-	const lines = [`started:   ${iso(control.startedAt)}`];
+	const lines = [`started:   ${iso(control.noProgressFrom)}`];
 	lines.push(...buildScopeLines(control, opts));
 	const since = state.launches.filter(
-		(l) => l.launchedAt >= control.startedAt,
+		(l) => l.launchedAt >= control.noProgressFrom,
 	).length;
 	const { shown, listed } = shownLaunches(control, state);
 	const kinds = shown.map(launchKindOf);
@@ -422,7 +424,7 @@ function buildLastTickLines(t) {
 
 /**
  * @param {{control: Control|null, state: LoopState, pid: number|null,
- *   runMs: number, served: string[], seats: SeatsView, now: number,
+ *   served: string[], seats: SeatsView, now: number,
  *   codeSha?: string|null}} input `served`, scopeRoots's roots; `codeSha`,
  *   lib/refill-code.js's readRunningCode
  * @returns {string[]}
@@ -431,7 +433,6 @@ function buildStatusLines({
 	control,
 	state,
 	pid,
-	runMs,
 	served,
 	seats,
 	now,
@@ -444,7 +445,6 @@ function buildStatusLines({
 		...(pid !== null && codeSha ? [`code:      ${codeSha}`] : []),
 		...(control
 			? buildControlLines(control, state, {
-					runMs,
 					served,
 					running: pid !== null,
 					seatsLine: buildSeatsLine(seats, now),
@@ -530,6 +530,7 @@ function buildStatusJson({ control, state, pid, seats }) {
 }
 
 module.exports = {
+	buildRunningLine,
 	buildOverflowBasisLines,
 	buildScopeLines,
 	buildSeatsLine,

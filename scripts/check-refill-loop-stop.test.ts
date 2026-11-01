@@ -232,13 +232,13 @@ describe("at session start (--notify)", () => {
 		writeState("no-progress");
 		fs.writeFileSync(
 			path.join(dir, ".refill-loop-control.json"),
-			JSON.stringify({ startedAt: STOP_AT + 60_000, stopRequested: true }),
+			JSON.stringify({ noProgressFrom: STOP_AT + 60_000, stopRequested: true }),
 		);
 		expect(run(["--notify"]).stdout).toContain("nothing new launches");
 	});
 
-	it.each(["expired", "explicit"])("never names an %s stop", (reason) => {
-		writeState(reason);
+	it("never names an explicit stop", () => {
+		writeState("explicit");
 		expect(run(["--notify"]).stdout).toBe("");
 	});
 
@@ -269,7 +269,7 @@ describe("at session start (--notify)", () => {
 			`REFILL-LOOP-FILE-DAMAGED — ${control} is damaged`,
 		);
 		expect(r.stdout).toContain("REFILL-LOOP-STOPPED");
-		/* No control reads as no renewal, so the restart is named. */
+		/* No control reads as no restart, so the restart is named. */
 		expect(r.stdout).toContain("/pick-next");
 	});
 
@@ -290,7 +290,10 @@ describe("at session start (--notify)", () => {
 		writeState("no-progress");
 		fs.writeFileSync(
 			path.join(dir, ".refill-loop-control.json"),
-			JSON.stringify({ startedAt: STOP_AT + 60_000, stopRequested: false }),
+			JSON.stringify({
+				noProgressFrom: STOP_AT + 60_000,
+				stopRequested: false,
+			}),
 		);
 		expect(run(["--notify"]).stdout).toContain("started again since");
 	});
@@ -301,10 +304,10 @@ describe("the restart it names (#3371)", () => {
 	const screenOf = (r: { stdout: string }) =>
 		JSON.parse(r.stdout).systemMessage as string;
 
-	function writeControl(scope: object, startedAt = STOP_AT - 60_000) {
+	function writeControl(scope: object, noProgressFrom = STOP_AT - 60_000) {
 		fs.writeFileSync(
 			path.join(dir, ".refill-loop-control.json"),
-			JSON.stringify({ startedAt, stopRequested: false, scope }),
+			JSON.stringify({ noProgressFrom, stopRequested: false, scope }),
 		);
 	}
 

@@ -61,7 +61,7 @@ describe("the tick's control read (#3389)", () => {
 		decideTick({
 			now: NOW,
 			mode: "normal" as const,
-			startedAt: NOW,
+			noProgressFrom: NOW,
 			stopRequested: true,
 			controlDamaged: damaged,
 			frontier: [],
@@ -81,8 +81,12 @@ describe("the tick's control read (#3389)", () => {
 
 	it.each([
 		["unparseable", "{ not json", /JSON/],
-		["a JSON null", "null", /no startedAt/],
-		["not a control", JSON.stringify({ stopRequested: false }), /no startedAt/],
+		["a JSON null", "null", /no noProgressFrom/],
+		[
+			"not a control",
+			JSON.stringify({ stopRequested: false }),
+			/no noProgressFrom/,
+		],
 	])(
 		"stops on an %s control under its own reason, naming the file",
 		(_, body, why) => {
@@ -102,7 +106,10 @@ describe("the tick's control read (#3389)", () => {
 	);
 
 	it("reads a whole control as itself", () => {
-		fs.writeFileSync(file(), JSON.stringify({ startedAt: 5 }));
-		expect(read()).toMatchObject({ control: { startedAt: 5 }, damaged: null });
+		fs.writeFileSync(file(), JSON.stringify({ noProgressFrom: 5 }));
+		expect(read()).toMatchObject({
+			control: { noProgressFrom: 5 },
+			damaged: null,
+		});
 	});
 });

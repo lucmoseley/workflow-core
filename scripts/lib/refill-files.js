@@ -101,7 +101,7 @@ function readControlChecked(log) {
 	const control = parseControl(value);
 	const why =
 		damage ??
-		(found && control === null ? "not a control: no startedAt" : null);
+		(found && control === null ? "not a control: no noProgressFrom" : null);
 	if (why === null) return { control, damaged: null };
 	const damaged = `${file} is damaged (${why})`;
 	log(`${damaged}; the loop stops on it until a start rewrites it`);
@@ -110,6 +110,18 @@ function readControlChecked(log) {
 
 /** @param {(line: string) => void} log */
 const readControlFile = (log) => readControlChecked(log).control;
+
+/**
+ * Write the control. `startedAt` repeats noProgressFrom for a running loop on
+ * code from before #3854, which reads a control without it as damaged and stops,
+ * until it adopts this code. A stopgap: #3888 removes it.
+ * @param {import("./refill-loop.js").Control} control
+ */
+const writeControlFile = (control) =>
+	writeJson(loopFiles().control, {
+		startedAt: control.noProgressFrom,
+		...control,
+	});
 
 /**
  * The state file the loop writes, parsed; absent or damaged reads as parseState's
@@ -123,6 +135,7 @@ module.exports = {
 	loopFiles,
 	REVIEW_RUNNER,
 	readControlChecked,
+	writeControlFile,
 	readControlFile,
 	readJson,
 	readStateFile,
