@@ -61,7 +61,10 @@
 		".local",
 		"hooks",
 		"scripts/**/*.test.*",
+		"scripts/**/*.spec.*",
 		"scripts/**/test/**",
-		".claude/skills/*/scripts/*.test.*"
+		"scripts/**/tests/**",
+		".claude/skills/*/scripts/*.test.*",
+		".claude/skills/*/scripts/*.spec.*"
 	]
 }

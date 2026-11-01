@@ -396,7 +396,9 @@
 				"lib/**/*.ts",
 				"app/**/*.ts",
 				"!**/*.test.ts",
-				"!**/test/**"
+				"!**/*.spec.ts",
+				"!**/test/**",
+				"!**/tests/**"
 			],
 			"linter": {
 				"rules": {

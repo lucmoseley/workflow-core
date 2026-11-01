@@ -48,7 +48,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { isTestKind, JS_EXTENSIONS } from "./lib/test-kind.js";
+import { isApparatus } from "./lib/suite-apparatus.js";
+import { isJsExt } from "./lib/test-kind.js";
 
 const REPO = path.resolve(__dirname, "..");
 
@@ -188,12 +189,10 @@ afterAll(() => {
 	if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-const JS_EXT = new Set(JS_EXTENSIONS.map((ext) => `.${ext}`));
-
-/** Is `rel` a JS/TS script that requires or imports the seam, and no test
- * check-host-root.js leaves unscanned? */
+/** Is `rel` a JS/TS script that requires or imports the seam, and no
+ * apparatus check-host-root.js leaves unscanned? */
 const isSeamCaller = (rel: string): boolean => {
-	if (!JS_EXT.has(path.extname(rel)) || isTestKind(rel)) return false;
+	if (!isJsExt(path.extname(rel)) || isApparatus(rel)) return false;
 	const text = fs.readFileSync(path.join(REPO, rel), "utf8");
 	return /(?:require\(|from )["']\.(?:\/lib)?\/host-root(?:\.js)?["']/.test(
 		text,

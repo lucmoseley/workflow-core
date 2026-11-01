@@ -59,11 +59,11 @@
  * WHAT IS NOT SCANNED. A test, a fixture and a test harness root at the CORE
  * checkout because that checkout is their subject: `__dirname` there is the copy
  * under test, and pointing them at a host root would aim them at whatever tree
- * the suite happened to run in. lib/test-kind.js's `isTestKind` (test and spec
- * files, pytest's tests and `conftest.py`, testkit, harness, fixture, stub and
- * fake modules, and anything under a `test/`, `tests/`, `fixtures/`,
- * `testkits/`, `stubs/` or `fakes/` directory) and the vitest configs are
- * therefore out of scope, by name.
+ * the suite happened to run in. What lib/suite-apparatus.js's `isApparatus`
+ * takes is therefore out of scope, by name: test-kind.js's `TEST_KIND`, every
+ * shape listed, and the vitest configs, bar a shipped file it names. Nor are
+ * their constants read as importable for HOST-ROOTED-CORE: no judged script
+ * imports from the suite's apparatus.
  *
  * WHAT IT CANNOT SEE. A root passed as a parameter rather than assigned from
  * `hostRoot()` in the same file, a read made inside an imported helper, a
@@ -94,11 +94,8 @@ const { runCheck } = require("./lib/check");
 const { isUnder } = require("./lib/is-under.js");
 const { requiredGroup } = require("./lib/regex-group");
 const { hostRoot } = require("./lib/host-root.js");
-const {
-	JS_EXT_SOURCE,
-	JS_EXTENSIONS,
-	isTestKind,
-} = require("./lib/test-kind.js");
+const { isJsExt } = require("./lib/test-kind.js");
+const { isApparatus } = require("./lib/suite-apparatus.js");
 const { segmentTailMatches } = require("./lib/line-scan.js");
 const { blankComments } = require("./lib/strip-comments.js");
 
@@ -235,15 +232,6 @@ const ALLOWED = {
  * resolving its own worktree is right, and the rule here does not reach it.
  */
 const SCANNED = ["scripts"];
-
-const JS_EXT = new Set(JS_EXTENSIONS.map((ext) => `.${ext}`));
-
-/* The suite and its apparatus — see WHAT IS NOT SCANNED above. */
-const VITEST_CONFIG = new RegExp(
-	String.raw`^vitest\.(?:config|setup)${JS_EXT_SOURCE}$`,
-);
-const isTestFile = (/** @type {string} */ rel) =>
-	isTestKind(rel) || VITEST_CONFIG.test(path.basename(rel));
 
 /** A call to one of `names`, through `path.` or `nodePath.`, or bare as ESM
  * names a `node:path` import — any bare call of that name, imported or not. */
@@ -667,8 +655,8 @@ function isJudged(rel) {
 	const ext = path.extname(rel);
 	return (
 		!SEAM_FILES.has(rel) &&
-		(ext === ".sh" || ext === ".py" || JS_EXT.has(ext)) &&
-		!isTestFile(rel)
+		(ext === ".sh" || ext === ".py" || isJsExt(ext)) &&
+		!isApparatus(rel)
 	);
 }
 
@@ -687,7 +675,7 @@ function judgeFile(ctx, root, { rel, text, importable, seen }) {
 	const entry = Object.hasOwn(ALLOWED, rel) ? ALLOWED[rel] : undefined;
 	const sink = entry ? exemptingCtx(ctx, entry.tags, seen) : ctx;
 	const ext = path.extname(rel);
-	if (JS_EXT.has(ext)) judgeJs(sink, root, { rel, source: text, importable });
+	if (isJsExt(ext)) judgeJs(sink, root, { rel, source: text, importable });
 	if (ext === ".sh") judgeSh(sink, rel, text);
 	if (ext === ".py") judgePy(sink, rel, text);
 }
@@ -738,7 +726,7 @@ function readImportableConstants(root, scanned) {
 	/** @type {Set<string>} */
 	const importable = new Set();
 	for (const rel of scanned) {
-		if (!JS_EXT.has(path.extname(rel)) || isTestFile(rel)) continue;
+		if (!isJsExt(path.extname(rel)) || isApparatus(rel)) continue;
 		try {
 			const text = blankComments(fs.readFileSync(path.join(root, rel), "utf8"));
 			for (const name of coreConstants(text)) importable.add(name);
