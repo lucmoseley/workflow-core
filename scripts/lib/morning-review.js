@@ -324,9 +324,15 @@ function parseOneWayDoor(comments) {
  *   not read, and where its events start
  * @typedef {{reading: RepoReading | null, unread: Unread[],
  *   unreadEvents: UnreadEvents[]}} RepoRead one checkout's part of a review
+ * @typedef {{checkout: string, repo: string | null, act: string, issue: number | null,
+ *   kind: import("./repo-holds.js").RepoHold["kind"], age: string,
+ *   attached: number, notice: import("./repo-holds.js").RepoHold["notice"]}}
+ *   OpenHold an open repo hold (lib/repo-holds.js) with its age as text, `repo`
+ *   the tracker its issue is on, where that read
  * @typedef {{since: string, now: string, previous: number | null,
  *   repos: RepoReading[], failed: Unread[], unreadEvents: UnreadEvents[],
- *   kills: KillReading, concurrency: ConcurrencyReading, idle: IdleReading}}
+ *   holds: OpenHold[], kills: KillReading, concurrency: ConcurrencyReading,
+ *   idle: IdleReading}}
  *   Reading the machine's earlyoom kills, its concurrency and the idle alarm
  *   are read once, not per repo (#3094, #3321, #3644)
  * @typedef {{trackers: import("./idle-efforts.js").TrackerFinding[],
@@ -545,6 +551,29 @@ function renderPrimitivesLines(repos, first) {
 	]);
 }
 
+/** @param {boolean} sent */
+const buildSentText = (sent) => (sent ? "sent" : "not sent");
+
+/**
+ * The "Open repo holds" section, absent with none open (#3865).
+ * @param {OpenHold[]} holds
+ * @returns {string[]}
+ */
+function renderHoldLines(holds) {
+	if (holds.length === 0) return [];
+	return [
+		"## Open repo holds",
+		"",
+		"Each founder act holding shared state, with its issue, kind, age, the sessions attached and whether its phone notices went:",
+		"",
+		...holds.map(
+			(h) =>
+				`- ${h.checkout}: ${quoted(h.act)} — ${h.issue === null ? "no issue filed yet" : `${h.repo ?? ""}#${h.issue}`} — ${h.kind === "probe" ? "probe, which stops launches" : h.kind} — age ${h.age} — ${h.attached} attached — notice: raise ${buildSentText(h.notice.raiseSent)}, clear ${buildSentText(h.notice.clearSent)}`,
+		),
+		"",
+	];
+}
+
 /**
  * @param {Reading} r
  * @returns {string}
@@ -556,6 +585,7 @@ function renderReview({
 	repos,
 	failed,
 	unreadEvents,
+	holds,
 	kills,
 	concurrency,
 	idle,
@@ -675,6 +705,7 @@ function renderReview({
 					),
 				]),
 		"",
+		...renderHoldLines(holds),
 		"## Landing stalls",
 		"",
 		...(stalls.length === 0 ? ["None open."] : stalls),

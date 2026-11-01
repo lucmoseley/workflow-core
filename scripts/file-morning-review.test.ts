@@ -14,6 +14,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { freshSandbox } from "./lib/arbiter-testkit";
 import { HOUR, morningReviewFixture } from "./lib/morning-review-fixture";
+import { raiseHold } from "./lib/repo-holds.js";
 
 const SCRIPT = path.resolve(__dirname, "file-morning-review.js");
 
@@ -521,6 +522,155 @@ describe("file-morning-review.js (#2011)", () => {
 			const created = readCreated();
 			expect(created[1].body).toContain("Re-run decision");
 			expect(created[2].body).not.toContain("Re-run decision");
+		});
+	});
+
+	describe("open repo holds (#3865)", () => {
+		afterEach(() => vi.unstubAllEnvs());
+
+		const Heading = "## Open repo holds";
+		const readFiledBody = () => {
+			const filed = run();
+			expect(filed.status).toBe(0);
+			const [issue] = readCreated();
+			expect(issue.title).toBe(TODAY);
+			return issue.body as string;
+		};
+		const raiseIn = (
+			root: string,
+			hold: Partial<Parameters<typeof raiseHold>[1]> = {},
+		) => {
+			vi.stubEnv("WFC_REFILL_DIR", runEnv().WFC_REFILL_DIR);
+			return raiseHold(root, {
+				kind: "park",
+				act: "repair main",
+				issue: 12,
+				clearCheck: { issueClosed: 12 },
+				session: "raiser",
+				now: Date.now() - 3 * HOUR,
+				...hold,
+			});
+		};
+		const addCheckout = (name: string, tracker: string) => {
+			const root = path.join(path.dirname(wfc()), name);
+			fs.mkdirSync(path.join(root, ".git"), { recursive: true });
+			fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
+			fs.writeFileSync(
+				path.join(root, ".claude", "workflow-core.json"),
+				JSON.stringify({ contract: 1, founder: "T", tracker }),
+			);
+			return root;
+		};
+
+		it("lists each hold's act, issue, kind, age, attached count and notice state, for every served checkout", () => {
+			seed([]);
+			raiseIn(wfc());
+			raiseIn(addCheckout("second", "acme/other"), {
+				kind: "probe",
+				act: "repair the shared .git: fetch origin: no route",
+				issue: 13,
+				clearCheck: { issueClosed: 13 },
+				now: Date.now() - 25 * HOUR,
+			});
+
+			const body = readFiledBody();
+
+			expect(body).toContain(Heading);
+			expect(body).toContain(
+				"- wfc: `repair main` — acme/wfc#12 — park — age 3h 0m — 1 attached — notice: raise not sent, clear not sent",
+			);
+			expect(body).toContain(
+				"- second: `repair the shared .git: fetch origin: no route` — acme/other#13 — probe, which stops launches — age 25h 0m — 1 attached — notice: raise not sent, clear not sent",
+			);
+		});
+
+		it("still lists a hold where the checkout's tracker reads fail, as the store is local", () => {
+			seed([]);
+			raiseIn(wfc());
+			fs.rmSync(stub("closed.json"));
+
+			expect(readFiledBody()).toContain("- wfc: `repair main` — acme/wfc#12");
+		});
+
+		it("lists a hold under a bare issue number where the checkout's tracker will not resolve", () => {
+			seed([]);
+			const root = addCheckout("second", "acme/other");
+			fs.writeFileSync(
+				path.join(root, ".claude", "workflow-core.json"),
+				JSON.stringify({ contract: 1, founder: "T" }),
+			);
+			raiseIn(root);
+
+			expect(readFiledBody()).toContain("- second: `repair main` — #12 — park");
+		});
+
+		it("lists a hold in a checkout a loop serves by name outside discovery", () => {
+			seed([]);
+			const outside = path.join(sb.dir, "elsewhere", "third");
+			fs.mkdirSync(path.join(outside, ".git"), { recursive: true });
+			fs.mkdirSync(path.join(outside, ".claude"), { recursive: true });
+			fs.writeFileSync(
+				path.join(outside, ".claude", "workflow-core.json"),
+				JSON.stringify({ contract: 1, founder: "T", tracker: "acme/other" }),
+			);
+			raiseIn(outside);
+			fs.mkdirSync(path.dirname(refillFile("x")), { recursive: true });
+			fs.writeFileSync(
+				refillFile(".refill-loop-control.json"),
+				JSON.stringify({
+					noProgressFrom: Date.now(),
+					scope: { mode: "normal", repos: [outside] },
+				}),
+			);
+
+			expect(readFiledBody()).toContain(
+				"- third: `repair main` — acme/other#12",
+			);
+		});
+
+		it("files the review and names a hold record with no notice state as not read", () => {
+			seed([]);
+			const { id } = raiseIn(wfc());
+			const [store = ""] = fs.readdirSync(refillFile("repo-holds"));
+			const file = path.join(refillFile("repo-holds"), store, `${id}.json`);
+			const { notice: _, ...bare } = JSON.parse(fs.readFileSync(file, "utf8"));
+			fs.writeFileSync(file, JSON.stringify(bare));
+
+			const body = readFiledBody();
+
+			expect(body).toMatch(/- acme\/wfc: `repo holds: .*not a hold/);
+			expect(body).not.toContain(Heading);
+		});
+
+		it("files the review and says so where the hold store will not read", () => {
+			seed([]);
+			fs.mkdirSync(path.dirname(refillFile("repo-holds")), { recursive: true });
+			fs.writeFileSync(refillFile("repo-holds"), "a file, not a directory\n");
+
+			const body = readFiledBody();
+
+			expect(body).toContain("**Not read, so missing below:**");
+			expect(body).toMatch(
+				/- acme\/wfc: `repo holds: .*not a directory.*remove the file/i,
+			);
+			expect(body).not.toContain(Heading);
+		});
+
+		it("lists the holds that read beside a record that will not", () => {
+			seed([]);
+			raiseIn(wfc());
+			const [store = ""] = fs.readdirSync(refillFile("repo-holds"));
+			fs.writeFileSync(
+				path.join(refillFile("repo-holds"), store, "torn.json"),
+				"{",
+			);
+
+			const body = readFiledBody();
+
+			expect(body).toContain("- wfc: `repair main`");
+			expect(body).toMatch(
+				/- acme\/wfc: `repo holds: .*torn\.json.*remove the file/,
+			);
 		});
 	});
 

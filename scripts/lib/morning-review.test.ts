@@ -76,6 +76,7 @@ const renderWith = (overrides: object) =>
 		repos: [],
 		failed: [],
 		unreadEvents: [],
+		holds: [],
 		kills: QUIET_KILLS,
 		concurrency: concurrencyOver([], []),
 		idle: QUIET_IDLE,
@@ -1089,5 +1090,33 @@ describe("the idle efforts section (#3644)", () => {
 		expect(
 			section(idleRender({ why: "check-idle-efforts.js: boom" })),
 		).toContain("Not read: `check-idle-efforts.js: boom`\n");
+	});
+});
+
+describe("an open repo hold (#3865)", () => {
+	it("adds no section with none open", () => {
+		expect(renderWith({ holds: [] })).not.toContain("## Open repo holds");
+	});
+
+	it("says so where its issue has yet to be filed", () => {
+		const body = renderWith({
+			holds: [
+				{
+					checkout: "wfc",
+					repo: "acme/wfc",
+					act: "repair `main`",
+					issue: null,
+					kind: "probe",
+					age: "5m",
+					attached: 0,
+					notice: { raiseSent: true, clearSent: false },
+				},
+			],
+		});
+
+		expect(body).toContain(
+			"- wfc: `repair 'main'` — no issue filed yet — probe, which stops launches — age 5m — 0 attached — notice: raise sent, clear not sent",
+		);
+		expect(basisFaults(body)).toEqual([]);
 	});
 });
