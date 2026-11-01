@@ -35,6 +35,7 @@ const planSeat = (seat: string, weekFull: boolean) => ({
 	sessionFull: false,
 	sessionResets: null,
 	weekResets: null,
+	readAt: NOW,
 	weekRead: { percent: null, atMs: null },
 });
 

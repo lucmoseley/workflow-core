@@ -12,7 +12,8 @@
  * tries (#2705), resume each its host restarted that took no turn and hand
  * one still idle after that to a fresh launch (#2707), read
  * admission, the allowance per seat and what its cap would launch, and
- * founder presence, ask lib/refill-decide.js, and launch each repo's picks
+ * founder presence, hold or resume in place each blocked on its seat's limit
+ * (#3735), ask lib/refill-decide.js, and launch each repo's picks
  * through one dispatch-sessions.sh call in its checkout, so that repo's ledger,
  * duplicate drop, memory re-read and allowance cap apply. The decision core
  * is asked first with an empty frontier: the per-repo shortlists cost GitHub
@@ -84,6 +85,7 @@ const { mainChainRecords } = require("./transcript.js");
 const { hasConfig, resolveKey } = require("./workflow-core-config.js");
 const { readLastTyped } = require("./presence.js");
 const {
+	MODEL,
 	NOTHING_LAUNCHABLE,
 	decideTick,
 	hasRoom,
@@ -761,7 +763,15 @@ function resumeStopped(l, prompt, { sessionId, cwd }) {
 		sessionId?: unknown}|null} */ (readJobRecordOf({ ...l, jobId }));
 	if (after?.state === "failed")
 		return { failed: `state failed: ${after.detail}` };
-	if (!started.copy) return { failed: null, jobId, sessionId, copy: false };
+	if (!started.copy) {
+		/* A stopped job's record already names its session, so its state says
+		 * whether it woke. */
+		return after?.sessionId === sessionId && after.state !== "stopped"
+			? { failed: null, jobId, sessionId, copy: false }
+			: {
+					failed: `not confirmed: job ${jobId}'s state.json reads ${after?.state ?? "(unread)"}, session ${after?.sessionId ?? "(unread)"}, not ${sessionId}`,
+				};
+	}
 	const copySession =
 		typeof after?.sessionId === "string" ? after.sessionId : null;
 	if (copySession) moveClaims(l, sessionId, copySession);
@@ -932,6 +942,15 @@ const blockIo = (served) => ({
 	type: typeResume,
 	resumeTargetOf: readResumeTargetOf,
 	resumeStopped,
+	jobStateOf: readJobRecordOf,
+	renewLedgerHold: (l) =>
+		recordLaunch({
+			issues: l.issues,
+			model: MODEL,
+			prompt: l.prompt,
+			root: l.root,
+			jobId: l.copiedFrom ?? l.jobId,
+		}),
 	readTimeline: readTimelineOf,
 	idleSince: readIdleSince,
 	turnedSince: (l, at) =>
@@ -1032,9 +1051,18 @@ async function tick({ dryRun }) {
 				control.scope.mode,
 				seen,
 			);
-	const { slots, admission } = readFreeSlots();
+	const { slots: free, admission } = readFreeSlots();
 	const declared = readDeclaredSeats();
 	const typed = readLastTyped(declared);
+	const { launches, slots } = dryRun
+		? { launches: judged, slots: free }
+		: blocks.actOnLimits(judged, control.scope.mode, {
+				...seen,
+				typedSeat: typed.seat,
+				readMoveSeats: () =>
+					readSeats(control.seats, 1, served[0], typed.seat).seats,
+				slots: free,
+			});
 	const { seats, probes } = readSeats(
 		control.seats,
 		slots,
@@ -1054,13 +1082,14 @@ async function tick({ dryRun }) {
 		controlDamaged: dryRun ? null : damaged,
 		frontier: [],
 		retroBundles: [],
-		running: loop.runningOf(judged),
+		running: loop.runningOf(launches),
 		freeSlots: slots,
+		limitHeld: launches.some(blocks.isLimitHeld),
 		lastPromptAt: typed.at,
 		typedSeat: typed.seat,
 		seats,
 		overflow,
-		history: judged,
+		history: launches,
 		judgements: gates
 			.readGateStore(files.gates, log)
 			.pending.filter((j) => served.includes(j.root)),
@@ -1068,7 +1097,7 @@ async function tick({ dryRun }) {
 	const { decision, read } = await decide(input, control.scope);
 	if (dryRun) return { decision, read, startedAt: control.startedAt, agents };
 	const { decision: settled, launched } = loop.settleTick(
-		{ input, decision, state, judged, probes, read },
+		{ input, decision, state, judged: launches, probes, read },
 		{
 			readControl,
 			launchBatch: launchOrResume,
