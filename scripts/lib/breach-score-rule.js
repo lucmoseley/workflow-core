@@ -2,8 +2,15 @@
  * breach-score-rule.js — the before/after test's pre-registered scoring
  * classes (#2042, `docs/research/startup-load-before-after-test.md` D3), read
  * by `score-session-breaches.js`. Committed before any run: a change here
- * after the first run voids the comparison, unless it renames a guard and
- * keeps every class, as the report re-scores each transcript.
+ * after the first run voids the comparison, as the report re-scores each
+ * transcript, save for two changes that leave every score as it was. One
+ * renames a guard and keeps a row for the name its transcripts carry. The
+ * other adds the row this scorer's test demands for a Stop guard neither arm's
+ * revision registers (#3745; #2046 ran 9599acf98 and d487f10bf): the guard
+ * fired in neither arm, and `countStop` scores only a fire it finds. It can
+ * fire in a later run, but a run from a newer base S (D2) is a new comparison.
+ * A guard only arm B registers can fire in that arm, so this does not cover it:
+ * D3 classes it a breach in advance if it refuses a wrong act.
  *
  * Every table names a guard as the scorer attributes it: a core the dispatcher
  * runs by its `lib/guard-cores.json` row `name` (#2943), any other guard by
