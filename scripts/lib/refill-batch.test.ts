@@ -29,6 +29,32 @@ import {
 
 type LoopLaunch = import("./refill-loop.js").LoopLaunch;
 
+const { readStaggerMs } = require("./refill-batch.js");
+
+describe("readStaggerMs (#3855)", () => {
+	const read = (value?: string) =>
+		readStaggerMs({ WFC_DISPATCH_STAGGER_SECONDS: value });
+
+	it("holds the dispatcher's default", () => {
+		const shell = fs.readFileSync(
+			path.join(__dirname, "..", "dispatch-sessions.sh"),
+			"utf8",
+		);
+		const [, seconds] =
+			shell.match(
+				/STAGGER_SECONDS="\$\{WFC_DISPATCH_STAGGER_SECONDS:-(\d+)\}"/,
+			) ?? [];
+		expect(read()).toBe(Number(seconds) * 1000);
+	});
+
+	it("reads the override, 0 included, and an empty or unreadable one as the default", () => {
+		expect(read("5")).toBe(5000);
+		expect(read("0")).toBe(0);
+		expect(read("")).toBe(read());
+		expect(read("soon")).toBe(read());
+	});
+});
+
 const MIN = 60 * 1000;
 const NOW = Date.parse("2026-10-18T12:00:00Z");
 

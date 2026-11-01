@@ -972,8 +972,7 @@ const buildSwapHeldText = (l) =>
 /**
  * The sessions stopped under the swap hold, due back now it has cleared, for
  * the tick's decision to pace (#3855); none off an unread listing, as one
- * live again is not yet told from one still stopped. One live again
- * markParked has let go.
+ * live again is not yet told from one still stopped.
  * @param {LoopLaunch[]} launches
  * @param {Tick} seen
  * @returns {import("./refill-decide.js").HeldResume[]}
@@ -1032,32 +1031,35 @@ function resumeSwapHeld(l, seen) {
  * order, past the dispatcher's per-member re-read, as a stopped session is
  * charged nothing by admission and so counts as new draw. The first the re-read
  * refuses waits for a later tick with all behind it, charged no try, so none
- * overtakes it; so do they all once a stop lands. As in the dispatcher, the
- * next re-read waits out a started session's spare.
+ * overtakes it, and `waiting` holds the tick's launches back behind it; all
+ * wait once a stop lands. As in the dispatcher, the next re-read, a resume's or
+ * a launch's, waits out a started session's spare.
  * @param {import("./refill-decide.js").HeldResume[]} resumes
  * @param {LoopLaunch[]} launches
  * @param {Tick} seen
  * @param {() => boolean} isStopped
- * @returns {{launches: LoopLaunch[], started: number}}
+ * @returns {{launches: LoopLaunch[], started: number, waiting: boolean}}
  */
 function resumeHeldLaunches(resumes, launches, seen, isStopped) {
 	const { io } = seen;
 	/** @type {Map<string, LoopLaunch>} */
 	const acted = new Map();
 	let started = 0;
-	for (const [i, { jobId, line }] of resumes.entries()) {
+	let waiting = false;
+	for (const { jobId, line } of resumes) {
 		const l = launches.find((x) => x.jobId === jobId);
 		if (!l || !isResumableSwapHeld(l) || isStopped()) break;
 		const refused = io.admitResume();
 		if (refused) {
 			io.log(`not resuming ${line}, for a later tick: ${refused}`);
+			waiting = true;
 			break;
 		}
 		const out = resumeSwapHeld(l, seen);
 		acted.set(jobId, out.launch);
 		if (out.started) {
 			started += 1;
-			if (i < resumes.length - 1) io.stagger();
+			io.stagger();
 		}
 	}
 	return {
@@ -1065,6 +1067,7 @@ function resumeHeldLaunches(resumes, launches, seen, isStopped) {
 			(l) => (l.jobId !== null && acted.get(l.jobId)) || l,
 		),
 		started,
+		waiting,
 	};
 }
 

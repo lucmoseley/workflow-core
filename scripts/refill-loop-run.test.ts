@@ -1826,7 +1826,7 @@ process.exit(${handOffExit});\n`,
 		const resumeOf = (session: string) => `--bg --resume ${session} ${Prompt}`;
 		const readState = () =>
 			JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"));
-		const stillHeld = () =>
+		const readStillHeld = () =>
 			readState().launches.filter((l: { swapHeld?: unknown }) => l.swapHeld);
 
 		/** The seeded launch, plus one per id in `more`, stopped under the hold,
@@ -1870,12 +1870,15 @@ process.exit(${handOffExit});\n`,
 			requestStop();
 			return settled(running, IdleRun);
 		};
-		const resumedCount = () => readLines(at("calls")).length;
+		const readResumedCount = () => readLines(at("calls")).length;
 
 		it("resumes one through the real call, its target read back from the state file", async () => {
 			seedHeld([10]);
-			const r = await tickUntil(1, () => resumedCount() === 1);
+			const r = await tickUntil(1, () => readResumedCount() === 1);
 			expect(r.status).toBe(0);
+			expect(r.stdout).toMatch(
+				/resumed repo \/implement 7, stopped under the swap hold at .*, as its copy/,
+			);
 			expect(readLines(at("calls"))).toEqual([resumeOf("s-job7")]);
 			expect(launchState()).not.toHaveProperty("swapHeld");
 			expect(launchState()).toMatchObject({
@@ -1886,45 +1889,41 @@ process.exit(${handOffExit});\n`,
 
 		it("resumes as far as admission allows, oldest first, the rest on later ticks, none dropped", async () => {
 			seedHeld([10, 30, 20], ["job8", "job9"]);
-			const first = await tickUntil(2, () => resumedCount() === 2);
+			const first = await tickUntil(2, () => readResumedCount() === 2);
+			expect(first.status).toBe(0);
 			expect(readLines(at("calls"))).toEqual([
 				resumeOf("s-job8"),
 				resumeOf("s-job9"),
 			]);
-			expect(stillHeld().map((l: { jobId: string }) => l.jobId)).toEqual([
+			expect(readStillHeld().map((l: { jobId: string }) => l.jobId)).toEqual([
 				"job7",
 			]);
 			expect(fs.existsSync(at("dispatches"))).toBe(false);
 			expect(first.stdout).toMatch(/resumed 2 of 3 due/);
-			await tickUntil(1, () => resumedCount() === 3);
+			const last = await tickUntil(1, () => readResumedCount() === 3);
+			expect(last.status).toBe(0);
 			expect(readLines(at("calls")).at(-1)).toBe(resumeOf("s-job7"));
-			expect(stillHeld()).toEqual([]);
-		});
-
-		it("resumes none with no slot free, and keeps them held", async () => {
-			seedHeld([10]);
-			const r = await oneTick(IdleRun);
-			expect(r.status).toBe(0);
-			expect(readLines(at("calls"))).toEqual([]);
-			expect(stillHeld()).toHaveLength(1);
+			expect(readStillHeld()).toEqual([]);
 		});
 
 		it("waits on a resume the per-member re-read refuses, its tries untouched", async () => {
 			seedHeld([10]);
-			/* The tick's own read finds a slot; the re-read before the resume,
-			 * with --launch as the dispatcher's, finds none. */
+			/* The tick's own read finds a slot for the resume and one for a launch;
+			 * the re-read before the resume, with --launch as the dispatcher's, finds
+			 * none. */
 			stub(
 				"admission.js",
 				`const fs = require("node:fs");
 fs.appendFileSync(${JSON.stringify(at("ticks"))}, "tick\\n");
 fs.appendFileSync(${JSON.stringify(at("admission-args"))}, process.argv.slice(2).join(" ") + "\\n");
 const reads = fs.readFileSync(${JSON.stringify(at("ticks"))}, "utf8").split("\\n").length - 1;
-process.stdout.write(JSON.stringify({ ...${JSON.stringify(ADMISSION_VERDICT)}, slots: reads === 1 ? 1 : 0 }));\n`,
+process.stdout.write(JSON.stringify({ ...${JSON.stringify(ADMISSION_VERDICT)}, slots: reads === 1 ? 2 : 0 }));\n`,
 			);
 			const r = await tickUntil(1, () => readLines(at("ticks")).length >= 2);
 			expect(r.status).toBe(0);
 			expect(readLines(at("calls"))).toEqual([]);
-			expect(stillHeld()).toEqual([
+			expect(fs.existsSync(at("dispatches"))).toBe(false);
+			expect(readStillHeld()).toEqual([
 				expect.objectContaining({
 					swapHeld: expect.objectContaining({ tries: 0 }),
 				}),

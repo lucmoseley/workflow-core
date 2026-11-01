@@ -735,7 +735,7 @@ describe("decideTick's resumes of held sessions (#3855)", () => {
 		expect(d).toMatchObject({ launches: [] });
 	});
 
-	it("does not overrun a launch's cap, which stays the seat's own", () => {
+	it("charges a launch's cap nothing for a resume, the residual", () => {
 		const d = tick({
 			freeSlots: 3,
 			seats: [seat("a", 10, 10, 1)],
@@ -743,6 +743,17 @@ describe("decideTick's resumes of held sessions (#3855)", () => {
 		});
 		expect(jobs(d)).toEqual(["old"]);
 		expect(launched(d)).toEqual(["wfc#1"]);
+	});
+
+	it("keeps a run on spent seats alive for a resume due, as only a running loop makes it", () => {
+		const spent = { seats: [seat("a", FULL, 10, null)] };
+		expect(tick(spent)).toHaveProperty("stop", "allowance");
+		const d = tick({ ...spent, freeSlots: 2, resumable: [oldest] });
+		expect(jobs(d)).toEqual(["old"]);
+		expect(d).toMatchObject({
+			launches: [],
+			idle: "every seat is spent; a resume is due",
+		});
 	});
 
 	it("names each resume a stop leaves due", () => {

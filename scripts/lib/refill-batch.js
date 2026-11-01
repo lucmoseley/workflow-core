@@ -16,8 +16,22 @@ const DISPATCH_FIXED_MS = 10 * 60 * 1000;
 /* Untraced: a member's 120 s launch ceiling, about 9 s of admission and the
  * 2 s stagger, rounded up (#2196). */
 const DISPATCH_MEMBER_MS = 150 * 1000;
+/* dispatch-sessions.sh's STAGGER_SECONDS default, which a test holds equal,
+ * and whose measurement it is (mantahostels#2588). */
+const STAGGER_SECONDS = 2;
 /* The slack covers the clock read before the spawn. */
 const LEDGER_SLACK_MS = 1000;
+
+/**
+ * The pause, ms, that lets a re-read count the bg-spare the last start warmed.
+ * Unset or empty is the default, as in the shell; so is an unreadable value, as
+ * a NaN would never wake sleepSync.
+ * @param {NodeJS.ProcessEnv} [env]
+ */
+function readStaggerMs(env = process.env) {
+	const seconds = Number(env.WFC_DISPATCH_STAGGER_SECONDS || STAGGER_SECONDS);
+	return (Number.isNaN(seconds) ? STAGGER_SECONDS : seconds) * 1000;
+}
 
 /**
  * A tick's launches as dispatcher calls: one per repo and seat, in the order
@@ -287,4 +301,5 @@ module.exports = {
 	dispatchCall,
 	launchBatch,
 	launchOrResume,
+	readStaggerMs,
 };

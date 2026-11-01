@@ -29,6 +29,7 @@ const {
 	isHeld,
 	isLive,
 	launchName,
+	isSwapHeld,
 	limitWaitOf,
 	markParked,
 } = require("./refill-blocks.js");
@@ -1032,22 +1033,45 @@ function recordOverflowStart(input, { judged, launched }, io) {
 }
 
 /**
+ * @typedef {(resumes: import("./refill-decide.js").HeldResume[],
+ *   launches: LoopLaunch[], isStopped: () => boolean) =>
+ *   {launches: LoopLaunch[], started: number, waiting: boolean}} ResumeHeld
+ */
+
+/**
  * The decision's resumes made, ahead of its launches; none on a stop.
  * @param {import("./refill-decide.js").Decision} decision
  * @param {LoopLaunch[]} launches
- * @param {{readControl: () => ControlRead, resumeHeld: (resumes:
- *   import("./refill-decide.js").HeldResume[], launches: LoopLaunch[],
- *   isStopped: () => boolean) => {launches: LoopLaunch[], started: number}}} io
+ * @param {{readControl: () => ControlRead, resumeHeld: ResumeHeld}} io
  */
 const resumeDecided = (decision, launches, io) =>
 	"stop" in decision
-		? { launches, started: 0 }
+		? { launches, started: 0, waiting: false }
 		: io.resumeHeld(decision.resumes, launches, () =>
 				isStopRequested(io.readControl().control),
 			);
 
 /** @param {import("./refill-decide.js").TickInput} input */
 const dueCount = (input) => input.resumable?.length ?? 0;
+
+/**
+ * The input's resumes the step left held, for a late stop to name.
+ * @param {import("./refill-decide.js").TickInput} input
+ * @param {LoopLaunch[]} launches
+ */
+const leftDue = (input, launches) =>
+	(input.resumable ?? []).filter((r) =>
+		launches.some((l) => l.jobId === r.jobId && isSwapHeld(l)),
+	);
+
+/**
+ * The tick's launches as batches: none on a stop, nor behind a resume the
+ * re-read made wait, which a fresh start would overtake.
+ * @param {import("./refill-decide.js").Decision} decision
+ * @param {boolean} waiting
+ */
+const batchesToLaunch = (decision, waiting) =>
+	"stop" in decision || waiting ? [] : batchesOf(decision.launches);
 
 /**
  * A tick from its decision on: dispatch its launches while the control asks
@@ -1062,9 +1086,7 @@ const dueCount = (input) => input.resumable?.length ?? 0;
  *   judged: LoopLaunch[], probes: Probe[], read: FrontierRead|null}} tick
  * @param {{readControl: () => ControlRead,
  *   launchBatch: (batch: import("./refill-decide.js").Launch[]) => BatchOutcome,
- *   resumeHeld: (resumes: import("./refill-decide.js").HeldResume[],
- *     launches: LoopLaunch[], isStopped: () => boolean) =>
- *     {launches: LoopLaunch[], started: number},
+ *   resumeHeld: ResumeHeld,
  *   runReview: (lastRunOn: string|null, now: number) => string|null,
  *   writeState: (state: LoopState) => void,
  *   readOmittedDirs: () => string[],
@@ -1073,13 +1095,14 @@ const dueCount = (input) => input.resumable?.length ?? 0;
  *   launched: number}} the late stop where one landed, else the tick's
  *   decision, and how many sessions the tick started
  */
-function settleTick(
-	{ input, decision, state, judged: acted, probes, read },
-	io,
-) {
-	const { launches: judged, started } = resumeDecided(decision, acted, io);
+function settleTick({ input, decision, state, judged, probes, read }, io) {
+	const {
+		launches: afterResumes,
+		started,
+		waiting,
+	} = resumeDecided(decision, judged, io);
 	const outcome = launchUntilStopped(
-		"stop" in decision ? [] : batchesOf(decision.launches),
+		batchesToLaunch(decision, waiting),
 		() => io.readControl().control,
 		io.launchBatch,
 	);
@@ -1093,11 +1116,11 @@ function settleTick(
 	io.log(summary);
 	const overflowStart = recordOverflowStart(
 		input,
-		{ judged, launched: outcome.launched },
+		{ judged: afterResumes, launched: outcome.launched },
 		io,
 	);
 	const next = {
-		launches: keptLaunches([...judged, ...outcome.launched]),
+		launches: keptLaunches([...afterResumes, ...outcome.launched]),
 		lastTick: {
 			at: input.now,
 			summary,
@@ -1121,6 +1144,7 @@ function settleTick(
 					...input,
 					stopRequested: true,
 					controlDamaged: reread.damaged,
+					resumable: leftDue(input, afterResumes),
 				});
 	if (late) io.log(summaryOf(late));
 	if (late || reviewRunOn !== state.reviewRunOn)

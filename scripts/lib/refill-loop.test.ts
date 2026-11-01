@@ -800,7 +800,11 @@ function settleOnce(
 		{
 			readControl,
 			launchBatch: dispatch,
-			resumeHeld: (_resumes, launches) => ({ launches, started: 0 }),
+			resumeHeld: (_resumes, launches) => ({
+				launches,
+				started: 0,
+				waiting: false,
+			}),
 			runReview: (lastRunOn) => lastRunOn,
 			writeState: (next) => writes.push(next),
 			readOmittedDirs: readOmitted ?? (() => omitted),
@@ -1631,7 +1635,11 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 								refused: [],
 							};
 				},
-				resumeHeld: (_resumes, launches) => ({ launches, started: 0 }),
+				resumeHeld: (_resumes, launches) => ({
+					launches,
+					started: 0,
+					waiting: false,
+				}),
 				readOmittedDirs: () => [],
 				runReview: (lastRunOn) => {
 					onReview(stop);
@@ -2086,5 +2094,114 @@ describe("the loop's resumes after a transient API stop (#2705)", () => {
 		const [out] = judged([resuming({ resumes })], [agent("p", "working")]);
 		expect(out?.block).toBeUndefined();
 		expect(out?.resumes).toEqual(resumes);
+	});
+});
+
+describe("a resume the tick's step left held (#3855)", () => {
+	const due = { jobId: "j1", at: NOW - 60, line: "j1 held" };
+	const launch = {
+		root: "/r",
+		issues: [5],
+		prompt: "/implement 5",
+		model: "opus" as const,
+		seat: "a",
+		reason: "soonest reset" as const,
+	};
+	const heldLaunch = {
+		root: "/r",
+		issues: [7],
+		prompt: "/implement 7",
+		seat: "a",
+		jobId: "j1",
+		launchedAt: NOW - 90,
+		finishedAt: null,
+		swapHeld: { at: NOW - 60, sessionId: "s1", cwd: "/r", tries: 0 },
+	};
+	const { swapHeld: _, ...running } = heldLaunch;
+	const startedAsCopy = {
+		launches: [{ ...running, jobId: "j1-copy" }],
+		started: 1,
+		waiting: false,
+	};
+	const refused = { launches: [heldLaunch], started: 0, waiting: true };
+	const settle = (
+		resumed: typeof startedAsCopy | typeof refused,
+		lateStop = false,
+	) => {
+		const lines: string[] = [];
+		const launched: unknown[] = [];
+		let written = false;
+		const settled = settleTick(
+			{
+				input: {
+					now: NOW,
+					mode: "normal" as const,
+					noProgressFrom: NOW,
+					stopRequested: false,
+					frontier: [],
+					retroBundles: [],
+					running: [],
+					freeSlots: 2,
+					lastPromptAt: null,
+					seats: [],
+					overflow: [],
+					history: [],
+					resumable: [due],
+				},
+				decision: {
+					launches: [launch],
+					skipped: [],
+					idle: null,
+					held: [],
+					resumes: [due],
+				},
+				state: parseState(null),
+				judged: [heldLaunch],
+				probes: [],
+				read: null,
+			},
+			{
+				readControl: () => ({
+					control: {
+						noProgressFrom: NOW,
+						stopRequested: lateStop && written,
+						seats: [],
+						scope: away([]),
+					},
+					damaged: null,
+				}),
+				launchBatch: (batch) => {
+					launched.push(...batch);
+					return { launched: [], refused: [] };
+				},
+				resumeHeld: () => resumed,
+				runReview: (lastRunOn) => lastRunOn,
+				writeState: () => {
+					written = true;
+				},
+				readOmittedDirs: () => [],
+				log: (line) => lines.push(line),
+				now: () => NOW,
+			},
+		);
+		return { settled, launched, lines };
+	};
+
+	it("launches nothing ahead of one the re-read made wait", () => {
+		const { launched, lines } = settle(refused);
+		expect(launched).toEqual([]);
+		expect(lines[0]).toMatch(/resumed 0 of 1 due/);
+	});
+
+	it("launches behind one that started", () => {
+		expect(settle(startedAsCopy).launched).toEqual([launch]);
+	});
+
+	it("names on a late stop only what it left held", () => {
+		const started = settle(startedAsCopy, true);
+		expect(started.settled.decision).toMatchObject({ stop: "explicit" });
+		expect(started.lines.join("\n")).not.toMatch(/left with a resume due/);
+		const left = settle(refused, true);
+		expect(left.lines.join("\n")).toMatch(/left with a resume due.*j1 held/);
 	});
 });

@@ -1011,10 +1011,7 @@ const blockIo = (served) => ({
 	resumeStopped,
 	admitResume: () =>
 		readFreeSlots().slots > 0 ? null : "admission's re-read finds no free slot",
-	/* dispatch-sessions.sh's STAGGER_SECONDS, whose default and measurement
-	 * these are (mantahostels#2588): the next re-read counts the bg-spare. */
-	stagger: () =>
-		sleepSync(Number(process.env.WFC_DISPATCH_STAGGER_SECONDS ?? 2) * 1000),
+	stagger: () => sleepSync(refillBatch.readStaggerMs()),
 	moveSession,
 	removeJobRecord,
 	jobStateOf: readJobRecordOf,

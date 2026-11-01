@@ -909,7 +909,7 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 			expect(r.out).toEqual(held());
 		});
 
-		it("passes each resume through the re-read first, pausing only between them", () => {
+		it("passes each resume through the re-read first, pausing after each it starts", () => {
 			const r = resumeDue([heldAs("a", 20), heldAs("b", 10)], { agents: [] });
 			expect(r.calls.filter((c) => !c.startsWith("log "))).toEqual([
 				"re-read",
@@ -917,8 +917,10 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 				"stagger",
 				"re-read",
 				"resume b",
+				"stagger",
 			]);
 			expect(r.started).toBe(2);
+			expect(r.waiting).toBe(false);
 		});
 
 		it("makes the first resume the re-read refuses wait, charged no try, with all behind it", () => {
@@ -933,6 +935,7 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 			]);
 			expect(r.launches).toEqual(launches);
 			expect(r.started).toBe(0);
+			expect(r.waiting).toBe(true);
 		});
 
 		it("resumes none once a stop lands, and leaves it held", () => {
@@ -942,16 +945,17 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 		});
 
 		it("resumes a held launch through the step once the hold clears", () => {
-			const r0 = resumeDue([held()]);
-			const r = { calls: r0.calls, out: r0.launches[0] };
-			expect(r0.started).toBe(1);
+			const r = resumeDue([held()]);
+			const [out] = r.launches;
+			expect(r.started).toBe(1);
 			expect(r.calls).toEqual([
 				"re-read",
 				"resume job42",
 				"log resumed design-vault /implement 42, stopped under the swap hold at 2026-10-18T11:50:00.000Z, the hold cleared, by --bg --resume, as its copy job42-copy",
+				"stagger",
 			]);
-			expect(r.out).not.toHaveProperty("swapHeld");
-			expect(r.out).toMatchObject({
+			expect(out).not.toHaveProperty("swapHeld");
+			expect(out).toMatchObject({
 				jobId: "job42-copy",
 				copiedFrom: "job42",
 				relaunchedAt: NOW,

@@ -40,6 +40,8 @@ const SHORTLIST_FAILED = "shortlist failed in";
  * launch keeping the run alive. */
 const LIMIT_HELD_WAIT =
 	"every seat is spent; a limit-held session waits on one";
+/* The idle reason of a tick whose seats are all spent, with a resume due. */
+const RESUME_DUE_WAIT = "every seat is spent; a resume is due";
 /* The idle reason of a tick whose resumes take every free slot. */
 const RESUMES_TAKE_SLOTS = "resumes take every free slot";
 /* A row a running launch already holds, skipped as any other so an idle
@@ -548,7 +550,12 @@ function stopOf(input, pick) {
 				.map((r) => `${r.root} #${r.issues.join(", #")}`)
 				.join("; ")}`,
 		};
-	if (pick.seat === null && pick.allCut && !input.limitHeldLines?.length) {
+	if (
+		pick.seat === null &&
+		pick.allCut &&
+		!input.limitHeldLines?.length &&
+		!input.resumable?.length
+	) {
 		const { overflow = [] } = input;
 		return {
 			stop: "allowance",
@@ -807,35 +814,36 @@ function decideTick(input) {
 	/* Ahead of the seat's wait: with no slot free the loop refreshes no seat,
 	 * so an aged cache reads unread and is not why the tick waits (#2362). */
 	const held = heldParked(input);
+	/**
+	 * @param {string} idle
+	 * @param {HeldResume[]} due
+	 */
+	const idleOn = (idle, due) => ({
+		launches: [],
+		skipped: [],
+		idle,
+		held,
+		resumes: due,
+	});
 	if (free === 0)
-		return {
-			launches: [],
-			skipped: [],
-			idle: present ? "one free slot is kept for the founder" : "no free slot",
-			held,
-			resumes: [],
-		};
-	/* A resume goes back to its own seat, so no seat's wait holds it. */
+		return idleOn(
+			present ? "one free slot is kept for the founder" : "no free slot",
+			[],
+		);
+	/* A resume goes back to its own seat, so no seat's wait or cap holds it.
+	 * Residual: the pick seat's cap is not charged for one going back to that
+	 * seat, so the tick's launches and resumes together can pass it. */
 	const resumes = (input.resumable ?? [])
 		.toSorted((a, b) => a.at - b.at)
 		.slice(0, free);
 	if (pick.seat === null)
-		return {
-			launches: [],
-			skipped: [],
-			idle: pick.wait || LIMIT_HELD_WAIT,
-			held,
+		return idleOn(
+			pick.wait ||
+				(input.limitHeldLines?.length ? LIMIT_HELD_WAIT : RESUME_DUE_WAIT),
 			resumes,
-		};
+		);
 	const launchSlots = free - resumes.length;
-	if (launchSlots === 0)
-		return {
-			launches: [],
-			skipped: [],
-			idle: RESUMES_TAKE_SLOTS,
-			held,
-			resumes,
-		};
+	if (launchSlots === 0) return idleOn(RESUMES_TAKE_SLOTS, resumes);
 	/* The cap's fits, so a tick asks no dispatcher call for a member the cap
 	 * would drop: each call launches at least one under 100%. */
 	const out = fill(input, pick, Math.min(pick.fits, launchSlots));
