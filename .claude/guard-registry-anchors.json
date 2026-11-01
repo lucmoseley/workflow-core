@@ -62,7 +62,7 @@
 	"scripts/mark-presence.js": "b1e72f71b771a66b",
 	"scripts/measure-turn-band.js": "645ded58f6826699",
 	"scripts/name-issue-session.sh": "72c4c43b5022af4d",
-	"scripts/park-on-round.js": "f527454dae5718b5",
+	"scripts/park-on-round.js": "f0606494ffdb5a39",
 	"scripts/place-new-issue.sh": "81236f55c2594cf7",
 	"scripts/queue-run.js": "3ea60bbf3c6f1f87",
 	"scripts/reap-finished-sessions.js": "83fa19ed55c3daad",
