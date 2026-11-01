@@ -145,6 +145,24 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
+const PARKED_LABELS = ["takes:implement", "parked"];
+
+/** `body`, run while a process holds the refill loop's pid lock in `refill`. */
+const withLiveLoop = async (refill: string, body: () => Promise<void>) => {
+	/* pidLock takes a holder by an argument's basename. */
+	const holder = spawn(
+		process.execPath,
+		["-e", "setInterval(() => {}, 1000)", "refill-loop.js"],
+		{ stdio: "ignore" },
+	);
+	fs.writeFileSync(path.join(refill, ".refill-loop.pid"), String(holder.pid));
+	try {
+		await body();
+	} finally {
+		holder.kill();
+	}
+};
+
 describe("check-idle-efforts.js", () => {
 	it("reads a shared tracker once, its latest launch across checkouts, a held launch as running, and a stopped loop as serving nothing", async () => {
 		checkout("core-a", "o/core", [launch(1, 5 * DAY)]);
@@ -230,14 +248,7 @@ describe("check-idle-efforts.js", () => {
 				launches: [loopLaunch(1, 5 * DAY), loopLaunch(2, DAY), loopLaunch(3)],
 			}),
 		);
-		/* pidLock takes a holder by an argument's basename. */
-		const holder = spawn(
-			process.execPath,
-			["-e", "setInterval(() => {}, 1000)", "refill-loop.js"],
-			{ stdio: "ignore" },
-		);
-		fs.writeFileSync(path.join(refill, ".refill-loop.pid"), String(holder.pid));
-		try {
+		await withLiveLoop(refill, async () => {
 			const r = await run({
 				"o/product": [node(1), node(2), node(3)],
 			});
@@ -245,13 +256,53 @@ describe("check-idle-efforts.js", () => {
 			expect(r.out).toContain(
 				"o/product: 1 idle past 2 days (the refill loop does not serve it); oldest #1 (issue 1), idle 5.0 days; skip reason: stopped on its weekly limit (reset Fri)",
 			);
-		} finally {
-			holder.kill();
-		}
+		});
+	});
+
+	describe("a parked ticket on its session's full seat, as the loop's state holds it (#3850)", () => {
+		const seedHoldInState = () => {
+			checkout("prod", "o/product", [launch(8, 4 * DAY)]);
+			const refill = path.join(dir, "refill");
+			fs.mkdirSync(refill, { recursive: true });
+			fs.writeFileSync(
+				path.join(refill, ".refill-loop-state.json"),
+				JSON.stringify({
+					launches: [],
+					held: [
+						{
+							root: path.join(home, "prod"),
+							number: 8,
+							why: "parked: its session's seat /s2 is full",
+							since: NOW - 3 * DAY,
+						},
+					],
+				}),
+			);
+			return refill;
+		};
+
+		it("names it from its start with a live loop", async () => {
+			await withLiveLoop(seedHoldInState(), async () => {
+				const r = await run({ "o/product": [node(8, PARKED_LABELS)] });
+				expect(r.status).toBe(0);
+				expect(r.out).toContain(
+					"oldest #8 (issue 8), idle 3.0 days; skip reason: parked: its session's seat /s2 is full",
+				);
+			});
+		});
+
+		it("leaves it out with the loop stopped, naming the stop, as no seat is read", async () => {
+			seedHoldInState();
+			const r = await run({ "o/product": [node(8, PARKED_LABELS)] });
+			expect(r.status).toBe(0);
+			expect(r.out).toContain(
+				"The refill loop is not running, so it serves no tracker.",
+			);
+			expect(r.out).toContain("o/product: none idle past 2 days");
+		});
 	});
 
 	describe("a ticket held at the limit-cap parks' cap (#3840)", () => {
-		const parked = ["takes:implement", "parked"];
 		const held =
 			"#8 (issue 8), idle 3.0 days; skip reason: parked: 2 limit-cap";
 
@@ -270,7 +321,7 @@ describe("check-idle-efforts.js", () => {
 
 		it("names it with the loop stopped", async () => {
 			parkedCheckout(LIMIT_PARK_CAP);
-			const r = await run({ "o/product": [node(8, parked)] });
+			const r = await run({ "o/product": [node(8, PARKED_LABELS)] });
 			expect(r.out).toContain(
 				"The refill loop is not running, so it serves no tracker.",
 			);
@@ -282,7 +333,7 @@ describe("check-idle-efforts.js", () => {
 			const markers = path.join(home, "prod", ".claude", "tmp", "markers");
 			fs.chmodSync(markers, 0o300);
 			try {
-				const r = await run({ "o/product": [node(8, parked)] });
+				const r = await run({ "o/product": [node(8, PARKED_LABELS)] });
 				expect(r.out).toMatch(/o\/product: unread — EACCES.*scandir/);
 			} finally {
 				fs.chmodSync(markers, 0o700);
@@ -291,7 +342,7 @@ describe("check-idle-efforts.js", () => {
 
 		it("still leaves out a parked question, its marker holding no count", async () => {
 			parkedCheckout();
-			const r = await run({ "o/product": [node(8, parked)] });
+			const r = await run({ "o/product": [node(8, PARKED_LABELS)] });
 			expect(r.out).toContain("o/product: none idle past 2 days");
 		});
 	});

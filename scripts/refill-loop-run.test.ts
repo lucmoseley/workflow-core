@@ -2181,6 +2181,56 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 		expect(fs.existsSync(markerPath("s-job5"))).toBe(false);
 	});
 
+	describe("in away mode, on a weekly-full seat (#3850)", () => {
+		/** One away tick over the state's `held`, ended by a stop; the state it leaves. */
+		const awayTick = async (held: object[]) => {
+			const seat2 = at("seat2");
+			seed(true, seat2);
+			fs.writeFileSync(
+				path.join(seat2, ".claude.json"),
+				JSON.stringify(buildUsageCache({ session: 10, week: 100 }, Date.now())),
+			);
+			const control = at(".refill-loop-control.json");
+			const read = JSON.parse(fs.readFileSync(control, "utf8"));
+			fs.writeFileSync(
+				control,
+				JSON.stringify({
+					...read,
+					seats: [seat, seat2],
+					scope: { ...read.scope, mode: "away" },
+				}),
+			);
+			const state = at(".refill-loop-state.json");
+			fs.writeFileSync(state, JSON.stringify({ launches: [], held }));
+			fakeResumeClaude(Job, [LISTED], "");
+			/* Away mode serves the main checkouts it discovers. */
+			fs.mkdirSync(path.join(repo, ".git"), { recursive: true });
+
+			const running = run(1);
+			await ticked(1);
+			requestStop();
+			const r = await settled(running, ParkedRun);
+			expect(r.status).toBe(0);
+			expect(r.stdout).toContain("frontier: 1 rows");
+			expect(readLines(at("calls"))).toEqual([]);
+			return JSON.parse(fs.readFileSync(state, "utf8")).held;
+		};
+
+		it("reads its marker to keep a hold's start, and resumes nothing", async () => {
+			const hold = {
+				root: repo,
+				number: 5,
+				why: `parked: its session's seat ${at("seat2")} is full`,
+				since: Date.now() - 3 * 24 * 60 * 60 * 1000,
+			};
+			expect(await awayTick([hold])).toEqual([hold]);
+		});
+
+		it("opens no hold", async () => {
+			expect(await awayTick([])).toEqual([]);
+		});
+	});
+
 	it("holds it while its session's seat is weekly-full, launching the next row, then resumes it once that seat has room (#3669)", async () => {
 		const seat2 = at("seat2");
 		seed(true, seat2);

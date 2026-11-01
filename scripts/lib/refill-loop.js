@@ -21,6 +21,7 @@ const {
 	decideTick,
 	fitsLaunch,
 	hasRoom,
+	isParkRoutingMode,
 	orderPlanSeats,
 } = require("./refill-decide.js");
 const {
@@ -135,8 +136,8 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
 
 /**
  * An issue the loop holds, and since when, ms: a parked row on its session's full
- * seat, from the first frontier-reading tick of an unbroken run of them that held
- * it; or, `onLimit`, a launch waiting on a limit (limitWaitOf).
+ * seat, from the first normal-mode tick of an unbroken run of frontier-reading
+ * ticks that held it; or, `onLimit`, a launch waiting on a limit (limitWaitOf).
  * @typedef {import("./refill-decide.js").Skip & {since: number,
  *   onLimit?: boolean}} Hold
  */
@@ -256,19 +257,23 @@ const isHold = (raw) =>
 	isRecord(raw) && isSkip(raw) && typeof raw.since === "number";
 
 /**
- * The holds a frontier-reading tick leaves.
+ * The holds a frontier-reading tick leaves. An away tick opens none, as a seat's
+ * reset would launch nothing there (#2355), but keeps one whose seat still reads
+ * full, so its start stands (#3850).
  * @param {import("./refill-decide.js").Skip[]} held this tick's
  * @param {Hold[]} before
  * @param {number} now
+ * @param {"normal"|"away"} mode
  * @returns {Hold[]}
  */
-const holdsOf = (held, before, now) =>
-	held.map((h) => ({
-		...h,
-		since:
-			before.find((b) => b.root === h.root && b.number === h.number)?.since ??
-			now,
-	}));
+const holdsOf = (held, before, now, mode) =>
+	held.flatMap((h) => {
+		const since = before.find(
+			(b) => b.root === h.root && b.number === h.number,
+		)?.since;
+		if (since !== undefined) return [{ ...h, since }];
+		return isParkRoutingMode(mode) ? [{ ...h, since: now }] : [];
+	});
 
 /** @param {unknown} raw @returns {LoopState["lastTick"]} */
 function parseLastTick(raw) {
@@ -1064,7 +1069,7 @@ function settleTick({ input, decision, state, judged, probes, read }, io) {
 		held:
 			"stop" in decision || read === null
 				? state.held
-				: holdsOf(decision.held, state.held, input.now),
+				: holdsOf(decision.held, state.held, input.now, input.mode),
 		reviewRunOn: state.reviewRunOn,
 		overflowStart: overflowStart ?? state.overflowStart,
 	};

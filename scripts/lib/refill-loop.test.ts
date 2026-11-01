@@ -990,6 +990,55 @@ describe("a tick's log line (#2362)", () => {
 		expect(writes[0].held).toEqual([kept, { ...fresh, since: NOW }]);
 	});
 
+	it("keeps a full-seat hold's start across an away tick, so its 2 days do not restart (#3850)", () => {
+		const decision = decideTick({
+			now: NOW,
+			mode: "away",
+			startedAt: NOW,
+			stopRequested: false,
+			frontier: [
+				{
+					root: held.root,
+					number: held.number,
+					bug: false,
+					urgent: false,
+					goal: false,
+					stallDays: 0,
+					asksQuestions: false,
+					depth: 0,
+					closes: 0,
+					reach: 0,
+					collision: "comment-only",
+					labels: ["takes:implement", "parked"],
+					takes: ["implement"],
+				},
+			],
+			retroBundles: [],
+			running: [],
+			freeSlots: 1,
+			lastPromptAt: null,
+			seats: [
+				{ ...seat("/s1", 10, 10), fits: 9 },
+				{ ...seat("/s2", FULL, 10), fits: null },
+			],
+			overflow: [],
+			history: [],
+			parkers: [
+				{
+					root: held.root,
+					number: held.number,
+					job: { seat: "/s2", jobId: "j", cwd: held.root },
+					sessionId: "s",
+					resumeCwd: held.root,
+				},
+			],
+		});
+		const writes: Tick["state"][] = [];
+		const state = { ...parseState(null), held: [kept] };
+		logged(decision, 1, [], { read: { rows: 1, ms: 900 }, writes, state });
+		expect(writes[0].held).toEqual([kept]);
+	});
+
 	it("keeps the last holds across a tick that reads no frontier", () => {
 		const writes: Tick["state"][] = [];
 		const state = { ...parseState(null), held: [kept] };

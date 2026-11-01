@@ -1053,7 +1053,7 @@ describe("decideTick on a parked row's session seat (#3669)", () => {
 		});
 	});
 
-	it("names a held row for the idle alarm though the slots fill before the walk reaches it, and none in away mode (#3680)", () => {
+	it("names a held row for the idle alarm though the slots fill before the walk reaches it (#3680)", () => {
 		const full = seat("/s2", 100, 10);
 		const older = row("wfc", 4, "implement", {
 			labels: ["takes:implement", "parked"],
@@ -1072,14 +1072,36 @@ describe("decideTick on a parked row's session seat (#3669)", () => {
 			{ root: "wfc", number: 2, why: "parked: its session's seat /s2 is full" },
 		]);
 		expect(on(seat("/s2", 40, 20, null)).held).toEqual([]);
-		const away = tick({
-			mode: "away",
-			freeSlots: 1,
-			frontier: [parked],
-			seats: [seat("/s1", 10, 10), full],
-			parkers: [parker()],
+	});
+
+	describe("in away mode (#3850)", () => {
+		const away = (s2: ReturnType<typeof seat>) =>
+			tick({
+				mode: "away",
+				freeSlots: 1,
+				frontier: [parked],
+				seats: [seat("/s1", 10, 10), s2],
+				parkers: [parker()],
+			});
+
+		it("names a row on a full seat for the idle alarm, launching no parked row (#2355)", () => {
+			const d = away(seat("/s2", 100, 10));
+			expect(d.held).toEqual([
+				{
+					root: "wfc",
+					number: 2,
+					why: "parked: its session's seat /s2 is full",
+				},
+			]);
+			expect(launched(d)).toEqual([]);
+			expect(d.skipped).toEqual([{ root: "wfc", number: 2, why: "parked" }]);
 		});
-		expect(away.held).toEqual([]);
+
+		it("names none once the seat has room: a parked question stays excluded", () => {
+			const d = away(seat("/s2", 40, 20, null));
+			expect(d.held).toEqual([]);
+			expect(d.skipped).toEqual([{ root: "wfc", number: 2, why: "parked" }]);
+		});
 	});
 
 	describe("a ticket parked at a limit cap (#3804)", () => {
