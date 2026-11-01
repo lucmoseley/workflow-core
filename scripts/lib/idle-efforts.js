@@ -1,7 +1,8 @@
 /*
  * idle-efforts.js — the idle alarm's core (#3641, spec #3623): one pure
  * function from a reading of every tracker the refill loop could serve to the
- * efforts nothing has launched for 2 days, one line per tracker.
+ * efforts nothing has launched for 2 days, one line per tracker, and whether it
+ * names a stopped loop, a finding of its own (#3892).
  *
  * An effort is an open issue with its descendants. Its last activity is the
  * latest launch of it or any descendant, or its creation where none is later.
@@ -26,7 +27,7 @@
  * tracker's finding code (#3711).
  */
 
-const { buildSkipReason, limitCapHoldOf } = require("./refill-decide.js");
+const { buildSkipReason, buildLimitCapWhy } = require("./refill-decide.js");
 const { PARKED_LABEL, newestMarkerListing } = require("./parked.js");
 const { takesLabel, takesOf } = require("./takes-label.js");
 const { refKey } = require("./issue-ref.js");
@@ -146,14 +147,14 @@ const QUERY =
  * @param {TrackerRead} t
  * @returns {[string, IdleHold][]}
  */
-const limitCapHoldsOf = ({ repo, issues, markers }) =>
+const buildLimitCapHolds = ({ repo, issues, markers }) =>
 	issues
 		.filter((i) => i.labels.includes(PARKED_LABEL))
 		.flatMap((i) => {
 			const [hold] = markers
 				.flatMap((inCheckout) => {
 					const marker = newestMarkerListing(inCheckout, i.number);
-					const why = limitCapHoldOf(marker?.limitParks);
+					const why = buildLimitCapWhy(marker?.limitParks);
 					return marker && why !== null
 						? [{ why, since: marker.writtenAt, atCap: true }]
 						: [];
@@ -206,7 +207,7 @@ function buildReadings({ rootsOf, trackers, loop, now }) {
 					]),
 			),
 		),
-		...trackers.flatMap(limitCapHoldsOf),
+		...trackers.flatMap(buildLimitCapHolds),
 	]);
 	for (const t of trackers)
 		for (const { root, launchTimes, recent } of t.ledgers) {
@@ -406,6 +407,9 @@ const days = (ms) => `${(ms / DAY_MS).toFixed(1)} days`;
 /** @param {Idle} i */
 const named = (i) => `#${i.number} (${i.title}), idle ${days(i.idleMs)}`;
 
+const LOOP_STOPPED_TEXT =
+	"The refill loop is not running, so it serves no tracker. /pick-next restarts it.";
+
 /**
  * @typedef {object} IdleLine
  * @property {string} text
@@ -436,7 +440,11 @@ function buildIdleLines(findings, loopRunning) {
 			return [
 				buildTopLine(`${f.repo}: none idle past ${IDLE_DAYS} days${unserved}`),
 			];
-		const skip = oldest.skip ?? "none, the launch filter passes it";
+		const skip =
+			oldest.skip ??
+			(f.served
+				? "none, the launch filter passes it, so it waits on rank"
+				: "none, the launch filter passes it");
 		return [
 			buildTopLine(
 				`${f.repo}: ${f.idle.length} idle past ${IDLE_DAYS} days${unserved}; oldest ${named(oldest)}; skip reason: ${skip}`,
@@ -453,31 +461,30 @@ function buildIdleLines(findings, loopRunning) {
 						.map((i) => buildNestedLine(`urgent ${named(i)}`))),
 		];
 	});
-	return loopRunning
-		? lines
-		: [
-				buildTopLine(
-					"The refill loop is not running, so it serves no tracker.",
-				),
-				...lines,
-			];
+	return loopRunning ? lines : [buildTopLine(LOOP_STOPPED_TEXT), ...lines];
 }
 
 /**
  * @typedef {object} FindingRecord
- * @property {"IDLE-EFFORTS"|"IDLE-EFFORTS-UNREAD"} code
+ * @property {"IDLE-EFFORTS"|"IDLE-EFFORTS-UNREAD"|"REFILL-LOOP-NOT-RUNNING"} code
  * @property {string} text
  * @property {{repo: string, idle: Idle[]}} [data]
  */
 
 /**
- * One record per tracker holding a finding: an unread tracker, or one with
- * efforts idle past the threshold.
+ * One record for a stopped loop being named, then one per tracker holding a
+ * finding: an unread tracker, or one with efforts idle past the threshold.
  * @param {TrackerFinding[]} findings
+ * @param {boolean} stopUnseen
  * @returns {FindingRecord[]}
  */
-const buildFindingRecords = (findings) =>
-	findings.flatMap(
+const buildFindingRecords = (findings, stopUnseen) => [
+	.../** @type {FindingRecord[]} */ (
+		stopUnseen
+			? [{ code: "REFILL-LOOP-NOT-RUNNING", text: LOOP_STOPPED_TEXT }]
+			: []
+	),
+	...findings.flatMap(
 		/** @returns {FindingRecord[]} */
 		(f) => {
 			if (f.error !== null)
@@ -497,7 +504,8 @@ const buildFindingRecords = (findings) =>
 						},
 					];
 		},
-	);
+	),
+];
 
 /**
  * @typedef {object} SeenStamp
@@ -506,7 +514,7 @@ const buildFindingRecords = (findings) =>
  */
 
 /**
- * A finding is an idle issue, or a tracker that would not read.
+ * A tracker's finding is an idle issue, or its failing to read.
  * @param {TrackerFinding} f
  */
 const findingKeys = (f) =>
@@ -535,28 +543,43 @@ function seenOn(stamp, day) {
 }
 
 /**
- * The trackers a session start names, once per finding per day: each holding
- * a finding the delivered stamp does not record for `day`, whole.
+ * What a session start names, once per finding per day: each tracker holding a
+ * finding the delivered stamp does not record for `day`, whole, and a stopped
+ * loop it does not record, a run that stops after a restart being a new finding.
  * @param {TrackerFinding[]} findings
- * @param {string|null} stamp the last delivered signature
- * @param {string} day
- * @returns {{unseen: TrackerFinding[], signature: string|null}}
+ * @param {boolean} loopRunning
+ * @param {IdleNotice} notice
+ * @returns {{unseen: TrackerFinding[], stopUnseen: boolean, signature: string|null}}
  */
-function selectUnseen(findings, stamp, day) {
+function selectUnseen(findings, loopRunning, { stamp, day, stoppedRun }) {
 	const seen = seenOn(stamp, day);
 	const unseen = findings.filter((f) =>
 		findingKeys(f).some((k) => !seen.has(k)),
 	);
-	if (unseen.length === 0) return { unseen, signature: null };
+	const stopKey = `refill-loop stopped ${stoppedRun}`;
+	const stopUnseen = !loopRunning && !seen.has(stopKey);
+	if (unseen.length === 0 && !stopUnseen)
+		return { unseen, stopUnseen, signature: null };
 	for (const k of unseen.flatMap(findingKeys)) seen.add(k);
+	if (stopUnseen) seen.add(stopKey);
 	/** @type {SeenStamp} */
 	const next = { day, seen: [...seen] };
-	return { unseen, signature: JSON.stringify(next) };
+	return { unseen, stopUnseen, signature: JSON.stringify(next) };
 }
+
+/**
+ * @typedef {object} IdleNotice
+ * @property {string|null} stamp the last delivered signature
+ * @property {string} day machine-local `YYYY-MM-DD`
+ * @property {boolean} held whether this start holds the notice
+ * @property {number|null} stoppedRun the last run's count point, ms, as its control
+ *   says; null where none reads
+ */
 
 /**
  * @typedef {object} IdleReport
  * @property {TrackerFinding[]} unseen the trackers this run names
+ * @property {boolean} stopUnseen whether this run names a stopped loop
  * @property {string[]} lines its text, nested lines indented; empty where it
  *   names none
  * @property {string|null} signature what records `unseen` as shown
@@ -570,21 +593,19 @@ function selectUnseen(findings, stamp, day) {
  * records nothing.
  * @param {TrackerFinding[]} findings
  * @param {boolean} loopRunning
- * @param {{stamp: string|null, day: string, held: boolean}|null} notice
+ * @param {IdleNotice|null} notice
  * @returns {IdleReport}
  */
 function buildIdleReport(findings, loopRunning, notice) {
-	const { unseen, signature } = notice
-		? selectUnseen(findings, notice.stamp, notice.day)
-		: { unseen: findings, signature: null };
+	const { unseen, stopUnseen, signature } = notice
+		? selectUnseen(findings, loopRunning, notice)
+		: { unseen: findings, stopUnseen: !loopRunning, signature: null };
 	return {
 		unseen,
-		lines:
-			unseen.length === 0
-				? []
-				: buildIdleLines(unseen, loopRunning).map(({ text, nested }) =>
-						nested ? `  ${text}` : text,
-					),
+		stopUnseen,
+		lines: buildIdleLines(unseen, !stopUnseen).map(({ text, nested }) =>
+			nested ? `  ${text}` : text,
+		),
 		signature,
 		stampNow: notice?.held ? null : signature,
 	};

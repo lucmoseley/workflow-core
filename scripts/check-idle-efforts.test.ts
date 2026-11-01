@@ -14,7 +14,7 @@
  * strands an effort unreported while the core's own tests stay green.
  */
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -145,6 +145,9 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
+const STOP_LINE =
+	"The refill loop is not running, so it serves no tracker. /pick-next restarts it.";
+
 const PARKED_LABELS = ["takes:implement", "parked"];
 
 /** `body`, run while a process holds the refill loop's pid lock in `refill`. */
@@ -174,9 +177,7 @@ describe("check-idle-efforts.js", () => {
 		});
 		expect(r.status).toBe(0);
 		expect(r.calls.sort()).toEqual(["o/core", "o/product"]);
-		expect(r.out).toContain(
-			"The refill loop is not running, so it serves no tracker.",
-		);
+		expect(r.out).toContain(STOP_LINE);
 		expect(r.out).toContain(
 			"o/core: 1 idle past 2 days (the refill loop does not serve it); oldest #3 (issue 3), idle 10.0 days; skip reason: none, the launch filter passes it",
 		);
@@ -192,6 +193,7 @@ describe("check-idle-efforts.js", () => {
 			},
 		]);
 		const r = await run({ "o/product": [node(8)] }, ["--json"]);
+		expect(r.status).toBe(0);
 		expect(JSON.parse(r.stdout).trackers).toEqual([
 			expect.objectContaining({
 				repo: "o/product",
@@ -225,7 +227,7 @@ describe("check-idle-efforts.js", () => {
 		]);
 		const refill = path.join(dir, "refill");
 		fs.mkdirSync(refill, { recursive: true });
-		const loopLaunch = (n: number, stoppedFor?: number) => ({
+		const buildLoopLaunch = (n: number, stoppedFor?: number) => ({
 			root,
 			issues: [n],
 			prompt: `/implement ${n}`,
@@ -245,7 +247,11 @@ describe("check-idle-efforts.js", () => {
 		fs.writeFileSync(
 			path.join(refill, ".refill-loop-state.json"),
 			JSON.stringify({
-				launches: [loopLaunch(1, 5 * DAY), loopLaunch(2, DAY), loopLaunch(3)],
+				launches: [
+					buildLoopLaunch(1, 5 * DAY),
+					buildLoopLaunch(2, DAY),
+					buildLoopLaunch(3),
+				],
 			}),
 		);
 		await withLiveLoop(refill, async () => {
@@ -295,9 +301,7 @@ describe("check-idle-efforts.js", () => {
 			seedHoldInState();
 			const r = await run({ "o/product": [node(8, PARKED_LABELS)] });
 			expect(r.status).toBe(0);
-			expect(r.out).toContain(
-				"The refill loop is not running, so it serves no tracker.",
-			);
+			expect(r.out).toContain(STOP_LINE);
 			expect(r.out).toContain("o/product: none idle past 2 days");
 		});
 	});
@@ -312,20 +316,17 @@ describe("check-idle-efforts.js", () => {
 			const root = path.join(home, "prod");
 			writeParkedBy("s", [8], { root, limitParks });
 			const when = new Date(NOW - 3 * DAY);
-			fs.utimesSync(
-				path.join(root, ".claude", "tmp", "markers", ".parked-s"),
-				when,
-				when,
-			);
+			const marker = path.join(root, ".claude", "tmp", "markers", ".parked-s");
+			fs.utimesSync(marker, when, when);
+			return marker;
 		}
 
 		it("names it with the loop stopped", async () => {
 			parkedCheckout(LIMIT_PARK_CAP);
 			const r = await run({ "o/product": [node(8, PARKED_LABELS)] });
-			expect(r.out).toContain(
-				"The refill loop is not running, so it serves no tracker.",
-			);
+			expect(r.out).toContain(STOP_LINE);
 			expect(r.out).toContain(held);
+			expect(r.status).toBe(0);
 		});
 
 		it("reports a tracker whose markers will not read as unread, never as no hold", async () => {
@@ -334,15 +335,29 @@ describe("check-idle-efforts.js", () => {
 			fs.chmodSync(markers, 0o300);
 			try {
 				const r = await run({ "o/product": [node(8, PARKED_LABELS)] });
+				expect(r.status).toBe(0);
 				expect(r.out).toMatch(/o\/product: unread — EACCES.*scandir/);
 			} finally {
 				fs.chmodSync(markers, 0o700);
 			}
 		});
 
+		it("reports a tracker with one marker that will not read as unread, never as no hold (#3893)", async () => {
+			const marker = parkedCheckout(LIMIT_PARK_CAP);
+			fs.chmodSync(marker, 0o000);
+			try {
+				const r = await run({ "o/product": [node(8, PARKED_LABELS)] });
+				expect(r.status).toBe(0);
+				expect(r.out).toMatch(/o\/product: unread — EACCES.*\.parked-s/);
+			} finally {
+				fs.chmodSync(marker, 0o600);
+			}
+		});
+
 		it("still leaves out a parked question, its marker holding no count", async () => {
 			parkedCheckout();
 			const r = await run({ "o/product": [node(8, PARKED_LABELS)] });
+			expect(r.status).toBe(0);
 			expect(r.out).toContain("o/product: none idle past 2 days");
 		});
 	});
@@ -413,14 +428,26 @@ describe("check-idle-efforts.js", () => {
 		);
 		const r = await run({ "o/core": [node(1)] });
 		expect(r.status).toBe(0);
-		expect(r.out).toContain("OK: no effort idle past 2 days.");
+		expect(r.out).toContain("o/core: none idle past 2 days");
 	});
 
-	it("is OK where nothing is idle", async () => {
+	it("is OK where nothing is idle and the loop runs", async () => {
+		checkout("core", "o/core", [launch(1, DAY)]);
+		const refill = path.join(dir, "refill");
+		fs.mkdirSync(refill, { recursive: true });
+		await withLiveLoop(refill, async () => {
+			const r = await run({ "o/core": [node(1)] });
+			expect(r.status).toBe(0);
+			expect(r.out).toContain("OK: no effort idle past 2 days.");
+		});
+	});
+
+	it("warns of a stopped loop on a plain run with nothing idle (#3892)", async () => {
 		checkout("core", "o/core", [launch(1, DAY)]);
 		const r = await run({ "o/core": [node(1)] });
 		expect(r.status).toBe(0);
-		expect(r.out).toContain("OK: no effort idle past 2 days.");
+		expect(r.out).toContain(STOP_LINE);
+		expect(r.out).toContain("WARN: 1 finding(s)");
 	});
 });
 
@@ -454,9 +481,7 @@ describe("at session start (--notify, #3644)", () => {
 	it("names a finding once a day, and again the next day, with the loop stopped", async () => {
 		const first = await run(oneIdle, ["--notify"]);
 		expect(first.status).toBe(0);
-		expect(first.stdout).toContain(
-			"The refill loop is not running, so it serves no tracker.",
-		);
+		expect(first.stdout).toContain(STOP_LINE);
 		expect(first.stdout).toContain("o/core: 1 idle past 2 days");
 
 		const again = await run(oneIdle, ["--notify"]);
@@ -478,6 +503,116 @@ describe("at session start (--notify, #3644)", () => {
 		const r = await run({ "o/core": [node(3), node(4)] }, ["--notify"]);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("o/core: 2 idle past 2 days");
+	});
+
+	describe("a stopped loop with no unseen idle row (#3892)", () => {
+		const nothingIdle = { "o/core": [] };
+		const refillDir = () => {
+			const refill = path.join(dir, "refill");
+			fs.mkdirSync(refill, { recursive: true });
+			return refill;
+		};
+
+		it("names and stamps it, then nothing that day, then again the next day", async () => {
+			const first = await run(nothingIdle, ["--notify"]);
+			expect(first.status).toBe(0);
+			expect(first.stdout).toContain(STOP_LINE);
+			expect(first.stdout).toContain("WARN: 1 finding(s)");
+			expect(fs.existsSync(stampPath())).toBe(true);
+
+			expect((await run(nothingIdle, ["--notify"])).stdout).toBe("");
+
+			const { seen } = JSON.parse(delivery.readStamp("idle-efforts"));
+			delivery.recordDelivery(
+				"idle-efforts",
+				JSON.stringify({ day: "2000-01-01", seen }),
+			);
+			expect((await run(nothingIdle, ["--notify"])).stdout).toContain(
+				STOP_LINE,
+			);
+		});
+
+		it("names it once the day's rows have been shown, and only once", async () => {
+			await withLiveLoop(refillDir(), async () => {
+				await run(oneIdle, ["--notify"]);
+			});
+			const stopped = await run(oneIdle, ["--notify"]);
+			expect(stopped.stdout).toContain(STOP_LINE);
+			expect(stopped.stdout).not.toContain("o/core: 1 idle");
+			expect((await run(oneIdle, ["--notify"])).stdout).toBe("");
+		});
+
+		it("names a loop that died with no stop written: dead pid, running state", async () => {
+			const refill = refillDir();
+			const dead = spawnSync(process.execPath, ["-e", ""]);
+			fs.writeFileSync(path.join(refill, ".refill-loop.pid"), String(dead.pid));
+			fs.writeFileSync(
+				path.join(refill, ".refill-loop-state.json"),
+				JSON.stringify({ launches: [], held: [] }),
+			);
+			expect((await run(nothingIdle, ["--notify"])).stdout).toContain(
+				STOP_LINE,
+			);
+		});
+
+		it("names a later run's stop the same day, its control's start having moved", async () => {
+			const refill = refillDir();
+			const control = (from: number) =>
+				fs.writeFileSync(
+					path.join(refill, ".refill-loop-control.json"),
+					JSON.stringify({
+						scope: { mode: "normal", repos: [] },
+						noProgressFrom: from,
+					}),
+				);
+			control(NOW - DAY);
+			await run(nothingIdle, ["--notify"]);
+			expect((await run(nothingIdle, ["--notify"])).stdout).toBe("");
+			control(NOW);
+			expect((await run(nothingIdle, ["--notify"])).stdout).toContain(
+				STOP_LINE,
+			);
+		});
+
+		it("prints nothing for a live loop", async () => {
+			await withLiveLoop(refillDir(), async () => {
+				const r = await run(nothingIdle, ["--notify"]);
+				expect(r.status).toBe(0);
+				expect(r.stdout).toBe("");
+				expect(fs.existsSync(stampPath())).toBe(false);
+			});
+		});
+
+		it("names it at a background job's start but stamps nothing, leaving it for the founder's", async () => {
+			Object.assign(process.env, buildStartEnv(path.join(dir, "job")));
+			expect((await run(nothingIdle, ["--notify"])).stdout).toContain(
+				STOP_LINE,
+			);
+			expect(fs.existsSync(stampPath())).toBe(false);
+
+			Object.assign(process.env, buildStartEnv());
+			expect((await run(nothingIdle, ["--notify"])).stdout).toContain(
+				STOP_LINE,
+			);
+			expect(fs.existsSync(stampPath())).toBe(true);
+		});
+
+		it("neither prints nor stamps on a compaction", async () => {
+			const r = await run(nothingIdle, ["--notify"], "compact");
+			expect(r.stdout).toBe("");
+			expect(fs.existsSync(stampPath())).toBe(false);
+		});
+
+		it("reaches the persisted report for the reader to stamp", async () => {
+			process.env.WFC_NOTIFY_PERSIST = "1";
+			await run(nothingIdle, ["--notify"]);
+			const shown = notify.readReport("idle-efforts");
+			expect(shown.outcome).toBe("WARN");
+			expect(shown.text).toContain(STOP_LINE);
+			delivery.recordDelivery("idle-efforts", shown.stamp);
+			await run(nothingIdle, ["--notify"]);
+			expect(notify.readReport("idle-efforts").text).toBe("");
+		});
 	});
 
 	it("neither reads, prints nor stamps on a compaction", async () => {

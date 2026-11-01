@@ -1024,6 +1024,20 @@ describe("a notice for the founder alone (#3707)", () => {
 			stamp: "o/r@2026-10-30",
 		});
 
+	it("is shown again the next day with the same text, past an empty report between (#3892)", () => {
+		const standing = (stamp: string) =>
+			report("idle-efforts", "IDLE-EFFORTS (1) — standing\n", { stamp });
+		standing("day-1");
+		expect(read("--notify").out).toContain("IDLE-EFFORTS (1)");
+		report("idle-efforts", "");
+		read("--notify");
+		standing("day-1");
+		expect(read("--notify").out).not.toContain("IDLE-EFFORTS (1)");
+		standing("day-2");
+		expect(read("--notify").out).toContain("IDLE-EFFORTS (1)");
+		expect(stamps.readStamp("idle-efforts")).toBe("day-2");
+	});
+
 	it("is neither shown nor stamped at a background job's start", () => {
 		idle();
 		const { status, out } = readIn(path.join(dir, "job"), "--notify");

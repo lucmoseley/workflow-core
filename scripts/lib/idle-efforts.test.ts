@@ -18,7 +18,7 @@ const {
 	buildFindingRecords,
 	parseIssueNodes,
 } = require("./idle-efforts.js");
-const { LIMIT_PARK_CAP, limitCapHoldOf } = require("./refill-decide.js");
+const { LIMIT_PARK_CAP, buildLimitCapWhy } = require("./refill-decide.js");
 
 const NOW = Date.parse("2026-10-29T12:00:00Z");
 const DAY = 24 * 60 * 60 * 1000;
@@ -276,7 +276,7 @@ describe("buildIdleLines", () => {
 		);
 		expect(lines).toEqual([
 			top(
-				"o/core: 2 idle past 2 days; oldest #1 (issue 1), idle 10.0 days; skip reason: none, the launch filter passes it",
+				"o/core: 2 idle past 2 days; oldest #1 (issue 1), idle 10.0 days; skip reason: none, the launch filter passes it, so it waits on rank",
 			),
 			{
 				text: `held #2 (issue 2), idle 3.0 days; skip reason: ${why}`,
@@ -304,7 +304,7 @@ describe("buildIdleLines", () => {
 			);
 			expect(lines).toEqual([
 				top(
-					"o/core: 2 idle past 2 days; oldest #1 (issue 1), idle 10.0 days; skip reason: none, the launch filter passes it",
+					"o/core: 2 idle past 2 days; oldest #1 (issue 1), idle 10.0 days; skip reason: none, the launch filter passes it, so it waits on rank",
 				),
 				{
 					text: `held #2 (issue 2), idle 3.0 days; skip reason: ${capWhy}`,
@@ -356,7 +356,9 @@ describe("buildIdleLines", () => {
 			false,
 		);
 		expect(lines).toEqual([
-			top("The refill loop is not running, so it serves no tracker."),
+			top(
+				"The refill loop is not running, so it serves no tracker. /pick-next restarts it.",
+			),
 			top("o/core: none idle past 2 days (the refill loop does not serve it)"),
 		]);
 	});
@@ -371,13 +373,20 @@ describe("buildIdleLines", () => {
 });
 
 describe("buildFindingRecords", () => {
+	it("puts a named stop's record ahead of the trackers' (#3892)", () => {
+		const f = findings([tracker([issue(1)])]);
+		expect(
+			buildFindingRecords(f, true).map((r: { code: string }) => r.code),
+		).toEqual(["REFILL-LOOP-NOT-RUNNING", "IDLE-EFFORTS"]);
+	});
+
 	it("gives an unread tracker IDLE-EFFORTS-UNREAD and one with idle efforts IDLE-EFFORTS, a quiet one none", () => {
 		const f = findings([
 			tracker([], { error: "HTTP 502" }),
 			tracker([issue(1)], { repo: OTHER }),
 			tracker([], { repo: "o/quiet" }),
 		]);
-		expect(buildFindingRecords(f)).toEqual([
+		expect(buildFindingRecords(f, false)).toEqual([
 			{ code: "IDLE-EFFORTS-UNREAD", text: "o/core would not read: HTTP 502" },
 			{
 				code: "IDLE-EFFORTS",
@@ -447,7 +456,7 @@ describe("buildReadings", () => {
 
 	describe("a hold at the limit-cap parks' cap, read from its marker (#3840)", () => {
 		const parkedIssue = issue(7, { labels: ["takes:implement", "parked"] });
-		const atCap = (writtenAt: number) => ({
+		const buildCapMarker = (writtenAt: number) => ({
 			issues: [7],
 			writtenAt,
 			limitParks: LIMIT_PARK_CAP,
@@ -458,24 +467,27 @@ describe("buildReadings", () => {
 			)[0].idle;
 
 		it("names it past 2 days of hold with the loop holding nothing, the marker's write being its start", () => {
-			const [only, ...rest] = idleOf([parkedIssue], [atCap(NOW - 3 * DAY)]);
+			const [only, ...rest] = idleOf(
+				[parkedIssue],
+				[buildCapMarker(NOW - 3 * DAY)],
+			);
 			expect(rest).toEqual([]);
 			expect(only).toMatchObject({
 				number: 7,
 				heldAtCap: true,
 				idleMs: 3 * DAY,
-				skip: limitCapHoldOf(LIMIT_PARK_CAP),
+				skip: buildLimitCapWhy(LIMIT_PARK_CAP),
 			});
 		});
 
 		it("leaves out one held under 2 days", () => {
-			expect(idleOf([parkedIssue], [atCap(NOW - DAY)])).toEqual([]);
+			expect(idleOf([parkedIssue], [buildCapMarker(NOW - DAY)])).toEqual([]);
 		});
 
 		it("takes its start from the marker over a later one in the loop's state", () => {
 			const [only] = idleOf(
 				[parkedIssue],
-				[atCap(NOW - 3 * DAY)],
+				[buildCapMarker(NOW - 3 * DAY)],
 				[{ root: "/r/core", number: 7, why: "seat full", since: NOW - DAY }],
 			);
 			expect(only).toMatchObject({ heldAtCap: true, idleMs: 3 * DAY });
@@ -487,15 +499,18 @@ describe("buildReadings", () => {
 		});
 
 		it("still excludes a parked ticket under the cap", () => {
-			const under = { ...atCap(NOW - 3 * DAY), limitParks: LIMIT_PARK_CAP - 1 };
+			const under = {
+				...buildCapMarker(NOW - 3 * DAY),
+				limitParks: LIMIT_PARK_CAP - 1,
+			};
 			expect(idleOf([parkedIssue], [under])).toEqual([]);
 		});
 
 		it("reads the newest marker listing it, so a later question park ends the hold", () => {
 			const question = { issues: [7], writtenAt: NOW - 3 * DAY };
-			expect(idleOf([parkedIssue], [atCap(NOW - 5 * DAY), question])).toEqual(
-				[],
-			);
+			expect(
+				idleOf([parkedIssue], [buildCapMarker(NOW - 5 * DAY), question]),
+			).toEqual([]);
 		});
 
 		it("holds it where any one checkout's newest marker is at the cap, as the loop routes per checkout", () => {
@@ -505,7 +520,7 @@ describe("buildReadings", () => {
 					{
 						repo: REPO,
 						issues: [parkedIssue],
-						markers: [[atCap(NOW - 3 * DAY)], [question]],
+						markers: [[buildCapMarker(NOW - 3 * DAY)], [question]],
 					},
 				]),
 			)[0].idle;
@@ -515,7 +530,7 @@ describe("buildReadings", () => {
 		it("reads no hold once the label is off, the marker left behind", () => {
 			const [only] = idleOf(
 				[issue(7, { labels: ["takes:implement"] })],
-				[atCap(NOW - 3 * DAY)],
+				[buildCapMarker(NOW - 3 * DAY)],
 			);
 			expect(only).toMatchObject({ heldAtCap: false, skip: null });
 		});
@@ -597,6 +612,13 @@ describe("parseIssueNodes", () => {
 
 describe("buildIdleReport", () => {
 	/** A session start not held; a null `deliveredStamp` is a day's first. */
+	const NothingNamed = {
+		unseen: [],
+		stopUnseen: false,
+		lines: [],
+		signature: null,
+		stampNow: null,
+	};
 	const reportAtStart = (
 		trackerFindings: unknown[],
 		deliveredStamp: string | null,
@@ -606,6 +628,7 @@ describe("buildIdleReport", () => {
 			stamp: deliveredStamp,
 			day,
 			held: false,
+			stoppedRun: null,
 		});
 
 	const idle = (number: number) => ({
@@ -662,19 +685,102 @@ describe("buildIdleReport", () => {
 			stamp: null,
 			day: "2026-10-29",
 			held: true,
+			stoppedRun: null,
 		});
 		expect(signature).not.toBeNull();
 		expect(stampNow).toBeNull();
 	});
 
-	it("gives no lines where nothing is unseen, not even the stopped loop's", () => {
-		const { signature } = reportAtStart([unservedUrgent], null, "2026-10-29");
-		const seen = buildIdleReport([unservedUrgent], false, {
-			stamp: signature,
-			day: "2026-10-29",
-			held: false,
+	describe("a stopped loop, a finding of its own (#3892)", () => {
+		const stopLine =
+			"The refill loop is not running, so it serves no tracker. /pick-next restarts it.";
+		const stopKey = "refill-loop stopped 5";
+		const stoppedAtStart = (
+			trackerFindings: unknown[],
+			deliveredStamp: string | null,
+			day: string,
+			{ held = false, stoppedRun = 5 as number | null } = {},
+		) =>
+			buildIdleReport(trackerFindings, false, {
+				stamp: deliveredStamp,
+				day,
+				held,
+				stoppedRun,
+			});
+
+		it("names and stamps it with nothing idle on any tracker", () => {
+			const report = stoppedAtStart([finding("o/a", [])], null, "2026-10-29");
+			expect(report).toMatchObject({
+				unseen: [],
+				stopUnseen: true,
+				lines: [stopLine],
+			});
+			expect(report.stampNow).toBe(stamp("2026-10-29", [stopKey]));
 		});
-		expect(seen).toMatchObject({ unseen: [], lines: [], stampNow: null });
+
+		it("names it where the day's rows were all shown, keeping their record", () => {
+			const report = stoppedAtStart(
+				[finding("o/a", [1])],
+				stamp("2026-10-29", ["o/a#1"]),
+				"2026-10-29",
+			);
+			expect(report).toMatchObject({ unseen: [], lines: [stopLine] });
+			expect(report.stampNow).toBe(stamp("2026-10-29", ["o/a#1", stopKey]));
+		});
+
+		it("names nothing once it is recorded that day, and again the next day", () => {
+			const { signature } = stoppedAtStart(
+				[unservedUrgent],
+				null,
+				"2026-10-29",
+			);
+			expect(stoppedAtStart([unservedUrgent], signature, "2026-10-29")).toEqual(
+				NothingNamed,
+			);
+			expect(
+				stoppedAtStart([finding("o/a", [])], signature, "2026-10-30").lines,
+			).toEqual([stopLine]);
+		});
+
+		it("names a later run's stop the same day", () => {
+			const { signature } = stoppedAtStart([], null, "2026-10-29");
+			expect(
+				stoppedAtStart([], signature, "2026-10-29", { stoppedRun: 6 }).lines,
+			).toEqual([stopLine]);
+		});
+
+		it("leaves its line off a new row's report once recorded that day", () => {
+			const report = stoppedAtStart(
+				[finding("o/a", [1])],
+				stamp("2026-10-29", [stopKey]),
+				"2026-10-29",
+			);
+			expect(report.stopUnseen).toBe(false);
+			expect(report.lines).not.toContain(stopLine);
+			expect(report.stampNow).toBe(stamp("2026-10-29", [stopKey, "o/a#1"]));
+		});
+
+		it("carries the signature but stamps nothing at a held start", () => {
+			const report = stoppedAtStart([], null, "2026-10-29", { held: true });
+			expect(report.lines).toEqual([stopLine]);
+			expect(report.signature).not.toBeNull();
+			expect(report.stampNow).toBeNull();
+		});
+
+		it("is no finding of a live loop", () => {
+			expect(reportAtStart([finding("o/a", [])], null, "2026-10-29")).toEqual(
+				NothingNamed,
+			);
+		});
+
+		it("names it on a plain run with no tracker, recording nothing", () => {
+			expect(buildIdleReport([], false, null)).toMatchObject({
+				stopUnseen: true,
+				lines: [stopLine],
+				signature: null,
+				stampNow: null,
+			});
+		});
 	});
 
 	it("names every finding with no stamp, and signs them for the day", () => {
@@ -691,7 +797,7 @@ describe("buildIdleReport", () => {
 				stamp("2026-10-29", ["o/a#1"]),
 				"2026-10-29",
 			),
-		).toEqual({ unseen: [], lines: [], signature: null, stampNow: null });
+		).toEqual(NothingNamed);
 	});
 
 	it("names a tracker whole once it holds a finding undelivered that day", () => {

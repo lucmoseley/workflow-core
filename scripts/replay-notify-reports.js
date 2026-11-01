@@ -638,17 +638,15 @@ function stampsOf(report, name) {
  */
 function alreadyShown(held, r, stamps) {
 	if (held) return true;
-	if (r.digest === r.shown?.digest) return true; // this text has been shown
-	/* THE STAMPS ARE A FINER GATE THAN THE DIGEST. check-hook-liveness.js's
-	 * scan-progress narration ("N of M transcript files accounted for")
-	 * differs run to run even where the failing set does not, so the digest
-	 * above cannot suppress a standing condition on its own — that is what
-	 * the producer's per-assertion stamps exist to do (mantahostels#2277). Only where
-	 * EVERY entry is already delivered is there truly nothing new; a
-	 * checker carrying no stamp at all (a report made of findings none of
-	 * which stamp, such as GUARD-LIBRARY) has an empty map here and falls
-	 * through to injecting, gated by the digest check above alone. */
-	return stamps.length > 0 && stamps.every(([k, stamp]) => delivered(k, stamp));
+	/* A report's stamps decide where it carries any: the text alone cannot, as
+	 * a standing finding repeats it on a new day (#3892), and check-hook-liveness.js's
+	 * scan-progress narration ("N of M transcript files accounted for") differs
+	 * run to run where the failing set does not (mantahostels#2277). A report carrying
+	 * no stamp (one made of findings none of which stamp, such as GUARD-LIBRARY) has the
+	 * digest alone. */
+	return stamps.length > 0
+		? stamps.every(([k, stamp]) => delivered(k, stamp))
+		: r.digest === r.shown?.digest;
 }
 
 /**

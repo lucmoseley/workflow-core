@@ -1650,6 +1650,11 @@
 					"id": "idle-efforts-unread",
 					"kind": "notice",
 					"text": ": unread — "
+				},
+				{
+					"id": "idle-efforts-loop-not-running",
+					"kind": "notice",
+					"text": "The refill loop is not running, so it serves no tracker."
 				}
 			]
 		},
