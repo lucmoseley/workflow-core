@@ -70,6 +70,18 @@ const fullScope = (over: Record<string, unknown> = {}) => ({
 	...over,
 });
 
+const redScope = (
+	failures: { file: string; tests: string[] }[],
+	over: Record<string, unknown> = {},
+) => ({
+	modulesRun: 40,
+	modulesTotal: 40,
+	tests: 200,
+	skipped: 0,
+	failures,
+	...over,
+});
+
 /** Inside the archive's reach, which the fixed `certificate().at` is not. */
 const fresh = () => new Date().toISOString();
 
@@ -1211,14 +1223,10 @@ describe("reading the red store back (mantahostels#2205)", () => {
 	) => ({
 		sha,
 		at: new Date().toISOString(),
-		scope: {
-			modulesRun: 40,
-			modulesTotal: 40,
-			tests: 200,
-			skipped: 0,
-			failures: files.map((file) => ({ file, tests: ["a case"] })),
-			...scope,
-		},
+		scope: redScope(
+			files.map((file) => ({ file, tests: ["a case"] })),
+			scope,
+		),
 		...rest,
 	});
 
@@ -2564,7 +2572,7 @@ describe("a red run's recovery command (#3625)", () => {
 	const red = (i: number, file: string) => ({
 		sha: "a".repeat(40),
 		at: at(i),
-		scope: { failures: [{ file, tests: ["fails"] }] },
+		scope: redScope([{ file, tests: ["fails"] }]),
 	});
 	const mine = red(0, "scripts/mine.test.ts");
 	// From a directory that is not the checkout, as from a worktree.
