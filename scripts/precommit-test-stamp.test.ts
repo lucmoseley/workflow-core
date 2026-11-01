@@ -1230,6 +1230,15 @@ function readProcessTree(pid: number): number[] {
 	return tree;
 }
 
+/** A descendant may exit on its parent's signal before its own turn in the tree (#3837). */
+function signalIfAlive(pid: number, signal: NodeJS.Signals) {
+	try {
+		process.kill(pid, signal);
+	} catch (e) {
+		if ((e as NodeJS.ErrnoException).code !== "ESRCH") throw e;
+	}
+}
+
 /** A guess: the sweep and a hold's start were measured here at well under a second. */
 const UNTIL_MS = 5000;
 /** Polls until `ok`, for `ms` at most; 20 ms is a poll, not a bound. */
@@ -1266,7 +1275,7 @@ it.each([
 			);
 			if (to === "group") process.kill(-run.pid, signal);
 			else if (to === "process") process.kill(run.pid, signal);
-			else for (const p of readProcessTree(run.pid)) process.kill(p, signal);
+			else for (const p of readProcessTree(run.pid)) signalIfAlive(p, signal);
 			expect(await run.exited).toEqual({ code: null, signal });
 			await until(() => f.readLeftInGitDir().length === 0);
 			expect(f.readLeftInGitDir()).toEqual([]);
