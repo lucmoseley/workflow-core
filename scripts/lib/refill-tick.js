@@ -791,14 +791,14 @@ function resumeStopped(l, prompt, { sessionId, cwd }) {
 function readParkers(frontier) {
 	/** @type {Map<string, ReturnType<typeof readParkMarkers>>} */
 	const byRoot = new Map();
-	const markersIn = (/** @type {string} */ root) => {
+	const readMarkersIn = (/** @type {string} */ root) => {
 		const read = byRoot.get(root) ?? readParkMarkers(root);
 		byRoot.set(root, read);
 		return read;
 	};
 	return frontier.flatMap((row) => {
 		if (!isParked(row)) return [];
-		const marker = markersIn(row.root)
+		const marker = readMarkersIn(row.root)
 			.filter((m) => m.issues.includes(row.number))
 			.sort((x, y) => y.writtenAt - x.writtenAt)[0];
 		if (!marker) return [];

@@ -99,6 +99,9 @@ const loopEnv = (over: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({
 	...over,
 });
 
+const markerPath = (session: string) =>
+	path.join(repo, ".claude", "tmp", "markers", `.parked-${session}`);
+
 const readLines = (file: string) =>
 	fs.existsSync(file)
 		? fs.readFileSync(file, "utf8").split("\n").filter(Boolean)
@@ -728,9 +731,12 @@ describe("a parked launch (#2699)", () => {
 			block: { cause: "QUESTION" },
 		});
 		expect(launchState().parkStopped).toEqual(expect.any(Number));
-		expect(
-			readLines(path.join(repo, ".claude", "tmp", "markers", ".parked-s-job7")),
-		).toEqual([`seat ${seat}`, `job ${Job}`, `cwd ${repo}`, "7"]);
+		expect(readLines(markerPath("s-job7"))).toEqual([
+			`seat ${seat}`,
+			`job ${Job}`,
+			`cwd ${repo}`,
+			"7",
+		]);
 	});
 
 	it("stops and parks, on a switch to away, a question held past 50 newer launches (#3775)", async () => {
@@ -1888,9 +1894,9 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 	};
 
 	const writeMarker = (text: string) => {
-		const markers = path.join(repo, ".claude", "tmp", "markers");
-		fs.mkdirSync(markers, { recursive: true });
-		fs.writeFileSync(path.join(markers, ".parked-s-job5"), text);
+		const file = markerPath("s-job5");
+		fs.mkdirSync(path.dirname(file), { recursive: true });
+		fs.writeFileSync(file, text);
 	};
 
 	/* The resume's stop: one requested before the tick's launches holds them
@@ -1938,11 +1944,7 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 		expect(readLines(at("calls"))).toEqual([
 			`--bg --resume s-job5 ${PARKED_PROMPT}`,
 		]);
-		expect(
-			fs.existsSync(
-				path.join(repo, ".claude", "tmp", "markers", ".parked-s-job5"),
-			),
-		).toBe(false);
+		expect(fs.existsSync(markerPath("s-job5"))).toBe(false);
 	});
 
 	it("holds it while its session's seat is weekly-full, launching the next row, then resumes it once that seat has room (#3669)", async () => {
