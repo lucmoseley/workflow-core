@@ -29,6 +29,7 @@ import { runInProcess } from "./lib/run-in-process";
 import { readShellConst } from "./lib/shell-const-testkit";
 
 const GATE = path.resolve(__dirname, "review-hold-gate.sh");
+const HOOK_ROOT = path.resolve(__dirname, "lib", "hook-root.sh");
 const COMMIT_PATHS = path.resolve(__dirname, "commit-paths.js");
 const MARKER_LIB = path.resolve(__dirname, "lib", "concision-marker.sh");
 const BACKSTOP = path.resolve(__dirname, "concision-backstop.sh");
@@ -790,6 +791,22 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 		);
 	});
 
+	it("says so where the hold passed a tree this commit does not carry (#3830)", () => {
+		fs.writeFileSync(stamp(), "not-this-tree\nescalated; areas=secrets\n");
+		const msg = path.join(scratch, "msg");
+		fs.writeFileSync(msg, "land\n");
+		const r = spawnSync("bash", [Trailer, msg], {
+			cwd: repo,
+			encoding: "utf8",
+			env: quietEnv(),
+		});
+		expect(r.stderr).toContain(
+			"the review hold passed tree not-this-tree, and this commit carries",
+		);
+		expect(r.status).toBe(0);
+		expect(fs.readFileSync(msg, "utf8")).toBe("land\n");
+	});
+
 	it("is run by .husky/prepare-commit-msg on both of a passing commit's exits, through the plugin root", () => {
 		expect(Prepare).toMatch(
 			/^ {2}trailer="\$\{WFC_PLUGIN_ROOT:-\$here\/\.\.\}\/scripts\/review-tier-trailer\.sh"$/m,
@@ -815,6 +832,28 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 				"wfc-review-tier",
 			);
 
+		/** write-review-marker.js from the worktree, for SECRET; `env` over quietEnv(). */
+		const writeWtMarker = (env: NodeJS.ProcessEnv = {}) =>
+			runInProcess(
+				WRITE_MARKER,
+				[
+					"--base",
+					"HEAD",
+					"--findings",
+					"0",
+					"--tier",
+					"escalated",
+					"--areas",
+					"secrets",
+					"--paths",
+					SECRET,
+				],
+				{
+					cwd: wt,
+					env: { ...quietEnv(), CLAUDE_CODE_SESSION_ID: SID, ...env },
+				},
+			);
+
 		beforeEach(() => {
 			wt = path.join(scratch, "wt");
 			git("worktree", "add", "-q", "--detach", wt);
@@ -832,29 +871,7 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 					path.join(artefacts, `review-${axis}${reviewSuffix(SID)}.md`),
 					"- no findings\n",
 				);
-			const written = runInProcess(
-				WRITE_MARKER,
-				[
-					"--base",
-					"HEAD",
-					"--findings",
-					"0",
-					"--tier",
-					"escalated",
-					"--areas",
-					"secrets",
-					"--paths",
-					SECRET,
-				],
-				{
-					cwd: wt,
-					env: {
-						...quietEnv(),
-						CLAUDE_CODE_SESSION_ID: SID,
-						CLAUDE_PROJECT_DIR: repo,
-					},
-				},
-			);
+			const written = writeWtMarker({ CLAUDE_PROJECT_DIR: repo });
 			expect(written.stderr).toBe("");
 			expect(written.status).toBe(0);
 			const tree = treeOf(["--", SECRET], wt);
@@ -868,18 +885,47 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 			expect(fs.existsSync(stamp())).toBe(false);
 		});
 
-		it("lands with no trailer and no refusal where the marker's tree= is stale, leaving no stamp", () => {
-			write(SECRET, "reviewed\n", wt);
-			const tree = treeOf(["--", SECRET], wt);
-			const markers = path.join(wt, ".claude", "tmp", "markers");
-			fs.mkdirSync(markers, { recursive: true });
+		// A shell with the variable unset: the hook takes its host from
+		// hook-root.sh, so writer and hold meet in the shared tree's store.
+		it("trails a commit with CLAUDE_PROJECT_DIR unset, the artefacts and the marker in the shared tree (#3830)", () => {
 			fs.writeFileSync(
-				path.join(markers, `.codereview-pass-${SID}`),
-				`base=${git("-C", wt, "rev-parse", "HEAD")}\nfindings=0\ntier=escalated\nareas=secrets\ntree=${tree}\npaths=${SECRET}\n`,
+				path.join(hooks, "pre-commit"),
+				`#!/bin/sh\n. "${HOOK_ROOT}"\nexec bash "${GATE}"\n`,
+				{ mode: 0o755 },
 			);
-			write(SECRET, "edited after the review\n", wt);
+			const base = git("-C", wt, "rev-parse", "HEAD");
+			write(SECRET, "new\n", wt);
+			for (const axis of ["standards", "spec"])
+				write(`.claude/tmp/review-${axis}${reviewSuffix(SID)}.md`, "- none\n");
+			const written = writeWtMarker();
+			expect(written.stderr).toBe("");
+			expect(written.status).toBe(0);
+			expect(fs.existsSync(marker())).toBe(true);
+			const tree = treeOf(["--", SECRET], wt);
 			const r = commit([SECRET], { cwd: wt });
 			expect(r.stderr).toBe("");
+			expect(r.status).toBe(0);
+			expect(readWtTrailer()).toBe(
+				`escalated; areas=secrets; base=${base}; tree=${tree}; paths=${SECRET}`,
+			);
+		});
+
+		it("names the marker's fault and does not refuse where its tree= is stale, leaving no trailer or stamp (#3830)", () => {
+			write(SECRET, "reviewed\n", wt);
+			mark({
+				tier: "escalated",
+				areas: "secrets",
+				tree: treeOf(["--", SECRET], wt),
+				paths: SECRET,
+			});
+			write(SECRET, "edited after the review\n", wt);
+			const r = commit([SECRET], { cwd: wt, projectDir: repo });
+			expect(r.stderr).toContain(
+				`pre-commit: this commit lands with no Review-Tier: trailer. The marker ${marker()} does not clear it: its tree= is not the tree this commit carries`,
+			);
+			expect(r.stderr).toContain(
+				"git reset --soft HEAD~, record the review of exactly this change with scripts/write-review-marker.js",
+			);
 			expect(r.status).toBe(0);
 			expect(readWtTrailer()).toBe("");
 			expect(fs.existsSync(wtStamp())).toBe(false);

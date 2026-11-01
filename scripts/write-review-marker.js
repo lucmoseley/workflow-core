@@ -25,7 +25,9 @@
  * FROM A LINKED WORKTREE (#3714), `--base`, `--paths` and the tree read that
  * worktree, where the commit is made, and an artefact counts in it or in the
  * host, wherever the run's working directory put it. The marker stays in the
- * host's store, which the hold, the nag and the warning read.
+ * host's store, which the hold, the nag and the warning read. The host is the
+ * one the commit's hook is handed, so a shell with `CLAUDE_PROJECT_DIR` unset
+ * finds the same store (#3830).
  *
  * Joins no §N3 family: it writes a marker, not a file `generate-*` owns, and
  * its exits are its own — 0 written, 1 the write or the tree failed, 2 a
@@ -39,7 +41,7 @@ const { caught } = require("./lib/caught.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { commitSha } = require("./lib/commit-sha.js");
 const { spawnGitSync } = require("./lib/git.js");
-const { hostRoot, worktreeRoot } = require("./lib/host-root.js");
+const { resolveCommitHost, worktreeRoot } = require("./lib/host-root.js");
 const { markersDir } = require("./lib/marker-root.js");
 const { numstatPaths } = require("./lib/patch-files.js");
 const { reviewSuffix } = require("./lib/review-suffix.js");
@@ -258,8 +260,8 @@ function main() {
 	if (!sid) fail("CLAUDE_CODE_SESSION_ID is not set. Nothing written.", 2);
 	const o = optionsOrFail(flags);
 
-	const host = hostRoot();
-	const treeRoot = worktreeRoot();
+	const host = resolveCommitHost();
+	const treeRoot = worktreeRoot(undefined, { host });
 	if (o.skipped === undefined) {
 		const missing = missingArtefacts([treeRoot, host], sid, o.noSpec);
 		if (missing.length > 0)

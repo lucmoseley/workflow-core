@@ -2,7 +2,8 @@
 /*
  * Pins `worktreeRoot()` (#2940): a test run launched inside a linked worktree
  * reads that worktree's files, though the harness points `CLAUDE_PROJECT_DIR`
- * at the shared tree. The seam's cases read `a.md` through the resolved root,
+ * at the shared tree. Pins `resolveCommitHost()` too (#3830): a script answers the
+ * host `hook-root.sh` hands a hook, whatever its shell inherited. The seam's cases read `a.md` through the resolved root,
  * the worktree's copy differing from the shared tree's; the runners' cases
  * read the worktree's own config.
  *
@@ -27,7 +28,7 @@ const RUN_PYTEST = path.join(__dirname, "..", "run-pytest.js");
 
 const template = defineTemplate(trioTemplate());
 
-describe("worktreeRoot", () => {
+describe("the host seam", () => {
 	let dir: string;
 	let at: { shared: string; elsewhere: string; wt: string };
 
@@ -116,6 +117,49 @@ describe("worktreeRoot", () => {
 				undefined,
 			),
 		).toBe("a\n");
+	});
+
+	describe("resolveCommitHost, the JS half of hook-root.sh (#3830)", () => {
+		const readFromCommitHost = (cwd: string, projectDir: string | undefined) =>
+			readThrough(
+				`require(${JSON.stringify(SEAM)}).resolveCommitHost()`,
+				cwd,
+				projectDir,
+			);
+
+		it("answers the shared tree from a linked worktree with CLAUDE_PROJECT_DIR unset", () => {
+			expect(readFromCommitHost(at.wt, undefined)).toBe("a\n");
+		});
+
+		it("answers the shared tree where CLAUDE_PROJECT_DIR names another repository", () => {
+			fs.writeFileSync(path.join(at.elsewhere, "a.md"), "elsewhere\n");
+			expect(readFromCommitHost(at.wt, at.elsewhere)).toBe("a\n");
+		});
+
+		it("keeps a CLAUDE_PROJECT_DIR that shares the common dir, the worktree itself included", () => {
+			expect(readFromCommitHost(at.wt, at.shared)).toBe("a\n");
+			expect(readFromCommitHost(at.wt, at.wt)).toBe("worktree\n");
+		});
+
+		it("answers the top level of a plain checkout whose git directory sits elsewhere under the name .git", () => {
+			const tree = path.join(dir, "septree");
+			fs.mkdirSync(path.join(dir, "sep"));
+			spawnSync("git", [
+				"init",
+				"-q",
+				`--separate-git-dir=${path.join(dir, "sep", ".git")}`,
+				tree,
+			]);
+			fs.writeFileSync(path.join(tree, "a.md"), "septree\n");
+			expect(readFromCommitHost(tree, undefined)).toBe("septree\n");
+		});
+
+		it("answers the working directory in a bare repository, which has no top level", () => {
+			const bare = path.join(dir, "bare.git");
+			spawnSync("git", ["init", "-q", "--bare", bare]);
+			fs.writeFileSync(path.join(bare, "a.md"), "bare\n");
+			expect(readFromCommitHost(bare, undefined)).toBe("bare\n");
+		});
 	});
 
 	/* Each runner, launched bare in the worktree, finds `landing` on in the
