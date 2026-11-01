@@ -269,7 +269,7 @@ describe("the .husky/pre-commit format gate", () => {
 		const { code, output } = gate(repo({ "scripts/a.sh": SH_OK }), envNoShfmt);
 		expect(output).toContain(SHFMT_INSTALL);
 		expect(output).toMatch(/the format gate refused/);
-		expect(code).toBe(1);
+		expect(code).toBe(2);
 	});
 
 	it("skips the shell half where shfmt is missing and a workflow runs it (#1354, #1463)", () => {
@@ -283,7 +283,7 @@ describe("the .husky/pre-commit format gate", () => {
 		const { code, output } = gate(repo({ "pkg/a.py": PY_OK }), envNoRuff);
 		expect(output).toContain(RUFF_INSTALL);
 		expect(output).toMatch(/the format gate refused/);
-		expect(code).toBe(1);
+		expect(code).toBe(2);
 	});
 
 	it("skips the Python half where ruff is missing and a workflow runs it, saying so, and still refuses unformatted shell, naming it (#1354, #1463)", () => {
