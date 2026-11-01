@@ -17,6 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { COMMAND_SHAPED, PLAIN_POINTER } from "./script-path-testkit";
+import { shellQuote } from "./sh-quote.js";
 
 const SH = path.join(__dirname, "script-path.sh");
 const RULE_SH = path.join(__dirname, "rule-text.sh");
@@ -60,6 +61,15 @@ function bash(script: string, env: Record<string, string>, input = "") {
 	expect(r.status).toBe(0);
 	return r.stdout;
 }
+
+describe("sp_shell_word", () => {
+	it.each(["~/x", "a=~/x", "HEAD~1", "PATH=a:~/b"])(
+		"quotes %s as its twin shellQuote does",
+		(word) => {
+			expect(bash(`sp_shell_word '${word}'`, {})).toBe(shellQuote(word));
+		},
+	);
+});
 
 describe("in a source checkout", () => {
 	it("names a script repo-relative", () => {

@@ -11351,6 +11351,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/self-plugin-canary.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/lib/guard-triggers.js": [
@@ -13627,6 +13628,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/self-plugin-canary.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/lib/marker-root.test.ts": [
@@ -17494,6 +17496,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/self-plugin-canary.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/lib/sensitive-paths.js": [

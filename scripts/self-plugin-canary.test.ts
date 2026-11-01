@@ -162,15 +162,15 @@ describe("a session the self-plugin did not load", () => {
 	});
 });
 
-describe("the setup line", () => {
-	function checkout(name: string) {
-		const at = path.join(repo, name);
-		const hooks = path.join(repo, "no-hooks");
-		fs.mkdirSync(hooks, { recursive: true });
-		initGitRepo(at, hooks);
-		return at;
-	}
+function checkout(name: string) {
+	const at = path.join(repo, name);
+	const hooks = path.join(repo, "no-hooks");
+	fs.mkdirSync(hooks, { recursive: true });
+	initGitRepo(at, hooks);
+	return at;
+}
 
+describe("the setup line", () => {
 	it("names the checkout the session runs in, quoted as sh-quote.js quotes it", () => {
 		const main = checkout("main");
 		const r = call(bash(SID), { CLAUDE_PROJECT_DIR: main });
@@ -233,6 +233,44 @@ describe("failing closed", () => {
 	it("refuses an empty input", () => {
 		expectRefused(call(""));
 	});
+});
+
+describe("with lib/script-path.sh not loading (#3798)", () => {
+	/** The canary and its libraries, script-path.sh holding `quoter` or absent. */
+	function canaryWithQuoter(quoter: string | null) {
+		const scripts = path.join(repo, "core", "scripts");
+		const lib = path.join(scripts, "lib");
+		fs.mkdirSync(lib, { recursive: true });
+		for (const from of [
+			path.join(__dirname, "lib/self-plugin-marker.sh"),
+			path.join(__dirname, "lib/marker-root.sh"),
+			path.join(__dirname, "lib/guard-root.sh"),
+		])
+			fs.copyFileSync(from, path.join(lib, path.basename(from)));
+		if (quoter !== null)
+			fs.writeFileSync(path.join(lib, "script-path.sh"), quoter);
+		const canary = path.join(scripts, "self-plugin-canary.sh");
+		fs.copyFileSync(CANARY, canary);
+		return canary;
+	}
+
+	it.each([
+		["absent", null, "main"],
+		["absent", null, "the founder's checkout"],
+		["empty", "", "main"],
+		["a syntax error", "if\n", "main"],
+	])(
+		"prints a pasteable setup line, with it %s, for %s %s",
+		(_, quoter, name) => {
+			const main = checkout(name);
+			const r = run(canaryWithQuoter(quoter), JSON.stringify(bash(SID)), {
+				CLAUDE_PROJECT_DIR: main,
+			});
+			expectRefused(r, main);
+			expect(r.stderr).toMatch(/^Refused: /);
+			expect(r.stderr).toContain("lib/script-path.sh did not load");
+		},
+	);
 });
 
 describe("the marker", () => {

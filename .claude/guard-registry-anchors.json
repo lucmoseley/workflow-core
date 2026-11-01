@@ -78,7 +78,7 @@
 	"scripts/replay-notify-reports.js": "cf6e22cb8ecb7c35",
 	"scripts/report-suite-queue-wait.js": "a6f1e9bd03fc3daa",
 	"scripts/run-vitest.js": "9d67378ce45793e1",
-	"scripts/self-plugin-canary.sh": "009389ed53b6885e",
+	"scripts/self-plugin-canary.sh": "98325522562d86a1",
 	"scripts/session-arbiter.js": "dd06a82bd68b8df6",
 	"scripts/stale-write-back-gate.sh": "041c13c6ee40f37b",
 	"scripts/start-lander-on-push.js": "86e49afc7afbb64f",
