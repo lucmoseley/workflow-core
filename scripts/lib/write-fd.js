@@ -27,7 +27,20 @@ const EAGAIN_CEILING_MS = 10_000;
 /* Time spent since a write last took a byte, across calls: a checker says one
  * line per call, so a per-call ceiling would hold it the full ceiling per line
  * on a reader that never drains. Progress resets it. */
-let stalledMs = 0;
+const writeStall = { ms: 0 };
+
+/**
+ * One pause on an fd that took or gave no bytes, added to `stall`; or, once
+ * `stall` has reached the ceiling, `fault` thrown instead.
+ * @param {{ ms: number }} stall accumulator: time waited since the caller's
+ *   last progress, which the caller resets
+ * @param {unknown} fault
+ */
+function pauseOrThrow(stall, fault) {
+	if (stall.ms >= EAGAIN_CEILING_MS) throw fault;
+	sleep.sleepSync(EAGAIN_PAUSE_MS);
+	stall.ms += EAGAIN_PAUSE_MS;
+}
 
 /**
  * Write all of `text` to `fd` before returning, waiting out EAGAIN — and a
@@ -39,22 +52,24 @@ function writeFd(fd, text) {
 	const bytes = Buffer.from(text);
 	let done = 0;
 	while (done < bytes.length) {
+		let wrote;
 		try {
-			const wrote = fs.writeSync(fd, bytes, done);
-			if (wrote > 0) {
-				done += wrote;
-				stalledMs = 0;
-				continue;
-			}
+			wrote = fs.writeSync(fd, bytes, done);
 		} catch (e) {
-			if (caught(e).code !== "EAGAIN" || stalledMs >= EAGAIN_CEILING_MS)
-				throw e;
+			if (caught(e).code !== "EAGAIN") throw e;
+			pauseOrThrow(writeStall, e);
+			continue;
 		}
-		if (stalledMs >= EAGAIN_CEILING_MS)
-			throw new Error(`fd ${fd} took no bytes for ${EAGAIN_CEILING_MS} ms`);
-		sleep.sleepSync(EAGAIN_PAUSE_MS);
-		stalledMs += EAGAIN_PAUSE_MS;
+		if (wrote > 0) {
+			done += wrote;
+			writeStall.ms = 0;
+		} else {
+			pauseOrThrow(
+				writeStall,
+				new Error(`fd ${fd} took no bytes for ${EAGAIN_CEILING_MS} ms`),
+			);
+		}
 	}
 }
 
-module.exports = { writeFd };
+module.exports = { pauseOrThrow, writeFd };

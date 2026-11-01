@@ -20,8 +20,9 @@
  * repo apart from its tracker is not searched, and the landed sha is taken as
  * on `main`, never checked against it.
  *
- * A COMMIT CARRYING A `Review-Tier:` TRAILER, as .husky/prepare-commit-msg
- * writes from the review hold's marker (scripts/review-tier-trailer.sh), is
+ * A COMMIT CARRYING A `Review-Tier:` TRAILER, whose value the review hold
+ * builds from its marker (scripts/review-hold-gate.sh) and
+ * .husky/prepare-commit-msg writes (scripts/review-tier-trailer.sh), is
  * counted by it where no record names it, and once where one does (#3664).
  * Its trailer names no defect, so it counts only once an `**Escaped defect:**`
  * line names it, and its tree is the landed one, never the pinned pre-fix
@@ -165,7 +166,7 @@ const BASE = new RegExp(`\\bbase\\s+${SHA}`);
 const UNPARSED_PATHS = new RegExp(PATHS_CLAUSE);
 const INDENTED = /^\s+\S/;
 const ESCAPED = new RegExp(`\\*\\*Escaped defect:\\*\\*\\s*${SHA}`, "g");
-/* review-tier-trailer.sh's value, the hold's tier, areas, tree and paths. */
+/* review-hold-gate.sh's value: the hold's tier, areas, base, tree and paths. */
 const TRAILER =
 	/^(escalated|mission-critical);\s*areas=[^;]*;\s*base=([0-9a-f]{40});\s*tree=([0-9a-f]{40});\s*paths=(.+)$/;
 /* `git revert`'s own message line, which names the full sha. */
@@ -522,7 +523,7 @@ function parseTrailerLog(repo, out, declared, records) {
 		if (trailer !== "") {
 			unseen.push({
 				tag: "UNPARSEABLE",
-				fault: `${repo}@${sha} has a Review-Tier: trailer not in scripts/review-tier-trailer.sh's form, so it is not counted by it: ${trailer}`,
+				fault: `${repo}@${sha} has a Review-Tier: trailer not in scripts/review-hold-gate.sh's form, so it is not counted by it: ${trailer}`,
 			});
 			continue;
 		}

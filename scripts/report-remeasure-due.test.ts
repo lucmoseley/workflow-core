@@ -710,7 +710,7 @@ describe("the re-measure trigger", () => {
 		expect(r).toEqual({
 			code: 0,
 			stdout: "",
-			stderr: `UNPARSEABLE: o/manta@${malformed} has a Review-Tier: trailer not in scripts/review-tier-trailer.sh's form, so it is not counted by it: escalated; no fields\nUNRECORDED: ${fault}\n`,
+			stderr: `UNPARSEABLE: o/manta@${malformed} has a Review-Tier: trailer not in scripts/review-hold-gate.sh's form, so it is not counted by it: escalated; no fields\nUNRECORDED: ${fault}\n`,
 		});
 		expect(readGuardErrorsLog(fx.config)).toContain(
 			`report-remeasure-due\t${fault}`,

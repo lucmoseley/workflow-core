@@ -189,10 +189,7 @@
 				"is run by no husky hook, workflow,",
 				"has no `hooks` row",
 				"the `hooks` row for ",
-				{
-					"text": "has no sibling test (",
-					"sites": 2
-				},
+				"has no sibling test (",
 				"`calledElsewhere` names "
 			]
 		},

@@ -1,0 +1,3 @@
+const write = (name: string) => path.join(dir, name);
+write("gh");
+process.env.PATH = `${dir}${path.delimiter}${process.env.PATH}`;
