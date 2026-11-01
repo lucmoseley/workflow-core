@@ -262,17 +262,16 @@ const readsFull = (s) => s.weekFull || s.sessionFull || s.fits === 0;
  * @returns {S[]}
  */
 function orderPlanSeats(seats, typedSeat) {
-	/**
-	 * @param {S} s
-	 * @returns {[number, number]}
-	 */
-	const key = (s) => [
-		s.seat === typedSeat ? 0 : 1,
-		s.weekResets ?? Number.POSITIVE_INFINITY,
-	];
+	/** @param {S} s */
+	const key = (s) => ({
+		typed: s.seat === typedSeat ? 0 : 1,
+		resets: s.weekResets ?? Number.POSITIVE_INFINITY,
+	});
 	return seats
 		.map((s, i) => ({ s, i, k: key(s) }))
-		.sort((a, b) => a.k[0] - b.k[0] || a.k[1] - b.k[1] || a.i - b.i)
+		.sort(
+			(a, b) => a.k.typed - b.k.typed || a.k.resets - b.k.resets || a.i - b.i,
+		)
 		.map(({ s }) => s);
 }
 

@@ -229,19 +229,15 @@ async function blockerGraph(served, ownRepo, read) {
 	/** @type {Map<number, string>} served issue -> why its sub-issues could
 	 * not be read, its openChildren then the summary's */
 	const childrenUnread = new Map();
-	const foreignOpen = await read.each(toRead, async ({ s, local }) => {
+	const childCounts = await read.each(toRead, async ({ s, local }) => {
 		const r = await read.subIssues({ repo: ownRepo, number: s.number });
-		if (r.ok) {
-			const foreign = r.edges.filter(
-				(e) => e.state === "open" && !isServed(e),
-			).length;
-			return { number: s.number, local, foreign };
-		}
-		childrenUnread.set(s.number, r.error);
-		const foreign = Math.max(0, s.openSubIssues - local);
+		if (!r.ok) childrenUnread.set(s.number, r.error);
+		const foreign = r.ok
+			? r.edges.filter((e) => e.state === "open" && !isServed(e)).length
+			: Math.max(0, s.openSubIssues - local);
 		return { number: s.number, local, foreign };
 	});
-	for (const { number, local, foreign } of foreignOpen)
+	for (const { number, local, foreign } of childCounts)
 		if (foreign > 0) openChildren.set(number, local + foreign);
 	return { nodes, holds, parentOf, openChildren, childrenUnread, ownRepo };
 }

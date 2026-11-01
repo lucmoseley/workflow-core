@@ -151,8 +151,9 @@ const RUN_VERB = new Map([
 function findRun(command) {
 	const at = command.findIndex((w) => !isOpaque(w) && RUN_VERB.has(w.value));
 	const verb = command[at];
-	const isRun = RUN_VERB.get(verb?.value ?? "");
-	if (!verb || !isRun) return;
+	if (!verb) return;
+	const isRun = RUN_VERB.get(verb.value);
+	if (!isRun) return;
 	let k = command.findIndex((w, i) => i > at && isRun(w.value));
 	if (k < 0) return;
 	do k++;
