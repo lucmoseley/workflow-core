@@ -140,6 +140,29 @@ function repoStart(previous, checkout, since) {
 }
 
 /**
+ * A repoStart's own fault, as what the review could not read.
+ * @param {string} checkout
+ * @param {{why: string | null}} start
+ * @returns {Unread[]}
+ */
+const startFaults = (checkout, { why }) =>
+	why === null ? [] : [{ repo: checkout, why }];
+
+/**
+ * A checkout that gave this review nothing: named, with its events carried.
+ * @param {string} checkout
+ * @param {{since: string, why: string | null}} start its repoStart
+ * @param {string} repo what to name it, its tracker where that read
+ * @param {string} why
+ * @returns {RepoRead}
+ */
+const unreadRepo = (checkout, start, repo, why) => ({
+	reading: null,
+	unread: [...startFaults(checkout, start), { repo, why }],
+	unreadEvents: [{ checkout, since: start.since }],
+});
+
+/**
  * @param {string} at
  * @returns {string}
  */
@@ -221,6 +244,8 @@ function parseOneWayDoor(comments) {
  *   issues and its parked ones
  * @typedef {{checkout: string, since: string}} UnreadEvents a checkout that did
  *   not read, and where its events start
+ * @typedef {{reading: RepoReading | null, unread: Unread[],
+ *   unreadEvents: UnreadEvents[]}} RepoRead one checkout's part of a review
  * @typedef {{since: string, now: string, previous: number | null,
  *   repos: RepoReading[], failed: Unread[], unreadEvents: UnreadEvents[],
  *   kills: KillReading, concurrency: ConcurrencyReading, idle: IdleReading}}
@@ -712,6 +737,8 @@ module.exports = {
 	closeEdge,
 	parseHistoryCursor,
 	repoStart,
+	startFaults,
+	unreadRepo,
 	whyByTime,
 	windowStart,
 	searchTime,

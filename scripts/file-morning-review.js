@@ -29,8 +29,10 @@
  * body, and `now` is fixed before this run's reads, so no event falls between two
  * reviews however long a filing runs (lib/morning-review.js's windowStart). That
  * file's header gives each source's edge for an event readable after this run's
- * reads (#3827). A repo that does not read is named in the body with where its
- * events went unread from, and the next review starts that repo there (#3831).
+ * reads (#3827). A repo that does not read, or whose config discovery will not
+ * read (#3834), is named in the body with where its events went unread from, and
+ * the next review starts that repo there (#3831). Residual: one its owner opted
+ * out is neither named nor carried, so a start it carried ends there (#3834).
  *
  * Files through file-issue.js, so the `takes:` and known-label refusals bind
  * this script as they bind a session: no hook sees a gh call a script makes.
@@ -123,19 +125,31 @@ const io = scriptIo("file-morning-review");
 /** @typedef {Pick<ReturnType<typeof reviewReads>, "read">} Reads */
 
 /**
+ * The review's part for a checkout whose config discovery would not read.
+ * @param {{root: string, why: string}} faulted
+ * @param {string} windowSince
+ * @param {{number: number, body: string}[]} reviews newest first
+ */
+function faultedRepo({ root, why }, windowSince, reviews) {
+	const checkout = path.basename(root);
+	const start = review.repoStart(reviews[0], checkout, windowSince);
+	/* A JSON error quotes the config, newlines and all. */
+	const [line = ""] = why.split("\n");
+	return review.unreadRepo(checkout, start, checkout, line);
+}
+
+/**
  * One included checkout's ledger and closes, and what of it could not be read.
  * @param {string} root
  * @param {string} windowSince
  * @param {Reads} reads
  * @param {{number: number, body: string}[]} reviews newest first
- * @returns {{reading: import("./lib/morning-review.js").RepoReading | null, unread: Unread[],
- *   unreadEvents: import("./lib/morning-review.js").UnreadEvents[]}}
+ * @returns {import("./lib/morning-review.js").RepoRead}
  */
 function readRepo(root, windowSince, reads, reviews) {
 	const checkout = path.basename(root);
-	const { since, why } = review.repoStart(reviews[0], checkout, windowSince);
-	/** @type {Unread[]} */
-	const unreadStart = why === null ? [] : [{ repo: checkout, why }];
+	const start = review.repoStart(reviews[0], checkout, windowSince);
+	const { since } = start;
 	let repo = checkout;
 	try {
 		repo = requireKey("tracker", { root });
@@ -171,7 +185,7 @@ function readRepo(root, windowSince, reads, reviews) {
 				primitives,
 			},
 			unread: [
-				...unreadStart,
+				...review.startFaults(checkout, start),
 				...(torn === 0
 					? []
 					: [{ repo, why: `${torn} torn ledger line(s) skipped` }]),
@@ -182,11 +196,7 @@ function readRepo(root, windowSince, reads, reviews) {
 			unreadEvents: [],
 		};
 	} catch (e) {
-		return {
-			reading: null,
-			unread: [...unreadStart, { repo, why: parseErrLine(e) }],
-			unreadEvents: [{ checkout, since }],
-		};
+		return review.unreadRepo(checkout, start, repo, parseErrLine(e));
 	}
 }
 
@@ -586,9 +596,11 @@ function fileUnlessFiledToday(tracker, dryRun) {
 	const { since, why } = review.windowStart(previous, now);
 
 	const reads = dryRun ? freshReads() : reviewReads(review.localDate(now));
-	const read = discoverRepos(homeDir()).included.map((root) =>
-		readRepo(root, since, reads, reviews),
-	);
+	const { included, faulted } = discoverRepos(homeDir());
+	const read = [
+		...included.map((root) => readRepo(root, since, reads, reviews)),
+		...faulted.map((f) => faultedRepo(f, since, reviews)),
+	];
 	const body = review.renderReview({
 		since,
 		now: now.toISOString(),

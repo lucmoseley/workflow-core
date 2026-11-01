@@ -17,10 +17,8 @@
  * Caller: lib/refill-tick.js, in the review checkout with its environment.
  */
 
-const { spawnSync } = require("node:child_process");
 const path = require("node:path");
-const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
-const { childVerdict } = require("./lib/child-failure.js");
+const { spawnChild } = require("./lib/child-spawn.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const {
@@ -50,23 +48,12 @@ function main() {
 	const lock = pidLock(files.reviewPid, REVIEW_RUNNER);
 	if (!lock.acquire()) return;
 	try {
-		const r = spawnSync(
+		const { status, failed, out } = spawnChild(
 			process.execPath,
 			[path.join(__dirname, path.basename(run.script))],
-			{
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "pipe"],
-				timeout: REVIEW_TIMEOUT_MS,
-				maxBuffer: CHILD_MAX_BUFFER,
-			},
+			{ stdio: ["ignore", "pipe", "pipe"], timeout: REVIEW_TIMEOUT_MS },
 		);
-		const verdict = childVerdict({
-			status: r.status,
-			stdout: String(r.stdout ?? ""),
-			stderr: String(r.stderr ?? ""),
-			error: r.error,
-		});
-		writeJson(files.review, { ...run, status: r.status, ...verdict });
+		writeJson(files.review, { ...run, status, failed, out });
 	} finally {
 		lock.release();
 	}
