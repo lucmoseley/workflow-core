@@ -23,7 +23,12 @@
  * that does not load, retries a bad tip every tick, or re-execs under a gate
  * sweep's children.
  */
-import { type ChildProcess, execFileSync, spawn } from "node:child_process";
+import {
+	type ChildProcess,
+	execFileSync,
+	spawn,
+	spawnSync,
+} from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -31,6 +36,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { copyLibs, readProgramLibs } from "../lib-closure-fixture.js";
 import { makeProcRoot, writeCwd } from "./proc-fake";
 import {
+	bootLinkOf,
+	bootProgram,
 	codeUpdater,
 	launchProgram,
 	readRunningCode,
@@ -214,19 +221,25 @@ describe("launchProgram", () => {
 	});
 });
 
+/** Push the real loop and its libs, and clone a main checkout of them. */
+function pushRealLoop() {
+	const libs = path.join(dir, "libs");
+	copyLibs(libs, readProgramLibs("refill-loop.js"));
+	const files: Record<string, string> = {
+		".claude/workflow-core.json": "{}\n",
+		"scripts/refill-loop.js": fs.readFileSync(LOOP, "utf8"),
+	};
+	for (const f of fs.readdirSync(libs))
+		files[`scripts/lib/${f}`] = fs.readFileSync(path.join(libs, f), "utf8");
+	const tip = push(files);
+	const main = path.join(dir, "main");
+	git(dir, "clone", "-q", origin, main);
+	return { tip, main };
+}
+
 describe("start", () => {
 	it("spawns run from the loop-owned worktree at origin's tip, never the main checkout's working tree", async () => {
-		const libs = path.join(dir, "libs");
-		copyLibs(libs, readProgramLibs("refill-loop.js"));
-		const files: Record<string, string> = {
-			".claude/workflow-core.json": "{}\n",
-			"scripts/refill-loop.js": fs.readFileSync(LOOP, "utf8"),
-		};
-		for (const f of fs.readdirSync(libs))
-			files[`scripts/lib/${f}`] = fs.readFileSync(path.join(libs, f), "utf8");
-		const tip = push(files);
-		const main = path.join(dir, "main");
-		git(dir, "clone", "-q", origin, main);
+		const { tip, main } = pushRealLoop();
 		fs.appendFileSync(
 			path.join(main, "scripts", "refill-loop.js"),
 			"\n// dirty\n",
@@ -258,6 +271,136 @@ describe("start", () => {
 		} finally {
 			process.kill(-pid, "SIGKILL");
 		}
+	});
+});
+
+describe("the boot link (#3891)", () => {
+	const link = () => bootLinkOf(codeDir);
+	const scriptsDir = () => path.join(checkout, "scripts");
+
+	it("is made at the verified tip where no loop has made it, and kept once it resolves", () => {
+		const tip = git(dev, "rev-parse", "HEAD");
+		const program = path.join(link(), "scripts/refill-loop.js");
+		expect(bootProgram({ scriptsDir: scriptsDir(), codeDir })).toEqual({
+			program,
+		});
+		expect(fs.readlinkSync(link())).toBe(path.join(codeDir, tip));
+		push({ "scripts/lib/marker.js": 'module.exports = "two";\n' });
+		expect(bootProgram({ scriptsDir: scriptsDir(), codeDir })).toEqual({
+			program,
+		});
+		expect(fs.readlinkSync(link())).toBe(path.join(codeDir, tip));
+	});
+
+	it("is replaced where it names a worktree gone", () => {
+		fs.mkdirSync(path.dirname(link()), { recursive: true });
+		fs.symlinkSync(path.join(codeDir, "gone"), link());
+		bootProgram({ scriptsDir: scriptsDir(), codeDir });
+		expect(fs.readlinkSync(link())).toBe(
+			path.join(codeDir, git(dev, "rev-parse", "HEAD")),
+		);
+	});
+
+	it("is not made for a plugin install, nor where the code will not launch", () => {
+		const plugin = path.join(dir, "plugin", "scripts");
+		fs.mkdirSync(plugin, { recursive: true });
+		expect(bootProgram({ scriptsDir: plugin, codeDir })).toEqual({
+			program: path.join(plugin, "refill-loop.js"),
+		});
+		const empty = path.join(dir, "empty");
+		git(dir, "init", "-q", empty);
+		expect(bootProgram({ scriptsDir: empty, codeDir })).toEqual({
+			error: expect.stringMatching(/^no \S+ in /),
+		});
+		expect(fs.existsSync(link())).toBe(false);
+	});
+
+	it("follows the loop's image, so an adoption's pruning never leaves it dangling", async () => {
+		const first = await startLoop();
+		await moreTicks(1);
+		expect(fs.readlinkSync(link())).toBe(path.dirname(path.dirname(first)));
+		const tip = push({ "scripts/lib/marker.js": 'module.exports = "two";\n' });
+		await until(() => readTicks().some((l) => l.includes(" two ")), "two");
+		await moreTicks(2);
+		expect(fs.readlinkSync(link())).toBe(path.join(codeDir, tip));
+		expect(fs.readdirSync(codeDir)).toEqual([tip]);
+	});
+
+	it("keeps the worktrees where it will not move, logging why", async () => {
+		const stale = path.join(codeDir, "stale");
+		fs.mkdirSync(stale, { recursive: true });
+		/* A directory with something in it: no rename lands on it. */
+		fs.mkdirSync(path.join(link(), "x"), { recursive: true });
+		await startLoop();
+		await moreTicks(1);
+		expect(readLogLines().join("\n")).toContain("boot link not moved to ");
+		expect(fs.existsSync(stale)).toBe(true);
+	});
+
+	it("leaves the link and the worktrees alone for an image outside the code directory", async () => {
+		const worktree = path.join(codeDir, "named");
+		fs.mkdirSync(worktree, { recursive: true });
+		fs.symlinkSync(worktree, link());
+		// spawn-kept: the loop's image in the checkout itself, ticking beside the test
+		loopProc = spawn(
+			process.execPath,
+			[path.join(scriptsDir(), "refill-loop.js"), "run"],
+			{ env: { ...gitEnv, FIXTURE_DIR: dir }, stdio: "ignore" },
+		);
+		await until(() => readTicks().length > 1, "two ticks");
+		expect(fs.readlinkSync(link())).toBe(worktree);
+		expect(fs.existsSync(worktree)).toBe(true);
+	});
+
+	it("resumes at boot past a syntax error in the shared checkout's refill-loop.js", () => {
+		const { tip, main } = pushRealLoop();
+		const state = path.join(dir, "state");
+		const env = {
+			...gitEnv,
+			HOME: dir,
+			WFC_REFILL_DIR: state,
+			CLAUDE_PROJECT_DIR: main,
+			CLAUDE_CONFIG_DIR: path.join(dir, ".claude"),
+			WFC_CLAUDE_BIN: path.join(dir, "no-claude"),
+		};
+		const stateCode = path.join(state, ".refill-loop-code");
+		const boot = bootProgram({
+			scriptsDir: path.join(main, "scripts"),
+			codeDir: stateCode,
+		});
+		if ("error" in boot) throw new Error(boot.error);
+		fs.writeFileSync(
+			path.join(state, ".refill-loop-control.json"),
+			JSON.stringify({
+				noProgressFrom: Date.now(),
+				stopRequested: false,
+				seats: [],
+				scope: { mode: "normal", repos: [main], exclude: [], goals: {} },
+			}),
+		);
+		fs.appendFileSync(
+			path.join(main, "scripts/refill-loop.js"),
+			"\nthis is not javascript (\n",
+		);
+		// spawn-kept: the boot resume outlives its call in a detached loop, and node resolving the symlinked program is what is under test
+		const r = spawnSync(process.execPath, [boot.program, "boot-resume"], {
+			cwd: dir,
+			env,
+			encoding: "utf8",
+		});
+		expect(r.status, r.stderr).toBe(0);
+		const pid = Number(/resumed .*, pid (\d+)/.exec(r.stdout)?.[1]);
+		expect(pid, r.stdout).toBeGreaterThan(0);
+		try {
+			expect(
+				fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0")[1],
+			).toBe(path.join(stateCode, tip, "scripts", "refill-loop.js"));
+		} finally {
+			process.kill(-pid, "SIGKILL");
+		}
+		expect(
+			fs.readFileSync(path.join(state, ".refill-loop.log"), "utf8"),
+		).toContain("boot resume: resumed");
 	});
 });
 

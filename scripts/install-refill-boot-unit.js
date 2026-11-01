@@ -5,13 +5,14 @@
  * refill-loop-boot.service.template, turns linger on, and reads both back.
  * Enabled, not started: the unit first runs at the next boot.
  *
- * The unit names this copy of refill-loop.js, so a plugin install re-runs this
- * after a release bump moves it. Re-running replaces the unit.
+ * In a checkout the unit names the boot link (lib/refill-code.js), made here
+ * where no loop has made it. A plugin install names its own refill-loop.js, so
+ * re-runs this after a release bump moves it. Re-running replaces the unit.
  *
  * Joins no §N3 family: an install command, not a checker or a guard.
  *
- * Exit codes: 0; 1 where the read-back or a systemd call fails; 2 on a command
- * line, or a path the unit could not quote.
+ * Exit codes: 0; 1 where no code can be pinned, or the read-back or a systemd
+ * call fails; 2 on a command line, or a path the unit could not quote.
  */
 
 const { spawnSync } = require("node:child_process");
@@ -21,6 +22,8 @@ const path = require("node:path");
 const { claudeBin } = require("./lib/claude-bin.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { configDir } = require("./lib/config-dir.js");
+const { bootProgram } = require("./lib/refill-code.js");
+const { loopFiles } = require("./lib/refill-files.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 
@@ -50,8 +53,9 @@ function buildEnvironmentLine(name, value) {
  * @param {string} template
  * @param {string} shell
  * @param {string} script
+ * @param {string} log the loop's log
  */
-function buildUnitText(template, shell, script) {
+function buildUnitText(template, shell, script, log) {
 	const environment = [
 		buildEnvironmentLine("PATH", process.env.PATH ?? ""),
 		buildEnvironmentLine("CLAUDE_CONFIG_DIR", configDir()),
@@ -60,7 +64,8 @@ function buildUnitText(template, shell, script) {
 	return template
 		.replace("@ENVIRONMENT@", () => environment)
 		.replace("@SHELL@", () => shell)
-		.replace("@SCRIPT@", () => script);
+		.replace("@SCRIPT@", () => script)
+		.replace("@LOG@", () => log);
 }
 
 /**
@@ -82,8 +87,13 @@ function runCommand(file, args) {
 
 function install() {
 	const shell = process.env.SHELL || "/bin/bash";
-	const script = path.join(__dirname, "refill-loop.js");
-	for (const word of [shell, script])
+	const files = loopFiles();
+	const boot = bootProgram({ scriptsDir: __dirname, codeDir: files.code });
+	if ("error" in boot) {
+		writeFd(2, `no code for the unit to start: ${boot.error}\n`);
+		return 1;
+	}
+	for (const word of [shell, boot.program, files.log])
 		if (!PLAIN_PATH.test(word)) {
 			writeFd(2, `the unit cannot quote this path: ${word}\n`);
 			return 2;
@@ -99,7 +109,10 @@ function install() {
 	);
 	fs.mkdirSync(dir, { recursive: true });
 	const file = path.join(dir, UNIT);
-	fs.writeFileSync(file, buildUnitText(template, shell, script));
+	fs.writeFileSync(
+		file,
+		buildUnitText(template, shell, boot.program, files.log),
+	);
 
 	const user = os.userInfo().username;
 	const reload = runCommand("systemctl", ["--user", "daemon-reload"]);

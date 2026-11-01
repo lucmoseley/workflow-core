@@ -9,6 +9,9 @@ RemainAfterExit=yes
 # holds what the profile does not set.
 @ENVIRONMENT@
 ExecStart=@SHELL@ -lic "exec node @SCRIPT@ boot-resume"
+# Past any failure boot-resume itself could not log: code that will not load, or
+# no node.
+ExecStopPost=/bin/sh -c 'if [ "$$SERVICE_RESULT" != success ]; then echo "$$(date -u +%%FT%%TZ) boot resume: the unit failed ($$EXIT_CODE $$EXIT_STATUS), its error in journalctl --user -u refill-loop-boot.service" >> @LOG@; fi'
 WorkingDirectory=%h
 # The loop outlives this process and runs until `refill-loop.js stop`, so no
 # stop of this unit, and no kill inside its cgroup, may take it down.
