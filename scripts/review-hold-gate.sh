@@ -3,7 +3,7 @@
 # review-hold-gate.sh — the pre-commit hold on a declared sensitive path (#1622,
 # spec #1612 §The hold).
 #
-# IMPLICIT:  refuses a session's commit in the shared tree whose staged paths match a glob `sensitivePaths` declares in `.claude/workflow-core.json`, until the session's `.codereview-pass-<sid>` marker records `tier=escalated` or `tier=mission-critical`, `areas=` naming every matched area, `tree=` equal to the tree the commit carries, and `paths=` naming every path it changes; the refusal names the areas, the marker's fault and rule:review-hold. On a pass it leaves the marker's tier, areas, base, tree and paths in the git directory's `wfc-review-tier`, keyed to that tree, for scripts/review-tier-trailer.sh to write as the commit's `Review-Tier:` trailer (#3664).
+# IMPLICIT:  refuses a session's commit in the shared tree whose staged paths match a glob `sensitivePaths` declares in `.claude/workflow-core.json`, until the session's `.codereview-pass-<sid>` marker records `tier=escalated` or `tier=mission-critical`, `areas=` naming every matched area, `tree=` equal to the tree the commit carries, and `paths=` naming every path it changes; the refusal names the areas, the marker's fault and rule:review-hold. On a pass, in a linked worktree too, it leaves the marker's tier, areas, base, tree and paths in the git directory's `wfc-review-tier`, keyed to that tree, for scripts/review-tier-trailer.sh to write as the commit's `Review-Tier:` trailer (#3664).
 # JUSTIFIED: fail-safe — any neighbour's push publishes shared-`main` commits, and Manta deploys every push, so a review owed on sensitive code is a hold at commit or it is too late.
 # DEFEAT:    writing the marker's four lines by hand with no review behind them; `HUSKY=0` and `core.hooksPath` off .husky/_ skip it with the rest of the stack.
 #
@@ -15,11 +15,13 @@
 #
 # SKIPPED, silently:
 #   - with no CLAUDE_CODE_SESSION_ID: the founder's own terminal;
-#   - in a linked worktree;
 #   - during a rebase, a cherry-pick or `git am`, as scripts/lib/commit-route.sh
 #     reads the route: replayed bytes were held when first committed.
 # A session committing into a repo it did not start in is held: the
 # declaration read is the committing repo's, the marker the session's own.
+#
+# A LINKED WORKTREE is held to nothing (#3714): the same check runs, a marker
+# that would pass leaves the stamp, and one that would not passes in silence.
 #
 # LIMITS
 #  - The declaration is read at HEAD and as staged, never from the working
@@ -67,7 +69,6 @@ if ! gitdir="$(git rev-parse --absolute-git-dir 2>/dev/null)" ||
   ! common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"; then
   unchecked "could not read the git directory"
 fi
-[[ "$gitdir" == "$common" ]] || exit 0
 
 # shellcheck source=scripts/lib/commit-route.sh
 source "$here/lib/commit-route.sh" 2>/dev/null ||
@@ -158,6 +159,8 @@ if [[ -z "$fault" ]]; then
   }
   exit 0
 fi
+# A linked worktree is held to nothing: only a marker that passes marks it (#3714).
+[[ "$gitdir" == "$common" ]] || exit 0
 
 {
   echo "pre-commit: this commit changes a declared sensitive path, and no escalated review of exactly this change is recorded (#1622)."

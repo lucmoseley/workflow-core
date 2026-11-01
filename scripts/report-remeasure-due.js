@@ -26,14 +26,16 @@
  * Its trailer names no defect, so it counts only once an `**Escaped defect:**`
  * line names it, and its tree is the landed one, never the pinned pre-fix
  * tree. Read with `git log` in the checkout on this machine that tracks the
- * record's repo, at its HEAD, from TRAILER_FROM; there, a commit newer than
- * the repo's first trailer that changes a path its `sensitivePaths` declares
- * now and carries neither the trailer nor a record is reported as UNRECORDED,
- * each run until a record names it, a trailer not in its form as UNPARSEABLE,
- * and a checkout git cannot read as UNREAD. Judged from the first trailer, as
- * an adopter pinned to a release before #3664 writes none.
- * Residual: a repo with no such checkout goes unread, and the founder's own
- * terminal and a linked worktree, which the hold skips, are reported.
+ * record's repo, at its HEAD, from TRAILER_FROM; there, a commit that changes
+ * a path its `sensitivePaths` declares now and carries neither the trailer nor
+ * a record is reported as UNRECORDED, each run until a record names it, a
+ * trailer not in its form as UNPARSEABLE, and a checkout git cannot read as
+ * UNREAD. Judged from that fixed instant, not the repo's own first trailer, as
+ * a repo whose sessions never write a marker, or an adopter pinned before
+ * #3664, would never have one (#3714).
+ * Residual: a repo with no such checkout goes unread, and a commit from the
+ * founder's own terminal, which the hold skips, or a linked worktree's whose
+ * marker would not pass, is reported.
  *
  * ADOPTER AREAS ONLY (#3431): a commit recorded on this repo's own tracker is
  * never counted, its records still read for the reports below and its
@@ -121,8 +123,8 @@ const FLOOR = "2026-10-14";
 /* The day the rule named the pre-fix tree (#3444). The records before it
  * stand as filed, #3425 charting which of their defects replay. */
 const PINNED_FROM = "2026-10-29";
-/* The day #3664 landed: no commit before it carries a trailer. */
-const TRAILER_FROM = "2026-10-30";
+/* 591ef1a74's commit time (#3664): no commit before it carries a trailer. */
+const TRAILER_FROM = "2026-10-29T22:57:18+08:00";
 const SEARCH_CAP = 1000;
 /* GitHub's largest page: GraphQL's, for tickets and each ticket's comments,
  * and REST search's, for reverts. */
@@ -495,13 +497,11 @@ function parseTrailerLog(repo, out, declared, records) {
 			const [trailer = ""] = value.split("\n");
 			return { sha, trailer: trailer.trim(), names };
 		});
-	/* `git log` lists the newest first. */
-	const judged = commits.findLastIndex((c) => c.trailer !== "");
 	/** @type {ReviewRecord[]} */
 	const trailers = [];
 	/** @type {Unseen[]} */
 	const unseen = [];
-	for (const { sha, trailer, names } of commits.slice(0, judged + 1)) {
+	for (const { sha, trailer, names } of commits) {
 		const m = TRAILER.exec(trailer);
 		if (m) {
 			trailers.push({

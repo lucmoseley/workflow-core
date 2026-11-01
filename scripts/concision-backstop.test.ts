@@ -1404,7 +1404,7 @@ describe("a declared sensitive glob owes the escalated tier at any size — #161
 			},
 		);
 
-		// #1748: the hold skips a worktree commit, so the nag is its only signal.
+		// #1748: the hold refuses nothing in a worktree, so the nag is its only signal.
 		// Stop reads the shared tree alone, so it sees the commit once landed.
 		it("nags on an escalated change landed by fast-forward from a worktree, rejecting a standard review's marker", () => {
 			declare(["supabase/migrations/**"]);

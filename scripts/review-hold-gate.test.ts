@@ -6,7 +6,8 @@
  * every matched area and the exact tree the commit carries. Break it and
  * unreviewed sensitive code lands on the shared `main`, where any neighbour's
  * push publishes it, or every session commit on a declared path is refused
- * with no way out.
+ * with no way out. A linked worktree is refused nothing, but a marker that
+ * would pass still leaves the trailer's stamp (#3714).
  *
  * Driven through real `git commit`s in a throwaway repo whose pre-commit hook
  * runs the live script, because the hold reads the index git builds for the
@@ -23,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ledgerHead } from "./lib/arbiter-testkit";
 import { mkScratchDir } from "./lib/git-fixture";
 import { coreCall, HOOK } from "./lib/precommit-gate-testkit";
+import { reviewSuffix } from "./lib/review-suffix";
 import { runInProcess } from "./lib/run-in-process";
 import { readShellConst } from "./lib/shell-const-testkit";
 
@@ -98,10 +100,14 @@ const runMarkerLib = (
 	});
 
 /** A pathspec commit, as commit-paths.js makes; with no paths, the index as staged. */
-const commit = (paths: string[], { sid = SID, cwd = repo } = {}) => {
+const commit = (
+	paths: string[],
+	{ sid = SID, cwd = repo, projectDir = "" } = {},
+) => {
 	const env: Record<string, string | undefined> = {
 		...quietEnv(),
 		CLAUDE_CODE_SESSION_ID: sid,
+		...(projectDir ? { CLAUDE_PROJECT_DIR: projectDir } : {}),
 	};
 	delete env.GIT_REFLOG_ACTION;
 	return spawnSync(
@@ -119,9 +125,9 @@ const commit = (paths: string[], { sid = SID, cwd = repo } = {}) => {
 };
 
 /** What `commit-paths.js --tree` prints, the tree review-hold.txt names. */
-const treeOf = (args: string[]) => {
+const treeOf = (args: string[], cwd = repo) => {
 	const r = runInProcess(COMMIT_PATHS, ["--tree", ...args], {
-		cwd: repo,
+		cwd,
 		env: quietEnv(),
 	});
 	expect(r.stderr).toBe("");
@@ -454,7 +460,7 @@ describe("review-hold-gate.sh — passes", () => {
 		expect(r.status).toBe(0);
 	});
 
-	it("passes a commit in a linked worktree", () => {
+	it("passes a commit in a linked worktree with no marker, in silence (#3714)", () => {
 		const wt = path.join(scratch, "wt");
 		git("worktree", "add", "-q", "--detach", wt);
 		write(SECRET, "new\n", wt);
@@ -603,8 +609,8 @@ describe("review-hold-gate.sh — the marker's other readers", () => {
 			expect(reason).toContain("Run the code-review skill");
 		});
 
-		// The hold skips a worktree, so there the Stop nag and the push warning
-		// are the only readers of the marker.
+		// The hold refuses nothing in a worktree, so there the Stop nag and the
+		// push warning are the only checks a marker's fault meets.
 		it("leaves the Stop nag owed in a worktree for a commit landed with a staged marker that has no paths= (#1840)", () => {
 			const wt = path.join(scratch, "wt");
 			git("worktree", "add", "-q", "--detach", wt);
@@ -791,6 +797,93 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 		expect(
 			Prepare.match(/^ {2}review_tier_trailer "\$\{1-\}"$/gm),
 		).toHaveLength(2);
+	});
+
+	describe("in a linked worktree (#3714)", () => {
+		let wt: string;
+		const readWtTrailer = () =>
+			git(
+				"-C",
+				wt,
+				"log",
+				"-1",
+				"--format=%(trailers:key=Review-Tier,valueonly)",
+			);
+		const wtStamp = () =>
+			path.join(
+				git("-C", wt, "rev-parse", "--absolute-git-dir"),
+				"wfc-review-tier",
+			);
+
+		beforeEach(() => {
+			wt = path.join(scratch, "wt");
+			git("worktree", "add", "-q", "--detach", wt);
+		});
+
+		// The harness sets CLAUDE_PROJECT_DIR to the shared tree on every Bash
+		// call, so the marker the writer leaves there is the one the gate reads.
+		it("trails a commit whose marker write-review-marker.js wrote from the worktree, the host's tree unchanged", () => {
+			const base = git("-C", wt, "rev-parse", "HEAD");
+			write(SECRET, "new\n", wt);
+			const artefacts = path.join(wt, ".claude", "tmp");
+			fs.mkdirSync(artefacts, { recursive: true });
+			for (const axis of ["standards", "spec"])
+				fs.writeFileSync(
+					path.join(artefacts, `review-${axis}${reviewSuffix(SID)}.md`),
+					"- no findings\n",
+				);
+			const written = runInProcess(
+				WRITE_MARKER,
+				[
+					"--base",
+					"HEAD",
+					"--findings",
+					"0",
+					"--tier",
+					"escalated",
+					"--areas",
+					"secrets",
+					"--paths",
+					SECRET,
+				],
+				{
+					cwd: wt,
+					env: {
+						...quietEnv(),
+						CLAUDE_CODE_SESSION_ID: SID,
+						CLAUDE_PROJECT_DIR: repo,
+					},
+				},
+			);
+			expect(written.stderr).toBe("");
+			expect(written.status).toBe(0);
+			const tree = treeOf(["--", SECRET], wt);
+			const r = commit([SECRET], { cwd: wt, projectDir: repo });
+			expect(r.stderr).toBe("");
+			expect(r.status).toBe(0);
+			expect(readWtTrailer()).toBe(
+				`escalated; areas=secrets; base=${base}; tree=${tree}; paths=${SECRET}`,
+			);
+			expect(fs.existsSync(wtStamp())).toBe(false);
+			expect(fs.existsSync(stamp())).toBe(false);
+		});
+
+		it("lands with no trailer and no refusal where the marker's tree= is stale, leaving no stamp", () => {
+			write(SECRET, "reviewed\n", wt);
+			const tree = treeOf(["--", SECRET], wt);
+			const markers = path.join(wt, ".claude", "tmp", "markers");
+			fs.mkdirSync(markers, { recursive: true });
+			fs.writeFileSync(
+				path.join(markers, `.codereview-pass-${SID}`),
+				`base=${git("-C", wt, "rev-parse", "HEAD")}\nfindings=0\ntier=escalated\nareas=secrets\ntree=${tree}\npaths=${SECRET}\n`,
+			);
+			write(SECRET, "edited after the review\n", wt);
+			const r = commit([SECRET], { cwd: wt });
+			expect(r.stderr).toBe("");
+			expect(r.status).toBe(0);
+			expect(readWtTrailer()).toBe("");
+			expect(fs.existsSync(wtStamp())).toBe(false);
+		});
 	});
 
 	it("writes the marker's tier, areas, base, tree and paths on a held commit, and consumes the stamp", () => {

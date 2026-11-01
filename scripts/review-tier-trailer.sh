@@ -6,7 +6,7 @@
 #
 # IMPLICIT:  consumes the git directory's `wfc-review-tier`, which scripts/review-hold-gate.sh leaves on a pass, and where its tree is the one this commit carries, writes `Review-Tier: <tier>; areas=<a,b>; base=<sha>; tree=<sha>; paths=<p,q>` into the message file, replacing any the message already carries.
 # JUSTIFIED: reach — scripts/report-remeasure-due.js counts a commit by it where no `**Review findings:**` comment names it.
-# DEFEAT:    any route that skips the hold skips the trailer with it: the founder's own terminal, a linked worktree, `HUSKY=0`.
+# DEFEAT:    any route that skips the hold skips the trailer with it: the founder's own terminal, `HUSKY=0`; and a linked worktree's commit whose marker would not pass the hold, which it does not refuse there, has none.
 #
 #   bash scripts/review-tier-trailer.sh <message file>     from .husky/prepare-commit-msg
 #

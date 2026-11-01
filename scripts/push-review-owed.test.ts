@@ -141,7 +141,7 @@ describe("what the adapter answers (#1163)", () => {
 		},
 	);
 
-	// #1748: the hold skips a worktree commit, so this warn is its only signal.
+	// #1748: the hold refuses nothing in a worktree, so this warn is its only signal.
 	it("reads an escalated range committed in a worktree from there, rejecting a standard review's marker", () => {
 		const rel = "supabase/migrations/001_rls.sql";
 		declareRls();

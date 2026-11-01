@@ -22,6 +22,11 @@
  * a marker holding one without the other. Under `--patch` it names the patched
  * files too, and the tree is built with those left to the patch.
  *
+ * FROM A LINKED WORKTREE (#3714), `--base`, `--paths` and the tree read that
+ * worktree, where the commit is made, and an artefact counts in it or in the
+ * host, wherever the run's working directory put it. The marker stays in the
+ * host's store, which the hold, the nag and the warning read.
+ *
  * Joins no §N3 family: it writes a marker, not a file `generate-*` owns, and
  * its exits are its own — 0 written, 1 the write or the tree failed, 2 a
  * usage error or a refusal.
@@ -34,7 +39,7 @@ const { caught } = require("./lib/caught.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { commitSha } = require("./lib/commit-sha.js");
 const { spawnGitSync } = require("./lib/git.js");
-const { hostRoot } = require("./lib/host-root.js");
+const { hostRoot, worktreeRoot } = require("./lib/host-root.js");
 const { markersDir } = require("./lib/marker-root.js");
 const { numstatPaths } = require("./lib/patch-files.js");
 const { reviewSuffix } = require("./lib/review-suffix.js");
@@ -83,23 +88,26 @@ function fullSha(root, rev) {
 }
 
 /**
- * @param {string} root
+ * @param {string[]} roots the trees an artefact counts in
  * @param {string} sid
  * @param {boolean} noSpec
  */
-function missingArtefacts(root, sid, noSpec) {
+function missingArtefacts(roots, sid, noSpec) {
 	const axes = noSpec ? ["standards"] : ["standards", "spec"];
 	return axes
 		.map((axis) =>
 			path.join(".claude", "tmp", `review-${axis}${reviewSuffix(sid)}.md`),
 		)
-		.filter((rel) => {
-			try {
-				return fs.statSync(path.join(root, rel)).size === 0;
-			} catch {
-				return true;
-			}
-		});
+		.filter(
+			(rel) =>
+				!roots.some((root) => {
+					try {
+						return fs.statSync(path.join(root, rel)).size > 0;
+					} catch {
+						return false;
+					}
+				}),
+		);
 }
 
 /**
@@ -250,9 +258,10 @@ function main() {
 	if (!sid) fail("CLAUDE_CODE_SESSION_ID is not set. Nothing written.", 2);
 	const o = optionsOrFail(flags);
 
-	const root = hostRoot();
+	const host = hostRoot();
+	const treeRoot = worktreeRoot();
 	if (o.skipped === undefined) {
-		const missing = missingArtefacts(root, sid, o.noSpec);
+		const missing = missingArtefacts([treeRoot, host], sid, o.noSpec);
 		if (missing.length > 0)
 			fail(
 				`no review left its artefact at ${missing.join(" or ")}. Run the code-review skill, its axes appending to those paths, then re-run. A pure deletion or mechanical rename takes --skipped deletion|rename --findings 0 instead. Nothing written.`,
@@ -260,24 +269,24 @@ function main() {
 			);
 	}
 
-	const lines = [`base=${fullSha(root, o.base)}`, `findings=${o.findings}`];
+	const lines = [`base=${fullSha(treeRoot, o.base)}`, `findings=${o.findings}`];
 	if (o.tier !== undefined)
 		lines.push(`tier=${o.tier}`, `areas=${commaList(o.areas ?? "").join(",")}`);
 	if (o.paths.length > 0) {
-		const paths = repoRelative(root, o.paths);
+		const paths = repoRelative(treeRoot, o.paths);
 		lines.push(
-			`tree=${readTreeOf(root, paths, o.patch)}`,
+			`tree=${readTreeOf(treeRoot, paths, o.patch)}`,
 			`paths=${paths.join(",")}`,
 		);
 	}
 
-	const marker = path.join(markersDir(root), `.codereview-pass-${sid}`);
+	const marker = path.join(markersDir(host), `.codereview-pass-${sid}`);
 	try {
 		fs.writeFileSync(marker, `${lines.join("\n")}\n`);
 	} catch (e) {
 		fail(`could not write ${marker} (${caught(e).message}).`, 1);
 	}
-	writeFd(1, `wrote ${path.relative(root, marker)}:\n${lines.join("\n")}\n`);
+	writeFd(1, `wrote ${path.relative(host, marker)}:\n${lines.join("\n")}\n`);
 }
 
 main();

@@ -36,9 +36,9 @@ afterEach(() => {
 });
 
 const env = { ...process.env, CLAUDE_PROJECT_DIR: "" };
-const run = (args: string[], sid = SID) =>
+const run = (args: string[], sid = SID, cwd = repo) =>
 	runInProcess(SCRIPT, args, {
-		cwd: repo,
+		cwd,
 		env: { ...env, CLAUDE_PROJECT_DIR: repo, CLAUDE_CODE_SESSION_ID: sid },
 	});
 
@@ -47,9 +47,9 @@ const marker = () =>
 const readMarkerText = () => fs.readFileSync(marker(), "utf8");
 
 /** The tree `commit-paths.js --tree <args>` prints in the repo. */
-const readTree = (args: string[]) => {
+const readTree = (args: string[], cwd = repo) => {
 	const r = runInProcess(COMMIT_PATHS, ["--tree", ...args], {
-		cwd: repo,
+		cwd,
 		env: { ...env, CLAUDE_PROJECT_DIR: repo },
 	});
 	if (r.status !== 0)
@@ -57,13 +57,64 @@ const readTree = (args: string[]) => {
 	return r.stdout.trim();
 };
 
-const artefact = (axis: "standards" | "spec", text = "- no findings\n") => {
-	fs.mkdirSync(path.join(repo, ".claude", "tmp"), { recursive: true });
+const artefact = (
+	axis: "standards" | "spec",
+	text = "- no findings\n",
+	root = repo,
+) => {
+	fs.mkdirSync(path.join(root, ".claude", "tmp"), { recursive: true });
 	fs.writeFileSync(
-		path.join(repo, ".claude", "tmp", `review-${axis}-abcdef12.md`),
+		path.join(root, ".claude", "tmp", `review-${axis}-abcdef12.md`),
 		text,
 	);
 };
+
+describe("run from a linked worktree (#3714)", () => {
+	const wt = () => `${repo}-wt`;
+	const inWorktree = (args: string[]) => run(args, SID, wt());
+	const Flags = ["--base", "HEAD", "--findings", "1"];
+
+	beforeEach(() => {
+		git("worktree", "add", "-q", "-b", "landing", wt());
+		fs.writeFileSync(path.join(wt(), "b.js"), "earlier\n");
+		git("-C", wt(), "add", "b.js");
+		git("-C", wt(), "commit", "-qm", "earlier");
+	});
+
+	afterEach(() => {
+		fs.rmSync(wt(), { recursive: true, force: true });
+	});
+
+	it("reads the base and the tree there, takes the artefacts there, and writes the marker in the host's store", () => {
+		artefact("standards", undefined, wt());
+		artefact("spec", undefined, wt());
+		fs.writeFileSync(path.join(wt(), "a.js"), "changed there\n");
+		const r = inWorktree([...Flags, "--paths", "a.js"]);
+		expect(r.stderr).toBe("");
+		expect(r.status).toBe(0);
+		const head = git("-C", wt(), "rev-parse", "HEAD");
+		expect(readMarkerText()).toBe(
+			`base=${head}\nfindings=1\ntree=${readTree(["--", "a.js"], wt())}\npaths=a.js\n`,
+		);
+	});
+
+	it("takes the artefacts from the host where the runs left them there", () => {
+		artefact("standards");
+		artefact("spec");
+		expect(inWorktree(Flags).status).toBe(0);
+		expect(fs.existsSync(marker())).toBe(true);
+	});
+
+	it("refuses, writing nothing, where neither tree holds an artefact", () => {
+		const r = inWorktree(Flags);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(
+			`no review left its artefact at ${path.join(".claude", "tmp", "review-standards-abcdef12.md")} or`,
+		);
+		expect(r.stderr).toContain("Run the code-review skill");
+		expect(fs.existsSync(marker())).toBe(false);
+	});
+});
 
 describe("a review that left both artefacts", () => {
 	it("writes base= as the full sha and findings=", () => {

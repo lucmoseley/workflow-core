@@ -240,14 +240,17 @@ function checkout(fx: ReturnType<typeof fixture>) {
 		}).trim();
 }
 
+const buildUnrecordedFault = (landed: string | undefined) =>
+	`o/manta@${landed} changes the sensitive area secrets and carries neither a Review-Tier: trailer nor a **Review findings:** record, so it is not counted until a record names it, as \`scripts/lib/rule-text.sh review-tier-records\` says`;
+
 /**
  * A checkout under `fx`'s home tracking o/manta, which declares lib/secret.js
  * sensitive, holding one commit per `commits` entry, dated after the trailer
- * landed; returns their shas.
+ * landed unless it says otherwise; returns their shas.
  */
 function trailerCheckout(
 	fx: ReturnType<typeof fixture>,
-	commits: { file: string; trailer?: string }[],
+	commits: { file: string; trailer?: string; date?: string }[],
 ) {
 	const code = path.join(fx.root, "manta");
 	initGitRepo(code, path.join(fx.root, ".hooks"));
@@ -267,23 +270,27 @@ function trailerCheckout(
 			],
 		}),
 	);
-	const env = {
-		...process.env,
-		GIT_AUTHOR_DATE: "2026-11-01T12:00:00Z",
-		GIT_COMMITTER_DATE: "2026-11-01T12:00:00Z",
-	};
-	const git = (...a: string[]) =>
-		execFileSync("git", a, { cwd: code, encoding: "utf8", env }).trim();
-	return commits.map(({ file, trailer }, i) => {
+	const git = (date: string, ...a: string[]) =>
+		execFileSync("git", a, {
+			cwd: code,
+			encoding: "utf8",
+			env: {
+				...process.env,
+				GIT_AUTHOR_DATE: date,
+				GIT_COMMITTER_DATE: date,
+			},
+		}).trim();
+	return commits.map(({ file, trailer, date = "2026-11-01T12:00:00Z" }, i) => {
 		fs.mkdirSync(path.join(code, path.dirname(file)), { recursive: true });
 		fs.writeFileSync(path.join(code, file), `${i}\n`);
-		git("add", "-A");
+		git(date, "add", "-A");
 		git(
+			date,
 			"commit",
 			"-qm",
 			`change ${i}${trailer === undefined ? "" : `\n\nReview-Tier: ${trailer}`}`,
 		);
-		return git("rev-parse", "HEAD");
+		return git(date, "rev-parse", "HEAD");
 	});
 }
 
@@ -664,7 +671,7 @@ describe("the re-measure trigger", () => {
 		);
 	});
 
-	it("counts a commit by its Review-Tier: trailer with no record, once where a record names it too, and reports a malformed trailer and a sensitive commit carrying neither, judged from the repo's first trailer (#3664)", () => {
+	it("counts a commit by its Review-Tier: trailer with no record, once where a record names it too, and reports a malformed trailer and a sensitive commit carrying neither, older than the repo's first trailer too (#3664, #3714)", () => {
 		const fx = fixture({
 			hits: {},
 			issues: [
@@ -679,9 +686,8 @@ describe("the re-measure trigger", () => {
 		});
 		const trailer = (n: number) =>
 			`escalated; areas=secrets; base=${"b".repeat(40)}; tree=${String(n).repeat(40)}; paths=lib/secret.js`;
-		const [, alone, both, neither, , declined, malformed] = trailerCheckout(
-			fx,
-			[
+		const [earliest, alone, both, neither, , declined, malformed] =
+			trailerCheckout(fx, [
 				{ file: "lib/secret.js" },
 				{ file: "lib/secret.js", trailer: trailer(1) },
 				{ file: "lib/secret.js", trailer: trailer(2) },
@@ -689,8 +695,7 @@ describe("the re-measure trigger", () => {
 				{ file: "app/page.tsx" },
 				{ file: "lib/secret.js" },
 				{ file: "lib/secret.js", trailer: "escalated; no fields" },
-			],
-		);
+			]);
 		fx.setHits({
 			"o/manta": [
 				{
@@ -706,11 +711,11 @@ describe("the re-measure trigger", () => {
 			],
 		});
 		const r = run(fx);
-		const fault = `o/manta@${neither} changes the sensitive area secrets and carries neither a Review-Tier: trailer nor a **Review findings:** record, so it is not counted until a record names it, as \`scripts/lib/rule-text.sh review-tier-records\` says`;
+		const fault = buildUnrecordedFault(neither);
 		expect(r).toEqual({
 			code: 0,
 			stdout: "",
-			stderr: `UNPARSEABLE: o/manta@${malformed} has a Review-Tier: trailer not in scripts/review-tier-trailer.sh's form, so it is not counted by it: escalated; no fields\nUNRECORDED: ${fault}\n`,
+			stderr: `UNPARSEABLE: o/manta@${malformed} has a Review-Tier: trailer not in scripts/review-tier-trailer.sh's form, so it is not counted by it: escalated; no fields\nUNRECORDED: ${fault}\nUNRECORDED: ${buildUnrecordedFault(earliest)}\n`,
 		});
 		expect(readGuardErrorsLog(fx.config)).toContain(
 			`report-remeasure-due\t${fault}`,
@@ -726,6 +731,29 @@ describe("the re-measure trigger", () => {
 			`- o/manta@${alone}: Review-Tier: trailer alone, base ${"b".repeat(40)}, landed tree ${"1".repeat(40)}, paths lib/secret.js; 1 escaped`,
 		);
 		expect(body).not.toContain(`@${both}`);
+	});
+
+	it("reports a sensitive commit landed from a linked worktree in a repo with no trailer anywhere, from 591ef1a74's commit time and not before (#3714)", () => {
+		const fx = fixture({ hits: {} });
+		const [, atInstant] = trailerCheckout(fx, [
+			{ file: "lib/secret.js", date: "2026-10-29T14:57:17Z" },
+			{ file: "lib/secret.js", date: "2026-10-29T14:57:18Z" },
+		]);
+		const code = path.join(fx.root, "manta");
+		const wt = path.join(fx.root, "wt");
+		const git = (cwd: string, ...a: string[]) =>
+			execFileSync("git", a, { cwd, encoding: "utf8" }).trim();
+		git(code, "worktree", "add", "-q", "-b", "landing", wt);
+		fs.writeFileSync(path.join(wt, "lib", "secret.js"), "from a worktree\n");
+		git(wt, "commit", "-qam", "from a worktree");
+		const landed = git(wt, "rev-parse", "HEAD");
+		git(code, "merge", "-q", "--ff-only", "landing");
+		const r = run(fx);
+		expect(r).toEqual({
+			code: 0,
+			stdout: "",
+			stderr: `UNRECORDED: ${buildUnrecordedFault(landed)}\nUNRECORDED: ${buildUnrecordedFault(atInstant)}\n`,
+		});
 	});
 
 	it("reports a checkout whose commits git cannot read as unread (#3664)", () => {
