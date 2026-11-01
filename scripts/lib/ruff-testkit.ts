@@ -37,6 +37,28 @@ export function writeRuffStub(file: string, argsFile: string, exit = 0): void {
 	fs.chmodSync(file, 0o755);
 }
 
+/**
+ * How a failing stub fails: `config` as a ruff with an unloadable config, on any
+ * blob; `syntax` on any blob but an empty one (both held to ruff by
+ * ruff.contract.test.ts); `killed` by a signal; `vanishes`, deleted once it has
+ * failed, so a rerun cannot start. The last two have no free real ruff to
+ * compare against.
+ */
+export type RuffFailure = "config" | "syntax" | "killed" | "vanishes";
+
+const FAILURE_BODY: Record<RuffFailure, string> = {
+	config: `console.error("stub config fault"); process.exit(2);`,
+	syntax: `if (require("node:fs").readFileSync(0, "utf8") === "") process.exit(0);
+console.error("stub syntax fault"); process.exit(2);`,
+	killed: `process.kill(process.pid, "SIGKILL");`,
+	vanishes: `require("node:fs").unlinkSync(process.argv[1]); process.exit(2);`,
+};
+
+export function writeFailingRuffStub(file: string, failure: RuffFailure): void {
+	fs.writeFileSync(file, `#!${process.execPath}\n${FAILURE_BODY[failure]}\n`);
+	fs.chmodSync(file, 0o755);
+}
+
 /** Each stub invocation's argv, in call order. */
 export function readStubCalls(argsFile: string): string[][] {
 	if (!fs.existsSync(argsFile)) return [];

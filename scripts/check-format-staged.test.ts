@@ -10,8 +10,9 @@
  *
  * The checker runs in process in a throwaway repo, the hook block as `sh`.
  * shfmt is the core's own pinned copy, resolved through the checker's fallback
- * since the fixture has no node_modules; the Python cases need the machine's
- * ruff and skip without it, CI's node job having none.
+ * since the fixture has no node_modules; the real-ruff cases need the machine's
+ * ruff and skip without it, CI's node job having none, so a failing ruff is also
+ * stubbed for that job to judge it.
  *
  * It is the format gate: loosen a case and unformatted shell or Python lands,
  * or a commit is refused for a neighbour's unstaged file.
@@ -30,7 +31,12 @@ import {
 	type TempRepo,
 } from "./lib/precommit-gate-harness";
 import { ROOT, writeCheckerDelegates } from "./lib/precommit-gate-testkit";
-import { REAL_RUFF, writeHostConfig } from "./lib/ruff-testkit";
+import {
+	REAL_RUFF,
+	type RuffFailure,
+	writeFailingRuffStub,
+	writeHostConfig,
+} from "./lib/ruff-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const temps = registerTempCleanup();
@@ -40,6 +46,14 @@ const SH_OK = "if true; then\n  echo x\nfi\n";
 const SH_BAD = "if true; then\n\techo x\nfi\n";
 const PY_OK = 'print("x")\n';
 const PY_BAD = "print( 'x' )\n";
+const PY_SYNTAX_ERROR = "def (:\n";
+const WAY_OUT = `Fix its config, or reinstall it: ${RUFF_INSTALL}`;
+
+function writeFailingRuff(r: TempRepo, failure: RuffFailure): string {
+	const file = path.join(r.root, "ruff-stub");
+	writeFailingRuffStub(file, failure);
+	return file;
+}
 
 /** A repo with `staged` written and staged over a one-file seed commit. */
 function repo(staged: Record<string, string>): TempRepo {
@@ -140,8 +154,98 @@ describe.skipIf(!REAL_RUFF)(
 			writeHostConfig(r.root, { ruffExclude: [".scratch"] });
 			expect(check(r).code).toBe(0);
 		});
+
+		it("refuses a staged .py with a syntax error as UNPARSEABLE, naming it (#3825)", () => {
+			const { code, output } = check(repo({ "pkg/a.py": PY_SYNTAX_ERROR }), {
+				args: ["--json"],
+			});
+			expect(output).toMatch(/"tag":\s*"UNPARSEABLE"/);
+			expect(output).toMatch(/pkg\/a\.py: ruff format exited 2/);
+			expect(code).toBe(1);
+		});
+
+		it("is BROKEN on a ruff config that will not load, naming no staged path (#3825)", () => {
+			const r = repo({ "pkg/a.py": PY_OK });
+			fs.writeFileSync(path.join(r.root, "ruff.toml"), "not toml [[[\n");
+			const { code, output } = check(r);
+			expect(output).toMatch(/BROKEN: .*format cannot run:/);
+			expect(output).toMatch(/ruff\.toml/);
+			expect(output).toContain(WAY_OUT);
+			expect(output).not.toContain("pkg/a.py");
+			expect(code).toBe(2);
+		});
+
+		it("is BROKEN on a nested config, keeping a true finding on a path before it and clearing no path (#3825)", () => {
+			const r = repo({ "a.py": PY_BAD, "sub/b.py": PY_OK });
+			fs.writeFileSync(path.join(r.root, "ruff.toml"), "line-length = 88\n");
+			fs.writeFileSync(path.join(r.root, "sub/ruff.toml"), "not toml [[[\n");
+			const { code, output } = check(r);
+			expect(output).toMatch(/a\.py: not ruff-formatted/);
+			expect(output).toMatch(/BROKEN: .*format cannot run:/);
+			expect(output).not.toMatch(/none is at fault/);
+			expect(output).not.toContain("sub/b.py");
+			expect(code).toBe(2);
+		});
 	},
 );
+
+describe("check-format-staged — a ruff that fails (#3825)", () => {
+	it("is BROKEN where the empty blob fails too", () => {
+		const r = repo({ "pkg/a.py": PY_OK });
+		const { code, output } = check(r, {
+			ruff: writeFailingRuff(r, "config"),
+		});
+		expect(output).toMatch(/BROKEN: .*format cannot run: stub config fault/);
+		expect(output).toContain(WAY_OUT);
+		expect(output).not.toContain("pkg/a.py");
+		expect(code).toBe(2);
+	});
+
+	it("reads ruff's own exit where it fails before reading a blob too big for the pipe", () => {
+		const r = repo({ "pkg/a.py": "# x\n".repeat(100_000) });
+		const { code, output } = check(r, {
+			ruff: writeFailingRuff(r, "config"),
+		});
+		expect(output).toMatch(/BROKEN: .*format cannot run: stub config fault/);
+		expect(output).not.toMatch(/EPIPE/);
+		expect(code).toBe(2);
+	});
+
+	it("is UNPARSEABLE where only the staged blob fails, naming the fix", () => {
+		const r = repo({ "pkg/a.py": PY_OK });
+		const ruff = writeFailingRuff(r, "syntax");
+		const { code, output } = check(r, { ruff, args: ["--json"] });
+		expect(output).toMatch(/"tag":\s*"UNPARSEABLE"/);
+		expect(output).toMatch(
+			/pkg\/a\.py: ruff format exited 2: stub syntax fault/,
+		);
+		expect(code).toBe(1);
+		expect(check(r, { ruff }).output).toMatch(/ruff format <path> for Python/);
+	});
+
+	it("is BROKEN where a signal kills it, naming no staged path", () => {
+		const r = repo({ "pkg/a.py": PY_OK });
+		const { code, output } = check(r, {
+			ruff: writeFailingRuff(r, "killed"),
+		});
+		expect(output).toMatch(/BROKEN: .*killed by SIGKILL/);
+		expect(output).toContain(WAY_OUT);
+		expect(output).not.toContain("pkg/a.py");
+		expect(code).toBe(2);
+	});
+
+	it("is BROKEN with the spawn's own error where the rerun cannot start", () => {
+		const r = repo({ "pkg/a.py": PY_OK });
+		const { code, output } = check(r, {
+			ruff: writeFailingRuff(r, "vanishes"),
+		});
+		expect(output).toMatch(/BROKEN: .*format cannot run: .*ENOENT/);
+		expect(output).not.toMatch(/undefined/);
+		expect(output).toContain(WAY_OUT);
+		expect(output).not.toContain("pkg/a.py");
+		expect(code).toBe(2);
+	});
+});
 
 describe("check-format-staged — a formatter that is not installed (#1354)", () => {
 	const noRuff = { ruff: "/nonexistent/ruff" };
@@ -288,6 +392,19 @@ describe("the .husky/pre-commit format gate", () => {
 		const { code, output } = gate(repo({ "pkg/a.py": PY_OK }), envNoRuff);
 		expect(output).toContain(RUFF_INSTALL);
 		expect(output).toMatch(/the format gate refused/);
+		expect(output).not.toMatch(/own shell or Python paths/);
+		expect(code).toBe(2);
+	});
+
+	it("blames no staged paths where ruff fails on the empty blob too (#3825)", () => {
+		const r = repo({ "pkg/a.py": PY_OK });
+		const { code, output } = gate(r, {
+			WFC_RUFF: writeFailingRuff(r, "config"),
+		});
+		expect(output).toContain(WAY_OUT);
+		expect(output).toMatch(
+			/the format gate refused this commit, its checker unable to run/,
+		);
 		expect(output).not.toMatch(/own shell or Python paths/);
 		expect(code).toBe(2);
 	});
