@@ -77,6 +77,7 @@ const {
 	DISPATCHER,
 	files,
 	log,
+	reviewRunning,
 	say,
 	servedRoots,
 	tick,
@@ -358,9 +359,13 @@ async function run() {
 				`${wake.recheck ? "re-checking after wake" : "woken"}${wake.sessions.length > 0 ? ` by ${wake.sessions.join(", ")}` : ""}`,
 			);
 		try {
-			/* Before the sweep starts, so the image it replaces has no child. */
+			/* Before the sweep starts, so the image it replaces has no child.
+			 * A review runner runs from this image's worktree too (#3765). */
 			updater?.adoptIfMoved({
-				hold: sweeper.busy() || readControlFile(log)?.stopRequested === true,
+				hold:
+					sweeper.busy() ||
+					reviewRunning() ||
+					readControlFile(log)?.stopRequested === true,
 			});
 			startGateSweep(sweeper);
 			const { decision, startedAt, agents } = await tick({ dryRun: false });

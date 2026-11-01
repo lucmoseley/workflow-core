@@ -25,7 +25,6 @@ import { decideTick, FULL, hasRoom } from "./refill-decide.js";
 import {
 	actsOf,
 	buildFinishLine,
-	buildReviewRunLines,
 	buildReviewSkip,
 	buildSeatName,
 	capArgs,
@@ -41,8 +40,7 @@ import {
 	parseScope,
 	parseState,
 	readSizedSeats,
-	reviewRunOf,
-	reviewRunRecorded,
+	reviewStep,
 	runningOf,
 	scopeRoots,
 	seatReadingOf,
@@ -1418,22 +1416,30 @@ describe("when a tick files the morning review (#2017)", () => {
 		["once today's review is filed", at(12), "2026-10-19", answering],
 		["before REVIEW_HOUR", at(3), null, answering],
 	])("picks the review child %s (#3405, #3478)", (_, now, lastRunOn, run) => {
-		expect(reviewRunOf(now, lastRunOn)).toEqual(run);
+		expect(
+			reviewStep({ lastRunOn, now, running: false, finished: null }).start,
+		).toEqual({ ...run, today: "2026-10-19" });
 	});
 
-	it("records the day off a due tick's review status, never past a timeout or on a tick not due", () => {
-		const run = (status: number | null, due = true) =>
-			reviewRunRecorded({
-				due,
-				status,
+	it("records the day off a due run's status, never past a timeout or off a run not due", () => {
+		const runOn = (status: number | null, due = true) =>
+			reviewStep({
 				lastRunOn: "2026-10-18",
-				today: "2026-10-19",
-			});
-		expect(run(0)).toBe("2026-10-19");
-		expect(run(2)).toBe("2026-10-19");
-		expect(run(1)).toBe("2026-10-18");
-		expect(run(null)).toBe("2026-10-18");
-		expect(run(0, false)).toBe("2026-10-18");
+				now: at(12),
+				running: true,
+				finished: {
+					...(due ? filing : answering),
+					today: "2026-10-19",
+					status,
+					out: "",
+					failed: null,
+				},
+			}).runOn;
+		expect(runOn(0)).toBe("2026-10-19");
+		expect(runOn(2)).toBe("2026-10-19");
+		expect(runOn(1)).toBe("2026-10-18");
+		expect(runOn(null)).toBe("2026-10-18");
+		expect(runOn(0, false)).toBe("2026-10-18");
 	});
 
 	it("logs a missing config once, on the due tick, and records it (#3604)", () => {
@@ -1452,26 +1458,103 @@ describe("when a tick files the morning review (#2017)", () => {
 	});
 
 	it.each([
-		["a due tick, quiet", true, { out: "" }, ["morning review: exit 0\n  "]],
+		["a due run, quiet", true, { out: "" }, ["morning review: exit 0\n  "]],
 		[
-			"a not-due tick with output",
+			"a not-due run with output",
 			false,
 			{ out: "answered #9\nanswered #10" },
 			["morning review reversals: exit 0\n  answered #9\n  answered #10"],
 		],
 		[
-			"a not-due tick that failed",
+			"a not-due run that failed",
 			false,
 			{ out: "", failed: "exit 1" },
 			["morning review reversals: exit 1\n  "],
 		],
-		["a quiet not-due tick", false, { out: "" }, []],
+		["a quiet not-due run", false, { out: "" }, []],
 	])(
-		"logs the review child's line only where due, printed or failed: %s (#3604)",
+		"logs a finished run's line only where due, printed or failed: %s (#3604)",
 		(_, due, ran, lines) => {
-			expect(buildReviewRunLines(due ? filing : answering, ran)).toEqual(lines);
+			expect(
+				reviewStep({
+					lastRunOn: null,
+					now: at(12),
+					running: true,
+					finished: {
+						...(due ? filing : answering),
+						today: "2026-10-19",
+						status: "failed" in ran ? 1 : 0,
+						failed: null,
+						...ran,
+					},
+				}).lines,
+			).toEqual(lines);
 		},
 	);
+
+	describe("the step a tick takes, its child detached (#3765)", () => {
+		const today = "2026-10-19";
+		const ran = (status: number | null) => ({
+			...filing,
+			today,
+			status,
+			out: "filed #900",
+			failed: status === 0 ? null : `exit ${status}`,
+		});
+
+		it("starts no second run while one is running", () => {
+			expect(
+				reviewStep({
+					lastRunOn: null,
+					now: at(8),
+					running: true,
+					finished: null,
+				}),
+			).toEqual({ runOn: null, lines: [], start: null });
+		});
+
+		it("starts the filing on a due tick with none running", () => {
+			expect(
+				reviewStep({
+					lastRunOn: "2026-10-18",
+					now: at(8),
+					running: false,
+					finished: null,
+				}),
+			).toEqual({
+				runOn: "2026-10-18",
+				lines: [],
+				start: { ...filing, today },
+			});
+		});
+
+		it("records a finished filing's day, logs it, and starts only the reversals after it", () => {
+			expect(
+				reviewStep({
+					lastRunOn: "2026-10-18",
+					now: at(9),
+					running: false,
+					finished: ran(0),
+				}),
+			).toEqual({
+				runOn: today,
+				lines: ["morning review: exit 0\n  filed #900"],
+				start: { ...answering, today },
+			});
+		});
+
+		it("files again after a run that was killed, recording no day", () => {
+			const step = reviewStep({
+				lastRunOn: "2026-10-18",
+				now: at(9),
+				running: false,
+				finished: ran(null),
+			});
+			expect(step.runOn).toBe("2026-10-18");
+			expect(step.lines).toEqual(["morning review: exit null\n  filed #900"]);
+			expect(step.start).toEqual({ ...filing, today });
+		});
+	});
 
 	it("keeps the last run's date across a state round trip", () => {
 		expect(parseState({ reviewRunOn: "2026-10-19" }).reviewRunOn).toBe(
