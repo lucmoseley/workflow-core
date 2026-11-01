@@ -15,6 +15,7 @@ const {
 	closeEdge,
 	parseHistoryCursor,
 	repoStart,
+	unreadRepo,
 	windowStart,
 } = require("./morning-review.js");
 const { basisFaults } = require("./issue-gate.js");
@@ -124,6 +125,25 @@ describe("repoStart (#3831)", () => {
 			since: NOW,
 			why: `#7's Events unread line, so events before ${NOW}`,
 		});
+	});
+});
+
+describe("unreadRepo (#3834)", () => {
+	it("names the repo and carries the checkout's start", () => {
+		const start = { since: SINCE, why: null };
+		expect(unreadRepo("wfc", start, "acme/wfc", "no read")).toEqual({
+			reading: null,
+			unread: [{ repo: "acme/wfc", why: "no read" }],
+			unreadEvents: [{ checkout: "wfc", since: SINCE }],
+		});
+	});
+
+	it("names a start that would not read as well", () => {
+		const start = { since: SINCE, why: "bad line" };
+		expect(unreadRepo("wfc", start, "acme/wfc", "no read").unread).toEqual([
+			{ repo: "wfc", why: "bad line" },
+			{ repo: "acme/wfc", why: "no read" },
+		]);
 	});
 });
 
