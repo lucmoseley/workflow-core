@@ -1,8 +1,10 @@
 // @vitest-environment node
 /*
- * The held-queue issue closed once `main` holds its batch (#3636).
+ * The held-queue issue closed once `main` holds its batch (#3636), and naming
+ * each fix ticket still owed (#3777).
  *
- * Loosen it and the issue closes while its batch is still held, or never.
+ * Loosen it and the issue closes while its batch is still held, or never, or
+ * says nothing of a ticket only the heartbeat then records.
  */
 import { expect, it } from "vitest";
 import { heldQueueFiler } from "./held-queue.js";
@@ -11,14 +13,23 @@ import type { FixTicket } from "./lander.js";
 const B = "b".repeat(40);
 const C = "c".repeat(40);
 
-const release = (body: string, held: string[]) => {
-	const closed: string[] = [];
-	const line = heldQueueFiler({
-		openIssue: () => ({ number: 9, labels: [], body }),
+const filer = (
+	deps: Partial<Parameters<typeof heldQueueFiler>[0]>,
+): ReturnType<typeof heldQueueFiler> =>
+	heldQueueFiler({
+		openIssue: () => null,
 		similar: () => [],
 		fileIssue: () => ({ status: 0, stdout: "", stderr: "" }),
 		refresh: () => "",
 		addLabels: () => undefined,
+		close: () => undefined,
+		...deps,
+	});
+
+const release = (body: string, held: string[]) => {
+	const closed: string[] = [];
+	const line = filer({
+		openIssue: () => ({ number: 9, labels: [], body }),
 		close: (_, comment) => {
 			closed.push(comment);
 		},
@@ -51,16 +62,11 @@ it("closes a body naming no batch on any move of main", () => {
 it("names on the issue each fix ticket still owed, and none where none is", () => {
 	const filed = (owed: FixTicket[]) => {
 		const bodies: string[] = [];
-		heldQueueFiler({
-			openIssue: () => null,
-			similar: () => [],
+		filer({
 			fileIssue: (_, body) => {
 				bodies.push(body);
 				return { status: 0, stdout: "Filed #9", stderr: "" };
 			},
-			refresh: () => "",
-			addLabels: () => undefined,
-			close: () => undefined,
 		}).holdQueue({ batch: B, reason: "r", failing: null, owed });
 		return bodies[0];
 	};
@@ -74,5 +80,8 @@ it("names on the issue each fix ticket still owed, and none where none is", () =
 	};
 
 	expect(filed([ticket])).toContain("- `bbbbbbbbb`, reverted in `ccccccccc`");
-	expect(filed([])).not.toContain("Fix tickets");
+	expect(filed([ticket])).toContain(
+		"- [ ] Each fix ticket named above is filed.",
+	);
+	expect(filed([])).not.toMatch(/fix ticket/i);
 });

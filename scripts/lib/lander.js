@@ -1035,7 +1035,7 @@ function nextAction(s) {
  *   null where it held on a refused push and no red batch, and the fix tickets
  *   still owed
  * @typedef {{landing: string|null, reason: string, filed: string,
- *   owes?: string}} HoldNote the last hold a run filed: its tip as `heldTip`
+ *   owedCulprit?: string}} HoldNote the last hold a run filed: its tip as `heldTip`
  *   pins it, what the held-queue filing printed, and the culprit whose unfiled
  *   fix ticket is its cause
  * @typedef {{hold?: HoldNote, red?: Red, owed?: FixTicket[]}} BeatNote a
@@ -1360,9 +1360,7 @@ async function runLander(deps) {
  * @property {HoldNote|null} held the last run's hold, until the remote says
  *   whether its tip still stands
  * @property {Red|null} unread the last run's red batch, likewise
- * @property {FixTicket[]} owed the fix tickets that failed to file, the
- *   heartbeat being their only sure record, as a held-queue issue may not have
- *   filed either
+ * @property {FixTicket[]} owed the fix tickets that failed to file
  * @property {string|null} movedAt when a lander last moved `main`, which the
  *   stall check counts from (#2692)
  */
@@ -1444,6 +1442,9 @@ function recordMove(run, carry, sha) {
  * Tries each fix ticket a past run failed to file, once a run, as the filer
  * finds one already open (#3777). A filed ticket releases the hold it caused,
  * and the last one the held-queue issue that `main` has since passed.
+ * Residual: a run starts only where `landing` is ahead of `main`, so once the
+ * queue has drained the next try waits on the next push, and the filer does
+ * not find a ticket filed and closed since, which it files again.
  * @param {LanderDeps} run
  * @param {Carry} carry accumulator: the tickets still owed and the last hold
  */
@@ -1455,14 +1456,16 @@ async function fileOwed(run, carry) {
 			say(tracker.fileFixTicket(t));
 			return false;
 		} catch (err) {
+			/* Reported, not thrown: a broken filer must not stop the queue. */
 			say(
 				`fix ticket for ${short(t.culprit)} still owed: ${caught(err).message}`,
 			);
 			return true;
 		}
 	});
-	const owes = carry.held?.owes;
-	if (owes && !carry.owed.some((t) => t.culprit === owes)) carry.held = null;
+	const culprit = carry.held?.owedCulprit;
+	if (culprit && !carry.owed.some((t) => t.culprit === culprit))
+		carry.held = null;
 	run.beat(null);
 	if (carry.owed.length > 0) return;
 	const { main } = await remote(run, () => git.refs());
@@ -1470,10 +1473,10 @@ async function fileOwed(run, carry) {
 }
 
 /**
- * Files the hold, then, where `landing` has passed it, sets the run on the
- * batch it hands on; returns whether it did.
+ * Owes the hold's fix ticket, files the hold, then, where `landing` has passed
+ * it, sets the run on the batch it hands on; returns whether it did.
  * @param {LanderDeps} run
- * @param {Carry} carry accumulator: the run's state
+ * @param {Carry} carry accumulator: the run's state and the tickets still owed
  * @param {Extract<Action, {kind: "hold"}>} hold
  * @param {Refs} refs the remote when the hold was chosen
  */
@@ -1620,7 +1623,7 @@ function holdQueue(
 			landing: red ? heldTip(red) : batch,
 			reason: hold.reason,
 			filed,
-			...(hold.ticket ? { owes: hold.ticket.culprit } : {}),
+			...(hold.ticket ? { owedCulprit: hold.ticket.culprit } : {}),
 		},
 		...(next ? { red: next } : {}),
 	});
@@ -1629,8 +1632,10 @@ function holdQueue(
 /**
  * Whether `landing` holds a tip past the one a hold pins, for the run to take
  * up (#3769). Never on a refused push, as the tip may be the sha refused
- * (#3329). Residual: a push made while the hold is filed goes unread until a
- * later run takes it up.
+ * (#3329). An unfiled fix ticket does not stop it: the ticket stays owed in the
+ * heartbeat and on the open held-queue issue, as a filer no push can mend would
+ * otherwise stop the queue (#3777). Residual: a push made while the hold is
+ * filed goes unread until a later run takes it up.
  * @param {LanderGit} git
  * @param {RunState} state
  * @param {string|null} landing

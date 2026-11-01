@@ -820,10 +820,18 @@ describe("runLander on a red batch", () => {
 			fileFails: "fix ticket for ccccccccc not filed: gh down",
 		});
 		expect(r.beats.at(-1)?.hold?.landing).toBe(R);
-		expect(r.end).toMatchObject({
+		expect(r.end).toEqual({
 			kind: "hold",
 			reason:
 				"ccccccccc is reverted in eeeeeeeee, but its fix ticket is not filed: fix ticket for ccccccccc not filed: gh down",
+			ticket: {
+				culprit: C,
+				parent: B,
+				revert: R,
+				files: FILES,
+				jobs: [],
+				stale: STALE,
+			},
 		});
 		expect(r.pushes.map((p) => p.sha)).toEqual([B]);
 	});
@@ -841,14 +849,14 @@ describe("runLander on a red batch", () => {
 			landing: R,
 			reason: "ccccccccc is reverted, but its fix ticket is not filed",
 			filed: "Filed #2",
-			owes: C,
+			owedCulprit: C,
 		};
 
 		it("hands it on in the hold's last beat, naming it on the held-queue issue", async () => {
 			const r = await redBatch((sha) => sha === C || sha === D, {
 				fileFails: "gh down",
 			});
-			expect(r.beats.at(-1)?.hold?.owes).toBe(C);
+			expect(r.beats.at(-1)?.hold?.owedCulprit).toBe(C);
 			expect(r.beats.at(-1)?.owed).toMatchObject([{ culprit: C, revert: R }]);
 			expect(r.holds.at(-1)?.owed).toMatchObject([{ culprit: C, revert: R }]);
 		});
@@ -899,6 +907,27 @@ describe("runLander on a red batch", () => {
 			expect(second.tickets).toEqual([ticket]);
 			expect(second.closed).toEqual([{ sha: F, batch: D }]);
 			expect(second.beats.at(-1)?.owed).toBeUndefined();
+		});
+
+		it("hands it on where the hold also names a file already red on main", async () => {
+			const known = "y.test.ts";
+			const r = await run(
+				{ main: A, landing: D },
+				(sha, files) => {
+					if (files === undefined && sha !== R)
+						return { kind: "red", files: [...FILES, known] };
+					if (sha === A) return { kind: "red", files: [known] };
+					if (files !== undefined && (sha === C || sha === D))
+						return { kind: "red", files };
+					return { kind: "green" };
+				},
+				{ history: [B, C, D], fileFails: "gh down" },
+			);
+			expect(r.end).toMatchObject({
+				kind: "hold",
+				reason: expect.stringContaining("already red on `main`"),
+			});
+			expect(r.beats.at(-1)?.owed).toMatchObject([{ culprit: C, revert: R }]);
 		});
 
 		it("names it on a later batch's hold", async () => {

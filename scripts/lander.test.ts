@@ -197,6 +197,7 @@ it("does nothing with the landing module off", async () => {
  */
 const stubTracker = () => {
 	const store = path.join(tmp, "issues.json");
+	const refuseReland = path.join(tmp, "refuse-reland");
 	fs.writeFileSync(store, "[]");
 	const gh = stubGhScript(
 		tmp,
@@ -214,6 +215,10 @@ if (is("issue", "list")) {
 } else if (is("api") && a[1].endsWith("/labels")) {
 	out([[{ name: "urgent" }, { name: "bug" }, { name: "takes:implement" }, { name: "kind:ticket" }]]);
 } else if (is("issue", "create")) {
+	if (flag("--title").startsWith("Re-land") && fs.existsSync(${JSON.stringify(refuseReland)})) {
+		process.stderr.write("gh down\\n");
+		process.exit(1);
+	}
 	const all = read();
 	const number = 100 + all.length;
 	const labels = a.flatMap((w, i) => (w === "--label" ? [{ name: a[i + 1] }] : []));
@@ -244,7 +249,7 @@ if (is("issue", "list")) {
 		JSON.stringify({ tracker: "o/here" }),
 	);
 	const readStore = () => JSON.parse(fs.readFileSync(store, "utf8"));
-	return { store, gh, readStore };
+	return { store, refuseReland, gh, readStore };
 };
 
 it("files one held-queue issue over two holds in a row, urgent and bug, refreshing its body to the second batch and re-adding a label taken off (#2694)", async () => {
@@ -319,6 +324,46 @@ it("closes the held-queue issue once a later run lands past its batch, naming th
 	expect(issue.state).toBe("CLOSED");
 	expect(issue.closing).toContain(fix);
 	expect(moved.stdout).toContain(`held-queue issue: closed #${issue.number}.`);
+});
+
+it("files on a later run the fix ticket a run failed to file, across the heartbeat, then lands the revert and closes the held-queue issue (#3777)", async () => {
+	const { refuseReland, gh, readStore } = stubTracker();
+	fs.writeFileSync(refuseReland, "");
+	const middle = commit("broken");
+	git(work, "push", "-q", "origin", "HEAD:landing");
+	const tester = path.join(tmp, "tester.sh");
+	fs.writeFileSync(
+		tester,
+		`#!/bin/sh\nif git cat-file -e "$1:broken.txt" 2>/dev/null; then echo scripts/broken.test.ts; exit 1; fi\nexit 0\n`,
+	);
+	fs.chmodSync(tester, 0o755);
+
+	const held = await runLander(tester, "landing", gh.env);
+
+	expect(held.status, held.stderr).toBe(0);
+	const reverted = git(remote, "rev-parse", "landing");
+	expect(git(remote, "rev-parse", "main")).not.toBe(reverted);
+	const heartbeat = () =>
+		JSON.parse(
+			fs.readFileSync(path.join(markers(), ".lander-heartbeat.json"), "utf8"),
+		);
+	expect(heartbeat().owed).toMatchObject([
+		{ culprit: middle, revert: reverted },
+	]);
+	expect(readStore().map((i: { title: string }) => i.title)).toEqual([
+		"Landing queue held: the lander cannot clear a batch",
+	]);
+
+	fs.rmSync(refuseReland);
+	const later = await runLander(tester, "landing", gh.env);
+
+	expect(later.status, later.stderr).toBe(0);
+	expect(git(remote, "rev-parse", "main")).toBe(reverted);
+	expect(heartbeat().owed).toBeUndefined();
+	const [queue, ticket] = readStore();
+	expect(queue.state).toBe("CLOSED");
+	expect(ticket.title).toMatch(/^Re-land /);
+	expect(ticket.state).toBe("OPEN");
 });
 
 it("takes a revert already on landing as landed rather than reverting twice, reading the rows it left stale, as a retried push finds one (#2673, #3127)", () => {

@@ -45,6 +45,7 @@ const { actionsTester, namedRerun } = require("./lib/actions-tester.js");
 const { localTester } = require("./lib/local-tester.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const { liveQueueDeps } = require("./lib/queue-issue.js");
+const { similarTitles } = require("./lib/tracker-ops.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
 const {
@@ -147,7 +148,9 @@ function liveFiler(root) {
 					throw new Error(`git log could not read ${sha}: ${r.stderr.trim()}`);
 				return r.stdout;
 			},
-			similar: deps.similar,
+			/* Throws on an unread list, unlike deps.similar: a retried ticket that
+			 * reached the tracker must not be filed a second time. */
+			similar: (title) => similarTitles(repo(), title).found,
 			fileIssue: deps.fileIssue,
 			stateOf: (n) =>
 				gh([

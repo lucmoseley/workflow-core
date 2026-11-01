@@ -1,7 +1,8 @@
 /*
  * held-queue.js — the one issue the lander keeps open while it holds the
  * landing queue (#2406, spec #2261), filed as lib/queue-issue.js files it and
- * closed by the lander once `main` holds its batch (#3636).
+ * closed by the lander once `main` holds its batch and it names no fix ticket
+ * still owed (#3636, #3777).
  */
 
 const { failingList, short } = require("./lander.js");
@@ -25,7 +26,7 @@ ${failing === null ? "" : `\nFailing:\n${failingList(failing)}\n`}${buildOwedSec
 ## Acceptance criteria
 
 - [ ] A commit pushed to \`landing\` fixes or reverts what holds the batch, and the lander lands the new tip on \`main\`.
-`;
+${owed.length === 0 ? "" : "- [ ] Each fix ticket named above is filed.\n"}`;
 }
 
 /**
@@ -35,7 +36,7 @@ ${failing === null ? "" : `\nFailing:\n${failingList(failing)}\n`}${buildOwedSec
 const buildOwedSection = (owed) =>
 	owed.length === 0
 		? ""
-		: `\nFix tickets the lander has not filed, tried again each run; this issue stays open until they are:\n${owed.map((t) => `- \`${short(t.culprit)}\`, reverted in \`${short(t.revert)}\``).join("\n")}\n`;
+		: `\nFix tickets the lander has not filed, which it tries again each run. A tip pushed past the hold still lands, so the queue may be moving while this stays open:\n${owed.map((t) => `- \`${short(t.culprit)}\`, reverted in \`${short(t.revert)}\``).join("\n")}\n`;
 
 /**
  * @param {import("./queue-issue.js").QueueIssueDeps} deps
