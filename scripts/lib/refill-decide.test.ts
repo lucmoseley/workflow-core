@@ -679,6 +679,83 @@ describe("decideTick on a seat whose cap fits only the floor's member (#2432)", 
 	});
 });
 
+describe("decideTick's resumes of held sessions (#3855)", () => {
+	const held = (jobId: string, at: number) => ({
+		jobId,
+		at,
+		line: `${jobId} held`,
+	});
+	const jobs = (d: { resumes: { jobId: string }[] }) =>
+		d.resumes.map((r) => r.jobId);
+	const newest = held("new", NOW - HOUR);
+	const middle = held("mid", NOW - 2 * HOUR);
+	const oldest = held("old", NOW - 3 * HOUR);
+
+	it("orders resumes oldest first, whatever order they were read in", () => {
+		const d = tick({ freeSlots: 3, resumable: [newest, oldest, middle] });
+		expect(jobs(d)).toEqual(["old", "mid", "new"]);
+	});
+
+	it("shares the free slots with launches, resumes taken first", () => {
+		const d = tick({ freeSlots: 3, resumable: [newest, oldest] });
+		expect(jobs(d)).toEqual(["old", "new"]);
+		expect(launched(d)).toEqual(["wfc#1"]);
+	});
+
+	it("leaves overflow resumes for a later tick and launches nothing", () => {
+		const d = tick({ freeSlots: 2, resumable: [newest, middle, oldest] });
+		expect(jobs(d)).toEqual(["old", "mid"]);
+		expect(d).toMatchObject({
+			launches: [],
+			idle: "resumes take every free slot",
+		});
+		expect(jobs(tick({ freeSlots: 1, resumable: [newest] }))).toEqual(["new"]);
+	});
+
+	it("resumes nothing with no slot free, or on the founder's kept slot", () => {
+		expect(tick({ freeSlots: 0, resumable: [oldest] })).toMatchObject({
+			resumes: [],
+			idle: "no free slot",
+		});
+		expect(
+			tick({ freeSlots: 1, lastPromptAt: NOW, resumable: [oldest] }),
+		).toMatchObject({
+			resumes: [],
+			idle: "one free slot is kept for the founder",
+		});
+	});
+
+	it("resumes though no seat fits a launch: a resume goes back to its own seat", () => {
+		const d = tick({
+			freeSlots: 2,
+			seats: [seat("a", 10, FULL, null)],
+			resumable: [oldest],
+		});
+		expect(jobs(d)).toEqual(["old"]);
+		expect(d).toMatchObject({ launches: [] });
+	});
+
+	it("does not overrun a launch's cap, which stays the seat's own", () => {
+		const d = tick({
+			freeSlots: 3,
+			seats: [seat("a", 10, 10, 1)],
+			resumable: [oldest],
+		});
+		expect(jobs(d)).toEqual(["old"]);
+		expect(launched(d)).toEqual(["wfc#1"]);
+	});
+
+	it("names each resume a stop leaves due", () => {
+		const d = tick({ stopRequested: true, resumable: [oldest] });
+		expect(d).toMatchObject({
+			stop: "explicit",
+			detail:
+				"stop was requested; left with a resume due, acted on only by the next start: old held",
+		});
+		expect(d).not.toHaveProperty("resumes");
+	});
+});
+
 describe("decideTick free slot", () => {
 	it("keeps one slot free while the founder is present", () => {
 		const d = tick({ lastPromptAt: NOW - PRESENT_WINDOW_MS + 1 });
@@ -930,6 +1007,37 @@ describe("decideTick on parked rows (#3621)", () => {
 		expect(
 			d.launches.map((l: { parkedRoute?: unknown }) => l.parkedRoute),
 		).toEqual([unread, unread, undefined]);
+	});
+
+	it("gives the one free slot to a parked row over a higher-ranked one (#3872)", () => {
+		const d = tick({
+			mode: "normal",
+			freeSlots: 1,
+			frontier: [row("wfc", 1), parked(2, "2026-10-18T09:00:00Z")],
+		});
+		expect(launched(d)).toEqual(["wfc#2"]);
+		expect(d.launches[0].parkedRoute).toBeDefined();
+	});
+
+	it("leaves a row whose label has gone in its rank, resuming nothing though a marker still lists it (#3872)", () => {
+		const d = tick({
+			mode: "normal",
+			freeSlots: 9,
+			frontier: [row("wfc", 1), row("wfc", 2)],
+			parkers: [
+				{
+					root: "wfc",
+					number: 2,
+					sessionId: "s-2",
+					job: { seat: "/s1", jobId: "j-2", cwd: "wfc" },
+					resumeCwd: "wfc",
+				},
+			],
+		});
+		expect(launched(d)).toEqual(["wfc#1", "wfc#2"]);
+		expect(
+			d.launches.map((l: { parkedRoute?: unknown }) => l.parkedRoute),
+		).toEqual([undefined, undefined]);
 	});
 
 	it("puts an unreadable park start first, as the oldest", () => {

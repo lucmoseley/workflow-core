@@ -728,6 +728,7 @@ const idle = (why: string) => ({
 	skipped: [],
 	idle: why,
 	held: [],
+	resumes: [],
 });
 function settleOnce(
 	decision: Tick["decision"],
@@ -799,6 +800,7 @@ function settleOnce(
 		{
 			readControl,
 			launchBatch: dispatch,
+			resumeHeld: (_resumes, launches) => ({ launches, started: 0 }),
 			runReview: (lastRunOn) => lastRunOn,
 			writeState: (next) => writes.push(next),
 			readOmittedDirs: readOmitted ?? (() => omitted),
@@ -840,7 +842,7 @@ describe("the first overflow launch's record (#3767)", () => {
 			reason: "overflow" as const,
 		};
 		const { lines } = settleOnce(
-			{ launches: [launch], skipped: [], idle: null, held: [] },
+			{ launches: [launch], skipped: [], idle: null, held: [], resumes: [] },
 			1,
 			[],
 			{
@@ -965,6 +967,7 @@ describe("a tick's log line (#2362)", () => {
 			],
 			idle: "nothing launchable",
 			held: [],
+			resumes: [],
 		};
 		const writes: Parameters<typeof settleTick>[0]["state"][] = [];
 		expect(
@@ -1058,6 +1061,7 @@ describe("a tick's log line (#2362)", () => {
 			skipped: [],
 			idle: "nothing launchable",
 			held: [],
+			resumes: [],
 		};
 		expect(logged(none, 3, [], { read: { rows: 0, ms: 9100 } })).toBe(
 			"idle: nothing launchable (free slots: 3; frontier: 0 rows in 9.1 s)",
@@ -1079,6 +1083,7 @@ describe("a tick's log line (#2362)", () => {
 			skipped: [],
 			idle: null,
 			held: [],
+			resumes: [],
 		};
 		expect(logged(decision, 2, [])).toBe(
 			"launch wfc /implement 1 on /s2 (soonest reset)",
@@ -1111,6 +1116,7 @@ describe("a tick's log line (#2362)", () => {
 			skipped: [],
 			idle: null,
 			held: [],
+			resumes: [],
 		};
 		const line = logged(decision, 2, [], {
 			dispatch: ([a, b]) => ({
@@ -1136,6 +1142,7 @@ describe("a tick's log line (#2362)", () => {
 			skipped: [],
 			idle: null,
 			held: [],
+			resumes: [],
 		};
 		let reads = 0;
 		const line = logged(decision, 2, [], {
@@ -1584,6 +1591,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 			skipped: [],
 			idle: null,
 			held: [],
+			resumes: [],
 		};
 		const settled = settleTick(
 			{
@@ -1623,6 +1631,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 								refused: [],
 							};
 				},
+				resumeHeld: (_resumes, launches) => ({ launches, started: 0 }),
 				readOmittedDirs: () => [],
 				runReview: (lastRunOn) => {
 					onReview(stop);

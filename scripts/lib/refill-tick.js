@@ -129,6 +129,7 @@ const {
 } = require("./refill-files.js");
 const refillBatch = require("./refill-batch.js");
 const blocks = require("./refill-blocks.js");
+const { sleepSync } = require("./sleep-sync.js");
 const { localDate } = require("./morning-review.js");
 const { pidLock } = require("./pid-lock.js");
 const { PARKED_PROMPT } = require("./loop-prompts.js");
@@ -1008,6 +1009,12 @@ const blockIo = (served) => ({
 	type: typeResume,
 	resumeTargetOf: readResumeTargetOf,
 	resumeStopped,
+	admitResume: () =>
+		readFreeSlots().slots > 0 ? null : "admission's re-read finds no free slot",
+	/* dispatch-sessions.sh's STAGGER_SECONDS, whose default and measurement
+	 * these are (mantahostels#2588): the next re-read counts the bg-spare. */
+	stagger: () =>
+		sleepSync(Number(process.env.WFC_DISPATCH_STAGGER_SECONDS ?? 2) * 1000),
 	moveSession,
 	removeJobRecord,
 	jobStateOf: readJobRecordOf,
@@ -1190,6 +1197,7 @@ async function tick({ dryRun }) {
 		judgements: gates
 			.readGateStore(files.gates, log)
 			.pending.filter((j) => served.includes(j.root)),
+		resumable: blocks.resumableOf(launches, seen),
 	};
 	const { decision, read } = await decide(input, control.scope);
 	if (dryRun)
@@ -1204,6 +1212,8 @@ async function tick({ dryRun }) {
 		{
 			readControl,
 			launchBatch: launchOrResume,
+			resumeHeld: (resumes, held, isStopped) =>
+				blocks.resumeHeldLaunches(resumes, held, seen, isStopped),
 			runReview,
 			writeState: (next) => writeJson(files.state, next),
 			readOmittedDirs: () => readOmittedDirs(declared),

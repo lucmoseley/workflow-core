@@ -385,6 +385,7 @@ async function printDryRun() {
 		`morning review: ${loop.isReviewRunDue(new Date(), reviewRunOn) ? "the filing is due, then reversals" : "reversals only"}`,
 	);
 	if ("stop" in d) return 0;
+	for (const r of d.resumes) say(`would resume ${r.line}`);
 	const overflow = new Set(
 		readDeclaredSeats()
 			.seats.filter((s) => s.kind === "overflow")
