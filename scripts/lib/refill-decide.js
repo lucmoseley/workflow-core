@@ -262,7 +262,10 @@ const readsFull = (s) => s.weekFull || s.sessionFull || s.fits === 0;
  * @returns {S[]}
  */
 function orderPlanSeats(seats, typedSeat) {
-	/** @param {S} s */
+	/**
+	 * @param {S} s
+	 * @returns {[number, number]}
+	 */
 	const key = (s) => [
 		s.seat === typedSeat ? 0 : 1,
 		s.weekResets ?? Number.POSITIVE_INFINITY,

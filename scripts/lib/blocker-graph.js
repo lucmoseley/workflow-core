@@ -231,14 +231,18 @@ async function blockerGraph(served, ownRepo, read) {
 	const childrenUnread = new Map();
 	const foreignOpen = await read.each(toRead, async ({ s, local }) => {
 		const r = await read.subIssues({ repo: ownRepo, number: s.number });
-		if (r.ok)
-			return r.edges.filter((e) => e.state === "open" && !isServed(e)).length;
+		if (r.ok) {
+			const foreign = r.edges.filter(
+				(e) => e.state === "open" && !isServed(e),
+			).length;
+			return { number: s.number, local, foreign };
+		}
 		childrenUnread.set(s.number, r.error);
-		return Math.max(0, s.openSubIssues - local);
+		const foreign = Math.max(0, s.openSubIssues - local);
+		return { number: s.number, local, foreign };
 	});
-	toRead.forEach(({ s, local }, i) => {
-		if (foreignOpen[i] > 0) openChildren.set(s.number, local + foreignOpen[i]);
-	});
+	for (const { number, local, foreign } of foreignOpen)
+		if (foreign > 0) openChildren.set(number, local + foreign);
 	return { nodes, holds, parentOf, openChildren, childrenUnread, ownRepo };
 }
 
