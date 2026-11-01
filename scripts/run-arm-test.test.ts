@@ -1171,6 +1171,42 @@ describe("report", () => {
 		});
 	});
 
+	it("reports, not scores, a run the scorer refuses for an unclassed Stop guard, naming the guard (#3761)", () => {
+		const root = path.join(tmp, "p");
+		const unclassed = [
+			{
+				type: "attachment",
+				uuid: "a-unclassed",
+				isSidechain: false,
+				timestamp: "2026-10-20T10:13:00.000Z",
+				attachment: {
+					type: "hook_blocking_error",
+					hookName: "Stop",
+					hookEvent: "Stop",
+					toolUseID: "t1",
+					blockingError: {
+						blockingError: "New.",
+						command:
+							'command -v node >/dev/null && node "$CLAUDE_PROJECT_DIR"/scripts/guard-renamed-thing.js',
+					},
+				},
+			},
+		];
+		const agents = [
+			launched(root, "r1", "2.1.302", { extra: unclassed }),
+			launched(root, "r2", "2.1.302"),
+		];
+		const r = run(["report", "--root", root, "--baseline", "A", "--json"], {
+			...process.env,
+			WFC_CLAUDE_BIN: claudeStub(agents),
+		});
+		const { rows, summary } = JSON.parse(r.out);
+		expect(rows[0].ended).toBe(true);
+		expect(rows[0].score.error).toContain("guard-renamed-thing");
+		expect(rows[1].score.score).toBe(0);
+		expect(summary.scored).toBe(1);
+	});
+
 	it("refuses a period starting at pair 1 or a fraction, naming the value", () => {
 		for (const bad of ["1", "2.5", "x"]) {
 			const r = run([

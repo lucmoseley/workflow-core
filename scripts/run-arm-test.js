@@ -1142,6 +1142,7 @@ function liveSeatSignedIn() {
 /**
  * @param {string} cmd
  * @param {string[]} args
+ * @returns {{ status: number | null, json: any, err?: string }} `any`: each caller's JSON has its own shape, the scorer's rows or the accept verdict
  */
 function runJson(cmd, args) {
 	const r = spawnSync(process.execPath, [cmd, ...args], {
@@ -1149,11 +1150,15 @@ function runJson(cmd, args) {
 		timeout: READ_TIMEOUT_MS,
 		maxBuffer: CHILD_MAX_BUFFER,
 	});
+	// A crash or a refusal leaves the run reported, not scored (#2045). Exit 2
+	// is a refusal even where JSON was printed first, as the scorer prints it
+	// before refusing an unclassed Stop guard (#3761).
+	const refused = { status: r.status, json: null, err: r.stderr.trim() };
+	if (r.status === 2) return refused;
 	try {
 		return { status: r.status, json: JSON.parse(r.stdout) };
 	} catch {
-		// A crash or a refusal leaves no JSON; the run is reported, not scored (#2045).
-		return { status: r.status, json: null, err: r.stderr.trim() };
+		return refused;
 	}
 }
 
@@ -1213,7 +1218,7 @@ function readRun(rec, states, subjects) {
 	row.wallMs = readWallMs(transcript);
 	row.secondary = secondaryOf(fs.readFileSync(transcript, "utf8"), subjects);
 	const s = runJson(SCORER, ["--file", transcript, "--json"]);
-	row.score = s.json?.[0] ?? { error: s.err ?? `exit ${s.status}` };
+	row.score = s.json?.[0] ?? { error: s.err || `exit ${s.status}` };
 	const a = runJson(armTasksCli(), [
 		"accept",
 		rec.task,
@@ -1221,7 +1226,7 @@ function readRun(rec, states, subjects) {
 		rec.sandbox,
 		"--json",
 	]);
-	row.accept = a.json ? a.json.pass : { error: a.err ?? `exit ${a.status}` };
+	row.accept = a.json ? a.json.pass : { error: a.err || `exit ${a.status}` };
 	return row;
 }
 
