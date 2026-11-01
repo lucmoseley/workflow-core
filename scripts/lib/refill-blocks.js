@@ -141,16 +141,20 @@ const buildChildLine = (label, ran) =>
 	`${label}: ${ran.failed ?? "exit 0"}\n  ${indented(ran.out)}`;
 
 /**
- * Whether the loop may act on `l`'s session: unfinished, tied to a job, and
- * not stopped already for a park.
+ * Whether `l` is unfinished and tied to a job. A launch with no job id is never
+ * judged, so it never finishes and is not live.
  * @param {LoopLaunch} l
  * @returns {l is JobLaunch}
  */
-function isActionable(l) {
-	return (
-		l.finishedAt === null && l.jobId !== null && l.parkStopped === undefined
-	);
-}
+const isLive = (l) => l.finishedAt === null && l.jobId !== null;
+
+/**
+ * Whether the loop may act on `l`'s session: live and not stopped already for
+ * a park.
+ * @param {LoopLaunch} l
+ * @returns {l is JobLaunch}
+ */
+const isActionable = (l) => isLive(l) && l.parkStopped === undefined;
 
 /**
  * Whether `l` waits on the loop's resumes after a transient API stop.
@@ -738,11 +742,11 @@ const isLiveIn = (l, agents) =>
  */
 function makeResume(l, seen) {
 	const { agents, now, io } = seen;
-	const isLive = isLiveIn(l, agents);
-	const typeFailed = isLive ? io.type(l, API_PROMPT) : null;
+	const live = isLiveIn(l, agents);
+	const typeFailed = live ? io.type(l, API_PROMPT) : null;
 	if (typeFailed)
 		io.log(`could not type the resume into ${l.jobId}: ${typeFailed}`);
-	if (!isLive || typeFailed)
+	if (!live || typeFailed)
 		return fallBack(l, seen, { route: FALLBACK_ROUTE, again: false });
 	const tried = afterResume(l, now, { typed: true, failed: false });
 	reportResume(tried, buildResumeLine(tried, ATTACH_ROUTE, null), io);
@@ -1289,6 +1293,7 @@ module.exports = {
 	isHeld,
 	isLimitBlocked,
 	isLimitHeld,
+	isLive,
 	isResuming,
 	isSwapHeld,
 	iso,

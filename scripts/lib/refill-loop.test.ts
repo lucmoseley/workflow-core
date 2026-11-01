@@ -1064,11 +1064,33 @@ describe("the launches a tick keeps (#3621)", () => {
 	const kept = (past: Launch[]) =>
 		settleOnce(idle("no free slot"), 0, [], { past }).writes[0].launches;
 
-	it("keeps the last 50 launches, an older park the loop stopped among those dropped (#3709)", () => {
+	it("keeps the last 50 finished launches, an older park the loop stopped among those dropped (#3709)", () => {
 		const parked = at(1, { parkStopped: 2 });
 		const out = kept(history([parked, at(3)]));
 		expect(out).toHaveLength(50);
 		expect(out).not.toContain(parked);
+	});
+
+	it("keeps a live launch older than the last 50, in its place, and caps the finished at 50 (#3775)", () => {
+		const live = at(1, { finishedAt: null });
+		const out = kept(history([live, at(3)]));
+		expect(out).toHaveLength(51);
+		expect(out[0]).toBe(live);
+		expect(out.filter((l) => l.finishedAt !== null)).toHaveLength(50);
+	});
+
+	it("ranks the finished by when they finished, so a long-held launch just finished stays (#3775)", () => {
+		const late = at(1, { finishedAt: 1000 });
+		const out = kept(history([late]));
+		expect(out).toHaveLength(50);
+		expect(out[0]).toBe(late);
+	});
+
+	it("caps an unfinished launch with no job, which no tick can finish", () => {
+		const jobless = at(1, { finishedAt: null, jobId: null });
+		const out = kept(history([jobless]));
+		expect(out).toHaveLength(50);
+		expect(out).not.toContain(jobless);
 	});
 });
 

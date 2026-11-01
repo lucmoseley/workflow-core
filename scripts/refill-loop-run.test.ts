@@ -733,6 +733,41 @@ describe("a parked launch (#2699)", () => {
 		).toEqual([`seat ${seat}`, `job ${Job}`, `cwd ${repo}`, "7"]);
 	});
 
+	it("stops and parks, on a switch to away, a question held past 50 newer launches (#3775)", async () => {
+		const seeded = at(".refill-loop-state.json");
+		const { launches } = JSON.parse(fs.readFileSync(seeded, "utf8"));
+		const finished = Array.from({ length: 50 }, (_, i) => ({
+			...launches[0],
+			issues: [100 + i],
+			jobId: `done${i}`,
+			finishedAt: Date.now(),
+		}));
+		fs.writeFileSync(
+			seeded,
+			JSON.stringify({ launches: [...launches, ...finished] }),
+		);
+		inMode("normal");
+		fakeClaude([LISTED, blockedRow]);
+		const running = startRun();
+		await ticked(1);
+		expect(readLines(at("stops"))).toEqual([]);
+		inMode("away");
+		fs.appendFileSync(at(".refill-loop-wake"), `${Date.now()}\n`);
+		await ticked(2);
+		requestStop();
+		const r = await settled(running, "run switched to away mode");
+		expect(r.status).toBe(0);
+		expect(readLines(at("stops"))).toEqual([`stop ${Job}`]);
+		expect(readLines(at("gh-calls"))).toContain(
+			"issue edit 7 --repo o/r --add-label parked",
+		);
+		expect(readLines(at("gh-calls"))).toContainEqual(parkComment("QUESTION"));
+		expect(r.stdout).toMatch(
+			/stopped QUESTION park repo \/implement 7 \(away mode, blocked since [^)]+\); labelled parked: #7/,
+		);
+		expect(launchState().parkStopped).toEqual(expect.any(Number));
+	});
+
 	it("stops a 2.1.310 question park, whose row carries state and no status (#3200)", async () => {
 		const { status: _, ...parkedRow } = blockedRow;
 		jobAs({ cliVersion: "2.1.310" });
@@ -1219,6 +1254,9 @@ describe("a session held on its seat's limit (#3735)", () => {
 	const Job = "job7";
 	const Run = "run with a limit-held launch";
 	const jobFile = () => path.join(seat, "jobs", Job, "state.json");
+	const Admitted = ADMISSION_VERDICT.memory.working.count;
+	const concurrencyRow = () =>
+		JSON.parse(readLines(at("concurrency.jsonl"))[0]);
 
 	/** A normal-mode loop holding one launch stopped on its limit, its job
 	 * record reading session `recorded`. */
@@ -1301,6 +1339,49 @@ describe("a session held on its seat's limit (#3735)", () => {
 		);
 		/* Its slot went to the resume, so the frontier's #5 launched nothing. */
 		expect(r.stdout).toContain("no free slot");
+		expect(concurrencyRow()).toMatchObject({
+			working: Admitted + 1,
+			ceiling: Admitted + 1,
+		});
+	});
+
+	it("stops a live session at its spent limit, and takes it off the record's working figure (#3778)", async () => {
+		seed();
+		const seeded = at(".refill-loop-state.json");
+		const { launches } = JSON.parse(fs.readFileSync(seeded, "utf8"));
+		const { limitHeld: _, ...live } = launches[0];
+		fs.writeFileSync(seeded, JSON.stringify({ launches: [live] }));
+		const transcript = at("transcript.jsonl");
+		fs.writeFileSync(
+			transcript,
+			`${JSON.stringify({
+				type: "assistant",
+				message: { content: [{ type: "text", text: "Working." }] },
+			})}\n`,
+		);
+		fs.writeFileSync(
+			jobFile(),
+			JSON.stringify({
+				state: "blocked",
+				detail: "You've hit your weekly limit",
+				tempo: "blocked",
+				inFlight: { tasks: 0, queued: 0, kinds: [], drainableMonitors: 0 },
+				needs: null,
+				cliVersion: "2.1.309",
+				sessionId: "s-job7",
+				cwd: repo,
+				linkScanPath: transcript,
+			}),
+		);
+		weekAt(100);
+		fakeResumeClaude(Job, [LISTED, buildJobRow(Job, "blocked")], "", "woke");
+		const r = await oneTick(Run, 1);
+		expect(r.status).toBe(0);
+		expect(launchState().limitHeld).toMatchObject({ sessionId: "s-job7" });
+		expect(concurrencyRow()).toMatchObject({
+			working: Admitted - 1,
+			ceiling: Admitted + 1,
+		});
 	});
 
 	it("waits on a free slot, its seat open", async () => {

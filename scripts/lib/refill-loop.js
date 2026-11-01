@@ -26,6 +26,7 @@ const {
 const {
 	buildChildLine,
 	isHeld,
+	isLive,
 	launchName,
 	markParked,
 } = require("./refill-blocks.js");
@@ -630,17 +631,36 @@ function parseCapFits(stdout) {
  */
 function newlyFinished(launches, agents, now) {
 	if (!agents) return [];
-	const live = new Set(
+	const listed = new Set(
 		agents.filter((a) => a.id && !isTerminalAgent(a)).map((a) => a.id),
 	);
 	return launches.filter(
 		(l) =>
-			l.finishedAt === null &&
-			l.jobId !== null &&
+			isLive(l) &&
 			now - Math.max(l.launchedAt, l.relaunchedAt ?? 0) >= LISTING_GRACE_MS &&
-			!live.has(l.jobId) &&
+			!listed.has(l.jobId) &&
 			!isHeld(l),
 	);
+}
+
+/**
+ * The launches a tick's state keeps, order unchanged (#3775): every live one,
+ * however old, since blockedActs and runningOf see only what is kept, and of
+ * the rest the HISTORY_KEPT latest to finish, or to launch where none did.
+ * Admission bounds the running ones. Residual: a limit-held launch, stopped so
+ * outside admission, stays for as long as its resume cannot take (#3790).
+ * @param {LoopLaunch[]} launches
+ */
+function keptLaunches(launches) {
+	const settledAt = (/** @type {LoopLaunch} */ l) =>
+		l.finishedAt ?? l.launchedAt;
+	const capped = new Set(
+		launches
+			.filter((l) => !isLive(l))
+			.sort((a, b) => settledAt(a) - settledAt(b))
+			.slice(-HISTORY_KEPT),
+	);
+	return launches.filter((l) => isLive(l) || capped.has(l));
 }
 
 /**
@@ -737,9 +757,7 @@ function buildFinishLine(l) {
  * @param {LoopLaunch[]} launches
  */
 const runningOf = (launches) =>
-	launches
-		.filter((l) => l.finishedAt === null && l.jobId !== null)
-		.map((l) => ({ root: l.root, issues: l.issues }));
+	launches.filter(isLive).map((l) => ({ root: l.root, issues: l.issues }));
 
 /**
  * Whether `start` renewed the loop after a tick read `startedAt`, so a stop
@@ -986,7 +1004,7 @@ function settleTick({ input, decision, state, judged, probes, read }, io) {
 		io,
 	);
 	const next = {
-		launches: [...judged, ...outcome.launched].slice(-HISTORY_KEPT),
+		launches: keptLaunches([...judged, ...outcome.launched]),
 		lastTick: {
 			at: input.now,
 			summary,
