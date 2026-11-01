@@ -147,12 +147,15 @@ const { writeFd } = require("./lib/write-fd.js");
 const { maskTokens } = require("./lib/token-shapes.js");
 const {
 	assignsAcrossBreak,
+	decodeSecrets,
 	ignoreStore,
 	parseEnvLine,
 	quoteValue,
+	RESAVE_UTF8,
 	secretsFile,
 	secretsOverride,
 	splitEnvLines,
+	UTF8,
 } = require("./lib/env-file.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { emptyWhy } = require("./lib/empty-secret.js");
@@ -620,8 +623,6 @@ function looseWhy(p) {
 	return null;
 }
 
-const UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
-
 /**
  * `file`'s text, empty where it is absent; or, where its bytes are not clean
  * UTF-8, why not.
@@ -630,24 +631,14 @@ const UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
  */
 function readSecrets(file) {
 	if (!fs.existsSync(file)) return { text: "" };
-	const bytes = fs.readFileSync(file);
-	const resave = "Re-save it as UTF-8, then re-run.";
-	if (
-		(bytes[0] === 0xff && bytes[1] === 0xfe) ||
-		(bytes[0] === 0xfe && bytes[1] === 0xff) ||
-		bytes.includes(0)
-	) {
-		return {
-			why: `it opens with a UTF-16 mark or holds a NUL byte, so it looks saved as UTF-16 (Notepad's "Unicode"), which a rewrite would mangle. ${resave}`,
-		};
-	}
-	try {
-		return { text: UTF8.decode(bytes) };
-	} catch {
-		return {
-			why: `it holds bytes that are not valid UTF-8, which a rewrite would replace with U+FFFD. ${resave}`,
-		};
-	}
+	const decoded = decodeSecrets(fs.readFileSync(file));
+	if (!("fault" in decoded)) return decoded;
+	return {
+		why:
+			decoded.fault === "utf16"
+				? `it opens with a UTF-16 mark or holds a NUL byte, so it looks saved as UTF-16 (Notepad's "Unicode"), which a rewrite would mangle. ${RESAVE_UTF8}`
+				: `it holds bytes that are not valid UTF-8, which a rewrite would replace with U+FFFD. ${RESAVE_UTF8}`,
+	};
 }
 
 /**

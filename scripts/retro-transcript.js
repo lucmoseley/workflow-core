@@ -33,9 +33,10 @@
  * rule are restated in `parseLine` and `records` over streamed lines.
  *
  * TOKEN-SHAPED SUBSTRINGS ARE MASKED (#1031) to `[REDACTED:<rule>]` in every
- * line written, by `lib/token-shapes.js`, and so is the value after `NAME=`
- * for each name the secrets file holds: a token pasted into a session would
- * otherwise reach every retro that reads it, and the issues they file. Masked
+ * line written, by `lib/token-shapes.js`, and so is each value the secrets
+ * file holds, after an assignment to its name or, long enough, anywhere (#3821):
+ * a token pasted into a session would otherwise reach every retro that reads
+ * it, and the issues they file. Masked
  * before the per-item cut, so a token straddling it leaves no fragment.
  *
  * IN NO SCRIPT FAMILY (docs/code-standards-base.md §N3): a scratch writer. Exit 0
@@ -52,7 +53,7 @@ const { hostRoot } = require("./lib/host-root");
 const { requiredGroup } = require("./lib/regex-group");
 const { isLoopPrompt } = require("./lib/loop-prompts");
 const { maskTokens } = require("./lib/token-shapes");
-const { readStoredNames } = require("./lib/env-file.js");
+const { readStoredNames, readStoredValues } = require("./lib/env-file.js");
 const {
 	STOP_FEEDBACK,
 	parseContentText,
@@ -97,15 +98,15 @@ const LIMIT = {
 /* Substrings masked so far, reported in the stdout summary. */
 let masked = 0;
 
-/* Read once: the secrets file's names, whose assigned values are masked. */
-let storedSecretNames;
+/* Read once: the secrets file's names and values, both masked. */
+let storedSecrets;
 
 /**
  * @param {string} text
  */
 function mask(text) {
-	storedSecretNames ??= readStoredNames();
-	const result = maskTokens(text, storedSecretNames);
+	storedSecrets ??= { names: readStoredNames(), values: readStoredValues() };
+	const result = maskTokens(text, storedSecrets.names, storedSecrets.values);
 	masked += result.count;
 	return result.text;
 }

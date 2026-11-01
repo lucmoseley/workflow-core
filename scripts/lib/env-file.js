@@ -1,6 +1,6 @@
 /*
- * env-file.js — the secrets file, its line grammar, and one variable's value
- * from it.
+ * env-file.js — the secrets file, its line grammar, and the values and names
+ * read from it.
  *
  * THE SECRETS FILE is `$XDG_CONFIG_HOME/workflow-core/secrets.env`, with
  * `~/.config` where XDG_CONFIG_HOME is unset, empty or relative (the XDG Base
@@ -19,7 +19,7 @@
  * `scripts/write-secret.js` replaces the value of exactly the lines this
  * reader reads, quoting it with quoteValue so unquoteValue reads it back.
  *
- * THE RETURN VALUE IS A SECRET: a caller puts it in no log line or message.
+ * A RETURNED VALUE IS A SECRET: a caller puts it in no log line or message.
  */
 
 const fs = require("node:fs");
@@ -77,13 +77,12 @@ function parseEnvLine(body) {
 }
 
 /**
- * The name each part of `body` assigns, split at every break inside it;
- * undefined for a part that assigns none.
+ * The assignment each part of `body` makes, split at every break inside it;
+ * null for a part that makes none.
  * @param {string} body a line from `splitEnvLines`
- * @returns {(string | undefined)[]}
  */
-function namesAcrossBreaks(body) {
-	return body.split(INNER_BREAK).map((part) => parseEnvLine(part)?.name);
+function parseAcrossBreaks(body) {
+	return body.split(INNER_BREAK).map((part) => parseEnvLine(part));
 }
 
 /**
@@ -95,7 +94,10 @@ function namesAcrossBreaks(body) {
  * @returns {boolean}
  */
 function assignsAcrossBreak(body, name) {
-	return parseEnvLine(body) === null && namesAcrossBreaks(body).includes(name);
+	return (
+		parseEnvLine(body) === null &&
+		parseAcrossBreaks(body).some((part) => part?.name === name)
+	);
 }
 
 /**
@@ -197,30 +199,89 @@ function readSecretKeepingIgnore(name) {
 	return value;
 }
 
+const UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+
+const RESAVE_UTF8 = "Re-save it as UTF-8, then re-run.";
+
 /**
- * Every name the secrets file assigns, never a value: what a log masker
- * masks the value after (#3661), a line split at each break inside it, as
- * assignsAcrossBreak reads one (#3710).
- * @returns {string[]} empty where there is no file
- * @throws where the file is there but cannot be read, as a masker that
- *   quietly masked fewer names would write their values bare
+ * The secrets file's bytes as text, or the fault that keeps them from being
+ * read as lines: `utf16` for a UTF-16 mark or a NUL byte, which no line
+ * carries and which ASCII in UTF-16 without its mark holds (#3550); `invalid`
+ * for bytes that are not valid UTF-8.
+ * @param {Buffer} bytes
+ * @returns {{ text: string } | { fault: "utf16" | "invalid" }}
  */
-function readStoredNames() {
-	let text;
+function decodeSecrets(bytes) {
+	if (
+		(bytes[0] === 0xff && bytes[1] === 0xfe) ||
+		(bytes[0] === 0xfe && bytes[1] === 0xff) ||
+		bytes.includes(0)
+	) {
+		return { fault: "utf16" };
+	}
 	try {
-		text = fs.readFileSync(secretsFile(), "utf8");
+		return { text: UTF8.decode(bytes) };
+	} catch {
+		/* The fatal decoder's only throw (#3663). */
+		return { fault: "invalid" };
+	}
+}
+
+/**
+ * Every assignment the secrets file makes, a line split at each break inside
+ * it, as assignsAcrossBreak reads one (#3710).
+ * @returns {{ name: string, raw: string }[]} empty where there is no file
+ * @throws where the file is there but cannot be read as UTF-8 lines, as a
+ *   masker that quietly masked fewer secrets would write their values bare
+ */
+function readStoredAssignments() {
+	const file = secretsFile();
+	let bytes;
+	try {
+		bytes = fs.readFileSync(file);
 	} catch (err) {
 		if (caught(err).code === "ENOENT") return [];
 		throw err;
 	}
-	const names = splitEnvLines(text).lines.flatMap(({ body }) =>
-		namesAcrossBreaks(body),
-	);
-	return [...new Set(names.filter((name) => name !== undefined))];
+	const decoded = decodeSecrets(bytes);
+	if ("fault" in decoded) {
+		throw new Error(
+			`${file} is not clean UTF-8 (${decoded.fault}), so its secrets cannot be masked. ${RESAVE_UTF8}`,
+		);
+	}
+	return splitEnvLines(decoded.text)
+		.lines.flatMap(({ body }) => parseAcrossBreaks(body))
+		.filter((assignment) => assignment !== null);
+}
+
+/**
+ * Every name the secrets file assigns, never a value: what a log masker
+ * masks the value after (#3661).
+ * @returns {string[]} empty where there is no file
+ * @throws as readStoredAssignments does
+ */
+function readStoredNames() {
+	return [...new Set(readStoredAssignments().map(({ name }) => name))];
+}
+
+/**
+ * Every non-empty value the secrets file assigns: what a log masker masks
+ * wherever it appears (#3821). A line with a ` #` gives its value both whole,
+ * as readEnvFileValue reads it, and before that comment, as dotenv reads it.
+ * @returns {string[]} empty where there is no file
+ * @throws as readStoredAssignments does
+ */
+function readStoredValues() {
+	const values = readStoredAssignments().flatMap(({ raw }) => [
+		unquoteValue(raw),
+		unquoteValue(raw.replace(/\s#.*/, "")),
+	]);
+	return [...new Set(values.filter(Boolean))];
 }
 
 module.exports = {
 	assignsAcrossBreak,
+	decodeSecrets,
 	ignoreStore,
 	parseEnvLine,
 	quoteValue,
@@ -231,4 +292,7 @@ module.exports = {
 	secretsOverride,
 	splitEnvLines,
 	readStoredNames,
+	readStoredValues,
+	RESAVE_UTF8,
+	UTF8,
 };
