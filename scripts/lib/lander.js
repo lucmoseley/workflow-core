@@ -22,10 +22,12 @@
  * parent is reverted past (#3329). A push to `main` that is refused holds, so
  * no run retries it (#3329). A run resuming a red batch that `landing` was
  * pushed past tests that tip first, landing it in the batch's place where it
- * is landable (#3410). A confirmed culprit that is a merge has the side it
- * merged in bisected on the same files, and the first red commit there,
- * failing twice, is reverted in its place; the merge is reverted only where
- * that side holds no such commit (#3631).
+ * is landable (#3410). A run that holds on a batch `landing` has moved past
+ * files the hold, then takes up that tip rather than exiting (#3769). A
+ * confirmed culprit that is a merge has the side it merged in bisected on the
+ * same files, and the first red commit there, failing twice, is reverted in
+ * its place; the merge is reverted only where that side holds no such commit
+ * (#3631).
  *
  * Its green ledger (one `<sha> <iso time>` line per sha it lands), its
  * no-verdict ledger (the same line per parent, culprit or bisected commit
@@ -375,7 +377,7 @@ function mainCheckAction(r, tip, redJobs) {
 function pushedPastAction({ pushedPast }, { isGreen, requiresRun }) {
 	if (!pushedPast) return null;
 	const { sha, verdict } = pushedPast;
-	if (isGreen(sha) || (verdict && isLandable(verdict, requiresRun)))
+	if (isGreen(sha) || isLandable(verdict, requiresRun))
 		return { kind: "fast-forward", sha };
 	return verdict ? null : { kind: "test", sha };
 }
@@ -427,7 +429,7 @@ const isSearchedJob = (job, redJobs) =>
 /**
  * Whether `main` may move to a sha `v` judged: green, and read off a CI run
  * where `main` takes only a sha a run passed.
- * @param {Verdict|undefined} v
+ * @param {Verdict|null|undefined} v
  * @param {boolean} requiresRun
  */
 const isLandable = (v, requiresRun) =>
@@ -1031,7 +1033,7 @@ function nextAction(s) {
  *   Held a hold, with its batch and what failed there, null where it held on
  *   a refused push and no red batch
  * @typedef {{landing: string|null, reason: string, filed: string}} HoldNote
- *   the hold a run ended on: its tip as `heldTip` pins it, and what the
+ *   the last hold a run filed: its tip as `heldTip` pins it, and what the
  *   held-queue filing printed
  * @typedef {{hold: HoldNote, red?: Red} | {red: Red}} BeatNote a heartbeat's
  *   hold, with the batch it hands the next run, or the red batch the run is
@@ -1287,8 +1289,9 @@ async function remote({ wait = pause }, call) {
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * One run: acts until it exits or holds. Any throw ends it as an exit naming
- * the error (#2673), a broken invariant's included. Every beat carries the
+ * One run: acts until it exits or holds on a tip `landing` has not moved past.
+ * Any throw ends it as an exit naming the error (#2673), a broken invariant's
+ * included. Every beat carries the
  * red batch, so a run that ends on one leaves it for the next to resume while
  * `landing` still descends from it, and the last run's hold until this one
  * has read the remote.
@@ -1386,7 +1389,7 @@ async function actUntilEnd(run, carry) {
 			return end;
 		}
 		resume(git, carry, refs);
-		markPushedPast(git, carry, refs.landing);
+		markPushedPast(git, carry, refs.landing, requiresRun);
 		const { state } = carry;
 		const action = nextAction({
 			...refs,
@@ -1396,14 +1399,34 @@ async function actUntilEnd(run, carry) {
 			...state,
 		});
 		log(action);
-		if (action.kind === "hold") holdQueue(run, action, state, refs.main);
-		if (action.kind === "exit" || action.kind === "hold") return action;
+		if (action.kind === "exit") return action;
+		if (action.kind === "hold") {
+			if (!takeUpPastHold(run, carry, action, refs)) return action;
+			continue;
+		}
 		carry.state = await act(run, action, state, refs.main);
 		if (action.kind === "fast-forward" && !carry.state.refused) {
 			carry.movedAt = new Date().toISOString();
 			releaseQueue(run, action.sha);
 		}
 	}
+}
+
+/**
+ * Files the hold, then, where `landing` has passed it, sets the run on the
+ * batch it hands on; returns whether it did.
+ * @param {LanderDeps} run
+ * @param {Carry} carry accumulator: the run's state
+ * @param {Extract<Action, {kind: "hold"}>} hold
+ * @param {Refs} refs the remote when the hold was chosen
+ */
+function takeUpPastHold(run, carry, hold, refs) {
+	const { state } = carry;
+	const next = state.red && buildHandedOnBatch(state.red, refs.main);
+	holdQueue(run, hold, state, next);
+	if (!isHoldPassed(run.git, state, refs.landing)) return false;
+	carry.state = { tested: null, red: next, refused: null };
+	return true;
 }
 
 /**
@@ -1443,28 +1466,39 @@ function resume(git, carry, refs) {
  * `landing` tip pushed past it since, which lands in its place where it
  * passes, so a run mid-bisect lands a fix pushed during it (#3486). Never
  * once the batch's culprit is reverted, as its fix ticket is still owed, nor
- * on a refused push, whose hold hands on the last pushed-past tip's red.
+ * on a refused push, whose hold hands on the last pushed-past tip's red, nor
+ * over a tip already landable.
  * @param {LanderGit} git
  * @param {Carry} carry accumulator: the run's state
  * @param {string|null} landing
+ * @param {boolean} requiresRun
  */
-function markPushedPast(git, carry, landing) {
+function markPushedPast(git, carry, landing, requiresRun) {
 	const { red: r, refused } = carry.state;
 	if (
 		r &&
 		!refused &&
-		landing !== null &&
-		landing !== r.sha &&
 		r.revert === null &&
 		r.pushedPast?.sha !== landing &&
+		!isLandable(r.pushedPast?.verdict, requiresRun) &&
 		/* A rewound `landing` holds no fix to the batch; its bisect goes on. */
-		git.contains(landing, r.sha)
+		isPast(git, landing, r.sha)
 	)
 		carry.state = {
 			...carry.state,
 			red: { ...r, pushedPast: { sha: landing, verdict: null } },
 		};
 }
+
+/**
+ * Whether `landing` has moved on from `sha`, descending from it.
+ * @param {LanderGit} git
+ * @param {string|null} landing
+ * @param {string} sha
+ * @returns {landing is string}
+ */
+const isPast = (git, landing, sha) =>
+	landing !== null && landing !== sha && git.contains(landing, sha);
 
 /**
  * Whether a red batch a past run left is still this one's to clear: `landing`
@@ -1490,18 +1524,18 @@ function isStillOwed(git, red, { main, landing }) {
 /**
  * Files or refreshes the held-queue issue, then beats once more naming the
  * hold, so the stall check reads a held queue apart from a dead lander and
- * the next run leaves the held tip alone, taking up the batch its end hands
- * on instead.
+ * a later run leaves the held tip alone, taking up the batch its end hands on
+ * instead.
  * @param {LanderDeps} deps
  * @param {Extract<Action, {kind: "hold"}>} hold
  * @param {RunState} state its red batch, else its refused push
- * @param {string|null} main `main` when the hold was chosen
+ * @param {Red|null} next the batch the hold hands on
  */
 function holdQueue(
 	{ tracker, beat, say = () => undefined },
 	hold,
 	state,
-	main,
+	next,
 ) {
 	const { red, refused } = state;
 	/* A push refused while clearing a red batch, its culprit's parent's,
@@ -1522,7 +1556,6 @@ function holdQueue(
 		filed = `held-queue issue not filed: ${caught(err).message}`;
 	}
 	say(filed);
-	const next = red && buildHandedOnBatch(red, main);
 	beat(batch, {
 		hold: { landing: red ? heldTip(red) : batch, reason: hold.reason, filed },
 		...(next ? { red: next } : {}),
@@ -1530,10 +1563,25 @@ function holdQueue(
 }
 
 /**
+ * Whether `landing` holds a tip past the one a hold pins, for the run to take
+ * up (#3769). Never on a refused push, as the tip may be the sha refused
+ * (#3329), nor where the fix ticket went unfiled, as landing that tip closes
+ * the held-queue issue naming it. Residual: a push made while the hold is
+ * filed goes unread until a later run takes it up.
+ * @param {LanderGit} git
+ * @param {RunState} state
+ * @param {string|null} landing
+ */
+function isHoldPassed(git, { red, refused }, landing) {
+	if (!red || refused || red.unfiled !== null) return false;
+	return isPast(git, landing, heldTip(red));
+}
+
+/**
  * The tip a hold pins: the red batch, or the lander's revert where it was
  * committed on that batch. Never `landing` as read at the hold, nor a revert
- * on a tip moved since: a commit pushed mid-run reaches the next run,
- * untested or handed on red (#2477, #3415).
+ * on a tip moved since: a commit pushed mid-run is still taken up, untested
+ * or handed on red (#2477, #3415).
  * @param {Red} red
  */
 function heldTip(red) {
