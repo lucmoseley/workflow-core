@@ -18,13 +18,20 @@
  * rather than the key, since rejecting at the key would hand the rest of a value
  * still being typed to the shell.
  *
+ * NOR DOES A BYTE THAT IS NOT UTF-8 END THE READ (#3826). Raw mode holds and all
+ * input is discarded to the line end, and no silence ends that wait: a typist's
+ * pause outlasts SETTLE_MS, and echo returning then would show the secret's tail
+ * and hand it to the shell. Ctrl-C and Ctrl-D count as that line end and report the bad byte,
+ * the cause the next attempt in that terminal would meet too.
+ *
  * NO BYTE IS LEFT FOR THE SHELL (#3817). Whatever ends the read, raw mode stays
  * on and input is read and thrown away until the terminal has been silent for
  * SETTLE_MS, since a paste arrives in several reads and Node has no `tcflush`.
  * Anything after the line end but one LF after a CR, as Enter or a pasted CRLF
  * gives, rejects: the first line of a pasted key is not the key. Residual: a
  * paste stalling longer than SETTLE_MS stores what came before the stall,
- * replacing any old value, and spills the rest to the shell. `write-secret.js`
+ * replacing any old value, and spills the rest to the shell; after a rejected
+ * line it stores nothing and spills the same. `write-secret.js`
  * refuses a PEM header alone, the likeliest such first line.
  *
  * A TERMINAL THAT CLOSES before the read finishes rejects (#3817). A read error
@@ -52,10 +59,25 @@ const EOF_KEY =
 const CLOSED =
 	"the terminal closed before the read finished. Re-run to enter the value.";
 
+/** Each character that closes the line, and "end" or the rejection it brings. */
+const LINE_ENDS = new Map([
+	["\r", "end"],
+	["\n", "end"],
+	["\x03", INTERRUPTED],
+	["\x04", EOF_KEY],
+]);
+
+/* LINE_ENDS as bytes. None can sit inside a multibyte character in UTF-8 or in
+ * the legacy encodings that send invalid UTF-8. */
+const LINE_END_BYTES = new Set(
+	Array.from(LINE_ENDS.keys(), (ch) => ch.charCodeAt(0)),
+);
+
 /* `esc` is 0 outside an escape sequence; 1 after ESC; 2 inside `ESC [` or
  * `ESC O`, which the first byte in @..~ ends. `stray` is set once a key the
- * value cannot carry has been dropped. */
-/** @typedef {{ value: string, esc: 0 | 1 | 2, stray: boolean }} HiddenLine The line so far. */
+ * value cannot carry has been dropped, `notUtf8` once a byte has failed to
+ * decode. */
+/** @typedef {{ value: string, esc: 0 | 1 | 2, stray: boolean, notUtf8: boolean }} HiddenLine The line so far. */
 
 /* How the read ended: `why` is the rejection or null, and `lineEnd` the
  * character that ended the line, until any input follows it. */
@@ -68,7 +90,7 @@ const CLOSED =
 function readHidden(input) {
 	return new Promise((resolve, reject) => {
 		/** @type {HiddenLine} */
-		const line = { value: "", esc: 0, stray: false };
+		const line = { value: "", esc: 0, stray: false, notUtf8: false };
 		const decoder = new TextDecoder("utf-8", { fatal: true });
 		/** @type {Ending | null} */
 		let ending = null;
@@ -114,11 +136,12 @@ function readHidden(input) {
  * @returns {Ending | null} null while the line is still open
  */
 function readChunk(line, decoder, bytes) {
-	let text;
-	try {
-		text = decoder.decode(bytes, { stream: true });
-	} catch {
-		return { why: NOT_UTF8, lineEnd: "" };
+	const text = line.notUtf8 ? null : decodeStrict(decoder, bytes);
+	if (text === null) {
+		line.notUtf8 = true;
+		return bytes.some((b) => LINE_END_BYTES.has(b))
+			? { why: NOT_UTF8, lineEnd: "" }
+			: null;
 	}
 	let read = 0;
 	for (const ch of text) {
@@ -134,6 +157,19 @@ function readChunk(line, decoder, bytes) {
 		return ending;
 	}
 	return null;
+}
+
+/**
+ * @param {TextDecoder} decoder accumulator: holds a split character for the next read
+ * @param {Buffer} bytes
+ * @returns {string | null} null where the bytes are not valid UTF-8
+ */
+function decodeStrict(decoder, bytes) {
+	try {
+		return decoder.decode(bytes, { stream: true });
+	} catch {
+		return null;
+	}
 }
 
 /**
@@ -169,9 +205,8 @@ function flushDecoder(decoder) {
  *   ends the read without one, null while the line is still open
  */
 function readChar(line, ch) {
-	if (ch === "\r" || ch === "\n") return "end";
-	if (ch === "\x03") return INTERRUPTED;
-	if (ch === "\x04") return EOF_KEY;
+	const outcome = LINE_ENDS.get(ch);
+	if (outcome !== undefined) return outcome;
 	if (line.esc !== 0) advanceEscape(line, ch);
 	else if (ch === "\x1b") line.esc = 1;
 	else if (ch === "\x7f" || ch === "\b")

@@ -7,7 +7,7 @@
  * `write-secret.js` reads a founder's credential through it in a hand-over;
  * loosen a case and a stray escape byte or dropped key alters the stored secret, a
  * Ctrl-C writes a half-typed one to `.env`, or the rest of a pasted key reaches
- * the shell and its history.
+ * the shell and its history, or the tail of one typed after a bad byte does.
  */
 
 import { EventEmitter } from "node:events";
@@ -78,6 +78,27 @@ describe("readHidden", () => {
 		);
 		expect(await settled(line)).toBe("café");
 	});
+
+	it.each([
+		["Enter", "\r"],
+		["a line feed", "\n"],
+		["Ctrl-C", "\x03"],
+		["Ctrl-D", "\x04"],
+	])(
+		"holds raw mode after an invalid byte, whatever the pause, discarding input until %s rejects it as not UTF-8 (#3826)",
+		async (_l, end) => {
+			const { input, line } = reading(Buffer.from([0x53, 0xff]));
+			await vi.advanceTimersByTimeAsync(SETTLE_MS * 2);
+			input.emit("data", Buffer.from("RET-TAIL é\x7f\x1b[D"));
+			await vi.advanceTimersByTimeAsync(SETTLE_MS * 2);
+			expect(input.raw).toEqual([true]);
+			expect(input.listenerCount("data")).toBe(1);
+
+			input.emit("data", end);
+			expect(await settled(line)).toContain("not valid UTF-8");
+			expect(input.raw).toEqual([true, false]);
+		},
+	);
 
 	it("rejects bytes that are not UTF-8 rather than storing U+FFFD, and leaves raw mode (#3675)", async () => {
 		const { input, line } = reading(Buffer.from([0x61, 0xe9, 0x0d]));

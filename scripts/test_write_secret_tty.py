@@ -11,6 +11,7 @@ read error and not as SIGHUP.
 
 import os
 import pty
+import re
 import select
 import subprocess
 import termios
@@ -28,6 +29,11 @@ EXIT_S = 30
 POLL_S = 0.01
 # Untraced: a screen quiet this long, after the exit, holds all it will.
 SCREEN_QUIET_S = 0.1
+# Untraced margin past the prompt's settle window, read from its source so that
+# raising SETTLE_MS cannot leave the pause inside the window.
+PAST_SETTLE_S = 0.2 + (
+    int(re.search(r"SETTLE_MS = (\d+)", (SCRIPT.parent / READER).read_text())[1]) / 1000
+)
 
 
 class Prompt:
@@ -79,6 +85,7 @@ def refused_clean(prompt, data, why):
     assert "re-run" in screen.lower()
     assert not prompt.store.exists()
     assert left == b""
+    return screen
 
 
 def test_stores_one_line(tmp_path):
@@ -136,6 +143,19 @@ def test_ctrl_c_refuses_as_interrupted(tmp_path):
 
 def test_bytes_not_utf8_refuse_by_name_not_as_interrupted(tmp_path):
     refused_clean(Prompt(tmp_path), b"caf\xe9\r", "not valid UTF-8")
+
+
+def test_a_pause_after_bytes_not_utf8_leaves_the_rest_hidden(tmp_path):
+    """The tail of a secret stays hidden past the bad byte (#3826)."""
+    prompt = Prompt(tmp_path)
+    os.write(prompt.master, b"SEC\xff")
+    # Real time, as what is proved is that the prompt outlasts its settle window.
+    time.sleep(PAST_SETTLE_S)
+    assert prompt.process.poll() is None, "the prompt ended at the bad byte"
+    assert not termios.tcgetattr(prompt.slave)[3] & termios.ECHO
+    screen = refused_clean(prompt, b"RET-TAIL\r", "not valid UTF-8")
+    assert "SEC" not in screen
+    assert "RET-TAIL" not in screen
 
 
 def test_a_closed_terminal_refuses_with_nothing_stored(tmp_path):
