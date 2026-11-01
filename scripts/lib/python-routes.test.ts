@@ -6,13 +6,15 @@
  *
  * Loosen a case and `pythonRoutes` can drift from the table unreported, so
  * the swallowed-error gate judges a test file as a program, or a program as
- * nothing.
+ * nothing. Loosen the core's own routing case and pytest collects a file base
+ * §X never binds (#3810).
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { pythonRouteDrift } from "./python-routes.js";
+import { pythonRouteDrift, pythonRouteKind } from "./python-routes.js";
+import { pytestSiblings } from "./test-kind.js";
 import type { PythonKind } from "./workflow-core-config.js";
 
 const table = (...rows: string[]) =>
@@ -159,5 +161,30 @@ describe("pythonRouteDrift", () => {
 		expect(
 			pythonRouteDrift(read("docs/code-standards.md"), pythonRoutes).drift,
 		).toEqual([]);
+	});
+});
+
+describe("pythonRouteKind", () => {
+	it("takes the first matching row, or nothing", () => {
+		const routes: Record<string, PythonKind> = {
+			"scripts/a.py": "test",
+			"scripts/*.py": "program",
+		};
+		expect(pythonRouteKind(routes, "scripts/a.py")).toBe("test");
+		expect(pythonRouteKind(routes, "scripts/b.py")).toBe("program");
+		expect(pythonRouteKind(routes, "other/b.py")).toBeUndefined();
+		expect(pythonRouteKind(undefined, "scripts/a.py")).toBeUndefined();
+	});
+
+	it("routes each of pytest's default test names under scripts/ as a test, ahead of the core's program row (#3810)", () => {
+		const { pythonRoutes } = JSON.parse(
+			fs.readFileSync(
+				path.resolve(__dirname, "../../.claude/workflow-core.json"),
+				"utf8",
+			),
+		);
+		for (const name of pytestSiblings("a"))
+			for (const rel of [`scripts/${name}`, `scripts/lib/${name}`])
+				expect(pythonRouteKind(pythonRoutes, rel)).toBe("test");
 	});
 });
