@@ -84,7 +84,7 @@ The floor is every gate in the plugin's own `.husky/pre-commit` that judges code
 | gitleaks | a secret in the staged content | every commit; a missing binary refuses |
 | `commands.check_staged` | whatever the declared command refuses, under the repo's own config | where declared |
 | ESLint, `--max-warnings 0` | a finding or warning under the repo's ESLint config | staged `app/` and `lib/` `.ts`/`.tsx`, where `commands.lint` is declared; skips with no `eslint` on `PATH` |
-| `commands.typecheck` | **nothing: it warns only**, reading the whole worktree | a commit staging `.ts`, `.tsx`, `.mts` or `tsconfig.json`, where declared |
+| `commands.typecheck` | **nothing: it warns only**, reading the whole worktree | a commit staging `.js`, `.ts`, `.tsx`, `.mts` or `tsconfig.json`, where declared |
 | `scripts/check-code-standards.js` | **nothing: it warns only** of an export block offering names nothing takes, or only tests do (§N7, §G6) | every commit, reading the worktree against `HEAD` |
 | shellcheck, `-x --severity=style --exclude=SC2016` | any finding at style severity or above, bar that one code | staged shell files: a husky hook or its `.local` companion, `.sh` and `.bash` files, and extensionless files with a shell shebang, minus `.gitattributes`' `linguist-vendored` and `linguist-generated` paths; skips with no binary |
 | shfmt at `-i 2 -ci`, `ruff format` at its defaults | any layout difference, so layout in either language is never a finding | the same shell files, and staged `.py`; a missing formatter refuses unless a workflow runs it |

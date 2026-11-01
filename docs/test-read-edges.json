@@ -22864,6 +22864,7 @@
 		],
 		"tsconfig.json": [
 			"scripts/markdown-tooling-declined.test.ts",
+			"scripts/precommit-declared-commands.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
 		"tsconfig.strict.json": [

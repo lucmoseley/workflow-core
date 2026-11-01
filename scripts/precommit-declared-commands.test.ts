@@ -51,7 +51,7 @@ const GATES = {
 	test: cut("test-gate.js commit"),
 };
 
-function fixture(config: object | null): string {
+function fixture(config: object | null, staged = "app/x.ts"): string {
 	const { root, git } = newRepo("declared-commands-", temps);
 	copyRequireClosure(root, ROOT, [
 		"scripts/lib/workflow-core-config.js",
@@ -77,9 +77,9 @@ function fixture(config: object | null): string {
 			mode: 0o755,
 		},
 	);
-	fs.mkdirSync(path.join(root, "app"));
-	fs.writeFileSync(path.join(root, "app/x.ts"), "export {};\n");
-	git("add", "app/x.ts");
+	fs.mkdirSync(path.dirname(path.join(root, staged)), { recursive: true });
+	fs.writeFileSync(path.join(root, staged), "export {};\n");
+	git("add", staged);
 	return root;
 }
 
@@ -181,6 +181,29 @@ it("skips the declared typecheck at once, saying so, where its no-wait try finds
 	expect(out).toBe(
 		`pre-commit: the type-check slot is held — ${command} skipped, not waited for, as this commit holds .git/index.lock (#3278). ci.yml's Typecheck step is the gate.\n`,
 	);
+});
+
+const typecheckArmedBy = (staged: string) => {
+	const root = fixture({ commands: { typecheck: declared.typecheck } }, staged);
+	const { code, ran } = run(root, GATES.typecheck);
+	expect(code).toBe(0);
+	return ran("typecheck");
+};
+
+it.each([
+	"scripts/lib/x.js",
+	".claude/skills/s/scripts/x.js",
+	"scripts/x.ts",
+	"tsconfig.json",
+])(
+	"runs the declared typecheck on a commit staging only %s (#3796)",
+	(staged) => {
+		expect(typecheckArmedBy(staged)).toBe(true);
+	},
+);
+
+it("leaves the declared typecheck unrun on a commit staging only docs/x.md", () => {
+	expect(typecheckArmedBy("docs/x.md")).toBe(false);
 });
 
 it("skips the declared lint gate, saying so, where eslint is not on PATH", () => {

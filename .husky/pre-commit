@@ -870,7 +870,10 @@ fi
 # 75 on a held one (lib/tsc-slot.js); any other command ignores it.
 # Residual: a declared command that exits 75 for a reason of its own is
 # reported as a held slot, its output unshown.
-if armed '\.(ts|tsx|mts)$|^tsconfig\.json$'; then
+#
+# Armed on .js too, as tsconfig.json's checkJs takes it into the program (#3796).
+# Residual: an adopter's .js outside its program pays for a run that reads nothing of it.
+if armed '\.(js|ts|tsx|mts)$|^tsconfig\.json$'; then
   if declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/workflow-core-config.js command typecheck; then
     tc_cmd="$declared_command"
     tc_status=0
