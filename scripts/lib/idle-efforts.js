@@ -19,15 +19,22 @@
  * the count. A stranding is counted once, at its deepest idle issue, never again
  * at each ancestor.
  *
- * The reason printed beside a tracker's oldest is its hold's where it is held,
- * else the loop's launch filter (lib/refill-decide.js's buildSkipReason).
+ * The reason printed beside a tracker's oldest is, in the loop's own order, a
+ * probe hold's on every checkout the loop serves of its tracker (#3898), else its
+ * hold's where it is held, else the loop's launch filter (lib/refill-decide.js's
+ * buildSkipReason).
  *
  * The shell hands over raw reads, keyed by checkout; buildReadings joins them
  * to the trackers those checkouts file to, and buildFindingRecords picks each
  * tracker's finding code (#3711).
  */
 
-const { buildSkipReason, buildLimitCapHoldWhy } = require("./refill-decide.js");
+const {
+	PROBE_HELD,
+	buildLimitCapHoldWhy,
+	buildProbeHeldRoots,
+	buildSkipReason,
+} = require("./refill-decide.js");
 const { PARKED_LABEL, newestMarkerListing } = require("./parked.js");
 const { takesLabel, takesOf } = require("./takes-label.js");
 const { refKey } = require("./issue-ref.js");
@@ -70,6 +77,8 @@ const QUERY =
  * @typedef {object} TrackerReading
  * @property {string} repo `owner/name`
  * @property {boolean} served whether the loop's current scope serves it
+ * @property {boolean} probeHeld a probe hold stops launches from every checkout
+ *   of it the loop serves
  * @property {IssueReading[]} issues its open issues
  * @property {string|null} error why its issues would not read
  */
@@ -137,6 +146,8 @@ const QUERY =
  * @property {{root: string, issues: number[]}[]} launches its launches at work
  * @property {import("./refill-loop.js").Hold[]} held the issues it holds: parked
  *   rows on a full seat and launches waiting on a limit
+ * @property {import("./refill-decide.js").TickHold[]} repoHolds its served
+ *   checkouts' open repo holds
  */
 
 /**
@@ -217,13 +228,21 @@ function buildReadings({ rootsOf, trackers, loop, now }) {
 			}
 			for (const issues of recent) markRunning(root, issues);
 		}
+	const probeHeldRoots = buildProbeHeldRoots(loop.repoHolds);
 	return {
-		trackers: trackers.map(({ repo, issues, error }) => ({
-			repo,
-			served: (rootsOf.get(repo) ?? []).some((r) => loop.served.includes(r)),
-			issues,
-			error,
-		})),
+		trackers: trackers.map(({ repo, issues, error }) => {
+			const served = (rootsOf.get(repo) ?? []).filter((r) =>
+				loop.served.includes(r),
+			);
+			return {
+				repo,
+				served: served.length > 0,
+				probeHeld:
+					served.length > 0 && served.every((r) => probeHeldRoots.has(r)),
+				issues,
+				error,
+			};
+		}),
 		launches,
 		running,
 		holds,
@@ -390,12 +409,13 @@ function findIdleEfforts(readings) {
 				urgent: i.labels.includes(URGENT_LABEL),
 				heldAtCap: readings.holds.get(key)?.atCap === true,
 				heldOnLimit: readings.holds.get(key)?.onLimit === true,
-				skip:
-					readings.holds.get(key)?.why ??
-					buildSkipReason({
-						labels: i.labels,
-						takes: takesOf(i.labels),
-					}),
+				skip: t.probeHeld
+					? PROBE_HELD
+					: (readings.holds.get(key)?.why ??
+						buildSkipReason({
+							labels: i.labels,
+							takes: takesOf(i.labels),
+						})),
 			}))
 			.sort((a, b) => b.idleMs - a.idleMs),
 	}));

@@ -4,8 +4,8 @@
  * reads every adopting checkout's tracker once, each checkout's dispatch
  * ledger as the launch log, a live loop's launch stopped on its limit as held,
  * a ticket's park marker at the limit-cap parks' cap as held, loop or no loop,
- * and a stopped loop as serving nothing, and reports through runCheck without
- * gating.
+ * a served checkout's probe hold as holding its tracker, and a stopped loop as
+ * serving nothing, and reports through runCheck without gating.
  *
  * Its judgement is lib/idle-efforts.test.ts's; this pins the readings the
  * shell hands it, and that a resume the loop writes through
@@ -19,13 +19,15 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildStartEnv, writeJobRecord } from "./lib/background-start-testkit";
 import { ledgerPath, record } from "./lib/dispatch-ledger.js";
 import { stubGhScript } from "./lib/gh-stub";
 import { readJsonl } from "./lib/jsonl.js";
 import { writeParkedBy } from "./lib/parked.js";
 import { launchOrResume } from "./lib/refill-batch.js";
+import { PROBE_HELD } from "./lib/refill-decide.js";
+import { raiseHold } from "./lib/repo-holds.js";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-idle-efforts.js");
@@ -431,6 +433,89 @@ describe("check-idle-efforts.js", () => {
 		const r = await run({ "o/core": [node(1)] });
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("o/core: none idle past 2 days");
+	});
+
+	describe("a served checkout's repo hold, read as the loop reads it (#3898)", () => {
+		const serveCore = () => {
+			checkout("core", "o/core");
+			const refill = path.join(dir, "refill");
+			fs.mkdirSync(refill, { recursive: true });
+			fs.writeFileSync(
+				path.join(refill, ".refill-loop-control.json"),
+				JSON.stringify({
+					scope: {
+						mode: "normal",
+						repos: [path.join(home, "core")],
+						exclude: [],
+						goals: {},
+					},
+					noProgressFrom: NOW,
+				}),
+			);
+			return refill;
+		};
+
+		const raiseCoreHold = (refill: string, kind: "probe" | "park") => {
+			vi.stubEnv("WFC_REFILL_DIR", refill);
+			raiseHold(path.join(home, "core"), {
+				kind,
+				act: "repair the checkout",
+				issue: 1,
+				clearCheck: kind === "probe" ? { probe: true } : { issueClosed: 1 },
+				session: null,
+				now: NOW,
+			});
+		};
+
+		it("names a probe hold beside the oldest of a held checkout, not rank", async () => {
+			const refill = serveCore();
+			raiseCoreHold(refill, "probe");
+			await withLiveLoop(refill, async () => {
+				const r = await run({ "o/core": [node(3)] });
+				expect(r.status).toBe(0);
+				expect(r.out).toContain(`skip reason: ${PROBE_HELD}`);
+				expect(r.out).not.toContain("rank");
+			});
+		});
+
+		it("still names rank in an unheld served checkout", async () => {
+			const refill = serveCore();
+			await withLiveLoop(refill, async () => {
+				const r = await run({ "o/core": [node(3)] });
+				expect(r.status).toBe(0);
+				expect(r.out).toContain("so it waits on rank");
+			});
+		});
+
+		it("still names rank under a park hold, which stops no launch", async () => {
+			const refill = serveCore();
+			raiseCoreHold(refill, "park");
+			await withLiveLoop(refill, async () => {
+				const r = await run({ "o/core": [node(3)] });
+				expect(r.status).toBe(0);
+				expect(r.out).toContain("so it waits on rank");
+			});
+		});
+
+		it("reports a hold store that will not read, never reading it silently as no hold", async () => {
+			const refill = serveCore();
+			raiseCoreHold(refill, "park");
+			const [store = ""] = fs.readdirSync(path.join(refill, "repo-holds"));
+			fs.writeFileSync(
+				path.join(refill, "repo-holds", store, "torn.json"),
+				"{}",
+			);
+			await withLiveLoop(refill, async () => {
+				const r = await run({ "o/core": [node(3)] }, ["--json"]);
+				expect(r.status).toBe(0);
+				expect(JSON.parse(r.stdout).findings).toContainEqual(
+					expect.objectContaining({
+						tag: "REFILL-LOOP-FILE-DAMAGED",
+						message: expect.stringContaining("torn.json: not a hold"),
+					}),
+				);
+			});
+		});
 	});
 
 	it("is OK where nothing is idle and the loop runs", async () => {

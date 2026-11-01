@@ -966,6 +966,8 @@ function decideUnpaused(input) {
 }
 
 module.exports = {
+	PROBE_HELD,
+	buildProbeHeldRoots,
 	buildOverflowHoldText,
 	buildPauseText,
 	seatHold,
