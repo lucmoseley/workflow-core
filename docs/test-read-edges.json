@@ -482,6 +482,7 @@
 			"scripts/init-adopter.test.ts",
 			"scripts/lib/arbiter-markers.test.ts",
 			"scripts/lib/commit-form.test.ts",
+			"scripts/lib/headless-sessions.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/hook-block.test.ts",
 			"scripts/lib/recursive-dot-read.test.ts",
@@ -719,6 +720,7 @@
 			"scripts/markdown-tooling-declined.test.ts"
 		],
 		".sonarcloud.properties": [
+			"scripts/lib/test-kind.test.ts",
 			"scripts/markdown-tooling-declined.test.ts"
 		],
 		"CLAUDE.md": [
@@ -758,7 +760,8 @@
 			"scripts/precommit-doc-map-gate.test.ts",
 			"scripts/register-doc.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
-			"scripts/upgrade.test.ts"
+			"scripts/upgrade.test.ts",
+			"scripts/write-secret.test.ts"
 		],
 		"GLOSSARY.md": [
 			"scripts/adopter-rule-copies.test.ts",
@@ -2678,6 +2681,7 @@
 			"scripts/coverage-declined.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/lib/infer-commands.test.ts",
+			"scripts/lib/test-kind.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
 			"scripts/precommit-declared-commands.test.ts",
 			"scripts/precommit-staged-gate.test.ts"
@@ -3208,7 +3212,6 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -6889,6 +6892,7 @@
 			"scripts/build-arm-sandbox.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
@@ -9824,12 +9828,23 @@
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-overflow.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/env-file.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/headless-sessions.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/refill-overflow.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/lib/workflow-core-config.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/env-file.test.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
@@ -10122,6 +10137,10 @@
 			"scripts/check-gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
+		"scripts/lib/fixtures/gh-route/claude-helper-stub.ts.txt": [
+			"scripts/check-gh-route.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
 		"scripts/lib/fixtures/gh-route/claude-lib.js.txt": [
 			"scripts/check-gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
@@ -10150,6 +10169,10 @@
 			"scripts/check-gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
+		"scripts/lib/fixtures/gh-route/helper-stub.ts.txt": [
+			"scripts/check-gh-route.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
 		"scripts/lib/fixtures/gh-route/literal-spawn-marked.js.txt": [
 			"scripts/check-gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
@@ -10159,6 +10182,10 @@
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/on-primitive.js.txt": [
+			"scripts/check-gh-route.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/lib/fixtures/gh-route/other-helper-stub.ts.txt": [
 			"scripts/check-gh-route.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
@@ -14977,6 +15004,32 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/lib/private-group.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/private-group.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/workflow-core-config.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/private-group.test.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/lib/proc-environ.js": [
 			"scripts/admission.test.ts",
 			"scripts/check-guard-errors.test.ts",
@@ -15606,6 +15659,20 @@
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/run-vitest.test.ts"
 		],
+		"scripts/lib/read-fd.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/lib/read-hidden.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
@@ -15617,6 +15684,7 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/read-hidden.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/workflow-core-config.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
@@ -16827,6 +16895,22 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/lib/review-tier-stamp.sh": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/prepare-commit-msg-gate.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/windows-script-tooling-declined.test.ts"
+		],
 		"scripts/lib/review-tier.js": [
 			"scripts/arm-tasks.test.ts",
 			"scripts/check-guard-errors.test.ts",
@@ -17344,6 +17428,8 @@
 			"scripts/check-context-budget.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-guard-test-isolation.test.ts",
+			"scripts/check-instruction-surface.test.ts",
 			"scripts/check-roadmap-valid.test.ts",
 			"scripts/check-suite-size-drift.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -17371,6 +17457,7 @@
 			"scripts/guard-suite-concurrency.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/anthropic-report.test.ts",
+			"scripts/lib/arbiter-markers.test.ts",
 			"scripts/lib/bg-job.test.ts",
 			"scripts/lib/branch-move.test.ts",
 			"scripts/lib/branch-publish.test.ts",
@@ -17379,6 +17466,7 @@
 			"scripts/lib/failed-call-rules.test.ts",
 			"scripts/lib/file-claim.test.ts",
 			"scripts/lib/git.test.ts",
+			"scripts/lib/guard-dispatch.test.ts",
 			"scripts/lib/headless-sessions.test.ts",
 			"scripts/lib/headroom-read.test.ts",
 			"scripts/lib/hook-escape.test.ts",
@@ -22679,6 +22767,11 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/test_wfc_bin.py": [
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/test_write_secret_tty.py": [
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
