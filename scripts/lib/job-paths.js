@@ -36,7 +36,7 @@ const jobStatePath = (seat, jobId) => jobStateIn(jobDirPath(seat, jobId));
  * @param {string|undefined} jobDir
  * @returns {{seat: string, jobId: string}|null}
  */
-function jobOfDir(jobDir) {
+function parseJobDir(jobDir) {
 	if (!jobDir) return null;
 	const dir = path.resolve(jobDir);
 	const store = path.dirname(dir);
@@ -93,7 +93,7 @@ function readJobCwd(seat, jobId) {
 
 module.exports = {
 	jobDirPath,
-	jobOfDir,
+	parseJobDir,
 	jobStateIn,
 	jobStatePath,
 	jobStorePath,

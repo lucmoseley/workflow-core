@@ -687,18 +687,18 @@ function fill(
 				});
 		}
 	};
-	const judged = new Set(judgements.map((j) => key(j.root, j.number)));
-	const isJudged = (/** @type {MergedRow} */ r) =>
-		judged.has(key(r.root, r.number));
+	const queued = new Set(judgements.map((j) => key(j.root, j.number)));
+	const hasQueuedJudgement = (/** @type {MergedRow} */ r) =>
+		queued.has(key(r.root, r.number));
 	const { parked, rest } = splitParked(frontier, mode);
-	walk(parked.filter((r) => !isJudged(r)));
+	walk(parked.filter((r) => !hasQueuedJudgement(r)));
 	for (const j of judgements) {
 		if (launches.length >= slots) break;
 		if (taken.has(key(j.root, j.number)))
 			skipped.push({ root: j.root, number: j.number, why: ALREADY_RUNNING });
 		else launch(j.root, [j.number], j.prompt, { gate: true });
 	}
-	walk([...parked.filter(isJudged), ...rest]);
+	walk([...parked.filter(hasQueuedJudgement), ...rest]);
 	return { launches, skipped };
 }
 

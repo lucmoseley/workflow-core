@@ -21,7 +21,7 @@
  */
 
 const { parkTargets } = require("./guard-inventory");
-const { jobOfDir, readJobCwd } = require("./lib/job-paths");
+const { parseJobDir, readJobCwd } = require("./lib/job-paths");
 const { readParkedBy, setParked, writeParkedBy } = require("./lib/parked");
 const stopGuard = require("./lib/stop-guard");
 const { trackerOf } = require("./lib/outstanding-line");
@@ -32,7 +32,7 @@ const { trackerOf } = require("./lib/outstanding-line");
  * @returns {import("./lib/parked").ParkJob|null}
  */
 function readOwnJob() {
-	const job = jobOfDir(process.env.CLAUDE_JOB_DIR);
+	const job = parseJobDir(process.env.CLAUDE_JOB_DIR);
 	return job && { ...job, cwd: readJobCwd(job.seat, job.jobId) };
 }
 
