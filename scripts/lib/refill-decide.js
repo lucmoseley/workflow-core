@@ -156,9 +156,10 @@ const ALREADY_RUNNING = "already running";
  * @property {string} seat
  * @property {SeatReason} reason
  * @property {true} [gate] a gate judgement's launch (#3092)
- * @property {{resume: ResumeTarget}|{afresh: string}} [parkedRoute] a parked
- *   ticket's: the session that parked it to resume in place, else why
- *   `prompt` launches afresh (#3621)
+ * @property {({resume: ResumeTarget}|{afresh: string}) & {limitParks?: number}} [parkedRoute]
+ *   a parked ticket's: the session that parked it to resume in place, else why
+ *   `prompt` launches afresh (#3621), and its limit-cap parks in a row, for
+ *   the launch's record to carry on (#3804)
  */
 
 /**
@@ -169,6 +170,7 @@ const ALREADY_RUNNING = "already running";
  * @property {import("./parked.js").ParkJob|null} job the seat and job its
  *   marker names, null where it names none
  * @property {string} resumeCwd where its session resumes
+ * @property {number} [limitParks] its marker's limit-cap parks in a row
  */
 
 /**
@@ -530,9 +532,23 @@ function stopOf(input, pick) {
 	return null;
 }
 
+/* A park at block-act.js's RESUME_CAP spans about 6.5 hours of resumes, past a
+ * 5-hour limit, and one at its hold bound 8 days, past a weekly one, so a second
+ * in a row with no model reply means a limit no relaunch has outlasted. Untraced
+ * (#3804, delegated). */
+const LIMIT_PARK_CAP = 2;
+
 /**
- * How a parked row launches, from the tick's reading of the session that
- * parked it, its park marker: resumed in place (#3621); held, a skip with why, where that
+ * What ends a ticket's relaunches, for the park's comment and the hold's why,
+ * which the idle alarm prints.
+ * @param {number} limitParks
+ */
+const buildLimitCapText = (limitParks) =>
+	`${limitParks} limit-cap parks in a row with no model reply; it stays parked until you type in its session or take the label off`;
+
+/**
+ * How a parked row's session goes back, from the tick's reading of its park
+ * marker: resumed in place (#3621); held, a skip with why, where that
  * session's seat reads full, a bar at 100% or a cap sized 0 (#3669); else
  * afresh on its `takes:` command, with why. A seat with an unread bar
  * resumes: the loop refreshes no seat behind the first with room, so a hold
@@ -541,12 +557,11 @@ function stopOf(input, pick) {
  * (#3680). A seat outside `seats` goes afresh: the loop launches on no such
  * seat, with no bar or cap to hold a resume to, and an overflow seat's key
  * bars a resume (lib/launch-auth.js) (#3773).
- * @param {ParkerReading|undefined} parker none where no marker lists it
+ * @param {ParkerReading} parker
  * @param {SizedSeat[]} seats this tick's
  * @returns {{resume: ResumeTarget} | {hold: string} | {afresh: string}}
  */
-function routeParked(parker, seats) {
-	if (!parker) return { afresh: "no session that parked it is recorded" };
+function routeParkedSession(parker, seats) {
 	if (!parker.job)
 		return { afresh: `its session ${parker.sessionId}'s marker names no job` };
 	const seat = seats.find((s) => s.seat === parker.job?.seat);
@@ -566,6 +581,23 @@ function routeParked(parker, seats) {
 }
 
 /**
+ * How a parked row launches: held at LIMIT_PARK_CAP limit-cap parks in a row,
+ * as the next relaunch would burn the cap again (#3804), else as
+ * routeParkedSession says, with the count carried on.
+ * @param {ParkerReading|undefined} parker none where no marker lists it
+ * @param {SizedSeat[]} seats this tick's
+ * @returns {{hold: string} | NonNullable<Launch["parkedRoute"]>}
+ */
+function routeParked(parker, seats) {
+	if (!parker) return { afresh: "no session that parked it is recorded" };
+	const { limitParks } = parker;
+	if (limitParks === undefined) return routeParkedSession(parker, seats);
+	if (limitParks >= LIMIT_PARK_CAP)
+		return { hold: `parked: ${buildLimitCapText(limitParks)}` };
+	return { ...routeParkedSession(parker, seats), limitParks };
+}
+
+/**
  * routeParked for `row`, from the parker the tick read for it.
  * @param {MergedRow} row
  * @param {ParkerReading[]} parkers
@@ -578,7 +610,8 @@ const routeParkedRow = (row, parkers, seats) =>
 	);
 
 /**
- * Every parked frontier row a tick holds on a full seat, whether or not its
+ * Every parked frontier row a tick holds, on a full seat or at the limit-cap
+ * parks' cap, whether or not its
  * walk reaches the row (#3680); none where the mode routes no parked rows.
  * @param {Pick<TickInput, "frontier"|"mode"|"seats"|"parkers">} input
  * @returns {Skip[]}
@@ -751,10 +784,12 @@ function decideTick(input) {
 
 module.exports = {
 	FULL,
+	LIMIT_PARK_CAP,
 	NOTHING_LAUNCHABLE,
 	RUN_MS,
 	UNREAD,
 	actsRead,
+	buildLimitCapText,
 	buildSkipReason,
 	decideTick,
 	fitsLaunch,

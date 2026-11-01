@@ -92,7 +92,8 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * `idleSince`, the time of the harness restart row it last read resumed-idle
  * on (#2978). `swapHeld`, set while the loop holds one it stopped under the
  * swap hold (#3093). `limitHeld`, while it holds one stopped on its seat's
- * limit, and `limitResumes`, its resumes in place (#3735). `handOffTries` counts the hand-offs of
+ * limit, and `limitResumes`, its resumes in place (#3735). `limitParks`, the
+ * limit-cap parks in a row its ticket came back from (#3804). `handOffTries` counts the hand-offs of
  * one stopped still idle that failed, and
  * `handedOff` is when one went to a fresh launch. `relaunchedAt` is when a
  * stop and `--bg --resume` last restarted its job, from which it has the
@@ -108,7 +109,7 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  *   swapHeld?: import("./refill-blocks.js").SwapHeld,
  *   limitHeld?: import("./refill-blocks.js").LimitHeld,
  *   limitResumes?: import("./refill-blocks.js").LimitResumes,
- *   handOffTries?: number, handedOff?: number, copiedFrom?: string,
+ *   limitParks?: number, handOffTries?: number, handedOff?: number, copiedFrom?: string,
  *   relaunchedAt?: number, pastSessionIds?: string[]}} LoopLaunch
  */
 
@@ -127,7 +128,8 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  */
 
 /**
- * A parked row held on its session's full seat, and since when, ms: the first
+ * A parked row held, on its session's full seat or at the limit-cap parks' cap,
+ * and since when, ms: the first
  * frontier-reading tick of an unbroken run of them that held it.
  * @typedef {import("./refill-decide.js").Skip & {since: number}} Hold
  */

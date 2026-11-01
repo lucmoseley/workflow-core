@@ -601,14 +601,16 @@ function labelParked(l) {
  * @param {import("./refill-loop.js").LoopLaunch} l
  * @param {string} sessionId
  * @param {number[]} numbers
+ * @param {number} [limitParks]  a limit-cap park's count in a row (#3804)
  */
-function recordParked(l, sessionId, numbers) {
+function recordParked(l, sessionId, numbers, limitParks) {
 	try {
 		writeParkedBy(sessionId, [...readParkedBy(sessionId, l.root), ...numbers], {
 			root: l.root,
 			job: l.jobId
 				? { seat: l.seat, jobId: l.jobId, cwd: readJobCwd(l.seat, l.jobId) }
 				: null,
+			limitParks,
 		});
 		return null;
 	} catch (e) {
@@ -803,7 +805,7 @@ function readParkers(frontier) {
 			.filter((m) => m.issues.includes(row.number))
 			.sort((x, y) => y.writtenAt - x.writtenAt)[0];
 		if (!marker) return [];
-		const { job, sessionId } = marker;
+		const { job, sessionId, limitParks } = marker;
 		return [
 			{
 				root: row.root,
@@ -811,6 +813,7 @@ function readParkers(frontier) {
 				sessionId,
 				job,
 				resumeCwd: job?.cwd ?? row.root,
+				...(limitParks === undefined ? {} : { limitParks }),
 			},
 		];
 	});

@@ -493,6 +493,29 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 		expect(out.launched[0]).not.toHaveProperty("sessionId");
 	});
 
+	it("carries a parked member's limit-cap parks on to a fresh launch's record (#3804)", () => {
+		const parked = {
+			...launch,
+			parkedRoute: {
+				afresh: "its session's marker names no job",
+				limitParks: 1,
+			},
+		};
+		const { launched } = launchBatch(
+			[parked],
+			seededIo([entry(launch.prompt, NOW, "j-1")]),
+		);
+		expect(launched[0]).toMatchObject({ limitParks: 1 });
+	});
+
+	it("carries a parked member's limit-cap parks on to its resume's record (#3804)", () => {
+		const parked = member(1, {
+			parkedRoute: { resume: target, limitParks: 1 },
+		});
+		const { out } = run([parked], ok);
+		expect(out.launched[0]).toMatchObject({ jobId: "j-9", limitParks: 1 });
+	});
+
 	it("launches afresh, logged with why, a member routed afresh or whose resume failed", () => {
 		const routed = member(1, {
 			parkedRoute: { afresh: "its session s-1's marker names no job" },

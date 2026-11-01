@@ -17,7 +17,11 @@ const {
 	resumeDueAt,
 } = require("./block-act.js");
 const { API_PROMPT, IDLE_PROMPT, LIMIT_PROMPT } = require("./loop-prompts.js");
-const { pickMoveSeat } = require("./refill-decide.js");
+const {
+	buildLimitCapText,
+	LIMIT_PARK_CAP,
+	pickMoveSeat,
+} = require("./refill-decide.js");
 
 /* #2359's "within one tick": a typed line reaches the timeline at once
  * (#2354 F8), so a minute is ample; untraced. */
@@ -42,6 +46,9 @@ const PARKED_STATE = "blocked";
  * @typedef {LoopLaunch & {jobId: string}} JobLaunch
  * @typedef {JobLaunch & {block: import("./block-act.js").Block}} BlockedLaunch
  * @typedef {import("./block-act.js").Act} Act
+ * @typedef {{act: Act, whyEnded?: string, limitParks?: number}} ParkWhy  `act`,
+ *   stop-and-park or park-at-morning; `limitParks`, a limit-cap park's count in
+ *   a row, for the marker
  * @typedef {import("./agent-liveness.js").AgentRecord} AgentRecord
  * @typedef {{tries: number, triedAt: number, nextAt: number,
  *   attachAt?: number, heldAt?: number}} Resumes  a launch's resumes after an
@@ -117,10 +124,10 @@ const PARKED_STATE = "blocked";
  *   lib/block-cause.js's hasRepliedSince on its transcript, null unread
  * @property {(l: LoopLaunch) => {n: number, why: string}[]} labelParked
  *   each of its issues the `parked` label would not go on, with why
- * @property {(l: LoopLaunch, sessionId: string, numbers: number[]) =>
- *   string|null} recordParked  add `numbers` to the session's `.parked-`
- *   marker in its checkout (lib/parked.js); null, else why not, which may
- *   carry a stack
+ * @property {(l: LoopLaunch, sessionId: string, numbers: number[],
+ *   limitParks?: number) => string|null} recordParked  add `numbers` to the
+ *   session's `.parked-` marker in its checkout (lib/parked.js), with a
+ *   limit-cap park's count in a row; null, else why not, which may carry a stack
  * @property {(l: LoopLaunch, body: string) => void} comment  on each of its
  *   issues, a failure logged
  * @property {(l: JobLaunch) => {failed: string|null, out: string}}
@@ -527,13 +534,24 @@ function labelledOf(l, unlabelled) {
  * null once recorded or with none labelled, else why not.
  * @param {LoopLaunch} l
  * @param {number[]} labelled
+ * @param {number|undefined} limitParks
  * @param {BlockIo} io
  */
-function markLabelled(l, labelled, io) {
+function markLabelled(l, labelled, limitParks, io) {
 	if (labelled.length === 0) return null;
 	if (!l.sessionId) return "no session id read";
-	return io.recordParked(l, l.sessionId, labelled);
+	return io.recordParked(l, l.sessionId, labelled, limitParks);
 }
+
+/**
+ * The park's closing words on the issue: where this limit-cap park ends the
+ * loop's relaunches, says so (#3804).
+ * @param {number|undefined} limitParks
+ */
+const buildRelaunchEndText = (limitParks) =>
+	limitParks !== undefined && limitParks >= LIMIT_PARK_CAP
+		? ` The loop will not relaunch it: ${buildLimitCapText(limitParks)}.`
+		: "";
 
 /**
  * `claude stop` on `l`'s job; null once stopped, else why not. A job the loop
@@ -553,7 +571,7 @@ function stopJob(l, io) {
  * session's marker and comment its cause on them, since a stopped session's own
  * words may not say why it waits (#2846). `l`, marked `parkStopped`.
  * @param {BlockedLaunch} l
- * @param {{act: Act, whyEnded?: string}} why
+ * @param {ParkWhy} why
  * @param {"away"|"normal"} mode
  * @param {Tick} seen
  * @returns {LoopLaunch}
@@ -564,12 +582,12 @@ function parkOnceStopped(l, why, mode, { now, io }) {
 	const outcome = {
 		failed: null,
 		unlabelled,
-		unmarkedWhy: markLabelled(l, labelledOf(l, unlabelled), io),
+		unmarkedWhy: markLabelled(l, labelledOf(l, unlabelled), why.limitParks, io),
 	};
 	io.log(buildParkStopLine(parking, mode, outcome));
 	io.comment(
 		l,
-		`Refill loop: ${buildParkStopLine(parking, mode, outcome, { brief: true })}. The conversation is kept: \`claude attach\` reopens it.`,
+		`Refill loop: ${buildParkStopLine(parking, mode, outcome, { brief: true })}. The conversation is kept: \`claude attach\` reopens it.${outcome.unmarkedWhy ? "" : buildRelaunchEndText(why.limitParks)}`,
 	);
 	return { ...l, parkStopped: now };
 }
@@ -577,8 +595,7 @@ function parkOnceStopped(l, why, mode, { now, io }) {
 /**
  * Stop `l`'s park and, where the stop held, park it (parkOnceStopped).
  * @param {BlockedLaunch} l
- * @param {{act: Act, whyEnded?: string}} why  `act`, stop-and-park or
- *   park-at-morning
+ * @param {ParkWhy} why
  * @param {"away"|"normal"} mode
  * @param {Tick} seen
  * @returns {LoopLaunch}
@@ -1241,23 +1258,36 @@ function renewLedgerHold(l, { now, io }) {
  * isLimitHeld has no parkStopped guard; its session id kept for the marker.
  * @param {JobLaunch & {block: import("./block-act.js").Block,
  *   limitHeld: LimitHeld}} l
- * @param {string|undefined} whyEnded  for the park's line
+ * @param {{whyEnded: string|undefined, limitParks?: number}} why
  * @param {"away"|"normal"} mode
  * @param {LimitTick} seen
  * @returns {LoopLaunch}
  */
-function parkHeld(l, whyEnded, mode, seen) {
+function parkHeld(l, why, mode, seen) {
 	const stopFailed = stopJob(l, seen.io);
 	if (stopFailed)
 		seen.io.log(`could not stop ${launchName(l)} for its park: ${stopFailed}`);
 	const { limitHeld: _, ...parked } = parkOnceStopped(
 		{ ...l, sessionId: l.sessionId ?? l.limitHeld.sessionId },
-		{ act: "stop-and-park", whyEnded },
+		{ act: "stop-and-park", ...why },
 		mode,
 		seen,
 	);
 	return parked;
 }
+
+/**
+ * Why `l` parks at a limit cap: `whyEnded`, and its parks at one in a row, a
+ * reply since its launch starting them again (#3804). An unread transcript
+ * counts as none, so a reading that fails cannot lift the bound.
+ * @param {JobLaunch} l
+ * @param {string|undefined} whyEnded
+ * @param {BlockIo} io
+ */
+const buildLimitCapWhy = (l, whyEnded, io) => ({
+	whyEnded,
+	limitParks: io.hasRepliedSince(l, l.launchedAt) ? 1 : (l.limitParks ?? 0) + 1,
+});
 
 /**
  * `l`'s block as the table reads it, short of what its seat's reading adds.
@@ -1284,9 +1314,17 @@ const limitBlockOf = (l) => ({
 function parkOffList(l, mode, seen) {
 	if (!isLimitHeld(l)) return l;
 	if (seen.seatListRead)
-		return parkHeld(l, `its seat ${l.seat} off the loop's seats`, mode, seen);
+		/* No count: this is no limit-cap park, and its marker's count goes. */
+		return parkHeld(
+			l,
+			{ whyEnded: `its seat ${l.seat} off the loop's seats` },
+			mode,
+			seen,
+		);
 	const whyEnded = buildLimitParkWhy(limitBlockOf(l), seen.now);
-	return whyEnded ? parkHeld(l, whyEnded, mode, seen) : l;
+	return whyEnded
+		? parkHeld(l, buildLimitCapWhy(l, whyEnded, seen.io), mode, seen)
+		: l;
 }
 
 /**
@@ -1313,10 +1351,14 @@ function actOnLimit(l, own, seen, { mode, slots, moveSeats }) {
 	};
 	const act = blockAct(block, mode, seen.now);
 	if (act === "stop-and-park") {
-		const whyEnded = buildLimitParkWhy(block, seen.now);
+		const why = buildLimitCapWhy(
+			l,
+			buildLimitParkWhy(block, seen.now),
+			seen.io,
+		);
 		return isLimitHeld(l)
-			? parkHeld(l, whyEnded, mode, seen)
-			: stopPark(l, { act, whyEnded }, mode, seen);
+			? parkHeld(l, why, mode, seen)
+			: stopPark(l, { act, ...why }, mode, seen);
 	}
 	const limit = limitReadOf(own);
 	if (act === "hold") return holdForLimit(l, limit, seen);

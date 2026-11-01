@@ -13,7 +13,13 @@
 import { describe, expect, it } from "vitest";
 
 const { capSet } = require("./allowance.js");
-const { FULL, decideTick, pickMoveSeat } = require("./refill-decide.js");
+const {
+	FULL,
+	LIMIT_PARK_CAP,
+	buildLimitCapText,
+	decideTick,
+	pickMoveSeat,
+} = require("./refill-decide.js");
 const { parseCapFits, readSizedSeats } = require("./refill-loop.js");
 const { mergeFrontiers } = require("./frontier-order.js");
 const { buildVerifyPrompt } = require("./unclosed-launch.js");
@@ -1020,6 +1026,38 @@ describe("decideTick on a parked row's session seat (#3669)", () => {
 			parkers: [parker()],
 		});
 		expect(away.held).toEqual([]);
+	});
+
+	describe("a ticket parked at a limit cap (#3804)", () => {
+		const room = seat("/s2", 40, 20, null);
+
+		it("holds it at the cap in a row, for the idle alarm, its slot going to the next row", () => {
+			const d = on(room, [parker({ limitParks: LIMIT_PARK_CAP })]);
+			expect(launched(d)).toEqual(["wfc#1"]);
+			const why = `parked: ${buildLimitCapText(LIMIT_PARK_CAP)}`;
+			expect(d.skipped).toEqual([{ root: "wfc", number: 2, why }]);
+			expect(d.held).toEqual([{ root: "wfc", number: 2, why }]);
+		});
+
+		it("holds it however its session would have routed", () => {
+			const d = on(room, [parker({ limitParks: LIMIT_PARK_CAP, job: null })]);
+			expect(launched(d)).toEqual(["wfc#1"]);
+		});
+
+		it("resumes it short of the cap, the route carrying the count on", () => {
+			const d = on(room, [parker({ limitParks: LIMIT_PARK_CAP - 1 })]);
+			expect(launched(d)).toEqual(["wfc#2"]);
+			expect(d.launches[0].parkedRoute).toEqual({
+				resume: { seat: "/s2", sessionId: "s-2", cwd: "wfc" },
+				limitParks: LIMIT_PARK_CAP - 1,
+			});
+		});
+
+		it("still resumes a ticket parked on a question, its marker counting nothing", () => {
+			const d = on(room);
+			expect(launched(d)).toEqual(["wfc#2"]);
+			expect(d.held).toEqual([]);
+		});
 	});
 
 	it("routes it afresh where no resume is possible: no parker, a marker naming no job, or a seat the loop does not read", () => {

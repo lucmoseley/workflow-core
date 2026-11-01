@@ -139,6 +139,14 @@ function parseRefusalReason(out, prompt, failed) {
 }
 
 /**
+ * The parked route's limit-cap parks in a row, for `l`'s launch record: the next
+ * such park counts on from them, whichever session makes it (#3804).
+ * @param {import("./refill-decide.js").Launch} l
+ */
+const limitParksOf = (l) =>
+	l.parkedRoute?.limitParks ? { limitParks: l.parkedRoute.limitParks } : {};
+
+/**
  * Launch one batch through the dispatcher: the record of each member it
  * launched, stamped with its own ledger entry's time, each it refused with
  * parseRefusalReason's reason, and the members it tried. The ledger is read after
@@ -196,6 +204,7 @@ function launchBatch(batch, io) {
 			finishedAt: null,
 			...(l.gate ? { gate: l.gate } : {}),
 			...(sessionId === undefined ? {} : { sessionId }),
+			...limitParksOf(l),
 		});
 	}
 	return { launched, refused, tried: r.failed ? reached : batch, ...r };
@@ -247,6 +256,7 @@ function resumeParked(l, parked, io) {
 		launchedAt,
 		finishedAt: null,
 		...(r.sessionId ? { sessionId: r.sessionId } : {}),
+		...limitParksOf(l),
 	};
 }
 

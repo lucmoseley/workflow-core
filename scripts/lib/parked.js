@@ -18,8 +18,11 @@
  * ordinary prompt. It also names the seat, job and directory the session ran
  * in, written at park time, which a normal-mode loop resumes it from whoever
  * launched it (#3709), with no read of a job record that may be torn or gone
- * by then (#3773). One entry a line: `seat <config dir>`, `job <job id>`,
- * `cwd <directory>`, or an issue number.
+ * by then (#3773). A park at a limit cap also counts those parks in a row, which
+ * ends the loop's relaunches (#3804); any other write of the marker drops the
+ * count, so a question or the founder's typing starts it again. One entry a
+ * line: `seat <config dir>`, `job <job id>`, `cwd <directory>`,
+ * `limit-parks <count>`, or an issue number.
  */
 
 const fs = require("node:fs");
@@ -57,10 +60,12 @@ function setParked(repo, n, on) {
  * `cwd` null where the job's record would not read at park time.
  * @typedef {{seat: string, jobId: string, cwd: string|null}} ParkJob
  */
-/** @typedef {{issues: number[], job: ParkJob|null}} ParkMarker */
+/**
+ * @typedef {{issues: number[], job: ParkJob|null, limitParks?: number}} ParkMarker
+ */
 
 const MARKER_PREFIX = ".parked-";
-const KEYED_RE = /^(seat|job|cwd) (.+)$/;
+const KEYED_RE = /^(seat|job|cwd|limit-parks) (.+)$/;
 /* park-blocked.sh's record shares the prefix (lib/arbiter-markers.js). */
 const BLOCKED_PREFIX = ".parked-blocked-";
 
@@ -84,10 +89,11 @@ function parseMarker(text) {
 		const m = KEYED_RE.exec(line);
 		if (m) keyed[requiredGroup(m, 1, KEYED_RE)] = requiredGroup(m, 2, KEYED_RE);
 	}
-	const { seat, job, cwd } = keyed;
+	const { seat, job, cwd, "limit-parks": limitParks } = keyed;
 	return {
 		issues,
 		job: seat && job ? { seat, jobId: job, cwd: cwd ?? null } : null,
+		...(limitParks ? { limitParks: Number(limitParks) } : {}),
 	};
 }
 
@@ -151,12 +157,17 @@ function readParkMarkers(root) {
 /**
  * Write this session's marker in `root`'s checkout: `numbers` its issues,
  * replacing the list, and `job` its job, else the one it already names, as is
- * its cwd where `job` read none. An empty list deletes it.
+ * its cwd where `job` read none, and `limitParks` its limit-cap parks in a row.
+ * An empty list deletes it.
  * @param {string} sessionId
  * @param {number[]} numbers
- * @param {{root?: string, job?: ParkJob|null}} [where]
+ * @param {{root?: string, job?: ParkJob|null, limitParks?: number}} [where]
  */
-function writeParkedBy(sessionId, numbers, { root, job = null } = {}) {
+function writeParkedBy(
+	sessionId,
+	numbers,
+	{ root, job = null, limitParks } = {},
+) {
 	const file = markerOf(sessionId, root);
 	if (numbers.length === 0) {
 		fs.rmSync(file, { force: true });
@@ -167,6 +178,7 @@ function writeParkedBy(sessionId, numbers, { root, job = null } = {}) {
 	const lines = [
 		...(kept ? [`seat ${kept.seat}`, `job ${kept.jobId}`] : []),
 		...(kept?.cwd ? [`cwd ${kept.cwd}`] : []),
+		...(limitParks ? [`limit-parks ${limitParks}`] : []),
 		...new Set(numbers),
 	];
 	fs.writeFileSync(file, `${lines.join("\n")}\n`);
