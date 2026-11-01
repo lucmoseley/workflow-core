@@ -9,7 +9,8 @@ const { ghApiSlurp } = require("./gh.js");
 const { requiredGroup } = require("./regex-group.js");
 const { rulePointer } = require("./rule-text.js");
 
-const SHA = "`?([0-9a-f]{7,40})(?![0-9a-z])`?";
+const HEX_RUN = "[0-9a-f]{7,40}";
+const SHA = `\`?(${HEX_RUN})(?![0-9a-z])\`?`;
 const RECORD_HEAD = "\\*\\*Review findings:\\*\\*";
 const REVIEWED_TREE = `reviewed\\s+${SHA}`;
 const PATHS_CLAUSE = ",[ \\t]*paths[ \\t]+([^\\n]+)";
@@ -43,7 +44,7 @@ const ESCAPED = new RegExp(`\\*\\*Escaped defect:\\*\\*\\s*${SHA}`, "g");
  * @typedef {{ repo: string, issue: number | null, base: string,
  *   tree: string, landed: string, paths: string | null, posted: string,
  *   tier: string, fixed: number, fixes: number, cutOff: number,
- *   escaped: number }} ReviewRecord
+ *   escapes: string[], isTipReverted?: boolean }} ReviewRecord
  *   `issue` null on a commit known by its trailer alone
  * @typedef {{ repo: string, issue: number, line: string }} Unparsed
  * @typedef {{ at: number, tier: string } | { at: number, record: RegExpExecArray }
@@ -170,7 +171,7 @@ function parseIssue(repo, issue, comments) {
 				fixed: listed.filter((l) => KNOWN.test(l)).length,
 				fixes: listed.filter((l) => FIXED.test(l)).length,
 				cutOff: past.filter((l) => KNOWN.test(l)).length,
-				escaped: 0,
+				escapes: [],
 			});
 		}
 	}
@@ -293,7 +294,9 @@ module.exports = {
 	day,
 	buildFindingsRefusal,
 	describeCutOff,
+	group,
 	hasRecordMention,
+	HEX_RUN,
 	isSameReview,
 	isSameSha,
 	parseIssue,
