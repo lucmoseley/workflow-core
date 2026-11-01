@@ -18,7 +18,8 @@
  *      write; this exit code is trust, never a ceiling verdict (#293 ruling 2)
  *   2  an unknown flag or a value flag with no value (lib/cli-args.js)
  *
- * `--cap` adds a `cap` key to `--json`'s payload: how many of a set's
+ * `--json`'s payload carries `trustworthy`, the exit code's verdict, for a
+ * caller that discards the code. `--cap` adds a `cap` key to `--json`'s payload: how many of a set's
  * `<members>` launch under `lib/allowance.js#capSet`, against the thresholds
  * the caller owns, and `cap.floored` whether that launch is the floor's one
  * member alone. Only where a trusted bar is past its threshold does it read
@@ -38,6 +39,7 @@ const { configDir: defaultConfigDir } = require("./lib/config-dir.js");
 const {
 	readAllowance,
 	isTrustworthy,
+	sizedPercent,
 	capSet,
 	isWarned,
 	POINTS_PER_USD,
@@ -97,11 +99,10 @@ function capOf(result, args) {
 			launch: 0,
 			error: `--cap, --session-threshold and --week-threshold need numbers, got ${args.cap}, ${args.sessionThreshold}, ${args.weekThreshold}`,
 		};
-	// A fresh bar always carries a percent (`lib/allowance.js#readOne`); an
-	// unreported one reads 0, so it is never past a threshold.
+	// Only a trustworthy reading is sized, so neither bar reads null here.
 	const readings = {
-		session: result.session.percent ?? 0,
-		weekly_all: result.weekly_all.percent ?? 0,
+		session: sizedPercent(result.session) ?? 0,
+		weekly_all: sizedPercent(result.weekly_all) ?? 0,
 	};
 	const thresholds = {
 		session: /** @type {number} */ (args.sessionThreshold),
@@ -187,8 +188,8 @@ function main() {
 	if (args.json) {
 		const payload =
 			args.cap !== null && trustworthy
-				? { ...result, cap: capOf(result, args) }
-				: result;
+				? { ...result, trustworthy, cap: capOf(result, args) }
+				: { ...result, trustworthy };
 		writeFd(1, `${JSON.stringify(payload)}\n`);
 		return trustworthy ? 0 : 1;
 	}

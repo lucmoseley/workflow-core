@@ -61,6 +61,7 @@ import {
 	record,
 	WFC,
 } from "./refill-loop-fixture";
+import { runInProcess } from "./run-in-process";
 import { buildUsageCache } from "./usage-probe-fake";
 
 const agent = (id: string, state: string) => ({
@@ -448,6 +449,32 @@ describe("a seat's weekly reset, from its usage cache (#3732)", () => {
 		const r = seatReadingOf(dir, readAllowance({ configDir: dir, now }), now);
 		expect(r).toMatchObject({ week: 0, session: 0, sessionFull: false });
 		expect(hasRoom(r)).toBe(true);
+		const cap = runInProcess(
+			path.resolve(__dirname, "..", "allowance.js"),
+			capArgs(dir, 3, { week: 97, session: 90 }),
+			{ stdin: "" },
+		);
+		expect(parseCapFits(cap.stdout)).toEqual({ fits: 3 });
+	});
+
+	it("reads a stale weekly-only seat as unread, with no room and no cap (#3758)", () => {
+		const now = Date.now();
+		fs.writeFileSync(
+			path.join(dir, ".claude.json"),
+			JSON.stringify(buildUsageCache({ week: 0 }, now - 10 * MIN)),
+		);
+		const r = seatReadingOf(dir, readAllowance({ configDir: dir, now }), now);
+		expect(r).toMatchObject({ week: null, session: null });
+		expect(hasRoom(r)).toBe(false);
+		const cap = runInProcess(
+			path.resolve(__dirname, "..", "allowance.js"),
+			capArgs(dir, 3, { week: 97, session: 90 }),
+			{ stdin: "" },
+		);
+		expect(parseCapFits(cap.stdout)).toMatchObject({
+			fits: null,
+			fault: false,
+		});
 	});
 
 	it("reads unread where the reset has passed", () => {

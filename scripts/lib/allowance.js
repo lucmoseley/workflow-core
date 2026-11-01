@@ -123,20 +123,16 @@ function readAllowance(opts = {}) {
 			severity: null,
 			resetsAt: null,
 			fetchedAtMs: null,
-			trust: unreported(kind) ? "unreported" : "absent",
+			trust: isUnreported(kind) ? "unreported" : "absent",
 		};
 	};
 	/** Whether a source that read fresh names some other bar but not `kind`.
 	 * A bar listed with no percent is a misread, not an unreported bar.
 	 * @param {"session" | "weekly_all"} kind */
-	const unreported = (kind) => {
+	const isUnreported = (kind) => {
 		const others = Object.values(KINDS).filter((k) => k.kind !== kind);
-		const cacheFresh =
-			cache.state === "ok" &&
-			typeof cache.fetchedAtMs === "number" &&
-			now - cache.fetchedAtMs <= STALE_MS;
 		if (
-			cacheFresh &&
+			cache.state === "ok" &&
 			!cache.bars.some((l) => l.kind === kind) &&
 			others.some((k) => trustOf(barFromCache(cache, k.kind), now) === "fresh")
 		)
@@ -164,6 +160,17 @@ function isTrustworthy(result) {
 		bars.every((b) => b.trust === "fresh" || b.trust === "unreported") &&
 		bars.some((b) => b.trust === "fresh")
 	);
+}
+
+/**
+ * The percent a launch is sized on: a fresh bar's own, 0 for a bar the
+ * account does not report, and null for a reading that cannot be trusted.
+ * @param {Bar} bar
+ * @returns {number | null}
+ */
+function sizedPercent(bar) {
+	if (bar.trust === "unreported") return 0;
+	return bar.trust === "fresh" ? bar.percent : null;
 }
 
 /*
@@ -259,6 +266,7 @@ function capSet({
 module.exports = {
 	readAllowance,
 	isTrustworthy,
+	sizedPercent,
 	capSet,
 	isWarned,
 	POINTS_PER_USD,

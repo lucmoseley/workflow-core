@@ -12,6 +12,7 @@ const { parseAct } = require("./act-line.js");
 const { isTerminalAgent } = require("./agent-liveness.js");
 const { neverStartedJobs } = require("./hung-jobs.js");
 const { REVIEW_HOUR, localDate } = require("./morning-review.js");
+const { sizedPercent } = require("./allowance.js");
 const { batchesOf } = require("./refill-batch.js");
 const {
 	FULL,
@@ -351,8 +352,7 @@ const ceilingsOf = (env) => ({
  * still ahead: a locked seat's bars age without refreshing, and neither
  * reopens before its reset (#2606). A passed or unparsed reset leaves it
  * unread. The weekly reset is kept whatever the bar's trust (#3732); one
- * passed or unparsed reads as unread. A bar the account does not report
- * reads 0, as `allowance.js --cap` sizes it (#3758).
+ * passed or unparsed reads as unread. Each bar reads `sizedPercent`'s figure.
  * @param {string} seat
  * @param {{session: import("./allowance.js").Bar,
  *   weekly_all: import("./allowance.js").Bar}} bars
@@ -360,11 +360,6 @@ const ceilingsOf = (env) => ({
  * @returns {SeatReading}
  */
 function seatReadingOf(seat, { session, weekly_all: week }, now) {
-	/** @param {import("./allowance.js").Bar} b */
-	const fresh = (b) => {
-		if (b.trust === "unreported") return 0;
-		return b.trust === "fresh" ? b.percent : null;
-	};
 	/** @param {import("./allowance.js").Bar} b */
 	const full = (b) =>
 		b.percent !== null &&
@@ -374,8 +369,8 @@ function seatReadingOf(seat, { session, weekly_all: week }, now) {
 	const weekResets = Date.parse(week.resetsAt ?? "");
 	return {
 		seat,
-		week: fresh(week),
-		session: fresh(session),
+		week: sizedPercent(week),
+		session: sizedPercent(session),
 		weekFull: full(week),
 		sessionFull,
 		sessionResets: sessionFull ? session.resetsAt : null,

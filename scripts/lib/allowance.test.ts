@@ -159,6 +159,47 @@ describe("a bar the account does not report (#3758)", () => {
 		expect(isTrustworthy(r)).toBe(true);
 	});
 
+	it("reads unreported on the cache such a seat really writes: five_hour null, an inactive weekly_scoped bar", () => {
+		const now = Date.now();
+		const resets = new Date(now + 6 * 24 * 3600 * 1000).toISOString();
+		fs.writeFileSync(
+			path.join(dir, ".claude.json"),
+			JSON.stringify({
+				cachedUsageUtilization: {
+					fetchedAtMs: now,
+					utilization: {
+						five_hour: null,
+						seven_day: { utilization: 0, resets_at: resets },
+						limits: [
+							{
+								kind: "weekly_all",
+								group: "weekly",
+								percent: 0,
+								severity: "normal",
+								resets_at: resets,
+								scope: null,
+								is_active: true,
+							},
+							{
+								kind: "weekly_scoped",
+								group: "weekly",
+								percent: 0,
+								severity: "normal",
+								resets_at: resets,
+								scope: { model: { id: null, display_name: "Fable" } },
+								is_active: false,
+							},
+						],
+					},
+				},
+			}),
+		);
+		const r = readAllowance({ configDir: dir, now });
+		expect(r.session.trust).toBe("unreported");
+		expect(r.weekly_all).toMatchObject({ percent: 0, trust: "fresh" });
+		expect(isTrustworthy(r)).toBe(true);
+	});
+
 	it("reads unreported where the printed bars carry the weekly line alone", () => {
 		const r = readAllowance({
 			configDir: path.join(dir, "nope"),
