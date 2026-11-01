@@ -570,8 +570,8 @@ function selectUnseen(findings, loopRunning, { stamp, day, stoppedRun }) {
 /**
  * @typedef {object} IdleNotice
  * @property {string|null} stamp the last delivered signature
- * @property {string} day machine-local `YYYY-MM-DD`
- * @property {boolean} held whether this start holds the notice
+ * @property {string} day
+ * @property {boolean} held
  * @property {number|null} stoppedRun the last run's count point, ms, as its control
  *   says; null where none reads
  */
@@ -579,7 +579,7 @@ function selectUnseen(findings, loopRunning, { stamp, day, stoppedRun }) {
 /**
  * @typedef {object} IdleReport
  * @property {TrackerFinding[]} unseen the trackers this run names
- * @property {boolean} stopUnseen whether this run names a stopped loop
+ * @property {boolean} stopUnseen
  * @property {string[]} lines its text, nested lines indented; empty where it
  *   names none
  * @property {string|null} signature what records `unseen` as shown

@@ -21,9 +21,10 @@
  * so `check-` would misname it.
  *
  * WHAT IT DECIDES, per producer:
- *   inject     a report whose text it has not shown before
- *   suppress   text already shown, or a delivery stamp saying the founder has
- *              already seen this exact finding (mantahostels#1975)
+ *   inject     a report whose stamps are not all delivered, or, carrying none,
+ *              whose text it has not shown before
+ *   suppress   a delivery stamp saying the founder has already seen this exact
+ *              finding (mantahostels#1975), or, with no stamp, text already shown
  *   stale      older than the report's own `maxAgeMs`, or 4 hours where it
  *              carries none — dropped, counted in one line
  *   silent     no NEW run for several starts AND long enough since the last
