@@ -97,9 +97,11 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const URGENT = "urgent";
 /* Untraced: the count line runs every enforcing check over the whole tree. */
 const COUNT_TIMEOUT_MS = 5 * 60 * 1000;
-/* The session-start hook's own 60 s: one paged GraphQL read per tracker, run
- * side by side, measured 10 s across six trackers on 29 Oct (#3644). */
-const IDLE_TIMEOUT_MS = 60 * 1000;
+/* One paged GraphQL read per tracker, run side by side. Measured on 1 Nov
+ * across six trackers: 10-16 s in six runs, 71 s in another. 2.5x that worst
+ * run, the multiplier a guess (#3771), and well inside refill-review-run.js's
+ * REVIEW_TIMEOUT_MS. */
+const IDLE_TIMEOUT_MS = 3 * 60 * 1000;
 
 const io = scriptIo("file-morning-review");
 
