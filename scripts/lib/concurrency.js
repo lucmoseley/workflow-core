@@ -59,8 +59,10 @@ const SPREAD_CAP = 10;
  * @typedef {object} TickRecord
  * @property {string} at
  * @property {number|null} working admission's working count, the founder's
- *   own session included
- * @property {number|null} ceiling the working count plus admission's slots
+ *   own session included, plus what the tick launched after that read
+ *   (#3770); one launched that dies still counts until the next tick's read
+ * @property {number|null} ceiling admission's working count plus its slots,
+ *   which a launch does not move
  * @property {Failing|null} binding
  * @property {Failing[]} also
  * @property {TickMemory|null} memory
@@ -196,7 +198,8 @@ function failingAt({ input, decision, admission }) {
 /**
  * @typedef {{input: import("./refill-decide.js").TickInput,
  *   decision: import("./refill-decide.js").Decision,
- *   admission: AdmissionJson|null}} Tick
+ *   admission: AdmissionJson|null, launched: number}} Tick `launched` counts
+ *   the sessions the tick started after reading `admission`
  */
 
 /**
@@ -205,16 +208,16 @@ function failingAt({ input, decision, admission }) {
  * @returns {TickRecord}
  */
 function buildTickRecord(tick) {
-	const { input, admission: a } = tick;
+	const { input, admission: a, launched } = tick;
 	const [binding = null, ...also] = failingAt(tick);
 	const count = a?.memory?.working?.count;
-	const working = typeof count === "number" ? count : null;
+	const admitted = typeof count === "number" ? count : null;
 	return {
 		at: new Date(input.now).toISOString(),
-		working,
+		working: admitted === null ? null : admitted + launched,
 		ceiling:
-			working !== null && typeof a?.slots === "number"
-				? working + a.slots
+			admitted !== null && typeof a?.slots === "number"
+				? admitted + a.slots
 				: null,
 		binding,
 		also,
@@ -368,7 +371,7 @@ function buildBlockText(r, readLive) {
 		t
 			? `${t.working ?? "?"} working at the last tick (${t.at}), admission ceiling ${t.ceiling ?? "?"}`
 			: "no refill-loop tick recorded",
-		`bound by:  ${v ? `${v.limit} — ${v.why}` : `${NONE} — a slot is free; the loop launches next tick`}`,
+		`bound by:  ${v ? `${v.limit} — ${v.why}` : `${NONE} — ${buildUnboundText(t)}`}`,
 	];
 	if (r.also.length > 0)
 		lines.push(
@@ -382,6 +385,16 @@ function buildBlockText(r, readLive) {
 	lines.push(`sustained: ${buildSustainedText(r, SUSTAINED_WINDOW.span)}`);
 	return lines.join("\n");
 }
+
+/**
+ * Why no limit binds: the verdict is judged before the tick's launches, which
+ * may have taken every slot it found free (#3770).
+ * @param {TickRecord|null|undefined} t
+ */
+const buildUnboundText = (t) =>
+	t && t.working !== null && t.ceiling !== null && t.working >= t.ceiling
+		? "the last tick filled the free slots"
+		: "a slot is free; the loop launches next tick";
 
 /**
  * The unlisted watch's line (#3322), null where nothing is unlisted: whether

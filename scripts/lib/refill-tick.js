@@ -1067,7 +1067,7 @@ async function tick({ dryRun }) {
 	};
 	const { decision, read } = await decide(input, control.scope);
 	if (dryRun) return { decision, read, startedAt: control.startedAt, agents };
-	const settled = loop.settleTick(
+	const { decision: settled, launched } = loop.settleTick(
 		{ input, decision, state, judged, probes, read },
 		{
 			readControl,
@@ -1079,7 +1079,11 @@ async function tick({ dryRun }) {
 			now: Date.now,
 		},
 	);
-	if (!appendTick(buildTickRecord({ input, decision: settled, admission })))
+	if (
+		!appendTick(
+			buildTickRecord({ input, decision: settled, admission, launched }),
+		)
+	)
 		log(`concurrency record: not written to ${concurrencyFiles().record}`);
 	return { decision: settled, startedAt: control.startedAt, agents };
 }

@@ -24,6 +24,11 @@ const unread = () => {
 	throw new Error("read admission over a fresh tick");
 };
 
+/* A tick that launched nothing, the case every test but #3770's reads. */
+const record = (
+	tick: Omit<Parameters<typeof buildTickRecord>[0], "launched">,
+) => buildTickRecord({ ...tick, launched: 0 });
+
 const minute = (ms: number, sessions: number | null) => ({
 	ts: iso(ms),
 	sessions,
@@ -327,7 +332,7 @@ describe("the unlisted watch (#3322, #3496, #3507)", () => {
 	});
 
 	it("prints the reason a fresh tick's unlisted row went unread (#3507)", () => {
-		const tick = buildTickRecord({
+		const tick = record({
 			input: input(),
 			decision: idle("no free slot"),
 			admission: admission({
@@ -358,7 +363,7 @@ describe("the unlisted watch (#3322, #3496, #3507)", () => {
 		`unlisted:  2 session(s) outside admission's listing hold ? MB ${when} (${why}), charged no draw headroom (#2502)`;
 
 	it("names a counted row's unread memory on a fresh tick (#3509)", () => {
-		const tick = buildTickRecord({
+		const tick = record({
 			input: input(),
 			decision: idle("no free slot"),
 			admission: admission({
@@ -491,7 +496,7 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 			limits: ["memory"],
 		},
 	])("$name", ({ tick, limits }) => {
-		const r = buildTickRecord(tick);
+		const r = record(tick);
 		expect(
 			[r.binding, ...r.also]
 				.filter(Boolean)
@@ -500,7 +505,7 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 	});
 
 	it("records the first as binding, the rest as also, and memory's largest holder", () => {
-		const r = buildTickRecord({
+		const r = record({
 			input: input(),
 			decision: idle("no free slot"),
 			admission: admission({
@@ -528,7 +533,7 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 			mb: 420,
 			dirs: [{ dir: "~/.claude-b", count: 1 }],
 		};
-		const r = buildTickRecord({
+		const r = record({
 			input: input(),
 			decision: idle("no free slot"),
 			admission: admission({
@@ -582,7 +587,7 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 	])(
 		"reads a verdict with $name as unknown, never NaN or a throw (#3531)",
 		({ over, working, ceiling, failing }) => {
-			const r = buildTickRecord({
+			const r = record({
 				input: input(),
 				decision: idle("no free slot"),
 				admission: admission({ slots: 1, ...over }),
@@ -593,8 +598,38 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 		},
 	);
 
-	it("records null counts and memory where admission did not read", () => {
+	it("counts the tick's own launches as working, leaving the ceiling where admission set it (#3770)", () => {
 		const r = buildTickRecord({
+			input: input({ freeSlots: 2 }),
+			decision: { launches: [{}, {}], skipped: [], idle: null },
+			admission: admission({ slots: 2 }),
+			launched: 2,
+		});
+		const { count } = admission().memory.working;
+		expect(r.working).toBe(count + 2);
+		expect(r.ceiling).toBe(count + 2);
+	});
+
+	it("says the last tick filled the free slots, not that one is free, where its launches reached the ceiling (#3770)", () => {
+		const tick = buildTickRecord({
+			input: input({ freeSlots: 2 }),
+			decision: { launches: [{}, {}], skipped: [], idle: null },
+			admission: admission({ slots: 2 }),
+			launched: 2,
+		});
+		const r = readout({
+			ticks: [tick],
+			minutes: [],
+			now: T0 + MIN,
+			windowMs: HOUR,
+		});
+		expect(buildBlockText(r, unread)).toContain(
+			"bound by:  none — the last tick filled the free slots",
+		);
+	});
+
+	it("records null counts and memory where admission did not read", () => {
+		const r = record({
 			input: input(),
 			decision: idle("no free slot"),
 			admission: null,

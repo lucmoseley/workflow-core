@@ -331,6 +331,20 @@ describe("run (#2435)", () => {
 		expect(r.stdout).not.toContain(`landing in ${at("gone")}`);
 	});
 
+	it("counts a session the tick launched in its concurrency row (#3770)", async () => {
+		const file = ledgerPath(repo);
+		fs.mkdirSync(path.dirname(file), { recursive: true });
+		stub(
+			"dispatch-sessions.sh",
+			`printf '{"ts":"%s","issues":[5],"prompt":"/implement 5","jobId":"job5"}\\n' "$(date -u +%FT%TZ)" >> ${JSON.stringify(file)}
+node ${JSON.stringify(path.join(scripts, "request-stop.js"))}\n`,
+		);
+		await settled(run(1), "run that launches");
+		const [line] = readLines(at("concurrency.jsonl")).map((l) => JSON.parse(l));
+		const { count } = ADMISSION_VERDICT.memory.working;
+		expect(line).toMatchObject({ working: count + 1, ceiling: count + 1 });
+	});
+
 	it("logs a damaged state file and ticks on the defaults (#3380)", async () => {
 		const state = at(".refill-loop-state.json");
 		fs.writeFileSync(state, "{ not json");

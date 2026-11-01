@@ -90,13 +90,15 @@ const tick = (
 	{
 		decision = { launches: [], skipped: [], idle: null },
 		admitted = admission(),
-	}: { decision?: object; admitted?: object | null } = {},
+		launched = 0,
+	}: { decision?: object; admitted?: object | null; launched?: number } = {},
 ) =>
 	`${JSON.stringify(
 		buildTickRecord({
 			input: { now: Date.now() - agoMs, freeSlots: 0, lastPromptAt: null },
 			decision,
 			admission: admitted,
+			launched,
 		}),
 	)}\n`;
 
@@ -134,6 +136,11 @@ describe("concurrency segment", () => {
 			4.7,
 		);
 		expect(render()).toBe("Sess 3/5 · memory · 24h 4.7");
+	});
+
+	it("counts the last tick's launches in its working figure (#3770)", () => {
+		writeRecord([tick(MINUTE_MS, { launched: 2 })], 4.7);
+		expect(render()).toBe("Sess 5/5 · none · 24h 4.7");
 	});
 
 	it("names no limit as none, an unread count as ? and no 24h figure as -", () => {
