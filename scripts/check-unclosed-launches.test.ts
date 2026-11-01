@@ -2,7 +2,8 @@
 /*
  * check-unclosed-launches.test.ts — what `npm run status` names (#3782), from
  * a real state file and a stubbed tracker: an open implement ticket whose
- * latest launch committed and did not close, and nothing else.
+ * latest launch committed and did not close, and nothing else. A break here
+ * leaves a stranded ticket waiting unreported, as #3609 did.
  */
 
 import fs from "node:fs";
@@ -88,7 +89,16 @@ describe("check-unclosed-launches (#3782)", () => {
 
 	it("reads no tracker where no launch reads as unclosed", async () => {
 		const r = await run([launch(7, { acts: { commit: 1, close: 1 } })], null);
+		expect(r.status).toBe(0);
 		expect(r.out).toContain("OK:");
+	});
+
+	it("says a launch's checkout has no tracker, never that there are none", async () => {
+		const bare = path.join(dir, "bare");
+		fs.mkdirSync(bare);
+		const r = await run([launch(7, { root: bare })], []);
+		expect(r.status).toBe(0);
+		expect(r.out).toContain(`${bare}: no tracker configured`);
 	});
 
 	it("says a tracker would not read, never that there are none", async () => {

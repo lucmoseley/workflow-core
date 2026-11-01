@@ -133,6 +133,7 @@ const {
 const { loopFiles, readJson } = require("./lib/refill-files.js");
 const { parseState } = require("./lib/refill-loop.js");
 const { unclosedLaunchOf } = require("./lib/unclosed-launch.js");
+const { writeFd } = require("./lib/write-fd.js");
 const conflictGraph = require("./lib/conflict-graph");
 const strandedCount = require("./lib/stranded-count");
 const {
@@ -1803,9 +1804,7 @@ function frontierJson(i) {
  */
 function withUnclosedLaunch(rows) {
 	const { launches } = parseState(
-		readJson(loopFiles().state, (line) =>
-			process.stderr.write(`pick-next: ${line}\n`),
-		),
+		readJson(loopFiles().state, (line) => writeFd(2, `pick-next: ${line}\n`)),
 	);
 	const root = arbiter.paths.repoRoot();
 	return rows.map((row) => {

@@ -32,6 +32,7 @@ const {
 } = require("./refill-blocks.js");
 const { buildErrorText } = require("./caught.js");
 const { buildSeatName } = require("./refill-seats.js");
+const { unclosedLaunches } = require("./unclosed-launch.js");
 const {
 	buildOverflowStartLines,
 	firstOverflowLaunch,
@@ -650,6 +651,8 @@ function newlyFinished(launches, agents, now) {
  * Admission bounds the running ones. Residual: a limit-held launch, stopped so
  * outside admission, stays until it resumes or parks (#3790); #3792 and #3793
  * name where that is still unbounded.
+ * Also the HISTORY_KEPT latest unclosed launches, which a low-ranked ticket can
+ * otherwise outwait, as #3609's record did (#3782).
  * @param {LoopLaunch[]} launches
  */
 function keptLaunches(launches) {
@@ -659,7 +662,8 @@ function keptLaunches(launches) {
 		launches
 			.filter((l) => !isLive(l))
 			.sort((a, b) => settledAt(a) - settledAt(b))
-			.slice(-HISTORY_KEPT),
+			.slice(-HISTORY_KEPT)
+			.concat(unclosedLaunches(launches).slice(-HISTORY_KEPT)),
 	);
 	return launches.filter((l) => isLive(l) || capped.has(l));
 }

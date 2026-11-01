@@ -787,7 +787,10 @@ describe("the first overflow launch's record (#3767)", () => {
 					],
 					refused: [],
 				}),
-				past: past as Tick["judged"],
+				past: past.map((l) => ({
+					issues: [],
+					...l,
+				})) as unknown as Tick["judged"],
 				writes,
 				seats: [planSeat("/h/.claude2", 100, true)],
 				overflow: [{ seat: apiSeat, fits: 3, spentUntil: null, why: null }],
@@ -1084,6 +1087,13 @@ describe("the launches a tick keeps (#3621)", () => {
 		const out = kept(history([late]));
 		expect(out).toHaveLength(50);
 		expect(out[0]).toBe(late);
+	});
+
+	it("keeps a ticket's unclosed launch past the 50, until a later launch of it supersedes it (#3782)", () => {
+		const unclosed = at(1, { acts: { commit: 1 } });
+		expect(kept(history([unclosed]))).toContain(unclosed);
+		const superseded = kept(history([unclosed, at(1)]));
+		expect(superseded).not.toContain(unclosed);
 	});
 
 	it("caps an unfinished launch with no job, which no tick can finish", () => {

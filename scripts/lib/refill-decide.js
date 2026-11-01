@@ -10,7 +10,11 @@
 const path = require("node:path");
 const { WAITING_LABEL } = require("./frontier-order.js");
 const { PARKED_LABEL } = require("./parked.js");
-const { COMMAND_VALUES, TAKES_PREFIX } = require("./takes-label.js");
+const {
+	COMMAND_VALUES,
+	TAKES_PREFIX,
+	takesValue,
+} = require("./takes-label.js");
 const { presenceAt } = require("./presence.js");
 const { buildVerifyPrompt, unclosedLaunchOf } = require("./unclosed-launch.js");
 
@@ -439,8 +443,8 @@ function buildSkipReason(row, mode) {
  * @param {MergedRow} row
  * @param {LaunchRecord[]} history
  */
-const rowPrompt = (row, history) =>
-	row.takes[0] === "implement" &&
+const buildRowPrompt = (row, history) =>
+	row.takes[0] === takesValue("implement") &&
 	unclosedLaunchOf(history, row.root, row.number)
 		? buildVerifyPrompt(row.number)
 		: `/${row.takes[0]} ${row.number}`;
@@ -465,7 +469,7 @@ function rowLaunch(row, { retroBundles, mode, history }, isTaken) {
 		return { why: `its retro bundle's #${busy} is running` };
 	return {
 		issues,
-		prompt: bundle ? bundle.prompt : rowPrompt(row, history),
+		prompt: bundle ? bundle.prompt : buildRowPrompt(row, history),
 	};
 }
 
