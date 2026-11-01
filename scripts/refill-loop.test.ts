@@ -19,6 +19,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcessAsync } from "./lib/run-in-process.js";
+import { buildUsageCache } from "./lib/usage-probe-fake";
 
 const SCRIPT = path.resolve(__dirname, "refill-loop.js");
 
@@ -304,6 +305,86 @@ describe("stop and status", () => {
 		expect(line?.slice(line.indexOf(": ") + 2)).toMatch(
 			/^fits 50; headroom \$200\.00 \(\$0\.00 held by 0 running\); spent \$0\.00 of \$200\.00 since \d{4}-\d{2}-20; resets \d{4}-\d{2}-20$/,
 		);
+	});
+
+	it("names the plan seats overflow rests on and the dirs the seat file omits (#3767)", async () => {
+		fs.mkdirSync(path.join(dir, ".claude"));
+		fs.writeFileSync(
+			path.join(dir, ".claude", "refill-seats"),
+			"~/.claude2\n~/.claude2-api api key=WFC_TEST_KEY grant=200 cycle-day=20\n",
+		);
+		for (const name of [".claude2", ".claude3"]) {
+			fs.mkdirSync(path.join(dir, name));
+			fs.writeFileSync(path.join(dir, name, ".credentials.json"), "{}");
+		}
+		const now = Date.now();
+		fs.writeFileSync(
+			path.join(dir, ".claude2", ".claude.json"),
+			JSON.stringify(buildUsageCache({ week: 40 }, now - 120_000)),
+		);
+		fs.writeFileSync(
+			path.join(dir, ".refill-loop-control.json"),
+			JSON.stringify({
+				startedAt: now,
+				stopRequested: false,
+				seats: [path.join(dir, ".claude2")],
+				scope: { mode: "normal", repos: [], exclude: [], goals: {} },
+			}),
+		);
+		const r = await run("status");
+		expect(r.status).toBe(0);
+		const lines = r.stdout.split("\n");
+		const at = lines.indexOf("overflow rests on these plan seats:");
+		expect(at).toBeGreaterThan(-1);
+		expect(lines[at + 1]).toBe(
+			"  ~/.claude2: 40% of the week, read 2m ago, not weekly-full",
+		);
+		expect(lines[at + 2]).toBe(
+			"  credentials outside the seat file: ~/.claude3",
+		);
+	});
+
+	it("prints no overflow basis where no overflow seat is declared (#3767)", async () => {
+		fs.mkdirSync(path.join(dir, ".claude"));
+		fs.writeFileSync(path.join(dir, ".claude", "refill-seats"), "~/.claude2\n");
+		const r = await run("status");
+		expect(r.status).toBe(0);
+		expect(r.stdout).not.toContain("overflow rests on");
+	});
+
+	it("names a seat file that differs from the running loop's seats (#3767)", async () => {
+		fs.mkdirSync(path.join(dir, ".claude"));
+		fs.writeFileSync(
+			path.join(dir, ".claude", "refill-seats"),
+			"~/.claude3\n~/.claude2-api api key=WFC_TEST_KEY grant=200 cycle-day=20\n",
+		);
+		fs.writeFileSync(
+			path.join(dir, ".refill-loop-control.json"),
+			JSON.stringify({
+				startedAt: Date.now(),
+				stopRequested: false,
+				seats: [path.join(dir, ".claude2")],
+				scope: { mode: "normal", repos: [], exclude: [], goals: {} },
+			}),
+		);
+		const { stdout } = await run("status");
+		expect(stdout).toContain(
+			"in the seat file, unread until the next start: ~/.claude3",
+		);
+		expect(stdout).toContain(
+			"read since the last start, gone from the seat file: ~/.claude2",
+		);
+	});
+
+	it("names a seat file that refuses and prints no basis on it (#3767)", async () => {
+		fs.mkdirSync(path.join(dir, ".claude"));
+		fs.writeFileSync(
+			path.join(dir, ".claude", "refill-seats"),
+			"~/.claude2\n~/.claude2-api api key=K grant=200 cycle-day=20\n~/.claude3-api api nope\n",
+		);
+		const { stdout } = await run("status");
+		expect(stdout).toContain("seat file refuses: ");
+		expect(stdout).not.toContain("overflow rests on");
 	});
 
 	it("names a damaged state file (#3380)", async () => {

@@ -29,7 +29,14 @@ const {
 	launchName,
 	markParked,
 } = require("./refill-blocks.js");
-const { homeDir } = require("./refill-repos.js");
+const { buildErrorText } = require("./caught.js");
+const { buildSeatName } = require("./refill-seats.js");
+const {
+	buildOverflowStartLines,
+	firstOverflowLaunch,
+	parseOverflowStart,
+	planSeatBasisOf,
+} = require("./overflow-notice.js");
 const { OUTCOME_PREFIX } = require("./usage-probe.js");
 
 /* A finished session drops off the listing; one just launched may not be on
@@ -110,6 +117,8 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  *   alarm (#3680)
  * @property {string|null} reviewRunOn machine-local date of the last morning
  *   review filing
+ * @property {import("./overflow-notice.js").OverflowStart|null} overflowStart
+ *   the newest first overflow launch after a plan-seat launch
  */
 
 /**
@@ -268,6 +277,7 @@ function parseState(raw) {
 		stopped: parseStopped(r.stopped),
 		held: Array.isArray(r.held) ? r.held.filter(isHold) : [],
 		reviewRunOn: typeof r.reviewRunOn === "string" ? r.reviewRunOn : null,
+		overflowStart: parseOverflowStart(r.overflowStart),
 	};
 }
 
@@ -406,6 +416,11 @@ function seatReadingOf(seat, { session, weekly_all: week }, now) {
 		sessionFull,
 		sessionResets: sessionFull ? session.resetsAt : null,
 		weekResets: weekResets > now ? weekResets : null,
+		weekRead: {
+			percent: week.percent,
+			/* A printed `/usage` carries no time: it was read just now. */
+			atMs: week.fetchedAtMs ?? (week.trust === "fresh" ? now : null),
+		},
 	};
 }
 
@@ -763,17 +778,6 @@ function launchUntilStopped(batches, readControl, launch) {
 }
 
 /**
- * @param {string} seat
- * @param {string} [home]
- */
-function buildSeatName(seat, home = homeDir()) {
-	const rel = path.relative(home, seat);
-	return rel && !rel.startsWith("..") && !path.isAbsolute(rel)
-		? `~/${rel}`
-		: seat;
-}
-
-/**
  * A record from before #3732 has no reason.
  * @param {{seat: string, reason?: string}} l
  */
@@ -907,6 +911,38 @@ const stoppedOf = (d, at) =>
 	"stop" in d ? { at, reason: d.stop, detail: d.detail } : null;
 
 /**
+ * The record of `launched`'s first overflow launch after a plan-seat launch,
+ * logged, or null. The credential scan runs only then; its failure is logged,
+ * since the launches it follows are not yet in the state.
+ * @param {import("./refill-decide.js").TickInput} input
+ * @param {{judged: LoopLaunch[], launched: LoopLaunch[]}} launches
+ * @param {{readOmittedDirs: () => string[], log: (line: string) => void}} io
+ * @returns {import("./overflow-notice.js").OverflowStart|null}
+ */
+function recordOverflowStart(input, { judged, launched }, io) {
+	const overflowDirs = new Set((input.overflow ?? []).map((o) => o.seat));
+	const first = firstOverflowLaunch(judged, launched, overflowDirs);
+	if (first === null) return null;
+	/** @type {string[]} */
+	let omitted = [];
+	try {
+		omitted = io.readOmittedDirs();
+	} catch (err) {
+		io.log(`credentials scan failed: ${buildErrorText(err)}`);
+	}
+	const start = {
+		at: first.launchedAt,
+		seat: first.seat,
+		planSeats: input.seats.map(planSeatBasisOf),
+		omitted,
+	};
+	io.log(
+		`first overflow launch on ${buildSeatName(first.seat)}: ${buildOverflowStartLines(start).join("; ")}`,
+	);
+	return start;
+}
+
+/**
  * A tick from its decision on: dispatch its launches while the control asks
  * for no stop, write the state, then take the morning review's step, which
  * starts its child detached and returns at once (reviewStep).
@@ -921,9 +957,11 @@ const stoppedOf = (d, at) =>
  *   launchBatch: (batch: import("./refill-decide.js").Launch[]) => BatchOutcome,
  *   runReview: (lastRunOn: string|null, now: number) => string|null,
  *   writeState: (state: LoopState) => void,
+ *   readOmittedDirs: () => string[],
  *   log: (line: string) => void, now: () => number}} io
- * @returns {import("./refill-decide.js").Decision} the late stop where one
- *   landed, else the tick's decision
+ * @returns {{decision: import("./refill-decide.js").Decision,
+ *   launched: number}} the late stop where one landed, else the tick's
+ *   decision, and how many sessions the tick started
  */
 function settleTick({ input, decision, state, judged, probes, read }, io) {
 	const outcome = launchUntilStopped(
@@ -937,6 +975,11 @@ function settleTick({ input, decision, state, judged, probes, read }, io) {
 		read,
 	});
 	io.log(summary);
+	const overflowStart = recordOverflowStart(
+		input,
+		{ judged, launched: outcome.launched },
+		io,
+	);
 	const next = {
 		launches: [...judged, ...outcome.launched].slice(-HISTORY_KEPT),
 		lastTick: {
@@ -950,6 +993,7 @@ function settleTick({ input, decision, state, judged, probes, read }, io) {
 				? state.held
 				: holdsOf(decision.held, state.held, input.now),
 		reviewRunOn: state.reviewRunOn,
+		overflowStart: overflowStart ?? state.overflowStart,
 	};
 	io.writeState(next);
 	const reviewRunOn = io.runReview(state.reviewRunOn, input.now);
@@ -969,7 +1013,7 @@ function settleTick({ input, decision, state, judged, probes, read }, io) {
 			stopped: (late && stoppedOf(late, io.now())) ?? next.stopped,
 			reviewRunOn,
 		});
-	return late ?? decision;
+	return { decision: late ?? decision, launched: outcome.launched.length };
 }
 
 /**
@@ -1019,7 +1063,6 @@ module.exports = {
 	landingRoots,
 	parseProbeOutcome,
 	overflowReadings,
-	buildSeatName,
 	seatReadingOf,
 	settleTick,
 	readSizedSeats,

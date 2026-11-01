@@ -159,6 +159,44 @@ function readConfiguredSeats() {
 }
 
 /**
+ * @param {string} seat
+ * @param {string} [home]
+ */
+function buildSeatName(seat, home = homeDir()) {
+	const rel = path.relative(home, seat);
+	return rel && !rel.startsWith("..") && !path.isAbsolute(rel)
+		? `~/${rel}`
+		: seat;
+}
+
+/**
+ * The `.claude*` config dirs in the home dir holding credentials that the seat
+ * file does not declare (#3767).
+ * @param {SeatList} list
+ * @param {string} [home]
+ * @returns {string[]}
+ */
+function readOmittedDirs(list, home = homeDir()) {
+	const declared = new Set(list.seats.map((s) => realKey(s.dir)));
+	let names;
+	try {
+		names = fs.readdirSync(home);
+	} catch (err) {
+		if (caught(err).code === "ENOENT") return [];
+		throw err;
+	}
+	return names
+		.filter((n) => n.startsWith(".claude"))
+		.map((n) => path.join(home, n))
+		.filter(
+			(d) =>
+				fs.existsSync(path.join(d, ".credentials.json")) &&
+				!declared.has(realKey(d)),
+		)
+		.sort();
+}
+
+/**
  * The seats outside arbiter-core's sessionDirs(), so whose sessions no
  * listing shows.
  * @param {string[]} seats
@@ -169,8 +207,10 @@ function unlistedSeats(seats) {
 }
 
 module.exports = {
+	buildSeatName,
 	readConfiguredSeats,
 	readDeclaredSeats,
+	readOmittedDirs,
 	seatOf,
 	unlistedSeats,
 };

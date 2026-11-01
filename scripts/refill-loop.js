@@ -13,8 +13,9 @@
  *                                        finish
  *   node scripts/refill-loop.js status   mode, repos, goal, stop time,
  *                                        launches with their seats, the
- *                                        last stop reason and each overflow
- *                                        seat's budget; `--json` the launch
+ *                                        last stop reason, each overflow
+ *                                        seat's budget and the plan seats
+ *                                        overflow rests on; `--json` the launch
  *                                        rows alone
  *   node scripts/refill-loop.js dry-run  one tick's decision, printed; reaps
  *                                        and launches nothing
@@ -53,10 +54,13 @@ const { hostRoot } = require("./lib/host-root.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const { hasConfig } = require("./lib/workflow-core-config.js");
 const { RUN_MS } = require("./lib/refill-decide.js");
+const { readAllowance } = require("./lib/allowance.js");
 const { buildBudgetLine, seatBudget } = require("./lib/overflow-budget.js");
+const { planSeatBasisOf } = require("./lib/overflow-notice.js");
 const {
 	readConfiguredSeats,
 	readDeclaredSeats,
+	readOmittedDirs,
 	unlistedSeats,
 } = require("./lib/refill-seats.js");
 const wakes = require("./lib/refill-wake.js");
@@ -271,9 +275,34 @@ function status({ flags }) {
 	/* The tick's root (refill-tick.js), so status prints the figure it sizes;
 	 * with no loop serving, this checkout's. */
 	const root = served[0] ?? hostRoot();
-	for (const seat of readDeclaredSeats().seats)
-		if (seat.kind === "overflow")
-			say(buildBudgetLine(seat, seatBudget(seat, root)));
+	const declared = readDeclaredSeats();
+	for (const error of declared.errors) say(`seat file refuses: ${error}`);
+	const overflow = declared.seats.flatMap((s) =>
+		s.kind === "overflow" ? [s] : [],
+	);
+	for (const seat of overflow)
+		say(buildBudgetLine(seat, seatBudget(seat, root)));
+	if (overflow.length > 0 && declared.errors.length === 0) {
+		const now = Date.now();
+		const lines = commands.buildOverflowBasisLines({
+			planSeats: (control?.seats ?? readConfiguredSeats()).map((seat) =>
+				planSeatBasisOf(
+					loop.seatReadingOf(
+						seat,
+						readAllowance({ configDir: seat, now }),
+						now,
+					),
+				),
+			),
+			filePlanSeats: declared.seats
+				.filter((s) => s.kind === "plan")
+				.map((s) => s.dir),
+			omitted: readOmittedDirs(declared),
+			start: state.overflowStart,
+			now,
+		});
+		for (const line of lines) say(line);
+	}
 	return 0;
 }
 

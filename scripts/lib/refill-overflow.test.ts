@@ -35,6 +35,7 @@ const planSeat = (seat: string, weekFull: boolean) => ({
 	sessionFull: false,
 	sessionResets: null,
 	weekResets: null,
+	weekRead: { percent: null, atMs: null },
 });
 
 const overflowSeat = (dir: string) => ({

@@ -55,6 +55,7 @@ const seat = (
 	sessionFull: session !== null && session >= FULL,
 	sessionResets: null,
 	weekResets: null,
+	weekRead: { percent: null, atMs: null },
 	fits,
 });
 

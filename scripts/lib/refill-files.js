@@ -28,6 +28,7 @@ function loopFiles() {
 		pid: refillPath(".refill-loop.pid"),
 		log: refillPath(".refill-loop.log"),
 		stopSeen: refillPath(".refill-loop-stop-seen"),
+		overflowSeen: refillPath(".refill-overflow-seen"),
 		wake: refillPath(".refill-loop-wake"),
 		gates: refillPath(".refill-gate-readings.json"),
 		code: refillPath(".refill-loop-code"),

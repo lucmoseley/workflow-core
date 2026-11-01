@@ -50,6 +50,100 @@ const run = (args: string[], source = "startup", jobDir = "") =>
 		stdin: JSON.stringify({ hook_event_name: "SessionStart", source }),
 	});
 
+describe("the first overflow launch (#3767)", () => {
+	const At = Date.parse("2026-11-01T09:00:00Z");
+	const home = process.env.HOME || os.homedir();
+	const writeStart = (at = At) =>
+		fs.writeFileSync(
+			path.join(dir, ".refill-loop-state.json"),
+			JSON.stringify({
+				launches: [],
+				overflowStart: {
+					at,
+					seat: path.join(home, ".claude3-api"),
+					planSeats: [
+						{
+							seat: path.join(home, ".claude2"),
+							percent: 100,
+							weekReadAt: at - 120_000,
+							weekFull: true,
+						},
+						{
+							seat: path.join(home, ".claude3"),
+							percent: 0,
+							weekReadAt: at - 7_200_000,
+							weekFull: false,
+						},
+						{
+							seat: path.join(home, ".claude4"),
+							percent: null,
+							weekReadAt: null,
+							weekFull: false,
+						},
+					],
+					omitted: [path.join(home, ".claude9")],
+				},
+			}),
+		);
+
+	it("names each plan seat's reading and the omitted dirs, once", () => {
+		writeStart();
+		const { status, stdout } = run(["--notify"]);
+		expect(status).toBe(0);
+		expect(stdout).toContain("REFILL-LOOP-OVERFLOW");
+		expect(stdout).toContain("Its status:");
+		expect(stdout).toContain("Tell the founder");
+		expect(stdout).toContain("2026-11-01T09:00:00.000Z");
+		expect(stdout).toContain("~/.claude3-api");
+		expect(stdout).toContain(
+			"~/.claude2: 100% of the week, read 2m before it, weekly-full",
+		);
+		expect(stdout).toContain(
+			"~/.claude3: 0% of the week, read 2h before it, not weekly-full",
+		);
+		expect(stdout).toContain("~/.claude4: no weekly reading, not weekly-full");
+		expect(stdout).toContain("credentials outside the seat file: ~/.claude9");
+		const again = run(["--notify"]);
+		expect(again.status).toBe(0);
+		expect(again.stdout).not.toContain("REFILL-LOOP-OVERFLOW");
+	});
+
+	it("reads a damaged plan-seat element as absent, never throwing", () => {
+		fs.writeFileSync(
+			path.join(dir, ".refill-loop-state.json"),
+			JSON.stringify({
+				overflowStart: { at: At, seat: "/s", planSeats: [null], omitted: [1] },
+			}),
+		);
+		const r = run(["--notify"]);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("REFILL-LOOP-OVERFLOW");
+	});
+
+	it("names a later overflow start past the stamp", () => {
+		writeStart();
+		run(["--notify"]);
+		writeStart(At + 1000);
+		expect(run(["--notify"]).stdout).toContain("REFILL-LOOP-OVERFLOW");
+	});
+
+	it("holds back and keeps the stamp at a background start", () => {
+		writeStart();
+		const held = run(["--notify"], "startup", dir);
+		expect(held.status).toBe(0);
+		expect(held.stdout).not.toContain("REFILL-LOOP-OVERFLOW");
+		expect(run(["--notify"]).stdout).toContain("REFILL-LOOP-OVERFLOW");
+	});
+
+	it("names it without stamping on a plain run", () => {
+		writeStart();
+		const plain = run([]);
+		expect(plain.status).toBe(0);
+		expect(plain.stderr).toContain("REFILL-LOOP-OVERFLOW");
+		expect(run(["--notify"]).stdout).toContain("REFILL-LOOP-OVERFLOW");
+	});
+});
+
 describe("at session start (--notify)", () => {
 	it.each([
 		["no-progress", "no progress"],

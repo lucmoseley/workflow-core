@@ -13,7 +13,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readDeclaredSeats, unlistedSeats } from "./refill-seats.js";
+import {
+	readDeclaredSeats,
+	readOmittedDirs,
+	unlistedSeats,
+} from "./refill-seats.js";
 import { runInProcess } from "./run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "refill-seats.js");
@@ -35,6 +39,45 @@ const parse = (text: string) => {
 };
 const kind = (seat: string) =>
 	runInProcess(SCRIPT, ["kind", seat], { env: { ...process.env, HOME: home } });
+
+describe("readOmittedDirs (#3767)", () => {
+	const seatDir = (name: string, credentials: boolean) => {
+		fs.mkdirSync(path.join(home, name), { recursive: true });
+		if (credentials)
+			fs.writeFileSync(path.join(home, name, ".credentials.json"), "{}");
+	};
+
+	it("names config dirs holding credentials that the seat file omits", () => {
+		seatDir(".claude2", true);
+		seatDir(".claude3", true);
+		seatDir(".claude3-api", false);
+		seatDir(".claude-exp", true);
+		seatDir("other", true);
+		fs.writeFileSync(path.join(home, ".claude.json"), "{}");
+		expect(readOmittedDirs(parse("~/.claude2\n"), home)).toEqual([
+			path.join(home, ".claude-exp"),
+			path.join(home, ".claude3"),
+		]);
+	});
+
+	it("treats a declared overflow seat, or a symlink to a seat, as declared", () => {
+		seatDir(".claude2", true);
+		seatDir(".claude2-api", true);
+		fs.symlinkSync(path.join(home, ".claude2"), path.join(home, ".claude9"));
+		expect(
+			readOmittedDirs(
+				parse("~/.claude2\n~/.claude2-api api key=K grant=200 cycle-day=20\n"),
+				home,
+			),
+		).toEqual([]);
+	});
+
+	it("reads no dirs from a home that is not there", () => {
+		expect(
+			readOmittedDirs({ seats: [], errors: [] }, path.join(home, "gone")),
+		).toEqual([]);
+	});
+});
 
 describe("readDeclaredSeats", () => {
 	it("reads a bare path as a plan seat and an api line as an overflow seat, in order", () => {

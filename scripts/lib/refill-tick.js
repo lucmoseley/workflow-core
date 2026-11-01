@@ -97,7 +97,11 @@ const {
 	buildTickRecord,
 } = require("./concurrency.js");
 const { seatBudget } = require("./overflow-budget.js");
-const { readConfiguredSeats, readDeclaredSeats } = require("./refill-seats.js");
+const {
+	readConfiguredSeats,
+	readDeclaredSeats,
+	readOmittedDirs,
+} = require("./refill-seats.js");
 const { runOf } = require("./headless-sessions.js");
 const {
 	checkoutEnv,
@@ -1070,6 +1074,7 @@ async function tick({ dryRun }) {
 			launchBatch: launchOrResume,
 			runReview,
 			writeState: (next) => writeJson(files.state, next),
+			readOmittedDirs: () => readOmittedDirs(declared),
 			log,
 			now: Date.now,
 		},

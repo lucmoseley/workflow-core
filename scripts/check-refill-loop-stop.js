@@ -2,7 +2,8 @@
 /*
  * check-refill-loop-stop.js — name, at the next session start, a refill loop
  * that stopped on no progress, on the allowance cut or on a damaged control
- * file (#2014, spec #1995 story 32; #3389).
+ * file (#2014, spec #1995 story 32; #3389), and its first overflow launch
+ * after a plan-seat launch, with the plan seats it rested on (#3767).
  *
  * Usage:  node scripts/check-refill-loop-stop.js [--notify] [--json]
  *
@@ -30,9 +31,9 @@
  * file, read only beside a fresh stop, is named with it, until a `start`
  * rewrites it (#3380); beside the stop it caused, the stop line names it.
  *
- * IMPLICIT:  at every session start but a background job's, prints the refill loop's last stop where it was no progress, the allowance cut or a damaged control file and is newer than the stamp, then stamps it; and names a damaged state or control file.
- * JUSTIFIED: fail-safe — the loop runs outside any session, so nothing else reports its stopping.
- * DEFEAT:    none needed — it never blocks; deleting the stamp names the last stop again.
+ * IMPLICIT:  at every session start but a background job's, prints the refill loop's last stop where it was no progress, the allowance cut or a damaged control file and is newer than the stamp, then stamps it; prints its newest first overflow launch where newer than that launch's stamp, then stamps it; and names a damaged state or control file.
+ * JUSTIFIED: fail-safe — the loop runs outside any session, so nothing else reports its stopping or its spending.
+ * DEFEAT:    none needed — it never blocks; deleting a stamp names its last event again.
  */
 
 const fs = require("node:fs");
@@ -40,8 +41,10 @@ const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const hookMessage = require("./lib/hook-message");
 const { isHeldAtBackgroundStart } = require("./lib/background-start.js");
+const { buildOverflowStartLines } = require("./lib/overflow-notice.js");
 const loop = require("./lib/refill-loop.js");
 const refillFiles = require("./lib/refill-files.js");
+const { buildSeatName } = require("./lib/refill-seats.js");
 const { expandPastePaths, scriptPath } = require("./lib/script-path.js");
 const { shellQuote } = require("./lib/sh-quote.js");
 
@@ -125,6 +128,33 @@ function buildPickNextLines({ repos, goals }) {
 	];
 }
 
+/**
+ * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/overflow-notice.js").OverflowStart|null} start
+ * @param {string} seenFile
+ */
+function reportOverflowStart(ctx, start, seenFile) {
+	if (start === null || start.at <= readSeen(seenFile)) return;
+	const at = new Date(start.at).toISOString();
+	const seat = buildSeatName(start.seat);
+	ctx.warn(
+		"REFILL-LOOP-OVERFLOW",
+		`the refill loop began spending API credits on ${seat} at ${at}`,
+		{ ...start },
+	);
+	ctx.say(
+		`REFILL-LOOP-OVERFLOW — the refill loop began spending API credits at ${at}: its first overflow launch after a plan-seat launch, on ${seat}. Overflow launches only once every plan seat is weekly-full, and it read:\n` +
+			[
+				...buildOverflowStartLines(start),
+				`Its status: ${STATUS}`,
+				"Tell the founder this in your next reply: it reaches only you.",
+			]
+				.map((l) => `  ${l}\n`)
+				.join(""),
+	);
+	if (ctx.notify) fs.writeFileSync(seenFile, `${start.at}\n`);
+}
+
 runCheck({
 	name: "refill-loop-stop",
 	usage: "node check-refill-loop-stop.js [--notify] [--json]",
@@ -140,7 +170,7 @@ runCheck({
 			ctx.warn("REFILL-LOOP-FILE-DAMAGED", line);
 			ctx.say(`REFILL-LOOP-FILE-DAMAGED — ${line}.`);
 		};
-		const { stopped } = loop.parseState(
+		const { stopped, overflowStart } = loop.parseState(
 			refillFiles.readJson(files.state, reportDamaged),
 		);
 		const why = stopped
@@ -179,10 +209,11 @@ runCheck({
 			);
 			if (ctx.notify) fs.writeFileSync(files.stopSeen, `${stopped.at}\n`);
 		}
+		reportOverflowStart(ctx, overflowStart, files.overflowSeen);
 		return {
-			okLine: "no refill loop stop to name.",
-			noun: "refill loop stop(s) or damaged file(s)",
-			data: { stopped },
+			okLine: "no refill loop stop or overflow start to name.",
+			noun: "refill loop stop(s), overflow start(s) or damaged file(s)",
+			data: { stopped, overflowStart },
 		};
 	},
 });

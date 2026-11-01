@@ -91,6 +91,7 @@ describe("what status prints", () => {
 		},
 		held: [],
 		reviewRunOn: null,
+		overflowStart: null,
 	};
 	const runMs = 24 * 60 * MIN;
 	const served = [WFC, MH];
@@ -237,6 +238,7 @@ describe("what status prints", () => {
 				stopped: null,
 				held: [],
 				reviewRunOn: null,
+				overflowStart: null,
 			},
 			pid: null,
 			runMs,
@@ -264,6 +266,7 @@ describe("the launch lines status shows (#2850)", () => {
 				stopped: null,
 				held: [],
 				reviewRunOn: null,
+				overflowStart: null,
 			},
 			pid: 1,
 			runMs: 60 * MIN,
@@ -398,6 +401,7 @@ describe("a launch row's seat and reason (#3732)", () => {
 		stopped: null,
 		held: [],
 		reviewRunOn: null,
+		overflowStart: null,
 	});
 	const seat = `${process.env.HOME}/.claude2`;
 	const typed = record({ seat, reason: "last typed on" });
@@ -449,6 +453,7 @@ describe("a handed-off launch (#2659)", () => {
 				stopped: null,
 				held: [],
 				reviewRunOn: null,
+				overflowStart: null,
 			},
 			pid: 1,
 			runMs: 60 * MIN,

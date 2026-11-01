@@ -26,7 +26,6 @@ import {
 	actsOf,
 	buildFinishLine,
 	buildReviewSkip,
-	buildSeatName,
 	capArgs,
 	ceilingsOf,
 	FREE_SLOT_ARGS,
@@ -59,6 +58,7 @@ import {
 	record,
 	WFC,
 } from "./refill-loop-fixture";
+import { buildSeatName } from "./refill-seats.js";
 import { runInProcess } from "./run-in-process";
 import { buildUsageCache } from "./usage-probe-fake";
 
@@ -365,6 +365,7 @@ describe("a finished launch's progress, from its session's acts ledger (#2312)",
 					sessionFull: false,
 					sessionResets: null,
 					weekResets: null,
+					weekRead: { percent: null, atMs: null },
 					fits: 1,
 				},
 			],
@@ -408,6 +409,7 @@ const seat = (name: string, week: number | null, session: number | null) => ({
 	sessionFull: session !== null && session >= FULL,
 	sessionResets: null,
 	weekResets: null,
+	weekRead: { percent: null, atMs: null },
 });
 
 describe("a seat's weekly reset, from its usage cache (#3732)", () => {
@@ -436,6 +438,13 @@ describe("a seat's weekly reset, from its usage cache (#3732)", () => {
 			week: null,
 			weekResets: Date.parse(week),
 		});
+	});
+
+	it("keeps the weekly percent and its time, however aged (#3767)", () => {
+		const now = Date.now();
+		const week = new Date(now + 3 * 24 * 60 * MIN).toISOString();
+		const aged = now - 60 * MIN;
+		expect(readAt(aged, week).weekRead).toEqual({ percent: 40, atMs: aged });
 	});
 
 	it("reads an unreported session bar as 0, so the seat has room (#3758)", () => {
@@ -520,6 +529,7 @@ describe("a seat's reading (#2606)", () => {
 			sessionFull: false,
 			sessionResets: null,
 			weekResets: Date.parse(Ahead),
+			weekRead: { percent: 100, atMs: null },
 		});
 	});
 
@@ -676,6 +686,10 @@ function settleOnce(
 		writes = [],
 		state = parseState(null),
 		past = [],
+		seats = [],
+		overflow = [],
+		omitted = [],
+		readOmitted,
 	}: Partial<{
 		dispatch: Io["launchBatch"];
 		readControl: Io["readControl"];
@@ -683,6 +697,10 @@ function settleOnce(
 		writes: Tick["state"][];
 		state: Tick["state"];
 		past: Tick["judged"];
+		seats: Tick["input"]["seats"];
+		overflow: NonNullable<Tick["input"]["overflow"]>;
+		omitted: string[];
+		readOmitted: () => string[];
 	}> = {},
 ) {
 	const lines: string[] = [];
@@ -698,7 +716,8 @@ function settleOnce(
 				running: [],
 				freeSlots,
 				lastPromptAt: null,
-				seats: [],
+				seats,
+				overflow,
 				history: past,
 			},
 			decision,
@@ -712,14 +731,107 @@ function settleOnce(
 			launchBatch: dispatch,
 			runReview: (lastRunOn) => lastRunOn,
 			writeState: (next) => writes.push(next),
+			readOmittedDirs: readOmitted ?? (() => omitted),
 			log: (line) => lines.push(line),
 			now: () => NOW,
 		},
 	);
-	return { line: lines[0], writes };
+	return { line: lines[0], lines, writes };
 }
 const logged = (...args: Parameters<typeof settleOnce>) =>
 	settleOnce(...args).line;
+
+describe("the first overflow launch's record (#3767)", () => {
+	const apiSeat = "/h/.claude3-api";
+	const planSeat = (dir: string, percent: number, weekFull: boolean) => ({
+		seat: dir,
+		week: percent,
+		session: 0,
+		weekFull,
+		sessionFull: false,
+		sessionResets: null,
+		weekResets: null,
+		weekRead: { percent, atMs: NOW - 120_000 },
+		fits: null,
+	});
+	const settleLaunching = (
+		launchSeat: string,
+		past: { seat: string }[],
+		readOmitted?: () => string[],
+	) => {
+		const writes: Tick["state"][] = [];
+		const launch = {
+			root: "/r/repo",
+			issues: [1],
+			prompt: "/implement 1",
+			model: "opus" as const,
+			seat: launchSeat,
+			reason: "overflow" as const,
+		};
+		const { lines } = settleOnce(
+			{ launches: [launch], skipped: [], idle: null, held: [] },
+			1,
+			[],
+			{
+				dispatch: ([l]) => ({
+					launched: [
+						{
+							...l,
+							jobId: "job",
+							launchedAt: NOW,
+							finishedAt: null,
+						},
+					],
+					refused: [],
+				}),
+				past: past as Tick["judged"],
+				writes,
+				seats: [planSeat("/h/.claude2", 100, true)],
+				overflow: [{ seat: apiSeat, fits: 3, spentUntil: null, why: null }],
+				omitted: ["/h/.claude3"],
+				readOmitted,
+			},
+		);
+		return { start: writes[0]?.overflowStart, lines };
+	};
+
+	it("records each plan seat's reading and the omitted dirs", () => {
+		expect(settleLaunching(apiSeat, [{ seat: "/h/.claude2" }]).start).toEqual({
+			at: NOW,
+			seat: apiSeat,
+			planSeats: [
+				{
+					seat: "/h/.claude2",
+					percent: 100,
+					weekReadAt: NOW - 120_000,
+					weekFull: true,
+				},
+			],
+			omitted: ["/h/.claude3"],
+		});
+	});
+
+	it("records nothing on a second overflow launch or a plan-seat launch", () => {
+		expect(settleLaunching(apiSeat, [{ seat: apiSeat }]).start).toBeNull();
+		expect(
+			settleLaunching("/h/.claude2", [{ seat: "/h/.claude2" }]).start,
+		).toBeNull();
+	});
+
+	it("still writes the state where the credentials scan throws", () => {
+		const { start, lines } = settleLaunching(apiSeat, [], () => {
+			throw new Error("EACCES");
+		});
+		expect(start?.omitted).toEqual([]);
+		expect(lines.join("\n")).toContain("credentials scan failed");
+	});
+
+	it("survives the state file's round trip", () => {
+		const { start } = settleLaunching(apiSeat, []);
+		expect(parseState({ overflowStart: start }).overflowStart).toEqual(start);
+		expect(parseState({ overflowStart: { at: "x" } }).overflowStart).toBeNull();
+	});
+});
 
 describe("a tick's log line (#2362)", () => {
 	it("names the free slots on an idle tick and each probed seat's outcome", () => {
@@ -1283,7 +1395,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 			idle: null,
 			held: [],
 		};
-		const result = settleTick(
+		const settled = settleTick(
 			{
 				input,
 				decision,
@@ -1321,6 +1433,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 								refused: [],
 							};
 				},
+				readOmittedDirs: () => [],
 				runReview: (lastRunOn) => {
 					onReview(stop);
 					return lastRunOn;
@@ -1330,7 +1443,13 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 				now: () => NOW,
 			},
 		);
-		return { result, decision, dispatched, state: writes.at(-1) };
+		return {
+			result: settled.decision,
+			launched: settled.launched,
+			decision,
+			dispatched,
+			state: writes.at(-1),
+		};
 	}
 	const prompts = (state: Tick["state"] | undefined) =>
 		state?.launches.map((l) => l.prompt);
@@ -1356,6 +1475,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 		expect(prompts(r.state)).toEqual(["/implement 2"]);
 		expect(r.state?.stopped).toBeNull();
 		expect(r.result).toBe(r.decision);
+		expect(r.launched).toBe(1);
 	});
 
 	it("launches nothing once a stop is written between the decision and the first launch", () => {

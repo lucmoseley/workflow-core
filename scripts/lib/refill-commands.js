@@ -15,10 +15,11 @@ const {
 	nextResumeAt,
 } = require("./refill-blocks.js");
 const {
-	buildSeatText,
-	buildSkipText,
-	buildSeatName,
-} = require("./refill-loop.js");
+	buildBasisLines,
+	buildOverflowStartLines,
+} = require("./overflow-notice.js");
+const { buildSeatText, buildSkipText } = require("./refill-loop.js");
+const { buildSeatName } = require("./refill-seats.js");
 
 /* Untraced. */
 const STATUS_LAUNCHES = 10;
@@ -255,6 +256,50 @@ function buildStatusLines({
 }
 
 /**
+ * What `status` prints where an overflow seat is declared: the plan seats the
+ * overflow decision rests on as read now, where the seat file differs from
+ * them (the loop reads it only at `start`), and the last overflow start's.
+ * @param {{planSeats: import("./overflow-notice.js").PlanSeatBasis[],
+ *   filePlanSeats: string[], omitted: string[],
+ *   start: import("./overflow-notice.js").OverflowStart|null,
+ *   now: number}} input
+ * @returns {string[]}
+ */
+function buildOverflowBasisLines({
+	planSeats,
+	filePlanSeats,
+	omitted,
+	start,
+	now,
+}) {
+	const used = planSeats.map((b) => b.seat);
+	/** @param {string[]} seats */
+	const names = (seats) => seats.map((s) => buildSeatName(s)).join(", ");
+	const unread = filePlanSeats.filter((s) => !used.includes(s));
+	const dropped = used.filter((s) => !filePlanSeats.includes(s));
+	return [
+		"overflow rests on these plan seats:",
+		...buildBasisLines(planSeats, omitted, { at: now, ageSuffix: "ago" }).map(
+			(l) => `  ${l}`,
+		),
+		...(unread.length > 0
+			? [`  in the seat file, unread until the next start: ${names(unread)}`]
+			: []),
+		...(dropped.length > 0
+			? [
+					`  read since the last start, gone from the seat file: ${names(dropped)}`,
+				]
+			: []),
+		...(start
+			? [
+					`last overflow start: ${iso(start.at)} on ${buildSeatName(start.seat)}`,
+					...buildOverflowStartLines(start).map((l) => `  ${l}`),
+				]
+			: []),
+	];
+}
+
+/**
  * `status --json`: whether the loop runs, and the launch rows `status`
  * lists, each with its seat as a tilde path and why it was picked (#3732),
  * null on a record from before that.
@@ -279,6 +324,7 @@ function buildStatusJson({ control, state, pid }) {
 }
 
 module.exports = {
+	buildOverflowBasisLines,
 	buildScopeLines,
 	buildStatusJson,
 	buildStatusLines,
