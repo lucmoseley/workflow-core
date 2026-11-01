@@ -142,7 +142,7 @@ const QUERY =
  * A tracker's parked issues held at the limit-cap parks' cap, each to its hold:
  * the loop routes a row on the newest marker in the row's own checkout, so it is
  * held where that marker in any checkout is at the cap, from the latest such
- * start. A marker left behind once the label is off holds nothing.
+ * start.
  * @param {TrackerRead} t
  * @returns {[string, IdleHold][]}
  */

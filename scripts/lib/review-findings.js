@@ -248,6 +248,14 @@ function readTicketComments(repo, n) {
 const hasRecordMention = (draft) => draft.search(RECORD_MENTION) !== -1;
 
 /**
+ * What a record's cut-off lines are, as a close's refusal and the report name them.
+ *
+ * @param {number} cutOff
+ */
+const describeCutOff = (cutOff) =>
+	`${cutOff} - FIXED or - TICKETED line${cutOff === 1 ? "" : "s"} past a line that ends its list`;
+
+/**
  * The refusal a close comment owes where, posted on a ticket holding `prior`,
  * it would hold a record the report calls UNPARSEABLE, or a counted-tier record
  * whose `- FIXED` or `- TICKETED` lines sit past a line that ends its list, so
@@ -276,7 +284,7 @@ Correct it to the rule's form, nothing after the landed sha but the paths. Name 
 		),
 		...cut.map(
 			(r) =>
-				`#${n}'s comment holds a **Review findings:** record, landed ${r.landed}, with ${r.cutOff} - FIXED or - TICKETED line${r.cutOff === 1 ? "" : "s"} past a line that ends its list, so they would count 0. Put the disposition lines straight under the record, the prose after them.`,
+				`#${n}'s comment holds a **Review findings:** record, landed ${r.landed}, with ${describeCutOff(r.cutOff)}, so they would count 0. Put the disposition lines straight under the record, the prose after them.`,
 		),
 	].join("\n");
 }
@@ -285,6 +293,7 @@ module.exports = {
 	COUNTED_TIERS,
 	day,
 	buildFindingsRefusal,
+	describeCutOff,
 	group,
 	hasRecordMention,
 	HEX_RUN,

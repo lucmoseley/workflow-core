@@ -616,6 +616,94 @@ describe("the re-measure trigger", () => {
 		);
 	});
 
+	/** A record of `n` with one line in its list and two past its counts line. */
+	const buildCutOffRecord = (n: number, paths?: string) =>
+		`${record(n, ["FIXED: a leak"], sha("c", n), paths)}\n- FIXED: a lock (Standards)\n- TICKETED #9: a race (Standards)`;
+	const buildCutOffFault = (issue: number, n: number) =>
+		`o/fleet#${issue} has a record, landed ${sha("c", n)}, with 2 - FIXED or - TICKETED lines past a line that ends its list, so they count 0 until it is corrected: post a record of the same review with its whole list straight under it and the prose after, as \`scripts/lib/rule-text.sh review-tier-records\` says`;
+	const wholeList = ["FIXED: a leak", "FIXED: a lock", "TICKETED #9: a race"];
+
+	it("reports a record with disposition lines past the line ending its list, under a counted tier, where no later record restates it: none, another commit's from its base and paths, one holding fewer lines or one under a standard tier (#3847)", () => {
+		const fx = fixture({
+			hits: {
+				"o/fleet": [
+					ticket(1, [], [buildCutOffRecord(1), record(2)]),
+					ticket(2, [3], [buildCutOffRecord(3)]),
+					{
+						number: 3,
+						updated: "2026-11-01",
+						comments: ["**Review tier:** standard", buildCutOffRecord(4)],
+					},
+					ticket(
+						4,
+						[],
+						[
+							buildCutOffRecord(5, "scripts/a.js"),
+							record(5, wholeList, sha("d", 5), "scripts/a.js").replace(
+								`reviewed ${sha("e", 5)}`,
+								`reviewed ${sha("f", 5)}`,
+							),
+						],
+					),
+					ticket(5, [], [buildCutOffRecord(6), record(6, ["FIXED: a leak"])]),
+					ticket(
+						6,
+						[],
+						[
+							buildCutOffRecord(7),
+							"**Review tier:** standard",
+							record(7, wholeList),
+						],
+					),
+				],
+			},
+		});
+		expect(run(fx)).toEqual({
+			code: 0,
+			stdout: "",
+			stderr: [
+				buildCutOffFault(1, 1),
+				buildCutOffFault(2, 3),
+				buildCutOffFault(4, 5),
+				buildCutOffFault(5, 6),
+				buildCutOffFault(6, 7),
+			]
+				.map((fault) => `CUT OFF: ${fault}\n`)
+				.join(""),
+		});
+		expect(readGuardErrorsLog(fx.config)).toContain(
+			`report-remeasure-due\t${buildCutOffFault(1, 1)}`,
+		);
+	});
+
+	it("goes silent on a later record of the same review with its list intact, counting that list alone, by its tree or its base and paths (#3847)", () => {
+		const paths = "scripts/a.js";
+		const fx = fixture({
+			hits: {
+				"o/fleet": [
+					ticket(1, range(1, 13), [
+						buildCutOffRecord(14),
+						record(14, wholeList),
+						buildCutOffRecord(15, paths),
+						record(15, wholeList, sha("c", 15), paths).replace(
+							`reviewed ${sha("e", 15)}`,
+							`reviewed ${sha("f", 15)}`,
+						),
+					]),
+				],
+			},
+		});
+		const r = run(fx);
+		expect(r.code).toBe(0);
+		expect(r.stderr).toBe("");
+		expect(r.stdout).toContain("15 counted commits");
+		const body = flag(creates(fx)[0], "--body");
+		for (const n of [14, 15])
+			expect(body).toMatch(
+				new RegExp(`landed ${sha("c", n)},.*; 3 fixed or ticketed`),
+			);
+	});
+
 	it("reports a record with a note after its landed sha, never reading it pathless, and counts its commit once, with paths, under the record of its tree, or of its base and paths, that supersedes it (#3541)", () => {
 		const noted = record(15).replace(
 			/landed (\S+)/,
