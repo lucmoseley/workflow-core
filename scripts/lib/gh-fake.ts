@@ -3,11 +3,11 @@
  * fixtures/gh/, served in-process by `ghFake`, as the WFC_GH stub executable
  * by `ghFakeScript`, as an inline node fake by `ghAnswerNode`, and as
  * serveGhStub's handler by `ghAnswerHandler`. gh.contract.test.ts holds
- * the first two to the real binary on every fixture and the last two on the
- * logged-out answer alone, since all four serve one GhAnswer. A test names
+ * the first two to the real binary on every fixture but a landed write's, and
+ * the last two on the logged-out answer alone, since all four serve one GhAnswer. A test names
  * the answer it wants by its fixture path and nothing else — or, where the
  * answer depends on the call, by the computed answer below that builds it.
- * A stub that builds its own REST answers runs each through `asRecorded`,
+ * A stub that builds its own JSON answers runs each through `asRecorded`,
  * which holds it to a fixture the contract holds.
  */
 
@@ -27,7 +27,17 @@ import GRAPHQL_ISSUE_STATES from "./fixtures/gh/graphql-issue-states.json" with 
 import GRAPHQL_NO_REPO from "./fixtures/gh/graphql-no-repo.json" with {
 	type: "json",
 };
+import IDLE_ISSUES_PAGE from "./fixtures/gh/idle-issues-page.json" with {
+	type: "json",
+};
+import ISSUE_CREATE from "./fixtures/gh/issue-create.json" with {
+	type: "json",
+};
+import ISSUE_LIST_ROWS from "./fixtures/gh/issue-list-rows.json" with {
+	type: "json",
+};
 import ISSUES_PAGE from "./fixtures/gh/issues-page.json" with { type: "json" };
+import LABELS_PAGE from "./fixtures/gh/labels-page.json" with { type: "json" };
 import LOGGED_OUT from "./fixtures/gh/logged-out.json" with { type: "json" };
 import NOT_FOUND from "./fixtures/gh/not-found.json" with { type: "json" };
 import PARENT_NOT_FOUND from "./fixtures/gh/parent-not-found.json" with {
@@ -57,7 +67,10 @@ export interface GhAnswer {
  * of a missing issue, `issues/<n>/parent` of an issue with none, and a
  * GraphQL read of a repository that does not exist. A 5xx cannot be recorded
  * on demand, so a stub failing a read for any reason serves NOT_FOUND:
- * lib/gh.js reads both as broken and retries both once (#3013).
+ * lib/gh.js reads both as broken and retries both once (#3013). A stub failing
+ * a write serves fixtures/gh/issue-create-no-repo.json or
+ * issue-comment-not-found.json: lib/gh.js reads those as broken, and a write
+ * to a missing target writes nothing, so a live case holds them.
  */
 export const GH_LOGGED_OUT: GhAnswer = LOGGED_OUT;
 export const GH_NOT_FOUND: GhAnswer = NOT_FOUND;
@@ -247,11 +260,14 @@ function answerBlockedBy(argv, rowsOf) {
 /**
  * The source of `asRecorded(kind, value)`: `value`'s JSON text, refused where
  * it carries a key the recorded answer of `kind` lacks or a type it does not
- * have, for a stub that builds its own REST answers (#2895). A subset is
+ * have, for a stub that builds its own JSON answers (#2895). A subset is
  * enough: a stub sends only the keys its reader reads, and a key gh dropped
  * would turn the fixture's live case red. A null on either side passes, as gh
  * sends null for an unset field of any type. Each array element is held to
  * the recorded first element.
+ *
+ * And of `buildCreateAnswer(repo, number)`: `gh issue create`'s recorded stdout,
+ * naming `repo` and `number`.
  */
 export const RECORDED_SHAPES = `function asRecorded(kind, value) {
 	const recorded = {
@@ -266,6 +282,12 @@ export const RECORDED_SHAPES = `function asRecorded(kind, value) {
 		repo: JSON.parse(${JSON.stringify(REPO.stdout)}),
 		// gh repo view --json nameWithOwner, which lib/gh.js's ghDefaultRepo reads.
 		repoView: JSON.parse(${JSON.stringify(REPO_VIEW.stdout)}),
+		labelsPage: JSON.parse(${JSON.stringify(LABELS_PAGE.stdout)}),
+		// gh issue list --json with every field a stub's rows carry; a real answer
+		// holds only the fields its call asks for.
+		issueListRows: JSON.parse(${JSON.stringify(ISSUE_LIST_ROWS.stdout)}),
+		// lib/idle-efforts.js's QUERY, --paginate --slurp.
+		idleIssuesPage: JSON.parse(${JSON.stringify(IDLE_ISSUES_PAGE.stdout)}),
 	};
 	// This tracker holds no pull request to record, so a listed one's key is
 	// GitHub's documented pull_request object (REST, "List repository issues").
@@ -291,6 +313,9 @@ export const RECORDED_SHAPES = `function asRecorded(kind, value) {
 	if (!(kind in recorded)) throw new Error("no recorded answer for " + kind);
 	walk(recorded[kind], value, kind);
 	return JSON.stringify(value);
+}
+function buildCreateAnswer(repo, number) {
+	return ${JSON.stringify(ISSUE_CREATE.stdout)}.replace("synthetic/synthetic", repo).replace(/\\d+\\n$/, number + "\\n");
 }`;
 
 export const ghComputed = <F>(source: string, name: string): F =>
@@ -301,6 +326,11 @@ export const asRecorded = ghComputed<(kind: string, value: unknown) => string>(
 	RECORDED_SHAPES,
 	"asRecorded",
 );
+
+/** RECORDED_SHAPES' `buildCreateAnswer` in-process. */
+export const buildCreateAnswer = ghComputed<
+	(repo: string, number: number) => string
+>(RECORDED_SHAPES, "buildCreateAnswer");
 
 /** What one issue's `/sub_issues` answers: its rows, an HTTP error, or the
  *  failure lib/gh.js classifies as unreachable. */

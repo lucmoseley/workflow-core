@@ -10245,11 +10245,41 @@
 			"scripts/lib/gh.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
+		"scripts/lib/fixtures/gh/idle-issues-page.json": [
+			"scripts/lib/gh.contract.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
 		"scripts/lib/fixtures/gh/issue-body.json": [
 			"scripts/guard-issue-create-label.test.ts",
 			"scripts/lib/gh.contract.test.ts",
 			"scripts/lib/issue-close.test.ts",
 			"scripts/lib/issue-create-label.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/lib/fixtures/gh/issue-comment-not-found.json": [
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/file-morning-review.test.ts",
+			"scripts/lib/gh.contract.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/lib/fixtures/gh/issue-comment.json": [
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/file-morning-review.test.ts",
+			"scripts/lib/gh.contract.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/lib/fixtures/gh/issue-create-no-repo.json": [
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/file-morning-review.test.ts",
+			"scripts/lib/gh.contract.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/lib/fixtures/gh/issue-create.json": [
+			"scripts/lib/gh.contract.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/lib/fixtures/gh/issue-list-rows.json": [
+			"scripts/lib/gh.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh/issue-list.json": [
@@ -10258,6 +10288,10 @@
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh/issues-page.json": [
+			"scripts/lib/gh.contract.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/lib/fixtures/gh/labels-page.json": [
 			"scripts/lib/gh.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],

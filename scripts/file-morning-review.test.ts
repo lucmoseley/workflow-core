@@ -1065,7 +1065,9 @@ describe("file-morning-review.js (#2011)", () => {
 			fs.writeFileSync(stub("fail-comment"), "");
 			const r = run();
 			expect(r.status).toBe(1);
-			expect(r.stderr).toContain("the reply failed (HTTP 502)");
+			expect(r.stderr).toContain(
+				"the reply failed (GraphQL: Could not resolve",
+			);
 			expect(readCreated().map((c) => c.title)).toContain(TODAY);
 		});
 
@@ -1074,7 +1076,7 @@ describe("file-morning-review.js (#2011)", () => {
 			fs.writeFileSync(stub("fail-review-create"), "");
 			const r = run();
 			expect(r.status).toBe(1);
-			expect(r.stderr).toContain("HTTP 502");
+			expect(r.stderr).toContain("GraphQL: Could not resolve");
 			expect(readCreated().map((c) => c.title)).toEqual([
 				"Reverse a delegated decision on #2: Inside the window",
 			]);
