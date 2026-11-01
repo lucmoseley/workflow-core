@@ -72,6 +72,10 @@
  * through scripts/answer-review-reversals.js (#2017), so a hand run while the
  * loop is stopped answers them too. `--dry-run` passes to both.
  *
+ * REPO HOLDS (#3865): each served checkout's open holds, in a section of their
+ * own only where one is open. Read apart from readRepo, so a tracker outage, when
+ * a hold is likeliest, costs none of them.
+ *
  * Joins no §N3 family: it files an issue as `report-*` does, but a run whose
  * filing failed on gh or found the filing lock held exits 1, and one file-issue.js refused exits
  * with its code, so the loop that runs it can tell a filing from a failure.
@@ -107,9 +111,11 @@ const { PARKED_LABEL } = require("./lib/parked.js");
 const { readSnapshot, whyNotLaunched } = require("./lib/pick-next-snapshot.js");
 const { STALL_TITLE } = require("./lib/stall-ticket.js");
 const { scriptIo } = require("./lib/tracker-ops.js");
+const { buildAgeText, readHolds } = require("./lib/repo-holds.js");
 const { requireKey } = require("./lib/workflow-core-config.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const { refillPath } = require("./lib/refill-dir.js");
+const { readControlFile } = require("./lib/refill-files.js");
 const { REVIEW_LABEL, readReviewIssues } = require("./lib/review-issues.js");
 const { freshReads, reviewReads } = require("./lib/review-reads.js");
 
@@ -354,6 +360,72 @@ function readTableHistory(root, since, cursor) {
 		return { commits, tip, whyByTime: why };
 	} catch (e) {
 		return { why: `git: ${parseErrLine(e)}` };
+	}
+}
+
+/**
+ * The checkouts whose holds the review lists: discovery's, and those a loop
+ * started with named repos serves wherever they sit.
+ * @param {string[]} included
+ * @returns {string[]}
+ */
+function readHoldRoots(included) {
+	const scope = readControlFile((line) => writeFd(2, `${line}\n`))?.scope;
+	return [
+		...new Set([
+			...included,
+			...(scope?.mode === "away" ? [] : (scope?.repos ?? [])),
+		]),
+	];
+}
+
+/**
+ * One checkout's open repo holds, off its local store. What will not read is
+ * named in the review and stops nothing else (#3865).
+ * @param {string} root
+ * @param {number} now
+ * @returns {{read: import("./lib/morning-review.js").OpenHold[], unread: Unread[]}}
+ */
+function readOpenHolds(root, now) {
+	const checkout = path.basename(root);
+	const tracker = readHoldTracker(root);
+	const repo = tracker ?? checkout;
+	try {
+		const { holds, unread } = readHolds(root);
+		return {
+			read: holds.map(({ act, issue, kind, raisedAt, sessions, notice }) => ({
+				checkout,
+				repo: tracker,
+				act,
+				issue,
+				kind,
+				age: buildAgeText(now - raisedAt),
+				attached: sessions.length,
+				notice,
+			})),
+			unread: unread.map((why) => ({
+				repo,
+				why: `repo holds: ${why}; lift its id or remove the file`,
+			})),
+		};
+	} catch (e) {
+		return {
+			read: [],
+			unread: [{ repo, why: `repo holds: ${parseErrLine(e)}` }],
+		};
+	}
+}
+
+/**
+ * The checkout's tracker, or null: one read off a broken origin, which a probe
+ * hold reports, costs its holds only their issue's repo name (#3865).
+ * @param {string} root
+ */
+function readHoldTracker(root) {
+	try {
+		return requireKey("tracker", { root });
+	} catch {
+		return null;
 	}
 }
 
@@ -620,6 +692,9 @@ function fileUnlessFiledToday(tracker, dryRun) {
 				absenceOf(path.join(home, checkout)),
 		}),
 	];
+	const holds = readHoldRoots(included).map((root) =>
+		readOpenHolds(root, now.getTime()),
+	);
 	const body = review.renderReview({
 		since,
 		now: now.toISOString(),
@@ -628,8 +703,10 @@ function fileUnlessFiledToday(tracker, dryRun) {
 		failed: [
 			...(why === null ? [] : [{ repo: tracker, why }]),
 			...read.flatMap((r) => r.unread),
+			...holds.flatMap((h) => h.unread),
 		],
 		unreadEvents: read.flatMap((r) => r.unreadEvents),
+		holds: holds.flatMap((h) => h.read),
 		kills: readKills(tracker, since),
 		concurrency: readConcurrency(now.getTime()),
 		idle: readIdle(),

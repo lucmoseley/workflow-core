@@ -52,7 +52,7 @@ const { resolveKey } = require("./workflow-core-config.js");
  * @property {number} raisedAt
  * @property {string[]} sessions  the job ids of the sessions parked on it
  * @property {{raiseSent: boolean, clearSent: boolean}} notice  #3871's to read
- *   and write; nothing does yet
+ *   and write, the morning review's to read; nothing writes it yet
  *
  * @typedef {(line: string) => void} Log
  */
@@ -124,6 +124,8 @@ function isHold(value, name) {
 		typeof hold.act === "string" &&
 		typeof hold.issue === "number" &&
 		typeof hold.raisedAt === "number" &&
+		typeof hold.notice?.raiseSent === "boolean" &&
+		typeof hold.notice?.clearSent === "boolean" &&
 		Array.isArray(hold.sessions) &&
 		(typeof check.command === "string" || typeof check.issueClosed === "number")
 	);
@@ -392,6 +394,7 @@ function buildHoldLines(roots, now) {
 }
 
 module.exports = {
+	buildAgeText,
 	buildHoldLines,
 	buildRaisedLine,
 	liftHold,
