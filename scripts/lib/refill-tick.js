@@ -98,7 +98,6 @@ const {
 	decideTick,
 	hasRoom,
 	isParked,
-	isParkRoutingMode,
 } = require("./refill-decide.js");
 const { refillFrontier } = require("./refill-frontier.js");
 const {
@@ -906,7 +905,8 @@ function dropParked(root, sessionId, issues) {
 /**
  * `seats` with each parker's seat that has room but no cap sized, sized for
  * one resume: only the first seat with room is sized for the decision, and a
- * resume is held to the same cap as a launch (#3669).
+ * resume is held to the same cap as a launch (#3669). In away mode, where none
+ * resumes, a cap sized 0 still reads full for the idle alarm's hold (#3850).
  * @param {import("./refill-decide.js").SizedSeat[]} seats
  * @param {import("./refill-decide.js").ParkerReading[]} parkers
  * @param {string|undefined} root the checkout the cap is sized in
@@ -1066,8 +1066,7 @@ async function decide(input, scope) {
 	const frontier = /** @type {import("./refill-decide.js").MergedRow[]} */ (
 		merged.frontier
 	);
-	/* A mode that skips parked rows leaves their markers unread. */
-	const parkers = isParkRoutingMode(input.mode) ? readParkers(frontier) : [];
+	const parkers = readParkers(frontier);
 	const decision = decideTick({
 		...input,
 		seats: sizeParkerSeats(input.seats, parkers, served.roots[0]),

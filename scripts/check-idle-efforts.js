@@ -15,7 +15,10 @@
  * lock, bar one waiting on a limit (#3838). The loop's state names the parked
  * issues it holds, and since when (#3680), and those waiting launches. A
  * stopped loop serves no tracker, runs and holds
- * nothing, so its stop is caught rather than masked. Each checkout's park
+ * nothing, so its stop is caught rather than masked: its last full-seat holds
+ * are not named, as nothing reads whether those seats have reset and starting
+ * the loop is the act either way; their state outlives the stop, so the next
+ * tick's reading keeps their start (#3850). Each checkout's park
  * markers name the tickets held at the limit-cap parks' cap, and since when,
  * with or without a loop (#3840).
  *

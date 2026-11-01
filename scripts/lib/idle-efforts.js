@@ -9,9 +9,9 @@
  * gated, `takes:human` and `parked` issues are not counted: each waits on
  * something other than a launch, as does a container all of whose open
  * children do. A parked issue held is counted, from the hold's start: on its
- * session's full seat, as the loop's state says, it waits on that seat's reset,
- * up to 7 days (#3680), and at the limit-cap parks' cap, as its park marker says
- * whatever the loop's mode and whether or not it runs (#3840), on the founder
+ * session's full seat, as a running loop's state says in either mode, it waits
+ * on that seat's reset, up to 7 days (#3680, #3850), and at the limit-cap parks'
+ * cap, as its park marker says whatever the loop's mode and whether or not it runs (#3840), on the founder
  * (#3804). So is a launch waiting on a limit, from when it began (#3838). One at
  * the cap, which no reset ends, or on a limit, is named beneath its tracker's
  * line, however old its tracker's oldest (#3809, #3838); a full seat's stays in

@@ -645,22 +645,20 @@ const routeParkedRow = (row, parkers, seats) =>
 	);
 
 /**
- * Every parked frontier row a tick holds on a full seat, whether or not its
- * walk reaches the row (#3680); none where the mode routes no parked rows. One
- * at the limit-cap parks' cap is left to the idle alarm's own read of its marker,
- * which needs no loop (#3840).
- * @param {Pick<TickInput, "frontier"|"mode"|"seats"|"parkers">} input
+ * Every parked frontier row whose session's seat a tick reads full, whether or
+ * not its walk reaches the row (#3680), and in either mode, so an away tick
+ * can keep a hold's start (#3850). One at the limit-cap parks' cap is left
+ * to the idle alarm's own read of its marker, which needs no loop (#3840).
+ * @param {Pick<TickInput, "frontier"|"seats"|"parkers">} input
  * @returns {Skip[]}
  */
-const heldParked = ({ frontier, mode, seats, parkers = [] }) =>
-	isParkRoutingMode(mode)
-		? frontier.filter(isParked).flatMap((row) => {
-				const parked = routeParkedRow(row, parkers, seats);
-				return "hold" in parked && !parked.atCap
-					? [{ root: row.root, number: row.number, why: parked.hold }]
-					: [];
-			})
-		: [];
+const heldParked = ({ frontier, seats, parkers = [] }) =>
+	frontier.filter(isParked).flatMap((row) => {
+		const parked = routeParkedRow(row, parkers, seats);
+		return "hold" in parked && !parked.atCap
+			? [{ root: row.root, number: row.number, why: parked.hold }]
+			: [];
+	});
 
 /**
  * When `row` was parked, ms; an unreadable start sorts as the oldest, as in
