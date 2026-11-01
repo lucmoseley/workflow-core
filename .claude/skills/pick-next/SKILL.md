@@ -893,7 +893,9 @@ hand-typed launch does not:
   back to the printed bars only where that cached reading is stale or absent
   (#280, #294). **Fails closed** — no trustworthy reading from either source
   refuses the launch and says the absence is likely transient (re-run, or
-  `--force`), distinguishing a broken check from a real limit.
+  `--force`), distinguishing a broken check from a real limit. A bar the
+  account does not report, as on a plan with no 5-hour bar, is no failed
+  reading: the cap runs on the bars it does, so long as one reads fresh (#3758).
 - **Attaches `--advisor opus` to every `sonnet` line** (mantahostels#1102). Never type the
   advisor into a §6 line; never set `advisorModel` in settings, which would
   attach one to every session in the repo and to their subagents too.

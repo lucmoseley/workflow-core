@@ -178,10 +178,12 @@ it.skipIf(liveSkipReason())(
 		expect(live.state).toBe("ok");
 		if (live.state !== "ok") return;
 		expect(typeof live.fetchedAtMs).toBe("number");
-		for (const kind of ["session", "weekly_all"])
-			expect(live.bars.find((b) => b.kind === kind)).toMatchObject({
-				percent: expect.any(Number),
-			});
+		expect(live.bars.find((b) => b.kind === "weekly_all")).toMatchObject({
+			percent: expect.any(Number),
+		});
+		// A plan with no 5-hour bar lists none (#3758); one listed carries a figure.
+		const session = live.bars.find((b) => b.kind === "session");
+		if (session) expect(session.percent).toEqual(expect.any(Number));
 	},
 );
 

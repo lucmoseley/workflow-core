@@ -577,6 +577,31 @@ describe("the allowance gate's JSON source (#280, #294)", () => {
 		expect(r.stderr).toContain("likely transient");
 	});
 
+	/* #3758: a plan with no 5-hour bar caches `five_hour: null` and prints no
+	 * `Current session:` line; the cap runs on the weekly bar alone. */
+	it("launches without --force on a fresh weekly bar where the account reports no session bar", () => {
+		const configDir = path.join(fx.dir, "weekly-only-config");
+		writeCache(configDir, { weeklyAll: 0 });
+		stubClaude({ session: null });
+		const r = run(["sonnet", "/implement 341"], {
+			CLAUDE_CONFIG_DIR: configDir,
+		});
+		expect(r.code).toBe(0);
+		expect(r.stdout).toContain("Allowance OK: week 0%, session not reported.");
+		expect(launchArgv()).toBeDefined();
+	});
+
+	it("still refuses a stale weekly bar where the account reports no session bar", () => {
+		const configDir = path.join(fx.dir, "weekly-only-stale-config");
+		writeCache(configDir, { weeklyAll: 0 }, Date.now() - 10 * 60 * 1000);
+		stubClaude({ session: null, week: "not a number" });
+		const r = run(["sonnet", "/implement 341"], {
+			CLAUDE_CONFIG_DIR: configDir,
+		});
+		expect(r.code).toBe(3);
+		expect(r.stderr).toContain("no trustworthy allowance reading");
+	});
+
 	/* #294 "also in scope": a failed mktemp for the debug log must not turn
 	 * into an allowance refusal unrelated to allowance — the JSON read is
 	 * attempted whether or not the `/usage` probe ran. */

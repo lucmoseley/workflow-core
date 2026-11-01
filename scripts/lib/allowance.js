@@ -8,6 +8,10 @@
  * bar (#280). Falls back, per bar, to a printed `claude -p "/usage"`
  * transcript when the JSON reading for that bar is not `fresh`.
  *
+ * A bar the account does not report reads UNREPORTED, never ABSENT: a source
+ * that read fresh named other bars and not this one, as a plan with no
+ * 5-hour bar reads (#3758). ABSENT stays a reading that failed.
+ *
  * Returns raw figures and a TRUST verdict, never a ceiling verdict (#293
  * ruling 2): each caller owns its own ceilings and its own refusal text.
  */
@@ -25,7 +29,8 @@ const RESETS_RE = /resets (.*)$/;
 const STALE_MS = 5 * 60 * 1000;
 
 /** @typedef {{ percent: number, severity: string | null, resetsAt: string | null, fetchedAtMs: number | null }} RawBar */
-/** @typedef {{ percent: number | null, severity: string | null, resetsAt: string | null, fetchedAtMs: number | null, trust: "fresh" | "stale" | "absent" }} Bar */
+/** @typedef {{ percent: number | null, severity: string | null, resetsAt: string | null, fetchedAtMs: number | null, trust: Trust }} Bar */
+/** @typedef {"fresh" | "stale" | "absent" | "unreported"} Trust */
 
 const KINDS = /** @type {const} */ ({
 	session: { kind: "session", textPrefix: "Current session:" },
@@ -112,21 +117,53 @@ function readAllowance(opts = {}) {
 		if (jsonBar && jsonTrust === "fresh") return { ...jsonBar, trust: "fresh" };
 		const textBar = parseBar(usageText, textPrefix);
 		if (textBar) return { ...textBar, trust: "fresh" };
-		return jsonBar
-			? { ...jsonBar, trust: jsonTrust }
-			: {
-					percent: null,
-					severity: null,
-					resetsAt: null,
-					fetchedAtMs: null,
-					trust: "absent",
-				};
+		if (jsonBar) return { ...jsonBar, trust: jsonTrust };
+		return {
+			percent: null,
+			severity: null,
+			resetsAt: null,
+			fetchedAtMs: null,
+			trust: unreported(kind) ? "unreported" : "absent",
+		};
+	};
+	/** Whether a source that read fresh names some other bar but not `kind`.
+	 * A bar listed with no percent is a misread, not an unreported bar.
+	 * @param {"session" | "weekly_all"} kind */
+	const unreported = (kind) => {
+		const others = Object.values(KINDS).filter((k) => k.kind !== kind);
+		const cacheFresh =
+			cache.state === "ok" &&
+			typeof cache.fetchedAtMs === "number" &&
+			now - cache.fetchedAtMs <= STALE_MS;
+		if (
+			cacheFresh &&
+			!cache.bars.some((l) => l.kind === kind) &&
+			others.some((k) => trustOf(barFromCache(cache, k.kind), now) === "fresh")
+		)
+			return true;
+		return (
+			!usageText.includes(KINDS[kind].textPrefix) &&
+			others.some((k) => parseBar(usageText, k.textPrefix) !== null)
+		);
 	};
 	const result = {
 		session: readOne(KINDS.session.kind, KINDS.session.textPrefix),
 		weekly_all: readOne(KINDS.weekly_all.kind, KINDS.weekly_all.textPrefix),
 	};
 	return result;
+}
+
+/**
+ * Whether a reading can size a launch: every bar fresh or one the account
+ * does not report, and at least one fresh (#3758).
+ * @param {{ session: Bar, weekly_all: Bar }} result
+ */
+function isTrustworthy(result) {
+	const bars = [result.session, result.weekly_all];
+	return (
+		bars.every((b) => b.trust === "fresh" || b.trust === "unreported") &&
+		bars.some((b) => b.trust === "fresh")
+	);
 }
 
 /*
@@ -221,6 +258,7 @@ function capSet({
 
 module.exports = {
 	readAllowance,
+	isTrustworthy,
 	capSet,
 	isWarned,
 	POINTS_PER_USD,
