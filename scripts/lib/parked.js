@@ -169,7 +169,7 @@ function scanParkMarkers(root, onUnreadable) {
  * @param {string} root
  * @returns {ParkMarkerRead[]}
  */
-const listParkMarkers = (root) =>
+const readParkMarkersOrThrow = (root) =>
 	scanParkMarkers(root, (err) => {
 		throw err;
 	});
@@ -236,7 +236,7 @@ function writeParkedBy(
 
 module.exports = {
 	PARKED_LABEL,
-	listParkMarkers,
+	readParkMarkersOrThrow,
 	newestMarkerListing,
 	readParkMarkers,
 	readParkedBy,

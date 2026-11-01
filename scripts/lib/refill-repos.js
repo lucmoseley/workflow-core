@@ -121,7 +121,7 @@ function exclusionOf(root) {
  * @param {string} root
  * @returns {{carried: boolean, why: string} | null}
  */
-function absenceOf(root) {
+function readAbsence(root) {
 	const stat = fs.statSync(root, { throwIfNoEntry: false });
 	if (!stat?.isDirectory()) return { carried: false, why: "directory gone" };
 	const git = fs.statSync(path.join(root, ".git"), { throwIfNoEntry: false });
@@ -221,7 +221,7 @@ module.exports = {
 	readHostTracker,
 	checkoutEnv,
 	discoverRepos,
-	absenceOf,
+	readAbsence,
 	exclusionOf,
 	homeDir,
 };

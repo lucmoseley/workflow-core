@@ -105,7 +105,11 @@ const { readLedger } = require("./lib/delegated-decision.js");
 const concurrency = require("./lib/concurrency.js");
 const kills = require("./lib/earlyoom-kills.js");
 const review = require("./lib/morning-review.js");
-const { absenceOf, discoverRepos, homeDir } = require("./lib/refill-repos.js");
+const {
+	readAbsence,
+	discoverRepos,
+	homeDir,
+} = require("./lib/refill-repos.js");
 const { labelAge } = require("./lib/label-age.js");
 const { PARKED_LABEL } = require("./lib/parked.js");
 const { readSnapshot, whyNotLaunched } = require("./lib/pick-next-snapshot.js");
@@ -689,7 +693,7 @@ function fileUnlessFiledToday(tracker, dryRun) {
 			since,
 			nowMs: now.getTime(),
 			readAbsence: (/** @type {string} */ checkout) =>
-				absenceOf(path.join(home, checkout)),
+				readAbsence(path.join(home, checkout)),
 		}),
 	];
 	const holds = readHoldRoots(included).map((root) =>
