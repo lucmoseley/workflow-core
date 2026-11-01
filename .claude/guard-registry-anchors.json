@@ -59,7 +59,7 @@
 	"scripts/inject-founder-wording.js": "fa189e7c69970720",
 	"scripts/inject-tracker-docs.sh": "7ca2aef102bf8d81",
 	"scripts/landing-registry-gate.js": "1b607d9a91870085",
-	"scripts/mark-presence.js": "541f96da6e8376ff",
+	"scripts/mark-presence.js": "b1e72f71b771a66b",
 	"scripts/measure-turn-band.js": "645ded58f6826699",
 	"scripts/name-issue-session.sh": "72c4c43b5022af4d",
 	"scripts/park-on-round.js": "f527454dae5718b5",

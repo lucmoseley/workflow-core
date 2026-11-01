@@ -28,7 +28,7 @@
  * text, and counts. A `claude --bg` he types himself reads as a dispatcher's.
  */
 
-const { isHisOwnJob } = require("./background-start.js");
+const { isHisJobRecord } = require("./background-start.js");
 const { readJobRecordIn } = require("./job-paths.js");
 const { isLoopPrompt } = require("./loop-prompts.js");
 const { isSubagentPayload } = require("./subagent-payload.js");
@@ -41,11 +41,12 @@ function isDispatchedLaunchPrompt(prompt) {
 	const jobDir = process.env.CLAUDE_JOB_DIR;
 	if (!jobDir) return false;
 	/* No readable job record marks nothing a launch (#2004). */
-	const intent = readJobRecordIn(jobDir)?.intent;
+	const record = readJobRecordIn(jobDir);
+	const intent = record?.intent;
 	return (
 		typeof intent === "string" &&
 		intent.trim() === prompt.trim() &&
-		!isHisOwnJob(process.env)
+		!isHisJobRecord(record)
 	);
 }
 
