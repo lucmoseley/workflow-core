@@ -15,7 +15,6 @@ import { describe, expect, it } from "vitest";
 const { capSet } = require("./allowance.js");
 const {
 	FULL,
-	LIMIT_PARK_CAP,
 	buildLimitCapText,
 	decideTick,
 	pickMoveSeat,
@@ -27,6 +26,8 @@ const { buildVerifyPrompt } = require("./unclosed-launch.js");
 const NOW = Date.parse("2026-10-18T12:00:00Z");
 const PRESENT_WINDOW_MS = 30 * 60 * 1000;
 const HOUR = 60 * 60 * 1000;
+/** The cap refill-decide.js keeps to itself, pinned here. */
+const LIMIT_PARK_CAP = 2;
 
 const row = (
 	root: string,
