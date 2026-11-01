@@ -83,7 +83,10 @@ const SPEC = {
 				continue;
 			}
 			for (const l of unclosed.filter((u) => u.root === root)) {
-				const issue = open.get(l.issues[0]);
+				const [number] = l.issues;
+				if (number === undefined)
+					throw new Error(`unclosed launch ${l.launchedAt} names no issue`);
+				const issue = open.get(number);
 				const names = issue?.labels.map((x) => x.name) ?? [];
 				if (!names.includes(IMPLEMENT_LABEL) || names.includes(PARKED_LABEL))
 					continue;
