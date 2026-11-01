@@ -18,13 +18,15 @@
  * `start`, which starts nothing from an excluded checkout (#2014).
  *
  * It also links checkouts and trackers: readHostTracker reads a checkout's
- * configured tracker, for check-duplicate-dispatch.js and pick-next.js, and
+ * configured tracker, for check-duplicate-dispatch.js, pick-next.js and
+ * lib/gate-check.js, and
  * readCheckoutTracking finds the adopter that tracks a repo, so pick-next.js
- * and lib/parent-claims.js read that repo's claim store.
+ * and lib/parent-claims.js read that repo's claim store, and lib/gate-check.js
+ * runs a `check:` in that repo's tree.
  *
  * checkoutEnv is the environment for a child run in another checkout, for
  * refill-loop.js, lib/refill-batch.js, lib/refill-frontier.js,
- * lib/lander-start.js and lib/file-through.js.
+ * lib/lander-start.js, lib/file-through.js and lib/gate-check.js.
  */
 
 const fs = require("node:fs");
@@ -146,7 +148,8 @@ const checkoutMemo = new Map();
 
 /**
  * The main checkout under `home` whose tracker is `repo`, as `{root}`, or
- * `{why}` where none tracks it or `home` will not read.
+ * `{why}` where none tracks it or `home` will not read. An adopter whose config
+ * will not read is skipped, so it hides no other's, and is named in the `why`.
  * @param {string} repo
  * @param {string} home
  * @returns {{root: string} | {why: string}}
@@ -158,12 +161,21 @@ function readCheckoutTracking(repo, home) {
 	/** @type {{root: string} | {why: string}} */
 	let found;
 	try {
-		const root = readAdopterCheckouts(home).included.find((r) =>
-			isSameRepo(readHostTracker(r), repo),
-		);
+		/** @type {string[]} */
+		const unread = [];
+		const root = readAdopterCheckouts(home).included.find((r) => {
+			try {
+				return isSameRepo(readHostTracker(r), repo);
+			} catch (e) {
+				unread.push(`${r} (${errMessageOf(e)})`);
+				return false;
+			}
+		});
+		const skipped =
+			unread.length > 0 ? `, and ${unread.join(", ")} would not read` : "";
 		found = root
 			? { root }
-			: { why: `no checkout under ${home} tracks ${repo}` };
+			: { why: `no checkout under ${home} tracks ${repo}${skipped}` };
 	} catch (e) {
 		found = { why: `${home} could not be read (${errMessageOf(e)})` };
 	}

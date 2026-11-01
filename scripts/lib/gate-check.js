@@ -19,6 +19,13 @@ const { caught } = require("./caught.js");
 const { docPath, scriptPath } = require("./script-path");
 const { gateOnOf, parseAddedGateLines } = require("./issue-gate.js");
 const { hostRoot } = require("./host-root.js");
+const { isSameRepo } = require("./issue-ref.js");
+const {
+	checkoutEnv,
+	homeDir,
+	readCheckoutTracking,
+	readHostTracker,
+} = require("./refill-repos.js");
 
 /* Per check, not per sweep. Wide enough for every reading but mantahostels#2491's, which is
  * meant to come back OVER-BUDGET (check-gates.js's header). */
@@ -87,9 +94,10 @@ function unwrap(raw) {
  * @param {string} command
  * @param {number} timeoutMs
  * @param {string} cwd
+ * @param {NodeJS.ProcessEnv} [env]
  * @returns {Reading}
  */
-function runCheckCommand(command, timeoutMs, cwd) {
+function runCheckCommand(command, timeoutMs, cwd, env) {
 	/* No `shell: true`: run-budgeted.js runs `sh -c <command>` itself, so the
 	 * command still gets a shell — pipes, `&&` and quoting all work — but the
 	 * process group it signals is the shell's own, not this checker's. */
@@ -105,6 +113,7 @@ function runCheckCommand(command, timeoutMs, cwd) {
 		],
 		{
 			cwd,
+			env,
 			encoding: "utf8",
 			maxBuffer: MAX_BUFFER,
 			stdio: ["ignore", "pipe", "pipe"],
@@ -201,28 +210,48 @@ const PRINTING_FIX =
 	'`git merge-base --is-ancestor X origin/main && echo "on main" || echo "not on main"`';
 
 /**
+ * The tree a `check:` on `repo`'s issue reads (#3487): the host's where `repo`
+ * is unnamed or the host's own tracker, else that repo's checkout.
+ *
+ * @param {string} [repo]
+ * @returns {{root: string, env?: NodeJS.ProcessEnv} | {why: string}}
+ */
+function readCheckTree(repo) {
+	const host = hostRoot();
+	if (!repo || isSameRepo(readHostTracker(host), repo)) return { root: host };
+	const checkout = readCheckoutTracking(repo, homeDir());
+	return "why" in checkout
+		? checkout
+		: { root: checkout.root, env: checkoutEnv(checkout.root) };
+}
+
+/**
  * What each `check:` on a `**Gated on:**` line the write adds will read as
  * (#3487). A repair state the sweep cannot draw a reading from is refused:
  * NOT-A-COMMAND parsed, NO-OUTPUT or DEAD run once under the sweep's budget.
  * OVER-BUDGET is warned, since a check can be meant to run long
  * (mantahostels#2491), and so is a check `run: false` leaves unrun or the
- * runner could not run.
+ * runner could not run. A check on another repo's issue runs in that repo's
+ * checkout, and is refused where there is none.
  *
  * @param {string} before the body before the write, "" for a create
  * @param {string} after the body the write leaves
- * @param {{run: boolean, cwd?: string, timeoutMs?: number}} opts `run: false`
- *   for a route with no time to spend the budget: the parse alone is judged
+ * @param {{run: boolean, repo?: string, timeoutMs?: number}} opts `run: false`
+ *   for a route with no time to spend the budget: the parse alone is judged.
+ *   `repo` is the issue's.
  * @returns {{refusals: string[], warnings: string[]}}
  */
 function addedCheckVerdict(
 	before,
 	after,
-	{ run, cwd = hostRoot(), timeoutMs = DEFAULT_TIMEOUT_S * 1000 },
+	{ run, repo, timeoutMs = DEFAULT_TIMEOUT_S * 1000 },
 ) {
 	/** @type {string[]} */
 	const refusals = [];
 	/** @type {string[]} */
 	const warnings = [];
+	/** @type {ReturnType<typeof readCheckTree> | undefined} */
+	let where;
 	for (const line of parseAddedGateLines(before, after)) {
 		const gateOn = gateOnOf(line);
 		if (!gateOn || gateOn.malformed || !gateOn.command) continue;
@@ -237,24 +266,41 @@ function addedCheckVerdict(
 			);
 			continue;
 		}
-		let r;
-		try {
-			r = runCheckCommand(u.command, timeoutMs, cwd);
-		} catch (e) {
-			// A runner failure is advice here, so the write goes ahead (#3487).
-			warnings.push(
-				`The \`check:\` \`${u.command}\` could not be run (${caught(e).message.split("\n")[0]}), so nothing says it prints a reading.`,
+		where ??= readCheckTree(repo);
+		if ("why" in where) {
+			refusals.push(
+				`the \`check:\` \`${u.command}\` on the \`**Gated on:**\` line was not run: ${where.why}. Clone ${repo} there with its \`.claude/workflow-core.json\`, or write the line from its checkout.`,
 			);
 			continue;
 		}
-		if (r.state === "NO-OUTPUT" || r.state === "DEAD")
-			refusals.push(buildSilentRefusal(u.command, r.reading, r.state));
-		else if (r.state === "OVER-BUDGET")
-			warnings.push(
-				`The \`check:\` \`${u.command}\` ran past its ${Math.round(timeoutMs / 1000)} s budget, so the gate sweep will read it as OVER-BUDGET and its judge will run it by hand. Where it is not meant to run that long, make it print what it saw sooner.`,
-			);
+		judgeRun(u.command, where, timeoutMs, { refusals, warnings });
 	}
 	return { refusals, warnings };
+}
+
+/**
+ * @param {string} command
+ * @param {{root: string, env?: NodeJS.ProcessEnv}} where
+ * @param {number} timeoutMs
+ * @param {{refusals: string[], warnings: string[]}} verdict accumulator: the write's
+ */
+function judgeRun(command, where, timeoutMs, { refusals, warnings }) {
+	let r;
+	try {
+		r = runCheckCommand(command, timeoutMs, where.root, where.env);
+	} catch (e) {
+		// A runner failure is advice here, so the write goes ahead (#3487).
+		warnings.push(
+			`The \`check:\` \`${command}\` could not be run (${caught(e).message.split("\n")[0]}), so nothing says it prints a reading.`,
+		);
+		return;
+	}
+	if (r.state === "NO-OUTPUT" || r.state === "DEAD")
+		refusals.push(buildSilentRefusal(command, r.reading, r.state));
+	else if (r.state === "OVER-BUDGET")
+		warnings.push(
+			`The \`check:\` \`${command}\` ran past its ${Math.round(timeoutMs / 1000)} s budget, so the gate sweep will read it as OVER-BUDGET and its judge will run it by hand. Where it is not meant to run that long, make it print what it saw sooner.`,
+		);
 }
 
 /**

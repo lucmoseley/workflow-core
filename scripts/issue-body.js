@@ -893,7 +893,7 @@ function buildTransform(o) {
 function replaceWhole(issue, repo, next, dryRun = false) {
 	const run = () => {
 		const before = fetchBody(issue, repo);
-		refuseGateFaults(before, next);
+		refuseGateFaults(before, next, repo);
 		if (normalise(before) === normalise(next)) {
 			writeFd(1, `issue ${issue}: already identical, nothing written\n`);
 			return 0;
@@ -936,8 +936,9 @@ let gateRuleHanded = false;
  *
  * @param {string} before
  * @param {string} after
+ * @param {string|undefined} repo
  */
-function refuseGateFaults(before, after) {
+function refuseGateFaults(before, after, repo) {
 	const handover = gateRuleHanded
 		? null
 		: gateRuleHandover(before, after, () => readRuleText("roadmap-gating"));
@@ -950,7 +951,7 @@ function refuseGateFaults(before, after) {
 		throw new CallerError(
 			`Nothing written: this edit adds ${basisRefusal(added, after)}`,
 		);
-	const checks = addedCheckVerdict(before, after, { run: true });
+	const checks = addedCheckVerdict(before, after, { run: true, repo });
 	for (const w of checks.warnings) writeFd(2, `${w}\n`);
 	if (checks.refusals.length > 0)
 		throw new CallerError(`Nothing written: ${checks.refusals.join(" ")}`);
@@ -991,11 +992,12 @@ function recordNewGate(issue, repo, before, after) {
  * neighbour's body judges what this edit adds to THAT body.
  *
  * @param {Transform} transform
+ * @param {string|undefined} repo
  * @returns {Transform}
  */
-const basisChecked = (transform) => (body) => {
+const basisChecked = (transform, repo) => (body) => {
 	const next = transform(body);
-	refuseGateFaults(body, next);
+	refuseGateFaults(body, next, repo);
 	return next;
 };
 
@@ -1010,7 +1012,7 @@ const basisChecked = (transform) => (body) => {
 function runEdit(o, repo, transform) {
 	const r = editIssueBody({
 		issue: o.issue,
-		transform: basisChecked(transform),
+		transform: basisChecked(transform, repo),
 		repo,
 		attempts: o.attempts === undefined ? DEFAULT_ATTEMPTS : Number(o.attempts),
 		dryRun: Boolean(o.dryRun),
