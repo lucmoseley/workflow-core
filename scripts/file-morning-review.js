@@ -34,9 +34,10 @@
  * the next review starts that repo there (#3831). So is one carrying such a line
  * that discovery no longer lists, its `.git` or config missing; the review that
  * finds its directory gone, or its start over 30 days old, names what that gives
- * up and ends the line (#3835). Residual: one its owner opted out is neither named
- * nor carried, so a start it carried ends there (#3834). A linked worktree likewise
- * (#3835). A checkout with no line to carry loses its first absent window.
+ * up and ends the line (#3835). A checkout the previous review read counts as one
+ * carrying a line from its window's end, so its first absence loses nothing (#3844).
+ * Residual: one its owner opted out is neither named nor carried, so a start it
+ * carried ends there (#3834). A linked worktree likewise (#3835).
  *
  * Files through file-issue.js, so the `takes:` and known-label refusals bind
  * this script as they bind a session: no hook sees a gh call a script makes.
@@ -179,6 +180,7 @@ function readRepo(root, windowSince, reads, reviews) {
 		);
 		return {
 			reading: {
+				checkout,
 				repo,
 				since,
 				entries: lines,

@@ -15,7 +15,9 @@
  * lock, bar one waiting on a limit (#3838). The loop's state names the parked
  * issues it holds, and since when (#3680), and those waiting launches. A
  * stopped loop serves no tracker, runs and holds
- * nothing, so its stop is caught rather than masked.
+ * nothing, so its stop is caught rather than masked. Each checkout's park
+ * markers name the tickets held at the limit-cap parks' cap, and since when,
+ * with or without a loop (#3840).
  *
  * WARN, never FAIL. A tracker that will not read is its own line, never
  * "none idle".
@@ -56,6 +58,7 @@ const { LONG_STALE_MS } = require("./lib/notify-report");
 const deliveryStamp = require("./lib/delivery-stamp.js");
 const { isFounderNoticeHeld } = require("./lib/background-start.js");
 const { localDate } = require("./lib/morning-review.js");
+const { listParkMarkers } = require("./lib/parked.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const loop = require("./lib/refill-loop.js");
 const refillFiles = require("./lib/refill-files.js");
@@ -162,12 +165,13 @@ const buildSpec = (source) => ({
 							.entries.filter((e) => !e.heldUntil)
 							.map((e) => e.issues);
 					}
+					const markers = roots.map(listParkMarkers);
 					const issues = await readIssues(repo, now);
-					return { repo, issues, error: null, ledgers };
+					return { repo, issues, error: null, ledgers, markers };
 				} catch (err) {
 					const e = caught(err);
 					const error = (e.stderr || e.message).trim().split("\n")[0] ?? "";
-					return { repo, issues: [], error, ledgers };
+					return { repo, issues: [], error, ledgers, markers: [] };
 				}
 			}),
 		);

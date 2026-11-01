@@ -8,26 +8,26 @@
  * One whose own or a descendant's launch is still running is not idle. Blocked,
  * gated, `takes:human` and `parked` issues are not counted: each waits on
  * something other than a launch, as does a container all of whose open
- * children do. A parked issue the loop holds is counted, from the hold's start:
- * on its session's full seat it waits on that seat's reset, up to 7 days
- * (#3680), and at the limit-cap parks' cap on the founder (#3804). So is a
- * launch waiting on a limit, from when it began (#3838). One at the cap, which
- * no reset ends, or on a limit, is named beneath its tracker's line, however old
- * its tracker's oldest (#3809, #3838); a full seat's stays in the count. A
- * stranding is counted once, at its deepest idle issue, never again at each
- * ancestor.
+ * children do. A parked issue held is counted, from the hold's start: on its
+ * session's full seat, as the loop's state says, it waits on that seat's reset,
+ * up to 7 days (#3680), and at the limit-cap parks' cap, as its park marker says
+ * whatever the loop's mode and whether or not it runs (#3840), on the founder
+ * (#3804). So is a launch waiting on a limit, from when it began (#3838). One at
+ * the cap, which no reset ends, or on a limit, is named beneath its tracker's
+ * line, however old its tracker's oldest (#3809, #3838); a full seat's stays in
+ * the count. A stranding is counted once, at its deepest idle issue, never again
+ * at each ancestor.
  *
- * The reason printed beside a tracker's oldest is the loop's hold where it
- * holds it, else its own launch filter (lib/refill-decide.js's
- * buildSkipReason).
+ * The reason printed beside a tracker's oldest is its hold's where it is held,
+ * else the loop's launch filter (lib/refill-decide.js's buildSkipReason).
  *
  * The shell hands over raw reads, keyed by checkout; buildReadings joins them
  * to the trackers those checkouts file to, and buildFindingRecords picks each
  * tracker's finding code (#3711).
  */
 
-const { buildSkipReason } = require("./refill-decide.js");
-const { PARKED_LABEL } = require("./parked.js");
+const { buildSkipReason, limitCapHoldOf } = require("./refill-decide.js");
+const { PARKED_LABEL, newestMarkerListing } = require("./parked.js");
 const { takesLabel, takesOf } = require("./takes-label.js");
 const { refKey } = require("./issue-ref.js");
 const { resolveGate } = require("./issue-gate.js");
@@ -74,14 +74,17 @@ const QUERY =
  */
 
 /**
+ * A hold's reason, start, ms, and whether it is at the limit-cap parks' cap or a
+ * launch waiting on a limit.
+ * @typedef {{why: string, since: number, atCap?: boolean, onLimit?: boolean}} IdleHold
+ */
+
+/**
  * @typedef {object} Readings
  * @property {TrackerReading[]} trackers
  * @property {Map<string, number>} launches refKey to its last launch, ms
  * @property {Set<string>} running refKeys of launches still running
- * @property {Map<string, {why: string, since: number, atCap?: boolean,
- *   onLimit?: boolean}>} holds
- *   refKeys of the issues the loop holds, to the hold's reason, start, ms, and
- *   whether it is at the limit-cap parks' cap or a launch waiting on a limit
+ * @property {Map<string, IdleHold>} holds refKeys of the issues held
  * @property {number} now ms
  */
 
@@ -91,10 +94,10 @@ const QUERY =
  * @property {string} title
  * @property {number} idleMs
  * @property {boolean} urgent
- * @property {boolean} heldAtCap the loop holds it at the limit-cap parks' cap
+ * @property {boolean} heldAtCap it is held at the limit-cap parks' cap
  * @property {boolean} heldOnLimit its launch waits on a limit
- * @property {string|null} skip the loop's hold or its launch filter's
- *   reason, null where it passes the row
+ * @property {string|null} skip its hold's or the loop's launch filter's reason,
+ *   null where the filter passes the row
  */
 
 /**
@@ -122,6 +125,8 @@ const QUERY =
  * @property {string|null} error
  * @property {LedgerReading[]} ledgers its checkouts' ledgers, as far as they
  *   read
+ * @property {import("./parked.js").ParkMarkerRead[][]} markers each of its
+ *   checkouts' park markers
  */
 
 /**
@@ -129,8 +134,40 @@ const QUERY =
  * @typedef {object} LoopReading
  * @property {string[]} served the checkouts its scope serves
  * @property {{root: string, issues: number[]}[]} launches its launches at work
- * @property {import("./refill-loop.js").Hold[]} held the issues it holds
+ * @property {import("./refill-loop.js").Hold[]} held the issues it holds: parked
+ *   rows on a full seat and launches waiting on a limit
  */
+
+/**
+ * A tracker's parked issues held at the limit-cap parks' cap, each to its hold:
+ * the loop routes a row on the newest marker in the row's own checkout, so it is
+ * held where that marker in any checkout is at the cap, from the latest such
+ * start. A marker left behind once the label is off holds nothing.
+ * @param {TrackerRead} t
+ * @returns {[string, IdleHold][]}
+ */
+const limitCapHoldsOf = ({ repo, issues, markers }) =>
+	issues
+		.filter((i) => i.labels.includes(PARKED_LABEL))
+		.flatMap((i) => {
+			const [hold] = markers
+				.flatMap((inCheckout) => {
+					const marker = newestMarkerListing(inCheckout, i.number);
+					const why = limitCapHoldOf(marker?.limitParks);
+					return marker && why !== null
+						? [{ why, since: marker.writtenAt, atCap: true }]
+						: [];
+				})
+				.sort((a, b) => b.since - a.since);
+			return hold
+				? [
+						/** @type {[string, IdleHold]} */ ([
+							refKey({ repo, number: i.number }),
+							hold,
+						]),
+					]
+				: [];
+		});
 
 /**
  * The readings findIdleEfforts judges, joined from checkout roots to the
@@ -156,11 +193,21 @@ function buildReadings({ rootsOf, trackers, loop, now }) {
 			for (const n of issues) running.add(refKey({ repo, number: n }));
 	};
 	for (const l of loop.launches) markRunning(l.root, l.issues);
+	/* The marker's entries last, so a cap, which no reset ends, names a row over
+	 * the loop's full-seat hold of it. */
 	/** @type {Readings["holds"]} */
-	const holds = new Map();
-	for (const { root, number, why, since, atCap, onLimit } of loop.held)
-		for (const repo of reposOf(root))
-			holds.set(refKey({ repo, number }), { why, since, atCap, onLimit });
+	const holds = new Map([
+		...loop.held.flatMap(({ root, number, why, since, onLimit }) =>
+			reposOf(root).map(
+				(repo) =>
+					/** @type {[string, IdleHold]} */ ([
+						refKey({ repo, number }),
+						{ why, since, onLimit },
+					]),
+			),
+		),
+		...trackers.flatMap(limitCapHoldsOf),
+	]);
 	for (const t of trackers)
 		for (const { root, launchTimes, recent } of t.ledgers) {
 			for (const [n, at] of launchTimes) {
@@ -226,7 +273,7 @@ function parseIssueNodes(pages, now) {
 
 /**
  * @param {IssueReading} i
- * @param {boolean} isHeld whether the loop holds it
+ * @param {boolean} isHeld whether it is held
  */
 const isExcluded = (i, isHeld) =>
 	i.blocked ||

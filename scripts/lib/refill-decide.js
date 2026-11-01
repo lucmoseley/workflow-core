@@ -189,12 +189,11 @@ const ALREADY_RUNNING = "already running";
  */
 
 /** @typedef {{root: string, number: number, why: string}} Skip */
-/** @typedef {Skip & {atCap?: boolean}} HeldRow `atCap`: at LIMIT_PARK_CAP, so waiting on the founder */
 
 /**
  * @typedef {{stop: StopReason, detail: string}
  *   | {launches: Launch[], skipped: Skip[], idle: string | null,
- *   held: HeldRow[]}} Decision `held` is heldParked's
+ *   held: Skip[]}} Decision `held` is heldParked's
  */
 
 /**
@@ -574,6 +573,15 @@ const buildLimitCapText = (limitParks) =>
 	`${limitParks} limit-cap parks in a row with no model reply; it stays parked until you type in its session or take the label off`;
 
 /**
+ * The hold's why for a row at LIMIT_PARK_CAP, else null.
+ * @param {number|undefined} limitParks
+ */
+const limitCapHoldOf = (limitParks) =>
+	limitParks !== undefined && limitParks >= LIMIT_PARK_CAP
+		? `parked: ${buildLimitCapText(limitParks)}`
+		: null;
+
+/**
  * How a parked row's session goes back, from the tick's reading of its park
  * marker: resumed in place (#3621); held, a skip with why, where that
  * session's seat reads full, a bar at 100% or a cap sized 0 (#3669); else
@@ -619,8 +627,8 @@ function routeParked(parker, seats) {
 	if (!parker) return { afresh: "no session that parked it is recorded" };
 	const { limitParks } = parker;
 	if (limitParks === undefined) return routeParkedSession(parker, seats);
-	if (limitParks >= LIMIT_PARK_CAP)
-		return { hold: `parked: ${buildLimitCapText(limitParks)}`, atCap: true };
+	const capHold = limitCapHoldOf(limitParks);
+	if (capHold !== null) return { hold: capHold, atCap: true };
 	return { ...routeParkedSession(parker, seats), limitParks };
 }
 
@@ -637,25 +645,19 @@ const routeParkedRow = (row, parkers, seats) =>
 	);
 
 /**
- * Every parked frontier row a tick holds, on a full seat or at the limit-cap
- * parks' cap, whether or not its
- * walk reaches the row (#3680); none where the mode routes no parked rows.
+ * Every parked frontier row a tick holds on a full seat, whether or not its
+ * walk reaches the row (#3680); none where the mode routes no parked rows. One
+ * at the limit-cap parks' cap is left to the idle alarm's own read of its marker,
+ * which needs no loop (#3840).
  * @param {Pick<TickInput, "frontier"|"mode"|"seats"|"parkers">} input
- * @returns {HeldRow[]}
+ * @returns {Skip[]}
  */
 const heldParked = ({ frontier, mode, seats, parkers = [] }) =>
 	isParkRoutingMode(mode)
 		? frontier.filter(isParked).flatMap((row) => {
 				const parked = routeParkedRow(row, parkers, seats);
-				return "hold" in parked
-					? [
-							{
-								root: row.root,
-								number: row.number,
-								why: parked.hold,
-								atCap: parked.atCap,
-							},
-						]
+				return "hold" in parked && !parked.atCap
+					? [{ root: row.root, number: row.number, why: parked.hold }]
 					: [];
 			})
 		: [];
@@ -827,6 +829,7 @@ module.exports = {
 	seatHold,
 	FULL,
 	LIMIT_PARK_CAP,
+	limitCapHoldOf,
 	NOTHING_LAUNCHABLE,
 	RUN_MS,
 	UNREAD,

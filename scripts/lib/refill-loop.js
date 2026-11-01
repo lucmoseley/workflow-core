@@ -135,10 +135,9 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
 
 /**
  * An issue the loop holds, and since when, ms: a parked row on its session's full
- * seat or at the limit-cap parks' cap, from the first frontier-reading tick of an
- * unbroken run of them that held it; or, `onLimit`, a launch waiting on a limit
- * (limitWaitOf).
- * @typedef {import("./refill-decide.js").HeldRow & {since: number,
+ * seat, from the first frontier-reading tick of an unbroken run of them that held
+ * it; or, `onLimit`, a launch waiting on a limit (limitWaitOf).
+ * @typedef {import("./refill-decide.js").Skip & {since: number,
  *   onLimit?: boolean}} Hold
  */
 
@@ -258,7 +257,7 @@ const isHold = (raw) =>
 
 /**
  * The holds a frontier-reading tick leaves.
- * @param {import("./refill-decide.js").HeldRow[]} held this tick's
+ * @param {import("./refill-decide.js").Skip[]} held this tick's
  * @param {Hold[]} before
  * @param {number} now
  * @returns {Hold[]}
