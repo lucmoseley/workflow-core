@@ -55,6 +55,7 @@ import {
 } from "./lib/loop-prompts.js";
 import { buildMeminfo } from "./lib/meminfo-fake";
 import { projectSlug } from "./lib/project-slug.js";
+import { parseHoldId } from "./lib/repo-hold-fixture";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 import { buildUsageCache } from "./lib/usage-probe-fake";
 import { readProgramLibs } from "./lib-closure-fixture";
@@ -707,7 +708,8 @@ describe("a parked launch (#2699)", () => {
 		cliVersion: "2.1.309",
 		sessionId: "s-job7",
 	};
-	const jobFile = () => path.join(seat, "jobs", Job, "state.json");
+	const job7Dir = () => path.join(seat, "jobs", Job);
+	const jobFile = () => path.join(job7Dir(), "state.json");
 
 	/** An away-mode loop holding one launch its listing shows blocked on a
 	 * question in the model's words, with the job record and transcript the
@@ -832,6 +834,43 @@ describe("a parked launch (#2699)", () => {
 			`cwd ${repo}`,
 			"7",
 		]);
+	});
+
+	it("gives a session attached to a repo hold the ordinary park act, its ticket labelled parked (#3858)", async () => {
+		const holdCli = (args: string[], jobDir: string) =>
+			runInProcess(path.join(__dirname, "repo-hold.js"), args, {
+				cwd: repo,
+				env: loopEnv({
+					CLAUDE_PROJECT_DIR: repo,
+					CLAUDE_JOB_DIR: jobDir,
+					CLAUDE_CODE_SESSION_ID: "",
+				}),
+			});
+		const raised = holdCli(
+			["raise", "--act", "repair main", "--issue", "12", "--clear-issue", "12"],
+			path.join(seat, "jobs", "raiser"),
+		);
+		const id = parseHoldId(raised.stdout);
+		const attached = holdCli(["attach", id], job7Dir());
+		expect(attached.status, attached.stderr).toBe(0);
+		fakeClaude([LISTED, blockedRow]);
+
+		const r = await twoTicks();
+
+		expect(r.status).toBe(0);
+		expect(readLines(at("stops"))).toEqual([`stop ${Job}`]);
+		expect(readLines(at("gh-calls"))).toContain(
+			"issue edit 7 --repo o/r --add-label parked",
+		);
+		expect(readLines(at("gh-calls"))).toContainEqual(parkComment("QUESTION"));
+		expect(readLines(markerPath("s-job7"))).toContain("7");
+		expect(
+			readLines(at(".refill-loop.log")).filter((l) =>
+				l.includes(`repo hold attached: ${id}`),
+			),
+		).toHaveLength(1);
+		const listed = holdCli(["list"], "").stdout;
+		expect(listed).toContain(`sessions: raiser, ${Job}`);
 	});
 
 	it("stops and parks, on a switch to away, a question held past 50 newer launches (#3775)", async () => {

@@ -352,9 +352,10 @@
  * REPORTED ELSEWHERE: an unreadable write
  * ledger, a git that will not answer, and a missing or unparseable marker store
  * all allow the stop and write a line to the arbiter's fail-open log, which
- * `npm run check:guard-errors` prints under `npm run status`. ONE LIMB
- * REFUSES INSTEAD, EXCEPTING IT FROM THE NEXT PARAGRAPH: the standing-round
- * pointer (#924) keeps the round owed, logged (`pointsAtStandingRound`).
+ * `npm run check:guard-errors` prints under `npm run status`. TWO LIMBS
+ * REFUSE INSTEAD, EXCEPTING THEM FROM THE NEXT PARAGRAPH: the standing-round
+ * pointer (#924) and the attached park (#3858) keep the round owed, logged
+ * (`pointsAtStandingRound`, `isAttachedPark`).
  *
  * EVERY FAILURE PATH IS SILENT AND EXITS 0 — breaking a session is worse than
  * missing one.
@@ -415,7 +416,7 @@
  * prologue and epilogue around `judge()` — payload read, breadcrumb, fail-open,
  * drain — live in `lib/stop-guard.js`, shared with all three siblings (mantahostels#1798).
  *
- * IMPLICIT:  reads the session's ending message at every Stop and blocks the turn where a question to the founder is not in the lettered priced form, naming the fault to the founder and sending the correction on the model-only limb; where its top two rivals sit close or its top option is priced 65 or less, once per question whatever `Checked:` or `Unmeasured:` line it carries (#1061), and, re-sent still caught by either, until each research-ladder rung shows a tool call (#2006), past the session ceiling (#1067); where it is sent under 10 tool calls after the founder's last message (#1710), past the ceiling too; where an option hands the founder an act by placeholder or back-reference rather than its literal text, or has him supply a credential by any route but `write-secret.js`, in an option (#1031) or in prose (#1817); where one option has the founder perform an act and another has the agent, and no `Blocked:` line says what stops the agent; where its recommendation names an option the same message priced below another, unexplained; and, in a background job, where a `result:` names a commit no green suite run attests and a push still owes one (#2933), where a status marker carries nothing after its colon, where a `waiting:` rests on nothing the transcript shows still running, or where a `needs input:` puts its decision as prose rather than as a lettered priced round, a lone founder hand-over (#926) or a `Qn` pointer to a round still unanswered (#924) excepted; and, once a turn, where a lib of its own will not load (#2645).
+ * IMPLICIT:  reads the session's ending message at every Stop and blocks the turn where a question to the founder is not in the lettered priced form, naming the fault to the founder and sending the correction on the model-only limb; where its top two rivals sit close or its top option is priced 65 or less, once per question whatever `Checked:` or `Unmeasured:` line it carries (#1061), and, re-sent still caught by either, until each research-ladder rung shows a tool call (#2006), past the session ceiling (#1067); where it is sent under 10 tool calls after the founder's last message (#1710), past the ceiling too; where an option hands the founder an act by placeholder or back-reference rather than its literal text, or has him supply a credential by any route but `write-secret.js`, in an option (#1031) or in prose (#1817); where one option has the founder perform an act and another has the agent, and no `Blocked:` line says what stops the agent; where its recommendation names an option the same message priced below another, unexplained; and, in a background job, where a `result:` names a commit no green suite run attests and a push still owes one (#2933), where a status marker carries nothing after its colon, where a `waiting:` rests on nothing the transcript shows still running, or where a `needs input:` puts its decision as prose rather than as a lettered priced round, a lone founder hand-over (#926), a `Qn` pointer to a round still unanswered (#924) or a park on an open repo hold the job is attached to (#3858) excepted; and, once a turn, where a lib of its own will not load (#2645).
  * JUSTIFIED: fail-safe — the rule was written down and kept losing (mantahostels#802), and the turn ending is the last moment the defect can still be fixed.
  * DEFEAT:    the format block clears by rewriting the question, never by a switch — the close-rivals block (#488) by sending the corrected question a second time (#1061) and, where the shape limb is silent, a fixed shape (#1742), or by its own cap of 3, its research-ladder block (#2006) by a qualifying tool call on each rung, a re-send no test still catches or its own cap of 3, and its re-price refusal (#489) by a tool call or the refused figures, the under-researched block (#1710) by any tool call before the re-send and, where the shape limb is silent, a fixed shape (#1730), or its own cap of 3, the founder-act block (#597) by the literal text, a secret ask's `write-secret.js` line (#1031), or its own cap of 3, the actor-only block (#598) by acting instead, a `Blocked:` line or its own cap of 3 — or, past `SESSION_MAX` blocks in one session, by the ceiling going quiet on every shape and filing limb at once, the close-rivals, research-ladder and under-researched limbs excepted (mantahostels#2786, #1067), shape limbs one block sooner (mantahostels#3430). The evidence block (mantahostels#1253) clears by stopping a second time — `max: 1` — which is the deliberate escape for the two cases a session cannot fix: a machine still under the one-suite rung AFTER the suite's own reap of finished sessions (scripts/pretest-reap.js; mantahostels#1843 — a pre-run headroom read is not that case), and a `main` red in files it never touched (mantahostels#1842). The load-failure block (#2645) clears by stopping again.
  */
@@ -1964,6 +1965,9 @@ function isFounderHandover(message) {
  * AND ONE POINTER (#924): a marker naming `Q<n>`, where every round it names
  * still stands in the transcript (`pointsAtStandingRound`), passes.
  *
+ * AND ONE PARK (#3858): a marker naming an open repo hold this job is attached
+ * to and that hold's issue (`isAttachedPark`) passes. A letter voids it, as it voids the hand-over.
+ *
  * @param {string} message the outgoing assistant message
  * @param {StatusReading} status its status reading
  * @param {string} [transcript] the session's transcript path
@@ -1977,6 +1981,8 @@ function needsInputWithoutRound(message, status, transcript) {
 
 	if (!NAMES_A_LETTER.test(message) && isFounderHandover(message)) return "";
 	if (pointsAtStandingRound(marker.payload, transcript)) return "";
+	if (!NAMES_A_LETTER.test(message) && isAttachedPark(marker.payload))
+		return "";
 
 	return (
 		"This turn ends a background job on `needs input:` with no `\u2753 **Qn**` " +
@@ -1994,10 +2000,12 @@ function needsInputWithoutRound(message, status, transcript) {
 		INVENTORY.needsInputLine +
 		"\n\nA yes/no is lettered too \u2014 (A) do it, (B) do " +
 		"not \u2014 the round has no exemption for an obvious choice.\n\n" +
-		"Two exceptions. First, a single founder act is not a decision: hand it over " +
+		"Three exceptions. First, a single founder act is not a decision: hand it over " +
 		"instead \u2014 its literal `!` line or fenced text, then what to send back \u2014 with no " +
 		"round and no lettered options (#926).\n\n" +
 		`Second, ${STANDING_ROUND_POINTER}\n\n` +
+		"Third, a job attached to an open repo hold (`repo-hold.js attach`): " +
+		"its line names `hold <id>` and that hold's `#<issue>`.\n\n" +
 		"If you are not blocked on a decision at all, the marker is the wrong one: " +
 		"`result:` where nothing waits on the founder, `waiting:` where something " +
 		"you launched will wake this session."
@@ -2045,6 +2053,26 @@ function pointsAtStandingRound(payload, transcript) {
 		return false;
 	}
 	return named.every((n) => rounds.includes(n));
+}
+
+/* The fail-open log's second field for the attached-park reader (#3858). */
+const FAIL_LOG_ATTACHED = "guard-priced-options attached-park";
+
+/**
+ * Whether a `needs input:` payload parks this job on an open repo hold it is
+ * attached to (#3858). Fails closed, logged, on `pointsAtStandingRound`'s terms:
+ * a missed park costs a round the founder may already hold; a park let through
+ * wrongly ends the job with its question asked nowhere.
+ * @param {string} payload the governing marker's text after its colon
+ * @returns {boolean}
+ */
+function isAttachedPark(payload) {
+	try {
+		return require("./lib/repo-holds").findOwnHold(payload) !== null;
+	} catch (e) {
+		failOpenLogger(FAIL_LOG_ATTACHED)?.(`holds would not read: ${e} — refused`);
+		return false;
+	}
 }
 
 /* The fail-open log's second field for the waiting-verification limb, which

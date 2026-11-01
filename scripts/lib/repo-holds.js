@@ -29,6 +29,13 @@
  * RESIDUAL: a close that fails on a clear is logged and not retried, there being
  * no hold left to retry it from. The issue's body says what to do, and the fetch
  * that just passed makes `gh` likely to answer.
+ *
+ * AN ATTACH IS A FILE OF ITS OWN beside the hold's (#3858), never a rewrite of
+ * it: a rewrite could resurrect a hold a lift has just unlinked, or lose a
+ * neighbour's attach. Its order against removeHold's leaves no stray: an attach
+ * writes, then reads the hold; a lift unlinks the hold, then lists the attach
+ * files. So either the lift's list finds the file or the attach's read finds no
+ * hold and takes its file back.
  */
 
 const fs = require("node:fs");
@@ -41,6 +48,8 @@ const { deref } = require("./deref.js");
 const { fileThrough } = require("./file-through.js");
 const { gh, ghJson, parseErrLine } = require("./gh.js");
 const { gitCommonDir, gitOutcome } = require("./git.js");
+const { hostRoot } = require("./host-root.js");
+const { parseJobDir } = require("./job-paths.js");
 const { mainCheckout } = require("./main-checkout.js");
 const { FETCH_TIMEOUT_MS } = require("./refill-code.js");
 const { refillPath } = require("./refill-dir.js");
@@ -65,7 +74,8 @@ const { moduleReader, resolveKey } = require("./workflow-core-config.js");
  *   probe hold whose filing has yet to land
  * @property {ClearCheck} clearCheck
  * @property {number} raisedAt
- * @property {string[]} sessions  the job ids of the sessions parked on it
+ * @property {string[]} sessions  the job ids of the sessions parked on it: the
+ *   raiser's in the record, each attached session's in its own file
  * @property {{raiseSent: boolean, clearSent: boolean}} notice  #3871's to read
  *   and write, the morning review's to read; nothing writes it yet
  *
@@ -87,6 +97,10 @@ const ID_BYTES = 3;
 const PROBE_ID = "probe";
 
 const ID_PATTERN = new RegExp(`^(?:[0-9a-f]+|${PROBE_ID})$`);
+
+/* A job id, as a file name's tail: no dot, so an attach file never reads as a
+ * hold's `.json`. */
+const JOB_PATTERN = /^[0-9A-Za-z_-]+$/;
 
 const PROBE_FILED_WHY =
 	"a probe hold is raised by the refill loop, with no asking session to hold its question (#3860)";
@@ -122,6 +136,22 @@ function holdsDir(root) {
  * @param {string} id
  */
 const holdFile = (root, id) => path.join(holdsDir(root), `${id}.json`);
+
+/**
+ * What an attach file's name starts with.
+ * @param {string} id
+ */
+const buildAttachPrefix = (id) => `${id}.attached.`;
+
+/**
+ * The job ids attached to hold `id`, off the store's listing.
+ * @param {string[]} names  the store's file names
+ * @param {string} id
+ */
+const parseAttachedJobs = (names, id) =>
+	names
+		.filter((n) => n.startsWith(buildAttachPrefix(id)))
+		.map((n) => n.slice(buildAttachPrefix(id).length));
 
 /**
  * Whether `value` is a hold, and the one its file is named for: an id off the
@@ -179,7 +209,16 @@ function readHolds(root) {
 		const file = path.join(dir, name);
 		try {
 			const value = JSON.parse(fs.readFileSync(file, "utf8"));
-			if (isHold(value, name)) holds.push(value);
+			if (isHold(value, name))
+				holds.push({
+					...value,
+					sessions: [
+						...new Set([
+							...value.sessions,
+							...parseAttachedJobs(names, value.id),
+						]),
+					],
+				});
 			else unread.push(`${file}: not a hold`);
 		} catch (err) {
 			/* ENOENT: lifted between the listing and this read. */
@@ -258,18 +297,88 @@ const buildRaisedLine = (hold) =>
 	`repo hold raised: ${buildHoldRef(hold)}; ${buildIssueText(hold)}; clears on ${buildCheckText(hold.clearCheck)}`;
 
 /**
- * End a hold; false where it was already gone.
+ * Attach job `job` to open hold `id`, however often it asks: the hold as it now
+ * reads and whether this call attached it, or null where no hold is open under
+ * that id. A hold with no issue yet comes back with no attach made, as a park
+ * would have none to name.
+ * @param {string} root
+ * @param {string} id
+ * @param {string} job
+ * @returns {{hold: RepoHold, isNew: boolean}|null}
+ */
+function attachHold(root, id, job) {
+	if (!ID_PATTERN.test(id)) return null;
+	if (!JOB_PATTERN.test(job)) throw new Error(`not a job id: ${job}`);
+	const file = path.join(holdsDir(root), `${buildAttachPrefix(id)}${job}`);
+	let isNew = true;
+	try {
+		fs.writeFileSync(file, "", { flag: "wx" });
+	} catch (err) {
+		const { code } = caught(err);
+		/* ENOENT: no store, so no hold. */
+		if (code === "ENOENT") return null;
+		if (code !== "EEXIST") throw err;
+		isNew = false;
+	}
+	const hold = readHolds(root).holds.find((h) => h.id === id);
+	if (hold?.issue !== null) {
+		if (hold) return { hold, isNew };
+		fs.rmSync(file, { force: true });
+		return null;
+	}
+	fs.rmSync(file, { force: true });
+	return { hold, isNew: false };
+}
+
+/**
+ * @param {RepoHold} hold
+ * @param {string} job
+ */
+const buildAttachedLine = (hold, job) =>
+	`repo hold attached: ${buildHoldRef(hold)}; session ${job}; ${hold.sessions.length} attached`;
+
+/**
+ * The open hold this background job attached to that `text` names: `hold <id>`
+ * and that hold's `#issue`, the attached park's status line (#3858). A raiser is
+ * not attached: it parks on its round. Null where it names none, or this is no
+ * background job.
+ * @param {string} text
+ * @returns {RepoHold|null}
+ */
+function findOwnHold(text) {
+	const job = parseJobDir(process.env.CLAUDE_JOB_DIR)?.jobId;
+	if (!job) return null;
+	const root = readCheckout(hostRoot());
+	return (
+		readHolds(root).holds.find(
+			(h) =>
+				fs.existsSync(
+					path.join(holdsDir(root), `${buildAttachPrefix(h.id)}${job}`),
+				) &&
+				new RegExp(`\\bhold ${h.id}\\b`).test(text) &&
+				new RegExp(`#${h.issue}\\b`).test(text),
+		) ?? null
+	);
+}
+
+/**
+ * End a hold and its attach files; false where it was already gone.
  * @param {string} root
  * @param {string} id
  */
 function removeHold(root, id) {
+	const dir = holdsDir(root);
 	try {
 		fs.unlinkSync(holdFile(root, id));
-		return true;
 	} catch (err) {
 		if (caught(err).code === "ENOENT") return false;
 		throw err;
 	}
+	for (const job of parseAttachedJobs(fs.readdirSync(dir), id))
+		fs.rmSync(path.join(dir, `${buildAttachPrefix(id)}${job}`), {
+			force: true,
+		});
+	return true;
 }
 
 /**
@@ -718,8 +827,11 @@ function buildHoldLines(roots, now) {
 
 module.exports = {
 	buildAgeText,
+	attachHold,
+	buildAttachedLine,
 	buildHoldLines,
 	buildRaisedLine,
+	findOwnHold,
 	liftHold,
 	raiseHold,
 	readCheckout,
