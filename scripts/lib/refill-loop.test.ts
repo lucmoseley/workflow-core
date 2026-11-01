@@ -46,6 +46,7 @@ import {
 	scopeRoots,
 	seatReadingOf,
 	settleTick,
+	sizeResumeSeats,
 	stopNeverStarted,
 	summaryOf,
 	workingOf,
@@ -2179,8 +2180,84 @@ describe("the loop's resumes after a transient API stop (#2705)", () => {
 	});
 });
 
+describe("sizeResumeSeats (#3895)", () => {
+	const reading = (name: string, fits: number | null, week = 10) => ({
+		seat: name,
+		week,
+		session: 10,
+		weekFull: week >= 100,
+		sessionFull: false,
+		sessionResets: null,
+		weekResets: null,
+		readAt: NOW,
+		weekRead: { percent: null, atMs: null },
+		fits,
+	});
+	const due = (name: string) => ({
+		jobId: `on-${name}`,
+		seat: name,
+		root: "wfc",
+		at: NOW,
+		line: "held",
+	});
+	/** The seats sized, each cap's reading fits 1, with the seats it read. */
+	const size = (
+		seats: ReturnType<typeof reading>[],
+		resumable: ReturnType<typeof due>[],
+		slots = 2,
+	) => {
+		const read: string[] = [];
+		const out = sizeResumeSeats(seats, resumable, slots, (name, members) => {
+			read.push(`${name}/${members}`);
+			return 1;
+		});
+		return { read, fits: out.map((s) => s.fits) };
+	};
+
+	it("sizes a seat behind the first that has a resume due", () => {
+		expect(size([reading("a", 3), reading("b", null)], [due("b")])).toEqual({
+			read: ["b/2"],
+			fits: [3, 1],
+		});
+	});
+
+	it("sizes the next seat where the resumes take every fit before it", () => {
+		expect(
+			size(
+				[reading("a", 1), reading("b", null), reading("c", null)],
+				[due("a")],
+			),
+		).toEqual({ read: ["b/2"], fits: [1, 1, null] });
+	});
+
+	it("sizes nothing behind a seat with a fit to spare", () => {
+		expect(size([reading("a", 2), reading("b", null)], [due("a")])).toEqual({
+			read: [],
+			fits: [2, null],
+		});
+	});
+
+	it("leaves a seat with no room unsized, due or not", () => {
+		expect(size([reading("a", null, 100)], [due("a")])).toEqual({
+			read: [],
+			fits: [null],
+		});
+	});
+
+	it("reads no cap with no resume due or no slot free", () => {
+		expect(size([reading("a", null)], []).read).toEqual([]);
+		expect(size([reading("a", null)], [due("a")], 0).read).toEqual([]);
+	});
+});
+
 describe("a resume the tick's step left held (#3855)", () => {
-	const due = { jobId: "j1", root: "wfc", at: NOW - 60, line: "j1 held" };
+	const due = {
+		jobId: "j1",
+		seat: "a",
+		root: "wfc",
+		at: NOW - 60,
+		line: "j1 held",
+	};
 	const launch = {
 		root: "/r",
 		issues: [5],

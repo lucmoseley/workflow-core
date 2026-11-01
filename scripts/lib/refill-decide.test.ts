@@ -726,8 +726,9 @@ describe("decideTick on a seat whose cap fits only the floor's member (#2432)", 
 });
 
 describe("decideTick's resumes of held sessions (#3855)", () => {
-	const held = (jobId: string, at: number) => ({
+	const held = (jobId: string, at: number, onSeat = "a") => ({
 		jobId,
+		seat: onSeat,
 		at,
 		line: `${jobId} held`,
 	});
@@ -781,14 +782,108 @@ describe("decideTick's resumes of held sessions (#3855)", () => {
 		expect(d).toMatchObject({ launches: [] });
 	});
 
-	it("charges a launch's cap nothing for a resume, the residual", () => {
-		const d = tick({
-			freeSlots: 3,
-			seats: [seat("a", 10, 10, 1)],
-			resumable: [oldest],
+	describe("charged to its own seat's cap (#3895)", () => {
+		it("charges a resume to its seat's cap, leaving launches what remains", () => {
+			const d = tick({
+				freeSlots: 4,
+				seats: [seat("a", 10, 10, 2)],
+				resumable: [oldest],
+			});
+			expect(jobs(d)).toEqual(["old"]);
+			expect(launched(d)).toEqual(["wfc#1"]);
 		});
-		expect(jobs(d)).toEqual(["old"]);
-		expect(launched(d)).toEqual(["wfc#1"]);
+
+		it("launches on the next seat where a resume took the first seat's last fit", () => {
+			const d = tick({
+				freeSlots: 3,
+				seats: [seat("a", 10, 10, 1), seat("b", 10, 10, 1)],
+				resumable: [oldest],
+			}) as { launches: { seat: string }[]; resumes: { jobId: string }[] };
+			expect(jobs(d)).toEqual(["old"]);
+			expect(d.launches.map((l) => l.seat)).toEqual(["b"]);
+		});
+
+		it("starts a resume only while its seat's cap has a fit, oldest first", () => {
+			const d = tick({
+				freeSlots: 3,
+				seats: [seat("a", 10, 10, 1), seat("b", 10, 10, 1)],
+				resumable: [newest, oldest, held("other", NOW - HOUR, "b")],
+			});
+			expect(jobs(d)).toEqual(["old", "other"]);
+			expect(d).toMatchObject({ launches: [] });
+		});
+
+		it("charges nothing for a resume on a seat the tick does not read", () => {
+			const d = tick({
+				freeSlots: 3,
+				seats: [seat("a", 10, 10, 1)],
+				resumable: [held("gone", NOW - HOUR, "elsewhere")],
+			});
+			expect(jobs(d)).toEqual(["gone"]);
+			expect(launched(d)).toEqual(["wfc#1"]);
+		});
+
+		describe("beside a parked row whose session is on the same seat", () => {
+			const parkedRow = row("wfc", 7, "implement", {
+				labels: ["takes:implement", "parked"],
+				parkedAt: "2026-10-18T09:00:00Z",
+			});
+			const parkers = [
+				{
+					root: "wfc",
+					number: 7,
+					sessionId: "s7",
+					job: { seat: "a", jobId: "j7" },
+					resumeCwd: "/c",
+				},
+			];
+			const beside = (seats: ReturnType<typeof seat>[]) =>
+				tick({
+					mode: "normal",
+					freeSlots: 3,
+					frontier: [parkedRow],
+					parkers,
+					seats,
+					resumable: [oldest],
+				});
+
+			it("starts the swap resume and leaves the parked row waiting, on one fit", () => {
+				const d = beside([seat("a", 10, 10, 1)]);
+				expect(jobs(d)).toEqual(["old"]);
+				expect(launched(d)).toEqual([]);
+			});
+
+			it("holds the parked row where a launch goes to another seat", () => {
+				const d = beside([seat("a", 10, 10, 1), seat("b", 10, 10, 1)]);
+				expect(jobs(d)).toEqual(["old"]);
+				expect(launched(d)).toEqual([]);
+				expect(d).toMatchObject({
+					skipped: [
+						{
+							root: "wfc",
+							number: 7,
+							why: "parked: its session's seat a is full",
+						},
+					],
+				});
+			});
+
+			it("takes both with two fits to spare between them", () => {
+				const d = beside([seat("a", 10, 10, 2)]);
+				expect(jobs(d)).toEqual(["old"]);
+				expect(launched(d)).toEqual(["wfc#7"]);
+			});
+		});
+
+		it("says resumes take the slots when they take the last fit too", () => {
+			const d = tick({
+				freeSlots: 1,
+				seats: [seat("a", 10, 10, 1)],
+				resumable: [oldest],
+			});
+			expect(jobs(d)).toEqual(["old"]);
+			expect(d).toMatchObject({ idle: "resumes take every free slot" });
+		});
 	});
 
 	it("keeps a run on spent seats alive for a resume due, as only a running loop makes it", () => {

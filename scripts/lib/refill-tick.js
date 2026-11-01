@@ -1202,6 +1202,7 @@ async function tick({ dryRun }) {
 	const overflow = loop.overflowReadings(declared, seats, (seat) =>
 		seatBudget(seat, served[0]),
 	);
+	const resumable = blocks.resumableOf(launches, seen);
 	/** @type {import("./refill-decide.js").TickInput} */
 	const input = {
 		now,
@@ -1219,13 +1220,15 @@ async function tick({ dryRun }) {
 			.map(blocks.buildHeldStopText),
 		lastPromptAt: typed.at,
 		typedSeat: typed.seat,
-		seats,
+		seats: loop.sizeResumeSeats(seats, resumable, slots, (seat, members) =>
+			readCapFits(served[0], seat, members, ""),
+		),
 		overflow,
 		history: launches,
 		judgements: gates
 			.readGateStore(files.gates, log)
 			.pending.filter((j) => served.includes(j.root)),
-		resumable: blocks.resumableOf(launches, seen),
+		resumable,
 		holds: readTickHolds(served, broken),
 	};
 	const { decision, read } = await decide(input, control.scope);

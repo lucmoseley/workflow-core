@@ -509,6 +509,31 @@ function sizedSeats(readings, slots, sizeOf, sizeAll) {
 }
 
 /**
+ * `seats`, in launch order, with each cap a tick's resumes need sized (#3895):
+ * sizedSeats stops at the first seat that fits one, but a resume is held to its
+ * own seat's cap. Each seat with one due, and the next seat with room wherever
+ * the resumes leave no fit spare, so a launch falls through to it.
+ * @param {SizedSeat[]} seats
+ * @param {import("./refill-decide.js").HeldResume[]} resumable
+ * @param {number} slots
+ * @param {(seat: string, members: number) => number|null} sizeOf
+ * @returns {SizedSeat[]}
+ */
+function sizeResumeSeats(seats, resumable, slots, sizeOf) {
+	if (slots === 0 || resumable.length === 0) return seats;
+	let spare = false;
+	return seats.map((s) => {
+		const due = resumable.filter((r) => r.seat === s.seat).length;
+		const sized =
+			s.fits === null && hasRoom(s) && (due > 0 || !spare)
+				? { ...s, fits: sizeOf(s.seat, slots) }
+				: s;
+		spare ||= hasRoom(sized) && (sized.fits ?? 0) > due;
+		return sized;
+	});
+}
+
+/**
  * Each seat read and sized for a tick, in the decision core's launch order
  * (#3732): the stale seats ahead of the first one free to launch are
  * refreshed by `/usage` first, then those behind a seat the cap sizes 0, so
@@ -1254,6 +1279,7 @@ module.exports = {
 	seatReadingOf,
 	settleTick,
 	readSizedSeats,
+	sizeResumeSeats,
 	launchesSince,
 	parseState,
 	stopNeverStarted,
