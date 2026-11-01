@@ -287,8 +287,8 @@ describe("run (#2435)", () => {
 			},
 		});
 		expect(Number.isFinite(Date.parse(lines[0].at))).toBe(true);
-		// No memwatch minute record in the sandbox's HOME: no figure yet.
-		expect(fs.readFileSync(at("concurrency-24h"), "utf8")).toBe("-\n");
+		// No memwatch minute record in the sandbox's HOME: the figure is unread (#3531).
+		expect(fs.readFileSync(at("concurrency-24h"), "utf8")).toBe("?\n");
 	});
 
 	it("supervises a foreign checkout's launches to landing, finished or not, skipping a gone one (#3284)", async () => {

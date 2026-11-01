@@ -14,12 +14,13 @@
  * `.env` write reaches it, or mangles the file's other entries.
  */
 
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { gateway } from "./guard-jev-advisory.js";
+import { errorLog } from "./lib/arbiter-core.js";
 import { readEnvFileValue, secretsFile } from "./lib/env-file.js";
 import { runInProcess } from "./lib/run-in-process.js";
 
@@ -53,13 +54,15 @@ beforeEach(() => {
 	gitIn(host)("init", "-q");
 });
 afterEach(() => {
+	vi.unstubAllEnvs();
+	vi.restoreAllMocks();
 	fs.rmSync(host, { recursive: true, force: true });
 	fs.rmSync(config, { recursive: true, force: true });
 });
 
 const run = (
 	args: string[],
-	stdin: string,
+	stdin: string | Buffer,
 	extra: Record<string, string> = {},
 ) => {
 	const r = runInProcess(SCRIPT, args, {
@@ -68,7 +71,7 @@ const run = (
 		stdin,
 	});
 	expect(r.stderr).not.toContain("stale-copy-value");
-	const value = stdin.trim();
+	const value = String(stdin).trim();
 	if (value) {
 		expect(r.stdout).not.toContain(value);
 		expect(r.stderr).not.toContain(value);
@@ -87,6 +90,11 @@ const seed = (text: string) => {
 };
 const read = () => fs.readFileSync(store(), "utf8");
 const UTF16_WHY = `it opens with a UTF-16 mark or holds a NUL byte, so it looks saved as UTF-16 (Notepad's "Unicode"), which a rewrite would mangle. Re-save it as UTF-8, then re-run.`;
+const readFromStore = () => {
+	vi.stubEnv("XDG_CONFIG_HOME", config);
+	vi.stubEnv("WFC_SECRETS_FILE", undefined);
+	vi.stubEnv("AI_GATEWAY_API_KEY", undefined);
+};
 const modeOf = (p: string) => fs.statSync(p).mode & 0o777;
 const refused = (why: string) =>
 	`write-secret: refused, ${store()} untouched — ${why}\n`;
@@ -108,23 +116,79 @@ describe("write-secret", () => {
 		expect(run(["SEAT_KEY"], "seat-value").status).toBe(0);
 		execFileSync("sh", ["-c", "echo X=1 > .env"], { cwd: host });
 		expect(fs.readFileSync(path.join(host, ".env"), "utf8")).toBe("X=1\n");
-		const saved = { ...process.env };
-		process.env.XDG_CONFIG_HOME = config;
-		delete process.env.WFC_SECRETS_FILE;
-		delete process.env.AI_GATEWAY_API_KEY;
-		try {
+		readFromStore();
+		expect(gateway.readKey()).toBe(SECRET);
+		expect(readEnvFileValue(secretsFile(), "SEAT_KEY")).toBe("seat-value");
+	});
+
+	it.each([
+		[
+			"a missing",
+			() => {
+				/* seed writes none */
+			},
+		],
+		[
+			"a symlinked",
+			() =>
+				fs.symlinkSync(
+					path.join(config, "elsewhere"),
+					path.join(path.dirname(store()), ".gitignore"),
+				),
+		],
+	])(
+		"the Stop guard's key read writes %s .gitignore beside a store from before #3539, keeping the value (#3663)",
+		(_l, plantIgnore) => {
+			seed(`AI_GATEWAY_API_KEY=${SECRET}\n`);
+			plantIgnore();
+			readFromStore();
 			expect(gateway.readKey()).toBe(SECRET);
-			expect(readEnvFileValue(secretsFile(), "SEAT_KEY")).toBe("seat-value");
+			const ignore = path.join(path.dirname(store()), ".gitignore");
+			expect(fs.lstatSync(ignore).isFile()).toBe(true);
+			expect(fs.readFileSync(ignore, "utf8")).toBe("*\n");
+			expect(read()).toBe(`AI_GATEWAY_API_KEY=${SECRET}\n`);
+		},
+	);
+
+	it("the Stop guard's key read keeps the value where its .gitignore cannot be written, and logs the fault for check:guard-errors (#3716)", () => {
+		vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(config, "claude"));
+		vi.stubEnv("CLAUDE_PROJECT_DIR", host);
+		seed(`AI_GATEWAY_API_KEY=${SECRET}\n`);
+		const dir = path.dirname(store());
+		fs.chmodSync(dir, 0o500);
+		try {
+			readFromStore();
+			expect(gateway.readKey()).toBe(SECRET);
 		} finally {
-			for (const k of [
-				"XDG_CONFIG_HOME",
-				"WFC_SECRETS_FILE",
-				"AI_GATEWAY_API_KEY",
-			]) {
-				if (saved[k] === undefined) delete process.env[k];
-				else process.env[k] = saved[k];
-			}
+			fs.chmodSync(dir, 0o700);
 		}
+		expect(fs.existsSync(path.join(dir, ".gitignore"))).toBe(false);
+		expect(fs.readFileSync(errorLog(), "utf8")).toMatch(
+			/\tenv-file ignoreStore\t.*EACCES/,
+		);
+	});
+
+	it("exits 0 with the value stored where stdout's reader has gone before the success line (#3716)", () => {
+		const r = spawnSync(
+			"bash",
+			[
+				"-c",
+				// biome-ignore lint/suspicious/noTemplateCurlyInString: bash's expansion, not a template
+				'printf %s "$1" | "$2" "$3" K | true; echo "${PIPESTATUS[1]}"',
+				"_",
+				SECRET,
+				process.execPath,
+				SCRIPT,
+			],
+			{
+				cwd: host,
+				encoding: "utf8",
+				env: isolatedEnv({ CLAUDE_PROJECT_DIR: host }),
+			},
+		);
+		expect(r.stdout).toBe("0\n");
+		expect(r.stderr).not.toContain("untouched");
+		expect(read()).toBe(`K=${SECRET}\n`);
 	});
 
 	it("uses ~/.config where XDG_CONFIG_HOME is unset or relative", () => {
@@ -295,21 +359,41 @@ describe("write-secret", () => {
 		},
 	);
 
-	it.each(["1KEY", "API-KEY", "API KEY", "", SECRET])(
-		"refuses the name %j with exit 2, without echoing it",
-		(name) => {
+	it.each([
+		["1KEY"],
+		["API-KEY"],
+		["API KEY"],
+		[""],
+		[SECRET],
+		[],
+		["K", SECRET],
+		[`-${SECRET}`],
+		[`--${SECRET}`],
+		["K", `--${SECRET}=x`],
+		["ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"],
+	])(
+		"refuses the arguments %j with exit 2 and the usage, naming none of them (#3663)",
+		(...argv) => {
 			seed("A=1\n");
-			const r = run([name], "unused-value");
+			const r = run(argv, "unused-value");
 			expect(r.status).toBe(2);
-			expect(
-				r.stderr.startsWith(
-					`write-secret: refused, ${store()} untouched — the argument is not a shell variable name`,
-				),
-			).toBe(true);
-			if (name) expect(r.stderr).not.toContain(name);
+			expect(r.stderr).toBe(
+				refused(
+					"it takes one argument, a shell variable name (letters, digits and underscores, not starting with a digit), and shows none it is given, as one may be the secret. The value is asked for afterwards, never given on the command line.",
+				) +
+					"usage: write-secret.js <NAME>\n  <NAME>  a shell variable name; the value is then asked for with typing hidden\n",
+			);
+			expect(r.stdout).toBe("");
 			expect(read()).toBe("A=1\n");
 		},
 	);
+
+	it("prints the usage on --help, writing nothing", () => {
+		const r = run(["--help"], "");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("usage: write-secret.js <NAME>");
+		expect(fs.existsSync(store())).toBe(false);
+	});
 
 	it.each([
 		...[
@@ -334,6 +418,26 @@ describe("write-secret", () => {
 		expect(r.stdout).toBe("");
 		expect(read()).toBe("A=1\n");
 	});
+
+	it.each([
+		["a NUL byte", Buffer.from("a\0b\n")],
+		["bytes that are not UTF-8", Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a])],
+		["a U+FFFD a lossy decode left", Buffer.from("caf\uFFFD\n")],
+	])(
+		"refuses a piped value holding %s with exit 2, the file untouched and readable to the next run (#3663)",
+		(_l, stdin) => {
+			seed("A=1\n");
+			const r = run(["K"], stdin);
+			expect(r.status).toBe(2);
+			expect(r.stderr).toBe(
+				refused(
+					"the value is not valid UTF-8, or holds a NUL byte or U+FFFD, which the file could not carry intact. Re-run and give it as UTF-8 text.",
+				),
+			);
+			expect(read()).toBe("A=1\n");
+			expect(run(["K"], SECRET).status).toBe(0);
+		},
+	);
 
 	it.each([
 		["an empty", ""],
@@ -470,6 +574,544 @@ describe("write-secret", () => {
 		expect(fs.existsSync(`${store()}.lock`)).toBe(false);
 	});
 
+	it("refuses with exit 1 where the lock's path is a directory, moving nothing (#3663)", () => {
+		seed("A=1\n");
+		fs.mkdirSync(`${store()}.lock`);
+		const r = run(["K"], SECRET);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toBe(
+			refused(
+				`${store()}.lock is not a regular file, so it is no lock any run can take. Remove it by hand, then re-run.`,
+			),
+		);
+		expect(read()).toBe("A=1\n");
+		expect(fs.readdirSync(path.dirname(store())).sort()).toEqual([
+			"secrets.env",
+			"secrets.env.lock",
+		]);
+	});
+
+	/* A value past any pipe buffer (64 KiB on Linux), sent as a first part and,
+	 * after a pause no reader waits out, the rest: the pipe runs dry between, so
+	 * a non-blocking read meets EAGAIN. */
+	const PipedBytes = 4 << 20;
+	const FirstPart = 1 << 20;
+	const DryMs = 200;
+
+	it("reads a piped value to its end where the non-blocking pipe runs dry mid-way (#3663)", async () => {
+		const big = "v".repeat(PipedBytes);
+		const status = await new Promise<number | null>((resolve) => {
+			// spawn-kept: a real non-blocking pipe, which run-in-process cannot give (§X3); the real clock makes it run dry (§X9)
+			const child = spawn(process.execPath, [SCRIPT, "BIG"], {
+				cwd: host,
+				env: isolatedEnv({ CLAUDE_PROJECT_DIR: host }),
+				stdio: ["pipe", "ignore", "ignore"],
+			});
+			child.on("close", resolve);
+			child.stdin.on("error", () => {
+				/* the run refused early; its status says so */
+			});
+			child.stdin.write(big.slice(0, FirstPart));
+			setTimeout(() => child.stdin.end(`${big.slice(FirstPart)}\n`), DryMs);
+		});
+		expect(status).toBe(0);
+		expect(readEnvFileValue(store(), "BIG")).toBe(big);
+	}, 30_000);
+
+	const whyAbove = (dir: string, why: string) =>
+		`${dir}, above its directory, ${why}, so another user could swap the directory for one of theirs. Point XDG_CONFIG_HOME at a directory on a local filesystem whose every parent is yours or root's and writable by no one else, then re-run.`;
+
+	it("refuses with exit 1, writing nothing, where a directory above the file's is writable by others (#3663)", () => {
+		const shared = path.join(config, "shared");
+		fs.mkdirSync(shared);
+		fs.chmodSync(shared, 0o777);
+		const xdg = path.join(shared, "cfg");
+		const r = run(["K"], SECRET, { XDG_CONFIG_HOME: xdg });
+		expect(r.status).toBe(1);
+		expect(r.stderr).toBe(
+			`write-secret: refused, ${path.join(xdg, "workflow-core", "secrets.env")} untouched — ${whyAbove(shared, "is writable by others and not sticky")}\n`,
+		);
+		expect(fs.readdirSync(shared)).toEqual([]);
+	});
+
+	it("refuses with exit 1 where the config directory is a symlink into a directory others can write (#3663)", () => {
+		const shared = path.join(config, "shared");
+		fs.mkdirSync(path.join(shared, "cfg"), { recursive: true });
+		fs.chmodSync(shared, 0o777);
+		const link = path.join(config, "linked");
+		fs.symlinkSync(path.join(shared, "cfg"), link);
+		const r = run(["K"], SECRET, { XDG_CONFIG_HOME: link });
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(
+			whyAbove(shared, "is writable by others and not sticky"),
+		);
+		expect(fs.readdirSync(path.join(shared, "cfg"))).toEqual([]);
+	});
+
+	it("refuses with exit 1 where a symlink the config path passes through mid-way lies in a directory others can write (#3715)", () => {
+		const shared = path.join(config, "shared");
+		const data = path.join(config, "data", "cfg");
+		const home = path.join(config, "home");
+		fs.mkdirSync(shared);
+		fs.chmodSync(shared, 0o777);
+		fs.mkdirSync(data, { recursive: true, mode: 0o700 });
+		fs.mkdirSync(home);
+		fs.symlinkSync(data, path.join(shared, "link2"));
+		fs.symlinkSync(path.join(shared, "link2"), path.join(home, ".config"));
+		const r = run(["K"], SECRET, {
+			XDG_CONFIG_HOME: path.join(home, ".config"),
+		});
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(
+			whyAbove(shared, "is writable by others and not sticky"),
+		);
+		expect(fs.readdirSync(data)).toEqual([]);
+	});
+
+	it("refuses with exit 1 where a directory above the file's cannot be checked (#3663)", () => {
+		const locked = path.join(config, "locked");
+		fs.mkdirSync(path.join(locked, "cfg"), { recursive: true });
+		fs.chmodSync(locked, 0o000);
+		try {
+			const xdg = path.join(locked, "cfg");
+			const r = run(["K"], SECRET, { XDG_CONFIG_HOME: xdg });
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain(
+				whyAbove(xdg, "could not be checked (EACCES)"),
+			);
+		} finally {
+			fs.chmodSync(locked, 0o700);
+		}
+	});
+
+	it("writes under a sticky directory others can write, as /tmp is (#3663)", () => {
+		const sticky = path.join(config, "sticky");
+		fs.mkdirSync(sticky);
+		fs.chmodSync(sticky, 0o1777);
+		const xdg = path.join(sticky, "cfg");
+		expect(run(["K"], SECRET, { XDG_CONFIG_HOME: xdg }).status).toBe(0);
+		expect(
+			readEnvFileValue(path.join(xdg, "workflow-core", "secrets.env"), "K"),
+		).toBe(SECRET);
+	});
+
+	/*
+	 * lib/private-group.test.ts judges the databases' text case by case; the
+	 * cases here cross write-secret's own reads once, so they fake the
+	 * databases by spy, not by a seam the script reads: any path or variable
+	 * pointing it elsewhere would let the environment vouch for a group
+	 * (#3676, #3716).
+	 */
+	const me = os.userInfo();
+	interface UserDb {
+		group?: string;
+		nsswitch?: string;
+		userdb?: Record<string, string[]>;
+	}
+	/**
+	 * Serves the user databases, by default as the user's private group under
+	 * lookups reading only the files, every userdb directory absent unless
+	 * named; every other read as is.
+	 */
+	const fakeUserDb = ({
+		group = `${me.username}:x:${me.gid}:\n`,
+		nsswitch = "passwd: files\ngroup: files\n",
+		userdb = {},
+	}: UserDb = {}) => {
+		const files = new Map<unknown, string>([
+			["/etc/group", group],
+			[
+				"/etc/passwd",
+				`${me.username}:x:${me.uid}:${me.gid}::/home/me:/bin/sh\n`,
+			],
+			["/etc/nsswitch.conf", nsswitch],
+		]);
+		const realRead = fs.readFileSync;
+		vi.spyOn(fs, "readFileSync").mockImplementation(
+			((p: fs.PathOrFileDescriptor, ...rest: [never]) =>
+				files.get(p) ?? realRead(p, ...rest)) as typeof fs.readFileSync,
+		);
+		const realDir = fs.readdirSync;
+		vi.spyOn(fs, "readdirSync").mockImplementation(((
+			p: fs.PathLike,
+			...rest: [never]
+		) => {
+			if (typeof p !== "string" || !p.includes("userdb"))
+				return realDir(p, ...rest);
+			const entries = userdb[p];
+			if (entries === undefined)
+				throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+			return entries;
+		}) as typeof fs.readdirSync);
+	};
+	const groupShared = () => {
+		const shared = path.join(config, "shared");
+		fs.mkdirSync(shared);
+		fs.chmodSync(shared, 0o775);
+		return shared;
+	};
+
+	it.each<[string, UserDb]>([
+		["with lookups reading only the files", {}],
+		[
+			"with systemd serving only dynamic users",
+			{
+				nsswitch: "passwd: files systemd\ngroup: files systemd\n",
+				userdb: { "/run/systemd/userdb": ["io.systemd.DynamicUser"] },
+			},
+		],
+	])(
+		"writes under a directory writable only by the user's private group, as `pam_umask usergroups` leaves ~/.config, %s (#3676)",
+		(_label, db) => {
+			fakeUserDb(db);
+			const xdg = path.join(groupShared(), "cfg");
+			expect(run(["K"], SECRET, { XDG_CONFIG_HOME: xdg }).status).toBe(0);
+			expect(
+				readEnvFileValue(path.join(xdg, "workflow-core", "secrets.env"), "K"),
+			).toBe(SECRET);
+		},
+	);
+
+	it("refuses with exit 1, writing nothing, where the group that can write a directory above the file's lists another member (#3676)", () => {
+		fakeUserDb({ group: `${me.username}:x:${me.gid}:${me.username},other\n` });
+		const shared = groupShared();
+		const r = run(["K"], SECRET, { XDG_CONFIG_HOME: path.join(shared, "cfg") });
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(
+			whyAbove(shared, "is writable by others and not sticky"),
+		);
+		expect(fs.readdirSync(shared)).toEqual([]);
+	});
+
+	/* An access ACL granting a named user write, set as its raw xattr: no
+	 * `setfacl` is on every host. Its group bits then show the ACL's mask. */
+	const grantByAcl = (dir: string, uid: number) => {
+		execFileSync("python3", [
+			"-c",
+			[
+				"import os, struct, sys",
+				"U = 0xFFFFFFFF",
+				"rows = [(1, 7, U), (2, 7, int(sys.argv[2])), (4, 7, U), (16, 7, U), (32, 5, U)]",
+				"acl = struct.pack('<I', 2) + b''.join(struct.pack('<HHI', *r) for r in rows)",
+				"os.setxattr(sys.argv[1], 'system.posix_acl_access', acl)",
+			].join("\n"),
+			dir,
+			String(uid),
+		]);
+	};
+
+	/* An `ls` first on PATH that claims to be GNU's and marks no ACL. */
+	const fakeLsFirst = () => {
+		const bin = path.join(config, "bin");
+		fs.mkdirSync(bin);
+		fs.writeFileSync(
+			path.join(bin, "ls"),
+			`#!/bin/sh\ncase "$1" in --version) echo 'ls (GNU coreutils) 9.4';; *) echo 'drwxrwxr-x 2 u u 4096 Jan 1 00:00 x';; esac\n`,
+			{ mode: 0o755 },
+		);
+		return { PATH: `${bin}:${process.env.PATH ?? ""}` };
+	};
+
+	it.each<[string, () => Record<string, string>]>([
+		["", () => ({})],
+		[", an `ls` first on PATH hiding it", fakeLsFirst],
+	])(
+		"refuses with exit 1, writing nothing, where an ACL lets another user write a directory above the file's, whatever its owning group%s (#3715)",
+		(_l, env) => {
+			fakeUserDb();
+			const shared = groupShared();
+			grantByAcl(shared, me.uid + 1);
+			const xdg = path.join(shared, "cfg");
+			const r = run(["K"], SECRET, { XDG_CONFIG_HOME: xdg, ...env() });
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain(
+				whyAbove(shared, "is writable by others and not sticky"),
+			);
+			expect(fs.readdirSync(shared)).toEqual([]);
+		},
+	);
+
+	/* Reports `under` and every path below it as of statfs type `type`, or
+	 * throws EACCES where `type` is null. Spied, as a test cannot mount CIFS,
+	 * 9p or FUSE: mounting needs root. */
+	const fakeMount = (under: string, type: number | null) => {
+		const real = fs.statfsSync;
+		vi.spyOn(fs, "statfsSync").mockImplementation(((
+			p: fs.PathLike,
+			...rest: [never]
+		) => {
+			const st = real(p, ...rest);
+			const rel = path.relative(under, String(p));
+			if (rel.startsWith("..") || path.isAbsolute(rel)) return st;
+			if (type === null)
+				throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+			return { ...st, type };
+		}) as typeof fs.statfsSync);
+	};
+	const onMount = (kind: string) =>
+		`lies on a ${kind} mount, whose server decides access whatever its mode shows`;
+
+	it.each<[string, number]>([
+		["CIFS", 0xff_53_4d_42],
+		["SMB2", 0xfe_53_4d_42],
+		["9p (WSL's drvfs)", 0x01_02_19_97],
+		["FUSE", 0x65_73_55_46],
+		["wslfs (WSL 1's drvfs)", 0x53_46_48_46],
+		["AFS", 0x53_46_41_4f],
+		["AFS", 0x6b_41_46_53],
+		["Coda", 0x73_75_72_45],
+		["GPFS", 0x47_50_46_53],
+	])(
+		"refuses with exit 1, writing nothing, where the file's directory lies on a %s mount, whatever its mode (#3726)",
+		(kind, type) => {
+			const dir = makeStoreDir();
+			fakeMount(dir, type);
+			const r = run(["K"], SECRET);
+			expect(r.status).toBe(1);
+			expect(r.stderr).toBe(
+				`write-secret: refused, ${store()} untouched — its directory ${dir} ${onMount(kind)}, so another user could read or swap the file. Point XDG_CONFIG_HOME at a directory on a local filesystem, then re-run.\n`,
+			);
+			expect(fs.existsSync(store())).toBe(false);
+		},
+	);
+
+	it("refuses with exit 1, writing nothing, where a sticky directory above the file's lies on a 9p mount (#3726)", () => {
+		const shared = path.join(config, "shared");
+		fs.mkdirSync(shared, { mode: 0o1755 });
+		fs.chmodSync(shared, 0o1755);
+		fakeMount(shared, 0x01_02_19_97);
+		const r = run(["K"], SECRET, { XDG_CONFIG_HOME: path.join(shared, "cfg") });
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(whyAbove(shared, onMount("9p (WSL's drvfs)")));
+		expect(fs.readdirSync(shared)).toEqual([]);
+	});
+
+	it("refuses with exit 1, writing nothing, where a directory's filesystem cannot be read (#3726)", () => {
+		const dir = makeStoreDir();
+		fakeMount(dir, null);
+		const r = run(["K"], SECRET);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(
+			`its directory ${dir} could not have its filesystem read (EACCES)`,
+		);
+		expect(fs.existsSync(store())).toBe(false);
+	});
+
+	it.each<[string, number]>([
+		["ext4", 0xef_53],
+		["xfs", 0x58_46_53_42],
+		["btrfs", 0x91_23_68_3e],
+		["tmpfs", 0x01_02_19_94],
+		["overlayfs", 0x79_4c_76_30],
+	])("writes where every directory lies on %s (#3726)", (_kind, type) => {
+		fakeMount("/", type);
+		expect(run(["K"], SECRET).status).toBe(0);
+		expect(read()).toBe(`K=${SECRET}\n`);
+	});
+
+	const NfsAcl =
+		"carries an ACL on NFS, where an NFSv4 entry can grant another user access no mode bit shows";
+	/* Reports every path under `config` as on NFS. */
+	const fakeNfs = () => fakeMount(config, 0x69_69);
+	/* A directory carrying an ACL entry for another user that its mask, the
+	 * group bits, keeps from writing. */
+	const maskedAclDir = (dir: string) => {
+		fs.mkdirSync(dir, { recursive: true });
+		grantByAcl(dir, me.uid + 1);
+		fs.chmodSync(dir, 0o755);
+		return dir;
+	};
+
+	it("refuses with exit 1, writing nothing, where a directory above the file's carries an ACL on NFS, whatever its mode (#3724)", () => {
+		fakeNfs();
+		const shared = maskedAclDir(path.join(config, "shared"));
+		const r = run(["K"], SECRET, { XDG_CONFIG_HOME: path.join(shared, "cfg") });
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(whyAbove(shared, NfsAcl));
+		expect(fs.readdirSync(shared)).toEqual([]);
+	});
+
+	it("refuses with exit 1, writing nothing, where the file's directory carries an ACL on NFS (#3724)", () => {
+		fakeNfs();
+		const dir = makeStoreDir();
+		grantByAcl(dir, me.uid + 1);
+		fs.chmodSync(dir, 0o700);
+		const r = run(["K"], SECRET);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(`its directory ${dir} ${NfsAcl}`);
+		expect(fs.existsSync(store())).toBe(false);
+	});
+
+	it("refuses with exit 1, writing nothing, where a sticky directory above the file's carries an ACL on NFS (#3724)", () => {
+		fakeNfs();
+		const shared = maskedAclDir(path.join(config, "shared"));
+		fs.chmodSync(shared, 0o1755);
+		const r = run(["K"], SECRET, { XDG_CONFIG_HOME: path.join(shared, "cfg") });
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(whyAbove(shared, NfsAcl));
+		expect(fs.readdirSync(shared)).toEqual([]);
+	});
+
+	it("writes through a symlinked config directory on NFS whose target carries no ACL (#3724)", () => {
+		fakeNfs();
+		const real = path.join(config, "real");
+		fs.mkdirSync(real, { mode: 0o700 });
+		const xdg = path.join(config, "xdg");
+		fs.mkdirSync(xdg, { mode: 0o700 });
+		fs.symlinkSync(real, path.join(xdg, "workflow-core"));
+		expect(run(["K"], SECRET, { XDG_CONFIG_HOME: xdg }).status).toBe(0);
+		expect(readEnvFileValue(path.join(real, "secrets.env"), "K")).toBe(SECRET);
+	});
+
+	it("writes under a directory whose ACL's mask keeps another user from writing, off NFS (#3724)", () => {
+		const xdg = path.join(maskedAclDir(path.join(config, "shared")), "cfg");
+		expect(run(["K"], SECRET, { XDG_CONFIG_HOME: xdg }).status).toBe(0);
+		expect(
+			readEnvFileValue(path.join(xdg, "workflow-core", "secrets.env"), "K"),
+		).toBe(SECRET);
+	});
+
+	/* Where write-secret.js runs `ls` from. */
+	const FixedLs = ["/usr/bin/ls", "/bin/ls"];
+
+	/* Hides every fixed-path `ls`, as on a host with none. Spied, as a test
+	 * cannot remove root's own `ls`. */
+	const noTrustedLs = () => {
+		const real = fs.statSync;
+		vi.spyOn(fs, "statSync").mockImplementation(((
+			p: fs.PathLike,
+			...rest: [never]
+		) => {
+			if (FixedLs.includes(String(p)))
+				throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+			return real(p, ...rest);
+		}) as typeof fs.statSync);
+	};
+
+	it.each<[string, boolean]>([
+		["", false],
+		[", on a host with no trusted `ls`", true],
+	])(
+		"writes on NFS where no directory carries an ACL or lets others write%s (#3724)",
+		(_l, hideLs) => {
+			fakeNfs();
+			if (hideLs) noTrustedLs();
+			expect(run(["K"], SECRET).status).toBe(0);
+			expect(read()).toBe(`K=${SECRET}\n`);
+		},
+	);
+
+	/* Has root's own `ls` answer `--version` as `version`, every other call
+	 * reaching the host's `ls`. Spied, as a test cannot swap root's `ls`, and
+	 * write-secret.js takes no variable naming another: it runs `ls` only from
+	 * a fixed root-owned path, so no environment can feed it a lying one
+	 * (#3715). write-secret.js binds execFileSync at load, which `run` repeats. */
+	const lsVersion = (version: string) => {
+		const cp = require("node:child_process");
+		const real = cp.execFileSync;
+		vi.spyOn(cp, "execFileSync").mockImplementation(((
+			file: string,
+			args: string[],
+			...rest: [never]
+		) =>
+			FixedLs.includes(file) && args[0] === "--version"
+				? `${version}\n`
+				: real(file, args, ...rest)) as typeof cp.execFileSync);
+	};
+
+	it.each([
+		"ls (GNU coreutils) 9.4",
+		"ls (uutils coreutils) 0.2.2",
+		"ls (uutils coreutils) 0.0.24",
+	])(
+		"refuses with exit 1, writing nothing, where the file's directory carries an ACL on NFS, under %s (#3737)",
+		(version) => {
+			lsVersion(version);
+			fakeNfs();
+			const dir = makeStoreDir();
+			grantByAcl(dir, me.uid + 1);
+			fs.chmodSync(dir, 0o700);
+			const r = run(["K"], SECRET);
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain(`its directory ${dir} ${NfsAcl}`);
+			expect(fs.existsSync(store())).toBe(false);
+		},
+	);
+
+	it.each(["ls (uutils coreutils) 0.2.2", "ls (uutils coreutils) 1.0.0"])(
+		"writes under a directory writable only by the user's private group, under %s (#3737)",
+		(version) => {
+			lsVersion(version);
+			fakeUserDb({});
+			const xdg = path.join(groupShared(), "cfg");
+			expect(run(["K"], SECRET, { XDG_CONFIG_HOME: xdg }).status).toBe(0);
+			expect(
+				readEnvFileValue(path.join(xdg, "workflow-core", "secrets.env"), "K"),
+			).toBe(SECRET);
+		},
+	);
+
+	it.each(["ls (uutils coreutils) 0.0.23", "ls (BusyBox) 1.36"])(
+		"refuses with exit 1, writing nothing, under a directory writable only by the user's private group, under %s, which marks no ACL (#3737)",
+		(version) => {
+			lsVersion(version);
+			fakeUserDb({});
+			const shared = groupShared();
+			const r = run(["K"], SECRET, {
+				XDG_CONFIG_HOME: path.join(shared, "cfg"),
+			});
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain(
+				whyAbove(shared, "is writable by others and not sticky"),
+			);
+			expect(fs.readdirSync(shared)).toEqual([]);
+		},
+	);
+
+	it("leaves the directory's own .gitignore alone under WFC_SECRETS_FILE, as the reader does (#3715)", () => {
+		const dir = makeStoreDir();
+		const ignore = path.join(dir, ".gitignore");
+		fs.writeFileSync(ignore, "node_modules\n");
+		const r = run(["K"], SECRET, { WFC_SECRETS_FILE: store() });
+		expect(r.status).toBe(0);
+		expect(fs.readFileSync(ignore, "utf8")).toBe("node_modules\n");
+		expect(read()).toBe(`K=${SECRET}\n`);
+	});
+
+	it("checks and writes WFC_SECRETS_FILE as one resolved path where `..` follows a symlink in it (#3715)", () => {
+		const shared = path.join(config, "shared");
+		const sub = path.join(shared, "x", "sub");
+		fs.mkdirSync(sub, { recursive: true, mode: 0o700 });
+		fs.chmodSync(shared, 0o777);
+		const home = path.join(config, "home");
+		fs.mkdirSync(home, { mode: 0o700 });
+		fs.symlinkSync(sub, path.join(home, "lnk"));
+		const r = run(["K"], SECRET, {
+			WFC_SECRETS_FILE: `${home}/lnk/../secrets.env`,
+		});
+		expect(r.status).toBe(0);
+		expect(readEnvFileValue(path.join(home, "secrets.env"), "K")).toBe(SECRET);
+		expect(fs.readdirSync(path.join(shared, "x"))).toEqual(["sub"]);
+	});
+
+	it("replaces a symlinked .gitignore, which git does not follow, keeping the file out of a bare dotfiles repository's `add -A` (#3663)", () => {
+		const dots = path.join(host, "dots.git");
+		execFileSync("git", ["init", "-q", "--bare", dots], { env: isolatedEnv() });
+		const target = path.join(config, "ignore-target");
+		fs.writeFileSync(target, "*\n");
+		const ignore = path.join(makeStoreDir(), ".gitignore");
+		fs.symlinkSync(target, ignore);
+		expect(run(["K"], SECRET).status).toBe(0);
+		expect(fs.lstatSync(ignore).isFile()).toBe(true);
+		expect(fs.readFileSync(ignore, "utf8")).toBe("*\n");
+		const staged = execFileSync(
+			"git",
+			[`--git-dir=${dots}`, `--work-tree=${config}`, "add", "-A", "--dry-run"],
+			{ cwd: config, env: isolatedEnv(), encoding: "utf8" },
+		);
+		expect(staged).not.toContain("secrets.env");
+	});
+
 	it("keeps the file out of a bare dotfiles repository's `add -A` (#3539)", () => {
 		const dots = path.join(host, "dots.git");
 		execFileSync("git", ["init", "-q", "--bare", dots], { env: isolatedEnv() });
@@ -497,7 +1139,8 @@ describe("write-secret", () => {
 
 	it("refuses with exit 1 where the mount ignores modes, so the written file would be loose, the file untouched (#3539)", () => {
 		seed("A=1\n");
-		/* A mount without `metadata`: chmod is a no-op and a new file is 0644.
+		/* A mount that ignores modes, as vfat: chmod is a no-op and a new file
+		 * is 0644.
 		 * Spied, as a test cannot mount one: mounting needs root. */
 		const writeFileSync = fs.writeFileSync;
 		vi.spyOn(fs, "chmodSync").mockImplementation(() => {
@@ -515,7 +1158,7 @@ describe("write-secret", () => {
 			expect(r.status).toBe(1);
 			expect(r.stderr).toBe(
 				refused(
-					`the file as written gives access to others, so another user could read or swap the file. Make ${path.dirname(store())} yours with no access for anyone else (\`chmod 700\`), on a filesystem that keeps modes (not a Windows drive under WSL), then re-run.`,
+					`the file as written gives access to others, so another user could read or swap the file. Make ${path.dirname(store())} yours with no access for anyone else (\`chmod 700\`), on a filesystem that keeps modes, then re-run.`,
 				),
 			);
 		} finally {
@@ -540,7 +1183,7 @@ describe("write-secret", () => {
 			expect(r.status).toBe(1);
 			expect(r.stderr).toBe(
 				refused(
-					`its directory ${path.dirname(store())} gives access to others, so another user could read or swap the file. Make ${path.dirname(store())} yours with no access for anyone else (\`chmod 700\`), on a filesystem that keeps modes (not a Windows drive under WSL), then re-run.`,
+					`its directory ${path.dirname(store())} gives access to others, so another user could read or swap the file. Make ${path.dirname(store())} yours with no access for anyone else (\`chmod 700\`), on a filesystem that keeps modes, then re-run.`,
 				),
 			);
 			expect(read()).toBe("A=1\n");
@@ -627,14 +1270,4 @@ describe("write-secret", () => {
 		}
 		expect(fs.readFileSync(stale, "utf8")).toBe(StaleCopy);
 	});
-
-	it.each([[[]], [["A", "B"]]])(
-		"rejects the arguments %j with the usage",
-		(args) => {
-			const r = run(args, SECRET);
-			expect(r.status).toBe(2);
-			expect(r.stderr).toContain("usage: write-secret.js <NAME>");
-			expect(fs.existsSync(store())).toBe(false);
-		},
-	);
 });
