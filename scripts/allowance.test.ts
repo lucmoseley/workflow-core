@@ -61,7 +61,7 @@ describe("the allowance CLI's trust-drives-exit-code contract (#293, #294)", () 
 		expect(json.weekly_all.percent).toBe(7);
 	});
 
-	it("exits 1 where either bar is not trustworthy", () => {
+	it("exits 1 where the cached session bar is stale and the transcript names the weekly bar alone, recording it stale", () => {
 		fs.writeFileSync(
 			path.join(dir, ".claude.json"),
 			JSON.stringify(
@@ -75,6 +75,20 @@ describe("the allowance CLI's trust-drives-exit-code contract (#293, #294)", () 
 		const json = JSON.parse(r.stdout);
 		expect(json.session.trust).toBe("stale");
 		expect(json.weekly_all.trust).toBe("fresh");
+		expect(json.trustworthy).toBe(false);
+	});
+
+	it("exits 1 where neither source reads, recording both bars absent", () => {
+		const r = runInProcess(
+			SCRIPT,
+			["--json", "--config-dir", path.join(dir, "nope")],
+			{ stdin: "" },
+		);
+		expect(r.status).toBe(1);
+		const json = JSON.parse(r.stdout);
+		expect(json.session.trust).toBe("absent");
+		expect(json.weekly_all.trust).toBe("absent");
+		expect(json.trustworthy).toBe(false);
 	});
 
 	it("exits 0 and sizes the cap on a fresh weekly bar where the account reports no session bar (#3758)", () => {
@@ -97,6 +111,7 @@ describe("the allowance CLI's trust-drives-exit-code contract (#293, #294)", () 
 		expect(r.status).toBe(0);
 		const json = JSON.parse(r.stdout);
 		expect(json.session.trust).toBe("unreported");
+		expect(json.trustworthy).toBe(true);
 		expect(json.cap.launch).toBe(3);
 	});
 

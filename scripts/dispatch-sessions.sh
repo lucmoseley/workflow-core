@@ -655,12 +655,14 @@ if [[ $overflow -eq 0 && $force -eq 0 ]]; then
   session_pct=""
   session_trust="absent"
   session_reset=""
+  trustworthy="false"
   if [[ -n "$allowance_json" ]] && command -v jq >/dev/null 2>&1; then
-    IFS=$'\x1f' read -r -d '' week_pct week_trust week_reset session_pct \
+    IFS=$'\x1f' read -r -d '' trustworthy week_pct week_trust week_reset session_pct \
       session_trust session_reset cap_error cap_launch cap_bar cap_reading \
       cap_threshold cap_running cap_figure cap_nrunning < <(jq -j '
       def field(f): try (f | tostring) catch "";
       [
+        field(.trustworthy == true),
         field(.weekly_all.percent // ""), field(.weekly_all.trust),
         field(.weekly_all.resetsAt // ""),
         field(.session.percent // ""), field(.session.trust),
@@ -677,12 +679,10 @@ if [[ $overflow -eq 0 && $force -eq 0 ]]; then
   # No trustworthy reading from either source (JSON cache or the printed
   # bars): still refuse, but say the absence is transient rather than
   # implying a real limit — the cache is already the second chance, and no
-  # automatic retry follows (#280 ruling 4). A bar the account does not
-  # report is no failed reading: the cap runs on the bars it does, so long as
-  # one reads fresh (`lib/allowance.js#isTrustworthy`, #3758).
-  usable() { [[ "$1" == "fresh" || "$1" == "unreported" ]]; }
-  if ! usable "$week_trust" || ! usable "$session_trust" ||
-    [[ "$week_trust" != "fresh" && "$session_trust" != "fresh" ]]; then
+  # automatic retry follows (#280 ruling 4). The verdict is
+  # `lib/allowance.js#isTrustworthy`'s, which passes over a bar the account
+  # does not report (#3758).
+  if [[ "$trustworthy" != "true" ]]; then
     printf 'REFUSED: no trustworthy allowance reading (the usage cache is stale or\n' >&2
     # claude-route-exempt: only text
     printf '  absent, and the printed bars from `claude -p "/usage"` were unparseable).\n' >&2
