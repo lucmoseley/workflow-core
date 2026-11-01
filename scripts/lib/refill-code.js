@@ -15,6 +15,11 @@
  * the new program, and only on its exit 0 calls process.execve: same pid, so
  * the pidfile stays held, and no exit handler runs to release it. Any failure
  * leaves the running image as it was, and that sha is not tried again.
+ *
+ * THE BOOT LINK (#3891): a symlink beside the code directory to the worktree
+ * the loop last ran, which the boot unit starts from, as a restart can leave
+ * the checkout's working copy mid-edit. An image moves it before removing the
+ * worktree it named.
  */
 
 const { spawnSync } = require("node:child_process");
@@ -213,6 +218,44 @@ function launchProgram({ scriptsDir, codeDir }) {
 	}
 }
 
+/** @param {string} codeDir */
+const bootLinkOf = (codeDir) => `${codeDir}.current`;
+
+/**
+ * Point the boot link at `worktree`, in one rename, so no boot sees it absent.
+ * @param {string} codeDir
+ * @param {string} worktree
+ */
+function pointBootLink(codeDir, worktree) {
+	const link = bootLinkOf(codeDir);
+	const tmp = `${link}.${process.pid}`;
+	fs.rmSync(tmp, { force: true });
+	fs.symlinkSync(worktree, tmp);
+	fs.renameSync(tmp, link);
+}
+
+/**
+ * The program a boot unit names: through the boot link, which outlives any tip
+ * the loop adopts, where `scriptsDir` is in a checkout; else `scriptsDir`'s own.
+ * A link that resolves stays as it is, a running loop's own to move.
+ * @param {{scriptsDir: string, codeDir: string}} where
+ * @returns {{program: string}|{error: string}}
+ */
+function bootProgram({ scriptsDir, codeDir }) {
+	const program = path.join(bootLinkOf(codeDir), PROGRAM);
+	if (fs.existsSync(program)) return { program };
+	const launch = launchProgram({ scriptsDir, codeDir });
+	if ("error" in launch) return launch;
+	const root = rootOf(launch.program);
+	if (path.dirname(root) !== codeDir) return { program: launch.program };
+	try {
+		pointBootLink(codeDir, root);
+	} catch (err) {
+		return { error: `no boot link to ${root}: ${whyOf(err)}` };
+	}
+	return { program };
+}
+
 /**
  * What `status` names as the code the loop at `pid` runs: the sha its program
  * is checked out at, and the directory where it is not one of `codeDir`'s;
@@ -327,12 +370,19 @@ function codeUpdater({ program, codeDir, log }) {
 			if (tip !== null) adopt(tip);
 		},
 		/**
-		 * After the image's first tick, remove every worktree in the code
-		 * directory but its own.
+		 * After the first tick of an image from the code directory, point the
+		 * boot link at it and remove every worktree there but its own. A link
+		 * that will not move keeps the worktree it names.
 		 */
 		afterTick() {
-			if (pruned) return;
+			if (pruned || path.dirname(root) !== codeDir) return;
 			pruned = true;
+			try {
+				pointBootLink(codeDir, root);
+			} catch (err) {
+				log(`boot link not moved to ${root}: ${whyOf(err)}`);
+				return;
+			}
 			let names;
 			try {
 				names = fs.readdirSync(codeDir);
@@ -350,6 +400,8 @@ function codeUpdater({ program, codeDir, log }) {
 
 module.exports = {
 	FETCH_TIMEOUT_MS,
+	bootLinkOf,
+	bootProgram,
 	codeUpdater,
 	launchProgram,
 	readRunningCode,

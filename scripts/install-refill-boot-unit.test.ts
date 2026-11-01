@@ -5,11 +5,13 @@
  * can believe the loop returns at boot with the unit disabled or linger off,
  * or a unit can run the loop without the installer's seat and PATH.
  */
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process.js";
+import { copyLibs, readProgramLibs } from "./lib-closure-fixture.js";
 
 const SCRIPT = path.resolve(__dirname, "install-refill-boot-unit.js");
 const TEMPLATE = path.resolve(__dirname, "refill-loop-boot.service.template");
@@ -17,6 +19,9 @@ const TEMPLATE = path.resolve(__dirname, "refill-loop-boot.service.template");
 let dir: string;
 const at = (name: string) => path.join(dir, name);
 const unitFile = () => at("config/systemd/user/refill-loop-boot.service");
+/* Resolving already, so the installer leaves this repo's git alone. */
+const bootLink = () => at(".claude/.refill-loop-code.current");
+const logFile = () => at(".claude/.refill-loop.log");
 
 function writeFake(name: string, body: string) {
 	fs.writeFileSync(
@@ -34,22 +39,36 @@ function writeFakes({ enabled = "enabled", linger = "yes" } = {}) {
 	);
 }
 
+const installEnv = (env: NodeJS.ProcessEnv = {}) => ({
+	PATH: `${at("bin")}:/usr/bin:/bin`,
+	HOME: dir,
+	XDG_CONFIG_HOME: at("config"),
+	SHELL: "/bin/bash",
+	CLAUDE_CONFIG_DIR: "/home/x/.claude3",
+	...env,
+});
+
 const install = (env: NodeJS.ProcessEnv = {}, ...argv: string[]) =>
-	runInProcess(SCRIPT, argv, {
-		cwd: dir,
-		env: {
-			PATH: `${at("bin")}:/usr/bin:/bin`,
-			HOME: dir,
-			XDG_CONFIG_HOME: at("config"),
-			SHELL: "/bin/bash",
-			CLAUDE_CONFIG_DIR: "/home/x/.claude3",
-			...env,
-		},
-	});
+	runInProcess(SCRIPT, argv, { cwd: dir, env: installEnv(env) });
+
+/* The unit's ExecStopPost= as its shell receives it, systemd's escapes undone. */
+function readStopPostCommand() {
+	const line = fs
+		.readFileSync(unitFile(), "utf8")
+		.split("\n")
+		.find((l) => l.startsWith("ExecStopPost=/bin/sh -c '"));
+	if (!line) throw new Error("the unit has no ExecStopPost");
+	return line
+		.slice("ExecStopPost=/bin/sh -c '".length, -1)
+		.replaceAll("$$", "$")
+		.replaceAll("%%", "%");
+}
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "install-refill-boot-"));
 	fs.mkdirSync(at("bin"));
+	fs.mkdirSync(path.join(bootLink(), "scripts"), { recursive: true });
+	fs.writeFileSync(path.join(bootLink(), "scripts/refill-loop.js"), "");
 	writeFakes();
 });
 
@@ -68,7 +87,7 @@ describe("install-refill-boot-unit", () => {
 		expect(calls).not.toMatch(/ start | --now/);
 		const unit = fs.readFileSync(unitFile(), "utf8");
 		expect(unit).toContain(
-			`ExecStart=/bin/bash -lic "exec node ${path.join(__dirname, "refill-loop.js")} boot-resume"`,
+			`ExecStart=/bin/bash -lic "exec node ${path.join(bootLink(), "scripts/refill-loop.js")} boot-resume"`,
 		);
 		expect(unit).toContain('Environment="CLAUDE_CONFIG_DIR=/home/x/.claude3"');
 		expect(unit).toContain("WantedBy=default.target");
@@ -76,6 +95,65 @@ describe("install-refill-boot-unit", () => {
 		expect(unit).not.toMatch(/@[A-Z]+@/);
 		for (const line of fs.readFileSync(TEMPLATE, "utf8").split("\n"))
 			if (!line.includes("@")) expect(unit).toContain(line);
+	});
+
+	it("names a plugin install's own program, it having no worktree", () => {
+		fs.rmSync(bootLink(), { recursive: true });
+		const plugin = at("plugin/scripts");
+		fs.mkdirSync(plugin, { recursive: true });
+		copyLibs(
+			path.join(plugin, "lib"),
+			readProgramLibs("install-refill-boot-unit.js"),
+		);
+		for (const f of [
+			"install-refill-boot-unit.js",
+			"refill-loop-boot.service.template",
+		])
+			fs.copyFileSync(path.resolve(__dirname, f), path.join(plugin, f));
+		/* A real child: the fixture's __dirname is the point. */
+		const r = spawnSync(
+			process.execPath,
+			[
+				"-e",
+				"require(process.argv[1]).main([])",
+				path.join(plugin, "install-refill-boot-unit.js"),
+			],
+			{ cwd: dir, env: installEnv(), encoding: "utf8" },
+		);
+		expect(r.stderr).toBe("");
+		expect(r.status).toBe(0);
+		expect(fs.readFileSync(unitFile(), "utf8")).toContain(
+			`exec node ${path.join(plugin, "refill-loop.js")} boot-resume`,
+		);
+		expect(fs.existsSync(bootLink())).toBe(false);
+	});
+
+	it.each([
+		["a failed run", "exit-code", 1],
+		["a clean stop", "success", 0],
+	])("leaves %s's line in the loop's log or none", (_name, result, lines) => {
+		expect(install().status).toBe(0);
+		fs.mkdirSync(path.dirname(logFile()), { recursive: true });
+		fs.writeFileSync(logFile(), "");
+		const r = spawnSync("/bin/sh", ["-c", readStopPostCommand()], {
+			env: {
+				PATH: "/usr/bin:/bin",
+				SERVICE_RESULT: result,
+				EXIT_CODE: "exited",
+				EXIT_STATUS: "1",
+			},
+			encoding: "utf8",
+		});
+		expect(r.status).toBe(0);
+		const logged = fs
+			.readFileSync(logFile(), "utf8")
+			.split("\n")
+			.filter(Boolean);
+		expect(logged).toHaveLength(lines);
+		if (lines)
+			expect(logged[0]).toMatch(
+				/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ boot resume: the unit failed \(exited 1\), its error in journalctl --user -u refill-loop-boot\.service$/,
+			);
 	});
 
 	it("escapes the captured values for systemd and carries a listing wrapper", () => {
