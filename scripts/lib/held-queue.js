@@ -14,19 +14,28 @@ const BATCH_LINE = /^- Batch: `([0-9a-f]{40})`$/m;
  * @param {import("./lander.js").Held} h
  * @returns {string}
  */
-function buildHeldQueueBody({ batch, reason, failing }) {
+function buildHeldQueueBody({ batch, reason, failing, owed }) {
 	return `## What to build
 
 The lander (#2261) holds the landing queue: nothing on \`landing\` reaches \`main\` until this clears.
 
 - Batch: ${batch === null ? "(none read)" : `\`${batch}\``}
 - Reason: ${reason.replaceAll("`", "'")}
-${failing === null ? "" : `\nFailing:\n${failingList(failing)}\n`}
+${failing === null ? "" : `\nFailing:\n${failingList(failing)}\n`}${buildOwedSection(owed)}
 ## Acceptance criteria
 
 - [ ] A commit pushed to \`landing\` fixes or reverts what holds the batch, and the lander lands the new tip on \`main\`.
 `;
 }
+
+/**
+ * @param {import("./lander.js").FixTicket[]} owed
+ * @returns {string}
+ */
+const buildOwedSection = (owed) =>
+	owed.length === 0
+		? ""
+		: `\nFix tickets the lander has not filed, tried again each run; this issue stays open until they are:\n${owed.map((t) => `- \`${short(t.culprit)}\`, reverted in \`${short(t.revert)}\``).join("\n")}\n`;
 
 /**
  * @param {import("./queue-issue.js").QueueIssueDeps} deps
