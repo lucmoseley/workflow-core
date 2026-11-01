@@ -3,6 +3,7 @@
  * check-idle-efforts.test.ts — the idle alarm's program (#3641): that it
  * reads every adopting checkout's tracker once, each checkout's dispatch
  * ledger as the launch log, a live loop's launch stopped on its limit as held,
+ * a ticket's park marker at the limit-cap parks' cap as held, loop or no loop,
  * and a stopped loop as serving nothing, and reports through runCheck without
  * gating.
  *
@@ -23,7 +24,9 @@ import { buildStartEnv, writeJobRecord } from "./lib/background-start-testkit";
 import { ledgerPath, record } from "./lib/dispatch-ledger.js";
 import { stubGhScript } from "./lib/gh-stub";
 import { readJsonl } from "./lib/jsonl.js";
+import { writeParkedBy } from "./lib/parked.js";
 import { launchOrResume } from "./lib/refill-batch.js";
+import { LIMIT_PARK_CAP } from "./lib/refill-decide.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-idle-efforts.js");
@@ -245,6 +248,52 @@ describe("check-idle-efforts.js", () => {
 		} finally {
 			holder.kill();
 		}
+	});
+
+	describe("a ticket held at the limit-cap parks' cap (#3840)", () => {
+		const parked = ["takes:implement", "parked"];
+		const held =
+			"#8 (issue 8), idle 3.0 days; skip reason: parked: 2 limit-cap";
+
+		/** Session `s`'s real park marker for #8, written 3 days ago: a question park with no `limitParks`. */
+		function parkedCheckout(limitParks?: number) {
+			checkout("prod", "o/product", [launch(8, 4 * DAY)]);
+			const root = path.join(home, "prod");
+			writeParkedBy("s", [8], { root, limitParks });
+			const when = new Date(NOW - 3 * DAY);
+			fs.utimesSync(
+				path.join(root, ".claude", "tmp", "markers", ".parked-s"),
+				when,
+				when,
+			);
+		}
+
+		it("names it with the loop stopped", async () => {
+			parkedCheckout(LIMIT_PARK_CAP);
+			const r = await run({ "o/product": [node(8, parked)] });
+			expect(r.out).toContain(
+				"The refill loop is not running, so it serves no tracker.",
+			);
+			expect(r.out).toContain(held);
+		});
+
+		it("reports a tracker whose markers will not read as unread, never as no hold", async () => {
+			parkedCheckout(LIMIT_PARK_CAP);
+			const markers = path.join(home, "prod", ".claude", "tmp", "markers");
+			fs.chmodSync(markers, 0o300);
+			try {
+				const r = await run({ "o/product": [node(8, parked)] });
+				expect(r.out).toMatch(/o\/product: unread — EACCES.*scandir/);
+			} finally {
+				fs.chmodSync(markers, 0o700);
+			}
+		});
+
+		it("still leaves out a parked question, its marker holding no count", async () => {
+			parkedCheckout();
+			const r = await run({ "o/product": [node(8, parked)] });
+			expect(r.out).toContain("o/product: none idle past 2 days");
+		});
 	});
 
 	it("emits the same findings under --json", async () => {

@@ -82,6 +82,7 @@ const {
 const { copyTranscript } = require("./seat-move.js");
 const { parseJsonl } = require("./jsonl.js");
 const {
+	newestMarkerListing,
 	readParkMarkers,
 	readParkedBy,
 	setParked,
@@ -865,9 +866,7 @@ function readParkers(frontier) {
 	};
 	return frontier.flatMap((row) => {
 		if (!isParked(row)) return [];
-		const marker = readMarkersIn(row.root)
-			.filter((m) => m.issues.includes(row.number))
-			.sort((x, y) => y.writtenAt - x.writtenAt)[0];
+		const marker = newestMarkerListing(readMarkersIn(row.root), row.number);
 		if (!marker) return [];
 		const { job, sessionId, limitParks } = marker;
 		return [

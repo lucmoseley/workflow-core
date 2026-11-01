@@ -1085,12 +1085,12 @@ describe("decideTick on a parked row's session seat (#3669)", () => {
 	describe("a ticket parked at a limit cap (#3804)", () => {
 		const room = seat("/s2", 40, 20, null);
 
-		it("holds it at the cap in a row, for the idle alarm, its slot going to the next row", () => {
+		it("holds it at the cap in a row, its slot going to the next row, and leaves its reporting to the idle alarm's read of its marker (#3840)", () => {
 			const d = on(room, [parker({ limitParks: LIMIT_PARK_CAP })]);
 			expect(launched(d)).toEqual(["wfc#1"]);
 			const why = `parked: ${buildLimitCapText(LIMIT_PARK_CAP)}`;
 			expect(d.skipped).toEqual([{ root: "wfc", number: 2, why }]);
-			expect(d.held).toEqual([{ root: "wfc", number: 2, why, atCap: true }]);
+			expect(d.held).toEqual([]);
 		});
 
 		it("holds it however its session would have routed", () => {

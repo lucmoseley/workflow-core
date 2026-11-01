@@ -18,6 +18,7 @@ const {
 	buildFindingRecords,
 	parseIssueNodes,
 } = require("./idle-efforts.js");
+const { LIMIT_PARK_CAP, limitCapHoldOf } = require("./refill-decide.js");
 
 const NOW = Date.parse("2026-10-29T12:00:00Z");
 const DAY = 24 * 60 * 60 * 1000;
@@ -406,6 +407,7 @@ describe("buildReadings", () => {
 				issues: [],
 				error: null,
 				ledgers: [],
+				markers: [],
 				...t,
 			})),
 			loop: { served: [], launches: [], held: [], ...loop },
@@ -435,18 +437,89 @@ describe("buildReadings", () => {
 	it("joins the loop's running launches and holds from checkout to tracker", () => {
 		const r = read([{ repo: REPO }, { repo: OTHER }], {
 			launches: [{ root: "/r/product", issues: [4, 5] }],
-			held: [
-				{ root: "/r/core2", number: 6, why: "seat full", since: NOW },
-				{ root: "/r/core2", number: 7, why: "cap", since: NOW, atCap: true },
-			],
+			held: [{ root: "/r/core2", number: 6, why: "seat full", since: NOW }],
 		});
 		expect([...r.running]).toEqual([`${OTHER}#4`, `${OTHER}#5`]);
 		expect(r.holds).toEqual(
-			new Map([
-				[`${REPO}#6`, { why: "seat full", since: NOW }],
-				[`${REPO}#7`, { why: "cap", since: NOW, atCap: true }],
-			]),
+			new Map([[`${REPO}#6`, { why: "seat full", since: NOW }]]),
 		);
+	});
+
+	describe("a hold at the limit-cap parks' cap, read from its marker (#3840)", () => {
+		const parkedIssue = issue(7, { labels: ["takes:implement", "parked"] });
+		const atCap = (writtenAt: number) => ({
+			issues: [7],
+			writtenAt,
+			limitParks: LIMIT_PARK_CAP,
+		});
+		/* What a stopped loop and a tick in away mode both leave: nothing held. */
+		const idleOf = (issues: object[], markers: object[], held: object[] = []) =>
+			findIdleEfforts(
+				read([{ repo: REPO, issues, markers: [markers] }], { held }),
+			)[0].idle;
+
+		it("names it past 2 days of hold with the loop holding nothing, the marker's write being its start", () => {
+			const [only, ...rest] = idleOf([parkedIssue], [atCap(NOW - 3 * DAY)]);
+			expect(rest).toEqual([]);
+			expect(only).toMatchObject({
+				number: 7,
+				heldAtCap: true,
+				idleMs: 3 * DAY,
+				skip: limitCapHoldOf(LIMIT_PARK_CAP),
+			});
+		});
+
+		it("leaves out one held under 2 days", () => {
+			expect(idleOf([parkedIssue], [atCap(NOW - DAY)])).toEqual([]);
+		});
+
+		it("takes its start from the marker over a later one in the loop's state", () => {
+			const [only] = idleOf(
+				[parkedIssue],
+				[atCap(NOW - 3 * DAY)],
+				[{ root: "/r/core", number: 7, why: "seat full", since: NOW - DAY }],
+			);
+			expect(only).toMatchObject({ heldAtCap: true, idleMs: 3 * DAY });
+		});
+
+		it("still excludes a parked question, its marker holding no count", () => {
+			const question = { issues: [7], writtenAt: NOW - 3 * DAY };
+			expect(idleOf([parkedIssue], [question])).toEqual([]);
+		});
+
+		it("still excludes a parked ticket under the cap", () => {
+			const under = { ...atCap(NOW - 3 * DAY), limitParks: LIMIT_PARK_CAP - 1 };
+			expect(idleOf([parkedIssue], [under])).toEqual([]);
+		});
+
+		it("reads the newest marker listing it, so a later question park ends the hold", () => {
+			const question = { issues: [7], writtenAt: NOW - 3 * DAY };
+			expect(idleOf([parkedIssue], [atCap(NOW - 5 * DAY), question])).toEqual(
+				[],
+			);
+		});
+
+		it("holds it where any one checkout's newest marker is at the cap, as the loop routes per checkout", () => {
+			const question = { issues: [7], writtenAt: NOW - DAY };
+			const [only] = findIdleEfforts(
+				read([
+					{
+						repo: REPO,
+						issues: [parkedIssue],
+						markers: [[atCap(NOW - 3 * DAY)], [question]],
+					},
+				]),
+			)[0].idle;
+			expect(only).toMatchObject({ heldAtCap: true, idleMs: 3 * DAY });
+		});
+
+		it("reads no hold once the label is off, the marker left behind", () => {
+			const [only] = idleOf(
+				[issue(7, { labels: ["takes:implement"] })],
+				[atCap(NOW - 3 * DAY)],
+			);
+			expect(only).toMatchObject({ heldAtCap: false, skip: null });
+		});
 	});
 
 	it("marks a tracker served where the loop serves any of its checkouts", () => {

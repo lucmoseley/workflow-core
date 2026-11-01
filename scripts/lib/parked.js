@@ -20,7 +20,9 @@
  * launched it (#3709), with no read of a job record that may be torn or gone
  * by then (#3773). A park at a limit cap also counts those parks in a row, which
  * ends the loop's relaunches (#3804); any other write of the marker drops the
- * count, so a question or the founder's typing starts it again. One entry a
+ * count, so a question or the founder's typing starts it again. Nothing rewrites
+ * a marker at the cap while it holds, so its write time is the hold's start,
+ * which the idle alarm reads whatever the loop's mode or state (#3840). One entry a
  * line: `seat <config dir>`, `job <job id>`, `cwd <directory>`,
  * `limit-parks <count>`, or an issue number.
  */
@@ -62,6 +64,10 @@ function setParked(repo, n, on) {
  */
 /**
  * @typedef {{issues: number[], job: ParkJob|null, limitParks?: number}} ParkMarker
+ */
+
+/**
+ * @typedef {ParkMarker & {sessionId: string, writtenAt: number}} ParkMarkerRead
  */
 
 const MARKER_PREFIX = ".parked-";
@@ -122,21 +128,14 @@ const readParkedBy = (sessionId, root) =>
 
 /**
  * Every session marker in `root`'s checkout that lists an issue, with its
- * session and when it was last written; [] where the directory will not read.
+ * session and when it was last written. Throws where the directory will not
+ * read, for the idle alarm, which must not read that as no hold (#3840).
  * @param {string} root
- * @returns {(ParkMarker & {sessionId: string, writtenAt: number})[]}
+ * @returns {ParkMarkerRead[]}
  */
-function readParkMarkers(root) {
+function listParkMarkers(root) {
 	const dir = markersDir(root);
-	let names;
-	try {
-		names = fs.readdirSync(dir);
-	} catch {
-		/* Fail open (#3709): with no marker read, each parked row launches
-		 * afresh, logged as no session recorded. */
-		return [];
-	}
-	return names.flatMap((name) => {
+	return fs.readdirSync(dir).flatMap((name) => {
 		if (!name.startsWith(MARKER_PREFIX) || name.startsWith(BLOCKED_PREFIX))
 			return [];
 		const sessionId = name.slice(MARKER_PREFIX.length);
@@ -153,6 +152,34 @@ function readParkMarkers(root) {
 		}
 	});
 }
+
+/**
+ * listParkMarkers for the loop; [] where the directory will not read.
+ * @param {string} root
+ * @returns {ParkMarkerRead[]}
+ */
+function readParkMarkers(root) {
+	try {
+		return listParkMarkers(root);
+	} catch {
+		/* Fail open (#3709): with no marker read, each parked row launches
+		 * afresh, logged as no session recorded. */
+		return [];
+	}
+}
+
+/**
+ * The newest written of `markers` that lists `number`: the park that holds it
+ * now, where several sessions have parked it.
+ * @template {{issues: number[], writtenAt: number}} M
+ * @param {M[]} markers
+ * @param {number} number
+ * @returns {M|undefined}
+ */
+const newestMarkerListing = (markers, number) =>
+	markers
+		.filter((m) => m.issues.includes(number))
+		.sort((x, y) => y.writtenAt - x.writtenAt)[0];
 
 /**
  * Write this session's marker in `root`'s checkout: `numbers` its issues,
@@ -186,6 +213,8 @@ function writeParkedBy(
 
 module.exports = {
 	PARKED_LABEL,
+	listParkMarkers,
+	newestMarkerListing,
 	readParkMarkers,
 	readParkedBy,
 	setParked,
