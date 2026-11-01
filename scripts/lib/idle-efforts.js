@@ -359,16 +359,19 @@ const named = (i) => `#${i.number} (${i.title}), idle ${days(i.idleMs)}`;
  */
 function buildIdleLines(findings, loopRunning) {
 	/** @param {string} text */
-	const top = (text) => ({ text, nested: false });
+	const buildTopLine = (text) => ({ text, nested: false });
 	const lines = findings.flatMap((f) => {
 		const unserved = f.served ? "" : " (the refill loop does not serve it)";
-		if (f.error !== null) return [top(`${f.repo}: unread — ${f.error}`)];
+		if (f.error !== null)
+			return [buildTopLine(`${f.repo}: unread — ${f.error}`)];
 		const [oldest] = f.idle;
 		if (oldest === undefined)
-			return [top(`${f.repo}: none idle past ${IDLE_DAYS} days${unserved}`)];
+			return [
+				buildTopLine(`${f.repo}: none idle past ${IDLE_DAYS} days${unserved}`),
+			];
 		const skip = oldest.skip ?? "none, the launch filter passes it";
 		return [
-			top(
+			buildTopLine(
 				`${f.repo}: ${f.idle.length} idle past ${IDLE_DAYS} days${unserved}; oldest ${named(oldest)}; skip reason: ${skip}`,
 			),
 			...(f.served
@@ -381,7 +384,9 @@ function buildIdleLines(findings, loopRunning) {
 	return loopRunning
 		? lines
 		: [
-				top("The refill loop is not running, so it serves no tracker."),
+				buildTopLine(
+					"The refill loop is not running, so it serves no tracker.",
+				),
 				...lines,
 			];
 }
@@ -477,13 +482,52 @@ function selectUnseen(findings, stamp, day) {
 	return { unseen, signature: JSON.stringify(next) };
 }
 
+/**
+ * @typedef {object} IdleReport
+ * @property {TrackerFinding[]} unseen the trackers this run names
+ * @property {string[]} lines its text, nested lines indented and any relay
+ *   lines last; empty where it names none
+ * @property {string|null} signature what records `unseen` as shown
+ * @property {string|null} stampNow the signature to write now; null where this
+ *   start holds the notice or has nothing new to record
+ */
+
+/**
+ * What one run reports and records. A `notice` run, a session start's, names
+ * only what its stamp does not record for its day; a plain run names all and
+ * records nothing.
+ * @param {TrackerFinding[]} findings
+ * @param {boolean} loopRunning
+ * @param {{stamp: string|null, day: string, held: boolean, relay: string[]}|null} notice
+ * @returns {IdleReport}
+ */
+function buildIdleReport(findings, loopRunning, notice) {
+	const { unseen, signature } = notice
+		? selectUnseen(findings, notice.stamp, notice.day)
+		: { unseen: findings, signature: null };
+	return {
+		unseen,
+		lines:
+			unseen.length === 0
+				? []
+				: [
+						...buildIdleLines(unseen, loopRunning).map(({ text, nested }) =>
+							nested ? `  ${text}` : text,
+						),
+						...(notice?.relay ?? []),
+					],
+		signature,
+		stampNow: notice?.held ? null : signature,
+	};
+}
+
 module.exports = {
 	IDLE_DAYS,
 	QUERY,
 	buildIdleLines,
+	buildIdleReport,
 	buildReadings,
 	findIdleEfforts,
 	buildFindingRecords,
 	parseIssueNodes,
-	selectUnseen,
 };

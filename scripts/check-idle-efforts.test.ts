@@ -17,7 +17,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { startEnv, writeJobRecord } from "./lib/background-start-testkit";
+import { buildStartEnv, writeJobRecord } from "./lib/background-start-testkit";
 import { ledgerPath, record } from "./lib/dispatch-ledger.js";
 import { stubGhScript } from "./lib/gh-stub";
 import { readJsonl } from "./lib/jsonl.js";
@@ -256,7 +256,7 @@ describe("at session start (--notify, #3644)", () => {
 		process.env.WFC_CLAUDE_CONFIG_B = second;
 		process.env.WFC_CLAUDE_CONFIG_C = second;
 		process.env.WFC_NOTIFY_PERSIST = "";
-		Object.assign(process.env, startEnv());
+		Object.assign(process.env, buildStartEnv());
 		checkout("core", "o/core");
 	});
 	afterEach(() => {
@@ -314,13 +314,13 @@ describe("at session start (--notify, #3644)", () => {
 	});
 
 	it("names an unseen finding at a background job's start but stamps nothing, leaving it for the founder's start (#3725)", async () => {
-		Object.assign(process.env, startEnv(path.join(dir, "job")));
+		Object.assign(process.env, buildStartEnv(path.join(dir, "job")));
 		const job = await run(oneIdle, ["--notify"]);
 		expect(job.status).toBe(0);
 		expect(job.stdout).toContain("o/core: 1 idle past 2 days");
 		expect(fs.existsSync(stampPath())).toBe(false);
 
-		Object.assign(process.env, startEnv());
+		Object.assign(process.env, buildStartEnv());
 		expect((await run(oneIdle, ["--notify"])).stdout).toContain(
 			"o/core: 1 idle past 2 days",
 		);
@@ -329,9 +329,9 @@ describe("at session start (--notify, #3644)", () => {
 
 	it("names and stamps a finding at a job he launched from the agents view, telling the session to relay it (#3772)", async () => {
 		const job = writeJobRecord(path.join(dir, "his"), "claude");
-		Object.assign(process.env, startEnv(job));
+		Object.assign(process.env, buildStartEnv(job));
 		const { stdout } = await run(oneIdle, ["--notify"]);
-		Object.assign(process.env, startEnv());
+		Object.assign(process.env, buildStartEnv());
 		expect(stdout).toContain("o/core: 1 idle past 2 days");
 		expect(stdout).toContain("Tell the founder this in your next reply");
 		expect(fs.existsSync(stampPath())).toBe(true);

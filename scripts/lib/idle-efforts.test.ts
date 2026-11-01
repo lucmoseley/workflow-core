@@ -1,7 +1,7 @@
 /*
  * idle-efforts.test.ts — the idle alarm's core (#3641): which efforts count as
  * idle past 2 days, the lines per tracker, and the reading of GitHub's answer,
- * driven through buildReadings, findIdleEfforts, buildIdleLines,
+ * driven through buildReadings, findIdleEfforts, buildIdleLines, buildIdleReport,
  * buildFindingRecords and parseIssueNodes from plain readings, since the core is
  * pure. A break here either strands an
  * effort unreported or names one that is moving, which teaches the founder to ignore it.
@@ -12,11 +12,11 @@ import { describe, expect, it } from "vitest";
 const {
 	IDLE_DAYS,
 	buildIdleLines,
+	buildIdleReport,
 	buildReadings,
 	findIdleEfforts,
 	buildFindingRecords,
 	parseIssueNodes,
-	selectUnseen,
 } = require("./idle-efforts.js");
 
 const NOW = Date.parse("2026-10-29T12:00:00Z");
@@ -390,7 +390,20 @@ describe("parseIssueNodes", () => {
 	});
 });
 
-describe("selectUnseen", () => {
+describe("buildIdleReport", () => {
+	/** A session start not held; a null `deliveredStamp` is a day's first. */
+	const reportAtStart = (
+		trackerFindings: unknown[],
+		deliveredStamp: string | null,
+		day: string,
+	) =>
+		buildIdleReport(trackerFindings, true, {
+			stamp: deliveredStamp,
+			day,
+			held: false,
+			relay: [],
+		});
+
 	const idle = (number: number) => ({
 		number,
 		title: `issue ${number}`,
@@ -410,25 +423,87 @@ describe("selectUnseen", () => {
 	});
 	const stamp = (day: string, seen: unknown) => JSON.stringify({ day, seen });
 
+	const unservedUrgent = {
+		...finding("o/a", []),
+		served: false,
+		idle: [{ ...idle(1), urgent: true }],
+	};
+
+	it("gives a nested line its indent", () => {
+		const { lines } = buildIdleReport([unservedUrgent], true, null);
+		expect(lines).toHaveLength(2);
+		expect(lines[1]).toMatch(/^ {2}urgent /);
+	});
+
+	it("names everything and stamps nothing on a plain run", () => {
+		expect(buildIdleReport([unservedUrgent], true, null)).toMatchObject({
+			unseen: [unservedUrgent],
+			signature: null,
+			stampNow: null,
+		});
+	});
+
+	it("stamps what it names at a start not held", () => {
+		const { signature, stampNow } = reportAtStart(
+			[unservedUrgent],
+			null,
+			"2026-10-29",
+		);
+		expect(signature).not.toBeNull();
+		expect(stampNow).toBe(signature);
+	});
+
+	it("carries the signature but stamps nothing at a held start", () => {
+		const { signature, stampNow } = buildIdleReport([unservedUrgent], true, {
+			stamp: null,
+			day: "2026-10-29",
+			held: true,
+			relay: [],
+		});
+		expect(signature).not.toBeNull();
+		expect(stampNow).toBeNull();
+	});
+
+	it("ends what it names on the relay lines", () => {
+		const { lines } = buildIdleReport([unservedUrgent], true, {
+			stamp: null,
+			day: "2026-10-29",
+			held: false,
+			relay: ["relay it"],
+		});
+		expect(lines.at(-1)).toBe("relay it");
+	});
+
+	it("gives no lines where nothing is unseen, neither the stopped loop's nor a relay", () => {
+		const { signature } = reportAtStart([unservedUrgent], null, "2026-10-29");
+		const seen = buildIdleReport([unservedUrgent], false, {
+			stamp: signature,
+			day: "2026-10-29",
+			held: false,
+			relay: ["relay it"],
+		});
+		expect(seen).toMatchObject({ unseen: [], lines: [], stampNow: null });
+	});
+
 	it("names every finding with no stamp, and signs them for the day", () => {
 		const both = [finding("o/a", [1]), finding("o/b", [])];
-		const { unseen, signature } = selectUnseen(both, null, "2026-10-29");
+		const { unseen, signature } = reportAtStart(both, null, "2026-10-29");
 		expect(unseen.map((f: { repo: string }) => f.repo)).toEqual(["o/a"]);
 		expect(signature).toBe(stamp("2026-10-29", ["o/a#1"]));
 	});
 
 	it("names nothing delivered the same day, and signs nothing", () => {
 		expect(
-			selectUnseen(
+			reportAtStart(
 				[finding("o/a", [1])],
 				stamp("2026-10-29", ["o/a#1"]),
 				"2026-10-29",
 			),
-		).toEqual({ unseen: [], signature: null });
+		).toEqual({ unseen: [], lines: [], signature: null, stampNow: null });
 	});
 
 	it("names a tracker whole once it holds a finding undelivered that day", () => {
-		const { unseen, signature } = selectUnseen(
+		const { unseen, signature } = reportAtStart(
 			[finding("o/a", [1, 2])],
 			stamp("2026-10-29", ["o/a#1"]),
 			"2026-10-29",
@@ -441,24 +516,24 @@ describe("selectUnseen", () => {
 
 	it("names a finding again the next day, and an unread tracker once a day", () => {
 		const unread = finding("o/A", [], "HTTP 502");
-		const day1 = selectUnseen([unread], null, "2026-10-29");
+		const day1 = reportAtStart([unread], null, "2026-10-29");
 		expect(day1.signature).toBe(stamp("2026-10-29", ["o/a unread"]));
-		expect(selectUnseen([unread], day1.signature, "2026-10-29").unseen).toEqual(
-			[],
-		);
-		expect(selectUnseen([unread], day1.signature, "2026-10-30").unseen).toEqual(
-			[unread],
-		);
+		expect(
+			reportAtStart([unread], day1.signature, "2026-10-29").unseen,
+		).toEqual([]);
+		expect(
+			reportAtStart([unread], day1.signature, "2026-10-30").unseen,
+		).toEqual([unread]);
 	});
 
 	it("reads a damaged stamp, or its entries that are no key, as none", () => {
 		const one = [finding("o/a", [1])];
-		expect(selectUnseen(one, "{torn", "2026-10-29").unseen).toHaveLength(1);
+		expect(reportAtStart(one, "{torn", "2026-10-29").unseen).toHaveLength(1);
 		expect(
-			selectUnseen(one, stamp("2026-10-29", "x"), "2026-10-29").unseen,
+			reportAtStart(one, stamp("2026-10-29", "x"), "2026-10-29").unseen,
 		).toHaveLength(1);
 		expect(
-			selectUnseen(one, stamp("2026-10-29", [1]), "2026-10-29").signature,
+			reportAtStart(one, stamp("2026-10-29", [1]), "2026-10-29").signature,
 		).toBe(stamp("2026-10-29", ["o/a#1"]));
 	});
 });

@@ -70,6 +70,8 @@ function readSeen(file) {
 	}
 }
 
+const CHECKER = "refill-loop-stop";
+
 const PICK_NEXT = "Restart it with /pick-next.";
 
 const STATUS = `node ${scriptPath("refill-loop.js")} status`;
@@ -160,13 +162,13 @@ function reportOverflowStart(ctx, start, seenFile) {
 }
 
 runCheck({
-	name: "refill-loop-stop",
+	name: CHECKER,
 	usage: "node check-refill-loop-stop.js [--notify] [--json]",
 	run(ctx) {
 		/* Read under --notify alone: a plain run's stdin may be a terminal. */
 		if (
 			ctx.notify &&
-			isFounderNoticeHeld("refill-loop-stop", hookMessage.readPayload()?.source)
+			isFounderNoticeHeld(CHECKER, hookMessage.readPayload()?.source)
 		)
 			ctx.skip("this start is not the founder's own.");
 		const files = refillFiles.loopFiles();

@@ -9,7 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-export const startEnv = (jobDir = "") => ({
+export const buildStartEnv = (jobDir = "") => ({
 	CLAUDE_JOB_DIR: jobDir,
 	CLAUDE_CODE_ENTRYPOINT: "cli",
 });

@@ -30,12 +30,11 @@
 
 const { readJobRecordIn } = require("./job-paths.js");
 
-/** @param {NodeJS.ProcessEnv} [env] */
-const isPrintMode = (env = process.env) =>
-	env.CLAUDE_CODE_ENTRYPOINT === "sdk-cli";
+/** @param {NodeJS.ProcessEnv} env */
+const isPrintMode = (env) => env.CLAUDE_CODE_ENTRYPOINT === "sdk-cli";
 
-/** @param {NodeJS.ProcessEnv} [env] */
-const isBackgroundStart = (env = process.env) =>
+/** @param {NodeJS.ProcessEnv} env */
+const isBackgroundStart = (env) =>
 	Boolean(env.CLAUDE_JOB_DIR) || isPrintMode(env);
 
 /**
@@ -83,7 +82,6 @@ const relayLines = (notifying) => (notifying ? [RELAY_LINE] : []);
 
 module.exports = {
 	isHisJobRecord,
-	isBackgroundStart,
 	isFounderNoticeHeld,
 	relayLines,
 };

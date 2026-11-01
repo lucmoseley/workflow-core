@@ -68,12 +68,11 @@ const { servedRoots } = require("./lib/refill-tick.js");
 const {
 	IDLE_DAYS,
 	QUERY,
-	buildIdleLines,
+	buildIdleReport,
 	buildReadings,
 	findIdleEfforts,
 	buildFindingRecords,
 	parseIssueNodes,
-	selectUnseen,
 } = require("./lib/idle-efforts.js");
 
 /**
@@ -99,18 +98,6 @@ async function readIssues(repo, now) {
 
 const CHECKER = "idle-efforts";
 
-/**
- * The findings not shown yet today, and the signature recording them shown.
- * @param {import("./lib/idle-efforts.js").TrackerFinding[]} findings
- * @param {number} now ms
- */
-const selectUndelivered = (findings, now) =>
-	selectUnseen(
-		findings,
-		deliveryStamp.readStamp(CHECKER),
-		localDate(new Date(now)),
-	);
-
 /* A stopped loop launches no job to refresh this report, so a founder start
  * days later must still show it (#3772), as with repo-checks' daily reading
  * (spec #1510 §Staleness). */
@@ -118,16 +105,11 @@ const REPORT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * @param {import("./lib/check").Ctx} ctx
- * @param {import("./lib/idle-efforts.js").TrackerFinding[]} findings
- * @param {boolean} loopRunning
+ * @param {import("./lib/idle-efforts.js").IdleReport} idleReport
  */
-function report(ctx, findings, loopRunning) {
-	if (findings.length === 0) return;
-	for (const { text, nested } of buildIdleLines(findings, loopRunning))
-		ctx.say(nested ? `  ${text}` : text);
-	for (const line of relayLines(ctx.notify)) ctx.say(line);
-	for (const r of buildFindingRecords(findings))
-		ctx.warn(r.code, r.text, r.data);
+function report(ctx, { unseen, lines }) {
+	for (const line of lines) ctx.say(line);
+	for (const r of buildFindingRecords(unseen)) ctx.warn(r.code, r.text, r.data);
 }
 
 /**
@@ -199,14 +181,23 @@ const SPEC = {
 		const findings = findIdleEfforts(
 			buildReadings({ rootsOf, trackers, loop: loopRead, now }),
 		);
-		const { unseen, signature } = ctx.notify
-			? selectUndelivered(findings, now)
-			: { unseen: findings, signature: null };
-		report(ctx, unseen, loopRead.running);
+		const idleReport = buildIdleReport(
+			findings,
+			loopRead.running,
+			ctx.notify
+				? {
+						stamp: deliveryStamp.readStamp(CHECKER),
+						day: localDate(new Date(now)),
+						held: isFounderNoticeHeld(CHECKER),
+						relay: relayLines(true),
+					}
+				: null,
+		);
+		const { signature, stampNow } = idleReport;
+		report(ctx, idleReport);
 		/* After the report is out, so a run killed between repeats rather than
 		 * swallows it. */
-		if (signature !== null && !isFounderNoticeHeld(CHECKER))
-			deliveryStamp.markDelivered(ctx, CHECKER, signature);
+		if (stampNow !== null) deliveryStamp.markDelivered(ctx, CHECKER, stampNow);
 		return {
 			...(signature !== null && { stamp: signature }),
 			maxAgeMs: REPORT_MAX_AGE_MS,

@@ -13,7 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { startEnv, writeJobRecord } from "./lib/background-start-testkit";
+import { buildStartEnv, writeJobRecord } from "./lib/background-start-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "check-refill-loop-stop.js");
@@ -45,7 +45,7 @@ const run = (args: string[], source = "startup", jobDir = "") =>
 			...process.env,
 			GITHUB_ACTIONS: "",
 			WFC_REFILL_DIR: dir,
-			...startEnv(jobDir),
+			...buildStartEnv(jobDir),
 		},
 		stdin: JSON.stringify({ hook_event_name: "SessionStart", source }),
 	});

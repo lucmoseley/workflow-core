@@ -34,7 +34,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { startEnv, writeJobRecord } from "./lib/background-start-testkit";
+import { buildStartEnv, writeJobRecord } from "./lib/background-start-testkit";
 import { runRecordFile } from "./lib/notify-report-testkit";
 import { runInProcess } from "./lib/run-in-process";
 import { useScratchCore } from "./lib/scratch-core-testkit";
@@ -60,7 +60,7 @@ const read = (...args: string[]) => readIn("", ...args);
 /** The same, as a start in the background job `jobDir` names, if any. */
 const readIn = (jobDir: string, ...args: string[]) => {
 	const r = runInProcess(SCRIPT, args, {
-		env: { ...process.env, ...startEnv(jobDir) },
+		env: { ...process.env, ...buildStartEnv(jobDir) },
 		cwd: path.resolve(__dirname, ".."),
 	});
 	return { status: r.status, out: `${r.stdout}${r.stderr}` };
@@ -69,7 +69,7 @@ const readIn = (jobDir: string, ...args: string[]) => {
 /** The script under `--notify`, as a compaction's start. */
 const readAtCompaction = () =>
 	runInProcess(SCRIPT, ["--notify"], {
-		env: { ...process.env, ...startEnv() },
+		env: { ...process.env, ...buildStartEnv() },
 		cwd: path.resolve(__dirname, ".."),
 		stdin: JSON.stringify({ source: "compact" }),
 	});
