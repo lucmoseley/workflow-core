@@ -61,7 +61,8 @@ export function agentsListing(withNeighbour = false): string {
 
 export interface StubClaudeOptions {
 	week?: string;
-	session?: string;
+	/** `null` prints no `Current session:` line, as a plan with no 5-hour bar. */
+	session?: string | null;
 	advisorAttaches?: boolean;
 	advisorReason?: string;
 	/** A `claude` that refuses to start, so the launch never happens. */
@@ -278,7 +279,7 @@ export function dispatchFixture(): DispatchFixture {
 			...refresh,
 			probeHangs ? `  sleep ${PROBE_HANG_SECONDS}` : "",
 			`  echo ended > "${path.join(fx.dir, "probe-ended")}"`,
-			buildUsageBranch({ session, week }),
+			buildUsageBranch({ session: session ?? undefined, week }),
 			"  exit 0",
 			"fi",
 			`if [ "$1" = "agents" ]; then printf '%s\\n' '${agentsJson}'; exit 0; fi`,

@@ -677,8 +677,12 @@ if [[ $overflow -eq 0 && $force -eq 0 ]]; then
   # No trustworthy reading from either source (JSON cache or the printed
   # bars): still refuse, but say the absence is transient rather than
   # implying a real limit — the cache is already the second chance, and no
-  # automatic retry follows (#280 ruling 4).
-  if [[ "$week_trust" != "fresh" || "$session_trust" != "fresh" ]]; then
+  # automatic retry follows (#280 ruling 4). A bar the account does not
+  # report is no failed reading: the cap runs on the bars it does, so long as
+  # one reads fresh (`lib/allowance.js#isTrustworthy`, #3758).
+  usable() { [[ "$1" == "fresh" || "$1" == "unreported" ]]; }
+  if ! usable "$week_trust" || ! usable "$session_trust" ||
+    [[ "$week_trust" != "fresh" && "$session_trust" != "fresh" ]]; then
     printf 'REFUSED: no trustworthy allowance reading (the usage cache is stale or\n' >&2
     # claude-route-exempt: only text
     printf '  absent, and the printed bars from `claude -p "/usage"` were unparseable).\n' >&2
@@ -718,7 +722,9 @@ if [[ $overflow -eq 0 && $force -eq 0 ]]; then
       if wants_advisor "${!i}"; then set_wants_advisor=1; fi
     done
   else
-    printf 'Allowance OK: week %s%%, session %s%%.\n' "$week_pct" "$session_pct"
+    shown() { if [[ "$1" == "unreported" ]]; then printf 'not reported'; else printf '%s%%' "$2"; fi; }
+    printf 'Allowance OK: week %s, session %s.\n' "$(shown "$week_trust" "$week_pct")" \
+      "$(shown "$session_trust" "$session_pct")"
   fi
 fi
 

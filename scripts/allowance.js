@@ -12,8 +12,9 @@
  * and a bash caller already has it in a variable.
  *
  * Exit codes:
- *   0  both bars read as trustworthy (kind: "fresh")
- *   1  at least one bar is not — the caller's ceiling refusal is its own to
+ *   0  the reading is trustworthy (`lib/allowance.js#isTrustworthy`): each bar
+ *      fresh or one the account does not report, at least one fresh (#3758)
+ *   1  it is not — the caller's ceiling refusal is its own to
  *      write; this exit code is trust, never a ceiling verdict (#293 ruling 2)
  *   2  an unknown flag or a value flag with no value (lib/cli-args.js)
  *
@@ -36,6 +37,7 @@ const { writeFd } = require("./lib/write-fd.js");
 const { configDir: defaultConfigDir } = require("./lib/config-dir.js");
 const {
 	readAllowance,
+	isTrustworthy,
 	capSet,
 	isWarned,
 	POINTS_PER_USD,
@@ -95,7 +97,8 @@ function capOf(result, args) {
 			launch: 0,
 			error: `--cap, --session-threshold and --week-threshold need numbers, got ${args.cap}, ${args.sessionThreshold}, ${args.weekThreshold}`,
 		};
-	// A trusted bar always carries a percent (`lib/allowance.js#readOne`).
+	// A fresh bar always carries a percent (`lib/allowance.js#readOne`); an
+	// unreported one reads 0, so it is never past a threshold.
 	const readings = {
 		session: result.session.percent ?? 0,
 		weekly_all: result.weekly_all.percent ?? 0,
@@ -179,8 +182,7 @@ function main() {
 	const args = parseArgs(process.argv.slice(2));
 	const usageText = readStdin();
 	const result = readAllowance({ configDir: args.configDir, usageText });
-	const trustworthy =
-		result.session.trust === "fresh" && result.weekly_all.trust === "fresh";
+	const trustworthy = isTrustworthy(result);
 
 	if (args.json) {
 		const payload =
@@ -191,11 +193,16 @@ function main() {
 		return trustworthy ? 0 : 1;
 	}
 
+	/** @param {import("./lib/allowance").Bar} bar */
+	const figure = (bar) => {
+		if (bar.trust === "unreported") return "not reported";
+		return bar.percent === null ? "unreadable" : `${bar.percent}%`;
+	};
 	const line = (
 		/** @type {string} */ label,
 		/** @type {import("./lib/allowance").Bar} */ bar,
 	) =>
-		`${label}  ${bar.percent === null ? "unreadable" : `${bar.percent}%`} (${bar.trust})${bar.resetsAt ? `, resets ${bar.resetsAt}` : ""}`;
+		`${label}  ${figure(bar)} (${bar.trust})${bar.resetsAt ? `, resets ${bar.resetsAt}` : ""}`;
 	writeFd(
 		1,
 		`${line("session    ", result.session)}\n${line("weekly_all ", result.weekly_all)}\n`,

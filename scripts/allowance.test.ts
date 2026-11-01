@@ -61,14 +61,43 @@ describe("the allowance CLI's trust-drives-exit-code contract (#293, #294)", () 
 		expect(json.weekly_all.percent).toBe(7);
 	});
 
-	it("exits 1 where either bar is not trustworthy, recording the missing bar as absent", () => {
-		writeCache(dir, { session: 23 });
+	it("exits 1 where either bar is not trustworthy", () => {
+		fs.writeFileSync(
+			path.join(dir, ".claude.json"),
+			JSON.stringify(
+				buildUsageCache({ session: 23 }, Date.now() - 10 * 60 * 1000),
+			),
+		);
 		const r = runInProcess(SCRIPT, ["--json", "--config-dir", dir], {
-			stdin: "",
+			stdin: buildUsageText({ week: 7 }),
 		});
 		expect(r.status).toBe(1);
 		const json = JSON.parse(r.stdout);
-		expect(json.weekly_all.trust).toBe("absent");
+		expect(json.session.trust).toBe("stale");
+		expect(json.weekly_all.trust).toBe("fresh");
+	});
+
+	it("exits 0 and sizes the cap on a fresh weekly bar where the account reports no session bar (#3758)", () => {
+		writeCache(dir, { week: 0 });
+		const r = runInProcess(
+			SCRIPT,
+			[
+				"--json",
+				"--config-dir",
+				dir,
+				"--cap",
+				"3",
+				"--session-threshold",
+				"90",
+				"--week-threshold",
+				"97",
+			],
+			{ stdin: "" },
+		);
+		expect(r.status).toBe(0);
+		const json = JSON.parse(r.stdout);
+		expect(json.session.trust).toBe("unreported");
+		expect(json.cap.launch).toBe(3);
 	});
 
 	it("falls back to a piped usage transcript on stdin", () => {
@@ -91,6 +120,13 @@ describe("the allowance CLI's trust-drives-exit-code contract (#293, #294)", () 
 		expect(r.status).toBe(0);
 		expect(r.stdout).toMatch(/session\s+23% \(fresh\)/);
 		expect(r.stdout).toMatch(/weekly_all\s+7% \(fresh\)/);
+	});
+
+	it("prints an unreported bar as not reported, without --json", () => {
+		writeCache(dir, { week: 7 });
+		const r = runInProcess(SCRIPT, ["--config-dir", dir], { stdin: "" });
+		expect(r.status).toBe(0);
+		expect(r.stdout).toMatch(/session\s+not reported \(unreported\)/);
 	});
 });
 

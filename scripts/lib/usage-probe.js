@@ -6,8 +6,8 @@
  * THE PROBE IS NEVER DROPPED: it is the seat's usage cache's only refresher.
  * What goes is the time it spends after the refresh, on a section of `/usage`
  * nothing here reads (#2189):
- *   - where both of the seat's cached bars read fresh (`lib/allowance.js`),
- *     no probe runs;
+ *   - where the seat's cached reading is trustworthy
+ *     (`lib/allowance.js#isTrustworthy`), no probe runs;
  *   - a probe that runs is stopped once the cache's `fetchedAtMs` moves past
  *     its start, and the caller reads the refreshed cache;
  *   - where the stamp never moves, the probe runs to its end and its printed
@@ -25,7 +25,7 @@
  */
 
 const { spawn } = require("node:child_process");
-const { readAllowance } = require("./allowance.js");
+const { readAllowance, isTrustworthy } = require("./allowance.js");
 const { killGroup } = require("./grouped-child.js");
 const { launchAuthRefusal } = require("./launch-auth.js");
 const { readUsageCache } = require("./usage-cache.js");
@@ -54,7 +54,7 @@ const STAMP_POLL_MS = 250;
  */
 
 /**
- * The seat's `/usage`, probing only where a cached bar is not fresh.
+ * The seat's `/usage`, probing only where the cached reading is not trustworthy.
  * `text` is whatever the probe printed (empty where none ran, or where it was
  * stopped before printing), for `readAllowance`'s `usageText`.
  * @param {{ configDir: string, claudeBin: string, claudeArgs?: string[], timeoutMs?: number, signal?: AbortSignal }} opts
@@ -69,8 +69,7 @@ async function probeUsage({
 	signal,
 }) {
 	const cached = readAllowance({ configDir });
-	if (cached.session.trust === "fresh" && cached.weekly_all.trust === "fresh")
-		return { outcome: "cached", text: "" };
+	if (isTrustworthy(cached)) return { outcome: "cached", text: "" };
 	const env = { ...process.env, CLAUDE_CONFIG_DIR: configDir };
 	const refusal = launchAuthRefusal({ bin: claudeBin, env, cwd: PROBE_CWD });
 	if (refusal) return { outcome: "failed", text: "", error: refusal };

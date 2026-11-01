@@ -13,7 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { capSet, readAllowance } from "./allowance";
+import { capSet, isTrustworthy, readAllowance } from "./allowance";
 import {
 	type Bars,
 	buildUsageCache,
@@ -145,6 +145,58 @@ describe("text fallback (#280 ruling 1)", () => {
 		});
 		expect(r.session.trust).toBe("absent");
 		expect(r.weekly_all.trust).toBe("absent");
+	});
+});
+
+/* A plan with no 5-hour bar caches `five_hour: null`, no `kind: "session"`
+ * limit, and prints no `Current session:` line (#3758). */
+describe("a bar the account does not report (#3758)", () => {
+	it("reads unreported where a fresh cache lists the weekly bar alone", () => {
+		writeCache(dir, { week: 0 });
+		const r = readAllowance({ configDir: dir });
+		expect(r.session.trust).toBe("unreported");
+		expect(r.weekly_all).toMatchObject({ percent: 0, trust: "fresh" });
+		expect(isTrustworthy(r)).toBe(true);
+	});
+
+	it("reads unreported where the printed bars carry the weekly line alone", () => {
+		const r = readAllowance({
+			configDir: path.join(dir, "nope"),
+			usageText: buildUsageText({ week: 4 }),
+		});
+		expect(r.session.trust).toBe("unreported");
+		expect(isTrustworthy(r)).toBe(true);
+	});
+
+	it("reads absent, not unreported, where the weekly-only cache is stale and nothing printed", () => {
+		const now = Date.now();
+		writeCache(dir, { week: 0 }, now - (STALE_MS + 1000));
+		const r = readAllowance({ configDir: dir, now });
+		expect(r.session.trust).toBe("absent");
+		expect(r.weekly_all.trust).toBe("stale");
+		expect(isTrustworthy(r)).toBe(false);
+	});
+
+	it("reads absent where the session line prints but will not parse", () => {
+		const r = readAllowance({
+			configDir: path.join(dir, "nope"),
+			usageText: `${buildUsageText({ week: 4 })}Current session: unavailable\n`,
+		});
+		expect(r.session.trust).toBe("absent");
+		expect(isTrustworthy(r)).toBe(false);
+	});
+
+	it("is untrustworthy where no bar reads fresh", () => {
+		const unreported = {
+			percent: null,
+			severity: null,
+			resetsAt: null,
+			fetchedAtMs: null,
+			trust: "unreported" as const,
+		};
+		expect(isTrustworthy({ session: unreported, weekly_all: unreported })).toBe(
+			false,
+		);
 	});
 });
 

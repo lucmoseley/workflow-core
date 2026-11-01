@@ -112,6 +112,8 @@ function allowanceCheck() {
 	let breach = null;
 	for (const [label, key] of bars) {
 		const bar = allowance[key];
+		// A bar the account does not report holds nothing back (#3758).
+		if (bar.trust === "unreported") continue;
 		if (bar.trust !== "fresh") {
 			warnings.push(
 				`${label} allowance reading is ${bar.trust} — admitting anyway`,

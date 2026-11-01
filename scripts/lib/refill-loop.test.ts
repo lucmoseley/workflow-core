@@ -21,7 +21,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readAllowance } from "./allowance";
 import { AS_ROOT, freshSandbox, store } from "./arbiter-testkit";
-import { decideTick, FULL } from "./refill-decide.js";
+import { decideTick, FULL, hasRoom } from "./refill-decide.js";
 import {
 	actsOf,
 	buildFinishLine,
@@ -437,6 +437,17 @@ describe("a seat's weekly reset, from its usage cache (#3732)", () => {
 			week: null,
 			weekResets: Date.parse(week),
 		});
+	});
+
+	it("reads an unreported session bar as 0, so the seat has room (#3758)", () => {
+		const now = Date.now();
+		fs.writeFileSync(
+			path.join(dir, ".claude.json"),
+			JSON.stringify(buildUsageCache({ week: 0 }, now)),
+		);
+		const r = seatReadingOf(dir, readAllowance({ configDir: dir, now }), now);
+		expect(r).toMatchObject({ week: 0, session: 0, sessionFull: false });
+		expect(hasRoom(r)).toBe(true);
 	});
 
 	it("reads unread where the reset has passed", () => {
