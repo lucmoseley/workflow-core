@@ -77,17 +77,25 @@ fi
 # THE COMMAND IS THE ADOPTER'S, from .claude/workflow-core.json (#2), here and in
 # the typecheck and ESLint gates below; declared_cmd owns the reader's exit codes.
 # One that runs `biome check --staged`, itself or through the package.json
-# script an npm, pnpm, yarn or bun `run` names, is refused before it runs
-# (#2731); node is spent only on a command that could (#2775): one holding
-# `run`, npm's `rum` or `ur…` for it (lib/npm-options.js isNpmRun, #3627),
-# `biome`, or a quote, backslash, expansion or brace hiding those words
-# (#3414, #3445, #3545). The first arm is infer-commands.js's
-# BIOME_STAGED_COMMAND, which is never classified.
+# script an npm, pnpm, yarn or bun run names, is refused before it runs
+# (#2731); node is spent only on a command that could (#2775): one holding a
+# package manager's name, `biome`, a quote, backslash, expansion or brace hiding
+# those words (#3414, #3445, #3545), a glob, or `parallel` or a shell word,
+# `?sh` and `?ash` standing for the shells, as lib/infer-commands.js's SHELLS,
+# that can run what the text never names (#3851). The first arm is
+# infer-commands.js's BIOME_STAGED_COMMAND, which is never classified.
 if declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/workflow-core-config.js command check_staged; then
+  blank=$(printf '\t\n_')
+  blank=${blank%_}
   case "$declared_command" in
     'node "$WFC_PLUGIN_ROOT"/scripts/biome-staged.js'*) ;;
-    *run* | *rum* | *ur* | *biome* | *[\\\'\"$\`\{]*)
-      node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/infer-commands.js check-staged "$declared_command" || exit "$?"
+    *)
+      case " $declared_command " in
+        *npm* | *yarn* | *bun* | *npx* | *biome* | *parallel* | *[\\\'\"$\`\{*?\[]* | \
+          *["$blank"\ /\;\&\|\(]sh["$blank"\ \;\&\|\)\<\>]* | *["$blank"\ /\;\&\|\(]?sh["$blank"\ \;\&\|\)\<\>]* | *["$blank"\ /\;\&\|\(]?ash["$blank"\ \;\&\|\)\<\>]*)
+          node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/infer-commands.js check-staged "$declared_command" || exit "$?"
+          ;;
+      esac
       ;;
   esac
   sh -c "$declared_command" || exit 1

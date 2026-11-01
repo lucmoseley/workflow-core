@@ -366,4 +366,35 @@ function isNpmRun(word) {
 	);
 }
 
-module.exports = { boolExact, isNpmRun, npmCanon, shorthandExact };
+/* Each word npm 11.16.0's cmd-list derefs to a command that runs the script of
+ * its name, measured off its `deref`. */
+const SCRIPT_COMMANDS = new Map(
+	Object.entries({
+		t: "test",
+		tst: "test",
+		tes: "test",
+		test: "test",
+		start: "start",
+		sto: "stop",
+		stop: "stop",
+		res: "restart",
+		rest: "restart",
+		resta: "restart",
+		restar: "restart",
+		restart: "restart",
+	}),
+);
+
+/**
+ * The script `word`, as npm's command, runs with no `run`, or undefined.
+ * @param {string} word
+ */
+const npmScriptCommand = (word) => SCRIPT_COMMANDS.get(word);
+
+module.exports = {
+	boolExact,
+	isNpmRun,
+	npmCanon,
+	npmScriptCommand,
+	shorthandExact,
+};

@@ -9,18 +9,19 @@
  * decoded, `$"…"` unquoted, and a comma brace expansion (`{a,b}`) makes a
  * word of each alternative. An expansion whose text is not known until the
  * shell runs it — a command, process or arithmetic substitution, a parameter,
- * a brace range — is kept as a null piece. Residual: a here-doc's body is
- * lexed as commands, and globs, tildes and `case` patterns are read
- * as literal text.
+ * a brace range — is kept as a null piece. An unquoted glob stays literal text
+ * and marks the word `glob`. Residual: a here-doc's body is lexed as commands,
+ * and tildes and `case` patterns are read as literal text.
  */
 
 const { requiredGroup } = require("./regex-group.js");
 
 /**
  * @typedef {{type: "word", value: string, raw: string, quoted: boolean,
- *   bashOnly: boolean, pieces: (string|null)[], subs: Token[][]}} Word
- *   `value` is the literal text, quotes removed; `bashOnly` where it holds a
- *   construct dash reads otherwise; `pieces` that text split at each
+ *   bashOnly: boolean, glob: boolean, pieces: (string|null)[], subs:
+ *   Token[][]}} Word `value` is the literal text, quotes removed; `bashOnly`
+ *   where it holds a construct dash reads otherwise; `glob` where it holds an
+ *   unquoted `*`, `?` or `[…]`; `pieces` that text split at each
  *   expansion, a null standing for one; `subs` each substitution's own
  *   tokens.
  * @typedef {{type: "op", value: string}} Op `&&`, `;`, a newline, a group's
@@ -171,6 +172,14 @@ class WordBuilder {
 		this.text = "";
 		this.quoted = false;
 		this.bashOnly = false;
+		this.glob = false;
+	}
+
+	/** An unquoted character. @param {string} c */
+	plain(c) {
+		this.glob ||=
+			c === "*" || c === "?" || (c === "]" && this.text.includes("["));
+		this.text += c;
 	}
 
 	opaque() {
@@ -348,7 +357,7 @@ function parseWord(src, start) {
 			if (end !== undefined) break;
 		}
 		if (end === undefined && isMeta(src, i)) break;
-		if (end === undefined) w.text += src[i];
+		if (end === undefined) w.plain(src.charAt(i));
 		i = end ?? i + 1;
 	}
 	w.pieces.push(w.text);
@@ -362,6 +371,7 @@ function parseWord(src, start) {
 		raw,
 		quoted: w.quoted,
 		bashOnly: w.bashOnly,
+		glob: w.glob,
 		pieces,
 		subs: w.subs,
 	}));

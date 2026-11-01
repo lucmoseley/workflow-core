@@ -436,7 +436,7 @@ describe("the pre-commit check_staged gate on a biome check --staged command (#2
 		},
 	);
 
-	it("classifies a command holding a brace, and runs it where it mentions no biome or run (#3545)", () => {
+	it("classifies a command holding a brace, and runs it where it mentions no biome or package manager (#3545)", () => {
 		const { root, run: commit } = biomeFixture("eslint {app,lib}");
 		fs.writeFileSync(path.join(root, "bin/eslint"), MARKER_STUB, {
 			mode: 0o755,
@@ -461,6 +461,76 @@ describe("the pre-commit check_staged gate on a biome check --staged command (#2
 		expect(code, out).toBe(0);
 		expect(ran("check_staged"), out).toBe(true);
 	});
+
+	/* The hook's package-manager, glob, shell-word and parallel arms send each to
+	 * node (#3851). */
+	it.each([
+		["yarn check:staged", "never rewritten"],
+		["pnpm check:staged", "never rewritten"],
+		["bun check:staged", "never rewritten"],
+		["npm test", "never rewritten"],
+		["npm start", "never rewritten"],
+		["node_modules/.bin/bi?me check --staged", "cannot be read"],
+		["A=1 B=2 sh", "cannot be read"],
+		["cat f | sh", "cannot be read"],
+		["cat f | bash -s", "cannot be read"],
+		["parallel < f", "cannot be read"],
+		["sh<gate.sh", "cannot be read"],
+		["sh\t-s", "cannot be read"],
+		["cat f\nsh", "cannot be read"],
+	])("refuses %s before it runs, naming %j (#3851)", (command, shape) => {
+		const { run: commit } = biomeFixture(command, {
+			scripts: {
+				"check:staged": "biome check --staged",
+				test: "biome check --staged",
+				start: "biome check --staged",
+			},
+			devDependencies: { "@biomejs/biome": "2.0.0" },
+		});
+		const { code, out, ran } = commit();
+		expect(code).toBe(1);
+		expect(out).toContain(shape);
+		expect(ran("check_staged")).toBe(false);
+	});
+
+	it("spends node on npx, as on each package manager (#3851)", () => {
+		const { root } = biomeFixture("npx eslint");
+		withoutClassifier(root);
+		expect(run(root, GATES.check_staged).code).not.toBe(0);
+	});
+
+	it.each([
+		"uv run ruff check app",
+		"pre-commit run --all-files",
+		"my-lint.sh --dry-run",
+	])(
+		"runs %s, holding only a run or a shell file's name, unclassified (#3851)",
+		(command) => {
+			const { root } = biomeFixture(command);
+			withoutClassifier(root);
+			const name = command.split(" ")[0] ?? "";
+			fs.writeFileSync(path.join(root, "bin", name), MARKER_STUB, {
+				mode: 0o755,
+			});
+			const { code, out, ran } = run(root, GATES.check_staged);
+			expect(code, out).toBe(0);
+			expect(ran("check_staged"), out).toBe(true);
+		},
+	);
+
+	it.each(["sh ./scripts/my-check.sh", "bash ./scripts/my-check.sh"])(
+		"classifies %s, then runs it (#3851)",
+		(command) => {
+			const { root, run: commit } = biomeFixture(
+				command,
+				declaresBiome("unused"),
+			);
+			fs.writeFileSync(path.join(root, "scripts/my-check.sh"), MARKER_STUB);
+			const { code, out, ran } = commit();
+			expect(code, out).toBe(0);
+			expect(ran("check_staged"), out).toBe(true);
+		},
+	);
 
 	it("runs an npm run whose script runs no biome check --staged", () => {
 		const { run: commit } = biomeFixture("npm run check:staged", {
@@ -488,7 +558,7 @@ describe("infer-commands.js check-staged", () => {
 				`pre-commit: check_staged "${command}" (.claude/workflow-core.json) cannot be checked: package.json does not parse (`,
 			);
 			expect(r.stderr).toContain(
-				`Fix it, or declare check_staged in .claude/workflow-core.json as 'node "$WFC_PLUGIN_ROOT"/scripts/biome-staged.js <flags>' or another command holding no npm, pnpm, yarn or bun run and no biome check, which the hook checks without reading package.json.`,
+				`Fix it, or declare check_staged in .claude/workflow-core.json as 'node "$WFC_PLUGIN_ROOT"/scripts/biome-staged.js <flags>' or another command naming no npm, pnpm, yarn, bun, bunx, npx or biome and with no expansion or glob for a command's name, no parallel and no shell reading stdin, which the hook checks without reading package.json.`,
 			);
 			expect(r.stderr).not.toContain("--command");
 		},

@@ -45,3 +45,18 @@ describe("tokenise — $(( arithmetic or a subshell (#3546)", () => {
 		expect(word?.type === "word" && word.subs).toHaveLength(1);
 	});
 });
+
+describe("tokenise — a glob (#3851)", () => {
+	const word = (src: string) => tokenise(src)[0];
+
+	it.each(["bi?me", "bi*", "bi[o]me"])("marks %s, keeping its text", (src) => {
+		expect(word(src)).toMatchObject({ value: src, glob: true });
+	});
+
+	it.each(["[", "biome", "'bi?me'", "bi\\?me", '"bi*"', "$?"])(
+		"leaves %s unmarked",
+		(src) => {
+			expect(word(src)).toMatchObject({ glob: false });
+		},
+	);
+});

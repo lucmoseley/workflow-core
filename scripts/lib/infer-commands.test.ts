@@ -718,9 +718,16 @@ describe("classifyCheckStaged", () => {
 		["a check with no --staged", "biome check --changed"],
 		["an unrelated command", "eslint ."],
 		["an npm run of an unrelated script", "npm run tsc"],
-		// Fail-closed only where the text mentions Biome or a run (#3545).
-		["an expansion with no biome and no run", "eslint $(git diff --cached)"],
-		["a brace expansion with no biome and no run", "prettier -c {a,b}.js"],
+		// Fail-closed only where the text mentions Biome or a package manager
+		// (#3545, #3851).
+		[
+			"an expansion with no biome and no package manager",
+			"eslint $(git diff --cached)",
+		],
+		[
+			"a brace expansion with no biome and no package manager",
+			"prettier -c {a,b}.js",
+		],
 	])("leaves %s alone", (_, command) => {
 		expect(
 			classify("biome check --staged", { command, inferred: false }),
@@ -799,8 +806,333 @@ describe("the check-staged CLI on #3545's fail-open shapes", () => {
 		"prettier -c {a,b}.js",
 		"git diff --cached --name-only | xargs eslint",
 		"sh ./scripts/check.sh",
-	])("passes %j, which mentions no biome and no run", (command) => {
+	])("passes %j, which mentions no biome and no package manager", (command) => {
 		expect(run(command)).toMatchObject({ status: 0, stderr: "" });
+	});
+});
+
+describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)", () => {
+	const Cli = path.join(__dirname, "infer-commands.js");
+	const Staged = "$(git diff --cached --name-only)";
+	const NoPackageManager = [
+		`uv run ruff check ${Staged}`,
+		`pre-commit run --files ${Staged}`,
+		"git diff --cached --name-only | xargs --no-run-if-empty eslint",
+		`./scripts/run-lint.sh ${Staged}`,
+	];
+
+	const writePackage = (rel: string, pkg: object) => {
+		fs.mkdirSync(path.join(dir, rel), { recursive: true });
+		fs.writeFileSync(path.join(dir, rel, "package.json"), JSON.stringify(pkg));
+	};
+	const run = (command: string) =>
+		runInProcess(Cli, ["check-staged", command], { cwd: dir });
+
+	describe("in a repo declaring Biome", () => {
+		beforeEach(() => {
+			writePackage(".", {
+				scripts: {
+					cs: "biome check --staged --no-errors-on-unmatched",
+					cs2: "echo two",
+					precs2: "biome check --staged",
+					lint2: "echo lint",
+					postlint2: "biome check --staged --write",
+					test: "biome check --staged",
+					start: "biome check --staged",
+					stop: "biome check --staged",
+					bc: "biome check",
+					bl: "biome lint --staged",
+					lint: "eslint",
+				},
+				devDependencies: { "@biomejs/biome": "2.5.15" },
+			});
+			writePackage("web", { scripts: { "web-cs": "biome check --staged" } });
+			fs.mkdirSync(path.join(dir, "web/src"));
+		});
+
+		const NeverRewritten = "an explicit value is never rewritten";
+		const HoldsMore = "holds more than that one command";
+		const InWeb = "runs it in web,";
+		const Through = "runs Biome through";
+		const NotMapped = "in a shape biome-staged.js does not map";
+
+		it.each([
+			["yarn cs", NeverRewritten],
+			["pnpm cs", NeverRewritten],
+			["bun cs", NeverRewritten],
+			["npm test", NeverRewritten],
+			["npm t", NeverRewritten],
+			["npm tst", NeverRewritten],
+			["npm start", NeverRewritten],
+			["npm stop", NeverRewritten],
+			["bun test", NeverRewritten],
+			["yarn cs run", 'passes the path "run"'],
+			["pnpm cs run", 'passes the path "run"'],
+			["bun cs run", 'passes the path "run"'],
+			["pnpm --reporter silent run cs", NeverRewritten],
+			["cd -- web && npm run web-cs", InWeb],
+			["npx bi?me format --staged", NotMapped],
+			["env bi?me format --staged", NotMapped],
+			["do $X", UNREAD],
+			["if true; then $X; fi", UNREAD],
+			["! $X", UNREAD],
+			["git ls-files | xargs -n 1 $X", UNREAD],
+			["xargs -I {} $X {}", UNREAD],
+			['sh -c "eslint $X"', UNREAD],
+
+			["npm run cs2", HoldsMore],
+			["npm run lint2", HoldsMore],
+			["yarn cs2", HoldsMore],
+			["npm restart", HoldsMore],
+			["pnpm restart", HoldsMore],
+			["npm run bc; npm run bc -- --staged", HoldsMore],
+			["cd web || cd .; npm run cs", HoldsMore],
+			["npm --prefix web run web-cs", InWeb],
+			["npm --prefix=web run web-cs", InWeb],
+			["npm -C web run web-cs", InWeb],
+			["npm run --prefix web web-cs", InWeb],
+			["npm run web-cs --prefix web", InWeb],
+			["pnpm -C web web-cs", InWeb],
+			["pnpm --dir=web run web-cs", InWeb],
+			["yarn --cwd web web-cs", InWeb],
+			["bun --cwd=web run web-cs", InWeb],
+			["cd web && npm run web-cs", InWeb],
+			["cd web/src && npm run web-cs", InWeb],
+			["(cd web; npm run web-cs)", InWeb],
+			["npm rum $S", UNREAD],
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
+			["npm urn c${X}s", UNREAD],
+			["npm ur cs$X", UNREAD],
+			["npm rum $(echo cs)", UNREAD],
+			["npm $V cs", UNREAD],
+			["npm --prefix $D run web-cs", UNREAD],
+			["cd $D && npm run web-cs", UNREAD],
+			["node_modules/.bin/bi?me check --staged", UNREAD],
+			["node_modules/.bin/bi* check --staged", UNREAD],
+			["node_modules/.bin/bi[o]me check --staged", UNREAD],
+			["A=1 $X", UNREAD],
+			["A=1 B=2 $X", UNREAD],
+			["A=1 B=2 sh", UNREAD],
+			["sh -c '$X'", UNREAD],
+			["sh -c 'npm run $S'", UNREAD],
+			["sh -c 'sh -c \"\\$X\"'", UNREAD],
+			["node node_modules/.bin/bi?me check --staged", Through],
+			["biome format --write --staged", NotMapped],
+			["biome lint --staged", NotMapped],
+			["npx biome format --staged", NotMapped],
+			["yarn biome lint --staged", NotMapped],
+			["biome --colors=off check --staged", NotMapped],
+			["npm run bl", NotMapped],
+		])("refuses %j, its refusal naming %j", (command, shape) => {
+			const r = run(command);
+			expect(r.stderr).toContain(shape);
+			expect(r.status).toBe(1);
+		});
+
+		it.each(NoPackageManager)(
+			"passes %j, which names no package manager",
+			(command) => {
+				expect(run(command)).toMatchObject({ status: 0, stderr: "" });
+			},
+		);
+
+		it.each([
+			"eslint $(git diff --cached)",
+			"sh ./scripts/check.sh",
+			"[ -f a ] && eslint",
+			"biome check src/*.ts",
+			"eslint src/*.js",
+			"bundle exec rubocop $(git diff --cached --name-only)",
+			"npm run lint",
+			"yarn add cs2x",
+			`./scripts/bun-lint.sh ${Staged}`,
+			`./scripts/npm-check.sh ${Staged}`,
+			`~/.bun/bin/ruff check ${Staged}`,
+			"sh -c 'eslint $X'",
+			"xargs eslint $X",
+			"eslint src/*.js bi?me.js --staged",
+		])(
+			"passes %j, which reaches no Biome and no unread word beside a package manager",
+			(command) => {
+				expect(run(command)).toMatchObject({ status: 0, stderr: "" });
+			},
+		);
+
+		it.each([
+			`npm run lint -- ${Staged}`,
+			`npx eslint ${Staged}`,
+			`yarn eslint ${Staged}`,
+			"git diff --cached --name-only | xargs npx eslint",
+			`./run-biome.sh ${Staged}`,
+			"$GATE",
+		])("refuses %j unread, its way out a form the check passes", (command) => {
+			const r = run(command);
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain("cannot be read");
+			expect(r.stderr).toContain("as a shell file (sh ./your-gate.sh)");
+			expect(r.stderr).toContain(`'${BIOME_STAGED_COMMAND} <flags>'`);
+			expect(run("sh ./your-gate.sh").status).toBe(0);
+			expect(run(`${BIOME_STAGED_COMMAND} --verbose`).status).toBe(0);
+		});
+
+		it.each([
+			"node --run cs",
+			"pnpm --filter web web-cs",
+			"yarn workspace web web-cs",
+			"pushd web; npm run web-cs",
+			"env -C web npm run web-cs",
+			"cd ~/web && npm run web-cs",
+			"npm install-test",
+			"pnpm --reporter silent cs",
+			"time $X",
+			`./lint.sh ${Staged}`,
+			"env $X",
+			"exec $X",
+			"find . -exec $X ;",
+			"su -c $X",
+			"npm run c?",
+			"biome check --st?ged",
+		])("leaves the stated residual %j unread", (command) => {
+			expect(run(command).status).toBe(0);
+		});
+
+		it.each([
+			"biome format --write --staged",
+			"biome lint --staged",
+			"npm run bl",
+		])("never maps %j, naming an explicit biome-staged.js", (command) => {
+			const c = classifyCheckStaged(dir, command, { inferred: true });
+			expect(c.kind).toBe("refused");
+			expect(c.kind === "refused" && c.refusal).toContain(
+				`'${BIOME_STAGED_COMMAND} <flags>'`,
+			);
+		});
+
+		it("refuses a run in another directory, which biome-staged.js cannot follow", () => {
+			const c = classifyCheckStaged(dir, "npm --prefix web run web-cs", {
+				inferred: true,
+			});
+			expect(c.kind === "refused" && c.refusal).toContain("runs it in web,");
+		});
+
+		it("refuses a script a lifecycle script runs beside, which the mapped command would lose", () => {
+			writePackage(".", {
+				scripts: { cs: "biome check --staged", precs: "tsc" },
+				devDependencies: { "@biomejs/biome": "2.5.15" },
+			});
+			const c = classifyCheckStaged(dir, "npm run cs", { inferred: true });
+			expect(c.kind === "refused" && c.refusal).toContain(
+				"holds more than that one command",
+			);
+		});
+
+		it.each(["npm run cs", "pnpm cs", "yarn cs", "bun cs", "pnpm run cs"])(
+			"maps %j, as the one adopter's shape must keep mapping",
+			(command) => {
+				writePackage(".", {
+					scripts: {
+						cs: "biome check --staged --no-errors-on-unmatched --error-on-warnings",
+					},
+					devDependencies: { "@biomejs/biome": "2.5.15" },
+				});
+				expect(classifyCheckStaged(dir, command, { inferred: true })).toEqual({
+					kind: "mapped",
+					command: `${BIOME_STAGED_COMMAND} --no-errors-on-unmatched --error-on-warnings`,
+				});
+			},
+		);
+
+		it("reads a run after cd && only in the directory it moved to (story 22)", () => {
+			writePackage("web", { scripts: { test: "vitest" } });
+			expect(run("cd web && npm test")).toMatchObject({
+				status: 0,
+				stderr: "",
+			});
+		});
+
+		it("ends on a script handing itself ever more words", () => {
+			writePackage(".", { scripts: { a: "npm run a x" } });
+			expect(run("npm run a").status).toBe(0);
+		});
+	});
+
+	describe("in a repo with no Biome evidence", () => {
+		beforeEach(() => {
+			writePackage(".", { scripts: { lint: "eslint ." } });
+		});
+
+		it.each([
+			...NoPackageManager,
+			`npm run lint -- ${Staged}`,
+			"npm run $X",
+			"$X",
+			"$B check --staged",
+			"sh -c '$X'",
+			"cat f | sh",
+			"parallel < f",
+			"xargs $(printf x) < f",
+			"tools/bi?me check --staged",
+			"npm run lint -- bad $(x)",
+		])("passes %j, as nothing here runs Biome", (command) => {
+			expect(run(command)).toMatchObject({ status: 0, stderr: "" });
+		});
+	});
+
+	describe("Biome evidence", () => {
+		it("refuses a package.json it cannot read, which shows no absence of Biome", () => {
+			fs.rmSync(path.join(dir, "package.json"));
+			fs.mkdirSync(path.join(dir, "package.json"));
+			const r = run("npm run $X");
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain("cannot be checked: EISDIR");
+		});
+
+		it.each(["peerDependencies", "optionalDependencies"])(
+			"counts @biomejs/biome in %s, though it maps only from the two others",
+			(section) => {
+				writePackage(".", { [section]: { "@biomejs/biome": "2.5.15" } });
+				const r = run("npm run $X");
+				expect(r.status).toBe(1);
+				expect(r.stderr).toContain(UNREAD);
+			},
+		);
+
+		it("reads no package.json in a directory a word only happens to name", () => {
+			writePackage(".", {});
+			fs.mkdirSync(path.join(dir, "bad"));
+			fs.writeFileSync(path.join(dir, "bad/package.json"), "{ not json");
+			expect(run("npm run lint -- bad $(x)")).toMatchObject({
+				status: 0,
+				stderr: "",
+			});
+		});
+
+		it("counts a script mentioning biome, undeclared", () => {
+			writePackage(".", { scripts: { fmt: "biome format ." } });
+			const r = run("npm run $X");
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain(UNREAD);
+		});
+
+		it("counts biome written in the command itself", () => {
+			writePackage(".", {});
+			const r = run("biome check $(git diff --name-only)");
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain(UNREAD);
+		});
+
+		it("counts a package.json in a directory the command names", () => {
+			writePackage(".", {});
+			writePackage("web", { devDependencies: { "@biomejs/biome": "2.5.15" } });
+			for (const command of [
+				"cd web && npm run $X",
+				"npm --prefix=web run $X",
+			]) {
+				const r = run(command);
+				expect(r.status).toBe(1);
+				expect(r.stderr).toContain(UNREAD);
+			}
+		});
 	});
 });
 
