@@ -7,7 +7,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { freshReads, reviewReads } from "./review-reads.js";
 
 let dir: string;
@@ -58,6 +58,46 @@ describe("reviewReads (#3765)", () => {
 		expect(
 			reviewReads("2026-11-02", file).read("k", () => ({ line: "again" }), ok),
 		).toEqual({ line: "again" });
+	});
+
+	describe("what a read of the file prints (#3814)", () => {
+		// The whole text taken: a 0-byte answer holds writeFd for its 10 s ceiling.
+		const spyWrites = () =>
+			vi
+				.spyOn(fs, "writeSync")
+				.mockImplementation((_fd, data) => Buffer.byteLength(data as string));
+
+		afterEach(() => vi.restoreAllMocks());
+
+		it.each([
+			["torn", "{ torn"],
+			["holding several lines", "x\ny\n"],
+		])(
+			"prints one line to stderr over a file %s, and the run carries on",
+			(_name, damaged) => {
+				fs.writeFileSync(file, damaged);
+				const write = spyWrites();
+				const reads = reviewReads("2026-11-02", file);
+				const printed = write.mock.calls.map(([fd, text]) => [
+					fd,
+					String(text),
+				]);
+				write.mockRestore();
+				expect(printed).toEqual([
+					[2, expect.stringMatching(/ is damaged \(.*\n$/)],
+				]);
+				expect(String(printed[0]?.[1]).split("\n")).toHaveLength(2);
+				expect(reads.read("k", () => ({ line: "fresh" }), ok)).toEqual({
+					line: "fresh",
+				});
+			},
+		);
+
+		it("prints nothing where the file is absent", () => {
+			const write = spyWrites();
+			reviewReads("2026-11-02", file);
+			expect(write).not.toHaveBeenCalled();
+		});
 	});
 
 	it("freshReads runs every read and keeps none (#3813)", () => {

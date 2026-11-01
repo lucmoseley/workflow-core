@@ -385,20 +385,20 @@ describe("file-morning-review.js (#2011)", () => {
 				61: [],
 			}),
 		);
-		const timelineReads = () =>
+		const readTimelineReads = () =>
 			fs
 				.readFileSync(stub("calls.log"), "utf8")
 				.split("\n")
 				.filter((l) => l.includes("/timeline"))
 				.map((l) => l.match(/issues\/(\d+)\/timeline/)?.[1]);
 		expect(run().status).toBe(1);
-		expect(timelineReads()).toEqual(["60", "61"]);
+		expect(readTimelineReads()).toEqual(["60", "61"]);
 		fs.rmSync(stub("fail-review-create"));
 		fs.writeFileSync(stub("calls.log"), "");
 		/* The timeline gone: a kept age is the only way #60's still reads. */
 		fs.writeFileSync(stub("timelines.json"), JSON.stringify({ 61: [] }));
 		expect(run().status).toBe(0);
-		expect(timelineReads()).toEqual(["61"]);
+		expect(readTimelineReads()).toEqual(["61"]);
 		expect(readCreated()[0].body).toContain(
 			"- acme/wfc#60 — `Waits on a round` — 3 days\n",
 		);

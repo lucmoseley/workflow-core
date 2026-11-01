@@ -25,7 +25,7 @@
 	"scripts/check-orphan-wait-loops.js": "90bc6c5b386d37be",
 	"scripts/check-orphaned-edits.js": "1ed7089d34fea078",
 	"scripts/check-plugin-gap.js": "d05d117acd5eb8fa",
-	"scripts/check-refill-loop-stop.js": "14de1af196c35891",
+	"scripts/check-refill-loop-stop.js": "ea28fc0a14ce5aea",
 	"scripts/check-research-added.js": "26c2aae049e0cb76",
 	"scripts/check-roadmap-pair.js": "0f8d9e8ae9d98ba8",
 	"scripts/check-roadmap-valid.js": "e6aaa9840b281f96",

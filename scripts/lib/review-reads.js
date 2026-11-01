@@ -5,17 +5,16 @@
  * or by hand, resumes from them on its retry instead of starting again.
  *
  * Kept per machine-local date in lib/refill-dir.js's directory, beside the
- * loop's own files, and written after each read. A file from another day,
- * or one that will not parse, is read as empty. Only a read that succeeded is kept: a failed one is retried.
+ * loop's own files, and written after each read. A file from another day is
+ * read as empty. Only a read that succeeded is kept: a failed one is retried.
  *
  * A dry run takes freshReads instead (#3813): it writes nothing a later filing would
  * take for its own, and shows what is true now.
  */
 
-const fs = require("node:fs");
-const { caught } = require("./caught.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { refillPath } = require("./refill-dir.js");
+const { readJson } = require("./refill-files.js");
 const { writeFd } = require("./write-fd.js");
 
 const READS_FILE = ".morning-review-reads.json";
@@ -26,18 +25,17 @@ const READS_FILE = ".morning-review-reads.json";
  * @returns {Record<string, unknown>}
  */
 function load(file, day) {
-	try {
-		const kept = JSON.parse(fs.readFileSync(file, "utf8"));
-		return kept?.day === day && kept.reads && typeof kept.reads === "object"
-			? kept.reads
-			: {};
-	} catch (err) {
-		/* Fail open (#3765). Any other fault is printed, so it is not taken for
-		 * a fresh day. */
-		if (caught(err).code !== "ENOENT" && !(err instanceof SyntaxError))
-			writeFd(2, `review reads unread: ${caught(err).message}\n`);
-		return {};
-	}
+	/* Fail open (#3765): a damaged file costs only the day's kept reads, and
+	 * writes here are atomic, so it is a fault to print (#3814). */
+	/** @param {string} line */
+	const print = (line) => writeFd(2, `${line}\n`);
+	const kept =
+		/** @type {{day?: string, reads?: Record<string, unknown>}|null} */ (
+			readJson(file, print)
+		);
+	return kept?.day === day && kept.reads && typeof kept.reads === "object"
+		? kept.reads
+		: {};
 }
 
 /**

@@ -54,7 +54,8 @@ function readJsonOutcome(file) {
 		const { code, message } = caught(err);
 		return code === "ENOENT"
 			? { found: false, value: null, damage: null }
-			: { found: true, value: null, damage: message };
+			: /* One line: JSON.parse's message can quote a multi-line source (#3814). */
+				{ found: true, value: null, damage: message.replace(/\s*\n\s*/g, " ") };
 	}
 }
 
