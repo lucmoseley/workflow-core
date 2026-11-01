@@ -116,6 +116,12 @@ Rotation is built into the poll loop — no cron, no logrotate. Above **500** bl
 
 **The concurrency readout reads that `sessions` field for sustained concurrency** (#3317, `scripts/lib/concurrency.js`), so its input keeps a row every minute while the refill loop is off. Its verdict comes from `~/.claude/concurrency.jsonl` instead, one line per refill-loop tick: the working count, the admission ceiling, the binding limit, every other failing limit and the memory figures behind them, kept 28 days. `npm run status` prints the block and rewrites `~/.claude/concurrency-24h`, the 24-hour sustained figure as one number, `-` where no session worked or `?` where the minute record did not read, which each tick also rewrites.
 
+### The refill loop's boot unit
+
+`node scripts/install-refill-boot-unit.js` writes `~/.config/systemd/user/refill-loop-boot.service` and enables it without starting it. At each boot it runs `refill-loop.js boot-resume`, which restarts the loop or refuses (`scripts/lib/refill-boot.js`), its reason in the loop's log and the journal. Verify with `systemctl --user is-enabled refill-loop-boot.service` and §4's linger check.
+
+The unit runs through a login shell for `~/.bashrc`'s heap bound, and fixes the installer's `PATH`, seat and `WFC_CLAUDE_BIN`. Re-run the install where any of those change, or a plugin release moves the script. It starts from the shared checkout's `scripts/refill-loop.js`, so a boot that finds that file broken mid-edit leaves the loop down, with the error in `journalctl --user -u refill-loop-boot.service` only.
+
 ---
 
 ## 5. Daily use

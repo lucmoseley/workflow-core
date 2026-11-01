@@ -19,6 +19,9 @@
  *                                        rows and the `seats:` line's fields
  *   node scripts/refill-loop.js dry-run  one tick's decision, printed; reaps
  *                                        and launches nothing
+ *   node scripts/refill-loop.js boot-resume  the boot unit's: restart the loop
+ *                                        where no stop ended it, writing no
+ *                                        control (install-refill-boot-unit.js)
  *
  * Each tick is lib/refill-tick.js's; the seats it reads, lib/refill-seats.js's;
  * what `start` and `status` print, lib/refill-commands.js's.
@@ -68,7 +71,9 @@ const { configDir, seatDir } = require("./lib/config-dir.js");
 const { readLastTyped } = require("./lib/presence.js");
 const { checkoutEnv, exclusionOf, homeDir } = require("./lib/refill-repos.js");
 const loop = require("./lib/refill-loop.js");
+const { bootVerdictOf } = require("./lib/refill-boot.js");
 const {
+	readControlChecked,
 	readControlFile,
 	readStateFile,
 	writeControlFile,
@@ -94,7 +99,7 @@ const {
 const LOG_MAX_BYTES = 1024 * 1024;
 
 const SCRIPTS = __dirname;
-const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | status | dry-run
+const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | status | dry-run | boot-resume
   start [--repo <dir>]… [--goal 116,117]       normal mode: this checkout plus each named one
   start --away [--exclude <dir>]… [--goal …]   away mode: every included checkout but those named
   status [--json]                              --json: the launch rows, each with its seat and why, and the seats line's fields
@@ -211,6 +216,68 @@ function readSeatsView(planSeats, root, callerSeat) {
 	});
 }
 
+/**
+ * Spawn the detached loop from its verified code.
+ * @returns {{error: string} | {pid: number|undefined, fetchError: string|null|undefined}}
+ */
+function launchLoop() {
+	const launch = refillCode.launchProgram({
+		scriptsDir: SCRIPTS,
+		codeDir: files.code,
+	});
+	if ("error" in launch) return { error: String(launch.error) };
+	trimLog();
+	const out = fs.openSync(files.log, "a");
+	const env = { ...process.env };
+	forgetSession(env);
+	const child = spawn(process.execPath, [launch.program, "run"], {
+		detached: true,
+		stdio: ["ignore", out, out],
+		cwd: homeDir(),
+		env,
+	});
+	child.unref();
+	return { pid: child.pid, fetchError: launch.fetchError };
+}
+
+/** @param {string} why */
+const buildFetchFailedLine = (why) =>
+	`fetch failed, starting on the last fetched tip: ${why}`;
+
+/**
+ * What a boot's user unit runs (lib/refill-boot.js): this process's stdout is
+ * the journal, so its lines also go to the loop's log.
+ */
+function bootResume() {
+	const note = (/** @type {string} */ line) => {
+		const stamped = `${new Date().toISOString()} ${line}\n`;
+		writeFd(1, stamped);
+		fs.mkdirSync(path.dirname(files.log), { recursive: true });
+		fs.appendFileSync(files.log, stamped);
+	};
+	const { control, damaged } = readControlChecked(note);
+	const verdict = bootVerdictOf({
+		control,
+		damaged,
+		stopped: readStateFile(note).stopped,
+		pid: lock.holder(),
+		self: process.pid,
+	});
+	if (!verdict.resume) {
+		note(verdict.line);
+		return 0;
+	}
+	const launched = launchLoop();
+	if ("error" in launched) {
+		note(`boot resume: not resumed: ${launched.error}`);
+		return 1;
+	}
+	if (launched.fetchError)
+		note(`boot resume: ${buildFetchFailedLine(launched.fetchError)}`);
+	note(`${verdict.line}, pid ${launched.pid}`);
+	return 0;
+}
+
 /** @param {import("./lib/cli-args").Parsed} parsed */
 function start(parsed) {
 	const root = hostRoot();
@@ -256,28 +323,13 @@ function start(parsed) {
 		for (const line of scopeText) say(line);
 		return 0;
 	}
-	const launch = refillCode.launchProgram({
-		scriptsDir: SCRIPTS,
-		codeDir: files.code,
-	});
-	if ("error" in launch) {
-		writeFd(2, `refill loop not started: ${launch.error}\n`);
+	const launched = launchLoop();
+	if ("error" in launched) {
+		writeFd(2, `refill loop not started: ${launched.error}\n`);
 		return 1;
 	}
-	if (launch.fetchError)
-		say(`fetch failed, starting on the last fetched tip: ${launch.fetchError}`);
-	trimLog();
-	const out = fs.openSync(files.log, "a");
-	const env = { ...process.env };
-	forgetSession(env);
-	const child = spawn(process.execPath, [launch.program, "run"], {
-		detached: true,
-		stdio: ["ignore", out, out],
-		cwd: homeDir(),
-		env,
-	});
-	child.unref();
-	say(`refill loop started: pid ${child.pid}`);
+	if (launched.fetchError) say(buildFetchFailedLine(launched.fetchError));
+	say(`refill loop started: pid ${launched.pid}`);
 	for (const line of scopeText) say(line);
 	for (const seat of unlistedSeats(control.seats))
 		say(
@@ -494,6 +546,7 @@ const CLI = {
 		status: { usage: USAGE, flags: { "--json": "boolean" } },
 		"dry-run": { usage: USAGE },
 		run: { usage: USAGE },
+		"boot-resume": { usage: USAGE },
 	},
 };
 
@@ -503,6 +556,7 @@ const COMMANDS = {
 	status,
 	"dry-run": printDryRun,
 	run,
+	"boot-resume": bootResume,
 };
 
 async function main(argv = process.argv.slice(2)) {

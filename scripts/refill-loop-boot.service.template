@@ -1,0 +1,21 @@
+[Unit]
+Description=Restart the refill loop after a boot where no stop ended it
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# #3878. A login, interactive shell gives the loop what a typed start gets:
+# ~/.bashrc, whose heap bound sits past its non-interactive return. Environment=
+# holds what the profile does not set.
+@ENVIRONMENT@
+ExecStart=@SHELL@ -lic "exec node @SCRIPT@ boot-resume"
+WorkingDirectory=%h
+# The loop outlives this process and runs until `refill-loop.js stop`, so no
+# stop of this unit, and no kill inside its cgroup, may take it down.
+KillMode=process
+OOMPolicy=continue
+# The loop's sessions can run in this cgroup, which a default cap would count.
+TasksMax=infinity
+
+[Install]
+WantedBy=default.target

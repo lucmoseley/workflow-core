@@ -2512,3 +2512,108 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 		);
 	});
 });
+
+describe("boot-resume after a restart (#3878)", () => {
+	const startedAt = Date.now() - 3 * 24 * 60 * 60 * 1000;
+	const controlFile = () => at(".refill-loop-control.json");
+	const writeControl = () =>
+		fs.writeFileSync(
+			controlFile(),
+			JSON.stringify({
+				noProgressFrom: startedAt,
+				stopRequested: false,
+				seats: [seat],
+				scope: { mode: "normal", repos: [repo], exclude: [], goals: {} },
+			}),
+		);
+	const command = (...argv: string[]) =>
+		runInProcessAsync(path.join(scripts, "refill-loop.js"), argv, {
+			cwd: dir,
+			env: loopEnv({ FAKE_SLOTS: "1", CLAUDE_PROJECT_DIR: repo }),
+		});
+	const readLog = () => readLines(at(".refill-loop.log")).join("\n");
+	/* The stub dispatcher requests a stop, so a resumed loop ticks, launches and
+	 * exits: its pidfile goes, after the dispatch that shows it ran. */
+	const untilLoopEnded = () =>
+		polled(
+			() =>
+				readLines(at("dispatches")).length > 0 &&
+				!fs.existsSync(at(".refill-loop.pid")),
+			"the resumed loop did not end",
+		);
+	/* spawn-kept: the pidfile's holder must be another live process, its command
+	 * line naming the program, or pid-lock reads it as stale. */
+	const spawnHolder = () => {
+		const holder = spawn(
+			process.execPath,
+			["-e", "setInterval(() => {}, 1000)", "refill-loop.js"],
+			{ stdio: "ignore" },
+		);
+		fs.writeFileSync(at(".refill-loop.pid"), String(holder.pid));
+		return holder;
+	};
+	const exited = (holder: ReturnType<typeof spawn>) =>
+		new Promise((resolve) => {
+			holder.once("exit", resolve);
+			holder.kill();
+		});
+
+	it("restarts a loop no stop ended, however old its start, which it keeps", async () => {
+		writeControl();
+		expect((await command("boot-resume")).status).toBe(0);
+		await untilLoopEnded();
+		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
+		expect(
+			JSON.parse(fs.readFileSync(controlFile(), "utf8")).noProgressFrom,
+		).toBe(startedAt);
+		expect(readLog()).toContain(
+			`boot resume: resumed the loop started ${new Date(startedAt).toISOString()}, pid `,
+		);
+	});
+
+	it("refuses after `stop`, logging it and starting nothing", async () => {
+		writeControl();
+		await command("stop");
+		expect((await command("boot-resume")).status).toBe(0);
+		expect(readLog()).toContain("boot resume: not resumed: stopped by command");
+		expect(fs.existsSync(at(".refill-loop.pid"))).toBe(false);
+		expect(fs.existsSync(at("ticks"))).toBe(false);
+	});
+
+	it("resumes after a `start` that overtook a `stop`, past the dead loop's pidfile", async () => {
+		writeControl();
+		const holder = spawnHolder();
+		await command("stop");
+		await command("start");
+		await exited(holder);
+		expect((await command("boot-resume")).status).toBe(0);
+		await untilLoopEnded();
+		expect(readLog()).toContain("boot resume: resumed");
+	});
+
+	it("starts no second loop beside a running one", async () => {
+		writeControl();
+		const holder = spawnHolder();
+		try {
+			expect((await command("boot-resume")).status).toBe(0);
+			expect(readLog()).toContain(
+				`boot resume: not resumed: already running, pid ${holder.pid}`,
+			);
+			expect(fs.readFileSync(at(".refill-loop.pid"), "utf8")).toBe(
+				String(holder.pid),
+			);
+			expect(fs.existsSync(at("ticks"))).toBe(false);
+		} finally {
+			await exited(holder);
+		}
+	});
+
+	it("exits 1, logging why, where the loop's code will not launch", async () => {
+		writeControl();
+		/* A checkout, so launchProgram wants a verified ref this one lacks. */
+		spawnSync("git", ["init", "-q", at("code")]);
+		expect((await command("boot-resume")).status).toBe(1);
+		expect(readLog()).toMatch(/boot resume: not resumed: no \S+ in /);
+		expect(fs.existsSync(at("ticks"))).toBe(false);
+	});
+});
