@@ -1,14 +1,13 @@
 /*
  * unclosed-launch.js — a ticket whose latest loop launch committed and ended
  * without closing it (#3782): its session may have finished the work and died
- * before its close, so implementing again may repeat work already landed.
- * Pure, over the loop's launch records.
+ * before its close. Pure, over the loop's launch records.
  *
  * Only a lone `/implement` launch reads this way: a `/wayfinder`, `/to-spec` or
  * `/triage` session rightly commits and leaves its issue open, and a retro
  * bundle's acts cannot be told apart by member. The next launch of the ticket
- * supersedes the record, whatever it did, so a check that left the ticket open
- * hands it back to plain `/implement`.
+ * supersedes the record, whatever it did, unless a gate judgement's, which
+ * builds nothing.
  *
  * Residual: acts are counted per session and kind, so a session that closed
  * some other issue reads as having closed this one, and is not caught.
@@ -26,6 +25,7 @@ const IMPLEMENT_PREFIX = "/implement ";
  * @property {string} [prompt]
  * @property {number|null} finishedAt
  * @property {Record<string, number>|string} [acts]
+ * @property {true} [gate]
  */
 
 /** @param {UnclosedRecord} l */
@@ -37,8 +37,6 @@ function isUnclosed(l) {
 }
 
 /**
- * The launches, in launch order, that are their ticket's latest and read as
- * unclosed.
  * @template {UnclosedRecord} L
  * @param {L[]} launches in launch order
  * @returns {L[]}
@@ -46,7 +44,7 @@ function isUnclosed(l) {
 function unclosedLaunches(launches) {
 	/** @type {Map<string, L>} */
 	const latest = new Map();
-	for (const l of launches)
+	for (const l of launches.filter((x) => !x.gate))
 		for (const n of l.issues) latest.set(`${l.root}#${n}`, l);
 	return launches.filter(
 		(l) => isUnclosed(l) && latest.get(`${l.root}#${l.issues[0]}`) === l,
@@ -54,7 +52,6 @@ function unclosedLaunches(launches) {
 }
 
 /**
- * Issue `n`'s unclosed launch in `root`, or null.
  * @template {UnclosedRecord} L
  * @param {L[]} launches in launch order
  * @param {string} root
@@ -70,9 +67,8 @@ function unclosedLaunchOf(launches, root, n) {
 }
 
 /**
- * The launch prompt for a ticket with an unclosed launch. It names no number
- * but the issue's, since the dispatcher reads every integer in a prompt as an
- * issue it holds.
+ * It names no number but the issue's, since the dispatcher reads every integer
+ * in a prompt as an issue it holds.
  * @param {number} n
  */
 const buildVerifyPrompt = (n) =>
