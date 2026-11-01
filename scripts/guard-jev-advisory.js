@@ -29,8 +29,9 @@
  * IMPLICIT:  appends one JSONL line per turn under `.claude/tmp/markers/`,
  *            carrying the outgoing text itself on a `flagged` line and on no
  *            other (#285), and on a turn that passes every gate sends the
- *            turn's own text to the Vercel AI Gateway; emits at most one
- *            advisory line and refuses nothing, ever.
+ *            turn's own text to the Vercel AI Gateway; writes the secrets
+ *            store's `.gitignore` where its key read finds it missing (#3663);
+ *            emits at most one advisory line and refuses nothing, ever.
  * JUSTIFIED: fail-safe — #175 made the adoption reversible on evidence, and
  *            evidence not collected from the first session cannot be argued
  *            from later.
@@ -81,7 +82,7 @@ const stopGuard = require("./lib/stop-guard");
 const jevLog = require("./lib/jev-log.js");
 const { guardDisabled } = require("./lib/workflow-core-config");
 const { hasRoundMarker } = require("./lib/round-marker");
-const { readEnvFileValue, secretsFile } = require("./lib/env-file.js");
+const { readSecretKeepingIgnore } = require("./lib/env-file.js");
 
 /**
  * The master switch's spelling in `.claude/workflow-core.json`'s `disabled`
@@ -417,7 +418,7 @@ function readKey() {
 	const fromEnv = process.env[KEY_VAR]?.trim();
 	if (fromEnv) return fromEnv;
 	try {
-		return readEnvFileValue(secretsFile(), KEY_VAR);
+		return readSecretKeepingIgnore(KEY_VAR);
 	} catch {
 		/* No secrets file, or one that cannot be read: both are "no key", which
 		 * skips the turn. */
