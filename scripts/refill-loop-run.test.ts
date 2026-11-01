@@ -441,6 +441,8 @@ process.stdout.write("Memory kill incident from 2026-10-26 03:56: filed #9.");\n
 			);
 		};
 
+		const resultFile = () => at(".refill-review-result.json");
+
 		const appeared = (file: string) =>
 			polled(() => fs.existsSync(file), `${file} never appeared`);
 
@@ -448,12 +450,12 @@ process.stdout.write("Memory kill incident from 2026-10-26 03:56: filed #9.");\n
 		 * nor writes it back. The runner is detached, so it leads a process group
 		 * holding the stub (#3814). */
 		afterEach(() => {
-			const held = at(".refill-review.pid");
-			if (!fs.existsSync(held)) return;
+			const pidFile = at(".refill-review.pid");
 			try {
-				process.kill(-Number(fs.readFileSync(held, "utf8")), "SIGKILL");
+				process.kill(-Number(fs.readFileSync(pidFile, "utf8")), "SIGKILL");
 			} catch (err) {
-				if ((err as NodeJS.ErrnoException).code !== "ESRCH") throw err;
+				const { code } = err as NodeJS.ErrnoException;
+				if (code !== "ENOENT" && code !== "ESRCH") throw err;
 			}
 		});
 
@@ -479,8 +481,7 @@ process.stdout.write("filed #900");\n`,
 		};
 
 		/* TZ steers the due rule's clock: runInProcess writes process.env in
-		 * place, and node re-reads its zone on each TZ assignment. The filing's
-		 * stub holds until `release` exists. */
+		 * place, and node re-reads its zone on each TZ assignment. */
 		it("launches and writes its concurrency row on every tick while the filing runs detached, then logs it and records today (#3765)", async () => {
 			const { zone, today } = zoneAt(12);
 			stubHeldFiling();
@@ -513,12 +514,12 @@ process.stdout.write("filed #900");\n`,
 			expect(readLines(at("concurrency.jsonl"))).toHaveLength(2);
 
 			fs.writeFileSync(at("release"), "");
-			await appeared(at(".refill-review-result.json"));
+			await appeared(resultFile());
 			const third = await tick();
 			expect(third.stdout).toContain("morning review: exit 0\n  filed #900");
 			expect(readReviewRunOn()).toBe(today);
 			expect(readLines(at("dispatches"))).toHaveLength(3);
-			await appeared(at(".refill-review-result.json"));
+			await appeared(resultFile());
 			expect(readLines(at("reviews"))).toEqual([
 				"file-morning-review.js",
 				"answer-review-reversals.js",
@@ -554,10 +555,10 @@ process.stdout.write("filed #900");\n`,
 			expect(second.status).toBe(0);
 			expect(second.stdout + second.stderr).toBe("");
 			expect(readLines(at("reviews"))).toEqual(["file-morning-review.js"]);
-			expect(fs.existsSync(at(".refill-review-result.json"))).toBe(false);
+			expect(fs.existsSync(resultFile())).toBe(false);
 
 			fs.writeFileSync(at("release"), "");
-			await appeared(at(".refill-review-result.json"));
+			await appeared(resultFile());
 		});
 	});
 
