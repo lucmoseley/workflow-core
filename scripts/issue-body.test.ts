@@ -596,6 +596,38 @@ describe("the CLI", () => {
 		expect(readEdits()).toBe(0);
 	});
 
+	it("judges a --repo edit's check against that repo's checkout, and refuses where there is none (#3487)", () => {
+		const home = path.join(dir, "home");
+		const root = path.join(home, "theirs");
+		fs.mkdirSync(path.join(root, ".git"), { recursive: true });
+		fs.mkdirSync(path.join(root, ".claude"));
+		fs.writeFileSync(
+			path.join(root, ".claude", "workflow-core.json"),
+			JSON.stringify({ tracker: "owner/theirs" }),
+		);
+		fs.writeFileSync(path.join(root, "their-file.txt"), "their reading\n");
+		process.env.HOME = home;
+		fs.writeFileSync(store, "## Log\n\nv0\n");
+		const line =
+			"**Gated on:** it lands — check: `cat their-file.txt` — abandon if: it is dropped\n**Gate basis:** the landing sets it";
+
+		const none = refusal(
+			"append",
+			"96",
+			"--repo",
+			"owner/nobody",
+			"--text",
+			line,
+		);
+		expect(none.status).toBe(2);
+		expect(none.stderr).toContain(`no checkout under ${home} tracks`);
+		expect(none.stderr).toContain("write the line from its checkout");
+		expect(readEdits()).toBe(0);
+
+		run("append", "96", "--repo", "owner/theirs", "--text", line);
+		expect(fs.readFileSync(store, "utf8")).toContain("cat their-file.txt");
+	});
+
 	const dryReplace = (contents: string) => {
 		fs.writeFileSync(store, "## Log\n\nv0\n");
 		process.env.STUB_EDIT_FAILS = "1";
@@ -914,7 +946,10 @@ describe("the lock is never observable without its holder (mantahostels#139)", (
 
 describe("the gate act (#3301)", () => {
 	const Me = "issue-body-gate-session";
-	const sb = freshSandbox();
+	// The sandbox stubs WFC_GH to refuse every call; this suite's own fake answers.
+	const sb = freshSandbox(() => {
+		process.env.WFC_GH = stubGhScript(dir, STUB).gh;
+	});
 	const Gate = "**Gated until:** 2026-10-09 — x\n**Gate basis:** y";
 	const acts = () => arbiter.readActsBy(Me, [sb.repo]).acts;
 	const run = (...args: string[]) =>

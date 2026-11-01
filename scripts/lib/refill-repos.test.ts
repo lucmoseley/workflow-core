@@ -3,7 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-const { readAdopterCheckouts, discoverRepos } = require("./refill-repos.js");
+const {
+	readAdopterCheckouts,
+	readCheckoutTracking,
+	discoverRepos,
+} = require("./refill-repos.js");
 
 let home: string;
 beforeEach(() => {
@@ -86,5 +90,29 @@ describe("readAdopterCheckouts (#2121)", () => {
 			{ root: worktree, why: "not a main checkout" },
 		]);
 		expect(discoverRepos(home).included).toEqual([core]);
+	});
+});
+
+describe("readCheckoutTracking (#3487)", () => {
+	const breakConfig = (root: string) =>
+		fs.writeFileSync(
+			path.join(root, ".claude", "workflow-core.json"),
+			"{ nope",
+		);
+
+	it("finds the checkout past a neighbour whose config will not read", () => {
+		breakConfig(checkout("aaa", {}));
+		const theirs = checkout("zzz", { tracker: "owner/theirs" });
+		expect(readCheckoutTracking("owner/theirs", home)).toEqual({
+			root: theirs,
+		});
+	});
+
+	it("names that neighbour where nothing tracks the repo", () => {
+		const broken = checkout("aaa", {});
+		breakConfig(broken);
+		const { why } = readCheckoutTracking("owner/nobody", home);
+		expect(why).toContain(`no checkout under ${home} tracks owner/nobody`);
+		expect(why).toContain(`and ${broken} (`);
 	});
 });
