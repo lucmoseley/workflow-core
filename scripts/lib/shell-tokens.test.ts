@@ -58,6 +58,62 @@ describe("tokenise — a `$'…'` control escape (#3853)", () => {
 	});
 });
 
+/* Each row's bytes are what `bash -c "printf %s <src>"` printed, on bash 5.2.21
+ * in C.UTF-8. A row expects them as Node decodes bytes: not UTF-8, U+FFFD. */
+describe("tokenise — a `$'…'` word reads as bash's bytes (#3896)", () => {
+	it.each<[string, number[]]>([
+		["$'\\x'", [0x5c, 0x78]],
+		["$'\\xZ'", [0x5c, 0x78, 0x5a]],
+		["$'\\u'", [0x5c, 0x75]],
+		["$'\\uZ'", [0x5c, 0x75, 0x5a]],
+		["$'\\U'", [0x5c, 0x55]],
+		["$'\\UZ'", [0x5c, 0x55, 0x5a]],
+		["$'\\U110000'", [0xf4, 0x90, 0x80, 0x80]],
+		["$'\\U00200000'", [0xf8, 0x88, 0x80, 0x80, 0x80]],
+		["$'\\U7FFFFFFF'", [0xfd, 0xbf, 0xbf, 0xbf, 0xbf, 0xbf]],
+		["$'b\\UFFFFFFFFc'", [0x62, 0x63]],
+		["$'\\uD800'", [0xed, 0xa0, 0x80]],
+		["$'\\u7ff'", [0xdf, 0xbf]],
+		["$'\\u800'", [0xe0, 0xa0, 0x80]],
+		["$'\\U0001F600'", [0xf0, 0x9f, 0x98, 0x80]],
+		["$'\\q'", [0x5c, 0x71]],
+		["$'\\8'", [0x5c, 0x38]],
+		["$'\\\u00e9'", [0x5c, 0xc3, 0xa9]],
+		["$'\\\\'", [0x5c]],
+		["$'\\''", [0x27]],
+		["$'\\\"'", [0x22]],
+		["$'\\?'", [0x3f]],
+		["$'\\xFF'", [0xff]],
+		["$'\\xc3\\xa9'", [0xc3, 0xa9]],
+		["$'\\303\\251'", [0xc3, 0xa9]],
+		["$'\\777'", [0xff]],
+		["$'\\x414'", [0x41, 0x34]],
+		["$'\\1012'", [0x41, 0x32]],
+		["$'\\x{41}'", [0x41]],
+		["$'\\x{41'", [0x41]],
+		["$'\\x{4142}'", [0x42]],
+		["$'\\c?'", [0x7f]],
+		["$'\\c\\\\A'", [0x1c, 0x41]],
+		["$'\\c\\A'", [0x1c, 0x41]],
+		["$'\\c\u00e9'", [0x03, 0xa9]],
+	])("reads %s", (src, bytes) => {
+		expect(values(src)).toEqual([Buffer.from(bytes).toString()]);
+	});
+
+	it.each([
+		"a$'b\\0c'd",
+		"a$'b\\x00c'd",
+		"a$'b\\c@c'd",
+		"a$'b\\400c'd",
+		"a$'b\\u0'd",
+		"a$'b\\U0'd",
+		"a$'b\\x{}c'd",
+		"a$'b\\x{Zc'd",
+	])("ends the quoted span at the NUL in %s", (src) => {
+		expect(values(src)).toEqual(["abd"]);
+	});
+});
+
 describe("tokenise — a glob (#3851)", () => {
 	const word = (src: string) => tokenise(src)[0];
 

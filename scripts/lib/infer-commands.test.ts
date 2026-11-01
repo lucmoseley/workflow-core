@@ -113,6 +113,22 @@ describe("a command naming a script or directory by a bare `$'\\c'` (#3853)", ()
 	});
 });
 
+describe("a command holding a `$'…'` escape with no character to read (#3896)", () => {
+	it("reads eslint $'\\x' as no Biome command in a repo with no Biome evidence", () => {
+		expect(
+			classifyCheckStaged(dir, "eslint $'\\x'", { inferred: true }),
+		).toEqual({ kind: "none" });
+	});
+
+	it("follows the script named as bash reads it, the literal \\x", () => {
+		fs.writeFileSync(
+			path.join(dir, "package.json"),
+			JSON.stringify({ scripts: { "\\x": "lint-staged" } }),
+		);
+		expect(isLintStagedCommand(dir, "npm run $'\\x'")).toBe(true);
+	});
+});
+
 describe("classifyCheckStaged", () => {
 	const classify = (
 		script: string,
@@ -571,6 +587,18 @@ describe("classifyCheckStaged", () => {
 			kind: "mapped",
 			command: `${BIOME_STAGED_COMMAND} --verbose`,
 		});
+	});
+
+	it.each([
+		"eslint $'\\x'",
+		"npm run $'\\x'",
+		"biome check --staged $'\\x'",
+		"biome check --staged $'\\u'",
+		"biome check --staged $'\\U'",
+		"biome check --staged $'\\U110000'",
+	])("refuses %s as unreadable, never throwing (#3896)", (command) => {
+		const c = classify("biome check --staged", { command });
+		expect(c.kind === "refused" && c.refusal).toContain(UNREAD);
 	});
 
 	it.each([

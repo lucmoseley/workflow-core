@@ -58,7 +58,7 @@ const BRACE_EXPANSION = /\{([^\s{}]*)\}/y;
  * lex. */
 const MAX_BRACE_WORDS = 64;
 const ANSI_C_ESCAPE =
-	/\\(x[\dA-Fa-f]{1,2}|u[\dA-Fa-f]{1,4}|U[\dA-Fa-f]{1,8}|[0-7]{1,3}|c.|.)/gs;
+	/\\(x\{[\dA-Fa-f]*\}?|x[\dA-Fa-f]{1,2}|u[\dA-Fa-f]{1,4}|U[\dA-Fa-f]{1,8}|[0-7]{1,3}|c\\\\|c.|.)/gs;
 const ANSI_C_LETTERS = new Map(
 	Object.entries({
 		a: "\x07",
@@ -70,6 +70,10 @@ const ANSI_C_LETTERS = new Map(
 		r: "\r",
 		t: "\t",
 		v: "\v",
+		"\\": "\\",
+		"'": "'",
+		'"': '"',
+		"?": "?",
 	}),
 );
 /* What a backslash escapes inside double quotes. */
@@ -231,21 +235,64 @@ const parseSingle = (src, i, w) => {
 const parseAnsiC = (src, i, w) => {
 	if (!src.startsWith("$'", i)) return;
 	const k = scanTo(src, i + 2, "'");
-	w.span(src.slice(i + 2, k).replace(ANSI_C_ESCAPE, decodeAnsiC));
+	w.span(decodeAnsiC(src.slice(i + 2, k)));
 	w.bashOnly = true;
 	return k + 1;
 };
 
-/** One `$'…'` escape's text. @param {string} _ @param {string} esc */
-function decodeAnsiC(_, esc) {
-	if (/^[xuU]/.test(esc))
-		return String.fromCodePoint(Number.parseInt(esc.slice(1), 16));
-	if (/^[0-7]/.test(esc)) return String.fromCodePoint(Number.parseInt(esc, 8));
-	if (esc[0] === "c") {
-		const control = esc.codePointAt(1);
-		return control === undefined ? "\\c" : String.fromCharCode(control & 31);
+/**
+ * A `$'…'` body's text, as bash reads it in a UTF-8 locale (#3896). Bash works
+ * in bytes, so this does too, holding each as one latin1 character, and a NUL
+ * ends the body. Bytes that are not UTF-8 read as U+FFFD. Residual: in the C
+ * locale bash leaves `\u` and `\U` literal.
+ * @param {string} body
+ */
+function decodeAnsiC(body) {
+	const bytes = Buffer.from(body)
+		.toString("latin1")
+		.replace(ANSI_C_ESCAPE, decodeAnsiCEscape);
+	const nul = bytes.indexOf("\0");
+	return Buffer.from(
+		nul < 0 ? bytes : bytes.slice(0, nul),
+		"latin1",
+	).toString();
+}
+
+/** One escape's bytes. An `x`, `u`, `U` or `c` with nothing to read is an
+ * unknown escape, keeping its backslash, but `\x{` with no digit reads as a NUL,
+ * and of more than two digits its last two count.
+ * @param {string} _ @param {string} esc */
+function decodeAnsiCEscape(_, esc) {
+	if (/^x./s.test(esc)) {
+		const digits = esc.replace(/[^\dA-Fa-f]/g, "");
+		return String.fromCharCode(Number.parseInt(digits.slice(-2) || "0", 16));
 	}
-	return ANSI_C_LETTERS.get(esc) ?? esc;
+	if (/^[uU]./s.test(esc)) return encodeUtf8(Number.parseInt(esc.slice(1), 16));
+	if (/^[0-7]/.test(esc))
+		return String.fromCharCode(Number.parseInt(esc, 8) & 255);
+	if (/^c./s.test(esc))
+		return esc[1] === "?"
+			? "\x7f"
+			: String.fromCharCode(esc.charCodeAt(1) & 31);
+	return ANSI_C_LETTERS.get(esc) ?? `\\${esc}`;
+}
+
+/** Bash's UTF-8 for a code point: past U+10FFFF it runs on to the six-byte form,
+ * and past that it emits nothing. @param {number} codePoint */
+function encodeUtf8(codePoint) {
+	if (codePoint > 0x7f_ff_ff_ff) return "";
+	if (codePoint < 0x80) return String.fromCharCode(codePoint);
+	let bytes = "";
+	let rest = codePoint;
+	let leadMax = 0x3f;
+	let lead = 0x80;
+	while (rest > leadMax) {
+		bytes = String.fromCharCode(0x80 | (rest & 0x3f)) + bytes;
+		rest >>= 6;
+		leadMax >>= 1;
+		lead = (lead >> 1) | 0x80;
+	}
+	return String.fromCharCode(lead | rest) + bytes;
 }
 
 /** @type {PartParser} */
