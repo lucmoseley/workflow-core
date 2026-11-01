@@ -84,6 +84,12 @@ function readOpt(call, name, value, env) {
 		bodyFileWord(call.body, value, env);
 }
 
+/* How a refusal's span search and text spell a comment call. */
+const COMMENT_SPELLING = {
+	subcmd: "issue[ \\t\\n\\v\\f\\r]+comment",
+	what: "gh issue comment",
+};
+
 /**
  * @param {"close" | "comment" | "edit"} sub
  * @param {string[]} args the words after `gh issue <sub>`
@@ -204,8 +210,7 @@ function commandActs({ words, cwd }, { subject, spans, output, ctx }) {
 	const call = readIssueCall(sub, words.slice(3), {
 		spans,
 		subject,
-		subcmd: "issue[ \\t\\n\\v\\f\\r]+comment",
-		what: "gh issue comment",
+		...COMMENT_SPELLING,
 		cwd,
 		home: ctx.home,
 		readFile: ctx.readFile,
@@ -251,4 +256,4 @@ function decide(subject, ctx) {
 	return null;
 }
 
-module.exports = { decide };
+module.exports = { COMMENT_SPELLING, decide, readIssueCall };

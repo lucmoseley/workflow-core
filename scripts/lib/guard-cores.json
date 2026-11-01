@@ -180,6 +180,14 @@
 			"if": ["Bash(*max-old-space-size*)", "Bash(*max_old_space_size*)"]
 		},
 		{
+			"name": "guard-round-holds",
+			"core": "round-holds.js",
+			"tools": "Bash",
+			"failure": "open",
+			"host": "round-holds-host.js",
+			"if": ["Bash(gh *)"]
+		},
+		{
 			"name": "guard-rm-unchecked",
 			"core": "unchecked-rm.js",
 			"tools": "Bash",

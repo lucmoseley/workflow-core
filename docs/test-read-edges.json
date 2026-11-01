@@ -4639,6 +4639,7 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/repo-hold-attach.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/claim-issue.test.ts": [
@@ -5300,6 +5301,7 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/lib/stop-guard.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/repo-hold-attach.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/score-session-breaches.test.ts"
 		],
@@ -5492,6 +5494,7 @@
 			"scripts/lib/stop-guard.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/priced-options-copies.test.ts",
+			"scripts/repo-hold-attach.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/score-session-breaches.test.ts"
 		],
@@ -10341,6 +10344,7 @@
 			"scripts/refill-loop-run.test.ts",
 			"scripts/release-plugin.test.ts",
 			"scripts/repo-checks.test.ts",
+			"scripts/repo-hold-attach.test.ts",
 			"scripts/report-arch-scan-due.test.ts",
 			"scripts/report-close-check-reading.test.ts",
 			"scripts/report-cycle-review-due.test.ts",
@@ -16192,6 +16196,20 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/lib/refuse-once.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/lib/refuses-commit.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
@@ -16454,6 +16472,17 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/repo-hold-fixture.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
@@ -16990,6 +17019,45 @@
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/round-holds-host.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/round-holds.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/round-holds.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/round-holds.test.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
@@ -21246,6 +21314,7 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/park-on-round.test.ts",
+			"scripts/repo-hold-attach.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/park-on-round.test.ts": [
@@ -21894,6 +21963,11 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/repo-hold-attach.test.ts": [
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/repo-hold.js": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
@@ -21901,6 +21975,7 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/refill-loop-run.test.ts",
+			"scripts/repo-hold-attach.test.ts",
 			"scripts/repo-hold.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
@@ -22454,6 +22529,7 @@
 			"scripts/record-issue-claim.test.ts",
 			"scripts/refill-loop-run.test.ts",
 			"scripts/release-issue-claim.test.ts",
+			"scripts/repo-hold-attach.test.ts",
 			"scripts/rescue-sessions-hand-off.test.ts",
 			"scripts/rescue-sessions-probe.test.ts",
 			"scripts/rescue-sessions-takeover.test.ts",

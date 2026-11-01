@@ -5,8 +5,7 @@
  * can be written.
  */
 
-const fs = require("node:fs");
-const { markersDir } = require("./marker-root.js");
+const { isMarkersWritable } = require("./refuse-once.js");
 
 /**
  * @param {string} root
@@ -14,14 +13,7 @@ const { markersDir } = require("./marker-root.js");
  */
 function buildHostPorts(root) {
 	return {
-		isLatchWritable: () => {
-			try {
-				fs.accessSync(markersDir(root), fs.constants.W_OK);
-				return true;
-			} catch {
-				return false;
-			}
-		},
+		isLatchWritable: () => isMarkersWritable(root),
 	};
 }
 

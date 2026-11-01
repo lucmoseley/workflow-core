@@ -1178,6 +1178,12 @@
 					"text": "Refused once: Claude Code's built-in removal check would prompt on this command"
 				},
 				{
+					"id": "round-holds",
+					"core": "guard-round-holds",
+					"kind": "deny",
+					"text": "Refused once: this posts a question round to the founder"
+				},
+				{
 					"id": "no-ignore-scripts",
 					"core": "guard-npm-install",
 					"kind": "deny",

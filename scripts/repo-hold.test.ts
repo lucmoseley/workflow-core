@@ -14,6 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defineTemplate } from "./lib/git-fixture";
+import { parseHoldId } from "./lib/repo-hold-fixture";
 import { raiseHold } from "./lib/repo-holds.js";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 
@@ -76,12 +77,6 @@ const raise = (cwd: string, act: string, over: NodeJS.ProcessEnv = {}) =>
 		["raise", "--act", act, "--issue", "12", "--clear-command", "false"],
 		over,
 	);
-
-const parseHoldId = (stdout: string) => {
-	const id = /raised: ([0-9a-f]+) /.exec(stdout)?.[1];
-	if (!id) throw new Error(`no hold id in: ${stdout}`);
-	return id;
-};
 
 const readLogLines = () =>
 	fs
@@ -221,6 +216,122 @@ describe("repo-hold.js (#3857)", () => {
 		);
 		expect(refused.stderr).toContain("--clear-issue 12");
 		expect(hold(checkout, ["list"]).stdout).toContain("none open");
+	});
+
+	describe("attach (#3858)", () => {
+		const Job = { CLAUDE_JOB_DIR: "/seat/jobs/abc123" };
+		const Other = { CLAUDE_JOB_DIR: "/seat/jobs/def456" };
+		const raiseFor = (env: NodeJS.ProcessEnv) =>
+			parseHoldId(
+				hold(
+					checkout,
+					[
+						"raise",
+						"--act",
+						"repair main",
+						"--issue",
+						"12",
+						"--clear-issue",
+						"12",
+					],
+					env,
+				).stdout,
+			);
+
+		it("adds the session from any worktree, logs the count and prints the ending that names the hold's issue", () => {
+			const id = raiseFor({ CLAUDE_JOB_DIR: "/seat/jobs/raiser" });
+
+			const attached = hold(worktree, ["attach", id], Job);
+
+			expect(attached.status).toBe(0);
+			expect(attached.stdout).toContain(
+				`needs input: attached to hold ${id} — waits on you: #12, #<yours>`,
+			);
+			expect(hold(checkout, ["list"]).stdout).toContain(
+				"sessions: raiser, abc123",
+			);
+			const line = readLogLines().at(-1);
+			expect(line).toContain(`repo hold attached: ${id}`);
+			expect(line).toContain("session abc123; 2 attached");
+		});
+
+		it("counts a session once however often it attaches, with one log line", () => {
+			const id = raiseFor({});
+
+			hold(checkout, ["attach", id], Job);
+			expect(hold(checkout, ["attach", id], Job).status).toBe(0);
+
+			expect(hold(checkout, ["list"]).stdout).toContain("sessions: abc123,");
+			expect(
+				readLogLines().filter((l) => l.includes("repo hold attached")),
+			).toHaveLength(1);
+		});
+
+		it("keeps both of two attaches", () => {
+			const id = raiseFor({});
+
+			hold(checkout, ["attach", id], Job);
+			hold(worktree, ["attach", id], Other);
+
+			expect(hold(checkout, ["list"]).stdout).toMatch(
+				/sessions: (abc123, def456|def456, abc123)/,
+			);
+		});
+
+		it("does not bring back a hold that was lifted, and leaves nothing behind", () => {
+			const id = raiseFor({});
+			hold(checkout, ["attach", id], Job);
+			hold(checkout, ["lift", id]);
+
+			const late = hold(checkout, ["attach", id], Other);
+
+			expect(late.status).toBe(1);
+			expect(late.stderr).toContain(`no open repo hold ${id}`);
+			expect(late.stderr).toContain("`list` names them");
+			expect(hold(checkout, ["list"]).stdout).toContain("none open");
+			const stores = fs.readdirSync(path.join(dir, "repo-holds"));
+			for (const store of stores)
+				expect(fs.readdirSync(path.join(dir, "repo-holds", store))).toEqual([]);
+		});
+
+		it("refuses a session outside a background job, attaching nothing", () => {
+			const id = raiseFor({});
+
+			const refused = hold(checkout, ["attach", id], {
+				CLAUDE_CODE_SESSION_ID: "abc123",
+			});
+
+			expect(refused.status).toBe(2);
+			expect(refused.stderr).toContain("parks a background job");
+			expect(refused.stderr).toContain("ask the founder here");
+			expect(hold(checkout, ["list"]).stdout).toContain("sessions: none");
+		});
+
+		it("refuses a hold with no issue yet, attaching nothing and saying when to retry", () => {
+			vi.stubEnv("WFC_REFILL_DIR", dir);
+			const { id } = raiseHold(checkout, {
+				kind: "probe",
+				act: "fetch failed",
+				issue: null,
+				clearCheck: { probe: true },
+				session: null,
+				now: Date.now(),
+			});
+
+			const refused = hold(checkout, ["attach", id], Job);
+
+			expect(refused.status).toBe(1);
+			expect(refused.stderr).toContain("has no issue yet");
+			expect(refused.stderr).toContain("Run this again");
+			expect(hold(checkout, ["list"]).stdout).toContain("sessions: none");
+		});
+
+		it("will not read an attach's id as a path out of the store", () => {
+			const attached = hold(checkout, ["attach", "../x"], Job);
+
+			expect(attached.status).toBe(1);
+			expect(attached.stderr).toContain("no open repo hold");
+		});
 	});
 
 	it("keeps two checkouts whose paths flatten to one name apart", () => {

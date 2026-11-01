@@ -44,7 +44,7 @@
  *    `do rm …` (lib/if-clause.js).
  */
 
-const crypto = require("node:crypto");
+const { refuseOnce } = require("./refuse-once.js");
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const { parseCommand, walkCommands } = require("./shell-parse.js");
 const { literal, unwrap } = require("./shell-words.js");
@@ -91,21 +91,15 @@ function decide(command, ctx) {
 	const subject = trimEndRun(command, "\n");
 	const reason = reasonFor(scan(subject, ctx));
 	if (reason === null) return null;
-	const name = `rm-unchecked.${crypto.createHash("sha1").update(subject).digest("hex").slice(0, 16)}`;
-	if (ctx.key === null) {
-		ctx.log("latch path unresolved — an unchecked rm allowed unrefused");
-		return null;
-	}
-	if (ctx.readLatch(name) !== null) return null;
-	if (!ctx.isLatchWritable()) {
-		ctx.log("latch directory unwritable — an unchecked rm allowed unrefused");
-		return null;
-	}
-	/* The kit writes the latch after the refusal is out (mantahostels#2261). */
-	return {
-		deny: refusalText(reason, ctx),
-		latchWrites: [{ name, text: "" }],
-	};
+	return refuseOnce(
+		{
+			prefix: "rm-unchecked",
+			subject,
+			passed: "an unchecked rm allowed",
+			buildDeny: () => refusalText(reason, ctx),
+		},
+		ctx,
+	);
 }
 
 /**

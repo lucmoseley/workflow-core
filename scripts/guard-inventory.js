@@ -36,7 +36,8 @@
  *     can be read (#2944, #2950).
  *     Either way no file this session's write ledger names sits uncommitted
  *     in the tree — a file its diff carries is owed its restore to HEAD too —
- *     a live neighbour's claimed files aside.
+ *     a live neighbour's claimed files aside. A park on a repo hold (#3858) cites
+ *     that hold's issue and its own ticket, whose hand-off this limb reads.
  *
  * DRAFT AND ACT (#989, ruled at #913), ON A SECOND COUNTER, `max: 1`: where
  * an owed block reads `waits on you: nothing`, the session's main-chain
@@ -97,6 +98,7 @@ const {
 const { listIssueClaims } = require("./lib/arbiter-store");
 const { readOwnJob } = require("./lib/claude-stop");
 const { readStrandedFiles } = require("./lib/neighbour-dirt");
+const { findOwnHold } = require("./lib/repo-holds");
 const sessionTranscript = require("./lib/session-transcript");
 const { governingMarker } = require("./lib/status-marker");
 const { isSubagentTranscript, mainChainRecords } = require("./lib/transcript");
@@ -448,6 +450,36 @@ function readSessionStart(payload, sessionId) {
 }
 
 /**
+ * The verdict a park's hand-off is read from. A park on a repo hold (#3858) cites
+ * the hold's issue too, whose round carries the raiser's hand-off, never its own.
+ * @param {import("./lib/outstanding-line").Verdict} verdict
+ * @param {string} payload  the status line after its marker
+ * @returns {import("./lib/outstanding-line").Verdict}
+ */
+function buildHandOffVerdict(verdict, payload) {
+	const hold = findOwnHold(payload);
+	return hold
+		? {
+				...verdict,
+				items: verdict.items.filter((item) => item.number !== hold.issue),
+			}
+		: verdict;
+}
+
+/**
+ * The claim fault on a park on a repo hold.
+ * @param {import("./lib/outstanding-line").Verdict} own  the park's own items
+ * @param {string} sessionId
+ * @returns {string} the fault, or ""
+ */
+function holdClaimFault(own, sessionId) {
+	const unclaimed = claimOwedOn(own.items, sessionId);
+	return unclaimed.length === 0
+		? ""
+		: `this \`needs input:\` park on a repo hold cites #${unclaimed.join(", #")}, which this session holds no claim on, so nothing labels it \`parked\` and \`/pick-next\` lists it as free work (#3858) — run \`node ${scriptPath("claim-issue.js")} ${unclaimed[0]}\`, then end again`;
+}
+
+/**
  * The hand-off fault on a park that asks no round: judged on the newest comment
  * carrying a `**Hand-off:**` header among the cited issues' newest five,
  * whose `Blocked on:` names the pointer's `Qn` where it names one. A round
@@ -474,6 +506,27 @@ function parkFault(verdict, pointed, sessionId, start) {
 	if (newest && start !== null && Date.parse(newest.createdAt) < start)
 		return `this \`needs input:\` park's newest hand-off on its ticket was posted at ${newest.createdAt}, before this session began or last resumed at ${new Date(start).toISOString()}, so it carries none of the Done and Left since (#2944, #2950) — post this session's own hand-off on the issue the park waits on:\n\n${HAND_OFF_SHAPE}`;
 	return handOffFault(newest?.body ?? "", pointed, sessionId);
+}
+
+/**
+ * A park on a repo hold is judged on its own items.
+ * @param {import("./lib/outstanding-line").Verdict} verdict
+ * @param {ReturnType<typeof ending>} end
+ * @param {string} sessionId
+ * @param {import("./lib/stop-guard").StopPayload|null} payload
+ * @returns {string} the fault, or ""
+ */
+function roundlessParkFault(verdict, end, sessionId, payload) {
+	const own = buildHandOffVerdict(verdict, end.payload);
+	return (
+		(own !== verdict && holdClaimFault(own, sessionId)) ||
+		parkFault(
+			own,
+			pointedQuestion(end),
+			sessionId,
+			readSessionStart(payload, sessionId),
+		)
+	);
 }
 
 /**
@@ -592,12 +645,7 @@ function assess(message, end, sessionId, payload) {
 	if (parks && verdict.refusals.length === 0) {
 		const reason =
 			question === null
-				? parkFault(
-						verdict,
-						pointedQuestion(end),
-						sessionId,
-						readSessionStart(payload, sessionId),
-					)
+				? roundlessParkFault(verdict, end, sessionId, payload)
 				: roundFault(verdict, question, sessionId);
 		if (reason) mine.push({ reason });
 	}
@@ -662,8 +710,10 @@ function review({ sessionId, message, payload }) {
 
 /**
  * The tracker issues a passing `needs input:` ending in a background job
- * posted its round on and this session claims — the issues park-on-round.js
- * labels `parked` (#2000). [] for any other ending, or where any read fails.
+ * posted its round on and this session claims, or at a park on a repo hold the
+ * job is attached to, the cited ones it claims (#3858) — the issues
+ * park-on-round.js labels `parked` (#2000). [] for any other ending, or where
+ * any read fails.
  * @param {string} message
  * @param {string} sessionId
  * @returns {number[]}
@@ -672,8 +722,14 @@ function parkTargets(message, sessionId) {
 	const end = ending(message);
 	if (!isOwed(end) || end.marker !== "needs input:") return [];
 	const { faults, verdict, question } = assess(message, end, sessionId, null);
-	if (faults || !verdict || !question) return [];
-	return trackerClaims(roundHolders(verdict, question), sessionId)?.mine ?? [];
+	if (faults || !verdict) return [];
+	if (question)
+		return (
+			trackerClaims(roundHolders(verdict, question), sessionId)?.mine ?? []
+		);
+	return findOwnHold(end.payload)
+		? (trackerClaims(verdict.items, sessionId)?.mine ?? [])
+		: [];
 }
 
 module.exports = { hasPassingInventory, parkTargets };
