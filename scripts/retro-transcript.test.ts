@@ -364,11 +364,11 @@ describe("token masking (#1031)", () => {
 	});
 
 	it("stops before writing a line where the secrets file is there but unreadable (#3661)", () => {
-		fs.mkdirSync(path.join(repo, "secrets.env"));
+		fs.writeFileSync(path.join(repo, "secrets.env"), "K=v\n", { mode: 0o000 });
 		const log = sessionLog([toolResult("AI_GATEWAY_API_KEY=x")]);
 		const r = run([log]);
 		expect(r.status).not.toBe(0);
-		expect(r.stderr).toContain("EISDIR");
+		expect(r.stderr).toContain("EACCES");
 		expect(r.stdout).toBe("");
 	});
 

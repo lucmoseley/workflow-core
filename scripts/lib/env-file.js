@@ -140,6 +140,49 @@ function secretsFile() {
 	return path.join(config, "workflow-core", "secrets.env");
 }
 
+/** Thrown where a secrets file's path holds something no regular file is. */
+class NotRegularFile extends Error {
+	/**
+	 * @param {string} file
+	 * @param {ErrorOptions} [options]
+	 */
+	constructor(file, options) {
+		super(
+			`${file} is no regular file (a FIFO, socket, device or directory)`,
+			options,
+		);
+	}
+}
+
+/**
+ * `file`'s bytes, opened without blocking and judged by that descriptor, as a
+ * FIFO blocks a plain read for good, so nothing swapped in after a check can
+ * hang it (#3822).
+ * @param {string} file
+ * @param {number} [flags] ORed into the open, as `O_NOFOLLOW`
+ * @returns {Buffer}
+ * @throws NotRegularFile on a FIFO, socket, device or directory; otherwise as
+ *   the open or read fails, ENOENT where it is absent
+ */
+function readRegularFile(file, flags = 0) {
+	const { O_NONBLOCK, O_RDONLY } = fs.constants;
+	let fd;
+	try {
+		fd = fs.openSync(file, O_RDONLY | O_NONBLOCK | flags);
+	} catch (e) {
+		/* What opening a socket answers. */
+		if (caught(e).code === "ENXIO")
+			throw new NotRegularFile(file, { cause: e });
+		throw e;
+	}
+	try {
+		if (!fs.fstatSync(fd).isFile()) throw new NotRegularFile(file);
+		return fs.readFileSync(fd);
+	} finally {
+		fs.closeSync(fd);
+	}
+}
+
 /**
  * The first non-empty value the file assigns `name`, or null where none does.
  * @param {string} file
@@ -148,7 +191,8 @@ function secretsFile() {
  * @throws where the file cannot be read; ENOENT where it is absent
  */
 function readEnvFileValue(file, name) {
-	for (const { body } of splitEnvLines(fs.readFileSync(file, "utf8")).lines) {
+	const text = readRegularFile(file).toString("utf8");
+	for (const { body } of splitEnvLines(text).lines) {
 		const assignment = parseEnvLine(body);
 		if (assignment?.name !== name) continue;
 		const value = unquoteValue(assignment.raw);
@@ -158,22 +202,39 @@ function readEnvFileValue(file, name) {
 }
 
 /**
- * Writes `<dir>/.gitignore` holding `*`, where anything else is there: git
- * follows no symlinked `.gitignore`, so a symlink is replaced too (#3663).
- * @param {string} dir
+ * Whether `ignore` is a regular file holding exactly `*`. git follows no
+ * symlinked `.gitignore` and skips an unreadable one, so neither counts
+ * (#3663, #3822).
+ * @param {string} ignore
+ * @returns {boolean}
  */
-function ignoreStore(dir) {
-	const ignore = path.join(dir, ".gitignore");
-	const st = fs.lstatSync(ignore, { throwIfNoEntry: false });
-	if (!st?.isFile() || fs.readFileSync(ignore, "utf8") !== "*\n")
-		writeFileAtomic(ignore, "*\n", { mode: 0o600 });
+function ignoresAll(ignore) {
+	try {
+		const bytes = readRegularFile(ignore, fs.constants.O_NOFOLLOW);
+		return bytes.toString("utf8") === "*\n";
+	} catch {
+		/* Absent, a symlink, unreadable or no regular file: all get replaced, and
+		 * a rename that cannot replace one throws in ignoreStore. */
+		return false;
+	}
 }
 
 /**
- * `readEnvFileValue` on the secrets file, then `ignoreStore` on its directory
- * where its `.gitignore` is missing or a symlink (#3663). Under the WFC_SECRETS_FILE
- * override it writes nothing: that file's directory may be a repository whose
- * own `.gitignore` this would replace.
+ * Writes `<dir>/.gitignore` holding `*`, where anything else is there.
+ * @param {string} dir
+ * @throws where it cannot be replaced, as a directory cannot
+ */
+function ignoreStore(dir) {
+	const ignore = path.join(dir, ".gitignore");
+	if (!ignoresAll(ignore)) writeFileAtomic(ignore, "*\n", { mode: 0o600 });
+}
+
+/**
+ * `readEnvFileValue` on the secrets file, then `ignoreStore` on its directory,
+ * so a `.gitignore` missing, symlinked, unreadable or holding anything else is
+ * healed (#3663, #3822). Under the WFC_SECRETS_FILE override it writes nothing: that
+ * file's directory may be a repository whose own `.gitignore` this would
+ * replace.
  * @param {string} name
  * @returns {string|null}
  * @throws as `readEnvFileValue`, before anything is written
@@ -184,12 +245,6 @@ function readSecretKeepingIgnore(name) {
 	if (secretsOverride() !== null) return value;
 	const dir = path.dirname(file);
 	try {
-		if (
-			fs
-				.lstatSync(path.join(dir, ".gitignore"), { throwIfNoEntry: false })
-				?.isFile()
-		)
-			return value;
 		ignoreStore(dir);
 	} catch (e) {
 		/* The value is what the caller asked for (#3663); the store is left
@@ -238,7 +293,7 @@ function readStoredAssignments() {
 	const file = secretsFile();
 	let bytes;
 	try {
-		bytes = fs.readFileSync(file);
+		bytes = readRegularFile(file);
 	} catch (err) {
 		if (caught(err).code === "ENOENT") return [];
 		throw err;
@@ -283,9 +338,11 @@ module.exports = {
 	assignsAcrossBreak,
 	decodeSecrets,
 	ignoreStore,
+	NotRegularFile,
 	parseEnvLine,
 	quoteValue,
 	readEnvFileValue,
+	readRegularFile,
 	readSecretKeepingIgnore,
 	SPACE,
 	secretsFile,
