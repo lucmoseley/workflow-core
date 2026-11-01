@@ -17,8 +17,16 @@
  * searched in the tracker's repo only once the count reaches the threshold
  * or an issue of TITLE exists to refresh, since dropping one can only lower
  * it (#3395). Residual: an adopter's code
- * repo apart from its tracker is not searched, and the landed sha is taken as
- * on `main`, never checked against it.
+ * repo apart from its tracker is not searched.
+ *
+ * A RECORD WHOSE LANDED SHA IS NOT ON `origin/main`, in the checkout on this
+ * machine that tracks the record's repo, is not counted (#3846). One the pushed
+ * ref (lib/landing-refs.js) holds is legal and silent, as a close posts it there
+ * without waiting for the lander. One on neither, as a replay onto `landing` can
+ * leave it, is reported as OFF MAIN each run until a record of the same review
+ * on its ticket names a sha that is on one. Reads the remote-tracking refs as
+ * they stand, never fetching. A sha that checkout does not hold is reported as
+ * UNJUDGED and counted; a record with no such checkout is counted, unreported.
  *
  * A COMMIT CARRYING A `Review-Tier:` TRAILER, as .husky/prepare-commit-msg
  * writes from the review hold's marker (scripts/review-tier-trailer.sh), is
@@ -104,7 +112,17 @@ const { gitOutcome } = require("./lib/git");
 const { matchSensitivePaths } = require("./lib/sensitive-paths");
 const { hostRoot } = require("./lib/host-root");
 const { homeDir, readCheckoutTracking } = require("./lib/refill-repos");
+const { pushedRef, VERIFIED_REF } = require("./lib/landing-refs");
 const { requiredGroup } = require("./lib/regex-group");
+const {
+	COUNTED_TIERS,
+	day,
+	isSameReview,
+	isSameSha,
+	parseIssue,
+	pathListOf,
+	readTicketComments,
+} = require("./lib/review-findings");
 const { takesLabel, takesRefusal } = require("./lib/takes-label");
 const {
 	createIssue,
@@ -139,34 +157,6 @@ const SEARCH = `query($q: String!, $after: String) {
     nodes { ... on Issue { number comments(first: ${PAGE}) { totalCount nodes { body createdAt } } } }
   }
 }`;
-const SHA = "`?([0-9a-f]{7,40})(?![0-9a-z])`?";
-const RECORD_HEAD = "\\*\\*Review findings:\\*\\*";
-const REVIEWED_TREE = `reviewed\\s+${SHA}`;
-const PATHS_CLAUSE = ",[ \\t]*paths[ \\t]+([^\\n]+)";
-const FINDINGS = new RegExp(
-	`${RECORD_HEAD}\\s*base\\s+${SHA},\\s*${REVIEWED_TREE},\\s*landed\\s+${SHA}(?:${PATHS_CLAUSE}|[ \\t\\r]*(?=\\n|$))`,
-	"g",
-);
-const TIER = /\*\*Review tier:\*\*\s*`?([A-Za-z-]+)/g;
-const COUNTED_TIERS = new Set(["escalated", "mission-critical"]);
-const BULLET = /^\s*-\s/;
-const KNOWN = /^\s*-\s*(?:FIXED|TICKETED)\b/;
-const FIXED = /^\s*-\s*FIXED\b/;
-const BLANK = /^\s*$/;
-/* A list ends at the next record, even one bulleted or indented, so its
- * defects are never counted under this one too. */
-const RECORD_START = new RegExp(RECORD_HEAD);
-/* A backticked one names the format, as a review comment quoting it does.
- * Residual: an unbackticked mention in bold prose under a counted tier is
- * reported, and a record backticked whole is skipped unreported. */
-const RECORD_MENTION = new RegExp(`(?<!\`)${RECORD_HEAD}`, "g");
-const REVIEWED = new RegExp(REVIEWED_TREE);
-const BASE = new RegExp(`\\bbase\\s+${SHA}`);
-/* Read from an unparsed mention, which `parseMarks` cuts at its first `\n`, so
- * the run reaches its end unanchored (#3383). */
-const UNPARSED_PATHS = new RegExp(PATHS_CLAUSE);
-const INDENTED = /^\s+\S/;
-const ESCAPED = new RegExp(`\\*\\*Escaped defect:\\*\\*\\s*${SHA}`, "g");
 /* review-tier-trailer.sh's value, the hold's tier, areas, tree and paths. */
 const TRAILER =
 	/^(escalated|mission-critical);\s*areas=[^;]*;\s*base=([0-9a-f]{40});\s*tree=([0-9a-f]{40});\s*paths=(.+)$/;
@@ -174,23 +164,12 @@ const TRAILER =
 const REVERTS = /^This reverts commit ([0-9a-f]{40})\b/gm;
 
 /**
- * @typedef {{ body: string, createdAt: string }} Comment
- * @typedef {{ repo: string, issue: number | null, base: string,
- *   tree: string, landed: string, paths: string | null, posted: string,
- *   tier: string, fixed: number, fixes: number, escaped: number }} ReviewRecord
- *   `issue` null on a commit known by its trailer alone
- * @typedef {{ repo: string, issue: number, line: string }} Unparsed
+ * @typedef {import("./lib/review-findings").Comment} Comment
+ * @typedef {import("./lib/review-findings").ReviewRecord} ReviewRecord
+ * @typedef {import("./lib/review-findings").Unparsed} Unparsed
  * @typedef {{ tag: "UNRECORDED" | "UNPARSEABLE" | "UNREAD", fault: string }} Unseen
- * @typedef {{ tag: Unseen["tag"] | "LANDED TREE" | "UNJUDGED", fault: string }} RecordFault
- * @typedef {{ at: number, tier: string } | { at: number, record: RegExpExecArray }
- *   | { at: number, unparsed: string }} Mark
+ * @typedef {{ tag: Unseen["tag"] | "LANDED TREE" | "OFF MAIN" | "UNJUDGED", fault: string }} RecordFault
  */
-
-/** @param {RegExpExecArray} m @param {number} n @param {RegExp} re */
-const group = (m, n, re) => requiredGroup(m, n, re).toLowerCase();
-
-/** @param {number} ms */
-const day = (ms) => new Date(ms).toISOString().slice(0, 10);
 
 /**
  * @param {string} q
@@ -254,158 +233,10 @@ function searchTickets(repo, from, to) {
 		issue,
 		comments:
 			comments.totalCount > comments.nodes.length
-				? ghApiSlurp([`repos/${repo}/issues/${issue}/comments`]).map(
-						(/** @type {{ body: string | null, created_at: string }} */ c) => ({
-							body: c.body ?? "",
-							createdAt: c.created_at,
-						}),
-					)
+				? readTicketComments(repo, issue)
 				: comments.nodes,
 	}));
 }
-
-/**
- * How many of the bullets under a record match `disposed`: KNOWN or FIXED.
- * The list runs past blank lines and indented continuation lines (#1698), and
- * stops at the first other line.
- *
- * @param {string} after the text following the record's own line
- * @param {RegExp} disposed
- */
-function countDisposed(after, disposed) {
-	let n = 0;
-	for (const line of after.split("\n").slice(1)) {
-		if (RECORD_START.test(line)) break;
-		if (disposed.test(line)) n++;
-		else if (!BULLET.test(line) && !BLANK.test(line) && !INDENTED.test(line))
-			break;
-	}
-	return n;
-}
-
-/**
- * A record's reviewed paths, null on one written before #1926.
- *
- * @param {RegExpExecArray} m
- */
-const pathsOf = (m) =>
-	m[4] === undefined ? null : m[4].replace(/`/g, "").trim();
-
-/** @param {string} paths */
-const pathListOf = (paths) =>
-	paths
-		.replace(/`/g, "")
-		.split(/[\s,]+/)
-		.filter(Boolean);
-
-/** @param {string} paths */
-const pathSetOf = (paths) => pathListOf(paths).sort().join(",");
-
-/**
- * @param {string} body
- * @returns {Mark[]}
- */
-function parseMarks(body) {
-	const found = [...body.matchAll(FINDINGS)];
-	const parsed = new Set(found.map((m) => m.index));
-	return [
-		...[...body.matchAll(TIER)].map((m) => ({
-			at: m.index,
-			tier: group(m, 1, TIER),
-		})),
-		...found.map((m) => ({ at: m.index, record: m })),
-		...[...body.matchAll(RECORD_MENTION)]
-			.filter((m) => !parsed.has(m.index))
-			.map((m) => ({
-				at: m.index,
-				unparsed: body.slice(m.index).replace(/\n[\s\S]*/, ""),
-			})),
-	].sort((x, y) => x.at - y.at);
-}
-
-/**
- * The records, escaped-defect shas and unparseable records under a counted
- * tier in one ticket's comments, read in order so each record takes the tier
- * last declared above it.
- *
- * @param {string} repo
- * @param {number} issue
- * @param {Comment[]} comments
- * @returns {{ records: ReviewRecord[], escaped: string[], unparsed: Unparsed[] }}
- */
-function parseIssue(repo, issue, comments) {
-	/** @type {ReviewRecord[]} */
-	const records = [];
-	/** @type {string[]} */
-	const escaped = [];
-	/** @type {Unparsed[]} */
-	const unparsed = [];
-	let tier = "";
-	for (const { body, createdAt } of comments) {
-		for (const m of body.matchAll(ESCAPED)) escaped.push(group(m, 1, ESCAPED));
-		const marks = parseMarks(body);
-		for (const mark of marks) {
-			if ("tier" in mark) {
-				tier = mark.tier;
-				continue;
-			}
-			if ("unparsed" in mark) {
-				if (COUNTED_TIERS.has(tier))
-					unparsed.push({ repo, issue, line: mark.unparsed });
-				continue;
-			}
-			const m = mark.record;
-			records.push({
-				repo,
-				issue,
-				base: group(m, 1, FINDINGS),
-				tree: group(m, 2, FINDINGS),
-				landed: group(m, 3, FINDINGS),
-				paths: pathsOf(m),
-				posted: day(Date.parse(createdAt)),
-				tier,
-				fixed: countDisposed(body.slice(m.index), KNOWN),
-				fixes: countDisposed(body.slice(m.index), FIXED),
-				escaped: 0,
-			});
-		}
-	}
-	return {
-		records,
-		escaped,
-		unparsed: unparsed.filter((u) => !isSuperseded(u, records)),
-	};
-}
-
-/**
- * Whether a parsed record on its ticket supersedes `u`, by reviewed tree or
- * by base and paths, as the header exempts.
- *
- * @param {Unparsed} u
- * @param {ReviewRecord[]} records
- */
-function isSuperseded(u, records) {
-	const treeMatch = REVIEWED.exec(u.line);
-	const baseMatch = BASE.exec(u.line);
-	const pathsMatch = UNPARSED_PATHS.exec(u.line);
-	const pathSet =
-		pathsMatch === null
-			? null
-			: pathSetOf(requiredGroup(pathsMatch, 1, UNPARSED_PATHS));
-	return records.some(
-		(r) =>
-			(treeMatch !== null &&
-				isSameSha(r.tree, group(treeMatch, 1, REVIEWED))) ||
-			(baseMatch !== null &&
-				pathSet !== null &&
-				r.paths !== null &&
-				isSameSha(r.base, group(baseMatch, 1, BASE)) &&
-				pathSetOf(r.paths) === pathSet),
-	);
-}
-
-/** @param {string} a @param {string} b */
-const isSameSha = (a, b) => a.startsWith(b) || b.startsWith(a);
 
 /**
  * Folds `r`, a later record of the same commit, into `seen`.
@@ -515,6 +346,7 @@ function parseTrailerLog(repo, out, declared, records) {
 				tier: requiredGroup(m, 1, TRAILER),
 				fixed: 0,
 				fixes: 0,
+				cutOff: 0,
 				escaped: 0,
 			});
 			continue;
@@ -571,12 +403,13 @@ function addTrailerCommits(commits, trackers, records, home) {
 /**
  * The counted commits across `trackers`, in corpus order, then by ticket,
  * then those known by their trailer alone; the unparseable records under a
- * counted tier; and the sensitive commits no record or trailer names.
+ * counted tier; and the faults of what was read: the sensitive commits no record
+ * or trailer names, then each record's own.
  *
  * @param {string[]} trackers
  * @param {string} today YYYY-MM-DD
  * @param {string} home
- * @returns {{ commits: ReviewRecord[], unparsed: Unparsed[], unseen: Unseen[] }}
+ * @returns {{ commits: ReviewRecord[], unparsed: Unparsed[], faults: RecordFault[] }}
  */
 function countedCommits(trackers, today, home) {
 	/** @type {ReviewRecord[]} */
@@ -597,15 +430,16 @@ function countedCommits(trackers, today, home) {
 		}
 	}
 	/** @type {ReviewRecord[]} */
-	const commits = [];
+	const recorded = [];
 	for (const r of records) {
 		if (!COUNTED_TIERS.has(r.tier)) continue;
-		const seen = commits.find(
+		const seen = recorded.find(
 			(c) => c.repo === r.repo && isSameSha(c.landed, r.landed),
 		);
 		if (seen) mergeRecord(seen, r);
-		else commits.push({ ...r });
+		else recorded.push({ ...r });
 	}
+	const { commits, recordFaults } = judgeRecords(recorded, home);
 	const unseen = addTrailerCommits(commits, trackers, records, home);
 	/* Across repos, not within one: the line sits on the fixing ticket, which
 	 * may live in another repo, and a 7-hex prefix colliding is negligible. */
@@ -614,7 +448,81 @@ function countedCommits(trackers, today, home) {
 	return {
 		commits: commits.filter((c) => c.fixed + c.escaped > 0),
 		unparsed,
-		unseen,
+		faults: [...unseen, ...recordFaults],
+	};
+}
+
+/**
+ * Where `c`'s landed sha sits in the checkout under `home` that tracks its repo:
+ * on `main`, on the pushed ref alone, or on neither; "unread" with no such
+ * checkout, or with an UNJUDGED fault where git fails there.
+ *
+ * @param {ReviewRecord} c
+ * @param {string} home
+ * @returns {{ at: "main" | "landing" | "off" } | { at: "unread", fault: RecordFault | null }}
+ */
+function readLandedAt(c, home) {
+	const checkout = readCheckoutTracking(c.repo, home);
+	if (!("root" in checkout)) return { at: "unread", fault: null };
+	const { root } = checkout;
+	/** @param {string} ref */
+	const walk = (ref) =>
+		gitOutcome(["rev-list", "--max-count=1", c.landed, "--not", ref], [], root);
+	const pushed = pushedRef({ root });
+	const onMain = walk(VERIFIED_REF);
+	const onPushed = onMain.ok && onMain.out !== "" ? walk(pushed) : onMain;
+	if (!onPushed.ok)
+		return {
+			at: "unread",
+			fault: {
+				tag: "UNJUDGED",
+				fault: `${c.repo}#${c.issue}: could not walk landed ${c.landed} against ${VERIFIED_REF} and ${pushed} in ${root}, so whether it reached main is not judged until that checkout holds it — ${onPushed.why}`,
+			},
+		};
+	if (onMain.ok && onMain.out === "") return { at: "main" };
+	return { at: onPushed.out === "" ? "landing" : "off" };
+}
+
+/**
+ * `recorded` less each commit `origin/main` does not hold, and the reports its
+ * records owe: a sha off every ref that no later review corrects, and the
+ * header's A RECORD NAMING THE LANDED TREE. One line where both find git failing
+ * on one commit (#3544).
+ *
+ * @param {ReviewRecord[]} recorded
+ * @param {string} home
+ * @returns {{ commits: ReviewRecord[], recordFaults: RecordFault[] }}
+ */
+function judgeRecords(recorded, home) {
+	const landed = new Map(recorded.map((c) => [c, readLandedAt(c, home)]));
+	const atOf = (/** @type {ReviewRecord} */ c) => landed.get(c)?.at;
+	const recordFaults = recorded.flatMap((c) => {
+		const tree = landedTreeReport(c, home);
+		const at = landed.get(c);
+		/** @type {RecordFault[]} */
+		const owed = tree ? [tree] : [];
+		if (at?.at === "unread") {
+			if (at.fault && tree?.tag !== "UNJUDGED") owed.push(at.fault);
+		} else if (
+			at?.at === "off" &&
+			!recorded.some(
+				(o) =>
+					o !== c &&
+					o.repo === c.repo &&
+					o.issue === c.issue &&
+					atOf(o) !== "off" &&
+					isSameReview(o, c),
+			)
+		)
+			owed.push({
+				tag: "OFF MAIN",
+				fault: `${c.repo}#${c.issue} has a record naming landed ${c.landed}, which never reached main, so its commit is not counted until it is corrected: post a record naming the sha it landed under, as \`scripts/lib/rule-text.sh review-tier-records\` says`,
+			});
+		return owed;
+	});
+	return {
+		commits: recorded.filter((c) => atOf(c) === "main" || atOf(c) === "unread"),
+		recordFaults,
 	};
 }
 
@@ -682,7 +590,7 @@ function readRevertedShas(repo) {
 		);
 	for (const c of items)
 		for (const m of c.commit.message.matchAll(REVERTS)) {
-			const target = group(m, 1, REVERTS);
+			const target = requiredGroup(m, 1, REVERTS);
 			reverts.set(target, [...(reverts.get(target) ?? []), c.sha]);
 		}
 	/** @param {string} sha @returns {boolean} */
@@ -757,9 +665,9 @@ function main() {
 	const home = homeDir();
 	let commits;
 	let unparsed;
-	let unseen;
+	let faults;
 	try {
-		({ commits, unparsed, unseen } = countedCommits(
+		({ commits, unparsed, faults } = countedCommits(
 			/** @type {string[]} */ (resolveKey("corpus", { root })),
 			day(now()),
 			home,
@@ -776,11 +684,7 @@ function main() {
 			tag: "UNPARSEABLE",
 			fault: `${u.repo}#${u.issue} has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: ${u.line}`,
 		});
-	for (const r of [
-		...unseen,
-		...commits.flatMap((c) => landedTreeReport(c, home) ?? []),
-	])
-		reportRecord(r);
+	for (const r of faults) reportRecord(r);
 	const own = resolveKey("tracker", { root });
 	commits = commits.filter((c) => c.repo !== own);
 	let existing;

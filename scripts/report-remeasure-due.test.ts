@@ -148,6 +148,15 @@ function fixture(opts: {
 		gh,
 		issueBody,
 		config: path.join(root, "config"),
+		/** Replaces what `gh issue list` serves. */
+		setIssues: (issues: unknown[]) =>
+			fs.writeFileSync(
+				data,
+				JSON.stringify({
+					...JSON.parse(fs.readFileSync(data, "utf8")),
+					issues,
+				}),
+			),
 		/** Replaces what the search serves, for hits built after the root. */
 		setHits: (hits: Record<string, Hit[]>) =>
 			fs.writeFileSync(
@@ -168,7 +177,7 @@ function fixture(opts: {
 	};
 }
 
-function run(fx: ReturnType<typeof fixture>) {
+function run(fx: ReturnType<typeof fixture>, env: NodeJS.ProcessEnv = {}) {
 	const r = runInProcess(SCRIPT, [], {
 		cwd: fx.root,
 		env: {
@@ -179,6 +188,7 @@ function run(fx: ReturnType<typeof fixture>) {
 			HOME: fx.root,
 			CLAUDE_PROJECT_DIR: fx.root,
 			CLAUDE_CONFIG_DIR: fx.config,
+			...env,
 		},
 	});
 	return { code: r.status, stdout: r.stdout, stderr: r.stderr };
@@ -223,6 +233,7 @@ const checkoutTemplate = defineTemplate((dir) => {
 		git("commit", "-qm", `price = ${n}`);
 		git("tag", `l${n}`);
 	}
+	git("update-ref", "refs/remotes/origin/main", "HEAD");
 });
 
 /** That checkout under `fx`'s home, tracking OWN; reads a rev in it. */
@@ -290,7 +301,9 @@ function trailerCheckout(
 			"-qm",
 			`change ${i}${trailer === undefined ? "" : `\n\nReview-Tier: ${trailer}`}`,
 		);
-		return git(date, "rev-parse", "HEAD");
+		const head = git(date, "rev-parse", "HEAD");
+		git(date, "update-ref", "refs/remotes/origin/main", head);
+		return head;
 	});
 }
 
@@ -636,6 +649,86 @@ describe("the re-measure trigger", () => {
 		expect(readGuardErrorsLog(fx.config)).toContain(
 			`report-remeasure-due\t${fault}`,
 		);
+	});
+
+	it("counts only what main holds: silent on a sha queued on landing, and reporting one on neither ref until a record of the same review names one that is on main (#3846)", () => {
+		const fx = fixture({ hits: {} });
+		const [corrected, onMain, queued, replaced, lost] = trailerCheckout(fx, [
+			{ file: "a.txt" },
+			{ file: "b.txt" },
+			{ file: "c.txt" },
+			{ file: "d.txt" },
+			{ file: "e.txt" },
+		]) as [string, string, string, string, string];
+		const git = (...a: string[]) =>
+			execFileSync("git", a, { cwd: path.join(fx.root, "manta") });
+		git("update-ref", "refs/remotes/origin/main", onMain);
+		git("update-ref", "refs/remotes/origin/landing", queued);
+		const unheld = "d".repeat(40);
+		fx.setHits({
+			"o/manta": [
+				ticket(1, [], [record(1, undefined, onMain)]),
+				ticket(
+					2,
+					[],
+					[record(2, undefined, replaced), record(2, undefined, corrected)],
+				),
+				ticket(3, [], [record(3, undefined, queued)]),
+				ticket(4, [], [record(4, undefined, lost)]),
+				ticket(5, [], [record(5, undefined, unheld)]),
+			],
+		});
+		fx.setIssues([
+			{
+				number: 77,
+				title: TITLE,
+				labels: [{ name: "takes:wayfinder" }],
+				closedAt: null,
+				createdAt: "2026-11-02T00:00:00Z",
+			},
+		]);
+		const r = run(fx, { WFC_MODULES: "landing" });
+		expect(r.code).toBe(0);
+		expect(r.stderr.split("\n")).toEqual([
+			`OFF MAIN: o/manta#4 has a record naming landed ${lost}, which never reached main, so its commit is not counted until it is corrected: post a record naming the sha it landed under, as \`scripts/lib/rule-text.sh review-tier-records\` says`,
+			expect.stringMatching(
+				new RegExp(`^UNJUDGED: o/manta#5: could not walk landed ${unheld} `),
+			),
+			"",
+		]);
+		expect(readGuardErrorsLog(fx.config)).toContain(
+			"report-remeasure-due\to/manta#4 has a record naming landed",
+		);
+		const body = fx.issueBody.body();
+		expect(body.split("\n")[0]).toMatch(/^3 commits on adopter-declared/);
+		for (const landed of [onMain, corrected, unheld])
+			expect(body).toContain(`landed ${landed}`);
+		for (const landed of [queued, replaced, lost])
+			expect(body).not.toContain(`landed ${landed}`);
+	});
+
+	it("reads the pushed ref as main with the landing module off, so a sha only on landing is off main (#3846)", () => {
+		const fx = fixture({ hits: {} });
+		const [onMain, queued] = trailerCheckout(fx, [
+			{ file: "a.txt" },
+			{ file: "b.txt" },
+		]) as [string, string];
+		const git = (...a: string[]) =>
+			execFileSync("git", a, { cwd: path.join(fx.root, "manta") });
+		git("update-ref", "refs/remotes/origin/main", onMain);
+		git("update-ref", "refs/remotes/origin/landing", queued);
+		fx.setHits({ "o/manta": [ticket(1, [], [record(1, undefined, queued)])] });
+		expect(run(fx, { WFC_MODULES: "" }).stderr).toContain(
+			`OFF MAIN: o/manta#1 has a record naming landed ${queued}`,
+		);
+	});
+
+	it("counts a disposition line with no space after its dash (#3846)", () => {
+		const tight = record(15, ["x"]).replace("- x (Standards)", "-FIXED: x");
+		const fx = fixture({
+			hits: { "o/fleet": [ticket(1, range(1, 14), [tight])] },
+		});
+		expect(run(fx).stdout).toContain("15 counted commits");
 	});
 
 	it("reports a record its checkout cannot diff as unjudged, one line, and nothing more of it (#3544)", () => {

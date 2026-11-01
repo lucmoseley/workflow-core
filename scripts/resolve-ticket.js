@@ -29,6 +29,14 @@
  * subject, unless the comment's `**Unlanded:**` line says why not (#3101).
  * It fails open, with a note, where git cannot answer.
  *
+ * Any close is refused where its comment, posted, would hold a
+ * `**Review findings:**` record report-remeasure-due.js reports or counts 0 of,
+ * through the same lib/review-findings.js (#3846). The record may name a sha
+ * still queued on `landing`, so a close never waits for the lander. It fails
+ * open, with a note, where the ticket's comments cannot be read. Residual: a
+ * record posted by a separate `gh issue comment` goes unchecked here: the report
+ * catches its form, and nothing yet its cut-off lines (#3847).
+ *
  * ORDER: every refusal, then comment, close, release, map line. The assignee
  * is never removed.
  *
@@ -100,6 +108,11 @@ const {
 	releaseOwnClaim,
 	scriptIo,
 } = require("./lib/tracker-ops.js");
+const {
+	buildFindingsRefusal,
+	hasRecordMention,
+	readTicketComments,
+} = require("./lib/review-findings.js");
 const { caught } = require("./lib/caught.js");
 const { parseIssueNumber } = require("./lib/issue-number.js");
 
@@ -319,6 +332,18 @@ function checkLandedOrFail(comment, n) {
 }
 
 /**
+ * @param {string} comment
+ * @param {string} repo
+ * @param {number} n
+ */
+function checkFindingsOrFail(comment, repo, n) {
+	if (!hasRecordMention(comment)) return;
+	checkRefusalOrFail("review record", n, () =>
+		buildFindingsRefusal(n, readTicketComments(repo, n), comment),
+	);
+}
+
+/**
  * @param {string} check
  * @param {number} n
  * @param {() => string} refuse
@@ -464,7 +489,10 @@ function main() {
 
 	const issue = readIssueOrFail(repo, n);
 
-	if (issue.state !== "closed") checkNoOpenChildOrFail(repo, n);
+	if (issue.state !== "closed") {
+		checkNoOpenChildOrFail(repo, n);
+		checkFindingsOrFail(comment, repo, n);
+	}
 
 	if (!notPlanned) {
 		checkCompletableOrFail(issue, n);

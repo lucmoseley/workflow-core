@@ -58,6 +58,7 @@ const read = (name: string) => fs.readFileSync(state(name), "utf8");
 /**
  * `gh` over one ticket (#534) and its parent (#528), kept in files under
  * STUB_DIR. Levers: `close-fails` and `edit-fails` make that write fail;
+ * `comments-fail` makes reading the comments fail;
  * `subs.json` is the ticket's sub-issues, none where it is absent;
  * `clobber` is written over the map right after the first map edit — a rival
  * writing from a base older than the neighbour's line.
@@ -82,7 +83,10 @@ if (a[0] === "api") {
 	if (a[1] === "repos/acme/widgets/issues/534") say(issue());
 	if (a[1] === "repos/acme/widgets/issues/534/sub_issues")
 		say([fs.existsSync(f("subs.json")) ? JSON.parse(fs.readFileSync(f("subs.json"), "utf8")) : []]);
-	if (a[1] === "repos/acme/widgets/issues/534/comments") say([comments()]);
+	if (a[1] === "repos/acme/widgets/issues/534/comments") {
+		if (fs.existsSync(f("comments-fail"))) no("HTTP 502: Bad Gateway");
+		say([comments()]);
+	}
 	if (a[1] === "repos/acme/widgets/issues/528" && fs.existsSync(f("parent.json")))
 		say({ ...JSON.parse(fs.readFileSync(f("parent.json"), "utf8")), body: fs.readFileSync(f("map.md"), "utf8") });
 	no("HTTP 404: Not Found");
@@ -877,6 +881,115 @@ describe("the map append", () => {
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("- #530 — neighbour's line");
 		expect(readMapLines()).toEqual(["- #534 — one call resolves"]);
+	});
+});
+
+describe("a review record in the close comment (#3846)", () => {
+	const Tier =
+		"**Review tier:** escalated — secret handling; not mission-critical.";
+	const Head =
+		"**Review findings:** base aaaaaaa1, reviewed bbbbbbb2, landed ccccccc3";
+	const onTicket = (...bodies: string[]) =>
+		put(
+			"comments.json",
+			bodies.map((body) => ({
+				user: { login: "me" },
+				body,
+				created_at: "2026-11-01T12:00:00Z",
+			})),
+		);
+	const closing = (record: string) =>
+		`${COMMENT}**Door:** two-way — revert it.\n${record}\n`;
+	const refused = (record: string, text: string) => {
+		const before = posted();
+		const r = run(DECISION, closing(record));
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(text);
+		expect(r.stderr).toContain("Nothing written.");
+		expect(posted()).toBe(before);
+		expect(JSON.parse(read("issue.json")).state).toBe("open");
+	};
+	const passes = (record: string) => {
+		const r = run(DECISION, closing(record));
+		expect(r.stderr).toBe("");
+		expect(r.status).toBe(0);
+		expect(JSON.parse(read("issue.json")).state).toBe("closed");
+	};
+
+	it("refuses a note after the landed sha, naming the remedy, under a tier on an earlier comment or its own", () => {
+		setUp();
+		onTicket(Tier);
+		refused(
+			`${Head} (queued on landing), paths a.ts`,
+			"record not in the form",
+		);
+		onTicket();
+		refused(
+			`${Tier}\n${Head.replace("ccccccc3", "pending (ccccccc3 on landing)")}`,
+			"need not have reached main yet",
+		);
+	});
+
+	it("refuses disposition lines cut off from their record", () => {
+		setUp();
+		onTicket(Tier);
+		refused(
+			`${Head}, paths a.ts\nThe findings were:\n- FIXED: a leak (Focus)`,
+			"1 - FIXED or - TICKETED line past a line that ends its list",
+		);
+	});
+
+	it("passes a plain pushed sha with its list straight under it, prose after", () => {
+		setUp();
+		onTicket(Tier);
+		passes(
+			`${Head}, paths a.ts\n- FIXED: a leak (Focus)\nFocus 1, Standards 0.`,
+		);
+	});
+
+	it("passes prose under a record whose defects sit under the next, as #3737's does", () => {
+		setUp();
+		onTicket(Tier);
+		passes(
+			`${Head}, paths a.ts\nIts defects are under the next.\n${Head.replace("ccccccc3", "ddddddd4")}, paths b.ts\n- FIXED: a leak (Focus)`,
+		);
+	});
+
+	it("passes an ordinary review report with no counted tier above it, a backticked mention, and a declined line past the prose", () => {
+		setUp();
+		onTicket("**Review tier:** standard");
+		passes("**Review findings:** 2 fixed, 1 declined.");
+		setUp();
+		onTicket(Tier);
+		passes(
+			`\`**Review findings:** base <sha>\` names the form.\n${Head}\nProse.\n- DECLINED: not one (Spec)`,
+		);
+	});
+
+	it("reads a dash with no space as a disposition line, so one past prose is refused", () => {
+		setUp();
+		onTicket(Tier);
+		refused(
+			`${Head}, paths a.ts\n-FIXED: a leak (Focus)\nProse.\n-TICKETED #9: a lock (Spec)`,
+			"1 - FIXED or - TICKETED line past a line that ends its list",
+		);
+	});
+
+	it("fails open with a note where the ticket's comments cannot be read, the second-post check then stopping the close", () => {
+		setUp();
+		put("comments-fail", "");
+		const r = run(DECISION, closing(`${Head} (queued)`));
+		expect(r.stdout).toContain("review record check skipped");
+		expect(r.status).toBe(1);
+		fs.rmSync(state("comments-fail"));
+		expect(posted()).toBe(0);
+	});
+
+	it("adds no comments read for a close that names no record", () => {
+		setUp();
+		expect(run(DECISION).status).toBe(0);
+		/* The one read is the check against posting twice. */
+		expect(readCalls().filter((c) => c.includes("/comments"))).toHaveLength(1);
 	});
 });
 
