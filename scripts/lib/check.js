@@ -209,7 +209,8 @@ const OUTCOMES = {
  *   `key` is the finding's stable IDENTITY, and the only field a set-diffing
  *   reader may compare (mantahostels#2490).
  * @typedef {{ okLine?: string, noun?: string, count?: number, data?: object,
- *   stamp?: string, stamps?: Record<string, string> }} CheckResult `stamp` is
+ *   stamp?: string, stamps?: Record<string, string>,
+ *   maxAgeMs?: number }} CheckResult `stamp` is
  *   the once-only delivery signature a persisted report carries so the reader
  *   can stamp it once shown (mantahostels#1975); `stamps` is the same idea for a checker
  *   whose findings do not reduce to one signature — a name-to-signature map
@@ -1733,6 +1734,7 @@ function persistReport(spec, outcome, result, persist) {
 		 * findings need more than one signature (mantahostels#2277). */
 		stamp: result.stamp,
 		stamps: result.stamps,
+		maxAgeMs: result.maxAgeMs,
 		durationMs: performance.now() - persist.startedAtMono,
 		// The session whose start ran this hook, for scripts/deliver-to-session.js (#853).
 		owner: sessionFromEnv(),

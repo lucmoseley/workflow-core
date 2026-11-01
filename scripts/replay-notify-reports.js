@@ -59,7 +59,8 @@
  *            injects into the session whatever a slow async producer finished
  *            after the harness had stopped listening to it, bar the reports
  *            `isHeldForStatus` keeps for `npm run status` and a founder
- *            notice at a background job's start.
+ *            notice at a start not his: a dispatcher's or the loop's job, a
+ *            wake, a print-mode run, or a compaction.
  * JUSTIFIED: fail-safe — it touches local files and nothing else, under
  *            --notify writing only its own shown-records, start count and
  *            delivery stamps, and under --status only those stamps, so it cannot inherit the cancellation it exists
@@ -94,7 +95,8 @@ const {
 const { hostRoot } = require("./lib/host-root.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { isRepoChecksReport } = require("./lib/repo-checks-reading.js");
-const { isHeldAtBackgroundStart } = require("./lib/background-start.js");
+const { isFounderNoticeHeld } = require("./lib/background-start.js");
+const hookMessage = require("./lib/hook-message");
 const { trimEndRun } = require("./lib/trim-run.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
@@ -181,7 +183,8 @@ const isHeldForStatus = (key) =>
  * @param {string} key
  */
 const isHeldAtStart = (pass, key) =>
-	pass.ctx.notify && (isHeldForStatus(key) || isHeldAtBackgroundStart(key));
+	pass.ctx.notify &&
+	(isHeldForStatus(key) || isFounderNoticeHeld(key, pass.source));
 
 /*
  * How many starts a producer may go without a new run before it is named as
@@ -340,6 +343,7 @@ const digestOf = (text) =>
  *   now: number,
  *   delivering: boolean,
  *   spending: boolean,
+ *   source?: string,
  *   startNo: number,
  *   gated: (key: string) => boolean,
  *   record: [string, Shown][],
@@ -783,7 +787,7 @@ function printSummary(ctx, { blocks, stale }, unwired) {
 }
 
 /**
- * @param {Pick<Pass, "ctx" | "delivering" | "spending" | "startNo" | "gated">} given
+ * @param {Pick<Pass, "ctx" | "delivering" | "spending" | "source" | "startNo" | "gated">} given
  * @returns {Pass}
  */
 const newPass = (given) => ({
@@ -850,6 +854,8 @@ runCheck({
 			ctx,
 			delivering,
 			spending: delivering,
+			/* Read under --notify alone: a hand run's stdin may be a terminal. */
+			source: ctx.notify ? hookMessage.readPayload()?.source : undefined,
 			startNo,
 			gated,
 		});

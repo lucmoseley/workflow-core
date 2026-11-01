@@ -1,20 +1,33 @@
 /*
  * background-start.js — whether this session start is a background job's,
- * which no one is watching (#3707).
+ * and whether a founder notice waits past it (#3707, #3772).
  *
- * FOUNDER_NOTICES are the once-a-day notices for the founder held back at
- * such a start, by the producer and by the replay alike, through
- * isHeldAtBackgroundStart: a notice's delivery stamp is per machine, and with the refill loop
- * launching about 120 jobs a day, a job would otherwise spend it almost every
- * day before his own session started.
+ * FOUNDER_NOTICES are the once-a-day notices for the founder held back at a
+ * start no one is watching, by the producer and by the replay alike, through
+ * isFounderNoticeHeld: a notice's delivery stamp is per machine, and with
+ * the refill loop launching about 120 jobs a day, a job would otherwise spend
+ * it almost every day before his own session started.
  *
  * BACKGROUND: `CLAUDE_JOB_DIR` set, as in every `claude --bg` job, or a
  * print-mode run (`CLAUDE_CODE_ENTRYPOINT` `sdk-cli`, `claude -p`).
  *
- * BLIND SPOT: a session the founder launches from the agents view is a
- * background job too, and nothing on the job tells it from a dispatcher's
- * (lib/founder-typing.js), so the notice waits for his next terminal start.
+ * HIS OWN JOB: the job's state.json reads a `template` other than `bg`. The
+ * agents view launches through `--agent claude`, which the harness records as
+ * `claude`; every dispatcher and refill-loop launch is a plain `claude --bg`,
+ * recorded as `bg` (#3772; read at the hook on 2.1.316). The field is the
+ * harness's own and undocumented. A record that will not read, or carries no `template`,
+ * holds; `npm run status` still shows the idle alarm. RESIDUAL: were the harness
+ * to rename `bg`, every loop job would spend his stamp.
+ *
+ * A WAKE IS NOT HIS LAUNCH: `claude --bg --resume` wakes his job in place, its
+ * template still `claude`, its `SessionStart` source `resume` (measured on
+ * 2.1.316), and the refill loop wakes a parked job whoever launched it (#3709).
+ * So a job's `resume` holds, his own included.
+ *
+ * BLIND SPOT: he types `claude --bg` himself: held, as a dispatcher's is.
  */
+
+const { readJobRecordIn } = require("./job-paths.js");
 
 /** @param {NodeJS.ProcessEnv} [env] */
 const isPrintMode = (env = process.env) =>
@@ -24,14 +37,43 @@ const isPrintMode = (env = process.env) =>
 const isBackgroundStart = (env = process.env) =>
 	Boolean(env.CLAUDE_JOB_DIR) || isPrintMode(env);
 
+/**
+ * Whether this job is one the founder launched from the agents view. False
+ * for a print-mode run inside his job, which inherits `CLAUDE_JOB_DIR`.
+ * @param {NodeJS.ProcessEnv} env
+ */
+function isHisOwnJob(env) {
+	const jobDir = env.CLAUDE_JOB_DIR;
+	if (!jobDir || isPrintMode(env)) return false;
+	/* No readable record proves nothing of his, so the notice waits (#3772). */
+	const template = readJobRecordIn(jobDir)?.template;
+	return typeof template === "string" && template !== "bg";
+}
+
 const FOUNDER_NOTICES = new Set(["idle-efforts", "refill-loop-stop"]);
 
 /**
- * Whether this start holds back the notice `checker` reports.
+ * Whether this start holds back the founder notice `checker` reports: a
+ * compaction, or a background start that is not his job's own launch.
  * @param {string} checker
+ * @param {string} [source] the hook payload's, where a caller read it
  * @param {NodeJS.ProcessEnv} [env]
  */
-const isHeldAtBackgroundStart = (checker, env = process.env) =>
-	FOUNDER_NOTICES.has(checker) && isBackgroundStart(env);
+const isFounderNoticeHeld = (checker, source, env = process.env) => {
+	if (!FOUNDER_NOTICES.has(checker)) return false;
+	if (source === "compact") return true;
+	return isBackgroundStart(env) && (source === "resume" || !isHisOwnJob(env));
+};
 
-module.exports = { isBackgroundStart, isHeldAtBackgroundStart };
+/** What a `--notify` founder notice ends on: `SessionStart` stdout reaches the model. */
+const RELAY_LINE =
+	"Tell the founder this in your next reply: it reaches only you.";
+
+/** @param {boolean} notifying */
+const relayLines = (notifying) => (notifying ? [RELAY_LINE] : []);
+
+module.exports = {
+	isBackgroundStart,
+	isFounderNoticeHeld,
+	relayLines,
+};

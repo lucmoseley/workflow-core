@@ -15,8 +15,9 @@
  * names it and records nothing. A compaction is no session start: its hook
  * payload's `source` is `compact`, and it prints and records nothing. The
  * stamp is per machine, as the loop is, so whichever session starts first on
- * any seat or repo spends it; a background job's start prints and records
- * nothing either (lib/background-start.js, #3707), so the founder's does.
+ * any seat or repo spends it; a dispatcher's or the loop's job start, or any
+ * job's wake, prints and records nothing either (lib/background-start.js, #3707, #3772), so the
+ * founder's does, in a terminal or from the agents view.
  *
  * THE RESTART MATCHES THE STOPPED SCOPE (#3371): `/pick-next` restarts normal
  * mode only, naming the loop's other repos and goals (#3390). An away-mode
@@ -31,7 +32,7 @@
  * file, read only beside a fresh stop, is named with it, until a `start`
  * rewrites it (#3380); beside the stop it caused, the stop line names it.
  *
- * IMPLICIT:  at every session start but a background job's, prints the refill loop's last stop where it was no progress, the allowance cut or a damaged control file and is newer than the stamp, then stamps it; prints its newest first overflow launch where newer than that launch's stamp, then stamps it; and names a damaged state or control file.
+ * IMPLICIT:  at every session start but a dispatcher's or the loop's job, prints the refill loop's last stop where it was no progress, the allowance cut or a damaged control file and is newer than the stamp, then stamps it; prints its newest first overflow launch where newer than that launch's stamp, then stamps it; and names a damaged state or control file.
  * JUSTIFIED: fail-safe — the loop runs outside any session, so nothing else reports its stopping or its spending.
  * DEFEAT:    none needed — it never blocks; deleting a stamp names its last event again.
  */
@@ -40,7 +41,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const hookMessage = require("./lib/hook-message");
-const { isHeldAtBackgroundStart } = require("./lib/background-start.js");
+const {
+	isFounderNoticeHeld,
+	relayLines,
+} = require("./lib/background-start.js");
 const { buildOverflowStartLines } = require("./lib/overflow-notice.js");
 const loop = require("./lib/refill-loop.js");
 const refillFiles = require("./lib/refill-files.js");
@@ -147,7 +151,7 @@ function reportOverflowStart(ctx, start, seenFile) {
 			[
 				...buildOverflowStartLines(start),
 				`Its status: ${STATUS}`,
-				"Tell the founder this in your next reply: it reaches only you.",
+				...relayLines(ctx.notify),
 			]
 				.map((l) => `  ${l}\n`)
 				.join(""),
@@ -160,10 +164,11 @@ runCheck({
 	usage: "node check-refill-loop-stop.js [--notify] [--json]",
 	run(ctx) {
 		/* Read under --notify alone: a plain run's stdin may be a terminal. */
-		if (ctx.notify && hookMessage.readPayload()?.source === "compact")
-			ctx.skip("a compaction is no session start.");
-		if (ctx.notify && isHeldAtBackgroundStart("refill-loop-stop"))
-			ctx.skip("a background job's start is not the founder's.");
+		if (
+			ctx.notify &&
+			isFounderNoticeHeld("refill-loop-stop", hookMessage.readPayload()?.source)
+		)
+			ctx.skip("this start is not the founder's own.");
 		const files = refillFiles.loopFiles();
 		/** @param {string} line */
 		const reportDamaged = (line) => {
@@ -197,6 +202,7 @@ runCheck({
 			const lines = [
 				...(renewed ? [] : buildRestartLines(control)),
 				`Its status: ${STATUS}`,
+				...relayLines(ctx.notify),
 			];
 			ctx.warn(
 				"REFILL-LOOP-STOPPED",
