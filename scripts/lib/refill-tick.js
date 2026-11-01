@@ -319,13 +319,13 @@ function readPrintedUsage(seats) {
  * @param {number} members
  * @param {string} usageText
  */
-function readCapFits(root, seat, members, usageText) {
-	if (root === undefined) {
-		log(
-			`fault: cap on ${seat} unsized: the loop serves no checkout to size it in`,
-		);
-		return null;
-	}
+function readCap(root, seat, members, usageText) {
+	if (root === undefined)
+		return {
+			fits: null,
+			why: "the loop serves no checkout to size it in",
+			fault: true,
+		};
 	const r = runChild(
 		process.execPath,
 		[
@@ -339,10 +339,29 @@ function readCapFits(root, seat, members, usageText) {
 		},
 	);
 	const cap = loop.parseCapFits(r.stdout);
-	if (cap.fits === null)
-		log(
-			`${cap.fault || r.failed ? "fault: " : ""}cap on ${seat} unsized: ${cap.why}${r.failed ? ` (${r.failed})` : ""}`,
-		);
+	if (cap.fits !== null || !r.failed) return cap;
+	return { fits: null, why: `${cap.why} (${r.failed})`, fault: true };
+}
+
+/**
+ * The line naming a cap unsized; a fault where it could not be sized off a
+ * trustworthy reading.
+ * @param {string} seat
+ * @param {{why: string, fault: boolean}} cap
+ */
+const buildCapUnsizedLine = (seat, cap) =>
+	`${cap.fault ? "fault: " : ""}cap on ${seat} unsized: ${cap.why}`;
+
+/**
+ * readCap's count for a tick, logged where it is unsized.
+ * @param {string|undefined} root
+ * @param {string} seat
+ * @param {number} members
+ * @param {string} usageText
+ */
+function readCapFits(root, seat, members, usageText) {
+	const cap = readCap(root, seat, members, usageText);
+	if (cap.fits === null) log(buildCapUnsizedLine(seat, cap));
 	return cap.fits;
 }
 
@@ -1143,6 +1162,8 @@ module.exports = {
 	DISPATCHER,
 	files,
 	log,
+	buildCapUnsizedLine,
+	readCap,
 	reviewRunning,
 	say,
 	servedRoots,

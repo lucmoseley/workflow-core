@@ -7,6 +7,7 @@
  */
 
 const path = require("node:path");
+const { sizedPercent } = require("./allowance.js");
 const { RESUME_CAP } = require("./block-act.js");
 const {
 	buildLimitText,
@@ -20,6 +21,13 @@ const {
 	buildBasisLines,
 	buildOverflowStartLines,
 } = require("./overflow-notice.js");
+const {
+	buildOverflowHoldText,
+	hasRoom,
+	orderPlanSeats,
+	pickSeat,
+	seatHold,
+} = require("./refill-decide.js");
 const { buildSeatText, buildSkipText } = require("./refill-loop.js");
 const { buildSeatName } = require("./refill-seats.js");
 
@@ -67,12 +75,191 @@ const buildStopLine = (control, runMs) =>
 		: `stops by:  ${iso(control.startedAt + runMs)}`;
 
 /**
+ * @typedef {import("./refill-decide.js").SizedSeat} SizedSeat
+ * @typedef {{week: number, session: number}} Ceilings dispatch's cut
+ * @typedef {{bar: "week"|"5h", percent: number, ceiling: number}} FailingLimit
+ * @typedef {object} SeatsView what the `seats:` line says, its seats as tilde
+ *   paths (#3733)
+ * @property {{seat: string, week: number|null, session: number|null,
+ *   readAt: string, fresh: boolean}[]} readings in launch order
+ * @property {{seat: string, reason: import("./refill-decide.js").SeatReason}|null} next
+ * @property {string|null} wait why no seat is next, where none is
+ * @property {{seat: string, limits: FailingLimit[], hold: string|null}[]} passedOver
+ *   each seat a limit fails on, and each ahead of the pick, `hold` saying why
+ *   where no limit fails
+ * @property {string|null} callerSeat the seat `/pick-next`'s own launches went
+ *   on, for `start`
+ */
+
+/**
+ * A bar's percent as last read, trusted or not; null where it was never read
+ * or its window has since reset.
+ * @param {import("./allowance.js").Bar} bar
+ * @param {number} now
+ */
+function asReadPercent(bar, now) {
+	const sized = sizedPercent(bar);
+	if (sized !== null) return sized;
+	return Date.parse(bar.resetsAt ?? "") > now ? bar.percent : null;
+}
+
+/**
+ * @param {{week: number|null, session: number|null}} s
+ * @param {Ceilings} ceilings
+ * @returns {FailingLimit[]}
+ */
+function failingLimits(s, ceilings) {
+	/** @type {[FailingLimit["bar"], number|null, number][]} */
+	const bars = [
+		["week", s.week, ceilings.week],
+		["5h", s.session, ceilings.session],
+	];
+	return bars.flatMap(([bar, percent, ceiling]) =>
+		percent !== null && percent >= ceiling ? [{ bar, percent, ceiling }] : [],
+	);
+}
+
+/**
+ * A seat as `start` and `status` foresee it, reading only the cache where a
+ * tick would refresh it with a `/usage` probe (#3733). A fresh seat is sized as
+ * the tick sizes it. A stale bar counts at its last percent, and fits a launch
+ * under dispatch's cut and none past it, the cap sizing no unfresh reading.
+ * Residual: a tick's refresh can pick differently from a stale seat's guess,
+ * which the line marks with the reading's age.
+ * @param {{reading: import("./refill-decide.js").SeatReading,
+ *   bars: {session: import("./allowance.js").Bar,
+ *     weekly_all: import("./allowance.js").Bar},
+ *   sizeCap: () => number|null, ceilings: Ceilings,
+ *   now: number}} input `sizeCap`, the cap's count on a fresh seat
+ * @returns {SizedSeat & {fresh: boolean}}
+ */
+function foreseeSeat({ reading, bars, sizeCap, ceilings, now }) {
+	const fresh = reading.week !== null && reading.session !== null;
+	if (fresh)
+		return { ...reading, fits: hasRoom(reading) ? sizeCap() : null, fresh };
+	const week = asReadPercent(bars.weekly_all, now);
+	const session = asReadPercent(bars.session, now);
+	const read = week !== null && session !== null;
+	const fits = read
+		? Number(failingLimits({ week, session }, ceilings).length === 0)
+		: null;
+	return { ...reading, week, session, fits, fresh };
+}
+
+/** Why the picker walked past a seat no limit fails on, by seatHold's word.
+ * @type {Record<import("./refill-decide.js").SeatHold, string>} */
+const HOLD_TEXT = {
+	cut: "week full",
+	fiveHour: "5-hour full",
+	unread: "unread",
+	unsized: "cap unsized",
+	capped: "cap fits no launch",
+};
+
+/**
+ * A seat's tilde path; "the seat file", standing in for an overflow seat where
+ * that file refuses, is no path.
+ * @param {string} dir
+ */
+const buildDirName = (dir) => (path.isAbsolute(dir) ? buildSeatName(dir) : dir);
+
+/**
+ * The picker's walk over the seats as foreseen, with every limit failing on
+ * each seat it does not take. A seat behind the pick that no limit fails on
+ * was never reached, so is not passed over; nor is an overflow seat before
+ * every plan seat is weekly-full.
+ * @param {{seats: (SizedSeat & {fresh: boolean})[],
+ *   overflow: import("./refill-decide.js").OverflowReading[],
+ *   typedSeat: string|null, ceilings: Ceilings,
+ *   callerSeat?: string}} input `seats` in seat-file order
+ * @returns {SeatsView}
+ */
+function buildSeatsView({ seats, overflow, typedSeat, ceilings, callerSeat }) {
+	const pick = pickSeat({ seats, overflow, typedSeat });
+	const walk = orderPlanSeats(seats, typedSeat);
+	const taken = walk.findIndex((s) => s.seat === pick.seat);
+	const reached = taken === -1 ? walk.length : taken;
+	const overflowTaken = overflow.findIndex((o) => o.seat === pick.seat);
+	const overflowReached = seats.every((s) => s.weekFull)
+		? overflow.slice(0, overflowTaken === -1 ? overflow.length : overflowTaken)
+		: [];
+	const wait =
+		pick.seat === null
+			? [...seats, ...overflow].reduce(
+					(text, { seat }) => text.replaceAll(seat, buildDirName(seat)),
+					pick.wait || "every seat is spent",
+				)
+			: null;
+	return {
+		readings: walk.map((s) => ({
+			seat: buildSeatName(s.seat),
+			week: s.week,
+			session: s.session,
+			readAt: iso(s.readAt),
+			fresh: s.fresh,
+		})),
+		next:
+			pick.seat === null
+				? null
+				: { seat: buildDirName(pick.seat), reason: pick.reason },
+		wait,
+		passedOver: [
+			...walk.flatMap((s, i) => {
+				if (s.seat === pick.seat) return [];
+				const limits = failingLimits(s, ceilings);
+				const hold =
+					i < reached && limits.length === 0 ? HOLD_TEXT[seatHold(s)] : null;
+				return limits.length > 0 || hold !== null
+					? [{ seat: buildSeatName(s.seat), limits, hold }]
+					: [];
+			}),
+			...overflowReached.map((o) => ({
+				seat: buildDirName(o.seat),
+				limits: [],
+				hold: buildOverflowHoldText(o),
+			})),
+		],
+		callerSeat: callerSeat === undefined ? null : buildSeatName(callerSeat),
+	};
+}
+
+/**
+ * @param {SeatsView} view
+ * @param {number} now
+ */
+function buildSeatsLine(view, now) {
+	/** @param {number|null} p */
+	const percent = (p) => (p === null ? "unread" : `${p}%`);
+	const readings = view.readings.map((r) => {
+		const minutes = Math.round((now - Date.parse(r.readAt)) / 60_000);
+		const dated = !r.fresh && (r.week !== null || r.session !== null);
+		const age = dated ? ` (read ${minutes}m ago)` : "";
+		return `${r.seat} week ${percent(r.week)} 5h ${percent(r.session)}${age}`;
+	});
+	return [
+		`seats:     ${readings.join(", ") || "none"}`,
+		view.next
+			? `next ${view.next.seat} (${view.next.reason})`
+			: `next none (${view.wait})`,
+		...view.passedOver.map(({ seat, limits, hold }) => {
+			const failing = limits.map(
+				(l) => `${l.bar} ${l.percent}% ≥ ${l.ceiling}%`,
+			);
+			return `passed over ${seat} ${[...failing, ...(hold ? [hold] : [])].join(", ")}`;
+		}),
+		...(view.callerSeat
+			? [`/pick-next's launches ${view.callerSeat} (its caller's seat)`]
+			: []),
+	].join("; ");
+}
+
+/**
  * The lines naming what a loop serves, on which seats and until when.
  * @param {Control} control
- * @param {{runMs: number, served: string[], running: boolean}} opts
- *   `served`, scopeRoots's roots
+ * @param {{runMs: number, served: string[], running: boolean, seatsLine: string}} opts
+ *   `served`, scopeRoots's roots; `seatsLine`, buildSeatsLine's
  */
-function buildScopeLines(control, { runMs, served, running }) {
+function buildScopeLines(control, { runMs, served, running, seatsLine }) {
 	const { scope } = control;
 	const names = (/** @type {string[]} */ roots) =>
 		roots.map((r) => path.basename(r)).join(", ") || "none";
@@ -87,7 +274,7 @@ function buildScopeLines(control, { runMs, served, running }) {
 		...(away ? [`excluding: ${names(scope.exclude)}`] : []),
 		`goal:      ${goals.join("; ") || "none"}`,
 		...(running ? [buildStopLine(control, runMs)] : []),
-		`seats:     ${control.seats.join(", ") || "none"}`,
+		seatsLine,
 	];
 }
 
@@ -187,7 +374,7 @@ function shownLaunches(control, state) {
  * running from before a renewal.
  * @param {Control} control
  * @param {LoopState} state
- * @param {{runMs: number, served: string[], running: boolean}} opts
+ * @param {{runMs: number, served: string[], running: boolean, seatsLine: string}} opts
  */
 function buildControlLines(control, state, opts) {
 	const lines = [`started:   ${iso(control.startedAt)}`];
@@ -235,8 +422,9 @@ function buildLastTickLines(t) {
 
 /**
  * @param {{control: Control|null, state: LoopState, pid: number|null,
- *   runMs: number, served: string[], codeSha?: string|null}} input `served`,
- *   scopeRoots's roots; `codeSha`, lib/refill-code.js's readRunningCode
+ *   runMs: number, served: string[], seats: SeatsView, now: number,
+ *   codeSha?: string|null}} input `served`, scopeRoots's roots; `codeSha`,
+ *   lib/refill-code.js's readRunningCode
  * @returns {string[]}
  */
 function buildStatusLines({
@@ -245,6 +433,8 @@ function buildStatusLines({
 	pid,
 	runMs,
 	served,
+	seats,
+	now,
 	codeSha = null,
 }) {
 	return [
@@ -257,6 +447,7 @@ function buildStatusLines({
 					runMs,
 					served,
 					running: pid !== null,
+					seatsLine: buildSeatsLine(seats, now),
 				})
 			: ["never started on this machine"]),
 		...(state.lastTick ? buildLastTickLines(state.lastTick) : []),
@@ -313,15 +504,17 @@ function buildOverflowBasisLines({
 }
 
 /**
- * `status --json`: whether the loop runs, and the launch rows `status`
- * lists, each with its seat as a tilde path and why it was picked (#3732),
- * null on a record from before that.
- * @param {{control: Control|null, state: LoopState, pid: number|null}} input
+ * `status --json`: whether the loop runs, the launch rows `status` lists,
+ * each with its seat as a tilde path and why it was picked (#3732), null on a
+ * record from before that, and the `seats:` line's fields (#3733).
+ * @param {{control: Control|null, state: LoopState, pid: number|null,
+ *   seats: SeatsView}} input
  */
-function buildStatusJson({ control, state, pid }) {
+function buildStatusJson({ control, state, pid, seats }) {
 	return {
 		running: pid !== null,
 		pid,
+		seats,
 		launches: control
 			? shownLaunches(control, state).listed.map((l) => ({
 					launchedAt: iso(l.launchedAt),
@@ -339,7 +532,10 @@ function buildStatusJson({ control, state, pid }) {
 module.exports = {
 	buildOverflowBasisLines,
 	buildScopeLines,
+	buildSeatsLine,
+	buildSeatsView,
 	buildStatusJson,
 	buildStatusLines,
+	foreseeSeat,
 	mergedScope,
 };

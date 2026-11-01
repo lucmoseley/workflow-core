@@ -9,8 +9,11 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+	buildSeatsLine,
+	buildSeatsView,
 	buildStatusJson,
 	buildStatusLines,
+	foreseeSeat,
 	mergedScope,
 } from "./refill-commands.js";
 import { parseState } from "./refill-loop.js";
@@ -25,6 +28,14 @@ import {
 	record,
 	WFC,
 } from "./refill-loop-fixture";
+
+const NO_SEATS = {
+	readings: [],
+	next: null,
+	wait: "every seat is spent",
+	passedOver: [],
+	callerSeat: null,
+};
 
 describe("the scope a start writes", () => {
 	it("starts a stopped loop on the scope asked for", () => {
@@ -98,6 +109,8 @@ describe("what status prints", () => {
 
 	it("gives start, stop time, launches since the start and the last stop", () => {
 		const out = buildStatusLines({
+			seats: NO_SEATS,
+			now: NOW,
 			control,
 			state,
 			pid: 123,
@@ -128,6 +141,8 @@ describe("what status prints", () => {
 			parkStopped: NOW - MIN,
 		});
 		const out = buildStatusLines({
+			seats: NO_SEATS,
+			now: NOW,
 			control,
 			state: { ...state, launches: [...state.launches, stopped] },
 			pid: 123,
@@ -145,6 +160,8 @@ describe("what status prints", () => {
 			why: i === 0 ? "parked" : "already running",
 		}));
 		const lines = buildStatusLines({
+			seats: NO_SEATS,
+			now: NOW,
 			control,
 			state: {
 				...state,
@@ -180,6 +197,8 @@ describe("what status prints", () => {
 
 	it("shows a launch's session id where captured (#2311)", () => {
 		const out = buildStatusLines({
+			seats: NO_SEATS,
+			now: NOW,
 			control,
 			state: {
 				...state,
@@ -196,6 +215,8 @@ describe("what status prints", () => {
 
 	it("names the mode, the repos and the goal", () => {
 		const out = buildStatusLines({
+			seats: NO_SEATS,
+			now: NOW,
 			control,
 			state,
 			pid: 123,
@@ -206,6 +227,8 @@ describe("what status prints", () => {
 		expect(out).toContain("repos:     workflow-core, mantahostels");
 		expect(out).toContain("goal:      workflow-core #116, #117");
 		const awayOut = buildStatusLines({
+			seats: NO_SEATS,
+			now: NOW,
 			control: { ...control, scope: away([DV]) },
 			state,
 			pid: 123,
@@ -220,6 +243,8 @@ describe("what status prints", () => {
 
 	it("says a requested stop is pending while the loop still runs", () => {
 		const out = buildStatusLines({
+			seats: NO_SEATS,
+			now: NOW,
 			control: { ...control, stopRequested: true },
 			state,
 			pid: 123,
@@ -231,6 +256,8 @@ describe("what status prints", () => {
 
 	it("says when the loop is not running or never started", () => {
 		const out = buildStatusLines({
+			seats: NO_SEATS,
+			now: NOW,
 			control: null,
 			state: {
 				launches: [],
@@ -254,6 +281,8 @@ describe("what status prints", () => {
 describe("the launch lines status shows (#2850)", () => {
 	const statusOf = (launches: Launch[]) =>
 		buildStatusLines({
+			seats: NO_SEATS,
+			now: NOW,
 			control: {
 				startedAt: NOW - 60 * MIN,
 				stopRequested: false,
@@ -420,6 +449,8 @@ describe("a launch row's seat and reason (#3732)", () => {
 
 	it("names the seat as a tilde path and why it was picked, in status", () => {
 		const out = buildStatusLines({
+			seats: NO_SEATS,
+			now: NOW,
 			control,
 			state: stateOf([typed]),
 			pid: 1,
@@ -431,6 +462,7 @@ describe("a launch row's seat and reason (#3732)", () => {
 
 	it("gives the same seat and reason in status --json, null on an older record", () => {
 		const json = buildStatusJson({
+			seats: NO_SEATS,
 			control,
 			state: stateOf([typed, record({ seat })]),
 			pid: 1,
@@ -451,6 +483,8 @@ describe("a launch row's seat and reason (#3732)", () => {
 describe("a handed-off launch (#2659)", () => {
 	it("reads a handed-off launch's state for status", () => {
 		const out = buildStatusLines({
+			seats: NO_SEATS,
+			now: NOW,
 			control: {
 				startedAt: NOW - 60 * MIN,
 				stopRequested: false,
@@ -472,5 +506,260 @@ describe("a handed-off launch (#2659)", () => {
 			served: [DV],
 		}).join("\n");
 		expect(out).toContain("handed off: stopped idle after its host's restart");
+	});
+});
+
+describe("the seats: line (#3733)", () => {
+	const ceilings = { week: 97, session: 90 };
+	const seat = (
+		dir: string,
+		week: number | null,
+		session: number | null,
+		over: {
+			fits?: number | null;
+			weekResets?: number;
+			fresh?: boolean;
+			sessionResets?: string;
+		} = {},
+	) => ({
+		seat: `${process.env.HOME}/${dir}`,
+		week,
+		session,
+		weekFull: week === 100,
+		sessionFull: session === 100,
+		sessionResets: null,
+		weekResets: null,
+		readAt: NOW - 12 * MIN,
+		weekRead: { percent: week, atMs: NOW },
+		fits: 1,
+		fresh: true,
+		...over,
+	});
+	const lineOf = (
+		seats: Parameters<typeof buildSeatsView>[0]["seats"],
+		typedSeat: string | null = null,
+		rest: {
+			overflow?: {
+				seat: string;
+				fits: number | null;
+				spentUntil: null;
+				why: null;
+			}[];
+			callerSeat?: string;
+		} = {},
+	) =>
+		buildSeatsLine(
+			buildSeatsView({
+				seats,
+				overflow: rest.overflow ?? [],
+				typedSeat,
+				ceilings,
+				...(rest.callerSeat ? { callerSeat: rest.callerSeat } : {}),
+			}),
+			NOW,
+		);
+
+	it("gives readings, the last-typed pick and both limits failing on a seat passed over", () => {
+		const typed = seat(".claude3", 40, 20);
+		const spent = seat(".claude2", 98, 95, { fits: 0 });
+		expect(lineOf([spent, typed], typed.seat)).toBe(
+			"seats:     ~/.claude3 week 40% 5h 20%, ~/.claude2 week 98% 5h 95%; next ~/.claude3 (last typed on); passed over ~/.claude2 week 98% ≥ 97%, 5h 95% ≥ 90%",
+		);
+	});
+
+	it("names only the limit that fails, and the soonest-reset reason", () => {
+		const typed = seat(".claude3", 98, 20, { fits: 0 });
+		const other = seat(".claude2", 40, 20);
+		expect(lineOf([typed, other], typed.seat)).toBe(
+			"seats:     ~/.claude3 week 98% 5h 20%, ~/.claude2 week 40% 5h 20%; next ~/.claude2 (soonest reset); passed over ~/.claude3 week 98% ≥ 97%",
+		);
+	});
+
+	it("names a seat no limit fails on only where the walk passed it, saying why", () => {
+		const capped = seat(".claude3", 80, 20, { fits: 0 });
+		const unread = seat(".claude2", null, null, { fits: null, fresh: false });
+		const open = seat(".claude4", 40, 20);
+		const behind = seat(".claude5", 40, 20);
+		expect(lineOf([capped, unread, open, behind])).toBe(
+			"seats:     ~/.claude3 week 80% 5h 20%, ~/.claude2 week unread 5h unread, ~/.claude4 week 40% 5h 20%, ~/.claude5 week 40% 5h 20%; next ~/.claude4 (soonest reset); passed over ~/.claude3 cap fits no launch; passed over ~/.claude2 unread",
+		);
+	});
+
+	it("says why no seat is next, listing every limit", () => {
+		const a = seat(".claude3", 100, 95, { fits: null });
+		expect(lineOf([a])).toBe(
+			"seats:     ~/.claude3 week 100% 5h 95%; next none (every seat is spent); passed over ~/.claude3 week 100% ≥ 97%, 5h 95% ≥ 90%",
+		);
+	});
+
+	it("takes an overflow seat once every plan seat is weekly-full", () => {
+		const full = seat(".claude3", 100, 20, { fits: null });
+		const overflow = [
+			{
+				seat: `${process.env.HOME}/.claude3-api`,
+				fits: 2,
+				spentUntil: null,
+				why: null,
+			},
+		];
+		expect(lineOf([full], null, { overflow })).toContain(
+			"next ~/.claude3-api (overflow); passed over ~/.claude3 week 100% ≥ 97%",
+		);
+	});
+
+	it("adds the seat /pick-next's own launches went on, for start", () => {
+		const open = seat(".claude3", 40, 20);
+		expect(
+			lineOf([open], null, { callerSeat: `${process.env.HOME}/.claude2` }),
+		).toBe(
+			"seats:     ~/.claude3 week 40% 5h 20%; next ~/.claude3 (soonest reset); /pick-next's launches ~/.claude2 (its caller's seat)",
+		);
+	});
+
+	it("marks a seat read off a stale cache with its age", () => {
+		const stale = seat(".claude3", 40, 20, { fresh: false });
+		expect(lineOf([stale])).toContain(
+			"~/.claude3 week 40% 5h 20% (read 12m ago); next ~/.claude3",
+		);
+	});
+
+	it("names each overflow seat the walk passed, once every plan seat is weekly-full", () => {
+		const full = seat(".claude3", 100, 20, { fits: null });
+		const dirOf = (name: string) => `${process.env.HOME}/${name}`;
+		const row = (name: string, fits: number, spentUntil: string | null) => ({
+			seat: dirOf(name),
+			fits,
+			spentUntil,
+			why: null,
+		});
+		const overflow = [
+			row(".claude2-api", 0, "2026-11-20"),
+			row(".claude3-api", 2, null),
+			row(".claude4-api", 2, null),
+		];
+		const out = buildSeatsLine(
+			buildSeatsView({ seats: [full], overflow, typedSeat: null, ceilings }),
+			NOW,
+		);
+		expect(out).toContain(
+			"next ~/.claude3-api (overflow); passed over ~/.claude3 week 100% ≥ 97%; passed over ~/.claude2-api exhausted until 2026-11-20",
+		);
+		expect(out).not.toContain("~/.claude4-api");
+	});
+
+	it("leaves overflow seats out while a plan seat is not weekly-full", () => {
+		const open = seat(".claude3", 40, 20);
+		const overflow = [
+			{
+				seat: `${process.env.HOME}/.claude3-api`,
+				fits: null,
+				spentUntil: null,
+				why: "a plan seat is not weekly-full",
+			},
+		];
+		const view = buildSeatsView({
+			seats: [open],
+			overflow,
+			typedSeat: null,
+			ceilings,
+		});
+		expect(view.passedOver).toEqual([]);
+	});
+
+	it("gives a wait in tilde paths", () => {
+		const held = seat(".claude3", 95, 100, {
+			fits: null,
+			sessionResets: "3pm",
+		});
+		const view = buildSeatsView({
+			seats: [held],
+			overflow: [],
+			typedSeat: null,
+			ceilings,
+		});
+		expect(view.wait).toBe(
+			"the 5-hour bar is full on ~/.claude3 until its 5-hour reset 3pm",
+		);
+	});
+
+	describe("a seat foreseen off its cache", () => {
+		const reset = new Date(NOW + 60 * MIN).toISOString();
+		const bar = (percent: number | null, trust: string, resetsAt = reset) => ({
+			percent,
+			severity: null,
+			resetsAt,
+			fetchedAtMs: NOW - 12 * MIN,
+			trust,
+		});
+		const foresee = (
+			week: number | null,
+			session: number | null,
+			bars: { weekly_all: unknown; session: unknown },
+			cap: number | null = 1,
+		) => {
+			const asked: string[] = [];
+			const out = foreseeSeat({
+				reading: seat(".claude3", week, session),
+				bars: bars as never,
+				sizeCap: () => {
+					asked.push("cap");
+					return cap;
+				},
+				ceilings,
+				now: NOW,
+			});
+			return { out, asked };
+		};
+		const fresh = { weekly_all: bar(98, "fresh"), session: bar(20, "fresh") };
+
+		it("sizes a fresh seat past the cut as a tick does, so the pick agrees", () => {
+			const { out } = foresee(98, 20, fresh);
+			expect(out.fits).toBe(1);
+			const line = lineOf([out], out.seat);
+			expect(line).toContain("next ~/.claude3 (last typed on)");
+			expect(line).not.toContain("passed over");
+		});
+
+		it("passes over a fresh seat past the cut that the cap floors, naming the limit", () => {
+			const { out } = foresee(98, 20, fresh, 0);
+			expect(lineOf([out])).toContain("passed over ~/.claude3 week 98% ≥ 97%");
+		});
+
+		it("sizes no fresh seat with a full bar", () => {
+			const { out, asked } = foresee(100, 20, fresh);
+			expect(out.fits).toBeNull();
+			expect(asked).toEqual([]);
+		});
+
+		it("counts a stale bar at its last percent, fitting under the cut", () => {
+			const { out, asked } = foresee(null, null, {
+				weekly_all: bar(40, "stale"),
+				session: bar(20, "stale"),
+			});
+			expect(out).toMatchObject({
+				week: 40,
+				session: 20,
+				fits: 1,
+				fresh: false,
+			});
+			expect(asked).toEqual([]);
+		});
+
+		it("fits no launch on a stale bar past the cut", () => {
+			const { out } = foresee(null, null, {
+				weekly_all: bar(98, "stale"),
+				session: bar(20, "stale"),
+			});
+			expect(out).toMatchObject({ week: 98, fits: 0, fresh: false });
+		});
+
+		it("reads a stale bar whose window has reset as unread", () => {
+			const past = new Date(NOW - MIN).toISOString();
+			const { out } = foresee(null, null, {
+				weekly_all: bar(98, "stale", past),
+				session: bar(20, "stale"),
+			});
+			expect(out).toMatchObject({ week: null, session: 20, fits: null });
+		});
 	});
 });

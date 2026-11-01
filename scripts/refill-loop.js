@@ -16,7 +16,7 @@
  *                                        last stop reason, each overflow
  *                                        seat's budget and the plan seats
  *                                        overflow rests on; `--json` the launch
- *                                        rows alone
+ *                                        rows and the `seats:` line's fields
  *   node scripts/refill-loop.js dry-run  one tick's decision, printed; reaps
  *                                        and launches nothing
  *
@@ -65,6 +65,8 @@ const {
 } = require("./lib/refill-seats.js");
 const wakes = require("./lib/refill-wake.js");
 const { parseIssueNumbers } = require("./lib/issue-number.js");
+const { configDir, seatDir } = require("./lib/config-dir.js");
+const { readLastTyped } = require("./lib/presence.js");
 const { checkoutEnv, exclusionOf, homeDir } = require("./lib/refill-repos.js");
 const loop = require("./lib/refill-loop.js");
 const {
@@ -81,6 +83,8 @@ const {
 	DISPATCHER,
 	files,
 	log,
+	buildCapUnsizedLine,
+	readCap,
 	reviewRunning,
 	say,
 	servedRoots,
@@ -94,7 +98,7 @@ const SCRIPTS = __dirname;
 const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | status | dry-run
   start [--repo <dir>]… [--goal 116,117]       normal mode: this checkout plus each named one
   start --away [--exclude <dir>]… [--goal …]   away mode: every included checkout but those named
-  status [--json]                              --json: the launch rows, each with its seat and why
+  status [--json]                              --json: the launch rows, each with its seat and why, and the seats line's fields
   <dir> is a checkout's directory name in the home directory`;
 
 const lock = pidLock(files.pid, "refill-loop.js");
@@ -168,6 +172,52 @@ function buildNextControl(pid, asked, root) {
 	return { control, renewed: renew };
 }
 
+/**
+ * The checkout a command sizes caps and budgets in: the tick's root
+ * (refill-tick.js), so it prints the figure the tick sizes; with no loop
+ * serving, this checkout's.
+ * @param {string[]} served
+ */
+const sizingRoot = (served) => served[0] ?? hostRoot();
+
+/**
+ * What the `seats:` line says now, off each seat's cache with no `/usage`
+ * probe, a tick being the one to refresh it (#3733).
+ * @param {string[]} planSeats
+ * @param {string} root
+ * @param {string} [callerSeat] for `start`
+ */
+function readSeatsView(planSeats, root, callerSeat) {
+	const now = Date.now();
+	const declared = readDeclaredSeats();
+	const ceilings = loop.ceilingsOf(process.env);
+	const seats = planSeats.map((seat) => {
+		const bars = readAllowance({ configDir: seat, now });
+		const reading = loop.seatReadingOf(seat, bars, now);
+		return commands.foreseeSeat({
+			reading,
+			bars,
+			sizeCap: () => {
+				const cap = readCap(root, seat, 1, "");
+				if (cap.fits === null)
+					writeFd(2, `${buildCapUnsizedLine(seat, cap)}\n`);
+				return cap.fits;
+			},
+			ceilings,
+			now,
+		});
+	});
+	return commands.buildSeatsView({
+		seats,
+		overflow: loop.overflowReadings(declared, seats, (seat) =>
+			seatBudget(seat, root),
+		),
+		typedSeat: readLastTyped(declared).seat,
+		ceilings,
+		callerSeat,
+	});
+}
+
 /** @param {import("./lib/cli-args").Parsed} parsed */
 function start(parsed) {
 	const root = hostRoot();
@@ -193,11 +243,20 @@ function start(parsed) {
 	const { control, renewed } = buildNextControl(pid, asked, root);
 	writeJson(files.control, control);
 	wakes.touchWake(files.wake);
+	const served = servedRoots(control.scope).roots;
 	const scopeText = commands
 		.buildScopeLines(control, {
 			runMs: RUN_MS,
-			served: servedRoots(control.scope).roots,
+			served,
 			running: true,
+			seatsLine: commands.buildSeatsLine(
+				readSeatsView(
+					control.seats,
+					sizingRoot(served),
+					seatDir(configDir(), homeDir()),
+				),
+				Date.now(),
+			),
 		})
 		.map((l) => `  ${l}`);
 	if (pid !== null) {
@@ -259,8 +318,12 @@ function status({ flags }) {
 	const served = control ? servedRoots(control.scope).roots : [];
 	const pid = lock.holder();
 	const state = loop.parseState(readJson(files.state, log));
+	const root = sizingRoot(served);
+	const seats = readSeatsView(control?.seats ?? readConfiguredSeats(), root);
 	if (flags["--json"]) {
-		say(JSON.stringify(commands.buildStatusJson({ control, state, pid })));
+		say(
+			JSON.stringify(commands.buildStatusJson({ control, state, pid, seats })),
+		);
 		return 0;
 	}
 	for (const line of commands.buildStatusLines({
@@ -270,11 +333,20 @@ function status({ flags }) {
 		codeSha: pid === null ? null : refillCode.readRunningCode(pid, files.code),
 		runMs: RUN_MS,
 		served,
+		seats,
+		now: Date.now(),
 	}))
 		say(line);
-	/* The tick's root (refill-tick.js), so status prints the figure it sizes;
-	 * with no loop serving, this checkout's. */
-	const root = served[0] ?? hostRoot();
+	sayOverflowLines(control, state, root);
+	return 0;
+}
+
+/**
+ * @param {import("./lib/refill-loop.js").Control|null} control
+ * @param {import("./lib/refill-loop.js").LoopState} state
+ * @param {string} root
+ */
+function sayOverflowLines(control, state, root) {
 	const declared = readDeclaredSeats();
 	for (const error of declared.errors) say(`seat file refuses: ${error}`);
 	const overflow = declared.seats.flatMap((s) =>
@@ -303,7 +375,6 @@ function status({ flags }) {
 		});
 		for (const line of lines) say(line);
 	}
-	return 0;
 }
 
 function trimLog() {

@@ -967,7 +967,7 @@ this repo, plus each sibling checkout the founder's command named, passed by
 its directory name. The goal is §1's set, if there is one (#2119). Never pass
 `--away`: away mode, every included repo, starts only on the founder's explicit
 ask. A running away mode is left as it is. Copy the lines `start` prints —
-mode, repos, goal, stop time — and any `WARNING:`, into the message.
+mode, repos, goal, stop time, seats — and any `WARNING:`, into the message.
 **Unenforced**: no hook checks the call was made.
 
 ---

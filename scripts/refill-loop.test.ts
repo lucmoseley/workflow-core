@@ -376,6 +376,105 @@ describe("stop and status", () => {
 		);
 	});
 
+	describe("the seats: line off fixture seats (#3733)", () => {
+		const seats = () => [".claude2", ".claude3"].map((n) => path.join(dir, n));
+		const markerPath = () => path.join(dir, "typed-marker");
+		const expectedLine =
+			"~/.claude3 week 40% 5h 20%, ~/.claude2 week 98% 5h 95%; next ~/.claude3 (last typed on); passed over ~/.claude2 week 98% ≥ 97%, 5h 95% ≥ 90%";
+
+		beforeEach(() => {
+			fs.mkdirSync(path.join(dir, ".claude"));
+			fs.writeFileSync(
+				path.join(dir, ".claude", "refill-seats"),
+				"~/.claude2\n~/.claude3\n",
+			);
+			const now = Date.now();
+			const bars = [
+				{ week: 98, session: 95 },
+				{ week: 40, session: 20 },
+			];
+			seats().forEach((seat, i) => {
+				fs.mkdirSync(seat);
+				fs.writeFileSync(
+					path.join(seat, ".claude.json"),
+					JSON.stringify(buildUsageCache(bars[i] ?? {}, now)),
+				);
+			});
+			fs.writeFileSync(
+				markerPath(),
+				`${new Date(now).toISOString()}\n${path.join(dir, ".claude3")}\n`,
+			);
+			fs.writeFileSync(
+				path.join(dir, ".refill-loop-control.json"),
+				JSON.stringify({
+					startedAt: now,
+					stopRequested: false,
+					seats: seats(),
+					scope: { mode: "normal", repos: [], exclude: [], goals: {} },
+				}),
+			);
+		});
+
+		const seatsLines = (stdout: string) =>
+			stdout.split("\n").filter((l) => l.trim().startsWith("seats:"));
+
+		it("prints it on status", async () => {
+			const r = await runEnv({ WFC_PRESENCE_MARKER: markerPath() }, "status");
+			expect(r.status).toBe(0);
+			expect(seatsLines(r.stdout)).toEqual([`seats:     ${expectedLine}`]);
+		});
+
+		it("carries the same fields in status --json", async () => {
+			const r = await runEnv(
+				{ WFC_PRESENCE_MARKER: markerPath() },
+				"status",
+				"--json",
+			);
+			expect(r.status).toBe(0);
+			expect(r.stderr).toContain("cap on");
+			const { seats: view } = JSON.parse(r.stdout);
+			expect(view.readings.map((s: { seat: string }) => s.seat)).toEqual([
+				"~/.claude3",
+				"~/.claude2",
+			]);
+			expect(view.readings[1]).toMatchObject({
+				week: 98,
+				session: 95,
+				fresh: true,
+			});
+			expect(view.next).toEqual({
+				seat: "~/.claude3",
+				reason: "last typed on",
+			});
+			expect(view.passedOver).toEqual([
+				{
+					seat: "~/.claude2",
+					limits: [
+						{ bar: "week", percent: 98, ceiling: 97 },
+						{ bar: "5h", percent: 95, ceiling: 90 },
+					],
+					hold: null,
+				},
+			]);
+			expect(view.callerSeat).toBeNull();
+		});
+
+		it("prints one on start, naming the caller's seat", async () => {
+			holdPidfile();
+			const r = await runEnv(
+				{
+					WFC_PRESENCE_MARKER: markerPath(),
+					CLAUDE_CONFIG_DIR: path.join(dir, ".claude2"),
+				},
+				"start",
+			);
+			expect(r.status).toBe(0);
+			expect(seatsLines(r.stdout)).toEqual([
+				`  seats:     ${expectedLine}; /pick-next's launches ~/.claude2 (its caller's seat)`,
+			]);
+		});
+	});
+
 	it("names a seat file that refuses and prints no basis on it (#3767)", async () => {
 		fs.mkdirSync(path.join(dir, ".claude"));
 		fs.writeFileSync(

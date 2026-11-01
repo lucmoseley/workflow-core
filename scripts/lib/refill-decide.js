@@ -389,10 +389,15 @@ function pickPlanSeat(seats) {
 /**
  * @param {OverflowReading} o
  */
-function overflowHold(o) {
-	if (o.spentUntil !== null) return `${o.seat} exhausted until ${o.spentUntil}`;
-	if (o.fits === 0) return `${o.seat} budget held by running sessions`;
-	return `${o.seat} budget unread (${o.why ?? "no reason given"})`;
+const overflowHold = (o) => `${o.seat} ${buildOverflowHoldText(o)}`;
+
+/**
+ * @param {OverflowReading} o
+ */
+function buildOverflowHoldText(o) {
+	if (o.spentUntil !== null) return `exhausted until ${o.spentUntil}`;
+	if (o.fits === 0) return "budget held by running sessions";
+	return `budget unread (${o.why ?? "no reason given"})`;
 }
 
 /** @typedef {"cut" | "fiveHour" | "unread" | "unsized" | "capped"} SeatHold */
@@ -783,6 +788,8 @@ function decideTick(input) {
 }
 
 module.exports = {
+	buildOverflowHoldText,
+	seatHold,
 	FULL,
 	LIMIT_PARK_CAP,
 	NOTHING_LAUNCHABLE,
