@@ -6,9 +6,9 @@
  * checkout" clone the loop's code comes from, and a second clone commits are
  * pushed from.
  *
- * `start` itself runs once, from a checkout holding the real refill-loop.js
- * and its libs, and the loop it spawns is killed as soon as its command line
- * is read.
+ * `start` and `boot-resume` each run once, from a checkout holding the real
+ * refill-loop.js and its libs, and the loop spawned is killed as soon as its
+ * command line is read.
  *
  * The running loop is otherwise a fixture program at the checkout's
  * scripts/refill-loop.js that requires this module by its absolute path, ticks
@@ -20,8 +20,9 @@
  * is a ceiling on a hang, never an assertion.
  *
  * Loosen it and the loop runs uncommitted or stale code, re-execs into a tip
- * that does not load, retries a bad tip every tick, or re-execs under a gate
- * sweep's children.
+ * that does not load, retries a bad tip every tick, re-execs under a gate
+ * sweep's children, or a boot starts from a working copy mid-edit or a link
+ * left dangling.
  */
 import {
 	type ChildProcess,
@@ -36,7 +37,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { copyLibs, readProgramLibs } from "../lib-closure-fixture.js";
 import { makeProcRoot, writeCwd } from "./proc-fake";
 import {
-	bootLinkOf,
 	bootProgram,
 	codeUpdater,
 	launchProgram,
@@ -237,6 +237,23 @@ function pushRealLoop() {
 	return { tip, main };
 }
 
+describe("a worktree a kill cut short", () => {
+	it("is checked out again, though its program is there", () => {
+		const scriptsDir = path.join(checkout, "scripts");
+		const launch = launchProgram({ scriptsDir, codeDir });
+		if ("error" in launch) throw new Error(launch.error);
+		const worktree = path.dirname(path.dirname(launch.program));
+		fs.rmSync(
+			path.resolve(worktree, git(worktree, "rev-parse", "--git-path", "index")),
+		);
+		fs.rmSync(path.join(worktree, "scripts/lib/marker.js"));
+		expect(launchProgram({ scriptsDir, codeDir })).toEqual(launch);
+		expect(fs.existsSync(path.join(worktree, "scripts/lib/marker.js"))).toBe(
+			true,
+		);
+	});
+});
+
 describe("start", () => {
 	it("spawns run from the loop-owned worktree at origin's tip, never the main checkout's working tree", async () => {
 		const { tip, main } = pushRealLoop();
@@ -275,7 +292,7 @@ describe("start", () => {
 });
 
 describe("the boot link (#3891)", () => {
-	const link = () => bootLinkOf(codeDir);
+	const link = () => `${codeDir}.current`;
 	const scriptsDir = () => path.join(checkout, "scripts");
 
 	it("is made at the verified tip where no loop has made it, and kept once it resolves", () => {
@@ -283,6 +300,7 @@ describe("the boot link (#3891)", () => {
 		const program = path.join(link(), "scripts/refill-loop.js");
 		expect(bootProgram({ scriptsDir: scriptsDir(), codeDir })).toEqual({
 			program,
+			fetchError: null,
 		});
 		expect(fs.readlinkSync(link())).toBe(path.join(codeDir, tip));
 		push({ "scripts/lib/marker.js": 'module.exports = "two";\n' });
@@ -313,6 +331,52 @@ describe("the boot link (#3891)", () => {
 			error: expect.stringMatching(/^no \S+ in /),
 		});
 		expect(fs.existsSync(link())).toBe(false);
+	});
+
+	it("is no plugin install's, though another checkout's link resolves on this machine", () => {
+		bootProgram({ scriptsDir: scriptsDir(), codeDir });
+		const plugin = path.join(dir, "plugin", "scripts");
+		fs.mkdirSync(plugin, { recursive: true });
+		expect(bootProgram({ scriptsDir: plugin, codeDir })).toEqual({
+			program: path.join(plugin, "refill-loop.js"),
+		});
+	});
+
+	it("is not made at a tip that does not load", () => {
+		const bad = push({ "scripts/lib/marker.js": 'throw new Error("boom");\n' });
+		expect(bootProgram({ scriptsDir: scriptsDir(), codeDir })).toEqual({
+			error: expect.stringContaining(
+				`${short(bad)}'s program does not load: exit 1, Error: boom`,
+			),
+		});
+		expect(fs.existsSync(link())).toBe(false);
+	});
+
+	it("survives a refused tip that it names", async () => {
+		await startLoop();
+		await moreTicks(1);
+		fs.writeFileSync(path.join(dir, "hold"), "");
+		const bad = push({ "scripts/lib/marker.js": 'throw new Error("boom");\n' });
+		fs.mkdirSync(path.join(codeDir, bad));
+		fs.rmSync(link());
+		fs.symlinkSync(path.join(codeDir, bad), link());
+		fs.rmSync(path.join(dir, "hold"));
+		await until(
+			() => readLogLines().some((l) => l.startsWith("not adopting")),
+			"the refusal",
+		);
+		expect(fs.existsSync(path.join(codeDir, bad, "scripts"))).toBe(true);
+	});
+
+	it("is followed through a symlinked code directory, pruning all but the image", async () => {
+		const real = path.join(dir, "real-code");
+		fs.mkdirSync(path.join(real, "stale"), { recursive: true });
+		fs.symlinkSync(real, codeDir);
+		const first = await startLoop();
+		await moreTicks(1);
+		const sha = path.basename(path.dirname(path.dirname(first)));
+		expect(fs.readlinkSync(link())).toBe(path.join(real, sha));
+		expect(fs.readdirSync(real)).toEqual([sha]);
 	});
 
 	it("follows the loop's image, so an adoption's pruning never leaves it dangling", async () => {

@@ -18,8 +18,8 @@
  *
  * THE BOOT LINK (#3891): a symlink beside the code directory to the worktree
  * the loop last ran, which the boot unit starts from, as a restart can leave
- * the checkout's working copy mid-edit. An image moves it before removing the
- * worktree it named.
+ * the checkout's working copy mid-edit. Nothing removes the worktree it names:
+ * an image moves it first, and a refused tip's removal spares it.
  */
 
 const { spawnSync } = require("node:child_process");
@@ -128,6 +128,23 @@ function fetchVerified(repo) {
 const readVerifiedSha = (repo) => commitSha(repo, VERIFIED_REF);
 
 /**
+ * Whether `git worktree add` finished at `dir`: it writes the index only after
+ * every file, so a kill mid-checkout leaves none.
+ * @param {string} dir
+ */
+function isWholeWorktree(dir) {
+	if (!fs.existsSync(path.join(dir, PROGRAM))) return false;
+	try {
+		return fs.existsSync(
+			path.resolve(dir, git(dir, ["rev-parse", "--git-path", "index"])),
+		);
+	} catch {
+		// A directory git no longer reads as a worktree: not whole.
+		return false;
+	}
+}
+
+/**
  * The worktree at `sha` in `codeDir`, checked out where it is not yet.
  * @param {string} repo
  * @param {string} codeDir
@@ -135,7 +152,7 @@ const readVerifiedSha = (repo) => commitSha(repo, VERIFIED_REF);
  */
 function worktreeAt(repo, codeDir, sha) {
 	const dir = path.join(codeDir, sha);
-	if (fs.existsSync(path.join(dir, PROGRAM))) return dir;
+	if (isWholeWorktree(dir)) return dir;
 	/* A checkout a kill cut short: --force takes over its registration. */
 	fs.rmSync(dir, { recursive: true, force: true });
 	fs.mkdirSync(codeDir, { recursive: true });
@@ -189,37 +206,80 @@ function closureChanged(repo, from, to, loaded) {
 }
 
 /**
+ * `scriptsDir`'s checkout; else its own program, a plugin install; or why git
+ * would not say.
+ * @param {string} scriptsDir
+ * @returns {{repo: string}|{program: string}|{error: string}}
+ */
+function locateCode(scriptsDir) {
+	try {
+		const repo = checkoutOf(scriptsDir);
+		return repo === null
+			? { program: path.join(scriptsDir, PROGRAM_NAME) }
+			: { repo };
+	} catch (err) {
+		return { error: `git would not read ${scriptsDir}: ${whyOf(err)}` };
+	}
+}
+
+/**
  * The program `start` spawns `run` from: the verified tip's worktree, fetched
- * first, where `scriptsDir` is in a checkout; else `scriptsDir`'s own.
+ * first and shown to load, where `scriptsDir` is in a checkout; else
+ * `scriptsDir`'s own.
  * @param {{scriptsDir: string, codeDir: string}} where
  * @returns {{program: string, fetchError?: string|null}|{error: string}}
  */
 function launchProgram({ scriptsDir, codeDir }) {
-	let repo;
-	try {
-		repo = checkoutOf(scriptsDir);
-	} catch (err) {
-		return { error: `git would not read ${scriptsDir}: ${whyOf(err)}` };
-	}
-	if (repo === null) return { program: path.join(scriptsDir, PROGRAM_NAME) };
+	const found = locateCode(scriptsDir);
+	if (!("repo" in found)) return found;
+	const { repo } = found;
 	const fetchError = fetchVerified(repo);
 	const sha = readVerifiedSha(repo);
 	if (sha === null)
 		return {
 			error: `no ${VERIFIED_REF} in ${repo}${fetchError ? ` (fetch: ${fetchError})` : ""}`,
 		};
+	let dir;
 	try {
-		return {
-			program: path.join(worktreeAt(repo, codeDir, sha), PROGRAM),
-			fetchError,
-		};
+		dir = worktreeAt(repo, codeDir, sha);
 	} catch (err) {
 		return { error: `no worktree at ${short(sha)}: ${whyOf(err)}` };
+	}
+	const why = loadFailure(dir);
+	if (why !== null)
+		return { error: `${short(sha)}'s program does not load: ${why}` };
+	return { program: path.join(dir, PROGRAM), fetchError };
+}
+
+/**
+ * `dir` with symlinks resolved, as node resolves the running program's path;
+ * `dir` itself where it does not exist.
+ * @param {string} dir
+ */
+function realPathOf(dir) {
+	try {
+		return fs.realpathSync(dir);
+	} catch {
+		// No code directory: an image outside it, which the comparison then finds.
+		return dir;
 	}
 }
 
 /** @param {string} codeDir */
 const bootLinkOf = (codeDir) => `${codeDir}.current`;
+
+/**
+ * The worktree the boot link names, or null where there is no link.
+ * @param {string} codeDir
+ */
+function readBootTarget(codeDir) {
+	try {
+		return fs.readlinkSync(bootLinkOf(codeDir));
+	} catch {
+		// No link yet, as before a first install or a first tick.
+		return null;
+	}
+}
 
 /**
  * Point the boot link at `worktree`, in one rename, so no boot sees it absent.
@@ -235,25 +295,26 @@ function pointBootLink(codeDir, worktree) {
 }
 
 /**
- * The program a boot unit names: through the boot link, which outlives any tip
- * the loop adopts, where `scriptsDir` is in a checkout; else `scriptsDir`'s own.
- * A link that resolves stays as it is, a running loop's own to move.
+ * The program a boot unit names: its own in a plugin install; else through the
+ * boot link, which outlives any tip the loop adopts. A link that resolves stays
+ * as it is, a running loop's own to move.
  * @param {{scriptsDir: string, codeDir: string}} where
- * @returns {{program: string}|{error: string}}
+ * @returns {{program: string, fetchError?: string|null}|{error: string}}
  */
 function bootProgram({ scriptsDir, codeDir }) {
+	const found = locateCode(scriptsDir);
+	if (!("repo" in found)) return found;
 	const program = path.join(bootLinkOf(codeDir), PROGRAM);
 	if (fs.existsSync(program)) return { program };
 	const launch = launchProgram({ scriptsDir, codeDir });
 	if ("error" in launch) return launch;
 	const root = rootOf(launch.program);
-	if (path.dirname(root) !== codeDir) return { program: launch.program };
 	try {
 		pointBootLink(codeDir, root);
 	} catch (err) {
 		return { error: `no boot link to ${root}: ${whyOf(err)}` };
 	}
-	return { program };
+	return { program, fetchError: launch.fetchError };
 }
 
 /**
@@ -308,7 +369,7 @@ function codeUpdater({ program, codeDir, log }) {
 	let refused = null;
 	/** @type {string|null} */
 	let fetchFailed = null;
-	let pruned = false;
+	let settled = false;
 
 	const loaded = () =>
 		new Set(
@@ -354,7 +415,8 @@ function codeUpdater({ program, codeDir, log }) {
 			log(
 				`not adopting ${short(tip)}: ${whyOf(err)}; running ${short(running)}`,
 			);
-			if (dir !== null) removeWorktree(root, dir);
+			if (dir !== null && dir !== readBootTarget(codeDir))
+				removeWorktree(root, dir);
 		}
 	};
 
@@ -375,23 +437,18 @@ function codeUpdater({ program, codeDir, log }) {
 		 * that will not move keeps the worktree it names.
 		 */
 		afterTick() {
-			if (pruned || path.dirname(root) !== codeDir) return;
-			pruned = true;
+			if (settled) return;
+			settled = true;
+			const realCodeDir = realPathOf(codeDir);
+			if (path.dirname(root) !== realCodeDir) return;
 			try {
 				pointBootLink(codeDir, root);
 			} catch (err) {
 				log(`boot link not moved to ${root}: ${whyOf(err)}`);
 				return;
 			}
-			let names;
-			try {
-				names = fs.readdirSync(codeDir);
-			} catch {
-				// No code directory: a loop started outside one, nothing to prune.
-				return;
-			}
-			for (const name of names) {
-				const dir = path.join(codeDir, name);
+			for (const name of fs.readdirSync(realCodeDir)) {
+				const dir = path.join(realCodeDir, name);
 				if (dir !== root) removeWorktree(root, dir);
 			}
 		},
@@ -400,7 +457,6 @@ function codeUpdater({ program, codeDir, log }) {
 
 module.exports = {
 	FETCH_TIMEOUT_MS,
-	bootLinkOf,
 	bootProgram,
 	codeUpdater,
 	launchProgram,

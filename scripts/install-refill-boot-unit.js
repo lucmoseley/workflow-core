@@ -65,7 +65,7 @@ function buildUnitText(template, shell, script, log) {
 		.replace("@ENVIRONMENT@", () => environment)
 		.replace("@SHELL@", () => shell)
 		.replace("@SCRIPT@", () => script)
-		.replace("@LOG@", () => log);
+		.replaceAll("@LOG@", () => log);
 }
 
 /**
@@ -93,6 +93,11 @@ function install() {
 		writeFd(2, `no code for the unit to start: ${boot.error}\n`);
 		return 1;
 	}
+	if (boot.fetchError)
+		writeFd(
+			2,
+			`fetch failed, pinning the last fetched tip: ${boot.fetchError}\n`,
+		);
 	for (const word of [shell, boot.program, files.log])
 		if (!PLAIN_PATH.test(word)) {
 			writeFd(2, `the unit cannot quote this path: ${word}\n`);
