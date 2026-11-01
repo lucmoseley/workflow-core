@@ -373,12 +373,16 @@ function subjectFor(payload, { field, top }) {
  * it was, before stdin is read: a stdin that never closes would otherwise
  * hold it for good (#3556).
  * @param {HookEvent} event
- * @param {string} [byHand] the command to run instead
+ * @param {string} [byHand] the command to run instead, its core paths spelled
+ *   at the plugin root here
  */
 function refuseIfRunByHand(event, byHand) {
 	if (process.argv.length <= 2) return false;
+	const instead = byHand
+		? `; run ${require("./script-path.js").resolveScriptPaths(byHand)}`
+		: "";
 	process.stderr.write(
-		`${guardFile()}: a ${event} hook, which reads its payload on stdin and takes no arguments — refused before reading stdin, nothing done${byHand ? `; run ${byHand}` : ""}\n`,
+		`${guardFile()}: a ${event} hook, which reads its payload on stdin and takes no arguments — refused before reading stdin, nothing done${instead}\n`,
 	);
 	process.exitCode = 1;
 	return true;
