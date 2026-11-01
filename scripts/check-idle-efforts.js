@@ -20,7 +20,9 @@
  * the loop is the act either way; their state outlives the stop, so the next
  * tick's reading keeps their start (#3850). Each checkout's park
  * markers name the tickets held at the limit-cap parks' cap, and since when,
- * with or without a loop (#3840).
+ * with or without a loop (#3840). A running loop's served checkouts' repo holds
+ * come off the store its tick reads (#3898). RESIDUAL: a probe hold the tick
+ * could not write is the tick's alone, so its tracker's line still names rank.
  *
  * WARN, never FAIL. A tracker that will not read is its own line, never
  * "none idle".
@@ -72,6 +74,7 @@ const {
 	homeDir,
 	readHostTracker,
 } = require("./lib/refill-repos.js");
+const { readHolds, readTickHolds } = require("./lib/repo-holds.js");
 const { servedRoots } = require("./lib/refill-tick.js");
 const {
 	IDLE_DAYS,
@@ -131,16 +134,21 @@ function readLoop(reportDamaged) {
 			served: [],
 			launches: [],
 			held: [],
+			repoHolds: [],
 		};
 	}
 	const control = refillFiles.readControlFile(reportDamaged);
 	const state = refillFiles.readStateFile(reportDamaged);
+	const served = control ? servedRoots(control.scope).roots : [];
+	for (const root of served)
+		for (const line of readHolds(root).unread) reportDamaged(line);
 	return {
 		running: true,
 		stoppedRun: null,
-		served: control ? servedRoots(control.scope).roots : [],
+		served,
 		launches: loop.workingOf(state.launches),
 		held: [...state.held, ...loop.limitHoldsOf(state.launches)],
+		repoHolds: readTickHolds(served, []),
 	};
 }
 

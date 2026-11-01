@@ -18,7 +18,7 @@ const {
 	buildFindingRecords,
 	parseIssueNodes,
 } = require("./idle-efforts.js");
-const { buildLimitCapHoldWhy } = require("./refill-decide.js");
+const { PROBE_HELD, buildLimitCapHoldWhy } = require("./refill-decide.js");
 
 /** The cap refill-decide.js keeps to itself, pinned here. */
 const LIMIT_PARK_CAP = 2;
@@ -43,7 +43,14 @@ const issue = (number: number, over: Record<string, unknown> = {}) => ({
 const tracker = (
 	issues: ReturnType<typeof issue>[],
 	over: Record<string, unknown> = {},
-) => ({ repo: REPO, served: true, issues, error: null, ...over });
+) => ({
+	repo: REPO,
+	served: true,
+	probeHeld: false,
+	issues,
+	error: null,
+	...over,
+});
 
 const findings = (
 	trackers: ReturnType<typeof tracker>[],
@@ -288,6 +295,35 @@ describe("buildIdleLines", () => {
 		]);
 	});
 
+	describe("a tracker under a probe hold (#3898)", () => {
+		const held = { probeHeld: true };
+
+		it("names the hold, not rank, for a row the launch filter passes", () => {
+			const [line] = buildIdleLines(
+				findings([tracker([issue(1)], held)]),
+				true,
+			);
+			expect(line.text).toContain(`skip reason: ${PROBE_HELD}`);
+			expect(line.text).not.toContain("rank");
+		});
+
+		it("names the hold for a row the launch filter skips, as the loop checks it first", () => {
+			const [only] = findings([tracker([issue(1, { labels: [] })], held)])[0]
+				.idle;
+			expect(only.skip).toBe(PROBE_HELD);
+		});
+
+		it("names it over a row's own hold, as the loop checks it first", () => {
+			const [only] = findings(
+				[tracker([issue(1, { labels: ["takes:implement", "parked"] })], held)],
+				{},
+				[],
+				{ "o/core#1": { why: "the cap's why", since: NOW - 3 * DAY } },
+			)[0].idle;
+			expect(only.skip).toBe(PROBE_HELD);
+		});
+	});
+
 	describe("a ticket held at the limit-cap parks' cap (#3809)", () => {
 		const parked = { labels: ["takes:implement", "parked"] };
 		const capWhy = "the cap's why";
@@ -422,7 +458,7 @@ describe("buildReadings", () => {
 				markers: [],
 				...t,
 			})),
-			loop: { served: [], launches: [], held: [], ...loop },
+			loop: { served: [], launches: [], held: [], repoHolds: [], ...loop },
 			now: NOW,
 		});
 
@@ -544,9 +580,56 @@ describe("buildReadings", () => {
 			served: ["/r/core2"],
 		});
 		expect(r.trackers).toEqual([
-			{ repo: REPO, served: true, issues: [], error: null },
-			{ repo: OTHER, served: false, issues: [], error: "HTTP 502" },
+			{ repo: REPO, served: true, probeHeld: false, issues: [], error: null },
+			{
+				repo: OTHER,
+				served: false,
+				probeHeld: false,
+				issues: [],
+				error: "HTTP 502",
+			},
 		]);
+	});
+
+	describe("a tracker's probe hold (#3898)", () => {
+		const probeHeld = (loop: Record<string, unknown>) =>
+			read([{ repo: REPO }], loop).trackers[0].probeHeld;
+
+		it("holds a tracker whose only served checkout has one", () => {
+			expect(
+				probeHeld({
+					served: ["/r/core"],
+					repoHolds: [{ root: "/r/core", kind: "probe" }],
+				}),
+			).toBe(true);
+		});
+
+		it("does not hold a tracker the loop still serves through another checkout", () => {
+			expect(
+				probeHeld({
+					served: ["/r/core", "/r/core2"],
+					repoHolds: [{ root: "/r/core", kind: "probe" }],
+				}),
+			).toBe(false);
+		});
+
+		it("holds no tracker on a park hold, which stops no launch", () => {
+			expect(
+				probeHeld({
+					served: ["/r/core"],
+					repoHolds: [{ root: "/r/core", kind: "park" }],
+				}),
+			).toBe(false);
+		});
+
+		it("holds no tracker the loop does not serve", () => {
+			expect(
+				probeHeld({
+					served: ["/r/product"],
+					repoHolds: [{ root: "/r/core", kind: "probe" }],
+				}),
+			).toBe(false);
+		});
 	});
 });
 

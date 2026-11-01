@@ -917,6 +917,8 @@ function decideTick(input) {
 }
 
 module.exports = {
+	PROBE_HELD,
+	buildProbeHeldRoots,
 	buildOverflowHoldText,
 	seatHold,
 	FULL,
