@@ -10,8 +10,10 @@ const { isTerminalAgent } = require("./agent-liveness.js");
 const { swapHoldText } = require("./admission.js");
 const {
 	IDLE_TRIES,
+	LIMIT_HOLD_BOUND_DAYS,
 	RESUME_CAP,
 	blockAct,
+	isHeldPastBound,
 	nextTryAt,
 	resumeDueAt,
 } = require("./block-act.js");
@@ -1194,9 +1196,9 @@ function settleLimitResume(l, { now, io }) {
 
 /**
  * `l`, limit-blocked again, with its last resume that took judged, once: no
- * reply since adds to its dry resumes, a reply clears them, so a session that
- * works between its limits never nears the cap (#3792). An unread transcript
- * judges nothing, and the next resume replaces what it would have judged.
+ * reply since adds to its dry resumes, a reply clears them (#3792). An unread
+ * transcript judges nothing, and the next resume replaces what it would have
+ * judged.
  * Residual: a launch whose transcript never reads is never counted, though one
  * that reads LIMIT has read its transcript that tick.
  * @template {JobLaunch} L
@@ -1258,18 +1260,24 @@ function parkHeld(l, whyEnded, mode, seen) {
 	return parked;
 }
 
+const HOLD_BOUND_WHY = `held on its limit past the ${LIMIT_HOLD_BOUND_DAYS}-day bound`;
+
 /**
  * `l`, whose seat the seats read do not hold: parked where it is held and the
- * seats are the loop's own list.
+ * seats are the loop's own list, or, whatever the list, held past the bound.
  * @param {JobLaunch & {block: import("./block-act.js").Block}} l
  * @param {"away"|"normal"} mode
  * @param {LimitTick} seen
  * @returns {LoopLaunch}
  */
-const parkOffList = (l, mode, seen) =>
-	isLimitHeld(l) && seen.seatListRead
-		? parkHeld(l, `its seat ${l.seat} off the loop's seats`, mode, seen)
+function parkOffList(l, mode, seen) {
+	if (!isLimitHeld(l)) return l;
+	if (seen.seatListRead)
+		return parkHeld(l, `its seat ${l.seat} off the loop's seats`, mode, seen);
+	return isHeldPastBound(l.limitHeld.at, seen.now)
+		? parkHeld(l, HOLD_BOUND_WHY, mode, seen)
 		: l;
+}
 
 /**
  * Why the table parked limit-blocked `l`, for the park's line.
@@ -1277,9 +1285,12 @@ const parkOffList = (l, mode, seen) =>
  */
 function buildLimitParkWhy(l) {
 	const dry = l.limitResumes?.dryResumes ?? 0;
-	return dry >= RESUME_CAP
-		? `${dry} resumes in place in a row with no reply`
-		: `${l.limitHeld?.failedTries} failed resumes in place`;
+	if (dry >= RESUME_CAP)
+		return `${dry} resumes in place in a row with no reply`;
+	const failedTries = l.limitHeld?.failedTries ?? 0;
+	return failedTries >= RESUME_CAP
+		? `${failedTries} failed resumes in place`
+		: HOLD_BOUND_WHY;
 }
 
 /**
@@ -1305,6 +1316,7 @@ function actOnLimit(l, own, seen, { mode, slots, moveSeats }) {
 			movePick,
 			slotFree: slots > 0,
 			held: isLimitHeld(l),
+			heldAt: l.limitHeld?.at,
 			tries: l.limitHeld?.failedTries,
 			nextAt: l.limitResumes?.nextAt,
 			dryResumes: l.limitResumes?.dryResumes,
