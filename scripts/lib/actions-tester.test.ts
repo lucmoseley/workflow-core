@@ -14,7 +14,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { actionsTester, type Job, type Run } from "./actions-tester.js";
+import {
+	actionsTester,
+	type Job,
+	namedRerun,
+	type Run,
+} from "./actions-tester.js";
 import { stubGhScript } from "./gh-stub.js";
 import type { Tester, Verdict } from "./lander.js";
 
@@ -441,4 +446,171 @@ process.stdout.write(argv[1] === "list" ? a.list : argv.includes("--log-failed")
 		files: ["scripts/lib/a.test.ts"],
 		jobs: ["Full suite / Vitest (2/6)"],
 	});
+});
+
+const fakeNamedReads = (
+	outcome: { conclusion: string | null } | "unlisted",
+	{
+		jobs = [{ name: "Named files", conclusion: "success" }] as Job[],
+		log = FAILED_LOG,
+		dispatch = () => undefined,
+	}: { jobs?: Job[]; log?: string; dispatch?: () => void } = {},
+) => {
+	const dispatched: { sha: string; files: string[]; nonce: string }[] = [];
+	const decoy = {
+		databaseId: 1,
+		displayTitle: `named-rerun ${SHA} another-dispatch`,
+		conclusion: "failure",
+	};
+	return {
+		dispatched,
+		reads: {
+			dispatch: (d: { sha: string; files: string[]; nonce: string }) => {
+				dispatch();
+				dispatched.push(d);
+			},
+			namedRuns: () =>
+				outcome === "unlisted"
+					? [decoy]
+					: [
+							decoy,
+							{
+								databaseId: 7,
+								displayTitle: `named-rerun ${SHA} ${dispatched[0]?.nonce}`,
+								conclusion: outcome.conclusion,
+							},
+						],
+			jobsOf: () => jobs,
+			failedLogOf: () => log,
+			presentAt: (_: string, files: string[]) =>
+				files.filter((f) => f !== "scripts/fixture-only.test.ts"),
+		},
+	};
+};
+
+const namedRoot = () => {
+	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "named-rerun-"));
+	return tmp;
+};
+
+const askNamed = (r: ReturnType<typeof fakeNamedReads>, root = namedRoot()) =>
+	namedRerun({ root, reads: r.reads, ...clock() })(
+		SHA,
+		["scripts/lib/a.test.ts"],
+		"no suite slot by the ceiling",
+	);
+
+it("dispatches the named files at the sha and reads its own run's green, naming no run so it can land nothing (#3764)", async () => {
+	const r = fakeNamedReads({ conclusion: "success" });
+	expect(await askNamed(r)).toEqual({ kind: "green" });
+	expect(r.dispatched).toEqual([
+		{
+			sha: SHA,
+			files: ["scripts/lib/a.test.ts"],
+			nonce: expect.any(String),
+		},
+	]);
+});
+
+it("reads a failed named run as red on the tree's failing files, and one naming none as no verdict (#3764)", async () => {
+	expect(await askNamed(fakeNamedReads({ conclusion: "failure" }))).toEqual({
+		kind: "red",
+		files: ["scripts/lib/a.test.ts", "scripts/test_b.py"],
+	});
+	expect(
+		await askNamed(
+			fakeNamedReads({ conclusion: "failure" }, { log: "npm ci failed" }),
+		),
+	).toEqual({
+		kind: "unknown",
+		reason:
+			"no suite slot by the ceiling; off the machine, run 7 failed naming no failing file in the tree",
+	});
+});
+
+it.each([
+	[
+		"a job its `if:` skipped",
+		fakeNamedReads(
+			{ conclusion: "success" },
+			{ jobs: [{ name: "Named files", conclusion: "skipped" }] },
+		),
+		/run 7 passed, but its Named files job is skipped/,
+	],
+	[
+		"a cancelled run",
+		fakeNamedReads({ conclusion: "cancelled" }),
+		/run 7 ended cancelled/,
+	],
+	[
+		"a run never finished",
+		fakeNamedReads({ conclusion: null }),
+		/run 7 unfinished/,
+	],
+	[
+		"only another dispatch's run",
+		fakeNamedReads("unlisted"),
+		/listed no run titled/,
+	],
+	[
+		"a refused dispatch",
+		fakeNamedReads(
+			{ conclusion: "success" },
+			{
+				dispatch: () => {
+					throw new Error("HTTP 404: workflow not found");
+				},
+			},
+		),
+		/named-rerun\.yml did not dispatch: HTTP 404/,
+	],
+])(
+	"reads %s as no verdict, keeping the slot's refusal (#3764)",
+	async (_, r, why) => {
+		const v = await askNamed(r);
+		expect(v).toMatchObject({
+			kind: "unknown",
+			reason: expect.stringMatching(why),
+		});
+		expect(v).toMatchObject({
+			reason: expect.stringMatching(/^no suite slot by the ceiling; /),
+		});
+	},
+);
+
+it("stops dispatching at the cap for a UTC day, and a new day has its own (#3764)", async () => {
+	const root = namedRoot();
+	const r = fakeNamedReads({ conclusion: "success" });
+	const DayOne = Date.parse("2026-11-01T23:00:00Z");
+	const ask = (nowMs: number) =>
+		namedRerun({
+			root,
+			reads: r.reads,
+			wait: async () => undefined,
+			now: () => nowMs,
+		})(SHA, ["scripts/lib/a.test.ts"], "shut");
+	for (let i = 0; i < 12; i++) {
+		r.dispatched.length = 0;
+		expect(await ask(DayOne)).toEqual({ kind: "green" });
+	}
+	r.dispatched.length = 0;
+	expect(await ask(DayOne)).toEqual({
+		kind: "unknown",
+		reason: "shut; off the machine, named-rerun.yml's 12-a-day cap is spent",
+	});
+	expect(r.dispatched).toEqual([]);
+	expect(await ask(DayOne + 2 * 60 * 60 * 1000)).toEqual({ kind: "green" });
+	expect(r.dispatched).toHaveLength(1);
+});
+
+it("finds its run by the title named-rerun.yml gives it, and reads the job it names (#3764)", () => {
+	const workflow = fs.readFileSync(
+		path.join(import.meta.dirname, "../../.github/workflows/named-rerun.yml"),
+		"utf8",
+	);
+	expect(workflow).toContain(
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: a workflow's own expression, quoted
+		"run-name: named-rerun ${{ inputs.sha }} ${{ inputs.nonce }}\n",
+	);
+	expect(workflow).toContain("    name: Named files\n");
 });

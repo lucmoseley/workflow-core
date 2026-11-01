@@ -19,12 +19,13 @@ const { gitBinary, gitSpawnOptions } = require("./git.js");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { readTreePssKb } = require("./admission.js");
+const { readPsRows, readTreePssKb } = require("./admission.js");
 const { readAvailableMb } = require("./meminfo.js");
 const { caught } = require("./caught.js");
 const { markersDir } = require("./marker-root.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 const { requiredGroup } = require("./regex-group.js");
+const { writeFd } = require("./write-fd.js");
 const { CEILING_LINE } = require("./suite-ceiling.js");
 const { rungMb } = require("./suite-ladder.js");
 const {
@@ -79,6 +80,12 @@ const PEAK_SAMPLE_MS = 2000;
  * re-size the charges from. */
 const RUN_RECORD = ".lander-runs.jsonl";
 const RUN_RECORD_RETAIN_MS = 90 * DAY_MS;
+/* The largest processes at each memory-shut slot, under the same markers and
+ * for as long (#3764). Untraced: ten of them and 120 characters of each
+ * command. */
+const HOLDER_RECORD = ".lander-memory-holders.jsonl";
+const HOLDERS_KEPT = 10;
+const HOLDER_COMMAND_CHARS = 120;
 /* Where the install's lockfile hash is kept: inside what it installed, so a
  * deleted `node_modules` takes its stamp with it. */
 const STAMP = path.join("node_modules", ".lander-lock-hash");
@@ -88,7 +95,8 @@ const PYTEST_FAIL = /^(?:FAILED|ERROR)\s+([^\s:]+)/;
 
 /**
  * @typedef {{ok: true, spawned: () => void, release: () => void}
- *   | {ok: false, reason: string}} Admission
+ *   | {ok: false, reason: string, memoryShut?: boolean}} Admission
+ *   `memoryShut` where the memory limb still denied at the ceiling
  * @typedef {{code: number|null, signal: string|null, out: string,
  *   error: string|null, peakKb: number, samples: number}} RunResult
  *   `peakKb` the run's tree-PSS peak over `samples` reads
@@ -105,6 +113,9 @@ const PYTEST_FAIL = /^(?:FAILED|ERROR)\s+([^\s:]+)/;
  * @property {Exec} [exec]
  * @property {string} [pytest] the Python suite's runner
  * @property {(pid: number) => number} [treePss] the tree PSS under `pid`, kB
+ * @property {(sha: string, files: string[], shut: string) => Promise<Verdict>}
+ *   [memoryShut] the verdict on named files when memory shuts their slot,
+ *   given that refusal; absent, the refusal is no verdict
  */
 
 /**
@@ -174,12 +185,14 @@ async function suiteSlot({
 	const file = queueJoin({ queueDir, role: LANDER_ROLE, chargeMb });
 	const rung = rungMb(chargeMb);
 	let mem = memory();
+	let memoryShut = false;
 	const outcome = await waitForGate({
 		pollMs,
 		timeoutMs,
 		gate: (climbMb) => {
 			mem = memory();
-			if (!mem.ok || mem.mb - climbMb < rung)
+			memoryShut = !mem.ok || mem.mb - climbMb < rung;
+			if (memoryShut)
 				return {
 					limb: "memory",
 					...(mem.ok ? { mb: mem.mb } : {}),
@@ -202,7 +215,11 @@ async function suiteSlot({
 	const memoryRead = mem.ok
 		? `${mem.mb} MB available against ${rung} MB`
 		: `memory unread: ${mem.error}`;
-	return { ok: false, reason: `no suite slot by the ceiling (${memoryRead})` };
+	return {
+		ok: false,
+		reason: `no suite slot by the ceiling (${memoryRead})`,
+		memoryShut,
+	};
 }
 
 /**
@@ -550,6 +567,65 @@ function recordRun(root, run) {
 }
 
 /**
+ * One line of what held memory at a memory-shut slot, its RSS largest first.
+ * Like the run record, a line that cannot be had or land is said on stderr and
+ * costs the verdict nothing.
+ * @param {string} root
+ * @param {string} sha
+ * @param {import("./admission.js").PsRead} ps
+ */
+function recordHolders(root, sha, ps) {
+	if (!ps.ok) {
+		writeFd(2, `lander: memory holders unread: ${ps.error}\n`);
+		return;
+	}
+	const holders = [...ps.rows]
+		.sort((a, b) => b.rssKb - a.rssKb)
+		.slice(0, HOLDERS_KEPT)
+		.map((r) => ({
+			pid: r.pid,
+			rssMb: Math.floor(r.rssKb / 1024),
+			command: r.args.slice(0, HOLDER_COMMAND_CHARS),
+		}));
+	const file = path.join(markersDir(root), HOLDER_RECORD);
+	const line = { at: new Date().toISOString(), sha, holders };
+	if (!appendRetained(file, line, RUN_RECORD_RETAIN_MS))
+		writeFd(2, `lander: memory holders unwritten: ${file}\n`);
+}
+
+/**
+ * @param {{root: string, dir: string, sha: string, exec: Exec}} checkout
+ * @param {string} pytest
+ * @param {string[]} files
+ * @returns {Run[][] | string} the groups, or why none can be had
+ */
+function checkedOutRuns({ root, dir, sha, exec }, pytest, files) {
+	try {
+		checkOut(root, dir, sha, exec);
+	} catch (err) {
+		return `checkout failed: ${whyFailed(err)}`;
+	}
+	return readRunsAt(dir, pytest, files);
+}
+
+/**
+ * @param {() => Promise<Admission>} admit
+ * @returns {{admit: () => Promise<Admission>, shut: string|null}}
+ */
+function watchMemoryShut(admit) {
+	/** @type {{admit: () => Promise<Admission>, shut: string|null}} */
+	const watched = {
+		shut: null,
+		admit: async () => {
+			const slot = await admit();
+			if (!slot.ok && slot.memoryShut) watched.shut = slot.reason;
+			return slot;
+		},
+	};
+	return watched;
+}
+
+/**
  * The lander's tester.
  * @param {LocalTesterOptions} options
  * @returns {Tester}
@@ -560,25 +636,21 @@ function localTester({
 	exec = execOrThrow,
 	pytest = path.join(__dirname, "..", "run-pytest.js"),
 	treePss = readTreePssKb,
+	memoryShut,
 }) {
 	const dir = path.join(root, ".claude", "worktrees", "lander");
 	return {
 		async verdict(sha, files = []) {
-			try {
-				checkOut(root, dir, sha, exec);
-			} catch (err) {
-				return {
-					kind: "unknown",
-					reason: `checkout failed: ${whyFailed(err)}`,
-				};
-			}
-			const groups = readRunsAt(dir, pytest, files);
+			const groups = checkedOutRuns({ root, dir, sha, exec }, pytest, files);
 			if (typeof groups === "string")
 				return { kind: "unknown", reason: groups };
 			const kind = files.length > 0 ? "named" : "whole";
 			const tally = { ran: 0, peakKb: 0, samples: 0 };
+			const watched = watchMemoryShut(() =>
+				admit({ chargeMb: CHARGE_MB[kind] }),
+			);
 			const verdict = await runEach(groups, dir, {
-				admit: () => admit({ chargeMb: CHARGE_MB[kind] }),
+				admit: watched.admit,
 				exec,
 				treePss,
 				tally,
@@ -593,7 +665,11 @@ function localTester({
 					samples: tally.samples,
 					verdict: verdict.kind,
 				});
-			return verdict;
+			if (watched.shut === null) return verdict;
+			recordHolders(root, sha, readPsRows());
+			return kind === "named" && memoryShut
+				? memoryShut(sha, files, watched.shut)
+				: verdict;
 		},
 	};
 }

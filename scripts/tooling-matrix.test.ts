@@ -750,11 +750,15 @@ describe("§W — which gate runs it in CI", () => {
 	it("puts gitleaks on the runner's PATH before Vitest, whatever failed first", () => {
 		// #55: the gitleaks-gated cases skip green where the binary is absent.
 		const ci = read(".github/workflows/ci.yml");
-		const install = ci.indexOf("name: Install gitleaks");
+		const tools = ci.indexOf("name: Install test tools");
+		expect(tools).toBeGreaterThan(-1);
+		expect(tools).toBeLessThan(ci.indexOf("- name: Vitest\n"));
+		expect(ci.slice(tools).split("\n")[1]).toContain("!cancelled()");
+		const action = read(".github/actions/test-tools/action.yml");
+		const install = action.indexOf("name: Install gitleaks");
 		expect(install).toBeGreaterThan(-1);
-		expect(install).toBeLessThan(ci.indexOf("- name: Vitest\n"));
-		expect(ci.slice(install).split("\n")[1]).toContain("!cancelled()");
-		expect(ci).toMatch(/GITLEAKS_SHA256: [0-9a-f]{64}/);
+		expect(action.slice(install).split("\n")[1]).toContain("!cancelled()");
+		expect(action).toMatch(/GITLEAKS_SHA256: [0-9a-f]{64}/);
 	});
 });
 

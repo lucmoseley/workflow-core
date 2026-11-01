@@ -494,12 +494,18 @@ describe("the CI half of the same gate", () => {
 			"utf8",
 		);
 		expect(action).toMatch(/>> "\$GITHUB_PATH"/);
-		const install =
-			/- name: Install shellcheck\n.*\n {8}uses: \.\/\.github\/actions\/shellcheck\n/g;
+		expect(ci, "the lint job installs it").toMatch(
+			/- name: Install shellcheck\n.*\n {8}uses: \.\/\.github\/actions\/shellcheck\n/,
+		);
+		expect(ci, "the Vitest job installs it").toMatch(
+			/- name: Install test tools\n.*\n {8}uses: \.\/\.github\/actions\/test-tools\n/,
+		);
 		expect(
-			ci.match(install),
-			"the lint and Vitest jobs each install it",
-		).toHaveLength(2);
+			fs.readFileSync(
+				path.join(ROOT, ".github", "actions", "test-tools", "action.yml"),
+				"utf8",
+			),
+		).toMatch(/uses: \.\/\.github\/actions\/shellcheck\n/);
 		expect(ci.indexOf("- name: Install shellcheck")).toBeLessThan(
 			ci.indexOf("- name: Shellcheck\n"),
 		);

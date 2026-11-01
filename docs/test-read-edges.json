@@ -420,6 +420,11 @@
 		".github/actions/shellcheck/action.yml": [
 			"scripts/precommit-shellcheck-gate.test.ts"
 		],
+		".github/actions/test-tools/action.yml": [
+			"scripts/lib/formatters.test.ts",
+			"scripts/precommit-shellcheck-gate.test.ts",
+			"scripts/tooling-matrix.test.ts"
+		],
 		".github/dependabot.yml": [
 			"scripts/precommit-actionlint-gate.test.ts"
 		],
@@ -448,6 +453,10 @@
 			"scripts/precommit-shellcheck-gate.test.ts",
 			"scripts/repo-checks.test.ts",
 			"scripts/tooling-matrix.test.ts",
+			"scripts/windows-script-tooling-declined.test.ts"
+		],
+		".github/workflows/named-rerun.yml": [
+			"scripts/checker-registrations.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		".github/workflows/roadmap-digest.yml": [
@@ -10203,6 +10212,7 @@
 			"scripts/lib/gh.contract.test.ts",
 			"scripts/lib/gh.test.ts",
 			"scripts/lib/issue-close.test.ts",
+			"scripts/lib/local-tester.test.ts",
 			"scripts/lib/outstanding-line.test.ts",
 			"scripts/measure-ci-billing.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
@@ -20195,11 +20205,13 @@
 			"scripts/lib/founder-wording.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/headless-sessions.test.ts",
+			"scripts/lib/local-tester.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/python-routes.test.ts",
 			"scripts/lib/refill-overflow.test.ts",
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/suite-queue.test.ts",
 			"scripts/lib/wfc-config.test.ts",
 			"scripts/lib/workflow-core-config.test.ts",
 			"scripts/lib/write-fd.test.ts",

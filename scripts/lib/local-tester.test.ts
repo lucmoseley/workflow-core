@@ -9,7 +9,10 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { configuredTester } from "../lander.js";
+import { actionsTester } from "./actions-tester.js";
+import { stubGhScript } from "./gh-stub.js";
 import {
 	fileLedger,
 	heartbeatWriter,
@@ -18,7 +21,9 @@ import {
 	runLander,
 } from "./lander.js";
 import { localTester, readLiveLanders, suiteSlot } from "./local-tester.js";
+import { markersDir } from "./marker-root.js";
 import { pidLock } from "./pid-lock.js";
+import { writePsStub } from "./ps-stub.js";
 import { queueJoin, queueTurn } from "./suite-queue.js";
 
 /** A part-suite's carried weight (#2931). */
@@ -869,4 +874,156 @@ it("lands a green fixture batch on main, plugged into the lander", async () => {
 
 	expect(git(remote, "rev-parse", "main")).toBe(batch);
 	expect(ledgeredAtPush).toEqual([true]);
+});
+
+describe("a named rerun with memory held at 1000-1400 MB (#3764)", () => {
+	const heldSlot = (mb: number) => () =>
+		suiteSlot({
+			chargeMb: 600,
+			gate: () => null,
+			memory: () => ({ ok: true, mb }),
+			timeoutMs: 30,
+			pollMs: 10,
+			queueDir: tmp,
+		});
+	const savedPs = process.env.WFC_PS;
+	beforeEach(() => {
+		process.env.WFC_PS = writePsStub(tmp, [
+			"1 1024 small",
+			"2 2097152 claude --holder",
+		]);
+	});
+	afterEach(() => {
+		if (savedPs === undefined) delete process.env.WFC_PS;
+		else process.env.WFC_PS = savedPs;
+	});
+	const holderLines = () =>
+		fs
+			.readFileSync(
+				path.join(markersDir(work), ".lander-memory-holders.jsonl"),
+				"utf8",
+			)
+			.trim()
+			.split("\n")
+			.map((l) => JSON.parse(l));
+
+	it.each([1000, 1200, 1400])(
+		"gets a verdict off the machine at %i MB, through the Actions tester's hand-off, and logs what held the memory",
+		async (mb) => {
+			const asked: [string, string[], string][] = [];
+			const tester = actionsTester({
+				root: work,
+				reads: {
+					runs: () => [],
+					mainRuns: () => [],
+					jobsOf: () => [],
+					failedLogOf: () => "",
+					presentAt: () => [],
+					rerun: vi.fn(),
+				},
+				fallback: localTester({
+					root: work,
+					admit: heldSlot(mb),
+					exec: recordingExec().exec,
+					memoryShut: async (sha, files, shut) => {
+						asked.push([sha, files, shut]);
+						return { kind: "green" };
+					},
+				}),
+			});
+			expect(await tester.verdict(passing, ["a.check.js"])).toEqual({
+				kind: "green",
+			});
+			expect(asked).toEqual([
+				[
+					passing,
+					["a.check.js"],
+					`no suite slot by the ceiling (${mb} MB available against 1700 MB)`,
+				],
+			]);
+			expect(holderLines()[0]).toMatchObject({
+				sha: passing,
+				holders: [
+					{ pid: "2", rssMb: 2048, command: "claude --holder" },
+					{ pid: "1", rssMb: 1, command: "small" },
+				],
+			});
+		},
+	);
+
+	it("reaches the workflow through the lander's own wiring, over gh", async () => {
+		config({ landingTester: "actions" });
+		const sha = commit("the Actions tester");
+		const calls = path.join(tmp, "dispatch.json");
+		const saved = process.env.WFC_GH;
+		process.env.WFC_GH = stubGhScript(
+			tmp,
+			`#!/usr/bin/env node
+const fs = require("node:fs");
+const argv = process.argv.slice(2);
+if (argv[0] === "workflow") {
+	fs.writeFileSync(${JSON.stringify(calls)}, JSON.stringify(argv));
+} else if (argv[1] === "view") {
+	process.stdout.write(JSON.stringify({ jobs: [{ name: "Named files", conclusion: "success" }] }));
+} else {
+	const nonce = JSON.parse(fs.readFileSync(${JSON.stringify(calls)}, "utf8"))
+		.find((a) => a.startsWith("nonce=")).slice(6);
+	process.stdout.write(JSON.stringify([{ databaseId: 9, displayTitle: "named-rerun ${sha} " + nonce, conclusion: "success" }]));
+}
+`,
+		).gh;
+		try {
+			const v = await configuredTester(work, {
+				admit: heldSlot(1200),
+				exec: recordingExec().exec,
+			}).verdict(sha, ["a.check.js", "scripts/test_b.py"]);
+			expect(v).toEqual({ kind: "green" });
+		} finally {
+			if (saved === undefined) delete process.env.WFC_GH;
+			else process.env.WFC_GH = saved;
+		}
+		expect(JSON.parse(fs.readFileSync(calls, "utf8"))).toEqual(
+			expect.arrayContaining([
+				"named-rerun.yml",
+				`sha=${sha}`,
+				"files=a.check.js\nscripts/test_b.py",
+			]),
+		);
+	});
+
+	it("logs a whole suite's memory refusal but sends it nowhere: the whole-suite rung still decides", async () => {
+		const memoryShut = vi.fn();
+		const v = await localTester({
+			root: work,
+			admit: heldSlot(1200),
+			exec: recordingExec().exec,
+			memoryShut,
+		}).verdict(passing);
+		expect(v).toMatchObject({
+			kind: "unknown",
+			reason: expect.stringMatching(/^no suite slot by the ceiling/),
+		});
+		expect(memoryShut).not.toHaveBeenCalled();
+		expect(holderLines()).toHaveLength(1);
+	});
+
+	it("leaves a slot the gate's count shut as no verdict, sending it nowhere", async () => {
+		const memoryShut = vi.fn();
+		const v = await localTester({
+			root: work,
+			admit: () =>
+				suiteSlot({
+					chargeMb: 600,
+					gate: () => ({ limb: "count" }),
+					memory: () => ({ ok: true, mb: Number.MAX_SAFE_INTEGER }),
+					timeoutMs: 30,
+					pollMs: 10,
+					queueDir: tmp,
+				}),
+			exec: recordingExec().exec,
+			memoryShut,
+		}).verdict(passing, ["a.check.js"]);
+		expect(v.kind).toBe("unknown");
+		expect(memoryShut).not.toHaveBeenCalled();
+	});
 });

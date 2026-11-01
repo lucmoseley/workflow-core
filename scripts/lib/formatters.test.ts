@@ -339,12 +339,15 @@ describe("the install lines a refusal names, and CI's ruff install, at the core'
 			ci.indexOf("name: Vitest ("),
 			ci.indexOf("- name: Vitest\n"),
 		);
-		expect(testJob).toContain(
-			`awk '/^ruff==/ { on = 1 } on { print } on && !/\\\\$/ { exit }' \\\n            requirements-dev.txt`,
+		expect(testJob).toContain("uses: ./.github/actions/test-tools");
+		const tools = read(".github/actions/test-tools/action.yml");
+		expect(tools).toContain(
+			`awk '/^ruff==/ { on = 1 } on { print } on && !/\\\\$/ { exit }' \\\n          requirements-dev.txt`,
 		);
-		expect(testJob).toContain(
+		expect(tools).toContain(
 			'pip" install --require-hashes --only-binary :all: \\\n',
 		);
 		expect(ci).not.toMatch(/ruff==\d/);
+		expect(tools).not.toMatch(/ruff==\d/);
 	});
 });

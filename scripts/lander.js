@@ -41,7 +41,7 @@ const {
 	remoteGit,
 	runLander,
 } = require("./lib/lander.js");
-const { actionsTester } = require("./lib/actions-tester.js");
+const { actionsTester, namedRerun } = require("./lib/actions-tester.js");
 const { localTester } = require("./lib/local-tester.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const { liveQueueDeps } = require("./lib/queue-issue.js");
@@ -114,13 +114,21 @@ const commandTester = (command, root) => ({
 /**
  * The tester `landingTester` names.
  * @param {string} root
+ * @param {Pick<import("./lib/local-tester.js").LocalTesterOptions, "admit" | "exec">} [slots]
+ *   a test's slot and exec
  * @returns {import("./lib/lander.js").Tester}
  */
-function configuredTester(root) {
-	const local = localTester({ root });
-	return readConfig({ root, quiet: true }).landingTester === "actions"
-		? actionsTester({ root, fallback: local })
-		: local;
+function configuredTester(root, slots = {}) {
+	if (readConfig({ root, quiet: true }).landingTester !== "actions")
+		return localTester({ root, ...slots });
+	return actionsTester({
+		root,
+		fallback: localTester({
+			root,
+			...slots,
+			memoryShut: namedRerun({ root }),
+		}),
+	});
 }
 
 /** @param {string} root */
@@ -198,6 +206,7 @@ async function main(argv = process.argv.slice(2)) {
 		beat: heartbeatWriter(files.heartbeat),
 		lastHold: () => readHeartbeat(files.heartbeat)?.hold ?? null,
 		lastRed: () => readHeartbeat(files.heartbeat)?.red ?? null,
+		lastOwed: () => readHeartbeat(files.heartbeat)?.owed ?? [],
 		lastMoved: () => readHeartbeat(files.heartbeat)?.movedAt ?? null,
 		log: (a) => say(`${new Date().toISOString()} ${buildActionLine(a)}`),
 		say,
@@ -214,4 +223,4 @@ if (require.main === module)
 		},
 	);
 
-module.exports = { main };
+module.exports = { configuredTester, main };

@@ -2077,6 +2077,7 @@ module.exports = {
 	SUITE_RESTING_MB,
 	SUITE_LADDER_MEASURED_AT,
 	suiteRungMb,
+	readPsRows,
 	readTreePssKb,
 	buildMemoryBreakdownLines,
 	reclaimableMb,
