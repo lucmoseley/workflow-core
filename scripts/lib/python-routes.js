@@ -17,6 +17,7 @@
  * gate judges programs alone, and the table makes none of these one.
  */
 
+const { globMatches } = require("./pathspec-glob.js");
 const { PYTHON_KINDS } = require("./workflow-core-config.js");
 const { requiredGroup } = require("./regex-group.js");
 
@@ -190,4 +191,14 @@ function pythonRouteDrift(text, declared = {}) {
 	};
 }
 
-module.exports = { pythonRouteDrift };
+/**
+ * The kind of the first `pythonRoutes` row whose glob matches `rel`, or
+ * undefined where none does.
+ * @param {Record<string, PythonKind> | undefined} declared
+ * @param {string} rel
+ * @returns {PythonKind | undefined}
+ */
+const pythonRouteKind = (declared, rel) =>
+	Object.entries(declared ?? {}).find(([glob]) => globMatches(glob, rel))?.[1];
+
+module.exports = { pythonRouteDrift, pythonRouteKind };

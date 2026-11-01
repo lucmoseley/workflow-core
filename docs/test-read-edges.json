@@ -719,6 +719,7 @@
 			"scripts/markdown-tooling-declined.test.ts"
 		],
 		".sonarcloud.properties": [
+			"scripts/lib/test-kind.test.ts",
 			"scripts/markdown-tooling-declined.test.ts"
 		],
 		"CLAUDE.md": [
@@ -2678,6 +2679,7 @@
 			"scripts/coverage-declined.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/lib/infer-commands.test.ts",
+			"scripts/lib/test-kind.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
 			"scripts/precommit-declared-commands.test.ts",
 			"scripts/precommit-staged-gate.test.ts"
@@ -6889,6 +6891,7 @@
 			"scripts/build-arm-sandbox.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",

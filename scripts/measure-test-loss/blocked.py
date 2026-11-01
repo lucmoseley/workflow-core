@@ -45,8 +45,6 @@ def test_segment(cmd):
 
 
 def kind_of(s):
-    # A named run's file pattern is #2812's, narrower than test-kind.js's
-    # JS_TEST_FILE (no .spec., tsx or mjs), so rows stay comparable with its baseline.
     if re.search(r"test:py|pytest", s):
         return "pytest"
     if "--full" in s:
@@ -55,6 +53,8 @@ def kind_of(s):
         return "changed"
     if "--adopt" in s:
         return "adopt"
+    # A named run's file pattern is #2812's, narrower than test-kind.js's
+    # JS_TEST_FILE (no .spec., and no c or m before its extension), so rows stay comparable with its baseline.
     if "--retest" in s or re.search(r"\.test\.[jt]s|\s-t\s", s):
         return "named"
     return "bare"
