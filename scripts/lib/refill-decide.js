@@ -2,7 +2,7 @@
  * refill-decide.js — the refill loop's decision core, in normal and away mode
  * (#2007, spec #1995; parked rows by mode, #3621): one pure function from a
  * tick's readings to either the launches to make or the stop that ends
- * launching.
+ * launching, with the held sessions it resumes ahead of them.
  *
  * Caller: lib/refill-tick.js's tick (#2012)
  */
@@ -40,6 +40,8 @@ const SHORTLIST_FAILED = "shortlist failed in";
  * launch keeping the run alive. */
 const LIMIT_HELD_WAIT =
 	"every seat is spent; a limit-held session waits on one";
+/* The idle reason of a tick whose resumes take every free slot. */
+const RESUMES_TAKE_SLOTS = "resumes take every free slot";
 /* A row a running launch already holds, skipped as any other so an idle
  * tick's log can count it (#2561). */
 const ALREADY_RUNNING = "already running";
@@ -148,6 +150,14 @@ const ALREADY_RUNNING = "already running";
  * @property {string[]} [limitHeldLines] each launch waiting stopped on its seat's
  *   limit, for a stop line to name (#3785): spent seats end no run while any
  *   waits, as only a running loop resumes it (#3735)
+ * @property {HeldResume[]} [resumable] each session the loop stopped whose
+ *   cause has cleared (#3855)
+ */
+
+/**
+ * A stopped session due back: its launch's job, when it was stopped, and its
+ * line for a stop to name.
+ * @typedef {{jobId: string, at: number, line: string}} HeldResume
  */
 
 /**
@@ -190,7 +200,8 @@ const ALREADY_RUNNING = "already running";
 /**
  * @typedef {{stop: StopReason, detail: string}
  *   | {launches: Launch[], skipped: Skip[], idle: string | null,
- *   held: Skip[]}} Decision `held` is heldParked's
+ *   held: Skip[], resumes: HeldResume[]}} Decision `held` is heldParked's;
+ *   `resumes` the tick's, oldest first, made ahead of its launches
  */
 
 /**
@@ -762,19 +773,34 @@ function fill(
 }
 
 /**
+ * A stop's detail with what it leaves for the next start to act on.
+ * @param {string} detail
+ * @param {TickInput} input
+ */
+function buildStopDetail(detail, { limitHeldLines = [], resumable = [] }) {
+	const left = [
+		...(limitHeldLines.length > 0
+			? [
+					`left on a seat's limit, acted on only by the next start: ${limitHeldLines.join("; ")}`,
+				]
+			: []),
+		...(resumable.length > 0
+			? [
+					`left with a resume due, acted on only by the next start: ${resumable.map((r) => r.line).join("; ")}`,
+				]
+			: []),
+	];
+	return [detail, ...left].join("; ");
+}
+
+/**
  * @param {TickInput} input
  * @returns {Decision}
  */
 function decideTick(input) {
 	const pick = pickSeat(input);
 	const stop = stopOf(input, pick);
-	if (stop)
-		return input.limitHeldLines?.length
-			? {
-					...stop,
-					detail: `${stop.detail}; left on a seat's limit, acted on only by the next start: ${input.limitHeldLines.join("; ")}`,
-				}
-			: stop;
+	if (stop) return { ...stop, detail: buildStopDetail(stop.detail, input) };
 	const present =
 		presenceAt(input.lastPromptAt, new Date(input.now)) === "present";
 	const free = Math.max(0, input.freeSlots - (present ? 1 : 0));
@@ -787,18 +813,33 @@ function decideTick(input) {
 			skipped: [],
 			idle: present ? "one free slot is kept for the founder" : "no free slot",
 			held,
+			resumes: [],
 		};
+	/* A resume goes back to its own seat, so no seat's wait holds it. */
+	const resumes = (input.resumable ?? [])
+		.toSorted((a, b) => a.at - b.at)
+		.slice(0, free);
 	if (pick.seat === null)
 		return {
 			launches: [],
 			skipped: [],
 			idle: pick.wait || LIMIT_HELD_WAIT,
 			held,
+			resumes,
+		};
+	const launchSlots = free - resumes.length;
+	if (launchSlots === 0)
+		return {
+			launches: [],
+			skipped: [],
+			idle: RESUMES_TAKE_SLOTS,
+			held,
+			resumes,
 		};
 	/* The cap's fits, so a tick asks no dispatcher call for a member the cap
 	 * would drop: each call launches at least one under 100%. */
-	const out = fill(input, pick, Math.min(pick.fits, free));
-	if (out.launches.length > 0) return { ...out, idle: null, held };
+	const out = fill(input, pick, Math.min(pick.fits, launchSlots));
+	if (out.launches.length > 0) return { ...out, idle: null, held, resumes };
 	const failed = input.failedShortlists ?? [];
 	return {
 		...out,
@@ -811,6 +852,7 @@ function decideTick(input) {
 						.join("; ")
 				: NOTHING_LAUNCHABLE,
 		held,
+		resumes,
 	};
 }
 

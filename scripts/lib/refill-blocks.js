@@ -121,6 +121,11 @@ const PARKED_STATE = "blocked";
  * @property {(l: JobLaunch, prompt: string, target: ResumeTarget &
  *   {sessionId: string}) => Resumed} resumeStopped  `claude --bg
  *   --resume` of the stopped job
+ * @property {() => string|null} admitResume  the dispatcher's per-member
+ *   memory, load and session-ceiling re-read: null where it admits one more
+ *   session, else why not
+ * @property {() => void} stagger  the dispatcher's pause between one launch
+ *   and the next member's re-read
  * @property {(l: JobLaunch, target: string, prompt: string, ids: ResumeTarget &
  *   {sessionId: string}) => Resumed} moveSession  the stopped session carried
  *   to seat `target` and resumed there
@@ -955,24 +960,51 @@ function holdIdle(b, { agents, now, io, swapHold }) {
 }
 
 /**
- * Resume `l`, stopped under the swap hold, on the first tick it has cleared:
- * `claude --bg --resume` of its session with the restart's prompt. One whose
- * resume fails stays held for the next tick, and after SWAP_RESUME_TRIES
- * failures is handed off instead. Nothing off an unread listing; one live
- * again markParked has let go.
+ * @param {LoopLaunch} l
+ * @returns {l is JobLaunch & {swapHeld: SwapHeld}}
+ */
+const isResumableSwapHeld = (l) => isActionable(l) && isSwapHeld(l);
+
+/** @param {LoopLaunch & {swapHeld: SwapHeld}} l */
+const buildSwapHeldText = (l) =>
+	`${launchName(l)}, stopped under the swap hold at ${iso(l.swapHeld.at)}`;
+
+/**
+ * The sessions stopped under the swap hold, due back now it has cleared, for
+ * the tick's decision to pace (#3855); none off an unread listing, as one
+ * live again is not yet told from one still stopped. One live again
+ * markParked has let go.
+ * @param {LoopLaunch[]} launches
+ * @param {Tick} seen
+ * @returns {import("./refill-decide.js").HeldResume[]}
+ */
+function resumableOf(launches, { agents, io, swapHold }) {
+	if (swapHold.held) return [];
+	const due = launches.filter(isResumableSwapHeld);
+	if (!agents) {
+		for (const l of due)
+			io.log(`not resuming ${buildSwapHeldText(l)}: the listing is unread`);
+		return [];
+	}
+	return due.map((l) => ({
+		jobId: l.jobId,
+		at: l.swapHeld.at,
+		line: `${l.jobId} ${buildSwapHeldText(l)}`,
+	}));
+}
+
+/**
+ * Resume `l`: `claude --bg --resume` of its session with the restart's prompt.
+ * One whose resume fails stays held for the next tick, and after
+ * SWAP_RESUME_TRIES failures is handed off instead.
  * @param {JobLaunch & {swapHeld: SwapHeld}} l
  * @param {Tick} seen
- * @returns {LoopLaunch}
+ * @returns {{launch: LoopLaunch, started: boolean}}
  */
 function resumeSwapHeld(l, seen) {
-	const { agents, now, io, swapHold } = seen;
-	if (swapHold.held) return l;
+	const { now, io } = seen;
 	const { swapHeld, ...rest } = l;
-	const what = `${launchName(l)}, stopped under the swap hold at ${iso(swapHeld.at)}`;
-	if (!agents) {
-		io.log(`not resuming ${what}: the listing is unread`);
-		return l;
-	}
+	const what = buildSwapHeldText(l);
 	const { sessionId, cwd } = swapHeld;
 	const r = io.resumeStopped(l, IDLE_PROMPT, { sessionId, cwd });
 	if (r.failed === null) {
@@ -980,15 +1012,60 @@ function resumeSwapHeld(l, seen) {
 		io.log(
 			`resumed ${what}, the hold cleared, by --bg --resume, ${r.copy ? `as its copy ${resumed.jobId}` : "woken in place"}`,
 		);
-		return resumed;
+		return { launch: resumed, started: true };
 	}
 	const tries = swapHeld.tries + 1;
 	io.log(
 		`could not resume ${what}, try ${tries} of ${SWAP_RESUME_TRIES}: ${r.failed}`,
 	);
-	if (tries < SWAP_RESUME_TRIES)
-		return { ...l, swapHeld: { ...swapHeld, tries } };
-	return handOff(rest, seen, true);
+	return {
+		launch:
+			tries < SWAP_RESUME_TRIES
+				? { ...l, swapHeld: { ...swapHeld, tries } }
+				: handOff(rest, seen, true),
+		started: false,
+	};
+}
+
+/**
+ * The tick's one resume step (#3855): each of the decision's resumes, in its
+ * order, past the dispatcher's per-member re-read, as a stopped session is
+ * charged nothing by admission and so counts as new draw. The first the re-read
+ * refuses waits for a later tick with all behind it, charged no try, so none
+ * overtakes it; so do they all once a stop lands. As in the dispatcher, the
+ * next re-read waits out a started session's spare.
+ * @param {import("./refill-decide.js").HeldResume[]} resumes
+ * @param {LoopLaunch[]} launches
+ * @param {Tick} seen
+ * @param {() => boolean} isStopped
+ * @returns {{launches: LoopLaunch[], started: number}}
+ */
+function resumeHeldLaunches(resumes, launches, seen, isStopped) {
+	const { io } = seen;
+	/** @type {Map<string, LoopLaunch>} */
+	const acted = new Map();
+	let started = 0;
+	for (const [i, { jobId, line }] of resumes.entries()) {
+		const l = launches.find((x) => x.jobId === jobId);
+		if (!l || !isResumableSwapHeld(l) || isStopped()) break;
+		const refused = io.admitResume();
+		if (refused) {
+			io.log(`not resuming ${line}, for a later tick: ${refused}`);
+			break;
+		}
+		const out = resumeSwapHeld(l, seen);
+		acted.set(jobId, out.launch);
+		if (out.started) {
+			started += 1;
+			if (i < resumes.length - 1) io.stagger();
+		}
+	}
+	return {
+		launches: launches.map(
+			(l) => (l.jobId !== null && acted.get(l.jobId)) || l,
+		),
+		started,
+	};
 }
 
 /**
@@ -1666,8 +1743,7 @@ function actOnLimits(launches, mode, seen) {
  * The tick's acts on resumed-idle launches (#2659), read off the job store
  * and transcripts whether or not the listing read: each owed hand-off
  * retried, each typed resume checked, then the RESUMED_IDLE row's act, its
- * block made up for the act and so not kept; last, each launch stopped under
- * a swap hold since cleared resumed (#3093).
+ * block made up for the act and so not kept.
  * @param {LoopLaunch[]} launches
  * @param {"away"|"normal"} mode
  * @param {Tick} seen
@@ -1687,9 +1763,7 @@ function actOnIdle(launches, mode, seen) {
 	const unblocked = new Map(
 		[...acted].map(([jobId, { block: _, ...l }]) => [jobId, l]),
 	);
-	return withActed(read.launches, unblocked).map((l) =>
-		isActionable(l) && isSwapHeld(l) ? resumeSwapHeld(l, seen) : l,
-	);
+	return withActed(read.launches, unblocked);
 }
 
 /**
@@ -1733,5 +1807,7 @@ module.exports = {
 	markParked,
 	nextResumeAt,
 	releaseEndedHolds,
+	resumableOf,
+	resumeHeldLaunches,
 	unknownNews,
 };

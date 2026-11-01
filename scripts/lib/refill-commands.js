@@ -333,7 +333,7 @@ function launchStateOf(l) {
 			return `resuming after an API error, ${l.resumes?.tries ?? 0} of ${RESUME_CAP} tries, ${next}`;
 		}
 		case "swap-held":
-			return `stopped under the swap hold since ${iso(/** @type {number} */ (l.swapHeld?.at))}, resumed once it clears`;
+			return `stopped under the swap hold since ${iso(/** @type {number} */ (l.swapHeld?.at))}, resumed through admission once it clears`;
 		case "limit-held": {
 			const held = /** @type {import("./refill-blocks.js").LimitHeld} */ (
 				l.limitHeld

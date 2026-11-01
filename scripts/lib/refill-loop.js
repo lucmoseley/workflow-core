@@ -966,12 +966,20 @@ const buildOutcomeLine = (o) =>
  * that had a slot from one that had none (#2362).
  * @param {import("./refill-decide.js").Decision} d
  * @param {Outcome} outcome
- * @param {{freeSlots: number, probes: Probe[], read: FrontierRead|null}} seen
+ * @param {{freeSlots: number, probes: Probe[], read: FrontierRead|null,
+ *   resumesDue: number, resumesStarted: number}} seen
  */
-function buildTickLine(d, outcome, { freeSlots, probes, read }) {
+function buildTickLine(
+	d,
+	outcome,
+	{ freeSlots, probes, read, resumesDue, resumesStarted },
+) {
 	if ("stop" in d) return summaryOf(d);
 	const head = d.launches.length > 0 ? buildOutcomeLine(outcome) : summaryOf(d);
 	const notes = [
+		...(resumesDue > 0
+			? [`resumed ${resumesStarted} of ${resumesDue} due`]
+			: []),
 		...(d.launches.length === 0
 			? [`free slots: ${freeSlots}`, ...frontierNotes(d, read)]
 			: []),
@@ -1024,6 +1032,24 @@ function recordOverflowStart(input, { judged, launched }, io) {
 }
 
 /**
+ * The decision's resumes made, ahead of its launches; none on a stop.
+ * @param {import("./refill-decide.js").Decision} decision
+ * @param {LoopLaunch[]} launches
+ * @param {{readControl: () => ControlRead, resumeHeld: (resumes:
+ *   import("./refill-decide.js").HeldResume[], launches: LoopLaunch[],
+ *   isStopped: () => boolean) => {launches: LoopLaunch[], started: number}}} io
+ */
+const resumeDecided = (decision, launches, io) =>
+	"stop" in decision
+		? { launches, started: 0 }
+		: io.resumeHeld(decision.resumes, launches, () =>
+				isStopRequested(io.readControl().control),
+			);
+
+/** @param {import("./refill-decide.js").TickInput} input */
+const dueCount = (input) => input.resumable?.length ?? 0;
+
+/**
  * A tick from its decision on: dispatch its launches while the control asks
  * for no stop, write the state, then take the morning review's step, which
  * starts its child detached and returns at once (reviewStep).
@@ -1036,6 +1062,9 @@ function recordOverflowStart(input, { judged, launched }, io) {
  *   judged: LoopLaunch[], probes: Probe[], read: FrontierRead|null}} tick
  * @param {{readControl: () => ControlRead,
  *   launchBatch: (batch: import("./refill-decide.js").Launch[]) => BatchOutcome,
+ *   resumeHeld: (resumes: import("./refill-decide.js").HeldResume[],
+ *     launches: LoopLaunch[], isStopped: () => boolean) =>
+ *     {launches: LoopLaunch[], started: number},
  *   runReview: (lastRunOn: string|null, now: number) => string|null,
  *   writeState: (state: LoopState) => void,
  *   readOmittedDirs: () => string[],
@@ -1044,7 +1073,11 @@ function recordOverflowStart(input, { judged, launched }, io) {
  *   launched: number}} the late stop where one landed, else the tick's
  *   decision, and how many sessions the tick started
  */
-function settleTick({ input, decision, state, judged, probes, read }, io) {
+function settleTick(
+	{ input, decision, state, judged: acted, probes, read },
+	io,
+) {
+	const { launches: judged, started } = resumeDecided(decision, acted, io);
 	const outcome = launchUntilStopped(
 		"stop" in decision ? [] : batchesOf(decision.launches),
 		() => io.readControl().control,
@@ -1054,6 +1087,8 @@ function settleTick({ input, decision, state, judged, probes, read }, io) {
 		freeSlots: input.freeSlots,
 		probes,
 		read,
+		resumesDue: dueCount(input),
+		resumesStarted: started,
 	});
 	io.log(summary);
 	const overflowStart = recordOverflowStart(
@@ -1094,7 +1129,10 @@ function settleTick({ input, decision, state, judged, probes, read }, io) {
 			stopped: (late && stoppedOf(late, io.now())) ?? next.stopped,
 			reviewRunOn,
 		});
-	return { decision: late ?? decision, launched: outcome.launched.length };
+	return {
+		decision: late ?? decision,
+		launched: outcome.launched.length + started,
+	};
 }
 
 /**
