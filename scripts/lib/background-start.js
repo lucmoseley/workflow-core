@@ -1,6 +1,7 @@
 /*
  * background-start.js — whether this session start is a background job's,
- * and whether a founder notice waits past it (#3707, #3772).
+ * whether a founder notice waits past it (#3707, #3772), and whether a job
+ * record is his own launch, which lib/founder-typing.js reads too (#3783).
  *
  * FOUNDER_NOTICES are the once-a-day notices for the founder held back at a
  * start no one is watching, by the producer and by the replay alike, through
@@ -38,16 +39,24 @@ const isBackgroundStart = (env = process.env) =>
 	Boolean(env.CLAUDE_JOB_DIR) || isPrintMode(env);
 
 /**
- * Whether this job is one the founder launched from the agents view. False
- * for a print-mode run inside his job, which inherits `CLAUDE_JOB_DIR`.
+ * Whether a job record is one the founder launched from the agents view. No
+ * readable record proves nothing of his (#3772).
+ * @param {ReturnType<typeof readJobRecordIn>} record
+ */
+function isHisJobRecord(record) {
+	const template = record?.template;
+	return typeof template === "string" && template !== "bg";
+}
+
+/**
+ * Whether this job is his own. False for a print-mode run inside his job,
+ * which inherits `CLAUDE_JOB_DIR`.
  * @param {NodeJS.ProcessEnv} env
  */
 function isHisOwnJob(env) {
 	const jobDir = env.CLAUDE_JOB_DIR;
 	if (!jobDir || isPrintMode(env)) return false;
-	/* No readable record proves nothing of his, so the notice waits (#3772). */
-	const template = readJobRecordIn(jobDir)?.template;
-	return typeof template === "string" && template !== "bg";
+	return isHisJobRecord(readJobRecordIn(jobDir));
 }
 
 const FOUNDER_NOTICES = new Set(["idle-efforts", "refill-loop-stop"]);
@@ -73,7 +82,7 @@ const RELAY_LINE =
 const relayLines = (notifying) => (notifying ? [RELAY_LINE] : []);
 
 module.exports = {
-	isHisOwnJob,
+	isHisJobRecord,
 	isBackgroundStart,
 	isFounderNoticeHeld,
 	relayLines,
