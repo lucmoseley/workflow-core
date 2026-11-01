@@ -11,10 +11,11 @@
  * A delegated-decision entry's ticket is built from its ledger line; a
  * primitives-table entry's from the review line itself (#3465).
  *
- * Each filing is recorded in this checkout's markers before the reply, so a
- * reply that fails is retried without filing again; a filing that landed
- * unrecorded is found on the entry's tracker and recorded instead (#3828); a
- * pid lock keeps a hand run and a loop tick from both filing.
+ * Each filing is recorded before the reply, so a reply that fails is retried
+ * without filing again; a filing that landed unrecorded is found on the entry's
+ * tracker and recorded instead (#3828); a pid lock keeps a hand run and a loop
+ * tick from both filing. Record and lock are one per tracker on this machine,
+ * whichever checkout a run starts in.
  *
  * Joins no §N3 family: a run whose filing or reply failed on gh exits 1, so
  * the loop that runs it retries.
@@ -28,7 +29,6 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { parseErrLine, gh, ghIssuesUpdatedSince } = require("./lib/gh.js");
-const { hostRoot } = require("./lib/host-root.js");
 const { caught } = require("./lib/caught.js");
 const { fileThrough } = require("./lib/file-through.js");
 const { writeFd } = require("./lib/write-fd.js");
@@ -36,12 +36,12 @@ const { readJsonl } = require("./lib/jsonl.js");
 const { readLedger } = require("./lib/delegated-decision.js");
 const review = require("./lib/morning-review.js");
 const reversal = require("./lib/review-reversal.js");
-const { markersDir } = require("./lib/marker-root.js");
 const { pidLock } = require("./lib/pid-lock.js");
+const { refillPath } = require("./lib/refill-dir.js");
 const { discoverRepos, homeDir } = require("./lib/refill-repos.js");
 const { readReviewIssues } = require("./lib/review-issues.js");
 const { scriptIo } = require("./lib/tracker-ops.js");
-const { requireKey } = require("./lib/workflow-core-config.js");
+const { repoSlug, requireKey } = require("./lib/workflow-core-config.js");
 const { takesLabel } = require("./lib/takes-label.js");
 
 const USAGE = "usage: node scripts/answer-review-reversals.js [--dry-run]";
@@ -50,8 +50,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /* Untraced: a review closed within two days is still read for reversals, so
  * a request written just before the close, or while no loop ran, is answered. */
 const RECENTLY_CLOSED_MS = 2 * DAY_MS;
-const FILED = "review-reversals.jsonl";
-const LOCK = "review-reversals.lock";
+const RECORD_EXTENSION = "jsonl";
+const LOCK_EXTENSION = "lock";
 /* Each program answerReversals runs in, as a holder is read by its command
  * line (#3815). Residual: a third program requiring it must be listed here, or
  * its live holder reads as stale and is taken over. */
@@ -61,7 +61,7 @@ const io = scriptIo("answer-review-reversals");
 
 /**
  * What one run answering reversals carries: the review issue, each included
- * checkout by tracker, and this checkout's record of reversals already filed.
+ * checkout by tracker, and the review tracker's record of reversals filed.
  * @typedef {{review: {repo: string, number: number, createdAt: string,
  *   entries: ReturnType<typeof review.parseEntries>},
  *   roots: Map<string, string>, filed: Map<string, string>, dryRun: boolean}} Run
@@ -70,11 +70,27 @@ const io = scriptIo("answer-review-reversals");
 /** @param {import("./lib/review-reversal.js").Request} r */
 const requestKey = (r) => `${r.commentUrl} ${r.n}`;
 
-/** This checkout's record of reversals filed: `owner/name#n` by request. */
-function readFiled() {
+/**
+ * A review tracker's reversal record or lock, its directory created: outside
+ * any checkout, as one's own markers would give two checkouts two of each.
+ * @param {string} tracker
+ * @param {string} extension
+ */
+function reversalPath(tracker, extension) {
+	const slug = repoSlug(tracker).replaceAll("/", "__");
+	const file = refillPath(`review-reversals-${slug}.${extension}`);
+	fs.mkdirSync(path.dirname(file), { recursive: true });
+	return file;
+}
+
+/**
+ * The tracker's record of reversals filed: `owner/name#n` by request.
+ * @param {string} tracker
+ */
+function readFiled(tracker) {
 	/** @type {Map<string, string>} */
 	const filed = new Map();
-	const read = readJsonl(path.join(markersDir(hostRoot()), FILED));
+	const read = readJsonl(reversalPath(tracker, RECORD_EXTENSION));
 	for (const r of read?.rows ?? [])
 		if (typeof r.filed === "string")
 			filed.set(
@@ -154,7 +170,7 @@ function fileReversal(run, request) {
 		const ref = `${listed.repo}#${number}`;
 		if (!dryRun)
 			fs.appendFileSync(
-				path.join(markersDir(hostRoot()), FILED),
+				reversalPath(reviewIssue.repo, RECORD_EXTENSION),
 				`${JSON.stringify({ ...request, filed: ref })}\n`,
 			);
 		return { filed: ref };
@@ -296,14 +312,14 @@ function answerReversals(tracker, dryRun) {
 		return requests.length === 0 ? [] : [{ issue: i, requests }];
 	});
 	if (pending.length === 0) return 0;
-	const lock = pidLock(path.join(markersDir(hostRoot()), LOCK), ANSWERERS);
+	const lock = pidLock(reversalPath(tracker, LOCK_EXTENSION), ANSWERERS);
 	if (!dryRun && !lock.acquire()) {
 		io.out("another run is answering reversals; left to it.\n");
 		return 0;
 	}
 	try {
 		const roots = readRootsByTracker();
-		const filed = readFiled();
+		const filed = readFiled(tracker);
 		let code = 0;
 		for (const { issue, requests } of pending) {
 			/** @type {Run} */

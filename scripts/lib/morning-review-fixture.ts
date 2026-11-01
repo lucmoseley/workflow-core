@@ -45,8 +45,8 @@ if (a[0] === "api" && a[1] === "graphql") say([{ data: { repository: { issues: {
 if (a[0] === "api" && timeline[5] === "timeline") say([read("timelines.json")[timeline[4]] ?? []]);
 if (a[0] === "issue" && a[1] === "list" && a[a.indexOf("--label") + 1] === "urgent") say(read("urgent.json"));
 if (a[0] === "issue" && a[1] === "list" && a[a.indexOf("--label") + 1] === "parked") say(read("parked.json"));
-if (a[0] === "api" && a[1] === "repos/acme/wfc/labels") say([[{ name: "takes:wayfinder" }, { name: "takes:implement" }]]);
-if (a[0] === "api" && a[1] === "repos/acme/wfc/issues" && a.some((x) => x.startsWith("since="))) {
+if (a[0] === "api" && ["repos/acme/wfc/labels", "repos/acme/other/labels"].includes(a[1])) say([[{ name: "takes:wayfinder" }, { name: "takes:implement" }]]);
+if (a[0] === "api" && ["repos/acme/wfc/issues", "repos/acme/other/issues"].includes(a[1]) && a.some((x) => x.startsWith("since="))) {
 	if (fs.existsSync(f("fail-issues-since"))) { process.stderr.write("HTTP 502\\n"); process.exit(1); }
 	if (fs.existsSync(f("empty-issues-since"))) { fs.rmSync(f("empty-issues-since")); say([[]]); }
 	say([fs.readdirSync(process.env.STUB_DIR).flatMap((n) => {

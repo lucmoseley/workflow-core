@@ -5,30 +5,53 @@
  * founder's `reverse <n>` goes unanswered, or files its ticket twice.
  */
 
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { endedPid, freshSandbox } from "./lib/arbiter-testkit";
 import { buildReviewTitle, localDate } from "./lib/morning-review.js";
 import { morningReviewFixture } from "./lib/morning-review-fixture";
+import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "answer-review-reversals.js");
 const FILING = path.resolve(__dirname, "file-morning-review.js");
 
 const sb = freshSandbox();
-const { ago, readCreated, run, runEnv, seed, stub, wfc } = morningReviewFixture(
-	sb,
-	SCRIPT,
-);
+const { ago, home, readCreated, refillFile, run, runEnv, seed, stub, wfc } =
+	morningReviewFixture(sb, SCRIPT);
 const { run: runFiling } = morningReviewFixture(sb, FILING);
 
 /* A guess: a node start and its gh reads, on a machine running full suites. */
 const HOLDER_START_MS = 30_000;
 const HOLDER_TEST_MS = 2 * HOLDER_START_MS;
 
-const lockFile = () =>
-	path.join(wfc(), ".claude", "tmp", "markers", "review-reversals.lock");
+const recordFile = () => refillFile("review-reversals-acme__wfc.jsonl");
+const lockFile = () => {
+	const file = refillFile("review-reversals-acme__wfc.lock");
+	fs.mkdirSync(path.dirname(file), { recursive: true });
+	return file;
+};
+
+const writeTrackerConfig = (root: string, tracker: string) => {
+	fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
+	fs.writeFileSync(
+		path.join(root, ".claude", "workflow-core.json"),
+		JSON.stringify({ contract: 1, founder: "T", tracker }),
+	);
+};
+
+/**
+ * A plain-terminal run from a second clone of acme/wfc, outside the harness,
+ * its config spelling the tracker in another case.
+ */
+function runFromClone() {
+	const clone = path.join(sb.dir, "clone");
+	writeTrackerConfig(clone, "Acme/WFC");
+	execFileSync("git", ["init", "-q", clone]);
+	const { CLAUDE_PROJECT_DIR: _harnessOnly, ...env } = runEnv();
+	return runInProcess(SCRIPT, [], { cwd: clone, env });
+}
 
 describe("answer-review-reversals.js (#2017)", () => {
 	const Request = "https://github.com/acme/wfc/issues/5#issuecomment-50";
@@ -100,6 +123,41 @@ describe("answer-review-reversals.js (#2017)", () => {
 		);
 		expect(readReplies()[0]).toMatch(
 			/^\*\*Reversal filed:\*\* entry 2 → acme\/wfc#9\d\d, for/,
+		);
+	});
+
+	it("records an entry filed on another repo under the review's tracker (#3829)", () => {
+		seed([
+			{
+				...openReview(),
+				body: "## Primitives\n\n### acme/other\n\n2. acme/other — local row added: `'cli-args.js'` — job `Reading argv` — fff6666\n",
+				comments: [{ url: Request, body: "reverse 2" }],
+			},
+		]);
+		const other = path.join(home(), "other");
+		fs.mkdirSync(path.join(other, ".git"), { recursive: true });
+		writeTrackerConfig(other, "acme/other");
+		const r = run();
+		expect(r.stderr).toBe("");
+		expect(r.status).toBe(0);
+		expect(fs.readFileSync(recordFile(), "utf8")).toMatch(
+			/"filed":"acme\/other#9\d\d"/,
+		);
+	});
+
+	it("reads the record another checkout of the tracker wrote (#3829)", () => {
+		seed([openReview()]);
+		fs.writeFileSync(stub("fail-comment"), "");
+		expect(run().status).toBe(1);
+		fs.rmSync(stub("fail-comment"));
+		/* A failing search leaves only the record to name the ticket by. */
+		fs.writeFileSync(stub("fail-issues-since"), "");
+		const again = runFromClone();
+		expect(again.stderr).toBe("");
+		expect(again.status).toBe(0);
+		expect(readCreated()).toHaveLength(1);
+		expect(readReplies()[0]).toMatch(
+			/^\*\*Reversal filed:\*\* entry 1 → acme\/wfc#9\d\d/,
 		);
 	});
 
@@ -206,31 +264,37 @@ describe("answer-review-reversals.js (#2017)", () => {
 		expect(readCreated()).toHaveLength(0);
 	});
 
-	it("files nothing while a live run holds the reversal lock", () => {
-		seed([openReview()]);
-		/* pid-lock.js reads a holder by its command line, so the holder runs
-		 * a file of this script's name. */
-		const holderScript = path.join(
-			sb.dir,
-			"holder",
-			"answer-review-reversals.js",
-		);
-		fs.mkdirSync(path.dirname(holderScript), { recursive: true });
-		fs.writeFileSync(holderScript, "setInterval(() => {}, 1000);\n");
-		// spawn-kept: two processes at once — the live lock holder runs beside the call under test, and is killed by signal.
-		const holder = spawn(process.execPath, [holderScript], {
-			stdio: "ignore",
-		});
-		try {
-			fs.writeFileSync(lockFile(), String(holder.pid));
-			const r = run();
-			expect(r.status).toBe(0);
-			expect(r.stdout).toContain("another run is answering reversals");
-			expect(readCreated()).toHaveLength(0);
-		} finally {
-			holder.kill();
-		}
-	});
+	it.each([
+		["this checkout", () => run()],
+		["another checkout of the tracker (#3829)", runFromClone],
+	])(
+		"files nothing from %s while a live run holds the reversal lock",
+		(_from, runIt) => {
+			seed([openReview()]);
+			/* pid-lock.js reads a holder by its command line, so the holder runs
+			 * a file of this script's name. */
+			const holderScript = path.join(
+				sb.dir,
+				"holder",
+				"answer-review-reversals.js",
+			);
+			fs.mkdirSync(path.dirname(holderScript), { recursive: true });
+			fs.writeFileSync(holderScript, "setInterval(() => {}, 1000);\n");
+			// spawn-kept: two processes at once — the live lock holder runs beside the call under test, and is killed by signal.
+			const holder = spawn(process.execPath, [holderScript], {
+				stdio: "ignore",
+			});
+			try {
+				fs.writeFileSync(lockFile(), String(holder.pid));
+				const r = runIt();
+				expect(r.status).toBe(0);
+				expect(r.stdout).toContain("another run is answering reversals");
+				expect(readCreated()).toHaveLength(0);
+			} finally {
+				holder.kill();
+			}
+		},
+	);
 
 	it.each([
 		["file-morning-review.js", "answer-review-reversals.js", FILING, run],
