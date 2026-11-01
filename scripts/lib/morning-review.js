@@ -3,10 +3,12 @@
  * #1995 §The morning review issue). Pure: the generator,
  * scripts/file-morning-review.js, does every read and the filing.
  *
- * The window runs from the previous review issue's creation to now, not a
- * calendar day. Both edges are applied here, after the reads, so the reads may
- * over-fetch: an entry or close at the previous issue's own instant belongs
- * to that issue, one at `now` to this.
+ * The window runs from where the previous review issue's window ended to now,
+ * not a calendar day. Its end is taken before a filing's reads and printed on
+ * the issue, so an event during a filing falls in the next window (windowStart,
+ * #3813). Both edges are applied here, after the reads, so the reads may
+ * over-fetch: an entry or close at `since` belongs to the earlier issue, one at
+ * `now` to this.
  *
  * Entry numbers run 1…n across every repo, so `reverse <n>` names one entry;
  * each line links the decision's own comment, which keys its ledger line.
@@ -27,6 +29,7 @@ const { rowChanges } = require("./primitives-table.js");
 const { buildIdleLines } = require("./idle-efforts.js");
 
 const TITLE = /^Morning review — (\d{4}-\d{2}-\d{2})$/;
+const WINDOW_LINE = /^Window: \S+ → ([^\s,]+)/m;
 /* An `urgent` older than this is listed as stuck: #2693's figure, a guess,
  * unmeasured. */
 const STUCK_URGENT_DAYS = 7;
@@ -52,6 +55,40 @@ const buildReviewTitle = (date) => `Morning review — ${date}`;
  * @param {string} title
  */
 const parseReviewDate = (title) => TITLE.exec(title)?.[1] ?? null;
+
+/**
+ * Where a review issue's window ended, off its `Window:` line (#3813). Null
+ * where the line will not read, as after a hand edit.
+ * @param {string} body
+ * @returns {string | null}
+ */
+function parseWindowEnd(body) {
+	const end = WINDOW_LINE.exec(body)?.[1];
+	return end !== undefined && !Number.isNaN(Date.parse(end)) ? end : null;
+}
+
+/**
+ * Where a filing's window starts, and why that may miss events. Residual:
+ * where the previous `Window:` line will not read, the start is that issue's
+ * creation, and an event during its filing reaches no review; `why` says so.
+ * @param {{number: number, createdAt: string, body: string} | undefined} previous
+ * @param {Date} now
+ * @returns {{since: string, why: string | null}}
+ */
+function windowStart(previous, now) {
+	if (!previous)
+		return {
+			since: new Date(now.getTime() - DAY_MS).toISOString(),
+			why: null,
+		};
+	const end = parseWindowEnd(previous.body);
+	return end === null
+		? {
+				since: previous.createdAt,
+				why: `#${previous.number}'s Window line, so an event during its filing`,
+			}
+		: { since: end, why: null };
+}
 
 /**
  * The `**Door:**` line of an issue's resolution — the last comment carrying
@@ -176,17 +213,20 @@ function ticketText(i, tickets, now) {
  */
 function renderKillLines({ incidents, tickets, why }, lo, hi) {
 	if (why !== null) return [`Not read: ${quoted(why)}.`];
-	const inWindow = incidents.flatMap((i) =>
-		i.kills.filter((k) => Date.parse(k.at) > lo && Date.parse(k.at) <= hi),
-	);
+	/** @param {KillReading["incidents"][number]} i */
+	const killsIn = (i) =>
+		i.kills.filter((k) => Date.parse(k.at) > lo && Date.parse(k.at) <= hi);
+	const inWindow = incidents.flatMap(killsIn);
 	if (inWindow.length === 0) return ["None in the window."];
 	return [
 		`${inWindow.length} in the window — ${byKind(inWindow)}.`,
 		"",
-		...incidents.map(
-			(i) =>
-				`- ${quoted(incidentTitle(i))} — ${i.kills.length} ${i.kills.length === 1 ? "kill" : "kills"}: ${byKind(i.kills)} — ${ticketText(i, tickets, hi)}`,
-		),
+		...incidents
+			.filter((i) => killsIn(i).length > 0)
+			.map(
+				(i) =>
+					`- ${quoted(incidentTitle(i))} — ${i.kills.length} ${i.kills.length === 1 ? "kill" : "kills"}: ${byKind(i.kills)} — ${ticketText(i, tickets, hi)}`,
+			),
 	];
 }
 
@@ -544,5 +584,6 @@ module.exports = {
 	quoted,
 	renderReview,
 	buildReviewTitle,
+	windowStart,
 	searchTime,
 };

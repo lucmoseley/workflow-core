@@ -13,15 +13,15 @@ const { takesLabel } = require("./takes-label.js");
 const REVIEW_LABEL = takesLabel("wayfinder");
 
 /**
- * The review issues on `repo` in `state`, newest first, with their body and
- * comments where `withComments`, for the reversals. Read off the label list,
+ * The review issues on `repo` in `state`, newest first, with their comments
+ * where `withComments`, for the reversals. Read off the label list,
  * not search, whose index lags a fresh create and would let a quick re-run
  * file twice.
  * @param {string} repo
  * @param {"all" | "open" | "closed"} state
  * @param {{withComments?: boolean, more?: string[]}} [opts]
  * @returns {{number: number, title: string, state: string, createdAt: string,
- *   body?: string, comments?: import("./review-reversal.js").Comment[]}[]}
+ *   body: string, comments?: import("./review-reversal.js").Comment[]}[]}
  */
 function readReviewIssues(
 	repo,
@@ -37,7 +37,7 @@ function readReviewIssues(
 		REVIEW_LABEL,
 		...more,
 		"--json",
-		`number,title,state,createdAt${withComments ? ",body,comments" : ""}`,
+		`number,title,state,createdAt,body${withComments ? ",comments" : ""}`,
 	])
 		.filter((/** @type {{title: string}} */ i) => parseReviewDate(i.title))
 		.sort(

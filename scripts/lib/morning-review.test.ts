@@ -12,6 +12,7 @@ const {
 	parseReviewDate,
 	renderReview,
 	buildReviewTitle,
+	windowStart,
 } = require("./morning-review.js");
 const { basisFaults } = require("./issue-gate.js");
 const { readout } = require("./concurrency.js");
@@ -162,16 +163,23 @@ describe("renderReview (#2011)", () => {
 			last: "2026-10-17T07:10:00Z",
 			kills: [at(SINCE, 1), at("2026-10-17T07:10:00Z", 2)],
 		};
+		/* One after the window's end, read minutes into a filing: the next
+		 * review's (#3813). */
+		const later = {
+			first: "2026-10-18T07:05:00Z",
+			last: "2026-10-18T07:05:00Z",
+			kills: [at("2026-10-18T07:05:00Z", 3)],
+		};
 		const repos = [{ repo: "acme/a", entries: [], stalls: [], closed: [] }];
-		expect(
-			render(repos, [], 7, {
-				incidents: [edge],
-				tickets: "HTTP 502",
-				why: null,
-			}),
-		).toContain(
+		const body = render(repos, [], 7, {
+			incidents: [edge, later],
+			tickets: "HTTP 502",
+			why: null,
+		});
+		expect(body).toContain(
 			`## Memory kills\n\n1 in the window — Claude host 1, test or build 0, other 0.\n\n- \`${incidentTitle(edge)}\` — 2 kills: Claude host 2, test or build 0, other 0 — ticket unread: \`HTTP 502\`\n`,
 		);
+		expect(body).not.toContain(incidentTitle(later));
 		expect(
 			render(repos, [], 7, {
 				incidents: [],
@@ -334,6 +342,30 @@ describe("renderReview (#2011)", () => {
 				"acme/a",
 			),
 		).toEqual([{ target: 11, linkText: "comment" }]);
+	});
+
+	it("starts a window where the previous rendered body's ended, whichever way that body was windowed (#3813)", () => {
+		const startAfter = (body: string) =>
+			windowStart({ number: 7, createdAt: "created", body }, new Date(NOW));
+		expect(startAfter(render([]))).toEqual({ since: NOW, why: null });
+		expect(startAfter(render([], [], null))).toEqual({ since: NOW, why: null });
+	});
+
+	it("starts at the previous issue's creation, saying so, where its Window line will not read (#3813)", () => {
+		for (const body of ["Edited by hand.\n", "Window: then → soon, from #7.\n"])
+			expect(
+				windowStart({ number: 7, createdAt: SINCE, body }, new Date(NOW)),
+			).toEqual({
+				since: SINCE,
+				why: "#7's Window line, so an event during its filing",
+			});
+	});
+
+	it("starts 24 hours back with no previous issue", () => {
+		expect(windowStart(undefined, new Date(NOW))).toEqual({
+			since: new Date(Date.parse(NOW) - DAY).toISOString(),
+			why: null,
+		});
 	});
 
 	it("holds the window to (since, now]: an entry or close at the previous issue's instant is that issue's, one at now is this one's", () => {

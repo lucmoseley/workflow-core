@@ -323,8 +323,8 @@ function reviewRunOf(now, lastRunOn) {
  * status, on a due tick file-morning-review.js's worse of its filing's and
  * its answering's: today once a due tick's is 0, or 2, a refusal a retry
  * would only repeat; unchanged on a tick not due, where it timed out or was
- * killed (null), or on a gh failure (1), so the next tick retries and the
- * filing files nothing twice.
+ * killed (null), or on a gh failure or another run's filing lock (1), so the
+ * next tick retries and the filing files nothing twice.
  * @param {{due: boolean, status: number|null, lastRunOn: string|null,
  *   today: string}} run
  */

@@ -4,13 +4,14 @@
  * (#2011). Filing goes through the real file-issue.js, so its label refusals
  * and similar-title check run on the review issue as on any other. Break it
  * and the loop files no review, or two in a day, or a hand run leaves the
- * founder's `reverse <n>` comments unanswered (#3388).
+ * founder's `reverse <n>` comments unanswered (#3388), or a close made during
+ * a filing reaches no review (#3813).
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { freshSandbox } from "./lib/arbiter-testkit";
 import { HOUR, morningReviewFixture } from "./lib/morning-review-fixture";
 
@@ -18,10 +19,14 @@ const SCRIPT = path.resolve(__dirname, "file-morning-review.js");
 
 const sb = freshSandbox();
 
-const { ago, readCreated, run, seed, stub, wfc } = morningReviewFixture(
-	sb,
-	SCRIPT,
-);
+const { ago, readCreated, refillFile, run, runEnv, seed, stub, wfc } =
+	morningReviewFixture(sb, SCRIPT);
+
+const readsFile = () => refillFile(".morning-review-reads.json");
+const lockFile = () => refillFile(".morning-review-filing.pid");
+/* A guess: two full filings on a loaded machine, each some 10 s of real node
+ * and stub gh starts. */
+const TWO_FILINGS_TIMEOUT_MS = 120_000;
 
 const localDate = (d: Date) =>
 	[d.getFullYear(), d.getMonth() + 1, d.getDate()]
@@ -317,8 +322,9 @@ describe("file-morning-review.js (#2011)", () => {
 		expect(calls).not.toMatch(/issue edit|--(add|remove)-label|labels\/parked/);
 	});
 
-	it("resumes a killed run from the day's kept reads, re-reading only what failed (#3765)", () => {
+	it("resumes a failed run from the day's kept reads, re-reading only what failed (#3765)", () => {
 		seed([]);
+		fs.writeFileSync(stub("fail-review-create"), "");
 		fs.writeFileSync(
 			stub("parked.json"),
 			JSON.stringify([
@@ -345,17 +351,169 @@ describe("file-morning-review.js (#2011)", () => {
 				.split("\n")
 				.filter((l) => l.includes("/timeline"))
 				.map((l) => l.match(/issues\/(\d+)\/timeline/)?.[1]);
-		expect(run(["--dry-run"]).status).toBe(0);
+		expect(run().status).toBe(1);
 		expect(timelineReads()).toEqual(["60", "61"]);
+		fs.rmSync(stub("fail-review-create"));
 		fs.writeFileSync(stub("calls.log"), "");
 		/* The timeline gone: a kept age is the only way #60's still reads. */
 		fs.writeFileSync(stub("timelines.json"), JSON.stringify({ 61: [] }));
-		const second = run(["--dry-run"]);
-		expect(second.status).toBe(0);
+		expect(run().status).toBe(0);
 		expect(timelineReads()).toEqual(["61"]);
-		expect(second.stdout).toContain(
+		expect(readCreated()[0].body).toContain(
 			"- acme/wfc#60 — `Waits on a round` — 3 days\n",
 		);
+	});
+
+	it("leaves the kept reads as it found them on --dry-run, and takes none of them (#3813)", () => {
+		seed([]);
+		expect(run(["--dry-run"]).status).toBe(0);
+		expect(fs.existsSync(readsFile())).toBe(false);
+
+		fs.writeFileSync(stub("fail-review-create"), "");
+		expect(run().status).toBe(1);
+		const kept = JSON.parse(fs.readFileSync(readsFile(), "utf8"));
+		for (const key of Object.keys(kept.reads))
+			kept.reads[key] = { line: "a stale count line" };
+		const found = JSON.stringify(kept);
+		fs.writeFileSync(readsFile(), found);
+
+		const dry = run(["--dry-run"]);
+		expect(dry.status).toBe(0);
+		expect(dry.stdout).not.toContain("a stale count line");
+		expect(fs.readFileSync(readsFile(), "utf8")).toBe(found);
+	});
+
+	describe("the window between two reviews (#3813)", () => {
+		afterEach(() => vi.useRealTimers());
+
+		it("puts a close stamped after a filing's reads begin and before its issue exists in the next review only", () => {
+			const reviewAt = (at: string) => {
+				vi.useFakeTimers({ toFake: ["Date"], now: new Date(at) });
+				const r = run();
+				vi.useRealTimers();
+				expect(r.status).toBe(0);
+			};
+			seed([]);
+			const during = {
+				number: 78,
+				title: "Closed during the filing",
+				url: "https://github.com/acme/wfc/issues/78",
+				closedAt: "2026-10-10T07:05:00.000Z",
+				comments: [{ body: "**Door:** one-way — made mid-filing" }],
+			};
+			fs.writeFileSync(stub("closed.json"), JSON.stringify([during]));
+
+			reviewAt("2026-10-10T07:00:00.000Z");
+			const reviews = JSON.parse(fs.readFileSync(stub("reviews.json"), "utf8"));
+			reviews[0].createdAt = "2026-10-10T07:13:00.000Z";
+			fs.writeFileSync(stub("reviews.json"), JSON.stringify(reviews));
+			reviewAt("2026-10-11T07:00:00.000Z");
+
+			const [first, next] = readCreated();
+			expect(first.body).not.toContain("Closed during the filing");
+			expect(next.body).toContain(
+				"Window: 2026-10-10T07:00:00.000Z → 2026-10-11T07:00:00.000Z",
+			);
+			expect(next.body).toContain(
+				"- acme/wfc#78 — `Closed during the filing` — `made mid-filing`",
+			);
+		});
+
+		it("falls back to the previous issue's creation where its Window line will not read", () => {
+			const createdAt = ago(5);
+			seed([
+				{
+					number: 5,
+					title: "Morning review — 2000-01-01",
+					state: "OPEN",
+					createdAt,
+					body: "Edited by hand.\n",
+				},
+			]);
+			expect(run().status).toBe(0);
+			const [issue] = readCreated();
+			expect(issue.body).toContain(`Window: ${createdAt} → `);
+			expect(issue.body).toContain(
+				"- acme/wfc: `#5's Window line, so an event during its filing`",
+			);
+		});
+	});
+
+	describe("two filings at once (#3813)", () => {
+		const reviewCreates = () =>
+			fs
+				.readFileSync(stub("calls.log"), "utf8")
+				.split("\n")
+				.filter(
+					(l) => l.startsWith("issue create") && l.includes("Morning review"),
+				);
+
+		it(
+			"leaves one issue for the day when both really run",
+			async () => {
+				seed([]);
+				const filing = () =>
+					new Promise<{ status: number | null; stderr: string }>(
+						(resolve, reject) => {
+							// spawn-kept: two processes at once — the race under test is between real pids, which runInProcess's one-at-a-time call cannot make
+							const child = spawn(process.execPath, [SCRIPT], {
+								cwd: wfc(),
+								env: { ...runEnv(), CLAUDE_PROJECT_DIR: wfc() },
+								stdio: ["ignore", "ignore", "pipe"],
+							});
+							let stderr = "";
+							child.stderr.on("data", (d) => {
+								stderr += d;
+							});
+							child.on("error", reject);
+							child.on("close", (status) => resolve({ status, stderr }));
+						},
+					);
+				const runs = await Promise.all([filing(), filing()]);
+				expect(reviewCreates()).toHaveLength(1);
+				expect(fs.existsSync(lockFile())).toBe(false);
+				expect(runs.some((r) => r.status === 0)).toBe(true);
+				for (const r of runs.filter((f) => f.status !== 0)) {
+					expect(r.status).toBe(1);
+					expect(r.stderr).toContain("another run is filing today's review");
+				}
+			},
+			TWO_FILINGS_TIMEOUT_MS,
+		);
+
+		it("files nothing and exits 1 while another filing holds the lock, so the loop's next tick retries", () => {
+			seed([]);
+			fs.mkdirSync(path.dirname(lockFile()), { recursive: true });
+			// spawn-kept: two processes at once — the lock's holder is a real live pid, read by its command line, beside the call under test
+			const holder = spawn(
+				process.execPath,
+				["-e", "setInterval(() => {}, 1000)", path.basename(SCRIPT)],
+				{ stdio: "ignore" },
+			);
+			try {
+				fs.writeFileSync(lockFile(), String(holder.pid));
+				const r = run();
+				expect(r.status).toBe(1);
+				expect(r.stderr).toContain(
+					`another run is filing today's review (pid ${holder.pid}). Nothing filed: re-run once it ends.`,
+				);
+				expect(readCreated()).toHaveLength(0);
+
+				const dry = run(["--dry-run"]);
+				expect(dry.status).toBe(0);
+				expect(dry.stdout).toContain(`${TODAY}\n\n## Question`);
+			} finally {
+				holder.kill();
+			}
+		});
+
+		it("takes over the lock of a filing that died", () => {
+			seed([]);
+			fs.mkdirSync(path.dirname(lockFile()), { recursive: true });
+			fs.writeFileSync(lockFile(), "999999999");
+			expect(run().status).toBe(0);
+			expect(readCreated()).toHaveLength(1);
+		});
 	});
 
 	describe("answering reversals on the same run (#3388)", () => {

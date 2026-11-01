@@ -20,7 +20,14 @@
  *
  * ONCE A DAY: a review issue titled with today's machine-local date, open or
  * closed, files nothing — a hand run after the founder closed today's would
- * otherwise file a second.
+ * otherwise file a second. A filing holds a machine-wide lock (#3813) from
+ * before that look until its issue exists, so a hand run and the loop's run
+ * cannot both pass it. The one that finds the lock held files nothing and exits 1, so the
+ * loop's next tick retries in case the holder fails.
+ *
+ * WINDOW (#3813): `since` is where the previous review's window ended, off its
+ * body, and `now` is fixed before this run's reads, so no event falls between two
+ * reviews however long a filing runs (lib/morning-review.js's windowStart).
  *
  * Files through file-issue.js, so the `takes:` and known-label refusals bind
  * this script as they bind a session: no hook sees a gh call a script makes.
@@ -48,14 +55,14 @@
  *
  * KEPT READS (#3765): each repo's count line and each label age, once read,
  * are kept for the day (lib/review-reads.js), so a run killed part way
- * resumes from them.
+ * resumes from them. `--dry-run` neither takes nor keeps them (#3813).
  *
  * REVERSALS (#3388): after filing, it answers each unanswered `reverse <n>`
  * through scripts/answer-review-reversals.js (#2017), so a hand run while the
  * loop is stopped answers them too. `--dry-run` passes to both.
  *
  * Joins no §N3 family: it files an issue as `report-*` does, but a run whose
- * filing failed on gh exits 1, and one file-issue.js refused exits
+ * filing failed on gh or found the filing lock held exits 1, and one file-issue.js refused exits
  * with its code, so the loop that runs it can tell a filing from a failure.
  * The exit code is the worse of the filing's and the answering's.
  *
@@ -65,6 +72,7 @@
  */
 
 const { spawnSync } = require("node:child_process");
+const fs = require("node:fs");
 const path = require("node:path");
 const { answerReversals } = require("./answer-review-reversals.js");
 const { parseOrExit } = require("./lib/cli-args.js");
@@ -89,11 +97,13 @@ const { readSnapshot, whyNotLaunched } = require("./lib/pick-next-snapshot.js");
 const { STALL_TITLE } = require("./lib/stall-ticket.js");
 const { scriptIo } = require("./lib/tracker-ops.js");
 const { requireKey } = require("./lib/workflow-core-config.js");
+const { pidLock } = require("./lib/pid-lock.js");
+const { refillPath } = require("./lib/refill-dir.js");
 const { REVIEW_LABEL, readReviewIssues } = require("./lib/review-issues.js");
-const { reviewReads } = require("./lib/review-reads.js");
+const { freshReads, reviewReads } = require("./lib/review-reads.js");
 
 const USAGE = "usage: node scripts/file-morning-review.js [--dry-run]";
-const DAY_MS = 24 * 60 * 60 * 1000;
+const FILING_LOCK = ".morning-review-filing.pid";
 const URGENT = "urgent";
 /* Untraced: the count line runs every enforcing check over the whole tree. */
 const COUNT_TIMEOUT_MS = 5 * 60 * 1000;
@@ -106,7 +116,7 @@ const IDLE_TIMEOUT_MS = 3 * 60 * 1000;
 const io = scriptIo("file-morning-review");
 
 /** @typedef {import("./lib/morning-review.js").Unread} Unread */
-/** @typedef {ReturnType<typeof reviewReads>} Reads */
+/** @typedef {Pick<ReturnType<typeof reviewReads>, "read">} Reads */
 
 /**
  * One included checkout's ledger and closes, and what of it could not be read.
@@ -471,11 +481,37 @@ function readTimelineAge(repo, number, label) {
 }
 
 /**
- * File today's review unless one carries today's date. The exit code.
+ * File today's review unless one carries today's date or another run is filing
+ * it. A dry run files nothing, so it takes no lock. The exit code.
  * @param {string} tracker
  * @param {boolean} dryRun
  */
 function fileReview(tracker, dryRun) {
+	if (dryRun) return fileUnlessFiledToday(tracker, true);
+	const file = refillPath(FILING_LOCK);
+	fs.mkdirSync(path.dirname(file), { recursive: true });
+	const lock = pidLock(file, path.basename(__filename));
+	if (!lock.acquire()) {
+		writeFd(
+			2,
+			`another run is filing today's review (pid ${lock.holder()}). Nothing filed: re-run once it ends.\n`,
+		);
+		return 1;
+	}
+	try {
+		return fileUnlessFiledToday(tracker, false);
+	} finally {
+		lock.release();
+	}
+}
+
+/**
+ * Read the window and file its review, unless one carries today's date. The
+ * exit code.
+ * @param {string} tracker
+ * @param {boolean} dryRun
+ */
+function fileUnlessFiledToday(tracker, dryRun) {
 	const now = new Date();
 	const title = review.buildReviewTitle(review.localDate(now));
 
@@ -497,10 +533,9 @@ function fileReview(tracker, dryRun) {
 		return 0;
 	}
 	const [previous] = reviews;
-	const since =
-		previous?.createdAt ?? new Date(now.getTime() - DAY_MS).toISOString();
+	const { since, why } = review.windowStart(previous, now);
 
-	const reads = reviewReads(review.localDate(now));
+	const reads = dryRun ? freshReads() : reviewReads(review.localDate(now));
 	const read = discoverRepos(homeDir()).included.map((root) =>
 		readRepo(root, since, reads),
 	);
@@ -509,7 +544,10 @@ function fileReview(tracker, dryRun) {
 		now: now.toISOString(),
 		previous: previous?.number ?? null,
 		repos: read.flatMap((r) => (r.reading ? [r.reading] : [])),
-		failed: read.flatMap((r) => r.unread),
+		failed: [
+			...(why === null ? [] : [{ repo: tracker, why }]),
+			...read.flatMap((r) => r.unread),
+		],
 		kills: readKills(tracker, since),
 		concurrency: readConcurrency(now.getTime()),
 		idle: readIdle(),

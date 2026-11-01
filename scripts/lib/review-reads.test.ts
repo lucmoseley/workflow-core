@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { reviewReads } from "./review-reads.js";
+import { freshReads, reviewReads } from "./review-reads.js";
 
 let dir: string;
 let file: string;
@@ -58,5 +58,14 @@ describe("reviewReads (#3765)", () => {
 		expect(
 			reviewReads("2026-11-02", file).read("k", () => ({ line: "again" }), ok),
 		).toEqual({ line: "again" });
+	});
+
+	it("freshReads runs every read and keeps none (#3813)", () => {
+		let reads = 0;
+		const fresh = () => ++reads;
+		const dry = freshReads();
+		expect(dry.read("k", fresh)).toBe(1);
+		expect(dry.read("k", fresh)).toBe(2);
+		expect(fs.readdirSync(dir)).toEqual([]);
 	});
 });

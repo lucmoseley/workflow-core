@@ -7,6 +7,9 @@
  * Kept per machine-local date in lib/refill-dir.js's directory, beside the
  * loop's own files, and written after each read. A file from another day,
  * or one that will not parse, is read as empty. Only a read that succeeded is kept: a failed one is retried.
+ *
+ * A dry run takes freshReads instead (#3813): it writes nothing a later filing would
+ * take for its own, and shows what is true now.
  */
 
 const fs = require("node:fs");
@@ -67,4 +70,15 @@ function reviewReads(day, file = refillPath(READS_FILE)) {
 	};
 }
 
-module.exports = { reviewReads };
+/** reviewReads' shape over no file: every read runs, and nothing is kept. */
+const freshReads = () => ({
+	/**
+	 * @template T
+	 * @param {string} _key
+	 * @param {() => T} fresh
+	 * @returns {T}
+	 */
+	read: (_key, fresh) => fresh(),
+});
+
+module.exports = { freshReads, reviewReads };

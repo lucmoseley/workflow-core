@@ -64,9 +64,10 @@ if (a[0] === "issue" && a[1] === "create") {
 	const title = a[a.indexOf("--title") + 1];
 	if (title.startsWith("Morning review") && fs.existsSync(f("fail-review-create"))) { process.stderr.write("HTTP 502\\n"); process.exit(1); }
 	const labels = a.flatMap((x, i) => (a[i - 1] === "--label" ? [x] : []));
-	fs.writeFileSync(f("created-" + number + ".json"), JSON.stringify({ title, labels, body: fs.readFileSync(0, "utf8") }));
+	const body = fs.readFileSync(0, "utf8");
+	fs.writeFileSync(f("created-" + number + ".json"), JSON.stringify({ title, labels, body }));
 	if (title.startsWith("Morning review"))
-		fs.writeFileSync(f("reviews.json"), JSON.stringify([...reviews, { number, title, state: "OPEN", createdAt: new Date().toISOString(), labels: [] }]));
+		fs.writeFileSync(f("reviews.json"), JSON.stringify([...reviews, { number, title, state: "OPEN", createdAt: new Date().toISOString(), body, labels: [] }]));
 	process.stdout.write("https://github.com/acme/wfc/issues/" + number + "\\n");
 	process.exit(0);
 }
@@ -84,6 +85,7 @@ export function morningReviewFixture(
 	const home = () => path.join(sb.dir, "fixture-home");
 	const wfc = () => path.join(home(), "wfc");
 	const stub = (name: string) => path.join(sb.dir, "gh", name);
+	const refillFile = (name: string) => path.join(sb.dir, "refill", name);
 
 	const ago = (hours: number) =>
 		new Date(Date.now() - hours * HOUR).toISOString();
@@ -155,24 +157,19 @@ export function morningReviewFixture(
 		);
 	}
 
+	const runEnv = () => ({
+		...process.env,
+		...stubGhScript(sb.dir, Stub).env,
+		HOME: home(),
+		CLAUDE_PROJECT_DIR: wfc(),
+		STUB_DIR: path.join(sb.dir, "gh"),
+		WFC_JOURNALCTL: stub("journalctl"),
+		WFC_REFILL_DIR: path.join(sb.dir, "refill"),
+		MEMWATCH_MINUTE_LOG: refillFile("memwatch-minute.jsonl"),
+	});
+
 	const run = (argv: string[] = []) =>
-		runInProcess(script, argv, {
-			cwd: wfc(),
-			env: {
-				...process.env,
-				...stubGhScript(sb.dir, Stub).env,
-				HOME: home(),
-				CLAUDE_PROJECT_DIR: wfc(),
-				STUB_DIR: path.join(sb.dir, "gh"),
-				WFC_JOURNALCTL: stub("journalctl"),
-				WFC_REFILL_DIR: path.join(sb.dir, "refill"),
-				MEMWATCH_MINUTE_LOG: path.join(
-					sb.dir,
-					"refill",
-					"memwatch-minute.jsonl",
-				),
-			},
-		});
+		runInProcess(script, argv, { cwd: wfc(), env: runEnv() });
 
 	const readCreated = () =>
 		fs
@@ -180,5 +177,5 @@ export function morningReviewFixture(
 			.filter((n) => n.startsWith("created-"))
 			.map((n) => JSON.parse(fs.readFileSync(stub(n), "utf8")));
 
-	return { ago, home, readCreated, run, seed, stub, wfc };
+	return { ago, home, readCreated, refillFile, run, runEnv, seed, stub, wfc };
 }
