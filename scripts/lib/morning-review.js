@@ -19,8 +19,8 @@
  * A repo that does not read keeps its closes and decisions (#3831): the review
  * prints where its events went unread from, and the next starts that repo there
  * (repoStart), so each lands in the first review to read the repo. The line
- * outlives the checkout's absence from discovery, to the end absentRepos gives
- * it (#3835). Each review also prints the checkouts it read, so one's first
+ * outlives the checkout's absence from discovery, to the end buildAbsentRepos
+ * gives it (#3835). Each review also prints the checkouts it read, so one's first
  * absence is carried from that review's window end (#3844).
  *
  * Entry numbers run 1…n across every repo, so `reverse <n>` names one entry;
@@ -193,7 +193,7 @@ const unreadRepo = (checkout, start, repo, why) => ({
  * @param {string} why
  * @returns {RepoRead}
  */
-const endedRepo = (checkout, start, why) => ({
+const buildEndedRepo = (checkout, start, why) => ({
 	reading: null,
 	unread: [
 		...startFaults(checkout, start),
@@ -214,22 +214,22 @@ const endedRepo = (checkout, start, why) => ({
  * @param {Set<string>} reading.listed the checkouts discovery answers for
  * @param {string} reading.since the window's start
  * @param {number} reading.nowMs
- * @param {(checkout: string) => {carried: boolean, why: string} | null} reading.absenceOf
+ * @param {(checkout: string) => {carried: boolean, why: string} | null} reading.readAbsence
  *   null for a checkout that stays out unnamed
  * @returns {RepoRead[]}
  */
-function absentRepos({ previous, listed, since, nowMs, absenceOf }) {
+function buildAbsentRepos({ previous, listed, since, nowMs, readAbsence }) {
 	return parseKnownCheckouts(previous).flatMap((checkout) => {
 		if (listed.has(checkout)) return [];
-		const absence = absenceOf(checkout);
+		const absence = readAbsence(checkout);
 		if (absence === null) return [];
 		const { carried, why } = absence;
 		const start = repoStart(previous, checkout, since);
-		if (!carried) return [endedRepo(checkout, start, why)];
+		if (!carried) return [buildEndedRepo(checkout, start, why)];
 		const limit = ABSENT_CARRY_DAYS * DAY_MS;
 		return nowMs - Date.parse(start.since) > limit
 			? [
-					endedRepo(
+					buildEndedRepo(
 						checkout,
 						start,
 						`${why} and carried over ${ABSENT_CARRY_DAYS} days`,
@@ -822,7 +822,7 @@ module.exports = {
 	buildReviewTitle,
 	closeEdge,
 	parseHistoryCursor,
-	absentRepos,
+	buildAbsentRepos,
 	repoStart,
 	startFaults,
 	unreadRepo,

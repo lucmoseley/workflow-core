@@ -31,7 +31,7 @@ import {
 	resumeHeldLaunches,
 	unknownNews,
 } from "./refill-blocks.js";
-import { buildLimitCapText, LIMIT_PARK_CAP } from "./refill-decide.js";
+import { buildLimitCapText } from "./refill-decide.js";
 import { judgedLaunches } from "./refill-loop.js";
 import { buildSeatName } from "./refill-seats.js";
 
@@ -39,6 +39,8 @@ const MIN = 60 * 1000;
 const DAY = 24 * 60 * MIN;
 const NOW = Date.parse("2026-10-18T12:00:00Z");
 const LIMIT_HOLD_BOUND_DAYS = 8;
+/** The cap refill-decide.js keeps to itself, pinned here. */
+const LIMIT_PARK_CAP = 2;
 
 type Launch = import("./refill-loop.js").LoopLaunch;
 type Cause = import("./block-cause.js").Cause;
@@ -1641,7 +1643,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 		});
 
 		describe("the park's count of limit-cap parks in a row (#3804)", () => {
-			const atCap = (over: Record<string, unknown> = {}) =>
+			const buildLaunchAtResumeCap = (over: Record<string, unknown> = {}) =>
 				blocked({ limitResumes: buildDryResumes(RESUME_CAP), ...over });
 			const parkOf = (launch: Launch, io: Partial<BlockIo> = {}) => {
 				const counts: (number | undefined)[] = [];
@@ -1661,23 +1663,26 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 				calls.find((c) => c.startsWith("comment ")) ?? "";
 
 			it("counts a first park as one, and leaves the ticket to relaunch", () => {
-				const { counts, calls } = parkOf(atCap());
+				const { counts, calls } = parkOf(buildLaunchAtResumeCap());
 				expect(counts).toEqual([1]);
 				expect(comment(calls)).not.toContain("will not relaunch");
 			});
 
 			it("counts on from the parks its launch came back from, and says at the cap that relaunches end", () => {
 				const { counts, calls } = parkOf(
-					atCap({ limitParks: LIMIT_PARK_CAP - 1 }),
+					buildLaunchAtResumeCap({ limitParks: LIMIT_PARK_CAP - 1 }),
 				);
 				expect(counts).toEqual([LIMIT_PARK_CAP]);
 				expect(comment(calls)).toContain(buildLimitCapText(LIMIT_PARK_CAP));
 			});
 
 			it("promises no end to relaunches where the marker holding the count went unwritten", () => {
-				const { calls } = parkOf(atCap({ limitParks: LIMIT_PARK_CAP - 1 }), {
-					recordParked: () => "EACCES",
-				});
+				const { calls } = parkOf(
+					buildLaunchAtResumeCap({ limitParks: LIMIT_PARK_CAP - 1 }),
+					{
+						recordParked: () => "EACCES",
+					},
+				);
 				expect(comment(calls)).not.toContain("will not relaunch");
 			});
 
@@ -1685,7 +1690,10 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 				const seen: number[] = [];
 				const launchedAt = NOW - 3 * 60 * MIN;
 				const { counts } = parkOf(
-					atCap({ limitParks: LIMIT_PARK_CAP - 1, launchedAt }),
+					buildLaunchAtResumeCap({
+						limitParks: LIMIT_PARK_CAP - 1,
+						launchedAt,
+					}),
 					{
 						hasRepliedSince: (_, at) => {
 							seen.push(at);
@@ -1698,7 +1706,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 			});
 
 			it("counts on over an unread transcript, which cannot lift the bound", () => {
-				const { counts } = parkOf(atCap({ limitParks: 1 }), {
+				const { counts } = parkOf(buildLaunchAtResumeCap({ limitParks: 1 }), {
 					hasRepliedSince: () => null,
 				});
 				expect(counts).toEqual([2]);

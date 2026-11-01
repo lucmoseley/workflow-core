@@ -607,7 +607,7 @@ function fileUnlessFiledToday(tracker, dryRun) {
 	const read = [
 		...included.map((root) => readRepo(root, since, reads, reviews)),
 		...faulted.map((f) => faultedRepo(f, since, reviews)),
-		...review.absentRepos({
+		...review.buildAbsentRepos({
 			previous,
 			listed: new Set(
 				[...included, ...faulted.map((f) => f.root)].map((root) =>
@@ -616,7 +616,7 @@ function fileUnlessFiledToday(tracker, dryRun) {
 			),
 			since,
 			nowMs: now.getTime(),
-			absenceOf: (/** @type {string} */ checkout) =>
+			readAbsence: (/** @type {string} */ checkout) =>
 				absenceOf(path.join(home, checkout)),
 		}),
 	];

@@ -26,7 +26,6 @@ import { stubGhScript } from "./lib/gh-stub";
 import { readJsonl } from "./lib/jsonl.js";
 import { writeParkedBy } from "./lib/parked.js";
 import { launchOrResume } from "./lib/refill-batch.js";
-import { LIMIT_PARK_CAP } from "./lib/refill-decide.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-idle-efforts.js");
@@ -144,6 +143,9 @@ beforeEach(() => {
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
+
+/** The cap refill-decide.js keeps to itself, pinned here. */
+const LIMIT_PARK_CAP = 2;
 
 const STOP_LINE =
 	"The refill loop is not running, so it serves no tracker. /pick-next restarts it.";

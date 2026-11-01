@@ -14,7 +14,7 @@ const {
 	buildReviewTitle,
 	closeEdge,
 	parseHistoryCursor,
-	absentRepos,
+	buildAbsentRepos,
 	repoStart,
 	unreadRepo,
 	windowStart,
@@ -102,8 +102,8 @@ const render = (
 		kills,
 	});
 
-describe("absentRepos (#3835)", () => {
-	const carriedSince = (start: string) => ({
+describe("buildAbsentRepos (#3835)", () => {
+	const buildCarriedReview = (start: string) => ({
 		number: 7,
 		body: `Events unread since ${start} in gone.\nEvents unread since ${start} in listed.\n`,
 	});
@@ -114,12 +114,12 @@ describe("absentRepos (#3835)", () => {
 		nowAt: string,
 		absence: () => { carried: boolean; why: string } | null,
 	) =>
-		absentRepos({
-			previous: carriedSince(sinceAt),
+		buildAbsentRepos({
+			previous: buildCarriedReview(sinceAt),
 			listed: new Set(["listed"]),
 			since: SINCE,
 			nowMs: Date.parse(nowAt),
-			absenceOf: absence,
+			readAbsence: absence,
 		});
 
 	it("carries a missing checkout at its 30th day, with the start it had, and skips one discovery lists", () => {
@@ -150,25 +150,25 @@ describe("absentRepos (#3835)", () => {
 	it("gives no part for one that stays out, and none with no previous review", () => {
 		expect(reads(at, "2026-10-02T07:00:00.000Z", () => null)).toEqual([]);
 		expect(
-			absentRepos({
+			buildAbsentRepos({
 				previous: undefined,
 				listed: new Set(),
 				since: SINCE,
 				nowMs: 0,
-				absenceOf: missing,
+				readAbsence: missing,
 			}),
 		).toEqual([]);
 	});
 });
 
-describe("absentRepos on a checkout the previous review read (#3844)", () => {
+describe("buildAbsentRepos on a checkout the previous review read (#3844)", () => {
 	const read = (body: string) =>
-		absentRepos({
+		buildAbsentRepos({
 			previous: { number: 7, body },
 			listed: new Set(["listed"]),
 			since: SINCE,
 			nowMs: Date.parse(NOW),
-			absenceOf: () => ({ carried: true, why: "no .git" }),
+			readAbsence: () => ({ carried: true, why: "no .git" }),
 		});
 
 	it("carries one with no Events unread line from the window's start, and skips one discovery lists", () => {
@@ -183,7 +183,7 @@ describe("absentRepos on a checkout the previous review read (#3844)", () => {
 });
 
 describe("the Checkouts read section (#3844)", () => {
-	it("prints a line absentRepos reads back for each checkout read", () => {
+	it("prints a line buildAbsentRepos reads back for each checkout read", () => {
 		const body = render([
 			{
 				checkout: "my wfc",
@@ -195,12 +195,12 @@ describe("the Checkouts read section (#3844)", () => {
 		]);
 		expect(body).toContain("Events read in my wfc.");
 		expect(
-			absentRepos({
+			buildAbsentRepos({
 				previous: { number: 7, body },
 				listed: new Set(),
 				since: SINCE,
 				nowMs: Date.parse(NOW),
-				absenceOf: () => ({ carried: true, why: "no .git" }),
+				readAbsence: () => ({ carried: true, why: "no .git" }),
 			}).flatMap((r: { unreadEvents: object[] }) => r.unreadEvents),
 		).toEqual([{ checkout: "my wfc", since: SINCE }]);
 	});

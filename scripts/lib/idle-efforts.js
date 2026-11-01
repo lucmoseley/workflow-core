@@ -27,7 +27,7 @@
  * tracker's finding code (#3711).
  */
 
-const { buildSkipReason, buildLimitCapWhy } = require("./refill-decide.js");
+const { buildSkipReason, buildLimitCapHoldWhy } = require("./refill-decide.js");
 const { PARKED_LABEL, newestMarkerListing } = require("./parked.js");
 const { takesLabel, takesOf } = require("./takes-label.js");
 const { refKey } = require("./issue-ref.js");
@@ -154,7 +154,7 @@ const buildLimitCapHolds = ({ repo, issues, markers }) =>
 			const [hold] = markers
 				.flatMap((inCheckout) => {
 					const marker = newestMarkerListing(inCheckout, i.number);
-					const why = buildLimitCapWhy(marker?.limitParks);
+					const why = buildLimitCapHoldWhy(marker?.limitParks);
 					return marker && why !== null
 						? [{ why, since: marker.writtenAt, atCap: true }]
 						: [];
@@ -440,11 +440,11 @@ function buildIdleLines(findings, loopRunning) {
 			return [
 				buildTopLine(`${f.repo}: none idle past ${IDLE_DAYS} days${unserved}`),
 			];
+		/* Rank starvation is this alarm's to name (#3623), and rank holds back
+		 * nothing the loop does not serve (#3894). */
 		const skip =
 			oldest.skip ??
-			(f.served
-				? "none, the launch filter passes it, so it waits on rank"
-				: "none, the launch filter passes it");
+			`none, the launch filter passes it${f.served ? ", so it waits on rank" : ""}`;
 		return [
 			buildTopLine(
 				`${f.repo}: ${f.idle.length} idle past ${IDLE_DAYS} days${unserved}; oldest ${named(oldest)}; skip reason: ${skip}`,

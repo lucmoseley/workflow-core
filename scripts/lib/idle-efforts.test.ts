@@ -18,7 +18,10 @@ const {
 	buildFindingRecords,
 	parseIssueNodes,
 } = require("./idle-efforts.js");
-const { LIMIT_PARK_CAP, buildLimitCapWhy } = require("./refill-decide.js");
+const { buildLimitCapHoldWhy } = require("./refill-decide.js");
+
+/** The cap refill-decide.js keeps to itself, pinned here. */
+const LIMIT_PARK_CAP = 2;
 
 const NOW = Date.parse("2026-10-29T12:00:00Z");
 const DAY = 24 * 60 * 60 * 1000;
@@ -476,7 +479,7 @@ describe("buildReadings", () => {
 				number: 7,
 				heldAtCap: true,
 				idleMs: 3 * DAY,
-				skip: buildLimitCapWhy(LIMIT_PARK_CAP),
+				skip: buildLimitCapHoldWhy(LIMIT_PARK_CAP),
 			});
 		});
 

@@ -25,7 +25,7 @@ const {
 } = require("./loop-prompts.js");
 const {
 	buildLimitCapText,
-	LIMIT_PARK_CAP,
+	isAtLimitCap,
 	pickMoveSeat,
 } = require("./refill-decide.js");
 const { buildSeatName } = require("./refill-seats.js");
@@ -572,7 +572,7 @@ function markLabelled(l, labelled, limitParks, io) {
  * @param {number|undefined} limitParks
  */
 const buildRelaunchEndText = (limitParks) =>
-	limitParks !== undefined && limitParks >= LIMIT_PARK_CAP
+	isAtLimitCap(limitParks)
 		? ` The loop will not relaunch it: ${buildLimitCapText(limitParks)}.`
 		: "";
 

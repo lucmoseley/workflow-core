@@ -583,13 +583,19 @@ const buildLimitCapText = (limitParks) =>
 	`${limitParks} limit-cap parks in a row with no model reply; it stays parked until you type in its session or take the label off`;
 
 /**
+ * Whether a ticket's limit-cap parks in a row have ended its relaunches.
+ * @param {number|undefined} limitParks
+ * @returns {limitParks is number} false covers a count under the cap too
+ */
+const isAtLimitCap = (limitParks) =>
+	limitParks !== undefined && limitParks >= LIMIT_PARK_CAP;
+
+/**
  * The hold's why for a row at LIMIT_PARK_CAP, else null.
  * @param {number|undefined} limitParks
  */
-const limitCapHoldOf = (limitParks) =>
-	limitParks !== undefined && limitParks >= LIMIT_PARK_CAP
-		? `parked: ${buildLimitCapText(limitParks)}`
-		: null;
+const buildLimitCapHoldWhy = (limitParks) =>
+	isAtLimitCap(limitParks) ? `parked: ${buildLimitCapText(limitParks)}` : null;
 
 /**
  * How a parked row's session goes back, from the tick's reading of its park
@@ -637,7 +643,7 @@ function routeParked(parker, seats) {
 	if (!parker) return { afresh: "no session that parked it is recorded" };
 	const { limitParks } = parker;
 	if (limitParks === undefined) return routeParkedSession(parker, seats);
-	const capHold = limitCapHoldOf(limitParks);
+	const capHold = buildLimitCapHoldWhy(limitParks);
 	if (capHold !== null) return { hold: capHold, atCap: true };
 	return { ...routeParkedSession(parker, seats), limitParks };
 }
@@ -885,8 +891,8 @@ module.exports = {
 	buildOverflowHoldText,
 	seatHold,
 	FULL,
-	LIMIT_PARK_CAP,
-	limitCapHoldOf,
+	buildLimitCapHoldWhy,
+	isAtLimitCap,
 	NOTHING_LAUNCHABLE,
 	UNREAD,
 	actsRead,
