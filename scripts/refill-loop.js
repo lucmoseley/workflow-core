@@ -85,7 +85,7 @@ const {
 	log,
 	buildCapUnsizedLine,
 	readCap,
-	reviewRunning,
+	isReviewRunning,
 	say,
 	servedRoots,
 	tick,
@@ -464,7 +464,7 @@ async function run() {
 			updater?.adoptIfMoved({
 				hold:
 					sweeper.busy() ||
-					reviewRunning() ||
+					isReviewRunning() ||
 					readControlFile(log)?.stopRequested === true,
 			});
 			startGateSweep(sweeper);

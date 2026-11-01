@@ -42,7 +42,7 @@
  * has.
  */
 
-const { spawn, spawnSync } = require("node:child_process");
+const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { listedAgents } = require("./agent-liveness.js");
@@ -53,9 +53,9 @@ const { readAllowance } = require("./allowance.js");
 const { claudeBin } = require("./claude-bin.js");
 const { buildTypedAttach } = require("./claude-attach.js");
 const { buildErrorText, caught } = require("./caught.js");
-const { childFailure, childVerdict } = require("./child-failure.js");
+const { childFailure } = require("./child-failure.js");
+const { spawnChild } = require("./child-spawn.js");
 const { parseErrLine, gh } = require("./gh.js");
-const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const gates = require("./gate-sweep.js");
 const {
 	readRecentEntries,
@@ -163,21 +163,8 @@ const readControl = () => readControlChecked(log);
  * @param {string[]} args
  * @param {import("node:child_process").SpawnSyncOptions} [opts]
  */
-function runChild(file, args, opts = {}) {
-	const r = spawnSync(file, args, {
-		encoding: "utf8",
-		timeout: CHILD_TIMEOUT_MS,
-		maxBuffer: CHILD_MAX_BUFFER,
-		...opts,
-	});
-	const child = {
-		status: r.status,
-		stdout: String(r.stdout ?? ""),
-		stderr: String(r.stderr ?? ""),
-		error: r.error,
-	};
-	return { ...child, ...childVerdict(child) };
-}
+const runChild = (file, args, opts = {}) =>
+	spawnChild(file, args, { timeout: CHILD_TIMEOUT_MS, ...opts });
 
 /**
  * The roots a scope serves now.
@@ -461,7 +448,7 @@ function takeReviewResult() {
 }
 
 /** Whether a review runner is running now. */
-const reviewRunning = () =>
+const isReviewRunning = () =>
 	pidLock(files.reviewPid, REVIEW_RUNNER).holder() !== null;
 
 /**
@@ -483,7 +470,7 @@ function runReview(lastRunOn, now) {
 		return skip.runOn;
 	}
 	/* The holder first: a runner writes its result before letting go (#3765). */
-	const running = reviewRunning();
+	const running = isReviewRunning();
 	const step = loop.reviewStep({
 		lastRunOn,
 		now: new Date(now),
@@ -497,8 +484,9 @@ function runReview(lastRunOn, now) {
 
 /**
  * Start the review runner detached in REVIEW_ROOT, its stderr the loop's
- * log; a failed start is logged and the next tick tries again. A stop
- * leaves a started run to finish, its result logged on the next start.
+ * log. Fails open (#3765): a failed start is logged and the next tick tries
+ * again, so the review never stops the launching. A stop leaves a started run
+ * to finish, its result logged on the next start.
  * @param {import("./refill-loop.js").ReviewStart} start
  */
 function startReview(start) {
@@ -1238,7 +1226,7 @@ module.exports = {
 	log,
 	buildCapUnsizedLine,
 	readCap,
-	reviewRunning,
+	isReviewRunning,
 	say,
 	servedRoots,
 	tick,

@@ -6,7 +6,8 @@
  * `.claude/workflow-core.json`. A linked worktree (`.git` a file, not a
  * directory) is its main checkout's second copy and is skipped.
  * readAdopterCheckouts returns every one; discoverRepos leaves out those whose
- * config sets `refillLoop: false`.
+ * config sets `refillLoop: false`, and separates those whose config is at fault,
+ * which only the morning review reads (#3834).
  *
  * readAdopterCheckouts' callers: report-close-check-reading.js and
  * report-flip-line-reading.js, since every adopter runs the priced-options
@@ -41,18 +42,23 @@ const { caught } = require("./caught.js");
 const { isSameRepo } = require("./issue-ref.js");
 
 /**
- * @typedef {object} Discovery
+ * @typedef {{root: string, why: string}} LeftOut
+ * @typedef {object} Adopters
  * @property {string[]} included checkout roots
- * @property {{root: string, why: string}[]} excluded
+ * @property {LeftOut[]} excluded left out on purpose
+ * @typedef {Adopters & {faulted: LeftOut[]}} Discovery `faulted`: left out by a
+ *   config that will not read or a malformed `refillLoop`
  */
+
+const OPT_OUT = "refillLoop: false";
 
 /**
  * Every main checkout under `home` carrying a workflow-core config.
  * @param {string} home
- * @returns {Discovery}
+ * @returns {Adopters}
  */
 function readAdopterCheckouts(home) {
-	/** @type {Discovery} */
+	/** @type {Adopters} */
 	const found = { included: [], excluded: [] };
 	for (const entry of fs.readdirSync(home, { withFileTypes: true })) {
 		if (!entry.isDirectory()) continue;
@@ -78,11 +84,11 @@ function readAdopterCheckouts(home) {
 function discoverRepos(home) {
 	const adopters = readAdopterCheckouts(home);
 	/** @type {Discovery} */
-	const found = { included: [], excluded: [...adopters.excluded] };
+	const found = { included: [], excluded: [...adopters.excluded], faulted: [] };
 	for (const root of adopters.included) {
 		const why = exclusionOf(root);
 		if (why === null) found.included.push(root);
-		else found.excluded.push({ root, why });
+		else (why === OPT_OUT ? found.excluded : found.faulted).push({ root, why });
 	}
 	return found;
 }
@@ -101,7 +107,7 @@ function exclusionOf(root) {
 		 * opt out is kept out instead (#2003). */
 		const malformed = cfg.faults.find((f) => f.key === "refillLoop");
 		if (malformed) return malformed.text;
-		return cfg.refillLoop ? null : "refillLoop: false";
+		return cfg.refillLoop ? null : OPT_OUT;
 	} catch (err) {
 		return caught(err).message;
 	}

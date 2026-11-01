@@ -385,20 +385,20 @@ describe("file-morning-review.js (#2011)", () => {
 				61: [],
 			}),
 		);
-		const timelineReads = () =>
+		const readTimelineReads = () =>
 			fs
 				.readFileSync(stub("calls.log"), "utf8")
 				.split("\n")
 				.filter((l) => l.includes("/timeline"))
 				.map((l) => l.match(/issues\/(\d+)\/timeline/)?.[1]);
 		expect(run().status).toBe(1);
-		expect(timelineReads()).toEqual(["60", "61"]);
+		expect(readTimelineReads()).toEqual(["60", "61"]);
 		fs.rmSync(stub("fail-review-create"));
 		fs.writeFileSync(stub("calls.log"), "");
 		/* The timeline gone: a kept age is the only way #60's still reads. */
 		fs.writeFileSync(stub("timelines.json"), JSON.stringify({ 61: [] }));
 		expect(run().status).toBe(0);
-		expect(timelineReads()).toEqual(["61"]);
+		expect(readTimelineReads()).toEqual(["61"]);
 		expect(readCreated()[0].body).toContain(
 			"- acme/wfc#60 — `Waits on a round` — 3 days\n",
 		);
@@ -529,9 +529,13 @@ describe("file-morning-review.js (#2011)", () => {
 
 		const second = () => path.join(path.dirname(wfc()), "second");
 		/** No tracker makes the checkout's read fail, with its config in place. */
-		const configureSecond = (config: object) =>
+		const writeSecondConfig = (text: string) =>
 			fs.writeFileSync(
 				path.join(second(), ".claude", "workflow-core.json"),
+				text,
+			);
+		const configureSecond = (config: object) =>
+			writeSecondConfig(
 				JSON.stringify({ contract: 1, founder: "T", ...config }),
 			);
 		const close = (number: number, closedAt: string) => ({
@@ -543,32 +547,34 @@ describe("file-morning-review.js (#2011)", () => {
 		});
 		const once = (body: string, text: string) =>
 			expect(body.split(text)).toHaveLength(2);
-
-		it("lists its closes and decisions in the first review to read it, and a repo that read throughout lists each event once", () => {
-			seed([
-				{
-					number: 800,
-					title: "Morning review — 2026-10-10",
-					state: "CLOSED",
-					createdAt: "2026-10-10T07:00:00.000Z",
-					body: "Window: 2026-10-09T07:00:00.000Z → 2026-10-10T07:00:00.000Z, from #1\n",
-					labels: [],
-				},
-			]);
+		const previousReview = (body = "") => ({
+			number: 800,
+			title: "Morning review — 2026-10-10",
+			state: "CLOSED",
+			createdAt: "2026-10-10T07:00:00.000Z",
+			body: `Window: 2026-10-09T07:00:00.000Z → 2026-10-10T07:00:00.000Z, from #1\n${body}`,
+			labels: [],
+		});
+		const makeSecond = () => {
 			fs.mkdirSync(path.join(second(), ".git"), { recursive: true });
 			fs.mkdirSync(path.join(second(), ".claude", "tmp", "markers"), {
 				recursive: true,
 			});
+		};
+		const stubCloses = (...issues: object[]) =>
+			fs.writeFileSync(stub("closed.json"), JSON.stringify(issues));
+
+		it("lists its closes and decisions in the first review to read it, and a repo that read throughout lists each event once", () => {
+			seed([previousReview()]);
+			makeSecond();
 			configureSecond({});
 			const c80 = close(80, "2026-10-10T12:00:00.000Z");
 			const c81 = close(81, "2026-10-11T12:00:00.000Z");
 			const c82 = close(82, "2026-10-12T12:00:00.000Z");
-			const closes = (...issues: object[]) =>
-				fs.writeFileSync(stub("closed.json"), JSON.stringify(issues));
 
 			appendDecision(second(), "2026-10-10T12:00:00.000Z", 3, "Second: failed");
 			appendDecision(wfc(), "2026-10-10T12:00:00.000Z", 3, "Wfc: read");
-			closes(c80);
+			stubCloses(c80);
 			reviewAt("2026-10-11T07:00:00.000Z");
 
 			appendDecision(
@@ -577,11 +583,11 @@ describe("file-morning-review.js (#2011)", () => {
 				4,
 				"Second: failed again",
 			);
-			closes(c80, c81);
+			stubCloses(c80, c81);
 			reviewAt("2026-10-12T07:00:00.000Z");
 
 			appendDecision(second(), "2026-10-12T12:00:00.000Z", 5, "Second: read");
-			closes(c80, c81, c82);
+			stubCloses(c80, c81, c82);
 			configureSecond({ tracker: "acme/second" });
 			reviewAt("2026-10-13T07:00:00.000Z");
 			reviewAt("2026-10-14T07:00:00.000Z");
@@ -625,6 +631,100 @@ describe("file-morning-review.js (#2011)", () => {
 
 			for (const event of ["acme/second#8", "acme/wfc#8", "Second:"])
 				expect(after).not.toContain(event);
+		});
+
+		describe("a checkout discovery leaves out (#3834)", () => {
+			it("names one whose config will not parse, on one line, keeps a failed read's start, and lands every event in the first review to read it", () => {
+				seed([previousReview()]);
+				makeSecond();
+				const c80 = close(80, "2026-10-10T12:00:00.000Z");
+				const c81 = close(81, "2026-10-11T12:00:00.000Z");
+				const c82 = close(82, "2026-10-12T12:00:00.000Z");
+
+				configureSecond({});
+				appendDecision(
+					second(),
+					"2026-10-10T12:00:00.000Z",
+					3,
+					"Second: unread",
+				);
+				stubCloses(c80);
+				reviewAt("2026-10-11T07:00:00.000Z");
+
+				writeSecondConfig('{\n  "tracker": }\n');
+				appendDecision(
+					second(),
+					"2026-10-11T12:00:00.000Z",
+					4,
+					"Second: broken",
+				);
+				stubCloses(c80, c81);
+				reviewAt("2026-10-12T07:00:00.000Z");
+
+				configureSecond({ tracker: "acme/second" });
+				stubCloses(c80, c81, c82);
+				reviewAt("2026-10-13T07:00:00.000Z");
+
+				const [, broken, fixed] = readCreated().map(
+					(c: { body: string }) => c.body,
+				);
+				expect(broken).toMatch(/^- second: `.*does not parse.*`$/m);
+				expect(broken).toContain(
+					"Events unread since 2026-10-10T07:00:00.000Z in second.",
+				);
+				expect(broken).not.toContain("Second:");
+				expect(broken).not.toContain("acme/second#8");
+
+				for (const event of [
+					"Second: unread",
+					"Second: broken",
+					"acme/second#80",
+					"acme/second#81",
+					"acme/second#82",
+				])
+					once(fixed, event);
+				expect(fixed).not.toContain("Events unread since");
+			});
+
+			it("starts one whose config never read at the window it first broke in", () => {
+				seed([previousReview()]);
+				makeSecond();
+				writeSecondConfig("{");
+				reviewAt("2026-10-11T07:00:00.000Z");
+				reviewAt("2026-10-12T07:00:00.000Z");
+
+				for (const { body } of readCreated())
+					expect(body).toContain(
+						"Events unread since 2026-10-10T07:00:00.000Z in second.",
+					);
+			});
+
+			it("neither names nor carries one its owner opted out, and drops a start it had carried", () => {
+				seed([
+					previousReview(
+						"Events unread since 2026-10-09T07:00:00.000Z in second.\n",
+					),
+				]);
+				makeSecond();
+				appendDecision(
+					second(),
+					"2026-10-09T12:00:00.000Z",
+					3,
+					"Second: unread",
+				);
+				configureSecond({ tracker: "acme/second", refillLoop: false });
+				reviewAt("2026-10-11T07:00:00.000Z");
+
+				configureSecond({ tracker: "acme/second" });
+				reviewAt("2026-10-12T07:00:00.000Z");
+
+				const [optedOut, back] = readCreated().map(
+					(c: { body: string }) => c.body,
+				);
+				expect(optedOut).not.toMatch(/\bsecond\b/);
+				expect(back).not.toContain("Second: unread");
+				expect(back).not.toContain("Events unread since");
+			});
 		});
 	});
 

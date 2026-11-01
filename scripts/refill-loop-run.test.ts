@@ -16,7 +16,7 @@
  * Loosen it and a fault in the program's own wiring, of its libs, children
  * and exits, passes unseen (#2851).
  */
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -247,15 +247,21 @@ const settled = async <T>(running: Promise<T>, what: string): Promise<T> => {
 	throw new Error(`${what}: still running`);
 };
 
-/** Resolves once the stub admission has been asked `n` times. */
-const ticked = async (n: number) => {
+/* A guess: short against a tick, cheap against SETTLE_MS. */
+const POLL_MS = 50;
+
+/** Resolves once `isDone` holds, or throws `neverMessage` once SETTLE_MS passes. */
+const polled = async (isDone: () => boolean, neverMessage: string) => {
 	const deadline = Date.now() + SETTLE_MS;
-	while (readLines(at("ticks")).length < n) {
-		if (Date.now() > deadline) throw new Error(`tick ${n} never ran`);
-		// A guess: short against a tick, cheap against the ceiling.
-		await new Promise((r) => setTimeout(r, 50));
+	while (!isDone()) {
+		if (Date.now() > deadline) throw new Error(neverMessage);
+		await new Promise((r) => setTimeout(r, POLL_MS));
 	}
 };
+
+/** Resolves once the stub admission has been asked `n` times. */
+const ticked = (n: number) =>
+	polled(() => readLines(at("ticks")).length >= n, `tick ${n} never ran`);
 
 const readStopped = () =>
 	JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8")).stopped;
@@ -435,12 +441,41 @@ process.stdout.write("Memory kill incident from 2026-10-26 03:56: filed #9.");\n
 			);
 		};
 
-		const appeared = async (file: string) => {
-			const deadline = Date.now() + SETTLE_MS;
-			while (!fs.existsSync(file)) {
-				if (Date.now() > deadline) throw new Error(`${file} never appeared`);
-				await new Promise((r) => setTimeout(r, 50));
+		const appeared = (file: string) =>
+			polled(() => fs.existsSync(file), `${file} never appeared`);
+
+		/* Before the sandbox goes, so a failed case's runner neither outlives it
+		 * nor writes it back. The runner is detached, so it leads a process group
+		 * holding the stub (#3814). */
+		afterEach(() => {
+			const held = at(".refill-review.pid");
+			if (!fs.existsSync(held)) return;
+			try {
+				process.kill(-Number(fs.readFileSync(held, "utf8")), "SIGKILL");
+			} catch (err) {
+				if ((err as NodeJS.ErrnoException).code !== "ESRCH") throw err;
 			}
+		});
+
+		const buildReviewRecorder = (name: string) =>
+			`const fs = require("node:fs");
+fs.appendFileSync(${JSON.stringify(at("reviews"))}, ${JSON.stringify(`${name}\n`)});`;
+
+		/** The runner and a filing stub holding until `release` exists or the
+		 * sandbox goes, which frees a stub no pidfile holder's group holds. */
+		const stubHeldFiling = () => {
+			configureCodeRoot();
+			fs.copyFileSync(
+				path.join(__dirname, "refill-review-run.js"),
+				path.join(scripts, "refill-review-run.js"),
+			);
+			const release = JSON.stringify(at("release"));
+			stub(
+				"file-morning-review.js",
+				`${buildReviewRecorder("file-morning-review.js")}
+while (!fs.existsSync(${release}) && fs.existsSync(${JSON.stringify(dir)})) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${POLL_MS});
+process.stdout.write("filed #900");\n`,
+			);
 		};
 
 		/* TZ steers the due rule's clock: runInProcess writes process.env in
@@ -448,23 +483,12 @@ process.stdout.write("Memory kill incident from 2026-10-26 03:56: filed #9.");\n
 		 * stub holds until `release` exists. */
 		it("launches and writes its concurrency row on every tick while the filing runs detached, then logs it and records today (#3765)", async () => {
 			const { zone, today } = zoneAt(12);
-			configureCodeRoot();
-			fs.copyFileSync(
-				path.join(__dirname, "refill-review-run.js"),
-				path.join(scripts, "refill-review-run.js"),
-			);
+			stubHeldFiling();
 			stub("file-memory-kill-tickets.js", "");
-			const release = JSON.stringify(at("release"));
-			const record = (name: string) =>
-				`const fs = require("node:fs");
-fs.appendFileSync(${JSON.stringify(at("reviews"))}, ${JSON.stringify(`${name}\n`)});`;
 			stub(
-				"file-morning-review.js",
-				`${record("file-morning-review.js")}
-while (!fs.existsSync(${release})) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
-process.stdout.write("filed #900");\n`,
+				"answer-review-reversals.js",
+				buildReviewRecorder("answer-review-reversals.js"),
 			);
-			stub("answer-review-reversals.js", record("answer-review-reversals.js"));
 			fs.writeFileSync(
 				at(".refill-loop-state.json"),
 				JSON.stringify({ launches: [], reviewRunOn: null }),
@@ -475,7 +499,7 @@ process.stdout.write("filed #900");\n`,
 				expect(r.status).toBe(0);
 				return r;
 			};
-			const reviewRunOn = () =>
+			const readReviewRunOn = () =>
 				JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"))
 					.reviewRunOn;
 
@@ -485,20 +509,55 @@ process.stdout.write("filed #900");\n`,
 			expect(readLines(at("dispatches"))).toHaveLength(2);
 			expect(readLines(at("reviews"))).toEqual(["file-morning-review.js"]);
 			expect(second.stdout).not.toContain("morning review:");
-			expect(reviewRunOn()).toBeNull();
+			expect(readReviewRunOn()).toBeNull();
 			expect(readLines(at("concurrency.jsonl"))).toHaveLength(2);
 
 			fs.writeFileSync(at("release"), "");
 			await appeared(at(".refill-review-result.json"));
 			const third = await tick();
 			expect(third.stdout).toContain("morning review: exit 0\n  filed #900");
-			expect(reviewRunOn()).toBe(today);
+			expect(readReviewRunOn()).toBe(today);
 			expect(readLines(at("dispatches"))).toHaveLength(3);
 			await appeared(at(".refill-review-result.json"));
 			expect(readLines(at("reviews"))).toEqual([
 				"file-morning-review.js",
 				"answer-review-reversals.js",
 			]);
+		});
+
+		it("a second runner exits at once while the first holds the pidfile, writing no result (#3814)", async () => {
+			stubHeldFiling();
+			const runner = path.join(scripts, "refill-review-run.js");
+			const start = JSON.stringify({
+				due: true,
+				script: "file-morning-review.js",
+				label: "morning review",
+				today: "2026-11-02",
+			});
+			/* spawn-kept: two processes at once, and pid-lock reads the holder's
+			 * command line for the runner's name. */
+			const first = spawn(process.execPath, [runner, start], {
+				env: loopEnv({}),
+				detached: true,
+				stdio: "ignore",
+			});
+			first.unref();
+			await appeared(at("reviews"));
+
+			/* spawn-kept: the holder above must be another live process. Without
+			 * the limb it joins the held filing, and SETTLE_MS ends it as a failure. */
+			const second = spawnSync(process.execPath, [runner, start], {
+				encoding: "utf8",
+				env: loopEnv({}),
+				timeout: SETTLE_MS,
+			});
+			expect(second.status).toBe(0);
+			expect(second.stdout + second.stderr).toBe("");
+			expect(readLines(at("reviews"))).toEqual(["file-morning-review.js"]);
+			expect(fs.existsSync(at(".refill-review-result.json"))).toBe(false);
+
+			fs.writeFileSync(at("release"), "");
+			await appeared(at(".refill-review-result.json"));
 		});
 	});
 

@@ -59,20 +59,22 @@ describe("discoverRepos (#2003)", () => {
 		expect(found.excluded).toHaveLength(2);
 	});
 
-	it("excludes a checkout whose config cannot be read, naming why", () => {
+	it("names a checkout whose config cannot be read as a fault, not an exclusion", () => {
 		const root = checkout("broken", {});
 		fs.writeFileSync(path.join(root, ".claude", "workflow-core.json"), "{");
 		const found = discoverRepos(home);
 		expect(found.included).toEqual([]);
-		expect(found.excluded[0].root).toBe(root);
-		expect(found.excluded[0].why).toContain("does not parse");
+		expect(found.excluded).toEqual([]);
+		expect(found.faulted[0].root).toBe(root);
+		expect(found.faulted[0].why).toContain("does not parse");
 	});
 
-	it("keeps out a checkout whose refillLoop is malformed, since its owner meant to opt out", () => {
+	it("keeps out a checkout whose refillLoop is malformed, since its owner meant to opt out, naming it as a fault", () => {
 		const root = checkout("typo", { refillLoop: "false" });
 		expect(discoverRepos(home)).toEqual({
 			included: [],
-			excluded: [{ root, why: '"refillLoop" is not a boolean' }],
+			excluded: [],
+			faulted: [{ root, why: '"refillLoop" is not a boolean' }],
 		});
 	});
 });
