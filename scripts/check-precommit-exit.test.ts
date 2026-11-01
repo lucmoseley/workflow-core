@@ -157,8 +157,8 @@ describe("check-precommit-exit", () => {
 		},
 	);
 
-	// The paired cases (#3808): a named arm is the checker's own answer, and a
-	// probe of an outside command runs no checker.
+	// A named arm is the checker's own answer, and a probe of an outside command
+	// runs no checker (#3808).
 	it.each([
 		[
 			"a named arm exiting 1 and a catch-all exiting 2",

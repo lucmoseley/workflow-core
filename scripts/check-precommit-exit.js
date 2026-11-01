@@ -17,10 +17,8 @@
  * not the plugin's.
  *
  * Also a BREACH: a checker line ending `|| y=...`, whose `case "$y" in`, with no
- * assignment to `y` between them, exits 1 from its own `*)` arm. That arm takes
- * whatever a crash left in `y`, so a crash reads as a finding there. A named
- * arm is left alone, as the checker's own answer, which may be a finding
- * (#3808).
+ * assignment to `y` between them, exits 1 from its own `*)` arm. A named arm is
+ * left alone, as the checker's own answer, which may be a finding (#3808).
  *
  * IMPLICIT:  on every commit staging .husky/pre-commit or .husky/pre-commit.local, refuses a checker line in either exiting 1 on its failure, naming the file, line and the pre-commit gate primitive.
  * JUSTIFIED: fail-safe — `|| exit 1` turns a checker that could not run into a finding to fix.
