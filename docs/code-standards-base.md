@@ -131,7 +131,7 @@ Copy a row's exemplar, never the nearest file doing the same job (**Primitive**,
 | Writing a `report-*` program's output | `writeFd` in `scripts/lib/write-fd.js` | `scripts/report-new-shared-faults.js` | §N6 | `scripts/check-report-programs.js` |
 | A `report-*` program filing an issue | `createIssue` in `scripts/lib/tracking-issue.js`, or its `fileOrRefresh` | `scripts/report-remeasure-due.js` | §N3 | `scripts/check-report-programs.js` |
 | Running a program under test | `runInProcess` in `scripts/lib/run-in-process.js`, `runInProcessAsync` for an async entry | `scripts/check-cli-args.test.ts` | §X3 | `scripts/check-test-spawn.js` |
-| A pre-commit gate line | the checker's own exit code passed on, `exit "$?"`, or `staged_gate`'s `status` mode in `scripts/lib/precommit-gate.sh` | `.husky/pre-commit` | §N4 | `scripts/check-precommit-exit.js` |
+| A pre-commit gate line | the checker's own exit code passed on, `exit "$?"`, or `staged_gate`'s `status` mode in `scripts/lib/precommit-gate.sh`; a literal `exit 2` where the hook reads a probe's or lister's output, since a crash's own code may be 1 | `.husky/pre-commit` | §N4 | `scripts/check-precommit-exit.js` |
 | A pre-commit gate staging blobs out of the index | `staged_gate` in `scripts/lib/precommit-gate.sh` | `.husky/pre-commit` | §S6 | Standards axis criterion |
 | Ending a Stop hook with a block | `blockStop` in `scripts/lib/hook-block.js`, with its `charge` and `capSpent` | `scripts/guard-uncommitted-work.js` | §G10 | Standards axis criterion |
 | Reading or writing an arbiter record | `paths`, `readRecord` and `writeRecord` and their kin in `scripts/lib/arbiter-core.js` | `scripts/lib/arbiter-issue-claims.js` | §N10 | Standards axis criterion |

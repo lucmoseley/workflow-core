@@ -384,7 +384,7 @@ fi
 if armed '^docs/agents/rules/' || {
   rf_sources="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-rule-fragments.js --sources)" || {
     echo "pre-commit: scripts/generate-rule-fragments.js could not list its sources, so the rule-fragment gate refused the commit." >&2
-    exit 1
+    exit 2
   }
   armed -F "$rf_sources"
 }; then
@@ -1022,10 +1022,10 @@ if armed '\.py$' && [ -n "$(armed_live --index)" ]; then
     lint_probe="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/formatters.js lint-missing)" || lint_probe=""
     case "$lint_probe" in
       lint:skip) ;;
-      lint:refuse) exit 1 ;;
+      lint:refuse) exit 2 ;;
       *)
         echo "pre-commit: the ruff probe failed, so the ruff gate refused this commit." >&2
-        exit 1
+        exit 2
         ;;
     esac
   else
@@ -1052,8 +1052,12 @@ fi
 if armed '\.py$' && [ -n "$(armed_live --index)" ]; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-swallowed-errors.js || {
     se_rc=$?
-    echo "pre-commit: the swallowed-error gate refused this commit's own Python paths." >&2
-    echo "  Say why at the site and cite the ticket that chose the swallow, or let the error raise or exit (base §N5)." >&2
+    if [ "$se_rc" -ne 1 ]; then
+      echo "pre-commit: the swallowed-error gate refused this commit, its checker unable to run." >&2
+    else
+      echo "pre-commit: the swallowed-error gate refused this commit's own Python paths." >&2
+      echo "  Say why at the site and cite the ticket that chose the swallow, or let the error raise or exit (base §N5)." >&2
+    fi
     exit "$se_rc"
   }
 fi
@@ -1076,7 +1080,7 @@ if armed "\.py\$|$GATE_SHELL_CANDIDATE" && [ -n "$(armed_live --index)" ]; then
     flags:*) fmt_skip="${fmt_probe#flags:}" ;;
     *)
       echo "pre-commit: the formatter probe failed, so the format gate refused this commit." >&2
-      exit 1
+      exit 2
       ;;
   esac
   # shellcheck disable=SC2086 # deliberate word-splitting: zero to two flags.
@@ -1125,7 +1129,8 @@ if declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/test-gate.js commit; th
       *)
         printf '%s\n' "$tg_out" >&2
         echo "pre-commit: scripts/lib/isolated-worktree.js failed (exit $tg_rc) before the suite gave a verdict, so this commit is refused." >&2
-        exit 1
+        echo "  This is the runner, not your change: read its output above, and commit again once it runs." >&2
+        exit 2
         ;;
     esac
     if [ "$tg_rc" -eq 2 ]; then

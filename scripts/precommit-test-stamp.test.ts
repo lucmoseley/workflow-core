@@ -274,6 +274,14 @@ function fixture({
 				env: env(),
 			});
 		},
+		/** The hook run directly, for its own exit code: git reports any refusal as 1. */
+		runHook() {
+			return spawnSync("sh", [".husky/pre-commit"], {
+				cwd: root,
+				env: env(),
+				encoding: "utf8",
+			});
+		},
 		commit(stamp?: string, ...flags: string[]) {
 			const before = readHead();
 			const r = spawnSync(
@@ -388,6 +396,21 @@ it("runs the declared test inside the hook, the lock held, where no stamp is nam
 	expect(r.landed).toBe(true);
 	expect(r.runs).toEqual(["lock=1 stamp=unset staged=a.txt"]);
 	expect(r.out).toContain(reason("no stamp named"));
+});
+
+it("exits 2 where the worktree runner crashes before the suite's verdict (#3808)", () => {
+	const f = fixture();
+	fs.writeFileSync(
+		path.join(f.root, "scripts/lib/isolated-worktree.js"),
+		"process.exit(7);\n",
+	);
+	f.stage("a.txt", "changed\n");
+	const r = f.runHook();
+	expect(r.stderr).toContain(
+		"scripts/lib/isolated-worktree.js failed (exit 7) before the suite gave a verdict",
+	);
+	expect(r.stderr).toContain("commit again once it runs");
+	expect(r.status).toBe(2);
 });
 
 it("stands the test down on a stamp matching the commit's changes, and the commit lands", () => {

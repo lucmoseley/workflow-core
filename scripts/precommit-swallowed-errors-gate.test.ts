@@ -114,6 +114,10 @@ describe("the pre-commit swallowed-error gate", () => {
 		const r = fixture({ [PY]: SWALLOW });
 		const { code, output } = runGate(r, pathWithoutPython(r));
 		expect(output).toMatch(/cannot run python3/);
+		expect(output).toMatch(/install it: sudo apt install python3/);
+		expect(output).toMatch(/refused this commit, its checker unable to run/);
+		expect(output).not.toMatch(/Say why at the site/);
+		expect(output).not.toMatch(/own Python paths/);
 		expect(code).toBe(2);
 	});
 });

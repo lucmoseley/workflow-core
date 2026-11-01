@@ -357,7 +357,7 @@ describe("the pre-commit ruff gate", () => {
 			workflow: "      - run: ruff format --check .\n",
 		});
 		const { code, output } = runGate(repo);
-		expect(code).toBe(1);
+		expect(code).toBe(2);
 		expect(output).toMatch(
 			/no workflow under \.github\/workflows\/ runs ruff check, so the ruff gate refused this commit/,
 		);
@@ -392,7 +392,7 @@ describe("the pre-commit ruff gate", () => {
 			"process.exit(3);\n",
 		);
 		const { code, output } = runGate(repo);
-		expect(code).toBe(1);
+		expect(code).toBe(2);
 		expect(output).toMatch(
 			/the ruff probe failed, so the ruff gate refused this commit/,
 		);

@@ -67,6 +67,9 @@ const buildIsProgram = (declared) => {
 	};
 };
 
+const PYTHON_INSTALL =
+	"sudo apt install python3, brew install python3, or python.org/downloads";
+
 /**
  * The repo names a citation may prefix: each corpus tracker's `name` half.
  * @returns {string[]}
@@ -87,7 +90,14 @@ function walk(ctx, sources) {
 		[WALK],
 		JSON.stringify({ prefixes: prefixes(), sources }),
 	);
-	if (r.error) ctx.broken(`cannot run python3: ${r.error.message}`);
+	if (r.error)
+		ctx.broken(
+			`cannot run python3: ${r.error.message}${
+				/** @type {NodeJS.ErrnoException} */ (r.error).code === "ENOENT"
+					? ` — install it: ${PYTHON_INSTALL}`
+					: ""
+			}`,
+		);
 	if (r.status !== 0) ctx.broken(`${WALK} exited ${r.status}: ${r.stderr}`);
 	try {
 		const { results } = /** @type {{ results: Result[] }} */ (

@@ -56,7 +56,7 @@ describe("check-precommit-exit", () => {
 			"1 checker line(s) exit 1 on failure: .husky/pre-commit:3.",
 		);
 		expect(r.out).toContain(
-			'Fix: pass the checker\'s own exit code on with `|| exit "$?"` (in a block, `|| { rc=$?; ...; exit "$rc"; }`), or gate it through staged_gate\'s `status` mode in scripts/lib/precommit-gate.sh, as .husky/pre-commit\'s check-jsonl-reads.js line does (base §N4, #3456).',
+			"Fix: pass the checker's own exit code on with `|| exit \"$?\"` (in a block, `|| { rc=$?; ...; exit \"$rc\"; }`), or gate it through staged_gate's `status` mode in scripts/lib/precommit-gate.sh, as .husky/pre-commit's check-jsonl-reads.js line does; where the hook reads a probe's or lister's output, its crash exits 2, since a crash's own code may be 1 (base §N4, #3456, #3808).",
 		);
 	});
 
@@ -117,6 +117,87 @@ describe("check-precommit-exit", () => {
 		const r = run();
 		expect(r.status).toBe(1);
 		expect(r.out).toContain(".husky/pre-commit:2.");
+	});
+
+	it("FAILs a lister's block exiting 1 on its substitution, at its opening line (#3808)", () => {
+		hook(
+			"pre-commit",
+			'x="$(node scripts/list.js --sources)" || {\n  echo "refused" >&2\n  exit 1\n}\n',
+		);
+		const r = run();
+		expect(r.status).toBe(1);
+		expect(r.out).toContain(".husky/pre-commit:2.");
+		expect(r.out).toContain("its crash exits 2");
+	});
+
+	it.each([
+		[
+			"its own variable, on the arm's second line",
+			'p="$(node scripts/probe.js)" || p=""\ncase "$p" in\n  ok:*) ;;\n  *)\n    echo "crashed" >&2\n    exit 1\n    ;;\nesac\n',
+			2,
+		],
+		[
+			"another variable, on the arm's own line",
+			'rc=0\np="$(node scripts/probe.js)" || rc=$?\n# why\ncase "$rc" in\n  0) ;;\n  *) exit 1 ;;\nesac\n',
+			3,
+		],
+		[
+			"an arm following a nested case's own catch-all",
+			'p="$(node scripts/probe.js)" || p=""\ncase "$p" in\n  a)\n    case "$q" in\n      *) exit 2 ;;\n    esac\n    ;;\n  *) exit 1 ;;\nesac\n',
+			2,
+		],
+	])(
+		"FAILs a probe whose catch-all arm exits 1, through %s (#3808)",
+		(_, body, line) => {
+			hook("pre-commit", body);
+			const r = run();
+			expect(r.status).toBe(1);
+			expect(r.out).toContain(`.husky/pre-commit:${line}.`);
+			expect(r.out).toContain("its crash exits 2");
+		},
+	);
+
+	// The paired cases (#3808): a named arm is the checker's own answer, and a
+	// probe of an outside command runs no checker.
+	it.each([
+		[
+			"a named arm exiting 1 and a catch-all exiting 2",
+			'p="$(node scripts/probe.js)" || p=""\ncase "$p" in\n  bad) exit 1 ;;\n  *) exit 2 ;;\nesac\n',
+		],
+		[
+			"a catch-all exiting 2 ahead of an exit 1 past its commented terminator",
+			'p="$(node scripts/probe.js)" || p=""\ncase "$p" in\n  *)\n    exit 2\n    ;; # why\n  bad) exit 1 ;;\nesac\n',
+		],
+		[
+			"a nested case's catch-all exiting 1 beside an outer one exiting 2",
+			'p="$(node scripts/probe.js)" || p=""\ncase "$p" in\n  a)\n    case "$q" in\n      *) exit 1 ;;\n    esac\n    ;;\n  *) exit 2 ;;\nesac\n',
+		],
+		[
+			"a nested esac ending its arm ahead of an exit 1 in the next",
+			'p="$(node scripts/probe.js)" || p=""\ncase "$p" in\n  *)\n    case "$q" in\n      a) exit 2 ;;\n    esac ;;\n  bad) exit 1 ;;\nesac\n',
+		],
+		[
+			"an outside command's substitution",
+			'p="$(git rev-parse HEAD)" || p=""\ncase "$p" in\n  *) exit 1 ;;\nesac\n',
+		],
+		[
+			"a pipeline's substitution, its last command's status deciding",
+			'p="$(node scripts/probe.js | head -1)" || exit 1\n',
+		],
+		["a probe no case reads", 'p="$(node scripts/probe.js)" || p=""\nexit 1\n'],
+		[
+			"a catch-all exiting 1 on another variable's case",
+			'p="$(node scripts/probe.js)" || p=""\ncase "$q" in\n  *) exit 1 ;;\nesac\n',
+		],
+		[
+			"a fallback assigned again before its case",
+			'a="$(node scripts/a.js)" || rc=$?\nrc=0\nb="$(git x)" || rc=$?\ncase "$rc" in\n  *) exit 1 ;;\nesac\n',
+		],
+	])("passes %s", (_, body) => {
+		hook("pre-commit", body);
+		const r = run();
+		expect(r.out).toContain("OK: 1 pre-commit file(s)");
+		expect(r.status).toBe(0);
 	});
 
 	it("FAILs a breach in .husky/pre-commit.local", () => {

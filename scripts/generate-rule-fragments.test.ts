@@ -268,7 +268,7 @@ describe("the pre-commit gate's arming (#3118)", () => {
 		);
 		const r = runGate(root, broken);
 		expect(r.stdout).toMatch(/could not list its sources/);
-		expect(r.status).toBe(1);
+		expect(r.status).toBe(2);
 	});
 
 	it("stays unarmed on a commit touching no source and no fragment", () => {

@@ -241,7 +241,7 @@ describe("the .husky/pre-commit format gate", () => {
 		expect(output).toMatch(
 			/the formatter probe failed, so the format gate refused/,
 		);
-		expect(code).toBe(1);
+		expect(code).toBe(2);
 	});
 
 	// The paired case: a commit only deleting a shell path does not arm the
