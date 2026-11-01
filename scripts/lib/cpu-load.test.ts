@@ -513,7 +513,7 @@ describe("where it looks", () => {
 		expect(refusal("eval yes")).toContain(G);
 		expect(refusal("eval echo yes")).toBeNull();
 		expect(refusal("eval yes \\>/dev/null")).toBe(
-			refused8("yes \\>/dev/null (in eval yes \\>/dev/null)"),
+			refused8("yes >/dev/null (in eval yes \\>/dev/null)"),
 		);
 		expect(refusal('eval "$CMD"')).toBeNull();
 		expect(refusal("./busy.sh")).toContain(G);

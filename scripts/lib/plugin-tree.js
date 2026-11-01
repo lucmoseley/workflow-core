@@ -395,8 +395,9 @@ function skippedTo(text, i) {
  */
 function closingBrace(text, open) {
 	let depth = 0;
-	for (let i = open; i >= 0 && i < text.length; i++) {
+	for (let i = open; i < text.length; i++) {
 		const end = skippedTo(text, i);
+		if (end < 0) return -1;
 		if (end !== i) i = end;
 		else if (text[i] === "{") depth++;
 		else if (text[i] === "}" && --depth === 0) return i;
