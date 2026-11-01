@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * The refill loop's commands (#2012) against a sandboxed WFC_REFILL_DIR:
- * `start` renewing a running loop rather than starting a second, `stop`
+ * `start` on a running loop rather than starting a second, `stop`
  * asking the loop to end, and the command line. Driven in process; `start`
  * with no loop running spawns the real detached loop, so it is left to the
  * manual dry run.
@@ -69,19 +69,37 @@ function holdPidfile(name = "refill-loop.js") {
 }
 
 describe("start", () => {
-	it("renews a running loop's 24 hours rather than starting a second", async () => {
+	it("overtakes a pending stop, moving the no-progress count's start, rather than starting a second", async () => {
 		const pid = holdPidfile();
 		fs.writeFileSync(
 			path.join(dir, ".refill-loop-control.json"),
-			JSON.stringify({ startedAt: 1, stopRequested: true, seats: [] }),
+			JSON.stringify({ noProgressFrom: 1, stopRequested: true, seats: [] }),
 		);
 		const before = Date.now();
 		const r = await run("start");
 		expect(r.status).toBe(0);
-		expect(r.stdout).toContain(`refill loop renewed: pid ${pid}`);
-		expect(readControl().startedAt).toBeGreaterThanOrEqual(before);
+		expect(r.stdout).toContain(`refill loop running: pid ${pid}`);
+		expect(readControl().noProgressFrom).toBeGreaterThanOrEqual(before);
 		expect(readControl().stopRequested).toBe(false);
 		expect(fs.existsSync(path.join(dir, ".refill-loop.log"))).toBe(false);
+	});
+
+	it("moves nothing on a running loop, its control in the shape before #3854 included", async () => {
+		const pid = holdPidfile();
+		fs.writeFileSync(
+			path.join(dir, ".refill-loop-control.json"),
+			JSON.stringify({
+				startedAt: 1,
+				stopRequested: false,
+				seats: [],
+				scope: { mode: "normal", repos: [dir], exclude: [], goals: {} },
+			}),
+		);
+		const r = await run("start");
+		expect(r.stdout).toContain(`refill loop running: pid ${pid}`);
+		expect(readControl().noProgressFrom).toBe(1);
+		/* Code from before #3854 reads this key and calls a control without it damaged. */
+		expect(readControl().startedAt).toBe(1);
 	});
 
 	it("takes its seats from ~/.claude/refill-seats, in order", async () => {
@@ -186,7 +204,6 @@ describe("the scope start writes (#2123)", () => {
 			goals: { [dir]: [116, 117] },
 		});
 		expect(r.stdout).toContain("mode:      normal");
-		expect(r.stdout).toContain("stops by:");
 	});
 
 	it("serves every included checkout but those named in away mode", async () => {
@@ -198,19 +215,19 @@ describe("the scope start writes (#2123)", () => {
 		expect(r.stdout).toContain("mode:      away");
 	});
 
-	it("leaves a running away mode's scope and stop time to a normal start", async () => {
+	it("leaves a running away mode's scope to a normal start", async () => {
 		holdPidfile();
 		fs.writeFileSync(
 			path.join(dir, ".refill-loop-control.json"),
 			JSON.stringify({
-				startedAt: 1,
+				noProgressFrom: 1,
 				seats: [],
 				scope: { mode: "away", exclude: [], goals: {} },
 			}),
 		);
 		const r = await run("start", "--goal", "9");
 		expect(r.stdout).toContain("away mode is running and is left as it is");
-		expect(readControl().startedAt).toBe(1);
+		expect(readControl().noProgressFrom).toBe(1);
 		expect(readControl().scope).toMatchObject({
 			mode: "away",
 			goals: { [dir]: [9] },
@@ -325,7 +342,7 @@ describe("stop and status", () => {
 		fs.writeFileSync(
 			path.join(dir, ".refill-loop-control.json"),
 			JSON.stringify({
-				startedAt: now,
+				noProgressFrom: now,
 				stopRequested: false,
 				seats: [path.join(dir, ".claude2")],
 				scope: { mode: "normal", repos: [], exclude: [], goals: {} },
@@ -361,7 +378,7 @@ describe("stop and status", () => {
 		fs.writeFileSync(
 			path.join(dir, ".refill-loop-control.json"),
 			JSON.stringify({
-				startedAt: Date.now(),
+				noProgressFrom: Date.now(),
 				stopRequested: false,
 				seats: [path.join(dir, ".claude2")],
 				scope: { mode: "normal", repos: [], exclude: [], goals: {} },
@@ -407,7 +424,7 @@ describe("stop and status", () => {
 			fs.writeFileSync(
 				path.join(dir, ".refill-loop-control.json"),
 				JSON.stringify({
-					startedAt: now,
+					noProgressFrom: now,
 					stopRequested: false,
 					seats: seats(),
 					scope: { mode: "normal", repos: [], exclude: [], goals: {} },

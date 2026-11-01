@@ -76,7 +76,7 @@ const launchesOf = (frontier: unknown[]) =>
 	(
 		decideTick({
 			now: NOW,
-			startedAt: NOW - 3_600_000,
+			noProgressFrom: NOW - 3_600_000,
 			stopRequested: false,
 			frontier,
 			retroBundles: [],
@@ -388,7 +388,7 @@ describe("a checkout whose shortlist fails (#2561)", () => {
 		expect(
 			decideTick({
 				now: NOW,
-				startedAt: NOW - 3_600_000,
+				noProgressFrom: NOW - 3_600_000,
 				stopRequested: false,
 				frontier: m.frontier,
 				retroBundles: m.retroBundles,

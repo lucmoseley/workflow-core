@@ -80,7 +80,7 @@ const tick = (over: Record<string, unknown> = {}) =>
 	decideTick({
 		now: NOW,
 		mode: "away",
-		startedAt: NOW - 4 * HOUR,
+		noProgressFrom: NOW - 4 * HOUR,
 		stopRequested: false,
 		frontier: [row("wfc", 1), row("wfc", 2), row("wfc", 3)],
 		retroBundles: [],
@@ -106,11 +106,8 @@ describe("decideTick stops (#2007)", () => {
 		).toEqual({ stop: "control-damaged", detail: "/c is damaged (bad)" });
 	});
 
-	it("stops 24 hours after the last start, not before", () => {
-		expect(tick({ startedAt: NOW - 24 * HOUR })).toMatchObject({
-			stop: "expired",
-		});
-		expect(tick({ startedAt: NOW - 24 * HOUR + 1 })).not.toHaveProperty("stop");
+	it("gives a loop started any length of time ago no stop for its age", () => {
+		expect(tick({ noProgressFrom: 0 })).not.toHaveProperty("stop");
 	});
 
 	it("stops after three finishes in a row with no progress", () => {

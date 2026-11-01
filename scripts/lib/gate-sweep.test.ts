@@ -304,7 +304,7 @@ describe("the decision core launches a queued judgement", () => {
 	const tick = (over: Record<string, unknown> = {}) =>
 		decideTick({
 			now: NOW,
-			startedAt: NOW - 1000,
+			noProgressFrom: NOW - 1000,
 			stopRequested: false,
 			frontier: [],
 			retroBundles: [],

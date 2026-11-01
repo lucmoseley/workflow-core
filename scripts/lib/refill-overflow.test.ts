@@ -206,7 +206,7 @@ describe("a headless launch's finish (#2611)", () => {
 			decideTick({
 				now: NOW,
 				mode: "normal" as const,
-				startedAt: NOW - 60 * MIN,
+				noProgressFrom: NOW - 60 * MIN,
 				stopRequested: false,
 				frontier: [],
 				retroBundles: [],

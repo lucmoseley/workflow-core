@@ -39,10 +39,7 @@ const NO_SEATS = {
 
 describe("the scope a start writes", () => {
 	it("starts a stopped loop on the scope asked for", () => {
-		expect(mergedScope(null, normal([WFC]), WFC)).toEqual({
-			scope: normal([WFC]),
-			renew: true,
-		});
+		expect(mergedScope(null, normal([WFC]), WFC)).toEqual(normal([WFC]));
 	});
 
 	it("adds a normal start's repos to a running normal loop's", () => {
@@ -51,8 +48,7 @@ describe("the scope a start writes", () => {
 			normal([WFC], { [WFC]: [9] }),
 			WFC,
 		);
-		expect(r.renew).toBe(true);
-		expect(r.scope).toEqual(normal([MH, WFC], { [MH]: [5], [WFC]: [9] }));
+		expect(r).toEqual(normal([MH, WFC], { [MH]: [5], [WFC]: [9] }));
 	});
 
 	it("clears the starting repo's goal on a bare start, keeping others'", () => {
@@ -61,25 +57,23 @@ describe("the scope a start writes", () => {
 			normal([WFC]),
 			WFC,
 		);
-		expect(r.scope.goals).toEqual({ [MH]: [5] });
+		expect(r.goals).toEqual({ [MH]: [5] });
 	});
 
-	it("never narrows or renews a running away mode from a normal start", () => {
+	it("never narrows a running away mode from a normal start", () => {
 		const r = mergedScope(away([DV]), normal([WFC], { [WFC]: [9] }), WFC);
-		expect(r.renew).toBe(false);
-		expect(r.scope).toEqual(away([DV], { [WFC]: [9] }));
+		expect(r).toEqual(away([DV], { [WFC]: [9] }));
 	});
 
 	it("widens a running normal loop to away mode, keeping its goals", () => {
 		const r = mergedScope(normal([WFC], { [WFC]: [9] }), away([DV]), MH);
-		expect(r.renew).toBe(true);
-		expect(r.scope).toEqual(away([DV], { [WFC]: [9] }));
+		expect(r).toEqual(away([DV], { [WFC]: [9] }));
 	});
 });
 
 describe("what status prints", () => {
 	const control = {
-		startedAt: NOW - 60 * MIN,
+		noProgressFrom: NOW - 60 * MIN,
 		stopRequested: false,
 		seats: ["/home/u/.claude3", "/home/u/.claude2"],
 		scope: normal([WFC, MH], { [WFC]: [116, 117] }),
@@ -104,26 +98,22 @@ describe("what status prints", () => {
 		reviewRunOn: null,
 		overflowStart: null,
 	};
-	const runMs = 24 * 60 * MIN;
 	const served = [WFC, MH];
 
-	it("gives start, stop time, launches since the start and the last stop", () => {
+	it("gives start, launches since the start and the last stop", () => {
 		const out = buildStatusLines({
 			seats: NO_SEATS,
 			now: NOW,
 			control,
 			state,
 			pid: 123,
-			runMs,
 			served,
 		}).join("\n");
 		expect(out).toContain("running, pid 123");
 		expect(out).toContain(
-			`started:   ${new Date(control.startedAt).toISOString()}`,
+			`started:   ${new Date(control.noProgressFrom).toISOString()}`,
 		);
-		expect(out).toContain(
-			`stops by:  ${new Date(control.startedAt + runMs).toISOString()}`,
-		);
+		expect(out).not.toContain("stops by");
 		expect(out).toContain("launches:  1 since start, 1 running, 0 parked");
 		expect(out).toContain("/implement 1  running");
 		expect(out).not.toContain("/implement 2");
@@ -146,7 +136,6 @@ describe("what status prints", () => {
 			control,
 			state: { ...state, launches: [...state.launches, stopped] },
 			pid: 123,
-			runMs,
 			served,
 		}).join("\n");
 		expect(out).toContain("launches:  2 since start, 1 running, 1 parked");
@@ -168,7 +157,6 @@ describe("what status prints", () => {
 				lastTick: { at: NOW, summary: "idle: nothing launchable", skipped },
 			},
 			pid: 123,
-			runMs,
 			served,
 		});
 		const listed = lines.filter((l) => l.startsWith("  skipped "));
@@ -205,7 +193,6 @@ describe("what status prints", () => {
 				launches: [record({ launchedAt: NOW, sessionId: "sess-9" })],
 			},
 			pid: 123,
-			runMs,
 			served,
 		}).join("\n");
 		expect(out).toContain(
@@ -220,7 +207,6 @@ describe("what status prints", () => {
 			control,
 			state,
 			pid: 123,
-			runMs,
 			served,
 		}).join("\n");
 		expect(out).toContain("mode:      normal");
@@ -232,7 +218,6 @@ describe("what status prints", () => {
 			control: { ...control, scope: away([DV]) },
 			state,
 			pid: 123,
-			runMs,
 			served,
 		}).join("\n");
 		expect(awayOut).toContain("mode:      away (every included repo)");
@@ -248,7 +233,6 @@ describe("what status prints", () => {
 			control: { ...control, stopRequested: true },
 			state,
 			pid: 123,
-			runMs,
 			served,
 		}).join("\n");
 		expect(out).toContain("at its next tick, on request");
@@ -268,7 +252,6 @@ describe("what status prints", () => {
 				overflowStart: null,
 			},
 			pid: null,
-			runMs,
 			served: [],
 		});
 		expect(out).toEqual([
@@ -284,7 +267,7 @@ describe("the launch lines status shows (#2850)", () => {
 			seats: NO_SEATS,
 			now: NOW,
 			control: {
-				startedAt: NOW - 60 * MIN,
+				noProgressFrom: NOW - 60 * MIN,
 				stopRequested: false,
 				seats: [],
 				scope: normal([DV]),
@@ -298,7 +281,6 @@ describe("the launch lines status shows (#2850)", () => {
 				overflowStart: null,
 			},
 			pid: 1,
-			runMs: 60 * MIN,
 			served: [DV],
 		}).join("\n");
 
@@ -431,7 +413,7 @@ describe("the launch lines status shows (#2850)", () => {
 
 describe("a launch row's seat and reason (#3732)", () => {
 	const control = {
-		startedAt: NOW - 60 * MIN,
+		noProgressFrom: NOW - 60 * MIN,
 		stopRequested: false,
 		seats: [],
 		scope: normal([DV]),
@@ -454,7 +436,6 @@ describe("a launch row's seat and reason (#3732)", () => {
 			control,
 			state: stateOf([typed]),
 			pid: 1,
-			runMs: 60 * MIN,
 			served: [DV],
 		}).join("\n");
 		expect(out).toContain("running  on ~/.claude2 (last typed on)");
@@ -471,7 +452,6 @@ describe("a launch row's seat and reason (#3732)", () => {
 			control,
 			state: stateOf([moved]),
 			pid: 1,
-			runMs: 60 * MIN,
 			served: [DV],
 		}).join("\n");
 		expect(out).toContain("on ~/.claude2 (moved from ~/.claude3)");
@@ -503,7 +483,7 @@ describe("a handed-off launch (#2659)", () => {
 			seats: NO_SEATS,
 			now: NOW,
 			control: {
-				startedAt: NOW - 60 * MIN,
+				noProgressFrom: NOW - 60 * MIN,
 				stopRequested: false,
 				seats: [],
 				scope: normal([DV]),
@@ -519,7 +499,6 @@ describe("a handed-off launch (#2659)", () => {
 				overflowStart: null,
 			},
 			pid: 1,
-			runMs: 60 * MIN,
 			served: [DV],
 		}).join("\n");
 		expect(out).toContain("handed off: stopped idle after its host's restart");

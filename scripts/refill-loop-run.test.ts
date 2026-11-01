@@ -143,7 +143,7 @@ beforeEach(() => {
 	fs.writeFileSync(
 		at(".refill-loop-control.json"),
 		JSON.stringify({
-			startedAt: Date.now(),
+			noProgressFrom: Date.now(),
 			stopRequested: false,
 			seats: [seat],
 			scope: { mode: "normal", repos: [repo], exclude: [], goals: {} },
@@ -280,6 +280,21 @@ describe("run (#2435)", () => {
 		expect(readStopped()).toMatchObject({ reason: "explicit" });
 		// The sandbox has neither review script: a run of one logs an exit.
 		expect(r.stdout).not.toMatch(/morning review( reversals)?: exit/);
+	});
+
+	it("carries on from a control in the shape before #3854, however long ago it started", async () => {
+		fs.writeFileSync(
+			at(".refill-loop-control.json"),
+			JSON.stringify({
+				startedAt: Date.now() - 1000 * 60 * 60 * 1000,
+				stopRequested: false,
+				seats: [seat],
+				scope: { mode: "normal", repos: [repo], exclude: [], goals: {} },
+			}),
+		);
+		await settled(run(1), "run after a mid-dispatch stop");
+		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
+		expect(readStopped()).toMatchObject({ reason: "explicit" });
 	});
 
 	it("appends each tick's line to the concurrency record and refreshes the 24-hour figure (#3317)", async () => {
@@ -1490,7 +1505,7 @@ describe("a session held on its seat's limit (#3735)", () => {
 			fs.writeFileSync(
 				at(".refill-loop-control.json"),
 				JSON.stringify({
-					startedAt: Date.now(),
+					noProgressFrom: Date.now(),
 					stopRequested: false,
 					seats: [seat, target()],
 					scope: { mode: "normal", repos: [repo], exclude: [], goals: {} },
@@ -2284,7 +2299,7 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 			control,
 			JSON.stringify({
 				...JSON.parse(fs.readFileSync(control, "utf8")),
-				startedAt: Date.now(),
+				noProgressFrom: Date.now(),
 				stopRequested: false,
 			}),
 		);

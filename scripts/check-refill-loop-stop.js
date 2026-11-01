@@ -194,12 +194,12 @@ runCheck({
 			const control = refillFiles.readControlFile(
 				stopped.reason === "control-damaged" ? () => undefined : reportDamaged,
 			);
-			const renewed = loop.isRenewedSince(control, stopped.at);
-			const since = renewed
+			const restarted = loop.isRestartedSince(control, stopped.at);
+			const since = restarted
 				? " It has been started again since."
 				: " Running sessions finish; nothing new launches.";
 			const lines = [
-				...(renewed ? [] : buildRestartLines(control)),
+				...(restarted ? [] : buildRestartLines(control)),
 				`Its status: ${STATUS}`,
 			];
 			ctx.warn(
