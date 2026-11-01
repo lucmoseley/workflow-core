@@ -460,6 +460,23 @@ describe("a launch row's seat and reason (#3732)", () => {
 		expect(out).toContain("running  on ~/.claude2 (last typed on)");
 	});
 
+	it("reads moved from <seat> on a moved session's row, on the seat it went to (#3734)", () => {
+		const moved = record({
+			seat,
+			reason: "moved from ~/.claude3",
+		});
+		const out = buildStatusLines({
+			seats: NO_SEATS,
+			now: NOW,
+			control,
+			state: stateOf([moved]),
+			pid: 1,
+			runMs: 60 * MIN,
+			served: [DV],
+		}).join("\n");
+		expect(out).toContain("on ~/.claude2 (moved from ~/.claude3)");
+	});
+
 	it("gives the same seat and reason in status --json, null on an older record", () => {
 		const json = buildStatusJson({
 			seats: NO_SEATS,

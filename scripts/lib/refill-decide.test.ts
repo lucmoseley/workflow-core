@@ -414,6 +414,41 @@ describe("pickMoveSeat (#3735)", () => {
 		expect(pick([own(null, null, { fits: null })]).seat).toBeNull();
 	});
 
+	it("follows the launch order: last typed, then soonest weekly reset (#3734)", () => {
+		const blocked = own(FULL, 10, { fits: null });
+		const later = {
+			...seat("later", 10, 10),
+			weekResets: NOW + 2 * HOUR,
+			fits: 1,
+		};
+		const sooner = {
+			...seat("sooner", 10, 10),
+			weekResets: NOW + HOUR,
+			fits: 1,
+		};
+		const seats = [blocked, later, sooner];
+		expect(pick(seats)).toMatchObject({
+			seat: "sooner",
+			reason: "soonest reset",
+		});
+		expect(pick(seats, "later")).toMatchObject({
+			seat: "later",
+			reason: "last typed on",
+		});
+	});
+
+	it("passes over a seat a limit moved it off until a reading since that block (#3734)", () => {
+		const left = [{ seat: "gone", since: Blocked }];
+		const blocked = own(FULL, 10, { fits: null });
+		const gone = (readAt: number) => ({
+			...seat("gone", 10, 10),
+			readAt,
+			fits: 1,
+		});
+		expect(pick([blocked, gone(Blocked - 1)], null, { left }).seat).toBeNull();
+		expect(pick([blocked, gone(NOW)], null, { left }).seat).toBe("gone");
+	});
+
 	it("passes over a reading older than the block, however low it reads", () => {
 		expect(pick([own(50, 50, { readAt: Blocked })]).seat).toBeNull();
 		expect(pick([own(50, 50, { readAt: Blocked - 1 })]).seat).toBeNull();

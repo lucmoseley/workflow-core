@@ -85,6 +85,19 @@ function fakeIo(over: Partial<BlockIo> = {}) {
 				copy: true,
 			};
 		},
+		moveSession: (l, target, _prompt, moved) => {
+			calls.push(`move ${l.jobId} ${l.seat} ${target} ${moved.sessionId}`);
+			return {
+				failed: null,
+				jobId: l.jobId,
+				sessionId: moved.sessionId,
+				copy: false,
+			};
+		},
+		removeJobRecord: (seat) => {
+			calls.push(`rm on ${seat}`);
+			return null;
+		},
 		jobStateOf: () => ({ state: "working" }),
 		renewLedgerHold: (l) => {
 			calls.push(`ledger ${l.jobId}`);
@@ -1185,7 +1198,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 		it("parks at the cap of failed resumes, and it finishes", () => {
 			expectParked(
 				limits([failedTo(RESUME_CAP)], []),
-				`${RESUME_CAP} failed resumes in place`,
+				`${RESUME_CAP} failed resumes or moves`,
 			);
 		});
 
@@ -1224,7 +1237,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 						seats: [],
 						seatListRead: false,
 					}),
-					`${RESUME_CAP} failed resumes in place`,
+					`${RESUME_CAP} failed resumes or moves`,
 				);
 			});
 
@@ -1454,7 +1467,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 			);
 			expect(launches[0]).toMatchObject({ parkStopped: NOW });
 			expect(comments(calls)[0]).toContain(
-				`${RESUME_CAP} resumes in place in a row with no reply`,
+				`${RESUME_CAP} resumes or moves in a row with no reply`,
 			);
 		});
 
@@ -1470,7 +1483,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 				{ seats: [fiveHourFull] },
 			);
 			expect(comments(calls)[0]).toContain(
-				`${RESUME_CAP} failed resumes in place`,
+				`${RESUME_CAP} failed resumes or moves`,
 			);
 			expect(comments(calls)[0]).not.toContain("with no reply");
 		});
@@ -1860,12 +1873,155 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 		expect(reset.launches[0]).toMatchObject({ limitHeld: { resumedAt: NOW } });
 	});
 
-	it("holds where the walk goes to another seat, this ticket making no move", () => {
-		const { calls } = limits([blocked()], [agent("job42", "blocked")], {
-			seats: [fiveHourFull, planSeat({ seat: "/other" })],
+	describe("a move to another seat (#3734)", () => {
+		const other = () => planSeat({ seat: "/other" });
+		const moveLine = (from: string, to: string) => `move job42 ${from} ${to} s`;
+
+		it.each(["away", "normal"] as const)(
+			"%s: stops it, moves it, rewrites seat and reason, comments once",
+			(mode) => {
+				const { launches, calls } = limits(
+					[blocked()],
+					[agent("job42", "blocked")],
+					{ seats: [fiveHourFull, other()], mode },
+				);
+				expect(calls.indexOf("stop job42")).toBeLessThan(
+					calls.indexOf(moveLine(Seat, "/other")),
+				);
+				expect(launches[0]).toMatchObject({
+					seat: "/other",
+					reason: `moved from ${Seat}`,
+					jobId: "job42",
+					relaunchedAt: NOW,
+					limitHeld: { resumedAt: NOW, movedFrom: { seat: Seat } },
+				});
+				expect(comments(calls)).toHaveLength(1);
+				expect(comments(calls)[0]).toContain(`from ${Seat} to /other`);
+				expect(comments(calls)[0]).toContain("5-hour limit");
+				expect(comments(calls)[0]).toContain("Lost: its in-flight subagents");
+			},
+		);
+
+		it("moves a held one as another seat opens, unstopped, taking a slot", () => {
+			const { launches, calls, slots, workingChange } = limits([held()], [], {
+				seats: [fiveHourFull, other()],
+				slots: 1,
+			});
+			expect(calls).not.toContain("stop job42");
+			expect(calls).toContain(`move job42 ${Seat} /other s-job42`);
+			expect(launches[0]).toMatchObject({ seat: "/other" });
+			expect(slots).toBe(0);
+			expect(workingChange).toBe(1);
 		});
-		expect(calls).toContain("stop job42");
-		expect(calls.some((c) => c.startsWith("confirmed"))).toBe(false);
+
+		it("leaves a failed move held on its old seat, naming why in the log and a comment", () => {
+			const { launches, calls } = limits(
+				[blocked()],
+				[agent("job42", "blocked")],
+				{
+					seats: [fiveHourFull, other()],
+					io: { moveSession: () => ({ failed: "state failed: nope" }) },
+				},
+			);
+			expect(launches[0]).toMatchObject({
+				seat: Seat,
+				limitHeld: { failedTries: 1, sessionId: "s" },
+			});
+			expect(launches[0].limitHeld).not.toHaveProperty("resumedAt");
+			expect(launches[0]).not.toHaveProperty("relaunchedAt");
+			expect(logs(calls).join("\n")).toContain("state failed: nope");
+			expect(comments(calls)[0]).toContain("could not move");
+			expect(comments(calls)[0]).toContain("state failed: nope");
+		});
+
+		it("takes a failed move's resume back to the old seat a tick on", () => {
+			const moved = limits(
+				[blocked({ reason: "last typed on" })],
+				[agent("job42", "blocked")],
+				{ seats: [fiveHourFull, other()] },
+			).launches as Launch[];
+			const { launches, calls } = limits(moved, [], {
+				seats: [fiveHourFull, other()],
+				io: { jobStateOf: () => ({ state: "failed", detail: "nope" }) },
+			});
+			expect(launches[0]).toMatchObject({
+				seat: Seat,
+				reason: "last typed on",
+			});
+			expect(launches[0].limitHeld).not.toHaveProperty("movedFrom");
+			expect(comments(calls)[0]).toContain("could not move");
+		});
+
+		it("settles a move that took, and stops address its new seat", () => {
+			const moved = limits([blocked()], [agent("job42", "blocked")], {
+				seats: [fiveHourFull, other()],
+			}).launches as Launch[];
+			const { launches, calls } = limits(moved, [], {
+				seats: [fiveHourFull, other()],
+			});
+			expect(calls).toContain(`rm on ${Seat}`);
+			expect(launches[0]).toMatchObject({ seat: "/other", finishedAt: null });
+			expect(launches[0]).not.toHaveProperty("limitHeld");
+			const stops: string[] = [];
+			const again = limits(
+				[{ ...launches[0], parked: true, block: blocked().block } as Launch],
+				[agent("job42", "blocked")],
+				{
+					seats: [fiveHourFull, { ...fiveHourFull, seat: "/other" }],
+					io: {
+						stop: (seat, id) => {
+							stops.push(`${seat} ${id}`);
+							return { ok: true, said: "" };
+						},
+					},
+				},
+			);
+			expect(again.launches[0]).toHaveProperty("limitHeld");
+			expect(stops).toEqual(["/other job42"]);
+		});
+
+		it("dates a moved session's block at the move, keeps the seat it left, and spaces no next move", () => {
+			const { launches } = limits([blocked()], [agent("job42", "blocked")], {
+				seats: [fiveHourFull, other()],
+			});
+			expect(launches[0]).toMatchObject({
+				block: { since: NOW },
+				limitLeft: [{ seat: Seat, since: Since }],
+				limitResumes: { nextAt: NOW },
+			});
+		});
+
+		it("stops a resume that reads failed a tick on, before going back", () => {
+			const moved = limits([blocked()], [agent("job42", "blocked")], {
+				seats: [fiveHourFull, other()],
+			}).launches as Launch[];
+			const stops: string[] = [];
+			limits(moved, [], {
+				seats: [fiveHourFull, other()],
+				io: {
+					jobStateOf: () => null,
+					stop: (seat) => {
+						stops.push(seat);
+						return { ok: true, said: "" };
+					},
+				},
+			});
+			expect(stops).toEqual(["/other"]);
+		});
+
+		it("takes one move per seat a tick, the seat being sized for one", () => {
+			const twin = blocked({ jobId: "job43" });
+			const { launches, calls } = limits(
+				[blocked(), twin],
+				[agent("job42", "blocked"), agent("job43", "blocked")],
+				{ seats: [fiveHourFull, other()] },
+			);
+			expect(calls.filter((c) => c.startsWith("move "))).toHaveLength(1);
+			expect(launches[1]).toMatchObject({
+				seat: Seat,
+				limitHeld: { sessionId: "s" },
+			});
+		});
 	});
 
 	it("acts on nothing off an unread listing, nor a launch on no plan seat", () => {

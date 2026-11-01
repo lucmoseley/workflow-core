@@ -92,7 +92,8 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * `idleSince`, the time of the harness restart row it last read resumed-idle
  * on (#2978). `swapHeld`, set while the loop holds one it stopped under the
  * swap hold (#3093). `limitHeld`, while it holds one stopped on its seat's
- * limit, and `limitResumes`, its resumes in place (#3735). `limitParks`, the
+ * limit, and `limitResumes`, its resumes and moves (#3735, #3734), `limitLeft`,
+ * the seats a limit moved it off. `limitParks`, the
  * limit-cap parks in a row its ticket came back from (#3804). `handOffTries` counts the hand-offs of
  * one stopped still idle that failed, and
  * `handedOff` is when one went to a fresh launch. `relaunchedAt` is when a
@@ -109,6 +110,7 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  *   swapHeld?: import("./refill-blocks.js").SwapHeld,
  *   limitHeld?: import("./refill-blocks.js").LimitHeld,
  *   limitResumes?: import("./refill-blocks.js").LimitResumes,
+ *   limitLeft?: import("./refill-decide.js").SeatLeft[],
  *   limitParks?: number, handOffTries?: number, handedOff?: number, copiedFrom?: string,
  *   relaunchedAt?: number, pastSessionIds?: string[]}} LoopLaunch
  */
@@ -438,16 +440,18 @@ function seatReadingOf(seat, { session, weekly_all: week }, now) {
  * so failover keeps its order and a stale seat behind a full one is read
  * rather than waited on. A seat the cap sized 0 is passed as a full one is; a
  * seat with a full bar is passed unread, that bar reopening only at its reset.
+ * With `sizeAll`, every stale seat, a move weighing them all.
  * @param {(SeatReading & {fits?: number|null})[]} readings in failover order
+ * @param {boolean} sizeAll
  */
-function seatsToRefresh(readings) {
+function seatsToRefresh(readings, sizeAll) {
 	/** @type {string[]} */
 	const stale = [];
 	for (const r of readings) {
 		if (r.weekFull || r.sessionFull) continue;
 		if (r.week === null || r.session === null) stale.push(r.seat);
 		// Not fitsLaunch: an unsized seat with room ends the walk, the tick waiting on it.
-		else if (hasRoom(r) && r.fits !== 0) break;
+		else if (!sizeAll && hasRoom(r) && r.fits !== 0) break;
 	}
 	return stale;
 }
@@ -455,20 +459,22 @@ function seatsToRefresh(readings) {
 /**
  * Each seat with the dispatcher's cap sized on it, in failover order, up to
  * the first seat with room that sizes above 0 (#2432): the decision core
- * launches there, so the seats behind it are left unsized. With no slot free
- * nothing is sized.
+ * launches there, so the seats behind it are left unsized, unless `sizeAll`,
+ * for a move, whose own seat is passed over (#3734). With no slot free nothing
+ * is sized.
  * @param {SeatReading[]} readings
  * @param {number} slots
  * @param {(seat: string, members: number) => number|null} sizeOf the cap's
  *   launch count for `members` on `seat`, null where it cannot be sized
+ * @param {boolean} sizeAll
  * @returns {SizedSeat[]}
  */
-function sizedSeats(readings, slots, sizeOf) {
+function sizedSeats(readings, slots, sizeOf, sizeAll) {
 	let sized = false;
 	return readings.map((r) => {
 		if (sized || !hasRoom(r)) return { ...r, fits: null };
 		const fits = slots > 0 ? sizeOf(r.seat, slots) : 0;
-		sized = fitsLaunch({ ...r, fits });
+		sized = !sizeAll && fitsLaunch({ ...r, fits });
 		return { ...r, fits };
 	});
 }
@@ -485,12 +491,17 @@ function sizedSeats(readings, slots, sizeOf) {
  *   probe: (seats: string[]) => {usage: Map<string, string>, probes: Probe[]},
  *   sizeOf: (seat: string, members: number, usageText: string) => number|null,
  *   typedSeat: string|null,
+ *   sizeAll?: boolean,
  * }} io `read` takes each refreshed seat's printed `/usage` and returns the
  *   seats in seat-file order; `typedSeat` is the seat the founder last typed
- *   on, null where none is recorded
+ *   on, null where none is recorded; `sizeAll`, each seat with room read and
+ *   sized, not only up to the first
  * @returns {{seats: SizedSeat[], probes: Probe[]}}
  */
-function readSizedSeats(slots, { read, probe, sizeOf, typedSeat }) {
+function readSizedSeats(
+	slots,
+	{ read, probe, sizeOf, typedSeat, sizeAll = false },
+) {
 	/** @type {Map<string, string>} */
 	const usage = new Map();
 	/** @type {Probe[]} */
@@ -508,7 +519,7 @@ function readSizedSeats(slots, { read, probe, sizeOf, typedSeat }) {
 	};
 	const readOrdered = () => orderPlanSeats(read(usage), typedSeat);
 	let readings = readOrdered();
-	let stale = slots > 0 ? seatsToRefresh(readings) : [];
+	let stale = slots > 0 ? seatsToRefresh(readings, sizeAll) : [];
 	for (;;) {
 		if (stale.length > 0) {
 			const printed = probe(stale);
@@ -516,9 +527,11 @@ function readSizedSeats(slots, { read, probe, sizeOf, typedSeat }) {
 			probes.push(...printed.probes);
 			readings = readOrdered();
 		}
-		const sized = sizedSeats(readings, slots, sizeOnce);
+		const sized = sizedSeats(readings, slots, sizeOnce, sizeAll);
 		stale =
-			slots > 0 ? seatsToRefresh(sized).filter((seat) => !usage.has(seat)) : [];
+			slots > 0
+				? seatsToRefresh(sized, sizeAll).filter((seat) => !usage.has(seat))
+				: [];
 		if (stale.length === 0) return { seats: sized, probes };
 	}
 }
