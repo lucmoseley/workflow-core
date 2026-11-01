@@ -12,8 +12,9 @@
  * fresh launch to it, and the refill loop each resume of a parked session
  * (lib/refill-batch.js's resumeParked, #3704). A launch the ledger still
  * holds counts as running, as does each launch of a loop holding its pid
- * lock. The loop's state names the parked issues it holds,
- * and since when (#3680). A stopped loop serves no tracker, runs and holds
+ * lock, bar one waiting on a limit (#3838). The loop's state names the parked
+ * issues it holds, and since when (#3680), and those waiting launches. A
+ * stopped loop serves no tracker, runs and holds
  * nothing, so its stop is caught rather than masked.
  *
  * WARN, never FAIL. A tracker that will not read is its own line, never
@@ -119,8 +120,8 @@ function readLoop(reportDamaged) {
 	return {
 		running: true,
 		served: control ? servedRoots(control.scope).roots : [],
-		launches: loop.runningOf(state.launches),
-		held: state.held,
+		launches: loop.workingOf(state.launches),
+		held: [...state.held, ...loop.limitHoldsOf(state.launches)],
 	};
 }
 

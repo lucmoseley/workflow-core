@@ -45,7 +45,10 @@ const findings = (
 	trackers: ReturnType<typeof tracker>[],
 	launches: Record<string, number> = {},
 	running: string[] = [],
-	holds: Record<string, { why: string; since: number; atCap?: boolean }> = {},
+	holds: Record<
+		string,
+		{ why: string; since: number; atCap?: boolean; onLimit?: boolean }
+	> = {},
 ) =>
 	findIdleEfforts({
 		trackers,
@@ -141,6 +144,46 @@ describe("findIdleEfforts", () => {
 		).toEqual([[1, why, 3 * DAY]]);
 	});
 
+	it("counts a held issue whose open children all wait (#3838)", () => {
+		const held = { why: "stopped on its limit", since: NOW - 5 * DAY };
+		const t = tracker([container(1, 2), issue(2, { blocked: true })]);
+		expect(
+			findings([t], {}, [], { "o/core#1": held })[0].idle.map(
+				(i: { number: number }) => i.number,
+			),
+		).toEqual([1]);
+	});
+
+	it("names a launch held stopped on its limit past 2 days, aged from the stop (#3838)", () => {
+		const why = "stopped on its weekly limit (reset unread)";
+		const [{ idle }] = findings(
+			[tracker([issue(1), issue(2), issue(3)])],
+			{ "o/core#1": NOW - 9 * DAY, "o/core#2": NOW - 9 * DAY },
+			[],
+			{
+				"o/core#1": { why, since: NOW - 5 * DAY },
+				"o/core#2": { why, since: NOW - IDLE_MS },
+				"o/core#3": { why, since: NOW - DAY },
+			},
+		);
+		expect(
+			idle.map((i: { number: number; skip: string; idleMs: number }) => [
+				i.number,
+				i.skip,
+				i.idleMs,
+			]),
+		).toEqual([[1, why, 5 * DAY]]);
+	});
+
+	it("reads a hold under 2 days as its container's activity, so an old launch beneath it does not name the container (#3838)", () => {
+		const held = { why: "stopped on its limit", since: NOW - DAY };
+		const launched = { "o/core#2": NOW - 5 * DAY };
+		const t = tracker([container(1, 2), issue(2)]);
+		expect(findings([t], launched, [], { "o/core#2": held })[0].idle).toEqual(
+			[],
+		);
+	});
+
 	it("leaves out a container every open child of which waits, which pick-next never launches", () => {
 		const t = tracker([
 			container(1, 2, 3),
@@ -219,6 +262,25 @@ describe("buildIdleLines", () => {
 				"o/product: 2 idle past 2 days (the refill loop does not serve it); oldest #2 (issue 2), idle 10.0 days; skip reason: none, the launch filter passes it",
 			),
 			{ text: "urgent #2 (issue 2), idle 10.0 days", nested: true },
+		]);
+	});
+
+	it("names a launch held on its limit beneath the line though an older issue is the oldest (#3838)", () => {
+		const why = "stopped on its weekly limit (reset Fri)";
+		const lines = buildIdleLines(
+			findings([tracker([issue(1), issue(2)])], {}, [], {
+				"o/core#2": { why, since: NOW - 3 * DAY, onLimit: true },
+			}),
+			true,
+		);
+		expect(lines).toEqual([
+			top(
+				"o/core: 2 idle past 2 days; oldest #1 (issue 1), idle 10.0 days; skip reason: none, the launch filter passes it",
+			),
+			{
+				text: `held #2 (issue 2), idle 3.0 days; skip reason: ${why}`,
+				nested: true,
+			},
 		]);
 	});
 

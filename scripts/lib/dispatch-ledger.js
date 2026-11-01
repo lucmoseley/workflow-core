@@ -228,8 +228,9 @@ function readLastLaunchAt(root) {
 
 /**
  * Each issue's latest launch from this tree in ms, any age, released or not —
- * the idle alarm's launch log (check-idle-efforts.js). Throws where it will
- * not read.
+ * the idle alarm's launch log (check-idle-efforts.js); a `heldUntil` row is no
+ * launch, written anew after a failed resume (#3838). Throws where it will not
+ * read.
  * @param {string} root
  * @returns {Map<number, number>}
  */
@@ -239,6 +240,7 @@ function readLaunchTimes(root) {
 	/** @type {Map<number, number>} */
 	const last = new Map();
 	for (const e of rows.filter(isLaunch)) {
+		if (e.heldUntil) continue;
 		const at = Date.parse(e.ts);
 		for (const n of e.issues ?? []) last.set(n, Math.max(last.get(n) ?? 0, at));
 	}

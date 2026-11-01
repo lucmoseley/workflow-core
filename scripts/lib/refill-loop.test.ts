@@ -33,6 +33,7 @@ import {
 	isReviewRunDue,
 	judgedLaunches,
 	landingRoots,
+	limitHoldsOf,
 	parseCapFits,
 	parseControl,
 	parseProbeOutcome,
@@ -46,6 +47,7 @@ import {
 	settleTick,
 	stopNeverStarted,
 	summaryOf,
+	workingOf,
 } from "./refill-loop.js";
 import {
 	away,
@@ -153,6 +155,72 @@ describe("which launches have finished", () => {
 		expect(runningOf([record({ parked: true })])).toEqual([
 			{ root: "/home/u/design-vault", issues: [42] },
 		]);
+	});
+});
+
+describe("the idle alarm's reading of a limit hold (#3838)", () => {
+	const limitHeld = {
+		at: NOW - 3 * 24 * 60 * MIN,
+		sessionId: "s",
+		cwd: "/c",
+		limit: { bar: "weekly", resets: "Fri" },
+	};
+	const stopped = record({ issues: [7, 8], limitHeld });
+
+	it("reads a launch stopped on its limit as held from the stop, one row per issue, and not as working", () => {
+		const why = "stopped on its weekly limit (reset Fri)";
+		expect(limitHoldsOf([stopped])).toEqual([
+			{
+				root: stopped.root,
+				number: 7,
+				why,
+				since: limitHeld.at,
+				onLimit: true,
+			},
+			{
+				root: stopped.root,
+				number: 8,
+				why,
+				since: limitHeld.at,
+				onLimit: true,
+			},
+		]);
+		expect(workingOf([stopped])).toEqual([]);
+	});
+
+	it("reads a limit-blocked launch the loop could not stop as held from the block, as no bound parks it", () => {
+		const since = NOW - 5 * 24 * 60 * MIN;
+		const blocked = record({ issues: [9], block: { cause: "LIMIT", since } });
+		expect(limitHoldsOf([blocked])).toEqual([
+			{
+				root: blocked.root,
+				number: 9,
+				why: "blocked on its limit, its session not stopped",
+				since,
+				onLimit: true,
+			},
+		]);
+		expect(workingOf([blocked])).toEqual([]);
+	});
+
+	it("reads a working launch, a question-held one and one resumed from its hold as working, not held", () => {
+		const live = [
+			record({ issues: [1] }),
+			record({
+				issues: [2],
+				parked: true,
+				block: { cause: "QUESTION", since: NOW - MIN },
+			}),
+			record({ issues: [3], limitHeld: { ...limitHeld, resumedAt: NOW } }),
+		];
+		expect(limitHoldsOf(live)).toEqual([]);
+		expect(workingOf(live).flatMap((l) => l.issues)).toEqual([1, 2, 3]);
+	});
+
+	it("reads a finished launch's stale hold as neither", () => {
+		const done = record({ limitHeld, finishedAt: NOW });
+		expect(limitHoldsOf([done])).toEqual([]);
+		expect(workingOf([done])).toEqual([]);
 	});
 });
 

@@ -1078,6 +1078,28 @@ const buildLimitText = ({ bar, resets }) =>
 	`${bar ?? "unread"} limit (reset ${resets ?? "unread"})`;
 
 /**
+ * What `l` waits on, and since when, where it waits on its limit and no resume
+ * is being judged; null otherwise. One the loop could not stop stays live with
+ * no hold, so no bound parks it (#3838).
+ * @param {LoopLaunch} l
+ * @returns {{why: string, since: number}|null}
+ */
+function limitWaitOf(l) {
+	if (!isLive(l) || isResumeUnjudged(l)) return null;
+	if (isLimitHeld(l))
+		return {
+			why: `stopped on its ${buildLimitText(l.limitHeld.limit)}`,
+			since: l.limitHeld.at,
+		};
+	return isLimitBlocked(l)
+		? {
+				why: "blocked on its limit, its session not stopped",
+				since: l.block.since,
+			}
+		: null;
+}
+
+/**
  * `l` with one more resume or move counted, `failed` why it failed, which a
  * held one's hold counts towards its park at the cap (#3790); one that took
  * is judged at the launch's next limit block (#3792).
@@ -1707,6 +1729,7 @@ module.exports = {
 	iso,
 	launchName,
 	ledgerJobOf,
+	limitWaitOf,
 	markParked,
 	nextResumeAt,
 	releaseEndedHolds,

@@ -10,10 +10,12 @@
  * something other than a launch, as does a container all of whose open
  * children do. A parked issue the loop holds is counted, from the hold's start:
  * on its session's full seat it waits on that seat's reset, up to 7 days
- * (#3680), and at the limit-cap parks' cap on the founder (#3804). One at the
- * cap, which no reset ends, is named beneath its tracker's line, however old
- * its tracker's oldest (#3809); a full seat's stays in the count. A stranding is
- * counted once, at its deepest idle issue, never again at each ancestor.
+ * (#3680), and at the limit-cap parks' cap on the founder (#3804). So is a
+ * launch waiting on a limit, from when it began (#3838). One at the cap, which
+ * no reset ends, or on a limit, is named beneath its tracker's line, however old
+ * its tracker's oldest (#3809, #3838); a full seat's stays in the count. A
+ * stranding is counted once, at its deepest idle issue, never again at each
+ * ancestor.
  *
  * The reason printed beside a tracker's oldest is the loop's hold where it
  * holds it, else its own launch filter (lib/refill-decide.js's
@@ -76,9 +78,10 @@ const QUERY =
  * @property {TrackerReading[]} trackers
  * @property {Map<string, number>} launches refKey to its last launch, ms
  * @property {Set<string>} running refKeys of launches still running
- * @property {Map<string, {why: string, since: number, atCap?: boolean}>} holds
- *   refKeys of the parked issues the loop holds, to the hold's reason, start,
- *   ms, and whether it is at the limit-cap parks' cap
+ * @property {Map<string, {why: string, since: number, atCap?: boolean,
+ *   onLimit?: boolean}>} holds
+ *   refKeys of the issues the loop holds, to the hold's reason, start, ms, and
+ *   whether it is at the limit-cap parks' cap or a launch waiting on a limit
  * @property {number} now ms
  */
 
@@ -89,6 +92,7 @@ const QUERY =
  * @property {number} idleMs
  * @property {boolean} urgent
  * @property {boolean} heldAtCap the loop holds it at the limit-cap parks' cap
+ * @property {boolean} heldOnLimit its launch waits on a limit
  * @property {string|null} skip the loop's hold or its launch filter's
  *   reason, null where it passes the row
  */
@@ -124,9 +128,8 @@ const QUERY =
  * The refill loop as read: nothing where it does not run.
  * @typedef {object} LoopReading
  * @property {string[]} served the checkouts its scope serves
- * @property {{root: string, issues: number[]}[]} launches its running
- *   launches
- * @property {import("./refill-loop.js").Hold[]} held the parked issues it holds
+ * @property {{root: string, issues: number[]}[]} launches its launches at work
+ * @property {import("./refill-loop.js").Hold[]} held the issues it holds
  */
 
 /**
@@ -155,9 +158,9 @@ function buildReadings({ rootsOf, trackers, loop, now }) {
 	for (const l of loop.launches) markRunning(l.root, l.issues);
 	/** @type {Readings["holds"]} */
 	const holds = new Map();
-	for (const { root, number, why, since, atCap } of loop.held)
+	for (const { root, number, why, since, atCap, onLimit } of loop.held)
 		for (const repo of reposOf(root))
-			holds.set(refKey({ repo, number }), { why, since, atCap });
+			holds.set(refKey({ repo, number }), { why, since, atCap, onLimit });
 	for (const t of trackers)
 		for (const { root, launchTimes, recent } of t.ledgers) {
 			for (const [n, at] of launchTimes) {
@@ -241,7 +244,8 @@ const openChildKeys = (key, open) =>
 	(open.get(key)?.children ?? []).map(refKey).filter((k) => open.has(k));
 
 /**
- * Whether `key` waits on something other than a launch.
+ * Whether `key` waits on something other than a launch; one the loop holds
+ * waits on no child (#3838).
  * @param {string} key
  * @param {Map<string, IssueReading>} open
  * @param {Readings["holds"]} holds
@@ -254,26 +258,37 @@ function isWaiting(key, open, holds, seen = new Set()) {
 	if (seen.has(key)) return true;
 	seen.add(key);
 	const kids = openChildKeys(key, open);
-	return kids.length > 0 && kids.every((k) => isWaiting(k, open, holds, seen));
+	return (
+		!holds.has(key) &&
+		kids.length > 0 &&
+		kids.every((k) => isWaiting(k, open, holds, seen))
+	);
 }
 
 /**
- * The latest launch of `key` or any descendant, Infinity where one is
- * running, else -Infinity. A closed child is read for its own launch only, its
- * descendants unread.
+ * The latest launch or hold's start of `key` or any descendant, Infinity where
+ * one is running, else -Infinity. A hold counts so that a container is not named
+ * over a child held under 2 days, parked holds included (#3838). A closed child
+ * is read for its own only, its descendants unread.
  * @param {string} key
  * @param {Map<string, IssueReading>} open
  * @param {Readings} readings
  * @param {Set<string>} seen accumulator: the keys already walked
  * @returns {number}
  */
-function lastLaunchUnder(key, open, readings, seen = new Set()) {
+function lastActivityUnder(key, open, readings, seen = new Set()) {
 	if (seen.has(key)) return Number.NEGATIVE_INFINITY;
 	seen.add(key);
 	if (readings.running.has(key)) return Number.POSITIVE_INFINITY;
-	let last = readings.launches.get(key) ?? Number.NEGATIVE_INFINITY;
+	let last = Math.max(
+		readings.launches.get(key) ?? Number.NEGATIVE_INFINITY,
+		readings.holds.get(key)?.since ?? Number.NEGATIVE_INFINITY,
+	);
 	for (const child of open.get(key)?.children ?? [])
-		last = Math.max(last, lastLaunchUnder(refKey(child), open, readings, seen));
+		last = Math.max(
+			last,
+			lastActivityUnder(refKey(child), open, readings, seen),
+		);
 	return last;
 }
 
@@ -309,11 +324,7 @@ function findIdleEfforts(readings) {
 		if (isWaiting(key, open, readings.holds)) continue;
 		const ms =
 			readings.now -
-			Math.max(
-				i.createdAt,
-				lastLaunchUnder(key, open, readings),
-				readings.holds.get(key)?.since ?? Number.NEGATIVE_INFINITY,
-			);
+			Math.max(i.createdAt, lastActivityUnder(key, open, readings));
 		if (ms > IDLE_MS) idleMs.set(key, ms);
 	}
 	const idle = new Set(idleMs.keys());
@@ -330,6 +341,7 @@ function findIdleEfforts(readings) {
 				idleMs: Number(idleMs.get(key)),
 				urgent: i.labels.includes(URGENT_LABEL),
 				heldAtCap: readings.holds.get(key)?.atCap === true,
+				heldOnLimit: readings.holds.get(key)?.onLimit === true,
 				skip:
 					readings.holds.get(key)?.why ??
 					buildSkipReason({
@@ -355,7 +367,8 @@ const named = (i) => `#${i.number} (${i.title}), idle ${days(i.idleMs)}`;
 
 /**
  * One line per tracker, beneath it each issue past the threshold held at the
- * limit-cap parks' cap that the line does not already name as its oldest, and
+ * limit-cap parks' cap or on a limit that the line does not already name as its
+ * oldest, and
  * beneath a tracker the loop does not serve, each `urgent` one; first, where no
  * loop runs, a line saying so.
  * @param {TrackerFinding[]} findings
@@ -382,7 +395,7 @@ function buildIdleLines(findings, loopRunning) {
 				`${f.repo}: ${f.idle.length} idle past ${IDLE_DAYS} days${unserved}; oldest ${named(oldest)}; skip reason: ${skip}`,
 			),
 			...f.idle
-				.filter((i) => i.heldAtCap && i !== oldest)
+				.filter((i) => (i.heldAtCap || i.heldOnLimit) && i !== oldest)
 				.map((i) =>
 					buildNestedLine(`held ${named(i)}; skip reason: ${i.skip}`),
 				),

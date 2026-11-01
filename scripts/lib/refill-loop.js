@@ -28,6 +28,7 @@ const {
 	isHeld,
 	isLive,
 	launchName,
+	limitWaitOf,
 	markParked,
 } = require("./refill-blocks.js");
 const { buildErrorText } = require("./caught.js");
@@ -133,10 +134,12 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  */
 
 /**
- * A parked row held, on its session's full seat or at the limit-cap parks' cap,
- * and since when, ms: the first
- * frontier-reading tick of an unbroken run of them that held it.
- * @typedef {import("./refill-decide.js").HeldRow & {since: number}} Hold
+ * An issue the loop holds, and since when, ms: a parked row on its session's full
+ * seat or at the limit-cap parks' cap, from the first frontier-reading tick of an
+ * unbroken run of them that held it; or, `onLimit`, a launch waiting on a limit
+ * (limitWaitOf).
+ * @typedef {import("./refill-decide.js").HeldRow & {since: number,
+ *   onLimit?: boolean}} Hold
  */
 
 /** @typedef {import("./refill-decide.js").SeatReading} SeatReading */
@@ -782,6 +785,32 @@ const runningOf = (launches) =>
 	launches.filter(isLive).map((l) => ({ root: l.root, issues: l.issues }));
 
 /**
+ * The launches the idle alarm reads as running: runningOf's less those waiting
+ * on a limit, which limitHoldsOf names (#3838).
+ * @param {LoopLaunch[]} launches
+ */
+const workingOf = (launches) =>
+	runningOf(launches.filter((l) => limitWaitOf(l) === null));
+
+/**
+ * The issues of launches waiting on a limit, as the idle alarm's holds (#3838).
+ * @param {LoopLaunch[]} launches
+ * @returns {Hold[]}
+ */
+const limitHoldsOf = (launches) =>
+	launches.flatMap((l) => {
+		const wait = limitWaitOf(l);
+		return wait
+			? l.issues.map((number) => ({
+					root: l.root,
+					number,
+					...wait,
+					onLimit: true,
+				}))
+			: [];
+	});
+
+/**
  * Whether `start` renewed the loop after a tick read `startedAt`, so a stop
  * that tick decided is stale.
  * @param {Control|null} control
@@ -1102,7 +1131,9 @@ module.exports = {
 	isReviewRunDue,
 	buildReviewSkip,
 	reviewStep,
+	limitHoldsOf,
 	runningOf,
+	workingOf,
 	parseScope,
 	scopeRoots,
 	landingRoots,

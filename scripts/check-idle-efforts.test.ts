@@ -2,8 +2,9 @@
 /*
  * check-idle-efforts.test.ts — the idle alarm's program (#3641): that it
  * reads every adopting checkout's tracker once, each checkout's dispatch
- * ledger as the launch log, a held launch as running, and a stopped loop as
- * serving nothing, and reports through runCheck without gating.
+ * ledger as the launch log, a live loop's launch stopped on its limit as held,
+ * and a stopped loop as serving nothing, and reports through runCheck without
+ * gating.
  *
  * Its judgement is lib/idle-efforts.test.ts's; this pins the readings the
  * shell hands it, and that a resume the loop writes through
@@ -12,6 +13,7 @@
  * strands an effort unreported while the core's own tests stay green.
  */
 
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -175,6 +177,74 @@ describe("check-idle-efforts.js", () => {
 				idle: [expect.objectContaining({ number: 8 })],
 			}),
 		]);
+	});
+
+	it("reads a limit hold's row as no launch, so a hold rewritten after a failed resume does not restart its age (#3838)", async () => {
+		checkout("prod", "o/product", [
+			launch(8, 5 * DAY),
+			{
+				...launch(8, DAY),
+				heldUntil: new Date(NOW + 5 * DAY).toISOString(),
+			},
+		]);
+		const r = await run({ "o/product": [node(8)] }, ["--json"]);
+		expect(JSON.parse(r.stdout).trackers).toEqual([
+			expect.objectContaining({
+				idle: [expect.objectContaining({ number: 8, idleMs: 5 * DAY })],
+			}),
+		]);
+	});
+
+	it("names a live loop's launch held on its limit past 2 days, and leaves a working one and one held under 2 days out (#3838)", async () => {
+		const root = path.join(home, "prod");
+		checkout("prod", "o/product", [
+			launch(1, 9 * DAY),
+			launch(2, 9 * DAY),
+			launch(3, 9 * DAY),
+		]);
+		const refill = path.join(dir, "refill");
+		fs.mkdirSync(refill, { recursive: true });
+		const loopLaunch = (n: number, stoppedFor?: number) => ({
+			root,
+			issues: [n],
+			prompt: `/implement ${n}`,
+			seat: "/s1",
+			jobId: `job${n}`,
+			launchedAt: NOW - 9 * DAY,
+			finishedAt: null,
+			...(stoppedFor !== undefined && {
+				limitHeld: {
+					at: NOW - stoppedFor,
+					sessionId: "s",
+					cwd: root,
+					limit: { bar: "weekly", resets: "Fri" },
+				},
+			}),
+		});
+		fs.writeFileSync(
+			path.join(refill, ".refill-loop-state.json"),
+			JSON.stringify({
+				launches: [loopLaunch(1, 5 * DAY), loopLaunch(2, DAY), loopLaunch(3)],
+			}),
+		);
+		/* pidLock takes a holder by an argument's basename. */
+		const holder = spawn(
+			process.execPath,
+			["-e", "setInterval(() => {}, 1000)", "refill-loop.js"],
+			{ stdio: "ignore" },
+		);
+		fs.writeFileSync(path.join(refill, ".refill-loop.pid"), String(holder.pid));
+		try {
+			const r = await run({
+				"o/product": [node(1), node(2), node(3)],
+			});
+			expect(r.status).toBe(0);
+			expect(r.out).toContain(
+				"o/product: 1 idle past 2 days (the refill loop does not serve it); oldest #1 (issue 1), idle 5.0 days; skip reason: stopped on its weekly limit (reset Fri)",
+			);
+		} finally {
+			holder.kill();
+		}
 	});
 
 	it("emits the same findings under --json", async () => {
