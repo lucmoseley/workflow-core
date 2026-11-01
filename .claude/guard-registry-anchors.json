@@ -36,7 +36,7 @@
 	"scripts/check-weakens-line.js": "993ed87cb171a3ad",
 	"scripts/check-website-copy.js": "53754ef684161e8c",
 	"scripts/check-workflow-permissions.js": "2224b8e16ee2342c",
-	"scripts/claim-issue.js": "6e10ed58c0249224",
+	"scripts/claim-issue.js": "d366d247506fb83e",
 	"scripts/clear-rule-latch.sh": "8e78765216bf9eb7",
 	"scripts/commit-paths.js": "ae56910459119909",
 	"scripts/concision-backstop.sh": "84d7cdd6921e610d",
