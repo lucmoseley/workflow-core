@@ -20,7 +20,11 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { parseErrLine, ghApiSlurp, ghIssueListAll } = require("./gh.js");
+const {
+	parseErrLine,
+	ghIssuesUpdatedSince,
+	ghIssueListAll,
+} = require("./gh.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { MARKERS_REL } = require("./marker-root.js");
 const { hostRoot } = require("./host-root.js");
@@ -90,19 +94,11 @@ function buildGhDeps(repo) {
 		 * no 1,000-result cap. Its rows carry pull requests, which the issue list
 		 * leaves out. */
 		listSince: (since) =>
-			ghApiSlurp([
-				`repos/${repo}/issues`,
-				"-X",
-				"GET",
-				"-f",
-				"state=all",
-				"-f",
-				`since=${since}`,
-				"-f",
-				"per_page=100",
-			])
-				.filter((i) => !i.pull_request)
-				.map((i) => ({ number: i.number, title: i.title, state: i.state })),
+			ghIssuesUpdatedSince(repo, since).map((i) => ({
+				number: i.number,
+				title: i.title,
+				state: i.state,
+			})),
 		warn: (text) => writeFd(2, `similar-titles: ${text}\n`),
 	};
 }

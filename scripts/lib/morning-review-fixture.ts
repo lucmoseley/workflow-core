@@ -25,7 +25,10 @@ import { runInProcess } from "./run-in-process";
  * run sees the first's issue, and fails where `fail-review-create` exists; a
  * comment appends to its issue there unless `fail-comment` exists. The first
  * create after `hold-create` is written renames it to `holding` and waits for
- * `release`, so its program is seen mid-answer.
+ * `release`, so its program is seen mid-answer. Every create is written to
+ * `created-<number>.json`, which the issues-since read serves, failing where
+ * `fail-issues-since` exists and answering empty once where `empty-issues-since`
+ * does; `fail-after-create` makes a create land and report failure.
  * file-issue.js's similar-title list also holds an open lookalike, #1995,
  * among enough unrelated titles that it scores above the cut.
  */
@@ -43,6 +46,16 @@ if (a[0] === "api" && timeline[5] === "timeline") say([read("timelines.json")[ti
 if (a[0] === "issue" && a[1] === "list" && a[a.indexOf("--label") + 1] === "urgent") say(read("urgent.json"));
 if (a[0] === "issue" && a[1] === "list" && a[a.indexOf("--label") + 1] === "parked") say(read("parked.json"));
 if (a[0] === "api" && a[1] === "repos/acme/wfc/labels") say([[{ name: "takes:wayfinder" }, { name: "takes:implement" }]]);
+if (a[0] === "api" && a[1] === "repos/acme/wfc/issues" && a.some((x) => x.startsWith("since="))) {
+	if (fs.existsSync(f("fail-issues-since"))) { process.stderr.write("HTTP 502\\n"); process.exit(1); }
+	if (fs.existsSync(f("empty-issues-since"))) { fs.rmSync(f("empty-issues-since")); say([[]]); }
+	say([fs.readdirSync(process.env.STUB_DIR).flatMap((n) => {
+		const number = /^created-(\\d+)\\.json$/.exec(n)?.[1];
+		if (!number) return [];
+		const { title, body } = read(n);
+		return [{ number: Number(number), title, state: "open", body }];
+	})]);
+}
 if (a[0] === "issue" && a[1] === "list" && a.includes('in:title "Memory kill incident from"')) say(read("kills.json"));
 if (a[0] === "issue" && a[1] === "list" && a.includes("--search") && !a.includes("--label")) say(read("closed.json"));
 if (a[0] === "issue" && a[1] === "list" && a.includes("--label"))
@@ -67,12 +80,13 @@ if (a[0] === "issue" && a[1] === "create") {
 		while (!fs.existsSync(f("release"))) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
 	}
 	const reviews = read("reviews.json");
-	const number = 900 + reviews.length;
+	const number = 900 + reviews.length + fs.readdirSync(process.env.STUB_DIR).filter((n) => n.startsWith("created-")).length;
 	const title = a[a.indexOf("--title") + 1];
 	if (title.startsWith("Morning review") && fs.existsSync(f("fail-review-create"))) { process.stderr.write("HTTP 502\\n"); process.exit(1); }
 	const labels = a.flatMap((x, i) => (a[i - 1] === "--label" ? [x] : []));
 	const body = fs.readFileSync(0, "utf8");
 	fs.writeFileSync(f("created-" + number + ".json"), JSON.stringify({ title, labels, body }));
+	if (fs.existsSync(f("fail-after-create"))) { process.stderr.write("HTTP 502\\n"); process.exit(1); }
 	if (title.startsWith("Morning review"))
 		fs.writeFileSync(f("reviews.json"), JSON.stringify([...reviews, { number, title, state: "OPEN", createdAt: new Date().toISOString(), body, labels: [] }]));
 	process.stdout.write("https://github.com/acme/wfc/issues/" + number + "\\n");

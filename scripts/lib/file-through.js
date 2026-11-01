@@ -1,9 +1,9 @@
 /*
  * file-through.js — file-issue.js run by a script that has already ruled out
  * the duplicate its similar-title check exists to catch: refused for open
- * lookalike titles, it re-runs naming them `--distinct-from`. Callers: the
- * morning review, its reversals, and the memory kill tickets, each finding
- * its own duplicate by exact title first.
+ * lookalike titles, it re-runs naming them `--distinct-from`. Callers, each
+ * finding its own duplicate first: the morning review and the memory kill
+ * tickets by exact title, the reversals by the request their body names.
  */
 
 const { spawnSync } = require("node:child_process");

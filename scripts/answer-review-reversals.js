@@ -12,8 +12,9 @@
  * primitives-table entry's from the review line itself (#3465).
  *
  * Each filing is recorded in this checkout's markers before the reply, so a
- * reply that fails is retried without filing again; a pid lock keeps a hand
- * run and a loop tick from both filing.
+ * reply that fails is retried without filing again; a filing that landed
+ * unrecorded is found on the entry's tracker and recorded instead (#3828); a
+ * pid lock keeps a hand run and a loop tick from both filing.
  *
  * Joins no §N3 family: a run whose filing or reply failed on gh exits 1, so
  * the loop that runs it retries.
@@ -26,7 +27,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { parseOrExit } = require("./lib/cli-args.js");
-const { parseErrLine, gh } = require("./lib/gh.js");
+const { parseErrLine, gh, ghIssuesUpdatedSince } = require("./lib/gh.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { caught } = require("./lib/caught.js");
 const { fileThrough } = require("./lib/file-through.js");
@@ -61,7 +62,7 @@ const io = scriptIo("answer-review-reversals");
 /**
  * What one run answering reversals carries: the review issue, each included
  * checkout by tracker, and this checkout's record of reversals already filed.
- * @typedef {{review: {repo: string, number: number,
+ * @typedef {{review: {repo: string, number: number, createdAt: string,
  *   entries: ReturnType<typeof review.parseEntries>},
  *   roots: Map<string, string>, filed: Map<string, string>, dryRun: boolean}} Run
  */
@@ -109,6 +110,24 @@ function buildTicket(root, reviewIssue, request, listed) {
 }
 
 /**
+ * The ticket this request already produced on `repo`, open or closed, whatever
+ * the local record says: a create can land and report failure, or outlive the
+ * run that started it. Read from the review's filing on, as no ticket for it can
+ * be older. Residual: a create still in flight is not found, and that run files
+ * a second ticket.
+ * @param {string} repo
+ * @param {Run["review"]} reviewIssue
+ * @param {import("./lib/review-reversal.js").Request} request
+ * @returns {{number: number} | undefined}
+ */
+function findLandedTicket(repo, reviewIssue, request) {
+	const clause = reversal.buildRequestClause(reviewIssue, request);
+	return ghIssuesUpdatedSince(repo, reviewIssue.createdAt).find(
+		(/** @type {{body?: string | null}} */ i) => i.body?.includes(clause),
+	);
+}
+
+/**
  * File one request's ticket in the entry's repo: the outcome to reply with,
  * or null where it failed on gh and is left for the next run.
  * @param {Run} run
@@ -130,6 +149,27 @@ function fileReversal(run, request) {
 		return { why: `no included checkout here files on ${listed.repo}` };
 	const ticket = buildTicket(root, reviewIssue, request, listed);
 	if ("why" in ticket) return ticket;
+	/** @param {number | string} number */
+	const recordFiled = (number) => {
+		const ref = `${listed.repo}#${number}`;
+		if (!dryRun)
+			fs.appendFileSync(
+				path.join(markersDir(hostRoot()), FILED),
+				`${JSON.stringify({ ...request, filed: ref })}\n`,
+			);
+		return { filed: ref };
+	};
+	let landed;
+	try {
+		landed = findLandedTicket(listed.repo, reviewIssue, request);
+	} catch (e) {
+		writeFd(
+			2,
+			`entry ${request.n} of #${reviewIssue.number}: could not look for a ticket already filed (${parseErrLine(e)}), left for the next run\n`,
+		);
+		return null;
+	}
+	if (landed !== undefined) return recordFiled(landed.number);
 	if (dryRun) {
 		io.out(`would file in ${listed.repo}: ${ticket.title}\n\n${ticket.body}\n`);
 		return { filed: `${listed.repo}#<new>` };
@@ -149,14 +189,7 @@ function fileReversal(run, request) {
 		root,
 	);
 	const n = /^Filed #(\d+)/m.exec(filed.stdout ?? "")?.[1];
-	if (n) {
-		const ref = `${listed.repo}#${n}`;
-		fs.appendFileSync(
-			path.join(markersDir(hostRoot()), FILED),
-			`${JSON.stringify({ ...request, filed: ref })}\n`,
-		);
-		return { filed: ref };
-	}
+	if (n) return recordFiled(n);
 	if (filed.status === 2)
 		return {
 			why: `file-issue.js refused it: ${buildQuotedFirstLine(filed.stderr ?? "")}`,
@@ -278,6 +311,7 @@ function answerReversals(tracker, dryRun) {
 				review: {
 					repo: tracker,
 					number: issue.number,
+					createdAt: issue.createdAt,
 					entries: review.parseEntries(issue.body ?? ""),
 				},
 				roots,

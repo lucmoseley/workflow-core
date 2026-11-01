@@ -544,6 +544,32 @@ function ghClosedIssuesWithLabel(label) {
 }
 
 /**
+ * The issues on `repo`, open or closed, updated since `since`: the REST list,
+ * current at once where search's index lags a fresh create, and with no
+ * 1,000-result cap. Pull requests are left out. An empty answer is re-run once
+ * before it is believed (#2565). Throws on a failed read.
+ * @param {string} repo `owner/name`
+ * @param {string} since ISO 8601
+ * @returns {any[]}
+ */
+function ghIssuesUpdatedSince(repo, since) {
+	const read = () =>
+		ghApiSlurp([
+			`repos/${repo}/issues`,
+			"-X",
+			"GET",
+			"-f",
+			"state=all",
+			"-f",
+			`since=${since}`,
+			"-f",
+			"per_page=100",
+		]);
+	const rows = read();
+	return (rows.length > 0 ? rows : read()).filter((i) => !i.pull_request);
+}
+
+/**
  * A whole-tracker `gh issue list`, ceiling-checked. `what` names the rows in
  * the truncation message.
  * @param {string} what
@@ -569,6 +595,7 @@ module.exports = {
 	ghDefaultRepo,
 	ghApiSlurp,
 	ghApiSlurpAsync,
+	ghIssuesUpdatedSince,
 	ghGetRetrying,
 	retryingOnce,
 	mapLimit,

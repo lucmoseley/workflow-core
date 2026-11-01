@@ -38,6 +38,15 @@ const TITLE_TEXT_MAX = 80;
  *   `owner/name#n`, or why none was
  */
 
+/**
+ * What a reversal ticket's body says of the request that produced it, and all
+ * that tells that ticket from another with the same title.
+ * @param {{repo: string, number: number}} review
+ * @param {Request} request
+ */
+const buildRequestClause = (review, request) =>
+	`reversed entry ${request.n} of the morning review ${review.repo}#${review.number} (${commentLink(review.number, request.commentUrl)})`;
+
 /** @param {string} url @param {number | null} n */
 const buildMarker = (url, n) => `<!-- reversal-of ${url} entry ${n ?? "?"} -->`;
 
@@ -91,7 +100,7 @@ function buildReversalTicket({ review, request, entry: e }) {
 		body: [
 			"## What to build",
 			"",
-			`The founder reversed entry ${request.n} of the morning review ${review.repo}#${review.number} (${commentLink(review.number, request.commentUrl)}): the delegated decision recorded on ${e.repo}#${e.issue} (${commentLink(e.issue, e.comment)}). Undo the option taken and build the runner-up in its place.`,
+			`The founder ${buildRequestClause(review, request)}: the delegated decision recorded on ${e.repo}#${e.issue} (${commentLink(e.issue, e.comment)}). Undo the option taken and build the runner-up in its place.`,
 			"",
 			`- Question: ${quoted(e.question)}`,
 			`- Taken: ${quoted(e.taken.option)} — ${e.taken.figure}%`,
@@ -142,7 +151,7 @@ function buildPrimitiveReversalTicket({ review, request, entry: e }) {
 		body: [
 			"## What to build",
 			"",
-			`The founder reversed entry ${request.n} of the morning review ${review.repo}#${review.number} (${commentLink(review.number, request.commentUrl)}): commit ${e.sha} ${UNDO[e.change].did} the ${e.side} primitives-table row in \`${file}\`. ${UNDO[e.change].undo(e.cells)}, and whatever the commit changed to match it.`,
+			`The founder ${buildRequestClause(review, request)}: commit ${e.sha} ${UNDO[e.change].did} the ${e.side} primitives-table row in \`${file}\`. ${UNDO[e.change].undo(e.cells)}, and whatever the commit changed to match it.`,
 			"",
 			`- Job: ${quoted(e.job)}`,
 			`- Primitive: ${quoted(e.primitive)}`,
@@ -175,6 +184,7 @@ const buildAckComment = (reviewNumber, request, outcome) =>
 module.exports = {
 	buildAckComment,
 	buildPrimitiveReversalTicket,
+	buildRequestClause,
 	buildReversalTicket,
 	pendingRequests,
 };

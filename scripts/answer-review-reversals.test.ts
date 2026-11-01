@@ -142,6 +142,70 @@ describe("answer-review-reversals.js (#2017)", () => {
 		);
 	});
 
+	it("names a ticket whose create landed reporting failure, on the next run (#3828)", () => {
+		seed([openReview()]);
+		fs.writeFileSync(stub("fail-after-create"), "");
+		const failed = run();
+		expect(failed.status).toBe(1);
+		expect(failed.stderr).toContain("left for the next run");
+		expect(readCreated()).toHaveLength(1);
+		fs.rmSync(stub("fail-after-create"));
+		fs.writeFileSync(stub("fail-comment"), "");
+		expect(run().status).toBe(1);
+		expect(readCreated()).toHaveLength(1);
+		fs.rmSync(stub("fail-comment"));
+		/* Named off the record now: this run's read of the tracker would fail. */
+		fs.writeFileSync(stub("fail-issues-since"), "");
+		const named = run();
+		expect(named.stderr).toBe("");
+		expect(named.status).toBe(0);
+		expect(readCreated()).toHaveLength(1);
+		expect(readReplies().at(-1)).toMatch(
+			/^\*\*Reversal filed:\*\* entry 1 → acme\/wfc#9\d\d, for/,
+		);
+	});
+
+	it("looks again before filing where the read for a landed ticket comes back empty (#3828)", () => {
+		const review = openReview();
+		seed([review]);
+		fs.writeFileSync(stub("fail-after-create"), "");
+		run();
+		fs.rmSync(stub("fail-after-create"));
+		fs.writeFileSync(stub("empty-issues-since"), "");
+		expect(run().status).toBe(0);
+		expect(readCreated()).toHaveLength(1);
+		expect(fs.readFileSync(stub("calls.log"), "utf8")).toContain(
+			`since=${review.createdAt}`,
+		);
+	});
+
+	it("files a reversal whose title another request's ticket already carries (#3828)", () => {
+		seed([openReview()]);
+		/* The URL holds this request's as a prefix, as `entry 1` does `entry 12`. */
+		fs.writeFileSync(
+			stub("created-800.json"),
+			JSON.stringify({
+				title: "Reverse a delegated decision on #2: Inside the window",
+				labels: ["takes:implement"],
+				body: `The founder reversed entry 1 of the morning review acme/wfc#5 ([#5 comment](${Request}0)): the delegated decision.`,
+			}),
+		);
+		expect(run().status).toBe(0);
+		expect(readCreated()).toHaveLength(2);
+		expect(readReplies()[0]).toMatch(/entry 1 → acme\/wfc#9\d\d, for/);
+	});
+
+	it("files nothing where the look for a landed ticket fails (#3828)", () => {
+		seed([openReview()]);
+		fs.writeFileSync(stub("fail-issues-since"), "");
+		const r = run();
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(
+			"entry 1 of #5: could not look for a ticket already filed (HTTP 502), left for the next run",
+		);
+		expect(readCreated()).toHaveLength(0);
+	});
+
 	it("files nothing while a live run holds the reversal lock", () => {
 		seed([openReview()]);
 		/* pid-lock.js reads a holder by its command line, so the holder runs
