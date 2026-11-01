@@ -399,6 +399,13 @@
 			"tools": "Read",
 			"failure": "open",
 			"host": "image-budget-host.js"
+		},
+		{
+			"name": "guard-typecheck-red",
+			"core": "typecheck-red.js",
+			"tools": "Bash",
+			"failure": "open",
+			"host": "typecheck-red-host.js"
 		}
 	]
 }

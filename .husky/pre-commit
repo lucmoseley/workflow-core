@@ -873,6 +873,9 @@ fi
 # Residual: a declared command that exits 75 for a reason of its own is
 # reported as a held slot, its output unshown.
 #
+# A RED try's stderr goes through whatever the commit was piped into, so
+# record-typecheck-red.js keeps it for the session's next Bash answer (#3824).
+#
 # Armed on .js too, as tsconfig.json's checkJs takes it into the program (#3796).
 # Residual: an adopter's .js outside its program pays for a run that reads nothing of it.
 if armed '\.(js|ts|tsx|mts)$|^tsconfig\.json$'; then
@@ -887,6 +890,8 @@ if armed '\.(js|ts|tsx|mts)$|^tsconfig\.json$'; then
       printf '%s\n' "$tsc_out" >&2
       echo "  In this shared tree the error may be a parallel session's half-written file, not yours (mantahostels#273)." >&2
       echo "  Re-run '$tc_cmd' on a still tree before believing it. ci.yml's Typecheck step is the gate." >&2
+      # `|| true`: a record that cannot be made must not refuse a gate that only reports.
+      printf '%s\n' "$tsc_out" | node "${WFC_PLUGIN_ROOT:-.}"/scripts/record-typecheck-red.js -- "$tc_cmd" || true
     fi
   fi
 fi

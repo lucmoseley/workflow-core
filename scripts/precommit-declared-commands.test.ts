@@ -26,6 +26,7 @@ import { newRepo, registerTempCleanup } from "./lib/precommit-gate-harness";
 import { HOOK, LIB, ROOT } from "./lib/precommit-gate-testkit";
 import { copyRequireClosure } from "./lib/require-closure";
 import { runInProcess } from "./lib/run-in-process";
+import { takeRed } from "./lib/typecheck-red-host.js";
 
 const temps = registerTempCleanup();
 const INFER = path.join(ROOT, "scripts", "lib", "infer-commands.js");
@@ -168,6 +169,50 @@ it("reports a red declared typecheck without blocking the commit", () => {
 	expect(code).toBe(0);
 	expect(out).toContain("tsc-said-no");
 	expect(out).toContain("is RED — reporting only");
+});
+
+const SID = "11111111-2222-3333-4444-555555555555";
+const RED = "echo tsc-said-no; exit 1";
+
+describe("the record a red declared typecheck leaves for its session (#3824)", () => {
+	/** The gate's commit, its output piped through `tail` as sessions do. */
+	function commitPiped(typecheck: string, sid = SID) {
+		const root = fixture({ commands: { typecheck } });
+		copyRequireClosure(root, ROOT, ["scripts/record-typecheck-red.js"]);
+		const env: NodeJS.ProcessEnv = {
+			...process.env,
+			CLAUDE_CODE_SESSION_ID: sid,
+			RAN_DIR: root,
+		};
+		delete env.CLAUDE_PROJECT_DIR;
+		const r = spawnSync(
+			"sh",
+			["-ec", `{\n${LIB}\n${GATES.typecheck}\n:\n} 2>&1 | tail -1`],
+			{ cwd: root, env, encoding: "utf8" },
+		);
+		return { root, heard: r.stdout };
+	}
+
+	it("carries the command and its output past the pipe", () => {
+		const { root, heard } = commitPiped(RED);
+		expect(heard).not.toMatch(/^tsc-said-no$/m);
+		expect(takeRed(root, SID, () => undefined)).toMatchObject({
+			command: RED,
+			output: "tsc-said-no\n",
+			cut: false,
+		});
+	});
+
+	it.each([
+		["a green command", "true", SID],
+		["a held slot", "exit 75", SID],
+		["no session id", RED, ""],
+	])("records nothing on %s", (_name, typecheck, sid) => {
+		const { root } = commitPiped(typecheck, sid);
+		const markers = path.join(root, ".claude/tmp/markers");
+		const left = fs.existsSync(markers) ? fs.readdirSync(markers) : [];
+		expect(left.filter((f) => f.startsWith(".typecheck-red-"))).toEqual([]);
+	});
 });
 
 it("skips the declared typecheck at once, saying so, where its no-wait try finds the type-check slot held (#3278)", () => {

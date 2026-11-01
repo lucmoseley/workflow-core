@@ -696,6 +696,12 @@
 					"text": "By this hook's count these no longer reach you"
 				},
 				{
+					"id": "typecheck-red-heard",
+					"core": "guard-typecheck-red",
+					"kind": "notice",
+					"text": "pre-commit type-check ran RED at"
+				},
+				{
 					"id": "repeat-identical-answer",
 					"core": "guard-echo-call",
 					"kind": "deny",

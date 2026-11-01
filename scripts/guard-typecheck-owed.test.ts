@@ -18,6 +18,7 @@ import { readStopGuardBlock } from "./lib/stop-guard-testkit";
 const require_ = createRequire(__filename);
 const { queueExitLogPath } = require_("./lib/queue-exit-log.js");
 const { MAX_BLOCKS } = require_("./lib/hook-block.js");
+const { recordRed } = require_("./lib/typecheck-red-host.js");
 
 const GUARD = path.join(__dirname, "guard-typecheck-owed.js");
 const SID = "11111111-2222-3333-4444-555555555555";
@@ -126,6 +127,22 @@ describe("guard-typecheck-owed", () => {
 	it("is silent where no type-check command is declared", () => {
 		declareCommands({});
 		writeLog([HELD]);
+		expect(run()).toBeNull();
+	});
+
+	it("takes a RED try still unheard, once, with no held try", () => {
+		recordRed(root, SID, {
+			command: "npm run typecheck",
+			output: "a.ts(1,1): error TS1",
+		});
+		const reason = run()?.reason;
+		expect(reason).toContain("a.ts(1,1): error TS1");
+		expect(reason).toContain("this block discarded it");
+		expect(run()).toBeNull();
+	});
+
+	it("never takes a neighbour's RED try", () => {
+		recordRed(root, OTHER, { command: "c", output: "e" });
 		expect(run()).toBeNull();
 	});
 

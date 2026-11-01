@@ -103,6 +103,7 @@ const MARKER_PREFIXES = [
 	".automode-refusal-nagged-",
 	".automode-refusal-seen-",
 	".typecheck-owed-nagged-",
+	".typecheck-red-",
 	".unpushed-nagged-",
 	".unpushed-seen-",
 	".exhausted-map-nagged-",

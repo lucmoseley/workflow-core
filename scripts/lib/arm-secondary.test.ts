@@ -356,6 +356,7 @@ const HOOK_CALLS: Record<string, (string | null)[]> = {
 	"scripts/lib/isolated-worktree.js": ["test"],
 	"scripts/lib/serialised.sh": ["shellcheck"],
 	"scripts/generate-rule-fragments.js": [null, "rule-fragments"],
+	"scripts/record-typecheck-red.js": [null],
 };
 /** The hook's inline `pre-commit:` heads that refuse nothing. */
 const HOOK_NOTICES = [
