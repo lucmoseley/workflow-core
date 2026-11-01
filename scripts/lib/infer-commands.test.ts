@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * lib/infer-commands.js's `runsLintStaged` (#2587): a command runs lint-staged
+ * lib/infer-commands.js's `isLintStagedCommand` (#2587): a command runs lint-staged
  * itself, or through the `package.json` scripts it runs, however the call is
  * spelled. Its `classifyCheckStaged` (#2731): each `biome check --staged`
  * shape maps to biome-staged.js or is refused, naming the way out (#2599).
@@ -23,7 +23,7 @@ import {
 	BIOME_STAGED_COMMAND,
 	classifyCheckStaged,
 	inferCommands,
-	runsLintStaged,
+	isLintStagedCommand,
 } from "./infer-commands.js";
 import { runInProcess } from "./run-in-process";
 
@@ -49,7 +49,7 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-describe("runsLintStaged", () => {
+describe("whether a command runs lint-staged (#2587)", () => {
 	it.each([
 		"lint-staged",
 		"npx lint-staged && tsc",
@@ -74,7 +74,7 @@ describe("runsLintStaged", () => {
 		// A script name quoted in part (#3445).
 		'npm run p"re"',
 	])("counts %j", (command) => {
-		expect(runsLintStaged(dir, command)).toBe(true);
+		expect(isLintStagedCommand(dir, command)).toBe(true);
 	});
 
 	it.each([
@@ -85,13 +85,13 @@ describe("runsLintStaged", () => {
 		"pnpm run nosuch\ntsc",
 		'concurrently "pnpm run nosuch" "tsc"',
 	])("does not count %j", (command) => {
-		expect(runsLintStaged(dir, command)).toBe(false);
+		expect(isLintStagedCommand(dir, command)).toBe(false);
 	});
 
 	it("does not count a command running no script, reading no unparsable package.json (#3546)", () => {
 		fs.writeFileSync(path.join(dir, "package.json"), "{ not json");
-		expect(runsLintStaged(dir, "eslint .")).toBe(false);
-		expect(() => runsLintStaged(dir, "npm run pre")).toThrow(
+		expect(isLintStagedCommand(dir, "eslint .")).toBe(false);
+		expect(() => isLintStagedCommand(dir, "npm run pre")).toThrow(
 			"package.json does not parse",
 		);
 	});

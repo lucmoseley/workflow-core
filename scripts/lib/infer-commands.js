@@ -1,7 +1,7 @@
 /*
  * infer-commands.js — a repo's commands, `SCRIPT_NAMES`'s keys, found rather than asked (#692): `package.json` scripts first, then
  * pytest config, then `*.test.js` files ⇒ `node --test`. Only `test` has the
- * two fallbacks. An empty repo gets none. `runsLintStaged` judges whether a
+ * two fallbacks. An empty repo gets none. `isLintStagedCommand` judges whether a
  * `check_staged` runs lint-staged, which init refuses (#2587), and
  * `classifyCheckStaged` whether one running `biome check --staged` maps to
  * biome-staged.js or is refused (#2731). Run as a script it is
@@ -553,7 +553,7 @@ const LINT_STAGED = /(?:^|\/)lint-staged(?:@.*)?$/;
  * @param {string} command
  * @returns {boolean}
  */
-function runsLintStaged(root, command) {
+function isLintStagedCommand(root, command) {
 	const pkg = packagesOnDemand();
 	return (
 		walkRunScripts(
@@ -1388,7 +1388,7 @@ if (require.main === module) process.exit(main(process.argv.slice(2)));
 
 module.exports = {
 	inferCommands,
-	runsLintStaged,
+	isLintStagedCommand,
 	classifyCheckStaged,
 	BIOME_STAGED_COMMAND,
 };
