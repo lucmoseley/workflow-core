@@ -1,5 +1,5 @@
 {
-	"about": "The removal-residue census's strict patterns (#2153, spec #2259). Each pattern is PCRE and JavaScript-compatible, case-sensitive, matched one line at a time: `git grep -n -I -P -e '<pattern>' -- . <exclude…>` reruns a kind. K5 runs the same way over the files `testFile` matches only: the census's own reading, apart from test-kind.js's `isTestKind` because K5's precision was sampled over it. K8 has no line pattern: read each file `ledgerPattern` matches, and each file `repoPaths` lists for the repo. A hit is a line to read, never to bulk-delete: precision is the share of sampled hits that were true residue.",
+	"about": "The removal-residue census's strict patterns (#2153, spec #2259). Each pattern is PCRE and JavaScript-compatible, case-sensitive, matched one line at a time: `git grep -n -I -P -e '<pattern>' -- . <exclude…>` reruns a kind. K5 runs the same way over the files `testFile` matches only: the census's own reading, apart from test-kind.js's `isTestKind` because K5's precision was sampled over `testFile`. K8 has no line pattern: read each file `ledgerPattern` matches, and each file `repoPaths` lists for the repo. A hit is a line to read, never to bulk-delete: precision is the share of sampled hits that were true residue.",
 	"exclude": [
 		":!package-lock.json",
 		":!*.lock",

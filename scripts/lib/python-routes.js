@@ -3,6 +3,7 @@
  * .claude/workflow-core.json disagrees with its code-standards local file's
  * route table on Python (#1863). The swallowed-error gate routes by
  * `pythonRoutes`, a copy of the table's Python rows (#1830); the table wins.
+ * `pythonRouteKind` is that gate's lookup of a path's row in `pythonRoutes`.
  *
  * WHICH ROWS: the table under the local file's `## Route rows` heading, each
  * backticked glob in a row's path cell taken alone, the prose beside them
