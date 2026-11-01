@@ -72,6 +72,7 @@ function ghServing({
 			body,
 			labels: [],
 			parent: null,
+			subIssues: { nodes: [] },
 		}),
 	);
 	const gql = path.join(dir, "gql.js");

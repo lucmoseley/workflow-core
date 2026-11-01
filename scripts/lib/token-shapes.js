@@ -270,7 +270,7 @@ function buildStored(names) {
  * would otherwise split them at an `hf_` or `ghp_` inside.
  * @param {string} text
  * @param {string[]} [names] the secrets file's names, from
- *   `lib/env-file.js`'s `storedNames`: identifiers, put in the pattern as
+ *   `lib/env-file.js`'s `readStoredNames`: identifiers, put in the pattern as
  *   they are
  * @returns {{ text: string, count: number }}
  */
