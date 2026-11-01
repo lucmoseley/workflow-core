@@ -451,8 +451,8 @@
 			"source": "#3143"
 		},
 		"scripts/self-plugin-canary.sh": {
-			"digest": "156ebc3e591c0655",
-			"verdict": "at need — every tool call of a session with no self-plugin marker exits 2, from the first (622 B on stderr; 767 B with the could-not-check line where the input carries no session id); silent once write-self-plugin-marker.sh has written the marker",
+			"digest": "d063cded52b2f799",
+			"verdict": "at need — every tool call of a session with no self-plugin marker exits 2, from the first (585 B on stderr in this checkout, the figures carrying its path; 730 B with the could-not-check line where the input carries no session id; 648 B with the closing line naming lib/script-path.sh where that library will not load, the setup path always quoted there; fed under #3798); silent once write-self-plugin-marker.sh has written the marker",
 			"selfSufficient": "yes — the cause, the literal `! claude plugin marketplace add '<main checkout>/self-plugin' --scope user` for the founder and the restart inline",
 			"source": "#2586"
 		},
