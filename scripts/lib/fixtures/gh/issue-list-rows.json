@@ -1,0 +1,5 @@
+{
+	"status": 0,
+	"stdout": "[{\"body\":\"A synthetic body.\",\"closedAt\":\"2000-01-01T00:00:00Z\",\"comments\":[{\"id\":\"IC_synthetic\",\"author\":{\"login\":\"synthetic\"},\"authorAssociation\":\"OWNER\",\"body\":\"A synthetic comment.\",\"createdAt\":\"2000-01-01T00:00:00Z\",\"includesCreatedEdit\":false,\"isMinimized\":false,\"minimizedReason\":\"\",\"reactionGroups\":[],\"url\":\"https://github.com/synthetic/synthetic/issues/1#issuecomment-1\",\"viewerDidAuthor\":true}],\"createdAt\":\"2000-01-01T00:00:00Z\",\"labels\":[{\"id\":\"LA_synthetic\",\"name\":\"kind:spec\",\"description\":\"A synthetic label\",\"color\":\"0052CC\"}],\"number\":1,\"state\":\"CLOSED\",\"title\":\"A synthetic issue\",\"url\":\"https://github.com/synthetic/synthetic/issues/1\"}]\n",
+	"stderr": ""
+}

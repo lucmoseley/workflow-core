@@ -1,0 +1,5 @@
+{
+	"status": 0,
+	"stdout": "[[{\"id\":1,\"node_id\":\"LA_synthetic\",\"url\":\"https://api.github.com/repos/synthetic/synthetic/labels/synthetic\",\"name\":\"synthetic\",\"color\":\"0052CC\",\"default\":true,\"description\":\"A synthetic label\",\"archived_at\":null,\"archived_by\":null}]]",
+	"stderr": ""
+}
