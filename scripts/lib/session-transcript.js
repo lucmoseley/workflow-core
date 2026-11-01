@@ -11,7 +11,7 @@
 const fs = require("node:fs");
 
 const store = require("./arbiter-store");
-const { findTranscript } = require("./transcript");
+const { findNewestTranscript } = require("./transcript");
 const { parseJsonlRow } = require("./jsonl.js");
 
 /* A whole-file read is affordable at the handful of Stops a session has. The
@@ -45,11 +45,7 @@ function resolve(payload, sessionId) {
 	/* Every config dir on the machine, not just this session's: three Claude
 	 * plans run here, and a transcript found under any of them is this
 	 * session's. */
-	for (const dir of store.configDirs()) {
-		const found = findTranscript(dir, sessionId);
-		if (found) return found;
-	}
-	return null;
+	return findNewestTranscript(store.configDirs(), sessionId)?.file ?? null;
 }
 
 /**

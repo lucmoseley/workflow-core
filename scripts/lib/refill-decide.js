@@ -111,9 +111,14 @@ const ALREADY_RUNNING = "already running";
 
 /**
  * The picker's tokens (#3732), then a parked resume's, which goes back to its
- * own session's seat.
+ * own session's seat, and a moved session's (#3734), naming the seat it left.
  * @typedef {"last typed on" | "soonest reset" | "overflow"
- *   | "parked session's seat"} SeatReason
+ *   | "parked session's seat" | `moved from ${string}`} SeatReason
+ */
+
+/**
+ * A seat whose limit moved a session off it, and when that limit blocked it.
+ * @typedef {{seat: string, since: number}} SeatLeft
  */
 
 /**
@@ -318,14 +323,29 @@ function pickSeat({ seats, overflow = [], typedSeat = null }) {
  * walk over `seats` sized for one session, as it already holds its slot, with
  * its own seat passed over until a reading taken since the block shows room,
  * so an older one never sends it back into the limit. Passed over, not left
- * out: a seat full on its 5-hour bar still keeps overflow shut (#2570).
+ * out: a seat full on its 5-hour bar still keeps overflow shut (#2570). Each
+ * seat a limit moved it off is passed over the same way (#3734).
  * @param {Pick<TickInput, "seats"|"overflow"|"typedSeat"> &
- *   {ownSeat: string, since: number}} input `since`, ms, when it blocked
+ *   {ownSeat: string, since: number, left?: SeatLeft[]}} input `since`, ms,
+ *   when it blocked
  */
-function pickMoveSeat({ seats, overflow, typedSeat, ownSeat, since }) {
+function pickMoveSeat({
+	seats,
+	overflow,
+	typedSeat,
+	ownSeat,
+	since,
+	left = [],
+}) {
+	const blockedAt = new Map([
+		...left.map((x) => /** @type {const} */ ([x.seat, x.since])),
+		[ownSeat, since],
+	]);
 	return pickSeat({
 		seats: seats.map((s) =>
-			s.seat === ownSeat && s.readAt <= since ? { ...s, fits: 0 } : s,
+			s.readAt <= (blockedAt.get(s.seat) ?? Number.NEGATIVE_INFINITY)
+				? { ...s, fits: 0 }
+				: s,
 		),
 		overflow,
 		typedSeat,

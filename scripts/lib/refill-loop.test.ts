@@ -1214,6 +1214,32 @@ describe("a tick's seat read past a seat sized 0 (#2432)", () => {
 	});
 });
 
+describe("a move's seat reading (#3734)", () => {
+	it("probes and sizes every seat with room, past the first, the move passing its own seat over", () => {
+		const probed: string[][] = [];
+		const asked: string[] = [];
+		const { seats } = readSizedSeats(1, {
+			read: (usage: Map<string, string>) => [
+				seat("own", 10, 10),
+				usage.has("other") ? seat("other", 10, 10) : seat("other", null, null),
+			],
+			probe: (stale: string[]) => {
+				probed.push(stale);
+				return { usage: new Map(stale.map((s) => [s, ""])), probes: [] };
+			},
+			sizeOf: (s: string) => {
+				asked.push(s);
+				return 1;
+			},
+			typedSeat: "own",
+			sizeAll: true,
+		});
+		expect(probed).toEqual([["other"]]);
+		expect(asked.sort()).toEqual(["other", "own"]);
+		expect(seats.map((s: { fits: number | null }) => s.fits)).toEqual([1, 1]);
+	});
+});
+
 describe("a tick's seat read in launch order (#3740)", () => {
 	it("probes and sizes the typed seat first, though it is last in the seat file and stale", () => {
 		const probed: string[][] = [];

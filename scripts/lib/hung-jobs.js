@@ -9,7 +9,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { findTranscript } = require("./transcript");
+const { findNewestTranscript } = require("./transcript");
 const { configDirs } = require("./arbiter-store");
 const { jobStatePath, jobStorePath, rosterPath } = require("./job-paths.js");
 
@@ -140,20 +140,13 @@ function readJobs() {
  * @returns {Silence}
  */
 function transcriptSilence(sessionId) {
-	for (const dir of configDirs()) {
-		const file = findTranscript(dir, sessionId);
-		if (!file) continue;
-		try {
-			return {
-				file,
-				minutes: (Date.now() - fs.statSync(file).mtimeMs) / 60_000,
-			};
-		} catch {
-			/* Found but unstattable — keep looking rather than reading an
-			 * unreadable transcript as an absent one. */
-		}
-	}
-	return { file: null, minutes: null };
+	const newest = findNewestTranscript(configDirs(), sessionId);
+	return newest
+		? {
+				file: newest.file,
+				minutes: (Date.now() - newest.mtimeMs) / 60_000,
+			}
+		: { file: null, minutes: null };
 }
 
 /**

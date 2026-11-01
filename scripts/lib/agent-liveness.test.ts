@@ -430,6 +430,28 @@ describe("every plan's listing (#3512)", () => {
 		expect(ids.sort()).toEqual(["a1", "b1", "own", "shared"]);
 	});
 
+	it("keeps a seat's live record over an earlier seat's terminal one for one session (#3734)", () => {
+		const a = path.join(dir, "seat-a");
+		fs.mkdirSync(a);
+		process.env.WFC_CLAUDE_CONFIG_A = a;
+		process.env.WFC_CLAUDE_CONFIG_B = path.join(dir, "no-b");
+		process.env.WFC_CLAUDE_CONFIG_C = path.join(dir, "no-c");
+		const row = (state: string) =>
+			JSON.stringify([
+				{ sessionId: "moved", id: "moved", kind: "background", state },
+			]);
+		const bin = path.join(dir, "claude");
+		fs.writeFileSync(
+			bin,
+			`#!/bin/sh\ncase "$CLAUDE_CONFIG_DIR" in\n  "${a}") echo '${row("working")}' ;;\n  *) echo '${row("stopped")}' ;;\nesac\n`,
+			{ mode: 0o755 },
+		);
+		process.env.WFC_CLAUDE_BIN = bin;
+		expect(liveness.listedAgents({ requireSelf: false }).agents).toMatchObject([
+			{ sessionId: "moved", state: "working" },
+		]);
+	});
+
 	it("refuses the whole listing where any one seat's read fails", () => {
 		seats();
 		fs.writeFileSync(path.join(dir, "b-fails"), "");

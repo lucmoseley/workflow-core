@@ -99,10 +99,32 @@ describe("the LIMIT row (#3735)", () => {
 			).toBe("resume-in-place");
 		});
 
-		it(`${mode}: holds where the walk goes to another seat`, () => {
+		it(`${mode}: moves where the walk goes to another seat, one held only into a free slot (#3734)`, () => {
 			const seats = [reading("own", 100, null), reading("other", 10)];
-			expect(blockAct(limited(seats), mode, NOW)).toBe("hold");
+			expect(blockAct(limited(seats), mode, NOW)).toBe("move");
 			expect(blockAct(limited(seats, { held: true }), mode, NOW)).toBe("wait");
+			expect(
+				blockAct(limited(seats, { held: true, slotFree: true }), mode, NOW),
+			).toBe("move");
+		});
+
+		it(`${mode}: holds a move until its next try is due, and moves one held past the bound rather than parking it (#3734)`, () => {
+			const seats = [reading("own", 100, null), reading("other", 10)];
+			const spaced = limited(seats, { nextAt: NOW + MIN });
+			expect(blockAct(spaced, mode, NOW)).toBe("hold");
+			expect(blockAct(spaced, mode, NOW + MIN)).toBe("move");
+			const old = NOW - 9 * 24 * 60 * MIN;
+			const pastBound = { held: true, heldAt: old, slotFree: true };
+			expect(blockAct(limited(seats, pastBound), mode, NOW)).toBe("move");
+		});
+
+		it(`${mode}: parks one whose moves failed or bought no reply to the cap (#3734)`, () => {
+			const seats = [reading("own", 100, null), reading("other", 10)];
+			const failed = { held: true, slotFree: true, tries: RESUME_CAP };
+			expect(blockAct(limited(seats, failed), mode, NOW)).toBe("stop-and-park");
+			expect(
+				blockAct(limited(seats, { dryResumes: RESUME_CAP }), mode, NOW),
+			).toBe("stop-and-park");
 		});
 
 		it(`${mode}: holds until a re-blocked session's next try is due`, () => {
@@ -161,9 +183,9 @@ describe("the LIMIT row (#3735)", () => {
 		};
 		const capOf = (over = {}) =>
 			buildLimitParkWhy(limited([weekShut], over), NOW);
-		expect(capOf(atAll)).toBe(`${RESUME_CAP} failed resumes in place`);
+		expect(capOf(atAll)).toBe(`${RESUME_CAP} failed resumes or moves`);
 		expect(capOf({ ...atAll, tries: RESUME_CAP - 1 })).toBe(
-			`${RESUME_CAP} resumes in place in a row with no reply`,
+			`${RESUME_CAP} resumes or moves in a row with no reply`,
 		);
 		expect(
 			capOf({ ...atAll, tries: RESUME_CAP - 1, dryResumes: RESUME_CAP - 1 }),

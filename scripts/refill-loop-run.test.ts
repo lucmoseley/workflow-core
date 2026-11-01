@@ -47,9 +47,11 @@ import {
 	API_PROMPT,
 	IDLE_PROMPT,
 	LIMIT_PROMPT,
+	MOVED_PROMPT,
 	PARKED_PROMPT,
 } from "./lib/loop-prompts.js";
 import { buildMeminfo } from "./lib/meminfo-fake";
+import { projectSlug } from "./lib/project-slug.js";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 import { buildUsageCache } from "./lib/usage-probe-fake";
 import { readProgramLibs } from "./lib-closure-fixture";
@@ -1379,6 +1381,144 @@ describe("a session held on its seat's limit (#3735)", () => {
 		expect(concurrencyRow()).toMatchObject({
 			working: Admitted - 1,
 			ceiling: Admitted + 1,
+		});
+	});
+
+	describe("moved to another plan seat (#3734)", () => {
+		const Session = "s-job7000-full";
+		const Short = "s-job700";
+		const slug = () => projectSlug(repo);
+		const target = () => at("seat2");
+		const targetRecord = () => path.join(target(), "jobs", Short, "state.json");
+		const oldTranscript = () =>
+			path.join(seat, "projects", slug(), `${Session}.jsonl`);
+		const newTranscript = () =>
+			path.join(target(), "projects", slug(), `${Session}.jsonl`);
+
+		/** Two plan seats: this one spent on `week`, the other low; the launch's
+		 * job blocked on its limit there, its transcript on disk and no slug
+		 * directory on the other seat. */
+		const seedMove = () => {
+			seed(Session, false);
+			fs.mkdirSync(target());
+			fs.writeFileSync(
+				path.join(target(), ".claude.json"),
+				JSON.stringify(buildUsageCache({ session: 10, week: 10 }, Date.now())),
+			);
+			weekAt(100);
+			fs.mkdirSync(path.dirname(oldTranscript()), { recursive: true });
+			fs.writeFileSync(
+				oldTranscript(),
+				`${JSON.stringify({
+					type: "assistant",
+					message: { content: [{ type: "text", text: "Working." }] },
+				})}\n`,
+			);
+			fs.writeFileSync(
+				jobFile(),
+				JSON.stringify({
+					...JSON.parse(
+						blockedJobRecord("You've hit your weekly limit", oldTranscript()),
+					),
+					sessionId: Session,
+					cwd: repo,
+				}),
+			);
+			fs.writeFileSync(
+				at(".refill-loop-control.json"),
+				JSON.stringify({
+					startedAt: Date.now(),
+					stopRequested: false,
+					seats: [seat, target()],
+					scope: { mode: "normal", repos: [repo], exclude: [], goals: {} },
+				}),
+			);
+		};
+		const claudeFor = (onResume: string) => {
+			const response = buildRekeyedResponse("continued", Short, FAKE_COPY);
+			fs.writeFileSync(at("bg-stdout"), response.stdout);
+			fs.writeFileSync(at("bg-stderr"), response.stderr);
+			writeClaudeStub(at("claude"), [
+				`calls=${JSON.stringify(at("calls"))}`,
+				buildAgentsBranch([
+					LISTED,
+					buildJobRow(Job, "blocked", { sessionId: Session }),
+				]),
+				`if [ "$1" = "stop" ] || [ "$1" = "rm" ]; then echo "$* in $CLAUDE_CONFIG_DIR" >> "$calls"; [ "$1" = "rm" ] && rm -rf "$CLAUDE_CONFIG_DIR/jobs/$2"; echo stopped; exit 0; fi`,
+				`if [ "$1" = "--bg" ]; then echo "$1 $2 $3 in $CLAUDE_CONFIG_DIR from $PWD" >> "$calls"; ${onResume} cat ${JSON.stringify(at("bg-stdout"))}; cat ${JSON.stringify(at("bg-stderr"))} >&2; exit 0; fi`,
+			]);
+		};
+		const startsOnTarget = () => {
+			const record = JSON.stringify({
+				state: "running",
+				sessionId: Session,
+				cwd: repo,
+				linkScanPath: newTranscript(),
+			});
+			return `mkdir -p ${JSON.stringify(path.dirname(targetRecord()))}; echo '${record}' > ${JSON.stringify(targetRecord())};`;
+		};
+
+		it("stops, copies into a missing slug directory, removes a stale record, resumes by id, confirms, rewrites, comments: all in one tick", async () => {
+			seedMove();
+			fs.mkdirSync(path.dirname(targetRecord()), { recursive: true });
+			fs.writeFileSync(targetRecord(), JSON.stringify({ state: "stopped" }));
+			claudeFor(
+				`printf '%s' "$4" > ${JSON.stringify(at("prompt-seen"))}; ${startsOnTarget()}`,
+			);
+			const r = await oneTick(Run, 1);
+			expect(r.status).toBe(0);
+			expect(fs.readFileSync(at("prompt-seen"), "utf8")).toBe(MOVED_PROMPT);
+			expect(readLines(at("calls"))).toEqual([
+				`stop ${Job} in ${seat}`,
+				`rm ${Short} in ${target()}`,
+				`--bg --resume ${Session} in ${target()} from ${repo}`,
+			]);
+			expect(fs.readFileSync(newTranscript(), "utf8")).toBe(
+				fs.readFileSync(oldTranscript(), "utf8"),
+			);
+			expect(launchState()).toMatchObject({
+				seat: target(),
+				reason: expect.stringMatching(/^moved from /),
+				finishedAt: null,
+				issues: [7],
+				relaunchedAt: expect.any(Number),
+			});
+			const comments = readLines(at("gh-calls")).join("\n");
+			expect(comments).toContain("issue comment 7 --repo o/r");
+			expect(comments).toContain(`from ${seat} to ${target()}`);
+			expect(comments).toMatch(/weekly limit \(reset /);
+			expect(comments).toContain("Lost: ");
+			expect(r.stdout).toContain(`moved ${Job}`);
+		});
+
+		it("leaves it held on its old seat, its transcript intact, where the resume is not confirmed, and stops what may be starting", async () => {
+			seedMove();
+			const before = fs.readFileSync(oldTranscript(), "utf8");
+			claudeFor("");
+			const r = await oneTick(Run, 1);
+			expect(r.status).toBe(0);
+			expect(launchState()).toMatchObject({
+				seat,
+				limitHeld: { sessionId: Session, failedTries: 1 },
+			});
+			expect(launchState().limitHeld).not.toHaveProperty("resumedAt");
+			expect(fs.readFileSync(oldTranscript(), "utf8")).toBe(before);
+			expect(readLines(at("calls"))).toContain(`stop ${Short} in ${target()}`);
+			expect(r.stdout).toContain("could not move");
+			expect(readLines(at("gh-calls")).join("\n")).toContain("could not move");
+		});
+
+		it("names a transcript it could not copy, resuming nothing", async () => {
+			seedMove();
+			fs.mkdirSync(newTranscript(), { recursive: true });
+			claudeFor("");
+			const r = await oneTick(Run, 1);
+			expect(r.status).toBe(0);
+			expect(r.stdout).toContain("copying its transcript");
+			expect(
+				readLines(at("calls")).filter((c) => c.startsWith("--bg")),
+			).toEqual([]);
+			expect(launchState()).toMatchObject({ seat });
 		});
 	});
 
