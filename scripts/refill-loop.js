@@ -13,7 +13,8 @@
  *                                        finish
  *   node scripts/refill-loop.js status   mode, repos, goal, launches with
  *                                        their seats, the
- *                                        last stop reason, each overflow
+ *                                        last stop reason, open repo holds
+ *                                        (lib/repo-holds.js), each overflow
  *                                        seat's budget and the plan seats
  *                                        overflow rests on; `--json` the launch
  *                                        rows and the `seats:` line's fields
@@ -79,6 +80,7 @@ const {
 	writeControlFile,
 } = require("./lib/refill-files.js");
 const refillBatch = require("./lib/refill-batch.js");
+const { buildHoldLines, readCheckout } = require("./lib/repo-holds.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { forgetSession } = require("./lib/session-id.js");
 const { writeFd } = require("./lib/write-fd.js");
@@ -375,6 +377,13 @@ function status({ flags }) {
 		seats,
 		now: Date.now(),
 	}))
+		say(line);
+	for (const line of buildHoldLines(
+		served.length > 0
+			? loop.landingRoots(served, state.launches)
+			: [readCheckout(root)],
+		Date.now(),
+	))
 		say(line);
 	sayOverflowLines(control, state, root);
 	return 0;
