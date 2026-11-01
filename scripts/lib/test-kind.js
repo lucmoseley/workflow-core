@@ -18,14 +18,16 @@
  * leaves out of its section-reference check (#2759). `PY_COLLECTED_TEST` is
  * `COLLECTED_TEST`'s Python half, the scripts suite-launch.js counts as a suite.
  *
- * `JS_TEST_FILE` is a JS test file alone, what vitest.config.ts collects (#2545):
+ * `JS_TEST_FILE` is a JS test file alone, what vitest.config.ts collects (#2545),
+ * pinned equal to its include by test-kind.test.ts:
  * the guard-<name> or check-<name> file check-registrations.js and
  * registry-atomicity.js never count as a guard or checker and file-claim.js
  * never points at guard-authoring (#2869, #3012), the test files the
  * isolation and fixture-identity checkers read and heresy-scan.js skips for
  * the three heresy checks, and the suffix `buildInfixTestName` keeps, for the
  * copy arm-tasks.js makes of a hidden test;
- * `PY_TEST_FILE` is a pytest test file alone, pytest's default `python_files`.
+ * `PY_TEST_FILE` is a pytest test file alone, pytest's default `python_files`,
+ * which pytest.ini leaves unset.
  * `isJsTestFile` is `JS_TEST_FILE` as a predicate. .husky/pre-commit's
  * test-file gates arm on its `JS_TEST_ERE`, `JS_TEST_FILE` in grep's ERE,
  * pinned equal by test-kind.test.ts. `siblingTests` is every name a test of one
@@ -33,14 +35,22 @@
  * registrations.js (and through its `spellSiblingTestsIfUntested` the core's hook-
  * and checker-registrations tests), registry-atomicity.js and doc-map.js's
  * self-filter take as a script's own test; `pytestSiblings` is its pytest half, touched-tests.js's.
- * check-host-root.js leaves unscanned what `isTestKind` takes and the vitest
- * configs, on `JS_EXT_SOURCE`, every JS or TS extension, and scans
- * `JS_EXTENSIONS`, the same family listed.
+ * check-host-root.js scans what `isJsExt` takes and leaves out
+ * suite-apparatus.js's `isApparatus`: what `isTestKind` takes, bar a shipped
+ * file it names, and the vitest configs, on `JS_EXT_SOURCE`, every JS or TS
+ * extension.
  *
  * One reading asks another runner's question and stays apart:
  * infer-commands.js's `NODE_TEST_FILE` is the `.js` family of node --test's own
  * default patterns, which take `test/**` and `*-test.js` and no `.spec.` form;
  * their `.ts` family is left out, for the reason infer-commands.js gives.
+ *
+ * Readings narrower by design, each giving its reason at the site:
+ * tsconfig.strict.json's test exclusion names test and spec files and `test/`
+ * and `tests/` only, leaving support modules held to strict types, and
+ * biome.json's matches it for that reason; measure-test-loss/blocked.py's named-run pattern keeps #2812's
+ * baseline; residue-patterns.json's `testFile` and project-slug-scan.test.ts's
+ * reading reason theirs where they stand.
  */
 
 // Vitest's default include collects both kinds (#2271). Each part of the
@@ -89,6 +99,10 @@ const COLLECTED_TEST = new RegExp(
 const TEST_KIND = new RegExp(
 	String.raw`(?:${JS_TEST_SOURCE}|(?:^|\/)(?:tests?|fixtures|testkits?|stubs|fakes)\/|[-_.]${SUPPORT_NAME}${JS_EXT_SOURCE}$|(?:^|\/)${SUPPORT_NAME}(?:[-_.][^/]*)?${JS_EXT_SOURCE}$|${PY_TEST}|${CONFTEST.source})`,
 );
+
+const JS_EXT_SET = new Set(JS_EXTENSIONS.map((ext) => `.${ext}`));
+/** @param {string} ext an extension with its dot, as `path.extname` gives it */
+const isJsExt = (ext) => JS_EXT_SET.has(ext);
 
 /** @param {string} rel repo-relative or a basename, forward slashes */
 const isJsTestFile = (rel) => JS_TEST_FILE.test(rel);
@@ -157,12 +171,12 @@ const isCollectedTestOrConftest = (rel) =>
 module.exports = {
 	COLLECTED_TEST,
 	JS_EXT_SOURCE,
-	JS_EXTENSIONS,
 	JS_TEST_FILE,
 	PY_COLLECTED_TEST,
 	PY_TEST_FILE,
 	PYTEST_DEFAULT_FILES,
 	isCollectedTestOrConftest,
+	isJsExt,
 	isJsTestFile,
 	buildInfixTestName,
 	isTestKind,

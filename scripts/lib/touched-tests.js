@@ -19,8 +19,9 @@
  *
  * WHERE THE MANIFEST IS UNREADABLE OR WILL NOT RENDER, its readers give way
  * to each changed file's same-stem siblings: for `<dir>/<stem>.<ext>`, the
- * test files in `<dir>` named `<stem>.test.*` or `<stem>.*.test.*`, or
- * `test_<stem>.py` on pytest's route. The lexical edges, needing no
+ * test files in `<dir>` that `JS_TEST_FILE` takes and that open `<stem>.`
+ * (`<stem>.test.*`, `<stem>.spec.*`, `<stem>.<infix>.test.*`), or
+ * `test_<stem>.py` and `<stem>_test.py` on pytest's route. The lexical edges, needing no
  * manifest, stay. It never widens.
  */
 

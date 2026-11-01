@@ -212,7 +212,9 @@ describe("§W — Biome's effective rule set is wider than biome.json", () => {
 		}
 		for (const where of [
 			"lib/p.test.ts",
+			"lib/p.spec.ts",
 			"lib/test/fixture.ts",
+			"lib/tests/fixture.ts",
 			"scripts/p.ts",
 		]) {
 			expect(biomeCategories(where, helper), where).not.toContain(rule);
@@ -947,8 +949,11 @@ describe("§W — which tsc flags are still off", () => {
 			expect.arrayContaining([
 				...readConfig("tsconfig.json").exclude,
 				"scripts/**/*.test.*",
+				"scripts/**/*.spec.*",
 				"scripts/**/test/**",
+				"scripts/**/tests/**",
 				".claude/skills/*/scripts/*.test.*",
+				".claude/skills/*/scripts/*.spec.*",
 			]),
 		);
 		// Excluding app/ or lib/ tests would drop coverage they had before #1336.

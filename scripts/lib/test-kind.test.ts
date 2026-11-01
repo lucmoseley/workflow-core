@@ -15,7 +15,9 @@
  * form the suite collects is refused as untested (#3170). Drift
  * .husky/pre-commit's JS_TEST_ERE from JS_TEST_FILE, or a test-file gate from
  * JS_TEST_ERE, and a commit staging only a `.spec.` or `.mjs` test skips the
- * gates that read it (#3170, #3387).
+ * gates that read it (#3170, #3387). Drift vitest.config.ts's include from
+ * JS_TEST_FILE and every reader of JS_TEST_FILE calls a file a test the suite
+ * never runs, or misses one it does (#3743).
  */
 
 import { execFileSync } from "node:child_process";
@@ -212,6 +214,34 @@ describe("siblingTests", () => {
 			"test_corpus.py",
 			"corpus_test.py",
 		]);
+	});
+});
+
+describe("JS_TEST_FILE against vitest.config.ts", () => {
+	it("takes what the config's include collects, path for path", () => {
+		const config = fs.readFileSync(
+			path.resolve(__dirname, "..", "..", "vitest.config.ts"),
+			"utf8",
+		);
+		const block = /\binclude: \[\n([\s\S]*?)\n\t*\],/.exec(config)?.[1] ?? "";
+		const globs = [...block.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+		expect(globs.length).toBeGreaterThan(0);
+		const letters = ["", "c", "m", "j", "t", "x", "s"];
+		const exts = letters.flatMap((a) =>
+			letters.flatMap((b) => letters.map((c) => `${a}${b}${c}s`)),
+		);
+		const paths = ["test", "spec", "tests", "e2e"].flatMap((kind) =>
+			[...exts, ...exts.map((e) => `${e}x`)].flatMap((ext) => [
+				`a.${kind}.${ext}`,
+				`scripts/lib/a.${kind}.${ext}`,
+				`.claude/skills/s/a.${kind}.${ext}`,
+			]),
+		);
+		for (const p of paths)
+			expect(
+				globs.some((g) => path.matchesGlob(p, g)),
+				p,
+			).toBe(JS_TEST_FILE.test(p));
 	});
 });
 

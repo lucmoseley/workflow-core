@@ -90,7 +90,7 @@ def _corpus_size(config):
     """
     root = Path(str(config.rootpath))
     testpaths = config.getini("testpaths") or ["."]
-    patterns = config.getini("python_files") or ["test_*.py"]
+    patterns = config.getini("python_files")
     found = set()
     for testpath in testpaths:
         for pattern in patterns:

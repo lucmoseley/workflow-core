@@ -107,8 +107,8 @@ function failSites(ctx, rel, program, breaches) {
 /**
  * Run one heresy check over the tree at `--root`, or the host root.
  * `include` takes a path relative to scripts/; `skip` names the primitive's
- * own home, repo-relative. Where `summary` is given, any finding prints one
- * line: the count, its `phrase`, each site, then its `fix`.
+ * own home, repo-relative. Where `summary` is given, any finding prints two
+ * lines: the count, its `phrase` and each site, then its `fix`.
  * @param {{
  *   name: string,
  *   include?: (rel: string) => boolean,
