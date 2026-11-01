@@ -3028,6 +3028,7 @@ process.stdout.write("Filed #${Issue}\\n");
 		expect(filed[0]?.args).toContain("takes:triage");
 		expect(filed[0]?.body).toContain(repo);
 		expect(filed[0]?.body).toContain("resolve main:");
+		expect(filed[0]?.body).not.toContain("resolve main: names no commit");
 
 		repairHead();
 		const repaired = await tickRun(close.gh);
@@ -3196,11 +3197,11 @@ process.stdout.write("Filed #${Issue}\\n");
 
 	it.each<[string, () => void, NodeJS.ProcessEnv]>([
 		[
-			"resolve main:",
+			"resolve main: names no commit",
 			() => fs.writeFileSync(dotGit("refs/heads/main"), ""),
 			{},
 		],
-		["resolve origin/landing:", () => undefined, LandingOn],
+		["resolve origin/landing: names no commit", () => undefined, LandingOn],
 	])(
 		"logs a failing probe's %s text and raises the hold",
 		async (text, breakIt, over) => {
