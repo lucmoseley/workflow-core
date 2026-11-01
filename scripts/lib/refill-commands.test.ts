@@ -112,10 +112,10 @@ describe("what status prints", () => {
 		}).join("\n");
 		expect(out).toContain("running, pid 123");
 		expect(out).toContain(
-			`started:   ${new Date(control.noProgressFrom).toISOString()}`,
+			`counting:  no-progress count from ${new Date(control.noProgressFrom).toISOString()}`,
 		);
 		expect(out).not.toContain("stops by");
-		expect(out).toContain("launches:  1 since start, 1 running, 0 parked");
+		expect(out).toContain("launches:  1 since then, 1 running, 0 parked");
 		expect(out).toContain("/implement 1  running");
 		expect(out).not.toContain("/implement 2");
 		expect(out).toContain("/implement 42  finished");
@@ -139,7 +139,7 @@ describe("what status prints", () => {
 			pid: 123,
 			served,
 		}).join("\n");
-		expect(out).toContain("launches:  2 since start, 1 running, 1 parked");
+		expect(out).toContain("launches:  2 since then, 1 running, 1 parked");
 		expect(out).toContain("/implement 9  parked, stopped");
 	});
 

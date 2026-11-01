@@ -1130,6 +1130,78 @@ function actOnLimitsAndRelease(before, judged, mode, seen) {
 }
 
 /**
+ * The limit acts made, and what a tick decides its launches on: the free slots
+ * and the seats. A paused tick launches nothing, so it reads none of them, making
+ * no admission, `/usage` or cap read, and leaves the limit acts, which need them,
+ * for the tick after the resume (#3856); a hold its finishes ended is still
+ * released, as that tick's `before` no longer shows it holding.
+ * @param {{dryRun: boolean, control: import("./refill-loop.js").Control,
+ *   seatListRead: boolean, before: import("./refill-loop.js").LoopLaunch[],
+ *   judged: import("./refill-loop.js").LoopLaunch[],
+ *   seen: Omit<Parameters<typeof actOnLimitsAndRelease>[3],
+ *     "typedSeat"|"readMoveSeats"|"seatListRead"|"slots">, served: string[],
+ *   declared: ReturnType<typeof readDeclaredSeats>,
+ *   typedSeat: string|null}} tick
+ */
+function settleRoom({
+	dryRun,
+	control,
+	seatListRead,
+	before,
+	judged,
+	seen,
+	served,
+	declared,
+	typedSeat,
+}) {
+	if (control.paused) {
+		if (!dryRun) blocks.releaseEndedHolds(before, judged, seen.io);
+		return {
+			launches: judged,
+			slots: 0,
+			admission: null,
+			workingChange: 0,
+			seats: [],
+			probes: [],
+			overflow: [],
+		};
+	}
+	const { slots: free, admission } = readFreeSlots();
+	const { launches, slots, workingChange } = dryRun
+		? { launches: judged, slots: free, workingChange: 0 }
+		: actOnLimitsAndRelease(before, judged, control.scope.mode, {
+				...seen,
+				typedSeat,
+				readMoveSeats: () =>
+					readSeats(control.seats, 1, served[0], {
+						typedSeat,
+						sizeAll: true,
+					}).seats,
+				seatListRead,
+				slots: free,
+			});
+	const { seats, probes } = readSeats(control.seats, slots, served[0], {
+		typedSeat,
+	});
+	const overflow = loop.overflowReadings(declared, seats, (seat) =>
+		seatBudget(seat, served[0]),
+	);
+	return { launches, slots, admission, workingChange, seats, probes, overflow };
+}
+
+/**
+ * The stopped sessions due back: none on a paused tick, which resumes none,
+ * though a stop still names those it leaves.
+ * @param {import("./refill-loop.js").Control} control
+ * @param {import("./refill-loop.js").LoopLaunch[]} launches
+ * @param {Parameters<typeof blocks.resumableOf>[1]} seen
+ */
+const resumesDue = (control, launches, seen) =>
+	control.paused && !control.stopRequested
+		? []
+		: blocks.resumableOf(launches, seen);
+
+/**
  * One tick: its decision and the start it judged against. Under `dryRun`
  * nothing is reaped, launched or written.
  * @param {{dryRun: boolean}} opts
@@ -1163,6 +1235,7 @@ async function tick({ dryRun }) {
 		now,
 		io: blockIo(served),
 		swapHold: readSwapHold(),
+		paused: control.paused !== undefined,
 	};
 	const judged = dryRun
 		? listed
@@ -1176,39 +1249,35 @@ async function tick({ dryRun }) {
 				served,
 				seen.io,
 			);
-	const { slots: free, admission } = readFreeSlots();
 	const declared = readDeclaredSeats();
 	const typed = readLastTyped(declared);
 	const {
 		launches,
 		slots,
+		admission,
 		workingChange: limitChange,
-	} = dryRun
-		? { launches: judged, slots: free, workingChange: 0 }
-		: actOnLimitsAndRelease(state.launches, judged, control.scope.mode, {
-				...seen,
-				typedSeat: typed.seat,
-				readMoveSeats: () =>
-					readSeats(control.seats, 1, served[0], {
-						typedSeat: typed.seat,
-						sizeAll: true,
-					}).seats,
-				seatListRead: isSeatListRead(parsed),
-				slots: free,
-			});
-	const { seats, probes } = readSeats(control.seats, slots, served[0], {
+		seats,
+		probes,
+		overflow,
+	} = settleRoom({
+		dryRun,
+		control,
+		seatListRead: isSeatListRead(parsed),
+		before: state.launches,
+		judged,
+		seen,
+		served,
+		declared,
 		typedSeat: typed.seat,
 	});
-	const overflow = loop.overflowReadings(declared, seats, (seat) =>
-		seatBudget(seat, served[0]),
-	);
-	const resumable = blocks.resumableOf(launches, seen);
+	const resumable = resumesDue(control, launches, seen);
 	/** @type {import("./refill-decide.js").TickInput} */
 	const input = {
 		now,
 		mode: control.scope.mode,
 		noProgressFrom: control.noProgressFrom,
 		stopRequested: control.stopRequested,
+		...(control.paused ? { paused: control.paused } : {}),
 		/* A dry run previews launches over any control, as over none. */
 		controlDamaged: dryRun ? null : damaged,
 		frontier: [],

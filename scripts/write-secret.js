@@ -154,8 +154,12 @@ const os = require("node:os");
 const path = require("node:path");
 const { pidAlive } = require("./lib/arbiter-proc.js");
 const { asidePid, writeFileAtomic } = require("./lib/atomic-write.js");
-const { NotALock, pidLock } = require("./lib/pid-lock.js");
-const { sleepSync } = require("./lib/sleep-sync.js");
+const {
+	LOCK_WAIT_MS,
+	NotALock,
+	pidLock,
+	waitForLock,
+} = require("./lib/pid-lock.js");
 const { HELP, parseOrCode } = require("./lib/cli-args");
 const { isPrivateGroup, USERDB_DIRS } = require("./lib/private-group.js");
 const { readFdAll } = require("./lib/read-fd.js");
@@ -182,11 +186,6 @@ const { caught } = require("./lib/caught.js");
 const { SHELL_VAR_NAME } = require("./lib/shell-var-name.js");
 
 const VAR_NAME = new RegExp(`^${SHELL_VAR_NAME}$`);
-
-/* First guesses, and stated as ones: a write holds the lock for milliseconds,
- * so a run waits 10 s for another's before refusing, polling every 20 ms. */
-const LOCK_WAIT_MS = 10_000;
-const LOCK_POLL_MS = 20;
 
 const USAGE = `usage: write-secret.js <NAME>
   <NAME>  a shell variable name; the value is then asked for with typing hidden`;
@@ -855,20 +854,6 @@ function upsertEnv(file, name, raw, fromTerminal) {
 		);
 	}
 	return storeValue(file, name, value);
-}
-
-/**
- * Takes `lock`, waiting up to LOCK_WAIT_MS for a live holder.
- * @param {ReturnType<typeof pidLock>} lock
- * @returns {boolean} whether it is held
- */
-function waitForLock(lock) {
-	const deadline = performance.now() + LOCK_WAIT_MS;
-	while (!lock.acquire()) {
-		if (performance.now() > deadline) return false;
-		sleepSync(LOCK_POLL_MS);
-	}
-	return true;
 }
 
 /**

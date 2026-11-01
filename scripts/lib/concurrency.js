@@ -31,7 +31,11 @@ const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
 const { readJsonl } = require("./jsonl.js");
 const { presenceAt } = require("./presence.js");
-const { NOTHING_LAUNCHABLE, pickSeat } = require("./refill-decide.js");
+const {
+	NOTHING_LAUNCHABLE,
+	buildPauseText,
+	pickSeat,
+} = require("./refill-decide.js");
 const { refillPath } = require("./refill-dir.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 
@@ -118,6 +122,8 @@ function policyFailing(input, decision) {
 				? { limit: "allowance", why: decision.detail }
 				: { limit: LOOP_OFF, why: `stopping: ${decision.detail}` },
 		];
+	if (input.paused)
+		return [{ limit: LOOP_OFF, why: buildPauseText(input.paused) }];
 	/** @type {Failing[]} */
 	const out = [];
 	if (decision.idle === NOTHING_LAUNCHABLE)
@@ -193,7 +199,11 @@ function resourceFailing(a) {
  * @returns {Failing[]}
  */
 function failingAt({ input, decision, admission }) {
-	return [...policyFailing(input, decision), ...resourceFailing(admission)];
+	return [
+		...policyFailing(input, decision),
+		/* A paused tick reads no admission, so no resource is known to bind. */
+		...(input.paused ? [] : resourceFailing(admission)),
+	];
 }
 
 /**

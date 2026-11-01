@@ -431,6 +431,15 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 			limits: ["empty frontier", "allowance", "memory"],
 		},
 		{
+			name: "reads a pause as the loop not running, no resource known to bind (#3856)",
+			tick: {
+				input: input({ paused: { by: "founder", at: T0 } }),
+				decision: idle("paused by founder"),
+				admission: null,
+			},
+			limits: ["loop not running"],
+		},
+		{
 			name: "reads a stop request as the loop not running, resources after it",
 			tick: {
 				input: input(),

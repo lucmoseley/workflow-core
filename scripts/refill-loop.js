@@ -11,7 +11,11 @@
  *   node scripts/refill-loop.js stop     end launching before the next
  *                                        dispatch call; running sessions
  *                                        finish
- *   node scripts/refill-loop.js status   mode, repos, goal, launches with
+ *   node scripts/refill-loop.js set --pause | --resume  pause or resume launching
+ *                                        with no restart: the running loop takes
+ *                                        it at its next tick, and an idle loop
+ *                                        within seconds; housekeeping carries on
+ *   node scripts/refill-loop.js status   pause, mode, repos, goal, launches with
  *                                        their seats, the
  *                                        last stop reason, open repo holds
  *                                        (lib/repo-holds.js), each overflow
@@ -43,7 +47,8 @@
  * Joins no §N3 family: it is a daemon, not a checker or a guard. A tick that
  * throws is logged and the next one runs.
  *
- * Exit codes: 0; 1 on a throw outside the loop; 2 on a command line or, at
+ * Exit codes: 0; 1 on a throw outside the loop, a control lock kept past its
+ * wait or, at `set`, no sound control to change; 2 on a command line or, at
  * `start`, a seat file it refuses.
  */
 
@@ -77,6 +82,7 @@ const {
 	readControlChecked,
 	readControlFile,
 	readStateFile,
+	withControlLock,
 	writeControlFile,
 } = require("./lib/refill-files.js");
 const refillBatch = require("./lib/refill-batch.js");
@@ -101,9 +107,10 @@ const {
 const LOG_MAX_BYTES = 1024 * 1024;
 
 const SCRIPTS = __dirname;
-const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | status | dry-run | boot-resume
+const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | set | status | dry-run | boot-resume
   start [--repo <dir>]… [--goal 116,117]       normal mode: this checkout plus each named one
   start --away [--exclude <dir>]… [--goal …]   away mode: every included checkout but those named
+  set --pause | --resume                       launch nothing, keeping housekeeping; or launch again
   status [--json]                              --json: the launch rows, each with its seat and why, and the seats line's fields
   <dir> is a checkout's directory name in the home directory`;
 
@@ -167,6 +174,8 @@ function buildNextControl(pid, asked, root) {
 	return {
 		noProgressFrom: running?.noProgressFrom ?? Date.now(),
 		stopRequested: false,
+		/* A start never undoes a pause: `set --resume` is its one way off (#3856). */
+		...(prior?.paused ? { paused: prior.paused } : {}),
 		seats: readConfiguredSeats(),
 		scope: commands.mergedScope(running?.scope ?? null, asked, root),
 	};
@@ -301,9 +310,14 @@ function start(parsed) {
 		);
 		return 2;
 	}
-	const pid = lock.holder();
-	const control = buildNextControl(pid, asked, root);
-	writeControlFile(control);
+	const written = withControlLock(() => {
+		const pid = lock.holder();
+		const control = buildNextControl(pid, asked, root);
+		writeControlFile(control);
+		return { pid, control };
+	});
+	if ("busy" in written) return refuseWrite("not started", written.busy);
+	const { pid, control } = written.done;
 	wakes.touchWake(files.wake);
 	const served = servedRoots(control.scope).roots;
 	const scopeText = commands
@@ -342,9 +356,12 @@ function start(parsed) {
 }
 
 function stop() {
-	const control = readControlFile(log);
+	const written = withControlLock(() => {
+		const control = readControlFile(log);
+		if (control) writeControlFile({ ...control, stopRequested: true });
+	});
+	if ("busy" in written) return refuseWrite("stop not recorded", written.busy);
 	const pid = lock.holder();
-	if (control) writeControlFile({ ...control, stopRequested: true });
 	if (pid !== null) wakes.touchWake(files.wake);
 	say(
 		pid === null
@@ -352,6 +369,47 @@ function stop() {
 			: `refill loop: stop requested; pid ${pid} makes no further dispatch call and exits when the tick in flight ends, or where none is, at the tick this stop wakes; a dispatch or the morning review can hold a tick for minutes. Running sessions finish.`,
 	);
 	return 0;
+}
+
+/**
+ * `set`: the named field changed on a fresh read under the control lock, then
+ * the wake touched.
+ * @param {import("./lib/cli-args").Parsed} parsed
+ */
+function set({ flags }) {
+	const pause = flags["--pause"] === true;
+	if (pause === (flags["--resume"] === true)) {
+		writeFd(2, `set takes one of --pause and --resume\n\n${USAGE}\n`);
+		return 2;
+	}
+	const written = withControlLock(() => {
+		const plan = commands.planSet(
+			readControlChecked(() => undefined),
+			{
+				pause,
+				running: lock.holder() !== null,
+				now: Date.now(),
+			},
+		);
+		if ("write" in plan && plan.write) writeControlFile(plan.write);
+		return plan;
+	});
+	if ("busy" in written) return refuseWrite("nothing set", written.busy);
+	if ("refused" in written.done) {
+		return refuseWrite("nothing set", written.done.refused);
+	}
+	wakes.touchWake(files.wake);
+	for (const line of written.done.lines) say(line);
+	return 0;
+}
+
+/**
+ * @param {string} what
+ * @param {string} why
+ */
+function refuseWrite(what, why) {
+	writeFd(2, `refill loop: ${what}: ${why}\n`);
+	return 1;
 }
 
 /** @param {import("./lib/cli-args").Parsed} parsed */
@@ -552,6 +610,10 @@ const CLI = {
 			},
 		},
 		stop: { usage: USAGE },
+		set: {
+			usage: USAGE,
+			flags: { "--pause": "boolean", "--resume": "boolean" },
+		},
 		status: { usage: USAGE, flags: { "--json": "boolean" } },
 		"dry-run": { usage: USAGE },
 		run: { usage: USAGE },
@@ -562,6 +624,7 @@ const CLI = {
 const COMMANDS = {
 	start,
 	stop,
+	set,
 	status,
 	"dry-run": printDryRun,
 	run,

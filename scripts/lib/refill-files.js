@@ -2,9 +2,10 @@
  * refill-files.js — the refill loop's files, read and written (#2012, spec
  * #1995, #3392); what they hold, lib/refill-loop.js parses.
  *
- * ITS FILES, ONE WRITER EACH, under lib/refill-dir.js's directory, so
- * `start` and `stop` never race the loop's own tick:
- *   - control, written by `start` and `stop`;
+ * ITS FILES, under lib/refill-dir.js's directory, so `start`, `stop` and `set`
+ * never race the loop's own tick:
+ *   - control, written by `start`, `stop` and `set`, each read and write under
+ *     withControlLock, so no writer loses another's change;
  *   - state, written by the loop;
  *   - pidfile, created by the loop exclusively, so a second loop exits;
  *   - the review runner's pidfile and result (scripts/refill-review-run.js,
@@ -16,8 +17,10 @@
  */
 
 const fs = require("node:fs");
+const path = require("node:path");
 const { caught } = require("./caught.js");
 const { writeFileAtomic } = require("./atomic-write.js");
+const { pidLock, waitForLock } = require("./pid-lock.js");
 const { refillPath } = require("./refill-dir.js");
 const { parseControl, parseState } = require("./refill-loop.js");
 
@@ -124,6 +127,32 @@ const writeControlFile = (control) =>
 	});
 
 /**
+ * Run `write`, a control writer's read and write, under the one control lock,
+ * a holder's being any `refill-loop.js` process; a dead holder's is taken over.
+ * Residual: a `start` or `stop` that outlasts the wait writes nothing, so its
+ * caller must re-run it (#3856).
+ * @template T
+ * @param {() => T} write
+ * @param {number} [waitMs] the wait, in place of waitForLock's default
+ * @returns {{done: T}|{busy: string}} `busy`, why, where a live holder kept the
+ *   lock past the wait
+ */
+function withControlLock(write, waitMs) {
+	const file = `${loopFiles().control}.lock`;
+	fs.mkdirSync(path.dirname(file), { recursive: true });
+	const lock = pidLock(file, "refill-loop.js");
+	if (!waitForLock(lock, waitMs))
+		return {
+			busy: `${file} is held by pid ${lock.holder() ?? "unknown"}; re-run once it finishes`,
+		};
+	try {
+		return { done: write() };
+	} finally {
+		lock.release();
+	}
+}
+
+/**
  * The state file the loop writes, parsed; absent or damaged reads as parseState's
  * defaults, with `log` told of damage.
  * @param {(line: string) => void} log
@@ -135,6 +164,7 @@ module.exports = {
 	loopFiles,
 	REVIEW_RUNNER,
 	readControlChecked,
+	withControlLock,
 	writeControlFile,
 	readControlFile,
 	readJson,
