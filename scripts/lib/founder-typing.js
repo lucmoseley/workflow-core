@@ -3,10 +3,11 @@
  * founder typed (#3369, spec #1995).
  *
  * WHAT IS NOT HIS TYPING:
- *   - a background job's launch prompt: the prompt equal to the `intent` its
- *     job's state.json records. A launch from the agents view is skipped
- *     with the dispatcher's, though its job record now tells them apart
- *     (lib/background-start.js, #3783); his later prompts in that job count.
+ *   - a dispatcher's or the refill loop's launch prompt: the prompt equal to
+ *     the `intent` its job's state.json records, in a job not his own
+ *     (lib/background-start.js). The prompt he launches a job with from the
+ *     agents view is his typing: he is at the laptop on that seat, and a new
+ *     session has no `.parked-` marker for it to clear (#3783).
  *   - a prompt the harness writes: a subagent's hand-back or another
  *     session's message (`<agent-message`, as probed), a task notification, a
  *     mod's delivery. The payload carries no origin field, and at this hook
@@ -24,9 +25,10 @@
  * #3378).
  *
  * BLIND SPOTS: a scheduled task's or `/loop` iteration's prompt is its own
- * text, and counts.
+ * text, and counts. A `claude --bg` he types himself reads as a dispatcher's.
  */
 
+const { isHisOwnJob } = require("./background-start.js");
 const { readJobRecordIn } = require("./job-paths.js");
 const { isLoopPrompt } = require("./loop-prompts.js");
 const { isSubagentPayload } = require("./subagent-payload.js");
@@ -35,12 +37,16 @@ const HARNESS_PROMPT =
 	/^\s*(?:<agent-message\s|<task-notification>|Delivered by the wfc-delivery mod)/;
 
 /** @param {string} prompt */
-function isLaunchPrompt(prompt) {
+function isDispatchedLaunchPrompt(prompt) {
 	const jobDir = process.env.CLAUDE_JOB_DIR;
 	if (!jobDir) return false;
 	/* No readable job record marks nothing a launch (#2004). */
 	const intent = readJobRecordIn(jobDir)?.intent;
-	return typeof intent === "string" && intent.trim() === prompt.trim();
+	return (
+		typeof intent === "string" &&
+		intent.trim() === prompt.trim() &&
+		!isHisOwnJob(process.env)
+	);
 }
 
 /**
@@ -56,7 +62,7 @@ function isFounderTyping(payload) {
 	if (isSubagentPayload(payload)) return false;
 	const raw = /** @type {{prompt?: unknown}|null} */ (payload)?.prompt;
 	const prompt = typeof raw === "string" ? raw : "";
-	return !(isMachineWrittenPrompt(prompt) || isLaunchPrompt(prompt));
+	return !(isMachineWrittenPrompt(prompt) || isDispatchedLaunchPrompt(prompt));
 }
 
 module.exports = { isFounderTyping, isMachineWrittenPrompt };

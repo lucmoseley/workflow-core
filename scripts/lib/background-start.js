@@ -73,6 +73,7 @@ const RELAY_LINE =
 const relayLines = (notifying) => (notifying ? [RELAY_LINE] : []);
 
 module.exports = {
+	isHisOwnJob,
 	isBackgroundStart,
 	isFounderNoticeHeld,
 	relayLines,

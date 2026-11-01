@@ -39,14 +39,20 @@ function config(c: object) {
 }
 
 /**
- * A background job whose launch prompt was `intent`; returns its dir.
+ * A background job whose launch prompt was `intent`, recorded with `template`
+ * (`bg` a dispatcher's, `claude` the agents view's, null none); returns its
+ * dir.
  */
-function buildJob(intent: string) {
+function buildJob(intent: string, template: string | null = "bg") {
 	const jobDir = path.join(dir, "job");
 	fs.mkdirSync(jobDir, { recursive: true });
 	fs.writeFileSync(
 		path.join(jobDir, "state.json"),
-		JSON.stringify({ state: "working", template: "bg", intent }),
+		JSON.stringify({
+			state: "working",
+			intent,
+			...(template ? { template } : {}),
+		}),
 	);
 	return jobDir;
 }
@@ -100,6 +106,16 @@ describe("a prompt the founder typed", () => {
 		expect(isMarked()).toBe(true);
 	});
 
+	it("writes it for his launch prompt in a job the agents view launched (#3783)", () => {
+		run("/implement 2004", {
+			jobDir: buildJob("/implement 2004", "claude"),
+			configDir: `${dir}/seat2/`,
+		});
+		expect(fs.readFileSync(marker, "utf8").split("\n")[1]).toBe(
+			path.join(dir, "seat2"),
+		);
+	});
+
 	it("writes it where the job's record is unreadable", () => {
 		run("go with (A)", { jobDir: path.join(dir, "no-such-job") });
 		expect(isMarked()).toBe(true);
@@ -109,6 +125,11 @@ describe("a prompt the founder typed", () => {
 describe("a prompt nobody typed", () => {
 	it("writes nothing for a dispatched job's launch prompt", () => {
 		run("/implement 2004", { jobDir: buildJob("/implement 2004") });
+		expect(isMarked()).toBe(false);
+	});
+
+	it("writes nothing for a launch prompt whose record names no template", () => {
+		run("/implement 2004", { jobDir: buildJob("/implement 2004", null) });
 		expect(isMarked()).toBe(false);
 	});
 
