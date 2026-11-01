@@ -205,7 +205,8 @@ const dispatcherJobId = (stdout: string) =>
 
 describe("launch", () => {
 	it("prints a job id the dispatcher's parse reads, and spawns claude -p with the run's flags", async () => {
-		const r = await launch();
+		/* The XDG route rather than the override, which writes no .gitignore. */
+		const r = await launch({ WFC_SECRETS_FILE: "", XDG_CONFIG_HOME: config });
 		expect(r.status).toBe(0);
 		const jobId = dispatcherJobId(r.stdout);
 		expect(jobId).toMatch(/^[0-9a-f]{8}$/);
@@ -229,6 +230,9 @@ describe("launch", () => {
 			path.join(refill, ".headless-runs", jobId, "job"),
 		);
 		expect(fs.existsSync(path.join(seen.env.CLAUDE_JOB_DIR, "tmp"))).toBe(true);
+		expect(
+			fs.readFileSync(path.join(path.dirname(secrets), ".gitignore"), "utf8"),
+		).toBe("*\n");
 	});
 
 	it("hands the key through the settings' apiKeyHelper alone: in neither the child's environment nor the caller's", async () => {
