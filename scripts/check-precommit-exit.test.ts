@@ -9,6 +9,7 @@
  * checker that could not run reach the committer as a finding again.
  */
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -150,5 +151,38 @@ describe("check-precommit-exit", () => {
 		const r = run();
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("OK: 0 pre-commit file(s)");
+	});
+});
+
+describe("--index (#3687)", () => {
+	const git = (...args: string[]) =>
+		execFileSync("git", args, { cwd: root, stdio: "pipe" });
+	const breach = "node scripts/check-x.js || exit 1\n";
+
+	beforeEach(() => {
+		git("init", "-q");
+		git("config", "user.email", "test@example.com");
+		git("config", "user.name", "test");
+		hook("pre-commit", 'node scripts/check-x.js || exit "$?"\n');
+		git("add", ".");
+		git("commit", "-qm", "seed");
+	});
+
+	it("passes a breach left unstaged in the working tree", () => {
+		hook("pre-commit", breach);
+		expect(run().status).toBe(1);
+		const r = run("--index");
+		expect(r.status).toBe(0);
+		expect(r.out).toContain("OK: 1 pre-commit file(s)");
+	});
+
+	it("refuses the same breach once staged, naming its file and line", () => {
+		hook("pre-commit", breach);
+		git("add", ".husky/pre-commit");
+		const r = run("--index", "--json");
+		expect(r.status).toBe(1);
+		expect(JSON.parse(r.out).findings).toMatchObject([
+			{ tag: "PRECOMMIT-EXIT", file: ".husky/pre-commit", line: 2 },
+		]);
 	});
 });
