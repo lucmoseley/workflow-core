@@ -67,7 +67,10 @@ function isPrivateGroup(gid, me, db) {
 		rows.length > 0 &&
 		rows.every(
 			([, password, , members]) =>
-				NO_GROUP_PASSWORD.has(password ?? "") &&
+				/* parseDbRows proved a later field, so this holds; it narrows the type
+				 * and keeps a missing field from reading as no password (#3823). */
+				password !== undefined &&
+				NO_GROUP_PASSWORD.has(password) &&
 				members?.split(",").every((m) => m === "" || m === me.username),
 		) &&
 		mine.length > 0 &&
@@ -94,9 +97,7 @@ function isFilesOnlyUserSource(db) {
 	const dbs = "passwd|group|initgroups";
 	const lines = conf
 		.map((l) => l.replace(/#.*/, ""))
-		.filter((l) =>
-			new RegExp(`^(${dbs})$`).test(l.trim().split(/[\s:]/)[0] ?? ""),
-		);
+		.filter((l) => new RegExp(`^(${dbs})(?:[\\s:]|$)`).test(l.trim()));
 	const parsed = lines.map((l) => new RegExp(`^(${dbs}):([^\\\\]*)$`).exec(l));
 	const sources = parsed.flatMap((m) => m?.[2]?.trim().split(/\s+/) ?? []);
 	const named = new Set(parsed.map((m) => m?.[1]));
@@ -128,7 +129,12 @@ function parseDbRows(text, ids) {
 	const lines = splitContentLines(text);
 	if (lines === null || lines.some((l) => /^[+\-\s]/.test(l))) return null;
 	const rows = lines.map((l) => l.split(":"));
-	const plain = rows.every((f) => ids.every((i) => /^\d+$/.test(f[i] ?? "")));
+	const plain = rows.every((f) =>
+		ids.every((i) => {
+			const id = f[i];
+			return id !== undefined && /^\d+$/.test(id);
+		}),
+	);
 	return plain ? rows : null;
 }
 

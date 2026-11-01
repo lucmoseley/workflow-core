@@ -337,10 +337,17 @@ const FILED = [
 	},
 ];
 const STANDARD_TIER = "**Review tier:** standard — no sensitive path.";
+/* Past the record form's 7-hex minimum, as a sha is cited in a ticket. */
+const SHORT_SHA = 9;
+/** The issue's body as an earlier run left it, counting `n`. */
+const buildFiledBody = (n: number) =>
+	`${n} commits on adopter-declared sensitive paths, as last read.`;
 const buildEscapeTicket = (escaped: string, number = 1): Hit => ({
 	number,
 	updated: "2026-11-05",
-	comments: [`**Escaped defect:** ${escaped.slice(0, 9)} — it missed a case`],
+	comments: [
+		`**Escaped defect:** ${escaped.slice(0, SHORT_SHA)} — it missed a case`,
+	],
 });
 const buildMantaFindings = (
 	base: string,
@@ -909,7 +916,7 @@ describe("the re-measure trigger", () => {
 	it("reports a commit an unparseable record names as landed once, by that record (#3819)", () => {
 		const fx = fixture({ hits: {} });
 		const [landed = ""] = trailerCheckout(fx, [{ file: "lib/secret.js" }]);
-		const line = `**Review findings:** base ${"b".repeat(9)}, reviewed ${"e".repeat(9)}, landed pending (${landed.slice(0, 9)} on \`landing\`), paths lib/secret.js`;
+		const line = `**Review findings:** base ${"b".repeat(9)}, reviewed ${"e".repeat(9)}, landed pending (${landed.slice(0, SHORT_SHA)} on \`landing\`), paths lib/secret.js`;
 		fx.setHits({
 			"o/manta": [
 				{ number: 9, updated: "2026-11-05", comments: [TIER_LINE, line] },
@@ -989,24 +996,78 @@ describe("the re-measure trigger", () => {
 		expect(fx.issueBody.body()).toContain(buildMantaRow(base, cited, 0, 1));
 	});
 
-	it("credits no record with an escape on a commit none of a counted tier covers, and reports nothing (#3832)", () => {
+	it("reports an escape on a commit no counted record covers, past the range or of a lower tier, counting it on nothing (#3832)", () => {
 		const fx = fixture({ hits: {}, issues: FILED });
 		const [base = "", cited = "", tip = "", after = ""] = trailerCheckout(fx, [
 			...TWO_COMMIT_TICKET,
 			{ file: "app/page.tsx", message: "after the tip, citing #9" },
 		]);
+		const fault = (s: string) =>
+			`UNCOUNTED: o/manta: an **Escaped defect:** names ${s.slice(0, SHORT_SHA)}, which no counted record covers, so it counts on nothing until a record covers it or the line is corrected\n`;
 		fx.setHits({
 			"o/manta": [buildMantaRecord(base, tip)],
 			"o/fleet": [buildEscapeTicket(after)],
 		});
-		expect(run(fx)).toEqual({ code: 0, stdout: "", stderr: "" });
+		expect(run(fx)).toEqual({ code: 0, stdout: "", stderr: fault(after) });
 		expect(readCountLine(fx)).toMatch(/^0 commits /);
 		fx.setHits({
 			"o/manta": [buildMantaRecord(base, tip, [], STANDARD_TIER)],
 			"o/fleet": [buildEscapeTicket(cited)],
 		});
-		expect(run(fx)).toEqual({ code: 0, stdout: "", stderr: "" });
+		expect(run(fx)).toEqual({ code: 0, stdout: "", stderr: fault(cited) });
 		expect(readCountLine(fx)).toMatch(/^0 commits /);
+	});
+
+	it("reports nothing of an escape on this repo's own commit, which never counts (#3832)", () => {
+		const fx = fixture({ hits: {} });
+		const [own = ""] = trailerCheckout(fx, [{ file: "app/page.tsx" }]);
+		const config = path.join(fx.root, "manta", ".claude", "workflow-core.json");
+		fs.writeFileSync(
+			config,
+			fs.readFileSync(config, "utf8").replace('"o/manta"', `"${OWN}"`),
+		);
+		fx.setHits({ "o/fleet": [buildEscapeTicket(own)] });
+		expect(run(fx)).toEqual({ code: 0, stdout: "", stderr: "" });
+	});
+
+	it("refreshes where only this repo's own tracker is unread, its commits never being counted (#3832)", () => {
+		const fx = fixture({
+			hits: { "o/fleet": [ticket(1, [1, 2])] },
+			issues: FILED,
+			body: buildFiledBody(3),
+		});
+		trailerCheckout(fx, [{ file: "lib/secret.js" }]);
+		const code = path.join(fx.root, "manta");
+		const config = path.join(code, ".claude", "workflow-core.json");
+		fs.writeFileSync(
+			config,
+			fs.readFileSync(config, "utf8").replace('"o/manta"', `"${OWN}"`),
+		);
+		gitIn(code, "remote", "set-url", "origin", `${fx.root}/gone.git`);
+		const r = run(fx);
+		expect(r.code).toBe(0);
+		expect(r.stderr).toMatch(/^UNREAD: o\/wfc: /);
+		expect(r.stderr).not.toContain("HELD");
+		expect(readCountLine(fx)).toMatch(/^2 commits /);
+	});
+
+	it("gives a trailered commit citing a record whose range is unread no row of its own (#3832)", () => {
+		const fx = fixture({ hits: {}, issues: FILED });
+		const trailer = `escalated; areas=secrets; base=${"b".repeat(40)}; tree=${"1".repeat(40)}; paths=lib/secret.js`;
+		const [, , tip = ""] = trailerCheckout(fx, [
+			{ file: "app/page.tsx" },
+			{ file: "lib/secret.js", message: "first of the ticket (#9)", trailer },
+			{ file: "lib/secret.js", message: "the tip" },
+		]);
+		fx.setHits({
+			"o/manta": [
+				buildMantaRecord("b".repeat(40), tip, ["TICKETED: a leak (Standards)"]),
+			],
+		});
+		const r = run(fx);
+		expect(r.code).toBe(0);
+		expect(r.stderr).toMatch(/^UNREAD: o\/manta#9: could not read/);
+		expect(readCountLine(fx)).toMatch(/^1 commits /);
 	});
 
 	it("reports an escape on a sha no record names and no checkout holds, once however often it is named (#3832)", () => {
@@ -1016,11 +1077,11 @@ describe("the re-measure trigger", () => {
 				"o/fleet": [buildEscapeTicket(gone), buildEscapeTicket(gone, 2)],
 			},
 		});
-		const fault = `an **Escaped defect:** names ${gone.slice(0, 9)}, which no counted record names as landed and no checkout on this machine holds, so it counts on no record until a checkout holds it or the line is corrected`;
+		const fault = `an **Escaped defect:** names ${gone.slice(0, SHORT_SHA)}, which no counted record names as landed and no checkout on this machine holds, so it counts on no record until a checkout holds it or the line is corrected`;
 		expect(run(fx)).toEqual({
 			code: 0,
 			stdout: "",
-			stderr: `UNHELD: ${fault}\n`,
+			stderr: `UNLOCATED: ${fault}\n`,
 		});
 	});
 
@@ -1056,12 +1117,10 @@ describe("the re-measure trigger", () => {
 	});
 
 	it("holds the tracking issue where an unread tracker would lower its count, and refreshes it where it would not (#3832)", () => {
-		const prior = (n: number) =>
-			`${n} commits on adopter-declared sensitive paths, as last read.`;
 		const fx = fixture({
 			hits: { "o/fleet": [ticket(1, [1, 2])] },
 			issues: FILED,
-			body: prior(3),
+			body: buildFiledBody(3),
 		});
 		trailerCheckout(fx, [{ file: "lib/secret.js" }]);
 		gitIn(
@@ -1074,12 +1133,16 @@ describe("the re-measure trigger", () => {
 		const held = run(fx);
 		expect(held.code).toBe(0);
 		expect(fx.issueBody.calls()).toEqual([]);
-		expect(fx.issueBody.body()).toBe(prior(3));
+		expect(fx.issueBody.body()).toBe(buildFiledBody(3));
 		expect(held.stderr).toMatch(/^UNREAD: o\/manta: /);
 		expect(held.stderr).toContain(
 			"HELD: #77 stays at 3 commits, this run reading 2; the next day's run retries\n",
 		);
-		for (const body of [prior(2), prior(1), "hand-written, no count"]) {
+		for (const body of [
+			buildFiledBody(2),
+			buildFiledBody(1),
+			"hand-written, no count",
+		]) {
 			fs.writeFileSync(fx.issueBody.bodyFile, body);
 			const r = run(fx);
 			expect(r.code).toBe(0);
@@ -1092,7 +1155,7 @@ describe("the re-measure trigger", () => {
 		const fx = fixture({
 			hits: { "o/fleet": [ticket(1, [1, 2])] },
 			issues: FILED,
-			body: "3 commits on adopter-declared sensitive paths, as last read.",
+			body: buildFiledBody(3),
 		});
 		trailerCheckout(fx, [{ file: "lib/secret.js" }]);
 		fs.writeFileSync(
@@ -1111,7 +1174,7 @@ describe("the re-measure trigger", () => {
 		const fx = fixture({
 			hits: {},
 			issues: FILED,
-			body: "3 commits on adopter-declared sensitive paths, as last read.",
+			body: buildFiledBody(3),
 		});
 		const [, , tip = ""] = trailerCheckout(fx, TWO_COMMIT_TICKET);
 		fx.setHits({
@@ -1137,7 +1200,7 @@ describe("the re-measure trigger", () => {
 					updated: "2026-11-05",
 					comments: [
 						TIER_LINE,
-						buildMantaFindings(base, tip.slice(0, 9)),
+						buildMantaFindings(base, tip.slice(0, SHORT_SHA)),
 						buildMantaFindings(base, tip),
 					],
 				},
@@ -1169,7 +1232,9 @@ describe("the re-measure trigger", () => {
 			"o/fleet": [buildEscapeTicket(cited), buildEscapeTicket(tip, 2)],
 		});
 		expect(run(fx)).toEqual({ code: 0, stdout: "", stderr: "" });
-		expect(fx.issueBody.body()).toContain(buildMantaRow(base, tip, 0, 1));
+		expect(fx.issueBody.body()).toContain(
+			`${buildMantaRow(base, tip, 0, 1)}, its tip reverted`,
+		);
 		fx.setHits({
 			"o/manta": [
 				buildMantaRecord(base, tip, ["TICKETED: a leak (Standards)"]),
@@ -1202,7 +1267,7 @@ describe("the re-measure trigger", () => {
 		const fx = fixture({
 			hits: {},
 			issues: FILED,
-			body: "1 commits on adopter-declared sensitive paths, as last read.",
+			body: buildFiledBody(1),
 		});
 		const [cited = ""] = trailerCheckout(fx, [{ file: "lib/secret.js" }]);
 		fx.setHits({ "o/fleet": [buildEscapeTicket(cited)] });
@@ -1215,9 +1280,9 @@ describe("the re-measure trigger", () => {
 		const r = run(fx);
 		expect(r.code).toBe(0);
 		expect(r.stderr).toContain(
-			`o/manta: could not read escaped ${cited.slice(0, 9)}`,
+			`o/manta: could not read escaped ${cited.slice(0, SHORT_SHA)}`,
 		);
-		expect(r.stderr).not.toContain("UNHELD");
+		expect(r.stderr).not.toContain("UNLOCATED");
 		expect(r.stderr).toContain("HELD: #77 stays at 1 commits");
 	});
 
@@ -1225,7 +1290,7 @@ describe("the re-measure trigger", () => {
 		const fx = fixture({
 			hits: {},
 			issues: FILED,
-			body: "1 commits on adopter-declared sensitive paths, as last read.",
+			body: buildFiledBody(1),
 		});
 		const [, cited = "", tip = ""] = trailerCheckout(fx, TWO_COMMIT_TICKET);
 		fx.setHits({
@@ -1233,6 +1298,7 @@ describe("the re-measure trigger", () => {
 			"o/fleet": [buildEscapeTicket(cited)],
 		});
 		const r = run(fx);
+		expect(r.code).toBe(0);
 		expect(r.stderr).toMatch(/^UNREAD: o\/manta#9: could not read/);
 		expect(r.stderr).toContain("HELD: #77 stays at 1 commits");
 		expect(fx.issueBody.calls()).toEqual([]);

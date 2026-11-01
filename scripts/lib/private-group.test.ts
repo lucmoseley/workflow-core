@@ -12,11 +12,11 @@ import { describe, expect, it } from "vitest";
 const { isPrivateGroup, USERDB_DIRS } =
 	createRequire(__filename)("./private-group.js");
 
-const me = { uid: 1000, gid: 1000, username: "me" };
-const myPasswd = `me:x:${me.uid}:${me.gid}::/home/me:/bin/sh\n`;
-const myGroup = `me:x:${me.gid}:\n`;
-const FilesOnly = "passwd: files\ngroup: files\n";
-const Systemd = "passwd: files systemd\ngroup: files systemd\n";
+const ME = { uid: 1000, gid: 1000, username: "me" };
+const MY_PASSWD = `me:x:${ME.uid}:${ME.gid}::/home/me:/bin/sh\n`;
+const MY_GROUP = `me:x:${ME.gid}:\n`;
+const FILES_ONLY = "passwd: files\ngroup: files\n";
+const SYSTEMD = "passwd: files systemd\ngroup: files systemd\n";
 
 interface Db {
 	group?: string | null;
@@ -26,12 +26,12 @@ interface Db {
 }
 /** The databases as given, every userdb directory absent unless named. */
 const judge = ({
-	group = myGroup,
-	passwd = myPasswd,
-	nsswitch = FilesOnly,
+	group = MY_GROUP,
+	passwd = MY_PASSWD,
+	nsswitch = FILES_ONLY,
 	userdb = {},
 }: Db): boolean =>
-	isPrivateGroup(me.gid, me, {
+	isPrivateGroup(ME.gid, ME, {
 		group,
 		passwd,
 		nsswitch,
@@ -47,7 +47,7 @@ describe("isPrivateGroup", () => {
 		[
 			"with systemd serving only dynamic users",
 			{
-				nsswitch: Systemd,
+				nsswitch: SYSTEMD,
 				userdb: { "/run/systemd/userdb": ["io.systemd.DynamicUser"] },
 			},
 		],
@@ -56,33 +56,33 @@ describe("isPrivateGroup", () => {
 	});
 
 	it.each<[string, Db]>([
-		["lists another member", { group: `me:x:${me.gid}:me,other\n` }],
+		["lists another member", { group: `me:x:${ME.gid}:me,other\n` }],
 		[
 			"is another user's primary group",
-			{ passwd: `${myPasswd}other:x:1001:${me.gid}::/home/o:/bin/sh\n` },
+			{ passwd: `${MY_PASSWD}other:x:1001:${ME.gid}::/home/o:/bin/sh\n` },
 		],
 		[
 			"is not the user's primary group",
-			{ passwd: `me:x:${me.uid}:${me.gid + 1}::/home/me:/bin/sh\n` },
+			{ passwd: `me:x:${ME.uid}:${ME.gid + 1}::/home/me:/bin/sh\n` },
 		],
 		["is in no /etc/group row", { group: "" }],
-		["has a row with no member field", { group: `g:x:${me.gid}\n` }],
+		["has a row with no member field", { group: `g:x:${ME.gid}\n` }],
 		["sits in an unreadable /etc/group", { group: null }],
-		["may hold NIS members", { group: `${myGroup}+:::\n` }],
-		["has a password", { group: `me:$6$salt$hash:${me.gid}:\n` }],
+		["may hold NIS members", { group: `${MY_GROUP}+:::\n` }],
+		["has a password", { group: `me:$6$salt$hash:${ME.gid}:\n` }],
 		[
 			"lists another member behind a `#`",
-			{ group: `${myGroup}a#b:x:${me.gid}:other\n` },
+			{ group: `${MY_GROUP}a#b:x:${ME.gid}:other\n` },
 		],
 		[
 			"is another user's primary group by a wrapping id",
 			{
-				passwd: `${myPasswd}other:x:1001:-${2 ** 32 - me.gid}::/home/o:/bin/sh\n`,
+				passwd: `${MY_PASSWD}other:x:1001:-${2 ** 32 - ME.gid}::/home/o:/bin/sh\n`,
 			},
 		],
 		[
 			"may hold members by a looser nsswitch line",
-			{ nsswitch: `group : sss\n${FilesOnly}` },
+			{ nsswitch: `group : sss\n${FILES_ONLY}` },
 		],
 		[
 			"may hold directory-service members",
@@ -90,30 +90,30 @@ describe("isPrivateGroup", () => {
 		],
 		[
 			"is named for a user a second, blank-led passwd row also names",
-			{ passwd: `${myPasswd} me:x:1001:1001::/home/o:/bin/sh\n` },
+			{ passwd: `${MY_PASSWD} me:x:1001:1001::/home/o:/bin/sh\n` },
 		],
 		[
 			"may take members from an `initgroups` source",
-			{ nsswitch: `${FilesOnly}initgroups: sss\n` },
+			{ nsswitch: `${FILES_ONLY}initgroups: sss\n` },
 		],
 		[
 			"is named for a user a second passwd row also names",
-			{ passwd: `${myPasswd}me:x:1001:1001::/home/o:/bin/sh\n` },
+			{ passwd: `${MY_PASSWD}me:x:1001:1001::/home/o:/bin/sh\n` },
 		],
 		[
 			"may hold a systemd userdb record",
-			{ nsswitch: Systemd, userdb: { "/etc/userdb": ["other.user"] } },
+			{ nsswitch: SYSTEMD, userdb: { "/etc/userdb": ["other.user"] } },
 		],
 		[
 			"may hold a systemd-homed member",
 			{
-				nsswitch: Systemd,
+				nsswitch: SYSTEMD,
 				userdb: { "/run/systemd/userdb": ["io.systemd.Home"] },
 			},
 		],
 		[
 			"sits on a host whose userdb directory cannot be read",
-			{ nsswitch: Systemd, userdb: { "/run/systemd/userdb": null } },
+			{ nsswitch: SYSTEMD, userdb: { "/run/systemd/userdb": null } },
 		],
 	])("judges a group not private where it %s (#3676, #3715)", (_label, db) => {
 		expect(judge(db)).toBe(false);
@@ -121,10 +121,10 @@ describe("isPrivateGroup", () => {
 
 	it("judges no group but the user's primary one private (#3676)", () => {
 		expect(
-			isPrivateGroup(me.gid + 1, me, {
-				group: `g:x:${me.gid + 1}:\n`,
-				passwd: myPasswd,
-				nsswitch: FilesOnly,
+			isPrivateGroup(ME.gid + 1, ME, {
+				group: `g:x:${ME.gid + 1}:\n`,
+				passwd: MY_PASSWD,
+				nsswitch: FILES_ONLY,
 				userdb: {},
 			}),
 		).toBe(false);
