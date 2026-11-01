@@ -18,6 +18,15 @@ import { stubGhScript } from "./gh-stub";
 import { runInProcess } from "./run-in-process";
 
 const NOT_FOUND = path.join(__dirname, "fixtures/gh/not-found.json");
+const ISSUE_COMMENT = path.join(__dirname, "fixtures/gh/issue-comment.json");
+const COMMENT_FAILED = path.join(
+	__dirname,
+	"fixtures/gh/issue-comment-not-found.json",
+);
+const CREATE_FAILED = path.join(
+	__dirname,
+	"fixtures/gh/issue-create-no-repo.json",
+);
 
 /**
  * `gh` over one tracker's review issues (`reviews.json`), closes
@@ -39,8 +48,7 @@ const NOT_FOUND = path.join(__dirname, "fixtures/gh/not-found.json");
  * when the table is written, and these change within a run. A table hands no
  * call on, so the reads that stay fixed stay here too. `serveGhStub` answers one
  * call at a time, so a create waiting mid-answer would stall the second program
- * it is waiting for. Residual, #3842: the answers that skip `asRecorded` are held
- * to no recording.
+ * it is waiting for. Each answer comes from a recording gh.contract.test.ts holds.
  */
 const Stub = `#!/usr/bin/env node
 ${RECORDED_SHAPES}
@@ -49,38 +57,41 @@ const path = require("node:path");
 const f = (n) => path.join(process.env.STUB_DIR, n);
 const a = process.argv.slice(2);
 const read = (n) => JSON.parse(fs.readFileSync(f(n), "utf8"));
-const say = (o) => { process.stdout.write(JSON.stringify(o)); process.exit(0); };
-const page = (kind, rows) => { process.stdout.write(asRecorded(kind, [rows])); process.exit(0); };
+const say = (kind, value) => { process.stdout.write(asRecorded(kind, value)); process.exit(0); };
+/* gh sends a row only the fields its call's --json asks for. */
+const asked = (a[a.indexOf("--json") + 1] ?? "").split(",");
+const sayRows = (value) => say("issueListRows", value.map((r) => Object.fromEntries(asked.filter((k) => k in r).map((k) => [k, r[k]]))));
+const sayPage = (kind, items) => say(kind, [items]);
 fs.appendFileSync(f("calls.log"), a.join(" ") + "\\n");
 const timeline = (a[1] ?? "").split("/");
-if (a[0] === "api" && a[1] === "graphql") say([{ data: { repository: { issues: { pageInfo: { hasNextPage: false }, nodes: read("idle.json") } } } }]);
-if (a[0] === "api" && timeline[5] === "timeline") page("timelinePage", read("timelines.json")[timeline[4]] ?? []);
-if (a[0] === "issue" && a[1] === "list" && a[a.indexOf("--label") + 1] === "urgent") say(read("urgent.json"));
-if (a[0] === "issue" && a[1] === "list" && a[a.indexOf("--label") + 1] === "parked") say(read("parked.json"));
-if (a[0] === "api" && ["repos/acme/wfc/labels", "repos/acme/other/labels"].includes(a[1])) say([[{ name: "takes:wayfinder" }, { name: "takes:implement" }]]);
+if (a[0] === "api" && a[1] === "graphql") say("idleIssuesPage", [{ data: { repository: { issues: { pageInfo: { hasNextPage: false }, nodes: read("idle.json") } } } }]);
+if (a[0] === "api" && timeline[5] === "timeline") sayPage("timelinePage", read("timelines.json")[timeline[4]] ?? []);
+if (a[0] === "issue" && a[1] === "list" && a[a.indexOf("--label") + 1] === "urgent") sayRows(read("urgent.json"));
+if (a[0] === "issue" && a[1] === "list" && a[a.indexOf("--label") + 1] === "parked") sayRows(read("parked.json"));
+if (a[0] === "api" && ["repos/acme/wfc/labels", "repos/acme/other/labels"].includes(a[1])) sayPage("labelsPage", [{ name: "takes:wayfinder" }, { name: "takes:implement" }]);
 if (a[0] === "api" && ["repos/acme/wfc/issues", "repos/acme/other/issues"].includes(a[1]) && a.some((x) => x.startsWith("since="))) {
 	if (fs.existsSync(f("fail-issues-since"))) { ${ghAnswerNode(NOT_FOUND)} }
-	if (fs.existsSync(f("empty-issues-since"))) { fs.rmSync(f("empty-issues-since")); page("issuesPage", []); }
-	page("issuesPage", fs.readdirSync(process.env.STUB_DIR).flatMap((n) => {
+	if (fs.existsSync(f("empty-issues-since"))) { fs.rmSync(f("empty-issues-since")); sayPage("issuesPage", []); }
+	sayPage("issuesPage", fs.readdirSync(process.env.STUB_DIR).flatMap((n) => {
 		const number = /^created-(\\d+)\\.json$/.exec(n)?.[1];
 		if (!number) return [];
 		const { title, body } = read(n);
 		return [{ number: Number(number), title, state: "open", body }];
 	}));
 }
-if (a[0] === "issue" && a[1] === "list" && a.includes('in:title "Memory kill incident from"')) say(read("kills.json"));
-if (a[0] === "issue" && a[1] === "list" && a.includes("--search") && !a.includes("--label")) say(read("closed.json"));
+if (a[0] === "issue" && a[1] === "list" && a.includes('in:title "Memory kill incident from"')) sayRows(read("kills.json"));
+if (a[0] === "issue" && a[1] === "list" && a.includes("--search") && !a.includes("--label")) sayRows(read("closed.json"));
 if (a[0] === "issue" && a[1] === "list" && a.includes("--label"))
-	say(read("reviews.json").filter((i) => a[a.indexOf("--state") + 1] === "all" || i.state === a[a.indexOf("--state") + 1].toUpperCase()));
+	sayRows(read("reviews.json").filter((i) => a[a.indexOf("--state") + 1] === "all" || i.state === a[a.indexOf("--state") + 1].toUpperCase()));
 if (a[0] === "issue" && a[1] === "comment") {
-	if (fs.existsSync(f("fail-comment"))) { process.stderr.write("HTTP 502\\n"); process.exit(1); }
+	if (fs.existsSync(f("fail-comment"))) { ${ghAnswerNode(COMMENT_FAILED)} }
 	const reviews = read("reviews.json");
 	const issue = reviews.find((i) => String(i.number) === a[2]);
 	issue.comments = [...(issue.comments ?? []), { url: "ack-" + (issue.comments ?? []).length, body: fs.readFileSync(0, "utf8") }];
 	fs.writeFileSync(f("reviews.json"), JSON.stringify(reviews));
-	process.exit(0);
+	${ghAnswerNode(ISSUE_COMMENT)}
 }
-if (a[0] === "issue" && a[1] === "list") say([
+if (a[0] === "issue" && a[1] === "list") sayRows([
 	...read("reviews.json"),
 	{ number: 1995, title: "Away mode: the morning review issue", state: "OPEN" },
 	...Array.from({ length: 100 }, (_, i) => ({ number: i + 1, title: "Fix widget " + i, state: "CLOSED" })),
@@ -94,14 +105,15 @@ if (a[0] === "issue" && a[1] === "create") {
 	const reviews = read("reviews.json");
 	const number = 900 + reviews.length + fs.readdirSync(process.env.STUB_DIR).filter((n) => n.startsWith("created-")).length;
 	const title = a[a.indexOf("--title") + 1];
-	if (title.startsWith("Morning review") && fs.existsSync(f("fail-review-create"))) { process.stderr.write("HTTP 502\\n"); process.exit(1); }
+	if (title.startsWith("Morning review") && fs.existsSync(f("fail-review-create"))) { ${ghAnswerNode(CREATE_FAILED)} }
 	const labels = a.flatMap((x, i) => (a[i - 1] === "--label" ? [x] : []));
 	const body = fs.readFileSync(0, "utf8");
 	fs.writeFileSync(f("created-" + number + ".json"), JSON.stringify({ title, labels, body }));
-	if (fs.existsSync(f("fail-after-create"))) { process.stderr.write("HTTP 502\\n"); process.exit(1); }
+	/* A landed create that reports failure cannot be recorded; lib/gh.js reads this answer as broken, as it would that one. */
+	if (fs.existsSync(f("fail-after-create"))) { ${ghAnswerNode(CREATE_FAILED)} }
 	if (title.startsWith("Morning review"))
 		fs.writeFileSync(f("reviews.json"), JSON.stringify([...reviews, { number, title, state: "OPEN", createdAt: new Date().toISOString(), body, labels: [] }]));
-	process.stdout.write("https://github.com/acme/wfc/issues/" + number + "\\n");
+	process.stdout.write(buildCreateAnswer(a[a.indexOf("--repo") + 1], number));
 	process.exit(0);
 }
 process.stderr.write("gh stub: unsupported: " + a.join(" ") + "\\n");

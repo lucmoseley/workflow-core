@@ -1,0 +1,5 @@
+{
+	"status": 1,
+	"stdout": "",
+	"stderr": "GraphQL: Could not resolve to an issue or pull request with the number of 1. (repository.issue)\n"
+}

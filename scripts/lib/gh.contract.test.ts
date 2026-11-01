@@ -10,7 +10,8 @@
  * misreads what a new gh release prints (#2220).
  *
  * Red after a gh upgrade: re-run the case's call by hand, copy what changed
- * into its fixture.
+ * into its fixture. A landed write's two recordings go red on no upgrade:
+ * re-record them by their command below.
  */
 
 import { spawnSync } from "node:child_process";
@@ -22,6 +23,7 @@ import { caught } from "./caught.js";
 import {
 	asRecorded,
 	BLOCKED_BY_GRAPHQL_FAKE,
+	buildCreateAnswer,
 	type GhAnswer,
 	GRAPHQL_FAKE,
 	ghAnswer,
@@ -71,6 +73,25 @@ const GRAPHQL_NO_REPO = path.join(
 );
 const REPO = path.join(__dirname, "fixtures/gh/repo.json");
 const REPO_VIEW = path.join(__dirname, "fixtures/gh/repo-view.json");
+const LABELS_PAGE = path.join(__dirname, "fixtures/gh/labels-page.json");
+const ISSUE_LIST_ROWS = path.join(
+	__dirname,
+	"fixtures/gh/issue-list-rows.json",
+);
+const IDLE_ISSUES_PAGE = path.join(
+	__dirname,
+	"fixtures/gh/idle-issues-page.json",
+);
+const ISSUE_CREATE = path.join(__dirname, "fixtures/gh/issue-create.json");
+const ISSUE_COMMENT = path.join(__dirname, "fixtures/gh/issue-comment.json");
+const ISSUE_CREATE_NO_REPO = path.join(
+	__dirname,
+	"fixtures/gh/issue-create-no-repo.json",
+);
+const ISSUE_COMMENT_NOT_FOUND = path.join(
+	__dirname,
+	"fixtures/gh/issue-comment-not-found.json",
+);
 const UNKNOWN_FLAG = path.join(__dirname, "fixtures/gh/unknown-flag.json");
 const VALIDATION_FAILED = path.join(
 	__dirname,
@@ -398,6 +419,48 @@ describe("live: read-only calls", () => {
 			fixture: VALIDATION_FAILED,
 			args: ["api", "search/issues?q="],
 		},
+		{
+			what: "the labels page, as file-issue.js checks a label against it",
+			fixture: LABELS_PAGE,
+			args: ["api", "repos/{owner}/{repo}/labels", "--paginate", "--slurp"],
+		},
+		{
+			what: "an issue listing with every field a stub's rows carry",
+			fixture: ISSUE_LIST_ROWS,
+			// #948 again: the oldest closed issue with these labels, and commented.
+			args: [
+				"issue",
+				"list",
+				"--state",
+				"closed",
+				"--search",
+				"sort:created-asc label:enhancement label:takes:triage label:kind:spec",
+				"--limit",
+				"1",
+				"--json",
+				"number,title,state,createdAt,closedAt,url,body,labels,comments",
+			],
+		},
+		/* Writes that write nothing: the target does not exist. */
+		{
+			what: "a create on a missing repository",
+			fixture: ISSUE_CREATE_NO_REPO,
+			args: [
+				"issue",
+				"create",
+				"--repo",
+				"wfc-no-such-owner-999999999/wfc-no-such-repo-999999999",
+				"--title",
+				"x",
+				"--body",
+				"x",
+			],
+		},
+		{
+			what: "a comment on a missing issue",
+			fixture: ISSUE_COMMENT_NOT_FOUND,
+			args: ["issue", "comment", "999999999", "--body", "x"],
+		},
 	])(
 		"$what answers alike from the real gh, the stub and the in-process fake",
 		async ({ fixture, args }, ctx) => {
@@ -600,6 +663,42 @@ describe("live: computed answers", () => {
 		);
 	});
 
+	/* lib/idle-efforts.js's QUERY, cut to closed issues with one label and oldest
+	 * first: #9 (a closed ticket) has labels, blockers and sub-issues, so every
+	 * list in the answer's first row holds a row, and it stays first. */
+	it("lib/idle-efforts.js's read answers alike from the real gh, the stub and the in-process fake", async ({
+		skip,
+	}) => {
+		liveSkip ??= { reason: liveSkipReason() };
+		if (liveSkip.reason) return skip(liveSkip.reason);
+		const { QUERY } = await import("./idle-efforts.js");
+		const open = "issues(states: OPEN, first: 50, after: $endCursor)";
+		expect(QUERY).toContain(open);
+		const [owner, name] = readTracker().split("/");
+		const args = [
+			"api",
+			"graphql",
+			"--paginate",
+			"--slurp",
+			"-f",
+			`owner=${owner}`,
+			"-f",
+			`name=${name}`,
+			"-f",
+			`query=${QUERY.replace(
+				open,
+				'issues(states: CLOSED, first: 50, after: $endCursor, labels: ["waiting:external"], orderBy: {field: CREATED_AT, direction: ASC})',
+			)}`,
+		];
+		const real = await throughSeam(realGh as string, args);
+		expect(
+			withoutText(await throughSeam(stubbed(IDLE_ISSUES_PAGE), args)),
+		).toEqual(withoutText(real));
+		expect(withoutText(await observe(ghFake(IDLE_ISSUES_PAGE), args))).toEqual(
+			withoutText(real),
+		);
+	});
+
 	/* GRAPHQL_NO_REPO is static: verdict and shape only, its repository name
 	 * being synthetic. */
 	it("lib/blocked-by-batch.js's batched read of a missing repository answers alike from the real gh, the stub and the in-process fake", async ({
@@ -634,7 +733,7 @@ describe("live: computed answers", () => {
 });
 
 /*
- * RECORDED_SHAPES holds a stub's own REST answers to the fixtures the live
+ * RECORDED_SHAPES holds a stub's own JSON answers to the fixtures the live
  * cases above hold to the real gh (#2895).
  */
 describe("offline: the recorded shapes", () => {
@@ -648,10 +747,37 @@ describe("offline: the recorded shapes", () => {
 			SUB_ISSUES,
 			REPO,
 			REPO_VIEW,
+			LABELS_PAGE,
+			ISSUE_LIST_ROWS,
+			IDLE_ISSUES_PAGE,
 		])
 			expect(RECORDED_SHAPES).toContain(
 				JSON.stringify(ghAnswer(fixture).stdout),
 			);
+	});
+
+	/*
+	 * A write that lands cannot be a live case (§G7 (2)), so these two are kept
+	 * as recorded answers. Re-record on the tracker,
+	 * then close what they made as not planned:
+	 *   echo x | gh issue create --title x --label takes:triage --body-file - >out 2>err
+	 *   echo x | gh issue comment <n> --body-file - >out 2>err
+	 */
+	it("a landed write's recording prints its URL and nothing else", () => {
+		const created = ghAnswer(ISSUE_CREATE);
+		expect(created).toMatchObject({ status: 0, stderr: "" });
+		expect(created.stdout).toMatch(/^https:\/\/\S+\/issues\/\d+\n$/);
+		const commented = ghAnswer(ISSUE_COMMENT);
+		expect(commented).toMatchObject({ status: 0, stderr: "" });
+		expect(commented.stdout).toMatch(
+			/^https:\/\/\S+\/issues\/\d+#issuecomment-\d+\n$/,
+		);
+	});
+
+	it("a create's answer names the call's repository and its number", () => {
+		expect(buildCreateAnswer("acme/wfc", 7)).toBe(
+			"https://github.com/acme/wfc/issues/7\n",
+		);
 	});
 
 	it("passes a subset of the recorded keys, a null and a listed pull request", () => {

@@ -1,0 +1,5 @@
+{
+	"status": 1,
+	"stdout": "",
+	"stderr": "GraphQL: Could not resolve to a Repository with the name 'synthetic/synthetic'. (repository)\n"
+}

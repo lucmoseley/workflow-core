@@ -1,0 +1,5 @@
+{
+	"status": 0,
+	"stdout": "[{\"data\":{\"repository\":{\"issues\":{\"pageInfo\":{\"hasNextPage\":false,\"endCursor\":\"synthetic\"},\"nodes\":[{\"number\":1,\"title\":\"A synthetic issue\",\"createdAt\":\"2000-01-01T00:00:00Z\",\"body\":\"A synthetic body.\",\"labels\":{\"nodes\":[{\"name\":\"kind:ticket\"}]},\"blockedBy\":{\"totalCount\":1,\"nodes\":[{\"state\":\"CLOSED\"}]},\"subIssues\":{\"nodes\":[{\"number\":2,\"state\":\"CLOSED\",\"repository\":{\"nameWithOwner\":\"synthetic/synthetic\"}}]}}]}}}}]",
+	"stderr": ""
+}
