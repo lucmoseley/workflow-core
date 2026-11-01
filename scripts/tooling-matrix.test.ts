@@ -849,6 +849,7 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 			"lib/infer-commands",
 			"lib/test-gate",
 			// Helpers the gates call.
+			"record-typecheck-red",
 			"lib/precommit-gate",
 			"lib/hook-root",
 			"lib/serialised",
