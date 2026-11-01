@@ -29,9 +29,9 @@ const { isInlineCode } = require("./lib/shell-words.js");
 const { runCheck } = require("./lib/check");
 
 const FILES = [".husky/pre-commit", ".husky/pre-commit.local"];
-const EXIT_ONE = /\|\|\s*exit\s+1\s*(?:;;)?\s*(?:#.*)?$/;
+const EXIT_ONE = /\|\|\s*exit\s+1\s*(?:;;\s*)?(?:#.*)?$/;
 const OPENS_BLOCK = /\|\|\s*\{\s*(?:#.*)?$/;
-const EXIT_ONE_LINE = /^exit\s+1\s*;?\s*(?:#.*)?$/;
+const EXIT_ONE_LINE = /^exit\s+1\s*(?:;\s*)?(?:#.*)?$/;
 const INTERPRETERS = new Set(["node", "bash", "sh"]);
 const SCRIPT = /\.(?:[cm]?js|sh)["']?$/;
 const LEADING = new Set(["if", "then", "else", "elif", "do", "!", "{", "("]);
