@@ -8,23 +8,28 @@
  *
  *   node scripts/refill-loop.js start …  start the loop, or widen a running
  *                                        loop's repos; flags in USAGE
- *   node scripts/refill-loop.js stop     end launching before the next
- *                                        dispatch call; running sessions
- *                                        finish
+ *   node scripts/refill-loop.js stop     record an explicit stop and end
+ *                                        launching before the next dispatch
+ *                                        call; running sessions finish
  *   node scripts/refill-loop.js set …    pause or resume launching, tick repos,
  *                                        switch the mode or set the goal with
  *                                        no restart: the
  *                                        running loop takes it at its next tick,
  *                                        and an idle loop within seconds;
- *                                        housekeeping carries on; flags in USAGE
+ *                                        housekeeping carries on; `--resume` with
+ *                                        no process starts one from the stored
+ *                                        control; flags in USAGE
  *   node scripts/refill-loop.js status   pause, mode, repos, goal, launches with
- *                                        their seats, the
- *                                        last stop reason, open repo holds
+ *                                        their seats, with no process the stop
+ *                                        that ended it or that it died with none,
+ *                                        open repo holds
  *                                        (lib/repo-holds.js), each overflow
  *                                        seat's budget and the plan seats
  *                                        overflow rests on; `--json` the code
- *                                        sha, the pause, the last tick, launches
- *                                        today, the mode, the goal, every candidate
+ *                                        sha, the stop, the pause, the last tick, launches
+ *                                        today, the mode, when away was switched
+ *                                        on and the sessions handed off since,
+ *                                        the goal, every candidate
  *                                        checkout, the launch rows, the
  *                                        `seats:` line's fields and burn mode
  *   node scripts/refill-loop.js dry-run  one tick's decision, printed; reaps
@@ -100,6 +105,8 @@ const loop = require("./lib/refill-loop.js");
 const { bootVerdictOf } = require("./lib/refill-boot.js");
 const {
 	adoptControlFile,
+	forgetRunHeld,
+	recordRunHeld,
 	readControlChecked,
 	readControlFile,
 	readStateFile,
@@ -130,8 +137,8 @@ const LOG_MAX_BYTES = 1024 * 1024;
 const SCRIPTS = __dirname;
 const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | set | status | dry-run | boot-resume
   start [--repo <dir>]… [--goal 116,117]       this checkout plus each named one
-  set --pause | --resume                       launch nothing, keeping housekeeping; or launch again
-  set --away | --normal                        hand a session at a question off to its issue; or keep it open. The repos stay
+  set --pause | --resume                       launch nothing, keeping housekeeping; or launch again, starting the loop from its stored settings where no process runs
+  set --away | --normal                        hand a session at a question off to its issue, until a tick reads the founder back after one read him absent; or keep it open. The repos stay
   set [--repos <dir>]…                         the whole ticked set
   set [--tick <dir>]… [--untick <dir>]…        add to or take from the ticked set; a checkout found later stays unticked
   set --goal <ref,…>                           rank these issues first in every ticked repo, replacing the goal
@@ -139,7 +146,7 @@ const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | set | 
   set --goal 'unblock <ref>'                   the same for the ref and what holds it out across repos, worked out each tick
   set --goal-issues <ref,…> --goal-text <text> the same, for a confirmed topic: its issues, and the text they came from
   set --clear-goal                             run bare
-  status [--json]                              --json: the code sha, the pause, the last tick, launches today, the mode, the goal, every candidate checkout, the launch rows, each with its seat and why, the seats line's fields, and burn mode's state
+  status [--json]                              --json: the code sha, the stop and whether it died with none, the pause, the last tick, launches today, the mode, when away was switched on and the sessions handed off since, the goal, every candidate checkout, the launch rows, each with its seat and why, the seats line's fields, and burn mode's state
   <dir> is a checkout's directory name in the home directory; a <ref> is <dir>#N, or #N with one repo ticked, naming an open issue; set takes any of its flags together`;
 
 const lock = pidLock(files.pid, "refill-loop.js");
@@ -318,6 +325,8 @@ function buildNextControl(pid, asked) {
 		stopRequested: false,
 		/* A start never undoes a pause: `set --resume` is its one way off (#3856). */
 		...(prior?.paused ? { paused: prior.paused } : {}),
+		/* A start keeps a running loop's mode, so its switch too. */
+		...(running?.away ? { away: running.away } : {}),
 		seats: readConfiguredSeats(),
 		scope: commands.mergedScope(running?.scope ?? null, asked),
 	};
@@ -456,6 +465,7 @@ function start(parsed) {
 		const pid = lock.holder();
 		const control = buildNextControl(pid, asked);
 		writeControlFile(control);
+		if (pid === null) forgetRunHeld(log);
 		return { pid, control };
 	});
 	if ("busy" in written) return refuseWrite("not started", written.busy);
@@ -481,6 +491,15 @@ function start(parsed) {
 		for (const line of scopeText) say(line);
 		return 0;
 	}
+	return startProcess(control, scopeText);
+}
+
+/**
+ * Spawn the loop on a control already written, and say so.
+ * @param {import("./lib/refill-loop.js").Control} control
+ * @param {string[]} scopeText
+ */
+function startProcess(control, scopeText) {
 	const launched = launchLoop();
 	if ("error" in launched) {
 		writeFd(2, `refill loop not started: ${launched.error}\n`);
@@ -500,7 +519,13 @@ function start(parsed) {
 function stop() {
 	const written = withControlLock(() => {
 		const control = readControlFile(log);
-		if (control) writeControlFile({ ...control, stopRequested: true });
+		/* A repeat stop keeps the time of the first. */
+		if (control && !control.stopRequested)
+			writeControlFile({
+				...control,
+				stopRequested: true,
+				stopRequestedAt: Date.now(),
+			});
 	});
 	if ("busy" in written) return refuseWrite("stop not recorded", written.busy);
 	const pid = lock.holder();
@@ -515,7 +540,7 @@ function stop() {
 
 /**
  * `set`: the named fields changed on a fresh read under the control lock, then
- * the wake touched.
+ * the wake touched, and where a resume found no process, one started.
  * @param {import("./lib/cli-args").Parsed} parsed
  */
 function set(parsed) {
@@ -542,6 +567,7 @@ function set(parsed) {
 			},
 		);
 		if ("write" in plan && plan.write) writeControlFile(plan.write);
+		if ("startFrom" in plan && plan.startFrom) forgetRunHeld(log);
 		return plan;
 	});
 	if ("busy" in written) return refuseWrite("nothing set", written.busy);
@@ -550,7 +576,7 @@ function set(parsed) {
 	}
 	wakes.touchWake(files.wake);
 	for (const line of written.done.lines) say(line);
-	return 0;
+	return written.done.startFrom ? startProcess(written.done.startFrom, []) : 0;
 }
 
 /**
@@ -712,6 +738,7 @@ async function run() {
 		return 0;
 	}
 	process.on("exit", lock.release);
+	recordRunHeld(log);
 	adoptControlFile(log);
 	for (const sig of /** @type {const} */ (["SIGTERM", "SIGINT", "SIGHUP"]))
 		process.on(sig, () => process.exit(0));
@@ -748,9 +775,7 @@ async function run() {
 			});
 			updater?.afterTick();
 			/* A `start` that overtook a pending stop mid-tick saw this pid and
-			 * spawned nothing, so that stop must not end the loop. Residual: one
-			 * landing on a no-progress or allowance stop moves nothing, so it prints
-			 * `running` and the loop still exits, until #3859 removes those stops. */
+			 * spawned nothing, so that stop must not end the loop. */
 			const done =
 				"stop" in decision &&
 				!loop.isRestartedSince(readControlFile(log), noProgressFrom);

@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /*
  * refill-panel.js — the refill loop's control panel beside an agents view (#3873,
- * #3877, #3881, spec #3596): a terminal program with no Claude process that shows the Refill
- * loop switch and its three-line block, and pauses or resumes the loop on a click,
- * the Burn mode switch, which flips burn mode on a click, and a tick box per
- * checkout, which sets whether the loop serves it.
+ * #3877, #3879, #3881, spec #3596): a terminal program with no Claude process that shows the Refill
+ * loop switch and its three-line block, and pauses or resumes the loop on a click;
+ * the Away switch, which sets the loop's mode on a click; the Burn mode switch,
+ * which flips burn mode on a click; and a tick box per checkout, which sets whether
+ * the loop serves it.
  * What it draws is lib/refill-panel.js's; the terminal, lib/refill-panel-terminal.js's.
  *
  *   node scripts/refill-panel.js <agents-view-pid>
@@ -27,17 +28,21 @@ const { parseOrCode } = require("./lib/cli-args");
 const { openPanel } = require("./lib/refill-panel-terminal.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
+const { FETCH_TIMEOUT_MS } = require("./lib/refill-code.js");
 
 const USAGE = `usage: node ${scriptPath("refill-panel.js")} <agents-view-pid>
 
-Shows the refill loop, burn mode and the repos it can serve, and changes each on a click, until that pid exits.
+Shows the refill loop, away mode, burn mode and the repos it can serve, and changes each on a click, until that pid exits.
 `;
 
 const LOOP_PROGRAM = path.join(__dirname, "refill-loop.js");
 const BURN_PROGRAM = path.join(__dirname, "burn-mode.sh");
 /* Untraced, a first guess: past the control lock's 10 s wait (lib/pid-lock.js),
  * and far past burn-mode.sh's few short writes, whose timeout reads as a failed flip. */
-const RUN_TIMEOUT_MS = 30_000;
+const READ_TIMEOUT_MS = 30_000;
+/* A `set --resume` with no process fetches the loop's code first (#3861); killed
+ * mid-fetch, it would leave the loop unpaused with no process. */
+const PRESS_TIMEOUT_MS = READ_TIMEOUT_MS + FETCH_TIMEOUT_MS;
 /* `wsl.exe -e` starts no shell, so a node from nvm is on no PATH, and burn-mode.sh
  * runs `node` by name (#3886). */
 const RUN_ENV = {
@@ -50,23 +55,19 @@ const RUN_ENV = {
 /**
  * @param {string} file
  * @param {string[]} argv
+ * @param {number} timeout
  * @returns {ReturnType<import("./lib/refill-panel.js").Runner>}
  */
-const runCommand = (file, argv) =>
+const runCommand = (file, argv, timeout) =>
 	new Promise((resolve) => {
-		execFile(
-			file,
-			argv,
-			{ timeout: RUN_TIMEOUT_MS, env: RUN_ENV },
-			(err, stdout, stderr) => {
-				if (!err) {
-					resolve({ code: 0, stdout, stderr });
-					return;
-				}
-				const code = typeof err.code === "number" ? err.code : 1;
-				resolve({ code, stdout, stderr: stderr || err.message });
-			},
-		);
+		execFile(file, argv, { timeout, env: RUN_ENV }, (err, stdout, stderr) => {
+			if (!err) {
+				resolve({ code: 0, stdout, stderr });
+				return;
+			}
+			const code = typeof err.code === "number" ? err.code : 1;
+			resolve({ code, stdout, stderr: stderr || err.message });
+		});
 	});
 
 /** @param {unknown} err */
@@ -96,8 +97,13 @@ function main(argv = process.argv.slice(2)) {
 		stdin: process.stdin,
 		stdout: process.stdout,
 		proc: process,
-		run: (args) => runCommand(process.execPath, [LOOP_PROGRAM, ...args]),
-		runBurn: (args) => runCommand(BURN_PROGRAM, args),
+		run: (args) =>
+			runCommand(
+				process.execPath,
+				[LOOP_PROGRAM, ...args],
+				args[0] === "status" ? READ_TIMEOUT_MS : PRESS_TIMEOUT_MS,
+			),
+		runBurn: (args) => runCommand(BURN_PROGRAM, args, READ_TIMEOUT_MS),
 		isAlive: pidAlive,
 		now: Date.now,
 		reportCrash,

@@ -166,10 +166,10 @@ const buildTemplate = (root: string) => {
 	// the subject check (#2332), and prints commit-message.txt on its refusal.
 	for (const rel of [
 		"scripts/lib/commit-route.sh",
-		"scripts/lib/review-tier-stamp.sh",
 		"scripts/check-commit-message-closes.sh",
 		"scripts/check-commit-subject.sh",
 		"scripts/review-tier-trailer.sh",
+		"scripts/lib/review-tier-stamp.sh",
 		"scripts/lib/rule-text.sh",
 		"docs/agents/rules/commit-closes-keyword.txt",
 		"docs/agents/rules/commit-message.txt",
@@ -1123,8 +1123,9 @@ describe("the review hold on a cherry-pick's replay path (#3905)", () => {
 		const pick = sideCommit(p, "f.txt");
 		refusing(p);
 		const r = attempt(p.root, "cherry-pick", pick);
-		// git reports a refusing hook on a replay as a failed sequencer step.
-		expect(r.code).toBe(128);
+		// #3926: git's status here varies by version (128 at 2.43, 1 at 2.56), so
+		// any nonzero passes; the text and CHERRY_PICK_HEAD below hold the refusal.
+		expect(r.code).not.toBe(0);
 		expect(r.output).toContain("the hold refused this pick");
 		expect(r.output).toContain("git cherry-pick --abort");
 		expect(fs.existsSync(path.join(p.gitDir(), "CHERRY_PICK_HEAD"))).toBe(true);

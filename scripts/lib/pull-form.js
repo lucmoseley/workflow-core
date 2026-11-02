@@ -201,8 +201,9 @@ const REF_VALUE_FLAGS = {
 };
 
 /* The ruling's one route, named only where it applies (#3198). */
-const MAIN_UNREADABLE =
-	"`main` IS UNREADABLE HERE, NOT MOVED: repair it with `node scripts/repair-main.js`, which refuses unless every proof holds and backs up first. Every other route to write `main` stays refused. File the reflog entries it lists on a ticket.";
+/** @param {import("./kit-context.js").KitContext} ctx */
+const buildMainUnreadableLine = (ctx) =>
+	`\`main\` IS UNREADABLE HERE, NOT MOVED: repair it with \`node ${ctx.scriptPath("repair-main.js")}\`, which refuses unless every proof holds and backs up first. Every other route to write \`main\` stays refused. File the reflog entries it lists on a ticket.`;
 
 /** Each discarding subcommand's per-path form and value-taking options. */
 /** @type {Record<string, { safe: string, spec: string }>} */
@@ -290,7 +291,7 @@ const discardRule = (ctx) =>
  */
 const rewindDeny = (j, segment, what) => ({
 	reason: j.ctx.isMainUnreadable()
-		? `${rewindReason(j.ctx, what)}\n\n${MAIN_UNREADABLE}`
+		? `${rewindReason(j.ctx, what)}\n\n${buildMainUnreadableLine(j.ctx)}`
 		: rewindReason(j.ctx, what),
 	segment,
 });
