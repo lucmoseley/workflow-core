@@ -1722,7 +1722,7 @@ function walkCommands(parsed, fn, ports) {
  *
  * The subcommand filter runs BEFORE the tree is resolved: a `git status` whose
  * tree cannot be resolved is no fail-open, because no guard was going to judge
- * it, and logging it would bury the ones that matter. One the guard asked for
+ * it. One the guard asked for
  * whose tree will not resolve is recorded through `ports.log`, as is a tree
  * git could not answer for (mantahostels#147).
  *
@@ -1753,7 +1753,7 @@ function walkGit(parsed, fn, ports, opts) {
 		});
 		if (!subs.includes(sub)) return;
 		/* A named git directory moves the refs and leaves the work tree where the
-		 * command stands (measured), so it adds a tree to judge and removes none. */
+		 * command stands (measured). */
 		const trees = git.named === null ? [git.tree] : [git.named, git.tree];
 		for (const tree of new Set(trees)) {
 			/** @param {string} judged */
@@ -1868,13 +1868,10 @@ function readGitSegment(walk, { words, wi, assignEnd, ran }, how) {
 	return { ...target, sub: own[i] ?? "", args: own.slice(i + 1) };
 }
 
-/* The variables git reads for where its repository is and for its config. */
 const GIT_ENV_NAME =
 	/^(?:GIT_DIR|GIT_COMMON_DIR|GIT_CONFIG_PARAMETERS|GIT_CONFIG_(?:KEY|VALUE)_\d+)$/;
 
 /**
- * A `NAME=value` word as `[[name, value]]` where git reads that name, else
- * `[]`.
  * @param {string} word
  * @returns {[string, string][]}
  */
@@ -1902,7 +1899,6 @@ function markRepoVarsUnread(walk, words) {
 }
 
 /**
- * Whether a command puts its names in the environment, or takes them out.
  * @param {string} head
  * @param {string[]} rest
  * @returns {"export" | "drop" | null}

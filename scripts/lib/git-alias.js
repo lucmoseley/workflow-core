@@ -1,8 +1,7 @@
 /*
  * git-alias.js — what a git word means once the aliases its own command line
  * defines are read (#3997): `git -c alias.s=symbolic-ref s HEAD` is a
- * `symbolic-ref`. walkGit's read, so every guard judges the subcommand git runs
- * rather than the one spelt.
+ * `symbolic-ref`. walkGit's read.
  *
  * Measured on git 2.43.0: an alias takes its leading words as arguments, one
  * alias may name another, the last definition wins, a builtin of the same name
@@ -53,7 +52,6 @@ function define(table, { key, complete, value }) {
 }
 
 /**
- * A `<key>=<rest>` word, as far as it can be read.
  * @param {string} word raw
  * @param {string[]} spans
  */
@@ -69,7 +67,6 @@ function splitConfig(word, spans) {
 }
 
 /**
- * Read one `-c <key>=<value>` word onto `table`.
  * @param {AliasTable} table accumulator
  * @param {string} word raw
  * @param {string[]} spans
@@ -124,7 +121,7 @@ const UNREADABLE_VALUE = /^\s*(?:$|!|-)|['"\\]/;
  * `sub` read as UNREAD_ALIAS where the words cannot be told.
  * @param {string} sub raw
  * @param {string[]} args raw
- * @param {AliasTable} table accumulator
+ * @param {AliasTable} table
  * @param {{ subs: string[], spans: string[] }} opts
  * @returns {{ sub: string, args: string[] }}
  */
