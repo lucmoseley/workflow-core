@@ -33,7 +33,7 @@ const { FETCH_TIMEOUT_MS } = require("./lib/refill-code.js");
 
 const USAGE = `usage: node ${scriptPath("refill-panel.js")} <agents-view-pid>
 
-Shows the refill loop, away mode, burn mode, the goal and the repos it can serve, and changes each on a click, until that pid exits.
+Shows the refill loop, away mode, burn mode, the goal and the repos it can serve, and changes each on a click, a goal by typing it, until that pid exits.
 `;
 
 const LOOP_PROGRAM = path.join(__dirname, "refill-loop.js");

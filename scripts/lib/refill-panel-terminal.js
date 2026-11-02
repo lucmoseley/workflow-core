@@ -4,16 +4,11 @@
  * on every exit a process can catch, and the poll and pid watch between.
  */
 
-const {
-	ESC,
-	buildFrame,
-	buildRows,
-	createInputReader,
-	createPanel,
-} = require("./refill-panel.js");
+const { buildFrame, buildRows, createPanel } = require("./refill-panel.js");
+const { ESC, createInputReader } = require("./refill-panel-input.js");
 
-const SCREEN_ON = `${ESC}[?1049h${ESC}[?25l${ESC}[?1000h${ESC}[?1006h`;
-const SCREEN_OFF = `${ESC}[?1006l${ESC}[?1000l${ESC}[?25h${ESC}[?1049l`;
+const SCREEN_ON = `${ESC}[?1049h${ESC}[?25l${ESC}[?1000h${ESC}[?1006h${ESC}[?2004h`;
+const SCREEN_OFF = `${ESC}[?2004l${ESC}[?1006l${ESC}[?1000l${ESC}[?25h${ESC}[?1049l`;
 const CLEAR = `${ESC}[2J`;
 
 /* Untraced, first guesses: fast enough that a change elsewhere shows while the
@@ -95,9 +90,9 @@ function openPanel({
 	const input = createInputReader();
 	/** @type {NodeJS.Timeout|undefined} */
 	let escapeWait;
-	/** @param {import("./refill-panel.js").Key[]} keys */
+	/** @param {import("./refill-panel-input.js").Key[]} keys */
 	const pressKeys = (keys) => {
-		for (const key of keys) panel.key(key).catch(crash);
+		for (const key of keys) panel.pressKey(key).catch(crash);
 	};
 
 	stdin.setRawMode(true);

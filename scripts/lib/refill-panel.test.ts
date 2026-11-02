@@ -8,7 +8,6 @@ const {
 	ESC,
 	buildFrame,
 	buildRows,
-	createInputReader,
 	createPanel,
 } = require("./refill-panel.js");
 
@@ -1332,52 +1331,6 @@ describe("the Away switch", () => {
 	});
 });
 
-describe("the mouse reader", () => {
-	const report = (button: number, col: number, row: number, kind: string) =>
-		`${ESC}[<${button};${col};${row}${kind}`;
-
-	it("takes a release in the pressed cell as a click, the first press included", () => {
-		const { read } = createInputReader();
-		expect(read(report(0, 5, 2, "M") + report(0, 5, 2, "m")).clicks).toEqual([
-			2,
-		]);
-	});
-
-	it("acts on the release, not the press", () => {
-		const { read } = createInputReader();
-		expect(read(report(0, 5, 2, "M")).clicks).toEqual([]);
-		expect(read(report(0, 5, 2, "m")).clicks).toEqual([2]);
-	});
-
-	it("ignores a release in another cell", () => {
-		const { read } = createInputReader();
-		expect(read(report(0, 5, 2, "M") + report(0, 6, 2, "m")).clicks).toEqual(
-			[],
-		);
-	});
-
-	it("ignores any other button and a release with no press", () => {
-		const { read } = createInputReader();
-		expect(read(report(2, 5, 2, "M") + report(2, 5, 2, "m")).clicks).toEqual(
-			[],
-		);
-		expect(read(report(0, 5, 2, "m")).clicks).toEqual([]);
-	});
-
-	it("reads a report split across chunks", () => {
-		const { read } = createInputReader();
-		const whole = report(0, 5, 2, "M") + report(0, 5, 2, "m");
-		expect(read(whole.slice(0, 13)).clicks).toEqual([]);
-		expect(read(whole.slice(13)).clicks).toEqual([2]);
-	});
-
-	it("says so on Ctrl+C", () => {
-		const { read } = createInputReader();
-		expect(read("x q ").interrupted).toBe(false);
-		expect(read(String.fromCharCode(3)).interrupted).toBe(true);
-	});
-});
-
 describe("the Repos section", () => {
 	const repo = (name: string, ticked: boolean, disabled?: string) => ({
 		name,
@@ -1610,56 +1563,6 @@ describe("the Repos section", () => {
 	});
 });
 
-describe("the key reader", () => {
-	it("reads typed text, and takes no mouse report for text", () => {
-		const { read } = createInputReader();
-		const { keys, clicks } = read(`ab${ESC}[<0;5;2M${ESC}[<0;5;2mc`);
-		expect(keys).toEqual([{ text: "ab" }, { text: "c" }]);
-		expect(clicks).toEqual([2]);
-	});
-
-	it.each([
-		["\r", "enter"],
-		["\n", "enter"],
-		[String.fromCharCode(127), "backspace"],
-		["\b", "backspace"],
-		[`${ESC}[D`, "left"],
-		[`${ESC}[C`, "right"],
-		[`${ESC}OD`, "left"],
-		[`${ESC}[H`, "home"],
-		[`${ESC}[1~`, "home"],
-		[`${ESC}[F`, "end"],
-		[`${ESC}[4~`, "end"],
-		[`${ESC}[3~`, "delete"],
-	])("names the key %j", (bytes, name) => {
-		expect(createInputReader().read(bytes).keys).toEqual([{ name }]);
-	});
-
-	it("drops a sequence it has no use for", () => {
-		const { read } = createInputReader();
-		expect(read(`${ESC}[A${ESC}[1;3C${ESC}[15~\t`).keys).toEqual([]);
-	});
-
-	it("holds a lone escape until the flush says it was the Esc key", () => {
-		const { read, flush } = createInputReader();
-		expect(read(ESC)).toMatchObject({ keys: [], held: true });
-		expect(flush()).toEqual([{ name: "escape" }]);
-		expect(read("x")).toMatchObject({ keys: [{ text: "x" }], held: false });
-	});
-
-	it("reads a sequence split after its escape as that sequence", () => {
-		const { read } = createInputReader();
-		read(ESC);
-		expect(read("[D").keys).toEqual([{ name: "left" }]);
-	});
-
-	it("reads no Esc key off a flushed part of a sequence", () => {
-		const { read, flush } = createInputReader();
-		read(`${ESC}[<0;5`);
-		expect(flush()).toEqual([]);
-	});
-});
-
 describe("the Goal section", () => {
 	const SetAt = AT - 3_600_000;
 	const goalOf = (over: object = {}) => ({
@@ -1733,12 +1636,12 @@ describe("the Goal section", () => {
 			},
 		};
 	}
-	type P = Awaited<ReturnType<typeof goalPanel>>["panel"];
-	async function typeGoal(panel: P, text: string) {
+	type GoalPanel = Awaited<ReturnType<typeof goalPanel>>["panel"];
+	async function typeGoal(panel: GoalPanel, text: string) {
 		await panel.click(fieldRow(panel));
 		panel.view.goalEdit = { text: "", caret: 0 };
-		await panel.key({ text });
-		await panel.key(Enter);
+		await panel.pressKey({ text });
+		await panel.pressKey(Enter);
 	}
 
 	describe("what it shows", () => {
@@ -1944,41 +1847,41 @@ describe("the Goal section", () => {
 		it("takes keys as a small edit of what is there", async () => {
 			const { panel } = await goalPanel(WithGoal);
 			await panel.click(fieldRow(panel));
-			await panel.key({ name: "backspace" });
-			await panel.key({ text: "9" });
-			await panel.key({ name: "home" });
-			await panel.key({ name: "delete" });
-			await panel.key({ name: "right" });
-			await panel.key({ name: "left" });
-			await panel.key({ name: "left" });
-			await panel.key({ text: "d" });
-			await panel.key({ name: "end" });
+			await panel.pressKey({ name: "backspace" });
+			await panel.pressKey({ text: "9" });
+			await panel.pressKey({ name: "home" });
+			await panel.pressKey({ name: "delete" });
+			await panel.pressKey({ name: "right" });
+			await panel.pressKey({ name: "left" });
+			await panel.pressKey({ name: "left" });
+			await panel.pressKey({ text: "d" });
+			await panel.pressKey({ name: "end" });
 			expect(panel.view.goalEdit).toEqual({ text: "drain #2519", caret: 11 });
 		});
 
 		it("keeps the caret inside the text", async () => {
 			const { panel } = await goalPanel(RUNNING);
 			await panel.click(fieldRow(panel));
-			await panel.key({ name: "left" });
-			await panel.key({ name: "backspace" });
-			await panel.key({ name: "delete" });
-			await panel.key({ name: "right" });
+			await panel.pressKey({ name: "left" });
+			await panel.pressKey({ name: "backspace" });
+			await panel.pressKey({ name: "delete" });
+			await panel.pressKey({ name: "right" });
 			expect(panel.view.goalEdit).toEqual({ text: "", caret: 0 });
 		});
 
 		it("counts a character beyond one code unit as one", async () => {
 			const { panel } = await goalPanel(RUNNING);
 			await panel.click(fieldRow(panel));
-			await panel.key({ text: "a😀" });
-			await panel.key({ name: "backspace" });
+			await panel.pressKey({ text: "a😀" });
+			await panel.pressKey({ name: "backspace" });
 			expect(panel.view.goalEdit).toEqual({ text: "a", caret: 1 });
 		});
 
 		it("changes nothing on Esc", async () => {
 			const { panel, presses } = await goalPanel(WithGoal);
 			await panel.click(fieldRow(panel));
-			await panel.key({ text: "9" });
-			await panel.key(Esc);
+			await panel.pressKey({ text: "9" });
+			await panel.pressKey(Esc);
 			expect(panel.view.goalEdit).toBeNull();
 			expect(presses()).toEqual([]);
 		});
@@ -1986,7 +1889,7 @@ describe("the Goal section", () => {
 		it("takes no key at all with the field closed", async () => {
 			const { panel, presses } = await goalPanel(WithGoal);
 			for (const pressed of [{ text: "p" }, Enter, Esc, { name: "left" }])
-				await panel.key(pressed);
+				await panel.pressKey(pressed);
 			expect(presses()).toEqual([]);
 			expect(panel.view.goalEdit).toBeNull();
 		});
@@ -2014,6 +1917,16 @@ describe("the Goal section", () => {
 			},
 		);
 
+		it("closes on a blank Enter, setting nothing", async () => {
+			const { panel, presses } = await goalPanel(RUNNING);
+			await panel.click(fieldRow(panel));
+			await panel.pressKey({ text: "   " });
+			await panel.pressKey(Enter);
+			expect(panel.view.goalEdit).toBeNull();
+			expect(panel.view.goalPending).toBeNull();
+			expect(presses()).toEqual([]);
+		});
+
 		it("shows the new goal once a read shows it", async () => {
 			const { panel, show } = await goalPanel(WithGoal);
 			show({
@@ -2028,7 +1941,7 @@ describe("the Goal section", () => {
 		it("drops what was typed on a click elsewhere, which still acts once", async () => {
 			const { panel, presses } = await goalPanel(WithGoal);
 			await panel.click(fieldRow(panel));
-			await panel.key({ text: "9" });
+			await panel.pressKey({ text: "9" });
 			await panel.click(AWAY_ROW);
 			expect(panel.view.goalEdit).toBeNull();
 			expect(presses()).toEqual([["set", "--away"]]);
@@ -2037,7 +1950,7 @@ describe("the Goal section", () => {
 		it("stays open on a click on itself", async () => {
 			const { panel } = await goalPanel(WithGoal);
 			await panel.click(fieldRow(panel));
-			await panel.key({ text: "9" });
+			await panel.pressKey({ text: "9" });
 			await panel.click(fieldRow(panel));
 			expect(panel.view.goalEdit?.text).toBe("drain #25189");
 		});

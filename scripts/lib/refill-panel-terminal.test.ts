@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const { openPanel } = require("./refill-panel-terminal.js");
 
 const ESC = String.fromCharCode(27);
-const RESTORE = `${ESC}[?1006l${ESC}[?1000l${ESC}[?25h${ESC}[?1049l`;
+const RESTORE = `${ESC}[?2004l${ESC}[?1006l${ESC}[?1000l${ESC}[?25h${ESC}[?1049l`;
 const STATUS = JSON.stringify({
 	running: true,
 	stopRequested: false,
@@ -89,6 +89,7 @@ describe("the panel's terminal", () => {
 		expect(t.raw).toEqual([true]);
 		expect(t.text()).toContain(`${ESC}[?1049h`);
 		expect(t.text()).toContain(`${ESC}[?1000h${ESC}[?1006h`);
+		expect(t.text()).toContain(`${ESC}[?2004h`);
 	});
 
 	it.each([
