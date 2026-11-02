@@ -206,6 +206,7 @@ process.stdout.write("started the lander");\n`,
 	retroBundles: [],
 	pulledIn: [],
 	pulledInUnread: [],
+	running: [],
 }));\n`,
 	);
 	/* What `stop` writes: the control's flag, then a wake line. Not `stop`

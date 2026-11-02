@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /*
  * refill-panel.js — the refill loop's control panel beside an agents view (#3873,
- * #3877, #3879, spec #3596): a terminal program with no Claude process that shows the Refill
+ * #3877, #3879, #3881, spec #3596): a terminal program with no Claude process that shows the Refill
  * loop switch and its three-line block, and pauses or resumes the loop on a click;
- * the Away switch, which sets the loop's mode on a click; and the Burn mode switch,
- * which flips burn mode on a click.
+ * the Away switch, which sets the loop's mode on a click; the Burn mode switch,
+ * which flips burn mode on a click; and a tick box per checkout, which sets whether
+ * the loop serves it.
  * What it draws is lib/refill-panel.js's; the terminal, lib/refill-panel-terminal.js's.
  *
  *   node scripts/refill-panel.js <agents-view-pid>
@@ -31,7 +32,7 @@ const { FETCH_TIMEOUT_MS } = require("./lib/refill-code.js");
 
 const USAGE = `usage: node ${scriptPath("refill-panel.js")} <agents-view-pid>
 
-Shows the refill loop, away mode and burn mode, and changes each on a click, until that pid exits.
+Shows the refill loop, away mode, burn mode and the repos it can serve, and changes each on a click, until that pid exits.
 `;
 
 const LOOP_PROGRAM = path.join(__dirname, "refill-loop.js");
@@ -42,6 +43,14 @@ const READ_TIMEOUT_MS = 30_000;
 /* A `set --resume` with no process fetches the loop's code first (#3861); killed
  * mid-fetch, it would leave the loop unpaused with no process. */
 const PRESS_TIMEOUT_MS = READ_TIMEOUT_MS + FETCH_TIMEOUT_MS;
+/* `wsl.exe -e` starts no shell, so a node from nvm is on no PATH, and burn-mode.sh
+ * runs `node` by name (#3886). */
+const RUN_ENV = {
+	...process.env,
+	PATH: [path.dirname(process.execPath), process.env.PATH]
+		.filter(Boolean)
+		.join(path.delimiter),
+};
 
 /**
  * @param {string} file
@@ -51,7 +60,7 @@ const PRESS_TIMEOUT_MS = READ_TIMEOUT_MS + FETCH_TIMEOUT_MS;
  */
 const runCommand = (file, argv, timeout) =>
 	new Promise((resolve) => {
-		execFile(file, argv, { timeout }, (err, stdout, stderr) => {
+		execFile(file, argv, { timeout, env: RUN_ENV }, (err, stdout, stderr) => {
 			if (!err) {
 				resolve({ code: 0, stdout, stderr });
 				return;

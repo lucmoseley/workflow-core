@@ -88,7 +88,11 @@ const {
 } = require("./lib/refill-seats.js");
 const wakes = require("./lib/refill-wake.js");
 const { ghJson, parseErrLine } = require("./lib/gh.js");
-const { parseAskedRefs } = require("./lib/refill-goal.js");
+const {
+	buildGoalRefusal,
+	parseAskedRefs,
+	parseGoalForm,
+} = require("./lib/refill-goal.js");
 const { configDir, seatDir } = require("./lib/config-dir.js");
 const { readLastTyped } = require("./lib/presence.js");
 const {
@@ -135,13 +139,15 @@ const LOG_MAX_BYTES = 1024 * 1024;
 
 const SCRIPTS = __dirname;
 const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | set | status | dry-run | boot-resume
-  start [--repo <dir>]… [--goal <ref,…>]       ensure a process runs, from the stored settings, ending any stop, its count starting again; a first start ticks this checkout. On a running loop it changes only what --repo ticks and --goal replaces, as set does
-  start --unless-stopped [--repo <dir>]… [--goal <ref,…>]  the same, but an explicit stop stands and is printed, and otherwise the stored settings start as they were
+  start [--repo <dir>]… [--goal <goal>]        ensure a process runs, from the stored settings, ending any stop, its count starting again; a first start ticks this checkout. On a running loop it changes only what --repo ticks and --goal replaces, as set does
+  start --unless-stopped [--repo <dir>]… [--goal <goal>]  the same, but an explicit stop stands and is printed, and otherwise the stored settings start as they were
   set --pause | --resume                       launch nothing, keeping housekeeping; or launch again, starting the loop from its stored settings where no process runs
   set --away | --normal                        hand a session at a question off to its issue, until a tick reads the founder back after one read him absent; or keep it open. The repos stay
   set [--repos <dir>]…                         the whole ticked set
   set [--tick <dir>]… [--untick <dir>]…        add to or take from the ticked set; a checkout found later stays unticked
   set --goal <ref,…>                           rank these issues first in every ticked repo, replacing the goal
+  set --goal 'drain <ref>'                     the same for the ref's open descendants, worked out each tick
+  set --goal 'unblock <ref>'                   the same for the ref and what holds it out across repos, worked out each tick
   set --goal-issues <ref,…> --goal-text <text> the same, for a confirmed topic: its issues, and the text they came from
   set --clear-goal                             run bare
   status [--json]                              --json: the code sha, the stop and whether it died with none, the pause, the last tick, launches today, the mode, when away was switched on and the sessions handed off since, the goal, every candidate checkout, the launch rows, each with its seat and why, the seats line's fields, and burn mode's state
@@ -200,12 +206,15 @@ function setConflictOf({ flags, lists }) {
  */
 function parseGoalAsk(flags) {
 	if (flags["--clear-goal"]) return null;
-	const typed = flags["--goal"] ?? flags["--goal-issues"];
+	if (flags["--goal"] !== undefined) {
+		const typed = String(flags["--goal"]);
+		const asked = parseGoalForm(typed);
+		return asked ? { ...asked, text: typed } : buildGoalRefusal(typed);
+	}
+	const typed = flags["--goal-issues"];
 	if (typed === undefined) return;
 	const refs = parseAskedRefs(String(typed));
 	if (refs === null) return `a goal takes issue refs, #N or <dir>#N: ${typed}`;
-	if (flags["--goal"] !== undefined)
-		return { form: "issues", text: String(typed), refs };
 	const text = String(flags["--goal-text"]).trim();
 	return text === "" ? "--goal-text is empty" : { form: "topic", text, refs };
 }

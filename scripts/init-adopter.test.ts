@@ -1627,6 +1627,31 @@ describe("a complete day-one config (#715)", () => {
 		expect(readConfig(dir).commands).toBeUndefined();
 	});
 
+	it("refuses an explicit yarn run biome check --staged, writing nothing (#3944)", () => {
+		const { dir } = repo();
+		write(
+			dir,
+			"package.json",
+			JSON.stringify({ devDependencies: { "@biomejs/biome": "2.5.15" } }),
+		);
+		const r = init(
+			dir,
+			"--founder",
+			"A Founder",
+			"--no-tracker",
+			"--command",
+			"check_staged=yarn run biome check --staged --write",
+		);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("runs Biome through");
+		expect(r.stderr).toContain(
+			'node "$WFC_PLUGIN_ROOT"/scripts/biome-staged.js',
+		);
+		expect(fs.existsSync(path.join(dir, ".claude/workflow-core.json"))).toBe(
+			false,
+		);
+	});
+
 	it.each([
 		["a check:staged script", "npx lint-staged && tsc", []],
 		["a --command", "biome check .", ["--command", "check_staged=npm run pre"]],

@@ -97,6 +97,35 @@ describe("whether a command runs lint-staged (#2587)", () => {
 	});
 });
 
+describe("a yarn or bun run a binary answers (#3944)", () => {
+	const writeScripts = (scripts: object) =>
+		fs.writeFileSync(
+			path.join(dir, "package.json"),
+			JSON.stringify({ scripts }),
+		);
+
+	it.each(["yarn run lint-staged", "bun run lint-staged"])(
+		"counts %j where no script has that name, as the binary runs",
+		(command) => {
+			writeScripts({});
+			expect(isLintStagedCommand(dir, command)).toBe(true);
+		},
+	);
+
+	it.each(["npm run lint-staged", "pnpm run lint-staged"])(
+		"does not count %j, whose runner fails on a missing script",
+		(command) => {
+			writeScripts({});
+			expect(isLintStagedCommand(dir, command)).toBe(false);
+		},
+	);
+
+	it("does not count a run naming a real script that runs no lint-staged", () => {
+		writeScripts({ "lint-staged": "tsc" });
+		expect(isLintStagedCommand(dir, "yarn run lint-staged")).toBe(false);
+	});
+});
+
 describe("a command naming a script or directory by a bare `$'\\c'` (#3853)", () => {
 	it("follows the script named as bash reads it, the literal \\c", () => {
 		fs.writeFileSync(
@@ -887,6 +916,7 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 					bc: "biome check",
 					bl: "biome lint --staged",
 					lint: "eslint",
+					rs: "run-s cs",
 				},
 				devDependencies: { "@biomejs/biome": "2.5.15" },
 			});
@@ -916,7 +946,7 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 			["pnpm --reporter silent run cs", NeverRewritten],
 			["cd -- web && npm run web-cs", InWeb],
 			["npx bi?me format --staged", NotMapped],
-			["env bi?me format --staged", NotMapped],
+			["env bi?me format --staged", UNREAD],
 			["do $X", UNREAD],
 			["if true; then $X; fi", UNREAD],
 			["! $X", UNREAD],
@@ -1028,16 +1058,129 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 			"cd ~/web && npm run web-cs",
 			"npm install-test",
 			"pnpm --reporter silent cs",
-			"time $X",
 			`./lint.sh ${Staged}`,
-			"env $X",
-			"exec $X",
 			"find . -exec $X ;",
 			"su -c $X",
+			"cat f | env --split-string=sh",
 			"npm run c?",
 			"biome check --st?ged",
+			"npm run rs",
+			"npm-run-all cs",
+			"concurrently npm:cs",
+			"turbo run cs",
+			"nx run cs",
+			"lerna run cs",
 		])("leaves the stated residual %j unread", (command) => {
 			expect(run(command).status).toBe(0);
+		});
+
+		describe("the seventh review's rows (#3944)", () => {
+			it.each([
+				["yarn run biome check --staged --write", Through],
+				["bun run biome check --staged --write", Through],
+				["yarn run biome check --staged && tsc", HoldsMore],
+				["cd web && yarn run biome check --staged", InWeb],
+				["cd web && biome check --staged", InWeb],
+				["yarn --cwd web run biome check --staged", InWeb],
+				["pnpm --dir web biome check --staged", InWeb],
+				["cd web; biome check --staged", HoldsMore],
+				["biome check --staged && cd web", HoldsMore],
+				["npm ts", NeverRewritten],
+				["pnpm t", NeverRewritten],
+				["pnpm tst", NeverRewritten],
+				["npm --prefix a --prefix web run web-cs", InWeb],
+				["npm --prefix=a --prefix=web run web-cs", InWeb],
+				["cat f | sh -s -- a", UNREAD],
+				["cat f | sh -eo pipefail", UNREAD],
+				["cat f | sh -o errexit -s a", UNREAD],
+				["cat f | env sh", UNREAD],
+				["cat f | env -i A=1 sh", UNREAD],
+				["cat f | env -u A sh", UNREAD],
+				["cat f | command sh", UNREAD],
+				["cat f | exec sh", UNREAD],
+				["env $X", UNREAD],
+				["exec $X", UNREAD],
+				["command $X", UNREAD],
+				["time $X", UNREAD],
+				["cat f | env -S sh", UNREAD],
+				["cat f | nice -n 5 sh", UNREAD],
+				["cat f | nohup sh", UNREAD],
+			])("refuses %j, its refusal naming %j", (command, named) => {
+				const r = run(command);
+				expect(r.status).toBe(1);
+				expect(r.stderr).toContain(named);
+				expect(r.stderr).toContain("Declare check_staged");
+			});
+
+			it.each([
+				"npm run biome check --staged",
+				"pnpm run biome check --staged",
+				"yarn t",
+				"pnpm run t",
+				"npm --prefix web --prefix a run web-cs",
+				"sh ./gate.sh",
+				"sh -e ./gate.sh",
+				"sh -o errexit ./gate.sh",
+				"env sh ./gate.sh",
+				"env -u A sh ./gate.sh",
+				"command sh ./gate.sh",
+				"command -v sh",
+			])("passes %j, which runs neither Biome nor stdin", (command) => {
+				expect(run(command)).toMatchObject({ status: 0, stderr: "" });
+			});
+
+			it("keeps the outcome of a yarn or bun run naming a real script", () => {
+				writePackage(".", {
+					scripts: { biome: "eslint" },
+					devDependencies: { "@biomejs/biome": "2.5.15" },
+				});
+				expect(run("yarn run biome check --staged").status).toBe(0);
+				writePackage(".", {
+					scripts: { biome: "biome" },
+					devDependencies: { "@biomejs/biome": "2.5.15" },
+				});
+				const r = run("bun run biome check --staged --no-errors-on-unmatched");
+				expect(r.status).toBe(1);
+				expect(r.stderr).toContain(
+					`Declare check_staged instead as '${BIOME_STAGED_COMMAND} --no-errors-on-unmatched'.`,
+				);
+			});
+
+			it("refuses the script mantahostels declares, naming the mapped command", () => {
+				writePackage(".", {
+					scripts: {
+						"check:staged":
+							"biome check --staged --no-errors-on-unmatched --error-on-warnings",
+					},
+					devDependencies: { "@biomejs/biome": "2.5.15" },
+				});
+				const r = run("npm run check:staged");
+				expect(r.status).toBe(1);
+				expect(r.stderr).toContain(
+					`Declare check_staged instead as '${BIOME_STAGED_COMMAND} --no-errors-on-unmatched --error-on-warnings'.`,
+				);
+			});
+
+			it.skipIf(process.getuid?.() === 0)(
+				"refuses a directory it cannot read, naming the path, and reads it once readable",
+				() => {
+					const web = path.join(dir, "web");
+					fs.chmodSync(web, 0o000);
+					try {
+						const r = run("npm --prefix web run web-cs");
+						expect(r.status).toBe(1);
+						expect(r.stderr).toContain(
+							`cannot be checked: ${path.join(web, "package.json")} cannot be read (EACCES`,
+						);
+						expect(r.stderr).toContain(BIOME_STAGED_COMMAND);
+					} finally {
+						fs.chmodSync(web, 0o755);
+					}
+					const r = run("npm --prefix web run web-cs");
+					expect(r.status).toBe(1);
+					expect(r.stderr).toContain(InWeb);
+				},
+			);
 		});
 
 		it.each([
@@ -1123,12 +1266,31 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 	});
 
 	describe("Biome evidence", () => {
-		it("refuses a package.json it cannot read, which shows no absence of Biome", () => {
+		it("refuses a package.json it cannot read, naming the path and a true way out (#3944)", () => {
 			fs.rmSync(path.join(dir, "package.json"));
 			fs.mkdirSync(path.join(dir, "package.json"));
 			const r = run("npm run $X");
 			expect(r.status).toBe(1);
-			expect(r.stderr).toContain("cannot be checked: EISDIR");
+			expect(r.stderr).toContain(
+				`cannot be checked: ${path.join(dir, "package.json")} cannot be read (EISDIR`,
+			);
+			expect(r.stderr).toContain(
+				`Fix it, or declare check_staged in .claude/workflow-core.json as '${BIOME_STAGED_COMMAND} <flags>'`,
+			);
+			for (const wayOut of [BIOME_STAGED_COMMAND, "eslint ."])
+				expect(run(wayOut)).toMatchObject({ status: 0, stderr: "" });
+		});
+
+		it("reads Biome declared only in a nested package as no evidence, until the command names it (#3944)", () => {
+			writePackage(".", {});
+			writePackage("web", {
+				scripts: { cs: "biome check --staged" },
+				devDependencies: { "@biomejs/biome": "2.5.15" },
+			});
+			expect(run("$GATE").status).toBe(0);
+			const r = run("npm --prefix web run cs");
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain("runs it in web,");
 		});
 
 		it.each(["peerDependencies", "optionalDependencies"])(

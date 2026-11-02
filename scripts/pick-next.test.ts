@@ -1462,6 +1462,160 @@ describe("ordering", () => {
 	});
 });
 
+describe("a goal the script works out itself (#3866)", () => {
+	const members = (r: {
+		json: () => { goalSet: { members: { repo: string; number: number }[] } };
+	}) => r.json().goalSet.members.map((m) => `${m.repo}#${m.number}`);
+	const map = {
+		issues: [
+			{ number: 1 },
+			{ number: 2, parent: 1 },
+			{ number: 3, parent: 2 },
+			{ number: 4 },
+			{ number: 5, parent: 4 },
+		],
+	};
+
+	it("drains a ref's open descendants at any depth, not the ref or a stranger", async () => {
+		const r = await run(map, ["--json", "--goal", "drain #1"]);
+		expect(members(r)).toEqual(["o/r#2", "o/r#3"]);
+		const goalRows = r
+			.json()
+			.frontier.filter((row: { goal: boolean }) => row.goal)
+			.map((row: { number: number }) => row.number);
+		expect(goalRows).toContain(3);
+		expect(goalRows).not.toContain(5);
+	});
+
+	it("takes a child filed since on the next run, the goal unchanged", async () => {
+		const later = { issues: [...map.issues, { number: 6, parent: 2 }] };
+		expect(members(await run(later, ["--json", "--goal", "drain #1"]))).toEqual(
+			["o/r#2", "o/r#3", "o/r#6"],
+		);
+	});
+
+	it("drains a child whose parent is another checkout's issue", async () => {
+		const home = path.join(dir, "adopters");
+		writeAdopterCheckout(path.join(home, "manta"), "o/manta");
+		const r = await run(
+			{
+				issues: [
+					{
+						number: 7,
+						parentUrl: "https://api.github.com/repos/o/manta/issues/40",
+					},
+					{ number: 8, parent: 7 },
+					{
+						number: 9,
+						parentUrl: "https://api.github.com/repos/o/z/issues/40",
+					},
+				],
+			},
+			["--json", "--goal", "drain manta#40"],
+			{ env: { HOME: home } },
+		);
+		expect(members(r)).toEqual(["o/r#7", "o/r#8"]);
+	});
+
+	it("unblocks a ref through its blockers, across repos and through its children", async () => {
+		const home = path.join(dir, "adopters");
+		fs.mkdirSync(home);
+		const r = await run(
+			{
+				issues: [
+					{ number: 1 },
+					{ number: 2, parent: 1 },
+					{ number: 3 },
+					{ number: 4 },
+				],
+				deps: {
+					1: [
+						{ number: 3, state: "open" as const },
+						{ number: 10, state: "open" as const, repo: "o/y" },
+						{ number: 11, state: "closed" as const, repo: "o/y" },
+					],
+				},
+				foreignDeps: {
+					"o/y#10": [{ number: 20, state: "open" as const, repo: "o/z" }],
+				},
+			},
+			["--json", "--goal", "unblock #1"],
+			{ env: { HOME: home } },
+		);
+		expect(members(r)).toEqual(["o/r#1", "o/r#2", "o/r#3", "o/y#10", "o/z#20"]);
+		expect(r.json().pulledIn).toEqual([
+			expect.objectContaining({ repo: "o/z", number: 20, goal: true }),
+		]);
+		const row = (n: number) =>
+			r.json().frontier.find((f: { number: number }) => f.number === n);
+		expect(row(3).goal).toBe(true);
+		expect(row(4).goal).toBe(false);
+	});
+
+	it("prints the set it worked out before the ranking", async () => {
+		const r = await run(map, ["--goal", "drain #1"]);
+		expect(r.out).toMatch(/GOAL SET \(2\): #2, #3/);
+		const none = await run(map, ["--goal", "drain #3"]);
+		expect(none.out).toMatch(/GOAL SET \(0\): none open/);
+	});
+
+	it("finds nothing open for a ref closed since, so the run ranks bare", async () => {
+		for (const goal of ["unblock #99", "99", "drain #99"]) {
+			const r = await run(map, ["--json", "--goal", goal]);
+			expect(members(r)).toEqual([]);
+			expect(r.json().frontier.some((row: { goal: boolean }) => row.goal)).toBe(
+				false,
+			);
+		}
+	});
+
+	it("reports the open issues a live session holds, for the goal's running count", async () => {
+		const r = await run(
+			{
+				issues: [{ number: 1, assignees: ["me"] }, { number: 2 }],
+				claims: { 1: "self" },
+			},
+			["--json"],
+		);
+		expect(r.json().running).toEqual([1]);
+		expect(r.json().goalSet).toBeNull();
+	});
+
+	it.each(["drain", "drain #1 #2", "soon"])(
+		"refuses %j, naming it",
+		async (goal) => {
+			const r = await run(map, ["--goal", goal]);
+			expect(r.status).toBe(2);
+			expect(r.out).toContain("--goal takes issue refs");
+			expect(r.out).toContain(goal);
+		},
+	);
+
+	it("ranks nothing for a checkout gone from the machine, keeping its shortlist", async () => {
+		const home = path.join(dir, "adopters");
+		fs.mkdirSync(home);
+		const r = await run(map, ["--json", "--goal", "drain ghost#5"], {
+			env: { HOME: home },
+		});
+		expect(r.status).toBe(0);
+		expect(r.out).toContain("--goal names ghost#5: no checkout named ghost");
+		expect(members(r)).toEqual([]);
+		expect(
+			r.json().frontier.map((row: { number: number }) => row.number),
+		).toEqual([3, 5]);
+	});
+
+	it("refuses an unblock in another repo: that repo's run walks it", async () => {
+		const home = path.join(dir, "adopters");
+		writeAdopterCheckout(path.join(home, "manta"), "o/manta");
+		const r = await run(map, ["--goal", "unblock manta#40"], {
+			env: { HOME: home },
+		});
+		expect(r.status).toBe(2);
+		expect(r.out).toContain("o/manta#40, another repo's: run it there");
+	});
+});
+
 /* mantahostels#227, which gave the `takes:` label its first reader. */
 describe("the takes: column", () => {
 	it("shows each shortlisted issue's takes: value", async () => {

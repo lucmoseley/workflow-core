@@ -14,10 +14,11 @@
 
 import { describe, expect, it } from "vitest";
 
-const { boolExact, isNpmRun, npmCanon, shorthandExact } =
+const { boolExact, isNpmRun, npmCanon, npmScriptCommand, shorthandExact } =
 	require("./npm-options.js") as {
 		boolExact: (flag: string) => boolean;
 		isNpmRun: (word: string) => boolean;
+		npmScriptCommand: (word: string) => string | undefined;
 		npmCanon: (argv: string[]) => string[];
 		shorthandExact: (key: string) => string[] | null;
 	};
@@ -239,6 +240,31 @@ describe("isNpmRun, npm's cmd-list deref of run (#3627)", () => {
 	it.each(["ru", "r", "Run", "run-scripts", "runner", "install"])(
 		"reads %s as no run",
 		(word) => expect(isNpmRun(word)).toBe(false),
+	);
+});
+
+describe("npmScriptCommand, npm's cmd-list deref of its script commands (#3944)", () => {
+	it.each([
+		["t", "test"],
+		["ts", "test"],
+		["tst", "test"],
+		["tes", "test"],
+		["test", "test"],
+		["start", "start"],
+		["sto", "stop"],
+		["stop", "stop"],
+		["res", "restart"],
+		["rest", "restart"],
+		["resta", "restart"],
+		["restar", "restart"],
+		["restart", "restart"],
+	])("reads %s as %s", (word, script) =>
+		expect(npmScriptCommand(word)).toBe(script),
+	);
+
+	it.each(["te", "st", "sta", "star", "re", "run"])(
+		"reads %s as no script command",
+		(word) => expect(npmScriptCommand(word)).toBeUndefined(),
 	);
 });
 

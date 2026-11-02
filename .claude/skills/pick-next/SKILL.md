@@ -6,8 +6,7 @@ name: pick-next
 
 `scripts/pick-next.js` produces the shortlist; **this skill carries the
 judgement** (mantahostels#102). `--goal`
-takes a set of issue numbers and nothing else — the script has no parser to
-extend.
+takes a set of issue numbers, `drain <ref>` or `unblock <ref>`.
 
 ## Read-only
 
@@ -27,27 +26,24 @@ Held by mantahostels#101 (what defines urgency), which barred auto-stripping
 
 ### 1. Resolve the goal, if there is one
 
-The user's goal is free text. Turn it into a **set of issue numbers**, and
-**print the set before ranking anything** — mantahostels#106 (how a stated goal reweights the
-queue) made this a condition of accepting free text at all.
+The user's goal is free text. **The set is printed before anything is ranked** —
+mantahostels#106 (how a stated goal reweights the queue) made this a condition of
+accepting free text at all.
 
-One call gets every open issue with its parentage; walk it in memory rather than
-per-issue:
+- **"drain #X" and "unblock #X"** — pass the text as `--goal`, unchanged. The
+  script works out the set and prints it as `GOAL SET`; `goalSet` in the JSON
+  carries it (#3866). A `<repo>#N` ref resolves for a drain; an unblock in
+  another repo is refused, as only that repo's run walks it.
+- **Any other text** — turn it into a set of issue numbers and print it. One call
+  gets every open issue with its parentage; read it in memory rather than
+  per-issue:
 
-```bash
-gh api "repos/{owner}/{repo}/issues?state=open&per_page=100" --paginate \
-  --jq '.[] | select(.pull_request == null) | {n: .number, parent: .parent_issue_url, title, labels: [.labels[].name]}'
-```
+  ```bash
+  gh api "repos/{owner}/{repo}/issues?state=open&per_page=100" --paginate \
+    --jq '.[] | select(.pull_request == null) | {n: .number, parent: .parent_issue_url, title, labels: [.labels[].name]}'
+  ```
 
-One JSON object per line, not an array.
-
-- **"drain #X"** — #X's open descendants, transitively, via `parent_issue_url`.
-  Never walk `/sub_issues`: one call per issue, and its `per_page=30` default
-  silently truncates a long child list.
-- **"unblock #X"** — #X alone. The script passes goal-set membership to every
-  issue holding #X out, through blockers and parents and across repos, and
-  marks each such row `via` in the GOAL column (#3222). A child holds its
-  parent, so #X's open descendants take it too, as "drain #X" would.
+  One JSON object per line, not an array.
 - **"clear Phase 0"** and other roadmap-phase goals **resolve thin, and you
   should say so rather than look broken.** Only a handful of open issues carry a
   real `<card-id> — ` title prefix. Name the ones that matched and state that the
@@ -63,7 +59,7 @@ With no goal, skip this step and run the script bare.
 ### 2. Run the script
 
 ```bash
-node scripts/pick-next.js [--goal 116,117] [--limit 15] \
+node scripts/pick-next.js [--goal <§1's set or form>] [--limit 15] \
   --dump-bodies "$PWD/.claude/tmp/pick-next-bodies/${CLAUDE_CODE_SESSION_ID:-$$}"
 ```
 
@@ -110,6 +106,9 @@ urgent issue it holds and a child with its urgent parent
 (#3222); DEPTH is the longest chain to that tier. DEPTH and REACH count each
 open ancestor, and CLOSES the ancestors that close with the issue, each its
 parent's only open child (#3613).
+
+The **GOAL** column reads `yes` for a goal-set member and `via` for an issue
+holding one out (#3222).
 
 The **TAKES** column is which command opens that issue (the values:
 `docs/agents/triage-labels.md` §`takes:`). It is no filter, and a sort input
@@ -958,7 +957,7 @@ every session launched from that view, not just this set.
 hold, an admission refusal or a launcher refusal: run once
 
 ```bash
-node scripts/refill-loop.js start --unless-stopped [--repo <dir>]… [--goal <§1's set>]
+node scripts/refill-loop.js start --unless-stopped [--repo <dir>]… [--goal <§1's set or form>]
 ```
 
 It starts the machine's one loop only where its process ended with no explicit
@@ -966,9 +965,10 @@ stop, from its settings as they were, or on a machine's first run, ticking this
 repo. It never undoes a setting (#2526): a stopped loop stays stopped, a paused one
 paused, the no-progress pause included, and a bare run changes none. A damaged
 control file exits 1, naming it: copy that into the message. `--repo` ticks each
-sibling checkout the founder's command named, by its directory name. `--goal` replaces the loop's goal with §1's set, if there is one,
-each ref written `<dir>#N`; a ref it refuses stops the whole call, so copy the
-refusal and run it again without `--goal`. Never pass a mode. Copy the lines it
+sibling checkout the founder's command named, by its directory name. `--goal`
+replaces the loop's goal with §1's set, each ref written `<dir>#N`, or its `drain`
+or `unblock` text, if there is one (#2119); a ref it refuses stops the whole call,
+so copy the refusal and run it again without `--goal`. Never pass a mode. Copy the lines it
 prints — the loop's state, mode, repos, goal, seats, and that this repo is
 unchecked on the panel — and any `WARNING:`, into the message.
 **Unenforced**: no hook checks the call was made.
