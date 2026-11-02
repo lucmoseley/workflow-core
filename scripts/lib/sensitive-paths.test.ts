@@ -313,7 +313,7 @@ describe("sensitive-paths — workflow-core's own declaration", () => {
 			{
 				name: "secret handling",
 				focus:
-					"what secret slips past the scan or gets written where git keeps it",
+					"what secret slips past the scan, gets written where git keeps it or another user can read or swap it, or reaches the screen or the shell",
 				live: false,
 			},
 		]);

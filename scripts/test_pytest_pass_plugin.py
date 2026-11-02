@@ -58,7 +58,7 @@ def fake_config(
         ),
         getini=lambda name: {
             "testpaths": list(testpaths),
-            "python_files": ["test_*.py"],
+            "python_files": ["test_*.py", "*_test.py"],
             "norecursedirs": list(norecursedirs),
         }[name],
     )
@@ -135,6 +135,13 @@ def test_the_denominator_is_recursive(tmp_path):
     """A flat glob would miss every module in a subdirectory, and every full
     run would read as partial."""
     corpus(tmp_path, "test_a.py", "measure-one/test_b.py", "deep/deeper/test_c.py")
+    reporter = FakeTerminalReporter({})
+    assert plugin.describe_run(reporter, fake_config(tmp_path))["modulesTotal"] == 3
+
+
+def test_the_denominator_counts_both_of_pytests_default_names(tmp_path):
+    """#3810: pytest.ini leaves python_files unset, so `*_test.py` is collected."""
+    corpus(tmp_path, "test_a.py", "b_test.py", "deep/c_test.py")
     reporter = FakeTerminalReporter({})
     assert plugin.describe_run(reporter, fake_config(tmp_path))["modulesTotal"] == 3
 

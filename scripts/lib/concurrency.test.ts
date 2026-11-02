@@ -452,7 +452,14 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 			name: "reads the allowance cut as allowance",
 			tick: {
 				input: input(),
-				decision: { stop: "allowance", detail: "every seat reads 100%" },
+				decision: {
+					launches: [],
+					skipped: [],
+					idle: "a plan resets, its time unread",
+					held: [],
+					resumes: [],
+					planWait: { resets: null },
+				},
 				admission: admission(),
 			},
 			limits: ["allowance"],
