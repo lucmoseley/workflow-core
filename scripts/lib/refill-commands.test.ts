@@ -93,6 +93,7 @@ describe("what status prints", () => {
 		launchCount: null,
 		launchDay: null,
 		overflowStart: null,
+		goalProgress: null,
 		probeBrokenRoots: [],
 	};
 	const served = [WFC, MH];
@@ -250,6 +251,7 @@ describe("what status prints", () => {
 				launchCount: null,
 				launchDay: null,
 				overflowStart: null,
+				goalProgress: null,
 				probeBrokenRoots: [],
 			},
 			pid: null,
@@ -282,6 +284,7 @@ describe("the launch lines status shows (#2850)", () => {
 				launchCount: null,
 				launchDay: null,
 				overflowStart: null,
+				goalProgress: null,
 				probeBrokenRoots: [],
 			},
 			pid: 1,
@@ -431,6 +434,7 @@ describe("a launch row's seat and reason (#3732)", () => {
 		launchCount: null,
 		launchDay: null,
 		overflowStart: null,
+		goalProgress: null,
 		probeBrokenRoots: [],
 	});
 	const seat = `${process.env.HOME}/.claude2`;
@@ -502,6 +506,7 @@ describe("status --json for the panel (#3873)", () => {
 				launchCount: null,
 				launchDay: null,
 				overflowStart: null,
+				goalProgress: null,
 				probeBrokenRoots: [],
 				...state,
 			},
@@ -569,6 +574,7 @@ describe("a handed-off launch (#2659)", () => {
 				launchCount: null,
 				launchDay: null,
 				overflowStart: null,
+				goalProgress: null,
 				probeBrokenRoots: [],
 			},
 			pid: 1,

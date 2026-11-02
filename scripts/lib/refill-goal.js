@@ -2,11 +2,15 @@
  * refill-goal.js — the refill loop's one loop-wide goal (#3864, spec #3596). Its
  * issues rank first in every ticked repo's frontier read. A topic's refs are the
  * set confirmed when it was resolved, and stay as stored until the next `set`.
+ * A `drain` or `unblock` is stored as its one ref and worked out again by every
+ * frontier read (#3866). A read leaving no open issue finishes any goal, which
+ * stays stored while the loop runs bare; a later read finding one revives it.
  *
  * A CORE: it reads nothing but its arguments.
  */
 
 const path = require("node:path");
+const { refKey } = require("./issue-ref.js");
 const { shellQuote } = require("./sh-quote.js");
 
 /**
@@ -22,6 +26,19 @@ const { shellQuote } = require("./sh-quote.js");
  * @property {number} setAt ms; 0 where unset
  * @typedef {{state: string}|{unread: string}} IssueRead an issue's state, or why
  *   it would not read
+ * @typedef {{repo: string|null, number: number, title: string|null}} GoalMember
+ *   an open issue the goal names; `repo`, its `owner/name`
+ * @typedef {{members: GoalMember[]}} ShortlistGoal what one checkout's shortlist
+ *   found of the goal
+ * @typedef {object} GoalRead what one tick's frontier read found of the goal
+ * @property {number} setAt the goal it read
+ * @property {GoalMember[]} set
+ * @property {number} takeable
+ * @property {number} running
+ * @property {boolean} complete whether every shortlist that could name a member
+ *   read, without which an empty set finishes nothing
+ * @typedef {Omit<GoalRead, "complete"> & {readAt: number, doneAt: number|null}}
+ *   GoalProgress the last read's counts, kept in the loop's state
  */
 
 /** @type {readonly GoalForm[]} */
@@ -71,6 +88,21 @@ function qualifyRefs(asked, roots) {
 }
 
 /**
+ * A goal as typed: `drain <ref>`, `unblock <ref>`, or a list of refs.
+ * @param {string} text
+ * @returns {{form: "issues"|"drain"|"unblock", refs: AskedRef[]}|null} null
+ *   where it is none of them
+ */
+function parseGoalForm(text) {
+	const walk = text.trim().match(/^(drain|unblock)\s+(\S+)$/);
+	const refs = parseAskedRefs(walk?.[2] ?? text);
+	if (refs === null) return null;
+	const form = walk?.[1];
+	if (form !== "drain" && form !== "unblock") return { form: "issues", refs };
+	return refs.length === 1 ? { form, refs } : null;
+}
+
+/**
  * `qualifyRefs`, each ref then read as an open issue.
  * @param {AskedRef[]} asked
  * @param {string[]} roots the ticked checkout roots
@@ -91,15 +123,112 @@ function qualifyOpenRefs(asked, roots, readIssue) {
 }
 
 /**
- * The goal's issues in the checkout at `root`.
+ * The `--goal` a shortlist in the checkout at `root` takes, null for none. A
+ * `drain` goes to every checkout, as a child may be in another repo from its
+ * parent. An `unblock` goes to its ref's own, whose blocker walk crosses repos.
  * @param {Goal|null} goal
  * @param {string} root
- * @returns {number[]}
+ * @returns {string|null}
  */
-const goalNumbersIn = (goal, root) =>
-	(goal?.refs ?? [])
+function buildShortlistGoal(goal, root) {
+	if (goal === null) return null;
+	if (goal.form === "drain")
+		return `drain ${goal.refs.map(buildRefText).join(" ")}`;
+	const here = goal.refs
 		.filter((ref) => ref.repo === path.basename(root))
 		.map((ref) => ref.number);
+	if (here.length === 0) return null;
+	return goal.form === "unblock" ? `unblock #${here[0]}` : here.join(",");
+}
+
+/**
+ * What one tick's shortlists found of the goal: the members they name, once
+ * each, and how many of those are on the merged frontier or held by a live
+ * session.
+ * @param {Goal|null} goal
+ * @param {{root: string, repo: string|null, goalSet: ShortlistGoal|null, running: number[]}[]} reads
+ *   the shortlists that read
+ * @param {{failed: number, frontier: {root: string, number: number}[]}} merged
+ * @returns {GoalRead|null}
+ */
+function buildGoalRead(goal, reads, { failed, frontier }) {
+	if (goal === null) return null;
+	const repoOf = new Map(reads.map((r) => [r.root, r.repo]));
+	const onFrontier = new Set(
+		frontier.map((row) =>
+			refKey({ repo: repoOf.get(row.root) ?? null, number: row.number }),
+		),
+	);
+	const held = new Set(
+		reads.flatMap((r) =>
+			r.running.map((number) => refKey({ repo: r.repo, number })),
+		),
+	);
+	/** @type {Map<string, GoalMember>} */
+	const members = new Map();
+	for (const member of reads.flatMap((r) => r.goalSet?.members ?? []))
+		members.set(refKey(member), member);
+	const keys = [...members.keys()];
+	const readNames = reads.map((r) => path.basename(r.root));
+	return {
+		setAt: goal.setAt,
+		set: [...members.values()],
+		takeable: keys.filter((k) => onFrontier.has(k)).length,
+		running: keys.filter((k) => held.has(k)).length,
+		complete:
+			failed === 0 && goal.refs.every((ref) => readNames.includes(ref.repo)),
+	};
+}
+
+/**
+ * The state's goal progress after a frontier read. A goal finishes at the first
+ * complete read with no open issue, keeps that time while none reopens, and
+ * revives at the first read with one.
+ * @param {GoalProgress|null} before
+ * @param {GoalRead|null} read
+ * @param {number} now
+ * @returns {GoalProgress|null}
+ */
+function buildGoalProgress(before, read, now) {
+	if (read === null) return null;
+	const { complete, ...counts } = read;
+	const doneBefore = before?.setAt === read.setAt ? before.doneAt : null;
+	return {
+		...counts,
+		readAt: now,
+		doneAt:
+			read.set.length > 0 ? null : (doneBefore ?? (complete ? now : null)),
+	};
+}
+
+/**
+ * `status --json`'s goal: as stored, with the last read's set and counts, null
+ * until a read reaches it.
+ * @param {Goal|null} goal
+ * @param {GoalProgress|null} progress
+ */
+function buildGoalStatus(goal, progress) {
+	if (goal === null) return null;
+	const read = goalProgressOf(goal, progress);
+	return {
+		...goal,
+		set: read?.set ?? null,
+		open: read?.set.length ?? null,
+		takeable: read?.takeable ?? null,
+		running: read?.running ?? null,
+		readAt: read?.readAt ?? null,
+		doneAt: read?.doneAt ?? null,
+	};
+}
+
+/**
+ * `progress`, where it is this goal's.
+ * @param {Goal|null} goal
+ * @param {GoalProgress|null} progress
+ * @returns {GoalProgress|null} null where no read has reached this goal
+ */
+const goalProgressOf = (goal, progress) =>
+	goal !== null && progress?.setAt === goal.setAt ? progress : null;
 
 /**
  * Whether two goals say the same, whenever each was set.
@@ -112,9 +241,21 @@ const isSameGoal = (a, b) =>
 	a.text === b.text &&
 	a.refs.map(buildRefText).join() === b.refs.map(buildRefText).join();
 
-/** @param {Goal|null} goal */
-const buildGoalLine = (goal) =>
-	`goal:      ${goal ? `${goal.form} "${goal.text}": ${goal.refs.map(buildRefText).join(", ")}` : "none"}`;
+/** @param {GoalProgress|null} progress */
+function buildProgressText(progress) {
+	if (progress === null) return "";
+	const { doneAt, set, takeable, running } = progress;
+	return doneAt === null
+		? ` — ${set.length} open, ${takeable} takeable, ${running} running`
+		: ` — done ${new Date(doneAt).toISOString()}; running bare`;
+}
+
+/**
+ * @param {Goal|null} goal
+ * @param {GoalProgress|null} [progress] the state's, where the caller read it
+ */
+const buildGoalLine = (goal, progress = null) =>
+	`goal:      ${goal ? `${goal.form} "${goal.text}": ${goal.refs.map(buildRefText).join(", ")}${buildProgressText(goalProgressOf(goal, progress))}` : "none"}`;
 
 /**
  * The `set` flags that store `goal` again.
@@ -122,9 +263,11 @@ const buildGoalLine = (goal) =>
  */
 function buildGoalFlags(goal) {
 	const refs = goal.refs.map(buildRefText).join(",");
-	return goal.form === "topic"
-		? `--goal-issues ${refs} --goal-text ${shellQuote(goal.text)}`
-		: `--goal ${refs}`;
+	if (goal.form === "topic")
+		return `--goal-issues ${refs} --goal-text ${shellQuote(goal.text)}`;
+	return goal.form === "issues"
+		? `--goal ${refs}`
+		: `--goal ${shellQuote(`${goal.form} ${refs}`)}`;
 }
 
 /**
@@ -139,6 +282,30 @@ function parseRefs(raw) {
 			: [],
 	);
 	return refs.length === raw.length ? refs : null;
+}
+
+/**
+ * The state file's goal progress: none where it is absent or garbled, which the
+ * next frontier read rewrites.
+ * @param {unknown} raw
+ * @returns {GoalProgress|null}
+ */
+function parseGoalProgress(raw) {
+	if (!isRecord(raw) || !Array.isArray(raw.set)) return null;
+	const { setAt, takeable, running, readAt, doneAt } = raw;
+	return typeof setAt === "number" &&
+		typeof takeable === "number" &&
+		typeof running === "number" &&
+		typeof readAt === "number"
+		? {
+				setAt,
+				set: raw.set,
+				takeable,
+				running,
+				readAt,
+				doneAt: typeof doneAt === "number" ? doneAt : null,
+			}
+		: null;
 }
 
 /**
@@ -185,12 +352,18 @@ function parseGoal({ goal, goals }) {
 module.exports = {
 	buildGoalFlags,
 	buildGoalLine,
+	buildGoalProgress,
+	buildGoalRead,
+	buildGoalStatus,
 	buildRefText,
-	goalNumbersIn,
+	buildShortlistGoal,
+	goalProgressOf,
 	isRecord,
 	isSameGoal,
 	parseAskedRefs,
 	parseGoal,
+	parseGoalForm,
+	parseGoalProgress,
 	qualifyOpenRefs,
 	qualifyRefs,
 };

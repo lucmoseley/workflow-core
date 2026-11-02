@@ -6,7 +6,8 @@
  * mantahostels#102 split selection into a script and a skill on "is there judgement in it".
  * The judgement — turning free text into a goal set, ordering the reach-0 tail,
  * saying why the top pick won — is `.claude/skills/pick-next/SKILL.md`. The seam
- * between them is `--goal`: a set of issue numbers, nothing the script parses.
+ * between them is `--goal`: a set of issue numbers, or `drain <ref>` or
+ * `unblock <ref>`, the two forms the script walks itself (#3866).
  *
  * THIS SCRIPT NEVER WRITES. Not the `urgent` label, not an assignee, not a
  * comment. mantahostels#101 barred auto-stripping an `urgent` — two selection runs
@@ -68,7 +69,7 @@
  * slot count it checks §6's admission-cut line against (mantahostels#1321). `--no-log` skips
  * both.
  *
- * Usage: node scripts/pick-next.js [--goal 116,115] [--json] [--limit N] [--repo o/r]
+ * Usage: node scripts/pick-next.js [--goal '116,115'|'drain <ref>'|'unblock <ref>'] [--json] [--limit N] [--repo o/r]
  *                                  [--dump-bodies <dir>] [--no-log] [--no-prewarm]
  *
  * Exit codes:
@@ -117,7 +118,12 @@ const selectionMarker = require("./lib/selection-marker");
 const idSeam = require("./lib/session-id");
 const { MAP_LABEL, resolveGate } = require("./lib/issue-gate");
 const { holderName, parentVerdictOf } = require("./lib/parent-claims");
-const { isInOtherRepo, parseIssueRef } = require("./lib/issue-ref");
+const {
+	isInOtherRepo,
+	parseIssueRef,
+	refKey,
+	refLabel,
+} = require("./lib/issue-ref");
 const { unparsedBlockersOf } = require("./lib/prose-blockers");
 const blockerGraph = require("./lib/blocker-graph");
 const {
@@ -150,7 +156,8 @@ const {
 	DEFAULT_WINDOW_HOURS: DISPATCH_WINDOW_HOURS,
 } = require("./lib/dispatch-ledger");
 const { WAITING_LABEL, compareLevels } = require("./lib/frontier-order.js");
-const { parseIssueNumbers } = require("./lib/issue-number.js");
+const { openDescendants } = require("./lib/goal-set.js");
+const { parseGoalForm } = require("./lib/refill-goal.js");
 const { labelAge } = require("./lib/label-age.js");
 const { snapshotFile } = require("./lib/pick-next-snapshot.js");
 
@@ -207,7 +214,7 @@ const { PARKED_LABEL } = require("./lib/parked.js");
 const args = process.argv.slice(2);
 const { flags } = parseOrExit(args, {
 	usage:
-		"usage: node scripts/pick-next.js [--goal 116,115] [--json] [--limit N] [--repo o/r]\n" +
+		"usage: node scripts/pick-next.js [--goal '116,115'|'drain <ref>'|'unblock <ref>'] [--json] [--limit N] [--repo o/r]\n" +
 		"                                 [--dump-bodies <dir>] [--no-log] [--no-prewarm]",
 	flags: {
 		"--goal": "value",
@@ -235,11 +242,21 @@ const NO_LOG = flags["--no-log"] === true;
  * miss rather than have it filled in (mantahostels#1001).
  */
 const NO_PREWARM = flags["--no-prewarm"] === true;
-const goalSet = new Set(
-	parseIssueNumbers(String(flagValue(flags, "--goal") ?? "")).filter(
-		(n) => n !== null,
-	),
-);
+const GOAL_TEXT = String(flagValue(flags, "--goal") ?? "");
+const goalAsk = GOAL_TEXT === "" ? null : parseGoalForm(GOAL_TEXT);
+if (GOAL_TEXT !== "" && goalAsk === null) {
+	console.error(
+		`--goal takes issue numbers, drain <ref> or unblock <ref>: ${GOAL_TEXT}`,
+	);
+	process.exit(2);
+}
+/**
+ * The issues the goal tier ranks on, filled by `resolveGoal` before any tier is
+ * read. Holders of an `unblock` ref inherit the tier rather than hold it, and
+ * show `via` for it.
+ * @type {Set<number>}
+ */
+const goalSet = new Set();
 
 /** @param {string} path */
 async function ghGet(path) {
@@ -1407,6 +1424,9 @@ function writeRunSnapshot(payload) {
  * @property {string} repo
  * @property {string[]} argv
  * @property {number[]} goal
+ * @property {import("./lib/refill-goal.js").ShortlistGoal|null} goalSet
+ * @property {string|null} ownRepo
+ * @property {number[]} running
  * @property {number} limit
  * @property {Issue[]} enriched
  * @property {Issue[]} frontier
@@ -1942,6 +1962,10 @@ function buildPayload(state) {
 		// Launch candidates in other repos, for lib/refill-frontier.js (#2427).
 		pulledIn: state.pulledIn.rows,
 		pulledInUnread: state.pulledIn.unread,
+		// For the goal's progress, read off every shortlist (#3866).
+		ownRepo: state.ownRepo,
+		goalSet: state.goalSet,
+		running: state.running,
 		// The fail-open case (mantahostels#645): assigned in GitHub, but no live session
 		// recorded a claim, so this run treats it as takeable. An issue
 		// excluded for any other reason is left out.
@@ -2031,15 +2055,22 @@ const pad = (s, n) => String(s).padEnd(n);
 
 /** @param {State} state */
 function renderCounts(state) {
-	const { enriched, frontier, limit, degraded, goal } = state;
+	const {
+		enriched,
+		frontier,
+		limit,
+		degraded,
+		goalSet: asked,
+		ownRepo,
+	} = state;
 	console.log(
 		`\nOPEN ISSUES: ${enriched.length}   TAKEABLE NOW: ${frontier.length}${
 			limit && frontier.length > limit ? `   (showing ${limit})` : ""
 		}${degraded.length > 0 ? `   (${degraded.length} unread, see DEGRADED)` : ""}`,
 	);
-	if (goal.length > 0)
+	if (asked !== null)
 		console.log(
-			`GOAL SET (${goal.length}): ${goal.map((n) => `#${n}`).join(", ")}`,
+			`GOAL SET (${asked.members.length}): ${asked.members.map((m) => refLabel(m, ownRepo)).join(", ") || "none open"}`,
 		);
 }
 
@@ -3181,6 +3212,72 @@ async function resolveBlockers(issues, byNumber) {
 }
 
 /**
+ * The `owner/name` a goal ref names: its `<dir>` is a checkout's directory name.
+ * @param {import("./lib/refill-goal.js").AskedRef} ref
+ * @param {string|null} ownRepo
+ * @returns {string|null}
+ */
+function goalRefRepo(ref, ownRepo) {
+	if (ref.repo === null || ref.repo === nodePath.basename(REPO_ROOT))
+		return ownRepo;
+	const repo = readHostTracker(nodePath.join(homeDir(), ref.repo));
+	if (repo === null)
+		throw new Error(`${ref.repo}#${ref.number}: no checkout named ${ref.repo}`);
+	return repo;
+}
+
+/**
+ * The goal's open members, and the numbers its tier ranks on, worked out afresh
+ * from this run's reads: `drain` as the ref's open descendants, `unblock` as the
+ * ref and everything holding it out, children and other repos' blockers included,
+ * which take its tier by inheritance.
+ * @param {NonNullable<typeof goalAsk>|null} ask
+ * @param {Enriching[]} issues
+ * @param {import("./lib/blocker-graph").Graph} graph
+ * @returns {{members: import("./lib/refill-goal.js").GoalMember[], ranked: number[]}|null}
+ */
+function resolveGoal(ask, issues, graph) {
+	if (ask === null) return null;
+	const { ownRepo } = graph;
+	const refs = ask.refs.map((r) => ({
+		repo: goalRefRepo(r, ownRepo),
+		number: r.number,
+	}));
+	/** @param {Enriching} i */
+	const memberOf = (i) => ({
+		repo: ownRepo,
+		number: i.number,
+		title: i.title,
+	});
+	const [first] = refs;
+	if (ask.form === "drain" && first) {
+		const members = openDescendants(issues, first, ownRepo).map(memberOf);
+		return { members, ranked: members.map((m) => m.number) };
+	}
+	const elsewhere = refs.find((r) => isInOtherRepo(r, ownRepo));
+	if (elsewhere)
+		throw new Error(
+			`--goal names ${refLabel(elsewhere, ownRepo)}, another repo's: run it there`,
+		);
+	const ranked = refs.map((r) => r.number);
+	if (ask.form === "unblock" && first) {
+		const titles = new Map(issues.map((i) => [i.number, i.title]));
+		const members = blockerGraph
+			.holdersOf(graph, refKey(first))
+			.map(({ served, ref, info }) => ({
+				repo: ref.repo,
+				number: ref.number,
+				title: (served ? titles.get(ref.number) : info?.title) ?? null,
+			}));
+		return { members, ranked };
+	}
+	return {
+		members: issues.filter((i) => ranked.includes(i.number)).map(memberOf),
+		ranked,
+	};
+}
+
+/**
  * PROSE SELF-GATES (mantahostels#1289): `i`'s `**Blocked on**` references as
  * the graph judged them — this repo's against every open issue, already
  * fetched, at no extra call — and the marker lines that name no number.
@@ -3768,6 +3865,8 @@ async function main() {
 	const byNumber = new Map(issues.map((i) => [i.number, i]));
 	const { withDeps, blockers } = await resolveBlockers(issues, byNumber);
 	const { openChildren } = blockers;
+	const resolvedGoal = resolveGoal(goalAsk, issues, blockers);
+	for (const n of resolvedGoal?.ranked ?? []) goalSet.add(n);
 
 	const mapNumbers = new Set(
 		issues
@@ -3970,6 +4069,11 @@ async function main() {
 		repo: String(REPO),
 		argv: args,
 		goal: [...goalSet],
+		goalSet: resolvedGoal && { members: resolvedGoal.members },
+		ownRepo: blockers.ownRepo,
+		running: enriched
+			.filter((i) => claims.held.has(i.number) || i.dispatchHeld)
+			.map((i) => i.number),
 		limit: LIMIT,
 		enriched,
 		frontier,

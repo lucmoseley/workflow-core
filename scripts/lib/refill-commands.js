@@ -40,6 +40,7 @@ const {
 } = require("./refill-loop.js");
 const {
 	buildGoalLine,
+	buildGoalStatus,
 	isSameGoal,
 	qualifyOpenRefs,
 	qualifyRefs,
@@ -470,16 +471,21 @@ function buildSeatsLine(view, now) {
 /**
  * The lines naming what a loop serves and on which seats.
  * @param {Control} control
- * @param {{served: string[], running: boolean, seatsLine: string}} opts
- *   `served`, scopeRoots's roots; `seatsLine`, buildSeatsLine's
+ * @param {{served: string[], running: boolean, seatsLine: string,
+ *   goalProgress?: import("./refill-goal.js").GoalProgress|null}} opts
+ *   `served`, scopeRoots's roots; `seatsLine`, buildSeatsLine's; `goalProgress`,
+ *   the state's, where the caller read it
  */
-function buildScopeLines(control, { served, running, seatsLine }) {
+function buildScopeLines(
+	control,
+	{ served, running, seatsLine, goalProgress = null },
+) {
 	const { scope } = control;
 	return [
 		...(control.paused ? [buildPausedWaitText(control.paused)] : []),
 		`mode:      ${scope.mode}`,
 		`repos:     ${buildRepoNames(served)}`,
-		buildGoalLine(scope.goal),
+		buildGoalLine(scope.goal, goalProgress),
 		...(running && control.stopRequested
 			? ["stops:     at its next tick, on request"]
 			: []),
@@ -586,7 +592,8 @@ function shownLaunches(control, state) {
  * count's point, and any still running from before it.
  * @param {Control} control
  * @param {LoopState} state
- * @param {{served: string[], running: boolean, seatsLine: string}} opts
+ * @param {{served: string[], running: boolean, seatsLine: string,
+ *   goalProgress: LoopState["goalProgress"]}} opts
  */
 function buildControlLines(control, state, opts) {
 	const lines = [buildCountingLine(control.noProgressFrom)];
@@ -656,6 +663,7 @@ function buildStatusLines({
 					served,
 					running: pid !== null,
 					seatsLine: buildSeatsLine(seats, now),
+					goalProgress: state.goalProgress,
 				})
 			: ["never started on this machine"]),
 		...(state.lastTick ? buildLastTickLines(state.lastTick) : []),
@@ -750,7 +758,7 @@ function buildStatusJson({
 		},
 		launchesToday: launchesOnDay(state, today),
 		mode: control?.scope.mode ?? null,
-		goal: control?.scope.goal ?? null,
+		goal: buildGoalStatus(control?.scope.goal ?? null, state.goalProgress),
 		repos: candidates.map(({ root, disabled }) => ({
 			name: path.basename(root),
 			root,

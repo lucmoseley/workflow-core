@@ -297,6 +297,32 @@ function heldBy(graph, key) {
 }
 
 /**
+ * The nodes holding `key` out at any depth, across repos and through foreign
+ * nodes, and `key` itself: what an `unblock` goal on it names. Empty where
+ * `key` is no node, an issue closed or never read.
+ * @param {Graph} graph
+ * @param {string} key
+ * @returns {Node[]}
+ */
+function holdersOf(graph, key) {
+	if (!graph.nodes.has(key)) return [];
+	/** @type {Map<string, string[]>} */
+	const heldOutBy = new Map();
+	for (const [holder, held] of graph.holds)
+		for (const k of held)
+			heldOutBy.set(k, [...(heldOutBy.get(k) ?? []), holder]);
+	/** @type {Set<string>} */
+	const seen = new Set();
+	const stack = [key];
+	for (let k = stack.pop(); k !== undefined; k = stack.pop()) {
+		if (seen.has(k)) continue;
+		seen.add(k);
+		stack.push(...(heldOutBy.get(k) ?? []));
+	}
+	return [...seen].sort(byNumber(graph)).map((k) => nodeAt(graph.nodes, k));
+}
+
+/**
  * Each tier an issue inherits from what it holds out, and its chain depth
  * (#3222). A tier passes from any held served issue its source test accepts,
  * through foreign nodes as reach does. `depth` is the longest path to the
@@ -593,6 +619,7 @@ function pulledInOf(graph) {
 module.exports = {
 	blockerGraph,
 	closesOf,
+	holdersOf,
 	inheritance,
 	openBlockersOf,
 	proseOf,

@@ -34,7 +34,12 @@ const {
 	markParked,
 } = require("./refill-blocks.js");
 const { buildErrorText } = require("./caught.js");
-const { isRecord, parseGoal } = require("./refill-goal.js");
+const {
+	buildGoalProgress,
+	isRecord,
+	parseGoal,
+	parseGoalProgress,
+} = require("./refill-goal.js");
 const { buildSeatName } = require("./refill-seats.js");
 const { unclosedLaunches } = require("./unclosed-launch.js");
 const {
@@ -145,6 +150,8 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * @property {LaunchDay|null} launchDay
  * @property {import("./overflow-notice.js").OverflowStart|null} overflowStart
  *   the newest first overflow launch after a plan-seat launch
+ * @property {import("./refill-goal.js").GoalProgress|null} goalProgress the last
+ *   frontier-reading tick's
  * @property {string[]} probeBrokenRoots the last settled tick's served checkouts
  *   whose probe failed, for the idle alarm: such a failure may leave no hold on
  *   file (#3903)
@@ -358,6 +365,7 @@ function parseState(raw) {
 		launchCount: parseLaunchCount(r.launchCount),
 		launchDay: parseLaunchDay(r.launchDay),
 		overflowStart: parseOverflowStart(r.overflowStart),
+		goalProgress: parseGoalProgress(r.goalProgress),
 		probeBrokenRoots: parseStrings(r.probeBrokenRoots),
 	};
 }
@@ -1064,7 +1072,8 @@ function parseProbeOutcome(stderr, failed) {
 
 /**
  * A tick's frontier read: the merged rows and how long the read took.
- * @typedef {{rows: number, ms: number}} FrontierRead
+ * @typedef {{rows: number, ms: number,
+ *   goal: import("./refill-goal.js").GoalRead|null}} FrontierRead
  */
 
 /** @param {FrontierRead} read */
@@ -1218,6 +1227,16 @@ const resumeDecided = (decision, launches, io) =>
 const dueCount = (input) => input.resumable?.length ?? 0;
 
 /**
+ * The state's goal progress after a tick, as it stands where the tick read no
+ * frontier.
+ * @param {LoopState["goalProgress"]} before
+ * @param {FrontierRead|null} read
+ * @param {number} now
+ */
+const goalProgressAfter = (before, read, now) =>
+	read === null ? before : buildGoalProgress(before, read.goal, now);
+
+/**
  * The input's resumes the step left held, for a late stop to name.
  * @param {import("./refill-decide.js").TickInput} input
  * @param {LoopLaunch[]} launches
@@ -1312,6 +1331,7 @@ function settleTick(
 			count: launchesOnDay(state, today) + outcome.launched.length,
 		},
 		overflowStart: overflowStart ?? state.overflowStart,
+		goalProgress: goalProgressAfter(state.goalProgress, read, input.now),
 		probeBrokenRoots,
 	};
 	io.writeState(next);

@@ -1090,11 +1090,43 @@ describe("a tick's log line (#2362)", () => {
 		};
 		const writes: Parameters<typeof settleTick>[0]["state"][] = [];
 		expect(
-			logged(decision, 3, [], { read: { rows: 67, ms: 78_240 }, writes }),
+			logged(decision, 3, [], {
+				read: { rows: 67, ms: 78_240, goal: null },
+				writes,
+			}),
 		).toBe(
 			"idle: nothing launchable (free slots: 3; frontier: 67 rows in 78.2 s; skipped 2 already running, 1 parked, 1 takes:triage+implement; first wfc #2463 already running, wfc #2469 parked, wfc #2470 already running)",
 		);
 		expect(writes[0].lastTick?.skipped).toEqual(decision.skipped);
+	});
+
+	it("keeps a frontier read's goal progress, finishes it, revives it, and holds it through a tick with no read (#3866)", () => {
+		const member = { repo: "o/r", number: 2, title: "t" };
+		const settled = (
+			read: Tick["read"],
+			goalProgress: Tick["state"]["goalProgress"],
+		) => {
+			const writes: Tick["state"][] = [];
+			logged(idle("nothing launchable"), 3, [], {
+				read,
+				writes,
+				state: { ...parseState(null), goalProgress },
+			});
+			return writes[0].goalProgress;
+		};
+		const goal = (set: (typeof member)[]) => ({
+			rows: 1,
+			ms: 1,
+			goal: { setAt: 7, set, takeable: 0, running: 0, complete: true },
+		});
+		const done = settled(goal([]), null);
+		expect(done).toMatchObject({ setAt: 7, set: [], doneAt: NOW, readAt: NOW });
+		expect(settled(null, done)).toEqual(done);
+		expect(settled(goal([member]), done)).toMatchObject({
+			set: [member],
+			doneAt: null,
+		});
+		expect(settled({ rows: 1, ms: 1, goal: null }, done)).toBeNull();
 	});
 
 	describe("the tick's idle reason, the idle alarm's source (#3920)", () => {
@@ -1153,7 +1185,11 @@ describe("a tick's log line (#2362)", () => {
 		};
 		const writes: Tick["state"][] = [];
 		const state = { ...parseState(null), held: [kept] };
-		logged(decision, 3, [], { read: { rows: 2, ms: 900 }, writes, state });
+		logged(decision, 3, [], {
+			read: { rows: 2, ms: 900, goal: null },
+			writes,
+			state,
+		});
 		expect(writes[0].held).toEqual([kept, { ...fresh, since: NOW }]);
 	});
 
@@ -1164,7 +1200,7 @@ describe("a tick's log line (#2362)", () => {
 		const state = { ...parseState(null), held: [kept] };
 		logged(heldDecision, 1, [], {
 			mode: "away",
-			read: { rows: 1, ms: 900 },
+			read: { rows: 1, ms: 900, goal: null },
 			writes,
 			state,
 		});
@@ -1175,7 +1211,7 @@ describe("a tick's log line (#2362)", () => {
 		const writes: Tick["state"][] = [];
 		logged(heldDecision, 1, [], {
 			mode: "away",
-			read: { rows: 1, ms: 900 },
+			read: { rows: 1, ms: 900, goal: null },
 			writes,
 		});
 		expect(writes[0].held).toEqual([]);
@@ -1202,7 +1238,9 @@ describe("a tick's log line (#2362)", () => {
 			held: [],
 			resumes: [],
 		};
-		expect(logged(none, 3, [], { read: { rows: 0, ms: 9100 } })).toBe(
+		expect(
+			logged(none, 3, [], { read: { rows: 0, ms: 9100, goal: null } }),
+		).toBe(
 			"idle: nothing launchable (free slots: 3; frontier: 0 rows in 9.1 s)",
 		);
 	});
@@ -1230,7 +1268,9 @@ describe("a tick's log line (#2362)", () => {
 		expect(logged(decision, 2, [{ seat: "/s2", outcome: "stopped" }])).toBe(
 			"launch wfc /implement 1 on /s2 (soonest reset) (probed /s2: stopped)",
 		);
-		expect(logged(decision, 2, [], { read: { rows: 4, ms: 212_400 } })).toBe(
+		expect(
+			logged(decision, 2, [], { read: { rows: 4, ms: 212_400, goal: null } }),
+		).toBe(
 			"launch wfc /implement 1 on /s2 (soonest reset) (frontier: 4 rows in 212.4 s)",
 		);
 		expect(

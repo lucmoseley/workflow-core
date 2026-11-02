@@ -91,9 +91,20 @@ const launchesOf = (frontier: unknown[]) =>
 			`${path.basename(l.root)}#${l.issues.join("+")}`,
 	);
 
+/** A shortlist of these rows, naming no goal and nothing running. */
+const list = (numbers: number[]) => ({
+	rows: numbers.map((n) => row(n)),
+	retroBundles: [],
+	pulledIn: [],
+	pulledInUnread: [],
+	ownRepo: null,
+	goalSet: null,
+	running: [],
+});
+
 describe("the loop's goal (#3864)", () => {
 	it("hands each ticked repo its own refs and no other's", async () => {
-		const asked: Record<string, number[]> = {};
+		const asked: Record<string, string | null> = {};
 		const unticked = path.join(path.dirname(served), "unticked");
 		await refillFrontier(
 			[served, other],
@@ -108,12 +119,109 @@ describe("the loop's goal (#3864)", () => {
 				],
 				setAt: 1,
 			},
-			async (root: string, goal: number[]) => {
+			async (root: string, goal: string | null) => {
 				asked[root] = goal;
-				return { rows: [], retroBundles: [], pulledIn: [], pulledInUnread: [] };
+				return list([]);
 			},
 		);
-		expect(asked).toEqual({ [served]: [2], [other]: [20, 21] });
+		expect(asked).toEqual({ [served]: "2", [other]: "20,21" });
+	});
+
+	it.each([
+		["drain", (s: string) => `drain ${s}#5`, (s: string) => `drain ${s}#5`],
+		["unblock", () => "unblock #5", () => null],
+	])(
+		"hands a %s out by where its walk runs",
+		async (form, inServed, inOther) => {
+			const asked: Record<string, string | null> = {};
+			const name = path.basename(served);
+			await refillFrontier(
+				[served, other],
+				{
+					form,
+					text: "x",
+					refs: [{ repo: name, number: 5 }],
+					setAt: 1,
+				},
+				async (root: string, goal: string | null) => {
+					asked[root] = goal;
+					return list([]);
+				},
+			);
+			expect(asked).toEqual({
+				[served]: inServed(name),
+				[other]: inOther(name),
+			});
+		},
+	);
+
+	const drain = (repo: string) => ({
+		form: "drain",
+		text: "x",
+		refs: [{ repo, number: 5 }],
+		setAt: 7,
+	});
+	const member = (repo: string, number: number) => ({
+		repo,
+		number,
+		title: `t${number}`,
+	});
+
+	it("counts a set's open, takeable and running members across repos", async () => {
+		const m = await refillFrontier(
+			[served, other],
+			drain(path.basename(served)),
+			async (root: string) =>
+				root === served
+					? {
+							...list([1, 2]),
+							ownRepo: "o/served",
+							goalSet: {
+								members: [member("o/served", 2), member("o/served", 3)],
+							},
+							running: [3, 9],
+						}
+					: {
+							...list([20]),
+							ownRepo: "o/other",
+							goalSet: { members: [member("o/other", 20)] },
+							running: [],
+						},
+		);
+		expect(m.goal).toEqual({
+			setAt: 7,
+			set: [
+				member("o/served", 2),
+				member("o/served", 3),
+				member("o/other", 20),
+			],
+			takeable: 2,
+			running: 1,
+			complete: true,
+		});
+	});
+
+	it("never calls an empty set complete where a shortlist failed or the ref's repo went unread", async () => {
+		const failing = await refillFrontier(
+			[served, other],
+			drain(path.basename(served)),
+			async (root: string) =>
+				root === served
+					? { ...list([]), goalSet: { members: [] } }
+					: { error: "x" },
+		);
+		expect(failing.goal).toMatchObject({ set: [], complete: false });
+		const unread = await refillFrontier(
+			[other],
+			drain(path.basename(served)),
+			async () => ({ ...list([]), goalSet: { members: [] } }),
+		);
+		expect(unread.goal).toMatchObject({ set: [], complete: false });
+	});
+
+	it("reads no goal where none is set", async () => {
+		const m = await refillFrontier([served], null, async () => list([1]));
+		expect(m.goal).toBeNull();
 	});
 
 	it("ranks a goal's rows first in each repo's read", async () => {
@@ -133,13 +241,11 @@ describe("the loop's goal (#3864)", () => {
 				],
 				setAt: 1,
 			},
-			async (root: string, goal: number[]) => ({
+			async (root: string, goal: string | null) => ({
+				...list([]),
 				rows: rowsOf[root].map((n) =>
-					goal.includes(n) ? { ...row(n), goal: true } : row(n),
+					goal === String(n) ? { ...row(n), goal: true } : row(n),
 				),
-				retroBundles: [],
-				pulledIn: [],
-				pulledInUnread: [],
 			}),
 		);
 		expect(
