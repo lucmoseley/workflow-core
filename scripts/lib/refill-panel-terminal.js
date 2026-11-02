@@ -32,6 +32,7 @@ const SIGNAL_EXITS = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
  *   proc: Pick<import("node:events").EventEmitter, "on"> & {exit: (code: number) => void},
  *   run: import("./refill-panel.js").Runner,
  *   runBurn: import("./refill-panel.js").Runner,
+ *   resolveTopic: import("./refill-panel.js").TopicResolver,
  *   isAlive: (pid: number) => boolean, now: () => number,
  *   reportCrash: (err: unknown) => void}} io
  */
@@ -42,6 +43,7 @@ function openPanel({
 	proc,
 	run,
 	runBurn,
+	resolveTopic,
 	isAlive,
 	now,
 	reportCrash,
@@ -86,7 +88,13 @@ function openPanel({
 				),
 			);
 	};
-	const panel = createPanel({ run, runBurn, now, onChange: draw });
+	const panel = createPanel({
+		run,
+		runBurn,
+		now,
+		resolveTopic,
+		onChange: draw,
+	});
 	const input = createInputReader();
 	/** @type {NodeJS.Timeout|undefined} */
 	let escapeWait;

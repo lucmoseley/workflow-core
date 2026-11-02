@@ -1,8 +1,8 @@
 /*
- * The panel's view and press mapping (#3873, #3875, #3877, #3879, #3881, #3883). Built on the view so every loop state costs one literal rather than a terminal.
+ * The panel's view and press mapping (#3873, #3875, #3877, #3879, #3881, #3883, #3884). Built on the view so every loop state costs one literal rather than a terminal.
  * Broken, the panel reads a press as done, or a stopped loop as on.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 const {
 	ESC,
@@ -138,8 +138,11 @@ const toGap = (rows: Row[]) => {
 	const end = rows.findIndex((r) => r.text === "");
 	return end === -1 ? rows : rows.slice(0, end);
 };
-const panelOver = (run: unknown, runBurn: unknown = run) =>
-	createPanel({ run, runBurn, now: () => AT, onChange: noop });
+const panelOver = (
+	run: unknown,
+	runBurn: unknown = run,
+	resolveTopic: unknown = noop,
+) => createPanel({ run, runBurn, now: () => AT, resolveTopic, onChange: noop });
 
 function runnerOf(answers: Record<string, () => object>) {
 	const calls: string[][] = [];
@@ -1616,8 +1619,13 @@ describe("the Goal section", () => {
 		rowWhere(panel, (r) => r.text.startsWith("Goal"));
 	const fieldRow = (panel: { view: object }) => switchRow(panel) + 2;
 
-	/* A panel whose reads answer `status`, and whose commands answer `answer`. */
-	async function goalPanel(status: object, answer: object = {}) {
+	/* A panel whose reads answer `status`, and whose commands answer `answer`. A typed
+	 * topic needs `resolveTopic`; the default answers nothing. */
+	async function goalPanel(
+		status: object,
+		answer: object = {},
+		resolveTopic: unknown = noop,
+	) {
 		let shown = status;
 		const calls: string[][] = [];
 		const run = async (argv: string[]) => {
@@ -1626,7 +1634,7 @@ describe("the Goal section", () => {
 				return { code: 0, stdout: JSON.stringify(shown), stderr: "" };
 			return { code: 0, stdout: "", stderr: "", ...answer };
 		};
-		const panel = panelOver(run);
+		const panel = panelOver(run, run, resolveTopic);
 		await panel.refreshStatus();
 		return {
 			panel,
@@ -1636,6 +1644,13 @@ describe("the Goal section", () => {
 			},
 		};
 	}
+	const Found = async () => ({
+		issues: [
+			{ repo: "wc", number: 5, title: "Speed the suite" },
+			{ repo: "wc", number: 7, title: "Rename a flag" },
+		],
+		dropped: 0,
+	});
 	type GoalPanel = Awaited<ReturnType<typeof goalPanel>>["panel"];
 	async function typeGoal(panel: GoalPanel, text: string) {
 		await panel.click(fieldRow(panel));
@@ -1911,11 +1926,241 @@ describe("the Goal section", () => {
 		it.each(["--pause", "--help", "--", "--untick wc"])(
 			"keeps typed %j to the one argument, so it reaches no other flag",
 			async (typed) => {
-				const { panel, presses } = await goalPanel(WithGoal);
+				const { panel, presses } = await goalPanel(WithGoal, {}, Found);
 				await typeGoal(panel, typed);
-				expect(presses()).toEqual([["set", `--goal=${typed}`]]);
+				await panel.pressKey(Enter);
+				expect(presses()).toEqual([
+					["set", "--goal-issues=wc#5,wc#7", `--goal-text=${typed}`],
+				]);
 			},
 		);
+
+		describe("a topic", () => {
+			const Ticked = {
+				...WithGoal,
+				repos: [
+					{ name: "wc", root: "/h/wc", ticked: true, disabled: null },
+					{ name: "off", root: "/h/off", ticked: false, disabled: null },
+					{ name: "out", root: "/h/out", ticked: true, disabled: "opted out" },
+				],
+			};
+			const texts = (panel: GoalPanel) =>
+				buildRows(panel.view, AT).map((r: { text: string }) => r.text);
+			const rowOf = (panel: GoalPanel, text: string) =>
+				rowWhere(panel, (r) => r.text === text);
+			const SaveTwo = "Save these 2 · Enter";
+			const Cancel = "Cancel · Esc";
+
+			it("says it is resolving, writing nothing, from the ticked repos alone", async () => {
+				let finish: (found: object) => void = noop;
+				const resolve = vi.fn(
+					() =>
+						new Promise((done) => {
+							finish = done;
+						}),
+				);
+				const { panel, presses } = await goalPanel(Ticked, {}, resolve);
+				const typed = typeGoal(panel, "clear Phase 0");
+				await vi.waitFor(() => expect(resolve).toHaveBeenCalled());
+				expect(texts(panel)).toContain('resolving "clear Phase 0"…');
+				const [text, repos] = resolve.mock.calls[0] as unknown as [
+					string,
+					{ name: string }[],
+				];
+				expect(text).toBe("clear Phase 0");
+				expect(repos.map((r) => r.name)).toEqual(["wc"]);
+				expect(presses()).toEqual([]);
+				finish(await Found());
+				await typed;
+			});
+
+			it("shows the set with titles, and saves it only on the confirm press", async () => {
+				const { panel, presses } = await goalPanel(WithGoal, {}, Found);
+				await typeGoal(panel, "clear Phase 0");
+				const rows = buildRows(panel.view, AT);
+				expect(rows).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({ text: "clear Phase 0" }),
+						expect.objectContaining({ text: "#5", detail: "Speed the suite" }),
+						expect.objectContaining({ text: "#7", detail: "Rename a flag" }),
+					]),
+				);
+				expect(presses()).toEqual([]);
+				await panel.click(rowOf(panel, SaveTwo));
+				expect(presses()).toEqual([
+					["set", "--goal-issues=wc#5,wc#7", "--goal-text=clear Phase 0"],
+				]);
+				expect(panel.view.goalResolve).toBeNull();
+			});
+
+			it("holds the set in the Repos section's place, so no box moves under a click", async () => {
+				const { panel, presses } = await goalPanel(Ticked, {}, Found);
+				const before = texts(panel).indexOf("Repos");
+				await typeGoal(panel, "topic");
+				expect(texts(panel)).not.toContain("Repos");
+				expect(texts(panel).indexOf("#5")).toBe(before);
+				await panel.click(rowOf(panel, "#5"));
+				expect(presses()).toEqual([]);
+				await panel.pressKey({ name: "escape" });
+				expect(texts(panel).indexOf("Repos")).toBe(before);
+			});
+
+			it("offers nothing to save on the row Save lands on while it resolves", async () => {
+				let finish: (found: object) => void = noop;
+				const resolve = () =>
+					new Promise((done) => {
+						finish = done;
+					});
+				const { panel, presses } = await goalPanel(WithGoal, {}, resolve);
+				const typed = typeGoal(panel, "topic");
+				await vi.waitFor(() => expect(texts(panel)).toContain(Cancel));
+				const saveRow = rowOf(panel, Cancel) - 1;
+				await panel.click(saveRow);
+				expect(presses()).toEqual([]);
+				await panel.click(rowOf(panel, Cancel));
+				expect(panel.view.goalResolve).toBeNull();
+				finish(await Found());
+				await typed;
+			});
+
+			it("gives the read's fault, asking nothing, where the status has gone", async () => {
+				const resolve = vi.fn(Found);
+				const { panel, presses } = await goalPanel(WithGoal, {}, resolve);
+				await panel.click(fieldRow(panel));
+				panel.view.goalEdit = { text: "topic", caret: 5 };
+				panel.view.status = null;
+				panel.view.readError = "status --json: bad";
+				await panel.pressKey(Enter);
+				expect(resolve).not.toHaveBeenCalled();
+				expect(panel.view.goalNote?.text).toContain("status --json: bad");
+				expect(presses()).toEqual([]);
+			});
+
+			it("clears a held reason on a repo press", async () => {
+				const { panel } = await goalPanel(Ticked, {}, async () => ({
+					why: "no repo is ticked",
+				}));
+				await typeGoal(panel, "topic");
+				expect(panel.view.goalNote?.held).toBe(true);
+				await panel.click(rowOf(panel, "[✓] wc"));
+				expect(panel.view.goalNote).toBeNull();
+			});
+
+			it("names each ref's repo and counts what was dropped where the set spans repos", async () => {
+				const { panel } = await goalPanel(WithGoal, {}, async () => ({
+					issues: [
+						{ repo: "wc", number: 5, title: "A" },
+						{ repo: "books", number: 5, title: "B" },
+					],
+					dropped: 1,
+				}));
+				await typeGoal(panel, "topic");
+				expect(texts(panel)).toEqual(
+					expect.arrayContaining([
+						"wc#5",
+						"books#5",
+						"1 dropped: not open in a ticked repo",
+					]),
+				);
+			});
+
+			it.each([
+				["Esc", (p: GoalPanel) => p.pressKey({ name: "escape" })],
+				["its row", (p: GoalPanel) => p.click(rowOf(p, Cancel))],
+				["the switch", (p: GoalPanel) => p.click(switchRow(p))],
+			])("cancels on %s, leaving the old goal", async (_, cancel) => {
+				const { panel, presses } = await goalPanel(WithGoal, {}, Found);
+				await typeGoal(panel, "topic");
+				await cancel(panel);
+				expect(presses()).toEqual([]);
+				expect(panel.view.goalResolve).toBeNull();
+				expect(goalRows(panel.view)[2].text).toContain("drain #2518");
+			});
+
+			it("aborts the call on Esc, and a late answer shows nothing", async () => {
+				let finish: (found: object) => void = noop;
+				let aborted: AbortSignal | undefined;
+				const resolve = (_t: string, _r: unknown, signal: AbortSignal) => {
+					aborted = signal;
+					return new Promise((done) => {
+						finish = done;
+					});
+				};
+				const { panel } = await goalPanel(WithGoal, {}, resolve);
+				const typed = typeGoal(panel, "topic");
+				await vi.waitFor(() => expect(aborted).toBeDefined());
+				await panel.pressKey({ name: "escape" });
+				expect(aborted?.aborted).toBe(true);
+				finish(await Found());
+				await typed;
+				expect(panel.view.goalResolve).toBeNull();
+				expect(panel.view.goalNote).toBeNull();
+			});
+
+			it("shows a failure's reason past the note time, the old goal in place", async () => {
+				const { panel, presses } = await goalPanel(WithGoal, {}, async () => ({
+					why: "the model named no issue",
+				}));
+				await typeGoal(panel, "topic");
+				const shown = buildRows(panel.view, AT + 3_600_000).map(
+					(r: { text: string }) => r.text,
+				);
+				expect(shown).toContain("Topic not resolved");
+				expect(shown).toContain("the model named no issue");
+				expect(presses()).toEqual([]);
+				expect(goalRows(panel.view)[2].text).toContain("drain #2518");
+			});
+
+			it("shows `set`'s refusal of a confirmed set, the old goal in place", async () => {
+				const { panel } = await goalPanel(
+					WithGoal,
+					{
+						code: 1,
+						stderr: "refill loop: wc#5 is closed: a goal names open issues",
+					},
+					Found,
+				);
+				await typeGoal(panel, "topic");
+				await panel.pressKey(Enter);
+				expect(texts(panel)).toContain("wc#5 is closed");
+				expect(goalRows(panel.view)[2].text).toContain("drain #2518");
+			});
+
+			it("reopens the field from the topic on a click on it", async () => {
+				const { panel } = await goalPanel(WithGoal, {}, Found);
+				await typeGoal(panel, "topic");
+				await panel.click(rowOf(panel, "topic"));
+				expect(panel.view.goalEdit?.text).toBe("topic");
+				expect(panel.view.goalResolve).toBeNull();
+			});
+
+			it("keeps a confirmed set as resolved through later reads, asking again only on a new resolve", async () => {
+				const resolve = vi.fn(Found);
+				const Saved = {
+					...RUNNING,
+					goal: goalOf({
+						form: "topic",
+						text: "clear Phase 0",
+						refs: [{ repo: "wc", number: 5 }],
+					}),
+				};
+				const { panel } = await goalPanel(Saved, {}, resolve);
+				await panel.refreshStatus();
+				await panel.refreshStatus();
+				expect(resolve).not.toHaveBeenCalled();
+				await panel.click(fieldRow(panel));
+				await panel.pressKey(Enter);
+				expect(resolve).toHaveBeenCalledTimes(1);
+			});
+
+			it("leaves keys alone but Enter and Esc", async () => {
+				const { panel, presses } = await goalPanel(WithGoal, {}, Found);
+				await typeGoal(panel, "topic");
+				await panel.pressKey({ text: "x" });
+				expect(panel.view.goalResolve?.text).toBe("topic");
+				expect(presses()).toEqual([]);
+			});
+		});
 
 		it("closes on a blank Enter, setting nothing", async () => {
 			const { panel, presses } = await goalPanel(RUNNING);

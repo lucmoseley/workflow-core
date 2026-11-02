@@ -1,6 +1,6 @@
 /*
  * refill-panel.js — what the refill loop's panel draws and what a click or a key
- * does, with no terminal (#3873, #3875, #3877, #3879, #3881, #3883, spec #3596): status JSON and pending presses in, rows
+ * does, with no terminal (#3873, #3875, #3877, #3879, #3881, #3883, #3884, spec #3596): status JSON and pending presses in, rows
  * out; a click on a row or a key in a field in, a `refill-loop.js` or `burn-mode.sh` argv out. The
  * panel runs those two for every read and write, and never opens a control or
  * state file, so the loop's validation, lock and wake apply to every loop press.
@@ -17,7 +17,7 @@ const { caught } = require("./caught.js");
 const { localDate } = require("./morning-review.js");
 const { ESC } = require("./refill-panel-input.js");
 const { NO_PROGRESS_PAUSE } = require("./refill-decide.js");
-const { buildProgressText } = require("./refill-goal.js");
+const { buildProgressText, parseGoalForm } = require("./refill-goal.js");
 
 /* Where the block starts, 1-based as a mouse report counts. Untraced: one cell
  * of margin round the prototype's layout (#2525 round 9). */
@@ -91,7 +91,7 @@ const ROLE_STYLES = {
  *   launchesToday: number,
  *   mode: "normal"|"away"|null,
  *   handedOffSinceAway: number,
- *   repos: {name: string, ticked: boolean, disabled: string|null}[],
+ *   repos: {name: string, root: string, ticked: boolean, disabled: string|null}[],
  *   goal: ReturnType<typeof import("./refill-goal.js").buildGoalStatus>,
  *   seats: {readings: {seat: string, week: number|null,
  *     weekFull: boolean}[]},
@@ -112,7 +112,10 @@ const ROLE_STYLES = {
  * @typedef {{on: boolean, code: number, lines: string[]}} BurnReport
  */
 
-/** @typedef {{text: string, at: number}} PressNote */
+/**
+ * `held`, shown until the next goal or repo press.
+ * @typedef {{text: string, at: number, held?: boolean}} PressNote
+ */
 
 /**
  * A goal being typed. `caret`, how many characters stand before it.
@@ -122,12 +125,19 @@ const ROLE_STYLES = {
 /** @typedef {import("./refill-panel-input.js").Key} Key */
 
 /**
+ * A topic on its way to being a goal; `found`, null until its issues are back.
+ * @typedef {import("./refill-panel-topic.js").TopicSet} TopicSet
+ * @typedef {{text: string, found: TopicSet|null}} GoalResolve
+ */
+
+/**
  * @typedef {{status: PanelStatus|null, readError: string|null,
  *   pending: Pending|null,
  *   refusal: PressNote|null,
  *   awayPending: Pending|null, awayNote: PressNote|null,
  *   burnPending: Pending|null, burnReport: BurnReport|null,
- *   goalEdit: GoalEdit|null, goalPending: Pending|null, goalNote: PressNote|null,
+ *   goalEdit: GoalEdit|null, goalResolve: GoalResolve|null,
+ *   goalPending: Pending|null, goalNote: PressNote|null,
  *   repoPending: Record<string, Pending>,
  *   repoRefusal: (PressNote & {name: string})|null}} PanelView
  */
@@ -143,7 +153,7 @@ const ROLE_STYLES = {
  * @typedef {{text: string, role: Role, detail?: string, presses?: "loop",
  *   caret?: number,
  *   control?: {id: "loop"|"away"|"burn"|"goal", state: SwitchState}
- *     | {id: "goalField"}
+ *     | {id: "goalField"|"goalSave"|"goalCancel"}
  *     | {id: "repo", name: string, state: BoxState}}} Row
  */
 
@@ -256,7 +266,7 @@ function buildStoppedText(stop, now) {
  * @returns {note is PressNote}
  */
 const isNoteShowing = (note, now) =>
-	note !== null && now - note.at < NOTE_SHOW_MS;
+	note !== null && (note.held === true || now - note.at < NOTE_SHOW_MS);
 
 /** @param {boolean} on what a pending press asks for */
 const buildTurningWord = (on) => `turning ${on ? "on" : "off"}…`;
@@ -580,7 +590,7 @@ function buildGoalState({ status, goalPending }) {
  * @param {number} now
  * @returns {Row}
  */
-function buildGoalField({ status, goalEdit }, now) {
+function buildGoalField({ status, goalEdit, goalResolve }, now) {
 	/** @type {Row["control"]} */
 	const control = { id: "goalField" };
 	if (goalEdit)
@@ -588,6 +598,14 @@ function buildGoalField({ status, goalEdit }, now) {
 			text: goalEdit.text,
 			role: "value",
 			caret: goalEdit.caret,
+			control,
+		};
+	if (goalResolve)
+		return {
+			text: goalResolve.found
+				? goalResolve.text
+				: `resolving "${goalResolve.text}"…`,
+			role: "value",
 			control,
 		};
 	const goal = status?.goal;
@@ -618,15 +636,85 @@ function buildGoalNoteRows(text) {
 	];
 }
 
+/** @type {Row} */
+const GOAL_CANCEL_ROW = {
+	text: "Cancel · Esc",
+	role: "value",
+	control: { id: "goalCancel" },
+};
+
 /**
- * A note takes the caption's rows.
+ * The caption's two rows, press rows while a topic is in hand. The first stays blank
+ * while it resolves, so a click there cannot meet Save arriving (#3596 story 62).
+ * @param {TopicSet|null} found
+ * @returns {Row[]}
+ */
+function buildTopicPressRows(found) {
+	if (!found) return [SIBLING_GAP, GOAL_CANCEL_ROW];
+	const { length } = found.issues;
+	return [
+		{
+			text: `Save ${length === 1 ? "this one" : `these ${length}`} · Enter`,
+			role: "value",
+			control: { id: "goalSave" },
+		},
+		GOAL_CANCEL_ROW,
+	];
+}
+
+/**
+ * Stands in the Repos section's place until the confirm or cancel: a click aimed at
+ * a box as the set arrives lands on a row that presses nothing, and the boxes the set
+ * came from cannot change under it.
+ * @param {TopicSet} found
+ * @returns {Row[]}
+ */
+function buildTopicSetRows({ issues, dropped }) {
+	const spans = new Set(issues.map((i) => i.repo)).size > 1;
+	return [
+		...(dropped > 0
+			? [
+					{
+						text: `${dropped} dropped: not open in a ticked repo`,
+						role: /** @type {Role} */ ("secondary"),
+					},
+				]
+			: []),
+		...issues.map(({ repo, number, title }) => ({
+			text: `${spans ? repo : ""}#${number}`,
+			detail: title,
+			role: /** @type {Role} */ ("value"),
+		})),
+	];
+}
+
+/**
+ * @param {string[]} lines
+ * @returns {Row[]}
+ */
+const buildCaptionRows = (lines) =>
+	lines.map((text) => ({ text, role: "secondary" }));
+
+/**
+ * @param {PanelView} view
+ * @param {number} now
+ * @returns {Row[]}
+ */
+function buildUnderGoalRows({ goalResolve, goalNote }, now) {
+	if (goalResolve) return buildTopicPressRows(goalResolve.found);
+	return isNoteShowing(goalNote, now)
+		? buildGoalNoteRows(goalNote.text)
+		: buildCaptionRows(GOAL_CAPTION);
+}
+
+/**
  * @param {PanelView} view
  * @param {number} now
  * @returns {Row[]}
  */
 function buildGoalRows(view, now) {
 	const state = buildGoalState(view);
-	const { goalPending, goalNote } = view;
+	const { goalPending } = view;
 	const word = goalPending
 		? `  ${goalPending.on ? "setting…" : buildTurningWord(false)}`
 		: "";
@@ -638,12 +726,7 @@ function buildGoalRows(view, now) {
 		},
 		SIBLING_GAP,
 		buildGoalField(view, now),
-		...(isNoteShowing(goalNote, now)
-			? buildGoalNoteRows(goalNote.text)
-			: GOAL_CAPTION.map((text) => ({
-					text,
-					role: /** @type {Role} */ ("secondary"),
-				}))),
+		...buildUnderGoalRows(view, now),
 	];
 }
 
@@ -731,7 +814,9 @@ function buildRows(view, now) {
 		...SECTION_GAP,
 		...buildGoalRows(view, now),
 		...SECTION_GAP,
-		...buildReposRows(view, now),
+		...(view.goalResolve?.found
+			? buildTopicSetRows(view.goalResolve.found)
+			: buildReposRows(view, now)),
 	];
 }
 
@@ -883,6 +968,8 @@ function parseStatus(stdout) {
  * @typedef {{code: number, stdout: string, stderr: string}} RunResult
  * @typedef {(argv: string[]) => Promise<RunResult>} Runner runs one script with
  *   `argv`; a command that cannot start resolves as a failure
+ * @typedef {(text: string, repos: import("./refill-panel-topic.js").TickedRepo[],
+ *   signal: AbortSignal) => Promise<import("./refill-panel-topic.js").TopicResult>} TopicResolver
  */
 
 /**
@@ -904,9 +991,10 @@ const buildFailureText = ({ code, stderr }) =>
  * The panel's state over an injected runner. Reads never overlap: one asked for
  * during another runs after it, so a press's read starts after its command.
  * @param {{run: Runner, runBurn: Runner, now: () => number,
- *   onChange: () => void}} deps `run`, `refill-loop.js`; `runBurn`, `burn-mode.sh`
+ *   resolveTopic: TopicResolver, onChange: () => void}} deps `run`,
+ *   `refill-loop.js`; `runBurn`, `burn-mode.sh`
  */
-function createPanel({ run, runBurn, now, onChange }) {
+function createPanel({ run, runBurn, now, resolveTopic, onChange }) {
 	/** @type {PanelView} */
 	const view = {
 		status: null,
@@ -918,6 +1006,7 @@ function createPanel({ run, runBurn, now, onChange }) {
 		burnPending: null,
 		burnReport: null,
 		goalEdit: null,
+		goalResolve: null,
 		goalPending: null,
 		goalNote: null,
 		repoPending: {},
@@ -925,6 +1014,8 @@ function createPanel({ run, runBurn, now, onChange }) {
 	};
 	let reading = false;
 	let readAgain = false;
+	/** @type {AbortController|null} */
+	let resolveAbort = null;
 
 	/**
 	 * @param {PanelStatus|string} parsed the status, or why it will not read
@@ -1050,6 +1141,7 @@ function createPanel({ run, runBurn, now, onChange }) {
 		const pending = { on: press.on, landed: false };
 		view.repoPending[name] = pending;
 		view.repoRefusal = null;
+		if (view.goalNote?.held) view.goalNote = null;
 		await runPress(
 			press.argv,
 			pending,
@@ -1062,9 +1154,18 @@ function createPanel({ run, runBurn, now, onChange }) {
 		);
 	}
 
+	function cancelResolve() {
+		resolveAbort?.abort();
+		resolveAbort = null;
+		view.goalResolve = null;
+		onChange();
+	}
+
+	/** From the topic in hand where there is one, so a poor set is a small edit. */
 	function beginGoalEdit() {
 		if (!view.status || view.goalPending) return;
-		const text = view.status.goal?.text ?? "";
+		const text = view.goalResolve?.text ?? view.status.goal?.text ?? "";
+		cancelResolve();
 		view.goalEdit = { text, caret: [...text].length };
 		view.goalNote = null;
 		onChange();
@@ -1077,7 +1178,8 @@ function createPanel({ run, runBurn, now, onChange }) {
 	 */
 	async function pressGoalSwitch(closedEdit) {
 		if (view.goalPending) return;
-		if (view.status?.goal)
+		if (view.goalResolve) cancelResolve();
+		else if (view.status?.goal)
 			await runLoopPress(
 				{ argv: ["set", "--clear-goal"], on: false },
 				"goalPending",
@@ -1087,8 +1189,8 @@ function createPanel({ run, runBurn, now, onChange }) {
 	}
 
 	/**
-	 * One argument, however it is typed, so typed words reach `--goal` alone and
-	 * never read as another flag: one press changes one control (#3596 story 61). A
+	 * A fixed form goes to `--goal` as one argument, however it is typed; anything
+	 * else is a topic, stored only on the confirm press (#3596 stories 62, 65). A
 	 * blank field closes, the switch being what clears a goal (story 53).
 	 * @param {GoalEdit} edit
 	 */
@@ -1099,19 +1201,94 @@ function createPanel({ run, runBurn, now, onChange }) {
 			onChange();
 			return;
 		}
+		if (parseGoalForm(typed) === null) await resolveGoal(typed);
+		else
+			await runLoopPress(
+				{ argv: ["set", `--goal=${typed}`], on: true },
+				"goalPending",
+				"goalNote",
+			);
+	}
+
+	/**
+	 * A failure leaves the old goal, and a result arriving after a cancel is nobody's.
+	 * @param {string} text
+	 */
+	async function resolveGoal(text) {
+		if (!view.status) {
+			takeResolveFailure(view.readError ?? "the loop's status is unread");
+			onChange();
+			return;
+		}
+		const repos = view.status.repos.filter(
+			(repo) => repo.ticked && !repo.disabled,
+		);
+		/** @type {GoalResolve} */
+		const request = { text, found: null };
+		const abort = new AbortController();
+		resolveAbort = abort;
+		view.goalResolve = request;
+		view.goalNote = null;
+		onChange();
+		const result = await resolveTopic(text, repos, abort.signal);
+		if (view.goalResolve !== request) return;
+		resolveAbort = null;
+		if ("why" in result) {
+			view.goalResolve = null;
+			takeResolveFailure(result.why);
+		} else request.found = result;
+		onChange();
+	}
+
+	/** @param {string} why */
+	function takeResolveFailure(why) {
+		view.goalNote = {
+			text: `Topic not resolved: ${why}`,
+			at: now(),
+			held: true,
+		};
+	}
+
+	/**
+	 * Each ref carries its repo and the text one argument, so `set` reads them as
+	 * typed. It stays as resolved until the next resolve (#3596 story 64).
+	 */
+	async function saveTopic() {
+		const resolved = view.goalResolve;
+		if (!resolved?.found) return;
+		view.goalResolve = null;
+		const refs = resolved.found.issues.map((i) => `${i.repo}#${i.number}`);
 		await runLoopPress(
-			{ argv: ["set", `--goal=${typed}`], on: true },
+			{
+				argv: [
+					"set",
+					`--goal-issues=${refs.join(",")}`,
+					`--goal-text=${resolved.text}`,
+				],
+				on: true,
+			},
 			"goalPending",
 			"goalNote",
 		);
 	}
 
+	/** @param {Key} key */
+	async function pressTopicKey(key) {
+		if (!("name" in key)) return;
+		if (key.name === "enter") await saveTopic();
+		if (key.name === "escape") cancelResolve();
+	}
+
 	/**
-	 * Every key but Enter and Esc edits the field, and with no field open no key does
-	 * anything (#3596 story 75).
+	 * Every key but Enter and Esc edits the field, and with no field or topic open no
+	 * key does anything (#3596 story 75).
 	 * @param {Key} key
 	 */
 	async function pressKey(key) {
+		if (view.goalResolve) {
+			await pressTopicKey(key);
+			return;
+		}
 		const edit = view.goalEdit;
 		if (!edit) return;
 		if ("name" in key && key.name === "enter") {
@@ -1145,14 +1322,37 @@ function createPanel({ run, runBurn, now, onChange }) {
 	 */
 	async function pressRow(row, closedEdit) {
 		const control = row?.control;
-		if (control?.id === "goal") await pressGoalSwitch(closedEdit);
-		if (control?.id === "goalField" && !view.goalEdit) beginGoalEdit();
-		if (control?.id === "loop" || row?.presses === "loop")
-			await runLoopPress(buildPress(view), "pending", "refusal");
-		if (control?.id === "away")
-			await runLoopPress(buildAwayPress(view), "awayPending", "awayNote");
-		if (control?.id === "burn") await pressBurn();
-		if (control?.id === "repo") await pressRepo(control.name);
+		if (control === undefined) {
+			if (row?.presses === "loop")
+				await runLoopPress(buildPress(view), "pending", "refusal");
+			return;
+		}
+		switch (control.id) {
+			case "goal":
+				await pressGoalSwitch(closedEdit);
+				break;
+			case "goalField":
+				if (!view.goalEdit) beginGoalEdit();
+				break;
+			case "goalSave":
+				await saveTopic();
+				break;
+			case "goalCancel":
+				cancelResolve();
+				break;
+			case "loop":
+				await runLoopPress(buildPress(view), "pending", "refusal");
+				break;
+			case "away":
+				await runLoopPress(buildAwayPress(view), "awayPending", "awayNote");
+				break;
+			case "burn":
+				await pressBurn();
+				break;
+			case "repo":
+				await pressRepo(control.name);
+				break;
+		}
 	}
 
 	return { view, refreshStatus, click, pressKey };

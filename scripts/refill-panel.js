@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /*
  * refill-panel.js — the refill loop's control panel beside an agents view (#3873,
- * #3877, #3879, #3881, #3883, spec #3596): a terminal program with no Claude process that shows the Refill
+ * #3877, #3879, #3881, #3883, #3884, spec #3596): a terminal program with no Claude process that shows the Refill
  * loop switch and its three-line block, and pauses or resumes the loop on a click;
  * the Away switch, which sets the loop's mode on a click; the Burn mode switch,
  * which flips burn mode on a click; the Goal switch and its field, which clear or
- * replace the goal; and a tick box per checkout, which sets whether the loop serves it.
+ * replace the goal, free text through one `claude -p` and a confirm press; and a tick box per checkout, which sets whether the loop serves it.
  * What it draws is lib/refill-panel.js's; the terminal, lib/refill-panel-terminal.js's.
  *
  *   node scripts/refill-panel.js <agents-view-pid>
@@ -26,6 +26,7 @@ const path = require("node:path");
 const { pidAlive } = require("./lib/arbiter-proc.js");
 const { parseOrCode } = require("./lib/cli-args");
 const { openPanel } = require("./lib/refill-panel-terminal.js");
+const { resolveTopic } = require("./lib/refill-panel-topic.js");
 const { readViewEnv } = require("./lib/refill-panel-view-env.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
@@ -100,6 +101,8 @@ function main(argv = process.argv.slice(2)) {
 				env,
 			),
 		runBurn: (args) => runCommand(BURN_PROGRAM, args, READ_TIMEOUT_MS, env),
+		resolveTopic: (text, repos, signal) =>
+			resolveTopic(text, repos, { env, signal }),
 		isAlive: pidAlive,
 		now: Date.now,
 		reportCrash,
