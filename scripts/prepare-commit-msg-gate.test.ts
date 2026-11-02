@@ -1123,8 +1123,8 @@ describe("the review hold on a cherry-pick's replay path (#3905)", () => {
 		const pick = sideCommit(p, "f.txt");
 		refusing(p);
 		const r = attempt(p.root, "cherry-pick", pick);
-		// git reports a refusing hook on a replay as a failed sequencer step.
-		expect(r.code).toBe(128);
+		// git's status for a hook refusing a replay varies by version: 128 at 2.43, 1 at 2.56.
+		expect(r.code).not.toBe(0);
 		expect(r.output).toContain("the hold refused this pick");
 		expect(r.output).toContain("git cherry-pick --abort");
 		expect(fs.existsSync(path.join(p.gitDir(), "CHERRY_PICK_HEAD"))).toBe(true);
