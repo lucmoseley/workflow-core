@@ -44,7 +44,7 @@
 	"scripts/guard-dispatch.js": "1a167033e8e8d821",
 	"scripts/guard-exhausted-map.js": "ace46f31f2847463",
 	"scripts/guard-failed-call-rules.js": "bf32bb30071674d6",
-	"scripts/guard-inventory.js": "94f98982d0cb1b51",
+	"scripts/guard-inventory.js": "cea3184146e0b75b",
 	"scripts/guard-jev-advisory.js": "8d571c90e5cbda5d",
 	"scripts/guard-lost-deny.js": "90ae19f42dfb18f0",
 	"scripts/guard-lost-verdict.js": "8162a892e88950d5",

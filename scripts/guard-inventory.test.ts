@@ -24,6 +24,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GH_FAILING_SCRIPT, stubGhScript } from "./lib/gh-stub";
 import { INVENTORY } from "./lib/inventory-format";
+import { PARKED_PROMPT } from "./lib/loop-prompts.js";
 import {
 	HAND_OFF,
 	NEEDS_INPUT,
@@ -33,6 +34,7 @@ import {
 import { runInProcess } from "./lib/run-in-process.js";
 import { readStopGuardReason, type StopRun } from "./lib/stop-guard-testkit";
 import {
+	buildBashCall,
 	failOpenLog,
 	transcriptRecords,
 	writeTranscript,
@@ -529,6 +531,9 @@ describe("the hand-off on a posted round (#2391)", () => {
 	});
 });
 
+const buildToolCallAt = (timestamp: string) =>
+	JSON.stringify(buildBashCall("git status", "t1", { timestamp }));
+
 describe("the hand-off on a park that asks no round (#2849)", () => {
 	const pointerPark =
 		"Q1 on #31 still stands.\n\nwaits on you:\n- #31 (answer Q1, round posted on the issue)\n\nneeds input: answer Q1 on #31 — waits on you: #31";
@@ -569,7 +574,12 @@ describe("the hand-off on a park that asks no round (#2849)", () => {
 		const transcript = () => path.join(dir, "t.jsonl");
 		beforeEach(() => {
 			const r = transcriptRecords("2026-10-09T12:00:00Z");
-			writeTranscript(transcript(), r.founder(), r.assistant("ok"));
+			writeTranscript(
+				transcript(),
+				r.founder(),
+				r.assistant("ok"),
+				buildToolCallAt("2026-10-09T12:30:00Z"),
+			);
 		});
 
 		it("refuses a hand-off posted before this session began, naming both times", () => {
@@ -624,6 +634,7 @@ describe("the hand-off on a park that asks no round (#2849)", () => {
 						timestamp: "2026-10-09T15:00:00Z",
 					}),
 					r.assistant("ok"),
+					buildToolCallAt("2026-10-09T15:05:00Z"),
 				);
 			});
 
@@ -650,6 +661,15 @@ describe("the hand-off on a park that asks no round (#2849)", () => {
 				fs.mkdirSync(path.dirname(record()), { recursive: true });
 				fs.writeFileSync(record(), JSON.stringify({ sessionId, createdAt }));
 			};
+			beforeEach(() => {
+				const r = transcriptRecords("2026-10-09T12:00:00Z");
+				writeTranscript(
+					transcript(),
+					r.founder(),
+					r.assistant("ok"),
+					buildToolCallAt("2026-10-09T16:30:00Z"),
+				);
+			});
 
 			it("refuses a hand-off posted before the job, though after the copied first record", () => {
 				writeJob(sid);
@@ -669,6 +689,145 @@ describe("the hand-off on a park that asks no round (#2849)", () => {
 				writeJob("other");
 				handOffAt("2026-10-09T15:00:00Z");
 				expect(run(handoverPark, { transcript: transcript() })).toBe("");
+			});
+		});
+
+		describe("woken by the refill loop's parked-resume prompt (#3939)", () => {
+			/* Close rivals, which guard-priced-options.js refuses on a re-print. */
+			const CloseRoundPark = NEEDS_INPUT.replace(
+				"70% (60% - 80%)",
+				"55% (45% - 65%)",
+			).replace("30% (20% - 40%)", "45% (35% - 55%)");
+			const RoundPointer =
+				"Q1 above still stands.\n\nwaits on you:\n- #31 (answer Q1, round posted on the issue)\n\nneeds input: Q1 above — which parser ships first — waits on you: #31";
+			const FencedHandover =
+				"Paste this into this session:\n\n```\n! npm run deploy\n```\n\nSend back its last line.\n\nwaits on you:\n- #31 (run the deploy, send back its output)\n\nneeds input: run the deploy — waits on you: #31";
+			const priced = (message: string) =>
+				readStopGuardReason(PRICED, {
+					dir,
+					sid,
+					message,
+					job: true,
+					transcript: transcript(),
+					env: { WFC_GH: gh },
+				});
+			const resumedAt = "2026-10-09T16:00:00Z";
+			const afterResume = "2026-10-09T16:00:10Z";
+			const staleAt = "2026-10-09T15:00:00Z";
+			const freshAt = "2026-10-09T16:00:30Z";
+			beforeEach(() => {
+				const job = path.join(dir, "config", "jobs", sid.slice(0, 8));
+				fs.mkdirSync(job, { recursive: true });
+				fs.writeFileSync(
+					path.join(job, "state.json"),
+					JSON.stringify({ sessionId: sid, createdAt: resumedAt }),
+				);
+			});
+			const woken = (...since: string[]) => {
+				const r = transcriptRecords("2026-10-09T12:00:00Z");
+				writeTranscript(
+					transcript(),
+					r.founder(),
+					buildToolCallAt("2026-10-09T12:30:00Z"),
+					r.assistant(CloseRoundPark),
+					JSON.stringify({
+						type: "user",
+						timestamp: "2026-10-09T16:00:01Z",
+						origin: { kind: "human" },
+						message: { role: "user", content: PARKED_PROMPT },
+					}),
+					...since,
+				);
+			};
+			const roundAt = (createdAt: string) =>
+				serve({ r0: { n31: issue("OPEN", [{ ...POSTED, createdAt }]) } });
+			const runRound = () => {
+				claim(31);
+				return run(NEEDS_INPUT, { transcript: transcript() });
+			};
+
+			it("tells the session to make no tool call, post nothing and point at its round", () => {
+				expect(PARKED_PROMPT).toContain(
+					"Make no tool call and post nothing to the issue",
+				);
+				expect(PARKED_PROMPT).toContain(
+					"needs input: Qn above — <the decision>",
+				);
+				expect(PARKED_PROMPT).toContain(
+					"A tool call since this resume owes a fresh hand-off",
+				);
+			});
+
+			it("followed, a round park passes both guards, where a re-print of a close round would not", () => {
+				woken();
+				roundAt(staleAt);
+				claim(31);
+				expect(priced(CloseRoundPark)).toContain("Go and look for it");
+				expect(priced(RoundPointer)).toBe("");
+				expect(run(RoundPointer, { transcript: transcript() })).toBe("");
+			});
+
+			it("followed, passes a hand-over park on the hand-off from before the resume", () => {
+				woken();
+				handOffAt(staleAt);
+				expect(run(FencedHandover, { transcript: transcript() })).toBe("");
+				expect(priced(FencedHandover)).toBe("");
+			});
+
+			it("passes a re-printed round from before the resume", () => {
+				woken();
+				roundAt(staleAt);
+				expect(runRound()).toBe("");
+			});
+
+			it("still judges a stale hand-off's shape", () => {
+				woken();
+				serve({
+					r0: {
+						n31: issue("OPEN", [
+							comment(
+								HAND_OFF.replace("Blocked on: Q1", "Blocked on:"),
+								staleAt,
+							),
+						]),
+					},
+				});
+				expect(run(handoverPark, { transcript: transcript() })).toContain(
+					"`Blocked on:` line is missing or empty",
+				);
+			});
+
+			it("refuses a hand-over park after a tool call since the resume", () => {
+				woken(buildToolCallAt(afterResume));
+				handOffAt(staleAt);
+				const reason = run(handoverPark, { transcript: transcript() });
+				expect(reason).toContain(
+					"before this session began or last resumed at 2026-10-09T16:00:00.000Z",
+				);
+				expect(reason).toContain("post this session's own hand-off");
+			});
+
+			it("refuses a round park after a tool call since the resume", () => {
+				woken(buildToolCallAt(afterResume));
+				roundAt(staleAt);
+				const reason = runRound();
+				expect(reason).toContain(
+					"before this session began or last resumed at 2026-10-09T16:00:00.000Z",
+				);
+				expect(reason).toContain("post this session's own hand-off");
+			});
+
+			it("passes that round park once a hand-off follows the resume", () => {
+				woken(buildToolCallAt(afterResume));
+				serve({
+					r0: {
+						n31: issue("OPEN", [
+							{ ...POSTED, createdAt: staleAt },
+							comment(HAND_OFF, freshAt),
+						]),
+					},
+				});
+				expect(runRound()).toBe("");
 			});
 		});
 
@@ -781,7 +940,11 @@ describe("the hand-off on a park that asks no round (#2849)", () => {
 		it("refuses a stale hand-off on the readable one", () => {
 			const transcript = path.join(dir, "t.jsonl");
 			const r = transcriptRecords("2026-10-09T12:00:00Z");
-			writeTranscript(transcript, r.founder(), r.assistant("ok"));
+			writeTranscript(
+				transcript,
+				r.founder(),
+				buildToolCallAt("2026-10-09T12:30:00Z"),
+			);
 			serve({
 				r0: {
 					n31: issue("OPEN", [comment(deployHandOff, "2026-10-08T09:00:00Z")]),

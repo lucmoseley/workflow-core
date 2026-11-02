@@ -22,7 +22,7 @@ const MOVED_PROMPT = `${LOOP_PROMPT_PREFIX}resume — your seat's usage limit st
 /* A session parked on a repo hold that has since cleared (#3863). */
 const HOLD_PROMPT = `${LOOP_PROMPT_PREFIX}resume — the repo hold you parked on has cleared. Check the founder act you were waiting on now reads done, then continue your task.`;
 /* A parked session resumed by a normal-mode loop (#3621). */
-const PARKED_PROMPT = `${LOOP_PROMPT_PREFIX}resume — the founder may be back. Repeat your open question round here as it stands, without posting it to the issue again, and end your turn waiting on his answer.`;
+const PARKED_PROMPT = `${LOOP_PROMPT_PREFIX}resume — the founder may be back. Make no tool call and post nothing to the issue. Where you parked on a question round, do not re-print it: point at it by number, ending \`needs input: Qn above — <the decision> — waits on you: #N\` under your \`waits on you:\` block. Where you parked on an act you handed him, repeat that act as it stands. A tool call since this resume owes a fresh hand-off on the issue.`;
 
 /** @param {string} text */
 const isLoopPrompt = (text) => text.trimStart().startsWith(LOOP_PROMPT_PREFIX);

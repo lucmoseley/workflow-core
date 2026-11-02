@@ -31,10 +31,14 @@
  *   park — every `needs input:` ending: the hand-off above, or, where it asks
  *     no round (a pointer to a standing round, a founder hand-over), the
  *     newest comment carrying a `**Hand-off:**` header among the cited
- *     issues' newest five, its `Blocked on:` naming what the park waits on,
- *     posted no earlier than this session began or last resumed where that
- *     can be read (#2944, #2950).
- *     Either way no file this session's write ledger names sits uncommitted
+ *     issues' newest five, its `Blocked on:` naming what the park waits on.
+ *     Either way a hand-off older than this session's start or last resume is
+ *     stale where that can be read and a tool call has run since (#2944, #2950);
+ *     with none, as in a session the refill loop woke only to repeat its park
+ *     (lib/loop-prompts.js), it has no Done or Left to add (#3939). Residual: the
+ *     prompt is never read, so any session with no tool call since its start
+ *     passes on an old hand-off.
+ *     And no file this session's write ledger names sits uncommitted
  *     in the tree — a file its diff carries is owed its restore to HEAD too —
  *     a live neighbour's claimed files aside. A park on a repo hold (#3858) cites
  *     that hold's issue and its own ticket, whose hand-off this limb reads.
@@ -57,10 +61,10 @@
  * lib/outstanding-line.js, and passes the posted-round limb, as does an
  * unreadable or partly torn claim store, or no session id. It passes the park
  * limb where a cited issue is unread and no read one holds a hand-off. A
- * transcript whose start cannot be read passes the park limb's freshness test,
- * unlogged: a passing Stop hook's output reaches no one.
+ * transcript that cannot be read passes the freshness test, unlogged: a passing
+ * Stop hook's output reaches no one.
  *
- * IMPLICIT:  reads the session's ending message at every Stop and blocks the turn where a background job's `result:` or `needs input:` carries no `waits on you:` inventory, or where any session's inventory is misshapen, cites an issue that is not open, disagrees with its status-line tail, or leaves a `needs input:` round posted on no cited issue, on none this session claims, or with no well-formed hand-off in its comment, or parks at `needs input:` with no round and no well-formed hand-off posted on a cited issue since it began or last resumed, or parks while its ledgered files sit uncommitted; and, once a session, where a background job's owed `waits on you: nothing` follows a turn that handed the founder a draft to act on.
+ * IMPLICIT:  reads the session's ending message at every Stop and blocks the turn where a background job's `result:` or `needs input:` carries no `waits on you:` inventory, or where any session's inventory is misshapen, cites an issue that is not open, disagrees with its status-line tail, or leaves a `needs input:` round posted on no cited issue, on none this session claims, or with no well-formed hand-off in its comment, or parks at `needs input:` with no round and no well-formed hand-off on a cited issue, or parks on a hand-off older than its start or last resume having made a tool call since, or parks while its ledgered files sit uncommitted; and, once a session, where a background job's owed `waits on you: nothing` follows a turn that handed the founder a draft to act on.
  * JUSTIFIED: fail-safe — work left waiting on the founder in chat or a closed issue is lost when the conversation scrolls away (#958), and the ending is the last moment it can still be filed.
  * DEFEAT:    the block clears by writing the inventory the refusal names, or the hand-off into the round comment — or, at a park asking no round, a comment on a cited issue — and committing or restoring the session's files, or by its own cap of 3 a session; the draft-and-act block by ending a second time, its cap being 1.
  *
@@ -101,6 +105,7 @@ const { readStrandedFiles } = require("./lib/neighbour-dirt");
 const { findOwnHold } = require("./lib/repo-holds");
 const sessionTranscript = require("./lib/session-transcript");
 const { governingMarker } = require("./lib/status-marker");
+const { sinceTime } = require("./lib/tool-calls-since");
 const { isSubagentTranscript, mainChainRecords } = require("./lib/transcript");
 
 /* Case-sensitive: the form is the plain lower-case line (#904), and prose
@@ -435,11 +440,10 @@ function readJobCreatedAt(sessionId) {
 /**
  * When this session began or last resumed, to the second GitHub stamps a
  * comment at; null where neither its transcript nor its job record reads.
- * @param {import("./lib/stop-guard").StopPayload|null} payload
+ * @param {string|null|undefined} file  the session's transcript
  * @param {string} sessionId
  */
-function readSessionStart(payload, sessionId) {
-	const file = sessionTranscript.resolve(payload ?? {}, sessionId);
+function readSessionStart(file, sessionId) {
 	const marks = [
 		file ? sessionTranscript.readStartedAt(file) : null,
 		readJobCreatedAt(sessionId),
@@ -479,33 +483,52 @@ function holdClaimFault(own, sessionId) {
 		: `this \`needs input:\` park on a repo hold cites #${unclaimed.join(", #")}, which this session holds no claim on, so nothing labels it \`parked\` and \`/pick-next\` lists it as free work (#3858) — run \`node ${scriptPath("claim-issue.js")} ${unclaimed[0]}\`, then end again`;
 }
 
+/** @param {import("./lib/outstanding-line").Verdict} verdict */
+const newestHandOff = (verdict) =>
+	newestComment(verdict, verdict.items, (c) => parseHandOff(c.body) !== null);
+
+/**
+ * The fault on a park whose newest hand-off among `verdict`'s items predates
+ * this session's start or last resume, where its transcript shows a tool call
+ * since.
+ * @param {import("./lib/outstanding-line").Verdict} verdict
+ * @param {string} sessionId
+ * @param {import("./lib/stop-guard").StopPayload|null} payload
+ * @returns {string} the fault, or ""
+ */
+function staleHandOffFault(verdict, sessionId, payload) {
+	const newest = newestHandOff(verdict);
+	if (!newest) return "";
+	const file = sessionTranscript.resolve(payload ?? {}, sessionId);
+	const start = readSessionStart(file, sessionId);
+	if (start === null || Date.parse(newest.createdAt) >= start) return "";
+	if (!file || !sinceTime(file, start)) return "";
+	return `this \`needs input:\` park's newest hand-off on its ticket was posted at ${newest.createdAt}, before this session began or last resumed at ${new Date(start).toISOString()}, so it carries none of the Done and Left since (#2944, #2950) — post this session's own hand-off on the issue the park waits on:\n\n${HAND_OFF_SHAPE}`;
+}
+
 /**
  * The hand-off fault on a park that asks no round: judged on the newest comment
  * carrying a `**Hand-off:**` header among the cited issues' newest five,
- * whose `Blocked on:` names the pointer's `Qn` where it names one. A round
- * park needs no freshness test: its comment is matched by the round's title.
+ * whose `Blocked on:` names the pointer's `Qn` where it names one.
  * @param {import("./lib/outstanding-line").Verdict} verdict
  * @param {string|undefined} pointed  the pointer's question number
  * @param {string} sessionId
- * @param {number|null} start  this session's start, null where unread
+ * @param {import("./lib/stop-guard").StopPayload|null} payload
  * @returns {string} the fault, or ""
  */
-function parkFault(verdict, pointed, sessionId, start) {
+function parkFault(verdict, pointed, sessionId, payload) {
 	if (verdict.items.length === 0)
 		return `this \`needs input:\` park cites no issue, so no hand-off can sit on its ticket (#2391) — list the issue the park waits on, and post the hand-off there:\n\n${HAND_OFF_SHAPE}`;
-	const newest = newestComment(
-		verdict,
-		verdict.items,
-		(c) => parseHandOff(c.body) !== null,
-	);
+	const newest = newestHandOff(verdict);
 	/* An issue whose comments could not be read may hold the hand-off (#958:
 	 * fail open); one a read issue holds is judged on its merits (#2965).
 	 * Residual: a newer good hand-off on the unread issue cannot save a stale
 	 * or malformed one on a read issue, so that park is refused. */
 	if (!newest && hasUnchecked(verdict)) return "";
-	if (newest && start !== null && Date.parse(newest.createdAt) < start)
-		return `this \`needs input:\` park's newest hand-off on its ticket was posted at ${newest.createdAt}, before this session began or last resumed at ${new Date(start).toISOString()}, so it carries none of the Done and Left since (#2944, #2950) — post this session's own hand-off on the issue the park waits on:\n\n${HAND_OFF_SHAPE}`;
-	return handOffFault(newest?.body ?? "", pointed, sessionId);
+	return (
+		staleHandOffFault(verdict, sessionId, payload) ||
+		handOffFault(newest?.body ?? "", pointed, sessionId)
+	);
 }
 
 /**
@@ -520,12 +543,7 @@ function roundlessParkFault(verdict, end, sessionId, payload) {
 	const own = buildHandOffVerdict(verdict, end.payload);
 	return (
 		(own !== verdict && holdClaimFault(own, sessionId)) ||
-		parkFault(
-			own,
-			pointedQuestion(end),
-			sessionId,
-			readSessionStart(payload, sessionId),
-		)
+		parkFault(own, pointedQuestion(end), sessionId, payload)
 	);
 }
 
@@ -533,20 +551,24 @@ function roundlessParkFault(verdict, end, sessionId, payload) {
  * @param {import("./lib/outstanding-line").Verdict} verdict
  * @param {{number: string, title: string}} question
  * @param {string} sessionId
+ * @param {import("./lib/stop-guard").StopPayload|null} payload
  * @returns {string} the fault, or "" where the round is posted on an issue
  *   this session claims, or either is unreadable
  */
-function roundFault(verdict, question, sessionId) {
+function roundFault(verdict, question, sessionId, payload) {
 	const { number, title } = question;
 	const holders = roundHolders(verdict, question);
 	if (holders.length > 0) {
 		const unclaimed = claimOwedOn(holders, sessionId);
 		if (unclaimed.length === 0)
-			return handOffFault(
-				newestComment(verdict, holders, (c) => holdsRound(c, title))?.body ??
-					"",
-				number,
-				sessionId,
+			return (
+				staleHandOffFault({ ...verdict, items: holders }, sessionId, payload) ||
+				handOffFault(
+					newestComment(verdict, holders, (c) => holdsRound(c, title))?.body ??
+						"",
+					number,
+					sessionId,
+				)
 			);
 		return `this \`needs input:\` ending's round sits on #${unclaimed.join(", #")}, which this session holds no claim on, so \`/pick-next\` lists it as free work and a second session re-asks the round (#1066) — run \`node ${scriptPath("claim-issue.js")} ${unclaimed[0]}\`, then end again. Where it refuses on a live holder, that session is already asking: stop and report the collision`;
 	}
@@ -646,7 +668,7 @@ function assess(message, end, sessionId, payload) {
 		const reason =
 			question === null
 				? roundlessParkFault(verdict, end, sessionId, payload)
-				: roundFault(verdict, question, sessionId);
+				: roundFault(verdict, question, sessionId, payload);
 		if (reason) mine.push({ reason });
 	}
 	const refusals = [...mine, ...verdict.refusals];
