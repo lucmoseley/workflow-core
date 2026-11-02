@@ -31,6 +31,7 @@ const path = require("node:path");
 const { execGit, gitCommonDir } = require("./git.js");
 const { caught } = require("./caught.js");
 const { deref } = require("./deref.js");
+const { writeFd } = require("./write-fd.js");
 
 /**
  * Only a trailing slash, and never the last one: a repo rooted at `/` would
@@ -132,9 +133,9 @@ function worktreeRoot(cwd = process.cwd(), { host: given } = {}) {
  * for a script that must agree with the hook whatever its shell inherited
  * (#3830). `CLAUDE_PROJECT_DIR` where it shares this repository's git common
  * dir; else, in a linked worktree, the shared tree owning a common dir called
- * `.git`; else the top level. A bare repository has no top level and git will not say, so that and
- * a directory outside any repository answer `hostRoot()`'s fail-open, the
- * working directory.
+ * `.git`; else the top level. A bare repository or a git directory has no top
+ * level, so that answers the working directory and says so on stderr; a
+ * directory outside any repository answers `hostRoot()`'s fail-open, silently.
  *
  * Residual: a linked worktree of a bare repository cloned to a directory named
  * `.git`, or of a `--separate-git-dir` checkout whose git directory has that
@@ -156,8 +157,20 @@ function resolveCommitHost(cwd = process.cwd()) {
 		if (gitDir !== common && path.basename(common) === ".git")
 			return deref(path.dirname(common));
 		return gitTopLevel(cwd);
-	} catch {
-		return deref(cwd);
+	} catch (e) {
+		const answer = deref(cwd);
+		/* Unlike hostRoot's fail-open, reportable: the error log's directory does
+		 * not derive from this, and a caller's marker written under a wrong answer
+		 * sits in a store the hook never reads (#3830). */
+		try {
+			writeFd(
+				2,
+				`host-root: git named no top level for ${answer}, so the commit host falls back to it, and a marker stored under it may be one the commit's hook never reads (${caught(e).message.split("\n")[0]}).\n`,
+			);
+		} catch {
+			/* A closed stderr must not turn this fail-open into a throw. */
+		}
+		return answer;
 	}
 }
 

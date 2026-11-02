@@ -46,13 +46,13 @@ describe("the host seam", () => {
 	afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 	/** `a.md` as read through the root `expr` names, evaluated in a child at `cwd`. */
-	const readThrough = (
+	const spawnThrough = (
 		expr: string,
 		cwd: string,
 		projectDir: string | undefined,
 	) => {
 		const { CLAUDE_PROJECT_DIR: _, ...env } = process.env;
-		const r = spawnSync(
+		return spawnSync(
 			process.execPath,
 			[
 				"-e",
@@ -64,6 +64,13 @@ describe("the host seam", () => {
 				env: projectDir ? { ...env, CLAUDE_PROJECT_DIR: projectDir } : env,
 			},
 		);
+	};
+	const readThrough = (
+		expr: string,
+		cwd: string,
+		projectDir: string | undefined,
+	) => {
+		const r = spawnThrough(expr, cwd, projectDir);
 		expect(r.stderr).toBe("");
 		return r.stdout;
 	};
@@ -154,11 +161,32 @@ describe("the host seam", () => {
 			expect(readFromCommitHost(tree, undefined)).toBe("septree\n");
 		});
 
-		it("answers the working directory in a bare repository, which has no top level", () => {
+		/* The answer there may be a store the hook never reads (#3830, #3906). */
+		it("answers the working directory in a bare repository, which has no top level, and says so on stderr", () => {
 			const bare = path.join(dir, "bare.git");
 			spawnSync("git", ["init", "-q", "--bare", bare]);
 			fs.writeFileSync(path.join(bare, "a.md"), "bare\n");
-			expect(readFromCommitHost(bare, undefined)).toBe("bare\n");
+			const r = spawnThrough(
+				`require(${JSON.stringify(SEAM)}).resolveCommitHost()`,
+				bare,
+				undefined,
+			);
+			expect(r.stdout).toBe("bare\n");
+			expect(r.stderr).toContain(
+				`host-root: git named no top level for ${fs.realpathSync(bare)}`,
+			);
+		});
+
+		it("says so on stderr from inside a git directory, where the answer is no store a hook reads", () => {
+			const inside = path.join(at.shared, ".git");
+			fs.writeFileSync(path.join(inside, "a.md"), "inside\n");
+			const r = spawnThrough(
+				`require(${JSON.stringify(SEAM)}).resolveCommitHost()`,
+				inside,
+				undefined,
+			);
+			expect(r.stdout).toBe("inside\n");
+			expect(r.stderr).toContain("host-root: git named no top level");
 		});
 	});
 
