@@ -204,8 +204,31 @@ function adoptControlFile(log, waitMs) {
  */
 const readStateFile = (log) => parseState(readJson(loopFiles().state, log));
 
+/**
+ * Record that the calling process holds the pidfile: the last stop no longer
+ * describes the loop, and any death from here on is a crash (#3861).
+ * @param {(line: string) => void} log
+ */
+function recordRunHeld(log) {
+	const state = /** @type {object|null} */ (readJson(loopFiles().state, log));
+	writeJson(loopFiles().state, { ...state, stopped: null, heldAt: Date.now() });
+}
+
+/**
+ * Forget the last process's hold, before starting another: until the new one
+ * holds the pidfile, no process has died (#3861). Called with none running, so
+ * no tick's write can overtake it.
+ * @param {(line: string) => void} log
+ */
+function forgetRunHeld(log) {
+	const state = /** @type {object|null} */ (readJson(loopFiles().state, log));
+	if (state) writeJson(loopFiles().state, { ...state, heldAt: null });
+}
+
 module.exports = {
 	adoptControlFile,
+	forgetRunHeld,
+	recordRunHeld,
 	loopFiles,
 	REVIEW_RUNNER,
 	readControlChecked,

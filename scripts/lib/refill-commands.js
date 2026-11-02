@@ -40,6 +40,7 @@ const {
 	withAbsentRead,
 	launchesOnDay,
 	launchesSince,
+	recordedStop,
 } = require("./refill-loop.js");
 const { buildSeatName } = require("./refill-seats.js");
 
@@ -87,6 +88,8 @@ const buildRepoNames = (roots) =>
  *   tick?: string[], untick?: string[]}} SetAsk
  * @typedef {{running: boolean, now: number}} SetContext
  * @typedef {{write: Control|null, lines: string[]}} SetChange
+ * @typedef {SetChange & {startFrom: Control|null}} SetPlan `startFrom`, the
+ *   control a process starts from, where a resume found none running
  */
 
 /** @param {SetAsk} ask */
@@ -98,7 +101,7 @@ const asksRepos = ({ repos, tick, untick }) => Boolean(repos || tick || untick);
  * @param {import("./refill-loop.js").ControlRead} read
  * @param {SetAsk} ask
  * @param {SetContext} context
- * @returns {{refused: string}|SetChange}
+ * @returns {{refused: string}|SetPlan}
  */
 function planSet({ control, damaged }, ask, context) {
 	if (damaged !== null) return { refused: `${damaged}; \`start\` rewrites it` };
@@ -129,20 +132,25 @@ function planSet({ control, damaged }, ask, context) {
 			write = change.write;
 		}
 	}
-	return { write, lines: [...lines, ...buildNotRunningLines(ask, context)] };
+	return {
+		write,
+		lines: [...lines, ...buildNotRunningLines(ask, context)],
+		startFrom: pause === false && !context.running ? write : null,
+	};
 }
 
 /**
- * A `start` keeps a pause, and rebuilds the mode and repos.
+ * A `start` keeps a pause, and rebuilds the mode and repos; a resume is itself
+ * the start, from what it just wrote.
  * @param {SetAsk} ask
  * @param {SetContext} context
  */
 function buildNotRunningLines(ask, { running }) {
-	if (running) return [];
+	if (running || ask.pause === false) return [];
 	return [
-		...(ask.pause === undefined
-			? []
-			: ["refill loop: not running; this holds from its next start"]),
+		...(ask.pause
+			? ["refill loop: not running; this holds from its next start"]
+			: []),
 		...(ask.mode || asksRepos(ask)
 			? [
 					"refill loop: not running; its next start sets the mode and repos afresh",
@@ -152,18 +160,18 @@ function buildNotRunningLines(ask, { running }) {
 }
 
 /**
- * Only the pause changed. A resume of a running loop moves the point the
- * no-progress count counts from, so the finishes before it do not count
- * (#3856). With no process the point stays, so a loop that ended itself still
- * reads as ended until a `start`. Asking for what already holds changes nothing,
- * a repeat pause keeping its time.
+ * Only the pause changed. A resume moves the point the no-progress count counts
+ * from, so the finishes before it do not count (#3856). With no process it also
+ * drops any stop, whatever the pause read, since its caller starts one from this
+ * control (#3861). A stop pending on a running loop stands. Otherwise asking for what
+ * already holds changes nothing, a repeat pause keeping its time.
  * @param {Control} control
  * @param {boolean} pause
  * @param {SetContext} context
  * @returns {SetChange}
  */
 function buildPauseChange(control, pause, { running, now }) {
-	if (pause === (control.paused !== undefined))
+	if (pause === (control.paused !== undefined) && (pause || running))
 		return {
 			write: null,
 			lines: [
@@ -174,13 +182,16 @@ function buildPauseChange(control, pause, { running, now }) {
 		const paused = { by: "founder", at: now };
 		return { write: { ...control, paused }, lines: [buildPauseText(paused)] };
 	}
-	const { paused: _resumed, ...rest } = control;
-	return running
-		? {
-				write: { ...rest, noProgressFrom: now },
-				lines: ["not paused", buildCountingLine(now)],
-			}
-		: { write: rest, lines: ["not paused"] };
+	const { paused: _resumed, stopRequestedAt, ...rest } = control;
+	return {
+		write: {
+			...rest,
+			...(running && stopRequestedAt !== undefined ? { stopRequestedAt } : {}),
+			stopRequested: running && control.stopRequested,
+			noProgressFrom: now,
+		},
+		lines: ["not paused", buildCountingLine(now)],
+	};
 }
 
 /**
@@ -576,6 +587,23 @@ function buildLastTickLines(t) {
 }
 
 /**
+ * With no process, the stop that ended the loop, or whether a process held the
+ * pidfile and died with none on record (#3861). A start still on its way to the
+ * pidfile, or that never reached it, has no process to have died.
+ * @param {Control|null} control
+ * @param {LoopState} state
+ * @param {number|null} pid
+ */
+function readEnding(control, state, pid) {
+	if (pid !== null) return { stop: null, crashed: false };
+	const stop = recordedStop(control, state.stopped);
+	return {
+		stop,
+		crashed: control !== null && stop === null && Boolean(state.heldAt),
+	};
+}
+
+/**
  * @param {{control: Control|null, state: LoopState, pid: number|null,
  *   served: string[], seats: SeatsView, now: number,
  *   codeSha?: string|null}} input `served`, scopeRoots's roots; `codeSha`,
@@ -591,10 +619,14 @@ function buildStatusLines({
 	now,
 	codeSha = null,
 }) {
+	const { stop, crashed } = readEnding(control, state, pid);
 	return [
 		pid === null
 			? "refill loop: not running"
 			: `refill loop: running, pid ${pid}`,
+		...(crashed
+			? ["died:      with no stop recorded since its last start"]
+			: []),
 		...(pid !== null && codeSha ? [`code:      ${codeSha}`] : []),
 		...(control
 			? buildControlLines(control, state, {
@@ -604,10 +636,8 @@ function buildStatusLines({
 				})
 			: ["never started on this machine"]),
 		...(state.lastTick ? buildLastTickLines(state.lastTick) : []),
-		...(state.stopped
-			? [
-					`last stop: ${iso(state.stopped.at)}  ${state.stopped.reason} — ${state.stopped.detail}`,
-				]
+		...(stop
+			? [`last stop: ${iso(stop.at)}  ${stop.reason} — ${stop.detail}`]
 			: []),
 	];
 }
@@ -658,7 +688,8 @@ function buildOverflowBasisLines({
 
 /**
  * `status --json`: whether the loop runs and on what code, its pause and mode,
- * when away was switched on and the sessions handed off since, the last tick's summary and waiting reason, launches today, every candidate
+ * when away was switched on and the sessions handed off since, with no process
+ * the stop that ended it or that it died with none, the last tick's summary and waiting reason, launches today, every candidate
  * checkout, ticked or not, with why any is disabled (#3862), the launch rows
  * `status` lists, each with its seat as a tilde path and why it was picked
  * (#3732), null on a record from before that, and the `seats:` line's fields
@@ -683,6 +714,7 @@ function buildStatusJson({
 		pid,
 		codeSha,
 		stopRequested: control?.stopRequested ?? false,
+		...readEnding(control, state, pid),
 		paused: control?.paused ?? null,
 		lastTick: lastTick && {
 			at: lastTick.at,

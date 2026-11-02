@@ -25,6 +25,7 @@ const { parseOrCode } = require("./lib/cli-args");
 const { openPanel } = require("./lib/refill-panel-terminal.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
+const { FETCH_TIMEOUT_MS } = require("./lib/refill-code.js");
 
 const USAGE = `usage: node ${scriptPath("refill-panel.js")} <agents-view-pid>
 
@@ -33,7 +34,10 @@ Shows the refill loop and pauses or resumes it on a click, until that pid exits.
 
 const LOOP_PROGRAM = path.join(__dirname, "refill-loop.js");
 /* Untraced, a first guess: past the control lock's 10 s wait (lib/pid-lock.js). */
-const RUN_TIMEOUT_MS = 30_000;
+const READ_TIMEOUT_MS = 30_000;
+/* A `set --resume` with no process fetches the loop's code first (#3861); killed
+ * mid-fetch, it would leave the loop unpaused with no process. */
+const PRESS_TIMEOUT_MS = READ_TIMEOUT_MS + FETCH_TIMEOUT_MS;
 
 /** @type {import("./lib/refill-panel.js").Runner} */
 const runLoopCommand = (argv) =>
@@ -41,7 +45,7 @@ const runLoopCommand = (argv) =>
 		execFile(
 			process.execPath,
 			[LOOP_PROGRAM, ...argv],
-			{ timeout: RUN_TIMEOUT_MS },
+			{ timeout: argv[0] === "status" ? READ_TIMEOUT_MS : PRESS_TIMEOUT_MS },
 			(err, stdout, stderr) => {
 				if (!err) {
 					resolve({ code: 0, stdout, stderr });

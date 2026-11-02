@@ -8,21 +8,24 @@
  *
  *   node scripts/refill-loop.js start …  start the loop, or widen a running
  *                                        loop's repos; flags in USAGE
- *   node scripts/refill-loop.js stop     end launching before the next
- *                                        dispatch call; running sessions
- *                                        finish
+ *   node scripts/refill-loop.js stop     record an explicit stop and end
+ *                                        launching before the next dispatch
+ *                                        call; running sessions finish
  *   node scripts/refill-loop.js set …    pause or resume launching, tick repos or
  *                                        switch the mode with no restart: the
  *                                        running loop takes it at its next tick,
  *                                        and an idle loop within seconds;
- *                                        housekeeping carries on; flags in USAGE
+ *                                        housekeeping carries on; `--resume` with
+ *                                        no process starts one from the stored
+ *                                        control; flags in USAGE
  *   node scripts/refill-loop.js status   pause, mode, repos, goal, launches with
- *                                        their seats, the
- *                                        last stop reason, open repo holds
+ *                                        their seats, with no process the stop
+ *                                        that ended it or that it died with none,
+ *                                        open repo holds
  *                                        (lib/repo-holds.js), each overflow
  *                                        seat's budget and the plan seats
  *                                        overflow rests on; `--json` the code
- *                                        sha, the pause, the last tick, launches
+ *                                        sha, the stop, the pause, the last tick, launches
  *                                        today, the mode, when away was switched
  *                                        on and the sessions handed off since,
  *                                        every candidate
@@ -93,6 +96,8 @@ const loop = require("./lib/refill-loop.js");
 const { bootVerdictOf } = require("./lib/refill-boot.js");
 const {
 	adoptControlFile,
+	forgetRunHeld,
+	recordRunHeld,
 	readControlChecked,
 	readControlFile,
 	readStateFile,
@@ -123,11 +128,11 @@ const LOG_MAX_BYTES = 1024 * 1024;
 const SCRIPTS = __dirname;
 const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | set | status | dry-run | boot-resume
   start [--repo <dir>]… [--goal 116,117]       this checkout plus each named one
-  set --pause | --resume                       launch nothing, keeping housekeeping; or launch again
+  set --pause | --resume                       launch nothing, keeping housekeeping; or launch again, starting the loop from its stored settings where no process runs
   set --away | --normal                        hand a session at a question off to its issue, until a tick reads the founder back after one read him absent; or keep it open. The repos stay
   set [--repos <dir>]…                         the whole ticked set
   set [--tick <dir>]… [--untick <dir>]…        add to or take from the ticked set; a checkout found later stays unticked
-  status [--json]                              --json: the code sha, the pause, the last tick, launches today, the mode, when away was switched on and the sessions handed off since, every candidate checkout, the launch rows, each with its seat and why, and the seats line's fields
+  status [--json]                              --json: the code sha, the stop and whether it died with none, the pause, the last tick, launches today, the mode, when away was switched on and the sessions handed off since, every candidate checkout, the launch rows, each with its seat and why, and the seats line's fields
   <dir> is a checkout's directory name in the home directory; set takes any of its flags together`;
 
 const lock = pidLock(files.pid, "refill-loop.js");
@@ -373,6 +378,7 @@ function start(parsed) {
 		const pid = lock.holder();
 		const control = buildNextControl(pid, asked, root);
 		writeControlFile(control);
+		if (pid === null) forgetRunHeld(log);
 		return { pid, control };
 	});
 	if ("busy" in written) return refuseWrite("not started", written.busy);
@@ -398,6 +404,15 @@ function start(parsed) {
 		for (const line of scopeText) say(line);
 		return 0;
 	}
+	return startProcess(control, scopeText);
+}
+
+/**
+ * Spawn the loop on a control already written, and say so.
+ * @param {import("./lib/refill-loop.js").Control} control
+ * @param {string[]} scopeText
+ */
+function startProcess(control, scopeText) {
 	const launched = launchLoop();
 	if ("error" in launched) {
 		writeFd(2, `refill loop not started: ${launched.error}\n`);
@@ -417,7 +432,13 @@ function start(parsed) {
 function stop() {
 	const written = withControlLock(() => {
 		const control = readControlFile(log);
-		if (control) writeControlFile({ ...control, stopRequested: true });
+		/* A repeat stop keeps the time of the first. */
+		if (control && !control.stopRequested)
+			writeControlFile({
+				...control,
+				stopRequested: true,
+				stopRequestedAt: Date.now(),
+			});
 	});
 	if ("busy" in written) return refuseWrite("stop not recorded", written.busy);
 	const pid = lock.holder();
@@ -432,7 +453,7 @@ function stop() {
 
 /**
  * `set`: the named fields changed on a fresh read under the control lock, then
- * the wake touched.
+ * the wake touched, and where a resume found no process, one started.
  * @param {import("./lib/cli-args").Parsed} parsed
  */
 function set(parsed) {
@@ -451,6 +472,7 @@ function set(parsed) {
 			},
 		);
 		if ("write" in plan && plan.write) writeControlFile(plan.write);
+		if ("startFrom" in plan && plan.startFrom) forgetRunHeld(log);
 		return plan;
 	});
 	if ("busy" in written) return refuseWrite("nothing set", written.busy);
@@ -459,7 +481,7 @@ function set(parsed) {
 	}
 	wakes.touchWake(files.wake);
 	for (const line of written.done.lines) say(line);
-	return 0;
+	return written.done.startFrom ? startProcess(written.done.startFrom, []) : 0;
 }
 
 /**
@@ -616,6 +638,7 @@ async function run() {
 		return 0;
 	}
 	process.on("exit", lock.release);
+	recordRunHeld(log);
 	adoptControlFile(log);
 	for (const sig of /** @type {const} */ (["SIGTERM", "SIGINT", "SIGHUP"]))
 		process.on(sig, () => process.exit(0));

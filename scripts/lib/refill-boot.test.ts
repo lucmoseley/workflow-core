@@ -29,7 +29,6 @@ const stoppedAt = (at: number) => ({
 describe("bootVerdictOf", () => {
 	it.each([
 		["no stop on record", {}],
-		["a stop record older than the start", { stopped: stoppedAt(START - 1) }],
 		["a pidfile naming this process", { pid: 7 }],
 	])("resumes on %s, naming the start it keeps", (_name, over) => {
 		expect(bootVerdictOf({ ...found, ...over })).toEqual({
@@ -48,7 +47,12 @@ describe("bootVerdictOf", () => {
 			"stopped by command",
 		],
 		[
-			"a loop that ended itself since its start",
+			"a stop by command the loop recorded, the control since overtaken",
+			{ stopped: { at: START, reason: "explicit", detail: "asked" } },
+			"stopped by command",
+		],
+		[
+			"a loop that ended itself",
 			{ stopped: stoppedAt(START) },
 			"the loop ended itself: three launches made no progress",
 		],

@@ -562,6 +562,10 @@ function routedLaunch(
 		: { ...next, parkedRoute: parked };
 }
 
+/* What a `stop` command's record says, as the loop decides it and as `stop`'s own
+ * control field reads before a tick has. */
+const EXPLICIT_STOP_DETAIL = "stop was requested";
+
 /**
  * The stop a damaged control or a `stop` command asks for, or null.
  * @param {TickInput} input
@@ -571,7 +575,7 @@ function requestedStopOf(input) {
 	if (input.controlDamaged)
 		return { stop: "control-damaged", detail: input.controlDamaged };
 	if (input.stopRequested)
-		return { stop: "explicit", detail: "stop was requested" };
+		return { stop: "explicit", detail: EXPLICIT_STOP_DETAIL };
 	return null;
 }
 
@@ -1050,6 +1054,7 @@ function decideUnpaused(input) {
 }
 
 module.exports = {
+	EXPLICIT_STOP_DETAIL,
 	PROBE_HELD,
 	buildProbeHeldRoots,
 	buildOverflowHoldText,

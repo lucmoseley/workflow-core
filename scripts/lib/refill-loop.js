@@ -24,6 +24,7 @@ const {
 	hasRoom,
 	isParkRoutingMode,
 	orderPlanSeats,
+	EXPLICIT_STOP_DETAIL,
 } = require("./refill-decide.js");
 const {
 	buildChildLine,
@@ -64,6 +65,7 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * @typedef {object} Control
  * @property {number} noProgressFrom ms, where the no-progress count counts from
  * @property {boolean} stopRequested
+ * @property {number} [stopRequestedAt] ms, when `stop` asked; a start drops it
  * @property {import("./refill-decide.js").Pause} [paused] absent where not paused
  * @property {import("./refill-decide.js").AwaySwitch} [away] absent in normal
  *   mode, or where the file holds no readable switch: a tick's absent read then
@@ -136,6 +138,8 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  *   idle?: string|null}|null} lastTick `idle` is decideTick's reason it launched
  *   nothing, the idle alarm's source for it (#3920)
  * @property {{at: number, reason: string, detail: string}|null} stopped
+ * @property {number|null} [heldAt] ms, when the current run's process took the
+ *   pidfile; null from a start until its process does (#3861)
  * @property {Hold[]} held the last frontier-reading tick's, for the idle
  *   alarm (#3680)
  * @property {string|null} reviewRunOn machine-local date of the last morning
@@ -261,6 +265,9 @@ function parseControl(raw, readIncluded) {
 	return {
 		noProgressFrom,
 		stopRequested: raw.stopRequested === true,
+		...(typeof raw.stopRequestedAt === "number"
+			? { stopRequestedAt: raw.stopRequestedAt }
+			: {}),
 		...parsePause(raw.paused),
 		...parseAway(raw.away),
 		seats: parseStrings(raw.seats),
@@ -454,6 +461,7 @@ function parseState(raw) {
 		launches: Array.isArray(r.launches) ? r.launches : [],
 		lastTick: parseLastTick(r.lastTick),
 		stopped: parseStopped(r.stopped),
+		heldAt: typeof r.heldAt === "number" ? r.heldAt : null,
 		held: Array.isArray(r.held) ? r.held.filter(isHold) : [],
 		reviewRunOn: typeof r.reviewRunOn === "string" ? r.reviewRunOn : null,
 		launchCount: parseLaunchCount(r.launchCount),
@@ -1034,6 +1042,28 @@ const isRestartedSince = (control, since) =>
 	control !== null && !control.stopRequested && control.noProgressFrom > since;
 
 /**
+ * The stop that ended the loop's last run, or null where none did (#3861). The
+ * state's record is the loop's own and a process taking the pidfile clears it;
+ * `stop` needs no tick to count, so it stands where the loop died before one. A
+ * control from before `stopRequestedAt` reads as time 0, as an unreadable pause
+ * does. Residual: a start whose process never took the pidfile leaves the earlier
+ * record standing, as does a dead loop's state from before #3861, whose ticks kept
+ * an overtaken stop; each reads as that stop until a start's process runs.
+ * @param {Control|null} control
+ * @param {LoopState["stopped"]} stopped
+ * @returns {LoopState["stopped"]}
+ */
+const recordedStop = (control, stopped) =>
+	stopped ??
+	(control?.stopRequested
+		? {
+				at: control.stopRequestedAt ?? 0,
+				reason: "explicit",
+				detail: EXPLICIT_STOP_DETAIL,
+			}
+		: null);
+
+/**
  * Whether a control read mid-tick asks the loop to stop. A control gone
  * missing does, as at the tick's start.
  * @param {Control|null} control
@@ -1361,7 +1391,10 @@ function settleTick(
 				? {}
 				: { skipped: decision.skipped, idle: decision.idle }),
 		},
-		stopped: stoppedOf(decision, input.now) ?? state.stopped,
+		/* A tick that does not stop outlives any record, a stop a `start` overtook
+		 * included. */
+		stopped: stoppedOf(decision, input.now),
+		heldAt: state.heldAt,
 		held:
 			"stop" in decision || read === null
 				? state.held
@@ -1441,6 +1474,7 @@ module.exports = {
 	ceilingsOf,
 	parseControl,
 	buildFinishLine,
+	recordedStop,
 	isRestartedSince,
 	judgedLaunches,
 	buildLaunchesLine,
