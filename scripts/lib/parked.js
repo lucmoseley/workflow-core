@@ -24,9 +24,11 @@
  * ends the loop's relaunches (#3804); any other write of the marker drops the
  * count, so a question or the founder's typing starts it again. Nothing rewrites
  * a marker at the cap while it holds, so its write time is the hold's start,
- * which the idle alarm reads whatever the loop's mode or state (#3840). One entry a
- * line: `seat <config dir>`, `job <job id>`, `cwd <directory>`,
- * `limit-parks <count>`, or an issue number.
+ * which the idle alarm reads whatever the loop's mode or state (#3840). A park the
+ * loop stopped names its block's cause, which picks the resume's prompt (#3949);
+ * any other write drops that too. One entry a line: `seat <config dir>`,
+ * `job <job id>`, `cwd <directory>`, `limit-parks <count>`, `cause <cause>`, or an
+ * issue number.
  */
 
 const fs = require("node:fs");
@@ -66,7 +68,7 @@ function setParked(repo, n, on) {
  * @typedef {{seat: string, jobId: string, cwd: string|null}} ParkJob
  */
 /**
- * @typedef {{issues: number[], job: ParkJob|null, limitParks?: number}} ParkMarker
+ * @typedef {{issues: number[], job: ParkJob|null, limitParks?: number, cause?: string}} ParkMarker
  */
 
 /**
@@ -74,7 +76,7 @@ function setParked(repo, n, on) {
  */
 
 const MARKER_PREFIX = ".parked-";
-const KEYED_RE = /^(seat|job|cwd|limit-parks) (.+)$/;
+const KEYED_RE = /^(seat|job|cwd|limit-parks|cause) (.+)$/;
 /* park-blocked.sh's record shares the prefix (lib/arbiter-markers.js). */
 const BLOCKED_PREFIX = ".parked-blocked-";
 
@@ -98,11 +100,12 @@ function parseMarker(text) {
 		const m = KEYED_RE.exec(line);
 		if (m) keyed[requiredGroup(m, 1, KEYED_RE)] = requiredGroup(m, 2, KEYED_RE);
 	}
-	const { seat, job, cwd, "limit-parks": limitParks } = keyed;
+	const { seat, job, cwd, "limit-parks": limitParks, cause } = keyed;
 	return {
 		issues,
 		job: seat && job ? { seat, jobId: job, cwd: cwd ?? null } : null,
 		...(limitParks ? { limitParks: Number(limitParks) } : {}),
+		...(cause ? { cause } : {}),
 	};
 }
 
@@ -209,16 +212,16 @@ const newestMarkerListing = (markers, number) =>
 /**
  * Write this session's marker in `root`'s checkout: `numbers` its issues,
  * replacing the list, and `job` its job, else the one it already names, as is
- * its cwd where `job` read none, and `limitParks` its limit-cap parks in a row.
- * An empty list deletes it.
+ * its cwd where `job` read none, `limitParks` its limit-cap parks in a row, and
+ * `cause` the block the loop stopped it on. An empty list deletes it.
  * @param {string} sessionId
  * @param {number[]} numbers
- * @param {{root?: string, job?: ParkJob|null, limitParks?: number}} [where]
+ * @param {{root?: string, job?: ParkJob|null, limitParks?: number, cause?: string}} [where]
  */
 function writeParkedBy(
 	sessionId,
 	numbers,
-	{ root, job = null, limitParks } = {},
+	{ root, job = null, limitParks, cause } = {},
 ) {
 	const file = markerOf(sessionId, root);
 	if (numbers.length === 0) {
@@ -231,6 +234,7 @@ function writeParkedBy(
 		...(kept ? [`seat ${kept.seat}`, `job ${kept.jobId}`] : []),
 		...(kept?.cwd ? [`cwd ${kept.cwd}`] : []),
 		...(limitParks ? [`limit-parks ${limitParks}`] : []),
+		...(cause ? [`cause ${cause}`] : []),
 		...new Set(numbers),
 	];
 	fs.writeFileSync(file, `${lines.join("\n")}\n`);

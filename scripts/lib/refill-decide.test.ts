@@ -246,6 +246,30 @@ describe("decideTick stops (#2007)", () => {
 		).not.toHaveProperty("stop");
 	});
 
+	it("passes over a resume with nothing to repeat that made no act, but counts other resumes and one the loop parked again (#3949, #3942)", () => {
+		const woken = { nothingToRepeat: true };
+		expect(
+			tick({
+				history: [finished(7, woken), finished(8, woken), finished(9, woken)],
+			}),
+		).not.toHaveProperty("stop");
+		expect(
+			tick({
+				history: [finished(6), finished(7, woken), finished(8), finished(9)],
+			}),
+		).toMatchObject({ stop: "no-progress" });
+		const parkedAgain = { ...woken, parkStopped: NOW - HOUR };
+		expect(
+			tick({
+				history: [
+					finished(7, parkedAgain),
+					finished(8, parkedAgain),
+					finished(9, parkedAgain),
+				],
+			}),
+		).toMatchObject({ stop: "no-progress" });
+	});
+
 	it("passes over gate judgements that end unmet, with no act, but counts one that acted (#3092)", () => {
 		const gate = { gate: true };
 		expect(
@@ -1518,6 +1542,18 @@ describe("decideTick on a parked row's session seat (#3669)", () => {
 			expect(d.launches[0].parkedRoute).toEqual({
 				resume: { seat: "/s2", sessionId: "s-2", cwd: "wfc" },
 				limitParks: LIMIT_PARK_CAP - 1,
+			});
+		});
+
+		it("carries the block its marker names on to the resume (#3949)", () => {
+			const d = on(room, [parker({ parkCause: "PERMISSION" })]);
+			expect(d.launches[0].parkedRoute).toEqual({
+				resume: {
+					seat: "/s2",
+					sessionId: "s-2",
+					cwd: "wfc",
+					parkCause: "PERMISSION",
+				},
 			});
 		});
 

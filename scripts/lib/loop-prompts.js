@@ -24,7 +24,24 @@ const MOVED_PROMPT = `${LOOP_PROMPT_PREFIX}resume — your seat's usage limit st
 /* A session parked on a repo hold that has since cleared (#3863). */
 const HOLD_PROMPT = `${LOOP_PROMPT_PREFIX}resume — the repo hold you parked on has cleared. Check the founder act you were waiting on now reads done, then continue your task.`;
 /* A parked session resumed by a normal-mode loop (#3621). */
-const PARKED_PROMPT = `${LOOP_PROMPT_PREFIX}resume — the founder may be back. Make no tool call and post nothing to the issue. Where you parked on a question round, do not re-print it: point at it by number, ending \`needs input: Qn above — <the decision> — waits on you: #N\` under your \`waits on you:\` block. Where you parked on an act you handed him, repeat that act as it stands. A tool call since this resume owes a fresh hand-off on the issue.`;
+const PARKED_PROMPT = `${LOOP_PROMPT_PREFIX}resume — the founder may be back. Where you parked on a question round or an act you handed him, make no tool call and post nothing to the issue. A round you do not re-print: point at it by number, ending \`needs input: Qn above — <the decision> — waits on you: #N\` under your \`waits on you:\` block. An act you repeat as it stands. Where you parked on neither and were waiting on him, post your question on the issue as a \`❓ **Qn**\` round carrying a \`**Hand-off:**\` and point at it as above; where you were waiting on nothing, continue your task. A tool call since this resume owes a fresh hand-off on the issue.`;
+/* A session the loop stopped on a permission prompt, whose prompt went with the
+ * stop (#3949). */
+const PARKED_PERMISSION_PROMPT = `${LOOP_PROMPT_PREFIX}resume — the refill loop stopped you on a permission prompt and the founder may be back. Repeat the tool call that raised it, a subagent's by making it yourself, so the prompt comes back to him, then continue your task. Where you cannot repeat it, post a \`**Hand-off:**\` on the issue saying why, hand him the call as a literal \`!\` line or fenced text and what to send back, and end \`needs input: <the call> — waits on you: #N\` under your \`waits on you:\` block.`;
+/* A session the loop stopped on an API error or a limit (#3949). */
+const PARKED_NOTHING_PROMPT = `${LOOP_PROMPT_PREFIX}resume — the refill loop parked you on an API error or your seat's usage limit. ${LIMIT_LOSS}`;
+
+const NOTHING_TO_REPEAT = new Set(["API_ERROR", "LIMIT"]);
+
+/** @param {string|undefined} cause  the park marker's; none on a session's own park */
+const hasNothingToRepeat = (cause) =>
+	cause !== undefined && NOTHING_TO_REPEAT.has(cause);
+
+/** @param {string|undefined} cause  the park marker's; none on a session's own park */
+function parkedPromptOf(cause) {
+	if (cause === "PERMISSION") return PARKED_PERMISSION_PROMPT;
+	return hasNothingToRepeat(cause) ? PARKED_NOTHING_PROMPT : PARKED_PROMPT;
+}
 
 /** @param {string} text */
 const isLoopPrompt = (text) => text.trimStart().startsWith(LOOP_PROMPT_PREFIX);
@@ -36,6 +53,7 @@ module.exports = {
 	HOLD_PROMPT,
 	LIMIT_PROMPT,
 	MOVED_PROMPT,
-	PARKED_PROMPT,
+	hasNothingToRepeat,
 	isLoopPrompt,
+	parkedPromptOf,
 };

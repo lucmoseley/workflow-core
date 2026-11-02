@@ -599,6 +599,24 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 		expect(out.launched[0]).toMatchObject({ jobId: "j-9", limitParks: 1 });
 	});
 
+	it("marks a resume parked on an API error or a limit, and no other, as having nothing to repeat (#3949)", () => {
+		const resumedOn = (parkCause: string | undefined) =>
+			run(
+				[
+					member(1, {
+						parkedRoute: {
+							resume: { ...target, ...(parkCause ? { parkCause } : {}) },
+						},
+					}),
+				],
+				ok,
+			).out.launched[0];
+		for (const cause of ["API_ERROR", "LIMIT"])
+			expect(resumedOn(cause)).toMatchObject({ nothingToRepeat: true });
+		for (const cause of ["PERMISSION", "QUESTION", undefined])
+			expect(resumedOn(cause)).not.toHaveProperty("nothingToRepeat");
+	});
+
 	it("launches afresh, logged with why, a member routed afresh or whose resume failed", () => {
 		const routed = member(1, {
 			parkedRoute: { afresh: "its session s-1's marker names no job" },

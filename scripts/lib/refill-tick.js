@@ -144,7 +144,7 @@ const {
 const { sleepSync } = require("./sleep-sync.js");
 const { localDate } = require("./morning-review.js");
 const { pidLock } = require("./pid-lock.js");
-const { PARKED_PROMPT } = require("./loop-prompts.js");
+const { parkedPromptOf } = require("./loop-prompts.js");
 const { writeFd } = require("./write-fd.js");
 
 /* Every child but the `/usage` probe; untraced. */
@@ -653,6 +653,7 @@ function recordParked(l, sessionId, numbers, limitParks) {
 				? { seat: l.seat, jobId: l.jobId, cwd: readJobCwd(l.seat, l.jobId) }
 				: null,
 			limitParks,
+			cause: l.block?.cause,
 		});
 		return null;
 	} catch (e) {
@@ -911,7 +912,7 @@ function readParkers(frontier) {
 		if (!isParked(row)) return [];
 		const marker = newestMarkerListing(readMarkersIn(row.root), row.number);
 		if (!marker) return [];
-		const { job, sessionId, limitParks } = marker;
+		const { job, sessionId, limitParks, cause } = marker;
 		return [
 			{
 				root: row.root,
@@ -920,6 +921,7 @@ function readParkers(frontier) {
 				job,
 				resumeCwd: job?.cwd ?? row.root,
 				...(limitParks === undefined ? {} : { limitParks }),
+				...(cause === undefined ? {} : { parkCause: cause }),
 			},
 		];
 	});
@@ -1033,8 +1035,8 @@ const staggerResume = () => sleepSync(refillBatch.readStaggerMs());
 const launchOrResume = (batch, served) =>
 	refillBatch.launchOrResume(batch, {
 		readActsBefore: buildActsBeforeReader(served),
-		resume: ({ root, issues }, { seat, sessionId, cwd }) =>
-			resumeStopped({ root, issues, seat }, PARKED_PROMPT, {
+		resume: ({ root, issues }, { seat, sessionId, cwd, parkCause }) =>
+			resumeStopped({ root, issues, seat }, parkedPromptOf(parkCause), {
 				sessionId,
 				cwd,
 			}),

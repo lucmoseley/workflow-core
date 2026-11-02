@@ -24,7 +24,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GH_FAILING_SCRIPT, stubGhScript } from "./lib/gh-stub";
 import { INVENTORY } from "./lib/inventory-format";
-import { PARKED_PROMPT } from "./lib/loop-prompts.js";
+import { parkedPromptOf } from "./lib/loop-prompts.js";
 import {
 	HAND_OFF,
 	NEEDS_INPUT,
@@ -531,6 +531,8 @@ describe("the hand-off on a posted round (#2391)", () => {
 	});
 });
 
+const PARKED_PROMPT = parkedPromptOf(undefined);
+
 const buildToolCallAt = (timestamp: string) =>
 	JSON.stringify(buildBashCall("git status", "t1", { timestamp }));
 
@@ -763,7 +765,7 @@ describe("the hand-off on a park that asks no round (#2849)", () => {
 					JSON.stringify({ sessionId: sid, createdAt: resumedAt }),
 				);
 			});
-			const woken = (...since: string[]) => {
+			const wokenBy = (prompt: string, ...since: string[]) => {
 				const r = transcriptRecords("2026-10-09T12:00:00Z");
 				writeTranscript(
 					transcript(),
@@ -774,11 +776,12 @@ describe("the hand-off on a park that asks no round (#2849)", () => {
 						type: "user",
 						timestamp: "2026-10-09T16:00:01Z",
 						origin: { kind: "human" },
-						message: { role: "user", content: PARKED_PROMPT },
+						message: { role: "user", content: prompt },
 					}),
 					...since,
 				);
 			};
+			const woken = (...since: string[]) => wokenBy(PARKED_PROMPT, ...since);
 			const roundAt = (createdAt: string) =>
 				serve({ r0: { n31: issue("OPEN", [{ ...POSTED, createdAt }]) } });
 			const runRound = () => {
@@ -788,7 +791,7 @@ describe("the hand-off on a park that asks no round (#2849)", () => {
 
 			it("tells the session to make no tool call, post nothing and point at its round", () => {
 				expect(PARKED_PROMPT).toContain(
-					"Make no tool call and post nothing to the issue",
+					"make no tool call and post nothing to the issue",
 				);
 				expect(PARKED_PROMPT).toContain(
 					"needs input: Qn above — <the decision>",
@@ -855,6 +858,91 @@ describe("the hand-off on a park that asks no round (#2849)", () => {
 					"before this session began or last resumed at 2026-10-09T16:00:00.000Z",
 				);
 				expect(reason).toContain("post this session's own hand-off");
+			});
+
+			describe("from a park with no round and no hand-off (#3949)", () => {
+				const LoopParkComment =
+					"Refill loop: stopped PERMISSION park (normal mode); labelled parked: #31. The conversation is kept: `claude attach` reopens it.";
+				const parkCommentThen = (
+					...rest: { body: string; createdAt: string }[]
+				) =>
+					serve({
+						r0: {
+							n31: issue("OPEN", [comment(LoopParkComment, staleAt), ...rest]),
+						},
+					});
+				const expectBothPass = (message: string) => {
+					expect(run(message, { transcript: transcript() })).toBe("");
+					expect(priced(message)).toBe("");
+				};
+
+				const Permission = parkedPromptOf("PERMISSION");
+				const NothingToRepeat = parkedPromptOf("API_ERROR");
+
+				it("a permission park is told to bring the prompt back, and to say why not where it cannot", () => {
+					expect(Permission).toContain("Repeat the tool call that raised it");
+					expect(Permission).toContain(
+						"Where you cannot repeat it, post a `**Hand-off:**` on the issue saying why",
+					);
+				});
+
+				it("followed, a permission park it cannot repeat passes both guards on its fresh hand-off", () => {
+					wokenBy(Permission, buildToolCallAt(afterResume));
+					parkCommentThen(
+						comment(`Cannot repeat it.\n\n${deployHandOff}`, freshAt),
+					);
+					expectBothPass(FencedHandover);
+				});
+
+				it("refuses that park on the loop's own comment alone, naming the hand-off", () => {
+					wokenBy(Permission, buildToolCallAt(afterResume));
+					parkCommentThen();
+					expect(run(FencedHandover, { transcript: transcript() })).toContain(
+						"leaves no well-formed hand-off",
+					);
+				});
+
+				it("followed, a park on neither a round nor an act that was waiting on him passes both guards on the round it posts", () => {
+					expect(PARKED_PROMPT).toContain(
+						"post your question on the issue as a `❓ **Qn**` round carrying a `**Hand-off:**`",
+					);
+					wokenBy(PARKED_PROMPT, buildToolCallAt(afterResume));
+					parkCommentThen({
+						...POSTED,
+						body: `${POSTED.body}\n\n${HAND_OFF}`,
+						createdAt: freshAt,
+					});
+					claim(31);
+					expectBothPass(RoundPointer);
+				});
+
+				it("refuses a prose raise from that park", () => {
+					const prose =
+						"Which parser ships first?\n\nwaits on you:\n- #31 (which parser ships first)\n\nneeds input: which parser ships first — waits on you: #31";
+					wokenBy(PARKED_PROMPT);
+					parkCommentThen();
+					expect(run(prose, { transcript: transcript() })).toContain(
+						"leaves no well-formed hand-off",
+					);
+					expect(priced(prose)).not.toBe("");
+				});
+
+				it.each([
+					["a repeated permission", Permission],
+					["an API error or limit park", NothingToRepeat],
+					["a park on neither", PARKED_PROMPT],
+				])(
+					"followed by continuing, %s owes nothing at a `result:`, which reaches no park limb",
+					(_, prompt) => {
+						wokenBy(prompt, buildToolCallAt(afterResume));
+						parkCommentThen();
+						expectBothPass(NOTHING);
+					},
+				);
+
+				it("tells an API error or limit park to continue", () => {
+					expect(NothingToRepeat).toContain("continue your task");
+				});
 			});
 
 			it("passes that round park once a hand-off follows the resume", () => {

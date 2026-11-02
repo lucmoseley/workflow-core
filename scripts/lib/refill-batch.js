@@ -7,6 +7,7 @@
  * with the spawn, the ledger, the resume and the clock passed in.
  */
 
+const { hasNothingToRepeat } = require("./loop-prompts.js");
 const { launchName } = require("./refill-blocks.js");
 const { checkoutEnv } = require("./refill-repos.js");
 
@@ -278,6 +279,9 @@ function resumeParked(l, parked, io) {
 		finishedAt: null,
 		...(r.sessionId ? { sessionId: r.sessionId } : {}),
 		...(r.copy ? {} : { actsBefore }),
+		...(hasNothingToRepeat(parked.resume.parkCause)
+			? { nothingToRepeat: true }
+			: {}),
 		...limitParksOf(l),
 	};
 }

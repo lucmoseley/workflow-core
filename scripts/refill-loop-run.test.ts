@@ -53,7 +53,7 @@ import {
 	IDLE_PROMPT,
 	LIMIT_PROMPT,
 	MOVED_PROMPT,
-	PARKED_PROMPT,
+	parkedPromptOf,
 } from "./lib/loop-prompts.js";
 import { buildMeminfo } from "./lib/meminfo-fake";
 import { projectSlug } from "./lib/project-slug.js";
@@ -121,6 +121,8 @@ const loopEnv = (over: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({
 	GITHUB_ACTIONS: "",
 	...over,
 });
+
+const PARKED_PROMPT = parkedPromptOf(undefined);
 
 const markerPath = (session: string, root = repo) =>
 	path.join(root, ".claude", "tmp", "markers", `.parked-${session}`);
@@ -1092,6 +1094,7 @@ describe("a parked launch (#2699)", () => {
 			`seat ${seat}`,
 			`job ${Job}`,
 			`cwd ${repo}`,
+			"cause QUESTION",
 			"7",
 		]);
 	});
@@ -1222,6 +1225,7 @@ describe("a parked launch (#2699)", () => {
 		expect(r.status).toBe(0);
 		expect(readLines(at("stops"))).toEqual([`stop ${Job}`]);
 		expect(readLines(at("gh-calls"))).toContainEqual(parkComment("PERMISSION"));
+		expect(readLines(markerPath("s-job7"))).toContain("cause PERMISSION");
 	});
 
 	it("in normal mode, never stops a permission park at any age (#3621)", async () => {
@@ -2661,6 +2665,18 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 			finishedAt: null,
 			sessionId: "s-job5",
 		});
+	});
+
+	it("resumes a park on the prompt its marker's cause picks, noting one with nothing to repeat (#3949)", async () => {
+		seed();
+		writeMarker(`seat ${seat}\njob ${Job}\ncwd ${repo}\ncause LIMIT\n5\n`);
+		wakesInPlace();
+		const r = await settled(run(1), ParkedRun);
+		expect(r.status).toBe(0);
+		expect(readLines(at("calls"))).toEqual([
+			`--bg --resume s-job5 ${parkedPromptOf("LIMIT")}`,
+		]);
+		expect(launches().at(-1).nothingToRepeat).toBe(true);
 	});
 
 	it("notes the acts its session had already made on the new launch, read from the ledger before the wake (#3942)", async () => {

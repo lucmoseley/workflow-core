@@ -58,6 +58,23 @@ describe("a park marker's limit-cap count (#3804)", () => {
 	});
 });
 
+describe("a park marker's cause (#3949)", () => {
+	const job = { seat: "/s", jobId: "j", cwd: "/c" };
+
+	it("reads back the block the loop stopped it on", () => {
+		writeParkedBy("s1", [7], { root, job, cause: "PERMISSION" });
+		expect(readParkMarkers(root)).toMatchObject([
+			{ issues: [7], job, cause: "PERMISSION" },
+		]);
+	});
+
+	it("drops it on a write that carries none", () => {
+		writeParkedBy("s1", [7], { root, job, cause: "LIMIT" });
+		writeParkedBy("s1", [7], { root });
+		expect(readParkMarkers(root)[0]).not.toHaveProperty("cause");
+	});
+});
+
 describe("a marker that will not read (#3893)", () => {
 	/** Unlocked after `body`, so the tmp dir cleans up. */
 	function withLockedMarker(body: () => void) {

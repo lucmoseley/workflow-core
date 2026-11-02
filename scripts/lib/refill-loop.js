@@ -116,6 +116,7 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * is the job its dispatch-ledger hold names; `pastSessionIds`, the sessions
  * it ran under before `sessionId`. `actsBefore`, on a parked session resumed in
  * place as a new launch, the acts that session had already made (#3942).
+ * `nothingToRepeat`, on one parked on an API error or a limit (#3949).
  * @typedef {import("./refill-decide.js").LaunchRecord & {
  *   prompt: string, seat: string, jobId: string|null,
  *   parked?: boolean, block?: import("./block-act.js").Block,
@@ -130,7 +131,8 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  *   limitLeft?: import("./refill-decide.js").SeatLeft[],
  *   limitParks?: number, handOffTries?: number, handedOff?: number, copiedFrom?: string,
  *   relaunchedAt?: number, pastSessionIds?: string[],
- *   actsBefore?: Record<string, number>|typeof UNREAD}} LoopLaunch
+ *   actsBefore?: Record<string, number>|typeof UNREAD,
+ *   nothingToRepeat?: true}} LoopLaunch
  * @typedef {(sessionId: string, roots: string[]) =>
  *   {acts: string[], unreadable: string[]}} ReadActsBy  lib/arbiter-ledger.js's
  */

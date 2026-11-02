@@ -112,6 +112,9 @@ const ALREADY_RUNNING = "already running";
  *   session's acts-ledger lines counted per kind (#2312), or UNREAD where its
  *   session id was never captured or its ledger would not read
  * @property {true} [gate] a gate judgement's launch (#3092)
+ * @property {true} [nothingToRepeat] a resume of a session parked on an API error
+ *   or a limit, which asked the founder nothing (#3949)
+ * @property {number} [parkStopped] ms, when the loop stopped it for a park
  * @property {SeatReason} [reason] why its seat was picked
  */
 
@@ -203,10 +206,12 @@ const ALREADY_RUNNING = "already running";
  *   marker names, null where it names none
  * @property {string} resumeCwd where its session resumes
  * @property {number} [limitParks] its marker's limit-cap parks in a row
+ * @property {string} [parkCause] the block its marker names, where the loop
+ *   stopped it on one
  */
 
 /**
- * @typedef {{seat: string, sessionId: string, cwd: string}} ResumeTarget
+ * @typedef {{seat: string, sessionId: string, cwd: string, parkCause?: string}} ResumeTarget
  */
 
 /**
@@ -237,7 +242,10 @@ const hasProgressed = (r) =>
 /**
  * The last three read finishes since noProgressFrom, if none progressed: an
  * unread one is passed over, and so is a gate judgement with no act, since
- * judging a gate unmet ends with none (#3092). A start of a stopped loop moves
+ * judging a gate unmet ends with none (#3092), and a resume with nothing to repeat
+ * that ended with no act and no new park, as its work may be done already (#3949):
+ * its ticket leaves `parked`, so it comes back only by a new park, while one the
+ * loop parked again, as an auth error would be, counts. A start of a stopped loop moves
  * noProgressFrom, or a restart after this stop would stop at once. Residual: a judge
  * that crashed or did nothing is passed over too, so a run of gate launches
  * alone never stops the loop; JUDGE_EVERY_MS in lib/gate-sweep.js bounds how
@@ -251,7 +259,10 @@ function noProgressRun({ history, noProgressFrom }) {
 				r.finishedAt !== null &&
 				r.launchedAt >= noProgressFrom &&
 				r.acts !== UNREAD &&
-				!(r.gate && !hasProgressed(r)),
+				!(
+					(r.gate || (r.nothingToRepeat && r.parkStopped === undefined)) &&
+					!hasProgressed(r)
+				),
 		)
 		.sort((a, b) => Number(b.finishedAt) - Number(a.finishedAt))
 		.slice(0, NO_PROGRESS_RUN);
@@ -661,6 +672,7 @@ function routeParkedSession(parker, seats) {
 			seat: seat.seat,
 			sessionId: parker.sessionId,
 			cwd: parker.resumeCwd,
+			...(parker.parkCause ? { parkCause: parker.parkCause } : {}),
 		},
 	};
 }
