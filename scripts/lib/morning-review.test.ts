@@ -1,7 +1,7 @@
 /*
- * The morning review body, rendered from fixtures (#2011). Driven through
- * renderReview alone, the export the generator calls, so the body's shape is
- * pinned without gh. Break it and the founder's one daily read lists the wrong
+ * The morning review body, rendered from fixtures (#2011). Rendered through
+ * renderReview, the export the generator calls, so the body's shape is pinned
+ * without gh. Break it and the founder's one daily read lists the wrong
  * window, drops an entry or a one-way close, or is refused at filing.
  */
 
@@ -102,34 +102,93 @@ const render = (
 		kills,
 	});
 
-describe("the Checkouts read section (#3844)", () => {
-	it("prints a line buildAbsentRepos reads back for each checkout read", () => {
-		const body = render([
-			{
-				checkout: "my wfc",
-				repo: "acme/a",
-				entries: [],
-				stalls: [],
-				closed: [],
-			},
-		]);
-		expect(body).toContain("Events read in my wfc.");
-		expect(
-			buildAbsentRepos({
-				previous: { number: 7, body },
-				listed: new Set(),
-				since: SINCE,
-				nowMs: Date.parse(NOW),
-				readAbsence: () => ({ carried: true, why: "no .git" }),
-			}).flatMap((r: { unreadEvents: object[] }) => r.unreadEvents),
-		).toEqual([{ kind: "Events", checkout: "my wfc", since: SINCE }]);
+describe("the next run's bookkeeping (#3844, #3934)", () => {
+	const buildReading = (
+		checkout: string,
+		repo: string,
+		primitives: object = QUIET_PRIMITIVES,
+	) => ({ checkout, repo, entries: [], stalls: [], closed: [], primitives });
+	const ReadOneHistory = [
+		buildReading("my wfc", "acme/a"),
+		buildReading("second", "acme/b", {
+			count: { line: COUNT_LINE },
+			history: { why: "git: fatal" },
+		}),
+	];
+	/* No code writes this since #3934, but reviews filed before it stay input:
+	 * parseHistoryCursor walks back through older bodies. */
+	const VisibleFormat = [
+		"## Primitives",
+		"",
+		"### acme/a",
+		"",
+		`Table history read to ${HEAD} in acme/a.`,
+		"",
+		"### acme/b",
+		"",
+		"Row changes not read: `git: fatal`.",
+		"",
+		"## Checkouts read",
+		"",
+		"The next review checks each of these for absence from discovery:",
+		"",
+		"Events read in my wfc.",
+		"Events read in second.",
+		"",
+		"## How to reverse",
+		"",
+	].join("\n");
+
+	it("closes the body with one comment holding each line, and prints none of them", () => {
+		const body = render(ReadOneHistory);
+		const comment = body.indexOf("<!--");
+		expect(body.slice(comment)).toBe(
+			[
+				"<!--",
+				`Table history read to ${HEAD} in acme/a.`,
+				"Events read in my wfc.",
+				"Events read in second.",
+				"-->",
+				"",
+			].join("\n"),
+		);
+		const visible = body.slice(0, comment);
+		expect(visible).toContain("## How to reverse");
+		expect(visible).not.toContain("Checkouts read");
+		expect(visible).not.toContain("Table history read");
+		expect(visible).not.toContain("Events read in");
 	});
 
-	it("says None where no checkout read", () => {
-		expect(render([])).toContain(
-			"## Checkouts read\n\nThe next review checks each of these for absence from discovery:\n\nNone.\n",
-		);
+	it("carries no comment and no None line where nothing read", () => {
+		const body = render([]);
+		expect(body).not.toContain("<!--");
+		expect(body).toMatch(/recipe\.\n\nStandalone: [^\n]+\n$/);
 	});
+
+	it.each([
+		["this render", () => render(ReadOneHistory)],
+		["a review filed with the lines visible", () => VisibleFormat],
+	])(
+		"reads the history cursor and carried checkouts back off %s",
+		(_, make) => {
+			const body = make();
+			const reviews = [{ body }];
+			expect(parseHistoryCursor(reviews, "acme/a")).toBe(HEAD);
+			expect(parseHistoryCursor(reviews, "acme/b")).toBeNull();
+			expect(
+				buildAbsentRepos({
+					previous: { number: 7, body },
+					listed: new Set(),
+					since: SINCE,
+					nowMs: Date.parse(NOW),
+					readAbsence: () => ({ carried: true, why: "no .git" }),
+				}).flatMap((r: { unreadEvents: object[] }) => r.unreadEvents),
+			).toEqual([
+				{ kind: "Events", checkout: "my wfc", since: SINCE },
+				{ kind: "Events", checkout: "second", since: SINCE },
+			]);
+		},
+	);
 });
 
 describe("renderReview (#2011)", () => {
@@ -881,8 +940,6 @@ describe("primitives (#3465)", () => {
 				"2. acme/a — local row rewritten (Exemplar, Rule): `'hostRoot()'` — job `Finding the host` — bbb2222",
 				"3. acme/a — local row removed: `'cli-args.js'` — job `Reading argv` — bbb2222",
 				"",
-				`Table history read to ${HEAD} in acme/a.`,
-				"",
 				"",
 			].join("\n"),
 		);
@@ -900,7 +957,7 @@ describe("primitives (#3465)", () => {
 			}),
 		]);
 		expect(section(body)).toContain(
-			`### acme/a\n\n\`${COUNT_LINE}\`\n\nNo row changed since the last read.\n\nTable history read to ${HEAD} in acme/a.\n`,
+			`### acme/a\n\n\`${COUNT_LINE}\`\n\nNo row changed since the last read.\n`,
 		);
 		expect(parseEntries(body).size).toBe(0);
 	});

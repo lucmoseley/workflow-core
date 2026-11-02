@@ -13,8 +13,9 @@
  * Each source's edge sits where an event is sure to be readable (#3827). A
  * ledger line is stamped when appended, on the machine that reads it. Closes
  * run CLOSE_SETTLE_MS behind the window, as they are read off a search index on
- * GitHub's clock. Row changes take no time edge: each review prints the commit
- * it read each repo's default branch to, and the next reads on from it.
+ * GitHub's clock. Row changes take no time edge: each review's closing comment
+ * names the commit it read each repo's default branch to, and the next reads on
+ * from it.
  *
  * A repo that does not read keeps its events for the next review:
  * lib/review-carry.js.
@@ -40,6 +41,9 @@ const { renderReadLine, renderUnreadLine } = require("./review-carry.js");
 
 const TITLE = /^Morning review — (\d{4}-\d{2}-\d{2})$/;
 const WINDOW_LINE = /^Window: \S+ → ([^\s,]+)/m;
+/* Printed above the closing comment, so the filer appends no line after it. */
+const STANDALONE_REASON =
+	"the day's away-mode review, outside every map (#1995)";
 const HISTORY_LINE = /^Table history read to ([0-9a-f]{40}) in (\S+)\.$/gm;
 /* How far closes run behind the window: about 70 times the worst search lag
  * measured, 12.3 s (#3827), as GitHub publishes no bound and the sample is small.
@@ -392,8 +396,6 @@ function renderHistoryLines(repo, history, next) {
 					"",
 					`Found by commit time, as ${history.whyByTime}: a commit that reached the branch after its window may be missing.`,
 				]),
-		"",
-		`Table history read to ${history.tip} in ${repo}.`,
 	];
 }
 
@@ -415,6 +417,27 @@ function renderPrimitivesLines(repos, first) {
 		...renderHistoryLines(repo, history, () => n++),
 		"",
 	]);
+}
+
+/**
+ * What the next review reads back and the founder never needs, in one comment
+ * GitHub does not render (#3934). Absent with nothing read.
+ * @param {RepoReading[]} repos
+ * @returns {string[]}
+ */
+function renderBookkeepingLines(repos) {
+	if (repos.length === 0) return [];
+	return [
+		"",
+		"<!--",
+		...repos.flatMap(({ repo, primitives: { history } }) =>
+			"why" in history
+				? []
+				: [`Table history read to ${history.tip} in ${repo}.`],
+		),
+		...repos.map(({ checkout }) => renderReadLine(checkout)),
+		"-->",
+	];
 }
 
 /** @param {boolean} sent */
@@ -663,17 +686,12 @@ function renderReview({
 		"",
 		...(stuck.length === 0 ? ["None."] : stuck),
 		"",
-		"## Checkouts read",
-		"",
-		"The next review checks each of these for absence from discovery:",
-		"",
-		...(repos.length === 0
-			? ["None."]
-			: repos.map(({ checkout }) => renderReadLine(checkout))),
-		"",
 		"## How to reverse",
 		"",
 		"Comment `reverse <entry number>` on this issue, one per line. Each becomes a `takes:implement` ticket in that entry's repo carrying the entry's reversal recipe.",
+		"",
+		`Standalone: ${STANDALONE_REASON}`,
+		...renderBookkeepingLines(repos),
 		"",
 	].join("\n");
 }
@@ -755,6 +773,7 @@ module.exports = {
 	parseReviewDate,
 	quoted,
 	renderReview,
+	STANDALONE_REASON,
 	buildReviewTitle,
 	closeEdge,
 	parseHistoryCursor,
