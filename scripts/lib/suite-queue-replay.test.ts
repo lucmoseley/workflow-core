@@ -26,6 +26,7 @@ interface Waiter {
 	pid?: number;
 	slotFree?: boolean;
 	passed?: number;
+	climbMb?: number;
 }
 const exit = (w: Waiter, i: number) => ({
 	reason: "refused",
@@ -271,10 +272,47 @@ describe("a `tsc` wait, on the type-check slot's gate (#3163)", () => {
 		expect(render(r, window())).toContain("| tsc-count | 0.05 |");
 		const eras = [{ label: "later", from: 4 }];
 		const out = render(replayOf({ ...cfg, eras }), window(60, eras));
-		expect(out).toContain("| fifo-part | tsc-count | tsc-memory | tsc-fifo |");
 		expect(out).toContain(
-			"| window start | 0.07 | 0.12 | 0.07 | — | — | — | 0.05 | — | — | — | — | — |",
+			"| tsc-count | tsc-memory | climb | fifo-whole | fifo-part | tsc-fifo |",
 		);
+		expect(out).toContain(
+			"| window start | 0.07 | 0.12 | 0.07 | — | 0.05 | — | — | — | — | — | — | — | — |",
+		);
+	});
+
+	/* 4,000 MB available against the 2,750 MB `tsc` rung, which clears it alone
+	 * and not less the 2,000 MB the exit line recorded (#3806). */
+	it("names the climb limb where the charge held a wait the reading clears, ahead of the `tsc` fifo", () => {
+		const r = replayOf({
+			waiters: [
+				{ from: 0, to: 10, kind: "tsc" },
+				{ from: 0, to: 10, kind: "tsc", climbMb: 2000 },
+			],
+			mem: blocks(0, 5, 6000),
+		});
+		expect(hoursOf(r.limb)).toMatchObject({ climb: 300 });
+		expect(render(r, window())).toContain("| climb | 0.08 |");
+	});
+
+	it("reads no climb where the reading alone is under the rung, or a charge leaves it clear", () => {
+		const under = replayOf({
+			waiters: [{ from: 0, to: 5, kind: "tsc", climbMb: 2000 }],
+			mem: blocks(0, 5, 8000),
+		});
+		expect(hoursOf(under.limb)).toEqual({ "tsc-memory": 300 });
+		const clear = replayOf({
+			waiters: [{ from: 0, to: 5, kind: "tsc", climbMb: 100 }],
+			mem: blocks(0, 5, 6000),
+		});
+		expect(hoursOf(clear.limb)).toEqual({ open: 300 });
+	});
+
+	it("names the climb limb on a suite waiter too", () => {
+		const r = replayOf({
+			waiters: [{ from: 0, to: 5, slotFree: true, climbMb: 4500 }],
+			mem: blocks(0, 5, 5000),
+		});
+		expect(hoursOf(r.limb)).toEqual({ climb: 300 });
 	});
 
 	it("queues behind an older `tsc` waiter alone, and holds no suite waiter's turn", () => {

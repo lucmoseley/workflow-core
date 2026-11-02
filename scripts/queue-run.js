@@ -383,6 +383,7 @@ async function run(words, slot, options, err) {
 	const held = slot === "tsc" && heldMarker(TSC_SLOT_ENV, options) !== null;
 	const { queue, join, wait, refused, exitExtra } = slotWait(slot, options);
 	const ticket = held ? "" : queueJoin(join);
+	const stamps = queueStamps(ticket, queue);
 	const started = Date.now();
 	/** @type {import("node:child_process").ChildProcess | null} */
 	let child = null;
@@ -409,7 +410,10 @@ async function run(words, slot, options, err) {
 		}
 		if (!waiting) return;
 		waiting = false;
-		logExit("killed", Date.now() - started, { signal });
+		logExit("killed", Date.now() - started, {
+			signal,
+			...stamps.killedHold(),
+		});
 		queueLeave(ticket, queue);
 		exit(code);
 	};
@@ -424,7 +428,7 @@ async function run(words, slot, options, err) {
 			turn,
 			label: LABEL,
 			...queue,
-			...wait(queueStamps(ticket, queue)),
+			...wait(stamps),
 			onExit: (reason, waitMs, heldBy) => {
 				waiting = false;
 				logExit(reason, waitMs, {

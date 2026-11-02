@@ -19,6 +19,9 @@
  *   tsc-memory  memwatch's MemAvailable under TSC_RUNG_MB
  *   tsc-fifo    an older `tsc` waiter, its queue being its own
  * then `admitted`, a suite's admission holding its turn (#3203), and `open`.
+ * In either class, directly after the memory limb and ahead of the fifos:
+ *   climb       MemAvailable clears the rung, but not less the climb the wait's
+ *               exit line says held it (#3416, #3806)
  * Every later limb holding the same waiter-tick is tallied too, since one
  * cleared may leave the next binding
  * (docs/practice/capacity-planning-and-admission.md).
@@ -67,10 +70,11 @@ const TOP = 8;
 const LIMBS = [
 	"count",
 	"memory",
-	"fifo-whole",
-	"fifo-part",
 	"tsc-count",
 	"tsc-memory",
+	"climb",
+	"fifo-whole",
+	"fifo-part",
 	"tsc-fifo",
 	"admitted",
 	"load",
@@ -99,7 +103,7 @@ const MEMWATCH_ROW = /^ *(\d+) +(?:[A-Z]+ +[\d.]+ +)?\d+ (.*)$/;
 /**
  * @typedef {{ at: string, waitS: number, reason: string, kind: string,
  *   session: string | null, pid: number, slotFree?: boolean,
- *   skipped?: boolean, passed?: number }} Exit
+ *   skipped?: boolean, passed?: number, climbMb?: number }} Exit
  * @typedef {{ st: number, en: number, session: string | null, kind: string,
  *   wholeSlot: boolean | null, resolvedFiles: number | null, verdict: string,
  *   sha: string, modulesRun: number | null, modulesTotal: number | null }} Run
@@ -566,7 +570,7 @@ function tallyTick(tick, w, acc, parents) {
 		const [first = "open", ...also] = limbsOf(e, tick, w);
 		for (const a of also) add(acc.limbAlso, `${first} / ${a}`, TICK_S);
 		add(acc.limb, first, TICK_S);
-		if (!e.whole && e.kind !== "tsc" && memoryHolds(e, tick, w))
+		if (!e.whole && e.kind !== "tsc" && isRungHeld(e, tick, w))
 			acc.memoryHeldPart.add(e);
 		add(acc.limbClass, `${first} / ${e.cls}`, TICK_S);
 		addNested(acc.limbSession, e.session ?? "(no session)", first);
@@ -581,11 +585,39 @@ function tallyTick(tick, w, acc, parents) {
  * @param {Tick} tick
  * @param {Window} w
  */
-function memoryHolds(e, tick, w) {
-	const rung =
-		e.kind === "tsc" ? TSC_RUNG_MB : suiteRungMb(tick.busy + e.workers);
-	return tick.mem !== undefined && w.memTotalMb - tick.mem.used < rung;
+function isMemoryHeld(e, tick, w) {
+	return (
+		tick.mem !== undefined && w.memTotalMb - tick.mem.used < rungOf(e, tick)
+	);
 }
+
+/**
+ * @param {Waiter} e
+ * @param {Tick} tick
+ */
+const rungOf = (e, tick) =>
+	e.kind === "tsc" ? TSC_RUNG_MB : suiteRungMb(tick.busy + e.workers);
+
+/**
+ * @param {Waiter} e
+ * @param {Tick} tick
+ * @param {Window} w
+ */
+function isClimbHeld(e, tick, w) {
+	if (!e.climbMb || tick.mem === undefined) return false;
+	const available = w.memTotalMb - tick.mem.used;
+	const rung = rungOf(e, tick);
+	return available >= rung && available - e.climbMb < rung;
+}
+
+/**
+ * What stamps a marker `memoryHeld`.
+ * @param {Waiter} e
+ * @param {Tick} tick
+ * @param {Window} w
+ */
+const isRungHeld = (e, tick, w) =>
+	isMemoryHeld(e, tick, w) || isClimbHeld(e, tick, w);
 
 /**
  * Whether a younger part waiter passes the older part waiter `o`: from
@@ -599,7 +631,7 @@ function passes(o, tick, w) {
 	return (
 		tick.t >= PART_PASS_FROM &&
 		tick.t - o.st < PART_PASS_AGE_MS &&
-		memoryHolds(o, tick, w)
+		isRungHeld(o, tick, w)
 	);
 }
 
@@ -616,7 +648,8 @@ function limbsOf(e, tick, w) {
 	const older = tick.waiting.filter(
 		(o) => o !== e && o.st < e.st && (o.kind === "tsc") === tsc,
 	);
-	const memory = memoryHolds(e, tick, w);
+	const memory = isMemoryHeld(e, tick, w);
+	const climb = isClimbHeld(e, tick, w);
 	const admitted = tick.admitting.some(
 		(o) => o.pid !== e.pid && o.en <= tick.t && tick.t < o.en + o.gap * 1000,
 	);
@@ -625,12 +658,14 @@ function limbsOf(e, tick, w) {
 		? {
 				"tsc-count": (tick.mem?.tsc ?? 0) >= TSC_MAX,
 				"tsc-memory": memory,
+				climb,
 				"tsc-fifo": older.length > 0,
 				admitted,
 			}
 		: {
 				count: e.whole && tick.whole.length >= WHOLE_SUITE_MAX,
 				memory,
+				climb,
 				"fifo-whole": e.whole && older.length > 0,
 				"fifo-part":
 					!e.whole && older.some((o) => !o.whole && !passes(o, tick, w)),
@@ -902,6 +937,7 @@ function render(r, w) {
 		"## Limits",
 		"",
 		`- The memory limb is a lower bound: memwatch wrote a block in ${r.memMinutes} of the window's ${r.minutes} minutes, only above its used-memory or CPU threshold (${docPath("environment.md")} §4), and a minute with none counts as memory open.`,
+		"- The climb limb tries each tick against the highest charge the wait's exit line recorded, so it can overstate a wait whose charge fell. A minute with no memwatch block counts as climb open.",
 		"- The tsc-count limb is a lower bound too: it reads a `tsc` off memwatch's process lines, which list the top few by RSS and by CPU and cut each command short.",
 		"- tsc-count reads a `tsc` as lib/tsc-slot.js does since 27 Oct 2026 15:26 UTC (#3276); before then the gate also counted a queued `--tsc` waiter, so a wait it held then reads here as open or tsc-fifo.",
 		"- A `tsc` admission is matched to no run, so it holds no `admitted` limb, neither a younger `tsc` waiter's nor a suite waiter's (#3203).",

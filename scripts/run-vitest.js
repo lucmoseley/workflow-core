@@ -2374,8 +2374,12 @@ async function runSeated({
 	const ticket = queueJoin({ ...options, weight });
 	if (ticket) heldMarkers.add(ticket);
 	const started = Date.now();
+	const stamps = queueStamps(ticket, options);
 	const onKill = (/** @type {string} */ signal) =>
-		logExit("killed", Date.now() - started, { signal });
+		logExit("killed", Date.now() - started, {
+			signal,
+			...stamps.killedHold(),
+		});
 	waitingExits.add(onKill);
 	armSignals(options.queueFs ?? fs);
 	const sleep =
@@ -2392,7 +2396,7 @@ async function runSeated({
 				return denial?.limb === "memory" ? denial : null;
 			},
 			turn: () => true,
-			...queueStamps(ticket, options),
+			...stamps,
 			part: true,
 			sleepFn: (ms) => {
 				slept = true;
@@ -2528,8 +2532,12 @@ function main(argv = process.argv.slice(2), options = {}) {
 		const ticket = queueJoin({ ...options, weight });
 		if (ticket) heldMarkers.add(ticket);
 		const started = Date.now();
+		const stamps = queueStamps(ticket, options);
 		const onKill = (/** @type {string} */ signal) =>
-			logExit("killed", Date.now() - started, { signal });
+			logExit("killed", Date.now() - started, {
+				signal,
+				...stamps.killedHold(),
+			});
 		waitingExits.add(onKill);
 		armSignals(options.queueFs ?? fs);
 		runOptions.onSpawn = () => queueSpawned(ticket, options);
@@ -2560,7 +2568,7 @@ function main(argv = process.argv.slice(2), options = {}) {
 						gateWeight: weight,
 						hold: options.loadHold,
 						...options,
-						...queueStamps(ticket, options),
+						...stamps,
 						part,
 						onExit: (reason, waitMs, heldBy) => {
 							waitingExits.delete(onKill);

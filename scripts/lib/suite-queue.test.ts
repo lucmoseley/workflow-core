@@ -27,6 +27,7 @@ import { suiteRungMb, WHOLE_SUITE_WORKERS } from "./admission.js";
 import { mkScratchDir } from "./git-fixture";
 import { writePsStub } from "./ps-stub";
 import { runInProcess } from "./run-in-process.js";
+import { tscDenial } from "./tsc-slot";
 import { WHOLE_SLOT_BOUND } from "./whole-slot-bound";
 
 const {
@@ -1063,6 +1064,71 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 		expect(climbOf(tscDir, 100)).toBe(2148);
 	});
 
+	const partIn = (
+		queueDir: string,
+		pid: number,
+		resolvedFiles: number | null,
+	) => {
+		const file = queueJoin({
+			queueDir,
+			pid,
+			clock: () => 0,
+			weight: { resolvedFiles, wholeSlot: false },
+		});
+		queueSpawned(file);
+		return file;
+	};
+
+	it("charges a part-suite its own peak by its workers and files (#3806)", () => {
+		const { suiteDir, tscDir } = queues();
+		partIn(suiteDir, 11, 1);
+		expect(climbOf(tscDir, 100)).toBe(458);
+		partIn(suiteDir, 12, 40);
+		expect(climbOf(tscDir, 100)).toBe(458 + 1275);
+	});
+
+	it("never charges a part-suite above a whole suite's peak", () => {
+		const { suiteDir, tscDir } = queues();
+		partIn(suiteDir, 11, 500);
+		expect(climbOf(tscDir, 100)).toBe(2148);
+	});
+
+	it("charges a part marker with no file count its queue's peak", () => {
+		const { suiteDir, tscDir } = queues();
+		partIn(suiteDir, 11, null);
+		expect(climbOf(tscDir, 100)).toBe(2148);
+	});
+
+	/* 4,000 MB available against the 2,750 MB `tsc` rung, each launch's tree at
+	 * 500 MB. */
+	it("admits a `tsc` beside two small part-suites and holds it beside a whole suite still climbing (#3806)", async () => {
+		const { suiteDir, tscDir } = queues();
+		const waitOnce = async () => {
+			const exits: unknown[][] = [];
+			const outcome = await waitForGate({
+				pollMs: 1,
+				timeoutMs: 0,
+				...queueStamps("", {
+					queueDir: tscDir,
+					alive,
+					treePssKb: () => 500 * 1024,
+				}),
+				gate: (climbMb: number) => tscDenial([], 4000, climbMb),
+				sleepFn: () => Promise.resolve(),
+				out: { write: () => true },
+				onExit: (...args: unknown[]) => exits.push(args),
+			});
+			return { outcome, exits };
+		};
+		const small = [partIn(suiteDir, 11, 2), partIn(suiteDir, 12, 2)];
+		expect((await waitOnce()).outcome).toBe("run");
+		for (const file of small) queueLeave(file);
+		spawnedIn(suiteDir, 13);
+		const beside = await waitOnce();
+		expect(beside.outcome).toBe("refused");
+		expect(beside.exits[0][2]).toEqual({ limb: "memory", climbMb: 1748 });
+	});
+
 	it("charges none for a launch unspawned or stale, nor for its own queue's", () => {
 		const { suiteDir, tscDir } = queues();
 		queueJoin({ queueDir: tscDir, pid: 22, clock: () => 0 });
@@ -1401,6 +1467,12 @@ describe("waitForGate, the wait itself (mantahostels#2024)", () => {
 describe("waitForGate's timeout, judged on the last poll (#2421, #2714)", () => {
 	const Memory = { limb: "memory", mb: 900, rungMb: 3250 };
 	const Count = { limb: "count" };
+	const Climb = (climbMb: number, mb = 4000) => ({
+		limb: "memory",
+		mb,
+		rungMb: 2750,
+		climbMb,
+	});
 
 	/** A wait whose clock moves 10 ms a poll, timing out on the third. */
 	const timedWait = async (
@@ -1436,6 +1508,35 @@ describe("waitForGate's timeout, judged on the last poll (#2421, #2714)", () => 
 		});
 		return { outcome, said: said.join(""), exits, polls: poll };
 	};
+
+	it("records the highest charge that held a wait, on whichever exit ends it (#3806)", async () => {
+		const opened = await timedWait([Climb(1400), Climb(1900), null]);
+		expect(opened.exits).toEqual([["opened", 30, { climbMb: 1900 }]]);
+		const refused = await timedWait([Climb(1900), Climb(1400), Climb(1400)]);
+		expect(refused.exits).toEqual([
+			["refused", 30, { limb: "memory", climbMb: 1900 }],
+		]);
+	});
+
+	it("keeps the highest charge for a killed wait's exit line (#3806)", async () => {
+		const stamps = queueStamps("", { queueDir: qdir() });
+		expect(stamps.killedHold()).toEqual({});
+		let polls = 0;
+		const limbs = [Climb(1900), Climb(1400), null];
+		await waitForGate({
+			...stamps,
+			climbMb: () => 0,
+			gate: () => limbs[polls++],
+			sleepFn: () => Promise.resolve(),
+			out: { write: () => true },
+		});
+		expect(stamps.killedHold()).toEqual({ climbMb: 1900 });
+	});
+
+	it("records no charge where the reading alone sat under the rung (#3806)", async () => {
+		const wait = await timedWait([Climb(1900, 2000), null]);
+		expect(wait.exits).toEqual([["opened", 20]]);
+	});
 
 	it("refuses a wait the memory rung holds at the last poll, naming the reading and the reap", async () => {
 		const wait = await timedWait([Count, Count, Memory]);
