@@ -112,7 +112,8 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * swap hold (#3093). `holdCleared`, while its session, parked on a repo hold since
  * cleared, waits on the resume step (#3863). `bootKilled`, while its session, killed
  * by a restart, waits on the same step, and `bootResumedAt`, from that resume until
- * it takes a turn (#3880). `limitHeld`, while it holds one stopped on its seat's
+ * it takes a turn (#3880), and `blockUnread`, from a restart killing it on an UNKNOWN
+ * block until then, so every resume asks what it waits on (#3980). `limitHeld`, while it holds one stopped on its seat's
  * limit, and `limitResumes`, its resumes and moves (#3735, #3734), `limitLeft`,
  * the seats a limit moved it off. `limitParks`, the
  * limit-cap parks in a row its ticket came back from (#3804). `handOffTries` counts the hand-offs of
@@ -133,6 +134,7 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  *   swapHeld?: import("./refill-blocks.js").SwapHeld,
  *   holdCleared?: import("./refill-blocks.js").HoldCleared,
  *   bootKilled?: import("./refill-blocks.js").BootKilled, bootResumedAt?: number,
+ *   blockUnread?: true,
  *   limitHeld?: import("./refill-blocks.js").LimitHeld,
  *   limitResumes?: import("./refill-blocks.js").LimitResumes,
  *   limitLeft?: import("./refill-decide.js").SeatLeft[],

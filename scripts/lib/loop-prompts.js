@@ -12,8 +12,9 @@ const LOOP_PROMPT_PREFIX = "[refill loop] ";
 const API_PROMPT = `${LOOP_PROMPT_PREFIX}resume — your last turn ended on an API error. Before repeating your last tool call, check whether it already took effect.`;
 /* #2659's wording. */
 const IDLE_PROMPT = `${LOOP_PROMPT_PREFIX}resume — your host was restarted and your last turn never ran. Before repeating your last tool call, check whether it already took effect.`;
-const LIMIT_LOSS =
-	"Your in-flight subagents, background tasks and monitors are gone. Before repeating your last tool call, check whether it already took effect, then continue your task.";
+const LOST =
+	"Your in-flight subagents, background tasks and monitors are gone.";
+const LIMIT_LOSS = `${LOST} Before repeating your last tool call, check whether it already took effect, then continue your task.`;
 /* A session a distro restart killed mid-work (#3880). */
 const BOOT_PROMPT = `${LOOP_PROMPT_PREFIX}resume — a restart killed your session while it was running. ${LIMIT_LOSS}`;
 /* A session its seat's limit stopped, resumed on that seat (#3735). */
@@ -23,12 +24,13 @@ const LIMIT_PROMPT = `${LOOP_PROMPT_PREFIX}resume — your seat's usage limit st
 const MOVED_PROMPT = `${LOOP_PROMPT_PREFIX}resume — your seat's usage limit stopped you, so you were moved to another seat, in the same directory and under the same session id. ${LIMIT_LOSS}`;
 /* A session parked on a repo hold that has since cleared (#3863). */
 const HOLD_PROMPT = `${LOOP_PROMPT_PREFIX}resume — the repo hold you parked on has cleared. Check the founder act you were waiting on now reads done, then continue your task.`;
-/* A parked session resumed by a normal-mode loop (#3621). */
+/* What a session that may be waiting on the founder does on its resume. */
 const PARK_STEPS =
 	"Where you parked on a question round or an act you handed him, make no tool call and post nothing to the issue. A round you do not re-print: point at it by number, ending `needs input: Qn above — <the decision> — waits on you: #N` under your `waits on you:` block. An act you repeat as it stands. Where you parked on neither and were waiting on him, post your question on the issue as a `❓ **Qn**` round carrying a `**Hand-off:**` and point at it as above; where you were waiting on nothing, continue your task. A tool call since this resume owes a fresh hand-off on the issue.";
+/* A parked session resumed by a normal-mode loop (#3621). */
 const PARKED_PROMPT = `${LOOP_PROMPT_PREFIX}resume — the founder may be back. ${PARK_STEPS}`;
 /* A session a restart killed on a block the loop could not read (#3980). */
-const BOOT_UNREAD_PROMPT = `${LOOP_PROMPT_PREFIX}resume — a restart killed your session while it was blocked, and the loop could not read on what, so you may be waiting on the founder. ${PARK_STEPS} ${LIMIT_LOSS}`;
+const BOOT_UNREAD_PROMPT = `${LOOP_PROMPT_PREFIX}resume — a restart killed your session while it was blocked, and the loop could not read on what, so you may be waiting on the founder. ${LOST} ${PARK_STEPS} Where you continue, first check whether your last tool call already took effect.`;
 /* A session the loop stopped on a permission prompt, whose prompt went with the
  * stop (#3949). */
 const PARKED_PERMISSION_PROMPT = `${LOOP_PROMPT_PREFIX}resume — the refill loop stopped you on a permission prompt and the founder may be back. Repeat the tool call that raised it, a subagent's by making it yourself, so the prompt comes back to him, then continue your task. Where you cannot repeat it, post a \`**Hand-off:**\` on the issue saying why, hand him the call as a literal \`!\` line or fenced text and what to send back, and end \`needs input: <the call> — waits on you: #N\` under your \`waits on you:\` block.`;

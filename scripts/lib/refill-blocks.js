@@ -75,11 +75,9 @@ const PARKED_STATE = "blocked";
  *   the stop, and the resumes since tried that failed
  * @typedef {SwapHeld & {hold: string}} HoldCleared  a session parked on a repo
  *   hold since cleared (#3863): `at`, when it parked, and `hold`, that hold's id
- * @typedef {Omit<SwapHeld, "sessionId"> & {sessionId: string|null,
- *   blockUnread?: true}} BootKilled  a session a restart killed mid-work (#3880):
- *   `at`, when it was launched, which sets its turn among the resumes; `sessionId`,
- *   null unread; `blockUnread`, parked on UNKNOWN, so it may be waiting on the
- *   founder and its resume says so (#3980)
+ * @typedef {Omit<SwapHeld, "sessionId"> & {sessionId: string|null}} BootKilled  a
+ *   session a restart killed mid-work (#3880): `at`, when it was launched, which
+ *   sets its turn among the resumes; `sessionId`, null unread
  * @typedef {{bar: "weekly"|"5-hour"|null, resets: string|null}} LimitRead  the
  *   limit a seat's reading shows a session stopped on, null where neither bar
  *   read, with its reset as read; from the reading, never the limit's text
@@ -480,7 +478,13 @@ function isResumeArrived(attachAt, prompt, timeline) {
  * @param {L} l
  */
 function endedIdle(l) {
-	const { idleResumes: _, idleSince: __, bootResumedAt: ___, ...rest } = l;
+	const {
+		idleResumes: _,
+		idleSince: __,
+		bootResumedAt: ___,
+		blockUnread: ____,
+		...rest
+	} = l;
 	return rest;
 }
 
@@ -958,6 +962,15 @@ function makeResume(l, seen) {
 }
 
 /**
+ * The prompt that resumes `l`: `plain`, unless a restart killed it on a block the
+ * loop could not read and it has taken no turn since (#3980).
+ * @param {LoopLaunch} l
+ * @param {string} plain
+ */
+const resumePromptOf = (l, plain) =>
+	l.blockUnread ? BOOT_UNREAD_PROMPT : plain;
+
+/**
  * Type the resume into `l`'s resumed-idle session (#2978): never a stop, so
  * an unread listing types too. A try that could not be typed still counts,
  * so a session the loop cannot reach is handed off on the table's schedule;
@@ -968,7 +981,7 @@ function makeResume(l, seen) {
  */
 function typeIdleResume(l, { agents, now, io }) {
 	const failed = isLiveIn(l, agents)
-		? io.type(l, IDLE_PROMPT)
+		? io.type(l, resumePromptOf(l, IDLE_PROMPT))
 		: "its session is not live";
 	const tried = afterIdleResume(l, now);
 	reportResume(tried, buildIdleResumeLine(tried, failed), io);
@@ -1109,7 +1122,7 @@ function stepResumeOf(l) {
 			held: bootKilled,
 			what: `${launchName(l)}, launched at ${iso(l.launchedAt)}`,
 			why: "killed by a restart",
-			prompt: bootKilled.blockUnread ? BOOT_UNREAD_PROMPT : BOOT_PROMPT,
+			prompt: resumePromptOf(l, BOOT_PROMPT),
 			isParked: false,
 			rest,
 			withTries: (tries) => ({ ...l, bootKilled: { ...bootKilled, tries } }),
@@ -1121,7 +1134,7 @@ function stepResumeOf(l) {
 			held: swapHeld,
 			what: buildSwapHeldText(l),
 			why: "the hold cleared",
-			prompt: IDLE_PROMPT,
+			prompt: resumePromptOf(l, IDLE_PROMPT),
 			isParked: false,
 			rest,
 			withTries: (tries) => ({ ...l, swapHeld: { ...swapHeld, tries } }),
@@ -1556,13 +1569,8 @@ function queueBootKilled(launches, seen) {
 		);
 		return {
 			...rest,
-			bootKilled: {
-				at: l.launchedAt,
-				sessionId,
-				cwd,
-				tries: 0,
-				...(l.block?.cause === "UNKNOWN" ? { blockUnread: true } : {}),
-			},
+			...(l.block?.cause === "UNKNOWN" ? { blockUnread: true } : {}),
+			bootKilled: { at: l.launchedAt, sessionId, cwd, tries: 0 },
 		};
 	});
 }

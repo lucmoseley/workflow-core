@@ -43,6 +43,7 @@ const { parseOrExit } = require("./lib/cli-args");
 const { requiredGroup } = require("./lib/regex-group");
 const { caught } = require("./lib/caught.js");
 const { parseJsonl } = require("./lib/jsonl.js");
+const { isLoopPrompt } = require("./lib/loop-prompts.js");
 const { FIELD, readStatFields } = require("./lib/proc-stat.js");
 const { procRoot } = require("./lib/proc-root.js");
 const { readOwnJob, stopOn } = require("./lib/claude-stop.js");
@@ -309,7 +310,8 @@ function buildNarrationLines(j) {
 		j.type === "user" &&
 		j.message &&
 		typeof j.message.content === "string" &&
-		!j.message.content.startsWith("<")
+		!j.message.content.startsWith("<") &&
+		!isLoopPrompt(j.message.content)
 	) {
 		out.push(`USER: ${j.message.content.slice(0, USER_TURN_CHARS)}`);
 	}
@@ -2263,6 +2265,18 @@ function cmdHandOff(args) {
 }
 
 /**
+ * The next step a hand-off gives its fresh session. A session may have stopped on
+ * a question it never posted, which only its narration shows (#3980). Residual:
+ * the fresh session is trusted to obey this.
+ * @param {string} ticket
+ * @param {string|null} narrated  where its narration's newest lines are, null none read
+ */
+const buildHandOffLeft = (ticket, narrated) =>
+	narrated
+		? `continue ${ticket} from ${narrated}, unless they end on a question to the founder that this ticket does not show answered: then post it as a round and park, building nothing past it`
+		: `continue ${ticket}; the loop read no narration for it, so first ask by round anything this ticket leaves open for the founder`;
+
+/**
  * The hand-off comment for a snapshotted job: its block where the session's
  * uncommitted diff fits in a comment, else a note naming the diff's file in
  * `out`. Exits 1 where git cannot read HEAD, the block's Base.
@@ -2282,17 +2296,23 @@ function writeHandOffBody(io, job, out) {
 	const diff = files.map((f) => readUncommittedDiff(io, root, f)).join("");
 	const narrationFile = path.join(out, `${job.short}.narration.txt`);
 	const head = [
-		`**Refill loop: handed off.** Session ${job.sessionId}${job.name ? ` (${job.name})` : ""} was resumed by its host and took no turn, nor after the loop's resume (#2659). The loop stopped it and released its claim; its next tick launches a fresh session, which picks up from the block below.`,
+		`**Refill loop: handed off.** Session ${job.sessionId}${job.name ? ` (${job.name})` : ""} was resumed by its host and took no turn, nor after the loop's resume (#2659). The loop stopped it and released its claim; a fresh session picks up from the block below, launched by the next tick free to, which an away-mode loop is not while the ticket is labelled parked.`,
 		`Its files stay uncommitted where it left them. Snapshot: ${path.relative(root, out)}.`,
 	].join(" ");
+	const narration = fs.existsSync(narrationFile)
+		? fs.readFileSync(narrationFile, "utf8")
+		: "";
+	const ticket = job.intent || "the ticket";
+	const hasNarration = narration.trim() !== "";
 	const body = buildHandOffComment({
 		head,
-		narration: fs.existsSync(narrationFile)
-			? fs.readFileSync(narrationFile, "utf8")
-			: "",
+		narration,
 		base,
 		done: job.commitsLanded?.join("; ") || "none",
-		left: `continue ${job.intent || "the ticket"} from the narration's newest lines above, unless they end on a question to the founder that this ticket shows unanswered: then post it as a round and park, building nothing past it`,
+		left: buildHandOffLeft(
+			ticket,
+			hasNarration ? "the narration's newest lines above" : null,
+		),
 		blockedOn:
 			"nothing the loop could read: its host restarted it and it never took another turn",
 		files,
@@ -2301,7 +2321,7 @@ function writeHandOffBody(io, job, out) {
 	if (body !== null) return body;
 	const diffFile = path.join(out, "uncommitted.diff");
 	fs.writeFileSync(diffFile, diff);
-	return `${head}\n\nIts uncommitted diff runs past GitHub's comment limit, so no hand-off block is posted: the diff is at ${path.relative(root, diffFile)}, and the files are ${files.map((f) => `\`${f}\``).join(", ")}.`;
+	return `${head}\n\nIts uncommitted diff runs past GitHub's comment limit, so no hand-off block is posted: the diff is at ${path.relative(root, diffFile)}, and the files are ${files.map((f) => `\`${f}\``).join(", ")}. Left: ${buildHandOffLeft(ticket, hasNarration ? "the newest lines of the snapshot's narration" : null)}.`;
 }
 
 /**

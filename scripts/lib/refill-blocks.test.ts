@@ -16,7 +16,13 @@ import {
 	resumedIdleSince,
 } from "./block-cause.js";
 import { buildErrorText } from "./caught.js";
-import { API_PROMPT, IDLE_PROMPT, LIMIT_PROMPT } from "./loop-prompts.js";
+import {
+	API_PROMPT,
+	BOOT_PROMPT,
+	BOOT_UNREAD_PROMPT,
+	IDLE_PROMPT,
+	LIMIT_PROMPT,
+} from "./loop-prompts.js";
 import {
 	actOnBlocks,
 	actOnIdle,
@@ -2761,13 +2767,58 @@ describe("queueBootKilled (#3880)", () => {
 		},
 	);
 
-	it.each([
-		["API_ERROR", false],
-		["LIMIT", false],
-		["UNKNOWN", true],
-	])("marks one blocked on %s as unread: %s (#3980)", (cause, isUnread) => {
-		const { bootKilled } = killedOf(blockedOn(cause));
-		expect(bootKilled?.blockUnread === true).toBe(isUnread);
+	it("marks one blocked on UNKNOWN as unread (#3980)", () => {
+		expect(killedOf(blockedOn("UNKNOWN")).blockUnread).toBe(true);
+	});
+
+	it.each(["API_ERROR", "LIMIT"])(
+		"leaves one blocked on %s unmarked",
+		(cause) => {
+			expect(killedOf(blockedOn(cause))).not.toHaveProperty("blockUnread");
+		},
+	);
+
+	/** The prompts `launches` are resumed with through the tick's step. */
+	const resumedWith = (launches: Launch[]) => {
+		const prompts: string[] = [];
+		const { io } = fakeIo({
+			resumeStopped: (l, prompt) => {
+				prompts.push(prompt);
+				return { failed: null, jobId: l.jobId, sessionId: "s", copy: false };
+			},
+		});
+		const seen = {
+			agents: [agent("other", "working")],
+			now: NOW,
+			io,
+			swapHold: NO_HOLD,
+		};
+		const queued = queueBootKilled(launches, seen);
+		const { launches: out } = resumeHeldLaunches(
+			resumableOf(queued, seen),
+			queued,
+			seen,
+			() => false,
+		);
+		return { prompts, out };
+	};
+
+	it("asks one marked unread what it waits on through a second restart (#3980)", () => {
+		const { prompts, out } = resumedWith([record({ blockUnread: true })]);
+		expect(prompts).toEqual([BOOT_UNREAD_PROMPT]);
+		expect(out[0]?.blockUnread).toBe(true);
+	});
+
+	it("gives one unmarked the plain resume", () => {
+		const { prompts, out } = resumedWith([record()]);
+		expect(prompts).toEqual([BOOT_PROMPT]);
+		expect(out[0]).not.toHaveProperty("blockUnread");
+	});
+
+	it("asks one marked unread what it waits on after the swap hold (#3980)", () => {
+		const swapHeld = { at: NOW, sessionId: "s", cwd: "/", tries: 0 };
+		const { prompts } = resumedWith([record({ blockUnread: true, swapHeld })]);
+		expect(prompts).toEqual([BOOT_UNREAD_PROMPT]);
 	});
 
 	it("leaves one already held or owed a hand-off", () => {
@@ -2829,9 +2880,13 @@ describe("a boot's resumed session gone from the listing (#3880)", () => {
 	});
 
 	it("is not handed off once it has taken a turn, its watch ended", () => {
-		const { out, calls } = act(gone, { hasTurnedSince: () => true });
+		const { out, calls } = act(
+			{ ...gone, blockUnread: true },
+			{ hasTurnedSince: () => true },
+		);
 		expect(calls).not.toContain("hand-off job42");
 		expect(out).not.toHaveProperty("bootResumedAt");
+		expect(out).not.toHaveProperty("blockUnread");
 	});
 
 	it.each([

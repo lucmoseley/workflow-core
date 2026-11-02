@@ -22,6 +22,7 @@ import {
 } from "./lib/arbiter-testkit";
 import { stubGhScript } from "./lib/gh-stub";
 import { handOffFaults, parseHandOff } from "./lib/hand-off.js";
+import { BOOT_PROMPT } from "./lib/loop-prompts.js";
 import {
 	rescueKit,
 	SCRIPT,
@@ -110,6 +111,42 @@ describe("hand-off (#2659)", () => {
 				),
 			),
 		).toBe(true);
+	});
+
+	it("tells the fresh session to build nothing past a question the narration ends on, reading past the loop's own prompts (#3980)", () => {
+		stoppedSession();
+		writeTranscript([
+			said("Shall we ship it?"),
+			JSON.stringify({ type: "user", message: { content: BOOT_PROMPT } }),
+		]);
+		handOff();
+		const body = fs.readFileSync(commentFile(), "utf8");
+		expect(parseHandOff(body)?.fields.Left).toContain(
+			"unless they end on a question to the founder that this ticket does not show answered",
+		);
+		expect(body).toContain("A: Shall we ship it?");
+		expect(body).not.toContain("USER: [refill loop]");
+	});
+
+	it("tells it to ask first where no narration was read (#3980)", () => {
+		stoppedSession();
+		writeTranscript([]);
+		handOff();
+		const body = fs.readFileSync(commentFile(), "utf8");
+		expect(parseHandOff(body)?.fields.Left).toContain(
+			"so first ask by round anything this ticket leaves open for the founder",
+		);
+	});
+
+	it("carries the same step where the diff is too long for a block (#3980)", () => {
+		stoppedSession();
+		fs.writeFileSync(path.join(sb.repo, "x.js"), "new\n".repeat(20_000));
+		handOff();
+		const body = fs.readFileSync(commentFile(), "utf8");
+		expect(parseHandOff(body)).toBeNull();
+		expect(body).toContain(
+			"from the newest lines of the snapshot's narration, unless they end on a question",
+		);
 	});
 
 	it("leaves the session's files as it left them", () => {

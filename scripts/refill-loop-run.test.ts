@@ -49,6 +49,7 @@ import { defineTemplate, initGitRepo } from "./lib/git-fixture";
 import {
 	API_PROMPT,
 	BOOT_PROMPT,
+	BOOT_UNREAD_PROMPT,
 	HOLD_PROMPT,
 	IDLE_PROMPT,
 	LIMIT_PROMPT,
@@ -4745,6 +4746,56 @@ describe("the launches a restart killed (#3880)", () => {
 		expect(readKilled()).toEqual([]);
 	});
 
+	describe("a parked launch, on a boot", () => {
+		const parkedOn = (jobId: string, issue: number, cause: string) => ({
+			...buildLaunch(jobId, issue, 10),
+			parked: true,
+			block: { cause, since: Date.now() - Min },
+		});
+
+		it("that reads UNKNOWN is asked what it waits on, not told to continue (#3980)", async () => {
+			writeState([parkedOn("job7", 7, "UNKNOWN")]);
+			fakeResumeClaude("job7", [LISTED]);
+
+			const r = await tickWith(1, () => readCalls().length === 1);
+
+			expect(r.status).toBe(0);
+			expect(readCalls()).toEqual([
+				`--bg --resume s-job7 ${BOOT_UNREAD_PROMPT}`,
+			]);
+			expect(BOOT_UNREAD_PROMPT).toContain("you may be waiting on the founder");
+			expect(BOOT_UNREAD_PROMPT).not.toContain("then continue your task");
+			expect(BOOT_UNREAD_PROMPT).toContain(
+				"Where you parked on a question round or an act you handed him, make no tool call",
+			);
+			expect(readState().launches[0]).toMatchObject({
+				bootResumedAt: expect.any(Number),
+				blockUnread: true,
+			});
+		});
+
+		it("on an API error takes the plain resume", async () => {
+			writeState([parkedOn("job7", 7, "API_ERROR")]);
+			fakeResumeClaude("job7", [LISTED]);
+
+			const r = await tickWith(1, () => readCalls().length === 1);
+
+			expect(r.status).toBe(0);
+			expect(readCalls()).toEqual([buildResumeArgs("job7")]);
+		});
+
+		it("on a question is not resumed", async () => {
+			writeState([parkedOn("job7", 7, "QUESTION")]);
+			fakeResumeClaude("job7", [LISTED]);
+
+			const r = await tickWith(1);
+
+			expect(r.status).toBe(0);
+			expect(readCalls()).toEqual([]);
+			expect(readKilled()).toEqual([]);
+		});
+	});
+
 	it("reads an empty listing as nothing live until they are back, as a restart leaves no session to list", async () => {
 		writeState([buildLaunch("job7", 7, 10)]);
 		fakeResumeClaude("job7", []);
@@ -4839,8 +4890,14 @@ describe("the launches a restart killed (#3880)", () => {
 			{
 				idleResumes,
 				turned,
+				blockUnread,
 				listing = [LISTED, buildJobRow("job7", "working")],
-			}: { idleResumes?: object; turned?: boolean; listing?: Row[] } = {},
+			}: {
+				idleResumes?: object;
+				turned?: boolean;
+				blockUnread?: true;
+				listing?: Row[];
+			} = {},
 		) => {
 			stubHandOff();
 			fs.writeFileSync(
@@ -4880,6 +4937,7 @@ describe("the launches a restart killed (#3880)", () => {
 						relaunchedAt: resumedAt,
 						bootResumedAt: resumedAt,
 						...(idleResumes ? { idleResumes } : {}),
+						...(blockUnread ? { blockUnread } : {}),
 					},
 				],
 				false,
@@ -4893,6 +4951,16 @@ describe("the launches a restart killed (#3880)", () => {
 			expect(r.status).toBe(0);
 			expect(readCalls()).toEqual(["attach job7", `typed ${IDLE_PROMPT}`]);
 			expect(readState().launches[0].idleResumes.tries).toBe(1);
+		});
+
+		it("is typed what it waits on, not to go on, where it was killed on an unread block (#3980)", async () => {
+			seedResumed(PastWait, { blockUnread: true });
+			const r = await tickWith(0);
+			expect(r.status).toBe(0);
+			expect(readCalls()).toEqual([
+				"attach job7",
+				`typed ${BOOT_UNREAD_PROMPT}`,
+			]);
 		});
 
 		it("is handed off still idle after its typed resumes", async () => {
