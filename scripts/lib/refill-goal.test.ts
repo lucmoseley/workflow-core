@@ -4,7 +4,17 @@
  * which ticked repo it lands in. Loosen one and a number lands in the wrong repo.
  */
 import { describe, expect, it } from "vitest";
-import { parseAskedRefs, qualifyOpenRefs, qualifyRefs } from "./refill-goal.js";
+import {
+	buildGoalFlags,
+	buildGoalLine,
+	buildGoalProgress,
+	goalProgressOf,
+	parseAskedRefs,
+	parseGoalForm,
+	parseGoalProgress,
+	qualifyOpenRefs,
+	qualifyRefs,
+} from "./refill-goal.js";
 
 describe("a typed ref", () => {
 	it("reads N, #N and <repo>#N, by comma or space", () => {
@@ -21,6 +31,98 @@ describe("a typed ref", () => {
 			expect(parseAskedRefs(text)).toBeNull();
 		},
 	);
+});
+
+describe("a typed goal (#3866)", () => {
+	it("reads drain and unblock with one ref, else a list of refs", () => {
+		const ref = [{ repo: "core", number: 5 }];
+		expect(parseGoalForm("drain core#5")).toEqual({ form: "drain", refs: ref });
+		expect(parseGoalForm(" unblock   core#5 ")).toEqual({
+			form: "unblock",
+			refs: ref,
+		});
+		expect(parseGoalForm("core#5")).toEqual({ form: "issues", refs: ref });
+	});
+
+	it.each(["drain", "unblock ", "drain #1,#2", "drain #1 #2", "soon", ""])(
+		"reads %j as no goal",
+		(text) => {
+			expect(parseGoalForm(text)).toBeNull();
+		},
+	);
+
+	it("gives a walk the `set` flags a restart prints", () => {
+		expect(
+			buildGoalFlags({
+				form: "drain",
+				text: "drain #5",
+				refs: [{ repo: "core", number: 5 }],
+				setAt: 1,
+			}),
+		).toBe("--goal 'drain core#5'");
+	});
+});
+
+describe("a goal's progress (#3866)", () => {
+	const issue = { repo: "o/r", number: 2, title: "t" };
+	const read = (set: (typeof issue)[], complete = true) => ({
+		setAt: 7,
+		set,
+		takeable: set.length,
+		running: 0,
+		complete,
+	});
+	const goal = { form: "drain" as const, text: "drain #5", refs: [], setAt: 7 };
+
+	it("finishes at the first complete read with nothing open, and keeps that time", () => {
+		const done = buildGoalProgress(null, read([]), 100);
+		expect(done).toMatchObject({ doneAt: 100, readAt: 100 });
+		expect(buildGoalProgress(done, read([]), 200)).toMatchObject({
+			doneAt: 100,
+			readAt: 200,
+		});
+	});
+
+	it("does not finish on a read that missed a shortlist", () => {
+		expect(buildGoalProgress(null, read([], false), 100)?.doneAt).toBeNull();
+	});
+
+	it("goes live again when the set gains an open issue", () => {
+		const done = buildGoalProgress(null, read([]), 100);
+		expect(buildGoalProgress(done, read([issue]), 200)?.doneAt).toBeNull();
+	});
+
+	it("forgets a replaced goal's finish", () => {
+		const done = buildGoalProgress(null, read([]), 100);
+		const next = { ...read([]), setAt: 8 };
+		expect(buildGoalProgress(done, next, 200)?.doneAt).toBe(200);
+	});
+
+	it("has none once the goal is cleared, and shows none for a goal no read reached", () => {
+		const done = buildGoalProgress(null, read([]), 100);
+		expect(buildGoalProgress(done, null, 200)).toBeNull();
+		expect(goalProgressOf({ ...goal, setAt: 8 }, done)).toBeNull();
+		expect(goalProgressOf(null, done)).toBeNull();
+	});
+
+	it("says the counts or the finish on the goal's line", () => {
+		const live = buildGoalProgress(null, read([issue]), 100);
+		expect(buildGoalLine(goal, live)).toContain(
+			"— 1 open, 1 takeable, 0 running",
+		);
+		const done = buildGoalProgress(null, read([]), 0);
+		expect(buildGoalLine(goal, done)).toContain(
+			"— done 1970-01-01T00:00:00.000Z; running bare",
+		);
+		expect(buildGoalLine(goal)).not.toContain("—");
+	});
+
+	it("reads a garbled state field as no progress", () => {
+		expect(parseGoalProgress({ set: "x" })).toBeNull();
+		expect(parseGoalProgress({ setAt: 1, set: [] })).toBeNull();
+		const done = buildGoalProgress(null, read([]), 100);
+		expect(parseGoalProgress(done)).toEqual(done);
+	});
 });
 
 describe("a ref's repo", () => {

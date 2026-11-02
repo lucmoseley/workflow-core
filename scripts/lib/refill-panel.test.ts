@@ -1,5 +1,5 @@
 /*
- * The panel's view and press mapping (#3873, #3875, #3877, #3879). Built on the view so every loop state costs one literal rather than a terminal.
+ * The panel's view and press mapping (#3873, #3875, #3877, #3879, #3881). Built on the view so every loop state costs one literal rather than a terminal.
  * Broken, the panel reads a press as done, or a stopped loop as on.
  */
 import { describe, expect, it } from "vitest";
@@ -44,6 +44,7 @@ const RUNNING = {
 	launchesToday: 3,
 	mode: "normal",
 	handedOffSinceAway: 0,
+	repos: [],
 	seats: planSeats(80),
 	overflow: [],
 	burnMode: BURN_OFF,
@@ -112,7 +113,7 @@ interface Row {
 	text: string;
 	role: string;
 	detail?: string;
-	control?: { state: string };
+	control?: { state: string; name?: string };
 }
 const view = (over: object) => ({
 	status: null,
@@ -123,10 +124,17 @@ const view = (over: object) => ({
 	awayNote: null,
 	burnPending: null,
 	burnReport: null,
+	repoPending: {},
+	repoRefusal: null,
 	...over,
 });
 const rowsOf = (over: object): Row[] => buildRows(view(over), LATER);
 const summary = (rows: Row[]) => rows.map((r) => [r.text, r.role]);
+/* The rows of one section: to the blank row that ends it. */
+const toGap = (rows: Row[]) => {
+	const end = rows.findIndex((r) => r.text === "");
+	return end === -1 ? rows : rows.slice(0, end);
+};
 const panelOver = (run: unknown, runBurn: unknown = run) =>
 	createPanel({ run, runBurn, now: () => AT, onChange: noop });
 
@@ -424,7 +432,7 @@ describe("the spend line", () => {
 
 	it("draws the words by the switch outside its bold", () => {
 		const status = { ...RUNNING, seats: FULL_SEATS, overflow: [key()] };
-		const frame = buildFrame(rowsOf({ status }), 80);
+		const frame = buildFrame(rowsOf({ status }), 80, 40);
 		expect(frame).toContain(`Refill loop  [on]${ESC}[22m  API credits · on`);
 	});
 
@@ -489,7 +497,7 @@ describe("the spend line", () => {
 
 describe("yellow", () => {
 	const yellow = "38;2;255;215;0m";
-	const framed = (status: object) => buildFrame(rowsOf({ status }), 120);
+	const framed = (status: object) => buildFrame(rowsOf({ status }), 120, 40);
 
 	it("draws only the words needs you", () => {
 		for (const status of [CRASHED, STALLED]) {
@@ -518,7 +526,7 @@ describe("yellow", () => {
 });
 
 describe("the panel's colours", () => {
-	const frame = buildFrame(rowsOf({ status: RUNNING }), 80);
+	const frame = buildFrame(rowsOf({ status: RUNNING }), 80, 40);
 
 	it("draws names bold white, live values white, secondary text #949494", () => {
 		expect(frame).toContain(`${ESC}[1m${ESC}[38;2;242;242;242mRefill loop`);
@@ -527,7 +535,7 @@ describe("the panel's colours", () => {
 	});
 
 	it("uses no blue in any colour it draws", () => {
-		const all = frame + buildFrame(rowsOf({ status: CRASHED }), 80);
+		const all = frame + buildFrame(rowsOf({ status: CRASHED }), 80, 40);
 		for (const [, r, g, b] of all.matchAll(/38;2;(\d+);(\d+);(\d+)m/g))
 			expect(Number(b)).toBeLessThanOrEqual(Math.max(Number(r), Number(g)));
 	});
@@ -539,19 +547,19 @@ describe("the panel's frame", () => {
 			...RUNNING,
 			lastTick: { at: AT, summary: "", idle: "x".repeat(99), paused: false },
 		};
-		const frame = buildFrame(rowsOf({ status: long }), 20);
+		const frame = buildFrame(rowsOf({ status: long }), 20, 40);
 		expect(frame).toContain("Waiting: xxxxxx…");
 		expect(frame).not.toContain("x".repeat(20));
 	});
 
 	it("erases below its last row, so a report gone from the rows goes from the screen", () => {
-		const frame = buildFrame(rowsOf({ status: RUNNING }), 80);
+		const frame = buildFrame(rowsOf({ status: RUNNING }), 80, 40);
 		expect(frame.endsWith(`${ESC}[J`)).toBe(true);
 	});
 
 	it("draws no control character a command printed", () => {
 		const refusal = { text: `bad${ESC}[31m\nthing`, at: LATER };
-		const frame = buildFrame(rowsOf({ status: RUNNING, refusal }), 80);
+		const frame = buildFrame(rowsOf({ status: RUNNING, refusal }), 80, 40);
 		expect(frame).toContain("bad [31m thing");
 	});
 });
@@ -857,9 +865,9 @@ describe("the Burn mode switch", () => {
 		stderr: `error: still on the burn effort after off:\n  ${Plan}\n`,
 	};
 	const running = (burnMode: object) => ({ ...RUNNING, burnMode });
-	const burnRowsOf = (over: object) => rowsOf(over).slice(BURN_INDEX);
+	const burnRowsOf = (over: object) => toGap(rowsOf(over).slice(BURN_INDEX));
 	const burnRows = (panel: { view: object }): Row[] =>
-		buildRows(panel.view, LATER).slice(BURN_INDEX);
+		toGap(buildRows(panel.view, LATER).slice(BURN_INDEX));
 	const answerOk = { code: 0, stdout: "", stderr: "" };
 
 	/** A panel reading `status`, whose flips answer `answers` in turn, the last repeating. */
@@ -1363,5 +1371,237 @@ describe("the mouse reader", () => {
 		const read = createClickReader();
 		expect(read("x q ")).toEqual({ clicks: [], interrupted: false });
 		expect(read(String.fromCharCode(3)).interrupted).toBe(true);
+	});
+});
+
+describe("the Repos section", () => {
+	const repo = (name: string, ticked: boolean, disabled?: string) => ({
+		name,
+		root: `/home/x/${name}`,
+		ticked,
+		disabled: disabled ?? null,
+	});
+	const Repos = [
+		repo("design-vault", false),
+		repo("mantahostels", true),
+		repo("opted-out", false, "refillLoop: false"),
+		repo("workflow-core", true),
+	];
+	const WithRepos = { ...RUNNING, repos: Repos };
+	const reposOf = (over: object) => {
+		const rows = rowsOf(over);
+		return rows.slice(rows.findIndex((r) => r.text === "Repos"));
+	};
+	const boxOf = (rows: Row[], name: string) =>
+		rows.find((r) => r.control?.name === name);
+	const rowOfBox = (panel: { view: object }, name: string) =>
+		SWITCH_ROW +
+		buildRows(panel.view, LATER).findIndex(
+			(r: Row) => r.control?.name === name,
+		);
+
+	/* A panel over `status`; `show` changes what later reads answer. */
+	function repoPanel(status: object, failure?: object) {
+		let shown = status;
+		const calls: string[][] = [];
+		const run = async (argv: string[]) => {
+			calls.push(argv);
+			if (argv[0] === "status")
+				return { code: 0, stdout: JSON.stringify(shown), stderr: "" };
+			return { code: 0, stdout: "", stderr: "", ...failure };
+		};
+		const panel = panelOver(run);
+		const show = (next: object) => {
+			shown = next;
+		};
+		const presses = () => calls.filter((argv) => argv[0] !== "status");
+		return { panel, show, presses };
+	}
+
+	it("counts the ticked boxes in the heading, its count in regular weight", () => {
+		const [heading] = reposOf({ status: WithRepos });
+		expect(heading).toEqual({
+			text: "Repos",
+			detail: "2 of 4 on",
+			role: "name",
+		});
+		expect(buildFrame([heading], 80, 40)).toContain(
+			`${ESC}[1m${ESC}[38;2;242;242;242mRepos${ESC}[22m  2 of 4 on`,
+		);
+	});
+
+	it("leaves an opted-out tick out of the count", () => {
+		const status = {
+			...RUNNING,
+			repos: [repo("a", true), repo("b", true, "refillLoop: false")],
+		};
+		expect(reposOf({ status })[0].detail).toBe("1 of 2 on");
+		expect(boxOf(rowsOf({ status }), "b")?.control?.state).toBe("disabled");
+	});
+
+	it("draws a ticked name in regular weight, and an unticked one grey", () => {
+		const rows = rowsOf({ status: WithRepos });
+		expect(boxOf(rows, "workflow-core")).toMatchObject({
+			text: "[✓] workflow-core",
+			role: "value",
+		});
+		expect(boxOf(rows, "design-vault")).toMatchObject({
+			text: "[ ] design-vault",
+			role: "secondary",
+		});
+	});
+
+	it("shows a disabled box with its reason beneath", () => {
+		const rows = reposOf({ status: WithRepos });
+		const at = rows.findIndex((r) => r.control?.name === "opted-out");
+		expect(rows[at]).toMatchObject({
+			text: "[-] opted-out",
+			role: "secondary",
+			control: { state: "disabled" },
+		});
+		expect(rows[at + 1].text).toBe("refillLoop: false");
+		expect(rows[at + 1].control).toBeUndefined();
+	});
+
+	it("shows a checkout found later unticked, the count's total grown", () => {
+		const status = {
+			...WithRepos,
+			repos: [...Repos, repo("found-later", false)],
+		};
+		const rows = reposOf({ status });
+		expect(rows[0].detail).toBe("2 of 5 on");
+		expect(boxOf(rows, "found-later")?.control?.state).toBe("unticked");
+	});
+
+	it("says beside the boxes that an unticked repo still supplies blockers", () => {
+		const texts = reposOf({ status: WithRepos }).map((r) => r.text);
+		expect(texts.slice(-2)).toEqual([
+			"An unticked repo still supplies",
+			"the blockers of served issues",
+		]);
+		expect(texts.at(-3)).toBe("");
+	});
+
+	it("spaces a title from its boxes and each box from the next by one row", () => {
+		const status = { ...RUNNING, repos: [repo("a", true), repo("b", false)] };
+		expect(reposOf({ status }).map((r) => r.text)).toEqual([
+			"Repos",
+			"",
+			"[✓] a",
+			"",
+			"[ ] b",
+			"",
+			"An unticked repo still supplies",
+			"the blockers of served issues",
+		]);
+	});
+
+	it("draws only the rows that fit, so none stacks on the last line", () => {
+		const frame = buildFrame(rowsOf({ status: WithRepos }), 80, 21);
+		expect(frame).toContain(`${ESC}[21;3H`);
+		expect(frame).not.toContain(`${ESC}[22;3H`);
+	});
+
+	it("draws no section before the first read", () => {
+		const texts = rowsOf({}).map((r) => r.text);
+		expect(texts).not.toContain("Repos");
+	});
+
+	it("ticks an unticked repo on a press, reading pending until a read shows it", async () => {
+		const { held, release } = heldUntil();
+		const calls: string[][] = [];
+		let shown = WithRepos;
+		const panel = panelOver(async (argv: string[]) => {
+			calls.push(argv);
+			if (argv[0] === "status")
+				return { code: 0, stdout: JSON.stringify(shown), stderr: "" };
+			await held;
+			return { code: 0, stdout: "", stderr: "" };
+		});
+		await panel.refreshStatus();
+		const clicked = panel.click(rowOfBox(panel, "design-vault"));
+		const rows = buildRows(panel.view, LATER);
+		expect(boxOf(rows, "design-vault")).toMatchObject({
+			text: "[…] design-vault  turning on…",
+			control: { state: "pending" },
+		});
+		expect(rows.find((r: Row) => r.text === "Repos").detail).toBe("2 of 4 on");
+		await panel.refreshStatus();
+		expect(
+			boxOf(buildRows(panel.view, LATER), "design-vault")?.control?.state,
+		).toBe("pending");
+		await panel.click(rowOfBox(panel, "design-vault"));
+		shown = {
+			...RUNNING,
+			repos: Repos.map((r) =>
+				r.name === "design-vault" ? { ...r, ticked: true } : r,
+			),
+		};
+		release();
+		await clicked;
+		expect(calls.filter((argv) => argv[0] !== "status")).toEqual([
+			["set", "--tick", "design-vault"],
+		]);
+		expect(
+			boxOf(buildRows(panel.view, LATER), "design-vault")?.control?.state,
+		).toBe("ticked");
+	});
+
+	it("unticks a ticked repo on a press", async () => {
+		const { panel, presses, show } = repoPanel(WithRepos);
+		await panel.refreshStatus();
+		const row = rowOfBox(panel, "workflow-core");
+		show({
+			...RUNNING,
+			repos: Repos.map((r) =>
+				r.name === "workflow-core" ? { ...r, ticked: false } : r,
+			),
+		});
+		await panel.click(row);
+		expect(presses()).toEqual([["set", "--untick", "workflow-core"]]);
+		expect(boxOf(buildRows(panel.view, LATER), "workflow-core")).toMatchObject({
+			text: "[ ] workflow-core",
+			control: { state: "unticked" },
+		});
+	});
+
+	it("runs nothing on a press on a disabled box, or on its reason", async () => {
+		const { panel, presses } = repoPanel(WithRepos);
+		await panel.refreshStatus();
+		const row = rowOfBox(panel, "opted-out");
+		await panel.click(row);
+		await panel.click(row + 1);
+		expect(presses()).toEqual([]);
+	});
+
+	it("runs nothing on a press on the heading or the note", async () => {
+		const { panel, presses } = repoPanel(WithRepos);
+		await panel.refreshStatus();
+		const rows = buildRows(panel.view, LATER);
+		await panel.click(
+			SWITCH_ROW + rows.findIndex((r: Row) => r.text === "Repos"),
+		);
+		await panel.click(SWITCH_ROW + rows.length - 1);
+		expect(presses()).toEqual([]);
+	});
+
+	it("shows a refusal in the gap below its box, moving no box, and clears the mark", async () => {
+		const { panel } = repoPanel(WithRepos, {
+			code: 2,
+			stderr: "design-vault: no workflow-core config\n",
+		});
+		await panel.refreshStatus();
+		const rowsBefore = buildRows(panel.view, LATER);
+		const row = rowOfBox(panel, "design-vault");
+		await panel.click(row);
+		const rows = buildRows(panel.view, AT);
+		expect(rows).toHaveLength(rowsBefore.length);
+		expect(boxOf(rows, "design-vault")?.control?.state).toBe("unticked");
+		expect(rows[row - SWITCH_ROW + 1]).toEqual({
+			text: "design-vault: no workflow-core config",
+			role: "value",
+		});
+		const expired = buildRows(panel.view, AT + 10_000);
+		expect(expired[row - SWITCH_ROW + 1].text).toBe("");
 	});
 });

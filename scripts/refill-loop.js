@@ -85,9 +85,12 @@ const {
 	unlistedSeats,
 } = require("./lib/refill-seats.js");
 const wakes = require("./lib/refill-wake.js");
-const { parseIssueNumbers } = require("./lib/issue-number.js");
 const { ghJson, parseErrLine } = require("./lib/gh.js");
-const { parseAskedRefs } = require("./lib/refill-goal.js");
+const {
+	parseAskedRefs,
+	parseGoalForm,
+	qualifyRefs,
+} = require("./lib/refill-goal.js");
 const { configDir, seatDir } = require("./lib/config-dir.js");
 const { readLastTyped } = require("./lib/presence.js");
 const {
@@ -140,6 +143,8 @@ const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | set | 
   set [--repos <dir>]…                         the whole ticked set
   set [--tick <dir>]… [--untick <dir>]…        add to or take from the ticked set; a checkout found later stays unticked
   set --goal <ref,…>                           rank these issues first in every ticked repo, replacing the goal
+  set --goal 'drain <ref>'                     the same for the ref's open descendants, worked out each tick
+  set --goal 'unblock <ref>'                   the same for the ref and what holds it out across repos, worked out each tick
   set --goal-issues <ref,…> --goal-text <text> the same, for a confirmed topic: its issues, and the text they came from
   set --clear-goal                             run bare
   status [--json]                              --json: the code sha, the stop and whether it died with none, the pause, the last tick, launches today, the mode, when away was switched on and the sessions handed off since, the goal, every candidate checkout, the launch rows, each with its seat and why, the seats line's fields, each overflow key's budget, and burn mode's state
@@ -169,25 +174,28 @@ function rootsNamed(names, refusalOf) {
  */
 function parseStartScope(parsed, root) {
 	const goalText = String(parsed.flags["--goal"] ?? "");
-	const words = parseIssueNumbers(goalText);
-	const goal = words.flatMap((n) => (n !== null && n > 0 ? [n] : []));
-	if (goal.length < words.length)
-		return `--goal takes issue numbers: ${goalText}`;
+	const asked = goalText === "" ? null : parseGoalForm(goalText);
+	if (goalText !== "" && asked === null)
+		return `--goal takes issue refs, or drain or unblock with one: ${goalText}`;
 	const named = rootsNamed(parsed.lists["--repo"] ?? [], readTickRefusal);
 	if (typeof named === "string") return named;
-	const repo = path.basename(root);
+	const repos = [root, ...named];
+	const refs = asked
+		? qualifyRefs(
+				asked.refs.map((r) => ({
+					repo: r.repo ?? path.basename(root),
+					number: r.number,
+				})),
+				repos,
+			)
+		: [];
+	if (typeof refs === "string") return refs;
 	return {
 		mode: "normal",
-		repos: [root, ...named],
-		goal:
-			goal.length > 0
-				? {
-						form: "issues",
-						text: goalText,
-						refs: goal.map((number) => ({ repo, number })),
-						setAt: Date.now(),
-					}
-				: null,
+		repos,
+		goal: asked
+			? { form: asked.form, text: goalText, refs, setAt: Date.now() }
+			: null,
 	};
 }
 
@@ -228,12 +236,17 @@ function setConflictOf({ flags, lists }) {
  */
 function parseGoalAsk(flags) {
 	if (flags["--clear-goal"]) return null;
-	const typed = flags["--goal"] ?? flags["--goal-issues"];
+	if (flags["--goal"] !== undefined) {
+		const typed = String(flags["--goal"]);
+		const asked = parseGoalForm(typed);
+		return asked
+			? { ...asked, text: typed }
+			: `a goal takes issue refs, #N or <dir>#N, or drain or unblock with one: ${typed}`;
+	}
+	const typed = flags["--goal-issues"];
 	if (typed === undefined) return;
 	const refs = parseAskedRefs(String(typed));
 	if (refs === null) return `a goal takes issue refs, #N or <dir>#N: ${typed}`;
-	if (flags["--goal"] !== undefined)
-		return { form: "issues", text: String(typed), refs };
 	const text = String(flags["--goal-text"]).trim();
 	return text === "" ? "--goal-text is empty" : { form: "topic", text, refs };
 }

@@ -1212,7 +1212,11 @@ async function decide(input, scope) {
 	for (const d of served.dropped) log(`not served: ${d.root} (${d.why})`);
 	const readStart = Date.now();
 	const merged = await refillFrontier(served.roots, scope.goal);
-	const read = { rows: merged.frontier.length, ms: Date.now() - readStart };
+	const read = {
+		rows: merged.frontier.length,
+		ms: Date.now() - readStart,
+		goal: merged.goal,
+	};
 	for (const f of merged.failed)
 		log(`shortlist failed in ${f.root}: ${f.error}`);
 	for (const h of merged.held)

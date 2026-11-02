@@ -2,10 +2,10 @@
  * refill-frontier.js — the refill loop's one frontier across the checkouts
  * its scope serves (#2003, #2123, spec #1995).
  *
- * pick-next.js runs once per checkout, in that checkout, with the loop's goal's
- * issues in that checkout as its `--goal`, and the rows merge through
- * lib/frontier-order.js, whose goal level then ranks goal rows first across
- * every repo. The rows are unfiltered: which `takes:` kinds launch is the
+ * pick-next.js runs once per checkout, in that checkout, with the loop's goal
+ * as that checkout's `--goal`, and the rows merge through lib/frontier-order.js,
+ * whose goal level then ranks goal rows first across every repo. Each shortlist
+ * also names the goal's open members it found, which are merged into `goal`. The rows are unfiltered: which `takes:` kinds launch is the
  * loop's call. A checkout whose shortlist fails is returned under `failed`
  * with its error and contributes no rows; the others still merge.
  *
@@ -32,7 +32,7 @@ const { caught } = require("./caught.js");
 const { runGrouped } = require("./grouped-child.js");
 const { checkoutEnv } = require("./refill-repos.js");
 const { refKey } = require("./issue-ref.js");
-const { goalNumbersIn } = require("./refill-goal.js");
+const { buildGoalRead, buildShortlistGoal } = require("./refill-goal.js");
 const { FALLBACK_MS } = require("./refill-wake.js");
 
 const PICK_NEXT = path.join(__dirname, "..", "pick-next.js");
@@ -69,7 +69,8 @@ const SHORTLIST_TIMEOUT_MS = FALLBACK_MS;
 
 /**
  * @typedef {Omit<RepoFrontier, "root" | "lastLaunchAt"> &
- *   {pulledIn: PulledRow[], pulledInUnread: UnreadPull[]}} Shortlist
+ *   {pulledIn: PulledRow[], pulledInUnread: UnreadPull[], ownRepo: string|null,
+ *    goalSet: import("./refill-goal.js").ShortlistGoal|null, running: number[]}} Shortlist
  */
 
 /**
@@ -87,6 +88,9 @@ function parseShortlist(stdout) {
 			retroBundles: out.retroBundles,
 			pulledIn: out.pulledIn,
 			pulledInUnread: out.pulledInUnread,
+			ownRepo: out.ownRepo,
+			goalSet: out.goalSet,
+			running: out.running,
 		};
 	} catch (parseErr) {
 		return { error: `unparseable --json: ${caught(parseErr).message}` };
@@ -97,17 +101,13 @@ function parseShortlist(stdout) {
  * One checkout's shortlist frontier, read with the checkout as its root, its
  * `gh` calls inside the group the cap kills.
  * @param {string} root
- * @param {number[]} goal
+ * @param {string|null} goal its `--goal`
  * @returns {Promise<Shortlist | {error: string}>}
  */
 async function readShortlist(root, goal) {
 	const run = await runGrouped(
 		process.execPath,
-		[
-			PICK_NEXT,
-			"--json",
-			...(goal.length > 0 ? ["--goal", goal.join(",")] : []),
-		],
+		[PICK_NEXT, "--json", ...(goal === null ? [] : ["--goal", goal])],
 		{
 			cwd: root,
 			env: checkoutEnv(root),
@@ -201,10 +201,10 @@ function unreturnedPulls(served, pulledByRoot) {
 /**
  * @param {string[]} roots
  * @param {import("./refill-goal.js").Goal|null} goal
- * @param {(root: string, goal: number[]) => Promise<Shortlist | {error: string}>} [readList]
+ * @param {(root: string, goal: string|null) => Promise<Shortlist | {error: string}>} [readList]
  */
 async function refillFrontier(roots, goal, readList = readShortlist) {
-	/** @param {string[]} of @param {(root: string) => number[]} goalIn */
+	/** @param {string[]} of @param {(root: string) => string|null} goalIn */
 	const read = (of, goalIn) =>
 		Promise.all(
 			of.map(async (root) => ({
@@ -212,7 +212,7 @@ async function refillFrontier(roots, goal, readList = readShortlist) {
 				result: await readList(root, goalIn(root)),
 			})),
 		);
-	const results = await read(roots, (root) => goalNumbersIn(goal, root));
+	const results = await read(roots, (root) => buildShortlistGoal(goal, root));
 	/** @type {{root: string, result: Shortlist}[]} */
 	const served = [];
 	/** @type {{root: string, error: string}[]} */
@@ -243,7 +243,7 @@ async function refillFrontier(roots, goal, readList = readShortlist) {
 		pulledByRoot.set(p.root, of);
 	}
 	const foreign = [...pulledByRoot.keys()].filter((r) => !roots.includes(r));
-	for (const { root, result } of await read(foreign, () => []))
+	for (const { root, result } of await read(foreign, () => null))
 		if ("error" in result) failed.push({ root, error: result.error });
 		else
 			served.push({
@@ -271,7 +271,22 @@ async function refillFrontier(roots, goal, readList = readShortlist) {
 		}),
 		retroBundles: result.retroBundles,
 	}));
-	return { failed, held, ...mergeFrontiers(merged) };
+	const order = mergeFrontiers(merged);
+	return {
+		failed,
+		held,
+		goal: buildGoalRead(
+			goal,
+			served.map(({ root, result }) => ({
+				root,
+				repo: result.ownRepo,
+				goalSet: result.goalSet,
+				running: result.running,
+			})),
+			{ failed: failed.length, frontier: order.frontier },
+		),
+		...order,
+	};
 }
 
 module.exports = { parseFailureLine, refillFrontier };

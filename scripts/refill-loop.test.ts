@@ -241,7 +241,10 @@ describe("the scope start writes (#2123)", () => {
 				["start", "--repo", "books"],
 				"books cannot be ticked: refillLoop: false",
 			],
-			[["start", "--goal", "soon"], "--goal takes issue numbers: soon"],
+			[
+				["start", "--goal", "soon"],
+				"--goal takes issue refs, or drain or unblock with one: soon",
+			],
 		] as const) {
 			const r = await run(...argv);
 			expect(r.status).toBe(2);
@@ -1282,6 +1285,41 @@ describe("the goal (#3864)", () => {
 		});
 	});
 
+	it("reports the last read's set and counts, and when the goal finished (#3866)", async () => {
+		writeControl({ mode: "normal", repos: [core], goal: null });
+		expect((await setGoal("--goal", "drain #5")).status).toBe(0);
+		const { setAt } = readControl().scope.goal;
+		const write = (goalProgress: object) =>
+			fs.writeFileSync(
+				path.join(dir, ".refill-loop-state.json"),
+				JSON.stringify({ goalProgress }),
+			);
+		const fresh = JSON.parse((await run("status", "--json")).stdout).goal;
+		expect(fresh).toMatchObject({ form: "drain", open: null, doneAt: null });
+		const set = [{ repo: "o/core", number: 6, title: "t" }];
+		write({ setAt, set, takeable: 1, running: 0, readAt: 1, doneAt: null });
+		expect(
+			JSON.parse((await run("status", "--json")).stdout).goal,
+		).toMatchObject({
+			set,
+			open: 1,
+			takeable: 1,
+			running: 0,
+			readAt: 1,
+			doneAt: null,
+		});
+		expect((await run("status")).stdout).toContain(
+			"— 1 open, 1 takeable, 0 running",
+		);
+		write({ setAt, set: [], takeable: 0, running: 0, readAt: 2, doneAt: 2 });
+		expect(
+			JSON.parse((await run("status", "--json")).stdout).goal,
+		).toMatchObject({ open: 0, doneAt: 2, form: "drain" });
+		expect((await run("status")).stdout).toContain(
+			"— done 1970-01-01T00:00:00.002Z; running bare",
+		);
+	});
+
 	it("judges a ref on the set the same call leaves", async () => {
 		const r = await setGoal("--tick", "manta", "--goal", "manta#2");
 		expect(r.status).toBe(0);
@@ -1308,7 +1346,9 @@ describe("the goal (#3864)", () => {
 		],
 		["a closed issue", "core#500", "core#500 is closed"],
 		["an unknown issue", "core#404", "Could not resolve to an issue"],
-		["no ref at all", "drain #5", "a goal takes issue refs"],
+		["no ref at all", "drain", "a goal takes issue refs"],
+		["a walk of two", "drain core#1,core#2", "drain or unblock with one"],
+		["a walk in an unticked repo", "drain books#5", "tick books first"],
 	])("refuses %s, naming why and writing nothing", async (_, typed, why) => {
 		writeControl({ mode: "normal", repos: [core, manta], goal: null });
 		const before = readControl();
@@ -1317,6 +1357,20 @@ describe("the goal (#3864)", () => {
 		expect(r.stderr).toContain(why);
 		expect(readControl()).toEqual(before);
 	});
+
+	it.each(["drain", "unblock"])(
+		"stores a %s as its form and ref, not its numbers",
+		async (form) => {
+			writeControl({ mode: "normal", repos: [core], goal: null });
+			const r = await setGoal("--goal", `${form} #2518`);
+			expect(r.status).toBe(0);
+			expect(readControl().scope.goal).toMatchObject({
+				form,
+				text: `${form} #2518`,
+				refs: [ref("core", 2518)],
+			});
+		},
+	);
 
 	it("refuses the same way on a confirmed topic's issues", async () => {
 		const r = await setGoal(
