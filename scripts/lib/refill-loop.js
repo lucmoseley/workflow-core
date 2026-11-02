@@ -76,13 +76,12 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  */
 
 /**
- * Which repos the loop serves (#2123). Normal mode, what `/pick-next` starts,
- * serves `repos`; away mode, started only on the founder's ask, serves every
- * included checkout bar `exclude`.
+ * What the loop serves and what it does with a question (#2123, #2522): it
+ * serves the ticked `repos` in either mode; away hands a session that reaches a
+ * question off to its issue, and normal keeps it open.
  * @typedef {object} Scope
  * @property {"normal"|"away"} mode
- * @property {string[]} repos checkout roots; normal mode only
- * @property {string[]} exclude checkout roots; away mode only
+ * @property {string[]} repos the ticked checkout roots
  * @property {Record<string, number[]>} goals keyed by checkout root
  */
 
@@ -169,12 +168,25 @@ const parseStrings = (raw) =>
 	Array.isArray(raw) ? raw.filter((s) => typeof s === "string") : [];
 
 /**
- * The control file's scope. A scope that does not say normal reads as away
- * mode, a loop over every included repo.
+ * Whether a raw scope has away mode's old shape, serving every included checkout
+ * bar `exclude`. writeControlFile's `tickedSet` marks an `exclude` it repeated. A stopgap: #3921 removes it.
  * @param {unknown} raw
+ */
+const hasExcludeShape = (raw) =>
+	isRecord(raw) &&
+	raw.mode !== "normal" &&
+	Array.isArray(raw.exclude) &&
+	raw.tickedSet !== true;
+
+/**
+ * The control file's scope. A scope that does not say normal reads as away
+ * mode, ticking only the repos it names.
+ * @param {unknown} raw
+ * @param {() => string[]} [readIncluded] discovery's checkouts, for
+ *   hasExcludeShape's shape
  * @returns {Scope}
  */
-function parseScope(raw) {
+function parseScope(raw, readIncluded = () => []) {
 	const r = isRecord(raw) ? raw : {};
 	/** @type {Record<string, number[]>} */
 	const goals = {};
@@ -186,8 +198,9 @@ function parseScope(raw) {
 	}
 	return {
 		mode: r.mode === "normal" ? "normal" : "away",
-		repos: parseStrings(r.repos),
-		exclude: parseStrings(r.exclude),
+		repos: hasExcludeShape(r)
+			? readIncluded().filter((root) => !parseStrings(r.exclude).includes(root))
+			: parseStrings(r.repos),
 		goals,
 	};
 }
@@ -213,9 +226,10 @@ function parsePause(raw) {
  * The control file's fields, or null where it is not one. A file a start before
  * #3854 wrote names noProgressFrom `startedAt`. A stopgap: #3888 removes it.
  * @param {unknown} raw
+ * @param {() => string[]} [readIncluded] parseScope's
  * @returns {Control|null}
  */
-function parseControl(raw) {
+function parseControl(raw, readIncluded) {
 	if (!isRecord(raw)) return null;
 	const noProgressFrom = raw.noProgressFrom ?? raw.startedAt;
 	if (typeof noProgressFrom !== "number") return null;
@@ -224,24 +238,17 @@ function parseControl(raw) {
 		stopRequested: raw.stopRequested === true,
 		...parsePause(raw.paused),
 		seats: parseStrings(raw.seats),
-		scope: parseScope(raw.scope),
+		scope: parseScope(raw.scope, readIncluded),
 	};
 }
 
 /**
- * The roots a tick serves, and why each root in scope is not. `included` is
- * discovery's set, read for away mode only; `exclusionOf` re-reads a normal
- * root's config, so a repo that opts out mid-run is dropped.
+ * The roots a tick serves, and why each ticked root is not. `exclusionOf`
+ * re-reads a root's config, so a repo that opts out mid-run is dropped.
  * @param {Scope} scope
- * @param {() => string[]} included
  * @param {(root: string) => string|null} exclusionOf
  */
-function scopeRoots(scope, included, exclusionOf) {
-	if (scope.mode === "away")
-		return {
-			roots: included().filter((r) => !scope.exclude.includes(r)),
-			dropped: [],
-		};
+function scopeRoots(scope, exclusionOf) {
 	/** @type {string[]} */
 	const roots = [];
 	/** @type {{root: string, why: string}[]} */
@@ -1313,6 +1320,7 @@ module.exports = {
 	runningOf,
 	workingOf,
 	parseScope,
+	hasExcludeShape,
 	scopeRoots,
 	landingRoots,
 	parseProbeOutcome,

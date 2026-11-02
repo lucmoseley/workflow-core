@@ -439,7 +439,7 @@ describe("the boot link (#3891)", () => {
 				noProgressFrom: Date.now(),
 				stopRequested: false,
 				seats: [],
-				scope: { mode: "normal", repos: [main], exclude: [], goals: {} },
+				scope: { mode: "normal", repos: [main], goals: {} },
 			}),
 		);
 		fs.appendFileSync(

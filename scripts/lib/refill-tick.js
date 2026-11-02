@@ -182,8 +182,7 @@ const runChild = (file, args, opts = {}) =>
  * The roots a scope serves now.
  * @param {import("./refill-loop.js").Scope} scope
  */
-const servedRoots = (scope) =>
-	loop.scopeRoots(scope, () => discoverRepos(homeDir()).included, exclusionOf);
+const servedRoots = (scope) => loop.scopeRoots(scope, exclusionOf);
 
 /** @param {boolean} dryRun */
 function reapFinished(dryRun) {
@@ -1295,7 +1294,12 @@ async function tick({ dryRun }) {
 		/* No control file is a loop nobody started: a real tick stops. */
 		stopRequested: !dryRun,
 		seats: readConfiguredSeats(),
-		scope: loop.parseScope(null),
+		/* With no set written, a dry run previews every checkout it may serve. */
+		scope: {
+			mode: "normal",
+			repos: discoverRepos(homeDir()).included,
+			goals: {},
+		},
 	};
 	reapFinished(dryRun);
 	const state = readStateFile(log);

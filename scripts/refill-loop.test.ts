@@ -19,6 +19,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { writeCheckout } from "./lib/refill-loop-fixture";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 import { buildUsageCache } from "./lib/usage-probe-fake";
 
@@ -93,7 +94,7 @@ describe("start", () => {
 				startedAt: 1,
 				stopRequested: false,
 				seats: [],
-				scope: { mode: "normal", repos: [dir], exclude: [], goals: {} },
+				scope: { mode: "normal", repos: [dir], goals: {} },
 			}),
 		);
 		const r = await run("start");
@@ -177,14 +178,8 @@ describe("start", () => {
 	});
 });
 
-function checkout(name: string) {
-	fs.mkdirSync(path.join(dir, name, ".claude"), { recursive: true });
-	fs.writeFileSync(
-		path.join(dir, name, ".claude", "workflow-core.json"),
-		"{}\n",
-	);
-	return path.join(dir, name);
-}
+const checkout = (name: string, config: Record<string, unknown> = {}) =>
+	writeCheckout(dir, name, config);
 
 describe("the scope start writes (#2123)", () => {
 	it("serves this checkout plus each named one, its goal ranked first", async () => {
@@ -201,47 +196,42 @@ describe("the scope start writes (#2123)", () => {
 		expect(readControl().scope).toEqual({
 			mode: "normal",
 			repos: [dir, mh],
-			exclude: [],
 			goals: { [dir]: [116, 117] },
 		});
 		expect(r.stdout).toContain("mode:      normal");
 	});
 
-	it("serves every included checkout but those named in away mode", async () => {
+	it("keeps a running away mode, adding this checkout and taking its goal", async () => {
 		holdPidfile();
 		const dv = checkout("design-vault");
-		const r = await run("start", "--away", "--exclude", "design-vault");
-		expect(r.status).toBe(0);
-		expect(readControl().scope).toMatchObject({ mode: "away", exclude: [dv] });
-		expect(r.stdout).toContain("mode:      away");
-	});
-
-	it("leaves a running away mode's scope to a normal start", async () => {
-		holdPidfile();
 		fs.writeFileSync(
 			path.join(dir, ".refill-loop-control.json"),
 			JSON.stringify({
 				noProgressFrom: 1,
 				seats: [],
-				scope: { mode: "away", exclude: [], goals: {} },
+				scope: { mode: "away", repos: [dv], goals: {} },
 			}),
 		);
 		const r = await run("start", "--goal", "9");
-		expect(r.stdout).toContain("away mode is running and is left as it is");
+		expect(r.stdout).toContain("refill loop running: pid");
 		expect(readControl().noProgressFrom).toBe(1);
 		expect(readControl().scope).toMatchObject({
 			mode: "away",
+			repos: [dv, dir],
 			goals: { [dir]: [9] },
 		});
 	});
 
-	it("refuses a name that is no checkout, a mode's flag in the other, or a bad goal, naming it with the usage", async () => {
+	it("refuses a name that is no checkout, or a bad goal, naming it with the usage", async () => {
 		checkout("etc");
+		checkout("books", { refillLoop: false });
 		for (const [argv, names] of [
 			[["start", "--repo", "nowhere"], "nowhere is no workflow-core checkout"],
 			[["start", "--repo", "../etc"], "../etc is no workflow-core checkout"],
-			[["start", "--exclude", "x"], "--exclude needs --away"],
-			[["start", "--away", "--repo", "etc"], "--repo is normal mode's"],
+			[
+				["start", "--repo", "books"],
+				"books cannot be ticked: refillLoop: false",
+			],
 			[["start", "--goal", "soon"], "--goal takes issue numbers: soon"],
 		] as const) {
 			const r = await run(...argv);
@@ -346,7 +336,7 @@ describe("stop and status", () => {
 				noProgressFrom: now,
 				stopRequested: false,
 				seats: [path.join(dir, ".claude2")],
-				scope: { mode: "normal", repos: [], exclude: [], goals: {} },
+				scope: { mode: "normal", repos: [], goals: {} },
 			}),
 		);
 		const r = await run("status");
@@ -382,7 +372,7 @@ describe("stop and status", () => {
 				noProgressFrom: Date.now(),
 				stopRequested: false,
 				seats: [path.join(dir, ".claude2")],
-				scope: { mode: "normal", repos: [], exclude: [], goals: {} },
+				scope: { mode: "normal", repos: [], goals: {} },
 			}),
 		);
 		const { stdout } = await run("status");
@@ -428,7 +418,7 @@ describe("stop and status", () => {
 					noProgressFrom: now,
 					stopRequested: false,
 					seats: seats(),
-					scope: { mode: "normal", repos: [], exclude: [], goals: {} },
+					scope: { mode: "normal", repos: [], goals: {} },
 				}),
 			);
 		});
@@ -540,7 +530,7 @@ describe("set (#3856)", () => {
 		noProgressFrom: 5,
 		stopRequested: false,
 		seats: ["/seat"],
-		scope: { mode: "normal", repos: ["/repo"], exclude: [], goals: {} },
+		scope: { mode: "normal", repos: ["/repo"], goals: {} },
 	};
 	const writeControl = (over: Record<string, unknown> = {}) =>
 		fs.writeFileSync(
@@ -707,14 +697,14 @@ describe("set (#3856)", () => {
 	});
 
 	it.each([
-		["no flag", []],
-		["both flags", ["--pause", "--resume"]],
-	])("refuses %s as a usage error on stderr", async (_name, flags) => {
+		["no flag", [], "set names no field"],
+		["both flags", ["--pause", "--resume"], "one of --pause and --resume"],
+	])("refuses %s as a usage error on stderr", async (_name, flags, why) => {
 		writeControl();
 		const r = await run("set", ...flags);
 		expect(r.status).toBe(2);
 		expect(r.stdout).toBe("");
-		expect(r.stderr).toContain("one of --pause and --resume");
+		expect(r.stderr).toContain(why);
 		expect(r.stderr).toContain("usage:");
 		expect(readControl()).toEqual(plainControl);
 	});
@@ -733,6 +723,217 @@ describe("set (#3856)", () => {
 		expect(r.stderr).toContain("is damaged");
 		expect(r.stderr).toContain("`start` rewrites it");
 		expect(fs.readFileSync(controlFile(), "utf8")).toBe("{ not json");
+	});
+});
+
+describe("the ticked set and the mode (#3862)", () => {
+	const writeControl = (scope: Record<string, unknown>) =>
+		fs.writeFileSync(
+			path.join(dir, ".refill-loop-control.json"),
+			JSON.stringify({ noProgressFrom: 1, seats: [], scope }),
+		);
+	const reposOf = async () => {
+		const { repos } = JSON.parse((await run("status", "--json")).stdout);
+		return repos as {
+			name: string;
+			root: string;
+			ticked: boolean;
+			disabled: string | null;
+		}[];
+	};
+	const namesTicked = async () =>
+		(await reposOf()).filter((r) => r.ticked).map((r) => r.name);
+
+	let core: string;
+	let manta: string;
+	beforeEach(() => {
+		core = checkout("core");
+		manta = checkout("manta");
+		writeControl({ mode: "normal", repos: [core], goals: {} });
+	});
+
+	it("flips the mode either way, leaving the ticked repos and printing only the change", async () => {
+		const away = await run("set", "--away");
+		expect(away.status).toBe(0);
+		expect(away.stdout).toContain("mode:      away");
+		expect(away.stdout).not.toContain("repos:");
+		expect(readControl().scope).toMatchObject({
+			mode: "away",
+			repos: [core],
+		});
+		expect(await namesTicked()).toEqual(["core"]);
+		await run("set", "--normal");
+		expect(readControl().scope).toEqual({
+			mode: "normal",
+			repos: [core],
+			goals: {},
+		});
+	});
+
+	it("ticks, unticks and replaces the set in either mode, the mode untouched", async () => {
+		for (const mode of ["normal", "away"]) {
+			writeControl({ mode, repos: [core], goals: { [core]: [9] } });
+			const r = await run("set", "--tick", "manta");
+			expect(r.status).toBe(0);
+			expect(r.stdout).toContain("repos:     core, manta");
+			expect(readControl().scope).toMatchObject({
+				mode,
+				repos: [core, manta],
+				goals: { [core]: [9] },
+			});
+			expect((await run("set", "--untick", "core")).status).toBe(0);
+			expect(readControl().scope.repos).toEqual([manta]);
+			const whole = await run("set", "--repos", "core", "--repos", "manta");
+			expect(whole.status).toBe(0);
+			expect(readControl().scope.repos).toEqual([core, manta]);
+			expect(readControl().scope.mode).toBe(mode);
+		}
+	});
+
+	it("says a tick already held changes nothing, and touches the wake", async () => {
+		const r = await run("set", "--tick", "core");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("unchanged: repos core");
+		expect(
+			fs.readFileSync(path.join(dir, ".refill-loop-wake"), "utf8"),
+		).toMatch(/^\d{13}/);
+	});
+
+	it("takes a pause, a mode and a tick in one call", async () => {
+		const r = await run("set", "--pause", "--away", "--tick", "manta");
+		expect(r.status).toBe(0);
+		const control = readControl();
+		expect(control.paused.by).toBe("founder");
+		expect(control.scope).toMatchObject({
+			mode: "away",
+			repos: [core, manta],
+		});
+	});
+
+	it("says a start rebuilds repos and mode on a loop with no process", async () => {
+		const r = await run("set", "--tick", "manta");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("its next start sets the mode and repos afresh");
+	});
+
+	it("refuses a tick of what is no candidate or is opted out, naming why and writing nothing", async () => {
+		checkout("books", { refillLoop: false });
+		fs.mkdirSync(path.join(dir, "linked", ".claude"), { recursive: true });
+		fs.writeFileSync(path.join(dir, "linked", ".git"), "gitdir: /x\n");
+		fs.writeFileSync(
+			path.join(dir, "linked", ".claude", "workflow-core.json"),
+			"{}\n",
+		);
+		const before = readControl();
+		for (const [flag, name, why] of [
+			["--tick", "nowhere", "nowhere is no workflow-core checkout"],
+			["--tick", "../core", "../core is no workflow-core checkout"],
+			["--tick", "books", "books cannot be ticked: refillLoop: false"],
+			["--tick", "linked", "linked is not a main checkout"],
+			["--repos", "books", "books cannot be ticked: refillLoop: false"],
+			["--untick", "nowhere", "nowhere is no workflow-core checkout"],
+		]) {
+			const r = await run("set", flag, name);
+			expect(r.status).toBe(2);
+			expect(r.stderr).toContain(why);
+			expect(r.stderr).toContain("usage:");
+			expect(readControl()).toEqual(before);
+		}
+	});
+
+	it("unticks a ticked checkout that has since opted out", async () => {
+		const books = checkout("books");
+		writeControl({ mode: "normal", repos: [core, books], goals: {} });
+		fs.writeFileSync(
+			path.join(books, ".claude", "workflow-core.json"),
+			`${JSON.stringify({ refillLoop: false })}\n`,
+		);
+		expect((await run("set", "--untick", "books")).status).toBe(0);
+		expect(readControl().scope.repos).toEqual([core]);
+	});
+
+	it("refuses flags that contradict, or none", async () => {
+		for (const [argv, why] of [
+			[["set"], "set names no field"],
+			[["set", "--away", "--normal"], "one of --away and --normal"],
+			[
+				["set", "--repos", "core", "--tick", "manta"],
+				"--repos is the whole set",
+			],
+			[["set", "--tick", "core", "--untick", "core"], "core is both"],
+		] as const) {
+			const r = await run(...argv);
+			expect(r.status).toBe(2);
+			expect(r.stderr).toContain(why);
+			expect(r.stderr).toContain("usage:");
+		}
+	});
+
+	it("lists every candidate in status --json, with why any is disabled, and leaves a later one unticked and unserved", async () => {
+		checkout("books", { refillLoop: false });
+		expect((await run("set", "--away")).status).toBe(0);
+		checkout("later");
+		const rows = await reposOf();
+		expect(rows).toEqual(
+			expect.arrayContaining([
+				{ name: "core", root: core, ticked: true, disabled: null },
+				{ name: "manta", root: manta, ticked: false, disabled: null },
+				{
+					name: "books",
+					root: path.join(dir, "books"),
+					ticked: false,
+					disabled: "refillLoop: false",
+				},
+				{
+					name: "later",
+					root: path.join(dir, "later"),
+					ticked: false,
+					disabled: null,
+				},
+			]),
+		);
+		expect(JSON.parse((await run("status", "--json")).stdout).mode).toBe(
+			"away",
+		);
+		expect((await run("status")).stdout).toContain("repos:     core\n");
+	});
+
+	it("adopts the live control's away shape as the checkouts it serves now", async () => {
+		checkout("books", { refillLoop: false });
+		fs.writeFileSync(
+			path.join(dir, ".refill-loop-control.json"),
+			JSON.stringify({
+				startedAt: 1,
+				stopRequested: false,
+				seats: [],
+				scope: { mode: "away", repos: [], exclude: [manta], goals: {} },
+			}),
+		);
+		expect(await namesTicked()).toEqual(["core"]);
+		const r = await run("set", "--tick", "manta");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("repos:     core, manta");
+		checkout("later");
+		expect(await namesTicked()).toEqual(["core", "manta"]);
+		expect(readControl().scope.mode).toBe("away");
+	});
+
+	it("repeats every other included checkout as exclude in away mode, for a loop on older code", async () => {
+		checkout("books", { refillLoop: false });
+		const r = await run("set", "--away");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("mode:      away");
+		expect(readControl().scope.exclude).toEqual([manta]);
+		expect((await run("set", "--normal")).status).toBe(0);
+		expect(readControl().scope.exclude).toBeUndefined();
+	});
+
+	it("keeps an emptied away set empty when a checkout appears later", async () => {
+		writeControl({ mode: "away", repos: [core], goals: {} });
+		expect((await run("set", "--untick", "core")).status).toBe(0);
+		checkout("later");
+		expect(await namesTicked()).toEqual([]);
+		expect((await run("status")).stdout).toContain("repos:     none\n");
 	});
 });
 

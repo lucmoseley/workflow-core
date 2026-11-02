@@ -1602,7 +1602,7 @@ describe("the control file", () => {
 			noProgressFrom: 5,
 			stopRequested: false,
 			seats: ["/a"],
-			scope: { mode: "normal", repos: ["/r"], exclude: [], goals: {} },
+			scope: { mode: "normal", repos: ["/r"], goals: {} },
 		};
 		const control = parseControl(raw);
 		expect(control).toEqual({
@@ -1622,8 +1622,29 @@ describe("the control file", () => {
 		expect(read(true)).toEqual({ by: "an unreadable record", at: 0 });
 	});
 
-	it("reads a control from before scopes as away mode over every repo", () => {
+	it("reads a control with no scope as away mode serving nothing", () => {
 		expect(parseControl({ noProgressFrom: 5 })?.scope).toEqual(away([]));
+		expect(parseControl({ noProgressFrom: 5 }, () => [WFC, MH])?.scope).toEqual(
+			away([]),
+		);
+	});
+
+	it("adopts today's away shape as a ticked set of the checkouts it serves now", () => {
+		const raw = {
+			noProgressFrom: 5,
+			scope: { mode: "away", repos: [], exclude: [MH, DV], goals: {} },
+		};
+		expect(parseControl(raw, () => [WFC, MH, DV])?.scope).toEqual(away([WFC]));
+	});
+
+	it("reads a written set as written, an empty one included, a repeated exclude changing nothing", () => {
+		const raw = (repos: string[]) => ({
+			noProgressFrom: 5,
+			scope: { mode: "away", tickedSet: true, repos, exclude: [MH], goals: {} },
+		});
+		const included = () => [WFC, MH, DV];
+		expect(parseControl(raw([WFC]), included)?.scope).toEqual(away([WFC]));
+		expect(parseControl(raw([]), included)?.scope).toEqual(away([]));
 	});
 
 	it("keeps a normal scope's repos and only whole-number goals", () => {
@@ -1881,22 +1902,14 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 });
 
 describe("the repos a tick serves", () => {
-	const included = () => [WFC, MH, DV];
-
-	it("serves every included repo but the excluded in away mode", () => {
-		expect(scopeRoots(away([MH]), included, () => null)).toEqual({
-			roots: [WFC, DV],
-			dropped: [],
-		});
-	});
-
-	it("serves only a normal scope's repos, dropping one that opted out", () => {
+	it("serves exactly the ticked repos in either mode, dropping one that opted out", () => {
 		const optedOut = (root: string) =>
 			root === MH ? "refillLoop: false" : null;
-		expect(scopeRoots(normal([WFC, MH]), included, optedOut)).toEqual({
-			roots: [WFC],
-			dropped: [{ root: MH, why: "refillLoop: false" }],
-		});
+		for (const scope of [normal([WFC, MH]), away([WFC, MH])])
+			expect(scopeRoots(scope, optedOut)).toEqual({
+				roots: [WFC],
+				dropped: [{ root: MH, why: "refillLoop: false" }],
+			});
 	});
 });
 

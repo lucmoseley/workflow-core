@@ -180,7 +180,6 @@ const serveCore = () => {
 			scope: {
 				mode: "normal",
 				repos: [path.join(home, "core")],
-				exclude: [],
 				goals: {},
 			},
 			noProgressFrom: NOW,

@@ -7,20 +7,22 @@
  * serves (lib/refill-loop.js's Scope).
  *
  *   node scripts/refill-loop.js start …  start the loop, or widen a running
- *                                        loop's scope; modes in USAGE
+ *                                        loop's repos; flags in USAGE
  *   node scripts/refill-loop.js stop     end launching before the next
  *                                        dispatch call; running sessions
  *                                        finish
- *   node scripts/refill-loop.js set --pause | --resume  pause or resume launching
- *                                        with no restart: the running loop takes
- *                                        it at its next tick, and an idle loop
- *                                        within seconds; housekeeping carries on
+ *   node scripts/refill-loop.js set …    pause or resume launching, tick repos or
+ *                                        switch the mode with no restart: the
+ *                                        running loop takes it at its next tick,
+ *                                        and an idle loop within seconds;
+ *                                        housekeeping carries on; flags in USAGE
  *   node scripts/refill-loop.js status   pause, mode, repos, goal, launches with
  *                                        their seats, the
  *                                        last stop reason, open repo holds
  *                                        (lib/repo-holds.js), each overflow
  *                                        seat's budget and the plan seats
- *                                        overflow rests on; `--json` the launch
+ *                                        overflow rests on; `--json` the mode,
+ *                                        every candidate checkout, the launch
  *                                        rows and the `seats:` line's fields
  *   node scripts/refill-loop.js dry-run  one tick's decision, printed; reaps
  *                                        and launches nothing
@@ -61,7 +63,6 @@ const gates = require("./lib/gate-sweep.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { pidLock } = require("./lib/pid-lock.js");
-const { hasConfig } = require("./lib/workflow-core-config.js");
 const { readAllowance } = require("./lib/allowance.js");
 const { buildBudgetLine, seatBudget } = require("./lib/overflow-budget.js");
 const { planSeatBasisOf } = require("./lib/overflow-notice.js");
@@ -75,10 +76,18 @@ const wakes = require("./lib/refill-wake.js");
 const { parseIssueNumbers } = require("./lib/issue-number.js");
 const { configDir, seatDir } = require("./lib/config-dir.js");
 const { readLastTyped } = require("./lib/presence.js");
-const { checkoutEnv, exclusionOf, homeDir } = require("./lib/refill-repos.js");
+const {
+	checkoutEnv,
+	exclusionOf,
+	homeDir,
+	readCandidates,
+	readCheckoutRefusal,
+	readTickRefusal,
+} = require("./lib/refill-repos.js");
 const loop = require("./lib/refill-loop.js");
 const { bootVerdictOf } = require("./lib/refill-boot.js");
 const {
+	adoptControlFile,
 	readControlChecked,
 	readControlFile,
 	readStateFile,
@@ -108,29 +117,28 @@ const LOG_MAX_BYTES = 1024 * 1024;
 
 const SCRIPTS = __dirname;
 const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | set | status | dry-run | boot-resume
-  start [--repo <dir>]… [--goal 116,117]       normal mode: this checkout plus each named one
-  start --away [--exclude <dir>]… [--goal …]   away mode: every included checkout but those named
+  start [--repo <dir>]… [--goal 116,117]       this checkout plus each named one
   set --pause | --resume                       launch nothing, keeping housekeeping; or launch again
-  status [--json]                              --json: the launch rows, each with its seat and why, and the seats line's fields
-  <dir> is a checkout's directory name in the home directory`;
+  set --away | --normal                        hand a session at a question off to its issue; or keep it open. The repos stay
+  set [--repos <dir>]…                         the whole ticked set
+  set [--tick <dir>]… [--untick <dir>]…        add to or take from the ticked set; a checkout found later stays unticked
+  status [--json]                              --json: the mode, every candidate checkout, the launch rows, each with its seat and why, and the seats line's fields
+  <dir> is a checkout's directory name in the home directory; set takes any of its flags together`;
 
 const lock = pidLock(files.pid, "refill-loop.js");
 
 /**
- * The checkout roots `names` give, each a directory in the home directory
- * carrying a workflow-core config: discovery's own reach (lib/refill-repos.js),
- * so a checkout elsewhere is never served (#2123).
+ * The checkout roots `names` give, or a string saying why one is refused.
  * @param {string[]} names
+ * @param {(name: string, home: string) => string|null} refusalOf
+ * @returns {string[]|string}
  */
-function checkoutsNamed(names) {
-	const roots = [];
+function rootsNamed(names, refusalOf) {
 	for (const name of names) {
-		const root = path.join(homeDir(), name);
-		if (name.includes("/") || !hasConfig(root))
-			return `${name} is no workflow-core checkout in ${homeDir()}`;
-		roots.push(root);
+		const refusal = refusalOf(name, homeDir());
+		if (refusal !== null) return refusal;
 	}
-	return roots;
+	return names.map((name) => path.join(homeDir(), name));
 }
 
 /**
@@ -140,23 +148,67 @@ function checkoutsNamed(names) {
  * @returns {import("./lib/refill-loop.js").Scope|string}
  */
 function parseStartScope(parsed, root) {
-	const away = parsed.flags["--away"] === true;
-	const repos = parsed.lists["--repo"] ?? [];
-	const exclude = parsed.lists["--exclude"] ?? [];
-	if (away && repos.length > 0)
-		return "--repo is normal mode's; away mode serves every included checkout";
-	if (!away && exclude.length > 0) return "--exclude needs --away";
 	const goalText = String(parsed.flags["--goal"] ?? "");
 	const words = parseIssueNumbers(goalText);
 	const goal = words.flatMap((n) => (n !== null && n > 0 ? [n] : []));
 	if (goal.length < words.length)
 		return `--goal takes issue numbers: ${goalText}`;
-	const named = checkoutsNamed(away ? exclude : repos);
+	const named = rootsNamed(parsed.lists["--repo"] ?? [], readTickRefusal);
 	if (typeof named === "string") return named;
-	const goals = goal.length > 0 ? { [root]: goal } : {};
-	return away
-		? { mode: "away", repos: [], exclude: named, goals }
-		: { mode: "normal", repos: [root, ...named], exclude: [], goals };
+	return {
+		mode: "normal",
+		repos: [root, ...named],
+		goals: goal.length > 0 ? { [root]: goal } : {},
+	};
+}
+
+/**
+ * Why `set`'s flags cannot go together, null where they can.
+ * @param {import("./lib/cli-args").Parsed} parsed
+ * @returns {string|null}
+ */
+function setConflictOf({ flags, lists }) {
+	if (flags["--pause"] && flags["--resume"])
+		return "set takes one of --pause and --resume";
+	if (flags["--away"] && flags["--normal"])
+		return "set takes one of --away and --normal";
+	if (lists["--repos"] && (lists["--tick"] || lists["--untick"]))
+		return "--repos is the whole set; it takes no --tick or --untick";
+	const both = lists["--tick"]?.find((n) => lists["--untick"]?.includes(n));
+	if (both) return `${both} is both ticked and unticked`;
+	return Object.keys(flags).length + Object.keys(lists).length === 0
+		? "set names no field"
+		: null;
+}
+
+/**
+ * What `set`'s flags ask, or a string refusal.
+ * @param {import("./lib/cli-args").Parsed} parsed
+ * @returns {import("./lib/refill-commands.js").SetAsk|string}
+ */
+function parseSetAsk(parsed) {
+	const conflict = setConflictOf(parsed);
+	if (conflict !== null) return conflict;
+	const { flags, lists } = parsed;
+	/** @type {import("./lib/refill-commands.js").SetAsk} */
+	const ask = {};
+	if (flags["--pause"]) ask.pause = true;
+	if (flags["--resume"]) ask.pause = false;
+	if (flags["--away"]) ask.mode = "away";
+	if (flags["--normal"]) ask.mode = "normal";
+	/* An untick takes one since opted out, so an opt-out never strands a tick. */
+	for (const [flag, field, refusalOf] of /** @type {const} */ ([
+		["--repos", "repos", readTickRefusal],
+		["--tick", "tick", readTickRefusal],
+		["--untick", "untick", readCheckoutRefusal],
+	])) {
+		const names = lists[flag];
+		if (!names) continue;
+		const roots = rootsNamed(names, refusalOf);
+		if (typeof roots === "string") return roots;
+		ask[field] = roots;
+	}
+	return ask;
 }
 
 /**
@@ -335,7 +387,7 @@ function start(parsed) {
 		})
 		.map((l) => `  ${l}`);
 	if (pid !== null) {
-		say(commands.buildRunningLine(asked.mode, control.scope.mode, pid));
+		say(`refill loop running: pid ${pid}`);
 		for (const line of scopeText) say(line);
 		return 0;
 	}
@@ -372,21 +424,21 @@ function stop() {
 }
 
 /**
- * `set`: the named field changed on a fresh read under the control lock, then
+ * `set`: the named fields changed on a fresh read under the control lock, then
  * the wake touched.
  * @param {import("./lib/cli-args").Parsed} parsed
  */
-function set({ flags }) {
-	const pause = flags["--pause"] === true;
-	if (pause === (flags["--resume"] === true)) {
-		writeFd(2, `set takes one of --pause and --resume\n\n${USAGE}\n`);
+function set(parsed) {
+	const ask = parseSetAsk(parsed);
+	if (typeof ask === "string") {
+		writeFd(2, `${ask}\n\n${USAGE}\n`);
 		return 2;
 	}
 	const written = withControlLock(() => {
 		const plan = commands.planSet(
 			readControlChecked(() => undefined),
+			ask,
 			{
-				pause,
 				running: lock.holder() !== null,
 				now: Date.now(),
 			},
@@ -422,7 +474,15 @@ function status({ flags }) {
 	const seats = readSeatsView(control?.seats ?? readConfiguredSeats(), root);
 	if (flags["--json"]) {
 		say(
-			JSON.stringify(commands.buildStatusJson({ control, state, pid, seats })),
+			JSON.stringify(
+				commands.buildStatusJson({
+					control,
+					state,
+					pid,
+					seats,
+					candidates: readCandidates(homeDir()),
+				}),
+			),
 		);
 		return 0;
 	}
@@ -545,6 +605,7 @@ async function run() {
 		return 0;
 	}
 	process.on("exit", lock.release);
+	adoptControlFile(log);
 	for (const sig of /** @type {const} */ (["SIGTERM", "SIGINT", "SIGHUP"]))
 		process.on(sig, () => process.exit(0));
 	log(`refill loop running, pid ${process.pid}, from ${SCRIPTS}`);
@@ -603,16 +664,22 @@ const CLI = {
 		start: {
 			usage: USAGE,
 			flags: {
-				"--away": "boolean",
 				"--repo": "list",
-				"--exclude": "list",
 				"--goal": "value",
 			},
 		},
 		stop: { usage: USAGE },
 		set: {
 			usage: USAGE,
-			flags: { "--pause": "boolean", "--resume": "boolean" },
+			flags: {
+				"--pause": "boolean",
+				"--resume": "boolean",
+				"--away": "boolean",
+				"--normal": "boolean",
+				"--repos": "list",
+				"--tick": "list",
+				"--untick": "list",
+			},
 		},
 		status: { usage: USAGE, flags: { "--json": "boolean" } },
 		"dry-run": { usage: USAGE },

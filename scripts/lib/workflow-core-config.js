@@ -238,7 +238,7 @@ const defaultCommand = (name) =>
  * @property {{skills: Record<string, string>, output_style: string|null}} overrides output_style is a repo-relative path (e.g. `.claude/output-styles/mine.md`), never a bare style name
  * @property {boolean} [capacityLadder] absent means no ladder: only `true` declares one (#735, #748); read it through declaresLadder()
  * @property {boolean} [admissionGate] whether check-context-budget.js refuses a pool rule its admission ledger does not admit; absent is off, only `true` switches it on (#2033)
- * @property {boolean} refillLoop whether away mode's refill loop serves this checkout; absent is in, only `false` takes it out (#1969, #2003)
+ * @property {boolean} refillLoop whether the refill loop may serve this checkout; absent is in, only `false` takes it out (#1969, #2003)
  * @property {{command: string, outputs: string[]}} [manualRender] manual-sync's post-write step, absent by default (#451)
  * @property {number} [roadmapMajorPin]
  * @property {string[]} [ruffExclude] ruff glob patterns the pre-commit Python gate excludes (#122)

@@ -7,6 +7,7 @@
  * away mode, or `status` hides a launch that waits on the founder or on the
  * loop's resumes or hand-off.
  */
+
 import { describe, expect, it } from "vitest";
 import {
 	buildSeatsLine,
@@ -42,13 +43,15 @@ describe("the scope a start writes", () => {
 		expect(mergedScope(null, normal([WFC]), WFC)).toEqual(normal([WFC]));
 	});
 
-	it("adds a normal start's repos to a running normal loop's", () => {
-		const r = mergedScope(
-			normal([MH], { [MH]: [5] }),
-			normal([WFC], { [WFC]: [9] }),
-			WFC,
-		);
-		expect(r).toEqual(normal([MH, WFC], { [MH]: [5], [WFC]: [9] }));
+	it("adds a start's repos to a running loop's in either mode, keeping its mode", () => {
+		for (const mode of [normal, away]) {
+			const r = mergedScope(
+				mode([MH], { [MH]: [5] }),
+				normal([WFC], { [WFC]: [9] }),
+				WFC,
+			);
+			expect(r).toEqual(mode([MH, WFC], { [MH]: [5], [WFC]: [9] }));
+		}
 	});
 
 	it("clears the starting repo's goal on a bare start, keeping others'", () => {
@@ -58,16 +61,6 @@ describe("the scope a start writes", () => {
 			WFC,
 		);
 		expect(r.goals).toEqual({ [MH]: [5] });
-	});
-
-	it("never narrows a running away mode from a normal start", () => {
-		const r = mergedScope(away([DV]), normal([WFC], { [WFC]: [9] }), WFC);
-		expect(r).toEqual(away([DV], { [WFC]: [9] }));
-	});
-
-	it("widens a running normal loop to away mode, keeping its goals", () => {
-		const r = mergedScope(normal([WFC], { [WFC]: [9] }), away([DV]), MH);
-		expect(r).toEqual(away([DV], { [WFC]: [9] }));
 	});
 });
 
@@ -222,9 +215,8 @@ describe("what status prints", () => {
 			pid: 123,
 			served,
 		}).join("\n");
-		expect(awayOut).toContain("mode:      away (every included repo)");
+		expect(awayOut).toContain("mode:      away");
 		expect(awayOut).toContain("repos:     workflow-core, mantahostels");
-		expect(awayOut).toContain("excluding: design-vault");
 		expect(awayOut).toContain("goal:      none");
 	});
 
@@ -471,6 +463,7 @@ describe("a launch row's seat and reason (#3732)", () => {
 			control,
 			state: stateOf([typed, record({ seat })]),
 			pid: 1,
+			candidates: [],
 		});
 		expect(json.running).toBe(true);
 		expect(

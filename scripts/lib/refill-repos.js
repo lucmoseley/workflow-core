@@ -1,6 +1,6 @@
 /*
  * refill-repos.js — which checkouts on this laptop adopt workflow-core, and
- * which of them away mode serves (#2003, spec #1995).
+ * which of them the refill loop may tick (#2003, spec #1995).
  *
  * An adopter is a direct child of the home directory carrying
  * `.claude/workflow-core.json`. A linked worktree (`.git` a file, not a
@@ -77,7 +77,7 @@ function readAdopterCheckouts(home) {
 }
 
 /**
- * The adopters away mode serves.
+ * The adopters the loop may serve.
  * @param {string} home
  * @returns {Discovery}
  */
@@ -111,6 +111,50 @@ function exclusionOf(root) {
 	} catch (err) {
 		return caught(err).message;
 	}
+}
+
+/**
+ * Every checkout that gets a tick box, ticked or not, with why it cannot be
+ * ticked, null where it can.
+ * @param {string} home
+ * @returns {{root: string, disabled: string|null}[]}
+ */
+const readCandidates = (home) =>
+	readAdopterCheckouts(home).included.map((root) => ({
+		root,
+		disabled: exclusionOf(root),
+	}));
+
+/**
+ * Why `name` is no direct child of `home` carrying a workflow-core config, null
+ * where it is: discovery's own reach, so a checkout elsewhere is never served
+ * (#2123).
+ * @param {string} name
+ * @param {string} home
+ * @returns {string|null}
+ */
+const readCheckoutRefusal = (name, home) =>
+	name.includes("/") || !hasConfig(path.join(home, name))
+		? `${name} is no workflow-core checkout in ${home}`
+		: null;
+
+/**
+ * Why the checkout named `name` may not be ticked, null where it may.
+ * @param {string} name a directory name in `home`
+ * @param {string} home
+ * @returns {string|null}
+ */
+function readTickRefusal(name, home) {
+	const refusal = readCheckoutRefusal(name, home);
+	if (refusal !== null) return refusal;
+	const root = path.join(home, name);
+	const adopters = readAdopterCheckouts(home);
+	if (!adopters.included.includes(root)) {
+		const left = adopters.excluded.find((l) => l.root === root);
+		return `${name} is ${left?.why ?? "not a main checkout"}`;
+	}
+	const why = exclusionOf(root);
+	return why === null ? null : `${name} cannot be ticked: ${why}`;
 }
 
 /**
@@ -215,6 +259,9 @@ module.exports = {
 	checkoutEnv,
 	discoverRepos,
 	readAbsence,
+	readCandidates,
+	readCheckoutRefusal,
+	readTickRefusal,
 	exclusionOf,
 	homeDir,
 };

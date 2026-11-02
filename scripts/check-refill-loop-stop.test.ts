@@ -362,34 +362,38 @@ describe("the restart it names (#3371)", () => {
 		);
 	});
 
-	it("names the away start, with its exclusions, for an away-mode stop", () => {
+	it("names the start, then the switch to away with its repos, for an away-mode stop", () => {
 		writeState("no-progress");
-		writeControl({ mode: "away", exclude: ["/h/mantahostels"], goals: {} });
+		writeControl({ mode: "away", repos: ["/h/workflow-core"], goals: {} });
 		const r = run(["--notify"]);
 		expect(r.status).toBe(0);
 		const out = screenOf(r);
+		const script = `node ${path.join(__dirname, "refill-loop.js")}`;
 		expect(out).toContain(
-			`Restart away mode: node ${path.join(__dirname, "refill-loop.js")} start --away --exclude mantahostels\n`,
+			`Restart away mode: ${script} start, then ${script} set --away --repos workflow-core\n`,
 		);
 		expect(out).not.toContain("/pick-next");
 	});
 
-	it("names one away start per goal's checkout, each with every exclusion", () => {
+	it("names one start per goal's checkout, then the one switch to away", () => {
 		writeState("allowance");
 		writeControl({
 			mode: "away",
-			exclude: ["/h/mantahostels", "/h/fantasy-books"],
+			repos: ["/h/workflow-core", "/h/design-vault"],
 			goals: { "/h/workflow-core": [116, 117], "/h/design-vault": [9] },
 		});
 		const r = run(["--notify"]);
 		expect(r.status).toBe(0);
 		const out = screenOf(r);
-		const away = `node ${path.join(__dirname, "refill-loop.js")} start --away --exclude mantahostels --exclude fantasy-books`;
+		const script = `node ${path.join(__dirname, "refill-loop.js")}`;
 		expect(out).toContain(
-			`  CLAUDE_PROJECT_DIR=/h/workflow-core ${away} --goal 116,117\n`,
+			`  CLAUDE_PROJECT_DIR=/h/workflow-core ${script} start --goal 116,117\n`,
 		);
 		expect(out).toContain(
-			`  CLAUDE_PROJECT_DIR=/h/design-vault ${away} --goal 9\n`,
+			`  CLAUDE_PROJECT_DIR=/h/design-vault ${script} start --goal 9\n`,
+		);
+		expect(out).toContain(
+			`  ${script} set --away --repos workflow-core --repos design-vault\n`,
 		);
 	});
 

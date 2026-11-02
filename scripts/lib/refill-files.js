@@ -22,7 +22,12 @@ const { caught } = require("./caught.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { pidLock, waitForLock } = require("./pid-lock.js");
 const { refillPath } = require("./refill-dir.js");
-const { parseControl, parseState } = require("./refill-loop.js");
+const {
+	hasExcludeShape,
+	parseControl,
+	parseState,
+} = require("./refill-loop.js");
+const { discoverRepos, homeDir } = require("./refill-repos.js");
 
 function loopFiles() {
 	return {
@@ -39,6 +44,9 @@ function loopFiles() {
 		reviewPid: refillPath(".refill-review.pid"),
 	};
 }
+
+/** What the loop may serve now, read for a control in hasExcludeShape's shape. */
+const readIncluded = () => discoverRepos(homeDir()).included;
 
 /* The review runner, by the name its pidfile's holder runs (lib/pid-lock.js). */
 const REVIEW_RUNNER = "refill-review-run.js";
@@ -101,7 +109,7 @@ function writeJson(file, value) {
 function readControlChecked(log) {
 	const file = loopFiles().control;
 	const { found, value, damage } = readJsonOutcome(file);
-	const control = parseControl(value);
+	const control = parseControl(value, readIncluded);
 	const why =
 		damage ??
 		(found && control === null ? "not a control: no noProgressFrom" : null);
@@ -118,13 +126,27 @@ const readControlFile = (log) => readControlChecked(log).control;
  * Write the control. `startedAt` repeats noProgressFrom for a running loop on
  * code from before #3854, which reads a control without it as damaged and stops,
  * until it adopts this code. A stopgap: #3888 removes it.
+ *
+ * An away scope also carries `exclude`, every other included checkout, for a
+ * running loop on code from before #3862, which would otherwise serve them all,
+ * and `tickedSet`, so hasExcludeShape does not reread it. #3921 removes both.
  * @param {import("./refill-loop.js").Control} control
  */
-const writeControlFile = (control) =>
+const writeControlFile = (control) => {
+	const { scope } = control;
 	writeJson(loopFiles().control, {
 		startedAt: control.noProgressFrom,
 		...control,
+		scope:
+			scope.mode === "away"
+				? {
+						...scope,
+						tickedSet: true,
+						exclude: readIncluded().filter((r) => !scope.repos.includes(r)),
+					}
+				: scope,
 	});
+};
 
 /**
  * Run `write`, a control writer's read and write, under the one control lock,
@@ -153,6 +175,28 @@ function withControlLock(write, waitMs) {
 }
 
 /**
+ * Fix a control in hasExcludeShape's shape as the ticked set it serves now, so
+ * a checkout found later stays unticked. A stopgap: #3921 removes it.
+ * @param {(line: string) => void} log
+ * @param {number} [waitMs] withControlLock's
+ */
+function adoptControlFile(log, waitMs) {
+	const written = withControlLock(() => {
+		const raw = /** @type {{scope?: unknown}|null} */ (
+			readJsonOutcome(loopFiles().control).value
+		);
+		const { control } = readControlChecked(log);
+		if (control === null || !hasExcludeShape(raw?.scope)) return;
+		writeControlFile(control);
+		log(`control adopted: repos ${control.scope.repos.join(", ") || "none"}`);
+	}, waitMs);
+	if ("busy" in written)
+		log(
+			`control not adopted, so each tick reads its checkouts afresh until the next code adoption or boot: ${written.busy}`,
+		);
+}
+
+/**
  * The state file the loop writes, parsed; absent or damaged reads as parseState's
  * defaults, with `log` told of damage.
  * @param {(line: string) => void} log
@@ -161,6 +205,7 @@ function withControlLock(write, waitMs) {
 const readStateFile = (log) => parseState(readJson(loopFiles().state, log));
 
 module.exports = {
+	adoptControlFile,
 	loopFiles,
 	REVIEW_RUNNER,
 	readControlChecked,

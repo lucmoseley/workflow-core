@@ -21,9 +21,9 @@
  *
  * THE RESTART MATCHES THE STOPPED SCOPE (#3371): `/pick-next` restarts normal
  * mode only, naming the loop's other repos and goals (#3390). An away-mode
- * stop names `refill-loop.js start --away` with its exclusions, one command
- * per goal's checkout. `start` files a goal under CLAUDE_PROJECT_DIR before
- * the working directory (lib/host-root.js), so each away command sets it, and
+ * stop names one `refill-loop.js start` per goal's checkout, then the `set
+ * --away` with its repos. `start` files a goal under CLAUDE_PROJECT_DIR before
+ * the working directory (lib/host-root.js), so each such start sets it, and
  * names the script absolute. A loop started again since names no restart.
  *
  * Severity is WARN: a notice for the founder. An absent or damaged state
@@ -79,7 +79,8 @@ const STATUS = `node ${scriptPath("refill-loop.js")} status`;
 
 /**
  * The restart for a stopped loop's scope: `/pick-next` where it was normal
- * mode or is unknown, else an away start per goal's checkout (#3371).
+ * mode or is unknown, else a start per goal's checkout, then the switch to away
+ * with its repos (#3371).
  * Residual: an away loop whose control file is lost after its stop is named
  * `/pick-next`, which restarts it as normal mode.
  * @param {import("./lib/refill-loop.js").Control|null} control
@@ -88,17 +89,22 @@ const STATUS = `node ${scriptPath("refill-loop.js")} status`;
 function buildRestartLines(control) {
 	if (control === null) return [PICK_NEXT];
 	if (control.scope.mode === "normal") return buildPickNextLines(control.scope);
-	const { exclude, goals } = control.scope;
-	const away = `node ${expandPastePaths("{script:refill-loop.js}", "")} start --away${exclude
-		.map((r) => ` --exclude ${path.basename(r)}`)
+	const { repos, goals } = control.scope;
+	const script = `node ${expandPastePaths("{script:refill-loop.js}", "")}`;
+	const away = `${script} set --away${repos
+		.map((r) => ` --repos ${path.basename(r)}`)
 		.join("")}`;
 	const perGoal = Object.entries(goals).map(
 		([root, issues]) =>
-			`  CLAUDE_PROJECT_DIR=${shellQuote(root)} ${away} --goal ${issues.join(",")}`,
+			`  CLAUDE_PROJECT_DIR=${shellQuote(root)} ${script} start --goal ${issues.join(",")}`,
 	);
 	return perGoal.length === 0
-		? [`Restart away mode: ${away}`]
-		: ["Restart away mode, one start per goal's checkout:", ...perGoal];
+		? [`Restart away mode: ${script} start, then ${away}`]
+		: [
+				"Restart away mode, one start per goal's checkout, then the switch:",
+				...perGoal,
+				`  ${away}`,
+			];
 }
 
 /**

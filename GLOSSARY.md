@@ -149,7 +149,7 @@ How the leading professionals of a task's field do it and the tools they use, Cl
 _Avoid_: best practice (unranked), industry standard (only the first evidence tier), popular (adoption alone)
 
 **Away mode**:
-The machine's one refill loop scoped to every included workflow-core repo, bar any the founder names, picking the next ticket and launching it whenever a session finishes or parks and frees a slot. It starts only on his explicit ask (`refill-loop.js start --away`); `/pick-next` runs the same loop in normal mode, over its own repo and any he names, and never narrows a running away mode. It runs with no time bound (#2523): it stops on request, at dispatch's allowance cut unless a session waits stopped on its seat's limit, or after three sessions in a row make no progress. Its launches, and normal mode's, are driven sessions (`docs/agents/autonomy-ceiling.md`).
+The refill loop's mode that hands a session reaching a question for the founder off to its issue, where normal mode keeps that session open for him. It serves the same ticked repos as normal mode, and is switched only on his ask, by `refill-loop.js set --away` and `--normal`. The loop picks the next ticket and launches it whenever a session finishes or parks and frees a slot, with no time bound (#2523): it stops on request, at dispatch's allowance cut unless a session waits stopped on its seat's limit, or after three sessions in a row make no progress. Its launches, and normal mode's, are driven sessions (`docs/agents/autonomy-ceiling.md`).
 _Avoid_: night mode, night loop (it is not tied to the clock), autopilot (says nothing of what stops it)
 
 **Parked**:
@@ -157,7 +157,7 @@ Said of a ticket whose session ended waiting on the founder: it posted a house-d
 _Avoid_: blocked (a native dependency edge), waiting (the `waiting:external` label, for someone outside), paused
 
 **Morning review issue**:
-The one issue filed each morning on workflow-core's tracker, covering every repo away mode serves, that lists, since the previous one, the delegated decisions still caught after the research ladder (still close, or with no option likely right), a count of the clear ones, a count of the tickets closed with a search link per repo, and every one-way close. The founder writes `reverse <n>` against an entry he disagrees with, and closes it once read.
+The one issue filed each morning on workflow-core's tracker, covering every repo the refill loop may serve, that lists, since the previous one, the delegated decisions still caught after the research ladder (still close, or with no option likely right), a count of the clear ones, a count of the tickets closed with a search link per repo, and every one-way close. The founder writes `reverse <n>` against an entry he disagrees with, and closes it once read.
 _Avoid_: digest, daily report (each suggests every commit is listed)
 
 **Primitive**:

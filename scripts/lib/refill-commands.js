@@ -1,7 +1,7 @@
 /*
  * refill-commands.js — what the refill loop's `start`, `set` and `status`
  * commands compute and print, pure (#2012, #2123, spec #1995): the scope a
- * `start` writes over a running loop's, the field a `set` changes, and the lines naming a loop's scope, its
+ * `start` writes over a running loop's, the fields a `set` changes, and the lines naming a loop's scope, its
  * launches and its last tick. The control and state they read are
  * lib/refill-loop.js's.
  */
@@ -49,10 +49,9 @@ const STATUS_SKIPS = 10;
 
 /**
  * The scope a `start` writes, given the running loop's (null where none
- * runs) and the one asked for from `root`. A normal start adds its repos to
- * a running normal loop's; an away start widens whatever runs; a normal
- * start never narrows a running away mode. In every case the asked goal
- * replaces `root`'s, a bare start clearing it (#2119, #2123).
+ * runs) and the one asked for from `root`. A start adds its repos to a running
+ * loop's and keeps its mode; the asked goal replaces `root`'s, a bare start
+ * clearing it (#2119, #2123).
  * @param {Scope|null} running
  * @param {Scope} asked
  * @param {string} root
@@ -63,51 +62,101 @@ function mergedScope(running, asked, root) {
 	const goals = { ...running.goals };
 	delete goals[root];
 	Object.assign(goals, asked.goals);
-	if (asked.mode === "away") return { ...asked, goals };
-	if (running.mode === "away") return { ...running, goals };
 	const repos = [...new Set([...running.repos, ...asked.repos])];
-	return { ...asked, repos, goals };
+	return { ...running, repos, goals };
 }
 
 /** @param {number} from */
 const buildCountingLine = (from) =>
 	`counting:  no-progress count from ${iso(from)}`;
 
+/** @param {string[]} roots */
+const buildRepoNames = (roots) =>
+	roots.map((r) => path.basename(r)).join(", ") || "none";
+
+/**
+ * The fields a `set` names, each absent where it does not; `repos`, the whole
+ * ticked set; `pause`, `--pause`, or false for `--resume`.
+ * @typedef {{pause?: boolean, mode?: Scope["mode"], repos?: string[],
+ *   tick?: string[], untick?: string[]}} SetAsk
+ * @typedef {{running: boolean, now: number}} SetContext
+ * @typedef {{write: Control|null, lines: string[]}} SetChange
+ */
+
+/** @param {SetAsk} ask */
+const asksRepos = ({ repos, tick, untick }) => Boolean(repos || tick || untick);
+
 /**
  * What a `set` does to the control just read under the lock: why it refuses, or
  * the control to write, null where none, and the lines to print.
  * @param {import("./refill-loop.js").ControlRead} read
- * @param {{pause: boolean, running: boolean, now: number}} asked `pause`,
- *   `--pause`, else `--resume`
- * @returns {{refused: string}|{write: Control|null, lines: string[]}}
+ * @param {SetAsk} ask
+ * @param {SetContext} context
+ * @returns {{refused: string}|SetChange}
  */
-function planSet({ control, damaged }, { pause, running, now }) {
+function planSet({ control, damaged }, ask, context) {
 	if (damaged !== null) return { refused: `${damaged}; \`start\` rewrites it` };
 	if (control === null)
 		return { refused: "the loop was never started; run `start` first" };
-	const { write, lines } = buildSetChange(control, { pause, running, now });
-	return {
-		write,
-		lines: [
-			...lines,
-			...(running
-				? []
-				: ["refill loop: not running; this holds from its next start"]),
-		],
-	};
+	const { pause, mode } = ask;
+	/** @type {((c: Control) => SetChange)[]} */
+	const steps = [
+		...(pause === undefined
+			? []
+			: [(/** @type {Control} */ c) => buildPauseChange(c, pause, context)]),
+		...(mode === undefined
+			? []
+			: [(/** @type {Control} */ c) => buildModeChange(c, mode)]),
+		...(asksRepos(ask)
+			? [(/** @type {Control} */ c) => buildReposChange(c, ask)]
+			: []),
+	];
+	let current = control;
+	/** @type {Control|null} */
+	let write = null;
+	const lines = [];
+	for (const step of steps) {
+		const change = step(current);
+		lines.push(...change.lines);
+		if (change.write) {
+			current = change.write;
+			write = change.write;
+		}
+	}
+	return { write, lines: [...lines, ...buildNotRunningLines(ask, context)] };
 }
 
 /**
- * Only the field a `set` names changed. A resume of a running loop moves the
- * point the no-progress count counts from, so the finishes before it do not
- * count (#3856). With no process the point stays, so a loop that ended itself
- * still reads as ended until a `start`. Asking for what already holds changes
- * nothing, a repeat pause keeping its time.
- * @param {Control} control
- * @param {{pause: boolean, running: boolean, now: number}} asked
- * @returns {{write: Control|null, lines: string[]}}
+ * A `start` keeps a pause, and rebuilds the mode and repos.
+ * @param {SetAsk} ask
+ * @param {SetContext} context
  */
-function buildSetChange(control, { pause, running, now }) {
+function buildNotRunningLines(ask, { running }) {
+	if (running) return [];
+	return [
+		...(ask.pause === undefined
+			? []
+			: ["refill loop: not running; this holds from its next start"]),
+		...(ask.mode || asksRepos(ask)
+			? [
+					"refill loop: not running; its next start sets the mode and repos afresh",
+				]
+			: []),
+	];
+}
+
+/**
+ * Only the pause changed. A resume of a running loop moves the point the
+ * no-progress count counts from, so the finishes before it do not count
+ * (#3856). With no process the point stays, so a loop that ended itself still
+ * reads as ended until a `start`. Asking for what already holds changes nothing,
+ * a repeat pause keeping its time.
+ * @param {Control} control
+ * @param {boolean} pause
+ * @param {SetContext} context
+ * @returns {SetChange}
+ */
+function buildPauseChange(control, pause, { running, now }) {
 	if (pause === (control.paused !== undefined))
 		return {
 			write: null,
@@ -126,6 +175,44 @@ function buildSetChange(control, { pause, running, now }) {
 				lines: ["not paused", buildCountingLine(now)],
 			}
 		: { write: rest, lines: ["not paused"] };
+}
+
+/**
+ * Only the mode changed.
+ * @param {Control} control
+ * @param {Scope["mode"]} mode
+ * @returns {SetChange}
+ */
+function buildModeChange(control, mode) {
+	if (control.scope.mode === mode)
+		return { write: null, lines: [`unchanged: mode ${mode}`] };
+	return {
+		write: { ...control, scope: { ...control.scope, mode } },
+		lines: [`mode:      ${mode}`],
+	};
+}
+
+/**
+ * Only the ticked set changed: replaced by `repos`, then `tick` added and
+ * `untick` taken away, a repo already ticked keeping its place.
+ * @param {Control} control
+ * @param {SetAsk} ask
+ * @returns {SetChange}
+ */
+function buildReposChange(control, { repos, tick = [], untick = [] }) {
+	const before = control.scope.repos;
+	const after = [...new Set([...(repos ?? before), ...tick])].filter(
+		(r) => !untick.includes(r),
+	);
+	if (after.join("\0") === before.join("\0"))
+		return {
+			write: null,
+			lines: [`unchanged: repos ${buildRepoNames(before)}`],
+		};
+	return {
+		write: { ...control, scope: { ...control.scope, repos: after } },
+		lines: [`repos:     ${buildRepoNames(after)}`],
+	};
 }
 
 /**
@@ -308,17 +395,6 @@ function buildSeatsLine(view, now) {
 }
 
 /**
- * What `start` says of a loop already running.
- * @param {Scope["mode"]} askedMode
- * @param {Scope["mode"]} runningMode the mode the merged scope kept
- * @param {number} pid
- */
-const buildRunningLine = (askedMode, runningMode, pid) =>
-	askedMode === "normal" && runningMode === "away"
-		? `refill loop: away mode is running and is left as it is, bar this checkout's goal; pid ${pid}`
-		: `refill loop running: pid ${pid}`;
-
-/**
  * The lines naming what a loop serves and on which seats.
  * @param {Control} control
  * @param {{served: string[], running: boolean, seatsLine: string}} opts
@@ -326,22 +402,18 @@ const buildRunningLine = (askedMode, runningMode, pid) =>
  */
 function buildScopeLines(control, { served, running, seatsLine }) {
 	const { scope } = control;
-	const names = (/** @type {string[]} */ roots) =>
-		roots.map((r) => path.basename(r)).join(", ") || "none";
 	const goals = Object.entries(scope.goals).map(
 		([root, issues]) =>
 			`${path.basename(root)} ${issues.map((n) => `#${n}`).join(", ")}`,
 	);
-	const away = scope.mode === "away";
 	return [
 		...(control.paused
 			? [
 					`${buildPauseText(control.paused)}; launches nothing until \`set --resume\``,
 				]
 			: []),
-		away ? "mode:      away (every included repo)" : "mode:      normal",
-		`repos:     ${names(served)}`,
-		...(away ? [`excluding: ${names(scope.exclude)}`] : []),
+		`mode:      ${scope.mode}`,
+		`repos:     ${buildRepoNames(served)}`,
 		`goal:      ${goals.join("; ") || "none"}`,
 		...(running && control.stopRequested
 			? ["stops:     at its next tick, on request"]
@@ -575,17 +647,27 @@ function buildOverflowBasisLines({
 }
 
 /**
- * `status --json`: whether the loop runs, its pause, the launch rows `status` lists,
- * each with its seat as a tilde path and why it was picked (#3732), null on a
- * record from before that, and the `seats:` line's fields (#3733).
+ * `status --json`: whether the loop runs, its pause and mode, every candidate
+ * checkout, ticked or not, with why any is disabled (#3862), the launch rows
+ * `status` lists, each with its seat as a tilde path and why it was picked
+ * (#3732), null on a record from before that, and the `seats:` line's fields
+ * (#3733).
  * @param {{control: Control|null, state: LoopState, pid: number|null,
- *   seats: SeatsView}} input
+ *   seats: SeatsView,
+ *   candidates: {root: string, disabled: string|null}[]}} input
  */
-function buildStatusJson({ control, state, pid, seats }) {
+function buildStatusJson({ control, state, pid, seats, candidates }) {
 	return {
 		running: pid !== null,
 		pid,
 		paused: control?.paused ?? null,
+		mode: control?.scope.mode ?? null,
+		repos: candidates.map(({ root, disabled }) => ({
+			name: path.basename(root),
+			root,
+			ticked: control?.scope.repos.includes(root) ?? false,
+			disabled,
+		})),
 		seats,
 		launches: control
 			? shownLaunches(control, state).listed.map((l) => ({
@@ -602,7 +684,6 @@ function buildStatusJson({ control, state, pid, seats }) {
 }
 
 module.exports = {
-	buildRunningLine,
 	buildOverflowBasisLines,
 	buildScopeLines,
 	buildSeatsLine,

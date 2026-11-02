@@ -167,7 +167,7 @@ beforeEach(() => {
 			noProgressFrom: Date.now(),
 			stopRequested: false,
 			seats: [seat],
-			scope: { mode: "normal", repos: [repo], exclude: [], goals: {} },
+			scope: { mode: "normal", repos: [repo], goals: {} },
 		}),
 	);
 	// Swept just now, so no tick starts a gate sweep.
@@ -310,7 +310,7 @@ describe("run (#2435)", () => {
 				startedAt: Date.now() - 1000 * 60 * 60 * 1000,
 				stopRequested: false,
 				seats: [seat],
-				scope: { mode: "normal", repos: [repo], exclude: [], goals: {} },
+				scope: { mode: "normal", repos: [repo], goals: {} },
 			}),
 		);
 		await settled(run(1), "run after a mid-dispatch stop");
@@ -724,7 +724,7 @@ describe("a parked launch (#2699)", () => {
 			at(".refill-loop-control.json"),
 			JSON.stringify({
 				...control,
-				scope: { mode: "away", repos: [], exclude: [], goals: {} },
+				scope: { mode: "away", repos: [repo], goals: {} },
 			}),
 		);
 		fs.writeFileSync(
@@ -1601,7 +1601,7 @@ describe("a session held on its seat's limit (#3735)", () => {
 					noProgressFrom: Date.now(),
 					stopRequested: false,
 					seats: [seat, target()],
-					scope: { mode: "normal", repos: [repo], exclude: [], goals: {} },
+					scope: { mode: "normal", repos: [repo], goals: {} },
 				}),
 			);
 		};
@@ -2321,7 +2321,7 @@ describe("a daemon whose cwd is outside every checkout (#2937)", () => {
 			control,
 			JSON.stringify({
 				...JSON.parse(fs.readFileSync(control, "utf8")),
-				scope: { mode: "normal", repos: [], exclude: [], goals: {} },
+				scope: { mode: "normal", repos: [], goals: {} },
 			}),
 		);
 		const r = await dryRun();
@@ -2709,7 +2709,7 @@ describe("boot-resume after a restart (#3878)", () => {
 				noProgressFrom: startedAt,
 				stopRequested: false,
 				seats: [seat],
-				scope: { mode: "normal", repos: [repo], exclude: [], goals: {} },
+				scope: { mode: "normal", repos: [repo], goals: {} },
 			}),
 		);
 	const command = (...argv: string[]) =>
@@ -3390,7 +3390,7 @@ process.stdout.write("Filed #${Issue}\\n");
 		fs.mkdirSync(path.join(other, ".claude"));
 		writeConfig(other);
 		updateControl({
-			scope: { mode: "normal", repos: [repo, other], exclude: [], goals: {} },
+			scope: { mode: "normal", repos: [repo, other], goals: {} },
 		});
 		stub(
 			"dispatch-sessions.sh",
