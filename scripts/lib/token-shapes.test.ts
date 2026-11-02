@@ -267,10 +267,10 @@ describe("maskTokens on a cascading chain (#3661)", () => {
 
 	/** The regex replacements one call makes, the masker's unit of work: no
 	 * return value shows how many passes it ran. */
-	function replacements(text: string) {
+	function replacements(text: string, names?: string[], values?: string[]) {
 		const spy = vi.spyOn(RegExp.prototype, Symbol.replace);
 		try {
-			const result = maskTokens(text);
+			const result = maskTokens(text, names, values);
 			return { result, calls: spy.mock.calls.length };
 		} finally {
 			spy.mockRestore();
@@ -288,6 +288,14 @@ describe("maskTokens on a cascading chain (#3661)", () => {
 		const one = replacements(chain(1));
 		const many = replacements(chain(2000));
 		expect(many.result.count).toBe(2000);
+		expect(many.calls).toBe(one.calls);
+	});
+
+	it("makes as many on 320 kB with stored names and values (#3821)", () => {
+		const stored: [string[], string[]] = [["JEV_KEY"], ["abcdefgh"]];
+		const one = replacements(chain(1), ...stored);
+		const many = replacements(chain(9500), ...stored);
+		expect(many.result.count).toBe(9500);
 		expect(many.calls).toBe(one.calls);
 	});
 });
@@ -426,6 +434,121 @@ describe("maskTokens on a stored value as the secrets file holds it (#3710)", ()
 	])("masks the value across %s", (_name, assignment, value) => {
 		expect(maskTokens(`${assignment}${value}`, stored)).toEqual({
 			text: `${assignment}[REDACTED:stored]`,
+			count: 1,
+		});
+	});
+});
+
+describe("maskTokens on an assignment's other spellings (#3821)", () => {
+	const stored = ["JEV_KEY"];
+
+	it.each([
+		["a subscript", 'os.environ["JEV_KEY"]="ab1"', 'os.environ["JEV_KEY"]='],
+		[
+			"a stringified subscript",
+			'os.environ[\\"JEV_KEY\\"] = \\"ab1\\"',
+			'os.environ[\\"JEV_KEY\\"] = ',
+		],
+		["a URL-encoded =", "JEV_KEY%3Dab1", "JEV_KEY%3D"],
+		["a re-encoded =", "JEV_KEY%253Dab1", "JEV_KEY%253D"],
+		["a lower-case encoded =", "JEV_KEY%3dab1", "JEV_KEY%3d"],
+		["a \\x escape", "JEV_KEY\\x3dab1", "JEV_KEY\\x3d"],
+		["a \\u escape", "JEV_KEY\\u003Dab1", "JEV_KEY\\u003D"],
+		["an octal escape", "JEV_KEY\\075ab1", "JEV_KEY\\075"],
+		["a decimal HTML entity", "JEV_KEY&#61;ab1", "JEV_KEY&#61;"],
+		["a hex HTML entity", "JEV_KEY&#x3D;ab1", "JEV_KEY&#x3D;"],
+		["a named HTML entity", "JEV_KEY&equals;ab1", "JEV_KEY&equals;"],
+		["+=", "JEV_KEY+=ab1", "JEV_KEY+="],
+		[":=", "JEV_KEY := ab1", "JEV_KEY := "],
+		["?=", "JEV_KEY?=ab1", "JEV_KEY?="],
+		["a backslash-newline", "JEV_KEY=\\\n  ab1", "JEV_KEY=\\\n  "],
+		["a backslash-CRLF", "JEV_KEY=\\\r\nab1", "JEV_KEY=\\\r\n"],
+	])("masks a short value after %s", (_name, text, kept) => {
+		expect(maskTokens(text, stored)).toEqual({
+			text: `${kept}[REDACTED:stored]`,
+			count: 1,
+		});
+	});
+
+	it("masks a whole value URL-encoded with its separator", () => {
+		expect(maskTokens("JEV_KEY%3Dab%2Bc%3D", stored).text).toBe(
+			"JEV_KEY%3D[REDACTED:stored]",
+		);
+	});
+
+	it.each([
+		["a comparison", "JEV_KEY != ab1"],
+		["a label", "JEV_KEY: ab1"],
+		["a subscript read", 'x["JEV_KEY"]'],
+		["a longer name", "MY_JEV_KEY%3Dab1"],
+		["an encoded byte that is not =", "JEV_KEY%3Eab1"],
+	])("leaves %s alone", (_name, text) => {
+		expect(maskTokens(text, stored)).toEqual({ text, count: 0 });
+	});
+});
+
+describe("maskTokens on a stored value wherever it appears (#3821)", () => {
+	const value = `vck_${"aB3".repeat(16)}`;
+
+	it.each([
+		["bare", `Bearer ${value} end`, "Bearer [REDACTED:stored] end"],
+		["after NAME:", `JEV_KEY: ${value}`, "JEV_KEY: [REDACTED:stored]"],
+		[
+			"as a JSON key's value",
+			`{"JEV_KEY":"${value}"}`,
+			'{"JEV_KEY":"[REDACTED:stored]"}',
+		],
+		[
+			"twice on a line",
+			`${value} ${value}`,
+			"[REDACTED:stored] [REDACTED:stored]",
+		],
+	])("masks it %s", (_name, text, masked) => {
+		const count = text.split(value).length - 1;
+		expect(maskTokens(text, [], [value])).toEqual({ text: masked, count });
+	});
+
+	it("counts a value once where an assignment already masked it", () => {
+		expect(maskTokens(`JEV_KEY=${value}`, ["JEV_KEY"], [value])).toEqual({
+			text: "JEV_KEY=[REDACTED:stored]",
+			count: 1,
+		});
+	});
+
+	it("takes the value as literal text", () => {
+		expect(maskTokens("a.b$&c*d+ e", [], ["a.b$&c*d+"]).text).toBe(
+			"[REDACTED:stored] e",
+		);
+		expect(maskTokens("aXb$&c*d+ e", [], ["a.b$&c*d+"]).count).toBe(0);
+	});
+
+	it("masks the longer of two values one holds, leaving no tail", () => {
+		expect(
+			maskTokens("abcdefgh-tail", [], ["abcdefgh", "abcdefgh-tail"]),
+		).toEqual({ text: "[REDACTED:stored]", count: 1 });
+	});
+
+	it("masks a value of eight characters and leaves one of seven", () => {
+		expect(maskTokens("x abcdefgh y", [], ["abcdefgh"]).text).toBe(
+			"x [REDACTED:stored] y",
+		);
+		expect(maskTokens("x abcdefg y", [], ["abcdefg"])).toEqual({
+			text: "x abcdefg y",
+			count: 0,
+		});
+	});
+
+	it("masks a whole token a stored value sits inside", () => {
+		const token = `ghp_abcd1234${"a".repeat(30)}`;
+		expect(maskTokens(`x ${token} y`, [], ["abcd1234"]).text).toBe(
+			"x [REDACTED:github] y",
+		);
+	});
+
+	it("masks the part of a stored value past the token it holds", () => {
+		const holding = `${GITHUB}.tail-of-it`;
+		expect(maskTokens(`x ${holding} y`, [], [holding])).toEqual({
+			text: "x [REDACTED:stored] y",
 			count: 1,
 		});
 	});

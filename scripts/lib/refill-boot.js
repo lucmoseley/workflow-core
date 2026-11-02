@@ -7,6 +7,7 @@
  */
 
 const { isBootKilled, isHeld, isLive } = require("./refill-blocks.js");
+const { recordedStop } = require("./refill-loop.js");
 
 /**
  * @param {object} found
@@ -26,10 +27,13 @@ function bootVerdictOf({ control, damaged, stopped, pid, self }) {
 		return refused(`already running, pid ${pid}`);
 	if (damaged !== null) return refused(damaged);
 	if (control === null) return refused("no start on record");
-	if (control.stopRequested) return refused("stopped by command");
-	/* A stop record older than the count's point belongs to an earlier run. */
-	if (stopped !== null && stopped.at >= control.noProgressFrom)
-		return refused(`the loop ended itself: ${stopped.detail}`);
+	const stop = recordedStop(control, stopped);
+	if (stop !== null)
+		return refused(
+			stop.reason === "explicit"
+				? "stopped by command"
+				: `the loop ended itself: ${stop.detail}`,
+		);
 	return {
 		resume: true,
 		line: `boot resume: resumed the loop counting from ${new Date(control.noProgressFrom).toISOString()}`,

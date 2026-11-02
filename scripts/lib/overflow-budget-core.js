@@ -107,4 +107,12 @@ function budgetOf({ grantUsd, cycleDay, ledger, running, table, now }) {
 	};
 }
 
-module.exports = { budgetOf };
+/**
+ * Whether the key has no launch left this cycle, running runs aside: a credit
+ * refusal, or less unsettled grant than one launch's reservation.
+ * @param {Budget} budget
+ */
+const isBudgetSpent = ({ exhausted, grantUsd, settledUsd, qUsd }) =>
+	exhausted || grantUsd - settledUsd < qUsd;
+
+module.exports = { budgetOf, isBudgetSpent };

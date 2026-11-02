@@ -4,8 +4,7 @@
  * `start` on a running loop rather than starting a second, `stop`
  * asking the loop to end, `set` pausing and resuming it (#3856), and the command
  * line. Driven in process, bar a command that must wait on a lock this test
- * frees; `start` with no loop running spawns the real detached loop, so it is
- * left to the manual dry run.
+ * frees; a command that spawns the real detached loop is refill-loop-run.test.ts's.
  *
  * The running loop is a second process whose command line names the script,
  * holding the pidfile: liveness is read off /proc, which only another process
@@ -99,11 +98,10 @@ describe("start", () => {
 				scope: { mode: "normal", repos: [dir], goal: null },
 			}),
 		);
+		const before = readControl();
 		const r = await run("start");
 		expect(r.stdout).toContain(`refill loop running: pid ${pid}`);
-		expect(readControl().noProgressFrom).toBe(1);
-		/* Code from before #3854 reads this key and calls a control without it damaged. */
-		expect(readControl().startedAt).toBe(1);
+		expect(readControl()).toEqual(before);
 	});
 
 	it("takes its seats from ~/.claude/refill-seats, in order", async () => {
@@ -183,78 +181,263 @@ describe("start", () => {
 const checkout = (name: string, config: Record<string, unknown> = {}) =>
 	writeCheckout(dir, name, config);
 
-describe("the scope start writes (#2123)", () => {
-	it("serves this checkout plus each named one, its goal ranked first", async () => {
-		holdPidfile();
-		const mh = checkout("mantahostels");
-		const r = await run(
-			"start",
-			"--repo",
-			"mantahostels",
-			"--goal",
-			"116,#117",
+describe("start ensures a process runs (#3868)", () => {
+	const controlFile = () => path.join(dir, ".refill-loop-control.json");
+	const paused = { by: "founder", at: 7 };
+	const goal = {
+		form: "issues",
+		text: "manta#5",
+		refs: [{ repo: "manta", number: 5 }],
+		setAt: 3,
+	};
+	let core: string;
+	let manta: string;
+	const writeStored = (extra: object = {}) =>
+		fs.writeFileSync(
+			controlFile(),
+			JSON.stringify({
+				noProgressFrom: 5,
+				stopRequested: false,
+				seats: ["/seat"],
+				scope: { mode: "away", repos: [manta], goal },
+				...extra,
+			}),
 		);
+	const stubbedGh = () =>
+		stubGhRoutes(dir, {
+			"issue view 500 *": printed(JSON.stringify({ state: "CLOSED" })),
+			"issue view *": printed(JSON.stringify({ state: "OPEN" })),
+		}).env;
+	/* From the core checkout, which writeStored leaves unticked. */
+	const start = (...argv: string[]) =>
+		runEnv({ ...stubbedGh(), CLAUDE_PROJECT_DIR: core }, "start", ...argv);
+	const noProcessStarted = () =>
+		expect(fs.existsSync(path.join(dir, ".refill-loop.log"))).toBe(false);
+	const Unchecked =
+		"core is unchecked on the panel: the loop does not serve it";
+
+	beforeEach(() => {
+		core = checkout("core");
+		manta = checkout("manta");
+	});
+
+	it("writes a fresh control only where none exists: this checkout and each named", async () => {
+		holdPidfile();
+		const r = await start("--repo", "manta", "--goal", "core#116,manta#117");
 		expect(r.status).toBe(0);
 		expect(readControl().scope).toEqual({
 			mode: "normal",
-			repos: [dir, mh],
+			repos: [core, manta],
 			goal: {
 				form: "issues",
-				text: "116,#117",
+				text: "core#116,manta#117",
 				refs: [
-					{ repo: path.basename(dir), number: 116 },
-					{ repo: path.basename(dir), number: 117 },
+					{ repo: "core", number: 116 },
+					{ repo: "manta", number: 117 },
 				],
 				setAt: expect.any(Number),
 			},
 		});
 		expect(r.stdout).toContain("mode:      normal");
+		expect(r.stdout).not.toContain(Unchecked);
 	});
 
-	it("keeps a running away mode, adding this checkout and taking its goal", async () => {
+	it.each([["start"], ["start --unless-stopped"]])(
+		"%s on a live loop changes nothing, its own repo left unticked",
+		async (typed) => {
+			const pid = holdPidfile();
+			writeStored({ paused });
+			const before = fs.readFileSync(controlFile(), "utf8");
+			const r = await start(...typed.split(" ").slice(1));
+			expect(r.status).toBe(0);
+			expect(r.stdout).toContain(`refill loop running: pid ${pid}`);
+			expect(r.stdout).toContain("paused by founder at");
+			expect(r.stdout).toContain("mode:      away");
+			expect(r.stdout).toContain(Unchecked);
+			expect(fs.readFileSync(controlFile(), "utf8")).toBe(before);
+			expect(fs.existsSync(path.join(dir, ".refill-loop-wake"))).toBe(false);
+		},
+	);
+
+	it("ticks what --repo names and replaces the goal with --goal, and nothing else", async () => {
 		holdPidfile();
-		const dv = checkout("design-vault");
-		fs.writeFileSync(
-			path.join(dir, ".refill-loop-control.json"),
-			JSON.stringify({
-				noProgressFrom: 1,
-				seats: [],
-				scope: { mode: "away", repos: [dv], goal: null },
-			}),
+		writeStored({ paused });
+		const r = await start(
+			"--unless-stopped",
+			"--repo",
+			"core",
+			"--goal",
+			"core#9",
 		);
-		const r = await run("start", "--goal", "9");
-		expect(r.stdout).toContain("refill loop running: pid");
-		expect(readControl().noProgressFrom).toBe(1);
-		expect(readControl().scope).toMatchObject({
-			mode: "away",
-			repos: [dv, dir],
-			goal: { refs: [{ repo: path.basename(dir), number: 9 }] },
+		expect(r.status).toBe(0);
+		expect(r.stdout).not.toContain(Unchecked);
+		expect(readControl()).toMatchObject({
+			noProgressFrom: 5,
+			paused,
+			seats: ["/seat"],
+			scope: {
+				mode: "away",
+				repos: [manta, core],
+				goal: { refs: [{ repo: "core", number: 9 }] },
+			},
+		});
+		expect(
+			fs.readFileSync(path.join(dir, ".refill-loop-wake"), "utf8"),
+		).toMatch(/^\d{13}/);
+	});
+
+	it("takes a walk as --goal, keeping its form", async () => {
+		holdPidfile();
+		writeStored({ paused });
+		const r = await start("--repo", "core", "--goal", "drain core#9");
+		expect(r.status).toBe(0);
+		expect(readControl().scope.goal).toMatchObject({
+			form: "drain",
+			text: "drain core#9",
+			refs: [{ repo: "core", number: 9 }],
 		});
 	});
 
-	it("refuses a name that is no checkout, or a bad goal, naming it with the usage", async () => {
-		checkout("etc");
+	it("refuses what `set` refuses, naming it with the usage and writing nothing", async () => {
 		checkout("books", { refillLoop: false });
+		holdPidfile();
+		writeStored();
+		const before = fs.readFileSync(controlFile(), "utf8");
 		for (const [argv, names] of [
-			[["start", "--repo", "nowhere"], "nowhere is no workflow-core checkout"],
-			[["start", "--repo", "../etc"], "../etc is no workflow-core checkout"],
-			[
-				["start", "--repo", "books"],
-				"books cannot be ticked: refillLoop: false",
-			],
-			[
-				["start", "--goal", "soon"],
-				"--goal takes issue refs, #N or <dir>#N, or drain or unblock with one: soon",
-			],
+			[["--repo", "nowhere"], "nowhere is no workflow-core checkout"],
+			[["--repo", "../etc"], "../etc is no workflow-core checkout"],
+			[["--repo", "books"], "books cannot be ticked: refillLoop: false"],
+			[["--goal", "soon"], "--goal takes issue refs"],
+			[["--goal", "manta#500"], "manta#500"],
+			[["--goal", "core#9"], "tick core first"],
+			[["--goal", "#9", "--repo", "core"], "write <repo>#9"],
 		] as const) {
-			const r = await run(...argv);
+			const r = await start(...argv);
 			expect(r.status).toBe(2);
 			expect(r.stderr).toContain(names);
 			expect(r.stderr).toContain("usage:");
-			expect(fs.existsSync(path.join(dir, ".refill-loop-control.json"))).toBe(
-				false,
-			);
+			expect(fs.readFileSync(controlFile(), "utf8")).toBe(before);
 		}
+	});
+
+	it("takes a bare #N where one repo is ticked", async () => {
+		holdPidfile();
+		writeStored();
+		expect((await start("--goal", "#9")).status).toBe(0);
+		expect(readControl().scope.goal.refs).toEqual([
+			{ repo: "manta", number: 9 },
+		]);
+	});
+
+	describe("--unless-stopped", () => {
+		it("leaves a stopped loop stopped, and says so", async () => {
+			writeStored({ stopRequested: true, stopRequestedAt: 6, paused });
+			const before = fs.readFileSync(controlFile(), "utf8");
+			const r = await start("--unless-stopped");
+			expect(r.status).toBe(0);
+			expect(r.stdout).toContain(
+				"refill loop stopped at 1970-01-01T00:00:00.006Z: left stopped",
+			);
+			expect(r.stdout).toContain(Unchecked);
+			expect(fs.readFileSync(controlFile(), "utf8")).toBe(before);
+			noProcessStarted();
+		});
+
+		it("takes its flags on a stopped loop, which stays stopped", async () => {
+			writeStored({ stopRequested: true, stopRequestedAt: 6 });
+			const r = await start("--unless-stopped", "--repo", "core");
+			expect(r.status).toBe(0);
+			expect(r.stdout).toContain("left stopped");
+			expect(readControl()).toMatchObject({
+				stopRequested: true,
+				stopRequestedAt: 6,
+				scope: { mode: "away", repos: [manta, core], goal },
+			});
+			noProcessStarted();
+		});
+
+		it("leaves a pending stop to end the loop, printing it", async () => {
+			holdPidfile();
+			writeStored({ stopRequested: true, stopRequestedAt: 6 });
+			const r = await start("--unless-stopped");
+			expect(r.status).toBe(0);
+			expect(r.stdout).toContain("stops:     at its next tick, on request");
+			expect(readControl().stopRequested).toBe(true);
+		});
+
+		it("names a no-progress pause, which stays", async () => {
+			const noProgress = {
+				by: "no-progress",
+				at: 7,
+				issues: [{ root: manta, number: 5 }],
+			};
+			holdPidfile();
+			writeStored({ paused: noProgress });
+			const r = await start("--unless-stopped");
+			expect(r.status).toBe(0);
+			expect(r.stdout).toContain("paused by no-progress");
+			expect(readControl().paused).toEqual(noProgress);
+		});
+
+		it("refuses a damaged control, leaving its bytes", async () => {
+			fs.writeFileSync(controlFile(), "{ garbled");
+			const r = await start("--unless-stopped");
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain("is damaged");
+			expect(fs.readFileSync(controlFile(), "utf8")).toBe("{ garbled");
+			noProcessStarted();
+		});
+
+		it("refuses a stop with no control left, writing none", async () => {
+			fs.writeFileSync(
+				path.join(dir, ".refill-loop-state.json"),
+				JSON.stringify({
+					stopped: { at: 6, reason: "explicit", detail: "asked" },
+				}),
+			);
+			const r = await start("--unless-stopped");
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain("holds no stored settings");
+			expect(fs.existsSync(controlFile())).toBe(false);
+			noProcessStarted();
+		});
+	});
+
+	it("names a damaged control a plain start replaces", async () => {
+		holdPidfile();
+		fs.writeFileSync(controlFile(), "{ garbled");
+		const r = await start();
+		expect(r.status).toBe(0);
+		expect(r.stdout).toMatch(/is damaged.*; fresh settings written/);
+		expect(readControl().scope.repos).toEqual([core]);
+	});
+
+	describe("from a checkout opted out of the loop", () => {
+		const startOptedOut = (...argv: string[]) =>
+			runEnv(
+				{
+					...stubbedGh(),
+					CLAUDE_PROJECT_DIR: checkout("books", { refillLoop: false }),
+				},
+				"start",
+				...argv,
+			);
+
+		it("still sends its flags to a loop with stored settings", async () => {
+			holdPidfile();
+			writeStored();
+			const r = await startOptedOut("--unless-stopped", "--repo", "core");
+			expect(r.status).toBe(0);
+			expect(r.stdout).toContain("refill loop running: pid");
+			expect(readControl().scope.repos).toEqual([manta, core]);
+		});
+
+		it("writes no fresh control ticking itself", async () => {
+			const r = await startOptedOut();
+			expect(r.status).toBe(0);
+			expect(r.stdout).toContain("this checkout is not served");
+			expect(fs.existsSync(controlFile())).toBe(false);
+		});
 	});
 });
 
@@ -300,7 +483,7 @@ describe("stop and status", () => {
 		);
 	});
 
-	it("prints each overflow seat's budget line", async () => {
+	const declareOverflowKey = () => {
 		fs.mkdirSync(path.join(dir, ".claude"));
 		fs.writeFileSync(
 			path.join(dir, ".claude", "refill-seats"),
@@ -317,6 +500,67 @@ describe("stop and status", () => {
 				landedByHours: [[1, 1]],
 			}),
 		);
+	};
+
+	const fillPlanSeat = () => {
+		fs.mkdirSync(path.join(dir, ".claude3"));
+		fs.writeFileSync(
+			path.join(dir, ".claude3", ".claude.json"),
+			JSON.stringify(buildUsageCache({ week: 100 }, Date.now())),
+		);
+	};
+
+	it("carries each overflow key's budget and each plan seat's week in status --json", async () => {
+		declareOverflowKey();
+		fillPlanSeat();
+		const json = JSON.parse((await run("status", "--json")).stdout);
+		expect(json.overflow).toEqual([
+			{
+				seat: path.join(dir, ".claude2-api").replace(dir, "~"),
+				spentUsd: 0,
+				grantUsd: 200,
+				headroomUsd: 200,
+				exhausted: false,
+				noLaunchLeft: false,
+			},
+		]);
+		expect(json.seats.readings).toEqual([
+			expect.objectContaining({ week: 100, weekFull: true }),
+		]);
+	});
+
+	it("settles no key's ledger while a plan seat has room", async () => {
+		declareOverflowKey();
+		const json = JSON.parse((await run("status", "--json")).stdout);
+		expect(json.seats.readings[0].weekFull).toBe(false);
+		expect(json.overflow[0].why).toBe("a plan seat is not weekly-full");
+	});
+
+	it("carries no overflow key where the seat file declares none", async () => {
+		expect(JSON.parse((await run("status", "--json")).stdout).overflow).toEqual(
+			[],
+		);
+	});
+
+	it("says why a key's budget or the seat file will not read", async () => {
+		declareOverflowKey();
+		fillPlanSeat();
+		fs.rmSync(path.join(dir, "docs", "data", "session-cost-table.json"));
+		const [key] = JSON.parse((await run("status", "--json")).stdout).overflow;
+		expect(key.why).toBe("the session cost table is unreadable");
+		fs.writeFileSync(
+			path.join(dir, ".claude", "refill-seats"),
+			"~/.claude2-api api key=WFC_TEST_KEY grant=200\n",
+		);
+		const [refusal] = JSON.parse(
+			(await run("status", "--json")).stdout,
+		).overflow;
+		expect(refusal.seat).toBe("the seat file");
+		expect(refusal.why).toContain("missing cycle-day=");
+	});
+
+	it("prints each overflow seat's budget line", async () => {
+		declareOverflowKey();
 		const r = await run("status");
 		const line = r.stdout
 			.split("\n")
@@ -390,7 +634,7 @@ describe("stop and status", () => {
 		);
 		const { stdout } = await run("status");
 		expect(stdout).toContain(
-			"in the seat file, unread until the next start: ~/.claude3",
+			"in the seat file, unread until a plain start restarts the loop: ~/.claude3",
 		);
 		expect(stdout).toContain(
 			"read since the last start, gone from the seat file: ~/.claude2",
@@ -600,16 +844,22 @@ describe("set (#3856)", () => {
 		expect(rest).toEqual(kept);
 		expect(noProgressFrom).toBeGreaterThanOrEqual(before);
 		expect(startedAt).toBe(noProgressFrom);
+		/* The pidfile's holder is the one process: nothing started a second. */
+		expect(r.stdout).not.toContain("refill loop started");
+		expect(fs.readFileSync(path.join(dir, ".refill-loop.pid"), "utf8")).toBe(
+			String(fakeLoop?.pid),
+		);
 	});
 
-	it("leaves the count's point on a resume with no process, so a loop that ended itself stays ended", async () => {
-		writeControl({ paused });
-		const r = await run("set", "--resume");
-		expect(r.status).toBe(0);
-		expect(r.stdout).toContain("not paused");
-		expect(r.stdout).not.toContain("counting:");
+	it("leaves a stop pending on a running loop standing through a resume", async () => {
+		writeControl({ paused, stopRequested: true, stopRequestedAt: 6 });
+		holdPidfile();
+		expect((await run("set", "--resume")).status).toBe(0);
+		expect(readControl()).toMatchObject({
+			stopRequested: true,
+			stopRequestedAt: 6,
+		});
 		expect(readControl().paused).toBeUndefined();
-		expect(readControl().noProgressFrom).toBe(5);
 	});
 
 	it("changes nothing asked for twice, but still wakes the loop", async () => {
@@ -621,6 +871,7 @@ describe("set (#3856)", () => {
 		expect(fs.existsSync(wakeFile())).toBe(true);
 
 		writeControl();
+		holdPidfile();
 		const idle = await run("set", "--resume");
 		expect(idle.status).toBe(0);
 		expect(idle.stdout).toContain("unchanged: not paused");
@@ -661,14 +912,14 @@ describe("set (#3856)", () => {
 
 	it("makes start wait on the same lock, keeping the pause", async () => {
 		holdPidfile();
-		writeControl({ paused });
+		writeControl({ paused, stopRequested: true });
 		const holder = holdLock();
 		const done = spawnCommand("start");
 		await settle();
-		expect(readControl().seats).toEqual(["/seat"]);
+		expect(readControl().stopRequested).toBe(true);
 		holder.kill();
 		expect(await done).toBe(0);
-		expect(readControl().seats).not.toEqual(["/seat"]);
+		expect(readControl().stopRequested).toBe(false);
 		expect(readControl().paused).toEqual(paused);
 	});
 
@@ -778,6 +1029,97 @@ describe("set (#3856)", () => {
 	});
 });
 
+describe("a stop told from a crash (#3861)", () => {
+	const control = {
+		noProgressFrom: 5,
+		stopRequested: false,
+		seats: [],
+		scope: { mode: "normal", repos: [], goals: {} },
+	};
+	const writeControl = (over: Record<string, unknown> = {}) =>
+		fs.writeFileSync(
+			path.join(dir, ".refill-loop-control.json"),
+			JSON.stringify({ ...control, ...over }),
+		);
+	const writeState = (state: Record<string, unknown>) =>
+		fs.writeFileSync(
+			path.join(dir, ".refill-loop-state.json"),
+			JSON.stringify(state),
+		);
+	const status = async () => ({
+		json: JSON.parse((await run("status", "--json")).stdout),
+		text: (await run("status")).stdout,
+	});
+	const noProgress = { at: 9, reason: "no-progress", detail: "no act" };
+
+	it("reads a live loop as neither, showing no stop older than its run", async () => {
+		writeControl();
+		writeState({ stopped: noProgress, heldAt: 8 });
+		holdPidfile();
+		const { json, text } = await status();
+		expect(json).toMatchObject({ running: true, stop: null, crashed: false });
+		expect(text).not.toContain("last stop:");
+		expect(text).not.toContain("died:");
+	});
+
+	it("records the time of a stop, keeping the first through a repeat", async () => {
+		writeControl();
+		const before = Date.now();
+		expect((await run("stop")).status).toBe(0);
+		const { stopRequestedAt } = readControl();
+		expect(stopRequestedAt).toBeGreaterThanOrEqual(before);
+		expect((await run("stop")).status).toBe(0);
+		expect(readControl().stopRequestedAt).toBe(stopRequestedAt);
+	});
+
+	it("reads a dead loop a `stop` reached as stopped, before any tick recorded it", async () => {
+		writeControl({ stopRequested: true, stopRequestedAt: 7 });
+		const { json, text } = await status();
+		expect(json).toMatchObject({
+			running: false,
+			stop: { at: 7, reason: "explicit", detail: "stop was requested" },
+			crashed: false,
+		});
+		expect(text).toContain(
+			`last stop: ${new Date(7).toISOString()}  explicit — stop was requested`,
+		);
+	});
+
+	it("reads a dead loop that ended itself as stopped, with the loop's reason", async () => {
+		writeControl();
+		writeState({ stopped: noProgress, heldAt: 8 });
+		const { json, text } = await status();
+		expect(json).toMatchObject({ stop: noProgress, crashed: false });
+		expect(text).toContain("no-progress — no act");
+		expect(text).not.toContain("died:");
+	});
+
+	it("reads a dead loop with no stop recorded as crashed", async () => {
+		writeControl();
+		writeState({ stopped: null, heldAt: 8 });
+		const { json, text } = await status();
+		expect(json).toMatchObject({ running: false, stop: null, crashed: true });
+		expect(text).toContain(
+			"died:      with no stop recorded since its last start",
+		);
+		expect(text).not.toContain("last stop:");
+	});
+
+	it("does not read a loop never started as crashed", async () => {
+		const { json, text } = await status();
+		expect(json).toMatchObject({ stop: null, crashed: false });
+		expect(text).not.toContain("died:");
+	});
+
+	it("does not read a start whose process has not held the pidfile as crashed", async () => {
+		writeControl();
+		writeState({ stopped: null, heldAt: null });
+		const { json, text } = await status();
+		expect(json).toMatchObject({ stop: null, crashed: false });
+		expect(text).not.toContain("died:");
+	});
+});
+
 describe("the ticked set and the mode (#3862)", () => {
 	const writeControl = (scope: Record<string, unknown>) =>
 		fs.writeFileSync(
@@ -820,6 +1162,78 @@ describe("the ticked set and the mode (#3862)", () => {
 			repos: [core],
 			goal: null,
 		});
+	});
+
+	it("records when away was switched on, a repeat keeping it, and drops it on normal", async () => {
+		const before = Date.now();
+		const switched = await run("set", "--away");
+		expect(switched.status).toBe(0);
+		expect(switched.stdout).toContain("mode:      away");
+		const { away } = readControl();
+		expect(away.since).toBeGreaterThanOrEqual(before);
+		expect(away.absentSeen).toBe(false);
+
+		await run("set", "--away");
+		expect(readControl().away).toEqual(away);
+
+		await run("set", "--normal");
+		expect(readControl().away).toBeUndefined();
+		expect(
+			JSON.parse((await run("status", "--json")).stdout).awaySince,
+		).toBeNull();
+	});
+
+	it("re-arms a repeat --away, so the prompt behind the ask reads as no return", async () => {
+		await run("set", "--away");
+		const control = readControl();
+		const { since } = control.away;
+		fs.writeFileSync(
+			path.join(dir, ".refill-loop-control.json"),
+			JSON.stringify({ ...control, away: { since, absentSeen: true } }),
+		);
+		const r = await run("set", "--away");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("unchanged: mode away");
+		expect(readControl().away).toEqual({ since, absentSeen: false });
+	});
+
+	it("reads in status --json the sessions handed off since this switch", async () => {
+		await run("set", "--away");
+		const { since } = readControl().away;
+		const state = path.join(dir, ".refill-loop-state.json");
+		const status = async () =>
+			JSON.parse((await run("status", "--json")).stdout);
+		fs.writeFileSync(
+			state,
+			JSON.stringify({ launches: [], handedOff: { from: since, count: 2 } }),
+		);
+		expect(await status()).toMatchObject({
+			mode: "away",
+			awaySince: since,
+			handedOffSinceAway: 2,
+		});
+
+		fs.writeFileSync(
+			state,
+			JSON.stringify({
+				launches: [],
+				handedOff: { from: since - 1, count: 2 },
+			}),
+		);
+		expect((await status()).handedOffSinceAway).toBe(0);
+
+		await run("set", "--normal");
+		expect((await status()).handedOffSinceAway).toBe(0);
+	});
+
+	it("keeps a running away mode's switch across a start", async () => {
+		await run("set", "--away");
+		const { away } = readControl();
+		holdPidfile();
+		const r = await run("start");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("refill loop running: pid");
+		expect(readControl().away).toEqual(away);
 	});
 
 	it("ticks, unticks and replaces the set in either mode, the mode untouched", async () => {
@@ -871,12 +1285,10 @@ describe("the ticked set and the mode (#3862)", () => {
 		});
 	});
 
-	it("says a start rebuilds repos and mode on a loop with no process", async () => {
+	it("says a change holds from the next start on a loop with no process", async () => {
 		const r = await run("set", "--tick", "manta");
 		expect(r.status).toBe(0);
-		expect(r.stdout).toContain(
-			"its next start sets the mode, repos and goal afresh",
-		);
+		expect(r.stdout).toContain("not running; this holds from its next start");
 	});
 
 	it("refuses a tick of what is no candidate or is opted out, naming why and writing nothing", async () => {

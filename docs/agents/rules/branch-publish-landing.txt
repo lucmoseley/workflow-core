@@ -13,8 +13,7 @@ From a worktree:
 
   git -C <worktree> push origin HEAD:landing   # rejected? landing moved — git -C <worktree> fetch origin, merge origin/landing there, retry
 
-A REFUSED `git pull --ff-only` means the shared tree has diverged from
-`landing`: reconcile it as `rule:pull-fast-forward-landing` says.
+A REFUSED `git pull --ff-only`: `rule:pull-fast-forward-landing` says what next.
 
 After the push, `node scripts/landing-status.js` reads each commit as landed,
 queued, or reverted by a later commit.

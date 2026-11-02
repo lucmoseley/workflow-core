@@ -10,7 +10,7 @@
  *
  * The refill loop judges a launch's progress from these lines: a case loosened
  * here lets a launch that did nothing read as progress, or one that asked a
- * round read as idle and count toward the loop's no-progress stop.
+ * round read as idle and count toward the loop's no-progress pause.
  */
 
 import { execFileSync } from "node:child_process";
