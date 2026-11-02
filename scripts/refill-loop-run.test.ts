@@ -2864,7 +2864,12 @@ describe("`set --resume` with no process (#3861)", () => {
 		mode: "away",
 		repos: [repo],
 		tickedSet: true,
-		goals: { [repo]: [5] },
+		goal: {
+			form: "issues",
+			text: "5",
+			refs: [{ repo: path.basename(repo), number: 5 }],
+			setAt: 3,
+		},
 	});
 	const writeStored = () =>
 		fs.writeFileSync(
