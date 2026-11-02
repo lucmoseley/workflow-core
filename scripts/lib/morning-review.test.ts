@@ -289,26 +289,42 @@ describe("renderReview (#2011)", () => {
 
 	it("links an unread repo's closes from its closes start, and the carry still reads the body (#3981)", () => {
 		const start = "2026-10-15T07:00:00Z";
+		const link = (repo: string, from: string) =>
+			`[search](https://github.com/search?type=issues&q=${encodeURIComponent(
+				`repo:${repo} is:issue is:closed closed:>=${from}`,
+			)})`;
+		const fields = {
+			urgent: [],
+			parked: [],
+			primitives: QUIET_PRIMITIVES,
+			stalls: [],
+			entries: [],
+			decisionsSince: SINCE,
+		};
 		const body = renderWith({
 			repos: [
 				{
+					...fields,
+					checkout: "a",
 					repo: "acme/a",
 					closesSince: start,
-					decisionsSince: SINCE,
-					stalls: [],
-					entries: [],
 					closed: null,
+				},
+				{
+					...fields,
+					checkout: "b",
+					repo: "acme/b",
+					closesSince: SINCE,
+					closed: [],
 				},
 			],
 			unreadEvents: [{ kind: "Closes", checkout: "a", since: start }],
 		});
-		const edge = encodeURIComponent(
-			"closed:>=2026-10-15T06:45:00+00:00",
-		).replaceAll("%20", "+");
-		expect(body).toMatch(
-			new RegExp(
-				`- acme/a: not read, so the next review to read them lists them — \\[search\\]\\(.*${edge}.*\\)\\n`,
-			),
+		expect(body).toContain(
+			`- acme/a: not read, so the next review to read them lists them — ${link("acme/a", "2026-10-15T06:45:00+00:00")}\n`,
+		);
+		expect(body).toContain(
+			`- acme/b: 0 — ${link("acme/b", "2026-10-17T06:45:00+00:00")}\n`,
 		);
 		expect(buildRepoStart({ number: 7, body }, "a", NOW).closes).toBe(start);
 	});
