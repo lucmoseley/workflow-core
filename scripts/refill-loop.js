@@ -6,8 +6,11 @@
  * launches the next tickets into free slots across the repos its scope
  * serves (lib/refill-loop.js's Scope).
  *
- *   node scripts/refill-loop.js start …  start the loop, or widen a running
- *                                        loop's repos; flags in USAGE
+ *   node scripts/refill-loop.js start …  ensure a process runs from the stored
+ *                                        control, ending any stop, changing
+ *                                        only what its flags name; with
+ *                                        --unless-stopped a stop stands; flags
+ *                                        in USAGE
  *   node scripts/refill-loop.js stop     record an explicit stop and end
  *                                        launching before the next dispatch
  *                                        call; running sessions finish
@@ -59,9 +62,9 @@
  * throws is logged and the next one runs.
  *
  * Exit codes: 0; 1 on a throw outside the loop, a control lock kept past its
- * wait or, at `set`, no sound control to change or a goal ref the lock's fresh
- * read refuses; 2 on a command line, a goal ref it refuses first or, at `start`,
- * a seat file it refuses.
+ * wait or, at `set` and `start`, a goal ref the lock's fresh read refuses or, at
+ * `set` and `start --unless-stopped`, no sound control to change; 2 on a command
+ * line, a goal ref it refuses first or, at `start`, a seat file it refuses.
  */
 
 const { spawn } = require("node:child_process");
@@ -87,9 +90,9 @@ const {
 const wakes = require("./lib/refill-wake.js");
 const { ghJson, parseErrLine } = require("./lib/gh.js");
 const {
+	buildGoalRefusal,
 	parseAskedRefs,
 	parseGoalForm,
-	qualifyRefs,
 } = require("./lib/refill-goal.js");
 const { configDir, seatDir } = require("./lib/config-dir.js");
 const { readLastTyped } = require("./lib/presence.js");
@@ -113,6 +116,7 @@ const {
 	readStateFile,
 	withControlLock,
 	writeControlFile,
+	writeJson,
 } = require("./lib/refill-files.js");
 const refillBatch = require("./lib/refill-batch.js");
 const { buildHoldLines, readCheckout } = require("./lib/repo-holds.js");
@@ -137,7 +141,8 @@ const LOG_MAX_BYTES = 1024 * 1024;
 
 const SCRIPTS = __dirname;
 const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | set | status | dry-run | boot-resume
-  start [--repo <dir>]… [--goal 116,117]       this checkout plus each named one
+  start [--repo <dir>]… [--goal <goal>]        ensure a process runs, from the stored settings, ending any stop, its count starting again; a first start ticks this checkout. On a running loop it changes only what --repo ticks and --goal replaces, as set does
+  start --unless-stopped [--repo <dir>]… [--goal <goal>]  the same, but an explicit stop stands and is printed, and otherwise the stored settings start as they were
   set --pause | --resume                       launch nothing, keeping housekeeping; or launch again, starting the loop from its stored settings where no process runs
   set --away | --normal                        hand a session at a question off to its issue, until a tick reads the founder back after one read him absent; or keep it open. The repos stay
   set [--repos <dir>]…                         the whole ticked set
@@ -164,39 +169,6 @@ function rootsNamed(names, refusalOf) {
 		if (refusal !== null) return refusal;
 	}
 	return names.map((name) => path.join(homeDir(), name));
-}
-
-/**
- * The scope `start`'s flags ask for from `root`, or a string refusal.
- * @param {import("./lib/cli-args").Parsed} parsed
- * @param {string} root
- * @returns {import("./lib/refill-loop.js").Scope|string}
- */
-function parseStartScope(parsed, root) {
-	const goalText = String(parsed.flags["--goal"] ?? "");
-	const asked = goalText === "" ? null : parseGoalForm(goalText);
-	if (goalText !== "" && asked === null)
-		return `--goal takes issue refs, or drain or unblock with one: ${goalText}`;
-	const named = rootsNamed(parsed.lists["--repo"] ?? [], readTickRefusal);
-	if (typeof named === "string") return named;
-	const repos = [root, ...named];
-	const refs = asked
-		? qualifyRefs(
-				asked.refs.map((r) => ({
-					repo: r.repo ?? path.basename(root),
-					number: r.number,
-				})),
-				repos,
-			)
-		: [];
-	if (typeof refs === "string") return refs;
-	return {
-		mode: "normal",
-		repos,
-		goal: asked
-			? { form: asked.form, text: goalText, refs, setAt: Date.now() }
-			: null,
-	};
 }
 
 /**
@@ -239,9 +211,7 @@ function parseGoalAsk(flags) {
 	if (flags["--goal"] !== undefined) {
 		const typed = String(flags["--goal"]);
 		const asked = parseGoalForm(typed);
-		return asked
-			? { ...asked, text: typed }
-			: `a goal takes issue refs, #N or <dir>#N, or drain or unblock with one: ${typed}`;
+		return asked ? { ...asked, text: typed } : buildGoalRefusal(typed);
 	}
 	const typed = flags["--goal-issues"];
 	if (typed === undefined) return;
@@ -249,6 +219,22 @@ function parseGoalAsk(flags) {
 	if (refs === null) return `a goal takes issue refs, #N or <dir>#N: ${typed}`;
 	const text = String(flags["--goal-text"]).trim();
 	return text === "" ? "--goal-text is empty" : { form: "topic", text, refs };
+}
+
+/**
+ * What `start`'s flags ask, or a string refusal.
+ * @param {import("./lib/cli-args").Parsed} parsed
+ * @returns {import("./lib/refill-commands.js").SetAsk|string}
+ */
+function parseStartAsk({ flags, lists }) {
+	const named = rootsNamed(lists["--repo"] ?? [], readTickRefusal);
+	if (typeof named === "string") return named;
+	const goal = parseGoalAsk(flags);
+	if (typeof goal === "string") return goal;
+	return {
+		...(named.length > 0 ? { tick: named } : {}),
+		...(goal === undefined ? {} : { goal }),
+	};
 }
 
 /**
@@ -310,27 +296,23 @@ function readIssueState(ref) {
 	}
 }
 
+/** The control as stored, null where none will read; its planner reports why. */
+const readStoredControl = () => readControlChecked(() => undefined).control;
+
 /**
- * The control `start` writes.
- * @param {number|null} pid the running loop's
- * @param {import("./lib/refill-loop.js").Scope} asked
+ * A parsed ask with its goal judged on the stored control, else on `unstored`, or
+ * a string refusal.
+ * @param {import("./lib/refill-commands.js").SetAsk|string} parsedAsk
+ * @param {import("./lib/refill-loop.js").Control|null} unstored
+ * @returns {import("./lib/refill-commands.js").SetAsk|string}
  */
-function buildNextControl(pid, asked) {
-	const prior = readControlFile(log);
-	/* A loop whose stop is pending is ending: this start begins afresh,
-	 * dropping its scope (#2123). */
-	const running = pid !== null && prior && !prior.stopRequested ? prior : null;
-	/** @type {import("./lib/refill-loop.js").Control} */
-	return {
-		noProgressFrom: running?.noProgressFrom ?? Date.now(),
-		stopRequested: false,
-		/* A start never undoes a pause: `set --resume` is its one way off (#3856). */
-		...(prior?.paused ? { paused: prior.paused } : {}),
-		/* A start keeps a running loop's mode, so its switch too. */
-		...(running?.away ? { away: running.away } : {}),
-		seats: readConfiguredSeats(),
-		scope: commands.mergedScope(running?.scope ?? null, asked),
-	};
+function checkAsk(parsedAsk, unstored) {
+	if (typeof parsedAsk === "string") return parsedAsk;
+	return commands.checkGoalAsk(
+		readStoredControl() ?? unstored,
+		parsedAsk,
+		readIssueState,
+	);
 }
 
 /**
@@ -419,10 +401,11 @@ function bootResume() {
 		fs.appendFileSync(files.log, stamped);
 	};
 	const { control, damaged } = readControlChecked(note);
+	const state = readStateFile(note);
 	const verdict = bootVerdictOf({
 		control,
 		damaged,
-		stopped: readStateFile(note).stopped,
+		stopped: state.stopped,
 		pid: lock.holder(),
 		self: process.pid,
 	});
@@ -430,6 +413,8 @@ function bootResume() {
 		note(verdict.line);
 		return 0;
 	}
+	/* Before the launch, so a loop that dies ahead of its first tick leaves it. */
+	writeJson(files.state, { ...state, bootedAt: Date.now() });
 	const launched = launchLoop();
 	if ("error" in launched) {
 		note(`boot resume: not resumed: ${launched.error}`);
@@ -445,54 +430,66 @@ function bootResume() {
 function start(parsed) {
 	const root = hostRoot();
 	const excluded = exclusionOf(root);
-	if (excluded !== null) {
+	if (excluded !== null && readStoredControl() === null) {
 		say(`refill loop not started: this checkout is not served (${excluded})`);
 		return 0;
 	}
-	const asked = parseStartScope(parsed, root);
-	if (typeof asked === "string") {
-		writeFd(2, `${asked}\n\n${USAGE}\n`);
-		return 2;
-	}
-	const { errors } = readDeclaredSeats();
-	if (errors.length > 0) {
-		writeFd(
-			2,
-			`refill loop not started: the seat file refuses\n${errors.map((e) => `  ${e}\n`).join("")}`,
-		);
+	const parsedAsk = parseStartAsk(parsed);
+	const ask = checkAsk(parsedAsk, commands.buildFreshControl(root, [], 0));
+	if (typeof ask === "string") {
+		writeFd(2, `${ask}\n\n${USAGE}\n`);
 		return 2;
 	}
 	const written = withControlLock(() => {
 		const pid = lock.holder();
-		const control = buildNextControl(pid, asked);
-		writeControlFile(control);
-		if (pid === null) forgetRunHeld(log);
-		return { pid, control };
+		const plan = commands.planStart(
+			readControlChecked(() => undefined),
+			ask,
+			{
+				pid,
+				now: Date.now(),
+				root,
+				seats: readConfiguredSeats(),
+				seatErrors: readDeclaredSeats().errors,
+				stopped: readStateFile(log).stopped,
+				unlessStopped: parsed.flags["--unless-stopped"] === true,
+			},
+		);
+		if ("refused" in plan) return plan;
+		if (plan.write) writeControlFile(plan.write);
+		if (plan.action === "start") forgetRunHeld(log);
+		return plan;
 	});
 	if ("busy" in written) return refuseWrite("not started", written.busy);
-	const { pid, control } = written.done;
-	wakes.touchWake(files.wake);
-	const served = servedRoots(control.scope).roots;
-	const scopeText = commands
-		.buildScopeLines(control, {
-			served,
-			running: true,
-			seatsLine: commands.buildSeatsLine(
-				readSeatsView(
-					control.seats,
-					sizingRoot(served),
-					seatDir(configDir(), homeDir()),
-				),
-				Date.now(),
-			),
-		})
-		.map((l) => `  ${l}`);
-	if (pid !== null) {
-		say(`refill loop running: pid ${pid}`);
-		for (const line of scopeText) say(line);
-		return 0;
+	const plan = written.done;
+	if ("refused" in plan) {
+		refuseWrite("nothing set", plan.refused);
+		return plan.exitCode;
 	}
-	return startProcess(control, scopeText);
+	if (plan.write) wakes.touchWake(files.wake);
+	const { control, action } = plan;
+	const served = servedRoots(control.scope).roots;
+	const scopeText = [
+		...commands
+			.buildScopeLines(control, {
+				served,
+				running: action !== "stopped",
+				seatsLine: commands.buildSeatsLine(
+					readSeatsView(
+						control.seats,
+						sizingRoot(served),
+						seatDir(configDir(), homeDir()),
+					),
+					Date.now(),
+				),
+			})
+			.map((l) => `  ${l}`),
+		...commands.buildUntickedLines(control, root),
+	];
+	for (const line of plan.lines) say(line);
+	if (action === "start") return startProcess(control, scopeText);
+	for (const line of scopeText) say(line);
+	return 0;
 }
 
 /**
@@ -545,15 +542,7 @@ function stop() {
  * @param {import("./lib/cli-args").Parsed} parsed
  */
 function set(parsed) {
-	const parsedAsk = parseSetAsk(parsed);
-	const ask =
-		typeof parsedAsk === "string"
-			? parsedAsk
-			: commands.checkGoalAsk(
-					readControlChecked(() => undefined).control,
-					parsedAsk,
-					readIssueState,
-				);
+	const ask = checkAsk(parseSetAsk(parsed), null);
 	if (typeof ask === "string") {
 		writeFd(2, `${ask}\n\n${USAGE}\n`);
 		return 2;
@@ -831,6 +820,7 @@ const CLI = {
 			flags: {
 				"--repo": "list",
 				"--goal": "value",
+				"--unless-stopped": "boolean",
 			},
 		},
 		stop: { usage: USAGE },

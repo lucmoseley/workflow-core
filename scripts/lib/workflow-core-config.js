@@ -153,6 +153,7 @@ const KNOWN_KEYS = [
 	"capacityLadder",
 	"admissionGate",
 	"refillLoop",
+	"refillPanel",
 	...PATH_KEY_NAMES,
 	"manualRender",
 	"alwaysLoaded",
@@ -239,6 +240,7 @@ const defaultCommand = (name) =>
  * @property {boolean} [capacityLadder] absent means no ladder: only `true` declares one (#735, #748); read it through declaresLadder()
  * @property {boolean} [admissionGate] whether check-context-budget.js refuses a pool rule its admission ledger does not admit; absent is off, only `true` switches it on (#2033)
  * @property {boolean} refillLoop whether the refill loop may serve this checkout; absent is in, only `false` takes it out (#1969, #2003)
+ * @property {boolean} refillPanel whether an agents alias's `refill-panel-open.js --if-enabled` opens the refill-loop panel beside the view; absent is off, only `true` switches it on (#3574, #3886)
  * @property {{command: string, outputs: string[]}} [manualRender] manual-sync's post-write step, absent by default (#451)
  * @property {number} [roadmapMajorPin]
  * @property {string[]} [ruffExclude] ruff glob patterns the pre-commit Python gate excludes (#122)
@@ -833,6 +835,8 @@ function readConfig({ root = hostRoot(), rev, quiet = false } = {}) {
 	const capacityLadder = readKey(cfg, "capacityLadder", isBoolean, "a boolean");
 	const admissionGate = readKey(cfg, "admissionGate", isBoolean, "a boolean");
 	const refillLoop = readKey(cfg, "refillLoop", isBoolean, "a boolean") ?? true;
+	const refillPanel =
+		readKey(cfg, "refillPanel", isBoolean, "a boolean") ?? false;
 
 	/** @type {Partial<Record<PathKey, string>>} */
 	const paths = {};
@@ -958,6 +962,7 @@ function readConfig({ root = hostRoot(), rev, quiet = false } = {}) {
 		capacityLadder,
 		admissionGate,
 		refillLoop,
+		refillPanel,
 		...paths,
 		manualRender,
 		roadmapMajorPin,

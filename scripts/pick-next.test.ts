@@ -1586,9 +1586,24 @@ describe("a goal the script works out itself (#3866)", () => {
 		async (goal) => {
 			const r = await run(map, ["--goal", goal]);
 			expect(r.status).toBe(2);
-			expect(r.out).toContain("--goal takes issue numbers");
+			expect(r.out).toContain("--goal takes issue refs");
+			expect(r.out).toContain(goal);
 		},
 	);
+
+	it("ranks nothing for a checkout gone from the machine, keeping its shortlist", async () => {
+		const home = path.join(dir, "adopters");
+		fs.mkdirSync(home);
+		const r = await run(map, ["--json", "--goal", "drain ghost#5"], {
+			env: { HOME: home },
+		});
+		expect(r.status).toBe(0);
+		expect(r.out).toContain("--goal names ghost#5: no checkout named ghost");
+		expect(members(r)).toEqual([]);
+		expect(
+			r.json().frontier.map((row: { number: number }) => row.number),
+		).toEqual([3, 5]);
+	});
 
 	it("refuses an unblock in another repo: that repo's run walks it", async () => {
 		const home = path.join(dir, "adopters");
@@ -1596,7 +1611,7 @@ describe("a goal the script works out itself (#3866)", () => {
 		const r = await run(map, ["--goal", "unblock manta#40"], {
 			env: { HOME: home },
 		});
-		expect(r.status).not.toBe(0);
+		expect(r.status).toBe(2);
 		expect(r.out).toContain("o/manta#40, another repo's: run it there");
 	});
 });

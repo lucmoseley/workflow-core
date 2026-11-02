@@ -14,6 +14,8 @@ const API_PROMPT = `${LOOP_PROMPT_PREFIX}resume — your last turn ended on an A
 const IDLE_PROMPT = `${LOOP_PROMPT_PREFIX}resume — your host was restarted and your last turn never ran. Before repeating your last tool call, check whether it already took effect.`;
 const LIMIT_LOSS =
 	"Your in-flight subagents, background tasks and monitors are gone. Before repeating your last tool call, check whether it already took effect, then continue your task.";
+/* A session a distro restart killed mid-work (#3880). */
+const BOOT_PROMPT = `${LOOP_PROMPT_PREFIX}resume — a restart killed your session while it was running. ${LIMIT_LOSS}`;
 /* A session its seat's limit stopped, resumed on that seat (#3735). */
 const LIMIT_PROMPT = `${LOOP_PROMPT_PREFIX}resume — your seat's usage limit stopped you and has since reset, so you were resumed on the same seat. ${LIMIT_LOSS}`;
 /* A session its seat's limit stopped, moved to another seat under its own id
@@ -29,6 +31,7 @@ const isLoopPrompt = (text) => text.trimStart().startsWith(LOOP_PROMPT_PREFIX);
 
 module.exports = {
 	API_PROMPT,
+	BOOT_PROMPT,
 	IDLE_PROMPT,
 	HOLD_PROMPT,
 	LIMIT_PROMPT,

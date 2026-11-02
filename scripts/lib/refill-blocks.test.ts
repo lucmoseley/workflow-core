@@ -24,7 +24,9 @@ import {
 	buildChildLine,
 	buildHeldStopText,
 	isHeld,
+	LISTING_GRACE_MS,
 	markParked,
+	queueBootKilled,
 	queueLifted,
 	releaseAwayParks,
 	releaseEndedHolds,
@@ -2652,5 +2654,144 @@ describe("queueing the sessions parked on a lifted repo hold (#3863)", () => {
 		resumeHeldLaunches(resumes, [due()], seen, () => false);
 		const l = due();
 		expect(unparked).toEqual([`${l.root} s-p ${l.issues.join(",")}`]);
+	});
+});
+
+describe("queueBootKilled (#3880)", () => {
+	const blockedOn = (cause: string) =>
+		record({ parked: true, block: { cause, since: NOW } });
+	const killedOf = (
+		l: Launch,
+		over: Partial<BlockIo> = {},
+		agents: Agents = [agent("other", "working")],
+	) => {
+		const { io } = fakeIo(over);
+		return queueBootKilled([l], {
+			agents,
+			now: NOW,
+			io,
+			swapHold: NO_HOLD,
+		})[0];
+	};
+
+	it("queues one the listing no longer shows, with its launch's time and target", () => {
+		expect(killedOf(record())).toMatchObject({
+			bootKilled: { at: NOW - 10 * MIN, sessionId: "s", cwd: "/", tries: 0 },
+		});
+	});
+
+	it.each(["done", "stopped"])(
+		"leaves a job that reads %s, ended by itself",
+		(state) => {
+			expect(
+				killedOf(record(), { jobStateOf: () => ({ state }) }),
+			).not.toHaveProperty("bootKilled");
+		},
+	);
+
+	it.each(["failed", null])("queues a job that reads %s", (state) => {
+		const jobStateOf = () => (state ? { state } : null);
+		expect(killedOf(record(), { jobStateOf })).toHaveProperty("bootKilled");
+	});
+
+	it.each(["QUESTION", "PERMISSION", "OTHER_DIALOG"])(
+		"leaves one blocked on %s, waiting on the founder",
+		(cause) => {
+			expect(killedOf(blockedOn(cause))).not.toHaveProperty("bootKilled");
+		},
+	);
+
+	it.each(["API_ERROR", "LIMIT", "UNKNOWN"])(
+		"queues one blocked on %s, its block gone",
+		(cause) => {
+			const out = killedOf(blockedOn(cause));
+			expect(out).toHaveProperty("bootKilled");
+			expect(out).not.toHaveProperty("block");
+			expect(out).not.toHaveProperty("parked");
+		},
+	);
+
+	it("leaves one already held or owed a hand-off", () => {
+		const swapHeld = { at: NOW, sessionId: "s", cwd: "/", tries: 0 };
+		expect(killedOf(record({ swapHeld }))).not.toHaveProperty("bootKilled");
+		expect(killedOf(record({ handOffTries: 1 }))).not.toHaveProperty(
+			"bootKilled",
+		);
+	});
+
+	it("hands one with no session id off only when a tick's step reaches it", () => {
+		const { io, calls } = fakeIo({
+			resumeTargetOf: () => ({ sessionId: null, cwd: "/" }),
+		});
+		const seen = {
+			agents: [agent("other", "working")],
+			now: NOW,
+			io,
+			swapHold: NO_HOLD,
+		};
+		const queued = queueBootKilled([record()], seen);
+		expect(calls).not.toContain("hand-off job42");
+		expect(queued[0]).toHaveProperty("bootKilled");
+		const r = resumeHeldLaunches(
+			resumableOf(queued, seen),
+			queued,
+			seen,
+			() => false,
+		);
+		expect(calls).toContain("hand-off job42");
+		expect(r.launches[0]).toMatchObject({ handedOff: NOW });
+	});
+});
+
+describe("a boot's resumed session gone from the listing (#3880)", () => {
+	const gone = record({ bootResumedAt: NOW - LISTING_GRACE_MS });
+	const agents = [agent("other", "working")];
+	const act = (l: Launch, over: Partial<BlockIo> = {}, tick = {}) => {
+		const { io, calls } = fakeIo(over);
+		const out = actOnIdle([l], "normal", {
+			agents,
+			now: NOW,
+			io,
+			swapHold: NO_HOLD,
+			...tick,
+		});
+		return { out: out[0], calls };
+	};
+
+	it("is handed off with no turn since", () => {
+		const { out, calls } = act(gone);
+		expect(calls).toContain("hand-off job42");
+		expect(out).toMatchObject({ handedOff: NOW });
+	});
+
+	it("waits out the listing's grace", () => {
+		const fresh = record({ bootResumedAt: NOW - LISTING_GRACE_MS + 1 });
+		expect(act(fresh).calls).not.toContain("hand-off job42");
+	});
+
+	it("is not handed off once it has taken a turn, its watch ended", () => {
+		const { out, calls } = act(gone, { hasTurnedSince: () => true });
+		expect(calls).not.toContain("hand-off job42");
+		expect(out).not.toHaveProperty("bootResumedAt");
+	});
+
+	it.each([
+		["a hand-off owed", { handOffTries: 1 }],
+		["a resume watched", { bootResumedAt: NOW - 10 * MIN }],
+	])(
+		"is not finished unlisted with %s, so actOnIdle can settle it",
+		(_, over) => {
+			const [judged] = judgedLaunches([record(over)], agents, NOW, {
+				progressOf: () => ({}),
+				causeOf: () => ({ cause: "QUESTION" }),
+			});
+			expect(judged.finishedAt).toBeNull();
+		},
+	);
+
+	it("waits out a pause", () => {
+		expect(act(gone, {}, { paused: true }).calls).not.toContain(
+			"hand-off job42",
+		);
 	});
 });

@@ -135,7 +135,10 @@ describe("file-morning-review.js (#2011)", () => {
 		expect(issue.body).toContain(
 			"- acme/wfc#77 — `Drop the old ledger` — `deleted data; cannot`",
 		);
-		expect(issue.body).toContain("Standalone: the day's away-mode review");
+		expect(
+			issue.body.split("Standalone: the day's away-mode review"),
+		).toHaveLength(2);
+		expect(issue.body).toMatch(/-->\n$/);
 		expect(issue.body).toMatch(
 			/## Memory kills\n\n1 in the window — Claude host 1, test or build 0, other 0\.\n\n- `Memory kill incident from [^`]+` — 1 kill: Claude host 1, test or build 0, other 0 — #61\n/,
 		);
@@ -176,7 +179,7 @@ describe("file-morning-review.js (#2011)", () => {
 				"",
 				"Each tracker's open efforts nothing has launched lately, the oldest, and why the refill loop skips it:",
 				"",
-				"- `The refill loop is not running, so it serves no tracker. /pick-next restarts it.`",
+				"- `The refill loop is not running, so it serves no tracker. node scripts/refill-loop.js start restarts it.`",
 				"- `acme/wfc: 1 idle past 2 days (the refill loop does not serve it); oldest #12 (Stranded effort), idle 5.0 days; skip reason: none, the launch filter passes it`",
 				"",
 			].join("\n"),
@@ -697,6 +700,7 @@ describe("file-morning-review.js (#2011)", () => {
 		});
 		const once = (body: string, text: string) =>
 			expect(body.split(text)).toHaveLength(2);
+		const hidden = (body: string) => body.slice(body.indexOf("<!--"));
 		const bodies = () => readCreated().map((c: { body: string }) => c.body);
 		const previousReview = (body = "") => ({
 			number: 800,
@@ -859,7 +863,7 @@ describe("file-morning-review.js (#2011)", () => {
 				expect(failed).not.toContain("Decisions unread since");
 				expect(failed).toContain("- acme/wfc: not read");
 				expect(failed).not.toContain("acme/wfc#80");
-				expect(failed).toContain("Events read in wfc.");
+				expect(hidden(failed)).toContain("Events read in wfc.");
 				expect(closesCalls()).toHaveLength(3);
 
 				once(recovered, "acme/wfc#80");
@@ -1124,7 +1128,7 @@ describe("file-morning-review.js (#2011)", () => {
 					reviewAt("2026-10-14T07:00:00.000Z");
 
 					const [read, absent, back, after] = bodies();
-					expect(read).toContain("Events read in second.");
+					expect(hidden(read)).toContain("Events read in second.");
 					once(read, "Second: before");
 					once(read, "acme/second#80");
 					expect(absent).toContain(`- second: \`${why}\``);
@@ -1155,7 +1159,7 @@ describe("file-morning-review.js (#2011)", () => {
 					leave: makeLinkedWorktree,
 				},
 			])("keeps one read last review out, unnamed, $out", ({ leave }) => {
-				seedSecond("Events read in second.\n");
+				seedSecond("<!--\nEvents read in second.\n-->\n");
 				leave();
 				reviewAt(firstReview);
 

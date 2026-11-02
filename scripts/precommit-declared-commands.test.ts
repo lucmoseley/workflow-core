@@ -337,6 +337,25 @@ describe("the pre-commit check_staged gate on a biome check --staged command (#2
 		expect(ran("check_staged")).toBe(false);
 	});
 
+	it.each([
+		"yarn run biome check --staged --write",
+		"bun run biome check --staged --write",
+	])(
+		"refuses %j, a run no script answers, before it runs (#3944)",
+		(command) => {
+			const { run: commit } = biomeFixture(command, {
+				devDependencies: { "@biomejs/biome": "2.0.0" },
+			});
+			const { code, out, ran } = commit();
+			expect(code).toBe(1);
+			expect(out).toContain("runs Biome through");
+			expect(out).toContain(
+				`Declare check_staged instead as '${BIOME_STAGED_COMMAND} <flags>'`,
+			);
+			expect(ran("check_staged")).toBe(false);
+		},
+	);
+
 	it("refuses a write-flag script the same way, leaving its worktree file unwritten", () => {
 		const { root, run: commit } = biomeFixture(
 			"npm run check:staged",
@@ -555,7 +574,7 @@ describe("infer-commands.js check-staged", () => {
 			});
 			expect(r.status).toBe(1);
 			expect(r.stderr).toContain(
-				`pre-commit: check_staged "${command}" (.claude/workflow-core.json) cannot be checked: package.json does not parse (`,
+				`pre-commit: check_staged "${command}" (.claude/workflow-core.json) cannot be checked: ${path.join(root, "package.json")} does not parse (`,
 			);
 			expect(r.stderr).toContain(
 				`Fix it, or declare check_staged in .claude/workflow-core.json as 'node "$WFC_PLUGIN_ROOT"/scripts/biome-staged.js <flags>' or another command naming no npm, pnpm, yarn, bun, bunx, npx or biome and with no expansion or glob for a command's name, no parallel and no shell reading stdin, which the hook checks without reading package.json.`,
