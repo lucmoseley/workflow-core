@@ -1,14 +1,16 @@
 /*
- * grouped-child.js — an async child in a process group of its own, so a kill
- * reaches what it starts as well (#2677). `execFile`'s timeout kills only the
- * process it spawned, and its `detached` is dropped.
+ * grouped-child.js — a child in a process group of its own, so a kill reaches
+ * what it starts as well (#2677). `execFile`'s timeout kills only the process
+ * it spawned, and its `detached` is dropped.
  *
- * A group still live when this process exits is killed with it. RESIDUAL: a
- * SIGKILL to this process cannot be caught, and leaves the group running.
+ * A `runGrouped` group still live when this process exits is killed with it.
+ * RESIDUAL: a SIGKILL to this process cannot be caught, and leaves the group
+ * running.
  */
 
-const { spawn } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 const { caught } = require("./caught.js");
+const { writeFd } = require("./write-fd.js");
 
 /** @type {Set<number>} */
 const live = new Set();
@@ -117,4 +119,38 @@ function runGrouped(file, args, { cwd, env, timeoutMs, maxBuffer }) {
 	});
 }
 
-module.exports = { killGroup, runGrouped };
+/**
+ * execFileSync in a group of its own: past `opts.timeout`, or `opts.maxBuffer`,
+ * the whole group gets SIGKILL before this throws, not only `file`. It returns
+ * stdout and throws as execFileSync does, `code` and `stderr` on the error. A
+ * run that ends by itself leaves its background children alone. Node's docs
+ * and types do not list `detached` for spawnSync; its code honours it (#3916).
+ *
+ * RESIDUAL: no JS runs while this blocks, so a fatal signal to this process
+ * leaves the group running with no timeout. A descendant that starts a group
+ * of its own, as `run-pytest.js` does, escapes the kill.
+ * @param {string} file
+ * @param {readonly string[]} args
+ * @param {import("node:child_process").SpawnSyncOptionsWithStringEncoding} opts
+ * @returns {string}
+ */
+function execGroupedSync(file, args, opts) {
+	const spawnOptions = {
+		...opts,
+		detached: true,
+		killSignal: /** @type {const} */ ("SIGKILL"),
+	};
+	const run = spawnSync(file, args, spawnOptions);
+	if (run.error && run.pid) {
+		const unkilled = killGroup(run.pid, "SIGKILL");
+		if (unkilled) writeFd(2, `${file}'s group still runs: ${unkilled}\n`);
+	}
+	if (!run.error && run.status === 0) return run.stdout;
+	throw Object.assign(
+		run.error ??
+			new Error(`${file} exited ${run.status ?? run.signal}: ${run.stderr}`),
+		run,
+	);
+}
+
+module.exports = { execGroupedSync, killGroup, runGrouped };
