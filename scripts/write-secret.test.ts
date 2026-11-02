@@ -446,11 +446,18 @@ describe("write-secret", () => {
 			stdin,
 			"the value holds a line break (CR, LF, U+2028 or U+2029), which one line cannot carry. Re-run and give it on one line.",
 		]),
-		[
-			"a PEM header alone (#3817)",
-			"-----BEGIN PRIVATE KEY-----\n",
+		...[
+			["(#3817)", "-----BEGIN PRIVATE KEY-----\n"],
+			["whose label holds a hyphen (#3904)", "-----BEGIN X-KEY-----\n"],
+			[
+				"in RFC 4716's form (#3904)",
+				"---- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----\n",
+			],
+		].map(([what, stdin]) => [
+			`a PEM header alone ${what}`,
+			stdin,
 			"the value is only the first line of a PEM key, which one line cannot carry. Re-run and give the whole key base64-encoded onto one line.",
-		],
+		]),
 		[
 			"a value needing quotes that holds a single quote",
 			"it's#mine",
@@ -529,6 +536,20 @@ describe("write-secret", () => {
 		}
 	};
 	const Prompt = "Value for K (typing hidden, Enter to finish): \n";
+
+	it("stores a whole key on one line, past its header (#3904)", () => {
+		const key = "-----BEGIN X-KEY----- abc -----END X-KEY-----";
+		const r = run(["K"], `${key}\n`);
+		expect(r.status).toBe(0);
+		expect(read()).toBe(`K=${key}\n`);
+	});
+
+	it("stores, rather than crashing on, megabytes of hyphen-separated runs after a BEGIN (#3904)", () => {
+		const value = `-----BEGIN ${"-a".repeat(10_000_000)}`;
+		const r = run(["K"], `${value}\n`);
+		expect(r.status).toBe(0);
+		expect(read()).toBe(`K=${value}\n`);
+	});
 
 	it("stores a multibyte value typed at the hidden prompt", async () => {
 		seed("A=1\n");

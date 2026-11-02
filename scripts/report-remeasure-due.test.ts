@@ -1048,7 +1048,7 @@ describe("the re-measure trigger", () => {
 			`- o/manta#9: landed ${both}, base ${sha("b", 2)}, tree ${sha("e", 2)}; 1 fixed or ticketed, 0 escaped`,
 		);
 		expect(body).toContain(
-			`- o/manta@${alone}: Review-Tier: trailer alone, base ${"b".repeat(40)}, landed tree ${"1".repeat(40)}, paths lib/secret.js; 1 escaped`,
+			`- o/manta@${alone}: Review-Tier: trailer alone, base ${"b".repeat(40)}, committed tree ${"1".repeat(40)}, paths lib/secret.js; 1 escaped`,
 		);
 		expect(body).not.toContain(`@${both}`);
 	});

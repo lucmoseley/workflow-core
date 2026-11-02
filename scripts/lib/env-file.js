@@ -267,7 +267,7 @@ function readEnvFileValue(file, name) {
  * @param {string} ignore
  * @returns {boolean}
  */
-function ignoresAll(ignore) {
+function isIgnoreAll(ignore) {
 	try {
 		const bytes = readRegularFile(ignore, fs.constants.O_NOFOLLOW);
 		return bytes.toString("utf8") === "*\n";
@@ -285,7 +285,7 @@ function ignoresAll(ignore) {
  */
 function ignoreStore(dir) {
 	const ignore = path.join(dir, ".gitignore");
-	if (!ignoresAll(ignore)) writeFileAtomic(ignore, "*\n", { mode: 0o600 });
+	if (!isIgnoreAll(ignore)) writeFileAtomic(ignore, "*\n", { mode: 0o600 });
 }
 
 /**

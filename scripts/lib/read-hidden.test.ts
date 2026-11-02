@@ -11,8 +11,23 @@
  */
 
 import { EventEmitter } from "node:events";
+import fs from "node:fs";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readHidden, SETTLE_MS } from "./read-hidden.js";
+import { readHidden } from "./read-hidden.js";
+import { requiredGroup } from "./regex-group";
+
+/** read-hidden.js's window, read from its source, as §G6 keeps it unexported. */
+const SETTLE_LINE = /^const SETTLE_MS = (\d+);$/m;
+const SETTLE_MS = Number(
+	requiredGroup(
+		SETTLE_LINE.exec(
+			fs.readFileSync(path.join(__dirname, "read-hidden.js"), "utf8"),
+		),
+		1,
+		SETTLE_LINE,
+	),
+);
 
 const fakeTty = () =>
 	Object.assign(new EventEmitter(), {
@@ -167,6 +182,10 @@ describe("readHidden", () => {
 		["a tab inside a sequence", "a\x1b[\tAb\r"],
 		["Ctrl-U", "wrong\x15right\r"],
 		["a NUL", "a\0b\r"],
+		["U+0080, the first C1 control (#3904)", "a\u0080b\r"],
+		["U+0085, a next-line (#3904)", "a\u0085b\r"],
+		["U+009B, a one-character CSI (#3904)", "a\u009b[Db\r"],
+		["U+009F, the last C1 control (#3904)", "a\u009fb\r"],
 		["ESC before a character", "\x1bsk-test\r"],
 		["ESC ESC", "abc\x1b\x1b[Dd\r"],
 		["an OSC sequence", "a\x1b]0;title\x07b\r"],
@@ -182,6 +201,11 @@ describe("readHidden", () => {
 			expect(await settled(line)).toContain("a tab, a control key or a broken");
 		},
 	);
+
+	it("keeps U+00A0, the first character past the C1 controls (#3904)", async () => {
+		const { line } = reading("a\u00a0b\r");
+		expect(await settled(line)).toBe("a\u00a0b");
+	});
 
 	it("ends the line at a CR inside an open escape, rather than swallowing it (#3817)", async () => {
 		const { line } = reading("line1\x1b\rline2\r");

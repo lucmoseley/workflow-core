@@ -49,8 +49,9 @@
  * .husky/prepare-commit-msg writes (scripts/review-tier-trailer.sh), is
  * counted by it where no counted record covers it, and once where one does (#3664).
  * Its trailer names no defect, so it counts only once an `**Escaped defect:**`
- * line names it, and its tree is the landed one, never the pinned pre-fix
- * tree. Read with `git log` in the checkout on this machine that tracks the
+ * line names it, and its tree is the one the commit was made with, which a
+ * replay can leave different from the landed commit's, and never the pinned
+ * pre-fix tree. Read with `git log` in the checkout on this machine that tracks the
  * record's repo, at `origin/main` once fetched, from TRAILER_FROM, since the
  * lander moves `main` and nothing obliges that checkout's HEAD to hold the
  * commits being judged (#3819); there, a commit that changes a path
@@ -406,7 +407,6 @@ function readTrailers(repo, { parsed, cover, home }) {
 }
 
 /**
-/**
  * Moves JUDGED_REF and the pushed ref to the remote's branches, in a checkout
  * other sessions share.
  *
@@ -572,7 +572,7 @@ function parseTrailerLog(repo, out, declared, judge) {
 		if (areas.length > 0 && !judge.isCovered(sha, message))
 			unseen.push({
 				tag: "UNRECORDED",
-				fault: `${repo}@${sha} changes the sensitive area${areas.length > 1 ? "s" : ""} ${areas.join(", ")} and carries neither a Review-Tier: trailer nor a **Review findings:** record, so nothing answers for it until a record names it as landed, or its message cites that record's ticket within the record's base..landed; \`scripts/lib/rule-text.sh review-tier-records\` gives the record's form`,
+				fault: `${repo}@${sha} changes the sensitive area${areas.length > 1 ? "s" : ""} ${areas.join(", ")} and carries neither a Review-Tier: trailer nor a **Review findings:** record, so nothing answers for it until a record names it as landed, or its message cites that record's ticket within the record's base..landed; ${RULE_COMMAND} gives the record's form`,
 			});
 	}
 	return { trailers, unseen };
@@ -773,7 +773,7 @@ function judgeRecords(commits, home, own) {
 		if (place?.at === "off" && !isCorrected(c))
 			owed.push({
 				tag: "OFF MAIN",
-				fault: `${c.repo}#${c.issue} has a record naming landed ${c.landed}, which never reached main, so its commit is not counted until it is corrected: post a record naming the sha it landed under, as \`scripts/lib/rule-text.sh review-tier-records\` says`,
+				fault: `${c.repo}#${c.issue} has a record naming landed ${c.landed}, which never reached main, so its commit is not counted until it is corrected: post a record naming the sha it landed under, as ${RULE_COMMAND} says`,
 			});
 		return owed;
 	});
@@ -800,7 +800,7 @@ function judgeRecords(commits, home, own) {
  * @param {ReviewRecord} later
  * @param {ReviewRecord} r
  */
-const restates = (later, r) =>
+const isRestatement = (later, r) =>
 	COUNTED_TIERS.has(later.tier) &&
 	later.fixed >= r.fixed + r.cutOff + r.misspelt &&
 	isSameReview(later, r) &&
@@ -827,7 +827,7 @@ function settleRecords(found, root) {
 		if (
 			judged
 				.slice(i + 1)
-				.some((later) => later.owed.length === 0 && restates(later.r, r))
+				.some((later) => later.owed.length === 0 && isRestatement(later.r, r))
 		)
 			return { ...withoutStray, fixed: 0, fixes: 0 };
 		for (const f of owed)
@@ -951,7 +951,7 @@ function landedTreeReport(c, home) {
 	if (diff.out !== "") return null;
 	return {
 		tag: "LANDED TREE",
-		fault: `${c.repo}#${c.issue} has a record naming reviewed ${c.tree}, the tree landed ${c.landed} carries on its paths, so a replay finds none of its fixed defects: name the tree pinned before the first round's dispatch, as \`scripts/lib/rule-text.sh review-tier-records\` says`,
+		fault: `${c.repo}#${c.issue} has a record naming reviewed ${c.tree}, the tree landed ${c.landed} carries on its paths, so a replay finds none of its fixed defects: name the tree pinned before the first round's dispatch, as ${RULE_COMMAND} says`,
 	};
 }
 
@@ -1016,7 +1016,7 @@ function buildBody(commits) {
 		"",
 		...commits.map((c) =>
 			c.issue === null
-				? `- ${c.repo}@${c.landed}: Review-Tier: trailer alone, base ${c.base}, landed tree ${c.tree}, paths ${c.paths}; ${c.escapes.length} escaped`
+				? `- ${c.repo}@${c.landed}: Review-Tier: trailer alone, base ${c.base}, committed tree ${c.tree}, paths ${c.paths}; ${c.escapes.length} escaped`
 				: `- ${c.repo}#${c.issue}: landed ${c.landed}, base ${c.base}, tree ${c.tree}${c.paths === null ? "" : `, paths ${c.paths}`}; ${c.fixed} fixed or ticketed, ${c.escapes.length} escaped${c.isTipReverted ? ", its tip reverted" : ""}`,
 		),
 		"",
@@ -1143,7 +1143,7 @@ function main() {
 	for (const u of unparsed)
 		writeReport({
 			tag: "UNPARSEABLE",
-			fault: `${u.repo}#${u.issue} has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: ${u.line}`,
+			fault: `${u.repo}#${u.issue} has a record not in ${RULE_COMMAND}'s form, so its commit is not counted until it is corrected: ${u.line}`,
 		});
 	for (const r of reports) writeReport(r);
 	commits = commits.filter((c) => c.repo !== own);

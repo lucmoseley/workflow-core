@@ -187,6 +187,13 @@ const { SHELL_VAR_NAME } = require("./lib/shell-var-name.js");
 
 const VAR_NAME = new RegExp(`^${SHELL_VAR_NAME}$`);
 
+/* RFC 7468 §3's header, whose label may hold single hyphens, or RFC 4716 §3.2's,
+ * four hyphens and spaces; either run with either spacing, as no secret looks
+ * like one. A whole key on one line holds a run of hyphens past its label, so is
+ * no header. The group is bounded, as an unbounded one overflows the stack on a
+ * value of megabytes (#3904). */
+const PEM_HEADER = /^-{4,5} ?BEGIN [^-]*(?:-[^-]+){0,8}-{4,5}$/;
+
 const USAGE = `usage: write-secret.js <NAME>
   <NAME>  a shell variable name; the value is then asked for with typing hidden`;
 
@@ -831,7 +838,7 @@ function upsertEnv(file, name, raw, fromTerminal) {
 	if (trimmed === "") {
 		return refuse(file, emptyWhy(name, hostRoot(), fromTerminal), 2);
 	}
-	if (/^-----BEGIN [^-]*-----$/.test(trimmed)) {
+	if (PEM_HEADER.test(trimmed)) {
 		return refuse(
 			file,
 			"the value is only the first line of a PEM key, which one line cannot carry. Re-run and give the whole key base64-encoded onto one line.",

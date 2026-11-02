@@ -12,11 +12,13 @@
  * becoming U+FFFD (#3675). Backspace removes one code point, never half a
  * surrogate pair; a combining accent or a ZWJ emoji part goes one at a time.
  *
- * NO KEYSTROKE VANISHES INTO THE VALUE (#3817). Any other control byte, a tab,
- * Ctrl-U, a NUL or an ESC outside a complete `ESC [` or `ESC O` sequence, would
- * leave a value other than the one given, unseen. Each rejects, at the line end
- * rather than the key, since rejecting at the key would hand the rest of a value
- * still being typed to the shell.
+ * NO KEYSTROKE VANISHES INTO THE VALUE (#3817). Any other control character, a
+ * tab, Ctrl-U, a NUL, a C1 control such as U+0085 or an ESC outside a complete
+ * `ESC [` or `ESC O` sequence, would leave a value other than the one given,
+ * unseen. Each rejects, at the line end rather than the key, since rejecting at
+ * the key would hand the rest of a value still being typed to the shell.
+ * Residual: a format character such as U+200B enters unseen, as refusing that
+ * class would refuse a ZWJ emoji (#3904).
  *
  * NOR DOES A BYTE THAT IS NOT UTF-8 END THE READ (#3826). Raw mode holds and all
  * input is discarded to the line end, and no silence ends that wait: a typist's
@@ -46,6 +48,9 @@
  * matter after Enter at a prompt run by hand. A key typed inside it is refused
  * and re-run. */
 const SETTLE_MS = 500;
+
+/* Unicode's Cc: the C0 controls, DEL and the C1 controls (#3904). */
+const CONTROL = /\p{Cc}/u;
 
 const INTERRUPTED = "interrupted. Re-run to enter the value.";
 const NOT_UTF8 =
@@ -211,8 +216,8 @@ function readChar(line, ch) {
 	else if (ch === "\x1b") line.esc = 1;
 	else if (ch === "\x7f" || ch === "\b")
 		line.value = line.value.replace(/[\s\S]$/u, "");
-	else if (ch >= " ") line.value += ch;
-	else line.stray = true;
+	else if (CONTROL.test(ch)) line.stray = true;
+	else line.value += ch;
 	return null;
 }
 
@@ -231,4 +236,4 @@ function advanceEscape(line, ch) {
 	line.esc = 0;
 }
 
-module.exports = { readHidden, SETTLE_MS };
+module.exports = { readHidden };
