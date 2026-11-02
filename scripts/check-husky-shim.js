@@ -1,18 +1,21 @@
 #!/usr/bin/env node
 /*
  * check-husky-shim.js — report a canonical checkout whose husky shim has lost
- * #3138's own-tree lookup (#3172).
+ * #3138's own-tree lookup (#3172), or whose core.hooksPath is off the absolute
+ * path install-hooks.js pins, which leaves a fresh linked worktree no git hook
+ * to run (#3819).
  *
  * Usage:  node scripts/check-husky-shim.js [--notify] [--json]
  *
  * husky rewrites `.husky/_/h` to its stock form every time it runs, so an
  * `npm install` where package.json predates #3138 (the shared tree while its
  * `main` is behind `landing`, #3106) silently sends every worktree's commit
- * and push back to the shared checkout's hook copy (#3125).
+ * and push back to the shared checkout's hook copy (#3125). husky run bare
+ * does that and writes core.hooksPath relative too (#3819).
  */
 
 const { runCheck } = require("./lib/check");
-const { gitCommonDir } = require("./lib/git.js");
+const { gitCommonDir, gitOutcome } = require("./lib/git.js");
 const { readShim, shimPaths } = require("./lib/husky-shim.js");
 const { scriptPath } = require("./lib/script-path.js");
 
@@ -22,7 +25,7 @@ runCheck({
 	run(ctx) {
 		const commonDir =
 			gitCommonDir(process.cwd()) ?? ctx.skip("not in a git checkout.");
-		const { shim } = shimPaths(commonDir);
+		const { hooks, shim } = shimPaths(commonDir);
 		const { state } = readShim(shim);
 		if (state === "absent")
 			return ctx.skip(`husky wrote no ${shim} — HUSKY=0, or no install yet.`);
@@ -38,9 +41,17 @@ runCheck({
 			ctx.fail("UNKNOWN-SHIM", message, { shim });
 			ctx.say(`UNKNOWN-SHIM — ${message}\n`);
 		}
+		const pinned = gitOutcome(["config", "--get", "core.hooksPath"], [1]);
+		if (!pinned.ok) return ctx.broken(`git config: ${pinned.why}`);
+		const hooksPath = pinned.out.trim();
+		if (hooksPath !== hooks) {
+			const message = `core.hooksPath reads "${hooksPath}", not ${hooks}, so a linked worktree whose tree has no such directory runs no git hook, and its commit takes neither the review hold nor a Review-Tier: trailer (mantahostels#344). Run: ${rerun}`;
+			ctx.fail("UNPINNED-HOOKS-PATH", message, { hooksPath, hooks });
+			ctx.say(`UNPINNED-HOOKS-PATH — ${message}\n`);
+		}
 		return {
 			okLine:
-				"the canonical checkout's husky shim runs each worktree's own hooks.",
+				"the canonical checkout's husky shim and core.hooksPath run each worktree's own hooks.",
 			noun: "husky shim fault(s)",
 			data: { shim },
 		};
