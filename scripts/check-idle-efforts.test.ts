@@ -126,9 +126,10 @@ async function run(
 		env,
 		stdin: JSON.stringify({ hook_event_name: "SessionStart", source }),
 	});
+	/* No case here reaches BROKEN, so every run exits 0 (§X3). */
+	expect(r.status).toBe(0);
 	const log = path.join(dir, "calls.log");
 	return {
-		status: r.status,
 		out: `${r.stdout}${r.stderr}`,
 		stdout: r.stdout,
 		calls: fs.existsSync(log)
@@ -242,7 +243,6 @@ describe("check-idle-efforts.js", () => {
 			"o/core": [node(1), node(2), node(3)],
 			"o/product": [node(8, ["takes:implement", "urgent"])],
 		});
-		expect(r.status).toBe(0);
 		expect(r.calls.sort()).toEqual(["o/core", "o/product"]);
 		expect(r.out).toContain(STOP_LINE);
 		expect(r.out).toContain(
@@ -260,7 +260,6 @@ describe("check-idle-efforts.js", () => {
 			},
 		]);
 		const r = await run({ "o/product": [node(8)] }, ["--json"]);
-		expect(r.status).toBe(0);
 		expect(JSON.parse(r.stdout).trackers).toEqual([
 			expect.objectContaining({
 				repo: "o/product",
@@ -325,7 +324,6 @@ describe("check-idle-efforts.js", () => {
 			const r = await run({
 				"o/product": [node(1), node(2), node(3)],
 			});
-			expect(r.status).toBe(0);
 			expect(r.out).toContain(
 				"o/product: 1 idle past 2 days (the refill loop does not serve it); oldest #1 (issue 1), idle 5.0 days; skip reason: stopped on its weekly limit (reset Fri)",
 			);
@@ -357,7 +355,6 @@ describe("check-idle-efforts.js", () => {
 		it("names it from its start with a live loop", async () => {
 			await withLiveLoop(seedHoldInState(), async () => {
 				const r = await run({ "o/product": [node(8, PARKED_LABELS)] });
-				expect(r.status).toBe(0);
 				expect(r.out).toContain(
 					"oldest #8 (issue 8), idle 3.0 days; skip reason: parked: its session's seat /s2 is full",
 				);
@@ -367,7 +364,6 @@ describe("check-idle-efforts.js", () => {
 		it("leaves it out with the loop stopped, naming the stop, as no seat is read", async () => {
 			seedHoldInState();
 			const r = await run({ "o/product": [node(8, PARKED_LABELS)] });
-			expect(r.status).toBe(0);
 			expect(r.out).toContain(STOP_LINE);
 			expect(r.out).toContain("o/product: none idle past 2 days");
 		});
@@ -393,7 +389,6 @@ describe("check-idle-efforts.js", () => {
 			const r = await run({ "o/product": [node(8, PARKED_LABELS)] });
 			expect(r.out).toContain(STOP_LINE);
 			expect(r.out).toContain(held);
-			expect(r.status).toBe(0);
 		});
 
 		it("reports a tracker whose markers will not read as unread, never as no hold", async () => {
@@ -402,7 +397,6 @@ describe("check-idle-efforts.js", () => {
 			fs.chmodSync(markers, 0o300);
 			try {
 				const r = await run({ "o/product": [node(8, PARKED_LABELS)] });
-				expect(r.status).toBe(0);
 				expect(r.out).toMatch(/o\/product: unread — EACCES.*scandir/);
 			} finally {
 				fs.chmodSync(markers, 0o700);
@@ -414,7 +408,6 @@ describe("check-idle-efforts.js", () => {
 			fs.chmodSync(marker, 0o000);
 			try {
 				const r = await run({ "o/product": [node(8, PARKED_LABELS)] });
-				expect(r.status).toBe(0);
 				expect(r.out).toMatch(/o\/product: unread — EACCES.*\.parked-s/);
 			} finally {
 				fs.chmodSync(marker, 0o600);
@@ -424,7 +417,6 @@ describe("check-idle-efforts.js", () => {
 		it("still leaves out a parked question, its marker holding no count", async () => {
 			parkedCheckout();
 			const r = await run({ "o/product": [node(8, PARKED_LABELS)] });
-			expect(r.status).toBe(0);
 			expect(r.out).toContain("o/product: none idle past 2 days");
 		});
 	});
@@ -447,7 +439,6 @@ describe("check-idle-efforts.js", () => {
 	it("names a tracker that will not read as unread, never as none idle, and does not gate", async () => {
 		checkout("gone", "o/gone");
 		const r = await run({});
-		expect(r.status).toBe(0);
 		expect(r.out).toContain(
 			"o/gone: unread — HTTP 404: Could not resolve to a Repository",
 		);
@@ -494,7 +485,6 @@ describe("check-idle-efforts.js", () => {
 			new Date(launched[0].launchedAt).toISOString(),
 		);
 		const r = await run({ "o/core": [node(1)] });
-		expect(r.status).toBe(0);
 		expect(r.out).toContain("o/core: none idle past 2 days");
 	});
 
@@ -504,7 +494,6 @@ describe("check-idle-efforts.js", () => {
 			raiseCoreHold(refill, "probe");
 			await withLiveLoop(refill, async () => {
 				const r = await run({ "o/core": [node(3)] });
-				expect(r.status).toBe(0);
 				expect(r.out).toContain(`skip reason: ${PROBE_HELD}`);
 				expect(r.out).not.toContain("rank");
 			});
@@ -521,13 +510,11 @@ describe("check-idle-efforts.js", () => {
 			writeProbeBrokenRoots(refill, [path.join(home, "core")]);
 			await withLiveLoop(refill, async () => {
 				const failing = await run({ "o/core": [node(3)] });
-				expect(failing.status).toBe(0);
 				expect(failing.out).toContain(`skip reason: ${PROBE_HELD}`);
 				expect(failing.out).not.toContain("rank");
 
 				writeProbeBrokenRoots(refill, []);
 				const passing = await run({ "o/core": [node(3)] });
-				expect(passing.status).toBe(0);
 				expect(passing.out).toContain("so it waits on rank");
 			});
 		});
@@ -536,7 +523,6 @@ describe("check-idle-efforts.js", () => {
 			const refill = serveCore();
 			await withLiveLoop(refill, async () => {
 				const r = await run({ "o/core": [node(3)] });
-				expect(r.status).toBe(0);
 				expect(r.out).toContain("so it waits on rank");
 			});
 		});
@@ -546,7 +532,6 @@ describe("check-idle-efforts.js", () => {
 			raiseCoreHold(refill, "park");
 			await withLiveLoop(refill, async () => {
 				const r = await run({ "o/core": [node(3)] });
-				expect(r.status).toBe(0);
 				expect(r.out).toContain("so it waits on rank");
 			});
 		});
@@ -556,7 +541,6 @@ describe("check-idle-efforts.js", () => {
 			tearHoldStore(refill);
 			await withLiveLoop(refill, async () => {
 				const r = await run({ "o/core": [node(3)] }, ["--json"]);
-				expect(r.status).toBe(0);
 				expect(JSON.parse(r.stdout).findings).toContainEqual(
 					expect.objectContaining({
 						tag: "REFILL-LOOP-FILE-DAMAGED",
@@ -574,7 +558,6 @@ describe("check-idle-efforts.js", () => {
 			damage(refill);
 			await withLiveLoop(refill, async () => {
 				const r = await run({ "o/core": [] });
-				expect(r.status).toBe(0);
 				expect(r.out).toContain("Refill loop file damaged: ");
 				for (const text of says) expect(r.out).toContain(text);
 				expect(r.out).toContain(DAMAGE_SUMMARY);
@@ -587,7 +570,6 @@ describe("check-idle-efforts.js", () => {
 		fs.writeFileSync(path.join(refill, ".refill-loop-state.json"), "{");
 		await withLiveLoop(refill, async () => {
 			const r = await run({ "o/core": [] }, ["--json"]);
-			expect(r.status).toBe(0);
 			expect(JSON.parse(r.stdout).damaged).toEqual([
 				expect.stringContaining(".refill-loop-state.json is damaged ("),
 			]);
@@ -600,7 +582,6 @@ describe("check-idle-efforts.js", () => {
 			tearHoldStore(refill);
 			await withLiveLoop(refill, async () => {
 				const r = await run({ "o/core": [node(3)] });
-				expect(r.status).toBe(0);
 				expect(r.out).toContain(
 					"skip reason: none, the launch filter passes it; a hold store would not read, and the loop reads that as no hold",
 				);
@@ -617,7 +598,6 @@ describe("check-idle-efforts.js", () => {
 			try {
 				await withLiveLoop(refill, async () => {
 					const r = await run({ "o/core": [node(3)] });
-					expect(r.status).toBe(0);
 					expect(r.out).toMatch(/Refill loop file damaged: .*EACCES/);
 					expect(r.out).toContain(
 						"repair the directory, as no hold in it reads",
@@ -638,7 +618,6 @@ describe("check-idle-efforts.js", () => {
 		fs.mkdirSync(refill, { recursive: true });
 		await withLiveLoop(refill, async () => {
 			const r = await run({ "o/core": [node(1)] });
-			expect(r.status).toBe(0);
 			expect(r.out).toContain("OK: no effort idle past 2 days.");
 		});
 	});
@@ -646,7 +625,6 @@ describe("check-idle-efforts.js", () => {
 	it("warns of a stopped loop on a plain run with nothing idle (#3892)", async () => {
 		checkout("core", "o/core", [launch(1, DAY)]);
 		const r = await run({ "o/core": [node(1)] });
-		expect(r.status).toBe(0);
 		expect(r.out).toContain(STOP_LINE);
 		expect(r.out).toContain("WARN: 1 finding(s)");
 	});
@@ -681,12 +659,10 @@ describe("at session start (--notify, #3644)", () => {
 
 	it("names a finding once a day, and again the next day, with the loop stopped", async () => {
 		const first = await run(oneIdle, ["--notify"]);
-		expect(first.status).toBe(0);
 		expect(first.stdout).toContain(STOP_LINE);
 		expect(first.stdout).toContain("o/core: 1 idle past 2 days");
 
 		const again = await run(oneIdle, ["--notify"]);
-		expect(again.status).toBe(0);
 		expect(again.stdout).toBe("");
 
 		const seen = JSON.parse(fs.readFileSync(stampPath(), "utf8"));
@@ -695,7 +671,6 @@ describe("at session start (--notify, #3644)", () => {
 			JSON.stringify({ ...seen, day: "2000-01-01" }),
 		);
 		const nextDay = await run(oneIdle, ["--notify"]);
-		expect(nextDay.status).toBe(0);
 		expect(nextDay.stdout).toContain("o/core: 1 idle past 2 days");
 	});
 
@@ -706,13 +681,11 @@ describe("at session start (--notify, #3644)", () => {
 			damage(refill);
 			await withLiveLoop(refill, async () => {
 				const first = await run({ "o/core": [] }, ["--notify"]);
-				expect(first.status).toBe(0);
 				expect(first.stdout).toContain("Refill loop file damaged: ");
 				for (const text of says) expect(first.stdout).toContain(text);
 				expect(first.stdout).toContain(DAMAGE_SUMMARY);
 
 				const again = await run({ "o/core": [] }, ["--notify"]);
-				expect(again.status).toBe(0);
 				expect(again.stdout).toBe("");
 			});
 		},
@@ -721,7 +694,6 @@ describe("at session start (--notify, #3644)", () => {
 	it("names a tracker again the same day once it holds a new finding", async () => {
 		await run(oneIdle, ["--notify"]);
 		const r = await run({ "o/core": [node(3), node(4)] }, ["--notify"]);
-		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("o/core: 2 idle past 2 days");
 	});
 
@@ -735,7 +707,6 @@ describe("at session start (--notify, #3644)", () => {
 
 		it("names and stamps it, then nothing that day, then again the next day", async () => {
 			const first = await run(nothingIdle, ["--notify"]);
-			expect(first.status).toBe(0);
 			expect(first.stdout).toContain(STOP_LINE);
 			expect(first.stdout).toContain("WARN: 1 finding(s)");
 			expect(fs.existsSync(stampPath())).toBe(true);
@@ -797,7 +768,6 @@ describe("at session start (--notify, #3644)", () => {
 		it("prints nothing for a live loop", async () => {
 			await withLiveLoop(refillDir(), async () => {
 				const r = await run(nothingIdle, ["--notify"]);
-				expect(r.status).toBe(0);
 				expect(r.stdout).toBe("");
 				expect(fs.existsSync(stampPath())).toBe(false);
 			});
@@ -825,8 +795,8 @@ describe("at session start (--notify, #3644)", () => {
 
 		it("prints it again through the real reader the next day, its text unchanged", async () => {
 			process.env.WFC_NOTIFY_PERSIST = "1";
-			const replay = () =>
-				runInProcess(
+			const replay = () => {
+				const r = runInProcess(
 					path.join(__dirname, "replay-notify-reports.js"),
 					["--notify"],
 					{
@@ -837,7 +807,10 @@ describe("at session start (--notify, #3644)", () => {
 							source: "startup",
 						}),
 					},
-				).stdout;
+				);
+				expect(r.status).toBe(0);
+				return r.stdout;
+			};
 			await run(nothingIdle, ["--notify"]);
 			expect(replay()).toContain(STOP_LINE);
 			await run(nothingIdle, ["--notify"]);
@@ -866,7 +839,6 @@ describe("at session start (--notify, #3644)", () => {
 
 	it("neither reads, prints nor stamps on a compaction", async () => {
 		const r = await run(oneIdle, ["--notify"], "compact");
-		expect(r.status).toBe(0);
 		expect(r.stdout).toBe("");
 		expect(r.calls).toEqual([]);
 		expect(fs.existsSync(stampPath())).toBe(false);
@@ -878,7 +850,6 @@ describe("at session start (--notify, #3644)", () => {
 	it("names every finding on a plain run, and stamps nothing", async () => {
 		await run(oneIdle, ["--notify"]);
 		const r = await run(oneIdle);
-		expect(r.status).toBe(0);
 		expect(r.out).toContain("o/core: 1 idle past 2 days");
 		fs.rmSync(stampPath());
 		await run(oneIdle);
@@ -888,7 +859,6 @@ describe("at session start (--notify, #3644)", () => {
 	it("names an unseen finding at a background job's start but stamps nothing, leaving it for the founder's start (#3725)", async () => {
 		Object.assign(process.env, buildStartEnv(path.join(dir, "job")));
 		const job = await run(oneIdle, ["--notify"]);
-		expect(job.status).toBe(0);
 		expect(job.stdout).toContain("o/core: 1 idle past 2 days");
 		expect(fs.existsSync(stampPath())).toBe(false);
 
@@ -914,12 +884,10 @@ describe("at session start (--notify, #3644)", () => {
 			buildStartEnv(writeJobRecord(path.join(dir, "his"), "claude")),
 		);
 		const resume = await run(oneIdle, ["--notify"], "resume");
-		expect(resume.status).toBe(0);
 		expect(resume.stdout).toContain("o/core: 1 idle past 2 days");
 		expect(fs.existsSync(stampPath())).toBe(false);
 
 		const start = await run(oneIdle, ["--notify"], "startup");
-		expect(start.status).toBe(0);
 		expect(start.stdout).toContain("o/core: 1 idle past 2 days");
 		expect(fs.existsSync(stampPath())).toBe(true);
 	});
@@ -930,7 +898,7 @@ describe("at session start (--notify, #3644)", () => {
 		});
 
 		it("carries the signature for the reader, and reports again until the reader stamps it", async () => {
-			expect((await run(oneIdle, ["--notify"])).status).toBe(0);
+			await run(oneIdle, ["--notify"]);
 			expect(fs.existsSync(stampPath())).toBe(false);
 			const first = notify.readReport("idle-efforts");
 			expect(first.text).toContain("o/core: 1 idle past 2 days");
@@ -950,16 +918,16 @@ describe("at session start (--notify, #3644)", () => {
 			const refill = serveCore();
 			tearHoldStore(refill);
 			await withLiveLoop(refill, async () => {
-				expect((await run({ "o/core": [] }, ["--notify"])).status).toBe(0);
+				await run({ "o/core": [] }, ["--notify"]);
 				const first = notify.readReport("idle-efforts");
 				expect(first.text).toContain("Refill loop file damaged: ");
 
-				expect((await run({ "o/core": [] }, ["--notify"])).status).toBe(0);
+				await run({ "o/core": [] }, ["--notify"]);
 				const unshown = notify.readReport("idle-efforts");
 				expect(unshown.text).toContain("Refill loop file damaged: ");
 
 				delivery.recordDelivery("idle-efforts", unshown.stamp);
-				expect((await run({ "o/core": [] }, ["--notify"])).status).toBe(0);
+				await run({ "o/core": [] }, ["--notify"]);
 				expect(notify.readReport("idle-efforts").text).toBe("");
 			});
 		});

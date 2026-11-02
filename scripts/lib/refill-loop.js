@@ -1176,7 +1176,7 @@ const leftDue = (input, launches) =>
  * @param {import("./refill-decide.js").Decision} decision
  * @param {boolean} waiting
  */
-const batchesToLaunch = (decision, waiting) =>
+const buildLaunchBatches = (decision, waiting) =>
 	"stop" in decision || waiting ? [] : batchesOf(decision.launches);
 
 /**
@@ -1212,7 +1212,7 @@ function settleTick(
 		waiting,
 	} = resumeDecided(decision, judged, io);
 	const outcome = launchUntilBarred(
-		batchesToLaunch(decision, waiting),
+		buildLaunchBatches(decision, waiting),
 		() => io.readControl().control,
 		io.launchBatch,
 	);

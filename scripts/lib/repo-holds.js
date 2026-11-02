@@ -1011,17 +1011,27 @@ function tendHolds(roots, served, now, log) {
 
 /**
  * The open holds a tick decides on: `broken`'s probe, whatever its store took,
- * and each checkout's stored holds.
+ * and each checkout's stored holds; beside them, each checkout whose store would
+ * not read, whole or in part, with its lines.
  * @param {string[]} roots
  * @param {string[]} broken  tendHolds's answer
- * @returns {{root: string, kind: RepoHold["kind"]}[]}
+ * @returns {{holds: {root: string, kind: RepoHold["kind"]}[],
+ *   unread: {root: string, lines: string[]}[]}}
  */
-const readTickHolds = (roots, broken) => [
-	...broken.map((root) => ({ root, kind: /** @type {const} */ ("probe") })),
-	...roots.flatMap((root) =>
-		readHolds(root).holds.map(({ kind }) => ({ root, kind })),
-	),
-];
+const readTickHolds = (roots, broken) => {
+	const reads = roots.map((root) => ({ root, ...readHolds(root) }));
+	return {
+		holds: [
+			...broken.map((root) => ({ root, kind: /** @type {const} */ ("probe") })),
+			...reads.flatMap(({ root, holds }) =>
+				holds.map(({ kind }) => ({ root, kind })),
+			),
+		],
+		unread: reads
+			.filter((r) => r.unread.length > 0)
+			.map(({ root, unread }) => ({ root, lines: unread })),
+	};
+};
 
 /**
  * @param {number} ms

@@ -63,6 +63,7 @@ const readIn = (jobDir: string, ...args: string[]) => {
 		env: { ...process.env, ...buildStartEnv(jobDir) },
 		cwd: path.resolve(__dirname, ".."),
 	});
+	expect(r.status).toBe(0);
 	return { status: r.status, out: `${r.stdout}${r.stderr}` };
 };
 

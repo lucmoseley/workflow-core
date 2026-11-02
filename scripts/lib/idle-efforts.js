@@ -472,13 +472,13 @@ function buildFilterPassedText(f) {
  * limit-cap parks' cap or on a limit that the line does not already name as its
  * oldest, and
  * beneath a tracker the loop does not serve, each `urgent` one; first, a line for
- * each damaged file and, where no loop runs, a line saying so.
+ * each damaged file, then the line that no loop runs.
  * @param {TrackerFinding[]} findings
- * @param {boolean} loopRunning
+ * @param {boolean} omitStopLine a loop runs, or its stop was already shown
  * @param {string[]} damaged each damaged file's line
  * @returns {IdleLine[]}
  */
-function buildIdleLines(findings, loopRunning, damaged) {
+function buildIdleLines(findings, omitStopLine, damaged) {
 	/** @param {string} text */
 	const buildTopLine = (text) => ({ text, nested: false });
 	/** @param {string} text */
@@ -511,7 +511,7 @@ function buildIdleLines(findings, loopRunning, damaged) {
 	});
 	return [
 		...damaged.map((d) => buildTopLine(buildDamagedText(d))),
-		...(loopRunning ? [] : [buildTopLine(LOOP_STOPPED_TEXT)]),
+		...(omitStopLine ? [] : [buildTopLine(LOOP_STOPPED_TEXT)]),
 		...lines,
 	];
 }
@@ -653,7 +653,7 @@ function selectUnseen(
  * @property {string[]} damagedUnseen the damaged files' lines this run names
  * @property {string[]} lines its text, nested lines indented; empty where it
  *   names none
- * @property {string|null} signature what records `unseen` as shown
+ * @property {string|null} signature what records this report's findings as shown
  * @property {string|null} stampNow the signature to write now; null where this
  *   start holds the notice or has nothing new to record
  */

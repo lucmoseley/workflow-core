@@ -1377,7 +1377,7 @@ async function tick({ dryRun }) {
 			.readGateStore(files.gates, log)
 			.pending.filter((j) => served.includes(j.root)),
 		resumable,
-		holds: readTickHolds(served, broken),
+		holds: readTickHolds(served, broken).holds,
 	};
 	const { decision, read } = await decide(input, control.scope);
 	if (dryRun)

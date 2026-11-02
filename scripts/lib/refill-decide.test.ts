@@ -16,6 +16,7 @@ const { capSet } = require("./allowance.js");
 const {
 	FULL,
 	buildLimitCapText,
+	buildLoopWait,
 	decideTick,
 	pickMoveSeat,
 } = require("./refill-decide.js");
@@ -769,6 +770,49 @@ describe("decideTick on a seat whose cap fits only the floor's member (#2432)", 
 	});
 });
 
+describe("buildLoopWait, the idle alarm's reason no rank launches (#3920)", () => {
+	const spent = { seats: [seat("a", FULL, 10, null)], frontier: [] };
+	const paused = { by: "founder", at: NOW };
+	const due = { jobId: "j", seat: "a", at: NOW, line: "j held" };
+
+	it.each([
+		["a pause", { paused }, true],
+		[
+			"spent seats on a limit-held session",
+			{ ...spent, limitHeldLines: ["j"] },
+			true,
+		],
+		["spent seats with a resume due", { ...spent, resumable: [due] }, true],
+		["no free slot", { freeSlots: 0 }, false],
+		["resumes taking every slot", { freeSlots: 1, resumable: [due] }, false],
+		["nothing launchable", { frontier: [] }, false],
+		[
+			"a failed shortlist",
+			{ frontier: [], failedShortlists: [{ root: "/r", error: "boom" }] },
+			false,
+		],
+	])(
+		"reads %s, each tick launching nothing giving its reason",
+		(_case, over, named) => {
+			const d = tick(over);
+			expect(d.launches).toEqual([]);
+			expect(typeof d.idle).toBe("string");
+			expect(buildLoopWait(d.idle)).toBe(named ? d.idle : null);
+		},
+	);
+
+	it("reads a kept slot as rank's", () => {
+		const d = tick({ freeSlots: 1, lastPromptAt: NOW });
+		expect(d.idle).toBe("one free slot is kept for the founder");
+		expect(buildLoopWait(d.idle)).toBeNull();
+	});
+
+	it("names a reason it does not know, and none for a tick that launched", () => {
+		expect(buildLoopWait("a stop added later")).toBe("a stop added later");
+		expect(buildLoopWait(null)).toBeNull();
+	});
+});
+
 describe("decideTick's resumes of held sessions (#3855)", () => {
 	const held = (jobId: string, at: number, onSeat = "a") => ({
 		jobId,
@@ -1406,6 +1450,20 @@ describe("decideTick on a parked row's session seat (#3669)", () => {
 			{ root: "wfc", number: 2, why: "parked: its session's seat /s2 is full" },
 		]);
 		expect(on(seat("/s2", 40, 20, null)).held).toEqual([]);
+	});
+
+	it("names a held row for the idle alarm on a tick with no slot free (#3919)", () => {
+		const d = tick({
+			mode: "normal",
+			freeSlots: 0,
+			frontier: [parked],
+			seats: [seat("/s1", 10, 10), seat("/s2", 100, 10)],
+			parkers: [parker()],
+		});
+		expect(d).toMatchObject({ idle: "no free slot", launches: [] });
+		expect(d.held).toEqual([
+			{ root: "wfc", number: 2, why: "parked: its session's seat /s2 is full" },
+		]);
 	});
 
 	describe("in away mode (#3850)", () => {

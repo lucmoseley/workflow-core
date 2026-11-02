@@ -78,7 +78,11 @@ const {
 	homeDir,
 	readHostTracker,
 } = require("./lib/refill-repos.js");
-const { readHolds, readTickHolds } = require("./lib/repo-holds.js");
+const { readTickHolds } = require("./lib/repo-holds.js");
+const {
+	buildLoopWait,
+	buildPausedWaitText,
+} = require("./lib/refill-decide.js");
 const { servedRoots } = require("./lib/refill-tick.js");
 const {
 	IDLE_DAYS,
@@ -130,7 +134,8 @@ function report(ctx, { unseen, stopUnseen, damagedUnseen, lines }) {
 function readLoop(reportDamaged) {
 	const files = refillFiles.loopFiles();
 	if (pidLock(files.pid, "refill-loop.js").holder() === null) {
-		/* A damaged control beside a stop is check-refill-loop-stop.js's to name. */
+		/* A damaged control beside a named stop is check-refill-loop-stop.js's to
+		 * name (#3892); beside any other, nothing names it yet (#3927). */
 		const last = refillFiles.readControlFile(() => undefined);
 		return {
 			running: false,
@@ -139,25 +144,29 @@ function readLoop(reportDamaged) {
 			launches: [],
 			held: [],
 			repoHolds: [],
+			loopWait: null,
 			holdsUnreadRoots: [],
 		};
 	}
 	const control = refillFiles.readControlFile(reportDamaged);
 	const state = refillFiles.readStateFile(reportDamaged);
 	const served = control ? servedRoots(control.scope).roots : [];
-	const holdsUnreadRoots = served.filter((root) => {
-		const { unread } = readHolds(root);
-		for (const line of unread) reportDamaged(line);
-		return unread.length > 0;
-	});
+	const { holds: repoHolds, unread } = readTickHolds(
+		served,
+		state.probeBrokenRoots,
+	);
+	for (const { lines } of unread) for (const line of lines) reportDamaged(line);
 	return {
 		running: true,
 		stoppedRun: null,
 		served,
 		launches: loop.workingOf(state.launches),
 		held: [...state.held, ...loop.limitHoldsOf(state.launches)],
-		repoHolds: readTickHolds(served, state.probeBrokenRoots),
-		holdsUnreadRoots,
+		repoHolds,
+		loopWait: control?.paused
+			? buildPausedWaitText(control.paused)
+			: buildLoopWait(state.lastTick?.idle ?? null),
+		holdsUnreadRoots: unread.map(({ root }) => root),
 	};
 }
 
