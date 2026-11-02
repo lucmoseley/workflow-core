@@ -102,9 +102,9 @@ const runMarkerLib = (
 		env: { ...quietEnv(), ...opts.env },
 	});
 
-/** A pathspec commit, as commit-paths.js makes; with no paths, the index as staged. */
-const commit = (
-	paths: string[],
+/** Any git command under the fixture's hooks, as a session runs it. */
+const hookedGit = (
+	args: string[],
 	{ sid = SID, cwd = repo, projectDir = "" } = {},
 ) => {
 	const env: Record<string, string | undefined> = {
@@ -113,19 +113,19 @@ const commit = (
 		...(projectDir ? { CLAUDE_PROJECT_DIR: projectDir } : {}),
 	};
 	delete env.GIT_REFLOG_ACTION;
-	return spawnSync(
-		"git",
-		[
-			"-c",
-			`core.hooksPath=${hooks}`,
-			"commit",
-			"-qm",
-			"land",
-			...(paths.length > 0 ? ["--", ...paths] : []),
-		],
-		{ cwd, encoding: "utf8", env },
-	);
+	return spawnSync("git", ["-c", `core.hooksPath=${hooks}`, ...args], {
+		cwd,
+		encoding: "utf8",
+		env,
+	});
 };
+
+/** A pathspec commit, as commit-paths.js makes; with no paths, the index as staged. */
+const commit = (paths: string[], opts: Parameters<typeof hookedGit>[1] = {}) =>
+	hookedGit(
+		["commit", "-qm", "land", ...(paths.length > 0 ? ["--", ...paths] : [])],
+		opts,
+	);
 
 /** What `commit-paths.js --tree` prints, the tree review-hold.txt names. */
 const treeOf = (args: string[], cwd = repo) => {
@@ -1087,7 +1087,8 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 		path.resolve(__dirname, "..", ".husky", "prepare-commit-msg"),
 		"utf8",
 	);
-	const stamp = () => path.join(repo, ".git", "wfc-review-tier");
+	const stamp = (sid = SID) =>
+		path.join(repo, ".git", `wfc-review-tier-${sid}`);
 	const trailers = () =>
 		git("log", "-1", "--format=%(trailers:key=Review-Tier,valueonly)");
 
@@ -1195,7 +1196,7 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 		const wtStamp = () =>
 			path.join(
 				git("-C", wt, "rev-parse", "--absolute-git-dir"),
-				"wfc-review-tier",
+				`wfc-review-tier-${SID}`,
 			);
 
 		/** write-review-marker.js from the worktree, for SECRET; `env` over quietEnv(). */
@@ -1223,6 +1224,28 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 		beforeEach(() => {
 			wt = path.join(scratch, "wt");
 			git("worktree", "add", "-q", "--detach", wt);
+		});
+
+		it("strips the old trailer from an amend adding an unreviewed edit to a glob (#3906)", () => {
+			write(SECRET, "new\n", wt);
+			git("-C", wt, "add", "--", SECRET);
+			mark({
+				tier: "escalated",
+				areas: "secrets",
+				tree: git("-C", wt, "write-tree"),
+				paths: SECRET,
+			});
+			expect(commit([], { cwd: wt, projectDir: repo }).status).toBe(0);
+			expect(readWtTrailer()).toContain("escalated");
+			write(SECRET, "newer\n", wt);
+			git("-C", wt, "add", "--", SECRET);
+			const r = hookedGit(["commit", "--amend", "--no-edit"], {
+				cwd: wt,
+				projectDir: repo,
+			});
+			expect(r.status).toBe(0);
+			expect(r.stderr).toContain("no review of this commit is recorded");
+			expect(readWtTrailer()).toBe("");
 		});
 
 		// The harness sets CLAUDE_PROJECT_DIR to the shared tree on every Bash
@@ -1321,7 +1344,7 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 		const r = spawnSync("bash", [Trailer, msg], {
 			cwd: repo,
 			encoding: "utf8",
-			env: quietEnv(),
+			env: { ...quietEnv(), CLAUDE_CODE_SESSION_ID: SID },
 		});
 		expect(r.stderr).toContain("could not be read");
 		expect(r.status).toBe(0);
@@ -1358,5 +1381,246 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 		const r = commit([], { sid: "" });
 		expect(r.status).toBe(0);
 		expect(trailers()).toBe("");
+	});
+
+	describe("a trailer no stamp vouches for (#3906)", () => {
+		const Typed = "Review-Tier: mission-critical; areas=secrets; tree=x";
+		const commitTyped = (...message: string[]) =>
+			hookedGit(["commit", "-q", ...message.flatMap((m) => ["-m", m])]);
+		/** The trailer script alone on a message holding `text`, as the session `sid`. */
+		const trailerOn = (text: string, sid = SID) => {
+			const msg = path.join(scratch, "msg");
+			fs.writeFileSync(msg, text);
+			const r = spawnSync("bash", [Trailer, msg], {
+				cwd: repo,
+				encoding: "utf8",
+				env: { ...quietEnv(), CLAUDE_CODE_SESSION_ID: sid },
+			});
+			return { ...r, text: () => fs.readFileSync(msg, "utf8") };
+		};
+
+		it.each([
+			["as git spells it", Typed],
+			["in another case and spacing", "review-tier : escalated; tree=x"],
+			["folded", `${Typed}\n  ; paths=a,b`],
+		])("strips one typed %s, and says so", (_, typed) => {
+			write(PLAIN, "new\n");
+			git("add", "--", PLAIN);
+			const r = commitTyped("land", `Signed-off-by: a <a@b>\n${typed}`);
+			expect(r.status).toBe(0);
+			expect(r.stderr).toContain("no review of this commit is recorded");
+			expect(trailers()).toBe("");
+			expect(git("log", "-1", "--format=%B")).toBe(
+				"land\n\nSigned-off-by: a <a@b>",
+			);
+		});
+
+		it("leaves a message carrying none as it was, saying nothing", () => {
+			write(PLAIN, "new\n");
+			git("add", "--", PLAIN);
+			const r = commitTyped("land", "Not-a-Review-Tier: kept");
+			expect(r.stderr).toBe("");
+			expect(git("log", "-1", "--format=%B")).toBe(
+				"land\n\nNot-a-Review-Tier: kept",
+			);
+		});
+
+		it("replaces one typed on a commit the hold passed with its own, and says nothing of a strip", () => {
+			write(SECRET, "new\n");
+			git("add", "--", SECRET);
+			const tree = git("write-tree");
+			mark({ tier: "escalated", areas: "secrets", tree, paths: SECRET });
+			const r = commitTyped("land", Typed);
+			expect(r.status).toBe(0);
+			expect(r.stderr).toBe("");
+			expect(trailers()).toContain("escalated; areas=secrets;");
+			expect(trailers()).not.toContain("mission-critical");
+		});
+
+		it("strips one where the stamp cannot be read, as the fault says", () => {
+			fs.writeFileSync(stamp(), `${git("write-tree")}\n`);
+			const r = trailerOn(`land\n\n${Typed}\n`);
+			expect(r.status).toBe(0);
+			expect(r.stderr).toContain("could not be read");
+			expect(r.text()).not.toContain("Review-Tier");
+		});
+
+		it("strips one with no session, on the founder's own terminal", () => {
+			write(PLAIN, "new\n");
+			git("add", "--", PLAIN);
+			const r = trailerOn(`land\n\n${Typed}\n`, "");
+			expect(r.status).toBe(0);
+			expect(r.stderr).toContain("no review of this commit is recorded");
+			expect(r.text()).not.toContain("Review-Tier");
+		});
+
+		it("says a line stands unvouched where it cannot read the message, and goes on", () => {
+			const r = spawnSync("bash", [Trailer, path.join(scratch, "absent")], {
+				cwd: repo,
+				encoding: "utf8",
+				env: { ...quietEnv(), CLAUDE_CODE_SESSION_ID: SID },
+			});
+			expect(r.status).toBe(0);
+			expect(r.stderr).toContain("stands unvouched");
+			expect(r.stderr).not.toContain("lands with no Review-Tier");
+		});
+
+		it("keeps a reviewed commit's trailer through an amend that only rewords it", () => {
+			write(SECRET, "new\n");
+			git("add", "--", SECRET);
+			const tree = git("write-tree");
+			mark({ tier: "escalated", areas: "secrets", tree, paths: SECRET });
+			expect(commit([]).status).toBe(0);
+			const value = trailers();
+			const body = git("log", "-1", "--format=%B");
+			const r = hookedGit([
+				"commit",
+				"--amend",
+				"-qm",
+				`reworded${body.slice(4)}`,
+			]);
+			expect(r.stderr).toBe("");
+			expect(r.status).toBe(0);
+			expect(git("log", "-1", "--format=%s")).toBe("reworded");
+			expect(trailers()).toBe(value);
+		});
+
+		it("strips one a reword adds to a commit carrying none", () => {
+			write(PLAIN, "new\n");
+			expect(commit([PLAIN]).status).toBe(0);
+			const r = hookedGit(["commit", "--amend", "-qm", `land\n\n${Typed}`]);
+			expect(r.status).toBe(0);
+			expect(trailers()).toBe("");
+		});
+
+		it("strips one typed by hand mid-rebase, whose replays never reach the script", () => {
+			write(PLAIN, "new\n");
+			git("add", "--", PLAIN);
+			const rebasing = path.join(repo, ".git", "rebase-merge");
+			fs.mkdirSync(rebasing);
+			const r = commitTyped("land", Typed);
+			fs.rmSync(rebasing, { recursive: true });
+			expect(r.status).toBe(0);
+			expect(trailers()).toBe("");
+		});
+
+		it("strips one the picked commit does not carry, resolving a cherry-pick by hand", () => {
+			const picked = git("rev-parse", "HEAD");
+			write(PLAIN, "new\n");
+			git("add", "--", PLAIN);
+			fs.writeFileSync(
+				path.join(repo, ".git", "CHERRY_PICK_HEAD"),
+				`${picked}\n`,
+			);
+			const r = commitTyped("land", Typed);
+			expect(r.status).toBe(0);
+			expect(trailers()).toBe("");
+		});
+
+		it("keeps the trailer a cherry-pick replays, the review being of that change", () => {
+			write(SECRET, "new\n");
+			git("add", "--", SECRET);
+			const tree = git("write-tree");
+			mark({ tier: "escalated", areas: "secrets", tree, paths: SECRET });
+			expect(commit([]).status).toBe(0);
+			const reviewed = git("rev-parse", "HEAD");
+			const value = trailers();
+			git("reset", "-q", "--hard", "HEAD~");
+			const r = hookedGit(["cherry-pick", reviewed]);
+			expect(r.status).toBe(0);
+			expect(trailers()).toBe(value);
+		});
+	});
+
+	describe("a stamp in the shared tree, with a neighbour committing (#3906)", () => {
+		const Neighbour = "neighbour-session";
+		/** The hold as session SID runs it on a private index, its commit still to come. */
+		const privateEnv = () => ({
+			...quietEnv(),
+			CLAUDE_CODE_SESSION_ID: SID,
+			GIT_INDEX_FILE: path.join(scratch, "private-index"),
+		});
+		const inPrivate = (...args: string[]) =>
+			spawnSync("git", args, {
+				cwd: repo,
+				encoding: "utf8",
+				env: privateEnv(),
+			}).stdout.trim();
+		const holdAsSession = () => {
+			inPrivate("read-tree", "HEAD");
+			write(SECRET, "new\n");
+			inPrivate("add", "--", SECRET);
+			const tree = inPrivate("write-tree");
+			mark({ tier: "escalated", areas: "secrets", tree, paths: SECRET });
+			const held = spawnSync("bash", [GATE], {
+				cwd: repo,
+				encoding: "utf8",
+				env: privateEnv(),
+			});
+			expect(held.status).toBe(0);
+			return tree;
+		};
+
+		it("neither clears nor consumes it, so this session's commit keeps its trailer", () => {
+			const tree = holdAsSession();
+			const before = fs.readFileSync(stamp(), "utf8");
+			write(PLAIN, "new\n");
+			const theirs = commit([PLAIN], { sid: Neighbour });
+			expect(theirs.status).toBe(0);
+			expect(trailers()).toBe("");
+			expect(fs.readFileSync(stamp(), "utf8")).toBe(before);
+			const msg = path.join(scratch, "msg");
+			fs.writeFileSync(msg, "land\n");
+			const r = spawnSync("bash", [Trailer, msg], {
+				cwd: repo,
+				encoding: "utf8",
+				env: privateEnv(),
+			});
+			expect(r.stderr).toBe("");
+			expect(r.status).toBe(0);
+			expect(fs.readFileSync(msg, "utf8")).toContain(`tree=${tree}`);
+			expect(fs.existsSync(stamp())).toBe(false);
+		});
+
+		it("gives the neighbour's commit no trailer of this session's", () => {
+			holdAsSession();
+			const msg = path.join(scratch, "msg");
+			fs.writeFileSync(msg, "theirs\n");
+			const r = spawnSync("bash", [Trailer, msg], {
+				cwd: repo,
+				encoding: "utf8",
+				env: { ...quietEnv(), CLAUDE_CODE_SESSION_ID: Neighbour },
+			});
+			expect(r.status).toBe(0);
+			expect(r.stderr).toBe("");
+			expect(fs.readFileSync(msg, "utf8")).toBe("theirs\n");
+			expect(fs.existsSync(stamp())).toBe(true);
+		});
+
+		it("sweeps a stamp a dead session stranded a day ago, and no fresher one", () => {
+			fs.writeFileSync(stamp("dead"), "x\nunheld\n");
+			const dayAgo = new Date(Date.now() - 25 * 3_600_000);
+			fs.utimesSync(stamp("dead"), dayAgo, dayAgo);
+			fs.writeFileSync(stamp(Neighbour), "x\nunheld\n");
+			write(PLAIN, "new\n");
+			expect(commit([PLAIN]).status).toBe(0);
+			expect(fs.existsSync(stamp("dead"))).toBe(false);
+			expect(fs.existsSync(stamp(Neighbour))).toBe(true);
+		});
+
+		it("keeps a session id out of the stamp's path", () => {
+			const r = spawnSync(
+				"bash",
+				[
+					"-c",
+					`source "${path.join(path.dirname(GATE), "lib", "review-tier-stamp.sh")}" && wfc_review_tier_stamp /g`,
+				],
+				{
+					encoding: "utf8",
+					env: { ...quietEnv(), CLAUDE_CODE_SESSION_ID: "../a b" },
+				},
+			);
+			expect(r.stdout.trim()).toBe("/g/wfc-review-tier-___a_b");
+		});
 	});
 });

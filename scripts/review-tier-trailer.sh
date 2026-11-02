@@ -4,7 +4,7 @@
 # commit's own record of its sensitive-path review (#3664, spec #1612
 # §Disposition and records, Reach).
 #
-# IMPLICIT:  consumes the git directory's `wfc-review-tier`, which scripts/review-hold-gate.sh leaves on a pass. Where its tree is not the one this commit carries, a neighbour's `git add` moved the index under the later gates (#3905), so it runs the hold again on what the commit now carries and refuses as the hold does. A stamp naming a review then writes `Review-Tier: <tier>; areas=<a,b>; base=<sha>; tree=<sha>; paths=<p,q>` into the message file, replacing any the message already carries.
+# IMPLICIT:  removes every `Review-Tier:` line from the message but one a cherry-pick's picked commit carries or, on an unchanged tree, HEAD's, saying so on stderr where the commit then goes on with none (#3906). Consumes this session's `wfc-review-tier-<sid>` in the git directory, which scripts/review-hold-gate.sh leaves on a pass. Where its tree is not the one this commit carries, a neighbour's `git add` moved the index under the later gates (#3905), so it runs the hold again on what the commit now carries and refuses as the hold does. A stamp naming a review then writes `Review-Tier: <tier>; areas=<a,b>; base=<sha>; tree=<sha>; paths=<p,q>` into the message file.
 # JUSTIFIED: reach — scripts/report-remeasure-due.js counts a commit by it where no `**Review findings:**` comment names it.
 # DEFEAT:    any route that skips the hold skips the trailer with it: the founder's own terminal, `HUSKY=0`; and a linked worktree's commit whose marker would not pass the hold, which it does not refuse there, has none.
 #
@@ -16,8 +16,12 @@
 # LIMITS
 #  - A `git add` after git built the commit's tree and before this hook reads the
 #    index refuses a commit that carried the reviewed tree: fail closed.
-#  - A neighbour's commit in the same git directory clears the stamp, so a tree
-#    moving under this commit's later gates then goes unread (#3906).
+#  - A `Review-Tier:` line typed into $EDITOR survives, as this hook runs before
+#    the editor opens. A session commits with a message given.
+#  - `--no-verify` by hand mid-rebase reaches the replay path, never this script.
+#  - A picked commit's line survives a conflict resolution in a linked worktree,
+#    which the hold skips, as it does that replay's bytes.
+#  - One session's two simultaneous commits share a stamp.
 #  - A message still to be typed into $EDITOR takes the trailer on its second
 #    line, which the subject then joins, so git reads no trailer there. The
 #    hold runs in a session alone, which commits with a message given.
@@ -41,8 +45,78 @@ dropped() {
   exit 0
 }
 
-gitdir="$(git rev-parse --absolute-git-dir 2>/dev/null)" || exit 0
-stamp="$gitdir/wfc-review-tier"
+# unstripped <why> — a line that may be false stands: say so, and log it.
+unstripped() {
+  echo "prepare-commit-msg: $1, so a Review-Tier: line in the message stands unvouched." >&2
+  # shellcheck source=scripts/lib/guard-log.sh
+  source "${BASH_SOURCE[0]%/*}/lib/guard-log.sh" 2>/dev/null &&
+    gl_log "review-tier-trailer.sh: $1 — a Review-Tier: line stands unvouched"
+  exit 0
+}
+
+# vouching_message <route> — the one message whose `Review-Tier:` line this commit
+# may keep: a cherry-pick's picked commit, or HEAD's where the tree is HEAD's, as
+# a reword changes nothing reviewed. A rebase's replays never reach this script,
+# so a commit on that route is by hand.
+vouching_message() {
+  case "$1" in
+    cherry-pick) git log -1 --format=%B CHERRY_PICK_HEAD 2>/dev/null ;;
+    rebase) ;;
+    *)
+      if [[ "$(git rev-parse -q --verify 'HEAD^{tree}' 2>/dev/null)" == "$(git write-tree 2>/dev/null)" ]]; then
+        git log -1 --format=%B HEAD 2>/dev/null
+      fi
+      ;;
+  esac
+}
+
+# strip_unvouched <route> — removes each `Review-Tier:` line the vouching message
+# does not carry, in any spelling git reads as this key: any case, space before
+# the colon, folded lines.
+stripped=""
+strip_unvouched() {
+  local status=0 original kept
+  [[ -n "$msg" ]] || return 0
+  grep -qiE '^Review-Tier[[:space:]]*:' "$msg" 2>/dev/null || status=$?
+  [[ "$status" -ne 1 ]] || return 0
+  [[ "$status" -eq 0 ]] || unstripped "could not read the message file $msg"
+  original="$(cat "$msg")" || unstripped "could not read the message file $msg"
+  kept="$(VOUCHING="$(vouching_message "$1")" awk '
+    BEGIN { n = split(ENVIRON["VOUCHING"], v, "\n"); for (i = 1; i <= n; i++) vouched[v[i]] = 1 }
+    tolower($0) ~ /^review-tier[ \t]*:/ { dropping = !($0 in vouched); if (dropping) next }
+    dropping && /^[ \t]/ { next }
+    { dropping = 0; print }' "$msg")" || unstripped "could not filter the message file $msg"
+  [[ "$kept" != "$original" ]] || return 0
+  printf '%s\n' "$kept" >"$msg" || unstripped "could not rewrite the message file $msg"
+  stripped=1
+}
+
+# On a commit that goes on with no trailer, says the strip took one away.
+wrote=""
+# shellcheck disable=SC2329  # run by the EXIT trap below
+say_stripped() {
+  local status=$?
+  if [[ "$status" -eq 0 && -n "$stripped" && -z "$wrote" ]]; then
+    echo "prepare-commit-msg: removed the message's Review-Tier: line, as no review of this commit is recorded; only the review hold writes one." >&2
+  fi
+}
+trap say_stripped EXIT
+
+# The route's own library failing to load strips on every route, as no message
+# can then vouch; pre-commit and prepare-commit-msg refuse a commit without it.
+route=rebase
+gitdir="$(git rev-parse --absolute-git-dir 2>/dev/null)" || gitdir=""
+# shellcheck source=scripts/lib/commit-route.sh
+if [[ -n "$gitdir" ]] && source "${BASH_SOURCE[0]%/*}/lib/commit-route.sh" 2>/dev/null; then
+  route="$(wfc_commit_route prepare-commit-msg "$gitdir")"
+fi
+strip_unvouched "$route"
+[[ -n "$gitdir" ]] || exit 0
+
+# shellcheck source=scripts/lib/review-tier-stamp.sh
+source "${BASH_SOURCE[0]%/*}/lib/review-tier-stamp.sh" 2>/dev/null ||
+  dropped "could not load scripts/lib/review-tier-stamp.sh, so a tree that moved under the later gates goes unread"
+stamp="$(wfc_review_tier_stamp "$gitdir")"
 [[ -f "$stamp" ]] || exit 0
 
 # Consumed on read, so a stamp outliving its commit stands behind no other. Its
@@ -80,4 +154,5 @@ fi
 out="$(git interpret-trailers --in-place --if-exists replace \
   --trailer "Review-Tier: $value" "$msg" 2>&1)" ||
   dropped "git could not write the trailer" "$out"
+wrote=1
 exit 0

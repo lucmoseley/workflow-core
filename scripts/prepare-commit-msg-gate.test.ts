@@ -23,7 +23,7 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { registerTempCleanup } from "./lib/precommit-gate-harness";
 import { ROOT } from "./lib/precommit-gate-testkit";
@@ -166,6 +166,7 @@ const buildTemplate = (root: string) => {
 	// the subject check (#2332), and prints commit-message.txt on its refusal.
 	for (const rel of [
 		"scripts/lib/commit-route.sh",
+		"scripts/lib/review-tier-stamp.sh",
 		"scripts/check-commit-message-closes.sh",
 		"scripts/check-commit-subject.sh",
 		"scripts/review-tier-trailer.sh",
@@ -1164,6 +1165,13 @@ describe("the review hold on a cherry-pick's replay path (#3905)", () => {
 });
 
 describe("the review hold's Review-Tier: trailer (#3664)", () => {
+	beforeEach(() => {
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "session-under-test");
+	});
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
 	it.each([
 		["standing down on pre-commit's stamp", []],
 		["running pre-commit itself under --no-verify", ["--no-verify"]],
@@ -1189,7 +1197,7 @@ describe("the review hold's Review-Tier: trailer (#3664)", () => {
 	/** A pre-commit that leaves the stamp the review hold leaves on a pass. */
 	const holding = (p: Probe) =>
 		p.precommitBody(
-			`t="$(git write-tree)"\nprintf '%s\\nescalated; areas=secrets; base=b; tree=%s; paths=f.txt\\n' "$t" "$t" >"$(git rev-parse --absolute-git-dir)/wfc-review-tier"\n${precommitStub(path.join(p.root, LOG), 0)}`,
+			`t="$(git write-tree)"\nprintf '%s\\nescalated; areas=secrets; base=b; tree=%s; paths=f.txt\\n' "$t" "$t" >"$(git rev-parse --absolute-git-dir)/wfc-review-tier-$CLAUDE_CODE_SESSION_ID"\n${precommitStub(path.join(p.root, LOG), 0)}`,
 		);
 	const trailer = (p: Probe) =>
 		gitLog(p, "-1", "--format=%(trailers:key=Review-Tier,valueonly)").trim();
