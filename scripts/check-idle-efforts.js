@@ -137,12 +137,13 @@ function report(ctx, { unseen, stopUnseen, damagedUnseen, lines }) {
 function readLoop(reportDamaged) {
 	const files = refillFiles.loopFiles();
 	if (pidLock(files.pid, "refill-loop.js").holder() === null) {
-		/* A damaged control beside a named stop is check-refill-loop-stop.js's to
-		 * name (#3892); beside any other, nothing names it yet (#3927). */
+		/* check-refill-loop-stop.js names either file's damage here; a damaged
+		 * control's run is the last tick's count point (#3892, #3927). */
 		const last = refillFiles.readControlFile(() => undefined);
+		const lastTick = refillFiles.readStateFile(() => undefined).launchCount;
 		return {
 			running: false,
-			stoppedRun: last?.noProgressFrom ?? null,
+			stoppedRun: last?.noProgressFrom ?? lastTick?.from ?? null,
 			served: [],
 			launches: [],
 			held: [],

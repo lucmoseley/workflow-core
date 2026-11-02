@@ -14,7 +14,7 @@
  * strands an effort unreported while the core's own tests stay green.
  */
 
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -27,6 +27,7 @@ import { readJsonl } from "./lib/jsonl.js";
 import { writeParkedBy } from "./lib/parked.js";
 import { launchOrResume } from "./lib/refill-batch.js";
 import { buildPauseText, PROBE_HELD } from "./lib/refill-decide.js";
+import { spawnLoopHolder } from "./lib/refill-loop-testkit";
 import { raiseHold } from "./lib/repo-holds.js";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 
@@ -157,13 +158,7 @@ const PARKED_LABELS = ["takes:implement", "parked"];
 
 /** `body`, run while a process holds the refill loop's pid lock in `refill`. */
 const withLiveLoop = async (refill: string, body: () => Promise<void>) => {
-	/* pidLock takes a holder by an argument's basename. */
-	const holder = spawn(
-		process.execPath,
-		["-e", "setInterval(() => {}, 1000)", "refill-loop.js"],
-		{ stdio: "ignore" },
-	);
-	fs.writeFileSync(path.join(refill, ".refill-loop.pid"), String(holder.pid));
+	const holder = spawnLoopHolder(refill);
 	try {
 		await body();
 	} finally {
@@ -801,6 +796,25 @@ describe("at session start (--notify, #3644)", () => {
 			await run(nothingIdle, ["--notify"]);
 			expect((await run(nothingIdle, ["--notify"])).stdout).toBe("");
 			control(NOW);
+			expect((await run(nothingIdle, ["--notify"])).stdout).toContain(
+				STOP_LINE,
+			);
+		});
+
+		it("leaves a stopped loop's damaged control to check-refill-loop-stop.js, keying its stop on the last tick's run (#3927)", async () => {
+			const refill = refillDir();
+			fs.writeFileSync(path.join(refill, ".refill-loop-control.json"), "{");
+			const tickAt = (from: number) =>
+				fs.writeFileSync(
+					path.join(refill, ".refill-loop-state.json"),
+					JSON.stringify({ launchCount: { from, count: 0 } }),
+				);
+			tickAt(NOW - DAY);
+			const first = await run(nothingIdle, ["--notify"]);
+			expect(first.stdout).toContain(STOP_LINE);
+			expect(first.stdout).not.toContain("Refill loop file damaged");
+			expect((await run(nothingIdle, ["--notify"])).stdout).toBe("");
+			tickAt(NOW);
 			expect((await run(nothingIdle, ["--notify"])).stdout).toContain(
 				STOP_LINE,
 			);

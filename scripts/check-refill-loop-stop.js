@@ -7,8 +7,9 @@
  *
  * Usage:  node scripts/check-refill-loop-stop.js [--notify] [--json]
  *
- * READS the loop's state file (lib/refill-files.js) for its last stop. An
- * expiry or an explicit stop is not named.
+ * READS the loop's state file (lib/refill-files.js) for its last stop, its
+ * control file, and its pid lock for whether it runs. An expiry or an explicit
+ * stop is not named.
  *
  * ONCE PER STOP. A `--notify` run, bar under `--json`, records the stop's time in the stop-seen
  * stamp beside the state file, and names no stop at or before it. A plain run
@@ -28,15 +29,18 @@
  *
  * Severity is WARN: a notice for the founder. An absent or damaged state
  * file is no stop. A damaged state file is its own WARN, named at every
- * session start until the loop's next tick rewrites it; a damaged control
- * file, read only beside a fresh stop, is named with it, until a `start`
- * rewrites it (#3380); beside the stop it caused, the stop line names it.
+ * session start until the loop's next tick rewrites it. A stopped loop's
+ * damaged control file is its own WARN on the same terms, until a `start`
+ * rewrites it (#3380, #3927); beside the fresh stop it caused, the stop line
+ * names it. A running loop's is check-idle-efforts.js's to name, once a day.
+ * Residual: that checker's line replays at the next start, so where the loop
+ * stopped between the two, that one start names the damage twice.
  *
  * ITS NOTICES REACH THE FOUNDER'S SCREEN as a `systemMessage`, and the model as
  * context (lib/check.js's screenNotices, #3776). A stamp is written once the
  * notice is out.
  *
- * IMPLICIT:  at every session start but a dispatcher's or the loop's job, prints the refill loop's last stop where it was no progress, the allowance cut or a damaged control file and is newer than the stamp, then stamps it; prints its newest first overflow launch where newer than that launch's stamp, then stamps it; and names a damaged state or control file.
+ * IMPLICIT:  at every session start but a dispatcher's or the loop's job, prints the refill loop's last stop where it was no progress, the allowance cut or a damaged control file and is newer than the stamp, then stamps it; prints its newest first overflow launch where newer than that launch's stamp, then stamps it; and names a damaged state file or a stopped loop's damaged control file.
  * JUSTIFIED: fail-safe — the loop runs outside any session, so nothing else reports its stopping or its spending.
  * DEFEAT:    none needed — it never blocks; deleting a stamp names its last event again.
  */
@@ -47,6 +51,7 @@ const { runCheck } = require("./lib/check");
 const hookMessage = require("./lib/hook-message");
 const { isFounderNoticeHeld } = require("./lib/background-start.js");
 const { buildOverflowStartLines } = require("./lib/overflow-notice.js");
+const { pidLock } = require("./lib/pid-lock.js");
 const loop = require("./lib/refill-loop.js");
 const refillFiles = require("./lib/refill-files.js");
 const { buildSeatName } = require("./lib/refill-seats.js");
@@ -194,12 +199,16 @@ runCheck({
 			stopped !== null &&
 			why !== undefined &&
 			stopped.at > readSeen(files.stopSeen);
+		/* Silent where another line names the damage: a running loop's in
+		 * check-idle-efforts.js, a fresh control-damaged stop's below (#3927). */
+		const control = refillFiles.readControlFile(
+			pidLock(files.pid, "refill-loop.js").holder() !== null ||
+				(fresh && stopped.reason === "control-damaged")
+				? () => undefined
+				: reportDamaged,
+		);
 		if (fresh) {
 			const at = new Date(stopped.at).toISOString();
-			/* A control-damaged stop's line names the damage already. */
-			const control = refillFiles.readControlFile(
-				stopped.reason === "control-damaged" ? () => undefined : reportDamaged,
-			);
 			const restarted = loop.isRestartedSince(control, stopped.at);
 			const since = restarted
 				? " It has been started again since."

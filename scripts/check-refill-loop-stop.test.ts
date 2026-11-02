@@ -3,7 +3,8 @@
  * Pins that check-refill-loop-stop.js names a refill loop stopped on no
  * progress, the allowance cut or a damaged control file once, at the next
  * session start (#2014, #3389), and
- * never an expiry or an explicit stop, and names a damaged state file (#3380).
+ * never an expiry or an explicit stop, and names a damaged state file (#3380)
+ * and a stopped loop's damaged control file (#3927).
  * WFC_REFILL_DIR points the loop's files
  * at a temp directory, so the machine's real loop is never read. Loosen a case
  * and a stalled loop goes unseen at session start, or its notice repeats at
@@ -14,6 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildStartEnv, writeJobRecord } from "./lib/background-start-testkit";
+import { spawnLoopHolder } from "./lib/refill-loop-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "check-refill-loop-stop.js");
@@ -260,7 +262,7 @@ describe("at session start (--notify)", () => {
 		expect(r.stdout).not.toContain("REFILL-LOOP-STOPPED");
 	});
 
-	it("names a damaged control file beside the stop it was read for (#3380)", () => {
+	it("names a damaged control file beside a fresh named stop (#3380)", () => {
 		writeState("no-progress");
 		const control = path.join(dir, ".refill-loop-control.json");
 		fs.writeFileSync(control, "{ not json");
@@ -273,7 +275,7 @@ describe("at session start (--notify)", () => {
 		expect(r.stdout).toContain("/pick-next");
 	});
 
-	it("names a damaged-control stop once, with the file, and no second warning (#3389)", () => {
+	it("names a damaged-control stop once, with the file, then the damage alone at a later start (#3389, #3927)", () => {
 		const control = path.join(dir, ".refill-loop-control.json");
 		fs.writeFileSync(control, "{ not json");
 		writeState("control-damaged", `${control} is damaged (bad JSON)`);
@@ -283,7 +285,81 @@ describe("at session start (--notify)", () => {
 			`stopped on a damaged control file at 2026-10-18T03:00:00.000Z: ${control} is damaged (bad JSON)`,
 		);
 		expect(r.stdout).not.toContain("REFILL-LOOP-FILE-DAMAGED");
-		expect(run(["--notify"]).stdout).toBe("");
+		const later = run(["--notify"]);
+		expect(later.status).toBe(0);
+		expect(later.stdout).toContain(
+			`REFILL-LOOP-FILE-DAMAGED — ${control} is damaged`,
+		);
+		expect(later.stdout).toContain("until a start rewrites it");
+		expect(later.stdout).not.toContain("REFILL-LOOP-STOPPED");
+	});
+
+	describe("a damaged control beside a stopped loop (#3927)", () => {
+		const damageControl = () =>
+			fs.writeFileSync(
+				path.join(dir, ".refill-loop-control.json"),
+				"{ not json",
+			);
+		const expectDamageNamed = (stdout: string) => {
+			const control = path.join(dir, ".refill-loop-control.json");
+			expect(stdout).toContain(
+				`REFILL-LOOP-FILE-DAMAGED — ${control} is damaged`,
+			);
+			expect(stdout).toContain("until a start rewrites it");
+		};
+
+		it("names it beside an explicit stop", () => {
+			writeState("explicit");
+			damageControl();
+			const r = run(["--notify"]);
+			expect(r.status).toBe(0);
+			expectDamageNamed(r.stdout);
+			expect(r.stdout).not.toContain("REFILL-LOOP-STOPPED");
+		});
+
+		it("names it with no stop written", () => {
+			damageControl();
+			const r = run(["--notify"]);
+			expect(r.status).toBe(0);
+			expectDamageNamed(r.stdout);
+		});
+
+		it("names it again beside a named stop already spent", () => {
+			writeState("no-progress");
+			run(["--notify"]);
+			damageControl();
+			const r = run(["--notify"]);
+			expect(r.status).toBe(0);
+			expectDamageNamed(r.stdout);
+			expect(r.stdout).not.toContain("REFILL-LOOP-STOPPED");
+		});
+
+		it("leaves a running loop's to check-idle-efforts.js", () => {
+			writeState("explicit");
+			damageControl();
+			const holder = spawnLoopHolder(dir);
+			try {
+				const r = run(["--notify"]);
+				expect(r.status).toBe(0);
+				expect(r.stdout).toBe("");
+			} finally {
+				holder.kill();
+			}
+		});
+
+		it("names a fresh stop but not a running loop's damage beside it", () => {
+			writeState("no-progress");
+			damageControl();
+			const holder = spawnLoopHolder(dir);
+			try {
+				const r = run(["--notify"]);
+				expect(r.status).toBe(0);
+				expect(r.stdout).toContain("REFILL-LOOP-STOPPED");
+				expect(r.stdout).not.toContain("REFILL-LOOP-FILE-DAMAGED");
+			} finally {
+				holder.kill();
+			}
+		});
 	});
 
 	it("says the loop was started again where a start followed the stop", () => {
