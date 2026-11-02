@@ -602,6 +602,7 @@ describe("the seats: line (#3733)", () => {
 			weekResets?: number;
 			fresh?: boolean;
 			sessionResets?: string;
+			weekRead?: { percent: number | null; atMs: number | null };
 		} = {},
 	) => ({
 		seat: `${process.env.HOME}/${dir}`,
@@ -615,6 +616,7 @@ describe("the seats: line (#3733)", () => {
 		weekRead: { percent: week, atMs: NOW },
 		fits: 1,
 		fresh: true,
+		weekFresh: week !== null,
 		...over,
 	});
 	const lineOf = (
@@ -764,6 +766,35 @@ describe("the seats: line (#3733)", () => {
 		);
 	});
 
+	it("carries the week's last figure, read time and freshness on each reading", () => {
+		const view = buildSeatsView({
+			seats: [seat(".claude3", null, null, { fits: null, fresh: false })],
+			overflow: [],
+			typedSeat: null,
+			ceilings,
+		});
+		expect(view.readings[0].weekRead).toEqual({
+			percent: null,
+			at: new Date(NOW).toISOString(),
+			fresh: false,
+		});
+	});
+
+	it("gives no read time on a week that carries none", () => {
+		const unstamped = seat(".claude3", 100, null, {
+			fits: null,
+			fresh: false,
+			weekRead: { percent: 100, atMs: null },
+		});
+		const view = buildSeatsView({
+			seats: [unstamped],
+			overflow: [],
+			typedSeat: null,
+			ceilings,
+		});
+		expect(view.readings[0].weekRead.at).toBeNull();
+	});
+
 	describe("a seat foreseen off its cache", () => {
 		const reset = new Date(NOW + 60 * MIN).toISOString();
 		const bar = (percent: number | null, trust: string, resetsAt = reset) => ({
@@ -773,6 +804,20 @@ describe("the seats: line (#3733)", () => {
 			fetchedAtMs: NOW - 12 * MIN,
 			trust,
 		});
+		it("keeps the week fresh with only the 5-hour bar stale", () => {
+			const out = foreseeSeat({
+				reading: seat(".claude3", 62, null),
+				bars: {
+					weekly_all: bar(62, "fresh"),
+					session: bar(10, "stale"),
+				} as never,
+				sizeCap: () => 1,
+				ceilings,
+				now: NOW,
+			});
+			expect(out).toMatchObject({ fresh: false, weekFresh: true });
+		});
+
 		const foresee = (
 			week: number | null,
 			session: number | null,

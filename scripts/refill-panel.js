@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /*
  * refill-panel.js — the refill loop's control panel beside an agents view (#3873,
- * #3877, #3879, #3881, #3883, #3884, #3887, #3948, spec #3596): a terminal program with no Claude process that shows the Refill
- * loop switch and its three-line block, and pauses or resumes the loop on a click;
+ * #3877, #3879, #3881, #3883, #3884, #3887, #3948, #3958, spec #3596): a terminal program with no Claude process that shows the Refill
+ * loop switch and its status block, and pauses or resumes the loop on a click;
  * the Away switch, which sets the loop's mode on a click; the Burn mode switch,
  * which flips burn mode on a click; the Goal switch and its field, which clear or
  * replace the goal, free text through one `claude -p` and a confirm press; and a tick box per checkout, which sets whether the loop serves it.

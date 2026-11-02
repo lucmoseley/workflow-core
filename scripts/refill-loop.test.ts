@@ -505,6 +505,7 @@ describe("stop and status", () => {
 				headroomUsd: 200,
 				exhausted: false,
 				noLaunchLeft: false,
+				running: 0,
 			},
 		]);
 		expect(json.seats.readings).toEqual([
@@ -512,11 +513,40 @@ describe("stop and status", () => {
 		]);
 	});
 
-	it("settles no key's ledger while a plan seat has room", async () => {
+	it("gives a key's whole grant in dollars, with nothing spent and a plan seat with room", async () => {
 		declareOverflowKey();
 		const json = JSON.parse((await run("status", "--json")).stdout);
 		expect(json.seats.readings[0].weekFull).toBe(false);
-		expect(json.overflow[0].why).toBe("a plan seat is not weekly-full");
+		expect(json.overflow[0]).toMatchObject({
+			grantUsd: 200,
+			headroomUsd: 200,
+			spentUsd: 0,
+		});
+		expect(json.overflow[0].why).toBeUndefined();
+	});
+
+	it("reads a key's settled spend with a plan seat with room", async () => {
+		declareOverflowKey();
+		const ledger = path.join(dir, ".overflow-ledger", "WFC_TEST_KEY.jsonl");
+		fs.mkdirSync(path.dirname(ledger), { recursive: true });
+		fs.writeFileSync(
+			ledger,
+			`${JSON.stringify({
+				sessionId: "s",
+				jobId: "j",
+				launchedAt: Date.now(),
+				endedAt: Date.now(),
+				costUsd: 30,
+				costSource: "result",
+				outcome: "success",
+			})}\n`,
+		);
+		const json = JSON.parse((await run("status", "--json")).stdout);
+		expect(json.seats.readings[0].weekFull).toBe(false);
+		expect(json.overflow[0]).toMatchObject({
+			spentUsd: 30,
+			headroomUsd: 170,
+		});
 	});
 
 	it("carries no overflow key where the seat file declares none", async () => {

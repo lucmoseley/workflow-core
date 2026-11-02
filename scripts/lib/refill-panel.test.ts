@@ -1,5 +1,5 @@
 /*
- * The panel's view and press mapping (#3873, #3875, #3877, #3879, #3881, #3883, #3884, #3948). Built on the view so every loop state costs one literal rather than a terminal.
+ * The panel's view and press mapping (#3873, #3875, #3877, #3879, #3881, #3883, #3884, #3948, #3958). Built on the view so every loop state costs one literal rather than a terminal.
  * Broken, the panel reads a press as done, or a stopped loop as on.
  */
 import { describe, expect, it, vi } from "vitest";
@@ -11,23 +11,37 @@ const {
 	buildRows,
 	createPanel,
 } = require("./refill-panel.js");
+const { buildOverflowStatus, buildSeatsView } = require("./refill-commands.js");
+const { overflowReadings } = require("./refill-loop.js");
 
 const AT = new Date(2026, 10, 2, 14, 5).getTime();
 const LATER = AT + 60_000;
 
 const BURN_OFF = { on: false, disagreeing: [], error: null };
 const BURN_ON = { on: true, disagreeing: [], error: null };
+const READ_AT = new Date(AT - 3_600_000).toISOString();
+const seatRead = (seat: string, week: number | null, weekFull = false) => ({
+	seat,
+	week,
+	weekFull,
+	weekRead: { percent: week, at: READ_AT, fresh: week !== null },
+});
 const planSeats = (week: number | null, weekFull = false) => ({
 	readings: [
-		{ seat: "~/.claude3", week: 47, weekFull: false },
-		{ seat: "~/.claude2", week, weekFull },
+		seatRead("~/.claude3", 47),
+		seatRead("~/.claude2", week, weekFull),
 	],
+	next: { seat: "~/.claude3", reason: "last typed on" },
 });
-const FULL_SEATS = {
-	readings: [
-		{ seat: "~/.claude3", week: 100, weekFull: true },
-		{ seat: "~/.claude2", week: 100, weekFull: true },
-	],
+const FULL_READINGS = [
+	seatRead("~/.claude3", 100, true),
+	seatRead("~/.claude2", 100, true),
+];
+const FULL_SEATS = { readings: FULL_READINGS, next: null };
+/* What the picker says with every plan full and a key that fits a launch. */
+const ON_KEY_SEATS = {
+	readings: FULL_READINGS,
+	next: { seat: "~/.claude2-api", reason: "overflow" },
 };
 const RUNNING = {
 	running: true,
@@ -96,18 +110,23 @@ const key = (over: object = {}) => ({
 	headroomUsd: 258.5,
 	exhausted: false,
 	noLaunchLeft: false,
+	running: 0,
 	...over,
 });
 const STOPPING = { ...RUNNING, stopRequested: true };
 
 /* The block's top row, as a mouse report counts it. */
 const SWITCH_ROW = 2;
-/* Below the switch, a row, its three lines and two rows clear: the settings. */
-const AWAY_ROW = 9;
+/* Below the switch, a row, its two lines, the plan rows and two rows clear: the settings. */
+const AWAY_ROW = 12;
 const AWAY_INDEX = AWAY_ROW - SWITCH_ROW;
 /* One sibling row below Away (#3596 story 78). */
-const BURN_ROW = 11;
+const BURN_ROW = 14;
 const BURN_INDEX = BURN_ROW - SWITCH_ROW;
+/* A gap, the heading and two plans, with no status or no seat to draw them. */
+const PLAN_ROWS = 4;
+/* A gap, the balance and the spending state, with a key declared. */
+const CREDIT_ROWS = 3;
 const noop = (): void => undefined;
 
 interface Row {
@@ -185,12 +204,15 @@ function heldUntil() {
 describe("the panel's rows", () => {
 	it("shows a running loop", () => {
 		const rows = rowsOf({ status: RUNNING });
-		expect(summary(rows).slice(0, 5)).toEqual([
+		expect(summary(rows).slice(0, 8)).toEqual([
 			["Refill loop  [on]", "name"],
 			["", "secondary"],
 			["3 launched today", "value"],
 			["Waiting: no free slot", "secondary"],
-			["Plans this week: .claude3 47%, .claude2 80%", "secondary"],
+			["", "secondary"],
+			["Weekly plan usage", "secondary"],
+			["  .claude3  47% used", "secondary"],
+			["  .claude2  80% used", "secondary"],
 		]);
 		expect(rows[0].control?.state).toBe("on");
 	});
@@ -209,12 +231,15 @@ describe("the panel's rows", () => {
 
 	it("never shows a lifted pause's words beside a switch reading on", () => {
 		const rows = rowsOf({ status: { ...RUNNING, lastTick: PAUSED_TICK } });
-		expect(summary(rows).slice(0, 5)).toEqual([
+		expect(summary(rows).slice(0, 8)).toEqual([
 			["Refill loop  [on]", "name"],
 			["", "secondary"],
 			["3 launched today", "value"],
 			["Waiting: the next check", "secondary"],
-			["Plans this week: .claude3 47%, .claude2 80%", "secondary"],
+			["", "secondary"],
+			["Weekly plan usage", "secondary"],
+			["  .claude3  47% used", "secondary"],
+			["  .claude2  80% used", "secondary"],
 		]);
 	});
 
@@ -397,19 +422,27 @@ describe("the panel's rows", () => {
 		expect(rows[3].text).toBe("status --json: bad");
 	});
 
-	it("is the switch and three lines in every case", () => {
-		const cases = [
+	it("draws no plan rows where no status or seat says what to draw", () => {
+		for (const c of [
 			{},
 			{ readError: "x" },
+			{ status: { ...RUNNING, seats: { readings: [], next: null } } },
+		])
+			expect(rowsOf(c)[BURN_INDEX - PLAN_ROWS].text).toMatch(/^Burn mode/);
+	});
+
+	it("keeps every control where it is through every loop state, given the same seats and keys", () => {
+		const withKey = (status: object) => ({
+			...status,
+			seats: FULL_SEATS,
+			overflow: [key()],
+		});
+		const cases = [
 			{ status: RUNNING },
 			{ status: { ...RUNNING, lastTick: null } },
-			{ status: { ...RUNNING, seats: { readings: [] } } },
 			{ status: CRASHED },
 			{ status: STALLED },
 			{ status: NEVER_STARTED },
-			{
-				status: { ...RUNNING, seats: FULL_SEATS, overflow: [key()] },
-			},
 			{ status: PAUSED_BY_FOUNDER },
 			{ status: { ...PAUSED_BY_FOUNDER, running: false } },
 			{ status: STOPPED },
@@ -420,111 +453,291 @@ describe("the panel's rows", () => {
 		];
 		for (const c of cases)
 			expect(rowsOf(c)[BURN_INDEX].text).toMatch(/^Burn mode/);
+		for (const c of cases)
+			expect(
+				rowsOf({ ...c, status: withKey(c.status) })[BURN_INDEX + CREDIT_ROWS]
+					.text,
+			).toMatch(/^Burn mode/);
 	});
 });
 
-describe("the spend line", () => {
-	const line3 = (status: object) => rowsOf({ status })[4];
+describe("the plan and credit rows", () => {
+	/* A tick that launched: the state the picker's key means launches are on credits. */
+	const Launching = {
+		...RUNNING,
+		lastTick: { at: AT, summary: "launched 2", idle: null, paused: false },
+	};
+	/* The rows from the plan heading down to the settings, blank rows dropped. */
+	const usage = (status: object) => {
+		const rows = rowsOf({ status });
+		const from = rows.findIndex((r: Row) => r.text === "Weekly plan usage");
+		const to = rows.findIndex((r: Row) => r.text.startsWith("Away"));
+		return summary(rows)
+			.slice(from, to)
+			.filter(([text]: string[]) => text !== "");
+	};
+	const PlansRoom = [
+		["Weekly plan usage", "secondary"],
+		["  .claude3  47% used", "secondary"],
+		["  .claude2  80% used", "secondary"],
+	];
+	const PlansFull = [
+		["Weekly plan usage", "secondary"],
+		["  .claude3  100% used", "secondary"],
+		["  .claude2  100% used", "secondary"],
+	];
 
-	it("shows each plan seat's week in grey, unread where it will not read", () => {
-		const row = line3({ ...RUNNING, seats: planSeats(null) });
-		expect(row.text).toBe("Plans this week: .claude3 47%, .claude2 unread");
-		expect(row.role).toBe("secondary");
+	it("shows only the plans with no key declared, whatever they read", () => {
+		expect(usage(RUNNING)).toEqual(PlansRoom);
+		expect(usage({ ...RUNNING, seats: FULL_SEATS })).toEqual(PlansFull);
 	});
 
-	it("shows nothing about credits with no key declared, every plan full", () => {
-		const rows = rowsOf({ status: { ...RUNNING, seats: FULL_SEATS } });
-		expect(rows[4].text).toBe("Plans this week: .claude3 100%, .claude2 100%");
-		expect(rows[0].detail).toBeUndefined();
+	it("gives the balance in grey and says it is not spending, with plans with room", () => {
+		expect(usage({ ...RUNNING, overflow: [key()] })).toEqual([
+			...PlansRoom,
+			["API credits  $258 of $400 left", "secondary"],
+			["  Not spending: plans have room", "secondary"],
+		]);
 	});
 
-	it("shows nothing about credits while a plan has room, a key declared", () => {
-		const rows = rowsOf({ status: { ...RUNNING, overflow: [key()] } });
-		expect(rows[4].text).toMatch(/^Plans this week/);
-		expect(rows[0].detail).toBeUndefined();
-	});
-
-	it("shows credits left in white, every key summed, and says so by the switch", () => {
+	it("gives the balance in white and says it is spending, with launches on a key", () => {
 		const overflow = [
 			key(),
-			key({ headroomUsd: 100, grantUsd: 200 }),
+			key({ seat: "~/.claude3-api", headroomUsd: 100, grantUsd: 200 }),
 			key({
+				seat: "~/.spent-api",
 				noLaunchLeft: true,
 				exhausted: true,
 				headroomUsd: 0,
 				grantUsd: 100,
 			}),
 		];
-		const rows = rowsOf({
-			status: { ...RUNNING, seats: FULL_SEATS, overflow },
-		});
-		expect(rows[4].text).toBe("On API credits: $358 of $700 left");
-		expect(rows[4].role).toBe("value");
-		expect(rows[0].detail).toBe("API credits · on");
+		expect(usage({ ...Launching, seats: ON_KEY_SEATS, overflow })).toEqual([
+			...PlansFull,
+			["API credits  $358 of $700 left", "value"],
+			["  Spending now: plans are full", "value"],
+		]);
 	});
 
-	it("draws the words by the switch outside its bold", () => {
-		const status = { ...RUNNING, seats: FULL_SEATS, overflow: [key()] };
-		const frame = buildFrame(rowsOf({ status }), 80, 40);
-		expect(frame).toContain(`Refill loop  [on]${ESC}[22m  API credits · on`);
-	});
-
-	it("says all used up once every key is spent, the switch staying on", () => {
+	it("says all used up once every plan and key is spent, the switch staying on", () => {
 		const status = {
 			...RUNNING,
 			seats: FULL_SEATS,
 			overflow: [key({ noLaunchLeft: true }), key({ noLaunchLeft: true })],
 			lastTick: planWaitTick(AT),
 		};
-		const rows = rowsOf({ status });
-		expect(rows[4].text).toBe("Plans and API credits all used up");
-		expect(rows[0].control?.state).toBe("on");
-		expect(rows[0].detail).toBeUndefined();
+		expect(usage(status)).toEqual([
+			...PlansFull,
+			["Plans and API credits all used up", "value"],
+			["  Not spending: no credits left", "secondary"],
+		]);
+		expect(rowsOf({ status })[0].control?.state).toBe("on");
 	});
 
-	it("never calls credits used up with a key unread", () => {
+	it("gives a key with nothing left as dollars while a plan has room", () => {
+		const overflow = [key({ noLaunchLeft: true, headroomUsd: -1 })];
+		expect(usage({ ...RUNNING, overflow }).slice(3)).toEqual([
+			["API credits  $0 of $400 left", "secondary"],
+			["  Not spending: plans have room", "secondary"],
+		]);
+	});
+
+	it("gives the reason, never used up, with a key unread and none live", () => {
 		const overflow = [
 			key({ noLaunchLeft: true }),
 			{ seat: "k", why: "no table" },
 		];
-		const row = line3({ ...RUNNING, seats: FULL_SEATS, overflow });
-		expect(row.text).toBe("API credits unread: no table");
-		expect(row.role).toBe("secondary");
+		expect(usage({ ...RUNNING, seats: FULL_SEATS, overflow })).toEqual([
+			...PlansFull,
+			["API credits unread: no table", "secondary"],
+			["  Spending unknown: a key is unread", "secondary"],
+		]);
 	});
 
 	it("sums what reads and says a key is unread, with credits live", () => {
 		const overflow = [key(), { seat: "k", why: "no table" }];
-		const row = line3({ ...RUNNING, seats: FULL_SEATS, overflow });
-		expect(row.text).toBe("On API credits: $258 of $400 left, a key unread");
-		expect(row.role).toBe("value");
+		expect(usage({ ...Launching, seats: ON_KEY_SEATS, overflow })).toEqual([
+			...PlansFull,
+			["API credits  $258 of $400 left, a key unread", "value"],
+			["  Spending now: plans are full", "value"],
+		]);
 	});
 
 	it("counts a key reserved past its grant as nothing left, never less", () => {
 		const overflow = [key({ headroomUsd: -11 }), key({ headroomUsd: 10 })];
-		const row = line3({ ...RUNNING, seats: FULL_SEATS, overflow });
-		expect(row.text).toBe("On API credits: $10 of $800 left");
+		expect(usage({ ...RUNNING, overflow })[3][0]).toBe(
+			"API credits  $10 of $800 left",
+		);
 	});
 
-	it("says nothing beside a switch that is not on", () => {
-		const paused = {
-			...PAUSED_BY_FOUNDER,
-			seats: FULL_SEATS,
-			overflow: [key()],
-		};
-		expect(rowsOf({ status: paused })[0].detail).toBeUndefined();
-		const running = { ...RUNNING, seats: FULL_SEATS, overflow: [key()] };
+	it("says not spending on full plans where the loop launches nothing", () => {
+		const seats = ON_KEY_SEATS;
+		for (const status of [PAUSED_BY_FOUNDER, STOPPED, STOPPING])
+			expect(usage({ ...status, seats, overflow: [key()] })[4]).toEqual([
+				"  Not spending: the loop is off",
+				"secondary",
+			]);
+	});
+
+	it("never says not spending over a key it cannot read, plans with room or not", () => {
+		const overflow = [key(), { seat: "k", why: "no table" }];
+		expect(usage({ ...RUNNING, overflow }).at(-1)).toEqual([
+			"  Spending unknown: a key is unread",
+			"secondary",
+		]);
+	});
+
+	it("says not spending on a key the picker takes where the last tick idled", () => {
+		const status = { ...RUNNING, seats: ON_KEY_SEATS, overflow: [key()] };
+		expect(status.lastTick.idle).toBe("no free slot");
+		expect(usage(status).slice(3)).toEqual([
+			["API credits  $258 of $400 left", "secondary"],
+			["  Not spending: nothing launching", "secondary"],
+		]);
+	});
+
+	it("gives a key with nothing yet spent as its whole grant, a plan with room", () => {
+		const overflow = [
+			buildOverflowStatus("~/.claude2-api", {
+				fit: 10,
+				headroomUsd: 200,
+				settledUsd: 0,
+				reservedUsd: 0,
+				grantUsd: 200,
+				qUsd: 5,
+				running: 0,
+				cycleStart: AT,
+				nextCycleStart: LATER,
+				exhausted: false,
+			}),
+		];
+		expect(usage({ ...RUNNING, overflow }).slice(3)).toEqual([
+			["API credits  $200 of $200 left", "secondary"],
+			["  Not spending: plans have room", "secondary"],
+		]);
+	});
+
+	it("says not spending while no plan can launch and one is not week-full", () => {
+		const seats = { ...planSeats(80), next: null };
+		expect(usage({ ...RUNNING, seats, overflow: [key()] })[4][0]).toBe(
+			"  Not spending: waiting on a plan",
+		);
+	});
+
+	it("says spending while a session runs on a key, the picker back on a plan", () => {
 		expect(
-			rowsOf({ status: running, pending: { on: false, landed: false } })[0]
-				.detail,
-		).toBeUndefined();
+			usage({ ...RUNNING, overflow: [key({ running: 2 })] }).slice(3),
+		).toEqual([
+			["API credits  $258 of $400 left", "value"],
+			["  Spending now: 2 on credits", "value"],
+		]);
 	});
 
-	it("stays on line 3 through a pending press", () => {
+	it("reads a stale plan unread, with its last figure and age, even past its reset", () => {
+		const stale = (week: number | null, percent: number | null) => ({
+			...seatRead("~/.claude2", week),
+			weekRead: {
+				percent,
+				at:
+					percent === null ? null : new Date(AT - 5 * 86_400_000).toISOString(),
+				fresh: false,
+			},
+		});
+		const shown = (reading: object) =>
+			usage({
+				...RUNNING,
+				seats: { readings: [reading], next: null },
+			})[1][0];
+		expect(shown(stale(null, 100))).toBe("  .claude2  unread (100%, 5d ago)");
+		expect(shown(stale(60, 60))).toBe("  .claude2  unread (60%, 5d ago)");
+		expect(shown(stale(null, null))).toBe("  .claude2  unread");
+	});
+
+	it("reads a fresh week as used though the 5-hour bar is stale", () => {
+		const reading = { ...seatRead("~/.claude2", 62), fresh: false };
+		expect(
+			usage({ ...RUNNING, seats: { readings: [reading], next: null } })[1][0],
+		).toBe("  .claude2  62% used");
+	});
+
+	it("draws no plan heading with no seat read", () => {
+		const rows = rowsOf({
+			status: { ...RUNNING, seats: { readings: [], next: null } },
+		});
+		expect(rows.map((r: Row) => r.text)).not.toContain("Weekly plan usage");
+	});
+
+	it("stays below the loop's lines through a pending press", () => {
 		const rows = rowsOf({
 			status: RUNNING,
 			pending: { on: false, landed: false },
 		});
-		expect(rows[4].text).toMatch(/^Plans this week/);
+		expect(rows[5].text).toBe("Weekly plan usage");
+	});
+
+	it("agrees with the picker's reading of the same status", () => {
+		const reading = (week: number, weekFull: boolean) => ({
+			seat: `${process.env.HOME}/.claude2`,
+			week,
+			session: 0,
+			weekFull,
+			sessionFull: false,
+			sessionResets: null,
+			weekResets: null,
+			weekRead: { percent: week, atMs: AT },
+			readAt: AT,
+			fits: weekFull ? 0 : 1,
+			fresh: true,
+			weekFresh: true,
+		});
+		const dir = `${process.env.HOME}/.claude2-api`;
+		const declared = {
+			errors: [],
+			seats: [
+				{ dir, kind: "overflow", keyVar: "K", grantUsd: 200, cycleDay: 1 },
+			],
+		};
+		const budget = (settledUsd: number, fit: number) => ({
+			fit,
+			headroomUsd: 200 - settledUsd,
+			settledUsd,
+			reservedUsd: 0,
+			grantUsd: 200,
+			qUsd: 5,
+			running: 0,
+			cycleStart: AT,
+			nextCycleStart: LATER,
+			exhausted: false,
+		});
+		/* One budget through what a tick and what `status --json` each read. */
+		const statusFor = (
+			seat: ReturnType<typeof reading>,
+			b: ReturnType<typeof budget>,
+			tick: object = Launching,
+		) => ({
+			...tick,
+			seats: buildSeatsView({
+				seats: [seat],
+				overflow: overflowReadings(declared, [seat], () => b),
+				typedSeat: null,
+				ceilings: { week: 100, session: 100 },
+			}),
+			overflow: [buildOverflowStatus(dir, b)],
+		});
+		const lastRow = (status: object) => usage(status).at(-1)?.[0];
+		const full = reading(100, true);
+		const onKey = statusFor(full, budget(150, 10));
+		expect(onKey.seats.next?.seat).toBe(onKey.overflow[0].seat);
+		expect(lastRow(onKey)).toBe("  Spending now: plans are full");
+		const onPlan = statusFor(reading(40, false), budget(150, 10));
+		expect(onPlan.seats.next?.seat).not.toBe(onPlan.overflow[0].seat);
+		expect(lastRow(onPlan)).toBe("  Not spending: plans have room");
+		const idled = statusFor(full, budget(150, 10), RUNNING);
+		expect(idled.seats.next?.seat).toBe(idled.overflow[0].seat);
+		expect(lastRow(idled)).toBe("  Not spending: nothing launching");
+		const spent = statusFor(full, budget(198, 0));
+		expect(spent.seats.next).toBeNull();
+		expect(lastRow(spent)).toBe("  Not spending: no credits left");
 	});
 });
 
@@ -902,7 +1115,8 @@ describe("the Burn mode switch", () => {
 	const running = (burnMode: object) => ({ ...RUNNING, burnMode });
 	/* From Burn mode to the section gap, less the row under its title. */
 	const burnSection = (rows: Row[]) => {
-		const [title, gap, ...below] = rows.slice(BURN_INDEX);
+		const at = rows.findIndex((r) => r.text.startsWith("Burn mode"));
+		const [title, gap, ...below] = rows.slice(at);
 		return gap.text === "" && below[0]?.text !== ""
 			? [title, ...toGap(below)]
 			: [title];
@@ -1144,8 +1358,11 @@ describe("the Burn mode switch", () => {
 
 describe("the Away switch", () => {
 	const Away = { ...RUNNING, mode: "away" };
-	const awayRowsOf = (over: object) =>
-		rowsOf(over).slice(AWAY_INDEX, BURN_INDEX);
+	const awayRowsOf = (over: object) => {
+		const rows = rowsOf(over);
+		const at = rows.findIndex((r: Row) => r.text.startsWith("Away"));
+		return rows.slice(at, at + BURN_INDEX - AWAY_INDEX);
+	};
 
 	it("reads normal, with the switch off", () => {
 		const [row, sibling] = awayRowsOf({ status: RUNNING });
@@ -2360,7 +2577,8 @@ describe("the spacing scale", () => {
 		["siblings: one box to the next", "[ ] dv", 1],
 		["siblings: the last box to the note", "An unticked repo", 1],
 		["inside a text block: the loop's line 2", "Waiting:", 0],
-		["inside a text block: the loop's line 3", "Plans this week", 0],
+		["siblings: the loop's lines to the plan rows", "Weekly plan usage", 1],
+		["inside a text block: the plan rows", ".claude3", 0],
 		["inside a text block: the caption under the field", "Click to change", 0],
 		["inside a text block: the caption's second line", "Enter to save", 0],
 		["inside a text block: the note's second line", "the blockers of", 0],
@@ -2533,8 +2751,8 @@ describe("keys and focus", () => {
 	}
 
 	describe("a pane shorter than the rows", () => {
-		/* Draws through the Burn mode switch, the boxes well below it. */
-		const Short = 11;
+		/* Ends on Burn mode's row, which the mark below takes; the boxes lie well below it. */
+		const Short = BURN_ROW;
 		const Columns = 60;
 		const shortPanel = () =>
 			buildCountingPanel(noop, undefined, { height: Short });

@@ -579,12 +579,12 @@ function refuseWrite(what, why) {
 
 /**
  * Each overflow key's budget for `status --json`; the seat file's refusal stands
- * in for the keys it hides. As a tick does, it settles no ledger while a plan
- * seat has room, a panel polling this every few seconds.
+ * in for the keys it hides. It settles the ledger whatever the plans read, as the
+ * panel shows the balance at all times (#3958): two keys took 40 ms on one run of
+ * seatBudget against the live ledgers, 2 November 2026.
  * @param {string} root
- * @param {import("./lib/refill-commands.js").SeatsView} seats
  */
-function readOverflowStatus(root, seats) {
+function readOverflowStatus(root) {
 	const declared = readDeclaredSeats();
 	if (declared.errors.length > 0)
 		return [
@@ -593,17 +593,9 @@ function readOverflowStatus(root, seats) {
 				why: `it refuses: ${declared.errors.join("; ")}`,
 			},
 		];
-	const due = seats.readings.every((s) => s.weekFull);
 	return declared.seats.flatMap((s) =>
 		s.kind === "overflow"
-			? [
-					commands.buildOverflowStatus(
-						s.dir,
-						due
-							? seatBudget(s, root)
-							: { why: "a plan seat is not weekly-full" },
-					),
-				]
+			? [commands.buildOverflowStatus(s.dir, seatBudget(s, root))]
 			: [],
 	);
 }
@@ -634,7 +626,7 @@ function status({ flags }) {
 					today: localDate(new Date()),
 					candidates: readCandidates(homeDir()),
 					burnMode: readBurnState(),
-					overflow: readOverflowStatus(root, seats),
+					overflow: readOverflowStatus(root),
 				}),
 			),
 		);

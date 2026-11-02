@@ -1,6 +1,6 @@
 /*
  * refill-panel.js — what the refill loop's panel draws and what a click or a key
- * does, with no terminal (#3873, #3875, #3877, #3879, #3881, #3883, #3884, #3887, #3948, spec #3596): status JSON and pending presses in, rows
+ * does, with no terminal (#3873, #3875, #3877, #3879, #3881, #3883, #3884, #3887, #3948, #3958, spec #3596): status JSON and pending presses in, rows
  * out; a click on a row or a key in, a `refill-loop.js` or `burn-mode.sh` argv out, and focus handed back. The
  * panel runs those two for every read and write, and never opens a control or
  * state file, so the loop's validation, lock and wake apply to every loop press.
@@ -17,6 +17,7 @@ const { caught } = require("./caught.js");
 const { localDate } = require("./morning-review.js");
 const { ESC } = require("./refill-panel-input.js");
 const { buildControlImage } = require("./refill-panel-sixel.js");
+const { describeAge } = require("./proc-table.js");
 const { NO_PROGRESS_PAUSE } = require("./refill-decide.js");
 const { buildProgressText, parseGoalForm } = require("./refill-goal.js");
 
@@ -94,7 +95,7 @@ const ROLE_STYLES = {
  * @typedef {{root: string, number: number}} PauseIssue
  * @typedef {{seat: string, why: string}
  *   | {seat: string, grantUsd: number, headroomUsd: number,
- *     noLaunchLeft: boolean}} OverflowKey
+ *     noLaunchLeft: boolean, running: number}} OverflowKey
  * @typedef {{running: boolean, stopRequested: boolean,
  *   stop: {reason: string, at: number, detail: string}|null, crashed: boolean,
  *   paused: {by: string, at: number, issues?: PauseIssue[]}|null,
@@ -105,8 +106,9 @@ const ROLE_STYLES = {
  *   handedOffSinceAway: number,
  *   repos: {name: string, root: string, ticked: boolean, disabled: string|null}[],
  *   goal: ReturnType<typeof import("./refill-goal.js").buildGoalStatus>,
- *   seats: {readings: {seat: string, week: number|null,
- *     weekFull: boolean}[]},
+ *   seats: {readings: {seat: string, week: number|null, weekFull: boolean,
+ *     weekRead: {percent: number|null, at: string|null, fresh: boolean}}[],
+ *     next: {seat: string, reason: string}|null},
  *   overflow: OverflowKey[],
  *   burnMode: ReturnType<typeof import("./burn-mode.js").readBurnState>}} PanelStatus
  */
@@ -337,76 +339,148 @@ function buildObservedLines(status, now) {
 }
 
 /**
- * What API credits hold once every plan seat's week is full: null where no key is
- * declared, so no credits show until overflow launches can run (#2611). A key's
- * unread budget stops the panel calling the credits used up, and is said beside
- * the sums, which leave it out (#3875).
+ * @param {PanelStatus["overflow"]} overflow
+ * @returns {Exclude<OverflowKey, {why: string}>[]}
+ */
+const buildReadKeys = (overflow) =>
+	overflow.flatMap((key) => ("why" in key ? [] : [key]));
+
+/** @param {PanelStatus["seats"]} seats */
+const isEveryPlanFull = (seats) => seats.readings.every((s) => s.weekFull);
+
+/**
+ * What API credits hold, at all times once a key is declared (#3958). A key's unread
+ * budget stops the panel calling the credits used up, and is said beside the sums,
+ * which leave it out (#3875). Used up also needs every plan full: until then the
+ * credits are only empty, and launches do not rest on them.
  * @param {PanelStatus} status
  * @returns {null | {left: number, grant: number, unread: boolean}
  *   | {usedUp: true} | {why: string}}
  */
 function buildCredits({ seats, overflow }) {
-	if (overflow.length === 0 || !seats.readings.every((s) => s.weekFull))
-		return null;
-	const read = overflow.flatMap((key) => ("why" in key ? [] : [key]));
+	if (overflow.length === 0) return null;
+	const read = buildReadKeys(overflow);
 	const live = read.filter((key) => !key.noLaunchLeft);
-	if (live.length > 0)
-		return {
-			/* Running runs' reservations can pass a key's grant. */
-			left: live.reduce((sum, key) => sum + Math.max(key.headroomUsd, 0), 0),
-			grant: read.reduce((sum, key) => sum + key.grantUsd, 0),
-			unread: read.length < overflow.length,
-		};
 	const unread = overflow.find((key) => "why" in key);
-	return unread && "why" in unread ? { why: unread.why } : { usedUp: true };
+	if (live.length === 0 && unread && "why" in unread)
+		return { why: unread.why };
+	if (live.length === 0 && isEveryPlanFull(seats)) return { usedUp: true };
+	return {
+		/* Running runs' reservations can pass a key's grant. */
+		left: live.reduce((sum, key) => sum + Math.max(key.headroomUsd, 0), 0),
+		grant: read.reduce((sum, key) => sum + key.grantUsd, 0),
+		unread: read.length < overflow.length,
+	};
+}
+
+/**
+ * Why no launch is on credits, every key having read.
+ * @param {PanelStatus} status
+ * @param {boolean} picksKey
+ */
+function buildNotSpendingReason(status, picksKey) {
+	const { seats } = status;
+	if (!isLaunching(status)) return "the loop is off";
+	if (picksKey) return "nothing launching";
+	if (seats.next) return "plans have room";
+	return isEveryPlanFull(seats) ? "no credits left" : "waiting on a plan";
+}
+
+/**
+ * Whether credits are spending (#3958): a session on a key is running, or the seat the
+ * picker takes next is a key and the last tick launched rather than idled, so this row
+ * and the launches cannot disagree. Residual: between such a tick's launch and the
+ * next status read, this says spending before that session has spent. An unread key
+ * could hold running sessions, so it never reads as not spending.
+ * @param {PanelStatus} status
+ * @returns {{spending: boolean, text: string}}
+ */
+function buildSpendState(status) {
+	const { seats, overflow } = status;
+	const running = buildReadKeys(overflow).reduce(
+		(sum, key) => sum + key.running,
+		0,
+	);
+	if (running > 0)
+		return { spending: true, text: `Spending now: ${running} on credits` };
+	const picksKey = overflow.some((key) => key.seat === seats.next?.seat);
+	if (isLaunching(status) && picksKey && status.lastTick?.idle === null)
+		return { spending: true, text: "Spending now: plans are full" };
+	if (overflow.some((key) => "why" in key))
+		return { spending: false, text: "Spending unknown: a key is unread" };
+	return {
+		spending: false,
+		text: `Not spending: ${buildNotSpendingReason(status, picksKey)}`,
+	};
+}
+
+/**
+ * A figure the picker would not trust reads unread, with its last value and age, so
+ * an old read cannot look current (#3958).
+ * @param {PanelStatus["seats"]["readings"][number]} reading
+ * @param {number} now
+ */
+function buildPlanFigure({ week, weekRead }, now) {
+	if (weekRead.fresh) return `${week}% used`;
+	if (weekRead.percent === null) return "unread";
+	const age =
+		weekRead.at === null
+			? ""
+			: `, ${describeAge(Math.max(0, (now - Date.parse(weekRead.at)) / 1000))} ago`;
+	return `unread (${weekRead.percent}%${age})`;
 }
 
 /**
  * The seats are named since their order follows the last typed seat.
  * @param {PanelStatus} status
- * @returns {Row}
+ * @param {number} now
+ * @returns {Row[]}
  */
-function buildSpendRow(status) {
-	const credits = buildCredits(status);
-	if (credits && "left" in credits)
-		return {
-			text: `On API credits: $${Math.floor(credits.left)} of $${Math.floor(credits.grant)} left${credits.unread ? ", a key unread" : ""}`,
-			role: "value",
-		};
-	if (credits && "usedUp" in credits)
-		return { text: "Plans and API credits all used up", role: "value" };
-	if (credits)
-		return { text: `API credits unread: ${credits.why}`, role: "secondary" };
-	const uses = status.seats.readings.map(
-		({ seat, week }) =>
-			`${seat.replace("~/", "")} ${week === null ? "unread" : `${week}%`}`,
-	);
-	return {
-		text: uses.length > 0 ? `Plans this week: ${uses.join(", ")}` : "",
-		role: "secondary",
-	};
+function buildPlanRows({ seats }, now) {
+	if (seats.readings.length === 0) return [];
+	return [
+		SIBLING_GAP,
+		{ text: "Weekly plan usage", role: "secondary" },
+		...seats.readings.map((reading) => ({
+			text: `  ${reading.seat.replace("~/", "")}  ${buildPlanFigure(reading, now)}`,
+			role: /** @type {Role} */ ("secondary"),
+		})),
+	];
 }
 
 /**
- * The words beside the switch where launches now spend money.
- * @param {PanelView} view
+ * @param {PanelStatus} status
+ * @returns {Row[]}
  */
-function buildSwitchDetail({ status, pending }) {
-	if (pending || !status || !isLaunching(status)) return {};
+function buildCreditRows(status) {
 	const credits = buildCredits(status);
-	return credits && "left" in credits ? { detail: "API credits · on" } : {};
+	if (!credits) return [];
+	const { spending, text } = buildSpendState(status);
+	/** @type {Role} */
+	const role = spending ? "value" : "secondary";
+	/** @type {Row} */
+	let balance;
+	if ("left" in credits)
+		balance = {
+			text: `API credits  $${Math.floor(credits.left)} of $${Math.floor(credits.grant)} left${credits.unread ? ", a key unread" : ""}`,
+			role,
+		};
+	else if ("usedUp" in credits)
+		balance = { text: "Plans and API credits all used up", role: "value" };
+	else
+		balance = { text: `API credits unread: ${credits.why}`, role: "secondary" };
+	return [SIBLING_GAP, balance, { text: `  ${text}`, role }];
 }
 
 /**
  * @param {PanelView} view
  * @param {number} now
- * @returns {[Row, Row, Row]}
+ * @returns {Row[]}
  */
 function buildLoopBlock({ status, readError, pending, refusal }, now) {
-	/** @type {Row} */
-	const third = status
-		? buildSpendRow(status)
-		: { text: "", role: "secondary" };
+	const usage = status
+		? [...buildPlanRows(status, now), ...buildCreditRows(status)]
+		: [];
 	if (pending)
 		return [
 			{
@@ -417,7 +491,7 @@ function buildLoopBlock({ status, readError, pending, refusal }, now) {
 				text: pending.on ? "" : "Turning off when this check ends",
 				role: "secondary",
 			},
-			third,
+			...usage,
 		];
 	if (!status)
 		return [
@@ -426,7 +500,6 @@ function buildLoopBlock({ status, readError, pending, refusal }, now) {
 				role: "value",
 			},
 			{ text: readError ?? "", role: "secondary" },
-			third,
 		];
 	const [first, second] = buildObservedLines(status, now);
 	return [
@@ -434,7 +507,7 @@ function buildLoopBlock({ status, readError, pending, refusal }, now) {
 		isNoteShowing(refusal, now)
 			? { text: refusal.text, role: "value" }
 			: second,
-		third,
+		...usage,
 	];
 }
 
@@ -858,7 +931,6 @@ function buildUnpointedRows(view, now) {
 	return [
 		{
 			text: `Refill loop  ${SWITCH_TEXT[state]}`,
-			...buildSwitchDetail(view),
 			role: "name",
 			control: { id: "loop", state },
 		},

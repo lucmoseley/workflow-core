@@ -450,11 +450,14 @@ function buildGoalChange(control, asked, now) {
 
 /**
  * @typedef {import("./refill-decide.js").SizedSeat} SizedSeat
+ * @typedef {SizedSeat & {fresh: boolean, weekFresh: boolean}} ForeseenSeat
+ *   `weekFresh`, the week bar alone: a 5-hour bar past its reset leaves `fresh` false
  * @typedef {{week: number, session: number}} Ceilings dispatch's cut
  * @typedef {{bar: "week"|"5h", percent: number, ceiling: number}} FailingLimit
  * @typedef {object} SeatsView what the `seats:` line says, its seats as tilde
  *   paths (#3733)
  * @property {{seat: string, week: number|null, weekFull: boolean,
+ *   weekRead: {percent: number|null, at: string|null, fresh: boolean},
  *   session: number|null, readAt: string, fresh: boolean}[]} readings in launch
  *   order
  * @property {{seat: string, reason: import("./refill-decide.js").SeatReason}|null} next
@@ -506,19 +509,25 @@ function failingLimits(s, ceilings) {
  *     weekly_all: import("./allowance.js").Bar},
  *   sizeCap: () => number|null, ceilings: Ceilings,
  *   now: number}} input `sizeCap`, the cap's count on a fresh seat
- * @returns {SizedSeat & {fresh: boolean}}
+ * @returns {ForeseenSeat}
  */
 function foreseeSeat({ reading, bars, sizeCap, ceilings, now }) {
 	const fresh = reading.week !== null && reading.session !== null;
+	const weekFresh = reading.week !== null;
 	if (fresh)
-		return { ...reading, fits: hasRoom(reading) ? sizeCap() : null, fresh };
+		return {
+			...reading,
+			fits: hasRoom(reading) ? sizeCap() : null,
+			fresh,
+			weekFresh,
+		};
 	const week = asReadPercent(bars.weekly_all, now);
 	const session = asReadPercent(bars.session, now);
 	const read = week !== null && session !== null;
 	const fits = read
 		? Number(failingLimits({ week, session }, ceilings).length === 0)
 		: null;
-	return { ...reading, week, session, fits, fresh };
+	return { ...reading, week, session, fits, fresh, weekFresh };
 }
 
 /** Why the picker walked past a seat no limit fails on, by seatHold's word.
@@ -543,7 +552,7 @@ const buildDirName = (dir) => (path.isAbsolute(dir) ? buildSeatName(dir) : dir);
  * each seat it does not take. A seat behind the pick that no limit fails on
  * was never reached, so is not passed over; nor is an overflow seat before
  * every plan seat is weekly-full.
- * @param {{seats: (SizedSeat & {fresh: boolean})[],
+ * @param {{seats: ForeseenSeat[],
  *   overflow: import("./refill-decide.js").OverflowReading[],
  *   typedSeat: string|null, ceilings: Ceilings,
  *   callerSeat?: string}} input `seats` in seat-file order
@@ -570,6 +579,11 @@ function buildSeatsView({ seats, overflow, typedSeat, ceilings, callerSeat }) {
 			seat: buildSeatName(s.seat),
 			week: s.week,
 			weekFull: s.weekFull,
+			weekRead: {
+				percent: s.weekRead.percent,
+				at: s.weekRead.atMs === null ? null : iso(s.weekRead.atMs),
+				fresh: s.weekFresh,
+			},
 			session: s.session,
 			readAt: iso(s.readAt),
 			fresh: s.fresh,
@@ -920,6 +934,7 @@ function buildOverflowStatus(dir, budget) {
 		headroomUsd: budget.headroomUsd,
 		exhausted: budget.exhausted,
 		noLaunchLeft: isBudgetSpent(budget),
+		running: budget.running,
 	};
 }
 
