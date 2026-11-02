@@ -1792,7 +1792,6 @@ describe("the control file", () => {
 
 	it("reads a control from before pauses as a loop to carry on from (#3856)", () => {
 		const raw = {
-			startedAt: 5,
 			noProgressFrom: 5,
 			stopRequested: false,
 			seats: ["/a"],
@@ -1883,10 +1882,8 @@ describe("the control file", () => {
 			expect(parseScope({ mode: "normal", repos: [], goal }).goal).toBeNull();
 	});
 
-	it("reads a control a start before #3854 wrote, its count's start named startedAt", () => {
-		expect(
-			parseControl({ startedAt: 5, stopRequested: false, seats: ["/a"] }),
-		).toMatchObject({ noProgressFrom: 5, stopRequested: false, seats: ["/a"] });
+	it("reads a control with no noProgressFrom as none", () => {
+		expect(parseControl({ startedAt: 5 })).toBeNull();
 	});
 
 	it("lets a restart after the tick's read overtake its stop", () => {

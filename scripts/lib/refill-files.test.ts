@@ -256,7 +256,7 @@ describe("adopting away mode's old shape (#3862)", () => {
 		fs.writeFileSync(
 			control(),
 			JSON.stringify({
-				startedAt: 1,
+				noProgressFrom: 1,
 				seats: [],
 				scope: { mode: "away", repos: [], exclude: [manta], goals: {} },
 			}),

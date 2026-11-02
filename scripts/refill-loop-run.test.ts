@@ -336,21 +336,6 @@ describe("run (#2435)", () => {
 		expect(r.stdout).not.toMatch(/morning review( reversals)?: exit/);
 	});
 
-	it("carries on from a control in the shape before #3854, however long ago it started", async () => {
-		fs.writeFileSync(
-			at(".refill-loop-control.json"),
-			JSON.stringify({
-				startedAt: Date.now() - 1000 * 60 * 60 * 1000,
-				stopRequested: false,
-				seats: [seat],
-				scope: { mode: "normal", repos: [repo], goal: null },
-			}),
-		);
-		await settled(run(1), "run after a mid-dispatch stop");
-		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
-		expect(readStopped()).toMatchObject({ reason: "explicit" });
-	});
-
 	it("appends each tick's line to the concurrency record and refreshes the 24-hour figure (#3317)", async () => {
 		await settled(run(1), "run after a mid-dispatch stop");
 		const lines = readLines(at("concurrency.jsonl")).map((l) => JSON.parse(l));
@@ -3231,12 +3216,12 @@ describe("`start` with no process (#3868)", () => {
 });
 
 describe("boot-resume after a restart (#3878)", () => {
-	const startedAt = Date.now() - 3 * 24 * 60 * 60 * 1000;
+	const countFrom = Date.now() - 3 * 24 * 60 * 60 * 1000;
 	const writeControl = () =>
 		fs.writeFileSync(
 			loopControlFile(),
 			JSON.stringify({
-				noProgressFrom: startedAt,
+				noProgressFrom: countFrom,
 				stopRequested: false,
 				seats: [seat],
 				scope: { mode: "normal", repos: [repo], goal: null },
@@ -3268,9 +3253,9 @@ describe("boot-resume after a restart (#3878)", () => {
 		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
 		expect(
 			JSON.parse(fs.readFileSync(loopControlFile(), "utf8")).noProgressFrom,
-		).toBe(startedAt);
+		).toBe(countFrom);
 		expect(readLog()).toContain(
-			`boot resume: resumed the loop counting from ${new Date(startedAt).toISOString()}, pid `,
+			`boot resume: resumed the loop counting from ${new Date(countFrom).toISOString()}, pid `,
 		);
 	});
 

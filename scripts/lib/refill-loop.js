@@ -19,6 +19,7 @@ const {
 	FULL,
 	UNREAD,
 	actsRead,
+	buildResumeWaitLine,
 	decideTick,
 	fitsLaunch,
 	hasRoom,
@@ -273,15 +274,14 @@ function parseAway(raw) {
 }
 
 /**
- * The control file's fields, or null where it is not one. A file a start before
- * #3854 wrote names noProgressFrom `startedAt`. A stopgap: #3888 removes it.
+ * The control file's fields, or null where it is not one.
  * @param {unknown} raw
  * @param {() => string[]} [readIncluded] parseScope's
  * @returns {Control|null}
  */
 function parseControl(raw, readIncluded) {
 	if (!isRecord(raw)) return null;
-	const noProgressFrom = raw.noProgressFrom ?? raw.startedAt;
+	const { noProgressFrom } = raw;
 	if (typeof noProgressFrom !== "number") return null;
 	return {
 		noProgressFrom,
@@ -1331,6 +1331,20 @@ function buildTickLine(
 }
 
 /**
+ * A log line for each resume the decision left waiting on its seat's cap (#3911).
+ * @param {import("./refill-decide.js").Decision} d
+ */
+const buildCapHeldLines = (d) =>
+	"stop" in d
+		? []
+		: (d.capHeld ?? []).map(({ line, seat }) =>
+				buildResumeWaitLine(
+					line,
+					`the cap on ${buildSeatName(seat)} has no fit left`,
+				),
+			);
+
+/**
  * The state's stop record for a stop decision, else null.
  * @param {import("./refill-decide.js").Decision} d
  * @param {number} at
@@ -1504,6 +1518,7 @@ function settleTick(
 		resumesDue: dueCount(input),
 		resumesStarted: started,
 	});
+	for (const line of buildCapHeldLines(decision)) io.log(line);
 	io.log(summary);
 	writeDecidedPause(decision, io);
 	const overflowStart = recordOverflowStart(

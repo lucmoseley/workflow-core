@@ -133,11 +133,7 @@ function readControlChecked(log) {
 const readControlFile = (log) => readControlChecked(log).control;
 
 /**
- * Write the control. `startedAt` repeats noProgressFrom for a running loop on
- * code from before #3854, which reads a control without it as damaged and stops,
- * until it adopts this code. A stopgap: #3888 removes it.
- *
- * An away scope also carries `exclude`, every other included checkout, for a
+ * Write the control. An away scope also carries `exclude`, every other included checkout, for a
  * running loop on code from before #3862, which would otherwise serve them all,
  * and `tickedSet`, so hasExcludeShape does not reread it. #3921 removes both.
  * @param {import("./refill-loop.js").Control} control
@@ -145,7 +141,6 @@ const readControlFile = (log) => readControlChecked(log).control;
 const writeControlFile = (control) => {
 	const { scope } = control;
 	writeJson(loopFiles().control, {
-		startedAt: control.noProgressFrom,
 		...control,
 		scope:
 			scope.mode === "away"
