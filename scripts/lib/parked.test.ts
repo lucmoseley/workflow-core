@@ -5,7 +5,8 @@
  * lets a ticket burn the cap without bound; one that survives another write
  * holds back a question waiting on the founder. A marker that will not read
  * (#3893) must not read as no hold on the idle alarm, which would hide a
- * limit-cap hold, nor blank the loop's other markers.
+ * limit-cap hold, nor blank the loop's other markers. unparkClosed (#3940) reports
+ * a label that stays, for the next tick to retry, and throws on an unread list.
  */
 
 import fs from "node:fs";

@@ -354,8 +354,7 @@ function hasRepliedSince(rows, at) {
  * calling no tool, whose governing status marker is not `needs input:`. A pending
  * tool call is a permission or question prompt, the harness's own row a limit or
  * API stop, and his trailing prompt a turn never answered. Its last reply from
- * before `since` is the park itself, whatever it says. False where `rows` holds
- * neither.
+ * before `since` is the park itself, whatever it says.
  * @param {unknown[]} rows  lib/transcript.js's main-chain records, in file order
  * @param {number} since
  */

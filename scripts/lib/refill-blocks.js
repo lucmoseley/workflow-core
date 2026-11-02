@@ -162,7 +162,7 @@ const PARKED_STATE = "blocked";
  *   readParkMarkers  those in `root`'s checkout, null where they will not read
  * @property {(marker: import("./parked.js").ParkMarkerRead) => boolean} hasEndedUnblocked
  *   whether its session took a turn since the park that left it unblocked
- * @property {(l: Pick<LoopLaunch, "root">, sessionId: string, issues: number[]) => string|null} unparkSession
+ * @property {(root: string, sessionId: string, issues: number[]) => string|null} unparkSession
  *   take the `parked` label and marker off its issues, as its session has gone back
  * @property {(l: LoopLaunch, body: string) => void} comment  on each of its
  *   issues, a failure logged
@@ -1116,7 +1116,7 @@ function resumeStepHeld(l, seen) {
 	const { sessionId, cwd } = held;
 	const unpark = () => {
 		if (!isParked) return;
-		const failed = io.unparkSession(l, sessionId, l.issues);
+		const failed = io.unparkSession(l.root, sessionId, l.issues);
 		if (failed) io.log(`${what}: still labelled parked: ${failed}`);
 	};
 	const r = io.resumeStopped(l, prompt, { sessionId, cwd });
@@ -1154,7 +1154,8 @@ function unparkAnswered(served, { agents, io }) {
 	const running = new Set(
 		agents
 			.filter((a) => !isTerminalAgent(a))
-			.flatMap((a) => [a.sessionId, a.id]),
+			.flatMap((a) => [a.sessionId, a.id])
+			.filter(Boolean),
 	);
 	for (const root of served) {
 		const markers = io.readParkMarkers(root) ?? [];
@@ -1165,7 +1166,7 @@ function unparkAnswered(served, { agents, io }) {
 				(n) => newestMarkerListing(markers, n) === marker,
 			);
 			if (issues.length > 0 && io.hasEndedUnblocked(marker))
-				logUnparked(root, marker.sessionId, issues, io);
+				unparkAndLog(root, marker.sessionId, issues, io);
 		}
 	}
 }
@@ -1177,9 +1178,9 @@ function unparkAnswered(served, { agents, io }) {
  * @param {number[]} issues
  * @param {BlockIo} io
  */
-function logUnparked(root, sessionId, issues, io) {
+function unparkAndLog(root, sessionId, issues, io) {
 	const named = issues.map((n) => `#${n}`).join(", ");
-	const failed = io.unparkSession({ root }, sessionId, issues);
+	const failed = io.unparkSession(root, sessionId, issues);
 	io.log(
 		failed
 			? `session ${sessionId} ended unblocked: ${named} still labelled parked: ${failed}`
