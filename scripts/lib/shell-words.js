@@ -373,6 +373,8 @@ const PLAIN_WRAPPERS = [
  *                 escape from the command string must still see — inside an
  *                 `env` prefix the escape is a WORD, not a leading shell
  *                 assignment the walk has already stepped past.
+ *   chdirs        each directory an `env -C` or `sudo -D` moved to, raw, in
+ *                 order.
  *   watched       a `watch` was stripped: the command reruns on a timer.
  *
  * `nohup FOO=1 cmd` execs a program literally named `FOO=1` and starts
@@ -399,17 +401,29 @@ const PLAIN_WRAPPERS = [
  * leaves its value where the command word is looked for.
  * @param {string[]} words masked
  * @param {string[]} spans
- * @returns {{ words: string[], wrapperWords: string[], watched: boolean }}
+ * @returns {{ words: string[], wrapperWords: string[], chdirs: string[],
+ *   watched: boolean }}
  */
 function unwrap(words, spans) {
 	/** @type {Strip} */
-	const st = { ws: [...words], inEnv: false, wrapperWords: [], watched: false };
+	const st = {
+		ws: [...words],
+		inEnv: false,
+		wrapperWords: [],
+		chdirs: [],
+		watched: false,
+	};
 	for (let first = st.ws[0]; first !== undefined; first = st.ws[0]) {
 		const step = stripOne(st, first, spans);
 		if (step === "cut") st.ws = [];
 		if (step !== "next") break;
 	}
-	return { words: st.ws, wrapperWords: st.wrapperWords, watched: st.watched };
+	return {
+		words: st.ws,
+		wrapperWords: st.wrapperWords,
+		chdirs: st.chdirs,
+		watched: st.watched,
+	};
 }
 
 /**
@@ -418,6 +432,7 @@ function unwrap(words, spans) {
  * @property {boolean} inEnv whether the last wrapper was `env`, whose
  *   assignments are words of its own
  * @property {string[]} wrapperWords
+ * @property {string[]} chdirs
  * @property {boolean} watched
  */
 
@@ -491,6 +506,8 @@ const SWEPT_VALUE_FLAGS = ["-u", "-C", "--unset", "--chdir"];
 function sweepFlags(st, w, spans) {
 	for (let f = st.ws[0]; f?.startsWith("-"); f = st.ws[0]) {
 		if (st.inEnv && isSplitString(f)) return splitEnvString(st, f, spans);
+		const dir = wrapperDir(w, f, st.ws[1]);
+		if (dir !== undefined) st.chdirs.push(dir);
 		const takes =
 			SWEPT_VALUE_FLAGS.includes(f) ||
 			(WRAPPER_VALUE_FLAGS.get(w)?.includes(f) ?? false);
@@ -498,6 +515,26 @@ function sweepFlags(st, w, spans) {
 		st.ws = st.ws.slice(takes ? 2 : 1);
 	}
 	return "next";
+}
+
+/** The short flag naming a wrapper's working directory. */
+const CHDIR_FLAG = new Map([
+	["env", "-C"],
+	["sudo", "-D"],
+]);
+
+/**
+ * The directory flag `f` moves wrapper `w` to, undefined where it moves none.
+ * @param {string} w
+ * @param {string} f
+ * @param {string | undefined} next the word after it
+ */
+function wrapperDir(w, f, next) {
+	const short = CHDIR_FLAG.get(w);
+	if (short === undefined) return;
+	if (f === short || f === "--chdir") return next;
+	if (f.startsWith("--chdir=")) return f.slice("--chdir=".length);
+	return f.startsWith(short) ? f.slice(short.length) : undefined;
 }
 
 /** @param {string} f */
@@ -605,6 +642,8 @@ const GIT_VALUE_OPTIONS = [
 	"--work-tree",
 	"--git-dir",
 	"--exec-path",
+	"--attr-source",
+	"--shallow-file",
 ];
 
 /** @param {string} w */

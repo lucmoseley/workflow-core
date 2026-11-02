@@ -1536,8 +1536,26 @@ describe('walkGit, scope "shared"', () => {
 		expect(r.out).toContain(`[checkout][${SHARED}]`);
 	});
 
-	it("matches the subcommand as written, so a quoted one is not asked for", () => {
-		expect(walkGitRun('git "checkout" x').calls).toEqual([]);
+	it("reads the subcommand as git does, however it is quoted (#4009)", () => {
+		expect(walkGitRun('git "checkout" x').out).toContain("[checkout]");
+		expect(walkGitRun('git ch"eck"out x').out).toContain("[checkout]");
+		expect(walkGitRun('git "$S" x').calls).toEqual([]);
+		expect(walkGitRun('git "-c" a=b checkout x').out).toContain("[checkout]");
+	});
+
+	it("records what joins each segment, a blank line handing its operator on (#4009)", () => {
+		expect(parseCommand("a && b || c; d | e & f\ng").joins).toEqual([
+			"",
+			"a",
+			"o",
+			"s",
+			"p",
+			"b",
+			"",
+		]);
+		expect(parseCommand("a &&\n b").joins).toEqual(["", "a", "a"]);
+		const { segments, joins } = parseCommand("(a) && (b)");
+		expect(joins).toHaveLength(segments.length);
 	});
 
 	it("hands the arguments over raw, still masked", () => {
@@ -1550,9 +1568,11 @@ describe('walkGit, scope "shared"', () => {
 		expect(
 			walkGitRun("timeout 60 git checkout x", { unwrap: true }).out,
 		).toContain(`[checkout][${SHARED}]`);
-		// A wrapper's own `-C DIR` is swept, not followed.
 		expect(
 			walkGitRun(`env -C ${ELSEWHERE} git checkout x`, { unwrap: true }).out,
+		).toBe("");
+		expect(
+			walkGitRun(`env -C ${SHARED} git checkout x`, { unwrap: true }, DIR).out,
 		).toContain(`[checkout][${SHARED}]`);
 	});
 

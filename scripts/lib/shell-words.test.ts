@@ -228,6 +228,7 @@ describe("carriesVar (#1499)", () => {
 		).toEqual({
 			words: ["npm", "test"],
 			wrapperWords: ["FOO=1"],
+			chdirs: [],
 			watched: false,
 		});
 	});
@@ -266,10 +267,25 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 		},
 	);
 
+	it.each([
+		["env -C /x git status", ["/x"]],
+		["env -C/x git status", ["/x"]],
+		["env --chdir /x git status", ["/x"]],
+		["env --chdir=/x git status", ["/x"]],
+		["sudo -D /x git status", ["/x"]],
+		["sudo -C 3 git status", []],
+		["timeout 5 git status", []],
+	])("reads the directory %s moves to", (command, chdirs) => {
+		const stripped = strip(command);
+		expect(stripped.chdirs).toEqual(chdirs);
+		expect(stripped.words[0]).toBe("git");
+	});
+
 	it("stops at an assignment after any wrapper but env, which execs it", () => {
 		expect(strip("nohup FOO=1 npm test")).toEqual({
 			words: ["FOO=1", "npm", "test"],
 			wrapperWords: [],
+			chdirs: [],
 			watched: false,
 		});
 	});
@@ -278,6 +294,7 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 		expect(strip("env A=/x/y FOO=1 npm test")).toEqual({
 			words: ["npm", "test"],
 			wrapperWords: ["A=/x/y", "FOO=1"],
+			chdirs: [],
 			watched: false,
 		});
 	});
@@ -300,6 +317,7 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 		expect(strip(`env -S 'FOO=1 npm run test'`)).toEqual({
 			words: ["npm", "run", "test"],
 			wrapperWords: ["FOO=1"],
+			chdirs: [],
 			watched: false,
 		});
 	});

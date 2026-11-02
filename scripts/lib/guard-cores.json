@@ -162,7 +162,7 @@
 			"tools": "Bash",
 			"failure": "closed",
 			"host": "pull-form-host.js",
-			"if": ["Bash(git *)"]
+			"if": ["Bash(*git *)"]
 		},
 		{
 			"name": "guard-push-rules",

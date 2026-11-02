@@ -217,6 +217,15 @@ describe("a push of a branch other than main is denied", () => {
 		expect(why).toContain(readRuleText("branch-publish"));
 	});
 
+	it("judges `env -C` against the tree it moves to, as `git -C` is (#4009)", () => {
+		expect(denial("env -C ../wt git push origin HEAD")).toContain(
+			"a branch other than main, side",
+		);
+		expect(
+			denial(`env -C ${shared} git push origin HEAD`, worktree),
+		).toBeNull();
+	});
+
 	it.each(["git push --all origin", "git push --mirror origin"])(
 		"%s pushes every branch",
 		(command) => {
@@ -268,10 +277,6 @@ describe("the sanctioned pushes pass", () => {
 		"git push 2> err.txt",
 	])("%s", (command) => {
 		expect(denial(command)).toBeNull();
-	});
-
-	it("judges `env -C` against the cwd, a named LIMIT, so a worktree's HEAD passes as main's", () => {
-		expect(denial("env -C ../wt git push origin HEAD")).toBeNull();
 	});
 
 	it("passes a bare push from a detached worktree, which git refuses itself", () => {
