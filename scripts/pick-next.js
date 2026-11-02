@@ -84,6 +84,7 @@
  */
 
 const { scriptPath } = require("./lib/script-path.js");
+const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const fs = require("node:fs");
 const nodePath = require("node:path");
 const { writeFileAtomic } = require("./lib/atomic-write.js");
@@ -2180,7 +2181,7 @@ function renderOwedWork(state) {
 	console.log("OWED WORK — report only, never a filter or a sort input\n");
 	console.log(
 		`  debt entries       ${debts.ok ? debts.count : `unknown (${debts.error})`}` +
-			"  — node scripts/session-arbiter.js debt list",
+			`  — ${buildArbiterCommand`debt list`}`,
 	);
 	console.log(
 		`  stranded claims    ${
@@ -2854,7 +2855,7 @@ function renderAssignedUnclaimed(state) {
 		console.log(
 			"\n  No live session recorded a claim on these, so the assignee is taken to\n" +
 				"  be a finished session's leftover. A session that IS on one of these\n" +
-				"  should have run:  node scripts/session-arbiter.js claim-issue <n>",
+				`  should have run:  ${buildArbiterCommand`claim-issue <n>`}`,
 		);
 	}
 }

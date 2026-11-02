@@ -108,6 +108,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { configDirs, stateDir } = require("./lib/arbiter-store");
+const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const { byCodeUnit } = require("./lib/by-code-unit.js");
 const detachedRun = require("./lib/detached-run.js");
 const { REAP_LIVE_DEATHS_TO_REPORT } = require("./reap-finished-sessions.js");
@@ -2300,8 +2301,8 @@ function reportDeadJobs(ctx, dead, said) {
  * @type {Record<(typeof detachedRun.JOBS)[number], string>}
  */
 const DETACHED_HOW = {
-	[JOB_PRUNE_MARKERS]: "node scripts/session-arbiter.js prune-markers",
-	[JOB_DEBT_SWEEP]: "node scripts/session-arbiter.js debt sweep",
+	[JOB_PRUNE_MARKERS]: buildArbiterCommand`prune-markers`,
+	[JOB_DEBT_SWEEP]: buildArbiterCommand`debt sweep`,
 	[JOB_RETIRE_STALE_CONTAINERS]:
 		"node scripts/retire-stale-containers.js --dry-run",
 };

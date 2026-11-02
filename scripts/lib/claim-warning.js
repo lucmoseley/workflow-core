@@ -127,6 +127,7 @@ const POINTER =
 	"A live session holds a path this command writes; this guard has spent " +
 	`its ${SESSION_BUDGET_BYTES} B session budget (mantahostels#2345). It repeats hourly ` +
 	"on a NEW contended path (mantahostels#2364). Read the claims: " +
+	// arbiter-literal-exempt: ctx.corePaths spells it; the ledger prices this text.
 	"`node scripts/session-arbiter.js list`.";
 
 const POINTER_BYTES = Buffer.byteLength(POINTER);
@@ -138,6 +139,7 @@ const WARN_HEAD =
 	"The live claims on the paths this command names:\n\n";
 const WARN_TAIL =
 	"\n\nWrite anyway and you clobber an edit git cannot merge back. " +
+	// arbiter-literal-exempt: ctx.corePaths spells it; the ledger prices this text.
 	"Wait for it instead, backgrounded — `node scripts/session-arbiter.js wait <path>` " +
 	"— and carry on with your ticket; past its ceiling, ask the holder with `request`.\n\n" +
 	"Residual: a write no parse here recognises — a heredoc, a wrapper, a script that writes for you — " +
@@ -455,7 +457,8 @@ function clamp(head, lines, tail, ceiling) {
 	if (kept.length === 0 && first !== undefined) kept.push(first);
 	const dropped = lines.length - kept.length;
 	const more = dropped
-		? `\n  … and ${dropped} more — node scripts/session-arbiter.js list`
+		? // arbiter-literal-exempt: ctx.corePaths spells it; OVERFLOW_RESERVE prices it.
+			`\n  … and ${dropped} more — node scripts/session-arbiter.js list`
 		: "";
 	return { text: head + kept.join("\n") + more + tail, kept: kept.length };
 }

@@ -38,13 +38,12 @@ describe("guard and lib messages", () => {
 		/^\t\t"What is held: node scripts\/session-arbiter\.js list\\n\\n" \+$/,
 		/^\t"`node scripts\/session-arbiter\.js list`\.";$/,
 		/^\t"Wait for it instead, backgrounded — `node scripts\/session-arbiter\.js wait <path>` " \+$/,
-		/^\t\t\? `\\n {2}… and \$\{dropped\} more — node scripts\/session-arbiter\.js list`$/,
+		/^\t\t\t`\\n {2}… and \$\{dropped\} more — node scripts\/session-arbiter\.js list`$/,
 		/^\t"This suite is DETACHED INSIDE THE SHELL — .*`scripts\/bg-run\.sh run <name>`/,
 		/^const WATCH = "node scripts\/watch-artefact\.js <artefact> 120";$/,
 		/^const READ_REASON = `Instead: a subagent, one backgrounded \\`\$\{WATCH\}\\`;/,
 		/^\t"wait inside the turn — what you wait on in the foreground with `timeout: 600000`, a bg-run\.sh job with `scripts\/bg-run\.sh wait <name>`/,
 		/^\tbyHand: "`node scripts\/claim-issue\.js <n>` to claim an issue by hand",$/,
-		/^\t\t"`node scripts\/session-arbiter\.js release-issue <n>` to release a claim by hand",$/,
 	];
 
 	const guardFiles = fs

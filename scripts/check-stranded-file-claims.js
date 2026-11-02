@@ -54,6 +54,7 @@
  * DEFEAT:    none; --hours <n> moves both reporting thresholds on a hand run.
  */
 
+const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const { runCheck } = require("./lib/check");
 const { scriptPath } = require("./lib/script-path.js");
 const { claudeBin, listedSessionIds } = require("./lib/agent-liveness");
@@ -294,7 +295,7 @@ function sayClosingAdvice(ctx, { itemised, unreadable }) {
 				"  session that writes the file, once the holder's process is genuinely gone.\n" +
 				// --all, not a bare `list`: the default view prints LIVE claims only
 				// (mantahostels#1814), and a stranded claim is by definition a dead one.
-				"  See what is held: node scripts/session-arbiter.js list --all\n",
+				`  See what is held: ${buildArbiterCommand`list --all`}\n`,
 		);
 }
 

@@ -38,6 +38,7 @@
  * DEFEAT:    evadable by spelling — `--repo`, a shell variable, `gh api` or the web UI all miss the seam — but there is no switch.
  */
 
+const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const { run } = require("./lib/guard-entry.js");
 const { decideRelease } = require("./lib/issue-claim-hook.js");
 const { buildHostPorts } = require("./lib/gh-recorder-host.js");
@@ -46,8 +47,7 @@ run({
 	field: "command",
 	noun: "command",
 	event: "PostToolUse",
-	byHand:
-		"`node scripts/session-arbiter.js release-issue <n>` to release a claim by hand",
+	byHand: `\`${buildArbiterCommand`release-issue <n>`}\` to release a claim by hand`,
 	decide: decideRelease,
 	ports: buildHostPorts,
 });

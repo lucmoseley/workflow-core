@@ -1398,7 +1398,7 @@ function checkDuplicateIds(r) {
 			"and doc-map-restatements.json, -retired-vocabulary.json and " +
 			"-superseded.json all key off them — so a duplicate hands one entry's " +
 			"rows to another. Give the newer entry the next free id:\n" +
-			"  node scripts/session-arbiter.js alloc-entry docs/doc-map.md\n" +
+			`  ${buildArbiterCommand`alloc-entry docs/doc-map.md`}\n` +
 			"which allocates it atomically and claims the append slot with it.",
 	});
 	return { headings, seen, duplicates };

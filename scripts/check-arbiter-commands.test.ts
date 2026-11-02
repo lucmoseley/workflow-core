@@ -1,10 +1,10 @@
 // @vitest-environment node
 /*
  * Pins which sites check-arbiter-commands.js finds spelling an arbiter command
- * by hand, and which fixed text it leaves alone (#3990).
+ * by hand, and which text it leaves alone (#3990, #3992).
  *
  * .husky/pre-commit refuses on this checker, so loosening a case here lets the
- * next command print a path its shell splits.
+ * next command print a path its shell splits or an install cannot run.
  */
 
 import fs from "node:fs";
@@ -85,6 +85,39 @@ describe("check-arbiter-commands", () => {
 			"a word the tag would quote twice",
 			`const m = buildArbiterCommand\`wait ${DOLLAR}{shellQuote(rel)}\`;\n`,
 		],
+		[
+			"a literal path with a placeholder",
+			'const m = "node scripts/session-arbiter.js release --force <path>";\n',
+		],
+		[
+			"a literal path concatenated on to prose",
+			'const m = "node scripts/session-arbiter.js list\\n\\n" + more;\n',
+		],
+		[
+			"a literal path before an interpolation past the command's end",
+			`const m = \`node scripts/session-arbiter.js list — ${DOLLAR}{more}\`;\n`,
+		],
+		[
+			"a dot-relative literal path",
+			'const m = "node ./scripts/session-arbiter.js list";\n',
+		],
+		[
+			"a double-quoted literal path after a flag",
+			'const m = `node --trace-warnings "scripts/session-arbiter.js" list`;\n',
+		],
+		[
+			"a literal path after a flag with a value",
+			'const m = "node --max-old-space-size=4096 scripts/session-arbiter.js list";\n',
+		],
+		[
+			"a literal path after two spaces",
+			'const m = "node  scripts/session-arbiter.js list";\n',
+		],
+		[
+			"a parent-relative literal path",
+			'const m = "node ../scripts/session-arbiter.js list";\n',
+		],
+		["a bare file name", 'const m = "node session-arbiter.js list";\n'],
 	])("FAILs %s, naming the tag and its file", (_name, body) => {
 		program("a.js", body);
 		const { status, out } = run();
@@ -98,16 +131,8 @@ describe("check-arbiter-commands", () => {
 	it.each([
 		["the tag", `const m = buildArbiterCommand\`release ${DOLLAR}{rel}\`;\n`],
 		[
-			"fixed text with a placeholder",
-			'const m = "node scripts/session-arbiter.js release --force <path>";\n',
-		],
-		[
-			"fixed text concatenated on to prose",
-			'const m = "node scripts/session-arbiter.js list\\n\\n" + more;\n',
-		],
-		[
-			"an interpolation after the command ends",
-			`const m = \`node scripts/session-arbiter.js list — ${DOLLAR}{more}\`;\n`,
+			"a path named in prose, which runs nothing",
+			'const m = "`scripts/session-arbiter.js` holds the store";\n',
 		],
 		[
 			"a variable named for something else",
@@ -124,6 +149,38 @@ describe("check-arbiter-commands", () => {
 	])("passes %s", (_name, body) => {
 		program("a.js", body);
 		expect(run().status).toBe(0);
+	});
+
+	it.each([
+		[
+			"above",
+			'// arbiter-literal-exempt: corePaths spells it\nconst m = "node scripts/session-arbiter.js list";\n',
+		],
+		[
+			"on",
+			'const m = "node scripts/session-arbiter.js list"; // arbiter-literal-exempt: corePaths spells it\n',
+		],
+	])("passes a literal marked %s its line", (_where, body) => {
+		program("a.js", body);
+		expect(run().status).toBe(0);
+	});
+
+	it("refuses a marker with no reason", () => {
+		program(
+			"a.js",
+			'// arbiter-literal-exempt:\nconst m = "node scripts/session-arbiter.js list";\n',
+		);
+		expect(run().status).toBe(1);
+	});
+
+	it("excuses no word by the marker, and reports its line once", () => {
+		program(
+			"a.js",
+			`// arbiter-literal-exempt: corePaths spells it\nconst m = \`node scripts/session-arbiter.js release ${DOLLAR}{rel}\`;\n`,
+		);
+		const { status, out } = run();
+		expect(status).toBe(1);
+		expect(out).toContain("FAIL: 1 hand-spelt arbiter command(s)");
 	});
 
 	it("skips the builder and a test", () => {

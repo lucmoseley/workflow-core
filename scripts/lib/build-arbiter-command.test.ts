@@ -4,10 +4,14 @@
  * hands a session a command its shell splits.
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildArbiterCommand } from "./build-arbiter-command.js";
 
 describe("buildArbiterCommand", () => {
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
 	it("prints a verb with no word", () => {
 		expect(buildArbiterCommand`list --all`).toBe(
 			"node scripts/session-arbiter.js list --all",
@@ -44,6 +48,14 @@ describe("buildArbiterCommand", () => {
 	it("quotes each word of an array on its own", () => {
 		expect(buildArbiterCommand`release-committed ${["a.md", "b c.md"]}`).toBe(
 			"node scripts/session-arbiter.js release-committed a.md 'b c.md'",
+		);
+	});
+
+	/* No package.json at the root is what an install looks like (script-path.js). */
+	it("spells the arbiter at the plugin root in an install", () => {
+		vi.stubEnv("WFC_SCRIPT_ROOT", "/plugin/cache/core");
+		expect(buildArbiterCommand`list --all`).toBe(
+			"node /plugin/cache/core/scripts/session-arbiter.js list --all",
 		);
 	});
 });

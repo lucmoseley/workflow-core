@@ -219,6 +219,7 @@ function warning(rel, lock) {
 	return (
 		`${rel} is uncommitted in the shared working tree and claimed by session ${who} (pid ${lock.pid ?? "unknown"})${when}, which is still running — so this run may be executing an unfinished edit (mantahostels#1035).\n\n` +
 		"Nothing is blocked. But if the command hangs, errors strangely or answers implausibly, re-run it once the file is committed before believing the output or debugging the script.\n\n" +
+		// arbiter-literal-exempt: a core with no I/O; ctx.corePaths spells it.
 		"What is held: node scripts/session-arbiter.js list\n\n" +
 		"Residual: a script dirty under NO claim is invisible here — a Bash-route write mints none (mantahostels#364) — so silence is not proof the file is settled."
 	);

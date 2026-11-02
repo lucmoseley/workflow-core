@@ -184,6 +184,7 @@ const {
 } = require("./lib/touched-by.js");
 const { requiredGroup } = require("./lib/regex-group");
 const { caught } = require("./lib/caught.js");
+const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const { byCodeUnit } = require("./lib/by-code-unit.js");
 const { REFUSES_COMMIT } = require("./lib/refuses-commit.js");
 const {
@@ -3839,7 +3840,7 @@ function buildReviewSummary(
 	if (anyUnclaimed)
 		lines.push(
 			"A dirty input no claim of this session's covers matches no committed tree: claim it if it is yours " +
-				"(node scripts/session-arbiter.js claim <path>), else re-anchor in a clean worktree of HEAD outside " +
+				`(${buildArbiterCommand`claim <path>`}), else re-anchor in a clean worktree of HEAD outside ` +
 				"this checkout (git worktree add --detach <dir> HEAD) and carry its anchors file back.",
 		);
 	return lines;
