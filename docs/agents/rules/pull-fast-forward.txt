@@ -18,12 +18,16 @@ worktree, then fast-forward the shared tree onto the result:
   ln -s "$PWD/node_modules" "$R/node_modules"
   git -C "$R" merge origin/main   # conflicts HERE; --abort to unwind
   (cd "$R" && npm run test -- --full=sha-moved)
-  git merge --ff-only reconcile-<n>   # refuses? someone pushed — redo
+  git merge --ff-only reconcile-<n>   # "not possible to fast-forward"? someone pushed — redo
   git push origin main
   git worktree remove --force "$R" && git branch -d reconcile-<n>
 
 A conflict you cannot resolve is the founder's call — report it with both sides
 named.
+
+"LOCAL CHANGES WOULD BE OVERWRITTEN" IS NO RACE: A REDO CANNOT CLEAR IT. Leave
+those edits and `git push origin reconcile-<n>:main`. Report any listed file
+under no live claim (`session-arbiter.js list`): it holds the tree behind (#3762).
 
 A MERGE OR A REBASE IN THE SHARED TREE IS REFUSED, `git merge origin/main` too.
 `--ff-only`, `--abort`, `--continue`, `--quit` and `--skip` pass.
