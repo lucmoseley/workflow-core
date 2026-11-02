@@ -245,6 +245,15 @@ describe("the array is empty", () => {
 		expect(liveness.admissionSessionIds().ids?.size).toBe(0);
 	});
 
+	it("reads as nothing live after a boot, outside a session alone (#3880)", () => {
+		fakeClaude("[]");
+		expect(liveness.readAgentsAfterBoot().agents).toEqual([]);
+		process.env.CLAUDE_CODE_SESSION_ID = "me";
+		expect(liveness.readAgentsAfterBoot().why).toContain(
+			"listed no agents at all",
+		);
+	});
+
 	it("still refuses to admission inside a session, and to every other reader however asked", () => {
 		fakeClaude("[]");
 		expect(

@@ -47,7 +47,8 @@
  * The second, `admissionSessionIds`, reads an empty listing as nothing live,
  * outside a session only, where nothing says the list must name anyone
  * (#2180). Inside a session an empty list is still a fault. It is its own
- * export, never an option, so no reader judging by absence can pass it.
+ * export, never an option, so no reader judging by absence can pass it. The one
+ * reader that may is `readAgentsAfterBoot`, whose name says when (#3880).
  *
  * EVERY LISTING IS EVERY PLAN'S (#3512). `claude agents --json` is scoped to
  * CLAUDE_CONFIG_DIR, so the oracle is read once per `sessionDirs()` dir
@@ -539,11 +540,29 @@ function refuseOnThrow(opts, requireSelf, answer, how = {}) {
  * @returns {Listing}
  */
 function listedAgents(opts) {
-	return refuseOnThrow(opts, opts?.requireSelf, (listed) => {
-		// The identity would hand a reader's own answer back unchecked.
-		if (listed && (listed.why || listed.agents)) return listed;
-		throw new TypeError("answered with neither agents nor a why");
-	});
+	// The identity would hand a reader's own answer back unchecked.
+	return refuseOnThrow(opts, opts?.requireSelf, checkedListing);
+}
+
+/**
+ * The listing as listedAgents's answer takes it, a reader's own answer refused.
+ * @param {Listing} listed
+ */
+function checkedListing(listed) {
+	if (listed && (listed.why || listed.agents)) return listed;
+	throw new TypeError("answered with neither agents nor a why");
+}
+
+/**
+ * `listedAgents` waiving the self-test, for a refill-loop tick with a boot's
+ * killed launches still to bring back, reading an empty listing outside a session
+ * as nothing live (#3880): a restart leaves no session for the listing to name, so
+ * refusing it would hold every resume until something else started. Its residual
+ * is `admissionSessionIds`'s: a daemon answering `[]` reads as no session running.
+ * @returns {Listing}
+ */
+function readAgentsAfterBoot() {
+	return refuseOnThrow(undefined, false, checkedListing, { allowEmpty: true });
 }
 
 /**
@@ -697,7 +716,7 @@ function sessionIdsOf(opts, how = {}) {
 			);
 			return {
 				ids: new Set(listed.agents.map((a) => a.sessionId)),
-				/* Only `admissionSessionIds` lets an empty listing through, taken
+				/* Of these readers only `admissionSessionIds` lets an empty listing through, taken
 				 * on trust: a daemon fault answers the same (#2180). */
 				unvouched: listed.agents.length === 0,
 				names,
@@ -801,6 +820,7 @@ module.exports = {
 	isListedLive,
 	isTerminalAgent,
 	listedAgents,
+	readAgentsAfterBoot,
 	listedSessionIds,
 	admissionSessionIds,
 	oracleCacheKey,

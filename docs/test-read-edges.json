@@ -6687,6 +6687,7 @@
 			"scripts/push-check.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-panel-open.test.ts",
 			"scripts/replay-notify-reports.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/run-vitest.test.ts"
@@ -16190,6 +16191,32 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/lib/refill-panel-routes.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/refill-panel-routes.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/refill-panel-open.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/refill-panel-routes.test.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/lib/refill-panel-terminal.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
@@ -16206,6 +16233,32 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-panel-terminal.test.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/refill-panel-view-env.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/refill-panel-view-env.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/refill-panel-open.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/refill-panel-view-env.test.ts": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/commit-paths.test.ts",
@@ -17834,6 +17887,7 @@
 			"scripts/priced-options-copies.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-panel-open.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/stale-write-back-gate.test.ts"
 		],
@@ -18266,6 +18320,7 @@
 			"scripts/lib/sh-quote.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-panel-open.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/upgrade.test.ts"
 		],
@@ -20797,6 +20852,7 @@
 			"scripts/priced-options-copies.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-panel-open.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/stale-write-back-gate.test.ts",
 			"scripts/upgrade.test.ts"
@@ -20855,6 +20911,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/precommit-test-stamp.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-panel-open.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/run-pytest.test.ts"
 		],
@@ -22118,12 +22175,27 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/refill-panel-open.js": [
+			"scripts/checker-registrations.test.ts",
+			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/refill-panel-open.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/refill-panel-open.test.ts": [
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/refill-panel.js": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/refill-panel-open.test.ts",
 			"scripts/refill-panel.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],

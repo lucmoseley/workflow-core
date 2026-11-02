@@ -1,0 +1,166 @@
+// @vitest-environment node
+/*
+ * The panel's launcher (#3886): the config key decides whether an alias's call opens
+ * anything, and a failed route falls through to the next, then to the printed command.
+ * Broken, a view opens no panel, or a repo that never asked for one gets a pane.
+ *
+ * Most cases inject `run`, so no test opens a pane in the terminal it runs in; one
+ * crosses the real spawn and PATH search, against a stub `tmux`.
+ */
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { main } from "./refill-panel-open.js";
+
+interface Route {
+	name: string;
+	file: string;
+	args: string[];
+}
+
+interface OpenOptions {
+	env?: Record<string, string>;
+	why?: (route: Route) => string | null;
+	isAlive?: () => boolean;
+}
+
+describe("refill-panel-open.js", () => {
+	let root = "";
+	let stdout = "";
+	let stderr = "";
+	let viewEnv: Record<string, string> = {};
+	const ran: Route[] = [];
+
+	beforeEach(() => {
+		root = fs.mkdtempSync(path.join(os.tmpdir(), "panel-open-"));
+		fs.mkdirSync(path.join(root, ".claude"));
+		ran.length = 0;
+		stdout = "";
+		stderr = "";
+		viewEnv = {};
+	});
+	afterEach(() => {
+		fs.rmSync(root, { recursive: true, force: true });
+	});
+
+	const setKey = (config: Record<string, unknown>) =>
+		fs.writeFileSync(
+			path.join(root, ".claude/workflow-core.json"),
+			JSON.stringify({ contract: 1, ...config }),
+		);
+
+	const open = (
+		argv: string[],
+		{
+			env = { TMUX: "/t" },
+			why = () => null,
+			isAlive = () => true,
+		}: OpenOptions = {},
+	) =>
+		main(argv, env, {
+			root,
+			isAlive,
+			isOnPath: () => true,
+			readViewEnv: () => viewEnv,
+			run: (route: Route) => {
+				ran.push(route);
+				return why(route);
+			},
+			out: (text: string) => {
+				stdout += text;
+			},
+			err: (text: string) => {
+				stderr += text;
+			},
+		});
+
+	it.each([
+		["absent", {}],
+		["false", { refillPanel: false }],
+	])("with --if-enabled and the key %s, opens nothing", (_name, config) => {
+		setKey(config);
+		expect(open(["--if-enabled", "42"])).toBe(0);
+		expect(ran).toEqual([]);
+		expect(stdout).toBe("");
+	});
+
+	it("with --if-enabled and the key true, opens the panel", () => {
+		setKey({ refillPanel: true });
+		expect(open(["--if-enabled", "42"])).toBe(0);
+		expect(ran.map((route) => route.name)).toEqual(["tmux"]);
+	});
+
+	it("by hand, opens the panel whatever the key says", () => {
+		setKey({ refillPanel: false });
+		expect(open(["42"])).toBe(0);
+		expect(ran).toHaveLength(1);
+	});
+
+	it("takes the next route where the first fails, and names the failure", () => {
+		const code = open(["42"], {
+			env: { WSL_INTEROP: "/run/x", TMUX: "/t" },
+			why: (route) => (route.file === "cmd.exe" ? "exit 1" : null),
+		});
+		expect(code).toBe(0);
+		expect(ran.map((route) => route.file)).toEqual(["cmd.exe", "tmux"]);
+		expect(stderr).toContain("the windows-terminal route failed: exit 1");
+		expect(stdout).toBe("");
+	});
+
+	it("prints the command where no route is there", () => {
+		expect(open(["42"], { env: {} })).toBe(0);
+		expect(ran).toEqual([]);
+		expect(stdout).toContain("refill-panel.js");
+		expect(stdout).toMatch(/ 42\n$/);
+	});
+
+	it("prints the command where every route fails", () => {
+		expect(open(["42"], { why: () => "exit 1" })).toBe(0);
+		expect(stdout).toMatch(/ 42\n$/);
+	});
+
+	it("opens nothing for a pid already gone", () => {
+		expect(open(["42"], { isAlive: () => false })).toBe(0);
+		expect(ran).toEqual([]);
+		expect(stdout).toBe("");
+	});
+
+	it("takes its routes from the view's environment, not the caller's", () => {
+		viewEnv = { TMUX: "/view", TMUX_PANE: "%3" };
+		expect(open(["42"], { env: {} })).toBe(0);
+		expect(ran[0]?.args.slice(0, 3)).toEqual(["split-window", "-t", "%3"]);
+	});
+
+	it("with the key off, stays quiet whatever pid it is given", () => {
+		setKey({});
+		expect(open(["--if-enabled", ""])).toBe(0);
+		expect(stderr).toBe("");
+	});
+
+	it("refuses a malformed pid", () => {
+		expect(open(["abc"])).toBe(2);
+		expect(stderr).toContain("not a pid: abc");
+		expect(ran).toEqual([]);
+	});
+
+	it("crosses the real spawn and PATH search to a stub tmux", () => {
+		const bin = path.join(root, "bin");
+		const seen = path.join(root, "seen");
+		fs.mkdirSync(bin);
+		fs.writeFileSync(
+			path.join(bin, "tmux"),
+			`#!/bin/sh\nprintf '%s\\n' "$@" > '${seen}'\n`,
+			{ mode: 0o755 },
+		);
+		const code = main(
+			[String(process.pid)],
+			{ TMUX: "/t", PATH: `${bin}${path.delimiter}${process.env.PATH}` },
+			{ readViewEnv: () => ({}) },
+		);
+		expect(code).toBe(0);
+		const words = fs.readFileSync(seen, "utf8").trim().split("\n");
+		expect(words.slice(0, 2)).toEqual(["split-window", "-h"]);
+		expect(words.at(-1)).toBe(String(process.pid));
+	});
+});

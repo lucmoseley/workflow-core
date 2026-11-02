@@ -26,6 +26,7 @@ const path = require("node:path");
 const { pidAlive } = require("./lib/arbiter-proc.js");
 const { parseOrCode } = require("./lib/cli-args");
 const { openPanel } = require("./lib/refill-panel-terminal.js");
+const { readViewEnv } = require("./lib/refill-panel-view-env.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { FETCH_TIMEOUT_MS } = require("./lib/refill-code.js");
@@ -43,24 +44,17 @@ const READ_TIMEOUT_MS = 30_000;
 /* A `set --resume` with no process fetches the loop's code first (#3861); killed
  * mid-fetch, it would leave the loop unpaused with no process. */
 const PRESS_TIMEOUT_MS = READ_TIMEOUT_MS + FETCH_TIMEOUT_MS;
-/* `wsl.exe -e` starts no shell, so a node from nvm is on no PATH, and burn-mode.sh
- * runs `node` by name (#3886). */
-const RUN_ENV = {
-	...process.env,
-	PATH: [path.dirname(process.execPath), process.env.PATH]
-		.filter(Boolean)
-		.join(path.delimiter),
-};
 
 /**
  * @param {string} file
  * @param {string[]} argv
  * @param {number} timeout
+ * @param {NodeJS.ProcessEnv} env
  * @returns {ReturnType<import("./lib/refill-panel.js").Runner>}
  */
-const runCommand = (file, argv, timeout) =>
+const runCommand = (file, argv, timeout, env) =>
 	new Promise((resolve) => {
-		execFile(file, argv, { timeout, env: RUN_ENV }, (err, stdout, stderr) => {
+		execFile(file, argv, { timeout, env }, (err, stdout, stderr) => {
 			if (!err) {
 				resolve({ code: 0, stdout, stderr });
 				return;
@@ -92,6 +86,7 @@ function main(argv = process.argv.slice(2)) {
 		writeFd(2, "refill-panel: needs a terminal\n");
 		return 1;
 	}
+	const env = { ...process.env, ...readViewEnv(pid) };
 	openPanel({
 		pid,
 		stdin: process.stdin,
@@ -102,8 +97,9 @@ function main(argv = process.argv.slice(2)) {
 				process.execPath,
 				[LOOP_PROGRAM, ...args],
 				args[0] === "status" ? READ_TIMEOUT_MS : PRESS_TIMEOUT_MS,
+				env,
 			),
-		runBurn: (args) => runCommand(BURN_PROGRAM, args, READ_TIMEOUT_MS),
+		runBurn: (args) => runCommand(BURN_PROGRAM, args, READ_TIMEOUT_MS, env),
 		isAlive: pidAlive,
 		now: Date.now,
 		reportCrash,

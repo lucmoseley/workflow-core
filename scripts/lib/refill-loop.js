@@ -32,6 +32,7 @@ const {
 	isLive,
 	launchName,
 	isStepResume,
+	LISTING_GRACE_MS,
 	limitWaitOf,
 	markParked,
 } = require("./refill-blocks.js");
@@ -52,9 +53,6 @@ const {
 } = require("./overflow-notice.js");
 const { OUTCOME_PREFIX } = require("./usage-probe.js");
 
-/* A finished session drops off the listing; one just launched may not be on
- * it yet, so a launch younger than this is never judged finished. Untraced. */
-const LISTING_GRACE_MS = 2 * 60 * 1000;
 /* Enough for the no-progress run and for `status`. Untraced. */
 const HISTORY_KEPT = 50;
 /* A bound on the state file, since a ticket outranked for weeks must keep its
@@ -111,7 +109,9 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * `idleSince`, the time of the harness restart row it last read resumed-idle
  * on (#2978). `swapHeld`, set while the loop holds one it stopped under the
  * swap hold (#3093). `holdCleared`, while its session, parked on a repo hold since
- * cleared, waits on the resume step (#3863). `limitHeld`, while it holds one stopped on its seat's
+ * cleared, waits on the resume step (#3863). `bootKilled`, while its session, killed
+ * by a restart, waits on the same step, and `bootResumedAt`, from that resume until
+ * it takes a turn (#3880). `limitHeld`, while it holds one stopped on its seat's
  * limit, and `limitResumes`, its resumes and moves (#3735, #3734), `limitLeft`,
  * the seats a limit moved it off. `limitParks`, the
  * limit-cap parks in a row its ticket came back from (#3804). `handOffTries` counts the hand-offs of
@@ -130,6 +130,7 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  *   idleResumes?: import("./refill-blocks.js").IdleResumes, idleSince?: number,
  *   swapHeld?: import("./refill-blocks.js").SwapHeld,
  *   holdCleared?: import("./refill-blocks.js").HoldCleared,
+ *   bootKilled?: import("./refill-blocks.js").BootKilled, bootResumedAt?: number,
  *   limitHeld?: import("./refill-blocks.js").LimitHeld,
  *   limitResumes?: import("./refill-blocks.js").LimitResumes,
  *   limitLeft?: import("./refill-decide.js").SeatLeft[],
@@ -163,6 +164,8 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  *   the newest first overflow launch after a plan-seat launch
  * @property {import("./refill-goal.js").GoalProgress|null} goalProgress the last
  *   frontier-reading tick's
+ * @property {number} [bootedAt] when `boot-resume` restarted the loop, until a tick
+ *   has read its listing and queued the launches the restart killed (#3880)
  * @property {string[]} probeBrokenRoots the last settled tick's served checkouts
  *   whose probe failed, for the idle alarm: such a failure may leave no hold on
  *   file (#3903)
@@ -499,6 +502,7 @@ function parseState(raw) {
 		overflowStart: parseOverflowStart(r.overflowStart),
 		goalProgress: parseGoalProgress(r.goalProgress),
 		probeBrokenRoots: parseStrings(r.probeBrokenRoots),
+		...(typeof r.bootedAt === "number" ? { bootedAt: r.bootedAt } : {}),
 	};
 }
 
@@ -876,7 +880,8 @@ function parseCapFits(stdout) {
 /**
  * The launches whose session has left the listing or ended, and are not
  * judged yet. Nothing is judged off an unread listing, and a launch with no
- * job id is never judged: nothing ties it to a listed session. The listing
+ * job id is never judged: nothing ties it to a listed session. One owed a hand-off
+ * or still watched after a boot's resume is actOnIdle's to settle (#3880). The listing
  * must span every seat the loop launches on (lib/refill-tick.js's SEATS).
  * @param {LoopLaunch[]} launches
  * @param {import("./agent-liveness.js").AgentRecord[]|null} agents
@@ -892,7 +897,9 @@ function newlyFinished(launches, agents, now) {
 			isLive(l) &&
 			now - Math.max(l.launchedAt, l.relaunchedAt ?? 0) >= LISTING_GRACE_MS &&
 			!listed.has(l.jobId) &&
-			!isHeld(l),
+			!isHeld(l) &&
+			l.handOffTries === undefined &&
+			l.bootResumedAt === undefined,
 	);
 }
 
@@ -1447,8 +1454,17 @@ const buildLastTick = (decision, at, summary) => ({
  * @param {{input: import("./refill-decide.js").TickInput,
  *   decision: import("./refill-decide.js").Decision, state: LoopState,
  *   judged: LoopLaunch[], probes: Probe[], read: FrontierRead|null,
- *   probeBrokenRoots: string[],
- *   away?: import("./refill-decide.js").AwaySwitch}} tick
+	{
+		input,
+		decision,
+		state,
+		judged,
+		probes,
+		read,
+		probeBrokenRoots,
+		bootedAt,
+		away,
+	},
  * @param {{readControl: () => ControlRead,
  *   launchBatch: (batch: import("./refill-decide.js").Launch[]) => BatchOutcome,
  *   resumeHeld: ResumeHeld,
@@ -1462,7 +1478,17 @@ const buildLastTick = (decision, at, summary) => ({
  *   decision, and how many sessions the tick started
  */
 function settleTick(
-	{ input, decision, state, judged, probes, read, probeBrokenRoots, away },
+	{
+		input,
+		decision,
+		state,
+		judged,
+		probes,
+		read,
+		probeBrokenRoots,
+		bootedAt,
+		away,
+	},
 	io,
 ) {
 	const {
@@ -1515,6 +1541,7 @@ function settleTick(
 		overflowStart: overflowStart ?? state.overflowStart,
 		goalProgress: goalProgressAfter(state.goalProgress, read, input.now),
 		probeBrokenRoots,
+		bootedAt,
 	};
 	io.writeState(next);
 	const reviewRunOn = io.runReview(state.reviewRunOn, input.now);

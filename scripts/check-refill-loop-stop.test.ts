@@ -192,7 +192,7 @@ describe("at session start (--notify)", () => {
 		expect(r.stdout).toContain("stopped on a damaged control file");
 		expect(r.stdout).toContain("2026-10-18T03:00:00.000Z");
 		expect(r.stdout).toContain("the detail");
-		expect(r.stdout).toContain("/pick-next");
+		expect(r.stdout).toContain("Restart it: node");
 	});
 
 	it("names a stop once", () => {
@@ -246,7 +246,7 @@ describe("at session start (--notify)", () => {
 		expect(systemMessage).toContain(
 			"REFILL-LOOP-STOPPED — the refill loop stopped on a damaged control file",
 		);
-		expect(systemMessage).toContain("/pick-next");
+		expect(systemMessage).toContain("Restart it: node");
 		expect(hookSpecificOutput.hookEventName).toBe("SessionStart");
 		expect(hookSpecificOutput.additionalContext).toContain(systemMessage);
 	});
@@ -398,11 +398,7 @@ describe("at session start (--notify)", () => {
 	});
 });
 
-describe("the restart it names (#3371)", () => {
-	/** What reaches his screen, its lines unescaped. */
-	const screenOf = (r: { stdout: string }) =>
-		JSON.parse(r.stdout).systemMessage as string;
-
+describe("the restart it names", () => {
 	function writeControl(scope: object, noProgressFrom = STOP_AT - 60_000) {
 		fs.writeFileSync(
 			path.join(dir, ".refill-loop-control.json"),
@@ -410,124 +406,19 @@ describe("the restart it names (#3371)", () => {
 		);
 	}
 
-	it("names /pick-next for a normal-mode stop", () => {
-		writeState("control-damaged");
-		writeControl({ mode: "normal", repos: ["/h/workflow-core"], goals: {} });
-		const r = run(["--notify"]);
-		expect(r.status).toBe(0);
-		const out = r.stdout;
-		expect(out).toContain("Restart it with /pick-next.");
-		expect(out).not.toContain("--away");
-	});
-
-	const goalOf = (form: string, text: string) => ({
-		form,
-		text,
-		refs: [
-			{ repo: "workflow-core", number: 116 },
-			{ repo: "mantahostels", number: 9 },
-		],
-		setAt: 1,
-	});
-	const loopCommand = `node ${path.join(__dirname, "refill-loop.js")}`;
-
-	it("names a normal stop's other repos in its checkout, and a set for its goal (#3390, #3864)", () => {
-		writeState("control-damaged");
-		writeControl({
-			mode: "normal",
-			repos: ["/h/workflow-core", "/h/mantahostels"],
-			goal: goalOf("issues", "workflow-core#116,mantahostels#9"),
-		});
-		const r = run(["--notify"]);
-		expect(r.status).toBe(0);
-		expect(screenOf(r)).toContain(
-			"  Restart it in workflow-core: /pick-next mantahostels\n" +
-				`  Then its goal, less any issue closed since: ${loopCommand} set --goal workflow-core#116,mantahostels#9\n`,
-		);
-	});
-
-	it("names a confirmed topic's set and text for a normal stop", () => {
-		writeState("control-damaged");
-		writeControl({
-			mode: "normal",
-			repos: ["/h/workflow-core", "/h/mantahostels"],
-			goal: goalOf("topic", "faster tests"),
-		});
-		const r = run(["--notify"]);
-		expect(r.status).toBe(0);
-		expect(screenOf(r)).toContain(
-			`  Then its goal, less any issue closed since: ${loopCommand} set --goal-issues workflow-core#116,mantahostels#9 --goal-text 'faster tests'\n`,
-		);
-	});
-
-	it("restores a walk as its form, naming that a closed ref will not set (#3866)", () => {
-		writeState("no-progress");
-		writeControl({
-			mode: "normal",
-			repos: ["/h/workflow-core"],
-			goal: {
-				...goalOf("drain", "drain #116"),
-				refs: [{ repo: "workflow-core", number: 116 }],
-			},
-		});
-		expect(screenOf(run(["--notify"]))).toContain(
-			`Then its goal, unless its issue has closed since: ${loopCommand} set --goal 'drain workflow-core#116'`,
-		);
-	});
-
-	it("leaves a repo since unticked out of the goal's set", () => {
-		writeState("control-damaged");
-		writeControl({
-			mode: "normal",
-			repos: ["/h/workflow-core"],
-			goal: goalOf("issues", "workflow-core#116,mantahostels#9"),
-		});
-		expect(screenOf(run(["--notify"]))).toContain(
-			"set --goal workflow-core#116\n",
-		);
-	});
-
-	it("names a normal stop's repos alone", () => {
-		writeState("control-damaged");
-		writeControl({
-			mode: "normal",
-			repos: ["/h/workflow-core", "/h/mantahostels"],
-			goal: null,
-		});
-		const r = run(["--notify"]);
-		expect(r.status).toBe(0);
-		expect(screenOf(r)).toContain(
-			"  Restart it in workflow-core: /pick-next mantahostels\n",
-		);
-		expect(screenOf(r)).not.toContain("Then its goal");
-	});
-
-	it("names the start, then the switch to away with its repos, for an away-mode stop", () => {
-		writeState("control-damaged");
-		writeControl({ mode: "away", repos: ["/h/workflow-core"], goals: {} });
-		const r = run(["--notify"]);
-		expect(r.status).toBe(0);
-		const out = screenOf(r);
-		const script = `node ${path.join(__dirname, "refill-loop.js")}`;
-		expect(out).toContain(
-			`Restart away mode: ${script} start, then ${script} set --away --repos workflow-core\n`,
-		);
-		expect(out).not.toContain("/pick-next");
-	});
-
-	it("names the start, the switch to away with its repos, then a set for its goal", () => {
-		writeState("control-damaged");
-		writeControl({
-			mode: "away",
-			repos: ["/h/workflow-core", "/h/mantahostels"],
-			goal: goalOf("issues", "workflow-core#116,mantahostels#9"),
-		});
-		const r = run(["--notify"]);
-		expect(r.status).toBe(0);
-		expect(screenOf(r)).toContain(
-			`Restart away mode: ${loopCommand} start, then ${loopCommand} set --away --repos workflow-core --repos mantahostels\n` +
-				`  Then its goal, less any issue closed since: ${loopCommand} set --goal workflow-core#116,mantahostels#9\n`,
-		);
+	it("names `start`, its script absolute, whatever the mode", () => {
+		for (const mode of ["normal", "away"]) {
+			writeState("control-damaged");
+			writeControl({ mode, repos: ["/h/workflow-core"], goal: null });
+			const r = run(["--notify"]);
+			expect(r.status).toBe(0);
+			const { systemMessage } = JSON.parse(r.stdout);
+			expect(systemMessage).toContain(
+				`  Restart it: node ${path.join(__dirname, "refill-loop.js")} start\n`,
+			);
+			expect(systemMessage).not.toContain("/pick-next");
+			fs.rmSync(path.join(dir, ".refill-loop-stop-seen"), { force: true });
+		}
 	});
 
 	it("names no restart where the loop was started again since", () => {
