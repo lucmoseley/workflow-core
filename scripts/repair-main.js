@@ -2,8 +2,11 @@
 /*
  * repair-main.js — restore a shared `main` that cannot be read, the one sanctioned
  * route to write it (#3198, spec #3597). Run by a session; the refill loop never
- * runs it. A `node` script because the founder's ruling chose one: `Bash(node *)`
- * is allowed, where the auto-mode classifier refused a session's direct ref write.
+ * runs it. A `node` script because the founder's ruling chose one. Auto mode drops
+ * `Bash(node *)` and no narrow rule names this script, so the classifier judges each
+ * run. It refused none of 20 on a broken `main` in scratch clones (#3924). Residual:
+ * the shared tree is unmeasured and verdicts vary, so a refusal stays possible, which
+ * leaves `main` for the founder.
  *
  * Joins no §N3 family: it writes a ref, and exits 1 on a refusal its caller reads.
  *
