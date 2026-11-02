@@ -38,6 +38,7 @@ import {
 	stagedRepo,
 } from "./lib/precommit-gate-harness";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "check-vendored-skills.js");
 const REPO = path.join(__dirname, "..");
@@ -618,12 +619,12 @@ function answering(
 	const gone = missing
 		? `${missing}) echo "gh: Not Found (HTTP 404)" >&2; exit 1;; `
 		: "";
-	return `echo "$*" >> '${log}'; case "$*" in ${gone}*/license*) printf '%s\\n' '${b64(licence)}';; *) printf '%s\\n' '${b64(body)}';; esac`;
+	return `echo "$*" >> ${shellQuote(log)}; case "$*" in ${gone}*/license*) printf '%s\\n' ${shellQuote(b64(licence))};; *) printf '%s\\n' ${shellQuote(b64(body))};; esac`;
 }
 
 function licenceFailing(stderr: string) {
 	const b64 = Buffer.from(SKILL).toString("base64");
-	return `case "$*" in */license*) echo "${stderr}" >&2; exit 1;; *) printf '%s\\n' '${b64}';; esac`;
+	return `case "$*" in */license*) echo ${shellQuote(stderr)} >&2; exit 1;; *) printf '%s\\n' ${shellQuote(b64)};; esac`;
 }
 
 function readEndpoints(log: string, kind: "contents" | "license") {

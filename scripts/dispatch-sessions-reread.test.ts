@@ -28,6 +28,7 @@ import {
 } from "./lib/dispatch-sessions-testkit";
 import { loadavgLine } from "./lib/proc-fake";
 import { writePsStub } from "./lib/ps-stub";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const fx = dispatchFixture();
 const {
@@ -711,8 +712,8 @@ describe("the kernel-stall check (#867)", () => {
 			journal,
 			[
 				"#!/bin/bash",
-				`printf 'x' >> "${calls}"`,
-				`n=$(wc -c < "${calls}")`,
+				`printf 'x' >> ${shellQuote(calls)}`,
+				`n=$(wc -c < ${shellQuote(calls)})`,
 				'if [ "$n" -le 2 ]; then echo "2026-10-07T22:40:00+08:00 host kernel: ok"; exit 0; fi',
 				'echo "2026-10-07T22:43:24+08:00 host kernel: rcu: INFO: rcu_preempt detected stalls on CPUs/tasks:"',
 			].join("\n"),

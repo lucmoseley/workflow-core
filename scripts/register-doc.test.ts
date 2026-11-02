@@ -18,6 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const { CONSUMES_KINDS } = require("./lib/doc-map.js");
 
@@ -852,7 +853,7 @@ describe("register-doc", () => {
 		const writeStub = (exitCode: number, stderr = "") => {
 			fs.writeFileSync(
 				claimStub,
-				`#!/usr/bin/env bash\necho "$1" >> "${claimLog}"\n${stderr ? `echo "${stderr}" >&2\n` : ""}exit ${exitCode}\n`,
+				`#!/usr/bin/env bash\necho "$1" >> ${shellQuote(claimLog)}\n${stderr ? `echo ${shellQuote(stderr)} >&2\n` : ""}exit ${exitCode}\n`,
 			);
 			fs.chmodSync(claimStub, 0o755);
 		};
@@ -901,7 +902,7 @@ describe("register-doc", () => {
 			const releaseStub = path.join(dir, "release-stub.sh");
 			fs.writeFileSync(
 				releaseStub,
-				`#!/usr/bin/env bash\necho "$1" >> "${releaseLog}"\n`,
+				`#!/usr/bin/env bash\necho "$1" >> ${shellQuote(releaseLog)}\n`,
 			);
 			fs.chmodSync(releaseStub, 0o755);
 			return { releaseLog, releaseStub };

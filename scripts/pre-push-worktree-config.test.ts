@@ -16,6 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const ROOT = path.resolve(__dirname, "..");
 const gate = (name: string) => path.join(ROOT, "scripts", name);
@@ -77,7 +78,7 @@ beforeEach(() => {
 	fs.mkdirSync(hooks);
 	fs.writeFileSync(
 		path.join(hooks, "pre-push"),
-		`#!/bin/sh\nexec node "${gate("landing-push-gate.js")}"\n`,
+		`#!/bin/sh\nexec node ${shellQuote(gate("landing-push-gate.js"))}\n`,
 		{ mode: 0o755 },
 	);
 	git(shared, "config", "core.hooksPath", hooks);

@@ -28,6 +28,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { shellQuote } from "./sh-quote.js";
 
 // biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
 const cache: any = createRequire(__filename)("./oracle-cache.js");
@@ -74,7 +75,7 @@ function countingClaude(body: string) {
 	const tally = path.join(dir, "spawns");
 	fs.writeFileSync(
 		bin,
-		`#!/bin/sh\necho x >> '${tally}'\ncat <<'EOF'\n${body}\nEOF\n`,
+		`#!/bin/sh\necho x >> ${shellQuote(tally)}\ncat <<'EOF'\n${body}\nEOF\n`,
 		{ mode: 0o755 },
 	);
 	process.env.WFC_CLAUDE_BIN = bin;
@@ -182,7 +183,7 @@ describe("the shared reading wait polls (#3561)", () => {
 		const fake = countingClaude(listing("a"));
 		fs.writeFileSync(
 			fake.bin,
-			`#!/bin/sh\necho x >> '${path.join(dir, "spawns")}'\nexit 3\n`,
+			`#!/bin/sh\necho x >> ${shellQuote(path.join(dir, "spawns"))}\nexit 3\n`,
 			{
 				mode: 0o755,
 			},
@@ -236,8 +237,8 @@ describe("a cached record that does not answer THIS caller", () => {
 		fs.writeFileSync(
 			bin,
 			"#!/bin/sh\n" +
-				`n=$(cat '${tally}' 2>/dev/null | wc -l)\n` +
-				`echo x >> '${tally}'\n` +
+				`n=$(cat ${shellQuote(tally)} 2>/dev/null | wc -l)\n` +
+				`echo x >> ${shellQuote(tally)}\n` +
 				`if [ "$n" -eq 0 ]; then sleep 1; cat <<'EOF'\n${listing("a")}\nEOF\n` +
 				`else cat <<'EOF'\n${listing("a", "me")}\nEOF\nfi\n`,
 			{ mode: 0o755 },
@@ -297,7 +298,7 @@ describe("a cached record that does not answer THIS caller", () => {
 		fs.writeFileSync(
 			bin,
 			"#!/bin/sh\n" +
-				`echo x >> '${tally}'\n` +
+				`echo x >> ${shellQuote(tally)}\n` +
 				"sleep 1\n" +
 				`cat <<'EOF'\n${listing("a")}\nEOF\n`,
 			{ mode: 0o755 },
@@ -421,7 +422,7 @@ describe("the claim the whole change is for (mantahostels#1924)", () => {
 		 * can start, so the race the test is about never happens. */
 		fs.writeFileSync(
 			bin,
-			`#!/bin/sh\necho x >> '${tally}'\nsleep 1\ncat <<'EOF'\n${listing("a")}\nEOF\n`,
+			`#!/bin/sh\necho x >> ${shellQuote(tally)}\nsleep 1\ncat <<'EOF'\n${listing("a")}\nEOF\n`,
 			{ mode: 0o755 },
 		);
 		const reader = path.join(dir, "read.js");

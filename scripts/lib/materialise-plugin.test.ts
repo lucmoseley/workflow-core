@@ -24,6 +24,7 @@ import {
 	predictedRefConflict,
 	run,
 } from "./materialise-plugin.js";
+import { shellQuote } from "./sh-quote.js";
 
 let made: string[] = [];
 let origConfigDir: string | undefined;
@@ -38,7 +39,7 @@ function stubClaude(log: string) {
 	const bin = path.join(stub, "claude");
 	fs.writeFileSync(
 		bin,
-		`#!/bin/sh\necho "$CLAUDE_CONFIG_DIR|$@" >> ${JSON.stringify(log)}\nexit 0\n`,
+		`#!/bin/sh\necho "$CLAUDE_CONFIG_DIR|$@" >> ${shellQuote(log)}\nexit 0\n`,
 		{ mode: 0o755 },
 	);
 	return bin;
@@ -152,7 +153,7 @@ describe("materialisePlugin's CLAUDE_CONFIG_DIR isolation (#117)", () => {
 		fs.writeFileSync(
 			claudeBin,
 			"#!/bin/sh\n" +
-				`echo "$CLAUDE_CONFIG_DIR|$@" >> ${JSON.stringify(log)}\n` +
+				`echo "$CLAUDE_CONFIG_DIR|$@" >> ${shellQuote(log)}\n` +
 				`mkdir -p "$CLAUDE_CONFIG_DIR/plugins"\n` +
 				`echo clobbered > "$CLAUDE_CONFIG_DIR/plugins/known_marketplaces.json"\n` +
 				"exit 0\n",

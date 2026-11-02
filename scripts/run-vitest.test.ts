@@ -52,6 +52,7 @@ import {
 import { defineTemplate, initGitRepo, mkScratchDir } from "./lib/git-fixture";
 import { writeEnviron } from "./lib/proc-fake";
 import { isDead } from "./lib/process-fixture";
+import { shellQuote } from "./lib/sh-quote.js";
 import { stubLaunch } from "./lib/suite-handoff-testkit";
 import { WHOLE_SLOT_BOUND } from "./lib/whole-slot-bound";
 
@@ -1081,7 +1082,7 @@ describe("a runner flag npm swallowed, launched through `npm run` (#2284)", {
 			JSON.stringify({
 				name: "fixture",
 				scripts: {
-					t: `node ${JSON.stringify(path.join(__dirname, "run-vitest.js"))}${baked}`,
+					t: `node ${shellQuote(path.join(__dirname, "run-vitest.js"))}${baked}`,
 				},
 			}),
 		);
@@ -1746,12 +1747,12 @@ describe("the suite ceiling", () => {
 				bin,
 				[
 					"#!/bin/sh",
-					`sleep 300 & echo $! > "${dir}/grandchild"`,
-					`echo $$ > "${dir}/child"`,
+					`sleep 300 & echo $! > ${shellQuote(`${dir}/grandchild`)}`,
+					`echo $$ > ${shellQuote(`${dir}/child`)}`,
 					/* The runner writes the deadline just after the spawn. */
-					`while [ ! -s "${deadlineFile}" ]; do sleep 0.01; done`,
-					`cp "${deadlineFile}" "${dir}/deadline-seen"`,
-					`touch "${dir}/ready"`,
+					`while [ ! -s ${shellQuote(deadlineFile)} ]; do sleep 0.01; done`,
+					`cp ${shellQuote(deadlineFile)} ${shellQuote(`${dir}/deadline-seen`)}`,
+					`touch ${shellQuote(`${dir}/ready`)}`,
 					"while :; do echo .; sleep 0.05; done",
 					"",
 				].join("\n"),
@@ -1827,9 +1828,9 @@ describe("a reparented worker with no user scope", {
 				/* Not the group's leader, so setsid execs in place: $! is the
 				 * worker, in a session and group of its own. Off vitest's
 				 * pipes, so the run settles without waiting on it. */
-				`setsid sleep 300 </dev/null >/dev/null 2>&1 & echo $! > "${root}/worker.tmp"`,
-				`echo $$ > "${root}/child"`,
-				`mv "${root}/worker.tmp" "${root}/worker"`,
+				`setsid sleep 300 </dev/null >/dev/null 2>&1 & echo $! > ${shellQuote(`${root}/worker.tmp`)}`,
+				`echo $$ > ${shellQuote(`${root}/child`)}`,
+				`mv ${shellQuote(`${root}/worker.tmp`)} ${shellQuote(`${root}/worker`)}`,
 				"exec sleep 300",
 				"",
 			].join("\n"),

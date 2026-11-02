@@ -25,6 +25,7 @@ import {
 	it,
 } from "vitest";
 import { copyBlockPattern } from "./lib/settings-copy";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const { buildTickRecord, writeSustained } = require("./lib/concurrency.js");
 
@@ -56,7 +57,7 @@ beforeAll(() => {
 	for (const name of ["node", "claude"])
 		fs.writeFileSync(
 			path.join(shims, name),
-			`#!/usr/bin/env bash\necho ${name} >> "${spawned}"\n`,
+			`#!/usr/bin/env bash\necho ${shellQuote(name)} >> ${shellQuote(spawned)}\n`,
 			{ mode: 0o755 },
 		);
 });

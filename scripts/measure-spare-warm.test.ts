@@ -30,6 +30,7 @@ import {
 	writeSeatHelper,
 } from "./lib/auth-status-fake";
 import { runInProcessAsync } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "measure-spare-warm.js");
 
@@ -417,7 +418,7 @@ describe("the probe's auth (#2236)", () => {
 		const stub = path.join(dir, "claude");
 		fs.writeFileSync(
 			stub,
-			`#!/bin/bash\n${buildAuthStatusBranch()}\necho "$*" >> "${bgCalls()}"\n`,
+			`#!/bin/bash\n${buildAuthStatusBranch()}\necho "$*" >> ${shellQuote(bgCalls())}\n`,
 			{ mode: 0o755 },
 		);
 		fs.writeFileSync(logA(), "");

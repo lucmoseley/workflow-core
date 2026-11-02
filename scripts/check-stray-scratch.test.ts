@@ -24,6 +24,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "check-stray-scratch.js");
 
@@ -103,7 +104,7 @@ function oracle(agents: { sessionId: string; startedAt?: number }[] | null) {
 		`#!/bin/sh\n${
 			agents === null
 				? 'echo "no daemon" >&2\nexit 1\n'
-				: `cat ${JSON.stringify(listing)}\n`
+				: `cat ${shellQuote(listing)}\n`
 		}`,
 		{ mode: 0o755 },
 	);
@@ -135,7 +136,7 @@ function countingOracle(agents: { sessionId: string; startedAt?: number }[]) {
 	fs.writeFileSync(calls, "");
 	fs.writeFileSync(
 		bin,
-		`#!/bin/sh\nprintf x >> ${JSON.stringify(calls)}\ncat ${JSON.stringify(listing)}\n`,
+		`#!/bin/sh\nprintf x >> ${shellQuote(calls)}\ncat ${shellQuote(listing)}\n`,
 		{ mode: 0o755 },
 	);
 	return { bin, callCount: () => fs.readFileSync(calls, "utf8").length };

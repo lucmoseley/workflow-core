@@ -14,6 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { initGitRepo, mkScratchDir } from "./lib/git-fixture";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const ROOT = path.join(__dirname, "..");
 const SCRIPT = path.join(ROOT, "scripts", "check-commit-subject.sh");
@@ -66,7 +67,7 @@ const viaEditor = (message: string) => {
 	const editor = path.join(hooks, "editor.sh");
 	fs.writeFileSync(
 		editor,
-		`#!/bin/sh\ncat ${JSON.stringify(file)} "$1" > "$1.new" && mv "$1.new" "$1"\n`,
+		`#!/bin/sh\ncat ${shellQuote(file)} "$1" > "$1.new" && mv "$1.new" "$1"\n`,
 		{ mode: 0o755 },
 	);
 	return git(["commit", "-q"], { GIT_EDITOR: editor });
@@ -91,7 +92,7 @@ beforeEach(() => {
 	/* Husky runs its hook files through sh; git's own copy is not executable. */
 	fs.writeFileSync(
 		path.join(hooks, "commit-msg"),
-		`#!/bin/sh\nexec sh ${JSON.stringify(path.join(ROOT, ".husky", "commit-msg"))} "$1"\n`,
+		`#!/bin/sh\nexec sh ${shellQuote(path.join(ROOT, ".husky", "commit-msg"))} "$1"\n`,
 		{ mode: 0o755 },
 	);
 });

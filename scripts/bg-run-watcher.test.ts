@@ -55,6 +55,7 @@ import {
 	waitFor,
 } from "./lib/bg-run-testkit";
 import { isDead } from "./lib/process-fixture";
+import { shellQuote } from "./lib/sh-quote.js";
 
 bgRunRoot();
 
@@ -672,10 +673,10 @@ describe("the suite ceiling's backstop (#2704)", () => {
 		"sh",
 		"-c",
 		[
-			`setsid --fork sh -c 'echo $$ > "${root}/group"; exec sleep ${KILLED_LIFETIME_S}'`,
-			`sleep ${KILLED_LIFETIME_S} & echo $! > '${root}/child'`,
-			shWaitFor(`[ -s '${root}/group' ]`),
-			`echo "${monoS() - ago} $(cat '${root}/group')" > "$${DEADLINE_ENV}"`,
+			`setsid --fork sh -c ${shellQuote(`echo $$ > ${shellQuote(`${root}/group`)}; exec sleep ${KILLED_LIFETIME_S}`)}`,
+			`sleep ${KILLED_LIFETIME_S} & echo $! > ${shellQuote(`${root}/child`)}`,
+			shWaitFor(`[ -s ${shellQuote(`${root}/group`)} ]`),
+			`echo "${monoS() - ago} $(cat ${shellQuote(`${root}/group`)})" > "$${DEADLINE_ENV}"`,
 			"echo 'SUITE CEILING — the runner report'",
 			"wait",
 		].join("; "),

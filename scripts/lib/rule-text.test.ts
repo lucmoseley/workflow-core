@@ -24,6 +24,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { freshSandbox } from "./arbiter-testkit";
+import { shellQuote } from "./sh-quote.js";
 
 const SH = path.join(__dirname, "rule-text.sh");
 
@@ -85,7 +86,10 @@ describe("resolving an id to its text", () => {
 		});
 		const r = spawnSync(
 			"bash",
-			["-c", `source "${SH}"; rule_text file-claim | od -An -c | tr -d " \\n"`],
+			[
+				"-c",
+				`source ${shellQuote(SH)}; rule_text file-claim | od -An -c | tr -d " \\n"`,
+			],
 			{ encoding: "utf8", env: { ...process.env, WFC_RULES_DIR: dir } },
 		);
 		const nodeBytes = spawnSync("bash", ["-c", "od -An -c | tr -d ' \\n'"], {
@@ -130,7 +134,7 @@ describe("refusing loudly on an unknown id", () => {
 			"bash",
 			[
 				"-c",
-				`source "${SH}"; rule_text nope 2>/dev/null || echo "returned $?"; echo alive`,
+				`source ${shellQuote(SH)}; rule_text nope 2>/dev/null || echo "returned $?"; echo alive`,
 			],
 			{ encoding: "utf8", env: { ...process.env, WFC_RULES_DIR: dir } },
 		);
@@ -706,10 +710,14 @@ describe("{command:<name>} names the host's own command (#742)", () => {
 	}
 
 	function both(id: string) {
-		const r = spawnSync("bash", ["-c", `source "${SH}"; rule_text ${id}`], {
-			encoding: "utf8",
-			env: process.env,
-		});
+		const r = spawnSync(
+			"bash",
+			["-c", `source ${shellQuote(SH)}; rule_text ${shellQuote(id)}`],
+			{
+				encoding: "utf8",
+				env: process.env,
+			},
+		);
 		expect(r.stderr).toBe("");
 		return { bash: r.stdout, node: lib.readRuleText(id) };
 	}
@@ -756,10 +764,14 @@ describe("{command:<name>} names the host's own command (#742)", () => {
 			),
 			"{ not json",
 		);
-		const r = spawnSync("bash", ["-c", `source "${SH}"; rule_text recipe`], {
-			encoding: "utf8",
-			env: process.env,
-		});
+		const r = spawnSync(
+			"bash",
+			["-c", `source ${shellQuote(SH)}; rule_text recipe`],
+			{
+				encoding: "utf8",
+				env: process.env,
+			},
+		);
 		expect(r.stdout).toBe("Run:\n  git push");
 		expect(r.stderr).toMatch(/does not parse/);
 		const write = vi
@@ -823,9 +835,13 @@ describe("readRuleTextOr, for a guard that must not crash (#1044)", () => {
 		temps.push(cwd);
 		const calls = path.join(cwd, "git-calls");
 		const git = path.join(cwd, "failing-git");
-		fs.writeFileSync(git, `#!/bin/sh\necho x >> '${calls}'\nexit 1\n`, {
-			mode: 0o755,
-		});
+		fs.writeFileSync(
+			git,
+			`#!/bin/sh\necho x >> ${shellQuote(calls)}\nexit 1\n`,
+			{
+				mode: 0o755,
+			},
+		);
 		const env: NodeJS.ProcessEnv = {
 			...process.env,
 			CLAUDE_CONFIG_DIR: path.join(cwd, "config"),

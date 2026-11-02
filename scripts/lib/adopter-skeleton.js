@@ -377,11 +377,11 @@ try {
   process.stderr.write(String(err instanceof Error ? err.message : err) + "\\n");
   process.exit(1);
 }' </dev/null)" || {
-  echo "${hook}: ${consequence} ${NO_CORE_FIX}" >&2
+  echo ${shellQuote(`${hook}: ${consequence} ${NO_CORE_FIX}`)} >&2
   exit ${failOpen ? 0 : 1}
 }
 export WFC_PLUGIN_ROOT
-exec sh -e "$WFC_PLUGIN_ROOT/.husky/${hook}" "$@"
+exec sh -e "$WFC_PLUGIN_ROOT/.husky/"${shellQuote(hook)} "$@"
 `;
 }
 

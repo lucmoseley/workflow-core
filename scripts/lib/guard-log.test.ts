@@ -43,6 +43,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { shellQuote } from "./sh-quote.js";
 
 const { projectSlug, UNRESOLVED_ROOT_SLUG } = require("./project-slug.js");
 
@@ -64,7 +65,7 @@ const readSlugViaGuardLog = (
 	try {
 		execFileSync(
 			"bash",
-			["-c", `source "${GUARD_LOG}" && gl_log "slug probe"`],
+			["-c", `source ${shellQuote(GUARD_LOG)} && gl_log "slug probe"`],
 			{
 				encoding: "utf8",
 				env: {
@@ -143,7 +144,7 @@ const readRootlessLogDirs = (): string[] => {
 		fs.copyFileSync(GUARD_LOG, lone);
 		execFileSync(
 			"bash",
-			["-c", `source "${lone}" && gl_log "rootless probe"`],
+			["-c", `source ${shellQuote(lone)} && gl_log "rootless probe"`],
 			{
 				encoding: "utf8",
 				// No CLAUDE_PROJECT_DIR override: an empty one falls straight through
@@ -186,13 +187,17 @@ describe("gl_log's optional fourth field (#320)", () => {
 	const readLoggedRecord = (args: string): string => {
 		const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "guard-log-f4-"));
 		try {
-			execFileSync("bash", ["-c", `source "${GUARD_LOG}" && gl_log ${args}`], {
-				env: {
-					...process.env,
-					CLAUDE_PROJECT_DIR: "/repo",
-					CLAUDE_CONFIG_DIR: configDir,
+			execFileSync(
+				"bash",
+				["-c", `source ${shellQuote(GUARD_LOG)} && gl_log ${args}`],
+				{
+					env: {
+						...process.env,
+						CLAUDE_PROJECT_DIR: "/repo",
+						CLAUDE_CONFIG_DIR: configDir,
+					},
 				},
-			});
+			);
 			return fs.readFileSync(
 				path.join(configDir, "projects", "-repo", "guard-errors.log"),
 				"utf8",
@@ -255,9 +260,13 @@ describe("gl_log files where errorLog() reads, on every seat (#383)", () => {
 		delete env.WFC_CLAUDE_CONFIG_A;
 		delete env.WFC_CLAUDE_CONFIG_B;
 		delete env.WFC_CLAUDE_CONFIG_C;
-		execFileSync("bash", ["-c", `source "${GUARD_LOG}" && gl_log probe`], {
-			env,
-		});
+		execFileSync(
+			"bash",
+			["-c", `source ${shellQuote(GUARD_LOG)} && gl_log probe`],
+			{
+				env,
+			},
+		);
 		const core = JSON.stringify(path.resolve(__dirname, "arbiter-core.js"));
 		return execFileSync(
 			process.execPath,

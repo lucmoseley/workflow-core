@@ -30,6 +30,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type StubGh, stubGhScript } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.resolve(__dirname, "check-issue-card-drift.js");
 
@@ -93,8 +94,8 @@ case " $* " in
   *) echo "[]" ; exit 0 ;;
 esac
 case " $* " in
-  *parent*) cat ${dir}/$f.json ;;
-  *)        cat ${dir}/$f.noparent.json ;;
+  *parent*) cat ${shellQuote(dir)}/$f.json ;;
+  *)        cat ${shellQuote(dir)}/$f.noparent.json ;;
 esac
 `;
 	return stubGhScript(dir, script, { failing });

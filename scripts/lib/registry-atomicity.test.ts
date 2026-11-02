@@ -23,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeFaultyGit } from "./git-fault-fake";
 import { defineTemplate, initGitRepo, mkScratchDir } from "./git-fixture";
 import { kitContextFake } from "./kit-context-fake";
+import { shellQuote } from "./sh-quote.js";
 
 type Decision = { deny?: string } | null;
 const { decide } = require("./registry-atomicity.js") as {
@@ -2352,7 +2353,10 @@ describe("a needle keyed on wording that moved (mantahostels#2708)", () => {
 	/** Commit that keying, so HEAD carries it and the guard prints it. */
 	const atHead = (text: string) => {
 		keyOn(text);
-		edit("scripts/guard-existing.sh", `#!/usr/bin/env bash\ndeny '${text}'\n`);
+		edit(
+			"scripts/guard-existing.sh",
+			`#!/usr/bin/env bash\ndeny ${shellQuote(text)}\n`,
+		);
 		git(repo, "add", "-A");
 		git(repo, "commit", "-qm", "needle and its printer");
 	};

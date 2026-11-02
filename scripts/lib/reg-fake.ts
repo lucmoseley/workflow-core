@@ -7,6 +7,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { shellQuote } from "./sh-quote.js";
 
 /** What the real reg.exe prints, exiting 1, for a key or value that is absent. */
 export const REG_ABSENT =
@@ -31,11 +32,11 @@ export function writeReg(dir: string, delaysS: number[]): string {
 		bin,
 		[
 			"#!/bin/bash",
-			`printf x >> '${calls}'`,
-			`case $(wc -c < '${calls}') in`,
+			`printf x >> ${shellQuote(calls)}`,
+			`case $(wc -c < ${shellQuote(calls)}) in`,
 			...arms,
 			"esac",
-			`printf '%s\\r\\n' '${REG_ABSENT}' >&2`,
+			`printf '%s\\r\\n' ${shellQuote(REG_ABSENT)} >&2`,
 			"exit 1",
 			"",
 		].join("\n"),

@@ -42,7 +42,8 @@ export const GH_LOGGED_OUT_NODE = ghAnswerNode(LOGGED_OUT);
 export const GH_FAILING_SCRIPT = ghFakeScript(LOGGED_OUT);
 
 /** A stub that serves one fixture file verbatim, whatever the arguments. */
-export const catFixture = (file: string) => `#!/bin/sh\ncat ${file}\n`;
+export const catFixture = (file: string) =>
+	`#!/bin/sh\ncat ${shellQuote(file)}\n`;
 
 export interface StubGh {
 	/** The stub executable — what WFC_GH points at. */
@@ -258,9 +259,9 @@ export function writeSubIssues(
  */
 export const subIssuesArm = (dir: string) => `  */sub_issues)
     n=\`echo "$2" | sed 's|.*/issues/||; s|/sub_issues||'\`
-    if [ -f ${dir}/children-$n.status ]; then
-      cat ${dir}/children-$n.out
-      cat ${dir}/children-$n.err >&2
-      exit \`cat ${dir}/children-$n.status\`
+    if [ -f ${shellQuote(dir)}/children-$n.status ]; then
+      cat ${shellQuote(dir)}/children-$n.out
+      cat ${shellQuote(dir)}/children-$n.err >&2
+      exit \`cat ${shellQuote(dir)}/children-$n.status\`
     fi
     ${ghServeLines(subIssuesAnswer([]))}    ;;`;

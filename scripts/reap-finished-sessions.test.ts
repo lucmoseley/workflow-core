@@ -27,6 +27,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 
 // biome-ignore lint/suspicious/noExplicitAny: CommonJS module
 const { readProcStartOf } = require("./lib/arbiter-proc.js") as any;
@@ -1097,7 +1098,7 @@ describe("the SessionStart wiring: the run's own session is not yet registered",
 			const called = path.join(sandbox, "claude-called");
 			const res = runReaper(
 				sandbox,
-				`echo "$@" >> "${called}"\nexit 0\n`,
+				`echo "$@" >> ${shellQuote(called)}\nexit 0\n`,
 				argv,
 			);
 			expect(fs.existsSync(called), "the daemon was called").toBe(false);
@@ -1741,7 +1742,7 @@ describe("a ghost the daemon lists but cannot stop, across consecutive runs", ()
 		registered(sandbox, [ghost]);
 		return [
 			'if [ "$1" = "stop" ]; then',
-			`  echo "$2" >> "${path.join(sandbox, "stops")}"`,
+			`  echo "$2" >> ${shellQuote(path.join(sandbox, "stops"))}`,
 			// A warning ABOVE the reason, per docs/agents/verification.md.
 			'  echo "warning: daemon socket is busy, retrying" >&2',
 			"  echo \"No job matching '$2'. Run 'claude agents' to list running sessions.\" >&2",
@@ -2330,7 +2331,7 @@ describe("the pool, read off the registry", () => {
 		const calls = path.join(sandbox, "calls");
 		const res = runReaper(
 			sandbox,
-			`echo "$@" >> "${calls}"\n[ "$1" = "agents" ] && exec sleep 30\nexit 0\n`,
+			`echo "$@" >> ${shellQuote(calls)}\n[ "$1" = "agents" ] && exec sleep 30\nexit 0\n`,
 			[],
 		);
 		expect(res.stdout).toContain("reap: stopped a finished session");
@@ -2418,7 +2419,7 @@ describe("seats other than the run's own (#1571)", () => {
 	function buildStub() {
 		return [
 			'if [ "$1" = "stop" ]; then',
-			`  echo "$CLAUDE_CONFIG_DIR $2" >> "${path.join(root, "stops")}"`,
+			`  echo "$CLAUDE_CONFIG_DIR $2" >> ${shellQuote(path.join(root, "stops"))}`,
 			'  grep -qx "$2" "$CLAUDE_CONFIG_DIR/daemon-jobs" 2>/dev/null && exit 0',
 			"  echo \"No job matching '$2'.\" >&2",
 			"  exit 1",

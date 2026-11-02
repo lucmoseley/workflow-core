@@ -25,6 +25,7 @@ import {
 	LIB_COMMANDS,
 	writeCheckerDelegates,
 } from "./lib/precommit-gate-testkit";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const temps = registerTempCleanup();
 
@@ -51,7 +52,7 @@ function pathWithoutPython(r: TempRepo): string {
 	temps.push(bin);
 	fs.mkdirSync(bin);
 	for (const cmd of ["sh", "node", ...LIB_COMMANDS]) {
-		const abs = execFileSync("sh", ["-c", `command -v ${cmd}`], {
+		const abs = execFileSync("sh", ["-c", `command -v ${shellQuote(cmd)}`], {
 			encoding: "utf8",
 		}).trim();
 		fs.symlinkSync(abs, path.join(bin, cmd));

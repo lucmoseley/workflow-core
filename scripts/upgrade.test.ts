@@ -22,6 +22,7 @@ import {
 	renderHookShim,
 	withIgnoreBlock,
 } from "./lib/adopter-skeleton.js";
+import { shellQuote } from "./lib/sh-quote.js";
 import { clearStepOwed } from "./lib/steps-owed.js";
 import { upgrade } from "./lib/upgrade-walk.js";
 
@@ -1134,7 +1135,7 @@ describe("upgrade() calls claude on no path (#217, #230)", () => {
 		const log = path.join(stub, "claude-calls.log");
 		fs.writeFileSync(
 			path.join(stub, "claude"),
-			`#!/bin/sh\necho "$@" >> ${JSON.stringify(log)}\nexit 0\n`,
+			`#!/bin/sh\necho "$@" >> ${shellQuote(log)}\nexit 0\n`,
 			{ mode: 0o755 },
 		);
 		process.env.WFC_CLAUDE_BIN = path.join(stub, "claude");

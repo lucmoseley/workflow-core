@@ -48,6 +48,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const ROOT = path.join(__dirname, "..");
 const STEP = path.join(ROOT, "scripts", "bisect-step.sh");
@@ -117,7 +118,7 @@ function stubTools({
 	const write = (name: string, body: string, into = stubs) =>
 		fs.writeFileSync(
 			path.join(into, name),
-			`#!/usr/bin/env bash\necho "${name} $*" >> "${dir}/calls"\n${body}\n`,
+			`#!/usr/bin/env bash\necho ${shellQuote(`${name} `)}"$*" >> ${shellQuote(`${dir}/calls`)}\n${body}\n`,
 			{ mode: 0o755 },
 		);
 
@@ -142,7 +143,7 @@ esac`,
 	if (!biomeMissing)
 		fs.writeFileSync(
 			path.join(localBin, "biome"),
-			`#!/usr/bin/env bash\necho "$0 $*" >> "${dir}/calls"\nexit ${biome}\n`,
+			`#!/usr/bin/env bash\necho "$0 $*" >> ${shellQuote(`${dir}/calls`)}\nexit ${biome}\n`,
 			{ mode: 0o755 },
 		);
 	write(
@@ -153,7 +154,7 @@ esac`,
 esac`,
 	);
 	const arms = Object.entries(node)
-		.map(([script, code]) => `  "${script}") exit ${code} ;;`)
+		.map(([script, code]) => `  ${shellQuote(script)}) exit ${code} ;;`)
 		.join("\n");
 	write("node", `case "\${1:-}" in\n${arms}\n  *) exit 0 ;;\nesac`);
 

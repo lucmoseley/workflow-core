@@ -52,7 +52,7 @@ function install(files: string[], prefix = "script-path-"): string {
 }
 
 function bash(script: string, env: Record<string, string>, input = "") {
-	const r = spawnSync("bash", ["-c", `source "${SH}"; ${script}`], {
+	const r = spawnSync("bash", ["-c", `source ${shellQuote(SH)}; ${script}`], {
 		input,
 		encoding: "utf8",
 		env: { ...process.env, ...env },
@@ -129,7 +129,10 @@ describe("the bash twins' own directory", () => {
 	it("stays the core root after the caller changes directory", () => {
 		const r = spawnSync(
 			"bash",
-			["-c", `source "${SH}"; cd /; sp_core_root; echo; script_path x.js`],
+			[
+				"-c",
+				`source ${shellQuote(SH)}; cd /; sp_core_root; echo; script_path x.js`,
+			],
 			{ encoding: "utf8" },
 		);
 		expect(r.stderr).toBe("");

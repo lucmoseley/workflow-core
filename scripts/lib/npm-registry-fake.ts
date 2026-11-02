@@ -9,6 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Call } from "./npm-install.js";
+import { shellQuote } from "./sh-quote.js";
 
 export type { Call } from "./npm-install.js";
 
@@ -107,7 +108,7 @@ export function writeRegistryStubs(dir: string) {
 	fs.mkdirSync(dir, { recursive: true });
 	const buildStubScript = (name: string, tool: string, extra = "") =>
 		`#!/usr/bin/env bash
-echo "${tool} $*" >> "$STUB_CALLS"
+echo ${shellQuote(`${tool} `)}"$*" >> "$STUB_CALLS"
 ${extra}printf '%s' "$STUB_${name}_OUT"
 exit "$STUB_${name}_STATUS"
 `;

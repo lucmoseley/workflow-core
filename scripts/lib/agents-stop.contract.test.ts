@@ -37,6 +37,7 @@ import {
 import { blockCause } from "./block-cause.js";
 import { stopOn } from "./claude-stop.js";
 import { writeClaudeStub } from "./claude-stub";
+import { shellQuote } from "./sh-quote.js";
 
 let dir: string;
 const savedEnv = { ...process.env };
@@ -159,7 +160,9 @@ describe.each(stopCases)("the $kind stop", ({ kind, outcome }) => {
 		const err = path.join(dir, "err");
 		fs.writeFileSync(out, r.stdout);
 		fs.writeFileSync(err, r.stderr);
-		const bin = claudeOf(`cat '${out}'; cat '${err}' >&2; exit ${r.status}`);
+		const bin = claudeOf(
+			`cat ${shellQuote(out)}; cat ${shellQuote(err)} >&2; exit ${r.status}`,
+		);
 		expect(stopOn(dir, r.id, bin)).toMatchObject(outcome);
 	});
 

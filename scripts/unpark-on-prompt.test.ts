@@ -17,6 +17,7 @@ import { stubGhScript } from "./lib/gh-stub";
 import { API_PROMPT, IDLE_PROMPT } from "./lib/loop-prompts.js";
 import { writeParkedBy } from "./lib/parked.js";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const HOOK = path.join(__dirname, "unpark-on-prompt.js");
 
@@ -60,9 +61,9 @@ function run({
 		dir,
 		[
 			"#!/bin/sh",
-			`printf '%s\\n' "$*" >>${dir}/calls`,
+			`printf '%s\\n' "$*" >>${shellQuote(dir)}/calls`,
 			failOn
-				? `case "$*" in "issue edit ${failOn} "*) echo "HTTP 502" >&2; exit 1 ;; esac`
+				? `case "$*" in ${shellQuote(`issue edit ${failOn} `)}*) echo "HTTP 502" >&2; exit 1 ;; esac`
 				: "",
 		].join("\n"),
 	);

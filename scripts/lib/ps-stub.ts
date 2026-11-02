@@ -6,6 +6,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { shellQuote } from "./sh-quote.js";
 
 const PS_FAILING_SCRIPT =
 	'#!/bin/sh\necho "ps: cannot read /proc" >&2\nexit 1\n';
@@ -33,7 +34,7 @@ export function writePsStub(
 		? PS_FAILING_SCRIPT
 		: [
 				"#!/bin/sh",
-				...(marker ? [`touch ${JSON.stringify(marker)}`] : []),
+				...(marker ? [`touch ${shellQuote(marker)}`] : []),
 				`cat <<'${END}'`,
 				...lines,
 				END,

@@ -14,6 +14,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.resolve(__dirname, "check-context-budget.js");
 const LEDGER = "docs/pool-admission-ledger.json";
@@ -281,7 +282,7 @@ describe("the admission gate at --against HEAD", () => {
 		const calls = path.join(dir, "gh-calls");
 		process.env.WFC_GH = stubGhScript(
 			dir,
-			`#!/bin/sh\necho x >> ${calls}\necho '{"data":{"repository":{"i2013":{"state":"CLOSED"}}}}'\n`,
+			`#!/bin/sh\necho x >> ${shellQuote(calls)}\necho '{"data":{"repository":{"i2013":{"state":"CLOSED"}}}}'\n`,
 		).gh;
 		claude(KEPT);
 		ledger({

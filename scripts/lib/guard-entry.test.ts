@@ -19,6 +19,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readGuardErrorsLog } from "./guard-errors-log";
 import { runInProcess } from "./run-in-process";
+import { shellQuote } from "./sh-quote.js";
 
 const { readRuleCap } = require("./rule-emission.js") as {
 	readRuleCap: () => number;
@@ -584,9 +585,13 @@ describe("the root adapter is timed (#2784)", () => {
 	const underHungGit = (decision: unknown, payload: object) => {
 		const calls = path.join(dir, "git-calls");
 		const git = path.join(dir, "slow-git");
-		fs.writeFileSync(git, `#!/bin/sh\necho x >> '${calls}'\nexec sleep 30\n`, {
-			mode: 0o755,
-		});
+		fs.writeFileSync(
+			git,
+			`#!/bin/sh\necho x >> ${shellQuote(calls)}\nexec sleep 30\n`,
+			{
+				mode: 0o755,
+			},
+		);
 		const env: NodeJS.ProcessEnv = {
 			...process.env,
 			CLAUDE_CONFIG_DIR: config,

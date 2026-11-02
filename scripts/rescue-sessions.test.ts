@@ -30,6 +30,7 @@ import {
 	WEEKLY_LIMIT_LINE,
 } from "./lib/rescue-testkit";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 import { buildBashCall } from "./lib/transcript-testkit";
 
 const SCRIPT = join(__dirname, "rescue-sessions.js");
@@ -283,7 +284,7 @@ describe("the jobs list reads", () => {
 		const bin = join(cfg, "claude");
 		writeFileSync(
 			bin,
-			`#!/bin/sh\n[ "$CLAUDE_CONFIG_DIR" = "${cfg}" ] && echo '[{"id":"aaaaaaaa-1"}]'\n`,
+			`#!/bin/sh\n[ "$CLAUDE_CONFIG_DIR" = ${shellQuote(cfg)} ] && echo '[{"id":"aaaaaaaa-1"}]'\n`,
 			{ mode: 0o755 },
 		);
 		const res = runInProcess(SCRIPT, ["list", "--from", cfg], {
@@ -301,7 +302,7 @@ describe("the jobs list reads", () => {
 		const bin = join(cfg, "claude");
 		writeFileSync(
 			bin,
-			`#!/bin/bash\nsleep 30 &\necho $! >> ${pids}\nsleep 30 &\necho $! >> ${pids}\nwait\n`,
+			`#!/bin/bash\nsleep 30 &\necho $! >> ${shellQuote(pids)}\nsleep 30 &\necho $! >> ${shellQuote(pids)}\nwait\n`,
 			{ mode: 0o755 },
 		);
 		const res = runInProcess(SCRIPT, ["list", "--from", cfg], {

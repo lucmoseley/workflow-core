@@ -34,6 +34,7 @@ import {
 	registerSession,
 	store,
 } from "./arbiter-testkit";
+import { shellQuote } from "./sh-quote.js";
 
 const sb = freshSandbox();
 
@@ -197,7 +198,7 @@ describe("repoRoot normalises the trailing slash (mantahostels#1905)", () => {
 				"bash",
 				[
 					"-c",
-					`source "${path.resolve(__dirname, "guard-log.sh")}" && gl_log "the trailing-slash probe"`,
+					`source ${shellQuote(path.resolve(__dirname, "guard-log.sh"))} && gl_log "the trailing-slash probe"`,
 				],
 				{ encoding: "utf8", env: { ...process.env, CLAUDE_PROJECT_DIR: dir } },
 			);
@@ -245,7 +246,7 @@ describe("repoRoot is memoised (mantahostels#1775)", () => {
 		const calls = path.join(dir, "git-calls");
 		fs.writeFileSync(
 			bin,
-			`#!/bin/sh\necho x >> ${JSON.stringify(calls)}\necho ${JSON.stringify(toplevel)}\n`,
+			`#!/bin/sh\necho x >> ${shellQuote(calls)}\necho ${shellQuote(toplevel)}\n`,
 			{ mode: 0o755 },
 		);
 		/* A second git, alone on PATH, failing every call into the same log: a
@@ -254,7 +255,7 @@ describe("repoRoot is memoised (mantahostels#1775)", () => {
 		fs.mkdirSync(decoys, { recursive: true });
 		fs.writeFileSync(
 			path.join(decoys, "git"),
-			`#!/bin/sh\necho x >> ${JSON.stringify(calls)}\nexit 1\n`,
+			`#!/bin/sh\necho x >> ${shellQuote(calls)}\nexit 1\n`,
 			{ mode: 0o755 },
 		);
 		return {
@@ -326,7 +327,7 @@ describe("repoRoot is memoised (mantahostels#1775)", () => {
 		const calls = path.join(dir, "git-calls");
 		fs.writeFileSync(
 			bin,
-			`#!/bin/sh\necho x >> ${JSON.stringify(calls)}\nexit 1\n`,
+			`#!/bin/sh\necho x >> ${shellQuote(calls)}\nexit 1\n`,
 			{ mode: 0o755 },
 		);
 		const count = () =>
@@ -375,7 +376,7 @@ describe("withGitTimeout bounds the store's git (#2891)", () => {
 		const calls = path.join(dir, "git-calls");
 		fs.writeFileSync(
 			bin,
-			`#!/bin/sh\necho x >> ${JSON.stringify(calls)}\nexec sleep 30\n`,
+			`#!/bin/sh\necho x >> ${shellQuote(calls)}\nexec sleep 30\n`,
 			{ mode: 0o755 },
 		);
 		return {

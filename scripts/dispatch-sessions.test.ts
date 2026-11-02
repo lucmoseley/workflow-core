@@ -32,6 +32,7 @@ import {
 	SCRIPT,
 	writeCache,
 } from "./lib/dispatch-sessions-testkit";
+import { shellQuote } from "./lib/sh-quote.js";
 import { printedResets } from "./lib/usage-probe-fake";
 
 const fx = dispatchFixture();
@@ -245,7 +246,7 @@ describe("the WFC_CLAUDE_BIN seam (mantahostels#1374)", () => {
 		const shadowArgv = path.join(shadowDir, "argv");
 		fs.writeFileSync(
 			path.join(shadowDir, "claude"),
-			`#!/bin/bash\nprintf '%s\\n' "$*" >> "${shadowArgv}"\nprintf 'launched\\n'\n`,
+			`#!/bin/bash\nprintf '%s\\n' "$*" >> ${shellQuote(shadowArgv)}\nprintf 'launched\\n'\n`,
 			{ mode: 0o755 },
 		);
 		const r = spawnSync("bash", [SCRIPT, "sonnet", "/implement 341"], {

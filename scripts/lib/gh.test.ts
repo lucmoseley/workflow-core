@@ -20,6 +20,7 @@ import { caught } from "./caught.js";
 import { ghAnswer, ghFakeScript } from "./gh-fake";
 import { GH_FAILING_SCRIPT, stubGhScript } from "./gh-stub";
 import { runInProcess } from "./run-in-process";
+import { shellQuote } from "./sh-quote.js";
 
 const ISSUE_LIST = path.join(__dirname, "fixtures/gh/issue-list.json");
 const NOT_FOUND = path.join(__dirname, "fixtures/gh/not-found.json");
@@ -187,7 +188,7 @@ describe("JSON and pagination", () => {
 
 	it("ghApiSlurp passes --paginate --slurp to gh", async () => {
 		const { ghApiSlurp } = await load();
-		inject(`#!/bin/sh\necho "$*" > ${dir}/args\necho "[]"\n`);
+		inject(`#!/bin/sh\necho "$*" > ${shellQuote(dir)}/args\necho "[]"\n`);
 		ghApiSlurp(["repos/o/r/issues", "-f", "state=all"]);
 		expect(fs.readFileSync(path.join(dir, "args"), "utf8").trim()).toBe(
 			"api repos/o/r/issues -f state=all --paginate --slurp",
@@ -206,7 +207,7 @@ describe("JSON and pagination", () => {
 
 	it("ghApiSlurpAsync passes --paginate --slurp to gh", async () => {
 		const { ghApiSlurpAsync } = await load();
-		inject(`#!/bin/sh\necho "$*" > ${dir}/args\necho "[]"\n`);
+		inject(`#!/bin/sh\necho "$*" > ${shellQuote(dir)}/args\necho "[]"\n`);
 		await ghApiSlurpAsync(["repos/o/r/issues", "-f", "state=all"]);
 		expect(fs.readFileSync(path.join(dir, "args"), "utf8").trim()).toBe(
 			"api repos/o/r/issues -f state=all --paginate --slurp",
@@ -296,7 +297,7 @@ describe("the SKIP-on-unreachable rule", () => {
 describe("classifying why a gh call failed", () => {
 	const reasonOf = async (stderr: string) => {
 		const { gh, parseGhFailureReason } = await load();
-		inject(`#!/bin/sh\necho ${JSON.stringify(stderr)} >&2\nexit 1\n`);
+		inject(`#!/bin/sh\necho ${shellQuote(stderr)} >&2\nexit 1\n`);
 		try {
 			gh(["issue", "list"]);
 			return expect.unreachable("stub exits 1");
@@ -395,7 +396,7 @@ describe("a broken call exits loudly at 2", () => {
 	const runBroken = (stderr: string) => {
 		const stub = stubGhScript(
 			dir,
-			`#!/bin/sh\necho ${JSON.stringify(stderr)} >&2\nexit 1\n`,
+			`#!/bin/sh\necho ${shellQuote(stderr)} >&2\nexit 1\n`,
 		);
 		return runInline(
 			inCheck(
@@ -449,7 +450,7 @@ describe("the truncation ceiling", () => {
 
 	it("ghIssueListAll appends the ceiling to the caller's own args", async () => {
 		const { ghIssueListAll, ISSUE_LIST_LIMIT } = await load();
-		inject(`#!/bin/sh\necho "$*" > ${dir}/args\necho "[]"\n`);
+		inject(`#!/bin/sh\necho "$*" > ${shellQuote(dir)}/args\necho "[]"\n`);
 		ghIssueListAll("closed issues", ["--state", "closed", "--json", "number"]);
 		expect(fs.readFileSync(path.join(dir, "args"), "utf8").trim()).toBe(
 			`issue list --state closed --json number --limit ${ISSUE_LIST_LIMIT}`,
@@ -476,7 +477,9 @@ describe("the truncation ceiling", () => {
 describe("ghAllIssues", () => {
 	it("asks for closed issues too, 100 to a page", async () => {
 		const { ghAllIssues } = await load();
-		inject(`#!/bin/sh\necho "$*" > ${dir}/args\necho '[[{"number":1}]]'\n`);
+		inject(
+			`#!/bin/sh\necho "$*" > ${shellQuote(dir)}/args\necho '[[{"number":1}]]'\n`,
+		);
 		ghAllIssues();
 		const args = fs.readFileSync(path.join(dir, "args"), "utf8");
 		// state=all: a closed parent still has to resolve, or every child of one
@@ -504,11 +507,11 @@ describe("an empty open-issue read (#2565)", () => {
 		inject(
 			[
 				"#!/bin/sh",
-				`echo "$*" >> ${dir}/calls`,
+				`echo "$*" >> ${shellQuote(dir)}/calls`,
 				'case "$*" in',
 				'*"/issues "*)',
-				`  n=$(cat ${dir}/n 2>/dev/null || echo 0); expr $n + 1 > ${dir}/n`,
-				`  [ "$n" -gt ${last} ] && n=${last}; cat ${dir}/page$n ;;`,
+				`  n=$(cat ${shellQuote(dir)}/n 2>/dev/null || echo 0); expr $n + 1 > ${shellQuote(dir)}/n`,
+				`  [ "$n" -gt ${last} ] && n=${last}; cat ${shellQuote(dir)}/page$n ;;`,
 				`*) echo '{"open_issues_count":${count}}' ;;`,
 				"esac",
 				"",
@@ -594,7 +597,7 @@ describe("ghGetRetrying — the shared fan-out read (mantahostels#1145)", () => 
 		// Succeeds only on the second call, which is the transient 502 the retry
 		// exists for.
 		inject(
-			`#!/bin/sh\nn=$(cat ${dir}/n 2>/dev/null || echo 0)\nexpr $n + 1 > ${dir}/n\nif [ "$n" = "0" ]; then echo "gh: HTTP 502" >&2; exit 1; fi\necho '[[{"number":7}]]'\n`,
+			`#!/bin/sh\nn=$(cat ${shellQuote(dir)}/n 2>/dev/null || echo 0)\nexpr $n + 1 > ${shellQuote(dir)}/n\nif [ "$n" = "0" ]; then echo "gh: HTTP 502" >&2; exit 1; fi\necho '[[{"number":7}]]'\n`,
 		);
 		expect(await ghGetRetrying("repos/o/r/issues/1")).toEqual({
 			ok: true,

@@ -27,6 +27,7 @@ import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { registerTempCleanup } from "./lib/precommit-gate-harness";
 import { ROOT } from "./lib/precommit-gate-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const HOOK_REL = path.join(".husky", "pre-applypatch");
 const HOOK = fs.readFileSync(path.join(ROOT, HOOK_REL), "utf8");
@@ -121,7 +122,10 @@ const buildTemplate = (root: string) => {
 
 	const log = path.join(root, LOG);
 	for (const f of ["pre-commit", "prepare-commit-msg"])
-		fs.writeFileSync(path.join(husky, f), `echo "${f}" >> "${log}"\nexit 0\n`);
+		fs.writeFileSync(
+			path.join(husky, f),
+			`echo ${shellQuote(f)} >> ${shellQuote(log)}\nexit 0\n`,
+		);
 
 	fs.writeFileSync(path.join(root, "base.txt"), "base\n");
 	git("add", "--", "base.txt");

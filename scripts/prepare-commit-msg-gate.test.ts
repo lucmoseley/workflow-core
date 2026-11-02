@@ -28,6 +28,7 @@ import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { registerTempCleanup } from "./lib/precommit-gate-harness";
 import { ROOT } from "./lib/precommit-gate-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const HOOK_REL = path.join(".husky", "prepare-commit-msg");
 const HOOK = fs.readFileSync(path.join(ROOT, HOOK_REL), "utf8");
@@ -126,7 +127,7 @@ interface Probe {
  * case's `exits()` rewrite, so the two spellings cannot drift. */
 function precommitStub(log: string, code: number): string {
 	return (
-		`echo "pre-commit" >> "${log}"\n` +
+		`echo "pre-commit" >> ${shellQuote(log)}\n` +
 		(code === 0 ? `${parseStampBlock()}\nexit 0\n` : `exit ${code}\n`)
 	);
 }

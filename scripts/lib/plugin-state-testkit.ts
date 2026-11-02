@@ -13,6 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach } from "vitest";
+import { shellQuote } from "./sh-quote.js";
 
 export interface AdopterFixture {
 	/** the adopter repo root, whose `.claude/settings.json` carries the pin */
@@ -80,9 +81,9 @@ function gitCloneAt(
 			cwd: dir,
 		},
 	);
-	if (tag) execSync(`git tag ${tag}`, { cwd: dir });
+	if (tag) execSync(`git tag ${shellQuote(tag)}`, { cwd: dir });
 	if (branch && branch !== "main")
-		execSync(`git checkout -q -b ${branch}`, { cwd: dir });
+		execSync(`git checkout -q -b ${shellQuote(branch)}`, { cwd: dir });
 }
 
 /**

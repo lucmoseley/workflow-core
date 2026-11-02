@@ -24,6 +24,7 @@ import { defineTemplate, mkScratchDir, trioTemplate } from "./git-fixture";
 import { runCore } from "./guard-core-testkit";
 import { denyFires } from "./guard-fires-testkit";
 import { buildBashPayload } from "./pretool-guard-testkit";
+import { shellQuote } from "./sh-quote.js";
 
 // biome-ignore lint/suspicious/noExplicitAny: untyped CommonJS helpers
 const { readRuleText } = require("./rule-text") as any;
@@ -111,7 +112,7 @@ describe("a merge of a Dependabot pull request is denied with the Dependabot rul
 	const ghAnswering = (verdict: string) =>
 		stubGhScript(
 			dir,
-			`#!/bin/sh\necho "$PWD: $*" >> ${dir}/gh-calls\n${verdict}\n`,
+			`#!/bin/sh\necho "$PWD: $*" >> ${shellQuote(dir)}/gh-calls\n${verdict}\n`,
 		).env;
 	const readCalls = () =>
 		fs.existsSync(`${dir}/gh-calls`)
@@ -453,7 +454,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
 	const ghAnswering = (verdict: string) =>
 		stubGhScript(
 			dir,
-			`#!/bin/sh\necho "$PWD: $*" >> ${dir}/gh-calls\n${verdict}\n`,
+			`#!/bin/sh\necho "$PWD: $*" >> ${shellQuote(dir)}/gh-calls\n${verdict}\n`,
 		).env;
 	const readCalls = () =>
 		fs.existsSync(`${dir}/gh-calls`)
@@ -512,7 +513,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
 		/* printf, not echo: dash's echo would fold the jq's doubled backslashes. */
 		const { env } = stubGhScript(
 			dir,
-			`#!/bin/sh\nprintf '%s\\n' "$*" > ${dir}/gh-calls\necho true\n`,
+			`#!/bin/sh\nprintf '%s\\n' "$*" > ${shellQuote(dir)}/gh-calls\necho true\n`,
 		);
 		denial("gh pr merge 12", shared, env);
 		expect(readCalls()).toBe(

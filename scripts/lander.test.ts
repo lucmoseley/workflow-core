@@ -15,6 +15,7 @@ import { stubGhScript } from "./lib/gh-stub.js";
 import { remoteGit } from "./lib/lander.js";
 import { isDead, waitFor } from "./lib/process-fixture.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const LANDER = path.resolve(__dirname, "../scripts/lander.js");
 
@@ -51,7 +52,7 @@ const stubTester = (code: number, failing = "") => {
 	const script = path.join(tmp, "tester.sh");
 	fs.writeFileSync(
 		script,
-		`#!/bin/sh\ncp "${markers()}/.lander-heartbeat.json" "${tmp}/heartbeat-seen.json"\nprintf '%s' '${failing}'\nexit ${code}\n`,
+		`#!/bin/sh\ncp ${shellQuote(`${markers()}/.lander-heartbeat.json`)} ${shellQuote(`${tmp}/heartbeat-seen.json`)}\nprintf '%s' ${shellQuote(failing)}\nexit ${code}\n`,
 	);
 	fs.chmodSync(script, 0o755);
 	return script;
@@ -62,7 +63,7 @@ const stubRedWhile = (name: string, alongside?: string) => {
 	const script = path.join(tmp, "tester.sh");
 	fs.writeFileSync(
 		script,
-		`#!/bin/sh\nif git cat-file -e "$1:${name}.txt" 2>/dev/null${alongside ? ` && git cat-file -e "$1:${alongside}.txt" 2>/dev/null` : ""}; then echo scripts/${name}.test.ts; exit 1; fi\nexit 0\n`,
+		`#!/bin/sh\nif git cat-file -e "$1:"${shellQuote(`${name}.txt`)} 2>/dev/null${alongside ? ` && git cat-file -e "$1:"${shellQuote(`${alongside}.txt`)} 2>/dev/null` : ""}; then echo ${shellQuote(`scripts/${name}.test.ts`)}; exit 1; fi\nexit 0\n`,
 	);
 	fs.chmodSync(script, 0o755);
 	return script;
@@ -130,7 +131,7 @@ it("lands the green first of three commits, reverts the red middle one on landin
 case "$*" in
   *"issue list"*) echo '[]' ;;
   *labels*) echo '[[{"name":"takes:implement"},{"name":"kind:ticket"}]]' ;;
-  *"issue create"*) cat > "${created}"; echo https://github.com/o/here/issues/7 ;;
+  *"issue create"*) cat > ${shellQuote(created)}; echo https://github.com/o/here/issues/7 ;;
   *) echo '[]' ;;
 esac
 `,
@@ -429,7 +430,7 @@ it("fails a revert whose commit is killed at its timeout as timed out, not refus
 it("kills the hook's child with a commit killed at its timeout, keeps the reason and takes the worktree off (#3916)", () => {
 	const pidFile = path.join(tmp, "child-pid");
 	const culprit = culpritWithCommitHook(
-		`(while :; do touch still-writing; sleep 0.1; done) >/dev/null 2>&1 &\necho $! > '${pidFile}'\necho 'second gate running' >&2\nwait`,
+		`(while :; do touch still-writing; sleep 0.1; done) >/dev/null 2>&1 &\necho $! > ${shellQuote(pidFile)}\necho 'second gate running' >&2\nwait`,
 	);
 
 	/* Crosses the real clock: what is pinned is a real kill of a real process
@@ -449,7 +450,7 @@ it("lets a hook's trap clean up when its commit is killed at its timeout (#3923)
 	const marker = path.join(tmp, "gate-temp");
 	fs.writeFileSync(marker, "");
 	const culprit = culpritWithCommitHook(
-		`trap 'rm -f "${marker}"' EXIT\ntrap 'exit 143' TERM\nsleep 60`,
+		`trap ${shellQuote(`rm -f ${shellQuote(marker)}`)} EXIT\ntrap 'exit 143' TERM\nsleep 60`,
 	);
 
 	/* Crosses the real clock: what is pinned is a real signal to a real hook.
@@ -462,7 +463,7 @@ it("lets a hook's trap clean up when its commit is killed at its timeout (#3923)
 it("keeps the failure's reason and says so where the revert's worktree will not come off (#3913)", () => {
 	const named = path.join(tmp, "worktree-path");
 	const culprit = culpritWithCommitHook(
-		`git rev-parse --show-toplevel > '${named}'\ngit worktree lock "$(cat '${named}')"\necho 'FAIL: 1 fault(s) this commit adds' >&2\nexit 1`,
+		`git rev-parse --show-toplevel > ${shellQuote(named)}\ngit worktree lock "$(cat ${shellQuote(named)})"\necho 'FAIL: 1 fault(s) this commit adds' >&2\nexit 1`,
 	);
 	const writeSync = fs.writeSync;
 	let printed = "";

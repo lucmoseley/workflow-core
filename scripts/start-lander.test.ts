@@ -17,6 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const START = path.resolve(__dirname, "../scripts/start-lander.js");
 /* A guess: a lander run here takes well under a second. */
@@ -52,7 +53,7 @@ const gatedTester = (release: string) => {
 	const script = path.join(tmp, "tester.sh");
 	fs.writeFileSync(
 		script,
-		`#!/bin/sh\nwhile [ ! -e "${release}" ]; do sleep 0.05; done\nexit 0\n`,
+		`#!/bin/sh\nwhile [ ! -e ${shellQuote(release)} ]; do sleep 0.05; done\nexit 0\n`,
 	);
 	fs.chmodSync(script, 0o755);
 	return script;

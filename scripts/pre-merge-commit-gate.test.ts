@@ -25,6 +25,7 @@ import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { registerTempCleanup } from "./lib/precommit-gate-harness";
 import { ROOT } from "./lib/precommit-gate-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const HOOK_REL = path.join(".husky", "pre-merge-commit");
 const HOOK = fs.readFileSync(path.join(ROOT, HOOK_REL), "utf8");
@@ -76,7 +77,7 @@ interface Probe {
 }
 
 const buildStubText = (name: string, logFile: string, code: number) =>
-	`echo "${name}" >> "${logFile}"\nexit ${code}\n`;
+	`echo ${shellQuote(name)} >> ${shellQuote(logFile)}\nexit ${code}\n`;
 
 /*
  * THE FIXTURE IS BUILT ONCE AND COPIED (mantahostels#2068), via scripts/lib/git-fixture.ts:
@@ -245,8 +246,8 @@ describe(".husky/pre-merge-commit", () => {
 		const p = probe();
 		fs.writeFileSync(
 			path.join(p.root, ".husky", "pre-commit"),
-			`git diff --cached --name-only > "${path.join(p.root, "staged.txt")}"\n` +
-				`git ls-files > "${path.join(p.root, "tracked.txt")}"\n`,
+			`git diff --cached --name-only > ${shellQuote(path.join(p.root, "staged.txt"))}\n` +
+				`git ls-files > ${shellQuote(path.join(p.root, "tracked.txt"))}\n`,
 		);
 		sideBranch(p, "side", {
 			"a.txt": "a\n",

@@ -16,6 +16,7 @@ import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { mkScratchDir } from "./lib/git-fixture";
 import { buildBashPayload, spawnGuard } from "./lib/pretool-guard-testkit";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const HOOK = path.resolve(__dirname, "start-lander-on-push.js");
 /* Guesses, each far above the hook's sub-second run: the hook's own ceiling,
@@ -85,7 +86,7 @@ beforeEach(() => {
 	);
 	fs.writeFileSync(
 		path.join(stubs, "node"),
-		`#!/bin/sh\ncase "$1" in\n  */start-lander.js)\n    i=0\n    while [ ! -e "${gate}" ] && [ -d "${dir}" ] && [ $i -lt ${STUB_POLLS} ]; do sleep ${STUB_POLL_S}; i=$((i+1)); done\n    [ -e "${gate}" ] && echo "$*" >> "${launches}" ;;\n  *) exec "${process.execPath}" "$@" ;;\nesac\n`,
+		`#!/bin/sh\ncase "$1" in\n  */start-lander.js)\n    i=0\n    while [ ! -e ${shellQuote(gate)} ] && [ -d ${shellQuote(dir)} ] && [ $i -lt ${STUB_POLLS} ]; do sleep ${STUB_POLL_S}; i=$((i+1)); done\n    [ -e ${shellQuote(gate)} ] && echo "$*" >> ${shellQuote(launches)} ;;\n  *) exec ${shellQuote(process.execPath)} "$@" ;;\nesac\n`,
 	);
 	fs.chmodSync(path.join(stubs, "node"), 0o755);
 });

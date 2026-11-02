@@ -9,6 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { shellQuote } from "./sh-quote.js";
 
 const LIB_SH = path.join(__dirname, "subagent-payload.sh");
 const { isSubagentPayload } =
@@ -21,7 +22,7 @@ const shellSays = (payload: string) =>
 		"/bin/bash",
 		[
 			"-c",
-			`source ${JSON.stringify(LIB_SH)}; is_subagent_payload "$1"`,
+			`source ${shellQuote(LIB_SH)}; is_subagent_payload "$1"`,
 			"_",
 			payload,
 		],

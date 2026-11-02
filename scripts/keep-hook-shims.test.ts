@@ -11,6 +11,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const { runInProcess } = require("./lib/run-in-process.js");
 
@@ -59,7 +60,7 @@ const write = (rel: string, text: string) => {
 function keep(startedAt: number, cwd = repo, ...args: string[]) {
 	fs.writeFileSync(
 		bin,
-		`#!/bin/sh\necho '[{"sessionId":"s1","startedAt":${startedAt * 1000}}]'\n`,
+		`#!/bin/sh\necho ${shellQuote(`[{"sessionId":"s1","startedAt":${startedAt * 1000}}]`)}\n`,
 	);
 	fs.chmodSync(bin, 0o755);
 	return runInProcess(ENTRY, args, {

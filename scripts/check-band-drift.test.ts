@@ -35,6 +35,7 @@ import {
 } from "./lib/band-drift-fixture";
 import { stubGhScript } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "check-band-drift.js");
 const { TITLE, TOP_TITLE, LABEL } = require("./check-band-drift.js");
@@ -92,9 +93,9 @@ function stubGh(open: { number: number; title: string }[] = []) {
 	);
 	const script = [
 		"#!/bin/sh",
-		`printf '%s\\n' "$*" >> ${JSON.stringify(log)}`,
+		`printf '%s\\n' "$*" >> ${shellQuote(log)}`,
 		'if [ "$1" = "issue" ] && [ "$2" = "list" ]; then',
-		`  cat ${JSON.stringify(path.join(sandbox, "issues.json"))}`,
+		`  cat ${shellQuote(path.join(sandbox, "issues.json"))}`,
 		'elif [ "$1" = "issue" ] && [ "$2" = "view" ]; then',
 		"  echo 'an older body'",
 		'elif [ "$1" = "issue" ] && [ "$2" = "create" ]; then',

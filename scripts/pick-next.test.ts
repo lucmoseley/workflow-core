@@ -61,6 +61,7 @@ const { issuesIn, commandOf } = require("./lib/dispatch-ledger.js");
 const { RETRO_BUNDLE_MODEL } = require("./lib/retro-bundles.js");
 
 import type { RetroLaunch } from "./lib/retro-bundles.js";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.resolve(__dirname, "pick-next.js");
 
@@ -404,7 +405,7 @@ const stubOracle = () => {
 		bin,
 		oracleFails
 			? '#!/bin/sh\necho "claude: no daemon" >&2\nexit 1\n'
-			: `#!/bin/sh\ncat ${JSON.stringify(path.join(dir, "agents.json"))}\n`,
+			: `#!/bin/sh\ncat ${shellQuote(path.join(dir, "agents.json"))}\n`,
 		{ mode: 0o755 },
 	);
 	fs.writeFileSync(

@@ -28,6 +28,7 @@ import {
 	writeSubIssues,
 } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.resolve(__dirname, "retire-stale-containers.js");
 
@@ -95,17 +96,17 @@ const stubGh = (
 	const script = `#!/bin/sh
 case "$1 $2" in
   "issue edit")
-    echo "$@" >> ${editLog}
+    echo "$@" >> ${shellQuote(editLog)}
     ${editFails ? "exit 1" : "exit 0"}
     ;;
   "issue view")
-    cat ${viewFixture}
+    cat ${shellQuote(viewFixture)}
     ;;
   *)
     case "$2" in
 ${subIssuesArm(dir)}
       *)
-        cat ${fixture}
+        cat ${shellQuote(fixture)}
         ;;
     esac
     ;;
@@ -234,7 +235,7 @@ describe("retire-stale-containers", () => {
 			stub.gh,
 			fs
 				.readFileSync(stub.gh, "utf8")
-				.replace("case ", `echo "$@" >> ${argLog}\ncase `),
+				.replace("case ", `echo "$@" >> ${shellQuote(argLog)}\ncase `),
 			{ mode: 0o755 },
 		);
 		run([], stub);
@@ -488,7 +489,7 @@ describe("retire-stale-containers", () => {
 				stub.gh,
 				fs
 					.readFileSync(stub.gh, "utf8")
-					.replace("case ", `echo "$@" >> ${argLog}\ncase `),
+					.replace("case ", `echo "$@" >> ${shellQuote(argLog)}\ncase `),
 				{ mode: 0o755 },
 			);
 			run([], stub);

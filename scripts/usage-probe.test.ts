@@ -13,6 +13,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildAuthStatusBranch } from "./lib/auth-status-fake";
 import { runInProcessAsync } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 import { buildUsageBranch, buildUsageCache } from "./lib/usage-probe-fake";
 
 const SCRIPT = path.resolve(__dirname, "usage-probe.js");
@@ -31,7 +32,7 @@ beforeEach(() => {
 		[
 			"#!/bin/bash",
 			buildAuthStatusBranch(),
-			`printf '%s %s\\n' "$CLAUDE_CONFIG_DIR" "$*" >> "${argv}"`,
+			`printf '%s %s\\n' "$CLAUDE_CONFIG_DIR" "$*" >> ${shellQuote(argv)}`,
 			buildUsageBranch({ session: 12, week: 3 }),
 		].join("\n"),
 		{ mode: 0o755 },

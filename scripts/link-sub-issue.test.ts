@@ -27,6 +27,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.resolve(__dirname, "link-sub-issue.sh");
 
@@ -53,27 +54,27 @@ const stubGh = (g: Gh) => {
 	const bin = path.join(dir, "bin");
 	fs.mkdirSync(bin, { recursive: true });
 	const script = `#!/usr/bin/env bash
-printf '%s\\n' "$*" >> "${calls}"
+printf '%s\\n' "$*" >> ${shellQuote(calls)}
 args="$*"
 case "$args" in
   *"--method POST"*)
-    case "${g.post ?? "ok"}" in
+    case ${shellQuote(g.post ?? "ok")} in
       ok) echo '{"number":1}'; exit 0 ;;
       dup) echo 'gh: Sub issue may only have one parent (HTTP 422)' >&2; exit 1 ;;
       layers) echo "gh: You can't add more than 7 layers of sub-issues (HTTP 422)" >&2; exit 1 ;;
       err) echo 'gh: Bad credentials (HTTP 401)' >&2; exit 1 ;;
     esac ;;
   *"/sub_issues"*)
-    n=0; [[ -f "${counter}" ]] && n="$(cat "${counter}")"
-    printf '%s' "$((n + 1))" > "${counter}"
+    n=0; [[ -f ${shellQuote(counter)} ]] && n="$(cat ${shellQuote(counter)})"
+    printf '%s' "$((n + 1))" > ${shellQuote(counter)}
     (( n < ${g.lag ?? 0} )) && exit 0
-    ${(g.children ?? []).map((c) => `echo ${c}`).join("; ") || "true"}
+    ${(g.children ?? []).map((c) => `echo ${shellQuote(c)}`).join("; ") || "true"}
     exit 0 ;;
   *"--jq .state"*)
-    printf '%s\\n' '${g.state ?? "open"}'
+    printf '%s\\n' ${shellQuote(g.state ?? "open")}
     exit 0 ;;
   *"--jq"*)
-    ${g.idFails ? "echo 'gh: network is unreachable' >&2; exit 1" : `printf '%s\\n' '${g.dbId ?? "987654"}'`}
+    ${g.idFails ? "echo 'gh: network is unreachable' >&2; exit 1" : `printf '%s\\n' ${shellQuote(g.dbId ?? "987654")}`}
     exit 0 ;;
 esac
 exit 0

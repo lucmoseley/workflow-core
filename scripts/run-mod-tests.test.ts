@@ -16,6 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "run-mod-tests.js");
 const HOOK = path.join(__dirname, "..", ".husky", "pre-push");
@@ -69,8 +70,8 @@ function stubClaude(version = "2.1.294 (Claude Code)") {
 		bin,
 		[
 			"#!/bin/sh",
-			`if [ "$1" = --version ]; then echo "${version}"; exit 0; fi`,
-			`echo "$3" >> "${log}"`,
+			`if [ "$1" = --version ]; then echo ${shellQuote(version)}; exit 0; fi`,
+			`echo "$3" >> ${shellQuote(log)}`,
 			`if [ -f "$3/UNUSABLE" ]; then echo "error: unknown command 'test'" >&2; exit 1; fi`,
 			`if [ -f "$3/FAIL" ]; then printf '(fail) a broken test\\n\\n 0 pass\\n 1 fail\\n'; exit 1; fi`,
 			`printf ' 8 pass\\n 0 fail\\n'`,

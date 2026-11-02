@@ -35,6 +35,7 @@ import {
 	writeSidecar,
 } from "./lib/doc-map-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const REPO = path.resolve(__dirname, "..");
 const SCRIPT = path.join(REPO, "scripts", "generate-doc-map-section-a.js");
@@ -65,7 +66,7 @@ let releaseStub: string;
 const writeStub = (file: string, log: string, code = 0) => {
 	fs.writeFileSync(
 		file,
-		`#!/usr/bin/env bash\necho "$@" >> "${log}"\nexit ${code}\n`,
+		`#!/usr/bin/env bash\necho "$@" >> ${shellQuote(log)}\nexit ${code}\n`,
 	);
 	fs.chmodSync(file, 0o755);
 };

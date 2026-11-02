@@ -35,6 +35,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 import { copyLibs, readProgramLibs } from "./lib-closure-fixture";
 
 const hookBlock = createRequire(__filename)("./lib/hook-block.js");
@@ -542,7 +543,7 @@ describe.skipIf(!HAS_GITLEAKS)("the redaction sweep", () => {
 		const recorder = path.join(dir, "gitleaks-recorder");
 		fs.writeFileSync(
 			recorder,
-			`#!/bin/sh\nprintf '%s\\n' "$@" > ${seen}\ncat > ${stdinSeen}\nexit 0\n`,
+			`#!/bin/sh\nprintf '%s\\n' "$@" > ${shellQuote(seen)}\ncat > ${shellQuote(stdinSeen)}\nexit 0\n`,
 			{ mode: 0o755 },
 		);
 		await ask(PLAIN, 0.2, { WFC_GITLEAKS: recorder });

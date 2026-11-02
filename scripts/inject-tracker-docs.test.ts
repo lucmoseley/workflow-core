@@ -27,6 +27,7 @@ import { initGitRepo } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { registrationsOf } from "./lib/hook-wiring";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 import { readShellConst } from "./lib/shell-const-testkit";
 
 const ROOT = path.resolve(__dirname, "..");
@@ -1390,7 +1391,7 @@ describe("the SessionStart/UserPromptSubmit double-fire (mantahostels#1117)", ()
 			const bin = fs.mkdtempSync(path.join(SCRATCH, "badjq-"));
 			fs.writeFileSync(
 				path.join(bin, "jq"),
-				`#!/bin/sh\nfor a in "$@"; do [ "$a" = "-nc" ] && exit 1; done\nexec ${realJq} "$@"\n`,
+				`#!/bin/sh\nfor a in "$@"; do [ "$a" = "-nc" ] && exit 1; done\nexec ${shellQuote(realJq)} "$@"\n`,
 				{ mode: 0o755 },
 			);
 			const s = "jq-failed";
@@ -1739,7 +1740,7 @@ describe("a command typed on an issue labelled for another (#1164)", () => {
 	const label = path.join(dir, "label");
 	const stub = stubGhScript(
 		dir,
-		`#!/bin/sh\necho "$@" >> ${log}\ncat ${label}\n`,
+		`#!/bin/sh\necho "$@" >> ${shellQuote(log)}\ncat ${shellQuote(label)}\n`,
 	);
 	beforeEach(() => fs.rmSync(log, { force: true }));
 	const readCalls = () =>

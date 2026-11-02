@@ -58,6 +58,7 @@ import {
 	WIDE_MISSING,
 	waitFor,
 } from "./lib/bg-run-testkit";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const { waitForGate } = require("./lib/suite-queue.js");
 
@@ -80,7 +81,7 @@ describe("a run that finishes", () => {
 	it("ends a command that returns as soon as the toucher holds the wrapper's TERM trap (#2675)", () => {
 		const armed = join(root, "armed");
 		const ran = run(
-			["run", "instant", "sh", "-c", shWaitFor(`[ -e '${armed}' ]`)],
+			["run", "instant", "sh", "-c", shWaitFor(`[ -e ${shellQuote(armed)} ]`)],
 			{ WFC_BG_TOUCHER_KEEPS_TRAP: armed },
 		);
 		expect(ran.error).toBeUndefined();
@@ -458,7 +459,7 @@ describe("a relaunch whose old directory is written mid-delete (#1355)", () => {
 			`#!/usr/bin/env bash
 marked=()
 for a in "$@"; do [ -f "$a/token" ] && marked+=("$a"); done
-"${realRm}" "$@"
+${shellQuote(realRm)} "$@"
 for a in "\${marked[@]}"; do mkdir -p "$a/.kill-recorded"; done
 [ "\${#marked[@]}" -eq 0 ]
 `,

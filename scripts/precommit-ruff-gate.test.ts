@@ -41,6 +41,7 @@ import {
 	readStubCalls,
 	writeRuffStub,
 } from "./lib/ruff-testkit";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const temps = registerTempCleanup();
 
@@ -77,7 +78,7 @@ const NEEDED = ["sh", "node", ...LIB_COMMANDS];
  */
 function linkNeeded(bin: string): void {
 	for (const cmd of NEEDED) {
-		const abs = execFileSync("sh", ["-c", `command -v ${cmd}`], {
+		const abs = execFileSync("sh", ["-c", `command -v ${shellQuote(cmd)}`], {
 			encoding: "utf8",
 		}).trim();
 		fs.symlinkSync(abs, path.join(bin, cmd));

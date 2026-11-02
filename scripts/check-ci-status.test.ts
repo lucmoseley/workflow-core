@@ -30,6 +30,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox } from "./lib/arbiter-testkit";
 import { GH_FAILING_SCRIPT, stubGhScript } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "check-ci-status.js");
 
@@ -157,14 +158,14 @@ beforeEach(() => {
 	process.env.WFC_GH = stubGhScript(
 		sb.dir,
 		"#!/bin/sh\n" +
-			`echo "$@" >> ${ghArgsFile}\n` +
-			`[ "$1" = "issue" ] && { echo "$@" >> ${issueArgsFile}; exec cat ${issuesFile}; }\n` +
+			`echo "$@" >> ${shellQuote(ghArgsFile)}\n` +
+			`[ "$1" = "issue" ] && { echo "$@" >> ${shellQuote(issueArgsFile)}; exec cat ${shellQuote(issuesFile)}; }\n` +
 			'for a in "$@"; do\n' +
-			`  [ "$a" = "view" ] && exec cat ${jobsFile}\n` +
-			`  [ "$a" = "workflow" ] && exec cat ${workflowsFile}\n` +
-			`  [ "$a" = "--workflow" ] && exec cat ${sweepsFile}\n` +
+			`  [ "$a" = "view" ] && exec cat ${shellQuote(jobsFile)}\n` +
+			`  [ "$a" = "workflow" ] && exec cat ${shellQuote(workflowsFile)}\n` +
+			`  [ "$a" = "--workflow" ] && exec cat ${shellQuote(sweepsFile)}\n` +
 			"done\n" +
-			`exec cat ${runsFile}\n`,
+			`exec cat ${shellQuote(runsFile)}\n`,
 	).gh;
 });
 
@@ -1864,7 +1865,7 @@ describe("a workflow GitHub has disabled outright (mantahostels#1024)", () => {
 		const argvFile = path.join(sb.dir, "argv.txt");
 		process.env.WFC_GH = stubGhScript(
 			sb.dir,
-			`#!/bin/sh\necho "$@" >> ${argvFile}\nfor a in "$@"; do\n  [ "$a" = "workflow" ] && exec echo '[]'\n  [ "$a" = "--workflow" ] && exec echo '[]'\ndone\nexec cat ${runsFile}\n`,
+			`#!/bin/sh\necho "$@" >> ${shellQuote(argvFile)}\nfor a in "$@"; do\n  [ "$a" = "workflow" ] && exec echo '[]'\n  [ "$a" = "--workflow" ] && exec echo '[]'\ndone\nexec cat ${shellQuote(runsFile)}\n`,
 		).gh;
 
 		check([], at(SWEEP_NOW));
@@ -2479,10 +2480,10 @@ describe("a stale verdict fires its own sweep (mantahostels#1816)", () => {
 				"  *'workflow run'*) echo 'HTTP 403' >&2; exit 1 ;;\n" +
 				"esac\n" +
 				'for a in "$@"; do\n' +
-				`  [ "$a" = "workflow" ] && exec cat ${workflowsFile}\n` +
-				`  [ "$a" = "--workflow" ] && exec cat ${sweepsFile}\n` +
+				`  [ "$a" = "workflow" ] && exec cat ${shellQuote(workflowsFile)}\n` +
+				`  [ "$a" = "--workflow" ] && exec cat ${shellQuote(sweepsFile)}\n` +
 				"done\n" +
-				`exec cat ${runsFile}\n`,
+				`exec cat ${shellQuote(runsFile)}\n`,
 		).gh;
 
 		const r = check(["--notify"], at(SWEEP_NOW));
@@ -2597,12 +2598,12 @@ describe("aggregate gh() latency under --notify is budgeted (mantahostels#2177)"
 			sb.dir,
 			"#!/bin/sh\n" +
 				'for a in "$@"; do\n' +
-				`  [ "$a" = "view" ] && exec cat ${jobsFile}\n` +
-				`  [ "$a" = "workflow" ] && exec cat ${workflowsFile}\n` +
-				`  [ "$a" = "--workflow" ] && exec cat ${sweepsFile}\n` +
+				`  [ "$a" = "view" ] && exec cat ${shellQuote(jobsFile)}\n` +
+				`  [ "$a" = "workflow" ] && exec cat ${shellQuote(workflowsFile)}\n` +
+				`  [ "$a" = "--workflow" ] && exec cat ${shellQuote(sweepsFile)}\n` +
 				"done\n" +
 				"sleep 0.5\n" +
-				`exec cat ${runsFile}\n`,
+				`exec cat ${shellQuote(runsFile)}\n`,
 		).gh;
 
 		const r = check(["--notify"], {
@@ -2625,12 +2626,12 @@ describe("aggregate gh() latency under --notify is budgeted (mantahostels#2177)"
 			sb.dir,
 			"#!/bin/sh\n" +
 				'for a in "$@"; do\n' +
-				`  [ "$a" = "view" ] && exec cat ${jobsFile}\n` +
-				`  [ "$a" = "workflow" ] && exec cat ${workflowsFile}\n` +
-				`  [ "$a" = "--workflow" ] && exec cat ${sweepsFile}\n` +
+				`  [ "$a" = "view" ] && exec cat ${shellQuote(jobsFile)}\n` +
+				`  [ "$a" = "workflow" ] && exec cat ${shellQuote(workflowsFile)}\n` +
+				`  [ "$a" = "--workflow" ] && exec cat ${shellQuote(sweepsFile)}\n` +
 				"done\n" +
 				"sleep 0.5\n" +
-				`exec cat ${runsFile}\n`,
+				`exec cat ${shellQuote(runsFile)}\n`,
 		).gh;
 
 		const r = check([], {

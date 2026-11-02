@@ -21,6 +21,7 @@ import {
 	REFUSED_AUTH,
 	writeSeatHelper,
 } from "./auth-status-fake";
+import { shellQuote } from "./sh-quote.js";
 import { probeUsage } from "./usage-probe.js";
 import { buildUsageBranch } from "./usage-probe-fake";
 
@@ -37,7 +38,7 @@ beforeEach(() => {
 			buildAuthStatusBranch(),
 			buildUsageBranch({ session: 12, week: 3 }),
 			"sleep 30",
-			`echo ended > "${path.join(dir, "ended")}"`,
+			`echo ended > ${shellQuote(path.join(dir, "ended"))}`,
 		].join("\n"),
 		{ mode: 0o755 },
 	);
@@ -102,7 +103,7 @@ describe("the probe's auth (#2236)", () => {
 			[
 				"#!/bin/bash",
 				buildAuthStatusBranch(),
-				`touch "${path.join(dir, "launched")}"`,
+				`touch ${shellQuote(path.join(dir, "launched"))}`,
 				buildUsageBranch({ session: 12, week: 3 }),
 			].join("\n"),
 			{ mode: 0o755 },

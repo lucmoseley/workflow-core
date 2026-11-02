@@ -21,6 +21,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "report-cost-per-unit.js");
 const SERIES_LABEL = "docs/data/cost-per-unit.jsonl";
@@ -109,9 +110,9 @@ const run = (
 		stub,
 		[
 			"#!/bin/sh",
-			`printf '%s\\n' "$*" >> '${log}'`,
+			`printf '%s\\n' "$*" >> ${shellQuote(log)}`,
 			`d=$(printf '%s\\n' "$@" | sed -n 's/^closed://p')`,
-			`f='${served}'/"$d.json"; [ -f "$f" ] || f='${served}/default.json'`,
+			`f=${shellQuote(served)}/"$d.json"; [ -f "$f" ] || f=${shellQuote(`${served}/default.json`)}`,
 			'cat "$f"',
 			"",
 		].join("\n"),

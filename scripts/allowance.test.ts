@@ -18,6 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 import {
 	type Bars,
 	buildUsageCache,
@@ -151,9 +152,13 @@ describe("--cap (#371)", () => {
 	 * within an hour. */
 	const capEnv = (listing: string) => {
 		const bin = path.join(dir, "claude");
-		fs.writeFileSync(bin, `#!/bin/bash\nprintf '%s\\n' '${listing}'\n`, {
-			mode: 0o755,
-		});
+		fs.writeFileSync(
+			bin,
+			`#!/bin/bash\nprintf '%s\\n' ${shellQuote(listing)}\n`,
+			{
+				mode: 0o755,
+			},
+		);
 		const table = path.join(dir, "table.json");
 		fs.writeFileSync(
 			table,

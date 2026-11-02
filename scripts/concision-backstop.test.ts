@@ -30,6 +30,7 @@ import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { installLib } from "./lib/lib-install-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const BACKSTOP = path.resolve(__dirname, "concision-backstop.sh");
 const ARBITER = path.resolve(__dirname, "session-arbiter.js");
@@ -1195,7 +1196,10 @@ describe("the Husky hooks are code — mantahostels#2779", () => {
 	/** 31 lines and 182 words: past CODE_THRESHOLD and past THRESHOLD alike. */
 	const hookBody = [
 		"#!/usr/bin/env sh",
-		...Array.from({ length: 30 }, (_, i) => `echo "gate ${i} of the stack"`),
+		...Array.from(
+			{ length: 30 },
+			(_, i) => `echo ${shellQuote(`gate ${i} of the stack`)}`,
+		),
 	].join("\n");
 
 	const wroteHook = (name: string) => {

@@ -18,6 +18,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const REAL_SCRIPT = path.resolve(__dirname, "launch.sh");
 
@@ -43,7 +44,7 @@ afterEach(() => {
 const stubDispatch = (): void => {
 	const script = [
 		"#!/bin/bash",
-		`printf '%s\\n' "$*" >> "${path.join(dir, "argv")}"`,
+		`printf '%s\\n' "$*" >> ${shellQuote(path.join(dir, "argv"))}`,
 		"exit 0",
 	].join("\n");
 	const file = path.join(dir, "dispatch-sessions.sh");

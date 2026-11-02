@@ -27,6 +27,7 @@ import {
 	ghClosedList,
 	store,
 } from "./lib/arbiter-testkit";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "sweep-debts-detached.sh");
 const REL = "docs/doc-map.md";
@@ -195,7 +196,7 @@ describe("the SessionStart debt drain", () => {
 		const log = path.join(bin, "reached.log");
 		fs.writeFileSync(
 			path.join(bin, "node"),
-			`#!/bin/sh\necho "$@" sid=$(ps -o sid= -p $$ | tr -d ' ') >> ${log}\n`,
+			`#!/bin/sh\necho "$@" sid=$(ps -o sid= -p $$ | tr -d ' ') >> ${shellQuote(log)}\n`,
 			{
 				mode: 0o755,
 			},

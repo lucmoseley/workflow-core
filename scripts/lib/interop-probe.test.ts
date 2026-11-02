@@ -13,13 +13,17 @@
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { shellQuote } from "./sh-quote.js";
 
 const LIB = path.resolve(__dirname, "interop-probe.sh");
 
 const exported = (override: string) =>
 	spawnSync(
 		"bash",
-		["-c", `source "${LIB}" && printf '%s' "$CLAUDE_INTEROP_PROBE_TIMEOUT"`],
+		[
+			"-c",
+			`source ${shellQuote(LIB)} && printf '%s' "$CLAUDE_INTEROP_PROBE_TIMEOUT"`,
+		],
 		{
 			encoding: "utf8",
 			env: { ...process.env, CLAUDE_INTEROP_PROBE_TIMEOUT: override },

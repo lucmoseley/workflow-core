@@ -12,6 +12,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { HOOKS, renderHookShim } from "./lib/adopter-skeleton";
 import { newRepo, registerTempCleanup } from "./lib/precommit-gate-harness";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const temps = registerTempCleanup();
 const ROOT = path.join(__dirname, "..");
@@ -29,8 +30,8 @@ function fakeCore(dir: string, version: string, log: string) {
 	for (const hook of HOOKS)
 		fs.writeFileSync(
 			path.join(dir, ".husky", hook),
-			`printf '%s %s\\n' ${hook} "$WFC_PLUGIN_ROOT" >> '${log}'\n${
-				hook === "pre-push" ? `cat >> '${log}'\n` : ""
+			`printf '%s %s\\n' ${shellQuote(hook)} "$WFC_PLUGIN_ROOT" >> ${shellQuote(log)}\n${
+				hook === "pre-push" ? `cat >> ${shellQuote(log)}\n` : ""
 			}`,
 		);
 	return dir;
@@ -54,9 +55,9 @@ function rootCore(dir: string, log: string) {
 	for (const hook of HOOKS) {
 		fs.writeFileSync(
 			path.join(dir, ".husky", hook),
-			`${HOOK_ROOT_LINE}\nprintf '%s %s\\n' ${hook} "\${CLAUDE_PROJECT_DIR-unset}" >> '${log}'\n${
+			`${HOOK_ROOT_LINE}\nprintf '%s %s\\n' ${shellQuote(hook)} "\${CLAUDE_PROJECT_DIR-unset}" >> ${shellQuote(log)}\n${
 				hook === "pre-commit"
-					? `node '${ROOT}/scripts/lib/workflow-core-config.js' command check_staged >> '${log}' 2>&1 || :\n`
+					? `node ${shellQuote(`${ROOT}/scripts/lib/workflow-core-config.js`)} command check_staged >> ${shellQuote(log)} 2>&1 || :\n`
 					: ""
 			}${hook === "pre-push" ? "cat >/dev/null\n" : ""}`,
 		);

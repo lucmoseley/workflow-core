@@ -17,6 +17,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { fakeIssueBody } from "./lib/issue-body-testkit";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 import { takesRefusal } from "./lib/takes-label";
 
 const SCRIPT = path.join(__dirname, "report-retro-due.js");
@@ -75,11 +76,11 @@ function fixture(opts: {
 		ghStub,
 		[
 			"#!/bin/sh",
-			`printf '%s\\n' "$*" >> ${JSON.stringify(argvLog)}`,
+			`printf '%s\\n' "$*" >> ${shellQuote(argvLog)}`,
 			'if [ "$1" = "issue" ] && [ "$2" = "list" ]; then',
-			`  cat ${JSON.stringify(path.join(root, "issues.json"))}`,
+			`  cat ${shellQuote(path.join(root, "issues.json"))}`,
 			'elif [ "$1" = "issue" ] && [ "$2" = "view" ]; then',
-			`  cat ${JSON.stringify(issueBody.bodyFile)}`,
+			`  cat ${shellQuote(issueBody.bodyFile)}`,
 			'elif [ "$1" = "issue" ] && [ "$2" = "create" ]; then',
 			opts.ghRefuses
 				? "  echo 'HTTP 403: Resource not accessible' >&2; exit 1"

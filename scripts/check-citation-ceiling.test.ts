@@ -21,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
 import { CITATION_CEILING } from "./lib/qualify-citations.js";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 import { UPSTREAM_TRACKER } from "./lib/workflow-core-config.js";
 
 const SCRIPT = path.resolve(__dirname, "check-citation-ceiling.js");
@@ -44,7 +45,7 @@ const run = (
 	);
 	const stub = stubGhScript(
 		dir,
-		`#!/bin/sh\necho "$@" >> ${path.join(dir, "calls.log")}\necho '${answer}'\n`,
+		`#!/bin/sh\necho "$@" >> ${shellQuote(path.join(dir, "calls.log"))}\necho ${shellQuote(answer)}\n`,
 		{ failing },
 	);
 	const r = runInProcess(SCRIPT, ["--json", ...args], {

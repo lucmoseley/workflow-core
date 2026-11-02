@@ -696,7 +696,7 @@ describe("naming a holder by its session name, not its id (mantahostels#1196)", 
 		);
 		fs.writeFileSync(
 			claudeBin(),
-			`#!/bin/sh\necho hit >> "${calls()}"\ncat <<'EOF'\n${body}\nEOF\nexit ${code}\n`,
+			`#!/bin/sh\necho hit >> ${shellQuote(calls())}\ncat <<'EOF'\n${body}\nEOF\nexit ${code}\n`,
 		);
 		fs.chmodSync(claudeBin(), 0o755);
 	};
@@ -2729,7 +2729,7 @@ describe("release --force, the escape for a stranded claim (mantahostels#411)", 
 		);
 		fs.writeFileSync(
 			claudeBin(),
-			`#!/bin/sh\necho hit >> "${calls()}"\ncat <<'EOF'\n${body}\nEOF\nexit ${code}\n`,
+			`#!/bin/sh\necho hit >> ${shellQuote(calls())}\ncat <<'EOF'\n${body}\nEOF\nexit ${code}\n`,
 		);
 		fs.chmodSync(claudeBin(), 0o755);
 	};
@@ -5134,7 +5134,7 @@ describe("wait: one call waits on a file or issue claim (#540)", () => {
 			const bin = path.join(sb.dir, "claude-542");
 			fs.writeFileSync(
 				bin,
-				`#!/bin/sh\necho x >> ${calls()}\ncat <<'EOF'\n${JSON.stringify(agents)}\nEOF\nexit ${code}\n`,
+				`#!/bin/sh\necho x >> ${shellQuote(calls())}\ncat <<'EOF'\n${JSON.stringify(agents)}\nEOF\nexit ${code}\n`,
 			);
 			fs.chmodSync(bin, 0o755);
 			return { WFC_CLAUDE_BIN: bin, WFC_ORACLE_CACHE: "0" };

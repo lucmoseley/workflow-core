@@ -25,6 +25,7 @@ import { buildAuthStatusBranch } from "./auth-status-fake";
 import { loadavgLine } from "./proc-fake";
 import { writePsStub } from "./ps-stub";
 import { writeSchedClock } from "./sched-clock-fixture";
+import { shellQuote } from "./sh-quote.js";
 import { PROBE_TIMEOUT_MS } from "./usage-probe.js";
 import {
 	buildRefreshBranch,
@@ -266,7 +267,7 @@ export function dispatchFixture(): DispatchFixture {
 		const script = [
 			"#!/bin/bash",
 			buildAuthStatusBranch(),
-			`printf '%s\\n' "$*" >> "${argvLog}"`,
+			`printf '%s\\n' "$*" >> ${shellQuote(argvLog)}`,
 			// The probe call carries --debug-file; the launch calls do not.
 			'log=""',
 			'prev=""',
@@ -277,21 +278,21 @@ export function dispatchFixture(): DispatchFixture {
 			'if [ -n "$log" ]; then',
 			advisorAttaches
 				? '  printf "[DEBUG] [AdvisorTool] Advisor model: opus\\n" > "$log"'
-				: `  printf '%s' '${advisorReason ? `[DEBUG] [AdvisorTool] ${advisorReason}` : ""}' > "$log"`,
+				: `  printf '%s' ${shellQuote(advisorReason ? `[DEBUG] [AdvisorTool] ${advisorReason}` : "")} > "$log"`,
 			// Where the probe ran from, and whether its stdin is at EOF at once.
-			`  pwd > "${path.join(fx.dir, "probe-cwd")}"`,
-			`  if read -r -t 5 _; then echo open; else echo "eof $?"; fi > "${path.join(fx.dir, "probe-stdin")}"`,
+			`  pwd > ${shellQuote(path.join(fx.dir, "probe-cwd"))}`,
+			`  if read -r -t 5 _; then echo open; else echo "eof $?"; fi > ${shellQuote(path.join(fx.dir, "probe-stdin"))}`,
 			...refresh,
 			probeHangs ? `  sleep ${PROBE_HANG_SECONDS}` : "",
-			`  echo ended > "${path.join(fx.dir, "probe-ended")}"`,
+			`  echo ended > ${shellQuote(path.join(fx.dir, "probe-ended"))}`,
 			buildUsageBranch({ session: session ?? undefined, week }),
 			"  exit 0",
 			"fi",
-			`if [ "$1" = "agents" ]; then printf '%s\\n' '${agentsJson}'; exit 0; fi`,
-			envLog ? `env >> "${envLog}"` : "",
+			`if [ "$1" = "agents" ]; then printf '%s\\n' ${shellQuote(agentsJson)}; exit 0; fi`,
+			envLog ? `env >> ${shellQuote(envLog)}` : "",
 			launchFails
 				? "printf 'could not start\\n' >&2\nexit 1"
-				: `printf '%s\\n' '${launchOutput}'`,
+				: `printf '%s\\n' ${shellQuote(launchOutput)}`,
 		]
 			.filter(Boolean)
 			.join("\n");
@@ -398,7 +399,7 @@ export function dispatchFixture(): DispatchFixture {
 		fs.mkdirSync(binDir, { recursive: true });
 		fs.writeFileSync(
 			path.join(binDir, "sleep"),
-			`#!/bin/bash\nprintf '%s\\n' "$*" >> "${path.join(fx.dir, "sleeps")}"\n`,
+			`#!/bin/bash\nprintf '%s\\n' "$*" >> ${shellQuote(path.join(fx.dir, "sleeps"))}\n`,
 			{ mode: 0o755 },
 		);
 		return { PATH: `${binDir}:${process.env.PATH ?? ""}` };

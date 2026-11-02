@@ -30,6 +30,7 @@ import { installPathFor } from "./lib/plugin-state.js";
 import { gateTmpdir } from "./lib/precommit-gate-harness.js";
 import { allRegistrations, buildCommandLine } from "./lib/registrations.js";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 import { upgrade } from "./lib/upgrade-walk.js";
 import { MODULES } from "./lib/workflow-core-config.js";
 
@@ -106,7 +107,7 @@ function stubClaude(log: string) {
 	made.push(stub);
 	fs.writeFileSync(
 		path.join(stub, "claude"),
-		`#!/bin/sh\necho "$@" >> ${JSON.stringify(log)}\n`,
+		`#!/bin/sh\necho "$@" >> ${shellQuote(log)}\n`,
 		{ mode: 0o755 },
 	);
 	return stub;
@@ -2131,7 +2132,7 @@ describe("an unseeded adopter's first commit after upgrade (#1671)", () => {
 		/* A hook from before #1839, which upgrade turns into its shim. */
 		fs.writeFileSync(
 			path.join(dir, ".husky/pre-commit"),
-			`#!/usr/bin/env sh\nWFC_PLUGIN_ROOT="${CORE}"\nexport WFC_PLUGIN_ROOT\n`,
+			`#!/usr/bin/env sh\nWFC_PLUGIN_ROOT=${shellQuote(CORE)}\nexport WFC_PLUGIN_ROOT\n`,
 		);
 		/* Settings with a core key missing, so the merge rewrites the file, and a
 		 * hook of the adopter's own that no registry pins or counts. */
@@ -2348,7 +2349,7 @@ describe("where a url pin's hooks and rules file run from (#736)", () => {
 		made.push(stub);
 		fs.writeFileSync(
 			path.join(stub, "claude"),
-			`#!/bin/sh\nif [ "$1 $2" = "plugin install" ]; then mkdir -p ${JSON.stringify(path.dirname(at))} && ln -s ${JSON.stringify(CORE)} ${JSON.stringify(at)}; fi\n`,
+			`#!/bin/sh\nif [ "$1 $2" = "plugin install" ]; then mkdir -p ${shellQuote(path.dirname(at))} && ln -s ${shellQuote(CORE)} ${shellQuote(at)}; fi\n`,
 			{ mode: 0o755 },
 		);
 		const r = bare(

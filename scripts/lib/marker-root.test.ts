@@ -26,6 +26,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { shellQuote } from "./sh-quote.js";
 
 const roots: string[] = [];
 function freshRoot(): string {
@@ -59,7 +60,10 @@ describe("marker-root.sh", () => {
 	const run = (root: string, fn: string) =>
 		spawnSync(
 			"bash",
-			["-c", `source "${path.resolve(__dirname, "marker-root.sh")}" && ${fn}`],
+			[
+				"-c",
+				`source ${shellQuote(path.resolve(__dirname, "marker-root.sh"))} && ${fn}`,
+			],
 			{ encoding: "utf8", env: { ...process.env, CLAUDE_PROJECT_DIR: root } },
 		).stdout;
 
@@ -78,7 +82,7 @@ describe("marker-root.sh", () => {
 			"bash",
 			[
 				"-c",
-				`source "${path.resolve(__dirname, "marker-root.sh")}" && gr_root() { :; }; gr_markers_dir`,
+				`source ${shellQuote(path.resolve(__dirname, "marker-root.sh"))} && gr_root() { :; }; gr_markers_dir`,
 			],
 			{ encoding: "utf8" },
 		).stdout;

@@ -21,6 +21,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { renderHookShim } from "./adopter-skeleton";
 import { newRepo, registerTempCleanup } from "./precommit-gate-harness";
 import { ROOT } from "./precommit-gate-testkit";
+import { shellQuote } from "./sh-quote.js";
 
 const LIB = path.join(ROOT, "scripts", "lib", "commit-route.sh");
 const temps = registerTempCleanup(afterEach);
@@ -39,17 +40,17 @@ const HOOKS = [
 
 /** A marker hook logging `<hook> <route>` for each step a case labels `act`. */
 function markerHook(hook: string): string {
-	const ask = `route="$(wfc_commit_route ${hook} "$(git rev-parse --absolute-git-dir)")"`;
+	const ask = `route="$(wfc_commit_route ${shellQuote(hook)} "$(git rev-parse --absolute-git-dir)")"`;
 	const log = `[ "$LABEL" != act ] || echo "\${WFC_ASKER:+$WFC_ASKER>}${hook} $route" >> "$ROUTE_LOG"`;
 	if (hook === "pre-commit")
-		return `#!/usr/bin/env bash\nset -uo pipefail\nsource "${LIB}"\n${ask}\n${log}\n`;
+		return `#!/usr/bin/env bash\nset -uo pipefail\nsource ${shellQuote(LIB)}\n${ask}\n${log}\n`;
 	// pre-merge-commit runs pre-commit as the real one does, so the merge
 	// that has not written MERGE_HEAD yet is asked about from inside it too.
 	const nested =
 		hook === "pre-merge-commit"
 			? `WFC_ASKER=pre-merge-commit "$(dirname "$0")/pre-commit"\n`
 			: "";
-	return `#!/bin/sh\n. "${LIB}"\n${ask}\n${log}\n${nested}`;
+	return `#!/bin/sh\n. ${shellQuote(LIB)}\n${ask}\n${log}\n${nested}`;
 }
 
 type Git = (...args: string[]) => string;
@@ -396,11 +397,15 @@ function inShell(
 	cwd = ROOT,
 ) {
 	const prelude = shell === "bash" ? "set -u\n" : "";
-	const r = spawnSync(shell, ["-c", `${prelude}. "${LIB}"\n${script}`], {
-		cwd,
-		encoding: "utf8",
-		env: { ...process.env, GIT_REFLOG_ACTION: "", ...env },
-	});
+	const r = spawnSync(
+		shell,
+		["-c", `${prelude}. ${shellQuote(LIB)}\n${script}`],
+		{
+			cwd,
+			encoding: "utf8",
+			env: { ...process.env, GIT_REFLOG_ACTION: "", ...env },
+		},
+	);
 	return { code: r.status, out: r.stdout.trim(), err: r.stderr };
 }
 
@@ -475,7 +480,7 @@ describe.each(["sh", "bash"] as const)("wfc_commit_route under %s", (shell) => {
 	it("names `git am --abort` for prepare-commit-msg's `rebase-apply/applying`", () => {
 		const out = inShell(
 			shell,
-			`wfc_commit_route_abort "$(wfc_commit_route prepare-commit-msg "${gitDir(["rebase-apply/applying"])}")"`,
+			`wfc_commit_route_abort "$(wfc_commit_route prepare-commit-msg ${shellQuote(gitDir(["rebase-apply/applying"]))})"`,
 		).out;
 		expect(out).toBe("git am --abort");
 	});
