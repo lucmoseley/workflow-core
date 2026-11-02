@@ -1364,6 +1364,7 @@ function buildClearedLaunch(job, marker, hold, from) {
 		parkedAway: ____,
 		handOffTries: _____,
 		handedOff: ______,
+		nothingToRepeat: _______,
 		...base
 	} = from;
 	return {

@@ -127,7 +127,7 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * @typedef {import("./refill-decide.js").LaunchRecord & {
  *   prompt: string, seat: string, jobId: string|null,
  *   parked?: boolean, block?: import("./block-act.js").Block,
- *   parkStopped?: number, parkedAway?: boolean, sessionId?: string,
+ *   parkedAway?: boolean, sessionId?: string,
  *   resumes?: import("./refill-blocks.js").Resumes,
  *   idleResumes?: import("./refill-blocks.js").IdleResumes, idleSince?: number,
  *   swapHeld?: import("./refill-blocks.js").SwapHeld,
@@ -138,8 +138,7 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  *   limitLeft?: import("./refill-decide.js").SeatLeft[],
  *   limitParks?: number, handOffTries?: number, handedOff?: number, copiedFrom?: string,
  *   relaunchedAt?: number, pastSessionIds?: string[],
- *   actsBefore?: Record<string, number>|typeof UNREAD,
- *   nothingToRepeat?: true}} LoopLaunch
+ *   actsBefore?: Record<string, number>|typeof UNREAD}} LoopLaunch
  * @typedef {(sessionId: string, roots: string[]) =>
  *   {acts: string[], unreadable: string[]}} ReadActsBy  lib/arbiter-ledger.js's
  */

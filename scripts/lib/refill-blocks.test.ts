@@ -2617,6 +2617,19 @@ describe("queueing the sessions parked on a lifted repo hold (#3863)", () => {
 		};
 	};
 
+	it("drops nothingToRepeat with parkStopped, or noProgressRun passes over its resume (#3949)", () => {
+		const { out } = queueOn([
+			record({
+				jobId: "p",
+				root: "/repo",
+				finishedAt: NOW - MIN,
+				nothingToRepeat: true,
+			}),
+		]);
+		expect(out.launches[0]).toHaveProperty("holdCleared");
+		expect(out.launches[0]).not.toHaveProperty("nothingToRepeat");
+	});
+
 	it("takes up a job's newest record alone, so one session resumes once", () => {
 		const older = record({ jobId: "p", root: "/repo", finishedAt: NOW - MIN });
 		const newer = record({ jobId: "p", root: "/repo", finishedAt: NOW - MIN });
