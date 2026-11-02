@@ -379,7 +379,7 @@
 			"source": "#1810, #3157"
 		},
 		"scripts/guard-inventory.js": {
-			"digest": "2f3d4f566d3221f3",
+			"digest": "6a0bedf2366b0826",
 			"verdict": "at need (the ending turn of a background job)",
 			"selfSufficient": "yes — the defect, the exact shape to write and the whole underlying rule are inline",
 			"source": "#1810"
