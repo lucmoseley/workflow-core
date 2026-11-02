@@ -1031,6 +1031,47 @@ describe("decideTick's resumes of held sessions (#3855)", () => {
 			expect(d).toMatchObject({ launches: [] });
 		});
 
+		it("names the resume its seat's cap holds, beside one another seat starts (#3911)", () => {
+			const onB = held("other", NOW - HOUR, "b");
+			const d = tick({
+				freeSlots: 3,
+				seats: [seat("a", 10, 10, 0), seat("b", 10, 10, 3)],
+				resumable: [oldest, onB],
+			});
+			expect(jobs(d)).toEqual(["other"]);
+			expect(d).toMatchObject({ capHeld: [oldest] });
+		});
+
+		it("names the resume whose seat an older resume took the last fit of (#3911)", () => {
+			const d = tick({
+				freeSlots: 3,
+				seats: [seat("a", 10, 10, 1)],
+				resumable: [newest, oldest],
+			});
+			expect(jobs(d)).toEqual(["old"]);
+			expect(d).toMatchObject({ capHeld: [newest] });
+		});
+
+		it("names no resume behind the last slot, its seat sized for the slots alone (#3911)", () => {
+			const d = tick({
+				freeSlots: 2,
+				seats: [seat("a", 10, 10, 2)],
+				resumable: [newest, middle, oldest],
+			});
+			expect(jobs(d)).toEqual(["old", "mid"]);
+			expect(d).toMatchObject({ capHeld: [] });
+		});
+
+		it("names no resume on a tick with no slot free (#3911)", () => {
+			const d = tick({
+				freeSlots: 0,
+				seats: [seat("a", 10, 10, 0)],
+				resumable: [oldest],
+			});
+			expect(jobs(d)).toEqual([]);
+			expect(d).not.toHaveProperty("capHeld");
+		});
+
 		it("charges nothing for a resume on a seat the tick does not read", () => {
 			const d = tick({
 				freeSlots: 3,

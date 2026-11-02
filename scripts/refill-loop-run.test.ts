@@ -2339,6 +2339,9 @@ process.exit(${handOffExit});\n`,
 			expect(r.status).toBe(0);
 			expect(readLines(at("calls"))).toEqual([resumeOf("s-job8")]);
 			expect(r.stdout).toMatch(/resumed 1 of 2 due/);
+			expect(r.stdout).toMatch(
+				/not resuming job7 .*for a later tick: the cap on ~\/seat2 has no fit left/,
+			);
 		});
 
 		it("waits on a resume the per-member re-read refuses, its tries untouched", async () => {

@@ -236,8 +236,9 @@ const ALREADY_RUNNING = "already running";
  * @typedef {{stop: StopReason, detail: string}
  *   | {launches: Launch[], skipped: Skip[], idle: string | null,
  *   held: Skip[], resumes: HeldResume[], pause?: Pause,
- *   planWait?: PlanWait}} Decision `held` is heldParked's; `resumes` the
- *   tick's, oldest first, made ahead of its launches; `pause` the no-progress
+ *   capHeld?: HeldResume[], planWait?: PlanWait}} Decision `held` is
+ *   heldParked's; `resumes` the tick's, oldest first, made ahead of its launches;
+ *   `capHeld` takeResumes's, for the tick to log; `pause` the no-progress
  *   pause for the tick to write; `planWait` set where every plan seat's full week
  *   is why nothing launches
  */
@@ -721,6 +722,14 @@ function splitParked(frontier, mode) {
 }
 
 /**
+ * The log line of a resume left for a later tick.
+ * @param {string} line the resume's own, HeldResume's
+ * @param {string} why
+ */
+const buildResumeWaitLine = (line, why) =>
+	`not resuming ${line}, for a later tick: ${why}`;
+
+/**
  * `seats` with one launch's or resume's fit spent on `seat`, where its cap is
  * sized.
  * @param {SizedSeat[]} seats
@@ -735,9 +744,11 @@ const spendSeatFit = (seats, seat) =>
 /**
  * The resumes this tick starts, oldest first, up to `slots`, and `seats` with
  * a fit spent on each one's seat (#3895). One whose seat has no fit left waits
- * for a later tick. Only the cap holds it, not a full bar as a parked row: it
- * was running on that seat, and a limit it meets there moves it (#3735). A seat
- * outside `seats` or unsized has no cap to charge.
+ * for a later tick, in `capHeld` (#3911). Past the last slot the walk stops, the
+ * slots being why the rest wait: a seat is sized for the slots alone, so one that
+ * filled them reads 0 whatever room it has. Only the cap holds it, not a full bar
+ * as a parked row: it was running on that seat, and a limit it meets there moves
+ * it (#3735). A seat outside `seats` or unsized has no cap to charge.
  * @param {TickInput} input
  * @param {number} slots
  */
@@ -745,15 +756,20 @@ function takeResumes({ resumable = [], holds, seats }, slots) {
 	const stopped = buildProbeHeldRoots(holds);
 	/** @type {HeldResume[]} */
 	const resumes = [];
+	/** @type {HeldResume[]} */
+	const capHeld = [];
 	let seatsLeft = seats;
 	for (const r of resumable.toSorted((a, b) => a.at - b.at)) {
 		if (resumes.length >= slots) break;
-		const onCap = seatsLeft.find((s) => s.seat === r.seat)?.fits === 0;
-		if (stopped.has(r.root) || onCap) continue;
+		if (stopped.has(r.root)) continue;
+		if (seatsLeft.find((s) => s.seat === r.seat)?.fits === 0) {
+			capHeld.push(r);
+			continue;
+		}
 		resumes.push(r);
 		seatsLeft = spendSeatFit(seatsLeft, r.seat);
 	}
-	return { resumes, seatsLeft };
+	return { resumes, capHeld, seatsLeft };
 }
 
 /**
@@ -1041,41 +1057,16 @@ function decideTick(input) {
 }
 
 /**
+ * The decision once the tick's resumes are taken: their launches, or why none.
  * @param {TickInput} input
- * @returns {Decision}
+ * @param {{free: number, held: Skip[], resumes: HeldResume[],
+ *   seatsLeft: SizedSeat[]}} taken
+ * @returns {Exclude<Decision, {stop: StopReason}>}
  */
-function decideUnpaused(input) {
-	const stalled = noProgressRun(input);
-	if (stalled) {
-		const pause = buildNoProgressPause(stalled, input.now);
-		return { ...buildIdleDecision(buildPauseText(pause), [], []), pause };
-	}
-	const pick = pickSeat(input);
-	/* A session left on a seat's limit or with a resume due has acts still to
-	 * come, so the tick carries on to them. */
-	if (
-		pick.seat === null &&
-		pick.allCut &&
-		!input.limitHeldLines?.length &&
-		!input.resumable?.length
-	)
-		return buildNoSeatIdle(input, "", heldParked(input), []);
-	const present =
-		presenceAt(input.lastPromptAt, new Date(input.now)) === "present";
-	const free = Math.max(0, input.freeSlots - (present ? 1 : 0));
-	/* Ahead of the seat's wait: with no slot free the loop refreshes no seat,
-	 * so an aged cache reads unread and is not why the tick waits (#2362). */
-	const held = heldParked(input);
-	/**
-	 * @param {string} idle
-	 * @param {HeldResume[]} due
-	 */
-	const idleOn = (idle, due) => buildIdleDecision(idle, held, due);
-	if (free === 0)
-		return idleOn(present ? SLOT_KEPT_FOR_FOUNDER : NO_FREE_SLOT, []);
-	const { resumes, seatsLeft } = takeResumes(input, free);
+function decideLaunches(input, { free, held, resumes, seatsLeft }) {
 	const launchSlots = free - resumes.length;
-	if (launchSlots === 0) return idleOn(RESUMES_TAKE_SLOTS, resumes);
+	if (launchSlots === 0)
+		return buildIdleDecision(RESUMES_TAKE_SLOTS, held, resumes);
 	const chargedInput = { ...input, seats: seatsLeft };
 	const launchPick = pickSeat(chargedInput);
 	if (launchPick.seat === null)
@@ -1110,11 +1101,51 @@ function decideUnpaused(input) {
 	};
 }
 
+/**
+ * @param {TickInput} input
+ * @returns {Decision}
+ */
+function decideUnpaused(input) {
+	const stalled = noProgressRun(input);
+	if (stalled) {
+		const pause = buildNoProgressPause(stalled, input.now);
+		return { ...buildIdleDecision(buildPauseText(pause), [], []), pause };
+	}
+	const pick = pickSeat(input);
+	/* A session left on a seat's limit or with a resume due has acts still to
+	 * come, so the tick carries on to them. */
+	if (
+		pick.seat === null &&
+		pick.allCut &&
+		!input.limitHeldLines?.length &&
+		!input.resumable?.length
+	)
+		return buildNoSeatIdle(input, "", heldParked(input), []);
+	const present =
+		presenceAt(input.lastPromptAt, new Date(input.now)) === "present";
+	const free = Math.max(0, input.freeSlots - (present ? 1 : 0));
+	/* Ahead of the seat's wait: with no slot free the loop refreshes no seat,
+	 * so an aged cache reads unread and is not why the tick waits (#2362). */
+	const held = heldParked(input);
+	if (free === 0)
+		return buildIdleDecision(
+			present ? SLOT_KEPT_FOR_FOUNDER : NO_FREE_SLOT,
+			held,
+			[],
+		);
+	const { resumes, capHeld, seatsLeft } = takeResumes(input, free);
+	return {
+		...decideLaunches(input, { free, held, resumes, seatsLeft }),
+		capHeld,
+	};
+}
+
 module.exports = {
 	EXPLICIT_STOP_DETAIL,
 	PROBE_HELD,
 	buildProbeHeldRoots,
 	buildOverflowHoldText,
+	buildResumeWaitLine,
 	buildPauseText,
 	buildPausedWaitText,
 	buildPlanWaitText,
