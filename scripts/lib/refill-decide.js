@@ -43,7 +43,6 @@ const NO_PROGRESS_PAUSE = "no-progress";
  * (#2525, #3859). Residual: the log and the idle alarm lose which seat and hold;
  * `status`'s `passed over` names them. */
 const NO_PLAN_ROOM = "no plan has room right now";
-const SLOT_KEPT_FOR_FOUNDER = "one free slot is kept for the founder";
 /* The idle reason of a tick whose seats are all spent, with a limit-held
  * launch still to act on. */
 const LIMIT_HELD_WAIT =
@@ -148,7 +147,6 @@ const ALREADY_RUNNING = "already running";
  * @property {MergedBundle[]} retroBundles
  * @property {{root: string, issues: number[]}[]} running
  * @property {number} freeSlots admission's count
- * @property {number|null} lastPromptAt ms of the founder's last typed prompt
  * @property {string|null} [typedSeat] the plan seat the founder last typed
  *   on, null or absent where none is recorded (lib/presence.js's
  *   readLastTyped)
@@ -984,7 +982,6 @@ const buildPausedWaitText = (pause) =>
  * rank, and a failed shortlist may be another tracker's. */
 const QUEUE_MOVING_WAITS = [
 	NO_FREE_SLOT,
-	SLOT_KEPT_FOR_FOUNDER,
 	RESUMES_TAKE_SLOTS,
 	NOTHING_LAUNCHABLE,
 ];
@@ -1121,18 +1118,11 @@ function decideUnpaused(input) {
 		!input.resumable?.length
 	)
 		return buildNoSeatIdle(input, "", heldParked(input), []);
-	const present =
-		presenceAt(input.lastPromptAt, new Date(input.now)) === "present";
-	const free = Math.max(0, input.freeSlots - (present ? 1 : 0));
+	const free = input.freeSlots;
 	/* Ahead of the seat's wait: with no slot free the loop refreshes no seat,
 	 * so an aged cache reads unread and is not why the tick waits (#2362). */
 	const held = heldParked(input);
-	if (free === 0)
-		return buildIdleDecision(
-			present ? SLOT_KEPT_FOR_FOUNDER : NO_FREE_SLOT,
-			held,
-			[],
-		);
+	if (free === 0) return buildIdleDecision(NO_FREE_SLOT, held, []);
 	const { resumes, capHeld, seatsLeft } = takeResumes(input, free);
 	return {
 		...decideLaunches(input, { free, held, resumes, seatsLeft }),

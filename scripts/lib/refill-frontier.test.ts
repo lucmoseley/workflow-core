@@ -82,7 +82,6 @@ const launchesOf = (frontier: unknown[]) =>
 			retroBundles: [],
 			running: [],
 			freeSlots: 3,
-			lastPromptAt: null,
 			seats: [{ seat: "~/.claude2", week: 10, session: 10, fits: 9 }],
 			history: [],
 		}).launches ?? []
@@ -557,7 +556,6 @@ describe("a checkout whose shortlist fails (#2561)", () => {
 				retroBundles: m.retroBundles,
 				running: [],
 				freeSlots: 3,
-				lastPromptAt: null,
 				seats: [{ seat: "~/.claude2", week: 10, session: 10, fits: 9 }],
 				history: [],
 				failedShortlists: m.failed,

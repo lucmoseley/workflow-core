@@ -212,7 +212,6 @@ describe("a headless launch's finish (#2611)", () => {
 				retroBundles: [],
 				running: [],
 				freeSlots: 2,
-				lastPromptAt: null,
 				seats: [{ ...planSeat("a", true), fits: null }],
 				overflow: [
 					{

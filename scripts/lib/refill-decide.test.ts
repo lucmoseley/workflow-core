@@ -1,6 +1,6 @@
 /*
  * refill-decide.test.ts — away mode's decision core (#2007): every stop, the
- * seat failover, the founder's free slot, the launch filter and the merged
+ * seat failover, the free slots, the launch filter and the merged
  * ranking, driven through `decideTick` from plain records, since the core is
  * pure. A break here launches the wrong ticket, or none, while he is away.
  *
@@ -89,7 +89,6 @@ const tick = (over: Record<string, unknown> = {}) =>
 		retroBundles: [],
 		running: [],
 		freeSlots: 2,
-		lastPromptAt: null,
 		seats: [seat("~/.claude3", 40, 20), seat("~/.claude2", 10, 10)],
 		history: [],
 		...over,
@@ -931,12 +930,6 @@ describe("buildLoopWait, the idle alarm's reason no rank launches (#3920)", () =
 		},
 	);
 
-	it("reads a kept slot as rank's", () => {
-		const d = tick({ freeSlots: 1, lastPromptAt: NOW });
-		expect(d.idle).toBe("one free slot is kept for the founder");
-		expect(buildLoopWait(d.idle)).toBeNull();
-	});
-
 	it("names a reason it does not know, and none for a tick that launched", () => {
 		expect(buildLoopWait("a stop added later")).toBe("a stop added later");
 		expect(buildLoopWait(null)).toBeNull();
@@ -977,16 +970,10 @@ describe("decideTick's resumes of held sessions (#3855)", () => {
 		expect(jobs(tick({ freeSlots: 1, resumable: [newest] }))).toEqual(["new"]);
 	});
 
-	it("resumes nothing with no slot free, or on the founder's kept slot", () => {
+	it("resumes nothing with no slot free", () => {
 		expect(tick({ freeSlots: 0, resumable: [oldest] })).toMatchObject({
 			resumes: [],
 			idle: "no free slot",
-		});
-		expect(
-			tick({ freeSlots: 1, lastPromptAt: NOW, resumable: [oldest] }),
-		).toMatchObject({
-			resumes: [],
-			idle: "one free slot is kept for the founder",
 		});
 	});
 
@@ -1168,19 +1155,16 @@ describe("decideTick's resumes of held sessions (#3855)", () => {
 });
 
 describe("decideTick free slot", () => {
-	it("keeps one slot free while the founder is present", () => {
-		const d = tick({ lastPromptAt: NOW - PRESENT_WINDOW_MS + 1 });
-		expect(launched(d)).toEqual(["wfc#1"]);
+	it("launches into every free slot", () => {
+		expect(launched(tick({ freeSlots: 2 }))).toEqual(["wfc#1", "wfc#2"]);
+		expect(launched(tick({ freeSlots: 1 }))).toEqual(["wfc#1"]);
 	});
 
-	it("releases it once the last prompt is 30 minutes old", () => {
-		const d = tick({ lastPromptAt: NOW - PRESENT_WINDOW_MS });
-		expect(launched(d)).toEqual(["wfc#1", "wfc#2"]);
-	});
-
-	it("launches nothing on the last free slot while present", () => {
-		const d = tick({ freeSlots: 1, lastPromptAt: NOW });
-		expect(d).toMatchObject({ launches: [], idle: expect.any(String) });
+	it("idles on no free slot where none is free", () => {
+		expect(tick({ freeSlots: 0 })).toMatchObject({
+			launches: [],
+			idle: "no free slot",
+		});
 	});
 
 	it("idles on the slot, not the seat, when none is free and every seat is unread (#2362)", () => {
@@ -1188,12 +1172,6 @@ describe("decideTick free slot", () => {
 		expect(tick({ freeSlots: 0, seats: unread })).toMatchObject({
 			launches: [],
 			idle: "no free slot",
-		});
-		expect(
-			tick({ freeSlots: 1, lastPromptAt: NOW, seats: unread }),
-		).toMatchObject({
-			launches: [],
-			idle: "one free slot is kept for the founder",
 		});
 	});
 

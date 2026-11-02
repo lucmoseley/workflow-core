@@ -16,8 +16,8 @@
  * minutes some session works (GLOSSARY.md, Sustained concurrency).
  *
  * THE VERDICT is the first failing limit in a fixed order, the order the
- * checks below run in: loop not running, empty frontier, founder slot,
- * allowance, memory, CPU: gates on the loop and on policy before resource
+ * checks below run in: loop not running, empty frontier, allowance,
+ * memory, CPU: gates on the loop and on policy before resource
  * fit, as Kubernetes' PreFilter and Borg's quota check run (#2497's
  * research). Every other failing limit follows it as "also".
  *
@@ -30,7 +30,6 @@ const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
 const { readJsonl } = require("./jsonl.js");
-const { presenceAt } = require("./presence.js");
 const {
 	NOTHING_LAUNCHABLE,
 	buildPauseText,
@@ -109,9 +108,8 @@ function largestHolder(a) {
 
 /**
  * The loop's and policy's failing limits. A stop ends the loop at this tick's
- * end. The frontier, the founder's slot and the
- * allowance are judged only where the decision core judged them: a tick with
- * no free slot reads neither.
+ * end. The frontier and the allowance are judged only where the decision core
+ * judged them: a tick with no free slot reads neither.
  * @param {import("./refill-decide.js").TickInput} input
  * @param {import("./refill-decide.js").Decision} decision
  * @returns {Failing[]}
@@ -130,16 +128,7 @@ function policyFailing(input, decision) {
 			limit: "empty frontier",
 			why: "nothing in the frontier is launchable",
 		});
-	const present =
-		presenceAt(input.lastPromptAt, new Date(input.now)) === "present";
-	/* Binding only where it is the one free slot: with more, the loop
-	 * launches into the rest. */
-	if (present && input.freeSlots === 1)
-		out.push({
-			limit: "founder slot",
-			why: "one free slot is kept for the founder",
-		});
-	const pick = input.freeSlots - (present ? 1 : 0) > 0 ? pickSeat(input) : null;
+	const pick = input.freeSlots > 0 ? pickSeat(input) : null;
 	if (pick && pick.seat === null)
 		out.push({ limit: "allowance", why: pick.wait || "no seat fits" });
 	return out;

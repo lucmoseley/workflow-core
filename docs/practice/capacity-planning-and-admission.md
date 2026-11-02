@@ -55,12 +55,6 @@ Researched: 2026-10-23
 - Show a short reason token where the work is always listed, the full analysis on demand, and history in a dashboard or periodic report. `squeue` `NODELIST(REASON)`, `condor_q -analyze`, `sreport` rollups, adopters [unverified]; SRE book ("Dashboards should answer basic questions") [named expert]
 - Research: #2497, its 2026-10-22 research comment (issuecomment-6338282041).
 
-## Holding headroom for interactive work
-
-- Keep the reserve standing while the arrivals it serves are expected, and refill it once one takes it. Size it to expected demand. Kubernetes, "Overprovision Node Capacity For A Cluster"; AWS EC2 Auto Scaling, "warm pools", and Azure, "Standby pools for Virtual Machine Scale Sets" (standing and refill only). Three adopters, no default [unverified]
-- Release it when those arrivals stop. Only one vendor's product docs carry this, so it sets no default. AWS warm pools [unverified]
-- Research: #2499, its resolution comment; #2548, its 2026-10-23 research comment (issuecomment-6351857252).
-
 ## Relieving memory pressure
 
 - Read the pressure signal straight from kernel files, never through a call that itself needs memory or a CPU slice. Kubernetes, "Node-pressure Eviction" (`memory.available` "is derived from the cgroupfs instead of tools like `free -m`"); systemd-oomd(8) ("periodically polls PSI statistics for the system and those cgroups"); Android, "Low memory killer daemon" (PSI monitors, "the default mechanism of memory pressure detection for `lmkd`"). Three adopters, no default [unverified]

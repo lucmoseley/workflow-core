@@ -189,7 +189,6 @@ describe("the tick's control read (#3389)", () => {
 			retroBundles: [],
 			running: [],
 			freeSlots: 1,
-			lastPromptAt: null,
 			seats: [],
 			history: [],
 		});

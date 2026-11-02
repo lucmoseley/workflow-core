@@ -384,7 +384,6 @@ describe("buildIdleLines", () => {
 					retroBundles: [],
 					running: [],
 					freeSlots: 2,
-					lastPromptAt: null,
 					seats: [spentSeat],
 					history: [],
 					...over,

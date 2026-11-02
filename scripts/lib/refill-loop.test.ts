@@ -499,7 +499,6 @@ describe("a finished launch's progress, from its session's acts ledger (#2312)",
 			retroBundles: [],
 			running: [],
 			freeSlots: 0,
-			lastPromptAt: null,
 			seats: [
 				{
 					seat: "s",
@@ -719,7 +718,6 @@ describe("a seat's reading (#2606)", () => {
 				retroBundles: [],
 				running: [],
 				freeSlots: 2,
-				lastPromptAt: null,
 				seats: [{ ...readOn(session, week), fits: null }],
 				history: [],
 			});
@@ -864,7 +862,6 @@ function settleOnce(
 				retroBundles: [],
 				running: [],
 				freeSlots,
-				lastPromptAt: null,
 				seats,
 				overflow,
 				history: past,
@@ -1054,7 +1051,6 @@ describe("a tick's log line (#2362)", () => {
 			retroBundles: [],
 			running: [],
 			freeSlots: 2,
-			lastPromptAt: null,
 			seats: [
 				{
 					...seat("/s1", 40, 100),
@@ -1884,7 +1880,6 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 		retroBundles: [],
 		running: [],
 		freeSlots: 2,
-		lastPromptAt: null,
 		typedSeat: null,
 		seats: [],
 		history: [],
@@ -2600,7 +2595,6 @@ describe("a resume the tick's step left held (#3855)", () => {
 					retroBundles: [],
 					running: [],
 					freeSlots: 2,
-					lastPromptAt: null,
 					seats: [],
 					overflow: [],
 					history: [],

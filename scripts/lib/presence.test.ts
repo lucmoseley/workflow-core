@@ -3,9 +3,9 @@
  * presence.js tells the refill loop whether the founder is at the laptop
  * (#2004): a typed prompt within the last 30 minutes.
  *
- * WHAT BREAKING IT COSTS: read as away while he is present, the loop takes
- * the slot kept for him; read as present while he sleeps, a slot idles all
- * night. The marker's seat line (#3731) names the seat he typed on; read
+ * WHAT BREAKING IT COSTS: read as away while he is present, away mode stays on
+ * and hands off a question he could answer; read as present while he sleeps,
+ * it turns off and a session waits on him all night. The marker's seat line (#3731) names the seat he typed on; read
  * wrong, the loop launches into an agents view he is not watching.
  */
 

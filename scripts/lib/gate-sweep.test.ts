@@ -310,7 +310,6 @@ describe("the decision core launches a queued judgement", () => {
 			retroBundles: [],
 			running: [],
 			freeSlots: 2,
-			lastPromptAt: null,
 			seats: [{ seat: "~/.claude3", week: 40, session: 20, fits: 9 }],
 			ceilings: { week: 90, session: 90 },
 			history: [],

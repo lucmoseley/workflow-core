@@ -1545,7 +1545,6 @@ async function tick({ dryRun }) {
 		limitHeldLines: launches
 			.filter(blocks.isLimitHeld)
 			.map(blocks.buildHeldStopText),
-		lastPromptAt: typed.at,
 		typedSeat: typed.seat,
 		seats: loop.sizeResumeSeats(seats, resumable, slots, (seat, members) =>
 			readCapFits(served[0], seat, members, ""),

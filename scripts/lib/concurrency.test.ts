@@ -54,7 +54,6 @@ const seat = (week: number, session: number, fits = 9) => ({
 const input = (over: Record<string, unknown> = {}) => ({
 	now: T0,
 	freeSlots: 0,
-	lastPromptAt: null,
 	seats: [seat(10, 10)],
 	overflow: [],
 	...over,
@@ -180,9 +179,9 @@ describe("readout's verdict (#3317)", () => {
 	it.each([
 		{
 			name: "reads the last tick's binding and also limits while it is fresh",
-			ticks: [tickAt(T0, "founder slot", ["memory", "CPU"])],
+			ticks: [tickAt(T0, "allowance", ["memory", "CPU"])],
 			now: T0 + STALE_MS,
-			verdict: "founder slot",
+			verdict: "allowance",
 			also: ["memory", "CPU"],
 		},
 		{
@@ -407,19 +406,18 @@ describe("the unlisted watch (#3322, #3496, #3507)", () => {
 });
 
 describe("a tick's failing limits, in their fixed order (#3317)", () => {
-	const Present = { lastPromptAt: T0 - MIN };
 	it.each([
 		{
 			name: "orders every failing gate from the frontier to CPU",
 			tick: {
-				input: input({ freeSlots: 1, ...Present }),
+				input: input({ freeSlots: 1 }),
 				decision: idle(NOTHING_LAUNCHABLE),
 				admission: admission({
 					memorySlots: 0,
 					cpu: { full: true, slots: 0, sessions: 12, ceiling: 12 },
 				}),
 			},
-			limits: ["empty frontier", "founder slot", "memory", "CPU"],
+			limits: ["empty frontier", "memory", "CPU"],
 		},
 		{
 			name: "puts the allowance after the frontier where a slot is free",
@@ -465,15 +463,6 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 			limits: ["allowance"],
 		},
 		{
-			name: "binds on the founder's slot where it is the only free one",
-			tick: {
-				input: input({ freeSlots: 1, ...Present }),
-				decision: idle("one free slot is kept for the founder"),
-				admission: admission({ slots: 1 }),
-			},
-			limits: ["founder slot"],
-		},
-		{
 			name: "judges no allowance where no slot is free",
 			tick: {
 				input: input({ seats: [seat(10, FULL)] }),
@@ -494,9 +483,9 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 			limits: ["CPU"],
 		},
 		{
-			name: "finds nothing failing on a tick that launched, the founder present",
+			name: "finds nothing failing on a tick that launched",
 			tick: {
-				input: input({ freeSlots: 2, lastPromptAt: T0 - MIN }),
+				input: input({ freeSlots: 2 }),
 				decision: { launches: [{}], skipped: [], idle: null },
 				admission: admission({ slots: 2 }),
 			},

@@ -96,7 +96,7 @@ const tick = (
 ) =>
 	`${JSON.stringify(
 		buildTickRecord({
-			input: { now: Date.now() - agoMs, freeSlots: 0, lastPromptAt: null },
+			input: { now: Date.now() - agoMs, freeSlots: 0 },
 			decision,
 			admission: admitted,
 			workingChange: launched,

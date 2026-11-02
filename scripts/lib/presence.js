@@ -1,8 +1,7 @@
 /*
  * presence.js — whether the founder is at the laptop (#2004, spec #1995):
  * present means he typed a prompt in some session, on any seat, within the
- * last PRESENT_WINDOW_MS. The refill loop keeps one slot free for him while he
- * is present.
+ * last PRESENT_WINDOW_MS. Away mode returns to normal on it.
  *
  * ONE MARKER PER MACHINE, `~/.claude/.founder-presence` (lib/machine-marker.js),
  * because a per-checkout or per-seat file would miss his prompts in every
