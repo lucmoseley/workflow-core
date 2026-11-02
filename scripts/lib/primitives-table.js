@@ -11,8 +11,8 @@
  *                            host root for `local`, as base §0 reads line pins
  *   countBreaches(side, rel) the findings check program `rel` reports over
  *                            the whole tree, or why it could not be read
- *   readNewHeresies()        the sub-issues of the last closed *Heresy sweep
- *                            due* issue, or why they could not be read
+ *   readNewHeresies()        the `**Filed:**` figure on the last closed *Heresy
+ *                            sweep due* issue, or why it could not be read
  *
  * A TABLE is the first Markdown table under a `## Primitives` heading whose
  * header row is COLUMNS exactly. A side with no such heading has no rows; a

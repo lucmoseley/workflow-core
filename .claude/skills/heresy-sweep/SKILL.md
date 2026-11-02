@@ -6,7 +6,8 @@ name: heresy-sweep
 
 The method a session follows on a *Heresy sweep due* issue: find the
 heresies (`GLOSSARY.md`) no check, table row or ticket names yet, file each
-under the due issue, and close it with the count. Spec: #3365.
+standalone, and close the due issue with the count in the same session.
+Spec: #3365.
 
 **Run it from the swept repo's checkout.** Every issue it files goes to that
 repo's own tracker. In an adopter, `scripts/` and `docs/code-standards-base.md`
@@ -55,10 +56,9 @@ names is **known**, and §4 drops it.
   In any other repo, also the tickets that spec handed it:
   `gh issue list --state all --search '"workflow-core-tracker#3365" in:body' --limit 50 --json number,title,state`.
   Each one is known, open or closed.
-- **Earlier sweeps' children**, the declined ones included:
-  `gh issue list --state closed --search '"Heresy sweep due" in:title' --limit 50 --json number`,
-  then each one's sub-issues, with the call above. A child
-  closed `not_planned` is a decline.
+- **Earlier sweeps' findings**, the declined ones included:
+  `gh issue list --state all --search '"Heresy sweep finding" in:body' --limit 500 --json number,title,state,stateReason`.
+  A finding closed `NOT_PLANNED` is a decline.
 - **Open issues on the pattern:**
   `gh issue list --state all --search '<primitive or token> in:title,body' --limit 50 --json number,title,state`.
 
@@ -94,29 +94,27 @@ For each candidate, in `$R/candidates.md`:
   sites outside the primitive itself. A one-off goes to the due issue's
   close comment, under Seen.
 - **Drop a defect.** A guard that fails open is a bug, not a copied
-  pattern. File it standalone (§5's command with `--standalone "Heresy sweep finding (<owner/name>#<due>)"`
-  in place of `--parent`), never as a child of the due issue.
+  pattern. File it with §5's command, its marker `Heresy sweep defect (<owner/name>#<due>)`
+  in `--standalone` and as its body's first line, so §2 and §6's search for
+  findings does not count it.
 - **Rank what is left** by spread × chance of further copies × cost of a
   wrong copy. Spread is the file count. Chance is higher where the
   family's newest files carry the pattern. Cost is what a wrong copy breaks.
 
-## 5. File one ticket per heresy, under the due issue
+## 5. File one standalone ticket per heresy
 
 Worst first:
 
 ```
 node scripts/file-issue.js --title "<the primitive to move onto, and the heresy it stops>" \
-  --label takes:triage --parent <due-issue> --body-file "$R/heresy-<k>.md"
+  --label takes:triage --standalone "Heresy sweep finding (<owner/name>#<due-issue>)" \
+  --body-file "$R/heresy-<k>.md"
 ```
 
 Exit 1 is a `gh` call that did not land. Read its message before re-running:
 a create that landed would file a duplicate. Exit 2 is a refusal: read its
 message. Where it lists similar titles, read each one; where one is this
 heresy, it is known (§4).
-
-**The due issue's sub-issues are its heresies and nothing else.** The table
-checker's new-heresies count is the number of sub-issues of the last closed
-due issue (`scripts/check-primitives.js`).
 
 `$R/heresy-<k>.md`:
 
@@ -149,15 +147,16 @@ Heresy sweep finding (<owner/name>#<due-issue>)
 Read the count back first:
 
 ```
-gh api --paginate repos/{owner}/{repo}/issues/<due-issue>/sub_issues --jq '.[].number'
+gh issue list --state all --search '"Heresy sweep finding (<owner/name>#<due-issue>)" in:body' --limit 500 --json number
 ```
 
-Where it differs from what §5 filed, find out why before you close. Then run
+Re-run an empty result once. Where it differs from what §5 filed, find out why
+before you close. Then run
 `node scripts/resolve-ticket.js <due-issue> --comment-file "$R/close.md"`.
 `$R/close.md`:
 
 ```markdown
-**Filed:** <N> heresies, the due issue's sub-issues: <#a (gloss), #b (gloss), …, or none>
+**Filed:** <N> heresies: <#a (gloss), #b (gloss), …, or none>
 
 **Commented:** <each known ticket given a new count, or none>
 
@@ -170,4 +169,6 @@ Where it differs from what §5 filed, find out why before you close. Then run
 **Practice:** <covered — docs/practice/code-refactoring-and-architecture.md, its Researched date; ran where that date is over 6 months old>
 ```
 
-`N` is the read-back count.
+`N` is the read-back count, written as a figure even at 0: the table checker's
+new-heresies count is this line on the last closed due issue
+(`scripts/check-primitives.js`), and it prints unknown without one.
