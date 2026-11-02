@@ -1,14 +1,18 @@
 #!/usr/bin/env node
 /*
  * refill-panel.js — the refill loop's control panel beside an agents view (#3873,
- * #3877, #3879, #3881, #3883, #3884, spec #3596): a terminal program with no Claude process that shows the Refill
+ * #3877, #3879, #3881, #3883, #3884, #3887, spec #3596): a terminal program with no Claude process that shows the Refill
  * loop switch and its three-line block, and pauses or resumes the loop on a click;
  * the Away switch, which sets the loop's mode on a click; the Burn mode switch,
  * which flips burn mode on a click; the Goal switch and its field, which clear or
  * replace the goal, free text through one `claude -p` and a confirm press; and a tick box per checkout, which sets whether the loop serves it.
  * What it draws is lib/refill-panel.js's; the terminal, lib/refill-panel-terminal.js's.
  *
- *   node scripts/refill-panel.js <agents-view-pid>
+ *   node scripts/refill-panel.js <agents-view-pid> [windows-terminal|tmux]
+ *
+ * The route names the split that opened it (lib/refill-panel-routes.js), which is how a
+ * click or Esc hands focus back to the agents pane; run by hand, there is none to name.
+ * After Alt+→ the keys work every control: ↑↓, space and Esc.
  *
  * Joins no §N3 family: it gates nothing and is no hook.
  *
@@ -25,6 +29,7 @@ const { execFile } = require("node:child_process");
 const path = require("node:path");
 const { pidAlive } = require("./lib/arbiter-proc.js");
 const { parseOrCode } = require("./lib/cli-args");
+const { buildFocusReturn } = require("./lib/refill-panel-routes.js");
 const { openPanel } = require("./lib/refill-panel-terminal.js");
 const { resolveTopic } = require("./lib/refill-panel-topic.js");
 const { readViewEnv } = require("./lib/refill-panel-view-env.js");
@@ -32,7 +37,7 @@ const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { FETCH_TIMEOUT_MS } = require("./lib/refill-code.js");
 
-const USAGE = `usage: node ${scriptPath("refill-panel.js")} <agents-view-pid>
+const USAGE = `usage: node ${scriptPath("refill-panel.js")} <agents-view-pid> [windows-terminal|tmux]
 
 Shows the refill loop, away mode, burn mode, the goal and the repos it can serve, and changes each on a click, a goal by typing it, until that pid exits.
 `;
@@ -45,6 +50,10 @@ const READ_TIMEOUT_MS = 30_000;
 /* A `set --resume` with no process fetches the loop's code first (#3861); killed
  * mid-fetch, it would leave the loop unpaused with no process. */
 const PRESS_TIMEOUT_MS = READ_TIMEOUT_MS + FETCH_TIMEOUT_MS;
+/* Untraced, a first guess: nothing waits on it, and it need only outlast a slow cmd.exe. */
+const FOCUS_TIMEOUT_MS = 10_000;
+/* Run by hand, the panel has no way to name the pane to go to. */
+const FOCUS_NOT_MOVED = { code: 0, stdout: "", stderr: "" };
 
 /**
  * @param {string} file
@@ -74,11 +83,17 @@ const reportCrash = (err) =>
 
 /** @param {string[]} [argv] */
 function main(argv = process.argv.slice(2)) {
-	const parsed = parseOrCode(argv, { usage: USAGE, min: 1 });
+	const parsed = parseOrCode(argv, { usage: USAGE, min: 1, max: 2 });
 	if (typeof parsed === "number") return parsed;
-	const [given = ""] = parsed.positionals;
+	const [given = "", route] = parsed.positionals;
 	if (!/^[1-9]\d*$/.test(given)) {
 		writeFd(2, `refill-panel: not a pid: ${given}\n${USAGE}`);
+		return 2;
+	}
+	const env = { ...process.env, ...readViewEnv(Number(given)) };
+	const focusReturn = buildFocusReturn(route, env, process.env);
+	if (route !== undefined && !focusReturn) {
+		writeFd(2, `refill-panel: not a route: ${route}\n${USAGE}`);
 		return 2;
 	}
 	const pid = Number(given);
@@ -87,7 +102,6 @@ function main(argv = process.argv.slice(2)) {
 		writeFd(2, "refill-panel: needs a terminal\n");
 		return 1;
 	}
-	const env = { ...process.env, ...readViewEnv(pid) };
 	openPanel({
 		pid,
 		stdin: process.stdin,
@@ -103,6 +117,15 @@ function main(argv = process.argv.slice(2)) {
 		runBurn: (args) => runCommand(BURN_PROGRAM, args, READ_TIMEOUT_MS, env),
 		resolveTopic: (text, repos, signal) =>
 			resolveTopic(text, repos, { env, signal }),
+		returnFocus: focusReturn
+			? () =>
+					runCommand(
+						focusReturn.file,
+						focusReturn.args,
+						FOCUS_TIMEOUT_MS,
+						focusReturn.env,
+					)
+			: async () => FOCUS_NOT_MOVED,
 		isAlive: pidAlive,
 		now: Date.now,
 		reportCrash,

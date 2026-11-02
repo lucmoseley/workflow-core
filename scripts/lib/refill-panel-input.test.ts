@@ -79,7 +79,6 @@ describe("the key reader", () => {
 	});
 
 	it.each([
-		["an arrow it has no use for", `${ESC}[A`],
 		["Alt and an arrow", `${ESC}[1;3C`],
 		["a function key", `${ESC}[15~`],
 		["Alt and a letter", `${ESC}b`],
@@ -114,12 +113,71 @@ describe("the key reader", () => {
 	it("takes a newline in a bracketed paste as a space, and after it as Enter", () => {
 		const { read } = createInputReader();
 		expect(read(`${ESC}[200~a\r\nb${ESC}[201~\r`).keys).toEqual([
-			{ text: "a" },
-			{ text: " " },
-			{ text: " " },
-			{ text: "b" },
+			{ text: "a", pasted: true },
+			{ text: " ", pasted: true },
+			{ text: " ", pasted: true },
+			{ text: "b", pasted: true },
 			{ name: "enter" },
 		]);
+	});
+
+	it.each([
+		["up", `${ESC}[A`],
+		["down", `${ESC}[B`],
+		["up", `${ESC}OA`],
+		["down", `${ESC}OB`],
+	])("reads %s from %j", (name, bytes) => {
+		expect(createInputReader().read(bytes).keys).toEqual([{ name }]);
+	});
+
+	it("marks only a pasted space as pasted", () => {
+		const { read } = createInputReader();
+		expect(read(" ").keys).toEqual([{ text: " " }]);
+		expect(read(`${ESC}[200~ ${ESC}[201~`).keys).toEqual([
+			{ text: " ", pasted: true },
+		]);
+	});
+
+	it.each([
+		["a slip off its cell", `${ESC}[<0;3;4M${ESC}[<0;9;4m`],
+		["a right click", `${ESC}[<2;3;4M${ESC}[<2;3;4m`],
+	])("calls %s a miss, not a click", (_, bytes) => {
+		expect(createInputReader().read(bytes)).toMatchObject({
+			clicks: [],
+			missed: true,
+		});
+	});
+
+	it("calls a click no miss, nor the next read one", () => {
+		const { read } = createInputReader();
+		expect(read(`${ESC}[<0;3;4M${ESC}[<0;3;4m`).missed).toBe(false);
+		expect(read("x").missed).toBe(false);
+	});
+
+	it("takes the last focus report in one read", () => {
+		const { read } = createInputReader();
+		expect(read(`${ESC}[I${ESC}[O`)).toMatchObject({
+			focusGained: false,
+			focusLost: true,
+		});
+		expect(read(`${ESC}[O${ESC}[I`)).toMatchObject({
+			focusGained: true,
+			focusLost: false,
+		});
+	});
+
+	it("tells the pane gaining focus from losing it, and neither is a key", () => {
+		const { read } = createInputReader();
+		expect(read(`${ESC}[I`)).toMatchObject({
+			keys: [],
+			focusGained: true,
+			focusLost: false,
+		});
+		expect(read(`${ESC}[O`)).toMatchObject({
+			keys: [],
+			focusGained: false,
+			focusLost: true,
+		});
 	});
 });
 

@@ -1,5 +1,5 @@
 /*
- * refill-panel-terminal.js — the refill loop's panel on a terminal (#3873, #3885, spec
+ * refill-panel-terminal.js — the refill loop's panel on a terminal (#3873, #3885, #3887, spec
  * #3596): raw mode, the alternate screen and mouse reports on opening, handed back
  * on every exit a process can catch, and the poll and pid watch between. It asks what
  * the terminal can draw on opening, keeping the text controls until both answers say
@@ -16,10 +16,10 @@ const { ESC, createInputReader } = require("./refill-panel-input.js");
 
 /* Primary device attributes, then the character cell's size in pixels. */
 const ASK_CAPABILITIES = `${ESC}[c${ESC}[16t`;
-const SCREEN_ON = `${ESC}[?1049h${ESC}[?25l${ESC}[?1000h${ESC}[?1006h${ESC}[?2004h${ASK_CAPABILITIES}`;
-/* Any-motion reports and focus reports serve only the images' hover: no leave report
- * exists, so losing focus is what ends one. */
-const HOVER_ON = `${ESC}[?1003h${ESC}[?1004h`;
+const SCREEN_ON = `${ESC}[?1049h${ESC}[?25l${ESC}[?1000h${ESC}[?1006h${ESC}[?1004h${ESC}[?2004h${ASK_CAPABILITIES}`;
+/* Any-motion reports serve only the images' hover. No leave report exists, so losing
+ * focus is what ends one. */
+const HOVER_ON = `${ESC}[?1003h`;
 const SCREEN_OFF = `${ESC}[?1004l${ESC}[?1003l${ESC}[?2004l${ESC}[?1006l${ESC}[?1000l${ESC}[?25h${ESC}[?1049l`;
 const CLEAR = `${ESC}[2J`;
 
@@ -45,6 +45,7 @@ const SIGNAL_EXITS = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
  *   run: import("./refill-panel.js").Runner,
  *   runBurn: import("./refill-panel.js").Runner,
  *   resolveTopic: import("./refill-panel.js").TopicResolver,
+ *   returnFocus: import("./refill-panel.js").FocusReturner,
  *   isAlive: (pid: number) => boolean, now: () => number,
  *   reportCrash: (err: unknown) => void}} io
  */
@@ -56,6 +57,7 @@ function openPanel({
 	run,
 	runBurn,
 	resolveTopic,
+	returnFocus,
 	isAlive,
 	now,
 	reportCrash,
@@ -130,6 +132,8 @@ function openPanel({
 		runBurn,
 		now,
 		resolveTopic,
+		returnFocus,
+		height: () => stdout.rows ?? DEFAULT_ROWS,
 		onChange: draw,
 	});
 	const input = createInputReader();
@@ -150,9 +154,11 @@ function openPanel({
 		clearTimeout(escapeWait);
 		const {
 			clicks,
+			missed,
 			moves,
 			keys,
 			capabilities: answered,
+			focusGained,
 			focusLost,
 			interrupted,
 			held,
@@ -164,8 +170,13 @@ function openPanel({
 		takeCapabilities(answered);
 		const [lastMove] = moves.slice(-1);
 		if (lastMove !== undefined) moveHover(lastMove);
-		if (focusLost) moveHover(null);
+		if (focusLost) {
+			moveHover(null);
+			panel.loseFocus();
+		}
+		if (focusGained) panel.takeFocus();
 		for (const row of clicks) panel.click(row).catch(crash);
+		if (missed) panel.missClick().catch(crash);
 		pressKeys(keys);
 		if (held)
 			escapeWait = setTimeout(() => pressKeys(input.flush()), ESCAPE_WAIT_MS);

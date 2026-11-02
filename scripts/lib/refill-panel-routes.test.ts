@@ -1,10 +1,11 @@
 // @vitest-environment node
 /*
- * Which splits an environment offers (#3886). Asserted on the whole argv, as a
+ * Which splits an environment offers (#3886), and what returns focus from each
+ * (#3887). Asserted on the whole argv, as a
  * dropped word or a flag `wt.exe` swallows opens no panel and nothing says so.
  */
 import { describe, expect, it } from "vitest";
-import { buildRoutes } from "./refill-panel-routes.js";
+import { buildFocusReturn, buildRoutes } from "./refill-panel-routes.js";
 
 const COMMAND = ["/n/node", "/p/refill-panel.js", "42"];
 const WINDOWS_TERMINAL = {
@@ -24,12 +25,13 @@ const WINDOWS_TERMINAL = {
 		"wsl.exe",
 		"-e",
 		...COMMAND,
+		"windows-terminal",
 	],
 };
 const TMUX = {
 	name: "tmux",
 	file: "tmux",
-	args: ["split-window", "-h", "-d", "-l", "30%", ...COMMAND],
+	args: ["split-window", "-h", "-d", "-l", "30%", ...COMMAND, "tmux"],
 };
 
 const routes = (
@@ -70,5 +72,36 @@ describe("buildRoutes", () => {
 
 	it("offers no split with neither", () => {
 		expect(routes({})).toEqual([]);
+	});
+});
+
+describe("buildFocusReturn", () => {
+	const View = { PATH: "/view", TMUX_PANE: "%1" };
+	const Own = { TMUX_PANE: "%2" };
+
+	it("moves left in the Windows Terminal window in use, on the view's PATH", () => {
+		expect(buildFocusReturn("windows-terminal", View, Own)).toEqual({
+			file: "cmd.exe",
+			args: ["/c", "wt.exe", "-w", "0", "move-focus", "left"],
+			env: View,
+		});
+	});
+
+	it("selects the pane left of the panel's own in tmux, not the view's", () => {
+		expect(buildFocusReturn("tmux", View, Own)).toEqual({
+			file: "tmux",
+			args: ["select-pane", "-L"],
+			env: { PATH: "/view", TMUX_PANE: "%2" },
+		});
+	});
+
+	it("runs nothing on the printed route, which names no route", () => {
+		expect(buildFocusReturn(undefined, View, Own)).toBeNull();
+	});
+
+	it("gives each split's route a return", () => {
+		const offered = routes({ WSL_INTEROP: "/run/x", TMUX: "/t" });
+		for (const route of offered)
+			expect(buildFocusReturn(route.args.at(-1), View, Own)).not.toBeNull();
 	});
 });

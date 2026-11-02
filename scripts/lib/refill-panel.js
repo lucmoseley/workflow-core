@@ -1,7 +1,7 @@
 /*
  * refill-panel.js — what the refill loop's panel draws and what a click or a key
- * does, with no terminal (#3873, #3875, #3877, #3879, #3881, #3883, #3884, spec #3596): status JSON and pending presses in, rows
- * out; a click on a row or a key in a field in, a `refill-loop.js` or `burn-mode.sh` argv out. The
+ * does, with no terminal (#3873, #3875, #3877, #3879, #3881, #3883, #3884, #3887, spec #3596): status JSON and pending presses in, rows
+ * out; a click on a row or a key in, a `refill-loop.js` or `burn-mode.sh` argv out, and focus handed back. The
  * panel runs those two for every read and write, and never opens a control or
  * state file, so the loop's validation, lock and wake apply to every loop press.
  *
@@ -52,6 +52,8 @@ const SYNC_OFF = `${ESC}[?2026l`;
 
 /* Two rows in every state, so nothing below the goal moves (#3596 story 55). */
 const GOAL_CAPTION = ["Click to change it", "Enter to save · Esc to cancel"];
+const KEY_HINT = ["↑↓ move · space change", "Esc leave"];
+const POINTER_MARK = "❯";
 
 /* How `refill-loop.js` opens what it refuses under its lock; refused sooner, it
  * prints the bare reason. */
@@ -130,6 +132,8 @@ const ROLE_STYLES = {
 
 /** @typedef {import("./refill-panel-input.js").Key} Key */
 
+/** @typedef {() => ReturnType<Runner>} FocusReturner */
+
 /**
  * A topic on its way to being a goal; `found`, null until its issues are back.
  * @typedef {import("./refill-panel-topic.js").TopicSet} TopicSet
@@ -145,7 +149,8 @@ const ROLE_STYLES = {
  *   goalEdit: GoalEdit|null, goalResolve: GoalResolve|null,
  *   goalPending: Pending|null, goalNote: PressNote|null,
  *   repoPending: Record<string, Pending>,
- *   repoRefusal: (PressNote & {name: string})|null}} PanelView
+ *   repoRefusal: (PressNote & {name: string})|null,
+ *   pointer: string|null, focusNote: string|null}} PanelView
  */
 
 /**
@@ -155,9 +160,10 @@ const ROLE_STYLES = {
 
 /**
  * `detail`, drawn after `text` in regular weight whatever the role. `caret`, where
- * the terminal's cursor stands in `text`, on the row being typed in.
+ * the terminal's cursor stands in `text`, on the row being typed in. `pointed`, the
+ * row the keyboard's pointer is on.
  * @typedef {{text: string, role: Role, detail?: string, presses?: "loop",
- *   caret?: number,
+ *   caret?: number, pointed?: boolean,
  *   control?: {id: "loop"|"away"|"burn"|"goal", state: SwitchState}
  *     | {id: "goalField"|"goalSave"|"goalCancel"}
  *     | {id: "repo", name: string, state: BoxState}}} Row
@@ -803,12 +809,43 @@ function buildReposRows({ status, repoPending, repoRefusal }, now) {
 	];
 }
 
+/** @param {PanelView} view */
+const isFieldOpen = ({ goalEdit, goalResolve }) =>
+	goalEdit !== null || goalResolve !== null;
+
+/**
+ * The name the pointer holds a row's control by, which outlasts the row moving; null
+ * for a row it skips, a disabled box pressing nothing.
+ * @param {Row} row
+ * @returns {string|null}
+ */
+function buildPointerKey({ control }) {
+	if (!control) return null;
+	if (control.id !== "repo") return control.id;
+	return control.state === "disabled" ? null : `repo:${control.name}`;
+}
+
 /**
  * @param {PanelView} view
  * @param {number} now
  * @returns {Row[]}
  */
 function buildRows(view, now) {
+	const rows = buildUnpointedRows(view, now);
+	return view.pointer === null || isFieldOpen(view)
+		? rows
+		: rows.map((row) =>
+				buildPointerKey(row) === view.pointer ? { ...row, pointed: true } : row,
+			);
+}
+
+/**
+ * The key hint goes while a field or topic is open, as the arrows then do not move.
+ * @param {PanelView} view
+ * @param {number} now
+ * @returns {Row[]}
+ */
+function buildUnpointedRows(view, now) {
 	const state = buildSwitchState(view);
 	return [
 		{
@@ -828,6 +865,20 @@ function buildRows(view, now) {
 		...(view.goalResolve?.found
 			? buildTopicSetRows(view.goalResolve.found)
 			: buildReposRows(view, now)),
+		...(isFieldOpen(view)
+			? []
+			: [
+					SIBLING_GAP,
+					...(view.focusNote
+						? [
+								{
+									text: `Focus stayed here: ${view.focusNote}`,
+									role: /** @type {Role} */ ("value"),
+								},
+							]
+						: []),
+					...buildCaptionRows(KEY_HINT),
+				]),
 	];
 }
 
@@ -1002,10 +1053,19 @@ const buildFailureText = ({ code, stderr }) =>
  * The panel's state over an injected runner. Reads never overlap: one asked for
  * during another runs after it, so a press's read starts after its command.
  * @param {{run: Runner, runBurn: Runner, now: () => number,
- *   resolveTopic: TopicResolver, onChange: () => void}} deps `run`,
- *   `refill-loop.js`; `runBurn`, `burn-mode.sh`
+ *   resolveTopic: TopicResolver, returnFocus: FocusReturner, height: () => number,
+ *   onChange: () => void}} deps `run`, `refill-loop.js`; `runBurn`, `burn-mode.sh`;
+ *   `returnFocus`, hands focus to the agents pane; `height`, the terminal's rows
  */
-function createPanel({ run, runBurn, now, resolveTopic, onChange }) {
+function createPanel({
+	run,
+	runBurn,
+	now,
+	resolveTopic,
+	returnFocus,
+	height,
+	onChange,
+}) {
 	/** @type {PanelView} */
 	const view = {
 		status: null,
@@ -1022,7 +1082,12 @@ function createPanel({ run, runBurn, now, resolveTopic, onChange }) {
 		goalNote: null,
 		repoPending: {},
 		repoRefusal: null,
+		pointer: null,
+		focusNote: null,
 	};
+	/* Off a focus report, so never set on a terminal that sends none. */
+	let focusGone = false;
+	let returning = false;
 	let reading = false;
 	let readAgain = false;
 	/** @type {AbortController|null} */
@@ -1247,7 +1312,10 @@ function createPanel({ run, runBurn, now, resolveTopic, onChange }) {
 		if ("why" in result) {
 			view.goalResolve = null;
 			takeResolveFailure(result.why);
-		} else request.found = result;
+			await leaveUnlessOpen();
+			return;
+		}
+		request.found = result;
 		onChange();
 	}
 
@@ -1283,32 +1351,144 @@ function createPanel({ run, runBurn, now, resolveTopic, onChange }) {
 		);
 	}
 
-	/** @param {Key} key */
-	async function pressTopicKey(key) {
-		if (!("name" in key)) return;
-		if (key.name === "enter") await saveTopic();
-		if (key.name === "escape") cancelResolve();
+	/**
+	 * Skipped where the founder has already gone: a resolve can
+	 * fail long after its Enter, and `move-focus` counts from wherever focus now is, as
+	 * it does for a second return while the first runs. A return that fails leaves the
+	 * pointer showing, as the keys here still work (#3887).
+	 */
+	async function leave() {
+		view.pointer = null;
+		view.focusNote = null;
+		onChange();
+		if (focusGone || returning) return;
+		returning = true;
+		const result = await returnFocus();
+		returning = false;
+		if (result.code === 0) return;
+		view.focusNote = buildFailureText(result);
+		showPointer();
+		onChange();
+	}
+
+	/** After a key, focus stays while a field or topic waits on its Enter or Esc. */
+	async function leaveUnlessOpen() {
+		if (!isFieldOpen(view)) await leave();
 	}
 
 	/**
-	 * Every key but Enter and Esc edits the field, and with no field or topic open no
-	 * key does anything (#3596 story 75).
+	 * After a click, focus stays only for typing: a topic waiting on its press does not
+	 * hold it, as Save and Cancel are rows to click (#3596 stories 72, 73).
+	 */
+	async function leaveUnlessTyping() {
+		if (!view.goalEdit) await leave();
+	}
+
+	/**
+	 * Leaves as the press starts, not when its command ends, as the next keystroke will
+	 * not wait for it; a press's refusal therefore draws after focus has gone (#3887). A
+	 * press opens or closes a field before its first await.
+	 * @param {() => Promise<void>} press
+	 * @param {() => Promise<void>} leaveAfter
+	 */
+	async function pressThenLeave(press, leaveAfter) {
+		await Promise.all([press(), leaveAfter()]);
+	}
+
+	/** @param {Key} key */
+	async function pressTopicKey(key) {
+		if (!("name" in key)) return;
+		if (key.name === "enter") await pressThenLeave(saveTopic, leaveUnlessOpen);
+		if (key.name === "escape") {
+			cancelResolve();
+			await leaveUnlessOpen();
+		}
+	}
+
+	/**
+	 * @param {GoalEdit} edit
 	 * @param {Key} key
 	 */
-	async function pressKey(key) {
-		if (view.goalResolve) {
-			await pressTopicKey(key);
-			return;
-		}
-		const edit = view.goalEdit;
-		if (!edit) return;
+	async function pressEditKey(edit, key) {
 		if ("name" in key && key.name === "enter") {
-			await saveGoal(edit);
+			await pressThenLeave(() => saveGoal(edit), leaveUnlessOpen);
 			return;
 		}
-		view.goalEdit =
-			"name" in key && key.name === "escape" ? null : buildEditAfter(edit, key);
+		if ("name" in key && key.name === "escape") {
+			view.goalEdit = null;
+			await leaveUnlessOpen();
+			return;
+		}
+		view.goalEdit = buildEditAfter(edit, key);
 		onChange();
+	}
+
+	/** The controls the pointer can reach: past the pane's last row, a press would be blind. */
+	const buildPointerKeys = () =>
+		buildRows(view, now())
+			.slice(0, countDrawnRows(height()))
+			.map(buildPointerKey)
+			.filter((key) => key !== null);
+
+	/** Where a terminal reports no focus, the first arrow is what shows the pointer. */
+	function showPointer() {
+		if (view.pointer !== null) return;
+		view.pointer = buildPointerKeys()[0] ?? null;
+		onChange();
+	}
+
+	function takeFocus() {
+		focusGone = false;
+		showPointer();
+	}
+
+	function loseFocus() {
+		focusGone = true;
+		if (view.pointer === null) return;
+		view.pointer = null;
+		onChange();
+	}
+
+	/** @param {-1|1} step stops at either end */
+	function movePointer(step) {
+		if (view.pointer === null) {
+			showPointer();
+			return;
+		}
+		const keys = buildPointerKeys();
+		const at = keys.indexOf(view.pointer);
+		view.pointer =
+			keys[Math.min(Math.max(at + step, 0), keys.length - 1)] ?? null;
+		onChange();
+	}
+
+	/**
+	 * With no field or topic open, only the arrows, space and Esc do anything (#3596
+	 * stories 74, 75). Space alone: two in one read, or one in a paste, were never a press
+	 * on the pointer's control.
+	 * @param {Key} key
+	 */
+	async function pressPointerKey(key) {
+		if ("text" in key) {
+			if (key.text === " " && !key.pasted && view.pointer !== null) {
+				const rows = buildRows(view, now());
+				await pressRow(
+					rows.find((row) => row.pointed),
+					false,
+				);
+			}
+			return;
+		}
+		if (key.name === "escape") await leaveUnlessOpen();
+		if (key.name === "up") movePointer(-1);
+		if (key.name === "down") movePointer(1);
+	}
+
+	/** @param {Key} key */
+	async function pressKey(key) {
+		if (view.goalResolve) await pressTopicKey(key);
+		else if (view.goalEdit) await pressEditKey(view.goalEdit, key);
+		else await pressPointerKey(key);
 	}
 
 	/**
@@ -1324,7 +1504,7 @@ function createPanel({ run, runBurn, now, resolveTopic, onChange }) {
 			view.goalEdit = null;
 			onChange();
 		}
-		await pressRow(row, closedEdit);
+		await pressThenLeave(() => pressRow(row, closedEdit), leaveUnlessTyping);
 	}
 
 	/**
@@ -1366,8 +1546,19 @@ function createPanel({ run, runBurn, now, resolveTopic, onChange }) {
 		}
 	}
 
-	return { view, refreshStatus, click, pressKey };
+	return {
+		view,
+		refreshStatus,
+		click,
+		missClick: leaveUnlessTyping,
+		pressKey,
+		takeFocus,
+		loseFocus,
+	};
 }
+
+/** @param {number} height the terminal's rows */
+const countDrawnRows = (height) => Math.max(height - TOP_ROW + 1, 0);
 
 /** @param {string} text a command's words, which may carry control characters */
 const buildDrawableChars = (text) => [...text.replace(/\p{Cc}+/gu, " ")];
@@ -1437,7 +1628,7 @@ function buildFrame(
 	let cursor = "";
 	let placed = "";
 	const drawn = rows
-		.slice(0, Math.max(height - TOP_ROW + 1, 0))
+		.slice(0, countDrawnRows(height))
 		.map((row, i) => {
 			const terminalRow = TOP_ROW + i;
 			const imaged =
@@ -1464,7 +1655,11 @@ function buildFrame(
  * @param {number} terminalRow
  * @param {number} width
  */
-function buildFrameLine({ text, detail, role, caret }, terminalRow, width) {
+function buildFrameLine(
+	{ text, detail, role, caret, pointed },
+	terminalRow,
+	width,
+) {
 	const { rgb, bold } = ROLE_STYLES[role];
 	const start = caret === undefined ? 0 : Math.max(caret - width + 1, 0);
 	const chars =
@@ -1478,6 +1673,7 @@ function buildFrameLine({ text, detail, role, caret }, terminalRow, width) {
 				? ""
 				: `${ESC}[${terminalRow};${LEFT_COLUMN + caret - start}H${ESC}[?25h`,
 		text: [
+			`${ESC}[${terminalRow};1H${pointed ? POINTER_MARK : " "}`,
 			`${ESC}[${terminalRow};${LEFT_COLUMN}H`,
 			bold ? `${ESC}[1m` : "",
 			`${ESC}[38;2;${rgb.join(";")}m`,

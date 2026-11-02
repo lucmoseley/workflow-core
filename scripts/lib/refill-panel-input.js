@@ -1,10 +1,10 @@
 /*
  * refill-panel-input.js — the refill loop's panel's raw input stream, read across
- * chunks (#3873, #3883, #3885, spec #3596): SGR mouse reports (mode 1006), where a click is
+ * chunks (#3873, #3883, #3885, #3887, spec #3596): SGR mouse reports (mode 1006), where a click is
  * a left release in the cell of the left press before it, the press that focused the
  * pane counting as the terminal reports it like any other, and a motion report moves
  * the hover and leaves that press alone; the terminal's answers about what it can draw;
- * and the keys a field uses, any other sequence dropped.
+ * the pane gaining and losing focus; and the keys the panel uses, any other sequence dropped.
  */
 
 const ESC = String.fromCharCode(27);
@@ -31,6 +31,7 @@ const LEFT_BUTTON = 0;
 const MOTION_BIT = 32;
 const PASTE_START = "200~";
 const PASTE_END = "201~";
+const FOCUS_IN = "I";
 const FOCUS_OUT = "O";
 /* A primary device attributes reply, and attribute 4, Sixel graphics (xterm ctlseqs). */
 const DEVICE_ATTRIBUTES = /^\?[\d;]*c$/;
@@ -40,13 +41,15 @@ const SIXEL_ATTRIBUTE = "4";
 const CELL_10_BY_20 = "6;20;10t";
 
 /**
- * A key the panel can use.
- * @typedef {{text: string}
- *   | {name: "enter"|"escape"|"backspace"|"delete"|"left"|"right"|"home"|"end"}} Key
+ * A key the panel can use. `pasted`: from a bracketed paste, so no one pressed it.
+ * @typedef {{text: string, pasted?: boolean}
+ *   | {name: "enter"|"escape"|"backspace"|"delete"|"up"|"down"|"left"|"right"|"home"|"end"}} Key
  */
 
 /** @type {Record<string, Key>} */
 const SEQUENCE_KEYS = {
+	A: { name: "up" },
+	B: { name: "down" },
 	D: { name: "left" },
 	C: { name: "right" },
 	H: { name: "home" },
@@ -67,7 +70,13 @@ const CONTROL_KEYS = {
 /** @type {Key} */
 const ESCAPE_KEY = { name: "escape" };
 /** @type {Key} */
-const PASTED_NEWLINE = { text: " " };
+const PASTED_NEWLINE = { text: " ", pasted: true };
+
+/** @param {Key} key */
+function buildPastedKey(key) {
+	if (key === ENTER_KEY) return PASTED_NEWLINE;
+	return "text" in key ? { ...key, pasted: true } : key;
+}
 
 /** @param {string|undefined} button */
 const isMotion = (button) => (Number(button) & MOTION_BIT) !== 0;
@@ -94,6 +103,7 @@ function createInputReader() {
 	let pasting = false;
 	/** @type {string|null} */
 	let pressedCell = null;
+	let missed = false;
 
 	/**
 	 * @param {Record<string, string|undefined>} report
@@ -109,6 +119,7 @@ function createInputReader() {
 		}
 		const clicked = left && pressedCell === cell;
 		pressedCell = null;
+		missed ||= !clicked;
 		return clicked ? [Number(row)] : [];
 	};
 
@@ -119,10 +130,11 @@ function createInputReader() {
 	const takeKey = ({ lone, text, csi, ss3, control }) => {
 		if (csi === PASTE_START || csi === PASTE_END) pasting = csi === PASTE_START;
 		if (lone) return [ESCAPE_KEY];
-		if (text) return [{ text }];
-		const key = SEQUENCE_KEYS[csi ?? ss3 ?? ""] ?? CONTROL_KEYS[control ?? ""];
+		const key = text
+			? { text }
+			: (SEQUENCE_KEYS[csi ?? ss3 ?? ""] ?? CONTROL_KEYS[control ?? ""]);
 		if (!key) return [];
-		return [pasting && key === ENTER_KEY ? PASTED_NEWLINE : key];
+		return [pasting ? buildPastedKey(key) : key];
 	};
 
 	return {
@@ -135,14 +147,22 @@ function createInputReader() {
 			const tokens = [
 				...input.slice(0, input.length - rest.length).matchAll(INPUT_TOKEN),
 			].map((match) => match.groups ?? {});
+			missed = false;
+			const clicks = tokens.flatMap((t) => (t.kind ? takeReport(t) : []));
+			const lastFocus = tokens.findLast(
+				({ csi }) => csi === FOCUS_IN || csi === FOCUS_OUT,
+			)?.csi;
 			return {
-				clicks: tokens.flatMap((t) => (t.kind ? takeReport(t) : [])),
+				clicks,
+				/* A button released with no click: a slip off its cell, or not the left one. */
+				missed,
 				moves: tokens.flatMap((t) =>
 					t.kind && isMotion(t.button) ? [Number(t.row)] : [],
 				),
 				keys: tokens.flatMap((t) => (t.kind ? [] : takeKey(t))),
 				capabilities: tokens.flatMap(({ csi }) => parseCapabilities(csi)),
-				focusLost: tokens.some(({ csi }) => csi === FOCUS_OUT),
+				focusGained: lastFocus === FOCUS_IN,
+				focusLost: lastFocus === FOCUS_OUT,
 				interrupted: input.includes(INTERRUPT),
 				held: rest !== "",
 			};

@@ -27,6 +27,22 @@ describe("refill-panel.js", () => {
 		expect(r.stderr).toContain("<agents-view-pid>");
 	});
 
+	it("refuses a route no split passes, with its usage", () => {
+		const r = run(String(process.pid), "kitty");
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("not a route: kitty");
+		expect(r.stderr).toContain("[windows-terminal|tmux]");
+	});
+
+	it.each(["windows-terminal", "tmux"])(
+		"takes the %s route a split passes",
+		(route) => {
+			const r = run(String(process.pid), route);
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain("needs a terminal");
+		},
+	);
+
 	it("exits 0 where the pid is already gone", () => {
 		const gone = spawnSync("true").pid;
 		expect(run(String(gone)).status).toBe(0);

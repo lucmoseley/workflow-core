@@ -162,6 +162,6 @@ describe("refill-panel-open.js", () => {
 		expect(code).toBe(0);
 		const words = fs.readFileSync(seen, "utf8").trim().split("\n");
 		expect(words.slice(0, 2)).toEqual(["split-window", "-h"]);
-		expect(words.at(-1)).toBe(String(process.pid));
+		expect(words.slice(-2)).toEqual([String(process.pid), "tmux"]);
 	});
 });

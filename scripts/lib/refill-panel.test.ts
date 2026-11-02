@@ -126,10 +126,13 @@ const view = (over: object) => ({
 	burnPending: null,
 	burnReport: null,
 	goalEdit: null,
+	goalResolve: null,
 	goalPending: null,
 	goalNote: null,
 	repoPending: {},
 	repoRefusal: null,
+	pointer: null,
+	focusNote: null,
 	...over,
 });
 const rowsOf = (over: object): Row[] => buildRows(view(over), LATER);
@@ -139,11 +142,27 @@ const toGap = (rows: Row[]) => {
 	const end = rows.findIndex((r) => r.text === "");
 	return end === -1 ? rows : rows.slice(0, end);
 };
+const focusMoved = async () => ({ code: 0, stdout: "", stderr: "" });
+/* Every row fits. */
+const TALL = 200;
 const panelOver = (
 	run: unknown,
 	runBurn: unknown = run,
 	resolveTopic: unknown = noop,
-) => createPanel({ run, runBurn, now: () => AT, resolveTopic, onChange: noop });
+	{
+		returnFocus = focusMoved,
+		height = TALL,
+	}: { returnFocus?: unknown; height?: number } = {},
+) =>
+	createPanel({
+		run,
+		runBurn,
+		now: () => AT,
+		resolveTopic,
+		returnFocus,
+		height: () => height,
+		onChange: noop,
+	});
 
 function runnerOf(answers: Record<string, () => object>) {
 	const calls: string[][] = [];
@@ -659,6 +678,8 @@ describe("a click on the switch", () => {
 			run,
 			runBurn: run,
 			now: () => at,
+			returnFocus: focusMoved,
+			height: () => TALL,
 			onChange: noop,
 		});
 		await panel.refreshStatus();
@@ -1450,11 +1471,9 @@ describe("the Repos section", () => {
 
 	it("says beside the boxes that an unticked repo still supplies blockers", () => {
 		const texts = reposOf({ status: WithRepos }).map((r) => r.text);
-		expect(texts.slice(-2)).toEqual([
-			"An unticked repo still supplies",
-			"the blockers of served issues",
-		]);
-		expect(texts.at(-3)).toBe("");
+		const noteAt = texts.indexOf("An unticked repo still supplies");
+		expect(texts[noteAt + 1]).toBe("the blockers of served issues");
+		expect(texts[noteAt - 1]).toBe("");
 	});
 
 	it("spaces a title from its boxes and each box from the next by one row", () => {
@@ -1468,6 +1487,9 @@ describe("the Repos section", () => {
 			"",
 			"An unticked repo still supplies",
 			"the blockers of served issues",
+			"",
+			"↑↓ move · space change",
+			"Esc leave",
 		]);
 	});
 
@@ -2408,5 +2430,427 @@ describe("the frame's controls", () => {
 		expect(findHoverRow(rows, SWITCH_ROW)).toBe(SWITCH_ROW);
 		expect(findHoverRow(rows, SWITCH_ROW + 1)).toBeNull();
 		expect(findHoverRow(rows, SWITCH_ROW + 999)).toBeNull();
+	});
+});
+
+describe("keys and focus", () => {
+	const Status = {
+		...RUNNING,
+		mode: "normal",
+		repos: [
+			{ name: "a", root: "/a", ticked: true, disabled: null },
+			{ name: "b", root: "/b", ticked: false, disabled: null },
+			{ name: "c", root: "/c", ticked: false, disabled: "refillLoop is false" },
+		],
+		burnMode: { on: false, disagreeing: [], error: null },
+	};
+	const Walk = [
+		"Refill",
+		"Away",
+		"Burn",
+		"Goal  ",
+		"No goal",
+		"[✓] a",
+		"[ ] b",
+	];
+	const Down = { name: "down" };
+	const Up = { name: "up" };
+	const Space = { text: " " };
+	const Escape = { name: "escape" };
+	const Enter = { name: "enter" };
+
+	/* With no `held`, a press's command ends at once; so does a focus return with no `returned`. */
+	async function buildCountingPanel(
+		resolveTopic: unknown = noop,
+		held?: Promise<void>,
+		{
+			status = Status,
+			height = TALL,
+			returned = focusMoved,
+		}: {
+			status?: object;
+			height?: number;
+			returned?: typeof focusMoved;
+		} = {},
+	) {
+		const calls: string[][] = [];
+		let returns = 0;
+		const run = async (argv: string[]) => {
+			calls.push(argv);
+			if (argv[0] === "status")
+				return { code: 0, stdout: JSON.stringify(status), stderr: "" };
+			await held;
+			return { code: 0, stdout: "", stderr: "" };
+		};
+		const returnFocus = () => {
+			returns += 1;
+			return returned();
+		};
+		const panel = panelOver(run, run, resolveTopic, { returnFocus, height });
+		await panel.refreshStatus();
+		return {
+			panel,
+			returns: () => returns,
+			presses: () => calls.filter((argv) => argv[0] !== "status"),
+		};
+	}
+	type Panel = Awaited<ReturnType<typeof buildCountingPanel>>["panel"];
+	const pointedText = (panel: Panel) =>
+		(buildRows(panel.view, AT) as (Row & { pointed?: boolean })[])
+			.filter((r) => r.pointed)
+			.map((r) => r.text);
+	const rowOf = (panel: Panel, start: string) =>
+		SWITCH_ROW +
+		buildRows(panel.view, AT).findIndex((r: Row) => r.text.startsWith(start));
+	async function pointAt(panel: Panel, start: string) {
+		panel.takeFocus();
+		for (const _ of Walk) {
+			if (pointedText(panel)[0]?.startsWith(start)) return;
+			await panel.pressKey(Down);
+		}
+		throw new Error(`never reached ${start}`);
+	}
+
+	describe("the pointer", () => {
+		it("moves through every control, skipping a disabled box, and stops at each end", async () => {
+			const { panel } = await buildCountingPanel();
+			panel.takeFocus();
+			const walked = [pointedText(panel)[0]];
+			for (const _ of Walk) {
+				await panel.pressKey(Down);
+				walked.push(pointedText(panel)[0]);
+			}
+			expect(
+				walked
+					.slice(0, Walk.length)
+					.map((t, i) => t?.startsWith(Walk[i] ?? "")),
+			).toEqual(Walk.map(() => true));
+			expect(walked.at(-1)).toBe(walked.at(-2));
+			await panel.pressKey(Up);
+			expect(pointedText(panel)[0]).toMatch(/a$/);
+			for (const _ of Walk) await panel.pressKey(Up);
+			expect(pointedText(panel)[0]).toMatch(/^Refill/);
+		});
+
+		it("stops at the last control the pane draws, so no press is blind", async () => {
+			const { panel, presses } = await buildCountingPanel(noop, undefined, {
+				height: 11,
+			});
+			panel.takeFocus();
+			for (const _ of Walk) await panel.pressKey(Down);
+			expect(pointedText(panel)[0]).toMatch(/^Burn/);
+			expect(presses()).toEqual([]);
+		});
+
+		it("marks no row while a field is open, as the arrows do not move then", async () => {
+			const { panel } = await buildCountingPanel();
+			panel.takeFocus();
+			await panel.click(rowOf(panel, "No goal"));
+			expect(pointedText(panel)).toEqual([]);
+		});
+
+		it("shows on the first arrow where the terminal reports no focus", async () => {
+			const { panel } = await buildCountingPanel();
+			expect(pointedText(panel)).toEqual([]);
+			await panel.pressKey(Down);
+			expect(pointedText(panel)[0]).toMatch(/^Refill/);
+		});
+
+		it("draws in the column left of the rows, and erases when it moves off", async () => {
+			const { panel } = await buildCountingPanel();
+			panel.takeFocus();
+			const frame = () => buildFrame(buildRows(panel.view, AT), 60, 50);
+			expect(frame()).toContain(`${ESC}[${SWITCH_ROW};1H❯`);
+			await panel.pressKey(Down);
+			expect(frame()).toContain(`${ESC}[${SWITCH_ROW};1H `);
+			expect(frame().match(/❯/g)).toHaveLength(1);
+		});
+
+		it("lists the hint under the last control, and drops it while typing", async () => {
+			const { panel } = await buildCountingPanel();
+			const last = () => buildRows(panel.view, AT).at(-1)?.text;
+			const hint = "Esc leave";
+			expect(last()).toBe(hint);
+			await panel.click(rowOf(panel, "No goal"));
+			expect(last()).not.toBe(hint);
+		});
+	});
+
+	describe("space", () => {
+		it.each([
+			["Refill", ["set", "--pause"]],
+			["Away", ["set", "--away"]],
+			["[ ] b", ["set", "--tick", "b"]],
+			["Burn", ["on"]],
+		])("on %s runs what a click runs", async (start, argv) => {
+			const clicked = await buildCountingPanel();
+			await clicked.panel.click(rowOf(clicked.panel, start));
+			const keyed = await buildCountingPanel();
+			await pointAt(keyed.panel, start);
+			await keyed.panel.pressKey(Space);
+			expect(keyed.presses()).toEqual(clicked.presses());
+			expect(keyed.presses()).toEqual([argv]);
+		});
+
+		it("on a set goal's switch runs what a click runs", async () => {
+			const status = {
+				...Status,
+				goal: {
+					form: "issues",
+					text: "#5",
+					set: [],
+					open: 1,
+					takeable: 1,
+					running: 0,
+					doneAt: null,
+					readAt: AT,
+				},
+			};
+			const clicked = await buildCountingPanel(noop, undefined, { status });
+			await clicked.panel.click(rowOf(clicked.panel, "Goal  "));
+			const keyed = await buildCountingPanel(noop, undefined, { status });
+			await pointAt(keyed.panel, "Goal  ");
+			await keyed.panel.pressKey(Space);
+			expect(keyed.presses()).toEqual(clicked.presses());
+			expect(keyed.presses()).toEqual([["set", "--clear-goal"]]);
+		});
+
+		it("keeps focus, for the next control", async () => {
+			const { panel, returns } = await buildCountingPanel();
+			await pointAt(panel, "Away");
+			await panel.pressKey(Space);
+			expect(returns()).toBe(0);
+			expect(pointedText(panel)[0]).toMatch(/^Away/);
+		});
+
+		it("on the goal text opens the field, whose keys then type", async () => {
+			const { panel, returns } = await buildCountingPanel();
+			await pointAt(panel, "No goal");
+			await panel.pressKey(Space);
+			await panel.pressKey(Space);
+			expect(panel.view.goalEdit?.text).toBe(" ");
+			expect(returns()).toBe(0);
+		});
+
+		it.each([
+			["with no pointer", false, Space],
+			["pasted", true, { text: " ", pasted: true }],
+			["twice in one read", true, { text: "  " }],
+		])("does nothing %s", async (_label, pointed, pressed) => {
+			const { panel, presses } = await buildCountingPanel();
+			if (pointed) panel.takeFocus();
+			await panel.pressKey(pressed);
+			expect(presses()).toEqual([]);
+		});
+	});
+
+	describe("a stray key", () => {
+		it.each([
+			["a letter", { text: "p" }],
+			["Enter", Enter],
+			["a left arrow", { name: "left" }],
+			["backspace", { name: "backspace" }],
+		])("%s changes nothing, on any control", async (_label, pressed) => {
+			const { panel, presses, returns } = await buildCountingPanel();
+			panel.takeFocus();
+			for (const _step of Walk) {
+				await panel.pressKey(pressed);
+				await panel.pressKey(Down);
+			}
+			expect(presses()).toEqual([]);
+			expect(returns()).toBe(0);
+			expect(panel.view.goalEdit).toBeNull();
+		});
+	});
+
+	describe("Esc", () => {
+		it("leaves: the pointer goes, focus returns and nothing runs", async () => {
+			const { panel, presses, returns } = await buildCountingPanel();
+			panel.takeFocus();
+			await panel.pressKey(Escape);
+			expect(pointedText(panel)).toEqual([]);
+			expect(returns()).toBe(1);
+			expect(presses()).toEqual([]);
+		});
+	});
+
+	describe("a click", () => {
+		it("returns focus before its command ends", async () => {
+			const { held, release } = heldUntil();
+			const { panel, returns } = await buildCountingPanel(noop, held);
+			const clicking = panel.click(rowOf(panel, "Away"));
+			expect(returns()).toBe(1);
+			release();
+			await clicking;
+			expect(returns()).toBe(1);
+		});
+
+		it("returns focus off any control, so the focusing click cannot trap it", async () => {
+			const { panel, presses, returns } = await buildCountingPanel();
+			await panel.click(SWITCH_ROW + 1);
+			expect(returns()).toBe(1);
+			expect(presses()).toEqual([]);
+		});
+
+		it("on the goal text keeps focus while typing, and clicking away gives it back", async () => {
+			const { panel, returns } = await buildCountingPanel();
+			await panel.click(rowOf(panel, "No goal"));
+			await panel.pressKey({ text: "#5" });
+			expect(panel.view.goalEdit?.text).toBe("#5");
+			expect(returns()).toBe(0);
+			await panel.click(SWITCH_ROW + 1);
+			expect(returns()).toBe(1);
+		});
+	});
+
+	describe("handing focus back", () => {
+		it("returns once for two presses while the first return runs", async () => {
+			const { held, release } = heldUntil();
+			const { panel, returns } = await buildCountingPanel(noop, undefined, {
+				returned: async () => {
+					await held;
+					return { code: 0, stdout: "", stderr: "" };
+				},
+			});
+			const first = panel.pressKey(Escape);
+			const second = panel.pressKey(Escape);
+			release();
+			await Promise.all([first, second]);
+			expect(returns()).toBe(1);
+		});
+
+		it("does not return where a focus report says the founder has gone", async () => {
+			const { panel, returns } = await buildCountingPanel();
+			panel.takeFocus();
+			panel.loseFocus();
+			await panel.pressKey(Escape);
+			expect(returns()).toBe(0);
+		});
+
+		it("shows why and keeps the pointer where the return fails", async () => {
+			const { panel } = await buildCountingPanel(noop, undefined, {
+				returned: async () => ({ code: 1, stdout: "", stderr: "no wt.exe" }),
+			});
+			panel.takeFocus();
+			await panel.pressKey(Escape);
+			const texts = buildRows(panel.view, AT).map((r: Row) => r.text);
+			expect(texts).toContain("Focus stayed here: no wt.exe");
+			expect(pointedText(panel)[0]).toMatch(/^Refill/);
+		});
+
+		it("clears that once a return works", async () => {
+			let code = 1;
+			const { panel } = await buildCountingPanel(noop, undefined, {
+				returned: async () => ({ code, stdout: "", stderr: "no wt.exe" }),
+			});
+			await panel.pressKey(Escape);
+			code = 0;
+			await panel.pressKey(Escape);
+			expect(panel.view.focusNote).toBeNull();
+		});
+
+		it("leaves on a miss, pressing nothing, but not while typing", async () => {
+			const { panel, presses, returns } = await buildCountingPanel();
+			await panel.missClick();
+			expect(returns()).toBe(1);
+			await panel.click(rowOf(panel, "No goal"));
+			await panel.missClick();
+			expect(returns()).toBe(1);
+			expect(presses()).toEqual([]);
+		});
+	});
+
+	describe("the goal field", () => {
+		async function typing(text: string, resolveTopic: unknown = noop) {
+			const open = await buildCountingPanel(resolveTopic);
+			await open.panel.click(rowOf(open.panel, "No goal"));
+			await open.panel.pressKey({ text });
+			return open;
+		}
+
+		it("gives focus back on Enter, as the goal goes off", async () => {
+			const { panel, presses, returns } = await typing("#5");
+			await panel.pressKey(Enter);
+			expect(returns()).toBe(1);
+			expect(presses()).toEqual([["set", "--goal=#5"]]);
+		});
+
+		it("gives focus back on Esc, saving nothing", async () => {
+			const { panel, presses, returns } = await typing("#5");
+			await panel.pressKey(Escape);
+			expect(returns()).toBe(1);
+			expect(presses()).toEqual([]);
+		});
+
+		it("gives focus back on a blank Enter", async () => {
+			const { panel, returns } = await typing("  ");
+			await panel.pressKey(Enter);
+			expect(returns()).toBe(1);
+		});
+
+		it("holds focus through a topic to its save", async () => {
+			const found = async () => ({
+				issues: [{ repo: "a", number: 5, title: "Speed" }],
+				dropped: 0,
+			});
+			const { panel, presses, returns } = await typing("make it fast", found);
+			await panel.pressKey(Enter);
+			expect(returns()).toBe(0);
+			await panel.pressKey(Enter);
+			expect(returns()).toBe(1);
+			expect(presses()[0]?.[1]).toBe("--goal-issues=a#5");
+		});
+
+		it("gives focus back on a click elsewhere, the topic staying open", async () => {
+			const found = async () => ({
+				issues: [{ repo: "a", number: 5, title: "Speed" }],
+				dropped: 0,
+			});
+			const { panel, returns } = await typing("make it fast", found);
+			await panel.pressKey(Enter);
+			expect(returns()).toBe(0);
+			await panel.click(rowOf(panel, "Away"));
+			expect(returns()).toBe(1);
+			expect(panel.view.goalResolve?.found).not.toBeNull();
+		});
+
+		it("does not pull focus back when a resolve fails after the founder left", async () => {
+			const { held, release } = heldUntil();
+			const answer = async () => {
+				await held;
+				return { why: "no reply" };
+			};
+			const { panel, returns } = await typing("make it fast", answer);
+			const saving = panel.pressKey(Enter);
+			panel.loseFocus();
+			release();
+			await saving;
+			expect(returns()).toBe(0);
+			expect(panel.view.goalResolve).toBeNull();
+		});
+
+		it("gives focus back on a topic's Esc", async () => {
+			const found = async () => ({ issues: [], dropped: 0 });
+			const { panel, returns } = await typing("make it fast", found);
+			await panel.pressKey(Enter);
+			await panel.pressKey(Escape);
+			expect(returns()).toBe(1);
+		});
+
+		it("takes no Enter while a topic resolves, so focus waits on the answer", async () => {
+			const { held, release } = heldUntil();
+			const answer = async () => {
+				await held;
+				return { why: "no reply" };
+			};
+			const { panel, returns } = await typing("make it fast", answer);
+			const saving = panel.pressKey(Enter);
+			await panel.pressKey(Enter);
+			expect(returns()).toBe(0);
+			release();
+			await saving;
+			expect(returns()).toBe(1);
+			expect(panel.view.goalResolve).toBeNull();
+		});
 	});
 });

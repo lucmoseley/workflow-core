@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * The panel's terminal wiring (#3873): what it asks of the terminal on opening,
+ * The panel's terminal wiring (#3873, #3887): what it asks of the terminal on opening,
  * and what it hands back on each way out, over injected streams and a fake process,
  * so a signal costs no real process. Broken, a crash leaves the founder's pane raw
  * and in mouse mode, or the panel outlives its agents view.
@@ -25,6 +25,8 @@ const STATUS = JSON.stringify({
 	burnMode: { on: false, disagreeing: [], error: null },
 });
 const noop = (): void => undefined;
+/* ESCAPE_WAIT_MS in refill-panel-terminal.js. */
+const ESCAPE_WAIT_MS = 50;
 
 function terminal(over: object = {}) {
 	const written: string[] = [];
@@ -48,6 +50,7 @@ function terminal(over: object = {}) {
 	const crashes: unknown[] = [];
 	let alive = true;
 	const calls: string[][] = [];
+	let focusReturns = 0;
 	openPanel({
 		pid: 4242,
 		stdin,
@@ -57,6 +60,10 @@ function terminal(over: object = {}) {
 			calls.push(argv);
 			return { code: 0, stdout: STATUS, stderr: "" };
 		},
+		returnFocus: async () => {
+			focusReturns += 1;
+			return { code: 0, stdout: "", stderr: "" };
+		},
 		isAlive: () => alive,
 		now: () => 0,
 		reportCrash: (err: unknown) => crashes.push(err),
@@ -65,6 +72,7 @@ function terminal(over: object = {}) {
 	return {
 		calls,
 		crashes,
+		focusReturns: () => focusReturns,
 		exits,
 		proc,
 		raw,
@@ -90,6 +98,41 @@ describe("the panel's terminal", () => {
 		expect(t.text()).toContain(`${ESC}[?1049h`);
 		expect(t.text()).toContain(`${ESC}[?1000h${ESC}[?1006h`);
 		expect(t.text()).toContain(`${ESC}[?2004h`);
+	});
+
+	it("asks for focus reports on opening, whatever it can draw", () => {
+		expect(terminal().text()).toContain(`${ESC}[?1004h`);
+	});
+
+	it("shows the pointer while the pane has focus, and only then", async () => {
+		const t = terminal();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(t.text()).not.toContain("❯");
+		t.stdin.emit("data", `${ESC}[I`);
+		expect(t.text()).toContain("❯");
+		const before = t.text().length;
+		t.stdin.emit("data", `${ESC}[O`);
+		expect(t.text().slice(before)).not.toContain("❯");
+	});
+
+	it("hands focus back on a click, and on Esc once its wait ends", async () => {
+		const t = terminal();
+		await vi.advanceTimersByTimeAsync(0);
+		t.stdin.emit("data", `${ESC}[<0;9;2M${ESC}[<0;9;2m`);
+		expect(t.focusReturns()).toBe(1);
+		await vi.advanceTimersByTimeAsync(0);
+		t.stdin.emit("data", ESC);
+		expect(t.focusReturns()).toBe(1);
+		await vi.advanceTimersByTimeAsync(ESCAPE_WAIT_MS);
+		expect(t.focusReturns()).toBe(2);
+	});
+
+	it("hands focus back on a click that slips off its cell", async () => {
+		const t = terminal();
+		await vi.advanceTimersByTimeAsync(0);
+		t.stdin.emit("data", `${ESC}[<0;9;2M${ESC}[<0;20;2m`);
+		expect(t.focusReturns()).toBe(1);
+		expect(t.calls.filter((argv) => argv[0] !== "status")).toEqual([]);
 	});
 
 	it.each([
