@@ -61,6 +61,7 @@ interface Over {
 	storeFault?: boolean;
 	mainUnreadable?: boolean;
 	corePaths?: (text: string) => string;
+	scriptPath?: (name: string) => string;
 }
 
 const treeClass = fakeTreeClassifier({
@@ -96,6 +97,7 @@ function harness(over: Over = {}) {
 			over.modules?.includes("landing") ? "origin/landing" : "origin/main",
 		isMainUnreadable: () => over.mainUnreadable ?? false,
 		corePaths: over.corePaths ?? ((t: string) => t),
+		...(over.scriptPath && { scriptPath: over.scriptPath }),
 	});
 	return { ctx, logs };
 }
@@ -878,6 +880,15 @@ describe("rewinding main is refused (#765)", () => {
 			expect(readDenyReason(command)).not.toContain("repair-main");
 		},
 	);
+
+	it("spells the repair script through the context's port (#3926)", () => {
+		expect(
+			readDenyReason("git checkout -B main HEAD~1", {
+				mainUnreadable: true,
+				scriptPath: (name) => `/plugin/scripts/${name}`,
+			}),
+		).toContain("node /plugin/scripts/repair-main.js");
+	});
 
 	it("carries lib/main-rewind.js's fallback where the store cannot give the rule (#1777)", () => {
 		expect(readDenyReason("git branch -D main", { storeFault: true })).toBe(
