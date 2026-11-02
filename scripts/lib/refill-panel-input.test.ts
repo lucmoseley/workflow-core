@@ -122,3 +122,57 @@ describe("the key reader", () => {
 		]);
 	});
 });
+
+describe("what the terminal answers", () => {
+	const read = (bytes: string) => createInputReader().read(bytes);
+
+	it("takes Sixel from device attributes carrying 4", () => {
+		const reply = `${ESC}[?61;4;6;7;14;21;22;23;24;28;32;42;52c`;
+		expect(read(reply).capabilities).toEqual(["sixel"]);
+		expect(read(reply).keys).toEqual([]);
+	});
+
+	it.each(["?61;6;7;22c", "?64;14c", "?1;2c"])(
+		"takes no Sixel from attributes without 4: %s",
+		(params) => {
+			expect(read(`${ESC}[${params}`).capabilities).toEqual([]);
+		},
+	);
+
+	it("takes the 10×20 cell, and no other", () => {
+		expect(read(`${ESC}[6;20;10t`).capabilities).toEqual(["cell10x20"]);
+		expect(read(`${ESC}[6;16;8t`).capabilities).toEqual([]);
+	});
+
+	it("reads an answer split across chunks", () => {
+		const reader = createInputReader();
+		expect(reader.read(`${ESC}[?61;`).capabilities).toEqual([]);
+		expect(reader.read("4c").capabilities).toEqual(["sixel"]);
+	});
+});
+
+describe("the pointer", () => {
+	it("reports motion's row, with no button or the left held", () => {
+		const { read } = createInputReader();
+		expect(read(`${ESC}[<35;5;7M`).moves).toEqual([7]);
+		expect(read(`${ESC}[<32;5;8M`).moves).toEqual([8]);
+	});
+
+	it("keeps a press through motion, so it still clicks on release", () => {
+		const { read } = createInputReader();
+		read(`${ESC}[<0;5;7M`);
+		read(`${ESC}[<32;5;7M`);
+		expect(read(`${ESC}[<0;5;7m`).clicks).toEqual([7]);
+	});
+
+	it("takes neither a press nor a release as motion", () => {
+		const { moves } = createInputReader().read(`${ESC}[<0;5;7M${ESC}[<0;5;7m`);
+		expect(moves).toEqual([]);
+	});
+
+	it("reports the pane losing focus, and not gaining it", () => {
+		const { read } = createInputReader();
+		expect(read(`${ESC}[O`).focusLost).toBe(true);
+		expect(read(`${ESC}[I`).focusLost).toBe(false);
+	});
+});

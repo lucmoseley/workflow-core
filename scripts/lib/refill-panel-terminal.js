@@ -1,14 +1,26 @@
 /*
- * refill-panel-terminal.js — the refill loop's panel on a terminal (#3873, spec
+ * refill-panel-terminal.js — the refill loop's panel on a terminal (#3873, #3885, spec
  * #3596): raw mode, the alternate screen and mouse reports on opening, handed back
- * on every exit a process can catch, and the poll and pid watch between.
+ * on every exit a process can catch, and the poll and pid watch between. It asks what
+ * the terminal can draw on opening, keeping the text controls until both answers say
+ * images fit; a terminal that never answers keeps them.
  */
 
-const { buildFrame, buildRows, createPanel } = require("./refill-panel.js");
+const {
+	buildFrame,
+	findHoverRow,
+	buildRows,
+	createPanel,
+} = require("./refill-panel.js");
 const { ESC, createInputReader } = require("./refill-panel-input.js");
 
-const SCREEN_ON = `${ESC}[?1049h${ESC}[?25l${ESC}[?1000h${ESC}[?1006h${ESC}[?2004h`;
-const SCREEN_OFF = `${ESC}[?2004l${ESC}[?1006l${ESC}[?1000l${ESC}[?25h${ESC}[?1049l`;
+/* Primary device attributes, then the character cell's size in pixels. */
+const ASK_CAPABILITIES = `${ESC}[c${ESC}[16t`;
+const SCREEN_ON = `${ESC}[?1049h${ESC}[?25l${ESC}[?1000h${ESC}[?1006h${ESC}[?2004h${ASK_CAPABILITIES}`;
+/* Any-motion reports and focus reports serve only the images' hover: no leave report
+ * exists, so losing focus is what ends one. */
+const HOVER_ON = `${ESC}[?1003h${ESC}[?1004h`;
+const SCREEN_OFF = `${ESC}[?1004l${ESC}[?1003l${ESC}[?2004l${ESC}[?1006l${ESC}[?1000l${ESC}[?25h${ESC}[?1049l`;
 const CLEAR = `${ESC}[2J`;
 
 /* Untraced, first guesses: fast enough that a change elsewhere shows while the
@@ -78,6 +90,30 @@ function openPanel({
 			proc.exit(code);
 		});
 
+	/** @type {Set<string>} */
+	const capabilities = new Set();
+	let imagesFit = false;
+	/** @type {number|null} */
+	let hoverRow = null;
+	/** @param {string[]} answered */
+	const takeCapabilities = (answered) => {
+		for (const capability of answered) capabilities.add(capability);
+		if (imagesFit || !capabilities.has("sixel")) return;
+		if (!capabilities.has("cell10x20")) return;
+		imagesFit = true;
+		stdout.write(HOVER_ON);
+		draw();
+	};
+	/** @param {number|null} terminalRow */
+	const moveHover = (terminalRow) => {
+		const next =
+			imagesFit && terminalRow !== null
+				? findHoverRow(buildRows(panel.view, now()), terminalRow)
+				: null;
+		if (next === hoverRow) return;
+		hoverRow = next;
+		draw();
+	};
 	const draw = () => {
 		if (!restored)
 			stdout.write(
@@ -85,6 +121,7 @@ function openPanel({
 					buildRows(panel.view, now()),
 					stdout.columns ?? DEFAULT_COLUMNS,
 					stdout.rows ?? DEFAULT_ROWS,
+					{ images: imagesFit, hoverRow },
 				),
 			);
 	};
@@ -111,11 +148,23 @@ function openPanel({
 
 	stdin.on("data", (/** @type {string} */ chunk) => {
 		clearTimeout(escapeWait);
-		const { clicks, keys, interrupted, held } = input.read(chunk);
+		const {
+			clicks,
+			moves,
+			keys,
+			capabilities: answered,
+			focusLost,
+			interrupted,
+			held,
+		} = input.read(chunk);
 		if (interrupted) {
 			proc.exit(0);
 			return;
 		}
+		takeCapabilities(answered);
+		const [lastMove] = moves.slice(-1);
+		if (lastMove !== undefined) moveHover(lastMove);
+		if (focusLost) moveHover(null);
 		for (const row of clicks) panel.click(row).catch(crash);
 		pressKeys(keys);
 		if (held)

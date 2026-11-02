@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 const {
 	ESC,
 	buildFrame,
+	findHoverRow,
 	buildRows,
 	createPanel,
 } = require("./refill-panel.js");
@@ -101,11 +102,11 @@ const STOPPING = { ...RUNNING, stopRequested: true };
 
 /* The block's top row, as a mouse report counts it. */
 const SWITCH_ROW = 2;
-/* Below the switch and its three lines, two rows clear: the settings. */
-const AWAY_ROW = 8;
+/* Below the switch, a row, its three lines and two rows clear: the settings. */
+const AWAY_ROW = 9;
 const AWAY_INDEX = AWAY_ROW - SWITCH_ROW;
 /* One sibling row below Away (#3596 story 78). */
-const BURN_ROW = 10;
+const BURN_ROW = 11;
 const BURN_INDEX = BURN_ROW - SWITCH_ROW;
 const noop = (): void => undefined;
 
@@ -165,8 +166,9 @@ function heldUntil() {
 describe("the panel's rows", () => {
 	it("shows a running loop", () => {
 		const rows = rowsOf({ status: RUNNING });
-		expect(summary(rows).slice(0, 4)).toEqual([
+		expect(summary(rows).slice(0, 5)).toEqual([
 			["Refill loop  [on]", "name"],
+			["", "secondary"],
 			["3 launched today", "value"],
 			["Waiting: no free slot", "secondary"],
 			["Plans this week: .claude3 47%, .claude2 80%", "secondary"],
@@ -181,15 +183,16 @@ describe("the panel's rows", () => {
 			idle: null,
 			paused: false,
 		};
-		expect(rowsOf({ status: { ...RUNNING, lastTick } })[2].text).toBe(
+		expect(rowsOf({ status: { ...RUNNING, lastTick } })[3].text).toBe(
 			"Waiting: the next check",
 		);
 	});
 
 	it("never shows a lifted pause's words beside a switch reading on", () => {
 		const rows = rowsOf({ status: { ...RUNNING, lastTick: PAUSED_TICK } });
-		expect(summary(rows).slice(0, 4)).toEqual([
+		expect(summary(rows).slice(0, 5)).toEqual([
 			["Refill loop  [on]", "name"],
+			["", "secondary"],
 			["3 launched today", "value"],
 			["Waiting: the next check", "secondary"],
 			["Plans this week: .claude3 47%, .claude2 80%", "secondary"],
@@ -201,8 +204,9 @@ describe("the panel's rows", () => {
 			status: RUNNING,
 			pending: { on: false, landed: false },
 		});
-		expect(summary(rows).slice(0, 3)).toEqual([
+		expect(summary(rows).slice(0, 4)).toEqual([
 			["Refill loop  […]", "name"],
+			["", "secondary"],
 			["turning off…", "value"],
 			["Turning off when this check ends", "secondary"],
 		]);
@@ -214,14 +218,15 @@ describe("the panel's rows", () => {
 			status: PAUSED_BY_FOUNDER,
 			pending: { on: true, landed: false },
 		});
-		expect(rows[1].text).toBe("turning on…");
-		expect(rows[2].text).toBe("");
+		expect(rows[2].text).toBe("turning on…");
+		expect(rows[3].text).toBe("");
 	});
 
 	it("names the founder's switching off with its time", () => {
 		const rows = rowsOf({ status: PAUSED_BY_FOUNDER });
-		expect(summary(rows).slice(0, 3)).toEqual([
+		expect(summary(rows).slice(0, 4)).toEqual([
 			["Refill loop  [off]", "name"],
+			["", "secondary"],
 			["You switched it off at 14:05", "value"],
 			["Switch on to carry on", "secondary"],
 		]);
@@ -233,14 +238,14 @@ describe("the panel's rows", () => {
 			...PAUSED_BY_FOUNDER,
 			paused: { by: "founder", at: new Date(2026, 9, 30, 9, 7).getTime() },
 		};
-		expect(rowsOf({ status })[1].text).toBe(
+		expect(rowsOf({ status })[2].text).toBe(
 			"You switched it off at 2026-10-30 09:07",
 		);
 	});
 
 	it("says a click starts a paused loop with no process", () => {
 		const status = { ...PAUSED_BY_FOUNDER, running: false };
-		expect(rowsOf({ status })[2].text).toBe(
+		expect(rowsOf({ status })[3].text).toBe(
 			"Not running: switch on to start it",
 		);
 	});
@@ -248,14 +253,15 @@ describe("the panel's rows", () => {
 	it("reads one word, off, for a loop never started, and offers no restart", () => {
 		const rows = rowsOf({ status: NEVER_STARTED });
 		expect(rows[0].text).toBe("Refill loop  [off]");
-		expect(rows[1].text).toBe("off");
-		expect(rows[2].text).toBe("Not running: start it from the command line");
+		expect(rows[2].text).toBe("off");
+		expect(rows[3].text).toBe("Not running: start it from the command line");
 	});
 
 	it("reads off with its time for a loop stopped from the command line", () => {
 		const rows = rowsOf({ status: STOPPED });
-		expect(summary(rows).slice(0, 3)).toEqual([
+		expect(summary(rows).slice(0, 4)).toEqual([
 			["Refill loop  [off]", "name"],
+			["", "secondary"],
 			["off", "value"],
 			[
 				"Stopped from the command line at 14:05 · click to restart",
@@ -266,15 +272,16 @@ describe("the panel's rows", () => {
 
 	it("names the detail of a stop the command line did not ask for", () => {
 		const stop = { reason: "control-damaged", at: AT, detail: "bad JSON" };
-		expect(rowsOf({ status: { ...STOPPED, stop } })[2].text).toBe(
+		expect(rowsOf({ status: { ...STOPPED, stop } })[3].text).toBe(
 			"Stopped at 14:05: bad JSON · click to restart",
 		);
 	});
 
 	it("reads needs you for a crash, with its restart", () => {
 		const rows = rowsOf({ status: CRASHED });
-		expect(summary(rows).slice(0, 3)).toEqual([
+		expect(summary(rows).slice(0, 4)).toEqual([
 			["Refill loop  [off]", "name"],
+			["", "secondary"],
 			["needs you", "needsYou"],
 			["It died with no stop · click to restart", "value"],
 		]);
@@ -283,7 +290,7 @@ describe("the panel's rows", () => {
 
 	it("reads needs you for a founder's pause whose process died", () => {
 		const status = { ...PAUSED_BY_FOUNDER, running: false, crashed: true };
-		expect(summary(rowsOf({ status })).slice(1, 3)).toEqual([
+		expect(summary(rowsOf({ status })).slice(2, 4)).toEqual([
 			["needs you", "needsYou"],
 			["It died while switched off · click to restart", "value"],
 		]);
@@ -291,8 +298,9 @@ describe("the panel's rows", () => {
 
 	it("reads needs you for no progress, with its issues", () => {
 		const rows = rowsOf({ status: STALLED });
-		expect(summary(rows).slice(0, 3)).toEqual([
+		expect(summary(rows).slice(0, 4)).toEqual([
 			["Refill loop  [off]", "name"],
+			["", "secondary"],
 			["needs you", "needsYou"],
 			["No progress: #2518, #2519, #2520", "value"],
 		]);
@@ -304,7 +312,7 @@ describe("the panel's rows", () => {
 			...STALLED.paused,
 			issues: issuesIn("/h/wc", "/h/manta"),
 		};
-		expect(rowsOf({ status: { ...STALLED, paused } })[2].text).toBe(
+		expect(rowsOf({ status: { ...STALLED, paused } })[3].text).toBe(
 			"No progress: wc#2518, manta#2519",
 		);
 	});
@@ -312,7 +320,7 @@ describe("the panel's rows", () => {
 	it("calls an unreadable pause neither the founder's nor no progress", () => {
 		const paused = { by: "an unreadable record", at: AT };
 		const rows = rowsOf({ status: { ...RUNNING, paused } });
-		expect(summary(rows)[1]).toEqual([
+		expect(summary(rows)[2]).toEqual([
 			"Switched off at 14:05 by an unreadable record",
 			"value",
 		]);
@@ -325,7 +333,7 @@ describe("the panel's rows", () => {
 		"reads the stop, not %s pause, once stopped from the command line",
 		(_name, pausedStatus) => {
 			const status = { ...pausedStatus, running: false, stop: STOPPED.stop };
-			expect(summary(rowsOf({ status })).slice(1, 3)).toEqual([
+			expect(summary(rowsOf({ status })).slice(2, 4)).toEqual([
 				["off", "value"],
 				[
 					"Stopped from the command line at 14:05 · click to restart",
@@ -337,7 +345,7 @@ describe("the panel's rows", () => {
 
 	it("keeps the issues of a no-progress pause whose process died", () => {
 		const status = { ...STALLED, running: false, crashed: true };
-		expect(rowsOf({ status })[2].text).toContain("#2518");
+		expect(rowsOf({ status })[3].text).toContain("#2518");
 	});
 
 	it("keeps the switch on through an allowance wait, naming the earliest reset", () => {
@@ -345,12 +353,12 @@ describe("the panel's rows", () => {
 		const status = { ...RUNNING, lastTick: planWaitTick(resets) };
 		const rows = rowsOf({ status });
 		expect(rows[0].control?.state).toBe("on");
-		expect(rows[2].text).toBe("Waiting: a plan resets at 18:40");
+		expect(rows[3].text).toBe("Waiting: a plan resets at 18:40");
 	});
 
 	it("says an allowance wait's reset is unread rather than invent one", () => {
 		const status = { ...RUNNING, lastTick: planWaitTick(null) };
-		expect(rowsOf({ status })[2].text).toBe(
+		expect(rowsOf({ status })[3].text).toBe(
 			"Waiting: a plan resets, its time unread",
 		);
 	});
@@ -358,16 +366,16 @@ describe("the panel's rows", () => {
 	it("reads off, not on, once a stop is asked of a running loop", () => {
 		const rows = rowsOf({ status: STOPPING });
 		expect(rows[0].control?.state).toBe("off");
-		expect(rows[1].text).toBe("off");
-		expect(rows[2].text).toBe("Stopping: sessions running finish");
+		expect(rows[2].text).toBe("off");
+		expect(rows[3].text).toBe("Stopping: sessions running finish");
 	});
 
 	it("claims neither word while the status is unread", () => {
 		expect(rowsOf({})[0].control?.state).toBe("unknown");
 		const rows = rowsOf({ readError: "status --json: bad" });
 		expect(rows[0].control?.state).toBe("unknown");
-		expect(rows[1].text).toBe("Status unreadable");
-		expect(rows[2].text).toBe("status --json: bad");
+		expect(rows[2].text).toBe("Status unreadable");
+		expect(rows[3].text).toBe("status --json: bad");
 	});
 
 	it("is the switch and three lines in every case", () => {
@@ -397,7 +405,7 @@ describe("the panel's rows", () => {
 });
 
 describe("the spend line", () => {
-	const line3 = (status: object) => rowsOf({ status })[3];
+	const line3 = (status: object) => rowsOf({ status })[4];
 
 	it("shows each plan seat's week in grey, unread where it will not read", () => {
 		const row = line3({ ...RUNNING, seats: planSeats(null) });
@@ -407,13 +415,13 @@ describe("the spend line", () => {
 
 	it("shows nothing about credits with no key declared, every plan full", () => {
 		const rows = rowsOf({ status: { ...RUNNING, seats: FULL_SEATS } });
-		expect(rows[3].text).toBe("Plans this week: .claude3 100%, .claude2 100%");
+		expect(rows[4].text).toBe("Plans this week: .claude3 100%, .claude2 100%");
 		expect(rows[0].detail).toBeUndefined();
 	});
 
 	it("shows nothing about credits while a plan has room, a key declared", () => {
 		const rows = rowsOf({ status: { ...RUNNING, overflow: [key()] } });
-		expect(rows[3].text).toMatch(/^Plans this week/);
+		expect(rows[4].text).toMatch(/^Plans this week/);
 		expect(rows[0].detail).toBeUndefined();
 	});
 
@@ -431,8 +439,8 @@ describe("the spend line", () => {
 		const rows = rowsOf({
 			status: { ...RUNNING, seats: FULL_SEATS, overflow },
 		});
-		expect(rows[3].text).toBe("On API credits: $358 of $700 left");
-		expect(rows[3].role).toBe("value");
+		expect(rows[4].text).toBe("On API credits: $358 of $700 left");
+		expect(rows[4].role).toBe("value");
 		expect(rows[0].detail).toBe("API credits · on");
 	});
 
@@ -450,7 +458,7 @@ describe("the spend line", () => {
 			lastTick: planWaitTick(AT),
 		};
 		const rows = rowsOf({ status });
-		expect(rows[3].text).toBe("Plans and API credits all used up");
+		expect(rows[4].text).toBe("Plans and API credits all used up");
 		expect(rows[0].control?.state).toBe("on");
 		expect(rows[0].detail).toBeUndefined();
 	});
@@ -497,7 +505,7 @@ describe("the spend line", () => {
 			status: RUNNING,
 			pending: { on: false, landed: false },
 		});
-		expect(rows[3].text).toMatch(/^Plans this week/);
+		expect(rows[4].text).toMatch(/^Plans this week/);
 	});
 });
 
@@ -621,7 +629,7 @@ describe("a click on the switch", () => {
 			});
 			const panel = panelOver(run);
 			await panel.refreshStatus();
-			await panel.click(SWITCH_ROW + 2);
+			await panel.click(SWITCH_ROW + 3);
 			expect(calls).toHaveLength(callCount);
 		},
 	);
@@ -661,7 +669,7 @@ describe("a click on the switch", () => {
 		at += 1000;
 		await panel.refreshStatus();
 		expect(panel.view.pending).toBeNull();
-		expect(buildRows(panel.view, at)[1].text).toBe("needs you");
+		expect(buildRows(panel.view, at)[2].text).toBe("needs you");
 	});
 
 	it.each([
@@ -702,7 +710,7 @@ describe("a click on the switch", () => {
 		await panel.click(SWITCH_ROW);
 		expect(calls).toEqual([]);
 		await panel.refreshStatus();
-		await panel.click(SWITCH_ROW + 1);
+		await panel.click(SWITCH_ROW + 2);
 		expect(calls).toHaveLength(1);
 	});
 
@@ -719,7 +727,7 @@ describe("a click on the switch", () => {
 		const panel = panelOver(run);
 		await panel.refreshStatus();
 		const clicked = panel.click(SWITCH_ROW);
-		expect(buildRows(panel.view, LATER)[1].text).toBe("turning off…");
+		expect(buildRows(panel.view, LATER)[2].text).toBe("turning off…");
 		await panel.click(SWITCH_ROW);
 		expect(sets).toHaveLength(1);
 		release();
@@ -778,7 +786,7 @@ describe("the pending word", () => {
 	it("stays on a read showing the pause while the running tick finishes", async () => {
 		const { panel } = await pressed(RUNNING, PAUSED_MID_TICK);
 		expect(panel.view.pending).not.toBeNull();
-		expect(buildRows(panel.view, LATER)[2].text).toBe(
+		expect(buildRows(panel.view, LATER)[3].text).toBe(
 			"Turning off when this check ends",
 		);
 	});
@@ -787,7 +795,7 @@ describe("the pending word", () => {
 		const { panel, show } = await pressed(RUNNING, PAUSED_MID_TICK);
 		await show({ ...PAUSED_MID_TICK, lastTick: PAUSED_TICK });
 		expect(panel.view.pending).toBeNull();
-		expect(buildRows(panel.view, LATER)[1].text).toBe(
+		expect(buildRows(panel.view, LATER)[2].text).toBe(
 			"You switched it off at 14:06",
 		);
 	});
@@ -809,7 +817,7 @@ describe("the pending word", () => {
 		expect(panel.view.pending).toBeNull();
 		const rows = buildRows(panel.view, LATER);
 		expect(rows[0].control.state).toBe("on");
-		expect(rows[2].text).toBe("Waiting: the next check");
+		expect(rows[3].text).toBe("Waiting: the next check");
 	});
 
 	it("does not clear on a read begun before the command returned, even one showing no process", async () => {
@@ -849,10 +857,10 @@ describe("the pending word", () => {
 		expect(panel.view.pending).toBeNull();
 		const rows = buildRows(panel.view, AT + 1);
 		expect(rows[0].control.state).toBe("on");
-		expect(rows[2].text).toBe(
+		expect(rows[3].text).toBe(
 			"refill loop: nothing set: the control is damaged",
 		);
-		expect(buildRows(panel.view, LATER)[2].text).toBe("Waiting: no free slot");
+		expect(buildRows(panel.view, LATER)[3].text).toBe("Waiting: no free slot");
 	});
 
 	it("survives an unreadable status, and claims nothing during it", async () => {
@@ -871,9 +879,16 @@ describe("the Burn mode switch", () => {
 		stderr: `error: still on the burn effort after off:\n  ${Plan}\n`,
 	};
 	const running = (burnMode: object) => ({ ...RUNNING, burnMode });
-	const burnRowsOf = (over: object) => toGap(rowsOf(over).slice(BURN_INDEX));
+	/* From Burn mode to the section gap, less the row under its title. */
+	const burnSection = (rows: Row[]) => {
+		const [title, gap, ...below] = rows.slice(BURN_INDEX);
+		return gap.text === "" && below[0]?.text !== ""
+			? [title, ...toGap(below)]
+			: [title];
+	};
+	const burnRowsOf = (over: object) => burnSection(rowsOf(over));
 	const burnRows = (panel: { view: object }): Row[] =>
-		toGap(buildRows(panel.view, LATER).slice(BURN_INDEX));
+		burnSection(buildRows(panel.view, LATER));
 	const answerOk = { code: 0, stdout: "", stderr: "" };
 
 	/** A panel reading `status`, whose flips answer `answers` in turn, the last repeating. */
@@ -1284,7 +1299,7 @@ describe("the Away switch", () => {
 			text: "refill loop: nothing set: busy",
 			role: "value",
 		});
-		expect(rows[2].text).toBe("Waiting: no free slot");
+		expect(rows[3].text).toBe("Waiting: no free slot");
 		expect(buildRows(panel.view, AT + 60_000)[AWAY_INDEX + 1].text).toBe("");
 	});
 
@@ -2292,5 +2307,106 @@ describe("the Goal section", () => {
 			const rows = [{ text: "a", role: "value" }, ...editing("b", 1)];
 			expect(buildFrame(rows, 80, 2)).not.toContain(`${ESC}[?25h`);
 		});
+	});
+});
+
+describe("the spacing scale", () => {
+	const blankRunBefore = (drawn: Row[], text: string) => {
+		const at = drawn.findIndex((r) => r.text.startsWith(text));
+		let blanks = 0;
+		while (drawn[at - blanks - 1]?.text === "") blanks += 1;
+		return blanks;
+	};
+	const repos = [
+		{ name: "wc", root: "/h/wc", ticked: true, disabled: null },
+		{ name: "dv", root: "/h/dv", ticked: false, disabled: null },
+	];
+	const rows = rowsOf({ status: { ...RUNNING, repos } });
+
+	it("sets what Burn mode reports one row below its title", () => {
+		const burnMode = { on: true, disagreeing: [".claude2"], error: null };
+		const drawn = rowsOf({ status: { ...RUNNING, repos, burnMode } });
+		expect(blankRunBefore(drawn, "Not at the burn effort")).toBe(1);
+		expect(blankRunBefore(drawn, "Click runs")).toBe(0);
+	});
+
+	it.each([
+		["a title to its first element: the loop's block", "3 launched", 1],
+		["a title to its first element: the goal's field", "No goal", 1],
+		["a title to its first element: the first box", "[✓] wc", 1],
+		["siblings: Away to Burn mode", "Burn mode", 1],
+		["siblings: one box to the next", "[ ] dv", 1],
+		["siblings: the last box to the note", "An unticked repo", 1],
+		["inside a text block: the loop's line 2", "Waiting:", 0],
+		["inside a text block: the loop's line 3", "Plans this week", 0],
+		["inside a text block: the caption under the field", "Click to change", 0],
+		["inside a text block: the caption's second line", "Enter to save", 0],
+		["inside a text block: the note's second line", "the blockers of", 0],
+		["sections: the loop to Away", "Away", 2],
+		["sections: Burn mode to the Goal", "Goal", 2],
+		["sections: the Goal to Repos", "Repos", 2],
+	])("sets the rows above %s", (_, text, blanks) => {
+		expect(blankRunBefore(rows, text)).toBe(blanks);
+	});
+});
+
+describe("the frame's controls", () => {
+	const Dcs = `${ESC}P`;
+	const repos = [{ name: "wc", root: "/h/wc", ticked: true, disabled: null }];
+	const rows = rowsOf({ status: { ...RUNNING, repos } });
+	const Tall = 60;
+	const imagesOf = (frame: string) => frame.split(Dcs).length - 1;
+	const controls = rows.filter((r) => r.control?.state);
+
+	it("keeps the text controls where images are not on", () => {
+		const frame = buildFrame(rows, 80, Tall);
+		expect(frame).not.toContain(Dcs);
+		expect(frame).toContain("[on]");
+		expect(frame).toContain("[✓]");
+	});
+
+	it("draws every control as an image, its mark gone and its cells blank", () => {
+		const frame = buildFrame(rows, 80, Tall, { images: true });
+		expect(imagesOf(frame)).toBe(controls.length);
+		expect(frame).not.toContain("[on]");
+		expect(frame).not.toContain("[✓]");
+		expect(frame).toContain("Refill loop      ");
+		expect(frame).toContain(`${ESC}[${SWITCH_ROW};16H${Dcs}`);
+	});
+
+	it("draws text under the images first, and holds the frame until whole", () => {
+		const frame = buildFrame(rows, 80, Tall, { images: true });
+		expect(frame.startsWith(`${ESC}[?2026h`)).toBe(true);
+		expect(frame.endsWith(`${ESC}[?2026l`)).toBe(true);
+		expect(frame.indexOf(`${ESC}[J`)).toBeLessThan(frame.indexOf(Dcs));
+	});
+
+	it("keeps the text control on the pane's last row, where an image would scroll", () => {
+		const repoRow =
+			SWITCH_ROW + rows.findIndex((r) => r.control?.name === "wc");
+		const frame = buildFrame(rows, 80, repoRow, { images: true });
+		expect(frame).toContain("[✓]");
+		expect(imagesOf(frame)).toBe(controls.length - 1);
+	});
+
+	it("keeps the text control where the image would pass the row's end", () => {
+		const frame = buildFrame(rows.slice(0, 1), 18, Tall, { images: true });
+		expect(frame).not.toContain(Dcs);
+	});
+
+	it("grows only the hovered row's control", () => {
+		const still = buildFrame(rows, 80, Tall, { images: true });
+		const hovered = buildFrame(rows, 80, Tall, {
+			images: true,
+			hoverRow: SWITCH_ROW,
+		});
+		expect(hovered).not.toBe(still);
+		expect(hovered.split(Dcs).slice(2)).toEqual(still.split(Dcs).slice(2));
+	});
+
+	it("hovers a row holding a control, and no other", () => {
+		expect(findHoverRow(rows, SWITCH_ROW)).toBe(SWITCH_ROW);
+		expect(findHoverRow(rows, SWITCH_ROW + 1)).toBeNull();
+		expect(findHoverRow(rows, SWITCH_ROW + 999)).toBeNull();
 	});
 });

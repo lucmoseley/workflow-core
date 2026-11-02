@@ -16,6 +16,7 @@ const path = require("node:path");
 const { caught } = require("./caught.js");
 const { localDate } = require("./morning-review.js");
 const { ESC } = require("./refill-panel-input.js");
+const { buildControlImage } = require("./refill-panel-sixel.js");
 const { NO_PROGRESS_PAUSE } = require("./refill-decide.js");
 const { buildProgressText, parseGoalForm } = require("./refill-goal.js");
 
@@ -43,6 +44,11 @@ const NOT_RUNNING_PREFIX = "refill loop: not running";
 /* `status --json` reads a control never written and a damaged one alike, as no
  * mode. */
 const NO_CONTROL_TEXT = "No loop settings to change: run `start`";
+
+/* Holds a frame's text and images back until the whole is written, so the images' being
+ * erased and redrawn never shows. */
+const SYNC_ON = `${ESC}[?2026h`;
+const SYNC_OFF = `${ESC}[?2026l`;
 
 /* Two rows in every state, so nothing below the goal moves (#3596 story 55). */
 const GOAL_CAPTION = ["Click to change it", "Enter to save · Esc to cancel"];
@@ -555,12 +561,8 @@ function buildBurnRows(view) {
 	const { status, burnPending, burnReport } = view;
 	const word = burnPending ? `  ${buildTurningWord(burnPending.on)}` : "";
 	const press = buildBurnPress(view);
-	return [
-		{
-			text: `Burn mode  ${SWITCH_TEXT[state]}${word}`,
-			role: "name",
-			control: { id: "burn", state },
-		},
+	/** @type {Row[]} */
+	const below = [
 		...buildBurnMachineRows(status?.burnMode),
 		...(burnReport ? buildBurnReportRows(burnReport) : []),
 		...(state === "failed" && press
@@ -571,6 +573,14 @@ function buildBurnRows(view) {
 					},
 				]
 			: []),
+	];
+	return [
+		{
+			text: `Burn mode  ${SWITCH_TEXT[state]}${word}`,
+			role: "name",
+			control: { id: "burn", state },
+		},
+		...(below.length > 0 ? [SIBLING_GAP, ...below] : []),
 	];
 }
 
@@ -807,6 +817,7 @@ function buildRows(view, now) {
 			role: "name",
 			control: { id: "loop", state },
 		},
+		SIBLING_GAP,
 		...buildLoopBlock(view, now),
 		...SECTION_GAP,
 		...buildAwayRows(view, now),
@@ -1374,46 +1385,114 @@ function fitText(text, width) {
 }
 
 /**
+ * A row's text with its control's mark blanked to the cells its image covers, and the
+ * image; null where the row has no such control, or the image would pass the row's end.
+ * @param {Row} row
+ * @param {number} width
+ * @param {boolean} hovered
+ */
+function buildImagedRow({ text, control }, width, hovered) {
+	if (!control || !("state" in control)) return null;
+	const mark =
+		control.id === "repo"
+			? BOX_TEXT[control.state]
+			: SWITCH_TEXT[control.state];
+	const { cells, sixel } = buildControlImage(control, hovered);
+	const at = [...text.slice(0, text.indexOf(mark))].length;
+	if (at + cells > width) return null;
+	return { at, sixel, text: text.replace(mark, " ".repeat(cells)) };
+}
+
+/**
+ * The row a pointer's report rests on, where that row holds an image to grow.
+ * @param {Row[]} rows
+ * @param {number} terminalRow
+ */
+const findHoverRow = (rows, terminalRow) => {
+	const control = rows[terminalRow - TOP_ROW]?.control;
+	return control && "state" in control ? terminalRow : null;
+};
+
+/**
  * Ends by erasing below, so a report gone from the rows goes from the screen.
  * Draws only the rows that fit: past the bottom a terminal stacks them on its last
  * line, where a click would press a row other than the one showing. The cursor
  * shows only on a row being typed in, which scrolls to keep it in view.
+ *
+ * Images go on last, as text and erasing wipe what lies under them. A 20 px image fills
+ * four 6 px Sixel bands, so on the pane's last row it would scroll the page (#2525):
+ * that row keeps its text control.
  * @param {Row[]} rows
  * @param {number} columns the terminal's width
  * @param {number} height
+ * @param {{images?: boolean, hoverRow?: number|null}} [options] `hoverRow`, 1-based
  */
-function buildFrame(rows, columns, height) {
+function buildFrame(
+	rows,
+	columns,
+	height,
+	{ images = false, hoverRow = null } = {},
+) {
 	const width = columns - (LEFT_COLUMN - 1) * 2;
 	let cursor = "";
+	let placed = "";
 	const drawn = rows
 		.slice(0, Math.max(height - TOP_ROW + 1, 0))
-		.map(({ text, detail, role, caret }, i) => {
-			const { rgb, bold } = ROLE_STYLES[role];
-			const start = caret === undefined ? 0 : Math.max(caret - width + 1, 0);
-			if (caret !== undefined)
-				cursor = `${ESC}[${TOP_ROW + i};${LEFT_COLUMN + caret - start}H${ESC}[?25h`;
-			const chars =
-				caret === undefined
-					? [...fitText(detail ? `${text}  ${detail}` : text, width)]
-					: buildDrawableChars(text).slice(start, start + width);
-			const textChars = [...text].length;
-			return [
-				`${ESC}[${TOP_ROW + i};${LEFT_COLUMN}H`,
-				bold ? `${ESC}[1m` : "",
-				`${ESC}[38;2;${rgb.join(";")}m`,
-				chars.slice(0, textChars).join(""),
-				`${ESC}[22m`,
-				chars.slice(textChars).join(""),
-				`${ESC}[0m${ESC}[K`,
-			].join("");
+		.map((row, i) => {
+			const terminalRow = TOP_ROW + i;
+			const imaged =
+				images && terminalRow < height
+					? buildImagedRow(row, width, terminalRow === hoverRow)
+					: null;
+			if (imaged)
+				placed += `${ESC}[${terminalRow};${LEFT_COLUMN + imaged.at}H${imaged.sixel}`;
+			const line = buildFrameLine(
+				{ ...row, text: imaged?.text ?? row.text },
+				terminalRow,
+				width,
+			);
+			cursor = line.cursor || cursor;
+			return line.text;
 		})
 		.join("");
-	return `${ESC}[?25l${drawn}${ESC}[J${cursor}`;
+	const frame = `${ESC}[?25l${drawn}${ESC}[J${placed}${cursor}`;
+	return placed ? `${SYNC_ON}${frame}${SYNC_OFF}` : frame;
+}
+
+/**
+ * @param {Row} row
+ * @param {number} terminalRow
+ * @param {number} width
+ */
+function buildFrameLine({ text, detail, role, caret }, terminalRow, width) {
+	const { rgb, bold } = ROLE_STYLES[role];
+	const start = caret === undefined ? 0 : Math.max(caret - width + 1, 0);
+	const chars =
+		caret === undefined
+			? [...fitText(detail ? `${text}  ${detail}` : text, width)]
+			: buildDrawableChars(text).slice(start, start + width);
+	const textChars = [...text].length;
+	return {
+		cursor:
+			caret === undefined
+				? ""
+				: `${ESC}[${terminalRow};${LEFT_COLUMN + caret - start}H${ESC}[?25h`,
+		text: [
+			`${ESC}[${terminalRow};${LEFT_COLUMN}H`,
+			bold ? `${ESC}[1m` : "",
+			`${ESC}[38;2;${rgb.join(";")}m`,
+			chars.slice(0, textChars).join(""),
+			`${ESC}[22m`,
+			chars.slice(textChars).join(""),
+			`${ESC}[0m${ESC}[K`,
+		].join(""),
+	};
 }
 
 module.exports = {
 	ESC,
 	buildFrame,
+	findHoverRow,
 	buildRows,
 	createPanel,
 };

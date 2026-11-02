@@ -1,9 +1,10 @@
 /*
  * refill-panel-input.js — the refill loop's panel's raw input stream, read across
- * chunks (#3873, #3883, spec #3596): SGR mouse reports (mode 1006), where a click is
+ * chunks (#3873, #3883, #3885, spec #3596): SGR mouse reports (mode 1006), where a click is
  * a left release in the cell of the left press before it, the press that focused the
- * pane counting as the terminal reports it like any other; and the keys a field uses,
- * any other sequence dropped.
+ * pane counting as the terminal reports it like any other, and a motion report moves
+ * the hover and leaves that press alone; the terminal's answers about what it can draw;
+ * and the keys a field uses, any other sequence dropped.
  */
 
 const ESC = String.fromCharCode(27);
@@ -27,8 +28,16 @@ const INPUT_TOKEN = new RegExp(
 const PARTIAL_INPUT = new RegExp(`${ESC}(\\[${PARAMS}|O)?$`);
 const SEQUENCE_TAIL = new RegExp(`^${PARAMS}[@-~]`);
 const LEFT_BUTTON = 0;
+const MOTION_BIT = 32;
 const PASTE_START = "200~";
 const PASTE_END = "201~";
+const FOCUS_OUT = "O";
+/* A primary device attributes reply, and attribute 4, Sixel graphics (xterm ctlseqs). */
+const DEVICE_ATTRIBUTES = /^\?[\d;]*c$/;
+const SIXEL_ATTRIBUTE = "4";
+/* `CSI 16 t`'s reply, height then width. Only the 10×20 cell fits the controls' images
+ * to their cells (lib/refill-panel-sixel.js). */
+const CELL_10_BY_20 = "6;20;10t";
 
 /**
  * A key the panel can use.
@@ -60,6 +69,20 @@ const ESCAPE_KEY = { name: "escape" };
 /** @type {Key} */
 const PASTED_NEWLINE = { text: " " };
 
+/** @param {string|undefined} button */
+const isMotion = (button) => (Number(button) & MOTION_BIT) !== 0;
+
+/**
+ * What a terminal's answer says it can do.
+ * @param {string|undefined} csi
+ * @returns {("sixel"|"cell10x20")[]}
+ */
+function parseCapabilities(csi) {
+	if (csi === CELL_10_BY_20) return ["cell10x20"];
+	if (!csi || !DEVICE_ATTRIBUTES.test(csi)) return [];
+	return csi.slice(1, -1).split(";").includes(SIXEL_ATTRIBUTE) ? ["sixel"] : [];
+}
+
 /**
  * `held` says the stream stops on what may start a sequence: `flush` ends the wait, a
  * lone escape then reading as the Esc key, and a part of a sequence dropped with the
@@ -77,6 +100,7 @@ function createInputReader() {
 	 * @returns {number[]} the row, where this report ends a click
 	 */
 	const takeReport = ({ button, column, row, kind }) => {
+		if (isMotion(button)) return [];
 		const left = Number(button) === LEFT_BUTTON;
 		const cell = `${column};${row}`;
 		if (kind === "M") {
@@ -113,7 +137,12 @@ function createInputReader() {
 			].map((match) => match.groups ?? {});
 			return {
 				clicks: tokens.flatMap((t) => (t.kind ? takeReport(t) : [])),
+				moves: tokens.flatMap((t) =>
+					t.kind && isMotion(t.button) ? [Number(t.row)] : [],
+				),
 				keys: tokens.flatMap((t) => (t.kind ? [] : takeKey(t))),
+				capabilities: tokens.flatMap(({ csi }) => parseCapabilities(csi)),
+				focusLost: tokens.some(({ csi }) => csi === FOCUS_OUT),
 				interrupted: input.includes(INTERRUPT),
 				held: rest !== "",
 			};
