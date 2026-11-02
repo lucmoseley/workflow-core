@@ -161,6 +161,17 @@ describe("debt — the record of an edit a denial abandoned", () => {
 			expect(ghCallCount(sb)).toBe(0); // no issue, nothing to look up
 		});
 
+		it("prints a debt's commands with a path holding a space as one shell word (#3987)", () => {
+			const spaced = "docs/a b.md";
+			store.registerDenial(spaced);
+			expect(store.buildDebtNotice(spaced)).toContain(
+				"debt own 'docs/a b.md' <issue>",
+			);
+			expect(store.buildDebtNotice(spaced)).toContain(
+				"debt clear 'docs/a b.md' unowned",
+			);
+		});
+
 		it("an owned debt with an open issue names the owner and the gist as a hint", () => {
 			ghAnswers(sb, "OPEN");
 			store.ownDebt(docMap, 123, "re-derive the ADR figure");
@@ -922,7 +933,7 @@ describe("a debt keyed to a B<n> no entry occupies (mantahostels#1857)", () => {
 	});
 
 	it("completes the file-level stub when `debt own` names the denied subject", () => {
-		// The denial prints `debt own docs/doc-map.md#B9 …`, the subject it refused.
+		// The denial prints `debt own 'docs/doc-map.md#B9' …`, the subject it refused.
 		store.registerDenial(`${docMap}#B9`);
 		store.ownDebt(`${docMap}#B9`, 523, "write the new entry");
 		expect(store.readDebts(docMap)).toHaveLength(1);

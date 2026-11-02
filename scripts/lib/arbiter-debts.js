@@ -18,6 +18,7 @@ const core = require("./arbiter-core.js");
 const { ghJson, ISSUE_LIST_LIMIT } = require("./gh.js");
 const { scriptPath } = require("./script-path.js");
 const { caught } = require("./caught.js");
+const { shellQuote } = require("./sh-quote.js");
 
 /** @typedef {import("./arbiter-records.js").DebtRecord} DebtRecord */
 /** @typedef {import("./arbiter-records.js").DebtEntry} DebtEntry */
@@ -459,7 +460,7 @@ function buildDebtNotice(rel) {
 			`${rel} carries a registered debt: an edit was denied here and #${debt.issue} now owns it.\n` +
 			`#${debt.issue} owns this line; don't fix it here. The issue is authoritative on what the work is — the note below is a hint written at denial time, not a specification:\n` +
 			`  "${debt.gist || "(no gist recorded)"}"  (registered ${debt.createdAt})\n` +
-			`If you have finished it, or the issue is wrong, clear the entry: node ${scriptPath("session-arbiter.js")} debt clear ${debt.path} ${debt.issue}${torn}`
+			`If you have finished it, or the issue is wrong, clear the entry: node ${scriptPath("session-arbiter.js")} debt clear ${shellQuote(debt.path)} ${debt.issue}${torn}`
 		);
 	}
 
@@ -468,7 +469,7 @@ function buildDebtNotice(rel) {
 		"No issue was recorded against it, so nobody is tracking the work and no closure can retire it. Either own it — node " +
 		scriptPath("session-arbiter.js") +
 		" debt own " +
-		`${debt.path} <issue> "<one line>" — or clear it: node ${scriptPath("session-arbiter.js")} debt clear ${debt.path} unowned` +
+		`${shellQuote(debt.path)} <issue> "<one line>" — or clear it: node ${scriptPath("session-arbiter.js")} debt clear ${shellQuote(debt.path)} unowned` +
 		(debt.gist
 			? ""
 			: "\nLeft alone it is DELETED by the next sweep 24h after that denial (mantahostels#1302).") +
@@ -510,7 +511,7 @@ function buildManyDebtsNotice(rel, live) {
 	// screen, and naming its path in the command reads as a typo.
 	const bare = shown.find((d) => !d.issue);
 	const unowned = bare
-		? `\nThe UNOWNED entry has no issue tracking it, so nothing will ever retire it: own it — node ${scriptPath("session-arbiter.js")} debt own ${bare.path} <issue> "<one line>".`
+		? `\nThe UNOWNED entry has no issue tracking it, so nothing will ever retire it: own it — node ${scriptPath("session-arbiter.js")} debt own ${shellQuote(bare.path)} <issue> "<one line>".`
 		: "";
 	return (
 		`${rel} carries ${live.length} registered debts: edits were denied here and these own them.\n` +

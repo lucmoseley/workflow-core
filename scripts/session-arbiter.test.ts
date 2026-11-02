@@ -169,6 +169,24 @@ describe("the CLI, as the hook and the scripts invoke it", () => {
 		expect(json.hookSpecificOutput.permissionDecisionReason).toContain("alice");
 	});
 
+	it("prints each command in a denial with a path holding a space as one shell word (#3987)", () => {
+		registerSession(sb, "alice", process.pid);
+		store.acquire("docs/a b.md", store.identify("alice"));
+		registerSession(sb, "bob", process.pid);
+		const reason = JSON.parse(out(["check", inRepo("docs/a b.md"), "bob"]))
+			.hookSpecificOutput.permissionDecisionReason;
+		for (const command of [
+			"wait",
+			"release --force",
+			"request",
+			"debt clear",
+			"debt own",
+		])
+			expect(reason).toContain(
+				`node scripts/session-arbiter.js ${command} ${shellQuote("docs/a b.md")}`,
+			);
+	});
+
 	it("opens with the neighbour wait, then other subject, force and request (mantahostels#1686, #543)", () => {
 		// A plain retry and a switch of subject carried every recovery that
 		// worked; leading with `release --force` never did (mantahostels#1682).
@@ -3438,10 +3456,12 @@ describe("region claims — a §B entry, not the whole file", () => {
 		check("alice");
 		const reason = denial(check("bob", "Body of the first entry."));
 		expect(reason).toContain(`release --force ${docMap}\n`);
-		expect(reason).not.toContain(`release --force ${docMap}#B1`);
+		expect(reason).not.toContain(
+			`release --force ${shellQuote(`${docMap}#B1`)}`,
+		);
 		// The debt, by contrast, is the edit bob could not make — so it keys on the
 		// region, which is where the denial wrote the stub.
-		expect(reason).toContain(`debt own ${docMap}#B1`);
+		expect(reason).toContain(`debt own ${shellQuote(`${docMap}#B1`)}`);
 		expect(reason).toContain(
 			`${docMap}#B1 cannot be claimed while it is covered`,
 		);
