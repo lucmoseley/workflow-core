@@ -8,7 +8,7 @@ const {
 	ESC,
 	buildFrame,
 	buildRows,
-	createClickReader,
+	createInputReader,
 	createPanel,
 } = require("./refill-panel.js");
 
@@ -23,6 +23,10 @@ const WATCH_MS = 1000;
 /* A stream that reports no width, a terminal's traditional one. */
 const DEFAULT_COLUMNS = 80;
 const DEFAULT_ROWS = 24;
+/* How long a lone escape byte waits for the rest of a sequence before it reads as
+ * the Esc key. Untraced, a first guess: a terminal writes a sequence whole, so
+ * this need only outlast a split read. */
+const ESCAPE_WAIT_MS = 50;
 /* 128 plus the signal's number, the shell's convention. */
 const SIGNAL_EXITS = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
 
@@ -88,7 +92,13 @@ function openPanel({
 			);
 	};
 	const panel = createPanel({ run, runBurn, now, onChange: draw });
-	const readClicks = createClickReader();
+	const input = createInputReader();
+	/** @type {NodeJS.Timeout|undefined} */
+	let escapeWait;
+	/** @param {import("./refill-panel.js").Key[]} keys */
+	const pressKeys = (keys) => {
+		for (const key of keys) panel.key(key).catch(crash);
+	};
 
 	stdin.setRawMode(true);
 	stdin.setEncoding("utf8");
@@ -97,12 +107,16 @@ function openPanel({
 	draw();
 
 	stdin.on("data", (/** @type {string} */ chunk) => {
-		const { clicks, interrupted } = readClicks(chunk);
+		clearTimeout(escapeWait);
+		const { clicks, keys, interrupted, held } = input.read(chunk);
 		if (interrupted) {
 			proc.exit(0);
 			return;
 		}
 		for (const row of clicks) panel.click(row).catch(crash);
+		pressKeys(keys);
+		if (held)
+			escapeWait = setTimeout(() => pressKeys(input.flush()), ESCAPE_WAIT_MS);
 	});
 	stdout.on("resize", () => {
 		stdout.write(CLEAR);

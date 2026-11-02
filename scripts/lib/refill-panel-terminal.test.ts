@@ -20,6 +20,8 @@ const STATUS = JSON.stringify({
 	lastTick: null,
 	launchesToday: 0,
 	repos: [],
+	seats: { readings: [] },
+	overflow: [],
 	burnMode: { on: false, disagreeing: [], error: null },
 });
 const noop = (): void => undefined;
@@ -160,6 +162,61 @@ describe("the panel's terminal", () => {
 		await vi.advanceTimersByTimeAsync(0);
 		expect(flips).toEqual([["on"]]);
 		expect(t.calls.flat()).not.toContain("on");
+	});
+
+	describe("the goal field", () => {
+		/* The switch's row with no burn report: its section sits below Burn mode. */
+		const GoalRow = 13;
+		const FieldRow = GoalRow + 2;
+		const clickRow = (t: ReturnType<typeof terminal>, row: number) =>
+			t.stdin.emit("data", `${ESC}[<0;5;${row}M${ESC}[<0;5;${row}m`);
+		const statusWithGoal = JSON.stringify({
+			...JSON.parse(STATUS),
+			goal: { text: "#7", set: null },
+		});
+		const open = async () => {
+			const presses: string[][] = [];
+			const t = terminal({
+				run: async (argv: string[]) => {
+					if (argv[0] !== "status") presses.push(argv);
+					return { code: 0, stdout: statusWithGoal, stderr: "" };
+				},
+			});
+			await vi.advanceTimersByTimeAsync(0);
+			clickRow(t, FieldRow);
+			return { t, presses };
+		};
+
+		it("saves what was typed on Enter", async () => {
+			const { t, presses } = await open();
+			t.stdin.emit("data", "1\r");
+			await vi.advanceTimersByTimeAsync(0);
+			expect(presses).toEqual([["set", "--goal=#71"]]);
+		});
+
+		it("takes a lone escape as Esc once the wait is over, and not before", async () => {
+			const { t, presses } = await open();
+			t.stdin.emit("data", "1");
+			t.stdin.emit("data", ESC);
+			await vi.advanceTimersByTimeAsync(10);
+			t.stdin.emit("data", "2");
+			await vi.advanceTimersByTimeAsync(100);
+			t.stdin.emit("data", ESC);
+			await vi.advanceTimersByTimeAsync(100);
+			t.stdin.emit("data", "\r");
+			await vi.advanceTimersByTimeAsync(0);
+			expect(presses).toEqual([]);
+		});
+
+		it("does not take an escape that starts a sequence as Esc", async () => {
+			const { t, presses } = await open();
+			t.stdin.emit("data", ESC);
+			t.stdin.emit("data", "[D");
+			await vi.advanceTimersByTimeAsync(100);
+			t.stdin.emit("data", "1\r");
+			await vi.advanceTimersByTimeAsync(0);
+			expect(presses).toEqual([["set", "--goal=#17"]]);
+		});
 	});
 
 	it("polls the status and runs nothing else with no click", async () => {

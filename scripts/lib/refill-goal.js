@@ -243,13 +243,21 @@ const isSameGoal = (a, b) =>
 	a.text === b.text &&
 	a.refs.map(buildRefText).join() === b.refs.map(buildRefText).join();
 
-/** @param {GoalProgress|null} progress */
-function buildProgressText(progress) {
-	if (progress === null) return "";
+/**
+ * What the goal has come to, nothing until a read reaches it.
+ * @param {{set: GoalMember[]|null, takeable: number|null, running: number|null,
+ *   doneAt: number|null}|null} progress `GoalProgress`, or `buildGoalStatus`'s goal
+ * @param {(at: number) => string} [showTime]
+ */
+function buildProgressText(
+	progress,
+	showTime = (at) => new Date(at).toISOString(),
+) {
+	if (!progress?.set) return "";
 	const { doneAt, set, takeable, running } = progress;
 	return doneAt === null
 		? ` — ${set.length} open, ${takeable} takeable, ${running} running`
-		: ` — done ${new Date(doneAt).toISOString()}; running bare`;
+		: ` — done ${showTime(doneAt)}; running bare`;
 }
 
 /**
@@ -352,6 +360,7 @@ module.exports = {
 	buildGoalProgress,
 	buildGoalRead,
 	buildGoalStatus,
+	buildProgressText,
 	buildRefText,
 	buildShortlistGoal,
 	buildGoalRefusal,

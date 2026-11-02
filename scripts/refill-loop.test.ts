@@ -1456,6 +1456,22 @@ describe("the goal (#3864)", () => {
 		expect(goal.setAt).toBeGreaterThanOrEqual(before);
 	});
 
+	it("takes a goal joined to its flag, as the panel sends it, so typed words reach no other flag", async () => {
+		const stored = await setGoal("--goal=drain #5");
+		expect(stored.status).toBe(0);
+		expect(readControl().scope.goal).toMatchObject({
+			form: "drain",
+			text: "drain #5",
+		});
+		for (const typed of ["--pause", "--help", "--", ""]) {
+			const r = await setGoal(`--goal=${typed}`);
+			expect(r.status).toBe(2);
+			expect(r.stderr).toContain("--goal takes issue refs");
+		}
+		expect(readControl().paused).toBeUndefined();
+		expect(readControl().scope.goal).toMatchObject({ text: "drain #5" });
+	});
+
 	it("stores refs in two ticked repos and carries them on status --json", async () => {
 		writeControl({ mode: "normal", repos: [core, manta], goal: null });
 		expect((await setGoal("--goal", "core#1,manta#2")).status).toBe(0);

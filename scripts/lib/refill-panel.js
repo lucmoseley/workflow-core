@@ -1,14 +1,14 @@
 /*
  * refill-panel.js — what the refill loop's panel draws and what a click does,
- * with no terminal (#3873, #3875, #3877, #3879, #3881, spec #3596): status JSON and pending presses in, rows
+ * with no terminal (#3873, #3875, #3877, #3879, #3881, #3883, spec #3596): status JSON and pending presses in, rows
  * out; a click on a row in, a `refill-loop.js` or `burn-mode.sh` argv out. The
  * panel runs those two for every read and write, and never opens a control or
  * state file, so the loop's validation, lock and wake apply to every loop press.
  *
  * Desired and observed state stay apart. A press is a pending mark beside what
  * the last status read showed, cleared only by a read showing the change or by
- * the command's refusal. An away press, a burn-mode flip or a repo's tick is whole
- * when its command exits, so any read after that exit shows it, or another writer's
+ * the command's refusal. An away press, a burn-mode flip, a goal or a repo's tick is
+ * whole when its command exits, so any read after that exit shows it, or another writer's
  * reversal, the loop's automatic return included.
  */
 
@@ -16,6 +16,7 @@ const path = require("node:path");
 const { caught } = require("./caught.js");
 const { localDate } = require("./morning-review.js");
 const { NO_PROGRESS_PAUSE } = require("./refill-decide.js");
+const { buildProgressText } = require("./refill-goal.js");
 
 const ESC = String.fromCharCode(27);
 const INTERRUPT = String.fromCharCode(3);
@@ -44,6 +45,13 @@ const NOT_RUNNING_PREFIX = "refill loop: not running";
 /* `status --json` reads a control never written and a damaged one alike, as no
  * mode; `set` refuses both, and `start` writes one. */
 const NO_CONTROL_TEXT = "No loop settings to change: run `start`";
+
+/* Two rows in every state, so nothing below the goal moves (#3596 story 55). */
+const GOAL_CAPTION = ["Click to change it", "Enter to save · Esc to cancel"];
+
+/* How `refill-loop.js` opens what it refuses under its lock; refused sooner, it
+ * prints the bare reason. */
+const REFILL_LOOP_PREFIX = /^refill loop: (nothing set: )?/;
 
 /* Two short lines, so a narrow pane cuts neither: a pulled-in blocker is held only
  * by `refillLoop: false` or no checkout (#2427). */
@@ -86,6 +94,7 @@ const ROLE_STYLES = {
  *   mode: "normal"|"away"|null,
  *   handedOffSinceAway: number,
  *   repos: {name: string, ticked: boolean, disabled: string|null}[],
+ *   goal: ReturnType<typeof import("./refill-goal.js").buildGoalStatus>,
  *   seats: {readings: {seat: string, week: number|null,
  *     weekFull: boolean}[]},
  *   overflow: OverflowKey[],
@@ -108,11 +117,23 @@ const ROLE_STYLES = {
 /** @typedef {{text: string, at: number}} PressNote */
 
 /**
+ * A goal being typed. `caret`, how many characters stand before it.
+ * @typedef {{text: string, caret: number}} GoalEdit
+ */
+
+/**
+ * A key the panel can use, with no meaning until a field is being edited.
+ * @typedef {{text: string}
+ *   | {name: "enter"|"escape"|"backspace"|"delete"|"left"|"right"|"home"|"end"}} Key
+ */
+
+/**
  * @typedef {{status: PanelStatus|null, readError: string|null,
  *   pending: Pending|null,
  *   refusal: PressNote|null,
  *   awayPending: Pending|null, awayNote: PressNote|null,
  *   burnPending: Pending|null, burnReport: BurnReport|null,
+ *   goalEdit: GoalEdit|null, goalPending: Pending|null, goalNote: PressNote|null,
  *   repoPending: Record<string, Pending>,
  *   repoRefusal: (PressNote & {name: string})|null}} PanelView
  */
@@ -123,9 +144,12 @@ const ROLE_STYLES = {
  */
 
 /**
- * `detail`, drawn after `text` in regular weight whatever the role.
+ * `detail`, drawn after `text` in regular weight whatever the role. `caret`, where
+ * the terminal's cursor stands in `text`, on the row being typed in.
  * @typedef {{text: string, role: Role, detail?: string, presses?: "loop",
- *   control?: {id: "loop"|"away"|"burn", state: SwitchState}
+ *   caret?: number,
+ *   control?: {id: "loop"|"away"|"burn"|"goal", state: SwitchState}
+ *     | {id: "goalField"}
  *     | {id: "repo", name: string, state: BoxState}}} Row
  */
 
@@ -547,6 +571,90 @@ function buildBurnRows(view) {
 }
 
 /**
+ * @param {PanelView} view
+ * @returns {SwitchState}
+ */
+function buildGoalState({ status, goalPending }) {
+	if (goalPending) return "pending";
+	if (!status) return "unknown";
+	return status.goal ? "on" : "off";
+}
+
+/**
+ * The field shows what the last read showed until a read shows otherwise, so a
+ * refused goal leaves the old one showing.
+ * @param {PanelView} view
+ * @param {number} now
+ * @returns {Row}
+ */
+function buildGoalField({ status, goalEdit }, now) {
+	/** @type {Row["control"]} */
+	const control = { id: "goalField" };
+	if (goalEdit)
+		return {
+			text: goalEdit.text,
+			role: "value",
+			caret: goalEdit.caret,
+			control,
+		};
+	const goal = status?.goal;
+	if (!goal)
+		return {
+			text: status ? "No goal: running bare" : "",
+			role: "secondary",
+			control,
+		};
+	const progress = buildProgressText(goal, (at) => buildClock(at, now));
+	return { text: `${goal.text}${progress}`, role: "value", control };
+}
+
+/**
+ * What a goal press left, in the caption's two rows: the reason, then what to do
+ * about it, so a narrow pane cutting the reason still shows the box to tick.
+ * @param {string} text
+ * @returns {Row[]}
+ */
+function buildGoalNoteRows(text) {
+	const bare = text.replace(REFILL_LOOP_PREFIX, "");
+	const at = bare.search(/[:;] /);
+	const [reason, remedy] =
+		at === -1 ? [bare, ""] : [bare.slice(0, at), bare.slice(at + 2)];
+	return [
+		{ text: reason, role: "value" },
+		{ text: remedy, role: "value" },
+	];
+}
+
+/**
+ * The Goal section. A note takes the caption's rows, which stay two.
+ * @param {PanelView} view
+ * @param {number} now
+ * @returns {Row[]}
+ */
+function buildGoalRows(view, now) {
+	const state = buildGoalState(view);
+	const { goalPending, goalNote } = view;
+	const word = goalPending
+		? `  ${goalPending.on ? "setting…" : buildTurningWord(false)}`
+		: "";
+	return [
+		{
+			text: `Goal  ${SWITCH_TEXT[state]}${word}`,
+			role: "name",
+			control: { id: "goal", state },
+		},
+		SIBLING_GAP,
+		buildGoalField(view, now),
+		...(isNoteShowing(goalNote, now)
+			? buildGoalNoteRows(goalNote.text)
+			: GOAL_CAPTION.map((text) => ({
+					text,
+					role: /** @type {Role} */ ("secondary"),
+				}))),
+	];
+}
+
+/**
  * A disabled box is off whatever the control holds: the loop never serves an
  * opted-out tick.
  * @param {PanelStatus["repos"][number]} repo
@@ -628,6 +736,8 @@ function buildRows(view, now) {
 		...buildAwayRows(view, now),
 		...buildBurnRows(view),
 		...SECTION_GAP,
+		...buildGoalRows(view, now),
+		...SECTION_GAP,
 		...buildReposRows(view, now),
 	];
 }
@@ -670,6 +780,35 @@ function buildAwayPress({ status, awayPending }) {
 function buildBurnPress({ status, burnPending }) {
 	if (burnPending || !status || status.burnMode.on === null) return null;
 	return { on: !status.burnMode.on };
+}
+
+/**
+ * `edit` after a key that stays in the field.
+ * @param {GoalEdit} edit
+ * @param {Key} key
+ * @returns {GoalEdit}
+ */
+function buildEditAfter({ text, caret }, key) {
+	const chars = [...text];
+	const before = chars.slice(0, caret);
+	const after = chars.slice(caret);
+	/**
+	 * @param {string[]} head
+	 * @param {string[]} tail
+	 */
+	const edited = (head, tail) => ({
+		text: [...head, ...tail].join(""),
+		caret: head.length,
+	});
+	if ("text" in key) return edited([...before, ...key.text], after);
+	if (key.name === "backspace") return edited(before.slice(0, -1), after);
+	if (key.name === "delete") return edited(before, after.slice(1));
+	if (key.name === "left") return { text, caret: Math.max(caret - 1, 0) };
+	if (key.name === "right")
+		return { text, caret: Math.min(caret + 1, chars.length) };
+	if (key.name === "home") return { text, caret: 0 };
+	if (key.name === "end") return { text, caret: chars.length };
+	return { text, caret };
 }
 
 /**
@@ -785,6 +924,9 @@ function createPanel({ run, runBurn, now, onChange }) {
 		awayNote: null,
 		burnPending: null,
 		burnReport: null,
+		goalEdit: null,
+		goalPending: null,
+		goalNote: null,
 		repoPending: {},
 		repoRefusal: null,
 	};
@@ -793,7 +935,7 @@ function createPanel({ run, runBurn, now, onChange }) {
 
 	/**
 	 * @param {PanelStatus|string} parsed the status, or why it will not read
-	 * @param {{press: boolean, away: boolean, flip: boolean, repos: string[]}} landedBefore which
+	 * @param {{press: boolean, away: boolean, flip: boolean, goal: boolean, repos: string[]}} landedBefore which
 	 *   pending marks' commands had exited when this read began
 	 */
 	function takeRead(parsed, landedBefore) {
@@ -809,8 +951,12 @@ function createPanel({ run, runBurn, now, onChange }) {
 			isPressSettled(view.pending, parsed, landedBefore.press, now())
 		)
 			view.pending = null;
-		if (landedBefore.away) view.awayPending = null;
-		if (landedBefore.flip) view.burnPending = null;
+		for (const [landed, slot] of /** @type {const} */ ([
+			[landedBefore.away, "awayPending"],
+			[landedBefore.flip, "burnPending"],
+			[landedBefore.goal, "goalPending"],
+		]))
+			if (landed) view[slot] = null;
 		for (const name of landedBefore.repos) delete view.repoPending[name];
 		if (view.burnReport && isBurnReportOutlived(view.burnReport, parsed))
 			view.burnReport = null;
@@ -826,6 +972,7 @@ function createPanel({ run, runBurn, now, onChange }) {
 			press: view.pending?.landed === true,
 			away: view.awayPending?.landed === true,
 			flip: view.burnPending?.landed === true,
+			goal: view.goalPending?.landed === true,
 			repos: Object.entries(view.repoPending)
 				.filter(([, mark]) => mark.landed)
 				.map(([name]) => name),
@@ -882,8 +1029,8 @@ function createPanel({ run, runBurn, now, onChange }) {
 
 	/**
 	 * @param {{argv: string[], on: boolean}|null} press
-	 * @param {"pending"|"awayPending"} pendingSlot
-	 * @param {"refusal"|"awayNote"} noteSlot
+	 * @param {"pending"|"awayPending"|"goalPending"} pendingSlot
+	 * @param {"refusal"|"awayNote"|"goalNote"} noteSlot
 	 */
 	async function runLoopPress(press, pendingSlot, noteSlot) {
 		if (!press) return;
@@ -922,9 +1069,82 @@ function createPanel({ run, runBurn, now, onChange }) {
 		);
 	}
 
-	/** @param {number} terminalRow */
+	function beginGoalEdit() {
+		if (!view.status || view.goalPending) return;
+		const text = view.status.goal?.text ?? "";
+		view.goalEdit = { text, caret: [...text].length };
+		view.goalNote = null;
+		onChange();
+	}
+
+	/**
+	 * The switch clears a goal; with none, it opens the field for one, unless this
+	 * click just closed it.
+	 * @param {boolean} closedEdit
+	 */
+	async function pressGoalSwitch(closedEdit) {
+		if (view.goalPending) return;
+		if (view.status?.goal)
+			await runLoopPress(
+				{ argv: ["set", "--clear-goal"], on: false },
+				"goalPending",
+				"goalNote",
+			);
+		else if (!closedEdit) beginGoalEdit();
+	}
+
+	/**
+	 * One argument, however it is typed, so typed words reach `--goal` alone and
+	 * never read as another flag.
+	 * @param {GoalEdit} edit
+	 */
+	async function saveGoal({ text }) {
+		view.goalEdit = null;
+		await runLoopPress(
+			{ argv: ["set", `--goal=${text.trim()}`], on: true },
+			"goalPending",
+			"goalNote",
+		);
+	}
+
+	/**
+	 * Every key but Enter and Esc edits the field, and with no field open no key does
+	 * anything (#3596 story 75).
+	 * @param {Key} key
+	 */
+	async function pressKey(key) {
+		const edit = view.goalEdit;
+		if (!edit) return;
+		if ("name" in key && key.name === "enter") {
+			await saveGoal(edit);
+			return;
+		}
+		view.goalEdit =
+			"name" in key && key.name === "escape" ? null : buildEditAfter(edit, key);
+		onChange();
+	}
+
+	/**
+	 * A click outside the field drops what was typed, as Esc does: the press itself
+	 * still changes one control.
+	 * @param {number} terminalRow
+	 */
 	async function click(terminalRow) {
 		const row = buildRows(view, now())[terminalRow - TOP_ROW];
+		const control = row?.control;
+		const closedEdit = view.goalEdit !== null && control?.id !== "goalField";
+		if (closedEdit) {
+			view.goalEdit = null;
+			onChange();
+		}
+		if (control?.id === "goal") await pressGoalSwitch(closedEdit);
+		else if (control?.id === "goalField") {
+			if (!view.goalEdit) beginGoalEdit();
+		} else await pressRow(row);
+	}
+
+	/** @param {Row|undefined} row */
+	async function pressRow(row) {
 		const control = row?.control;
 		if (control?.id === "loop" || row?.presses === "loop")
 			await runLoopPress(buildPress(view), "pending", "refusal");
@@ -934,7 +1154,7 @@ function createPanel({ run, runBurn, now, onChange }) {
 		if (control?.id === "repo") await pressRepo(control.name);
 	}
 
-	return { view, refreshStatus, click };
+	return { view, refreshStatus, click, key: pressKey };
 }
 
 /**
@@ -952,18 +1172,26 @@ function fitText(text, width) {
 /**
  * Ends by erasing below, so a report gone from the rows goes from the screen.
  * Draws only the rows that fit: past the bottom a terminal stacks them on its last
- * line, where a click would press a row other than the one showing.
+ * line, where a click would press a row other than the one showing. The cursor
+ * shows only on a row being typed in, which scrolls to keep it in view.
  * @param {Row[]} rows
  * @param {number} columns the terminal's width
  * @param {number} height
  */
 function buildFrame(rows, columns, height) {
 	const width = columns - (LEFT_COLUMN - 1) * 2;
+	let cursor = "";
 	const drawn = rows
 		.slice(0, Math.max(height - TOP_ROW + 1, 0))
-		.map(({ text, detail, role }, i) => {
+		.map(({ text, detail, role, caret }, i) => {
 			const { rgb, bold } = ROLE_STYLES[role];
-			const chars = [...fitText(detail ? `${text}  ${detail}` : text, width)];
+			const start = caret === undefined ? 0 : Math.max(caret - width + 1, 0);
+			if (caret !== undefined)
+				cursor = `${ESC}[${TOP_ROW + i};${LEFT_COLUMN + caret - start}H${ESC}[?25h`;
+			const chars =
+				caret === undefined
+					? [...fitText(detail ? `${text}  ${detail}` : text, width)]
+					: [...text.replace(/\p{Cc}+/gu, " ")].slice(start, start + width);
 			const textChars = [...text].length;
 			return [
 				`${ESC}[${TOP_ROW + i};${LEFT_COLUMN}H`,
@@ -976,39 +1204,96 @@ function buildFrame(rows, columns, height) {
 			].join("");
 		})
 		.join("");
-	return `${drawn}${ESC}[J`;
+	return `${ESC}[?25l${drawn}${ESC}[J${cursor}`;
 }
 
-const MOUSE_REPORT = new RegExp(`${ESC}\\[<(\\d+);(\\d+);(\\d+)([Mm])`, "g");
-const PARTIAL_REPORT = new RegExp(`${ESC}(\\[(<[\\d;]*)?)?$`);
+const INPUT_TOKEN = new RegExp(
+	`${ESC}\\[<(\\d+);(\\d+);(\\d+)([Mm])|${ESC}(?:\\[([\\d;]*[A-Za-z~])|O([A-Za-z]))|(${ESC})|(\\P{Cc}+)|(\\p{Cc})`,
+	"gu",
+);
+const PARTIAL_INPUT = new RegExp(`${ESC}(\\[[<\\d;]*|O)?$`);
 const LEFT_BUTTON = 0;
 
+/** @type {Record<string, Key>} */
+const SEQUENCE_KEYS = {
+	D: { name: "left" },
+	C: { name: "right" },
+	H: { name: "home" },
+	F: { name: "end" },
+	"1~": { name: "home" },
+	"4~": { name: "end" },
+	"3~": { name: "delete" },
+};
+/** @type {Record<string, Key>} */
+const CONTROL_KEYS = {
+	"\r": { name: "enter" },
+	"\n": { name: "enter" },
+	"\x7f": { name: "backspace" },
+	"\b": { name: "backspace" },
+};
+/** @type {Key} */
+const ESCAPE_KEY = { name: "escape" };
+
 /**
- * Reads SGR mouse reports (mode 1006) off the raw input stream, across chunks: a
- * click is a left release in the cell of the left press before it. The press
- * that focused the pane counts, as the terminal reports it like any other.
+ * The key a token of the input names, if the panel has a use for it.
+ * @param {RegExpMatchArray} token
+ * @returns {Key|undefined}
  */
-function createClickReader() {
+function buildKeyOf([, , , , , csi, ss3, lone, text, control]) {
+	if (lone) return ESCAPE_KEY;
+	if (text) return { text };
+	return SEQUENCE_KEYS[csi ?? ss3 ?? ""] ?? CONTROL_KEYS[control ?? ""];
+}
+
+/**
+ * Reads the raw input stream, across chunks: SGR mouse reports (mode 1006), where a
+ * click is a left release in the cell of the left press before it, the press that
+ * focused the pane counting as the terminal reports it like any other; and the keys
+ * a field uses, any other sequence dropped. `held` says the stream stops on what may
+ * start a sequence: `flush` ends the wait, a lone escape then reading as the Esc key.
+ */
+function createInputReader() {
 	let rest = "";
 	/** @type {string|null} */
 	let pressedCell = null;
-	/** @param {string} chunk */
-	return (chunk) => {
-		const input = rest + chunk;
-		/** @type {number[]} */
-		const clicks = [];
-		for (const [, button, column, row, kind] of input.matchAll(MOUSE_REPORT)) {
-			const left = Number(button) === LEFT_BUTTON;
-			const cell = `${column};${row}`;
-			if (kind === "M") {
-				pressedCell = left ? cell : null;
-				continue;
-			}
-			if (left && pressedCell === cell) clicks.push(Number(row));
-			pressedCell = null;
+	/**
+	 * @param {RegExpMatchArray} report
+	 * @returns {number[]} the row, where this report ends a click
+	 */
+	const readReport = ([, button, column, row, kind]) => {
+		const left = Number(button) === LEFT_BUTTON;
+		const cell = `${column};${row}`;
+		if (kind === "M") {
+			pressedCell = left ? cell : null;
+			return [];
 		}
-		rest = PARTIAL_REPORT.exec(input)?.[0] ?? "";
-		return { clicks, interrupted: input.includes(INTERRUPT) };
+		const clicked = left && pressedCell === cell;
+		pressedCell = null;
+		return clicked ? [Number(row)] : [];
+	};
+	return {
+		/** @param {string} chunk */
+		read(chunk) {
+			const input = rest + chunk;
+			rest = PARTIAL_INPUT.exec(input)?.[0] ?? "";
+			const tokens = [
+				...input.slice(0, input.length - rest.length).matchAll(INPUT_TOKEN),
+			];
+			const clicks = tokens.flatMap((t) => (t[4] ? readReport(t) : []));
+			const keys = tokens.flatMap((t) => buildKeyOf(t) ?? []);
+			return {
+				clicks,
+				keys,
+				interrupted: input.includes(INTERRUPT),
+				held: rest !== "",
+			};
+		},
+		/** @returns {Key[]} */
+		flush() {
+			const lone = rest === ESC;
+			rest = "";
+			return lone ? [ESCAPE_KEY] : [];
+		},
 	};
 }
 
@@ -1016,6 +1301,6 @@ module.exports = {
 	ESC,
 	buildFrame,
 	buildRows,
-	createClickReader,
+	createInputReader,
 	createPanel,
 };

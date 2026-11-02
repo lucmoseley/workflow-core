@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /*
  * refill-panel.js — the refill loop's control panel beside an agents view (#3873,
- * #3877, #3879, #3881, spec #3596): a terminal program with no Claude process that shows the Refill
+ * #3877, #3879, #3881, #3883, spec #3596): a terminal program with no Claude process that shows the Refill
  * loop switch and its three-line block, and pauses or resumes the loop on a click;
  * the Away switch, which sets the loop's mode on a click; the Burn mode switch,
- * which flips burn mode on a click; and a tick box per checkout, which sets whether
- * the loop serves it.
+ * which flips burn mode on a click; the Goal switch and its field, which clear or
+ * replace the goal; and a tick box per checkout, which sets whether the loop serves it.
  * What it draws is lib/refill-panel.js's; the terminal, lib/refill-panel-terminal.js's.
  *
  *   node scripts/refill-panel.js <agents-view-pid>
@@ -33,7 +33,7 @@ const { FETCH_TIMEOUT_MS } = require("./lib/refill-code.js");
 
 const USAGE = `usage: node ${scriptPath("refill-panel.js")} <agents-view-pid>
 
-Shows the refill loop, away mode, burn mode and the repos it can serve, and changes each on a click, until that pid exits.
+Shows the refill loop, away mode, burn mode, the goal and the repos it can serve, and changes each on a click, until that pid exits.
 `;
 
 const LOOP_PROGRAM = path.join(__dirname, "refill-loop.js");

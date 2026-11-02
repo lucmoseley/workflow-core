@@ -1,5 +1,5 @@
 /*
- * The panel's view and press mapping (#3873, #3875, #3877, #3879, #3881). Built on the view so every loop state costs one literal rather than a terminal.
+ * The panel's view and press mapping (#3873, #3875, #3877, #3879, #3881, #3883). Built on the view so every loop state costs one literal rather than a terminal.
  * Broken, the panel reads a press as done, or a stopped loop as on.
  */
 import { describe, expect, it } from "vitest";
@@ -8,7 +8,7 @@ const {
 	ESC,
 	buildFrame,
 	buildRows,
-	createClickReader,
+	createInputReader,
 	createPanel,
 } = require("./refill-panel.js");
 
@@ -45,6 +45,7 @@ const RUNNING = {
 	mode: "normal",
 	handedOffSinceAway: 0,
 	repos: [],
+	goal: null,
 	seats: planSeats(80),
 	overflow: [],
 	burnMode: BURN_OFF,
@@ -124,6 +125,9 @@ const view = (over: object) => ({
 	awayNote: null,
 	burnPending: null,
 	burnReport: null,
+	goalEdit: null,
+	goalPending: null,
+	goalNote: null,
 	repoPending: {},
 	repoRefusal: null,
 	...over,
@@ -1333,27 +1337,27 @@ describe("the mouse reader", () => {
 		`${ESC}[<${button};${col};${row}${kind}`;
 
 	it("takes a release in the pressed cell as a click, the first press included", () => {
-		const read = createClickReader();
+		const { read } = createInputReader();
 		expect(read(report(0, 5, 2, "M") + report(0, 5, 2, "m")).clicks).toEqual([
 			2,
 		]);
 	});
 
 	it("acts on the release, not the press", () => {
-		const read = createClickReader();
+		const { read } = createInputReader();
 		expect(read(report(0, 5, 2, "M")).clicks).toEqual([]);
 		expect(read(report(0, 5, 2, "m")).clicks).toEqual([2]);
 	});
 
 	it("ignores a release in another cell", () => {
-		const read = createClickReader();
+		const { read } = createInputReader();
 		expect(read(report(0, 5, 2, "M") + report(0, 6, 2, "m")).clicks).toEqual(
 			[],
 		);
 	});
 
 	it("ignores any other button and a release with no press", () => {
-		const read = createClickReader();
+		const { read } = createInputReader();
 		expect(read(report(2, 5, 2, "M") + report(2, 5, 2, "m")).clicks).toEqual(
 			[],
 		);
@@ -1361,15 +1365,15 @@ describe("the mouse reader", () => {
 	});
 
 	it("reads a report split across chunks", () => {
-		const read = createClickReader();
+		const { read } = createInputReader();
 		const whole = report(0, 5, 2, "M") + report(0, 5, 2, "m");
 		expect(read(whole.slice(0, 13)).clicks).toEqual([]);
 		expect(read(whole.slice(13)).clicks).toEqual([2]);
 	});
 
-	it("changes nothing on a typed key, and says so on Ctrl+C", () => {
-		const read = createClickReader();
-		expect(read("x q ")).toEqual({ clicks: [], interrupted: false });
+	it("says so on Ctrl+C", () => {
+		const { read } = createInputReader();
+		expect(read("x q ").interrupted).toBe(false);
 		expect(read(String.fromCharCode(3)).interrupted).toBe(true);
 	});
 });
@@ -1603,5 +1607,532 @@ describe("the Repos section", () => {
 		});
 		const expired = buildRows(panel.view, AT + 10_000);
 		expect(expired[row - SWITCH_ROW + 1].text).toBe("");
+	});
+});
+
+describe("the key reader", () => {
+	it("reads typed text, and takes no mouse report for text", () => {
+		const { read } = createInputReader();
+		const { keys, clicks } = read(`ab${ESC}[<0;5;2M${ESC}[<0;5;2mc`);
+		expect(keys).toEqual([{ text: "ab" }, { text: "c" }]);
+		expect(clicks).toEqual([2]);
+	});
+
+	it.each([
+		["\r", "enter"],
+		["\n", "enter"],
+		[String.fromCharCode(127), "backspace"],
+		["\b", "backspace"],
+		[`${ESC}[D`, "left"],
+		[`${ESC}[C`, "right"],
+		[`${ESC}OD`, "left"],
+		[`${ESC}[H`, "home"],
+		[`${ESC}[1~`, "home"],
+		[`${ESC}[F`, "end"],
+		[`${ESC}[4~`, "end"],
+		[`${ESC}[3~`, "delete"],
+	])("names the key %j", (bytes, name) => {
+		expect(createInputReader().read(bytes).keys).toEqual([{ name }]);
+	});
+
+	it("drops a sequence it has no use for", () => {
+		const { read } = createInputReader();
+		expect(read(`${ESC}[A${ESC}[1;3C${ESC}[15~\t`).keys).toEqual([]);
+	});
+
+	it("holds a lone escape until the flush says it was the Esc key", () => {
+		const { read, flush } = createInputReader();
+		expect(read(ESC)).toMatchObject({ keys: [], held: true });
+		expect(flush()).toEqual([{ name: "escape" }]);
+		expect(read("x")).toMatchObject({ keys: [{ text: "x" }], held: false });
+	});
+
+	it("reads a sequence split after its escape as that sequence", () => {
+		const { read } = createInputReader();
+		read(ESC);
+		expect(read("[D").keys).toEqual([{ name: "left" }]);
+	});
+
+	it("reads no Esc key off a flushed part of a sequence", () => {
+		const { read, flush } = createInputReader();
+		read(`${ESC}[<0;5`);
+		expect(flush()).toEqual([]);
+	});
+});
+
+describe("the Goal section", () => {
+	const SetAt = AT - 3_600_000;
+	const goalOf = (over: object = {}) => ({
+		form: "drain",
+		text: "drain #2518",
+		refs: [{ repo: "wc", number: 2518 }],
+		setAt: SetAt,
+		set: [],
+		open: 5,
+		takeable: 2,
+		running: 1,
+		readAt: AT,
+		doneAt: null,
+		...over,
+	});
+	const Live = {
+		...goalOf(),
+		set: [1, 2, 3, 4, 5].map((number) => ({
+			repo: "o/wc",
+			number,
+			title: "t",
+		})),
+	};
+	const WithGoal = { ...RUNNING, goal: Live };
+	const Done = {
+		...RUNNING,
+		goal: goalOf({ open: 0, takeable: 0, running: 0, doneAt: AT }),
+	};
+	const Unread = {
+		...RUNNING,
+		goal: goalOf({
+			set: null,
+			open: null,
+			takeable: null,
+			running: null,
+			readAt: null,
+		}),
+	};
+	const Caption = ["Click to change it", "Enter to save · Esc to cancel"];
+	const Enter = { name: "enter" };
+	const Esc = { name: "escape" };
+
+	const goalRows = (over: object) => {
+		const rows = rowsOf(over);
+		const at = rows.findIndex((r) => r.text.startsWith("Goal"));
+		return rows.slice(at, at + 4);
+	};
+	const rowWhere = (panel: { view: object }, test: (r: Row) => boolean) =>
+		SWITCH_ROW + buildRows(panel.view, AT).findIndex(test);
+	const switchRow = (panel: { view: object }) =>
+		rowWhere(panel, (r) => r.text.startsWith("Goal"));
+	const fieldRow = (panel: { view: object }) => switchRow(panel) + 2;
+
+	/* A panel whose reads answer `status`, and whose commands answer `answer`. */
+	async function goalPanel(status: object, answer: object = {}) {
+		let shown = status;
+		const calls: string[][] = [];
+		const run = async (argv: string[]) => {
+			calls.push(argv);
+			if (argv[0] === "status")
+				return { code: 0, stdout: JSON.stringify(shown), stderr: "" };
+			return { code: 0, stdout: "", stderr: "", ...answer };
+		};
+		const panel = panelOver(run);
+		await panel.refreshStatus();
+		return {
+			panel,
+			presses: () => calls.filter((argv) => argv[0] !== "status"),
+			show: (next: object) => {
+				shown = next;
+			},
+		};
+	}
+	type P = Awaited<ReturnType<typeof goalPanel>>["panel"];
+	async function typeGoal(panel: P, text: string) {
+		await panel.click(fieldRow(panel));
+		panel.view.goalEdit = { text: "", caret: 0 };
+		await panel.key({ text });
+		await panel.key(Enter);
+	}
+
+	describe("what it shows", () => {
+		it("shows a live goal with its progress", () => {
+			expect(goalRows({ status: WithGoal })[2]).toMatchObject({
+				text: "drain #2518 — 5 open, 2 takeable, 1 running",
+				role: "value",
+			});
+			expect(goalRows({ status: WithGoal })[0]).toMatchObject({
+				text: "Goal  [on]",
+				role: "name",
+				control: { id: "goal", state: "on" },
+			});
+		});
+
+		it("shows a goal no read has reached as typed, with no counts", () => {
+			expect(goalRows({ status: Unread })[2].text).toBe("drain #2518");
+		});
+
+		it("shows a finished goal, its switch still on until cleared", () => {
+			const rows = goalRows({ status: Done });
+			expect(rows[2].text).toBe("drain #2518 — done 14:05; running bare");
+			expect(rows[0].control?.state).toBe("on");
+		});
+
+		it("shows a cleared goal off and running bare", () => {
+			const rows = goalRows({ status: RUNNING });
+			expect(rows[0]).toMatchObject({
+				text: "Goal  [off]",
+				control: { state: "off" },
+			});
+			expect(rows[2]).toMatchObject({
+				text: "No goal: running bare",
+				role: "secondary",
+			});
+		});
+
+		it("draws neither word until the status reads", () => {
+			expect(goalRows({ status: null })[0].control?.state).toBe("unknown");
+		});
+
+		it("says a press is on its way, the old goal showing beneath", () => {
+			const rows = goalRows({
+				status: WithGoal,
+				goalPending: { on: true, landed: false },
+			});
+			expect(rows[0]).toMatchObject({
+				text: "Goal  […]  setting…",
+				control: { state: "pending" },
+			});
+			expect(rows[2].text).toContain("drain #2518");
+			expect(
+				goalRows({
+					status: WithGoal,
+					goalPending: { on: false, landed: false },
+				})[0].text,
+			).toBe("Goal  […]  turning off…");
+		});
+	});
+
+	describe("its two-line caption", () => {
+		const refused = {
+			text: "wc#5 is in wc, which is not ticked: tick wc first",
+			at: LATER,
+		};
+		const states: [string, object][] = [
+			["unread", { status: null }],
+			["no goal", { status: RUNNING }],
+			["a live goal", { status: WithGoal }],
+			["a done goal", { status: Done }],
+			[
+				"editing",
+				{ status: WithGoal, goalEdit: { text: "drain #1", caret: 8 } },
+			],
+			[
+				"a pending press",
+				{ status: WithGoal, goalPending: { on: true, landed: false } },
+			],
+			["a refusal", { status: WithGoal, goalNote: refused }],
+			[
+				"a note of one clause",
+				{ status: WithGoal, goalNote: { text: "exit 1", at: LATER } },
+			],
+		];
+
+		it.each(states)("keeps what is below it in place: %s", (_, over) => {
+			const rows = rowsOf({ status: WithGoal, ...over });
+			const at = rows.findIndex((r) => r.text.startsWith("Goal"));
+			/* Heading, gap, field, two caption rows, then the section gap. */
+			expect(rows.slice(at + 5, at + 7).map((r) => r.text)).toEqual(["", ""]);
+		});
+
+		it("reads the same with a goal or none, and while editing", () => {
+			for (const over of [
+				{ status: RUNNING },
+				{ status: WithGoal },
+				{ status: WithGoal, goalEdit: { text: "x", caret: 1 } },
+			]) {
+				const rows = goalRows(over);
+				expect(rows.slice(3, 4).map((r) => r.text)).toEqual([Caption[0]]);
+				expect(rowsOf(over).map((r) => r.text)).toContain(Caption[1]);
+			}
+		});
+
+		it("gives way to a refusal for as long as a note shows, then returns", () => {
+			const rows = (now: number) =>
+				buildRows(view({ status: WithGoal, goalNote: refused }), now).map(
+					(r: Row) => r.text,
+				);
+			expect(rows(LATER)).toContain("wc#5 is in wc, which is not ticked");
+			expect(rows(LATER)).toContain("tick wc first");
+			expect(rows(LATER)).not.toContain(Caption[0]);
+			expect(rows(LATER + 10_000)).toContain(Caption[0]);
+		});
+
+		it("splits the warning of a loop with no process across its two rows", () => {
+			const goalNote = {
+				text: "refill loop: not running; this holds from its next start",
+				at: LATER,
+			};
+			const texts = rowsOf({ status: WithGoal, goalNote }).map((r) => r.text);
+			expect(texts).toContain("not running");
+			expect(texts).toContain("this holds from its next start");
+		});
+
+		it("shows a refusal off the lock's read without the command's prefix", () => {
+			const goalNote = {
+				text: "refill loop: nothing set: #5 names no repo with 2 repos ticked: write <repo>#5",
+				at: LATER,
+			};
+			const texts = rowsOf({ status: WithGoal, goalNote }).map((r) => r.text);
+			expect(texts).toContain("#5 names no repo with 2 repos ticked");
+			expect(texts).toContain("write <repo>#5");
+		});
+	});
+
+	describe("the switch", () => {
+		it("clears the goal, and only that", async () => {
+			const { panel, presses } = await goalPanel(WithGoal);
+			await panel.click(switchRow(panel));
+			expect(presses()).toEqual([["set", "--clear-goal"]]);
+		});
+
+		it("clears a finished goal too", async () => {
+			const { panel, presses } = await goalPanel(Done);
+			await panel.click(switchRow(panel));
+			expect(presses()).toEqual([["set", "--clear-goal"]]);
+		});
+
+		it("opens the empty field where there is no goal, running nothing", async () => {
+			const { panel, presses } = await goalPanel(RUNNING);
+			await panel.click(switchRow(panel));
+			expect(presses()).toEqual([]);
+			expect(panel.view.goalEdit).toEqual({ text: "", caret: 0 });
+		});
+
+		it("does nothing before a read, or on a press still pending", async () => {
+			const before = await goalPanel(WithGoal);
+			before.panel.view.status = null;
+			await before.panel.click(switchRow(before.panel));
+			expect(before.presses()).toEqual([]);
+			expect(before.panel.view.goalEdit).toBeNull();
+
+			const pending = await goalPanel(WithGoal);
+			pending.panel.view.goalPending = { on: true, landed: false };
+			await pending.panel.click(switchRow(pending.panel));
+			expect(pending.presses()).toEqual([]);
+		});
+
+		it("holds its pending word until a read after the command", async () => {
+			const { held, release } = heldUntil();
+			let readsDone = 0;
+			const run = async (argv: string[]) => {
+				if (argv[0] === "status") {
+					readsDone += 1;
+					return { code: 0, stdout: JSON.stringify(RUNNING), stderr: "" };
+				}
+				await held;
+				return { code: 0, stdout: "", stderr: "" };
+			};
+			const panel = panelOver(run);
+			panel.view.status = WithGoal;
+			const press = panel.click(switchRow(panel));
+			expect(panel.view.goalPending).toMatchObject({ on: false });
+			release();
+			await press;
+			expect(readsDone).toBe(1);
+			expect(panel.view.goalPending).toBeNull();
+			expect(panel.view.status.goal).toBeNull();
+		});
+	});
+
+	describe("the field", () => {
+		it("starts an edit from the current goal, the caret at its end", async () => {
+			const { panel, presses } = await goalPanel(WithGoal);
+			await panel.click(fieldRow(panel));
+			expect(panel.view.goalEdit).toEqual({ text: "drain #2518", caret: 11 });
+			expect(presses()).toEqual([]);
+			const row = goalRows({ status: WithGoal, ...panel.view })[2];
+			expect(row).toMatchObject({ text: "drain #2518", caret: 11 });
+		});
+
+		it("takes keys as a small edit of what is there", async () => {
+			const { panel } = await goalPanel(WithGoal);
+			await panel.click(fieldRow(panel));
+			await panel.key({ name: "backspace" });
+			await panel.key({ text: "9" });
+			await panel.key({ name: "home" });
+			await panel.key({ name: "delete" });
+			await panel.key({ name: "right" });
+			await panel.key({ name: "left" });
+			await panel.key({ name: "left" });
+			await panel.key({ text: "d" });
+			await panel.key({ name: "end" });
+			expect(panel.view.goalEdit).toEqual({ text: "drain #2519", caret: 11 });
+		});
+
+		it("keeps the caret inside the text", async () => {
+			const { panel } = await goalPanel(RUNNING);
+			await panel.click(fieldRow(panel));
+			await panel.key({ name: "left" });
+			await panel.key({ name: "backspace" });
+			await panel.key({ name: "delete" });
+			await panel.key({ name: "right" });
+			expect(panel.view.goalEdit).toEqual({ text: "", caret: 0 });
+		});
+
+		it("counts a character beyond one code unit as one", async () => {
+			const { panel } = await goalPanel(RUNNING);
+			await panel.click(fieldRow(panel));
+			await panel.key({ text: "a😀" });
+			await panel.key({ name: "backspace" });
+			expect(panel.view.goalEdit).toEqual({ text: "a", caret: 1 });
+		});
+
+		it("changes nothing on Esc", async () => {
+			const { panel, presses } = await goalPanel(WithGoal);
+			await panel.click(fieldRow(panel));
+			await panel.key({ text: "9" });
+			await panel.key(Esc);
+			expect(panel.view.goalEdit).toBeNull();
+			expect(presses()).toEqual([]);
+		});
+
+		it("takes no key at all with the field closed", async () => {
+			const { panel, presses } = await goalPanel(WithGoal);
+			for (const pressed of [{ text: "p" }, Enter, Esc, { name: "left" }])
+				await panel.key(pressed);
+			expect(presses()).toEqual([]);
+			expect(panel.view.goalEdit).toBeNull();
+		});
+
+		it.each([
+			["2518,2520", "--goal=2518,2520"],
+			["#2518", "--goal=#2518"],
+			["drain #2518", "--goal=drain #2518"],
+			["drain wc#2518", "--goal=drain wc#2518"],
+			["unblock #2518", "--goal=unblock #2518"],
+			["  unblock wc#2518 ", "--goal=unblock wc#2518"],
+		])("sends %j through set --goal", async (typed, flag) => {
+			const { panel, presses } = await goalPanel(WithGoal);
+			await typeGoal(panel, typed);
+			expect(presses()).toEqual([["set", flag]]);
+			expect(panel.view.goalEdit).toBeNull();
+		});
+
+		it.each(["--pause", "--help", "--", "--untick wc"])(
+			"keeps typed %j to the one argument, so it reaches no other flag",
+			async (typed) => {
+				const { panel, presses } = await goalPanel(WithGoal);
+				await typeGoal(panel, typed);
+				expect(presses()).toEqual([["set", `--goal=${typed}`]]);
+			},
+		);
+
+		it("shows the new goal once a read shows it", async () => {
+			const { panel, show } = await goalPanel(WithGoal);
+			show({
+				...RUNNING,
+				goal: goalOf({ text: "#7", set: null, open: null }),
+			});
+			await typeGoal(panel, "#7");
+			expect(panel.view.goalPending).toBeNull();
+			expect(goalRows({ ...panel.view })[2].text).toBe("#7");
+		});
+
+		it("drops what was typed on a click elsewhere, which still acts once", async () => {
+			const { panel, presses } = await goalPanel(WithGoal);
+			await panel.click(fieldRow(panel));
+			await panel.key({ text: "9" });
+			await panel.click(AWAY_ROW);
+			expect(panel.view.goalEdit).toBeNull();
+			expect(presses()).toEqual([["set", "--away"]]);
+		});
+
+		it("stays open on a click on itself", async () => {
+			const { panel } = await goalPanel(WithGoal);
+			await panel.click(fieldRow(panel));
+			await panel.key({ text: "9" });
+			await panel.click(fieldRow(panel));
+			expect(panel.view.goalEdit?.text).toBe("drain #25189");
+		});
+
+		it("closes on a second press of the switch with no goal, setting nothing", async () => {
+			const { panel, presses } = await goalPanel(RUNNING);
+			await panel.click(switchRow(panel));
+			await panel.click(switchRow(panel));
+			expect(panel.view.goalEdit).toBeNull();
+			expect(presses()).toEqual([]);
+		});
+
+		it("cannot open while a press is pending", async () => {
+			const { panel } = await goalPanel(WithGoal);
+			panel.view.goalPending = { on: true, landed: false };
+			await panel.click(fieldRow(panel));
+			expect(panel.view.goalEdit).toBeNull();
+		});
+	});
+
+	describe("a refused goal", () => {
+		const NotTicked = "wc#5 is in wc, which is not ticked: tick wc first";
+
+		it("shows in place, naming the box, and leaves the old goal showing", async () => {
+			const { panel, presses } = await goalPanel(WithGoal, {
+				code: 2,
+				stderr: `${NotTicked}\n\nusage: refill-loop.js ...\n`,
+			});
+			await typeGoal(panel, "wc#5");
+			expect(panel.view.goalPending).toBeNull();
+			expect(presses()).toEqual([["set", "--goal=wc#5"]]);
+			const rows: Row[] = buildRows(panel.view, AT);
+			const at = rows.findIndex((r) => r.text.startsWith("Goal"));
+			expect(rows[at].control?.state).toBe("on");
+			expect(rows.slice(at + 2, at + 5).map((r) => r.text)).toEqual([
+				"drain #2518 — 5 open, 2 takeable, 1 running",
+				"wc#5 is in wc, which is not ticked",
+				"tick wc first",
+			]);
+		});
+
+		it("is gone on the next edit", async () => {
+			const { panel } = await goalPanel(WithGoal, {
+				code: 2,
+				stderr: NotTicked,
+			});
+			await typeGoal(panel, "wc#5");
+			await panel.click(fieldRow(panel));
+			expect(panel.view.goalNote).toBeNull();
+			expect(panel.view.goalEdit?.text).toBe("drain #2518");
+		});
+
+		it("changes no other control's row", async () => {
+			const { panel } = await goalPanel(
+				{ ...WithGoal, repos: [] },
+				{ code: 2, stderr: NotTicked },
+			);
+			const others = () =>
+				buildRows(panel.view, AT)
+					.slice(0, switchRow(panel) - SWITCH_ROW)
+					.map((r: Row) => r.text);
+			const before = others();
+			await typeGoal(panel, "wc#5");
+			expect(others()).toEqual(before);
+		});
+	});
+
+	describe("the frame", () => {
+		const editing = (text: string, caret: number) => [
+			{ text, role: "value", caret, control: { id: "goalField" } },
+		];
+
+		it("hides the cursor with no row being typed in", () => {
+			const frame = buildFrame(rowsOf({ status: WithGoal }), 80, 60);
+			expect(frame.startsWith(`${ESC}[?25l`)).toBe(true);
+			expect(frame).not.toContain(`${ESC}[?25h`);
+		});
+
+		it("stands the cursor at the caret", () => {
+			const frame = buildFrame(editing("drain #1", 2), 80, 60);
+			expect(frame.endsWith(`${ESC}[2;5H${ESC}[?25h`)).toBe(true);
+		});
+
+		it("scrolls a long edit to keep the caret in view, cutting no end word", () => {
+			const text = "x".repeat(50);
+			const frame = buildFrame(editing(`${text}END`, 53), 24, 60);
+			expect(frame).toContain("END");
+			expect(frame).not.toContain("…");
+			/* 20 cells wide, the caret in the last: column 3 + 19. */
+			expect(frame.endsWith(`${ESC}[2;22H${ESC}[?25h`)).toBe(true);
+		});
+
+		it("shows no cursor where the row is below the pane", () => {
+			const rows = [{ text: "a", role: "value" }, ...editing("b", 1)];
+			expect(buildFrame(rows, 80, 2)).not.toContain(`${ESC}[?25h`);
+		});
 	});
 });
