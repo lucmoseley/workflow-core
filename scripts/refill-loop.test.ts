@@ -1014,7 +1014,7 @@ describe("a stop told from a crash (#3861)", () => {
 		noProgressFrom: 5,
 		stopRequested: false,
 		seats: [],
-		scope: { mode: "normal", repos: [], goals: {} },
+		scope: { mode: "normal", repos: [] },
 	};
 	const writeControl = (over: Record<string, unknown> = {}) =>
 		fs.writeFileSync(
@@ -1593,17 +1593,6 @@ describe("the goal (#3864)", () => {
 		const r = await setGoal("--goal", "1");
 		expect(r.stdout).toContain("unchanged: goal:");
 		expect(readControl().scope.goal.setAt).toBe(7);
-	});
-
-	it("rewrites a control in the shape before it as one goal on any set", async () => {
-		writeControl({ mode: "normal", repos: [core], goals: { [core]: [9] } });
-		expect((await run("set", "--away")).status).toBe(0);
-		const { scope } = readControl();
-		expect(scope).not.toHaveProperty("goals");
-		expect(scope.goal).toMatchObject({
-			form: "issues",
-			refs: [ref("core", 9)],
-		});
 	});
 });
 

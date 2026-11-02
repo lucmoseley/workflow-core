@@ -315,34 +315,13 @@ function parseGoalProgress(raw) {
 }
 
 /**
- * The scope's per-checkout `goals`, as one goal. A stopgap: #3933 removes it.
- * @param {Record<string, unknown>} goals keyed by checkout root
- * @returns {Goal|null}
- */
-function parseGoalsByRoot(goals) {
-	const refs = Object.entries(goals).flatMap(([root, issues]) =>
-		(Array.isArray(issues) ? issues : [])
-			.filter(Number.isInteger)
-			.map((number) => ({ repo: path.basename(root), number })),
-	);
-	if (refs.length === 0) return null;
-	return {
-		form: "issues",
-		text: refs.map(buildRefText).join(","),
-		refs,
-		setAt: 0,
-	};
-}
-
-/**
  * The control file's goal: none where it is absent, garbled or names no issue.
  * Fails open (#3864): a garbled goal costs its ranking, where stopping the loop
  * as control-damaged would cost every launch. readControlChecked logs it.
  * @param {Record<string, unknown>} scope the raw scope
  * @returns {Goal|null}
  */
-function parseGoal({ goal, goals }) {
-	if (goal === undefined && isRecord(goals)) return parseGoalsByRoot(goals);
+function parseGoal({ goal }) {
 	if (!isRecord(goal)) return null;
 	const form = FORMS.find((f) => f === goal.form);
 	const refs = parseRefs(goal.refs);

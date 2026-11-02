@@ -59,7 +59,7 @@ describe("the loop's own pause (#3859)", () => {
 				noProgressFrom: From,
 				stopRequested: false,
 				seats: [],
-				scope: { mode: "normal", repos: [], goals: {} },
+				scope: { mode: "normal", repos: [] },
 				...over,
 			}),
 		);

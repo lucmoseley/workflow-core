@@ -1795,7 +1795,7 @@ describe("the control file", () => {
 			noProgressFrom: 5,
 			stopRequested: false,
 			seats: ["/a"],
-			scope: { mode: "normal", repos: ["/r"], goals: {} },
+			scope: { mode: "normal", repos: ["/r"] },
 		};
 		const control = parseControl(raw);
 		expect(control).toEqual({
@@ -1829,21 +1829,14 @@ describe("the control file", () => {
 		expect(parseControl({ noProgressFrom: 5 })?.scope).toEqual(away([]));
 	});
 
-	it("reads a file's per-checkout goals as one goal, keeping only whole numbers (#3864)", () => {
-		const { goal } = parseScope({
-			mode: "normal",
-			repos: [WFC],
-			goals: { [WFC]: [1, "2", 3.5], [MH]: [7], [DV]: [] },
-		});
-		expect(goal).toEqual({
-			form: "issues",
-			text: "workflow-core#1,mantahostels#7", // citation-exempt: a fixture goal, naming no real issue
-			refs: [
-				{ repo: "workflow-core", number: 1 },
-				{ repo: "mantahostels", number: 7 },
-			],
-			setAt: 0,
-		});
+	it("reads a goal as stored, a missing text and setAt defaulting (#3864)", () => {
+		const refs = [{ repo: "a", number: 1 }];
+		const goal = { form: "drain", text: "x", refs, setAt: 9 };
+		expect(parseScope({ mode: "normal", repos: [], goal }).goal).toEqual(goal);
+		expect(
+			parseScope({ mode: "normal", repos: [], goal: { form: "issues", refs } })
+				.goal,
+		).toEqual({ form: "issues", text: "", refs, setAt: 0 });
 	});
 
 	it("reads a garbled goal as none, so the loop runs bare (#3864)", () => {

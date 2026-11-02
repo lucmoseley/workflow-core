@@ -770,22 +770,6 @@ process.stdout.write(JSON.stringify({ frontier: [], retroBundles: [], pulledIn: 
 		return settled(running, "run reading the goal");
 	};
 
-	it("carries on from a control in the shape before it, ranking its goal", async () => {
-		stubRecordingShortlist();
-		writeScope({
-			mode: "normal",
-			repos: [repo],
-			goals: { [repo]: [2518, 2520] },
-		});
-		const r = await readPicksThenStop(startRun(), 1);
-		expect(r.status).toBe(0);
-		expect(readLines(at("picks"))[0]).toBe("--json --goal 2518,2520");
-		expect(
-			JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8")).stopped
-				?.reason,
-		).not.toBe("control-damaged");
-	});
-
 	it("reads the frontier bare once the goal is cleared, the loop running on", async () => {
 		stubRecordingShortlist();
 		writeScope({

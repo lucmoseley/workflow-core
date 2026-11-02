@@ -163,7 +163,7 @@ describe("at session start (--notify)", () => {
 					stopRequested: false,
 					seats: [],
 					paused,
-					scope: { mode: "normal", repos: [], goals: {} },
+					scope: { mode: "normal", repos: [] },
 				}),
 			);
 
