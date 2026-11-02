@@ -68,7 +68,7 @@ const { parseJobDir } = require("./job-paths.js");
 const { mainCheckout } = require("./main-checkout.js");
 const { FETCH_TIMEOUT_MS } = require("./refill-code.js");
 const { refillPath } = require("./refill-dir.js");
-const { checkoutEnv } = require("./refill-repos.js");
+const { buildCheckoutEnv } = require("./refill-repos.js");
 const {
 	KILLED_EXIT,
 	RUN_BUDGETED,
@@ -589,7 +589,7 @@ function isCommandPassed(hold, command, log) {
 		],
 		{
 			cwd: hold.checkout,
-			env: checkoutEnv(hold.checkout),
+			env: buildCheckoutEnv(hold.checkout),
 			timeout: CLEAR_CHECK_TIMEOUT_MS + 2 * CLEAR_CHECK_KILL_AFTER_MS,
 		},
 	);

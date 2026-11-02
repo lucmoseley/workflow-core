@@ -9,7 +9,7 @@
 const { spawnSync } = require("node:child_process");
 const path = require("node:path");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
-const { checkoutEnv } = require("./refill-repos.js");
+const { buildCheckoutEnv } = require("./refill-repos.js");
 const { readDistinctFromHint } = require("./similar-titles.js");
 
 /**
@@ -27,7 +27,7 @@ function fileThrough(args, body, root) {
 				encoding: "utf8",
 				maxBuffer: CHILD_MAX_BUFFER,
 				cwd: root,
-				env: checkoutEnv(root),
+				env: buildCheckoutEnv(root),
 			},
 		);
 	const filed = spawnFiler(args);

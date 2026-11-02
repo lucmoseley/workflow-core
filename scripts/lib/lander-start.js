@@ -7,7 +7,7 @@ const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { markersDir } = require("./marker-root.js");
-const { checkoutEnv } = require("./refill-repos.js");
+const { buildCheckoutEnv } = require("./refill-repos.js");
 const { forgetSession, fromEnv } = require("./session-id.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { probeUserScope } = require("./user-scope.js");
@@ -96,7 +96,7 @@ function spawnDetachedRun({
 }) {
 	fs.mkdirSync(path.dirname(log), { recursive: true });
 	const fd = fs.openSync(log, "a");
-	const env = checkoutEnv(root);
+	const env = buildCheckoutEnv(root);
 	forgetSession(env);
 	try {
 		const run = [

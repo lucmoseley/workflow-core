@@ -122,7 +122,7 @@ const {
 	readOmittedDirs,
 } = require("./refill-seats.js");
 const { runOf } = require("./headless-sessions.js");
-const { checkoutEnv, readExclusionWhy } = require("./refill-repos.js");
+const { buildCheckoutEnv, readExclusionWhy } = require("./refill-repos.js");
 const loop = require("./refill-loop.js");
 const {
 	loopFiles,
@@ -225,7 +225,7 @@ function superviseLanding(roots) {
 		const r = runChild(
 			process.execPath,
 			[path.join(SCRIPTS, "supervise-landing.js")],
-			{ cwd: root, env: checkoutEnv(root) },
+			{ cwd: root, env: buildCheckoutEnv(root) },
 		);
 		if (r.out || r.failed) log(blocks.buildChildLine(`landing in ${root}`, r));
 	}
@@ -241,7 +241,7 @@ function fileKillTickets() {
 	const r = runChild(
 		process.execPath,
 		[path.join(SCRIPTS, "file-memory-kill-tickets.js")],
-		{ cwd: REVIEW_ROOT, env: checkoutEnv(REVIEW_ROOT) },
+		{ cwd: REVIEW_ROOT, env: buildCheckoutEnv(REVIEW_ROOT) },
 	);
 	if (r.out || r.failed) log(blocks.buildChildLine("memory kills", r));
 }
@@ -346,7 +346,7 @@ function readCap(root, seat, members, usageText) {
 		{
 			input: usageText,
 			cwd: root,
-			env: { ...checkoutEnv(root), CLAUDE_CONFIG_DIR: seat },
+			env: { ...buildCheckoutEnv(root), CLAUDE_CONFIG_DIR: seat },
 		},
 	);
 	const cap = loop.parseCapFits(r.stdout);
@@ -515,7 +515,7 @@ function startReview(start) {
 			[path.join(SCRIPTS, REVIEW_RUNNER), JSON.stringify(start)],
 			{
 				cwd: REVIEW_ROOT,
-				env: checkoutEnv(REVIEW_ROOT),
+				env: buildCheckoutEnv(REVIEW_ROOT),
 				detached: true,
 				stdio: ["ignore", "ignore", "inherit"],
 			},
@@ -760,7 +760,7 @@ function arbiterAs(l, cmd, n, sessionId) {
 		[path.join(SCRIPTS, "session-arbiter.js"), cmd, String(n)],
 		{
 			cwd: l.root,
-			env: { ...checkoutEnv(l.root), CLAUDE_CODE_SESSION_ID: sessionId },
+			env: { ...buildCheckoutEnv(l.root), CLAUDE_CODE_SESSION_ID: sessionId },
 		},
 	);
 	if (!r.failed) return r.out;
@@ -1115,7 +1115,7 @@ const postHandOff = (l) =>
 			l.jobId,
 			...l.issues.flatMap((n) => ["--issue", String(n)]),
 		],
-		{ cwd: l.root, env: checkoutEnv(l.root) },
+		{ cwd: l.root, env: buildCheckoutEnv(l.root) },
 	);
 
 /**

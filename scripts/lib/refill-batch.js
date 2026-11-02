@@ -9,7 +9,7 @@
 
 const { hasNothingToRepeat } = require("./loop-prompts.js");
 const { launchName } = require("./refill-blocks.js");
-const { checkoutEnv } = require("./refill-repos.js");
+const { buildCheckoutEnv } = require("./refill-repos.js");
 
 /* Untraced: the dispatcher call's one-off gates and a `claude --bg` that hangs
  * up to dispatch-sessions.sh's own launch ceiling. */
@@ -65,7 +65,7 @@ function dispatchCall(batch, dispatcher, env) {
 	const { root, seat } = first;
 	/** @type {NodeJS.ProcessEnv} */
 	const childEnv = {
-		...checkoutEnv(root, env),
+		...buildCheckoutEnv(root, env),
 		CLAUDE_CONFIG_DIR: seat,
 		WFC_SEAT_REASON: first.reason,
 	};

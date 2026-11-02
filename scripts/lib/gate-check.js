@@ -21,7 +21,7 @@ const { gateOnOf, parseAddedGateLines } = require("./issue-gate.js");
 const { hostRoot } = require("./host-root.js");
 const { isSameRepo } = require("./issue-ref.js");
 const {
-	checkoutEnv,
+	buildCheckoutEnv,
 	homeDir,
 	readCheckoutTracking,
 	readHostTracker,
@@ -222,7 +222,7 @@ function readCheckTree(repo) {
 	const checkout = readCheckoutTracking(repo, homeDir());
 	return "why" in checkout
 		? checkout
-		: { root: checkout.root, env: checkoutEnv(checkout.root) };
+		: { root: checkout.root, env: buildCheckoutEnv(checkout.root) };
 }
 
 /**

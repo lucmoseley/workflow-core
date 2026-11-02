@@ -97,7 +97,7 @@ const {
 const { configDir, seatDir } = require("./lib/config-dir.js");
 const { readLastTyped } = require("./lib/presence.js");
 const {
-	checkoutEnv,
+	buildCheckoutEnv,
 	readExclusionWhy,
 	homeDir,
 	readCandidates,
@@ -288,7 +288,7 @@ function readIssueState(ref) {
 				"--json",
 				"state",
 			],
-			{ cwd: root, env: checkoutEnv(root) },
+			{ cwd: root, env: buildCheckoutEnv(root) },
 		);
 		return { state: String(state) };
 	} catch (err) {
@@ -767,7 +767,8 @@ async function run() {
 	log(`refill loop running, pid ${process.pid}, from ${SCRIPTS}`);
 	const sweeper = gates.gateSweeper({
 		file: files.gates,
-		runRoot: (root) => gates.runCheckGates(root, { env: checkoutEnv(root) }),
+		runRoot: (root) =>
+			gates.runCheckGates(root, { env: buildCheckoutEnv(root) }),
 		log,
 		cadenceMs: gates.GATE_SWEEP_MS,
 	});

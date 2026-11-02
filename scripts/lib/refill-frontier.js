@@ -30,7 +30,7 @@ const { joinInherited, mergeFrontiers } = require("./frontier-order.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { caught } = require("./caught.js");
 const { runGrouped } = require("./grouped-child.js");
-const { checkoutEnv } = require("./refill-repos.js");
+const { buildCheckoutEnv } = require("./refill-repos.js");
 const { refKey } = require("./issue-ref.js");
 const { buildGoalRead, buildShortlistGoal } = require("./refill-goal.js");
 const { FALLBACK_MS } = require("./refill-wake.js");
@@ -110,7 +110,7 @@ async function readShortlist(root, goal) {
 		[PICK_NEXT, "--json", ...(goal === null ? [] : ["--goal", goal])],
 		{
 			cwd: root,
-			env: checkoutEnv(root),
+			env: buildCheckoutEnv(root),
 			timeoutMs: SHORTLIST_TIMEOUT_MS,
 			maxBuffer: CHILD_MAX_BUFFER,
 		},

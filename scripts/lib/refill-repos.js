@@ -25,9 +25,10 @@
  * and lib/parent-claims.js read that repo's claim store, and lib/gate-check.js
  * runs a `check:` in that repo's tree.
  *
- * checkoutEnv is the environment for a child run in another checkout, for
- * refill-loop.js, lib/refill-batch.js, lib/refill-frontier.js,
- * lib/lander-start.js, lib/file-through.js and lib/gate-check.js.
+ * buildCheckoutEnv builds the environment for a child run in another checkout,
+ * for refill-loop.js, lib/refill-batch.js, lib/refill-frontier.js,
+ * lib/lander-start.js, lib/file-through.js, lib/gate-check.js, lib/refill-tick.js
+ * and lib/repo-holds.js.
  */
 
 const fs = require("node:fs");
@@ -205,7 +206,7 @@ const homeDir = () => process.env.HOME || os.homedir();
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {NodeJS.ProcessEnv}
  */
-function checkoutEnv(root, env = process.env) {
+function buildCheckoutEnv(root, env = process.env) {
 	/** @type {NodeJS.ProcessEnv} */
 	const child = { ...env, CLAUDE_PROJECT_DIR: root, WFC_REPO_ROOT: root };
 	delete child.WFC_DISPATCH_ROOT;
@@ -275,7 +276,7 @@ module.exports = {
 	readAdopterCheckouts,
 	readCheckoutTracking,
 	readHostTracker,
-	checkoutEnv,
+	buildCheckoutEnv,
 	discoverRepos,
 	readAbsence,
 	readCandidates,
