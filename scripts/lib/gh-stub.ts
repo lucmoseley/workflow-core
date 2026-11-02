@@ -258,10 +258,10 @@ export function writeSubIssues(
  * matches the path, so the stub's `case` must switch on `$2`.
  */
 export const subIssuesArm = (dir: string) => `  */sub_issues)
-    n=\`echo "$2" | sed 's|.*/issues/||; s|/sub_issues||'\`
+    n=$(echo "$2" | sed 's|.*/issues/||; s|/sub_issues||')
     if [ -f ${shellQuote(dir)}/children-$n.status ]; then
       cat ${shellQuote(dir)}/children-$n.out
       cat ${shellQuote(dir)}/children-$n.err >&2
-      exit \`cat ${shellQuote(dir)}/children-$n.status\`
+      exit $(cat ${shellQuote(dir)}/children-$n.status)
     fi
     ${ghServeLines(subIssuesAnswer([]))}    ;;`;

@@ -383,7 +383,7 @@ describe("task: one run's sandbox", () => {
 		fs.writeFileSync(path.join(repo, "f.txt"), "tracker\n");
 		git(repo, "commit", "--quiet", "-am", "a tracker-only commit");
 		const absent = git(repo, "rev-parse", "HEAD").stdout.trim();
-		const clone = path.join(tmp, "public");
+		const clone = path.join(tmp, "public clone");
 		// --no-local copies main's objects alone; a local clone hardlinks them all.
 		git(
 			tmp,
@@ -415,7 +415,7 @@ describe("task: one run's sandbox", () => {
 		]);
 		expect(r.code).toBe(1);
 		expect(r.err).toBe(
-			`✗ ${clone} holds no commit ${absent}; fetch the tracker's history into it, then build again: cd ${clone} && git remote add archive https://github.com/o/tracker.git && git fetch archive\n`,
+			`✗ ${clone} holds no commit ${absent}; fetch the tracker's history into it, then build again: cd ${shellQuote(clone)} && git remote add archive https://github.com/o/tracker.git && git fetch archive\n`,
 		);
 		expect(fs.existsSync(to)).toBe(false);
 	});
@@ -427,7 +427,7 @@ describe("task: one run's sandbox", () => {
 		const r = run(["task", "--repo", clone, "--at", absent, "--to", to]);
 		expect(r.code).toBe(1);
 		expect(r.err).toBe(
-			`✗ ${clone} holds no commit ${absent}; fetch the tracker's history into it, then build again: cd ${clone} && git fetch tracker\n`,
+			`✗ ${clone} holds no commit ${absent}; fetch the tracker's history into it, then build again: cd ${shellQuote(clone)} && git fetch tracker\n`,
 		);
 		expect(fs.existsSync(to)).toBe(false);
 	});

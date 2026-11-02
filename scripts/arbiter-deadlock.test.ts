@@ -31,12 +31,16 @@ import {
 	store,
 } from "./lib/arbiter-testkit";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const sb = freshSandbox();
 
 const { cli, readListing } = arbiterCli(sb);
 
 const inRepo = (rel: string) => path.join(sb.repo, rel);
+/** The parked copy a `release --park` names, to the line's end: a path may hold a space. */
+const parkedFile = (stdout: string) =>
+	stdout.match(/Your version:\s+(.+)/)?.[1] as string;
 
 /** Every subject currently locked, by the path the lock names. */
 const readHeldPaths = () =>
@@ -320,9 +324,24 @@ describe("release --park: the way out of a wait nothing else can end (mantahoste
 		expect(readHeldPaths()).toEqual([]);
 		// The unfinished edit survives, outside the working tree, with the command
 		// to get it back printed beside it.
-		const parked = r.stdout.match(/Your version:\s+(\S+)/)?.[1] as string;
+		const parked = parkedFile(r.stdout);
 		expect(fs.readFileSync(parked, "utf8")).toBe("unfinished\n");
-		expect(r.stdout).toContain("Get it back");
+		expect(r.stdout).toContain(
+			`Get it back:   cp ${shellQuote(parked)} docs/a.md\n`,
+		);
+	});
+
+	it("prints a way back that a shell reads as two words where the path holds a space (#3975)", () => {
+		committedRepo();
+		holdDirty("mine", "docs/a b.md", "docs/a b.md");
+		const r = cli(["release", "--park", inRepo("docs/a b.md")], {
+			CLAUDE_CODE_SESSION_ID: "mine",
+		});
+		expect(r.status).toBe(0);
+		const parked = parkedFile(r.stdout);
+		expect(r.stdout).toContain(
+			`Get it back:   cp ${shellQuote(parked)} ${shellQuote("docs/a b.md")}\n`,
+		);
 	});
 
 	it("removes an untracked file rather than inventing a HEAD for it", () => {
@@ -333,7 +352,7 @@ describe("release --park: the way out of a wait nothing else can end (mantahoste
 		});
 		expect(r.status).toBe(0);
 		expect(fs.existsSync(inRepo("docs/new.md"))).toBe(false);
-		const parked = r.stdout.match(/Your version:\s+(\S+)/)?.[1] as string;
+		const parked = parkedFile(r.stdout);
 		expect(fs.readFileSync(parked, "utf8")).toBe("unfinished\n");
 	});
 
@@ -666,7 +685,7 @@ describe("park sees a tool-route neighbour that took no claim (mantahostels#2333
 		expect(fs.readFileSync(inRepo("scripts/a.sh"), "utf8")).toBe(
 			"neighbour's work\n",
 		);
-		const parked = r.stdout.match(/Your version:\s+(\S+)/)?.[1] as string;
+		const parked = parkedFile(r.stdout);
 		expect(fs.readFileSync(parked, "utf8")).toBe("unfinished\n");
 	});
 
@@ -737,7 +756,7 @@ describe("park sees a tool-route neighbour that took no claim (mantahostels#2333
 		const r = park();
 		expect(r.status).toBe(0);
 		expect(fs.readFileSync(inRepo("scripts/a.sh"), "utf8")).toBe("committed\n");
-		const parked = r.stdout.match(/Your version:\s+(\S+)/)?.[1] as string;
+		const parked = parkedFile(r.stdout);
 		expect(fs.readFileSync(parked, "utf8")).toBe("unfinished\n");
 	});
 
@@ -905,7 +924,7 @@ describe("a claim holder blocks a park until the file accounts for them (mantaho
 		expect(fs.readFileSync(inRepo(docMap), "utf8")).toBe(
 			doc("B196 as committed.", "B197 as committed."),
 		);
-		const parked = r.stdout.match(/Your version:\s+(\S+)/)?.[1] as string;
+		const parked = parkedFile(r.stdout);
 		expect(fs.readFileSync(parked, "utf8")).toContain("half-rewritten");
 	});
 

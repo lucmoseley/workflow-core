@@ -51,6 +51,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const store = require("./lib/arbiter-store.js");
 const { parseIssueNumber } = require("./lib/issue-number.js");
+const { shellQuote } = require("./lib/sh-quote.js");
 const waitMod = require("./lib/arbiter-wait.js");
 const toolRecord = require("./lib/arbiter-tool-record.js");
 const { parseOrCode } = require("./lib/cli-args");
@@ -1753,7 +1754,7 @@ function buildParkedNotice(subject, rel, result) {
 	return (
 		`Parked the uncommitted changes in ${rel}.\n` +
 		(result.file
-			? `  Your version:  ${result.file}\n  Get it back:   cp ${result.file} ${rel}\n`
+			? `  Your version:  ${result.file}\n  Get it back:   cp ${shellQuote(result.file)} ${shellQuote(rel)}\n`
 			: "") +
 		`  ${rel} is now ${result.restored === "HEAD" ? "as HEAD has it" : "gone, as it was untracked"}, so the claim can be released and nobody inherits your edit.\n` +
 		(store.splitSubject(subject).region === null

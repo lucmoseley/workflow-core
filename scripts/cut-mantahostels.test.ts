@@ -21,6 +21,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { makeProcRoot, writeCwd } from "./lib/proc-fake";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "cut-mantahostels.js");
 
@@ -74,7 +75,7 @@ const SPEC = {
 function fixture(pluginHooks: object = {}) {
 	const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cut-")));
 	made.push(base);
-	const dir = path.join(base, "adopter");
+	const dir = path.join(base, "the adopter");
 	const plugin = path.join(base, "plugin");
 	fs.mkdirSync(dir);
 	const git = (...args: string[]) =>
@@ -377,8 +378,11 @@ describe("cut-mantahostels.js", () => {
 		const r = f.cut({ FAKE_INIT_EXIT: "1" });
 		expect(r.status).toBe(1);
 		expect(r.stdout).toContain("ROLLBACK");
+		expect(r.stdout).toContain(`git -C ${shellQuote(f.dir)} revert <cut-sha>`);
 		expect(r.stderr).toContain("init-adopter.js exited 1");
-		expect(r.stderr).toContain("reset --hard pre-wfc-cut");
+		expect(r.stderr).toContain(
+			`git -C ${shellQuote(f.dir)} reset --hard pre-wfc-cut`,
+		);
 		expect(f.tagged()).toBe(true);
 		expect(f.git("rev-parse", "HEAD").trim()).toBe(head);
 	});

@@ -1298,11 +1298,13 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 		const r = runWith(["-m", "x", "--", "new.md"], ceiling(300));
 		expect(r.status).toBe(1);
 		expect(r.stderr).toMatch(
-			/gave up after 0\.3s waiting for \S*index\.lock; it is \d+s old, no live git process in this worktree/,
+			/gave up after 0\.3s waiting for .*index\.lock; it is \d+s old, no live git process in this worktree/,
 		);
 		expect(r.stderr).toContain("Nothing was intent-added or committed.");
 		expect(r.stderr).toContain("No git process is running in this worktree");
-		expect(r.stderr).toContain(`rm -f '${fs.realpathSync(lockFile())}'`);
+		expect(r.stderr).toContain(
+			`rm -f ${shellQuote(fs.realpathSync(lockFile()))}`,
+		);
 		expect(r.stderr).toContain("this command never does");
 		expect(fs.readFileSync(lockFile(), "utf8")).toBe("a crashed git's");
 		expect(fs.statSync(lockFile()).mtimeMs).toBe(mtime);
@@ -1312,6 +1314,21 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 		expect(code).toBe("lock-ceiling");
 		expect(Number(waited)).toBeGreaterThanOrEqual(0.3);
 		expect(Number(waited)).toBeLessThan(1);
+	});
+
+	it("reads a held lock in a checkout whose path holds a ', and prints a removal a shell can read (#3975)", () => {
+		const repo = path.join(sb.dir, "it's");
+		fs.mkdirSync(repo);
+		initGitRepo(repo, hooks);
+		fs.writeFileSync(path.join(repo, "new.md"), "new\n");
+		const lock = path.join(fs.realpathSync(repo), ".git", "index.lock");
+		fs.writeFileSync(lock, "a crashed git's");
+		const r = runInProcess(SCRIPT, ["-m", "x", "--", "new.md"], {
+			cwd: repo,
+			env: ceiling(300),
+		});
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(`rm -f ${shellQuote(lock)}`);
 	});
 
 	it("at the ceiling with a live holder, names it and prints no removal command", async () => {
@@ -1339,7 +1356,9 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 		await done;
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("no live git process in this worktree");
-		expect(r.stderr).toContain(`rm -f '${fs.realpathSync(lockFile())}'`);
+		expect(r.stderr).toContain(
+			`rm -f ${shellQuote(fs.realpathSync(lockFile()))}`,
+		);
 	});
 
 	it("passes a non-lock refusal of the intent-add through as exit 3, saying nothing was intent-added", () => {
@@ -1434,7 +1453,7 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 		}
 		expect(r.status).toBe(3);
 		expect(r.stderr).toMatch(
-			/fatal: cannot lock ref 'HEAD': Unable to create '[^']*HEAD\.lock': File exists\./,
+			/fatal: cannot lock ref 'HEAD': Unable to create '.*HEAD\.lock': File exists\./,
 		);
 		expect(r.stderr).not.toContain("HEAD moved");
 		expect(r.stderr).toContain("git or a hook refused the commit (exit 128)");

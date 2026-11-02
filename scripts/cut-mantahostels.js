@@ -46,6 +46,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { execGit, spawnGitSync } = require("./lib/git.js");
+const { shellQuote } = require("./lib/sh-quote.js");
 const { procRoot } = require("./lib/proc-root.js");
 const { readProcCwd } = require("./lib/claude-sessions.js");
 const { claudeBin } = require("./lib/claude-bin.js");
@@ -1270,17 +1271,18 @@ function pruneDeadConsumes(root, pluginRoot, survivors, out) {
  * @param {boolean} pinned whether the cut installs the plugin
  */
 function recipe(root, prior, pinned) {
+	const quotedRoot = shellQuote(root);
 	return [
 		"ROLLBACK, until the live acceptance is recorded on workflow-core#424:",
-		`  1. git -C ${root} revert <cut-sha>              (through the gates)`,
-		`  2. git -C ${root} config core.hooksPath ${prior || "<unset — git config --unset core.hooksPath>"}`,
+		`  1. git -C ${quotedRoot} revert <cut-sha>              (through the gates)`,
+		`  2. git -C ${quotedRoot} config core.hooksPath ${prior ? shellQuote(prior) : "<unset — git config --unset core.hooksPath>"}`,
 		...(pinned
 			? [
-					`  3. cd ${root} && claude plugin uninstall workflow-core@${MARKETPLACE} --scope project`,
+					`  3. cd ${quotedRoot} && claude plugin uninstall workflow-core@${MARKETPLACE} --scope project`,
 				]
 			: []),
 		"  then restart any Claude session in mantahostels",
-		`  Last resort, from a terminal only, where the gates refuse the revert: HUSKY=0 git -C ${root} revert <cut-sha>`,
+		`  Last resort, from a terminal only, where the gates refuse the revert: HUSKY=0 git -C ${quotedRoot} revert <cut-sha>`,
 		"  Never reset main, never force-push.",
 		"",
 	].join("\n");
@@ -1516,12 +1518,13 @@ function checkRegistry({ root, pluginRoot, env, out }) {
  */
 function recovery(root) {
 	if (!tagExists(root)) return "Nothing was written.";
+	const quotedRoot = shellQuote(root);
 	return [
 		"Nothing was committed. The tree was clean before the cut, so to return to it:",
-		`  git -C ${root} reset --hard ${TAG} && git -C ${root} clean -fd`,
-		`  git -C ${root} tag -d ${TAG}`,
+		`  git -C ${quotedRoot} reset --hard ${TAG} && git -C ${quotedRoot} clean -fd`,
+		`  git -C ${quotedRoot} tag -d ${TAG}`,
 		"  and restore core.hooksPath as the recipe above says, if the cut had reached it,",
-		`  and, where --pin installed the plugin: cd ${root} && claude plugin uninstall workflow-core@${MARKETPLACE} --scope project`,
+		`  and, where --pin installed the plugin: cd ${quotedRoot} && claude plugin uninstall workflow-core@${MARKETPLACE} --scope project`,
 	].join("\n");
 }
 

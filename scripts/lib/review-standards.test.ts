@@ -21,6 +21,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readGuardErrorsLog } from "./guard-errors-log";
+import { shellQuote } from "./sh-quote.js";
 
 const LIB = path.resolve(__dirname, "review-standards.sh");
 
@@ -133,8 +134,10 @@ describe("the host's glossary (#1373)", () => {
 describe("a path as a session is handed it (#1729)", () => {
 	it("names a path under the host root relative to it", () => {
 		expect(
-			run(dir, `review_standards_shown "${path.join(dir, "docs", "x.md")}"`)
-				.stdout,
+			run(
+				dir,
+				`review_standards_shown ${shellQuote(path.join(dir, "docs", "x.md"))}`,
+			).stdout,
 		).toBe("docs/x.md");
 	});
 
@@ -232,7 +235,7 @@ describe("the Node twin keeps step (#2792)", () => {
 	it("names a path that only shares the host root's prefix whole", () => {
 		const p = `${dir}x/docs/x.md`;
 		expect(twin.standardsShown(p, dir)).toBe(p);
-		expect(run(dir, `review_standards_shown "${p}"`).stdout).toBe(p);
+		expect(run(dir, `review_standards_shown ${shellQuote(p)}`).stdout).toBe(p);
 	});
 
 	it("words the glossary alike, and nothing where there is none", () => {

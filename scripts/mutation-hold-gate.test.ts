@@ -1837,7 +1837,7 @@ describe("mutation-hold-gate.js — before the index lock (#1910)", () => {
 			".claude/workflow-core.json",
 			JSON.stringify({
 				modules: ["mutation"],
-				commands: { test: `sh ${stubDir}/test.sh` },
+				commands: { test: `sh ${shellQuote(`${stubDir}/test.sh`)}` },
 				sensitivePaths: [
 					{
 						name: "money",
@@ -2007,9 +2007,9 @@ describe("mutation-hold-gate.js — before the index lock (#1910)", () => {
 		expect(r.status, r.stderr).toBe(0);
 		expect(countLogLines("test.log")).toBe(1);
 		expect(readRuns().map((x) => x.lock)).toEqual([false]);
-		expect(r.stderr.indexOf(`running 'sh ${stubDir}/test.sh'`)).toBeLessThan(
-			r.stderr.indexOf("running the mutation hold before"),
-		);
+		expect(
+			r.stderr.indexOf(`running 'sh ${shellQuote(`${stubDir}/test.sh`)}'`),
+		).toBeLessThan(r.stderr.indexOf("running the mutation hold before"));
 		expect(r.stderr).not.toContain("in the lock —");
 	});
 });

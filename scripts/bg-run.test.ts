@@ -705,7 +705,7 @@ describe("the memory sample's descendant walk (mantahostels#2683)", () => {
 		);
 		const proc = spawn(
 			SCRIPT,
-			["run", name, "sh", "-c", `${workerPath} & wait`],
+			["run", name, "sh", "-c", `${shellQuote(workerPath)} & wait`],
 			{
 				env: env(),
 			},
@@ -737,7 +737,7 @@ describe("the memory sample's descendant walk (mantahostels#2683)", () => {
 		});
 		const proc = spawn(
 			SCRIPT,
-			["run", name, "sh", "-c", `${workerPath} & wait`],
+			["run", name, "sh", "-c", `${shellQuote(workerPath)} & wait`],
 			{
 				/* Cap at 1: `sh` itself is the only visit the walk gets, so the
 				 * worker script grandchild is never reached — the cap fires on a

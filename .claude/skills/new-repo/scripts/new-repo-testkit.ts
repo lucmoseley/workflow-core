@@ -19,6 +19,7 @@ import {
 } from "../../../../scripts/lib/gh-stub";
 import { installPathFor } from "../../../../scripts/lib/plugin-state.js";
 import { requiredGroup } from "../../../../scripts/lib/regex-group.js";
+import { shellQuote } from "../../../../scripts/lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "new-repo.js");
 export const IDEA =
@@ -372,7 +373,7 @@ export function sandbox({
 		fs.mkdirSync(path.join(sb, "bash-bin"));
 		fs.writeFileSync(
 			path.join(sb, "bash-bin/bash"),
-			`#!/bin/sh\nif [ "$1" = -n ] && grep -q '^# --- tides, one alias per plan ---$' "$2"; then echo "$2: line 9: syntax error near unexpected token" >&2; exit 2; fi\nexec ${realBash} "$@"\n`,
+			`#!/bin/sh\nif [ "$1" = -n ] && grep -q '^# --- tides, one alias per plan ---$' "$2"; then echo "$2: line 9: syntax error near unexpected token" >&2; exit 2; fi\nexec ${shellQuote(realBash)} "$@"\n`,
 			{ mode: 0o755 },
 		);
 		searchPath = `${path.join(sb, "bash-bin")}${path.delimiter}${searchPath}`;

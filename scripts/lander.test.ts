@@ -81,7 +81,7 @@ const runLander = (
 		...extraEnv,
 	};
 	delete env.CLAUDE_CODE_SESSION_ID;
-	return runInProcessAsync(LANDER, ["run", "--tester", tester], {
+	return runInProcessAsync(LANDER, ["run", "--tester", shellQuote(tester)], {
 		cwd: work,
 		env,
 	});

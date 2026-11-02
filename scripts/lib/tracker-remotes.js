@@ -6,6 +6,7 @@
 
 const { parseGithubRemote } = require("./workflow-core-config.js");
 const { spawnGitSync } = require("./git.js");
+const { shellQuote } = require("./sh-quote.js");
 
 /**
  * Whether a url names `repo`, owner/name compared as GitHub does, ignoring
@@ -40,9 +41,9 @@ function readTrackerRemotes(tracker, { cwd } = {}) {
  * @param {string[]} remotes the remotes naming the tracker
  * @param {string} tracker owner/name
  */
-const fetchTrackerCommand = (remotes, tracker) =>
-	remotes.length === 0
-		? `git remote add archive https://github.com/${tracker}.git && git fetch archive`
-		: `git fetch ${remotes[0]}`;
+const fetchTrackerCommand = ([remote], tracker) =>
+	remote === undefined
+		? `git remote add archive ${shellQuote(`https://github.com/${tracker}.git`)} && git fetch archive`
+		: `git fetch ${shellQuote(remote)}`;
 
 module.exports = { names, readTrackerRemotes, fetchTrackerCommand };

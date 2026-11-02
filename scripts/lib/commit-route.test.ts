@@ -426,7 +426,11 @@ function gitDir(markers: string[]): string {
 
 describe.each(["sh", "bash"] as const)("wfc_commit_route under %s", (shell) => {
 	const route = (hook: string, markers: string[], env = {}) =>
-		inShell(shell, `wfc_commit_route ${hook} "${gitDir(markers)}"`, env).out;
+		inShell(
+			shell,
+			`wfc_commit_route ${hook} ${shellQuote(gitDir(markers))}`,
+			env,
+		).out;
 
 	it.each([
 		[

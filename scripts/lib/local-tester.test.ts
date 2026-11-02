@@ -29,6 +29,7 @@ import {
 import { markersDir } from "./marker-root.js";
 import { pidLock } from "./pid-lock.js";
 import { writePsStub } from "./ps-stub.js";
+import { shellQuote } from "./sh-quote.js";
 import { queueJoin, queueTurn } from "./suite-queue.js";
 
 /** A part-suite's carried weight (#2931). */
@@ -339,7 +340,7 @@ it("holds one slot for the run and releases it, and never runs past a shut gate"
 	expect(log.filter((l) => l === "release")).toHaveLength(1);
 
 	const ran = path.join(tmp, "ran");
-	config({ commands: { test: `touch ${ran}` } });
+	config({ commands: { test: `touch ${shellQuote(ran)}` } });
 	const touching = commit("touching");
 	const shut = await localTester({
 		root: work,

@@ -55,6 +55,7 @@ const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { readCommit } = require("./lib/commit-sha.js");
 const { execGit, gitReader, spawnGitSync } = require("./lib/git.js");
+const { shellQuote } = require("./lib/sh-quote.js");
 const { resolveKey } = require("./lib/workflow-core-config.js");
 const {
 	readTrackerRemotes,
@@ -421,7 +422,7 @@ function refuseMissing(repo, missing) {
 	const tracker = resolveKey("tracker", { root: repo });
 	const fetch =
 		typeof tracker === "string"
-			? `cd ${repo} && ${fetchTrackerCommand(readTrackerRemotes(tracker, { cwd: repo }), tracker)}`
+			? `cd ${shellQuote(repo)} && ${fetchTrackerCommand(readTrackerRemotes(tracker, { cwd: repo }), tracker)}`
 			: "add a remote naming the tracker and fetch it";
 	return `${repo} holds no commit ${missing.join(", ")}; fetch the tracker's history into it, then build again: ${fetch}`;
 }

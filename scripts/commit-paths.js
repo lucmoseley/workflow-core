@@ -314,8 +314,9 @@ const CEILING_ENV = "WFC_COMMIT_LOCK_CEILING_MS";
 // So a test can fix the jitter's draw, in [0, 1), and bound the waits it makes.
 const JITTER_ENV = "WFC_COMMIT_LOCK_JITTER";
 
+// Greedy, not `[^']*`: git leaves a `'` in the path unescaped (#3975).
 const LOCK_REFUSAL =
-	/^fatal: Unable to create '([^']*index\.lock)': File exists\./;
+	/^fatal: Unable to create '(.*index\.lock)': File exists\./;
 // A line of its own: the hooks ran before the ref update, so their output comes first.
 const HEAD_MOVED =
 	/^fatal: cannot lock ref '[^']+': is at [0-9a-f]+ but expected [0-9a-f]+$/m;
@@ -521,7 +522,7 @@ function giveUp(held, ceiling, { after, remedy, code }) {
 	const procs = gitProcesses();
 	const stale =
 		procs !== null && procs.length === 0
-			? `\nNo git process is running in this worktree, so the lock looks left behind by a crashed one. If you are sure, remove it yourself — this command never does:\n  rm -f '${lock}'`
+			? `\nNo git process is running in this worktree, so the lock looks left behind by a crashed one. If you are sure, remove it yourself — this command never does:\n  rm -f ${shellQuote(lock)}`
 			: "";
 	return fail(
 		`${gaveUp} waiting for ${lock}; ${age}, ${buildHolderText(procs)}. ${after} ${remedy}${stale}`,
