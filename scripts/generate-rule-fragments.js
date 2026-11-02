@@ -89,7 +89,7 @@ const TRIGGERS = {
 	"issue-body-success-signal":
 		"a writing `scripts/issue-body.js` subcommand on the Bash tool, `node` in front of it or not",
 	"gh-job-dir-unreadable":
-		"a `gh issue create`, `comment`, `edit`, `close` or `gh api` on a Bash command whose text carries a path under the job directory",
+		"a `gh issue create`, `comment`, `edit`, `close` or `gh api` on a Bash command naming a body file under the job directory, in a `gh` body flag or a `cat`",
 	"gh-cli-limits":
 		"a `gh pr checks`, a `gh` call naming `statusCheckRollup` or a `check-runs` endpoint, a `gh run list --commit`, or a `gh issue view --comments`, on the Bash tool",
 	"triage-role-labels":

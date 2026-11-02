@@ -47,7 +47,7 @@
 		},
 		"gh-job-dir-unreadable": {
 			"source": "docs/agents/issue-tracker.md",
-			"trigger": "a `gh issue create`, `comment`, `edit`, `close` or `gh api` on a Bash command whose text carries a path under the job directory"
+			"trigger": "a `gh issue create`, `comment`, `edit`, `close` or `gh api` on a Bash command naming a body file under the job directory, in a `gh` body flag or a `cat`"
 		},
 		"issue-body-raw-write": {
 			"source": "docs/agents/issue-tracker.md",

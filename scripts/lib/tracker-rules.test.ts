@@ -358,6 +358,53 @@ describe("each mapped shape is handed its row's rules, and refused nothing", () 
 		expect(logs).toEqual([]);
 	});
 
+	/* Inside a job tree every relative word holding a `/` resolves under it, so
+	 * only a word that can be a body path is judged (#4043). */
+	describe("from inside a job tree", () => {
+		const idsInJobTree = (command: string) => {
+			const job = path.join(dir, ".claude", "jobs", "abc");
+			fs.mkdirSync(job, { recursive: true });
+			return idsIn(
+				emission(bash(command), {
+					cwd: job,
+					env: { CLAUDE_JOB_DIR: job },
+				})?.additionalContext ?? "",
+			);
+		};
+
+		it.each([
+			"gh issue comment 5 --body-file tmp/b.md",
+			"gh issue comment 5 --body-file=tmp/b.md",
+			"gh issue comment 5 -F tmp/b.md",
+			"gh issue comment 5 -Ftmp/b.md",
+			'gh issue comment 5 --body-file "tmp/b.md"',
+			"gh issue comment 5 --body-file b.md",
+			"cd sub && gh issue comment 5 --body-file b.md",
+			"gh api repos/o/r/issues/5 -F body=@tmp/b.md",
+			"gh api repos/o/r/issues/5 --field body=@tmp/b.md",
+			"gh api repos/o/r/issues/5 --input tmp/b.json",
+			"cat tmp/b.md | gh issue comment 5 --body-file -",
+			'gh issue close 5 --comment "$(cat tmp/b.md)"',
+		])("%s draws the job-dir rule", (command) => {
+			expect(idsInJobTree(command)).toContain("gh-job-dir-unreadable");
+		});
+
+		it.each([
+			"gh issue comment 5 -R o/r --body x",
+			"gh api repos/o/r/issues/5",
+			'gh issue comment 5 --body "| a/b | c |"',
+			'gh issue comment 5 --body "see $CLAUDE_JOB_DIR/tmp/x"',
+			"gh api repos/o/r/issues/5 -F title=a/b",
+			"gh issue comment 5 --body-file -",
+			'gh issue comment 5 --body-file "$B"',
+			"cd /elsewhere && gh issue comment 5 --body-file tmp/b.md",
+			"node scripts/x.js a/b && gh issue comment 5 --body x",
+			"cat -n | gh issue comment 5 --body-file -",
+		])("%s does not", (command) => {
+			expect(idsInJobTree(command)).not.toContain("gh-job-dir-unreadable");
+		});
+	});
+
 	it("hands a `waiting:` edit its vocabulary and the role table in one envelope, and nothing on the next label edit (#2023)", () => {
 		// One envelope only while the two fragments together fit RULE_CAP;
 		// grow either past it and the role table defers to the next edit.
