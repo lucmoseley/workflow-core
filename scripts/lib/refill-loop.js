@@ -137,6 +137,7 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * @property {string|null} reviewRunOn machine-local date of the last morning
  *   review filing
  * @property {LaunchCount|null} launchCount
+ * @property {LaunchDay|null} launchDay
  * @property {import("./overflow-notice.js").OverflowStart|null} overflowStart
  *   the newest first overflow launch after a plan-seat launch
  * @property {string[]} probeBrokenRoots the last settled tick's served checkouts
@@ -148,6 +149,12 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * The launches since `from`, the control's noProgressFrom, which outlast the
  * rows keptLaunches trims (#3889).
  * @typedef {{from: number, count: number}} LaunchCount
+ */
+
+/**
+ * The launches on `day`, machine-local, which outlast the rows keptLaunches
+ * trims (#3873).
+ * @typedef {{day: string, count: number}} LaunchDay
  */
 
 /**
@@ -339,6 +346,12 @@ const parseLaunchCount = (raw) =>
 		? { from: raw.from, count: raw.count }
 		: null;
 
+/** @param {unknown} raw @returns {LaunchDay|null} */
+const parseLaunchDay = (raw) =>
+	isRecord(raw) && typeof raw.day === "string" && typeof raw.count === "number"
+		? { day: raw.day, count: raw.count }
+		: null;
+
 /** @param {unknown} raw @returns {LoopState} */
 function parseState(raw) {
 	const r = isRecord(raw) ? raw : {};
@@ -349,6 +362,7 @@ function parseState(raw) {
 		held: Array.isArray(r.held) ? r.held.filter(isHold) : [],
 		reviewRunOn: typeof r.reviewRunOn === "string" ? r.reviewRunOn : null,
 		launchCount: parseLaunchCount(r.launchCount),
+		launchDay: parseLaunchDay(r.launchDay),
 		overflowStart: parseOverflowStart(r.overflowStart),
 		probeBrokenRoots: parseStrings(r.probeBrokenRoots),
 	};
@@ -770,6 +784,14 @@ function keptLaunches(launches) {
 	);
 	return launches.filter((l) => isLive(l) || capped.has(l));
 }
+
+/**
+ * How many launches the loop made on `day`, machine-local.
+ * @param {Pick<LoopState, "launchDay">} state
+ * @param {string} day
+ */
+const launchesOnDay = ({ launchDay }, day) =>
+	launchDay?.day === day ? launchDay.count : 0;
 
 /**
  * How many launches the loop made since `from`, the control's noProgressFrom:
@@ -1232,6 +1254,7 @@ function settleTick(
 		{ judged: afterResumes, launched: outcome.launched },
 		io,
 	);
+	const today = localDate(new Date(input.now));
 	const next = {
 		launches: keptLaunches([...afterResumes, ...outcome.launched]),
 		lastTick: {
@@ -1251,6 +1274,10 @@ function settleTick(
 			from: input.noProgressFrom,
 			count:
 				launchesSince(state, input.noProgressFrom) + outcome.launched.length,
+		},
+		launchDay: {
+			day: today,
+			count: launchesOnDay(state, today) + outcome.launched.length,
 		},
 		overflowStart: overflowStart ?? state.overflowStart,
 		probeBrokenRoots,
@@ -1334,6 +1361,7 @@ module.exports = {
 	settleTick,
 	readSizedSeats,
 	sizeResumeSeats,
+	launchesOnDay,
 	launchesSince,
 	parseState,
 	stopNeverStarted,

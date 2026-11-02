@@ -19,6 +19,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { localDate } from "./lib/morning-review.js";
 import { writeCheckout } from "./lib/refill-loop-fixture";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 import { buildUsageCache } from "./lib/usage-probe-fake";
@@ -678,6 +679,32 @@ describe("set (#3856)", () => {
 		expect(r.stdout).toContain("paused by founder at");
 		expect(readControl().paused).toEqual(paused);
 		expect(readControl().stopRequested).toBe(false);
+	});
+
+	it("carries what the panel reads in status --json, and no code with no process", async () => {
+		writeControl();
+		const at = new Date(2026, 10, 2, 9).getTime();
+		fs.writeFileSync(
+			path.join(dir, ".refill-loop-state.json"),
+			JSON.stringify({
+				lastTick: { at, summary: "idle: no free slot", idle: "no free slot" },
+				launchDay: { day: localDate(new Date()), count: 3 },
+			}),
+		);
+		const json = JSON.parse((await run("status", "--json")).stdout);
+		expect(json).toMatchObject({
+			running: false,
+			codeSha: null,
+			paused: null,
+			stopRequested: false,
+			lastTick: {
+				at,
+				summary: "idle: no free slot",
+				idle: "no free slot",
+				paused: false,
+			},
+			launchesToday: 3,
+		});
 	});
 
 	it("shows the pause in status and status --json", async () => {

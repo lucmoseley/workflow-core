@@ -17,6 +17,7 @@ import {
 	foreseeSeat,
 	mergedScope,
 } from "./refill-commands.js";
+import { buildPauseText } from "./refill-decide.js";
 import { parseState } from "./refill-loop.js";
 import {
 	away,
@@ -90,6 +91,7 @@ describe("what status prints", () => {
 		held: [],
 		reviewRunOn: null,
 		launchCount: null,
+		launchDay: null,
 		overflowStart: null,
 		probeBrokenRoots: [],
 	};
@@ -244,6 +246,7 @@ describe("what status prints", () => {
 				held: [],
 				reviewRunOn: null,
 				launchCount: null,
+				launchDay: null,
 				overflowStart: null,
 				probeBrokenRoots: [],
 			},
@@ -275,6 +278,7 @@ describe("the launch lines status shows (#2850)", () => {
 				held: [],
 				reviewRunOn: null,
 				launchCount: null,
+				launchDay: null,
 				overflowStart: null,
 				probeBrokenRoots: [],
 			},
@@ -423,6 +427,7 @@ describe("a launch row's seat and reason (#3732)", () => {
 		held: [],
 		reviewRunOn: null,
 		launchCount: null,
+		launchDay: null,
 		overflowStart: null,
 		probeBrokenRoots: [],
 	});
@@ -463,6 +468,8 @@ describe("a launch row's seat and reason (#3732)", () => {
 			control,
 			state: stateOf([typed, record({ seat })]),
 			pid: 1,
+			codeSha: null,
+			today: "2026-11-02",
 			candidates: [],
 		});
 		expect(json.running).toBe(true);
@@ -475,6 +482,64 @@ describe("a launch row's seat and reason (#3732)", () => {
 			["~/.claude2", "last typed on"],
 			["~/.claude2", null],
 		]);
+	});
+});
+
+describe("status --json for the panel (#3873)", () => {
+	const jsonOf = (state: object, today = "2026-11-02") =>
+		buildStatusJson({
+			seats: NO_SEATS,
+			control: null,
+			state: {
+				launches: [],
+				lastTick: null,
+				stopped: null,
+				held: [],
+				reviewRunOn: null,
+				launchCount: null,
+				launchDay: null,
+				overflowStart: null,
+				probeBrokenRoots: [],
+				...state,
+			},
+			pid: 1,
+			codeSha: "abc1234",
+			today,
+			candidates: [],
+		});
+
+	it("carries the code sha, and the last tick's summary and waiting reason", () => {
+		const json = jsonOf({
+			lastTick: { at: 5, summary: "idle: no free slot", idle: "no free slot" },
+		});
+		expect(json.codeSha).toBe("abc1234");
+		expect(json.lastTick).toEqual({
+			at: 5,
+			summary: "idle: no free slot",
+			idle: "no free slot",
+			paused: false,
+		});
+	});
+
+	it("marks a tick that idled on a pause, and says no stop is asked with no control", () => {
+		const idle = buildPauseText({ by: "founder", at: 7 });
+		const json = jsonOf({ lastTick: { at: 5, summary: "s", idle } });
+		expect(json.lastTick?.paused).toBe(true);
+		expect(json.stopRequested).toBe(false);
+	});
+
+	it("reads a tick with no waiting reason, and no tick, as null", () => {
+		expect(jsonOf({}).lastTick).toBeNull();
+		expect(
+			jsonOf({ lastTick: { at: 5, summary: "launched" } }).lastTick?.idle,
+		).toBeNull();
+	});
+
+	it("counts today's launches, and none from another day", () => {
+		const launchDay = { day: "2026-11-01", count: 284 };
+		expect(jsonOf({ launchDay }, "2026-11-01").launchesToday).toBe(284);
+		expect(jsonOf({ launchDay }).launchesToday).toBe(0);
+		expect(jsonOf({}).launchesToday).toBe(0);
 	});
 });
 
@@ -498,6 +563,7 @@ describe("a handed-off launch (#2659)", () => {
 				held: [],
 				reviewRunOn: null,
 				launchCount: null,
+				launchDay: null,
 				overflowStart: null,
 				probeBrokenRoots: [],
 			},
