@@ -18,7 +18,7 @@
  * no release tag at all, is a plain SKIP, not a fault.
  *
  * Usage:
- *   node check-release-pin.js [--warn] [--remote <name-or-url>] [--require-remote]
+ *   node check-release-pin.js [--warn] [--remote <name-or-url>] [--require-remote] [--pin-only]
  *
  * THE REMOTE IS THE SUBJECT, never the local tag set. A tag cut here and never
  * pushed is exactly what bit in #257, and `git tag --list` reads it as healthy;
@@ -34,11 +34,11 @@
  * the ordering leaves open.
  *
  * IT DOES FIRE UNATTENDED (#260): a step in the `Document guards` job of
- * .github/workflows/roadmap-digest.yml, which every `landing` push run and
- * every scheduled sweep runs (#2413). The detection lag is the next of either;
- * with no push it is the DELIVERED sweep interval, ~12 hours — the cron asks
- * for four a day and GitHub delivers late and drops slots (mantahostels#2228),
- * so 6h is the ask, not the lag.
+ * .github/workflows/roadmap-digest.yml, which every scheduled sweep runs and a
+ * `landing` push run runs with --pin-only (#4002). A pin no adopter can fetch
+ * waits for a sweep, so the detection lag is the DELIVERED sweep interval,
+ * ~12 hours — the cron asks for four a day and GitHub delivers late
+ * and drops slots (mantahostels#2228), so 6h is the ask, not the lag.
  *
  * AN UNREACHABLE REMOTE GATES UNDER --require-remote, AND ONLY THERE (#263),
  * against lib/check.js's alphabet. The sweep step passes it and nothing else
@@ -469,6 +469,11 @@ function judgeNonTagPin(ctx, { root, name, version, source, ref }) {
 			`.claude-plugin/plugin.json's version \`${version}\` is not X.Y.Z, so it cannot be compared against a cut tag`,
 		);
 
+	if (ctx.has("--pin-only"))
+		ctx.skip(
+			`${name} is pinned to \`${ref}\`, which only the remote can judge`,
+		);
+
 	const remote = readRequiredRemote(ctx, root, name, source);
 
 	const newest = readNewestCutTagOnRemote(ctx, root, remote);
@@ -569,12 +574,48 @@ function judgeUnpublishedTag(ctx, { root, remote, ref }) {
 	return { noun: "pinned tag that was never cut" };
 }
 
+/**
+ * A tag-pinned entry whose pin agrees with plugin.json: is the tag published?
+ * @param {Ctx} ctx
+ * @param {{ root: string, name: string, source: {url?: string}, ref: string }} pin
+ */
+function judgeTagPin(ctx, { root, name, source, ref }) {
+	/* A bump's own commit reaches `main` before its tag can exist (#4002). */
+	if (ctx.has("--pin-only"))
+		return { okLine: `${name} pins ${ref}, matching plugin.json` };
+
+	const remote = readRequiredRemote(ctx, root, name, source);
+
+	const onRemote = tagOnRemote(ctx, root, remote, ref);
+
+	if ("unreachable" in onRemote) {
+		/* SKIP or a finding, per remoteUnreachable(). The local tag set answers
+		 * a different question either way and is deliberately not offered as a
+		 * consolation reading — #257's failure was a tag that existed locally. */
+		return remoteUnreachable(ctx, remote, onRemote.unreachable, {
+			skipLines:
+				`could not reach ${remote} to check that ${ref} is published — ${onRemote.unreachable}.\n` +
+				"      An adopter fetches from the remote, so this run proves nothing about\n" +
+				"      what adopters can install. Re-run with the network up.",
+			failLine: `${remote} could not be reached to check that ${ref} is published`,
+		});
+	}
+
+	if (onRemote.present) {
+		return {
+			okLine: `${name} pins ${ref}, and ${remote} has it`,
+		};
+	}
+
+	return judgeUnpublishedTag(ctx, { root, remote, ref });
+}
+
 runCheck({
 	name: "release-pin",
 	usage:
-		"node check-release-pin.js [--warn] [--remote <name-or-url>] [--require-remote]",
+		"node check-release-pin.js [--warn] [--remote <name-or-url>] [--require-remote] [--pin-only]",
 	valueFlags: ["--remote"],
-	flags: ["--require-remote"],
+	flags: ["--require-remote", "--pin-only"],
 	run(/** @type {Ctx} */ ctx) {
 		const root = hostRoot();
 		const pluginPath = path.join(root, ".claude-plugin", "plugin.json");
@@ -623,29 +664,6 @@ runCheck({
 		if (ref !== expected)
 			return failPinMismatch(ctx, { name, ref, version, expected });
 
-		const remote = readRequiredRemote(ctx, root, name, source);
-
-		const onRemote = tagOnRemote(ctx, root, remote, ref);
-
-		if ("unreachable" in onRemote) {
-			/* SKIP or a finding, per remoteUnreachable(). The local tag set answers
-			 * a different question either way and is deliberately not offered as a
-			 * consolation reading — #257's failure was a tag that existed locally. */
-			return remoteUnreachable(ctx, remote, onRemote.unreachable, {
-				skipLines:
-					`could not reach ${remote} to check that ${ref} is published — ${onRemote.unreachable}.\n` +
-					"      An adopter fetches from the remote, so this run proves nothing about\n" +
-					"      what adopters can install. Re-run with the network up.",
-				failLine: `${remote} could not be reached to check that ${ref} is published`,
-			});
-		}
-
-		if (onRemote.present) {
-			return {
-				okLine: `${name} pins ${ref}, and ${remote} has it`,
-			};
-		}
-
-		return judgeUnpublishedTag(ctx, { root, remote, ref });
+		return judgeTagPin(ctx, { root, name, source, ref });
 	},
 });

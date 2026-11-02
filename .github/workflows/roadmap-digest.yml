@@ -67,7 +67,8 @@ name: roadmap-digest
 #                      pre-commit gate, and could not be: release-plugin.js reads
 #                      the bump from `HEAD:`, so the bump must be committed while
 #                      its tag does not yet exist, and a commit gate would refuse
-#                      every release's own bump commit (#260).
+#                      every release's own bump commit (#260). A push run judges
+#                      only the pin, for the same ordering; the step says why.
 #   guard-tests      — no guard test lets a fail-open reach the live log.
 #   git-fixture-identity — no raw git fixture commits without its own identity.
 #   skill-frontmatter — every own skill's frontmatter parses under strict YAML.
@@ -244,7 +245,16 @@ jobs:
       # remote, so every remote-absent tag reads as uncut here and the printed
       # remedy is the one release-plugin.js refuses. #264 holds that.
       #
+      # A PUSH RUN JUDGES THE PIN, NEVER THE TAG (#4002). A bump reaches `main`
+      # only through a `landing` push run going green, and release-plugin.js cuts
+      # its tag only from a commit `main` holds, so gating that run on the tag
+      # holds the bump's batch for good. A push run is scheduled-checks.yml's,
+      # whose event a called workflow reads. A sweep reads `main` and judges the
+      # tag: red from a bump landing until its tag is pushed. While it is red, a
+      # batch failing this job holds the lander rather than bisecting, so cut at
+      # once.
+      #
       # Local backstop: `npm run check:release-pin`.
       - name: Check the marketplace's pinned release tag is on the remote
         if: ${{ !cancelled() }}
-        run: node scripts/check-release-pin.js --require-remote
+        run: node scripts/check-release-pin.js --require-remote ${{ github.event_name == 'push' && '--pin-only' || '' }}

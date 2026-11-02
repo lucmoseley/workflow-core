@@ -466,6 +466,58 @@ describe("check-release-pin", () => {
 	});
 });
 
+describe("--pin-only (#4002)", () => {
+	it("adds --pin-only on a push run alone", () => {
+		const step = fs
+			.readFileSync(
+				path.resolve(__dirname, "../.github/workflows/roadmap-digest.yml"),
+				"utf8",
+			)
+			.split("\n")
+			.find((l) => l.includes("run: node scripts/check-release-pin.js"));
+		expect(step).toContain("github.event_name == 'push' && '--pin-only' || ''");
+	});
+
+	it("passes a pin whose tag is on no remote, under --require-remote", () => {
+		const r = check("--pin-only", "--require-remote");
+		expect(r.status).toBe(0);
+		expect(r.tags()).toEqual([]);
+		expect(r.out).toContain("pins v1.2.3, matching plugin.json");
+	});
+
+	it("never reaches the remote", () => {
+		const r = check(
+			"--pin-only",
+			"--require-remote",
+			"--remote",
+			path.join(dir, "absent"),
+		);
+		expect(r.status).toBe(0);
+		expect(r.tags()).toEqual([]);
+	});
+
+	it("still fails PIN-MISMATCH", () => {
+		writePlugin("1.2.4");
+		const r = check("--pin-only");
+		expect(r.status).toBe(1);
+		expect(r.tags()).toEqual(["PIN-MISMATCH"]);
+	});
+
+	it("still fails NO-ENTRY", () => {
+		writeMarketplace(null);
+		const r = check("--pin-only");
+		expect(r.status).toBe(1);
+		expect(r.tags()).toEqual(["NO-ENTRY"]);
+	});
+
+	it("skips a branch pin, whose only question needs the remote", () => {
+		writeMarketplace(urlSource("main"));
+		const r = check("--pin-only", "--remote", path.join(dir, "absent"));
+		expect(r.status).toBe(0);
+		expect(r.out).toContain("which only the remote can judge");
+	});
+});
+
 /*
  * The flag is a string agreed between two files and nothing else: the sweep
  * step spells it, the checker reads it through ctx.has(), and positionals()
