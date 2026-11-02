@@ -5,7 +5,8 @@
  * Pure: the caller reads the three records and passes them in.
  *
  * UNKNOWN IS THE FAIL-SAFE: an unread record or a field of an unexpected type
- * reads UNKNOWN, on which the loop acts on nothing (#2358 F9).
+ * reads UNKNOWN, on which the loop acts on nothing (#2358 F9) until a restart
+ * kills the session, whose resume then asks it what it waits on (#3980).
  *
  * PERMISSION IS TESTED FIRST: a new prompt can open over a stale question
  * `needs` (#2358 F3).

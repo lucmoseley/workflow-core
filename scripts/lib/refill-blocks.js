@@ -26,6 +26,7 @@ const {
 	LIMIT_PROMPT,
 	MOVED_PROMPT,
 	BOOT_PROMPT,
+	BOOT_UNREAD_PROMPT,
 } = require("./loop-prompts.js");
 const {
 	buildLimitCapText,
@@ -74,9 +75,11 @@ const PARKED_STATE = "blocked";
  *   the stop, and the resumes since tried that failed
  * @typedef {SwapHeld & {hold: string}} HoldCleared  a session parked on a repo
  *   hold since cleared (#3863): `at`, when it parked, and `hold`, that hold's id
- * @typedef {Omit<SwapHeld, "sessionId"> & {sessionId: string|null}} BootKilled  a
- *   session a restart killed mid-work (#3880): `at`, when it was launched, which
- *   sets its turn among the resumes; `sessionId`, null unread
+ * @typedef {Omit<SwapHeld, "sessionId"> & {sessionId: string|null,
+ *   blockUnread?: true}} BootKilled  a session a restart killed mid-work (#3880):
+ *   `at`, when it was launched, which sets its turn among the resumes; `sessionId`,
+ *   null unread; `blockUnread`, parked on UNKNOWN, so it may be waiting on the
+ *   founder and its resume says so (#3980)
  * @typedef {{bar: "weekly"|"5-hour"|null, resets: string|null}} LimitRead  the
  *   limit a seat's reading shows a session stopped on, null where neither bar
  *   read, with its reset as read; from the reading, never the limit's text
@@ -1106,7 +1109,7 @@ function stepResumeOf(l) {
 			held: bootKilled,
 			what: `${launchName(l)}, launched at ${iso(l.launchedAt)}`,
 			why: "killed by a restart",
-			prompt: BOOT_PROMPT,
+			prompt: bootKilled.blockUnread ? BOOT_UNREAD_PROMPT : BOOT_PROMPT,
 			isParked: false,
 			rest,
 			withTries: (tries) => ({ ...l, bootKilled: { ...bootKilled, tries } }),
@@ -1553,7 +1556,13 @@ function queueBootKilled(launches, seen) {
 		);
 		return {
 			...rest,
-			bootKilled: { at: l.launchedAt, sessionId, cwd, tries: 0 },
+			bootKilled: {
+				at: l.launchedAt,
+				sessionId,
+				cwd,
+				tries: 0,
+				...(l.block?.cause === "UNKNOWN" ? { blockUnread: true } : {}),
+			},
 		};
 	});
 }

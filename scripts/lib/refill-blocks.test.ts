@@ -2761,6 +2761,15 @@ describe("queueBootKilled (#3880)", () => {
 		},
 	);
 
+	it.each([
+		["API_ERROR", false],
+		["LIMIT", false],
+		["UNKNOWN", true],
+	])("marks one blocked on %s as unread: %s (#3980)", (cause, isUnread) => {
+		const { bootKilled } = killedOf(blockedOn(cause));
+		expect(bootKilled?.blockUnread === true).toBe(isUnread);
+	});
+
 	it("leaves one already held or owed a hand-off", () => {
 		const swapHeld = { at: NOW, sessionId: "s", cwd: "/", tries: 0 };
 		expect(killedOf(record({ swapHeld }))).not.toHaveProperty("bootKilled");

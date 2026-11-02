@@ -2292,8 +2292,9 @@ function writeHandOffBody(io, job, out) {
 			: "",
 		base,
 		done: job.commitsLanded?.join("; ") || "none",
-		left: `continue ${job.intent || "the ticket"} from the narration's newest lines above`,
-		blockedOn: "nothing: its host restarted it and it never took another turn",
+		left: `continue ${job.intent || "the ticket"} from the narration's newest lines above, unless they end on a question to the founder that this ticket shows unanswered: then post it as a round and park, building nothing past it`,
+		blockedOn:
+			"nothing the loop could read: its host restarted it and it never took another turn",
 		files,
 		diff,
 	});
