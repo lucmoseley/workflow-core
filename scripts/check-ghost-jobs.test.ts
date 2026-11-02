@@ -19,12 +19,13 @@
  * or a live job is called dead and its session retired by hand.
  */
 
-import { type ChildProcess, spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { spawnLoopHolder } from "./lib/refill-loop-testkit";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.join(__dirname, "check-ghost-jobs.js");
@@ -410,12 +411,7 @@ describe("check-ghost-jobs", () => {
 			);
 			expect(run().out).not.toContain("The refill loop");
 
-			loop = spawn(
-				process.execPath,
-				["-e", "setInterval(() => {}, 1000)", "refill-loop.js"],
-				{ stdio: "ignore" },
-			);
-			fs.writeFileSync(path.join(dir, ".refill-loop.pid"), String(loop.pid));
+			loop = spawnLoopHolder(dir);
 			expect(run().out).toContain(
 				`The refill loop (pid ${loop.pid}) retires a GHOST-JOB`,
 			);

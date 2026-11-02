@@ -31,7 +31,7 @@
  *
  * WARN, never FAIL. A tracker that will not read is its own line, never
  * "none idle". So is a live loop's damaged control or state file or a hold store
- * that will not read (#3918); a stopped loop's control is
+ * that will not read (#3918); a stopped loop's damaged control or state file is
  * check-refill-loop-stop.js's to name.
  *
  * ONCE PER FINDING PER DAY under `--notify` (#3644): a finding is an idle
@@ -82,19 +82,17 @@ const {
 	readHostTracker,
 } = require("./lib/refill-repos.js");
 const { readTickHolds } = require("./lib/repo-holds.js");
-const {
-	buildLoopWait,
-	buildPausedWaitText,
-} = require("./lib/refill-decide.js");
 const { servedRoots } = require("./lib/refill-tick.js");
 const {
 	IDLE_DAYS,
 	QUERY,
 	buildIdleReport,
+	buildLiveLoopWait,
 	buildReadings,
 	findIdleEfforts,
 	buildFindingRecords,
 	parseIssueNodes,
+	stoppedRunOf,
 } = require("./lib/idle-efforts.js");
 
 /**
@@ -139,11 +137,11 @@ function readLoop(reportDamaged) {
 	if (pidLock(files.pid, "refill-loop.js").holder() === null) {
 		/* check-refill-loop-stop.js names either file's damage here; a damaged
 		 * control's run is the last tick's count point (#3892, #3927). */
-		const last = refillFiles.readControlFile(() => undefined);
-		const lastTick = refillFiles.readStateFile(() => undefined).launchCount;
+		const lastControl = refillFiles.readControlFile(() => undefined);
+		const { launchCount } = refillFiles.readStateFile(() => undefined);
 		return {
 			running: false,
-			stoppedRun: last?.noProgressFrom ?? lastTick?.from ?? null,
+			stoppedRun: stoppedRunOf(lastControl, launchCount),
 			served: [],
 			launches: [],
 			held: [],
@@ -167,9 +165,7 @@ function readLoop(reportDamaged) {
 		launches: loop.workingOf(state.launches),
 		held: [...state.held, ...loop.limitHoldsOf(state.launches)],
 		repoHolds,
-		loopWait: control?.paused
-			? buildPausedWaitText(control.paused)
-			: buildLoopWait(state.lastTick?.idle ?? null),
+		loopWait: buildLiveLoopWait(control?.paused, state.lastTick?.idle),
 		holdsUnreadRoots: unread.map(({ root }) => root),
 	};
 }

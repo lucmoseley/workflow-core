@@ -39,6 +39,8 @@
 const {
 	PROBE_HELD,
 	buildLimitCapHoldWhy,
+	buildLoopWait,
+	buildPausedWaitText,
 	buildProbeHeldRoots,
 	buildSkipReason,
 } = require("./refill-decide.js");
@@ -165,6 +167,26 @@ const QUERY =
  * @property {string[]} holdsUnreadRoots its served checkouts whose hold store
  *   would not read, whole or in part
  */
+
+/**
+ * A live loop's LoopReading.loopWait: a pause outranks the last tick's reason, as
+ * that tick may have settled before it (#3920).
+ * @param {import("./refill-decide.js").Pause|null|undefined} paused its control's
+ * @param {string|null|undefined} lastIdle its last tick's idle reason
+ * @returns {string|null}
+ */
+const buildLiveLoopWait = (paused, lastIdle) =>
+	paused ? buildPausedWaitText(paused) : buildLoopWait(lastIdle ?? null);
+
+/**
+ * A stopped loop's last run, which keys its stop finding: its control's count
+ * point, or the last tick's where the control is damaged (#3927).
+ * @param {{noProgressFrom: number}|null} control
+ * @param {{from: number}|null|undefined} launchCount the state file's
+ * @returns {number|null} ms; null where neither reads
+ */
+const stoppedRunOf = (control, launchCount) =>
+	control?.noProgressFrom ?? launchCount?.from ?? null;
 
 /**
  * A tracker's parked issues held at the limit-cap parks' cap, each to its hold:
@@ -667,8 +689,8 @@ function selectUnseen(
  * @property {string|null} stamp the last delivered signature
  * @property {string} day
  * @property {boolean} held
- * @property {number|null} stoppedRun the last run's count point, ms, as its control
- *   says; null where none reads
+ * @property {number|null} stoppedRun the last run's count point, ms, as
+ *   stoppedRunOf reads it
  */
 
 /**
@@ -719,8 +741,10 @@ module.exports = {
 	QUERY,
 	buildIdleLines,
 	buildIdleReport,
+	buildLiveLoopWait,
 	buildReadings,
 	findIdleEfforts,
 	buildFindingRecords,
 	parseIssueNodes,
+	stoppedRunOf,
 };
