@@ -203,7 +203,7 @@ process.stdout.write("started the lander");\n`,
 	);
 	/* What `stop` writes: the control's flag, then a wake line. Not `stop`
 	 * itself, which wakes only a loop whose pid's command line names the
-	 * program, and this one runs inside the test worker. */
+	 * program, and `run`'s loop runs inside the test worker. */
 	const control = JSON.stringify(at(".refill-loop-control.json"));
 	stub(
 		"request-stop.js",
@@ -233,9 +233,9 @@ const run = (slots: number, over: NodeJS.ProcessEnv = {}) =>
 /* For a case that runs `set --resume` against the loop: pid-lock reads the
  * holder's own command line, so an in-process run reads as no process and the
  * resume starts a second, detached loop that writes into the sandbox as
- * afterEach deletes it. */
+ * afterEach deletes it (#3943). */
 const runAsProcess = (slots: number) => {
-	// spawn-kept: the reason above.
+	// spawn-kept: two processes at once, and pid-lock reads the holder's command line.
 	const child = spawn(
 		process.execPath,
 		[path.join(scripts, "refill-loop.js"), "run"],
@@ -3117,7 +3117,7 @@ describe("a paused loop on the real tick (#3856)", () => {
 		expect(readState().stopped.at).toBeGreaterThan(6);
 	});
 
-	it("launches again on a resume, with no restart", async () => {
+	it("launches again on a resume, with no restart (#3943)", async () => {
 		pauseControl();
 		const running = runAsProcess(1);
 		await ticksDone();
