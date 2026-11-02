@@ -212,6 +212,35 @@ describe("each production read, crossed once", () => {
 		expect(verdict("git reset --soft side")).toBe("deny");
 	});
 
+	/* An empty ref, and one of NULs a sha and its newline long. */
+	it.each([
+		"git update-ref refs/heads/main HEAD",
+		"git reset --hard HEAD~1",
+		"git branch -f main HEAD",
+		"git branch -D main",
+		"git branch -m side main",
+		"git checkout -B main HEAD",
+		"git switch -C main HEAD",
+	])(
+		"%s stays refused, naming the repair script only where git cannot read main (#3198)",
+		(command) => {
+			expect(readDenyReason(command)).not.toContain("repair-main");
+			for (const broken of ["", "\0".repeat(41)]) {
+				fs.writeFileSync(path.join(shared, ".git/refs/heads/main"), broken);
+				expect(readDenyReason(command)).toContain(
+					"node scripts/repair-main.js",
+				);
+			}
+		},
+	);
+
+	it("names the repair script from a linked worktree too (#3198)", () => {
+		fs.writeFileSync(path.join(shared, ".git/refs/heads/main"), "");
+		expect(
+			readDenyReason("git update-ref refs/heads/main HEAD", { cwd: worktree }),
+		).toContain("node scripts/repair-main.js");
+	});
+
 	it("asks git whether a checkout's word is a tree", () => {
 		expect(verdict("git checkout --force main")).toBe("deny");
 		expect(verdict("git checkout -f a.md")).toBe("allow");

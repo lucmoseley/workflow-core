@@ -3154,6 +3154,35 @@ process.stdout.write("Filed #${Issue}\\n");
 		expect(readFiled()).toHaveLength(1);
 	});
 
+	it("clears a hold raised by an unreadable main the tick after a session runs the repair script, with launches resuming and no hand lift (#3867)", async () => {
+		const close = serveClose();
+		const mainRef = dotGit("refs/heads/main");
+		const tip = fs.readFileSync(mainRef, "utf8");
+		fs.writeFileSync(mainRef, "");
+
+		const broken = await tickRun(close.gh);
+
+		expect(broken.stdout).toContain("repo hold raised: probe in");
+		expect(fs.existsSync(at("dispatches"))).toBe(false);
+
+		const repaired = runInProcess(path.join(__dirname, "repair-main.js"), [], {
+			cwd: repo,
+			env: loopEnv({
+				CLAUDE_PROJECT_DIR: repo,
+				CLAUDE_CODE_SESSION_ID: "repairing-session",
+			}),
+		});
+		expect(repaired.status).toBe(0);
+		expect(fs.readFileSync(mainRef, "utf8")).toBe(tip);
+
+		const cleared = await tickRun(close.gh);
+
+		expect(cleared.stdout).toContain("repo hold cleared: probe in");
+		expect(cleared.stdout).not.toContain("repo hold lifted");
+		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
+		expect(await readStatus()).toContain("holds:     none open");
+	});
+
 	const setOriginUrl = (url: string) => {
 		const config = dotGit("config");
 		fs.writeFileSync(

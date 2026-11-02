@@ -6,9 +6,15 @@
  */
 
 const { readCommit } = require("./commit-sha.js");
-const { gitOrNull, gitReader, HOOK_GIT_TIMEOUT_MS } = require("./git.js");
+const {
+	gitCommonDir,
+	gitOrNull,
+	gitReader,
+	HOOK_GIT_TIMEOUT_MS,
+} = require("./git.js");
 const { readTopLevel } = require("./git-tree.js");
 const { pushedRef } = require("./landing-refs.js");
+const { readMainState } = require("./main-ref.js");
 const { trimEndRun } = require("./trim-run.js");
 
 /**
@@ -52,6 +58,13 @@ const buildHostPorts = (root) => ({
 	/* In process, not a landing-refs.js spawn: one node start spared a
 	 * refusal. */
 	pushedRef: () => pushedRef({ root }),
+	isMainUnreadable: () => {
+		const commonDir = gitCommonDir(root, { timeout: HOOK_GIT_TIMEOUT_MS });
+		return (
+			commonDir !== null &&
+			readMainState(commonDir, HOOK_GIT_TIMEOUT_MS) === "unreadable"
+		);
+	},
 });
 
 module.exports = { buildHostPorts };

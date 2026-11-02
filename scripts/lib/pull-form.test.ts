@@ -59,6 +59,7 @@ interface Over {
 	branch?: string;
 	/** True: every rule fetch throws, as an empty store does. */
 	storeFault?: boolean;
+	mainUnreadable?: boolean;
 	corePaths?: (text: string) => string;
 }
 
@@ -93,6 +94,7 @@ function harness(over: Over = {}) {
 		},
 		pushedRef: () =>
 			over.modules?.includes("landing") ? "origin/landing" : "origin/main",
+		isMainUnreadable: () => over.mainUnreadable ?? false,
 		corePaths: over.corePaths ?? ((t: string) => t),
 	});
 	return { ctx, logs };
@@ -858,6 +860,24 @@ describe("rewinding main is refused (#765)", () => {
 			`This ${what}: ${command}\n\n${readRewindRule()}`,
 		);
 	});
+
+	it.each([
+		"git update-ref refs/heads/main abc123",
+		"git reset --hard HEAD~1",
+		"git branch -f main HEAD~1",
+		"git branch -D main",
+		"git branch -m other main",
+		"git checkout -B main HEAD~1",
+		"git switch -C main HEAD~1",
+	])(
+		"%s stays refused on an unreadable main, naming the repair script (#3198)",
+		(command) => {
+			const reason = readDenyReason(command, { mainUnreadable: true });
+			expect(reason).toContain(readRewindRule());
+			expect(reason).toContain("node scripts/repair-main.js");
+			expect(readDenyReason(command)).not.toContain("repair-main");
+		},
+	);
 
 	it("carries lib/main-rewind.js's fallback where the store cannot give the rule (#1777)", () => {
 		expect(readDenyReason("git branch -D main", { storeFault: true })).toBe(

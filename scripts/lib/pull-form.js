@@ -51,7 +51,8 @@
  *    and `git am` (which add commits rather than drop them), and `git revert`,
  *    which the pre-commit stack gates. Any other unreadable commit, ref or
  *    branch word, or an unresolved tree where the verdict needs one, FAILS
- *    CLOSED (#301).
+ *    CLOSED (#301). On a `main` that cannot be read every one of these still
+ *    refuses, and its text adds scripts/repair-main.js, the one route (#3198).
  *  - It also refuses DISCARDING the shared tree's uncommitted work (#768),
  *    docs/agents/rules/shared-tree-discard.txt: in the shared tree only, a
  *    `git reset --hard`/`--merge`/`--keep` naming HEAD, the checked-out
@@ -158,6 +159,8 @@ const { trimEndRun } = require("./trim-run.js");
  *   root, `/`-terminated; "" at the root or where git errors
  * @property {() => string} pushedRef the remote ref sessions push to, read on
  *   a refusal alone, so an allowed call reads no config (#2536)
+ * @property {() => boolean} isMainUnreadable whether the shared `main` is broken
+ *   rather than moved, read on a rewind's refusal alone
  * @typedef {import("./kit-context.js").KitContext & PullFormPorts}
  *   PullFormContext
  * @typedef {import("./shell-parse.js").GitCall} GitCall
@@ -196,6 +199,10 @@ const REF_VALUE_FLAGS = {
 	checkout: CHECKOUT_VALUE_FLAGS,
 	switch: SWITCH_VALUE_FLAGS,
 };
+
+/* The ruling's one route, named only where it applies (#3198). */
+const MAIN_UNREADABLE =
+	"`main` IS UNREADABLE HERE, NOT MOVED: repair it with `node scripts/repair-main.js`, which refuses unless every proof holds and backs up first. Every other route to write `main` stays refused. File the reflog entries it lists on a ticket.";
 
 /** Each discarding subcommand's per-path form and value-taking options. */
 /** @type {Record<string, { safe: string, spec: string }>} */
@@ -282,7 +289,9 @@ const discardRule = (ctx) =>
  * @returns {Refusal}
  */
 const rewindDeny = (j, segment, what) => ({
-	reason: rewindReason(j.ctx, what),
+	reason: j.ctx.isMainUnreadable()
+		? `${rewindReason(j.ctx, what)}\n\n${MAIN_UNREADABLE}`
+		: rewindReason(j.ctx, what),
 	segment,
 });
 
