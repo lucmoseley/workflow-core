@@ -770,7 +770,7 @@ function buildOverflowStatus(dir, budget) {
 		grantUsd: budget.grantUsd,
 		headroomUsd: budget.headroomUsd,
 		exhausted: budget.exhausted,
-		spent: isBudgetSpent(budget),
+		noLaunchLeft: isBudgetSpent(budget),
 	};
 }
 

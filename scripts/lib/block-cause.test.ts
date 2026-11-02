@@ -16,9 +16,11 @@
 import { describe, expect, it } from "vitest";
 import {
 	blockCause,
+	hasEndedUnblocked,
 	hasRepliedSince,
 	resumedIdleSince,
 } from "./block-cause.js";
+import { API_PROMPT } from "./loop-prompts.js";
 
 const row = (over: Record<string, unknown> = {}) => ({
 	pid: 2_339_100,
@@ -599,5 +601,75 @@ describe("hasRepliedSince (#3792)", () => {
 
 	it("reads an unread transcript as null, not as no work", () => {
 		expect(hasRepliedSince(null, At)).toBeNull();
+	});
+});
+
+describe("hasEndedUnblocked (#3940)", () => {
+	const Parked = Date.parse("2026-11-02T00:00:00Z");
+	const After = "2026-11-02T00:10:00Z";
+	const reply = (
+		text: string,
+		{ model = "claude-opus-5-5", timestamp = After } = {},
+	) => ({
+		type: "assistant",
+		timestamp,
+		message: { model, content: [{ type: "text", text }] },
+	});
+	const ended = (...rows: unknown[]) => hasEndedUnblocked(rows, Parked);
+
+	it("reads a reply ending `result:` after the park as unblocked", () => {
+		expect(ended(reply("Done.\n\nresult: closed #5"))).toBe(true);
+	});
+
+	it("reads the question the park stopped, from before it, as blocked", () => {
+		expect(
+			ended(reply("Which key?", { timestamp: "2026-11-01T23:00:00Z" })),
+		).toBe(false);
+	});
+
+	it("reads a later `needs input:` as parked again, a quoted `result:` above it or not", () => {
+		expect(ended(reply("result: done\n\nneeds input: which? — #5"))).toBe(
+			false,
+		);
+	});
+
+	it("reads a pending tool call as blocked on a prompt", () => {
+		expect(ended({ ...toolUse("AskUserQuestion"), timestamp: After })).toBe(
+			false,
+		);
+	});
+
+	it("reads the harness's own error row as no reply", () => {
+		expect(
+			ended(reply("You've hit your limit", { model: "<synthetic>" })),
+		).toBe(false);
+	});
+
+	it("reads his trailing prompt or a tool result as a turn never answered", () => {
+		const typed = {
+			type: "user",
+			timestamp: After,
+			message: { content: "yes" },
+		};
+		expect(ended(reply("result: done"), typed)).toBe(false);
+		expect(ended(reply("result: done"), toolResult)).toBe(false);
+	});
+
+	it("looks past a mod's delivery after the final reply, and a loop prompt", () => {
+		for (const content of [
+			"Delivered by the wfc-delivery mod: a report",
+			API_PROMPT,
+		])
+			expect(
+				ended(reply("result: done"), {
+					type: "user",
+					timestamp: After,
+					message: { content },
+				}),
+			).toBe(true);
+	});
+
+	it("reads a transcript with no turn as blocked", () => {
+		expect(ended({ type: "system" })).toBe(false);
 	});
 });

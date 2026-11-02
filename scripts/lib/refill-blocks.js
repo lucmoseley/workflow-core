@@ -7,6 +7,7 @@
 
 const path = require("node:path");
 const { isTerminalAgent } = require("./agent-liveness.js");
+const { newestMarkerListing } = require("./parked.js");
 const { swapHoldText } = require("./admission.js");
 const {
 	IDLE_TRIES,
@@ -159,7 +160,9 @@ const PARKED_STATE = "blocked";
  *   limit-cap park's count in a row; null, else why not, which may carry a stack
  * @property {(root: string) => import("./parked.js").ParkMarkerRead[]|null}
  *   readParkMarkers  those in `root`'s checkout, null where they will not read
- * @property {(l: LoopLaunch, sessionId: string) => string|null} unparkResumed
+ * @property {(marker: import("./parked.js").ParkMarkerRead) => boolean} hasEndedUnblocked
+ *   whether its session took a turn since the park that left it unblocked
+ * @property {(root: string, sessionId: string, issues: number[]) => string|null} unparkSession
  *   take the `parked` label and marker off its issues, as its session has gone back
  * @property {(l: LoopLaunch, body: string) => void} comment  on each of its
  *   issues, a failure logged
@@ -1113,7 +1116,7 @@ function resumeStepHeld(l, seen) {
 	const { sessionId, cwd } = held;
 	const unpark = () => {
 		if (!isParked) return;
-		const failed = io.unparkResumed(l, sessionId);
+		const failed = io.unparkSession(l.root, sessionId, l.issues);
 		if (failed) io.log(`${what}: still labelled parked: ${failed}`);
 	};
 	const r = io.resumeStopped(l, prompt, { sessionId, cwd });
@@ -1133,6 +1136,56 @@ function resumeStepHeld(l, seen) {
 		return { launch: withTries(tries), started: false };
 	unpark();
 	return { launch: handOff(rest, seen, true), started: false };
+}
+
+/**
+ * Take `parked` off what each park marker in `served` holds, where its session is
+ * no longer running and took a turn since the park that left it unblocked: a `!`
+ * answer fires no hook, so that turn is the only sign the question was answered
+ * (#3940). Off the markers, not the launches, so a session reopened by `claude
+ * attach`, one no loop launched and a failed label write are all met on a later
+ * tick. An issue a newer park holds waits on that park's session. Off an unread
+ * listing, nothing.
+ * @param {string[]} served
+ * @param {Pick<Tick, "agents"|"io">} seen
+ */
+function unparkAnswered(served, { agents, io }) {
+	if (!agents) return;
+	const running = new Set(
+		agents
+			.filter((a) => !isTerminalAgent(a))
+			.flatMap((a) => [a.sessionId, a.id])
+			.filter(Boolean),
+	);
+	for (const root of served) {
+		const markers = io.readParkMarkers(root) ?? [];
+		for (const marker of markers) {
+			if (running.has(marker.sessionId) || running.has(marker.job?.jobId))
+				continue;
+			const issues = marker.issues.filter(
+				(n) => newestMarkerListing(markers, n) === marker,
+			);
+			if (issues.length > 0 && io.hasEndedUnblocked(marker))
+				unparkAndLog(root, marker.sessionId, issues, io);
+		}
+	}
+}
+
+/**
+ * Unpark `issues` for session `sessionId`, logged.
+ * @param {string} root
+ * @param {string} sessionId
+ * @param {number[]} issues
+ * @param {BlockIo} io
+ */
+function unparkAndLog(root, sessionId, issues, io) {
+	const named = issues.map((n) => `#${n}`).join(", ");
+	const failed = io.unparkSession(root, sessionId, issues);
+	io.log(
+		failed
+			? `session ${sessionId} ended unblocked: ${named} still labelled parked: ${failed}`
+			: `session ${sessionId} ended unblocked: parked off ${named}`,
+	);
 }
 
 /**
@@ -2089,6 +2142,7 @@ module.exports = {
 	actOnBlocks,
 	actOnIdle,
 	actOnLimits,
+	unparkAnswered,
 	buildChildLine,
 	buildHeldStopText,
 	buildLimitText,

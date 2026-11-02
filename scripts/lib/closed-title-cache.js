@@ -91,8 +91,7 @@ function buildGhDeps(repo) {
 		listAll: () => listState("all"),
 		listOpen: () => listState("open"),
 		/* REST's `since` rather than an `updated:>` search: the same filter, with
-		 * no 1,000-result cap. Its rows carry pull requests, which the issue list
-		 * leaves out. */
+		 * no 1,000-result cap. */
 		listSince: (since) =>
 			ghIssuesUpdatedSince(repo, since).map((i) => ({
 				number: i.number,

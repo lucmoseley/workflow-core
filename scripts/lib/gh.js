@@ -153,6 +153,8 @@ async function ghAsync(args, opts = {}) {
 }
 
 /**
+ * `any` because the shape is the endpoint's or the `--json` list's, which only
+ * the caller knows.
  * @param {string[]} args
  * @param {import("node:child_process").ExecFileSyncOptions} [opts]
  * @returns {any}
@@ -172,7 +174,7 @@ const ghDefaultRepo = (opts = {}) =>
 /**
  * `gh api … --paginate --slurp`, parsed. --slurp wraps each page's array so
  * multi-page output stays parseable; older gh returns one flat array.
- * `.flat()` normalises both.
+ * `.flat()` normalises both. `any[]`: the caller's endpoint decides the row.
  * @param {string[]} apiArgs
  * @param {import("node:child_process").ExecFileSyncOptions} [opts]
  * @returns {any[]}
@@ -182,6 +184,7 @@ function ghApiSlurp(apiArgs, opts = {}) {
 }
 
 /**
+ * `any[]`: the caller's endpoint decides the row.
  * @param {string[]} apiArgs
  * @param {import("node:child_process").ExecFileOptions} [opts]
  * @returns {Promise<any[]>}
@@ -207,7 +210,8 @@ async function ghApiSlurpAsync(apiArgs, opts = {}) {
  *
  * Deliberately no `--jq`: every projection stays in the caller's JS, which
  * keeps the shape of the query visible there and testable against a stub `gh`
- * that would otherwise have to reimplement a jq filter.
+ * that would otherwise have to reimplement a jq filter. `any[]`: `apiPath`
+ * decides the row.
  * @param {string} apiPath
  * @param {{strict?: boolean}} [opts]
  * @returns {Promise<{ok: true, out: any[]} | {ok: false, error: string, reason: "unreachable"|"broken"}>}
@@ -473,6 +477,23 @@ function assertWholeTracker(rows, what = "issues") {
 }
 
 /**
+ * A row of REST's issues list, as far as this repo's callers read it.
+ * @typedef {object} IssueRow
+ * @property {number} number
+ * @property {string} title
+ * @property {"open"|"closed"} state
+ * @property {string | null} body
+ * @property {{name: string}[]} labels
+ * @property {{login: string}[]} assignees
+ * @property {string | null} [parent_issue_url]
+ * @property {object} [pull_request] present only on a pull request
+ * @property {string} html_url
+ * @property {string} created_at
+ * @property {string} updated_at
+ * @property {string | null} closed_at
+ */
+
+/**
  * Every issue in the repo — open and closed, bodies and labels included — in
  * one paginated call.
  *
@@ -494,7 +515,7 @@ function ghAllIssues() {
  * for real, so one that fails silently twice running still reads as none.
  * @param {"all"|"open"|"closed"} state
  * @param {string[]} [extra]
- * @returns {any[]}
+ * @returns {IssueRow[]}
  */
 function ghIssuesInState(state, extra = []) {
 	const read = () =>
@@ -523,9 +544,10 @@ function ghIssuesInState(state, extra = []) {
  *
  * The repo's `open_issues_count` counts pull requests too, as the issues
  * list's rows do.
- * @param {any[]} rows
+ * @template T
+ * @param {T[]} rows
  * @param {string} repo `owner/name`, or gh's `{owner}/{repo}` placeholder
- * @returns {any[]}
+ * @returns {T[]}
  */
 function assertOpenRead(rows, repo) {
 	if (rows.length > 0) return rows;
@@ -542,7 +564,7 @@ function assertOpenRead(rows, repo) {
  *
  * Paying one page instead of the whole tracker is why this exists (mantahostels#1899).
  * It cannot replace ghAllIssues where closed rows are the subject.
- * @returns {any[]}
+ * @returns {IssueRow[]}
  */
 function ghOpenIssues() {
 	return ghIssuesInState("open");
@@ -551,7 +573,7 @@ function ghOpenIssues() {
 /**
  * The OPEN issues carrying `label`.
  * @param {string} label
- * @returns {any[]}
+ * @returns {IssueRow[]}
  */
 function ghOpenIssuesWithLabel(label) {
 	return ghIssuesInState("open", ["-f", `labels=${label}`]);
@@ -562,7 +584,7 @@ function ghOpenIssuesWithLabel(label) {
  * rows a scan of open issues still needs, a closed parent among them, without
  * paginating the whole tracker to find them (mantahostels#1899).
  * @param {string} label
- * @returns {any[]}
+ * @returns {IssueRow[]}
  */
 function ghClosedIssuesWithLabel(label) {
 	return ghIssuesInState("closed", ["-f", `labels=${label}`]);
@@ -575,7 +597,7 @@ function ghClosedIssuesWithLabel(label) {
  * before it is believed (#2565). Throws on a failed read.
  * @param {string} repo `owner/name`
  * @param {string} since ISO 8601
- * @returns {any[]}
+ * @returns {IssueRow[]}
  */
 function ghIssuesUpdatedSince(repo, since) {
 	const read = () =>
@@ -596,7 +618,7 @@ function ghIssuesUpdatedSince(repo, since) {
 
 /**
  * A whole-tracker `gh issue list`, ceiling-checked. `what` names the rows in
- * the truncation message.
+ * the truncation message. `any[]`: the caller's `--json` list decides the row.
  * @param {string} what
  * @param {string[]} args
  * @param {import("node:child_process").ExecFileSyncOptions} [opts]

@@ -129,6 +129,13 @@ const readLines = (file: string) =>
 		? fs.readFileSync(file, "utf8").split("\n").filter(Boolean)
 		: [];
 
+/* The stub gh's calls, each tick's own read for closed parks aside. */
+const readGhActs = () =>
+	readLines(at("gh-calls")).filter(
+		(l) =>
+			!l.startsWith("issue list --repo o/r --state closed --label parked "),
+	);
+
 /** A node stub at `name` in the sandbox scripts/. */
 const stub = (name: string, body: string) =>
 	fs.writeFileSync(path.join(scripts, name), body);
@@ -908,15 +915,15 @@ describe("a parked launch (#2699)", () => {
 			buildStopBranch(at("stops")),
 		]);
 
-	const startRun = () =>
+	const startRun = (gh = at("gh")) =>
 		runInProcessAsync(path.join(scripts, "refill-loop.js"), ["run"], {
 			cwd: dir,
-			env: loopEnv({ WFC_GH: at("gh"), FAKE_SLOTS: "0" }),
+			env: loopEnv({ WFC_GH: gh, FAKE_SLOTS: "0" }),
 		});
 
 	/** Two ticks of the loop, ended by a stop after the first. */
-	const twoTicks = async () => {
-		const running = startRun();
+	const twoTicks = async (gh?: string) => {
+		const running = startRun(gh);
 		await ticked(1);
 		requestStop();
 		return settled(running, "run with a parked launch");
@@ -931,7 +938,7 @@ describe("a parked launch (#2699)", () => {
 
 	const expectNothingActed = () => {
 		expect(readLines(at("stops"))).toEqual([]);
-		expect(readLines(at("gh-calls"))).toEqual([]);
+		expect(readGhActs()).toEqual([]);
 		expect(launchState()).not.toHaveProperty("parkStopped");
 	};
 
@@ -942,6 +949,90 @@ describe("a parked launch (#2699)", () => {
 		control.scope.mode = mode;
 		fs.writeFileSync(at(".refill-loop-control.json"), JSON.stringify(control));
 	};
+
+	describe("whose session has left the listing (#3940)", () => {
+		const Unlabel = "issue edit 7 --repo o/r --remove-label parked";
+		const reply = (text: string) => ({
+			type: "assistant",
+			timestamp: new Date().toISOString(),
+			message: { content: [{ type: "text", text }] },
+		});
+
+		const transcript = () => path.join(seat, "projects", "p", "s-job7.jsonl");
+
+		/** A marker listing #7, written a minute ago, and its transcript's directory. */
+		const parkedAMinuteAgo = () => {
+			fs.mkdirSync(path.dirname(markerPath("s-job7")), { recursive: true });
+			fs.writeFileSync(markerPath("s-job7"), `seat ${seat}\njob ${Job}\n7\n`);
+			const parkedAt = new Date(Date.now() - 60_000);
+			fs.utimesSync(markerPath("s-job7"), parkedAt, parkedAt);
+			fs.mkdirSync(path.dirname(transcript()), { recursive: true });
+		};
+
+		it("takes the label and the marker off where it ended unblocked, as after a `!` answer", async () => {
+			parkedAMinuteAgo();
+			fs.writeFileSync(
+				transcript(),
+				`${JSON.stringify(reply("Merged.\n\nresult: closed #7"))}\n`,
+			);
+			fakeClaude([LISTED]);
+			const r = await twoTicks();
+			expect(r.status).toBe(0);
+			expect(readLines(at("gh-calls"))).toContain(Unlabel);
+			expect(fs.existsSync(markerPath("s-job7"))).toBe(false);
+			expect(r.stdout).toContain("ended unblocked: parked off #7");
+		});
+
+		it("keeps the label, logged, where its transcript will not read", async () => {
+			parkedAMinuteAgo();
+			fs.mkdirSync(transcript());
+			fakeClaude([LISTED]);
+			const r = await twoTicks();
+			expect(r.status).toBe(0);
+			expect(readLines(at("gh-calls"))).not.toContain(Unlabel);
+			expect(r.stdout).toContain("transcript unread for s-job7");
+		});
+	});
+
+	it("takes the label off a closed issue however it closed, each tick (#3940)", async () => {
+		fs.mkdirSync(at("gh-routes"), { recursive: true });
+		const { gh } = stubGhRoutes(
+			at("gh-routes"),
+			{
+				"issue list --repo o/r --state closed --label parked *":
+					printed('[{"number":12}]'),
+				"*": printed(),
+			},
+			{ log: at("gh-calls") },
+		);
+		fakeClaude([LISTED, blockedRow]);
+		const r = await twoTicks(gh);
+		expect(r.status).toBe(0);
+		expect(readLines(at("gh-calls"))).toContain(
+			"issue edit 12 --repo o/r --remove-label parked",
+		);
+		expect(r.stdout).toContain("closed o/r#12: parked off");
+	});
+
+	it("logs a closed-parks list that will not read, and ticks on (#3940)", async () => {
+		fs.mkdirSync(at("gh-routes"), { recursive: true });
+		const { gh } = stubGhRoutes(
+			at("gh-routes"),
+			{
+				"issue list --repo o/r --state closed --label parked *": {
+					status: 1,
+					stdout: "",
+					stderr: "HTTP 502\n",
+				},
+				"*": printed(),
+			},
+			{ log: at("gh-calls") },
+		);
+		fakeClaude([LISTED, blockedRow]);
+		const r = await twoTicks(gh);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("closed parks unread in o/r");
+	});
 
 	it("stops an away question park once, labels its ticket parked and logs it", async () => {
 		fakeClaude([LISTED, blockedRow]);
@@ -1205,7 +1296,7 @@ describe("a parked launch (#2699)", () => {
 			const r = await twoTicks();
 			expect(r.status).toBe(0);
 			expect(readLines(at("stops"))[0]).toBe(`stop ${Job}`);
-			expect(readLines(at("gh-calls"))).toEqual([]);
+			expect(readGhActs()).toEqual([]);
 			expect(r.stdout).toContain(
 				`held ${Job} repo /implement 7 on ${seat}, at its weekly limit`,
 			);
@@ -1407,7 +1498,7 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 			tries: 1,
 			attachAt: expect.any(Number),
 		});
-		expect(readLines(at("gh-calls")).join("\n")).toMatch(
+		expect(readGhActs().join("\n")).toMatch(
 			/^issue comment 7 --repo o\/r --body Refill loop: resume 1 of 16 after an API error, repo \/implement 7, by typing into the live session; next due /,
 		);
 	});
@@ -1673,7 +1764,7 @@ describe("a session held on its seat's limit (#3735)", () => {
 			finishedAt: null,
 			relaunchedAt: expect.any(Number),
 		});
-		expect(readLines(at("gh-calls")).join("\n")).toMatch(
+		expect(readGhActs().join("\n")).toMatch(
 			/^issue comment 7 --repo o\/r --body Refill loop: resumed this session after its weekly limit \(reset 2026-11-01T00:00:00.000Z\): same seat, .*Lost: /,
 		);
 		/* Its slot went to the resume, so the frontier's #5 launched nothing. */
@@ -2044,7 +2135,7 @@ process.exit(${handOffExit});\n`,
 		expect(r.stdout).toMatch(
 			/resumed repo \/implement 7, idle since its host's restart, by typing into the live session, try 1 of 2/,
 		);
-		expect(readLines(at("gh-calls"))).toEqual([
+		expect(readGhActs()).toEqual([
 			expect.stringMatching(
 				/^issue comment 7 --repo o\/r --body Refill loop: resumed repo \/implement 7/,
 			),
@@ -2589,6 +2680,35 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 			`--bg --resume s-job5 ${PARKED_PROMPT}`,
 		]);
 		expect(fs.existsSync(markerPath("s-job5"))).toBe(false);
+	});
+
+	it("hands the old session's marker to the copy, whose typing or ending then takes the label off (#3940)", async () => {
+		seed();
+		fakeResumeClaude(
+			Job,
+			[LISTED],
+			`${stopOnResume()} ${writesCopyRecord(JSON.stringify({ state: "working", sessionId: "s-copy" }))}`,
+		);
+		const r = await settled(run(1), ParkedRun);
+		expect(r.status).toBe(0);
+		expect(fs.existsSync(markerPath("s-job5"))).toBe(false);
+		expect(readLines(markerPath("s-copy"))).toEqual(
+			expect.arrayContaining([`seat ${seat}`, `cwd ${repo}`, "5"]),
+		);
+	});
+
+	it("keeps the old session's marker, logged, where the copy's will not write (#3940)", async () => {
+		seed();
+		fs.mkdirSync(markerPath("s-copy"));
+		fakeResumeClaude(
+			Job,
+			[LISTED],
+			`${stopOnResume()} ${writesCopyRecord(JSON.stringify({ state: "working", sessionId: "s-copy" }))}`,
+		);
+		const r = await settled(run(1), ParkedRun);
+		expect(r.status).toBe(0);
+		expect(fs.existsSync(markerPath("s-job5"))).toBe(true);
+		expect(r.stdout).toContain("marker of s-job5 not moved");
 	});
 
 	describe("in away mode, on a weekly-full seat (#3850)", () => {

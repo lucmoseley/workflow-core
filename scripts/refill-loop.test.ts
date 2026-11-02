@@ -315,8 +315,17 @@ describe("stop and status", () => {
 		);
 	};
 
+	const fillPlanSeat = () => {
+		fs.mkdirSync(path.join(dir, ".claude3"));
+		fs.writeFileSync(
+			path.join(dir, ".claude3", ".claude.json"),
+			JSON.stringify(buildUsageCache({ week: 100 }, Date.now())),
+		);
+	};
+
 	it("carries each overflow key's budget and each plan seat's week in status --json", async () => {
 		declareOverflowKey();
+		fillPlanSeat();
 		const json = JSON.parse((await run("status", "--json")).stdout);
 		expect(json.overflow).toEqual([
 			{
@@ -325,12 +334,19 @@ describe("stop and status", () => {
 				grantUsd: 200,
 				headroomUsd: 200,
 				exhausted: false,
-				spent: false,
+				noLaunchLeft: false,
 			},
 		]);
 		expect(json.seats.readings).toEqual([
-			expect.objectContaining({ week: null, weekFull: false }),
+			expect.objectContaining({ week: 100, weekFull: true }),
 		]);
+	});
+
+	it("settles no key's ledger while a plan seat has room", async () => {
+		declareOverflowKey();
+		const json = JSON.parse((await run("status", "--json")).stdout);
+		expect(json.seats.readings[0].weekFull).toBe(false);
+		expect(json.overflow[0].why).toBe("a plan seat is not weekly-full");
 	});
 
 	it("carries no overflow key where the seat file declares none", async () => {
@@ -341,6 +357,7 @@ describe("stop and status", () => {
 
 	it("says why a key's budget or the seat file will not read", async () => {
 		declareOverflowKey();
+		fillPlanSeat();
 		fs.rmSync(path.join(dir, "docs", "data", "session-cost-table.json"));
 		const [key] = JSON.parse((await run("status", "--json")).stdout).overflow;
 		expect(key.why).toBe("the session cost table is unreadable");
