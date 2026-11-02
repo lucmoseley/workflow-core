@@ -176,7 +176,7 @@ describe("file-morning-review.js (#2011)", () => {
 				"",
 				"Each tracker's open efforts nothing has launched lately, the oldest, and why the refill loop skips it:",
 				"",
-				"- `The refill loop is not running, so it serves no tracker. refill-loop.js start restarts it.`",
+				"- `The refill loop is not running, so it serves no tracker. node scripts/refill-loop.js start restarts it.`",
 				"- `acme/wfc: 1 idle past 2 days (the refill loop does not serve it); oldest #12 (Stranded effort), idle 5.0 days; skip reason: none, the launch filter passes it`",
 				"",
 			].join("\n"),

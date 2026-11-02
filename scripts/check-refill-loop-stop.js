@@ -20,7 +20,7 @@
  * job's wake, prints and records nothing either (lib/background-start.js, #3707, #3772), so the
  * founder's does, in a terminal or from the agents view.
  *
- * THE RESTART IS ONE COMMAND: `start` restarts from the stored settings, or
+ * THE RESTART IS ONE COMMAND (#3868): `start` restarts from the stored settings, or
  * writes fresh ones where the control will not read, the script absolute. A loop
  * started again since names no restart.
  *

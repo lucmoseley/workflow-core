@@ -2874,29 +2874,30 @@ const commandFromRepo = (...argv: string[]) =>
 		env: loopEnv({ FAKE_SLOTS: "1", CLAUDE_PROJECT_DIR: repo }),
 	});
 
-describe("`set --resume` with no process (#3861)", () => {
-	const stored = () => ({
-		noProgressFrom: 5,
-		stopRequested: false,
-		seats: [seat],
-	});
-	const scope = () => ({
-		mode: "away",
-		repos: [repo],
-		tickedSet: true,
-		goal: {
-			form: "issues",
-			text: "5",
-			refs: [{ repo: path.basename(repo), number: 5 }],
-			setAt: 3,
-		},
-	});
-	const writeStored = () =>
-		fs.writeFileSync(
-			loopControlFile(),
-			JSON.stringify({ ...stored(), scope: scope() }),
-		);
+const storedScope = () => ({
+	mode: "away",
+	repos: [repo],
+	tickedSet: true,
+	goal: {
+		form: "issues",
+		text: "5",
+		refs: [{ repo: path.basename(repo), number: 5 }],
+		setAt: 3,
+	},
+});
+const writeStored = (extra: object = {}) =>
+	fs.writeFileSync(
+		loopControlFile(),
+		JSON.stringify({
+			noProgressFrom: 5,
+			stopRequested: false,
+			seats: [seat],
+			scope: storedScope(),
+			...extra,
+		}),
+	);
 
+describe("`set --resume` with no process (#3861)", () => {
 	it("restarts a stopped loop from its stored repos, goal and mode", async () => {
 		writeStored();
 		fs.writeFileSync(
@@ -2913,7 +2914,7 @@ describe("`set --resume` with no process (#3861)", () => {
 		await untilLoopEnded();
 		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
 		const after = JSON.parse(fs.readFileSync(loopControlFile(), "utf8"));
-		expect(after.scope).toMatchObject(scope());
+		expect(after.scope).toMatchObject(storedScope());
 		expect(after.paused).toBeUndefined();
 		expect(after.noProgressFrom).toBeGreaterThanOrEqual(before);
 	});
@@ -2944,36 +2945,7 @@ describe("`set --resume` with no process (#3861)", () => {
 });
 
 describe("`start` with no process (#3868)", () => {
-	const scope = {
-		mode: "away",
-		repos: [] as string[],
-		tickedSet: true,
-		goal: {
-			form: "issues",
-			text: "5",
-			refs: [] as { repo: string; number: number }[],
-			setAt: 3,
-		},
-	};
 	const paused = { by: "founder", at: 4 };
-	const writeStored = (extra: object = {}) =>
-		fs.writeFileSync(
-			loopControlFile(),
-			JSON.stringify({
-				noProgressFrom: 5,
-				stopRequested: false,
-				seats: [seat],
-				scope: {
-					...scope,
-					repos: [repo],
-					goal: {
-						...scope.goal,
-						refs: [{ repo: path.basename(repo), number: 5 }],
-					},
-				},
-				...extra,
-			}),
-		);
 	const readStored = () =>
 		JSON.parse(fs.readFileSync(loopControlFile(), "utf8"));
 	/* A paused loop launches nothing, so nothing ends it but a stop. */
@@ -3016,18 +2988,6 @@ describe("`start` with no process (#3868)", () => {
 		expect(after.paused).toEqual(paused);
 		expect(after.noProgressFrom).toBe(5);
 		expect(after.seats).toEqual([seat]);
-	});
-
-	it("starts a first loop with --unless-stopped, on a fresh control", async () => {
-		const r = await commandFromRepo("start", "--unless-stopped");
-		expect(r.status).toBe(0);
-		expect(r.stdout).toMatch(/^refill loop started: pid \d+$/m);
-		await stopOnceHolding();
-		expect(readStored().scope).toMatchObject({
-			mode: "normal",
-			repos: [repo],
-			goal: null,
-		});
 	});
 });
 

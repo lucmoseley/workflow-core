@@ -344,19 +344,6 @@ describe("start ensures a process runs (#3868)", () => {
 			noProcessStarted();
 		});
 
-		it("leaves a stop the loop recorded for itself", async () => {
-			writeStored();
-			fs.writeFileSync(
-				path.join(dir, ".refill-loop-state.json"),
-				JSON.stringify({
-					stopped: { at: 6, reason: "control-damaged", detail: "garbled" },
-				}),
-			);
-			const r = await start("--unless-stopped");
-			expect(r.stdout).toContain("left stopped");
-			noProcessStarted();
-		});
-
 		it("leaves a pending stop to end the loop, printing it", async () => {
 			holdPidfile();
 			writeStored({ stopRequested: true, stopRequestedAt: 6 });
@@ -380,24 +367,64 @@ describe("start ensures a process runs (#3868)", () => {
 			expect(readControl().paused).toEqual(noProgress);
 		});
 
-		it.each([
-			["a damaged control", () => fs.writeFileSync(controlFile(), "{ garbled")],
-			[
-				"a stop with no control left",
-				() =>
-					fs.writeFileSync(
-						path.join(dir, ".refill-loop-state.json"),
-						JSON.stringify({
-							stopped: { at: 6, reason: "explicit", detail: "asked" },
-						}),
-					),
-			],
-		])("refuses %s, rewriting nothing", async (_name, arrange) => {
-			arrange();
+		it("refuses a damaged control, leaving its bytes", async () => {
+			fs.writeFileSync(controlFile(), "{ garbled");
 			const r = await start("--unless-stopped");
 			expect(r.status).toBe(1);
-			expect(r.stderr).toContain("`start`");
+			expect(r.stderr).toContain("is damaged");
+			expect(fs.readFileSync(controlFile(), "utf8")).toBe("{ garbled");
 			noProcessStarted();
+		});
+
+		it("refuses a stop with no control left, writing none", async () => {
+			fs.writeFileSync(
+				path.join(dir, ".refill-loop-state.json"),
+				JSON.stringify({
+					stopped: { at: 6, reason: "explicit", detail: "asked" },
+				}),
+			);
+			const r = await start("--unless-stopped");
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain("holds no stored settings");
+			expect(fs.existsSync(controlFile())).toBe(false);
+			noProcessStarted();
+		});
+	});
+
+	it("names a damaged control a plain start replaces", async () => {
+		holdPidfile();
+		fs.writeFileSync(controlFile(), "{ garbled");
+		const r = await start();
+		expect(r.status).toBe(0);
+		expect(r.stdout).toMatch(/is damaged.*; fresh settings written/);
+		expect(readControl().scope.repos).toEqual([core]);
+	});
+
+	describe("from a checkout opted out of the loop", () => {
+		const startOptedOut = (...argv: string[]) =>
+			runEnv(
+				{
+					...stubbedGh(),
+					CLAUDE_PROJECT_DIR: checkout("books", { refillLoop: false }),
+				},
+				"start",
+				...argv,
+			);
+
+		it("still sends its flags to a loop with stored settings", async () => {
+			holdPidfile();
+			writeStored();
+			const r = await startOptedOut("--unless-stopped", "--repo", "core");
+			expect(r.status).toBe(0);
+			expect(r.stdout).toContain("refill loop running: pid");
+			expect(readControl().scope.repos).toEqual([manta, core]);
+		});
+
+		it("writes no fresh control ticking itself", async () => {
+			const r = await startOptedOut();
+			expect(r.status).toBe(0);
+			expect(r.stdout).toContain("this checkout is not served");
+			expect(fs.existsSync(controlFile())).toBe(false);
 		});
 	});
 });
@@ -534,7 +561,7 @@ describe("stop and status", () => {
 		);
 		const { stdout } = await run("status");
 		expect(stdout).toContain(
-			"in the seat file, unread until the next start: ~/.claude3",
+			"in the seat file, unread until a plain start restarts the loop: ~/.claude3",
 		);
 		expect(stdout).toContain(
 			"read since the last start, gone from the seat file: ~/.claude2",

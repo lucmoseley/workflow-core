@@ -961,11 +961,12 @@ hold, an admission refusal or a launcher refusal: run once
 node scripts/refill-loop.js start --unless-stopped [--repo <dir>]… [--goal <§1's set>]
 ```
 
-It starts the machine's one loop only where its process died with no stop, from
-its settings as they were, and never undoes one (#2526): a stopped loop stays
-stopped, a paused one paused, the no-progress pause included. A bare run changes
-nothing. `--repo` ticks each sibling checkout the founder's command named, by its
-directory name. `--goal` replaces the loop's goal with §1's set, if there is one,
+It starts the machine's one loop only where its process ended with no explicit
+stop, from its settings as they were, or on a machine's first run, ticking this
+repo. It never undoes a setting (#2526): a stopped loop stays stopped, a paused one
+paused, the no-progress pause included, and a bare run changes none. A damaged
+control file exits 1, naming it: copy that into the message. `--repo` ticks each
+sibling checkout the founder's command named, by its directory name. `--goal` replaces the loop's goal with §1's set, if there is one,
 each ref written `<dir>#N`; a ref it refuses stops the whole call, so copy the
 refusal and run it again without `--goal`. Never pass a mode. Copy the lines it
 prints — the loop's state, mode, repos, goal, seats, and that this repo is

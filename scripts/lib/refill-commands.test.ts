@@ -16,6 +16,7 @@ import {
 	buildStatusLines,
 	foreseeSeat,
 	planSet,
+	planStart,
 } from "./refill-commands.js";
 import { buildPauseText } from "./refill-decide.js";
 import { parseState } from "./refill-loop.js";
@@ -867,5 +868,116 @@ describe("planSet's resume with no process (#3861)", () => {
 			startFrom: null,
 		});
 		expect(resume({}, true)).toMatchObject({ write: null, startFrom: null });
+	});
+});
+
+describe("planStart (#3868)", () => {
+	const root = "/h/core";
+	const stored = {
+		noProgressFrom: 5,
+		stopRequested: false,
+		seats: ["/seat"],
+		scope: { mode: "away" as const, repos: ["/h/manta"], goal: null },
+	};
+	const context = {
+		pid: null as number | null,
+		now: 100,
+		root,
+		seats: ["/file-seat"],
+		seatErrors: [] as string[],
+		stopped: null as { at: number; reason: string; detail: string } | null,
+		unlessStopped: true,
+	};
+	const sound = (control: object | null = stored) =>
+		({ control, damaged: null }) as Parameters<typeof planStart>[0];
+	const plan = (
+		read: Parameters<typeof planStart>[0],
+		over: Partial<typeof context> = {},
+	) => planStart(read, {}, { ...context, ...over });
+	const selfStop = { at: 6, reason: "control-damaged", detail: "garbled" };
+	const explicit = { at: 6, reason: "explicit", detail: "asked" };
+
+	it.each([
+		["a crash", {}, stored],
+		["a stop the loop recorded for itself", { stopped: selfStop }, stored],
+	])(
+		"under unlessStopped starts as it was after %s, writing nothing",
+		(_n, over, c) => {
+			expect(plan(sound(c), over)).toEqual({
+				write: null,
+				control: stored,
+				action: "start",
+				lines: [],
+			});
+		},
+	);
+
+	it("under unlessStopped leaves an explicit stop, however it is recorded", () => {
+		for (const [control, over] of [
+			[stored, { stopped: explicit }],
+			[{ ...stored, stopRequested: true, stopRequestedAt: 6 }, {}],
+			[{ ...stored, stopRequested: true }, { stopped: selfStop }],
+		] as const) {
+			expect(plan(sound(control), over)).toMatchObject({
+				write: null,
+				action: "stopped",
+				lines: [expect.stringContaining(": left stopped;")],
+			});
+		}
+	});
+
+	it("starts a first loop on a fresh control, this checkout ticked", () => {
+		expect(plan(sound(null))).toMatchObject({
+			action: "start",
+			write: {
+				seats: ["/file-seat"],
+				scope: { mode: "normal", repos: [root], goal: null },
+			},
+		});
+	});
+
+	it("takes the seat file's seats only where a plain start ends a stop with no process", () => {
+		const plain = { unlessStopped: false };
+		expect(plan(sound(), plain)).toMatchObject({
+			action: "start",
+			write: { seats: ["/file-seat"], noProgressFrom: 100 },
+		});
+		expect(plan(sound(), { ...plain, pid: 9 })).toEqual({
+			write: null,
+			control: stored,
+			action: "running",
+			lines: ["refill loop running: pid 9"],
+		});
+	});
+
+	it("refuses a seat file only where it would write seats", () => {
+		const seatErrors = ["refill-seats:2: missing cycle-day="];
+		for (const [read, over] of [
+			[sound(), { pid: 9, unlessStopped: false }],
+			[sound(), {}],
+		] as const) {
+			expect(plan(read, { ...over, seatErrors })).not.toHaveProperty("refused");
+		}
+		for (const [read, over] of [
+			[sound(null), {}],
+			[sound(), { unlessStopped: false }],
+		] as const) {
+			expect(plan(read, { ...over, seatErrors })).toEqual({
+				refused: `the seat file refuses\n  ${seatErrors[0]}`,
+				exitCode: 2,
+			});
+		}
+	});
+
+	it("names a damaged control a plain start replaces, and refuses it under unlessStopped", () => {
+		const read = { control: null, damaged: "control is damaged: x" };
+		expect(plan(read, { unlessStopped: false })).toMatchObject({
+			action: "start",
+			lines: ["control is damaged: x; fresh settings written"],
+		});
+		expect(plan(read)).toEqual({
+			refused: "control is damaged: x; `start` rewrites it",
+			exitCode: 1,
+		});
 	});
 });

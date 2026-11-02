@@ -6,9 +6,11 @@
  * launches the next tickets into free slots across the repos its scope
  * serves (lib/refill-loop.js's Scope).
  *
- *   node scripts/refill-loop.js start …  ensure a process runs, from the stored
- *                                        control, changing nothing else but
- *                                        what its flags name; flags in USAGE
+ *   node scripts/refill-loop.js start …  ensure a process runs from the stored
+ *                                        control, ending any stop, changing
+ *                                        only what its flags name; with
+ *                                        --unless-stopped a stop stands; flags
+ *                                        in USAGE
  *   node scripts/refill-loop.js stop     record an explicit stop and end
  *                                        launching before the next dispatch
  *                                        call; running sessions finish
@@ -133,8 +135,8 @@ const LOG_MAX_BYTES = 1024 * 1024;
 
 const SCRIPTS = __dirname;
 const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | set | status | dry-run | boot-resume
-  start [--repo <dir>]… [--goal <ref,…>]       ensure a process runs, from the stored settings, ending any stop; a first start ticks this checkout. On a running loop it changes only what --repo ticks and --goal replaces, as set does
-  start --unless-stopped [--repo <dir>]… [--goal <ref,…>]  the same, but a stop stands: it starts only what no stop ended, and says the loop is stopped
+  start [--repo <dir>]… [--goal <ref,…>]       ensure a process runs, from the stored settings, ending any stop, its count starting again; a first start ticks this checkout. On a running loop it changes only what --repo ticks and --goal replaces, as set does
+  start --unless-stopped [--repo <dir>]… [--goal <ref,…>]  the same, but an explicit stop stands and is printed, and otherwise the stored settings start as they were
   set --pause | --resume                       launch nothing, keeping housekeeping; or launch again, starting the loop from its stored settings where no process runs
   set --away | --normal                        hand a session at a question off to its issue, until a tick reads the founder back after one read him absent; or keep it open. The repos stay
   set [--repos <dir>]…                         the whole ticked set
@@ -283,6 +285,25 @@ function readIssueState(ref) {
 	}
 }
 
+/** The control as stored, null where none will read; its planner reports why. */
+const readStoredControl = () => readControlChecked(() => undefined).control;
+
+/**
+ * A parsed ask with its goal judged on the stored control, else on `unstored`, or
+ * a string refusal.
+ * @param {import("./lib/refill-commands.js").SetAsk|string} parsedAsk
+ * @param {import("./lib/refill-loop.js").Control|null} unstored
+ * @returns {import("./lib/refill-commands.js").SetAsk|string}
+ */
+function checkAsk(parsedAsk, unstored) {
+	if (typeof parsedAsk === "string") return parsedAsk;
+	return commands.checkGoalAsk(
+		readStoredControl() ?? unstored,
+		parsedAsk,
+		readIssueState,
+	);
+}
+
 /**
  * The checkout a command sizes caps and budgets in: the tick's root
  * (refill-tick.js), so it prints the figure the tick sizes; with no loop
@@ -395,28 +416,12 @@ function bootResume() {
 function start(parsed) {
 	const root = hostRoot();
 	const excluded = exclusionOf(root);
-	if (excluded !== null) {
+	if (excluded !== null && readStoredControl() === null) {
 		say(`refill loop not started: this checkout is not served (${excluded})`);
 		return 0;
 	}
 	const parsedAsk = parseStartAsk(parsed);
-	const { errors } = readDeclaredSeats();
-	if (typeof parsedAsk !== "string" && errors.length > 0) {
-		writeFd(
-			2,
-			`refill loop not started: the seat file refuses\n${errors.map((e) => `  ${e}\n`).join("")}`,
-		);
-		return 2;
-	}
-	const ask =
-		typeof parsedAsk === "string"
-			? parsedAsk
-			: commands.checkGoalAsk(
-					readControlChecked(() => undefined).control ??
-						commands.buildFreshControl(root, [], 0),
-					parsedAsk,
-					readIssueState,
-				);
+	const ask = checkAsk(parsedAsk, commands.buildFreshControl(root, [], 0));
 	if (typeof ask === "string") {
 		writeFd(2, `${ask}\n\n${USAGE}\n`);
 		return 2;
@@ -427,10 +432,11 @@ function start(parsed) {
 			readControlChecked(() => undefined),
 			ask,
 			{
-				running: pid !== null,
+				pid,
 				now: Date.now(),
 				root,
 				seats: readConfiguredSeats(),
+				seatErrors: readDeclaredSeats().errors,
 				stopped: readStateFile(log).stopped,
 				unlessStopped: parsed.flags["--unless-stopped"] === true,
 			},
@@ -438,13 +444,16 @@ function start(parsed) {
 		if ("refused" in plan) return plan;
 		if (plan.write) writeControlFile(plan.write);
 		if (plan.action === "start") forgetRunHeld(log);
-		return { ...plan, pid };
+		return plan;
 	});
 	if ("busy" in written) return refuseWrite("not started", written.busy);
-	if ("refused" in written.done)
-		return refuseWrite("nothing set", written.done.refused);
-	const { pid, control, write, action, stoppedBy } = written.done;
-	if (write) wakes.touchWake(files.wake);
+	const plan = written.done;
+	if ("refused" in plan) {
+		refuseWrite("nothing set", plan.refused);
+		return plan.exitCode;
+	}
+	if (plan.write) wakes.touchWake(files.wake);
+	const { control, action } = plan;
 	const served = servedRoots(control.scope).roots;
 	const scopeText = [
 		...commands
@@ -461,14 +470,10 @@ function start(parsed) {
 				),
 			})
 			.map((l) => `  ${l}`),
-		...commands.buildUncheckedLines(control, root),
+		...commands.buildUntickedLines(control, root),
 	];
+	for (const line of plan.lines) say(line);
 	if (action === "start") return startProcess(control, scopeText);
-	say(
-		stoppedBy === null
-			? `refill loop running: pid ${pid}`
-			: commands.buildStoppedLine(stoppedBy),
-	);
 	for (const line of scopeText) say(line);
 	return 0;
 }
@@ -523,15 +528,7 @@ function stop() {
  * @param {import("./lib/cli-args").Parsed} parsed
  */
 function set(parsed) {
-	const parsedAsk = parseSetAsk(parsed);
-	const ask =
-		typeof parsedAsk === "string"
-			? parsedAsk
-			: commands.checkGoalAsk(
-					readControlChecked(() => undefined).control,
-					parsedAsk,
-					readIssueState,
-				);
+	const ask = checkAsk(parseSetAsk(parsed), null);
 	if (typeof ask === "string") {
 		writeFd(2, `${ask}\n\n${USAGE}\n`);
 		return 2;

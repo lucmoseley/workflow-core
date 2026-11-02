@@ -48,6 +48,7 @@ const { PARKED_LABEL, newestMarkerListing } = require("./parked.js");
 const { takesLabel, takesOf } = require("./takes-label.js");
 const { refKey } = require("./issue-ref.js");
 const { resolveGate } = require("./issue-gate.js");
+const { scriptPath } = require("./script-path.js");
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /* One figure for every route: house, #3588. */
@@ -484,8 +485,7 @@ const days = (ms) => `${(ms / DAY_MS).toFixed(1)} days`;
 /** @param {Idle} i */
 const named = (i) => `#${i.number} (${i.title}), idle ${days(i.idleMs)}`;
 
-const LOOP_STOPPED_TEXT =
-	"The refill loop is not running, so it serves no tracker. refill-loop.js start restarts it.";
+const LOOP_STOPPED_TEXT = `The refill loop is not running, so it serves no tracker. node ${scriptPath("refill-loop.js")} start restarts it.`;
 
 /** @param {string} damage a damaged file's line, as its reader words it */
 const buildDamagedText = (damage) => `Refill loop file damaged: ${damage}`;

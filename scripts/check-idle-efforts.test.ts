@@ -162,7 +162,7 @@ afterEach(() => {
 const LIMIT_PARK_CAP = 2;
 
 const STOP_LINE =
-	"The refill loop is not running, so it serves no tracker. refill-loop.js start restarts it.";
+	"The refill loop is not running, so it serves no tracker. node scripts/refill-loop.js start restarts it.";
 
 const PARKED_LABELS = ["takes:implement", "parked"];
 
