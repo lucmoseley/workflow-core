@@ -5,7 +5,8 @@
  * recording of one real probe (scripts/fixtures/usage-probe.json, re-recorded
  * by `node scripts/record-claude-responses.js`), read through the same
  * lib/allowance.js and lib/usage-cache.js parses; and, on a plan seat on the
- * founder's machine, to the live seat's cache (#3266). Breaking it costs the allowance
+ * founder's machine, to the live seat's cache (#3266); and pins the fake's own
+ * refusal of a cache with no stamp (#3969). Breaking it costs the allowance
  * gate: a stub printing bars or a cache the harness no longer writes passes
  * tests while the probe reads nothing, or never sees its stamp move and runs
  * a minute past every refresh.
@@ -21,12 +22,13 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readAllowance } from "./allowance.js";
 import { writeClaudeStub } from "./claude-stub";
 import { readUsageCache } from "./usage-cache.js";
 import {
 	buildRefreshBranch,
+	buildRefreshLine,
 	buildUsageCache,
 	buildUsageText,
 	recorded,
@@ -152,6 +154,21 @@ describe("the /usage fake against the recording (#3266)", () => {
 		const cache = readUsageCache(dir);
 		expect(cache.state === "ok" && cache.fetchedAtMs).toBeGreaterThan(startMs);
 		expect(readAllowance({ configDir: dir }).weekly_all.percent).toBe(51);
+	});
+});
+
+describe("the fake's refusal of a cache it cannot re-stamp", () => {
+	it("throws rather than writing a broken cache (#3969)", () => {
+		// A spy, because no real seam reaches this: buildUsageCache always writes
+		// the stamp it is handed.
+		const stringify = vi.spyOn(JSON, "stringify").mockReturnValue("{}");
+		try {
+			expect(() =>
+				buildRefreshLine({ session: 41, week: 51 }, "target"),
+			).toThrow(/fetchedAtMs/);
+		} finally {
+			stringify.mockRestore();
+		}
 	});
 });
 
