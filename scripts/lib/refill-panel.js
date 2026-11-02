@@ -929,8 +929,9 @@ function createPanel({ run, runBurn, now, onChange }) {
 
 	/** @param {number} terminalRow */
 	async function click(terminalRow) {
-		const control = buildRows(view, now())[terminalRow - TOP_ROW]?.control;
-		if (control?.id === "loop")
+		const row = buildRows(view, now())[terminalRow - TOP_ROW];
+		const control = row?.control;
+		if (control?.id === "loop" || row?.presses === "loop")
 			await runLoopPress(buildPress(view), "pending", "refusal");
 		if (control?.id === "away")
 			await runLoopPress(buildAwayPress(view), "awayPending", "awayNote");
