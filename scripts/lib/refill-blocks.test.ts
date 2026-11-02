@@ -31,6 +31,7 @@ import {
 	resumableOf,
 	resumeHeldLaunches,
 	unknownNews,
+	unparkAnswered,
 } from "./refill-blocks.js";
 import { buildLimitCapText } from "./refill-decide.js";
 import { judgedLaunches } from "./refill-loop.js";
@@ -107,6 +108,7 @@ function fakeIo(over: Partial<BlockIo> = {}) {
 			calls.push(`rm on ${seat}`);
 			return null;
 		},
+		hasEndedUnblocked: () => false,
 		jobStateOf: () => ({ state: "working" }),
 		writeLedgerHold: (l, until) => {
 			calls.push(`ledger ${l.jobId} ${until}`);
@@ -122,14 +124,14 @@ function fakeIo(over: Partial<BlockIo> = {}) {
 			return null;
 		},
 		readParkMarkers: () => [],
-		unparkResumed: () => null,
-		readActsBefore: () => ({}),
+		unparkSession: () => null,
 		comment: (_, body) => calls.push(`comment ${body}`),
 		postHandOff: (l) => {
 			calls.push(`hand-off ${l.jobId}`);
 			return { failed: null, out: "" };
 		},
 		release: () => true,
+		readActsBefore: () => ({}),
 		progressOf: () => ({}),
 		log: (line) => calls.push(`log ${line}`),
 		admitResume: () => {
@@ -1119,6 +1121,85 @@ describe("releasing an away park's ledger row in normal mode (#3872)", () => {
 		const { out, calls } = released(false);
 		expect(calls[1]).toContain("could not release");
 		expect(out[0]).toBe(parkedAway);
+	});
+});
+
+describe("unparkAnswered (#3940)", () => {
+	const marker = (over: Record<string, unknown> = {}) => ({
+		sessionId: "s",
+		issues: [42],
+		job: { seat: "/seat", jobId: "j", cwd: "/c" },
+		writtenAt: NOW,
+		...over,
+	});
+
+	/** The unparks and log of one sweep over `markers`, reading `over`'s answers. */
+	const sweep = (
+		markers: ReturnType<typeof marker>[] | null,
+		over: Partial<BlockIo> = {},
+		agents: Agents = [],
+	) => {
+		const unparked: string[] = [];
+		const { io, calls } = fakeIo({
+			readParkMarkers: () => markers,
+			hasEndedUnblocked: () => true,
+			unparkSession: ({ root }, sid, issues) => {
+				unparked.push(`${root} ${sid} ${issues.join(",")}`);
+				return null;
+			},
+			...over,
+		});
+		unparkAnswered(["/r"], { agents, io });
+		return { unparked, calls };
+	};
+
+	it("unparks what a marker lists where its session ended unblocked", () => {
+		expect(sweep([marker()]).unparked).toEqual(["/r s 42"]);
+	});
+
+	it("leaves one that parked again or never answered", () => {
+		expect(
+			sweep([marker()], { hasEndedUnblocked: () => false }).unparked,
+		).toEqual([]);
+	});
+
+	it("leaves one whose session or job still runs", () => {
+		for (const id of ["s", "j"])
+			expect(
+				sweep([marker()], {}, [
+					{ id, sessionId: id, kind: "background", state: "working" },
+				]).unparked,
+			).toEqual([]);
+	});
+
+	it("reads an ended session in the listing as no longer running", () => {
+		expect(sweep([marker()], {}, [agent("j", "done")]).unparked).toEqual([
+			"/r s 42",
+		]);
+	});
+
+	it("does nothing off an unread listing", () => {
+		expect(sweep([marker()], {}, null).unparked).toEqual([]);
+	});
+
+	it("leaves an issue a newer park holds to that park's session", () => {
+		const older = marker({ writtenAt: NOW - MIN, issues: [42, 43] });
+		const newer = marker({ sessionId: "n", job: null });
+		const judged = (m: { sessionId: string }) => m.sessionId === "s";
+		expect(
+			sweep([older, newer], { hasEndedUnblocked: judged }).unparked,
+		).toEqual(["/r s 43"]);
+	});
+
+	it("waits where the markers will not read", () => {
+		expect(sweep(null).unparked).toEqual([]);
+	});
+
+	it("logs a label that would not come off", () => {
+		const { calls } = sweep([marker()], {
+			unparkSession: () => "#42: HTTP 502",
+		});
+		expect(calls.join("\n")).toContain("still labelled parked: #42: HTTP 502");
 	});
 });
 
@@ -2556,11 +2637,11 @@ describe("queueing the sessions parked on a lifted repo hold (#3863)", () => {
 
 	it("takes the label off a session once it has gone back, resumed or handed off", () => {
 		const unparked: string[] = [];
-		const unparkResumed: BlockIo["unparkResumed"] = (l, sid) => {
-			unparked.push(`${l.jobId} ${sid}`);
+		const unparkSession: BlockIo["unparkSession"] = (_, sid) => {
+			unparked.push(sid);
 			return null;
 		};
-		const { io } = fakeIo({ unparkResumed });
+		const { io } = fakeIo({ unparkSession });
 		const seen = {
 			agents: [agent("other", "working")],
 			now: NOW,
@@ -2569,6 +2650,6 @@ describe("queueing the sessions parked on a lifted repo hold (#3863)", () => {
 		};
 		const resumes = resumableOf([due()], seen);
 		resumeHeldLaunches(resumes, [due()], seen, () => false);
-		expect(unparked).toEqual(["p s-p"]);
+		expect(unparked).toEqual(["s-p"]);
 	});
 });

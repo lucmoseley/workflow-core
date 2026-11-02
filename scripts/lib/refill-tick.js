@@ -68,6 +68,7 @@ const { readJobs } = require("./hung-jobs.js");
 const { readSwapHold } = require("./admission.js");
 const {
 	blockCause,
+	hasEndedUnblocked,
 	resumedIdleSince,
 	hasRepliedSince,
 	hasTurnedSince,
@@ -89,11 +90,12 @@ const {
 	readParkMarkersOrThrow,
 	readParkedBy,
 	setParked,
+	unparkClosed,
 	unparkIssues,
 	writeParkedBy,
 } = require("./parked.js");
 const { read: readTranscript } = require("./session-transcript.js");
-const { mainChainRecords } = require("./transcript.js");
+const { findNewestTranscript, mainChainRecords } = require("./transcript.js");
 const { hasConfig, resolveKey } = require("./workflow-core-config.js");
 const { readLastTyped } = require("./presence.js");
 const {
@@ -776,6 +778,36 @@ function moveClaims(l, from, to) {
 }
 
 /**
+ * Move what session `from`'s marker in `l`'s checkout lists of `l`'s issues to its
+ * copy's, once the copy carries its conversation on, so no later tick resumes the
+ * old one (#3709) and the copy's typing or ending takes the label off (#3940). A
+ * copy whose session id went unread leaves them on neither. Fails open: a marker
+ * left names a job a resume then falls back from.
+ * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"issues"|"seat">} l
+ * @param {string} from
+ * @param {{sessionId: string|null, jobId: string, cwd: string}} copy
+ */
+function moveParked({ root, issues, seat }, from, { sessionId, jobId, cwd }) {
+	try {
+		const held = readParkedBy(from, root);
+		const moved = held.filter((n) => issues.includes(n));
+		if (moved.length === 0) return;
+		writeParkedBy(
+			from,
+			held.filter((n) => !moved.includes(n)),
+			{ root },
+		);
+		if (sessionId)
+			writeParkedBy(sessionId, [...readParkedBy(sessionId, root), ...moved], {
+				root,
+				job: { seat, jobId, cwd },
+			});
+	} catch (e) {
+		log(`marker of ${from} not moved: ${buildErrorText(e)}`);
+	}
+}
+
+/**
  * `claude --bg --resume <full id> "<prompt>"` of `l`'s stopped job, from its
  * cwd (#2354 F6). The launcher exits 0 whatever happens (F8). On 2.1.310 it
  * wakes a stopped job in place, else starts a copy under a new job and
@@ -821,6 +853,7 @@ function resumeStopped(l, prompt, { sessionId, cwd }) {
 		typeof after?.sessionId === "string" ? after.sessionId : null;
 	if (copySession) moveClaims(l, sessionId, copySession);
 	else log(`no session id read for copy ${jobId}: its issue claims not moved`);
+	moveParked(l, sessionId, { sessionId: copySession, jobId, cwd });
 	return { failed: null, jobId, sessionId: copySession, copy: true };
 }
 
@@ -904,27 +937,6 @@ function readParkers(frontier) {
 }
 
 /**
- * Drop `issues` from session `sessionId`'s marker in `root`'s checkout, once
- * a copy carries its conversation on, so no later tick resumes the old one
- * (#3709). Fails open: a marker left names a job a resume then falls back
- * from.
- * @param {string} root
- * @param {string} sessionId
- * @param {number[]} issues
- */
-function dropParked(root, sessionId, issues) {
-	try {
-		writeParkedBy(
-			sessionId,
-			readParkedBy(sessionId, root).filter((n) => !issues.includes(n)),
-			{ root },
-		);
-	} catch (e) {
-		log(`marker of ${sessionId} not trimmed: ${buildErrorText(e)}`);
-	}
-}
-
-/**
  * `seats` with each parker's seat that has room but no cap sized, sized for
  * one resume: only the first seat with room is sized for the decision, and a
  * resume is held to the same cap as a launch (#3669). In away mode, where none
@@ -957,21 +969,69 @@ function readParkMarkersOrNull(root) {
 }
 
 /**
- * `l`'s issues no longer parked, as its session has gone back (#3863): the label
- * off and out of `sessionId`'s marker, as unpark-on-prompt.js takes them. An issue
- * whose write fails stays in the marker. Null, or what failed.
- * @param {import("./refill-loop.js").LoopLaunch} l
+ * `issues` no longer parked, as its session has gone back (#3863) or ended
+ * unblocked (#3940): the label off and out of `sessionId`'s marker, as
+ * unpark-on-prompt.js takes them. An issue whose write fails stays in the marker.
+ * Null, or what failed.
+ * @param {Pick<import("./refill-loop.js").LoopLaunch, "root">} l
  * @param {string} sessionId
+ * @param {number[]} issues
  * @returns {string|null}
  */
-function unparkResumed(l, sessionId) {
+function unparkSession(l, sessionId, issues) {
 	const tracker = resolveKey("tracker", { root: l.root });
 	if (typeof tracker !== "string") return "no tracker configured";
 	try {
-		const failed = unparkIssues(tracker, sessionId, l.issues, l.root);
+		const failed = unparkIssues(tracker, sessionId, issues, l.root);
 		return failed.map((f) => `#${f.n}: ${f.why}`).join("; ") || null;
 	} catch (e) {
 		return `marker not trimmed: ${buildErrorText(e)}`;
+	}
+}
+
+/**
+ * block-cause.js's hasEndedUnblocked for `marker`'s session, its transcript found
+ * by id on the marker's seat or any configured one, as a move leaves a stale copy
+ * and a copy's job record may name the transcript it came from. A transcript
+ * untouched since the park is not read, so a tick costs a stat per waiting park.
+ * Fails open to false, logged: the label stays (#3940).
+ * @param {import("./parked.js").ParkMarkerRead} marker
+ */
+function readEndedUnblocked({ sessionId, job, writtenAt }) {
+	const seats = [...(job ? [job.seat] : []), ...readConfiguredSeats()];
+	const found = findNewestTranscript(seats, sessionId);
+	if (!found || found.mtimeMs <= writtenAt) return false;
+	try {
+		return hasEndedUnblocked(
+			[...mainChainRecords(readTranscript(found.file), "main")],
+			writtenAt,
+		);
+	} catch (e) {
+		log(`transcript unread for ${sessionId}: ${buildErrorText(e)}`);
+		return false;
+	}
+}
+
+/**
+ * `parked` off each closed issue in `served`'s trackers (lib/parked.js's
+ * unparkClosed), logged. A failure waits for the next tick.
+ * @param {string[]} served
+ */
+function tendClosedParks(served) {
+	const trackers = new Set(
+		served.map((root) => resolveKey("tracker", { root })),
+	);
+	for (const tracker of trackers) {
+		if (typeof tracker !== "string") continue;
+		try {
+			const { cleared, failed } = unparkClosed(tracker);
+			for (const n of cleared) log(`closed ${tracker}#${n}: parked off`);
+			for (const { n, why } of failed)
+				log(`closed ${tracker}#${n}: still labelled parked: ${why}`);
+		} catch (e) {
+			/* Fails open: a label left on a closed issue harms nothing (#3940). */
+			log(`closed parks unread in ${tracker}: ${parseErrLine(e)}`);
+		}
 	}
 }
 
@@ -999,7 +1059,6 @@ const launchOrResume = (batch, served) =>
 				sessionId,
 				cwd,
 			});
-			if (r.failed === null && r.copy) dropParked(root, sessionId, issues);
 			return r;
 		},
 		admitResume,
@@ -1101,7 +1160,8 @@ const blockIo = (served) => ({
 	labelParked,
 	recordParked,
 	readParkMarkers: readParkMarkersOrNull,
-	unparkResumed,
+	hasEndedUnblocked: readEndedUnblocked,
+	unparkSession,
 	comment: commentOn,
 	postHandOff,
 	release: (l) => release({ jobId: blocks.ledgerJobOf(l), root: l.root }),
@@ -1267,13 +1327,16 @@ const resumesDue = (control, launches, seen) =>
  * @param {string[]} served
  * @param {Parameters<typeof blocks.actOnBlocks>[2]} seen
  */
-const actOnLaunches = (listed, { scope: { mode } }, served, seen) =>
-	blocks.releaseAwayParks(
+const actOnLaunches = (listed, { scope: { mode } }, served, seen) => {
+	blocks.unparkAnswered(served, seen);
+	tendClosedParks(served);
+	return blocks.releaseAwayParks(
 		blocks.actOnIdle(blocks.actOnBlocks(listed, mode, seen), mode, seen),
 		mode,
 		served,
 		seen.io,
 	);
+};
 
 /**
  * `launches` with the sessions parked on each lifted hold queued for the resume

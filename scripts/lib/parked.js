@@ -8,8 +8,11 @@
  *
  * WRITERS: park-on-round.js applies it at Stop; refill-loop.js on a park it
  * stops (#2699), commenting the cause on the issue (#2846). unpark-on-prompt.js
- * removes it when the founder types in a session either parked (#3584), and
- * claim-issue.js when a session claims the issue.
+ * removes it when the founder types in a session either parked (#3584),
+ * claim-issue.js when a session claims the issue, and the refill loop when the
+ * session has left the listing having taken a turn since the park that left it
+ * unblocked, the only sign a `!` answer leaves (#3940), and on every closed issue,
+ * whatever route closed it.
  *
  * The session marker, `.parked-<session id>` under the markers directory,
  * lists the issues parked for this session — by park-on-round.js, or by the
@@ -30,7 +33,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
-const { parseErrLine, gh } = require("./gh.js");
+const { parseErrLine, gh, ghIssueListAll } = require("./gh.js");
 const { markersDir } = require("./marker-root.js");
 const { requiredGroup } = require("./regex-group.js");
 
@@ -235,6 +238,17 @@ function writeParkedBy(
 }
 
 /**
+ * Take `parked` off each of `numbers`; each it would not come off, with why.
+ * @param {string} repo
+ * @param {number[]} numbers
+ */
+const labelsOff = (repo, numbers) =>
+	numbers.flatMap((n) => {
+		const why = setParked(repo, n, false);
+		return why === null ? [] : [{ n, why }];
+	});
+
+/**
  * Take `parked` off each of `numbers` and out of this session's marker; an issue
  * whose label write fails stays in the marker.
  * @param {string} repo
@@ -244,10 +258,7 @@ function writeParkedBy(
  * @returns {{n: number, why: string}[]} each that failed
  */
 function unparkIssues(repo, sessionId, numbers, root) {
-	const failed = numbers.flatMap((n) => {
-		const why = setParked(repo, n, false);
-		return why === null ? [] : [{ n, why }];
-	});
+	const failed = labelsOff(repo, numbers);
 	const gone = numbers.filter((n) => !failed.some((f) => f.n === n));
 	writeParkedBy(
 		sessionId,
@@ -257,6 +268,32 @@ function unparkIssues(repo, sessionId, numbers, root) {
 	return failed;
 }
 
+/**
+ * Take `parked` off every closed issue in `repo` that still carries it (#3940):
+ * nothing waits on a closed issue, and no one close route covers the web UI and
+ * `gh api`. A closed issue's marker stays, as no reader looks one up but for a
+ * parked row. Throws where the list will not read.
+ * @param {string} repo
+ * @returns {{cleared: number[], failed: {n: number, why: string}[]}}
+ */
+function unparkClosed(repo) {
+	const numbers = ghIssueListAll("closed parked issues", [
+		"--repo",
+		repo,
+		"--state",
+		"closed",
+		"--label",
+		PARKED_LABEL,
+		"--json",
+		"number",
+	]).map((/** @type {{number: number}} */ i) => i.number);
+	const failed = labelsOff(repo, numbers);
+	return {
+		cleared: numbers.filter((n) => !failed.some((f) => f.n === n)),
+		failed,
+	};
+}
+
 module.exports = {
 	PARKED_LABEL,
 	readParkMarkersOrThrow,
@@ -264,6 +301,7 @@ module.exports = {
 	readParkMarkers,
 	readParkedBy,
 	setParked,
+	unparkClosed,
 	unparkIssues,
 	writeParkedBy,
 };
