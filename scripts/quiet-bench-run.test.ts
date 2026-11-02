@@ -1,0 +1,161 @@
+// @vitest-environment node
+/*
+ * The quiet bench runner end to end against a stub bench and a stub `gh`
+ * (#3852): it runs the bench's command with the OUTDIR it keeps, posts the rows
+ * to the bench's issue and leaves no pidfile. Loosen one and rows are lost with
+ * the run, or a held pidfile reads as a live bench and keeps the fleet paused.
+ *
+ * spawn-kept: the pidfile names this process's pid and its command line's script,
+ * so only a process of its own holds it and a second runner meets it.
+ */
+
+import { spawn, spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, expect, it } from "vitest";
+import { GH_FAILING_SCRIPT, stubGhScript } from "./lib/gh-stub";
+import { LADDER_BENCH } from "./lib/quiet-bench.js";
+
+const RUNNER = path.join(__dirname, "quiet-bench-run.js");
+
+let sandbox: string;
+let checkout: string;
+let refill: string;
+let posted: string;
+let gh: string;
+
+const stubBench = (body: string) => {
+	const file = path.join(checkout, LADDER_BENCH.script);
+	fs.mkdirSync(path.dirname(file), { recursive: true });
+	fs.writeFileSync(file, body);
+};
+
+const runner = (...words: string[]) =>
+	spawnSync(process.execPath, [RUNNER, ...words], {
+		cwd: checkout,
+		encoding: "utf8",
+		env: {
+			...process.env,
+			CLAUDE_PROJECT_DIR: checkout,
+			WFC_REFILL_DIR: refill,
+			WFC_GH: gh,
+			POSTED: posted,
+		},
+	});
+
+const runOk = () => {
+	const r = runner("run");
+	expect(r.status, r.stderr).toBe(0);
+	return r;
+};
+
+const onlyRun = () => {
+	const [id] = fs.readdirSync(path.join(refill, "quiet-bench-runs"));
+	return path.join(refill, "quiet-bench-runs", String(id));
+};
+
+beforeEach(() => {
+	sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "quiet-bench-run-"));
+	checkout = path.join(sandbox, "checkout");
+	refill = path.join(sandbox, "refill");
+	posted = path.join(sandbox, "posted");
+	fs.mkdirSync(path.join(checkout, ".claude"), { recursive: true });
+	fs.writeFileSync(
+		path.join(checkout, ".claude", "workflow-core.json"),
+		JSON.stringify({ tracker: "owner/tracker" }),
+	);
+	gh = stubGhScript(sandbox, '#!/bin/sh\nprintf "%s\\n" "$@" > "$POSTED"\n').gh;
+});
+
+afterEach(() => {
+	fs.rmSync(sandbox, { recursive: true, force: true });
+});
+
+it("runs the bench's own command, keeps its rows and posts them", () => {
+	stubBench(`import json, os, sys
+with open(os.environ["OUTDIR"] + "/results.json", "w") as f:
+    json.dump([{"suites": 1, "wall_s": 9, "baseline_stationary": True, "all_green": True}], f)
+print(" ".join(sys.argv[1:]))
+`);
+	runOk();
+	const dir = onlyRun();
+	expect(fs.readFileSync(path.join(dir, "bench.log"), "utf8").trim()).toBe(
+		LADDER_BENCH.args.join(" "),
+	);
+	const body = fs.readFileSync(posted, "utf8");
+	expect(body).toContain(
+		`comment\n${LADDER_BENCH.issue}\n--repo\nowner/tracker`,
+	);
+	expect(body).toContain("finished");
+	expect(body).toContain("| 1 | 1 | 9 s |");
+	expect(body).toMatch(/before the bench: available \d+ MB/);
+	expect(body).toMatch(/load1 \d/);
+	expect(fs.existsSync(path.join(refill, ".refill-quiet-bench.pid"))).toBe(
+		false,
+	);
+	expect(fs.existsSync(path.join(dir, "posted"))).toBe(true);
+	expect(runner("rows").stdout).toContain("usable rows per suite count 1:1");
+});
+
+it("posts a bench's refusal with its reason, and keeps it as no rows", () => {
+	stubBench(`import sys
+sys.exit("refused: 9 sessions live, above the --require-quiet=3 this run demands")
+`);
+	runOk();
+	expect(fs.readFileSync(posted, "utf8")).toContain(
+		"exit 1: refused: 9 sessions live",
+	);
+	expect(runner("rows").stdout).toBe("no usable bench rows kept\n");
+});
+
+it("keeps the rows unmarked where the post fails", () => {
+	stubBench(`import json, os
+with open(os.environ["OUTDIR"] + "/results.json", "w") as f:
+    json.dump([{"suites": 2, "baseline_stationary": True, "all_green": True}], f)
+`);
+	gh = stubGhScript(sandbox, GH_FAILING_SCRIPT).gh;
+	const r = runOk();
+	expect(r.stderr).toContain(`not posted to #${LADDER_BENCH.issue}`);
+	expect(fs.existsSync(path.join(onlyRun(), "posted"))).toBe(false);
+	expect(runner("rows").stdout).toContain("2:1");
+});
+
+it("reads no rows with no run kept", () => {
+	expect(runner("rows").stdout).toBe("no usable bench rows kept\n");
+});
+
+it("exits 2 on an unknown command", () => {
+	expect(runner("nonsense").status).toBe(2);
+});
+
+it("exits 1 where its directory cannot be made", () => {
+	fs.writeFileSync(refill, "a file");
+	const r = runner("run");
+	expect(r.status).toBe(1);
+	expect(r.stderr).not.toBe("");
+});
+
+it("exits at once and runs no bench beside a live runner", async () => {
+	stubBench('open("ran", "w").close()\n');
+	const holder = spawn(
+		process.execPath,
+		["-e", "setTimeout(() => {}, 60000)", "quiet-bench-run.js"],
+		{ stdio: "ignore" },
+	);
+	try {
+		await new Promise((resolve) => holder.once("spawn", resolve));
+		const cmdline = `/proc/${holder.pid}/cmdline`;
+		while (!fs.readFileSync(cmdline, "utf8").includes("quiet-bench-run.js"));
+		fs.mkdirSync(refill, { recursive: true });
+		fs.writeFileSync(
+			path.join(refill, ".refill-quiet-bench.pid"),
+			String(holder.pid),
+		);
+		expect(runner("run").status).toBe(0);
+		expect(fs.existsSync(path.join(checkout, "ran"))).toBe(false);
+		expect(fs.readdirSync(path.join(refill, "quiet-bench-runs"))).toEqual([]);
+	} finally {
+		holder.kill("SIGKILL");
+	}
+});

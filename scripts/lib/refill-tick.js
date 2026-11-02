@@ -6,7 +6,8 @@
  *
  * A TICK: read founder presence, and in away mode write what it changes under
  * the control lock (#2522), reap (the reaper's --not-a-session mode, since the loop has no
- * session id), stop each job that never started, judge the loop's finished
+ * session id), take the quiet bench route's step (lib/quiet-bench-tick.js, #3852),
+ * stop each job that never started, judge the loop's finished
  * launches for progress, take `parked` off each answered park in every checkout
  * it could serve (lib/refill-blocks.js's unparkAnswered, #3940, #3950) and each
  * closed issue on a served tracker (lib/parked.js's unparkClosed, #3940),
@@ -61,7 +62,7 @@ const { claudeBin } = require("./claude-bin.js");
 const { buildTypedAttach } = require("./claude-attach.js");
 const { buildErrorText, caught } = require("./caught.js");
 const { childFailure } = require("./child-failure.js");
-const { spawnChild } = require("./child-spawn.js");
+const { CHILD_TIMEOUT_MS, spawnChild } = require("./child-spawn.js");
 const { parseErrLine, gh } = require("./gh.js");
 const gates = require("./gate-sweep.js");
 const {
@@ -152,11 +153,10 @@ const {
 const { sleepSync } = require("./sleep-sync.js");
 const { localDate } = require("./morning-review.js");
 const { pidLock } = require("./pid-lock.js");
+const { tendQuietBench } = require("./quiet-bench-tick.js");
 const { parkedPromptOf } = require("./loop-prompts.js");
 const { writeFd } = require("./write-fd.js");
 
-/* Every child but the `/usage` probe; untraced. */
-const CHILD_TIMEOUT_MS = 120 * 1000;
 /* The probe's ceiling plus node's start, so the probe meets its own ceiling
  * and stops its group before this one kills the wrapper; the 15 s is a guess. */
 const PROBE_CHILD_TIMEOUT_MS = PROBE_TIMEOUT_MS + 15 * 1000;
@@ -1459,6 +1459,30 @@ const settleBoot = ({ launches, bootedAt }, seen) =>
 		: { launches: blocks.queueBootKilled(launches, seen) };
 
 /**
+ * The control after the quiet bench route's step; as it was on a dry run, with no
+ * control to pause, or on a step that failed, which is logged, the next tick
+ * deciding it again.
+ * @param {import("./refill-loop.js").Control} control
+ * @param {{dryRun: boolean, parsed: unknown, lastTypedAt: number|null, now: number}} tick
+ */
+function settleQuietBench(control, { dryRun, parsed, lastTypedAt, now }) {
+	if (dryRun || parsed === null || control.stopRequested) return control;
+	try {
+		return tendQuietBench({
+			control,
+			lastTypedAt,
+			served: servedRoots(control.scope).roots,
+			now,
+			log,
+		});
+	} catch (e) {
+		/* Fails open, as a failed read inside a tick does (#3852). */
+		log(`quiet bench: step failed: ${buildErrorText(e)}`);
+		return control;
+	}
+}
+
+/**
  * One tick: its decision and the start it judged against. Under `dryRun`
  * nothing is reaped, launched or written.
  * @param {{dryRun: boolean}} opts
@@ -1469,7 +1493,7 @@ async function tick({ dryRun }) {
 	const declared = readDeclaredSeats();
 	const typed = readLastTyped(declared);
 	const parsed = settleAwayMode(stored, typed.at, { dryRun, now });
-	const control = parsed ?? {
+	const unsettled = parsed ?? {
 		noProgressFrom: now,
 		/* No control file is a loop nobody started: a real tick stops. */
 		stopRequested: !dryRun,
@@ -1482,6 +1506,12 @@ async function tick({ dryRun }) {
 		},
 	};
 	reapFinished(dryRun);
+	const control = settleQuietBench(unsettled, {
+		dryRun,
+		parsed,
+		lastTypedAt: typed.at,
+		now,
+	});
 	const state = readStateFile(log);
 	const served = servedRoots(control.scope).roots;
 	/* Relief first, off the registry alone: the CLI listing below can outrun

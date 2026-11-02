@@ -135,6 +135,12 @@ Rotation is built into the poll loop — no cron, no logrotate. Above **500** bl
 
 The unit runs through a login shell for `~/.bashrc`'s heap bound, and fixes the installer's `PATH`, seat and `WFC_CLAUDE_BIN`. Re-run the install where any of those change, or a plugin release moves its script. In a checkout it starts through `.refill-loop-code.current`, beside the loop's code directory: a symlink to the worktree the loop last ran, which the loop moves itself (`scripts/lib/refill-code.js`), so a working copy a restart left mid-edit cannot stop it. A plugin install starts from its own script. Should the unit fail where `boot-resume` cannot log, as on code that will not load, its `ExecStopPost=` puts the failure and the unit's last journal lines in the loop's log.
 
+### The refill loop's quiet bench route
+
+The loop runs a due quiet-gated bench by itself (#3852, `scripts/lib/quiet-bench.js`): #2862's ladder re-measure. The bench is due while `check-suite-size-drift` WARNs, no kept run of the current ladder has two usable rows per suite count and no open issue blocks #2862. While the founder reads absent, at most once in 24 h, the loop pauses launches under a pause of the route's own, named in `status` and the panel. It starts `scripts/quiet-bench-run.js` outside every session, the lander's way, on two readings five minutes apart of 3 or fewer sessions and the bench's starting rung of `MemAvailable`. Finished, refused, runner dead, the founder back, the route off, the 4 h drain limit or the 4 h run limit each lift the pause; a founder's return or `set --resume` leaves a running bench to refuse its later rows. A pause the founder set is neither overwritten nor lifted.
+
+Runs are kept in `~/.claude/quiet-bench-runs/`. Each run's rows, `free -m` and load1 are posted to #2862, and `node scripts/quiet-bench-run.js rows` prints what is kept. `node scripts/refill-loop.js set --no-quiet-bench` turns the route off.
+
 ---
 
 ## 5. Daily use

@@ -24,6 +24,7 @@ const {
 	NO_FREE_SLOT,
 	NO_PLAN_ROOM,
 	NO_PROGRESS_PAUSE,
+	QUIET_BENCH_PAUSE,
 	NOTHING_LAUNCHABLE,
 	RESUME_DUE_WAIT,
 	RESUMES_TAKE_SLOTS,
@@ -117,7 +118,7 @@ const ROLE_STYLES = {
  *     noLaunchLeft: boolean, running: number}} OverflowKey
  * @typedef {{running: boolean, stopRequested: boolean,
  *   stop: {reason: string, at: number, detail: string}|null, crashed: boolean,
- *   paused: {by: string, at: number, issues?: PauseIssue[]}|null,
+ *   paused: {by: string, at: number, issues?: PauseIssue[], why?: string}|null,
  *   lastTick: {at: number, idle: string|null,
  *     paused: boolean, planWait: {resets: number|null}|null}|null,
  *   launchesToday: number,
@@ -299,6 +300,11 @@ function buildPausedLines(paused, { running, crashed }, now) {
 			},
 		];
 	const time = buildClock(paused.at, now);
+	if (paused.by === QUIET_BENCH_PAUSE)
+		return [
+			{ text: `Held for a bench since ${time}`, role: "value" },
+			{ text: paused.why ?? "Switch on to end the hold", role: "secondary" },
+		];
 	return [
 		{
 			text:

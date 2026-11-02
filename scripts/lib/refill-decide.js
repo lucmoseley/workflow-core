@@ -39,6 +39,8 @@ const SHORTLIST_FAILED = "shortlist failed in";
 /* The idle reasons of a tick with no slot to launch into. */
 const NO_FREE_SLOT = "no free slot";
 const NO_PROGRESS_PAUSE = "no-progress";
+/* The pause lib/quiet-bench.js takes; only it and `set --resume` lift it (#3852). */
+const QUIET_BENCH_PAUSE = "quiet bench";
 /* A seat's reading, cap size or cap fit holds it, as one reason to the reader
  * (#2525, #3859). Residual: the log and the idle alarm lose which seat and hold;
  * `status`'s `passed over` names them. */
@@ -182,8 +184,8 @@ const ALREADY_RUNNING = "already running";
 
 /**
  * Who paused the loop, and when, ms; the no-progress rule also records the
- * issues that made none.
- * @typedef {{by: string, at: number, issues?: PauseIssue[]}} Pause
+ * issues that made none, and the quiet bench route why it holds.
+ * @typedef {{by: string, at: number, issues?: PauseIssue[], why?: string}} Pause
  */
 
 /** @typedef {{root: string, number: number}} PauseIssue */
@@ -906,12 +908,12 @@ const buildPauseIssueText = ({ root, number }) =>
 	`${path.basename(root)}#${number}`;
 
 /** @param {Pause} pause */
-const buildPauseText = ({ by, at, issues = [] }) =>
+const buildPauseText = ({ by, at, issues = [], why }) =>
 	`${PAUSE_TEXT_START}${by} at ${new Date(at).toISOString()}${
 		issues.length > 0
 			? `: no act from ${issues.map(buildPauseIssueText).join(", ")}`
 			: ""
-	}`;
+	}${why ? `: ${why}` : ""}`;
 
 /**
  * Whether a tick's idle reason is buildPauseText's.
@@ -977,7 +979,11 @@ function buildNoSeatIdle(input, wait, held, resumes) {
 
 /** @param {Pause} pause */
 const buildPausedWaitText = (pause) =>
-	`${buildPauseText(pause)}; launches nothing until \`set --resume\``;
+	`${buildPauseText(pause)}; launches nothing until ${
+		pause.by === QUIET_BENCH_PAUSE
+			? "the bench ends or its drain limit passes, or `set --resume`"
+			: "`set --resume`"
+	}`;
 
 /* Idle reasons that stop no row in particular: the next slot goes to the top of
  * rank, and a failed shortlist may be another tracker's. */
@@ -1147,6 +1153,7 @@ module.exports = {
 	NO_FREE_SLOT,
 	NO_PLAN_ROOM,
 	NO_PROGRESS_PAUSE,
+	QUIET_BENCH_PAUSE,
 	RESUME_DUE_WAIT,
 	RESUMES_TAKE_SLOTS,
 	SHORTLIST_FAILED,

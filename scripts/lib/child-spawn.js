@@ -8,6 +8,9 @@ const { spawnSync } = require("node:child_process");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { childVerdict } = require("./child-failure.js");
 
+/* Every refill-loop tick's child but the `/usage` probe; untraced. */
+const CHILD_TIMEOUT_MS = 120 * 1000;
+
 /**
  * The child's status, output and error as text, with their verdict. Each
  * caller's bound is its own, so `timeout` is required.
@@ -30,4 +33,4 @@ function spawnChild(file, args, opts) {
 	return { ...child, ...childVerdict(child) };
 }
 
-module.exports = { spawnChild };
+module.exports = { CHILD_TIMEOUT_MS, spawnChild };

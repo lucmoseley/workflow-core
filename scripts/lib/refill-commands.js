@@ -28,6 +28,7 @@ const {
 	buildOverflowHoldText,
 	buildPauseText,
 	buildPausedWaitText,
+	QUIET_BENCH_PAUSE,
 	isPauseText,
 	hasRoom,
 	orderPlanSeats,
@@ -83,11 +84,13 @@ const NOT_RUNNING = buildNotice(
 /**
  * The fields a `set` names, each absent where it does not; `repos`, the whole
  * ticked set; `pause`, `--pause`, or false for `--resume`; `goal`, the goal to
- * store, or null for `--clear-goal`.
+ * store, or null for `--clear-goal`; `quietBench`, `--quiet-bench`, or false for
+ * `--no-quiet-bench`.
  * @typedef {{form: import("./refill-goal.js").GoalForm, text: string,
  *   refs: import("./refill-goal.js").AskedRef[]}} GoalAsk
  * @typedef {{pause?: boolean, mode?: Scope["mode"], repos?: string[],
- *   tick?: string[], untick?: string[], goal?: GoalAsk|null}} SetAsk
+ *   tick?: string[], untick?: string[], goal?: GoalAsk|null,
+ *   quietBench?: boolean}} SetAsk
  * @typedef {{running: boolean, now: number}} SetContext
  * @typedef {{write: Control|null, lines: string[]}} SetChange
  * @typedef {{write: Control|null, control: Control,
@@ -164,7 +167,7 @@ function buildSetPlanJson({ lines, warning }, started) {
  * @returns {SetChange|{refused: Notice}}
  */
 function changeFields(control, ask, context) {
-	const { pause, mode, goal } = ask;
+	const { pause, mode, goal, quietBench } = ask;
 	/** @type {((c: Control) => SetChange|{refused: Notice})[]} */
 	const steps = [
 		...(pause === undefined
@@ -180,6 +183,9 @@ function changeFields(control, ask, context) {
 		...(goal === undefined
 			? []
 			: [(/** @type {Control} */ c) => buildGoalChange(c, goal, context.now)]),
+		...(quietBench === undefined
+			? []
+			: [(/** @type {Control} */ c) => buildQuietBenchChange(c, quietBench)]),
 	];
 	let current = control;
 	/** @type {Control|null} */
@@ -351,15 +357,21 @@ function buildUntickedLines({ scope }, root) {
  * Only the pause changed. A resume moves the point the no-progress count counts
  * from, so the finishes before it do not count (#3856). With no process it also
  * drops any stop, whatever the pause read, since its caller starts one from this
- * control (#3861). A stop pending on a running loop stands. Otherwise asking for what
- * already holds changes nothing, a repeat pause keeping its time.
+ * control (#3861). A stop pending on a running loop stands. A pause over the quiet
+ * bench route's makes it the founder's, which that route never lifts (#3852).
+ * Otherwise asking for what already holds changes nothing, a repeat pause keeping
+ * its time.
  * @param {Control} control
  * @param {boolean} pause
  * @param {SetContext} context
  * @returns {SetChange}
  */
 function buildPauseChange(control, pause, { running, now }) {
-	if (pause === (control.paused !== undefined) && (pause || running))
+	if (
+		pause === (control.paused !== undefined) &&
+		(pause || running) &&
+		control.paused?.by !== QUIET_BENCH_PAUSE
+	)
 		return {
 			write: null,
 			lines: [
@@ -379,6 +391,21 @@ function buildPauseChange(control, pause, { running, now }) {
 			noProgressFrom: now,
 		},
 		lines: ["not paused", buildCountingLine(now)],
+	};
+}
+
+/**
+ * Only the quiet bench route's setting changed (#3852); a tick lifts any hold of
+ * its that this turns off.
+ * @param {Control} control
+ * @param {boolean} on
+ * @returns {SetChange}
+ */
+function buildQuietBenchChange(control, on) {
+	const { quietBenchOff: _off, ...rest } = control;
+	return {
+		write: on ? rest : { ...rest, quietBenchOff: true },
+		lines: [`quiet bench: ${on ? "on" : "off"}`],
 	};
 }
 
@@ -697,6 +724,7 @@ function buildScopeLines(
 	return [
 		...(control.paused ? [buildPausedWaitText(control.paused)] : []),
 		`mode:      ${scope.mode}`,
+		...(control.quietBenchOff ? ["quiet bench: off"] : []),
 		`repos:     ${buildRepoNames(served)}`,
 		buildGoalLine(scope.goal, goalProgress),
 		...(running && control.stopRequested

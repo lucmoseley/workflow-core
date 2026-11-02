@@ -148,6 +148,7 @@ const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | set | 
   start [--repo <dir>]… [--goal <goal>]        ensure a process runs, from the stored settings, ending any stop, its count starting again; a first start ticks this checkout. On a running loop it changes only what --repo ticks and --goal replaces, as set does
   start --unless-stopped [--repo <dir>]… [--goal <goal>]  the same, but an explicit stop stands and is printed, and otherwise the stored settings start as they were
   set --pause | --resume                       launch nothing, keeping housekeeping; or launch again, starting the loop from its stored settings where no process runs
+  set --quiet-bench | --no-quiet-bench         let a due quiet-gated bench pause launches while the founder is absent, as it does by default; or never
   set --away | --normal                        hand a session at a question off to its issue, until a tick reads the founder back after one read him absent; or keep it open. The repos stay
   set [--repos <dir>]…                         the whole ticked set
   set [--tick <dir>]… [--untick <dir>]…        add to or take from the ticked set; a checkout found later stays unticked
@@ -188,6 +189,8 @@ function setConflictOf({ flags, lists }) {
 		return "set takes one of --pause and --resume";
 	if (flags["--away"] && flags["--normal"])
 		return "set takes one of --away and --normal";
+	if (flags["--quiet-bench"] && flags["--no-quiet-bench"])
+		return "set takes one of --quiet-bench and --no-quiet-bench";
 	if (lists["--repos"] && (lists["--tick"] || lists["--untick"]))
 		return "--repos is the whole set; it takes no --tick or --untick";
 	const both = lists["--tick"]?.find((n) => lists["--untick"]?.includes(n));
@@ -265,6 +268,8 @@ function parseSetAsk(parsed) {
 	if (flags["--resume"]) ask.pause = false;
 	if (flags["--away"]) ask.mode = "away";
 	if (flags["--normal"]) ask.mode = "normal";
+	if (flags["--quiet-bench"]) ask.quietBench = true;
+	if (flags["--no-quiet-bench"]) ask.quietBench = false;
 	/* An untick takes one since opted out, so an opt-out never strands a tick. */
 	for (const [flag, field, refusalOf] of /** @type {const} */ ([
 		["--repos", "repos", readTickRefusal],
@@ -891,6 +896,8 @@ const CLI = {
 				"--resume": "boolean",
 				"--away": "boolean",
 				"--normal": "boolean",
+				"--quiet-bench": "boolean",
+				"--no-quiet-bench": "boolean",
 				"--repos": "list",
 				"--tick": "list",
 				"--untick": "list",
