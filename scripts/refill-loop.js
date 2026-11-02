@@ -675,9 +675,7 @@ async function run() {
 			});
 			updater?.afterTick();
 			/* A `start` that overtook a pending stop mid-tick saw this pid and
-			 * spawned nothing, so that stop must not end the loop. Residual: one
-			 * landing on a no-progress or allowance stop moves nothing, so it prints
-			 * `running` and the loop still exits, until #3859 removes those stops. */
+			 * spawned nothing, so that stop must not end the loop. */
 			const done =
 				"stop" in decision &&
 				!loop.isRestartedSince(readControlFile(log), noProgressFrom);

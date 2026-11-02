@@ -22,8 +22,8 @@ const found = {
 };
 const stoppedAt = (at: number) => ({
 	at,
-	reason: "no-progress",
-	detail: "three launches made no progress",
+	reason: "control-damaged",
+	detail: "/c is damaged",
 });
 
 describe("bootVerdictOf", () => {
@@ -54,7 +54,7 @@ describe("bootVerdictOf", () => {
 		[
 			"a loop that ended itself",
 			{ stopped: stoppedAt(START) },
-			"the loop ended itself: three launches made no progress",
+			"the loop ended itself: /c is damaged",
 		],
 	])("refuses %s, saying so", (_name, over, why) => {
 		expect(bootVerdictOf({ ...found, ...over })).toEqual({

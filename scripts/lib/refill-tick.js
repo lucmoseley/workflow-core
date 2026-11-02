@@ -131,6 +131,7 @@ const {
 	readStateFile,
 	withControlLock,
 	writeControlFile,
+	writeLoopPause,
 	writeJson,
 } = require("./refill-files.js");
 const refillBatch = require("./refill-batch.js");
@@ -1440,6 +1441,7 @@ async function tick({ dryRun }) {
 			launchBatch: launchOrResume,
 			resumeHeld: (resumes, held, isStopped) =>
 				blocks.resumeHeldLaunches(resumes, held, seen, isStopped),
+			writePause: (pause) => writeLoopPause(pause, control.noProgressFrom, log),
 			runReview,
 			writeState: (next) => writeJson(files.state, next),
 			readOmittedDirs: () => readOmittedDirs(declared),

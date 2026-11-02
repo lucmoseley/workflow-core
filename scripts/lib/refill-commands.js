@@ -721,6 +721,7 @@ function buildStatusJson({
 			summary: lastTick.summary,
 			idle: lastTick.idle ?? null,
 			paused: isPauseText(lastTick.idle),
+			planWait: lastTick.planWait ?? null,
 		},
 		launchesToday: launchesOnDay(state, today),
 		mode: control?.scope.mode ?? null,
