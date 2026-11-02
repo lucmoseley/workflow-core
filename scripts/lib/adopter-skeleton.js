@@ -26,6 +26,7 @@ const { requiredGroup } = require("./regex-group.js");
 const { caught } = require("./caught.js");
 const { CORE_STYLE, namespaced } = require("./output-styles.js");
 const { withoutSelfPlugin } = require("./core-hooks.js");
+const { shellQuote } = require("./sh-quote.js");
 
 const TEMPLATES = path.join(__dirname, "..", "templates", "adopter");
 
@@ -164,10 +165,7 @@ const renderReference = (pluginRoot) =>
  * @param {string} pluginRoot absolute path of the installed plugin
  */
 function rewriteRuleCommands(text, pluginRoot) {
-	const root = path.resolve(pluginRoot);
-	const quotedRoot = /^[\w@%+=:,./-]+$/.test(root)
-		? root
-		: `"${root.replace(/["\\$`]/g, "\\$&")}"`;
+	const quotedRoot = shellQuote(path.resolve(pluginRoot));
 	return text
 		.replace(RUNNER, (_, runner) => `${runner} ${quotedRoot}/scripts/`)
 		.replace(/`scripts\/(?=[^`\s]+ [^`]*`)/g, () => `\`${quotedRoot}/scripts/`);

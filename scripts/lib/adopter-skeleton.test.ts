@@ -436,9 +436,15 @@ describe("a rules-file command rewritten for an adopter (#654)", () => {
 	});
 
 	it("quotes a root the shell would split, and writes a `$` literally", () => {
-		expect(rules("`node scripts/a.js x`", "/opt/my plugin/a$&b")).toContain(
-			'`node "/opt/my plugin/a\\$&b"/scripts/a.js x`',
-		);
+		const root = "/opt/my plugin/a$&b";
+		const word = rules("`node scripts/a.js x`", root).match(
+			/`node (.+)\/scripts\/a\.js x`/,
+		)?.[1];
+		expect(
+			execFileSync("bash", ["-c", `printf '%s\\0' ${word}`], {
+				encoding: "utf8",
+			}),
+		).toBe(`${root}\0`);
 	});
 
 	it("runs each command from a directory that carries no core scripts, reaching the plugin's copy (#654, #662)", () => {

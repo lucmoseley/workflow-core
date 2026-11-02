@@ -171,6 +171,7 @@ const {
 // built by mantahostels#159).
 const deliveryStamp = require("./lib/delivery-stamp");
 const { hostRoot } = require("./lib/host-root.js");
+const { shellQuote } = require("./lib/sh-quote.js");
 const { codeRepoArgs } = require("./lib/workflow-core-config.js");
 
 /* The ` --repo <codeRepo>` a printed gh command needs to reach the runs, which
@@ -1583,7 +1584,7 @@ function sayBisectRange(ctx, branch, broken, keyed) {
 		ctx.say(
 			`\nNo green ${culprit.workflowName} run inside the last ${RUN_WINDOW}, so the range back to\n` +
 				"one cannot be read from here. Find its sha with:\n" +
-				`  gh run list --branch ${branch} --workflow "${culprit.workflowName}" --status success --limit 1 --json headSha${repoFlag()}`,
+				`  gh run list --branch ${shellQuote(branch)} --workflow ${shellQuote(culprit.workflowName ?? "")} --status success --limit 1 --json headSha${repoFlag()}`,
 		);
 		/* `green` is redundant — the arm above took `culprit && !green` — and is
 		 * what says the range below has both its ends. */

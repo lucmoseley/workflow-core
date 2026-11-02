@@ -9,6 +9,16 @@ import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import { shellQuote } from "./sh-quote.js";
 
+/** What `shell` reads `words` back as, once each is quoted. */
+const roundTrip = (shell: string, words: string[]) =>
+	execFileSync(
+		shell,
+		["-c", `printf '%s\\0' ${words.map(shellQuote).join(" ")}`],
+		{ encoding: "utf8" },
+	)
+		.split("\0")
+		.slice(0, -1);
+
 describe("shellQuote", () => {
 	it("leaves a word of safe characters bare", () => {
 		expect(shellQuote("scripts/watch-artefact.js")).toBe(
@@ -30,21 +40,20 @@ describe("shellQuote", () => {
 
 	it("hands sh each word back unchanged", () => {
 		const words = ["", "plain", "a b", "it's", "$HOME", "*", "`x`", "a\nb"];
-		const out = execFileSync(
-			"sh",
-			["-c", `printf '%s\\0' ${words.map(shellQuote).join(" ")}`],
-			{ encoding: "utf8" },
-		);
-		expect(out.split("\0").slice(0, -1)).toEqual(words);
+		expect(roundTrip("sh", words)).toEqual(words);
 	});
 
-	it("quotes every ~, so bash expands none (#2284)", () => {
+	it("leaves a ref or script name bare, a ~ in it included (#2284)", () => {
+		for (const word of ["HEAD~1", "test:changed", "--full=flake"]) {
+			expect(shellQuote(word)).toBe(word);
+		}
+	});
+
+	it("quotes a ~ bash would expand, and bash reads every ~ back as written (#2284)", () => {
+		for (const word of ["~/x", "a=~/x", "PATH=a:~/b"]) {
+			expect(shellQuote(word)).toBe(`'${word}'`);
+		}
 		const words = ["~/x", "a=~/x", "HEAD~1", "PATH=a:~/b"];
-		const out = execFileSync(
-			"bash",
-			["-c", `printf '%s\\0' ${words.map(shellQuote).join(" ")}`],
-			{ encoding: "utf8" },
-		);
-		expect(out.split("\0").slice(0, -1)).toEqual(words);
+		expect(roundTrip("bash", words)).toEqual(words);
 	});
 });

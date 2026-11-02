@@ -1,7 +1,8 @@
 /*
  * sh-quote.js — a string as one sh word (#3483). Python's shlex.quote,
  * ported: a word of safe characters goes bare, so a printed command stays
- * readable, and any other is single-quoted.
+ * readable, and any other is single-quoted. One departure (#3609): shlex
+ * quotes every `~`, and this leaves bare one bash never expands.
  *
  * A CORE: it reads nothing but its argument.
  */

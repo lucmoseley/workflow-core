@@ -1,6 +1,6 @@
 # Code standards — the core's local file
 
-The core's own choices beside the plugin's standards base, `docs/code-standards-base.md`, which holds every rule and its §-id. `/code-review`'s Standards axis reads both. It changes the base only through its changes table, route rows and primitives rows.
+The core's own choices beside the plugin's standards base, `docs/code-standards-base.md`, which holds every rule and its §-id. `/code-review`'s Standards axis reads both. It changes the base only through its changes table, route rows, local rules and primitives rows.
 
 ## Changes to the base
 
@@ -20,7 +20,15 @@ The core's own primitives, beside the base's table.
 
 | Job | Primitive | Exemplar | Rule | Enforcing check |
 |---|---|---|---|---|
-| Quoting a word for sh | `shellQuote` in `scripts/lib/sh-quote.js` | `scripts/check-plugin-gap.js` | §G8 | Standards axis criterion |
+| Quoting a word for sh | `shellQuote` in `scripts/lib/sh-quote.js`; `sp_shell_word` in `scripts/lib/script-path.sh` in shell | `scripts/check-plugin-gap.js`, `scripts/lib/script-path.sh` | §LG1 | Standards axis criterion |
+
+## Local rules
+
+### §LG1 · A word quoted for a shell goes through the one quoter — **hard**
+
+**Every code kind.** Code that writes a word into a command a shell will read quotes it with `shellQuote` or, in bash, `sp_shell_word`. Its own regex, escape or hand-written quotes are the breach (#3609).
+
+Outside it: an expansion in a shell script, which is §S1; quoting for anything other than a shell, such as `scripts/install-refill-boot-unit.js`'s systemd `Environment=` line; `scripts/self-plugin-canary.sh`'s marked copy, which prints when `script-path.sh` cannot load (#3798); and a word hand-spelt in a generated test stub, until #3938 (the sweep that routes those through `shellQuote`).
 
 ---
 

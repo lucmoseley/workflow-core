@@ -50,6 +50,10 @@ const unmatched: { args: string[]; input?: string }[] = [
 	{ args: ["no-such-subcommand"] },
 ];
 
+const callEach = (git: string) => {
+	for (const { args, input } of unmatched) call(git, args, input);
+};
+
 const matches: [string, GitFaultMatch][] = [
 	["words", { words: ["diff", "--cached", "--name-only", "-z", "HEAD"] }],
 	["every", { every: ["--cached", "diff"] }],
@@ -71,6 +75,7 @@ describe.each(matches)("a %s match", (_, match) => {
 	});
 
 	it("counts no hit for an argv it does not match", () => {
+		callEach(wrapper.git);
 		expect(wrapper.hits()).toBe(0);
 	});
 });
@@ -89,7 +94,9 @@ describe("an all match whose script does not exit", () => {
 	});
 
 	it("counts a hit for every argv", () => {
-		expect(wrapper.hits()).toBe(unmatched.length);
+		const before = wrapper.hits();
+		callEach(wrapper.git);
+		expect(wrapper.hits() - before).toBe(unmatched.length);
 	});
 });
 

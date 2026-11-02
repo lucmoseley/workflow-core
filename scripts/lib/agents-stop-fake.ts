@@ -7,6 +7,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { shellQuote } from "./sh-quote.js";
 
 export type StopKind = "ok" | "noJob";
 
@@ -75,19 +76,17 @@ export const buildPermissionRow = (id: string): Row =>
 		waitingFor: "permission prompt",
 	});
 
-/* `text` as one bash ANSI-C word, every `id` in it spliced as "$2". */
-const bashWord = (text: string, id?: string) =>
-	(id ? text.split(id) : [text])
-		.map((part) => `$'${part.replace(/[\\']/g, "\\$&").replace(/\n/g, "\\n")}'`)
-		.join('"$2"');
+/* `text` as one sh word, every `id` in it spliced as "$2". */
+const buildJobIdWord = (text: string, id: string) =>
+	text.split(id).map(shellQuote).join('"$2"');
 
 /** The `agents` branch: prints `listing`, or fails where it is null. */
 export const buildAgentsBranch = (listing: Row[] | null) =>
-	`if [ "$1" = "agents" ]; then ${listing ? `printf '%s' ${bashWord(JSON.stringify(listing))}; exit 0` : "exit 1"}; fi`;
+	`if [ "$1" = "agents" ]; then ${listing ? `printf '%s' ${shellQuote(JSON.stringify(listing))}; exit 0` : "exit 1"}; fi`;
 
 /** The `stop` branch: appends its argv to `log`, then answers as the
  * recording's `kind` stop, of job `$2`. */
 export function buildStopBranch(log: string, kind: StopKind = "ok") {
 	const r = recorded.stops[kind];
-	return `if [ "$1" = "stop" ]; then echo "$*" >> ${JSON.stringify(log)}; printf '%s' ${bashWord(r.stdout, r.id)}; printf '%s' ${bashWord(r.stderr, r.id)} >&2; exit ${r.status}; fi`;
+	return `if [ "$1" = "stop" ]; then echo "$*" >> ${shellQuote(log)}; printf '%s' ${buildJobIdWord(r.stdout, r.id)}; printf '%s' ${buildJobIdWord(r.stderr, r.id)} >&2; exit ${r.status}; fi`;
 }

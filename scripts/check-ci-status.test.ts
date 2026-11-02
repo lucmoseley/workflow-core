@@ -1211,6 +1211,19 @@ describe("the commit range back to the last green run (mantahostels#945)", () =>
 		expect(out).toContain("--status success --limit 1 --json headSha");
 	});
 
+	it("quotes a workflow name the shell would split in that query", () => {
+		setRuns([
+			run_({
+				databaseId: 200,
+				headSha: back(0),
+				conclusion: "failure",
+				workflowName: "Nightly CI",
+			}),
+		]);
+
+		expect(check(["--notify"]).stdout).toContain("--workflow 'Nightly CI' ");
+	});
+
 	it("reports a range it cannot read rather than claiming there is none", () => {
 		setRuns([
 			run_({
