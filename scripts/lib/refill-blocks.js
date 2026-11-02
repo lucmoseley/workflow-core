@@ -30,6 +30,7 @@ const {
 } = require("./loop-prompts.js");
 const {
 	buildLimitCapText,
+	buildResumeWaitLine,
 	isAtLimitCap,
 	pickMoveSeat,
 } = require("./refill-decide.js");
@@ -1322,7 +1323,7 @@ function resumeHeldLaunches(resumes, launches, seen, isStopped) {
 		if (!l || !isActionable(l) || isStopped()) break;
 		const refused = io.admitResume();
 		if (refused) {
-			io.log(`not resuming ${line}, for a later tick: ${refused}`);
+			io.log(buildResumeWaitLine(line, refused));
 			waiting = true;
 			break;
 		}
@@ -1533,18 +1534,26 @@ const ENDED_JOB_STATES = new Set(["done", "stopped"]);
 const FOUNDER_BLOCKS = new Set(["QUESTION", "PERMISSION", "OTHER_DIALOG"]);
 
 /**
- * Whether `l`'s session was at work when a restart killed it: not listed live, not
- * already held or being handed off, not waiting on the founder and not ended on
- * its own between the last tick and the restart.
+ * Whether the saved state alone leaves `l` one a restart may have killed: not
+ * already held or being handed off and not waiting on the founder (#3983).
+ * @param {LoopLaunch} l
+ * @returns {l is JobLaunch}
+ */
+const isBootKillCandidate = (l) =>
+	isActionable(l) &&
+	!isHeld(l) &&
+	l.handOffTries === undefined &&
+	!(l.parked && FOUNDER_BLOCKS.has(l.block?.cause ?? ""));
+
+/**
+ * Whether `l`'s session was at work when a restart killed it: a candidate not
+ * listed live and not ended on its own between the last tick and the restart.
  * @param {LoopLaunch} l
  * @param {Tick} seen
  * @returns {l is JobLaunch}
  */
 function isBootKillable(l, { agents, io }) {
-	if (!isActionable(l) || isHeld(l) || l.handOffTries !== undefined)
-		return false;
-	if (isLiveIn(l, agents)) return false;
-	if (l.parked && FOUNDER_BLOCKS.has(l.block?.cause ?? "")) return false;
+	if (!isBootKillCandidate(l) || isLiveIn(l, agents)) return false;
 	const state = io.jobStateOf(l)?.state;
 	return typeof state !== "string" || !ENDED_JOB_STATES.has(state);
 }
@@ -2316,6 +2325,7 @@ module.exports = {
 	isLive,
 	isResuming,
 	isHoldCleared,
+	isBootKillCandidate,
 	isBootKilled,
 	isStepResume,
 	isSwapHeld,

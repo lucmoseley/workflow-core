@@ -5008,22 +5008,114 @@ describe("the launches a restart killed (#3880)", () => {
 		expect(readState().launches[0].finishedAt).toBeNull();
 	});
 
-	it("resumes a job no transcript backs, as a boot's tick stops no never-started job", async () => {
-		const job = path.join(seat, "jobs", "job7");
-		fs.mkdirSync(job, { recursive: true });
-		fs.writeFileSync(
-			path.join(job, "state.json"),
-			JSON.stringify({ state: "working", sessionId: "s-job7", cwd: repo }),
-		);
-		const aged = new Date(Date.now() - 60 * Min);
-		fs.utimesSync(path.join(job, "state.json"), aged, aged);
-		writeState([buildLaunch("job7", 7, 60)]);
-		fakeResumeClaude("job7", [LISTED]);
+	describe("a job no transcript backs (#3983)", () => {
+		/* Working, past the grace, with no process and no transcript. */
+		const writeNeverStarted = (job: string) => {
+			const store = path.join(seat, "jobs", job);
+			fs.mkdirSync(store, { recursive: true });
+			fs.writeFileSync(
+				path.join(store, "state.json"),
+				JSON.stringify({
+					state: "working",
+					sessionId: `s-${job}`,
+					cwd: repo,
+					createdAt: new Date(Date.now() - 60 * Min).toISOString(),
+				}),
+			);
+			fs.mkdirSync(path.join(seat, "sessions"), { recursive: true });
+		};
+		const readStops = (job: string) =>
+			readCalls().filter((c) => c === `stop ${job}`);
 
-		const r = await tickWith(1, () => readCalls().length > 0);
+		it("is resumed, not stopped, on the tick the boot queues it", async () => {
+			writeNeverStarted("job7");
+			writeState([buildLaunch("job7", 7, 60)]);
+			fakeResumeClaude("job7", [LISTED]);
 
-		expect(r.status).toBe(0);
-		expect(readCalls()[0]).toBe(buildResumeArgs("job7"));
+			const r = await tickWith(1, () => readCalls().length > 0);
+
+			expect(r.status).toBe(0);
+			expect(readCalls()[0]).toBe(buildResumeArgs("job7"));
+		});
+
+		it("is spared across ticks of an unread listing where it is a launch, and stopped where it is not", async () => {
+			writeNeverStarted("job7");
+			writeNeverStarted("job9");
+			writeState([buildLaunch("job7", 7, 60)]);
+			fakeResumeClaude("job7", null);
+
+			/* Two runs, since a run's next tick waits on its stop: `bootedAt` has to
+			 * survive into a new process, as across a loop restart. */
+			for (const _run of [1, 2]) {
+				const before = readStops("job9").length;
+				const unread = await tickWith(
+					0,
+					() => readStops("job9").length > before,
+				);
+
+				expect(unread.status).toBe(0);
+				expect(readState()).toHaveProperty("bootedAt");
+				expect(readStops("job7")).toEqual([]);
+				expect(unread.stdout).toMatch(/stopped never-started job job9 on /);
+				expect(unread.stdout).not.toContain("never-started job job7");
+			}
+
+			fakeResumeClaude("job7", [LISTED]);
+			const read = await tickWith(1, () =>
+				readCalls().includes(buildResumeArgs("job7")),
+			);
+
+			expect(read.status).toBe(0);
+			expect(readState()).not.toHaveProperty("bootedAt");
+			expect(readCalls().find((c) => c !== "stop job9")).toBe(
+				buildResumeArgs("job7"),
+			);
+		});
+
+		it("is stopped once queued, and still resumed", async () => {
+			writeNeverStarted("job7");
+			const bootKilled = {
+				at: Date.now() - 60 * Min,
+				sessionId: "s-job7",
+				cwd: repo,
+				tries: 0,
+			};
+			writeState([{ ...buildLaunch("job7", 7, 60), bootKilled }], false);
+			fakeResumeClaude("job7", [LISTED]);
+
+			const stopped = await tickWith(0, () => readStops("job7").length > 0);
+
+			expect(stopped.status).toBe(0);
+			expect(stopped.stdout).toMatch(/stopped never-started job job7 on /);
+			expect(readKilled()).toEqual(["job7"]);
+
+			/* What a real stop leaves on the record, which the stop stub does not write. */
+			const record = path.join(seat, "jobs", "job7", "state.json");
+			fs.writeFileSync(
+				record,
+				JSON.stringify({ state: "stopped", sessionId: "s-job7", cwd: repo }),
+			);
+			fakeResumeClaude(
+				"job7",
+				[LISTED],
+				writesWokenRecord(record, "s-job7"),
+				"woke",
+			);
+
+			const later = await tickWith(1, () =>
+				readCalls().includes(buildResumeArgs("job7")),
+			);
+
+			expect(later.status).toBe(0);
+			expect(later.stdout).toMatch(
+				/killed by a restart, by --bg --resume, woken in place/,
+			);
+			expect(readKilled()).toEqual([]);
+			expect(readState().launches[0]).toMatchObject({
+				jobId: "job7",
+				finishedAt: null,
+			});
+		});
 	});
 
 	it("finishes an unlisted launch as ever on a tick no boot preceded", async () => {

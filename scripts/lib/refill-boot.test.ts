@@ -3,10 +3,16 @@
  * Whether a boot restarts the loop (#3878), and the line that says why. Loosen
  * it and a boot undoes a stop, or leaves a loop down that nothing stopped. And when
  * a tick trusts an empty listing (#3880): loosen that and a daemon's fault finishes
- * sessions still running.
+ * sessions still running. And which jobs the never-started stop spares (#3983):
+ * loosen that and a dead job keeps its admission charge past the boot; tighten it
+ * and a killed launch is stopped before it can queue.
  */
 import { describe, expect, it } from "vitest";
-import { bootVerdictOf, isEmptyListingTrusted } from "./refill-boot.js";
+import {
+	bootSparedJobs,
+	bootVerdictOf,
+	isEmptyListingTrusted,
+} from "./refill-boot.js";
 import { parseState } from "./refill-loop.js";
 
 const START = 1000;
@@ -67,35 +73,64 @@ describe("bootVerdictOf", () => {
 	});
 });
 
-describe("isEmptyListingTrusted (#3880)", () => {
-	const buildLaunch = (over: object) => ({
-		root: "/r",
-		issues: [1],
-		prompt: "/implement 1",
-		seat: "/s",
-		jobId: "j",
-		launchedAt: START,
-		finishedAt: null,
-		...over,
+const buildLaunch = (over: object) => ({
+	root: "/r",
+	issues: [1],
+	prompt: "/implement 1",
+	seat: "/s",
+	jobId: "j",
+	launchedAt: START,
+	finishedAt: null,
+	...over,
+});
+const KILLED = {
+	bootKilled: { at: START, sessionId: "s", cwd: "/r", tries: 0 },
+};
+
+const buildState = (launches: object[], bootedAt?: number) =>
+	parseState({ launches, ...(bootedAt ? { bootedAt } : {}) });
+
+describe("bootSparedJobs (#3983)", () => {
+	const spared = (over: object, bootedAt?: number) => [
+		...bootSparedJobs(buildState([buildLaunch(over)], bootedAt)),
+	];
+
+	it("spares a launch still running in the saved state while a boot is unsettled", () => {
+		expect(spared({}, START)).toEqual(["j"]);
 	});
-	const killed = {
-		bootKilled: { at: START, sessionId: "s", cwd: "/r", tries: 0 },
-	};
+
+	it.each([
+		["finished", { finishedAt: START }],
+		["with no job", { jobId: null }],
+		["already queued", KILLED],
+		["being handed off", { handOffTries: 1 }],
+		[
+			"waiting on the founder",
+			{ parked: true, block: { cause: "QUESTION", since: START } },
+		],
+	])("spares none %s", (_name, over) => {
+		expect(spared(over, START)).toEqual([]);
+	});
+
+	it("spares nothing with no boot unsettled", () => {
+		expect(spared({})).toEqual([]);
+	});
+});
+
+describe("isEmptyListingTrusted (#3880)", () => {
 	const isTrusted = (launches: object[], bootedAt?: number) =>
-		isEmptyListingTrusted(
-			parseState({ launches, ...(bootedAt ? { bootedAt } : {}) }),
-		);
+		isEmptyListingTrusted(buildState(launches, bootedAt));
 
 	it("trusts one on the boot's own tick, whatever the launches", () => {
 		expect(isTrusted([buildLaunch({})], START)).toBe(true);
 	});
 
 	it("trusts one while killed launches wait and no session should be listed", () => {
-		expect(isTrusted([buildLaunch(killed)])).toBe(true);
+		expect(isTrusted([buildLaunch(KILLED)])).toBe(true);
 	});
 
 	it("does not once a session it set running should be listed", () => {
-		expect(isTrusted([buildLaunch(killed), buildLaunch({ jobId: "k" })])).toBe(
+		expect(isTrusted([buildLaunch(KILLED), buildLaunch({ jobId: "k" })])).toBe(
 			false,
 		);
 	});

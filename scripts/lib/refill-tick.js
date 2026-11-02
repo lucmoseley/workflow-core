@@ -52,7 +52,7 @@ const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { listedAgents, readAgentsAfterBoot } = require("./agent-liveness.js");
-const { isEmptyListingTrusted } = require("./refill-boot.js");
+const { bootSparedJobs, isEmptyListingTrusted } = require("./refill-boot.js");
 const { buildDriftLines, readRegistryAgents } = require("./registry-agents.js");
 const { readActsBy } = require("./arbiter-store.js");
 const { PROBE_TIMEOUT_MS } = require("./usage-probe.js");
@@ -204,11 +204,13 @@ function reapFinished(dryRun) {
 /**
  * Stop the working jobs with no live process and no transcript past the grace
  * (lib/refill-loop.js's stopNeverStarted, #2467): admission charges each a
- * full session until it goes. The log lines.
+ * full session until it goes. The log lines. `spared` go unjudged (#3983).
  * @param {import("./registry-agents.js").RegistryListing} registry
+ * @param {Set<string>} spared
  */
-function stopNeverStarted(registry) {
-	return loop.stopNeverStarted(registry, readJobs(), (j) => {
+function stopNeverStarted(registry, spared) {
+	const jobs = readJobs()?.filter((j) => !spared.has(j.job)) ?? null;
+	return loop.stopNeverStarted(registry, jobs, (j) => {
 		const r = stopOn(j.seat, j.job);
 		return r.ok ? null : r.why;
 	});
@@ -1413,14 +1415,13 @@ function settleAwayMode(control, lastPromptAt, { dryRun, now }) {
 }
 
 /**
- * The log lines of stopNeverStarted, none on a dry run or a boot's tick, where a
- * job with no process is one the restart killed, due back through the resume step.
+ * The log lines of stopNeverStarted, none on a dry run.
  * @param {boolean} dryRun
  * @param {import("./refill-loop.js").LoopState} state
  * @param {Parameters<typeof stopNeverStarted>[0]} registry
  */
 const stopsOfNeverStarted = (dryRun, state, registry) =>
-	dryRun || state.bootedAt !== undefined ? [] : stopNeverStarted(registry);
+	dryRun ? [] : stopNeverStarted(registry, bootSparedJobs(state));
 
 /**
  * The tick's listing, an empty one read as nothing live where a boot's killed
