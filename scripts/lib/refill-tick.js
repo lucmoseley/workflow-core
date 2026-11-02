@@ -72,7 +72,6 @@ const { readJobs } = require("./hung-jobs.js");
 const { readSwapHold } = require("./admission.js");
 const {
 	blockCause,
-	hasEndedUnblocked,
 	resumedIdleSince,
 	hasRepliedSince,
 	hasTurnedSince,
@@ -89,6 +88,7 @@ const {
 const { copyTranscript } = require("./seat-move.js");
 const { parseJsonl } = require("./jsonl.js");
 const {
+	moveParkedBy,
 	newestMarkerListing,
 	readParkMarkers,
 	readParkMarkersOrThrow,
@@ -554,7 +554,7 @@ const actRootsOf = (root, served) => [...new Set([...served, root])];
  * @param {string[]} served
  * @returns {import("./refill-blocks.js").ReadActsBefore}
  */
-const actsBeforeReader = (served) => (root, sessionId) =>
+const buildActsBeforeReader = (served) => (root, sessionId) =>
 	loop.readActsSoFar(sessionId, actRootsOf(root, served), readActsBy);
 
 /**
@@ -778,30 +778,19 @@ function moveClaims(l, from, to) {
 }
 
 /**
- * Move what session `from`'s marker in `l`'s checkout lists of `l`'s issues to its
- * copy's, once the copy carries its conversation on, so no later tick resumes the
- * old one (#3709) and the copy's typing or ending takes the label off (#3940). A
- * copy whose session id went unread leaves them on neither. Fails open: a marker
- * left names a job a resume then falls back from.
+ * lib/parked.js's moveParkedBy for `l`. Fails open (#3709): a marker left names a job a
+ * resume then falls back from.
  * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"issues"|"seat">} l
  * @param {string} from
  * @param {{sessionId: string|null, jobId: string, cwd: string}} copy
  */
 function moveParked({ root, issues, seat }, from, { sessionId, jobId, cwd }) {
 	try {
-		const held = readParkedBy(from, root);
-		const moved = held.filter((n) => issues.includes(n));
-		if (moved.length === 0) return;
-		if (sessionId)
-			writeParkedBy(sessionId, [...readParkedBy(sessionId, root), ...moved], {
-				root,
-				job: { seat, jobId, cwd },
-			});
-		writeParkedBy(
-			from,
-			held.filter((n) => !moved.includes(n)),
-			{ root },
-		);
+		moveParkedBy(from, issues, {
+			root,
+			copySessionId: sessionId,
+			job: { seat, jobId, cwd },
+		});
 	} catch (e) {
 		log(`marker of ${from} not moved: ${buildErrorText(e)}`);
 	}
@@ -990,20 +979,16 @@ function unparkSession(root, sessionId, issues) {
 }
 
 /**
- * block-cause.js's hasEndedUnblocked for `marker`'s session, its transcript found
- * by id on the marker's seat or any configured one, as a move leaves a stale copy
- * and a copy's job record may name the transcript it came from. A transcript
- * untouched since the park is not read, so a tick costs a stat per waiting park.
- * Fails open to false, logged: the label stays (#3940).
+ * `marker`'s session's newest transcript, found by id on the marker's seat or any
+ * configured one, as a move leaves a stale copy and a copy's job record may name
+ * the transcript it came from.
  * @param {import("./parked.js").ParkMarkerRead} marker
  */
-function readEndedUnblocked({ sessionId, job, writtenAt }) {
-	const seats = [...(job ? [job.seat] : []), ...readConfiguredSeats()];
-	const found = findNewestTranscript(seats, sessionId);
-	if (!found || found.mtimeMs <= writtenAt) return false;
-	const rows = readMainChain(found.file, sessionId);
-	return rows !== null && hasEndedUnblocked(rows, writtenAt);
-}
+const findParkTranscript = ({ sessionId, job }) =>
+	findNewestTranscript(
+		[...(job ? [job.seat] : []), ...readConfiguredSeats()],
+		sessionId,
+	);
 
 /**
  * `parked` off each closed issue in `served`'s trackers (lib/parked.js's
@@ -1047,7 +1032,7 @@ const staggerResume = () => sleepSync(refillBatch.readStaggerMs());
  */
 const launchOrResume = (batch, served) =>
 	refillBatch.launchOrResume(batch, {
-		readActsBefore: actsBeforeReader(served),
+		readActsBefore: buildActsBeforeReader(served),
 		resume: ({ root, issues }, { seat, sessionId, cwd }) =>
 			resumeStopped({ root, issues, seat }, PARKED_PROMPT, {
 				sessionId,
@@ -1162,13 +1147,14 @@ const blockIo = (served) => ({
 	labelParked,
 	recordParked,
 	readParkMarkers: readParkMarkersOrNull,
-	hasEndedUnblocked: readEndedUnblocked,
+	findParkTranscript,
+	readMainChain,
 	unparkSession,
 	comment: commentOn,
 	postHandOff,
 	release: (l) => release({ jobId: blocks.ledgerJobOf(l), root: l.root }),
 	progressOf: (l) => readProgress(l, served),
-	readActsBefore: actsBeforeReader(served),
+	readActsBefore: buildActsBeforeReader(served),
 	log,
 });
 

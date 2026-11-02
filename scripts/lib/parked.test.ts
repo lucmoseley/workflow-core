@@ -7,6 +7,9 @@
  * (#3893) must not read as no hold on the idle alarm, which would hide a
  * limit-cap hold, nor blank the loop's other markers. unparkClosed (#3940) reports
  * a label that stays, for the next tick to retry, and throws on an unread list.
+ * moveParkedBy (#3709, #3940) writes the copy's marker before trimming the old
+ * one: the other order loses the park on a failed write, so no typing or ending
+ * takes the label off.
  */
 
 import fs from "node:fs";
@@ -15,6 +18,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { printed, stubGhRoutes } from "./gh-stub";
 import {
+	moveParkedBy,
 	readParkedBy,
 	readParkMarkers,
 	readParkMarkersOrThrow,
@@ -23,6 +27,9 @@ import {
 } from "./parked.js";
 
 let root: string;
+
+const markerFile = (sessionId: string) =>
+	path.join(root, ".claude", "tmp", "markers", `.parked-${sessionId}`);
 
 beforeEach(() => {
 	root = fs.mkdtempSync(path.join(os.tmpdir(), "parked-"));
@@ -52,9 +59,6 @@ describe("a park marker's limit-cap count (#3804)", () => {
 });
 
 describe("a marker that will not read (#3893)", () => {
-	const markerFile = (sessionId: string) =>
-		path.join(root, ".claude", "tmp", "markers", `.parked-${sessionId}`);
-
 	/** Unlocked after `body`, so the tmp dir cleans up. */
 	function withLockedMarker(body: () => void) {
 		writeParkedBy("s1", [7], { root });
@@ -94,6 +98,42 @@ describe("a marker that will not read (#3893)", () => {
 		expect(readParkMarkersOrThrow(root)).toMatchObject([
 			{ sessionId: "s1", issues: [7] },
 		]);
+	});
+});
+
+describe("moveParkedBy (#3709, #3940)", () => {
+	const job = { seat: "/s", jobId: "copy-job", cwd: "/c" };
+	const move = (issues: number[], copySessionId: string | null) =>
+		moveParkedBy("old", issues, { root, copySessionId, job });
+
+	it("moves the listed issues to the copy's marker, under its job, leaving the rest", () => {
+		writeParkedBy("old", [5, 6], { root });
+		writeParkedBy("copy", [9], { root });
+		move([5, 7], "copy");
+		expect(readParkedBy("old", root)).toEqual([6]);
+		expect(readParkMarkers(root)).toContainEqual(
+			expect.objectContaining({ sessionId: "copy", issues: [9, 5], job }),
+		);
+	});
+
+	it("writes no marker where the old one lists none of them", () => {
+		writeParkedBy("old", [6], { root });
+		move([5], "copy");
+		expect(readParkedBy("old", root)).toEqual([6]);
+		expect(readParkMarkers(root).map((m) => m.sessionId)).toEqual(["old"]);
+	});
+
+	it("leaves them on neither where the copy's session id went unread", () => {
+		writeParkedBy("old", [5], { root });
+		move([5], null);
+		expect(readParkMarkers(root)).toEqual([]);
+	});
+
+	it("keeps them on the old marker where the copy's will not write", () => {
+		writeParkedBy("old", [5], { root });
+		fs.mkdirSync(markerFile("copy"));
+		expect(() => move([5], "copy")).toThrow();
+		expect(readParkedBy("old", root)).toEqual([5]);
 	});
 });
 

@@ -497,9 +497,12 @@ function holdClaimFault(own, sessionId) {
 		: `this \`needs input:\` park on a repo hold cites #${unclaimed.join(", #")}, which this session holds no claim on, so nothing labels it \`parked\` and \`/pick-next\` lists it as free work (#3858) — run \`node ${scriptPath("claim-issue.js")} ${unclaimed[0]}\`, then end again`;
 }
 
-/** @param {import("./lib/outstanding-line").Verdict} verdict */
-const newestHandOff = (verdict) =>
-	newestComment(verdict, verdict.items, (c) => parseHandOff(c.body) !== null);
+/**
+ * @param {import("./lib/outstanding-line").Verdict} verdict
+ * @param {import("./lib/outstanding-line").Verdict["items"]} items
+ */
+const newestHandOff = (verdict, items) =>
+	newestComment(verdict, items, (c) => parseHandOff(c.body) !== null);
 
 /**
  * @param {string} file  the session's transcript
@@ -518,16 +521,14 @@ function readToolCallCountSince(file, start) {
 }
 
 /**
- * The fault on a park whose newest hand-off among `verdict`'s items predates
- * this session's start or last resume, where its transcript shows a tool call
- * since.
- * @param {import("./lib/outstanding-line").Verdict} verdict
+ * The fault on a park whose newest hand-off predates this session's start or
+ * last resume, where its transcript shows a tool call since.
+ * @param {ReturnType<typeof newestHandOff>} newest
  * @param {string} sessionId
  * @param {import("./lib/stop-guard").StopPayload|null} payload
  * @returns {string} the fault, or ""
  */
-function staleHandOffFault(verdict, sessionId, payload) {
-	const newest = newestHandOff(verdict);
+function staleHandOffFault(newest, sessionId, payload) {
 	if (!newest) return "";
 	const file = sessionTranscript.resolve(payload ?? {}, sessionId);
 	const start = readSessionStart(file, sessionId);
@@ -549,14 +550,14 @@ function staleHandOffFault(verdict, sessionId, payload) {
 function parkFault(verdict, pointed, sessionId, payload) {
 	if (verdict.items.length === 0)
 		return `this \`needs input:\` park cites no issue, so no hand-off can sit on its ticket (#2391) — list the issue the park waits on, and post the hand-off there:\n\n${HAND_OFF_SHAPE}`;
-	const newest = newestHandOff(verdict);
+	const newest = newestHandOff(verdict, verdict.items);
 	/* An issue whose comments could not be read may hold the hand-off (#958:
 	 * fail open); one a read issue holds is judged on its merits (#2965).
 	 * Residual: a newer good hand-off on the unread issue cannot save a stale
 	 * or malformed one on a read issue, so that park is refused. */
 	if (!newest && hasUnchecked(verdict)) return "";
 	return (
-		staleHandOffFault(verdict, sessionId, payload) ||
+		staleHandOffFault(newest, sessionId, payload) ||
 		handOffFault(newest?.body ?? "", pointed, sessionId)
 	);
 }
@@ -592,7 +593,11 @@ function roundFault(verdict, question, sessionId, payload) {
 		const unclaimed = claimOwedOn(holders, sessionId);
 		if (unclaimed.length === 0)
 			return (
-				staleHandOffFault({ ...verdict, items: holders }, sessionId, payload) ||
+				staleHandOffFault(
+					newestHandOff(verdict, holders),
+					sessionId,
+					payload,
+				) ||
 				handOffFault(
 					newestComment(verdict, holders, (c) => holdsRound(c, title))?.body ??
 						"",

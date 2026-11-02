@@ -110,7 +110,8 @@ function fakeIo(over: Partial<BlockIo> = {}) {
 			calls.push(`rm on ${seat}`);
 			return null;
 		},
-		hasEndedUnblocked: () => false,
+		findParkTranscript: () => null,
+		readMainChain: () => null,
 		jobStateOf: () => ({ state: "working" }),
 		writeLedgerHold: (l, until) => {
 			calls.push(`ledger ${l.jobId} ${until}`);
@@ -1135,6 +1136,13 @@ describe("unparkAnswered (#3940)", () => {
 		...over,
 	});
 
+	const reply = (text: string) => ({
+		type: "assistant",
+		timestamp: new Date(NOW + MIN).toISOString(),
+		message: { model: "claude-opus-5-5", content: [{ type: "text", text }] },
+	});
+	const touched = { file: "/t", mtimeMs: NOW + MIN };
+
 	/** The unparks and log of one sweep over `markers`, reading `over`'s answers. */
 	const sweep = (
 		markers: ReturnType<typeof marker>[] | null,
@@ -1144,7 +1152,8 @@ describe("unparkAnswered (#3940)", () => {
 		const unparked: string[] = [];
 		const { io, calls } = fakeIo({
 			readParkMarkers: () => markers,
-			hasEndedUnblocked: () => true,
+			findParkTranscript: () => touched,
+			readMainChain: () => [reply("result: done")],
 			unparkSession: (root, sid, issues) => {
 				unparked.push(`${root} ${sid} ${issues.join(",")}`);
 				return null;
@@ -1161,8 +1170,35 @@ describe("unparkAnswered (#3940)", () => {
 
 	it("leaves one that parked again or never answered", () => {
 		expect(
-			sweep([marker()], { hasEndedUnblocked: () => false }).unparked,
+			sweep([marker()], {
+				readMainChain: () => [reply("needs input: which? — #42")],
+			}).unparked,
 		).toEqual([]);
+	});
+
+	it("leaves one whose transcript is not found or will not read", () => {
+		for (const over of [
+			{ findParkTranscript: () => null },
+			{ readMainChain: () => null },
+		])
+			expect(sweep([marker()], over).unparked).toEqual([]);
+	});
+
+	it("reads no transcript untouched since the park, and reads one touched a moment after", () => {
+		const reads: string[] = [];
+		const readMainChain = (file: string) => {
+			reads.push(file);
+			return [reply("result: done")];
+		};
+		const at = (mtimeMs: number) =>
+			sweep([marker()], {
+				findParkTranscript: () => ({ file: "/t", mtimeMs }),
+				readMainChain,
+			}).unparked;
+		expect(at(NOW)).toEqual([]);
+		expect(reads).toEqual([]);
+		expect(at(NOW + 1)).toEqual(["/r s 42"]);
+		expect(reads).toEqual(["/t"]);
 	});
 
 	it("leaves one whose session or job still runs", () => {
@@ -1187,10 +1223,11 @@ describe("unparkAnswered (#3940)", () => {
 	it("leaves an issue a newer park holds to that park's session", () => {
 		const older = marker({ writtenAt: NOW - MIN, issues: [42, 43] });
 		const newer = marker({ sessionId: "n", job: null });
-		const judged = (m: { sessionId: string }) => m.sessionId === "s";
-		expect(
-			sweep([older, newer], { hasEndedUnblocked: judged }).unparked,
-		).toEqual(["/r s 43"]);
+		const findParkTranscript = (m: { sessionId: string }) =>
+			m.sessionId === "s" ? touched : null;
+		expect(sweep([older, newer], { findParkTranscript }).unparked).toEqual([
+			"/r s 43",
+		]);
 	});
 
 	it("waits where the markers will not read", () => {

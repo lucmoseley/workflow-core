@@ -7,6 +7,7 @@
 
 const path = require("node:path");
 const { isTerminalAgent } = require("./agent-liveness.js");
+const { hasEndedUnblocked } = require("./block-cause.js");
 const { newestMarkerListing } = require("./parked.js");
 const { swapHoldText } = require("./admission.js");
 const {
@@ -167,8 +168,11 @@ const PARKED_STATE = "blocked";
  *   limit-cap park's count in a row; null, else why not, which may carry a stack
  * @property {(root: string) => import("./parked.js").ParkMarkerRead[]|null}
  *   readParkMarkers  those in `root`'s checkout, null where they will not read
- * @property {(marker: import("./parked.js").ParkMarkerRead) => boolean} hasEndedUnblocked
- *   whether its session took a turn since the park that left it unblocked
+ * @property {(marker: import("./parked.js").ParkMarkerRead) =>
+ *   {file: string, mtimeMs: number}|null} findParkTranscript  its session's newest
+ *   transcript, null where none is found
+ * @property {(file: string, who: string) => Record<string, unknown>[]|null}
+ *   readMainChain  that transcript's main-chain rows, null where it will not read
  * @property {(root: string, sessionId: string, issues: number[]) => string|null} unparkSession
  *   take the `parked` label and marker off its issues, as its session has gone back
  * @property {(l: LoopLaunch, body: string) => void} comment  on each of its
@@ -1214,6 +1218,20 @@ function resumeStepHeld(l, seen) {
 }
 
 /**
+ * lib/block-cause.js's hasEndedUnblocked for `marker`'s session. A transcript
+ * untouched since the park is not read, so a tick costs a stat per waiting park.
+ * No transcript, or one that will not read, is false: the label stays (#3940).
+ * @param {import("./parked.js").ParkMarkerRead} marker
+ * @param {BlockIo} io
+ */
+function hasParkEndedUnblocked(marker, io) {
+	const found = io.findParkTranscript(marker);
+	if (!found || found.mtimeMs <= marker.writtenAt) return false;
+	const rows = io.readMainChain(found.file, marker.sessionId);
+	return rows !== null && hasEndedUnblocked(rows, marker.writtenAt);
+}
+
+/**
  * Take `parked` off what each park marker in `roots` holds, where its session is
  * no longer running and took a turn since the park that left it unblocked: a `!`
  * answer fires no hook, so that turn is the only sign the question was answered
@@ -1240,7 +1258,7 @@ function unparkAnswered(roots, { agents, io }) {
 			const issues = marker.issues.filter(
 				(n) => newestMarkerListing(markers, n) === marker,
 			);
-			if (issues.length > 0 && io.hasEndedUnblocked(marker))
+			if (issues.length > 0 && hasParkEndedUnblocked(marker, io))
 				unparkAndLog(root, marker.sessionId, issues, io);
 		}
 	}

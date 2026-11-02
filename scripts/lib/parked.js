@@ -237,6 +237,33 @@ function writeParkedBy(
 }
 
 /**
+ * Move what session `from`'s marker in `root`'s checkout lists of `issues` to its
+ * copy's, once the copy carries its conversation on, so no later tick resumes the
+ * old one (#3709) and the copy's typing or ending takes the label off (#3940). A
+ * copy whose session id went unread leaves them on neither. The copy's is written
+ * first, so a write that throws leaves them on the old marker.
+ * @param {string} from
+ * @param {number[]} issues
+ * @param {{root: string, copySessionId: string|null, job: ParkJob}} to
+ */
+function moveParkedBy(from, issues, { root, copySessionId, job }) {
+	const held = readParkedBy(from, root);
+	const moved = held.filter((n) => issues.includes(n));
+	if (moved.length === 0) return;
+	if (copySessionId)
+		writeParkedBy(
+			copySessionId,
+			[...readParkedBy(copySessionId, root), ...moved],
+			{ root, job },
+		);
+	writeParkedBy(
+		from,
+		held.filter((n) => !moved.includes(n)),
+		{ root },
+	);
+}
+
+/**
  * Take `parked` off each of `numbers`: those it came off, and each it would not,
  * with why.
  * @param {string} repo
@@ -298,6 +325,7 @@ module.exports = {
 	PARKED_LABEL,
 	readParkMarkersOrThrow,
 	newestMarkerListing,
+	moveParkedBy,
 	readParkMarkers,
 	readParkedBy,
 	setParked,
