@@ -373,6 +373,7 @@ function isNpmRun(word) {
 const SCRIPT_COMMANDS = new Map(
 	Object.entries({
 		t: "test",
+		ts: "test",
 		tst: "test",
 		tes: "test",
 		test: "test",

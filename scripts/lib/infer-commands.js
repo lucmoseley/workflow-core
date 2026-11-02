@@ -35,16 +35,21 @@ const SCRIPT_NAMES = {
 /* `npm init` writes this as the test script; it is no test command. */
 const NPM_INIT_PLACEHOLDER = /no test specified/;
 
-/** `package.json` does not parse. The message is init's way out; `detail`
- * is the parser's, for a caller whose way out differs (#3192). */
-class PackageParseError extends Error {
-	/** @param {string} detail @param {ErrorOptions} options */
-	constructor(detail, options) {
+/** `package.json` cannot be read or does not parse. The message is init's way
+ * out; `fault` names the file and the failure, for a caller whose way out
+ * differs (#3192). */
+class PackageReadError extends Error {
+	/**
+	 * @param {string} failure the file, then "does not parse" or "cannot be read"
+	 * @param {{cause: unknown}} options
+	 */
+	constructor(failure, options) {
+		const detail = caught(options.cause).message;
 		super(
-			`package.json does not parse, so no command can be inferred from it — fix it, or name each with --command: ${detail}`,
+			`${failure}, so no command can be inferred from it — fix it: ${detail}`,
 			options,
 		);
-		this.detail = detail;
+		this.fault = `${failure} (${detail})`;
 	}
 }
 
@@ -70,23 +75,33 @@ const isAbsentFile = (err) =>
 	ABSENT_FILE_CODES.has(String(err.code));
 
 /**
- * Throws a PackageParseError on a `package.json` that does not parse, which
- * would otherwise read as one naming no script.
+ * @param {string} file
+ * @param {unknown} err from reading `file`
+ */
+function throwUnlessAbsent(file, err) {
+	if (!isAbsentFile(err))
+		throw new PackageReadError(`${file} cannot be read`, { cause: err });
+}
+
+/**
+ * Throws a PackageReadError on a `package.json` that cannot be read or does
+ * not parse, which would otherwise read as one naming no script.
  * @param {string} root
  */
 function readPackage(root) {
+	const file = path.join(root, "package.json");
 	let text;
 	try {
-		text = fs.readFileSync(path.join(root, "package.json"), "utf8");
+		text = fs.readFileSync(file, "utf8");
 	} catch (err) {
-		if (!isAbsentFile(err)) throw err;
+		throwUnlessAbsent(file, err);
 		return { scripts: {}, biome: false, biomeEvident: false };
 	}
 	let pkg;
 	try {
 		pkg = JSON.parse(text);
 	} catch (err) {
-		throw new PackageParseError(caught(err).message, { cause: err });
+		throw new PackageReadError(`${file} does not parse`, { cause: err });
 	}
 	const scripts =
 		pkg?.scripts && typeof pkg.scripts === "object" ? pkg.scripts : {};
@@ -179,7 +194,11 @@ const writtenCommands = (tokens) => allCommands(tokens, false);
  * a workspace selector (`pnpm --filter web cs`, `yarn workspace web cs`), a
  * directory set any other way (`pushd`, `env -C`, `cd ~/web`), a script name
  * after a value flag other than the directory's (`pnpm --reporter silent cs`),
- * and the scripts an npm command other than these runs (`npm install-test`). */
+ * the scripts an npm command other than these runs (`npm install-test`), and
+ * a script reached through a script runner (`run-s cs`, `npm-run-all cs`,
+ * `concurrently npm:cs`, `turbo run cs`, `nx run cs`, `lerna run cs`), held
+ * until a first adopter declares one (#2599): declare the Biome part as
+ * biome-staged.js and the rest in a gate of its own. */
 /** @type {Map<string, (word: string) => boolean>} Each runner's test for its
  *  `run`: npm's per `isNpmRun`, pnpm's with its documented `run-script`
  *  alias; yarn and bun document none. */
@@ -189,6 +208,9 @@ const RUN_VERB = new Map([
 	["yarn", (w) => w === "run"],
 	["bun", (w) => w === "run"],
 ]);
+
+/* pnpm's aliases of its `test` (pnpm.io/cli/test). */
+const PNPM_TEST_ALIASES = new Set(["t", "tst"]);
 
 /* Each runner's flag naming the directory it runs in, past npm's, which
  * `npmCanon` reads as `--prefix`. */
@@ -218,7 +240,7 @@ function parseNpmRun(words) {
 	];
 	if (verb === undefined) return;
 	const verbAt = words.findIndex((w) => w.value === verb);
-	const prefix = options.find((w) => w.startsWith("--prefix="));
+	const prefix = options.findLast((w) => w.startsWith("--prefix="));
 	const dir = prefix ? prefix.slice("--prefix=".length) : "";
 	const script = npmScriptCommand(verb);
 	if (script) return { nameAt: verbAt, script, dir, runLess: true };
@@ -275,7 +297,14 @@ function parseOtherRun(runner, words) {
 	const nameAt = plain[isVerb ? 1 : skipped];
 	if (nameAt === undefined) return;
 	const dir = parseDirFlag(words.slice(0, nameAt + 1), flags);
-	return { nameAt, dir, runLess: !isVerb && !isValue };
+	const runLess = !isVerb && !isValue;
+	const name = words[nameAt];
+	return runner === "pnpm" &&
+		runLess &&
+		name !== undefined &&
+		PNPM_TEST_ALIASES.has(name.value)
+		? { nameAt, script: "test", dir, runLess }
+		: { nameAt, dir, runLess };
 }
 
 /**
@@ -310,16 +339,61 @@ function findRun(command) {
 	};
 }
 
-/* A command with a written `run`'s runner and name shed and its handed-on
- * words kept, so words a missing script's run hands on are still read where
- * they stand (#3413). A run-less word stays, as `yarn biome check` names no
- * script. */
-/** @param {Word[]} command */
-function withoutRun(command) {
+/* The runners whose `run` falls through to a binary, and so runs a word no
+ * script has the name of (yarnpkg.com/cli/run, bun.com/docs/cli/run). npm's and
+ * pnpm's fail on a missing script (pnpm.io/cli/run). */
+const BINARY_RUNNERS = new Set(["yarn", "bun"]);
+
+/** @typedef {{command: Word[], dirs: string[]}} Placed */
+
+/**
+ * A command placed in the directories it may run in, as `cd`s before it leave
+ * them: one no `&&` settles is read in the directories before and after it.
+ * @param {Hop} hop
+ * @returns {Generator<Placed>}
+ */
+function* placedCommands(hop) {
+	let dirs = [hop.dir];
+	const settled = settledCds(hop.tokens);
+	for (const command of allCommands(hop.tokens)) {
+		const cd = parseCdTarget(command);
+		if (cd !== undefined) {
+			const moved = dirs.map((d) => path.resolve(d, cd));
+			const [head] = command;
+			dirs = head && settled.has(head) ? moved : [...dirs, ...moved];
+		}
+		yield { command, dirs };
+	}
+}
+
+/**
+ * @param {Run} run
+ * @param {string[]} dirs
+ * @param {string} root
+ */
+const runPackageDirs = (run, dirs, root) => [
+	...new Set(dirs.map((d) => findPackageDir(path.resolve(d, run.dir), root))),
+];
+
+/**
+ * `command` with a written `run`'s runner and name shed and its handed-on words
+ * kept, so words a missing script's run hands on are still read where they
+ * stand (#3413). A run-less word stays, as `yarn biome check` names no script,
+ * and so does a run a binary may answer, as `yarn run biome check` runs Biome
+ * where no script is called `biome` (#3944).
+ * @param {Placed} placed
+ * @param {string} root
+ * @param {(dir: string) => Record<string, unknown>} readScripts
+ */
+function withoutRun({ command, dirs }, root, readScripts) {
 	const run = findRun(command);
-	return run && !run.runLess
-		? [...command.slice(0, run.at), ...command.slice(run.end)]
-		: command;
+	if (!run || run.runLess) return command;
+	const isScriptIn = (/** @type {string} */ dir) =>
+		typeof readScripts(dir)[run.name] === "string";
+	return BINARY_RUNNERS.has(run.runner) &&
+		!runPackageDirs(run, dirs, root).every(isScriptIn)
+		? command
+		: [...command.slice(0, run.at), ...command.slice(run.end)];
 }
 
 /**
@@ -389,6 +463,18 @@ function scriptsRun(run, scripts) {
 	return [`pre${run.name}`, run.name, `post${run.name}`].filter(has);
 }
 
+/** @param {string} dir */
+function hasPackage(dir) {
+	const file = path.join(dir, "package.json");
+	try {
+		fs.statSync(file);
+		return true;
+	} catch (err) {
+		throwUnlessAbsent(file, err);
+		return false;
+	}
+}
+
 /**
  * `dir`, or its nearest ancestor up to `root` holding a `package.json`, where a
  * runner finds it.
@@ -397,7 +483,7 @@ function scriptsRun(run, scripts) {
  */
 function findPackageDir(dir, root) {
 	for (let d = dir; ; d = path.dirname(d)) {
-		if (fs.existsSync(path.join(d, "package.json"))) return d;
+		if (hasPackage(d)) return d;
 		if (d === root || d === path.dirname(d)) return dir;
 	}
 }
@@ -484,29 +570,17 @@ function runHops(run, handed, dir, scripts) {
 }
 
 /**
- * Each hop `hop`'s runs make. A run after a `cd` no `&&` settles is read in the
- * directories before and after it.
  * @param {Hop} hop
  * @param {string} root
  * @param {(dir: string) => Record<string, unknown>} readScripts
  */
 function* hopsFrom(hop, root, readScripts) {
-	let dirs = [hop.dir];
-	const settled = settledCds(hop.tokens);
-	for (const simple of allCommands(hop.tokens)) {
-		const cd = parseCdTarget(simple);
-		if (cd !== undefined) {
-			const moved = dirs.map((d) => path.resolve(d, cd));
-			const [head] = simple;
-			dirs = head && settled.has(head) ? moved : [...dirs, ...moved];
-		}
-		const run = findRun(simple);
+	for (const { command, dirs } of placedCommands(hop)) {
+		const run = findRun(command);
 		if (!run) continue;
-		const handed = handedWords(run.runner, simple.slice(run.end));
-		for (const base of new Set(dirs)) {
-			const dir = findPackageDir(path.resolve(base, run.dir), root);
+		const handed = handedWords(run.runner, command.slice(run.end));
+		for (const dir of runPackageDirs(run, dirs, root))
 			yield* runHops(run, handed, dir, readScripts(dir));
-		}
 	}
 }
 
@@ -564,17 +638,18 @@ const LINT_STAGED = /(?:^|\/)lint-staged(?:@.*)?$/;
  */
 function isLintStagedCommand(root, command) {
 	const readCachedPackage = buildPackageReader();
+	const top = path.resolve(root);
+	const readScripts = (/** @type {string} */ dir) =>
+		readCachedPackage(dir).scripts;
 	return (
-		walkRunScripts(
-			path.resolve(root),
-			(dir) => readCachedPackage(dir).scripts,
-			command,
-			(hop) =>
-				allCommands(hop.tokens).some((c) =>
-					withoutRun(c).some((w) => LINT_STAGED.test(w.value)),
-				)
-					? true
-					: undefined,
+		walkRunScripts(top, readScripts, command, (hop) =>
+			[...placedCommands(hop)].some((placed) =>
+				withoutRun(placed, top, readScripts).some((w) =>
+					LINT_STAGED.test(w.value),
+				),
+			)
+				? true
+				: undefined,
 		) ?? false
 	);
 }
@@ -667,9 +742,12 @@ function parseBiomeSubcommand(command) {
  *
  * Residual, read as it stands: a hop mentioning neither (`./lint.sh $(…)`, even
  * where the file runs Biome); a global `biome` reached through a file, in a
- * repo with no other evidence; a runner other than `parallel`, `xargs`, `eval` or a shell with an expansion for
- * its command (`find -exec`, `su -c`, `env $X`, `exec $X`, `time $X`); and a glob outside
- * a command name's or Biome's slot (`npm run c?`, `biome check --st?ged`), which
+ * repo with no other evidence; Biome declared only in a nested package the
+ * command does not name, which is no evidence, so `$GATE` at the top passes
+ * (write its words out, or declare Biome at the top); a runner other than
+ * `parallel`, `xargs`, `eval` or a shell with an expansion for its command
+ * (`find -exec`, `su -c`, `env --split-string=sh`); and a glob outside a
+ * command name's or Biome's slot (`npm run c?`, `biome check --st?ged`), which
  * makes its word only from a file of that name where it runs. */
 const PACKAGE_MANAGERS = ["npm", "pnpm", "yarn", "bun", "bunx", "npx"];
 const MENTIONS = new RegExp(
@@ -687,6 +765,23 @@ const INDIRECT = new Map([
 const SHELLS = new Set(["sh", "bash", "dash", "zsh", "ksh"]);
 /* A shell's flag word holding `c`: it runs its operand as script text. */
 const SCRIPT_FLAG = /^-[a-z]*c/;
+/* A shell's flag word holding `s`: it reads stdin, whatever operands follow. */
+const STDIN_FLAG = /^-[a-zA-Z]*s/;
+/* A shell's flags taking the next word (bash(1), dash(1)). */
+const SHELL_VALUE_FLAG = /^(?:[-+][a-zA-Z]*[oO]|--rcfile|--init-file)$/;
+/* Commands that run the words after them, each with its flags taking the next
+ * word (their `--help`, coreutils; dash(1)). `env -S`'s next word is the
+ * command. */
+const EXEC_PREFIXES = new Map([
+	["env", new Set(["-u", "--unset", "-C", "--chdir"])],
+	["command", new Set()],
+	["exec", new Set(["-a"])],
+	["nice", new Set(["-n", "--adjustment"])],
+	["nohup", new Set()],
+	["time", new Set(["-f", "--format", "-o", "--output"])],
+]);
+/* `command`'s flags that name the command and run nothing. */
+const COMMAND_LOOKUP = /^-p?[vV]/;
 const ASSIGNMENT = /^[A-Za-z_]\w*=/;
 /* The shell's reserved words a command can follow. */
 const RESERVED = new Set([
@@ -732,15 +827,31 @@ const hasMatch = (re, text, tokens) =>
 	allCommands(tokens).some((c) => c.some((w) => re.test(w.value)));
 
 /**
- * The words naming what a shell runs, past its leading assignments and
- * reserved words.
+ * The words naming what a shell runs, past its leading assignments, reserved
+ * words and any EXEC_PREFIXES command.
  * @param {Word[]} command
+ * @returns {Word[]}
  */
 function withoutPrefix(command) {
 	const at = command.findIndex(
 		(w) => !ASSIGNMENT.test(w.value) && !RESERVED.has(w.value),
 	);
-	return at < 0 ? [] : command.slice(at);
+	const head = command[at];
+	if (!head) return [];
+	const flags = EXEC_PREFIXES.get(path.posix.basename(head.value));
+	const rest = command.slice(at + 1);
+	if (!flags) return command.slice(at);
+	const [first] = rest;
+	if (head.value === "command" && first && COMMAND_LOOKUP.test(first.value))
+		return [];
+	const next = rest.findIndex((w, i) => {
+		const before = rest[i - 1];
+		return (
+			!w.value.startsWith("-") &&
+			(before === undefined || !flags.has(before.value))
+		);
+	});
+	return next < 0 ? [] : withoutPrefix(rest.slice(next));
 }
 
 /** @param {Word|undefined} before the word before */
@@ -770,6 +881,27 @@ function parseShellScript(command) {
 }
 
 /**
+ * Whether a shell handed `words`, with no `-c`, reads its script from stdin:
+ * it has no operand, or its flags hold an `s`.
+ * @param {Word[]} words
+ */
+function isStdinScript(words) {
+	let at = 0;
+	for (let word = words[0]; word; word = words[at]) {
+		if (word.value === "--") {
+			at += 1;
+			break;
+		}
+		if (!/^[-+]/.test(word.value)) break;
+		at += SHELL_VALUE_FLAG.test(word.value) ? 2 : 1;
+	}
+	return (
+		at >= words.length ||
+		words.slice(0, at).some((w) => STDIN_FLAG.test(w.value))
+	);
+}
+
+/**
  * Whether `command` runs what its text does not show, mentioned or not: its
  * name is an expansion or a glob, it is `parallel`, whose command line is built
  * from its input, a shell reading its script from stdin, a shell whose script, or an `eval` whose words, hold an
@@ -787,8 +919,7 @@ function isHiddenCommand(command) {
 	const indirect = INDIRECT.get(name);
 	if (indirect) return indirect(rest);
 	if (!SHELLS.has(name)) return false;
-	if (!rest.some((w) => SCRIPT_FLAG.test(w.value)))
-		return rest.every((w) => w.value.startsWith("-"));
+	if (!rest.some((w) => SCRIPT_FLAG.test(w.value))) return isStdinScript(rest);
 	const script = parseShellScript(command);
 	return (
 		script !== undefined &&
@@ -1047,14 +1178,15 @@ const QUOTED = {
  * write flag is dropped before the rest is judged.
  * @param {Word[]} words
  * @param {boolean} biome whether `package.json` declares `@biomejs/biome`
+ * @param {boolean} inferred whether init reads the script, so can map a bare one
  * @returns {MappedCommand | Unmapped}
  */
-function mapBiome(words, biome) {
+function mapBiome(words, biome, inferred) {
 	const values = words.map((w) => w.value);
 	const at = values.indexOf("check");
 	const why =
 		unwrittenWord(words) ??
-		unmappedRunner(values.slice(0, at).join(" "), biome);
+		unmappedRunner(values.slice(0, at).join(" "), biome, inferred);
 	if (why) return why;
 	const kept = [];
 	const paths = [];
@@ -1083,16 +1215,19 @@ function mapBiome(words, biome) {
  * or null.
  * @param {string} runner
  * @param {boolean} biome
+ * @param {boolean} inferred
  * @returns {Unmapped|null}
  */
-function unmappedRunner(runner, biome) {
+function unmappedRunner(runner, biome, inferred) {
 	if (!MAPPED_NAMES.has(runner.replace(/^npx /, "")))
 		return {
 			shape: PINNED.test(runner)
 				? `pins Biome's version through "${runner}", which biome-staged.js cannot`
 				: `runs Biome through "${runner}"`,
 			wayOut: declareCheckStaged(
-				`instead as a bare "biome check --staged …" script, or '${OWN_FLAGS}'`,
+				inferred
+					? `instead as a bare "biome check --staged …" script, or '${OWN_FLAGS}'`
+					: `instead as '${OWN_FLAGS}'`,
 			),
 		};
 	return biome
@@ -1119,10 +1254,11 @@ const unwrittenWord = (words) => (words.some(isUnreadWord) ? UNREAD : null);
  * words instead.
  * @param {Word[]} words
  * @param {boolean} biome
+ * @param {boolean} inferred
  * @returns {MappedCommand | Unmapped}
  */
-const mapAsWritten = (words, biome) =>
-	words.some((w) => w.quoted) ? QUOTED : mapBiome(words, biome);
+const mapAsWritten = (words, biome, inferred) =>
+	words.some((w) => w.quoted) ? QUOTED : mapBiome(words, biome, inferred);
 
 /** Whether `tokens` hold no operator, redirect or substitution.
  * @param {Token[]} tokens */
@@ -1135,6 +1271,22 @@ const onlyCommand = (tokens) => {
 	const [only, ...more] = simpleCommands(tokens);
 	return isPlain(tokens) && more.length === 0 ? only : undefined;
 };
+
+/**
+ * The directory other than `top` a run to the Biome command surely went to, by
+ * a hop or the command's own `cd` or runner's flag, or undefined: a `cd` no `&&`
+ * settles is refused as holding more than the Biome command.
+ * @param {Hop[]} hops
+ * @param {Placed|undefined} placed the Biome command
+ * @param {string} top
+ */
+function findElsewhere(hops, placed, top) {
+	const hop = hops.find((h) => h.dir !== top);
+	if (hop || !placed) return hop?.dir;
+	const own = parseNamedDir(placed.command);
+	const dirs = placed.dirs.map((d) => path.resolve(d, own));
+	return dirs.every((d) => d !== top) ? dirs[0] : undefined;
+}
 
 /**
  * How a `check_staged` command that runs `biome check --staged` — itself or
@@ -1156,6 +1308,8 @@ function classifyCheckStaged(root, command, { inferred }) {
 	if (command.trim().startsWith(BIOME_STAGED_COMMAND)) return { kind: "none" };
 	const top = path.resolve(root);
 	const readCachedPackage = buildPackageReader();
+	const readScripts = (/** @type {string} */ dir) =>
+		readCachedPackage(dir).scripts;
 	/**
 	 * Evidence this repo runs Biome at all: `biome` written in the hop, or
 	 * declared or in a script of the `package.json` at the top, the hop's
@@ -1176,12 +1330,13 @@ function classifyCheckStaged(root, command, { inferred }) {
 	};
 	const hit = walkRunScripts(
 		top,
-		(dir) => readCachedPackage(dir).scripts,
+		readScripts,
 		command,
 		/** @param {Hop} hop @param {Hop[]} hops */
 		(hop, hops) => {
 			const { text, tokens } = hop;
-			const candidates = allCommands(tokens).map(withoutRun);
+			const placed = [...placedCommands(hop)];
+			const candidates = placed.map((p) => withoutRun(p, top, readScripts));
 			const segment = candidates.find(isBiomeCheck);
 			const other = candidates
 				.map(parseBiomeSubcommand)
@@ -1205,7 +1360,17 @@ function classifyCheckStaged(root, command, { inferred }) {
 				only !== undefined &&
 				segment === candidates[0] &&
 				segment.length === only.length;
-			return { hops, segment, own, unread: /** @type {const} */ (false) };
+			return {
+				hops,
+				segment,
+				own,
+				elsewhere: findElsewhere(
+					hops,
+					placed[candidates.indexOf(segment)],
+					top,
+				),
+				unread: /** @type {const} */ (false),
+			};
 		},
 	);
 	if (!hit) return { kind: "none" };
@@ -1236,14 +1401,13 @@ function classifyCheckStaged(root, command, { inferred }) {
 			kind: "refused",
 			refusal: `runs biome${hit.other ? ` ${hit.other}` : ""} --staged${via}, which reads or rewrites each staged path's worktree bytes, a neighbour's unstaged hunks included (#2583), in a shape biome-staged.js does not map. ${OWN_FLAGS_WAY_OUT}`,
 		};
-	const elsewhere = hit.hops.find((h) => h.dir !== top);
-	if (elsewhere)
+	if (hit.elsewhere)
 		return refused(
-			`runs it in ${path.relative(top, elsewhere.dir)}, where biome-staged.js, which runs from the work tree's top, cannot follow`,
+			`runs it in ${path.relative(top, hit.elsewhere)}, where biome-staged.js, which runs from the work tree's top, cannot follow`,
 			OWN_FLAGS_WAY_OUT,
 		);
 	if (!single) {
-		const part = mapBiome(hit.segment, readCachedPackage(top).biome);
+		const part = mapBiome(hit.segment, readCachedPackage(top).biome, inferred);
 		return refused(
 			"holds more than that one command",
 			declareCheckStaged(
@@ -1251,7 +1415,11 @@ function classifyCheckStaged(root, command, { inferred }) {
 			),
 		);
 	}
-	const mapped = mapAsWritten(hit.segment, readCachedPackage(top).biome);
+	const mapped = mapAsWritten(
+		hit.segment,
+		readCachedPackage(top).biome,
+		inferred,
+	);
 	if (!("command" in mapped)) return refused(mapped.shape, mapped.wayOut);
 	if (!inferred)
 		return refused(
@@ -1388,8 +1556,8 @@ function main(argv) {
 		writeFd(2, `${named} ${verdict.refusal}\n`);
 	} catch (err) {
 		const why =
-			err instanceof PackageParseError
-				? `package.json does not parse (${err.detail}). Fix it, or declare check_staged in .claude/workflow-core.json as '${OWN_FLAGS}' or another command naming no ${PACKAGE_MANAGERS.join(", ")} or biome and with no expansion or glob for a command's name, no parallel and no shell reading stdin, which the hook checks without reading package.json.`
+			err instanceof PackageReadError
+				? `${err.fault}. Fix it, or declare check_staged in .claude/workflow-core.json as '${OWN_FLAGS}' or another command naming no ${PACKAGE_MANAGERS.join(", ")} or biome and with no expansion or glob for a command's name, no parallel and no shell reading stdin, which the hook checks without reading package.json.`
 				: caught(err).message;
 		writeFd(2, `${named} cannot be checked: ${why}\n`);
 	}
