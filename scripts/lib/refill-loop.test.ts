@@ -1689,7 +1689,7 @@ describe("the control file", () => {
 			noProgressFrom: 5,
 			stopRequested: false,
 			seats: ["/a"],
-			scope: raw.scope,
+			scope: normal(["/r"]),
 		});
 		expect(control).not.toHaveProperty("paused");
 	});
@@ -1727,14 +1727,31 @@ describe("the control file", () => {
 		expect(parseControl(raw([]), included)?.scope).toEqual(away([]));
 	});
 
-	it("keeps a normal scope's repos and only whole-number goals", () => {
-		expect(
-			parseScope({
-				mode: "normal",
-				repos: [WFC, 7],
-				goals: { [WFC]: [1, "2", 3.5], [MH]: [] },
-			}),
-		).toEqual(normal([WFC], { [WFC]: [1] }));
+	it("reads a file's per-checkout goals as one goal, keeping only whole numbers (#3864)", () => {
+		const { goal } = parseScope({
+			mode: "normal",
+			repos: [WFC],
+			goals: { [WFC]: [1, "2", 3.5], [MH]: [7], [DV]: [] },
+		});
+		expect(goal).toEqual({
+			form: "issues",
+			text: "workflow-core#1,mantahostels#7", // citation-exempt: a fixture goal, naming no real issue
+			refs: [
+				{ repo: "workflow-core", number: 1 },
+				{ repo: "mantahostels", number: 7 },
+			],
+			setAt: 0,
+		});
+	});
+
+	it("reads a garbled goal as none, so the loop runs bare (#3864)", () => {
+		for (const goal of [
+			"soon",
+			null,
+			{ form: "wish", text: "x", refs: [{ repo: "a", number: 1 }] },
+			{ form: "issues", text: "x", refs: [{ repo: "a" }] },
+		])
+			expect(parseScope({ mode: "normal", repos: [], goal }).goal).toBeNull();
 	});
 
 	it("reads a control a start before #3854 wrote, its count's start named startedAt", () => {

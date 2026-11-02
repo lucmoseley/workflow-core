@@ -12,21 +12,30 @@ export const WFC = "/home/u/workflow-core";
 export const MH = "/home/u/mantahostels";
 export const DV = "/home/u/design-vault";
 
-export const normal = (
-	repos: string[],
-	goals: Record<string, number[]> = {},
-) => ({
+interface FixtureGoal {
+	form: "issues" | "drain" | "unblock" | "topic";
+	text: string;
+	refs: { repo: string; number: number }[];
+	setAt: number;
+}
+
+/** An `issues` goal naming `refs`, each `[repo, number]`. */
+export const issuesGoal = (...refs: [string, number][]): FixtureGoal => ({
+	form: "issues",
+	text: refs.map(([repo, number]) => `${repo}#${number}`).join(","),
+	refs: refs.map(([repo, number]) => ({ repo, number })),
+	setAt: NOW,
+});
+
+export const normal = (repos: string[], goal: FixtureGoal | null = null) => ({
 	mode: "normal" as const,
 	repos,
-	goals,
+	goal,
 });
-export const away = (
-	repos: string[],
-	goals: Record<string, number[]> = {},
-) => ({
+export const away = (repos: string[], goal: FixtureGoal | null = null) => ({
 	mode: "away" as const,
 	repos,
-	goals,
+	goal,
 });
 
 /** A main checkout in `home` carrying a workflow-core config; its root. */

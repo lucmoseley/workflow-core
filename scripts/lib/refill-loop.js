@@ -34,6 +34,7 @@ const {
 	markParked,
 } = require("./refill-blocks.js");
 const { buildErrorText } = require("./caught.js");
+const { parseGoal } = require("./refill-goal.js");
 const { buildSeatName } = require("./refill-seats.js");
 const { unclosedLaunches } = require("./unclosed-launch.js");
 const {
@@ -82,7 +83,7 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * @typedef {object} Scope
  * @property {"normal"|"away"} mode
  * @property {string[]} repos the ticked checkout roots
- * @property {Record<string, number[]>} goals keyed by checkout root
+ * @property {import("./refill-goal.js").Goal|null} goal loop-wide
  */
 
 /**
@@ -197,20 +198,12 @@ const hasExcludeShape = (raw) =>
  */
 function parseScope(raw, readIncluded = () => []) {
 	const r = isRecord(raw) ? raw : {};
-	/** @type {Record<string, number[]>} */
-	const goals = {};
-	for (const [root, issues] of Object.entries(
-		isRecord(r.goals) ? r.goals : {},
-	)) {
-		const kept = Array.isArray(issues) ? issues.filter(Number.isInteger) : [];
-		if (kept.length > 0) goals[root] = kept;
-	}
 	return {
 		mode: r.mode === "normal" ? "normal" : "away",
 		repos: hasExcludeShape(r)
 			? readIncluded().filter((root) => !parseStrings(r.exclude).includes(root))
 			: parseStrings(r.repos),
-		goals,
+		goal: parseGoal(r),
 	};
 }
 

@@ -2,8 +2,8 @@
  * refill-frontier.js — the refill loop's one frontier across the checkouts
  * its scope serves (#2003, #2123, spec #1995).
  *
- * pick-next.js runs once per checkout, in that checkout, with that
- * checkout's goal as its `--goal`, and the rows merge through
+ * pick-next.js runs once per checkout, in that checkout, with the loop's goal's
+ * issues in that checkout as its `--goal`, and the rows merge through
  * lib/frontier-order.js, whose goal level then ranks goal rows first across
  * every repo. The rows are unfiltered: which `takes:` kinds launch is the
  * loop's call. A checkout whose shortlist fails is returned under `failed`
@@ -32,6 +32,7 @@ const { caught } = require("./caught.js");
 const { runGrouped } = require("./grouped-child.js");
 const { checkoutEnv } = require("./refill-repos.js");
 const { refKey } = require("./issue-ref.js");
+const { goalNumbersIn } = require("./refill-goal.js");
 const { FALLBACK_MS } = require("./refill-wake.js");
 
 const PICK_NEXT = path.join(__dirname, "..", "pick-next.js");
@@ -199,19 +200,19 @@ function unreturnedPulls(served, pulledByRoot) {
 
 /**
  * @param {string[]} roots
- * @param {Record<string, number[]>} goals keyed by root
+ * @param {import("./refill-goal.js").Goal|null} goal
  * @param {(root: string, goal: number[]) => Promise<Shortlist | {error: string}>} [readList]
  */
-async function refillFrontier(roots, goals, readList = readShortlist) {
-	/** @param {string[]} of @param {(root: string) => number[]} goal */
-	const read = (of, goal) =>
+async function refillFrontier(roots, goal, readList = readShortlist) {
+	/** @param {string[]} of @param {(root: string) => number[]} goalIn */
+	const read = (of, goalIn) =>
 		Promise.all(
 			of.map(async (root) => ({
 				root,
-				result: await readList(root, goal(root)),
+				result: await readList(root, goalIn(root)),
 			})),
 		);
-	const results = await read(roots, (root) => goals[root] ?? []);
+	const results = await read(roots, (root) => goalNumbersIn(goal, root));
 	/** @type {{root: string, result: Shortlist}[]} */
 	const served = [];
 	/** @type {{root: string, error: string}[]} */

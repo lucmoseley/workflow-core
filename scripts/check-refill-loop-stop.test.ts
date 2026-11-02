@@ -397,45 +397,59 @@ describe("the restart it names (#3371)", () => {
 		expect(out).not.toContain("--away");
 	});
 
-	it("names a normal stop's goal and other repos in its checkout (#3390)", () => {
+	const goalOf = (form: string, text: string) => ({
+		form,
+		text,
+		refs: [
+			{ repo: "workflow-core", number: 116 },
+			{ repo: "mantahostels", number: 9 },
+		],
+		setAt: 1,
+	});
+	const loopCommand = `node ${path.join(__dirname, "refill-loop.js")}`;
+
+	it("names a normal stop's other repos in its checkout, and a set for its goal (#3390, #3864)", () => {
 		writeState("no-progress");
 		writeControl({
 			mode: "normal",
 			repos: ["/h/workflow-core", "/h/mantahostels"],
-			goals: { "/h/workflow-core": [116, 117] },
+			goal: goalOf("issues", "workflow-core#116,mantahostels#9"),
 		});
 		const r = run(["--notify"]);
 		expect(r.status).toBe(0);
 		expect(screenOf(r)).toContain(
-			"  Restart it in workflow-core: /pick-next #116 #117 mantahostels\n",
+			"  Restart it in workflow-core: /pick-next mantahostels\n" +
+				`  Then its goal: ${loopCommand} set --goal workflow-core#116,mantahostels#9\n`,
 		);
 	});
 
-	it.each([
-		[{ "/h/workflow-core": [116] }, ["/h/workflow-core"], "/pick-next #116"],
-		[{}, ["/h/workflow-core", "/h/mantahostels"], "/pick-next mantahostels"],
-	])("names a normal stop's goal or repos alone (%j)", (goals, repos, line) => {
-		writeState("no-progress");
-		writeControl({ mode: "normal", repos, goals });
-		const r = run(["--notify"]);
-		expect(r.status).toBe(0);
-		expect(screenOf(r)).toContain(`  Restart it in workflow-core: ${line}\n`);
-	});
-
-	it("names one /pick-next per goal's checkout for a normal stop", () => {
+	it("names a confirmed topic's set and text for a normal stop", () => {
 		writeState("allowance");
 		writeControl({
 			mode: "normal",
-			repos: ["/h/workflow-core", "/h/design-vault"],
-			goals: { "/h/design-vault": [9] },
+			repos: ["/h/workflow-core"],
+			goal: goalOf("topic", "faster tests"),
 		});
 		const r = run(["--notify"]);
 		expect(r.status).toBe(0);
 		expect(screenOf(r)).toContain(
-			"  Restart it with /pick-next, one per goal's checkout:\n" +
-				"    in workflow-core: /pick-next design-vault\n" +
-				"    in design-vault: /pick-next #9\n",
+			`  Then its goal: ${loopCommand} set --goal-issues workflow-core#116,mantahostels#9 --goal-text 'faster tests'\n`,
 		);
+	});
+
+	it("names a normal stop's repos alone", () => {
+		writeState("no-progress");
+		writeControl({
+			mode: "normal",
+			repos: ["/h/workflow-core", "/h/mantahostels"],
+			goal: null,
+		});
+		const r = run(["--notify"]);
+		expect(r.status).toBe(0);
+		expect(screenOf(r)).toContain(
+			"  Restart it in workflow-core: /pick-next mantahostels\n",
+		);
+		expect(screenOf(r)).not.toContain("Then its goal");
 	});
 
 	it("names the start, then the switch to away with its repos, for an away-mode stop", () => {
@@ -451,25 +465,17 @@ describe("the restart it names (#3371)", () => {
 		expect(out).not.toContain("/pick-next");
 	});
 
-	it("names one start per goal's checkout, then the one switch to away", () => {
+	it("names the start, then the one switch to away with its repos and goal", () => {
 		writeState("allowance");
 		writeControl({
 			mode: "away",
-			repos: ["/h/workflow-core", "/h/design-vault"],
-			goals: { "/h/workflow-core": [116, 117], "/h/design-vault": [9] },
+			repos: ["/h/workflow-core", "/h/mantahostels"],
+			goal: goalOf("issues", "workflow-core#116,mantahostels#9"),
 		});
 		const r = run(["--notify"]);
 		expect(r.status).toBe(0);
-		const out = screenOf(r);
-		const script = `node ${path.join(__dirname, "refill-loop.js")}`;
-		expect(out).toContain(
-			`  CLAUDE_PROJECT_DIR=/h/workflow-core ${script} start --goal 116,117\n`,
-		);
-		expect(out).toContain(
-			`  CLAUDE_PROJECT_DIR=/h/design-vault ${script} start --goal 9\n`,
-		);
-		expect(out).toContain(
-			`  ${script} set --away --repos workflow-core --repos design-vault\n`,
+		expect(screenOf(r)).toContain(
+			`Restart away mode: ${loopCommand} start, then ${loopCommand} set --away --repos workflow-core --repos mantahostels --goal workflow-core#116,mantahostels#9\n`,
 		);
 	});
 

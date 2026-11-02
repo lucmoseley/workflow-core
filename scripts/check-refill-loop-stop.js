@@ -21,11 +21,10 @@
  * founder's does, in a terminal or from the agents view.
  *
  * THE RESTART MATCHES THE STOPPED SCOPE (#3371): `/pick-next` restarts normal
- * mode only, naming the loop's other repos and goals (#3390). An away-mode
- * stop names one `refill-loop.js start` per goal's checkout, then the `set
- * --away` with its repos. `start` files a goal under CLAUDE_PROJECT_DIR before
- * the working directory (lib/host-root.js), so each such start sets it, and
- * names the script absolute. A loop started again since names no restart.
+ * mode only, naming the loop's other repos (#3390), and a `set` then gives it
+ * its goal. An away-mode stop names `refill-loop.js start`, then the one `set
+ * --away` with its repos and goal, the script absolute. A loop started again
+ * since names no restart.
  *
  * Severity is WARN: a notice for the founder. An absent or damaged state
  * file is no stop. A damaged state file is its own WARN, named at every
@@ -51,6 +50,7 @@ const { runCheck } = require("./lib/check");
 const hookMessage = require("./lib/hook-message");
 const { isFounderNoticeHeld } = require("./lib/background-start.js");
 const { buildOverflowStartLines } = require("./lib/overflow-notice.js");
+const { buildRefText } = require("./lib/refill-goal.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const loop = require("./lib/refill-loop.js");
 const refillFiles = require("./lib/refill-files.js");
@@ -94,55 +94,51 @@ const STATUS = `node ${scriptPath("refill-loop.js")} status`;
 function buildRestartLines(control) {
 	if (control === null) return [PICK_NEXT];
 	if (control.scope.mode === "normal") return buildPickNextLines(control.scope);
-	const { repos, goals } = control.scope;
-	const script = `node ${expandPastePaths("{script:refill-loop.js}", "")}`;
+	const { repos, goal } = control.scope;
+	const script = buildLoopCommand();
 	const away = `${script} set --away${repos
 		.map((r) => ` --repos ${path.basename(r)}`)
-		.join("")}`;
-	const perGoal = Object.entries(goals).map(
-		([root, issues]) =>
-			`  CLAUDE_PROJECT_DIR=${shellQuote(root)} ${script} start --goal ${issues.join(",")}`,
-	);
-	return perGoal.length === 0
-		? [`Restart away mode: ${script} start, then ${away}`]
-		: [
-				"Restart away mode, one start per goal's checkout, then the switch:",
-				...perGoal,
-				`  ${away}`,
-			];
+		.join("")}${goal ? ` ${buildGoalFlags(goal)}` : ""}`;
+	return [`Restart away mode: ${script} start, then ${away}`];
+}
+
+/** The loop's command, its script absolute, for a line to paste. */
+const buildLoopCommand = () =>
+	`node ${expandPastePaths("{script:refill-loop.js}", "")}`;
+
+/**
+ * The `set` flags that store `goal` again.
+ * @param {import("./lib/refill-goal.js").Goal} goal
+ */
+function buildGoalFlags(goal) {
+	const refs = goal.refs.map(buildRefText).join(",");
+	return goal.form === "topic"
+		? `--goal-issues ${refs} --goal-text ${shellQuote(goal.text)}`
+		: `--goal ${refs}`;
 }
 
 /**
- * A normal loop's restart: the checkout that started it names the other repos
- * and its goal, and each other goal's checkout its own goal, since `/pick-next`
- * resolves a goal against the tracker it runs in (#3390). The starter leads
- * `repos`: `start` writes it first and the union keeps the first start's
- * order; a scope with no repos leads with its first goal's checkout.
+ * A normal loop's restart: the checkout that started it names the other repos,
+ * and a `set` then gives it the goal, which a `start` on a stopped loop drops.
+ * The starter leads `repos`: `start` writes it first and the union keeps the
+ * first start's order.
  * @param {import("./lib/refill-loop.js").Scope} scope
  * @returns {string[]}
  */
-function buildPickNextLines({ repos, goals }) {
-	const lead = repos[0] ?? Object.keys(goals)[0];
-	if (lead === undefined) return [PICK_NEXT];
-	const extras = repos.filter((r) => r !== lead);
-	const goalRoots = Object.keys(goals).filter((r) => r !== lead);
-	if (extras.length === 0 && goalRoots.length === 0 && !goals[lead])
+function buildPickNextLines({ repos, goal }) {
+	const lead = repos[0];
+	if (lead === undefined || (repos.length === 1 && goal === null))
 		return [PICK_NEXT];
-	/** @param {string} root */
-	const command = (root) =>
-		[
-			"/pick-next",
-			...(goals[root] ?? []).map((n) => `#${n}`),
-			...(root === lead ? extras.map((r) => path.basename(r)) : []),
-		].join(" ");
+	const command = [
+		"/pick-next",
+		...repos.slice(1).map((r) => path.basename(r)),
+	].join(" ");
 	/* No trailing period: §1 of the skill would read `repo.` as no checkout. */
-	if (goalRoots.length === 0)
-		return [`Restart it in ${path.basename(lead)}: ${command(lead)}`];
 	return [
-		"Restart it with /pick-next, one per goal's checkout:",
-		...[lead, ...goalRoots].map(
-			(r) => `  in ${path.basename(r)}: ${command(r)}`,
-		),
+		`Restart it in ${path.basename(lead)}: ${command}`,
+		...(goal
+			? [`Then its goal: ${buildLoopCommand()} set ${buildGoalFlags(goal)}`]
+			: []),
 	];
 }
 

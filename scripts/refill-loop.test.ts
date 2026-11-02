@@ -95,7 +95,7 @@ describe("start", () => {
 				startedAt: 1,
 				stopRequested: false,
 				seats: [],
-				scope: { mode: "normal", repos: [dir], goals: {} },
+				scope: { mode: "normal", repos: [dir], goal: null },
 			}),
 		);
 		const r = await run("start");
@@ -197,7 +197,15 @@ describe("the scope start writes (#2123)", () => {
 		expect(readControl().scope).toEqual({
 			mode: "normal",
 			repos: [dir, mh],
-			goals: { [dir]: [116, 117] },
+			goal: {
+				form: "issues",
+				text: "116,#117",
+				refs: [
+					{ repo: path.basename(dir), number: 116 },
+					{ repo: path.basename(dir), number: 117 },
+				],
+				setAt: expect.any(Number),
+			},
 		});
 		expect(r.stdout).toContain("mode:      normal");
 	});
@@ -210,7 +218,7 @@ describe("the scope start writes (#2123)", () => {
 			JSON.stringify({
 				noProgressFrom: 1,
 				seats: [],
-				scope: { mode: "away", repos: [dv], goals: {} },
+				scope: { mode: "away", repos: [dv], goal: null },
 			}),
 		);
 		const r = await run("start", "--goal", "9");
@@ -219,7 +227,7 @@ describe("the scope start writes (#2123)", () => {
 		expect(readControl().scope).toMatchObject({
 			mode: "away",
 			repos: [dv, dir],
-			goals: { [dir]: [9] },
+			goal: { refs: [{ repo: path.basename(dir), number: 9 }] },
 		});
 	});
 
@@ -337,7 +345,7 @@ describe("stop and status", () => {
 				noProgressFrom: now,
 				stopRequested: false,
 				seats: [path.join(dir, ".claude2")],
-				scope: { mode: "normal", repos: [], goals: {} },
+				scope: { mode: "normal", repos: [], goal: null },
 			}),
 		);
 		const r = await run("status");
@@ -373,7 +381,7 @@ describe("stop and status", () => {
 				noProgressFrom: Date.now(),
 				stopRequested: false,
 				seats: [path.join(dir, ".claude2")],
-				scope: { mode: "normal", repos: [], goals: {} },
+				scope: { mode: "normal", repos: [], goal: null },
 			}),
 		);
 		const { stdout } = await run("status");
@@ -419,7 +427,7 @@ describe("stop and status", () => {
 					noProgressFrom: now,
 					stopRequested: false,
 					seats: seats(),
-					scope: { mode: "normal", repos: [], goals: {} },
+					scope: { mode: "normal", repos: [], goal: null },
 				}),
 			);
 		});
@@ -531,7 +539,7 @@ describe("set (#3856)", () => {
 		noProgressFrom: 5,
 		stopRequested: false,
 		seats: ["/seat"],
-		scope: { mode: "normal", repos: ["/repo"], goals: {} },
+		scope: { mode: "normal", repos: ["/repo"], goal: null },
 	};
 	const writeControl = (over: Record<string, unknown> = {}) =>
 		fs.writeFileSync(
@@ -776,7 +784,7 @@ describe("the ticked set and the mode (#3862)", () => {
 	beforeEach(() => {
 		core = checkout("core");
 		manta = checkout("manta");
-		writeControl({ mode: "normal", repos: [core], goals: {} });
+		writeControl({ mode: "normal", repos: [core], goal: null });
 	});
 
 	it("flips the mode either way, leaving the ticked repos and printing only the change", async () => {
@@ -793,20 +801,29 @@ describe("the ticked set and the mode (#3862)", () => {
 		expect(readControl().scope).toEqual({
 			mode: "normal",
 			repos: [core],
-			goals: {},
+			goal: null,
 		});
 	});
 
 	it("ticks, unticks and replaces the set in either mode, the mode untouched", async () => {
 		for (const mode of ["normal", "away"]) {
-			writeControl({ mode, repos: [core], goals: { [core]: [9] } });
+			writeControl({
+				mode,
+				repos: [core],
+				goal: {
+					form: "issues",
+					text: "9",
+					refs: [{ repo: "core", number: 9 }],
+					setAt: 1,
+				},
+			});
 			const r = await run("set", "--tick", "manta");
 			expect(r.status).toBe(0);
 			expect(r.stdout).toContain("repos:     core, manta");
 			expect(readControl().scope).toMatchObject({
 				mode,
 				repos: [core, manta],
-				goals: { [core]: [9] },
+				goal: { refs: [{ repo: "core", number: 9 }] },
 			});
 			expect((await run("set", "--untick", "core")).status).toBe(0);
 			expect(readControl().scope.repos).toEqual([manta]);
@@ -840,7 +857,9 @@ describe("the ticked set and the mode (#3862)", () => {
 	it("says a start rebuilds repos and mode on a loop with no process", async () => {
 		const r = await run("set", "--tick", "manta");
 		expect(r.status).toBe(0);
-		expect(r.stdout).toContain("its next start sets the mode and repos afresh");
+		expect(r.stdout).toContain(
+			"its next start sets the mode, repos and goal afresh",
+		);
 	});
 
 	it("refuses a tick of what is no candidate or is opted out, naming why and writing nothing", async () => {
@@ -870,7 +889,7 @@ describe("the ticked set and the mode (#3862)", () => {
 
 	it("unticks a ticked checkout that has since opted out", async () => {
 		const books = checkout("books");
-		writeControl({ mode: "normal", repos: [core, books], goals: {} });
+		writeControl({ mode: "normal", repos: [core, books], goal: null });
 		fs.writeFileSync(
 			path.join(books, ".claude", "workflow-core.json"),
 			`${JSON.stringify({ refillLoop: false })}\n`,
@@ -933,7 +952,7 @@ describe("the ticked set and the mode (#3862)", () => {
 				startedAt: 1,
 				stopRequested: false,
 				seats: [],
-				scope: { mode: "away", repos: [], exclude: [manta], goals: {} },
+				scope: { mode: "away", repos: [], exclude: [manta], goal: null },
 			}),
 		);
 		expect(await namesTicked()).toEqual(["core"]);
@@ -956,11 +975,175 @@ describe("the ticked set and the mode (#3862)", () => {
 	});
 
 	it("keeps an emptied away set empty when a checkout appears later", async () => {
-		writeControl({ mode: "away", repos: [core], goals: {} });
+		writeControl({ mode: "away", repos: [core], goal: null });
 		expect((await run("set", "--untick", "core")).status).toBe(0);
 		checkout("later");
 		expect(await namesTicked()).toEqual([]);
 		expect((await run("status")).stdout).toContain("repos:     none\n");
+	});
+});
+
+describe("the goal (#3864)", () => {
+	const writeControl = (scope: object) =>
+		fs.writeFileSync(
+			path.join(dir, ".refill-loop-control.json"),
+			JSON.stringify({ noProgressFrom: 1, seats: [], scope }),
+		);
+	/* A gh answering each `issue view` by number: 404 unknown, 500 closed. */
+	const fakeGh = () => {
+		const gh = path.join(dir, "fake-gh");
+		fs.writeFileSync(
+			gh,
+			`#!/usr/bin/env node
+const n = process.argv[4];
+if (n === "404") {
+	process.stderr.write("GraphQL: Could not resolve to an issue\\n");
+	process.exit(1);
+}
+process.stdout.write(JSON.stringify({ state: n === "500" ? "CLOSED" : "OPEN" }));
+`,
+			{ mode: 0o755 },
+		);
+		return { WFC_GH: gh };
+	};
+	const setGoal = (...argv: string[]) => runEnv(fakeGh(), "set", ...argv);
+	const ref = (repo: string, number: number) => ({ repo, number });
+
+	let core: string;
+	let manta: string;
+	beforeEach(() => {
+		core = writeCheckout(dir, "core");
+		manta = writeCheckout(dir, "manta");
+		writeControl({ mode: "normal", repos: [core], goal: null });
+	});
+
+	it("stores bare numbers against the one ticked repo, with the text as typed", async () => {
+		const before = Date.now();
+		const r = await setGoal("--goal", "2518,#2520");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(
+			'goal:      issues "2518,#2520": core#2518, core#2520',
+		);
+		const { goal } = readControl().scope;
+		expect(goal).toMatchObject({
+			form: "issues",
+			text: "2518,#2520",
+			refs: [ref("core", 2518), ref("core", 2520)],
+		});
+		expect(goal.setAt).toBeGreaterThanOrEqual(before);
+	});
+
+	it("stores refs in two ticked repos and carries them on status --json", async () => {
+		writeControl({ mode: "normal", repos: [core, manta], goal: null });
+		expect((await setGoal("--goal", "core#1,manta#2")).status).toBe(0);
+		const { goal } = JSON.parse((await run("status", "--json")).stdout);
+		expect(goal).toMatchObject({
+			form: "issues",
+			text: "core#1,manta#2",
+			refs: [ref("core", 1), ref("manta", 2)],
+		});
+	});
+
+	it("judges a ref on the set the same call leaves", async () => {
+		const r = await setGoal("--tick", "manta", "--goal", "manta#2");
+		expect(r.status).toBe(0);
+		expect(readControl().scope).toMatchObject({
+			repos: [core, manta],
+			goal: { refs: [ref("manta", 2)] },
+		});
+		const refused = await setGoal("--untick", "manta", "--goal", "manta#3");
+		expect(refused.status).toBe(2);
+		expect(readControl().scope.repos).toEqual([core, manta]);
+	});
+
+	it.each([
+		["a bare #N with two repos ticked", "#5", "#5 names no repo with 2 repos"],
+		["an unticked repo's ref", "books#5", "books, which is not ticked"],
+		["a closed issue", "core#500", "core#500 is closed"],
+		["an unknown issue", "core#404", "Could not resolve to an issue"],
+		["no ref at all", "drain #5", "a goal takes issue refs"],
+	])("refuses %s, naming why and writing nothing", async (_, typed, why) => {
+		writeControl({ mode: "normal", repos: [core, manta], goal: null });
+		const before = readControl();
+		const r = await setGoal("--goal", typed);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(why);
+		expect(readControl()).toEqual(before);
+	});
+
+	it("refuses the same way on a confirmed topic's issues", async () => {
+		const r = await setGoal(
+			"--goal-issues",
+			"manta#5",
+			"--goal-text",
+			"faster tests",
+		);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("manta, which is not ticked");
+	});
+
+	it("stores a confirmed topic's set with the text it came from", async () => {
+		const r = await setGoal(
+			"--goal-issues",
+			"core#7,#8",
+			"--goal-text",
+			"issues that make the test suite faster",
+		);
+		expect(r.status).toBe(0);
+		expect(readControl().scope.goal).toMatchObject({
+			form: "topic",
+			text: "issues that make the test suite faster",
+			refs: [ref("core", 7), ref("core", 8)],
+		});
+	});
+
+	it("refuses goal flags that do not go together", async () => {
+		for (const [argv, why] of [
+			[["--goal", "1", "--clear-goal"], "one of --goal and --clear-goal"],
+			[
+				["--goal", "1", "--goal-issues", "2", "--goal-text", "t"],
+				"one of --goal and --goal-issues",
+			],
+			[["--goal-issues", "1"], "--goal-issues and --goal-text go together"],
+			[["--goal-text", "t"], "--goal-issues and --goal-text go together"],
+			[["--goal-issues", "1", "--goal-text", " "], "--goal-text is empty"],
+		] as const) {
+			const r = await setGoal(...argv);
+			expect(r.status).toBe(2);
+			expect(r.stderr).toContain(why);
+		}
+	});
+
+	it("leaves the loop bare on --clear-goal, and says a repeat changes nothing", async () => {
+		await setGoal("--goal", "1");
+		const cleared = await setGoal("--clear-goal");
+		expect(cleared.status).toBe(0);
+		expect(cleared.stdout).toContain("goal:      none");
+		expect(readControl().scope.goal).toBeNull();
+		expect(readControl().scope.repos).toEqual([core]);
+		expect((await setGoal("--clear-goal")).stdout).toContain(
+			"unchanged: goal none",
+		);
+	});
+
+	it("keeps a repeated goal's time", async () => {
+		await setGoal("--goal", "1");
+		const { setAt } = readControl().scope.goal;
+		await new Promise((resolve) => setTimeout(resolve, 2));
+		const r = await setGoal("--goal", "1");
+		expect(r.stdout).toContain("unchanged: goal:");
+		expect(readControl().scope.goal.setAt).toBe(setAt);
+	});
+
+	it("rewrites a control in the shape before it as one goal on any set", async () => {
+		writeControl({ mode: "normal", repos: [core], goals: { [core]: [9] } });
+		expect((await run("set", "--away")).status).toBe(0);
+		const { scope } = readControl();
+		expect(scope).not.toHaveProperty("goals");
+		expect(scope.goal).toMatchObject({
+			form: "issues",
+			refs: [ref("core", 9)],
+		});
 	});
 });
 

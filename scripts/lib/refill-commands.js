@@ -38,6 +38,7 @@ const {
 	launchesOnDay,
 	launchesSince,
 } = require("./refill-loop.js");
+const { buildGoalLine, isSameGoal, qualifyRefs } = require("./refill-goal.js");
 const { buildSeatName } = require("./refill-seats.js");
 
 /* Untraced. */
@@ -52,21 +53,17 @@ const STATUS_SKIPS = 10;
 
 /**
  * The scope a `start` writes, given the running loop's (null where none
- * runs) and the one asked for from `root`. A start adds its repos to a running
- * loop's and keeps its mode; the asked goal replaces `root`'s, a bare start
- * clearing it (#2119, #2123).
+ * runs) and the one asked for. A start adds its repos to a running loop's and
+ * keeps its mode; an asked goal replaces the loop's, and a bare start leaves it
+ * (#2119, #2123, #3864).
  * @param {Scope|null} running
  * @param {Scope} asked
- * @param {string} root
  * @returns {Scope}
  */
-function mergedScope(running, asked, root) {
+function mergedScope(running, asked) {
 	if (running === null) return asked;
-	const goals = { ...running.goals };
-	delete goals[root];
-	Object.assign(goals, asked.goals);
 	const repos = [...new Set([...running.repos, ...asked.repos])];
-	return { ...running, repos, goals };
+	return { ...running, repos, goal: asked.goal ?? running.goal };
 }
 
 /** @param {number} from */
@@ -79,9 +76,12 @@ const buildRepoNames = (roots) =>
 
 /**
  * The fields a `set` names, each absent where it does not; `repos`, the whole
- * ticked set; `pause`, `--pause`, or false for `--resume`.
+ * ticked set; `pause`, `--pause`, or false for `--resume`; `goal`, the goal to
+ * store, or null for `--clear-goal`.
+ * @typedef {{form: import("./refill-goal.js").GoalForm, text: string,
+ *   refs: import("./refill-goal.js").AskedRef[]}} GoalAsk
  * @typedef {{pause?: boolean, mode?: Scope["mode"], repos?: string[],
- *   tick?: string[], untick?: string[]}} SetAsk
+ *   tick?: string[], untick?: string[], goal?: GoalAsk|null}} SetAsk
  * @typedef {{running: boolean, now: number}} SetContext
  * @typedef {{write: Control|null, lines: string[]}} SetChange
  */
@@ -101,8 +101,8 @@ function planSet({ control, damaged }, ask, context) {
 	if (damaged !== null) return { refused: `${damaged}; \`start\` rewrites it` };
 	if (control === null)
 		return { refused: "the loop was never started; run `start` first" };
-	const { pause, mode } = ask;
-	/** @type {((c: Control) => SetChange)[]} */
+	const { pause, mode, goal } = ask;
+	/** @type {((c: Control) => SetChange|{refused: string})[]} */
 	const steps = [
 		...(pause === undefined
 			? []
@@ -113,6 +113,10 @@ function planSet({ control, damaged }, ask, context) {
 		...(asksRepos(ask)
 			? [(/** @type {Control} */ c) => buildReposChange(c, ask)]
 			: []),
+		/* After the repos, so a goal is judged on the set this `set` leaves. */
+		...(goal === undefined
+			? []
+			: [(/** @type {Control} */ c) => buildGoalChange(c, goal, context.now)]),
 	];
 	let current = control;
 	/** @type {Control|null} */
@@ -120,6 +124,7 @@ function planSet({ control, damaged }, ask, context) {
 	const lines = [];
 	for (const step of steps) {
 		const change = step(current);
+		if ("refused" in change) return change;
 		lines.push(...change.lines);
 		if (change.write) {
 			current = change.write;
@@ -140,9 +145,9 @@ function buildNotRunningLines(ask, { running }) {
 		...(ask.pause === undefined
 			? []
 			: ["refill loop: not running; this holds from its next start"]),
-		...(ask.mode || asksRepos(ask)
+		...(ask.mode || asksRepos(ask) || ask.goal !== undefined
 			? [
-					"refill loop: not running; its next start sets the mode and repos afresh",
+					"refill loop: not running; its next start sets the mode, repos and goal afresh",
 				]
 			: []),
 	];
@@ -196,17 +201,26 @@ function buildModeChange(control, mode) {
 }
 
 /**
+ * The ticked set `ask` leaves.
+ * @param {Control} control
+ * @param {SetAsk} ask
+ * @returns {string[]}
+ */
+const tickedAfter = ({ scope }, { repos, tick = [], untick = [] }) =>
+	[...new Set([...(repos ?? scope.repos), ...tick])].filter(
+		(r) => !untick.includes(r),
+	);
+
+/**
  * Only the ticked set changed: replaced by `repos`, then `tick` added and
  * `untick` taken away, a repo already ticked keeping its place.
  * @param {Control} control
  * @param {SetAsk} ask
  * @returns {SetChange}
  */
-function buildReposChange(control, { repos, tick = [], untick = [] }) {
+function buildReposChange(control, ask) {
 	const before = control.scope.repos;
-	const after = [...new Set([...(repos ?? before), ...tick])].filter(
-		(r) => !untick.includes(r),
-	);
+	const after = tickedAfter(control, ask);
 	if (after.join("\0") === before.join("\0"))
 		return {
 			write: null,
@@ -216,6 +230,33 @@ function buildReposChange(control, { repos, tick = [], untick = [] }) {
 		write: { ...control, scope: { ...control.scope, repos: after } },
 		lines: [`repos:     ${buildRepoNames(after)}`],
 	};
+}
+
+/**
+ * Only the goal changed, or why its refs are refused on the set ticked now.
+ * Asking for what already holds changes nothing, a repeat goal keeping its time.
+ * @param {Control} control
+ * @param {GoalAsk|null} asked null clears it
+ * @param {number} now
+ * @returns {SetChange|{refused: string}}
+ */
+function buildGoalChange(control, asked, now) {
+	const before = control.scope.goal;
+	/** @param {import("./refill-goal.js").Goal|null} after */
+	const changed = (after) => ({
+		write: { ...control, scope: { ...control.scope, goal: after } },
+		lines: [buildGoalLine(after)],
+	});
+	if (asked === null)
+		return before === null
+			? { write: null, lines: ["unchanged: goal none"] }
+			: changed(null);
+	const refs = qualifyRefs(asked.refs, control.scope.repos);
+	if (typeof refs === "string") return { refused: refs };
+	const goal = { form: asked.form, text: asked.text, refs };
+	return isSameGoal(before, goal)
+		? { write: null, lines: [`unchanged: ${buildGoalLine(before)}`] }
+		: changed({ ...goal, setAt: now });
 }
 
 /**
@@ -405,15 +446,11 @@ function buildSeatsLine(view, now) {
  */
 function buildScopeLines(control, { served, running, seatsLine }) {
 	const { scope } = control;
-	const goals = Object.entries(scope.goals).map(
-		([root, issues]) =>
-			`${path.basename(root)} ${issues.map((n) => `#${n}`).join(", ")}`,
-	);
 	return [
 		...(control.paused ? [buildPausedWaitText(control.paused)] : []),
 		`mode:      ${scope.mode}`,
 		`repos:     ${buildRepoNames(served)}`,
-		`goal:      ${goals.join("; ") || "none"}`,
+		buildGoalLine(scope.goal),
 		...(running && control.stopRequested
 			? ["stops:     at its next tick, on request"]
 			: []),
@@ -681,6 +718,7 @@ function buildStatusJson({
 		},
 		launchesToday: launchesOnDay(state, today),
 		mode: control?.scope.mode ?? null,
+		goal: control?.scope.goal ?? null,
 		repos: candidates.map(({ root, disabled }) => ({
 			name: path.basename(root),
 			root,
@@ -712,4 +750,5 @@ module.exports = {
 	foreseeSeat,
 	mergedScope,
 	planSet,
+	tickedAfter,
 };

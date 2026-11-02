@@ -91,6 +91,48 @@ const launchesOf = (frontier: unknown[]) =>
 			`${path.basename(l.root)}#${l.issues.join("+")}`,
 	);
 
+describe("the loop's goal (#3864)", () => {
+	it("hands each ticked repo its own refs and no other's", async () => {
+		const asked: Record<string, number[]> = {};
+		const unticked = path.join(path.dirname(served), "unticked");
+		await refillFrontier(
+			[served, other],
+			{
+				form: "issues",
+				text: "x",
+				refs: [
+					{ repo: path.basename(served), number: 2 },
+					{ repo: path.basename(other), number: 20 },
+					{ repo: path.basename(other), number: 21 },
+					{ repo: path.basename(unticked), number: 9 },
+				],
+				setAt: 1,
+			},
+			async (root: string, goal: number[]) => {
+				asked[root] = goal;
+				return { rows: [], retroBundles: [], pulledIn: [], pulledInUnread: [] };
+			},
+		);
+		expect(asked).toEqual({ [served]: [2], [other]: [20, 21] });
+	});
+
+	it("ranks a goal row first across the repos", async () => {
+		const m = await refillFrontier(
+			[served, other],
+			null,
+			shortlists({
+				[served]: { rows: [row(2)], retroBundles: [], pulledIn: [] },
+				[other]: {
+					rows: [row(20), { ...row(21), goal: true }],
+					retroBundles: [],
+					pulledIn: [],
+				},
+			}).fn,
+		);
+		expect(m.frontier[0]).toMatchObject({ number: 21, goal: true });
+	});
+});
+
 describe("a foreign blocker the served shortlist pulls in", () => {
 	it("launches from its own checkout, the rest of that repo left out", async () => {
 		const s = shortlists({
@@ -102,7 +144,7 @@ describe("a foreign blocker the served shortlist pulls in", () => {
 				pulledInUnread: [],
 			},
 		});
-		const m = await refillFrontier([served], {}, s.fn);
+		const m = await refillFrontier([served], null, s.fn);
 		expect(s.asked).toEqual([served, other]);
 		expect(m.frontier.map((r: { number: number }) => r.number)).toEqual([
 			20, 2,
@@ -127,7 +169,7 @@ describe("a foreign blocker the served shortlist pulls in", () => {
 				pulledInUnread: [],
 			},
 		});
-		const m = await refillFrontier([served], {}, s.fn);
+		const m = await refillFrontier([served], null, s.fn);
 		expect(
 			m.frontier.find((r: { number: number }) => r.number === 20).reach,
 		).toBe(2);
@@ -149,7 +191,7 @@ describe("a foreign blocker the served shortlist pulls in", () => {
 				pulledInUnread: [],
 			},
 		});
-		const m = await refillFrontier([served], {}, s.fn);
+		const m = await refillFrontier([served], null, s.fn);
 		expect(m.frontier.map((r: { number: number }) => r.number)).toEqual([
 			20, 2,
 		]);
@@ -176,7 +218,7 @@ describe("a foreign blocker the served shortlist pulls in", () => {
 				pulledInUnread: [],
 			},
 		});
-		const m = await refillFrontier([served, third], {}, s.fn);
+		const m = await refillFrontier([served, third], null, s.fn);
 		expect(m.frontier[0]).toMatchObject({
 			bug: true,
 			urgent: true,
@@ -190,7 +232,7 @@ describe("a foreign blocker the served shortlist pulls in", () => {
 			[served]: { rows: [], retroBundles: [], pulledIn: [pulled(20)] },
 			[other]: { rows: [], retroBundles: [], pulledIn: [], pulledInUnread: [] },
 		});
-		const m = await refillFrontier([served], {}, s.fn);
+		const m = await refillFrontier([served], null, s.fn);
 		expect(m.frontier).toEqual([]);
 		expect(m.held).toEqual([
 			{
@@ -206,7 +248,7 @@ describe("a foreign blocker the served shortlist pulls in", () => {
 			[served]: { rows: [], retroBundles: [], pulledIn: [pulled(20)] },
 			[other]: { rows: [row(21)], retroBundles: [], pulledIn: [] },
 		});
-		const m = await refillFrontier([served, other], {}, s.fn);
+		const m = await refillFrontier([served, other], null, s.fn);
 		expect(m.frontier.map((r: { number: number }) => r.number)).toEqual([21]);
 		expect(m.held.map((h: { ref: string }) => h.ref)).toEqual(["o/other#20"]);
 	});
@@ -221,7 +263,7 @@ describe("a foreign blocker the served shortlist pulls in", () => {
 				pulledInUnread: [],
 			},
 		});
-		const m = await refillFrontier([served, other], {}, s.fn);
+		const m = await refillFrontier([served, other], null, s.fn);
 		expect(s.asked).toEqual([served, other]);
 		expect(m.frontier.map((r: { reach: number }) => r.reach)).toEqual([2]);
 		expect(m.held).toEqual([]);
@@ -239,7 +281,7 @@ describe("a foreign blocker the served shortlist pulls in", () => {
 				pulledInUnread: [],
 			},
 		});
-		const m = await refillFrontier([served, third], {}, s.fn);
+		const m = await refillFrontier([served, third], null, s.fn);
 		expect(s.asked.filter((r) => r === other)).toHaveLength(1);
 		expect(m.frontier.map((r: { reach: number }) => r.reach)).toEqual([2]);
 	});
@@ -260,7 +302,7 @@ describe("a pulled-in issue held outside the loop", () => {
 				],
 			},
 		});
-		const m = await refillFrontier([served], {}, s.fn);
+		const m = await refillFrontier([served], null, s.fn);
 		expect(s.asked).toEqual([served]);
 		expect(m.frontier).toEqual([]);
 		expect(m.held).toEqual([
@@ -279,7 +321,7 @@ describe("a pulled-in repo whose shortlist fails", () => {
 			[served]: { rows: [row(2)], retroBundles: [], pulledIn: [pulled(20)] },
 			[other]: { error: "exit 1" },
 		});
-		const m = await refillFrontier([served], {}, s.fn);
+		const m = await refillFrontier([served], null, s.fn);
 		expect(m.failed).toEqual([{ root: other, error: "exit 1" }]);
 		expect(m.held).toEqual([]);
 		expect(m.frontier.map((r: { number: number }) => r.number)).toEqual([2]);
@@ -298,7 +340,7 @@ describe("a pulled-in issue whose own blockers would not read", () => {
 				],
 			},
 		});
-		const m = await refillFrontier([served], {}, s.fn);
+		const m = await refillFrontier([served], null, s.fn);
 		expect(m.frontier).toEqual([]);
 		expect(m.held).toEqual([
 			{
@@ -350,7 +392,7 @@ describe("served X blocked by foreign Y, Y by foreign Z (#2427 acceptance)", () 
 	it("launches Z while Y is blocked, then Y once Z closes", async () => {
 		const before = await refillFrontier(
 			[served],
-			{},
+			null,
 			shortlists({
 				[served]: await servedShortlist("open"),
 				[other]: { rows: [row(10), row(20)], retroBundles: [], pulledIn: [] },
@@ -359,7 +401,7 @@ describe("served X blocked by foreign Y, Y by foreign Z (#2427 acceptance)", () 
 		expect(launchesOf(before.frontier)).toEqual(["other#20"]);
 		const after = await refillFrontier(
 			[served],
-			{},
+			null,
 			shortlists({
 				[served]: await servedShortlist("closed"),
 				[other]: { rows: [row(10)], retroBundles: [], pulledIn: [] },
@@ -375,7 +417,7 @@ describe("a checkout whose shortlist timed out (#2677)", () => {
 			[served]: { rows: [row(2)], retroBundles: [], pulledIn: [] },
 			[other]: { error: "timed out after 300 s" },
 		});
-		const m = await refillFrontier([served, other], {}, s.fn);
+		const m = await refillFrontier([served, other], null, s.fn);
 		expect(m.failed).toEqual([{ root: other, error: "timed out after 300 s" }]);
 		expect(m.frontier.map((r: { number: number }) => r.number)).toEqual([2]);
 	});
@@ -384,7 +426,7 @@ describe("a checkout whose shortlist timed out (#2677)", () => {
 describe("a checkout whose shortlist fails (#2561)", () => {
 	it("idles the tick on that checkout and its reason, not on an empty frontier", async () => {
 		const s = shortlists({ [served]: { error: "exited 1 FAILED: offline" } });
-		const m = await refillFrontier([served], {}, s.fn);
+		const m = await refillFrontier([served], null, s.fn);
 		expect(
 			decideTick({
 				now: NOW,

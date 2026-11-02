@@ -167,7 +167,7 @@ beforeEach(() => {
 			noProgressFrom: Date.now(),
 			stopRequested: false,
 			seats: [seat],
-			scope: { mode: "normal", repos: [repo], goals: {} },
+			scope: { mode: "normal", repos: [repo], goal: null },
 		}),
 	);
 	// Swept just now, so no tick starts a gate sweep.
@@ -310,7 +310,7 @@ describe("run (#2435)", () => {
 				startedAt: Date.now() - 1000 * 60 * 60 * 1000,
 				stopRequested: false,
 				seats: [seat],
-				scope: { mode: "normal", repos: [repo], goals: {} },
+				scope: { mode: "normal", repos: [repo], goal: null },
 			}),
 		);
 		await settled(run(1), "run after a mid-dispatch stop");
@@ -697,6 +697,86 @@ describe("a dry run with overflow seats (#2611)", () => {
 	});
 });
 
+describe("the loop's goal across ticks (#3864)", () => {
+	const startRun = () =>
+		runInProcessAsync(path.join(scripts, "refill-loop.js"), ["run"], {
+			cwd: dir,
+			env: loopEnv({ FAKE_SLOTS: "1" }),
+		});
+	const writeScope = (scope: object) =>
+		fs.writeFileSync(
+			at(".refill-loop-control.json"),
+			JSON.stringify({
+				noProgressFrom: Date.now(),
+				stopRequested: false,
+				seats: [seat],
+				scope,
+			}),
+		);
+	/* A pick-next naming its argv, so each frontier read's goal can be read. */
+	const stubRecordingShortlist = () =>
+		stub(
+			"pick-next.js",
+			`require("node:fs").appendFileSync(${JSON.stringify(at("picks"))}, process.argv.slice(2).join(" ") + "\\n");
+process.stdout.write(JSON.stringify({ frontier: [], retroBundles: [], pulledIn: [], pulledInUnread: [] }));\n`,
+		);
+	const readPicksThenStop = async (
+		running: ReturnType<typeof startRun>,
+		reads: number,
+	) => {
+		await polled(
+			() => readLines(at("picks")).length > 0,
+			"no tick read the frontier",
+		);
+		for (let i = 1; i < reads; i++) {
+			const seen = readLines(at("picks")).length;
+			fs.appendFileSync(at(".refill-loop-wake"), `${Date.now()}\n`);
+			await polled(
+				() => readLines(at("picks")).length > seen,
+				"a later tick read no frontier",
+			);
+		}
+		requestStop();
+		return settled(running, "run reading the goal");
+	};
+
+	it("carries on from a control in the shape before it, ranking its goal", async () => {
+		stubRecordingShortlist();
+		writeScope({
+			mode: "normal",
+			repos: [repo],
+			goals: { [repo]: [2518, 2520] },
+		});
+		const r = await readPicksThenStop(startRun(), 1);
+		expect(r.status).toBe(0);
+		expect(readLines(at("picks"))[0]).toBe("--json --goal 2518,2520");
+		expect(
+			JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8")).stopped
+				?.reason,
+		).not.toBe("control-damaged");
+	});
+
+	it("holds a confirmed topic's set as stored from tick to tick", async () => {
+		stubRecordingShortlist();
+		const goal = {
+			form: "topic",
+			text: "faster tests",
+			refs: [{ repo: path.basename(repo), number: 7 }],
+			setAt: 3,
+		};
+		writeScope({ mode: "normal", repos: [repo], goal });
+		const r = await readPicksThenStop(startRun(), 2);
+		expect(r.status).toBe(0);
+		const picks = readLines(at("picks"));
+		expect(picks.length).toBeGreaterThanOrEqual(2);
+		for (const pick of picks) expect(pick).toBe("--json --goal 7");
+		expect(
+			JSON.parse(fs.readFileSync(at(".refill-loop-control.json"), "utf8")).scope
+				.goal,
+		).toEqual(goal);
+	});
+});
+
 describe("a parked launch (#2699)", () => {
 	const Job = "job7";
 	const blockedRow = buildJobRow(Job, "blocked");
@@ -724,7 +804,7 @@ describe("a parked launch (#2699)", () => {
 			at(".refill-loop-control.json"),
 			JSON.stringify({
 				...control,
-				scope: { mode: "away", repos: [repo], goals: {} },
+				scope: { mode: "away", repos: [repo], goal: null },
 			}),
 		);
 		fs.writeFileSync(
@@ -1601,7 +1681,7 @@ describe("a session held on its seat's limit (#3735)", () => {
 					noProgressFrom: Date.now(),
 					stopRequested: false,
 					seats: [seat, target()],
-					scope: { mode: "normal", repos: [repo], goals: {} },
+					scope: { mode: "normal", repos: [repo], goal: null },
 				}),
 			);
 		};
@@ -2321,7 +2401,7 @@ describe("a daemon whose cwd is outside every checkout (#2937)", () => {
 			control,
 			JSON.stringify({
 				...JSON.parse(fs.readFileSync(control, "utf8")),
-				scope: { mode: "normal", repos: [], goals: {} },
+				scope: { mode: "normal", repos: [], goal: null },
 			}),
 		);
 		const r = await dryRun();
@@ -2709,7 +2789,7 @@ describe("boot-resume after a restart (#3878)", () => {
 				noProgressFrom: startedAt,
 				stopRequested: false,
 				seats: [seat],
-				scope: { mode: "normal", repos: [repo], goals: {} },
+				scope: { mode: "normal", repos: [repo], goal: null },
 			}),
 		);
 	const command = (...argv: string[]) =>
@@ -3390,7 +3470,7 @@ process.stdout.write("Filed #${Issue}\\n");
 		fs.mkdirSync(path.join(other, ".claude"));
 		writeConfig(other);
 		updateControl({
-			scope: { mode: "normal", repos: [repo, other], goals: {} },
+			scope: { mode: "normal", repos: [repo, other], goal: null },
 		});
 		stub(
 			"dispatch-sessions.sh",

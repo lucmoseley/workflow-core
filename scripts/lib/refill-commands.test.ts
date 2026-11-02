@@ -22,6 +22,7 @@ import { parseState } from "./refill-loop.js";
 import {
 	away,
 	DV,
+	issuesGoal,
 	type Launch,
 	MH,
 	MIN,
@@ -41,27 +42,23 @@ const NO_SEATS = {
 
 describe("the scope a start writes", () => {
 	it("starts a stopped loop on the scope asked for", () => {
-		expect(mergedScope(null, normal([WFC]), WFC)).toEqual(normal([WFC]));
+		expect(mergedScope(null, normal([WFC]))).toEqual(normal([WFC]));
 	});
 
 	it("adds a start's repos to a running loop's in either mode, keeping its mode", () => {
 		for (const mode of [normal, away]) {
 			const r = mergedScope(
-				mode([MH], { [MH]: [5] }),
-				normal([WFC], { [WFC]: [9] }),
-				WFC,
+				mode([MH], issuesGoal(["mantahostels", 5])),
+				normal([WFC], issuesGoal(["workflow-core", 9])),
 			);
-			expect(r).toEqual(mode([MH, WFC], { [MH]: [5], [WFC]: [9] }));
+			expect(r).toEqual(mode([MH, WFC], issuesGoal(["workflow-core", 9])));
 		}
 	});
 
-	it("clears the starting repo's goal on a bare start, keeping others'", () => {
-		const r = mergedScope(
-			normal([WFC, MH], { [WFC]: [9], [MH]: [5] }),
-			normal([WFC]),
-			WFC,
-		);
-		expect(r.goals).toEqual({ [MH]: [5] });
+	it("leaves the loop's goal on a bare start", () => {
+		const goal = issuesGoal(["workflow-core", 9], ["mantahostels", 5]);
+		const r = mergedScope(normal([WFC, MH], goal), normal([WFC]));
+		expect(r.goal).toEqual(goal);
 	});
 });
 
@@ -70,7 +67,10 @@ describe("what status prints", () => {
 		noProgressFrom: NOW - 60 * MIN,
 		stopRequested: false,
 		seats: ["/home/u/.claude3", "/home/u/.claude2"],
-		scope: normal([WFC, MH], { [WFC]: [116, 117] }),
+		scope: normal(
+			[WFC, MH],
+			issuesGoal(["workflow-core", 116], ["workflow-core", 117]),
+		),
 	};
 	const state = {
 		launches: [
@@ -208,7 +208,9 @@ describe("what status prints", () => {
 		}).join("\n");
 		expect(out).toContain("mode:      normal");
 		expect(out).toContain("repos:     workflow-core, mantahostels");
-		expect(out).toContain("goal:      workflow-core #116, #117");
+		expect(out).toContain(
+			'goal:      issues "workflow-core#116,workflow-core#117": workflow-core#116, workflow-core#117',
+		);
 		const awayOut = buildStatusLines({
 			seats: NO_SEATS,
 			now: NOW,

@@ -11,7 +11,7 @@ const control = {
 	noProgressFrom: START,
 	stopRequested: false,
 	seats: [],
-	scope: { mode: "normal" as const, repos: [], goals: {} },
+	scope: { mode: "normal" as const, repos: [], goal: null },
 };
 const found = {
 	control,

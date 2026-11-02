@@ -11,8 +11,9 @@
  *   node scripts/refill-loop.js stop     end launching before the next
  *                                        dispatch call; running sessions
  *                                        finish
- *   node scripts/refill-loop.js set …    pause or resume launching, tick repos or
- *                                        switch the mode with no restart: the
+ *   node scripts/refill-loop.js set …    pause or resume launching, tick repos,
+ *                                        switch the mode or set the goal with
+ *                                        no restart: the
  *                                        running loop takes it at its next tick,
  *                                        and an idle loop within seconds;
  *                                        housekeeping carries on; flags in USAGE
@@ -23,7 +24,7 @@
  *                                        seat's budget and the plan seats
  *                                        overflow rests on; `--json` the code
  *                                        sha, the pause, the last tick, launches
- *                                        today, the mode, every candidate
+ *                                        today, the mode, the goal, every candidate
  *                                        checkout, the launch rows and the
  *                                        `seats:` line's fields
  *   node scripts/refill-loop.js dry-run  one tick's decision, printed; reaps
@@ -52,8 +53,8 @@
  * throws is logged and the next one runs.
  *
  * Exit codes: 0; 1 on a throw outside the loop, a control lock kept past its
- * wait or, at `set`, no sound control to change; 2 on a command line or, at
- * `start`, a seat file it refuses.
+ * wait or, at `set`, no sound control to change; 2 on a command line, a goal
+ * ref it refuses or, at `start`, a seat file it refuses.
  */
 
 const { spawn } = require("node:child_process");
@@ -77,6 +78,12 @@ const {
 } = require("./lib/refill-seats.js");
 const wakes = require("./lib/refill-wake.js");
 const { parseIssueNumbers } = require("./lib/issue-number.js");
+const { ghJson, parseErrLine } = require("./lib/gh.js");
+const {
+	buildRefText,
+	parseAskedRefs,
+	qualifyRefs,
+} = require("./lib/refill-goal.js");
 const { configDir, seatDir } = require("./lib/config-dir.js");
 const { readLastTyped } = require("./lib/presence.js");
 const {
@@ -85,6 +92,7 @@ const {
 	homeDir,
 	readCandidates,
 	readCheckoutRefusal,
+	readHostTracker,
 	readTickRefusal,
 } = require("./lib/refill-repos.js");
 const loop = require("./lib/refill-loop.js");
@@ -125,8 +133,11 @@ const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | set | 
   set --away | --normal                        hand a session at a question off to its issue; or keep it open. The repos stay
   set [--repos <dir>]…                         the whole ticked set
   set [--tick <dir>]… [--untick <dir>]…        add to or take from the ticked set; a checkout found later stays unticked
-  status [--json]                              --json: the code sha, the pause, the last tick, launches today, the mode, every candidate checkout, the launch rows, each with its seat and why, and the seats line's fields
-  <dir> is a checkout's directory name in the home directory; set takes any of its flags together`;
+  set --goal <ref,…>                           rank these issues first in every ticked repo, replacing the goal
+  set --goal-issues <ref,…> --goal-text <text> the same, for a confirmed topic: its issues, and the text they came from
+  set --clear-goal                             run bare
+  status [--json]                              --json: the code sha, the pause, the last tick, launches today, the mode, the goal, every candidate checkout, the launch rows, each with its seat and why, and the seats line's fields
+  <dir> is a checkout's directory name in the home directory; a <ref> is <dir>#N, or #N with one repo ticked, naming an open issue; set takes any of its flags together`;
 
 const lock = pidLock(files.pid, "refill-loop.js");
 
@@ -158,10 +169,19 @@ function parseStartScope(parsed, root) {
 		return `--goal takes issue numbers: ${goalText}`;
 	const named = rootsNamed(parsed.lists["--repo"] ?? [], readTickRefusal);
 	if (typeof named === "string") return named;
+	const repo = path.basename(root);
 	return {
 		mode: "normal",
 		repos: [root, ...named],
-		goals: goal.length > 0 ? { [root]: goal } : {},
+		goal:
+			goal.length > 0
+				? {
+						form: "issues",
+						text: goalText,
+						refs: goal.map((number) => ({ repo, number })),
+						setAt: Date.now(),
+					}
+				: null,
 	};
 }
 
@@ -179,9 +199,36 @@ function setConflictOf({ flags, lists }) {
 		return "--repos is the whole set; it takes no --tick or --untick";
 	const both = lists["--tick"]?.find((n) => lists["--untick"]?.includes(n));
 	if (both) return `${both} is both ticked and unticked`;
+	const goals = ["--goal", "--goal-issues", "--clear-goal"].filter(
+		(flag) => flags[flag] !== undefined,
+	);
+	if (goals.length > 1) return `set takes one of ${goals.join(" and ")}`;
+	if (
+		(flags["--goal-issues"] === undefined) !==
+		(flags["--goal-text"] === undefined)
+	)
+		return "--goal-issues and --goal-text go together";
 	return Object.keys(flags).length + Object.keys(lists).length === 0
 		? "set names no field"
 		: null;
+}
+
+/**
+ * The goal `set`'s flags ask for: undefined where they name none, null to clear
+ * it, or a string refusal.
+ * @param {import("./lib/cli-args").Parsed["flags"]} flags
+ * @returns {import("./lib/refill-commands.js").GoalAsk|null|undefined|string}
+ */
+function parseGoalAsk(flags) {
+	if (flags["--clear-goal"]) return null;
+	const typed = flags["--goal"] ?? flags["--goal-issues"];
+	if (typed === undefined) return;
+	const refs = parseAskedRefs(String(typed));
+	if (refs === null) return `a goal takes issue refs, #N or <dir>#N: ${typed}`;
+	if (flags["--goal"] !== undefined)
+		return { form: "issues", text: String(typed), refs };
+	const text = String(flags["--goal-text"]).trim();
+	return text === "" ? "--goal-text is empty" : { form: "topic", text, refs };
 }
 
 /**
@@ -211,16 +258,67 @@ function parseSetAsk(parsed) {
 		if (typeof roots === "string") return roots;
 		ask[field] = roots;
 	}
+	const goal = parseGoalAsk(flags);
+	if (typeof goal === "string") return goal;
+	if (goal !== undefined) ask.goal = goal;
 	return ask;
+}
+
+/**
+ * Why `ref` names no open issue, null where it does.
+ * @param {import("./lib/refill-goal.js").GoalRef} ref
+ * @returns {string|null}
+ */
+function readRefRefusal(ref) {
+	const root = path.join(homeDir(), ref.repo);
+	const tracker = readHostTracker(root);
+	try {
+		const { state } = ghJson(
+			[
+				"issue",
+				"view",
+				String(ref.number),
+				...(tracker ? ["--repo", tracker] : []),
+				"--json",
+				"state",
+			],
+			{ cwd: root, env: checkoutEnv(root) },
+		);
+		return state === "OPEN"
+			? null
+			: `${buildRefText(ref)} is ${String(state).toLowerCase()}: a goal names open issues`;
+	} catch (err) {
+		return `${buildRefText(ref)} will not read as an open issue: ${parseErrLine(err)}`;
+	}
+}
+
+/**
+ * `ask` with its goal's refs qualified, each read as an open issue, or a string
+ * refusal. This runs before the control lock, whose holder reads no tracker;
+ * the lock's fresh read judges the refs again against what is ticked then. A
+ * control that will not read is planSet's to refuse.
+ * @param {import("./lib/refill-commands.js").SetAsk} ask
+ * @returns {import("./lib/refill-commands.js").SetAsk|string}
+ */
+function checkGoalAsk(ask) {
+	if (!ask.goal) return ask;
+	const { control } = readControlChecked(() => undefined);
+	if (control === null) return ask;
+	const refs = qualifyRefs(ask.goal.refs, commands.tickedAfter(control, ask));
+	if (typeof refs === "string") return refs;
+	for (const ref of refs) {
+		const refusal = readRefRefusal(ref);
+		if (refusal !== null) return refusal;
+	}
+	return { ...ask, goal: { ...ask.goal, refs } };
 }
 
 /**
  * The control `start` writes.
  * @param {number|null} pid the running loop's
  * @param {import("./lib/refill-loop.js").Scope} asked
- * @param {string} root
  */
-function buildNextControl(pid, asked, root) {
+function buildNextControl(pid, asked) {
 	const prior = readControlFile(log);
 	/* A loop whose stop is pending is ending: this start begins afresh,
 	 * dropping its scope (#2123). */
@@ -232,7 +330,7 @@ function buildNextControl(pid, asked, root) {
 		/* A start never undoes a pause: `set --resume` is its one way off (#3856). */
 		...(prior?.paused ? { paused: prior.paused } : {}),
 		seats: readConfiguredSeats(),
-		scope: commands.mergedScope(running?.scope ?? null, asked, root),
+		scope: commands.mergedScope(running?.scope ?? null, asked),
 	};
 }
 
@@ -367,7 +465,7 @@ function start(parsed) {
 	}
 	const written = withControlLock(() => {
 		const pid = lock.holder();
-		const control = buildNextControl(pid, asked, root);
+		const control = buildNextControl(pid, asked);
 		writeControlFile(control);
 		return { pid, control };
 	});
@@ -432,7 +530,9 @@ function stop() {
  * @param {import("./lib/cli-args").Parsed} parsed
  */
 function set(parsed) {
-	const ask = parseSetAsk(parsed);
+	const parsedAsk = parseSetAsk(parsed);
+	const ask =
+		typeof parsedAsk === "string" ? parsedAsk : checkGoalAsk(parsedAsk);
 	if (typeof ask === "string") {
 		writeFd(2, `${ask}\n\n${USAGE}\n`);
 		return 2;
@@ -686,6 +786,10 @@ const CLI = {
 				"--repos": "list",
 				"--tick": "list",
 				"--untick": "list",
+				"--goal": "value",
+				"--goal-issues": "value",
+				"--goal-text": "value",
+				"--clear-goal": "boolean",
 			},
 		},
 		status: { usage: USAGE, flags: { "--json": "boolean" } },

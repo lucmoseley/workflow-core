@@ -1129,7 +1129,7 @@ async function decide(input, scope) {
 	const served = servedRoots(scope);
 	for (const d of served.dropped) log(`not served: ${d.root} (${d.why})`);
 	const readStart = Date.now();
-	const merged = await refillFrontier(served.roots, scope.goals);
+	const merged = await refillFrontier(served.roots, scope.goal);
 	const read = { rows: merged.frontier.length, ms: Date.now() - readStart };
 	for (const f of merged.failed)
 		log(`shortlist failed in ${f.root}: ${f.error}`);
@@ -1298,7 +1298,7 @@ async function tick({ dryRun }) {
 		scope: {
 			mode: "normal",
 			repos: discoverRepos(homeDir()).included,
-			goals: {},
+			goal: null,
 		},
 	};
 	reapFinished(dryRun);
