@@ -144,7 +144,7 @@ const SUMMARISATION_PATTERNS = [
 const UNICODE_PATTERNS = [
 	{
 		id: "invisible-unicode",
-		re: /[­​-‏‪-‮⁠-⁤⁦-⁩﻿]/,
+		re: /[\u00AD\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/,
 	},
 	{ id: "unicode-tag-block", re: /[\u{E0000}-\u{E007F}]/u },
 ];

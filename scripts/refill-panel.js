@@ -26,6 +26,7 @@ const { parseOrCode } = require("./lib/cli-args");
 const { openPanel } = require("./lib/refill-panel-terminal.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
+const { FETCH_TIMEOUT_MS } = require("./lib/refill-code.js");
 
 const USAGE = `usage: node ${scriptPath("refill-panel.js")} <agents-view-pid>
 
@@ -36,16 +37,20 @@ const LOOP_PROGRAM = path.join(__dirname, "refill-loop.js");
 const BURN_PROGRAM = path.join(__dirname, "burn-mode.sh");
 /* Untraced, a first guess: past the control lock's 10 s wait (lib/pid-lock.js),
  * and far past burn-mode.sh's few short writes, whose timeout reads as a failed flip. */
-const RUN_TIMEOUT_MS = 30_000;
+const READ_TIMEOUT_MS = 30_000;
+/* A `set --resume` with no process fetches the loop's code first (#3861); killed
+ * mid-fetch, it would leave the loop unpaused with no process. */
+const PRESS_TIMEOUT_MS = READ_TIMEOUT_MS + FETCH_TIMEOUT_MS;
 
 /**
  * @param {string} file
  * @param {string[]} argv
+ * @param {number} timeout
  * @returns {ReturnType<import("./lib/refill-panel.js").Runner>}
  */
-const runCommand = (file, argv) =>
+const runCommand = (file, argv, timeout) =>
 	new Promise((resolve) => {
-		execFile(file, argv, { timeout: RUN_TIMEOUT_MS }, (err, stdout, stderr) => {
+		execFile(file, argv, { timeout }, (err, stdout, stderr) => {
 			if (!err) {
 				resolve({ code: 0, stdout, stderr });
 				return;
@@ -82,8 +87,13 @@ function main(argv = process.argv.slice(2)) {
 		stdin: process.stdin,
 		stdout: process.stdout,
 		proc: process,
-		run: (args) => runCommand(process.execPath, [LOOP_PROGRAM, ...args]),
-		runBurn: (args) => runCommand(BURN_PROGRAM, args),
+		run: (args) =>
+			runCommand(
+				process.execPath,
+				[LOOP_PROGRAM, ...args],
+				args[0] === "status" ? READ_TIMEOUT_MS : PRESS_TIMEOUT_MS,
+			),
+		runBurn: (args) => runCommand(BURN_PROGRAM, args, READ_TIMEOUT_MS),
 		isAlive: pidAlive,
 		now: Date.now,
 		reportCrash,

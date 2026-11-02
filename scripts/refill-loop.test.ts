@@ -4,8 +4,7 @@
  * `start` on a running loop rather than starting a second, `stop`
  * asking the loop to end, `set` pausing and resuming it (#3856), and the command
  * line. Driven in process, bar a command that must wait on a lock this test
- * frees; `start` with no loop running spawns the real detached loop, so it is
- * left to the manual dry run.
+ * frees; a command that spawns the real detached loop is refill-loop-run.test.ts's.
  *
  * The running loop is a second process whose command line names the script,
  * holding the pidfile: liveness is read off /proc, which only another process
@@ -596,16 +595,22 @@ describe("set (#3856)", () => {
 		expect(rest).toEqual(kept);
 		expect(noProgressFrom).toBeGreaterThanOrEqual(before);
 		expect(startedAt).toBe(noProgressFrom);
+		/* The pidfile's holder is the one process: nothing started a second. */
+		expect(r.stdout).not.toContain("refill loop started");
+		expect(fs.readFileSync(path.join(dir, ".refill-loop.pid"), "utf8")).toBe(
+			String(fakeLoop?.pid),
+		);
 	});
 
-	it("leaves the count's point on a resume with no process, so a loop that ended itself stays ended", async () => {
-		writeControl({ paused });
-		const r = await run("set", "--resume");
-		expect(r.status).toBe(0);
-		expect(r.stdout).toContain("not paused");
-		expect(r.stdout).not.toContain("counting:");
+	it("leaves a stop pending on a running loop standing through a resume", async () => {
+		writeControl({ paused, stopRequested: true, stopRequestedAt: 6 });
+		holdPidfile();
+		expect((await run("set", "--resume")).status).toBe(0);
+		expect(readControl()).toMatchObject({
+			stopRequested: true,
+			stopRequestedAt: 6,
+		});
 		expect(readControl().paused).toBeUndefined();
-		expect(readControl().noProgressFrom).toBe(5);
 	});
 
 	it("changes nothing asked for twice, but still wakes the loop", async () => {
@@ -617,6 +622,7 @@ describe("set (#3856)", () => {
 		expect(fs.existsSync(wakeFile())).toBe(true);
 
 		writeControl();
+		holdPidfile();
 		const idle = await run("set", "--resume");
 		expect(idle.status).toBe(0);
 		expect(idle.stdout).toContain("unchanged: not paused");
@@ -774,6 +780,97 @@ describe("set (#3856)", () => {
 	});
 });
 
+describe("a stop told from a crash (#3861)", () => {
+	const control = {
+		noProgressFrom: 5,
+		stopRequested: false,
+		seats: [],
+		scope: { mode: "normal", repos: [], goals: {} },
+	};
+	const writeControl = (over: Record<string, unknown> = {}) =>
+		fs.writeFileSync(
+			path.join(dir, ".refill-loop-control.json"),
+			JSON.stringify({ ...control, ...over }),
+		);
+	const writeState = (state: Record<string, unknown>) =>
+		fs.writeFileSync(
+			path.join(dir, ".refill-loop-state.json"),
+			JSON.stringify(state),
+		);
+	const status = async () => ({
+		json: JSON.parse((await run("status", "--json")).stdout),
+		text: (await run("status")).stdout,
+	});
+	const noProgress = { at: 9, reason: "no-progress", detail: "no act" };
+
+	it("reads a live loop as neither, showing no stop older than its run", async () => {
+		writeControl();
+		writeState({ stopped: noProgress, heldAt: 8 });
+		holdPidfile();
+		const { json, text } = await status();
+		expect(json).toMatchObject({ running: true, stop: null, crashed: false });
+		expect(text).not.toContain("last stop:");
+		expect(text).not.toContain("died:");
+	});
+
+	it("records the time of a stop, keeping the first through a repeat", async () => {
+		writeControl();
+		const before = Date.now();
+		expect((await run("stop")).status).toBe(0);
+		const { stopRequestedAt } = readControl();
+		expect(stopRequestedAt).toBeGreaterThanOrEqual(before);
+		expect((await run("stop")).status).toBe(0);
+		expect(readControl().stopRequestedAt).toBe(stopRequestedAt);
+	});
+
+	it("reads a dead loop a `stop` reached as stopped, before any tick recorded it", async () => {
+		writeControl({ stopRequested: true, stopRequestedAt: 7 });
+		const { json, text } = await status();
+		expect(json).toMatchObject({
+			running: false,
+			stop: { at: 7, reason: "explicit", detail: "stop was requested" },
+			crashed: false,
+		});
+		expect(text).toContain(
+			`last stop: ${new Date(7).toISOString()}  explicit — stop was requested`,
+		);
+	});
+
+	it("reads a dead loop that ended itself as stopped, with the loop's reason", async () => {
+		writeControl();
+		writeState({ stopped: noProgress, heldAt: 8 });
+		const { json, text } = await status();
+		expect(json).toMatchObject({ stop: noProgress, crashed: false });
+		expect(text).toContain("no-progress — no act");
+		expect(text).not.toContain("died:");
+	});
+
+	it("reads a dead loop with no stop recorded as crashed", async () => {
+		writeControl();
+		writeState({ stopped: null, heldAt: 8 });
+		const { json, text } = await status();
+		expect(json).toMatchObject({ running: false, stop: null, crashed: true });
+		expect(text).toContain(
+			"died:      with no stop recorded since its last start",
+		);
+		expect(text).not.toContain("last stop:");
+	});
+
+	it("does not read a loop never started as crashed", async () => {
+		const { json, text } = await status();
+		expect(json).toMatchObject({ stop: null, crashed: false });
+		expect(text).not.toContain("died:");
+	});
+
+	it("does not read a start whose process has not held the pidfile as crashed", async () => {
+		writeControl();
+		writeState({ stopped: null, heldAt: null });
+		const { json, text } = await status();
+		expect(json).toMatchObject({ stop: null, crashed: false });
+		expect(text).not.toContain("died:");
+	});
+});
+
 describe("the ticked set and the mode (#3862)", () => {
 	const writeControl = (scope: Record<string, unknown>) =>
 		fs.writeFileSync(
@@ -816,6 +913,78 @@ describe("the ticked set and the mode (#3862)", () => {
 			repos: [core],
 			goal: null,
 		});
+	});
+
+	it("records when away was switched on, a repeat keeping it, and drops it on normal", async () => {
+		const before = Date.now();
+		const switched = await run("set", "--away");
+		expect(switched.status).toBe(0);
+		expect(switched.stdout).toContain("mode:      away");
+		const { away } = readControl();
+		expect(away.since).toBeGreaterThanOrEqual(before);
+		expect(away.absentSeen).toBe(false);
+
+		await run("set", "--away");
+		expect(readControl().away).toEqual(away);
+
+		await run("set", "--normal");
+		expect(readControl().away).toBeUndefined();
+		expect(
+			JSON.parse((await run("status", "--json")).stdout).awaySince,
+		).toBeNull();
+	});
+
+	it("re-arms a repeat --away, so the prompt behind the ask reads as no return", async () => {
+		await run("set", "--away");
+		const control = readControl();
+		const { since } = control.away;
+		fs.writeFileSync(
+			path.join(dir, ".refill-loop-control.json"),
+			JSON.stringify({ ...control, away: { since, absentSeen: true } }),
+		);
+		const r = await run("set", "--away");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("unchanged: mode away");
+		expect(readControl().away).toEqual({ since, absentSeen: false });
+	});
+
+	it("reads in status --json the sessions handed off since this switch", async () => {
+		await run("set", "--away");
+		const { since } = readControl().away;
+		const state = path.join(dir, ".refill-loop-state.json");
+		const status = async () =>
+			JSON.parse((await run("status", "--json")).stdout);
+		fs.writeFileSync(
+			state,
+			JSON.stringify({ launches: [], handedOff: { from: since, count: 2 } }),
+		);
+		expect(await status()).toMatchObject({
+			mode: "away",
+			awaySince: since,
+			handedOffSinceAway: 2,
+		});
+
+		fs.writeFileSync(
+			state,
+			JSON.stringify({
+				launches: [],
+				handedOff: { from: since - 1, count: 2 },
+			}),
+		);
+		expect((await status()).handedOffSinceAway).toBe(0);
+
+		await run("set", "--normal");
+		expect((await status()).handedOffSinceAway).toBe(0);
+	});
+
+	it("keeps a running away mode's switch across a start", async () => {
+		await run("set", "--away");
+		const { away } = readControl();
+		holdPidfile();
+		const r = await run("start");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("refill loop running: pid");
+		expect(readControl().away).toEqual(away);
 	});
 
 	it("ticks, unticks and replaces the set in either mode, the mode untouched", async () => {

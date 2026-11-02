@@ -15,6 +15,7 @@ const { REVIEW_HOUR, localDate } = require("./morning-review.js");
 const { sizedPercent } = require("./allowance.js");
 const { batchesOf } = require("./refill-batch.js");
 const {
+	awayChangeOf,
 	FULL,
 	UNREAD,
 	actsRead,
@@ -23,6 +24,7 @@ const {
 	hasRoom,
 	isParkRoutingMode,
 	orderPlanSeats,
+	EXPLICIT_STOP_DETAIL,
 } = require("./refill-decide.js");
 const {
 	buildChildLine,
@@ -64,7 +66,11 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * @typedef {object} Control
  * @property {number} noProgressFrom ms, where the no-progress count counts from
  * @property {boolean} stopRequested
+ * @property {number} [stopRequestedAt] ms, when `stop` asked; a start drops it
  * @property {import("./refill-decide.js").Pause} [paused] absent where not paused
+ * @property {import("./refill-decide.js").AwaySwitch} [away] absent in normal
+ *   mode, or where the file holds no readable switch: a tick's absent read then
+ *   dates it, and until then status names no switch time
  * @property {string[]} seats config dirs, in failover order
  * @property {Scope} scope
  */
@@ -133,11 +139,15 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  *   idle?: string|null}|null} lastTick `idle` is decideTick's reason it launched
  *   nothing, the idle alarm's source for it (#3920)
  * @property {{at: number, reason: string, detail: string}|null} stopped
+ * @property {number|null} [heldAt] ms, when the current run's process took the
+ *   pidfile; null from a start until its process does (#3861)
  * @property {Hold[]} held the last frontier-reading tick's, for the idle
  *   alarm (#3680)
  * @property {string|null} reviewRunOn machine-local date of the last morning
  *   review filing
  * @property {LaunchCount|null} launchCount
+ * @property {LaunchCount|null} handedOff handedOffSince's, `from` being the away
+ *   switch
  * @property {LaunchDay|null} launchDay
  * @property {import("./overflow-notice.js").OverflowStart|null} overflowStart
  *   the newest first overflow launch after a plan-seat launch
@@ -225,6 +235,16 @@ function parsePause(raw) {
 }
 
 /**
+ * The control file's away switch: absent where it is not one.
+ * @param {unknown} raw
+ * @returns {{away?: import("./refill-decide.js").AwaySwitch}}
+ */
+function parseAway(raw) {
+	if (!isRecord(raw) || typeof raw.since !== "number") return {};
+	return { away: { since: raw.since, absentSeen: raw.absentSeen === true } };
+}
+
+/**
  * The control file's fields, or null where it is not one. A file a start before
  * #3854 wrote names noProgressFrom `startedAt`. A stopgap: #3888 removes it.
  * @param {unknown} raw
@@ -238,9 +258,91 @@ function parseControl(raw, readIncluded) {
 	return {
 		noProgressFrom,
 		stopRequested: raw.stopRequested === true,
+		...(typeof raw.stopRequestedAt === "number"
+			? { stopRequestedAt: raw.stopRequestedAt }
+			: {}),
 		...parsePause(raw.paused),
+		...parseAway(raw.away),
 		seats: parseStrings(raw.seats),
 		scope: parseScope(raw.scope, readIncluded),
+	};
+}
+
+/**
+ * `control` switched to `mode` at `now`: away records the switch, with no
+ * absent read yet, and normal drops it.
+ * @param {Control} control
+ * @param {Scope["mode"]} mode
+ * @param {number} now
+ * @returns {Control}
+ */
+function controlInMode({ away: _switch, ...control }, mode, now) {
+	return {
+		...control,
+		...(mode === "away" ? { away: { since: now, absentSeen: false } } : {}),
+		scope: { ...control.scope, mode },
+	};
+}
+
+/**
+ * `control` with its absent read set, a switch with no readable time dated `now`.
+ * @param {Control} control
+ * @param {boolean} absentSeen
+ * @param {number} now
+ * @returns {Control}
+ */
+const withAbsentRead = (control, absentSeen, now) => ({
+	...control,
+	away: { since: control.away?.since ?? now, absentSeen },
+});
+
+/**
+ * The control this tick's read of the founder leaves (awayChangeOf), null where
+ * it changes nothing.
+ * @param {Control} control
+ * @param {number|null} lastPromptAt
+ * @param {number} now
+ * @returns {Control|null}
+ */
+function controlAfterPresence(control, lastPromptAt, now) {
+	const { away } = control;
+	const change = awayChangeOf(
+		{ mode: control.scope.mode, ...(away ? { away } : {}) },
+		lastPromptAt,
+		now,
+	);
+	if (change === null) return null;
+	return change === "return"
+		? controlInMode(control, "normal", now)
+		: withAbsentRead(control, true, now);
+}
+
+/**
+ * The sessions handed off to their issues since the away switch at `since`, a
+ * park of any cause counting, as each ticket then waits on the founder. Stored,
+ * as the rows that made them are trimmed or cleared while he is away.
+ * @param {Pick<LoopState, "handedOff">} state
+ * @param {number} since
+ */
+const handedOffSince = ({ handedOff }, since) =>
+	handedOff?.from === since ? handedOff.count : 0;
+
+/**
+ * The stored count after a tick that parked `launches`' rows stamped `now`.
+ * @param {Pick<LoopState, "handedOff">} state
+ * @param {import("./refill-decide.js").AwaySwitch|undefined} away the switch,
+ *   absent in normal mode
+ * @param {LoopLaunch[]} launches
+ * @param {number} now
+ */
+function nextHandedOff(state, away, launches, now) {
+	if (!away) return state.handedOff;
+	const parked = launches.filter(
+		(l) => l.parkedAway === true && l.parkStopped === now,
+	).length;
+	return {
+		from: away.since,
+		count: handedOffSince(state, away.since) + parked,
 	};
 }
 
@@ -352,9 +454,11 @@ function parseState(raw) {
 		launches: Array.isArray(r.launches) ? r.launches : [],
 		lastTick: parseLastTick(r.lastTick),
 		stopped: parseStopped(r.stopped),
+		heldAt: typeof r.heldAt === "number" ? r.heldAt : null,
 		held: Array.isArray(r.held) ? r.held.filter(isHold) : [],
 		reviewRunOn: typeof r.reviewRunOn === "string" ? r.reviewRunOn : null,
 		launchCount: parseLaunchCount(r.launchCount),
+		handedOff: parseLaunchCount(r.handedOff),
 		launchDay: parseLaunchDay(r.launchDay),
 		overflowStart: parseOverflowStart(r.overflowStart),
 		probeBrokenRoots: parseStrings(r.probeBrokenRoots),
@@ -931,6 +1035,28 @@ const isRestartedSince = (control, since) =>
 	control !== null && !control.stopRequested && control.noProgressFrom > since;
 
 /**
+ * The stop that ended the loop's last run, or null where none did (#3861). The
+ * state's record is the loop's own and a process taking the pidfile clears it;
+ * `stop` needs no tick to count, so it stands where the loop died before one. A
+ * control from before `stopRequestedAt` reads as time 0, as an unreadable pause
+ * does. Residual: a start whose process never took the pidfile leaves the earlier
+ * record standing, as does a dead loop's state from before #3861, whose ticks kept
+ * an overtaken stop; each reads as that stop until a start's process runs.
+ * @param {Control|null} control
+ * @param {LoopState["stopped"]} stopped
+ * @returns {LoopState["stopped"]}
+ */
+const recordedStop = (control, stopped) =>
+	stopped ??
+	(control?.stopRequested
+		? {
+				at: control.stopRequestedAt ?? 0,
+				reason: "explicit",
+				detail: EXPLICIT_STOP_DETAIL,
+			}
+		: null);
+
+/**
  * Whether a control read mid-tick asks the loop to stop. A control gone
  * missing does, as at the tick's start.
  * @param {Control|null} control
@@ -1208,7 +1334,8 @@ const buildLaunchBatches = (decision, waiting) =>
  * @param {{input: import("./refill-decide.js").TickInput,
  *   decision: import("./refill-decide.js").Decision, state: LoopState,
  *   judged: LoopLaunch[], probes: Probe[], read: FrontierRead|null,
- *   probeBrokenRoots: string[]}} tick
+ *   probeBrokenRoots: string[],
+ *   away?: import("./refill-decide.js").AwaySwitch}} tick
  * @param {{readControl: () => ControlRead,
  *   launchBatch: (batch: import("./refill-decide.js").Launch[]) => BatchOutcome,
  *   resumeHeld: ResumeHeld,
@@ -1221,7 +1348,7 @@ const buildLaunchBatches = (decision, waiting) =>
  *   decision, and how many sessions the tick started
  */
 function settleTick(
-	{ input, decision, state, judged, probes, read, probeBrokenRoots },
+	{ input, decision, state, judged, probes, read, probeBrokenRoots, away },
 	io,
 ) {
 	const {
@@ -1257,7 +1384,10 @@ function settleTick(
 				? {}
 				: { skipped: decision.skipped, idle: decision.idle }),
 		},
-		stopped: stoppedOf(decision, input.now) ?? state.stopped,
+		/* A tick that does not stop outlives any record, a stop a `start` overtook
+		 * included. */
+		stopped: stoppedOf(decision, input.now),
+		heldAt: state.heldAt,
 		held:
 			"stop" in decision || read === null
 				? state.held
@@ -1268,6 +1398,7 @@ function settleTick(
 			count:
 				launchesSince(state, input.noProgressFrom) + outcome.launched.length,
 		},
+		handedOff: nextHandedOff(state, away, judged, input.now),
 		launchDay: {
 			day: today,
 			count: launchesOnDay(state, today) + outcome.launched.length,
@@ -1325,6 +1456,10 @@ function stopNeverStarted(registry, jobs, stop) {
 }
 
 module.exports = {
+	controlAfterPresence,
+	controlInMode,
+	handedOffSince,
+	withAbsentRead,
 	FREE_SLOT_ARGS,
 	actsOf,
 	capArgs,
@@ -1332,6 +1467,7 @@ module.exports = {
 	ceilingsOf,
 	parseControl,
 	buildFinishLine,
+	recordedStop,
 	isRestartedSince,
 	judgedLaunches,
 	buildLaunchesLine,

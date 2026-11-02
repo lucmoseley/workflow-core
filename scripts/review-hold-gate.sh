@@ -3,7 +3,7 @@
 # review-hold-gate.sh — the pre-commit hold on a declared sensitive path (#1622,
 # spec #1612 §The hold).
 #
-# IMPLICIT:  refuses a session's commit in the shared tree whose staged paths match a glob `sensitivePaths` declares in `.claude/workflow-core.json`, or that removes an area from that declaration or a glob from one (#3905), until the session's `.codereview-pass-<sid>` marker records `tier=escalated` or `tier=mission-critical`, `areas=` naming every matched area, `tree=` equal to the tree the commit carries, and `paths=` naming every path it changes; the refusal names the areas, the marker's fault and rule:review-hold. On a pass, in a linked worktree too, it leaves the marker's tier, areas, base, tree and paths in the session's own `wfc-review-tier-<sid>` in the git directory, so a neighbour's commit neither clears nor consumes it (#3906), keyed to that tree, for scripts/review-tier-trailer.sh to write as the commit's `Review-Tier:` trailer (#3664).
+# IMPLICIT:  refuses a session's commit in the shared tree whose staged paths match a glob `sensitivePaths` declares in `.claude/workflow-core.json`, or that removes an area from that declaration or a glob from one (#3905), until the session's `.codereview-pass-<sid>` marker records `tier=escalated` or `tier=mission-critical`, `areas=` naming every matched area, `tree=` equal to the tree the commit carries, and `paths=` naming every path it changes; the refusal names the areas, the marker's fault and rule:review-hold. On a pass, in a linked worktree too, it leaves the marker's tier, areas, base, tree and paths in this session's own stamp scripts/lib/review-tier-stamp.sh names, so a neighbour's commit neither clears nor consumes it (#3906), keyed to that tree, for scripts/review-tier-trailer.sh to write as the commit's `Review-Tier:` trailer (#3664).
 # JUSTIFIED: fail-safe — any neighbour's push publishes shared-`main` commits, and Manta deploys every push, so a review owed on sensitive code is a hold at commit or it is too late.
 # DEFEAT:    writing the marker's four lines by hand with no review behind them; `HUSKY=0` and `core.hooksPath` off .husky/_ skip it with the rest of the stack.
 #
@@ -85,16 +85,21 @@ fi
 # shellcheck source=scripts/lib/commit-route.sh
 source "$here/lib/commit-route.sh" 2>/dev/null ||
   unchecked "could not load scripts/lib/commit-route.sh"
+# Its failing to load costs the trailer, never the hold. Cleared on every run, so
+# a stamp a later gate's refusal stranded stands behind no commit the hold does
+# not pass.
+stamp=""
 # shellcheck source=scripts/lib/review-tier-stamp.sh
-source "$here/lib/review-tier-stamp.sh" 2>/dev/null ||
-  unchecked "could not load scripts/lib/review-tier-stamp.sh"
-# Cleared on every run, so a stamp a later gate's refusal stranded stands behind
-# no commit the hold does not pass.
-stamp="$(wfc_review_tier_stamp "$gitdir")"
-rm -f "$stamp" 2>/dev/null ||
-  gl_log "review-hold-gate.sh: could not remove $stamp — a stranded stamp may stand behind this commit"
-wfc_review_tier_sweep "$gitdir" 2>/dev/null ||
-  gl_log "review-hold-gate.sh: could not sweep $gitdir's dead sessions' review-tier stamps"
+if source "$here/lib/review-tier-stamp.sh" 2>/dev/null; then
+  stamp="$(review_tier_stamp "$gitdir")"
+  rm -f "$stamp" 2>/dev/null ||
+    gl_log "review-hold-gate.sh: could not remove $stamp — a stranded stamp may stand behind this commit"
+  review_tier_sweep "$gitdir" 2>/dev/null ||
+    gl_log "review-hold-gate.sh: could not sweep $gitdir's dead sessions' review-tier stamps"
+else
+  echo "pre-commit: the review hold could not load scripts/lib/review-tier-stamp.sh — a commit it passes lands with no Review-Tier: trailer." >&2
+  gl_log "review-hold-gate.sh: could not load scripts/lib/review-tier-stamp.sh — a held commit lands with no Review-Tier: trailer"
+fi
 route="$(wfc_commit_route pre-commit "$gitdir")"
 if wfc_commit_route_replays "$route" && [[ "$gitdir" != "$common" ]]; then exit 0; fi
 
@@ -115,6 +120,7 @@ tree="$(git write-tree 2>/dev/null)" || unchecked "could not read the staged tre
 # for scripts/review-tier-trailer.sh. Fails open: a stamp unwritten costs what
 # it names, never the pass.
 pass_with_stamp() {
+  [[ -n "$stamp" ]] || exit 0
   printf '%s\n%s\n' "$tree" "$1" >"$stamp" 2>/dev/null || {
     rm -f "$stamp"
     echo "pre-commit: could not write $stamp, so this commit lands with $2." >&2

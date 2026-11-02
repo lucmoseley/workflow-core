@@ -168,6 +168,12 @@ const ALREADY_RUNNING = "already running";
  */
 
 /**
+ * When away mode was switched on, ms, and whether a tick since has read the
+ * founder absent.
+ * @typedef {{since: number, absentSeen: boolean}} AwaySwitch
+ */
+
+/**
  * Who paused the loop, and when, ms.
  * @typedef {{by: string, at: number}} Pause
  */
@@ -556,6 +562,10 @@ function routedLaunch(
 		: { ...next, parkedRoute: parked };
 }
 
+/* What a `stop` command's record says, as the loop decides it and as `stop`'s own
+ * control field reads before a tick has. */
+const EXPLICIT_STOP_DETAIL = "stop was requested";
+
 /**
  * The stop a damaged control or a `stop` command asks for, or null.
  * @param {TickInput} input
@@ -565,7 +575,7 @@ function requestedStopOf(input) {
 	if (input.controlDamaged)
 		return { stop: "control-damaged", detail: input.controlDamaged };
 	if (input.stopRequested)
-		return { stop: "explicit", detail: "stop was requested" };
+		return { stop: "explicit", detail: EXPLICIT_STOP_DETAIL };
 	return null;
 }
 
@@ -956,6 +966,24 @@ function buildStopDetail(detail, { limitHeldLines = [], resumable = [] }) {
 }
 
 /**
+ * What this tick's read of the founder does to away mode (#2522): "return" at the
+ * first present read after an absent one since the switch, so a prompt inside
+ * the presence window the switch was made in does not undo it; "absent" at the
+ * first absent read since it; otherwise null.
+ * @param {{mode: "normal"|"away", away?: AwaySwitch}} control
+ * @param {number|null} lastPromptAt ms
+ * @param {number} now ms
+ * @returns {"return"|"absent"|null}
+ */
+function awayChangeOf({ mode, away }, lastPromptAt, now) {
+	if (mode !== "away") return null;
+	const absentSeen = away?.absentSeen === true;
+	if (presenceAt(lastPromptAt, new Date(now)) === "present")
+		return absentSeen ? "return" : null;
+	return absentSeen ? null : "absent";
+}
+
+/**
  * A requested stop outranks a pause, so `stop` still ends a paused loop; a pause
  * outranks every other reason, as the reads they rest on are barred (#3856).
  * @param {TickInput} input
@@ -1026,6 +1054,7 @@ function decideUnpaused(input) {
 }
 
 module.exports = {
+	EXPLICIT_STOP_DETAIL,
 	PROBE_HELD,
 	buildProbeHeldRoots,
 	buildOverflowHoldText,
@@ -1040,6 +1069,7 @@ module.exports = {
 	NOTHING_LAUNCHABLE,
 	UNREAD,
 	actsRead,
+	awayChangeOf,
 	buildLimitCapText,
 	buildSkipReason,
 	decideTick,
