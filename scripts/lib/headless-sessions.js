@@ -50,6 +50,7 @@ const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
 const { claudeBin } = require("./claude-bin.js");
 const { readEnvFileValue, secretsFile } = require("./env-file.js");
+const { endGroup, isGroupAlive } = require("./grouped-child.js");
 const { readJsonl } = require("./jsonl.js");
 const { launchAuthRefusal } = require("./launch-auth.js");
 const { refillPath } = require("./refill-dir.js");
@@ -61,8 +62,6 @@ const { writeFd } = require("./write-fd.js");
 const CONTRACT = path.join(__dirname, "headless-contract.md");
 /* Untraced: long enough for a session to finish its current write. */
 const STOP_GRACE_MS = 10_000;
-/* Untraced: short against the grace, long enough not to spin. */
-const STOP_POLL_MS = 100;
 /* 4 bytes print as the 8 hex characters dispatch-sessions.sh's job-id parse
  * takes from a launch's first line. */
 const JOB_ID_BYTES = 4;
@@ -282,16 +281,6 @@ function runOf(jobId) {
 	}
 }
 
-/** @param {number} pgid */
-function isGroupAlive(pgid) {
-	try {
-		process.kill(-pgid, 0);
-		return true;
-	} catch (err) {
-		return caught(err).code === "EPERM";
-	}
-}
-
 /**
  * SIGTERM to the run's process group, then SIGKILL to what is left after the
  * grace period.
@@ -307,14 +296,9 @@ async function stop(jobId, { graceMs = STOP_GRACE_MS } = {}) {
 	const groupLeft =
 		run.bootId === readCurrentBootId() && isGroupAlive(run.pgid);
 	if (!isLive(run) && !groupLeft) return "not running";
-	process.kill(-run.pgid, "SIGTERM");
-	for (const end = Date.now() + graceMs; Date.now() < end; ) {
-		if (!isGroupAlive(run.pgid)) return "stopped";
-		await new Promise((r) => setTimeout(r, STOP_POLL_MS));
-	}
-	if (!isGroupAlive(run.pgid)) return "stopped";
-	process.kill(-run.pgid, "SIGKILL");
-	return "killed";
+	const { killed, unkilled } = await endGroup(run.pgid, graceMs);
+	if (unkilled) throw new Error(`group ${run.pgid} still runs: ${unkilled}`);
+	return killed ? "killed" : "stopped";
 }
 
 /**

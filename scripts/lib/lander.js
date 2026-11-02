@@ -2056,15 +2056,14 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 			if (unreverted !== null) return { failed: parseFirstLine(unreverted) };
 			const subject = git(["log", "-1", "--format=%s", culprit]).trim();
 			try {
-				/* In a group of its own, so a kill at the timeout reaches the hooks. */
+				/* In a group of its own, so a kill at the timeout reaches the hooks, with
+				 * a grace for their traps (#3923). */
 				execGroupedSync(
 					gitBinary(),
 					["commit", "--quiet", "--no-verify", "-F", "-"],
 					gitSpawnOptions({
 						cwd: dir,
-						encoding: /** @type {const} */ ("utf8"),
 						input: `Revert "${subject}"\n\n${buildRevertLine(culprit)}\n\n${why}\n`,
-						stdio: "pipe",
 						timeout: revertCommitTimeoutMs,
 						env: buildRevertEnv(culprit),
 					}),

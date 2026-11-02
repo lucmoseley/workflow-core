@@ -101,6 +101,26 @@ exit 3`,
 		expect(fs.existsSync(b)).toBe(false);
 	});
 
+	/* dash runs no EXIT trap on a fatal signal, so without its own trap for the
+	 * signal the hook dies with the directory left (#3923). */
+	it.each([
+		["HUP", 129],
+		["INT", 130],
+		["TERM", 143],
+	])("removes every directory on SIG%s, exiting %i", (signal, status) => {
+		const { code, output } = run(
+			`gate_tmpdir
+echo "DIR[$GATE_DIR]"
+kill -${signal} $$
+echo SURVIVED`,
+		);
+
+		const dir = /DIR\[(.+)\]/.exec(output)?.[1] as string;
+		expect(output).not.toContain("SURVIVED");
+		expect(code).toBe(status);
+		expect(fs.existsSync(dir)).toBe(false);
+	});
+
 	/* The rejected draft was `dir="$(gate_tmpdir)"`, whose body runs in a
 	 * command-substitution subshell: the append to GATE_TMPDIRS is lost there, so
 	 * the trap has nothing to remove and the directory outlives the hook. */

@@ -195,7 +195,9 @@ declared_cmd() {
 #
 # ONE trap for the whole hook, registered here when this file is sourced, since
 # a second `trap … EXIT` anywhere would replace it. A gate's directory therefore
-# lives until the hook exits, not to the end of that gate.
+# lives until the hook exits, not to the end of that gate. dash runs no EXIT trap
+# on a fatal signal, so each signal also gets an `exit`, at its 128+n status: the
+# lander's timed-out revert commit ends the hook with SIGTERM (#3923).
 #
 # The list is NEWLINE-separated and read a line at a time, never split on
 # whitespace: `mktemp -d` honours TMPDIR, so a TMPDIR holding a space would
@@ -214,6 +216,9 @@ gate_cleanup() {
 }
 
 trap 'gate_cleanup' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # Sets $GATE_DIR to a fresh temp directory, removed when the hook exits.
 #

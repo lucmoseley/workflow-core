@@ -444,6 +444,20 @@ it("kills the hook's child with a commit killed at its timeout, keeps the reason
 	expect(git(work, "worktree", "list").split("\n")).toHaveLength(1);
 });
 
+it("lets a hook's trap clean up when its commit is killed at its timeout (#3923)", () => {
+	const marker = path.join(tmp, "gate-temp");
+	fs.writeFileSync(marker, "");
+	const culprit = culpritWithCommitHook(
+		`trap 'rm -f "${marker}"' EXIT\ntrap 'exit 143' TERM\nsleep 60`,
+	);
+
+	/* Crosses the real clock: what is pinned is a real signal to a real hook.
+	 * Untraced: 3 s is room for git to start the hook and the hook its traps. */
+	remoteGit(work, 3000).revertOnLanding(culprit, null, "why");
+
+	expect(fs.existsSync(marker)).toBe(false);
+});
+
 it("keeps the failure's reason and says so where the revert's worktree will not come off (#3913)", () => {
 	const named = path.join(tmp, "worktree-path");
 	const culprit = culpritWithCommitHook(
