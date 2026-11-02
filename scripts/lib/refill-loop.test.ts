@@ -387,7 +387,7 @@ describe("a finished launch's progress, from its session's acts ledger (#2312)",
 			expect(l.acts).toEqual({ file: 1, close: 1 });
 		});
 
-		it("reads as no acts where it did nothing, and counts towards the no-progress stop", () => {
+		it("reads as no acts where it did nothing, and counts towards the no-progress pause", () => {
 			store.recordAct("file owner/repo#3", "s-j3", sb.repo);
 			const before = readBefore();
 			const history = judgedByLedger(
@@ -397,7 +397,7 @@ describe("a finished launch's progress, from its session's acts ledger (#2312)",
 			expect(buildFinishLine(history[0])).toBe(
 				"finished design-vault /implement 3: no acts",
 			);
-			expect(stopOn(history)).toMatchObject({ stop: "no-progress" });
+			expect(decideOn(history)).toHaveProperty("pause.by", "no-progress");
 		});
 
 		it("still sums its past sessions where a limit then moved it to a copy (#2969)", () => {
@@ -489,7 +489,7 @@ describe("a finished launch's progress, from its session's acts ledger (#2312)",
 		},
 	);
 
-	const stopOn = (history: Launch[]) =>
+	const decideOn = (history: Launch[]) =>
 		decideTick({
 			now: NOW,
 			mode: "normal" as const,
@@ -528,21 +528,21 @@ describe("a finished launch's progress, from its session's acts ledger (#2312)",
 			finishedAt: NOW - 10 + Number(l.jobId?.slice(1)),
 		}));
 
-	it("stops on three finishes with no act, an unread one between them passed over", () => {
+	it("pauses on three finishes with no act, an unread one between them passed over", () => {
 		const history = finishes(["j1", "j2", "j3", "j4"], ["j2"]);
 		expect(history.map((l) => l.acts)).toEqual([{}, "unread", {}, {}]);
-		expect(stopOn(history)).toMatchObject({ stop: "no-progress" });
+		expect(decideOn(history)).toHaveProperty("pause.by", "no-progress");
 	});
 
-	it("does not stop on two finishes with no act beside an unread one", () => {
+	it("does not pause on two finishes with no act beside an unread one", () => {
 		const history = finishes(["j1", "j2", "j3"], ["j2"]);
 		expect(history.map((l) => l.acts)).toEqual([{}, "unread", {}]);
-		expect(stopOn(history)).not.toHaveProperty("stop");
+		expect(decideOn(history)).not.toHaveProperty("pause");
 	});
 
 	it("does not stop where one of the three made an act", () => {
 		store.recordAct("relabel owner/repo#3 takes:implement", "s-j3", sb.repo);
-		expect(stopOn(finishes(["j1", "j2", "j3"]))).not.toHaveProperty("stop");
+		expect(decideOn(finishes(["j1", "j2", "j3"]))).not.toHaveProperty("pause");
 	});
 });
 
@@ -724,16 +724,16 @@ describe("a seat's reading (#2606)", () => {
 				history: [],
 			});
 
-		it("stops on a locked seat's cached 100% week whose reset is ahead", () => {
+		it("waits out a locked seat's cached 100% week whose reset is ahead", () => {
 			expect(
 				tickOn(bar(30, "stale", Ahead), bar(100, "stale", Ahead)),
-			).toMatchObject({ stop: "allowance" });
+			).toMatchObject({ planWait: { resets: Date.parse(Ahead) } });
 		});
 
 		it("waits, unread, on a cached 100% week whose reset has passed", () => {
 			expect(
 				tickOn(bar(30, "stale", Ahead), bar(100, "stale", Passed)),
-			).toMatchObject({ idle: "no seat has a fresh allowance reading" });
+			).toMatchObject({ idle: "no plan has room right now" });
 		});
 
 		it("names a locked seat's cached 5-hour wait and its reset", () => {
@@ -879,6 +879,7 @@ function settleOnce(
 		{
 			readControl,
 			launchBatch: dispatch,
+			writePause: () => undefined,
 			resumeHeld: (_resumes, launches) => ({
 				launches,
 				started: 0,
@@ -1034,12 +1035,12 @@ describe("a tick's log line (#2362)", () => {
 			"idle: no free slot (free slots: 0)",
 		);
 		expect(
-			logged(idle("no seat has a fresh allowance reading"), 2, [
+			logged(idle("no plan has room right now"), 2, [
 				{ seat: "/s2", outcome: "finished" },
 				{ seat: "/s3", outcome: "failed (spawn claude ENOENT)" },
 			]),
 		).toBe(
-			"idle: no seat has a fresh allowance reading (free slots: 2; probed /s2: finished, /s3: failed (spawn claude ENOENT))",
+			"idle: no plan has room right now (free slots: 2; probed /s2: finished, /s3: failed (spawn claude ENOENT))",
 		);
 	});
 
@@ -1775,6 +1776,16 @@ describe("the control file", () => {
 		expect(read(true)).toEqual({ by: "an unreadable record", at: 0 });
 	});
 
+	it("reads a no-progress pause's issues, dropping a garbled one (#3859)", () => {
+		const issue = { root: WFC, number: 9 };
+		expect(
+			parseControl({
+				noProgressFrom: 5,
+				paused: { by: "no-progress", at: 9, issues: [issue, "garbled"] },
+			})?.paused,
+		).toEqual({ by: "no-progress", at: 9, issues: [issue] });
+	});
+
 	it("reads a control with no scope as away mode serving nothing", () => {
 		expect(parseControl({ noProgressFrom: 5 })?.scope).toEqual(away([]));
 		expect(parseControl({ noProgressFrom: 5 }, () => [WFC, MH])?.scope).toEqual(
@@ -1950,6 +1961,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 								refused: [],
 							};
 				},
+				writePause: () => undefined,
 				resumeHeld: (_resumes, launches) => ({
 					launches,
 					started: 0,
@@ -2016,6 +2028,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 			{
 				readControl: () => ({ control: null, damaged: null }),
 				launchBatch: () => ({ launched: [], refused: [] }),
+				writePause: () => undefined,
 				resumeHeld: (_resumes, launches) => ({
 					launches,
 					started: 0,
@@ -2611,6 +2624,7 @@ describe("a resume the tick's step left held (#3855)", () => {
 					launched.push(...batch);
 					return { launched: [], refused: [] };
 				},
+				writePause: () => undefined,
 				resumeHeld: () => resumed,
 				runReview: (lastRunOn) => lastRunOn,
 				writeState: () => {

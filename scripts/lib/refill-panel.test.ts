@@ -170,10 +170,10 @@ describe("the panel's rows", () => {
 		);
 	});
 
-	it("says what a click cannot do for a paused loop with no process", () => {
+	it("says a click starts a paused loop with no process", () => {
 		const status = { ...PAUSED_BY_FOUNDER, running: false };
 		expect(rowsOf({ status })[2].text).toBe(
-			"Not running: switch on, then start it from the command line",
+			"Not running: switch on to start it",
 		);
 	});
 

@@ -394,8 +394,9 @@ const REGISTRATIONS: Registration[] = [
 		covers: [],
 	},
 	{
-		/* Silent unless the refill loop stopped on no progress or the allowance
-		 * cut since the stop it last named; names each such stop once (#2014). */
+		/* Silent unless the refill loop stopped on a damaged control or the
+		 * no-progress rule paused it since what it last named; names each once
+		 * (#2014, #3859). */
 		event: "SessionStart",
 		id: "scripts/check-refill-loop-stop.js --notify",
 		matcher: null,

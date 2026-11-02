@@ -34,6 +34,7 @@ const { presenceAt } = require("./presence.js");
 const {
 	NOTHING_LAUNCHABLE,
 	buildPauseText,
+	buildPlanWaitText,
 	pickSeat,
 } = require("./refill-decide.js");
 const { refillPath } = require("./refill-dir.js");
@@ -107,8 +108,8 @@ function largestHolder(a) {
 }
 
 /**
- * The loop's and policy's failing limits. A stop other than the allowance cut
- * ends the loop at this tick's end. The frontier, the founder's slot and the
+ * The loop's and policy's failing limits. A stop ends the loop at this tick's
+ * end. The frontier, the founder's slot and the
  * allowance are judged only where the decision core judged them: a tick with
  * no free slot reads neither.
  * @param {import("./refill-decide.js").TickInput} input
@@ -117,13 +118,11 @@ function largestHolder(a) {
  */
 function policyFailing(input, decision) {
 	if ("stop" in decision)
-		return [
-			decision.stop === "allowance"
-				? { limit: "allowance", why: decision.detail }
-				: { limit: LOOP_OFF, why: `stopping: ${decision.detail}` },
-		];
-	if (input.paused)
-		return [{ limit: LOOP_OFF, why: buildPauseText(input.paused) }];
+		return [{ limit: LOOP_OFF, why: `stopping: ${decision.detail}` }];
+	const paused = decision.pause ?? input.paused;
+	if (paused) return [{ limit: LOOP_OFF, why: buildPauseText(paused) }];
+	if (decision.planWait)
+		return [{ limit: "allowance", why: buildPlanWaitText(decision.planWait) }];
 	/** @type {Failing[]} */
 	const out = [];
 	if (decision.idle === NOTHING_LAUNCHABLE)

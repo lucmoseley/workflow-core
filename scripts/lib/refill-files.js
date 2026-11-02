@@ -4,8 +4,9 @@
  *
  * ITS FILES, under lib/refill-dir.js's directory, so `start`, `stop` and `set`
  * never race the loop's own tick:
- *   - control, written by `start`, `stop` and `set`, each read and write under
- *     withControlLock, so no writer loses another's change;
+ *   - control, written by `start`, `stop`, `set`, the tick's away changes and the
+ *     loop's own no-progress pause, each read and write under withControlLock, so
+ *     no writer loses another's change;
  *   - state, written by the loop;
  *   - pidfile, created by the loop exclusively, so a second loop exits;
  *   - the review runner's pidfile and result (scripts/refill-review-run.js,
@@ -101,7 +102,7 @@ function writeJson(file, value) {
 }
 
 /**
- * The control file `start` and `stop` write, parsed, and why where it exists
+ * The control file, parsed, and why where it exists
  * but is not one. A damaged control is no loop nobody started: the tick stops
  * on it under its own reason (#3389).
  * @param {(line: string) => void} log
@@ -184,6 +185,33 @@ function withControlLock(write, waitMs) {
 }
 
 /**
+ * Write the no-progress pause the tick decided, against a fresh read: a pause
+ * set since keeps its record, and a resume since moved the count this one rests
+ * on. A lock kept past the wait writes nothing, and the next tick decides the
+ * pause again.
+ * @param {import("./refill-decide.js").Pause} paused
+ * @param {number} noProgressFrom the count the tick decided it on
+ * @param {(line: string) => void} log
+ * @param {number} [waitMs] withControlLock's
+ */
+function writeLoopPause(paused, noProgressFrom, log, waitMs) {
+	const written = withControlLock(() => {
+		const { control } = readControlChecked(log);
+		if (
+			control === null ||
+			control.paused !== undefined ||
+			control.noProgressFrom !== noProgressFrom
+		)
+			return;
+		writeControlFile({ ...control, paused });
+	}, waitMs);
+	if ("busy" in written)
+		log(
+			`pause not written, so the next tick decides it again: ${written.busy}`,
+		);
+}
+
+/**
  * Fix a control in hasExcludeShape's shape as the ticked set it serves now, so
  * a checkout found later stays unticked. A stopgap: #3921 removes it.
  * @param {(line: string) => void} log
@@ -213,13 +241,37 @@ function adoptControlFile(log, waitMs) {
  */
 const readStateFile = (log) => parseState(readJson(loopFiles().state, log));
 
+/**
+ * Record that the calling process holds the pidfile: the last stop no longer
+ * describes the loop, and any death from here on is a crash (#3861).
+ * @param {(line: string) => void} log
+ */
+function recordRunHeld(log) {
+	const state = /** @type {object|null} */ (readJson(loopFiles().state, log));
+	writeJson(loopFiles().state, { ...state, stopped: null, heldAt: Date.now() });
+}
+
+/**
+ * Forget the last process's hold, before starting another: until the new one
+ * holds the pidfile, no process has died (#3861). Called with none running, so
+ * no tick's write can overtake it.
+ * @param {(line: string) => void} log
+ */
+function forgetRunHeld(log) {
+	const state = /** @type {object|null} */ (readJson(loopFiles().state, log));
+	if (state) writeJson(loopFiles().state, { ...state, heldAt: null });
+}
+
 module.exports = {
 	adoptControlFile,
+	forgetRunHeld,
+	recordRunHeld,
 	loopFiles,
 	REVIEW_RUNNER,
 	readControlChecked,
 	withControlLock,
 	writeControlFile,
+	writeLoopPause,
 	readControlFile,
 	readJson,
 	readStateFile,
