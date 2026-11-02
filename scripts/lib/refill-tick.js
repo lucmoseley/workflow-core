@@ -1102,8 +1102,8 @@ function readIdleSince(l) {
 
 /**
  * `rescue-sessions.js hand-off` of `l`'s stopped session, run in its
- * checkout: it posts its snapshot as a `**Hand-off:**` comment on each issue
- * and releases its claim.
+ * checkout: it posts a `**Hand-off:**` comment on each issue and releases its
+ * claim, `l.sessionId` standing in for a job record that is gone (#3988).
  * @param {import("./refill-blocks.js").JobLaunch} l
  */
 const postHandOff = (l) =>
@@ -1116,6 +1116,7 @@ const postHandOff = (l) =>
 			l.seat,
 			"--job",
 			l.jobId,
+			...(l.sessionId ? ["--session", l.sessionId] : []),
 			...l.issues.flatMap((n) => ["--issue", String(n)]),
 		],
 		{ cwd: l.root, env: buildCheckoutEnv(l.root) },

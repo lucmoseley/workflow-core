@@ -2509,6 +2509,8 @@ process.stdout.write(JSON.stringify({ ...${JSON.stringify(ADMISSION_VERDICT)}, s
 			seat,
 			"--job",
 			FAKE_COPY,
+			"--session",
+			"s-job7",
 			"--issue",
 			"7",
 		]);
@@ -2525,7 +2527,17 @@ process.stdout.write(JSON.stringify({ ...${JSON.stringify(ADMISSION_VERDICT)}, s
 		expect(readHeldIssues()).toEqual([]);
 		expect(readHandOffs()).toEqual([
 			{
-				args: ["hand-off", "--from", seat, "--job", Job, "--issue", "7"],
+				args: [
+					"hand-off",
+					"--from",
+					seat,
+					"--job",
+					Job,
+					"--session",
+					"s-job7",
+					"--issue",
+					"7",
+				],
 				cwd: fs.realpathSync(repo),
 			},
 		]);
@@ -4540,7 +4552,7 @@ describe("the sessions parked on a cleared repo hold (#3863)", () => {
 		expect(last.status).toBe(0);
 		expect(last.stdout).toMatch(/could not resume .*try 3 of 3/);
 		expect(readLines(at("hand-offs"))).toEqual([
-			`hand-off --from ${seat} --job job8 --issue 8`,
+			`hand-off --from ${seat} --job job8 --session s-job8 --issue 8`,
 		]);
 		expect(readState().launches[0]).toMatchObject({
 			finishedAt: expect.any(Number),
@@ -4852,7 +4864,7 @@ describe("the launches a restart killed (#3880)", () => {
 		expect(last.status).toBe(0);
 		expect(last.stdout).toMatch(/could not resume .*try 3 of 3/);
 		expect(readLines(at("hand-offs"))).toEqual([
-			`hand-off --from ${seat} --job job7 --issue 7`,
+			`hand-off --from ${seat} --job job7 --session s-job7 --issue 7`,
 		]);
 		expect(readState().launches[0]).toMatchObject({
 			finishedAt: expect.any(Number),
@@ -4971,7 +4983,7 @@ describe("the launches a restart killed (#3880)", () => {
 			expect(r.status).toBe(0);
 			expect(readCalls()).toContain("stop job7");
 			expect(readLines(at("hand-offs"))).toEqual([
-				`hand-off --from ${seat} --job job7 --issue 7`,
+				`hand-off --from ${seat} --job job7 --session s-job7 --issue 7`,
 			]);
 			expect(readState().launches[0]).toMatchObject({
 				finishedAt: expect.any(Number),
@@ -4984,7 +4996,7 @@ describe("the launches a restart killed (#3880)", () => {
 			const r = await tickWith(0);
 			expect(r.status).toBe(0);
 			expect(readLines(at("hand-offs"))).toEqual([
-				`hand-off --from ${seat} --job job7 --issue 7`,
+				`hand-off --from ${seat} --job job7 --session s-job7 --issue 7`,
 			]);
 			expect(readState().launches[0].handedOff).toEqual(expect.any(Number));
 		});

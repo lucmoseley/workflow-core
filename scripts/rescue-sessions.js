@@ -20,10 +20,12 @@
  *                                          stop it and adopt its ticket (#621);
  *                                          --despite overrules that verdict (#622);
  *                                          a GHOST is stopped, not adopted (#1989)
- *   hand-off  --from D --job SHORT --issue N [--issue M]
+ *   hand-off  --from D --job SHORT [--session ID] --issue N [--issue M]
  *                                          snapshot a stopped job, post its
  *                                          Hand-off on each issue and release
- *                                          its claim, for a fresh session (#2659)
+ *                                          its claim, for a fresh session (#2659);
+ *                                          of a job with no record, --session
+ *                                          stands in for it (#3988)
  *
  * SNAPSHOT BEFORE YOU STOP.
  */
@@ -115,7 +117,7 @@ const OTHER_INPUT_CHARS = 100;
 
 const HOLDER_USAGE = "(--issue <n> | --session <id>) [--interval <s>]";
 const HAND_OFF_USAGE =
-	"usage: rescue-sessions.js hand-off --from <config-dir> --job <short id> --issue <n> [--issue <n>]…";
+	"usage: rescue-sessions.js hand-off --from <config-dir> --job <short id> [--session <id>] --issue <n> [--issue <n>]…";
 
 /** @type {Record<string, import("./lib/cli-args").CommandSpec>} */
 const SUBCOMMANDS = {
@@ -149,7 +151,12 @@ const SUBCOMMANDS = {
 	},
 	"hand-off": {
 		usage: HAND_OFF_USAGE,
-		flags: { "--from": "value", "--job": "value", "--issue": "list" },
+		flags: {
+			"--from": "value",
+			"--job": "value",
+			"--session": "value",
+			"--issue": "list",
+		},
 	},
 };
 
@@ -2229,39 +2236,71 @@ function buildLandedLine(job) {
 /** @param {ParsedArgs} args */
 function cmdHandOff(args) {
 	const tracker = require("./lib/tracker-ops.js");
-	const store = require("./lib/arbiter-store");
 	/** @type {ScriptIo} */
 	const io = tracker.scriptIo("rescue-sessions hand-off");
-	const dir = configDir(args);
+	const { dir, short, issues, first, launchSession } = parseHandOffArgs(args);
+	const repo = io.trackerOrFail();
+	const found = readJobs(dir).jobs.find((j) => j.short === short);
+	if (!found && fs.existsSync(jobStatePath(dir, short)))
+		io.fail(
+			`job ${short}'s record on ${dir} will not read. Nothing written.`,
+			2,
+		);
+	const out = rescueDir(first, short);
+	const sessionId = found ? found.sessionId : launchSession;
+	const comment = found
+		? writeSnapshotBody(io, dir, out, found)
+		: writeHandOffBody(io, { sessionId, ticket: "the ticket" }, out, {
+				head: buildRecordlessHead(short, sessionId),
+				done: "unread: its job record is gone",
+				blockedOn:
+					"nothing the loop could read: its job record is gone, and it may have been waiting on the founder",
+			});
+	let failed = false;
+	for (const n of issues) {
+		if (!postComment(io, { repo, n, out }, comment)) failed = true;
+		if (found || sessionId) {
+			if (!releaseHandedOff(io, n, sessionId)) failed = true;
+		}
+		// Residual: its claim stays, up to a week, though a dead holder's refuses
+		// no fresh claim (claimIssueExclusive).
+		else io.out(`left: any claim on #${n}, its session id being unknown\n`);
+	}
+	process.exit(failed ? 1 : 0);
+}
+
+/** @param {ParsedArgs} args */
+function parseHandOffArgs(args) {
 	const short = typeof args.job === "string" ? args.job : "";
 	const issues = (Array.isArray(args.issue) ? args.issue : []).map(Number);
 	const [first] = issues;
 	if (!short || first === undefined || !issues.every((n) => n > 0))
 		die(HAND_OFF_USAGE);
-	const repo = io.trackerOrFail();
-	const found = readJobs(dir).jobs.find((j) => j.short === short);
-	if (!found) io.fail(`no job ${short} on ${dir}. Nothing written.`, 2);
-	const out = rescueDir(first, short);
-	const { job } = snapshotJob(dir, out, found);
-	fs.writeFileSync(
-		path.join(out, "index.json"),
-		`${JSON.stringify([job], null, 2)}\n`,
-	);
-	io.out(`snapshot: ${out}\n`);
-	const comment = writeHandOffBody(io, job, out);
-	let failed = false;
-	for (const n of issues) {
-		if (!postComment(io, { repo, n, out }, comment)) failed = true;
-		const r = store.releaseIssue(n, { sessionId: job.sessionId });
-		if (r.status === "released") io.out(`released: its claim on #${n}\n`);
-		else if (r.status === "none")
-			io.out(`released: it held no claim on #${n}\n`);
-		else {
-			failed = true;
-			io.warn(`releasing its claim on #${n} failed (${r.status})`);
-		}
+	return {
+		dir: configDir(args),
+		short,
+		issues,
+		first,
+		launchSession: typeof args.session === "string" ? args.session : "",
+	};
+}
+
+/**
+ * Release `sessionId`'s claim on #`n`; false where it may still stand.
+ * @param {ScriptIo} io
+ * @param {number} n
+ * @param {string} sessionId
+ */
+function releaseHandedOff(io, n, sessionId) {
+	const store = require("./lib/arbiter-store");
+	const r = store.releaseIssue(n, { sessionId });
+	if (r.status === "released") io.out(`released: its claim on #${n}\n`);
+	else if (r.status === "none") io.out(`released: it held no claim on #${n}\n`);
+	else {
+		io.warn(`releasing its claim on #${n} failed (${r.status})`);
+		return false;
 	}
-	process.exit(failed ? 1 : 0);
+	return true;
 }
 
 /**
@@ -2276,15 +2315,64 @@ const buildHandOffLeft = (ticket, narrated) =>
 		? `continue ${ticket} from ${narrated}, unless they end on a question to the founder that this ticket does not show answered: then post it as a round and park, building nothing past it`
 		: `continue ${ticket}; the loop read no narration for it, so first ask by round anything this ticket leaves open for the founder`;
 
+const FRESH_PICK_UP =
+	"fresh session picks up from the block below, launched by the next tick free to, which an away-mode loop is not while the ticket is labelled parked.";
+
 /**
- * The hand-off comment for a snapshotted job: its block where the session's
- * uncommitted diff fits in a comment, else a note naming the diff's file in
- * `out`. Exits 1 where git cannot read HEAD, the block's Base.
- * @param {ScriptIo} io
- * @param {Job} job  snapshotJob's
- * @param {string} out
+ * The opening of a hand-off whose job record is gone.
+ * @param {string} short
+ * @param {string} sessionId  "" where the launch never learned it
  */
-function writeHandOffBody(io, job, out) {
+const buildRecordlessHead = (short, sessionId) =>
+	`**Refill loop: handed off.** ${sessionId ? `Session ${sessionId}` : "The session"} of job ${short} ended unread: its job record is gone. ${sessionId ? "The loop released its claim; a" : "A"} ${FRESH_PICK_UP}`;
+
+/**
+ * Snapshot `found` into `out`, and the hand-off comment of what that read.
+ * @param {ScriptIo} io
+ * @param {string} dir
+ * @param {string} out
+ * @param {Job} found
+ */
+function writeSnapshotBody(io, dir, out, found) {
+	const core = require("./lib/arbiter-core");
+	const { job } = snapshotJob(dir, out, found);
+	fs.writeFileSync(
+		path.join(out, "index.json"),
+		`${JSON.stringify([job], null, 2)}\n`,
+	);
+	io.out(`snapshot: ${out}\n`);
+	return writeHandOffBody(
+		io,
+		{ sessionId: job.sessionId, ticket: job.intent || "the ticket" },
+		out,
+		{
+			head: [
+				`**Refill loop: handed off.** Session ${job.sessionId}${job.name ? ` (${job.name})` : ""} was resumed by its host and took no turn, nor after the loop's resume (#2659). The loop stopped it and released its claim; a ${FRESH_PICK_UP}`,
+				`Its files stay uncommitted where it left them. Snapshot: ${path.relative(core.repoRoot(), out)}.`,
+			].join(" "),
+			done: job.commitsLanded?.join("; ") || "none",
+			blockedOn:
+				"nothing the loop could read: its host restarted it and it never took another turn",
+			narrationFile: path.join(out, `${job.short}.narration.txt`),
+		},
+	);
+}
+
+/**
+ * A hand-off comment: its block where the session's uncommitted diff fits in a
+ * comment, else a note naming the diff's file in `out`. Exits 1 where git
+ * cannot read HEAD, the block's Base.
+ * @param {ScriptIo} io
+ * @param {{sessionId: string, ticket: string}} session
+ * @param {string} out
+ * @param {{head: string, done: string, blockedOn: string, narrationFile?: string}} parts
+ */
+function writeHandOffBody(
+	io,
+	{ sessionId, ticket },
+	out,
+	{ head, done, blockedOn, narrationFile },
+) {
 	const core = require("./lib/arbiter-core");
 	const { gitOrNull } = require("./lib/git.js");
 	const { buildHandOffComment } = require("./lib/hand-off.js");
@@ -2292,29 +2380,23 @@ function writeHandOffBody(io, job, out) {
 	const root = core.repoRoot();
 	const base = gitOrNull(["rev-parse", "HEAD"], { cwd: root })?.trim();
 	if (!base) io.fail(`git would not read HEAD in ${root}. Nothing posted.`, 1);
-	const files = readStrandedFiles(job.sessionId, root);
+	const files = readStrandedFiles(sessionId, root);
 	const diff = files.map((f) => readUncommittedDiff(io, root, f)).join("");
-	const narrationFile = path.join(out, `${job.short}.narration.txt`);
-	const head = [
-		`**Refill loop: handed off.** Session ${job.sessionId}${job.name ? ` (${job.name})` : ""} was resumed by its host and took no turn, nor after the loop's resume (#2659). The loop stopped it and released its claim; a fresh session picks up from the block below, launched by the next tick free to, which an away-mode loop is not while the ticket is labelled parked.`,
-		`Its files stay uncommitted where it left them. Snapshot: ${path.relative(root, out)}.`,
-	].join(" ");
-	const narration = fs.existsSync(narrationFile)
-		? fs.readFileSync(narrationFile, "utf8")
-		: "";
-	const ticket = job.intent || "the ticket";
+	const narration =
+		narrationFile && fs.existsSync(narrationFile)
+			? fs.readFileSync(narrationFile, "utf8")
+			: "";
 	const hasNarration = narration.trim() !== "";
 	const body = buildHandOffComment({
 		head,
 		narration,
 		base,
-		done: job.commitsLanded?.join("; ") || "none",
+		done,
 		left: buildHandOffLeft(
 			ticket,
 			hasNarration ? "the narration's newest lines above" : null,
 		),
-		blockedOn:
-			"nothing the loop could read: its host restarted it and it never took another turn",
+		blockedOn,
 		files,
 		diff,
 	});

@@ -5,8 +5,10 @@
  * holding a real git repo and arbiter store, against a fake `gh`.
  *
  * Breaking it costs the fresh session its pick-up: a comment read-hand-off.js
- * passes over, a diff carrying a neighbour's file, a claim left standing, or
- * the stopped session's files restored out from under it.
+ * passes over, a diff carrying a neighbour's file, a known session's claim left
+ * standing, or the stopped session's files restored out from under it. Of a job
+ * whose record is gone (#3988), it costs the warning that the old session may
+ * have been waiting on the founder.
  */
 
 import { execFileSync } from "node:child_process";
@@ -21,7 +23,7 @@ import {
 	ledger,
 } from "./lib/arbiter-testkit";
 import { stubGhScript } from "./lib/gh-stub";
-import { handOffFaults, parseHandOff } from "./lib/hand-off.js";
+import { doneShas, handOffFaults, parseHandOff } from "./lib/hand-off.js";
 import { BOOT_PROMPT } from "./lib/loop-prompts.js";
 import {
 	rescueKit,
@@ -39,16 +41,25 @@ const sb = freshSandbox(withTracker);
 const { plan, writeTranscript, jobState } = rescueKit(sb);
 
 const commentFile = () => path.join(sb.dir, "comment.md");
+const commentedFile = () => path.join(sb.dir, "commented");
 
 /** `hand-off` for #621 on the sandbox plan, `gh` saving the comment body. */
-const handOff = () => {
+const handOff = (extra: string[] = [], issues = [N]) => {
 	const { env } = stubGhScript(
 		sb.dir,
-		`#!/bin/sh\n[ "$1 $2" = "issue comment" ] && cat > ${shellQuote(commentFile())}\nexit 0\n`,
+		`#!/bin/sh\n[ "$1 $2" = "issue comment" ] && { echo "$3" >> ${shellQuote(commentedFile())}; cat > ${shellQuote(commentFile())}; }\nexit 0\n`,
 	);
 	return runInProcess(
 		SCRIPT,
-		["hand-off", "--from", plan(), "--job", SHORT, "--issue", `${N}`],
+		[
+			"hand-off",
+			"--from",
+			plan(),
+			"--job",
+			SHORT,
+			...extra,
+			...issues.flatMap((n) => ["--issue", `${n}`]),
+		],
 		{
 			cwd: sb.repo,
 			env: { ...process.env, ...env, CLAUDE_PROJECT_DIR: sb.repo },
@@ -156,12 +167,62 @@ describe("hand-off (#2659)", () => {
 		expect(fs.readFileSync(path.join(sb.repo, "y.js"), "utf8")).toBe("fresh\n");
 	});
 
-	it("refuses a job the plan does not hold, writing nothing", () => {
-		gitRepo(sb);
-		commitAll(sb);
-		writeTranscript([said("x")]);
-		const r = handOff();
-		expect(r.status).toBe(2);
-		expect(fs.existsSync(commentFile())).toBe(false);
+	describe("of a job with no record (#3988)", () => {
+		const jobDir = () => path.join(plan(), "jobs", SHORT);
+
+		it("warns the fresh session on each issue, carrying the session's diff and releasing its claim", () => {
+			stoppedSession();
+			fs.rmSync(jobDir(), { recursive: true });
+			issueClaims.claimIssue(622, { sessionId: SID });
+			const r = handOff(["--session", SID], [N, 622]);
+			expect(r.stderr).toBe("");
+			expect(r.status).toBe(0);
+			expect(fs.readFileSync(commentedFile(), "utf8")).toBe(`${N}\n622\n`);
+			const body = fs.readFileSync(commentFile(), "utf8");
+			expect(handOffFaults(body)).toEqual([]);
+			const h = parseHandOff(body);
+			expect(h?.fields.Left).toContain(
+				"so first ask by round anything this ticket leaves open for the founder",
+			);
+			expect(h?.fields["Blocked on"]).toContain(
+				"it may have been waiting on the founder",
+			);
+			expect(body).toContain(`Session ${SID}`);
+			expect(h && doneShas(h)).toEqual([]);
+			expect(h?.uncommitted.sort()).toEqual(["x.js", "y.js"]);
+			expect(issueClaims.readIssueClaims(N)).toEqual([]);
+			expect(issueClaims.readIssueClaims(622)).toEqual([]);
+		});
+
+		it("still warns with no session id, promising no release", () => {
+			stoppedSession();
+			fs.rmSync(jobDir(), { recursive: true });
+			const r = handOff();
+			expect(r.stderr).toBe("");
+			expect(r.status).toBe(0);
+			const body = fs.readFileSync(commentFile(), "utf8");
+			expect(handOffFaults(body)).toEqual([]);
+			expect(parseHandOff(body)?.fields.Uncommitted).toBe("none");
+			expect(body).not.toContain("released its claim");
+			expect(issueClaims.readIssueClaims(N)).toHaveLength(1);
+			expect(r.stdout).toContain(`left: any claim on #${N}`);
+		});
+
+		it("refuses a record that will not read, writing nothing, so a torn write is retried", () => {
+			stoppedSession();
+			fs.writeFileSync(path.join(jobDir(), "state.json"), "{ torn");
+			const r = handOff(["--session", SID]);
+			expect(r.status).toBe(2);
+			expect(fs.existsSync(commentFile())).toBe(false);
+			expect(issueClaims.readIssueClaims(N)).toHaveLength(1);
+		});
+
+		it("refuses a config dir with no job store", () => {
+			stoppedSession();
+			fs.rmSync(path.join(plan(), "jobs"), { recursive: true });
+			const r = handOff(["--session", SID]);
+			expect(r.status).toBe(2);
+			expect(fs.existsSync(commentFile())).toBe(false);
+		});
 	});
 });
