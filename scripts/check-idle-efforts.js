@@ -27,11 +27,13 @@
  * directory refusing the state file too, leaves that record a tick or more old.
  *
  * WARN, never FAIL. A tracker that will not read is its own line, never
- * "none idle".
+ * "none idle". So is a live loop's damaged control or state file or a hold store
+ * that will not read (#3918); a stopped loop's control is
+ * check-refill-loop-stop.js's to name.
  *
  * ONCE PER FINDING PER DAY under `--notify` (#3644): a finding is an idle
- * issue, an unread tracker or a run of the loop with no live holder of its pid
- * lock, however it stopped (#3892), and a session start names each one its
+ * issue, an unread tracker, a damaged file or a run of the loop with no live
+ * holder of its pid lock, however it stopped (#3892), and a session start names each one its
  * delivery stamp (lib/delivery-stamp.js) does not record for that machine-local
  * day, with an idle issue's whole tracker. The stamp is written only once a
  * report is shown: by this
@@ -49,7 +51,7 @@
  * persisted run opens, so it neither prints nor replaces a report not yet
  * shown.
  *
- * IMPLICIT:  at every session start, reads every adopting checkout's tracker and reports a stopped refill loop and each tracker holding an effort idle past 2 days, or unread, whose finding was not yet shown that machine-local day; a dispatcher's or the loop's job start, or any job's resume, stamps none of it, and through the hooks shows none of it.
+ * IMPLICIT:  at every session start, reads every adopting checkout's tracker and reports a stopped refill loop, a live loop's damaged file and each tracker holding an effort idle past 2 days, or unread, whose finding was not yet shown that machine-local day; a dispatcher's or the loop's job start, or any job's resume, stamps none of it, and through the hooks shows none of it.
  * JUSTIFIED: fail-safe — a stopped loop, or a route it skips, strands an effort with nothing else to say so.
  * DEFEAT:    none needed — it never blocks; deleting its delivery stamp names today's findings again.
  */
@@ -115,9 +117,9 @@ const CHECKER = "idle-efforts";
  * @param {import("./lib/check").Ctx} ctx
  * @param {import("./lib/idle-efforts.js").IdleReport} idleReport
  */
-function report(ctx, { unseen, stopUnseen, lines }) {
+function report(ctx, { unseen, stopUnseen, damagedUnseen, lines }) {
 	for (const line of lines) ctx.say(line);
-	for (const r of buildFindingRecords(unseen, stopUnseen))
+	for (const r of buildFindingRecords(unseen, stopUnseen, damagedUnseen))
 		ctx.warn(r.code, r.text, r.data);
 }
 
@@ -137,13 +139,17 @@ function readLoop(reportDamaged) {
 			launches: [],
 			held: [],
 			repoHolds: [],
+			holdsUnreadRoots: [],
 		};
 	}
 	const control = refillFiles.readControlFile(reportDamaged);
 	const state = refillFiles.readStateFile(reportDamaged);
 	const served = control ? servedRoots(control.scope).roots : [];
-	for (const root of served)
-		for (const line of readHolds(root).unread) reportDamaged(line);
+	const holdsUnreadRoots = served.filter((root) => {
+		const { unread } = readHolds(root);
+		for (const line of unread) reportDamaged(line);
+		return unread.length > 0;
+	});
 	return {
 		running: true,
 		stoppedRun: null,
@@ -151,6 +157,7 @@ function readLoop(reportDamaged) {
 		launches: loop.workingOf(state.launches),
 		held: [...state.held, ...loop.limitHoldsOf(state.launches)],
 		repoHolds: readTickHolds(served, state.probeBrokenRoots),
+		holdsUnreadRoots,
 	};
 }
 
@@ -162,9 +169,9 @@ const buildSpec = (source) => ({
 		// Residual: the day stamp is written off this clock, so a stray WFC_NOW
 		// skews it (check.js now(), mantahostels#2161).
 		const now = clockNow();
-		const loopRead = readLoop((line) =>
-			ctx.warn("REFILL-LOOP-FILE-DAMAGED", line),
-		);
+		/** @type {string[]} */
+		const damaged = [];
+		const loopRead = readLoop((line) => damaged.push(line));
 		/** @type {Map<string, string[]>} tracker to its checkouts */
 		const rootsOf = new Map();
 		for (const root of discoverRepos(homeDir()).included) {
@@ -207,6 +214,7 @@ const buildSpec = (source) => ({
 		const idleReport = buildIdleReport(
 			findings,
 			loopRead.running,
+			damaged,
 			ctx.notify
 				? {
 						stamp: deliveryStamp.readStamp(CHECKER),
@@ -225,8 +233,8 @@ const buildSpec = (source) => ({
 			...(signature !== null && { stamp: signature }),
 			maxAgeMs: LONG_STALE_MS,
 			okLine: `no effort idle past ${IDLE_DAYS} days.`,
-			noun: "finding(s): a stopped loop, or a tracker with idle efforts or unread",
-			data: { loopRunning: loopRead.running, trackers: findings },
+			noun: "finding(s): a stopped loop, a damaged loop file, or a tracker with idle efforts or unread",
+			data: { loopRunning: loopRead.running, trackers: findings, damaged },
 		};
 	},
 });

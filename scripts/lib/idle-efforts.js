@@ -22,7 +22,11 @@
  * The reason printed beside a tracker's oldest is, in the loop's own order, a
  * probe hold's on every checkout the loop serves of its tracker (#3898), else its
  * hold's where it is held, else the loop's launch filter (lib/refill-decide.js's
- * buildSkipReason).
+ * buildSkipReason). A row that filter passes waits on rank, unless no served
+ * checkout of its tracker has a hold store that reads.
+ *
+ * A damaged loop file, or a hold store that will not read, is a finding of its
+ * own, named above the tracker lines (#3918).
  *
  * The shell hands over raw reads, keyed by checkout; buildReadings joins them
  * to the trackers those checkouts file to, and buildFindingRecords picks each
@@ -79,6 +83,8 @@ const QUERY =
  * @property {boolean} served whether the loop's current scope serves it
  * @property {boolean} probeHeld a probe hold stops launches from every checkout
  *   of it the loop serves
+ * @property {boolean} holdsUnread the hold store of every checkout of it the loop
+ *   serves would not read
  * @property {IssueReading[]} issues its open issues
  * @property {string|null} error why its issues would not read
  */
@@ -114,6 +120,7 @@ const QUERY =
  * @typedef {object} TrackerFinding
  * @property {string} repo
  * @property {boolean} served
+ * @property {boolean} holdsUnread as TrackerReading's
  * @property {string|null} error
  * @property {Idle[]} idle oldest first
  */
@@ -148,6 +155,8 @@ const QUERY =
  *   rows on a full seat and launches waiting on a limit
  * @property {import("./refill-decide.js").TickHold[]} repoHolds its served
  *   checkouts' open repo holds
+ * @property {string[]} holdsUnreadRoots its served checkouts whose hold store
+ *   would not read, whole or in part
  */
 
 /**
@@ -239,6 +248,9 @@ function buildReadings({ rootsOf, trackers, loop, now }) {
 				served: served.length > 0,
 				probeHeld:
 					served.length > 0 && served.every((r) => probeHeldRoots.has(r)),
+				holdsUnread:
+					served.length > 0 &&
+					served.every((r) => loop.holdsUnreadRoots.includes(r)),
 				issues,
 				error,
 			};
@@ -398,6 +410,7 @@ function findIdleEfforts(readings) {
 	return readings.trackers.map((t) => ({
 		repo: t.repo,
 		served: t.served,
+		holdsUnread: t.holdsUnread,
 		error: t.error,
 		idle: t.issues
 			.map((i) => ({ i, key: refKey({ repo: t.repo, ...i }) }))
@@ -430,6 +443,24 @@ const named = (i) => `#${i.number} (${i.title}), idle ${days(i.idleMs)}`;
 const LOOP_STOPPED_TEXT =
 	"The refill loop is not running, so it serves no tracker. /pick-next restarts it.";
 
+/** @param {string} damage a damaged file's line, as its reader words it */
+const buildDamagedText = (damage) => `Refill loop file damaged: ${damage}`;
+
+/**
+ * Why a row the launch filter passes has not launched. Rank starvation is this
+ * alarm's to name (#3623), and rank holds back nothing the loop does not serve
+ * (#3894), nor is it named where no served hold store reads (#3918), though the
+ * loop launches there as if no hold were open (lib/repo-holds.js's tendHolds).
+ * @param {TrackerFinding} f
+ */
+function buildFilterPassedText(f) {
+	const passed = "none, the launch filter passes it";
+	if (!f.served) return passed;
+	return f.holdsUnread
+		? `${passed}; a hold store would not read, and the loop reads that as no hold`
+		: `${passed}, so it waits on rank`;
+}
+
 /**
  * @typedef {object} IdleLine
  * @property {string} text
@@ -440,13 +471,14 @@ const LOOP_STOPPED_TEXT =
  * One line per tracker, beneath it each issue past the threshold held at the
  * limit-cap parks' cap or on a limit that the line does not already name as its
  * oldest, and
- * beneath a tracker the loop does not serve, each `urgent` one; first, where no
- * loop runs, a line saying so.
+ * beneath a tracker the loop does not serve, each `urgent` one; first, a line for
+ * each damaged file and, where no loop runs, a line saying so.
  * @param {TrackerFinding[]} findings
  * @param {boolean} loopRunning
+ * @param {string[]} damaged each damaged file's line
  * @returns {IdleLine[]}
  */
-function buildIdleLines(findings, loopRunning) {
+function buildIdleLines(findings, loopRunning, damaged) {
 	/** @param {string} text */
 	const buildTopLine = (text) => ({ text, nested: false });
 	/** @param {string} text */
@@ -460,11 +492,7 @@ function buildIdleLines(findings, loopRunning) {
 			return [
 				buildTopLine(`${f.repo}: none idle past ${IDLE_DAYS} days${unserved}`),
 			];
-		/* Rank starvation is this alarm's to name (#3623), and rank holds back
-		 * nothing the loop does not serve (#3894). */
-		const skip =
-			oldest.skip ??
-			`none, the launch filter passes it${f.served ? ", so it waits on rank" : ""}`;
+		const skip = oldest.skip ?? buildFilterPassedText(f);
 		return [
 			buildTopLine(
 				`${f.repo}: ${f.idle.length} idle past ${IDLE_DAYS} days${unserved}; oldest ${named(oldest)}; skip reason: ${skip}`,
@@ -481,24 +509,34 @@ function buildIdleLines(findings, loopRunning) {
 						.map((i) => buildNestedLine(`urgent ${named(i)}`))),
 		];
 	});
-	return loopRunning ? lines : [buildTopLine(LOOP_STOPPED_TEXT), ...lines];
+	return [
+		...damaged.map((d) => buildTopLine(buildDamagedText(d))),
+		...(loopRunning ? [] : [buildTopLine(LOOP_STOPPED_TEXT)]),
+		...lines,
+	];
 }
 
 /**
  * @typedef {object} FindingRecord
- * @property {"IDLE-EFFORTS"|"IDLE-EFFORTS-UNREAD"|"REFILL-LOOP-NOT-RUNNING"} code
+ * @property {"IDLE-EFFORTS"|"IDLE-EFFORTS-UNREAD"|"REFILL-LOOP-NOT-RUNNING"|"REFILL-LOOP-FILE-DAMAGED"} code
  * @property {string} text
  * @property {{repo: string, idle: Idle[]}} [data]
  */
 
 /**
- * One record for a stopped loop being named, then one per tracker holding a
- * finding: an unread tracker, or one with efforts idle past the threshold.
+ * One record per damaged file being named, one for a stopped loop being named,
+ * then one per tracker holding a finding: an unread tracker, or one with efforts
+ * idle past the threshold.
  * @param {TrackerFinding[]} findings
  * @param {boolean} stopUnseen
+ * @param {string[]} damaged each damaged file's line
  * @returns {FindingRecord[]}
  */
-const buildFindingRecords = (findings, stopUnseen) => [
+const buildFindingRecords = (findings, stopUnseen, damaged) => [
+	...damaged.map(
+		/** @returns {FindingRecord} */
+		(d) => ({ code: "REFILL-LOOP-FILE-DAMAGED", text: buildDamagedText(d) }),
+	),
 	.../** @type {FindingRecord[]} */ (
 		stopUnseen
 			? [{ code: "REFILL-LOOP-NOT-RUNNING", text: LOOP_STOPPED_TEXT }]
@@ -542,6 +580,9 @@ const findingKeys = (f) =>
 		? f.idle.map((i) => refKey({ repo: f.repo, number: i.number }))
 		: [`${f.repo.toLowerCase()} unread`];
 
+/** @param {string} damage a damaged file's line */
+const buildDamagedKey = (damage) => `damaged ${damage}`;
+
 /**
  * The findings a delivered stamp records for `day`.
  * @param {string|null} stamp
@@ -564,27 +605,36 @@ function seenOn(stamp, day) {
 
 /**
  * What a session start names, once per finding per day: each tracker holding a
- * finding the delivered stamp does not record for `day`, whole, and a stopped
- * loop it does not record, a run that stops after a restart being a new finding.
+ * finding the delivered stamp does not record for `day`, whole, a damaged file
+ * it does not record, and a stopped loop it does not record, a run that stops
+ * after a restart being a new finding.
  * @param {TrackerFinding[]} findings
  * @param {boolean} loopRunning
+ * @param {string[]} damaged
  * @param {IdleNotice} notice
- * @returns {{unseen: TrackerFinding[], stopUnseen: boolean, signature: string|null}}
+ * @returns {{unseen: TrackerFinding[], stopUnseen: boolean, damagedUnseen: string[], signature: string|null}}
  */
-function selectUnseen(findings, loopRunning, { stamp, day, stoppedRun }) {
+function selectUnseen(
+	findings,
+	loopRunning,
+	damaged,
+	{ stamp, day, stoppedRun },
+) {
 	const seen = seenOn(stamp, day);
 	const unseen = findings.filter((f) =>
 		findingKeys(f).some((k) => !seen.has(k)),
 	);
 	const stopKey = `refill-loop stopped ${stoppedRun}`;
 	const stopUnseen = !loopRunning && !seen.has(stopKey);
-	if (unseen.length === 0 && !stopUnseen)
-		return { unseen, stopUnseen, signature: null };
+	const damagedUnseen = damaged.filter((d) => !seen.has(buildDamagedKey(d)));
+	if (unseen.length === 0 && !stopUnseen && damagedUnseen.length === 0)
+		return { unseen, stopUnseen, damagedUnseen, signature: null };
 	for (const k of unseen.flatMap(findingKeys)) seen.add(k);
 	if (stopUnseen) seen.add(stopKey);
+	for (const d of damagedUnseen) seen.add(buildDamagedKey(d));
 	/** @type {SeenStamp} */
 	const next = { day, seen: [...seen] };
-	return { unseen, stopUnseen, signature: JSON.stringify(next) };
+	return { unseen, stopUnseen, damagedUnseen, signature: JSON.stringify(next) };
 }
 
 /**
@@ -600,6 +650,7 @@ function selectUnseen(findings, loopRunning, { stamp, day, stoppedRun }) {
  * @typedef {object} IdleReport
  * @property {TrackerFinding[]} unseen the trackers this run names
  * @property {boolean} stopUnseen
+ * @property {string[]} damagedUnseen the damaged files' lines this run names
  * @property {string[]} lines its text, nested lines indented; empty where it
  *   names none
  * @property {string|null} signature what records `unseen` as shown
@@ -613,18 +664,25 @@ function selectUnseen(findings, loopRunning, { stamp, day, stoppedRun }) {
  * records nothing.
  * @param {TrackerFinding[]} findings
  * @param {boolean} loopRunning
+ * @param {string[]} damaged each damaged file's line
  * @param {IdleNotice|null} notice
  * @returns {IdleReport}
  */
-function buildIdleReport(findings, loopRunning, notice) {
-	const { unseen, stopUnseen, signature } = notice
-		? selectUnseen(findings, loopRunning, notice)
-		: { unseen: findings, stopUnseen: !loopRunning, signature: null };
+function buildIdleReport(findings, loopRunning, damaged, notice) {
+	const { unseen, stopUnseen, damagedUnseen, signature } = notice
+		? selectUnseen(findings, loopRunning, damaged, notice)
+		: {
+				unseen: findings,
+				stopUnseen: !loopRunning,
+				damagedUnseen: damaged,
+				signature: null,
+			};
 	return {
 		unseen,
 		stopUnseen,
-		lines: buildIdleLines(unseen, !stopUnseen).map(({ text, nested }) =>
-			nested ? `  ${text}` : text,
+		damagedUnseen,
+		lines: buildIdleLines(unseen, !stopUnseen, damagedUnseen).map(
+			({ text, nested }) => (nested ? `  ${text}` : text),
 		),
 		signature,
 		stampNow: notice?.held ? null : signature,

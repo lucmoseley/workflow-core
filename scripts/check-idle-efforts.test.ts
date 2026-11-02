@@ -170,6 +170,70 @@ const withLiveLoop = async (refill: string, body: () => Promise<void>) => {
 	}
 };
 
+const serveCore = () => {
+	checkout("core", "o/core");
+	const refill = path.join(dir, "refill");
+	fs.mkdirSync(refill, { recursive: true });
+	fs.writeFileSync(
+		path.join(refill, ".refill-loop-control.json"),
+		JSON.stringify({
+			scope: {
+				mode: "normal",
+				repos: [path.join(home, "core")],
+				exclude: [],
+				goals: {},
+			},
+			noProgressFrom: NOW,
+		}),
+	);
+	return refill;
+};
+
+const raiseCoreHold = (refill: string, kind: "probe" | "park") => {
+	vi.stubEnv("WFC_REFILL_DIR", refill);
+	raiseHold(path.join(home, "core"), {
+		kind,
+		act: "repair the checkout",
+		issue: 1,
+		clearCheck: kind === "probe" ? { probe: true } : { issueClosed: 1 },
+		session: null,
+		now: NOW,
+	});
+};
+
+const tearHoldStore = (refill: string) => {
+	raiseCoreHold(refill, "park");
+	const [store = ""] = fs.readdirSync(path.join(refill, "repo-holds"));
+	fs.writeFileSync(path.join(refill, "repo-holds", store, "torn.json"), "{}");
+};
+
+/** A live loop's damage of each kind on the served checkout, and what its line says. */
+const DAMAGE: [string, (refill: string) => void, string[]][] = [
+	[
+		"a hold store",
+		tearHoldStore,
+		["torn.json: not a hold; lift its id or remove the file"],
+	],
+	[
+		"the control file",
+		(refill) =>
+			fs.writeFileSync(path.join(refill, ".refill-loop-control.json"), "{"),
+		[".refill-loop-control.json is damaged (", "until a start rewrites it"],
+	],
+	[
+		"the state file",
+		(refill) =>
+			fs.writeFileSync(path.join(refill, ".refill-loop-state.json"), "{"),
+		[
+			".refill-loop-state.json is damaged (",
+			"until its next write replaces it",
+		],
+	],
+];
+
+const DAMAGE_SUMMARY =
+	"WARN: 1 finding(s): a stopped loop, a damaged loop file, or a tracker with idle efforts or unread";
+
 describe("check-idle-efforts.js", () => {
 	it("reads a shared tracker once, its latest launch across checkouts, a held launch as running, and a stopped loop as serving nothing", async () => {
 		checkout("core-a", "o/core", [launch(1, 5 * DAY)]);
@@ -436,37 +500,6 @@ describe("check-idle-efforts.js", () => {
 	});
 
 	describe("a served checkout's repo hold, read as the loop reads it (#3898)", () => {
-		const serveCore = () => {
-			checkout("core", "o/core");
-			const refill = path.join(dir, "refill");
-			fs.mkdirSync(refill, { recursive: true });
-			fs.writeFileSync(
-				path.join(refill, ".refill-loop-control.json"),
-				JSON.stringify({
-					scope: {
-						mode: "normal",
-						repos: [path.join(home, "core")],
-						exclude: [],
-						goals: {},
-					},
-					noProgressFrom: NOW,
-				}),
-			);
-			return refill;
-		};
-
-		const raiseCoreHold = (refill: string, kind: "probe" | "park") => {
-			vi.stubEnv("WFC_REFILL_DIR", refill);
-			raiseHold(path.join(home, "core"), {
-				kind,
-				act: "repair the checkout",
-				issue: 1,
-				clearCheck: kind === "probe" ? { probe: true } : { issueClosed: 1 },
-				session: null,
-				now: NOW,
-			});
-		};
-
 		it("names a probe hold beside the oldest of a held checkout, not rank", async () => {
 			const refill = serveCore();
 			raiseCoreHold(refill, "probe");
@@ -521,12 +554,7 @@ describe("check-idle-efforts.js", () => {
 
 		it("reports a hold store that will not read, never reading it silently as no hold", async () => {
 			const refill = serveCore();
-			raiseCoreHold(refill, "park");
-			const [store = ""] = fs.readdirSync(path.join(refill, "repo-holds"));
-			fs.writeFileSync(
-				path.join(refill, "repo-holds", store, "torn.json"),
-				"{}",
-			);
+			tearHoldStore(refill);
 			await withLiveLoop(refill, async () => {
 				const r = await run({ "o/core": [node(3)] }, ["--json"]);
 				expect(r.status).toBe(0);
@@ -537,6 +565,71 @@ describe("check-idle-efforts.js", () => {
 					}),
 				);
 			});
+		});
+	});
+
+	it.each(DAMAGE)(
+		"prints the line for damaged %s on a plain run (#3918)",
+		async (_, damage, says) => {
+			const refill = serveCore();
+			damage(refill);
+			await withLiveLoop(refill, async () => {
+				const r = await run({ "o/core": [] });
+				expect(r.status).toBe(0);
+				expect(r.out).toContain("Refill loop file damaged: ");
+				for (const text of says) expect(r.out).toContain(text);
+				expect(r.out).toContain(DAMAGE_SUMMARY);
+			});
+		},
+	);
+
+	it("hands the damage line to the morning review's --json reader (#3918)", async () => {
+		const refill = serveCore();
+		fs.writeFileSync(path.join(refill, ".refill-loop-state.json"), "{");
+		await withLiveLoop(refill, async () => {
+			const r = await run({ "o/core": [] }, ["--json"]);
+			expect(r.status).toBe(0);
+			expect(JSON.parse(r.stdout).damaged).toEqual([
+				expect.stringContaining(".refill-loop-state.json is damaged ("),
+			]);
+		});
+	});
+
+	describe("a tracker whose every served hold store is unread (#3918)", () => {
+		it("names no rank where a file in it is torn", async () => {
+			const refill = serveCore();
+			tearHoldStore(refill);
+			await withLiveLoop(refill, async () => {
+				const r = await run({ "o/core": [node(3)] });
+				expect(r.status).toBe(0);
+				expect(r.out).toContain(
+					"skip reason: none, the launch filter passes it; a hold store would not read, and the loop reads that as no hold",
+				);
+				expect(r.out).not.toContain("rank");
+			});
+		});
+
+		it("names no rank where it will not list", async () => {
+			const refill = serveCore();
+			raiseCoreHold(refill, "park");
+			const [name = ""] = fs.readdirSync(path.join(refill, "repo-holds"));
+			const store = path.join(refill, "repo-holds", name);
+			fs.chmodSync(store, 0o300);
+			try {
+				await withLiveLoop(refill, async () => {
+					const r = await run({ "o/core": [node(3)] });
+					expect(r.status).toBe(0);
+					expect(r.out).toMatch(/Refill loop file damaged: .*EACCES/);
+					expect(r.out).toContain(
+						"repair the directory, as no hold in it reads",
+					);
+					expect(r.out).not.toContain("lift its id");
+					expect(r.out).toContain("the loop reads that as no hold");
+					expect(r.out).not.toContain("rank");
+				});
+			} finally {
+				fs.chmodSync(store, 0o700);
+			}
 		});
 	});
 
@@ -606,6 +699,25 @@ describe("at session start (--notify, #3644)", () => {
 		expect(nextDay.status).toBe(0);
 		expect(nextDay.stdout).toContain("o/core: 1 idle past 2 days");
 	});
+
+	it.each(DAMAGE)(
+		"prints the line for damaged %s once a day (#3918)",
+		async (_, damage, says) => {
+			const refill = serveCore();
+			damage(refill);
+			await withLiveLoop(refill, async () => {
+				const first = await run({ "o/core": [] }, ["--notify"]);
+				expect(first.status).toBe(0);
+				expect(first.stdout).toContain("Refill loop file damaged: ");
+				for (const text of says) expect(first.stdout).toContain(text);
+				expect(first.stdout).toContain(DAMAGE_SUMMARY);
+
+				const again = await run({ "o/core": [] }, ["--notify"]);
+				expect(again.status).toBe(0);
+				expect(again.stdout).toBe("");
+			});
+		},
+	);
 
 	it("names a tracker again the same day once it holds a new finding", async () => {
 		await run(oneIdle, ["--notify"]);
@@ -833,6 +945,24 @@ describe("at session start (--notify, #3644)", () => {
 			delivery.recordDelivery("idle-efforts", unshown.stamp);
 			await run(oneIdle, ["--notify"]);
 			expect(notify.readReport("idle-efforts").text).toBe("");
+		});
+
+		it("carries a damaged file's line for the reader, and names it again until the reader stamps it (#3918)", async () => {
+			const refill = serveCore();
+			tearHoldStore(refill);
+			await withLiveLoop(refill, async () => {
+				expect((await run({ "o/core": [] }, ["--notify"])).status).toBe(0);
+				const first = notify.readReport("idle-efforts");
+				expect(first.text).toContain("Refill loop file damaged: ");
+
+				expect((await run({ "o/core": [] }, ["--notify"])).status).toBe(0);
+				const unshown = notify.readReport("idle-efforts");
+				expect(unshown.text).toContain("Refill loop file damaged: ");
+
+				delivery.recordDelivery("idle-efforts", unshown.stamp);
+				expect((await run({ "o/core": [] }, ["--notify"])).status).toBe(0);
+				expect(notify.readReport("idle-efforts").text).toBe("");
+			});
 		});
 
 		it("leaves a report not yet shown in place on a compaction", async () => {
