@@ -69,6 +69,8 @@ const ceiling = (ms: number) => ({
 	...process.env,
 	WFC_COMMIT_LOCK_CEILING_MS: String(ms),
 });
+/** A guess, unmeasured: reached well inside a test's second, past git's first refusal. */
+const ShortCeilingMs = 300;
 const runWith = (args: string[], env: NodeJS.ProcessEnv) =>
 	runInProcess(SCRIPT, args, { cwd: sb.repo, env });
 /** The outcome log's last line, split on its tabs. */
@@ -968,7 +970,6 @@ touch .git/index.lock
 	// through the ceiling override. Wide: a race clears in one retry, its hooks
 	// a fraction of a second. Short: spent by the first retry's backoff alone.
 	const WideCeilingMs = 60_000;
-	const ShortCeilingMs = 300;
 
 	it("rebuilds on the new HEAD and commits there, where a neighbour's commit moves HEAD while the hooks run (#3280)", () => {
 		write("held.md");
@@ -1295,7 +1296,7 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 		const tip = readHead();
 		fs.writeFileSync(lockFile(), "a crashed git's");
 		const mtime = fs.statSync(lockFile()).mtimeMs;
-		const r = runWith(["-m", "x", "--", "new.md"], ceiling(300));
+		const r = runWith(["-m", "x", "--", "new.md"], ceiling(ShortCeilingMs));
 		expect(r.status).toBe(1);
 		expect(r.stderr).toMatch(
 			/gave up after 0\.3s waiting for .*index\.lock; it is \d+s old, no live git process in this worktree/,
@@ -1316,8 +1317,8 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 		expect(Number(waited)).toBeLessThan(1);
 	});
 
-	it("reads a held lock in a checkout whose path holds a ', and prints a removal a shell can read (#3975)", () => {
-		const repo = path.join(sb.dir, "it's");
+	const commitAgainstHeldLock = (name: string) => {
+		const repo = path.join(sb.dir, name);
 		fs.mkdirSync(repo);
 		initGitRepo(repo, hooks);
 		fs.writeFileSync(path.join(repo, "new.md"), "new\n");
@@ -1325,16 +1326,58 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 		fs.writeFileSync(lock, "a crashed git's");
 		const r = runInProcess(SCRIPT, ["-m", "x", "--", "new.md"], {
 			cwd: repo,
-			env: ceiling(300),
+			env: ceiling(ShortCeilingMs),
 		});
+		return { lock, r };
+	};
+
+	it("reads a held lock in a checkout whose path holds a ', and prints a removal a shell can read (#3975)", () => {
+		const { lock, r } = commitAgainstHeldLock("it's");
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain(`rm -f ${shellQuote(lock)}`);
+	});
+
+	it("reads a held lock in a checkout whose path holds a newline, and prints a removal for the whole path (#4038)", () => {
+		const { lock, r } = commitAgainstHeldLock("two\nlines");
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(`rm -f ${shellQuote(lock)}`);
+	});
+
+	it("keeps the newline ending a checkout's name, and prints a removal for the whole path (#4038)", () => {
+		const { lock, r } = commitAgainstHeldLock("trail\n");
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(`rm -f ${shellQuote(lock)}`);
+	});
+
+	it("names only the first lock where the refused commit's output holds two refusals (#4038)", () => {
+		const mark = path.join(sb.dir, "refused");
+		const twice = writeFaultyGit(
+			{ first: "commit" },
+			{
+				script: [
+					`if [ ! -f ${shellQuote(mark)} ]; then`,
+					`  : > ${shellQuote(mark)}`,
+					"  echo \"fatal: Unable to create '/one/index.lock': File exists.\" >&2",
+					"  echo \"fatal: Unable to create '/two/index.lock': File exists.\" >&2",
+					"  exit 128",
+					"fi",
+				].join("\n"),
+			},
+			{ under: sb.dir },
+		);
+		write("new.md");
+		const r = runWith(["-m", "x", "--", "new.md"], {
+			...ceiling(5000),
+			WFC_GIT: twice.git,
+		});
+		expect(r.stderr).toContain("/one/index.lock is held;");
+		expect(r.status).toBe(0);
 	});
 
 	it("at the ceiling with a live holder, names it and prints no removal command", async () => {
 		write("a.md", "edited\n");
 		const { pid, done, release } = await holder();
-		const r = runWith(["-m", "x", "--", "a.md"], ceiling(300));
+		const r = runWith(["-m", "x", "--", "a.md"], ceiling(ShortCeilingMs));
 		release();
 		await done;
 		expect(r.status).toBe(1);
@@ -1351,7 +1394,7 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 		const { done, release } = await holder(nested);
 		write("new.md");
 		fs.writeFileSync(lockFile(), "a crashed git's");
-		const r = runWith(["-m", "x", "--", "new.md"], ceiling(300));
+		const r = runWith(["-m", "x", "--", "new.md"], ceiling(ShortCeilingMs));
 		release();
 		await done;
 		expect(r.status).toBe(1);
@@ -1368,7 +1411,7 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 		fs.chmodSync(dotGit, 0o555);
 		let r: ReturnType<typeof run>;
 		try {
-			r = runWith(["-m", "x", "--", "new.md"], ceiling(300));
+			r = runWith(["-m", "x", "--", "new.md"], ceiling(ShortCeilingMs));
 		} finally {
 			fs.chmodSync(dotGit, 0o755);
 		}
@@ -1447,7 +1490,7 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 		fs.writeFileSync(headLock, "");
 		let r: ReturnType<typeof run>;
 		try {
-			r = runWith(["-m", "x", "--", "a.md"], ceiling(300));
+			r = runWith(["-m", "x", "--", "a.md"], ceiling(ShortCeilingMs));
 		} finally {
 			fs.rmSync(headLock);
 		}

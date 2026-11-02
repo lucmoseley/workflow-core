@@ -314,9 +314,10 @@ const CEILING_ENV = "WFC_COMMIT_LOCK_CEILING_MS";
 // So a test can fix the jitter's draw, in [0, 1), and bound the waits it makes.
 const JITTER_ENV = "WFC_COMMIT_LOCK_JITTER";
 
-// Greedy, not `[^']*`: git leaves a `'` in the path unescaped (#3975).
+// Not `[^']*`: git leaves a `'` or a newline in the path unescaped (#3975, #4038).
+// Lazy, as a hook's output can hold a second refusal.
 const LOCK_REFUSAL =
-	/^fatal: Unable to create '(.*index\.lock)': File exists\./;
+	/^fatal: Unable to create '(.*?index\.lock)': File exists\./s;
 // A line of its own: the hooks ran before the ref update, so their output comes first.
 const HEAD_MOVED =
 	/^fatal: cannot lock ref '[^']+': is at [0-9a-f]+ but expected [0-9a-f]+$/m;
@@ -356,8 +357,9 @@ const sleep = (ms) =>
 let treesCache;
 function readWorktrees() {
 	if (!treesCache) {
+		// Git's one newline, not `trim()`: a checkout's name can end in whitespace.
 		const root = fs.realpathSync(
-			git(["rev-parse", "--show-toplevel"]).stdout.trim(),
+			git(["rev-parse", "--show-toplevel"]).stdout.replace(/\n$/, ""),
 		);
 		const others = [];
 		for (const line of git(["worktree", "list", "--porcelain"]).stdout.split(
