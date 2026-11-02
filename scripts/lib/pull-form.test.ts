@@ -16,7 +16,9 @@
  * guard-pull-form.test.ts's.
  */
 
-import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import { describe, expect, it, vi } from "vitest";
+import { mkScratchDir } from "./git-fixture";
 import { fakeTreeClassifier } from "./git-tree-fake.js";
 import { denyFires } from "./guard-fires-testkit";
 import { kitContextFake } from "./kit-context-fake";
@@ -878,6 +880,19 @@ describe("rewinding main is refused (#765)", () => {
 			expect(readDenyReason(command)).not.toContain("repair-main");
 		},
 	);
+
+	it("spells the repair script at the plugin root in an install (#3926)", () => {
+		const install = mkScratchDir("pull-form-install-");
+		vi.stubEnv("WFC_SCRIPT_ROOT", install);
+		try {
+			expect(
+				readDenyReason("git checkout -B main HEAD~1", { mainUnreadable: true }),
+			).toContain(`node ${install}/scripts/repair-main.js`);
+		} finally {
+			vi.unstubAllEnvs();
+			fs.rmSync(install, { recursive: true, force: true });
+		}
+	});
 
 	it("carries lib/main-rewind.js's fallback where the store cannot give the rule (#1777)", () => {
 		expect(readDenyReason("git branch -D main", { storeFault: true })).toBe(
