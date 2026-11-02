@@ -108,7 +108,6 @@ const {
 const loop = require("./lib/refill-loop.js");
 const { bootVerdictOf } = require("./lib/refill-boot.js");
 const {
-	adoptControlFile,
 	forgetRunHeld,
 	recordRunHeld,
 	readControlChecked,
@@ -761,7 +760,6 @@ async function run() {
 	}
 	process.on("exit", lock.release);
 	recordRunHeld(log);
-	adoptControlFile(log);
 	for (const sig of /** @type {const} */ (["SIGTERM", "SIGINT", "SIGHUP"]))
 		process.on(sig, () => process.exit(0));
 	log(`refill loop running, pid ${process.pid}, from ${SCRIPTS}`);

@@ -3104,7 +3104,6 @@ const commandFromRepo = (...argv: string[]) =>
 const storedScope = () => ({
 	mode: "away",
 	repos: [repo],
-	tickedSet: true,
 	goal: {
 		form: "issues",
 		text: "5",

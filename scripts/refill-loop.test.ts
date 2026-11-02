@@ -1353,36 +1353,6 @@ describe("the ticked set and the mode (#3862)", () => {
 		expect((await run("status")).stdout).toContain("repos:     core\n");
 	});
 
-	it("adopts the live control's away shape as the checkouts it serves now", async () => {
-		checkout("books", { refillLoop: false });
-		fs.writeFileSync(
-			path.join(dir, ".refill-loop-control.json"),
-			JSON.stringify({
-				noProgressFrom: 1,
-				stopRequested: false,
-				seats: [],
-				scope: { mode: "away", repos: [], exclude: [manta], goal: null },
-			}),
-		);
-		expect(await namesTicked()).toEqual(["core"]);
-		const r = await run("set", "--tick", "manta");
-		expect(r.status).toBe(0);
-		expect(r.stdout).toContain("repos:     core, manta");
-		checkout("later");
-		expect(await namesTicked()).toEqual(["core", "manta"]);
-		expect(readControl().scope.mode).toBe("away");
-	});
-
-	it("repeats every other included checkout as exclude in away mode, for a loop on older code", async () => {
-		checkout("books", { refillLoop: false });
-		const r = await run("set", "--away");
-		expect(r.status).toBe(0);
-		expect(r.stdout).toContain("mode:      away");
-		expect(readControl().scope.exclude).toEqual([manta]);
-		expect((await run("set", "--normal")).status).toBe(0);
-		expect(readControl().scope.exclude).toBeUndefined();
-	});
-
 	it("keeps an emptied away set empty when a checkout appears later", async () => {
 		writeControl({ mode: "away", repos: [core], goal: null });
 		expect((await run("set", "--untick", "core")).status).toBe(0);

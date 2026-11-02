@@ -1827,27 +1827,6 @@ describe("the control file", () => {
 
 	it("reads a control with no scope as away mode serving nothing", () => {
 		expect(parseControl({ noProgressFrom: 5 })?.scope).toEqual(away([]));
-		expect(parseControl({ noProgressFrom: 5 }, () => [WFC, MH])?.scope).toEqual(
-			away([]),
-		);
-	});
-
-	it("adopts today's away shape as a ticked set of the checkouts it serves now", () => {
-		const raw = {
-			noProgressFrom: 5,
-			scope: { mode: "away", repos: [], exclude: [MH, DV], goals: {} },
-		};
-		expect(parseControl(raw, () => [WFC, MH, DV])?.scope).toEqual(away([WFC]));
-	});
-
-	it("reads a written set as written, an empty one included, a repeated exclude changing nothing", () => {
-		const raw = (repos: string[]) => ({
-			noProgressFrom: 5,
-			scope: { mode: "away", tickedSet: true, repos, exclude: [MH], goals: {} },
-		});
-		const included = () => [WFC, MH, DV];
-		expect(parseControl(raw([WFC]), included)?.scope).toEqual(away([WFC]));
-		expect(parseControl(raw([]), included)?.scope).toEqual(away([]));
 	});
 
 	it("reads a file's per-checkout goals as one goal, keeping only whole numbers (#3864)", () => {

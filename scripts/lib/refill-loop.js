@@ -205,31 +205,16 @@ const parseStrings = (raw) =>
 	Array.isArray(raw) ? raw.filter((s) => typeof s === "string") : [];
 
 /**
- * Whether a raw scope has away mode's old shape, serving every included checkout
- * bar `exclude`. writeControlFile's `tickedSet` marks an `exclude` it repeated. A stopgap: #3921 removes it.
- * @param {unknown} raw
- */
-const hasExcludeShape = (raw) =>
-	isRecord(raw) &&
-	raw.mode !== "normal" &&
-	Array.isArray(raw.exclude) &&
-	raw.tickedSet !== true;
-
-/**
  * The control file's scope. A scope that does not say normal reads as away
  * mode, ticking only the repos it names.
  * @param {unknown} raw
- * @param {() => string[]} [readIncluded] discovery's checkouts, for
- *   hasExcludeShape's shape
  * @returns {Scope}
  */
-function parseScope(raw, readIncluded = () => []) {
+function parseScope(raw) {
 	const r = isRecord(raw) ? raw : {};
 	return {
 		mode: r.mode === "normal" ? "normal" : "away",
-		repos: hasExcludeShape(r)
-			? readIncluded().filter((root) => !parseStrings(r.exclude).includes(root))
-			: parseStrings(r.repos),
+		repos: parseStrings(r.repos),
 		goal: parseGoal(r),
 	};
 }
@@ -276,10 +261,9 @@ function parseAway(raw) {
 /**
  * The control file's fields, or null where it is not one.
  * @param {unknown} raw
- * @param {() => string[]} [readIncluded] parseScope's
  * @returns {Control|null}
  */
-function parseControl(raw, readIncluded) {
+function parseControl(raw) {
 	if (!isRecord(raw)) return null;
 	const { noProgressFrom } = raw;
 	if (typeof noProgressFrom !== "number") return null;
@@ -292,7 +276,7 @@ function parseControl(raw, readIncluded) {
 		...parsePause(raw.paused),
 		...parseAway(raw.away),
 		seats: parseStrings(raw.seats),
-		scope: parseScope(raw.scope, readIncluded),
+		scope: parseScope(raw.scope),
 	};
 }
 
@@ -1630,7 +1614,6 @@ module.exports = {
 	runningOf,
 	workingOf,
 	parseScope,
-	hasExcludeShape,
 	scopeRoots,
 	landingRoots,
 	parseProbeOutcome,

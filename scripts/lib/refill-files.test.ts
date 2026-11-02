@@ -8,16 +8,15 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { decideTick } from "./refill-decide.js";
 import {
-	adoptControlFile,
 	readControlChecked,
 	readJson,
 	withControlLock,
 	writeLoopPause,
 } from "./refill-files.js";
-import { NOW, writeCheckout } from "./refill-loop-fixture";
+import { NOW } from "./refill-loop-fixture";
 
 describe("a loop file's read (#3380)", () => {
 	let tmp: string;
@@ -233,83 +232,5 @@ describe("the tick's control read (#3389)", () => {
 			control: { noProgressFrom: 5 },
 			damaged: null,
 		});
-	});
-});
-
-describe("adopting away mode's old shape (#3862)", () => {
-	let tmp: string;
-	const control = () => path.join(tmp, ".refill-loop-control.json");
-	const checkout = (name: string) => writeCheckout(tmp, name);
-	beforeEach(() => {
-		tmp = fs.mkdtempSync(path.join(os.tmpdir(), "refill-adopt-"));
-		vi.stubEnv("WFC_REFILL_DIR", tmp);
-		vi.stubEnv("HOME", tmp);
-	});
-	afterEach(() => {
-		vi.unstubAllEnvs();
-		fs.rmSync(tmp, { recursive: true, force: true });
-	});
-
-	it("fixes the set it serves now, so a checkout found after stays unticked", () => {
-		const core = checkout("core");
-		const manta = checkout("manta");
-		fs.writeFileSync(
-			control(),
-			JSON.stringify({
-				noProgressFrom: 1,
-				seats: [],
-				scope: { mode: "away", repos: [], exclude: [manta], goals: {} },
-			}),
-		);
-		const lines: string[] = [];
-		adoptControlFile((l) => lines.push(l));
-		expect(lines).toEqual([`control adopted: repos ${core}`]);
-		checkout("later");
-		expect(readControlChecked(() => undefined).control?.scope).toEqual({
-			mode: "away",
-			repos: [core],
-			goal: null,
-		});
-	});
-
-	it("logs that it could not adopt where a live holder keeps the lock, writing nothing", () => {
-		const manta = checkout("manta");
-		const raw = JSON.stringify({
-			noProgressFrom: 1,
-			seats: [],
-			scope: { mode: "away", repos: [], exclude: [manta], goals: {} },
-		});
-		fs.writeFileSync(control(), raw);
-		const holder = spawn(
-			process.execPath,
-			["-e", "setInterval(() => {}, 1000)", "refill-loop.js"],
-			{ stdio: "ignore" },
-		);
-		try {
-			fs.writeFileSync(`${control()}.lock`, String(holder.pid));
-			const lines: string[] = [];
-			adoptControlFile((l) => lines.push(l), 0);
-			expect(lines).toEqual([expect.stringContaining("control not adopted")]);
-			expect(lines[0]).toContain(`held by pid ${holder.pid}`);
-			expect(fs.readFileSync(control(), "utf8")).toBe(raw);
-		} finally {
-			holder.kill();
-		}
-	});
-
-	it("rewrites no control already ticked, and none that is absent", () => {
-		const core = checkout("core");
-		const lines: string[] = [];
-		adoptControlFile((l) => lines.push(l));
-		expect(fs.existsSync(control())).toBe(false);
-		const ticked = JSON.stringify({
-			noProgressFrom: 1,
-			seats: [],
-			scope: { mode: "normal", repos: [core], goals: {} },
-		});
-		fs.writeFileSync(control(), ticked);
-		adoptControlFile((l) => lines.push(l));
-		expect(fs.readFileSync(control(), "utf8")).toBe(ticked);
-		expect(lines).toEqual([]);
 	});
 });
