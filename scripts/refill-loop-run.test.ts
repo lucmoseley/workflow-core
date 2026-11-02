@@ -230,6 +230,26 @@ const run = (slots: number, over: NodeJS.ProcessEnv = {}) =>
 		env: loopEnv({ FAKE_SLOTS: String(slots), ...over }),
 	});
 
+/* For a case that runs `set --resume` against the loop: pid-lock reads the
+ * holder's own command line, so an in-process run reads as no process and the
+ * resume starts a second, detached loop that writes into the sandbox as
+ * afterEach deletes it. */
+const runAsProcess = (slots: number) => {
+	// spawn-kept: the reason above.
+	const child = spawn(
+		process.execPath,
+		[path.join(scripts, "refill-loop.js"), "run"],
+		{
+			cwd: dir,
+			env: loopEnv({ FAKE_SLOTS: String(slots) }),
+			stdio: "ignore",
+		},
+	);
+	return new Promise<{ status: number | null }>((resolve) => {
+		child.on("exit", (status) => resolve({ status }));
+	});
+};
+
 /* A guess: some 30 times a case's 0.7 s run, and well inside the loop's
  * fallback sleep (lib/refill-wake.js's FALLBACK_MS), so a loop still running
  * past it is waiting on that sleep, not ending. */
@@ -3099,12 +3119,13 @@ describe("a paused loop on the real tick (#3856)", () => {
 
 	it("launches again on a resume, with no restart", async () => {
 		pauseControl();
-		const running = run(1);
+		const running = runAsProcess(1);
 		await ticksDone();
 		expect(fs.existsSync(at("dispatches"))).toBe(false);
 
 		const resumed = setCommand("--resume");
 		expect(resumed.status).toBe(0);
+		expect(resumed.stdout).not.toContain("refill loop started");
 		/* The stub dispatcher asks for the stop that ends this run. */
 		const r = await settled(running, "run after a resume");
 
@@ -3273,16 +3294,7 @@ describe("the loop's own waits on the real tick (#3859)", () => {
 
 	it("pauses on no progress, stays up launching nothing, and launches only after `set --resume`", async () => {
 		seedStalled();
-		/* An in-process loop would read to `set --resume` as no process. */
-		// spawn-kept: pid-lock reads the holder's own command line.
-		const child = spawn(
-			process.execPath,
-			[path.join(scripts, "refill-loop.js"), "run"],
-			{ cwd: dir, env: loopEnv({ FAKE_SLOTS: "1" }), stdio: "ignore" },
-		);
-		const running = new Promise<{ status: number | null }>((resolve) => {
-			child.on("exit", (status) => resolve({ status }));
-		});
+		const running = runAsProcess(1);
 		await polled(
 			() => control().paused !== undefined,
 			"no tick wrote the no-progress pause",
