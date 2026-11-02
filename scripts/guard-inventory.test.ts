@@ -690,6 +690,46 @@ describe("the hand-off on a park that asks no round (#2849)", () => {
 				handOffAt("2026-10-09T15:00:00Z");
 				expect(run(handoverPark, { transcript: transcript() })).toBe("");
 			});
+
+			describe("beside a transcript that will not read (#3951)", () => {
+				const tailDisagrees = handoverPark.replace(/#31$/, "#32");
+				const states = [
+					/* The lookup finds no file, so this row pins the limb's no-file exit. */
+					["missing", () => path.join(dir, "gone.jsonl")],
+					[
+						/* A directory passes the access and stat checks and throws at the
+						 * read, whoever runs the test: root reads a chmod 000 file. */
+						"unreadable",
+						() => {
+							const unreadable = path.join(dir, "unreadable.jsonl");
+							fs.mkdirSync(unreadable, { recursive: true });
+							return unreadable;
+						},
+					],
+				] as const;
+				beforeEach(() => {
+					writeJob(sid);
+					handOffAt("2026-10-09T15:00:00Z");
+				});
+
+				it.each(states)(
+					"passes the freshness test alone on a %s one",
+					(_, makeTranscript) => {
+						expect(run(handoverPark, { transcript: makeTranscript() })).toBe(
+							"",
+						);
+					},
+				);
+
+				it.each(states)(
+					"still refuses an ending another limb faults on a %s one",
+					(_, makeTranscript) => {
+						const reason = run(tailDisagrees, { transcript: makeTranscript() });
+						expect(reason).toContain("where the block lists o/here#31");
+						expect(reason).toContain("both name the same issues");
+					},
+				);
+			});
 		});
 
 		describe("woken by the refill loop's parked-resume prompt (#3939)", () => {
@@ -983,6 +1023,16 @@ describe("the draft-and-act limb (#989)", () => {
 	const fenced = "```\nHi — the photos are fixed.\n```";
 	const quoted =
 		"> Could you send the full-size originals of the six photos?\n> They print better.\n> Thanks";
+
+	it("judges this turn's own message beside a transcript that will not read (#3951)", () => {
+		fs.mkdirSync(transcriptFile());
+		const reason = run(
+			`A message you could send him, edit as you like:\n\n${quoted}\n\n${NOTHING}`,
+			{ transcript: transcriptFile() },
+		);
+		expect(reason).toContain("handed the founder a draft");
+		expect(reason).toContain("list the open issue that carries it");
+	});
 
 	/* The five real hits of #913's q3jobs.py run first. */
 	it.each([

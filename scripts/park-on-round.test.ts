@@ -81,6 +81,11 @@ function claim(n: number, session = sid) {
 	expect(r.status, r.stderr).toBe(0);
 }
 
+function writeJobRecord(jobDir: string, record: Record<string, string>) {
+	fs.mkdirSync(jobDir, { recursive: true });
+	fs.writeFileSync(path.join(jobDir, "state.json"), JSON.stringify(record));
+}
+
 /** Run the hook, as a background job unless `job` is false (an interactive session), a string naming its job dir; it never blocks. */
 function run(message: string, job: boolean | string = true) {
 	expect(
@@ -123,11 +128,7 @@ describe("a round posted on an issue this session claims", () => {
 		claim(31);
 		const seat = path.join(dir, "seat");
 		const jobDir = path.join(seat, "jobs", "abcd1234");
-		fs.mkdirSync(jobDir, { recursive: true });
-		fs.writeFileSync(
-			path.join(jobDir, "state.json"),
-			JSON.stringify({ cwd: "/a checkout" }),
-		);
+		writeJobRecord(jobDir, { cwd: "/a checkout" });
 		run(NEEDS_INPUT, jobDir);
 		expect(readMarker()).toBe(
 			`seat ${seat}\njob abcd1234\ncwd /a checkout\n31`,
@@ -138,17 +139,30 @@ describe("a round posted on an issue this session claims", () => {
 		claim(31);
 		const seat = path.join(dir, "seat");
 		const jobDir = path.join(seat, "jobs", "abcd1234");
-		fs.mkdirSync(jobDir, { recursive: true });
-		fs.writeFileSync(
-			path.join(jobDir, "state.json"),
-			JSON.stringify({ cwd: "/a checkout" }),
-		);
+		writeJobRecord(jobDir, { cwd: "/a checkout" });
 		run(NEEDS_INPUT, jobDir);
 		fs.writeFileSync(path.join(jobDir, "state.json"), "{");
 		run(NEEDS_INPUT, jobDir);
 		expect(readMarker()).toBe(
 			`seat ${seat}\njob abcd1234\ncwd /a checkout\n31`,
 		);
+	});
+
+	it("labels the issue where the transcript will not read and the job began after the round (#3951)", () => {
+		claim(31);
+		const config = path.join(dir, "config");
+		/* A directory is found by the session-id lookup and throws at the read. */
+		fs.mkdirSync(path.join(config, "projects", "p", `${sid}.jsonl`), {
+			recursive: true,
+		});
+		writeJobRecord(path.join(config, "jobs", sid.slice(0, 8)), {
+			sessionId: sid,
+			createdAt: "2026-10-09T16:00:00Z",
+		});
+		run(NEEDS_INPUT);
+		expect(readEdits()).toEqual([
+			"issue edit 31 --repo o/here --add-label parked",
+		]);
 	});
 
 	it("leaves the marker unwritten where the label write fails", () => {

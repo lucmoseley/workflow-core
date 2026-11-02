@@ -61,8 +61,9 @@
  * lib/outstanding-line.js, and passes the posted-round limb, as does an
  * unreadable or partly torn claim store, or no session id. It passes the park
  * limb where a cited issue is unread and no read one holds a hand-off. A
- * transcript that cannot be read passes the freshness test, unlogged: a passing
- * Stop hook's output reaches no one.
+ * transcript that cannot be read passes the freshness test and leaves the
+ * draft-and-act limb this turn's message, unlogged: a passing Stop hook's output
+ * reaches no one.
  *
  * IMPLICIT:  reads the session's ending message at every Stop and blocks the turn where a background job's `result:` or `needs input:` carries no `waits on you:` inventory, or where any session's inventory is misshapen, cites an issue that is not open, disagrees with its status-line tail, or leaves a `needs input:` round posted on no cited issue, on none this session claims, or with no well-formed hand-off in its comment, or parks at `needs input:` with no round and no well-formed hand-off on a cited issue, or parks on a hand-off older than its start or last resume having made a tool call since, or parks while its ledgered files sit uncommitted; and, once a session, where a background job's owed `waits on you: nothing` follows a turn that handed the founder a draft to act on.
  * JUSTIFIED: fail-safe — work left waiting on the founder in chat or a closed issue is lost when the conversation scrolls away (#958), and the ending is the last moment it can still be filed.
@@ -213,10 +214,23 @@ function sessionTurns(payload, sessionId, message) {
 	const turns = new Map();
 	if (file) {
 		const tier = isSubagentTranscript(file) ? "subagent" : "main";
-		for (const record of mainChainRecords(sessionTranscript.read(file), tier))
+		for (const record of mainChainRecords(readTranscriptText(file), tier))
 			addResponseText(turns, record);
 	}
 	return [...[...turns.values()].map((t) => t.join("\n\n")), message];
+}
+
+/**
+ * @param {string} file  the session's transcript
+ * @returns {string} its text; "" where it will not read, leaving the
+ *   draft-and-act limb this turn's own message to judge (#3951)
+ */
+function readTranscriptText(file) {
+	try {
+		return sessionTranscript.read(file);
+	} catch {
+		return "";
+	}
 }
 
 /**
@@ -488,6 +502,22 @@ const newestHandOff = (verdict) =>
 	newestComment(verdict, verdict.items, (c) => parseHandOff(c.body) !== null);
 
 /**
+ * @param {string} file  the session's transcript
+ * @param {number} start  epoch milliseconds
+ * @returns {number|null} the tool calls since `start`; null where the transcript
+ *   parses to nothing or will not read, which passes the freshness test alone:
+ *   left to throw, it would drop every other limb's refusal and every park
+ *   target (#3951)
+ */
+function readToolCallCountSince(file, start) {
+	try {
+		return sinceTime(file, start);
+	} catch {
+		return null;
+	}
+}
+
+/**
  * The fault on a park whose newest hand-off among `verdict`'s items predates
  * this session's start or last resume, where its transcript shows a tool call
  * since.
@@ -502,7 +532,7 @@ function staleHandOffFault(verdict, sessionId, payload) {
 	const file = sessionTranscript.resolve(payload ?? {}, sessionId);
 	const start = readSessionStart(file, sessionId);
 	if (start === null || Date.parse(newest.createdAt) >= start) return "";
-	if (!file || !sinceTime(file, start)) return "";
+	if (!file || !readToolCallCountSince(file, start)) return "";
 	return `this \`needs input:\` park's newest hand-off on its ticket was posted at ${newest.createdAt}, before this session began or last resumed at ${new Date(start).toISOString()}, so it carries none of the Done and Left since (#2944, #2950) — post this session's own hand-off on the issue the park waits on:\n\n${HAND_OFF_SHAPE}`;
 }
 
@@ -735,7 +765,7 @@ function review({ sessionId, message, payload }) {
  * posted its round on and this session claims, or at a park on a repo hold the
  * job is attached to, the cited ones it claims (#3858) — the issues
  * park-on-round.js labels `parked` (#2000). [] for any other ending, or where
- * any read fails.
+ * a tracker or claim read fails.
  * @param {string} message
  * @param {string} sessionId
  * @returns {number[]}
