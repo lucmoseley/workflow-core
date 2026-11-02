@@ -5817,6 +5817,7 @@
 		],
 		"scripts/instruction-surface-anchors.json": [
 			"scripts/guard-issue-close.test.ts",
+			"scripts/lander.test.ts",
 			"scripts/lib/git-ceiling.test.ts",
 			"scripts/lib/issue-close.test.ts",
 			"scripts/lib/refusal-script-paths.test.ts",
@@ -10372,6 +10373,7 @@
 			"scripts/read-hand-off.test.ts",
 			"scripts/record-delegated-decision.test.ts",
 			"scripts/refill-loop-run.test.ts",
+			"scripts/refill-loop.test.ts",
 			"scripts/release-plugin.test.ts",
 			"scripts/repo-checks.test.ts",
 			"scripts/repo-hold-attach.test.ts",

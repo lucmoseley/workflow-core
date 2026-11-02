@@ -1,15 +1,13 @@
 /*
- * refill-goal.js — the refill loop's one loop-wide goal (#3864, spec #3596): the
- * form it was typed in, the text as typed, the repo-qualified issues it names
- * and when it was set. Its issues rank first in every ticked repo's frontier
- * read. A topic's refs are the set confirmed when it was resolved, and stay as
- * stored until the next `set`.
+ * refill-goal.js — the refill loop's one loop-wide goal (#3864, spec #3596). Its
+ * issues rank first in every ticked repo's frontier read. A topic's refs are the
+ * set confirmed when it was resolved, and stay as stored until the next `set`.
  *
- * A CORE: it reads nothing but its arguments. Whether a ref names an open issue
- * is refill-loop.js's `set` to read.
+ * A CORE: it reads nothing but its arguments.
  */
 
 const path = require("node:path");
+const { shellQuote } = require("./sh-quote.js");
 
 /**
  * An issue the goal names; `repo`, its checkout's directory name.
@@ -21,7 +19,9 @@ const path = require("node:path");
  * @property {GoalForm} form
  * @property {string} text as typed
  * @property {GoalRef[]} refs
- * @property {number} setAt ms; 0 on a goal from before this was kept
+ * @property {number} setAt ms; 0 where unset
+ * @typedef {{state: string}|{unread: string}} IssueRead an issue's state, or why
+ *   it would not read
  */
 
 /** @type {readonly GoalForm[]} */
@@ -71,6 +71,26 @@ function qualifyRefs(asked, roots) {
 }
 
 /**
+ * `qualifyRefs`, each ref then read as an open issue.
+ * @param {AskedRef[]} asked
+ * @param {string[]} roots the ticked checkout roots
+ * @param {(ref: GoalRef) => IssueRead} readIssue
+ * @returns {GoalRef[]|string}
+ */
+function qualifyOpenRefs(asked, roots, readIssue) {
+	const refs = qualifyRefs(asked, roots);
+	if (typeof refs === "string") return refs;
+	for (const ref of refs) {
+		const read = readIssue(ref);
+		if ("unread" in read)
+			return `${buildRefText(ref)} will not read as an open issue: ${read.unread}`;
+		if (read.state !== "OPEN")
+			return `${buildRefText(ref)} is ${read.state.toLowerCase()}: a goal names open issues`;
+	}
+	return refs;
+}
+
+/**
  * The goal's issues in the checkout at `root`.
  * @param {Goal|null} goal
  * @param {string} root
@@ -97,20 +117,32 @@ const buildGoalLine = (goal) =>
 	`goal:      ${goal ? `${goal.form} "${goal.text}": ${goal.refs.map(buildRefText).join(", ")}` : "none"}`;
 
 /**
+ * The `set` flags that store `goal` again.
+ * @param {Goal} goal
+ */
+function buildGoalFlags(goal) {
+	const refs = goal.refs.map(buildRefText).join(",");
+	return goal.form === "topic"
+		? `--goal-issues ${refs} --goal-text ${shellQuote(goal.text)}`
+		: `--goal ${refs}`;
+}
+
+/**
  * @param {unknown} raw
- * @returns {GoalRef[]}
+ * @returns {GoalRef[]|null} null where any ref is garbled
  */
 function parseRefs(raw) {
-	return (Array.isArray(raw) ? raw : []).flatMap((r) =>
+	if (!Array.isArray(raw)) return null;
+	const refs = raw.flatMap((r) =>
 		isRecord(r) && typeof r.repo === "string" && Number.isInteger(r.number)
 			? [{ repo: r.repo, number: /** @type {number} */ (r.number) }]
 			: [],
 	);
+	return refs.length === raw.length ? refs : null;
 }
 
 /**
- * The scope's per-checkout `goals` of a file from before #3864, as one goal. A
- * stopgap: #3933 removes it.
+ * The scope's per-checkout `goals`, as one goal. A stopgap: #3933 removes it.
  * @param {Record<string, unknown>} goals keyed by checkout root
  * @returns {Goal|null}
  */
@@ -130,8 +162,9 @@ function parseGoalsByRoot(goals) {
 }
 
 /**
- * The control file's goal: none where it is absent, garbled or names no issue,
- * so a garbled goal leaves the loop running bare.
+ * The control file's goal: none where it is absent, garbled or names no issue.
+ * Fails open (#3864): a garbled goal costs its ranking, where stopping the loop
+ * as control-damaged would cost every launch. readControlChecked logs it.
  * @param {Record<string, unknown>} scope the raw scope
  * @returns {Goal|null}
  */
@@ -140,7 +173,7 @@ function parseGoal({ goal, goals }) {
 	if (!isRecord(goal)) return null;
 	const form = FORMS.find((f) => f === goal.form);
 	const refs = parseRefs(goal.refs);
-	if (form === undefined || refs.length === 0) return null;
+	if (form === undefined || refs === null || refs.length === 0) return null;
 	return {
 		form,
 		text: typeof goal.text === "string" ? goal.text : "",
@@ -150,11 +183,14 @@ function parseGoal({ goal, goals }) {
 }
 
 module.exports = {
+	buildGoalFlags,
 	buildGoalLine,
 	buildRefText,
 	goalNumbersIn,
+	isRecord,
 	isSameGoal,
 	parseAskedRefs,
 	parseGoal,
+	qualifyOpenRefs,
 	qualifyRefs,
 };

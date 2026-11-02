@@ -18,6 +18,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { printed, stubGhRoutes } from "./lib/gh-stub";
 import { localDate } from "./lib/morning-review.js";
 import { writeCheckout } from "./lib/refill-loop-fixture";
 import { runInProcessAsync } from "./lib/run-in-process.js";
@@ -1171,23 +1172,17 @@ describe("the goal (#3864)", () => {
 			path.join(dir, ".refill-loop-control.json"),
 			JSON.stringify({ noProgressFrom: 1, seats: [], scope }),
 		);
-	/* A gh answering each `issue view` by number: 404 unknown, 500 closed. */
-	const fakeGh = () => {
-		const gh = path.join(dir, "fake-gh");
-		fs.writeFileSync(
-			gh,
-			`#!/usr/bin/env node
-const n = process.argv[4];
-if (n === "404") {
-	process.stderr.write("GraphQL: Could not resolve to an issue\\n");
-	process.exit(1);
-}
-process.stdout.write(JSON.stringify({ state: n === "500" ? "CLOSED" : "OPEN" }));
-`,
-			{ mode: 0o755 },
-		);
-		return { WFC_GH: gh };
-	};
+	/* 404 is unknown and 500 closed; any other issue is open. */
+	const fakeGh = () =>
+		stubGhRoutes(dir, {
+			"issue view 404 *": {
+				status: 1,
+				stdout: "",
+				stderr: "GraphQL: Could not resolve to an issue\n",
+			},
+			"issue view 500 *": printed(JSON.stringify({ state: "CLOSED" })),
+			"issue view *": printed(JSON.stringify({ state: "OPEN" })),
+		}).env;
 	const setGoal = (...argv: string[]) => runEnv(fakeGh(), "set", ...argv);
 	const ref = (repo: string, number: number) => ({ repo, number });
 
@@ -1235,12 +1230,21 @@ process.stdout.write(JSON.stringify({ state: n === "500" ? "CLOSED" : "OPEN" }))
 		});
 		const refused = await setGoal("--untick", "manta", "--goal", "manta#3");
 		expect(refused.status).toBe(2);
+		expect(refused.stderr).toContain("manta, which is not ticked");
 		expect(readControl().scope.repos).toEqual([core, manta]);
 	});
 
 	it.each([
-		["a bare #N with two repos ticked", "#5", "#5 names no repo with 2 repos"],
-		["an unticked repo's ref", "books#5", "books, which is not ticked"],
+		[
+			"a bare #N with two repos ticked",
+			"#5",
+			"#5 names no repo with 2 repos ticked: write <repo>#5",
+		],
+		[
+			"an unticked repo's ref",
+			"books#5",
+			"books, which is not ticked: tick books first",
+		],
 		["a closed issue", "core#500", "core#500 is closed"],
 		["an unknown issue", "core#404", "Could not resolve to an issue"],
 		["no ref at all", "drain #5", "a goal takes issue refs"],
@@ -1308,13 +1312,24 @@ process.stdout.write(JSON.stringify({ state: n === "500" ? "CLOSED" : "OPEN" }))
 		);
 	});
 
+	it("names a garbled goal on stderr at status --json, its stdout still one object", async () => {
+		writeControl({ mode: "normal", repos: [core], goal: "soon" });
+		const r = await run("status", "--json");
+		expect(JSON.parse(r.stdout).goal).toBeNull();
+		expect(r.stderr).toContain("goal is garbled");
+	});
+
 	it("keeps a repeated goal's time", async () => {
-		await setGoal("--goal", "1");
-		const { setAt } = readControl().scope.goal;
-		await new Promise((resolve) => setTimeout(resolve, 2));
+		const goal = {
+			form: "issues",
+			text: "1",
+			refs: [ref("core", 1)],
+			setAt: 7,
+		};
+		writeControl({ mode: "normal", repos: [core], goal });
 		const r = await setGoal("--goal", "1");
 		expect(r.stdout).toContain("unchanged: goal:");
-		expect(readControl().scope.goal.setAt).toBe(setAt);
+		expect(readControl().scope.goal.setAt).toBe(7);
 	});
 
 	it("rewrites a control in the shape before it as one goal on any set", async () => {

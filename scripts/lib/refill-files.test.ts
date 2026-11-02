@@ -268,7 +268,7 @@ describe("adopting away mode's old shape (#3862)", () => {
 		expect(readControlChecked(() => undefined).control?.scope).toEqual({
 			mode: "away",
 			repos: [core],
-			goals: {},
+			goal: null,
 		});
 	});
 

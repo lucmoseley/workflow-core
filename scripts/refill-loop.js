@@ -58,8 +58,9 @@
  * throws is logged and the next one runs.
  *
  * Exit codes: 0; 1 on a throw outside the loop, a control lock kept past its
- * wait or, at `set`, no sound control to change; 2 on a command line, a goal
- * ref it refuses or, at `start`, a seat file it refuses.
+ * wait or, at `set`, no sound control to change or a goal ref the lock's fresh
+ * read refuses; 2 on a command line, a goal ref it refuses first or, at `start`,
+ * a seat file it refuses.
  */
 
 const { spawn } = require("node:child_process");
@@ -85,11 +86,7 @@ const {
 const wakes = require("./lib/refill-wake.js");
 const { parseIssueNumbers } = require("./lib/issue-number.js");
 const { ghJson, parseErrLine } = require("./lib/gh.js");
-const {
-	buildRefText,
-	parseAskedRefs,
-	qualifyRefs,
-} = require("./lib/refill-goal.js");
+const { parseAskedRefs } = require("./lib/refill-goal.js");
 const { configDir, seatDir } = require("./lib/config-dir.js");
 const { readLastTyped } = require("./lib/presence.js");
 const {
@@ -207,10 +204,11 @@ function setConflictOf({ flags, lists }) {
 		return "--repos is the whole set; it takes no --tick or --untick";
 	const both = lists["--tick"]?.find((n) => lists["--untick"]?.includes(n));
 	if (both) return `${both} is both ticked and unticked`;
-	const goals = ["--goal", "--goal-issues", "--clear-goal"].filter(
+	const goalFlags = ["--goal", "--goal-issues", "--clear-goal"].filter(
 		(flag) => flags[flag] !== undefined,
 	);
-	if (goals.length > 1) return `set takes one of ${goals.join(" and ")}`;
+	if (goalFlags.length > 1)
+		return `set takes one of ${goalFlags.join(" and ")}`;
 	if (
 		(flags["--goal-issues"] === undefined) !==
 		(flags["--goal-text"] === undefined)
@@ -273,11 +271,11 @@ function parseSetAsk(parsed) {
 }
 
 /**
- * Why `ref` names no open issue, null where it does.
+ * The state of the issue `ref` names, or why it would not read.
  * @param {import("./lib/refill-goal.js").GoalRef} ref
- * @returns {string|null}
+ * @returns {import("./lib/refill-goal.js").IssueRead}
  */
-function readRefRefusal(ref) {
+function readIssueState(ref) {
 	const root = path.join(homeDir(), ref.repo);
 	const tracker = readHostTracker(root);
 	try {
@@ -292,33 +290,10 @@ function readRefRefusal(ref) {
 			],
 			{ cwd: root, env: checkoutEnv(root) },
 		);
-		return state === "OPEN"
-			? null
-			: `${buildRefText(ref)} is ${String(state).toLowerCase()}: a goal names open issues`;
+		return { state: String(state) };
 	} catch (err) {
-		return `${buildRefText(ref)} will not read as an open issue: ${parseErrLine(err)}`;
+		return { unread: parseErrLine(err) };
 	}
-}
-
-/**
- * `ask` with its goal's refs qualified, each read as an open issue, or a string
- * refusal. This runs before the control lock, whose holder reads no tracker;
- * the lock's fresh read judges the refs again against what is ticked then. A
- * control that will not read is planSet's to refuse.
- * @param {import("./lib/refill-commands.js").SetAsk} ask
- * @returns {import("./lib/refill-commands.js").SetAsk|string}
- */
-function checkGoalAsk(ask) {
-	if (!ask.goal) return ask;
-	const { control } = readControlChecked(() => undefined);
-	if (control === null) return ask;
-	const refs = qualifyRefs(ask.goal.refs, commands.tickedAfter(control, ask));
-	if (typeof refs === "string") return refs;
-	for (const ref of refs) {
-		const refusal = readRefRefusal(ref);
-		if (refusal !== null) return refusal;
-	}
-	return { ...ask, goal: { ...ask.goal, refs } };
 }
 
 /**
@@ -558,7 +533,13 @@ function stop() {
 function set(parsed) {
 	const parsedAsk = parseSetAsk(parsed);
 	const ask =
-		typeof parsedAsk === "string" ? parsedAsk : checkGoalAsk(parsedAsk);
+		typeof parsedAsk === "string"
+			? parsedAsk
+			: commands.checkGoalAsk(
+					readControlChecked(() => undefined).control,
+					parsedAsk,
+					readIssueState,
+				);
 	if (typeof ask === "string") {
 		writeFd(2, `${ask}\n\n${USAGE}\n`);
 		return 2;
@@ -596,10 +577,14 @@ function refuseWrite(what, why) {
 
 /** @param {import("./lib/cli-args").Parsed} parsed */
 function status({ flags }) {
-	const control = readControlFile(log);
+	/* `--json`'s stdout is the one object, so a read's complaint goes to stderr. */
+	const note = flags["--json"]
+		? (/** @type {string} */ line) => writeFd(2, `${line}\n`)
+		: log;
+	const control = readControlFile(note);
 	const served = control ? servedRoots(control.scope).roots : [];
 	const pid = lock.holder();
-	const state = readStateFile(log);
+	const state = readStateFile(note);
 	const root = sizingRoot(served);
 	const seats = readSeatsView(control?.seats ?? readConfiguredSeats(), root);
 	const codeSha =

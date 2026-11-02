@@ -53,7 +53,11 @@ const { markersDir } = require("./marker-root.js");
 const { execGit, gitBinary, gitSpawnOptions } = require("./git.js");
 const { execGroupedSync } = require("./grouped-child.js");
 const { writeFd } = require("./write-fd.js");
-const { LANDER_REVERT_ENV, buildRevertLine } = require("./clean-revert.js");
+const {
+	LANDER_REVERT_ENV,
+	buildRevertLine,
+	readKeptAnchors,
+} = require("./clean-revert.js");
 
 /* Untraced: a fraction of the stall check's 2 h, so a live lander is never
  * read as dead mid-suite. */
@@ -2044,7 +2048,9 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 	 * commit names the culprit in WFC_LANDER_REVERT, so the guard-registry
 	 * gate lets the clean revert leave rows stale, which the fix ticket then
 	 * names (#3127). Any other refusal holds the queue, naming the registry
-	 * rows it refused on where it was that gate's (#3123).
+	 * rows it refused on where it was that gate's (#3123). A conflict only in
+	 * anchor files is settled by lib/clean-revert.js's rule (#3935); any other
+	 * holds, naming the files.
 	 * @param {string} culprit
 	 * @param {string|null} parent
 	 * @param {string} tip
@@ -2078,13 +2084,13 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 					culprit,
 				]),
 			);
-			if (unreverted !== null)
-				return {
-					failed: buildConflictFailure(
-						unreverted,
-						inTree(["diff", "--name-only", "--diff-filter=U"]),
-					),
-				};
+			const settled = settleConflicts(inTree, unreverted, {
+				dir,
+				culprit,
+				onto: tip,
+				side: parents[Math.max(mainline - 1, 0)],
+			});
+			if ("failed" in settled) return settled;
 			const subject = git(["log", "-1", "--format=%s", culprit]).trim();
 			try {
 				/* In a group of its own, so a kill at the timeout reaches the hooks, with
@@ -2094,7 +2100,7 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 					["commit", "--quiet", "--no-verify", "-F", "-"],
 					gitSpawnOptions({
 						cwd: dir,
-						input: `Revert "${subject}"\n\n${buildRevertLine(culprit)}\n\n${why}\n`,
+						input: `Revert "${subject}"\n\n${buildRevertLine(culprit)}\n\n${settled.note}${why}\n`,
 						timeout: revertCommitTimeoutMs,
 						env: buildRevertEnv(culprit),
 					}),
@@ -2124,6 +2130,39 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 				);
 		}
 	}
+}
+
+/**
+ * The revert's anchor-file conflicts staged as lib/clean-revert.js settles them,
+ * with the commit message's line saying so; else why the revert did not apply.
+ * @param {(args: string[]) => string} inTree git in the revert's worktree
+ * @param {string|null} stderr the revert's, null where it applied
+ * @param {{dir: string, culprit: string, onto: string, side: string|undefined}} revert
+ * @returns {{note: string} | {failed: string}}
+ */
+function settleConflicts(inTree, stderr, { dir, culprit, onto, side }) {
+	if (stderr === null) return { note: "" };
+	const conflicted = inTree(["diff", "--name-only", "--diff-filter=U"]);
+	const kept =
+		side === undefined
+			? null
+			: readKeptAnchors(
+					dir,
+					{ culprit, onto, side },
+					conflicted.split("\n").filter(Boolean),
+				);
+	if (kept === null)
+		return { failed: buildConflictFailure(stderr, conflicted) };
+	for (const [file, bytes] of kept) {
+		fs.writeFileSync(path.join(dir, file), bytes);
+		inTree(["add", "--", file]);
+	}
+	/* Every hunk kept: a culprit that touched only those files reverts to nothing. */
+	return inTree(["diff", "--cached", "--name-only"]).trim() === ""
+		? { failed: buildConflictFailure(stderr, conflicted) }
+		: {
+				note: `Conflicts in ${[...kept.keys()].join(", ")} kept this branch's side, so their rows may read stale.\n\n`,
+			};
 }
 
 /**

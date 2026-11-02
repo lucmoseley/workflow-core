@@ -116,20 +116,35 @@ describe("the loop's goal (#3864)", () => {
 		expect(asked).toEqual({ [served]: [2], [other]: [20, 21] });
 	});
 
-	it("ranks a goal row first across the repos", async () => {
+	it("ranks a goal's rows first in each repo's read", async () => {
+		const name = (root: string) => path.basename(root);
+		const rowsOf: Record<string, number[]> = {
+			[served]: [1, 2],
+			[other]: [20, 21],
+		};
 		const m = await refillFrontier(
 			[served, other],
-			null,
-			shortlists({
-				[served]: { rows: [row(2)], retroBundles: [], pulledIn: [] },
-				[other]: {
-					rows: [row(20), { ...row(21), goal: true }],
-					retroBundles: [],
-					pulledIn: [],
-				},
-			}).fn,
+			{
+				form: "issues",
+				text: "x",
+				refs: [
+					{ repo: name(served), number: 2 },
+					{ repo: name(other), number: 21 },
+				],
+				setAt: 1,
+			},
+			async (root: string, goal: number[]) => ({
+				rows: rowsOf[root].map((n) =>
+					goal.includes(n) ? { ...row(n), goal: true } : row(n),
+				),
+				retroBundles: [],
+				pulledIn: [],
+				pulledInUnread: [],
+			}),
 		);
-		expect(m.frontier[0]).toMatchObject({ number: 21, goal: true });
+		expect(
+			m.frontier.slice(0, 2).map((r: { number: number }) => r.number),
+		).toEqual(expect.arrayContaining([2, 21]));
 	});
 });
 

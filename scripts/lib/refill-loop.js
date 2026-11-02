@@ -36,7 +36,7 @@ const {
 	markParked,
 } = require("./refill-blocks.js");
 const { buildErrorText } = require("./caught.js");
-const { parseGoal } = require("./refill-goal.js");
+const { isRecord, parseGoal } = require("./refill-goal.js");
 const { buildSeatName } = require("./refill-seats.js");
 const { unclosedLaunches } = require("./unclosed-launch.js");
 const {
@@ -180,9 +180,6 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
 /** @typedef {import("./refill-decide.js").SeatReading} SeatReading */
 /** @typedef {import("./refill-decide.js").SizedSeat} SizedSeat */
 /** @typedef {import("./refill-batch.js").BatchOutcome} BatchOutcome */
-
-/** @param {unknown} raw @returns {raw is Record<string, unknown>} */
-const isRecord = (raw) => typeof raw === "object" && raw !== null;
 
 /** @param {unknown} raw */
 const parseStrings = (raw) =>

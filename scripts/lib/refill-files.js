@@ -23,6 +23,7 @@ const { caught } = require("./caught.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { pidLock, waitForLock } = require("./pid-lock.js");
 const { refillPath } = require("./refill-dir.js");
+const { isRecord } = require("./refill-goal.js");
 const {
 	hasExcludeShape,
 	parseControl,
@@ -114,7 +115,15 @@ function readControlChecked(log) {
 	const why =
 		damage ??
 		(found && control === null ? "not a control: no noProgressFrom" : null);
-	if (why === null) return { control, damaged: null };
+	if (why === null) {
+		const rawGoal =
+			isRecord(value) && isRecord(value.scope) ? value.scope.goal : null;
+		if (rawGoal && control?.scope.goal === null)
+			log(
+				`${file}'s goal is garbled; the loop runs bare until a set replaces it`,
+			);
+		return { control, damaged: null };
+	}
 	const damaged = `${file} is damaged (${why})`;
 	log(`${damaged}; the loop stops on it until a start rewrites it`);
 	return { control: null, damaged };
