@@ -797,6 +797,78 @@ describe("the ticked set and the mode (#3862)", () => {
 		});
 	});
 
+	it("records when away was switched on, a repeat keeping it, and drops it on normal", async () => {
+		const before = Date.now();
+		const switched = await run("set", "--away");
+		expect(switched.status).toBe(0);
+		expect(switched.stdout).toContain("mode:      away");
+		const { away } = readControl();
+		expect(away.since).toBeGreaterThanOrEqual(before);
+		expect(away.absentSeen).toBe(false);
+
+		await run("set", "--away");
+		expect(readControl().away).toEqual(away);
+
+		await run("set", "--normal");
+		expect(readControl().away).toBeUndefined();
+		expect(
+			JSON.parse((await run("status", "--json")).stdout).awaySince,
+		).toBeNull();
+	});
+
+	it("re-arms a repeat --away, so the prompt behind the ask reads as no return", async () => {
+		await run("set", "--away");
+		const control = readControl();
+		const { since } = control.away;
+		fs.writeFileSync(
+			path.join(dir, ".refill-loop-control.json"),
+			JSON.stringify({ ...control, away: { since, absentSeen: true } }),
+		);
+		const r = await run("set", "--away");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("unchanged: mode away");
+		expect(readControl().away).toEqual({ since, absentSeen: false });
+	});
+
+	it("reads in status --json the sessions handed off since this switch", async () => {
+		await run("set", "--away");
+		const { since } = readControl().away;
+		const state = path.join(dir, ".refill-loop-state.json");
+		const status = async () =>
+			JSON.parse((await run("status", "--json")).stdout);
+		fs.writeFileSync(
+			state,
+			JSON.stringify({ launches: [], handedOff: { from: since, count: 2 } }),
+		);
+		expect(await status()).toMatchObject({
+			mode: "away",
+			awaySince: since,
+			handedOffSinceAway: 2,
+		});
+
+		fs.writeFileSync(
+			state,
+			JSON.stringify({
+				launches: [],
+				handedOff: { from: since - 1, count: 2 },
+			}),
+		);
+		expect((await status()).handedOffSinceAway).toBe(0);
+
+		await run("set", "--normal");
+		expect((await status()).handedOffSinceAway).toBe(0);
+	});
+
+	it("keeps a running away mode's switch across a start", async () => {
+		await run("set", "--away");
+		const { away } = readControl();
+		holdPidfile();
+		const r = await run("start");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("refill loop running: pid");
+		expect(readControl().away).toEqual(away);
+	});
+
 	it("ticks, unticks and replaces the set in either mode, the mode untouched", async () => {
 		for (const mode of ["normal", "away"]) {
 			writeControl({ mode, repos: [core], goals: { [core]: [9] } });

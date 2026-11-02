@@ -35,6 +35,9 @@ const {
 const {
 	buildSeatText,
 	buildSkipText,
+	controlInMode,
+	handedOffSince,
+	withAbsentRead,
 	launchesOnDay,
 	launchesSince,
 } = require("./refill-loop.js");
@@ -109,7 +112,7 @@ function planSet({ control, damaged }, ask, context) {
 			: [(/** @type {Control} */ c) => buildPauseChange(c, pause, context)]),
 		...(mode === undefined
 			? []
-			: [(/** @type {Control} */ c) => buildModeChange(c, mode)]),
+			: [(/** @type {Control} */ c) => buildModeChange(c, mode, context)]),
 		...(asksRepos(ask)
 			? [(/** @type {Control} */ c) => buildReposChange(c, ask)]
 			: []),
@@ -181,17 +184,25 @@ function buildPauseChange(control, pause, { running, now }) {
 }
 
 /**
- * Only the mode changed.
+ * Only the mode changed. A repeat `--away` keeps the switch's time but clears
+ * its absent read, so a tick that has yet to see the prompt behind this ask does
+ * not take that prompt for his return (#3870).
  * @param {Control} control
  * @param {Scope["mode"]} mode
+ * @param {SetContext} context
  * @returns {SetChange}
  */
-function buildModeChange(control, mode) {
-	if (control.scope.mode === mode)
-		return { write: null, lines: [`unchanged: mode ${mode}`] };
+function buildModeChange(control, mode, { now }) {
+	if (control.scope.mode !== mode)
+		return {
+			write: controlInMode(control, mode, now),
+			lines: [`mode:      ${mode}`],
+		};
 	return {
-		write: { ...control, scope: { ...control.scope, mode } },
-		lines: [`mode:      ${mode}`],
+		write: control.away?.absentSeen
+			? withAbsentRead(control, false, now)
+			: null,
+		lines: [`unchanged: mode ${mode}`],
 	};
 }
 
@@ -647,7 +658,7 @@ function buildOverflowBasisLines({
 
 /**
  * `status --json`: whether the loop runs and on what code, its pause and mode,
- * the last tick's summary and waiting reason, launches today, every candidate
+ * when away was switched on and the sessions handed off since, the last tick's summary and waiting reason, launches today, every candidate
  * checkout, ticked or not, with why any is disabled (#3862), the launch rows
  * `status` lists, each with its seat as a tilde path and why it was picked
  * (#3732), null on a record from before that, and the `seats:` line's fields
@@ -681,6 +692,10 @@ function buildStatusJson({
 		},
 		launchesToday: launchesOnDay(state, today),
 		mode: control?.scope.mode ?? null,
+		awaySince: control?.away?.since ?? null,
+		handedOffSinceAway: control?.away
+			? handedOffSince(state, control.away.since)
+			: 0,
 		repos: candidates.map(({ root, disabled }) => ({
 			name: path.basename(root),
 			root,

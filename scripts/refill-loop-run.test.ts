@@ -838,6 +838,33 @@ describe("a parked launch (#2699)", () => {
 		]);
 	});
 
+	it("counts an away park in the stored handed-off count (#3870)", async () => {
+		const control = JSON.parse(
+			fs.readFileSync(at(".refill-loop-control.json"), "utf8"),
+		);
+		fs.writeFileSync(
+			at(".refill-loop-control.json"),
+			JSON.stringify({
+				...control,
+				away: { since: 7, absentSeen: false },
+				scope: { ...control.scope, mode: "away" },
+			}),
+		);
+		fakeClaude([LISTED, blockedRow]);
+		const running = startRun();
+		await polled(
+			() => readLines(at("stops")).length > 0,
+			"the away tick never acted on the block",
+		);
+		requestStop();
+		const r = await settled(running, "away run with a parked launch");
+		expect(r.status).toBe(0);
+		expect(
+			JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"))
+				.handedOff,
+		).toEqual({ from: 7, count: 1 });
+	});
+
 	it("gives a session attached to a repo hold the ordinary park act, its ticket labelled parked (#3858)", async () => {
 		const holdCli = (args: string[], jobDir: string) =>
 			runInProcess(path.join(__dirname, "repo-hold.js"), args, {
@@ -2885,6 +2912,128 @@ describe("a paused loop on the real tick (#3856)", () => {
 
 		expect(r.status).toBe(0);
 		expect(readLines(at("dispatches")).join("\n")).toContain("/implement 5");
+	});
+});
+
+describe("away mode's return on the real tick (#3870)", () => {
+	const controlFile = () => at(".refill-loop-control.json");
+	const readControl = () => JSON.parse(fs.readFileSync(controlFile(), "utf8"));
+	/* Paused, so each tick dispatches nothing and the run outlasts it. */
+	const seedAway = (absentSeen: boolean) => {
+		const control = readControl();
+		fs.writeFileSync(
+			controlFile(),
+			JSON.stringify({
+				...control,
+				paused: { by: "founder", at: 7 },
+				away: { since: 7, absentSeen },
+				scope: { ...control.scope, mode: "away" },
+			}),
+		);
+	};
+	const typedAt = (ms: number) =>
+		fs.writeFileSync(at("no-presence"), `${new Date(ms).toISOString()}\n`);
+	const wake = () =>
+		fs.appendFileSync(at(".refill-loop-wake"), `${Date.now()}\n`);
+	const setAway = () =>
+		/* spawn-kept: two processes at once, as requestStop's. */
+		spawnSync(
+			process.execPath,
+			[path.join(scripts, "refill-loop.js"), "set", "--away"],
+			{ cwd: dir, env: loopEnv({}), encoding: "utf8" },
+		);
+	const modeIs = (mode: string) =>
+		polled(() => readControl().scope.mode === mode, `no tick read ${mode}`);
+	const absentRead = () =>
+		polled(
+			() => readControl().away?.absentSeen === true,
+			"no tick recorded the absent read",
+		);
+
+	it("returns and logs it, then a manual --away holds until the next absent read and present one", async () => {
+		seedAway(true);
+		typedAt(Date.now());
+		const running = run(1);
+		await modeIs("normal");
+		expect(readControl().away).toBeUndefined();
+
+		expect(setAway().status).toBe(0);
+		const switchedAt = readControl().away.since;
+		const stateFile = at(".refill-loop-state.json");
+		const tickAfterSwitch = () =>
+			JSON.parse(fs.readFileSync(stateFile, "utf8")).lastTick?.at > switchedAt;
+		await polled(tickAfterSwitch, "no tick followed the manual switch");
+		expect(readControl().scope.mode).toBe("away");
+		expect(readControl().away.absentSeen).toBe(false);
+
+		typedAt(Date.now() - 2 * 60 * 60 * 1000);
+		wake();
+		await absentRead();
+		expect(readControl().scope.mode).toBe("away");
+
+		typedAt(Date.now());
+		wake();
+		await modeIs("normal");
+		requestStop();
+		const r = await settled(running, "run through two returns");
+
+		expect(r.status).toBe(0);
+		expect(r.stdout.match(/mode normal: the founder is back/g)).toHaveLength(2);
+	});
+
+	it("records an absent read and stays away", async () => {
+		seedAway(false);
+		const running = run(1);
+		await absentRead();
+		requestStop();
+		const r = await settled(running, "run while absent");
+
+		expect(r.status).toBe(0);
+		expect(readControl().scope.mode).toBe("away");
+		expect(readControl().away.since).toBe(7);
+		expect(r.stdout).not.toContain("the founder is back");
+	});
+
+	it("leaves the return to the next tick while another writer holds the lock", async () => {
+		seedAway(true);
+		typedAt(Date.now());
+		const holder = spawn(
+			process.execPath,
+			["-e", "setInterval(() => {}, 1000)", "refill-loop.js"],
+			{ stdio: "ignore" },
+		);
+		try {
+			fs.writeFileSync(`${controlFile()}.lock`, String(holder.pid));
+			const running = run(1);
+			await polled(
+				() => fs.existsSync(at(".refill-loop-state.json")),
+				"no tick wrote its state",
+			);
+			expect(readControl().scope.mode).toBe("away");
+
+			holder.kill();
+			wake();
+			await modeIs("normal");
+			requestStop();
+			const r = await settled(running, "run past a held lock");
+			expect(r.status).toBe(0);
+			expect(r.stdout).toContain("away mode's change waits for the next tick");
+		} finally {
+			holder.kill();
+		}
+	});
+
+	it("writes nothing on a dry run", async () => {
+		seedAway(true);
+		typedAt(Date.now());
+		const r = await runInProcessAsync(
+			path.join(scripts, "refill-loop.js"),
+			["dry-run"],
+			{ cwd: dir, env: loopEnv({ FAKE_SLOTS: "1" }) },
+		);
+		expect(r.status).toBe(0);
+		expect(r.stdout).not.toContain("the founder is back");
+		expect(readControl().scope.mode).toBe("away");
 	});
 });
 

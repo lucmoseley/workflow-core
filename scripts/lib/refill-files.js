@@ -4,8 +4,8 @@
  *
  * ITS FILES, under lib/refill-dir.js's directory, so `start`, `stop` and `set`
  * never race the loop's own tick:
- *   - control, written by `start`, `stop` and `set`, each read and write under
- *     withControlLock, so no writer loses another's change;
+ *   - control, written by `start`, `stop`, `set` and the tick's away changes, each
+ *     read and write under withControlLock, so no writer loses another's change;
  *   - state, written by the loop;
  *   - pidfile, created by the loop exclusively, so a second loop exits;
  *   - the review runner's pidfile and result (scripts/refill-review-run.js,

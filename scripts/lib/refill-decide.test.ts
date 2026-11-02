@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 const { capSet } = require("./allowance.js");
 const {
 	FULL,
+	awayChangeOf,
 	buildLimitCapText,
 	buildLoopWait,
 	decideTick,
@@ -96,6 +97,65 @@ const tick = (over: Record<string, unknown> = {}) =>
 
 const launched = (d: { launches?: { root: string; issues: number[] }[] }) =>
 	(d.launches ?? []).map((l) => `${l.root}#${l.issues.join("+")}`);
+
+describe("away mode's return (#3870)", () => {
+	const Switched = NOW - 8 * HOUR;
+	const PromptBeforeSwitch = Switched - 5 * 60 * 1000;
+	/** Each tick's change, a mode and absent read carried over as the tick writes them. */
+	const changesOver = (
+		ticks: { now: number; lastPromptAt: number | null }[],
+	) => {
+		let control = {
+			mode: "away",
+			away: { since: Switched, absentSeen: false },
+		};
+		return ticks.map(({ now, lastPromptAt }) => {
+			const change = awayChangeOf(control, lastPromptAt, now);
+			if (change === "absent")
+				control = { ...control, away: { ...control.away, absentSeen: true } };
+			if (change === "return") control = { ...control, mode: "normal" };
+			return change;
+		});
+	};
+
+	it("returns on the first present read after an absent one", () => {
+		expect(
+			changesOver([
+				{ now: Switched + HOUR, lastPromptAt: PromptBeforeSwitch },
+				{ now: Switched + 2 * HOUR, lastPromptAt: PromptBeforeSwitch },
+				{ now: NOW, lastPromptAt: NOW - 1000 },
+				{ now: NOW + 1000, lastPromptAt: NOW - 1000 },
+			]),
+		).toEqual(["absent", null, "return", null]);
+	});
+
+	it("stays away while every read since the switch is present", () => {
+		const typing = [1, 10, 20, 29].map((minutes) => {
+			const now = Switched + minutes * 60 * 1000;
+			return { now, lastPromptAt: now - 1000 };
+		});
+		expect(changesOver(typing)).toEqual([null, null, null, null]);
+	});
+
+	it("returns from a switch made while present, once an absent read follows", () => {
+		const typedAfterSwitch = Switched + 60 * 1000;
+		expect(
+			changesOver([
+				{ now: Switched + 2 * 60 * 1000, lastPromptAt: typedAfterSwitch },
+				{
+					now: typedAfterSwitch + PRESENT_WINDOW_MS,
+					lastPromptAt: typedAfterSwitch,
+				},
+				{ now: NOW, lastPromptAt: NOW - 1000 },
+			]),
+		).toEqual([null, "absent", "return"]);
+	});
+
+	it("reads no record of a prompt as absent, and changes nothing in normal mode", () => {
+		expect(changesOver([{ now: NOW, lastPromptAt: null }])).toEqual(["absent"]);
+		expect(awayChangeOf({ mode: "normal" }, NOW - 1000, NOW)).toBeNull();
+	});
+});
 
 describe("a repo hold (#3860)", () => {
 	const frontier = [row("wfc", 1), row("other", 2)];
