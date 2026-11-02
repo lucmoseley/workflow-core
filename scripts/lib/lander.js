@@ -50,7 +50,9 @@ const {
 	VERIFIED_BRANCH,
 } = require("./landing-refs.js");
 const { markersDir } = require("./marker-root.js");
-const { execGit } = require("./git.js");
+const { execGit, gitBinary, gitSpawnOptions } = require("./git.js");
+const { execGroupedSync } = require("./grouped-child.js");
+const { writeFd } = require("./write-fd.js");
 const { LANDER_REVERT_ENV, buildRevertLine } = require("./clean-revert.js");
 
 /* Untraced: a fraction of the stall check's 2 h, so a live lander is never
@@ -2024,20 +2026,13 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 	function revertCommit(culprit, parent, tip, why) {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lander-revert-"));
 		git(["worktree", "add", "--quiet", "--detach", dir, tip]);
-		/**
-		 * @param {string[]} args
-		 * @param {string} [input]
-		 * @param {NodeJS.ProcessEnv} [env]
-		 * @param {number} [timeout]
-		 */
-		const inTree = (args, input, env, timeout = LANDER_GIT_TIMEOUT_MS) =>
+		/** @param {string[]} args */
+		const inTree = (args) =>
 			execGit(args, {
 				cwd: dir,
 				encoding: "utf8",
-				input,
 				stdio: ["pipe", "pipe", "pipe"],
-				timeout,
-				env,
+				timeout: LANDER_GIT_TIMEOUT_MS,
 			});
 		try {
 			const parents = git(["rev-list", "--parents", "-n", "1", culprit])
@@ -2061,11 +2056,18 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 			if (unreverted !== null) return { failed: parseFirstLine(unreverted) };
 			const subject = git(["log", "-1", "--format=%s", culprit]).trim();
 			try {
-				inTree(
+				/* In a group of its own, so a kill at the timeout reaches the hooks. */
+				execGroupedSync(
+					gitBinary(),
 					["commit", "--quiet", "--no-verify", "-F", "-"],
-					`Revert "${subject}"\n\n${buildRevertLine(culprit)}\n\n${why}\n`,
-					buildRevertEnv(culprit),
-					revertCommitTimeoutMs,
+					gitSpawnOptions({
+						cwd: dir,
+						encoding: /** @type {const} */ ("utf8"),
+						input: `Revert "${subject}"\n\n${buildRevertLine(culprit)}\n\n${why}\n`,
+						stdio: "pipe",
+						timeout: revertCommitTimeoutMs,
+						env: buildRevertEnv(culprit),
+					}),
 				);
 			} catch (err) {
 				return {
@@ -2079,14 +2081,15 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 					null,
 			};
 		} finally {
-			/* Never replaces the return: a killed commit's hook can outlive it and
-			 * still be writing in `dir`, and a throw here would lose the hold's
-			 * reason (#3913). */
+			/* Never replaces the return: a hook's child that left the commit's group
+			 * outlives the kill and can still be writing in `dir`, and a throw here
+			 * would lose the hold's reason (#3913). */
 			const unremoved = stderrIfThrown(() =>
 				git(["worktree", "remove", "--force", dir]),
 			);
 			if (unremoved !== null)
-				process.stderr.write(
+				writeFd(
+					2,
 					`lander: could not remove the revert's worktree ${dir}: ${parseRefusal(unremoved)}\n`,
 				);
 		}
