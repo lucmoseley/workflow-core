@@ -437,7 +437,12 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 		const resumed: unknown[] = [];
 		const recorded: unknown[] = [];
 		const staggers: number[] = [];
+		const actsReadAfter: number[] = [];
 		const out = launchOrResume(batch, {
+			readActsBefore: () => {
+				actsReadAfter.push(resumed.length);
+				return { file: 1 };
+			},
 			admitResume: admit,
 			stagger: () => staggers.push(resumed.length),
 			resume: (l, t) => {
@@ -463,13 +468,27 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 			log: (line) => lines.push(line),
 			now: () => NOW,
 		});
-		return { out, lines, fresh, resumed, recorded, staggers };
+		return { out, lines, fresh, resumed, recorded, staggers, actsReadAfter };
 	}
 	const ok: Io["resume"] = () => ({
 		failed: null,
 		jobId: "j-9",
 		sessionId: "s-2",
 		copy: false,
+	});
+
+	it("notes the acts read before the wake on a session woken in place, none on a copy (#3942)", () => {
+		const parked = member(1, { parkedRoute: { resume: target } });
+		const woken = run([parked], ok);
+		expect(woken.actsReadAfter).toEqual([0]);
+		expect(woken.out.launched[0].actsBefore).toEqual({ file: 1 });
+		const copied = run([parked], () => ({
+			failed: null,
+			jobId: "j-9",
+			sessionId: "s-copy",
+			copy: true,
+		}));
+		expect(copied.out.launched[0]).not.toHaveProperty("actsBefore");
 	});
 
 	it("resumes a member routed to its parker on the parker's seat, the rest through one dispatcher call", () => {
@@ -487,6 +506,7 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 			launchedAt: NOW,
 			finishedAt: null,
 			sessionId: "s-2",
+			actsBefore: { file: 1 },
 		});
 		expect(out.launched.map((l) => l.jobId)).toEqual(["j-9", "fresh"]);
 		expect(lines).toEqual([

@@ -542,17 +542,29 @@ function judgeFinished(launches, agents, now, served) {
 }
 
 /**
- * A finishing launch's acts, read from every served repo's store and its
- * own, and logged.
+ * The stores a launch in `root`'s acts are read from: every served repo's and
+ * its own.
+ * @param {string} root
+ * @param {string[]} served
+ */
+const actRootsOf = (root, served) => [...new Set([...served, root])];
+
+/**
+ * The reader of the acts a session made before a new launch row wakes it, from
+ * actRootsOf's stores.
+ * @param {string[]} served
+ * @returns {import("./refill-blocks.js").ReadActsBefore}
+ */
+const actsBeforeReader = (served) => (root, sessionId) =>
+	loop.readActsSoFar(sessionId, actRootsOf(root, served), readActsBy);
+
+/**
+ * A finishing launch's acts, read from actRootsOf's stores, and logged.
  * @param {import("./refill-loop.js").LoopLaunch} l
  * @param {string[]} served
  */
 function readProgress(l, served) {
-	const progress = loop.actsOf(
-		l,
-		[...new Set([...served, l.root])],
-		readActsBy,
-	);
+	const progress = loop.actsOf(l, actRootsOf(l.root, served), readActsBy);
 	log(loop.buildFinishLine({ ...l, ...progress }));
 	return progress;
 }
@@ -980,9 +992,11 @@ const staggerResume = () => sleepSync(refillBatch.readStaggerMs());
  * routed to resume resumed in place (resumeStopped), the rest through one
  * dispatcher call (launchBatch).
  * @param {import("./refill-decide.js").Launch[]} batch
+ * @param {string[]} served
  */
-const launchOrResume = (batch) =>
+const launchOrResume = (batch, served) =>
 	refillBatch.launchOrResume(batch, {
+		readActsBefore: actsBeforeReader(served),
 		resume: ({ root, issues }, { seat, sessionId, cwd }) => {
 			const r = resumeStopped({ root, issues, seat }, PARKED_PROMPT, {
 				sessionId,
@@ -1095,6 +1109,7 @@ const blockIo = (served) => ({
 	postHandOff,
 	release: (l) => release({ jobId: blocks.ledgerJobOf(l), root: l.root }),
 	progressOf: (l) => readProgress(l, served),
+	readActsBefore: actsBeforeReader(served),
 	log,
 });
 
@@ -1438,7 +1453,7 @@ async function tick({ dryRun }) {
 		},
 		{
 			readControl,
-			launchBatch: launchOrResume,
+			launchBatch: (batch) => launchOrResume(batch, served),
 			resumeHeld: (resumes, held, isStopped) =>
 				blocks.resumeHeldLaunches(resumes, held, seen, isStopped),
 			writePause: (pause) => writeLoopPause(pause, control.noProgressFrom, log),

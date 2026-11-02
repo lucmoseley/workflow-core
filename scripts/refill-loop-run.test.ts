@@ -2533,14 +2533,17 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 	const launches = () =>
 		JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8")).launches;
 
-	it("resumes the session that parked it, in place, from its marker though the loop never launched it, and dispatches nothing", async () => {
-		seed();
+	const wakesInPlace = () =>
 		fakeResumeClaude(
 			Job,
 			[LISTED],
 			`${stopOnResume()} ${writesWokenRecord(path.join(seat, "jobs", Job, "state.json"), "s-job5")}`,
 			"woke",
 		);
+
+	it("resumes the session that parked it, in place, from its marker though the loop never launched it, and dispatches nothing", async () => {
+		seed();
+		wakesInPlace();
 		const r = await settled(run(1), ParkedRun);
 		expect(r.status).toBe(0);
 		expect(readLines(at("calls"))).toEqual([
@@ -2558,6 +2561,23 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 			finishedAt: null,
 			sessionId: "s-job5",
 		});
+	});
+
+	it("notes the acts its session had already made on the new launch, read from the ledger before the wake (#3942)", async () => {
+		seed();
+		/* A child, as the store is the sandbox's seat through the loop's env. */
+		execFileSync(
+			process.execPath,
+			[
+				"-e",
+				`require(${JSON.stringify(path.join(scripts, "lib", "arbiter-ledger.js"))}).recordAct("file owner/repo#5", "s-job5", ${JSON.stringify(repo)})`,
+			],
+			{ env: loopEnv({}) },
+		);
+		wakesInPlace();
+		const r = await settled(run(1), ParkedRun);
+		expect(r.status).toBe(0);
+		expect(launches().at(-1).actsBefore).toEqual({ file: 1 });
 	});
 
 	it("drops it from the old session's marker once a copy carries the conversation on (#3709)", async () => {
