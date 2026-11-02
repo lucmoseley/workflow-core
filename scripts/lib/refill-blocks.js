@@ -75,8 +75,7 @@ const PARKED_STATE = "blocked";
  *   hold since cleared (#3863): `at`, when it parked, and `hold`, that hold's id
  * @typedef {Omit<SwapHeld, "sessionId"> & {sessionId: string|null}} BootKilled  a
  *   session a restart killed mid-work (#3880): `at`, when it was launched, which
- *   sets its turn among the resumes; `sessionId`, null unread, nothing then able
- *   to resume it
+ *   sets its turn among the resumes; `sessionId`, null unread
  * @typedef {{bar: "weekly"|"5-hour"|null, resets: string|null}} LimitRead  the
  *   limit a seat's reading shows a session stopped on, null where neither bar
  *   read, with its reset as read; from the reading, never the limit's text
@@ -480,7 +479,7 @@ function endedIdle(l) {
 
 /**
  * Whether `l`, resumed after a restart killed it, has left the listing with no turn
- * since, past the listing's grace: the resume took, then the session died.
+ * since, past the listing's grace.
  * @param {LoopLaunch} l
  * @param {Tick} seen
  */
@@ -1091,8 +1090,7 @@ const buildHoldClearedText = (l) =>
 	`${launchName(l)}, parked at ${iso(l.holdCleared.at)} on repo hold ${l.holdCleared.hold}`;
 
 /**
- * What the resume step needs of `l`, one of isStepResume's three: `why`, what
- * brings it back.
+ * What the resume step needs of `l`: `why`, what brings it back.
  * @param {JobLaunch} l
  * @returns {{held: SwapHeld|BootKilled, what: string, why: string, prompt: string,
  *   isParked: boolean, rest: JobLaunch, withTries: (tries: number) => JobLaunch}}
@@ -1520,7 +1518,7 @@ function isBootKillable(l, { agents, io }) {
  * The launches on the first tick after a boot, with each its restart killed queued
  * for the resume step by session id, keeping its context and claim (#3880). One
  * with no session id to resume by meets its hand-off at that step, so a pause holds
- * it too. Every other launch stays as it was, for the tick's usual judging.
+ * it too.
  * @param {LoopLaunch[]} launches
  * @param {Tick} seen
  * @returns {LoopLaunch[]}
