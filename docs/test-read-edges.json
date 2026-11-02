@@ -5814,6 +5814,7 @@
 		],
 		"scripts/instruction-surface-anchors.json": [
 			"scripts/guard-issue-close.test.ts",
+			"scripts/lander.test.ts",
 			"scripts/lib/git-ceiling.test.ts",
 			"scripts/lib/issue-close.test.ts",
 			"scripts/lib/refusal-script-paths.test.ts",
