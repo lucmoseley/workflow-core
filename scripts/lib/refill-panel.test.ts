@@ -637,9 +637,9 @@ describe("the plan and credit rows", () => {
 
 	it("never says not spending over a key it cannot read, plans with room or not", () => {
 		const overflow = [key(), { seat: "k", why: "no table" }];
-		expect(usage({ ...RUNNING, overflow }).at(-1)).toEqual([
-			"  Spending unknown",
-			"secondary",
+		expect(usage({ ...RUNNING, overflow }).slice(-2)).toEqual([
+			["API credits  $258 of $400 left, a key unread", "secondary"],
+			["  Spending unknown", "secondary"],
 		]);
 	});
 
