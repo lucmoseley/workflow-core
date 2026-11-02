@@ -461,7 +461,7 @@ describe("the restart it names (#3371)", () => {
 	});
 
 	it("leaves a repo since unticked out of the goal's set", () => {
-		writeState("no-progress");
+		writeState("control-damaged");
 		writeControl({
 			mode: "normal",
 			repos: ["/h/workflow-core"],
