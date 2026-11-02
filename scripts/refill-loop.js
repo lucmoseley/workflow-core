@@ -580,8 +580,7 @@ function refuseWrite(what, why) {
 /**
  * Each overflow key's budget for `status --json`; the seat file's refusal stands
  * in for the keys it hides. It settles the ledger whatever the plans read, as the
- * panel shows the balance at all times (#3958): two keys took 40 ms on one run of
- * seatBudget against the live ledgers, 2 November 2026.
+ * panel shows the balance at all times (#3958).
  * @param {string} root
  */
 function readOverflowStatus(root) {
