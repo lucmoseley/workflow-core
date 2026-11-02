@@ -1,14 +1,14 @@
 /*
  * refill-panel.js — what the refill loop's panel draws and what a click does,
- * with no terminal (#3873, #3877, spec #3596): status JSON and pending presses in, rows
+ * with no terminal (#3873, #3877, #3881, spec #3596): status JSON and pending presses in, rows
  * out; a click on a row in, a `refill-loop.js` or `burn-mode.sh` argv out. The
  * panel runs those two for every read and write, and never opens a control or
  * state file, so the loop's validation, lock and wake apply to every loop press.
  *
  * Desired and observed state stay apart. A press is a pending mark beside what
  * the last status read showed, cleared only by a read showing the change or by
- * the command's refusal. A burn-mode flip is whole when its script exits, so any
- * read after that exit shows it, or another writer's reversal.
+ * the command's refusal. A burn-mode flip or a repo's tick is whole when its
+ * command exits, so any read after that exit shows it, or another writer's reversal.
  */
 
 const { caught } = require("./caught.js");
@@ -29,11 +29,17 @@ const REFUSAL_SHOW_MS = 10_000;
 /* The skill's line on every flip (`.claude/skills/burn-mode/SKILL.md`). */
 const BURN_RESTART_NOTE = "Running sessions keep their effort until restarted";
 
-/* Two rows between sections (#3596 story 78). */
-const SECTION_GAP = [
-	{ text: "", role: /** @type {Role} */ ("secondary") },
-	{ text: "", role: /** @type {Role} */ ("secondary") },
+/* Two short lines, so a narrow pane cuts neither: a pulled-in blocker is held only
+ * by `refillLoop: false` or no checkout (#2427). */
+const REPOS_NOTE = [
+	"An unticked repo still supplies",
+	"the blockers of served issues",
 ];
+
+/* One row between a title and its first element and between siblings, two
+ * between sections (#3596 story 78). */
+const SIBLING_GAP = { text: "", role: /** @type {Role} */ ("secondary") };
+const SECTION_GAP = [SIBLING_GAP, SIBLING_GAP];
 
 /** @typedef {"name"|"value"|"secondary"} Role */
 
@@ -54,6 +60,7 @@ const ROLE_STYLES = {
  *   lastTick: {at: number, summary: string, idle: string|null,
  *     paused: boolean}|null,
  *   launchesToday: number,
+ *   repos: {name: string, ticked: boolean, disabled: string|null}[],
  *   burnMode: ReturnType<typeof import("./burn-mode.js").readBurnState>}} PanelStatus
  */
 
@@ -74,13 +81,21 @@ const ROLE_STYLES = {
  * @typedef {{status: PanelStatus|null, readError: string|null,
  *   pending: Pending|null,
  *   refusal: {text: string, at: number}|null,
- *   burnPending: Pending|null, burnReport: BurnReport|null}} PanelView
+ *   burnPending: Pending|null, burnReport: BurnReport|null,
+ *   repoPending: Record<string, Pending>,
+ *   repoRefusal: {name: string, text: string, at: number}|null}} PanelView
  */
 
 /**
- * @typedef {{text: string, role: Role,
- *   control?: {id: "loop"|"burn",
- *     state: "on"|"off"|"pending"|"unknown"|"failed"}}} Row
+ * @typedef {"on"|"off"|"pending"|"unknown"|"failed"} SwitchState
+ * @typedef {"ticked"|"unticked"|"pending"|"disabled"} BoxState
+ */
+
+/**
+ * `detail`, drawn after `text` in regular weight whatever the role.
+ * @typedef {{text: string, role: Role, detail?: string,
+ *   control?: {id: "loop"|"burn", state: SwitchState}
+ *     | {id: "repo", name: string, state: BoxState}}} Row
  */
 
 /** @param {number} n */
@@ -104,6 +119,16 @@ function buildClock(at, now) {
  */
 const buildCurrentTick = ({ lastTick, paused }) =>
 	lastTick?.paused && !paused ? null : lastTick;
+
+/** @param {boolean} on */
+const buildTurningWord = (on) => `turning ${on ? "on" : "off"}…`;
+
+/**
+ * @param {{at: number}|null} refusal
+ * @param {number} now
+ */
+const isRefusalShowing = (refusal, now) =>
+	refusal !== null && now - refusal.at < REFUSAL_SHOW_MS;
 
 /**
  * Line 1 and line 2 of the loop block, from the observed status alone.
@@ -170,7 +195,7 @@ function buildLoopBlock({ status, readError, pending, refusal }, now) {
 	if (pending)
 		return [
 			{
-				text: pending.on ? "turning on…" : "turning off…",
+				text: buildTurningWord(pending.on),
 				role: "value",
 			},
 			{
@@ -189,10 +214,11 @@ function buildLoopBlock({ status, readError, pending, refusal }, now) {
 			third,
 		];
 	const [first, second] = buildObservedLines(status, now);
-	const refused = refusal && now - refusal.at < REFUSAL_SHOW_MS;
 	return [
 		first,
-		refused ? { text: refusal.text, role: "value" } : second,
+		refusal && isRefusalShowing(refusal, now)
+			? { text: refusal.text, role: "value" }
+			: second,
 		third,
 	];
 }
@@ -217,7 +243,7 @@ function buildSwitchState({ status, pending }) {
  * The Burn mode switch's state, off the machine as well as this panel's own flip,
  * so a second panel or a restarted one reads a half-flip too.
  * @param {PanelView} view
- * @returns {NonNullable<Row["control"]>["state"]}
+ * @returns {SwitchState}
  */
 function buildBurnState({ status, burnPending, burnReport }) {
 	if (burnPending) return "pending";
@@ -227,13 +253,22 @@ function buildBurnState({ status, burnPending, burnReport }) {
 	return status.burnMode.on ? "on" : "off";
 }
 
-/** @type {Record<NonNullable<Row["control"]>["state"], string>} */
+/** @type {Record<SwitchState, string>} */
 const SWITCH_TEXT = {
 	on: "[on]",
 	off: "[off]",
 	pending: "[…]",
 	unknown: "[?]",
 	failed: "[!]",
+};
+
+/* ✓ alone: ✔ and ☑ render as colour emoji in Windows Terminal (#3596). */
+/** @type {Record<BoxState, string>} */
+const BOX_TEXT = {
+	ticked: "[✓]",
+	unticked: "[ ]",
+	pending: "[…]",
+	disabled: "[-]",
 };
 
 /**
@@ -277,7 +312,7 @@ function buildBurnReportRows({ on, code, lines }) {
 function buildBurnRows(view) {
 	const state = buildBurnState(view);
 	const { status, burnPending, burnReport } = view;
-	const word = burnPending ? `  turning ${burnPending.on ? "on" : "off"}…` : "";
+	const word = burnPending ? `  ${buildTurningWord(burnPending.on)}` : "";
 	const press = buildBurnPress(view);
 	return [
 		{
@@ -299,6 +334,69 @@ function buildBurnRows(view) {
 }
 
 /**
+ * A disabled box is off whatever the control holds: the loop never serves an
+ * opted-out tick.
+ * @param {PanelStatus["repos"][number]} repo
+ * @param {Pending|undefined} pending
+ * @returns {Row[]}
+ */
+function buildRepoRows({ name, ticked, disabled }, pending) {
+	if (disabled)
+		return [
+			{
+				text: `${BOX_TEXT.disabled} ${name}`,
+				role: "secondary",
+				control: { id: "repo", name, state: "disabled" },
+			},
+			{ text: disabled, role: "secondary" },
+		];
+	if (pending)
+		return [
+			{
+				text: `${BOX_TEXT.pending} ${name}  ${buildTurningWord(pending.on)}`,
+				role: "value",
+				control: { id: "repo", name, state: "pending" },
+			},
+		];
+	const state = ticked ? "ticked" : "unticked";
+	return [
+		{
+			text: `${BOX_TEXT[state]} ${name}`,
+			role: ticked ? "value" : "secondary",
+			control: { id: "repo", name, state },
+		},
+	];
+}
+
+/**
+ * The Repos section, the count off what the loop reads, never a pending press. A
+ * refusal takes the gap below its box, so no box moves when it goes.
+ * @param {PanelView} view
+ * @param {number} now
+ * @returns {Row[]}
+ */
+function buildReposRows({ status, repoPending, repoRefusal }, now) {
+	if (!status) return [];
+	const { repos } = status;
+	const onCount = repos.filter((r) => r.ticked && !r.disabled).length;
+	const refused = isRefusalShowing(repoRefusal, now) ? repoRefusal : null;
+	return [
+		{ text: "Repos", detail: `${onCount} of ${repos.length} on`, role: "name" },
+		SIBLING_GAP,
+		...repos.flatMap((repo) => [
+			...buildRepoRows(repo, repoPending[repo.name]),
+			refused?.name === repo.name
+				? { text: refused.text, role: /** @type {Role} */ ("value") }
+				: SIBLING_GAP,
+		]),
+		...REPOS_NOTE.map((text) => ({
+			text,
+			role: /** @type {Role} */ ("secondary"),
+		})),
+	];
+}
+
+/**
  * @param {PanelView} view
  * @param {number} now
  * @returns {Row[]}
@@ -314,6 +412,8 @@ function buildRows(view, now) {
 		...buildLoopBlock(view, now),
 		...SECTION_GAP,
 		...buildBurnRows(view),
+		...SECTION_GAP,
+		...buildReposRows(view, now),
 	];
 }
 
@@ -340,6 +440,18 @@ function buildPress({ status, pending }) {
 function buildBurnPress({ status, burnPending }) {
 	if (burnPending || !status || status.burnMode.on === null) return null;
 	return { on: !status.burnMode.on };
+}
+
+/**
+ * What a press on a repo's box asks for, or null.
+ * @param {PanelView} view
+ * @param {string} name
+ */
+function buildRepoPress({ status, repoPending }, name) {
+	const repo = status?.repos.find((r) => r.name === name);
+	if (!repo || repo.disabled || repoPending[name]) return null;
+	const on = !repo.ticked;
+	return { on, argv: ["set", on ? "--tick" : "--untick", name] };
 }
 
 /**
@@ -428,14 +540,16 @@ function createPanel({ run, runBurn, now, onChange }) {
 		refusal: null,
 		burnPending: null,
 		burnReport: null,
+		repoPending: {},
+		repoRefusal: null,
 	};
 	let reading = false;
 	let readAgain = false;
 
 	/**
 	 * @param {PanelStatus|string} parsed the status, or why it will not read
-	 * @param {{press: boolean, flip: boolean}} landedBefore whether each pending
-	 *   mark's command had exited when this read began
+	 * @param {{press: boolean, flip: boolean, repos: string[]}} landedBefore which
+	 *   pending marks' commands had exited when this read began
 	 */
 	function takeRead(parsed, landedBefore) {
 		if (typeof parsed === "string") {
@@ -451,6 +565,7 @@ function createPanel({ run, runBurn, now, onChange }) {
 		)
 			view.pending = null;
 		if (landedBefore.flip) view.burnPending = null;
+		for (const name of landedBefore.repos) delete view.repoPending[name];
 		if (view.burnReport && isBurnReportOutlived(view.burnReport, parsed))
 			view.burnReport = null;
 	}
@@ -464,6 +579,9 @@ function createPanel({ run, runBurn, now, onChange }) {
 		const landedBefore = {
 			press: view.pending?.landed === true,
 			flip: view.burnPending?.landed === true,
+			repos: Object.entries(view.repoPending)
+				.filter(([, mark]) => mark.landed)
+				.map(([name]) => name),
 		};
 		const result = await run(["status", "--json"]);
 		reading = false;
@@ -493,29 +611,51 @@ function createPanel({ run, runBurn, now, onChange }) {
 		await refreshStatus();
 	}
 
+	/**
+	 * @param {string[]} argv
+	 * @param {Pending} pending
+	 * @param {(text: string) => void} takeRefusal unmarks it and holds the words
+	 */
+	async function runPress(argv, pending, takeRefusal) {
+		onChange();
+		const result = await run(argv);
+		if (result.code === 0) pending.landed = true;
+		else takeRefusal(buildFailureText(result));
+		onChange();
+		await refreshStatus();
+	}
+
 	async function pressLoop() {
 		const press = buildPress(view);
 		if (!press) return;
 		const pending = { on: press.on, landed: false };
 		view.pending = pending;
 		view.refusal = null;
-		onChange();
-		const result = await run(press.argv);
-		if (result.code === 0) {
-			pending.landed = true;
-		} else {
+		await runPress(press.argv, pending, (text) => {
 			view.pending = null;
-			view.refusal = { text: buildFailureText(result), at: now() };
-		}
-		onChange();
-		await refreshStatus();
+			view.refusal = { text, at: now() };
+		});
+	}
+
+	/** @param {string} name */
+	async function pressRepo(name) {
+		const press = buildRepoPress(view, name);
+		if (!press) return;
+		const pending = { on: press.on, landed: false };
+		view.repoPending[name] = pending;
+		view.repoRefusal = null;
+		await runPress(press.argv, pending, (text) => {
+			delete view.repoPending[name];
+			view.repoRefusal = { name, text, at: now() };
+		});
 	}
 
 	/** @param {number} terminalRow */
 	async function click(terminalRow) {
-		const id = buildRows(view, now())[terminalRow - TOP_ROW]?.control?.id;
-		if (id === "loop") await pressLoop();
-		if (id === "burn") await pressBurn();
+		const control = buildRows(view, now())[terminalRow - TOP_ROW]?.control;
+		if (control?.id === "loop") await pressLoop();
+		if (control?.id === "burn") await pressBurn();
+		if (control?.id === "repo") await pressRepo(control.name);
 	}
 
 	return { view, refreshStatus, click };
@@ -535,19 +675,27 @@ function fitText(text, width) {
 
 /**
  * Ends by erasing below, so a report gone from the rows goes from the screen.
+ * Draws only the rows that fit: past the bottom a terminal stacks them on its last
+ * line, where a click would press a row other than the one showing.
  * @param {Row[]} rows
  * @param {number} columns the terminal's width
+ * @param {number} height
  */
-function buildFrame(rows, columns) {
+function buildFrame(rows, columns, height) {
 	const width = columns - (LEFT_COLUMN - 1) * 2;
 	const drawn = rows
-		.map(({ text, role }, i) => {
+		.slice(0, Math.max(height - TOP_ROW + 1, 0))
+		.map(({ text, detail, role }, i) => {
 			const { rgb, bold } = ROLE_STYLES[role];
+			const chars = [...fitText(detail ? `${text}  ${detail}` : text, width)];
+			const textChars = [...text].length;
 			return [
 				`${ESC}[${TOP_ROW + i};${LEFT_COLUMN}H`,
 				bold ? `${ESC}[1m` : "",
 				`${ESC}[38;2;${rgb.join(";")}m`,
-				fitText(text, width),
+				chars.slice(0, textChars).join(""),
+				`${ESC}[22m`,
+				chars.slice(textChars).join(""),
 				`${ESC}[0m${ESC}[K`,
 			].join("");
 		})

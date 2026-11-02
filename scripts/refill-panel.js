@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /*
  * refill-panel.js — the refill loop's control panel beside an agents view (#3873,
- * #3877, spec #3596): a terminal program with no Claude process that shows the Refill
+ * #3877, #3881, spec #3596): a terminal program with no Claude process that shows the Refill
  * loop switch and its three-line block, and pauses or resumes the loop on a click,
- * and the Burn mode switch, which flips burn mode on a click.
+ * the Burn mode switch, which flips burn mode on a click, and a tick box per
+ * checkout, which sets whether the loop serves it.
  * What it draws is lib/refill-panel.js's; the terminal, lib/refill-panel-terminal.js's.
  *
  *   node scripts/refill-panel.js <agents-view-pid>
@@ -29,7 +30,7 @@ const { writeFd } = require("./lib/write-fd.js");
 
 const USAGE = `usage: node ${scriptPath("refill-panel.js")} <agents-view-pid>
 
-Shows the refill loop and burn mode, and changes either on a click, until that pid exits.
+Shows the refill loop, burn mode and the repos it can serve, and changes each on a click, until that pid exits.
 `;
 
 const LOOP_PROGRAM = path.join(__dirname, "refill-loop.js");
@@ -37,6 +38,14 @@ const BURN_PROGRAM = path.join(__dirname, "burn-mode.sh");
 /* Untraced, a first guess: past the control lock's 10 s wait (lib/pid-lock.js),
  * and far past burn-mode.sh's few short writes, whose timeout reads as a failed flip. */
 const RUN_TIMEOUT_MS = 30_000;
+/* `wsl.exe -e` starts no shell, so a node from nvm is on no PATH, and burn-mode.sh
+ * runs `node` by name (#3886). */
+const RUN_ENV = {
+	...process.env,
+	PATH: [path.dirname(process.execPath), process.env.PATH]
+		.filter(Boolean)
+		.join(path.delimiter),
+};
 
 /**
  * @param {string} file
@@ -45,14 +54,19 @@ const RUN_TIMEOUT_MS = 30_000;
  */
 const runCommand = (file, argv) =>
 	new Promise((resolve) => {
-		execFile(file, argv, { timeout: RUN_TIMEOUT_MS }, (err, stdout, stderr) => {
-			if (!err) {
-				resolve({ code: 0, stdout, stderr });
-				return;
-			}
-			const code = typeof err.code === "number" ? err.code : 1;
-			resolve({ code, stdout, stderr: stderr || err.message });
-		});
+		execFile(
+			file,
+			argv,
+			{ timeout: RUN_TIMEOUT_MS, env: RUN_ENV },
+			(err, stdout, stderr) => {
+				if (!err) {
+					resolve({ code: 0, stdout, stderr });
+					return;
+				}
+				const code = typeof err.code === "number" ? err.code : 1;
+				resolve({ code, stdout, stderr: stderr || err.message });
+			},
+		);
 	});
 
 /** @param {unknown} err */

@@ -19,6 +19,7 @@ const STATUS = JSON.stringify({
 	paused: null,
 	lastTick: null,
 	launchesToday: 0,
+	repos: [],
 	burnMode: { on: false, disagreeing: [], error: null },
 });
 const noop = (): void => undefined;

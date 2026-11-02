@@ -22,13 +22,14 @@ const POLL_MS = 3000;
 const WATCH_MS = 1000;
 /* A stream that reports no width, a terminal's traditional one. */
 const DEFAULT_COLUMNS = 80;
+const DEFAULT_ROWS = 24;
 /* 128 plus the signal's number, the shell's convention. */
 const SIGNAL_EXITS = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
 
 /**
  * Runs the panel until the process exits, through `proc.exit`.
  * @param {{pid: number, stdin: Pick<import("node:tty").ReadStream, "setRawMode"|"resume"|"setEncoding"|"on">,
- *   stdout: Pick<import("node:tty").WriteStream, "write"|"on"|"columns">,
+ *   stdout: Pick<import("node:tty").WriteStream, "write"|"on"|"columns"|"rows">,
  *   proc: Pick<import("node:events").EventEmitter, "on"> & {exit: (code: number) => void},
  *   run: import("./refill-panel.js").Runner,
  *   runBurn: import("./refill-panel.js").Runner,
@@ -82,6 +83,7 @@ function openPanel({
 				buildFrame(
 					buildRows(panel.view, now()),
 					stdout.columns ?? DEFAULT_COLUMNS,
+					stdout.rows ?? DEFAULT_ROWS,
 				),
 			);
 	};
