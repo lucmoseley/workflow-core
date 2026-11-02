@@ -15,7 +15,6 @@ import {
 	buildStatusJson,
 	buildStatusLines,
 	foreseeSeat,
-	mergedScope,
 	planSet,
 } from "./refill-commands.js";
 import { buildPauseText } from "./refill-decide.js";
@@ -40,28 +39,6 @@ const NO_SEATS = {
 	passedOver: [],
 	callerSeat: null,
 };
-
-describe("the scope a start writes", () => {
-	it("starts a stopped loop on the scope asked for", () => {
-		expect(mergedScope(null, normal([WFC]))).toEqual(normal([WFC]));
-	});
-
-	it("adds a start's repos to a running loop's in either mode, keeping its mode", () => {
-		for (const mode of [normal, away]) {
-			const r = mergedScope(
-				mode([MH], issuesGoal(["mantahostels", 5])),
-				normal([WFC], issuesGoal(["workflow-core", 9])),
-			);
-			expect(r).toEqual(mode([MH, WFC], issuesGoal(["workflow-core", 9])));
-		}
-	});
-
-	it("leaves the loop's goal on a bare start", () => {
-		const goal = issuesGoal(["workflow-core", 9], ["mantahostels", 5]);
-		const r = mergedScope(normal([WFC, MH], goal), normal([WFC]));
-		expect(r.goal).toEqual(goal);
-	});
-});
 
 describe("what status prints", () => {
 	const control = {

@@ -53,8 +53,7 @@ One JSON object per line, not an array.
   real `<card-id> — ` title prefix. Name the ones that matched and state that the
   rest of the phase has no open issue.
 
-- **Bare issue numbers** (`#116 #117`, as a stopped loop's restart line names
-  them) — that set as written, never widened.
+- **Bare issue numbers** (`#116 #117`) — that set as written, never widened.
 
 A word naming a sibling checkout (a home-directory folder carrying
 `.claude/workflow-core.json`) is no goal text: set it aside for §8's `--repo`.
@@ -953,21 +952,24 @@ ordering for what replaces the drop.
 **Never `claude agents --model`**: that sets a view-wide default and would move
 every session launched from that view, not just this set.
 
-### 8. Start the refill loop over this repo
+### 8. Send the refill loop what this command asked
 
 **Every run ends here** — after §7's last launch call, and equally after a
 hold, an admission refusal or a launcher refusal: run once
 
 ```bash
-node scripts/refill-loop.js start [--repo <dir>]… [--goal <§1's set>]
+node scripts/refill-loop.js start --unless-stopped [--repo <dir>]… [--goal <§1's set>]
 ```
 
-It starts the machine's one loop, which runs until stopped, or adds to the
-running one, whose mode it leaves: this repo, plus each sibling checkout the
-founder's command named, passed by its directory name. The goal is §1's set, if
-there is one (#2119). Never run `set --away` or `--normal`: a session
-never sets the mode. Copy the lines `start` prints —
-mode, repos, goal, seats — and any `WARNING:`, into the message.
+It starts the machine's one loop only where its process died with no stop, from
+its settings as they were, and never undoes one (#2526): a stopped loop stays
+stopped, a paused one paused, the no-progress pause included. A bare run changes
+nothing. `--repo` ticks each sibling checkout the founder's command named, by its
+directory name. `--goal` replaces the loop's goal with §1's set, if there is one,
+each ref written `<dir>#N`; a ref it refuses stops the whole call, so copy the
+refusal and run it again without `--goal`. Never pass a mode. Copy the lines it
+prints — the loop's state, mode, repos, goal, seats, and that this repo is
+unchecked on the panel — and any `WARNING:`, into the message.
 **Unenforced**: no hook checks the call was made.
 
 ---

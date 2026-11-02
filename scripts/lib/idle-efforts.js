@@ -485,7 +485,7 @@ const days = (ms) => `${(ms / DAY_MS).toFixed(1)} days`;
 const named = (i) => `#${i.number} (${i.title}), idle ${days(i.idleMs)}`;
 
 const LOOP_STOPPED_TEXT =
-	"The refill loop is not running, so it serves no tracker. /pick-next restarts it.";
+	"The refill loop is not running, so it serves no tracker. refill-loop.js start restarts it.";
 
 /** @param {string} damage a damaged file's line, as its reader words it */
 const buildDamagedText = (damage) => `Refill loop file damaged: ${damage}`;

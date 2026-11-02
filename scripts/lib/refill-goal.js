@@ -7,7 +7,6 @@
  */
 
 const path = require("node:path");
-const { shellQuote } = require("./sh-quote.js");
 
 /**
  * An issue the goal names; `repo`, its checkout's directory name.
@@ -117,17 +116,6 @@ const buildGoalLine = (goal) =>
 	`goal:      ${goal ? `${goal.form} "${goal.text}": ${goal.refs.map(buildRefText).join(", ")}` : "none"}`;
 
 /**
- * The `set` flags that store `goal` again.
- * @param {Goal} goal
- */
-function buildGoalFlags(goal) {
-	const refs = goal.refs.map(buildRefText).join(",");
-	return goal.form === "topic"
-		? `--goal-issues ${refs} --goal-text ${shellQuote(goal.text)}`
-		: `--goal ${refs}`;
-}
-
-/**
  * @param {unknown} raw
  * @returns {GoalRef[]|null} null where any ref is garbled
  */
@@ -183,7 +171,6 @@ function parseGoal({ goal, goals }) {
 }
 
 module.exports = {
-	buildGoalFlags,
 	buildGoalLine,
 	buildRefText,
 	goalNumbersIn,

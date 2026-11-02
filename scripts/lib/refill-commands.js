@@ -1,7 +1,7 @@
 /*
  * refill-commands.js — what the refill loop's `start`, `set` and `status`
- * commands compute and print, pure (#2012, #2123, spec #1995): the scope a
- * `start` writes over a running loop's, the fields a `set` changes, and the lines naming a loop's scope, its
+ * commands compute and print, pure (#2012, #2123, spec #1995): what a `start`
+ * does, the fields a `set` changes, and the lines naming a loop's scope, its
  * launches and its last tick. The control and state they read are
  * lib/refill-loop.js's.
  */
@@ -60,21 +60,6 @@ const STATUS_SKIPS = 10;
 /** @typedef {import("./refill-loop.js").LoopLaunch} LoopLaunch */
 /** @typedef {import("./refill-loop.js").LoopState} LoopState */
 
-/**
- * The scope a `start` writes, given the running loop's (null where none
- * runs) and the one asked for. A start adds its repos to a running loop's and
- * keeps its mode; an asked goal replaces the loop's, and a bare start leaves it
- * (#2119, #2123, #3864).
- * @param {Scope|null} running
- * @param {Scope} asked
- * @returns {Scope}
- */
-function mergedScope(running, asked) {
-	if (running === null) return asked;
-	const repos = [...new Set([...running.repos, ...asked.repos])];
-	return { ...running, repos, goal: asked.goal ?? running.goal };
-}
-
 /** @param {number} from */
 const buildCountingLine = (from) =>
 	`counting:  no-progress count from ${iso(from)}`;
@@ -93,6 +78,9 @@ const buildRepoNames = (roots) =>
  *   tick?: string[], untick?: string[], goal?: GoalAsk|null}} SetAsk
  * @typedef {{running: boolean, now: number}} SetContext
  * @typedef {{write: Control|null, lines: string[]}} SetChange
+ * @typedef {{write: Control|null, control: Control,
+ *   action: "running"|"start"|"stopped", stoppedBy: LoopState["stopped"]}} StartPlan
+ *   `stoppedBy`, the stop left standing, where one is
  * @typedef {SetChange & {startFrom: Control|null}} SetPlan `startFrom`, the
  *   control a process starts from, where a resume found none running
  */
@@ -112,6 +100,29 @@ function planSet({ control, damaged }, ask, context) {
 	if (damaged !== null) return { refused: `${damaged}; \`start\` rewrites it` };
 	if (control === null)
 		return { refused: "the loop was never started; run `start` first" };
+	const changed = changeFields(control, ask, context);
+	if ("refused" in changed) return changed;
+	const { running } = context;
+	return {
+		write: changed.write,
+		lines: [
+			...changed.lines,
+			...(running || ask.pause === false
+				? []
+				: ["refill loop: not running; this holds from its next start"]),
+		],
+		startFrom: ask.pause === false && !running ? changed.write : null,
+	};
+}
+
+/**
+ * Each field `ask` names changed on `control`, in turn, or why one is refused.
+ * @param {Control} control
+ * @param {SetAsk} ask
+ * @param {SetContext} context
+ * @returns {SetChange|{refused: string}}
+ */
+function changeFields(control, ask, context) {
 	const { pause, mode, goal } = ask;
 	/** @type {((c: Control) => SetChange|{refused: string})[]} */
 	const steps = [
@@ -142,31 +153,125 @@ function planSet({ control, damaged }, ask, context) {
 			write = change.write;
 		}
 	}
+	return { write, lines };
+}
+
+/**
+ * The control a first `start` writes: this checkout ticked, in normal mode.
+ * @param {string} root
+ * @param {string[]} seats
+ * @param {number} now
+ * @returns {Control}
+ */
+const buildFreshControl = (root, seats, now) => ({
+	noProgressFrom: now,
+	stopRequested: false,
+	seats,
+	scope: { mode: "normal", repos: [root], goal: null },
+});
+
+/**
+ * `control` with no stop on it, its no-progress count starting now.
+ * @param {Control} control
+ * @param {number} now
+ * @returns {Control}
+ */
+function withStopCleared(control, now) {
+	const { stopRequestedAt: _cleared, ...rest } = control;
+	return { ...rest, stopRequested: false, noProgressFrom: now };
+}
+
+/**
+ * Why `start --unless-stopped` will not write fresh settings over what it read:
+ * a control that will not read, or a stop with none left to keep.
+ * @param {import("./refill-loop.js").ControlRead} read
+ * @param {LoopState["stopped"]} stoppedBy
+ * @returns {string|null}
+ */
+function unkeptControlRefusal({ control, damaged }, stoppedBy) {
+	if (damaged !== null) return `${damaged}; \`start\` rewrites it`;
+	return control === null && stoppedBy !== null
+		? "the loop stopped and holds no stored settings; `start` writes fresh ones"
+		: null;
+}
+
+/**
+ * What a `start` does to the control just read under the lock. It writes only the
+ * fields `ask` names, on the stored control, a fresh one only where none exists,
+ * and starts a process where none runs. A plain `start` also ends a stop: it
+ * overtakes a pending one, and restarts a stopped loop. `unlessStopped`, the one
+ * `/pick-next` runs, lets a stop stand, starts only what no stop ended, from the
+ * settings as they were (#2526), and refuses a control it cannot keep.
+ * @param {import("./refill-loop.js").ControlRead} read
+ * @param {SetAsk} ask
+ * @param {{running: boolean, now: number, root: string, seats: string[],
+ *   stopped: LoopState["stopped"], unlessStopped: boolean}} context `seats`, the
+ *   seat file's; `stopped`, the state file's
+ * @returns {{refused: string}|StartPlan}
+ */
+function planStart(read, ask, context) {
+	const { control } = read;
+	const { running, now, root, seats, stopped, unlessStopped } = context;
+	const stoppedBy = running ? null : recordedStop(control, stopped);
+	const refused = unlessStopped ? unkeptControlRefusal(read, stoppedBy) : null;
+	if (refused !== null) return { refused };
+	const stored = control ?? buildFreshControl(root, seats, now);
+	const changed = changeFields(stored, ask, { running, now });
+	if ("refused" in changed) return changed;
+	const current = changed.write ?? stored;
+	if (!unlessStopped && (!running || current.stopRequested))
+		return buildStopEnded(current, context);
+	const unwritten = control === null ? stored : null;
 	return {
-		write,
-		lines: [...lines, ...buildNotRunningLines(ask, context)],
-		startFrom: pause === false && !context.running ? write : null,
+		write: changed.write ?? unwritten,
+		control: current,
+		action: running ? "running" : idleActionOf(stoppedBy),
+		stoppedBy,
 	};
 }
 
 /**
- * A `start` keeps a pause, and rebuilds the mode and repos; a resume is itself
- * the start, from what it just wrote.
- * @param {SetAsk} ask
- * @param {SetContext} context
+ * @param {LoopState["stopped"]} stoppedBy
+ * @returns {StartPlan["action"]}
  */
-function buildNotRunningLines(ask, { running }) {
-	if (running || ask.pause === false) return [];
-	return [
-		...(ask.pause
-			? ["refill loop: not running; this holds from its next start"]
-			: []),
-		...(ask.mode || asksRepos(ask) || ask.goal !== undefined
-			? [
-					"refill loop: not running; its next start sets the mode, repos and goal afresh",
-				]
-			: []),
-	];
+const idleActionOf = (stoppedBy) => (stoppedBy ? "stopped" : "start");
+
+/**
+ * A plain `start`'s end of a stop: the count starts again, and a new process
+ * reads the seat file.
+ * @param {Control} control
+ * @param {{running: boolean, now: number, seats: string[]}} context
+ * @returns {StartPlan}
+ */
+function buildStopEnded(control, { running, now, seats }) {
+	const cleared = withStopCleared(control, now);
+	const write = running ? cleared : { ...cleared, seats };
+	return {
+		write,
+		control: write,
+		action: running ? "running" : "start",
+		stoppedBy: null,
+	};
+}
+
+/**
+ * The line saying a stop was left to stand.
+ * @param {NonNullable<LoopState["stopped"]>} stop
+ */
+const buildStoppedLine = (stop) =>
+	`refill loop stopped at ${iso(stop.at)}: left stopped; \`start\` restarts it`;
+
+/**
+ * The line saying the box decides, where `root`'s repo is unticked (#2526).
+ * @param {Control} control
+ * @param {string} root
+ * @returns {string[]}
+ */
+function buildUncheckedLines({ scope }, root) {
+	const name = path.basename(root);
+	return scope.repos.some((r) => path.basename(r) === name)
+		? []
+		: [`${name} is unchecked on the panel: the loop does not serve it`];
 }
 
 /**
@@ -830,6 +935,9 @@ module.exports = {
 	buildStatusJson,
 	buildStatusLines,
 	foreseeSeat,
-	mergedScope,
+	planStart,
+	buildFreshControl,
+	buildStoppedLine,
+	buildUncheckedLines,
 	planSet,
 };

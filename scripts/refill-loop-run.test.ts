@@ -2943,6 +2943,94 @@ describe("`set --resume` with no process (#3861)", () => {
 	});
 });
 
+describe("`start` with no process (#3868)", () => {
+	const scope = {
+		mode: "away",
+		repos: [] as string[],
+		tickedSet: true,
+		goal: {
+			form: "issues",
+			text: "5",
+			refs: [] as { repo: string; number: number }[],
+			setAt: 3,
+		},
+	};
+	const paused = { by: "founder", at: 4 };
+	const writeStored = (extra: object = {}) =>
+		fs.writeFileSync(
+			loopControlFile(),
+			JSON.stringify({
+				noProgressFrom: 5,
+				stopRequested: false,
+				seats: [seat],
+				scope: {
+					...scope,
+					repos: [repo],
+					goal: {
+						...scope.goal,
+						refs: [{ repo: path.basename(repo), number: 5 }],
+					},
+				},
+				...extra,
+			}),
+		);
+	const readStored = () =>
+		JSON.parse(fs.readFileSync(loopControlFile(), "utf8"));
+	/* A paused loop launches nothing, so nothing ends it but a stop. */
+	const stopOnceHolding = async () => {
+		await polled(
+			() => fs.existsSync(at(".refill-loop.pid")),
+			"the started loop never held the pidfile",
+		);
+		await commandFromRepo("stop");
+		await polled(
+			() => !fs.existsSync(at(".refill-loop.pid")),
+			"the stopped loop did not end",
+		);
+	};
+
+	it("restarts a stopped loop from its stored repos, goal, mode and pause, ending the stop", async () => {
+		writeStored({ stopRequested: true, stopRequestedAt: 6, paused });
+		const before = readStored();
+		const r = await commandFromRepo("start");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toMatch(/^refill loop started: pid \d+$/m);
+		await stopOnceHolding();
+		const after = readStored();
+		expect(after.scope).toMatchObject(before.scope);
+		expect(after.paused).toEqual(paused);
+		expect(after.noProgressFrom).toBeGreaterThan(5);
+		expect(after.stopRequestedAt).toBeGreaterThan(6);
+	});
+
+	it("starts a crashed loop from its stored settings as they were, with --unless-stopped", async () => {
+		writeStored({ paused });
+		const before = readStored();
+		const r = await commandFromRepo("start", "--unless-stopped");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toMatch(/^refill loop started: pid \d+$/m);
+		expect(r.stdout).toContain("paused by founder at");
+		await stopOnceHolding();
+		const after = readStored();
+		expect(after.scope).toMatchObject(before.scope);
+		expect(after.paused).toEqual(paused);
+		expect(after.noProgressFrom).toBe(5);
+		expect(after.seats).toEqual([seat]);
+	});
+
+	it("starts a first loop with --unless-stopped, on a fresh control", async () => {
+		const r = await commandFromRepo("start", "--unless-stopped");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toMatch(/^refill loop started: pid \d+$/m);
+		await stopOnceHolding();
+		expect(readStored().scope).toMatchObject({
+			mode: "normal",
+			repos: [repo],
+			goal: null,
+		});
+	});
+});
+
 describe("boot-resume after a restart (#3878)", () => {
 	const startedAt = Date.now() - 3 * 24 * 60 * 60 * 1000;
 	const writeControl = () =>

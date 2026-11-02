@@ -540,7 +540,7 @@ describe("buildIdleLines", () => {
 		);
 		expect(lines).toEqual([
 			top(
-				"The refill loop is not running, so it serves no tracker. /pick-next restarts it.",
+				"The refill loop is not running, so it serves no tracker. refill-loop.js start restarts it.",
 			),
 			top("o/core: none idle past 2 days (the refill loop does not serve it)"),
 		]);
@@ -986,7 +986,7 @@ describe("buildIdleReport", () => {
 
 	describe("a stopped loop, a finding of its own (#3892)", () => {
 		const stopLine =
-			"The refill loop is not running, so it serves no tracker. /pick-next restarts it.";
+			"The refill loop is not running, so it serves no tracker. refill-loop.js start restarts it.";
 		const stopKey = "refill-loop stopped 5";
 		const stoppedAtStart = (
 			trackerFindings: unknown[],
