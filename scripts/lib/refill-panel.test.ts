@@ -73,7 +73,7 @@ const view = (over: object) => ({
 	pending: null,
 	refusal: null,
 	awayPending: null,
-	awayRefusal: null,
+	awayNote: null,
 	burnPending: null,
 	burnReport: null,
 	...over,
@@ -757,16 +757,20 @@ describe("the Away switch", () => {
 		const cases = [
 			{ status: RUNNING },
 			{ status: Away, awayPending: { on: false, landed: false } },
-			{ status: RUNNING, awayRefusal: { text: "refused", at: LATER } },
+			{ status: RUNNING, awayNote: { text: "refused", at: LATER } },
 		];
 		for (const c of cases)
 			expect(rowsOf(c)[BURN_INDEX].text).toMatch(/^Burn mode/);
 	});
 
-	async function clicked(status: object, argv: string, after: object = status) {
+	async function clicked(
+		status: object,
+		command: string,
+		after: object = status,
+	) {
 		let shown = status;
 		const { calls, run } = runnerOf({
-			[argv]: () => {
+			[command]: () => {
 				shown = after;
 				return {};
 			},
@@ -884,10 +888,49 @@ describe("the Away switch", () => {
 		expect(buildRows(panel.view, AT + 60_000)[AWAY_INDEX + 1].text).toBe("");
 	});
 
-	it("leaves the loop switch's pending mark alone", async () => {
-		const { panel } = await clicked(RUNNING, "set --away", Away);
-		expect(panel.view.pending).toBeNull();
-		expect(buildRows(panel.view, LATER)[0].control.state).toBe("on");
+	it("shows the command's warning on a loop with no process, then blanks it", async () => {
+		const warning =
+			"refill loop: not running; its next start sets the mode, repos and goal afresh";
+		let shown: object = STOPPED;
+		const { run } = runnerOf({
+			"set --away": () => {
+				shown = { ...STOPPED, mode: "away" };
+				return { stdout: `mode:      away\n${warning}\n` };
+			},
+			"status --json": () => ({ stdout: JSON.stringify(shown) }),
+		});
+		const panel = panelOver(run);
+		await panel.refreshStatus();
+		await panel.click(AWAY_ROW);
+		const rows = buildRows(panel.view, AT);
+		expect(rows[AWAY_INDEX].text).toBe("Away  [on]");
+		expect(rows[AWAY_INDEX + 1]).toMatchObject({
+			text: warning,
+			role: "value",
+		});
+		expect(buildRows(panel.view, AT + 60_000)[AWAY_INDEX + 1].text).toBe("");
+	});
+
+	it("says why a click does nothing with no control to read, and nothing before a read", () => {
+		const [, sibling] = awayRowsOf({ status: { ...RUNNING, mode: null } });
+		expect(sibling.text).toBe("No loop settings to change: run `start`");
+		expect(awayRowsOf({})[1].text).toBe("");
+	});
+
+	it("never marks the loop switch pending mid-press", async () => {
+		const { held, release } = heldUntil();
+		const run = async (argv: string[]) => {
+			if (argv[0] === "set") await held;
+			return { code: 0, stdout: JSON.stringify(RUNNING), stderr: "" };
+		};
+		const panel = panelOver(run);
+		await panel.refreshStatus();
+		const press = panel.click(AWAY_ROW);
+		const rows = buildRows(panel.view, LATER);
+		expect(rows[AWAY_INDEX].control.state).toBe("pending");
+		expect(rows[0].control.state).toBe("on");
+		release();
+		await press;
 	});
 });
 
