@@ -21,8 +21,11 @@ describe("isApparatus", () => {
 		expect(isApparatus(rel)).toBe(true);
 	});
 
+	it("calls arm-gh-stub.js shipped code, a stub by name that build-arm-sandbox.js ships (#3743)", () => {
+		expect(isApparatus("scripts/lib/arm-gh-stub.js")).toBe(false);
+	});
+
 	it.each([
-		"scripts/lib/arm-gh-stub.js",
 		"scripts/check-host-root.js",
 		"scripts/lib/vitest.config.helper.ts",
 	])("calls %s shipped code", (rel) => {

@@ -4,7 +4,7 @@
 # commit's own record of its sensitive-path review (#3664, spec #1612
 # §Disposition and records, Reach).
 #
-# IMPLICIT:  consumes the git directory's `wfc-review-tier`, which scripts/review-hold-gate.sh leaves on a pass. Where its tree is not the one this commit carries, a neighbour's `git add` moved the index under the later gates (#3905), so it runs the hold again on what the commit now carries and refuses as the hold does. A stamp naming a review then writes `Review-Tier: <tier>; areas=<a,b>; base=<sha>; tree=<sha>; paths=<p,q>` into the message file, replacing any the message already carries.
+# IMPLICIT:  consumes the stamp scripts/review-hold-gate.sh leaves on a pass (scripts/lib/review-tier-stamp.sh names it). Where its tree is not the one this commit carries, a neighbour's `git add` moved the index under the later gates (#3905), so it runs the hold again on what the commit now carries and refuses as the hold does. A stamp naming a review then writes `Review-Tier: <tier>; areas=<a,b>; base=<sha>; tree=<sha>; paths=<p,q>` into the message file, replacing any the message already carries.
 # JUSTIFIED: reach — scripts/report-remeasure-due.js counts a commit by it where no `**Review findings:**` comment names it.
 # DEFEAT:    any route that skips the hold skips the trailer with it: the founder's own terminal, `HUSKY=0`; and a linked worktree's commit whose marker would not pass the hold, which it does not refuse there, has none.
 #
@@ -31,6 +31,9 @@ if [[ $# -ne 1 ]]; then
   exit 2
 fi
 msg="$1"
+# A direct `sh -e` run of the hook hands no message file; nothing is held
+# there, so no stamp is consumed and no fault logged.
+[[ -n "$msg" ]] || exit 0
 
 # dropped <why> [<detail>] — say this commit lands with no trailer, and log it.
 dropped() {
@@ -41,8 +44,12 @@ dropped() {
   exit 0
 }
 
-gitdir="$(git rev-parse --absolute-git-dir 2>/dev/null)" || exit 0
-stamp="$gitdir/wfc-review-tier"
+# shellcheck source=scripts/lib/review-tier-stamp.sh
+source "${BASH_SOURCE[0]%/*}/lib/review-tier-stamp.sh" 2>/dev/null ||
+  dropped "scripts/lib/review-tier-stamp.sh would not load"
+gitdir="$(git rev-parse --absolute-git-dir 2>/dev/null)" ||
+  dropped "git named no git directory to read the review hold's stamp from"
+stamp="$(review_tier_stamp "$gitdir")"
 [[ -f "$stamp" ]] || exit 0
 
 # Consumed on read, so a stamp outliving its commit stands behind no other. Its
@@ -53,7 +60,6 @@ consume_stamp() {
   rm -f "$stamp"
 }
 consume_stamp
-[[ -n "$msg" ]] || exit 0
 [[ -n "$recorded" && -n "$value" ]] || dropped "the review hold's stamp $stamp could not be read"
 
 # git runs the hook from the top level, which a relative GIT_INDEX_FILE names.
