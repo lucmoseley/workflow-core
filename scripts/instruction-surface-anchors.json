@@ -367,7 +367,7 @@
 			"source": "#1604, #3377"
 		},
 		"scripts/guard-uncommitted-work.js": {
-			"digest": "54ad5d4c1e0c859a",
+			"digest": "835d46d4be833e4f",
 			"verdict": "at need below the cap; BLOCK_CAP = 6 — the 7th turn is silent (capSpent stands it down before it assembles anything). Its second limb refuses a result: or needs input: ending while the session holds whole-file claims on clean files, on its own counter, cap 3.",
 			"selfSufficient": "yes, below the cap — rule, literal fix command and escape all inline, in both limbs",
 			"source": "#2073, #3066, #3565"
