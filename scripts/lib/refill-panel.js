@@ -29,8 +29,8 @@ const LEFT_COLUMN = 3;
  * a first guess, long enough to read one line. */
 const NOTE_SHOW_MS = 10_000;
 
-/* How long a resume waits for a read to show its process before the row returns,
- * as one that never holds the pidfile shows nothing else. Untraced: a first guess. */
+/* How long a resume waits for a read to show its process before the row returns.
+ * Untraced: a first guess. */
 const RESUME_SHOW_MS = 30_000;
 
 /* The skill's line on every flip (`.claude/skills/burn-mode/SKILL.md`). */
@@ -60,8 +60,8 @@ const SECTION_GAP = [SIBLING_GAP, SIBLING_GAP];
 /** @typedef {"name"|"value"|"secondary"|"needsYou"} Role */
 
 /**
- * White, #949494 and the one yellow, from #2525 round 9 (#3596 lists the grey as
- * untraced; the yellow is the prototype's).
+ * From #2525 round 9 (#3596 lists the grey as untraced; the yellow is the
+ * prototype's).
  * @type {Record<Role, {rgb: [number, number, number], bold?: boolean}>}
  */
 const ROLE_STYLES = {
@@ -155,7 +155,6 @@ const buildCurrentTick = ({ lastTick, paused }) =>
 const NEEDS_YOU = { text: "needs you", role: "needsYou" };
 
 /**
- * The issues a no-progress pause names, repo-qualified where they span repos.
  * @param {PauseIssue[]} issues
  */
 function buildIssueRefs(issues) {
@@ -166,8 +165,6 @@ function buildIssueRefs(issues) {
 }
 
 /**
- * What the loop waits on: the allowance's one line, in the panel's clock, or the
- * tick's own words.
  * @param {PanelStatus} status
  * @param {number} now
  */
@@ -181,7 +178,7 @@ function buildWaitingText(status, now) {
 }
 
 /**
- * The lines of a pause. A no-progress pause reads "needs you", dead or alive. So
+ * A no-progress pause reads "needs you", dead or alive. So
  * does a founder's pause whose process died: the housekeeping it promised has
  * stopped with it (#3875).
  * @param {NonNullable<PanelStatus["paused"]>} paused
@@ -321,8 +318,7 @@ function buildCredits({ seats, overflow }) {
 }
 
 /**
- * Line 3 of the loop block: each plan seat's week, or the credits past them. The
- * seats are named since their order follows the last typed seat.
+ * The seats are named since their order follows the last typed seat.
  * @param {PanelStatus} status
  * @returns {Row}
  */
@@ -639,8 +635,7 @@ function buildRows(view, now) {
 /**
  * What a press on the switch does: the argv to run and what it asks for, or
  * null where the press does nothing. A dead loop restarts from its stored
- * settings. One never started, or one stopping, has nothing to write here, and no
- * press ever stops the process.
+ * settings. No press ever stops the process.
  * @param {PanelView} view
  */
 function buildPress({ status, pending }) {
