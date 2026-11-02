@@ -27,7 +27,7 @@
  * confirmed culprit that is a merge has the side it merged in bisected on the
  * same files, and the first red commit there, failing twice, is reverted in
  * its place; the merge is reverted only where that side holds no such commit
- * (#3631).
+ * (#3631), and a hold on that revert says why it holds none (#3932).
  *
  * Its green ledger (one `<sha> <iso time>` line per sha it lands), its
  * no-verdict ledger (the same line per parent, culprit or bisected commit
@@ -67,6 +67,9 @@ const PUSH_TIMEOUT_MS = 20 * 60 * 1000;
  * with load, which no run measured. */
 const REVERT_COMMIT_TIMEOUT_MS = 600 * 1000;
 const REGISTRY_CHECK = path.join(__dirname, "..", "check-guard-registry.js");
+
+/** A culprit `mergedSide` reads no side of: a plain commit's. */
+const NO_SIDE = { base: null, range: [], merges: [] };
 
 /* Untraced: a revert racing that many session pushes in a row is a busier
  * `landing` than any seen. */
@@ -177,13 +180,18 @@ const NETWORK =
  * @property {string|null} unfiled why the fix ticket was not filed
  * @typedef {{culprit: string, parent: string|null}} Culprit a commit the
  *   bisect named red, and the commit before it on the range it searched
+ * @typedef {Culprit & {whyNoSideCommit?: string}} RevertTarget what to
+ *   revert, and where that is a merge, why no commit on its side stands in
+ * @typedef {{base: string|null, range: string[], merges: string[]}} SideRead
  * @typedef {object} Side the commits a merge culprit brought in from the
  *   parent the bisect did not step from
  * @property {string} merge
- * @property {string|null} base where that side forks from the bisected one,
- *   null where `merge` is no two-parent merge
- * @property {string[]} range the side's commits after `base`, oldest first,
- *   empty where `merge` is no two-parent merge
+ * @property {string|null} base the commit `range` starts from, which the
+ *   bisected parent holds, null where `merge` is no two-parent merge
+ * @property {string[]} range the side's first-parent line the bisected parent
+ *   lacks, oldest first, empty where `merge` is no two-parent merge
+ * @property {string[]} merges those of `range` that are merges: a red first
+ *   seen at one came in with its other parent, so its revert is no fix
  * @property {Record<string, Verdict>} bisect each run on the side, its base's
  *   included
  * @property {Verdict|null} confirm the side culprit's second run
@@ -758,7 +766,7 @@ function culpritAction(r, confirmed, s) {
 		return { kind: "fast-forward", sha: confirmed.parent };
 	const target = revertTarget(r, confirmed, s);
 	if ("kind" in target) return target;
-	const { culprit, parent } = target;
+	const { culprit, parent, whyNoSideCommit } = target;
 	const { files } = r;
 	const jobs = culpritJobs(r, culprit, redJobs);
 	if (!r.revert)
@@ -776,7 +784,7 @@ function culpritAction(r, confirmed, s) {
 	if ("failed" in r.revert)
 		return {
 			kind: "hold",
-			reason: `the revert of ${short(culprit)} did not land on landing: ${r.revert.failed}`,
+			reason: `the revert of ${short(culprit)} did not land on landing: ${r.revert.failed}${whyNoSideCommit ? `; no commit on its merged side to revert instead: ${whyNoSideCommit}` : ""}`,
 		};
 	const ticket = {
 		culprit,
@@ -798,12 +806,12 @@ function culpritAction(r, confirmed, s) {
 /**
  * The commit to revert for a confirmed culprit, or the run that finds it.
  * Reverting a merge undoes the whole side it merged in, so where the culprit
- * is one, that side is bisected on `r.files` from where it forks, and its
+ * is one, the line of that side its parent lacks is bisected on `r.files`, and its
  * first red commit, red again on a second run, is reverted instead (#3631).
  * @param {Red} r
  * @param {Culprit} confirmed
  * @param {Pick<Clearing, "redJobs" | "isGreen">} s
- * @returns {Action | Culprit}
+ * @returns {Action | RevertTarget}
  */
 function revertTarget(r, confirmed, s) {
 	if (confirmed.parent === null) return confirmed;
@@ -817,23 +825,24 @@ function revertTarget(r, confirmed, s) {
 					merge: confirmed.culprit,
 					parent: confirmed.parent,
 				};
-	return sideCulprit(r, side, s) ?? confirmed;
+	if (side.range.length === 0) return confirmed;
+	const found = sideCulprit(r, side, s);
+	return "whyNoSideCommit" in found ? { ...confirmed, ...found } : found;
 }
 
 /**
  * The first commit on `side` red on `r.files`, red again on a second run, or
- * the run that finds it; null where the side holds none: its tip is not red,
- * its base is not green, its culprit passes the second run or a run there
- * reaches no verdict.
+ * the run that finds it; else why the side holds none.
  * @param {Red} r
  * @param {Side} side
  * @param {Pick<Clearing, "redJobs" | "isGreen">} s
- * @returns {Action | Culprit | null}
+ * @returns {Action | Culprit | {whyNoSideCommit: string}}
  */
 function sideCulprit(r, side, { redJobs, isGreen }) {
-	const tip = side.range.at(-1);
+	const tip = /** @type {string} */ (side.range.at(-1));
 	const runs = [...Object.values(side.bisect), side.confirm];
-	if (tip === undefined || runs.some((v) => v?.kind === "unknown")) return null;
+	if (runs.some((v) => v?.kind === "unknown"))
+		return { whyNoSideCommit: "a run on it reached no verdict" };
 	/**
 	 * @param {string} sha
 	 * @param {RerunWhy} why
@@ -842,17 +851,29 @@ function sideCulprit(r, side, { redJobs, isGreen }) {
 	const rerun = (sha, why) => ({ kind: "rerun", sha, files: r.files, why });
 	const tipRun = side.bisect[tip];
 	if (!tipRun) return rerun(tip, "side");
-	if (!isSearchedRed(tipRun, redJobs)) return null;
+	if (!isSearchedRed(tipRun, redJobs))
+		return { whyNoSideCommit: `its tip ${short(tip)} is not red` };
 	const { base } = side;
 	if (base !== null && base !== r.base && !isGreen(base)) {
 		const baseRun = side.bisect[base];
 		if (!baseRun) return rerun(base, "side");
-		if (isSearchedRed(baseRun, redJobs)) return null;
+		if (isSearchedRed(baseRun, redJobs))
+			return {
+				whyNoSideCommit: `${short(base)}, which it starts from, is red too, so a red on it names no commit`,
+			};
 	}
 	const step = bisectStep(side, redJobs);
 	if ("next" in step) return rerun(step.next, "side");
+	if (side.merges.includes(step.culprit))
+		return {
+			whyNoSideCommit: `its first red commit ${short(step.culprit)} is itself a merge`,
+		};
 	if (!side.confirm) return rerun(step.culprit, "side-confirm");
-	return isSearchedRed(side.confirm, redJobs) ? step : null;
+	return isSearchedRed(side.confirm, redJobs)
+		? step
+		: {
+				whyNoSideCommit: `its first red commit ${short(step.culprit)} passed a second run`,
+			};
 }
 
 /**
@@ -921,6 +942,26 @@ function buildHandedOnBatch({ pushedPast, revert }, main) {
 }
 
 /**
+ * `r`'s side for a new run. Kept whole once a revert is made, as its target was
+ * chosen on it and no rerun may change it. A heartbeat beaten before #3932
+ * carried no merges and a range along `chain`, so one with no revert is read
+ * again.
+ * @param {Red} r
+ * @param {(runs: Record<string, Verdict>) => Record<string, Verdict>} reached
+ * @returns {Side|null}
+ */
+function resumableSide({ side, revert }, reached) {
+	if (!side) return null;
+	if (revert) return { ...side, merges: side.merges ?? [] };
+	if (!side.merges) return null;
+	return {
+		...side,
+		bisect: reached(side.bisect),
+		confirm: side.confirm?.kind === "unknown" ? null : side.confirm,
+	};
+}
+
+/**
  * `r` with each run that reached no verdict dropped, so a run resuming it
  * reruns them rather than exiting on them again.
  * @param {Red} r
@@ -946,16 +987,7 @@ function resumable(r) {
 		onMain: r.onMain?.kind === "unknown" ? null : (r.onMain ?? null),
 		bisect: reached(r.bisect),
 		confirm: reached(r.confirm),
-		/* Kept whole once a revert is made, as its target was chosen on
-		 * them and no rerun may change it. */
-		side:
-			r.side && !r.revert
-				? {
-						...r.side,
-						bisect: reached(r.side.bisect),
-						confirm: r.side.confirm?.kind === "unknown" ? null : r.side.confirm,
-					}
-				: (r.side ?? null),
+		side: resumableSide(r, reached),
 		/* Kept, as the bisect's verdicts were read against it; absent before
 		 * #3586. */
 		tipJobsOnMain: r.tipJobsOnMain ?? null,
@@ -1024,10 +1056,10 @@ function nextAction(s) {
  *   from `base`, so `main` at `base` can fast-forward to any of them: a
  *   reconcile merge's first parent is the session's side, which need not
  *   (#2996)
- * @property {(merge: string, parent: string) => {base: string, range: string[]}|null}
+ * @property {(merge: string, parent: string) => SideRead|null}
  *   mergedSide where `merge` is a two-parent merge and `parent` one of its
- *   parents, the other's commits after where it forks from `parent`, oldest
- *   first, along `chain`; else null
+ *   parents, the other's first-parent line `parent` lacks, oldest first, the
+ *   commit it starts from and the merges on it; else null
  * @property {(culprit: string, parent: string|null, why: string) => Revert}
  *   revertOnLanding a revert of `culprit` against `parent`, committed on the
  *   remote's current `landing` tip and pushed there without force, `why`
@@ -1222,8 +1254,7 @@ async function advanceRed(deps, action, r) {
 			...r,
 			side: {
 				merge: action.merge,
-				base: side?.base ?? null,
-				range: side?.range ?? [],
+				...(side ?? NO_SIDE),
 				bisect: {},
 				confirm: null,
 			},
@@ -1870,6 +1901,8 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 				null,
 		};
 	};
+	/** @param {string[]} args @returns {string[]} */
+	const readLines = (args) => git(args).split("\n").filter(Boolean);
 	/** @param {string} a @param {string} b */
 	const isAncestor = (a, b) => succeeds(["merge-base", "--is-ancestor", a, b]);
 	/** @param {string|null} main @param {string} landing @returns {Relation} */
@@ -1886,19 +1919,19 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 	function chain(base, sha) {
 		/* With no `main`, every commit can land, so any parent will do. */
 		if (base === null)
-			return git(["rev-list", "--first-parent", "--reverse", sha])
-				.split("\n")
-				.filter(Boolean);
+			return readLines(["rev-list", "--first-parent", "--reverse", sha]);
 		const parentsOf = new Map(
-			git(["rev-list", "--ancestry-path", "--parents", `${base}..${sha}`])
-				.split("\n")
-				.filter(Boolean)
-				.map((line) => {
-					const [commit, ...parents] = line.split(" ");
-					if (commit === undefined)
-						throw new Error(`rev-list printed no commit: ${line}`);
-					return [commit, parents];
-				}),
+			readLines([
+				"rev-list",
+				"--ancestry-path",
+				"--parents",
+				`${base}..${sha}`,
+			]).map((line) => {
+				const [commit, ...parents] = line.split(" ");
+				if (commit === undefined)
+					throw new Error(`rev-list printed no commit: ${line}`);
+				return [commit, parents];
+			}),
 		);
 		const commits = [];
 		for (let at = sha; at !== base; ) {
@@ -1912,20 +1945,12 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 		}
 		return commits.reverse();
 	}
-	/**
-	 * Where `a` and `b` fork, or null where they share no ancestor, which
-	 * `merge-base` exits 1 on; any other failure throws (#3631).
-	 * @param {string} a
-	 * @param {string} b
-	 */
-	const readMergeBase = (a, b) => {
-		try {
-			return git(["merge-base", a, b]).trim();
-		} catch (err) {
-			if (caught(err).status === 1) return null;
-			throw err;
-		}
-	};
+	/** @param {string} commit @returns {string[]} */
+	const readParents = (commit) =>
+		git(["rev-list", "--parents", "-n", "1", commit])
+			.trim()
+			.split(" ")
+			.slice(1);
 	return {
 		refs() {
 			const listed = git([
@@ -1970,15 +1995,18 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 		},
 		chain,
 		mergedSide(merge, parent) {
-			const parents = git(["rev-list", "--parents", "-n", "1", merge])
-				.trim()
-				.split(" ")
-				.slice(1);
+			const parents = readParents(merge);
 			const other = parents.find((p) => p !== parent);
 			if (parents.length !== 2 || !parents.includes(parent) || !other)
 				return null;
-			const base = readMergeBase(parent, other);
-			return base === null ? null : { base, range: chain(base, other) };
+			/* Along first parents, not `chain`: a session's reconcile merges leave
+			 * no descent from where its side forks to its own commits (#3932). */
+			const sideLine = ["rev-list", "--first-parent", `${parent}..${other}`];
+			const range = readLines([...sideLine, "--reverse"]);
+			const base = range[0] && readParents(range[0])[0];
+			return base
+				? { base, range, merges: readLines([...sideLine, "--merges"]) }
+				: null;
 		},
 		revertOnLanding(culprit, parent, why) {
 			/* A push refused because `landing` moved is retried on the new tip;
@@ -2035,10 +2063,7 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 				timeout: LANDER_GIT_TIMEOUT_MS,
 			});
 		try {
-			const parents = git(["rev-list", "--parents", "-n", "1", culprit])
-				.trim()
-				.split(" ")
-				.slice(1);
+			const parents = readParents(culprit);
 			/* A merge reverts against the parent the bisect stepped from. */
 			const mainline = parents.indexOf(parent ?? "") + 1;
 			if (parents.length > 1 && mainline === 0)
@@ -2053,7 +2078,13 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 					culprit,
 				]),
 			);
-			if (unreverted !== null) return { failed: parseFirstLine(unreverted) };
+			if (unreverted !== null)
+				return {
+					failed: buildConflictFailure(
+						unreverted,
+						inTree(["diff", "--name-only", "--diff-filter=U"]),
+					),
+				};
 			const subject = git(["log", "-1", "--format=%s", culprit]).trim();
 			try {
 				/* In a group of its own, so a kill at the timeout reaches the hooks, with
@@ -2093,6 +2124,16 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 				);
 		}
 	}
+}
+
+/**
+ * Why a revert did not apply, naming the files it conflicted in.
+ * @param {string} stderr
+ * @param {string} conflicted the conflicted paths, one a line
+ */
+function buildConflictFailure(stderr, conflicted) {
+	const paths = conflicted.trim().replaceAll("\n", ", ");
+	return `${parseFirstLine(stderr)}${paths ? ` (conflicts in ${paths})` : ""}`;
 }
 
 /**

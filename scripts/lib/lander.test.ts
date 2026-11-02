@@ -66,7 +66,7 @@ async function run(
 		pushRefused = null as string | null,
 		pushFails = null as (() => Error) | null,
 		mainJobs = null as ((jobs: string[]) => JobsOnMain) | null,
-		sides = {} as Record<string, { base: string; range: string[] }>,
+		sides = {} as Record<string, SideRead>,
 	} = {},
 ) {
 	const ledger = new Set<string>(ledgered);
@@ -459,7 +459,7 @@ const redBatch = (
 		lastOwed?: FixTicket[];
 		refsFail?: (nth: number) => Error | null;
 		history?: string[];
-		sides?: Record<string, { base: string; range: string[] }>;
+		sides?: Record<string, SideRead>;
 	} = {},
 ) =>
 	run(
@@ -982,16 +982,29 @@ describe("runLander on a red batch", () => {
 	});
 });
 
+interface SideRead {
+	base: string;
+	range: string[];
+	merges: string[];
+}
+
 describe("runLander on a culprit that is a merge (#3631)", () => {
 	/* M merges in the side S0 → S1 → S2, forking at S0. */
 	const M = "1".repeat(40);
 	const S0 = "2".repeat(40);
 	const S1 = "3".repeat(40);
 	const S2 = "4".repeat(40);
-	const merged = (filesRed: (sha: string, nth: number) => boolean) =>
+	const merged = (
+		filesRed: (sha: string, nth: number) => boolean,
+		{
+			merges = [],
+			...opts
+		}: { merges?: string[]; revertFails?: string; lastRed?: Red } = {},
+	) =>
 		redBatch(filesRed, {
 			history: [B, M, D],
-			sides: { [M]: { base: S0, range: [S1, S2] } },
+			sides: { [M]: { base: S0, range: [S1, S2], merges } },
+			...opts,
 		});
 
 	it("reverts the first red commit on the merged side, not the merge, and files its fix ticket", async () => {
@@ -1032,6 +1045,7 @@ describe("runLander on a culprit that is a merge (#3631)", () => {
 				merge: M,
 				base: S0,
 				range: [S1, S2],
+				merges: [],
 				bisect: { [S2]: { kind: "unknown", reason: "tester died" } },
 				confirm: null,
 			},
@@ -1069,6 +1083,104 @@ describe("runLander on a culprit that is a merge (#3631)", () => {
 			expect(r.tickets).toMatchObject([{ culprit: M, parent: B }]);
 		},
 	);
+
+	it("reverts the merge, running no second run there, where the side's first red commit is itself a merge (#3932)", async () => {
+		const r = await merged((sha) => [M, D, S1, S2].includes(sha), {
+			merges: [S1],
+		});
+		expect(r.actions).not.toContainEqual(
+			expect.objectContaining({ why: "side-confirm" }),
+		);
+		expect(r.reverted).toEqual([{ culprit: M, parent: B }]);
+	});
+
+	it.each([
+		["its tip 444444444 is not red", (sha: string) => [M, D].includes(sha), []],
+		[
+			"222222222, which it starts from, is red too, so a red on it names no commit",
+			(sha: string) => [M, D, S0, S1, S2].includes(sha),
+			[],
+		],
+		[
+			"its first red commit 333333333 is itself a merge",
+			(sha: string) => [M, D, S1, S2].includes(sha),
+			[S1],
+		],
+		[
+			"its first red commit 333333333 passed a second run",
+			(sha: string, nth: number) =>
+				[M, D, S2].includes(sha) || (sha === S1 && nth === 1),
+			[],
+		],
+	])(
+		"holds on the merge's conflict saying why no side commit stands in: %s (#3932)",
+		async (why, filesRed, merges) => {
+			const r = await merged(filesRed, {
+				merges,
+				revertFails: "error: could not revert 111111111",
+			});
+			expect(r.end).toMatchObject({
+				kind: "hold",
+				reason: `the revert of 111111111 did not land on landing: error: could not revert 111111111; no commit on its merged side to revert instead: ${why}`,
+			});
+		},
+	);
+
+	it("holds on the merge's conflict saying a side run reached no verdict (#3932)", async () => {
+		const r = await run(
+			{ main: A, landing: D },
+			(sha, files) => {
+				if (files === undefined) return { kind: "red", files: FILES };
+				if (sha === S2) return { kind: "unknown", reason: "tester died" };
+				return [M, D].includes(sha)
+					? { kind: "red", files: FILES }
+					: { kind: "green" };
+			},
+			{
+				history: [B, M, D],
+				sides: { [M]: { base: S0, range: [S1, S2], merges: [] } },
+				revertFails: "error: could not revert 111111111",
+			},
+		);
+		expect(r.end).toMatchObject({
+			kind: "hold",
+			reason: expect.stringContaining(
+				"no commit on its merged side to revert instead: a run on it reached no verdict",
+			),
+		});
+	});
+
+	it("reads again a side a run before #3932 searched, whose range went along chain, where no revert is made", async () => {
+		const first = await merged((sha) => [M, D, S1, S2].includes(sha));
+		const lastRed = first.beats.findLast((b) => b.red?.side)?.red;
+		if (!lastRed?.side) throw new Error("no beat carried a side");
+		const { merges: _, ...beforeMerges } = lastRed.side;
+		const r = await merged((sha) => [M, D, S1, S2].includes(sha), {
+			lastRed: {
+				...lastRed,
+				revert: null,
+				unfiled: null,
+				side: { ...beforeMerges, range: [S2] } as Red["side"],
+			},
+		});
+		expect(r.actions).toContainEqual({
+			kind: "read-side",
+			merge: M,
+			parent: B,
+		});
+		expect(r.reverted).toEqual([{ culprit: S1, parent: S0 }]);
+	});
+
+	it("holds on a side commit's conflict naming only that commit (#3932)", async () => {
+		const r = await merged((sha) => [M, D, S1, S2].includes(sha), {
+			revertFails: "error: could not revert 333333333",
+		});
+		expect(r.end).toMatchObject({
+			kind: "hold",
+			reason:
+				"the revert of 333333333 did not land on landing: error: could not revert 333333333",
+		});
+	});
 });
 
 describe("runLander across runs on a red batch (#2673)", () => {

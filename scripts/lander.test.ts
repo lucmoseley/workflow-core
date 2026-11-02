@@ -10,7 +10,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stubGhScript } from "./lib/gh-stub.js";
 import { remoteGit } from "./lib/lander.js";
 import { isDead, waitFor } from "./lib/process-fixture.js";
@@ -52,6 +52,17 @@ const stubTester = (code: number, failing = "") => {
 	fs.writeFileSync(
 		script,
 		`#!/bin/sh\ncp "${markers()}/.lander-heartbeat.json" "${tmp}/heartbeat-seen.json"\nprintf '%s' '${failing}'\nexit ${code}\n`,
+	);
+	fs.chmodSync(script, 0o755);
+	return script;
+};
+
+/** A tester red on `scripts/<name>.test.ts` while `<name>.txt` is in the tree. */
+const stubRedWhile = (name: string) => {
+	const script = path.join(tmp, "tester.sh");
+	fs.writeFileSync(
+		script,
+		`#!/bin/sh\nif git cat-file -e "$1:${name}.txt" 2>/dev/null; then echo scripts/${name}.test.ts; exit 1; fi\nexit 0\n`,
 	);
 	fs.chmodSync(script, 0o755);
 	return script;
@@ -111,12 +122,7 @@ it("lands the green first of three commits, reverts the red middle one on landin
 	const middle = commit("broken");
 	const third = commit("third");
 	git(work, "push", "-q", "origin", "HEAD:landing");
-	const tester = path.join(tmp, "tester.sh");
-	fs.writeFileSync(
-		tester,
-		`#!/bin/sh\nif git cat-file -e "$1:broken.txt" 2>/dev/null; then echo scripts/broken.test.ts; exit 1; fi\nexit 0\n`,
-	);
-	fs.chmodSync(tester, 0o755);
+	const tester = stubRedWhile("broken");
 	const created = path.join(tmp, "created.txt");
 	const gh = stubGhScript(
 		tmp,
@@ -332,12 +338,7 @@ it("files on a later run the fix ticket a run failed to file, across the heartbe
 	fs.writeFileSync(refuseReland, "");
 	const middle = commit("broken");
 	git(work, "push", "-q", "origin", "HEAD:landing");
-	const tester = path.join(tmp, "tester.sh");
-	fs.writeFileSync(
-		tester,
-		`#!/bin/sh\nif git cat-file -e "$1:broken.txt" 2>/dev/null; then echo scripts/broken.test.ts; exit 1; fi\nexit 0\n`,
-	);
-	fs.chmodSync(tester, 0o755);
+	const tester = stubRedWhile("broken");
 
 	const held = await runLander(tester, "landing", gh.env);
 
@@ -540,9 +541,103 @@ it("reads a merge's other side from where it forks, and none for a plain commit 
 	expect(remoteGit(work).mergedSide(merge, l)).toEqual({
 		base: seed,
 		range: [s],
+		merges: [],
 	});
 	expect(remoteGit(work).mergedSide(tip, merge)).toBeNull();
 	expect(remoteGit(work).mergedSide(merge, tip)).toBeNull();
+});
+
+it("reads a side that reconciled with landing past its merges, stopping at what the parent holds (#3932)", () => {
+	const seed = git(work, "rev-parse", "HEAD");
+	const l1 = commit("l1");
+	const l2 = commit("l2");
+	git(work, "checkout", "-q", "--detach", seed);
+	const red = commit("red");
+	git(work, "merge", "-q", "--no-edit", l1);
+	const inner = git(work, "rev-parse", "HEAD");
+	const last = commit("last");
+	git(work, "merge", "-q", "--no-edit", l2);
+	const merge = git(work, "rev-parse", "HEAD");
+
+	expect(remoteGit(work).mergedSide(merge, l2)).toEqual({
+		base: seed,
+		range: [red, inner, last],
+		merges: [inner],
+	});
+});
+
+describe("a culprit merge whose own revert conflicts (#3932)", () => {
+	const editShared = (line: string) => {
+		fs.writeFileSync(path.join(work, "shared.txt"), `${line}\n`);
+		return commit(line);
+	};
+
+	/**
+	 * `main` on `m`, and on `landing` a merge of `side` into `m` with a tip
+	 * editing a file the side added, so reverting the merge conflicts.
+	 */
+	const pushMergeOf = (side: string, m: string) => {
+		git(work, "checkout", "-q", "--detach", m);
+		git(work, "merge", "-q", "--no-edit", side);
+		const merge = git(work, "rev-parse", "HEAD");
+		const tip = editShared("tip");
+		git(work, "push", "-q", "origin", `${m}:main`, `${tip}:landing`);
+		return { merge, tip };
+	};
+
+	it("reverts the side commit behind the side's own reconcile merge, and lands the batch", async () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		const m = commit("m");
+		git(work, "checkout", "-q", "--detach", seed);
+		const red = commit("red");
+		editShared("side");
+		git(work, "merge", "-q", "--no-edit", m);
+		const side = git(work, "rev-parse", "HEAD");
+		const { merge } = pushMergeOf(side, m);
+		expect(remoteGit(work).revertOnLanding(merge, m, "why")).toEqual({
+			failed: expect.stringContaining("(conflicts in shared.txt)"),
+		});
+
+		const { gh } = stubTracker();
+		const r = await runLander(stubRedWhile("red"), "landing", gh.env);
+
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stdout).toContain(`revert ${red} on landing`);
+		const landed = git(remote, "rev-parse", "main");
+		expect(git(remote, "rev-parse", "landing")).toBe(landed);
+		expect(git(remote, "log", "-1", "--format=%s", landed)).toBe(
+			'Revert "red"',
+		);
+		const files = git(remote, "ls-tree", "--name-only", landed).split("\n");
+		expect(files).not.toContain("red.txt");
+		expect(files).toContain("shared.txt");
+	});
+
+	it("holds, naming the conflict and why no side commit stands in, where the red came in with a merge on the side", async () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		const m = commit("m");
+		git(work, "checkout", "-q", "--detach", seed);
+		const red = commit("red");
+		git(work, "checkout", "-q", "--detach", seed);
+		editShared("side");
+		git(work, "merge", "-q", "--no-edit", red);
+		const side = git(work, "rev-parse", "HEAD");
+		const { merge, tip } = pushMergeOf(side, m);
+
+		const { gh } = stubTracker();
+		const r = await runLander(stubRedWhile("red"), "landing", gh.env);
+
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stdout).toContain(
+			`the revert of ${merge.slice(0, 9)} did not land`,
+		);
+		expect(r.stdout).toContain("(conflicts in shared.txt)");
+		expect(r.stdout).toContain(
+			`no commit on its merged side to revert instead: its first red commit ${side.slice(0, 9)} is itself a merge`,
+		);
+		expect(git(remote, "rev-parse", "landing")).toBe(tip);
+		expect(git(remote, "rev-parse", "main")).toBe(m);
+	});
 });
 
 it("reverts a merge culprit against the parent the bisect stepped from, undoing the session's side (#2996)", () => {
