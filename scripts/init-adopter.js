@@ -78,8 +78,8 @@ const {
 	inferCommands,
 	isLintStagedCommand,
 	classifyCheckStaged,
-	BIOME_STAGED_COMMAND,
 } = require("./lib/infer-commands.js");
+const { BIOME_STAGED_COMMAND } = require("./lib/biome-allowlist.js");
 const { readSubjectModules } = require("./lib/gate-subjects.js");
 const { ghBinary } = require("./lib/gh.js");
 const {

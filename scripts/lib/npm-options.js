@@ -5,7 +5,7 @@
  * `shorthandExact` and `boolExact` (#1972), and the command words its cmd-list
  * derefs, `isNpmRun` and `scriptOfNpmCommand` (#3627, #3851).
  * lib/suite-concurrency.js reads with it whether `npm … run <name>` launches a build or a dev server,
- * lib/infer-commands.js which script a check_staged runs, and
+ * lib/script-runners.js which script a command runs, and
  * lib/npm-install.js the install and the npx argv it judges.
  *
  * A config a later npm adds is read as a name npm does not know.

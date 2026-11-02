@@ -83,7 +83,7 @@ fi
 # those words (#3414, #3445, #3545), a glob, or `parallel` or a shell word,
 # `?sh` and `?ash` standing for the shells, as lib/infer-commands.js's SHELLS,
 # that can run what the text never names (#3851). The first arm is
-# infer-commands.js's BIOME_STAGED_COMMAND, which is never classified.
+# biome-allowlist.js's BIOME_STAGED_COMMAND, which is never classified.
 if declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/workflow-core-config.js command check_staged; then
   blank=$(printf '\t\n_')
   blank=${blank%_}

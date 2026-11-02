@@ -21,8 +21,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { BIOME_STAGED_COMMAND } from "./biome-allowlist.js";
 import {
-	BIOME_STAGED_COMMAND,
 	classifyCheckStaged,
 	inferCommands,
 	isLintStagedCommand,

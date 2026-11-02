@@ -1,7 +1,7 @@
 /*
  * shell-tokens.js — one POSIX-shell lexing pass over a command (#3445), so a
  * classifier reads words, operators and redirects rather than regexing the
- * text.
+ * text, and the simple commands those tokens hold.
  *
  * A word's quotes are removed and its backslash-newlines deleted. Where
  * bash and dash read a word differently it is read as bash does and marked
@@ -496,4 +496,64 @@ function closing(src, from, pair, depth) {
 /** Whether a word holds an expansion. @param {Word} word */
 const isOpaque = (word) => word.pieces.includes(null);
 
-module.exports = { tokenise, isOpaque };
+/** @param {Token[]} tokens each simple command's words, split at operators */
+function simpleCommands(tokens) {
+	/** @type {Word[][]} */
+	const commands = [];
+	/** @type {Word[]} */
+	let current = [];
+	for (const t of tokens) {
+		if (t.type === "word") current.push(t);
+		else if (t.type === "op") {
+			commands.push(current);
+			current = [];
+		}
+	}
+	commands.push(current);
+	return commands.filter((c) => c.length > 0);
+}
+
+/** @param {Token} t */
+const wordOf = (t) => (t.type === "redirect" ? t.target : t);
+
+/**
+ * Every simple command `tokens` holds: its own, then each substitution's,
+ * and unless `quoted` is false each quoted word's, which a runner such as
+ * `concurrently` or `sh -c` runs.
+ * @param {Token[]} tokens
+ * @param {boolean} [quoted]
+ * @returns {Word[][]}
+ */
+function allCommands(tokens, quoted = true) {
+	return simpleCommands(tokens).concat(
+		tokens.flatMap((t) => {
+			const word = wordOf(t);
+			if (word?.type !== "word") return [];
+			const read = quoted && word.quoted ? [tokenise(word.value)] : [];
+			return [...word.subs, ...read].flatMap((sub) => allCommands(sub, quoted));
+		}),
+	);
+}
+
+/**
+ * `allCommands` without reading a quoted word as a script: what `tokens` run
+ * whatever their runner. A quoted word is a command only where a runner runs
+ * it, and reading it as one calls `echo '$X'` a hidden command (#3545).
+ * Residual: `concurrently '$X'` reads as not hidden.
+ * @param {Token[]} tokens
+ */
+const writtenCommands = (tokens) => allCommands(tokens, false);
+
+/** Whether a word holds an expansion, or a construct dash reads otherwise.
+ * @param {Word} w */
+const isUnreadWord = (w) => isOpaque(w) || w.bashOnly;
+
+module.exports = {
+	tokenise,
+	isOpaque,
+	isUnreadWord,
+	simpleCommands,
+	wordOf,
+	allCommands,
+	writtenCommands,
+};

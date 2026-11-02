@@ -21,7 +21,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { BIOME_STAGED_COMMAND } from "./lib/infer-commands.js";
+import { BIOME_STAGED_COMMAND } from "./lib/biome-allowlist.js";
 import { newRepo, registerTempCleanup } from "./lib/precommit-gate-harness";
 import { HOOK, LIB, ROOT } from "./lib/precommit-gate-testkit";
 import { copyRequireClosure } from "./lib/require-closure";
