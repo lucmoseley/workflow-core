@@ -1067,7 +1067,7 @@ describe("the idle efforts section (#3644)", () => {
 		});
 		expect(section(body)).toContain(
 			[
-				"- `The refill loop is not running, so it serves no tracker. /pick-next restarts it.`",
+				"- `The refill loop is not running, so it serves no tracker. node scripts/refill-loop.js start restarts it.`",
 				"- `acme/a: none idle past 2 days`",
 				"- `acme/b: 1 idle past 2 days (the refill loop does not serve it); oldest #8 (Ship it), idle 3.0 days; skip reason: none, the launch filter passes it`",
 				"  - `urgent #8 (Ship it), idle 3.0 days`",

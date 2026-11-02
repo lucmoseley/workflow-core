@@ -273,7 +273,7 @@ function isInlineCode(interpreter, words) {
 	if (!flags) return false;
 	for (const w of words) {
 		if (!w.startsWith("-")) return false;
-		if (flags.has(beforeFirst(w, "="))) return true;
+		if (flags.has(w.split("=")[0] ?? w)) return true;
 	}
 	return false;
 }

@@ -5,7 +5,6 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-	buildGoalFlags,
 	buildGoalLine,
 	buildGoalProgress,
 	buildGoalStatus,
@@ -50,17 +49,6 @@ describe("a typed goal (#3866)", () => {
 			expect(parseGoalForm(text)).toBeNull();
 		},
 	);
-
-	it("gives a walk the `set` flags a restart prints", () => {
-		expect(
-			buildGoalFlags({
-				form: "drain",
-				text: "drain #5",
-				refs: [{ repo: "core", number: 5 }],
-				setAt: 1,
-			}),
-		).toBe("--goal 'drain core#5'");
-	});
 });
 
 describe("a goal's progress (#3866)", () => {

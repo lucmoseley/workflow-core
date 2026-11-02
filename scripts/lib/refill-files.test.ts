@@ -15,6 +15,7 @@ import {
 	readControlChecked,
 	readJson,
 	withControlLock,
+	writeLoopPause,
 } from "./refill-files.js";
 import { NOW, writeCheckout } from "./refill-loop-fixture";
 
@@ -43,6 +44,73 @@ describe("a loop file's read (#3380)", () => {
 		expect(lines).toHaveLength(1);
 		expect(lines[0]).toContain(file);
 		expect(lines[0]).toMatch(/JSON/);
+	});
+});
+
+describe("the loop's own pause (#3859)", () => {
+	const saved = process.env.WFC_REFILL_DIR;
+	const From = 5;
+	const pause = { by: "no-progress", at: 9, issues: [] };
+	let tmp: string;
+	const control = () => path.join(tmp, ".refill-loop-control.json");
+	const writeStored = (over: object = {}) =>
+		fs.writeFileSync(
+			control(),
+			JSON.stringify({
+				noProgressFrom: From,
+				stopRequested: false,
+				seats: [],
+				scope: { mode: "normal", repos: [], goals: {} },
+				...over,
+			}),
+		);
+	const stored = () => JSON.parse(fs.readFileSync(control(), "utf8"));
+	beforeEach(() => {
+		tmp = fs.mkdtempSync(path.join(os.tmpdir(), "refill-pause-"));
+		process.env.WFC_REFILL_DIR = tmp;
+	});
+	afterEach(() => {
+		if (saved === undefined) delete process.env.WFC_REFILL_DIR;
+		else process.env.WFC_REFILL_DIR = saved;
+		fs.rmSync(tmp, { recursive: true, force: true });
+	});
+
+	it("writes the pause, changing no other field", () => {
+		writeStored({ seats: ["/s"] });
+		writeLoopPause(pause, From, () => undefined);
+		expect(stored()).toMatchObject({ paused: pause, seats: ["/s"] });
+		expect(fs.existsSync(`${control()}.lock`)).toBe(false);
+	});
+
+	it("keeps a pause set since the tick read the control", () => {
+		const founder = { by: "founder", at: 7 };
+		writeStored({ paused: founder });
+		writeLoopPause(pause, From, () => undefined);
+		expect(stored().paused).toEqual(founder);
+	});
+
+	it("writes nothing where a resume moved the count since", () => {
+		writeStored({ noProgressFrom: From + 1 });
+		writeLoopPause(pause, From, () => undefined);
+		expect(stored()).not.toHaveProperty("paused");
+	});
+
+	it("logs a lock kept past the wait and writes nothing, for the next tick to decide again", () => {
+		writeStored();
+		const holder = spawn(
+			process.execPath,
+			["-e", "setInterval(() => {}, 1000)", "refill-loop.js"],
+			{ stdio: "ignore" },
+		);
+		try {
+			fs.writeFileSync(`${control()}.lock`, String(holder.pid));
+			const lines: string[] = [];
+			writeLoopPause(pause, From, (l) => lines.push(l), 0);
+			expect(stored()).not.toHaveProperty("paused");
+			expect(lines.join()).toContain("the next tick decides it again");
+		} finally {
+			holder.kill();
+		}
 	});
 });
 
