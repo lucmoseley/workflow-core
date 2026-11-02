@@ -66,7 +66,7 @@ async function run(
 		pushRefused = null as string | null,
 		pushFails = null as (() => Error) | null,
 		mainJobs = null as ((jobs: string[]) => JobsOnMain) | null,
-		sides = {} as Record<string, SideRead>,
+		sides = {} as Record<string, SideRead | null>,
 	} = {},
 ) {
 	const ledger = new Set<string>(ledgered);
@@ -459,7 +459,7 @@ const redBatch = (
 		lastOwed?: FixTicket[];
 		refsFail?: (nth: number) => Error | null;
 		history?: string[];
-		sides?: Record<string, SideRead>;
+		sides?: Record<string, SideRead | null>;
 	} = {},
 ) =>
 	run(
@@ -1043,6 +1043,7 @@ describe("runLander on a culprit that is a merge (#3631)", () => {
 			jobsOnMain: null,
 			side: {
 				merge: M,
+				through: [],
 				base: S0,
 				range: [S1, S2],
 				merges: [],
@@ -1084,14 +1085,171 @@ describe("runLander on a culprit that is a merge (#3631)", () => {
 		},
 	);
 
-	it("reverts the merge, running no second run there, where the side's first red commit is itself a merge (#3932)", async () => {
+	it("reverts the merge, running no second run there, where the side's first red commit is a merge adding nothing (#3936)", async () => {
 		const r = await merged((sha) => [M, D, S1, S2].includes(sha), {
 			merges: [S1],
+		});
+		expect(r.actions).toContainEqual({
+			kind: "read-side",
+			merge: S1,
+			parent: S0,
+			bisectedParent: B,
 		});
 		expect(r.actions).not.toContainEqual(
 			expect.objectContaining({ why: "side-confirm" }),
 		);
 		expect(r.reverted).toEqual([{ culprit: M, parent: B }]);
+	});
+
+	describe("a merge on the side (#3936)", () => {
+		/* Each of `merges` is all the line before it brings in, the first all M's
+		 * side does, and each one's first parent, in `firsts`, passes. */
+		const merges = [5, 6, 7, 8, 9].map((n) => `${n}`.repeat(40));
+		const firsts = merges.map((sha) => `f${sha.slice(1)}`);
+		const lineTo = (i: number): SideRead => ({
+			base: firsts[i] as string,
+			range: [merges[i] as string],
+			merges: [merges[i] as string],
+		});
+		const sidesDownTo = (depth: number, below: SideRead | null) => ({
+			[M]: lineTo(0),
+			...Object.fromEntries(
+				merges
+					.slice(0, depth)
+					.map((sha, i) => [sha, i + 1 < depth ? lineTo(i + 1) : below]),
+			),
+		});
+
+		it("reverts the plain commit found below two of them, not the merge", async () => {
+			const r = await redBatch(
+				(sha) => [M, D, ...merges, S1, S2].includes(sha),
+				{
+					history: [B, M, D],
+					sides: sidesDownTo(2, { base: S0, range: [S1, S2], merges: [] }),
+				},
+			);
+			expect(r.actions).toEqual(
+				expect.arrayContaining([
+					{ kind: "read-side", merge: M, parent: B },
+					{
+						kind: "read-side",
+						merge: merges[0],
+						parent: firsts[0],
+						bisectedParent: B,
+					},
+					{
+						kind: "read-side",
+						merge: merges[1],
+						parent: firsts[1],
+						bisectedParent: B,
+					},
+				]),
+			);
+			expect(r.reverted).toEqual([{ culprit: S1, parent: S0 }]);
+			expect(r.tickets).toMatchObject([{ culprit: S1, parent: S0, revert: R }]);
+		});
+
+		it("names the merge it went past where the line below it holds no red commit", async () => {
+			const r = await redBatch((sha) => [M, D, merges[0]].includes(sha), {
+				history: [B, M, D],
+				sides: sidesDownTo(1, { base: S0, range: [S1, S2], merges: [] }),
+				revertFails: "error: could not revert 111111111",
+			});
+			expect(r.end).toMatchObject({
+				kind: "hold",
+				reason:
+					"the revert of 111111111 did not land on landing: error: could not revert 111111111; no commit on its merged side to revert instead: past 555555555: its tip 444444444 is not red",
+			});
+		});
+
+		it("reads no line below the third, and holds saying the search stops at the fourth merge, where the merge's revert conflicts", async () => {
+			const r = await redBatch((sha) => [M, D, ...merges].includes(sha), {
+				history: [B, M, D],
+				sides: sidesDownTo(5, null),
+				revertFails: "error: could not revert 111111111",
+			});
+			expect(
+				(r.actions as { kind: string; merge?: string }[]).flatMap((a) =>
+					a.kind === "read-side" ? [a.merge] : [],
+				),
+			).toEqual([M, merges[0], merges[1], merges[2]]);
+			expect(r.end).toMatchObject({
+				kind: "hold",
+				reason: `the revert of 111111111 did not land on landing: error: could not revert 111111111; no commit on its merged side to revert instead: past ${merges[2]?.slice(0, 9)}: its first red commit ${merges[3]?.slice(0, 9)} is itself a merge where the search stops`,
+			});
+		});
+	});
+
+	const redFiles = { kind: "red", files: FILES };
+	const heldOnSideMerge = (
+		revert: unknown,
+		through: { through?: string[] } = { through: [] },
+	) =>
+		({
+			sha: D,
+			base: A,
+			files: FILES,
+			jobs: [],
+			flake: redFiles,
+			onMain: { kind: "green" },
+			range: [B, M, D],
+			bisect: { [B]: { kind: "green" }, [M]: redFiles, [D]: redFiles },
+			confirm: { [M]: redFiles, [B]: { kind: "green" } },
+			parentOnFiles: null,
+			tipJobsOnMain: null,
+			jobsOnMain: null,
+			side: {
+				merge: M,
+				...through,
+				base: S0,
+				range: [S1, S2],
+				merges: [S1],
+				bisect: { [S2]: redFiles, [S0]: { kind: "green" }, [S1]: redFiles },
+				confirm: null,
+			},
+			revert,
+			unfiled: null,
+			pushedPast: null,
+		}) as unknown as Red;
+
+	it("goes on down a merge on the side from a heartbeat beaten before it named merges gone past (#3936)", async () => {
+		const below = "7".repeat(40);
+		const r = await redBatch((sha) => [M, D, S1, S2, below].includes(sha), {
+			history: [B, M, D],
+			sides: {
+				[M]: { base: S0, range: [S1, S2], merges: [S1] },
+				[S1]: { base: S0, range: [below], merges: [] },
+			},
+			lastRed: heldOnSideMerge(null, {}),
+		});
+		expect(r.reverted).toEqual([{ culprit: below, parent: S0 }]);
+	});
+
+	it("holds on a revert a past run tried, reading no further side and saying so (#3936)", async () => {
+		const r = await run({ main: B, landing: D }, () => green(), {
+			history: [B, M, D],
+			lastRed: heldOnSideMerge({ failed: "error: could not revert" }),
+		});
+		expect(r.actions).not.toContainEqual(
+			expect.objectContaining({ kind: "read-side" }),
+		);
+		expect(r.end).toMatchObject({
+			kind: "hold",
+			reason: expect.stringContaining(
+				"its first red commit 333333333 is itself a merge found after that revert was tried",
+			),
+		});
+	});
+
+	it("files the fix ticket on the merge a past run reverted where the side's first red is a merge, reading no further side (#3936)", async () => {
+		const r = await run({ main: B, landing: R }, () => green(), {
+			history: [B, M, D, R],
+			lastRed: heldOnSideMerge({ sha: R, onto: D, stale: STALE }),
+		});
+		expect(r.actions).not.toContainEqual(
+			expect.objectContaining({ kind: "read-side" }),
+		);
+		expect(r.tickets).toMatchObject([{ culprit: M, parent: B, revert: R }]);
 	});
 
 	it.each([
@@ -1102,7 +1260,7 @@ describe("runLander on a culprit that is a merge (#3631)", () => {
 			[],
 		],
 		[
-			"its first red commit 333333333 is itself a merge",
+			"its first red commit 333333333 is itself a merge with nothing further to search",
 			(sha: string) => [M, D, S1, S2].includes(sha),
 			[S1],
 		],

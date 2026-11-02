@@ -75,6 +75,12 @@ const REGISTRY_CHECK = path.join(__dirname, "..", "check-guard-registry.js");
 /** A culprit `mergedSide` reads no side of: a plain commit's. */
 const NO_SIDE = { base: null, range: [], merges: [] };
 
+/* Untraced: of 25 merges on 14 days of `landing`, 20 nest at most 1 deep and 5
+ * at 10 or more, so no figure from 2 to 9 reaches more of them. This only bounds
+ * the wait, each merge searched costing its own reruns with the queue held
+ * (#3936). */
+const SIDE_MERGES_SEARCHED = 3;
+
 /* Untraced: a revert racing that many session pushes in a row is a busier
  * `landing` than any seen. */
 const REVERT_PUSH_TRIES = 3;
@@ -135,7 +141,7 @@ const NETWORK =
  * @typedef {{kind: "test", sha: string} | {kind: "fast-forward", sha: string}
  *   | {kind: "rerun", sha: string, files: string[], why: RerunWhy}
  *   | {kind: "bisect", base: string|null, sha: string}
- *   | {kind: "read-side", merge: string, parent: string}
+ *   | {kind: "read-side", merge: string, parent: string, bisectedParent?: string}
  *   | {kind: "read-main-jobs", jobs: string[],
  *       slot: "tipJobsOnMain" | "jobsOnMain", since: string}
  *   | {kind: "revert", culprit: string, parent: string|null, files: string[],
@@ -188,12 +194,15 @@ const NETWORK =
  *   revert, and where that is a merge, why no commit on its side stands in
  * @typedef {{base: string|null, range: string[], merges: string[]}} SideRead
  * @typedef {object} Side the commits a merge culprit brought in from the
- *   parent the bisect did not step from
- * @property {string} merge
- * @property {string|null} base the commit `range` starts from, which the
- *   bisected parent holds, null where `merge` is no two-parent merge
- * @property {string[]} range the side's first-parent line the bisected parent
- *   lacks, oldest first, empty where `merge` is no two-parent merge
+ *   parent the bisect did not step from, or, once `through` names merges, from
+ *   the last one's other parent
+ * @property {string} merge the culprit
+ * @property {string[]} through the merges on its side the search went past,
+ *   outermost first
+ * @property {string|null} base the commit `range` starts from, null where
+ *   the merge searched is no two-parent merge
+ * @property {string[]} range the first-parent line the bisected parent lacks,
+ *   oldest first, empty where the merge searched adds none
  * @property {string[]} merges those of `range` that are merges: a red first
  *   seen at one came in with its other parent, so its revert is no fix
  * @property {Record<string, Verdict>} bisect each run on the side, its base's
@@ -829,20 +838,43 @@ function revertTarget(r, confirmed, s) {
 					merge: confirmed.culprit,
 					parent: confirmed.parent,
 				};
-	if (side.range.length === 0) return confirmed;
-	const found = sideCulprit(r, side, s);
-	return "whyNoSideCommit" in found ? { ...confirmed, ...found } : found;
+	if (side.range.length === 0) {
+		const passed = side.through.at(-1);
+		return passed
+			? {
+					...confirmed,
+					...endAtMerge(passed, "with nothing further to search"),
+				}
+			: confirmed;
+	}
+	const found = sideCulprit(r, side, confirmed.parent, s);
+	if (!("whyNoSideCommit" in found)) return found;
+	const passed = side.through.at(-1);
+	return {
+		...confirmed,
+		whyNoSideCommit: `${passed ? `past ${short(passed)}: ` : ""}${found.whyNoSideCommit}`,
+	};
 }
 
 /**
+ * @param {string} merge
+ * @param {string} why
+ */
+const endAtMerge = (merge, why) => ({
+	whyNoSideCommit: `its first red commit ${short(merge)} is itself a merge ${why}`,
+});
+
+/**
  * The first commit on `side` red on `r.files`, red again on a second run, or
- * the run that finds it; else why the side holds none.
+ * the run that finds it; else why the side holds none. Where that first red is
+ * a merge, the search goes on down its other parent (#3936).
  * @param {Red} r
  * @param {Side} side
+ * @param {string} bisectedParent the parent the culprit was bisected from
  * @param {Pick<Clearing, "redJobs" | "isGreen">} s
  * @returns {Action | Culprit | {whyNoSideCommit: string}}
  */
-function sideCulprit(r, side, { redJobs, isGreen }) {
+function sideCulprit(r, side, bisectedParent, { redJobs, isGreen }) {
 	const tip = /** @type {string} */ (side.range.at(-1));
 	const runs = [...Object.values(side.bisect), side.confirm];
 	if (runs.some((v) => v?.kind === "unknown"))
@@ -869,15 +901,35 @@ function sideCulprit(r, side, { redJobs, isGreen }) {
 	const step = bisectStep(side, redJobs);
 	if ("next" in step) return rerun(step.next, "side");
 	if (side.merges.includes(step.culprit))
-		return {
-			whyNoSideCommit: `its first red commit ${short(step.culprit)} is itself a merge`,
-		};
+		return pastMerge(r, side, step, bisectedParent);
 	if (!side.confirm) return rerun(step.culprit, "side-confirm");
 	return isSearchedRed(side.confirm, redJobs)
 		? step
 		: {
 				whyNoSideCommit: `its first red commit ${short(step.culprit)} passed a second run`,
 			};
+}
+
+/**
+ * The read of the other parent of `merge`, a merge on the side the red was first
+ * seen at; else why the search ends there. A revert tried is kept, its target
+ * chosen already, so reads no further side.
+ * @param {Red} r
+ * @param {Side} side
+ * @param {Culprit} merge
+ * @param {string} bisectedParent the parent the culprit was bisected from
+ * @returns {Action | {whyNoSideCommit: string}}
+ */
+function pastMerge(r, side, { culprit, parent }, bisectedParent) {
+	if (side.through.length === SIDE_MERGES_SEARCHED)
+		return endAtMerge(culprit, "where the search stops");
+	if (r.revert) return endAtMerge(culprit, "found after that revert was tried");
+	return {
+		kind: "read-side",
+		merge: culprit,
+		parent: /** @type {string} */ (parent),
+		bisectedParent,
+	};
 }
 
 /**
@@ -949,17 +1001,19 @@ function buildHandedOnBatch({ pushedPast, revert }, main) {
  * `r`'s side for a new run. Kept whole once a revert is made, as its target was
  * chosen on it and no rerun may change it. A heartbeat beaten before #3932
  * carried no merges and a range along `chain`, so one with no revert is read
- * again.
+ * again; one beaten before #3936 went through no merge.
  * @param {Red} r
  * @param {(runs: Record<string, Verdict>) => Record<string, Verdict>} reached
  * @returns {Side|null}
  */
 function resumableSide({ side, revert }, reached) {
 	if (!side) return null;
-	if (revert) return { ...side, merges: side.merges ?? [] };
+	const through = side.through ?? [];
+	if (revert) return { ...side, merges: side.merges ?? [], through };
 	if (!side.merges) return null;
 	return {
 		...side,
+		through,
 		bisect: reached(side.bisect),
 		confirm: side.confirm?.kind === "unknown" ? null : side.confirm,
 	};
@@ -1060,10 +1114,10 @@ function nextAction(s) {
  *   from `base`, so `main` at `base` can fast-forward to any of them: a
  *   reconcile merge's first parent is the session's side, which need not
  *   (#2996)
- * @property {(merge: string, parent: string) => SideRead|null}
+ * @property {(merge: string, parent: string, bisectedParent?: string) => SideRead|null}
  *   mergedSide where `merge` is a two-parent merge and `parent` one of its
- *   parents, the other's first-parent line `parent` lacks, oldest first, the
- *   commit it starts from and the merges on it; else null
+ *   parents, the other's first-parent line `parent` and `bisectedParent` lack, oldest
+ *   first, the commit it starts from and the merges on it; else null
  * @property {(culprit: string, parent: string|null, why: string) => Revert}
  *   revertOnLanding a revert of `culprit` against `parent`, committed on the
  *   remote's current `landing` tip and pushed there without force, `why`
@@ -1215,6 +1269,31 @@ async function pushRefusal(deps, sha) {
 }
 
 /**
+ * `r` with the side `action` reads as its search: the culprit's own, or, where
+ * `bisectedParent` is given, the other parent of a merge on the side so far.
+ * @param {LanderDeps} deps
+ * @param {Extract<Action, {kind: "read-side"}>} action
+ * @param {Red} r
+ * @returns {Promise<Red>}
+ */
+async function readSide(deps, { merge, parent, bisectedParent }, r) {
+	const read = await remote(deps, () =>
+		deps.git.mergedSide(merge, parent, bisectedParent),
+	);
+	const outer = bisectedParent ? r.side : null;
+	return {
+		...r,
+		side: {
+			merge: outer ? outer.merge : merge,
+			through: outer ? [...outer.through, merge] : [],
+			...(read ?? NO_SIDE),
+			bisect: {},
+			confirm: null,
+		},
+	};
+}
+
+/**
  * `r` once `action`, one of the red path's own, has run; null once the fix
  * ticket is filed, or `r` naming why it was not, which holds.
  * @param {LanderDeps} deps
@@ -1250,20 +1329,7 @@ async function advanceRed(deps, action, r) {
 			/* The tip's rerun is the bisect's first red. */
 			bisect: { [action.sha]: /** @type {Verdict} */ (r.flake) },
 		};
-	if (action.kind === "read-side") {
-		const side = await remote(deps, () =>
-			git.mergedSide(action.merge, action.parent),
-		);
-		return {
-			...r,
-			side: {
-				merge: action.merge,
-				...(side ?? NO_SIDE),
-				bisect: {},
-				confirm: null,
-			},
-		};
-	}
+	if (action.kind === "read-side") return readSide(deps, action, r);
 	if (action.kind === "read-main-jobs")
 		return {
 			...r,
@@ -1998,14 +2064,19 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 			return at;
 		},
 		chain,
-		mergedSide(merge, parent) {
+		mergedSide(merge, parent, bisectedParent) {
 			const parents = readParents(merge);
 			const other = parents.find((p) => p !== parent);
 			if (parents.length !== 2 || !parents.includes(parent) || !other)
 				return null;
 			/* Along first parents, not `chain`: a session's reconcile merges leave
 			 * no descent from where its side forks to its own commits (#3932). */
-			const sideLine = ["rev-list", "--first-parent", `${parent}..${other}`];
+			const sideLine = [
+				"rev-list",
+				"--first-parent",
+				`${parent}..${other}`,
+				...(bisectedParent ? [`^${bisectedParent}`] : []),
+			];
 			const range = readLines([...sideLine, "--reverse"]);
 			const base = range[0] && readParents(range[0])[0];
 			return base

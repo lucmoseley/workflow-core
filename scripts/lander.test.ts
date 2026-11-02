@@ -58,11 +58,11 @@ const stubTester = (code: number, failing = "") => {
 };
 
 /** A tester red on `scripts/<name>.test.ts` while `<name>.txt` is in the tree. */
-const stubRedWhile = (name: string) => {
+const stubRedWhile = (name: string, alongside?: string) => {
 	const script = path.join(tmp, "tester.sh");
 	fs.writeFileSync(
 		script,
-		`#!/bin/sh\nif git cat-file -e "$1:${name}.txt" 2>/dev/null; then echo scripts/${name}.test.ts; exit 1; fi\nexit 0\n`,
+		`#!/bin/sh\nif git cat-file -e "$1:${name}.txt" 2>/dev/null${alongside ? ` && git cat-file -e "$1:${alongside}.txt" 2>/dev/null` : ""}; then echo scripts/${name}.test.ts; exit 1; fi\nexit 0\n`,
 	);
 	fs.chmodSync(script, 0o755);
 	return script;
@@ -566,6 +566,26 @@ it("reads a side that reconciled with landing past its merges, stopping at what 
 	});
 });
 
+it("reads a merge on a side down its other parent, leaving out what the bisected parent holds, and none where that is everything (#3936)", () => {
+	const seed = git(work, "rev-parse", "HEAD");
+	const held = commit("held");
+	git(work, "checkout", "-q", "--detach", seed);
+	const first = commit("first");
+	git(work, "merge", "-q", "--no-edit", held);
+	const adds = git(work, "rev-parse", "HEAD");
+	git(work, "checkout", "-q", "--detach", first);
+	const brought = commit("brought");
+	git(work, "merge", "-q", "--no-edit", adds);
+	const inner = git(work, "rev-parse", "HEAD");
+
+	expect(remoteGit(work).mergedSide(inner, brought, held)).toEqual({
+		base: first,
+		range: [adds],
+		merges: [adds],
+	});
+	expect(remoteGit(work).mergedSide(adds, first, held)).toBeNull();
+});
+
 describe("a culprit merge whose own revert conflicts (#3932)", () => {
 	const editShared = (line: string) => {
 		fs.writeFileSync(path.join(work, "shared.txt"), `${line}\n`);
@@ -583,6 +603,17 @@ describe("a culprit merge whose own revert conflicts (#3932)", () => {
 		const tip = editShared("tip");
 		git(work, "push", "-q", "origin", `${m}:main`, `${tip}:landing`);
 		return { merge, tip };
+	};
+
+	const expectRedRevertedAndLanded = () => {
+		const landed = git(remote, "rev-parse", "main");
+		expect(git(remote, "rev-parse", "landing")).toBe(landed);
+		expect(git(remote, "log", "-1", "--format=%s", landed)).toBe(
+			'Revert "red"',
+		);
+		const files = git(remote, "ls-tree", "--name-only", landed).split("\n");
+		expect(files).not.toContain("red.txt");
+		expect(files).toContain("shared.txt");
 	};
 
 	it("reverts the side commit behind the side's own reconcile merge, and lands the batch", async () => {
@@ -603,17 +634,10 @@ describe("a culprit merge whose own revert conflicts (#3932)", () => {
 
 		expect(r.status, r.stderr).toBe(0);
 		expect(r.stdout).toContain(`revert ${red} on landing`);
-		const landed = git(remote, "rev-parse", "main");
-		expect(git(remote, "rev-parse", "landing")).toBe(landed);
-		expect(git(remote, "log", "-1", "--format=%s", landed)).toBe(
-			'Revert "red"',
-		);
-		const files = git(remote, "ls-tree", "--name-only", landed).split("\n");
-		expect(files).not.toContain("red.txt");
-		expect(files).toContain("shared.txt");
+		expectRedRevertedAndLanded();
 	});
 
-	it("holds, naming the conflict and why no side commit stands in, where the red came in with a merge on the side", async () => {
+	it("reverts the commit a merge on the side brought in, and lands the batch (#3936)", async () => {
 		const seed = git(work, "rev-parse", "HEAD");
 		const m = commit("m");
 		git(work, "checkout", "-q", "--detach", seed);
@@ -622,10 +646,31 @@ describe("a culprit merge whose own revert conflicts (#3932)", () => {
 		editShared("side");
 		git(work, "merge", "-q", "--no-edit", red);
 		const side = git(work, "rev-parse", "HEAD");
-		const { merge, tip } = pushMergeOf(side, m);
+		const { merge } = pushMergeOf(side, m);
+		expect(remoteGit(work).revertOnLanding(merge, m, "why")).toEqual({
+			failed: expect.stringContaining("(conflicts in shared.txt)"),
+		});
 
 		const { gh } = stubTracker();
 		const r = await runLander(stubRedWhile("red"), "landing", gh.env);
+
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stdout).toContain(`revert ${red} on landing`);
+		expectRedRevertedAndLanded();
+	});
+
+	it("holds, naming the conflict and the merge the search ended at, where a merge on the side adds nothing the bisected parent lacks (#3936)", async () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		const m = commit("m");
+		const main = commit("main");
+		git(work, "checkout", "-q", "--detach", seed);
+		editShared("side");
+		git(work, "merge", "-q", "--no-edit", m);
+		const side = git(work, "rev-parse", "HEAD");
+		const { merge, tip } = pushMergeOf(side, main);
+
+		const { gh } = stubTracker();
+		const r = await runLander(stubRedWhile("m", "side"), "landing", gh.env);
 
 		expect(r.status, r.stderr).toBe(0);
 		expect(r.stdout).toContain(
@@ -633,10 +678,10 @@ describe("a culprit merge whose own revert conflicts (#3932)", () => {
 		);
 		expect(r.stdout).toContain("(conflicts in shared.txt)");
 		expect(r.stdout).toContain(
-			`no commit on its merged side to revert instead: its first red commit ${side.slice(0, 9)} is itself a merge`,
+			`no commit on its merged side to revert instead: its first red commit ${side.slice(0, 9)} is itself a merge with nothing further to search`,
 		);
 		expect(git(remote, "rev-parse", "landing")).toBe(tip);
-		expect(git(remote, "rev-parse", "main")).toBe(m);
+		expect(git(remote, "rev-parse", "main")).toBe(main);
 	});
 });
 
