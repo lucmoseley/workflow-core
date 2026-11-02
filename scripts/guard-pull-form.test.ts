@@ -234,6 +234,28 @@ describe("each production read, crossed once", () => {
 		},
 	);
 
+	it("refuses, from a linked worktree, a write to the shared HEAD by each route (#3997)", () => {
+		const write = "symbolic-ref HEAD refs/heads/side";
+		for (const command of [
+			`git --git-dir=${shared}/.git ${write}`,
+			`GIT_DIR=${shared}/.git git ${write}`,
+			`GIT_COMMON_DIR=${shared}/.git git ${write}`,
+			`git -C ${shared} -c alias.s=symbolic-ref s HEAD refs/heads/side`,
+		])
+			expect(verdict(command, { cwd: worktree }), command).toBe("deny");
+	});
+
+	it("reads a linked worktree's git directory, and its .git file, as that tree (#3997)", () => {
+		const own = git(worktree, "rev-parse", "--absolute-git-dir").trim();
+		for (const named of [own, `${worktree}/.git`]) {
+			const flag = `git --git-dir=${named}`;
+			expect(verdict(`${flag} symbolic-ref HEAD refs/heads/side`)).toBe(
+				"allow",
+			);
+			expect(verdict(`${flag} update-ref refs/heads/main HEAD`)).toBe("deny");
+		}
+	});
+
 	it("names the repair script from a linked worktree too (#3198)", () => {
 		fs.writeFileSync(path.join(shared, ".git/refs/heads/main"), "");
 		expect(

@@ -1137,6 +1137,184 @@ describe("rewinding main is refused (#765)", () => {
 });
 
 /* /repo/sub gives a pathspec somewhere to climb out of. */
+describe("a ref write reached through a named git directory is judged there (#3997)", () => {
+	it.each([
+		["git --git-dir=/repo/.git symbolic-ref HEAD refs/heads/side", "stuck"],
+		["git --git-dir /repo/.git symbolic-ref HEAD refs/heads/side", "apart"],
+		["GIT_DIR=/repo/.git git symbolic-ref HEAD refs/heads/side", "GIT_DIR"],
+		[
+			"GIT_COMMON_DIR=/repo/.git git symbolic-ref HEAD refs/heads/side",
+			"common",
+		],
+		["git --git-dir=/repo/.git update-ref HEAD HEAD~1", "update-ref HEAD"],
+		["GIT_DIR=/repo/.git git reset --hard HEAD~1", "a reset"],
+		[
+			"git --git-dir=../repo/.git symbolic-ref HEAD refs/heads/side",
+			"relative",
+		],
+		[
+			"git --git-dir=.git -C /repo symbolic-ref HEAD refs/heads/side",
+			"after -C",
+		],
+		["git --git-dir=/repo/.git/ symbolic-ref HEAD refs/heads/side", "a slash"],
+		[
+			"export GIT_DIR=/repo/.git && git symbolic-ref HEAD refs/heads/side",
+			"export",
+		],
+		[
+			"GIT_DIR=/repo/.git; export GIT_DIR; git symbolic-ref HEAD refs/heads/side",
+			"named",
+		],
+		[
+			"declare -x GIT_DIR=/repo/.git; git symbolic-ref HEAD refs/heads/side",
+			"declare",
+		],
+		[
+			"GIT_DIR=/other/.git git --git-dir=/repo/.git symbolic-ref HEAD refs/heads/side",
+			"the flag beats",
+		],
+		["GIT_DIR=$X git update-ref HEAD HEAD~1", "unreadable"],
+		['git --git-dir="$X" symbolic-ref HEAD refs/heads/side', "unreadable flag"],
+		["GIT_DIR= git symbolic-ref HEAD refs/heads/side", "empty"],
+		[
+			"GIT_DIR=/repo/.git GIT_COMMON_DIR=/other/.git git symbolic-ref HEAD refs/heads/side",
+			"both",
+		],
+		[
+			"(export GIT_DIR=/other/.git; git status); git update-ref refs/heads/main HEAD~1",
+			"subshell ended",
+		],
+		[
+			"export GIT_DIR=/other/.git; unset GIT_DIR; git update-ref refs/heads/main HEAD~1",
+			"unset",
+		],
+		[
+			"GIT_DIR=/repo-wt/.git git update-ref refs/heads/main HEAD~1",
+			"a linked tree's main",
+		],
+	])("refuses %s, from a linked tree (%s)", (command) => {
+		expect(verdict(command, { cwd: LINKED })).toBe("deny");
+	});
+
+	it.each([
+		["git --git-dir=/repo/.git symbolic-ref HEAD", "a read"],
+		[
+			"GIT_DIR=/repo/.git; git symbolic-ref HEAD refs/heads/side",
+			"never exported",
+		],
+		[
+			"git --git-dir=/repo-wt/.git symbolic-ref HEAD refs/heads/side",
+			"its own",
+		],
+		[
+			"GIT_DIR=/other/.git git update-ref refs/heads/main HEAD~1",
+			"another repo",
+		],
+		["git --git-dir=/repo/.git status", "no judged subcommand"],
+	])("passes %s, from a linked tree (%s)", (command) => {
+		expect(verdict(command, { cwd: LINKED })).toBe("allow");
+	});
+
+	it("judges the shared tree's own command by the tree it names", () => {
+		expect(verdict("git --git-dir=/repo-wt/.git update-ref HEAD HEAD~1")).toBe(
+			"allow",
+		);
+		expect(verdict("GIT_DIR=/other/.git git reset --hard HEAD~1")).toBe(
+			"allow",
+		);
+	});
+});
+
+describe("a subcommand reached through a command-line alias is judged as itself (#3997)", () => {
+	it.each([
+		[
+			"git -c alias.s=symbolic-ref s refs/heads/main refs/heads/side",
+			"symbolic-ref",
+		],
+		["git -c alias.u=update-ref u refs/heads/main HEAD~1", "update-ref"],
+		["git -c 'alias.u=update-ref refs/heads/main' u HEAD~1", "its own words"],
+		[
+			"git -c alias.a=b -c alias.b=update-ref a refs/heads/main HEAD~1",
+			"a chain",
+		],
+		["git -c Alias.U=update-ref u refs/heads/main HEAD~1", "any case"],
+		[
+			"git -c alias.u=status -c alias.u=update-ref u refs/heads/main HEAD~1",
+			"the last wins",
+		],
+		[
+			"GIT_CONFIG_KEY_0=alias.u GIT_CONFIG_VALUE_0=update-ref git u refs/heads/main HEAD~1",
+			"the environment",
+		],
+		[
+			"git --git-dir=/repo/.git -c alias.s=symbolic-ref s HEAD refs/heads/side",
+			"with a git dir",
+		],
+	])("refuses %s (%s)", (command) => {
+		expect(verdict(command, { cwd: LINKED })).toBe("deny");
+	});
+
+	it.each([
+		[
+			"git -c 'alias.u=!git update-ref' u refs/heads/main HEAD~1",
+			"a shell alias",
+		],
+		["git -c alias.u=$X u refs/heads/main HEAD~1", "an unread value"],
+		['git -c "$K" u refs/heads/main HEAD~1', "an unread definition"],
+		['git -c "alias.$N=update-ref" u refs/heads/main HEAD~1', "an unread name"],
+		["git --config-env=alias.u=V u refs/heads/main HEAD~1", "--config-env"],
+		[
+			"git --config-env alias.u=V u refs/heads/main HEAD~1",
+			"--config-env, apart",
+		],
+		[
+			"GIT_CONFIG_PARAMETERS=x git u refs/heads/main HEAD~1",
+			"GIT_CONFIG_PARAMETERS",
+		],
+		[
+			"GIT_CONFIG_KEY_0=$K GIT_CONFIG_VALUE_0=update-ref git u refs/heads/main",
+			"an unread key",
+		],
+		[
+			"git -c alias.x.command=update-ref x refs/heads/main HEAD~1",
+			"a subsection",
+		],
+		[
+			"git -c 'alias.u=--no-pager update-ref' u refs/heads/main HEAD~1",
+			"an option first",
+		],
+	])("refuses an alias it cannot read: %s (%s)", (command) => {
+		const d = run(command, { cwd: LINKED });
+		expect(d && "deny" in d && d.deny).toContain("a git alias I cannot read");
+	});
+
+	it("reads an alias of a judged name as the builtin git runs", () => {
+		expect(verdict("git -c alias.reset=status reset --hard HEAD~1")).toBe(
+			"deny",
+		);
+	});
+
+	it.each([
+		["git -c alias.st=status st", "an unjudged subcommand"],
+		["git -c alias.u=update-ref u refs/heads/side HEAD~1", "another ref"],
+		["git -c alias.s=symbolic-ref s HEAD", "a read"],
+		["git -c 'alias.t=!x' status", "an alias it does not use"],
+		[
+			"git -c alias.u=update-ref -c alias.u=status u refs/heads/main",
+			"the last wins",
+		],
+		["git -c core.pager=$V log", "another key's unread value"],
+		[
+			"GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=x git status",
+			"another key",
+		],
+		["git -c alias.a=a a", "a loop, which git refuses"],
+		["git -C /other -c 'alias.u=!x' u", "another repo"],
+	])("passes %s (%s)", (command) => {
+		expect(verdict(command, { cwd: LINKED })).toBe("allow");
+	});
+});
+
 describe("discarding the shared tree's uncommitted work is refused (#768)", () => {
 	it.each([
 		"git reset --hard",

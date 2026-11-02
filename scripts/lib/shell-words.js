@@ -600,6 +600,7 @@ function carriesVar(name, leading, words, spans) {
 const GIT_VALUE_OPTIONS = [
 	"-C",
 	"-c",
+	"--config-env",
 	"--namespace",
 	"--work-tree",
 	"--git-dir",

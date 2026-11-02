@@ -1374,6 +1374,53 @@ describe('walkGit, scope "repo" — the same walk, widened past the shared tree 
 	});
 });
 
+describe("walkGit reads the repository and the subcommand git will use (#3997)", () => {
+	it("hands over the tree a named git directory belongs to", () => {
+		expect(
+			walkGitRun(`git --git-dir=${SHARED}/.git checkout x`, {}, WORKTREE)
+				.calls[0]?.tree,
+		).toBe(SHARED);
+		expect(
+			walkGitRun(`GIT_DIR=${SHARED}/.git git checkout x`, {}, WORKTREE).calls[0]
+				?.tree,
+		).toBe(SHARED);
+		expect(
+			repoWalk(`git --git-dir=${WORKTREE}/.git checkout x`).calls[0]?.tree,
+		).toBe(WORKTREE);
+	});
+
+	it("skips a command another repository's git directory carries", () => {
+		expect(
+			walkGitRun("git --git-dir=/elsewhere/.git checkout x").calls,
+		).toEqual([]);
+	});
+
+	it("records an unreadable git directory, or hands it over as unresolved", () => {
+		expect(walkGitRun('GIT_DIR="$X" git checkout x').logged[0]).toContain(
+			"could not resolve the working tree",
+		);
+		expect(
+			walkGitRun('GIT_DIR="$X" git checkout x', { strict: true }).calls[0]
+				?.tree,
+		).toBe("");
+	});
+
+	it("hands over an alias as the subcommand it names, its own words first", () => {
+		const [call] = walkGitRun("git -c 'alias.co=checkout -q' co x").calls;
+		expect([call?.sub, ...(call?.args ?? [])]).toEqual(["checkout", "-q", "x"]);
+	});
+
+	it("reads git's own options through a wrapper the walk unwraps", () => {
+		expect(
+			walkGitRun(
+				`env GIT_DIR=${SHARED}/.git git checkout x`,
+				{ unwrap: true },
+				WORKTREE,
+			).calls[0]?.tree,
+		).toBe(SHARED);
+	});
+});
+
 describe('walkGit, scope "shared"', () => {
 	it("hands the callback the segment, subcommand, tree and arguments", () => {
 		expect(walkGitRun("git checkout -b feature").out).toBe(

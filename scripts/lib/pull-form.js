@@ -51,8 +51,10 @@
  *    everywhere else, as is any other ref pointed at `main` (#3915): the next
  *    write through that ref moves `main` past git's own refusal. Its read passes
  *    where its one name is readable; an unreadable word, or a name git would
- *    follow as a path or a shell expand as a glob, is refused. Unseen for it,
- *    as for `update-ref HEAD`: `--git-dir`, `GIT_DIR` and an alias. Pathspec resets pass, as does a
+ *    follow as a path or a shell expand as a glob, is refused. A git directory
+ *    named by `--git-dir`, `GIT_DIR` or `GIT_COMMON_DIR` is judged as its tree,
+ *    and a `-c alias.*` as the subcommand it names; one it cannot read is refused
+ *    (#3997). Pathspec resets pass, as does a
  *    `git reset --soft` or `--mixed` naming HEAD or nothing. Still unseen: `git
  *    fetch --update-head-ok . +<commit>:main`, `git cherry-pick` and `git am`
  *    (which add commits rather than drop them), and `git revert`,
@@ -129,9 +131,9 @@
  * process. It answers a Decision: a refusal's complete text, the pull rule to
  * hand over, or nothing.
  *
- * FOUR WALKS, IN THIS ORDER, THE FIRST REFUSAL WINNING: the reset (shared
- * tree), the ref write (any tree of the repo), the discard (shared tree) and
- * the reconciliation (shared tree). Each is STRICT (#301, #311): an
+ * FIVE WALKS, IN THIS ORDER, THE FIRST REFUSAL WINNING: the unreadable alias
+ * (any tree of the repo), the reset (shared tree), the ref write (any tree),
+ * the discard (shared tree) and the reconciliation (shared tree). Each is STRICT (#301, #311): an
  * unresolved tree reaches its judge as "" rather than being skipped, and the
  * judge owns both the verdict and any fail-open record.
  *
@@ -145,6 +147,7 @@ const { rewindReason } = require("./main-rewind.js");
 const { ruleModule, ruleUnlessModule } = require("./rule-gates.js");
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const { normAbs, parseCommand, walkGit } = require("./shell-parse.js");
+const { UNREAD_ALIAS } = require("./git-alias.js");
 const { gitValueFlags, literal, scanFlags } = require("./shell-words.js");
 const { trimEndRun } = require("./trim-run.js");
 
@@ -326,6 +329,19 @@ const resetDiscardDeny = (j, segment) =>
 	);
 
 // ── REWINDING `main` (#765) ──────────────────────────────────────────────
+
+/**
+ * A git alias whose subcommand cannot be read could be any walk's (#3997).
+ * @param {Judging} j
+ * @param {GitCall} call
+ * @returns {Refusal}
+ */
+const judgeUnreadAlias = (j, { segment }) =>
+	rewindDeny(
+		j,
+		segment,
+		"runs a git alias I cannot read, a write to `main` possibly among what it does — spell the subcommand itself",
+	);
 
 /**
  * @typedef {{ helping: boolean, pathspec: boolean, ddash: boolean,
@@ -1107,6 +1123,7 @@ function tableEntry(table, sub) {
  *   "shared" | "repo", string[]][]}
  */
 const WALKS = [
+	[judgeUnreadAlias, "the alias", "repo", [UNREAD_ALIAS]],
 	[judgeReset, "the reset", "shared", ["reset"]],
 	[
 		judgeRef,
