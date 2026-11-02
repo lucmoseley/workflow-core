@@ -154,7 +154,7 @@ describe("the panel's terminal", () => {
 			},
 		});
 		await vi.advanceTimersByTimeAsync(0);
-		const cell = "5;8";
+		const cell = "5;10";
 		t.stdin.emit("data", `${ESC}[<0;${cell}M${ESC}[<0;${cell}m`);
 		await vi.advanceTimersByTimeAsync(0);
 		expect(flips).toEqual([["on"]]);
