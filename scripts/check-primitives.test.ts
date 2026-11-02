@@ -52,7 +52,11 @@ const plugin = (root: string, rows = BASE_ROW) => {
 	write(root, "scripts/check-out.js", fakeCheck(2));
 };
 
-const sweepGh = () =>
+const sweepGh = (
+	comments: { body: string }[] = [
+		{ body: "**Filed:** 3 heresies: #8, #9, #10" },
+	],
+) =>
 	stubGhRoutes(path.join(dir, "gh"), {
 		"issue list*": printed(
 			JSON.stringify([
@@ -65,9 +69,7 @@ const sweepGh = () =>
 				},
 			]),
 		),
-		"repos/{owner}/{repo}/issues/7/sub_issues": printed(
-			JSON.stringify([[{ number: 8 }, { number: 9 }, { number: 10 }]]),
-		),
+		"issue view 7 --json comments": printed(JSON.stringify({ comments })),
 	});
 
 const run = (
@@ -114,6 +116,19 @@ describe("check-primitives", () => {
 		expect(r.out).toContain(
 			"OK: 2 primitives row(s), every path and § id real. primitives: 1 enforced, 2 open breaches, 3 new heresies since the last sweep.",
 		);
+	});
+
+	it("prints a sweep that filed none as 0, never unknown", () => {
+		const core = path.join(dir, "core");
+		plugin(core);
+		const r = run(
+			core,
+			core,
+			[],
+			sweepGh([{ body: "**Filed:** 0 heresies: none" }]),
+		);
+		expect(r.status).toBe(0);
+		expect(r.out).toContain(", 0 new heresies since the last sweep.");
 	});
 
 	it("FAILs a missing exemplar, naming the row and the path", () => {
@@ -274,6 +289,44 @@ describe("check-primitives", () => {
 			expect(r.status).toBe(0);
 			expect(r.out).toContain(
 				"2 open breaches, new heresies since the last sweep unknown (the tracker did not answer",
+			);
+		});
+
+		it("new heresies, where the closed sweep carries no Filed line", () => {
+			const core = path.join(dir, "core");
+			plugin(core);
+			const r = run(core, core, [], sweepGh([{ body: "Closed by hand." }]));
+			expect(r.status).toBe(0);
+			expect(r.out).toContain(
+				"new heresies since the last sweep unknown (#7 has no **Filed:** comment)",
+			);
+		});
+
+		it("new heresies, where the closed sweep's comments cannot be read", () => {
+			const core = path.join(dir, "core");
+			plugin(core);
+			const gh = stubGhRoutes(path.join(dir, "gh"), {
+				"issue list*": printed(
+					JSON.stringify([
+						{
+							number: 7,
+							title: "Heresy sweep due",
+							labels: [],
+							closedAt: "2026-10-01T00:00:00Z",
+							createdAt: "2026-09-01T00:00:00Z",
+						},
+					]),
+				),
+				"issue view 7 --json comments": {
+					status: 1,
+					stdout: "",
+					stderr: "HTTP 502",
+				},
+			});
+			const r = run(core, core, [], gh);
+			expect(r.status).toBe(0);
+			expect(r.out).toContain(
+				"new heresies since the last sweep unknown (the tracker did not answer",
 			);
 		});
 

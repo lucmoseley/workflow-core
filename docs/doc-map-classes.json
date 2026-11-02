@@ -418,7 +418,7 @@
 			{
 				"kind": "path",
 				"ref": "scripts/check-primitives.js",
-				"gloss": "§1 and §5: the table checker, whose new-heresies count reads the due issue's sub-issues"
+				"gloss": "§1 and §6: the table checker, whose new-heresies count reads the due issue's `**Filed:**` line"
 			},
 			{
 				"kind": "path",

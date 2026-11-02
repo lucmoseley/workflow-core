@@ -15,8 +15,9 @@
  *   enforced  rows whose Enforcing check names a program
  *   breaches  the FAIL-severity findings each such program reports, run once
  *             over the whole tree with `--json --warn` at the host root
- *   heresies  the sub-issues of the most recently closed *Heresy sweep due*
- *             issue in the host's tracker
+ *   heresies  the `**Filed:**` figure on the newest comment carrying one, on
+ *             the most recently closed *Heresy sweep due* issue in the host's
+ *             tracker
  * A count it cannot read prints as unknown with the reason, never as 0.
  *
  * IMPLICIT:  on every commit, refuses one leaving a primitives row whose exemplar or enforcing check path is missing, whose Rule cell cites a § id no standards file defines, or a local row naming a base row's job, naming the row.
@@ -31,14 +32,14 @@ const { hostRoot } = require("./lib/host-root.js");
 const { coreRoot } = require("./lib/script-path.js");
 const { isCoreRoot } = require("./lib/core-hooks.js");
 const { caught } = require("./lib/caught.js");
-const { ghApiSlurp } = require("./lib/gh.js");
+const { ghJson } = require("./lib/gh.js");
 const { findTrackingIssue } = require("./lib/tracking-issue.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const {
 	STANDARDS_DOCS: DOCS,
 	judgePrimitives,
 } = require("./lib/primitives-table.js");
-const { SWEEP_TITLE } = require("./lib/heresy-sweep.js");
+const { SWEEP_TITLE, parseFiledHeresies } = require("./lib/heresy-sweep.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 /** @typedef {import("./lib/primitives-table.js").Count} Count */
@@ -79,7 +80,7 @@ function countBreaches(script, root) {
 }
 
 /**
- * The sub-issues of the most recently closed sweep issue. Sweeps run one at a
+ * What the most recently closed sweep issue says it filed. Sweeps run one at a
  * time, the open one refreshed rather than filed again.
  * @param {string} root
  * @returns {Count}
@@ -90,11 +91,11 @@ function readNewHeresies(root) {
 			cwd: root,
 		});
 		if (!closed) return { unknown: `no *${SWEEP_TITLE}* issue has closed yet` };
-		const children = ghApiSlurp(
-			[`repos/{owner}/{repo}/issues/${closed.number}/sub_issues`],
+		const { comments } = ghJson(
+			["issue", "view", String(closed.number), "--json", "comments"],
 			{ cwd: root },
 		);
-		return { count: children.length };
+		return parseFiledHeresies(closed.number, comments);
 	} catch (e) {
 		const { message } = caught(e);
 		return {
