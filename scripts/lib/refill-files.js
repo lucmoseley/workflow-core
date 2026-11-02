@@ -144,7 +144,7 @@ function withControlLock(write, waitMs) {
 	const lock = pidLock(file, "refill-loop.js");
 	if (!waitForLock(lock, waitMs))
 		return {
-			busy: `${file} is held by pid ${lock.holder() ?? "unknown"}; re-run once it finishes`,
+			busy: `${file} is held by pid ${lock.holder() ?? "unknown"}`,
 		};
 	try {
 		return { done: write() };

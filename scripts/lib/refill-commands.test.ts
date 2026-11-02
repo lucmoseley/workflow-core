@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import {
 	buildSeatsLine,
 	buildSeatsView,
+	buildSetPlanJson,
 	buildStatusJson,
 	buildStatusLines,
 	foreseeSeat,
@@ -1023,7 +1024,11 @@ describe("planStart (#3868)", () => {
 			[sound(), { unlessStopped: false }],
 		] as const) {
 			expect(plan(read, { ...over, seatErrors })).toEqual({
-				refused: `the seat file refuses\n  ${seatErrors[0]}`,
+				refused: {
+					reason: `the seat file refuses\n  ${seatErrors[0]}`,
+					remedy: null,
+					box: null,
+				},
 				exitCode: 2,
 			});
 		}
@@ -1036,8 +1041,44 @@ describe("planStart (#3868)", () => {
 			lines: ["control is damaged: x; fresh settings written"],
 		});
 		expect(plan(read)).toEqual({
-			refused: "control is damaged: x; `start` rewrites it",
+			refused: {
+				reason: "control is damaged: x",
+				remedy: "`start` rewrites it",
+				box: null,
+			},
 			exitCode: 1,
+		});
+	});
+});
+
+describe("buildSetPlanJson (#3968)", () => {
+	const warning = { reason: "not running", remedy: "later", box: null };
+	const plan = {
+		write: null,
+		startFrom: null,
+		lines: ["paused:    no"],
+		warning,
+	};
+
+	it("adds what a start said to what the write said", () => {
+		expect(
+			buildSetPlanJson(plan, { lines: ["refill loop started: pid 7"] }),
+		).toEqual({
+			refused: null,
+			warning,
+			lines: ["paused:    no", "refill loop started: pid 7"],
+		});
+	});
+
+	it("calls a process that would not start a warning, the write having landed", () => {
+		expect(buildSetPlanJson(plan, { error: "no ref" })).toEqual({
+			refused: null,
+			warning: {
+				reason: "not started: no ref",
+				remedy: "run `start` once it is fixed",
+				box: null,
+			},
+			lines: ["paused:    no"],
 		});
 	});
 });

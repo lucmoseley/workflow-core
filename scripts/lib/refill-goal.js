@@ -10,6 +10,9 @@
 
 const path = require("node:path");
 const { refKey } = require("./issue-ref.js");
+const { buildNotice, isNotice } = require("./refill-notice.js");
+
+/** @typedef {import("./refill-notice.js").Notice} Notice */
 
 /**
  * An issue the goal names; `repo`, its checkout's directory name.
@@ -68,7 +71,7 @@ function parseAskedRefs(text) {
  * one repo ticked, and a named repo must be ticked.
  * @param {AskedRef[]} asked
  * @param {string[]} roots the ticked checkout roots
- * @returns {GoalRef[]|string}
+ * @returns {GoalRef[]|Notice}
  */
 function qualifyRefs(asked, roots) {
 	const names = roots.map((root) => path.basename(root));
@@ -77,9 +80,16 @@ function qualifyRefs(asked, roots) {
 	for (const { repo, number } of asked) {
 		const name = repo ?? (names.length === 1 ? names[0] : undefined);
 		if (name === undefined)
-			return `#${number} names no repo with ${names.length} repos ticked: write <repo>#${number}`;
+			return buildNotice(
+				`#${number} names no repo with ${names.length} repos ticked`,
+				`write <repo>#${number}`,
+			);
 		if (!names.includes(name))
-			return `${name}#${number} is in ${name}, which is not ticked: tick ${name} first`;
+			return buildNotice(
+				`${name}#${number} is in ${name}, which is not ticked`,
+				`tick ${name} first`,
+				name,
+			);
 		refs.set(`${name}#${number}`, { repo: name, number });
 	}
 	return [...refs.values()];
@@ -109,17 +119,22 @@ const buildGoalRefusal = (typed) =>
  * @param {AskedRef[]} asked
  * @param {string[]} roots the ticked checkout roots
  * @param {(ref: GoalRef) => IssueRead} readIssue
- * @returns {GoalRef[]|string}
+ * @returns {GoalRef[]|Notice}
  */
 function qualifyOpenRefs(asked, roots, readIssue) {
 	const refs = qualifyRefs(asked, roots);
-	if (typeof refs === "string") return refs;
+	if (isNotice(refs)) return refs;
 	for (const ref of refs) {
 		const read = readIssue(ref);
 		if ("unread" in read)
-			return `${buildRefText(ref)} will not read as an open issue: ${read.unread}`;
+			return buildNotice(
+				`${buildRefText(ref)} will not read as an open issue: ${read.unread}`,
+			);
 		if (read.state !== "OPEN")
-			return `${buildRefText(ref)} is ${read.state.toLowerCase()}: a goal names open issues`;
+			return buildNotice(
+				`${buildRefText(ref)} is ${read.state.toLowerCase()}`,
+				"name an open issue",
+			);
 	}
 	return refs;
 }

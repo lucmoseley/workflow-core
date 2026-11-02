@@ -23,6 +23,7 @@ const {
 	buildOverflowStartLines,
 } = require("./overflow-notice.js");
 const { isBudgetSpent } = require("./overflow-budget-core.js");
+const { buildNotice, isNotice } = require("./refill-notice.js");
 const {
 	buildOverflowHoldText,
 	buildPauseText,
@@ -70,6 +71,15 @@ const buildCountingLine = (from) =>
 const buildRepoNames = (roots) =>
 	roots.map((r) => path.basename(r)).join(", ") || "none";
 
+/** @typedef {import("./refill-notice.js").Notice} Notice */
+
+const REWRITES_DAMAGED = "`start` rewrites it";
+const RESTART_REMEDY = "run `start` once it is fixed";
+const NOT_RUNNING = buildNotice(
+	"not running",
+	"this holds from its next start",
+);
+
 /**
  * The fields a `set` names, each absent where it does not; `repos`, the whole
  * ticked set; `pause`, `--pause`, or false for `--resume`; `goal`, the goal to
@@ -82,13 +92,14 @@ const buildRepoNames = (roots) =>
  * @typedef {{write: Control|null, lines: string[]}} SetChange
  * @typedef {{write: Control|null, control: Control,
  *   action: "running"|"start"|"stopped", lines: string[]}} StartPlan
- * @typedef {{refused: string, exitCode: number}} StartRefusal
+ * @typedef {{refused: Notice, exitCode: number}} StartRefusal
  * @typedef {{pid: number|null, now: number, root: string, seats: string[],
  *   seatErrors: string[], stopped: LoopState["stopped"],
  *   unlessStopped: boolean}} StartContext `seats` and `seatErrors`, the seat
  *   file's; `stopped`, the state file's
- * @typedef {SetChange & {startFrom: Control|null}} SetPlan `startFrom`, the
- *   control a process starts from, where a resume found none running
+ * @typedef {SetChange & {startFrom: Control|null, warning: Notice|null}} SetPlan
+ *   `startFrom`, the control a process starts from, where a resume found none
+ *   running; `warning`, what it changed but no process takes yet
  */
 
 /** @param {SetAsk} ask */
@@ -100,36 +111,61 @@ const asksRepos = ({ repos, tick, untick }) => Boolean(repos || tick || untick);
  * @param {import("./refill-loop.js").ControlRead} read
  * @param {SetAsk} ask
  * @param {SetContext} context
- * @returns {{refused: string}|SetPlan}
+ * @returns {{refused: Notice}|SetPlan}
  */
 function planSet({ control, damaged }, ask, context) {
-	if (damaged !== null) return { refused: `${damaged}; \`start\` rewrites it` };
+	if (damaged !== null)
+		return { refused: buildNotice(damaged, REWRITES_DAMAGED) };
 	if (control === null)
-		return { refused: "the loop was never started; run `start` first" };
+		return {
+			refused: buildNotice("the loop was never started", "run `start` first"),
+		};
 	const changed = changeFields(control, ask, context);
 	if ("refused" in changed) return changed;
 	const { running } = context;
 	return {
 		write: changed.write,
-		lines: [
-			...changed.lines,
-			...(running || ask.pause === false
-				? []
-				: ["refill loop: not running; this holds from its next start"]),
-		],
+		lines: changed.lines,
+		warning: running || ask.pause === false ? null : NOT_RUNNING,
 		startFrom: ask.pause === false && !running ? changed.write : null,
 	};
+}
+
+/**
+ * `set --json`'s one object, every key always there.
+ * @param {{refused?: Notice, warning?: Notice|null, lines?: string[]}} said
+ */
+const buildSetJson = (said) => ({
+	refused: null,
+	warning: null,
+	lines: [],
+	...said,
+});
+
+/**
+ * What a `set` that wrote says as JSON. A process that would not start is a warning,
+ * not a refusal: the control is written, and no process takes it yet.
+ * @param {SetPlan} plan
+ * @param {{error: string}|{lines: string[]}} started
+ */
+function buildSetPlanJson({ lines, warning }, started) {
+	return "error" in started
+		? buildSetJson({
+				warning: buildNotice(`not started: ${started.error}`, RESTART_REMEDY),
+				lines,
+			})
+		: buildSetJson({ warning, lines: [...lines, ...started.lines] });
 }
 
 /**
  * @param {Control} control
  * @param {SetAsk} ask
  * @param {SetContext} context
- * @returns {SetChange|{refused: string}}
+ * @returns {SetChange|{refused: Notice}}
  */
 function changeFields(control, ask, context) {
 	const { pause, mode, goal } = ask;
-	/** @type {((c: Control) => SetChange|{refused: string})[]} */
+	/** @type {((c: Control) => SetChange|{refused: Notice})[]} */
 	const steps = [
 		...(pause === undefined
 			? []
@@ -195,17 +231,21 @@ function withStopCleared(control, now) {
 function buildStartRefusal({ control, damaged }, context) {
 	const { pid, stopped, seatErrors, unlessStopped } = context;
 	if (unlessStopped && damaged !== null)
-		return { refused: `${damaged}; \`start\` rewrites it`, exitCode: 1 };
+		return { refused: buildNotice(damaged, REWRITES_DAMAGED), exitCode: 1 };
 	if (unlessStopped && control === null && stopped !== null)
 		return {
-			refused:
-				"the loop stopped and holds no stored settings; `start` writes fresh ones",
+			refused: buildNotice(
+				"the loop stopped and holds no stored settings",
+				"`start` writes fresh ones",
+			),
 			exitCode: 1,
 		};
 	const writesSeats = control === null || (!unlessStopped && pid === null);
 	return writesSeats && seatErrors.length > 0
 		? {
-				refused: `the seat file refuses\n${seatErrors.map((e) => `  ${e}`).join("\n")}`,
+				refused: buildNotice(
+					`the seat file refuses\n${seatErrors.map((e) => `  ${e}`).join("\n")}`,
+				),
 				exitCode: 2,
 			}
 		: null;
@@ -377,14 +417,14 @@ const tickedAfter = ({ scope }, { repos, tick = [], untick = [] }) =>
 	);
 
 /**
- * `ask` with its goal's refs qualified, each read as an open issue, or a string
+ * `ask` with its goal's refs qualified, each read as an open issue, or a
  * refusal. This runs before the control lock, whose holder reads no tracker;
  * the lock's fresh read judges the refs again against what is ticked then. A
  * control that will not read is its planner's to refuse.
  * @param {Control|null} control
  * @param {SetAsk} ask
  * @param {(ref: import("./refill-goal.js").GoalRef) => import("./refill-goal.js").IssueRead} readIssue
- * @returns {SetAsk|string}
+ * @returns {SetAsk|Notice}
  */
 function checkGoalAsk(control, ask, readIssue) {
 	if (!ask.goal || control === null) return ask;
@@ -393,9 +433,7 @@ function checkGoalAsk(control, ask, readIssue) {
 		tickedAfter(control, ask),
 		readIssue,
 	);
-	return typeof refs === "string"
-		? refs
-		: { ...ask, goal: { ...ask.goal, refs } };
+	return isNotice(refs) ? refs : { ...ask, goal: { ...ask.goal, refs } };
 }
 
 /**
@@ -427,7 +465,7 @@ function buildReposChange(control, ask) {
  * @param {Control} control
  * @param {GoalAsk|null} asked null clears it
  * @param {number} now
- * @returns {SetChange|{refused: string}}
+ * @returns {SetChange|{refused: Notice}}
  */
 function buildGoalChange(control, asked, now) {
 	const before = control.scope.goal;
@@ -441,7 +479,7 @@ function buildGoalChange(control, asked, now) {
 			? { write: null, lines: ["unchanged: goal none"] }
 			: changed(null);
 	const refs = qualifyRefs(asked.refs, control.scope.repos);
-	if (typeof refs === "string") return { refused: refs };
+	if (isNotice(refs)) return { refused: refs };
 	const goal = { form: asked.form, text: asked.text, refs };
 	return isSameGoal(before, goal)
 		? { write: null, lines: [`unchanged: ${buildGoalLine(before)}`] }
@@ -1024,4 +1062,6 @@ module.exports = {
 	buildFreshControl,
 	buildUntickedLines,
 	planSet,
+	buildSetJson,
+	buildSetPlanJson,
 };

@@ -94,6 +94,11 @@ const {
 	parseAskedRefs,
 	parseGoalForm,
 } = require("./lib/refill-goal.js");
+const {
+	buildNotice,
+	buildNoticeText,
+	isNotice,
+} = require("./lib/refill-notice.js");
 const { configDir, seatDir } = require("./lib/config-dir.js");
 const { readLastTyped } = require("./lib/presence.js");
 const {
@@ -151,21 +156,24 @@ const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | set | 
   set --goal 'unblock <ref>'                   the same for the ref and what holds it out across repos, worked out each tick
   set --goal-issues <ref,…> --goal-text <text> the same, for a confirmed topic: its issues, and the text they came from
   set --clear-goal                             run bare
+  set --json <flags>                           print one object once its flags parse, whatever the exit: refused, null or its reason, remedy and box at fault; warning, the same for a change no process takes yet; and lines, what it says without --json
   status [--json]                              --json: the code sha, the stop and whether it died with none, the pause, the last tick, launches today, the mode, when away was switched on and the sessions handed off since, the goal, every candidate checkout, the launch rows, each with its seat and why, the seats line's fields, each overflow key's budget, and burn mode's state
   <dir> is a checkout's directory name in the home directory; a <ref> is <dir>#N, or #N with one repo ticked, naming an open issue; set takes any of its flags together`;
+
+/** @typedef {import("./lib/refill-notice.js").Notice} Notice */
 
 const lock = pidLock(files.pid, "refill-loop.js");
 
 /**
- * The checkout roots `names` give, or a string saying why one is refused.
+ * The checkout roots `names` give, or why one is refused, its box at fault.
  * @param {string[]} names
  * @param {(name: string, home: string) => string|null} refusalOf
- * @returns {string[]|string}
+ * @returns {string[]|Notice}
  */
 function rootsNamed(names, refusalOf) {
 	for (const name of names) {
 		const refusal = refusalOf(name, homeDir());
-		if (refusal !== null) return refusal;
+		if (refusal !== null) return buildNotice(refusal, null, name);
 	}
 	return names.map((name) => path.join(homeDir(), name));
 }
@@ -194,42 +202,48 @@ function setConflictOf({ flags, lists }) {
 		(flags["--goal-text"] === undefined)
 	)
 		return "--goal-issues and --goal-text go together";
-	return Object.keys(flags).length + Object.keys(lists).length === 0
+	const fields = Object.keys(flags).filter((flag) => flag !== "--json");
+	return fields.length + Object.keys(lists).length === 0
 		? "set names no field"
 		: null;
 }
 
 /**
  * The goal `set`'s flags ask for: undefined where they name none, null to clear
- * it, or a string refusal.
+ * it, or a refusal.
  * @param {import("./lib/cli-args").Parsed["flags"]} flags
- * @returns {import("./lib/refill-commands.js").GoalAsk|null|undefined|string}
+ * @returns {import("./lib/refill-commands.js").GoalAsk|null|undefined|Notice}
  */
 function parseGoalAsk(flags) {
 	if (flags["--clear-goal"]) return null;
 	if (flags["--goal"] !== undefined) {
 		const typed = String(flags["--goal"]);
 		const asked = parseGoalForm(typed);
-		return asked ? { ...asked, text: typed } : buildGoalRefusal(typed);
+		return asked
+			? { ...asked, text: typed }
+			: buildNotice(buildGoalRefusal(typed));
 	}
 	const typed = flags["--goal-issues"];
 	if (typed === undefined) return;
 	const refs = parseAskedRefs(String(typed));
-	if (refs === null) return `a goal takes issue refs, #N or <dir>#N: ${typed}`;
+	if (refs === null)
+		return buildNotice(`a goal takes issue refs, #N or <dir>#N: ${typed}`);
 	const text = String(flags["--goal-text"]).trim();
-	return text === "" ? "--goal-text is empty" : { form: "topic", text, refs };
+	return text === ""
+		? buildNotice("--goal-text is empty")
+		: { form: "topic", text, refs };
 }
 
 /**
- * What `start`'s flags ask, or a string refusal.
+ * What `start`'s flags ask, or a refusal.
  * @param {import("./lib/cli-args").Parsed} parsed
- * @returns {import("./lib/refill-commands.js").SetAsk|string}
+ * @returns {import("./lib/refill-commands.js").SetAsk|Notice}
  */
 function parseStartAsk({ flags, lists }) {
 	const named = rootsNamed(lists["--repo"] ?? [], readTickRefusal);
-	if (typeof named === "string") return named;
+	if (isNotice(named)) return named;
 	const goal = parseGoalAsk(flags);
-	if (typeof goal === "string") return goal;
+	if (isNotice(goal)) return goal;
 	return {
 		...(named.length > 0 ? { tick: named } : {}),
 		...(goal === undefined ? {} : { goal }),
@@ -237,13 +251,13 @@ function parseStartAsk({ flags, lists }) {
 }
 
 /**
- * What `set`'s flags ask, or a string refusal.
+ * What `set`'s flags ask, or a refusal.
  * @param {import("./lib/cli-args").Parsed} parsed
- * @returns {import("./lib/refill-commands.js").SetAsk|string}
+ * @returns {import("./lib/refill-commands.js").SetAsk|Notice}
  */
 function parseSetAsk(parsed) {
 	const conflict = setConflictOf(parsed);
-	if (conflict !== null) return conflict;
+	if (conflict !== null) return buildNotice(conflict);
 	const { flags, lists } = parsed;
 	/** @type {import("./lib/refill-commands.js").SetAsk} */
 	const ask = {};
@@ -260,11 +274,11 @@ function parseSetAsk(parsed) {
 		const names = lists[flag];
 		if (!names) continue;
 		const roots = rootsNamed(names, refusalOf);
-		if (typeof roots === "string") return roots;
+		if (isNotice(roots)) return roots;
 		ask[field] = roots;
 	}
 	const goal = parseGoalAsk(flags);
-	if (typeof goal === "string") return goal;
+	if (isNotice(goal)) return goal;
 	if (goal !== undefined) ask.goal = goal;
 	return ask;
 }
@@ -300,13 +314,13 @@ const readStoredControl = () => readControlChecked(() => undefined).control;
 
 /**
  * A parsed ask with its goal judged on the stored control, else on `unstored`, or
- * a string refusal.
- * @param {import("./lib/refill-commands.js").SetAsk|string} parsedAsk
+ * a refusal.
+ * @param {import("./lib/refill-commands.js").SetAsk|Notice} parsedAsk
  * @param {import("./lib/refill-loop.js").Control|null} unstored
- * @returns {import("./lib/refill-commands.js").SetAsk|string}
+ * @returns {import("./lib/refill-commands.js").SetAsk|Notice}
  */
 function checkAsk(parsedAsk, unstored) {
-	if (typeof parsedAsk === "string") return parsedAsk;
+	if (isNotice(parsedAsk)) return parsedAsk;
 	return commands.checkGoalAsk(
 		readStoredControl() ?? unstored,
 		parsedAsk,
@@ -435,8 +449,8 @@ function start(parsed) {
 	}
 	const parsedAsk = parseStartAsk(parsed);
 	const ask = checkAsk(parsedAsk, commands.buildFreshControl(root, [], 0));
-	if (typeof ask === "string") {
-		writeFd(2, `${ask}\n\n${USAGE}\n`);
+	if (isNotice(ask)) {
+		refuseUsage(ask);
 		return 2;
 	}
 	const written = withControlLock(() => {
@@ -459,7 +473,8 @@ function start(parsed) {
 		if (plan.action === "start") forgetRunHeld(log);
 		return plan;
 	});
-	if ("busy" in written) return refuseWrite("not started", written.busy);
+	if ("busy" in written)
+		return refuseWrite("not started", buildBusyRefusal(written.busy));
 	const plan = written.done;
 	if ("refused" in plan) {
 		refuseWrite("nothing set", plan.refused);
@@ -492,24 +507,42 @@ function start(parsed) {
 }
 
 /**
+ * Spawn the loop on a control already written.
+ * @param {import("./lib/refill-loop.js").Control} control
+ * @param {string[]} scopeText
+ * @returns {{error: string}|{lines: string[]}} what to say of it
+ */
+function launchFrom(control, scopeText) {
+	const launched = launchLoop();
+	if ("error" in launched) return { error: launched.error };
+	return {
+		lines: [
+			...(launched.fetchError
+				? [buildFetchFailedLine(launched.fetchError)]
+				: []),
+			`refill loop started: pid ${launched.pid}`,
+			...scopeText,
+			...unlistedSeats(control.seats).map(
+				(seat) =>
+					`WARNING: seat ${seat} is outside the dirs the agents listing reads, so its launches go unlisted and are judged finished early.`,
+			),
+			`log: ${files.log}`,
+		],
+	};
+}
+
+/**
  * Spawn the loop on a control already written, and say so.
  * @param {import("./lib/refill-loop.js").Control} control
  * @param {string[]} scopeText
  */
 function startProcess(control, scopeText) {
-	const launched = launchLoop();
-	if ("error" in launched) {
-		writeFd(2, `refill loop not started: ${launched.error}\n`);
+	const started = launchFrom(control, scopeText);
+	if ("error" in started) {
+		writeFd(2, `refill loop not started: ${started.error}\n`);
 		return 1;
 	}
-	if (launched.fetchError) say(buildFetchFailedLine(launched.fetchError));
-	say(`refill loop started: pid ${launched.pid}`);
-	for (const line of scopeText) say(line);
-	for (const seat of unlistedSeats(control.seats))
-		say(
-			`WARNING: seat ${seat} is outside the dirs the agents listing reads, so its launches go unlisted and are judged finished early.`,
-		);
-	say(`log: ${files.log}`);
+	for (const line of started.lines) say(line);
 	return 0;
 }
 
@@ -524,7 +557,8 @@ function stop() {
 				stopRequestedAt: Date.now(),
 			});
 	});
-	if ("busy" in written) return refuseWrite("stop not recorded", written.busy);
+	if ("busy" in written)
+		return refuseWrite("stop not recorded", buildBusyRefusal(written.busy));
 	const pid = lock.holder();
 	if (pid !== null) wakes.touchWake(files.wake);
 	say(
@@ -541,9 +575,11 @@ function stop() {
  * @param {import("./lib/cli-args").Parsed} parsed
  */
 function set(parsed) {
+	const json = parsed.flags["--json"] === true;
 	const ask = checkAsk(parseSetAsk(parsed), null);
-	if (typeof ask === "string") {
-		writeFd(2, `${ask}\n\n${USAGE}\n`);
+	if (isNotice(ask)) {
+		if (json) say(JSON.stringify(commands.buildSetJson({ refused: ask })));
+		else refuseUsage(ask);
 		return 2;
 	}
 	const written = withControlLock(() => {
@@ -559,22 +595,56 @@ function set(parsed) {
 		if ("startFrom" in plan && plan.startFrom) forgetRunHeld(log);
 		return plan;
 	});
-	if ("busy" in written) return refuseWrite("nothing set", written.busy);
-	if ("refused" in written.done) {
-		return refuseWrite("nothing set", written.done.refused);
+	const plan =
+		"busy" in written
+			? { refused: buildBusyRefusal(written.busy) }
+			: written.done;
+	if ("refused" in plan) {
+		if (!json) return refuseWrite("nothing set", plan.refused);
+		say(JSON.stringify(commands.buildSetJson({ refused: plan.refused })));
+		return 1;
 	}
 	wakes.touchWake(files.wake);
-	for (const line of written.done.lines) say(line);
-	return written.done.startFrom ? startProcess(written.done.startFrom, []) : 0;
+	return json ? sayPlanAsJson(plan) : sayPlan(plan);
+}
+
+/** @param {import("./lib/refill-commands.js").SetPlan} plan */
+function sayPlan({ lines, warning, startFrom }) {
+	for (const line of lines) say(line);
+	if (warning) say(`refill loop: ${buildNoticeText(warning)}`);
+	return startFrom ? startProcess(startFrom, []) : 0;
 }
 
 /**
- * @param {string} what
- * @param {string} why
+ * `set --json`'s stdout, one object whatever the exit (#3968).
+ * @param {import("./lib/refill-commands.js").SetPlan} plan
  */
-function refuseWrite(what, why) {
-	writeFd(2, `refill loop: ${what}: ${why}\n`);
+function sayPlanAsJson(plan) {
+	const started = plan.startFrom
+		? launchFrom(plan.startFrom, [])
+		: { lines: [] };
+	say(JSON.stringify(commands.buildSetPlanJson(plan, started)));
+	return "error" in started ? 1 : 0;
+}
+
+/**
+ * The lock's holder finishing is the remedy, whichever command waited on it.
+ * @param {string} busy
+ */
+const buildBusyRefusal = (busy) => buildNotice(busy, "re-run once it finishes");
+
+/**
+ * @param {string} what
+ * @param {Notice} refusal
+ */
+function refuseWrite(what, refusal) {
+	writeFd(2, `refill loop: ${what}: ${buildNoticeText(refusal)}\n`);
 	return 1;
+}
+
+/** @param {Notice} refusal of a command's words, so the usage follows it */
+function refuseUsage(refusal) {
+	writeFd(2, `${buildNoticeText(refusal)}\n\n${USAGE}\n`);
 }
 
 /**
@@ -828,6 +898,7 @@ const CLI = {
 				"--goal-issues": "value",
 				"--goal-text": "value",
 				"--clear-goal": "boolean",
+				"--json": "boolean",
 			},
 		},
 		status: { usage: USAGE, flags: { "--json": "boolean" } },

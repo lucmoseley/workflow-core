@@ -131,15 +131,21 @@ describe("a ref's repo", () => {
 
 	it("refuses a bare #N unless exactly one repo is ticked", () => {
 		for (const roots of [[], ["/home/u/core", "/home/u/manta"]])
-			expect(qualifyRefs([bare], roots)).toContain(
-				`#5 names no repo with ${roots.length} repos ticked`,
-			);
+			expect(qualifyRefs([bare], roots)).toEqual({
+				reason: `#5 names no repo with ${roots.length} repos ticked`,
+				remedy: "write <repo>#5",
+				box: null,
+			});
 	});
 
 	it("refuses a ref to an unticked repo, naming it", () => {
 		expect(
 			qualifyRefs([{ repo: "manta", number: 5 }], ["/home/u/core"]),
-		).toContain("tick manta first");
+		).toEqual({
+			reason: "manta#5 is in manta, which is not ticked",
+			remedy: "tick manta first",
+			box: "manta",
+		});
 	});
 });
 
@@ -154,15 +160,21 @@ describe("a ref read as an open issue", () => {
 	});
 
 	it("refuses a closed one, naming it", () => {
-		expect(qualifyOpenRefs(asked, roots, () => ({ state: "CLOSED" }))).toBe(
-			"core#5 is closed: a goal names open issues",
-		);
+		expect(qualifyOpenRefs(asked, roots, () => ({ state: "CLOSED" }))).toEqual({
+			reason: "core#5 is closed",
+			remedy: "name an open issue",
+			box: null,
+		});
 	});
 
 	it("refuses one that will not read, naming why", () => {
-		expect(qualifyOpenRefs(asked, roots, () => ({ unread: "no such" }))).toBe(
-			"core#5 will not read as an open issue: no such",
-		);
+		expect(
+			qualifyOpenRefs(asked, roots, () => ({ unread: "no such" })),
+		).toEqual({
+			reason: "core#5 will not read as an open issue: no such",
+			remedy: null,
+			box: null,
+		});
 	});
 
 	it("reads no issue for a ref its repo refuses", () => {
@@ -170,6 +182,6 @@ describe("a ref read as an open issue", () => {
 			qualifyOpenRefs(asked, ["/home/u/manta"], () => {
 				throw new Error("read");
 			}),
-		).toContain("tick core first");
+		).toMatchObject({ remedy: "tick core first", box: "core" });
 	});
 });

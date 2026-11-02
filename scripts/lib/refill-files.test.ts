@@ -141,7 +141,7 @@ describe("the control lock (#3856)", () => {
 			}, 0);
 			expect(ran).toBe(false);
 			expect(r).toEqual({
-				busy: `${file} is held by pid ${holder.pid}; re-run once it finishes`,
+				busy: `${file} is held by pid ${holder.pid}`,
 			});
 		} finally {
 			holder.kill();

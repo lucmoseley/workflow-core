@@ -138,22 +138,35 @@ interface Row {
 const view = (over: object) => ({
 	status: null,
 	readError: null,
-	pending: null,
-	refusal: null,
-	awayPending: null,
-	awayNote: null,
-	burnPending: null,
-	burnReport: null,
 	goalEdit: null,
 	goalResolve: null,
-	goalPending: null,
-	goalNote: null,
-	repoPending: {},
-	repoRefusal: null,
 	pointer: null,
 	focusNote: null,
 	...over,
+	presses: {
+		...panelOver(noop).view.presses,
+		...(over as { presses?: object }).presses,
+	},
 });
+const buildPressing = (control: string, pending: object) => ({
+	presses: { [control]: { pending, note: null } },
+});
+const buildNoted = (control: string, note: object) => ({
+	presses: { [control]: { pending: null, note } },
+});
+const buildNote = (reason: string, remedy?: string) => ({
+	reason,
+	remedy: remedy ?? null,
+	box: null,
+	at: LATER,
+});
+/* What `refill-loop.js set --json` prints on a refusal. */
+const buildRefusedStdout = (reason: string, remedy?: string, box?: string) =>
+	JSON.stringify({
+		refused: { reason, remedy: remedy ?? null, box: box ?? null },
+		warning: null,
+		lines: [],
+	});
 const rowsOf = (over: object): Row[] => buildRows(view(over), LATER);
 const summary = (rows: Row[]) => rows.map((r) => [r.text, r.role]);
 /* The rows of one section: to the blank row that ends it. */
@@ -246,7 +259,7 @@ describe("the panel's rows", () => {
 	it("shows a press to turn off, never reading as done", () => {
 		const rows = rowsOf({
 			status: RUNNING,
-			pending: { on: false, landed: false },
+			...buildPressing("loop", { on: false, landed: false }),
 		});
 		expect(summary(rows).slice(0, 4)).toEqual([
 			["Refill loop  […]", "name"],
@@ -260,7 +273,7 @@ describe("the panel's rows", () => {
 	it("shows a press to turn on", () => {
 		const rows = rowsOf({
 			status: PAUSED_BY_FOUNDER,
-			pending: { on: true, landed: false },
+			...buildPressing("loop", { on: true, landed: false }),
 		});
 		expect(rows[2].text).toBe("turning on…");
 		expect(rows[3].text).toBe("");
@@ -447,9 +460,15 @@ describe("the panel's rows", () => {
 			{ status: { ...PAUSED_BY_FOUNDER, running: false } },
 			{ status: STOPPED },
 			{ status: STOPPING },
-			{ status: RUNNING, pending: { on: false, landed: true } },
-			{ status: PAUSED_BY_FOUNDER, pending: { on: true, landed: false } },
-			{ status: RUNNING, refusal: { text: "refused", at: LATER } },
+			{
+				status: RUNNING,
+				...buildPressing("loop", { on: false, landed: true }),
+			},
+			{
+				status: PAUSED_BY_FOUNDER,
+				...buildPressing("loop", { on: true, landed: false }),
+			},
+			{ status: RUNNING, ...buildNoted("loop", buildNote("refused")) },
 		];
 		for (const c of cases)
 			expect(rowsOf(c)[BURN_INDEX].text).toMatch(/^Burn mode/);
@@ -670,7 +689,7 @@ describe("the plan and credit rows", () => {
 	it("stays below the loop's lines through a pending press", () => {
 		const rows = rowsOf({
 			status: RUNNING,
-			pending: { on: false, landed: false },
+			...buildPressing("loop", { on: false, landed: false }),
 		});
 		expect(rows[5].text).toBe("Weekly plan usage");
 	});
@@ -804,33 +823,64 @@ describe("the panel's frame", () => {
 	});
 
 	it("draws no control character a command printed", () => {
-		const refusal = { text: `bad${ESC}[31m\nthing`, at: LATER };
-		const frame = buildFrame(rowsOf({ status: RUNNING, refusal }), 80, 40);
+		const refusal = buildNoted("loop", buildNote(`bad${ESC}[31m\nthing`));
+		const frame = buildFrame(rowsOf({ status: RUNNING, ...refusal }), 80, 40);
 		expect(frame).toContain("bad [31m thing");
+	});
+});
+
+describe("the press record", () => {
+	it.each([
+		["loop", "set --pause --json", SWITCH_ROW],
+		["away", "set --away --json", AWAY_ROW],
+	])("holds the %s press's mark, then its note", async (control, argv, row) => {
+		const { held, release } = heldUntil();
+		const runSet = async (asked: string[]) => {
+			if (asked.join(" ") !== argv)
+				return { code: 0, stdout: JSON.stringify(RUNNING), stderr: "" };
+			await held;
+			return {
+				code: 1,
+				stdout: buildRefusedStdout("refused", "do this"),
+				stderr: "",
+			};
+		};
+		const panel = panelOver(runSet);
+		await panel.refreshStatus();
+		const done = panel.click(row);
+		expect(panel.view.presses[control].pending).toMatchObject({
+			landed: false,
+		});
+		release();
+		await done;
+		expect(panel.view.presses[control]).toMatchObject({
+			pending: null,
+			note: { reason: "refused", remedy: "do this", box: null },
+		});
 	});
 });
 
 describe("a click on the switch", () => {
 	it("pauses a running loop through `set --pause`", async () => {
 		const { calls, run } = runnerOf({
-			"set --pause": () => ({}),
+			"set --pause --json": () => ({}),
 			"status --json": showing(RUNNING),
 		});
 		const panel = panelOver(run);
 		await panel.refreshStatus();
 		await panel.click(SWITCH_ROW);
-		expect(calls[1]).toEqual(["set", "--pause"]);
+		expect(calls[1]).toEqual(["set", "--pause", "--json"]);
 	});
 
 	it("resumes a paused loop through `set --resume`", async () => {
 		const { calls, run } = runnerOf({
-			"set --resume": () => ({}),
+			"set --resume --json": () => ({}),
 			"status --json": showing(PAUSED_BY_FOUNDER),
 		});
 		const panel = panelOver(run);
 		await panel.refreshStatus();
 		await panel.click(SWITCH_ROW);
-		expect(calls[1]).toEqual(["set", "--resume"]);
+		expect(calls[1]).toEqual(["set", "--resume", "--json"]);
 	});
 
 	it.each([
@@ -840,12 +890,12 @@ describe("a click on the switch", () => {
 	])("restarts a %s loop through `set --resume`", async (_name, status) => {
 		const { calls, run } = runnerOf({
 			"status --json": showing(status),
-			"set --resume": () => ({}),
+			"set --resume --json": () => ({}),
 		});
 		const panel = panelOver(run);
 		await panel.refreshStatus();
 		await panel.click(SWITCH_ROW);
-		expect(calls).toContainEqual(["set", "--resume"]);
+		expect(calls).toContainEqual(["set", "--resume", "--json"]);
 	});
 
 	it.each([
@@ -857,7 +907,7 @@ describe("a click on the switch", () => {
 		async (_name, status, callCount) => {
 			const { calls, run } = runnerOf({
 				"status --json": showing(status),
-				"set --resume": () => ({}),
+				"set --resume --json": () => ({}),
 			});
 			const panel = panelOver(run);
 			await panel.refreshStatus();
@@ -870,21 +920,21 @@ describe("a click on the switch", () => {
 		let status: object = CRASHED;
 		const { run } = runnerOf({
 			"status --json": () => ({ stdout: JSON.stringify(status) }),
-			"set --resume": () => ({}),
+			"set --resume --json": () => ({}),
 		});
 		const panel = panelOver(run);
 		await panel.refreshStatus();
 		await panel.click(SWITCH_ROW);
-		expect(panel.view.pending?.on).toBe(true);
+		expect(panel.view.presses.loop.pending?.on).toBe(true);
 		status = RUNNING;
 		await panel.refreshStatus();
-		expect(panel.view.pending).toBeNull();
+		expect(panel.view.presses.loop.pending).toBeNull();
 	});
 
 	it("gives the row back where the restarted process never shows", async () => {
 		const { run } = runnerOf({
 			"status --json": showing(CRASHED),
-			"set --resume": () => ({}),
+			"set --resume --json": () => ({}),
 		});
 		let at = AT;
 		const panel = createPanel({
@@ -899,10 +949,10 @@ describe("a click on the switch", () => {
 		await panel.click(SWITCH_ROW);
 		at += 29_000;
 		await panel.refreshStatus();
-		expect(panel.view.pending?.on).toBe(true);
+		expect(panel.view.presses.loop.pending?.on).toBe(true);
 		at += 1000;
 		await panel.refreshStatus();
-		expect(panel.view.pending).toBeNull();
+		expect(panel.view.presses.loop.pending).toBeNull();
 		expect(buildRows(panel.view, at)[2].text).toBe("needs you");
 	});
 
@@ -922,9 +972,9 @@ describe("a click on the switch", () => {
 		for (const status of [RUNNING, STALLED, CRASHED, STOPPED, STOPPING]) {
 			const { calls, run } = runnerOf({
 				"status --json": showing(status),
-				"set --pause": () => ({}),
-				"set --resume": () => ({}),
-				"set --away": () => ({}),
+				"set --pause --json": () => ({}),
+				"set --resume --json": () => ({}),
+				"set --away --json": () => ({}),
 				on: () => ({}),
 				off: () => ({}),
 			});
@@ -996,7 +1046,11 @@ describe("the status reads", () => {
 
 describe("the pending word", () => {
 	/** A panel whose press is made against `before`, reading `after` once it lands. */
-	async function pressed(before: object, after: object, press = "set --pause") {
+	async function pressed(
+		before: object,
+		after: object,
+		press = "set --pause --json",
+	) {
 		let status = before;
 		const { run } = runnerOf({
 			[press]: () => {
@@ -1019,7 +1073,7 @@ describe("the pending word", () => {
 
 	it("stays on a read showing the pause while the running tick finishes", async () => {
 		const { panel } = await pressed(RUNNING, PAUSED_MID_TICK);
-		expect(panel.view.pending).not.toBeNull();
+		expect(panel.view.presses.loop.pending).not.toBeNull();
 		expect(buildRows(panel.view, LATER)[3].text).toBe(
 			"Turning off when this check ends",
 		);
@@ -1028,7 +1082,7 @@ describe("the pending word", () => {
 	it("clears once a tick has started since the pause", async () => {
 		const { panel, show } = await pressed(RUNNING, PAUSED_MID_TICK);
 		await show({ ...PAUSED_MID_TICK, lastTick: PAUSED_TICK });
-		expect(panel.view.pending).toBeNull();
+		expect(panel.view.presses.loop.pending).toBeNull();
 		expect(buildRows(panel.view, LATER)[2].text).toBe(
 			"You switched it off at 14:06",
 		);
@@ -1039,16 +1093,16 @@ describe("the pending word", () => {
 			...PAUSED_MID_TICK,
 			running: false,
 		});
-		expect(panel.view.pending).toBeNull();
+		expect(panel.view.presses.loop.pending).toBeNull();
 	});
 
 	it("clears on a read showing a resume", async () => {
 		const { panel } = await pressed(
 			PAUSED_BY_FOUNDER,
 			{ ...RUNNING, lastTick: PAUSED_TICK },
-			"set --resume",
+			"set --resume --json",
 		);
-		expect(panel.view.pending).toBeNull();
+		expect(panel.view.presses.loop.pending).toBeNull();
 		const rows = buildRows(panel.view, LATER);
 		expect(rows[0].control.state).toBe("on");
 		expect(rows[3].text).toBe("Waiting: the next check");
@@ -1066,41 +1120,42 @@ describe("the pending word", () => {
 		const clicked = panel.click(SWITCH_ROW);
 		status = STOPPED;
 		await panel.refreshStatus();
-		expect(panel.view.pending).not.toBeNull();
+		expect(panel.view.presses.loop.pending).not.toBeNull();
 		release();
 		await clicked;
-		expect(panel.view.pending).toBeNull();
+		expect(panel.view.presses.loop.pending).toBeNull();
 	});
 
 	it("clears where another writer has since reversed the press", async () => {
 		const { panel } = await pressed(RUNNING, RUNNING);
-		expect(panel.view.pending).toBeNull();
+		expect(panel.view.presses.loop.pending).toBeNull();
 	});
 
 	it("clears on the command's refusal and shows it, then gives line 2 back", async () => {
 		const { run } = runnerOf({
-			"set --pause": () => ({
+			"set --pause --json": () => ({
 				code: 1,
-				stderr: "refill loop: nothing set: the control is damaged\n",
+				stdout: buildRefusedStdout(
+					"the control is damaged",
+					"`start` rewrites it",
+				),
 			}),
 			"status --json": showing(RUNNING),
 		});
 		const panel = panelOver(run);
 		await panel.refreshStatus();
 		await panel.click(SWITCH_ROW);
-		expect(panel.view.pending).toBeNull();
+		expect(panel.view.presses.loop.pending).toBeNull();
 		const rows = buildRows(panel.view, AT + 1);
 		expect(rows[0].control.state).toBe("on");
-		expect(rows[3].text).toBe(
-			"refill loop: nothing set: the control is damaged",
-		);
+		expect(rows[3].text).toBe("the control is damaged; `start` rewrites it");
 		expect(buildRows(panel.view, LATER)[3].text).toBe("Waiting: no free slot");
 	});
 
 	it("survives an unreadable status, and claims nothing during it", async () => {
 		const { panel, show } = await pressed(RUNNING, PAUSED_MID_TICK);
 		await show({ nonsense: true });
-		expect(panel.view.pending).not.toBeNull();
+		expect(panel.view.presses.loop.pending).not.toBeNull();
 		expect(panel.view.status).toBeNull();
 	});
 });
@@ -1177,7 +1232,7 @@ describe("the Burn mode switch", () => {
 		const { flips, panel } = await panelFlipping(RUNNING);
 		await panel.click(BURN_ROW);
 		expect(flips).toEqual([["on"]]);
-		expect(panel.view.pending).toBeNull();
+		expect(panel.view.presses.loop.pending).toBeNull();
 	});
 
 	it("turns burn mode off through the script's `off`", async () => {
@@ -1213,12 +1268,12 @@ describe("the Burn mode switch", () => {
 		expect(row.text).toBe("Burn mode  […]  turning on…");
 		expect(row.control?.state).toBe("pending");
 		await panel.refreshStatus();
-		expect(panel.view.burnPending).not.toBeNull();
+		expect(panel.view.presses.burn.pending).not.toBeNull();
 		await panel.click(BURN_ROW);
 		expect(flips).toHaveLength(1);
 		release();
 		await clicked;
-		expect(panel.view.burnPending).toBeNull();
+		expect(panel.view.presses.burn.pending).toBeNull();
 	});
 
 	it("shows the observed state and the skill's restart line after a clean flip", async () => {
@@ -1247,7 +1302,7 @@ describe("the Burn mode switch", () => {
 			["Click runs burn-mode.sh on", "secondary"],
 		]);
 		expect(rows[0].control?.state).toBe("failed");
-		expect(panel.view.burnPending).toBeNull();
+		expect(panel.view.presses.burn.pending).toBeNull();
 	});
 
 	it("shows a half-flip's exit and output, and the plan it left", async () => {
@@ -1387,13 +1442,13 @@ describe("the Away switch", () => {
 	it("reads pending in either direction, claiming neither mode and no count", () => {
 		const [turningOff] = awayRowsOf({
 			status: { ...Away, handedOffSinceAway: 2 },
-			awayPending: { on: false, landed: false },
+			...buildPressing("away", { on: false, landed: false }),
 		});
 		expect(turningOff.text).toBe("Away  […]  turning off…");
 		expect(turningOff.control?.state).toBe("pending");
 		const [turningOn] = awayRowsOf({
 			status: RUNNING,
-			awayPending: { on: true, landed: false },
+			...buildPressing("away", { on: true, landed: false }),
 		});
 		expect(turningOn.text).toBe("Away  […]  turning on…");
 	});
@@ -1409,8 +1464,8 @@ describe("the Away switch", () => {
 	it("keeps the rows below it in place, whatever it shows", () => {
 		const cases = [
 			{ status: RUNNING },
-			{ status: Away, awayPending: { on: false, landed: false } },
-			{ status: RUNNING, awayNote: { text: "refused", at: LATER } },
+			{ status: Away, ...buildPressing("away", { on: false, landed: false }) },
+			{ status: RUNNING, ...buildNoted("away", buildNote("refused")) },
 		];
 		for (const c of cases)
 			expect(rowsOf(c)[BURN_INDEX].text).toMatch(/^Burn mode/);
@@ -1436,27 +1491,31 @@ describe("the Away switch", () => {
 	}
 
 	it("turns away on through `set --away`", async () => {
-		const { calls, panel } = await clicked(RUNNING, "set --away", Away);
-		expect(calls).toContainEqual(["set", "--away"]);
+		const { calls, panel } = await clicked(RUNNING, "set --away --json", Away);
+		expect(calls).toContainEqual(["set", "--away", "--json"]);
 		expect(buildRows(panel.view, LATER)[AWAY_INDEX].text).toBe("Away  [on]");
 	});
 
 	it("turns away off through `set --normal`", async () => {
-		const { calls, panel } = await clicked(Away, "set --normal", RUNNING);
-		expect(calls).toContainEqual(["set", "--normal"]);
+		const { calls, panel } = await clicked(
+			Away,
+			"set --normal --json",
+			RUNNING,
+		);
+		expect(calls).toContainEqual(["set", "--normal", "--json"]);
 		expect(buildRows(panel.view, LATER)[AWAY_INDEX].text).toBe(
 			"Away  [off]  normal",
 		);
 	});
 
 	it("works with the loop stopped or paused, either way", async () => {
-		const stopped = await clicked(STOPPED, "set --away");
-		expect(stopped.calls).toContainEqual(["set", "--away"]);
+		const stopped = await clicked(STOPPED, "set --away --json");
+		expect(stopped.calls).toContainEqual(["set", "--away", "--json"]);
 		const paused = await clicked(
 			{ ...PAUSED_BY_FOUNDER, mode: "away" },
-			"set --normal",
+			"set --normal --json",
 		);
-		expect(paused.calls).toContainEqual(["set", "--normal"]);
+		expect(paused.calls).toContainEqual(["set", "--normal", "--json"]);
 	});
 
 	it("runs nothing before a read, or with no control to read", async () => {
@@ -1474,7 +1533,7 @@ describe("the Away switch", () => {
 	it("reads normal once a status read shows the automatic return, and turns on again", async () => {
 		let shown: object = { ...Away, handedOffSinceAway: 2 };
 		const { calls, run } = runnerOf({
-			"set --away": () => ({}),
+			"set --away --json": () => ({}),
 			"status --json": () => ({ stdout: JSON.stringify(shown) }),
 		});
 		const panel = panelOver(run);
@@ -1488,7 +1547,7 @@ describe("the Away switch", () => {
 			"Away  [off]  normal",
 		);
 		await panel.click(AWAY_ROW);
-		expect(calls).toContainEqual(["set", "--away"]);
+		expect(calls).toContainEqual(["set", "--away", "--json"]);
 	});
 
 	it("holds the word until a read after the command, taking a second click as nothing", async () => {
@@ -1510,31 +1569,31 @@ describe("the Away switch", () => {
 			"pending",
 		);
 		await panel.refreshStatus();
-		expect(panel.view.awayPending).not.toBeNull();
+		expect(panel.view.presses.away.pending).not.toBeNull();
 		await panel.click(AWAY_ROW);
 		expect(calls.filter((c) => c[0] === "set")).toHaveLength(1);
 		release();
 		await press;
-		expect(panel.view.awayPending).toBeNull();
+		expect(panel.view.presses.away.pending).toBeNull();
 		expect(buildRows(panel.view, LATER)[AWAY_INDEX].control.state).toBe("on");
 	});
 
 	it("clears on the command's refusal and shows it on its own row, then blanks it", async () => {
 		const { run } = runnerOf({
-			"set --away": () => ({
+			"set --away --json": () => ({
 				code: 1,
-				stderr: "refill loop: nothing set: busy\n",
+				stdout: buildRefusedStdout("busy"),
 			}),
 			"status --json": showing(RUNNING),
 		});
 		const panel = panelOver(run);
 		await panel.refreshStatus();
 		await panel.click(AWAY_ROW);
-		expect(panel.view.awayPending).toBeNull();
+		expect(panel.view.presses.away.pending).toBeNull();
 		const rows = buildRows(panel.view, AT);
 		expect(rows[AWAY_INDEX].control.state).toBe("off");
 		expect(rows[AWAY_INDEX + 1]).toMatchObject({
-			text: "refill loop: nothing set: busy",
+			text: "busy",
 			role: "value",
 		});
 		expect(rows[3].text).toBe("Waiting: no free slot");
@@ -1542,13 +1601,21 @@ describe("the Away switch", () => {
 	});
 
 	it("shows the command's warning on a loop with no process, then blanks it", async () => {
-		const warning =
-			"refill loop: not running; its next start sets the mode, repos and goal afresh";
 		let shown: object = STOPPED;
 		const { run } = runnerOf({
-			"set --away": () => {
+			"set --away --json": () => {
 				shown = { ...STOPPED, mode: "away" };
-				return { stdout: `mode:      away\n${warning}\n` };
+				return {
+					stdout: JSON.stringify({
+						refused: null,
+						warning: {
+							reason: "not running",
+							remedy: "this holds from its next start",
+							box: null,
+						},
+						lines: ["mode:      away"],
+					}),
+				};
 			},
 			"status --json": () => ({ stdout: JSON.stringify(shown) }),
 		});
@@ -1558,7 +1625,7 @@ describe("the Away switch", () => {
 		const rows = buildRows(panel.view, AT);
 		expect(rows[AWAY_INDEX].text).toBe("Away  [on]");
 		expect(rows[AWAY_INDEX + 1]).toMatchObject({
-			text: warning,
+			text: "not running; this holds from its next start",
 			role: "value",
 		});
 		expect(buildRows(panel.view, AT + 60_000)[AWAY_INDEX + 1].text).toBe("");
@@ -1754,7 +1821,7 @@ describe("the Repos section", () => {
 		release();
 		await clicked;
 		expect(calls.filter((argv) => argv[0] !== "status")).toEqual([
-			["set", "--tick", "design-vault"],
+			["set", "--tick", "design-vault", "--json"],
 		]);
 		expect(
 			boxOf(buildRows(panel.view, LATER), "design-vault")?.control?.state,
@@ -1772,7 +1839,7 @@ describe("the Repos section", () => {
 			),
 		});
 		await panel.click(row);
-		expect(presses()).toEqual([["set", "--untick", "workflow-core"]]);
+		expect(presses()).toEqual([["set", "--untick", "workflow-core", "--json"]]);
 		expect(boxOf(buildRows(panel.view, LATER), "workflow-core")).toMatchObject({
 			text: "[ ] workflow-core",
 			control: { state: "unticked" },
@@ -1802,7 +1869,11 @@ describe("the Repos section", () => {
 	it("shows a refusal in the gap below its box, moving no box, and clears the mark", async () => {
 		const { panel } = repoPanel(WithRepos, {
 			code: 2,
-			stderr: "design-vault: no workflow-core config\n",
+			stdout: buildRefusedStdout(
+				"design-vault: no workflow-core config",
+				undefined,
+				"design-vault",
+			),
 		});
 		await panel.refreshStatus();
 		const rowsBefore = buildRows(panel.view, LATER);
@@ -1955,7 +2026,7 @@ describe("the Goal section", () => {
 		it("says a press is on its way, the old goal showing beneath", () => {
 			const rows = goalRows({
 				status: WithGoal,
-				goalPending: { on: true, landed: false },
+				...buildPressing("goal", { on: true, landed: false }),
 			});
 			expect(rows[0]).toMatchObject({
 				text: "Goal  […]  setting…",
@@ -1965,17 +2036,17 @@ describe("the Goal section", () => {
 			expect(
 				goalRows({
 					status: WithGoal,
-					goalPending: { on: false, landed: false },
+					...buildPressing("goal", { on: false, landed: false }),
 				})[0].text,
 			).toBe("Goal  […]  turning off…");
 		});
 	});
 
 	describe("its two-line caption", () => {
-		const refused = {
-			text: "wc#5 is in wc, which is not ticked: tick wc first",
-			at: LATER,
-		};
+		const refused = buildNote(
+			"wc#5 is in wc, which is not ticked",
+			"tick wc first",
+		);
 		const states: [string, object][] = [
 			["unread", { status: null }],
 			["no goal", { status: RUNNING }],
@@ -1987,12 +2058,15 @@ describe("the Goal section", () => {
 			],
 			[
 				"a pending press",
-				{ status: WithGoal, goalPending: { on: true, landed: false } },
+				{
+					status: WithGoal,
+					...buildPressing("goal", { on: true, landed: false }),
+				},
 			],
-			["a refusal", { status: WithGoal, goalNote: refused }],
+			["a refusal", { status: WithGoal, ...buildNoted("goal", refused) }],
 			[
 				"a note of one clause",
-				{ status: WithGoal, goalNote: { text: "exit 1", at: LATER } },
+				{ status: WithGoal, ...buildNoted("goal", buildNote("exit 1")) },
 			],
 		];
 
@@ -2017,33 +2091,24 @@ describe("the Goal section", () => {
 
 		it("gives way to a refusal for as long as a note shows, then returns", () => {
 			const rows = (now: number) =>
-				buildRows(view({ status: WithGoal, goalNote: refused }), now).map(
-					(r: Row) => r.text,
-				);
+				buildRows(
+					view({ status: WithGoal, ...buildNoted("goal", refused) }),
+					now,
+				).map((r: Row) => r.text);
 			expect(rows(LATER)).toContain("wc#5 is in wc, which is not ticked");
 			expect(rows(LATER)).toContain("tick wc first");
 			expect(rows(LATER)).not.toContain(Caption[0]);
 			expect(rows(LATER + 10_000)).toContain(Caption[0]);
 		});
 
-		it("splits the warning of a loop with no process across its two rows", () => {
-			const goalNote = {
-				text: "refill loop: not running; this holds from its next start",
-				at: LATER,
-			};
-			const texts = rowsOf({ status: WithGoal, goalNote }).map((r) => r.text);
+		it("shows a note's reason and remedy on their own rows", () => {
+			const note = buildNote("not running", "this holds from its next start");
+			const texts = rowsOf({
+				status: WithGoal,
+				...buildNoted("goal", note),
+			}).map((r) => r.text);
 			expect(texts).toContain("not running");
 			expect(texts).toContain("this holds from its next start");
-		});
-
-		it("shows a refusal off the lock's read without the command's prefix", () => {
-			const goalNote = {
-				text: "refill loop: nothing set: #5 names no repo with 2 repos ticked: write <repo>#5",
-				at: LATER,
-			};
-			const texts = rowsOf({ status: WithGoal, goalNote }).map((r) => r.text);
-			expect(texts).toContain("#5 names no repo with 2 repos ticked");
-			expect(texts).toContain("write <repo>#5");
 		});
 	});
 
@@ -2051,13 +2116,13 @@ describe("the Goal section", () => {
 		it("clears the goal, and only that", async () => {
 			const { panel, presses } = await goalPanel(WithGoal);
 			await panel.click(switchRow(panel));
-			expect(presses()).toEqual([["set", "--clear-goal"]]);
+			expect(presses()).toEqual([["set", "--clear-goal", "--json"]]);
 		});
 
 		it("clears a finished goal too", async () => {
 			const { panel, presses } = await goalPanel(Done);
 			await panel.click(switchRow(panel));
-			expect(presses()).toEqual([["set", "--clear-goal"]]);
+			expect(presses()).toEqual([["set", "--clear-goal", "--json"]]);
 		});
 
 		it("opens the empty field where there is no goal, running nothing", async () => {
@@ -2075,7 +2140,7 @@ describe("the Goal section", () => {
 			expect(before.panel.view.goalEdit).toBeNull();
 
 			const pending = await goalPanel(WithGoal);
-			pending.panel.view.goalPending = { on: true, landed: false };
+			pending.panel.view.presses.goal.pending = { on: true, landed: false };
 			await pending.panel.click(switchRow(pending.panel));
 			expect(pending.presses()).toEqual([]);
 		});
@@ -2094,11 +2159,11 @@ describe("the Goal section", () => {
 			const panel = panelOver(run);
 			panel.view.status = WithGoal;
 			const press = panel.click(switchRow(panel));
-			expect(panel.view.goalPending).toMatchObject({ on: false });
+			expect(panel.view.presses.goal.pending).toMatchObject({ on: false });
 			release();
 			await press;
 			expect(readsDone).toBe(1);
-			expect(panel.view.goalPending).toBeNull();
+			expect(panel.view.presses.goal.pending).toBeNull();
 			expect(panel.view.status.goal).toBeNull();
 		});
 	});
@@ -2173,7 +2238,7 @@ describe("the Goal section", () => {
 		])("sends %j through set --goal", async (typed, flag) => {
 			const { panel, presses } = await goalPanel(WithGoal);
 			await typeGoal(panel, typed);
-			expect(presses()).toEqual([["set", flag]]);
+			expect(presses()).toEqual([["set", flag, "--json"]]);
 			expect(panel.view.goalEdit).toBeNull();
 		});
 
@@ -2184,7 +2249,7 @@ describe("the Goal section", () => {
 				await typeGoal(panel, typed);
 				await panel.pressKey(Enter);
 				expect(presses()).toEqual([
-					["set", "--goal-issues=wc#5,wc#7", `--goal-text=${typed}`],
+					["set", "--goal-issues=wc#5,wc#7", `--goal-text=${typed}`, "--json"],
 				]);
 			},
 		);
@@ -2242,7 +2307,12 @@ describe("the Goal section", () => {
 				expect(presses()).toEqual([]);
 				await panel.click(rowOf(panel, SaveTwo));
 				expect(presses()).toEqual([
-					["set", "--goal-issues=wc#5,wc#7", "--goal-text=clear Phase 0"],
+					[
+						"set",
+						"--goal-issues=wc#5,wc#7",
+						"--goal-text=clear Phase 0",
+						"--json",
+					],
 				]);
 				expect(panel.view.goalResolve).toBeNull();
 			});
@@ -2286,7 +2356,10 @@ describe("the Goal section", () => {
 				panel.view.readError = "status --json: bad";
 				await panel.pressKey(Enter);
 				expect(resolve).not.toHaveBeenCalled();
-				expect(panel.view.goalNote?.text).toContain("status --json: bad");
+				expect(panel.view.presses.goal.note).toMatchObject({
+					reason: "Topic not resolved",
+					remedy: "status --json: bad",
+				});
 				expect(presses()).toEqual([]);
 			});
 
@@ -2295,9 +2368,9 @@ describe("the Goal section", () => {
 					why: "no repo is ticked",
 				}));
 				await typeGoal(panel, "topic");
-				expect(panel.view.goalNote?.held).toBe(true);
+				expect(panel.view.presses.goal.note?.held).toBe(true);
 				await panel.click(rowOf(panel, "[✓] wc"));
-				expect(panel.view.goalNote).toBeNull();
+				expect(panel.view.presses.goal.note).toBeNull();
 			});
 
 			it("names each ref's repo and counts what was dropped where the set spans repos", async () => {
@@ -2348,7 +2421,7 @@ describe("the Goal section", () => {
 				finish(await Found());
 				await typed;
 				expect(panel.view.goalResolve).toBeNull();
-				expect(panel.view.goalNote).toBeNull();
+				expect(panel.view.presses.goal.note).toBeNull();
 			});
 
 			it("shows a failure's reason past the note time, the old goal in place", async () => {
@@ -2370,7 +2443,7 @@ describe("the Goal section", () => {
 					WithGoal,
 					{
 						code: 1,
-						stderr: "refill loop: wc#5 is closed: a goal names open issues",
+						stdout: buildRefusedStdout("wc#5 is closed", "name an open issue"),
 					},
 					Found,
 				);
@@ -2422,7 +2495,7 @@ describe("the Goal section", () => {
 			await panel.pressKey({ text: "   " });
 			await panel.pressKey(Enter);
 			expect(panel.view.goalEdit).toBeNull();
-			expect(panel.view.goalPending).toBeNull();
+			expect(panel.view.presses.goal.pending).toBeNull();
 			expect(presses()).toEqual([]);
 		});
 
@@ -2433,7 +2506,7 @@ describe("the Goal section", () => {
 				goal: goalOf({ text: "#7", set: null, open: null }),
 			});
 			await typeGoal(panel, "#7");
-			expect(panel.view.goalPending).toBeNull();
+			expect(panel.view.presses.goal.pending).toBeNull();
 			expect(goalRows({ ...panel.view })[2].text).toBe("#7");
 		});
 
@@ -2443,7 +2516,7 @@ describe("the Goal section", () => {
 			await panel.pressKey({ text: "9" });
 			await panel.click(AWAY_ROW);
 			expect(panel.view.goalEdit).toBeNull();
-			expect(presses()).toEqual([["set", "--away"]]);
+			expect(presses()).toEqual([["set", "--away", "--json"]]);
 		});
 
 		it("stays open on a click on itself", async () => {
@@ -2464,23 +2537,27 @@ describe("the Goal section", () => {
 
 		it("cannot open while a press is pending", async () => {
 			const { panel } = await goalPanel(WithGoal);
-			panel.view.goalPending = { on: true, landed: false };
+			panel.view.presses.goal.pending = { on: true, landed: false };
 			await panel.click(fieldRow(panel));
 			expect(panel.view.goalEdit).toBeNull();
 		});
 	});
 
 	describe("a refused goal", () => {
-		const NotTicked = "wc#5 is in wc, which is not ticked: tick wc first";
+		const NotTicked = buildRefusedStdout(
+			"wc#5 is in wc, which is not ticked",
+			"tick wc first",
+			"wc",
+		);
 
 		it("shows in place, naming the box, and leaves the old goal showing", async () => {
 			const { panel, presses } = await goalPanel(WithGoal, {
 				code: 2,
-				stderr: `${NotTicked}\n\nusage: refill-loop.js ...\n`,
+				stdout: NotTicked,
 			});
 			await typeGoal(panel, "wc#5");
-			expect(panel.view.goalPending).toBeNull();
-			expect(presses()).toEqual([["set", "--goal=wc#5"]]);
+			expect(panel.view.presses.goal.pending).toBeNull();
+			expect(presses()).toEqual([["set", "--goal=wc#5", "--json"]]);
 			const rows: Row[] = buildRows(panel.view, AT);
 			const at = rows.findIndex((r) => r.text.startsWith("Goal"));
 			expect(rows[at].control?.state).toBe("on");
@@ -2489,23 +2566,63 @@ describe("the Goal section", () => {
 				"wc#5 is in wc, which is not ticked",
 				"tick wc first",
 			]);
+			expect(panel.view.presses.goal).toMatchObject({
+				pending: null,
+				note: {
+					reason: "wc#5 is in wc, which is not ticked",
+					remedy: "tick wc first",
+					box: "wc",
+				},
+			});
+		});
+
+		it("shows under the box at fault too, the boxes staying put", async () => {
+			const Repo = { root: "/h/wc", ticked: false, disabled: null };
+			const status = { ...WithGoal, repos: [{ ...Repo, name: "wc" }] };
+			const { panel } = await goalPanel(status, {
+				code: 1,
+				stdout: NotTicked,
+			});
+			const before = buildRows(panel.view, AT).length;
+			await typeGoal(panel, "wc#5");
+			const rows: Row[] = buildRows(panel.view, AT);
+			expect(rows).toHaveLength(before);
+			const box = rows.findIndex((r) => r.control?.name === "wc");
+			expect(rows[box + 1].text).toBe(
+				"wc#5 is in wc, which is not ticked; tick wc first",
+			);
+			await panel.click(fieldRow(panel));
+			const edited: Row[] = buildRows(panel.view, AT);
+			expect(edited[box + 1].text).toBe("");
+		});
+
+		it("shows stderr's first line where the command died before its object", async () => {
+			const { panel } = await goalPanel(WithGoal, {
+				code: 1,
+				stderr: "spawn node ENOENT\nmore\n",
+			});
+			await typeGoal(panel, "wc#5");
+			expect(panel.view.presses.goal.note).toMatchObject({
+				reason: "spawn node ENOENT",
+				remedy: null,
+			});
 		});
 
 		it("is gone on the next edit", async () => {
 			const { panel } = await goalPanel(WithGoal, {
 				code: 2,
-				stderr: NotTicked,
+				stdout: NotTicked,
 			});
 			await typeGoal(panel, "wc#5");
 			await panel.click(fieldRow(panel));
-			expect(panel.view.goalNote).toBeNull();
+			expect(panel.view.presses.goal.note).toBeNull();
 			expect(panel.view.goalEdit?.text).toBe("drain #2518");
 		});
 
-		it("changes no other control's row", async () => {
+		it("changes no row above the Goal section", async () => {
 			const { panel } = await goalPanel(
 				{ ...WithGoal, repos: [] },
-				{ code: 2, stderr: NotTicked },
+				{ code: 2, stdout: NotTicked },
 			);
 			const others = () =>
 				buildRows(panel.view, AT)
@@ -2783,7 +2900,7 @@ describe("keys and focus", () => {
 			const { panel, presses } = await shortPanel();
 			toBottom(panel);
 			await panel.click(drawnRowOf(frameOf(panel), "[ ] b"));
-			expect(presses()).toEqual([["set", "--tick", "b"]]);
+			expect(presses()).toEqual([["set", "--tick", "b", "--json"]]);
 		});
 
 		it("presses nothing on the row above the first drawn with nothing above it", async () => {
@@ -2872,7 +2989,7 @@ describe("keys and focus", () => {
 			expect(pointedText(panel)[0]).toMatch(/b$/);
 			expect(frameOf(panel)).toContain("❯");
 			await panel.pressKey(Space);
-			expect(presses()).toEqual([["set", "--tick", "b"]]);
+			expect(presses()).toEqual([["set", "--tick", "b", "--json"]]);
 		});
 
 		it("brings the pointer's control back on space, pressing nothing", async () => {
@@ -2988,9 +3105,9 @@ describe("keys and focus", () => {
 
 	describe("space", () => {
 		it.each([
-			["Refill", ["set", "--pause"]],
-			["Away", ["set", "--away"]],
-			["[ ] b", ["set", "--tick", "b"]],
+			["Refill", ["set", "--pause", "--json"]],
+			["Away", ["set", "--away", "--json"]],
+			["[ ] b", ["set", "--tick", "b", "--json"]],
 			["Burn", ["on"]],
 		])("on %s runs what a click runs", async (start, argv) => {
 			const clicked = await buildCountingPanel();
@@ -3022,7 +3139,7 @@ describe("keys and focus", () => {
 			await pointAt(keyed.panel, "Goal  ");
 			await keyed.panel.pressKey(Space);
 			expect(keyed.presses()).toEqual(clicked.presses());
-			expect(keyed.presses()).toEqual([["set", "--clear-goal"]]);
+			expect(keyed.presses()).toEqual([["set", "--clear-goal", "--json"]]);
 		});
 
 		it("keeps focus, for the next control", async () => {
@@ -3182,7 +3299,7 @@ describe("keys and focus", () => {
 			const { panel, presses, returns } = await typing("#5");
 			await panel.pressKey(Enter);
 			expect(returns()).toBe(1);
-			expect(presses()).toEqual([["set", "--goal=#5"]]);
+			expect(presses()).toEqual([["set", "--goal=#5", "--json"]]);
 		});
 
 		it("gives focus back on Esc, saving nothing", async () => {

@@ -1039,6 +1039,89 @@ describe("set (#3856)", () => {
 	});
 });
 
+describe("set --json (#3968)", () => {
+	const controlFile = () => path.join(dir, ".refill-loop-control.json");
+	const parseStdout = (r: { stdout: string }) => JSON.parse(r.stdout);
+
+	it("prints a refusal's reason and remedy apart on stdout, exit 1, writing nothing", async () => {
+		const r = await run("set", "--pause", "--json");
+		expect(r.status).toBe(1);
+		expect(r.stderr).toBe("");
+		expect(parseStdout(r)).toEqual({
+			refused: {
+				reason: "the loop was never started",
+				remedy: "run `start` first",
+				box: null,
+			},
+			warning: null,
+			lines: [],
+		});
+		expect(fs.existsSync(controlFile())).toBe(false);
+	});
+
+	it("names the box at fault where a tick is refused, exit 2 with no usage", async () => {
+		const r = await run("set", "--tick", "nope", "--json");
+		expect(r.status).toBe(2);
+		expect(r.stderr).toBe("");
+		expect(parseStdout(r).refused).toMatchObject({
+			reason: expect.stringContaining("nope is no workflow-core checkout"),
+			box: "nope",
+		});
+	});
+
+	it("names the box at fault where a goal's ref is in an unticked repo", async () => {
+		const core = writeCheckout(dir, "core");
+		writeCheckout(dir, "manta");
+		fs.writeFileSync(
+			controlFile(),
+			JSON.stringify({
+				noProgressFrom: 1,
+				seats: [],
+				scope: { mode: "normal", repos: [core], goal: null },
+			}),
+		);
+		const r = await run("set", "--goal", "manta#5", "--json");
+		expect(r.status).toBe(2);
+		expect(parseStdout(r)).toEqual({
+			refused: {
+				reason: "manta#5 is in manta, which is not ticked",
+				remedy: "tick manta first",
+				box: "manta",
+			},
+			warning: null,
+			lines: [],
+		});
+	});
+
+	it("takes no field from --json alone", async () => {
+		const r = await run("set", "--json");
+		expect(r.status).toBe(2);
+		expect(parseStdout(r).refused.reason).toBe("set names no field");
+	});
+
+	it("prints what it said and the warning of a loop with no process", async () => {
+		fs.writeFileSync(
+			controlFile(),
+			JSON.stringify({
+				noProgressFrom: 1,
+				seats: [],
+				scope: { mode: "normal", repos: [], goal: null },
+			}),
+		);
+		const r = await run("set", "--away", "--json");
+		expect(r.status).toBe(0);
+		expect(parseStdout(r)).toEqual({
+			refused: null,
+			warning: {
+				reason: "not running",
+				remedy: "this holds from its next start",
+				box: null,
+			},
+			lines: ["mode:      away"],
+		});
+	});
+});
+
 describe("a stop told from a crash (#3861)", () => {
 	const control = {
 		noProgressFrom: 5,
@@ -1515,12 +1598,12 @@ describe("the goal (#3864)", () => {
 		[
 			"a bare #N with two repos ticked",
 			"#5",
-			"#5 names no repo with 2 repos ticked: write <repo>#5",
+			"#5 names no repo with 2 repos ticked; write <repo>#5",
 		],
 		[
 			"an unticked repo's ref",
 			"books#5",
-			"books, which is not ticked: tick books first",
+			"books, which is not ticked; tick books first",
 		],
 		["a closed issue", "core#500", "core#500 is closed"],
 		["an unknown issue", "core#404", "Could not resolve to an issue"],

@@ -274,7 +274,7 @@ describe("the panel's terminal", () => {
 			const { t, presses } = await open();
 			t.stdin.emit("data", "1\r");
 			await vi.advanceTimersByTimeAsync(0);
-			expect(presses).toEqual([["set", "--goal=#71"]]);
+			expect(presses).toEqual([["set", "--goal=#71", "--json"]]);
 		});
 
 		it("takes a lone escape as Esc once the wait is over, and not before", async () => {
@@ -298,7 +298,7 @@ describe("the panel's terminal", () => {
 			await vi.advanceTimersByTimeAsync(100);
 			t.stdin.emit("data", "1\r");
 			await vi.advanceTimersByTimeAsync(0);
-			expect(presses).toEqual([["set", "--goal=#17"]]);
+			expect(presses).toEqual([["set", "--goal=#17", "--json"]]);
 		});
 	});
 
@@ -351,7 +351,7 @@ describe("the wheel", () => {
 		t.stdin.emit("data", WheelDown.repeat(20));
 		t.stdin.emit("data", clickAt(drawnRowOf(t, "[ ] f")));
 		await vi.advanceTimersByTimeAsync(0);
-		expect(ticks()).toEqual([["set", "--tick", "f"]]);
+		expect(ticks()).toEqual([["set", "--tick", "f", "--json"]]);
 	});
 
 	it("presses the row showing when a click shares a read with a wheel report", async () => {
