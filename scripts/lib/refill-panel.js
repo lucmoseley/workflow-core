@@ -352,7 +352,7 @@ const isEveryPlanFull = (seats) => seats.readings.every((s) => s.weekFull);
  * What API credits hold, at all times once a key is declared (#3958). A key's unread
  * budget stops the panel calling the credits used up, and is said beside the sums,
  * which leave it out (#3875). Used up also needs every plan full: until then the
- * credits are only empty, and launches do not rest on them.
+ * credits are only empty.
  * @param {PanelStatus} status
  * @returns {null | {left: number, grant: number, unread: boolean}
  *   | {usedUp: true} | {why: string}}
@@ -388,9 +388,9 @@ function buildNotSpendingReason(status, picksKey) {
 
 /**
  * Whether credits are spending (#3958): a session on a key is running, or the seat the
- * picker takes next is a key and the last tick launched rather than idled, so this row
- * and the launches cannot disagree. Residual: between such a tick's launch and the
- * next status read, this says spending before that session has spent. An unread key
+ * picker takes next is a key and the last tick launched rather than idled. Residual:
+ * between such a tick's launch and the next status read, this says spending before
+ * that session has spent. An unread key
  * could hold running sessions, so it never reads as not spending.
  * @param {PanelStatus} status
  * @returns {{spending: boolean, text: string}}
