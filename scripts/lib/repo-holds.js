@@ -122,6 +122,8 @@ const PROBE_ID = "probe";
 
 const LIFTED_DIR = "lifted";
 
+const HOLD_FILE_REMEDY = "lift its id or remove the file";
+
 const LIFTING_PREFIX = "lifting-";
 
 /* How long an outage lasts before it raises a hold, and how long it may go unseen
@@ -237,7 +239,8 @@ function isHold(value, name) {
 }
 
 /**
- * The checkout's open holds, oldest first, and why any of them would not read.
+ * The checkout's open holds, oldest first, and why any of them would not read,
+ * each line ending on what clears it.
  * @param {string} root
  * @returns {{holds: RepoHold[], unread: string[]}}
  */
@@ -250,7 +253,12 @@ function readHolds(root) {
 		const { code, message } = caught(err);
 		return code === "ENOENT"
 			? { holds: [], unread: [] }
-			: { holds: [], unread: [`${dir}: ${message}`] };
+			: {
+					holds: [],
+					unread: [
+						`${dir}: ${message}; repair the directory, as no hold in it reads`,
+					],
+				};
 	}
 	/** @type {RepoHold[]} */
 	const holds = [];
@@ -270,11 +278,11 @@ function readHolds(root) {
 						]),
 					],
 				});
-			else unread.push(`${file}: not a hold`);
+			else unread.push(`${file}: not a hold; ${HOLD_FILE_REMEDY}`);
 		} catch (err) {
 			/* ENOENT: lifted between the listing and this read. */
 			if (caught(err).code !== "ENOENT")
-				unread.push(`${file}: ${caught(err).message}`);
+				unread.push(`${file}: ${caught(err).message}; ${HOLD_FILE_REMEDY}`);
 		}
 	}
 	return { holds: holds.sort((a, b) => a.raisedAt - b.raisedAt), unread };
@@ -1042,9 +1050,7 @@ function buildHoldLines(roots, now) {
 			(h) =>
 				`  ${h.id} ${path.basename(h.checkout)}: ${h.act} — ${buildIssueText(h)}, age ${buildAgeText(now - h.raisedAt)}, sessions: ${h.sessions.join(", ") || "none"}, stops launches: ${h.kind === "probe" ? "yes" : "no"}`,
 		),
-		...reads
-			.flatMap((r) => r.unread)
-			.map((why) => `  unread: ${why}; lift its id or remove the file`),
+		...reads.flatMap((r) => r.unread).map((why) => `  unread: ${why}`),
 	];
 }
 

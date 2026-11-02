@@ -409,7 +409,7 @@ function readOpenHolds(root, now) {
 			})),
 			unread: unread.map((why) => ({
 				repo,
-				why: `repo holds: ${why}; lift its id or remove the file`,
+				why: `repo holds: ${why}`,
 			})),
 		};
 	} catch (e) {
@@ -500,9 +500,11 @@ function readConcurrency(now) {
 function readIdle() {
 	const read = readEnvelope("check-idle-efforts.js", [], IDLE_TIMEOUT_MS);
 	if ("why" in read) return read;
-	const { trackers, loopRunning } = read.envelope;
-	return Array.isArray(trackers) && typeof loopRunning === "boolean"
-		? { trackers, loopRunning }
+	const { trackers, loopRunning, damaged } = read.envelope;
+	return Array.isArray(trackers) &&
+		typeof loopRunning === "boolean" &&
+		Array.isArray(damaged)
+		? { trackers, loopRunning, damaged }
 		: { why: read.missing };
 }
 

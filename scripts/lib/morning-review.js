@@ -336,7 +336,7 @@ function parseOneWayDoor(comments) {
  *   Reading the machine's earlyoom kills, its concurrency and the idle alarm
  *   are read once, not per repo (#3094, #3321, #3644)
  * @typedef {{trackers: import("./idle-efforts.js").TrackerFinding[],
- *   loopRunning: boolean} | {why: string}} IdleReading the idle alarm's
+ *   loopRunning: boolean, damaged: string[]} | {why: string}} IdleReading the idle alarm's
  *   findings, or why check-idle-efforts.js gave none
  * @typedef {ReturnType<typeof import("./concurrency.js").readout>} Readout
  * @typedef {Record<keyof typeof CONCURRENCY_WINDOWS, Readout>}
@@ -677,7 +677,7 @@ function renderReview({
 	const idleLines =
 		"why" in idle
 			? [`Not read: ${quoted(idle.why)}`]
-			: buildIdleLines(idle.trackers, idle.loopRunning).map(
+			: buildIdleLines(idle.trackers, idle.loopRunning, idle.damaged).map(
 					({ text, nested }) => `${nested ? "  " : ""}- ${quoted(text)}`,
 				);
 

@@ -13,6 +13,7 @@ import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { stubGhScript } from "./lib/gh-stub.js";
 import { remoteGit } from "./lib/lander.js";
+import { isDead, waitFor } from "./lib/process-fixture.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 
 const LANDER = path.resolve(__dirname, "../scripts/lander.js");
@@ -424,18 +425,46 @@ it("fails a revert whose commit is killed at its timeout as timed out, not refus
 	expect(git(remote, "rev-parse", "landing")).toBe(culprit);
 });
 
+it("kills the hook's child with a commit killed at its timeout, keeps the reason and takes the worktree off (#3916)", () => {
+	const pidFile = path.join(tmp, "child-pid");
+	const culprit = culpritWithCommitHook(
+		`(while :; do touch still-writing; sleep 0.1; done) >/dev/null 2>&1 &\necho $! > '${pidFile}'\necho 'second gate running' >&2\nwait`,
+	);
+
+	/* Crosses the real clock: what is pinned is a real kill of a real process
+	 * tree. Untraced: 3 s is room for git to start the hook and its child. */
+	const made = remoteGit(work, 3000).revertOnLanding(culprit, null, "why");
+
+	expect(made).toEqual({
+		failed:
+			"its commit timed out after 3 s, last printing: second gate running",
+	});
+	const child = Number(fs.readFileSync(pidFile, "utf8"));
+	expect(waitFor(() => isDead(child))).toBe(true);
+	expect(git(work, "worktree", "list").split("\n")).toHaveLength(1);
+});
+
 it("keeps the failure's reason and says so where the revert's worktree will not come off (#3913)", () => {
 	const named = path.join(tmp, "worktree-path");
 	const culprit = culpritWithCommitHook(
 		`git rev-parse --show-toplevel > '${named}'\ngit worktree lock "$(cat '${named}')"\necho 'FAIL: 1 fault(s) this commit adds' >&2\nexit 1`,
 	);
-	const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+	const writeSync = fs.writeSync;
+	let printed = "";
+	const spied = vi.spyOn(fs, "writeSync").mockImplementation(((
+		fd: number,
+		data: Buffer,
+		...rest: []
+	) => {
+		if (fd !== 2) return writeSync(fd, data, ...rest);
+		printed += data.toString();
+		return data.length;
+	}) as typeof fs.writeSync);
 
 	const made = remoteGit(work).revertOnLanding(culprit, null, "why");
 
 	const dir = fs.readFileSync(named, "utf8").trim();
-	const printed = stderr.mock.calls.join("");
-	stderr.mockRestore();
+	spied.mockRestore();
 	git(work, "worktree", "remove", "--force", "--force", dir);
 	expect(made).toEqual({
 		failed: "its commit was refused: FAIL: 1 fault(s) this commit adds",

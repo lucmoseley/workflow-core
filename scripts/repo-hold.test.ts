@@ -411,6 +411,6 @@ describe("repo-hold.js (#3857)", () => {
 		expect(listed.status).toBe(1);
 		const store = path.join(dir, "repo-holds");
 		expect(listed.stdout).toContain(`unread: ${store}`);
-		expect(listed.stdout).toContain("lift its id or remove the file");
+		expect(listed.stdout).toContain("repair the directory");
 	});
 });
