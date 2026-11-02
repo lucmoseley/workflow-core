@@ -871,18 +871,21 @@ function skipFindOptions(texts) {
  * `-S?`: it takes the rest of its run as a value, but never the next word, and
  * keeps a leading =, as git does.
  *
- * `expandLong`, where given, turns a long flag as spelled into its whole name,
- * before `spec` is read: git's abbreviations, which pflag does not take.
+ * `gitLong`, where given, reads the words as git's own parser does, which pflag
+ * and nopt do not: it turns a long flag as spelled into its whole name, before
+ * `spec` is read, and `--end-of-options` makes every later word an `arg`, a `--`
+ * among them (measured on git 2.43.0, #4008).
  * @param {string} spec
  * @param {string[]} words
  * @param {(kind: FlagKind, name: string, value: string) => boolean | undefined | void} fn
- * @param {(flag: string) => string} [expandLong]
+ * @param {(flag: string) => string} [gitLong]
  */
-function scanFlags(spec, words, fn, expandLong = (flag) => flag) {
+function scanFlags(spec, words, fn, gitLong) {
 	/** @type {ScanCtx} */
 	const ctx = {
 		has: (flag) => ` ${spec} `.includes(` ${flag} `),
-		expandLong,
+		expandLong: gitLong ?? ((flag) => flag),
+		endsAtEndOfOptions: gitLong !== undefined,
 		emit: (kind, name, value) => {
 			if (fn(kind, name, value) === false) ctx.stopped = true;
 		},
@@ -898,6 +901,7 @@ function scanFlags(spec, words, fn, expandLong = (flag) => flag) {
  * @typedef {object} ScanCtx
  * @property {(flag: string) => boolean} has whether the spec lists `flag`
  * @property {(flag: string) => string} expandLong a long flag's whole name
+ * @property {boolean} endsAtEndOfOptions whether `--end-of-options` ends them
  * @property {(kind: FlagKind, name: string, value: string) => void} emit
  *   sets `stopped` where the caller stopped the scan
  * @property {boolean} ended past a bare `--`
@@ -915,9 +919,12 @@ function scanWord(tok, next, ctx) {
 	const { emit } = ctx;
 	if (ctx.ended || !tok.startsWith("-")) emit("arg", "", tok);
 	else if (tok === "-") emit("flag", "-", "");
-	else if (tok === "--") {
+	else if (
+		tok === "--" ||
+		(tok === "--end-of-options" && ctx.endsAtEndOfOptions)
+	) {
 		ctx.ended = true;
-		emit("flag", "--", "");
+		emit("flag", tok, "");
 	} else if (tok.startsWith("--")) return scanLong(tok, next, ctx);
 	else return scanShortRun(tok.slice(1), next, ctx);
 	return 0;

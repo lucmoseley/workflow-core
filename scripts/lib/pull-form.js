@@ -191,10 +191,11 @@ const { trimEndRun } = require("./trim-run.js");
  * (mantahostels#477), which walks a bundle letter by letter: `git pull -qr`
  * is -q then -r, a rebase, while the r inside `-Xtheirs` is that option's
  * value. -S and -j take a value only stuck on, so `git pull -j --rebase` is
- * still a rebase (#302). The long options are deliberately not listed: the
- * scan would take the next word as their value, and `git pull --strategy
- * --rebase` would stop being a rebase this guard can see. */
-const PULL_VALUE_FLAGS = "-s -X -S? -j? -o";
+ * still a rebase (#302). Each long option here takes the next word whatever it
+ * spells, measured on git 2.43.0: `git pull --rebase --server-option --no-rebase`
+ * rebases, and `--server-option --ff-only` is no fast-forward (#4008). */
+const PULL_VALUE_FLAGS =
+	"-s -X -S? -j? -o --cleanup --strategy --strategy-option --upload-pack --depth --shallow-since --shallow-exclude --deepen --refmap --server-option --negotiation-tip";
 
 /* The value-taking options of `git checkout` and `git switch`, read by both
  * the rewind and the discard judges; one left out makes its value read as a
@@ -351,8 +352,8 @@ const judgeUnreadAlias = (j, { segment }) =>
 	);
 
 /**
- * @typedef {{ helping: boolean, pathspec: boolean, ddash: boolean,
- *   discarding: boolean }} ResetArgs
+ * @typedef {{ helping: boolean, pathspec: boolean, patch: boolean,
+ *   fromFile: boolean, ddash: boolean, discarding: boolean }} ResetArgs
  */
 
 /** @type {ArgTable<ResetArgs>} */
@@ -363,10 +364,13 @@ const RESET_ARGS = {
 	"flag:--keep": { discarding: true },
 	"flag:--soft": { discarding: false },
 	"flag:--mixed": { discarding: false },
-	/* Interactive or file-fed paths: an unstage whatever commit it names. */
-	"flag:-p": { pathspec: true },
-	"flag:--patch": { pathspec: true },
-	"opt:--pathspec-from-file": { pathspec: true },
+	/* Interactive or file-fed paths: an unstage whatever commit it names, unless
+	 * a later `--no-` takes them back (#4008). */
+	"flag:-p": { patch: true },
+	"flag:--patch": { patch: true },
+	"flag:--no-patch": { patch: false },
+	"opt:--pathspec-from-file": { fromFile: true },
+	"flag:--no-pathspec-from-file": { fromFile: false },
 	"flag:--": { ddash: true },
 };
 
@@ -386,7 +390,14 @@ function judgeReset(j, { segment, sub, tree, args }) {
 		sub,
 		spec: "--pathspec-from-file",
 		table: RESET_ARGS,
-		state: { helping: false, pathspec: false, ddash: false, discarding: false },
+		state: {
+			helping: false,
+			pathspec: false,
+			patch: false,
+			fromFile: false,
+			ddash: false,
+			discarding: false,
+		},
 		onArg: (w, s) => {
 			/* A word after `--` is a path. */
 			if (s.ddash) s.pathspec = true;
@@ -394,7 +405,7 @@ function judgeReset(j, { segment, sub, tree, args }) {
 		},
 	});
 	/* git refuses `--hard`, `--merge` and `--keep` with paths. */
-	if (a.helping || a.pathspec) return null;
+	if (a.helping || a.pathspec || a.patch || a.fromFile) return null;
 	const discard = () => (a.discarding ? resetDiscardDeny(j, segment) : null);
 	const [first, ...more] = positional;
 	/* None names HEAD, which moves no branch but can still discard. */
@@ -472,7 +483,8 @@ const isHead = (word) => word === "HEAD" || word === "@";
 
 /**
  * @typedef {{ helping: boolean, force: boolean, stdin: boolean,
- *   ignoreOther: boolean, mode: "" | "delete" | "move" | "copy",
+ *   ignoreOther: boolean, delete: boolean, forceDelete: boolean, move: boolean,
+ *   forceMove: boolean, copy: boolean, forceCopy: boolean,
  *   created: string[] }} RefArgs `created` holds each branch a `-B`/`-C`
  *   recreates
  */
@@ -481,22 +493,34 @@ const isHead = (word) => word === "HEAD" || word === "@";
 const REF_ARGS = {
 	"flag:-f": { force: true },
 	"flag:--force": { force: true },
-	"flag:-d": { mode: "delete" },
-	"flag:--delete": { mode: "delete" },
-	"flag:-D": { mode: "delete", force: true },
-	"flag:-m": { mode: "move" },
-	"flag:--move": { mode: "move" },
-	"flag:-M": { mode: "move", force: true },
+	"flag:--no-force": { force: false },
+	/* `--no-delete`, `--no-move` and `--no-copy` clear the lower-case form alone:
+	 * `git branch -D --no-delete main` still deletes (measured, #4008). */
+	"flag:-d": { delete: true },
+	"flag:--delete": { delete: true },
+	"flag:--no-delete": { delete: false },
+	"flag:-D": { forceDelete: true },
+	"flag:-m": { move: true },
+	"flag:--move": { move: true },
+	"flag:--no-move": { move: false },
+	"flag:-M": { forceMove: true },
 	/* `-c`/`-C` copy under `git branch` and create under `git switch`, whose
 	 * force form is an opt below. */
-	"flag:-c": { mode: "copy" },
-	"flag:--copy": { mode: "copy" },
-	"flag:-C": { mode: "copy", force: true },
+	"flag:-c": { copy: true },
+	"flag:--copy": { copy: true },
+	"flag:--no-copy": { copy: false },
+	"flag:-C": { forceCopy: true },
 	"flag:--stdin": { stdin: true },
+	"flag:--no-stdin": { stdin: false },
 	"flag:--ignore-other-worktrees": { ignoreOther: true },
+	"flag:--no-ignore-other-worktrees": { ignoreOther: false },
 	"opt:-B": (v, s) => ({ created: [...s.created, v] }),
 	"opt:--force-create": (v, s) => ({ created: [...s.created, v] }),
 	"opt:-C": (v, s) => ({ created: [...s.created, v] }),
+	/* git holds one name for `-C` and `--force-create`, so its negation drops every
+	 * one spelled before it: `git switch -C main --no-force-create side` leaves
+	 * `main` where it is (measured, #4008). */
+	"flag:--no-force-create": { created: [] },
 };
 
 /**
@@ -532,7 +556,12 @@ function judgeRef(j, { segment, sub, tree, args }) {
 			force: false,
 			stdin: false,
 			ignoreOther: false,
-			mode: "",
+			delete: false,
+			forceDelete: false,
+			move: false,
+			forceMove: false,
+			copy: false,
+			forceCopy: false,
 			created: [],
 		}),
 		onArg: (w) => positional.push(w),
@@ -606,7 +635,7 @@ function judgeSymbolicRef(r) {
 	const [name, target] = positional;
 	if (name === undefined) return null;
 	const nameText = known(name);
-	const deleting = a.mode === "delete";
+	const deleting = a.delete;
 	const reading = !deleting && target === undefined;
 	if (reading && nameText !== null) return null;
 	/* An unreadable word could be any name, a `..` walk to `main` among them,
@@ -652,24 +681,20 @@ function judgeSymrefTarget({ scope, refIs, deny }, nameText, target) {
 /** @param {RefCall} r */
 function judgeBranch(r) {
 	const { a, positional, refIs, deny } = r;
-	switch (a.mode) {
-		case "delete":
-			return positional.some((w) => refIs(w, "main"))
-				? deny("deletes `main`")
-				: null;
-		case "move":
-			return judgeBranchMove(r);
-		case "copy":
-			return refIs(positional.at(-1), "main")
-				? deny("replaces `main` with a copy of another branch")
-				: null;
-		default:
-			return a.force && refIs(positional[0], "main")
-				? deny(
-						"forces `main` to another commit, dropping whatever came after it",
-					)
-				: null;
-	}
+	/* git refuses more than one of these at once, so their order decides nothing
+	 * it would run. */
+	if (a.delete || a.forceDelete)
+		return positional.some((w) => refIs(w, "main"))
+			? deny("deletes `main`")
+			: null;
+	if (a.move || a.forceMove) return judgeBranchMove(r);
+	if (a.copy || a.forceCopy)
+		return refIs(positional.at(-1), "main")
+			? deny("replaces `main` with a copy of another branch")
+			: null;
+	return a.force && refIs(positional[0], "main")
+		? deny("forces `main` to another commit, dropping whatever came after it")
+		: null;
 }
 
 /** @param {RefCall} r */
@@ -752,37 +777,51 @@ function readMagic(text, prefix) {
 }
 
 /**
- * @typedef {{ helping: boolean, fromfile: boolean, force: boolean,
- *   dryrun: boolean, patch: boolean, staged: boolean, worktree: boolean,
- *   ddash: boolean }} DiscardArgs
+ * @typedef {{ helping: boolean, fromFile: boolean, force: boolean,
+ *   discardChanges: boolean, interactive: boolean, dryrun: boolean,
+ *   patch: boolean, staged: boolean, worktree: boolean, ddash: boolean
+ *   }} DiscardArgs
  */
 
 /** @type {ArgTable<DiscardArgs>} */
 const DISCARD_ARGS = {
-	"opt:--pathspec-from-file": { fromfile: true },
-	"dangling:--pathspec-from-file": { fromfile: true },
-	/* `git clean -i` deletes without `-f`. */
+	"opt:--pathspec-from-file": { fromFile: true },
+	"dangling:--pathspec-from-file": { fromFile: true },
+	"flag:--no-pathspec-from-file": { fromFile: false },
+	/* Each negation clears its own spelling alone: `git switch -f
+	 * --no-discard-changes` and `git clean -f --no-interactive` still force
+	 * (measured, #4008). */
 	"flag:-f": { force: true },
 	"flag:--force": { force: true },
-	"flag:--discard-changes": { force: true },
-	"flag:-i": { force: true },
-	"flag:--interactive": { force: true },
+	"flag:--no-force": { force: false },
+	"flag:--discard-changes": { discardChanges: true },
+	"flag:--no-discard-changes": { discardChanges: false },
+	/* `git clean -i` deletes without `-f`. */
+	"flag:-i": { interactive: true },
+	"flag:--interactive": { interactive: true },
+	"flag:--no-interactive": { interactive: false },
 	"flag:-n": { dryrun: true },
 	"flag:--dry-run": { dryrun: true },
+	"flag:--no-dry-run": { dryrun: false },
 	"flag:-p": { patch: true },
 	"flag:--patch": { patch: true },
+	"flag:--no-patch": { patch: false },
 	"flag:-S": { staged: true },
 	"flag:--staged": { staged: true },
+	"flag:--no-staged": { staged: false },
 	"flag:-W": { worktree: true },
 	"flag:--worktree": { worktree: true },
+	"flag:--no-worktree": { worktree: false },
 	"flag:--": { ddash: true },
 };
 
 /** @returns {DiscardArgs} */
 const discardArgs = () => ({
 	helping: false,
-	fromfile: false,
+	fromFile: false,
 	force: false,
+	discardChanges: false,
+	interactive: false,
 	dryrun: false,
 	patch: false,
 	staged: false,
@@ -816,7 +855,7 @@ const STASHES = "stashes every uncommitted edit in the shared tree";
  * @param {string[]} paths
  */
 const isOverwrite = ({ a, cover }, paths) =>
-	a.fromfile || (a.patch && paths.length === 0) || cover(paths);
+	a.fromFile || (a.patch && paths.length === 0) || cover(paths);
 
 /** @type {Record<string, (d: DiscardCall) => DiscardVerdict>} */
 const DISCARD_VERDICTS = {
@@ -828,7 +867,7 @@ const DISCARD_VERDICTS = {
 			? [FORCES, "git restore -- <your paths>"]
 			: null;
 	},
-	switch: ({ a }) => (a.force ? [FORCES] : null),
+	switch: ({ a }) => (a.force || a.discardChanges ? [FORCES] : null),
 	/* `--staged` without `--worktree` writes only the index. */
 	restore: (d) =>
 		!(d.a.staged && !d.a.worktree) && isOverwrite(d, [...d.pre, ...d.post])
@@ -838,7 +877,7 @@ const DISCARD_VERDICTS = {
 		isTreeWipe(d) ? ["deletes every untracked file in the shared tree"] : null,
 	stash: ({ a, pre, post, cover }) => {
 		const paths = [...pre, ...post];
-		return a.fromfile || paths.length === 0 || cover(paths) ? [STASHES] : null;
+		return a.fromFile || paths.length === 0 || cover(paths) ? [STASHES] : null;
 	},
 };
 
@@ -960,7 +999,11 @@ function checkoutPaths({ j, tree, a, pre, covers }) {
  */
 function isTreeWipe({ j, tree, a, pre, post, cover }) {
 	if (a.dryrun) return false;
-	const force = a.force || !tree || j.ctx.cleanRequireForce(tree) === "false";
+	const force =
+		a.force ||
+		a.interactive ||
+		!tree ||
+		j.ctx.cleanRequireForce(tree) === "false";
 	const paths = [...pre, ...post];
 	return force && cover(paths.length > 0 ? paths : ["."]);
 }
@@ -987,9 +1030,10 @@ function isTreeCovered(words, covers) {
 
 /**
  * @typedef {{ helping: boolean, ffOnly: boolean, rebase: boolean,
- *   override: boolean, resuming: boolean }} ReconcileArgs `override` is a
- *   flag that countermands a configured pull.ff=only; `resuming` an
- *   `--abort`, `--continue` and friends
+ *   override: boolean, aborting: boolean, quitting: boolean,
+ *   continuing: boolean, resuming: boolean }} ReconcileArgs `override` is a
+ *   flag that countermands a configured pull.ff=only; `resuming` a rebase's
+ *   `--skip` and friends, which have no `--no-` form
  */
 
 /** @type {ArgTable<ReconcileArgs>} */
@@ -999,13 +1043,15 @@ const PULL_ARGS = {
 	 * pull.ff=only. `--ff` and `--no-ff` also countermand an earlier
 	 * `--ff-only`, git taking the last of the three: `git pull --ff-only
 	 * --no-ff` writes a merge commit (measured, #308). */
-	"flag:--no-rebase": { override: true },
+	"flag:--no-rebase": { override: true, rebase: false },
 	"flag:--ff": { override: true, ffOnly: false },
 	"flag:--no-ff": { override: true, ffOnly: false },
 	"flag:--rebase": { rebase: true },
 	"flag:-r": { rebase: true },
 	"opt:--rebase": (v) =>
-		["false", "no", "0"].includes(v) ? { override: true } : { rebase: true },
+		/^(?:false|no|off|0|)$/i.test(v)
+			? { override: true, rebase: false }
+			: { rebase: true },
 };
 
 /** @type {ArgTable<ReconcileArgs>} */
@@ -1017,10 +1063,15 @@ const DIRECT_ARGS = {
 	"flag:--ff": { ffOnly: false },
 	"flag:--no-ff": { ffOnly: false },
 	/* Finishing or unwinding something already under way starts no
-	 * reconciliation; refusing it would strand a tree mid-merge. */
-	"flag:--abort": { resuming: true },
-	"flag:--continue": { resuming: true },
-	"flag:--quit": { resuming: true },
+	 * reconciliation; refusing it would strand a tree mid-merge. A negated one
+	 * starts a merge: `git merge --abort --no-abort side` merges (measured,
+	 * #4008). */
+	"flag:--abort": { aborting: true },
+	"flag:--no-abort": { aborting: false },
+	"flag:--continue": { continuing: true },
+	"flag:--no-continue": { continuing: false },
+	"flag:--quit": { quitting: true },
+	"flag:--no-quit": { quitting: false },
 	"flag:--skip": { resuming: true },
 	"flag:--edit-todo": { resuming: true },
 	"flag:--show-current-patch": { resuming: true },
@@ -1044,10 +1095,14 @@ function judgeReconcile(j, { segment, sub, tree, args }) {
 			ffOnly: false,
 			rebase: false,
 			override: false,
+			aborting: false,
+			quitting: false,
+			continuing: false,
 			resuming: false,
 		},
 	});
-	if (a.helping || a.resuming) return null;
+	if (a.helping || a.aborting || a.quitting || a.continuing || a.resuming)
+		return null;
 	/* Every other spelling reconciles the shared `main`, so it is the rule's
 	 * subject whether it is refused below or allowed. */
 	j.subject();

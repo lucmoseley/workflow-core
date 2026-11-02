@@ -454,6 +454,33 @@ describe("scanFlags", () => {
 		return out;
 	};
 
+	it("ends the options at --end-of-options under git's reading alone (#4008)", () => {
+		const read = (gitLong?: (flag: string) => string) => {
+			const seen: string[] = [];
+			scanFlags(
+				"",
+				["-f", "--end-of-options", "--no-force", "--"],
+				(kind, name, value) => {
+					seen.push(`${kind}:${name || value}`);
+				},
+				gitLong,
+			);
+			return seen;
+		};
+		expect(read((flag) => flag)).toEqual([
+			"flag:-f",
+			"flag:--end-of-options",
+			"arg:--no-force",
+			"arg:--",
+		]);
+		expect(read()).toEqual([
+			"flag:-f",
+			"flag:--end-of-options",
+			"flag:--no-force",
+			"flag:--",
+		]);
+	});
+
 	it("skips a value-taking flag's value in pairs", () => {
 		// Without the pair-skip a masked `--comment "…"` has its value read as the
 		// next argument, and a guard looking for an issue number judges the wrong

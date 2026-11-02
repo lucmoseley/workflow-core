@@ -1406,6 +1406,122 @@ describe("an abbreviated long option reads as git reads it (#3998)", () => {
 	});
 });
 
+describe("a --no- form clears what it negates, as git's last-one-wins does (#4008)", () => {
+	it.each([
+		["git branch --copy --no-copy --force main HEAD~1", "forced, not copied"],
+		["git branch --cop --no-cop --forc main HEAD~1", "the same, abbreviated"],
+		["git branch -d --no-delete -f main HEAD~1", "forced, not deleted"],
+		["git branch -m --no-move -f main HEAD~1", "forced, not renamed"],
+		["git branch -D --no-delete main", "-D has no negation: it deletes"],
+		["git branch -d --end-of-options main --no-delete", "the last is a name"],
+		["git branch -M --no-move side main", "-M has no negation: it renames"],
+		["git branch -C --no-copy side main", "-C has no negation: it copies"],
+		["git branch --move -d --no-delete side main", "--move still stands"],
+		["git branch -f --no-force -f main HEAD~1", "the last one wins"],
+		["git switch --no-force-create -C main side", "the last one wins"],
+		[
+			"git update-ref --stdin --no-stdin refs/heads/main HEAD~1",
+			"a named ref is written",
+		],
+		["git reset -p --no-patch HEAD~1", "a commit, no paths left"],
+		[
+			"git reset --pathspec-from-file=f --no-pathspec-from-file HEAD~1",
+			"moves",
+		],
+	])("%s is refused with the rewind rule — %s", (command) => {
+		expect(readDenyReason(command)).toContain(readRewindRule());
+	});
+
+	it.each([
+		["git clean --dry-run --no-dry-run -f", "forced, no dry run left"],
+		["git clean -n --no-dry -f", "the same, abbreviated"],
+		["git clean -f --no-interactive", "-f still stands"],
+		["git clean -i --no-force", "-i still stands"],
+		["git switch -f --no-discard-changes side", "-f still stands"],
+		["git switch --discard-changes --no-force side", "still forced"],
+		["git checkout --no-force -f side", "the last one wins"],
+		["git restore --staged --no-staged --worktree .", "--worktree alone"],
+		[
+			"git restore --pathspec-from-file=f --no-pathspec-from-file .",
+			"no file left, the . overwrites",
+		],
+		["git reset --patch --no-patch --hard", "no patch left, --hard discards"],
+		["git restore --staged --no-staged .", "no --staged left: the tree's own"],
+		["git clean -f --end-of-options . --no-force", "the last is a path"],
+		["git clean -f --end-of-options -n .", "the -n is a path"],
+		[
+			"git stash push --pathspec-from-file=f --no-pathspec-from-file",
+			"no file left, a bare stash",
+		],
+	])("%s is refused with the discard rule — %s", (command) => {
+		expect(readDenyReason(command)).toContain(readDiscardRule());
+	});
+
+	it.each([
+		["git merge --ab --no-ab side", "nothing left to resume, so it merges"],
+		[
+			"git merge --abort --no-abort side",
+			"nothing left to resume, so it merges",
+		],
+		["git merge --quit --no-quit side", "nothing left to resume, so it merges"],
+		[
+			"git merge --continue --no-continue side",
+			"nothing left to resume, so it merges",
+		],
+		[
+			"git pull --rebase --server-option --no-rebase --server-option --ff-only",
+			"both are values: it rebases",
+		],
+		[
+			"git pull --no-rebase --no-edit --server-option --ff-only",
+			"the --ff-only is a value: it merges",
+		],
+		["git merge --end-of-options --abort --no-abort side", "not a resume"],
+		["git pull --rebase --no-rebase --no-ff", "a merge commit"],
+	])("%s is refused with the pull rule — %s", (command) => {
+		expect(readDenyReason(command)).toContain(readPullRule());
+	});
+
+	it.each([
+		["git branch -f --no-force main HEAD~1", "git refuses: main exists"],
+		["git branch -d --no-delete main", "no delete left: a create git refuses"],
+		["git branch -c --no-copy side main", "no copy left: a create git refuses"],
+		["git branch -m --no-move side main", "no rename left: a create"],
+		["git switch -C main --no-force-create side", "main stays where it is"],
+		["git clean -f --no-force", "git refuses unforced"],
+		["git clean -i --no-interactive", "git refuses unforced"],
+		["git checkout -f --no-force side", "keeps the edits or refuses"],
+		["git switch -f --no-force side", "keeps the edits or refuses"],
+		[
+			"git switch --discard-changes --no-discard-changes side",
+			"keeps the edits or refuses",
+		],
+		["git restore --staged --worktree --no-worktree .", "the index alone"],
+		["git merge --abort --no-quit", "--abort still stands"],
+		["git pull --rebase --no-rebase --ff-only", "fast-forward only"],
+		["git pull -r --rebase=false --ff-only", "fast-forward only"],
+		["git pull -r --rebase=OFF --ff-only", "git's own spelling of false"],
+		["git pull -r --rebase= --ff-only", "an empty value is false"],
+		["git symbolic-ref --delete --no-delete HEAD", "a read"],
+	])("%s passes — %s", (command) => {
+		expect(verdict(command)).not.toBe("deny");
+	});
+
+	it("reads --no-ignore-other-worktrees as git's own refusal back in force", () => {
+		const command = (flags: string) => `git checkout ${flags} -B "$X" HEAD~1`;
+		expect(
+			verdict(command("--ignore-other-worktrees --no-ignore-other-worktrees"), {
+				cwd: LINKED,
+			}),
+		).toBe("allow");
+		expect(
+			verdict(command("--no-ignore-other-worktrees --ignore-other-worktrees"), {
+				cwd: LINKED,
+			}),
+		).toBe("deny");
+	});
+});
+
 /* /repo/sub gives a pathspec somewhere to climb out of. */
 describe("discarding the shared tree's uncommitted work is refused (#768)", () => {
 	it.each([
