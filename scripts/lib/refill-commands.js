@@ -691,8 +691,10 @@ function buildOverflowBasisLines({
  * (#3733).
  * @param {{control: Control|null, state: LoopState, pid: number|null,
  *   seats: SeatsView, codeSha: string|null, today: string,
- *   candidates: {root: string, disabled: string|null}[]}} input
- *   `codeSha`, lib/refill-code.js's readRunningCode; `today`, machine-local
+ *   candidates: {root: string, disabled: string|null}[],
+ *   burnMode: ReturnType<typeof import("./burn-mode.js").readBurnState>}} input
+ *   `codeSha`, lib/refill-code.js's readRunningCode; `today`, machine-local;
+ *   `burnMode`, lib/burn-mode.js's readBurnState
  */
 function buildStatusJson({
 	control,
@@ -702,6 +704,7 @@ function buildStatusJson({
 	codeSha,
 	today,
 	candidates,
+	burnMode,
 }) {
 	const { lastTick } = state;
 	return {
@@ -726,6 +729,7 @@ function buildStatusJson({
 			disabled,
 		})),
 		seats,
+		burnMode,
 		launches: control
 			? shownLaunches(control, state).listed.map((l) => ({
 					launchedAt: iso(l.launchedAt),

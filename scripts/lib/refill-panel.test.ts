@@ -1,5 +1,5 @@
 /*
- * The panel's view and press mapping (#3873). Built on the view so every loop state costs one literal rather than a terminal.
+ * The panel's view and press mapping (#3873, #3877). Built on the view so every loop state costs one literal rather than a terminal.
  * Broken, the panel reads a press as done, or a stopped loop as on.
  */
 import { describe, expect, it } from "vitest";
@@ -15,6 +15,8 @@ const {
 const AT = new Date(2026, 10, 2, 14, 5).getTime();
 const LATER = AT + 60_000;
 
+const BURN_OFF = { on: false, disagreeing: [], error: null };
+const BURN_ON = { on: true, disagreeing: [], error: null };
 const RUNNING = {
 	running: true,
 	stopRequested: false,
@@ -27,6 +29,7 @@ const RUNNING = {
 		paused: false,
 	},
 	launchesToday: 3,
+	burnMode: BURN_OFF,
 };
 const PAUSED_TICK = {
 	at: LATER,
@@ -49,6 +52,9 @@ const STOPPING = { ...RUNNING, stopRequested: true };
 
 /* The block's top row, as a mouse report counts it. */
 const SWITCH_ROW = 2;
+/* Below the switch and its three lines, two rows clear: the next section. */
+const BURN_ROW = 8;
+const BURN_INDEX = BURN_ROW - SWITCH_ROW;
 const noop = (): void => undefined;
 
 interface Row {
@@ -61,12 +67,14 @@ const view = (over: object) => ({
 	readError: null,
 	pending: null,
 	refusal: null,
+	burnPending: null,
+	burnReport: null,
 	...over,
 });
 const rowsOf = (over: object): Row[] => buildRows(view(over), LATER);
 const summary = (rows: Row[]) => rows.map((r) => [r.text, r.role]);
-const panelOver = (run: unknown) =>
-	createPanel({ run, now: () => AT, onChange: noop });
+const panelOver = (run: unknown, runBurn: unknown = run) =>
+	createPanel({ run, runBurn, now: () => AT, onChange: noop });
 
 function runnerOf(answers: Record<string, () => object>) {
 	const calls: string[][] = [];
@@ -89,7 +97,7 @@ function heldUntil() {
 describe("the panel's rows", () => {
 	it("shows a running loop", () => {
 		const rows = rowsOf({ status: RUNNING });
-		expect(summary(rows)).toEqual([
+		expect(summary(rows).slice(0, 4)).toEqual([
 			["Refill loop  [on]", "name"],
 			["3 launched today", "value"],
 			["Waiting: no free slot", "secondary"],
@@ -112,7 +120,7 @@ describe("the panel's rows", () => {
 
 	it("never shows a lifted pause's words beside a switch reading on", () => {
 		const rows = rowsOf({ status: { ...RUNNING, lastTick: PAUSED_TICK } });
-		expect(summary(rows)).toEqual([
+		expect(summary(rows).slice(0, 4)).toEqual([
 			["Refill loop  [on]", "name"],
 			["3 launched today", "value"],
 			["Waiting: the next check", "secondary"],
@@ -204,7 +212,8 @@ describe("the panel's rows", () => {
 			{ status: PAUSED_BY_FOUNDER, pending: { on: true, landed: false } },
 			{ status: RUNNING, refusal: { text: "refused", at: LATER } },
 		];
-		for (const c of cases) expect(rowsOf(c)).toHaveLength(4);
+		for (const c of cases)
+			expect(rowsOf(c)[BURN_INDEX].text).toMatch(/^Burn mode/);
 	});
 });
 
@@ -232,6 +241,11 @@ describe("the panel's frame", () => {
 		const frame = buildFrame(rowsOf({ status: long }), 20);
 		expect(frame).toContain("abc1234 · xxxxx…");
 		expect(frame).not.toContain("x".repeat(20));
+	});
+
+	it("erases below its last row, so a report gone from the rows goes from the screen", () => {
+		const frame = buildFrame(rowsOf({ status: RUNNING }), 80);
+		expect(frame.endsWith(`${ESC}[J`)).toBe(true);
 	});
 
 	it("draws no control character a command printed", () => {
@@ -439,6 +453,249 @@ describe("the pending word", () => {
 		await show({ nonsense: true });
 		expect(panel.view.pending).not.toBeNull();
 		expect(panel.view.status).toBeNull();
+	});
+});
+
+describe("the Burn mode switch", () => {
+	const Plan = ".claude2/settings.json";
+	const Stuck = {
+		code: 1,
+		stdout: `burn mode: on\n  ${Plan} claude-opus-5-5 effort=high\n`,
+		stderr: `error: still on the burn effort after off:\n  ${Plan}\n`,
+	};
+	const running = (burnMode: object) => ({ ...RUNNING, burnMode });
+	const burnRowsOf = (over: object) => rowsOf(over).slice(BURN_INDEX);
+	const burnRows = (panel: { view: object }): Row[] =>
+		buildRows(panel.view, LATER).slice(BURN_INDEX);
+	const answerOk = { code: 0, stdout: "", stderr: "" };
+
+	/** A panel reading `status`, whose flips answer `answers` in turn, the last repeating. */
+	async function panelFlipping(status: object, ...answers: object[]) {
+		const flips: string[][] = [];
+		let current = status;
+		const panel = panelOver(
+			async () => ({ ...answerOk, stdout: JSON.stringify(current) }),
+			async (argv: string[]) => {
+				flips.push(argv);
+				return { ...answerOk, ...answers[flips.length - 1] };
+			},
+		);
+		await panel.refreshStatus();
+		return {
+			flips,
+			panel,
+			setStatus: (next: object) => {
+				current = next;
+			},
+		};
+	}
+
+	it.each([
+		[BURN_OFF, "[off]", "off"],
+		[BURN_ON, "[on]", "on"],
+	])("shows %j as %s", (burnMode, shown, state) => {
+		const [row] = burnRowsOf({ status: running(burnMode) });
+		expect(row.text).toBe(`Burn mode  ${shown}`);
+		expect(row.control?.state).toBe(state);
+	});
+
+	it("claims neither word while the status is unread, or where the machine will not say", () => {
+		expect(burnRowsOf({})[0].control?.state).toBe("unknown");
+		const rows = burnRowsOf({
+			status: running({ on: null, disagreeing: [], error: "HOME is unset" }),
+		});
+		expect(rows[0].control?.state).toBe("unknown");
+		expect(rows[1].text).toBe("HOME is unset");
+	});
+
+	it("runs nothing where the machine will not say", async () => {
+		const { flips, panel } = await panelFlipping(
+			running({ on: null, disagreeing: [], error: "HOME is unset" }),
+		);
+		await panel.click(BURN_ROW);
+		expect(flips).toEqual([]);
+	});
+
+	it("turns burn mode on through the script's `on`, and leaves the loop's command line alone", async () => {
+		const { flips, panel } = await panelFlipping(RUNNING);
+		await panel.click(BURN_ROW);
+		expect(flips).toEqual([["on"]]);
+		expect(panel.view.pending).toBeNull();
+	});
+
+	it("turns burn mode off through the script's `off`", async () => {
+		const { flips, panel } = await panelFlipping(running(BURN_ON));
+		await panel.click(BURN_ROW);
+		expect(flips).toEqual([["off"]]);
+	});
+
+	it("runs nothing before a read", async () => {
+		const flips: string[][] = [];
+		const panel = panelOver(noop, async (argv: string[]) => {
+			flips.push(argv);
+			return answerOk;
+		});
+		await panel.click(BURN_ROW);
+		expect(flips).toEqual([]);
+	});
+
+	it("reads pending until a read after the flip, and takes a second click as nothing", async () => {
+		const { held, release } = heldUntil();
+		const flips: string[][] = [];
+		const panel = panelOver(
+			async () => ({ ...answerOk, stdout: JSON.stringify(RUNNING) }),
+			async (argv: string[]) => {
+				flips.push(argv);
+				await held;
+				return answerOk;
+			},
+		);
+		await panel.refreshStatus();
+		const clicked = panel.click(BURN_ROW);
+		const [row] = burnRows(panel);
+		expect(row.text).toBe("Burn mode  […]  turning on…");
+		expect(row.control?.state).toBe("pending");
+		await panel.refreshStatus();
+		expect(panel.view.burnPending).not.toBeNull();
+		await panel.click(BURN_ROW);
+		expect(flips).toHaveLength(1);
+		release();
+		await clicked;
+		expect(panel.view.burnPending).toBeNull();
+	});
+
+	it("shows the observed state and the skill's restart line after a clean flip", async () => {
+		const { panel, setStatus } = await panelFlipping(RUNNING, {
+			stdout: "burn mode: on\n",
+		});
+		setStatus(running(BURN_ON));
+		await panel.click(BURN_ROW);
+		expect(summary(burnRows(panel))).toEqual([
+			["Burn mode  [on]", "name"],
+			["Running sessions keep their effort until restarted", "secondary"],
+		]);
+	});
+
+	it("shows a failed flip's exit and output, not a done state, whatever the status reads", async () => {
+		const { panel } = await panelFlipping(RUNNING, {
+			code: 2,
+			stderr: "error: cannot place the burn-mode marker\n",
+		});
+		await panel.click(BURN_ROW);
+		const rows = burnRows(panel);
+		expect(summary(rows)).toEqual([
+			["Burn mode  [!]", "name"],
+			["burn-mode.sh on: exit 2", "value"],
+			["error: cannot place the burn-mode marker", "secondary"],
+			["Click runs burn-mode.sh on", "secondary"],
+		]);
+		expect(rows[0].control?.state).toBe("failed");
+		expect(panel.view.burnPending).toBeNull();
+	});
+
+	it("shows a half-flip's exit and output, and the plan it left", async () => {
+		const stuck = running({ on: true, disagreeing: [Plan], error: null });
+		const { panel, setStatus } = await panelFlipping(running(BURN_ON), Stuck);
+		setStatus(stuck);
+		await panel.click(BURN_ROW);
+		const rows = burnRows(panel);
+		expect(rows.map((r) => r.text)).toEqual([
+			"Burn mode  [!]",
+			`Not at the burn effort: ${Plan}`,
+			"burn-mode.sh off: exit 1",
+			"error: still on the burn effort after off:",
+			`  ${Plan}`,
+			"burn mode: on",
+			`  ${Plan} claude-opus-5-5 effort=high`,
+			"Click runs burn-mode.sh off",
+		]);
+		expect(rows[0].control?.state).toBe("failed");
+	});
+
+	it("reads a plan left at the burn effort as no done state, with no flip of its own", () => {
+		const rows = burnRowsOf({
+			status: running({ on: false, disagreeing: [Plan], error: null }),
+		});
+		expect(rows[0].control?.state).toBe("failed");
+		expect(rows[1]).toMatchObject({
+			text: `At the burn effort: ${Plan}`,
+			role: "value",
+		});
+		expect(rows[2].text).toBe("Click runs burn-mode.sh on");
+	});
+
+	it("holds a failed flip's report across reads that still show it", async () => {
+		const { panel } = await panelFlipping(RUNNING, Stuck);
+		await panel.click(BURN_ROW);
+		await panel.refreshStatus();
+		expect(burnRows(panel)[0].control?.state).toBe("failed");
+	});
+
+	it("drops the report once a read shows the flip finished elsewhere", async () => {
+		const { panel, setStatus } = await panelFlipping(running(BURN_ON), Stuck);
+		await panel.click(BURN_ROW);
+		setStatus(RUNNING);
+		await panel.refreshStatus();
+		expect(burnRows(panel).map((r) => r.text)).toEqual(["Burn mode  [off]"]);
+	});
+
+	it.each([
+		[
+			"a half-flip reading on",
+			running({ on: true, disagreeing: [Plan], error: null }),
+			"off",
+		],
+		["a failed on that moved nothing", RUNNING, "on"],
+	])(
+		"runs the opposite of the marker after %s",
+		async (_name, status, verb) => {
+			const { flips, panel } = await panelFlipping(status, { code: 1 });
+			await panel.click(BURN_ROW);
+			await panel.click(BURN_ROW);
+			expect(flips).toEqual([[verb], [verb]]);
+		},
+	);
+
+	it("clears the report on the next clean flip", async () => {
+		const { panel, setStatus } = await panelFlipping(
+			running(BURN_ON),
+			Stuck,
+			{},
+		);
+		await panel.click(BURN_ROW);
+		setStatus(RUNNING);
+		await panel.click(BURN_ROW);
+		expect(burnRows(panel)[0].control?.state).toBe("off");
+		expect(burnRows(panel)[1].text).toBe(
+			"Running sessions keep their effort until restarted",
+		);
+	});
+
+	it("shows a warning on exit 0 beside the observed state, and holds it past the read", async () => {
+		const warning =
+			"warning: skipping .claude2/settings.json — it resolves to nothing";
+		const { panel, setStatus } = await panelFlipping(RUNNING, {
+			stderr: `${warning}\n`,
+		});
+		setStatus(running(BURN_ON));
+		await panel.click(BURN_ROW);
+		await panel.refreshStatus();
+		expect(burnRows(panel).map((r) => r.text)).toEqual([
+			"Burn mode  [on]",
+			"burn-mode.sh on: exit 0",
+			warning,
+		]);
+	});
+
+	it("shows a script that cannot start as a failure", async () => {
+		const { panel } = await panelFlipping(RUNNING, {
+			code: 1,
+			stderr: "spawn burn-mode.sh ENOENT",
+		});
+		await panel.click(BURN_ROW);
+		const rows = burnRows(panel);
+		expect(rows[0].control?.state).toBe("failed");
+		expect(rows[2].text).toBe("spawn burn-mode.sh ENOENT");
 	});
 });
 

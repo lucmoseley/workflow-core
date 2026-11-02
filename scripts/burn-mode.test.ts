@@ -206,6 +206,36 @@ describe("off", () => {
 		expect(effortOf(".claude")).toBe("medium");
 	});
 
+	it("keeps the record through a failed off, so a second off restores what on found", () => {
+		write(".claude2", withEffort("low"));
+		run("on");
+		const plan = path.dirname(settings(".claude2"));
+		fs.chmodSync(plan, 0o555);
+		const failed = run("off");
+		fs.chmodSync(plan, 0o755);
+		expect(failed.status).toBe(1);
+		expect(fs.existsSync(marker)).toBe(true);
+		expect(effortOf(".claude2")).toBe("high");
+		expect(run("off").status).toBe(0);
+		expect(fs.existsSync(marker)).toBe(false);
+		expect(effortOf(".claude2")).toBe("low");
+	});
+
+	it("leaves a marker through a failed on, so off undoes the plans it moved", () => {
+		write(".claude", withEffort("low"));
+		const plan = path.dirname(settings(".claude2"));
+		fs.chmodSync(plan, 0o555);
+		const failed = run("on");
+		fs.chmodSync(plan, 0o755);
+		expect(failed.status).toBe(1);
+		expect(failed.stderr).toContain("could not write effortLevel=high");
+		expect(fs.existsSync(marker)).toBe(true);
+		expect(effortOf(".claude")).toBe("high");
+		expect(run("off").status).toBe(0);
+		expect(effortOf(".claude")).toBe("low");
+		expect(effortOf(".claude2")).toBe("medium");
+	});
+
 	it("leaves a plan that was already on high before on there, exiting 0", () => {
 		write(".claude2", withEffort("high"));
 		run("on");

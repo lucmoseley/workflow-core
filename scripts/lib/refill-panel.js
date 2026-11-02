@@ -1,13 +1,14 @@
 /*
  * refill-panel.js — what the refill loop's panel draws and what a click does,
- * with no terminal (#3873, spec #3596): status JSON and pending presses in, rows
- * out; a click on a row in, a `refill-loop.js` argv out. The panel runs that
- * command line for every read and write, and never opens a control or state
- * file, so the loop's validation, lock and wake apply to every press.
+ * with no terminal (#3873, #3877, spec #3596): status JSON and pending presses in, rows
+ * out; a click on a row in, a `refill-loop.js` or `burn-mode.sh` argv out. The
+ * panel runs those two for every read and write, and never opens a control or
+ * state file, so the loop's validation, lock and wake apply to every loop press.
  *
  * Desired and observed state stay apart. A press is a pending mark beside what
  * the last status read showed, cleared only by a read showing the change or by
- * the command's refusal.
+ * the command's refusal. A burn-mode flip is whole when its script exits, so any
+ * read after that exit shows it, or another writer's reversal.
  */
 
 const { caught } = require("./caught.js");
@@ -24,6 +25,15 @@ const LEFT_COLUMN = 3;
 /* How long a refusal holds line 2 before the loop's own words return. Untraced:
  * a first guess, long enough to read one line. */
 const REFUSAL_SHOW_MS = 10_000;
+
+/* The skill's line on every flip (`.claude/skills/burn-mode/SKILL.md`). */
+const BURN_RESTART_NOTE = "Running sessions keep their effort until restarted";
+
+/* Two rows between sections (#3596 story 78). */
+const SECTION_GAP = [
+	{ text: "", role: /** @type {Role} */ ("secondary") },
+	{ text: "", role: /** @type {Role} */ ("secondary") },
+];
 
 /** @typedef {"name"|"value"|"secondary"} Role */
 
@@ -43,7 +53,8 @@ const ROLE_STYLES = {
  *   paused: {by: string, at: number}|null,
  *   lastTick: {at: number, summary: string, idle: string|null,
  *     paused: boolean}|null,
- *   launchesToday: number}} PanelStatus
+ *   launchesToday: number,
+ *   burnMode: ReturnType<typeof import("./burn-mode.js").readBurnState>}} PanelStatus
  */
 
 /**
@@ -53,14 +64,23 @@ const ROLE_STYLES = {
  */
 
 /**
+ * What a burn-mode flip left to read, held until the next press: its exit, and
+ * stderr then stdout unless it exited 0 with nothing on stderr. `on` is what it
+ * asked for.
+ * @typedef {{on: boolean, code: number, lines: string[]}} BurnReport
+ */
+
+/**
  * @typedef {{status: PanelStatus|null, readError: string|null,
  *   pending: Pending|null,
- *   refusal: {text: string, at: number}|null}} PanelView
+ *   refusal: {text: string, at: number}|null,
+ *   burnPending: Pending|null, burnReport: BurnReport|null}} PanelView
  */
 
 /**
  * @typedef {{text: string, role: Role,
- *   control?: {id: "loop", state: "on"|"off"|"pending"|"unknown"}}} Row
+ *   control?: {id: "loop"|"burn",
+ *     state: "on"|"off"|"pending"|"unknown"|"failed"}}} Row
  */
 
 /** @param {number} n */
@@ -193,13 +213,90 @@ function buildSwitchState({ status, pending }) {
 	return isLaunching(status) ? "on" : "off";
 }
 
-/** @type {Record<ReturnType<typeof buildSwitchState>, string>} */
+/**
+ * The Burn mode switch's state, off the machine as well as this panel's own flip,
+ * so a second panel or a restarted one reads a half-flip too.
+ * @param {PanelView} view
+ * @returns {NonNullable<Row["control"]>["state"]}
+ */
+function buildBurnState({ status, burnPending, burnReport }) {
+	if (burnPending) return "pending";
+	if (burnReport && burnReport.code !== 0) return "failed";
+	if (!status || status.burnMode.on === null) return "unknown";
+	if (status.burnMode.disagreeing.length > 0) return "failed";
+	return status.burnMode.on ? "on" : "off";
+}
+
+/** @type {Record<NonNullable<Row["control"]>["state"], string>} */
 const SWITCH_TEXT = {
 	on: "[on]",
 	off: "[off]",
 	pending: "[…]",
 	unknown: "[?]",
+	failed: "[!]",
 };
+
+/**
+ * What the machine says beneath the switch: why it cannot be read, or the plans
+ * out of step with it.
+ * @param {PanelStatus["burnMode"]|undefined} burnMode
+ * @returns {Row[]}
+ */
+function buildBurnMachineRows(burnMode) {
+	if (burnMode?.error) return [{ text: burnMode.error, role: "secondary" }];
+	if (!burnMode?.disagreeing.length) return [];
+	const words = burnMode.on ? "Not at the burn effort" : "At the burn effort";
+	return [
+		{ text: `${words}: ${burnMode.disagreeing.join(", ")}`, role: "value" },
+	];
+}
+
+/**
+ * @param {BurnReport} report
+ * @returns {Row[]}
+ */
+function buildBurnReportRows({ on, code, lines }) {
+	if (code === 0 && lines.length === 0)
+		return [{ text: BURN_RESTART_NOTE, role: "secondary" }];
+	return [
+		{
+			text: `burn-mode.sh ${on ? "on" : "off"}: exit ${code}`,
+			role: "value",
+		},
+		...lines.map((text) => ({
+			text,
+			role: /** @type {Role} */ ("secondary"),
+		})),
+	];
+}
+
+/**
+ * @param {PanelView} view
+ * @returns {Row[]}
+ */
+function buildBurnRows(view) {
+	const state = buildBurnState(view);
+	const { status, burnPending, burnReport } = view;
+	const word = burnPending ? `  turning ${burnPending.on ? "on" : "off"}…` : "";
+	const press = buildBurnPress(view);
+	return [
+		{
+			text: `Burn mode  ${SWITCH_TEXT[state]}${word}`,
+			role: "name",
+			control: { id: "burn", state },
+		},
+		...buildBurnMachineRows(status?.burnMode),
+		...(burnReport ? buildBurnReportRows(burnReport) : []),
+		...(state === "failed" && press
+			? [
+					{
+						text: `Click runs burn-mode.sh ${press.on ? "on" : "off"}`,
+						role: /** @type {Role} */ ("secondary"),
+					},
+				]
+			: []),
+	];
+}
 
 /**
  * @param {PanelView} view
@@ -215,6 +312,8 @@ function buildRows(view, now) {
 			control: { id: "loop", state },
 		},
 		...buildLoopBlock(view, now),
+		...SECTION_GAP,
+		...buildBurnRows(view),
 	];
 }
 
@@ -230,6 +329,43 @@ function buildPress({ status, pending }) {
 	if (isLaunching(status)) return { argv: ["set", "--pause"], on: false };
 	return null;
 }
+
+/**
+ * What a press on the Burn mode switch asks for, or null where it does nothing:
+ * the opposite of the marker, half-flip or not. The script keeps the marker
+ * through a failed flip, so a half-flip reads on and this runs `off`, which
+ * restores from the record (#3877).
+ * @param {PanelView} view
+ */
+function buildBurnPress({ status, burnPending }) {
+	if (burnPending || !status || status.burnMode.on === null) return null;
+	return { on: !status.burnMode.on };
+}
+
+/**
+ * @param {boolean} on what the flip asked for
+ * @param {RunResult} result
+ * @returns {BurnReport}
+ */
+function buildBurnReport(on, { code, stdout, stderr }) {
+	const lines =
+		code === 0 && !stderr.trim()
+			? []
+			: `${stderr}\n${stdout}`
+					.split("\n")
+					.map((l) => l.trimEnd())
+					.filter(Boolean);
+	return { on, code, lines };
+}
+
+/**
+ * Whether a read shows a failed flip since finished, by another panel or the
+ * skill: the marker where it asked, and every plan in step.
+ * @param {BurnReport} report
+ * @param {PanelStatus} status
+ */
+const isBurnReportOutlived = ({ on, code }, { burnMode }) =>
+	code !== 0 && burnMode.on === on && burnMode.disagreeing.length === 0;
 
 /**
  * Whether a status read clears a pending press. Only a read begun after the
@@ -266,8 +402,8 @@ function parseStatus(stdout) {
 
 /**
  * @typedef {{code: number, stdout: string, stderr: string}} RunResult
- * @typedef {(argv: string[]) => Promise<RunResult>} Runner runs
- *   `refill-loop.js <argv>`; a command that cannot start resolves as a failure
+ * @typedef {(argv: string[]) => Promise<RunResult>} Runner runs one script with
+ *   `argv`; a command that cannot start resolves as a failure
  */
 
 /** @param {RunResult} result */
@@ -280,13 +416,44 @@ const buildFailureText = ({ code, stderr }) =>
 /**
  * The panel's state over an injected runner. Reads never overlap: one asked for
  * during another runs after it, so a press's read starts after its command.
- * @param {{run: Runner, now: () => number, onChange: () => void}} deps
+ * @param {{run: Runner, runBurn: Runner, now: () => number,
+ *   onChange: () => void}} deps `run`, `refill-loop.js`; `runBurn`, `burn-mode.sh`
  */
-function createPanel({ run, now, onChange }) {
+function createPanel({ run, runBurn, now, onChange }) {
 	/** @type {PanelView} */
-	const view = { status: null, readError: null, pending: null, refusal: null };
+	const view = {
+		status: null,
+		readError: null,
+		pending: null,
+		refusal: null,
+		burnPending: null,
+		burnReport: null,
+	};
 	let reading = false;
 	let readAgain = false;
+
+	/**
+	 * @param {PanelStatus|string} parsed the status, or why it will not read
+	 * @param {{press: boolean, flip: boolean}} landedBefore whether each pending
+	 *   mark's command had exited when this read began
+	 */
+	function takeRead(parsed, landedBefore) {
+		if (typeof parsed === "string") {
+			view.status = null;
+			view.readError = parsed;
+			return;
+		}
+		view.status = parsed;
+		view.readError = null;
+		if (
+			view.pending &&
+			isPressSettled(view.pending, parsed, landedBefore.press)
+		)
+			view.pending = null;
+		if (landedBefore.flip) view.burnPending = null;
+		if (view.burnReport && isBurnReportOutlived(view.burnReport, parsed))
+			view.burnReport = null;
+	}
 
 	async function refreshStatus() {
 		if (reading) {
@@ -294,23 +461,16 @@ function createPanel({ run, now, onChange }) {
 			return;
 		}
 		reading = true;
-		const readAfterLanding = view.pending?.landed === true;
+		const landedBefore = {
+			press: view.pending?.landed === true,
+			flip: view.burnPending?.landed === true,
+		};
 		const result = await run(["status", "--json"]);
 		reading = false;
-		const parsed =
-			result.code === 0 ? parseStatus(result.stdout) : buildFailureText(result);
-		if (typeof parsed === "string") {
-			view.status = null;
-			view.readError = parsed;
-		} else {
-			view.status = parsed;
-			view.readError = null;
-			if (
-				view.pending &&
-				isPressSettled(view.pending, parsed, readAfterLanding)
-			)
-				view.pending = null;
-		}
+		takeRead(
+			result.code === 0 ? parseStatus(result.stdout) : buildFailureText(result),
+			landedBefore,
+		);
 		onChange();
 		if (readAgain) {
 			readAgain = false;
@@ -318,9 +478,22 @@ function createPanel({ run, now, onChange }) {
 		}
 	}
 
-	/** @param {number} terminalRow */
-	async function click(terminalRow) {
-		if (terminalRow !== TOP_ROW) return;
+	async function pressBurn() {
+		const press = buildBurnPress(view);
+		if (!press) return;
+		const pending = { on: press.on, landed: false };
+		view.burnPending = pending;
+		view.burnReport = null;
+		onChange();
+		const result = await runBurn([press.on ? "on" : "off"]);
+		if (result.code === 0) pending.landed = true;
+		else view.burnPending = null;
+		view.burnReport = buildBurnReport(press.on, result);
+		onChange();
+		await refreshStatus();
+	}
+
+	async function pressLoop() {
 		const press = buildPress(view);
 		if (!press) return;
 		const pending = { on: press.on, landed: false };
@@ -336,6 +509,13 @@ function createPanel({ run, now, onChange }) {
 		}
 		onChange();
 		await refreshStatus();
+	}
+
+	/** @param {number} terminalRow */
+	async function click(terminalRow) {
+		const id = buildRows(view, now())[terminalRow - TOP_ROW]?.control?.id;
+		if (id === "loop") await pressLoop();
+		if (id === "burn") await pressBurn();
 	}
 
 	return { view, refreshStatus, click };
@@ -354,12 +534,13 @@ function fitText(text, width) {
 }
 
 /**
+ * Ends by erasing below, so a report gone from the rows goes from the screen.
  * @param {Row[]} rows
  * @param {number} columns the terminal's width
  */
 function buildFrame(rows, columns) {
 	const width = columns - (LEFT_COLUMN - 1) * 2;
-	return rows
+	const drawn = rows
 		.map(({ text, role }, i) => {
 			const { rgb, bold } = ROLE_STYLES[role];
 			return [
@@ -371,6 +552,7 @@ function buildFrame(rows, columns) {
 			].join("");
 		})
 		.join("");
+	return `${drawn}${ESC}[J`;
 }
 
 const MOUSE_REPORT = new RegExp(`${ESC}\\[<(\\d+);(\\d+);(\\d+)([Mm])`, "g");

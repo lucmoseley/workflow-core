@@ -19,6 +19,7 @@ const STATUS = JSON.stringify({
 	paused: null,
 	lastTick: null,
 	launchesToday: 0,
+	burnMode: { on: false, disagreeing: [], error: null },
 });
 const noop = (): void => undefined;
 
@@ -142,6 +143,22 @@ describe("the panel's terminal", () => {
 		const t = terminal();
 		t.stdin.emit("data", String.fromCharCode(3));
 		expect(t.exits).toEqual([0]);
+	});
+
+	it("hands a click on the Burn mode switch to the script's runner, not the loop's", async () => {
+		const flips: string[][] = [];
+		const t = terminal({
+			runBurn: async (argv: string[]) => {
+				flips.push(argv);
+				return { code: 0, stdout: "", stderr: "" };
+			},
+		});
+		await vi.advanceTimersByTimeAsync(0);
+		const cell = "5;8";
+		t.stdin.emit("data", `${ESC}[<0;${cell}M${ESC}[<0;${cell}m`);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(flips).toEqual([["on"]]);
+		expect(t.calls.flat()).not.toContain("on");
 	});
 
 	it("polls the status and runs nothing else with no click", async () => {

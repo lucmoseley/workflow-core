@@ -15,9 +15,17 @@
  * mode spends allowance on the wrong model, or leaves Sonnet work unmoved.
  */
 
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
-import { EFFORT_MODEL, EFFORT_OFF, EFFORT_ON, remapModel } from "./burn-mode";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+	EFFORT_MODEL,
+	EFFORT_OFF,
+	EFFORT_ON,
+	readBurnState,
+	remapModel,
+} from "./burn-mode";
 import { runInProcess } from "./run-in-process";
 
 const LIB = path.resolve(__dirname, "burn-mode.js");
@@ -146,6 +154,86 @@ describe("remapModel — burn mode's transform over one Agent call", () => {
 		["null", null],
 	])("is null for %s", (_name, input) => {
 		expect(remapModel(input)).toBeNull();
+	});
+});
+
+describe("readBurnState — what the switch left on the machine", () => {
+	let home: string;
+	const env = () => ({
+		HOME: home,
+		WFC_BURN_MARKER: path.join(home, "marker"),
+	});
+	const plan = (name: string, effortLevel: string) => {
+		fs.mkdirSync(path.join(home, name), { recursive: true });
+		fs.writeFileSync(
+			path.join(home, name, "settings.json"),
+			JSON.stringify({ modelSettings: { [EFFORT_MODEL]: { effortLevel } } }),
+		);
+	};
+	const markerOn = () => fs.writeFileSync(env().WFC_BURN_MARKER, "{}");
+
+	beforeEach(() => {
+		home = fs.mkdtempSync(path.join(os.tmpdir(), "burn-state-"));
+	});
+	afterEach(() => {
+		fs.rmSync(home, { recursive: true, force: true });
+	});
+
+	it("reads off, every plan agreeing, off the standing effort", () => {
+		plan(".claude", EFFORT_OFF);
+		expect(readBurnState(env())).toEqual({
+			on: false,
+			disagreeing: [],
+			error: null,
+		});
+	});
+
+	it("names a plan left at the burn effort with the marker gone", () => {
+		plan(".claude", EFFORT_OFF);
+		plan(".claude2", EFFORT_ON);
+		expect(readBurnState(env()).disagreeing).toEqual([
+			path.join(".claude2", "settings.json"),
+		]);
+	});
+
+	it("names a plan not moved while the marker reads on", () => {
+		markerOn();
+		plan(".claude", EFFORT_ON);
+		plan(".claude2", EFFORT_OFF);
+		const state = readBurnState(env());
+		expect(state.on).toBe(true);
+		expect(state.disagreeing).toEqual([path.join(".claude2", "settings.json")]);
+	});
+
+	it("names one symlinked file once, and skips one resolving to nothing", () => {
+		plan(".claude", EFFORT_ON);
+		fs.mkdirSync(path.join(home, ".claude2"));
+		fs.symlinkSync(
+			path.join(home, ".claude", "settings.json"),
+			path.join(home, ".claude2", "settings.json"),
+		);
+		fs.mkdirSync(path.join(home, ".claude3"));
+		fs.symlinkSync(
+			path.join(home, "gone.json"),
+			path.join(home, ".claude3", "settings.json"),
+		);
+		expect(readBurnState(env()).disagreeing).toEqual([
+			path.join(".claude", "settings.json"),
+		]);
+	});
+
+	it("counts a file that will not parse as disagreeing, either way", () => {
+		fs.mkdirSync(path.join(home, ".claude"));
+		fs.writeFileSync(path.join(home, ".claude", "settings.json"), "{");
+		expect(readBurnState(env()).disagreeing).toHaveLength(1);
+		markerOn();
+		expect(readBurnState(env()).disagreeing).toHaveLength(1);
+	});
+
+	it("claims no state, and says why, where the marker cannot be placed", () => {
+		const state = readBurnState({});
+		expect(state.on).toBeNull();
+		expect(state.error).toEqual(expect.any(String));
 	});
 });
 

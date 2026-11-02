@@ -715,6 +715,19 @@ describe("set (#3856)", () => {
 		});
 	});
 
+	it("carries burn mode's state in status --json, off the marker the script writes", async () => {
+		writeControl();
+		const marker = path.join(dir, ".burn-mode");
+		const burnMode = async () => {
+			const r = await runEnv({ WFC_BURN_MARKER: marker }, "status", "--json");
+			expect(r.status).toBe(0);
+			return JSON.parse(r.stdout).burnMode;
+		};
+		expect((await burnMode()).on).toBe(false);
+		fs.writeFileSync(marker, "{}");
+		expect((await burnMode()).on).toBe(true);
+	});
+
 	it("shows the pause in status and status --json", async () => {
 		writeControl({ paused });
 		const r = await run("status");

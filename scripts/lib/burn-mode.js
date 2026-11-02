@@ -24,7 +24,11 @@
  * is the safe direction — an unmapped spelling costs what it always cost.
  */
 
+const fs = require("node:fs");
+const path = require("node:path");
+const { caught } = require("./caught.js");
 const { machineMarkerPath } = require("./machine-marker.js");
+const { readPlanDirs } = require("./plan-dirs.js");
 const { scriptPath } = require("./script-path.js");
 const { writeFd } = require("./write-fd.js");
 
@@ -137,11 +141,71 @@ function remapModel(input) {
 	};
 }
 
+/**
+ * The plans `scripts/burn-mode.sh` would name, one entry per real file, as the
+ * founder names them. A settings.json resolving to nothing is skipped, as there.
+ * @param {string} home
+ * @returns {Map<string, string>} real path to name
+ */
+function readPlanFiles(home) {
+	const homeReal = fs.realpathSync(home);
+	/** @type {Map<string, string>} */
+	const files = new Map();
+	for (const dir of readPlanDirs(home)) {
+		try {
+			const real = fs.realpathSync(path.join(dir, "settings.json"));
+			files.set(real, path.relative(homeReal, real));
+		} catch (err) {
+			if (caught(err).code !== "ENOENT") throw err;
+		}
+	}
+	return files;
+}
+
+/**
+ * Whether one plan's effort disagrees with the switch: on, any effort but the
+ * burn one; off, the burn one. A file that will not parse disagrees with both.
+ * @param {string} file
+ * @param {boolean} on
+ */
+function isPlanDisagreeing(file, on) {
+	let effort;
+	try {
+		effort = JSON.parse(fs.readFileSync(file, "utf8"))?.modelSettings?.[
+			EFFORT_MODEL
+		]?.effortLevel;
+	} catch {
+		// #3877: the script's own jq fails on this file too, so it is no plan in step.
+		return true;
+	}
+	return (effort === EFFORT_ON) !== on;
+}
+
+/**
+ * Burn mode as the script left it, read off the machine so every reader sees a
+ * half-flip however long ago it happened. `on` is null, with `error`, where the
+ * marker cannot be placed or the plans cannot be listed.
+ * @param {Record<string, string | undefined>} [env]
+ * @returns {{on: boolean|null, disagreeing: string[], error: string|null}}
+ */
+function readBurnState(env = process.env) {
+	try {
+		const on = fs.existsSync(markerPath(env));
+		const disagreeing = [...readPlanFiles(env.HOME ?? "")]
+			.filter(([file]) => isPlanDisagreeing(file, on))
+			.map(([, name]) => name);
+		return { on, disagreeing, error: null };
+	} catch (err) {
+		return { on: null, disagreeing: [], error: caught(err).message };
+	}
+}
+
 module.exports = {
 	EFFORT_MODEL,
 	EFFORT_OFF,
 	EFFORT_ON,
 	markerPath,
+	readBurnState,
 	remapModel,
 };
 

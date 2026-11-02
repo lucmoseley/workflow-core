@@ -31,6 +31,7 @@ const SIGNAL_EXITS = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
  *   stdout: Pick<import("node:tty").WriteStream, "write"|"on"|"columns">,
  *   proc: Pick<import("node:events").EventEmitter, "on"> & {exit: (code: number) => void},
  *   run: import("./refill-panel.js").Runner,
+ *   runBurn: import("./refill-panel.js").Runner,
  *   isAlive: (pid: number) => boolean, now: () => number,
  *   reportCrash: (err: unknown) => void}} io
  */
@@ -40,6 +41,7 @@ function openPanel({
 	stdout,
 	proc,
 	run,
+	runBurn,
 	isAlive,
 	now,
 	reportCrash,
@@ -83,7 +85,7 @@ function openPanel({
 				),
 			);
 	};
-	const panel = createPanel({ run, now, onChange: draw });
+	const panel = createPanel({ run, runBurn, now, onChange: draw });
 	const readClicks = createClickReader();
 
 	stdin.setRawMode(true);

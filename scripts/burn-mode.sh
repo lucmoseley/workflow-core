@@ -23,7 +23,9 @@
 # plan on anything else is the founder's own choice and is left alone.
 #
 # Whatever route it took, a plan still reading the burn effort when `off`
-# finishes is an error and exits 1.
+# finishes is an error and exits 1, keeping the marker: its record is what a
+# second `off` restores from (#3877). `on` writes that record before it moves a
+# plan, so a failed `on` too leaves a marker reading on, for `off` to undo.
 
 set -euo pipefail
 
@@ -121,10 +123,10 @@ write_effort() {
     else .modelSettings[$k].effortLevel = $v end' "$1"
 }
 
-# set_effort <file> <level> — `on`'s write: abort naming the file, because a
-# record written over a half-applied on would tell `off` to restore efforts
-# that were never replaced. `off` does NOT use this — it warns and carries on,
-# so its self-check below is the one place a failed revert is reported from.
+# set_effort <file> <level> — `on`'s write: abort naming the file, with the
+# record already holding every plan, so `off` undoes whatever moved. `off` does
+# NOT use this — it warns and carries on, so its self-check below is the one
+# place a failed revert is reported from.
 set_effort() {
   write_effort "$1" "$2" || {
     echo "error: could not write effortLevel=$2 into $1" >&2
@@ -145,19 +147,19 @@ case "$1" in
     if [[ -f "$marker" ]]; then
       echo "burn mode is already on — no settings file touched"
     else
-      # Before a single plan is moved: a mkdir that fails after the loop would
-      # strand every plan on the burn effort with no record to restore from,
-      # and `off` would then flatten a hand-set plan to the standing default.
+      # The record goes down before a single plan is moved: a failure after any
+      # move would otherwise strand it on the burn effort with no record, and
+      # `off` would then flatten a hand-set plan to the standing default.
       mkdir -p "$(dirname "$marker")"
       record='{}'
       while IFS= read -r -d '' f; do
         prior="$(effort_of "$f")"
         record="$(jq -c --arg f "$f" --arg e "$prior" '.[$f] = $e' <<<"$record")"
+      done < <(settings_files)
+      jq -n --argjson r "$record" '{effort: $r}' >"$marker"
+      while IFS= read -r -d '' f; do
         set_effort "$f" "$on_effort"
       done < <(settings_files)
-      # The record is written only once every plan is moved, so a marker that
-      # exists always holds what off needs.
-      jq -n --argjson r "$record" '{effort: $r}' >"$marker"
     fi
     ;;
   off)
@@ -188,7 +190,6 @@ case "$1" in
         reverted=1
       fi
     done < <(settings_files)
-    rm -f "$marker"
     [[ $reverted -eq 1 ]] || echo "burn mode was already off — no settings file touched"
     # The self-check, and `off`'s only failure exit. Reached on every off,
     # including one that reverted nothing — that's why a no-op `off` can
@@ -209,6 +210,7 @@ case "$1" in
       printf 'error: still on the burn effort after off:\n%s' "$stuck" >&2
       exit 1
     fi
+    rm -f "$marker"
     ;;
   *) usage ;;
 esac

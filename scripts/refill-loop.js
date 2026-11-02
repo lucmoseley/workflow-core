@@ -25,8 +25,8 @@
  *                                        overflow rests on; `--json` the code
  *                                        sha, the pause, the last tick, launches
  *                                        today, the mode, the goal, every candidate
- *                                        checkout, the launch rows and the
- *                                        `seats:` line's fields
+ *                                        checkout, the launch rows, the
+ *                                        `seats:` line's fields and burn mode
  *   node scripts/refill-loop.js dry-run  one tick's decision, printed; reaps
  *                                        and launches nothing
  *   node scripts/refill-loop.js boot-resume  the boot unit's: restart the loop
@@ -61,6 +61,7 @@ const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { buildErrorText, caught } = require("./lib/caught.js");
+const { readBurnState } = require("./lib/burn-mode.js");
 const refillCode = require("./lib/refill-code.js");
 const gates = require("./lib/gate-sweep.js");
 const { parseOrCode } = require("./lib/cli-args.js");
@@ -136,7 +137,7 @@ const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | set | 
   set --goal <ref,…>                           rank these issues first in every ticked repo, replacing the goal
   set --goal-issues <ref,…> --goal-text <text> the same, for a confirmed topic: its issues, and the text they came from
   set --clear-goal                             run bare
-  status [--json]                              --json: the code sha, the pause, the last tick, launches today, the mode, the goal, every candidate checkout, the launch rows, each with its seat and why, and the seats line's fields
+  status [--json]                              --json: the code sha, the pause, the last tick, launches today, the mode, the goal, every candidate checkout, the launch rows, each with its seat and why, the seats line's fields, and burn mode's state
   <dir> is a checkout's directory name in the home directory; a <ref> is <dir>#N, or #N with one repo ticked, naming an open issue; set takes any of its flags together`;
 
 const lock = pidLock(files.pid, "refill-loop.js");
@@ -588,6 +589,7 @@ function status({ flags }) {
 					codeSha,
 					today: localDate(new Date()),
 					candidates: readCandidates(homeDir()),
+					burnMode: readBurnState(),
 				}),
 			),
 		);

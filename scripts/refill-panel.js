@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /*
  * refill-panel.js — the refill loop's control panel beside an agents view (#3873,
- * spec #3596): a terminal program with no Claude process that shows the Refill
- * loop switch and its three-line block, and pauses or resumes the loop on a click.
+ * #3877, spec #3596): a terminal program with no Claude process that shows the Refill
+ * loop switch and its three-line block, and pauses or resumes the loop on a click,
+ * and the Burn mode switch, which flips burn mode on a click.
  * What it draws is lib/refill-panel.js's; the terminal, lib/refill-panel-terminal.js's.
  *
  *   node scripts/refill-panel.js <agents-view-pid>
@@ -10,7 +11,7 @@
  * Joins no §N3 family: it gates nothing and is no hook.
  *
  * It reads `refill-loop.js status --json` on a poll and after every press, and
- * writes only by running `refill-loop.js set`. It exits when the given pid is
+ * writes only by running `refill-loop.js set` and `burn-mode.sh`. It exits when the given pid is
  * gone, and on Ctrl+C. A SIGKILL runs no code, so it leaves the terminal to the
  * pane closing with the process.
  *
@@ -28,29 +29,30 @@ const { writeFd } = require("./lib/write-fd.js");
 
 const USAGE = `usage: node ${scriptPath("refill-panel.js")} <agents-view-pid>
 
-Shows the refill loop and pauses or resumes it on a click, until that pid exits.
+Shows the refill loop and burn mode, and changes either on a click, until that pid exits.
 `;
 
 const LOOP_PROGRAM = path.join(__dirname, "refill-loop.js");
-/* Untraced, a first guess: past the control lock's 10 s wait (lib/pid-lock.js). */
+const BURN_PROGRAM = path.join(__dirname, "burn-mode.sh");
+/* Untraced, a first guess: past the control lock's 10 s wait (lib/pid-lock.js),
+ * and far past burn-mode.sh's few short writes, whose timeout reads as a failed flip. */
 const RUN_TIMEOUT_MS = 30_000;
 
-/** @type {import("./lib/refill-panel.js").Runner} */
-const runLoopCommand = (argv) =>
+/**
+ * @param {string} file
+ * @param {string[]} argv
+ * @returns {ReturnType<import("./lib/refill-panel.js").Runner>}
+ */
+const runCommand = (file, argv) =>
 	new Promise((resolve) => {
-		execFile(
-			process.execPath,
-			[LOOP_PROGRAM, ...argv],
-			{ timeout: RUN_TIMEOUT_MS },
-			(err, stdout, stderr) => {
-				if (!err) {
-					resolve({ code: 0, stdout, stderr });
-					return;
-				}
-				const code = typeof err.code === "number" ? err.code : 1;
-				resolve({ code, stdout, stderr: stderr || err.message });
-			},
-		);
+		execFile(file, argv, { timeout: RUN_TIMEOUT_MS }, (err, stdout, stderr) => {
+			if (!err) {
+				resolve({ code: 0, stdout, stderr });
+				return;
+			}
+			const code = typeof err.code === "number" ? err.code : 1;
+			resolve({ code, stdout, stderr: stderr || err.message });
+		});
 	});
 
 /** @param {unknown} err */
@@ -80,7 +82,8 @@ function main(argv = process.argv.slice(2)) {
 		stdin: process.stdin,
 		stdout: process.stdout,
 		proc: process,
-		run: runLoopCommand,
+		run: (args) => runCommand(process.execPath, [LOOP_PROGRAM, ...args]),
+		runBurn: (args) => runCommand(BURN_PROGRAM, args),
 		isAlive: pidAlive,
 		now: Date.now,
 		reportCrash,
