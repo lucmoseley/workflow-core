@@ -339,31 +339,16 @@ describe("each mapped shape is handed its row's rules, and refused nothing", () 
 		expect(idsIn(out.additionalContext)).toContain("create-command-shape");
 	});
 
-	it("hands a gh call run from inside a job tree the job-dir rule only where a word is a path there (#1731)", () => {
-		const job = path.join(dir, ".claude", "jobs", "abc");
-		fs.mkdirSync(job, { recursive: true });
-		const idsFrom = (command: string, session: string) =>
-			idsIn(
-				emission(bash(command, session), {
-					cwd: job,
-					env: { CLAUDE_JOB_DIR: job },
-				}).additionalContext,
-			);
-		expect(idsFrom("gh issue comment 2592 --body x", "bare")).toEqual([
-			"citation-number-first",
-		]);
-		expect(
-			idsFrom("gh issue comment 2592 --body-file tmp/b.md", "path"),
-		).toContain("gh-job-dir-unreadable");
-		expect(logs).toEqual([]);
-	});
-
 	/* Inside a job tree every relative word holding a `/` resolves under it, so
 	 * only a word that can be a body path is judged (#4043). */
 	describe("from inside a job tree", () => {
-		const idsInJobTree = (command: string) => {
+		const jobTree = () => {
 			const job = path.join(dir, ".claude", "jobs", "abc");
 			fs.mkdirSync(job, { recursive: true });
+			return job;
+		};
+		const idsInJobTree = (command: string) => {
+			const job = jobTree();
 			return idsIn(
 				emission(bash(command), {
 					cwd: job,
@@ -372,14 +357,28 @@ describe("each mapped shape is handed its row's rules, and refused nothing", () 
 			);
 		};
 
+		it("hands a call with no body path only its own rules, logging nothing (#1731)", () => {
+			expect(idsInJobTree("gh issue comment 2592 --body x")).toEqual([
+				"citation-number-first",
+			]);
+			expect(logs).toEqual([]);
+		});
+
+		it("follows a cd into the job tree from outside it", () => {
+			const out = emission(
+				bash("cd $CLAUDE_JOB_DIR && gh issue comment 5 --body-file tmp/b.md"),
+				{ cwd: dir, env: { CLAUDE_JOB_DIR: jobTree() } },
+			);
+			expect(idsIn(out.additionalContext)).toContain("gh-job-dir-unreadable");
+		});
+
 		it.each([
 			"gh issue comment 5 --body-file tmp/b.md",
 			"gh issue comment 5 --body-file=tmp/b.md",
 			"gh issue comment 5 -F tmp/b.md",
 			"gh issue comment 5 -Ftmp/b.md",
 			'gh issue comment 5 --body-file "tmp/b.md"',
-			"gh issue comment 5 --body-file b.md",
-			"cd sub && gh issue comment 5 --body-file b.md",
+			"gh issue create -t x -F tmp/b.md",
 			"gh api repos/o/r/issues/5 -F body=@tmp/b.md",
 			"gh api repos/o/r/issues/5 --field body=@tmp/b.md",
 			"gh api repos/o/r/issues/5 --input tmp/b.json",
@@ -400,7 +399,17 @@ describe("each mapped shape is handed its row's rules, and refused nothing", () 
 			"cd /elsewhere && gh issue comment 5 --body-file tmp/b.md",
 			"node scripts/x.js a/b && gh issue comment 5 --body x",
 			"cat -n | gh issue comment 5 --body-file -",
-		])("%s does not", (command) => {
+			"gh issue comment 5 --body-file b.md",
+			"cat notes.md; gh issue comment 5 --body x",
+			"gh api graphql -F q=@q.graphql",
+			"gh issue create -t x -lFix/y",
+			"gh issue close 5 -rFoo/x",
+			"gh workflow run ci -F ref=a/b && gh issue comment 5 --body y",
+			"gh issue comment 5 --body-file $HOME/b.md",
+			"gh issue comment 5 --body-file ~/b.md",
+			"sed -n 1p tmp/b.md | gh issue comment 5 --body-file -",
+			"gh issue comment 5 --body-file - < tmp/b.md",
+		])("%s draws no job-dir rule", (command) => {
 			expect(idsInJobTree(command)).not.toContain("gh-job-dir-unreadable");
 		});
 	});

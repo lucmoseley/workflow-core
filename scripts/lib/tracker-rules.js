@@ -53,13 +53,14 @@
  *    MASKS a quoted span, and the limb is gated on the masked word
  *    (mantahostels#2652).
  *  - THE JOB-DIR LIMB reads only the words that can be a body path, across the
- *    WHOLE COMMAND (#4043): a `gh` call's `--body-file`/`-F <path>`,
+ *    WHOLE COMMAND (#4043): `gh issue`'s `--body-file`/`-F <path>`, `gh api`'s
  *    `--input <path>` and `-F`/`--field <key>=@<path>`, and the operands of a
  *    `cat`, which is how the PIPED spelling (`cat <job-dir file> | gh issue
  *    comment <n> --body-file -`) and `--comment "$(cat <path>)"` name theirs.
  *    Any other reader of a body file (`sed … <path> | gh`, `< <path>`) is
- *    unread. Command-wide, so an unrelated `gh` call sharing a command string
- *    with such a word is told the rule too (mantahostels#2652).
+ *    unread, and so is a bare file name (#1731). Command-wide, so an unrelated
+ *    `gh` call sharing a command string with such a word is told the rule too
+ *    (mantahostels#2652).
  *  - THE OTHER SPELLINGS OF A CREATION ARE OUT OF SCOPE HERE. `gh api --method
  *    POST …/issues` and a `gh api graphql` `createIssue` mutation are both
  *    chased by the guard-issue-create-label core (mantahostels#511, mantahostels#519)
@@ -79,6 +80,7 @@
  */
 
 const { SPACE, bodyFileWord, bodyWord, newBody } = require("./gh-body.js");
+const { ISSUE_VALUE_FLAGS } = require("./gh-issue-ref.js");
 const { NOT_READY_OPENING } = require("./prose-blockers.js");
 const { isJobDir } = require("./job-dir.js");
 const { parseCommand, walkCommands } = require("./shell-parse.js");
@@ -333,9 +335,37 @@ const TRIGGERS = [
 	[["pr", "edit"], labelsWaiting, ["waiting-external-vocabulary"]],
 ];
 
-/* The flags that name a body path, then the short ones that take any other
- * value, so that a run like `-RFoo` is not read as holding a `-F`. */
-const BODY_PATH_SPEC = "-F --field --body-file --input -R -X -H -f -q -t -b -c";
+/* `gh api`'s body flags. Its other value flags go unlisted because the `=@` an
+ * `-F` value must hold is what keeps a run like `-HFoo` out. */
+const API_BODY_FLAGS = "-F --field --input";
+
+/**
+ * What one `gh` call's flags hand it as a body path.
+ * @param {string[]} args the words after `gh`
+ * @param {string[]} spans
+ */
+function ghBodyPaths(args, spans) {
+	/** @type {string[]} */
+	const found = [];
+	const [group = "", sub = ""] = args;
+	if (group === "api") {
+		scanFlags(API_BODY_FLAGS, args.slice(1), (kind, name, value) => {
+			if (kind !== "opt") return;
+			const text = lit(value, spans);
+			if (name === "--input") found.push(text);
+			else if (text.includes("=@"))
+				found.push(text.slice(text.indexOf("=@") + 2));
+		});
+	} else if (group === "issue" && Object.hasOwn(ISSUE_VALUE_FLAGS, sub)) {
+		const spec =
+			ISSUE_VALUE_FLAGS[/** @type {keyof typeof ISSUE_VALUE_FLAGS} */ (sub)];
+		scanFlags(spec, args.slice(2), (kind, name, value) => {
+			if (kind === "opt" && (name === "-F" || name === "--body-file"))
+				found.push(lit(value, spans));
+		});
+	}
+	return found;
+}
 
 /**
  * The words of one command that can be a body path, read through literal.
@@ -344,26 +374,8 @@ const BODY_PATH_SPEC = "-F --field --body-file --input -R -X -H -f -q -t -b -c";
  */
 function bodyPathWords([head = "", ...args], spans) {
 	if (basename(lit(head, spans)) === "cat")
-		return args
-			.map((w) => literal(w, spans))
-			.filter(({ text }) => !text.startsWith("-"));
-	if (!isGhCommand(head)) return [];
-	/** @type {{ text: string, known: boolean }[]} */
-	const found = [];
-	scanFlags(BODY_PATH_SPEC, args, (kind, name, value) => {
-		if (kind !== "opt") return;
-		const read = literal(value, spans);
-		if (name === "--body-file" || name === "--input") found.push(read);
-		else if (name === "-F" || name === "--field") {
-			if (args[0] !== "api") found.push(read);
-			else if (read.text.includes("=@"))
-				found.push({
-					...read,
-					text: read.text.slice(read.text.indexOf("=@") + 2),
-				});
-		}
-	});
-	return found;
+		return args.map((w) => lit(w, spans)).filter((t) => !t.startsWith("-"));
+	return isGhCommand(head) ? ghBodyPaths(args, spans) : [];
 }
 
 /**
@@ -374,24 +386,25 @@ function bodyPathWords([head = "", ...args], spans) {
  * match none of them. A bare substring, not a word test: the subject is raw
  * text, quoting and all.
  *
- * A BARE NAME HERE IS A FILE, so it is made path-shaped against the directory
- * the command runs in, which isJobDir leaves to its caller. Only where its text
- * is known: `"$B"` could name anywhere.
+ * A word opening on any other expansion (`$HOME/b.md`) could land anywhere, so
+ * it is not resolved against the working directory, and neither is `~/`.
  * @param {Parsed} parsed
  * @param {TrackerContext} ctx
  */
 function scanJobDir(parsed, ctx) {
 	if (!parsed.subject.includes("gh")) return false;
 	const jobDir = ctx.env.CLAUDE_JOB_DIR ?? "";
+	const home = ctx.vars.HOME ?? "";
 	let seen = false;
 	walkCommands(
 		parsed,
 		({ words, cwd }) => {
 			const where = { pwd: cwd || ctx.fallbackCwd, jobDir };
-			seen ||= bodyPathWords(words, parsed.spans).some(({ text, known }) => {
-				if (text === "" || text === "-") return false;
-				const bare = known && !text.includes("/");
-				return isJobDir(bare ? `./${text}` : text, where);
+			seen ||= bodyPathWords(words, parsed.spans).some((text) => {
+				if (text.startsWith("$") && !text.includes("CLAUDE_JOB_DIR"))
+					return false;
+				const p = text.startsWith("~/") ? `${home}${text.slice(1)}` : text;
+				return isJobDir(p, where);
 			});
 		},
 		ctx,
