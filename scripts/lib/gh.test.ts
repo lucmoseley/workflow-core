@@ -561,6 +561,33 @@ describe("an empty open-issue read (#2565)", () => {
 	);
 });
 
+describe("retryingOnceSync (#3928)", () => {
+	it("answers from the second try where the first throws", async () => {
+		const { retryingOnceSync } = await load();
+		const tries = [new Error("HTTP 504"), "read"];
+		expect(
+			retryingOnceSync(() => {
+				const next = tries.shift();
+				if (next instanceof Error) throw next;
+				return next;
+			}),
+		).toEqual({ ok: true, out: "read" });
+		expect(tries).toEqual([]);
+	});
+
+	it("reports the second failure rather than throwing, and tries no third time", async () => {
+		const { retryingOnceSync } = await load();
+		let tries = 0;
+		expect(
+			retryingOnceSync(() => {
+				tries += 1;
+				throw new Error(`HTTP 504, try ${tries}`);
+			}),
+		).toEqual({ ok: false, error: "HTTP 504, try 2", reason: "broken" });
+		expect(tries).toBe(2);
+	});
+});
+
 describe("ghGetRetrying — the shared fan-out read (mantahostels#1145)", () => {
 	it("retries once, then reports the failure rather than throwing", async () => {
 		const { ghGetRetrying } = await load();

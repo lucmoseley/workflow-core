@@ -36,6 +36,8 @@
  * finds its directory gone, or its start over 30 days old, names what that gives
  * up and ends the line (#3835). A checkout the previous review read counts as one
  * carrying a line from its window's end, so its first absence loses nothing (#3844).
+ * Closes that will not read on a second try, or a ledger that will not, cost and
+ * carry that kind alone (#3928).
  * Residual: one its owner opted out is neither named nor carried, so a start it
  * carried ends there (#3834). A linked worktree likewise (#3835).
  *
@@ -91,7 +93,12 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { answerReversals } = require("./answer-review-reversals.js");
 const { parseOrExit } = require("./lib/cli-args.js");
-const { parseErrLine, ghApiSlurp, ghIssueListAll } = require("./lib/gh.js");
+const {
+	parseErrLine,
+	ghApiSlurp,
+	ghIssueListAll,
+	retryingOnceSync,
+} = require("./lib/gh.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { parseEnvelope } = require("./lib/check-envelope.js");
@@ -164,12 +171,86 @@ function faultedRepo({ root, why }, windowSince, reviews) {
 function readRepo(root, windowSince, reads, reviews) {
 	const checkout = path.basename(root);
 	const start = review.repoStart(reviews[0], checkout, windowSince);
-	const { since } = start;
 	let repo = checkout;
 	try {
 		repo = requireKey("tracker", { root });
+		const ledger = readDecisions(root, repo);
+		const closes = readCloses(repo, start.closes);
+		const stalls = readStalls(repo);
+		const urgent = readUrgent(root, repo, reads);
+		const parked = readParked(repo, reads);
+		const primitives = readPrimitives(
+			root,
+			review.historyStart(start),
+			reads,
+			review.parseHistoryCursor(reviews, repo),
+		);
+		return {
+			reading: {
+				checkout,
+				repo,
+				closesSince: start.closes,
+				decisionsSince: start.decisions,
+				entries: ledger.entries,
+				closed: closes.closed,
+				stalls: stalls.read,
+				urgent: urgent.read,
+				parked: parked.read,
+				primitives,
+			},
+			unread: [
+				...review.startFaults(checkout, start),
+				...ledger.unread,
+				...closes.unread,
+				...stalls.unread,
+				...urgent.unread,
+				...parked.unread,
+			],
+			unreadEvents: review.buildCarryLines(checkout, start, {
+				closes: closes.closed === null,
+				decisions: ledger.entries === null,
+			}),
+		};
+	} catch (e) {
+		return review.unreadRepo(checkout, start, repo, parseErrLine(e));
+	}
+}
+
+/**
+ * A checkout's ledger, or null where it will not read, which is named and
+ * carried (#3928). Torn lines are named and lost.
+ * @param {string} root
+ * @param {string} repo
+ * @returns {{entries: import("./lib/morning-review.js").LedgerLine[] | null, unread: Unread[]}}
+ */
+function readDecisions(root, repo) {
+	try {
 		const { lines, torn } = readLedger(root);
-		const closed = ghIssueListAll("closed issues", [
+		return {
+			entries: lines,
+			unread:
+				torn === 0
+					? []
+					: [{ repo, why: `${torn} torn ledger line(s) skipped` }],
+		};
+	} catch (e) {
+		return {
+			entries: null,
+			unread: [{ repo, why: `ledger: ${parseErrLine(e)}` }],
+		};
+	}
+}
+
+/**
+ * One tracker's closes from `since`, with their comments, or null named as unread
+ * where a second try fails too (#3928).
+ * @param {string} repo
+ * @param {string} since
+ * @returns {{closed: import("./lib/morning-review.js").ClosedIssue[] | null, unread: Unread[]}}
+ */
+function readCloses(repo, since) {
+	const read = retryingOnceSync(() =>
+		ghIssueListAll("closed issues", [
 			"--repo",
 			repo,
 			"--state",
@@ -178,42 +259,11 @@ function readRepo(root, windowSince, reads, reviews) {
 			`closed:>=${review.searchTime(review.closeEdge(since))}`,
 			"--json",
 			"number,title,url,closedAt,comments",
-		]);
-		const stalls = readStalls(repo);
-		const urgent = readUrgent(root, repo, reads);
-		const parked = readParked(repo, reads);
-		const primitives = readPrimitives(
-			root,
-			since,
-			reads,
-			review.parseHistoryCursor(reviews, repo),
-		);
-		return {
-			reading: {
-				checkout,
-				repo,
-				since,
-				entries: lines,
-				closed,
-				stalls: stalls.read,
-				urgent: urgent.read,
-				parked: parked.read,
-				primitives,
-			},
-			unread: [
-				...review.startFaults(checkout, start),
-				...(torn === 0
-					? []
-					: [{ repo, why: `${torn} torn ledger line(s) skipped` }]),
-				...stalls.unread,
-				...urgent.unread,
-				...parked.unread,
-			],
-			unreadEvents: [],
-		};
-	} catch (e) {
-		return review.unreadRepo(checkout, start, repo, parseErrLine(e));
-	}
+		]),
+	);
+	return read.ok
+		? { closed: read.out, unread: [] }
+		: { closed: null, unread: [{ repo, why: `closes: ${read.error}` }] };
 }
 
 /**

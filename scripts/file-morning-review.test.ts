@@ -803,6 +803,119 @@ describe("file-morning-review.js (#2011)", () => {
 				expect(after).not.toContain(event);
 		});
 
+		describe("a part of a checkout that does not read (#3928)", () => {
+			const dayOne = "2026-10-10T07:00:00.000Z";
+			const dayTwo = "2026-10-11T07:00:00.000Z";
+			const dayThree = "2026-10-12T07:00:00.000Z";
+			const closesCalls = () =>
+				fs
+					.readFileSync(stub("calls.log"), "utf8")
+					.split("\n")
+					.filter(
+						(l) => l.includes("--search closed:") && !l.includes("--label"),
+					);
+			const ledger = () =>
+				path.join(
+					wfc(),
+					".claude",
+					"tmp",
+					"markers",
+					"delegated-decisions.jsonl",
+				);
+
+			it("retries a closes read that fails once, listing its closes with nothing unread", () => {
+				seed([previousReview()]);
+				stubCloses(close(80, "2026-10-10T12:00:00.000Z"));
+				fs.writeFileSync(stub("fail-closes-once"), "");
+				reviewAt(dayTwo);
+				const [body] = bodies();
+				once(body, "acme/wfc#80");
+				expect(body).toContain("- acme/wfc: 1");
+				expect(body).not.toContain("`closes: ");
+				expect(body).not.toContain("unread since");
+				expect(closesCalls()).toHaveLength(2);
+			});
+
+			it("lists the decisions where closes fail every try, carries the closes alone, and repeats no decision", () => {
+				seed([previousReview()]);
+				appendDecision(wfc(), "2026-10-10T12:00:00.000Z", 3, "Wfc: day one");
+				stubCloses(close(80, "2026-10-10T12:00:00.000Z"));
+				fs.writeFileSync(stub("fail-closes"), "");
+				reviewAt(dayTwo);
+
+				appendDecision(wfc(), "2026-10-11T12:00:00.000Z", 4, "Wfc: day two");
+				stubCloses(
+					close(80, "2026-10-10T12:00:00.000Z"),
+					close(81, "2026-10-11T12:00:00.000Z"),
+				);
+				fs.rmSync(stub("fail-closes"));
+				reviewAt(dayThree);
+
+				const [failed, recovered] = bodies();
+				once(failed, "Wfc: day one");
+				expect(failed).toMatch(/- acme\/wfc: `closes: /);
+				expect(failed).toContain(`Closes unread since ${dayOne} in wfc.`);
+				expect(failed).not.toContain("Events unread since");
+				expect(failed).not.toContain("Decisions unread since");
+				expect(failed).toContain("- acme/wfc: not read");
+				expect(failed).not.toContain("acme/wfc#80");
+				expect(failed).toContain("Events read in wfc.");
+				expect(closesCalls()).toHaveLength(3);
+
+				once(recovered, "acme/wfc#80");
+				once(recovered, "acme/wfc#81");
+				once(recovered, "Wfc: day two");
+				expect(recovered).not.toContain("Wfc: day one");
+				expect(recovered).not.toContain("unread since");
+				expect(closesCalls().at(-1)).toContain(
+					"closed:>=2026-10-10T06:45:00+00:00",
+				);
+			});
+
+			it("lists the closes where the ledger will not read, names and carries the decisions, and repeats no close", () => {
+				seed([previousReview()]);
+				appendDecision(wfc(), "2026-10-10T12:00:00.000Z", 3, "Wfc: carried");
+				const text = fs.readFileSync(ledger(), "utf8");
+				fs.rmSync(ledger());
+				fs.mkdirSync(ledger());
+				stubCloses(close(80, "2026-10-10T12:00:00.000Z"));
+				reviewAt(dayTwo);
+
+				fs.rmdirSync(ledger());
+				fs.writeFileSync(ledger(), text);
+				reviewAt(dayThree);
+
+				const [failed, recovered] = bodies();
+				once(failed, "acme/wfc#80");
+				expect(failed).toMatch(/- acme\/wfc: `ledger: /);
+				expect(failed).toContain(`Decisions unread since ${dayOne} in wfc.`);
+				expect(failed).not.toContain("Closes unread since");
+				expect(failed).not.toContain("Wfc: carried");
+				expect(failed).toContain("- acme/wfc: not read, so the next review");
+
+				once(recovered, "Wfc: carried");
+				expect(recovered).not.toContain("acme/wfc#80");
+				expect(recovered).not.toContain("unread since");
+			});
+
+			it("keeps each kind's own start where a whole read fails after a part did", () => {
+				const closesStart = "2026-10-09T07:00:00.000Z";
+				seed([
+					previousReview(`Closes unread since ${closesStart} in second.\n`),
+				]);
+				makeSecond();
+				configureSecond({});
+				reviewAt(dayTwo);
+
+				const [whole] = bodies();
+				expect(whole).toContain(
+					`Closes unread since ${closesStart} in second.`,
+				);
+				expect(whole).toContain(`Decisions unread since ${dayOne} in second.`);
+				expect(whole).not.toContain("Events unread since");
+			});
+		});
+
 		describe("a checkout discovery leaves out (#3834)", () => {
 			it("names one whose config will not parse, on one line, keeps a failed read's start, and lands every event in the first review to read it", () => {
 				seed([previousReview()]);

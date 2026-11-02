@@ -237,14 +237,39 @@ async function retryingOnce(once) {
 		try {
 			return { ok: true, out: await once() };
 		} catch (e) {
-			return {
-				ok: false,
-				error: parseErrLine(e),
-				reason: parseGhFailureReason(e),
-			};
+			return buildFailedRead(e);
 		}
 	}
 }
+
+/**
+ * retryingOnce for a read made in a synchronous run (#3928). A first failure
+ * leaves no trace: only the second is reported.
+ * @template T
+ * @param {() => T} once
+ * @returns {{ok: true, out: T} | {ok: false, error: string, reason: "unreachable"|"broken"}}
+ */
+function retryingOnceSync(once) {
+	try {
+		return { ok: true, out: once() };
+	} catch {
+		try {
+			return { ok: true, out: once() };
+		} catch (e) {
+			return buildFailedRead(e);
+		}
+	}
+}
+
+/**
+ * @param {unknown} e
+ * @returns {{ok: false, error: string, reason: "unreachable"|"broken"}}
+ */
+const buildFailedRead = (e) => ({
+	ok: false,
+	error: parseErrLine(e),
+	reason: parseGhFailureReason(e),
+});
 
 /**
  * Run `fn` over `items` with at most `limit` in flight — in every caller here
@@ -598,6 +623,7 @@ module.exports = {
 	ghIssuesUpdatedSince,
 	ghGetRetrying,
 	retryingOnce,
+	retryingOnceSync,
 	mapLimit,
 	ISSUE_READ_CONCURRENCY,
 	parseErrLine,

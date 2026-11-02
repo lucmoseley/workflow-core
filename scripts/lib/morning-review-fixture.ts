@@ -40,7 +40,8 @@ const CREATE_FAILED = path.join(
  * `release`, so its program is seen mid-answer. Every create is written to
  * `created-<number>.json`, which the issues-since read serves, failing where
  * `fail-issues-since` exists and answering empty once where `empty-issues-since`
- * does; `fail-after-create` makes a create land and report failure.
+ * does; `fail-after-create` makes a create land and report failure. The closes
+ * read fails where `fail-closes` exists, and once where `fail-closes-once` does.
  * file-issue.js's similar-title list also holds an open lookalike, #1995,
  * among enough unrelated titles that it scores above the cut.
  *
@@ -80,6 +81,10 @@ if (a[0] === "api" && ["repos/acme/wfc/issues", "repos/acme/other/issues"].inclu
 	}));
 }
 if (a[0] === "issue" && a[1] === "list" && a.includes('in:title "Memory kill incident from"')) sayRows(read("kills.json"));
+if (a[0] === "issue" && a[1] === "list" && !a.includes("--label") && (a[a.indexOf("--search") + 1] ?? "").startsWith("closed:")) {
+	if (fs.existsSync(f("fail-closes-once"))) { fs.rmSync(f("fail-closes-once")); ${ghAnswerNode(NOT_FOUND)} }
+	if (fs.existsSync(f("fail-closes"))) { ${ghAnswerNode(NOT_FOUND)} }
+}
 if (a[0] === "issue" && a[1] === "list" && a.includes("--search") && !a.includes("--label")) sayRows(read("closed.json"));
 if (a[0] === "issue" && a[1] === "list" && a.includes("--label"))
 	sayRows(read("reviews.json").filter((i) => a[a.indexOf("--state") + 1] === "all" || i.state === a[a.indexOf("--state") + 1].toUpperCase()));
