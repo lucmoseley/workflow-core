@@ -6,9 +6,15 @@
  * The lander names the culprit in WFC_LANDER_REVERT on its revert's commit and
  * on its push. The name only asks: a gate grants the exemption where the tree
  * it judges is what `git revert` of that culprit makes on the judged commit's
- * parent, conflict-free, recomputed here with `git merge-tree`, whose ort merge
- * is the one `git revert` runs. So the variable carries nothing past a gate
- * but a clean revert of a commit the repo holds.
+ * parent, recomputed here with `git merge-tree`, whose ort merge is the one
+ * `git revert` runs. So the variable carries nothing past a gate but a clean
+ * revert of a commit the repo holds.
+ *
+ * A CONFLICT ONLY IN ANCHOR FILES STILL COUNTS AS CLEAN (#3935). `git merge-file
+ * --ours` settles the file for the side the revert is made on. Regenerating it
+ * instead would write a read nobody made (#3127). A kept digest can only read
+ * stale: the fix ticket owes a guard-registry row's re-read, and a census row
+ * reports on the full run.
  *
  * RESIDUAL: anyone may set it, an agent session included, and a clean revert
  * of any commit then lands with the rows it leaves stale. They stay stale
@@ -19,6 +25,13 @@ const { commitSha } = require("./commit-sha.js");
 const { spawnGitSync } = require("./git.js");
 
 const LANDER_REVERT_ENV = "WFC_LANDER_REVERT";
+
+const ANCHOR_FILES = new Set([
+	".claude/guard-registry-anchors.json",
+	"scripts/code-standards-anchors.json",
+	"scripts/code-standards-base-anchors.json",
+	"scripts/instruction-surface-anchors.json",
+]);
 
 /** @param {string} sha */
 const buildRevertLine = (sha) => `This reverts commit ${sha}.`;
@@ -37,9 +50,93 @@ function gitOut(cwd, args) {
 }
 
 /**
- * Why `tree` is not a conflict-free revert of `culprit` made on `onto`, or
- * null where it is. A merge culprit may be reverted against any of its
- * parents, as the lander reverts against the one its bisect stepped from.
+ * The revert's bytes for each path in `conflicted`, its conflicted hunks keeping
+ * `onto`'s side, or null where a path is no anchor file, a path's three versions
+ * do not all exist, or a result is not JSON. An empty `conflicted` is null.
+ * @param {string} cwd
+ * @param {{culprit: string, onto: string, side: string}} revert `side` the
+ *   parent of `culprit` the revert restores
+ * @param {string[]} conflicted
+ * @returns {Map<string, string>|null}
+ */
+function readKeptAnchors(cwd, { culprit, onto, side }, conflicted) {
+	if (conflicted.length === 0) return null;
+	/** @type {Map<string, string>} */
+	const kept = new Map();
+	for (const file of conflicted) {
+		if (!ANCHOR_FILES.has(file)) return null;
+		const merged = gitOut(cwd, [
+			"merge-file",
+			"-p",
+			"--ours",
+			"--object-id",
+			`${onto}:${file}`,
+			`${culprit}:${file}`,
+			`${side}:${file}`,
+		]);
+		if (merged === null || !isJson(merged)) return null;
+		kept.set(file, merged);
+	}
+	return kept;
+}
+
+/** @param {string} text */
+function isJson(text) {
+	try {
+		JSON.parse(text);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Whether `tree` is the revert of `culprit` against `side` on `onto`: the
+ * merge's own tree, or that tree with its anchor conflicts kept.
+ * @param {string} cwd
+ * @param {{culprit: string, onto: string, side: string, tree: string}} judged
+ */
+function isRevertTree(cwd, { culprit, onto, side, tree }) {
+	const merged = spawnGitSync(
+		[
+			"-C",
+			cwd,
+			"merge-tree",
+			"--write-tree",
+			"--name-only",
+			`--merge-base=${culprit}`,
+			onto,
+			side,
+		],
+		{ encoding: "utf8" },
+	);
+	/* Prints the tree, then on a conflict the conflicted paths up to a blank line. */
+	const [made, ...rest] = String(merged.stdout).split("\n");
+	if (merged.status === 0) return made === tree;
+	if (merged.status !== 1 || !made) return false;
+	const kept = readKeptAnchors(
+		cwd,
+		{ culprit, onto, side },
+		rest.slice(0, rest.indexOf("")),
+	);
+	if (kept === null) return false;
+	const differing = gitOut(cwd, ["diff-tree", "-r", "--name-only", made, tree]);
+	return (
+		differing
+			?.split("\n")
+			.filter(Boolean)
+			.every((file) => kept.has(file)) &&
+		[...kept].every(
+			([file, bytes]) =>
+				gitOut(cwd, ["cat-file", "blob", `${tree}:${file}`]) === bytes,
+		)
+	);
+}
+
+/**
+ * Why `tree` is not a clean revert of `culprit` made on `onto`, or null where it
+ * is. A merge culprit may be reverted against any of its parents, as the lander
+ * reverts against the one its bisect stepped from.
  * @param {string} cwd
  * @param {{culprit: string, onto: string, tree: string}} judged
  * @returns {string|null}
@@ -49,19 +146,9 @@ function whyNotCleanRevert(cwd, { culprit, onto, tree }) {
 	if (parents === null) return `${culprit} is not a commit here`;
 	const sides = parents.trim().split(" ").slice(1);
 	if (sides.length === 0) return `${culprit} is a root commit`;
-	const clean = sides.some(
-		(side) =>
-			gitOut(cwd, [
-				"merge-tree",
-				"--write-tree",
-				`--merge-base=${culprit}`,
-				onto,
-				side,
-			])?.split("\n")[0] === tree,
-	);
-	return clean
+	return sides.some((side) => isRevertTree(cwd, { culprit, onto, side, tree }))
 		? null
-		: `its tree is not the conflict-free revert of ${culprit} on ${onto}`;
+		: `its tree is not the clean revert of ${culprit} on ${onto}`;
 }
 
 /**
@@ -97,6 +184,7 @@ function whyNotLanderRevert(cwd, { culprit, sha, tip }) {
 module.exports = {
 	LANDER_REVERT_ENV,
 	buildRevertLine,
+	readKeptAnchors,
 	readLanderRevert,
 	whyNotCleanRevert,
 	whyNotLanderRevert,
