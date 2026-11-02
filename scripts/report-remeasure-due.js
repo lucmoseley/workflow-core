@@ -25,10 +25,12 @@
  * legal and silent, as a close posts it there without waiting for the lander.
  * One on neither, as a replay onto `landing` can leave it, is reported as OFF
  * MAIN each run until a record of the same review on its ticket names a sha
- * that is on one. A sha that checkout does not hold is reported as UNJUDGED and
- * counted; a record with no such checkout is counted, unreported. A checkout
- * that cannot fetch is judged at the refs it last fetched, and reported as
- * UNREAD.
+ * that is on one. A sha that checkout does not hold, mistyped or pruned, is
+ * reported as UNJUDGED and not counted until a record of the same review names
+ * one that checkout holds, an issue already filed held at its count meanwhile
+ * (#3907); a record with no such checkout
+ * is counted, unreported. A checkout that cannot fetch is judged at the refs it
+ * last fetched, and reported as UNREAD.
  *
  * AN ESCAPE ON A COVERED COMMIT counts once on the first counted record
  * covering it, where no counted commit names it as landed (#3832). A commit
@@ -76,8 +78,11 @@
  * never counted, its records still read for the reports below and its
  * `**Escaped defect:**` lines for an adopter's commit.
  *
- * AN UNPARSEABLE RECORD — a `**Review findings:**` not in backticks, under a
- * counted tier, that the record form does not match — counts nothing and is
+ * A MENTION IS NO RECORD: a head in a fence, a quoted line, or a backtick or
+ * double-quote span counts nothing and sets no tier, read through
+ * lib/review-findings.js's maskMentions (#3907).
+ *
+ * AN UNPARSEABLE RECORD — a `**Review findings:**` under a counted tier that the record form does not match — counts nothing and is
  * reported, remedy included: one line to stderr and to the guard-error log,
  * which is what the daily run keeps, per record each run until it is
  * corrected (#3064). A note after the landed sha, as a record posted before
@@ -86,12 +91,16 @@
  * `base` and paths. Residual: two commits a ticket records from one base over
  * the same paths hide each other's unparseable record.
  *
- * A RECORD WITH CUT-OFF LINES — `- FIXED` or `- TICKETED` lines, under a counted
- * tier, past a line that ends its list, which resolve-ticket.js refuses at a close
- * and a separate `gh issue comment` can still post — counts none of those lines
- * and is reported each run until a later record restates it (#3847): one under a
- * counted tier with none cut off, at least as many lines as the earlier held in
- * all, and the same reviewed tree, or the same base, paths and landed sha, as two
+ * A RECORD WITH LOST LINES OR PATHS — `- FIXED` or `- TICKETED` lines, under a
+ * counted tier, past a line that ends its list (CUT OFF, #3847) or in another
+ * spelling (MISSPELT, #3907), which resolve-ticket.js refuses at a close and a
+ * separate `gh issue comment` can still post — counts none of those lines. One
+ * under any tier but those counts nothing (NO TIER), and a tier in no known word
+ * is reported on its own too (UNKNOWN TIER) until a known one follows it.
+ * One whose paths hold an entry its replay changes nothing at, a note after them
+ * above all (NOT PATHS), still counts, listed with no paths. Each is reported
+ * each run until a later record restates it: one faultless, under a
+ * counted tier, with at least as many lines as the earlier held in all, and the same reviewed tree, or the same base, paths and landed sha, as two
  * commits from one base over the same paths are separate reviews here. What the
  * earlier one did count is then dropped rather than summed with the restatement.
  *
@@ -109,10 +118,10 @@
  * which is reported each run.
  *
  * THE SEARCH. Every `corpus` tracker, one GraphQL search a page of 100
- * tickets, each with its comments, for "Review tier" or "Escaped defect"
- * since FLOOR, the day the record formats landed. Not "Review findings":
- * ordinary review reports match it (#1625). A ticket past 100 comments has the rest
- * read by REST. A window holding more than search's 1,000-result cap is
+ * tickets, each with its comments, for "Review tier", "Review findings" or
+ * "Escaped defect" since FLOOR, the day the record formats landed, the second
+ * reaching a record on a ticket with no tier line (#3907). A ticket past 100
+ * comments has the rest read by REST. A window holding more than search's 1,000-result cap is
  * halved by date until each half fits, a single day past it throwing, and a
  * window whose pages return fewer tickets than its count throws.
  *
@@ -160,7 +169,6 @@ const { requiredGroup } = require("./lib/regex-group");
 const {
 	COUNTED_TIERS,
 	day,
-	describeCutOff,
 	group,
 	HEX_RUN,
 	isSameReview,
@@ -168,6 +176,8 @@ const {
 	parseIssue,
 	pathListOf,
 	readTicketComments,
+	readRecordFaults,
+	RULE_COMMAND,
 } = require("./lib/review-findings");
 const { takesLabel, takesRefusal } = require("./lib/takes-label");
 const {
@@ -195,7 +205,7 @@ const SEARCH_CAP = 1000;
 const PAGE = 100;
 const DAY_MS = 86_400_000;
 
-const PHRASES = '("Review tier" OR "Escaped defect")';
+const PHRASES = '("Review tier" OR "Review findings" OR "Escaped defect")';
 const SEARCH = `query($q: String!, $after: String) {
   search(query: $q, type: ISSUE, first: ${PAGE}, after: $after) {
     issueCount
@@ -224,7 +234,7 @@ const COUNT_LINE = /^(\d+) commits\b/;
  * @typedef {{ records: ReviewRecord[], unparsed: Unparsed[] }} Parsed every
  *   record parsed, of any tier, and the unparseable ones under a counted tier
  * @typedef {{ tag: "UNRECORDED" | "UNPARSEABLE" | "UNREAD" | "UNLOCATED" | "UNCOUNTED", fault: string }} Unseen
- * @typedef {{ tag: Unseen["tag"] | "CUT OFF" | "LANDED TREE" | "UNJUDGED" | "OFF MAIN" | "HELD", fault: string }} Report
+ * @typedef {{ tag: Unseen["tag"] | "CUT OFF" | "MISSPELT" | "NO TIER" | "NOT PATHS" | "UNKNOWN TIER" | "LANDED TREE" | "UNJUDGED" | "OFF MAIN" | "HELD", fault: string }} Report
  * @typedef {{ isCoveredBy: (r: ReviewRecord, sha: string, message: string, root: string) => boolean,
  *   isRangeLost: (r: ReviewRecord, message: string) => boolean,
  *   rangeFaults: Unseen[] }} RecordCover
@@ -543,6 +553,7 @@ function parseTrailerLog(repo, out, declared, judge) {
 				fixed: 0,
 				fixes: 0,
 				cutOff: 0,
+				misspelt: 0,
 				escapes: [],
 			});
 			continue;
@@ -698,15 +709,16 @@ function creditEscapes(commits, escaped, reading) {
 
 /**
  * Where `c`'s landed sha is, in the checkout under `home`: read after
- * readTrailers's fetch. "unread" with no fault where no checkout tracks its repo.
+ * readTrailers's fetch. "unread" where no checkout tracks its repo, "unheld" with
+ * its fault where that checkout cannot resolve the sha.
  *
  * @param {ReviewRecord} c
  * @param {string} home
- * @returns {{ at: "main" | "landing" | "off" } | { at: "unread", fault: Report | null }}
+ * @returns {{ at: "main" | "landing" | "off" | "unread" } | { at: "unheld", fault: Report }}
  */
 function readLandedAt(c, home) {
 	const checkout = readCheckoutTracking(c.repo, home);
-	if (!("root" in checkout)) return { at: "unread", fault: null };
+	if (!("root" in checkout)) return { at: "unread" };
 	const { root } = checkout;
 	/** @param {string} ref */
 	const walk = (ref) =>
@@ -716,10 +728,10 @@ function readLandedAt(c, home) {
 	const onPushed = onMain.ok && onMain.out !== "" ? walk(pushed) : onMain;
 	if (!onPushed.ok)
 		return {
-			at: "unread",
+			at: "unheld",
 			fault: {
 				tag: "UNJUDGED",
-				fault: `${c.repo}#${c.issue}: could not walk landed ${c.landed} against ${JUDGED_REF} and ${pushed} in ${root}, so whether it reached main is not judged until that checkout holds it — ${onPushed.why}`,
+				fault: `${c.repo}#${c.issue}: could not walk landed ${c.landed} against ${JUDGED_REF} and ${pushed} in ${root}, so its commit is not counted until that checkout holds it or a record of the same review names the sha — ${onPushed.why}`,
 			},
 		};
 	if (onMain.ok && onMain.out === "") return { at: "main" };
@@ -733,29 +745,32 @@ function readLandedAt(c, home) {
  *
  * @param {ReviewRecord[]} commits
  * @param {string} home
- * @returns {{ commits: ReviewRecord[], reports: Report[] }}
+ * @param {unknown} own this repo's own tracker
+ * @returns {{ commits: ReviewRecord[], reports: Report[], undercounts: boolean }}
  */
-function judgeRecords(commits, home) {
+function judgeRecords(commits, home, own) {
 	const recorded = commits.filter((c) => c.issue !== null);
 	const landed = new Map(recorded.map((c) => [c, readLandedAt(c, home)]));
+	/** @param {ReviewRecord} c */
+	const isCorrected = (c) =>
+		recorded.some((o) => {
+			const at = landed.get(o)?.at;
+			return (
+				o !== c &&
+				o.repo === c.repo &&
+				o.issue === c.issue &&
+				at !== "off" &&
+				at !== "unheld" &&
+				isSameReview(o, c)
+			);
+		});
 	const reports = recorded.flatMap((c) => {
-		const tree = landedTreeReport(c, home);
 		const place = landed.get(c);
+		if (place?.at === "unheld") return isCorrected(c) ? [] : [place.fault];
+		const tree = landedTreeReport(c, home);
 		/** @type {Report[]} */
 		const owed = tree ? [tree] : [];
-		if (place?.at === "unread") {
-			if (place.fault && tree?.tag !== "UNJUDGED") owed.push(place.fault);
-		} else if (
-			place?.at === "off" &&
-			!recorded.some(
-				(o) =>
-					o !== c &&
-					o.repo === c.repo &&
-					o.issue === c.issue &&
-					landed.get(o)?.at !== "off" &&
-					isSameReview(o, c),
-			)
-		)
+		if (place?.at === "off" && !isCorrected(c))
 			owed.push({
 				tag: "OFF MAIN",
 				fault: `${c.repo}#${c.issue} has a record naming landed ${c.landed}, which never reached main, so its commit is not counted until it is corrected: post a record naming the sha it landed under, as \`scripts/lib/rule-text.sh review-tier-records\` says`,
@@ -768,42 +783,59 @@ function judgeRecords(commits, home) {
 			return at === undefined || at === "main" || at === "unread";
 		}),
 		reports,
+		undercounts: recorded.some(
+			(c) =>
+				c.repo !== own &&
+				c.fixed + c.escapes.length > 0 &&
+				landed.get(c)?.at === "unheld" &&
+				!isCorrected(c),
+		),
 	};
 }
 
 /**
- * Whether `later` restates `r`, as the header's A RECORD WITH CUT-OFF LINES says.
+ * Whether `later`, itself faultless, restates `r`, as the header's A RECORD WITH
+ * LOST LINES OR PATHS says.
  *
  * @param {ReviewRecord} later
  * @param {ReviewRecord} r
  */
 const restates = (later, r) =>
-	later.cutOff === 0 &&
 	COUNTED_TIERS.has(later.tier) &&
-	later.fixed >= r.fixed + r.cutOff &&
+	later.fixed >= r.fixed + r.cutOff + r.misspelt &&
 	isSameReview(later, r) &&
 	(isSameSha(later.tree, r.tree) || isSameSha(later.landed, r.landed));
 
 /**
- * One ticket's records as counted, and the reports the header's A RECORD WITH
- * CUT-OFF LINES owes them.
+ * One ticket's records as counted, and the reports readRecordFaults owes them, each
+ * until a later record restates it. Paths that are not paths are dropped, so no
+ * replay is limited by them and a correction's replace them.
  *
  * @param {ReviewRecord[]} found in comment order
+ * @param {string | null} root the checkout that tracks their repo, if any
  * @returns {{ records: ReviewRecord[], faults: Report[] }}
  */
-function settleCutOff(found) {
+function settleRecords(found, root) {
 	/** @type {Report[]} */
 	const faults = [];
-	const records = found.map((r, i) => {
-		if (r.cutOff === 0) return r;
-		if (found.slice(i + 1).some((later) => restates(later, r)))
-			return { ...r, fixed: 0, fixes: 0 };
-		if (COUNTED_TIERS.has(r.tier))
+	const judged = found.map((r) => ({ r, owed: readRecordFaults(r, root) }));
+	const records = judged.map(({ r, owed }, i) => {
+		if (owed.length === 0) return r;
+		const withoutStray = owed.some((f) => f.tag === "NOT PATHS")
+			? { ...r, paths: null }
+			: r;
+		if (
+			judged
+				.slice(i + 1)
+				.some((later) => later.owed.length === 0 && restates(later.r, r))
+		)
+			return { ...withoutStray, fixed: 0, fixes: 0 };
+		for (const f of owed)
 			faults.push({
-				tag: "CUT OFF",
-				fault: `${r.repo}#${r.issue} has a record, landed ${r.landed}, with ${describeCutOff(r.cutOff)}, so they count 0 until it is corrected: post a record of the same review with its whole list straight under it and the prose after, as \`scripts/lib/rule-text.sh review-tier-records\` says`,
+				tag: f.tag,
+				fault: `${r.repo}#${r.issue} has a record, landed ${r.landed}, ${f.what} until it is corrected: post a record of the same review ${f.fix}, as ${RULE_COMMAND} says`,
 			});
-		return r;
+		return withoutStray;
 	});
 	return { records, faults };
 }
@@ -828,16 +860,24 @@ function countedCommits(trackers, today, home, own) {
 	/** @type {Unparsed[]} */
 	const unparsed = [];
 	/** @type {Report[]} */
-	const cutOffFaults = [];
+	const settledFaults = [];
 	for (const repo of trackers) {
+		const checkout = readCheckoutTracking(repo, home);
+		const root = "root" in checkout ? checkout.root : null;
 		const tickets = searchTickets(repo, FLOOR, today).sort(
 			(a, b) => a.issue - b.issue,
 		);
 		for (const { issue, comments } of tickets) {
 			const found = parseIssue(repo, issue, comments);
-			const settled = settleCutOff(found.records);
+			const settled = settleRecords(found.records, root);
 			records.push(...settled.records);
-			cutOffFaults.push(...settled.faults);
+			settledFaults.push(
+				...found.unknownTiers.map((u) => ({
+					tag: /** @type {Report["tag"]} */ ("UNKNOWN TIER"),
+					fault: `${repo}#${issue} has a tier in no known word, so no record under it is counted until a line of standard, escalated or mission-critical follows, as ${RULE_COMMAND} says: ${u.line}`,
+				})),
+				...settled.faults,
+			);
 			escaped.push(...found.escaped);
 			unparsed.push(...found.unparsed);
 		}
@@ -860,18 +900,19 @@ function countedCommits(trackers, today, home, own) {
 	};
 	const trailered = addTrailerCommits(commits, reading);
 	const credited = creditEscapes(commits, escaped, reading);
-	const judged = judgeRecords(commits, home);
+	const judged = judgeRecords(commits, home, own);
 	return {
 		commits: judged.commits.filter((c) => c.fixed + c.escapes.length > 0),
 		unparsed,
 		reports: [
-			...cutOffFaults,
+			...settledFaults,
 			...cover.rangeFaults,
 			...trailered.unseen,
 			...credited.faults,
 			...judged.reports,
 		],
-		undercounts: credited.undercounts || trailered.undercounts,
+		undercounts:
+			credited.undercounts || trailered.undercounts || judged.undercounts,
 	};
 }
 

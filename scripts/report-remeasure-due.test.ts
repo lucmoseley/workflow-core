@@ -383,6 +383,17 @@ const TWO_COMMIT_TICKET = [
 	{ file: "lib/secret.js", message: "first of the ticket (#9)" },
 	{ file: "lib/secret.js", message: "the tip" },
 ];
+/** The report on the ticket `where`, its record's landed sha `landed`. */
+const buildNoTierFault = (where: string, landed: string, under: string) =>
+	`NO TIER: ${where} has a record, landed ${landed}, under ${under}, so its defects count nowhere until it is corrected: post a record of the same review under a \`**Review tier:**\` line of escalated or mission-critical where the review ran at one, or, a standard review owing no such record, as plain prose, as \`scripts/lib/rule-text.sh review-tier-records\` says`;
+
+/* The records as filed, each with a note its paths swallowed. */
+const NOTED_RECORDS = {
+	3817: "**Review findings:** base fa86cc9ed7c333202bc6b4e5c4939f1934f45641, reviewed 22018e4b7e5113b0a141a9db4f82a6203cf45fe3, landed 88a44510b, paths scripts/lib/read-hidden.js scripts/lib/read-hidden.test.ts scripts/test_write_secret_tty.py scripts/write-secret.js. scripts/write-secret.test.ts and docs/test-read-edges.json joined with the fixes.",
+	3826: "**Review findings:** base `88a44510be20f03e872e02ed3b05e0b496d58577`, reviewed `98f36d9c9a871ecd5c577b1f7b08856bd0e1b398`, landed `6a459da0c`, paths `scripts/lib/read-hidden.js,scripts/lib/read-hidden.test.ts,scripts/test_write_secret_tty.py`. Landed names the commit queued on `landing`, not yet on `main`.",
+	2085: "**Review findings:** base 23f76f5f0305f7a3dd6768e82d27557778208484, reviewed 75982fd5ef153713a69fd079009076d5b795bde1, landed 19ba39677, paths scripts/lib/atomic-write.js, scripts/lib/atomic-write.test.ts and the 27 routed sites, tests and manifest in that commit",
+};
+
 const readCountLine = (fx: { issueBody: { body: () => string } }) =>
 	fx.issueBody.body().split("\n")[0];
 
@@ -662,13 +673,15 @@ describe("the re-measure trigger", () => {
 			code: 0,
 			stdout: "",
 			stderr: [
-				buildCutOffFault(1, 1),
-				buildCutOffFault(2, 3),
-				buildCutOffFault(4, 5),
-				buildCutOffFault(5, 6),
-				buildCutOffFault(6, 7),
+				`CUT OFF: ${buildCutOffFault(1, 1)}`,
+				`CUT OFF: ${buildCutOffFault(2, 3)}`,
+				buildNoTierFault("o/fleet#3", sha("c", 4), "the tier standard"),
+				`CUT OFF: ${buildCutOffFault(4, 5)}`,
+				`CUT OFF: ${buildCutOffFault(5, 6)}`,
+				`CUT OFF: ${buildCutOffFault(6, 7)}`,
+				buildNoTierFault("o/fleet#6", sha("c", 7), "the tier standard"),
 			]
-				.map((fault) => `CUT OFF: ${fault}\n`)
+				.map((fault) => `${fault}\n`)
 				.join(""),
 		});
 		expect(readGuardErrorsLog(fx.config)).toContain(
@@ -871,10 +884,10 @@ describe("the re-measure trigger", () => {
 			"report-remeasure-due\to/manta#4 has a record naming landed",
 		);
 		const body = fx.issueBody.body();
-		expect(body.split("\n")[0]).toMatch(/^3 commits on adopter-declared/);
-		for (const landed of [onMain, corrected, unheld])
+		expect(body.split("\n")[0]).toMatch(/^2 commits on adopter-declared/);
+		for (const landed of [onMain, corrected])
 			expect(body).toContain(`landed ${landed}`);
-		for (const landed of [queued, replaced, lost])
+		for (const landed of [queued, replaced, lost, unheld])
 			expect(body).not.toContain(`landed ${landed}`);
 	});
 
@@ -949,8 +962,7 @@ describe("the re-measure trigger", () => {
 	it("reports a record its checkout cannot diff as unjudged, one line, and nothing more of it (#3544)", () => {
 		const fx = fixture({ hits: {} });
 		const rev = checkout(fx);
-		const missing = "f".repeat(40);
-		const reviewed = rev("refs/pre-fix");
+		const reviewed = "f".repeat(40);
 		fx.setHits({
 			[OWN]: [
 				{
@@ -959,7 +971,7 @@ describe("the re-measure trigger", () => {
 					comments: [
 						TIER_LINE,
 						[
-							`**Review findings:** base ${rev("base")}, reviewed ${reviewed}, landed ${missing}, paths quote.ts`,
+							`**Review findings:** base ${rev("base")}, reviewed ${reviewed}, landed ${rev("HEAD")}, paths quote.ts`,
 							"- FIXED: a leak in the log line (Focus)",
 						].join("\n"),
 					],
@@ -971,7 +983,7 @@ describe("the re-measure trigger", () => {
 		expect(r.stdout).toBe("");
 		expect(r.stderr).toMatch(
 			new RegExp(
-				`^UNJUDGED: ${OWN}#7: could not diff reviewed ${reviewed} against landed ${missing} in \\S+, so whether its record names the landed tree is not judged until that checkout holds both — [^\\n]+\\n$`,
+				`^UNJUDGED: ${OWN}#7: could not diff reviewed ${reviewed} against landed ${rev("HEAD")} in \\S+, so whether its record names the landed tree is not judged until that checkout holds both — [^\\n]+\\n$`,
 			),
 		);
 		expect(readGuardErrorsLog(fx.config)).toContain(
@@ -1231,7 +1243,11 @@ describe("the re-measure trigger", () => {
 			"o/manta": [buildMantaRecord(base, tip, [], STANDARD_TIER)],
 			"o/fleet": [buildEscapeTicket(cited)],
 		});
-		expect(run(fx)).toEqual({ code: 0, stdout: "", stderr: fault(cited) });
+		expect(run(fx)).toEqual({
+			code: 0,
+			stdout: "",
+			stderr: `${buildNoTierFault("o/manta#9", tip, "the tier standard")}\n${fault(cited)}`,
+		});
 		expect(readCountLine(fx)).toMatch(/^0 commits /);
 	});
 
@@ -1795,5 +1811,336 @@ describe("the re-measure trigger", () => {
 		expect(readGuardErrorsLog(fx.config)).toContain(
 			`report-remeasure-due\tcould not file or refresh "${TITLE}" — HTTP 403`,
 		);
+	});
+});
+
+describe("a record that loses defects or credits false ones (#3907)", () => {
+	const buildFleetHit = (...comments: string[]): Hit => ({
+		number: 9,
+		updated: "2026-11-01",
+		comments,
+	});
+	/** The filed issue's first line and the stderr, the record's ticket on o/fleet. */
+	const read = (...comments: string[]) => {
+		const fx = fixture({
+			hits: { "o/fleet": [buildFleetHit(...comments)] },
+			issues: FILED,
+		});
+		const r = run(fx);
+		expect(r.code).toBe(0);
+		return {
+			stderr: r.stderr,
+			count: readCountLine(fx),
+			body: fx.issueBody.body(),
+		};
+	};
+
+	it.each([
+		[3817, ["scripts/write-secret.js.", "and", "joined", "fixes."]],
+		[3826, ["scripts/test_write_secret_tty.py.", "names", "main."]],
+		[2085, ["and", "routed", "manifest", "commit"]],
+	] as const)(
+		"reports #%s's filed record as holding a note, and lists it with no paths",
+		(n, entries) => {
+			const { stderr, count, body } = read(
+				TIER_LINE,
+				`${NOTED_RECORDS[n]}\n- FIXED: a leak (Focus)`,
+			);
+			expect(stderr).toMatch(/^NOT PATHS: o\/fleet#9 has a record, landed /);
+			for (const entry of entries) expect(stderr).toContain(`"${entry}"`);
+			expect(stderr).toContain(
+				"post a record of the same review with the marker's paths= and no note after them",
+			);
+			expect(stderr).not.toContain('"scripts/lib/read-hidden.js"');
+			expect(stderr).not.toContain('"scripts/lib/atomic-write.js"');
+			expect(count).toMatch(/^1 commits /);
+			expect(body).not.toContain("paths ");
+		},
+	);
+
+	it("goes silent on a later record of the review with clean paths, taking those paths and counting its list alone", () => {
+		const { stderr, count, body } = read(
+			TIER_LINE,
+			`${NOTED_RECORDS[3817]}\n- FIXED: a leak (Focus)`,
+			`${NOTED_RECORDS[3817].replace(/\. scripts\/write-secret\.test.*/, "")}\n- FIXED: a leak (Focus)`,
+		);
+		expect(stderr).toBe("");
+		expect(count).toMatch(/^1 commits /);
+		expect(body).toContain("paths scripts/lib/read-hidden.js");
+		expect(body).toContain("scripts/write-secret.js;");
+		expect(body).toContain("1 fixed or ticketed");
+	});
+
+	it("judges paths by the record's replay in its checkout: a path-shaped entry git never changed is named, one that joined with the fixes is not", () => {
+		const fx = fixture({ hits: {} });
+		const rev = checkout(fx);
+		const buildRecordHead = (paths: string) =>
+			`**Review findings:** base ${rev("base")}, reviewed ${rev("refs/pre-fix")}, landed ${rev("HEAD")}, paths ${paths}\n- FIXED: a leak (Focus)`;
+		fx.setHits({
+			[OWN]: [
+				{
+					number: 1,
+					updated: "2026-11-01",
+					comments: [
+						TIER_LINE,
+						buildRecordHead("quote.ts .claude/workflow-core.json"),
+					],
+				},
+			],
+		});
+		expect(run(fx).stderr).toBe("");
+		fx.setHits({
+			[OWN]: [
+				{
+					number: 1,
+					updated: "2026-11-01",
+					comments: [TIER_LINE, buildRecordHead("quote.ts scripts/nowhere.ts")],
+				},
+			],
+		});
+		const r = run(fx);
+		expect(r.code).toBe(0);
+		expect(r.stderr).toMatch(/^NOT PATHS: o\/wfc#1 has a record, landed /);
+		expect(r.stderr).toContain('hold "scripts/nowhere.ts", no path');
+	});
+
+	it("reports a record under no tier or the standard tier, searching for records so a ticket with no tier line is read at all", () => {
+		const fx = fixture({
+			hits: {
+				"o/fleet": [
+					buildFleetHit(record(20)),
+					{
+						...buildFleetHit("**Review tier:** standard", record(21)),
+						number: 10,
+					},
+				],
+			},
+		});
+		expect(run(fx)).toEqual({
+			code: 0,
+			stdout: "",
+			stderr: [
+				buildNoTierFault("o/fleet#9", sha("c", 20), "no tier line"),
+				buildNoTierFault("o/fleet#10", sha("c", 21), "the tier standard"),
+			]
+				.map((fault) => `${fault}\n`)
+				.join(""),
+		});
+		for (const q of searches(fx)) expect(q).toContain('"Review findings"');
+	});
+
+	it("goes silent once the record is restated under a counted tier, counting its list once", () => {
+		const { stderr, count, body } = read(record(20), TIER_LINE, record(20));
+		expect(stderr).toBe("");
+		expect(count).toMatch(/^1 commits /);
+		expect(body).toContain("1 fixed or ticketed");
+	});
+
+	it.each([
+		"- Fixed: a leak",
+		"- **FIXED**: a leak",
+		"* FIXED: a leak",
+		"1. FIXED: a leak",
+		"- fixed: a leak",
+		"- Ticketed #9: a leak",
+		"FIXED: a leak",
+		"- [x] FIXED: a leak",
+		"- [FIXED]: a leak",
+		"- ✅ FIXED: a leak",
+		"- (FIXED): a leak",
+		"- Standards: FIXED a leak",
+		"- ~~FIXED~~: a leak",
+		"- _Fixed_: a leak",
+		"– FIXED: a leak",
+		"• FIXED: a leak",
+	])("reports %s as misspelt, counting it 0", (line) => {
+		const { stderr, count } = read(
+			TIER_LINE,
+			`${record(1, []).split("\n")[0]}\n${line} (Focus)`,
+		);
+		expect(stderr).toMatch(
+			/^MISSPELT: o\/fleet#9 has a record, landed c0+1, with 1 disposition line not spelt - FIXED or - TICKETED, so they count 0 until it is corrected: post a record of the same review with each line spelt - FIXED or - TICKETED, as /,
+		);
+		expect(count).toMatch(/^0 commits /);
+	});
+
+	it("takes a declined line and prose starting with the word as no misspelling, and goes silent on a respelt record", () => {
+		const head = record(1, []).split("\n")[0];
+		expect(
+			read(
+				TIER_LINE,
+				`${head}\n- DECLINED: its FIXED label was wrong (Spec)\n- Declined: not one\nFixed by the next commit.`,
+			).stderr,
+		).toBe("");
+		const respelt = read(
+			TIER_LINE,
+			`${head}\n- Fixed: a leak (Focus)`,
+			`${head}\n- FIXED: a leak (Focus)`,
+		);
+		expect(respelt.stderr).toBe("");
+		expect(respelt.count).toMatch(/^1 commits /);
+	});
+
+	it("reports a tier in no known word, once, until a known one follows, counting nothing under it", () => {
+		const mistier = "**Review tier:** mission critical — a money rule";
+		const { stderr, count } = read(mistier, record(1));
+		expect(stderr).toBe(
+			`UNKNOWN TIER: o/fleet#9 has a tier in no known word, so no record under it is counted until a line of standard, escalated or mission-critical follows, as \`scripts/lib/rule-text.sh review-tier-records\` says: ${mistier}\n${buildNoTierFault("o/fleet#9", sha("c", 1), "the tier mission")}\n`,
+		);
+		expect(count).toMatch(/^0 commits /);
+		const late = read(mistier, record(1), "**Review tier:** escalated");
+		expect(late.stderr).toBe(
+			`${buildNoTierFault("o/fleet#9", sha("c", 1), "the tier mission")}\n`,
+		);
+		const corrected = read(
+			mistier,
+			"**Review tier:** mission-critical",
+			record(1),
+		);
+		expect(corrected.stderr).toBe("");
+		expect(corrected.count).toMatch(/^1 commits /);
+	});
+
+	it.each([
+		["backticked", "`**Review tier:** standard` names the line."],
+		["double-quoted", '"**Review tier:** standard" names the line.'],
+		["fenced", "```\n**Review tier:** standard\n```"],
+		["block-quoted", "> **Review tier:** standard"],
+		["single-quoted", "'**Review tier:** standard' names the line."],
+		[
+			"fenced under a bullet",
+			"- x\n    ```\n    **Review tier:** standard\n    ```",
+		],
+	])(
+		"reads a %s tier as a mention, the next record keeping its tier",
+		(_, mention) => {
+			const { stderr, count } = read(TIER_LINE, mention, record(1));
+			expect(stderr).toBe("");
+			expect(count).toMatch(/^1 commits /);
+		},
+	);
+
+	it.each([
+		["backticked", "`**Escaped defect:** c00000001` is the form."],
+		["double-quoted", 'The rule asks for "**Escaped defect:** c00000001".'],
+		[
+			"curly-quoted",
+			"The rule asks for \u201c**Escaped defect:** c00000001\u201d.",
+		],
+		["fenced", "~~~\n**Escaped defect:** c00000001 — a miss\n~~~"],
+		["block-quoted", "> **Escaped defect:** c00000001 — a miss"],
+		["single-quoted", "'**Escaped defect:** c00000001' is the form."],
+		["curly single-quoted", "‘**Escaped defect:** c00000001’ is the form."],
+		[
+			"fenced under a bullet",
+			"- x\n    ```\n    **Escaped defect:** c00000001\n    ```",
+		],
+	])("credits no defect on a %s escape", (_, mention) => {
+		const { count } = read(TIER_LINE, record(1, []), mention);
+		expect(count).toMatch(/^0 commits /);
+	});
+
+	it("reads an apostrophe as no quote, so a plain escape between two still credits", () => {
+		const { count } = read(
+			TIER_LINE,
+			record(1, []),
+			"The rule's line: **Escaped defect:** c00000001 — it isn't a mention.",
+		);
+		expect(count).toMatch(/^1 commits /);
+	});
+
+	it("still credits an escape written plainly", () => {
+		const { count } = read(
+			TIER_LINE,
+			record(1, []),
+			"**Escaped defect:** c00000001 — a miss",
+		);
+		expect(count).toMatch(/^1 commits /);
+	});
+
+	it.each([
+		["fenced", (r: string) => `\`\`\`\n${r}\n\`\`\``],
+		[
+			"block-quoted",
+			(r: string) =>
+				r
+					.split("\n")
+					.map((l) => `> ${l}`)
+					.join("\n"),
+		],
+		["backticked", (r: string) => `\`${r.split("\n")[0]}\`\n- DECLINED: none`],
+	])("counts no %s record", (_, wrap) => {
+		const { stderr, count } = read(TIER_LINE, wrap(record(1)));
+		expect(stderr).toBe("");
+		expect(count).toMatch(/^0 commits /);
+	});
+
+	it("holds the filed count on a landed sha its checkout cannot resolve, naming it, and counts it nowhere", () => {
+		const fx = fixture({ hits: {}, issues: FILED, body: buildFiledBody(1) });
+		trailerCheckout(fx, [{ file: "a.txt" }]);
+		const unheld = "d".repeat(40);
+		fx.setHits({ "o/manta": [ticket(5, [], [record(5, undefined, unheld)])] });
+		const r = run(fx);
+		expect(r.stderr).toMatch(
+			new RegExp(
+				`^UNJUDGED: o/manta#5: could not walk landed ${unheld} .*so its commit is not counted until`,
+			),
+		);
+		expect(r.code).toBe(0);
+		const lines = r.stderr.split("\n");
+		expect(lines).toHaveLength(3);
+		expect(lines[1]).toBe(
+			"HELD: #77 stays at 1 commits, this run reading 0; the next day's run retries",
+		);
+	});
+
+	it("holds the count on an escape-only row on such a sha too", () => {
+		const fx = fixture({ hits: {}, issues: FILED, body: buildFiledBody(1) });
+		trailerCheckout(fx, [{ file: "a.txt" }]);
+		const unheld = "d".repeat(40);
+		fx.setHits({
+			"o/manta": [
+				ticket(
+					5,
+					[],
+					[
+						record(5, ["DECLINED: not one"], unheld),
+						`**Escaped defect:** ${unheld} — a miss`,
+					],
+				),
+			],
+		});
+		expect(run(fx).stderr).toContain("HELD: #77 stays at 1 commits");
+	});
+
+	it("goes silent and holds nothing once a record of the same review names the sha its checkout holds", () => {
+		const fx = fixture({ hits: {}, issues: FILED, body: buildFiledBody(1) });
+		const [held = ""] = trailerCheckout(fx, [{ file: "a.txt" }]);
+		fx.setHits({
+			"o/manta": [
+				ticket(
+					5,
+					[],
+					[record(5, undefined, "d".repeat(40)), record(5, undefined, held)],
+				),
+			],
+		});
+		const r = run(fx);
+		expect(r.stderr).toBe("");
+		expect(readCountLine(fx)).toMatch(/^1 commits /);
+	});
+
+	it("takes a directory or a ./ path its replay changes under as a path", () => {
+		const fx = fixture({ hits: {} });
+		const [first = "", second = ""] = trailerCheckout(fx, [
+			{ file: "dir/sub/a.js" },
+			{ file: "dir/sub/a.js" },
+		]);
+		const buildPathsRecord = (paths: string) =>
+			`**Review findings:** base ${first}, reviewed ${second}, landed ${second}, paths ${paths}\n- FIXED: a leak (Focus)`;
+		for (const paths of ["dir/sub", "dir/sub/", "./dir/sub/a.js"]) {
+			fx.setHits({ "o/manta": [ticket(5, [], [buildPathsRecord(paths)])] });
+			expect(run(fx).stderr).not.toContain("NOT PATHS");
+		}
 	});
 });

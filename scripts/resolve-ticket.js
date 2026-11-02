@@ -339,7 +339,12 @@ function checkLandedOrFail(comment, n) {
 function checkFindingsOrFail(comment, repo, n) {
 	if (!hasRecordMention(comment)) return;
 	checkRefusalOrFail("review record", n, () =>
-		buildFindingsRefusal(n, readTicketComments(repo, n), comment),
+		buildFindingsRefusal(
+			n,
+			readTicketComments(repo, n),
+			comment,
+			worktreeRoot(),
+		),
 	);
 }
 
