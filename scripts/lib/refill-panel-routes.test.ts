@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * Which splits an environment offers (#3886), and what returns focus from each
- * (#3887). Asserted on the whole argv, as a
+ * (#3887, #4001). Asserted on the whole argv, as a
  * dropped word or a flag `wt.exe` swallows opens no panel and nothing says so.
  */
 import { describe, expect, it } from "vitest";
@@ -84,6 +84,7 @@ describe("buildFocusReturn", () => {
 			file: "cmd.exe",
 			args: ["/c", "wt.exe", "-w", "0", "move-focus", "left"],
 			env: View,
+			splitTakesFocus: true,
 		});
 	});
 
@@ -92,6 +93,7 @@ describe("buildFocusReturn", () => {
 			file: "tmux",
 			args: ["select-pane", "-L"],
 			env: { PATH: "/view", TMUX_PANE: "%2" },
+			splitTakesFocus: false,
 		});
 	});
 

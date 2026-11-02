@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * The panel's terminal wiring (#3873, #3887, #3948): what it asks of the terminal on opening,
+ * The panel's terminal wiring (#3873, #3887, #3948, #4001): what it asks of the terminal on opening,
  * and what it hands back on each way out, over injected streams and a fake process,
  * so a signal costs no real process. Broken, a crash leaves the founder's pane raw
  * and in mouse mode, or the panel outlives its agents view.
@@ -25,8 +25,21 @@ const STATUS = JSON.stringify({
 	burnMode: { on: false, disagreeing: [], error: null },
 });
 const noop = (): void => undefined;
+/* The row the newest frame draws `text` on, as a mouse report counts it. */
+const drawnRowOf = (t: { text: () => string }, text: string) => {
+	const frame = t.text().slice(t.text().lastIndexOf(`${ESC}[?25l`));
+	const before = frame.slice(0, frame.indexOf(text));
+	return Number(
+		before
+			.match(/\[(\d+);3H/g)
+			?.at(-1)
+			?.match(/\d+/)?.[0],
+	);
+};
 /* ESCAPE_WAIT_MS in refill-panel-terminal.js. */
 const ESCAPE_WAIT_MS = 50;
+/* POLL_MS in refill-panel-terminal.js. */
+const POLL_MS = 3000;
 
 function terminal(over: object = {}) {
 	const written: string[] = [];
@@ -116,6 +129,32 @@ describe("the panel's terminal", () => {
 		expect(t.text().slice(before)).not.toContain("❯");
 	});
 
+	it("hands focus back once on opening where the split took it (#4001)", async () => {
+		const t = terminal({ focusTakenOnOpening: true });
+		await vi.advanceTimersByTimeAsync(3 * POLL_MS);
+		expect(t.focusReturns()).toBe(1);
+	});
+
+	it("runs no focus command on opening where the split left it", async () => {
+		const t = terminal({ focusTakenOnOpening: false });
+		await vi.advanceTimersByTimeAsync(3 * POLL_MS);
+		expect(t.focusReturns()).toBe(0);
+	});
+
+	it("says why, and shows the pointer, where opening cannot hand focus back", async () => {
+		const t = terminal({
+			focusTakenOnOpening: true,
+			returnFocus: async () => ({
+				code: 1,
+				stdout: "",
+				stderr: "wt.exe: no window",
+			}),
+		});
+		await vi.advanceTimersByTimeAsync(0);
+		expect(t.text()).toContain("wt.exe: no window");
+		expect(t.text()).toContain("❯");
+	});
+
 	it("hands focus back on a click, and on Esc once its wait ends", async () => {
 		const t = terminal();
 		await vi.advanceTimersByTimeAsync(0);
@@ -202,7 +241,7 @@ describe("the panel's terminal", () => {
 			},
 		});
 		await vi.advanceTimersByTimeAsync(0);
-		const cell = "5;11";
+		const cell = `5;${drawnRowOf(t, "Burn mode")}`;
 		t.stdin.emit("data", `${ESC}[<0;${cell}M${ESC}[<0;${cell}m`);
 		await vi.advanceTimersByTimeAsync(0);
 		expect(flips).toEqual([["on"]]);
@@ -210,9 +249,6 @@ describe("the panel's terminal", () => {
 	});
 
 	describe("the goal field", () => {
-		/* The switch's row with no burn report: its section sits below Burn mode. */
-		const GoalRow = 14;
-		const FieldRow = GoalRow + 2;
 		const clickRow = (t: ReturnType<typeof terminal>, row: number) =>
 			t.stdin.emit("data", `${ESC}[<0;5;${row}M${ESC}[<0;5;${row}m`);
 		const statusWithGoal = JSON.stringify({
@@ -228,7 +264,9 @@ describe("the panel's terminal", () => {
 				},
 			});
 			await vi.advanceTimersByTimeAsync(0);
-			clickRow(t, FieldRow);
+			/* The field sits straight above its caption. */
+			const fieldRow = drawnRowOf(t, "Click to change it") - 1;
+			clickRow(t, fieldRow);
 			return { t, presses };
 		};
 
@@ -266,7 +304,7 @@ describe("the panel's terminal", () => {
 
 	it("polls the status and runs nothing else with no click", async () => {
 		const t = terminal();
-		await vi.advanceTimersByTimeAsync(9000);
+		await vi.advanceTimersByTimeAsync(3 * POLL_MS);
 		expect(t.calls.length).toBeGreaterThan(1);
 		expect(new Set(t.calls.map((c) => c.join(" ")))).toEqual(
 			new Set(["status --json"]),
@@ -300,17 +338,6 @@ describe("the wheel", () => {
 		return t;
 	};
 	const ticks = () => presses.filter((argv) => argv[0] === "set");
-	/* The row the newest frame draws `text` on, as a mouse report counts it. */
-	const drawnRowOf = (t: ReturnType<typeof terminal>, text: string) => {
-		const frame = t.text().slice(t.text().lastIndexOf(`${ESC}[?25l`));
-		const before = frame.slice(0, frame.indexOf(text));
-		return Number(
-			before
-				.match(/\[(\d+);3H/g)
-				?.at(-1)
-				?.match(/\d+/)?.[0],
-		);
-	};
 
 	beforeEach(() => {
 		presses = [];

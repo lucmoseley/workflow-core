@@ -1714,6 +1714,7 @@ function createPanel({
 		missClick: leaveUnlessTyping,
 		pressKey,
 		scrollBy,
+		leave,
 		takeFocus,
 		loseFocus,
 	};

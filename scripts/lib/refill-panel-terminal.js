@@ -1,9 +1,10 @@
 /*
- * refill-panel-terminal.js — the refill loop's panel on a terminal (#3873, #3885, #3887, #3948, spec
+ * refill-panel-terminal.js — the refill loop's panel on a terminal (#3873, #3885, #3887, #3948, #4001, spec
  * #3596): raw mode, the alternate screen and mouse reports on opening, handed back
  * on every exit a process can catch, and the poll and pid watch between. It asks what
  * the terminal can draw on opening, keeping the text controls until both answers say
- * images fit; a terminal that never answers keeps them.
+ * images fit; a terminal that never answers keeps them. Where the split took focus,
+ * opening hands it back.
  */
 
 const {
@@ -46,6 +47,7 @@ const SIGNAL_EXITS = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
  *   runBurn: import("./refill-panel.js").Runner,
  *   resolveTopic: import("./refill-panel.js").TopicResolver,
  *   returnFocus: import("./refill-panel.js").FocusReturner,
+ *   focusTakenOnOpening: boolean,
  *   isAlive: (pid: number) => boolean, now: () => number,
  *   reportCrash: (err: unknown) => void}} io
  */
@@ -58,6 +60,7 @@ function openPanel({
 	runBurn,
 	resolveTopic,
 	returnFocus,
+	focusTakenOnOpening,
 	isAlive,
 	now,
 	reportCrash,
@@ -165,6 +168,7 @@ function openPanel({
 	stdin.resume();
 	stdout.write(SCREEN_ON);
 	draw();
+	if (focusTakenOnOpening) panel.leave().catch(crash);
 
 	stdin.on("data", (/** @type {string} */ chunk) => {
 		clearTimeout(escapeWait);

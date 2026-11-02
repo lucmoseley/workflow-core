@@ -1,7 +1,7 @@
 /*
  * refill-panel-routes.js — which splits can open the refill-loop panel beside an
  * agents view, and what hands focus back to the view from each, as pure functions of
- * the environment (#3886, #3887, ruling #3571).
+ * the environment (#3886, #3887, #4001, ruling #3571).
  */
 
 /* Untraced, listed so by spec #3596. */
@@ -61,10 +61,13 @@ function buildRoutes({ env, isOnPath, node, panel, pid }) {
 /**
  * What hands focus back to the agents pane, which each split puts on the panel's left.
  * `select-pane -L` counts from the pane TMUX_PANE names: the panel's, not the view's.
+ * `splitTakesFocus` says opening must hand it back too (#4001): `wt.exe split-pane` moves
+ * focus to the new pane with no flag to stay put (its docs and `AppCommandlineArgs.cpp`).
+ * Keys typed before `move-focus` answers still reach the panel.
  * @param {string|undefined} route the split that opened the panel; none where it was run by hand
  * @param {Record<string, string | undefined>} viewEnv
  * @param {Record<string, string | undefined>} ownEnv
- * @returns {{ file: string, args: string[], env: Record<string, string | undefined> }|null}
+ * @returns {{ file: string, args: string[], env: Record<string, string | undefined>, splitTakesFocus: boolean }|null}
  */
 function buildFocusReturn(route, viewEnv, ownEnv) {
 	if (route === WINDOWS_TERMINAL)
@@ -72,12 +75,14 @@ function buildFocusReturn(route, viewEnv, ownEnv) {
 			file: "cmd.exe",
 			args: [...WT_IN_THIS_WINDOW, "move-focus", "left"],
 			env: viewEnv,
+			splitTakesFocus: true,
 		};
 	if (route === TMUX)
 		return {
 			file: "tmux",
 			args: ["select-pane", "-L"],
 			env: { ...viewEnv, TMUX_PANE: ownEnv.TMUX_PANE },
+			splitTakesFocus: false,
 		};
 	return null;
 }
