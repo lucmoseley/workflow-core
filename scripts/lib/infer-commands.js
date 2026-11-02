@@ -13,7 +13,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
-const { isNpmRun, npmCanon, npmScriptCommand } = require("./npm-options.js");
+const { isNpmRun, npmCanon, scriptOfNpmCommand } = require("./npm-options.js");
 const { isOpaque, tokenise } = require("./shell-tokens.js");
 const { writeFd } = require("./write-fd.js");
 const { shellQuote } = require("./sh-quote.js");
@@ -53,6 +53,8 @@ class PackageReadError extends Error {
 	}
 }
 
+/** @typedef {ReturnType<typeof buildPackageReader>} PackageReader */
+
 /** A `readPackage` that reads each directory at its first call and keeps it. */
 function buildPackageReader() {
 	/** @type {Map<string, ReturnType<typeof readPackage>>} */
@@ -83,6 +85,17 @@ function throwUnlessAbsent(file, err) {
 		throw new PackageReadError(`${file} cannot be read`, { cause: err });
 }
 
+/* The sections a mapped command may rest on, as biome-staged.js needs the
+ * binary installed (#2731), which a peer or optional dependency may not be. */
+const MAPPED_SECTIONS = ["dependencies", "devDependencies"];
+/* Any section shows the repo uses Biome, enough to refuse what cannot be read
+ * but not to map (#3851). */
+const EVIDENT_SECTIONS = [
+	...MAPPED_SECTIONS,
+	"peerDependencies",
+	"optionalDependencies",
+];
+
 /**
  * Throws a PackageReadError on a `package.json` that cannot be read or does
  * not parse, which would otherwise read as one naming no script.
@@ -105,18 +118,14 @@ function readPackage(root) {
 	}
 	const scripts =
 		pkg?.scripts && typeof pkg.scripts === "object" ? pkg.scripts : {};
+	/** @param {string[]} sections */
+	const hasBiomeIn = (sections) =>
+		sections.some((k) => typeof pkg?.[k]?.["@biomejs/biome"] === "string");
 	return {
 		scripts,
-		biome: ["dependencies", "devDependencies"].some(
-			(k) => typeof pkg?.[k]?.["@biomejs/biome"] === "string",
-		),
+		biome: hasBiomeIn(MAPPED_SECTIONS),
 		biomeEvident:
-			[
-				"dependencies",
-				"devDependencies",
-				"peerDependencies",
-				"optionalDependencies",
-			].some((k) => typeof pkg?.[k]?.["@biomejs/biome"] === "string") ||
+			hasBiomeIn(EVIDENT_SECTIONS) ||
 			Object.values(scripts).some(
 				(s) => typeof s === "string" && s.includes("biome"),
 			),
@@ -242,7 +251,7 @@ function parseNpmRun(words) {
 	const verbAt = words.findIndex((w) => w.value === verb);
 	const prefix = options.findLast((w) => w.startsWith("--prefix="));
 	const dir = prefix ? prefix.slice("--prefix=".length) : "";
-	const script = npmScriptCommand(verb);
+	const script = scriptOfNpmCommand(verb);
 	if (script) return { nameAt: verbAt, script, dir, runLess: true };
 	if (!isNpmRun(verb)) return;
 	const nameAt = words.findIndex((w, i) => i > verbAt && w.value === name);
@@ -278,31 +287,28 @@ function parseOtherRun(runner, words) {
 	const flags = DIR_FLAGS.get(runner);
 	const isRun = RUN_VERB.get(runner);
 	if (!flags || !isRun) throw new Error(`no run rules for ${runner}`);
-	/** @type {number[]} */
+	/** @type {{word: string, at: number}[]} */
 	const plain = [];
-	for (const [i, w] of words.entries()) {
-		const before = words[i - 1];
+	for (const [at, w] of words.entries()) {
+		const before = words[at - 1];
 		if (!w.value.startsWith("-") && !(before && flags.has(before.value)))
-			plain.push(i);
+			plain.push({ word: w.value, at });
 	}
-	const [first, second, third] = plain.map((i) => words[i]?.value);
+	const [first, second, third] = plain;
 	const isValue =
-		plain[0] !== undefined &&
-		words[plain[0] - 1]?.value.startsWith("-") === true &&
+		first !== undefined &&
+		words[first.at - 1]?.value.startsWith("-") === true &&
 		second !== undefined &&
-		isRun(second) &&
+		isRun(second.word) &&
 		third !== undefined;
-	const isVerb = first !== undefined && isRun(first);
+	const isVerb = first !== undefined && isRun(first.word);
 	const skipped = isValue ? 2 : 0;
-	const nameAt = plain[isVerb ? 1 : skipped];
-	if (nameAt === undefined) return;
+	const named = plain[isVerb ? 1 : skipped];
+	if (named === undefined) return;
+	const nameAt = named.at;
 	const dir = parseDirFlag(words.slice(0, nameAt + 1), flags);
 	const runLess = !isVerb && !isValue;
-	const name = words[nameAt];
-	return runner === "pnpm" &&
-		runLess &&
-		name !== undefined &&
-		PNPM_TEST_ALIASES.has(name.value)
+	return runner === "pnpm" && runLess && PNPM_TEST_ALIASES.has(named.word)
 		? { nameAt, script: "test", dir, runLess }
 		: { nameAt, dir, runLess };
 }
@@ -354,7 +360,7 @@ const BINARY_RUNNERS = new Set(["yarn", "bun"]);
  */
 function* placedCommands(hop) {
 	let dirs = [hop.dir];
-	const settled = settledCds(hop.tokens);
+	const settled = parseSettledCds(hop.tokens);
 	for (const command of allCommands(hop.tokens)) {
 		const cd = parseCdTarget(command);
 		if (cd !== undefined) {
@@ -383,13 +389,13 @@ const runPackageDirs = (run, dirs, root) => [
  * where no script is called `biome` (#3944).
  * @param {Placed} placed
  * @param {string} root
- * @param {(dir: string) => Record<string, unknown>} readScripts
+ * @param {PackageReader} readCachedPackage
  */
-function withoutRun({ command, dirs }, root, readScripts) {
+function withoutRun({ command, dirs }, root, readCachedPackage) {
 	const run = findRun(command);
 	if (!run || run.runLess) return command;
 	const isScriptIn = (/** @type {string} */ dir) =>
-		typeof readScripts(dir)[run.name] === "string";
+		typeof readCachedPackage(dir).scripts[run.name] === "string";
 	return BINARY_RUNNERS.has(run.runner) &&
 		!runPackageDirs(run, dirs, root).every(isScriptIn)
 		? command
@@ -407,7 +413,7 @@ function withoutRun({ command, dirs }, root, readScripts) {
  * @param {Word[]} words
  * @returns {Word[]}
  */
-function handedWords(runner, words) {
+function parseHandedWords(runner, words) {
 	const cut = words.findIndex((w) => w.value === "--");
 	const kept =
 		runner === "npm"
@@ -504,7 +510,7 @@ function parseCdTarget(command) {
  * @param {Token[]} tokens
  * @returns {Set<Word>}
  */
-function settledCds(tokens) {
+function parseSettledCds(tokens) {
 	/** @type {Set<Word>} */
 	const settled = new Set();
 	/** @type {Word|undefined} */
@@ -572,15 +578,15 @@ function runHops(run, handed, dir, scripts) {
 /**
  * @param {Hop} hop
  * @param {string} root
- * @param {(dir: string) => Record<string, unknown>} readScripts
+ * @param {PackageReader} readCachedPackage
  */
-function* hopsFrom(hop, root, readScripts) {
+function* hopsFrom(hop, root, readCachedPackage) {
 	for (const { command, dirs } of placedCommands(hop)) {
 		const run = findRun(command);
 		if (!run) continue;
-		const handed = handedWords(run.runner, command.slice(run.end));
+		const handed = parseHandedWords(run.runner, command.slice(run.end));
 		for (const dir of runPackageDirs(run, dirs, root))
-			yield* runHops(run, handed, dir, readScripts(dir));
+			yield* runHops(run, handed, dir, readCachedPackage(dir).scripts);
 	}
 }
 
@@ -590,14 +596,13 @@ function* hopsFrom(hop, root, readScripts) {
  * the first result `visit` returns that is not undefined is the walk's.
  * @template T
  * @param {string} root the directory the command starts in
- * @param {(dir: string) => Record<string, unknown>} readScripts called at each
- *   run found, so a command running none reads no `package.json` (#3546); a
- *   caller passes one that reads each once
+ * @param {PackageReader} readCachedPackage called at each run found, so a
+ *   command running none reads no `package.json` (#3546)
  * @param {string} command
  * @param {(hop: Hop, hops: Hop[]) => T|undefined} visit
  * @returns {T|undefined}
  */
-function walkRunScripts(root, readScripts, command, visit) {
+function walkRunScripts(root, readCachedPackage, command, visit) {
 	const seen = new Set();
 	/**
 	 * @param {Hop} hop
@@ -607,7 +612,7 @@ function walkRunScripts(root, readScripts, command, visit) {
 	const walk = (hop, hops) => {
 		const hit = visit(hop, hops);
 		if (hit !== undefined) return hit;
-		for (const { next, key } of hopsFrom(hop, root, readScripts)) {
+		for (const { next, key } of hopsFrom(hop, root, readCachedPackage)) {
 			if (seen.has(key)) continue;
 			seen.add(key);
 			const found = walk(next, [...hops, next]);
@@ -639,12 +644,10 @@ const LINT_STAGED = /(?:^|\/)lint-staged(?:@.*)?$/;
 function isLintStagedCommand(root, command) {
 	const readCachedPackage = buildPackageReader();
 	const top = path.resolve(root);
-	const readScripts = (/** @type {string} */ dir) =>
-		readCachedPackage(dir).scripts;
 	return (
-		walkRunScripts(top, readScripts, command, (hop) =>
+		walkRunScripts(top, readCachedPackage, command, (hop) =>
 			[...placedCommands(hop)].some((placed) =>
-				withoutRun(placed, top, readScripts).some((w) =>
+				withoutRun(placed, top, readCachedPackage).some((w) =>
 					LINT_STAGED.test(w.value),
 				),
 			)
@@ -759,7 +762,7 @@ const MENTIONS = new RegExp(
  * the words after it hide what it runs. */
 /** @type {Map<string, (rest: Word[]) => boolean>} */
 const INDIRECT = new Map([
-	["xargs", (rest) => isHiddenCommand(xargsCommand(rest))],
+	["xargs", (rest) => isHiddenCommand(parseXargsCommand(rest))],
 	["eval", (rest) => rest.some(isUnreadWord)],
 ]);
 const SHELLS = new Set(["sh", "bash", "dash", "zsh", "ksh"]);
@@ -862,7 +865,7 @@ const isXargsValue = (before) =>
  * The command in the words after `xargs`, past its flags.
  * @param {Word[]} words
  */
-function xargsCommand(words) {
+function parseXargsCommand(words) {
 	const at = words.findIndex(
 		(w, i) => !w.value.startsWith("-") && !isXargsValue(words[i - 1]),
 	);
@@ -1308,8 +1311,6 @@ function classifyCheckStaged(root, command, { inferred }) {
 	if (command.trim().startsWith(BIOME_STAGED_COMMAND)) return { kind: "none" };
 	const top = path.resolve(root);
 	const readCachedPackage = buildPackageReader();
-	const readScripts = (/** @type {string} */ dir) =>
-		readCachedPackage(dir).scripts;
 	/**
 	 * Evidence this repo runs Biome at all: `biome` written in the hop, or
 	 * declared or in a script of the `package.json` at the top, the hop's
@@ -1330,18 +1331,20 @@ function classifyCheckStaged(root, command, { inferred }) {
 	};
 	const hit = walkRunScripts(
 		top,
-		readScripts,
+		readCachedPackage,
 		command,
 		/** @param {Hop} hop @param {Hop[]} hops */
 		(hop, hops) => {
 			const { text, tokens } = hop;
 			const placed = [...placedCommands(hop)];
-			const candidates = placed.map((p) => withoutRun(p, top, readScripts));
+			const candidates = placed.map((p) =>
+				withoutRun(p, top, readCachedPackage),
+			);
 			const segment = candidates.find(isBiomeCheck);
-			const other = candidates
+			const subcommand = candidates
 				.map(parseBiomeSubcommand)
 				.find((s) => s !== undefined);
-			const biomeCommand = segment !== undefined || other !== undefined;
+			const biomeCommand = segment !== undefined || subcommand !== undefined;
 			const unread =
 				((biomeCommand || hasMatch(MENTIONS, text, tokens)) &&
 					isUnreadable(tokens)) ||
@@ -1349,11 +1352,7 @@ function classifyCheckStaged(root, command, { inferred }) {
 			if ((!unread && !biomeCommand) || !hasBiomeEvidence(hop)) return;
 			if (unread) return { hops, unread: /** @type {const} */ (true) };
 			if (segment === undefined)
-				return {
-					hops,
-					other: other ?? "",
-					unread: /** @type {const} */ (false),
-				};
+				return { hops, subcommand, unread: /** @type {const} */ (false) };
 			const only = onlyCommand(tokens);
 			/* The Biome command is the text's one command, with no run shed. */
 			const own =
@@ -1399,7 +1398,7 @@ function classifyCheckStaged(root, command, { inferred }) {
 	if (hit.segment === undefined)
 		return {
 			kind: "refused",
-			refusal: `runs biome${hit.other ? ` ${hit.other}` : ""} --staged${via}, which reads or rewrites each staged path's worktree bytes, a neighbour's unstaged hunks included (#2583), in a shape biome-staged.js does not map. ${OWN_FLAGS_WAY_OUT}`,
+			refusal: `runs biome${hit.subcommand ? ` ${hit.subcommand}` : ""} --staged${via}, which reads or rewrites each staged path's worktree bytes, a neighbour's unstaged hunks included (#2583), in a shape biome-staged.js does not map. ${OWN_FLAGS_WAY_OUT}`,
 		};
 	if (hit.elsewhere)
 		return refused(

@@ -512,10 +512,15 @@ describe("the pre-commit check_staged gate on a biome check --staged command (#2
 		expect(ran("check_staged")).toBe(false);
 	});
 
-	it("spends node on npx, as on each package manager (#3851)", () => {
+	it("reaches the classifier on npx before npx runs, failing where the classifier is gone (#3851)", () => {
 		const { root } = biomeFixture("npx eslint");
 		withoutClassifier(root);
-		expect(run(root, GATES.check_staged).code).not.toBe(0);
+		/* A gate that skipped the classifier would run this and pass. */
+		fs.writeFileSync(path.join(root, "bin/npx"), MARKER_STUB, { mode: 0o755 });
+		const { code, out, ran } = run(root, GATES.check_staged);
+		expect(code).toBe(1);
+		expect(out).toContain("scripts/lib/infer-commands.js");
+		expect(ran("check_staged")).toBe(false);
 	});
 
 	it.each([

@@ -3,7 +3,7 @@
  * it is re-measured on one npm version: its option parser, `npmCanon`, against
  * its config list (#563, #571), with the exact-match lookups npx makes instead,
  * `shorthandExact` and `boolExact` (#1972), and the command words its cmd-list
- * derefs, `isNpmRun` and `npmScriptCommand` (#3627, #3851).
+ * derefs, `isNpmRun` and `scriptOfNpmCommand` (#3627, #3851).
  * lib/suite-concurrency.js reads with it whether `npm … run <name>` launches a build or a dev server,
  * lib/infer-commands.js which script a check_staged runs, and
  * lib/npm-install.js the install and the npx argv it judges.
@@ -392,12 +392,12 @@ const SCRIPT_COMMANDS = new Map(
  * The script `word`, as npm's command, runs with no `run`, or undefined.
  * @param {string} word
  */
-const npmScriptCommand = (word) => SCRIPT_COMMANDS.get(word);
+const scriptOfNpmCommand = (word) => SCRIPT_COMMANDS.get(word);
 
 module.exports = {
 	boolExact,
 	isNpmRun,
 	npmCanon,
-	npmScriptCommand,
+	scriptOfNpmCommand,
 	shorthandExact,
 };

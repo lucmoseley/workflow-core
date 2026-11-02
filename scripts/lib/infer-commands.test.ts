@@ -1,16 +1,18 @@
 // @vitest-environment node
 /*
- * lib/infer-commands.js's `isLintStagedCommand` (#2587): a command runs lint-staged
- * itself, or through the `package.json` scripts it runs, however the call is
- * spelled. Its `classifyCheckStaged` (#2731): each `biome check --staged`
- * shape maps to biome-staged.js or is refused, naming the way out (#2599).
- * Its `inferCommands` infers `node --test` from node's own default test
+ * lib/infer-commands.js's three judgements of a repo's commands: whether one
+ * runs lint-staged, however spelled (#2587); how each `biome check --staged`
+ * shape maps to biome-staged.js or is refused, naming the way out (#2731,
+ * #2599); and when `inferCommands` finds `node --test` from node's own default
  * patterns (#3170).
  *
- * A module test over a temp `package.json`, since both read only the scripts
- * it declares. Loosen a case and an unsafe `check_staged` passes init and the
- * pre-commit hook, linting or writing a neighbour's worktree bytes (#2583);
- * loosen the node patterns and a repo whose tests node never runs is handed
+ * Module cases over a temp directory, whose `package.json` files' scripts and
+ * dependency sections, at the top and in the directories a command names, are
+ * what the judgements read; program cases run through run-in-process the
+ * `check-staged` program the hook runs, for its exit code and message.
+ * Loosen a case and an unsafe `check_staged` passes init and the pre-commit
+ * hook, linting or writing a neighbour's worktree bytes (#2583); loosen the
+ * node patterns and a repo whose tests node never runs is handed
  * `node --test`.
  */
 
@@ -30,6 +32,12 @@ import { runInProcess } from "./run-in-process";
 let dir: string;
 
 const UNREAD = "so whether it runs biome check --staged cannot be read";
+const OWN_FLAGS_WAY_OUT = `Declare check_staged instead as an explicit '${BIOME_STAGED_COMMAND} <flags>' whose flags you own.`;
+const IN_WEB = `runs it in web, where biome-staged.js, which runs from the work tree's top, cannot follow. ${OWN_FLAGS_WAY_OUT}`;
+const CLI = path.join(__dirname, "infer-commands.js");
+
+const run = (command: string) =>
+	runInProcess(CLI, ["check-staged", command], { cwd: dir });
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "infer-commands-"));
@@ -809,8 +817,6 @@ describe("classifyCheckStaged", () => {
 });
 
 describe("the check-staged CLI on #3545's fail-open shapes", () => {
-	const Cli = path.join(__dirname, "infer-commands.js");
-
 	beforeEach(() => {
 		fs.writeFileSync(
 			path.join(dir, "package.json"),
@@ -820,9 +826,6 @@ describe("the check-staged CLI on #3545's fail-open shapes", () => {
 			}),
 		);
 	});
-
-	const run = (command: string) =>
-		runInProcess(Cli, ["check-staged", command], { cwd: dir });
 
 	it.each([
 		// A substitution nested in ${…} or $((…)).
@@ -885,7 +888,6 @@ describe("the check-staged CLI on #3545's fail-open shapes", () => {
 });
 
 describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)", () => {
-	const Cli = path.join(__dirname, "infer-commands.js");
 	const Staged = "$(git diff --cached --name-only)";
 	const NoPackageManager = [
 		`uv run ruff check ${Staged}`,
@@ -898,8 +900,6 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 		fs.mkdirSync(path.join(dir, rel), { recursive: true });
 		fs.writeFileSync(path.join(dir, rel, "package.json"), JSON.stringify(pkg));
 	};
-	const run = (command: string) =>
-		runInProcess(Cli, ["check-staged", command], { cwd: dir });
 
 	describe("in a repo declaring Biome", () => {
 		beforeEach(() => {
@@ -926,9 +926,8 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 
 		const NeverRewritten = "an explicit value is never rewritten";
 		const HoldsMore = "holds more than that one command";
-		const InWeb = "runs it in web,";
 		const Through = "runs Biome through";
-		const NotMapped = "in a shape biome-staged.js does not map";
+		const NotMapped = `in a shape biome-staged.js does not map. ${OWN_FLAGS_WAY_OUT}`;
 
 		it.each([
 			["yarn cs", NeverRewritten],
@@ -944,7 +943,7 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 			["pnpm cs run", 'passes the path "run"'],
 			["bun cs run", 'passes the path "run"'],
 			["pnpm --reporter silent run cs", NeverRewritten],
-			["cd -- web && npm run web-cs", InWeb],
+			["cd -- web && npm run web-cs", IN_WEB],
 			["npx bi?me format --staged", NotMapped],
 			["env bi?me format --staged", UNREAD],
 			["do $X", UNREAD],
@@ -961,18 +960,18 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 			["pnpm restart", HoldsMore],
 			["npm run bc; npm run bc -- --staged", HoldsMore],
 			["cd web || cd .; npm run cs", HoldsMore],
-			["npm --prefix web run web-cs", InWeb],
-			["npm --prefix=web run web-cs", InWeb],
-			["npm -C web run web-cs", InWeb],
-			["npm run --prefix web web-cs", InWeb],
-			["npm run web-cs --prefix web", InWeb],
-			["pnpm -C web web-cs", InWeb],
-			["pnpm --dir=web run web-cs", InWeb],
-			["yarn --cwd web web-cs", InWeb],
-			["bun --cwd=web run web-cs", InWeb],
-			["cd web && npm run web-cs", InWeb],
-			["cd web/src && npm run web-cs", InWeb],
-			["(cd web; npm run web-cs)", InWeb],
+			["npm --prefix web run web-cs", IN_WEB],
+			["npm --prefix=web run web-cs", IN_WEB],
+			["npm -C web run web-cs", IN_WEB],
+			["npm run --prefix web web-cs", IN_WEB],
+			["npm run web-cs --prefix web", IN_WEB],
+			["pnpm -C web web-cs", IN_WEB],
+			["pnpm --dir=web run web-cs", IN_WEB],
+			["yarn --cwd web web-cs", IN_WEB],
+			["bun --cwd=web run web-cs", IN_WEB],
+			["cd web && npm run web-cs", IN_WEB],
+			["cd web/src && npm run web-cs", IN_WEB],
+			["(cd web; npm run web-cs)", IN_WEB],
 			["npm rum $S", UNREAD],
 			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
 			["npm urn c${X}s", UNREAD],
@@ -1079,17 +1078,17 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 				["yarn run biome check --staged --write", Through],
 				["bun run biome check --staged --write", Through],
 				["yarn run biome check --staged && tsc", HoldsMore],
-				["cd web && yarn run biome check --staged", InWeb],
-				["cd web && biome check --staged", InWeb],
-				["yarn --cwd web run biome check --staged", InWeb],
-				["pnpm --dir web biome check --staged", InWeb],
+				["cd web && yarn run biome check --staged", IN_WEB],
+				["cd web && biome check --staged", IN_WEB],
+				["yarn --cwd web run biome check --staged", IN_WEB],
+				["pnpm --dir web biome check --staged", IN_WEB],
 				["cd web; biome check --staged", HoldsMore],
 				["biome check --staged && cd web", HoldsMore],
 				["npm ts", NeverRewritten],
 				["pnpm t", NeverRewritten],
 				["pnpm tst", NeverRewritten],
-				["npm --prefix a --prefix web run web-cs", InWeb],
-				["npm --prefix=a --prefix=web run web-cs", InWeb],
+				["npm --prefix a --prefix web run web-cs", IN_WEB],
+				["npm --prefix=a --prefix=web run web-cs", IN_WEB],
 				["cat f | sh -s -- a", UNREAD],
 				["cat f | sh -eo pipefail", UNREAD],
 				["cat f | sh -o errexit -s a", UNREAD],
@@ -1178,7 +1177,7 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 					}
 					const r = run("npm --prefix web run web-cs");
 					expect(r.status).toBe(1);
-					expect(r.stderr).toContain(InWeb);
+					expect(r.stderr).toContain(IN_WEB);
 				},
 			);
 		});
@@ -1199,7 +1198,7 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 			const c = classifyCheckStaged(dir, "npm --prefix web run web-cs", {
 				inferred: true,
 			});
-			expect(c.kind === "refused" && c.refusal).toContain("runs it in web,");
+			expect(c.kind === "refused" && c.refusal).toContain(IN_WEB);
 		});
 
 		it("refuses a script a lifecycle script runs beside, which the mapped command would lose", () => {
@@ -1229,7 +1228,7 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 			},
 		);
 
-		it("reads a run after cd && only in the directory it moved to (story 22)", () => {
+		it("reads a run after cd && only in the directory it moved to, so a script there running no Biome passes (#2731's story 22)", () => {
 			writePackage("web", { scripts: { test: "vitest" } });
 			expect(run("cd web && npm test")).toMatchObject({
 				status: 0,
@@ -1290,7 +1289,7 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 			expect(run("$GATE").status).toBe(0);
 			const r = run("npm --prefix web run cs");
 			expect(r.status).toBe(1);
-			expect(r.stderr).toContain("runs it in web,");
+			expect(r.stderr).toContain(IN_WEB);
 		});
 
 		it.each(["peerDependencies", "optionalDependencies"])(
