@@ -35,10 +35,13 @@ path's *old* blob, so it reads as staging the reverse of the commit just made,
 and a neighbour's bare `git commit` sweeps that reversal in under their message
 (mantahostels#63 again, from the fix meant to close it). `git reset` touches
 only the index, so the neighbour's unstaged hunk is untouched (mantahostels#2523).
-A staged copy the reset replaces — somebody's `git add`, against the commit
-rule — is named first. Where the reset is refused, the script exits 4 and
-prints the command to run by hand: exit 4 means the commit landed, so never
-re-run the command.
+A neighbour's staged copy of a patched file — somebody's `git add`, against
+the commit rule — is not reset: a three-way merge moves its hunks onto the new
+HEAD, so they stay staged and the reverse of your commit does not (#3723). A
+copy that cannot move, conflicting with your hunks or a rename's source, is
+named, then reset; it survives in the working tree. Where the index update is
+refused, the script exits 4 and prints the reset to run by hand: exit 4 means
+the commit landed, so never re-run the command.
 
 The hooks run against the private index, the whole `.husky/pre-commit` stack
 and the doc-map gate's own nested `GIT_INDEX_FILE` included

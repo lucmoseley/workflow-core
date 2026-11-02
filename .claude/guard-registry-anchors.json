@@ -38,7 +38,7 @@
 	"scripts/check-workflow-permissions.js": "1974fe622059ba6d",
 	"scripts/claim-issue.js": "19b55afbe8c33c33",
 	"scripts/clear-rule-latch.sh": "8e78765216bf9eb7",
-	"scripts/commit-paths.js": "fd130fe567e51036",
+	"scripts/commit-paths.js": "d757dfad33bc13c6",
 	"scripts/concision-backstop.sh": "deaf6b9a4f57697f",
 	"scripts/guard-automode-refusal.js": "28bce35ab26d9272",
 	"scripts/guard-dispatch.js": "e459d205f96d0892",

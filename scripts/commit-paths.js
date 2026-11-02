@@ -22,7 +22,9 @@
  * that same index, and the commit is made from it with no pathspec. The shared
  * index is then reset to the new HEAD for every path committed: skipped, it
  * would still hold the old blob and stage the reverse of this commit for the
- * next bare `git commit` (docs/agents/partial-commit.md).
+ * next bare `git commit` (docs/agents/partial-commit.md). A neighbour's staged
+ * copy of a patched file instead moves onto the new HEAD, their hunks still
+ * staged, unless they conflict with the commit's (#3723).
  *
  * HEAD moving between the private index's `read-tree` and the commit would
  * write HEAD's older blobs back over the neighbour's commit. The base is
@@ -145,6 +147,7 @@ const path = require("node:path");
 
 const core = require("./lib/arbiter-core.js");
 const { readProcStartOf } = require("./lib/arbiter-proc.js");
+const { listTree } = require("./lib/git-objects.js");
 const { readAncestorsOf } = require("./lib/proc-stat.js");
 const { procRoot } = require("./lib/proc-root.js");
 const { shellQuote } = require("./lib/sh-quote.js");
@@ -277,6 +280,8 @@ const markTouched = () => {
 
 /** @param {string} p */
 const literal = (p) => `:(literal)${p}`;
+/** A path as `git diff --name-only` gives it, from any directory. @param {string} p */
+const topLiteral = (p) => `:(top,literal)${p}`;
 
 /**
  * @param {string[]} args
@@ -318,7 +323,7 @@ const HEAD_MOVED =
 const HEAD_MOVED_UNDER =
 	/cannot lock ref 'HEAD': is at [0-9a-f]+ but expected [0-9a-f]+$/m;
 // `git ls-files -s`: `<mode> <blob> <stage>\t<path>`.
-const STAGED_ENTRY = /^\d+ ([0-9a-f]+) \d\t(.*)$/s;
+const STAGED_ENTRY = /^(\d+) ([0-9a-f]+) (\d)\t(.*)$/s;
 
 /**
  * What a refusal was waiting on, or null where it was a real refusal.
@@ -1087,7 +1092,7 @@ function commitPatch(message, cut, whole) {
 					["diff", "--cached", "--name-only", "-z", "--no-renames", on],
 					index,
 				).stdout,
-			).map((p) => `:(top,literal)${p}`);
+			);
 			const sha = commitIndex(message, files, on, stampEnv);
 			return sha === null
 				? { held: { kind: "head-moved" } }
@@ -1097,9 +1102,7 @@ function commitPatch(message, cut, whole) {
 	);
 	const { sha, changed } = landed;
 
-	warnStagedCopies(changed, patched, landed.on);
-
-	resetSharedIndex(changed);
+	syncSharedIndex(changed, patched, landed.on);
 	runPostCommit();
 
 	out(git(["show", "--stat", "--format=", sha]).stdout);
@@ -1382,50 +1385,196 @@ function buildIndex({ index, whole, root, patch }, base) {
 		);
 }
 
+/** @typedef {ReturnType<typeof listTree>[number]} TreeEntry */
+/** @typedef {{mode: string, blob: string, file: string}} IndexEntry */
+
 /**
- * A staged copy in the shared index is somebody's `git add`, against the
- * commit rule; the reset replaces it, so say so rather than drop it unseen.
- * @param {string[]} changed
- * @param {string[]} patched
- * @param {string} base
+ * `file`'s entry at `rev`, or null where it has none.
+ * @param {string} rev
+ * @param {string} file from the top level
+ * @returns {TreeEntry|null}
  */
-function warnStagedCopies(changed, patched, base) {
-	const staged = git(["ls-files", "-s", "-z", "--", ...changed]).stdout;
-	for (const entry of staged.split("\0").filter(Boolean)) {
-		const m = STAGED_ENTRY.exec(entry);
-		if (!m)
-			throw new Error(`git ls-files -s gave an unreadable entry: ${entry}`);
-		const file = requiredGroup(m, 2, STAGED_ENTRY);
-		// A whole path's staged copy is an intent-add, this script's own.
-		if (
-			patched.includes(file) &&
-			requiredGroup(m, 1, STAGED_ENTRY) !== readBlobSha(base, file)
-		)
-			err(
-				`${NAME}: the shared index held a staged copy of ${file} other than HEAD's; the reset below replaces it with this commit's. The working tree is untouched, so restage it from there if it was yours.\n`,
-			);
-	}
+const readTreeEntry = (rev, file) =>
+	listTree(rev, [topLiteral(file)], {
+		cwd: readWorktrees().root,
+		recursive: false,
+	})[0] ?? null;
+
+/**
+ * `staged`'s hunks against `base` moved onto `tip`: the merged blob, or why
+ * they cannot move.
+ * @param {string} staged
+ * @param {TreeEntry|null} base
+ * @param {TreeEntry|null} tip
+ * @returns {{blob: string}|{why: string}}
+ */
+function mergeStagedBlob(staged, base, tip) {
+	if (!base || !tip || base.mode !== tip.mode)
+		return { why: "the commit added or removed the file or changed its mode" };
+	const r = git(["merge-file", "--object-id", staged, base.sha, tip.sha]);
+	if (r.status === 0) return { blob: r.stdout.trim() };
+	// git exits with the conflict count, capped at 127, and above that on a
+	// fault, a binary file among them.
+	return {
+		why:
+			r.status <= 127
+				? "its hunks conflict with the commit's"
+				: `git merge-file: ${r.stderr.trim().split("\n", 1)[0]}`,
+	};
 }
 
 /**
- * Resets the shared index to the new HEAD for every path committed; a
- * failure exits 4, saying how to do it by hand.
+ * What the shared index's staged copies of the committed paths come to. A
+ * staged copy of a patched file is a neighbour's `git add`, against the commit
+ * rule, but theirs to keep: left at `base` it would stage the reverse of the
+ * commits since, so its hunks move onto the tip. Those that cannot move, a rename
+ * source's among them, go in `lost`. A whole path's staged copy is left out:
+ * the commit took that file as on disk.
  * @param {string[]} changed
+ * @param {string[]} patched
+ * @param {string} base the commit the staged copies stand on
  */
-function resetSharedIndex(changed) {
-	const resetByHand = `Do not re-run this command: the commit has landed. Reset the shared index yourself, or it stages the reverse of this commit for the next bare \`git commit\`:\n  git reset -q -- ${changed.map(shellQuote).join(" ")}`;
-	const sync = gitLocked(
-		["reset", "-q", "--", ...changed],
-		"The commit has landed, but the shared index still holds the old copies.",
-		{ remedy: resetByHand, code: 4 },
-	);
-	if (sync.status !== 0) {
-		err(sync.stdout + sync.stderr);
-		fail(
-			`git refused to reset the shared index (exit ${sync.status}). ${resetByHand}`,
-			4,
-		);
+function planStagedCopies(changed, patched, base) {
+	const tip = git(["rev-parse", "HEAD"]).stdout.trim();
+	const staged = git([
+		"ls-files",
+		"-s",
+		"-z",
+		"--full-name",
+		"--",
+		...changed.map(topLiteral),
+	]).stdout;
+	/** @type {IndexEntry[]} */
+	const kept = [];
+	/** @type {Map<string, string>} */
+	const lost = new Map();
+	for (const entry of nulList(staged)) {
+		const m = STAGED_ENTRY.exec(entry);
+		if (!m)
+			throw new Error(`git ls-files -s gave an unreadable entry: ${entry}`);
+		const stagedBlob = requiredGroup(m, 2, STAGED_ENTRY);
+		const file = requiredGroup(m, 4, STAGED_ENTRY);
+		const after = readTreeEntry(tip, file);
+		if (!patched.includes(file) && after) continue;
+		if (requiredGroup(m, 3, STAGED_ENTRY) !== "0") {
+			lost.set(file, "it is an unresolved conflict");
+			continue;
+		}
+		const before = readTreeEntry(base, file);
+		if (stagedBlob === before?.sha || stagedBlob === after?.sha) continue;
+		const merged = mergeStagedBlob(stagedBlob, before, after);
+		if ("why" in merged) lost.set(file, merged.why);
+		else if (merged.blob !== after?.sha)
+			kept.push({
+				mode: requiredGroup(m, 1, STAGED_ENTRY),
+				blob: merged.blob,
+				file,
+			});
 	}
+	return { tip, kept, lost };
+}
+
+/**
+ * The git steps that reset `changed` and write `kept` over the rest. A bare
+ * `git reset --` would reset the whole index, a neighbour's included.
+ * @param {string[]} changed
+ * @param {IndexEntry[]} kept
+ * @returns {string[][]}
+ */
+function syncSteps(changed, kept) {
+	const toReset = changed.filter((p) => !kept.some((k) => k.file === p));
+	return [
+		...(toReset.length > 0
+			? [["reset", "-q", "--", ...toReset.map(topLiteral)]]
+			: []),
+		...(kept.length > 0
+			? [
+					[
+						"update-index",
+						...kept.flatMap((k) => [
+							"--cacheinfo",
+							`${k.mode},${k.blob},${k.file}`,
+						]),
+					],
+				]
+			: []),
+	];
+}
+
+/**
+ * Brings the shared index to the new HEAD for every path committed, bar the
+ * staged copies that move onto it, naming both kinds; a failure exits 4, saying
+ * how to do it by hand. A neighbour's commit landing meanwhile moves the tip the
+ * copies merge onto, so they are read again on every lock wait, and merged again
+ * from the tip they reached where HEAD has moved past it.
+ *
+ * Residual: a neighbour's `git add` of the same file between the read and the
+ * write is written over.
+ * @param {string[]} changed
+ * @param {string[]} patched
+ * @param {string} base the commit's parent
+ */
+function syncSharedIndex(changed, patched, base) {
+	const remedy = `Do not re-run this command: the commit has landed. Reset the shared index yourself, or it stages the reverse of this commit for the next bare \`git commit\`:\n  git reset -q -- ${changed.map(topLiteral).map(shellQuote).join(" ")}\nAny neighbour's staged hunks in those files leave the index with it, and stay in the working tree.`;
+	/** @type {Map<string, string>} */
+	const lost = new Map();
+	/** @type {ReturnType<typeof planStagedCopies>} */
+	let plan;
+	let from = base;
+	do {
+		plan = writeStagedCopies(changed, patched, from, remedy);
+		for (const [file, why] of plan.lost) lost.set(file, why);
+		from = plan.tip;
+	} while (git(["rev-parse", "HEAD"]).stdout.trim() !== from);
+	for (const [file, why] of lost)
+		err(
+			`${NAME}: the shared index held a staged copy of ${file} that could not move onto this commit (${why}), so the reset replaced it with this commit's. The working tree is untouched, so restage it from there if it was yours.\n`,
+		);
+	for (const { file } of plan.kept)
+		err(
+			`${NAME}: ${file} still holds a neighbour's staged hunks in the shared index, moved onto this commit.\n`,
+		);
+}
+
+/**
+ * One pass of syncSharedIndex, waiting out the index lock.
+ * @param {string[]} changed
+ * @param {string[]} patched
+ * @param {string} from the commit the staged copies stand on
+ * @param {string} remedy
+ * @returns {ReturnType<typeof planStagedCopies>}
+ */
+function writeStagedCopies(changed, patched, from, remedy) {
+	return waitOut(
+		/** @returns {Attempt<ReturnType<typeof planStagedCopies>>} */
+		() => {
+			/** @type {ReturnType<typeof planStagedCopies>} */
+			let plan;
+			try {
+				plan = planStagedCopies(changed, patched, from);
+			} catch (e) {
+				return fail(
+					`could not read the shared index's staged copies (${caught(e).message}). ${remedy}`,
+					4,
+				);
+			}
+			for (const args of syncSteps(changed, plan.kept)) {
+				const r = git(args);
+				const held = contention(r);
+				if (held) return { held };
+				if (r.status !== 0) {
+					err(r.stdout + r.stderr);
+					fail(
+						`git refused to bring the shared index to the commit (exit ${r.status}). ${remedy}`,
+						4,
+					);
+				}
+			}
+			return { held: null, done: plan };
+		},
+		"The commit has landed, but the shared index still holds the old copies.",
+		{ remedy, code: 4 },
+	);
 }
 
 /** False on an unborn branch. */

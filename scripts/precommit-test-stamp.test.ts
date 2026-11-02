@@ -1291,7 +1291,7 @@ it.each([
 		const patch = underPatch ? cutPatch(f) : undefined;
 		if (!underPatch) f.edit("a.txt", "changed\n");
 		// A spy, not a seam: nothing reachable from outside makes the script itself
-		// throw once its commit has landed, warnStagedCopies' throw included.
+		// throw once its commit has landed, planStagedCopies' throw included.
 		// --patch lands its commit with update-ref, and hands the stamp to the
 		// hooks before it rather than to that call (#2638).
 		const preload = path.join(f.root, "stub-throw.js");

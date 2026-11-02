@@ -603,7 +603,7 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 		expect(git("diff", "--cached", "--name-only")).toBe("");
 	});
 
-	it("warns where the shared index held a staged copy of a patched file, which the reset replaces, naming the file and how to restage it", () => {
+	it("warns where a staged copy of a patched file conflicts with the commit, which the reset replaces, naming the file and how to restage it", () => {
 		const patch = shared();
 		write("a.md", "staged\n");
 		git("add", "a.md");
@@ -611,9 +611,194 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 		const r = run(["-m", "mine", "--patch", patch]);
 		expect(r.status).toBe(0);
 		expect(r.stderr).toMatch(
-			/held a staged copy of a\.md other than HEAD's.*restage it from there/s,
+			/staged copy of a\.md that could not move onto this commit \(its hunks conflict.*restage it from there/s,
 		);
 		expect(git("diff", "--cached", "--name-only")).toBe("");
+	});
+
+	describe("a neighbour's staged hunk in a patched file (#3723)", () => {
+		// Far enough apart that the merge does not read the two hunks as one conflict.
+		const lines = (edit?: (l: string[]) => void) => {
+			const l = Array.from({ length: 12 }, (_, i) => `l${i + 1}`);
+			edit?.(l);
+			return `${l.join("\n")}\n`;
+		};
+		const mine = (l: string[]) => {
+			l[1] = "mine";
+		};
+		const theirs = (l: string[]) => {
+			l[10] = "theirs";
+		};
+		const both = (l: string[]) => {
+			mine(l);
+			theirs(l);
+		};
+		/** Seeds `file`, cuts a patch of `mine` alone, and stages `staged`. */
+		const seed = (file: string, staged: (l: string[]) => void) => {
+			write(file, lines());
+			git("add", file);
+			git("commit", "-qm", "seed");
+			write(file, lines(mine));
+			const patch = path.join(sb.dir, "mine.patch");
+			fs.writeFileSync(patch, git("diff", "HEAD", "-U0", "--", file));
+			write(file, lines(staged));
+			git("add", file);
+			write(file, lines(both));
+			return patch;
+		};
+
+		it("commits HEAD plus the patch alone and leaves the hunk staged on the new HEAD", () => {
+			const patch = seed("a.md", theirs);
+			const r = run(["-m", "mine", "--patch", patch]);
+			expect(r.status).toBe(0);
+			expect(git("show", "HEAD:a.md")).toBe(lines(mine));
+			expect(git("show", ":a.md")).toBe(lines(both));
+			const cached = git("diff", "--cached", "-U0", "--", "a.md");
+			expect(cached).toMatch(/^-l11\n\+theirs$/m);
+			expect(cached).not.toMatch(/mine|^-l2$/m);
+			expect(r.stderr).toMatch(/a\.md still holds a neighbour's staged hunks/);
+		});
+
+		it("keeps the hunk staged when run from a subdirectory", () => {
+			const patch = seed("sub/a.md", theirs);
+			const r = run(["-m", "mine", "--patch", patch], {
+				cwd: path.join(sb.repo, "sub"),
+			});
+			expect(r.status).toBe(0);
+			expect(git("show", "HEAD:sub/a.md")).toBe(lines(mine));
+			expect(git("diff", "--cached", "-U0", "--", "sub/a.md")).toMatch(
+				/^\+theirs$/m,
+			);
+		});
+
+		it("keeps only the neighbour's hunk where the staged copy holds the patch's too", () => {
+			const patch = seed("a.md", both);
+			const r = run(["-m", "mine", "--patch", patch]);
+			expect(r.status).toBe(0);
+			expect(r.stderr).toMatch(/a\.md still holds a neighbour's staged hunks/);
+			const cached = git("diff", "--cached", "-U0", "--", "a.md");
+			expect(cached).toMatch(/^\+theirs$/m);
+			expect(cached).not.toMatch(/mine/);
+		});
+
+		it("says nothing where the staged copy is the commit's own", () => {
+			const patch = seed("a.md", mine);
+			const r = run(["-m", "mine", "--patch", patch]);
+			expect(r.status).toBe(0);
+			expect(r.stderr).not.toMatch(/staged/);
+			expect(git("diff", "--cached", "--name-only")).toBe("");
+		});
+
+		it("resets the other paths committed while the hunk stays staged", () => {
+			const patch = seed("a.md", theirs);
+			write("own.md", "own\n");
+			expect(run(["-m", "mine", "--patch", patch, "--", "own.md"]).status).toBe(
+				0,
+			);
+			expect(git("show", "HEAD:own.md")).toBe("own\n");
+			expect(git("diff", "--cached", "--name-only")).toBe("a.md\n");
+		});
+
+		it("merges onto a neighbour's commit that lands during the lock wait, staging no reverse of it", () => {
+			const patch = seed("a.md", theirs);
+			const hook = path.join(hooks, "commit-msg");
+			fs.writeFileSync(
+				hook,
+				`#!/bin/sh
+touch .git/index.lock
+(
+	unset GIT_INDEX_FILE
+	start=$(git rev-parse HEAD)
+	while [ "$(git rev-parse HEAD)" = "$start" ]; do sleep 0.05; done
+	tip=$(git rev-parse HEAD)
+	blob=$(git show "$tip:a.md" | sed s/l6/neighbour/ | git hash-object -w --stdin)
+	export GIT_INDEX_FILE=.git/neighbour.index
+	git read-tree "$tip"
+	git update-index --cacheinfo "100644,$blob,a.md"
+	git update-ref HEAD "$(git commit-tree "$(git write-tree)" -p "$tip" -m neighbour)"
+	rm -f .git/index.lock .git/neighbour.index
+) >/dev/null 2>&1 &
+`,
+			);
+			fs.chmodSync(hook, 0o755);
+			expect(run(["-m", "mine", "--patch", patch]).status).toBe(0);
+			expect(git("log", "-1", "--format=%s")).toBe("neighbour\n");
+			const cached = git("diff", "--cached", "-U0", "--", "a.md");
+			expect(cached).toMatch(/^-l11\n\+theirs$/m);
+			expect(cached).not.toMatch(/neighbour|mine/);
+		});
+
+		it("names a rename source's staged copy, which the reset replaces", () => {
+			write("old.md", lines());
+			git("add", "old.md");
+			git("commit", "-qm", "seed");
+			git("mv", "old.md", "moved.md");
+			const patch = path.join(sb.dir, "move.patch");
+			fs.writeFileSync(
+				patch,
+				git(
+					"diff",
+					"--cached",
+					"-M",
+					"-U0",
+					"HEAD",
+					"--",
+					"old.md",
+					"moved.md",
+				),
+			);
+			git("reset", "-q");
+			write("old.md", lines(theirs));
+			git("add", "old.md");
+			const r = run(["-m", "move", "--patch", patch]);
+			expect(r.status).toBe(0);
+			expect(r.stderr).toMatch(/staged copy of old\.md that could not move/);
+			expect(git("diff", "--cached", "--name-only")).toBe("");
+		});
+
+		it("names an unresolved conflict rather than staging one side of it", () => {
+			write("a.md", lines());
+			git("add", "a.md");
+			git("commit", "-qm", "seed");
+			write("a.md", lines(mine));
+			const patch = path.join(sb.dir, "mine.patch");
+			fs.writeFileSync(patch, git("diff", "HEAD", "-U0", "--", "a.md"));
+			const blob = (edit: (l: string[]) => void) =>
+				execFileSync("git", ["hash-object", "-w", "--stdin"], {
+					cwd: sb.repo,
+					encoding: "utf8",
+					input: lines(edit),
+				}).trim();
+			git("rm", "-q", "--cached", "a.md");
+			execFileSync("git", ["update-index", "--index-info"], {
+				cwd: sb.repo,
+				input: `100644 ${git("rev-parse", "HEAD:a.md").trim()} 1\ta.md\n100644 ${blob(theirs)} 3\ta.md\n`,
+			});
+			const r = run(["-m", "mine", "--patch", patch]);
+			expect(r.status).toBe(0);
+			expect(r.stderr).toMatch(
+				/staged copy of a\.md that could not move onto this commit \(it is an unresolved conflict/,
+			);
+			expect(git("diff", "--cached", "--name-only")).toBe("");
+			expect(git("ls-files", "-u")).toBe("");
+		});
+
+		it("says nothing of a moved copy where the index stays locked, giving the reset to run by hand", () => {
+			const patch = seed("a.md", theirs);
+			const hook = path.join(hooks, "commit-msg");
+			fs.writeFileSync(hook, "#!/bin/sh\ntouch .git/index.lock\n");
+			fs.chmodSync(hook, 0o755);
+			const r = runInProcess(SCRIPT, ["-m", "mine", "--patch", patch], {
+				cwd: sb.repo,
+				env: { ...process.env, WFC_COMMIT_LOCK_CEILING_MS: "300" },
+			});
+			expect(r.status).toBe(4);
+			expect(r.stderr).toMatch(
+				/the commit has landed.*git reset -q -- ':\(top,literal\)a\.md'.*staged hunks.*stay in the working tree/s,
+			);
+			expect(r.stderr).not.toMatch(/still holds a neighbour's/);
+			fs.rmSync(path.join(sb.repo, ".git", "index.lock"));
+		});
 	});
 
 	it("exits 4 where the commit landed but the shared index stayed locked, giving the reset to run, saying never to re-run, and still running post-commit", () => {
