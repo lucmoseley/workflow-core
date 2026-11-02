@@ -5047,8 +5047,8 @@ describe("the launches a restart killed (#3880)", () => {
 			writeState([buildLaunch("job7", 7, 60)]);
 			fakeResumeClaude("job7", null);
 
-			/* Two runs, since a run's next tick waits on its stop: `bootedAt` has to
-			 * survive into a new process, as across a loop restart. */
+			/* Two runs, as a run's next tick waits on the loop's fallback sleep (SETTLE_MS's
+			 * comment), so the second tick reads `bootedAt` back from the state file. */
 			for (const _run of [1, 2]) {
 				const before = readStops("job9").length;
 				const unread = await tickWith(
