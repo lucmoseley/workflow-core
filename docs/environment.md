@@ -453,6 +453,8 @@ pooled with it as separate sessions.
 
 ## 8. Post-incident triage
 
+**The one liveness report that runs off this machine is `.github/workflows/landing-quiet.yml`** (#3964); the session-start reports, `npm run status`, the morning review and the kill tickets all need the machine up and a session reading them. Hourly on GitHub, it fails once `landing` has had no push for 14 hours, an untraced margin, until the next push turns it green. GitHub sends the failure to the user who last changed its cron or re-enabled it, under their Actions notification settings. An email from it means start with `wsl --list --running` on Windows, then `memcheck`. For a planned absence, disable it from the Actions tab. Test the email with `gh workflow run landing-quiet.yml -R lucmoseley/workflow-core -f force_failure=true`.
+
 ```sh
 memcheck                                          # start here
 node scripts/check-kernel-stall.js --boot -1      # a VM that froze or died: did its kernel stall?
