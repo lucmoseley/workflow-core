@@ -122,7 +122,7 @@ function buildGoalRestartLines({ repos, goal }) {
 	return refs.length === 0
 		? []
 		: [
-				`Then its goal, less any issue closed since: ${buildLoopCommand()} set ${buildGoalFlags({ ...goal, refs })}`,
+				`Then its goal, ${goal.form === "drain" || goal.form === "unblock" ? "unless its issue has closed since" : "less any issue closed since"}: ${buildLoopCommand()} set ${buildGoalFlags({ ...goal, refs })}`,
 			];
 }
 

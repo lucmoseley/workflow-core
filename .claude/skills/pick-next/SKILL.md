@@ -32,7 +32,8 @@ accepting free text at all.
 
 - **"drain #X" and "unblock #X"** — pass the text as `--goal`, unchanged. The
   script works out the set and prints it as `GOAL SET`; `goalSet` in the JSON
-  carries it (#3866).
+  carries it (#3866). A `<repo>#N` ref resolves for a drain; an unblock in
+  another repo is refused, as only that repo's run walks it.
 - **Any other text** — turn it into a set of issue numbers and print it. One call
   gets every open issue with its parentage; read it in memory rather than
   per-issue:
@@ -106,6 +107,9 @@ urgent issue it holds and a child with its urgent parent
 (#3222); DEPTH is the longest chain to that tier. DEPTH and REACH count each
 open ancestor, and CLOSES the ancestors that close with the issue, each its
 parent's only open child (#3613).
+
+The **GOAL** column reads `yes` for a goal-set member and `via` for an issue
+holding one out (#3222).
 
 The **TAKES** column is which command opens that issue (the values:
 `docs/agents/triage-labels.md` §`takes:`). It is no filter, and a sort input

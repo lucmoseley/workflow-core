@@ -3,8 +3,7 @@
  * issues rank first in every ticked repo's frontier read. A topic's refs are the
  * set confirmed when it was resolved, and stay as stored until the next `set`.
  * A `drain` or `unblock` is stored as its one ref and worked out again by every
- * frontier read (#3866). A read leaving no open issue finishes any goal, which
- * stays stored while the loop runs bare; a later read finding one revives it.
+ * frontier read (#3866).
  *
  * A CORE: it reads nothing but its arguments.
  */
@@ -102,6 +101,10 @@ function parseGoalForm(text) {
 	return refs.length === 1 ? { form, refs } : null;
 }
 
+/** @param {string} typed what `parseGoalForm` could not read */
+const buildGoalRefusal = (typed) =>
+	`--goal takes issue refs, #N or <dir>#N, or drain or unblock with one: ${typed}`;
+
 /**
  * `qualifyRefs`, each ref then read as an open issue.
  * @param {AskedRef[]} asked
@@ -137,14 +140,14 @@ function buildShortlistGoal(goal, root) {
 	const here = goal.refs
 		.filter((ref) => ref.repo === path.basename(root))
 		.map((ref) => ref.number);
-	if (here.length === 0) return null;
-	return goal.form === "unblock" ? `unblock #${here[0]}` : here.join(",");
+	const [first] = here;
+	if (first === undefined) return null;
+	return goal.form === "unblock" ? `unblock #${first}` : here.join(",");
 }
 
 /**
- * What one tick's shortlists found of the goal: the members they name, once
- * each, and how many of those are on the merged frontier or held by a live
- * session.
+ * The members the shortlists name, once each, and how many of those are on the
+ * merged frontier or held by a live session.
  * @param {Goal|null} goal
  * @param {{root: string, repo: string|null, goalSet: ShortlistGoal|null, running: number[]}[]} reads
  *   the shortlists that read
@@ -225,7 +228,7 @@ function buildGoalStatus(goal, progress) {
  * `progress`, where it is this goal's.
  * @param {Goal|null} goal
  * @param {GoalProgress|null} progress
- * @returns {GoalProgress|null} null where no read has reached this goal
+ * @returns {GoalProgress|null}
  */
 const goalProgressOf = (goal, progress) =>
 	goal !== null && progress?.setAt === goal.setAt ? progress : null;
@@ -284,6 +287,13 @@ function parseRefs(raw) {
 	return refs.length === raw.length ? refs : null;
 }
 
+/** @param {unknown} raw @returns {raw is GoalMember} */
+const isGoalMember = (raw) =>
+	isRecord(raw) &&
+	Number.isInteger(raw.number) &&
+	(typeof raw.repo === "string" || raw.repo === null) &&
+	(typeof raw.title === "string" || raw.title === null);
+
 /**
  * The state file's goal progress: none where it is absent or garbled, which the
  * next frontier read rewrites.
@@ -293,13 +303,15 @@ function parseRefs(raw) {
 function parseGoalProgress(raw) {
 	if (!isRecord(raw) || !Array.isArray(raw.set)) return null;
 	const { setAt, takeable, running, readAt, doneAt } = raw;
-	return typeof setAt === "number" &&
+	const set = raw.set.filter(isGoalMember);
+	return set.length === raw.set.length &&
+		typeof setAt === "number" &&
 		typeof takeable === "number" &&
 		typeof running === "number" &&
 		typeof readAt === "number"
 		? {
 				setAt,
-				set: raw.set,
+				set,
 				takeable,
 				running,
 				readAt,
@@ -357,7 +369,7 @@ module.exports = {
 	buildGoalStatus,
 	buildRefText,
 	buildShortlistGoal,
-	goalProgressOf,
+	buildGoalRefusal,
 	isRecord,
 	isSameGoal,
 	parseAskedRefs,

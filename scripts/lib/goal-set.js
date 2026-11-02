@@ -1,8 +1,6 @@
 /*
- * goal-set.js — the open issues a `drain` or `unblock` goal names, worked out
- * afresh from one shortlist run's own reads (#3866, ruling #2524). pick-next.js
- * calls it for `--goal 'drain <ref>'` and `--goal 'unblock <ref>'`, whether a
- * /pick-next run or the refill loop's tick passed the text.
+ * goal-set.js — the open issues a `drain` goal names, worked out afresh from
+ * one shortlist run's own reads (#3866, ruling #2524).
  *
  * A CORE: it reads nothing but its arguments.
  */

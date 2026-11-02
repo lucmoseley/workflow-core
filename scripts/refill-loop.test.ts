@@ -244,7 +244,7 @@ describe("the scope start writes (#2123)", () => {
 			],
 			[
 				["start", "--goal", "soon"],
-				"--goal takes issue refs, or drain or unblock with one: soon",
+				"--goal takes issue refs, #N or <dir>#N, or drain or unblock with one: soon",
 			],
 		] as const) {
 			const r = await run(...argv);
@@ -1116,7 +1116,7 @@ describe("the goal (#3864)", () => {
 		],
 		["a closed issue", "core#500", "core#500 is closed"],
 		["an unknown issue", "core#404", "Could not resolve to an issue"],
-		["no ref at all", "drain", "a goal takes issue refs"],
+		["no ref at all", "drain", "--goal takes issue refs"],
 		["a walk of two", "drain core#1,core#2", "drain or unblock with one"],
 		["a walk in an unticked repo", "drain books#5", "tick books first"],
 	])("refuses %s, naming why and writing nothing", async (_, typed, why) => {

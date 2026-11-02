@@ -437,6 +437,21 @@ describe("the restart it names (#3371)", () => {
 		);
 	});
 
+	it("restores a walk as its form, naming that a closed ref will not set (#3866)", () => {
+		writeState("no-progress");
+		writeControl({
+			mode: "normal",
+			repos: ["/h/workflow-core"],
+			goal: {
+				...goalOf("drain", "drain #116"),
+				refs: [{ repo: "workflow-core", number: 116 }],
+			},
+		});
+		expect(screenOf(run(["--notify"]))).toContain(
+			`Then its goal, unless its issue has closed since: ${loopCommand} set --goal 'drain workflow-core#116'`,
+		);
+	});
+
 	it("leaves a repo since unticked out of the goal's set", () => {
 		writeState("no-progress");
 		writeControl({

@@ -75,6 +75,8 @@
  * Exit codes:
  *   0  a shortlist was produced (possibly degraded — see DEGRADED below)
  *   1  no shortlist could be produced: the issue list itself was unreachable
+ *   2  a command line it refuses: a --goal it cannot read, or one naming another
+ *      repo's issue where only a drain can reach one
  *
  * DEPARTS FROM §N7: `module.exports = { buildPayload, render, main }` (mantahostels#1794,
  * widened at mantahostels#1944) — reasons at each export's own site, above the
@@ -157,7 +159,7 @@ const {
 } = require("./lib/dispatch-ledger");
 const { WAITING_LABEL, compareLevels } = require("./lib/frontier-order.js");
 const { openDescendants } = require("./lib/goal-set.js");
-const { parseGoalForm } = require("./lib/refill-goal.js");
+const { buildGoalRefusal, parseGoalForm } = require("./lib/refill-goal.js");
 const { labelAge } = require("./lib/label-age.js");
 const { snapshotFile } = require("./lib/pick-next-snapshot.js");
 
@@ -243,20 +245,17 @@ const NO_LOG = flags["--no-log"] === true;
  */
 const NO_PREWARM = flags["--no-prewarm"] === true;
 const GOAL_TEXT = String(flagValue(flags, "--goal") ?? "");
-const goalAsk = GOAL_TEXT === "" ? null : parseGoalForm(GOAL_TEXT);
-if (GOAL_TEXT !== "" && goalAsk === null) {
-	console.error(
-		`--goal takes issue numbers, drain <ref> or unblock <ref>: ${GOAL_TEXT}`,
-	);
+const GOAL_ASK = GOAL_TEXT === "" ? null : parseGoalForm(GOAL_TEXT);
+if (GOAL_TEXT !== "" && GOAL_ASK === null) {
+	writeFd(2, `${buildGoalRefusal(GOAL_TEXT)}\n`);
 	process.exit(2);
 }
 /**
- * The issues the goal tier ranks on, filled by `resolveGoal` before any tier is
- * read. Holders of an `unblock` ref inherit the tier rather than hold it, and
- * show `via` for it.
+ * The issues the goal tier ranks on, filled by `main` from `resolveGoal` before
+ * any tier is read.
  * @type {Set<number>}
  */
-const goalSet = new Set();
+const goalRanked = new Set();
 
 /** @param {string} path */
 async function ghGet(path) {
@@ -514,7 +513,7 @@ function inheritanceOf(graph, byNumber) {
 	return blockerGraph.inheritance(graph, {
 		bug: (n) => has(n, "bug"),
 		urgent: (n) => has(n, URGENT_LABEL),
-		goal: (n) => goalSet.has(n),
+		goal: (n) => goalRanked.has(n),
 	});
 }
 
@@ -1962,7 +1961,6 @@ function buildPayload(state) {
 		// Launch candidates in other repos, for lib/refill-frontier.js (#2427).
 		pulledIn: state.pulledIn.rows,
 		pulledInUnread: state.pulledIn.unread,
-		// For the goal's progress, read off every shortlist (#3866).
 		ownRepo: state.ownRepo,
 		goalSet: state.goalSet,
 		running: state.running,
@@ -2210,7 +2208,7 @@ function urgentCell(i) {
  * @param {Issue} i
  */
 function goalCell(i) {
-	if (goalSet.has(i.number)) return "yes";
+	if (goalRanked.has(i.number)) return "yes";
 	return i.goal ? "via" : "";
 }
 
@@ -3215,23 +3213,21 @@ async function resolveBlockers(issues, byNumber) {
  * The `owner/name` a goal ref names: its `<dir>` is a checkout's directory name.
  * @param {import("./lib/refill-goal.js").AskedRef} ref
  * @param {string|null} ownRepo
- * @returns {string|null}
+ * @returns {string|null|undefined} undefined where no checkout bears the name
  */
-function goalRefRepo(ref, ownRepo) {
+function readGoalRefRepo(ref, ownRepo) {
 	if (ref.repo === null || ref.repo === nodePath.basename(REPO_ROOT))
 		return ownRepo;
-	const repo = readHostTracker(nodePath.join(homeDir(), ref.repo));
-	if (repo === null)
-		throw new Error(`${ref.repo}#${ref.number}: no checkout named ${ref.repo}`);
-	return repo;
+	return readHostTracker(nodePath.join(homeDir(), ref.repo)) ?? undefined;
 }
 
 /**
  * The goal's open members, and the numbers its tier ranks on, worked out afresh
  * from this run's reads: `drain` as the ref's open descendants, `unblock` as the
  * ref and everything holding it out, children and other repos' blockers included,
- * which take its tier by inheritance.
- * @param {NonNullable<typeof goalAsk>|null} ask
+ * which take its tier by inheritance. A ref to a checkout gone from this machine
+ * ranks nothing.
+ * @param {NonNullable<typeof GOAL_ASK>|null} ask
  * @param {Enriching[]} issues
  * @param {import("./lib/blocker-graph").Graph} graph
  * @returns {{members: import("./lib/refill-goal.js").GoalMember[], ranked: number[]}|null}
@@ -3239,10 +3235,15 @@ function goalRefRepo(ref, ownRepo) {
 function resolveGoal(ask, issues, graph) {
 	if (ask === null) return null;
 	const { ownRepo } = graph;
-	const refs = ask.refs.map((r) => ({
-		repo: goalRefRepo(r, ownRepo),
-		number: r.number,
-	}));
+	const refs = [];
+	for (const { repo: name, number } of ask.refs) {
+		const repo = readGoalRefRepo({ repo: name, number }, ownRepo);
+		if (repo === undefined) {
+			writeFd(2, `--goal names ${name}#${number}: no checkout named ${name}\n`);
+			return { members: [], ranked: [] };
+		}
+		refs.push({ repo, number });
+	}
 	/** @param {Enriching} i */
 	const memberOf = (i) => ({
 		repo: ownRepo,
@@ -3255,10 +3256,13 @@ function resolveGoal(ask, issues, graph) {
 		return { members, ranked: members.map((m) => m.number) };
 	}
 	const elsewhere = refs.find((r) => isInOtherRepo(r, ownRepo));
-	if (elsewhere)
-		throw new Error(
-			`--goal names ${refLabel(elsewhere, ownRepo)}, another repo's: run it there`,
+	if (elsewhere) {
+		writeFd(
+			2,
+			`--goal names ${refLabel(elsewhere, ownRepo)}, another repo's: run it there\n`,
 		);
+		process.exit(2);
+	}
 	const ranked = refs.map((r) => r.number);
 	if (ask.form === "unblock" && first) {
 		const titles = new Map(issues.map((i) => [i.number, i.title]));
@@ -3456,7 +3460,7 @@ function enrichIssue(i, ctx) {
 		{
 			bug: i.labels.includes("bug"),
 			urgent: i.labels.includes(URGENT_LABEL),
-			goal: goalSet.has(i.number),
+			goal: goalRanked.has(i.number),
 		},
 		held,
 	);
@@ -3865,8 +3869,8 @@ async function main() {
 	const byNumber = new Map(issues.map((i) => [i.number, i]));
 	const { withDeps, blockers } = await resolveBlockers(issues, byNumber);
 	const { openChildren } = blockers;
-	const resolvedGoal = resolveGoal(goalAsk, issues, blockers);
-	for (const n of resolvedGoal?.ranked ?? []) goalSet.add(n);
+	const resolvedGoal = resolveGoal(GOAL_ASK, issues, blockers);
+	for (const n of resolvedGoal?.ranked ?? []) goalRanked.add(n);
 
 	const mapNumbers = new Set(
 		issues
@@ -4068,7 +4072,7 @@ async function main() {
 	const state = {
 		repo: String(REPO),
 		argv: args,
-		goal: [...goalSet],
+		goal: [...goalRanked],
 		goalSet: resolvedGoal && { members: resolvedGoal.members },
 		ownRepo: blockers.ownRepo,
 		running: enriched

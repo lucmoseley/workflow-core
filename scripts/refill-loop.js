@@ -81,6 +81,7 @@ const {
 const wakes = require("./lib/refill-wake.js");
 const { ghJson, parseErrLine } = require("./lib/gh.js");
 const {
+	buildGoalRefusal,
 	parseAskedRefs,
 	parseGoalForm,
 	qualifyRefs,
@@ -167,8 +168,7 @@ function rootsNamed(names, refusalOf) {
 function parseStartScope(parsed, root) {
 	const goalText = String(parsed.flags["--goal"] ?? "");
 	const asked = goalText === "" ? null : parseGoalForm(goalText);
-	if (goalText !== "" && asked === null)
-		return `--goal takes issue refs, or drain or unblock with one: ${goalText}`;
+	if (goalText !== "" && asked === null) return buildGoalRefusal(goalText);
 	const named = rootsNamed(parsed.lists["--repo"] ?? [], readTickRefusal);
 	if (typeof named === "string") return named;
 	const repos = [root, ...named];
@@ -231,9 +231,7 @@ function parseGoalAsk(flags) {
 	if (flags["--goal"] !== undefined) {
 		const typed = String(flags["--goal"]);
 		const asked = parseGoalForm(typed);
-		return asked
-			? { ...asked, text: typed }
-			: `a goal takes issue refs, #N or <dir>#N, or drain or unblock with one: ${typed}`;
+		return asked ? { ...asked, text: typed } : buildGoalRefusal(typed);
 	}
 	const typed = flags["--goal-issues"];
 	if (typed === undefined) return;

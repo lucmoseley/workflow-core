@@ -8,7 +8,7 @@ import {
 	buildGoalFlags,
 	buildGoalLine,
 	buildGoalProgress,
-	goalProgressOf,
+	buildGoalStatus,
 	parseAskedRefs,
 	parseGoalForm,
 	parseGoalProgress,
@@ -101,8 +101,12 @@ describe("a goal's progress (#3866)", () => {
 	it("has none once the goal is cleared, and shows none for a goal no read reached", () => {
 		const done = buildGoalProgress(null, read([]), 100);
 		expect(buildGoalProgress(done, null, 200)).toBeNull();
-		expect(goalProgressOf({ ...goal, setAt: 8 }, done)).toBeNull();
-		expect(goalProgressOf(null, done)).toBeNull();
+		expect(buildGoalLine({ ...goal, setAt: 8 }, done)).not.toContain("—");
+		expect(buildGoalStatus({ ...goal, setAt: 8 }, done)).toMatchObject({
+			set: null,
+			doneAt: null,
+		});
+		expect(buildGoalStatus(null, done)).toBeNull();
 	});
 
 	it("says the counts or the finish on the goal's line", () => {
@@ -120,6 +124,9 @@ describe("a goal's progress (#3866)", () => {
 	it("reads a garbled state field as no progress", () => {
 		expect(parseGoalProgress({ set: "x" })).toBeNull();
 		expect(parseGoalProgress({ setAt: 1, set: [] })).toBeNull();
+		const live = buildGoalProgress(null, read([issue]), 100);
+		expect(parseGoalProgress({ ...live, set: [{ number: "2" }] })).toBeNull();
+		expect(parseGoalProgress(live)).toEqual(live);
 		const done = buildGoalProgress(null, read([]), 100);
 		expect(parseGoalProgress(done)).toEqual(done);
 	});
