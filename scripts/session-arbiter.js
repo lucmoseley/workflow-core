@@ -60,6 +60,7 @@ const {
 	JOB_PRUNE_MARKERS,
 	JOB_DEBT_SWEEP,
 } = require("./lib/detached-run.js");
+const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { caught } = require("./lib/caught.js");
@@ -67,7 +68,6 @@ const { readOwnPaths } = require("./lib/own-work.js");
 const { FULL_SHA } = require("./lib/commit-sha.js");
 
 /* How this CLI's own output names it, at the plugin root in an install (#1110). */
-const ARBITER = scriptPath("session-arbiter.js");
 
 /**
  * Launch a `prune-markers` of our own, detached, and return 0 at once (mantahostels#1899).
@@ -382,16 +382,16 @@ function buildDenyReason(rel, lock, names) {
 	const blocked =
 		held === rel ? "" : `${rel} cannot be claimed while it is covered: `;
 	return (
-		`${blocked}${held} is held by session ${describeHolder(lock, names)}, which is still running. Wait on it, in the background: node ${ARBITER} wait ${shellQuote(held)}\n` +
+		`${blocked}${held} is held by session ${describeHolder(lock, names)}, which is still running. Wait on it, in the background: ${buildArbiterCommand`wait ${held}`}\n` +
 		`Do not ask the founder whether to wait. It exits when the holder releases, dies or finishes — a holder mid-write releases in a median 13-15 s (mantahostels#1682) — at once if the holder waits on something you hold (DEADLOCK: the hold-while-waiting mantahostels#1406 bans), or after ${WAIT_CEILING_S / 60} minutes, naming the next move each time.\n\n` +
 		"A claim is taken by writing the file and runs until the holder releases it, its own commit lands all its hunks, or its process ends. A clean `git status` alone does not mean this file is free: a file reads clean between one session's own writes (mantahostels#66, an incident in its closing comment — its title names other work).\n\n" +
-		`WHILE IT RUNS, take another subject — the majority recovery path (mantahostels#1682). Read what is held — node ${ARBITER} list — and do a different part of your ticket that does not touch ${held}, or end your turn: the wait's exit wakes you. Should the edit stay undone, record it as a debt below before you finish.\n\n` +
-		`The escape (mantahostels#411), which the wait names on HOLDER-ENDED, for a holder that has finished while its host runs on — not for one mid-edit, which this denial cannot tell apart:\n  node ${ARBITER} release --force ${shellQuote(held)}\n` +
+		`WHILE IT RUNS, take another subject — the majority recovery path (mantahostels#1682). Read what is held — ${buildArbiterCommand`list`} — and do a different part of your ticket that does not touch ${held}, or end your turn: the wait's exit wakes you. Should the edit stay undone, record it as a debt below before you finish.\n\n` +
+		`The escape (mantahostels#411), which the wait names on HOLDER-ENDED, for a holder that has finished while its host runs on — not for one mid-edit, which this denial cannot tell apart:\n  ${buildArbiterCommand`release --force ${held}`}\n` +
 		"It refuses while `claude agents --json` still reports the holder live (mantahostels#1682), and refuses on an oracle it cannot read — never a release on doubt. It refuses too on a dirty file, on one whose cleanliness git cannot confirm, on a claim store it cannot read, and on a claim that changed underneath it. Every force writes a break record and pins the holder's last bytes for a week, so their version comes back with `git cat-file -p <sha>`.\n\n" +
-		`LAST, where the wait hit its ceiling with the claim still held: ask its holder, in band (mantahostels#1702).\n  node ${ARBITER} request ${shellQuote(held)} "<one line on why you want it>"\n` +
-		`That records a courtesy the holder reads ${HOLDER_HEARS}. It wakes nobody and you must NOT wait on the request — see whether it was answered with \`node ${ARBITER} requests\`.\n\n` +
-		`If any of those gets you the file: make your edit, then clear the stub this denial already wrote — node ${ARBITER} debt clear ${shellQuote(rel)} unowned.\n\n` +
-		`Otherwise: abandon this one edit, finish the rest of your ticket, and record the blocked edit as a visible debt. Complete that same stub with the issue that now owns the work:\n  node ${ARBITER} debt own ${shellQuote(rel)} <issue> "<one line on the edit you did not make>"\n\n` +
+		`LAST, where the wait hit its ceiling with the claim still held: ask its holder, in band (mantahostels#1702).\n  ${buildArbiterCommand`request ${held} "<one line on why you want it>"`}\n` +
+		`That records a courtesy the holder reads ${HOLDER_HEARS}. It wakes nobody and you must NOT wait on the request — see whether it was answered with \`${buildArbiterCommand`requests`}\`.\n\n` +
+		`If any of those gets you the file: make your edit, then clear the stub this denial already wrote — ${buildArbiterCommand`debt clear ${rel} unowned`}.\n\n` +
+		`Otherwise: abandon this one edit, finish the rest of your ticket, and record the blocked edit as a visible debt. Complete that same stub with the issue that now owns the work:\n  ${buildArbiterCommand`debt own ${rel} <issue> "<one line on the edit you did not make>"`}\n\n` +
 		"If the holder is wedged rather than working, kill it — its claim clears the moment its process does."
 	);
 }
@@ -527,7 +527,7 @@ function claimSubjects(rel, anchor, anchorLength) {
 			notes: [
 				`This write claims the WHOLE of ${rel}, not one region of it: ${why}.\n\n` +
 					"That blocks every other session on the file until this one ends or releases it, so release it as soon as you are done:\n" +
-					`  node ${ARBITER} release ${shellQuote(rel)}`,
+					`  ${buildArbiterCommand`release ${rel}`}`,
 			],
 		};
 	};
@@ -570,7 +570,7 @@ function claimSubjects(rel, anchor, anchorLength) {
 const buildStraddleNotice = (file, subjects) =>
 	`This write claims ${subjects.length} regions of ${store.splitSubject(file).rel}, not one — the anchor straddles them, so the write holds every region it rewrites, and takes them all or none.\n\n` +
 	"Release them as soon as you are done:\n" +
-	subjects.map((s) => `  node ${ARBITER} release ${shellQuote(s)}`).join("\n");
+	subjects.map((s) => `  ${buildArbiterCommand`release ${s}`}`).join("\n");
 
 /**
  * What a whole-file Write to a REGIONED path is told (mantahostels#2334) — SAID, like
@@ -586,7 +586,7 @@ const buildWholeFileWriteNotice = (rel) =>
 	`This write claims the WHOLE of ${rel}, not one region of it: it carries no anchor to place, so it takes every region and blocks every other session on it until this one ends or releases it.\n\n` +
 	"A Write or a NotebookEdit belongs here — each rewrites the file entire. An Edit does not: it takes ONE region off its own anchor, so if this WAS an Edit its anchor could not be read (the file-claim guard drops one it cannot read), and making it again should narrow the claim.\n\n" +
 	"Release it as soon as you are done:\n" +
-	`  node ${ARBITER} release ${shellQuote(rel)}`;
+	`  ${buildArbiterCommand`release ${rel}`}`;
 
 /**
  * The `### B<n>` ids this write introduces that the session never allocated —
@@ -629,7 +629,7 @@ function unallocatedEntryNotes(file, newIds, sessionId) {
 		);
 		if (missing.length === 0) return [];
 		return [
-			`This write adds ${missing.join(", ")} to ${file}, and this session holds no claim on ${missing.length > 1 ? "those ids" : "that id"}. An id and its append slot are taken together, so two sessions appending at once cannot both pick the same number — and a duplicate \`### B<n>\` cannot be renumbered away (mantahostels#892):\n  node ${ARBITER} alloc-entry ${shellQuote(file)}\n\n` +
+			`This write adds ${missing.join(", ")} to ${file}, and this session holds no claim on ${missing.length > 1 ? "those ids" : "that id"}. An id and its append slot are taken together, so two sessions appending at once cannot both pick the same number — and a duplicate \`### B<n>\` cannot be renumbered away (mantahostels#892):\n  ${buildArbiterCommand`alloc-entry ${file}`}\n\n` +
 				`Nothing is refused on this: a session re-typing a heading it already owns is warned too. If the id is genuinely new, allocate it before the commit — node ${scriptPath("check-doc-map.js")} FAILs a duplicate in pre-commit.`,
 		];
 	} catch (e) {
@@ -971,7 +971,7 @@ function buildUnknownRegionReason(rel, region) {
 		`session-arbiter: ${rel} has no region \`${region}\`, so no claim was taken and a write to it would be unprotected.\n` +
 		`Its ${asked ? "entries" : "sections"} are: ${shown}${rest > 0 ? `, and ${rest} more` : ""}.\n` +
 		"This is a fatal spelling error, not contention: RETRYING WILL NEVER CLEAR IT, so a poll loop must stop on exit 2 and only keep going on exit 1.\n" +
-		`A NEW \`### B<n>\` entry takes its id and its claim together, and its slot is not a region yet:\n  node ${ARBITER} alloc-entry ${shellQuote(rel)}\n`
+		`A NEW \`### B<n>\` entry takes its id and its claim together, and its slot is not a region yet:\n  ${buildArbiterCommand`alloc-entry ${rel}`}\n`
 	);
 }
 
@@ -994,7 +994,7 @@ function generatorOnlyRefusal(rel, region, generator) {
 		`session-arbiter: ${rel}'s §A register tables are derived — rendered whole from ${regions.SIDECAR_PATH} — so \`${region}\` is not a subject to claim by name and no claim was taken.\n` +
 		"This is a fatal spelling error, not contention: RETRYING WILL NEVER CLEAR IT.\n" +
 		"Editing a register ROW means editing the sidecar key behind it and re-rendering:\n" +
-		`  node ${ARBITER} claim ${shellQuote(regions.SIDECAR_PATH)}#${regions.ROW_PREFIX}<path>\n` +
+		`  ${buildArbiterCommand`claim ${regions.SIDECAR_PATH}#${regions.ROW_PREFIX}<path>`}\n` +
 		`  node ${scriptPath("generate-doc-map-section-a.js")}\n` +
 		`Editing §A's own PROSE needs no claim of your own: an Edit or Write anchored in it takes \`${regions.REGISTER_SECTION}\` for you.\n`
 	);
@@ -1069,9 +1069,9 @@ function wholeFileRegionWarning(rel) {
 	return (
 		`session-arbiter: ${rel} is claimed per region, and this claim names none — so it takes the WHOLE file and denies every other session's region claim on it until you release.\n` +
 		listing +
-		`  One region instead:\n    node ${ARBITER} claim ${shellQuote(rel)}#<region>\n` +
+		`  One region instead:\n    ${buildArbiterCommand`claim ${rel}#<region>`}\n` +
 		(allocatable
-			? `  A NEW \`### B<n>\` entry takes its id and its claim together, and its slot is not a region yet:\n    node ${ARBITER} alloc-entry ${shellQuote(rel)}\n`
+			? `  A NEW \`### B<n>\` entry takes its id and its claim together, and its slot is not a region yet:\n    ${buildArbiterCommand`alloc-entry ${rel}`}\n`
 			: "")
 	);
 }
@@ -1605,7 +1605,7 @@ function printDeadlock(ring, nameOf, holdsOf) {
 	}
 	writeStdout(
 		"  Break it: whichever member holds a DIRTY file commits it, which is the only thing that lets that member release (mantahostels#1405).\n" +
-			`  Then take the whole set in one call next time — \`node ${ARBITER} claim-all <path>...\` — which holds nothing while it waits (mantahostels#1406).\n`,
+			`  Then take the whole set in one call next time — \`${buildArbiterCommand`claim-all <path>...`}\` — which holds nothing while it waits (mantahostels#1406).\n`,
 	);
 }
 
@@ -1859,13 +1859,13 @@ function parkTrailer(subject, rel, result) {
 	let whoHoldsIt;
 	if (claimants === 0) whoHoldsIt = "";
 	else if (claimants === blockers)
-		whoHoldsIt = `  Who holds it:  node ${ARBITER} list\n`;
+		whoHoldsIt = `  Who holds it:  ${buildArbiterCommand`list`}\n`;
 	else
-		whoHoldsIt = `  Who holds it:  node ${ARBITER} list — it lists the ${claimants} of the ${blockers} blockers above that hold a claim; the rest wrote from a route that takes none and never appear there.\n`;
+		whoHoldsIt = `  Who holds it:  ${buildArbiterCommand`list`} — it lists the ${claimants} of the ${blockers} blockers above that hold a claim; the rest wrote from a route that takes none and never appear there.\n`;
 	const askThem =
-		`  Ask them to commit or revert it and release: node ${ARBITER} request ${shellQuote(rel)} "<why you need it>"\n` +
-		`  Read the answer:                              node ${ARBITER} requests\n`;
-	const debtLine = `A request does not block you (mantahostels#1406): carry on with the rest of your ticket, and once it is refused or goes unanswered, register the debt — node ${ARBITER} debt own ${shellQuote(rel)} <issue> "<gist>"\n`;
+		`  Ask them to commit or revert it and release: ${buildArbiterCommand`request ${rel} "<why you need it>"`}\n` +
+		`  Read the answer:                              ${buildArbiterCommand`requests`}\n`;
+	const debtLine = `A request does not block you (mantahostels#1406): carry on with the rest of your ticket, and once it is refused or goes unanswered, register the debt — ${buildArbiterCommand`debt own ${rel} <issue> "<gist>"`}\n`;
 	// BOTH CAUSES, NEITHER ASSERTED (mantahostels#2429). The likelier is the session's own
 	// write through a window the post-Bash re-pin missed; the other is a
 	// neighbour Bash-writing into the region, the blind spot mantahostels#2421's backstop
@@ -1877,8 +1877,8 @@ function parkTrailer(subject, rel, result) {
 	const driftTrailer =
 		"Nothing was moved and the claim stands. The bytes in the way are inside a region YOU hold, and nothing here can say whose they are.\n" +
 		"  IF THEY ARE YOURS — a write and this park in one Bash call, or a write from a backgrounded job, neither of which the post-Bash re-pin covers in time — re-pin and park again:\n" +
-		`    node ${ARBITER} refresh\n` +
-		`    node ${ARBITER} release --park ${shellQuote(subject)}\n` +
+		`    ${buildArbiterCommand`refresh`}\n` +
+		`    ${buildArbiterCommand`release --park ${subject}`}\n` +
 		`  refresh ASSERTS that what ${drifted} holds now is your own work. On a neighbour's bytes it pins their work as yours and the next park throws it away.\n` +
 		`  IF THEY ARE NOT — a neighbour Bash-wrote into ${drifted}, which nothing refuses (mantahostels#1772) — leave the file alone.\n` +
 		(claimants
@@ -2023,8 +2023,8 @@ const RELEASE_FIRST = {
 				// `wait` first: its want catches as DEADLOCK (#542) the cycle mantahostels#104
 				// ruled a bare wait out on and mantahostels#1195 kept a request away from, so a
 				// request past its ceiling is safe. RESIDUAL: cmdWait's SIGKILL-stale want.
-				`Wait on it in the background, not by asking the founder: node ${ARBITER} wait ${shellQuote(o.lock?.path || o.rel)}\n` +
-				`Should that end at its ceiling, ask it in band — node ${ARBITER} request ${shellQuote(o.lock?.path || o.rel)} "<why>" — then finish the rest of your ticket and record the blocked work as a debt:\n  node ${ARBITER} debt own ${shellQuote(o.rel)} <issue> "<one line on the edit you did not make>"\n`,
+				`Wait on it in the background, not by asking the founder: ${buildArbiterCommand`wait ${o.lock?.path || o.rel}`}\n` +
+				`Should that end at its ceiling, ask it in band — ${buildArbiterCommand`request ${o.lock?.path || o.rel} "<why>"`} — then finish the rest of your ticket and record the blocked work as a debt:\n  ${buildArbiterCommand`debt own ${o.rel} <issue> "<one line on the edit you did not make>"`}\n`,
 		);
 		return 1;
 	},
@@ -2032,7 +2032,7 @@ const RELEASE_FIRST = {
 		writeStderr(
 			`session-arbiter: ${o.rel} was NOT released — the liveness oracle could not be read, so nothing here can say the holder is finished: ${o.why}.\n` +
 				"A stranded claim costs time; a claim broken under a live session costs work (mantahostels#322), so an unreadable oracle refuses rather than guessing.\n" +
-				`Three ways on: retry, in case the daemon was momentarily busy; wait for a reboot, which kills every claim of a previous boot by construction; or take the Bash route — \`cp\`, \`tee\`, a \`>\` redirect — which no guard refuses, reading the claims first with \`node ${ARBITER} list\`.\n`,
+				`Three ways on: retry, in case the daemon was momentarily busy; wait for a reboot, which kills every claim of a previous boot by construction; or take the Bash route — \`cp\`, \`tee\`, a \`>\` redirect — which no guard refuses, reading the claims first with \`${buildArbiterCommand`list`}\`.\n`,
 		);
 		return 1;
 	},
@@ -2133,7 +2133,7 @@ function releaseDirty({ rel, lock, content, force, own }) {
 					"Commit or discard the change, then release. Re-claiming is automatic: your next write to it takes the file back.\n" +
 					// Named here or nowhere: a session blocked BY the commit cannot do
 					// either of the two things the sentence above asks for (mantahostels#1405).
-					`Blocked on the commit itself? \`node ${ARBITER} release --park ${shellQuote(rel)}\` sets the edit aside, restores the file and releases, printing how to get the work back.\n` +
+					`Blocked on the commit itself? \`${buildArbiterCommand`release --park ${rel}`}\` sets the edit aside, restores the file and releases, printing how to get the work back.\n` +
 					// The third exit, and on one shape the only one: both routes above
 					// are unreachable when the dirt is a live neighbour's — committing
 					// lands their bytes under your message, and --park refuses on
@@ -2175,7 +2175,7 @@ const DIRTY_HEADLINE = {
  * @param {string} rel
  */
 function buildNotMineOffer(rel) {
-	return `Is every one of them another session's, all of yours already committed? Then \`node ${ARBITER} release --not-mine ${shellQuote(rel)}\` releases it on your word — and a change of yours it could not see goes with the file to the next session (mantahostels#63).`;
+	return `Is every one of them another session's, all of yours already committed? Then \`${buildArbiterCommand`release --not-mine ${rel}`}\` releases it on your word — and a change of yours it could not see goes with the file to the next session (mantahostels#63).`;
 }
 
 /**
@@ -2279,7 +2279,7 @@ function cmdReleaseCommitted(sessionId, paths) {
 		if (!landed.has(rel)) continue;
 		if (region !== null) {
 			kept.push(
-				`Kept ${subject} — a region claim, which a commit never releases; \`node ${ARBITER} release ${shellQuote(subject)}\` does.\n`,
+				`Kept ${subject} — a region claim, which a commit never releases; \`${buildArbiterCommand`release ${subject}`}\` does.\n`,
 			);
 			continue;
 		}
@@ -2554,7 +2554,7 @@ function reportStale(rel, v) {
 		`session-arbiter: refusing ${rel} — the staged version is nearer this session's base (${v.base.head.slice(0, 8)}) than HEAD, so committing it would undo a neighbour's change:\n` +
 			changed +
 			"  Either re-derive the file from HEAD (regenerate it, or re-apply your edit to HEAD's version),\n" +
-			`  or, where the revert is intended, accept HEAD as your base: node ${ARBITER} accept-head ${shellQuote(rel)}\n`,
+			`  or, where the revert is intended, accept HEAD as your base: ${buildArbiterCommand`accept-head ${rel}`}\n`,
 	);
 	return true;
 }
@@ -2806,7 +2806,7 @@ function cmdRequest(filePath, why, sessionId) {
 					? `This session holds ${ownCover.path}, which covers it, but an overlapping claim that could not be judged may be live.\n`
 					: "") +
 				"No request recorded, and the claim is NOT established as free.\n" +
-				`  node ${ARBITER} list --all\n`,
+				`  ${buildArbiterCommand`list --all`}\n`,
 		);
 		return 0;
 	}
@@ -2818,7 +2818,7 @@ function cmdRequest(filePath, why, sessionId) {
 	}
 	if (!blocker) {
 		writeStdout(
-			`Nobody holds ${rel} — the claim is free, so take it instead of asking: your next write claims it, or\n  node ${ARBITER} claim ${shellQuote(rel)}\n`,
+			`Nobody holds ${rel} — the claim is free, so take it instead of asking: your next write claims it, or\n  ${buildArbiterCommand`claim ${rel}`}\n`,
 		);
 		return 0;
 	}
@@ -2827,7 +2827,7 @@ function cmdRequest(filePath, why, sessionId) {
 		`Requested ${rel} from session ${describeHolder(blocker)}.\n` +
 			`The holder is NOT woken — it is told ${HOLDER_HEARS}, and otherwise never. ` +
 			"A request does not block you: carry on with the rest of your ticket, and once it is refused or goes unanswered, record the blocked edit as a debt. " +
-			`See whether it has been answered:\n  node ${ARBITER} requests\n`,
+			`See whether it has been answered:\n  ${buildArbiterCommand`requests`}\n`,
 	);
 	return 0;
 }
@@ -3357,7 +3357,7 @@ function buildCeilingText(w, state) {
 	return (
 		`still held by ${buildWaitHolderText(w, w.holder)} after ${w.ceiling}s.${doubt} Next: ` +
 		(w.issue === null
-			? `ask for it — node ${ARBITER} request ${shellQuote(w.subject)} "<why>" — or carry on with the rest of the ticket and register the blocked edit as a debt.`
+			? `ask for it — ${buildArbiterCommand`request ${w.subject} "<why>"`} — or carry on with the rest of the ticket and register the blocked edit as a debt.`
 			: "carry on with other work.")
 	);
 }
@@ -3379,7 +3379,7 @@ const VERDICT_TEXT = {
 		`${deadlockChain(ring, w.myId)} -> held by you. Each waits on the next, so none will release. Next: release or park what you hold — release <path> once committed, release --park <path> to set an edit aside, release-issue <n> — then wait again.`,
 	"HOLDER-ENDED": (w) =>
 		w.issue === null
-			? `${buildWaitHolderText(w, w.holder)} has ended though its process runs on, so its claim is stale. Free it: node ${ARBITER} release --force ${shellQuote(w.holder.path ?? w.subject)}`
+			? `${buildWaitHolderText(w, w.holder)} has ended though its process runs on, so its claim is stale. Free it: ${buildArbiterCommand`release --force ${w.holder.path ?? w.subject}`}`
 			: `${buildWaitHolderText(w, w.holder)} has ended, so its claim is stale and nothing will release it. Next: treat the issue as unclaimed.`,
 	CEILING: buildCeilingText,
 };
@@ -3574,7 +3574,7 @@ function cmdList(all = false) {
 	// (mantahostels#174).
 	if (hidden)
 		writeStdout(
-			`${hidden} stale claim(s) hidden — node ${ARBITER} list --all\n`,
+			`${hidden} stale claim(s) hidden — ${buildArbiterCommand`list --all`}\n`,
 		);
 	// The other way this view is partial (#273). The column below is a boolean,
 	// so a holder resumed onto a fresh process — which only the sessions
@@ -3625,7 +3625,7 @@ function buildRegionHint(rel) {
 		return ""; // fail open: a store that will not read owes no hint
 	}
 	return carried
-		? `\n${file} carries ${carried} — a debt on an id the document has no entry for is recorded against the file: node ${ARBITER} debt clear ${shellQuote(file)} <issue>`
+		? `\n${file} carries ${carried} — a debt on an id the document has no entry for is recorded against the file: ${buildArbiterCommand`debt clear ${file} <issue>`}`
 		: "";
 }
 
@@ -3747,7 +3747,7 @@ function debtOwn(rest) {
 	writeStdout(
 		stored === rel
 			? `Debt on ${rel} owned by #${number}.\n`
-			: `Debt owned by #${number}, recorded against ${stored} — ${rel} names no region the document has, so the file is what carries it.\nClear it with: node ${ARBITER} debt clear ${shellQuote(stored)} ${number}\n`,
+			: `Debt owned by #${number}, recorded against ${stored} — ${rel} names no region the document has, so the file is what carries it.\nClear it with: ${buildArbiterCommand`debt clear ${stored} ${number}`}\n`,
 	);
 	return 0;
 }
@@ -3778,7 +3778,7 @@ function clearRefusal(result, rel) {
 		`session-arbiter: ${rel} carries ${result.entries.length} debts, so name the one to clear — each is a separate piece of owed work:\n${result.entries
 			.map(
 				(d) =>
-					`  node ${ARBITER} debt clear ${shellQuote(rel)} ${d.issue || "unowned"}\t${d.gist || "(no gist)"}\n`,
+					`  ${buildArbiterCommand`debt clear ${rel} ${d.issue || "unowned"}`}\t${d.gist || "(no gist)"}\n`,
 			)
 			.join("")}`,
 	);
@@ -3870,7 +3870,7 @@ function buildSweepReport(result) {
 	);
 	if (result.live.length > 0) {
 		writeStderr(
-			`A standing entry is NOT proof the work is outstanding — read the file before doing it, and clear the entry if the edit is already there:\n  node ${ARBITER} debt clear <path> <issue>\n\n`,
+			`A standing entry is NOT proof the work is outstanding — read the file before doing it, and clear the entry if the edit is already there:\n  ${buildArbiterCommand`debt clear <path> <issue>`}\n\n`,
 		);
 		printDebts(result.live);
 	}
@@ -4008,7 +4008,7 @@ function cmdAllocEntry(filePath, sessionId) {
 			sayEach([...notices.debts, ...notices.requests]);
 			writeStdout(`B${n}\n`);
 			writeStderr(
-				`session-arbiter: B${n} is yours — the append slot is claimed, so write the entry as \`### B${n} · <title>\` and release it when the commit lands:\n  node ${ARBITER} release ${shellQuote(subject)}\n`,
+				`session-arbiter: B${n} is yours — the append slot is claimed, so write the entry as \`### B${n} · <title>\` and release it when the commit lands:\n  ${buildArbiterCommand`release ${subject}`}\n`,
 			);
 			return 0;
 		}
@@ -4029,15 +4029,15 @@ function cmdAllocEntry(filePath, sessionId) {
 			// debt registered" and dead-end.
 			writeStderr(
 				`session-arbiter: no id can be allocated — ${rel} is held whole by session ${describeHolder(lock)}, so every append slot in it is covered.\n` +
-					`Wait on it in the background — node ${ARBITER} wait ${shellQuote(lock.path)} — or take the escape, which refuses unless the holder has finished:\n  node ${ARBITER} release --force ${shellQuote(lock.path)}\n` +
+					`Wait on it in the background — ${buildArbiterCommand`wait ${lock.path}`} — or take the escape, which refuses unless the holder has finished:\n  ${buildArbiterCommand`release --force ${lock.path}`}\n` +
 					"If it refuses, write the entry in a later session and record the blocked work against your ticket:\n" +
-					`  node ${ARBITER} debt own ${shellQuote(rel)} <issue> "<the entry you could not add>"\n`,
+					`  ${buildArbiterCommand`debt own ${rel} <issue> "<the entry you could not add>"`}\n`,
 			);
 			return 1;
 		}
 	}
 	writeStderr(
-		`session-arbiter: B${first}..B${n - 1} are all claimed by live sessions. Nothing was allocated; try again once one of them lands: node ${ARBITER} list\n`,
+		`session-arbiter: B${first}..B${n - 1} are all claimed by live sessions. Nothing was allocated; try again once one of them lands: ${buildArbiterCommand`list`}\n`,
 	);
 	return 1;
 }

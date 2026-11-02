@@ -231,6 +231,8 @@ const PROFILES = {
 	"jsonl-reads": findingsProfile(on("severity", "tag", "file", "match")),
 	/* One second `gh` route, keyed as jsonl-reads' sites are (#3455). */
 	"gh-route": findingsProfile(on("severity", "tag", "file", "match")),
+	/* One hand-spelt arbiter command, keyed as jsonl-reads' sites are (#3990). */
+	"arbiter-commands": findingsProfile(on("severity", "tag", "file", "match")),
 	/* One WFC_NOW read, keyed as jsonl-reads' sites are (#3457). */
 	"clock-copies": findingsProfile(on("severity", "tag", "file", "match")),
 	/* One output call or create per finding, keyed as jsonl-reads is (#3454). */

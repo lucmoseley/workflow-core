@@ -104,7 +104,7 @@ const {
 	readObservedElsewhere,
 } = require("./lib/neighbour-dirt.js");
 const { readPendingTasks } = require("./lib/pending-tasks");
-const { scriptPath } = require("./lib/script-path.js");
+const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const { governingMarker } = require("./lib/status-marker");
 const stopGuard = require("./lib/stop-guard");
 
@@ -323,7 +323,7 @@ function refuseUncommitted(payload, sid) {
 				? `The one exception to this rule is the \`waiting:\` hand-off, and this turn did not earn it: ${handoff.why}. Re-sending it unchanged will block again. `
 				: "") +
 			"If a pre-commit gate refuses the commit or a file claim is denied, say so plainly in your report and record the blocked edit as a visible debt — " +
-			`\`node ${scriptPath("session-arbiter.js")} debt own <path> <issue> "<one line>"\` — which releases that path from this check; do not silently leave the tree dirty. ` +
+			`\`${buildArbiterCommand`debt own <path> <issue> "<one line>"`}\` — which releases that path from this check; do not silently leave the tree dirty. ` +
 			"Then re-send the message this turn was going to end on, its status marker (`result:` / `needs input:` / `waiting:`) and any priced question included — this block discarded it.",
 		max: BLOCK_CAP,
 	});
@@ -355,7 +355,7 @@ function refuseHeldClean(payload, sid) {
 		reason:
 			`This turn ends \`${name}\` while this session holds ${String(clean.length)} claim(s) on files with no uncommitted change: ${named}. ` +
 			"Its work on them is committed, so each claim guards nothing and refuses every neighbour who wants the file. " +
-			`Release them: \`node ${scriptPath("session-arbiter.js")} release-committed ${named}\` — a later write of yours re-takes the claim. ` +
+			`Release them: \`${buildArbiterCommand`release-committed ${clean}`}\` — a later write of yours re-takes the claim. ` +
 			"Then re-send the message this turn was going to end on, its status marker and any priced question included — this block discarded it.",
 	});
 }

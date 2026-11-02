@@ -355,6 +355,7 @@
  * drift (mantahostels#1922).
  */
 
+const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const { runCheck } = require("./lib/check");
@@ -1862,7 +1863,7 @@ function checkHighWaterMark(r) {
 			"Ids are permanent (mantahostels#892): an id at or below the mark may " +
 			"have been held by a removed entry, and a reference to that entry " +
 			"would resolve to this one. Give the entry the next free id instead:\n" +
-			`  node scripts/session-arbiter.js alloc-entry ${mapPath}`,
+			`  ${buildArbiterCommand`alloc-entry ${mapPath}`}`,
 	});
 
 	const headMark = readHeadHighWaterMark(markFile);

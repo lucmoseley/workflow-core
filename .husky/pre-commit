@@ -508,6 +508,12 @@ if armed '^(scripts|\.claude/skills|\.husky|hooks)/'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-gh-route.js --index || exit "$?"
 fi
 
+# An arbiter command spelt by hand rather than through buildArbiterCommand,
+# judging the whole tree (#3990).
+if armed '^scripts/.+\.[cm]?js$'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-arbiter-commands.js --index || exit "$?"
+fi
+
 # A program reading WFC_NOW itself rather than lib/check.js's now(), judging
 # the whole tree (#3457).
 if armed '^scripts/.+\.[cm]?js$'; then

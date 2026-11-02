@@ -798,6 +798,10 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 			/check-jsonl-reads\.js --index \|\| exit/,
 		],
 		[
+			"`scripts/check-arbiter-commands.js`",
+			/check-arbiter-commands\.js --index \|\| exit/,
+		],
+		[
 			"`scripts/check-clock-copies.js`",
 			/check-clock-copies\.js --index \|\| exit/,
 		],

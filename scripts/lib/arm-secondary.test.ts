@@ -258,6 +258,7 @@ const GATE_SOURCES: Record<string, string[]> = {
 	"cli-args": ["scripts/check-cli-args.js"],
 	"jsonl-reads": ["scripts/check-jsonl-reads.js"],
 	"gh-route": ["scripts/check-gh-route.js"],
+	"arbiter-commands": ["scripts/check-arbiter-commands.js"],
 	"clock-copies": ["scripts/check-clock-copies.js"],
 	"report-programs": ["scripts/check-report-programs.js"],
 	primitives: ["scripts/check-primitives.js"],

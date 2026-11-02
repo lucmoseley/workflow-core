@@ -13,6 +13,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { readCurrentBootId, holderAlive } = require("./arbiter-proc.js");
 const core = require("./arbiter-core.js");
+const { buildArbiterCommand } = require("./build-arbiter-command.js");
 const { scriptPath } = require("./script-path.js");
 const { caught } = require("./caught.js");
 
@@ -344,7 +345,7 @@ function buildRequestText(records, freed, dirty, nameOf) {
 	return (
 		head +
 		"A request is a courtesy. Nothing of yours is blocked and the requester is not sitting on it — they were told to carry on with the rest of their ticket. So finish what you are doing first.\n\n" +
-		`Then either hand ${one ? "it" : "them"} over — node ${scriptPath("session-arbiter.js")} release <path> — or say no, which is worth more than silence because it tells the requester *read and refused* rather than *not read yet*:\n  node ${scriptPath("session-arbiter.js")} decline <path> "<reason>"\n` +
+		`Then either hand ${one ? "it" : "them"} over — ${buildArbiterCommand`release <path>`} — or say no, which is worth more than silence because it tells the requester *read and refused* rather than *not read yet*:\n  ${buildArbiterCommand`decline <path> "<reason>"`}\n` +
 		(dirty
 			? "\nThis file carries uncommitted work, so an ordinary release refuses it. You do not have to commit a half-finished edit to hand it over: `release --park` sets the edit aside, restores the file, releases it, and prints how to get your work back (mantahostels#1405).\n"
 			: "")

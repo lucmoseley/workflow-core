@@ -210,6 +210,10 @@
 			"lines": ["off its one route"]
 		},
 		{
+			"id": "arbiter-commands",
+			"lines": ["spells an arbiter command by hand"]
+		},
+		{
 			"id": "clock-copies",
 			"lines": ["reads WFC_NOW itself"]
 		},

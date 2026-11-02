@@ -17,7 +17,7 @@ const path = require("node:path");
 const { parseErrLine, gh, ghApiSlurp, ghJson } = require("./gh.js");
 const { requireKey } = require("./workflow-core-config.js");
 const { listedSessionIds } = require("./agent-liveness.js");
-const { scriptPath } = require("./script-path.js");
+const { buildArbiterCommand } = require("./build-arbiter-command.js");
 const { similarOpen } = require("./similar-titles.js");
 const { readTrackerTitles } = require("./closed-title-cache.js");
 const issueClaims = require("./arbiter-issue-claims.js");
@@ -195,7 +195,7 @@ function releaseOwnClaim(io, n) {
 		io.out(`#${n}: this session held no arbiter claim on it.\n`);
 	else {
 		io.warn(
-			`releasing the arbiter claim on #${n} failed (${r.status}) — node ${scriptPath("session-arbiter.js")} release-issue ${n}.`,
+			`releasing the arbiter claim on #${n} failed (${r.status}) — ${buildArbiterCommand`release-issue ${n}`}.`,
 		);
 		return 1;
 	}
@@ -218,7 +218,7 @@ function releaseCleanFileClaims(io) {
 	const clean = readHeldClean(sessionId);
 	if (clean === null) {
 		io.warn(
-			`the claim store would not read, so no file claim was released — node ${scriptPath("session-arbiter.js")} list.`,
+			`the claim store would not read, so no file claim was released — ${buildArbiterCommand`list`}.`,
 		);
 		return 1;
 	}
@@ -239,7 +239,7 @@ function releaseCleanFileClaims(io) {
 	const kept = readHeldClean(sessionId);
 	if (kept !== null && kept.length === 0) return 0;
 	io.warn(
-		`${kept === null ? "the claim store would not read after the release, so" : `${kept.map(shellQuote).join(" ")}:`} still held on a clean file — node ${scriptPath("session-arbiter.js")} release-committed ${(kept ?? clean).map(shellQuote).join(" ")}`,
+		`${kept === null ? "the claim store would not read after the release, so" : `${kept.map(shellQuote).join(" ")}:`} still held on a clean file — ${buildArbiterCommand`release-committed ${kept ?? clean}`}`,
 	);
 	return 1;
 }

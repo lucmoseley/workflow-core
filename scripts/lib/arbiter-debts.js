@@ -16,9 +16,8 @@ const path = require("node:path");
 const regions = require("./doc-map-regions.js");
 const core = require("./arbiter-core.js");
 const { ghJson, ISSUE_LIST_LIMIT } = require("./gh.js");
-const { scriptPath } = require("./script-path.js");
+const { buildArbiterCommand } = require("./build-arbiter-command.js");
 const { caught } = require("./caught.js");
-const { shellQuote } = require("./sh-quote.js");
 
 /** @typedef {import("./arbiter-records.js").DebtRecord} DebtRecord */
 /** @typedef {import("./arbiter-records.js").DebtEntry} DebtEntry */
@@ -448,7 +447,7 @@ function buildDebtNotice(rel) {
 	// A LONE torn record stays silent — readRecord's standing ruling. One standing
 	// BESIDE a live debt is said out loud, per readDebts above (mantahostels#327).
 	const torn = entries.torn
-		? `\n${entries.torn} further entr${entries.torn === 1 ? "y" : "ies"} here could not be parsed — mid-write, or corrupt. Re-run to see ${entries.torn === 1 ? "it" : "them"}: node ${scriptPath("session-arbiter.js")} debt list`
+		? `\n${entries.torn} further entr${entries.torn === 1 ? "y" : "ies"} here could not be parsed — mid-write, or corrupt. Re-run to see ${entries.torn === 1 ? "it" : "them"}: ${buildArbiterCommand`debt list`}`
 		: "";
 
 	const [debt] = live;
@@ -460,16 +459,13 @@ function buildDebtNotice(rel) {
 			`${rel} carries a registered debt: an edit was denied here and #${debt.issue} now owns it.\n` +
 			`#${debt.issue} owns this line; don't fix it here. The issue is authoritative on what the work is — the note below is a hint written at denial time, not a specification:\n` +
 			`  "${debt.gist || "(no gist recorded)"}"  (registered ${debt.createdAt})\n` +
-			`If you have finished it, or the issue is wrong, clear the entry: node ${scriptPath("session-arbiter.js")} debt clear ${shellQuote(debt.path)} ${debt.issue}${torn}`
+			`If you have finished it, or the issue is wrong, clear the entry: ${buildArbiterCommand`debt clear ${debt.path} ${debt.issue}`}${torn}`
 		);
 	}
 
 	return (
 		`${rel} carries a registered debt: an edit was denied here on ${debt.createdAt} and never owned.\n` +
-		"No issue was recorded against it, so nobody is tracking the work and no closure can retire it. Either own it — node " +
-		scriptPath("session-arbiter.js") +
-		" debt own " +
-		`${shellQuote(debt.path)} <issue> "<one line>" — or clear it: node ${scriptPath("session-arbiter.js")} debt clear ${shellQuote(debt.path)} unowned` +
+		`No issue was recorded against it, so nobody is tracking the work and no closure can retire it. Either own it — ${buildArbiterCommand`debt own ${debt.path} <issue> "<one line>"`} — or clear it: ${buildArbiterCommand`debt clear ${debt.path} unowned`}` +
 		(debt.gist
 			? ""
 			: "\nLeft alone it is DELETED by the next sweep 24h after that denial (mantahostels#1302).") +
@@ -505,19 +501,19 @@ function buildManyDebtsNotice(rel, live) {
 	);
 	if (ordered.length > shown.length)
 		lines.push(
-			`  … and ${ordered.length - shown.length} more: node ${scriptPath("session-arbiter.js")} debt list`,
+			`  … and ${ordered.length - shown.length} more: ${buildArbiterCommand`debt list`}`,
 		);
 	// From SHOWN, not from live: an entry the cap hid is not on the reader's
 	// screen, and naming its path in the command reads as a typo.
 	const bare = shown.find((d) => !d.issue);
 	const unowned = bare
-		? `\nThe UNOWNED entry has no issue tracking it, so nothing will ever retire it: own it — node ${scriptPath("session-arbiter.js")} debt own ${shellQuote(bare.path)} <issue> "<one line>".`
+		? `\nThe UNOWNED entry has no issue tracking it, so nothing will ever retire it: own it — ${buildArbiterCommand`debt own ${bare.path} <issue> "<one line>"`}.`
 		: "";
 	return (
 		`${rel} carries ${live.length} registered debts: edits were denied here and these own them.\n` +
 		"Don't fix any of these lines here. Each issue is authoritative on what its own work is — the notes are hints written at denial time, not specifications:\n" +
 		`${lines.join("\n")}${unowned}\n` +
-		`Clear entries one at a time. A row showing a [path] is cleared under THAT path, not under ${rel}: node ${scriptPath("session-arbiter.js")} debt clear <path> <issue>`
+		`Clear entries one at a time. A row showing a [path] is cleared under THAT path, not under ${rel}: ${buildArbiterCommand`debt clear <path> <issue>`}`
 	);
 }
 

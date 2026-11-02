@@ -17,7 +17,7 @@ const { execGit } = require("./git.js");
 const regions = require("./doc-map-regions.js");
 const { isListedLive } = require("./agent-liveness.js");
 const { readCurrentBootId, holderAlive } = require("./arbiter-proc.js");
-const { scriptPath } = require("./script-path.js");
+const { buildArbiterCommand } = require("./build-arbiter-command.js");
 const bases = require("./arbiter-bases.js");
 const breaks = require("./arbiter-breaks.js");
 // biome-ignore lint/suspicious/noImportCycles: cyclic by design — arbiter-store.js's THE SPLIT RULE (mantahostels#1795).
@@ -1110,9 +1110,7 @@ function listLocksJudged() {
 		// sent to look for one finds nothing at all.
 		"the sessions registry could not be read, so a claim held by a resumed " +
 			"session is judged STALE and may in fact be live — `list` hides it by " +
-			"default, so run: node " +
-			scriptPath("session-arbiter.js") +
-			" list --all",
+			`default, so run: ${buildArbiterCommand`list --all`}`,
 	);
 	const judged = locks.map((lock) => {
 		if (lock.unreadable) return lock;
