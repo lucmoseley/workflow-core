@@ -604,11 +604,49 @@ describe("the rules that were already here", () => {
 		expect(inject("/implement 186")).not.toContain("spec-commits.js");
 	});
 
-	it("files /triage's findings under an open spec and re-reviews from Reviewed through (#897)", () => {
+	it("files /triage's first-pass findings under an open spec and re-reviews from Reviewed through (#897)", () => {
 		const triage = inject("/triage 849");
+		expect(triage).toContain(
+			"On a first pass each is FIXED, TICKETED or DECLINED",
+		);
 		expect(triage).toContain("filed under the spec while it is open");
 		expect(triage).toContain("**Reviewed through:**");
 		expect(triage).toContain("node scripts/spec-commits.js <n> --since <sha>");
+	});
+
+	it("keeps a spec in re-review only for a live finding, with no pass count (#3811)", () => {
+		const triage = inject("/triage 849");
+		expect(triage).toContain(
+			"Live: it names a route ordinary use reaches and the wrong behaviour on it; file it under the spec",
+		);
+		expect(triage).toContain(
+			"Corner: it needs an unusual input or state; file it standalone, its body citing the spec",
+		);
+		expect(triage).toContain(
+			"Tidying: it changes no behaviour; file it standalone as one ticket per pass, or decline it with a reason",
+		);
+		expect(triage).toContain(
+			"The first pass with no live finding closes the spec, naming any open standalone tickets on `**Outstanding:**`",
+		);
+		expect(triage).toContain("No pass count stops a spec");
+		expect(triage).toContain(
+			"At a fifth or later pass, counting the earlier `**Reviewed through:**` comments, your triage comment also says whether to redesign rather than patch",
+		);
+		expect(inject("/implement 186")).not.toContain("Corner: it needs");
+	});
+
+	it("tells a fix ticket's own /code-review that only a live fault goes under the spec (#3811)", () => {
+		const fragment = fs.readFileSync(
+			path.join(ROOT, "docs/agents/rules/review-finding-destination.txt"),
+			"utf8",
+		);
+		expect(fragment).toContain(
+			"A fix ticket, one filed from a whole-spec review, files under the spec only a live fault",
+		);
+		expect(fragment).toContain(
+			"Its corner or tidying goes standalone, citing the spec",
+		);
+		expect(inject("/code-review")).toContain(fragment.trim());
 	});
 
 	it("still gives /code-review the disposition rule alone, without the tracker pointers", () => {

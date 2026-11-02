@@ -596,20 +596,22 @@ fi
 
 # /implement's opening step (#893), and /triage's whole-spec review (#892),
 # ride along here because the vendored skill file cannot carry them
-# (as with the tracker rules above). /triage's arm, the longer, stays LAST:
+# /triage's arm, the longer, stays LAST:
 # check-context-budget.js reads a name's last assignment as its value.
 closing_steps=""
 if [[ "$matched" == "implement" ]]; then
   closing_steps=$'\n\n'"Before starting, read the ticket's parent spec — the sub-issue parent claim-issue.js prints, or the issue a \`## Parent\` line names — and the resolution comment on each closed blocker (\`gh api repos/{owner}/{repo}/issues/<n>/dependencies/blocked_by\`)."
 fi
+# The finding classes restate docs/agents/issue-tracker.md §Every close says what
+# is still outstanding, their home. "Fifth" is #3811's ruling and is untraced: no
+# source vouches for any pass count.
 if [[ "$matched" == "triage" ]]; then
-  closing_steps=$'\n\n'"A \`kind:spec\` whose every ticket has closed gets a whole-spec review before you decide it: run \`node scripts/spec-commits.js <n>\`, then /code-review over the \`git show\` it prints, handing the reviewers the touched files at the spec's last commit, not only the diff lines. Each finding is FIXED, TICKETED or DECLINED, recorded in your triage comment, which ends with the \`**Reviewed through:** <40-hex sha>\` line the script prints. A TICKETED one is filed under the spec while it is open — retag the spec \`takes:triage\` → \`takes:children\` yourself; standalone, its body citing the spec, only where the spec had already closed (#897). A spec back at triage whose earlier comment carries a \`**Reviewed through:**\` line is reviewed over the commits since that sha only: \`node scripts/spec-commits.js <n> --since <sha>\`."
+  closing_steps=$'\n\n'"A \`kind:spec\` whose every ticket has closed gets a whole-spec review before you decide it: run \`node scripts/spec-commits.js <n>\`, then /code-review over the \`git show\` it prints, handing the reviewers the touched files at the spec's last commit, not only the diff lines. Record every finding in your triage comment, which ends with the \`**Reviewed through:** <40-hex sha>\` line the script prints. On a first pass each is FIXED, TICKETED or DECLINED. A TICKETED one is filed under the spec while it is open — retag the spec \`takes:triage\` → \`takes:children\` yourself; standalone, its body citing the spec, only where the spec had already closed (#897). A spec back at triage whose earlier comment carries a \`**Reviewed through:**\` line is reviewed over the commits since that sha only: \`node scripts/spec-commits.js <n> --since <sha>\`. From this second pass on, each finding gets one class (#3811). Live: it names a route ordinary use reaches and the wrong behaviour on it; file it under the spec, with the same retag. Corner: it needs an unusual input or state; file it standalone, its body citing the spec. Tidying: it changes no behaviour; file it standalone as one ticket per pass, or decline it with a reason. The first pass with no live finding closes the spec, naming any open standalone tickets on \`**Outstanding:**\`. No pass count stops a spec. At a fifth or later pass, counting the earlier \`**Reviewed through:**\` comments, your triage comment also says whether to redesign rather than patch."
 fi
 
 # GROWING THIS SPENDS THE 10,000-CHARACTER BUDGET every command's payload
 # fits inside. Cross it and that command's payload is persisted to a file
-# instead, which sessions seldom open (mantahostels#1870) — so a rule added here
-# past the line does not merely cost tokens, it stops arriving.
+# instead, which sessions seldom open (mantahostels#1870).
 # check-injector-margin.sh refuses a commit that crosses it, and
 # inject-tracker-docs.test.ts asserts every command under it.
 # It names the `**Bound:**`, `**Values:**` and `**Practice:**` resolution lines because every

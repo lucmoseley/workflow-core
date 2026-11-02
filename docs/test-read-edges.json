@@ -1684,6 +1684,7 @@
 		],
 		"docs/agents/rules/review-finding-destination.txt": [
 			"scripts/count-guard-fires.test.ts",
+			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/review-rules.test.ts",
 			"scripts/lib/review-tier.test.ts",

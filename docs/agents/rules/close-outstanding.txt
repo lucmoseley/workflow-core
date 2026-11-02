@@ -12,7 +12,8 @@ or, where something is genuinely left:
   **Outstanding:** #181 (log rotation), mantahostels#182 (reproduce the bare-commit warn)
 
 Each item cites an OPEN issue other than this one: file it, link it under the
-same parent, then name it. `none — <reason>` is refused; the reason goes on
+same parent (a fix ticket's corner or tidying: standalone), then name it.
+`none — <reason>` is refused; the reason goes on
 another line. Whether `none` is true is never checked — the judgement is yours.
 `--reason "not planned"` is the one exemption.
 
