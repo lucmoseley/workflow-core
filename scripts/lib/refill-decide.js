@@ -1,8 +1,8 @@
 /*
  * refill-decide.js — the refill loop's decision core, in normal and away mode
  * (#2007, spec #1995; parked rows by mode, #3621): one pure function from a
- * tick's readings to either the launches to make or the stop that ends
- * launching, with the held sessions it resumes ahead of them.
+ * tick's readings to the launches to make, the idle reason for making none, or
+ * the stop that ends the loop, with the held sessions it resumes ahead of them.
  *
  * Caller: lib/refill-tick.js's tick (#2012)
  */
@@ -18,7 +18,7 @@ const {
 const { presenceAt } = require("./presence.js");
 const { buildVerifyPrompt, unclosedLaunchOf } = require("./unclosed-launch.js");
 
-/* Spec #1995's stop: three finishes in a row with no progress (#1920). */
+/* Three finishes in a row with no progress pause the loop (#1920, #3859). */
 const NO_PROGRESS_RUN = 3;
 /* A finish whose acts could not be read, counted neither as progress nor as
  * no progress (#2312). */
@@ -38,9 +38,14 @@ const NOTHING_LAUNCHABLE = "nothing launchable";
 const SHORTLIST_FAILED = "shortlist failed in";
 /* The idle reasons of a tick with no slot to launch into. */
 const NO_FREE_SLOT = "no free slot";
+const NO_PROGRESS_PAUSE = "no-progress";
+/* A seat's reading, cap size or cap fit holds it, as one reason to the reader
+ * (#2525, #3859). Residual: the log and the idle alarm lose which seat and hold;
+ * `status`'s `passed over` names them. */
+const NO_PLAN_ROOM = "no plan has room right now";
 const SLOT_KEPT_FOR_FOUNDER = "one free slot is kept for the founder";
 /* The idle reason of a tick whose seats are all spent, with a limit-held
- * launch keeping the run alive. */
+ * launch still to act on. */
 const LIMIT_HELD_WAIT =
 	"every seat is spent; a limit-held session waits on one";
 /* The idle reason of a tick whose seats are all spent, with a resume due. */
@@ -168,9 +173,18 @@ const ALREADY_RUNNING = "already running";
  */
 
 /**
- * Who paused the loop, and when, ms.
- * @typedef {{by: string, at: number}} Pause
+ * When away mode was switched on, ms, and whether a tick since has read the
+ * founder absent.
+ * @typedef {{since: number, absentSeen: boolean}} AwaySwitch
  */
+
+/**
+ * Who paused the loop, and when, ms; the no-progress rule also records the
+ * issues that made none.
+ * @typedef {{by: string, at: number, issues?: PauseIssue[]}} Pause
+ */
+
+/** @typedef {{root: string, number: number}} PauseIssue */
 
 /**
  * A stopped session due back: its launch's job, seat and checkout, when it was
@@ -209,18 +223,23 @@ const ALREADY_RUNNING = "already running";
  * @typedef {{seat: string, sessionId: string, cwd: string}} ResumeTarget
  */
 
-/**
- * @typedef {"control-damaged" | "explicit" | "no-progress" | "allowance"}
- *   StopReason
- */
+/** @typedef {"control-damaged" | "explicit"} StopReason */
 
 /** @typedef {{root: string, number: number, why: string}} Skip */
 
 /**
  * @typedef {{stop: StopReason, detail: string}
  *   | {launches: Launch[], skipped: Skip[], idle: string | null,
- *   held: Skip[], resumes: HeldResume[]}} Decision `held` is heldParked's;
- *   `resumes` the tick's, oldest first, made ahead of its launches
+ *   held: Skip[], resumes: HeldResume[], pause?: Pause,
+ *   planWait?: PlanWait}} Decision `held` is heldParked's; `resumes` the
+ *   tick's, oldest first, made ahead of its launches; `pause` the no-progress
+ *   pause for the tick to write; `planWait` set where every plan seat's full week
+ *   is why nothing launches
+ */
+
+/**
+ * The allowance wait: the earliest weekly reset, ms, null where none reads.
+ * @typedef {{resets: number|null}} PlanWait
  */
 
 /**
@@ -237,10 +256,10 @@ const hasProgressed = (r) =>
 /**
  * The last three read finishes since noProgressFrom, if none progressed: an
  * unread one is passed over, and so is a gate judgement with no act, since
- * judging a gate unmet ends with none (#3092). A start of a stopped loop moves
- * noProgressFrom, or a restart after this stop would stop at once. Residual: a judge
- * that crashed or did nothing is passed over too, so a run of gate launches
- * alone never stops the loop; JUDGE_EVERY_MS in lib/gate-sweep.js bounds how
+ * judging a gate unmet ends with none (#3092). A resume moves noProgressFrom, or
+ * the finishes behind this pause would pause the loop again at once. Residual: a
+ * judge that crashed or did nothing is passed over too, so a run of gate launches
+ * alone never pauses the loop; JUDGE_EVERY_MS in lib/gate-sweep.js bounds how
  * often each issue's runs.
  * @param {TickInput} input
  */
@@ -388,48 +407,35 @@ const overflowHolds = (overflow) => overflow.map(overflowHold).join(", ");
  * plan seat is weekly-full, and why the tick waits where not. A seat full on
  * its 5-hour bar alone reopens at that bar's reset, so the tick waits through
  * it (#2606). A seat with no fresh reading, no sized cap or a cap sized 0
- * stops nothing either: the dispatcher refuses the first two, so the tick
- * waits rather than stopping the run on a stale cache, and running sessions
- * finishing reopen the third's headroom (#2432). An unsized seat names the
- * wait: the loop probes no seat behind it, so an unread one there was never
- * refreshed (#2362).
+ * waits too: the dispatcher refuses the first two, and running sessions
+ * finishing reopen the third's headroom (#2432).
  * @param {SizedSeat[]} seats in launch order
  * @returns {{seat: string, fits: number}
  *   | {seat: null, fits: 0, allCut: boolean, wait: string}}
  */
 function pickPlanSeat(seats) {
-	/** @type {Record<SeatHold, string[]>} */
-	const seatsByHold = {
-		cut: [],
-		fiveHour: [],
-		unread: [],
-		unsized: [],
-		capped: [],
-	};
+	const fiveHour = [];
+	let cut = 0;
+	let noRoom = 0;
 	for (const s of seats) {
 		if (fitsLaunch(s)) return { seat: s.seat, fits: s.fits };
 		const hold = seatHold(s);
-		seatsByHold[hold].push(
-			hold === "fiveHour"
-				? `${s.seat} until its 5-hour reset ${s.sessionResets ?? "(unread)"}`
-				: s.seat,
-		);
+		if (hold === "cut") cut += 1;
+		else if (hold === "fiveHour")
+			fiveHour.push(
+				`${s.seat} until its 5-hour reset ${s.sessionResets ?? "(unread)"}`,
+			);
+		else noRoom += 1;
 	}
-	const { fiveHour, unread, unsized, capped } = seatsByHold;
-	/* One reason among the rest, as #2362 ruled; a 5-hour wait beside it. */
+	/* One reason, as #2362 ruled, whichever hold it is. A 5-hour wait beside it. */
 	const waits = [];
-	if (unsized.length > 0)
-		waits.push("no seat with room has a sized allowance cap");
-	else if (capped.length > 0)
-		waits.push(`the allowance cap fits no launch on ${capped.join(", ")}`);
-	else if (unread.length > 0)
-		waits.push("no seat has a fresh allowance reading");
+	if (noRoom > 0) waits.push(NO_PLAN_ROOM);
 	if (fiveHour.length > 0)
 		waits.push(`the 5-hour bar is full on ${fiveHour.join(", ")}`);
 	return {
 		seat: null,
 		fits: 0,
-		allCut: seatsByHold.cut.length === seats.length,
+		allCut: cut === seats.length,
 		wait: waits.join("; "),
 	};
 }
@@ -451,8 +457,8 @@ function buildOverflowHoldText(o) {
 /** @typedef {"cut" | "fiveHour" | "unread" | "unsized" | "capped"} SeatHold */
 
 /**
- * What holds a seat the loop cannot launch on: a full week, which alone can
- * end the run, else a full 5-hour bar, else an unread bar, else its cap
+ * What holds a seat the loop cannot launch on: a full week, which alone makes
+ * the allowance wait, else a full 5-hour bar, else an unread bar, else its cap
  * unsized or sized 0.
  * @param {SizedSeat} s
  * @returns {SeatHold}
@@ -556,6 +562,10 @@ function routedLaunch(
 		: { ...next, parkedRoute: parked };
 }
 
+/* What a `stop` command's record says, as the loop decides it and as `stop`'s own
+ * control field reads before a tick has. */
+const EXPLICIT_STOP_DETAIL = "stop was requested";
+
 /**
  * The stop a damaged control or a `stop` command asks for, or null.
  * @param {TickInput} input
@@ -565,40 +575,7 @@ function requestedStopOf(input) {
 	if (input.controlDamaged)
 		return { stop: "control-damaged", detail: input.controlDamaged };
 	if (input.stopRequested)
-		return { stop: "explicit", detail: "stop was requested" };
-	return null;
-}
-
-/**
- * The stop the loop's own record calls for, checked in this order, or null.
- * @param {TickInput} input
- * @param {ReturnType<typeof pickSeat>} pick
- * @returns {Extract<Decision, {stop: StopReason}> | null}
- */
-function stopOf(input, pick) {
-	const stalled = noProgressRun(input);
-	if (stalled)
-		return {
-			stop: "no-progress",
-			detail: `no act in the launched session's acts ledger from ${stalled
-				.map((r) => `${r.root} #${r.issues.join(", #")}`)
-				.join("; ")}`,
-		};
-	if (
-		pick.seat === null &&
-		pick.allCut &&
-		!input.limitHeldLines?.length &&
-		!input.resumable?.length
-	) {
-		const { overflow = [] } = input;
-		return {
-			stop: "allowance",
-			detail:
-				overflow.length === 0
-					? `every seat reads ${FULL}% of the week`
-					: `every plan seat reads ${FULL}% of the week and every overflow key is spent: ${overflowHolds(overflow)}`,
-		};
-	}
+		return { stop: "explicit", detail: EXPLICIT_STOP_DETAIL };
 	return null;
 }
 
@@ -897,15 +874,79 @@ const buildIdleDecision = (idle, held, resumes) => ({
 
 const PAUSE_TEXT_START = "paused by ";
 
+/** @param {PauseIssue} issue */
+const buildPauseIssueText = ({ root, number }) =>
+	`${path.basename(root)}#${number}`;
+
 /** @param {Pause} pause */
-const buildPauseText = ({ by, at }) =>
-	`${PAUSE_TEXT_START}${by} at ${new Date(at).toISOString()}`;
+const buildPauseText = ({ by, at, issues = [] }) =>
+	`${PAUSE_TEXT_START}${by} at ${new Date(at).toISOString()}${
+		issues.length > 0
+			? `: no act from ${issues.map(buildPauseIssueText).join(", ")}`
+			: ""
+	}`;
 
 /**
  * Whether a tick's idle reason is buildPauseText's.
  * @param {string|null|undefined} idle
  */
 const isPauseText = (idle) => idle?.startsWith(PAUSE_TEXT_START) ?? false;
+
+/**
+ * The pause three launched sessions in a row with no act call for, with their
+ * issues, each once. Only `set --resume` ends it: nothing reopens by waiting.
+ * @param {LaunchRecord[]} stalled
+ * @param {number} at
+ * @returns {Pause}
+ */
+function buildNoProgressPause(stalled, at) {
+	const refs = new Map(
+		stalled.flatMap(({ root, issues }) =>
+			issues.map((number) => {
+				const issue = { root, number };
+				return [buildPauseIssueText(issue), issue];
+			}),
+		),
+	);
+	return { by: NO_PROGRESS_PAUSE, at, issues: [...refs.values()] };
+}
+
+/**
+ * The wait every plan seat at 100% of the week makes, which the loop leaves by
+ * itself on the first tick a bar has reset.
+ * @param {SeatReading[]} seats
+ * @returns {PlanWait}
+ */
+function readPlanWait(seats) {
+	const resets = seats.flatMap((s) => s.weekResets ?? []);
+	return { resets: resets.length > 0 ? Math.min(...resets) : null };
+}
+
+/** @param {PlanWait} wait */
+const buildPlanWaitText = ({ resets }) =>
+	resets === null
+		? "a plan resets, its time unread"
+		: `a plan resets at ${new Date(resets).toISOString()}`;
+
+/**
+ * The idle of a tick with no seat to launch on, the allowance wait leading where
+ * every plan seat's week is full, as a session left on a limit or an overflow
+ * key's held budget does not change what the loop waits for.
+ * @param {TickInput} input
+ * @param {string} wait
+ * @param {Skip[]} held
+ * @param {HeldResume[]} resumes
+ */
+function buildNoSeatIdle(input, wait, held, resumes) {
+	if (!input.seats.every((s) => s.weekFull))
+		return buildIdleDecision(wait, held, resumes);
+	const planWait = readPlanWait(input.seats);
+	const text = buildPlanWaitText(planWait);
+	return {
+		...buildIdleDecision(wait ? `${text}; ${wait}` : text, held, resumes),
+		planWait,
+	};
+}
 
 /** @param {Pause} pause */
 const buildPausedWaitText = (pause) =>
@@ -956,6 +997,24 @@ function buildStopDetail(detail, { limitHeldLines = [], resumable = [] }) {
 }
 
 /**
+ * What this tick's read of the founder does to away mode (#2522): "return" at the
+ * first present read after an absent one since the switch, so a prompt inside
+ * the presence window the switch was made in does not undo it; "absent" at the
+ * first absent read since it; otherwise null.
+ * @param {{mode: "normal"|"away", away?: AwaySwitch}} control
+ * @param {number|null} lastPromptAt ms
+ * @param {number} now ms
+ * @returns {"return"|"absent"|null}
+ */
+function awayChangeOf({ mode, away }, lastPromptAt, now) {
+	if (mode !== "away") return null;
+	const absentSeen = away?.absentSeen === true;
+	if (presenceAt(lastPromptAt, new Date(now)) === "present")
+		return absentSeen ? "return" : null;
+	return absentSeen ? null : "absent";
+}
+
+/**
  * A requested stop outranks a pause, so `stop` still ends a paused loop; a pause
  * outranks every other reason, as the reads they rest on are barred (#3856).
  * @param {TickInput} input
@@ -974,9 +1033,21 @@ function decideTick(input) {
  * @returns {Decision}
  */
 function decideUnpaused(input) {
+	const stalled = noProgressRun(input);
+	if (stalled) {
+		const pause = buildNoProgressPause(stalled, input.now);
+		return { ...buildIdleDecision(buildPauseText(pause), [], []), pause };
+	}
 	const pick = pickSeat(input);
-	const stop = stopOf(input, pick);
-	if (stop) return buildStopDecision(stop, input);
+	/* A session left on a seat's limit or with a resume due has acts still to
+	 * come, so the tick carries on to them. */
+	if (
+		pick.seat === null &&
+		pick.allCut &&
+		!input.limitHeldLines?.length &&
+		!input.resumable?.length
+	)
+		return buildNoSeatIdle(input, "", heldParked(input), []);
 	const present =
 		presenceAt(input.lastPromptAt, new Date(input.now)) === "present";
 	const free = Math.max(0, input.freeSlots - (present ? 1 : 0));
@@ -996,9 +1067,11 @@ function decideUnpaused(input) {
 	const chargedInput = { ...input, seats: seatsLeft };
 	const launchPick = pickSeat(chargedInput);
 	if (launchPick.seat === null)
-		return idleOn(
+		return buildNoSeatIdle(
+			input,
 			launchPick.wait ||
 				(input.limitHeldLines?.length ? LIMIT_HELD_WAIT : RESUME_DUE_WAIT),
+			held,
 			resumes,
 		);
 	/* The cap's fits, so a tick asks no dispatcher call for a member the cap
@@ -1026,13 +1099,16 @@ function decideUnpaused(input) {
 }
 
 module.exports = {
+	EXPLICIT_STOP_DETAIL,
 	PROBE_HELD,
 	buildProbeHeldRoots,
 	buildOverflowHoldText,
 	buildPauseText,
 	buildPausedWaitText,
+	buildPlanWaitText,
 	buildLoopWait,
 	isPauseText,
+	NO_PROGRESS_PAUSE,
 	seatHold,
 	FULL,
 	buildLimitCapHoldWhy,
@@ -1040,6 +1116,7 @@ module.exports = {
 	NOTHING_LAUNCHABLE,
 	UNREAD,
 	actsRead,
+	awayChangeOf,
 	buildLimitCapText,
 	buildSkipReason,
 	decideTick,

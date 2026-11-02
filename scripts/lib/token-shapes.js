@@ -37,12 +37,18 @@
  * control sequence leads, inside such a token's minimum, loses its prefix to
  * that body and passes (#3661).
  *
- * A STORED SECRET'S VALUE is masked after its `NAME=` for each name a caller
- * passes, whatever its shape (#3661), to the end of its line (#3710). One
- * after `NAME:` or a JSON key passes, and so does one under a name the
- * secrets file does not hold, a key set only in the environment included. A
- * value opening `\t`, or a spelling of a control sequence (`\e7`, `%1B7`,
- * `^[[1m`), keeps that opening.
+ * A STORED SECRET'S VALUE is masked after an assignment to its name, whatever
+ * its shape (#3661), to the end of its line (#3710), and wherever it appears
+ * as the file holds it, at MIN_BARE_VALUE characters or more (#3821). The rest
+ * pass: a shorter one after `NAME:`, a JSON key or an assignment spelled some
+ * way buildStored does not read, since prose shares too many short values; a
+ * longer one spelled otherwise (URL-encoded, stringified, split by a control
+ * sequence, or holding an escape the file's quoting undoes) with no such
+ * assignment before it; one on a line the file's grammar does not read, a
+ * commented-out one included; and one the file does not hold, a key set only
+ * in the environment included. Where two stored values overlap in the text,
+ * the first masked leaves the other's tail. A value opening `\t`, or a
+ * spelling of a control sequence (`\e7`, `%1B7`, `^[[1m`), keeps that opening.
  */
 
 const { SPACE } = require("./env-file.js");
@@ -245,47 +251,40 @@ const PASSES = 2;
 /* A space env-file reads around `=`, escaped as JSON, C or Python spell it. */
 const ESCAPED_SPACE = `${BACKSLASHES}(?:[tfv]|x(?:09|0[bBcC]|[aA]0)|u(?:0009|000[bBcC]|00[aA]0|1680|200[0-9aA]|202[fF]|205[fF]|3000|[fF][eE][fF][fF]))`;
 
+/* `=` raw, URL-encoded at any depth, or escaped as C, JSON or HTML spell it. */
+const EQUALS = `(?:=|${buildUrlEncoded("3[dD]")}|${BACKSLASHES}(?:x3[dD]|u003[dD]|075)|&#0*61;|&#[xX]0*3[dD];|&equals;)`;
+
 /**
- * Each `<name>=` assignment, as a log spells one, in two groups: the name and
+ * Each assignment to a name, as a log spells one, in two groups: the name and
  * what runs to its value. The name, control sequences allowed between its
  * characters as `grep --color` puts them, follows no name character unless
- * an escape `ESCAPES` lists ends there. Before `=` may sit
- * `lib/env-file.js`'s spaces, raw or escaped, and control sequences; after
- * it, the raw ones, an escaped tab and control sequences. The value takes
- * any quote around it.
+ * an escape `ESCAPES` lists ends there. A subscript's closing quote and `]`
+ * may follow it (`os.environ["NAME"]`). Before `=`, in any spelling, may sit
+ * `lib/env-file.js`'s spaces, raw or escaped, control sequences, and the `+`,
+ * `:` or `?` of a shell's or Makefile's `+=`, `:=` or `?=`; after it, the raw
+ * spaces, an escaped tab, control sequences and a backslash-newline. The
+ * value takes any quote around it.
  * @param {string[]} names
  */
 function buildStored(names) {
 	const nameAlternation = names.map(buildPrefix).join("|");
 	const firsts = [...new Set(names.map((name) => name[0]))].join("");
-	const gap = String.raw`(?:${CONTROL}|${SPACE}|${ESCAPED_SPACE})*=(?:${CONTROL}|${SPACE}|\\t)*`;
+	const gap = String.raw`(?:(?:${BACKSLASHES})?["']\])?(?:${CONTROL}|${SPACE}|${ESCAPED_SPACE})*[+:?]?${EQUALS}(?:${CONTROL}|${SPACE}|\\t|\\+\r?\n)*`;
 	return `(?=[${firsts}])${buildLead("A-Za-z0-9_")}(${nameAlternation})(${gap})(?!${SPACE}).+`;
 }
 
+/* A shorter value is too often a word prose shares. GitLab's floor for a
+ * masked variable: docs.gitlab.com/ci/variables. */
+const MIN_BARE_VALUE = 8;
+
 /**
- * `text` with every token-shaped substring, and the value of an assignment
- * to any of `names`, replaced by `[REDACTED:<rule>]`. Shapes apply in list
- * order: `sk-ant-` is named before the bare `sk-` rule can claim it, and the
- * shapes whose bodies hold `_` or `-` run before the lead-free ones, which
- * would otherwise split them at an `hf_` or `ghp_` inside.
+ * `text` with every token-shaped substring masked, and how many.
  * @param {string} text
- * @param {string[]} [names] the secrets file's names, from
- *   `lib/env-file.js`'s `storedNames`: identifiers, put in the pattern as
- *   they are
  * @returns {{ text: string, count: number }}
  */
-function maskTokens(text, names = []) {
+function maskShapes(text) {
 	let count = 0;
 	let out = text;
-	if (names.length > 0) {
-		out = out.replace(
-			new RegExp(buildStored(names), "g"),
-			(_match, name, gap) => {
-				count++;
-				return `${name}${gap}[REDACTED:stored]`;
-			},
-		);
-	}
 	let found = 0;
 	for (let pass = 0; pass < PASSES && (pass === 0 || found > 0); pass++) {
 		found = 0;
@@ -297,6 +296,71 @@ function maskTokens(text, names = []) {
 		count += found;
 	}
 	return { text: out, count };
+}
+
+/**
+ * `text` with every occurrence of `values`, as literal text, masked, and how
+ * many.
+ * @param {string} text
+ * @param {string[]} values
+ * @returns {{ text: string, count: number }}
+ */
+function maskValues(text, values) {
+	let count = 0;
+	let out = text;
+	for (const value of values) {
+		const parts = out.split(value);
+		count += parts.length - 1;
+		out = parts.join("[REDACTED:stored]");
+	}
+	return { text: out, count };
+}
+
+/**
+ * `text` with every token-shaped substring, the value of an assignment to any
+ * of `names`, and every one of `values` long enough to tell from prose,
+ * replaced by `[REDACTED:<rule>]`. Shapes apply in list order: `sk-ant-` is
+ * named before the bare `sk-` rule can claim it, and the shapes whose bodies
+ * hold `_` or `-` run before the lead-free ones, which would otherwise split
+ * them at an `hf_` or `ghp_` inside.
+ * @param {string} text
+ * @param {string[]} [names] the secrets file's names, from
+ *   `lib/env-file.js`'s `readStoredSecrets`: identifiers, put in the pattern as
+ *   they are
+ * @param {string[]} [values] the secrets file's values, from
+ *   `lib/env-file.js`'s `readStoredSecrets`
+ * @returns {{ text: string, count: number }}
+ */
+function maskTokens(text, names = [], values = []) {
+	let count = 0;
+	let out = text;
+	if (names.length > 0) {
+		out = out.replace(
+			new RegExp(buildStored(names), "g"),
+			(_match, name, gap) => {
+				count++;
+				return `${name}${gap}[REDACTED:stored]`;
+			},
+		);
+	}
+	/* Longest first, so a value inside another leaves no tail of it. A value
+	 * holding a token goes before the shapes, which would take that token and
+	 * leave the rest of it; any other goes after, as a mask inside a token
+	 * would leave the token's tail. */
+	const bare = values
+		.filter((value) => value.length >= MIN_BARE_VALUE)
+		.sort((a, b) => b.length - a.length);
+	const holdingToken = bare.filter((value) => maskShapes(value).count > 0);
+	const first = maskValues(out, holdingToken);
+	const shaped = maskShapes(first.text);
+	const rest = maskValues(
+		shaped.text,
+		bare.filter((value) => !holdingToken.includes(value)),
+	);
+	return {
+		text: rest.text,
+		count: count + first.count + shaped.count + rest.count,
+	};
 }
 
 module.exports = { maskTokens };

@@ -126,7 +126,7 @@ function buildObservedLines(status, now) {
 			{
 				text: running
 					? "Switch on to carry on"
-					: "Not running: switch on, then start it from the command line",
+					: "Not running: switch on to start it",
 				role: "secondary",
 			},
 		];

@@ -13,7 +13,7 @@
  *
  * Loosen one and the loop spends credits while plan allowance remains, stops
  * while a key's running sessions are about to reopen it, or never counts an
- * overflow launch toward the no-progress stop.
+ * overflow launch toward the no-progress pause.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -197,7 +197,7 @@ describe("a headless launch's finish (#2611)", () => {
 		expect(live).toMatchObject({ finishedAt: null });
 	});
 
-	it("counts toward the no-progress stop", () => {
+	it("counts toward the no-progress pause", () => {
 		const history = judge(
 			["0000000c", "0000000d", "0000000e"].map((id) => launch(id)),
 		);
@@ -224,6 +224,6 @@ describe("a headless launch's finish (#2611)", () => {
 				],
 				history,
 			}),
-		).toMatchObject({ stop: "no-progress" });
+		).toHaveProperty("pause.by", "no-progress");
 	});
 });
