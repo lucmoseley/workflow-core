@@ -125,6 +125,16 @@ function buildHostPorts(root) {
 		declared: () =>
 			require("./workflow-core-config.js").readConfig({ root, quiet: true })
 				.sensitivePaths,
+		declaredAtHead: () => {
+			const { readConfig } = require("./workflow-core-config.js");
+			let atHead = null;
+			try {
+				atHead = readConfig({ root, rev: "HEAD", quiet: true });
+			} catch {
+				// #3905: a HEAD with no readable copy has no declaration to narrow.
+			}
+			return atHead?.sensitivePaths;
+		},
 	};
 }
 

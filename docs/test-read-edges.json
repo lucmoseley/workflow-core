@@ -393,6 +393,7 @@
 			"scripts/lib/python-routes.test.ts",
 			"scripts/lib/refill-code.test.ts",
 			"scripts/lib/review-tier.test.ts",
+			"scripts/lib/sensitive-paths.test.ts",
 			"scripts/lib/session-verdict.test.ts",
 			"scripts/mutation-hold-gate.test.ts",
 			"scripts/precommit-context-budget-gate.test.ts",
@@ -22318,6 +22319,7 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"

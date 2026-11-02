@@ -916,6 +916,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
 		changedSince: () => [],
 		billed: () => [],
 		declared: () => [{ ...RLS, live: false }],
+		declaredAtHead: () => [{ ...RLS, live: false }],
 		ruleText: () => {
 			throw new Error("store down");
 		},
@@ -1044,6 +1045,57 @@ describe("the cases a mutant must not survive (#2792)", () => {
 				}) as never,
 			),
 		).toEqual({ context: "see docs/x.txt [resolved]" });
+	});
+
+	describe("a change to the declaration that narrows it (#3905)", () => {
+		const Config = ".claude/workflow-core.json";
+		const narrowing = (declared: unknown) =>
+			decide(
+				"code-review",
+				stubCtx({
+					staged: () => [Config],
+					declared: () => declared,
+					declaredAtHead: () => [{ ...RLS, live: false }],
+				}) as never,
+			);
+
+		it.each([
+			["emptying it", undefined],
+			["declaring none", []],
+			["dropping the area's globs", [{ ...RLS, globs: [], live: false }]],
+		])(
+			"states the escalated tier and the area's focus on %s",
+			(_, declared) => {
+				const decision = narrowing(declared);
+				expect(String(decision?.prelude)).toContain("Tier owed: escalated.");
+				expect(String(decision?.prelude)).toContain(RLS.name);
+				expect(decision?.injectRules).toContain("review-focused-run");
+			},
+		);
+
+		it("adds nothing where the declaration keeps every glob", () => {
+			const decision = decide(
+				"code-review",
+				stubCtx({
+					staged: () => [Config],
+					declared: () => [{ ...RLS, live: false }],
+					declaredAtHead: () => [{ ...RLS, live: false }],
+				}) as never,
+			);
+			expect(String(decision?.prelude ?? "")).not.toContain("Tier owed");
+		});
+
+		it("adds nothing where the change does not touch the declaration", () => {
+			const decision = decide(
+				"code-review",
+				stubCtx({
+					staged: () => ["app/page.tsx"],
+					declared: () => [],
+					declaredAtHead: () => [{ ...RLS, live: false }],
+				}) as never,
+			);
+			expect(decision).toBeNull();
+		});
 	});
 
 	it("states the undeclared line's fallback where the store cannot give it", () => {

@@ -13,14 +13,17 @@
 # IMPLICIT:  runs the whole of .husky/pre-commit over the staged (or merge)
 #            content, on every commit that reaches this hook — EXCEPT on the
 #            replay path below (cherry-pick, rebase, `rebase --continue`),
-#            where it runs gitleaks alone and nothing else in the stack (mantahostels#1706).
+#            where it runs gitleaks alone and, on a cherry-pick, the review hold
+#            (mantahostels#1706, #3905).
 #            It also refuses a message carrying a GitHub closing keyword before
 #            an issue reference, on every route but a replay and a message
 #            still to be typed into $EDITOR (#138). Which route a commit is
 #            on, per hook: scripts/lib/commit-route.sh, whose absence
 #            refuses every commit. On a commit that passes, writes the review
 #            hold's `Review-Tier:` trailer through
-#            scripts/review-tier-trailer.sh, which never refuses (#3664).
+#            scripts/review-tier-trailer.sh (#3664), which refuses a tree that
+#            moved after the hold passed and fails the hold on re-reading it
+#            (#3905).
 # JUSTIFIED: fail-safe — this is the one hook that can refuse a commit and
 #            that `--no-verify` leaves running, and a gate skipped here runs next
 #            only in CI, after the push.
@@ -68,12 +71,12 @@ fi
 # .husky/pre-applypatch as their seam, and are listed so that a git which starts
 # routing them this way is gated rather than silently exempt.
 #
-# gitleaks ALONE, never the whole stack on every path (mantahostels#1687): an
+# gitleaks and that hold, never the whole stack on every path (mantahostels#1687): an
 # intermediate rebase state can legitimately fail a
 # cross-file check only the final state satisfies — check-digest-version.js's
 # roadmap/digest version pair — which makes an ordinary rebase impossible, worse
 # than the gap. THE RESIDUAL is everything else in the stack, unrun on these
-# routes.
+# routes. A rebase takes no hold, which would hold each replayed commit whole.
 #
 # Every other route takes the whole stack. On `git revert A B` that is once per
 # reverted commit, which can strand on the same intermediate state a rebase
@@ -123,14 +126,25 @@ if [ -z "$replay" ] && [ -n "${1-}" ]; then
   bash "$scanner" "$1" prepare-commit-msg || exit 1
 fi
 
-# The hold's trailer, on both exits a passing commit takes: the hold wrote its
-# stamp in whichever `pre-commit` run passed, the hook's own or this one's.
+# refused_in_progress <status> — exits <status>, naming the abort of an operation
+# the refusal leaves open.
+refused_in_progress() {
+  abort="$(wfc_commit_route_abort "$route")"
+  [ -z "$abort" ] || echo "  The $(wfc_commit_route_name "$route") is left IN PROGRESS. Clear it with:  $abort" >&2
+  exit "$1"
+}
+
+# The hold's trailer and its re-read of a moved tree, on every exit a passing
+# commit takes: the hold wrote its stamp in whichever run passed, `pre-commit`'s,
+# this hook's own or the replay path's.
 review_tier_trailer() {
   trailer="${WFC_PLUGIN_ROOT:-$here/..}/scripts/review-tier-trailer.sh"
   if [ -r "$trailer" ]; then
-    bash "$trailer" "$1" || :
+    status=0
+    bash "$trailer" "$1" || status=$?
+    [ "$status" -eq 0 ] || refused_in_progress "$status"
   else
-    echo "prepare-commit-msg: $trailer is missing, so this commit lands with no Review-Tier: trailer." >&2
+    echo "prepare-commit-msg: $trailer is missing, so this commit lands with no Review-Tier: trailer and no check that its tree stayed put." >&2
   fi
 }
 
@@ -145,8 +159,19 @@ if [ -n "$recorded" ] && [ -n "$tree" ] && [ "$recorded" = "$tree" ]; then
 fi
 
 if [ -n "$replay" ]; then
-  wfc_replay_scan prepare-commit-msg "$route" && exit 0
-  exit 1
+  wfc_replay_scan prepare-commit-msg "$route" || exit 1
+  if [ "$route" = cherry-pick ]; then
+    hold="${WFC_PLUGIN_ROOT:-$here/..}/scripts/review-hold-gate.sh"
+    if [ -r "$hold" ]; then
+      status=0
+      bash "$hold" || status=$?
+      [ "$status" -eq 0 ] || refused_in_progress "$status"
+      review_tier_trailer "${1-}"
+    else
+      echo "prepare-commit-msg: $hold is missing, so this cherry-pick went unchecked for a sensitive-path review." >&2
+    fi
+  fi
+  exit 0
 fi
 
 # `sh -e` rather than a `.` source, and the status passed through rather than

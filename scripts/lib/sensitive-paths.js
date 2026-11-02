@@ -10,7 +10,8 @@
  * RUN AS A SCRIPT it prints the match as JSON for the host's config, or with
  * `--names` the matched areas' names one per line, exit 0; a config warning
  * reaches stderr and never changes the exit. Exit 2 is a
- * config that will not read, or bad usage.
+ * config that will not read, or bad usage. `--narrowed <before> <after>` prints
+ * the areas the second root's config narrows from the first's, one per line.
  */
 
 const fs = require("node:fs");
@@ -66,8 +67,56 @@ function matchSensitivePaths(declared, paths) {
 	};
 }
 
+/**
+ * The areas `before` declares that `after` removes or takes a glob from. A
+ * reworded glob reads as one taken, as nothing here can compare what two globs
+ * match.
+ * @param {SensitivePath[] | undefined} before
+ * @param {SensitivePath[] | undefined} after
+ * @returns {string[]} names
+ */
+function narrowedAreas(before, after) {
+	const now = new Map((after ?? []).map((a) => [a.name, a.globs]));
+	return (before ?? [])
+		.filter(({ name, globs }) => {
+			const kept = now.get(name);
+			return kept === undefined || globs.some((g) => !kept.includes(g));
+		})
+		.map((a) => a.name);
+}
+
+/**
+ * `--narrowed`: an `after` that will not parse declares nothing, so a broken
+ * copy reads as dropping every area.
+ * @param {string} before
+ * @param {string} after
+ */
+function printNarrowed(before, after) {
+	let was;
+	try {
+		was = readConfig({ root: before, quiet: true }).sensitivePaths;
+	} catch (e) {
+		writeFd(2, `BROKEN: ${caught(e).message}\n`);
+		process.exit(2);
+	}
+	let now;
+	try {
+		now = readConfig({ root: after, quiet: true }).sensitivePaths;
+	} catch {
+		// #3905: the unparsable copy is itself the narrowing this reports.
+		now = undefined;
+	}
+	writeFd(
+		1,
+		narrowedAreas(was, now)
+			.map((n) => `${n}\n`)
+			.join(""),
+	);
+}
+
 const USAGE =
 	"usage: node sensitive-paths.js [--stdin] [--names] [<path>...]\n" +
+	"       node sensitive-paths.js --narrowed <before root> <after root>\n" +
 	"  The declared sensitive paths the given repo-relative paths touch, as JSON.\n" +
 	"  --stdin  read further paths from stdin, one per line or NUL-separated;\n" +
 	"           git quotes an unusual name, so pipe `git diff --name-only -z`\n" +
@@ -77,9 +126,22 @@ if (require.main === module) {
 	const { parseOrExit } = require("./cli-args.js");
 	const { flags, positionals } = parseOrExit(process.argv.slice(2), {
 		usage: USAGE,
-		flags: { "--stdin": "boolean", "--names": "boolean" },
+		flags: {
+			"--stdin": "boolean",
+			"--names": "boolean",
+			"--narrowed": "boolean",
+		},
 		max: Number.POSITIVE_INFINITY,
 	});
+	if (flags["--narrowed"]) {
+		const [before, after] = positionals;
+		if (before === undefined || after === undefined) {
+			writeFd(2, USAGE);
+			process.exit(2);
+		}
+		printNarrowed(before, after);
+		process.exit(0);
+	}
 	const paths = [...positionals];
 	if (flags["--stdin"])
 		paths.push(
@@ -104,4 +166,4 @@ if (require.main === module) {
 	);
 }
 
-module.exports = { matchSensitivePaths };
+module.exports = { matchSensitivePaths, narrowedAreas };

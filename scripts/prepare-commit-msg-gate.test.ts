@@ -45,6 +45,8 @@ const STAMP = "wfc-precommit-stamp";
 const temps = registerTempCleanup();
 
 /** Where a stubbed hook appends the line proving it ran. */
+// isolation-exempt: every fixture holds a stub at this path, which logs nothing.
+const HOLD = "scripts/review-hold-gate.sh";
 const LOG = "fired.log";
 
 /**
@@ -193,6 +195,7 @@ const buildTemplate = (root: string) => {
 
 	const log = path.join(root, LOG);
 	fs.writeFileSync(path.join(husky, "pre-commit"), precommitStub(log, 0));
+	fs.writeFileSync(path.join(root, HOLD), "exit 0\n");
 
 	fs.writeFileSync(path.join(root, "base.txt"), "base\n");
 	git("add", "--", "base.txt");
@@ -1097,7 +1100,92 @@ describe("the closing-keyword refusal (#138)", () => {
 	});
 });
 
+describe("the review hold on a cherry-pick's replay path (#3905)", () => {
+	const refusing = (p: Probe) =>
+		fs.writeFileSync(
+			path.join(p.root, HOLD),
+			'echo "the hold refused this pick" >&2\nexit 1\n',
+		);
+	/** A commit on a side branch, the probe back where it started. */
+	const sideCommit = (p: Probe, rel: string) => {
+		p.git("checkout", "-qb", "side");
+		fs.writeFileSync(path.join(p.root, rel), "theirs\n");
+		p.git("add", "--", rel);
+		p.git("commit", "-qm", "theirs");
+		const sha = gitLog(p, "-1", "--format=%H").trim();
+		p.git("checkout", "-q", "-");
+		return sha;
+	};
+
+	it("refuses a clean pick the hold refuses, naming the abort", () => {
+		const p = probe();
+		const pick = sideCommit(p, "f.txt");
+		refusing(p);
+		const r = attempt(p.root, "cherry-pick", pick);
+		// git reports a refusing hook on a replay as a failed sequencer step.
+		expect(r.code).toBe(128);
+		expect(r.output).toContain("the hold refused this pick");
+		expect(r.output).toContain("git cherry-pick --abort");
+		expect(fs.existsSync(path.join(p.gitDir(), "CHERRY_PICK_HEAD"))).toBe(true);
+	});
+
+	it("refuses --no-verify at a stopped pick, which reaches no pre-commit", () => {
+		const p = probe();
+		const pick = sideCommit(p, "f.txt");
+		fs.writeFileSync(path.join(p.root, "f.txt"), "mine\n");
+		p.git("add", "--", "f.txt");
+		p.git("commit", "-qm", "mine");
+		expect(attempt(p.root, "cherry-pick", pick).code).toBe(1);
+		fs.writeFileSync(path.join(p.root, "f.txt"), "SNEAK\n");
+		p.git("add", "--", "f.txt");
+		refusing(p);
+		const r = attempt(p.root, "commit", "-qm", "land", "--no-verify");
+		expect(r.code).toBe(1);
+		expect(r.output).toContain("the hold refused this pick");
+	});
+
+	it("passes where the hold is missing", () => {
+		const p = probe();
+		const pick = sideCommit(p, "f.txt");
+		fs.rmSync(path.join(p.root, HOLD));
+		const r = attempt(p.root, "cherry-pick", pick);
+		expect(r.code).toBe(0);
+	});
+
+	it("takes no hold on a rebase", () => {
+		const p = probe();
+		sideCommit(p, "f.txt");
+		fs.writeFileSync(path.join(p.root, "g.txt"), "mine\n");
+		p.git("add", "--", "g.txt");
+		p.git("commit", "-qm", "mine");
+		refusing(p);
+		expect(attempt(p.root, "rebase", "side").code).toBe(0);
+	});
+});
+
 describe("the review hold's Review-Tier: trailer (#3664)", () => {
+	it.each([
+		["standing down on pre-commit's stamp", []],
+		["running pre-commit itself under --no-verify", ["--no-verify"]],
+	])(
+		"refuses a commit %s where the trailer step refuses it (#3905)",
+		(_, flags) => {
+			const p = probe();
+			p.precommitBody(precommitStub(path.join(p.root, LOG), 0));
+			fs.writeFileSync(
+				path.join(p.root, "scripts", "review-tier-trailer.sh"),
+				'echo "the hold refused the moved tree" >&2\nexit 1\n',
+			);
+			fs.writeFileSync(path.join(p.root, "f.txt"), "held\n");
+			p.git("add", "--", "f.txt");
+			const before = gitLog(p, "-1", "--format=%H");
+			const r = attempt(p.root, "commit", "-qm", "land it", ...flags);
+			expect(r.code).toBe(1);
+			expect(r.output).toContain("the hold refused the moved tree");
+			expect(gitLog(p, "-1", "--format=%H")).toBe(before);
+		},
+	);
+
 	/** A pre-commit that leaves the stamp the review hold leaves on a pass. */
 	const holding = (p: Probe) =>
 		p.precommitBody(

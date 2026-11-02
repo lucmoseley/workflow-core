@@ -46,6 +46,8 @@ const CODE_THRESHOLD = readShellConst(
 const SECRET = "lib/secret.js";
 const PRICE = "lib/pricing/quote.ts";
 const PLAIN = "app/page.tsx";
+/** Every area the seed declares, as a refusal lists them. */
+const ALL_AREAS = "money, rewards, secrets";
 
 let scratch: string;
 let repo: string;
@@ -192,8 +194,7 @@ const commitPatch = (patch: string, whole: string[]) =>
  * SID's first eight characters, as lib/review-suffix.sh cuts it.
  */
 const writeMarker = (patch: string) => {
-	for (const axis of ["standards", "spec"])
-		write(`.claude/tmp/review-${axis}-${SID.slice(0, 8)}.md`, "- none\n");
+	leaveArtefacts();
 	return runInProcess(
 		WRITE_MARKER,
 		[
@@ -216,12 +217,26 @@ const writeMarker = (patch: string) => {
 
 const commitCount = () => git("rev-list", "--count", "HEAD");
 
-const expectRefused = (r: ReturnType<typeof commit>, fault: string) => {
+/** Leaves the artefacts an escalated review owes, suffixed as SID's. */
+const leaveArtefacts = (dir = path.join(repo, ".claude", "tmp")) => {
+	fs.mkdirSync(dir, { recursive: true });
+	for (const axis of ["standards", "spec", "focus"])
+		fs.writeFileSync(
+			path.join(dir, `review-${axis}${reviewSuffix(SID)}.md`),
+			"- none\n",
+		);
+};
+
+const expectRefused = (
+	r: ReturnType<typeof commit>,
+	fault: string,
+	commits = "1",
+) => {
 	expect(r.status).toBe(1);
 	expect(r.stderr).toContain(fault);
 	expect(r.stderr).toContain("A COMMIT ON A DECLARED SENSITIVE PATH IS HELD");
 	expect(r.stderr).toContain("rule:review-hold");
-	expect(commitCount()).toBe("1");
+	expect(commitCount()).toBe(commits);
 };
 
 beforeEach(() => {
@@ -362,6 +377,11 @@ describe("review-hold-gate.sh — refusals", () => {
 });
 
 describe("review-hold-gate.sh — the declaration it reads", () => {
+	const readDeclared = () =>
+		JSON.parse(
+			fs.readFileSync(path.join(repo, ".claude/workflow-core.json"), "utf8"),
+		);
+
 	it("still holds when the working-tree declaration drops the area unstaged", () => {
 		write(".claude/workflow-core.json", JSON.stringify({ sensitivePaths: [] }));
 		write(SECRET, "new\n");
@@ -379,6 +399,7 @@ describe("review-hold-gate.sh — the declaration it reads", () => {
 			".claude/workflow-core.json",
 			JSON.stringify({
 				sensitivePaths: [
+					...readDeclared().sensitivePaths,
 					{ name: "pages", description: "the app", globs: ["app/**"] },
 				],
 			}),
@@ -387,6 +408,293 @@ describe("review-hold-gate.sh — the declaration it reads", () => {
 		const r = commit([PLAIN, ".claude/workflow-core.json"]);
 		expectRefused(r, "there is no marker");
 		expect(r.stderr).toContain("Areas touched: pages.");
+	});
+
+	const Config = ".claude/workflow-core.json";
+	const withMoney = (globs: string[]) =>
+		JSON.stringify({
+			sensitivePaths: readDeclared().sensitivePaths.map(
+				(a: { name: string }) => (a.name === "money" ? { ...a, globs } : a),
+			),
+		});
+
+	it.each([
+		["empties the file", () => write(Config, "{}"), ALL_AREAS],
+		[
+			"declares none",
+			() => write(Config, JSON.stringify({ sensitivePaths: [] })),
+			ALL_AREAS,
+		],
+		["no longer parses", () => write(Config, "{ not json"), ALL_AREAS],
+		["is deleted", () => fs.rmSync(path.join(repo, Config)), ALL_AREAS],
+		["drops a glob", () => write(Config, withMoney([])), "money"],
+		[
+			"swaps a glob for another",
+			() => write(Config, withMoney(["lib/pricing/x/**"])),
+			"money",
+		],
+		[
+			"removes a globless area",
+			() =>
+				write(
+					Config,
+					JSON.stringify({
+						sensitivePaths: readDeclared().sensitivePaths.filter(
+							(a: { name: string }) => a.name !== "rewards",
+						),
+					}),
+				),
+			"rewards",
+		],
+	])(
+		"holds a commit whose declaration %s, under what it drops (#3905)",
+		(_, edit, areas) => {
+			edit();
+			const r = commit([Config]);
+			expectRefused(r, "there is no marker");
+			expect(r.stderr).toContain(`Areas touched: ${areas}.`);
+		},
+	);
+
+	it("names the fault of a staged declaration that will not parse (#3905)", () => {
+		write(Config, "{ not json");
+		expect(commit([Config]).stderr).toContain(
+			"The staged .claude/workflow-core.json will not read",
+		);
+	});
+
+	it("clears a narrowing commit on a marker naming what it drops", () => {
+		write(Config, withMoney([]));
+		mark({
+			tier: "escalated",
+			areas: "money",
+			tree: treeOf(["--", Config]),
+			paths: Config,
+		});
+		expect(commit([Config]).status).toBe(0);
+	});
+
+	it("leaves alone a commit that only widens a glob list", () => {
+		write(Config, withMoney(["lib/pricing/**", "lib/quotes/**"]));
+		expect(commit([Config]).status).toBe(0);
+	});
+
+	it("does not take a reordering of the declaration for a narrowing", () => {
+		const cfg = readDeclared();
+		write(
+			Config,
+			JSON.stringify({
+				...cfg,
+				sensitivePaths: [...cfg.sensitivePaths].reverse(),
+			}),
+		);
+		expect(commit([Config]).status).toBe(0);
+	});
+});
+
+describe("review-hold-gate.sh — a replay's own bytes pass, anything added is held (#3905)", () => {
+	const hookEnv = () => {
+		const env: Record<string, string | undefined> = {
+			...quietEnv(),
+			CLAUDE_CODE_SESSION_ID: SID,
+			GIT_EDITOR: "true",
+		};
+		delete env.GIT_REFLOG_ACTION;
+		return env;
+	};
+	const hooked = (...args: string[]) =>
+		spawnSync("git", ["-c", `core.hooksPath=${hooks}`, ...args], {
+			cwd: repo,
+			encoding: "utf8",
+			env: hookEnv(),
+		});
+
+	/**
+	 * A commit on a side branch writing `theirs` over each path, and one on main
+	 * writing `mine` over `conflicting`; returns the side commit.
+	 */
+	const divergedPick = (paths: string[], conflicting: string[]) => {
+		git("checkout", "-qb", "side");
+		for (const p of paths) write(p, "theirs\n");
+		git("add", "-A");
+		git("commit", "-qm", "theirs");
+		const pick = git("rev-parse", "HEAD");
+		git("checkout", "-q", "main");
+		for (const p of conflicting) write(p, "mine\n");
+		if (conflicting.length > 0) {
+			git("add", "-A");
+			git("commit", "-qm", "mine");
+		}
+		return pick;
+	};
+	/** Starts the pick unhooked, stopping on its conflict. */
+	const stopOnConflict = (pick: string) =>
+		expect(
+			spawnSync("git", ["cherry-pick", pick], {
+				cwd: repo,
+				encoding: "utf8",
+				env: quietEnv(),
+			}).status,
+		).toBe(1);
+	const resolve = (rel: string, text: string) => {
+		write(rel, text);
+		git("add", "--", rel);
+	};
+	const held = (r: ReturnType<typeof commit>, before: string) =>
+		expectRefused(r, "there is no marker", before);
+
+	it.each([
+		["git commit", ["commit", "-qm", "land"]],
+		["git cherry-pick --continue", ["cherry-pick", "--continue"]],
+	])(
+		"holds a conflict on a glob resolved with new bytes, through %s",
+		(_, args) => {
+			stopOnConflict(divergedPick([SECRET], [SECRET]));
+			resolve(SECRET, "SNEAK\n");
+			const before = commitCount();
+			held(hooked(...args), before);
+			expect(fs.existsSync(path.join(repo, ".git", "CHERRY_PICK_HEAD"))).toBe(
+				true,
+			);
+		},
+	);
+
+	it("holds bytes added on a glob the picked commit never touched", () => {
+		stopOnConflict(divergedPick([PLAIN], [PLAIN]));
+		resolve(PLAIN, "resolved\n");
+		resolve(SECRET, "SNEAK\n");
+		const before = commitCount();
+		held(hooked("commit", "-qm", "land"), before);
+	});
+
+	it("holds an extra edit to a glob the picked commit changed cleanly", () => {
+		stopOnConflict(divergedPick([PLAIN, SECRET], [PLAIN]));
+		resolve(PLAIN, "resolved\n");
+		resolve(SECRET, "theirs\nSNEAK\n");
+		const before = commitCount();
+		held(hooked("commit", "-qm", "land"), before);
+	});
+
+	it("passes a conflict off the globs, its glob change as the picked commit made it", () => {
+		stopOnConflict(divergedPick([PLAIN, SECRET], [PLAIN]));
+		resolve(PLAIN, "resolved\n");
+		const r = hooked("commit", "-qm", "land");
+		expect(r.stderr).toBe("");
+		expect(r.status).toBe(0);
+	});
+
+	it("passes a pick whose context drifted, its own change unaltered", () => {
+		write(SECRET, "a\nb\nc\nd\ne\nf\ng\n");
+		git("add", "-A");
+		git("commit", "-qm", "seven lines");
+		git("checkout", "-qb", "side");
+		write(SECRET, "a\nb\nc\nd\ne\nf\nG\n");
+		git("add", "-A");
+		git("commit", "-qm", "theirs");
+		const pick = git("rev-parse", "HEAD");
+		git("checkout", "-q", "main");
+		write(SECRET, "A\nb\nc\nd\ne\nf\ng\n");
+		write(PLAIN, "mine\n");
+		git("add", "-A");
+		git("commit", "-qm", "mine");
+		spawnSync("git", ["cherry-pick", "--no-commit", pick], {
+			cwd: repo,
+			env: quietEnv(),
+		});
+		fs.writeFileSync(path.join(repo, ".git", "CHERRY_PICK_HEAD"), `${pick}\n`);
+		const r = hooked("commit", "-qm", "land");
+		expect(r.stderr).toBe("");
+		expect(r.status).toBe(0);
+	});
+
+	it("passes a clean pick of a glob change, with no marker", () => {
+		const pick = divergedPick([SECRET], []);
+		const r = hooked("cherry-pick", pick);
+		expect(r.status).toBe(0);
+		expect(git("show", "HEAD:lib/secret.js")).toBe("theirs");
+	});
+
+	describe("on the replay path, which reaches no pre-commit", () => {
+		beforeEach(() => {
+			fs.rmSync(path.join(hooks, "pre-commit"));
+			fs.writeFileSync(
+				path.join(hooks, "prepare-commit-msg"),
+				`#!/bin/sh\nexec bash "${GATE}"\n`,
+				{ mode: 0o755 },
+			);
+		});
+
+		it("passes a clean pick of a glob change, with no marker", () => {
+			const r = hooked("cherry-pick", divergedPick([SECRET], []));
+			expect(r.stderr).toBe("");
+			expect(r.status).toBe(0);
+			expect(git("show", `HEAD:${SECRET}`)).toBe("theirs");
+		});
+
+		it("holds --no-verify at a stopped pick on what it added", () => {
+			stopOnConflict(divergedPick([SECRET], [SECRET]));
+			resolve(SECRET, "SNEAK\n");
+			const before = commitCount();
+			const r = hooked("commit", "-qm", "land", "--no-verify");
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain("rule:review-hold");
+			expect(commitCount()).toBe(before);
+		});
+	});
+
+	it("clears a held pick on a marker for what it now carries", () => {
+		stopOnConflict(divergedPick([SECRET], [SECRET]));
+		resolve(SECRET, "reviewed\n");
+		leaveArtefacts();
+		const w = runInProcess(
+			WRITE_MARKER,
+			[
+				"--base",
+				"HEAD",
+				"--findings",
+				"0",
+				"--tier",
+				"escalated",
+				"--areas",
+				"secrets",
+				"--paths",
+				SECRET,
+			],
+			{ cwd: repo, env: { ...quietEnv(), CLAUDE_CODE_SESSION_ID: SID } },
+		);
+		expect(w.stderr).toBe("");
+		const r = hooked("commit", "-qm", "land");
+		expect(r.stderr).toBe("");
+		expect(r.status).toBe(0);
+	});
+
+	it.each(["rebase-merge", "rebase-apply"])(
+		"holds a commit made with a %s directory beside it",
+		(dir) => {
+			fs.mkdirSync(path.join(repo, ".git", dir));
+			write(SECRET, "new\n");
+			git("add", "--", SECRET);
+			const before = commitCount();
+			held(hooked("commit", "-qm", "land"), before);
+		},
+	);
+
+	it("refuses nothing on a replay in a linked worktree", () => {
+		const wt = path.join(scratch, "wt");
+		const pick = divergedPick([SECRET], []);
+		git("worktree", "add", "-q", "--detach", wt, "HEAD");
+		write(SECRET, "mine\n", wt);
+		git("-C", wt, "commit", "-qam", "mine");
+		spawnSync("git", ["-C", wt, "cherry-pick", pick], { env: quietEnv() });
+		write(SECRET, "resolved\n", wt);
+		git("-C", wt, "add", "--", SECRET);
+		const r = spawnSync(
+			"git",
+			["-C", wt, "-c", `core.hooksPath=${hooks}`, "commit", "-qm", "land"],
+			{ encoding: "utf8", env: hookEnv() },
+		);
+		expect(r.stderr).toBe("");
+		expect(r.status).toBe(0);
 	});
 });
 
@@ -791,29 +1099,87 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 		);
 	});
 
-	it("says so where the hold passed a tree this commit does not carry (#3830)", () => {
-		fs.writeFileSync(stamp(), "not-this-tree\nescalated; areas=secrets\n");
-		const msg = path.join(scratch, "msg");
-		fs.writeFileSync(msg, "land\n");
-		const r = spawnSync("bash", [Trailer, msg], {
-			cwd: repo,
-			encoding: "utf8",
-			env: quietEnv(),
+	describe("a tree that moves under the later gates (#3905)", () => {
+		/** The hold, then a later gate during which a neighbour stages `rel`. */
+		const neighbourStages = (rel: string, text: string, root = repo) => {
+			const abs = path.join(root, rel);
+			fs.writeFileSync(
+				path.join(hooks, "pre-commit"),
+				`#!/bin/sh\nbash "${GATE}" || exit "$?"\nmkdir -p "${path.dirname(abs)}"\nprintf '${text}\\n' >"${abs}"\ngit add -- "${rel}"\n`,
+				{ mode: 0o755 },
+			);
+		};
+		const markStaged = () => {
+			write(SECRET, "reviewed\n");
+			git("add", "--", SECRET);
+			mark({
+				tier: "escalated",
+				areas: "secrets",
+				tree: git("write-tree"),
+				paths: SECRET,
+			});
+		};
+
+		it("refuses a bare commit whose reviewed sensitive change gained a neighbour's file", () => {
+			markStaged();
+			neighbourStages(PLAIN, "neighbour");
+			expectRefused(
+				commit([]),
+				"its tree= is not the tree this commit carries",
+			);
 		});
-		expect(r.stderr).toContain(
-			"the review hold passed tree not-this-tree, and this commit carries",
-		);
-		expect(r.status).toBe(0);
-		expect(fs.readFileSync(msg, "utf8")).toBe("land\n");
+
+		it("refuses a bare commit whose reviewed sensitive file a neighbour re-staged", () => {
+			markStaged();
+			neighbourStages(SECRET, "SNEAK");
+			expectRefused(
+				commit([]),
+				"its tree= is not the tree this commit carries",
+			);
+		});
+
+		it("refuses a bare commit the hold passed off the globs, once a neighbour stages one", () => {
+			write(PLAIN, "new\n");
+			git("add", "--", PLAIN);
+			neighbourStages(SECRET, "SNEAK");
+			const r = commit([]);
+			expectRefused(r, "there is no marker");
+			expect(r.stderr).toContain("Areas touched: secrets.");
+			expect(r.stderr).toContain("the staged tree moved");
+			expect(r.stderr).toContain("commit-paths.js");
+		});
+
+		it("lets a commit off the globs go on where a neighbour's file is off them too", () => {
+			write(PLAIN, "new\n");
+			git("add", "--", PLAIN);
+			neighbourStages("app/other.tsx", "neighbour");
+			const r = commit([]);
+			expect(r.stderr).toBe("");
+			expect(r.status).toBe(0);
+			expect(trailers()).toBe("");
+			expect(fs.existsSync(stamp())).toBe(false);
+		});
+
+		it("refuses nothing in a linked worktree", () => {
+			const wt = path.join(scratch, "wt");
+			git("worktree", "add", "-q", "--detach", wt);
+			write(PLAIN, "new\n", wt);
+			git("-C", wt, "add", "--", PLAIN);
+			neighbourStages(SECRET, "SNEAK", wt);
+			const r = commit([], { cwd: wt, projectDir: repo });
+			expect(r.stderr).toBe("");
+			expect(r.status).toBe(0);
+			expect(git("-C", wt, "show", `HEAD:${SECRET}`)).toBe("SNEAK");
+		});
 	});
 
-	it("is run by .husky/prepare-commit-msg on both of a passing commit's exits, through the plugin root", () => {
+	it("is run by .husky/prepare-commit-msg on each of a passing commit's exits, through the plugin root", () => {
 		expect(Prepare).toMatch(
 			/^ {2}trailer="\$\{WFC_PLUGIN_ROOT:-\$here\/\.\.\}\/scripts\/review-tier-trailer\.sh"$/m,
 		);
-		expect(
-			Prepare.match(/^ {2}review_tier_trailer "\$\{1-\}"$/gm),
-		).toHaveLength(2);
+		expect(Prepare.match(/^ +review_tier_trailer "\$\{1-\}"$/gm)).toHaveLength(
+			3,
+		);
 	});
 
 	describe("in a linked worktree (#3714)", () => {
@@ -865,12 +1231,7 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 			const base = git("-C", wt, "rev-parse", "HEAD");
 			write(SECRET, "new\n", wt);
 			const artefacts = path.join(wt, ".claude", "tmp");
-			fs.mkdirSync(artefacts, { recursive: true });
-			for (const axis of ["standards", "spec"])
-				fs.writeFileSync(
-					path.join(artefacts, `review-${axis}${reviewSuffix(SID)}.md`),
-					"- no findings\n",
-				);
+			leaveArtefacts(artefacts);
 			const written = writeWtMarker({ CLAUDE_PROJECT_DIR: repo });
 			expect(written.stderr).toBe("");
 			expect(written.status).toBe(0);
@@ -895,8 +1256,7 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 			);
 			const base = git("-C", wt, "rev-parse", "HEAD");
 			write(SECRET, "new\n", wt);
-			for (const axis of ["standards", "spec"])
-				write(`.claude/tmp/review-${axis}${reviewSuffix(SID)}.md`, "- none\n");
+			leaveArtefacts();
 			const written = writeWtMarker();
 			expect(written.stderr).toBe("");
 			expect(written.status).toBe(0);
@@ -949,6 +1309,29 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 		expect(trailers()).toBe(
 			`mission-critical; areas=money,secrets; base=${base}; tree=${tree}; paths=${SECRET},${PRICE}`,
 		);
+		expect(fs.existsSync(stamp())).toBe(false);
+	});
+
+	it("says so where the stamp lost its value, writing none", () => {
+		write(SECRET, "new\n");
+		git("add", "--", SECRET);
+		fs.writeFileSync(stamp(), `${git("write-tree")}\n`);
+		const msg = path.join(scratch, "msg");
+		fs.writeFileSync(msg, "land\n");
+		const r = spawnSync("bash", [Trailer, msg], {
+			cwd: repo,
+			encoding: "utf8",
+			env: quietEnv(),
+		});
+		expect(r.stderr).toContain("could not be read");
+		expect(r.status).toBe(0);
+		expect(fs.readFileSync(msg, "utf8")).toBe("land\n");
+	});
+
+	it("leaves nothing behind on a commit off the globs", () => {
+		write(PLAIN, "new\n");
+		expect(commit([PLAIN]).status).toBe(0);
+		expect(trailers()).toBe("");
 		expect(fs.existsSync(stamp())).toBe(false);
 	});
 

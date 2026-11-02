@@ -12,7 +12,7 @@
  * long areas list pushes the review rules, not the tier, past the preview
  * (#1619), as inject-tracker-docs.sh's typed route does.
  *
- * IMPLICIT: on a Skill call naming `code-review`, matches the staged paths and the paths this session changed since its base, in the root and in the worktree of the root's repository the payload's `cwd` sits in, against the declared sensitive paths (lib/sensitive-paths.js); where an area matched or any globless area is declared, injects the tier owed, each area's focus, examples and `live` flag, the focus and attack Artefact paths, the escalated-review rules, the focused and attacker run briefs and the records to write (#1621); where `sensitivePaths` is absent, injects one line saying so.
+ * IMPLICIT: on a Skill call naming `code-review`, matches the staged paths and the paths this session changed since its base, in the root and in the worktree of the root's repository the payload's `cwd` sits in, against the declared sensitive paths (lib/sensitive-paths.js), with each area a change to the declaration narrows from HEAD's; where an area matched or any globless area is declared, injects the tier owed, each area's focus, examples and `live` flag, the focus and attack Artefact paths, the escalated-review rules, the focused and attacker run briefs and the records to write (#1621); where `sensitivePaths` is absent, injects one line saying so.
  * JUSTIFIED: fail-safe — a change to a sensitive path reviewed at the standard tier misses the defects that cost money or leak data, and the vendored skill cannot carry the tier (spec #1612).
  * DEFEAT: any array value of `sensitivePaths`, `[]` included, silences the undeclared line; `scripts/clear-rule-latch.sh` clears the fragments' latch; listing `inject-review-tier` under the host's `disabled` silences it whole.
  *
@@ -36,7 +36,7 @@
  */
 
 const path = require("node:path");
-const { matchSensitivePaths } = require("./sensitive-paths.js");
+const { matchSensitivePaths, narrowedAreas } = require("./sensitive-paths.js");
 const { reviewSuffix } = require("./review-suffix.js");
 const { caught } = require("./caught.js");
 const { ruleOrFallback } = require("./guard-verdict.js");
@@ -51,6 +51,7 @@ const { ruleOrFallback } = require("./guard-verdict.js");
  *   changedSince: (tree: string, base: string) => string[] | null,
  *   billed: (sid: string) => string[] | null,
  *   declared: () => import("./workflow-core-config.js").SensitivePath[] | undefined,
+ *   declaredAtHead: () => import("./workflow-core-config.js").SensitivePath[] | undefined,
  * }} TierPorts git's top level and absolute common dir of a directory, null
  *   where git will not say, the top level throwing where git overran; a
  *   tree's staged paths, null where git will not say; the session's start
@@ -59,7 +60,8 @@ const { ruleOrFallback } = require("./guard-verdict.js");
  *   included, null where git will not say; the paths from the root the
  *   session wrote or its own commits touched, null where its write ledger
  *   will not read; and the host's
- *   `sensitivePaths`, throwing where its config will not read
+ *   `sensitivePaths`, throwing where its config will not read; and those at
+ *   HEAD, undefined where HEAD's will not read
  * @typedef {import("./guard-dispatch.js").CoreContext & TierPorts} TierContext
  */
 
@@ -67,6 +69,8 @@ const { ruleOrFallback } = require("./guard-verdict.js");
  * list would push the fragments after it off this call. 3 is a first guess,
  * never measured against the cap. */
 const PATHS_LISTED_MAX = 3;
+
+const DECLARATION = ".claude/workflow-core.json";
 
 /**
  * @param {string} skill
@@ -102,11 +106,16 @@ function decide(skill, ctx) {
 		);
 		return null;
 	}
-	const match = matchSensitivePaths(declared, paths);
+	const match = withNarrowing(
+		matchSensitivePaths(declared, paths),
+		declared,
+		paths,
+		ctx,
+	);
 
 	/* Unlatched, so every review is told until the key exists (spec #1612
 	 * §Solution). */
-	if (match.state === "absent") {
+	if (match.state === "absent" && match.matched.length === 0) {
 		const line = ruleOrFallback(
 			ctx,
 			"review-sensitive-undeclared",
@@ -126,6 +135,31 @@ Focus and attack Artefact paths: \`.claude/tmp/review-focus${suffix}.md\`, \`.cl
 
 	const notLive = [...match.matched, ...match.globless].some((a) => !a.live);
 	return tierDecision(prelude, notLive, globless);
+}
+
+/**
+ * `match` plus each area a change to the declaration narrows, which the review
+ * hold refuses under that area's name whatever else the change touches (#3905).
+ * @param {Match} match
+ * @param {import("./workflow-core-config.js").SensitivePath[] | undefined} declared
+ * @param {string[]} paths
+ * @param {TierContext} ctx
+ * @returns {Match}
+ */
+function withNarrowing(match, declared, paths, ctx) {
+	if (!paths.includes(DECLARATION)) return match;
+	const before = ctx.declaredAtHead();
+	const narrowed = narrowedAreas(before, declared);
+	const added = (before ?? [])
+		.filter(
+			(a) =>
+				narrowed.includes(a.name) &&
+				!match.matched.some((m) => m.name === a.name),
+		)
+		.map(({ globs: _globs, ...area }) => ({ ...area, paths: [DECLARATION] }));
+	return added.length === 0
+		? match
+		: { ...match, tier: "escalated", matched: [...match.matched, ...added] };
 }
 
 /**

@@ -3,7 +3,7 @@
 # review-hold-gate.sh — the pre-commit hold on a declared sensitive path (#1622,
 # spec #1612 §The hold).
 #
-# IMPLICIT:  refuses a session's commit in the shared tree whose staged paths match a glob `sensitivePaths` declares in `.claude/workflow-core.json`, until the session's `.codereview-pass-<sid>` marker records `tier=escalated` or `tier=mission-critical`, `areas=` naming every matched area, `tree=` equal to the tree the commit carries, and `paths=` naming every path it changes; the refusal names the areas, the marker's fault and rule:review-hold. On a pass, in a linked worktree too, it leaves the marker's tier, areas, base, tree and paths in the git directory's `wfc-review-tier`, keyed to that tree, for scripts/review-tier-trailer.sh to write as the commit's `Review-Tier:` trailer (#3664).
+# IMPLICIT:  refuses a session's commit in the shared tree whose staged paths match a glob `sensitivePaths` declares in `.claude/workflow-core.json`, or that removes an area from that declaration or a glob from one (#3905), until the session's `.codereview-pass-<sid>` marker records `tier=escalated` or `tier=mission-critical`, `areas=` naming every matched area, `tree=` equal to the tree the commit carries, and `paths=` naming every path it changes; the refusal names the areas, the marker's fault and rule:review-hold. On a pass, in a linked worktree too, it leaves the marker's tier, areas, base, tree and paths in the git directory's `wfc-review-tier`, keyed to that tree, for scripts/review-tier-trailer.sh to write as the commit's `Review-Tier:` trailer (#3664).
 # JUSTIFIED: fail-safe — any neighbour's push publishes shared-`main` commits, and Manta deploys every push, so a review owed on sensitive code is a hold at commit or it is too late.
 # DEFEAT:    writing the marker's four lines by hand with no review behind them; `HUSKY=0` and `core.hooksPath` off .husky/_ skip it with the rest of the stack.
 #
@@ -15,8 +15,10 @@
 #
 # SKIPPED, silently:
 #   - with no CLAUDE_CODE_SESSION_ID: the founder's own terminal;
-#   - during a rebase, a cherry-pick or `git am`, as scripts/lib/commit-route.sh
-#     reads the route: replayed bytes were held when first committed.
+#   - a replay route in a linked worktree, as scripts/lib/commit-route.sh reads
+#     the route.
+# A CHERRY-PICK counts only the paths whose staged change differs from the picked
+# commit's own (#3905). Any other replay route reaching this is held whole.
 # A session committing into a repo it did not start in is held: the
 # declaration read is the committing repo's, the marker the session's own.
 #
@@ -27,8 +29,20 @@
 #
 # LIMITS
 #  - The declaration is read at HEAD and as staged, never from the working
-#    tree, and an area either names is held: a commit can drop a declared area
-#    only as the founder lands it, outside a session.
+#    tree, and an area either names is held. A commit narrowing it is held under
+#    what it drops, but a linked worktree's lands.
+#  - A replay reaching no pre-commit is unheld: `git am`; a `git rebase`,
+#    `--continue` included, which a guard refuses in the shared tree; and a
+#    `--no-verify` commit, which a guard refuses unwrapped, beside a hand-made
+#    `rebase-merge`.
+#  - A pick whose glob paths change as the picked commit changed them passes,
+#    conflict elsewhere or not: of a worktree's unreviewed commit too, and under
+#    a forged CHERRY_PICK_HEAD naming one that carries the same change. A
+#    `git cherry-pick -m 2` reads against the first parent, so it is held.
+#  - A HEAD whose declaration will not parse holds nothing: it fails open.
+#  - A staged declaration that will not parse fails closed where HEAD declares an
+#    area, not open as the gate's other faults do: dropping every area by a typo
+#    is the narrowing this hold exists for (#3905).
 #  - `areas=` and `paths=` are comma-separated, so an area or a path whose name
 #    holds a comma can never be named there.
 #  - A neighbour's commit moves HEAD and so the tree a pathspec commit carries:
@@ -75,7 +89,8 @@ fi
 # shellcheck source=scripts/lib/commit-route.sh
 source "$here/lib/commit-route.sh" 2>/dev/null ||
   unchecked "could not load scripts/lib/commit-route.sh"
-wfc_commit_route_replays "$(wfc_commit_route pre-commit "$gitdir")" && exit 0
+route="$(wfc_commit_route pre-commit "$gitdir")"
+if wfc_commit_route_replays "$route" && [[ "$gitdir" != "$common" ]]; then exit 0; fi
 
 # git hands a plain commit's hook `.git/index`, relative to this cwd.
 if [[ -n "${GIT_INDEX_FILE:-}" && "$GIT_INDEX_FILE" != /* ]]; then
@@ -87,25 +102,94 @@ trap 'rm -rf "$work"' EXIT
 # --no-renames: a rename off a sensitive path is a change to it too.
 git -c core.quotePath=false diff --cached --name-only --no-renames -z >"$work/paths" ||
   unchecked "could not list the staged paths"
-[[ -s "$work/paths" ]] || exit 0
+
+tree="$(git write-tree 2>/dev/null)" || unchecked "could not read the staged tree"
+
+# pass_with_stamp <value> <what is lost> — passes, leaving the tree and <value>
+# for scripts/review-tier-trailer.sh. Fails open: a stamp unwritten costs what
+# it names, never the pass.
+pass_with_stamp() {
+  printf '%s\n%s\n' "$tree" "$1" >"$gitdir/wfc-review-tier" 2>/dev/null || {
+    rm -f "$gitdir/wfc-review-tier"
+    echo "pre-commit: could not write $gitdir/wfc-review-tier, so this commit lands with $2." >&2
+    gl_log "review-hold-gate.sh: could not write $gitdir/wfc-review-tier — a commit lands with $2"
+  }
+  exit 0
+}
+# pass_unheld — this commit owes no review. `unheld` tells the trailer script to
+# write nothing, and only to see whether the tree moved under the later gates.
+pass_unheld() {
+  pass_with_stamp unheld "no check that its tree stayed put under the later gates"
+}
+[[ -s "$work/paths" ]] || pass_unheld
+
+# change_of <diff args…> — a diff with what only says where it applies removed:
+# context, blob ids and hunk positions, which differ once the base has moved.
+change_of() {
+  git -c core.quotePath=false diff --no-color --no-ext-diff --no-textconv \
+    --no-renames --binary -U0 "$@" | sed -E -e '/^index /d' -e 's/^@@ .*$/@@/'
+}
+
+# unreplayed — the staged paths, NUL-separated, whose staged change is not the
+# one CHERRY_PICK_HEAD made to them.
+unreplayed() {
+  local pick parent path staged picked
+  pick="$(git rev-parse -q --verify CHERRY_PICK_HEAD)" || return 1
+  if ! parent="$(git rev-parse -q --verify "$pick^")"; then
+    cat "$work/paths"
+    return 0
+  fi
+  while IFS= read -r -d '' path; do
+    staged="$(change_of --cached HEAD -- "$path")" || return 1
+    picked="$(change_of "$parent" "$pick" -- "$path")" || return 1
+    [[ "$staged" == "$picked" ]] || printf '%s\0' "$path"
+  done <"$work/paths"
+}
+
+# The paths the hold reads: `paths=` still names all of them.
+held="$work/paths"
+if [[ "$route" == cherry-pick ]]; then
+  held="$work/unreplayed"
+  unreplayed >"$held" || unchecked "could not compare the staged change with the picked commit's"
+  [[ -s "$held" ]] || pass_unheld
+fi
 
 # areas_under <rev> — the areas the declaration at <rev> (`HEAD`, or empty for
 # the index) holds the staged paths under, one per line. An absent copy
 # declares nothing.
+root_of() { printf '%s' "$work/root$1"; }
 areas_under() {
-  local root="$work/root$1"
+  local root
+  root="$(root_of "$1")"
   mkdir -p "$root/.claude" || return 1
   git show "$1:.claude/workflow-core.json" >"$root/.claude/workflow-core.json" 2>/dev/null ||
     rm -f "$root/.claude/workflow-core.json"
   CLAUDE_PROJECT_DIR="$root" node "$here/lib/sensitive-paths.js" --stdin --names \
-    <"$work/paths" 2>"$work/fault"
+    <"$held" 2>"$work/fault"
 }
-areas_out="$(areas_under HEAD && areas_under '')" ||
-  unchecked "could not match the staged paths against sensitivePaths" "$(head -c "${GL_DETAIL_MAX:-300}" "$work/fault")"
-[[ -n "$areas_out" ]] || exit 0
-mapfile -t areas < <(printf '%s\n' "$areas_out" | sort -u)
+unmatched() {
+  unchecked "could not match the staged paths against sensitivePaths" "$(head -c "${GL_DETAIL_MAX:-300}" "$1")"
+}
+areas_out="$(areas_under HEAD)" || unmatched "$work/fault"
+staged_read=1
+staged_areas="$(areas_under '')" || staged_read=""
+staged_fault="$(cat "$work/fault")"
 
-tree="$(git write-tree 2>/dev/null)" || unchecked "could not read the staged tree"
+# A staged copy that will not parse declares nothing, so it narrows every area
+# HEAD declares; with none there to drop, it stays this gate's own fault.
+narrowed=""
+if tr '\0' '\n' <"$held" | grep -qxF .claude/workflow-core.json; then
+  narrowed="$(node "$here/lib/sensitive-paths.js" --narrowed "$(root_of HEAD)" "$(root_of '')" 2>"$work/narrow-fault")" ||
+    unmatched "$work/narrow-fault"
+fi
+if [[ -z "$staged_read" && -z "$narrowed" ]]; then
+  printf '%s' "$staged_fault" >"$work/fault"
+  unmatched "$work/fault"
+fi
+
+areas_out="$(printf '%s\n%s\n%s\n' "$areas_out" "$staged_areas" "$narrowed" | sed '/^$/d')"
+[[ -n "$areas_out" ]] || pass_unheld
+mapfile -t areas < <(printf '%s\n' "$areas_out" | sort -u)
 
 # shellcheck source=scripts/lib/marker-root.sh
 source "$here/lib/marker-root.sh" 2>/dev/null ||
@@ -147,20 +231,11 @@ else
   fi
 fi
 if [[ -z "$fault" ]]; then
-  # Fails open: a stamp unwritten costs the commit its trailer, never the pass.
-  {
-    printf '%s\n' "$tree"
-    printf '%s; areas=%s; base=%s; tree=%s; paths=%s\n' \
-      "$(marker_field "$marker" tier | tr -d '[:space:]')" \
-      "$(marker_list "$marker" areas | paste -sd, -)" \
-      "$(marker_field "$marker" base | tr -d '[:space:]')" "$tree" \
-      "$(marker_list "$marker" paths | paste -sd, -)"
-  } >"$gitdir/wfc-review-tier" 2>/dev/null || {
-    rm -f "$gitdir/wfc-review-tier"
-    echo "pre-commit: could not write $gitdir/wfc-review-tier, so this commit lands with no Review-Tier: trailer." >&2
-    gl_log "review-hold-gate.sh: could not write $gitdir/wfc-review-tier — a held commit lands with no Review-Tier: trailer"
-  }
-  exit 0
+  pass_with_stamp "$(printf '%s; areas=%s; base=%s; tree=%s; paths=%s' \
+    "$(marker_field "$marker" tier | tr -d '[:space:]')" \
+    "$(marker_list "$marker" areas | paste -sd, -)" \
+    "$(marker_field "$marker" base | tr -d '[:space:]')" "$tree" \
+    "$(marker_list "$marker" paths | paste -sd, -)")" "no Review-Tier: trailer"
 fi
 # A linked worktree is held to nothing: only a marker that passes marks it (#3714).
 if [[ "$gitdir" != "$common" ]]; then
@@ -173,6 +248,9 @@ fi
   echo "pre-commit: this commit changes a declared sensitive path, and no escalated review of exactly this change is recorded (#1622)."
   echo "  Areas touched: $(join_comma "${areas[@]}")."
   echo "  The marker $marker does not clear it: $fault."
+  if [[ -z "$staged_read" ]]; then
+    echo "  The staged .claude/workflow-core.json will not read, and a review would land it broken, so correct it first: $staged_fault"
+  fi
   # shellcheck source=scripts/lib/rule-text.sh
   if source "$here/lib/rule-text.sh" 2>/dev/null && text="$(rule_text review-hold 2>/dev/null)"; then
     printf '\n%s\n\n' "$text"

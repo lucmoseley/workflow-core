@@ -58,7 +58,7 @@ const readTree = (args: string[], cwd = repo) => {
 };
 
 const artefact = (
-	axis: "standards" | "spec",
+	axis: "standards" | "spec" | "focus" | "attack",
 	text = "- no findings\n",
 	root = repo,
 ) => {
@@ -68,6 +68,18 @@ const artefact = (
 		text,
 	);
 };
+
+/** A tiered review's flags, with no paths. */
+const tiered = (tier: string) => [
+	"--base",
+	"HEAD",
+	"--findings",
+	"0",
+	"--tier",
+	tier,
+	"--areas",
+	"money",
+];
 
 describe("run from a linked worktree (#3714)", () => {
 	const wt = () => `${repo}-wt`;
@@ -148,6 +160,7 @@ describe("a review that left both artefacts", () => {
 	it("adds tier=, areas=, and the tree= commit-paths prints for --paths", () => {
 		artefact("standards");
 		artefact("spec");
+		artefact("focus");
 		fs.writeFileSync(path.join(repo, "a.js"), "two\n");
 		const tree = readTree(["--", "a.js"]);
 		const r = run([
@@ -224,6 +237,35 @@ describe("refuses, writing no marker", () => {
 		const r = run(["--base", "HEAD", "--findings", "2"]);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("no review left its artefact");
+		expect(fs.existsSync(marker())).toBe(false);
+	});
+
+	it.each([
+		["escalated", ["standards", "spec"], ["focus"]],
+		["mission-critical", ["standards", "spec"], ["focus", "attack"]],
+		["mission-critical", ["standards", "spec", "focus"], ["attack"]],
+		["mission-critical", ["standards", "spec", "attack"], ["focus"]],
+	] as const)(
+		"at --tier %s with only %j, naming %j (#3905)",
+		(tier, left, missing) => {
+			for (const axis of left) artefact(axis);
+			const r = run(tiered(tier));
+			expect(r.status).toBe(2);
+			for (const axis of missing)
+				expect(r.stderr).toContain(`review-${axis}-abcdef12.md`);
+			for (const axis of left)
+				expect(r.stderr).not.toContain(`review-${axis}-abcdef12.md`);
+			expect(fs.existsSync(marker())).toBe(false);
+		},
+	);
+
+	it("at --tier escalated where the focus artefact is empty (#3905)", () => {
+		artefact("standards");
+		artefact("spec");
+		artefact("focus", "");
+		const r = run(tiered("escalated"));
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("review-focus-abcdef12.md");
 		expect(fs.existsSync(marker())).toBe(false);
 	});
 
@@ -347,6 +389,25 @@ describe("refuses, writing no marker", () => {
 });
 
 describe("the routes that run without one axis or without a review", () => {
+	it("--tier escalated takes the focus artefact, and owes no attack artefact", () => {
+		artefact("standards");
+		artefact("spec");
+		artefact("focus");
+		const r = run(tiered("escalated"));
+		expect(r.stderr).toBe("");
+		expect(r.status).toBe(0);
+	});
+
+	it("--tier mission-critical takes the focus and attack artefacts", () => {
+		artefact("standards");
+		artefact("spec");
+		artefact("focus");
+		artefact("attack");
+		const r = run(tiered("mission-critical"));
+		expect(r.stderr).toBe("");
+		expect(r.status).toBe(0);
+	});
+
 	it("--no-spec needs only the standards artefact", () => {
 		artefact("standards");
 		expect(run(["--base", "HEAD", "--findings", "1", "--no-spec"]).status).toBe(

@@ -205,6 +205,58 @@ describe("sensitive-paths — matching", () => {
 	});
 });
 
+describe("sensitive-paths --narrowed (#3905)", () => {
+	const area = (name: string, globs: string[]) => ({
+		name,
+		description: "d",
+		globs,
+	});
+	/** Two fixture roots, `after`'s text given raw, and the names printed. */
+	const narrowed = (before: unknown, afterText: string) => {
+		const was = host(before);
+		const now = path.join(dir, "after");
+		fs.mkdirSync(path.join(now, ".claude"), { recursive: true });
+		fs.writeFileSync(path.join(now, ".claude/workflow-core.json"), afterText);
+		const r = runInProcess(SCRIPT, ["--narrowed", was, now], { cwd: dir });
+		expect(r.status).toBe(0);
+		return r.stdout.split("\n").filter(Boolean);
+	};
+	const declaring = (sensitivePaths?: unknown) =>
+		JSON.stringify({ contract: 1, founder: "F", sensitivePaths });
+
+	it.each([
+		["an area removed", [area("a", ["x"])], declaring([])],
+		["the key gone", [area("a", ["x"])], declaring()],
+		["a copy that will not parse", [area("a", ["x"])], "{ not json"],
+		["a glob removed", [area("a", ["x", "y"])], declaring([area("a", ["x"])])],
+		["a glob swapped", [area("a", ["x"])], declaring([area("a", ["y"])])],
+		["a globless area removed", [area("a", [])], declaring([])],
+	])("names the area on %s", (_, before, after) => {
+		expect(narrowed(before, after)).toEqual(["a"]);
+	});
+
+	it.each([
+		["undeclared to undeclared", undefined, declaring()],
+		["a glob added", [area("a", ["x"])], declaring([area("a", ["x", "y"])])],
+		["an area added", [], declaring([area("a", ["x"])])],
+		[
+			"a reordering",
+			[area("a", ["x", "y"]), area("b", [])],
+			declaring([area("b", []), area("a", ["y", "x"])]),
+		],
+	])("names nothing on %s", (_, before, after) => {
+		expect(narrowed(before, after)).toEqual([]);
+	});
+
+	it("exits 2 where the before copy will not parse", () => {
+		const was = host();
+		fs.writeFileSync(path.join(was, ".claude/workflow-core.json"), "{ nope");
+		const r = runInProcess(SCRIPT, ["--narrowed", was, was], { cwd: dir });
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("BROKEN");
+	});
+});
+
 describe("sensitive-paths — a malformed declaration", () => {
 	it("warns on each fault and still exits 0, keeping what it can read", () => {
 		const r = run(

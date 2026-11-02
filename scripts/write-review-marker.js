@@ -14,9 +14,11 @@
  *
  * Refuses, writing nothing, unless `.claude/tmp/review-standards-<sid8>.md`
  * and `.claude/tmp/review-spec-<sid8>.md` both exist and are non-empty —
- * the Artefact paths the code-review skill gives its two axes. `--no-spec`
- * drops the spec artefact. `--skipped` is the pure-deletion or
- * mechanical-rename route, which runs no review.
+ * the Artefact paths the code-review skill gives its two axes. `--tier`
+ * adds the runs that tier dispatches: the focus artefact, and at
+ * mission-critical the attack artefact. `--no-spec` drops the spec artefact.
+ * `--skipped` is the pure-deletion or mechanical-rename route, which runs no
+ * review.
  *
  * `--paths` writes both `paths=` and its `tree=`, as the review hold rejects
  * a marker holding one without the other. Under `--patch` it names the patched
@@ -92,10 +94,12 @@ function fullSha(root, rev) {
 /**
  * @param {string[]} roots the trees an artefact counts in
  * @param {string} sid
- * @param {boolean} noSpec
+ * @param {{noSpec: boolean, tier?: string}} o
  */
-function missingArtefacts(roots, sid, noSpec) {
+function missingArtefacts(roots, sid, { noSpec, tier }) {
 	const axes = noSpec ? ["standards"] : ["standards", "spec"];
+	if (tier !== undefined) axes.push("focus");
+	if (tier === "mission-critical") axes.push("attack");
 	return axes
 		.map((axis) =>
 			path.join(".claude", "tmp", `review-${axis}${reviewSuffix(sid)}.md`),
@@ -263,7 +267,7 @@ function main() {
 	const host = resolveCommitHost();
 	const treeRoot = worktreeRoot(undefined, { host });
 	if (o.skipped === undefined) {
-		const missing = missingArtefacts([treeRoot, host], sid, o.noSpec);
+		const missing = missingArtefacts([treeRoot, host], sid, o);
 		if (missing.length > 0)
 			fail(
 				`no review left its artefact at ${missing.join(" or ")}. Run the code-review skill, its axes appending to those paths, then re-run. A pure deletion or mechanical rename takes --skipped deletion|rename --findings 0 instead. Nothing written.`,
