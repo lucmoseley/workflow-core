@@ -52,9 +52,9 @@
  *    write through that ref moves `main` past git's own refusal. Its read passes
  *    where its one name is readable; an unreadable word, or a name git would
  *    follow as a path or a shell expand as a glob, is refused. A git directory
- *    named by `--git-dir`, `GIT_DIR` or `GIT_COMMON_DIR` is judged as its tree,
- *    and a `-c alias.*` as the subcommand it names; one it cannot read is refused
- *    (#3997). Pathspec resets pass, as does a
+ *    named by `--git-dir`, `GIT_DIR` or `GIT_COMMON_DIR` adds its tree to the one
+ *    the command stands in, and a `-c alias.*` is judged as the subcommand it
+ *    names; one it cannot read is refused (#3997). Pathspec resets pass, as does a
  *    `git reset --soft` or `--mixed` naming HEAD or nothing. Still unseen: `git
  *    fetch --update-head-ok . +<commit>:main`, `git cherry-pick` and `git am`
  *    (which add commits rather than drop them), and `git revert`,

@@ -242,18 +242,29 @@ describe("each production read, crossed once", () => {
 			`GIT_COMMON_DIR=${shared}/.git git ${write}`,
 			`git -C ${shared} -c alias.s=symbolic-ref s HEAD refs/heads/side`,
 		])
-			expect(verdict(command, { cwd: worktree }), command).toBe("deny");
+			expect(readDenyReason(command, { cwd: worktree }), command).toContain(
+				"points the shared tree's HEAD away from `main`",
+			);
 	});
 
 	it("reads a linked worktree's git directory, and its .git file, as that tree (#3997)", () => {
 		const own = git(worktree, "rev-parse", "--absolute-git-dir").trim();
 		for (const named of [own, `${worktree}/.git`]) {
 			const flag = `git --git-dir=${named}`;
-			expect(verdict(`${flag} symbolic-ref HEAD refs/heads/side`)).toBe(
-				"allow",
-			);
-			expect(verdict(`${flag} update-ref refs/heads/main HEAD`)).toBe("deny");
+			const atWorktree = { cwd: worktree };
+			expect(
+				verdict(`${flag} symbolic-ref HEAD refs/heads/side`, atWorktree),
+			).toBe("allow");
+			expect(
+				readDenyReason(`${flag} update-ref refs/heads/main HEAD`, atWorktree),
+			).toContain("writes `main` directly");
 		}
+	});
+
+	it("refuses a reset of the shared tree's files, whichever repository's refs it names (#3997)", () => {
+		expect(
+			readDenyReason(`GIT_DIR=${elsewhere}/.git git reset --hard`),
+		).toContain("resets every working file in the shared tree");
 	});
 
 	it("names the repair script from a linked worktree too (#3198)", () => {

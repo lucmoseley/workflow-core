@@ -60,6 +60,7 @@ interface Over {
 	/** True: every rule fetch throws, as an empty store does. */
 	storeFault?: boolean;
 	mainUnreadable?: boolean;
+	isDir?: (path: string) => boolean;
 	corePaths?: (text: string) => string;
 	scriptPath?: (name: string) => string;
 }
@@ -76,7 +77,7 @@ function harness(over: Over = {}) {
 	const ctx = kitContextFake({
 		fallbackCwd: over.cwd ?? SHARED,
 		vars: over.vars ?? {},
-		isDir: () => true,
+		isDir: over.isDir ?? (() => true),
 		moduleOn: (m: string) => (over.modules ?? []).includes(m),
 		treeClass,
 		log: (what: string, detail?: string) =>
@@ -104,6 +105,11 @@ function harness(over: Over = {}) {
 
 const run = (command: string, over: Over = {}) =>
 	decide(command, harness(over).ctx);
+
+const denyOf = (command: string, over: Over = {}) => {
+	const d = run(command, over);
+	return d && "deny" in d ? d.deny : "";
+};
 
 const verdict = (command: string, over: Over = {}) => {
 	const d = run(command, over);
@@ -1136,7 +1142,6 @@ describe("rewinding main is refused (#765)", () => {
 	});
 });
 
-/* /repo/sub gives a pathspec somewhere to climb out of. */
 describe("a ref write reached through a named git directory is judged there (#3997)", () => {
 	it.each([
 		["git --git-dir=/repo/.git symbolic-ref HEAD refs/heads/side", "stuck"],
@@ -1199,29 +1204,55 @@ describe("a ref write reached through a named git directory is judged there (#39
 	it.each([
 		["git --git-dir=/repo/.git symbolic-ref HEAD", "a read"],
 		[
-			"GIT_DIR=/repo/.git; git symbolic-ref HEAD refs/heads/side",
-			"never exported",
-		],
-		[
 			"git --git-dir=/repo-wt/.git symbolic-ref HEAD refs/heads/side",
 			"its own",
-		],
-		[
-			"GIT_DIR=/other/.git git update-ref refs/heads/main HEAD~1",
-			"another repo",
 		],
 		["git --git-dir=/repo/.git status", "no judged subcommand"],
 	])("passes %s, from a linked tree (%s)", (command) => {
 		expect(verdict(command, { cwd: LINKED })).toBe("allow");
 	});
 
-	it("judges the shared tree's own command by the tree it names", () => {
-		expect(verdict("git --git-dir=/repo-wt/.git update-ref HEAD HEAD~1")).toBe(
-			"allow",
-		);
-		expect(verdict("GIT_DIR=/other/.git git reset --hard HEAD~1")).toBe(
-			"allow",
-		);
+	it("judges the tree it stands in as well, whose files the command writes", () => {
+		for (const [command, text] of [
+			[
+				"GIT_DIR=/other/.git git reset --hard HEAD~1",
+				"moves the shared `main` to another commit",
+			],
+			[
+				"git --git-dir=/other/.git clean -fd",
+				"deletes every untracked file in the shared tree",
+			],
+			[
+				"GIT_COMMON_DIR=/other/.git git symbolic-ref HEAD refs/heads/side",
+				"points the shared tree's HEAD away from `main`",
+			],
+		] as const)
+			expect(denyOf(command), command).toContain(text);
+		expect(
+			denyOf("GIT_DIR=/other/.git git update-ref refs/heads/main HEAD~1", {
+				cwd: LINKED,
+			}),
+		).toContain("writes `main` directly");
+	});
+
+	it("refuses a git directory whose export it cannot follow", () => {
+		for (const command of [
+			"export GIT_DIR=/other/.git; GIT_DIR=/repo/.git; git symbolic-ref HEAD refs/heads/side",
+			"set -a; GIT_DIR=/repo/.git; git symbolic-ref HEAD refs/heads/side",
+			"GIT_DIR=/repo/.git; git symbolic-ref HEAD refs/heads/side",
+			"eval export GIT_DIR=/repo/.git; git symbolic-ref HEAD refs/heads/side",
+			'export "GIT_DIR=/repo/.git"; git symbolic-ref HEAD refs/heads/side',
+		])
+			expect(verdict(command, { cwd: LINKED }), command).toBe("deny");
+	});
+
+	it("refuses a gitfile under any other name, which could point anywhere", () => {
+		expect(
+			verdict("git --git-dir=/tmp/gf update-ref HEAD HEAD~1", {
+				cwd: LINKED,
+				isDir: () => false,
+			}),
+		).toBe("deny");
 	});
 });
 
@@ -1262,6 +1293,14 @@ describe("a subcommand reached through a command-line alias is judged as itself 
 		["git -c alias.u=$X u refs/heads/main HEAD~1", "an unread value"],
 		['git -c "$K" u refs/heads/main HEAD~1', "an unread definition"],
 		['git -c "alias.$N=update-ref" u refs/heads/main HEAD~1', "an unread name"],
+		[
+			'git -c alias.u=update-ref "$(echo u)" refs/heads/main HEAD~1',
+			"an unread word",
+		],
+		[
+			"GIT_CONFIG_KEY_0=alias.u GIT_CONFIG_VALUE_0=status GIT_CONFIG_KEY_1=alias.u GIT_CONFIG_VALUE_1=update-ref git u refs/heads/main",
+			"two in the environment",
+		],
 		["git --config-env=alias.u=V u refs/heads/main HEAD~1", "--config-env"],
 		[
 			"git --config-env alias.u=V u refs/heads/main HEAD~1",
@@ -1367,6 +1406,7 @@ describe("an abbreviated long option reads as git reads it (#3998)", () => {
 	});
 });
 
+/* /repo/sub gives a pathspec somewhere to climb out of. */
 describe("discarding the shared tree's uncommitted work is refused (#768)", () => {
 	it.each([
 		"git reset --hard",

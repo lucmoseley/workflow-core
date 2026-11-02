@@ -29,10 +29,13 @@ const UNREAD_ALIAS = "unread alias";
 /** @returns {AliasTable} */
 const emptyAliasTable = () => ({ named: new Map(), anyUnread: false });
 
+/** @param {string} key an `alias.<name>` key */
+const aliasNameOf = (key) => key.slice("alias.".length).toLowerCase();
+
 /**
  * One config key onto `table`. A dotted alias name is the subsection form newer
  * gits read, which is not followed here.
- * @param {AliasTable} table
+ * @param {AliasTable} table accumulator
  * @param {{ key: string, complete: boolean, value: string | null }} entry
  *   `complete` false where only the head of the key can be read
  */
@@ -44,7 +47,7 @@ function define(table, { key, complete, value }) {
 		return;
 	}
 	if (!lower.startsWith("alias.")) return;
-	const name = lower.slice("alias.".length);
+	const name = aliasNameOf(lower);
 	if (name.includes(".")) table.anyUnread = true;
 	else table.named.set(name, value);
 }
@@ -67,42 +70,46 @@ function splitConfig(word, spans) {
 
 /**
  * Read one `-c <key>=<value>` word onto `table`.
- * @param {AliasTable} table
+ * @param {AliasTable} table accumulator
  * @param {string} word raw
  * @param {string[]} spans
  */
-const readConfigWord = (table, word, spans) =>
+const defineFromConfigWord = (table, word, spans) =>
 	define(table, splitConfig(word, spans));
 
 /**
  * Read one `--config-env <key>=<envvar>` word onto `table`: its value is in the
  * environment, so an alias it names is unread whatever the variable holds.
- * @param {AliasTable} table
+ * @param {AliasTable} table accumulator
  * @param {string} word raw
  * @param {string[]} spans
  */
-const readConfigEnvWord = (table, word, spans) =>
+const defineFromConfigEnvWord = (table, word, spans) =>
 	define(table, { ...splitConfig(word, spans), value: null });
 
 /**
  * Read `GIT_CONFIG_PARAMETERS` and the `GIT_CONFIG_KEY_<n>`/`VALUE_<n>` pairs of
  * a command's environment onto `table`.
- * @param {AliasTable} table
- * @param {Map<string, string>} env each name's raw value word
+ * @param {AliasTable} table accumulator
+ * @param {Map<string, string | null>} env each name's raw value word, null
+ *   where it cannot be read
  * @param {string[]} spans
  */
-function readConfigEnv(table, env, spans) {
+function defineFromEnv(table, env, spans) {
 	if (env.has("GIT_CONFIG_PARAMETERS")) table.anyUnread = true;
 	for (const [name, word] of env) {
 		const n = /^GIT_CONFIG_KEY_(\d+)$/.exec(name)?.[1];
-		if (n === undefined) continue;
+		if (n === undefined || word === null) continue;
 		const key = literal(word, spans);
 		const valueWord = env.get(`GIT_CONFIG_VALUE_${n}`);
-		const value = valueWord === undefined ? null : literal(valueWord, spans);
+		const value = valueWord ? literal(valueWord, spans) : null;
+		/* Which of two definitions wins hangs on GIT_CONFIG_COUNT and the indices,
+		 * so neither is believed. */
+		const defined = table.named.has(aliasNameOf(key.text));
 		define(table, {
 			key: key.known ? key.text : key.head,
 			complete: key.known,
-			value: value?.known ? value.text : null,
+			value: value?.known && !defined ? value.text : null,
 		});
 	}
 }
@@ -117,14 +124,16 @@ const UNREADABLE_VALUE = /^\s*(?:$|!|-)|['"\\]/;
  * `sub` read as UNREAD_ALIAS where the words cannot be told.
  * @param {string} sub raw
  * @param {string[]} args raw
- * @param {AliasTable} table
+ * @param {AliasTable} table accumulator
  * @param {{ subs: string[], spans: string[] }} opts
  * @returns {{ sub: string, args: string[] }}
  */
 function expandAlias(sub, args, table, { subs, spans }) {
 	if (subs.includes(sub) || (table.named.size === 0 && !table.anyUnread))
 		return { sub, args };
-	let word = literal(sub, spans).text;
+	const spelt = literal(sub, spans);
+	if (!spelt.known) return { sub: UNREAD_ALIAS, args: [] };
+	let word = spelt.text;
 	let words = args;
 	const seen = new Set();
 	while (!subs.includes(word)) {
@@ -148,7 +157,7 @@ module.exports = {
 	UNREAD_ALIAS,
 	emptyAliasTable,
 	expandAlias,
-	readConfigEnv,
-	readConfigEnvWord,
-	readConfigWord,
+	defineFromEnv,
+	defineFromConfigEnvWord,
+	defineFromConfigWord,
 };

@@ -1375,34 +1375,41 @@ describe('walkGit, scope "repo" — the same walk, widened past the shared tree 
 });
 
 describe("walkGit reads the repository and the subcommand git will use (#3997)", () => {
-	it("hands over the tree a named git directory belongs to", () => {
+	const trees = (run: GitWalkRun) => run.calls.map((call) => call.tree);
+
+	it("adds the tree a named git directory belongs to", () => {
 		expect(
-			walkGitRun(`git --git-dir=${SHARED}/.git checkout x`, {}, WORKTREE)
-				.calls[0]?.tree,
-		).toBe(SHARED);
+			trees(
+				walkGitRun(`git --git-dir=${SHARED}/.git checkout x`, {}, WORKTREE),
+			),
+		).toEqual([SHARED]);
 		expect(
-			walkGitRun(`GIT_DIR=${SHARED}/.git git checkout x`, {}, WORKTREE).calls[0]
-				?.tree,
-		).toBe(SHARED);
+			trees(walkGitRun(`GIT_DIR=${SHARED}/.git git checkout x`, {}, WORKTREE)),
+		).toEqual([SHARED]);
 		expect(
-			repoWalk(`git --git-dir=${WORKTREE}/.git checkout x`).calls[0]?.tree,
-		).toBe(WORKTREE);
+			trees(repoWalk(`git --git-dir=${WORKTREE}/.git checkout x`)),
+		).toEqual([WORKTREE, SHARED]);
 	});
 
-	it("skips a command another repository's git directory carries", () => {
+	it("still judges the tree it stands in, whose files the command writes", () => {
 		expect(
-			walkGitRun("git --git-dir=/elsewhere/.git checkout x").calls,
-		).toEqual([]);
+			trees(walkGitRun("git --git-dir=/elsewhere/.git checkout x")),
+		).toEqual([SHARED]);
 	});
 
-	it("records an unreadable git directory, or hands it over as unresolved", () => {
-		expect(walkGitRun('GIT_DIR="$X" git checkout x').logged[0]).toContain(
-			"could not resolve the working tree",
-		);
+	it("reads a named directory once where it is the tree the command stands in", () => {
 		expect(
-			walkGitRun('GIT_DIR="$X" git checkout x', { strict: true }).calls[0]
-				?.tree,
-		).toBe("");
+			trees(walkGitRun(`git --git-dir=${SHARED}/.git checkout x`)),
+		).toEqual([SHARED]);
+	});
+
+	it("records an unreadable git directory, or hands it over as unresolved, beside the tree it stands in", () => {
+		const recorded = walkGitRun('GIT_DIR="$X" git checkout x');
+		expect(recorded.logged[0]).toContain("could not resolve the working tree");
+		expect(trees(recorded)).toEqual([SHARED]);
+		expect(
+			trees(walkGitRun('GIT_DIR="$X" git checkout x', { strict: true })),
+		).toEqual(["", SHARED]);
 	});
 
 	it("hands over an alias as the subcommand it names, its own words first", () => {

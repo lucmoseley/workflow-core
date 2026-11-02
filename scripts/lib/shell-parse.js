@@ -28,9 +28,9 @@ const { endRun, trimEndRun } = require("./trim-run.js");
 const {
 	emptyAliasTable,
 	expandAlias,
-	readConfigEnv,
-	readConfigEnvWord,
-	readConfigWord,
+	defineFromEnv,
+	defineFromConfigEnvWord,
+	defineFromConfigWord,
 } = require("./git-alias.js");
 
 /** The flatten's subshell marker, standing a bracket on a line of its own so a
@@ -1426,6 +1426,11 @@ const TEXT_ONLY_PORTS = Object.freeze({
 });
 
 /**
+ * @typedef {Map<string, string | null>} GitEnv each git-reading variable's raw
+ *   value word, null where the command's handling of it cannot be read
+ */
+
+/**
  * @typedef {object} Walk one walk's running state over a parse's segments
  *   (#2785): the cwd through `cd`, the subshell stack, arithmetic's redirect
  *   switch and the command's own assignments. Each walk keeps
@@ -1437,10 +1442,10 @@ const TEXT_ONLY_PORTS = Object.freeze({
  *   the cwd (#325)
  * @property {string} cwdLost the words of the command that made the cwd
  *   unknown, for the unresolved-tree record (#320)
- * @property {Map<string, string>} gitEnv the git-reading variables an `export`
- *   has put in the environment, each name's raw value word (#3997)
+ * @property {GitEnv} gitEnv the git-reading variables an `export` has put in
+ *   the environment (#3997)
  * @property {{ cwd: string, names: string[], noRedirects: boolean,
- *   gitEnv: Map<string, string> }[]} stack what each open `(` restores at its
+ *   gitEnv: GitEnv }[]} stack what each open `(` restores at its
  *   `)`
  * @property {boolean} noRedirects inside arithmetic, whose `>` and `<`
  *   compare (#1488)
@@ -1737,43 +1742,74 @@ function walkGit(parsed, fn, ports, opts) {
 		opts.emptyUnset ?? false,
 	);
 	eachSegment(walk, (segment, cw) => {
-		const git = readGitSegment(walk, cw, opts.unwrap ?? false);
+		const git = readGitSegment(walk, cw, {
+			unwrapped: opts.unwrap ?? false,
+			isDir: ports.isDir,
+		});
 		if (!git) return;
-		/* Matched on the word as written, so a quoted subcommand is not one the
-		 * guard asked for. */
 		const { sub, args } = expandAlias(git.sub, git.args, git.aliases, {
 			subs,
 			spans: walk.scope.spans,
 		});
 		if (!subs.includes(sub)) return;
-		/** @param {string} tree */
-		const call = (tree) =>
-			fn({ segment, sub, tree, args, emptyVars: [...new Set(git.names)] });
-		if (!isResolvable(git.tree)) {
-			if (strict) call("");
-			else
-				ports.log(
-					`could not resolve the working tree for a git ${sub} — ${noun} allowed unchecked`,
-					unresolvedDetail(git, walk, ports.fallbackCwd),
-				);
-			return;
+		/* A named git directory moves the refs and leaves the work tree where the
+		 * command stands (measured), so it adds a tree to judge and removes none. */
+		const trees = git.named === null ? [git.tree] : [git.named, git.tree];
+		for (const tree of new Set(trees)) {
+			/** @param {string} judged */
+			const call = (judged) =>
+				fn({
+					segment,
+					sub,
+					tree: judged,
+					args,
+					emptyVars: [...new Set(git.names)],
+				});
+			judgeTree(tree, sub, call, {
+				walk,
+				git,
+				ports,
+				opts: { noun, scope, strict },
+			});
 		}
-		const cls = ports.treeClass(git.tree);
-		/* "unknown" is git declining to answer for the directory, not a
-		 * different tree: the guard is declining to judge a command it asked
-		 * for, so it is recorded. */
-		if (cls === "unknown")
-			ports.log(
-				`git could not answer for ${git.tree} — a git ${sub} there was allowed unchecked`,
-			);
-		else if (cls === "shared" || (scope === "repo" && cls === "linked"))
-			call(git.tree);
 	});
 }
 
 /**
- * @typedef {object} GitTarget the tree a git command runs against
- * @property {string} tree "" where it will not resolve
+ * Hand `call` one tree its walk judges, or record why it cannot.
+ * @param {string} tree "" where it will not resolve
+ * @param {string} sub
+ * @param {(tree: string) => void} call
+ * @param {{ walk: Walk, git: GitTarget, ports: GitWalkPorts,
+ *   opts: { noun: string, scope: "shared" | "repo", strict: boolean } }} from
+ */
+function judgeTree(tree, sub, call, { walk, git, ports, opts }) {
+	if (!isResolvable(tree)) {
+		if (opts.strict) call("");
+		else
+			ports.log(
+				`could not resolve the working tree for a git ${sub} — ${opts.noun} allowed unchecked`,
+				unresolvedDetail(git, walk, ports.fallbackCwd),
+			);
+		return;
+	}
+	const cls = ports.treeClass(tree);
+	/* "unknown" is git declining to answer for the directory, not a
+	 * different tree: the guard is declining to judge a command it asked
+	 * for, so it is recorded. */
+	if (cls === "unknown")
+		ports.log(
+			`git could not answer for ${tree} — a git ${sub} there was allowed unchecked`,
+		);
+	else if (cls === "shared" || (opts.scope === "repo" && cls === "linked"))
+		call(tree);
+}
+
+/**
+ * @typedef {object} GitTarget the trees a git command reaches
+ * @property {string} tree its work tree; "" where it will not resolve
+ * @property {string | null} named the tree whose refs `--git-dir`, `GIT_DIR` or
+ *   `GIT_COMMON_DIR` name, "" where it will not resolve; null where none does
  * @property {string[]} names the unset names read as empty on the way (#325)
  * @property {string} written an unresolved `-C` as typed, for the record
  * @property {import("./git-alias.js").AliasTable} aliases what the command
@@ -1788,33 +1824,46 @@ function walkGit(parsed, fn, ports, opts) {
  * against the hook's own tree).
  * @param {Walk} walk
  * @param {CommandWords} cw
- * @param {boolean} unwrapped judge past the launcher wrappers (#1731)
+ * @param {{ unwrapped: boolean, isDir: (path: string) => boolean }} how
+ *   `unwrapped` judges past the launcher wrappers (#1731)
  * @returns {(GitTarget & { sub: string, args: string[] }) | null}
  */
-function readGitSegment(walk, { words, wi, assignEnd, ran }, unwrapped) {
-	if (!ran) return null;
+function readGitSegment(walk, { words, wi, assignEnd, ran }, how) {
+	if (!ran) {
+		markRepoVarsUnread(walk, words);
+		return null;
+	}
 	let own = words.slice(wi);
-	if (moveCwd(walk, own) || readExport(walk, own)) return null;
+	if (moveCwd(walk, own) || trackExport(walk, own)) return null;
 	let carried = words.slice(0, assignEnd);
 	/* A wrapper's own `-C DIR` (`env -C`) is swept, not followed: the git
 	 * command is judged against the running cwd. */
-	if (unwrapped) {
+	if (how.unwrapped) {
 		const stripped = unwrap(own, walk.scope.spans);
 		own = stripped.words;
 		carried = [...carried, ...stripped.wrapperWords];
 	}
-	if (commandName(own[0] ?? "") !== "git") return null;
+	if (commandName(own[0] ?? "") !== "git") {
+		markRepoVarsUnread(walk, words);
+		return null;
+	}
 	const env = new Map(walk.gitEnv);
-	for (const [name, value] of carried.flatMap(gitEnvWord)) env.set(name, value);
+	for (const [name, value] of carried.flatMap(parseGitEnvWord))
+		env.set(name, value);
 	/** @type {GitTarget} */
 	const target = {
 		tree: walk.cwd,
+		named: null,
 		names: walk.cwdNames,
 		written: "",
 		aliases: emptyAliasTable(),
 	};
-	readConfigEnv(target.aliases, env, walk.scope.spans);
-	const i = readGitOptions(own, target, { scope: walk.scope, env });
+	defineFromEnv(target.aliases, env, walk.scope.spans);
+	const i = readGitOptions(own, target, {
+		scope: walk.scope,
+		env,
+		isDir: how.isDir,
+	});
 	if (i >= own.length) return null;
 	return { ...target, sub: own[i] ?? "", args: own.slice(i + 1) };
 }
@@ -1829,10 +1878,27 @@ const GIT_ENV_NAME =
  * @param {string} word
  * @returns {[string, string][]}
  */
-function gitEnvWord(word) {
+function parseGitEnvWord(word) {
 	const eq = word.indexOf("=");
 	const name = word.slice(0, eq);
 	return eq > 0 && GIT_ENV_NAME.test(name) ? [[name, word.slice(eq + 1)]] : [];
+}
+
+/**
+ * Mark the repository variables unread where a command mentions them other than
+ * as a `git` prefix or a plain `export`: an assignment after an export, `set -a`,
+ * `eval` and `local -x` each change the environment in a way not followed here.
+ * @param {Walk} walk accumulator: its `gitEnv` is replaced
+ * @param {string[]} words
+ */
+function markRepoVarsUnread(walk, words) {
+	const text = words.map((w) => literal(w, walk.scope.spans).text).join(" ");
+	const named = ["GIT_DIR", "GIT_COMMON_DIR"].filter((name) =>
+		new RegExp(`\\b${name}\\b`).test(text),
+	);
+	if (named.length === 0) return;
+	walk.gitEnv = new Map(walk.gitEnv);
+	for (const name of named) walk.gitEnv.set(name, null);
 }
 
 /**
@@ -1854,18 +1920,20 @@ function exportKind(head, rest) {
  * Move `walk.gitEnv` for one `export`, `declare -x`, `typeset -x` or `unset`;
  * whether the command is one of them. A bare assignment exports nothing
  * (measured), so a name only `export` names reads its value through the shell.
- * @param {Walk} walk
+ * @param {Walk} walk accumulator: its `gitEnv` is replaced
  * @param {string[]} words
  */
-function readExport(walk, [head = "", ...rest]) {
+function trackExport(walk, [head = "", ...rest]) {
 	const kind = exportKind(head, rest);
 	if (kind === null) return false;
 	const env = new Map(walk.gitEnv);
 	for (const w of rest) {
-		const name = w.split("=", 1)[0] ?? "";
+		const text = literal(w, walk.scope.spans).text;
+		const [name = ""] = text.split("=", 1);
 		if (!GIT_ENV_NAME.test(name)) continue;
 		if (kind === "drop") env.delete(name);
-		else env.set(name, w === name ? `$${name}` : w.slice(name.length + 1));
+		else
+			env.set(name, text === name ? `$${name}` : text.slice(name.length + 1));
 	}
 	walk.gitEnv = env;
 	return true;
@@ -1876,19 +1944,24 @@ function readExport(walk, [head = "", ...rest]) {
  * word and spelt on where it is stuck. `--git-dir` answers its directory.
  * @param {string} w
  * @param {string} next
- * @param {GitTarget} target
+ * @param {GitTarget} target accumulator: its tree and aliases are moved
  * @param {Scope} scope
  * @returns {string | null}
  */
-function readGitOption(w, next, target, scope) {
+function stepGitOption(w, next, target, scope) {
 	const { spans } = scope;
 	if (w === "--git-dir") return next;
 	if (w.startsWith("--git-dir=")) return w.slice("--git-dir=".length);
 	if (w === "-C") readGitDir(next, target, scope);
-	else if (w === "-c") readConfigWord(target.aliases, next, spans);
-	else if (w === "--config-env") readConfigEnvWord(target.aliases, next, spans);
+	else if (w === "-c") defineFromConfigWord(target.aliases, next, spans);
+	else if (w === "--config-env")
+		defineFromConfigEnvWord(target.aliases, next, spans);
 	else if (w.startsWith("--config-env="))
-		readConfigEnvWord(target.aliases, w.slice("--config-env=".length), spans);
+		defineFromConfigEnvWord(
+			target.aliases,
+			w.slice("--config-env=".length),
+			spans,
+		);
 	return null;
 }
 
@@ -1898,46 +1971,43 @@ function readGitOption(w, next, target, scope) {
  * last, since git reads a relative one from wherever the `-C`s end.
  * @param {string[]} own the command's words, `git` first
  * @param {GitTarget} target
- * @param {{ scope: Scope, env: Map<string, string> }} from
+ * @param {{ scope: Scope, env: GitEnv, isDir: (path: string) => boolean }} from
  */
-function readGitOptions(own, target, { scope, env }) {
+function readGitOptions(own, target, { scope, env, isDir }) {
 	let i = 1;
 	let gitDir = env.get("GIT_DIR");
 	for (let w = own[i] ?? ""; w.startsWith("-"); w = own[i] ?? "") {
-		gitDir = readGitOption(w, own[i + 1] ?? "", target, scope) ?? gitDir;
+		gitDir = stepGitOption(w, own[i + 1] ?? "", target, scope) ?? gitDir;
 		i += isGitValueOption(w) ? 2 : 1;
 	}
-	readRepoDirs(gitDir, env.get("GIT_COMMON_DIR"), target, scope);
+	nameRepoTree(gitDir, env.get("GIT_COMMON_DIR"), target, { scope, isDir });
 	return i;
 }
 
 /**
- * Move `target` to the tree the git directory names. Both named, the refs and
- * the HEAD can live apart, so the tree is unknown; so is an empty one, which git
- * refuses (measured).
- * @param {string | undefined} gitDir
- * @param {string | undefined} commonDir
- * @param {GitTarget} target
- * @param {Scope} scope
+ * Set `target.named` to the tree the git directory names. Unknown where both are
+ * named, as the refs and the HEAD can live apart; where it is empty, which git
+ * refuses (measured); and where it is a file not called `.git`, a gitfile that
+ * could point anywhere.
+ * @param {string | null | undefined} gitDir
+ * @param {string | null | undefined} commonDir
+ * @param {GitTarget} target accumulator: its `named` and `written` are set
+ * @param {{ scope: Scope, isDir: (path: string) => boolean }} from
  */
-function readRepoDirs(gitDir, commonDir, target, scope) {
-	const word = gitDir ?? commonDir;
+function nameRepoTree(gitDir, commonDir, target, { scope, isDir }) {
+	const word = gitDir === undefined ? commonDir : gitDir;
 	if (word === undefined) return;
 	const both = gitDir !== undefined && commonDir !== undefined;
-	const r = both ? null : pathArg(word, scope);
+	const r = both || word === null ? null : pathArg(word, scope);
 	const path = r && "path" in r ? r.path : "";
 	const abs =
 		path.startsWith("/") || !path || !target.tree
 			? path
 			: `${target.tree}/${path}`;
-	if (!abs.startsWith("/")) {
-		target.tree = "";
-		target.written = `--git-dir ${word}`;
-		return;
-	}
-	target.tree = treeOfGitDir(abs);
-	target.names = [...scope.emptyNames];
-	target.written = "";
+	const tree = abs.startsWith("/") ? treeOfGitDir(abs) : "";
+	const readable = tree !== "" && (tree !== normAbs(abs) || isDir(abs));
+	target.named = readable ? tree : "";
+	if (!readable) target.written = `--git-dir ${word}`;
 }
 
 /**
