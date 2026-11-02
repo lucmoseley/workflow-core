@@ -16,9 +16,7 @@
  * guard-pull-form.test.ts's.
  */
 
-import fs from "node:fs";
-import { describe, expect, it, vi } from "vitest";
-import { mkScratchDir } from "./git-fixture";
+import { describe, expect, it } from "vitest";
 import { fakeTreeClassifier } from "./git-tree-fake.js";
 import { denyFires } from "./guard-fires-testkit";
 import { kitContextFake } from "./kit-context-fake";
@@ -63,6 +61,7 @@ interface Over {
 	storeFault?: boolean;
 	mainUnreadable?: boolean;
 	corePaths?: (text: string) => string;
+	scriptPath?: (name: string) => string;
 }
 
 const treeClass = fakeTreeClassifier({
@@ -98,6 +97,7 @@ function harness(over: Over = {}) {
 			over.modules?.includes("landing") ? "origin/landing" : "origin/main",
 		isMainUnreadable: () => over.mainUnreadable ?? false,
 		corePaths: over.corePaths ?? ((t: string) => t),
+		...(over.scriptPath && { scriptPath: over.scriptPath }),
 	});
 	return { ctx, logs };
 }
@@ -881,17 +881,13 @@ describe("rewinding main is refused (#765)", () => {
 		},
 	);
 
-	it("spells the repair script at the plugin root in an install (#3926)", () => {
-		const install = mkScratchDir("pull-form-install-");
-		vi.stubEnv("WFC_SCRIPT_ROOT", install);
-		try {
-			expect(
-				readDenyReason("git checkout -B main HEAD~1", { mainUnreadable: true }),
-			).toContain(`node ${install}/scripts/repair-main.js`);
-		} finally {
-			vi.unstubAllEnvs();
-			fs.rmSync(install, { recursive: true, force: true });
-		}
+	it("spells the repair script through the context's port (#3926)", () => {
+		expect(
+			readDenyReason("git checkout -B main HEAD~1", {
+				mainUnreadable: true,
+				scriptPath: (name) => `/plugin/scripts/${name}`,
+			}),
+		).toContain("node /plugin/scripts/repair-main.js");
 	});
 
 	it("carries lib/main-rewind.js's fallback where the store cannot give the rule (#1777)", () => {
