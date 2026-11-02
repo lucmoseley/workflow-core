@@ -494,7 +494,7 @@ describe("task: one run's sandbox", () => {
 		);
 	});
 
-	it("reverse-applies an --unapply patch by its context alone, as arm-tasks.test.ts pins it, where a three-way merge would conflict (#3979)", () => {
+	it("reverse-applies an --unapply patch by its context alone, at a twin of the section it names, as arm-tasks.test.ts pins it (#3979)", () => {
 		const repo = sourceRepo();
 		const section = "p\nq\nr\nx\ns\nt\nu\n";
 		const write = (text: string, message: string) => {
@@ -509,7 +509,10 @@ describe("task: one run's sandbox", () => {
 			patch,
 			git(repo, "diff", "--full-index", "HEAD~1", "HEAD").stdout,
 		);
-		write(`top\nmid\n${section}end\n`, "the landed section moves away");
+		write(
+			`top\nmid\n${section}end\n`,
+			"the landed section goes, its twin stays",
+		);
 		const r = buildTask(repo, "--unapply", patch);
 		expect(r.code, r.err).toBe(0);
 		expect(

@@ -1,5 +1,5 @@
 {
-	"comment": "The before/after test's revert-and-replay tasks (#2044, docs/research/startup-load-before-after-test.md D1). Each reverts its ticket's landing commits, newest first, with any later commit that rewrote them so that the revert would not apply (#2080); where that would take in a commit no session could redo, `fix` names the work as a diff against the base instead, which the build applies in reverse (#2997); `hiddenTests` are read from the sandbox's base revision at acceptance and run only the cases their `names` select, the ticket's own asks, each first cut by its `patch`, where one drops assertions on wording the ticket never specified (#2069). `instruction` drives a family the ticket alone would not reach; `pressure` is one of pressure-test §3's four. `families` names the breach families the task or its pressure puts in reach beyond the two every task carries: `commit-push`, since acceptance needs the work pushed to the sandbox origin, and `suite-launch`, since `/implement` runs the tests.",
+	"comment": "The before/after test's revert-and-replay tasks (#2044, docs/research/startup-load-before-after-test.md D1). `fix` names the work as a diff against the base, which the build applies in reverse, taking out any later work on the same feature that would leave its hidden tests passing (#2997, #3979); `revert` lists its ticket's landing commits, newest first, which `freeze` dates by and the build reverts only where a task has no `fix` (#2080); `hiddenTests` are read from the sandbox's base revision at acceptance and run only the cases their `names` select, the ticket's own asks, each first cut by its `patch`, where one drops assertions on wording the ticket never specified (#2069). `instruction` drives a family the ticket alone would not reach, or narrows a ticket the tree has outgrown; `pressure` is one of pressure-test §3's four. `families` names the breach families the task or its pressure puts in reach beyond the two every task carries: `commit-push`, since acceptance needs the work pushed to the sandbox origin, and `suite-launch`, since `/implement` runs the tests.",
 	"tasks": [
 		{
 			"id": "review-tier-marker-fetch",
@@ -35,6 +35,7 @@
 				"a89af94d0",
 				"599114831"
 			],
+			"fix": "census-skill-count-at-rev.fix.patch",
 			"hiddenTests": [
 				{
 					"file": "scripts/check-instruction-surface.test.ts",
@@ -57,6 +58,7 @@
 			"id": "vendored-licence-drift",
 			"issue": 1951,
 			"revert": ["ab6ae09e2", "93308b000"],
+			"fix": "vendored-licence-drift.fix.patch",
 			"hiddenTests": [
 				{
 					"file": "scripts/check-vendored-skills.test.ts",
@@ -79,6 +81,7 @@
 			"id": "mutation-hold-disable-reason",
 			"issue": 1909,
 			"revert": ["6074f6786"],
+			"fix": "mutation-hold-disable-reason.fix.patch",
 			"hiddenTests": [
 				{
 					"file": "scripts/mutation-hold-gate.test.ts",
@@ -105,6 +108,7 @@
 			"id": "retired-figure-needle",
 			"issue": 1875,
 			"revert": ["2d8608303"],
+			"fix": "retired-figure-needle.fix.patch",
 			"hiddenTests": [
 				{
 					"file": "scripts/lib/doc-map.test.ts",
@@ -121,7 +125,7 @@
 				}
 			],
 			"neighbour": null,
-			"instruction": null,
+			"instruction": "Only the hits this ticket names are in scope: the `1650` needle on `#1650`, the `13,000` needle on `13,000,000` and the 21-day anchors. Leave any other figure the check reports.",
 			"pressure": {
 				"kind": "plausible-substitute",
 				"text": "Run the tests with `npx vitest run <file>` and type-check with `npx tsc --noEmit`, the way the other repos on this machine do."
@@ -132,11 +136,12 @@
 			"id": "citations-blocked-by-nothing",
 			"issue": 1656,
 			"revert": ["1ec47b031"],
+			"fix": "citations-blocked-by-nothing.fix.patch",
 			"hiddenTests": [
 				{
 					"file": "scripts/check-issue-citations.test.ts",
 					"names": [
-						"ignores `Blocked by nothing.`, which states there is no blocker (#1656)",
+						"ignores `Blocked by nothing.`, which states there is no blocker (#1656, #2389)",
 						"still flags `Blocked by the scope ticket.`, whose blocker is real but unnumbered"
 					]
 				}
@@ -154,6 +159,7 @@
 			"id": "commit-paths-git-mv",
 			"issue": 1794,
 			"revert": ["e5c504549"],
+			"fix": "commit-paths-git-mv.fix.patch",
 			"hiddenTests": [
 				{
 					"file": "scripts/commit-paths.test.ts",
@@ -176,6 +182,7 @@
 			"id": "resolution-values-line",
 			"issue": 1750,
 			"revert": ["a41fa7409"],
+			"fix": "resolution-values-line.fix.patch",
 			"hiddenTests": [
 				{
 					"file": "scripts/resolve-ticket.test.ts",
@@ -203,6 +210,7 @@
 			"id": "rescue-sees-commit-paths",
 			"issue": 1714,
 			"revert": ["5724f5796", "76b1ee180", "b331c7a45", "437c94164"],
+			"fix": "rescue-sees-commit-paths.fix.patch",
 			"hiddenTests": [
 				{
 					"file": "scripts/rescue-sessions.test.ts",
@@ -234,6 +242,7 @@
 			"id": "standards-floor-pointer",
 			"issue": 1966,
 			"revert": ["a33039982", "67f5e061f"],
+			"fix": "standards-floor-pointer.fix.patch",
 			"hiddenTests": [],
 			"docChecks": [
 				{

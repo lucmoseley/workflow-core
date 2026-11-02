@@ -124,9 +124,9 @@ const CLI = {
  * @property {number} issue
  * @property {string[]} revert newest first, the order they are reverted in;
  *   `freeze` dates the ticket by the oldest, `fix` or not
- * @property {string} [fix] the work as a diff against the base, beside
- *   `tasks.json`, unapplied in place of `revert` where that revert no longer
- *   applies (#2997)
+ * @property {string} [fix] the work, and any later work its hidden tests need
+ *   gone, as a diff against the base, beside `tasks.json`, unapplied in place
+ *   of `revert` where that revert no longer applies (#2997, #3979)
  * @property {HiddenTest[]} hiddenTests
  * @property {{ file: string, pattern: string, why?: string }[]} docChecks `why`
  *   says what a pattern too opaque to read checks for, printed where it fails

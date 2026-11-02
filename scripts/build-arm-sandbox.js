@@ -544,6 +544,9 @@ function startTask(clone, reverts, unapplied, at) {
 			return `--revert ${sha} does not revert cleanly at ${at}; pick an --at it reverts at, then build again:\n${err}`;
 	}
 	for (const patch of unapplied) {
+		/* Plain, as arm-tasks.test.ts pins each patch: a merge refuses a patch
+		 * the pin passes (#3979). Residual: a repeated context can take the hunk
+		 * at its twin's place. */
 		const err = tryGit(["apply", "--reverse", "--index", patch]);
 		if (err !== null)
 			return `--unapply patch ${patch} does not reverse-apply at ${at}; regenerate it against ${at}, then build again:\n${err}`;

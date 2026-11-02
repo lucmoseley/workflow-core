@@ -180,7 +180,9 @@
 			"scripts/check-context-budget.test.ts"
 		],
 		".claude/skills/architecture-scan/SKILL.md": [
-			"scripts/check-context-budget.test.ts"
+			"scripts/arm-tasks.test.ts",
+			"scripts/check-context-budget.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
 		],
 		".claude/skills/ask-matt": [
 			"scripts/check-context-budget.test.ts"
@@ -285,7 +287,9 @@
 			"scripts/check-context-budget.test.ts"
 		],
 		".claude/skills/rescue-sessions/SKILL.md": [
-			"scripts/check-context-budget.test.ts"
+			"scripts/arm-tasks.test.ts",
+			"scripts/check-context-budget.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
 		],
 		".claude/skills/research": [
 			"scripts/check-context-budget.test.ts"
@@ -297,7 +301,9 @@
 			"scripts/check-context-budget.test.ts"
 		],
 		".claude/skills/retro-sweep/SKILL.md": [
-			"scripts/check-context-budget.test.ts"
+			"scripts/arm-tasks.test.ts",
+			"scripts/check-context-budget.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
 		],
 		".claude/skills/roadmap-edit/SKILL.md": [
 			"scripts/check-context-budget.test.ts",
@@ -1532,6 +1538,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/mutation-hold.txt": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/review-tier.test.ts",
@@ -2235,6 +2242,7 @@
 		],
 		"docs/code-standards.md": [
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			"scripts/arm-tasks.test.ts",
 			"scripts/check-code-standards.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/init-adopter.test.ts",
@@ -2243,6 +2251,7 @@
 			"scripts/lib/python-routes.test.ts",
 			"scripts/lib/review-rules.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/tooling-matrix.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -2375,6 +2384,8 @@
 			"scripts/lib/suite-background.test.ts"
 		],
 		"docs/machinery-superseded.json": [
+			"scripts/arm-tasks.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/repo-checks.test.ts"
 		],
 		"docs/new-repo.md": [
@@ -2863,11 +2874,39 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/arm-tasks/census-skill-count-at-rev.fix.patch": [
+			"scripts/arm-tasks.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/arm-tasks/citations-blocked-by-nothing.fix.patch": [
+			"scripts/arm-tasks.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/arm-tasks/commit-paths-git-mv.fix.patch": [
+			"scripts/arm-tasks.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/arm-tasks/mutation-hold-disable-reason.fix.patch": [
+			"scripts/arm-tasks.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
 		"scripts/arm-tasks/mutation-hold-disable-reason.patch": [
 			"scripts/arm-tasks.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
+		"scripts/arm-tasks/rescue-sees-commit-paths.fix.patch": [
+			"scripts/arm-tasks.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
 		"scripts/arm-tasks/rescue-sees-commit-paths.patch": [
+			"scripts/arm-tasks.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/arm-tasks/resolution-values-line.fix.patch": [
+			"scripts/arm-tasks.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/arm-tasks/retired-figure-needle.fix.patch": [
 			"scripts/arm-tasks.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
@@ -2879,7 +2918,15 @@
 			"scripts/arm-tasks.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
+		"scripts/arm-tasks/standards-floor-pointer.fix.patch": [
+			"scripts/arm-tasks.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
 		"scripts/arm-tasks/tasks.json": [
+			"scripts/arm-tasks.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/arm-tasks/vendored-licence-drift.fix.patch": [
 			"scripts/arm-tasks.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
@@ -3689,6 +3736,7 @@
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/check-instruction-surface.js": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/check-instruction-surface.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
@@ -3699,6 +3747,7 @@
 			"scripts/tracker-sweep-keys.test.ts"
 		],
 		"scripts/check-instruction-surface.test.ts": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
@@ -3733,6 +3782,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-issue-citations.js": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/check-issue-citations.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
@@ -3742,6 +3792,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-issue-citations.test.ts": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
@@ -4552,6 +4603,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-vendored-skills.js": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/check-vendored-skills.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/gated-checks.test.ts",
@@ -4715,6 +4767,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/commit-paths.js": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
@@ -4729,6 +4782,7 @@
 			"scripts/write-review-marker.test.ts"
 		],
 		"scripts/commit-paths.test.ts": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
@@ -8434,6 +8488,7 @@
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/lib/commit-calls.js": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -8449,6 +8504,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/commit-calls.test.ts": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/commit-paths.test.ts",
@@ -9653,6 +9709,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/doc-map.js": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -9670,6 +9727,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/doc-map.test.ts": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/commit-paths.test.ts",
@@ -18945,6 +19003,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/stryker-comments.js": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -20580,6 +20639,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/vendored-notices.js": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -21714,6 +21774,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/mutation-hold-gate.js": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
@@ -22760,6 +22821,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/resolve-ticket.js": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/git.test.ts",
@@ -22769,6 +22831,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/resolve-ticket.test.ts": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"

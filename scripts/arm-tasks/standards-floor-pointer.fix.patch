@@ -1,0 +1,61 @@
+diff --git a/docs/code-standards.md b/docs/code-standards.md
+index 7111e544240b5f69bb9729eae903a28b1071d2dc..cec8e82dd48c34f4ee6af9565da43c4b0fe03223 100644
+--- a/docs/code-standards.md
++++ b/docs/code-standards.md
+@@ -34,7 +34,7 @@ Outside it: an expansion in a shell script, which is §S1; quoting for anything
+ 
+ ## §W — what tooling already enforces
+ 
+-**Check a candidate rule against this before writing one, and a finding against it before citing one.** A breach a tool already refuses is a duplicate finding, not a standard: formatting, import order, `any` *presence*, `==`, unused variables, the `node:` protocol, nullish dereference, `catch (e): unknown`.
++**Check a candidate rule against base §0's floor, then this, before writing one, and a finding before citing one.** A breach a tool already refuses is a duplicate finding, not a standard: formatting, import order, `any` *presence*, `==`, unused variables, the `node:` protocol, nullish dereference, `catch (e): unknown`.
+ 
+ Measured at mantahostels#1537; pinned by `scripts/tooling-matrix.test.ts`, which fails naming the row a config change falsifies.
+ 
+@@ -44,7 +44,7 @@ Measured at mantahostels#1537; pinned by `scripts/tooling-matrix.test.ts`, which
+ - **run** — a gate invokes the checker;
+ - **refuses** — that gate fails rather than warns.
+ 
+-A rule can be on and never run (nothing gated ESLint until mantahostels#1133), or run and never refuse (`tsc` in `.husky/pre-commit` is warn-only by design, mantahostels#1062).
++A rule can be on and never run (nothing gated ESLint until mantahostels#1133), or run and never refuse (`tsc` at commit: base §0's `commands.typecheck` row).
+ 
+ ### Which checker sees which surface
+ 
+@@ -70,21 +70,23 @@ Shell is shellcheck's (mantahostels#1134), which `npm run check:sh` runs in CI a
+ 
+ Excluded from everything: `docs/`, `public/`, `skills-lock.json`, `hooks/hooks.json` (#946 — the plugin hook manifest, rendered by `scripts/generate-plugin-hooks.js`), `scripts/fixtures`, `scripts/templates` (#5 — an adopter skeleton's templates, whose `{{placeholder}}` does not parse as the language they template), `.claude/worktrees`, `.claude/tmp`, `.claude/settings*.json`, `.claude/skills/*/.claude-plugin/types` (#854 — a mod's untracked copy of the engine's API declarations, #1960), `.local` (mantahostels#2206 — sessions put throwaway git worktrees there, and a worktree's own `biome.json` reads as a nested root configuration Biome refuses on repo-wide, blocking every commit in the tree). `.claude/` as a whole is not excluded (mantahostels#1138), and Biome cannot re-include inside an excluded path, so no narrower spelling exists.
+ 
+-### Which gate runs it, and which refuses
+-
+-| Checker | `.husky/pre-commit` | CI `Lint and tests` |
+-|---|---|---|
+-| Biome | refuses — staged paths only (mantahostels#179) | refuses — whole repo |
+-| ESLint | refuses — staged `app/`/`lib/` paths (mantahostels#1133) | refuses |
+-| `tsc` | **warns only**, reading the shared worktree (mantahostels#1062) | refuses |
+-| shellcheck, through `npm run check:sh` | refuses — staged shell paths; skips if the binary is absent (mantahostels#1134) | refuses |
+-| actionlint | refuses — staged workflow paths; skips if absent (mantahostels#1137) | refuses |
+-| ruff | refuses — staged `.py`; a missing binary skips only where a workflow runs `ruff check`, else refuses (mantahostels#1135, #1563) | refuses, in the `python` job |
+-| `scripts/check-swallowed-errors.js` | refuses — staged program-routed `.py`, only what the commit adds; a missing `python3` refuses (#1830) | refuses — `--all` over the whole tree, in the `python` job |
+-| shfmt, `ruff format` | refuse — staged shell and `.py` blobs; each missing formatter skips only where a workflow runs it, else refuses (#1332, #1463) | refuse — shfmt in this job, `ruff format` in the `python` job |
+-| Vitest, pytest | **neither — nothing local runs the tests** | refuses |
+-| The read-shape warning, `scripts/generate-test-read-edges.js --check` | **warns only, never refuses** — staged test files the commit adds or changes (#1881) | not run; `--unseen` lists every read the diff selector cannot attribute, on demand |
+-| The run-cost report, `scripts/run-vitest.js` and `scripts/run-pytest.js` (a new or changed test file over 10 s of its own wall time, base §X8 (5); pytest's in worker-seconds) | **reports only, never refuses** — never at commit | not run — silent under `CI` (#1797). Locally it **reports only, never refuses**: printed after every suite run through either wrapper, never at commit, and never changing the suite's exit code (#1883, #1884) |
++### Which gate runs it in CI
++
++At commit, the core's `commands.check_staged` is Biome over the staged paths (mantahostels#179) and `commands.test` writes a test-pass marker, so no commit runs the suite.
++
++| Checker | CI `Lint and tests` |
++|---|---|
++| Biome | refuses — whole repo |
++| ESLint | refuses |
++| `tsc` | refuses |
++| shellcheck, through `npm run check:sh` | refuses |
++| actionlint | refuses |
++| ruff | refuses, in the `python` job |
++| `scripts/check-swallowed-errors.js` | refuses — `--all` over the whole tree, in the `python` job |
++| shfmt, `ruff format` | refuse — shfmt in this job, `ruff format` in the `python` job |
++| Vitest, pytest | refuses |
++| The read-shape warning, `scripts/generate-test-read-edges.js --check` | not run; `--unseen` lists every read the diff selector cannot attribute, on demand |
++| The run-cost report, `scripts/run-vitest.js` and `scripts/run-pytest.js` (a new or changed test file over 10 s of its own wall time, base §X8 (5); pytest's in worker-seconds) | not run — silent under `CI` (#1797). Locally it **reports only, never refuses**: printed after every suite run through either wrapper, never at commit, and never changing the suite's exit code (#1883, #1884) |
+ 
+ Every push to `landing` runs the full suite, and the lander reads that run as its tester (#2413), so a pushed head's CI verdict lags it by one run: 8.2 min at worst, or up to 30 min where a red is re-run (measured on #3349). Four scheduled sweeps a day (mantahostels#3490) re-test the still tree. The cron asks for a 6h gap; GitHub delivers the slots late, and the gap is not this repo's to set (mantahostels#2204).
+ 

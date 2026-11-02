@@ -1,0 +1,76 @@
+diff --git a/docs/machinery-superseded.json b/docs/machinery-superseded.json
+index 815b89bb4cc976f3ff50de600c2b93bca1d0e455..ac46b7915a28d49fb751791f58e1c95d74175a93 100644
+--- a/docs/machinery-superseded.json
++++ b/docs/machinery-superseded.json
+@@ -1706,9 +1706,8 @@
+ 				]
+ 			},
+ 			{
+-				"path": "scripts/report-close-check-reading.js",
++				"path": "scripts/lib/log-reading.js",
+ 				"anchors": [
+-					"refused-then-answered question, whichever is later, and at most 21 days",
+ 					"21 days caps the wait"
+ 				]
+ 			},
+@@ -1721,12 +1720,6 @@
+ 					"whose first log line came after the 21-day ceiling"
+ 				]
+ 			},
+-			{
+-				"path": "scripts/report-round-check-reading.js",
+-				"anchors": [
+-					"and at most 21 days after that"
+-				]
+-			},
+ 			{
+ 				"path": "scripts/report-round-check-reading.test.ts",
+ 				"anchors": [
+diff --git a/scripts/lib/doc-map.js b/scripts/lib/doc-map.js
+index d05049a82d3d37315bf6d303ea52016940687b57..95526348bdfe5d5cbec568a119944392d9ce88eb 100644
+--- a/scripts/lib/doc-map.js
++++ b/scripts/lib/doc-map.js
+@@ -2394,8 +2394,10 @@ function headingWords(heading) {
+  * (`call list 23-25` inside `call list 23-25.5`), and fails to end a match
+  * on a non-word character followed by a space (`800%`). One ending in a
+  * letter also refuses a following word character, so a unit letter cannot
+- * match the start of a longer word (#1620). A needle with no digit matches
+- * as a plain whole word.
++ * match the start of a longer word (#1620). A preceding `#` marks an issue
++ * citation, not a figure, and a following `,\d` is the rest of a longer
++ * comma-grouped number (`38,000` inside `38,000,000`), so neither matches
++ * (#1875). A needle with no digit matches as a plain whole word.
+  * @param {string} needle
+  */
+ function needlePattern(needle) {
+@@ -2405,7 +2407,7 @@ function needlePattern(needle) {
+ 		.replace(/[–—-]/g, "[–—-]");
+ 	if (!/\d/.test(needle)) return new RegExp(`\\b${body}\\b`, "gi");
+ 	const tail = /[a-z]$/i.test(needle) ? "\\w" : "\\d";
+-	return new RegExp(`(?<![\\w.,])~?${body}(?![${tail}]|\\.\\d)`, "gi");
++	return new RegExp(`(?<![\\w.,#])~?${body}(?![${tail}]|[.,]\\d)`, "gi");
+ }
+ 
+ /* The data files' canonical names, resolved against the map's own
+diff --git a/scripts/lib/doc-map.test.ts b/scripts/lib/doc-map.test.ts
+index d71179a3ffd93f8d3e373271816530e43d880622..4c25ec86bc0a3865a371d82b01eecd434cf604a4 100644
+--- a/scripts/lib/doc-map.test.ts
++++ b/scripts/lib/doc-map.test.ts
+@@ -1239,6 +1239,17 @@ describe("needlePattern", () => {
+ 	it("still matches a needle ending in a digit against a figure with its unit attached", () => {
+ 		expect("a 512MB heap").toMatch(needlePattern("512"));
+ 	});
++
++	it("does not match an issue citation carrying the needle's digits (#1875)", () => {
++		expect("the stamp (#4821) gate").not.toMatch(needlePattern("4821"));
++		expect("see acme/widgets#4821").not.toMatch(needlePattern("4821"));
++		expect("a 4821 s run").toMatch(needlePattern("4821"));
++	});
++
++	it("does not match the head of a longer comma-grouped number (#1875)", () => {
++		expect("38,000,000 characters").not.toMatch(needlePattern("38,000"));
++		expect("a 38,000 B cap").toMatch(needlePattern("38,000"));
++	});
+ });
+ 
+ describe("scanScope", () => {
