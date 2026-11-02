@@ -83,6 +83,15 @@ const renderWith = (overrides: object) =>
 		...overrides,
 	});
 
+const QUIET_READING = {
+	checkout: "wfc",
+	closesSince: SINCE,
+	decisionsSince: SINCE,
+	urgent: [],
+	parked: [],
+	primitives: QUIET_PRIMITIVES,
+};
+
 const render = (
 	repos: unknown[],
 	failed: unknown[] = [],
@@ -91,15 +100,7 @@ const render = (
 ) =>
 	renderWith({
 		previous,
-		repos: repos.map((r) => ({
-			checkout: "wfc",
-			closesSince: SINCE,
-			decisionsSince: SINCE,
-			urgent: [],
-			parked: [],
-			primitives: QUIET_PRIMITIVES,
-			...(r as object),
-		})),
+		repos: repos.map((r) => ({ ...QUIET_READING, ...(r as object) })),
 		failed,
 		kills,
 	});
@@ -289,42 +290,37 @@ describe("renderReview (#2011)", () => {
 
 	it("links an unread repo's closes from its closes start, and the carry still reads the body (#3981)", () => {
 		const start = "2026-10-15T07:00:00Z";
-		const link = (repo: string, from: string) =>
+		const buildSearchLink = (repo: string, from: string) =>
 			`[search](https://github.com/search?type=issues&q=${encodeURIComponent(
 				`repo:${repo} is:issue is:closed closed:>=${from}`,
 			)})`;
-		const fields = {
-			urgent: [],
-			parked: [],
-			primitives: QUIET_PRIMITIVES,
-			stalls: [],
-			entries: [],
-			decisionsSince: SINCE,
-		};
 		const body = renderWith({
 			repos: [
 				{
-					...fields,
+					...QUIET_READING,
 					checkout: "a",
 					repo: "acme/a",
 					closesSince: start,
+					stalls: [],
+					entries: [],
 					closed: null,
 				},
 				{
-					...fields,
+					...QUIET_READING,
 					checkout: "b",
 					repo: "acme/b",
-					closesSince: SINCE,
+					stalls: [],
+					entries: [],
 					closed: [],
 				},
 			],
 			unreadEvents: [{ kind: "Closes", checkout: "a", since: start }],
 		});
 		expect(body).toContain(
-			`- acme/a: not read, so the next review to read them lists them — ${link("acme/a", "2026-10-15T06:45:00+00:00")}\n`,
+			`- acme/a: not read, so the next review to read them lists them — ${buildSearchLink("acme/a", "2026-10-15T06:45:00+00:00")}\n`,
 		);
 		expect(body).toContain(
-			`- acme/b: 0 — ${link("acme/b", "2026-10-17T06:45:00+00:00")}\n`,
+			`- acme/b: 0 — ${buildSearchLink("acme/b", "2026-10-17T06:45:00+00:00")}\n`,
 		);
 		expect(buildRepoStart({ number: 7, body }, "a", NOW).closes).toBe(start);
 	});
