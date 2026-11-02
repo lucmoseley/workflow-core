@@ -21,9 +21,11 @@
  *                                        last stop reason, open repo holds
  *                                        (lib/repo-holds.js), each overflow
  *                                        seat's budget and the plan seats
- *                                        overflow rests on; `--json` the mode,
- *                                        every candidate checkout, the launch
- *                                        rows and the `seats:` line's fields
+ *                                        overflow rests on; `--json` the code
+ *                                        sha, the pause, the last tick, launches
+ *                                        today, the mode, every candidate
+ *                                        checkout, the launch rows and the
+ *                                        `seats:` line's fields
  *   node scripts/refill-loop.js dry-run  one tick's decision, printed; reaps
  *                                        and launches nothing
  *   node scripts/refill-loop.js boot-resume  the boot unit's: restart the loop
@@ -62,6 +64,7 @@ const refillCode = require("./lib/refill-code.js");
 const gates = require("./lib/gate-sweep.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { hostRoot } = require("./lib/host-root.js");
+const { localDate } = require("./lib/morning-review.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const { readAllowance } = require("./lib/allowance.js");
 const { buildBudgetLine, seatBudget } = require("./lib/overflow-budget.js");
@@ -122,7 +125,7 @@ const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | set | 
   set --away | --normal                        hand a session at a question off to its issue; or keep it open. The repos stay
   set [--repos <dir>]…                         the whole ticked set
   set [--tick <dir>]… [--untick <dir>]…        add to or take from the ticked set; a checkout found later stays unticked
-  status [--json]                              --json: the mode, every candidate checkout, the launch rows, each with its seat and why, and the seats line's fields
+  status [--json]                              --json: the code sha, the pause, the last tick, launches today, the mode, every candidate checkout, the launch rows, each with its seat and why, and the seats line's fields
   <dir> is a checkout's directory name in the home directory; set takes any of its flags together`;
 
 const lock = pidLock(files.pid, "refill-loop.js");
@@ -472,6 +475,8 @@ function status({ flags }) {
 	const state = readStateFile(log);
 	const root = sizingRoot(served);
 	const seats = readSeatsView(control?.seats ?? readConfiguredSeats(), root);
+	const codeSha =
+		pid === null ? null : refillCode.readRunningCode(pid, files.code);
 	if (flags["--json"]) {
 		say(
 			JSON.stringify(
@@ -480,6 +485,8 @@ function status({ flags }) {
 					state,
 					pid,
 					seats,
+					codeSha,
+					today: localDate(new Date()),
 					candidates: readCandidates(homeDir()),
 				}),
 			),
@@ -490,7 +497,7 @@ function status({ flags }) {
 		control,
 		state,
 		pid,
-		codeSha: pid === null ? null : refillCode.readRunningCode(pid, files.code),
+		codeSha,
 		served,
 		seats,
 		now: Date.now(),

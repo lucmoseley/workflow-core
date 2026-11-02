@@ -26,6 +26,7 @@ const {
 	buildOverflowHoldText,
 	buildPauseText,
 	buildPausedWaitText,
+	isPauseText,
 	hasRoom,
 	orderPlanSeats,
 	pickSeat,
@@ -34,6 +35,7 @@ const {
 const {
 	buildSeatText,
 	buildSkipText,
+	launchesOnDay,
 	launchesSince,
 } = require("./refill-loop.js");
 const { buildSeatName } = require("./refill-seats.js");
@@ -644,20 +646,40 @@ function buildOverflowBasisLines({
 }
 
 /**
- * `status --json`: whether the loop runs, its pause and mode, every candidate
+ * `status --json`: whether the loop runs and on what code, its pause and mode,
+ * the last tick's summary and waiting reason, launches today, every candidate
  * checkout, ticked or not, with why any is disabled (#3862), the launch rows
  * `status` lists, each with its seat as a tilde path and why it was picked
  * (#3732), null on a record from before that, and the `seats:` line's fields
  * (#3733).
  * @param {{control: Control|null, state: LoopState, pid: number|null,
- *   seats: SeatsView,
+ *   seats: SeatsView, codeSha: string|null, today: string,
  *   candidates: {root: string, disabled: string|null}[]}} input
+ *   `codeSha`, lib/refill-code.js's readRunningCode; `today`, machine-local
  */
-function buildStatusJson({ control, state, pid, seats, candidates }) {
+function buildStatusJson({
+	control,
+	state,
+	pid,
+	seats,
+	codeSha,
+	today,
+	candidates,
+}) {
+	const { lastTick } = state;
 	return {
 		running: pid !== null,
 		pid,
+		codeSha,
+		stopRequested: control?.stopRequested ?? false,
 		paused: control?.paused ?? null,
+		lastTick: lastTick && {
+			at: lastTick.at,
+			summary: lastTick.summary,
+			idle: lastTick.idle ?? null,
+			paused: isPauseText(lastTick.idle),
+		},
+		launchesToday: launchesOnDay(state, today),
 		mode: control?.scope.mode ?? null,
 		repos: candidates.map(({ root, disabled }) => ({
 			name: path.basename(root),

@@ -895,9 +895,17 @@ const buildIdleDecision = (idle, held, resumes) => ({
 	resumes,
 });
 
+const PAUSE_TEXT_START = "paused by ";
+
 /** @param {Pause} pause */
 const buildPauseText = ({ by, at }) =>
-	`paused by ${by} at ${new Date(at).toISOString()}`;
+	`${PAUSE_TEXT_START}${by} at ${new Date(at).toISOString()}`;
+
+/**
+ * Whether a tick's idle reason is buildPauseText's.
+ * @param {string|null|undefined} idle
+ */
+const isPauseText = (idle) => idle?.startsWith(PAUSE_TEXT_START) ?? false;
 
 /** @param {Pause} pause */
 const buildPausedWaitText = (pause) =>
@@ -1024,6 +1032,7 @@ module.exports = {
 	buildPauseText,
 	buildPausedWaitText,
 	buildLoopWait,
+	isPauseText,
 	seatHold,
 	FULL,
 	buildLimitCapHoldWhy,
