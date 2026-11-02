@@ -31,6 +31,7 @@ import {
 	HOOKS,
 	renderHookShim,
 } from "../../../../scripts/lib/adopter-skeleton.js";
+import { shellQuote } from "../../../../scripts/lib/sh-quote.js";
 import {
 	BASHRC,
 	buildLiveBlock,
@@ -91,7 +92,7 @@ describe("new-repo.js on an empty project", () => {
 			const pin = pinned(s.home, "v1.10.0");
 			expect(
 				fs.readFileSync(path.join(s.clone, ".claude/workflow-core.md"), "utf8"),
-			).toContain(`node ${pin}/scripts/`);
+			).toContain(`node ${shellQuote(pin)}/scripts/`);
 			// The hooks name no pin at all: each resolves the core at run time (#1839).
 			for (const hook of HOOKS)
 				expect(
@@ -257,7 +258,7 @@ describe("new-repo.js on an empty project", () => {
 		])
 			expect(statusOf(r.stdout, step), step).toBe("would");
 		expect(r.stdout).toContain(
-			`--marketplace-ref v1.10.0 --plugin-root ${pinned(s.home, "v1.10.0")}`,
+			`--marketplace-ref v1.10.0 --plugin-root ${shellQuote(pinned(s.home, "v1.10.0"))}`,
 		);
 		expect(r.stdout).toMatch(/^modules {8}none$/m);
 		expect(r.stdout).toContain(

@@ -661,7 +661,7 @@ const steps = (copy: boolean): Step[] => [
 		(s, g) =>
 			fs.writeFileSync(
 				path.join(s.clone, ".claude/settings.local.json"),
-				g.local.replaceAll("<HOME>", s.home),
+				g.local.replaceAll("<HOME>", () => s.home),
 			),
 	],
 	[
@@ -767,9 +767,11 @@ const LS_FILES_LINE = /^(\d{6}) \S+ \d\t(.+)$/;
 /**
  * The committed tree with HOME masked, since the hooks and rules file carry
  * the pin's cache path under it (#736); the anchors hash those hooks, so only
- * their keys count.
+ * their keys count. The rules file prints that path shell-quoted, so a HOME
+ * holding a `'` appears there in its escaped form too.
  */
 function readMaskedTree(s: Sandbox) {
+	const quotedHome = shellQuote(s.home).replace(/^'|'$/g, "");
 	const readBody = (rel: string, mode: string) => {
 		const at = path.join(s.clone, rel);
 		if (mode === "120000") return fs.readlinkSync(at);
@@ -786,7 +788,10 @@ function readMaskedTree(s: Sandbox) {
 			if (!m) throw new Error(`git ls-files -s printed an unparsed line: ${l}`);
 			const mode = requiredGroup(m, 1, LS_FILES_LINE);
 			const rel = requiredGroup(m, 2, LS_FILES_LINE);
-			return `${mode} ${rel}\n${readBody(rel, mode).replaceAll(s.home, "<HOME>")}`;
+			const body = readBody(rel, mode)
+				.replaceAll(quotedHome, "<HOME>")
+				.replaceAll(s.home, "<HOME>");
+			return `${mode} ${rel}\n${body}`;
 		});
 	return createHash("sha1").update(files.join("\0")).digest("hex");
 }
