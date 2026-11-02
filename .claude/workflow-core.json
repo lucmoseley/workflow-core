@@ -30,6 +30,7 @@
 	},
 	"capacityLadder": false,
 	"admissionGate": true,
+	"refillPanel": true,
 	"sessionMeanMb": 587,
 	"sessionSigmaMb": 304,
 	"retro": { "weeklyCount": 1 },

@@ -25,6 +25,7 @@ const path = require("node:path");
 const { pidAlive } = require("./lib/arbiter-proc.js");
 const { parseOrCode } = require("./lib/cli-args");
 const { openPanel } = require("./lib/refill-panel-terminal.js");
+const { readViewEnv } = require("./lib/refill-panel-view-env.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 
@@ -38,26 +39,18 @@ const BURN_PROGRAM = path.join(__dirname, "burn-mode.sh");
 /* Untraced, a first guess: past the control lock's 10 s wait (lib/pid-lock.js),
  * and far past burn-mode.sh's few short writes, whose timeout reads as a failed flip. */
 const RUN_TIMEOUT_MS = 30_000;
-/* `wsl.exe -e` starts no shell, so a node from nvm is on no PATH, and burn-mode.sh
- * runs `node` by name (#3886). */
-const RUN_ENV = {
-	...process.env,
-	PATH: [path.dirname(process.execPath), process.env.PATH]
-		.filter(Boolean)
-		.join(path.delimiter),
-};
-
 /**
  * @param {string} file
  * @param {string[]} argv
+ * @param {NodeJS.ProcessEnv} env
  * @returns {ReturnType<import("./lib/refill-panel.js").Runner>}
  */
-const runCommand = (file, argv) =>
+const runCommand = (file, argv, env) =>
 	new Promise((resolve) => {
 		execFile(
 			file,
 			argv,
-			{ timeout: RUN_TIMEOUT_MS, env: RUN_ENV },
+			{ timeout: RUN_TIMEOUT_MS, env },
 			(err, stdout, stderr) => {
 				if (!err) {
 					resolve({ code: 0, stdout, stderr });
@@ -91,13 +84,14 @@ function main(argv = process.argv.slice(2)) {
 		writeFd(2, "refill-panel: needs a terminal\n");
 		return 1;
 	}
+	const env = { ...process.env, ...readViewEnv(pid) };
 	openPanel({
 		pid,
 		stdin: process.stdin,
 		stdout: process.stdout,
 		proc: process,
-		run: (args) => runCommand(process.execPath, [LOOP_PROGRAM, ...args]),
-		runBurn: (args) => runCommand(BURN_PROGRAM, args),
+		run: (args) => runCommand(process.execPath, [LOOP_PROGRAM, ...args], env),
+		runBurn: (args) => runCommand(BURN_PROGRAM, args, env),
 		isAlive: pidAlive,
 		now: Date.now,
 		reportCrash,
