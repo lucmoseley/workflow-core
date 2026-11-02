@@ -1,8 +1,8 @@
 // @vitest-environment node
 // Pins that memcheck prints the threshold the watchdog really uses, and that
 // memwatch logs its process rows, fires on CPU and process count as well as
-// memory, logs each scheduler-clock freeze and clear, and rotates its log into
-// an age-bounded archive.
+// memory, logs each scheduler-clock freeze and clear, rotates its log into an
+// age-bounded archive, and kills a process runaway it has watched hold its line.
 // Drives the two home-directory watchdog scripts (~/memcheck.sh, ~/memwatch.sh)
 // from outside, per mantahostels#544's testing decisions: fabricated sources in, printed
 // output asserted. Skips wherever the scripts are absent — CI runners carry
@@ -27,6 +27,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "memwatch-pair-"));
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 /* Every pass writes the minute line, so no run here may reach the live one. */
 process.env.MEMWATCH_MINUTE_LOG = path.join(tmp, "minute.jsonl");
+process.env.MEMWATCH_RUNAWAY_LOG = path.join(tmp, "runaway-default.jsonl");
 
 function runMemcheckLine(watchdogSrc: string): string {
 	return execFileSync("bash", [MEMCHECK, "--memwatch-line"], {
@@ -655,5 +656,302 @@ describe.skipIf(!hasScope)("memwatch process-count trigger", () => {
 		}
 		const out = fs.readFileSync(log, "utf8");
 		expect(out.match(/^--- \d+ processes \|/gm)).toHaveLength(1);
+	});
+});
+
+/*
+ * The runaway kill (#3807). MEMWATCH_RUNAWAY_ONLY confines every case to its own
+ * marker, so a real process on this shared machine cannot be in a group, however
+ * low the thresholds. The marker is a number, so `sleep` takes it as a duration.
+ */
+describe.skipIf(!hasScope)("memwatch process runaway", () => {
+	const marker = `3807.${process.pid}`;
+	let nth = 0;
+	interface Firing {
+		ts: string;
+		since: string;
+		procs: number;
+		argv: string;
+		size: number;
+		parents: { pid: number; kids: number; argv: string }[];
+		killed: number[];
+	}
+
+	/** Runs `script` in a capped scope, resolving once it prints `ready`. */
+	async function inScope<T>(script: string, body: () => Promise<T>) {
+		const unit = `memwatch-runaway-${process.pid}-${nth++}.scope`;
+		const scope = spawn(
+			"systemd-run",
+			[
+				"--user",
+				"--scope",
+				"--quiet",
+				`--unit=${unit}`,
+				"-p",
+				"TasksMax=400",
+				"-p",
+				`RuntimeMaxSec=${SCOPE_S}`,
+				"bash",
+				"-c",
+				script,
+			],
+			{ stdio: ["ignore", "pipe", "ignore"] },
+		);
+		try {
+			await new Promise<void>((resolve, reject) => {
+				scope.stdout.on("data", (b) => {
+					if (String(b).includes("ready")) resolve();
+				});
+				scope.on("exit", () => reject(new Error("scope exited early")));
+			});
+			return await body();
+		} finally {
+			try {
+				execFileSync("systemctl", ["--user", "stop", unit], {
+					stdio: "ignore",
+				});
+			} catch {
+				// Already gone: RuntimeMaxSec ended it, or it never started.
+			}
+			scope.kill("SIGKILL");
+		}
+	}
+
+	const logs = () => {
+		const id = nth++;
+		return {
+			log: path.join(tmp, `runaway-${id}.log`),
+			runaway: path.join(tmp, `runaway-${id}.jsonl`),
+		};
+	};
+	const firings = (file: string): Firing[] =>
+		fs.existsSync(file)
+			? fs
+					.readFileSync(file, "utf8")
+					.trimEnd()
+					.split("\n")
+					.map((l) => JSON.parse(l))
+			: [];
+	const quietEnv = (log: string, runaway: string) => ({
+		...process.env,
+		MEMWATCH_LOG: log,
+		MEMWATCH_RUNAWAY_LOG: runaway,
+		MEMWATCH_INTERVAL: "1",
+		MEMWATCH_THRESHOLD_MB: "99999999",
+		MEMWATCH_CPU_THRESHOLD_PCT: "99999",
+		MEMWATCH_RUNAWAY_ONLY: marker,
+		MEMWATCH_RUNAWAY_PROCS: "1",
+		MEMWATCH_RUNAWAY_GROUP: "30",
+	});
+	/** One pass, firing at once. */
+	const firePass = (log: string, runaway: string) =>
+		execFileSync("bash", [MEMWATCH], {
+			env: {
+				...quietEnv(log, runaway),
+				MEMWATCH_ONCE: "1",
+				MEMWATCH_RUNAWAY_WINDOW_S: "0",
+			},
+			encoding: "utf8",
+		});
+	/** The loop until `until` holds, or 30 s. */
+	async function loopUntil(
+		env: Record<string, string | undefined>,
+		until: () => boolean,
+	) {
+		const child = spawn("bash", [MEMWATCH], { env });
+		try {
+			const deadline = Date.now() + 30_000;
+			while (Date.now() < deadline && !until()) await setTimeout(100);
+		} finally {
+			child.kill("SIGKILL");
+		}
+	}
+	const alive = (pid: number) => {
+		try {
+			// A killed link may stay a zombie until its parent reaps it.
+			return !/^\d+ \(.*\) Z /.test(
+				fs.readFileSync(`/proc/${pid}/stat`, "utf8"),
+			);
+		} catch {
+			return false;
+		}
+	};
+	/* A SIGKILLed task dies when next scheduled, so a loaded machine may still
+	 * list it just after the signal. */
+	async function settles(check: () => boolean) {
+		const deadline = Date.now() + 10_000;
+		while (Date.now() < deadline && !check()) await setTimeout(50);
+		return check();
+	}
+	const running = (pattern: string) => {
+		try {
+			return Number(
+				execFileSync("pgrep", ["-fc", pattern], { encoding: "utf8" }),
+			);
+		} catch {
+			return 0; // pgrep exits 1 on no match
+		}
+	};
+
+	it(
+		"kills a chain of one argv held past the window, naming its argv and pids",
+		async () => {
+			const chain = path.join(tmp, "chain.sh");
+			// The links' argv is identical; each waits on the next, as ap.sh's did.
+			fs.writeFileSync(
+				chain,
+				// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion written into a .sh file, not a JS placeholder
+				'N=$((${N:-40} - 1)); export N\nif [ "$N" -gt 0 ]; then bash "$0" "$1" & wait; else echo ready; sleep 300; fi\n',
+			);
+			const { log, runaway } = logs();
+			const argv = `bash ${chain} ${marker}`;
+			await inScope(`exec ${argv}`, async () => {
+				const started = Date.now();
+				await loopUntil(
+					{ ...quietEnv(log, runaway), MEMWATCH_RUNAWAY_WINDOW_S: "2" },
+					() => firings(runaway).length > 0,
+				);
+				const [line, ...rest] = firings(runaway);
+				expect(rest).toEqual([]);
+				// Two 1-s intervals held before it fired.
+				expect(Date.now() - started).toBeGreaterThanOrEqual(2000);
+				expect(line.argv).toBe(argv);
+				expect(line.size).toBe(40);
+				expect(line.killed).toHaveLength(40);
+				expect(await settles(() => !line.killed.some(alive))).toBe(true);
+				expect(line.procs).toBeGreaterThan(40);
+				// Each link has one child, and its parent reads the same argv.
+				expect(line.parents.map((p) => p.kids)).toContain(1);
+				expect(fs.readFileSync(log, "utf8")).toMatch(
+					/^--- \d+ processes \| top commands by process count ---$/m,
+				);
+			});
+		},
+		SCOPE_S * 1000,
+	);
+
+	it(
+		"keeps killing a group that respawns, every line under one episode",
+		async () => {
+			const { log, runaway } = logs();
+			const argv = `sleep ${marker}1`;
+			await inScope(
+				`while :; do for _ in $(seq 40); do ${argv} & done; echo ready; wait; done`,
+				() =>
+					loopUntil(
+						{ ...quietEnv(log, runaway), MEMWATCH_RUNAWAY_WINDOW_S: "1" },
+						() => firings(runaway).length > 1,
+					),
+			);
+			const lines = firings(runaway);
+			expect(lines.length).toBeGreaterThan(1);
+			expect(new Set(lines.map((l) => l.since)).size).toBe(1);
+			for (const l of lines) expect(l.killed.length).toBeGreaterThan(0);
+		},
+		SCOPE_S * 1000,
+	);
+
+	it(
+		"reports a varied fan-out once and kills none of it",
+		async () => {
+			const { log, runaway } = logs();
+			const seconds = `${marker}2`;
+			await inScope(
+				`for i in $(seq 40); do sleep ${seconds}$i & done; echo ready; wait`,
+				async () => {
+					const child = spawn("bash", [MEMWATCH], {
+						env: { ...quietEnv(log, runaway), MEMWATCH_RUNAWAY_WINDOW_S: "0" },
+					});
+					try {
+						await setTimeout(3500);
+					} finally {
+						child.kill("SIGKILL");
+					}
+					const lines = firings(runaway);
+					expect(lines).toHaveLength(1);
+					expect(lines[0].killed).toEqual([]);
+					expect(lines[0].size).toBe(1);
+					expect(running(`^sleep ${seconds}`)).toBe(40);
+				},
+			);
+		},
+		SCOPE_S * 1000,
+	);
+
+	it("fires nothing on a count that drops before the window, restarting it from zero", async () => {
+		const { log, runaway } = logs();
+		const env = {
+			...quietEnv(log, runaway),
+			MEMWATCH_RUNAWAY_PROCS: "300",
+			MEMWATCH_RUNAWAY_WINDOW_S: "2",
+			MEMWATCH_RUNAWAY_ONLY: `no-process-holds-${marker}`,
+			// Six passes, never holding two intervals; then a hold.
+			MEMWATCH_PROCS_READINGS: "500 500 0 500 500 0 500",
+		};
+		const started = Math.floor(Date.now() / 1000);
+		await loopUntil(env, () => firings(runaway).length > 0);
+		const [line, ...rest] = firings(runaway);
+		expect(rest).toEqual([]);
+		// One 1-s sleep follows each of the six passes before the hold begins.
+		expect(Date.parse(line.since) / 1000 - started).toBeGreaterThanOrEqual(6);
+		expect(
+			Date.parse(line.ts) / 1000 - Date.parse(line.since) / 1000,
+		).toBeGreaterThanOrEqual(2);
+	}, 60_000);
+
+	it(
+		"never kills a Claude process, however large its group",
+		async () => {
+			const { log, runaway } = logs();
+			const seconds = `${marker}3`;
+			const plain = `sleep ${seconds}`;
+			await inScope(
+				`for _ in $(seq 60); do (exec -a claude sleep ${seconds}) & (exec -a /x/claude/versions/2.1.234 sleep ${seconds}) & done
+				for _ in $(seq 31); do ${plain} & done; echo ready; wait`,
+				async () => {
+					firePass(log, runaway);
+					const [line] = firings(runaway);
+					expect(line.argv).toBe(plain);
+					expect(line.killed).toHaveLength(31);
+					expect(running(`^claude ${seconds}`)).toBe(60);
+					expect(running(`^/x/claude/versions/2.1.234 ${seconds}`)).toBe(60);
+					expect(await settles(() => running(`^${plain}`) === 0)).toBe(true);
+					// Only Claude groups left: a line that says so, and no kill.
+					const after = logs();
+					firePass(after.log, after.runaway);
+					const [only] = firings(after.runaway);
+					// All that is left outside them is the scope's own one shell.
+					expect(only.size).toBe(1);
+					expect(only.killed).toEqual([]);
+					expect(running(`^claude ${seconds}`)).toBe(60);
+				},
+			);
+		},
+		SCOPE_S * 1000,
+	);
+
+	it("writes valid JSON for an argv with quotes, backslashes and control characters", async () => {
+		const { log, runaway } = logs();
+		const argv = `a"b\\c\u0001d`;
+		await inScope(
+			`for _ in $(seq 31); do (exec -a $'a"b\\\\c\\001d' sleep ${marker}4) & done; echo ready; wait`,
+			async () => {
+				firePass(log, runaway);
+				expect(firings(runaway)[0].argv).toBe(`${argv} ${marker}4`);
+			},
+		);
+	}, 60_000);
+
+	it("drops firing lines older than MEMWATCH_MINUTE_DAYS when it writes one", () => {
+		const { log, runaway } = logs();
+		const ts = (daysAgo: number) =>
+			new Date(Date.now() - daysAgo * 86_400_000)
+				.toISOString()
+				.replace(/\.\d+Z$/, "+0000");
+		const old = `{"ts":"${ts(40)}","since":"${ts(40)}","killed":[]}`;
+		fs.writeFileSync(runaway, `${old}\n`);
+		firePass(log, runaway);
+		expect(fs.readFileSync(runaway, "utf8")).not.toContain(old);
+		expect(firings(runaway)).toHaveLength(1);
 	});
 });

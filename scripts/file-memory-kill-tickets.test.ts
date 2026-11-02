@@ -17,6 +17,7 @@ import {
 	writeJournalctl,
 } from "./lib/earlyoom-journal-fake";
 import { stubGhScript } from "./lib/gh-stub";
+import { INCIDENT_GH_STUB } from "./lib/incident-gh-stub";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "file-memory-kill-tickets.js");
@@ -24,41 +25,6 @@ const SCRIPT = path.resolve(__dirname, "file-memory-kill-tickets.js");
 const sb = freshSandbox();
 const repo = () => path.join(sb.dir, "wfc");
 const stub = (name: string) => path.join(sb.dir, "gh", name);
-
-/**
- * `gh` over one tracker's incident tickets (`tickets.json`), logging every
- * call to `calls.log`. A create appends to `tickets.json`, so a second run
- * sees the first's ticket. The similar-title list holds the tickets among
- * enough unrelated titles that an earlier incident's scores above the cut.
- */
-const STUB = `#!/usr/bin/env node
-const fs = require("node:fs");
-const path = require("node:path");
-const f = (n) => path.join(process.env.STUB_DIR, n);
-const a = process.argv.slice(2);
-const read = (n) => JSON.parse(fs.readFileSync(f(n), "utf8"));
-const say = (o) => { process.stdout.write(JSON.stringify(o)); process.exit(0); };
-fs.appendFileSync(f("calls.log"), a.join(" ") + "\\n");
-if (fs.existsSync(f("down"))) { process.stderr.write("HTTP 502\\n"); process.exit(1); }
-if (a[0] === "api" && a[1] === "repos/acme/wfc/labels") say([[{ name: "takes:triage" }]]);
-if (a[0] === "issue" && a[1] === "list" && a.includes("--search")) say(read("tickets.json"));
-if (a[0] === "issue" && a[1] === "list") say([
-	...read("tickets.json"),
-	...Array.from({ length: 100 }, (_, i) => ({ number: i + 1, title: "Fix widget " + i, state: "CLOSED" })),
-]);
-if (a[0] === "issue" && a[1] === "create") {
-	const tickets = read("tickets.json");
-	const number = 900 + tickets.length;
-	const title = a[a.indexOf("--title") + 1];
-	const labels = a.flatMap((x, i) => (a[i - 1] === "--label" ? [x] : []));
-	fs.writeFileSync(f("created-" + number + ".json"), JSON.stringify({ title, labels, body: fs.readFileSync(0, "utf8") }));
-	fs.writeFileSync(f("tickets.json"), JSON.stringify([...tickets, { number, title, state: "OPEN" }]));
-	process.stdout.write("https://github.com/acme/wfc/issues/" + number + "\\n");
-	process.exit(0);
-}
-process.stderr.write("gh stub: unsupported: " + a.join(" ") + "\\n");
-process.exit(1);
-`;
 
 const MIN = 60 * 1000;
 /** Kills `minutesAgo` each, written where the stub journalctl serves them. */
@@ -86,7 +52,7 @@ const run = (argv: string[] = []) =>
 		cwd: repo(),
 		env: {
 			...process.env,
-			...stubGhScript(sb.dir, STUB).env,
+			...stubGhScript(sb.dir, INCIDENT_GH_STUB).env,
 			CLAUDE_PROJECT_DIR: repo(),
 			STUB_DIR: path.join(sb.dir, "gh"),
 			WFC_JOURNALCTL: stub("journalctl"),

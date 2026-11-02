@@ -114,6 +114,7 @@ A spec whose tickets are all *closed* is not a container either — nothing open
 - `scripts/report-manual-staleness.js` — `takes:triage`, *Operating manual is stale against the roadmap*.
 - `scripts/check-orphaned-edits.js` — `takes:triage`, one `Orphaned edit: <path> (blob <sha>)` per edit, through `file-issue.js`.
 - `scripts/file-memory-kill-tickets.js` — `takes:triage`, one `Memory kill incident from <minute> UTC` per earlyoom kill incident, through `file-issue.js` (#3094).
+- `scripts/file-process-runaway-tickets.js` — `takes:triage`, one `Process runaway from <minute> UTC` per memwatch runaway episode, through `file-issue.js` (#3807).
 - `.claude/skills/new-repo/scripts/new-repo.js` — `takes:wayfinder`, a new repo's first `wayfinder:map` and its grilling child, through `file-issue.js` (#713).
 
 **The same blindness covers every writer above**, so a new `takes:` writer checks its own value or nothing does, and is named here and kept current.

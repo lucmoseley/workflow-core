@@ -28,6 +28,7 @@
 
 const { requiredGroup } = require("./regex-group.js");
 const { byKind, incidentTitle, isOver } = require("./earlyoom-kills.js");
+const { episodeTitle, killedIn } = require("./process-runaways.js");
 const {
 	NONE,
 	SPREAD_CAP,
@@ -201,10 +202,11 @@ function parseOneWayDoor(comments) {
  * @typedef {import("./review-carry.js").UnreadEvents} UnreadEvents
  * @typedef {{since: string, now: string, previous: number | null,
  *   repos: RepoReading[], failed: Unread[], unreadEvents: UnreadEvents[],
- *   holds: OpenHold[], kills: KillReading, concurrency: ConcurrencyReading,
+ *   holds: OpenHold[], kills: KillReading, runaways: RunawayReading,
+ *   concurrency: ConcurrencyReading,
  *   idle: IdleReading}}
- *   Reading the machine's earlyoom kills, its concurrency and the idle alarm
- *   are read once, not per repo (#3094, #3321, #3644)
+ *   Reading the machine's earlyoom kills, its process runaways, its concurrency and the idle alarm
+ *   are read once, not per repo (#3094, #3807, #3321, #3644)
  * @typedef {{trackers: import("./idle-efforts.js").TrackerFinding[],
  *   loopRunning: boolean, damaged: string[]} | {why: string}} IdleReading the idle alarm's
  *   findings, or why check-idle-efforts.js gave none
@@ -217,6 +219,11 @@ function parseOneWayDoor(comments) {
  *   the incidents with a kill in the window, their tickets by title or why
  *   the tracker did not read, and why the journal did not read, where it did
  *   not
+ * @typedef {{episodes: import("./process-runaways.js").Episode[],
+ *   tickets: Map<string, number> | string, why: string | null}} RunawayReading
+ *   the episodes with a firing in the window, their tickets by title or why
+ *   the tracker did not read, and why memwatch's log did not read, where it
+ *   did not
  * @typedef {{repo: string, why: string}} Unread a repo the review could not
  *   read whole
  */
@@ -295,6 +302,37 @@ function renderKillLines({ incidents, tickets, why }, lo, hi) {
 					`- ${quoted(incidentTitle(i))} — ${i.kills.length} ${i.kills.length === 1 ? "kill" : "kills"}: ${byKind(i.kills)} — ${ticketText(i, tickets, hi)}`,
 			),
 	];
+}
+
+/**
+ * An episode's ticket as the review names it.
+ * @param {RunawayReading["episodes"][number]} e
+ * @param {RunawayReading["tickets"]} tickets
+ */
+function episodeTicket(e, tickets) {
+	if (typeof tickets === "string") return `ticket unread: ${quoted(tickets)}`;
+	const n = tickets.get(episodeTitle(e));
+	return n === undefined ? "no ticket filed yet" : `#${n}`;
+}
+
+/**
+ * The "Process runaways" lines: each episode with a firing in the window, what
+ * it killed and its ticket.
+ * @param {RunawayReading} r
+ * @param {number} lo the window's start, ms, exclusive
+ * @param {number} hi its end, ms, inclusive
+ * @returns {string[]}
+ */
+function renderRunawayLines({ episodes, tickets, why }, lo, hi) {
+	if (why !== null) return [`Not read: ${quoted(why)}.`];
+	const inWindow = episodes.filter((e) =>
+		e.firings.some((f) => Date.parse(f.ts) > lo && Date.parse(f.ts) <= hi),
+	);
+	if (inWindow.length === 0) return ["None in the window."];
+	return inWindow.map(
+		(e) =>
+			`- ${quoted(episodeTitle(e))} — killed ${killedIn(e.firings)} — ${episodeTicket(e, tickets)}`,
+	);
 }
 
 /** @param {number} h */
@@ -524,6 +562,7 @@ function renderReview({
 	unreadEvents,
 	holds,
 	kills,
+	runaways,
 	concurrency,
 	idle,
 }) {
@@ -648,6 +687,10 @@ function renderReview({
 		"## Memory kills",
 		"",
 		...renderKillLines(kills, lo, hi),
+		"",
+		"## Process runaways",
+		"",
+		...renderRunawayLines(runaways, lo, hi),
 		"",
 		"## Concurrency",
 		"",

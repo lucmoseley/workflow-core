@@ -24,7 +24,12 @@
  */
 
 const { spawnSync } = require("node:child_process");
-const { ghIssueListAll } = require("./gh.js");
+const {
+	localMinute,
+	processSpan,
+	readTicketsByPrefix,
+	utcMinute,
+} = require("./incident-tickets.js");
 const { requiredGroup } = require("./regex-group.js");
 const { docPath } = require("./script-path.js");
 
@@ -198,17 +203,6 @@ function readIncidents(sinceMs) {
 	}
 }
 
-/** @param {Date} d UTC `YYYY-MM-DD HH:MM` */
-const utcMinute = (d) => d.toISOString().slice(0, 16).replace("T", " ");
-
-/** @param {Date} d machine-local `YYYY-MM-DD HH:MM` */
-const localMinute = (d) =>
-	`${[d.getFullYear(), d.getMonth() + 1, d.getDate()]
-		.map((v) => String(v).padStart(2, "0"))
-		.join("-")} ${[d.getHours(), d.getMinutes()]
-		.map((v) => String(v).padStart(2, "0"))
-		.join(":")}`;
-
 /** @param {Date} d machine-local `HH:MM:SS` */
 const localTime = (d) =>
 	[d.getHours(), d.getMinutes(), d.getSeconds()]
@@ -223,14 +217,6 @@ const TITLE_PREFIX = "Memory kill incident from ";
  */
 const incidentTitle = (/** @type {Incident} */ i) =>
 	`${TITLE_PREFIX}${utcMinute(new Date(i.first))} UTC`;
-
-/**
- * A name earlyoom copied from comm, as a code span: comm is the process's own
- * to set, so a backtick, a pipe or a control character is replaced.
- * @param {string} name
- */
-const nameSpan = (name) =>
-	`\`${name.replace(/[`|\p{Cc}]/gu, "?") || "(empty)"}\``;
 
 /** @param {number|null} v */
 const mib = (v) => (v === null ? "unread" : `${v} MiB`);
@@ -272,7 +258,7 @@ Lowest MemAvailable before a kill: ${lowest === null ? "unread" : `${lowest.avai
 ${i.kills
 	.map(
 		(k) =>
-			`| ${localTime(new Date(k.at))} | ${k.kind} | ${nameSpan(k.name)} | ${k.pid} | ${k.uid} | ${k.rssMiB} MiB | ${k.badness} | ${mib(k.availMiB)} | ${mib(k.swapFreeMiB)} | ${k.signals} |`,
+			`| ${localTime(new Date(k.at))} | ${k.kind} | ${processSpan(k.name)} | ${k.pid} | ${k.uid} | ${k.rssMiB} MiB | ${k.badness} | ${mib(k.availMiB)} | ${mib(k.swapFreeMiB)} | ${k.signals} |`,
 	)
 	.join("\n")}
 
@@ -293,22 +279,7 @@ Why admission let memory run out. Start from \`journalctl -u earlyoom --since @$
  * @returns {Map<string, number>}
  */
 function readIncidentTickets(repo) {
-	/** @type {{number: number, title: string}[]} */
-	const found = ghIssueListAll("memory kill tickets", [
-		"--repo",
-		repo,
-		"--state",
-		"all",
-		"--search",
-		`in:title "${TITLE_PREFIX.trim()}"`,
-		"--json",
-		"number,title",
-	]);
-	return new Map(
-		found
-			.filter((i) => i.title.startsWith(TITLE_PREFIX))
-			.map((i) => [i.title, i.number]),
-	);
+	return readTicketsByPrefix(repo, "memory kill tickets", TITLE_PREFIX);
 }
 
 module.exports = {

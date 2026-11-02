@@ -25,7 +25,8 @@
  * a recorded launch ran in, is supervised
  * (scripts/supervise-landing.js, #2692): a dead lander started, a stall
  * ticketed, each earlyoom kill incident that is over is ticketed
- * (scripts/file-memory-kill-tickets.js, #3094), each repo hold whose clear
+ * (scripts/file-memory-kill-tickets.js, #3094), each process runaway memwatch
+ * fired on is ticketed (scripts/file-process-runaway-tickets.js, #3807), each repo hold whose clear
  * check passes is lifted (lib/repo-holds.js, #3857), and each served checkout's
  * shared `.git` is probed, a failure stopping launches into it (#3860). Last, the morning review is
  * filed from the first tick after 07:00, and its reversals are answered on
@@ -244,6 +245,20 @@ function fileKillTickets() {
 		{ cwd: REVIEW_ROOT, env: buildCheckoutEnv(REVIEW_ROOT) },
 	);
 	if (r.out || r.failed) log(blocks.buildChildLine("memory kills", r));
+}
+
+/**
+ * Ticket each process runaway memwatch fired on, as fileKillTickets does its
+ * kills (scripts/file-process-runaway-tickets.js, #3807).
+ */
+function fileRunawayTickets() {
+	if (!hasConfig(REVIEW_ROOT)) return;
+	const r = runChild(
+		process.execPath,
+		[path.join(SCRIPTS, "file-process-runaway-tickets.js")],
+		{ cwd: REVIEW_ROOT, env: buildCheckoutEnv(REVIEW_ROOT) },
+	);
+	if (r.out || r.failed) log(blocks.buildChildLine("process runaways", r));
 }
 
 /**
@@ -1174,6 +1189,7 @@ function tendCheckouts(served, launches, now) {
 	const roots = loop.landingRoots(served, launches);
 	superviseLanding(roots);
 	fileKillTickets();
+	fileRunawayTickets();
 	return tendHolds(roots, served, now, log);
 }
 

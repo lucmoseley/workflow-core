@@ -65,6 +65,7 @@ const QUIET_PRIMITIVES = {
 };
 
 const QUIET_KILLS = { incidents: [], tickets: new Map(), why: null };
+const QUIET_RUNAWAYS = { episodes: [], tickets: new Map(), why: null };
 
 const renderWith = (overrides: object) =>
 	renderReview({
@@ -76,6 +77,7 @@ const renderWith = (overrides: object) =>
 		unreadEvents: [],
 		holds: [],
 		kills: QUIET_KILLS,
+		runaways: QUIET_RUNAWAYS,
 		concurrency: concurrencyOver([], []),
 		idle: QUIET_IDLE,
 		...overrides,
@@ -351,6 +353,48 @@ describe("renderReview (#2011)", () => {
 			`## Memory kills\n\n2 in the window — Claude host 0, test or build 1, other 1.\n\n- \`${incidentTitle(incident)}\` — 2 kills: Claude host 0, test or build 1, other 1 — #52\n`,
 		);
 		expect(basisFaults(body)).toEqual([]);
+	});
+
+	it("lists the window's process runaways with what each killed and its ticket (#3807)", () => {
+		const { episodeTitle } = require("./process-runaways.js");
+		const episode = (since: string, ts: string, killed: number[]) => ({
+			since,
+			firings: [
+				{ ts, since, procs: 750, argv: "x", size: 200, parents: [], killed },
+			],
+		});
+		const inside = episode(
+			"2026-10-18T06:50:00+0000",
+			"2026-10-18T07:00:00+0000",
+			[1, 2],
+		);
+		const outside = episode(
+			"2026-10-16T06:50:00+0000",
+			"2026-10-16T07:00:00+0000",
+			[3],
+		);
+		const lines = (runaways: object) =>
+			renderWith({ runaways }).split("## Process runaways\n\n")[1];
+		expect(lines(QUIET_RUNAWAYS)).toMatch(/^None in the window\.\n/);
+		const tickets = new Map([[episodeTitle(inside), 77]]);
+		const listed = lines({
+			episodes: [outside, inside],
+			tickets,
+			why: null,
+		});
+		expect(listed).toContain(
+			`- \`${episodeTitle(inside)}\` — killed 2 — #77\n`,
+		);
+		expect(listed).not.toContain(episodeTitle(outside));
+		expect(
+			lines({ episodes: [inside], tickets: "HTTP 502", why: null }),
+		).toContain("killed 2 — ticket unread: `HTTP 502`\n");
+		expect(
+			lines({ episodes: [inside], tickets: new Map(), why: null }),
+		).toContain("killed 2 — no ticket filed yet\n");
+		expect(lines({ ...QUIET_RUNAWAYS, why: "EACCES" })).toMatch(
+			/^Not read: `EACCES`\.\n/,
+		);
 	});
 
 	it("counts only kills inside the window, and says why the journal or the tracker did not read (#3094)", () => {

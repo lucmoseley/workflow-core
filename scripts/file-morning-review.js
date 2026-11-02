@@ -52,6 +52,10 @@
  * each incident with its ticket — read once from this machine's journal
  * (lib/earlyoom-kills.js), not per repo.
  *
+ * PROCESS RUNAWAYS (#3807): memwatch's firings in the window, each episode with
+ * what it killed and its ticket, read once from this machine's log
+ * (lib/process-runaways.js).
+ *
  * PRIMITIVES (#3465): each repo's check-primitives.js count line, and every
  * commit on its default branch since the last review's read touching either
  * standards file, with the file's text
@@ -111,6 +115,7 @@ const { writeFd } = require("./lib/write-fd.js");
 const { readLedger } = require("./lib/delegated-decision.js");
 const concurrency = require("./lib/concurrency.js");
 const kills = require("./lib/earlyoom-kills.js");
+const runaways = require("./lib/process-runaways.js");
 const review = require("./lib/morning-review.js");
 const carry = require("./lib/review-carry.js");
 const {
@@ -529,6 +534,24 @@ function readKills(tracker, since) {
 }
 
 /**
+ * The machine's process-runaway episodes with a firing since `since`, and each
+ * one's ticket on `tracker` (scripts/file-process-runaway-tickets.js, #3807).
+ * @param {string} tracker
+ * @param {string} since
+ * @returns {import("./lib/morning-review.js").RunawayReading}
+ */
+function readRunaways(tracker, since) {
+	const { episodes, why } = runaways.readEpisodes(Date.parse(since));
+	if (why !== null || episodes.length === 0)
+		return { episodes, tickets: new Map(), why };
+	try {
+		return { episodes, tickets: runaways.readEpisodeTickets(tracker), why };
+	} catch (e) {
+		return { episodes, tickets: parseErrLine(e), why };
+	}
+}
+
+/**
  * The concurrency readouts over each review window ending `now`.
  * @param {number} now
  * @returns {import("./lib/morning-review.js").ConcurrencyReading}
@@ -760,6 +783,7 @@ function fileUnlessFiledToday(tracker, dryRun) {
 		unreadEvents: read.flatMap((r) => r.unreadEvents),
 		holds: holds.flatMap((h) => h.read),
 		kills: readKills(tracker, since),
+		runaways: readRunaways(tracker, since),
 		concurrency: readConcurrency(now.getTime()),
 		idle: readIdle(),
 	});

@@ -483,6 +483,24 @@ process.stdout.write("Memory kill incident from 2026-10-26 03:56: filed #9.");\n
 		);
 	});
 
+	it("tickets memwatch's process runaways in its own checkout each tick (#3807)", async () => {
+		const code = configureCodeRoot();
+		stub("file-memory-kill-tickets.js", "");
+		stub(
+			"file-process-runaway-tickets.js",
+			`require("node:fs").appendFileSync(${JSON.stringify(at("runaway-filer"))}, process.cwd() + "\\n");
+process.stdout.write("Process runaway from 2026-10-29 19:07 UTC: filed #9.");\n`,
+		);
+		stub("file-morning-review.js", "");
+		stub("answer-review-reversals.js", "");
+		const r = await settled(run(1), "run filing runaway tickets");
+		expect(r.status).toBe(0);
+		expect(readLines(at("runaway-filer"))).toEqual([fs.realpathSync(code)]);
+		expect(r.stdout).toContain(
+			"process runaways: exit 0\n  Process runaway from 2026-10-29 19:07 UTC: filed #9.",
+		);
+	});
+
 	describe("the morning review child a tick runs (#3405)", () => {
 		/* An Etc/GMT zone where the local hour is now `hour`, and its local
 		 * date. The offset spans -12..11, all valid zones; Etc/GMT's sign is
