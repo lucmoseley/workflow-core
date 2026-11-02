@@ -122,7 +122,7 @@ const {
 	readOmittedDirs,
 } = require("./refill-seats.js");
 const { runOf } = require("./headless-sessions.js");
-const { checkoutEnv, exclusionOf } = require("./refill-repos.js");
+const { checkoutEnv, readExclusionWhy } = require("./refill-repos.js");
 const loop = require("./refill-loop.js");
 const {
 	loopFiles,
@@ -187,7 +187,7 @@ const runChild = (file, args, opts = {}) =>
  * The roots a scope serves now.
  * @param {import("./refill-loop.js").Scope} scope
  */
-const servedRoots = (scope) => loop.scopeRoots(scope, exclusionOf);
+const servedRoots = (scope) => loop.scopeRoots(scope, readExclusionWhy);
 
 /** @param {boolean} dryRun */
 function reapFinished(dryRun) {

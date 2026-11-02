@@ -374,18 +374,18 @@ function nextHandedOff(state, away, launches, now) {
 }
 
 /**
- * The roots a tick serves, and why each ticked root is not. `exclusionOf`
+ * The roots a tick serves, and why each ticked root is not. `readExclusionWhy`
  * re-reads a root's config, so a repo that opts out mid-run is dropped.
  * @param {Scope} scope
- * @param {(root: string) => string|null} exclusionOf
+ * @param {(root: string) => string|null} readExclusionWhy
  */
-function scopeRoots(scope, exclusionOf) {
+function scopeRoots(scope, readExclusionWhy) {
 	/** @type {string[]} */
 	const roots = [];
 	/** @type {{root: string, why: string}[]} */
 	const dropped = [];
 	for (const root of scope.repos) {
-		const why = exclusionOf(root);
+		const why = readExclusionWhy(root);
 		if (why === null) roots.push(root);
 		else dropped.push({ root, why });
 	}

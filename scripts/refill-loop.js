@@ -98,7 +98,7 @@ const { configDir, seatDir } = require("./lib/config-dir.js");
 const { readLastTyped } = require("./lib/presence.js");
 const {
 	checkoutEnv,
-	exclusionOf,
+	readExclusionWhy,
 	homeDir,
 	readCandidates,
 	readCheckoutRefusal,
@@ -429,7 +429,7 @@ function bootResume() {
 /** @param {import("./lib/cli-args").Parsed} parsed */
 function start(parsed) {
 	const root = hostRoot();
-	const excluded = exclusionOf(root);
+	const excluded = readExclusionWhy(root);
 	if (excluded !== null && readStoredControl() === null) {
 		say(`refill loop not started: this checkout is not served (${excluded})`);
 		return 0;

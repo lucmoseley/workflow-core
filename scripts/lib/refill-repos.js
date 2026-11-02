@@ -123,7 +123,7 @@ function readExclusion(root) {
  * @param {string} root
  * @returns {string|null}
  */
-const exclusionOf = (root) => readExclusion(root)?.why ?? null;
+const readExclusionWhy = (root) => readExclusion(root)?.why ?? null;
 
 /**
  * Every checkout that gets a tick box, ticked or not, with why it cannot be
@@ -134,7 +134,7 @@ const exclusionOf = (root) => readExclusion(root)?.why ?? null;
 const readCandidates = (home) =>
 	readAdopterCheckouts(home).included.map((root) => ({
 		root,
-		disabled: exclusionOf(root),
+		disabled: readExclusionWhy(root),
 	}));
 
 /**
@@ -165,7 +165,7 @@ function readTickRefusal(name, home) {
 		const left = adopters.excluded.find((l) => l.root === root);
 		return `${name} is ${left?.why ?? "not a main checkout"}`;
 	}
-	const why = exclusionOf(root);
+	const why = readExclusionWhy(root);
 	return why === null ? null : `${name} cannot be ticked: ${why}`;
 }
 
@@ -281,6 +281,6 @@ module.exports = {
 	readCandidates,
 	readCheckoutRefusal,
 	readTickRefusal,
-	exclusionOf,
+	readExclusionWhy,
 	homeDir,
 };
