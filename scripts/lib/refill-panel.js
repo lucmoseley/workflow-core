@@ -1,14 +1,15 @@
 /*
  * refill-panel.js — what the refill loop's panel draws and what a click does,
- * with no terminal (#3873, #3877, spec #3596): status JSON and pending presses in, rows
+ * with no terminal (#3873, #3877, #3879, spec #3596): status JSON and pending presses in, rows
  * out; a click on a row in, a `refill-loop.js` or `burn-mode.sh` argv out. The
  * panel runs those two for every read and write, and never opens a control or
  * state file, so the loop's validation, lock and wake apply to every loop press.
  *
  * Desired and observed state stay apart. A press is a pending mark beside what
  * the last status read showed, cleared only by a read showing the change or by
- * the command's refusal. A burn-mode flip is whole when its script exits, so any
- * read after that exit shows it, or another writer's reversal.
+ * the command's refusal. An away press or a burn-mode flip is whole when its
+ * command exits, so any read after that exit shows it, or another writer's
+ * reversal, the loop's automatic return included.
  */
 
 const { caught } = require("./caught.js");
@@ -28,6 +29,9 @@ const REFUSAL_SHOW_MS = 10_000;
 
 /* The skill's line on every flip (`.claude/skills/burn-mode/SKILL.md`). */
 const BURN_RESTART_NOTE = "Running sessions keep their effort until restarted";
+
+/* The Away row's word for its off state: the mode that leaves the loop in. */
+const AWAY_OFF_WORD = "normal";
 
 /* Two rows between sections (#3596 story 78). */
 const SECTION_GAP = [
@@ -54,6 +58,8 @@ const ROLE_STYLES = {
  *   lastTick: {at: number, summary: string, idle: string|null,
  *     paused: boolean}|null,
  *   launchesToday: number,
+ *   mode: "normal"|"away"|null,
+ *   handedOffSinceAway: number,
  *   burnMode: ReturnType<typeof import("./burn-mode.js").readBurnState>}} PanelStatus
  */
 
@@ -71,15 +77,21 @@ const ROLE_STYLES = {
  */
 
 /**
+ * A press's refusal: the command's words, and when it gave them.
+ * @typedef {{text: string, at: number}} Refusal
+ */
+
+/**
  * @typedef {{status: PanelStatus|null, readError: string|null,
  *   pending: Pending|null,
- *   refusal: {text: string, at: number}|null,
+ *   refusal: Refusal|null,
+ *   awayPending: Pending|null, awayRefusal: Refusal|null,
  *   burnPending: Pending|null, burnReport: BurnReport|null}} PanelView
  */
 
 /**
  * @typedef {{text: string, role: Role,
- *   control?: {id: "loop"|"burn",
+ *   control?: {id: "loop"|"away"|"burn",
  *     state: "on"|"off"|"pending"|"unknown"|"failed"}}} Row
  */
 
@@ -104,6 +116,14 @@ function buildClock(at, now) {
  */
 const buildCurrentTick = ({ lastTick, paused }) =>
 	lastTick?.paused && !paused ? null : lastTick;
+
+/**
+ * @param {Refusal|null} refusal
+ * @param {number} now
+ * @returns {refusal is Refusal}
+ */
+const isShowing = (refusal, now) =>
+	refusal !== null && now - refusal.at < REFUSAL_SHOW_MS;
 
 /**
  * Line 1 and line 2 of the loop block, from the observed status alone.
@@ -189,10 +209,9 @@ function buildLoopBlock({ status, readError, pending, refusal }, now) {
 			third,
 		];
 	const [first, second] = buildObservedLines(status, now);
-	const refused = refusal && now - refusal.at < REFUSAL_SHOW_MS;
 	return [
 		first,
-		refused ? { text: refusal.text, role: "value" } : second,
+		isShowing(refusal, now) ? { text: refusal.text, role: "value" } : second,
 		third,
 	];
 }
@@ -235,6 +254,46 @@ const SWITCH_TEXT = {
 	unknown: "[?]",
 	failed: "[!]",
 };
+
+/**
+ * The Away switch's state and the words beside it. `mode` is null with no control
+ * to read.
+ * @param {PanelView} view
+ * @returns {{state: "on"|"off"|"pending"|"unknown", words: string}}
+ */
+function buildAwayState({ status, awayPending }) {
+	if (awayPending)
+		return {
+			state: "pending",
+			words: `turning ${awayPending.on ? "on" : "off"}…`,
+		};
+	if (!status?.mode) return { state: "unknown", words: "" };
+	if (status.mode !== "away") return { state: "off", words: AWAY_OFF_WORD };
+	const count = status.handedOffSinceAway;
+	return { state: "on", words: count > 0 ? `${count} handed off` : "" };
+}
+
+/**
+ * The Away row, then its sibling row, which holds a refusal and is otherwise
+ * blank, so nothing below moves.
+ * @param {PanelView} view
+ * @param {number} now
+ * @returns {[Row, Row]}
+ */
+function buildAwayRows(view, now) {
+	const { state, words } = buildAwayState(view);
+	const { awayRefusal } = view;
+	return [
+		{
+			text: `Away  ${SWITCH_TEXT[state]}${words && `  ${words}`}`,
+			role: "name",
+			control: { id: "away", state },
+		},
+		isShowing(awayRefusal, now)
+			? { text: awayRefusal.text, role: "value" }
+			: { text: "", role: "secondary" },
+	];
+}
 
 /**
  * What the machine says beneath the switch: why it cannot be read, or the plans
@@ -313,6 +372,7 @@ function buildRows(view, now) {
 		},
 		...buildLoopBlock(view, now),
 		...SECTION_GAP,
+		...buildAwayRows(view, now),
 		...buildBurnRows(view),
 	];
 }
@@ -328,6 +388,19 @@ function buildPress({ status, pending }) {
 	if (status.paused) return { argv: ["set", "--resume"], on: true };
 	if (isLaunching(status)) return { argv: ["set", "--pause"], on: false };
 	return null;
+}
+
+/**
+ * What a press on the Away switch does, or null where it does nothing: the
+ * opposite of what the last read showed, the loop stopped or paused included.
+ * With no control to read there is no opposite.
+ * @param {PanelView} view
+ */
+function buildAwayPress({ status, awayPending }) {
+	if (awayPending || !status?.mode) return null;
+	return status.mode === "away"
+		? { argv: ["set", "--normal"], on: false }
+		: { argv: ["set", "--away"], on: true };
 }
 
 /**
@@ -426,6 +499,8 @@ function createPanel({ run, runBurn, now, onChange }) {
 		readError: null,
 		pending: null,
 		refusal: null,
+		awayPending: null,
+		awayRefusal: null,
 		burnPending: null,
 		burnReport: null,
 	};
@@ -434,7 +509,7 @@ function createPanel({ run, runBurn, now, onChange }) {
 
 	/**
 	 * @param {PanelStatus|string} parsed the status, or why it will not read
-	 * @param {{press: boolean, flip: boolean}} landedBefore whether each pending
+	 * @param {{press: boolean, away: boolean, flip: boolean}} landedBefore whether each pending
 	 *   mark's command had exited when this read began
 	 */
 	function takeRead(parsed, landedBefore) {
@@ -450,6 +525,7 @@ function createPanel({ run, runBurn, now, onChange }) {
 			isPressSettled(view.pending, parsed, landedBefore.press)
 		)
 			view.pending = null;
+		if (landedBefore.away) view.awayPending = null;
 		if (landedBefore.flip) view.burnPending = null;
 		if (view.burnReport && isBurnReportOutlived(view.burnReport, parsed))
 			view.burnReport = null;
@@ -463,6 +539,7 @@ function createPanel({ run, runBurn, now, onChange }) {
 		reading = true;
 		const landedBefore = {
 			press: view.pending?.landed === true,
+			away: view.awayPending?.landed === true,
 			flip: view.burnPending?.landed === true,
 		};
 		const result = await run(["status", "--json"]);
@@ -493,19 +570,25 @@ function createPanel({ run, runBurn, now, onChange }) {
 		await refreshStatus();
 	}
 
-	async function pressLoop() {
-		const press = buildPress(view);
+	/**
+	 * Runs one press through the loop's command line, its pending mark and refusal
+	 * in the two view slots named.
+	 * @param {{argv: string[], on: boolean}|null} press
+	 * @param {"pending"|"awayPending"} pendingSlot
+	 * @param {"refusal"|"awayRefusal"} refusalSlot
+	 */
+	async function runLoopPress(press, pendingSlot, refusalSlot) {
 		if (!press) return;
 		const pending = { on: press.on, landed: false };
-		view.pending = pending;
-		view.refusal = null;
+		view[pendingSlot] = pending;
+		view[refusalSlot] = null;
 		onChange();
 		const result = await run(press.argv);
 		if (result.code === 0) {
 			pending.landed = true;
 		} else {
-			view.pending = null;
-			view.refusal = { text: buildFailureText(result), at: now() };
+			view[pendingSlot] = null;
+			view[refusalSlot] = { text: buildFailureText(result), at: now() };
 		}
 		onChange();
 		await refreshStatus();
@@ -514,7 +597,10 @@ function createPanel({ run, runBurn, now, onChange }) {
 	/** @param {number} terminalRow */
 	async function click(terminalRow) {
 		const id = buildRows(view, now())[terminalRow - TOP_ROW]?.control?.id;
-		if (id === "loop") await pressLoop();
+		if (id === "loop")
+			await runLoopPress(buildPress(view), "pending", "refusal");
+		if (id === "away")
+			await runLoopPress(buildAwayPress(view), "awayPending", "awayRefusal");
 		if (id === "burn") await pressBurn();
 	}
 
