@@ -1,5 +1,5 @@
 /*
- * refill-panel-terminal.js — the refill loop's panel on a terminal (#3873, #3885, #3887, spec
+ * refill-panel-terminal.js — the refill loop's panel on a terminal (#3873, #3885, #3887, #3948, spec
  * #3596): raw mode, the alternate screen and mouse reports on opening, handed back
  * on every exit a process can catch, and the poll and pid watch between. It asks what
  * the terminal can draw on opening, keeping the text controls until both answers say
@@ -92,6 +92,7 @@ function openPanel({
 			proc.exit(code);
 		});
 
+	const height = () => stdout.rows ?? DEFAULT_ROWS;
 	/** @type {Set<string>} */
 	const capabilities = new Set();
 	let imagesFit = false;
@@ -110,7 +111,12 @@ function openPanel({
 	const moveHover = (terminalRow) => {
 		const next =
 			imagesFit && terminalRow !== null
-				? findHoverRow(buildRows(panel.view, now()), terminalRow)
+				? findHoverRow(
+						buildRows(panel.view, now()),
+						terminalRow,
+						height(),
+						panel.view.scroll,
+					)
 				: null;
 		if (next === hoverRow) return;
 		hoverRow = next;
@@ -122,8 +128,8 @@ function openPanel({
 				buildFrame(
 					buildRows(panel.view, now()),
 					stdout.columns ?? DEFAULT_COLUMNS,
-					stdout.rows ?? DEFAULT_ROWS,
-					{ images: imagesFit, hoverRow },
+					height(),
+					{ images: imagesFit, hoverRow, scroll: panel.view.scroll },
 				),
 			);
 	};
@@ -133,7 +139,7 @@ function openPanel({
 		now,
 		resolveTopic,
 		returnFocus,
-		height: () => stdout.rows ?? DEFAULT_ROWS,
+		height,
 		onChange: draw,
 	});
 	const input = createInputReader();
@@ -142,6 +148,16 @@ function openPanel({
 	/** @param {import("./refill-panel-input.js").Key[]} keys */
 	const pressKeys = (keys) => {
 		for (const key of keys) panel.pressKey(key).catch(crash);
+	};
+	/**
+	 * The wheel goes after the clicks: nothing in a read has been drawn yet, so the frame
+	 * showing when each was made is the one before any of its wheel reports.
+	 * @param {{clicks: number[], missed: boolean, wheel: number}} read
+	 */
+	const takeButtons = ({ clicks, missed, wheel }) => {
+		for (const row of clicks) panel.click(row).catch(crash);
+		if (missed) panel.missClick().catch(crash);
+		if (wheel !== 0) panel.scrollBy(wheel);
 	};
 
 	stdin.setRawMode(true);
@@ -153,8 +169,6 @@ function openPanel({
 	stdin.on("data", (/** @type {string} */ chunk) => {
 		clearTimeout(escapeWait);
 		const {
-			clicks,
-			missed,
 			moves,
 			keys,
 			capabilities: answered,
@@ -162,6 +176,7 @@ function openPanel({
 			focusLost,
 			interrupted,
 			held,
+			...buttons
 		} = input.read(chunk);
 		if (interrupted) {
 			proc.exit(0);
@@ -175,8 +190,7 @@ function openPanel({
 			panel.loseFocus();
 		}
 		if (focusGained) panel.takeFocus();
-		for (const row of clicks) panel.click(row).catch(crash);
-		if (missed) panel.missClick().catch(crash);
+		takeButtons(buttons);
 		pressKeys(keys);
 		if (held)
 			escapeWait = setTimeout(() => pressKeys(input.flush()), ESCAPE_WAIT_MS);

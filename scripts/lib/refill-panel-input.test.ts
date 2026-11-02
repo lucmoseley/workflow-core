@@ -1,5 +1,5 @@
 /*
- * The panel's raw input (#3873, #3883): which bytes are clicks and which are keys,
+ * The panel's raw input (#3873, #3883, #3948): which bytes are clicks and which are keys,
  * across chunks. Broken, a click presses nothing, or a stray sequence types into or
  * cancels a goal being edited.
  */
@@ -37,6 +37,36 @@ describe("the mouse reader", () => {
 			[],
 		);
 		expect(read(report(0, 5, 2, "m")).clicks).toEqual([]);
+	});
+
+	it("reads the wheel as net notches, down positive, modifiers held or not", () => {
+		const { read } = createInputReader();
+		expect(read(report(65, 5, 2, "M")).wheel).toBe(1);
+		expect(read(report(64, 5, 2, "M")).wheel).toBe(-1);
+		expect(read(report(65, 5, 2, "M").repeat(3)).wheel).toBe(3);
+		expect(read(report(64, 5, 2, "M") + report(65, 5, 2, "M")).wheel).toBe(0);
+		expect(read(report(69, 5, 2, "M")).wheel).toBe(1);
+	});
+
+	it("takes no sideways wheel, click or motion for a notch", () => {
+		const { read } = createInputReader();
+		expect(read(report(66, 5, 2, "M") + report(67, 5, 2, "M")).wheel).toBe(0);
+		expect(read(report(0, 5, 2, "M") + report(0, 5, 2, "m")).wheel).toBe(0);
+		expect(read(report(35, 5, 2, "M")).wheel).toBe(0);
+	});
+
+	it("takes a wheel report for no click, and drops the press it lands inside", () => {
+		const { read } = createInputReader();
+		expect(read(report(65, 5, 2, "M"))).toMatchObject({
+			clicks: [],
+			missed: false,
+		});
+		read(report(0, 5, 2, "M"));
+		read(report(65, 5, 2, "M"));
+		expect(read(report(0, 5, 2, "m"))).toMatchObject({
+			clicks: [],
+			missed: true,
+		});
 	});
 
 	it("reads a report split across chunks", () => {

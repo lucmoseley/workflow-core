@@ -1,6 +1,6 @@
 /*
  * refill-panel.js — what the refill loop's panel draws and what a click or a key
- * does, with no terminal (#3873, #3875, #3877, #3879, #3881, #3883, #3884, #3887, spec #3596): status JSON and pending presses in, rows
+ * does, with no terminal (#3873, #3875, #3877, #3879, #3881, #3883, #3884, #3887, #3948, spec #3596): status JSON and pending presses in, rows
  * out; a click on a row or a key in, a `refill-loop.js` or `burn-mode.sh` argv out, and focus handed back. The
  * panel runs those two for every read and write, and never opens a control or
  * state file, so the loop's validation, lock and wake apply to every loop press.
@@ -24,6 +24,10 @@ const { buildProgressText, parseGoalForm } = require("./refill-goal.js");
  * of margin round the prototype's layout (#2525 round 9). */
 const TOP_ROW = 2;
 const LEFT_COLUMN = 3;
+/* Untraced, a first guess: Windows' default lines per wheel notch. */
+const WHEEL_ROWS = 3;
+const MORE_ABOVE_MARK = "↑ more";
+const MORE_BELOW_MARK = "↓ more";
 
 /* How long a press's note holds its row before that row's own words return. Untraced:
  * a first guess, long enough to read one line. */
@@ -150,7 +154,7 @@ const ROLE_STYLES = {
  *   goalPending: Pending|null, goalNote: PressNote|null,
  *   repoPending: Record<string, Pending>,
  *   repoRefusal: (PressNote & {name: string})|null,
- *   pointer: string|null, focusNote: string|null}} PanelView
+ *   pointer: string|null, focusNote: string|null, scroll: number}} PanelView
  */
 
 /**
@@ -825,6 +829,10 @@ function buildPointerKey({ control }) {
 	return control.state === "disabled" ? null : `repo:${control.name}`;
 }
 
+/** @param {Row[]} rows */
+const buildPointerKeys = (rows) =>
+	rows.map(buildPointerKey).filter((key) => key !== null);
+
 /**
  * @param {PanelView} view
  * @param {number} now
@@ -1084,6 +1092,7 @@ function createPanel({
 		repoRefusal: null,
 		pointer: null,
 		focusNote: null,
+		scroll: 0,
 	};
 	/* Off a focus report, so never set on a terminal that sends none. */
 	let focusGone = false;
@@ -1316,6 +1325,8 @@ function createPanel({
 			return;
 		}
 		request.found = result;
+		const rows = buildRows(view, now());
+		revealRow(rows, rows.findIndex(isSaveRow));
 		onChange();
 	}
 
@@ -1398,7 +1409,8 @@ function createPanel({
 	/** @param {Key} key */
 	async function pressTopicKey(key) {
 		if (!("name" in key)) return;
-		if (key.name === "enter") await pressThenLeave(saveTopic, leaveUnlessOpen);
+		if (key.name === "enter" && !bringIntoView(isSaveRow))
+			await pressThenLeave(saveTopic, leaveUnlessOpen);
 		if (key.name === "escape") {
 			cancelResolve();
 			await leaveUnlessOpen();
@@ -1411,6 +1423,7 @@ function createPanel({
 	 */
 	async function pressEditKey(edit, key) {
 		if ("name" in key && key.name === "enter") {
+			if (bringIntoView((row) => row.caret !== undefined)) return;
 			await pressThenLeave(() => saveGoal(edit), leaveUnlessOpen);
 			return;
 		}
@@ -1420,20 +1433,77 @@ function createPanel({
 			return;
 		}
 		view.goalEdit = buildEditAfter(edit, key);
+		const rows = buildRows(view, now());
+		revealRow(
+			rows,
+			rows.findIndex((row) => row.caret !== undefined),
+		);
 		onChange();
 	}
 
-	/** The controls the pointer can reach: past the pane's last row, a press would be blind. */
-	const buildPointerKeys = () =>
-		buildRows(view, now())
-			.slice(0, countDrawnRows(height()))
-			.map(buildPointerKey)
-			.filter((key) => key !== null);
+	/**
+	 * @param {Row[]} rows
+	 * @param {number} index
+	 */
+	function isRowDrawn(rows, index) {
+		const { first, count } = buildWindow(rows.length, height(), view.scroll);
+		return index >= first && index < first + count;
+	}
+
+	/**
+	 * Moves the window only as far as the row needs, leaving it clear of the mark
+	 * below, where an image would not draw; no row found leaves it.
+	 * @param {Row[]} rows
+	 * @param {number} index
+	 */
+	function revealRow(rows, index) {
+		if (index < 0 || isRowDrawn(rows, index)) return;
+		const { first } = buildWindow(rows.length, height(), view.scroll);
+		view.scroll =
+			index < first
+				? index
+				: index - Math.max(countDrawnRows(height()) - 1, 1) + 1;
+	}
+
+	/**
+	 * A key that would act on a row out of sight brings it back instead.
+	 * @param {(row: Row) => boolean} isWanted
+	 * @returns {boolean} whether the row had to come back
+	 */
+	function bringIntoView(isWanted) {
+		const rows = buildRows(view, now());
+		const at = rows.findIndex(isWanted);
+		if (at < 0 || isRowDrawn(rows, at)) return false;
+		revealRow(rows, at);
+		onChange();
+		return true;
+	}
+
+	/** @param {number} delta rows, negative is up, stopping at either end */
+	function scrollRows(delta) {
+		const count = buildRows(view, now()).length;
+		const { first } = buildWindow(count, height(), view.scroll);
+		const next = buildWindow(count, height(), first + delta).first;
+		if (next === first) return;
+		view.scroll = next;
+		onChange();
+	}
+
+	/** @param {number} notches negative is up */
+	const scrollBy = (notches) => scrollRows(notches * WHEEL_ROWS);
+
+	/** The first control showing, which leaves the rows where the reader has them. */
+	function buildFirstPointerKey() {
+		const rows = buildRows(view, now());
+		const { first, count } = buildWindow(rows.length, height(), view.scroll);
+		const showing = rows.slice(first, first + count);
+		return buildPointerKeys(showing)[0] ?? buildPointerKeys(rows)[0] ?? null;
+	}
 
 	/** Where a terminal reports no focus, the first arrow is what shows the pointer. */
 	function showPointer() {
 		if (view.pointer !== null) return;
-		view.pointer = buildPointerKeys()[0] ?? null;
+		view.pointer = buildFirstPointerKey();
 		onChange();
 	}
 
@@ -1451,32 +1521,43 @@ function createPanel({
 
 	/** @param {-1|1} step stops at either end */
 	function movePointer(step) {
-		if (view.pointer === null) {
-			showPointer();
-			return;
+		if (view.pointer === null) view.pointer = buildFirstPointerKey();
+		else {
+			const keys = buildPointerKeys(buildRows(view, now()));
+			const at = keys.indexOf(view.pointer);
+			view.pointer =
+				keys[Math.min(Math.max(at + step, 0), keys.length - 1)] ?? null;
 		}
-		const keys = buildPointerKeys();
-		const at = keys.indexOf(view.pointer);
-		view.pointer =
-			keys[Math.min(Math.max(at + step, 0), keys.length - 1)] ?? null;
+		const rows = buildRows(view, now());
+		/* The last control takes the rows under it along, the key hint among them. */
+		revealRow(
+			rows,
+			view.pointer === buildPointerKeys(rows).at(-1)
+				? rows.length - 1
+				: rows.findIndex((row) => row.pointed),
+		);
 		onChange();
+	}
+
+	async function pressPointedRow() {
+		if (bringIntoView((row) => row.pointed === true)) return;
+		await pressRow(
+			buildRows(view, now()).find((row) => row.pointed),
+			false,
+		);
 	}
 
 	/**
 	 * With no field or topic open, only the arrows, space and Esc do anything (#3596
 	 * stories 74, 75). Space alone: two in one read, or one in a paste, were never a press
-	 * on the pointer's control.
+	 * on the pointer's control. Space on a control the wheel took off the pane brings it
+	 * back rather than press it blind.
 	 * @param {Key} key
 	 */
 	async function pressPointerKey(key) {
 		if ("text" in key) {
-			if (key.text === " " && !key.pasted && view.pointer !== null) {
-				const rows = buildRows(view, now());
-				await pressRow(
-					rows.find((row) => row.pointed),
-					false,
-				);
-			}
+			if (key.text === " " && !key.pasted && view.pointer !== null)
+				await pressPointedRow();
 			return;
 		}
 		if (key.name === "escape") await leaveUnlessOpen();
@@ -1497,7 +1578,15 @@ function createPanel({
 	 * @param {number} terminalRow
 	 */
 	async function click(terminalRow) {
-		const row = buildRows(view, now())[terminalRow - TOP_ROW];
+		const rows = buildRows(view, now());
+		const scrollWindow = buildWindow(rows.length, height(), view.scroll);
+		const markStep = findMarkStep(scrollWindow, terminalRow, height());
+		if (markStep !== 0) {
+			scrollRows(markStep * Math.max(scrollWindow.count - 1, 1));
+			await leaveUnlessTyping();
+			return;
+		}
+		const row = findDrawnRow(rows, terminalRow, height(), view.scroll);
 		const closedEdit =
 			view.goalEdit !== null && row?.control?.id !== "goalField";
 		if (closedEdit) {
@@ -1552,6 +1641,7 @@ function createPanel({
 		click,
 		missClick: leaveUnlessTyping,
 		pressKey,
+		scrollBy,
 		takeFocus,
 		loseFocus,
 	};
@@ -1559,6 +1649,55 @@ function createPanel({
 
 /** @param {number} height the terminal's rows */
 const countDrawnRows = (height) => Math.max(height - TOP_ROW + 1, 0);
+
+/**
+ * The rows a pane shows, read each time as the rows can shrink, or the pane grow, under
+ * a scroll. While rows lie below, the pane's last row says so, unless it is the only one.
+ * @param {number} rowCount
+ * @param {number} height
+ * @param {number} scroll
+ */
+function buildWindow(rowCount, height, scroll) {
+	const room = countDrawnRows(height);
+	const lastFirst = Math.max(rowCount - room, 0);
+	const first = Math.max(Math.min(scroll, lastFirst), 0);
+	const markBelow = first < lastFirst && room > 1;
+	return {
+		first,
+		count: markBelow ? room - 1 : room,
+		markAbove: first > 0,
+		markBelow,
+	};
+}
+
+/**
+ * Which way a click on a terminal row scrolls, where it holds a mark; 0 where it holds none.
+ * @param {ReturnType<typeof buildWindow>} scrollWindow
+ * @param {number} terminalRow
+ * @param {number} height
+ */
+function findMarkStep({ markAbove, markBelow }, terminalRow, height) {
+	if (markAbove && terminalRow === TOP_ROW - 1) return -1;
+	return markBelow && terminalRow === height ? 1 : 0;
+}
+
+/** @param {Row} row */
+const isSaveRow = (row) => row.control?.id === "goalSave";
+
+/**
+ * The row a terminal row is showing, so a press and the frame agree (#3948).
+ * @param {Row[]} rows
+ * @param {number} terminalRow
+ * @param {number} height
+ * @param {number} scroll
+ * @returns {Row|undefined}
+ */
+function findDrawnRow(rows, terminalRow, height, scroll) {
+	const { first, count } = buildWindow(rows.length, height, scroll);
+	const at = terminalRow - TOP_ROW;
+	if (at < 0 || at >= count) return;
+	return rows[at + first];
+}
 
 /** @param {string} text a command's words, which may carry control characters */
 const buildDrawableChars = (text) => [...text.replace(/\p{Cc}+/gu, " ")];
@@ -1598,16 +1737,19 @@ function buildImagedRow({ text, control }, width, hovered) {
  * The row a pointer's report rests on, where that row holds an image to grow.
  * @param {Row[]} rows
  * @param {number} terminalRow
+ * @param {number} height
+ * @param {number} scroll
  */
-const findHoverRow = (rows, terminalRow) => {
-	const control = rows[terminalRow - TOP_ROW]?.control;
+const findHoverRow = (rows, terminalRow, height, scroll) => {
+	const control = findDrawnRow(rows, terminalRow, height, scroll)?.control;
 	return control && "state" in control ? terminalRow : null;
 };
 
 /**
  * Ends by erasing below, so a report gone from the rows goes from the screen.
- * Draws only the rows that fit: past the bottom a terminal stacks them on its last
- * line, where a click would press a row other than the one showing. The cursor
+ * Draws only the rows that fit, from the first the scroll shows: past the bottom a
+ * terminal stacks them on its last line, where a click would press a row other than
+ * the one showing. A mark says where more rows lie. The cursor
  * shows only on a row being typed in, which scrolls to keep it in view.
  *
  * Images go on last, as text and erasing wipe what lies under them. A 20 px image fills
@@ -1616,19 +1758,29 @@ const findHoverRow = (rows, terminalRow) => {
  * @param {Row[]} rows
  * @param {number} columns the terminal's width
  * @param {number} height
- * @param {{images?: boolean, hoverRow?: number|null}} [options] `hoverRow`, 1-based
+ * @param {{images?: boolean, hoverRow?: number|null, scroll?: number}} [options] `hoverRow`, 1-based
  */
 function buildFrame(
 	rows,
 	columns,
 	height,
-	{ images = false, hoverRow = null } = {},
+	{ images = false, hoverRow = null, scroll = 0 } = {},
 ) {
 	const width = columns - (LEFT_COLUMN - 1) * 2;
 	let cursor = "";
 	let placed = "";
+	const { first, count, markAbove, markBelow } = buildWindow(
+		rows.length,
+		height,
+		scroll,
+	);
+	/** @param {string} text @param {number} terminalRow */
+	const buildMarkLine = (text, terminalRow) =>
+		buildFrameLine({ text, role: "secondary" }, terminalRow, width).text;
+	const above = buildMarkLine(markAbove ? MORE_ABOVE_MARK : "", TOP_ROW - 1);
+	const below = markBelow ? buildMarkLine(MORE_BELOW_MARK, height) : "";
 	const drawn = rows
-		.slice(0, countDrawnRows(height))
+		.slice(first, first + count)
 		.map((row, i) => {
 			const terminalRow = TOP_ROW + i;
 			const imaged =
@@ -1646,7 +1798,7 @@ function buildFrame(
 			return line.text;
 		})
 		.join("");
-	const frame = `${ESC}[?25l${drawn}${ESC}[J${placed}${cursor}`;
+	const frame = `${ESC}[?25l${above}${drawn}${below}${ESC}[J${placed}${cursor}`;
 	return placed ? `${SYNC_ON}${frame}${SYNC_OFF}` : frame;
 }
 

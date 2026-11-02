@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
  * refill-panel.js — the refill loop's control panel beside an agents view (#3873,
- * #3877, #3879, #3881, #3883, #3884, #3887, spec #3596): a terminal program with no Claude process that shows the Refill
+ * #3877, #3879, #3881, #3883, #3884, #3887, #3948, spec #3596): a terminal program with no Claude process that shows the Refill
  * loop switch and its three-line block, and pauses or resumes the loop on a click;
  * the Away switch, which sets the loop's mode on a click; the Burn mode switch,
  * which flips burn mode on a click; the Goal switch and its field, which clear or
@@ -12,7 +12,7 @@
  *
  * The route names the split that opened it (lib/refill-panel-routes.js), which is how a
  * click or Esc hands focus back to the agents pane; run by hand, there is none to name.
- * After Alt+→ the keys work every control: ↑↓, space and Esc.
+ * After Alt+→ the keys work every control: ↑↓, space and Esc. The wheel scrolls a pane too short for the rows.
  *
  * Joins no §N3 family: it gates nothing and is no hook.
  *

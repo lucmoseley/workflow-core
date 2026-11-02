@@ -1,5 +1,5 @@
 /*
- * The panel's view and press mapping (#3873, #3875, #3877, #3879, #3881, #3883, #3884). Built on the view so every loop state costs one literal rather than a terminal.
+ * The panel's view and press mapping (#3873, #3875, #3877, #3879, #3881, #3883, #3884, #3948). Built on the view so every loop state costs one literal rather than a terminal.
  * Broken, the panel reads a press as done, or a stopped loop as on.
  */
 import { describe, expect, it, vi } from "vitest";
@@ -2406,9 +2406,30 @@ describe("the frame's controls", () => {
 	it("keeps the text control on the pane's last row, where an image would scroll", () => {
 		const repoRow =
 			SWITCH_ROW + rows.findIndex((r) => r.control?.name === "wc");
-		const frame = buildFrame(rows, 80, repoRow, { images: true });
+		const frame = buildFrame(rows.slice(0, repoRow - 1), 80, repoRow, {
+			images: true,
+		});
 		expect(frame).toContain("[✓]");
 		expect(imagesOf(frame)).toBe(controls.length - 1);
+	});
+
+	describe("after a scroll", () => {
+		const secondControl = rows.indexOf(controls[1]);
+		const scrolledRow = SWITCH_ROW + secondControl - 1;
+
+		it("draws each control's image on the row it has moved to", () => {
+			const frame = buildFrame(rows, 80, rows.length, {
+				images: true,
+				scroll: 1,
+			});
+			expect(frame).toContain(`${ESC}[${scrolledRow};`);
+			expect(imagesOf(frame)).toBe(controls.length - 1);
+		});
+
+		it("hovers the control on the row the pointer rests on", () => {
+			expect(findHoverRow(rows, scrolledRow, rows.length, 1)).toBe(scrolledRow);
+			expect(findHoverRow(rows, scrolledRow, rows.length, 0)).toBeNull();
+		});
 	});
 
 	it("keeps the text control where the image would pass the row's end", () => {
@@ -2427,9 +2448,9 @@ describe("the frame's controls", () => {
 	});
 
 	it("hovers a row holding a control, and no other", () => {
-		expect(findHoverRow(rows, SWITCH_ROW)).toBe(SWITCH_ROW);
-		expect(findHoverRow(rows, SWITCH_ROW + 1)).toBeNull();
-		expect(findHoverRow(rows, SWITCH_ROW + 999)).toBeNull();
+		expect(findHoverRow(rows, SWITCH_ROW, Tall, 0)).toBe(SWITCH_ROW);
+		expect(findHoverRow(rows, SWITCH_ROW + 1, Tall, 0)).toBeNull();
+		expect(findHoverRow(rows, SWITCH_ROW + 999, Tall, 0)).toBeNull();
 	});
 });
 
@@ -2511,6 +2532,187 @@ describe("keys and focus", () => {
 		throw new Error(`never reached ${start}`);
 	}
 
+	describe("a pane shorter than the rows", () => {
+		/* Draws through the Burn mode switch, the boxes well below it. */
+		const Short = 11;
+		const Columns = 60;
+		const shortPanel = () =>
+			buildCountingPanel(noop, undefined, { height: Short });
+		const frameOf = (panel: Panel) =>
+			buildFrame(buildRows(panel.view, AT), Columns, Short, {
+				scroll: panel.view.scroll,
+			});
+		/* Where the frame draws a row's text, as a mouse report counts it. */
+		const drawnRowOf = (frame: string, text: string) => {
+			const before = frame.slice(0, frame.indexOf(text));
+			return Number(
+				before
+					.match(/\[(\d+);3H/g)
+					?.at(-1)
+					?.match(/\d+/)?.[0],
+			);
+		};
+		const toBottom = (panel: Panel) => panel.scrollBy(99);
+
+		it("brings the last box into view on the wheel", async () => {
+			const { panel } = await shortPanel();
+			expect(frameOf(panel)).not.toContain("[ ] b");
+			toBottom(panel);
+			expect(frameOf(panel)).toContain("[ ] b");
+		});
+
+		it("presses the row showing on a click after scrolling", async () => {
+			const { panel, presses } = await shortPanel();
+			toBottom(panel);
+			await panel.click(drawnRowOf(frameOf(panel), "[ ] b"));
+			expect(presses()).toEqual([["set", "--tick", "b"]]);
+		});
+
+		it("presses nothing on the row above the first drawn with nothing above it", async () => {
+			const { panel, presses } = await shortPanel();
+			await panel.click(SWITCH_ROW - 1);
+			expect(presses()).toEqual([]);
+			expect(panel.view.scroll).toBe(0);
+		});
+
+		it("scrolls, pressing nothing, on a click on either mark", async () => {
+			const { panel, presses } = await shortPanel();
+			await panel.click(Short);
+			expect(panel.view.scroll).toBeGreaterThan(0);
+			await panel.click(SWITCH_ROW - 1);
+			expect(panel.view.scroll).toBe(0);
+			expect(presses()).toEqual([]);
+		});
+
+		it("keeps a typed goal open through a click on a mark", async () => {
+			const { panel } = await shortPanel();
+			panel.scrollBy(2);
+			await panel.click(drawnRowOf(frameOf(panel), "No goal"));
+			await panel.click(Short);
+			expect(panel.view.goalEdit).not.toBeNull();
+		});
+
+		it("stops at each end, the last row on the pane's last line", async () => {
+			const { panel } = await shortPanel();
+			panel.scrollBy(-1);
+			expect(frameOf(panel)).toContain("Refill loop");
+			toBottom(panel);
+			const last = buildRows(panel.view, AT).at(-1).text;
+			expect(drawnRowOf(frameOf(panel), last)).toBe(Short);
+			panel.scrollBy(-99);
+			expect(frameOf(panel)).toContain("Refill loop");
+		});
+
+		it("draws from a kept scroll only as far as the rows now reach", async () => {
+			const { panel } = await shortPanel();
+			toBottom(panel);
+			const fewer = buildRows(panel.view, AT).slice(0, Short - 1);
+			const frame = buildFrame(fewer, Columns, Short, {
+				scroll: panel.view.scroll,
+			});
+			expect(frame).toContain("Refill loop");
+		});
+
+		it("marks the way more rows lie, on neither where all fit", async () => {
+			const { panel } = await shortPanel();
+			const marks = () => [
+				frameOf(panel).includes("↑ more"),
+				frameOf(panel).includes("↓ more"),
+			];
+			expect(marks()).toEqual([false, true]);
+			panel.scrollBy(1);
+			expect(marks()).toEqual([true, true]);
+			toBottom(panel);
+			expect(marks()).toEqual([true, false]);
+			const all = buildFrame(buildRows(panel.view, AT), Columns, TALL);
+			expect(all).not.toContain(" more");
+		});
+
+		it("rubs out the mark above once back at the top", async () => {
+			const { panel } = await shortPanel();
+			expect(frameOf(panel)).toContain(`${ESC}[1;3H`);
+			expect(frameOf(panel)).not.toContain("↑ more");
+		});
+
+		it("takes the key hint along on reaching the last control", async () => {
+			const { panel } = await shortPanel();
+			panel.takeFocus();
+			for (const _ of Walk) await panel.pressKey(Down);
+			expect(frameOf(panel)).toContain("Esc leave");
+		});
+
+		it("parks a control walked down to clear of the pane's last row", async () => {
+			const { panel } = await shortPanel();
+			await pointAt(panel, "Goal  ");
+			expect(drawnRowOf(frameOf(panel), "Goal  ")).toBeLessThan(Short);
+		});
+
+		it("walks the pointer to the last box, bringing it into view", async () => {
+			const { panel, presses } = await shortPanel();
+			panel.takeFocus();
+			for (const _ of Walk) await panel.pressKey(Down);
+			expect(pointedText(panel)[0]).toMatch(/b$/);
+			expect(frameOf(panel)).toContain("❯");
+			await panel.pressKey(Space);
+			expect(presses()).toEqual([["set", "--tick", "b"]]);
+		});
+
+		it("brings the pointer's control back on space, pressing nothing", async () => {
+			const { panel, presses } = await shortPanel();
+			panel.takeFocus();
+			toBottom(panel);
+			expect(frameOf(panel)).not.toContain("❯");
+			await panel.pressKey(Space);
+			expect(presses()).toEqual([]);
+			expect(frameOf(panel)).toContain("❯");
+		});
+
+		/* Scrolled so the field shows above the mark, opened, then scrolled off the top end. */
+		const fieldScrolledOff = async () => {
+			const counted = await shortPanel();
+			const { panel } = counted;
+			panel.scrollBy(2);
+			await panel.click(drawnRowOf(frameOf(panel), "No goal"));
+			expect(frameOf(panel)).toContain(`${ESC}[?25h`);
+			panel.scrollBy(-99);
+			expect(frameOf(panel)).not.toContain(`${ESC}[?25h`);
+			return counted;
+		};
+
+		it("brings the field back on Enter rather than save it unseen", async () => {
+			const { panel, presses } = await fieldScrolledOff();
+			await panel.pressKey(Enter);
+			expect(presses()).toEqual([]);
+			expect(panel.view.goalEdit).not.toBeNull();
+			expect(frameOf(panel)).toContain(`${ESC}[?25h`);
+		});
+
+		it("brings the field back on a key typed after scrolling away", async () => {
+			const { panel } = await fieldScrolledOff();
+			await panel.pressKey({ text: "x" });
+			expect(frameOf(panel)).toContain(`${ESC}[?25h`);
+		});
+
+		it("brings Save into view when a topic's issues arrive, and Enter then saves", async () => {
+			const found = {
+				issues: [{ repo: "a", number: 5, title: "Speed the suite" }],
+				dropped: 0,
+			};
+			const { panel, presses } = await buildCountingPanel(
+				async () => found,
+				undefined,
+				{ height: Short },
+			);
+			panel.scrollBy(2);
+			await panel.click(drawnRowOf(frameOf(panel), "No goal"));
+			await panel.pressKey({ text: "speed" });
+			await panel.pressKey(Enter);
+			expect(frameOf(panel)).toContain("Save this one");
+			await panel.pressKey(Enter);
+			expect(presses().flat()).toContain("--goal-text=speed");
+		});
+	});
+
 	describe("the pointer", () => {
 		it("moves through every control, skipping a disabled box, and stops at each end", async () => {
 			const { panel } = await buildCountingPanel();
@@ -2530,16 +2732,6 @@ describe("keys and focus", () => {
 			expect(pointedText(panel)[0]).toMatch(/a$/);
 			for (const _ of Walk) await panel.pressKey(Up);
 			expect(pointedText(panel)[0]).toMatch(/^Refill/);
-		});
-
-		it("stops at the last control the pane draws, so no press is blind", async () => {
-			const { panel, presses } = await buildCountingPanel(noop, undefined, {
-				height: 11,
-			});
-			panel.takeFocus();
-			for (const _ of Walk) await panel.pressKey(Down);
-			expect(pointedText(panel)[0]).toMatch(/^Burn/);
-			expect(presses()).toEqual([]);
 		});
 
 		it("marks no row while a field is open, as the arrows do not move then", async () => {

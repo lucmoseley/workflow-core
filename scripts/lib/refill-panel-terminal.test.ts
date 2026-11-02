@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * The panel's terminal wiring (#3873, #3887): what it asks of the terminal on opening,
+ * The panel's terminal wiring (#3873, #3887, #3948): what it asks of the terminal on opening,
  * and what it hands back on each way out, over injected streams and a fake process,
  * so a signal costs no real process. Broken, a crash leaves the founder's pane raw
  * and in mouse mode, or the panel outlives its agents view.
@@ -38,6 +38,7 @@ function terminal(over: object = {}) {
 	});
 	const stdout = Object.assign(new EventEmitter(), {
 		columns: 80,
+		rows: 24,
 		write: (s: string) => written.push(s),
 	});
 	const exits: number[] = [];
@@ -270,6 +271,80 @@ describe("the panel's terminal", () => {
 		expect(new Set(t.calls.map((c) => c.join(" ")))).toEqual(
 			new Set(["status --json"]),
 		);
+	});
+});
+
+describe("the wheel", () => {
+	const Repos = ["a", "b", "c", "d", "e", "f"].map((name) => ({
+		name,
+		root: `/${name}`,
+		ticked: false,
+		disabled: null,
+	}));
+	const WheelDown = `${ESC}[<65;5;5M`;
+	const clickAt = (row: number) => `${ESC}[<0;5;${row}M${ESC}[<0;5;${row}m`;
+	let presses: string[][] = [];
+	const shortTerminal = async (over: object = {}) => {
+		const t = terminal({
+			...over,
+			run: async (argv: string[]) => {
+				presses.push(argv);
+				return {
+					code: 0,
+					stdout: JSON.stringify({ ...JSON.parse(STATUS), repos: Repos }),
+					stderr: "",
+				};
+			},
+		});
+		await vi.advanceTimersByTimeAsync(0);
+		return t;
+	};
+	const ticks = () => presses.filter((argv) => argv[0] === "set");
+	/* The row the newest frame draws `text` on, as a mouse report counts it. */
+	const drawnRowOf = (t: ReturnType<typeof terminal>, text: string) => {
+		const frame = t.text().slice(t.text().lastIndexOf(`${ESC}[?25l`));
+		const before = frame.slice(0, frame.indexOf(text));
+		return Number(
+			before
+				.match(/\[(\d+);3H/g)
+				?.at(-1)
+				?.match(/\d+/)?.[0],
+		);
+	};
+
+	beforeEach(() => {
+		presses = [];
+		vi.useFakeTimers();
+	});
+	afterEach(() => vi.useRealTimers());
+
+	it("redraws lower down the rows, and a click then presses the row showing", async () => {
+		const t = await shortTerminal();
+		expect(t.text()).not.toContain("[ ] f");
+		t.stdin.emit("data", WheelDown.repeat(20));
+		t.stdin.emit("data", clickAt(drawnRowOf(t, "[ ] f")));
+		await vi.advanceTimersByTimeAsync(0);
+		expect(ticks()).toEqual([["set", "--tick", "f"]]);
+	});
+
+	it("presses the row showing when a click shares a read with a wheel report", async () => {
+		const flips: string[][] = [];
+		const t = await shortTerminal({
+			runBurn: async (argv: string[]) => {
+				flips.push(argv);
+				return { code: 0, stdout: "", stderr: "" };
+			},
+		});
+		t.stdin.emit("data", WheelDown + clickAt(drawnRowOf(t, "Burn mode")));
+		await vi.advanceTimersByTimeAsync(0);
+		expect(flips).toEqual([["on"]]);
+	});
+
+	it("leaves focus where it is on a wheel report", async () => {
+		const t = await shortTerminal();
+		t.stdin.emit("data", WheelDown);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(t.focusReturns()).toBe(0);
 	});
 });
 
