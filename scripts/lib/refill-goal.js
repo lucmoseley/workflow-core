@@ -10,7 +10,6 @@
 
 const path = require("node:path");
 const { refKey } = require("./issue-ref.js");
-const { shellQuote } = require("./sh-quote.js");
 
 /**
  * An issue the goal names; `repo`, its checkout's directory name.
@@ -261,19 +260,6 @@ const buildGoalLine = (goal, progress = null) =>
 	`goal:      ${goal ? `${goal.form} "${goal.text}": ${goal.refs.map(buildRefText).join(", ")}${buildProgressText(goalProgressOf(goal, progress))}` : "none"}`;
 
 /**
- * The `set` flags that store `goal` again.
- * @param {Goal} goal
- */
-function buildGoalFlags(goal) {
-	const refs = goal.refs.map(buildRefText).join(",");
-	if (goal.form === "topic")
-		return `--goal-issues ${refs} --goal-text ${shellQuote(goal.text)}`;
-	return goal.form === "issues"
-		? `--goal ${refs}`
-		: `--goal ${shellQuote(`${goal.form} ${refs}`)}`;
-}
-
-/**
  * @param {unknown} raw
  * @returns {GoalRef[]|null} null where any ref is garbled
  */
@@ -362,7 +348,6 @@ function parseGoal({ goal, goals }) {
 }
 
 module.exports = {
-	buildGoalFlags,
 	buildGoalLine,
 	buildGoalProgress,
 	buildGoalRead,

@@ -1,5 +1,5 @@
 /*
- * The panel's view and press mapping (#3873, #3877, #3881). Built on the view so every loop state costs one literal rather than a terminal.
+ * The panel's view and press mapping (#3873, #3875, #3877, #3879, #3881). Built on the view so every loop state costs one literal rather than a terminal.
  * Broken, the panel reads a press as done, or a stopped loop as on.
  */
 import { describe, expect, it } from "vitest";
@@ -17,10 +17,23 @@ const LATER = AT + 60_000;
 
 const BURN_OFF = { on: false, disagreeing: [], error: null };
 const BURN_ON = { on: true, disagreeing: [], error: null };
+const planSeats = (week: number | null, weekFull = false) => ({
+	readings: [
+		{ seat: "~/.claude3", week: 47, weekFull: false },
+		{ seat: "~/.claude2", week, weekFull },
+	],
+});
+const FULL_SEATS = {
+	readings: [
+		{ seat: "~/.claude3", week: 100, weekFull: true },
+		{ seat: "~/.claude2", week: 100, weekFull: true },
+	],
+};
 const RUNNING = {
 	running: true,
 	stopRequested: false,
-	codeSha: "abc1234",
+	stop: null,
+	crashed: false,
 	paused: null,
 	lastTick: {
 		at: AT,
@@ -29,7 +42,11 @@ const RUNNING = {
 		paused: false,
 	},
 	launchesToday: 3,
+	mode: "normal",
+	handedOffSinceAway: 0,
 	repos: [],
+	seats: planSeats(80),
+	overflow: [],
 	burnMode: BURN_OFF,
 };
 const PAUSED_TICK = {
@@ -48,13 +65,47 @@ const PAUSED_MID_TICK = {
 	...RUNNING,
 	paused: { by: "founder", at: LATER },
 };
-const STOPPED = { ...RUNNING, running: false, codeSha: null };
+const NEVER_STARTED = { ...RUNNING, running: false };
+const STOPPED = {
+	...NEVER_STARTED,
+	stop: { reason: "explicit", at: AT, detail: "stop asked" },
+};
+const CRASHED = { ...NEVER_STARTED, crashed: true };
+const issuesIn = (...roots: string[]) =>
+	roots.map((root, i) => ({ root, number: 2518 + i }));
+const STALLED = {
+	...RUNNING,
+	paused: {
+		by: "no-progress",
+		at: AT,
+		issues: issuesIn("/h/wc", "/h/wc", "/h/wc"),
+	},
+};
+const planWaitTick = (resets: number | null) => ({
+	at: AT,
+	summary: "idle",
+	idle: "a plan resets at 2026-11-02T18:40:00.000Z",
+	paused: false,
+	planWait: { resets },
+});
+const key = (over: object = {}) => ({
+	seat: "~/.claude2-api",
+	spentUsd: 142,
+	grantUsd: 400,
+	headroomUsd: 258.5,
+	exhausted: false,
+	noLaunchLeft: false,
+	...over,
+});
 const STOPPING = { ...RUNNING, stopRequested: true };
 
 /* The block's top row, as a mouse report counts it. */
 const SWITCH_ROW = 2;
-/* Below the switch and its three lines, two rows clear: the next section. */
-const BURN_ROW = 8;
+/* Below the switch and its three lines, two rows clear: the settings. */
+const AWAY_ROW = 8;
+const AWAY_INDEX = AWAY_ROW - SWITCH_ROW;
+/* One sibling row below Away (#3596 story 78). */
+const BURN_ROW = 10;
 const BURN_INDEX = BURN_ROW - SWITCH_ROW;
 const noop = (): void => undefined;
 
@@ -69,6 +120,8 @@ const view = (over: object) => ({
 	readError: null,
 	pending: null,
 	refusal: null,
+	awayPending: null,
+	awayNote: null,
 	burnPending: null,
 	burnReport: null,
 	repoPending: {},
@@ -110,7 +163,7 @@ describe("the panel's rows", () => {
 			["Refill loop  [on]", "name"],
 			["3 launched today", "value"],
 			["Waiting: no free slot", "secondary"],
-			["abc1234 · idle: no free slot", "secondary"],
+			["Plans this week: .claude3 47%, .claude2 80%", "secondary"],
 		]);
 		expect(rows[0].control?.state).toBe("on");
 	});
@@ -133,7 +186,7 @@ describe("the panel's rows", () => {
 			["Refill loop  [on]", "name"],
 			["3 launched today", "value"],
 			["Waiting: the next check", "secondary"],
-			["abc1234", "secondary"],
+			["Plans this week: .claude3 47%, .claude2 80%", "secondary"],
 		]);
 	});
 
@@ -179,17 +232,121 @@ describe("the panel's rows", () => {
 		);
 	});
 
-	it("says what a click cannot do for a paused loop with no process", () => {
+	it("says a click starts a paused loop with no process", () => {
 		const status = { ...PAUSED_BY_FOUNDER, running: false };
 		expect(rowsOf({ status })[2].text).toBe(
-			"Not running: switch on, then start it from the command line",
+			"Not running: switch on to start it",
 		);
 	});
 
-	it("reads one word, off, for a loop not running", () => {
-		const rows = rowsOf({ status: STOPPED });
+	it("reads one word, off, for a loop never started, and offers no restart", () => {
+		const rows = rowsOf({ status: NEVER_STARTED });
 		expect(rows[0].text).toBe("Refill loop  [off]");
 		expect(rows[1].text).toBe("off");
+		expect(rows[2].text).toBe("Not running: start it from the command line");
+	});
+
+	it("reads off with its time for a loop stopped from the command line", () => {
+		const rows = rowsOf({ status: STOPPED });
+		expect(summary(rows).slice(0, 3)).toEqual([
+			["Refill loop  [off]", "name"],
+			["off", "value"],
+			[
+				"Stopped from the command line at 14:05 · click to restart",
+				"secondary",
+			],
+		]);
+	});
+
+	it("names the detail of a stop the command line did not ask for", () => {
+		const stop = { reason: "control-damaged", at: AT, detail: "bad JSON" };
+		expect(rowsOf({ status: { ...STOPPED, stop } })[2].text).toBe(
+			"Stopped at 14:05: bad JSON · click to restart",
+		);
+	});
+
+	it("reads needs you for a crash, with its restart", () => {
+		const rows = rowsOf({ status: CRASHED });
+		expect(summary(rows).slice(0, 3)).toEqual([
+			["Refill loop  [off]", "name"],
+			["needs you", "needsYou"],
+			["It died with no stop · click to restart", "value"],
+		]);
+		expect(rows[0].control?.state).toBe("off");
+	});
+
+	it("reads needs you for a founder's pause whose process died", () => {
+		const status = { ...PAUSED_BY_FOUNDER, running: false, crashed: true };
+		expect(summary(rowsOf({ status })).slice(1, 3)).toEqual([
+			["needs you", "needsYou"],
+			["It died while switched off · click to restart", "value"],
+		]);
+	});
+
+	it("reads needs you for no progress, with its issues", () => {
+		const rows = rowsOf({ status: STALLED });
+		expect(summary(rows).slice(0, 3)).toEqual([
+			["Refill loop  [off]", "name"],
+			["needs you", "needsYou"],
+			["No progress: #2518, #2519, #2520", "value"],
+		]);
+		expect(rows[0].control?.state).toBe("off");
+	});
+
+	it("qualifies no progress's issues by repo where they span repos", () => {
+		const paused = {
+			...STALLED.paused,
+			issues: issuesIn("/h/wc", "/h/manta"),
+		};
+		expect(rowsOf({ status: { ...STALLED, paused } })[2].text).toBe(
+			"No progress: wc#2518, manta#2519",
+		);
+	});
+
+	it("calls an unreadable pause neither the founder's nor no progress", () => {
+		const paused = { by: "an unreadable record", at: AT };
+		const rows = rowsOf({ status: { ...RUNNING, paused } });
+		expect(summary(rows)[1]).toEqual([
+			"Switched off at 14:05 by an unreadable record",
+			"value",
+		]);
+	});
+
+	it.each([
+		["a founder's", PAUSED_BY_FOUNDER],
+		["a no-progress", STALLED],
+	])(
+		"reads the stop, not %s pause, once stopped from the command line",
+		(_name, pausedStatus) => {
+			const status = { ...pausedStatus, running: false, stop: STOPPED.stop };
+			expect(summary(rowsOf({ status })).slice(1, 3)).toEqual([
+				["off", "value"],
+				[
+					"Stopped from the command line at 14:05 · click to restart",
+					"secondary",
+				],
+			]);
+		},
+	);
+
+	it("keeps the issues of a no-progress pause whose process died", () => {
+		const status = { ...STALLED, running: false, crashed: true };
+		expect(rowsOf({ status })[2].text).toContain("#2518");
+	});
+
+	it("keeps the switch on through an allowance wait, naming the earliest reset", () => {
+		const resets = new Date(2026, 10, 2, 18, 40).getTime();
+		const status = { ...RUNNING, lastTick: planWaitTick(resets) };
+		const rows = rowsOf({ status });
+		expect(rows[0].control?.state).toBe("on");
+		expect(rows[2].text).toBe("Waiting: a plan resets at 18:40");
+	});
+
+	it("says an allowance wait's reset is unread rather than invent one", () => {
+		const status = { ...RUNNING, lastTick: planWaitTick(null) };
+		expect(rowsOf({ status })[2].text).toBe(
+			"Waiting: a plan resets, its time unread",
+		);
 	});
 
 	it("reads off, not on, once a stop is asked of a running loop", () => {
@@ -212,7 +369,14 @@ describe("the panel's rows", () => {
 			{},
 			{ readError: "x" },
 			{ status: RUNNING },
-			{ status: { ...RUNNING, lastTick: null, codeSha: null } },
+			{ status: { ...RUNNING, lastTick: null } },
+			{ status: { ...RUNNING, seats: { readings: [] } } },
+			{ status: CRASHED },
+			{ status: STALLED },
+			{ status: NEVER_STARTED },
+			{
+				status: { ...RUNNING, seats: FULL_SEATS, overflow: [key()] },
+			},
 			{ status: PAUSED_BY_FOUNDER },
 			{ status: { ...PAUSED_BY_FOUNDER, running: false } },
 			{ status: STOPPED },
@@ -226,6 +390,141 @@ describe("the panel's rows", () => {
 	});
 });
 
+describe("the spend line", () => {
+	const line3 = (status: object) => rowsOf({ status })[3];
+
+	it("shows each plan seat's week in grey, unread where it will not read", () => {
+		const row = line3({ ...RUNNING, seats: planSeats(null) });
+		expect(row.text).toBe("Plans this week: .claude3 47%, .claude2 unread");
+		expect(row.role).toBe("secondary");
+	});
+
+	it("shows nothing about credits with no key declared, every plan full", () => {
+		const rows = rowsOf({ status: { ...RUNNING, seats: FULL_SEATS } });
+		expect(rows[3].text).toBe("Plans this week: .claude3 100%, .claude2 100%");
+		expect(rows[0].detail).toBeUndefined();
+	});
+
+	it("shows nothing about credits while a plan has room, a key declared", () => {
+		const rows = rowsOf({ status: { ...RUNNING, overflow: [key()] } });
+		expect(rows[3].text).toMatch(/^Plans this week/);
+		expect(rows[0].detail).toBeUndefined();
+	});
+
+	it("shows credits left in white, every key summed, and says so by the switch", () => {
+		const overflow = [
+			key(),
+			key({ headroomUsd: 100, grantUsd: 200 }),
+			key({
+				noLaunchLeft: true,
+				exhausted: true,
+				headroomUsd: 0,
+				grantUsd: 100,
+			}),
+		];
+		const rows = rowsOf({
+			status: { ...RUNNING, seats: FULL_SEATS, overflow },
+		});
+		expect(rows[3].text).toBe("On API credits: $358 of $700 left");
+		expect(rows[3].role).toBe("value");
+		expect(rows[0].detail).toBe("API credits · on");
+	});
+
+	it("draws the words by the switch outside its bold", () => {
+		const status = { ...RUNNING, seats: FULL_SEATS, overflow: [key()] };
+		const frame = buildFrame(rowsOf({ status }), 80, 40);
+		expect(frame).toContain(`Refill loop  [on]${ESC}[22m  API credits · on`);
+	});
+
+	it("says all used up once every key is spent, the switch staying on", () => {
+		const status = {
+			...RUNNING,
+			seats: FULL_SEATS,
+			overflow: [key({ noLaunchLeft: true }), key({ noLaunchLeft: true })],
+			lastTick: planWaitTick(AT),
+		};
+		const rows = rowsOf({ status });
+		expect(rows[3].text).toBe("Plans and API credits all used up");
+		expect(rows[0].control?.state).toBe("on");
+		expect(rows[0].detail).toBeUndefined();
+	});
+
+	it("never calls credits used up with a key unread", () => {
+		const overflow = [
+			key({ noLaunchLeft: true }),
+			{ seat: "k", why: "no table" },
+		];
+		const row = line3({ ...RUNNING, seats: FULL_SEATS, overflow });
+		expect(row.text).toBe("API credits unread: no table");
+		expect(row.role).toBe("secondary");
+	});
+
+	it("sums what reads and says a key is unread, with credits live", () => {
+		const overflow = [key(), { seat: "k", why: "no table" }];
+		const row = line3({ ...RUNNING, seats: FULL_SEATS, overflow });
+		expect(row.text).toBe("On API credits: $258 of $400 left, a key unread");
+		expect(row.role).toBe("value");
+	});
+
+	it("counts a key reserved past its grant as nothing left, never less", () => {
+		const overflow = [key({ headroomUsd: -11 }), key({ headroomUsd: 10 })];
+		const row = line3({ ...RUNNING, seats: FULL_SEATS, overflow });
+		expect(row.text).toBe("On API credits: $10 of $800 left");
+	});
+
+	it("says nothing beside a switch that is not on", () => {
+		const paused = {
+			...PAUSED_BY_FOUNDER,
+			seats: FULL_SEATS,
+			overflow: [key()],
+		};
+		expect(rowsOf({ status: paused })[0].detail).toBeUndefined();
+		const running = { ...RUNNING, seats: FULL_SEATS, overflow: [key()] };
+		expect(
+			rowsOf({ status: running, pending: { on: false, landed: false } })[0]
+				.detail,
+		).toBeUndefined();
+	});
+
+	it("stays on line 3 through a pending press", () => {
+		const rows = rowsOf({
+			status: RUNNING,
+			pending: { on: false, landed: false },
+		});
+		expect(rows[3].text).toMatch(/^Plans this week/);
+	});
+});
+
+describe("yellow", () => {
+	const yellow = "38;2;255;215;0m";
+	const framed = (status: object) => buildFrame(rowsOf({ status }), 120, 40);
+
+	it("draws only the words needs you", () => {
+		for (const status of [CRASHED, STALLED]) {
+			const after = framed(status).split(yellow);
+			expect(after).toHaveLength(2);
+			expect(after[1].startsWith("needs you")).toBe(true);
+		}
+	});
+
+	it("appears in no other state", () => {
+		for (const status of [
+			RUNNING,
+			STOPPED,
+			NEVER_STARTED,
+			STOPPING,
+			PAUSED_BY_FOUNDER,
+			{
+				...RUNNING,
+				seats: FULL_SEATS,
+				overflow: [key({ noLaunchLeft: true })],
+			},
+			{ ...RUNNING, lastTick: planWaitTick(AT) },
+		])
+			expect(framed(status)).not.toContain(yellow);
+	});
+});
+
 describe("the panel's colours", () => {
 	const frame = buildFrame(rowsOf({ status: RUNNING }), 80, 40);
 
@@ -236,7 +535,8 @@ describe("the panel's colours", () => {
 	});
 
 	it("uses no blue in any colour it draws", () => {
-		for (const [, r, g, b] of frame.matchAll(/38;2;(\d+);(\d+);(\d+)m/g))
+		const all = frame + buildFrame(rowsOf({ status: CRASHED }), 80, 40);
+		for (const [, r, g, b] of all.matchAll(/38;2;(\d+);(\d+);(\d+)m/g))
 			expect(Number(b)).toBeLessThanOrEqual(Math.max(Number(r), Number(g)));
 	});
 });
@@ -245,10 +545,10 @@ describe("the panel's frame", () => {
 	it("cuts a long row rather than wrapping it into the next", () => {
 		const long = {
 			...RUNNING,
-			lastTick: { at: AT, summary: "x".repeat(99), idle: null, paused: false },
+			lastTick: { at: AT, summary: "", idle: "x".repeat(99), paused: false },
 		};
 		const frame = buildFrame(rowsOf({ status: long }), 20, 40);
-		expect(frame).toContain("abc1234 · xxxxx…");
+		expect(frame).toContain("Waiting: xxxxxx…");
 		expect(frame).not.toContain("x".repeat(20));
 	});
 
@@ -287,6 +587,109 @@ describe("a click on the switch", () => {
 		expect(calls[1]).toEqual(["set", "--resume"]);
 	});
 
+	it.each([
+		["crashed", CRASHED],
+		["stopped", STOPPED],
+		["paused, its process dead", { ...STALLED, running: false, crashed: true }],
+	])("restarts a %s loop through `set --resume`", async (_name, status) => {
+		const { calls, run } = runnerOf({
+			"status --json": showing(status),
+			"set --resume": () => ({}),
+		});
+		const panel = panelOver(run);
+		await panel.refreshStatus();
+		await panel.click(SWITCH_ROW);
+		expect(calls).toContainEqual(["set", "--resume"]);
+	});
+
+	it.each([
+		["crashed", CRASHED, 3],
+		["stopped", STOPPED, 3],
+		["never started", NEVER_STARTED, 1],
+	])(
+		"takes a click on a %s loop's words as on the switch",
+		async (_name, status, callCount) => {
+			const { calls, run } = runnerOf({
+				"status --json": showing(status),
+				"set --resume": () => ({}),
+			});
+			const panel = panelOver(run);
+			await panel.refreshStatus();
+			await panel.click(SWITCH_ROW + 2);
+			expect(calls).toHaveLength(callCount);
+		},
+	);
+
+	it("holds the word until a read shows the restarted process", async () => {
+		let status: object = CRASHED;
+		const { run } = runnerOf({
+			"status --json": () => ({ stdout: JSON.stringify(status) }),
+			"set --resume": () => ({}),
+		});
+		const panel = panelOver(run);
+		await panel.refreshStatus();
+		await panel.click(SWITCH_ROW);
+		expect(panel.view.pending?.on).toBe(true);
+		status = RUNNING;
+		await panel.refreshStatus();
+		expect(panel.view.pending).toBeNull();
+	});
+
+	it("gives the row back where the restarted process never shows", async () => {
+		const { run } = runnerOf({
+			"status --json": showing(CRASHED),
+			"set --resume": () => ({}),
+		});
+		let at = AT;
+		const panel = createPanel({
+			run,
+			runBurn: run,
+			now: () => at,
+			onChange: noop,
+		});
+		await panel.refreshStatus();
+		await panel.click(SWITCH_ROW);
+		at += 29_000;
+		await panel.refreshStatus();
+		expect(panel.view.pending?.on).toBe(true);
+		at += 1000;
+		await panel.refreshStatus();
+		expect(panel.view.pending).toBeNull();
+		expect(buildRows(panel.view, at)[1].text).toBe("needs you");
+	});
+
+	it.each([
+		["never started", NEVER_STARTED],
+		["stopping", STOPPING],
+	])("writes nothing for a press on a loop %s", async (_name, status) => {
+		const { calls, run } = runnerOf({ "status --json": showing(status) });
+		const panel = panelOver(run);
+		await panel.refreshStatus();
+		await panel.click(SWITCH_ROW);
+		expect(calls).toEqual([["status", "--json"]]);
+	});
+
+	it("has no argv on any row that stops the process", async () => {
+		const asked: string[][] = [];
+		for (const status of [RUNNING, STALLED, CRASHED, STOPPED, STOPPING]) {
+			const { calls, run } = runnerOf({
+				"status --json": showing(status),
+				"set --pause": () => ({}),
+				"set --resume": () => ({}),
+				"set --away": () => ({}),
+				on: () => ({}),
+				off: () => ({}),
+			});
+			const panel = panelOver(run);
+			await panel.refreshStatus();
+			const rows = buildRows(panel.view, AT).length;
+			for (let row = SWITCH_ROW; row < SWITCH_ROW + rows; row++)
+				await panel.click(row);
+			asked.push(...calls);
+		}
+		expect(asked.flat()).not.toContain("stop");
+	});
+
 	it("runs nothing before a read, or off the switch row", async () => {
 		const { calls, run } = runnerOf({ "status --json": showing(RUNNING) });
 		const panel = panelOver(run);
@@ -294,17 +697,6 @@ describe("a click on the switch", () => {
 		expect(calls).toEqual([]);
 		await panel.refreshStatus();
 		await panel.click(SWITCH_ROW + 1);
-		expect(calls).toHaveLength(1);
-	});
-
-	it.each([
-		["no process and no pause", STOPPED],
-		["a stop asked", STOPPING],
-	])("runs nothing for a loop with %s", async (_name, status) => {
-		const { calls, run } = runnerOf({ "status --json": showing(status) });
-		const panel = panelOver(run);
-		await panel.refreshStatus();
-		await panel.click(SWITCH_ROW);
 		expect(calls).toHaveLength(1);
 	});
 
@@ -705,6 +1097,234 @@ describe("the Burn mode switch", () => {
 		const rows = burnRows(panel);
 		expect(rows[0].control?.state).toBe("failed");
 		expect(rows[2].text).toBe("spawn burn-mode.sh ENOENT");
+	});
+});
+
+describe("the Away switch", () => {
+	const Away = { ...RUNNING, mode: "away" };
+	const awayRowsOf = (over: object) =>
+		rowsOf(over).slice(AWAY_INDEX, BURN_INDEX);
+
+	it("reads normal, with the switch off", () => {
+		const [row, sibling] = awayRowsOf({ status: RUNNING });
+		expect(row.text).toBe("Away  [off]  normal");
+		expect(row.control?.state).toBe("off");
+		expect(sibling.text).toBe("");
+	});
+
+	it("reads on with no count before anything is handed off", () => {
+		const [row] = awayRowsOf({ status: Away });
+		expect(row.text).toBe("Away  [on]");
+		expect(row.control?.state).toBe("on");
+	});
+
+	it("shows how many sessions were handed off while away", () => {
+		const [row] = awayRowsOf({
+			status: { ...Away, handedOffSinceAway: 2 },
+		});
+		expect(row.text).toBe("Away  [on]  2 handed off");
+	});
+
+	it("reads pending in either direction, claiming neither mode and no count", () => {
+		const [turningOff] = awayRowsOf({
+			status: { ...Away, handedOffSinceAway: 2 },
+			awayPending: { on: false, landed: false },
+		});
+		expect(turningOff.text).toBe("Away  […]  turning off…");
+		expect(turningOff.control?.state).toBe("pending");
+		const [turningOn] = awayRowsOf({
+			status: RUNNING,
+			awayPending: { on: true, landed: false },
+		});
+		expect(turningOn.text).toBe("Away  […]  turning on…");
+	});
+
+	it("claims neither word while the status is unread, or with no control to read", () => {
+		for (const over of [{}, { status: { ...RUNNING, mode: null } }]) {
+			const [row] = awayRowsOf(over);
+			expect(row.text).toBe("Away  [?]");
+			expect(row.control?.state).toBe("unknown");
+		}
+	});
+
+	it("keeps the rows below it in place, whatever it shows", () => {
+		const cases = [
+			{ status: RUNNING },
+			{ status: Away, awayPending: { on: false, landed: false } },
+			{ status: RUNNING, awayNote: { text: "refused", at: LATER } },
+		];
+		for (const c of cases)
+			expect(rowsOf(c)[BURN_INDEX].text).toMatch(/^Burn mode/);
+	});
+
+	async function clicked(
+		status: object,
+		command: string,
+		after: object = status,
+	) {
+		let shown = status;
+		const { calls, run } = runnerOf({
+			[command]: () => {
+				shown = after;
+				return {};
+			},
+			"status --json": () => ({ stdout: JSON.stringify(shown) }),
+		});
+		const panel = panelOver(run);
+		await panel.refreshStatus();
+		await panel.click(AWAY_ROW);
+		return { calls, panel };
+	}
+
+	it("turns away on through `set --away`", async () => {
+		const { calls, panel } = await clicked(RUNNING, "set --away", Away);
+		expect(calls).toContainEqual(["set", "--away"]);
+		expect(buildRows(panel.view, LATER)[AWAY_INDEX].text).toBe("Away  [on]");
+	});
+
+	it("turns away off through `set --normal`", async () => {
+		const { calls, panel } = await clicked(Away, "set --normal", RUNNING);
+		expect(calls).toContainEqual(["set", "--normal"]);
+		expect(buildRows(panel.view, LATER)[AWAY_INDEX].text).toBe(
+			"Away  [off]  normal",
+		);
+	});
+
+	it("works with the loop stopped or paused, either way", async () => {
+		const stopped = await clicked(STOPPED, "set --away");
+		expect(stopped.calls).toContainEqual(["set", "--away"]);
+		const paused = await clicked(
+			{ ...PAUSED_BY_FOUNDER, mode: "away" },
+			"set --normal",
+		);
+		expect(paused.calls).toContainEqual(["set", "--normal"]);
+	});
+
+	it("runs nothing before a read, or with no control to read", async () => {
+		const { calls, run } = runnerOf({
+			"status --json": showing({ ...RUNNING, mode: null }),
+		});
+		const panel = panelOver(run);
+		await panel.click(AWAY_ROW);
+		expect(calls).toEqual([]);
+		await panel.refreshStatus();
+		await panel.click(AWAY_ROW);
+		expect(calls).toEqual([["status", "--json"]]);
+	});
+
+	it("reads normal once a status read shows the automatic return, and turns on again", async () => {
+		let shown: object = { ...Away, handedOffSinceAway: 2 };
+		const { calls, run } = runnerOf({
+			"set --away": () => ({}),
+			"status --json": () => ({ stdout: JSON.stringify(shown) }),
+		});
+		const panel = panelOver(run);
+		await panel.refreshStatus();
+		expect(buildRows(panel.view, LATER)[AWAY_INDEX].text).toBe(
+			"Away  [on]  2 handed off",
+		);
+		shown = RUNNING;
+		await panel.refreshStatus();
+		expect(buildRows(panel.view, LATER)[AWAY_INDEX].text).toBe(
+			"Away  [off]  normal",
+		);
+		await panel.click(AWAY_ROW);
+		expect(calls).toContainEqual(["set", "--away"]);
+	});
+
+	it("holds the word until a read after the command, taking a second click as nothing", async () => {
+		const { held, release } = heldUntil();
+		const calls: string[][] = [];
+		let shown: object = RUNNING;
+		const run = async (argv: string[]) => {
+			calls.push(argv);
+			if (argv[0] === "set") {
+				await held;
+				shown = Away;
+			}
+			return { code: 0, stdout: JSON.stringify(shown), stderr: "" };
+		};
+		const panel = panelOver(run);
+		await panel.refreshStatus();
+		const press = panel.click(AWAY_ROW);
+		expect(buildRows(panel.view, LATER)[AWAY_INDEX].control.state).toBe(
+			"pending",
+		);
+		await panel.refreshStatus();
+		expect(panel.view.awayPending).not.toBeNull();
+		await panel.click(AWAY_ROW);
+		expect(calls.filter((c) => c[0] === "set")).toHaveLength(1);
+		release();
+		await press;
+		expect(panel.view.awayPending).toBeNull();
+		expect(buildRows(panel.view, LATER)[AWAY_INDEX].control.state).toBe("on");
+	});
+
+	it("clears on the command's refusal and shows it on its own row, then blanks it", async () => {
+		const { run } = runnerOf({
+			"set --away": () => ({
+				code: 1,
+				stderr: "refill loop: nothing set: busy\n",
+			}),
+			"status --json": showing(RUNNING),
+		});
+		const panel = panelOver(run);
+		await panel.refreshStatus();
+		await panel.click(AWAY_ROW);
+		expect(panel.view.awayPending).toBeNull();
+		const rows = buildRows(panel.view, AT);
+		expect(rows[AWAY_INDEX].control.state).toBe("off");
+		expect(rows[AWAY_INDEX + 1]).toMatchObject({
+			text: "refill loop: nothing set: busy",
+			role: "value",
+		});
+		expect(rows[2].text).toBe("Waiting: no free slot");
+		expect(buildRows(panel.view, AT + 60_000)[AWAY_INDEX + 1].text).toBe("");
+	});
+
+	it("shows the command's warning on a loop with no process, then blanks it", async () => {
+		const warning =
+			"refill loop: not running; its next start sets the mode, repos and goal afresh";
+		let shown: object = STOPPED;
+		const { run } = runnerOf({
+			"set --away": () => {
+				shown = { ...STOPPED, mode: "away" };
+				return { stdout: `mode:      away\n${warning}\n` };
+			},
+			"status --json": () => ({ stdout: JSON.stringify(shown) }),
+		});
+		const panel = panelOver(run);
+		await panel.refreshStatus();
+		await panel.click(AWAY_ROW);
+		const rows = buildRows(panel.view, AT);
+		expect(rows[AWAY_INDEX].text).toBe("Away  [on]");
+		expect(rows[AWAY_INDEX + 1]).toMatchObject({
+			text: warning,
+			role: "value",
+		});
+		expect(buildRows(panel.view, AT + 60_000)[AWAY_INDEX + 1].text).toBe("");
+	});
+
+	it("says why a click does nothing with no control to read, and nothing before a read", () => {
+		const [, sibling] = awayRowsOf({ status: { ...RUNNING, mode: null } });
+		expect(sibling.text).toBe("No loop settings to change: run `start`");
+		expect(awayRowsOf({})[1].text).toBe("");
+	});
+
+	it("never marks the loop switch pending mid-press", async () => {
+		const { held, release } = heldUntil();
+		const run = async (argv: string[]) => {
+			if (argv[0] === "set") await held;
+			return { code: 0, stdout: JSON.stringify(RUNNING), stderr: "" };
+		};
+		const panel = panelOver(run);
+		await panel.refreshStatus();
+		const press = panel.click(AWAY_ROW);
+		const rows = buildRows(panel.view, LATER);
+		expect(rows[AWAY_INDEX].control.state).toBe("pending");
+		expect(rows[0].control.state).toBe("on");
+		release();
+		await press;
 	});
 });
 

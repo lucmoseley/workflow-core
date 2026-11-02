@@ -1,9 +1,9 @@
 // @vitest-environment node
 /*
- * Pins that check-refill-loop-stop.js names a refill loop stopped on no
- * progress, the allowance cut or a damaged control file once, at the next
- * session start (#2014, #3389), and
- * never an expiry or an explicit stop, and names a damaged state file (#3380)
+ * Pins that check-refill-loop-stop.js names a refill loop stopped on a damaged
+ * control file, or paused by the no-progress rule, once, at the next session
+ * start (#2014, #3389, #3859), and never an explicit stop or a founder's pause,
+ * and names a damaged state file (#3380)
  * and a stopped loop's damaged control file (#3927).
  * WFC_REFILL_DIR points the loop's files
  * at a temp directory, so the machine's real loop is never read. Loosen a case
@@ -146,21 +146,57 @@ describe("the first overflow launch (#3767)", () => {
 });
 
 describe("at session start (--notify)", () => {
-	it.each([
-		["no-progress", "no progress"],
-		["allowance", "the allowance cut"],
-	])("names a %s stop with its time and detail", (reason, words) => {
-		writeState(reason);
+	it("names no explicit stop", () => {
+		writeState("explicit");
 		const r = run(["--notify"]);
 		expect(r.status).toBe(0);
-		expect(r.stdout).toContain(`stopped on ${words}`);
+		expect(r.stdout).not.toContain("REFILL-LOOP-STOPPED");
+	});
+
+	describe("a no-progress pause (#3859)", () => {
+		const issues = [{ root: "/h/workflow-core", number: 9 }];
+		const writePause = (paused: object) =>
+			fs.writeFileSync(
+				path.join(dir, ".refill-loop-control.json"),
+				JSON.stringify({
+					noProgressFrom: STOP_AT - 60_000,
+					stopRequested: false,
+					seats: [],
+					paused,
+					scope: { mode: "normal", repos: [], goals: {} },
+				}),
+			);
+
+		it("names it once, with its issues and the resume", () => {
+			writePause({ by: "no-progress", at: STOP_AT, issues });
+			const first = run(["--notify"]);
+			expect(first.status).toBe(0);
+			expect(first.stdout).toContain("REFILL-LOOP-PAUSED");
+			expect(first.stdout).toContain("workflow-core#9");
+			expect(first.stdout).toContain("set --resume");
+			expect(run(["--notify"]).stdout).not.toContain("REFILL-LOOP-PAUSED");
+		});
+
+		it("names no founder's pause", () => {
+			writePause({ by: "founder", at: STOP_AT });
+			const r = run(["--notify"]);
+			expect(r.status).toBe(0);
+			expect(r.stdout).not.toContain("REFILL-LOOP-PAUSED");
+		});
+	});
+
+	it("names a damaged-control stop with its time and detail", () => {
+		writeState("control-damaged");
+		const r = run(["--notify"]);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("stopped on a damaged control file");
 		expect(r.stdout).toContain("2026-10-18T03:00:00.000Z");
 		expect(r.stdout).toContain("the detail");
-		expect(r.stdout).toContain("/pick-next");
+		expect(r.stdout).toContain("Restart it: node");
 	});
 
 	it("names a stop once", () => {
-		writeState("no-progress");
+		writeState("control-damaged");
 		expect(run(["--notify"]).stdout).toContain("REFILL-LOOP-STOPPED");
 		const again = run(["--notify"]);
 		expect(again.status).toBe(0);
@@ -168,16 +204,16 @@ describe("at session start (--notify)", () => {
 	});
 
 	it("names a later stop after an earlier one was named", () => {
-		writeState("no-progress");
+		writeState("control-damaged");
 		run(["--notify"]);
-		writeState("allowance", "d", STOP_AT + 1000);
+		writeState("control-damaged", "d", STOP_AT + 1000);
 		const r = run(["--notify"]);
 		expect(r.status).toBe(0);
-		expect(r.stdout).toContain("the allowance cut");
+		expect(r.stdout).toContain("REFILL-LOOP-STOPPED");
 	});
 
 	it("neither names nor spends a stop on a compaction", () => {
-		writeState("no-progress");
+		writeState("control-damaged");
 		const r = run(["--notify"], "compact");
 		expect(r.status).toBe(0);
 		expect(r.stdout).toBe("");
@@ -185,7 +221,7 @@ describe("at session start (--notify)", () => {
 	});
 
 	it("leaves a stop to the next interactive start, unspent, at a background job's (#3707)", () => {
-		writeState("no-progress");
+		writeState("control-damaged");
 		const r = run(["--notify"], "startup", path.join(dir, "job"));
 		expect(r.status).toBe(0);
 		expect(r.stdout).toBe("");
@@ -194,7 +230,7 @@ describe("at session start (--notify)", () => {
 	});
 
 	it("names and spends a stop at a job he launched from the agents view (#3772)", () => {
-		writeState("no-progress");
+		writeState("control-damaged");
 		const his = writeJobRecord(path.join(dir, "his"), "claude");
 		expect(run(["--notify"], "startup", his).stdout).toContain(
 			"REFILL-LOOP-STOPPED",
@@ -203,20 +239,20 @@ describe("at session start (--notify)", () => {
 	});
 
 	it("puts the stop on his screen and in the session's context (#3776)", () => {
-		writeState("no-progress");
+		writeState("control-damaged");
 		const r = run(["--notify"]);
 		expect(r.status).toBe(0);
 		const { systemMessage, hookSpecificOutput } = JSON.parse(r.stdout);
 		expect(systemMessage).toContain(
-			"REFILL-LOOP-STOPPED — the refill loop stopped on no progress",
+			"REFILL-LOOP-STOPPED — the refill loop stopped on a damaged control file",
 		);
-		expect(systemMessage).toContain("/pick-next");
+		expect(systemMessage).toContain("Restart it: node");
 		expect(hookSpecificOutput.hookEventName).toBe("SessionStart");
 		expect(hookSpecificOutput.additionalContext).toContain(systemMessage);
 	});
 
 	it("keeps a plain run's report plain and its stamp unspent (#3776)", () => {
-		writeState("no-progress");
+		writeState("control-damaged");
 		const plain = run([]);
 		expect(plain.status).toBe(0);
 		expect(plain.stderr).toContain("REFILL-LOOP-STOPPED");
@@ -224,14 +260,14 @@ describe("at session start (--notify)", () => {
 	});
 
 	it("neither names nor spends a stop at a plain `claude --bg` job (#3772)", () => {
-		writeState("no-progress");
+		writeState("control-damaged");
 		const loops = writeJobRecord(path.join(dir, "loops"), "bg");
 		expect(run(["--notify"], "startup", loops).stdout).toBe("");
 		expect(run(["--notify"]).stdout).toContain("REFILL-LOOP-STOPPED");
 	});
 
 	it("says nothing of a restart a stop request followed", () => {
-		writeState("no-progress");
+		writeState("control-damaged");
 		fs.writeFileSync(
 			path.join(dir, ".refill-loop-control.json"),
 			JSON.stringify({ noProgressFrom: STOP_AT + 60_000, stopRequested: true }),
@@ -260,19 +296,6 @@ describe("at session start (--notify)", () => {
 		);
 		expect(r.stdout).toContain("until its next write replaces it");
 		expect(r.stdout).not.toContain("REFILL-LOOP-STOPPED");
-	});
-
-	it("names a damaged control file beside a fresh named stop (#3380)", () => {
-		writeState("no-progress");
-		const control = path.join(dir, ".refill-loop-control.json");
-		fs.writeFileSync(control, "{ not json");
-		const r = run(["--notify"]);
-		expect(r.stdout).toContain(
-			`REFILL-LOOP-FILE-DAMAGED — ${control} is damaged`,
-		);
-		expect(r.stdout).toContain("REFILL-LOOP-STOPPED");
-		/* No control reads as no restart, so the restart is named. */
-		expect(r.stdout).toContain("/pick-next");
 	});
 
 	it("names a damaged-control stop once, with the file, then the damage alone at a later start (#3389, #3927)", () => {
@@ -325,7 +348,7 @@ describe("at session start (--notify)", () => {
 		});
 
 		it("names it again beside a named stop already spent", () => {
-			writeState("no-progress");
+			writeState("control-damaged");
 			run(["--notify"]);
 			damageControl();
 			const r = run(["--notify"]);
@@ -348,7 +371,7 @@ describe("at session start (--notify)", () => {
 		});
 
 		it("names a fresh stop but not a running loop's damage beside it", () => {
-			writeState("no-progress");
+			writeState("control-damaged");
 			damageControl();
 			const holder = spawnLoopHolder(dir);
 			try {
@@ -363,7 +386,7 @@ describe("at session start (--notify)", () => {
 	});
 
 	it("says the loop was started again where a start followed the stop", () => {
-		writeState("no-progress");
+		writeState("control-damaged");
 		fs.writeFileSync(
 			path.join(dir, ".refill-loop-control.json"),
 			JSON.stringify({
@@ -375,11 +398,7 @@ describe("at session start (--notify)", () => {
 	});
 });
 
-describe("the restart it names (#3371)", () => {
-	/** What reaches his screen, its lines unescaped. */
-	const screenOf = (r: { stdout: string }) =>
-		JSON.parse(r.stdout).systemMessage as string;
-
+describe("the restart it names", () => {
 	function writeControl(scope: object, noProgressFrom = STOP_AT - 60_000) {
 		fs.writeFileSync(
 			path.join(dir, ".refill-loop-control.json"),
@@ -387,128 +406,23 @@ describe("the restart it names (#3371)", () => {
 		);
 	}
 
-	it("names /pick-next for a normal-mode stop", () => {
-		writeState("no-progress");
-		writeControl({ mode: "normal", repos: ["/h/workflow-core"], goals: {} });
-		const r = run(["--notify"]);
-		expect(r.status).toBe(0);
-		const out = r.stdout;
-		expect(out).toContain("Restart it with /pick-next.");
-		expect(out).not.toContain("--away");
-	});
-
-	const goalOf = (form: string, text: string) => ({
-		form,
-		text,
-		refs: [
-			{ repo: "workflow-core", number: 116 },
-			{ repo: "mantahostels", number: 9 },
-		],
-		setAt: 1,
-	});
-	const loopCommand = `node ${path.join(__dirname, "refill-loop.js")}`;
-
-	it("names a normal stop's other repos in its checkout, and a set for its goal (#3390, #3864)", () => {
-		writeState("no-progress");
-		writeControl({
-			mode: "normal",
-			repos: ["/h/workflow-core", "/h/mantahostels"],
-			goal: goalOf("issues", "workflow-core#116,mantahostels#9"),
-		});
-		const r = run(["--notify"]);
-		expect(r.status).toBe(0);
-		expect(screenOf(r)).toContain(
-			"  Restart it in workflow-core: /pick-next mantahostels\n" +
-				`  Then its goal, less any issue closed since: ${loopCommand} set --goal workflow-core#116,mantahostels#9\n`,
-		);
-	});
-
-	it("names a confirmed topic's set and text for a normal stop", () => {
-		writeState("allowance");
-		writeControl({
-			mode: "normal",
-			repos: ["/h/workflow-core", "/h/mantahostels"],
-			goal: goalOf("topic", "faster tests"),
-		});
-		const r = run(["--notify"]);
-		expect(r.status).toBe(0);
-		expect(screenOf(r)).toContain(
-			`  Then its goal, less any issue closed since: ${loopCommand} set --goal-issues workflow-core#116,mantahostels#9 --goal-text 'faster tests'\n`,
-		);
-	});
-
-	it("restores a walk as its form, naming that a closed ref will not set (#3866)", () => {
-		writeState("no-progress");
-		writeControl({
-			mode: "normal",
-			repos: ["/h/workflow-core"],
-			goal: {
-				...goalOf("drain", "drain #116"),
-				refs: [{ repo: "workflow-core", number: 116 }],
-			},
-		});
-		expect(screenOf(run(["--notify"]))).toContain(
-			`Then its goal, unless its issue has closed since: ${loopCommand} set --goal 'drain workflow-core#116'`,
-		);
-	});
-
-	it("leaves a repo since unticked out of the goal's set", () => {
-		writeState("no-progress");
-		writeControl({
-			mode: "normal",
-			repos: ["/h/workflow-core"],
-			goal: goalOf("issues", "workflow-core#116,mantahostels#9"),
-		});
-		expect(screenOf(run(["--notify"]))).toContain(
-			"set --goal workflow-core#116\n",
-		);
-	});
-
-	it("names a normal stop's repos alone", () => {
-		writeState("no-progress");
-		writeControl({
-			mode: "normal",
-			repos: ["/h/workflow-core", "/h/mantahostels"],
-			goal: null,
-		});
-		const r = run(["--notify"]);
-		expect(r.status).toBe(0);
-		expect(screenOf(r)).toContain(
-			"  Restart it in workflow-core: /pick-next mantahostels\n",
-		);
-		expect(screenOf(r)).not.toContain("Then its goal");
-	});
-
-	it("names the start, then the switch to away with its repos, for an away-mode stop", () => {
-		writeState("no-progress");
-		writeControl({ mode: "away", repos: ["/h/workflow-core"], goals: {} });
-		const r = run(["--notify"]);
-		expect(r.status).toBe(0);
-		const out = screenOf(r);
-		const script = `node ${path.join(__dirname, "refill-loop.js")}`;
-		expect(out).toContain(
-			`Restart away mode: ${script} start, then ${script} set --away --repos workflow-core\n`,
-		);
-		expect(out).not.toContain("/pick-next");
-	});
-
-	it("names the start, the switch to away with its repos, then a set for its goal", () => {
-		writeState("allowance");
-		writeControl({
-			mode: "away",
-			repos: ["/h/workflow-core", "/h/mantahostels"],
-			goal: goalOf("issues", "workflow-core#116,mantahostels#9"),
-		});
-		const r = run(["--notify"]);
-		expect(r.status).toBe(0);
-		expect(screenOf(r)).toContain(
-			`Restart away mode: ${loopCommand} start, then ${loopCommand} set --away --repos workflow-core --repos mantahostels\n` +
-				`  Then its goal, less any issue closed since: ${loopCommand} set --goal workflow-core#116,mantahostels#9\n`,
-		);
+	it("names `start`, its script absolute, whatever the mode", () => {
+		for (const mode of ["normal", "away"]) {
+			writeState("control-damaged");
+			writeControl({ mode, repos: ["/h/workflow-core"], goal: null });
+			const r = run(["--notify"]);
+			expect(r.status).toBe(0);
+			const { systemMessage } = JSON.parse(r.stdout);
+			expect(systemMessage).toContain(
+				`  Restart it: node ${path.join(__dirname, "refill-loop.js")} start\n`,
+			);
+			expect(systemMessage).not.toContain("/pick-next");
+			fs.rmSync(path.join(dir, ".refill-loop-stop-seen"), { force: true });
+		}
 	});
 
 	it("names no restart where the loop was started again since", () => {
-		writeState("no-progress");
+		writeState("control-damaged");
 		writeControl({ mode: "away" }, STOP_AT + 60_000);
 		const r = run(["--notify"]);
 		expect(r.status).toBe(0);
@@ -520,7 +434,7 @@ describe("the restart it names (#3371)", () => {
 
 describe("a plain run", () => {
 	it("names the stop and spends nothing", () => {
-		writeState("no-progress");
+		writeState("control-damaged");
 		const r = run([]);
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("REFILL-LOOP-STOPPED");

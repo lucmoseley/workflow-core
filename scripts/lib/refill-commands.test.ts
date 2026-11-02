@@ -15,7 +15,8 @@ import {
 	buildStatusJson,
 	buildStatusLines,
 	foreseeSeat,
-	mergedScope,
+	planSet,
+	planStart,
 } from "./refill-commands.js";
 import { buildPauseText } from "./refill-decide.js";
 import { parseState } from "./refill-loop.js";
@@ -40,28 +41,6 @@ const NO_SEATS = {
 	callerSeat: null,
 };
 
-describe("the scope a start writes", () => {
-	it("starts a stopped loop on the scope asked for", () => {
-		expect(mergedScope(null, normal([WFC]))).toEqual(normal([WFC]));
-	});
-
-	it("adds a start's repos to a running loop's in either mode, keeping its mode", () => {
-		for (const mode of [normal, away]) {
-			const r = mergedScope(
-				mode([MH], issuesGoal(["mantahostels", 5])),
-				normal([WFC], issuesGoal(["workflow-core", 9])),
-			);
-			expect(r).toEqual(mode([MH, WFC], issuesGoal(["workflow-core", 9])));
-		}
-	});
-
-	it("leaves the loop's goal on a bare start", () => {
-		const goal = issuesGoal(["workflow-core", 9], ["mantahostels", 5]);
-		const r = mergedScope(normal([WFC, MH], goal), normal([WFC]));
-		expect(r.goal).toEqual(goal);
-	});
-});
-
 describe("what status prints", () => {
 	const control = {
 		noProgressFrom: NOW - 60 * MIN,
@@ -85,12 +64,13 @@ describe("what status prints", () => {
 		lastTick: { at: NOW, summary: "idle: no free slot" },
 		stopped: {
 			at: NOW - 200 * MIN,
-			reason: "no-progress",
-			detail: "three in a row",
+			reason: "control-damaged",
+			detail: "/c is damaged",
 		},
 		held: [],
 		reviewRunOn: null,
 		launchCount: null,
+		handedOff: null,
 		launchDay: null,
 		overflowStart: null,
 		goalProgress: null,
@@ -98,7 +78,7 @@ describe("what status prints", () => {
 	};
 	const served = [WFC, MH];
 
-	it("gives start, launches since the start and the last stop", () => {
+	it("gives start and launches since the start, with no stop older than the run", () => {
 		const out = buildStatusLines({
 			seats: NO_SEATS,
 			now: NOW,
@@ -118,8 +98,20 @@ describe("what status prints", () => {
 		expect(out).toContain("/implement 42  finished");
 		expect(out).not.toContain("session ");
 		expect(out).toContain("idle: no free slot");
+		expect(out).not.toContain("last stop:");
+	});
+	it("gives the last stop where no process runs", () => {
+		const out = buildStatusLines({
+			seats: NO_SEATS,
+			now: NOW,
+			control,
+			state,
+			pid: null,
+			served,
+		}).join("\n");
 		expect(out).toContain("last stop:");
-		expect(out).toContain("no-progress — three in a row");
+		expect(out).toContain("control-damaged — /c is damaged");
+		expect(out).not.toContain("died:");
 	});
 	it("counts a park the loop stopped as parked, and says it stopped it (#2699)", () => {
 		const stopped = record({
@@ -249,6 +241,7 @@ describe("what status prints", () => {
 				held: [],
 				reviewRunOn: null,
 				launchCount: null,
+				handedOff: null,
 				launchDay: null,
 				overflowStart: null,
 				goalProgress: null,
@@ -282,6 +275,7 @@ describe("the launch lines status shows (#2850)", () => {
 				held: [],
 				reviewRunOn: null,
 				launchCount: null,
+				handedOff: null,
 				launchDay: null,
 				overflowStart: null,
 				goalProgress: null,
@@ -439,6 +433,7 @@ describe("a launch row's seat and reason (#3732)", () => {
 		held: [],
 		reviewRunOn: null,
 		launchCount: null,
+		handedOff: null,
 		launchDay: null,
 		overflowStart: null,
 		goalProgress: null,
@@ -485,6 +480,7 @@ describe("a launch row's seat and reason (#3732)", () => {
 			today: "2026-11-02",
 			candidates: [],
 			burnMode: { on: false, disagreeing: [], error: null },
+			overflow: [],
 		});
 		expect(json.running).toBe(true);
 		expect(
@@ -511,6 +507,7 @@ describe("status --json for the panel (#3873)", () => {
 				held: [],
 				reviewRunOn: null,
 				launchCount: null,
+				handedOff: null,
 				launchDay: null,
 				overflowStart: null,
 				goalProgress: null,
@@ -522,6 +519,7 @@ describe("status --json for the panel (#3873)", () => {
 			today,
 			candidates: [],
 			burnMode: { on: false, disagreeing: [], error: null },
+			overflow: [],
 		});
 
 	it("carries the code sha, and the last tick's summary and waiting reason", () => {
@@ -534,6 +532,7 @@ describe("status --json for the panel (#3873)", () => {
 			summary: "idle: no free slot",
 			idle: "no free slot",
 			paused: false,
+			planWait: null,
 		});
 	});
 
@@ -579,6 +578,7 @@ describe("a handed-off launch (#2659)", () => {
 				held: [],
 				reviewRunOn: null,
 				launchCount: null,
+				handedOff: null,
 				launchDay: null,
 				overflowStart: null,
 				goalProgress: null,
@@ -842,6 +842,157 @@ describe("the seats: line (#3733)", () => {
 				session: bar(20, "stale"),
 			});
 			expect(out).toMatchObject({ week: null, session: 20, fits: null });
+		});
+	});
+});
+
+describe("planSet's resume with no process (#3861)", () => {
+	const control = {
+		noProgressFrom: 5,
+		stopRequested: false,
+		seats: ["/seat"],
+		scope: away(["/repo"], issuesGoal(["/repo", 7])),
+	};
+	const NowMs = 100;
+	const resume = (over: Record<string, unknown>, running: boolean) =>
+		planSet(
+			{ control: { ...control, ...over }, damaged: null },
+			{ pause: false },
+			{ running, now: NowMs },
+		);
+
+	it.each([
+		["crashed", {}],
+		["stopped by command", { stopRequested: true, stopRequestedAt: 6 }],
+		["paused", { paused: { by: "founder", at: 6 } }],
+		[
+			"paused and stopped",
+			{ paused: { by: "founder", at: 6 }, stopRequested: true },
+		],
+	])("starts from the stored settings where it %s", (_name, over) => {
+		const plan = resume(over, false);
+		const expected = { ...control, noProgressFrom: NowMs };
+		expect(plan).toMatchObject({ write: expected, startFrom: expected });
+		const { write } = plan as { write: object };
+		expect(write).not.toHaveProperty("paused");
+		expect(write).not.toHaveProperty("stopRequestedAt");
+	});
+
+	it("starts nothing beside a running loop, paused or not", () => {
+		expect(resume({ paused: { by: "founder", at: 6 } }, true)).toMatchObject({
+			startFrom: null,
+		});
+		expect(resume({}, true)).toMatchObject({ write: null, startFrom: null });
+	});
+});
+
+describe("planStart (#3868)", () => {
+	const root = "/h/core";
+	const stored = {
+		noProgressFrom: 5,
+		stopRequested: false,
+		seats: ["/seat"],
+		scope: { mode: "away" as const, repos: ["/h/manta"], goal: null },
+	};
+	const context = {
+		pid: null as number | null,
+		now: 100,
+		root,
+		seats: ["/file-seat"],
+		seatErrors: [] as string[],
+		stopped: null as { at: number; reason: string; detail: string } | null,
+		unlessStopped: true,
+	};
+	const sound = (control: object | null = stored) =>
+		({ control, damaged: null }) as Parameters<typeof planStart>[0];
+	const plan = (
+		read: Parameters<typeof planStart>[0],
+		over: Partial<typeof context> = {},
+	) => planStart(read, {}, { ...context, ...over });
+	const selfStop = { at: 6, reason: "control-damaged", detail: "garbled" };
+	const explicit = { at: 6, reason: "explicit", detail: "asked" };
+
+	it.each([
+		["a crash", {}, stored],
+		["a stop the loop recorded for itself", { stopped: selfStop }, stored],
+	])(
+		"under unlessStopped starts as it was after %s, writing nothing",
+		(_n, over, c) => {
+			expect(plan(sound(c), over)).toEqual({
+				write: null,
+				control: stored,
+				action: "start",
+				lines: [],
+			});
+		},
+	);
+
+	it("under unlessStopped leaves an explicit stop, however it is recorded", () => {
+		for (const [control, over] of [
+			[stored, { stopped: explicit }],
+			[{ ...stored, stopRequested: true, stopRequestedAt: 6 }, {}],
+			[{ ...stored, stopRequested: true }, { stopped: selfStop }],
+		] as const) {
+			expect(plan(sound(control), over)).toMatchObject({
+				write: null,
+				action: "stopped",
+				lines: [expect.stringContaining(": left stopped;")],
+			});
+		}
+	});
+
+	it("starts a first loop on a fresh control, this checkout ticked", () => {
+		expect(plan(sound(null))).toMatchObject({
+			action: "start",
+			write: {
+				seats: ["/file-seat"],
+				scope: { mode: "normal", repos: [root], goal: null },
+			},
+		});
+	});
+
+	it("takes the seat file's seats only where a plain start ends a stop with no process", () => {
+		const plain = { unlessStopped: false };
+		expect(plan(sound(), plain)).toMatchObject({
+			action: "start",
+			write: { seats: ["/file-seat"], noProgressFrom: 100 },
+		});
+		expect(plan(sound(), { ...plain, pid: 9 })).toEqual({
+			write: null,
+			control: stored,
+			action: "running",
+			lines: ["refill loop running: pid 9"],
+		});
+	});
+
+	it("refuses a seat file only where it would write seats", () => {
+		const seatErrors = ["refill-seats:2: missing cycle-day="];
+		for (const [read, over] of [
+			[sound(), { pid: 9, unlessStopped: false }],
+			[sound(), {}],
+		] as const) {
+			expect(plan(read, { ...over, seatErrors })).not.toHaveProperty("refused");
+		}
+		for (const [read, over] of [
+			[sound(null), {}],
+			[sound(), { unlessStopped: false }],
+		] as const) {
+			expect(plan(read, { ...over, seatErrors })).toEqual({
+				refused: `the seat file refuses\n  ${seatErrors[0]}`,
+				exitCode: 2,
+			});
+		}
+	});
+
+	it("names a damaged control a plain start replaces, and refuses it under unlessStopped", () => {
+		const read = { control: null, damaged: "control is damaged: x" };
+		expect(plan(read, { unlessStopped: false })).toMatchObject({
+			action: "start",
+			lines: ["control is damaged: x; fresh settings written"],
+		});
+		expect(plan(read)).toEqual({
+			refused: "control is damaged: x; `start` rewrites it",
+			exitCode: 1,
 		});
 	});
 });

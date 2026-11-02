@@ -885,6 +885,8 @@ describe("the map append", () => {
 });
 
 describe("a review record in the close comment (#3846)", () => {
+	const gitHere = (...args: string[]) =>
+		execFileSync("git", args, { cwd: sb.repo, encoding: "utf8" }).trim();
 	const Tier =
 		"**Review tier:** escalated — secret handling; not mission-critical.";
 	const Head =
@@ -972,6 +974,112 @@ describe("a review record in the close comment (#3846)", () => {
 		refused(
 			`${Head}, paths a.ts\n-FIXED: a leak (Focus)\nProse.\n-TICKETED #9: a lock (Spec)`,
 			"1 - FIXED or - TICKETED line past a line that ends its list",
+		);
+	});
+
+	it.each([
+		[
+			3817,
+			"**Review findings:** base fa86cc9ed7c333202bc6b4e5c4939f1934f45641, reviewed 22018e4b7e5113b0a141a9db4f82a6203cf45fe3, landed 88a44510b, paths scripts/lib/read-hidden.js scripts/write-secret.js. scripts/write-secret.test.ts and docs/test-read-edges.json joined with the fixes.",
+			'"scripts/write-secret.js."',
+		],
+		[
+			3826,
+			"**Review findings:** base `88a44510be20f03e872e02ed3b05e0b496d58577`, reviewed `98f36d9c9a871ecd5c577b1f7b08856bd0e1b398`, landed `6a459da0c`, paths `scripts/lib/read-hidden.js,scripts/test_write_secret_tty.py`. Landed names the commit queued on `landing`, not yet on `main`.",
+			'"scripts/test_write_secret_tty.py."',
+		],
+		[
+			2085,
+			"**Review findings:** base 23f76f5f0305f7a3dd6768e82d27557778208484, reviewed 75982fd5ef153713a69fd079009076d5b795bde1, landed 19ba39677, paths scripts/lib/atomic-write.js, scripts/lib/atomic-write.test.ts and the 27 routed sites, tests and manifest in that commit",
+			'"routed"',
+		],
+	])(
+		"refuses #%s's filed record, the note read as paths (#3907)",
+		(_, record, entry) => {
+			setUp();
+			onTicket(Tier);
+			refused(record, entry);
+		},
+	);
+
+	it("refuses a path-shaped entry the record's replay never changed, judged in this checkout (#3907)", () => {
+		setUp();
+		onTicket(Tier);
+		gitRepo(sb);
+		commitAll(sb, "seed");
+		const base = gitHere("rev-parse", "HEAD");
+		fs.writeFileSync(path.join(sb.repo, "changed.ts"), "1\n");
+		commitAll(sb, "Change");
+		const landed = gitHere("rev-parse", "HEAD");
+		const head = `**Review findings:** base ${base}, reviewed ${landed}, landed ${landed}`;
+		refused(`${head}, paths changed.ts other.ts`, "no note after them");
+		refused(`${head}, paths changed.ts other.ts`, '"other.ts"');
+		passes(`${head}, paths changed.ts`);
+	});
+
+	it("refuses a record under no tier or the standard tier, naming the tier owed (#3907)", () => {
+		setUp();
+		onTicket();
+		refused(`${Head}, paths a.ts`, "under no tier line");
+		onTicket("**Review tier:** standard");
+		refused(`${Head}, paths a.ts`, "under the tier standard");
+		refused(`${Head}, paths a.ts`, "as plain prose");
+	});
+
+	it("refuses a record under a tier in no known word on an earlier comment (#3907)", () => {
+		setUp();
+		onTicket("**Review tier:** mission critical");
+		refused(`${Head}, paths a.ts`, "under the tier mission");
+	});
+
+	it("refuses a base this checkout does not hold, and takes a directory the replay changes under as a path (#3907)", () => {
+		setUp();
+		onTicket(Tier);
+		gitRepo(sb);
+		commitAll(sb, "seed");
+		const base = gitHere("rev-parse", "HEAD");
+		fs.mkdirSync(path.join(sb.repo, "dir"));
+		fs.writeFileSync(path.join(sb.repo, "dir", "a.ts"), "1\n");
+		commitAll(sb, "Change");
+		const landed = gitHere("rev-parse", "HEAD");
+		refused(
+			`**Review findings:** base ${"e".repeat(40)}, reviewed ${landed}, landed ${landed}, paths dir`,
+			"naming the base its review ran from",
+		);
+		passes(
+			`**Review findings:** base ${base}, reviewed ${landed}, landed ${landed}, paths dir ./dir/a.ts`,
+		);
+	});
+
+	it.each([
+		"- Fixed: a leak",
+		"- **FIXED**: a leak",
+		"* FIXED: a leak",
+		"1. FIXED: a leak",
+	])("refuses the disposition line %s (#3907)", (line) => {
+		setUp();
+		onTicket(Tier);
+		refused(
+			`${Head}, paths a.ts\n${line} (Focus)`,
+			"1 disposition line not spelt - FIXED or - TICKETED, so they count 0. Correct it: write the record with each line spelt",
+		);
+	});
+
+	it("refuses a tier in no known word in the comment, a record under it or none (#3907)", () => {
+		setUp();
+		onTicket();
+		refused("**Review tier:** mission critical", "a tier in no known word");
+		refused(
+			`**Review tier:** mission critical\n${Head}, paths a.ts`,
+			"**Review tier:** mission critical",
+		);
+	});
+
+	it("passes a tier or record only named: in backticks, in a fence, in a quote, in a quoted line (#3907)", () => {
+		setUp();
+		onTicket(Tier);
+		passes(
+			`\`**Review tier:** mission critical\` and "**Review tier:** nope" name the form.\n\`\`\`\n${Head} (queued)\n\`\`\`\n> ${Head} (queued)`,
 		);
 	});
 

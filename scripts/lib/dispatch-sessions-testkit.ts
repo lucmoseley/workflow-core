@@ -20,6 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach } from "vitest";
+import { writeProcRoot } from "./admission-testkit";
 import { buildAuthStatusBranch } from "./auth-status-fake";
 import { loadavgLine } from "./proc-fake";
 import { writePsStub } from "./ps-stub";
@@ -185,6 +186,7 @@ export function dispatchFixture(): DispatchFixture {
 		sleepArgs,
 	};
 	let psEmpty = "";
+	let procEmpty = "";
 	let reapEmpty = "";
 	let regHealthy = "";
 	let ghNoParent = "";
@@ -194,13 +196,16 @@ export function dispatchFixture(): DispatchFixture {
 	beforeEach(() => {
 		fx.dir = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-sessions-"));
 		// The per-member re-read (mantahostels#2553) calls `node scripts/admission.js`, which
-		// reads real /proc/meminfo, `ps` and the reap script unless these three
+		// reads real /proc, `ps` and the reap script unless these four
 		// env vars point it elsewhere (`scripts/lib/admission.js`'s own injection
 		// points). Every case gets a generous, deterministic reading by
 		// default.
 		fx.meminfo = path.join(fx.dir, "meminfo");
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    20000000 kB\n");
 		psEmpty = writePsStub(fx.dir, [], { name: "ps-empty" });
+		// A stubbed row's pid is real on the machine running the case, whose /proc
+		// could otherwise read it as an orphan and drop the session it stands for.
+		procEmpty = writeProcRoot(fx.dir);
 		reapEmpty = path.join(fx.dir, "reap-empty.js");
 		fs.writeFileSync(
 			reapEmpty,
@@ -321,6 +326,7 @@ export function dispatchFixture(): DispatchFixture {
 			TMPDIR: fx.dir,
 			WFC_MEMINFO: fx.meminfo,
 			WFC_PS: psEmpty,
+			WFC_PROC: procEmpty,
 			WFC_REAP_SCRIPT: reapEmpty,
 			WFC_LOADAVG: fx.loadavg,
 			WFC_LOAD_CEILING: "10",
