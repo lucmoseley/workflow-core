@@ -20,6 +20,7 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -47,6 +48,9 @@ const { DISPATCH_ENTRY, MANIFEST_REL } = require("./lib/guard-cores.js") as {
 
 const REAL_SCRIPT = path.join(__dirname, "check-guard-registry.js");
 const SELF_PLUGIN_HOOKS = "self-plugin/hooks/hooks.json";
+
+/* chmod is a no-op for root, which can read the directory anyway. */
+const asRoot = typeof process.getuid === "function" && process.getuid() === 0;
 
 const temps: string[] = [];
 
@@ -3610,9 +3614,6 @@ describe("the checker breaking is not the same event as a rule being false", () 
 		expect(r.stdout).toBe("");
 	});
 
-	/* chmod is a no-op for root, which can read the directory anyway. */
-	const asRoot = typeof process.getuid === "function" && process.getuid() === 0;
-
 	it.skipIf(asRoot)(
 		"reports a tracked directory it cannot read as BROKEN, not as a clean scan",
 		() => {
@@ -5401,6 +5402,78 @@ describe("gitignored scratch under a scan root (mantahostels#2243)", () => {
 		const r = run(root);
 		expect(r.code).toBe(0);
 	});
+
+	/** Only a bound socket has the type on disk. */
+	const runWithSocket = async (root: string, rel: string): Promise<Result> => {
+		const socketPath = path.join(root, rel);
+		fs.mkdirSync(path.dirname(socketPath), { recursive: true });
+		const server = net.createServer();
+		await new Promise<void>((done) => server.listen(socketPath, done));
+		try {
+			return run(root);
+		} finally {
+			await new Promise((done) => server.close(done));
+		}
+	};
+
+	it.each([
+		["gitignored", ".claude/tmp/\n", ".claude/tmp/s/systemd/private"],
+		["gitignored, named like a document", ".claude/tmp/\n", ".claude/tmp/s.md"],
+		["not gitignored, named like an emitter", "", ".claude/tmp/s.sh"],
+		["standing as a scan root", "", "AGENTS.md"],
+	])(
+		"leaves the verdict clean over a socket: %s (#3974)",
+		async (_name, ignore, rel) => {
+			const r = await runWithSocket(gitRepo({ claude, ignore, files }), rel);
+			expect(r.code).toBe(0);
+			expect(r.kinds).toEqual([]);
+		},
+	);
+
+	it.skipIf(asRoot)(
+		"is not BROKEN over a scratch directory it cannot read (#3974)",
+		() => {
+			const root = gitRepo({
+				claude,
+				ignore: ".claude/tmp/\n",
+				files: { ...files, ".claude/tmp/locked/note.md": trigger },
+			});
+			const locked = path.join(root, ".claude", "tmp", "locked");
+			fs.chmodSync(locked, 0o000);
+			try {
+				expect(run(root).code).toBe(0);
+			} finally {
+				fs.chmodSync(locked, 0o755);
+			}
+		},
+	);
+
+	it.skipIf(asRoot).each([
+		["cannot list", 0o000, /EACCES.*scandir.*docs\/sub/],
+		["can list but not search", 0o600, /EACCES.*stat.*docs\/sub\/rules\.md/],
+	])(
+		"is BROKEN over a tracked directory it %s, in a repo (#3974)",
+		(_name, mode, message) => {
+			const root = gitRepo({
+				claude,
+				ignore: ".claude/tmp/\n",
+				commit: true,
+				files: { ...files, "docs/sub/rules.md": "A tracked document.\n" },
+			});
+			const sub = path.join(root, "docs", "sub");
+			fs.chmodSync(sub, mode);
+			try {
+				const r = run(root);
+				expect(r.code).toBe(2);
+				expect(r.json).toMatchObject({
+					outcome: "BROKEN",
+					summary: expect.stringMatching(message),
+				});
+			} finally {
+				fs.chmodSync(sub, 0o755);
+			}
+		},
+	);
 });
 
 describe("a `rule:<id>` cited in a script's comment or string (mantahostels#3135)", () => {

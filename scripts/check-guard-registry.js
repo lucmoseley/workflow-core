@@ -373,26 +373,49 @@ const SKIP_DIRS = new Set(["node_modules", ".git", ".next", "__pycache__"]);
 // --- collecting the documents -----------------------------------------------
 
 /**
+ * `read()`, or null where it fails on gitignored scratch, which was leaving the
+ * scan anyway (#3974). Any other failure is scope this check cannot read, so it
+ * must surface as BROKEN via runCheck's catch — swallowing it reports OK over
+ * scope never scanned.
+ *
+ * @template T
+ * @param {string} rel
+ * @param {() => T} read
+ * @returns {T | null}
+ */
+function readUnlessScratch(rel, read) {
+	try {
+		return read();
+	} catch (e) {
+		if (dropIgnored([rel]).length === 0) return null;
+		throw e;
+	}
+}
+
+/**
  * @param {string} rel
  * @param {string[]} out accumulator: each .md file under `rel` is pushed here
  */
 function walk(rel, out) {
 	const abs = path.join(root, rel);
-	let st;
-	try {
-		st = fs.statSync(abs);
-	} catch {
-		return; // A scan root that does not exist yet is not a finding.
-	}
+	// A path that does not exist yet is not a finding.
+	const st = readUnlessScratch(rel, () =>
+		fs.statSync(abs, { throwIfNoEntry: false }),
+	);
+	if (!st) return;
 	if (st.isFile()) {
 		if (rel.endsWith(".md")) out.push(rel);
 		return;
 	}
-	/* Deliberately unguarded. An unreadable docs/ or .claude/ is a tracked
-	 * directory this check cannot read, so it must surface as BROKEN via
-	 * runCheck's catch — swallowing it reports OK over scope never scanned. */
-	for (const entry of fs.readdirSync(abs, { withFileTypes: true })) {
-		if (entry.isSymbolicLink()) continue; // vendored skills; see doc-map §A
+	if (!st.isDirectory()) return; // a scan root that is a socket or FIFO (#3974)
+	const entries = readUnlessScratch(rel, () =>
+		fs.readdirSync(abs, { withFileTypes: true }),
+	);
+	if (!entries) return;
+	for (const entry of entries) {
+		/* Off the walk: a symlink (vendored skills; see doc-map §A), and a socket or
+		 * FIFO left in scratch, which a recursion would hand to readdirSync (#3974). */
+		if (!entry.isFile() && !entry.isDirectory()) continue;
 		if (entry.isDirectory() && SKIP_DIRS.has(entry.name)) continue;
 		walk(path.join(rel, entry.name), out);
 	}
@@ -434,8 +457,8 @@ let declaredIfUnreadable = 0;
  * `git archive` wrote only tracked files into it, so there is nothing to drop
  * (#710).
  *
- * FAILS OPEN anywhere else git cannot answer, unlike walk()'s readdirSync
- * above: refusing would break the whole gate over scope that at worst adds
+ * FAILS OPEN anywhere else git cannot answer, so readUnlessScratch() then stays
+ * BROKEN. Refusing would break the whole gate over scope that at worst adds
  * scratch to it (mantahostels#2243).
  *
  * RESIDUAL: scan scope is now machine-local. `check-ignore` reads
@@ -2772,11 +2795,12 @@ function walkEmitterDir(base, rel, out) {
 		return; // a root that does not exist holds no emitters
 	}
 	for (const e of entries) {
-		if (e.isSymbolicLink()) continue; // vendored skills; see doc-map §A
+		/* Off the walk, as in walk(): a symlink, a socket, a FIFO (#3974). */
 		const file = path.join(rel, e.name);
-		if (!e.isDirectory()) {
+		if (e.isFile()) {
 			if (isEmitterFile(e.name, file)) out.push(file);
-		} else if (!EMITTER_SKIP.has(e.name)) walkEmitterDir(base, file, out);
+		} else if (e.isDirectory() && !EMITTER_SKIP.has(e.name))
+			walkEmitterDir(base, file, out);
 	}
 }
 
@@ -3013,11 +3037,10 @@ function readEmitters() {
 	const citationsBy = new Map();
 
 	for (const rel of emitterFiles()) {
-		/* Deliberately unguarded, like walk()'s readdirSync above: an emitter this
-		 * check cannot read is a file it reads the repo WITH, so it must surface as
-		 * BROKEN via runCheck's catch. Swallowing it drops that file's calls, and a
-		 * fragment it really does print then reports UNPRINTED-RULE — a FAIL naming
-		 * the wrong thing. */
+		/* Deliberately unguarded: an emitter this check cannot read is a file it
+		 * reads the repo WITH, so it must surface as BROKEN via runCheck's catch.
+		 * Swallowing it drops that file's calls, and a fragment it really does print
+		 * then reports UNPRINTED-RULE — a FAIL naming the wrong thing. */
 		const text = fs.readFileSync(path.join(root, rel), "utf8");
 		deps.set(rel, sourcedBy(rel, text));
 		const cited = citationsIn(text);
