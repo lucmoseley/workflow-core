@@ -756,6 +756,43 @@ process.stdout.write(JSON.stringify({ frontier: [], retroBundles: [], pulledIn: 
 		).not.toBe("control-damaged");
 	});
 
+	it("reads the frontier bare once the goal is cleared, the loop running on", async () => {
+		stubRecordingShortlist();
+		writeScope({
+			mode: "normal",
+			repos: [repo],
+			goal: {
+				form: "issues",
+				text: "7",
+				refs: [{ repo: path.basename(repo), number: 7 }],
+				setAt: 3,
+			},
+		});
+		const running = startRun();
+		await polled(
+			() => readLines(at("picks")).length > 0,
+			"no tick read the frontier",
+		);
+		writeScope({ mode: "normal", repos: [repo], goal: null });
+		fs.appendFileSync(at(".refill-loop-wake"), `${Date.now()}\n`);
+		await polled(
+			() => readLines(at("picks")).at(-1) === "--json",
+			"no tick read the frontier bare",
+		);
+		requestStop();
+		expect((await settled(running, "run reading the goal")).status).toBe(0);
+		expect(readLines(at("picks"))[0]).toBe("--json --goal 7");
+	});
+
+	it("logs a garbled goal and carries on bare", async () => {
+		stubRecordingShortlist();
+		writeScope({ mode: "normal", repos: [repo], goal: "soon" });
+		const r = await readPicksThenStop(startRun(), 1);
+		expect(r.status).toBe(0);
+		expect(readLines(at("picks"))[0]).toBe("--json");
+		expect(r.stdout).toContain("goal is garbled");
+	});
+
 	it("holds a confirmed topic's set as stored from tick to tick", async () => {
 		stubRecordingShortlist();
 		const goal = {

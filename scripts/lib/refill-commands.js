@@ -38,7 +38,12 @@ const {
 	launchesOnDay,
 	launchesSince,
 } = require("./refill-loop.js");
-const { buildGoalLine, isSameGoal, qualifyRefs } = require("./refill-goal.js");
+const {
+	buildGoalLine,
+	isSameGoal,
+	qualifyOpenRefs,
+	qualifyRefs,
+} = require("./refill-goal.js");
 const { buildSeatName } = require("./refill-seats.js");
 
 /* Untraced. */
@@ -212,8 +217,32 @@ const tickedAfter = ({ scope }, { repos, tick = [], untick = [] }) =>
 	);
 
 /**
+ * `ask` with its goal's refs qualified, each read as an open issue, or a string
+ * refusal. This runs before the control lock, whose holder reads no tracker;
+ * the lock's fresh read judges the refs again against what is ticked then. A
+ * control that will not read is planSet's to refuse.
+ * @param {Control|null} control
+ * @param {SetAsk} ask
+ * @param {(ref: import("./refill-goal.js").GoalRef) => import("./refill-goal.js").IssueRead} readIssue
+ * @returns {SetAsk|string}
+ */
+function checkGoalAsk(control, ask, readIssue) {
+	if (!ask.goal || control === null) return ask;
+	const refs = qualifyOpenRefs(
+		ask.goal.refs,
+		tickedAfter(control, ask),
+		readIssue,
+	);
+	return typeof refs === "string"
+		? refs
+		: { ...ask, goal: { ...ask.goal, refs } };
+}
+
+/**
  * Only the ticked set changed: replaced by `repos`, then `tick` added and
- * `untick` taken away, a repo already ticked keeping its place.
+ * `untick` taken away, a repo already ticked keeping its place. An untick leaves
+ * the goal's refs in that repo: no frontier read names them, and a re-tick ranks
+ * them again.
  * @param {Control} control
  * @param {SetAsk} ask
  * @returns {SetChange}
@@ -745,6 +774,7 @@ function buildStatusJson({
 }
 
 module.exports = {
+	checkGoalAsk,
 	buildOverflowBasisLines,
 	buildScopeLines,
 	buildSeatsLine,
@@ -754,5 +784,4 @@ module.exports = {
 	foreseeSeat,
 	mergedScope,
 	planSet,
-	tickedAfter,
 };

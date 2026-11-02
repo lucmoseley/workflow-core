@@ -10345,6 +10345,7 @@
 			"scripts/read-hand-off.test.ts",
 			"scripts/record-delegated-decision.test.ts",
 			"scripts/refill-loop-run.test.ts",
+			"scripts/refill-loop.test.ts",
 			"scripts/release-plugin.test.ts",
 			"scripts/repo-checks.test.ts",
 			"scripts/repo-hold-attach.test.ts",

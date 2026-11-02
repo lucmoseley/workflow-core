@@ -4,7 +4,7 @@
  * which ticked repo it lands in. Loosen one and a number lands in the wrong repo.
  */
 import { describe, expect, it } from "vitest";
-import { parseAskedRefs, qualifyRefs } from "./refill-goal.js";
+import { parseAskedRefs, qualifyOpenRefs, qualifyRefs } from "./refill-goal.js";
 
 describe("a typed ref", () => {
 	it("reads N, #N and <repo>#N, by comma or space", () => {
@@ -43,5 +43,36 @@ describe("a ref's repo", () => {
 		expect(
 			qualifyRefs([{ repo: "manta", number: 5 }], ["/home/u/core"]),
 		).toContain("tick manta first");
+	});
+});
+
+describe("a ref read as an open issue", () => {
+	const asked = [{ repo: "core", number: 5 }];
+	const roots = ["/home/u/core"];
+
+	it("passes an open issue", () => {
+		expect(qualifyOpenRefs(asked, roots, () => ({ state: "OPEN" }))).toEqual(
+			asked,
+		);
+	});
+
+	it("refuses a closed one, naming it", () => {
+		expect(qualifyOpenRefs(asked, roots, () => ({ state: "CLOSED" }))).toBe(
+			"core#5 is closed: a goal names open issues",
+		);
+	});
+
+	it("refuses one that will not read, naming why", () => {
+		expect(qualifyOpenRefs(asked, roots, () => ({ unread: "no such" }))).toBe(
+			"core#5 will not read as an open issue: no such",
+		);
+	});
+
+	it("reads no issue for a ref its repo refuses", () => {
+		expect(
+			qualifyOpenRefs(asked, ["/home/u/manta"], () => {
+				throw new Error("read");
+			}),
+		).toContain("tick core first");
 	});
 });

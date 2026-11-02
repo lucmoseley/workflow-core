@@ -21,10 +21,11 @@
  * founder's does, in a terminal or from the agents view.
  *
  * THE RESTART MATCHES THE STOPPED SCOPE (#3371): `/pick-next` restarts normal
- * mode only, naming the loop's other repos (#3390), and a `set` then gives it
- * its goal. An away-mode stop names `refill-loop.js start`, then the one `set
- * --away` with its repos and goal, the script absolute. A loop started again
- * since names no restart.
+ * mode only, naming the loop's other repos (#3390). An away-mode stop names
+ * `refill-loop.js start`, then the `set --away` with its repos, the script
+ * absolute. Either way a `set` of its own then gives the goal, whose refs `set`
+ * judges afresh, so a ref closed since costs that line alone. A loop started
+ * again since names no restart.
  *
  * Severity is WARN: a notice for the founder. An absent or damaged state
  * file is no stop. A damaged state file is its own WARN, named at every
@@ -50,13 +51,12 @@ const { runCheck } = require("./lib/check");
 const hookMessage = require("./lib/hook-message");
 const { isFounderNoticeHeld } = require("./lib/background-start.js");
 const { buildOverflowStartLines } = require("./lib/overflow-notice.js");
-const { buildRefText } = require("./lib/refill-goal.js");
+const { buildGoalFlags } = require("./lib/refill-goal.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const loop = require("./lib/refill-loop.js");
 const refillFiles = require("./lib/refill-files.js");
 const { buildSeatName } = require("./lib/refill-seats.js");
 const { expandPastePaths, scriptPath } = require("./lib/script-path.js");
-const { shellQuote } = require("./lib/sh-quote.js");
 
 /** @type {Partial<Record<import("./lib/refill-decide.js").StopReason, string>>} */
 const STOP_REASON_WORDS = {
@@ -94,12 +94,15 @@ const STATUS = `node ${scriptPath("refill-loop.js")} status`;
 function buildRestartLines(control) {
 	if (control === null) return [PICK_NEXT];
 	if (control.scope.mode === "normal") return buildPickNextLines(control.scope);
-	const { repos, goal } = control.scope;
+	const { repos } = control.scope;
 	const script = buildLoopCommand();
 	const away = `${script} set --away${repos
 		.map((r) => ` --repos ${path.basename(r)}`)
-		.join("")}${goal ? ` ${buildGoalFlags(goal)}` : ""}`;
-	return [`Restart away mode: ${script} start, then ${away}`];
+		.join("")}`;
+	return [
+		`Restart away mode: ${script} start, then ${away}`,
+		...buildGoalRestartLines(control.scope),
+	];
 }
 
 /** The loop's command, its script absolute, for a line to paste. */
@@ -107,14 +110,20 @@ const buildLoopCommand = () =>
 	`node ${expandPastePaths("{script:refill-loop.js}", "")}`;
 
 /**
- * The `set` flags that store `goal` again.
- * @param {import("./lib/refill-goal.js").Goal} goal
+ * The `set` that gives a restarted loop its goal, less refs in a repo since
+ * unticked, which `set` would refuse.
+ * @param {import("./lib/refill-loop.js").Scope} scope
+ * @returns {string[]}
  */
-function buildGoalFlags(goal) {
-	const refs = goal.refs.map(buildRefText).join(",");
-	return goal.form === "topic"
-		? `--goal-issues ${refs} --goal-text ${shellQuote(goal.text)}`
-		: `--goal ${refs}`;
+function buildGoalRestartLines({ repos, goal }) {
+	if (goal === null) return [];
+	const ticked = repos.map((r) => path.basename(r));
+	const refs = goal.refs.filter((ref) => ticked.includes(ref.repo));
+	return refs.length === 0
+		? []
+		: [
+				`Then its goal, less any issue closed since: ${buildLoopCommand()} set ${buildGoalFlags({ ...goal, refs })}`,
+			];
 }
 
 /**
@@ -136,9 +145,7 @@ function buildPickNextLines({ repos, goal }) {
 	/* No trailing period: §1 of the skill would read `repo.` as no checkout. */
 	return [
 		`Restart it in ${path.basename(lead)}: ${command}`,
-		...(goal
-			? [`Then its goal: ${buildLoopCommand()} set ${buildGoalFlags(goal)}`]
-			: []),
+		...buildGoalRestartLines({ repos, goal, mode: "normal" }),
 	];
 }
 

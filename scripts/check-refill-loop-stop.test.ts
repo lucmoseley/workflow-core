@@ -419,7 +419,7 @@ describe("the restart it names (#3371)", () => {
 		expect(r.status).toBe(0);
 		expect(screenOf(r)).toContain(
 			"  Restart it in workflow-core: /pick-next mantahostels\n" +
-				`  Then its goal: ${loopCommand} set --goal workflow-core#116,mantahostels#9\n`,
+				`  Then its goal, less any issue closed since: ${loopCommand} set --goal workflow-core#116,mantahostels#9\n`,
 		);
 	});
 
@@ -427,13 +427,25 @@ describe("the restart it names (#3371)", () => {
 		writeState("allowance");
 		writeControl({
 			mode: "normal",
-			repos: ["/h/workflow-core"],
+			repos: ["/h/workflow-core", "/h/mantahostels"],
 			goal: goalOf("topic", "faster tests"),
 		});
 		const r = run(["--notify"]);
 		expect(r.status).toBe(0);
 		expect(screenOf(r)).toContain(
-			`  Then its goal: ${loopCommand} set --goal-issues workflow-core#116,mantahostels#9 --goal-text 'faster tests'\n`,
+			`  Then its goal, less any issue closed since: ${loopCommand} set --goal-issues workflow-core#116,mantahostels#9 --goal-text 'faster tests'\n`,
+		);
+	});
+
+	it("leaves a repo since unticked out of the goal's set", () => {
+		writeState("no-progress");
+		writeControl({
+			mode: "normal",
+			repos: ["/h/workflow-core"],
+			goal: goalOf("issues", "workflow-core#116,mantahostels#9"),
+		});
+		expect(screenOf(run(["--notify"]))).toContain(
+			"set --goal workflow-core#116\n",
 		);
 	});
 
@@ -465,7 +477,7 @@ describe("the restart it names (#3371)", () => {
 		expect(out).not.toContain("/pick-next");
 	});
 
-	it("names the start, then the one switch to away with its repos and goal", () => {
+	it("names the start, the switch to away with its repos, then a set for its goal", () => {
 		writeState("allowance");
 		writeControl({
 			mode: "away",
@@ -475,7 +487,8 @@ describe("the restart it names (#3371)", () => {
 		const r = run(["--notify"]);
 		expect(r.status).toBe(0);
 		expect(screenOf(r)).toContain(
-			`Restart away mode: ${loopCommand} start, then ${loopCommand} set --away --repos workflow-core --repos mantahostels --goal workflow-core#116,mantahostels#9\n`,
+			`Restart away mode: ${loopCommand} start, then ${loopCommand} set --away --repos workflow-core --repos mantahostels\n` +
+				`  Then its goal, less any issue closed since: ${loopCommand} set --goal workflow-core#116,mantahostels#9\n`,
 		);
 	});
 

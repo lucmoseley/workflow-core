@@ -1750,6 +1750,11 @@ describe("the control file", () => {
 			null,
 			{ form: "wish", text: "x", refs: [{ repo: "a", number: 1 }] },
 			{ form: "issues", text: "x", refs: [{ repo: "a" }] },
+			{
+				form: "issues",
+				text: "x",
+				refs: [{ repo: "a", number: 1 }, { repo: "a" }],
+			},
 		])
 			expect(parseScope({ mode: "normal", repos: [], goal }).goal).toBeNull();
 	});
