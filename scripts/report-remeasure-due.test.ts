@@ -1665,6 +1665,109 @@ describe("the re-measure trigger", () => {
 		);
 	});
 
+	interface ReviewShas {
+		base?: number;
+		tree?: number;
+		landed?: number;
+	}
+	/** A record over a.ts, its shas those of 15 unless named. */
+	const reviewOf = (
+		disposed: string[],
+		{ base = 15, tree = 15, landed = 15 }: ReviewShas = {},
+	) =>
+		record(15, disposed, sha("c", landed), "a.ts")
+			.replace(sha("b", 15), sha("b", base))
+			.replace(sha("e", 15), sha("e", tree));
+	const filedRow = (
+		fixed: number,
+		{ base = 15, tree = 15, landed = 15 }: ReviewShas = {},
+	) =>
+		`- o/fleet#1: landed ${sha("c", landed)}, base ${sha("b", base)}, tree ${sha("e", tree)}, paths a.ts; ${fixed} fixed or ticketed, 0 escaped`;
+	const threeLines = ["FIXED: a leak", "FIXED: a lock", "TICKETED #9: a race"];
+	const cutOffReview = `${reviewOf(["FIXED: a leak"])}\n- FIXED: a lock (Standards)\n- TICKETED #9: a race (Standards)`;
+	/** Runs a ticket reaching the threshold, returning what it reported and filed. */
+	const fileTicket = (others: number, comments: string[]) => {
+		const fx = fixture({
+			hits: { "o/fleet": [ticket(1, range(1, others), comments)] },
+		});
+		const r = run(fx);
+		expect(r.code).toBe(0);
+		expect(r.stdout).toContain("15 counted commits");
+		return { stderr: r.stderr, body: flag(creates(fx)[0], "--body") };
+	};
+
+	it.each([
+		["the same list", threeLines, 3],
+		["fewer lines", ["FIXED: a leak"], 1],
+	])(
+		"takes a later record of the same review, its tree and landed sha the earlier's and its base another, in place of one with no fault, holding %s (#3993)",
+		(_, disposed, fixed) => {
+			const { stderr, body } = fileTicket(14, [
+				reviewOf(threeLines),
+				reviewOf(disposed, { base: 16 }),
+			]);
+			expect(stderr).toBe("");
+			expect(body).toContain(filedRow(fixed, { base: 16 }));
+		},
+	);
+
+	it("takes a later record of the same base, paths and landed sha, its tree another, in place of one with no fault (#3993)", () => {
+		const { body } = fileTicket(14, [
+			reviewOf(threeLines),
+			reviewOf(threeLines, { tree: 16 }),
+		]);
+		expect(body).toContain(filedRow(3, { tree: 16 }));
+	});
+
+	it("drops a restated record's base and tree with its count, not only its count (#3993)", () => {
+		const { stderr, body } = fileTicket(14, [
+			cutOffReview,
+			reviewOf(threeLines, { base: 16 }),
+		]);
+		expect(stderr).toBe("");
+		expect(body).toContain(filedRow(3, { base: 16 }));
+	});
+
+	it("keeps the earlier record's replay and longer landed sha where the later replacing it lacks them (#3993)", () => {
+		const pathless = fileTicket(14, [
+			reviewOf(threeLines),
+			record(15, ["FIXED: a leak"]),
+		]);
+		expect(pathless.body).toContain(filedRow(1));
+		const short = fileTicket(14, [
+			reviewOf(threeLines),
+			record(15, ["FIXED: a leak"], sha("c", 15).slice(0, 7), "a.ts"),
+		]);
+		expect(short.body).toContain(filedRow(1));
+	});
+
+	it("replaces nothing with a later record that has a fault, summing both and reporting it (#3993)", () => {
+		const { stderr, body } = fileTicket(14, [
+			reviewOf(threeLines),
+			cutOffReview,
+		]);
+		expect(stderr).toBe(`CUT OFF: ${buildCutOffFault(1, 15)}\n`);
+		expect(body).toContain(filedRow(4));
+	});
+
+	it("counts two commits from one ticket apart (#3993)", () => {
+		const other = { base: 16, tree: 16, landed: 16 };
+		const { body } = fileTicket(13, [
+			reviewOf(threeLines),
+			reviewOf(["FIXED: a leak"], other),
+		]);
+		expect(body).toContain(filedRow(3));
+		expect(body).toContain(filedRow(1, other));
+	});
+
+	it("sums one commit under two reviews, the first's replay standing (#3993)", () => {
+		const { body } = fileTicket(14, [
+			reviewOf(threeLines),
+			reviewOf(["FIXED: a leak"], { base: 16, tree: 16 }),
+		]);
+		expect(body).toContain(filedRow(4));
+	});
+
 	it("halves a window past search's 1,000-result cap until every hit is read", () => {
 		const fx = fixture({
 			wideDays: 5,

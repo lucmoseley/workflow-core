@@ -12,8 +12,9 @@
  * or `- TICKETED` line among the bullets under it (`- DECLINED`
  * does not count), or an `**Escaped defect:** <sha>` line anywhere in the
  * corpus naming its landed sha or a commit it covers (below). One commit
- * recorded twice, by a short sha or a full one, is counted once, its defects
- * summed. A commit a revert on `main` names is not counted, unless that revert
+ * recorded by two reviews, by a short sha or a full one, is counted once, its
+ * defects summed, unless the later replaces the earlier (A CORRECTED RECORD,
+ * below). A commit a revert on `main` names is not counted, unless that revert
  * was itself reverted: searched in the tracker's repo only once the count
  * reaches the threshold or an issue of TITLE exists to refresh, since dropping
  * one can only lower it (#3395). Residual: an adopter's code
@@ -104,6 +105,15 @@
  * counted tier, with at least as many lines as the earlier held in all, and the same reviewed tree, or the same base, paths and landed sha, as two
  * commits from one base over the same paths are separate reviews here. What the
  * earlier one did count is then dropped rather than summed with the restatement.
+ *
+ * A CORRECTED RECORD REPLACES (#3993): a later faultless record on the ticket,
+ * naming the same landed sha and the same reviewed tree, or the same base and
+ * paths, stands in place of an earlier one with no fault, whatever either holds,
+ * and of one with a fault that it restates. Its defects, base, tree and paths are
+ * the row's, and the earlier one's range covers nothing, unless it names no paths
+ * and the earlier does: that replay stands, as does the longer landed sha. A later
+ * record with a fault replaces nothing, so both count until it is corrected.
+ * Residual: a faultless repost holding fewer lines lowers the count, unreported.
  *
  * A RECORD NAMING THE LANDED TREE — a counted commit with a `- FIXED` line
  * whose `reviewed` tree equals its landed commit's on the record's paths, the
@@ -319,28 +329,39 @@ const findCommitRow = (commits, r) =>
 	commits.find((c) => c.repo === r.repo && isSameSha(c.landed, r.landed));
 
 /**
+ * Takes from `from`, another record of `seen`'s commit, what `seen` lacks: the longer
+ * landed sha, and the replay where `seen` names no paths and `from` does.
+ *
+ * @param {ReviewRecord} seen accumulator: `landed` is written, and `issue`, `base`,
+ *   `tree`, `paths` and `posted` where the replay is taken
+ * @param {ReviewRecord} from
+ */
+function takeReplay(seen, from) {
+	if (from.landed.length > seen.landed.length) seen.landed = from.landed;
+	/* The issue, base, tree and paths are one replay, so a record naming paths
+	 * replaces a pathless one's whole, never its paths alone (#2083). Where
+	 * both name paths, `seen` stands. */
+	if (seen.paths === null && from.paths !== null)
+		Object.assign(seen, {
+			issue: from.issue,
+			base: from.base,
+			tree: from.tree,
+			paths: from.paths,
+			posted: from.posted,
+		});
+}
+
+/**
  * Folds `r`, a later record of the same commit, into `seen`.
  *
- * @param {ReviewRecord} seen accumulator: `fixed` and `fixes` are written, `landed` where
- *   `r`'s is longer, and `issue`, `base`, `tree`, `paths` and `posted` where `seen` names
- *   no paths and `r` does
+ * @param {ReviewRecord} seen accumulator: `fixed` and `fixes` are written, and what
+ *   takeReplay writes
  * @param {ReviewRecord} r
  */
 function mergeRecord(seen, r) {
 	seen.fixed += r.fixed;
 	seen.fixes += r.fixes;
-	if (r.landed.length > seen.landed.length) seen.landed = r.landed;
-	/* The issue, base, tree and paths are one replay, so a record naming paths
-	 * replaces a pathless one's whole, never its paths alone (#2083). Where
-	 * both name paths, the first stands. */
-	if (seen.paths === null && r.paths !== null)
-		Object.assign(seen, {
-			issue: r.issue,
-			base: r.base,
-			tree: r.tree,
-			paths: r.paths,
-			posted: r.posted,
-		});
+	takeReplay(seen, r);
 }
 
 /**
@@ -808,8 +829,9 @@ const isRestatement = (later, r) =>
 
 /**
  * One ticket's records as counted, and the reports readRecordFaults owes them, each
- * until a later record restates it. Paths that are not paths are dropped, so no
- * replay is limited by them and a correction's replace them.
+ * until a later record restates it, less those A CORRECTED RECORD replaces. Paths
+ * that are not paths are dropped, so no replay is limited by them and a correction's
+ * replace them.
  *
  * @param {ReviewRecord[]} found in comment order
  * @param {string | null} root the checkout that tracks their repo, if any
@@ -819,23 +841,36 @@ function settleRecords(found, root) {
 	/** @type {Report[]} */
 	const faults = [];
 	const judged = found.map((r) => ({ r, owed: readRecordFaults(r, root) }));
-	const records = judged.map(({ r, owed }, i) => {
-		if (owed.length === 0) return r;
+	const standing = judged.map(({ r }) => ({ ...r }));
+	const records = judged.flatMap(({ r, owed }, i) => {
 		const withoutStray = owed.some((f) => f.tag === "NOT PATHS")
-			? { ...r, paths: null }
-			: r;
+			? { ...standing[i], paths: null }
+			: standing[i];
+		const replacer = judged.findIndex(
+			(later, j) =>
+				j > i &&
+				later.owed.length === 0 &&
+				(owed.length === 0 || isRestatement(later.r, r)) &&
+				isSameSha(later.r.landed, r.landed) &&
+				isSameReview(later.r, r),
+		);
+		if (replacer !== -1) {
+			takeReplay(standing[replacer], withoutStray);
+			return [];
+		}
+		if (owed.length === 0) return [standing[i]];
 		if (
 			judged
 				.slice(i + 1)
 				.some((later) => later.owed.length === 0 && isRestatement(later.r, r))
 		)
-			return { ...withoutStray, fixed: 0, fixes: 0 };
+			return [{ ...withoutStray, fixed: 0, fixes: 0 }];
 		for (const f of owed)
 			faults.push({
 				tag: f.tag,
 				fault: `${r.repo}#${r.issue} has a record, landed ${r.landed}, ${f.what} until it is corrected: post a record of the same review ${f.fix}, as ${RULE_COMMAND} says`,
 			});
-		return withoutStray;
+		return [withoutStray];
 	});
 	return { records, faults };
 }
