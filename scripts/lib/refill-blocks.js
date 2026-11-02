@@ -94,6 +94,9 @@ const PARKED_STATE = "blocked";
  *   import("./block-cause.js").Reading} CauseOf
  * @typedef {{sessionId: string|null, cwd: string}} ResumeTarget  a job's
  *   full session id, null unread, and the directory its resume runs in
+ * @typedef {(root: string, sessionId: string) =>
+ *   NonNullable<LoopLaunch["actsBefore"]>} ReadActsBefore  the acts a session
+ *   made before a new launch row wakes it, which are not that launch's (#3942)
  * @typedef {{agents: AgentRecord[]|null, now: number, io: BlockIo,
  *   swapHold: import("./admission.js").SwapHold, paused?: boolean}} Tick  a
  *   tick's listing, null unread; its clock; the program's I/O; the swap hold
@@ -166,6 +169,7 @@ const PARKED_STATE = "blocked";
  *   whether it went
  * @property {(l: LoopLaunch) => object} progressOf  a finishing launch's
  *   progress fields, logged
+ * @property {ReadActsBefore} readActsBefore
  * @property {(line: string) => void} log
  */
 
@@ -1175,17 +1179,38 @@ function resumeHeldLaunches(resumes, launches, seen, isStopped) {
 }
 
 /**
- * The launch due back for job `job`, parked on lifted hold `hold`, off the park
- * marker that lists its issues: its launch record, where this loop has one, made
- * unfinished again until the resume step takes it, else one made from the marker,
- * as a session the loop never launched goes back too (#3709).
+ * The launch record for a session the loop never launched (#3709), off the park
+ * marker that lists its issues, counting only the acts it makes from here (#3942).
  * @param {string} job
  * @param {import("./parked.js").ParkMarkerRead} marker
  * @param {import("./repo-holds.js").LiftedHold} hold
- * @param {LoopLaunch|undefined} known
+ * @param {ReadActsBefore} readActsBefore
+ * @returns {LoopLaunch}
+ */
+const buildMarkerLaunch = (job, marker, hold, readActsBefore) => ({
+	root: hold.root,
+	issues: marker.issues,
+	prompt: `parked ${marker.issues.map((n) => `#${n}`).join(" ")}`,
+	seat: marker.job?.seat ?? "",
+	reason: /** @type {const} */ ("parked session's seat"),
+	jobId: job,
+	sessionId: marker.sessionId,
+	launchedAt: marker.writtenAt,
+	finishedAt: null,
+	actsBefore: readActsBefore(hold.root, marker.sessionId),
+});
+
+/**
+ * The launch due back for job `job`, parked on lifted hold `hold`, off the park
+ * marker that lists its issues: `from`, its launch record, made unfinished again
+ * until the resume step takes it.
+ * @param {string} job
+ * @param {import("./parked.js").ParkMarkerRead} marker
+ * @param {import("./repo-holds.js").LiftedHold} hold
+ * @param {LoopLaunch} from
  * @returns {JobLaunch}
  */
-function buildClearedLaunch(job, marker, hold, known) {
+function buildClearedLaunch(job, marker, hold, from) {
 	const {
 		block: _,
 		parked: __,
@@ -1194,17 +1219,7 @@ function buildClearedLaunch(job, marker, hold, known) {
 		handOffTries: _____,
 		handedOff: ______,
 		...base
-	} = known ?? {
-		root: hold.root,
-		issues: marker.issues,
-		prompt: `parked ${marker.issues.map((n) => `#${n}`).join(" ")}`,
-		seat: marker.job?.seat ?? "",
-		reason: /** @type {const} */ ("parked session's seat"),
-		jobId: job,
-		sessionId: marker.sessionId,
-		launchedAt: marker.writtenAt,
-		finishedAt: null,
-	};
+	} = from;
 	return {
 		...base,
 		issues: [...new Set([...base.issues, ...marker.issues])],
@@ -1269,7 +1284,12 @@ function judgeClearedJob(job, hold, { launches, markers }, { agents, io }) {
 		io.log(`left ${name} alone: ${launchName(holder)} now holds its ticket`);
 		return { isSettled: true };
 	}
-	const launch = buildClearedLaunch(job, marker, hold, known);
+	const launch = buildClearedLaunch(
+		job,
+		marker,
+		hold,
+		known ?? buildMarkerLaunch(job, marker, hold, io.readActsBefore),
+	);
 	if (isBlocked) {
 		const r = io.stop(launch.seat, job);
 		if (!r.ok && !r.noJob) {

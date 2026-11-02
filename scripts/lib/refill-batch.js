@@ -100,6 +100,7 @@ function buildWouldRunLine(call, overflow) {
  * @typedef {{resume: (l: import("./refill-decide.js").Launch,
  *   target: import("./refill-decide.js").ResumeTarget) =>
  *   import("./refill-blocks.js").Resumed,
+ *   readActsBefore: import("./refill-blocks.js").ReadActsBefore,
  *   admitResume: () => string|null, stagger: () => void,
  *   recordLaunch: typeof import("./dispatch-ledger.js").record,
  *   log: (line: string) => void, now: () => number}} ResumeIo
@@ -233,7 +234,9 @@ function launchBatch(batch, io) {
  * resume failed, for `l` to launch afresh. The resume is written to the
  * dispatch ledger as a launch, so the idle alarm dates the issue from it
  * (#3704); a write that fails is logged and the resume stands
- * (mantahostels#1528).
+ * (mantahostels#1528). A session woken in place keeps its id, so the record
+ * notes the acts read before the wake, which are not this launch's (#3942); a
+ * copy's session starts with none.
  * @param {import("./refill-decide.js").Launch} l
  * @param {NonNullable<import("./refill-decide.js").Launch["parkedRoute"]>} parked
  * @param {ResumeIo} io
@@ -246,6 +249,7 @@ function resumeParked(l, parked, io) {
 		return null;
 	};
 	if ("afresh" in parked) return afresh(parked.afresh);
+	const actsBefore = io.readActsBefore(l.root, parked.resume.sessionId);
 	const r = io.resume(l, parked.resume);
 	if (r.failed !== null) return afresh(r.failed);
 	io.log(`resumed parked ${launchName(l)} as job ${r.jobId}`);
@@ -273,6 +277,7 @@ function resumeParked(l, parked, io) {
 		launchedAt,
 		finishedAt: null,
 		...(r.sessionId ? { sessionId: r.sessionId } : {}),
+		...(r.copy ? {} : { actsBefore }),
 		...limitParksOf(l),
 	};
 }

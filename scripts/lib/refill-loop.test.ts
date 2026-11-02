@@ -41,6 +41,7 @@ import {
 	parseProbeOutcome,
 	parseScope,
 	parseState,
+	readActsSoFar,
 	readSizedSeats,
 	reviewStep,
 	runningOf,
@@ -365,6 +366,78 @@ describe("a finished launch's progress, from its session's acts ledger (#2312)",
 		expect(buildFinishLine(l)).toBe(
 			"finished design-vault /implement 1: file 2, commit 1, close 1",
 		);
+	});
+
+	describe("a parked session resumed in place as a new launch (#3942)", () => {
+		const readBefore = () => readActsSoFar("s-j3", [sb.repo], store.readActsBy);
+		const resumed = (
+			job: string,
+			actsBefore: Launch["actsBefore"],
+			over: Partial<Launch> = {},
+		) => ({ ...ended(job), sessionId: "s-j3", actsBefore, ...over });
+
+		it("counts only what it did since its resume", () => {
+			store.recordAct("file owner/repo#3", "s-j3", sb.repo);
+			store.recordCommit("d".repeat(40), "s-j3");
+			const before = readBefore();
+			expect(before).toEqual({ file: 1, commit: 1 });
+			store.recordAct("close owner/repo#3", "s-j3", sb.repo);
+			store.recordAct("file owner/repo#4", "s-j3", sb.repo);
+			const [l] = judgedByLedger([resumed("j3", before)]);
+			expect(l.acts).toEqual({ file: 1, close: 1 });
+		});
+
+		it("reads as no acts where it did nothing, and counts towards the no-progress stop", () => {
+			store.recordAct("file owner/repo#3", "s-j3", sb.repo);
+			const before = readBefore();
+			const history = judgedByLedger(
+				["j3", "j4", "j5"].map((job) => resumed(job, before)),
+			);
+			expect(history.map((r) => r.acts)).toEqual([{}, {}, {}]);
+			expect(buildFinishLine(history[0])).toBe(
+				"finished design-vault /implement 3: no acts",
+			);
+			expect(stopOn(history)).toMatchObject({ stop: "no-progress" });
+		});
+
+		it("still sums its past sessions where a limit then moved it to a copy (#2969)", () => {
+			store.recordAct("file owner/repo#3", "s-j3", sb.repo);
+			store.recordAct("close owner/repo#3", "s-j3", sb.repo);
+			store.recordAct("round owner/repo#3", "s-copy", sb.repo);
+			const [l] = judgedByLedger([
+				resumed(
+					"j3",
+					{ file: 1 },
+					{ sessionId: "s-copy", pastSessionIds: ["s-j3"] },
+				),
+			]);
+			expect(l.acts).toEqual({ close: 1, round: 1 });
+		});
+
+		it("is unread where its count at the resume was, not read as progress", () => {
+			store.recordAct("file owner/repo#3", "s-j3", sb.repo);
+			const [l] = judgedByLedger([resumed("j3", "unread")]);
+			expect(l.acts).toBe("unread");
+		});
+
+		it("is unread where a store would not read at its finish, not read as having done nothing", () => {
+			expect(
+				actsOf(
+					{ ...resumed("j3", { file: 1, close: 1 }) },
+					[sb.repo, other()],
+					() => ({ acts: ["file owner/repo#3"], unreadable: [other()] }),
+				),
+			).toEqual({ acts: "unread" });
+		});
+
+		it("takes no count from a store that would not read, as a part count passes its acts off as new", () => {
+			expect(
+				readActsSoFar("s-j3", [sb.repo], () => ({
+					acts: ["file owner/repo#3"],
+					unreadable: [sb.repo],
+				})),
+			).toBe("unread");
+		});
 	});
 
 	it("sums the acts of a launch's first session and the copy a resume moved it to (#2969)", () => {

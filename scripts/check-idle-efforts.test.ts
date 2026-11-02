@@ -472,6 +472,7 @@ describe("check-idle-efforts.js", () => {
 				},
 			],
 			{
+				readActsBefore: () => ({}),
 				resume: () => ({
 					failed: null,
 					jobId: "job1b",

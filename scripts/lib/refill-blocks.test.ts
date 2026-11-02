@@ -123,6 +123,7 @@ function fakeIo(over: Partial<BlockIo> = {}) {
 		},
 		readParkMarkers: () => [],
 		unparkResumed: () => null,
+		readActsBefore: () => ({}),
 		comment: (_, body) => calls.push(`comment ${body}`),
 		postHandOff: (l) => {
 			calls.push(`hand-off ${l.jobId}`);
@@ -2381,6 +2382,35 @@ describe("queueing the sessions parked on a lifted repo hold (#3863)", () => {
 		expect(logs(calls)).toEqual([
 			"could not stop session p, parked on repo hold abc now cleared, the next tick retries: refused",
 		]);
+	});
+
+	it("counts a session the loop never launched only from its resume, a known launch as it stood (#3942)", () => {
+		const readActsBefore = (root: string, sessionId: string) => ({
+			[`${root} ${sessionId}`]: 2,
+		});
+		const { out } = queue([agent("p", "stopped")], { readActsBefore });
+		expect(out.launches[0]).toMatchObject({
+			sessionId: "s-p",
+			actsBefore: { "/repo s-p": 2 },
+		});
+		const { io } = fakeIo({
+			readParkMarkers: () => [marker],
+			readActsBefore,
+		});
+		const known = {
+			...record(),
+			root: "/repo",
+			issues: [7],
+			jobId: "p",
+			sessionId: "s-p",
+		};
+		const { launches } = queueLifted([known], [hold], {
+			agents: [agent("p", "stopped")],
+			now: NOW,
+			io,
+			swapHold: NO_HOLD,
+		});
+		expect(launches[0]).not.toHaveProperty("actsBefore");
 	});
 
 	it("judges nothing off a marker directory that will not read", () => {
