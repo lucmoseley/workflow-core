@@ -1,5 +1,5 @@
 [Unit]
-Description=Restart the refill loop after a boot where no stop ended it
+Description=Restart the refill loop after a boot or user manager restart where no stop ended it
 
 [Service]
 Type=oneshot

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /*
  * install-refill-boot-unit.js — installs and enables this host's systemd user
- * unit that runs `refill-loop.js boot-resume` at boot (#3878), from
+ * unit that runs `refill-loop.js boot-resume` at each manager start (#3878), from
  * refill-loop-boot.service.template, turns linger on, and reads both back.
- * Enabled, not started: the unit first runs at the next boot.
+ * Enabled, not started: the unit first runs at the manager's next start.
  *
  * In a checkout the unit names the boot link (lib/refill-code.js), made here
  * where no loop has made it. A plugin install names its own refill-loop.js, so
@@ -15,7 +15,6 @@
  * call fails; 2 on a command line, or a path the unit could not quote.
  */
 
-const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -24,6 +23,7 @@ const { parseOrCode } = require("./lib/cli-args.js");
 const { configDir } = require("./lib/config-dir.js");
 const { bootProgram } = require("./lib/refill-code.js");
 const { loopFiles } = require("./lib/refill-files.js");
+const { runCommand } = require("./lib/run-command.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 
@@ -66,23 +66,6 @@ function buildUnitText(template, shell, script, log) {
 		.replace("@SHELL@", () => shell)
 		.replace("@SCRIPT@", () => script)
 		.replaceAll("@LOG@", () => log);
-}
-
-/**
- * One command's trimmed stdout, or why it failed in `error`.
- * @param {string} file
- * @param {string[]} args
- */
-function runCommand(file, args) {
-	const r = spawnSync(file, args, { encoding: "utf8" });
-	const out = (r.stdout ?? "").trim();
-	if (r.error) return { out, error: `${file}: ${r.error.message}` };
-	if (r.status !== 0)
-		return {
-			out,
-			error: `${file} ${args.join(" ")} exited ${r.status}: ${(r.stderr ?? "").trim()}`,
-		};
-	return { out, error: null };
 }
 
 function install() {
