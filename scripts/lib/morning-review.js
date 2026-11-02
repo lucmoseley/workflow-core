@@ -18,7 +18,10 @@
  *
  * A repo that does not read keeps its closes and decisions (#3831): the review
  * prints where its events went unread from, and the next starts that repo there
- * (repoStart), so each lands in the first review to read the repo. The line
+ * (repoStart), so each lands in the first review to read the repo. Each kind
+ * carries alone (#3928): a repo whose closes will not read lists its decisions
+ * and prints a `Closes unread` line, so the next review repeats none of them. An
+ * `Events unread` line is both kinds from one start. The line
  * outlives the checkout's absence from discovery, to the end buildAbsentRepos
  * gives it (#3835). Each review also prints the checkouts it read, so one's first
  * absence is carried from that review's window end (#3844).
@@ -44,7 +47,8 @@ const { buildIdleLines } = require("./idle-efforts.js");
 const TITLE = /^Morning review — (\d{4}-\d{2}-\d{2})$/;
 const WINDOW_LINE = /^Window: \S+ → ([^\s,]+)/m;
 const HISTORY_LINE = /^Table history read to ([0-9a-f]{40}) in (\S+)\.$/gm;
-const UNREAD_LINE = /^Events unread since (\S+) in (.+)\.$/gm;
+const UNREAD_LINE =
+	/^(Events|Closes|Decisions) unread since (\S+) in (.+)\.$/gm;
 const READ_LINE = /^Events read in (.+)\.$/gm;
 /* How far closes run behind the window: about 70 times the worst search lag
  * measured, 12.3 s (#3827), as GitHub publishes no bound and the sample is small.
@@ -115,15 +119,22 @@ function windowStart(previous, now) {
 }
 
 /**
- * Where a review's body says a checkout's events went unread from, or null.
+ * Where a review's body says each kind of a checkout's events went unread from.
  * @param {string} body
  * @param {string} checkout
- * @returns {string | null}
+ * @returns {{closes?: string, decisions?: string}}
  */
-function parseUnreadStart(body, checkout) {
-	for (const [, at, named] of body.matchAll(UNREAD_LINE))
-		if (named === checkout) return at ?? null;
-	return null;
+function parseUnreadStarts(body, checkout) {
+	/** @type {{closes?: string, decisions?: string}} */
+	const at = {};
+	for (const m of body.matchAll(UNREAD_LINE)) {
+		if (requiredGroup(m, 3, UNREAD_LINE) !== checkout) continue;
+		const kind = requiredGroup(m, 1, UNREAD_LINE);
+		const time = requiredGroup(m, 2, UNREAD_LINE);
+		if (kind !== "Decisions") at.closes ??= time;
+		if (kind !== "Closes") at.decisions ??= time;
+	}
+	return at;
 }
 
 /**
@@ -135,7 +146,7 @@ const parseKnownCheckouts = (previous) => {
 	return [
 		...new Set([
 			...[...body.matchAll(UNREAD_LINE)].map((m) =>
-				requiredGroup(m, 2, UNREAD_LINE),
+				requiredGroup(m, 3, UNREAD_LINE),
 			),
 			...[...body.matchAll(READ_LINE)].map((m) =>
 				requiredGroup(m, 1, READ_LINE),
@@ -145,23 +156,58 @@ const parseKnownCheckouts = (previous) => {
 };
 
 /**
- * Where a checkout's events start: where the previous review says they went
- * unread from, else the window's start. Residual: a line whose time will not
- * read, as after a hand edit, starts at the window's start, and `why` says so.
+ * Where each kind of a checkout's events starts: where the previous review says
+ * it went unread from, else the window's start. Residual: a line whose time will
+ * not read, as after a hand edit, starts at the window's start, and `why` says so.
  * @param {{number: number, body: string} | undefined} previous
  * @param {string} checkout its directory name, which a read of no config still has
  * @param {string} since
- * @returns {{since: string, why: string | null}}
+ * @returns {RepoStart}
  */
 function repoStart(previous, checkout, since) {
-	const at = previous ? parseUnreadStart(previous.body, checkout) : null;
-	if (at === null) return { since, why: null };
-	return Number.isNaN(Date.parse(at))
-		? {
-				since,
-				why: `#${previous?.number}'s Events unread line, so events before ${since}`,
-			}
-		: { since: at, why: null };
+	const at = previous ? parseUnreadStarts(previous.body, checkout) : {};
+	/** @param {string | undefined} time */
+	const isBad = (time) => time !== undefined && Number.isNaN(Date.parse(time));
+	/** @param {string | undefined} time */
+	const usable = (time) => (time === undefined || isBad(time) ? since : time);
+	return {
+		closes: usable(at.closes),
+		decisions: usable(at.decisions),
+		why:
+			isBad(at.closes) || isBad(at.decisions)
+				? `#${previous?.number}'s unread line, so events before ${since}`
+				: null,
+	};
+}
+
+/**
+ * Where a checkout's table history went unread from, its commit-time fallback: a
+ * review reading either kind read the history too, so the later start (#3928).
+ * Residual: a history that failed in such a review, with no cursor before it,
+ * starts after what that review missed.
+ * @param {RepoStart} start
+ * @returns {string}
+ */
+const historyStart = ({ closes, decisions }) =>
+	Date.parse(closes) < Date.parse(decisions) ? decisions : closes;
+
+/**
+ * The lines carrying what of a checkout's events this review did not read.
+ * @param {string} checkout
+ * @param {RepoStart} start
+ * @param {{closes: boolean, decisions: boolean}} unread
+ * @returns {UnreadEvents[]}
+ */
+function buildCarryLines(checkout, start, unread) {
+	if (unread.closes && unread.decisions && start.closes === start.decisions)
+		return [{ kind: "Events", checkout, since: start.closes }];
+	/** @type {UnreadEvents[]} */
+	const lines = [];
+	if (unread.closes)
+		lines.push({ kind: "Closes", checkout, since: start.closes });
+	if (unread.decisions)
+		lines.push({ kind: "Decisions", checkout, since: start.decisions });
+	return lines;
 }
 
 /**
@@ -176,7 +222,7 @@ const startFaults = (checkout, { why }) =>
 /**
  * A checkout that gave this review nothing: named, with its events carried.
  * @param {string} checkout
- * @param {{since: string, why: string | null}} start its repoStart
+ * @param {RepoStart} start
  * @param {string} repo what to name it, its tracker where that read
  * @param {string} why
  * @returns {RepoRead}
@@ -184,26 +230,45 @@ const startFaults = (checkout, { why }) =>
 const unreadRepo = (checkout, start, repo, why) => ({
 	reading: null,
 	unread: [...startFaults(checkout, start), { repo, why }],
-	unreadEvents: [{ checkout, since: start.since }],
+	unreadEvents: buildCarryLines(checkout, start, {
+		closes: true,
+		decisions: true,
+	}),
 });
 
 /**
+ * A checkout whose carry ends, for the kinds `ended` names, naming what that gives
+ * up; any other kind stays carried.
  * @param {string} checkout
- * @param {{since: string, why: string | null}} start its repoStart
+ * @param {RepoStart} start
  * @param {string} why
+ * @param {{closes: boolean, decisions: boolean}} ended
  * @returns {RepoRead}
  */
-const buildEndedRepo = (checkout, start, why) => ({
-	reading: null,
-	unread: [
-		...startFaults(checkout, start),
-		{
-			repo: checkout,
-			why: `${why}, so its events since ${start.since} reach no review`,
-		},
-	],
-	unreadEvents: [],
-});
+function buildEndedRepo(checkout, start, why, ended) {
+	const isOneStart =
+		ended.closes && ended.decisions && start.closes === start.decisions;
+	const givenUp = isOneStart
+		? [`its events since ${start.closes}`]
+		: [
+				...(ended.closes ? [`its closes since ${start.closes}`] : []),
+				...(ended.decisions ? [`its decisions since ${start.decisions}`] : []),
+			];
+	return {
+		reading: null,
+		unread: [
+			...startFaults(checkout, start),
+			{
+				repo: checkout,
+				why: `${why}, so ${givenUp.join(" and ")} reach no review`,
+			},
+		],
+		unreadEvents: buildCarryLines(checkout, start, {
+			closes: !ended.closes,
+			decisions: !ended.decisions,
+		}),
+	};
+}
 
 /**
  * The review's parts for the checkouts the previous review read or carried and
@@ -225,14 +290,24 @@ function buildAbsentRepos({ previous, listed, since, nowMs, readAbsence }) {
 		if (absence === null) return [];
 		const { carried, why } = absence;
 		const start = repoStart(previous, checkout, since);
-		if (!carried) return [buildEndedRepo(checkout, start, why)];
-		const limit = ABSENT_CARRY_DAYS * DAY_MS;
-		return nowMs - Date.parse(start.since) > limit
+		if (!carried)
+			return [
+				buildEndedRepo(checkout, start, why, { closes: true, decisions: true }),
+			];
+		/** @param {string} at */
+		const isOverLimit = (at) =>
+			nowMs - Date.parse(at) > ABSENT_CARRY_DAYS * DAY_MS;
+		const ended = {
+			closes: isOverLimit(start.closes),
+			decisions: isOverLimit(start.decisions),
+		};
+		return ended.closes || ended.decisions
 			? [
 					buildEndedRepo(
 						checkout,
 						start,
 						`${why} and carried over ${ABSENT_CARRY_DAYS} days`,
+						ended,
 					),
 				]
 			: [unreadRepo(checkout, start, checkout, why)];
@@ -313,15 +388,21 @@ function parseOneWayDoor(comments) {
  *   check-primitives.js's count line, and the commits touching each standards
  *   file up to `tip` that no earlier review read, with why they were found by
  *   commit time where they were; or why either did not read
- * @typedef {{checkout: string, repo: string, since: string, entries: LedgerLine[],
- *   closed: ClosedIssue[], stalls: OpenIssue[], urgent: UrgentIssue[],
+ * @typedef {{checkout: string, repo: string, closesSince: string,
+ *   decisionsSince: string, entries: LedgerLine[] | null,
+ *   closed: ClosedIssue[] | null, stalls: OpenIssue[], urgent: UrgentIssue[],
  *   parked: ParkedIssue[], primitives: PrimitivesReading}}
  *   RepoReading its directory name, which the next review looks it up by; its
- *   tracker; where the repo's events start (repoStart), its ledger, its
- *   closes, its open stall ticket (lib/stall-ticket.js, #2692), its urgent
- *   issues and its parked ones
- * @typedef {{checkout: string, since: string}} UnreadEvents a checkout that did
- *   not read, and where its events start
+ *   tracker; where its closes and its decisions start (repoStart), its ledger
+ *   and its closes, each null where it did not read, its
+ *   open stall ticket (lib/stall-ticket.js, #2692), its urgent issues and its
+ *   parked ones
+ * @typedef {{closes: string, decisions: string, why: string | null}} RepoStart
+ *   where each kind of a checkout's events starts, and what of its line would
+ *   not read
+ * @typedef {{kind: "Events" | "Closes" | "Decisions", checkout: string,
+ *   since: string}} UnreadEvents what of a checkout did not read, and where it
+ *   starts; `Events` is both kinds
  * @typedef {{reading: RepoReading | null, unread: Unread[],
  *   unreadEvents: UnreadEvents[]}} RepoRead one checkout's part of a review
  * @typedef {{checkout: string, repo: string | null, act: string, issue: number | null,
@@ -575,6 +656,54 @@ function renderHoldLines(holds) {
 }
 
 /**
+ * The Closed tickets section. Closes that did not read count as none and are named,
+ * so the tally and the one-way list speak only for the repos read (#3928).
+ * @param {{repo: string, closesSince: string, closed: ClosedIssue[] | null}[]} readings
+ * @param {string} since
+ * @param {string} closedTo
+ * @returns {string[]}
+ */
+function renderClosedLines(readings, since, closedTo) {
+	const isPartial = readings.some((r) => r.closed === null);
+	const closedCount = readings.reduce(
+		(sum, r) => sum + (r.closed?.length ?? 0),
+		0,
+	);
+	const perRepo = readings.map((r) => {
+		if (r.closed === null)
+			return `- ${r.repo}: not read, so the next review to read them lists them`;
+		const from = closeEdge(r.closesSince);
+		return `- ${r.repo}: ${r.closed.length}${r.closesSince === since ? "" : ` from ${from}, as the reviews since did not read it`} — [search](${issueSearch(
+			`repo:${r.repo} is:issue is:closed closed:>=${searchTime(from)}`,
+		)})`;
+	});
+	const oneWay = readings.flatMap(({ repo, closed }) =>
+		(closed ?? []).flatMap((c) => {
+			const door = parseOneWayDoor(c.comments);
+			return door === null
+				? []
+				: [
+						`- ${repo}#${c.number} — ${quoted(c.title)} — ${quoted(door || "one-way")}`,
+					];
+		}),
+	);
+	return [
+		"## Closed tickets",
+		"",
+		`${closedCount} closed across ${isPartial ? "the repos read" : "included repos"}, ${closeEdge(since)} → ${closedTo}, ${CLOSE_SETTLE_MS / 60_000} minutes behind the window so that GitHub's search holds them:`,
+		"",
+		...perRepo,
+		"",
+		"One-way closes:",
+		"",
+		...(oneWay.length === 0
+			? [isPartial ? "None in the repos read." : "None."]
+			: oneWay),
+		"",
+	];
+}
+
+/**
  * @param {Reading} r
  * @returns {string}
  */
@@ -595,20 +724,27 @@ function renderReview({
 	/** @param {string} from @param {string} to */
 	const between = (from, to) => (/** @type {string} */ at) =>
 		Date.parse(at) > Date.parse(from) && Date.parse(at) <= Date.parse(to);
-	const closedFrom = closeEdge(since);
 	const closedTo = closeEdge(now);
 
-	const readings = repos.map(({ repo, since: start, entries, closed }) => {
-		const decided = entries.filter((e) => between(start, now)(e.at));
-		const isClosedInSpan = between(closeEdge(start), closedTo);
-		return {
-			repo,
-			start,
-			caught: decided.filter((e) => e.stillClose),
-			clear: decided.filter((e) => !e.stillClose).length,
-			closed: closed.filter((c) => isClosedInSpan(c.closedAt)),
-		};
-	});
+	const readings = repos.map(
+		({ repo, closesSince, decisionsSince, entries, closed }) => {
+			const decided = (entries ?? []).filter((e) =>
+				between(decisionsSince, now)(e.at),
+			);
+			const isClosedInSpan = between(closeEdge(closesSince), closedTo);
+			return {
+				repo,
+				closesSince,
+				decisionsSince,
+				caught: decided.filter((e) => e.stillClose),
+				clear: decided.filter((e) => !e.stillClose).length,
+				closed:
+					closed === null
+						? null
+						: closed.filter((c) => isClosedInSpan(c.closedAt)),
+			};
+		},
+	);
 
 	const numbered = readings.flatMap(({ repo, caught }) =>
 		caught.map((e) => ({ repo, e })),
@@ -619,11 +755,22 @@ function renderReview({
 		...(numbered[i + 1]?.repo === repo ? [] : [""]),
 	]);
 
+	const ledgersUnread = repos.flatMap((r) =>
+		r.entries === null
+			? [`- ${r.repo}: not read, so the next review to read it lists them`]
+			: [],
+	);
+	const noDecisions =
+		ledgersUnread.length === 0
+			? "None in the window."
+			: "None in the repos read.";
 	const clearCount = readings.reduce((sum, r) => sum + r.clear, 0);
 	const clearRepos = readings.filter((r) => r.clear > 0);
 	const clearFrom = clearRepos.reduce(
 		(earliest, r) =>
-			Date.parse(r.start) < Date.parse(earliest) ? r.start : earliest,
+			Date.parse(r.decisionsSince) < Date.parse(earliest)
+				? r.decisionsSince
+				: earliest,
 		since,
 	);
 	/* Comments recorded before #2594 print `Still close:` and are never
@@ -631,18 +778,11 @@ function renderReview({
 	 * date, so any old issue can re-enter the window: both wordings for good. */
 	const clearLine =
 		clearCount === 0
-			? "None in the window."
+			? noDecisions
 			: `${clearCount} made ${clearFrom === since ? "in the window" : `since ${clearFrom}, as a review since did not read a repo`} — [search](${issueSearch(
 					`${clearRepos.map((r) => `repo:${r.repo}`).join(" ")} ("Still caught: no" OR "Still close: no") in:comments updated:>=${searchTime(clearFrom)}`,
 				)}).`;
 
-	const closedCount = readings.reduce((sum, r) => sum + r.closed.length, 0);
-	const perRepo = readings.map((r) => {
-		const from = closeEdge(r.start);
-		return `- ${r.repo}: ${r.closed.length}${r.start === since ? "" : ` from ${from}, as the reviews since did not read it`} — [search](${issueSearch(
-			`repo:${r.repo} is:issue is:closed closed:>=${searchTime(from)}`,
-		)})`;
-	});
 	const stuck = repos.flatMap(({ repo, urgent }) =>
 		urgent.flatMap((i) => {
 			const age = hi - Date.parse(i.appliedAt);
@@ -653,17 +793,6 @@ function renderReview({
 				: [];
 		}),
 	);
-	const oneWay = readings.flatMap(({ repo, closed }) =>
-		closed.flatMap((c) => {
-			const door = parseOneWayDoor(c.comments);
-			return door === null
-				? []
-				: [
-						`- ${repo}#${c.number} — ${quoted(c.title)} — ${quoted(door || "one-way")}`,
-					];
-		}),
-	);
-
 	const stalls = repos.flatMap(({ repo, stalls: open }) =>
 		open.map((i) => `- ${repo}#${i.number} — ${quoted(i.title)}`),
 	);
@@ -698,10 +827,10 @@ function renderReview({
 			? []
 			: [
 					"",
-					"The next review to read each of these lists its closes and decisions:",
+					"The next review to read each of these lists what it names, events being both closes and decisions:",
 					"",
 					...unreadEvents.map(
-						(u) => `Events unread since ${u.since} in ${u.checkout}.`,
+						(u) => `${u.kind} unread since ${u.since} in ${u.checkout}.`,
 					),
 				]),
 		"",
@@ -732,26 +861,19 @@ function renderReview({
 		"",
 		"## Still-caught delegated decisions",
 		"",
-		...(caughtLines.length === 0 ? ["None in the window.", ""] : caughtLines),
+		...(caughtLines.length === 0 ? [noDecisions, ""] : caughtLines),
+		...(ledgersUnread.length === 0 ? [] : [...ledgersUnread, ""]),
 		"## Clear delegated decisions",
 		"",
 		clearLine,
 		"",
+		...(ledgersUnread.length === 0 ? [] : [...ledgersUnread, ""]),
 		"## Primitives",
 		"",
 		"Each repo's count line, then each primitives-table row added, removed or rewritten since the last review's read, with its commit:",
 		"",
 		...renderPrimitivesLines(repos, numbered.length + 1),
-		"## Closed tickets",
-		"",
-		`${closedCount} closed across included repos, ${closedFrom} → ${closedTo}, ${CLOSE_SETTLE_MS / 60_000} minutes behind the window so that GitHub's search holds them:`,
-		"",
-		...perRepo,
-		"",
-		"One-way closes:",
-		"",
-		...(oneWay.length === 0 ? ["None."] : oneWay),
-		"",
+		...renderClosedLines(readings, since, closedTo),
 		"## Stuck urgent",
 		"",
 		`Open issues labelled \`urgent\` more than ${STUCK_URGENT_DAYS} days ago, with why pick-next's last run in that checkout left each unlaunched:`,
@@ -854,6 +976,8 @@ module.exports = {
 	closeEdge,
 	parseHistoryCursor,
 	buildAbsentRepos,
+	buildCarryLines,
+	historyStart,
 	repoStart,
 	startFaults,
 	unreadRepo,

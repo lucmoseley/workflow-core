@@ -15,6 +15,8 @@ const {
 	closeEdge,
 	parseHistoryCursor,
 	buildAbsentRepos,
+	buildCarryLines,
+	historyStart,
 	repoStart,
 	unreadRepo,
 	windowStart,
@@ -93,7 +95,8 @@ const render = (
 		previous,
 		repos: repos.map((r) => ({
 			checkout: "wfc",
-			since: SINCE,
+			closesSince: SINCE,
+			decisionsSince: SINCE,
 			urgent: [],
 			parked: [],
 			primitives: QUIET_PRIMITIVES,
@@ -128,7 +131,7 @@ describe("buildAbsentRepos (#3835)", () => {
 			{
 				reading: null,
 				unread: [{ repo: "gone", why: "no .git" }],
-				unreadEvents: [{ checkout: "gone", since: at }],
+				unreadEvents: [{ kind: "Events", checkout: "gone", since: at }],
 			},
 		]);
 	});
@@ -162,6 +165,46 @@ describe("buildAbsentRepos (#3835)", () => {
 	});
 });
 
+describe("buildAbsentRepos on a checkout carrying one kind (#3928)", () => {
+	const Old = "2026-09-01T07:00:00.000Z";
+	const absent = (body: string, carried = true) =>
+		buildAbsentRepos({
+			previous: { number: 7, body },
+			listed: new Set(),
+			since: SINCE,
+			nowMs: Date.parse(NOW),
+			readAbsence: () => ({ carried, why: "no .git" }),
+		});
+
+	it("ends only the kind past its 30th day, and keeps carrying the other", () => {
+		expect(
+			absent(`Closes unread since ${Old} in wfc.\nEvents read in wfc.\n`),
+		).toEqual([
+			{
+				reading: null,
+				unread: [
+					{
+						repo: "wfc",
+						why: `no .git and carried over 30 days, so its closes since ${Old} reach no review`,
+					},
+				],
+				unreadEvents: [{ kind: "Decisions", checkout: "wfc", since: SINCE }],
+			},
+		]);
+	});
+
+	it("names each kind's own start where both end", () => {
+		const [part] = absent(`Closes unread since ${Old} in wfc.\n`, false);
+		expect(part.unread).toEqual([
+			{
+				repo: "wfc",
+				why: `no .git, so its closes since ${Old} and its decisions since ${SINCE} reach no review`,
+			},
+		]);
+		expect(part.unreadEvents).toEqual([]);
+	});
+});
+
 describe("buildAbsentRepos on a checkout the previous review read (#3844)", () => {
 	const read = (body: string) =>
 		buildAbsentRepos({
@@ -177,7 +220,7 @@ describe("buildAbsentRepos on a checkout the previous review read (#3844)", () =
 			{
 				reading: null,
 				unread: [{ repo: "my wfc", why: "no .git" }],
-				unreadEvents: [{ checkout: "my wfc", since: SINCE }],
+				unreadEvents: [{ kind: "Events", checkout: "my wfc", since: SINCE }],
 			},
 		]);
 	});
@@ -203,7 +246,7 @@ describe("the Checkouts read section (#3844)", () => {
 				nowMs: Date.parse(NOW),
 				readAbsence: () => ({ carried: true, why: "no .git" }),
 			}).flatMap((r: { unreadEvents: object[] }) => r.unreadEvents),
-		).toEqual([{ checkout: "my wfc", since: SINCE }]);
+		).toEqual([{ kind: "Events", checkout: "my wfc", since: SINCE }]);
 	});
 
 	it("says None where no checkout read", () => {
@@ -221,13 +264,14 @@ describe("repoStart (#3831)", () => {
 
 	it("starts a checkout the previous review could not read where its events went unread from", () => {
 		expect(repoStart(previous, "my wfc", NOW)).toEqual({
-			since: "2026-10-16T07:00:00Z",
+			closes: "2026-10-16T07:00:00Z",
+			decisions: "2026-10-16T07:00:00Z",
 			why: null,
 		});
 	});
 
 	it("starts any other checkout at the window's start", () => {
-		const atWindowStart = { since: NOW, why: null };
+		const atWindowStart = { closes: NOW, decisions: NOW, why: null };
 		expect(repoStart(previous, "acme", NOW)).toEqual(atWindowStart);
 		expect(repoStart(undefined, "my wfc", NOW)).toEqual(atWindowStart);
 	});
@@ -235,24 +279,91 @@ describe("repoStart (#3831)", () => {
 	it("starts at the window's start, saying so, where the line's time will not read", () => {
 		const body = "Events unread since soon in wfc.\n";
 		expect(repoStart({ number: 7, body }, "wfc", NOW)).toEqual({
-			since: NOW,
-			why: `#7's Events unread line, so events before ${NOW}`,
+			closes: NOW,
+			decisions: NOW,
+			why: `#7's unread line, so events before ${NOW}`,
 		});
+	});
+
+	it("starts each kind at its own line, the other at the window's start (#3928)", () => {
+		const closes = "Closes unread since 2026-10-16T07:00:00Z in wfc.\n";
+		expect(repoStart({ number: 7, body: closes }, "wfc", NOW)).toEqual({
+			closes: "2026-10-16T07:00:00Z",
+			decisions: NOW,
+			why: null,
+		});
+		const both = `${closes}Decisions unread since 2026-10-17T07:00:00Z in wfc.\n`;
+		expect(repoStart({ number: 7, body: both }, "wfc", NOW)).toEqual({
+			closes: "2026-10-16T07:00:00Z",
+			decisions: "2026-10-17T07:00:00Z",
+			why: null,
+		});
+	});
+});
+
+describe("buildCarryLines (#3928)", () => {
+	const Old = "2026-10-16T07:00:00Z";
+	const both = { closes: true, decisions: true };
+
+	it("carries nothing a review read, and only the kind it did not", () => {
+		const start = { closes: Old, decisions: SINCE, why: null };
+		expect(
+			buildCarryLines("wfc", start, { closes: false, decisions: false }),
+		).toEqual([]);
+		expect(
+			buildCarryLines("wfc", start, { closes: true, decisions: false }),
+		).toEqual([{ kind: "Closes", checkout: "wfc", since: Old }]);
+		expect(
+			buildCarryLines("wfc", start, { closes: false, decisions: true }),
+		).toEqual([{ kind: "Decisions", checkout: "wfc", since: SINCE }]);
+	});
+
+	it("carries both kinds as one line from one start, and as two from two", () => {
+		expect(
+			buildCarryLines("wfc", { closes: Old, decisions: Old, why: null }, both),
+		).toEqual([{ kind: "Events", checkout: "wfc", since: Old }]);
+		expect(
+			buildCarryLines(
+				"wfc",
+				{ closes: Old, decisions: SINCE, why: null },
+				both,
+			),
+		).toEqual([
+			{ kind: "Closes", checkout: "wfc", since: Old },
+			{ kind: "Decisions", checkout: "wfc", since: SINCE },
+		]);
+	});
+});
+
+describe("historyStart (#3928)", () => {
+	it("takes the later start, as a review reading either kind read the history", () => {
+		const start = {
+			closes: "2026-10-16T07:00:00Z",
+			decisions: "2026-10-17T07:00:00Z",
+			why: null,
+		};
+		expect(historyStart(start)).toBe("2026-10-17T07:00:00Z");
+		expect(
+			historyStart({
+				...start,
+				closes: "2026-10-18T07:00:00Z",
+			}),
+		).toBe("2026-10-18T07:00:00Z");
 	});
 });
 
 describe("unreadRepo (#3834)", () => {
 	it("names the repo and carries the checkout's start", () => {
-		const start = { since: SINCE, why: null };
+		const start = { closes: SINCE, decisions: SINCE, why: null };
 		expect(unreadRepo("wfc", start, "acme/wfc", "no read")).toEqual({
 			reading: null,
 			unread: [{ repo: "acme/wfc", why: "no read" }],
-			unreadEvents: [{ checkout: "wfc", since: SINCE }],
+			unreadEvents: [{ kind: "Events", checkout: "wfc", since: SINCE }],
 		});
 	});
 
 	it("names a start that would not read as well", () => {
-		const start = { since: SINCE, why: "bad line" };
+		const start = { closes: SINCE, decisions: SINCE, why: "bad line" };
 		expect(unreadRepo("wfc", start, "acme/wfc", "no read").unread).toEqual([
 			{ repo: "wfc", why: "bad line" },
 			{ repo: "acme/wfc", why: "no read" },
@@ -267,7 +378,8 @@ describe("renderReview (#2011)", () => {
 			[
 				{
 					repo: "acme/a",
-					since: start,
+					closesSince: start,
+					decisionsSince: start,
 					stalls: [],
 					entries: [
 						entry("2026-10-16T07:00:00Z", 1, true, "At the start"),
@@ -310,10 +422,55 @@ describe("renderReview (#2011)", () => {
 		expect(quiet).not.toContain("Events unread since");
 		const body = renderWith({
 			failed: [{ repo: "acme/wfc", why: "HTTP 502" }],
-			unreadEvents: [{ checkout: "wfc", since: SINCE }],
+			unreadEvents: [{ kind: "Events", checkout: "wfc", since: SINCE }],
 		});
-		expect(repoStart({ number: 7, body }, "wfc", NOW).since).toBe(SINCE);
+		expect(repoStart({ number: 7, body }, "wfc", NOW)).toEqual({
+			closes: SINCE,
+			decisions: SINCE,
+			why: null,
+		});
 		expect(body).toContain("- acme/wfc: `HTTP 502`");
+	});
+
+	it("says decisions that did not read are unread, never none in the window (#3928)", () => {
+		const unread =
+			"- acme/a: not read, so the next review to read it lists them";
+		const body = render([
+			{ repo: "acme/a", stalls: [], entries: null, closed: [] },
+		]);
+		expect(body).toContain(
+			"## Still-caught delegated decisions\n\nNone in the repos read.",
+		);
+		expect(body).toContain(
+			"## Clear delegated decisions\n\nNone in the repos read.",
+		);
+		expect(body.split(unread)).toHaveLength(3);
+	});
+
+	it("says closes that did not read are unread, never 0, and counts the rest (#3928)", () => {
+		const body = render([
+			{ repo: "acme/a", stalls: [], entries: [], closed: null },
+			{
+				repo: "acme/b",
+				stalls: [],
+				entries: [],
+				closed: [closed(4, "2026-10-17T08:00:00Z", "one-way — gone")],
+			},
+		]);
+		expect(body).toContain(
+			"- acme/a: not read, so the next review to read them lists them",
+		);
+		expect(body).not.toMatch(/- acme\/a: 0/);
+		expect(body).toContain("1 closed across the repos read");
+		expect(body).toContain("acme/b#4");
+	});
+
+	it("speaks for the repos read where the only closes did not read (#3928)", () => {
+		const body = render([
+			{ repo: "acme/a", stalls: [], entries: [], closed: null },
+		]);
+		expect(body).toContain("0 closed across the repos read");
+		expect(body).toContain("One-way closes:\n\nNone in the repos read.");
 	});
 
 	it("lists each repo's open stall ticket, and says none is open where none is (#2692)", () => {
