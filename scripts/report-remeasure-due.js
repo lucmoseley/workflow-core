@@ -105,6 +105,11 @@
  * counted tier, with at least as many lines as the earlier held in all, and the same reviewed tree, or the same base, paths and landed sha, as two
  * commits from one base over the same paths are separate reviews here. What the
  * earlier one did count is then dropped rather than summed with the restatement.
+ * NO POST CLEARS a record whose review owed none, or one whose correction changes
+ * its tree and its base or paths, as that is another review here, summed with it
+ * where it names the same landed sha. Each remedy says so, and to delete the record
+ * from its comment (#4007). Residual: a deletion silences any fault and drops the
+ * record's lines from the count, with only GitHub's edit history to show it.
  *
  * A CORRECTED RECORD REPLACES (#3993): a later faultless record on the ticket,
  * naming the same landed sha and the same reviewed tree, or the same base and
@@ -234,6 +239,12 @@ const JUDGED_REF = "refs/remotes/origin/main";
  * (5d3f65283 on `landing`)". Residual: a hex-only word ahead of the sha reads
  * as it, so that commit stays reported as UNRECORDED too. */
 const LANDED_CLAUSE = new RegExp(`\\blanded\\b[^,]*?\\b(${HEX_RUN})\\b`);
+
+/* What a remedy says where no later post can clear a record (#4007). The list goes
+ * too: without its head, its lines would read as past the list of a record above. */
+const DELETE_RECORD =
+	"edit the old comment to delete that record's **Review findings:** head and its list";
+const SHARES_REVIEW = "sharing its reviewed tree, or its base and paths";
 
 /* buildBody's first line, whose count a gate reads (#3576). */
 const COUNT_LINE = /^(\d+) commits\b/;
@@ -687,7 +698,7 @@ function placeEscape(s, commits, checkouts, { parsed, cover, own }) {
 		else if (repo !== own)
 			faults.push({
 				tag: "UNCOUNTED",
-				fault: `${repo}: an **Escaped defect:** names ${s}, which no counted record covers, so it counts on nothing until a record covers it or the line is corrected`,
+				fault: `${repo}: an **Escaped defect:** names ${s}, which no counted record covers, so it counts on nothing until a record covers it or the line is edited in its comment`,
 			});
 	}
 	return { isAccountedFor, faults, undercounts };
@@ -721,7 +732,7 @@ function creditEscapes(commits, escaped, reading) {
 		undercounts ||= placed.undercounts;
 		for (const f of placed.faults) faults.set(f.fault, f);
 		if (!placed.isAccountedFor) {
-			const fault = `an **Escaped defect:** names ${s}, which no counted record names as landed and no checkout on this machine holds, so it counts on no record until a checkout holds it or the line is corrected`;
+			const fault = `an **Escaped defect:** names ${s}, which no counted record names as landed and no checkout on this machine holds, so it counts on no record until a checkout holds it or the line is edited in its comment`;
 			faults.set(fault, { tag: "UNLOCATED", fault });
 		}
 	}
@@ -752,7 +763,7 @@ function readLandedAt(c, home) {
 			at: "unheld",
 			fault: {
 				tag: "UNJUDGED",
-				fault: `${c.repo}#${c.issue}: could not walk landed ${c.landed} against ${JUDGED_REF} and ${pushed} in ${root}, so its commit is not counted until that checkout holds it or a record of the same review names the sha — ${onPushed.why}`,
+				fault: `${c.repo}#${c.issue}: could not walk landed ${c.landed} against ${JUDGED_REF} and ${pushed} in ${root}, so its commit is not counted until that checkout holds it or a record under a counted tier, ${SHARES_REVIEW}, names a sha it holds; where the correction changes both, ${DELETE_RECORD} — ${onPushed.why}`,
 			},
 		};
 	if (onMain.ok && onMain.out === "") return { at: "main" };
@@ -794,7 +805,7 @@ function judgeRecords(commits, home, own) {
 		if (place?.at === "off" && !isCorrected(c))
 			owed.push({
 				tag: "OFF MAIN",
-				fault: `${c.repo}#${c.issue} has a record naming landed ${c.landed}, which never reached main, so its commit is not counted until it is corrected: post a record naming the sha it landed under, as ${RULE_COMMAND} says`,
+				fault: `${c.repo}#${c.issue} has a record naming landed ${c.landed}, which never reached main, so its commit is not counted until it is corrected: post a record naming the sha it landed under, under a counted tier, ${SHARES_REVIEW}, as ${RULE_COMMAND} says; where the correction changes both, ${DELETE_RECORD}`,
 			});
 		return owed;
 	});
@@ -840,25 +851,29 @@ const isRestatement = (later, r) =>
 function settleRecords(found, root) {
 	/** @type {Report[]} */
 	const faults = [];
-	const judged = found.map((r) => ({ r, owed: readRecordFaults(r, root) }));
-	const standing = judged.map(({ r }) => ({ ...r }));
-	const records = judged.flatMap(({ r, owed }, i) => {
+	const judged = found.map((r) => ({
+		r,
+		owed: readRecordFaults(r, root),
+		standing: { ...r },
+	}));
+	const records = judged.flatMap(({ r, owed, standing }, i) => {
 		const withoutStray = owed.some((f) => f.tag === "NOT PATHS")
-			? { ...standing[i], paths: null }
-			: standing[i];
-		const replacer = judged.findIndex(
-			(later, j) =>
-				j > i &&
-				later.owed.length === 0 &&
-				(owed.length === 0 || isRestatement(later.r, r)) &&
-				isSameSha(later.r.landed, r.landed) &&
-				isSameReview(later.r, r),
-		);
-		if (replacer !== -1) {
-			takeReplay(standing[replacer], withoutStray);
+			? { ...standing, paths: null }
+			: standing;
+		const replacer = judged
+			.slice(i + 1)
+			.find(
+				(later) =>
+					later.owed.length === 0 &&
+					(owed.length === 0 || isRestatement(later.r, r)) &&
+					isSameSha(later.r.landed, r.landed) &&
+					isSameReview(later.r, r),
+			);
+		if (replacer) {
+			takeReplay(replacer.standing, withoutStray);
 			return [];
 		}
-		if (owed.length === 0) return [standing[i]];
+		if (owed.length === 0) return [standing];
 		if (
 			judged
 				.slice(i + 1)
@@ -868,7 +883,7 @@ function settleRecords(found, root) {
 		for (const f of owed)
 			faults.push({
 				tag: f.tag,
-				fault: `${r.repo}#${r.issue} has a record, landed ${r.landed}, ${f.what} until it is corrected: post a record of the same review ${f.fix}, as ${RULE_COMMAND} says`,
+				fault: `${r.repo}#${r.issue} has a record, landed ${r.landed}, ${f.what} until it is corrected: post a record of the same review ${f.fix}, as ${RULE_COMMAND} says. Of the same review means under a counted tier, sharing its reviewed tree, or its base, paths and landed sha, and holding all its FIXED and TICKETED lines. Where none can be posted, as a standard review owes none or a correction changes its tree and its base or paths, ${DELETE_RECORD}`,
 			});
 		return [withoutStray];
 	});
@@ -981,12 +996,12 @@ function landedTreeReport(c, home) {
 	if (!diff.ok)
 		return {
 			tag: "UNJUDGED",
-			fault: `${c.repo}#${c.issue}: could not diff reviewed ${c.tree} against landed ${c.landed} in ${checkout.root}, so whether its record names the landed tree is not judged until that checkout holds both — ${diff.why}`,
+			fault: `${c.repo}#${c.issue}: could not diff reviewed ${c.tree} against landed ${c.landed} in ${checkout.root}, so whether its record names the landed tree is not judged until that checkout holds both, or a record under a counted tier with its base, paths and landed sha names a tree it holds — ${diff.why}`,
 		};
 	if (diff.out !== "") return null;
 	return {
 		tag: "LANDED TREE",
-		fault: `${c.repo}#${c.issue} has a record naming reviewed ${c.tree}, the tree landed ${c.landed} carries on its paths, so a replay finds none of its fixed defects: name the tree pinned before the first round's dispatch, as ${RULE_COMMAND} says`,
+		fault: `${c.repo}#${c.issue} has a record naming reviewed ${c.tree}, the tree landed ${c.landed} carries on its paths, so a replay finds none of its fixed defects: post, under a counted tier, a record naming the tree pinned before the first round's dispatch, with its base, paths and landed sha, as ${RULE_COMMAND} says; where the correction changes its base or paths too, ${DELETE_RECORD}; with no pin taken, no correction exists, so this line stays`,
 	};
 }
 
@@ -1178,7 +1193,7 @@ function main() {
 	for (const u of unparsed)
 		writeReport({
 			tag: "UNPARSEABLE",
-			fault: `${u.repo}#${u.issue} has a record not in ${RULE_COMMAND}'s form, so its commit is not counted until it is corrected: ${u.line}`,
+			fault: `${u.repo}#${u.issue} has a record not in ${RULE_COMMAND}'s form, so its commit is not counted until it is corrected: edit it, or post a record in that form ${SHARES_REVIEW}: ${u.line}`,
 		});
 	for (const r of reports) writeReport(r);
 	commits = commits.filter((c) => c.repo !== own);

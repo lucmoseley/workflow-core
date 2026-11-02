@@ -89,9 +89,9 @@ const ESCAPED = new RegExp(`\\*\\*Escaped defect:\\*\\*\\s*${SHA}`, "g");
  *   | { at: number, record: RegExpExecArray }
  *   | { at: number, unparsed: string }} Mark
  * @typedef {{ tag: "NO TIER" | "CUT OFF" | "MISSPELT" | "NOT PATHS" | "UNJUDGED",
- *   what: string, fix: string }} RecordFault
+ *   what: string, fix: string, fixWhereUnowed?: string }} RecordFault
  *   what follows "has a record, landed <sha>,"; what a record of the same review
- *   must be posted with
+ *   must be posted with; what a draft may be written as where it owes no record
  */
 
 /** @param {RegExpExecArray} m @param {number} n @param {RegExp} re */
@@ -486,7 +486,8 @@ function readRecordFaults(r, root) {
 		faults.push({
 			tag: "NO TIER",
 			what: `under ${r.tier === "" ? "no tier line" : `the tier ${r.tier}`}, so its defects count nowhere`,
-			fix: "under a `**Review tier:**` line of escalated or mission-critical where the review ran at one, or, a standard review owing no such record, as plain prose",
+			fix: "under a `**Review tier:**` line of escalated or mission-critical where the review ran at one",
+			fixWhereUnowed: "a standard review owing no such record, as plain prose",
 		});
 	if (counted && r.cutOff > 0)
 		faults.push({
@@ -543,7 +544,7 @@ Write standard, escalated or mission-critical. Only naming the form: put it in b
 			.flatMap((r) =>
 				[...readRecordFaults(r, root), ...readLostBaseFaults(r, root)].map(
 					(f) =>
-						`#${n}'s comment holds a **Review findings:** record, landed ${r.landed}, ${f.what}. Correct it: write the record ${f.fix}. ${rule}`,
+						`#${n}'s comment holds a **Review findings:** record, landed ${r.landed}, ${f.what}. Correct it: write the record ${f.fix}${f.fixWhereUnowed ? `, or, ${f.fixWhereUnowed}` : ""}. ${rule}`,
 				),
 			),
 	].join("\n");

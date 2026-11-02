@@ -383,9 +383,13 @@ const TWO_COMMIT_TICKET = [
 	{ file: "lib/secret.js", message: "first of the ticket (#9)" },
 	{ file: "lib/secret.js", message: "the tip" },
 ];
+const DELETE_RECORD =
+	"edit the old comment to delete that record's **Review findings:** head and its list";
+/** What every remedy for a fault on one record ends with (#4007). */
+const SAME_REVIEW = `Of the same review means under a counted tier, sharing its reviewed tree, or its base, paths and landed sha, and holding all its FIXED and TICKETED lines. Where none can be posted, as a standard review owes none or a correction changes its tree and its base or paths, ${DELETE_RECORD}`;
 /** The report on the ticket `where`, its record's landed sha `landed`. */
 const buildNoTierFault = (where: string, landed: string, under: string) =>
-	`NO TIER: ${where} has a record, landed ${landed}, under ${under}, so its defects count nowhere until it is corrected: post a record of the same review under a \`**Review tier:**\` line of escalated or mission-critical where the review ran at one, or, a standard review owing no such record, as plain prose, as \`scripts/lib/rule-text.sh review-tier-records\` says`;
+	`NO TIER: ${where} has a record, landed ${landed}, under ${under}, so its defects count nowhere until it is corrected: post a record of the same review under a \`**Review tier:**\` line of escalated or mission-critical where the review ran at one, as \`scripts/lib/rule-text.sh review-tier-records\` says. ${SAME_REVIEW}`;
 
 /* The records as filed, each with a note its paths swallowed. */
 const NOTED_RECORDS = {
@@ -428,7 +432,7 @@ describe("the re-measure trigger", () => {
 		const r = run(fx);
 		expect(r.code).toBe(0);
 		expect(r.stderr).toBe(
-			`UNPARSEABLE: ${OWN}#1 has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: ${bad}\n`,
+			`UNPARSEABLE: ${OWN}#1 has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: edit it, or post a record in that form sharing its reviewed tree, or its base and paths: ${bad}\n`,
 		);
 		expect(r.stdout).toContain("Re-measure due: 15 counted commits. Filed");
 		const body = flag(creates(fx)[0], "--body");
@@ -616,7 +620,7 @@ describe("the re-measure trigger", () => {
 			},
 		});
 		const r = run(fx);
-		const fault = `o/fleet#7 has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: ${bad}`;
+		const fault = `o/fleet#7 has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: edit it, or post a record in that form sharing its reviewed tree, or its base and paths: ${bad}`;
 		expect(r).toEqual({
 			code: 0,
 			stdout: "",
@@ -631,7 +635,7 @@ describe("the re-measure trigger", () => {
 	const buildCutOffRecord = (n: number, paths?: string) =>
 		`${record(n, ["FIXED: a leak"], sha("c", n), paths)}\n- FIXED: a lock (Standards)\n- TICKETED #9: a race (Standards)`;
 	const buildCutOffFault = (issue: number, n: number) =>
-		`o/fleet#${issue} has a record, landed ${sha("c", n)}, with 2 - FIXED or - TICKETED lines past a line that ends its list, so they count 0 until it is corrected: post a record of the same review with its whole list straight under it and the prose after, as \`scripts/lib/rule-text.sh review-tier-records\` says`;
+		`o/fleet#${issue} has a record, landed ${sha("c", n)}, with 2 - FIXED or - TICKETED lines past a line that ends its list, so they count 0 until it is corrected: post a record of the same review with its whole list straight under it and the prose after, as \`scripts/lib/rule-text.sh review-tier-records\` says. ${SAME_REVIEW}`;
 	const wholeList = ["FIXED: a leak", "FIXED: a lock", "TICKETED #9: a race"];
 
 	it("reports a record with disposition lines past the line ending its list, under a counted tier, where no later record restates it: none, another commit's from its base and paths, one holding fewer lines or one under a standard tier (#3847)", () => {
@@ -722,7 +726,7 @@ describe("the re-measure trigger", () => {
 			/landed (\S+)/,
 			"landed $1 (queued on landing), paths lib/pricing/quote.ts",
 		);
-		const fault = `o/fleet#2 has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: ${noted.split("\n")[0]}`;
+		const fault = `o/fleet#2 has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: edit it, or post a record in that form sharing its reviewed tree, or its base and paths: ${noted.split("\n")[0]}`;
 		const alone = run(
 			fixture({
 				hits: {
@@ -767,7 +771,7 @@ describe("the re-measure trigger", () => {
 		});
 		const r = run(fx);
 		expect(r.stderr).toBe(
-			`UNPARSEABLE: o/fleet#4 has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: ${stray.split("\n")[0]}\n`,
+			`UNPARSEABLE: o/fleet#4 has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: edit it, or post a record in that form sharing its reviewed tree, or its base and paths: ${stray.split("\n")[0]}\n`,
 		);
 		expect(r.stdout).toContain("17 counted commits");
 		expect(flag(creates(fx)[0], "--body")).toContain(
@@ -820,7 +824,7 @@ describe("the re-measure trigger", () => {
 			],
 		});
 		const r = run(fx);
-		const fault = `${OWN}#7 has a record naming reviewed ${tree(landed[0])}, the tree landed ${landed[0]} carries on its paths, so a replay finds none of its fixed defects: name the tree pinned before the first round's dispatch, as \`scripts/lib/rule-text.sh review-tier-records\` says`;
+		const fault = `${OWN}#7 has a record naming reviewed ${tree(landed[0])}, the tree landed ${landed[0]} carries on its paths, so a replay finds none of its fixed defects: post, under a counted tier, a record naming the tree pinned before the first round's dispatch, with its base, paths and landed sha, as \`scripts/lib/rule-text.sh review-tier-records\` says; where the correction changes its base or paths too, ${DELETE_RECORD}; with no pin taken, no correction exists, so this line stays`;
 		expect(r).toEqual({
 			code: 0,
 			stdout: "",
@@ -874,7 +878,7 @@ describe("the re-measure trigger", () => {
 		const r = run(fx, { WFC_MODULES: "landing" });
 		expect(r.code).toBe(0);
 		expect(r.stderr.split("\n")).toEqual([
-			`OFF MAIN: o/manta#4 has a record naming landed ${lost}, which never reached main, so its commit is not counted until it is corrected: post a record naming the sha it landed under, as \`scripts/lib/rule-text.sh review-tier-records\` says`,
+			`OFF MAIN: o/manta#4 has a record naming landed ${lost}, which never reached main, so its commit is not counted until it is corrected: post a record naming the sha it landed under, under a counted tier, sharing its reviewed tree, or its base and paths, as \`scripts/lib/rule-text.sh review-tier-records\` says; where the correction changes both, ${DELETE_RECORD}`,
 			expect.stringMatching(
 				new RegExp(`^UNJUDGED: o/manta#5: could not walk landed ${unheld} `),
 			),
@@ -983,7 +987,7 @@ describe("the re-measure trigger", () => {
 		expect(r.stdout).toBe("");
 		expect(r.stderr).toMatch(
 			new RegExp(
-				`^UNJUDGED: ${OWN}#7: could not diff reviewed ${reviewed} against landed ${rev("HEAD")} in \\S+, so whether its record names the landed tree is not judged until that checkout holds both — [^\\n]+\\n$`,
+				`^UNJUDGED: ${OWN}#7: could not diff reviewed ${reviewed} against landed ${rev("HEAD")} in \\S+, so whether its record names the landed tree is not judged until that checkout holds both, or a record under a counted tier with its base, paths and landed sha names a tree it holds — [^\\n]+\\n$`,
 			),
 		);
 		expect(readGuardErrorsLog(fx.config)).toContain(
@@ -1232,7 +1236,7 @@ describe("the re-measure trigger", () => {
 			{ file: "app/page.tsx", message: "after the tip, citing #9" },
 		]);
 		const fault = (s: string) =>
-			`UNCOUNTED: o/manta: an **Escaped defect:** names ${s.slice(0, SHORT_SHA)}, which no counted record covers, so it counts on nothing until a record covers it or the line is corrected\n`;
+			`UNCOUNTED: o/manta: an **Escaped defect:** names ${s.slice(0, SHORT_SHA)}, which no counted record covers, so it counts on nothing until a record covers it or the line is edited in its comment\n`;
 		fx.setHits({
 			"o/manta": [buildMantaRecord(base, tip)],
 			"o/fleet": [buildEscapeTicket(after)],
@@ -1310,7 +1314,7 @@ describe("the re-measure trigger", () => {
 				"o/fleet": [buildEscapeTicket(gone), buildEscapeTicket(gone, 2)],
 			},
 		});
-		const fault = `an **Escaped defect:** names ${gone.slice(0, SHORT_SHA)}, which no counted record names as landed and no checkout on this machine holds, so it counts on no record until a checkout holds it or the line is corrected`;
+		const fault = `an **Escaped defect:** names ${gone.slice(0, SHORT_SHA)}, which no counted record names as landed and no checkout on this machine holds, so it counts on no record until a checkout holds it or the line is edited in its comment`;
 		expect(run(fx)).toEqual({
 			code: 0,
 			stdout: "",
@@ -1960,6 +1964,73 @@ describe("a record that loses defects or credits false ones (#3907)", () => {
 			expect(body).not.toContain("paths ");
 		},
 	);
+
+	describe("a remedy no post can meet says to edit the old comment (#4007)", () => {
+		it("keeps reporting a standard review's record under plain prose, and goes silent once it is deleted", () => {
+			const held = read(
+				"**Review tier:** standard",
+				record(1),
+				"A prose note.",
+			);
+			expect(held.stderr).toBe(
+				`${buildNoTierFault("o/fleet#9", sha("c", 1), "the tier standard")}\n`,
+			);
+			expect(read("**Review tier:** standard", "A prose note.").stderr).toBe(
+				"",
+			);
+		});
+
+		it("needs a deleted record's list gone too, as its lines would read as cut off from a record above it in the comment", () => {
+			const later = record(2);
+			const headOnly = later.replace(
+				"**Review findings:**",
+				"Review findings:",
+			);
+			expect(read(TIER_LINE, `${record(1)}\n${headOnly}`).stderr).toMatch(
+				/^CUT OFF: /,
+			);
+			expect(read(TIER_LINE, record(1)).stderr).toBe("");
+		});
+
+		it("keeps reporting a record whose correction shares neither its tree nor its base and paths, and counts only the correction once it is deleted", () => {
+			const old = `${NOTED_RECORDS[2085]}\n- FIXED: a leak (Focus)`;
+			const corrected = [
+				`**Review findings:** base ${sha("a", 1)}, reviewed ${sha("f", 1)}, landed 19ba39677, paths scripts/lib/atomic-write.js`,
+				"- FIXED: a leak (Focus)",
+			].join("\n");
+			const held = read(TIER_LINE, old, corrected);
+			expect(held.stderr).toMatch(/^NOT PATHS: o\/fleet#9 /);
+			expect(held.stderr).toContain(DELETE_RECORD);
+			expect(held.body).toContain("2 fixed or ticketed");
+
+			const retired = read(TIER_LINE, "The old record, deleted.", corrected);
+			expect(retired.stderr).toBe("");
+			expect(retired.body).toContain(`base ${sha("a", 1)}`);
+			expect(retired.body).toContain("1 fixed or ticketed");
+		});
+
+		it("goes silent on a record naming the landed tree once a record with its base, paths and landed sha names the pin", () => {
+			const fx = fixture({ hits: {} });
+			const rev = checkout(fx);
+			const landed = rev("l1");
+			const buildLine = (reviewed: string) =>
+				`**Review findings:** base ${rev("base")}, reviewed ${reviewed}, landed ${landed}, paths quote.ts\n- FIXED: a leak (Focus)`;
+			fx.setHits({
+				[OWN]: [
+					{
+						number: 7,
+						updated: "2026-11-01",
+						comments: [
+							TIER_LINE,
+							buildLine(rev(`${landed}^{tree}`)),
+							buildLine(rev("refs/pre-fix")),
+						],
+					},
+				],
+			});
+			expect(run(fx)).toEqual({ code: 0, stdout: "", stderr: "" });
+		});
+	});
 
 	it("goes silent on a later record of the review with clean paths, taking those paths and counting its list alone", () => {
 		const { stderr, count, body } = read(
