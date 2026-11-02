@@ -86,6 +86,10 @@ describe("guard-typecheck-red", () => {
 		execFileSync("git", [
 			"-C",
 			root,
+			"-c",
+			"user.email=t@t",
+			"-c",
+			"user.name=t",
 			"commit",
 			"-q",
 			"--allow-empty",

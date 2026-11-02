@@ -193,6 +193,133 @@ describe("two repos in one file, keyed by their own variable", () => {
 	});
 });
 
+/** Fails naming these repo keys, and prints the fix. */
+const expectBare = (...repos: string[]) => {
+	const r = run();
+	expect(r.status).toBe(1);
+	expect(r.out).toContain('git(<repo>, "config", "user.email"');
+	expect(run("--json").json().findings[0].repos).toEqual(repos);
+};
+
+describe("a git array that names its repo with -C", () => {
+	it.each(["execFileSync", "spawnSync"])(
+		"fails a %s repo inited and committed through -C with no identity, keyed on the -C target",
+		(call) => {
+			track(
+				"scripts/fixture-x.test.ts",
+				`${call}("git", ["-C", repo, "init", "-q"]);\n` +
+					`${call}("git", ["-C", repo, "commit", "-qm", "x"]);\n`,
+			);
+			expectBare("repo");
+		},
+	);
+
+	it("pairs an init naming its path last with a -C commit, the shape that held the landing queue (#3837)", () => {
+		track(
+			"scripts/fixture-x.test.ts",
+			'execFileSync("git", ["init", "-q", "-b", "main", root]);\n' +
+				'execFileSync("git", [\n"-C",\nroot,\n"commit",\n"-q",\n"--allow-empty",\n"-m",\n"init",\n]);\n',
+		);
+		expectBare("root");
+	});
+
+	it("passes where -C config calls set both identity keys", () => {
+		track(
+			"scripts/fixture-x.test.ts",
+			'execFileSync("git", ["-C", sb.repo, "init", "-q"]);\n' +
+				'execFileSync("git", ["-C", sb.repo, "config", "user.email", "t@t"]);\n' +
+				'execFileSync("git", ["-C", sb.repo, "config", "user.name", "t"]);\n' +
+				'execFileSync("git", ["-C", sb.repo, "commit", "-qm", "x"]);\n',
+		);
+		expect(run().status).toBe(0);
+	});
+
+	it("passes a -C commit carrying both identity keys inline", () => {
+		track(
+			"scripts/fixture-x.test.ts",
+			'execFileSync("git", ["init", "-q", root]);\n' +
+				'execFileSync("git", ["-C", root, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "x"]);\n',
+		);
+		expect(run().status).toBe(0);
+	});
+
+	it("still fails a -C commit carrying only one identity key inline", () => {
+		track(
+			"scripts/fixture-x.test.ts",
+			'execFileSync("git", ["init", "-q", root]);\n' +
+				'execFileSync("git", ["-C", root, "-c", "user.email=t@t", "commit", "-qm", "x"]);\n',
+		);
+		expectBare("root");
+	});
+
+	it("keeps the -C key where an inline config comes first", () => {
+		track(
+			"scripts/fixture-x.test.ts",
+			'execFileSync("git", ["init", "-q", root]);\n' +
+				'execFileSync("git", ["-c", "core.hooksPath=/dev/null", "-C", root, "commit", "-qm", "x"]);\n',
+		);
+		expectBare("root");
+	});
+
+	it("names only the bare repo of two -C repos", () => {
+		track(
+			"scripts/fixture-x.test.ts",
+			'execFileSync("git", ["-C", a, "init"]);\n' +
+				'execFileSync("git", ["-C", a, "config", "user.email", "t@t"]);\n' +
+				'execFileSync("git", ["-C", a, "config", "user.name", "t"]);\n' +
+				'execFileSync("git", ["-C", a, "commit", "-qm", "x"]);\n' +
+				'execFileSync("git", ["-C", b, "init"]);\n' +
+				'execFileSync("git", ["-C", b, "commit", "-qm", "y"]);\n',
+		);
+		expectBare("b");
+	});
+
+	it("keys on -C over a cwd in the same call", () => {
+		track(
+			"scripts/fixture-x.test.ts",
+			'execFileSync("git", ["-C", repo, "init"], { cwd: base });\n' +
+				'execFileSync("git", ["-C", repo, "commit", "-qm", "x"], { cwd: base });\n',
+		);
+		expectBare("repo");
+	});
+
+	it("passes an init-only -C repo", () => {
+		track(
+			"scripts/fixture-x.test.ts",
+			'spawnSync("git", ["-C", repo, "init", "-q"]);\n',
+		);
+		expect(run().status).toBe(0);
+	});
+});
+
+describe("an init that names its path as its last argument", () => {
+	it("pairs with a commit whose cwd is that path", () => {
+		track(
+			"scripts/fixture-x.test.ts",
+			'execFileSync("git", ["init", "-q", repo]);\n' +
+				'execFileSync("git", ["commit", "-qm", "x"], { cwd: repo });\n',
+		);
+		expectBare("repo");
+	});
+
+	it("still pairs with a closed-over wrapper's commit, which names no repo", () => {
+		track(
+			"scripts/fixture-x.test.ts",
+			'execFileSync("git", ["init", "-q", dir]);\ngit("commit", "-qm", "x");\n',
+		);
+		expectBare("__default__");
+	});
+
+	it("does not read a commit's last argument as its repo", () => {
+		track(
+			"scripts/fixture-x.test.ts",
+			'execFileSync("git", ["init", "-q", msg]);\n' +
+				'execFileSync("git", ["commit", "-qm", msg], { cwd: other });\n',
+		);
+		expect(run().status).toBe(0);
+	});
+});
+
 describe("a commit message that reads like a call site", () => {
 	it("does not mistake a JSON test payload's embedded command string for a real init", () => {
 		track(

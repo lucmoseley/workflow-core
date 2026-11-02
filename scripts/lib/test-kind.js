@@ -45,12 +45,16 @@
  * default patterns, which take `test/**` and `*-test.js` and no `.spec.` form;
  * their `.ts` family is left out, for the reason infer-commands.js gives.
  *
- * Readings narrower by design, each giving its reason at the site:
- * tsconfig.strict.json's test exclusion names test and spec files and `test/`
- * and `tests/` only, leaving support modules held to strict types, and
- * biome.json's matches it for that reason; measure-test-loss/blocked.py's named-run pattern keeps #2812's
- * baseline; residue-patterns.json's `testFile` and project-slug-scan.test.ts's
- * reading reason theirs where they stand.
+ * .sonarcloud.properties spells `JS_TEST_FILE` and `PY_TEST_FILE` as globs,
+ * pinned equal by test-kind.test.ts.
+ *
+ * Readings apart by design. tsconfig.strict.json's test exclusion names test and
+ * spec files and `test/` and `tests/` only, leaving support modules held to strict
+ * types, and biome.json excludes the same from its `useExplicitReturnType`
+ * override, so a support module still owes a return type.
+ * These reason theirs at the site: measure-test-loss/blocked.py's named-run
+ * pattern, residue-patterns.json's `testFile` in its `about`, and
+ * project-slug-scan.test.ts's reading.
  */
 
 // Vitest's default include collects both kinds (#2271). Each part of the
