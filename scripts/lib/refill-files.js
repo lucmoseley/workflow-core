@@ -25,7 +25,6 @@ const { pidLock, waitForLock } = require("./pid-lock.js");
 const { refillPath } = require("./refill-dir.js");
 const { isRecord } = require("./refill-goal.js");
 const { parseControl, parseState } = require("./refill-loop.js");
-const { discoverRepos, homeDir } = require("./refill-repos.js");
 
 function loopFiles() {
 	return {
@@ -42,9 +41,6 @@ function loopFiles() {
 		reviewPid: refillPath(".refill-review.pid"),
 	};
 }
-
-/** What the loop may serve now, whatever its scope chose. */
-const readIncluded = () => discoverRepos(homeDir()).included;
 
 /* The review runner, by the name its pidfile's holder runs (lib/pid-lock.js). */
 const REVIEW_RUNNER = "refill-review-run.js";
@@ -219,7 +215,6 @@ module.exports = {
 	loopFiles,
 	REVIEW_RUNNER,
 	readControlChecked,
-	readIncluded,
 	withControlLock,
 	writeControlFile,
 	writeLoopPause,

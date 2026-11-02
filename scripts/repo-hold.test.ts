@@ -375,7 +375,7 @@ describe("repo-hold.js (#3857)", () => {
 				noProgressFrom: Date.now(),
 				stopRequested: false,
 				seats: [],
-				scope: { mode: "normal", repos: [checkout], exclude: [], goals: {} },
+				scope: { mode: "normal", repos: [checkout], goals: {} },
 			}),
 		);
 

@@ -123,13 +123,17 @@ const {
 	readOmittedDirs,
 } = require("./refill-seats.js");
 const { runOf } = require("./headless-sessions.js");
-const { buildCheckoutEnv, readExclusionWhy } = require("./refill-repos.js");
+const {
+	buildCheckoutEnv,
+	discoverRepos,
+	homeDir,
+	readExclusionWhy,
+} = require("./refill-repos.js");
 const loop = require("./refill-loop.js");
 const {
 	loopFiles,
 	REVIEW_RUNNER,
 	readControlChecked,
-	readIncluded,
 	readJson,
 	readStateFile,
 	withControlLock,
@@ -167,6 +171,9 @@ const REVIEW_ROOT = path.dirname(SCRIPTS);
 const DISPATCHER = path.join(SCRIPTS, "dispatch-sessions.sh");
 
 const files = loopFiles();
+
+/** What the loop may serve now, whatever its scope chose. */
+const readIncluded = () => discoverRepos(homeDir()).included;
 
 /** @param {string} line */
 const say = (line) => writeFd(1, `${line}\n`);
