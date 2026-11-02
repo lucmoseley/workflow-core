@@ -22,6 +22,7 @@ import {
 	cutShellFunction,
 	POST_COMMIT,
 } from "./lib/precommit-gate-testkit";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const temps = registerTempCleanup();
 
@@ -56,7 +57,7 @@ describe.each(CHECKERS)(
 				[
 					"-e",
 					"-c",
-					`${cutInReplay()}\n${cutShellFunction("report_touched_by")}\ncommitted=${head}\nreport_touched_by ${checker}\nprintf "reached-end\\n"`,
+					`${cutInReplay()}\n${cutShellFunction("report_touched_by")}\ncommitted=${shellQuote(head)}\nreport_touched_by ${shellQuote(checker)}\nprintf "reached-end\\n"`,
 				],
 				{
 					cwd,

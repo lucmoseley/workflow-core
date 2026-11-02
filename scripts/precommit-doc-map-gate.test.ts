@@ -49,6 +49,7 @@ import {
 	writeCheckerDelegates,
 } from "./lib/precommit-gate-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const CHECKER = "scripts/check-doc-map.js";
 
@@ -1759,7 +1760,10 @@ describe("a conflicted index and the pre-commit hook", () => {
 		/* Installed after the setup commits, so hook.out can only come from the commit under test. */
 		fs.mkdirSync(path.join(root, ".githooks"));
 		const hook = path.join(root, ".githooks", "pre-commit");
-		fs.writeFileSync(hook, `#!/bin/sh\necho ${STUB_MARKER} > hook.out\n`);
+		fs.writeFileSync(
+			hook,
+			`#!/bin/sh\necho ${shellQuote(STUB_MARKER)} > hook.out\n`,
+		);
 		fs.chmodSync(hook, 0o755);
 
 		try {

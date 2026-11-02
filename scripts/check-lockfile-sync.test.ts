@@ -14,6 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { initGitRepo, mkScratchDir } from "./lib/git-fixture";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const CHECKER = "scripts/check-lockfile-sync.js";
 const SCRIPT = path.join(__dirname, "check-lockfile-sync.js");
@@ -74,7 +75,7 @@ beforeEach(() => {
 	hooks = mkScratchDir("lockfile-sync-hooks-");
 	fs.writeFileSync(
 		path.join(hooks, "pre-commit"),
-		`#!/bin/sh\nexec node ${JSON.stringify(SCRIPT)}\n`,
+		`#!/bin/sh\nexec node ${shellQuote(SCRIPT)}\n`,
 		{ mode: 0o755 },
 	);
 	initGitRepo(dir, hooks);

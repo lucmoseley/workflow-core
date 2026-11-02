@@ -27,6 +27,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readCurrentBootId, readProcStartOf } from "./lib/arbiter-proc";
 import { AS_ROOT } from "./lib/arbiter-testkit";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 import { readStopGuardBlock, type StopBlock } from "./lib/stop-guard-testkit";
 import { buildBashCall } from "./lib/transcript-testkit";
 
@@ -539,10 +540,10 @@ function oracle(ids: string[] | null, { marker }: { marker?: string } = {}) {
 		);
 	fs.writeFileSync(
 		bin,
-		`#!/bin/sh\n${marker ? `touch ${JSON.stringify(marker)}\n` : ""}${
+		`#!/bin/sh\n${marker ? `touch ${shellQuote(marker)}\n` : ""}${
 			ids === null
 				? 'echo "no daemon" >&2\nexit 1\n'
-				: `cat ${JSON.stringify(listing)}\n`
+				: `cat ${shellQuote(listing)}\n`
 		}`,
 		{ mode: 0o755 },
 	);

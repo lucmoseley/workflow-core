@@ -12,6 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stopOn, stopSession } from "./claude-stop.js";
+import { shellQuote } from "./sh-quote.js";
 
 let root: string;
 let seats: string[];
@@ -50,7 +51,7 @@ beforeEach(() => {
 		[
 			"#!/bin/sh",
 			'd="$CLAUDE_CONFIG_DIR"',
-			`echo "$(basename "$d") $2" >> "${path.join(root, "stops")}"`,
+			`echo "$(basename "$d") $2" >> ${shellQuote(path.join(root, "stops"))}`,
 			'case "$(cat "$d/answer" 2>/dev/null)" in',
 			'  nojob) echo "warning: retrying" >&2; echo "No job matching \'$2\'." >&2; exit 1 ;;',
 			'  busy) echo "daemon socket is busy" >&2; exit 1 ;;',

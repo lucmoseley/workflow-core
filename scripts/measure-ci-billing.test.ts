@@ -37,6 +37,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withHostConfig } from "./lib/config-testkit";
 import { stubGhScript } from "./lib/gh-stub";
 import { runInProcessAsync } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "measure-ci-billing.js");
 
@@ -50,16 +51,16 @@ withHostConfig({ tracker: "owner/repo" });
  */
 const stubScript = (stubDir: string) => `#!/bin/sh
 p="$2"
-printf '%s\\n' "$p" >> "${stubDir}/calls.log"
+printf '%s\\n' "$p" >> ${shellQuote(`${stubDir}/calls.log`)}
 case "$p" in
 */jobs\\?*)
   id=\${p#*/runs/}; id=\${id%%/jobs*}
-  f="${stubDir}/jobs-$id.json"
+  f=${shellQuote(stubDir)}/jobs-"$id".json
   if [ -f "$f" ]; then cat "$f"; else echo '[{"jobs":[]}]'; fi
   ;;
 *)
   day=\${p#*created=}; day=\${day%%..*}
-  f="${stubDir}/runs-$day.json"
+  f=${shellQuote(stubDir)}/runs-"$day".json
   if [ -f "$f" ]; then cat "$f"; else echo '[{"total_count":0,"workflow_runs":[]}]'; fi
   ;;
 esac

@@ -23,6 +23,7 @@ import {
 	registerTempCleanup,
 } from "./lib/precommit-gate-harness";
 import { holdLock, ROOT } from "./lib/precommit-gate-testkit";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const temps = registerTempCleanup();
 const SCRIPT = path.join(ROOT, "scripts", "check-sh-changed.sh");
@@ -32,7 +33,9 @@ const HAS_SHELLCHECK =
 	spawnSync("shellcheck", ["--version"], { stdio: "ignore" }).status === 0;
 
 const readCommandPath = (cmd: string) =>
-	execFileSync("sh", ["-c", `command -v ${cmd}`], { encoding: "utf8" }).trim();
+	execFileSync("sh", ["-c", `command -v ${shellQuote(cmd)}`], {
+		encoding: "utf8",
+	}).trim();
 
 function fixture() {
 	const { root, git } = newRepo("check-sh-changed-", temps);
@@ -55,7 +58,7 @@ function stub(root: string, bin: string, code = 0) {
 	const at = path.join(bin, "shellcheck");
 	fs.writeFileSync(
 		at,
-		`#!/bin/sh\nprintf '%s\\n' "$@" > '${path.join(root, ARGS_FILE)}'\nexit ${code}\n`,
+		`#!/bin/sh\nprintf '%s\\n' "$@" > ${shellQuote(path.join(root, ARGS_FILE))}\nexit ${code}\n`,
 	);
 	fs.chmodSync(at, 0o755);
 }

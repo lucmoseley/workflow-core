@@ -18,6 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.resolve(__dirname, "generate-test-read-edges.js");
 const OUT = ["docs", "test-read-edges.json"].join("/");
@@ -211,7 +212,10 @@ describe("a tracked test file missing from disk (#557)", () => {
 	 * and a neighbour's deletion never reaches this commit's verdict. */
 	describe("the pre-commit --check on a pathspec commit", () => {
 		beforeEach(() => {
-			write(".hooks/pre-commit", `#!/bin/sh\nexec node "${SCRIPT}" --check\n`);
+			write(
+				".hooks/pre-commit",
+				`#!/bin/sh\nexec node ${shellQuote(SCRIPT)} --check\n`,
+			);
 			fs.chmodSync(path.join(dir, ".hooks/pre-commit"), 0o755);
 			git("config", "core.hooksPath", ".hooks");
 			git("rm", "-q", goneTest);
@@ -300,7 +304,10 @@ describe("--check reads the index, the tree the commit carries (#557)", () => {
 		run();
 		git("add", "-A");
 		git("commit", "-q", "-m", "initial");
-		write(".hooks/pre-commit", `#!/bin/sh\nexec node "${SCRIPT}" --check\n`);
+		write(
+			".hooks/pre-commit",
+			`#!/bin/sh\nexec node ${shellQuote(SCRIPT)} --check\n`,
+		);
 		fs.chmodSync(path.join(dir, ".hooks/pre-commit"), 0o755);
 		git("config", "core.hooksPath", ".hooks");
 		write(DOC2, "a neighbour's new document\n");

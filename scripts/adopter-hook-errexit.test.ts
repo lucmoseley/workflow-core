@@ -59,7 +59,7 @@ describe("every core hook carries its own errexit (#745)", () => {
 		const text = renderHookShim(h);
 		expect(text.split("\n")[0]).toBe(SHEBANG);
 		expect(parseCodeLines(text).at(-1)).toBe(
-			`exec sh -e "$WFC_PLUGIN_ROOT/.husky/${h}" "$@"`,
+			`exec sh -e "$WFC_PLUGIN_ROOT/.husky/"${h} "$@"`,
 		);
 	});
 });

@@ -18,6 +18,7 @@ import {
 	dispatchFixture,
 	writeCache,
 } from "./lib/dispatch-sessions-testkit";
+import { shellQuote } from "./lib/sh-quote.js";
 import { buildUsageBranch } from "./lib/usage-probe-fake";
 
 const fx = dispatchFixture();
@@ -65,8 +66,8 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 			at,
 			[
 				"#!/bin/bash",
-				`printf 'x' >> "${counter}"`,
-				`n=$(wc -c < "${counter}")`,
+				`printf 'x' >> ${shellQuote(counter)}`,
+				`n=$(wc -c < ${shellQuote(counter)})`,
 				'if [ "$n" -le 1 ]; then exit 1; fi',
 				"sleep 600",
 			].join("\n"),
@@ -113,8 +114,8 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 			at,
 			[
 				"#!/bin/bash",
-				`printf 'x' >> "${counter}"`,
-				`n=$(wc -c < "${counter}")`,
+				`printf 'x' >> ${shellQuote(counter)}`,
+				`n=$(wc -c < ${shellQuote(counter)})`,
 				// Attempts 1 and 2 stall past the budget; attempt 3 answers.
 				'if [ "$n" -le 2 ]; then sleep 600; fi',
 				"exit 1",
@@ -195,8 +196,8 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 			at,
 			[
 				"#!/bin/bash",
-				`printf 'x' >> "${counter}"`,
-				`n=$(wc -c < "${counter}")`,
+				`printf 'x' >> ${shellQuote(counter)}`,
+				`n=$(wc -c < ${shellQuote(counter)})`,
 				'if [ "$n" -le 2 ]; then exit 1; fi',
 				"sleep 600",
 			].join("\n"),
@@ -255,7 +256,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 			"bash",
 			[
 				"-c",
-				`source "${path.join(shadow, "claude-interop-guard.sh")}"; claude --version`,
+				`source ${shellQuote(path.join(shadow, "claude-interop-guard.sh"))}; claude --version`,
 			],
 			{
 				encoding: "utf8",
@@ -276,7 +277,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 			[
 				"#!/bin/bash",
 				buildAuthStatusBranch(),
-				`printf '%s\\n' "$*" >> "${path.join(fx.dir, "argv")}"`,
+				`printf '%s\\n' "$*" >> ${shellQuote(path.join(fx.dir, "argv"))}`,
 				'for a in "$@"; do',
 				'  if [ "$a" = "--bg" ]; then sleep 600; fi',
 				"done",
@@ -291,7 +292,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 				buildUsageBranch({ session: 12, week: 3 }),
 				"  exit 0",
 				"fi",
-				`if [ "$1" = "agents" ]; then printf '%s\\n' '${agentsListing()}'; exit 0; fi`,
+				`if [ "$1" = "agents" ]; then printf '%s\\n' ${shellQuote(agentsListing())}; exit 0; fi`,
 				"printf 'launched\\n'",
 			].join("\n"),
 			{ mode: 0o755 },

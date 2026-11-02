@@ -20,6 +20,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox } from "./lib/arbiter-testkit";
 import { GH_FAILING_SCRIPT, stubGhScript } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const DELIVER = path.resolve(__dirname, "deliver-to-session.js");
 const CHECK = path.resolve(__dirname, "check-ci-status.js");
@@ -115,17 +116,17 @@ beforeEach(() => {
 	process.env.WFC_GH = stubGhScript(
 		sb.dir,
 		"#!/bin/sh\n" +
-			`echo "$*" >> ${file("calls")}\n` +
-			`case "$*" in *updatedAt*) exec cat ${file("runs.json")};; esac\n` +
-			`[ -f ${file("hang")} ] && sleep 3\n` +
+			`echo "$*" >> ${shellQuote(file("calls"))}\n` +
+			`case "$*" in *updatedAt*) exec cat ${shellQuote(file("runs.json"))};; esac\n` +
+			`[ -f ${shellQuote(file("hang"))} ] && sleep 3\n` +
 			'[ "$1" = "workflow" ] && [ "$2" = "run" ] && exit 0\n' +
 			'[ "$1" = "issue" ] && exec echo "[]"\n' +
 			'for a in "$@"; do\n' +
 			'  [ "$a" = "view" ] && exit 1\n' +
-			`  [ "$a" = "workflow" ] && exec cat ${file("workflows.json")}\n` +
-			`  [ "$a" = "--workflow" ] && exec cat ${file("sweeps.json")}\n` +
+			`  [ "$a" = "workflow" ] && exec cat ${shellQuote(file("workflows.json"))}\n` +
+			`  [ "$a" = "--workflow" ] && exec cat ${shellQuote(file("sweeps.json"))}\n` +
 			"done\n" +
-			`exec cat ${file("runs.json")}\n`,
+			`exec cat ${shellQuote(file("runs.json"))}\n`,
 	).gh;
 });
 

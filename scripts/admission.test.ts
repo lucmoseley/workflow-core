@@ -40,6 +40,7 @@ import { writeCache } from "./lib/dispatch-sessions-testkit";
 import { carrying } from "./lib/proc-fake";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 
 /* earlyoom's kill line, which every verdict holds free and `floorMb` reports (#337). */
 const FLOOR = 794;
@@ -129,7 +130,7 @@ const claude = (
 		);
 	const out = path.join(dir, "agents.json");
 	fs.writeFileSync(out, body);
-	fs.writeFileSync(p, `#!/bin/sh\ncat ${JSON.stringify(out)}\n`, {
+	fs.writeFileSync(p, `#!/bin/sh\ncat ${shellQuote(out)}\n`, {
 		mode: 0o755,
 	});
 	return p;

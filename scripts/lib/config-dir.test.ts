@@ -24,6 +24,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { configDirFrom } from "./config-dir.js";
+import { shellQuote } from "./sh-quote.js";
 
 const LIB = __dirname;
 const PASSWD_HOME = os.userInfo().homedir;
@@ -43,7 +44,7 @@ const shell = (lib: string, env: NodeJS.ProcessEnv) => {
 		"bash",
 		[
 			"-c",
-			`set -u; source ${JSON.stringify(lib)}; gr_config_dir dir; printf '%s' "$dir"`,
+			`set -u; source ${shellQuote(lib)}; gr_config_dir dir; printf '%s' "$dir"`,
 		],
 		{ env, encoding: "utf8" },
 	);

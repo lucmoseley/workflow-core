@@ -59,6 +59,7 @@ import { buildMeminfo } from "./lib/meminfo-fake";
 import { projectSlug } from "./lib/project-slug.js";
 import { parseHoldId } from "./lib/repo-hold-fixture";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 import { buildUsageCache } from "./lib/usage-probe-fake";
 import { readProgramLibs } from "./lib-closure-fixture";
 
@@ -224,8 +225,8 @@ fs.appendFileSync(${JSON.stringify(at(".refill-loop-wake"))}, \`\${Date.now()}\\
 	);
 	stub(
 		"dispatch-sessions.sh",
-		`printf '%s\\n' "$*" >> ${JSON.stringify(at("dispatches"))}
-node ${JSON.stringify(path.join(scripts, "request-stop.js"))}\n`,
+		`printf '%s\\n' "$*" >> ${shellQuote(at("dispatches"))}
+node ${shellQuote(path.join(scripts, "request-stop.js"))}\n`,
 	);
 	writeClaudeStub(at("claude"), [buildAgentsBranch([LISTED])]);
 });
@@ -419,8 +420,8 @@ describe("run (#2435)", () => {
 		fs.mkdirSync(path.dirname(file), { recursive: true });
 		stub(
 			"dispatch-sessions.sh",
-			`printf '{"ts":"%s","issues":[5],"prompt":"/implement 5","jobId":"job5"}\\n' "$(date -u +%FT%TZ)" >> ${JSON.stringify(file)}
-node ${JSON.stringify(path.join(scripts, "request-stop.js"))}\n`,
+			`printf '{"ts":"%s","issues":[5],"prompt":"/implement 5","jobId":"job5"}\\n' "$(date -u +%FT%TZ)" >> ${shellQuote(file)}
+node ${shellQuote(path.join(scripts, "request-stop.js"))}\n`,
 		);
 		await settled(run(1), "run that launches");
 		const [line] = readLines(at("concurrency.jsonl")).map((l) => JSON.parse(l));
@@ -908,7 +909,7 @@ describe("a parked launch (#2699)", () => {
 		);
 		fs.writeFileSync(
 			at("gh"),
-			`#!/bin/bash\nprintf '%s\\n' "$*" >> ${JSON.stringify(at("gh-calls"))}\n`,
+			`#!/bin/bash\nprintf '%s\\n' "$*" >> ${shellQuote(at("gh-calls"))}\n`,
 			{ mode: 0o755 },
 		);
 	});
@@ -1397,13 +1398,13 @@ const arbiterAs = (sessionId: string, ...args: string[]) =>
 
 const writesCopyRecord = (record: string) => {
 	const jobDir = path.join(seat, "jobs", FAKE_COPY);
-	return `mkdir -p ${JSON.stringify(jobDir)}; echo '${record}' > ${JSON.stringify(path.join(jobDir, "state.json"))};`;
+	return `mkdir -p ${shellQuote(jobDir)}; echo ${shellQuote(record)} > ${shellQuote(path.join(jobDir, "state.json"))};`;
 };
 
 /* What a real wake leaves: the stopped job's own record, running again. */
 const writesWokenRecord = (jobFile: string, sessionId: string) => {
 	const record = JSON.stringify({ state: "running", sessionId, cwd: repo });
-	return `echo '${record}' > ${JSON.stringify(jobFile)};`;
+	return `echo ${shellQuote(record)} > ${shellQuote(jobFile)};`;
 };
 
 /** `claude` for a resume of job `job`: `agents` lists `listing`, or fails
@@ -1420,11 +1421,11 @@ const fakeResumeClaude = (
 	fs.writeFileSync(at("bg-stdout"), response.stdout);
 	fs.writeFileSync(at("bg-stderr"), response.stderr);
 	writeClaudeStub(at("claude"), [
-		`calls=${JSON.stringify(at("calls"))}`,
+		`calls=${shellQuote(at("calls"))}`,
 		buildAgentsBranch(listing),
 		buildStopBranch(at("calls")),
 		buildAttachBranch(at("calls")),
-		`if [ "$1" = "--bg" ]; then echo "$*" >> "$calls"; ${onResume} cat ${JSON.stringify(at("bg-stdout"))}; cat ${JSON.stringify(at("bg-stderr"))} >&2; exit 0; fi`,
+		`if [ "$1" = "--bg" ]; then echo "$*" >> "$calls"; ${onResume} cat ${shellQuote(at("bg-stdout"))}; cat ${shellQuote(at("bg-stderr"))} >&2; exit 0; fi`,
 	]);
 };
 
@@ -1522,7 +1523,7 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 		);
 		fs.writeFileSync(
 			at("gh"),
-			`#!/bin/bash\nprintf '%s\\n' "$*" >> ${JSON.stringify(at("gh-calls"))}\n`,
+			`#!/bin/bash\nprintf '%s\\n' "$*" >> ${shellQuote(at("gh-calls"))}\n`,
 			{ mode: 0o755 },
 		);
 	};
@@ -1781,7 +1782,7 @@ describe("a session held on its seat's limit (#3735)", () => {
 		);
 		fs.writeFileSync(
 			at("gh"),
-			`#!/bin/bash\nprintf '%s\\n' "$*" >> ${JSON.stringify(at("gh-calls"))}\n`,
+			`#!/bin/bash\nprintf '%s\\n' "$*" >> ${shellQuote(at("gh-calls"))}\n`,
 			{ mode: 0o755 },
 		);
 	};
@@ -1914,13 +1915,13 @@ describe("a session held on its seat's limit (#3735)", () => {
 			fs.writeFileSync(at("bg-stdout"), response.stdout);
 			fs.writeFileSync(at("bg-stderr"), response.stderr);
 			writeClaudeStub(at("claude"), [
-				`calls=${JSON.stringify(at("calls"))}`,
+				`calls=${shellQuote(at("calls"))}`,
 				buildAgentsBranch([
 					LISTED,
 					buildJobRow(Job, "blocked", { sessionId: Session }),
 				]),
 				`if [ "$1" = "stop" ] || [ "$1" = "rm" ]; then echo "$* in $CLAUDE_CONFIG_DIR" >> "$calls"; [ "$1" = "rm" ] && rm -rf "$CLAUDE_CONFIG_DIR/jobs/$2"; echo stopped; exit 0; fi`,
-				`if [ "$1" = "--bg" ]; then echo "$1 $2 $3 in $CLAUDE_CONFIG_DIR from $PWD" >> "$calls"; ${onResume} cat ${JSON.stringify(at("bg-stdout"))}; cat ${JSON.stringify(at("bg-stderr"))} >&2; exit 0; fi`,
+				`if [ "$1" = "--bg" ]; then echo "$1 $2 $3 in $CLAUDE_CONFIG_DIR from $PWD" >> "$calls"; ${onResume} cat ${shellQuote(at("bg-stdout"))}; cat ${shellQuote(at("bg-stderr"))} >&2; exit 0; fi`,
 			]);
 		};
 		const startsOnTarget = () => {
@@ -1930,7 +1931,7 @@ describe("a session held on its seat's limit (#3735)", () => {
 				cwd: repo,
 				linkScanPath: newTranscript(),
 			});
-			return `mkdir -p ${JSON.stringify(path.dirname(targetRecord()))}; echo '${record}' > ${JSON.stringify(targetRecord())};`;
+			return `mkdir -p ${shellQuote(path.dirname(targetRecord()))}; echo ${shellQuote(record)} > ${shellQuote(targetRecord())};`;
 		};
 
 		it("stops, copies into a missing slug directory, removes a stale record, resumes by id, confirms, rewrites, comments: all in one tick", async () => {
@@ -1938,7 +1939,7 @@ describe("a session held on its seat's limit (#3735)", () => {
 			fs.mkdirSync(path.dirname(targetRecord()), { recursive: true });
 			fs.writeFileSync(targetRecord(), JSON.stringify({ state: "stopped" }));
 			claudeFor(
-				`printf '%s' "$4" > ${JSON.stringify(at("prompt-seen"))}; ${startsOnTarget()}`,
+				`printf '%s' "$4" > ${shellQuote(at("prompt-seen"))}; ${startsOnTarget()}`,
 			);
 			const r = await oneTick(Run, 1);
 			expect(r.status).toBe(0);
@@ -2161,7 +2162,7 @@ describe("a session its host restarted that never takes a turn (#2707, #2978)", 
 		);
 		fs.writeFileSync(
 			at("gh"),
-			`#!/bin/bash\nprintf '%s\\n' "$*" >> ${JSON.stringify(at("gh-calls"))}\n`,
+			`#!/bin/bash\nprintf '%s\\n' "$*" >> ${shellQuote(at("gh-calls"))}\n`,
 			{ mode: 0o755 },
 		);
 		stub(
@@ -2672,7 +2673,7 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 	/* The resume's stop: one requested before the tick's launches holds them
 	 * back. */
 	const stopOnResume = () =>
-		`node ${JSON.stringify(path.join(scripts, "request-stop.js"))};`;
+		`node ${shellQuote(path.join(scripts, "request-stop.js"))};`;
 
 	const logsResumeDir = ' echo "dir $PWD" >> "$calls";';
 
@@ -2901,7 +2902,7 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 			sessionId: "s-job5",
 			cwd: repo,
 		});
-		return ` mkdir -p ${JSON.stringify(jobDir)}; echo '${record}' > ${JSON.stringify(path.join(jobDir, "state.json"))};`;
+		return ` mkdir -p ${shellQuote(jobDir)}; echo ${shellQuote(record)} > ${shellQuote(path.join(jobDir, "state.json"))};`;
 	};
 
 	it.each([
@@ -4110,8 +4111,8 @@ process.stdout.write("Filed #${Issue}\\n");
 		});
 		stub(
 			"dispatch-sessions.sh",
-			`printf '%s\\n' "$PWD" >> ${JSON.stringify(at("dispatches"))}
-node ${JSON.stringify(path.join(scripts, "request-stop.js"))}\n`,
+			`printf '%s\\n' "$PWD" >> ${shellQuote(at("dispatches"))}
+node ${shellQuote(path.join(scripts, "request-stop.js"))}\n`,
 		);
 		breakHead();
 
@@ -4955,7 +4956,7 @@ describe("the launches a restart killed (#3880)", () => {
 
 	it("is set off by boot-resume itself, on the tick of the loop it starts", async () => {
 		writeState([buildLaunch("job7", 7, 10)], false);
-		const stop = `node ${JSON.stringify(path.join(scripts, "request-stop.js"))};`;
+		const stop = `node ${shellQuote(path.join(scripts, "request-stop.js"))};`;
 		fakeResumeClaude("job7", [LISTED], stop);
 
 		const r = await runInProcessAsync(

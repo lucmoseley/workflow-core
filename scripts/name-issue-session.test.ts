@@ -22,6 +22,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const HOOK = path.resolve(__dirname, "name-issue-session.sh");
 const { compactPayloads, compactTranscripts, SUBAGENT_JUST_COMPACTED } =
@@ -49,7 +50,7 @@ function stubGh(mode: "ok" | "slow" | "fail"): string {
 	const bin = path.join(dir, "bin");
 	fs.mkdirSync(bin, { recursive: true });
 	const bodies: Record<typeof mode, string> = {
-		ok: `printf '%s\\n' ${JSON.stringify(TITLE)}`,
+		ok: `printf '%s\\n' ${shellQuote(TITLE)}`,
 		slow: "sleep 120",
 		fail: "exit 1",
 	};
@@ -57,7 +58,7 @@ function stubGh(mode: "ok" | "slow" | "fail"): string {
 	const gh = path.join(bin, "gh");
 	fs.writeFileSync(
 		gh,
-		`#!/bin/sh\nprintf '%s\\n' "$*" >> ${JSON.stringify(argvLog())}\n${body}\n`,
+		`#!/bin/sh\nprintf '%s\\n' "$*" >> ${shellQuote(argvLog())}\n${body}\n`,
 		{ mode: 0o755 },
 	);
 	return gh;
@@ -392,7 +393,7 @@ describe("a long title is truncated rather than filling the list column", () => 
 	/** Drive the hook with a gh that returns this exact title. */
 	function withTitle(title: string, env: Record<string, string> = {}): string {
 		const gh = path.join(dir, "gh-long");
-		fs.writeFileSync(gh, `#!/bin/sh\nprintf '%s\\n' '${title}'\n`, {
+		fs.writeFileSync(gh, `#!/bin/sh\nprintf '%s\\n' ${shellQuote(title)}\n`, {
 			mode: 0o755,
 		});
 		const jobDir = fs.mkdtempSync(path.join(dir, "job-trunc-"));

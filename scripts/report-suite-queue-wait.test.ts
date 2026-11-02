@@ -21,6 +21,7 @@ import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { MARKERS_REL } from "./lib/marker-root";
 import { queueExitLogPath } from "./lib/queue-exit-log";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "report-suite-queue-wait.js");
 /* The issue title and the marker names the script uses, restated so a rename
@@ -118,11 +119,11 @@ function stubGh(
 	);
 	const script = [
 		"#!/bin/sh",
-		`printf '%s\\n' "$*" >> ${JSON.stringify(argv)}`,
+		`printf '%s\\n' "$*" >> ${shellQuote(argv)}`,
 		'if [ "$1" = "issue" ] && [ "$2" = "list" ]; then',
 		'  case "$*" in',
-		`    *"--state all"*) cat ${JSON.stringify(allFile)} ;;`,
-		`    *) cat ${JSON.stringify(openFile)} ;;`,
+		`    *"--state all"*) cat ${shellQuote(allFile)} ;;`,
+		`    *) cat ${shellQuote(openFile)} ;;`,
 		"  esac",
 		'elif [ "$1" = "issue" ] && [ "$2" = "view" ]; then',
 		"  echo 'an older body'",

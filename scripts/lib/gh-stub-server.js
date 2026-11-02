@@ -25,6 +25,7 @@
 const fs = require("node:fs");
 const net = require("node:net");
 const vm = require("node:vm");
+const { shellQuote } = require("./sh-quote.js");
 
 /** The client's exit where the server never answered: sysexits' EX_SOFTWARE. */
 const NO_ANSWER = 70;
@@ -35,7 +36,7 @@ const NO_ANSWER = 70;
  * @param {number} port
  */
 const buildServerClient = (port) => `#!/bin/bash
-unreachable() { echo "gh stub: no answer from the server on port ${port}" >&2; exit ${NO_ANSWER}; }
+unreachable() { echo ${shellQuote(`gh stub: no answer from the server on port ${port}`)} >&2; exit ${NO_ANSWER}; }
 trap '' PIPE
 { exec 3<>/dev/tcp/127.0.0.1/${port}; } 2>/dev/null || unreachable
 piped=0

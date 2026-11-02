@@ -15,6 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { initGitRepo, mkScratchDir } from "./lib/git-fixture";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const ROOT = path.join(__dirname, "..");
 const SCRIPT = path.join(__dirname, "check-weakens-line.js");
@@ -101,7 +102,7 @@ beforeEach(() => {
 	hooks = mkScratchDir("weakens-line-hooks-");
 	fs.writeFileSync(
 		path.join(hooks, "commit-msg"),
-		`#!/bin/sh\nexec node ${JSON.stringify(SCRIPT)} "$1"\n`,
+		`#!/bin/sh\nexec node ${shellQuote(SCRIPT)} "$1"\n`,
 		{ mode: 0o755 },
 	);
 	initGitRepo(dir, hooks);
@@ -444,7 +445,7 @@ describe(".husky/commit-msg runs check-weakens-line.js (#2235)", () => {
 		/* Husky runs its hook files through sh; git's own copy is not executable. */
 		fs.writeFileSync(
 			path.join(hooks, "commit-msg"),
-			`#!/bin/sh\nexec sh ${JSON.stringify(path.join(ROOT, ".husky", "commit-msg"))} "$1"\n`,
+			`#!/bin/sh\nexec sh ${shellQuote(path.join(ROOT, ".husky", "commit-msg"))} "$1"\n`,
 			{ mode: 0o755 },
 		);
 	});

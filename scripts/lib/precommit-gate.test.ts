@@ -25,6 +25,7 @@ import {
 	writeFiles,
 } from "./precommit-gate-harness";
 import { CORE_ROOT, LIB, LIB_COMMANDS, ROOT } from "./precommit-gate-testkit";
+import { shellQuote } from "./sh-quote.js";
 
 const temps = registerTempCleanup();
 
@@ -140,7 +141,7 @@ echo SURVIVED`,
 		fs.mkdirSync(victim);
 
 		const { output } = run(
-			`export TMPDIR="${holder}"
+			`export TMPDIR=${shellQuote(holder)}
 gate_tmpdir
 echo "DIR[$GATE_DIR]"`,
 		);
@@ -214,7 +215,7 @@ gate_skip_missing demo`,
 
 describe("staged_gate", () => {
 	const call = (mode: string, exit: string, advice = "") =>
-		`staged_gate demo ${mode} ${exit} 'docs/a.md' 'node check.js "$sg_dir/a.md"' ${JSON.stringify(advice)}`;
+		`staged_gate demo ${mode} ${exit} 'docs/a.md' 'node check.js "$sg_dir/a.md"' ${shellQuote(advice)}`;
 
 	const withChecker = (code: number) => ({
 		committed: { "check.js": checker(code), "docs/a.md": "old\n" },
@@ -449,7 +450,7 @@ require(${seam}).runCli("demo", "staged.json", "baseline.json", {
 
 describe("armed (#1504)", () => {
 	const arms = (pattern: string) =>
-		`if armed '${pattern}'; then echo ARMED; else echo UNARMED; fi`;
+		`if armed ${shellQuote(pattern)}; then echo ARMED; else echo UNARMED; fi`;
 
 	/* git's rename detection reports a `git mv` as one R entry naming the NEW
 	 * path alone; the read takes --no-renames so the old path is back. */
@@ -595,7 +596,7 @@ if tool_gate no-such-linter "fetch it from the release page."; then echo RUN; fi
 		const bin = fs.mkdtempSync(path.join(os.tmpdir(), "no-shellcheck-"));
 		temps.push(bin);
 		for (const cmd of ["sh", "node", ...LIB_COMMANDS]) {
-			const abs = execFileSync("sh", ["-c", `command -v ${cmd}`], {
+			const abs = execFileSync("sh", ["-c", `command -v ${shellQuote(cmd)}`], {
 				encoding: "utf8",
 			}).trim();
 			fs.symlinkSync(abs, path.join(bin, cmd));

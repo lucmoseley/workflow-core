@@ -24,6 +24,7 @@ import { buildMeminfo } from "./lib/meminfo-fake";
 import { loadavgLine } from "./lib/proc-fake";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 import { buildUsageCache } from "./lib/usage-probe-fake";
 
 const SELF = "agents-listing-count";
@@ -36,7 +37,7 @@ const at = (name: string) => path.join(dir, name);
 
 const writeListingClaude = (sessionId: string) =>
 	writeClaudeStub(at("claude"), [
-		`if [ "$1" = "agents" ]; then printf '%s\\n' "$*" >> '${listingLog}'; fi`,
+		`if [ "$1" = "agents" ]; then printf '%s\\n' "$*" >> ${shellQuote(listingLog)}; fi`,
 		buildAgentsBranch([buildListedRow({ sessionId, pid: 1 })]),
 	]);
 
@@ -58,7 +59,7 @@ beforeEach(() => {
 		at("gh"),
 		GH_FAILING_SCRIPT.replace(
 			/^#!.*\n/,
-			(shebang) => `${shebang}printf '%s\\n' "$*" >> '${ghLog}'\n`,
+			(shebang) => `${shebang}printf '%s\\n' "$*" >> ${shellQuote(ghLog)}\n`,
 		),
 		{ mode: 0o755 },
 	);

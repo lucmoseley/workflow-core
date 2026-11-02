@@ -19,6 +19,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { initGitRepo } from "./git-fixture";
+import { shellQuote } from "./sh-quote.js";
 
 const repoRoot = path.resolve(
 	path.dirname(fileURLToPath(import.meta.url)),
@@ -275,7 +276,7 @@ describe("the host and the real git, unnamed", () => {
 		fs.mkdirSync(fake, { recursive: true });
 		fs.writeFileSync(
 			path.join(fake, "git"),
-			`#!/bin/sh\nexec "${SHIM}" "$@"\n`,
+			`#!/bin/sh\nexec ${shellQuote(SHIM)} "$@"\n`,
 			{
 				mode: 0o755,
 			},

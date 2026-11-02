@@ -28,6 +28,7 @@ import { UNFILLED_DESTINATION as UNFILLED } from "./lib/issue-gate";
 import { MARKERS_REL } from "./lib/marker-root";
 import { readRuleText } from "./lib/rule-text";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 import { FOUNDER_ACTS, TAKES_VALUES, TRIED_MIN } from "./lib/takes-label";
 
 const SCRIPT = path.resolve(__dirname, "file-issue.js");
@@ -86,27 +87,27 @@ const ghStub = () =>
 	stubGhScript(
 		sb.dir,
 		`#!/bin/sh
-echo "$*" >> "${at("gh-calls")}"
+echo "$*" >> ${shellQuote(at("gh-calls"))}
 case "$*" in
   "issue create"*)
-    cat > "${at("body-seen")}"
-    echo "https://github.com/acme/widgets/issues/${NEW}"; exit 0 ;;
+    cat > ${shellQuote(at("body-seen"))}
+    echo ${shellQuote(`https://github.com/acme/widgets/issues/${NEW}`)}; exit 0 ;;
   "issue list"*)
-    if [ -f "${at("list-fails")}" ]; then echo "HTTP 502: Bad Gateway" >&2; exit 1; fi
-    f="${at("issues")}"; case "$*" in *"--state open --json number,title,state"*) f="${at("issues-open")}" ;; esac
+    if [ -f ${shellQuote(at("list-fails"))} ]; then echo "HTTP 502: Bad Gateway" >&2; exit 1; fi
+    f=${shellQuote(at("issues"))}; case "$*" in *"--state open --json number,title,state"*) f=${shellQuote(at("issues-open"))} ;; esac
     if [ -f "$f" ]; then cat "$f"; else echo "[]"; fi
     exit 0 ;;
   "issue edit"*)
-    if [ -f "${at("assign-fails")}" ]; then echo "HTTP 403: no" >&2; exit 1; fi
+    if [ -f ${shellQuote(at("assign-fails"))} ]; then echo "HTTP 403: no" >&2; exit 1; fi
     exit 0 ;;
   *"--method POST"*)
-    if [ -f "${at("post-err")}" ]; then cat "${at("post-err")}" >&2; exit 1; fi
-    touch "${at("linked")}"; exit 0 ;;
-  *"/sub_issues"*) [ -f "${at("linked")}" ] && echo ${NEW}; exit 0 ;;
+    if [ -f ${shellQuote(at("post-err"))} ]; then cat ${shellQuote(at("post-err"))} >&2; exit 1; fi
+    touch ${shellQuote(at("linked"))}; exit 0 ;;
+  *"/sub_issues"*) [ -f ${shellQuote(at("linked"))} ] && echo ${NEW}; exit 0 ;;
   *"--jq .id"*) echo 987654; exit 0 ;;
   *"--jq .state"*) echo open; exit 0 ;;
   "api "*)
-    f="${at("api")}/$(echo "$2" | tr / _)"
+    f=${shellQuote(at("api"))}/"$(echo "$2" | tr / _)"
     [ -f "$f" ] && cat "$f" && exit 0
     echo "HTTP 404: Not Found" >&2; exit 1 ;;
 esac
@@ -119,7 +120,7 @@ const oracle = (ids: string[]) => {
 	const bin = at("claude-agents");
 	fs.writeFileSync(
 		bin,
-		`#!/bin/sh\necho '${JSON.stringify(ids.map((sessionId) => ({ sessionId })))}'\n`,
+		`#!/bin/sh\necho ${shellQuote(JSON.stringify(ids.map((sessionId) => ({ sessionId }))))}\n`,
 	);
 	fs.chmodSync(bin, 0o755);
 	return bin;
@@ -739,7 +740,7 @@ describe("create, then link", () => {
 		setUp();
 		const silent = stubGhScript(
 			at("alt"),
-			`#!/bin/sh\necho "$*" >> "${at("gh-calls")}"\ncase "$*" in "issue create"*) cat >/dev/null; exit 0;; esac\ncat "${at("api")}/$(echo "$2" | tr / _)"\n`,
+			`#!/bin/sh\necho "$*" >> ${shellQuote(at("gh-calls"))}\ncase "$*" in "issue create"*) cat >/dev/null; exit 0;; esac\ncat ${shellQuote(at("api"))}/"$(echo "$2" | tr / _)"\n`,
 		);
 		const r = runInProcess(SCRIPT, filing(["takes:implement"]), {
 			env: { ...process.env, ...silent.env },

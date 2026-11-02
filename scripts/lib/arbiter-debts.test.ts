@@ -25,6 +25,7 @@ import {
 	store,
 } from "./arbiter-testkit";
 import { ISSUE_LIST_LIMIT } from "./gh.js";
+import { shellQuote } from "./sh-quote.js";
 
 const sb = freshSandbox();
 
@@ -630,7 +631,7 @@ describe("debt — the record of an edit a denial abandoned", () => {
 			// lie. Fails toward keeping the entry either way, and logs.
 			fakeGh(
 				sb,
-				`node -e 'console.log(JSON.stringify(Array.from({length:${ISSUE_LIST_LIMIT}},(_,i)=>({number:i+1}))))'`,
+				`node -e ${shellQuote(`console.log(JSON.stringify(Array.from({length:${ISSUE_LIST_LIMIT}},(_,i)=>({number:i+1}))))`)}`,
 			);
 			store.ownDebt(docMap, 308, "done");
 			expect(store.sweepDebts().status).toBe("offline");

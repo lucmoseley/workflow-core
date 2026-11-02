@@ -18,6 +18,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readGuardErrorsLog } from "./guard-errors-log";
 import { runInProcess } from "./run-in-process";
+import { shellQuote } from "./sh-quote.js";
 
 type Decision = Record<string, unknown> | null;
 interface Core {
@@ -535,7 +536,7 @@ describe("one adapter set a call", () => {
 		const stub = path.join(dir, "git");
 		fs.writeFileSync(
 			stub,
-			`#!/usr/bin/env bash\necho "$*" >>${JSON.stringify(calls)}\necho out\n`,
+			`#!/usr/bin/env bash\necho "$*" >>${shellQuote(calls)}\necho out\n`,
 			{ mode: 0o755 },
 		);
 		vi.stubEnv("WFC_GIT", stub);
@@ -561,9 +562,13 @@ describe("the entry's fail-open record", () => {
 	it("is written off that one root read (#3038)", () => {
 		const calls = path.join(dir, "git-calls");
 		const git = path.join(dir, "slow-git");
-		fs.writeFileSync(git, `#!/bin/sh\necho x >> '${calls}'\nexec sleep 30\n`, {
-			mode: 0o755,
-		});
+		fs.writeFileSync(
+			git,
+			`#!/bin/sh\necho x >> ${shellQuote(calls)}\nexec sleep 30\n`,
+			{
+				mode: 0o755,
+			},
+		);
 		const config = path.join(dir, "config");
 		const env: NodeJS.ProcessEnv = {
 			...process.env,

@@ -8,6 +8,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { shellQuote } from "./sh-quote.js";
 
 export type AttachKind = "offTerminal" | "onTerminal";
 
@@ -29,7 +30,7 @@ export const recorded: {
  * assertions are the check on an attach with no pty.
  */
 export function buildAttachBranch(log: string) {
-	const to = JSON.stringify(log);
+	const to = shellQuote(log);
 	return `if [ "$1" = "attach" ]; then
   [ -t 0 ] || exit ${recorded.responses.offTerminal.status}
   echo "$*" >> ${to}; printf '> '; IFS= read -r line; echo "typed $line" >> ${to}; exit 0

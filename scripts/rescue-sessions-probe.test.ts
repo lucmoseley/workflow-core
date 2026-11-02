@@ -28,6 +28,7 @@ import {
 	WEEKLY_LIMIT_LINE,
 	withTracker,
 } from "./lib/rescue-testkit";
+import { shellQuote } from "./lib/sh-quote.js";
 import { buildBashCall } from "./lib/transcript-testkit";
 
 const sb = freshSandbox(withTracker);
@@ -49,7 +50,7 @@ const subagent = (dir = plan()) =>
 	path.join(dir, "projects", "p", SID, "subagents", "agent-a1.jsonl");
 
 const cpuTo = (pid: number, ppid: number, ticks: number) =>
-	`printf '%s' '${buildStatLine(pid, ppid, ticks)}' > '${path.join(procRoot(), String(pid), "stat")}'`;
+	`printf '%s' ${shellQuote(buildStatLine(pid, ppid, ticks))} > ${shellQuote(path.join(procRoot(), String(pid), "stat"))}`;
 
 const calling = (command: string) => JSON.stringify(buildBashCall(command));
 
@@ -97,7 +98,7 @@ describe("probe: the verdict table, first match wins", () => {
 
 	it("UNKNOWN when the transcript vanishes by the second sample", async () => {
 		frozenHolder();
-		between(`rm '${transcript()}'`);
+		between(`rm ${shellQuote(transcript())}`);
 		const r = await probe();
 		expect(r.status).toBe(EXIT.UNKNOWN);
 		expect(r.stdout).toContain("second sample: transcript would not read");
@@ -220,7 +221,7 @@ describe("probe: the verdict table, first match wins", () => {
 
 	it("SLOW when the main transcript grows", async () => {
 		frozenHolder();
-		between(`printf 'x\\n' >> '${transcript()}'`);
+		between(`printf 'x\\n' >> ${shellQuote(transcript())}`);
 		const r = await probe();
 		expect(r.status).toBe(EXIT.SLOW);
 		expect(r.stdout).toContain("main transcript changed size");
@@ -230,7 +231,7 @@ describe("probe: the verdict table, first match wins", () => {
 		frozenHolder();
 		fs.mkdirSync(path.dirname(subagent()), { recursive: true });
 		fs.writeFileSync(subagent(), "{}\n");
-		between(`printf 'x\\n' >> '${subagent()}'`);
+		between(`printf 'x\\n' >> ${shellQuote(subagent())}`);
 		const r = await probe();
 		expect(r.status).toBe(EXIT.SLOW);
 		expect(r.stdout).toContain("subagent transcript changed size");
@@ -285,7 +286,7 @@ describe("probe: the verdict table, first match wins", () => {
 
 	it("FROZEN when the transcript is touched but not appended to", async () => {
 		frozenHolder();
-		between(`touch -d '2030-01-01' '${transcript()}'`);
+		between(`touch -d '2030-01-01' ${shellQuote(transcript())}`);
 		const r = await probe();
 		expect(r.status).toBe(EXIT.FROZEN);
 		expect(r.stdout).toMatch(/(\d+)B -> \1B/);
@@ -310,7 +311,7 @@ describe("probe: finding the plan", () => {
 		jobState({ inFlight: { tasks: 0, queued: 0 } }, two);
 		proc(PID, 1, 1000, "claude");
 		issueClaims.claimIssue(620, { sessionId: SID });
-		between(`printf 'x\\n' >> '${transcript(two)}'`, two);
+		between(`printf 'x\\n' >> ${shellQuote(transcript(two))}`, two);
 		const r = await probe();
 		expect(r.status).toBe(EXIT.SLOW);
 		expect(r.stdout).toContain(`on plan ${two}`);

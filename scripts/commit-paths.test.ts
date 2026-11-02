@@ -346,7 +346,10 @@ describe("commits — exit 0, the hash and subject printed", () => {
 
 	it("runs the pre-commit hook on a passing commit", () => {
 		const hook = path.join(hooks, "pre-commit");
-		fs.writeFileSync(hook, `#!/bin/sh\ntouch "${path.join(sb.dir, "ran")}"\n`);
+		fs.writeFileSync(
+			hook,
+			`#!/bin/sh\ntouch ${shellQuote(path.join(sb.dir, "ran"))}\n`,
+		);
 		fs.chmodSync(hook, 0o755);
 		write("new.md");
 		lands(["-m", "x", "--", "new.md"]);

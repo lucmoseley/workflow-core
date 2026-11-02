@@ -27,6 +27,7 @@ import {
 	type TempRepo,
 } from "./lib/precommit-gate-harness";
 import { LIB, LIB_COMMANDS, ROOT } from "./lib/precommit-gate-testkit";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const temps = registerTempCleanup();
 
@@ -58,7 +59,7 @@ const NEEDED = ["sh", ...LIB_COMMANDS];
  */
 function linkNeeded(bin: string): void {
 	for (const cmd of NEEDED) {
-		const abs = execFileSync("sh", ["-c", `command -v ${cmd}`], {
+		const abs = execFileSync("sh", ["-c", `command -v ${shellQuote(cmd)}`], {
 			encoding: "utf8",
 		}).trim();
 		fs.symlinkSync(abs, path.join(bin, cmd));
@@ -92,7 +93,7 @@ function fixture(opts: {
 		// not being called.
 		fs.writeFileSync(
 			stub,
-			`#!/bin/sh\nprintf 'argc=%s\\n' "$#" >>"${path.join(root, ARGS_FILE)}"\nprintf '%s\\n' "$@" >>"${path.join(root, ARGS_FILE)}"\nexit ${opts.actionlintExit ?? 0}\n`,
+			`#!/bin/sh\nprintf 'argc=%s\\n' "$#" >>${shellQuote(path.join(root, ARGS_FILE))}\nprintf '%s\\n' "$@" >>${shellQuote(path.join(root, ARGS_FILE))}\nexit ${opts.actionlintExit ?? 0}\n`,
 		);
 		fs.chmodSync(stub, 0o755);
 	}

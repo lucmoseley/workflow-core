@@ -13,6 +13,7 @@ import path from "node:path";
 import { afterEach, beforeEach } from "vitest";
 import { caught } from "./caught.js";
 import { runInProcess } from "./run-in-process";
+import { shellQuote } from "./sh-quote.js";
 import { sleepSync } from "./sleep-sync.js";
 
 // The arbiter is CommonJS and stays that way — it is spawned as a plain node
@@ -348,7 +349,7 @@ export function fakeGh(sb: Sandbox, body: string) {
 	const bin = path.join(sb.dir, "gh-fake");
 	fs.writeFileSync(
 		bin,
-		`#!/bin/sh\necho "$*" >> "${path.join(sb.dir, "gh-calls")}"\n${body}\n`,
+		`#!/bin/sh\necho "$*" >> ${shellQuote(path.join(sb.dir, "gh-calls"))}\n${body}\n`,
 	);
 	fs.chmodSync(bin, 0o755);
 	process.env.WFC_GH = bin;
@@ -359,10 +360,13 @@ export function fakeGh(sb: Sandbox, body: string) {
  * number` answers with exactly `closed`, and nothing else is answered at all.
  */
 export const ghClosedList = (sb: Sandbox, closed: number[]) =>
-	fakeGh(sb, `echo '${JSON.stringify(closed.map((number) => ({ number })))}'`);
+	fakeGh(
+		sb,
+		`echo ${shellQuote(JSON.stringify(closed.map((number) => ({ number }))))}`,
+	);
 
 export const ghAnswers = (sb: Sandbox, state: string) =>
-	fakeGh(sb, `echo '{"state":"${state}"}'`);
+	fakeGh(sb, `echo ${shellQuote(`{"state":"${state}"}`)}`);
 
 /**
  * The argv of every gh call, in order. Assert on the argv, never on the count:

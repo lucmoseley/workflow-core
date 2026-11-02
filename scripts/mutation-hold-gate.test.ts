@@ -1831,7 +1831,7 @@ describe("mutation-hold-gate.js — before the index lock (#1910)", () => {
 	const declareTest = () => {
 		fs.writeFileSync(
 			path.join(stubDir, "test.sh"),
-			`echo run >> "${stubDir}/test.log"\n`,
+			`echo run >> ${shellQuote(`${stubDir}/test.log`)}\n`,
 		);
 		write(
 			".claude/workflow-core.json",

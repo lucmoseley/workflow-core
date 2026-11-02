@@ -20,6 +20,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { isDead, isGroupDead, waitFor } from "./process-fixture.js";
+import { shellQuote } from "./sh-quote.js";
 
 const { execGroupedSync, runGrouped } = require("./grouped-child.js");
 
@@ -147,7 +148,10 @@ describe("a grouped child", () => {
 		const thrown = catchThrown(() =>
 			execGroupedSync(
 				"sh",
-				["-c", `sleep 60 & echo $! > '${pidFile}'; echo last >&2; wait`],
+				[
+					"-c",
+					`sleep 60 & echo $! > ${shellQuote(pidFile)}; echo last >&2; wait`,
+				],
 				/* A guess: room for the shell to start its child under load. */
 				{ timeout: 3000 },
 			),
@@ -165,7 +169,7 @@ describe("a grouped child", () => {
 				"sh",
 				[
 					"-c",
-					`sh -c 'trap "" TERM; echo $$ > "${pidFile}"; while :; do sleep 0.1; done' & wait`,
+					`sh -c ${shellQuote(`trap "" TERM; echo $$ > ${shellQuote(pidFile)}; while :; do sleep 0.1; done`)} & wait`,
 				],
 				/* Guesses: room for the shell to start its child under load, and a
 				 * grace short enough to keep the case quick. */
@@ -193,14 +197,14 @@ describe("a grouped child", () => {
 		const wrapper = path.join(home, "wrapper.sh");
 		fs.writeFileSync(
 			wrapper,
-			`setsid sh -c 'echo $$ > "${pidFile}"; exec sleep 60' &
+			`setsid sh -c ${shellQuote(`echo $$ > ${shellQuote(pidFile)}; exec sleep 60`)} &
 gid=$!
 trap 'kill -TERM -"$gid"; wait "$gid"; exit 143' TERM
 wait "$gid"
 `,
 		);
 		catchThrown(() =>
-			execGroupedSync("sh", ["-c", `sh '${wrapper}' & wait`], {
+			execGroupedSync("sh", ["-c", `sh ${shellQuote(wrapper)} & wait`], {
 				/* A guess: room for the wrapper to start its group under load. */
 				timeout: 3000,
 			}),
@@ -219,7 +223,7 @@ wait "$gid"
 			supervisor.stdin.end(
 				JSON.stringify({
 					file: "sh",
-					args: ["-c", `echo $$ > '${pidFile}'; sleep 60`],
+					args: ["-c", `echo $$ > ${shellQuote(pidFile)}; sleep 60`],
 					opts: {
 						timeoutMs: UNREACHED_TIMEOUT_MS,
 						maxBuffer: 100,
@@ -244,7 +248,7 @@ wait "$gid"
 				"sh",
 				[
 					"-c",
-					`sleep 60 & echo $! > '${pidFile}'; head -c 2000 /dev/zero; wait`,
+					`sleep 60 & echo $! > ${shellQuote(pidFile)}; head -c 2000 /dev/zero; wait`,
 				],
 				{ timeout: UNREACHED_TIMEOUT_MS, maxBuffer: 100 },
 			),
@@ -258,7 +262,10 @@ wait "$gid"
 		const pidFile = path.join(home, "pid");
 		const out = execGroupedSync(
 			"sh",
-			["-c", `sleep 60 >/dev/null 2>&1 & echo $! > '${pidFile}'; echo done`],
+			[
+				"-c",
+				`sleep 60 >/dev/null 2>&1 & echo $! > ${shellQuote(pidFile)}; echo done`,
+			],
 			{ timeout: UNREACHED_TIMEOUT_MS },
 		);
 		expect(out).toBe("done\n");

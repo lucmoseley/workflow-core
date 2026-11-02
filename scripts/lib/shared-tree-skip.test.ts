@@ -19,6 +19,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { shellQuote } from "./sh-quote.js";
 
 const LIB = path.join(__dirname, "shared-tree-skip.sh");
 
@@ -61,7 +62,7 @@ function verdict(
 		shell,
 		[
 			"-c",
-			`. "${LIB}"; wfc_shared_tree_skip "$1"; rc=$?; printf '%s\\n%s\\n%s\\n' "$rc" "$wfc_sts_gitdir" "$wfc_sts_toplevel"`,
+			`. ${shellQuote(LIB)}; wfc_shared_tree_skip "$1"; rc=$?; printf '%s\\n%s\\n%s\\n' "$rc" "$wfc_sts_gitdir" "$wfc_sts_toplevel"`,
 			"sh",
 			given,
 		],

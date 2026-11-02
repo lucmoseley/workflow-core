@@ -21,6 +21,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "report-red-suite.js");
 const TITLE = "The scheduled full-suite run is red on main";
@@ -137,16 +138,16 @@ function fixture(opts: {
 			// One RECORD per call, opened by a marker line and carrying one argument
 			// per line. A separator character was tried first and dropped: `\\x1f`
 			// is not portable in /bin/sh's printf, which wrote it literally.
-			`{ echo '===CALL==='; for a in "$@"; do echo "$a"; done; } >> ${JSON.stringify(argvLog)}`,
+			`{ echo '===CALL==='; for a in "$@"; do echo "$a"; done; } >> ${shellQuote(argvLog)}`,
 			'if [ "$1" = "issue" ] && [ "$2" = "list" ]; then',
 			'  case " $* " in *" closed "*) list=closedList ;; *) list=issueList ;; esac',
-			`  cat ${JSON.stringify(root)}/"$list".json`,
+			`  cat ${shellQuote(root)}/"$list".json`,
 			'elif [ "$1" = "issue" ] && [ "$2" = "view" ]; then',
-			`  cat ${JSON.stringify(path.join(root, "issueView.json"))}`,
+			`  cat ${shellQuote(path.join(root, "issueView.json"))}`,
 			'elif [ "$1" = "run" ] && [ "$2" = "list" ]; then',
-			`  cat ${JSON.stringify(path.join(root, "runList.json"))}`,
+			`  cat ${shellQuote(path.join(root, "runList.json"))}`,
 			'elif [ "$1" = "run" ] && [ "$2" = "view" ]; then',
-			`  cat ${JSON.stringify(root)}/jobs-"$3".json`,
+			`  cat ${shellQuote(root)}/jobs-"$3".json`,
 			'elif [ "$1" = "issue" ] && [ "$2" = "create" ]; then',
 			"  echo https://github.com/o/r/issues/999",
 			'elif [ "$1" = "issue" ] && [ "$2" = "comment" ]; then',

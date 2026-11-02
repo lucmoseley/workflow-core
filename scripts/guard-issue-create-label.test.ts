@@ -29,6 +29,7 @@ import {
 	guardDirs,
 	guardOutput,
 } from "./lib/pretool-guard-testkit";
+import { shellQuote } from "./lib/sh-quote.js";
 import { HANG_TIMEOUT_MS } from "./lib/stop-guard-testkit";
 
 const CORE = "guard-issue-create-label";
@@ -198,7 +199,7 @@ describe("the adapters, crossed for real", () => {
 		const sub = fs.mkdtempSync(path.join(dir, "sub-"));
 		const env = stubGhScript(
 			path.join(dir, "gh"),
-			`#!/bin/sh\n[ "$PWD" = "${sub}" ] || exit 1\nprintf 'Fill the gaps.\\n'\n`,
+			`#!/bin/sh\n[ "$PWD" = ${shellQuote(sub)} ] || exit 1\nprintf 'Fill the gaps.\\n'\n`,
 		).env;
 		expect(
 			emission(`cd ${sub} && gh issue edit 12 --add-label takes:human`, { env })

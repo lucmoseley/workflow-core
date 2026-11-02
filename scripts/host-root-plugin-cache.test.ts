@@ -48,6 +48,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { shellQuote } from "./lib/sh-quote.js";
 import { isApparatus } from "./lib/suite-apparatus.js";
 import { isJsExt } from "./lib/test-kind.js";
 
@@ -290,7 +291,7 @@ describe("the seam, from a plugin cache outside the host", () => {
 			"bash",
 			[
 				"-c",
-				`source "${path.join(cache, "scripts", "lib", "guard-root.sh")}"; gr_root`,
+				`source ${shellQuote(path.join(cache, "scripts", "lib", "guard-root.sh"))}; gr_root`,
 			],
 			{ cwd: host, env: hostEnv(), encoding: "utf8" },
 		);
@@ -318,7 +319,7 @@ describe("the findings the seam closes", () => {
 			"bash",
 			[
 				"-c",
-				`source "${path.join(cache, "scripts", "lib", "rule-text.sh")}"; rule_text adopter-rule`,
+				`source ${shellQuote(path.join(cache, "scripts", "lib", "rule-text.sh"))}; rule_text adopter-rule`,
 			],
 			{ cwd: host, env: hostEnv(), encoding: "utf8" },
 		);

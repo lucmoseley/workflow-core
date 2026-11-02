@@ -15,6 +15,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defineTemplate, initGitRepo, mkScratchDir } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const CLI = path.join(__dirname, "repair-main.js");
 const SESSION = "repair-session";
@@ -98,7 +99,7 @@ const stubGit = (pattern: string, act: string) => {
 	const stub = path.join(dir, "git-stub");
 	fs.writeFileSync(
 		stub,
-		`#!/bin/sh\ncase "$*" in *${JSON.stringify(pattern)}*) ${act} ;; esac\nexec git "$@"\n`,
+		`#!/bin/sh\ncase "$*" in *${shellQuote(pattern)}*) ${act} ;; esac\nexec git "$@"\n`,
 		{ mode: 0o755 },
 	);
 	return stub;
@@ -189,7 +190,7 @@ describe("the proofs", () => {
 		const r = repair(repo, SESSION, {
 			WFC_GIT: stubGit(
 				"merge-base",
-				`echo ${tip.trim()} > ${JSON.stringify(refFile)}`,
+				`echo ${shellQuote(tip.trim())} > ${shellQuote(refFile)}`,
 			),
 		});
 		expectRefused(r, "`main` reads", "git merge --ff-only");

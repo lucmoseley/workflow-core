@@ -27,6 +27,7 @@ import {
 	POST_COMMIT,
 } from "./lib/precommit-gate-testkit";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 import { readStopGuardBlock } from "./lib/stop-guard-testkit";
 import { buildBashCall } from "./lib/transcript-testkit";
 
@@ -416,7 +417,7 @@ describe(".husky/post-commit's record block", () => {
 			[
 				"-e",
 				"-c",
-				`committed=${head}\n${block}\nrecord_session_commit\nprintf "reached-end\\n"`,
+				`committed=${shellQuote(head)}\n${block}\nrecord_session_commit\nprintf "reached-end\\n"`,
 			],
 			{ cwd, encoding: "utf8", env: { ...process.env, ...env } },
 		);

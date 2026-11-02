@@ -32,6 +32,7 @@ import {
 	ROUND,
 } from "./lib/round-ending-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 import { readStopGuardReason, type StopRun } from "./lib/stop-guard-testkit";
 import {
 	buildBashCall,
@@ -73,7 +74,7 @@ function serve(data: unknown, script?: string) {
 	gh = stubGhScript(
 		dir,
 		script ??
-			`#!/bin/sh\nprintf '%s\\n' "$*" >>${dir}/calls\ncat ${dir}/response.json\n`,
+			`#!/bin/sh\nprintf '%s\\n' "$*" >>${shellQuote(dir)}/calls\ncat ${shellQuote(dir)}/response.json\n`,
 	).gh;
 }
 

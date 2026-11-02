@@ -26,6 +26,7 @@ import { mkScratchDir } from "./lib/git-fixture";
 import { coreCall, HOOK } from "./lib/precommit-gate-testkit";
 import { reviewSuffix } from "./lib/review-suffix";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 import { readShellConst } from "./lib/shell-const-testkit";
 
 const GATE = path.resolve(__dirname, "review-hold-gate.sh");
@@ -95,12 +96,16 @@ const runMarkerLib = (
 	args: string[],
 	opts: { input?: string; env?: NodeJS.ProcessEnv } = {},
 ) =>
-	spawnSync("bash", ["-c", `source "${MARKER_LIB}" && ${call}`, "_", ...args], {
-		cwd: repo,
-		encoding: "utf8",
-		input: opts.input,
-		env: { ...quietEnv(), ...opts.env },
-	});
+	spawnSync(
+		"bash",
+		["-c", `source ${shellQuote(MARKER_LIB)} && ${call}`, "_", ...args],
+		{
+			cwd: repo,
+			encoding: "utf8",
+			input: opts.input,
+			env: { ...quietEnv(), ...opts.env },
+		},
+	);
 
 /** Any git command under the fixture's hooks, as a session runs it. */
 const hookedGit = (
@@ -273,7 +278,7 @@ beforeEach(() => {
 	fs.mkdirSync(hooks, { recursive: true });
 	fs.writeFileSync(
 		path.join(hooks, "pre-commit"),
-		`#!/bin/sh\nexec bash "${GATE}"\n`,
+		`#!/bin/sh\nexec bash ${shellQuote(GATE)}\n`,
 		{ mode: 0o755 },
 	);
 });
@@ -619,7 +624,7 @@ describe("review-hold-gate.sh — a replay's own bytes pass, anything added is h
 			fs.rmSync(path.join(hooks, "pre-commit"));
 			fs.writeFileSync(
 				path.join(hooks, "prepare-commit-msg"),
-				`#!/bin/sh\nexec bash "${GATE}"\n`,
+				`#!/bin/sh\nexec bash ${shellQuote(GATE)}\n`,
 				{ mode: 0o755 },
 			);
 		});
@@ -1095,7 +1100,7 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 	beforeEach(() => {
 		fs.writeFileSync(
 			path.join(hooks, "prepare-commit-msg"),
-			`#!/bin/sh\nexec bash "${Trailer}" "$1"\n`,
+			`#!/bin/sh\nexec bash ${shellQuote(Trailer)} "$1"\n`,
 			{ mode: 0o755 },
 		);
 	});
@@ -1106,7 +1111,7 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 			const abs = path.join(root, rel);
 			fs.writeFileSync(
 				path.join(hooks, "pre-commit"),
-				`#!/bin/sh\nbash "${GATE}" || exit "$?"\nmkdir -p "${path.dirname(abs)}"\nprintf '${text}\\n' >"${abs}"\ngit add -- "${rel}"\n`,
+				`#!/bin/sh\nbash ${shellQuote(GATE)} || exit "$?"\nmkdir -p ${shellQuote(path.dirname(abs))}\nprintf ${shellQuote(`${text}\\n`)} >${shellQuote(abs)}\ngit add -- ${shellQuote(rel)}\n`,
 				{ mode: 0o755 },
 			);
 		};
@@ -1274,7 +1279,7 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 		it("trails a commit with CLAUDE_PROJECT_DIR unset, the artefacts and the marker in the shared tree (#3830)", () => {
 			fs.writeFileSync(
 				path.join(hooks, "pre-commit"),
-				`#!/bin/sh\n. "${HOOK_ROOT}"\nexec bash "${GATE}"\n`,
+				`#!/bin/sh\n. ${shellQuote(HOOK_ROOT)}\nexec bash ${shellQuote(GATE)}\n`,
 				{ mode: 0o755 },
 			);
 			const base = git("-C", wt, "rev-parse", "HEAD");
@@ -1613,7 +1618,7 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 				"bash",
 				[
 					"-c",
-					`source "${path.join(path.dirname(GATE), "lib", "review-tier-stamp.sh")}" && review_tier_stamp /g`,
+					`source ${shellQuote(path.join(path.dirname(GATE), "lib", "review-tier-stamp.sh"))} && review_tier_stamp /g`,
 				],
 				{
 					encoding: "utf8",

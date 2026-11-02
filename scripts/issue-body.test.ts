@@ -25,6 +25,7 @@ import { store as arbiter, freshSandbox } from "./lib/arbiter-testkit";
 import { asRecorded } from "./lib/gh-fake";
 import { stubGhScript } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 
 // ---------------------------------------------------------------------------
 // A fake `gh` over one issue body
@@ -424,7 +425,7 @@ describe("the CLI's argument handling, before any gh call (#920)", () => {
 		const called = path.join(dir, "gh-called");
 		process.env.WFC_GH = stubGhScript(
 			dir,
-			`#!/bin/sh\necho "$@" >> "${called}"\nexit 1\n`,
+			`#!/bin/sh\necho "$@" >> ${shellQuote(called)}\nexit 1\n`,
 		).gh;
 		const r = runInProcess(path.join(__dirname, "issue-body.js"), args, {
 			env: process.env,

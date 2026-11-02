@@ -14,6 +14,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { shellQuote } from "./sh-quote.js";
 
 const LIB = path.resolve(__dirname, "wfc-config.sh");
 let dir: string;
@@ -23,7 +24,7 @@ const writeConfig = (text: string) => {
 	fs.writeFileSync(path.join(dir, ".claude", "workflow-core.json"), text);
 };
 const sh = (script: string, env: Record<string, string> = {}) =>
-	spawnSync("/bin/bash", ["-c", `source ${JSON.stringify(LIB)}; ${script}`], {
+	spawnSync("/bin/bash", ["-c", `source ${shellQuote(LIB)}; ${script}`], {
 		encoding: "utf8",
 		env: {
 			...process.env,
@@ -596,7 +597,7 @@ describe("parity with the JS reader (#1481)", () => {
 		const script = Object.entries(probes)
 			.map(
 				([probe, p]) =>
-					`( ${p.sh(asks)} >${out}/${probe}.out 2>${out}/${probe}.err; echo $? >${out}/${probe}.rc )`,
+					`( ${p.sh(asks)} >${shellQuote(`${out}/${probe}.out`)} 2>${shellQuote(`${out}/${probe}.err`)}; echo $? >${shellQuote(`${out}/${probe}.rc`)} )`,
 			)
 			.join("\n");
 		const env: Record<string, string> = {};
@@ -685,9 +686,13 @@ describe("degraded reads", () => {
 		const bin = path.join(dir, "bin");
 		fs.mkdirSync(bin);
 		for (const tool of ["git", "dirname", "basename"]) {
-			const found = spawnSync("bash", ["-c", `command -v ${tool}`], {
-				encoding: "utf8",
-			}).stdout.trim();
+			const found = spawnSync(
+				"bash",
+				["-c", `command -v ${shellQuote(tool)}`],
+				{
+					encoding: "utf8",
+				},
+			).stdout.trim();
 			if (found) fs.symlinkSync(found, path.join(bin, tool));
 		}
 		const r = sh('wfc_module_on roadmap; echo "$?"', { PATH: bin });

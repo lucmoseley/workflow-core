@@ -37,6 +37,7 @@ import { remoteGit } from "./lib/lander.js";
 import { installLib } from "./lib/lib-install-testkit";
 import { expectFixtureSupplies } from "./lib/precommit-gate-harness";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 import { readProgramLibs } from "./lib-closure-fixture";
 
 const { DISPATCH_ENTRY, MANIFEST_REL } = require("./lib/guard-cores.js") as {
@@ -3022,7 +3023,7 @@ describe("a lander revert lands with the rows it leaves stale (#3127)", () => {
 		]) {
 			fs.writeFileSync(
 				path.join(hooks, hook),
-				`#!/bin/sh\nGATES="${root}/scripts"\nexec node ${script}\n`,
+				`#!/bin/sh\nGATES=${shellQuote(`${root}/scripts`)}\nexec node ${script}\n`,
 			);
 			fs.chmodSync(path.join(hooks, hook), 0o755);
 		}
@@ -4665,7 +4666,7 @@ describe("the rule-text store", () => {
 
 	/** A bash script whose only interesting property is the call it makes; the case's hooksWiring decides whether it is wired. */
 	function bashEmitter(id: string): string {
-		return `#!/usr/bin/env bash\n# shellcheck source=scripts/lib/rule-text.sh\nsource "$here/lib/rule-text.sh"\nrule_text ${id} >&2\nexit 2\n`;
+		return `#!/usr/bin/env bash\n# shellcheck source=scripts/lib/rule-text.sh\nsource "$here/lib/rule-text.sh"\nrule_text ${shellQuote(id)} >&2\nexit 2\n`;
 	}
 
 	it("passes on an empty store with no triggers — the state this ticket lands in", () => {
@@ -5012,7 +5013,10 @@ describe("the rule-text store", () => {
 	/** An injector carrying a per-command index that names `ids`. */
 	function injectorIndex(...ids: string[]): string {
 		return `#!/usr/bin/env bash\n${ids
-			.map((id) => `index='- \`rule:${id}\` — before the act it binds on.'`)
+			.map(
+				(id) =>
+					`index=${shellQuote(`- \`rule:${id}\` — before the act it binds on.`)}`,
+			)
 			.join("\n")}\n`;
 	}
 

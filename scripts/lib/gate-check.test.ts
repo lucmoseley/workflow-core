@@ -9,6 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { shellQuote } from "./sh-quote.js";
 
 const { addedCheckVerdict } = require("./gate-check.js");
 
@@ -101,7 +102,10 @@ describe("a check on another repo's issue", () => {
 		vi.stubEnv("WFC_REPO_ROOT", os.tmpdir());
 		const printed = path.join(root, "seen");
 		expect(
-			verdictOn(theirs, `\`echo "$WFC_REPO_ROOT" | tee ${printed}\``).refusals,
+			verdictOn(
+				theirs,
+				`\`echo "$WFC_REPO_ROOT" | tee ${shellQuote(printed)}\``,
+			).refusals,
 		).toEqual([]);
 		expect(fs.readFileSync(printed, "utf8").trim()).toBe(root);
 	});
@@ -111,7 +115,7 @@ describe("a check on another repo's issue", () => {
 		const canary = path.join(home, "ran");
 		const { refusals } = verdictOn(
 			"owner/nobody",
-			`\`echo ran > ${canary}; echo reading\``,
+			`\`echo ran > ${shellQuote(canary)}; echo reading\``,
 		);
 		expect(refusals).toHaveLength(1);
 		expect(refusals[0]).toContain(

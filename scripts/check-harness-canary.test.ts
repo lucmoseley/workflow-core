@@ -30,6 +30,7 @@ import {
 } from "./lib/auth-status-fake";
 import { stubGhScript } from "./lib/gh-stub.js";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "check-harness-canary.js");
 const FIXTURE = path.join(
@@ -326,7 +327,10 @@ describe("the agent_id probe, in the core's checkout", () => {
 	function core(excerpts: string) {
 		fs.appendFileSync(path.join(dir, "claude"), `/*\n${excerpts}*/\n`);
 		comments = path.join(dir, "comments");
-		const gh = stubGhScript(dir, `#!/bin/sh\necho "$@" >> ${comments}\n`);
+		const gh = stubGhScript(
+			dir,
+			`#!/bin/sh\necho "$@" >> ${shellQuote(comments)}\n`,
+		);
 		return { CLAUDE_PROJECT_DIR: CORE, ...gh.env };
 	}
 	const readComments = () =>

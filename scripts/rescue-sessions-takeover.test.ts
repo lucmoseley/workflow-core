@@ -35,6 +35,7 @@ import {
 	WEEKLY_LIMIT_LINE,
 	withTracker,
 } from "./lib/rescue-testkit";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const CLAIMS_LIB = path.resolve(__dirname, "lib", "arbiter-issue-claims.js");
 const N = 621;
@@ -59,11 +60,11 @@ const snapshotDir = () =>
 
 /** Every `gh` call logged; a comment logs who holds the claim as it posts. */
 const ghBefore = () => [
-	`echo "gh $1 $2" >> '${events()}'`,
+	`echo "gh $1 $2" >> ${shellQuote(events())}`,
 	'if [ "$1 $2" = "issue comment" ]; then',
-	`  "${process.execPath}" -e 'console.log("claim held by " + require(${JSON.stringify(CLAIMS_LIB)}).readIssueClaims(${N}).map((e) => e.record.sessionId).sort().join(","))' >> '${events()}'`,
-	`  cat > '${path.join(sb.dir, "comment.md")}'`,
-	`  [ -f '${path.join(sb.dir, "comment-fails")}' ] && { echo "HTTP 502" >&2; exit 1; }`,
+	`  ${shellQuote(process.execPath)} -e ${shellQuote(`console.log("claim held by " + require(${JSON.stringify(CLAIMS_LIB)}).readIssueClaims(${N}).map((e) => e.record.sessionId).sort().join(","))`)} >> ${shellQuote(events())}`,
+	`  cat > ${shellQuote(path.join(sb.dir, "comment.md"))}`,
+	`  [ -f ${shellQuote(path.join(sb.dir, "comment-fails"))} ] && { echo "HTTP 502" >&2; exit 1; }`,
 	"  exit 0",
 	"fi",
 ];
@@ -93,8 +94,8 @@ const takeover = (args: string[] = ["--issue", String(N)]) =>
 	run("takeover", args, {
 		ghBefore: ghBefore(),
 		onStop: [
-			`s=no; [ -f '${path.join(snapshotDir(), "index.json")}' ] && s=yes`,
-			`echo "stop $2 snapshot=$s" >> '${events()}'`,
+			`s=no; [ -f ${shellQuote(path.join(snapshotDir(), "index.json"))} ] && s=yes`,
+			`echo "stop $2 snapshot=$s" >> ${shellQuote(events())}`,
 		],
 	});
 
@@ -207,7 +208,7 @@ describe("takeover: the success path", () => {
 		lists([holderRow()]);
 		fs.writeFileSync(
 			path.join(two, "on-stop.sh"),
-			`cp '${path.join(two, "agents.json")}' '${path.join(plan(), "agents.json")}'\n`,
+			`cp ${shellQuote(path.join(two, "agents.json"))} ${shellQuote(path.join(plan(), "agents.json"))}\n`,
 		);
 		jobState({ intent: `/implement ${N}`, cwd: sb.repo }, two);
 		const r = await takeover();
@@ -266,7 +267,7 @@ describe("takeover: an ENDED holder still listed is stopped too (#623)", () => {
 		if (!hostSurvives)
 			fs.writeFileSync(
 				path.join(plan(), "on-stop.sh"),
-				`rm -rf '${path.join(procRoot(), String(PID))}'\n`,
+				`rm -rf ${shellQuote(path.join(procRoot(), String(PID)))}\n`,
 			);
 	};
 	const readComment = () =>
@@ -358,7 +359,7 @@ describe("takeover: a stop that does not take leaves the claim untouched", () =>
 		);
 		fs.writeFileSync(
 			path.join(plan(), "on-stop.sh"),
-			`"${process.execPath}" -e 'require(${JSON.stringify(CLAIMS_LIB)}).claimIssue(${N}, { sessionId: "third" })'\n`,
+			`${shellQuote(process.execPath)} -e ${shellQuote(`require(${JSON.stringify(CLAIMS_LIB)}).claimIssue(${N}, { sessionId: "third" })`)}\n`,
 		);
 		const r = await takeover();
 		expect(r.status).toBe(1);
@@ -415,7 +416,7 @@ describe("takeover: refusals before any write", () => {
 	it.each([
 		[
 			"SLOW",
-			() => between(`printf 'x\\n' >> '${transcript()}'`),
+			() => between(`printf 'x\\n' >> ${shellQuote(transcript())}`),
 			"still working",
 		],
 		[
@@ -449,7 +450,7 @@ describe("takeover: refusals before any write", () => {
 });
 
 describe("takeover --despite: the founder overrules SLOW or ASKING (#622)", () => {
-	const slow = () => between(`printf 'x\\n' >> '${transcript()}'`);
+	const slow = () => between(`printf 'x\\n' >> ${shellQuote(transcript())}`);
 	const asking = () =>
 		writeTranscript([said("❓ Q1\n\nneeds input: which plan")]);
 

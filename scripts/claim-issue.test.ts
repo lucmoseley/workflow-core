@@ -30,6 +30,7 @@ import {
 import { stubGhScript } from "./lib/gh-stub";
 import { writeHeadlessRun } from "./lib/headless-runs-testkit";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.resolve(__dirname, "claim-issue.js");
 const ME = "sess-me";
@@ -81,14 +82,14 @@ const ghStub = () =>
 		sb.dir,
 		[
 			"#!/bin/sh",
-			`echo "$*" >> "${path.join(sb.dir, "gh-calls")}"`,
+			`echo "$*" >> ${shellQuote(path.join(sb.dir, "gh-calls"))}`,
 			'if [ "$1" = api ]; then',
-			`  f="${path.join(sb.dir, "api")}/$(echo "$2" | tr / _)"`,
+			`  f=${shellQuote(path.join(sb.dir, "api"))}/"$(echo "$2" | tr / _)"`,
 			'  [ -f "$f" ] && cat "$f" && exit 0',
 			'  echo "HTTP 404: Not Found" >&2; exit 1',
 			"fi",
-			`if [ -f "${path.join(sb.dir, "assign-fails")}" ]; then echo "HTTP 403: no" >&2; exit 1; fi`,
-			`case "$*" in *--remove-label*) [ -f "${path.join(sb.dir, "unpark-fails")}" ] && { echo "HTTP 502: down" >&2; exit 1; } ;; esac`,
+			`if [ -f ${shellQuote(path.join(sb.dir, "assign-fails"))} ]; then echo "HTTP 403: no" >&2; exit 1; fi`,
+			`case "$*" in *--remove-label*) [ -f ${shellQuote(path.join(sb.dir, "unpark-fails"))} ] && { echo "HTTP 502: down" >&2; exit 1; } ;; esac`,
 			"exit 0",
 		].join("\n"),
 	);
@@ -102,7 +103,7 @@ const oracle = (rows: Row[] | null) => {
 		bin,
 		rows === null
 			? "#!/bin/sh\necho daemon down >&2\nexit 1\n"
-			: `#!/bin/sh\necho '${JSON.stringify(rows.map((r) => (typeof r === "string" ? { sessionId: r } : r)))}'\n`,
+			: `#!/bin/sh\necho ${shellQuote(JSON.stringify(rows.map((r) => (typeof r === "string" ? { sessionId: r } : r))))}\n`,
 	);
 	fs.chmodSync(bin, 0o755);
 	return bin;

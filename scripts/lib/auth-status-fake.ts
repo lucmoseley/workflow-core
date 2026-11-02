@@ -7,6 +7,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { shellQuote } from "./sh-quote.js";
 
 export const AUTH_STATUS_FAKE = path.join(
 	__dirname,
@@ -16,7 +17,7 @@ export const AUTH_STATUS_FAKE = path.join(
 
 /** The branch, for a bash stub, placed right after its shebang. */
 export function buildAuthStatusBranch(): string {
-	return `if [ "$1" = "auth" ]; then exec ${JSON.stringify(process.execPath)} ${JSON.stringify(AUTH_STATUS_FAKE)}; fi`;
+	return `if [ "$1" = "auth" ]; then exec ${shellQuote(process.execPath)} ${shellQuote(AUTH_STATUS_FAKE)}; fi`;
 }
 
 /** The branch, for a node stub, placed right after its shebang. */

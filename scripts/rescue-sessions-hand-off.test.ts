@@ -31,6 +31,7 @@ import {
 	withTracker,
 } from "./lib/rescue-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const N = 621;
 const sb = freshSandbox(withTracker);
@@ -42,7 +43,7 @@ const commentFile = () => path.join(sb.dir, "comment.md");
 const handOff = () => {
 	const { env } = stubGhScript(
 		sb.dir,
-		`#!/bin/sh\n[ "$1 $2" = "issue comment" ] && cat > '${commentFile()}'\nexit 0\n`,
+		`#!/bin/sh\n[ "$1 $2" = "issue comment" ] && cat > ${shellQuote(commentFile())}\nexit 0\n`,
 	);
 	return runInProcess(
 		SCRIPT,

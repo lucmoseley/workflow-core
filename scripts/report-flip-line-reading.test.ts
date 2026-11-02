@@ -16,6 +16,7 @@ import { MARKERS_REL } from "./lib/marker-root";
 import { CLOSE_CHECK_LOG } from "./lib/priced-options-limbs";
 import { appendEvents, logPath } from "./lib/refusal-log";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "report-flip-line-reading.js");
 /* Restated so a rename fails here rather than passing unseen. */
@@ -69,9 +70,9 @@ beforeEach(() => {
 		home,
 		[
 			"#!/bin/sh",
-			`printf '%s\\n' "$*" >> ${JSON.stringify(argvLog)}`,
+			`printf '%s\\n' "$*" >> ${shellQuote(argvLog)}`,
 			'if [ "$1" = "issue" ] && [ "$2" = "list" ]; then',
-			`  cat ${JSON.stringify(issues)}`,
+			`  cat ${shellQuote(issues)}`,
 			'elif [ "$1" = "issue" ] && [ "$2" = "create" ]; then',
 			"  echo https://github.com/o/r/issues/999",
 			"fi",

@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
 import { NEEDS_INPUT, POSTED, ROUND } from "./lib/round-ending-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 import { readStopGuardBlock } from "./lib/stop-guard-testkit";
 
 const HOOK = path.join(__dirname, "park-on-round.js");
@@ -34,11 +35,11 @@ function serve(data: unknown, failEdit = false) {
 		dir,
 		[
 			"#!/bin/sh",
-			`printf '%s\\n' "$*" >>${dir}/calls`,
+			`printf '%s\\n' "$*" >>${shellQuote(dir)}/calls`,
 			failEdit
 				? 'case "$*" in "issue edit"*) echo "HTTP 502" >&2; exit 1 ;; esac'
 				: "",
-			`cat ${dir}/response.json`,
+			`cat ${shellQuote(dir)}/response.json`,
 		].join("\n"),
 	).gh;
 }

@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { API_PROMPT } from "./lib/loop-prompts.js";
 import { runInProcess } from "./lib/run-in-process";
 import { seatDirs } from "./lib/seat-testkit";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.resolve(__dirname, "pick-retro-sessions.js");
 
@@ -227,7 +228,7 @@ beforeEach(() => {
 	const bin = path.join(home, "claude");
 	fs.writeFileSync(
 		bin,
-		`#!/bin/sh\n[ -f "${home}/oracle-down" ] && exit 1\ncat "${home}/agents.json"\n`,
+		`#!/bin/sh\n[ -f ${shellQuote(`${home}/oracle-down`)} ] && exit 1\ncat ${shellQuote(`${home}/agents.json`)}\n`,
 	);
 	fs.chmodSync(bin, 0o755);
 	oracleLists([]);

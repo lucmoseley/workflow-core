@@ -29,6 +29,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type StubGh, stubGhScript } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.resolve(__dirname, "check-gates.js");
 
@@ -65,7 +66,7 @@ const stubGh = (issues: Issue[], { failing = false } = {}) => {
 	);
 	return stubGhScript(
 		dir,
-		`#!/bin/sh\nprintf '%s\\n' "$*" >> ${ghLog}\ncat ${fixture}\n`,
+		`#!/bin/sh\nprintf '%s\\n' "$*" >> ${shellQuote(ghLog)}\ncat ${shellQuote(fixture)}\n`,
 		{ failing },
 	);
 };
@@ -217,7 +218,10 @@ describe("a segment that owes a repair", () => {
 		const r = run(
 			[],
 			stubGh([
-				{ number: 7, body: gatedOn(`\`echo one \`touch ${substituted}\`\``) },
+				{
+					number: 7,
+					body: gatedOn(`\`echo one \`touch ${shellQuote(substituted)}\`\``),
+				},
 			]),
 		);
 		expect(r.out).toContain("[NOT-A-COMMAND]");
@@ -241,7 +245,9 @@ describe("a segment that owes a repair", () => {
 			stubGh([
 				{
 					number: 2491,
-					body: gatedOn(`sh -c 'sleep 6; touch ${marker}' & wait`),
+					body: gatedOn(
+						`sh -c ${shellQuote(`sleep 6; touch ${shellQuote(marker)}`)} & wait`,
+					),
 				},
 			]),
 		);
@@ -318,7 +324,9 @@ describe("modes", () => {
 		const long = Array.from({ length: 9 }, (_, i) => `line ${i}`).join("\\n");
 		const r = run(
 			["--json"],
-			stubGh([{ number: 7, body: gatedOn(`printf '${long}\\n'`) }]),
+			stubGh([
+				{ number: 7, body: gatedOn(`printf ${shellQuote(`${long}\\n`)}`) },
+			]),
 		);
 		const env = JSON.parse(r.out);
 		expect(env).toMatchObject({
@@ -367,8 +375,10 @@ describe("modes", () => {
 		);
 		return stubGhScript(
 			dir,
-			`#!/bin/sh\nprintf '%s\\n' "$*" >> ${ghLog}\n${
-				isError ? `cat ${fixture} >&2\nexit 1` : `cat ${fixture}`
+			`#!/bin/sh\nprintf '%s\\n' "$*" >> ${shellQuote(ghLog)}\n${
+				isError
+					? `cat ${shellQuote(fixture)} >&2\nexit 1`
+					: `cat ${shellQuote(fixture)}`
 			}\n`,
 		);
 	};
@@ -426,7 +436,9 @@ describe("modes", () => {
 		const long = Array.from({ length: 9 }, (_, i) => `line ${i}`).join("\\n");
 		const r = run(
 			[],
-			stubGh([{ number: 7, body: gatedOn(`printf '${long}\\n'`) }]),
+			stubGh([
+				{ number: 7, body: gatedOn(`printf ${shellQuote(`${long}\\n`)}`) },
+			]),
 		);
 		expect(r.out).toContain("line 2");
 		expect(r.out).not.toContain("line 3");

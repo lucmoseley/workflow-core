@@ -8,6 +8,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { shellQuote } from "./sh-quote.js";
 
 interface Limit {
 	kind: string;
@@ -83,7 +84,7 @@ export function buildUsageText(bars: Bars): string {
 }
 
 export function buildUsageBranch(bars: Bars): string {
-	return `printf '%s' '${buildUsageText(bars)}'`;
+	return `printf '%s' ${shellQuote(buildUsageText(bars))}`;
 }
 
 /* Each bar's window, so a written bar resets after its stamp; any offset
@@ -173,19 +174,19 @@ export function buildUsageCache(
 	};
 }
 
-/** A bash stub line writing `buildUsageCache(bars)` to `file`, a bash word,
+/** A bash stub line writing `buildUsageCache(bars)` to `target`, a bash word,
  * stamped when it runs, as the probe's refresh does. */
-export function buildRefreshLine(bars: Bars, file: string): string {
+export function buildRefreshLine(bars: Bars, target: string): string {
 	const now = Date.now();
 	const [head, tail] = JSON.stringify(buildUsageCache(bars, now)).split(
 		`"fetchedAtMs":${now}`,
 	);
-	return `printf '%s%s%s' '${head}"fetchedAtMs":' "$(($(date +%s%N) / 1000000))" '${tail}' > ${file}`;
+	return `printf '%s%s%s' ${shellQuote(`${head}"fetchedAtMs":`)} "$(($(date +%s%N) / 1000000))" ${shellQuote(tail)} > ${target}`;
 }
 
 export function buildRefreshBranch(configDir: string, bars: Bars): string[] {
 	return [
-		`mkdir -p '${configDir}'`,
-		buildRefreshLine(bars, `'${path.join(configDir, ".claude.json")}'`),
+		`mkdir -p ${shellQuote(configDir)}`,
+		buildRefreshLine(bars, shellQuote(path.join(configDir, ".claude.json"))),
 	];
 }

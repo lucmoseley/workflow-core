@@ -22,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
 import { initGitRepo } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.resolve(__dirname, "release-plugin.js");
 const PLUGIN_ROOT = ["$", "{CLAUDE_PLUGIN_ROOT}"].join("");
@@ -490,7 +491,7 @@ describe("release-plugin", () => {
 			fs.writeFileSync(
 				stub,
 				"#!/bin/sh\n" +
-					`echo "$CLAUDE_CONFIG_DIR|$*" >> ${JSON.stringify(log)}\n` +
+					`echo "$CLAUDE_CONFIG_DIR|$*" >> ${shellQuote(log)}\n` +
 					`mkdir -p "$CLAUDE_CONFIG_DIR/plugins"\n` +
 					`echo clobbered > "$CLAUDE_CONFIG_DIR/plugins/known_marketplaces.json"\n` +
 					"exit 0\n",
@@ -603,9 +604,7 @@ describe("release-plugin", () => {
 			write(
 				"migrations/v2.0.0.md",
 				buildMigrationNote(
-					`node -e 'require("node:fs").appendFileSync(${JSON.stringify(
-						log,
-					)}, process.cwd() + "\\n")'`,
+					`node -e ${shellQuote(`require("node:fs").appendFileSync(${JSON.stringify(log)}, process.cwd() + "\\n")`)}`,
 				),
 			);
 			git("add", "--all");
@@ -723,7 +722,7 @@ describe("release-plugin", () => {
 		const record = path.join(tmp, "calls.txt");
 		const stub = stubGhScript(
 			tmp,
-			`#!/bin/sh\nprintf '%s\\n' "$*" >> "${record}"\nexit 0\n`,
+			`#!/bin/sh\nprintf '%s\\n' "$*" >> ${shellQuote(record)}\nexit 0\n`,
 		);
 		const prevWfcGh = process.env.WFC_GH;
 		process.env.WFC_GH = stub.gh;
@@ -881,7 +880,7 @@ describe("release-plugin", () => {
 	const bumpStub = (stubDir: string, record: string, listed = "[]") =>
 		stubGhScript(
 			stubDir,
-			`#!/bin/sh\nprintf '%s\\n' "$*" >> "${record}"\ncase "$*" in\n  *"repos/adopter-b/forbidden-repo/issues -f"*) echo "gh: HTTP 403: Resource not accessible" >&2; exit 1 ;;\n  *garbled-repo/issues\\?*) echo "<html>" ;;\n  *"/issues?"*) printf '%s' '[${listed}]' ;;\n  *"POST repos/"*"/issues -f"*) echo '{"number":100,"id":9100}' ;;\nesac\nexit 0\n`,
+			`#!/bin/sh\nprintf '%s\\n' "$*" >> ${shellQuote(record)}\ncase "$*" in\n  *"repos/adopter-b/forbidden-repo/issues -f"*) echo "gh: HTTP 403: Resource not accessible" >&2; exit 1 ;;\n  *garbled-repo/issues\\?*) echo "<html>" ;;\n  *"/issues?"*) printf '%s' ${shellQuote(`[${listed}]`)} ;;\n  *"POST repos/"*"/issues -f"*) echo '{"number":100,"id":9100}' ;;\nesac\nexit 0\n`,
 		);
 
 	const fileBumps = (gh: string, repos: string) =>

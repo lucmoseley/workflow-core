@@ -18,6 +18,7 @@ import { runCore, toolCall } from "./lib/guard-core-testkit";
 import { parseHoldId } from "./lib/repo-hold-fixture";
 import { HAND_OFF, POSTED, ROUND } from "./lib/round-ending-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 import { readStopGuardReason } from "./lib/stop-guard-testkit";
 
 const PRICED = path.join(__dirname, "guard-priced-options.js");
@@ -110,7 +111,7 @@ function serve(handOff = true) {
 	);
 	gh = stubGhScript(
 		dir,
-		`#!/bin/sh\nprintf '%s\\n' "$*" >>${dir}/calls\ncat ${dir}/response.json`,
+		`#!/bin/sh\nprintf '%s\\n' "$*" >>${shellQuote(dir)}/calls\ncat ${shellQuote(dir)}/response.json`,
 	).gh;
 }
 

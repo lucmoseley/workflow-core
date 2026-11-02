@@ -21,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildAuthStatusBranch } from "./lib/auth-status-fake";
 import { writePsStub } from "./lib/ps-stub.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 import { buildRefreshLine, buildUsageCache } from "./lib/usage-probe-fake";
 
 const SCRIPT = path.resolve(__dirname, "refill-loop.js");
@@ -53,7 +54,7 @@ beforeEach(() => {
 	);
 	fs.writeFileSync(
 		path.join(dir, "gh"),
-		`#!/bin/bash\nprintf '%s\\n' "$*" >> '${ghLog}'\nexit 1\n`,
+		`#!/bin/bash\nprintf '%s\\n' "$*" >> ${shellQuote(ghLog)}\nexit 1\n`,
 		{ mode: 0o755 },
 	);
 	/* A probe records its parent's command line and where and how it ran, then refreshes the caches of the
@@ -64,8 +65,8 @@ beforeEach(() => {
 		[
 			"#!/bin/bash",
 			buildAuthStatusBranch(),
-			`if [ "$1" = "agents" ]; then printf '%s\\n' '${JSON.stringify([{ sessionId: SESSION_ID, pid: 1 }])}'; exit 0; fi`,
-			`printf '%s|%s|%s|%s|%s\\n' "$(tr '\\0' ' ' < /proc/$PPID/cmdline)" "$PWD" "$CLAUDE_CONFIG_DIR" "$*" "$(readlink /proc/self/fd/0)" >> '${probeLog}'`,
+			`if [ "$1" = "agents" ]; then printf '%s\\n' ${shellQuote(JSON.stringify([{ sessionId: SESSION_ID, pid: 1 }]))}; exit 0; fi`,
+			`printf '%s|%s|%s|%s|%s\\n' "$(tr '\\0' ' ' < /proc/$PPID/cmdline)" "$PWD" "$CLAUDE_CONFIG_DIR" "$*" "$(readlink /proc/self/fd/0)" >> ${shellQuote(probeLog)}`,
 			'if [ -n "$FAKE_ABORT" ]; then kill -TERM "$PPID"; sleep 5; exit 0; fi',
 			`for s in $FAKE_REFRESH; do ${buildRefreshLine(FULL, '"$s/.claude.json"')}; done`,
 		].join("\n"),

@@ -16,6 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeHeadlessRun } from "./headless-runs-testkit";
+import { shellQuote } from "./sh-quote.js";
 
 // The module is CommonJS and stays that way — it is required by plain node
 // scripts that a bash hook spawns.
@@ -102,9 +103,9 @@ function hangingClaude(body: string, hangs: number) {
 	fs.writeFileSync(
 		bin,
 		"#!/bin/sh\n" +
-			`n=$(cat ${count} 2>/dev/null || echo 0)\n` +
+			`n=$(cat ${shellQuote(count)} 2>/dev/null || echo 0)\n` +
 			"n=$((n + 1))\n" +
-			`echo $n > ${count}\n` +
+			`echo $n > ${shellQuote(count)}\n` +
 			`[ $n -le ${hangs} ] && exec sleep 30\n` +
 			`cat <<'EOF'\n${body}\nEOF\n`,
 		{ mode: 0o755 },
@@ -160,7 +161,7 @@ describe("the oracle times out (mantahostels#1900)", () => {
 		const bin = path.join(dir, "claude");
 		fs.writeFileSync(
 			bin,
-			`#!/bin/sh\nn=$(cat ${count} 2>/dev/null || echo 0)\necho $((n + 1)) > ${count}\nexit 3\n`,
+			`#!/bin/sh\nn=$(cat ${shellQuote(count)} 2>/dev/null || echo 0)\necho $((n + 1)) > ${shellQuote(count)}\nexit 3\n`,
 			{ mode: 0o755 },
 		);
 		process.env.WFC_CLAUDE_BIN = bin;
@@ -179,7 +180,7 @@ describe("the oracle times out (mantahostels#1900)", () => {
 		const bin = path.join(dir, "claude");
 		fs.writeFileSync(
 			bin,
-			`#!/bin/bash\nsleep 30 &\necho $! >> ${pids}\nsleep 30 &\necho $! >> ${pids}\nwait\n`,
+			`#!/bin/bash\nsleep 30 &\necho $! >> ${shellQuote(pids)}\nsleep 30 &\necho $! >> ${shellQuote(pids)}\nwait\n`,
 			{ mode: 0o755 },
 		);
 		process.env.WFC_CLAUDE_BIN = bin;
@@ -420,10 +421,10 @@ describe("every plan's listing (#3512)", () => {
 			[
 				"#!/bin/sh",
 				`case "$CLAUDE_CONFIG_DIR" in`,
-				`  "${a}") echo '${listing("a1", "shared")}' ;;`,
-				`  "${b}") [ -e "${path.join(dir, "b-fails")}" ] && exit 4; echo '${listing("b1", "shared")}' ;;`,
-				`  "${absent}") echo '${listing("absent")}' ;;`,
-				`  *) echo '${listing("own")}' ;;`,
+				`  ${shellQuote(a)}) echo ${shellQuote(listing("a1", "shared"))} ;;`,
+				`  ${shellQuote(b)}) [ -e ${shellQuote(path.join(dir, "b-fails"))} ] && exit 4; echo ${shellQuote(listing("b1", "shared"))} ;;`,
+				`  ${shellQuote(absent)}) echo ${shellQuote(listing("absent"))} ;;`,
+				`  *) echo ${shellQuote(listing("own"))} ;;`,
 				"esac",
 			].join("\n"),
 			{ mode: 0o755 },
@@ -452,7 +453,7 @@ describe("every plan's listing (#3512)", () => {
 		const bin = path.join(dir, "claude");
 		fs.writeFileSync(
 			bin,
-			`#!/bin/sh\ncase "$CLAUDE_CONFIG_DIR" in\n  "${a}") echo '${row("working")}' ;;\n  *) echo '${row("stopped")}' ;;\nesac\n`,
+			`#!/bin/sh\ncase "$CLAUDE_CONFIG_DIR" in\n  ${shellQuote(a)}) echo ${shellQuote(row("working"))} ;;\n  *) echo ${shellQuote(row("stopped"))} ;;\nesac\n`,
 			{ mode: 0o755 },
 		);
 		process.env.WFC_CLAUDE_BIN = bin;

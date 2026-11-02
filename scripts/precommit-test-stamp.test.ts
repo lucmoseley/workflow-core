@@ -51,6 +51,7 @@ import {
 } from "./lib/precommit-gate-testkit";
 import { copyRequireClosure } from "./lib/require-closure";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const temps = registerTempCleanup();
 
@@ -122,7 +123,7 @@ const SLOW_S = 1;
  * `gen.txt`.
  */
 const stub = (root: string) => `#!/bin/sh
-r='${root}'
+r=${shellQuote(root)}
 [ -f "$r/stub-slow" ] && sleep ${SLOW_S}
 lock=0; [ -f "$r/.git/index.lock" ] && lock=1
 staged="$(git diff --cached --name-only | paste -sd, -)"
@@ -142,7 +143,7 @@ case ",$staged," in *,a.txt,*) if [ -e stray.txt ] || grep -qs broken b.txt; the
 const buildNeighbourCommit = (rel: string, body: string) => `t="$(mktemp -u)"
 p=""
 if git rev-parse -q --verify HEAD >/dev/null; then GIT_INDEX_FILE="$t" git read-tree HEAD; p="-p HEAD"; fi
-b="$(printf '${body}' | git hash-object -w --stdin)"
+b="$(printf ${shellQuote(body)} | git hash-object -w --stdin)"
 GIT_INDEX_FILE="$t" git update-index --add --cacheinfo "100644,$b,${rel}"
 tree="$(GIT_INDEX_FILE="$t" git write-tree)"
 git update-ref HEAD "$(git commit-tree $p -m neighbour "$tree")"

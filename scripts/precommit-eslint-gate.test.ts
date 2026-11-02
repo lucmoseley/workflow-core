@@ -32,6 +32,7 @@ import {
 } from "./lib/precommit-gate-harness";
 import { LIB, ROOT } from "./lib/precommit-gate-testkit";
 import { copyRequireClosure } from "./lib/require-closure";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const temps = registerTempCleanup();
 
@@ -60,7 +61,7 @@ function fixture(opts: {
 	const stub = path.join(bin, "eslint");
 	fs.writeFileSync(
 		stub,
-		`#!/bin/sh\nprintf '%s\\n' "$@" >>"${path.join(root, ARGS_FILE)}"\nexit ${opts.eslintExit}\n`,
+		`#!/bin/sh\nprintf '%s\\n' "$@" >>${shellQuote(path.join(root, ARGS_FILE))}\nexit ${opts.eslintExit}\n`,
 	);
 	fs.chmodSync(stub, 0o755);
 

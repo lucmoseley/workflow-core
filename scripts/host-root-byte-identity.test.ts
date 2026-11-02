@@ -21,6 +21,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const LIB = path.resolve(__dirname, "lib");
 
@@ -67,10 +68,7 @@ const readAnswers = (cwd: string, declared: string | undefined) => {
 	);
 	const sh = spawnSync(
 		"bash",
-		[
-			"-c",
-			`source ${JSON.stringify(path.join(LIB, "guard-root.sh"))}; gr_root`,
-		],
+		["-c", `source ${shellQuote(path.join(LIB, "guard-root.sh"))}; gr_root`],
 		/* bash's $PWD is the logical path it inherits, so hand it the spelling. */
 		{ ...opts, env: { ...opts.env, PWD: cwd } },
 	);

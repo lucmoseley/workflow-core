@@ -38,6 +38,7 @@ import {
 } from "./lib/adopter-consent.js";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "reconcile-plugin.js");
 
@@ -124,7 +125,8 @@ function fixture({
 			cwd: clone,
 		},
 	);
-	if (supplyRef !== "main") execSync(`git tag ${supplyRef}`, { cwd: clone });
+	if (supplyRef !== "main")
+		execSync(`git tag ${shellQuote(supplyRef)}`, { cwd: clone });
 
 	/* A real, clean adopter repo — the migration walk (#249) reads the
 	 * working tree's own git status, and every case here must present one
@@ -164,10 +166,10 @@ function claudeStub(
 		stub,
 		[
 			"#!/bin/sh",
-			`echo "$PWD :: $CLAUDE_CONFIG_DIR :: $*" >> ${JSON.stringify(log)}`,
+			`echo "$PWD :: $CLAUDE_CONFIG_DIR :: $*" >> ${shellQuote(log)}`,
 			...(fail
 				? [
-						`case "$*" in *${JSON.stringify(fail.on)}*) echo ${JSON.stringify(fail.said)} >&2; exit 1;; esac`,
+						`case "$*" in *${shellQuote(fail.on)}*) echo ${shellQuote(fail.said)} >&2; exit 1;; esac`,
 					]
 				: []),
 			"exit 0",

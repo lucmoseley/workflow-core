@@ -30,6 +30,7 @@ import {
 	type TempRepo,
 } from "./lib/precommit-gate-harness";
 import { coreCall, HOOK, LIB, ROOT } from "./lib/precommit-gate-testkit";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const CHECKER = "scripts/check-injector-margin.sh";
 const INJECTOR = "scripts/inject-tracker-docs.sh";
@@ -54,7 +55,7 @@ function fixture(opts: {
 		"injector-margin-gate-",
 		temps,
 		{
-			[CHECKER]: `echo "${STUB_MARKER}"\nexit ${opts.checkerExit}\n`,
+			[CHECKER]: `echo ${shellQuote(STUB_MARKER)}\nexit ${opts.checkerExit}\n`,
 		},
 		opts.staged,
 	);
@@ -374,7 +375,7 @@ describe("check-injector-margin.sh", () => {
 		const shim = fs.mkdtempSync(path.join(os.tmpdir(), "no-jq-path-"));
 		temps.push(shim);
 		for (const bin of ["bash", "git", "mktemp", "sed", "cat", "grep", "rm"]) {
-			const real = execFileSync("sh", ["-c", `command -v ${bin}`], {
+			const real = execFileSync("sh", ["-c", `command -v ${shellQuote(bin)}`], {
 				encoding: "utf8",
 			}).trim();
 			fs.symlinkSync(real, path.join(shim, bin));

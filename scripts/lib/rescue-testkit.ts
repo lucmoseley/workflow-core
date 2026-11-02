@@ -19,6 +19,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Sandbox } from "./arbiter-testkit";
 import { stubGhScript } from "./gh-stub";
+import { shellQuote } from "./sh-quote.js";
 
 export const SCRIPT = path.join(__dirname, "..", "rescue-sessions.js");
 export const SID = "abcd1234-0000-4000-8000-000000000001";
@@ -194,10 +195,10 @@ export function rescueKit(sb: Sandbox) {
 			[
 				"#!/bin/sh",
 				...before,
-				`[ -f '${path.join(sb.dir, "gh-fails")}' ] && { echo "HTTP 502" >&2; exit 1; }`,
+				`[ -f ${shellQuote(path.join(sb.dir, "gh-fails"))} ] && { echo "HTTP 502" >&2; exit 1; }`,
 				'if [ "$1" = api ]; then',
 				'  n=$(basename "$2"); st=open',
-				`  [ -f '${sb.dir}/closed-'"$n" ] && st=closed`,
+				`  [ -f ${shellQuote(`${sb.dir}/closed-`)}"$n" ] && st=closed`,
 				`  printf '{"number":%s,"title":"Takeover","state":"%s","labels":[],"body":"b"}' "$n" "$st"`,
 				"fi",
 				"exit 0",

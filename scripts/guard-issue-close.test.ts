@@ -30,6 +30,7 @@ import {
 	dispatchCoreOutput,
 	guardDirs,
 } from "./lib/pretool-guard-testkit";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const CORE = "guard-issue-close";
 const { readRuleText } = require("./lib/rule-text") as {
@@ -82,7 +83,7 @@ function ghServing({
 	);
 	return stubGhScript(
 		dir,
-		`#!/bin/sh\nif [ "$1" = api ]; then exec node ${gql} "$@"; fi\ncat ${payload}\n`,
+		`#!/bin/sh\nif [ "$1" = api ]; then exec node ${shellQuote(gql)} "$@"; fi\ncat ${shellQuote(payload)}\n`,
 	).env;
 }
 

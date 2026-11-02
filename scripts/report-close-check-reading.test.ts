@@ -28,6 +28,7 @@ import { CLOSE_CHECK_LOG } from "./lib/priced-options-limbs";
 import { appendEvents, logPath } from "./lib/refusal-log";
 import { runInProcess } from "./lib/run-in-process";
 import { seatDirs } from "./lib/seat-testkit";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "report-close-check-reading.js");
 /* The issue title and the marker file the script names, restated so a rename
@@ -771,9 +772,9 @@ describe("filing the reading (#1104)", () => {
 			home,
 			[
 				"#!/bin/sh",
-				`printf '%s\\n' "$*" >> ${JSON.stringify(argvLog)}`,
+				`printf '%s\\n' "$*" >> ${shellQuote(argvLog)}`,
 				'if [ "$1" = "issue" ] && [ "$2" = "list" ]; then',
-				`  cat ${JSON.stringify(issues)}`,
+				`  cat ${shellQuote(issues)}`,
 				'elif [ "$1" = "issue" ] && [ "$2" = "create" ]; then',
 				"  echo https://github.com/o/r/issues/999",
 				"fi",

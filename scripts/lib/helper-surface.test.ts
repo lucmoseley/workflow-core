@@ -24,6 +24,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { isShipped } from "./plugin-tree.js";
 import { runInProcess, runInProcessAsync } from "./run-in-process.js";
+import { shellQuote } from "./sh-quote.js";
 import { TEST_TIMEOUT_MS } from "./test-ceiling";
 
 const ROOT = path.join(__dirname, "..", "..");
@@ -481,9 +482,13 @@ import(pathToFileURL(process.argv[3]).href).then(({ default: c }) => {
 			const log = path.join(dir, "claims.log");
 			const logger = (verb: string) => {
 				const abs = path.join(dir, verb);
-				fs.writeFileSync(abs, `#!/bin/sh\necho "${verb} $1" >> "${log}"\n`, {
-					mode: 0o755,
-				});
+				fs.writeFileSync(
+					abs,
+					`#!/bin/sh\necho ${shellQuote(`${verb} `)}"$1" >> ${shellQuote(log)}\n`,
+					{
+						mode: 0o755,
+					},
+				);
 				return abs;
 			};
 			const consumes = [{ kind: "path", ref: "docs/old.md", gloss: "g" }];

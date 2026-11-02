@@ -21,6 +21,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { freshSandbox, ledger } from "./lib/arbiter-testkit";
 import { runInProcessAsync } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const require = createRequire(import.meta.url);
 const { readMarkers } = require("./lib/test-pass-marker.js");
@@ -920,7 +921,7 @@ describe("the task cap (#3401)", () => {
 			const python = path.join(dir, "python3");
 			fs.writeFileSync(
 				python,
-				`#!/bin/sh\nsetsid ${JSON.stringify(link)} &\nsleep 1\n`,
+				`#!/bin/sh\nsetsid ${shellQuote(link)} &\nsleep 1\n`,
 				{ mode: 0o755 },
 			);
 

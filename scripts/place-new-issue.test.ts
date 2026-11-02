@@ -27,6 +27,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const HOOK = path.resolve(__dirname, "place-new-issue.sh");
 
@@ -52,7 +53,7 @@ const stubGh = (views: Record<number, IssueView>) => {
 		);
 	return stubGhScript(
 		dir,
-		`#!/bin/sh\nf="${dir}/issue-$3.json"\n[ -f "$f" ] || exit 1\ncat "$f"\n`,
+		`#!/bin/sh\nf=${shellQuote(dir)}/issue-"$3".json\n[ -f "$f" ] || exit 1\ncat "$f"\n`,
 	).gh;
 };
 

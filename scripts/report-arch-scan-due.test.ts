@@ -23,6 +23,7 @@ import { GH_FAILING_SCRIPT } from "./lib/gh-stub";
 import { initGitRepo } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "report-arch-scan-due.js");
 /* Inside the default window, which opens 2026-09-21T00:00Z. */
@@ -70,11 +71,11 @@ function repo(opts: { archScan?: unknown; record?: object[] } = {}) {
 		ghStub,
 		[
 			"#!/bin/sh",
-			`printf '%s\\n' "$*" >> ${JSON.stringify(argvLog)}`,
+			`printf '%s\\n' "$*" >> ${shellQuote(argvLog)}`,
 			'case "$1 $2" in',
 			'  "issue list") case "$*" in',
-			`    *"--state closed"*) cat ${JSON.stringify(issues.closed)} ;;`,
-			`    *) cat ${JSON.stringify(issues.open)} ;;`,
+			`    *"--state closed"*) cat ${shellQuote(issues.closed)} ;;`,
+			`    *) cat ${shellQuote(issues.open)} ;;`,
 			"  esac ;;",
 			"  \"issue view\") echo 'an older body' ;;",
 			'  "issue create") echo https://github.com/o/r/issues/999 ;;',

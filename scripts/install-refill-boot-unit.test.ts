@@ -12,6 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 import { copyLibs, readProgramLibs } from "./lib-closure-fixture.js";
 
 const SCRIPT = path.resolve(__dirname, "install-refill-boot-unit.js");
@@ -27,7 +28,7 @@ const logFile = () => at(".claude/.refill-loop.log");
 function writeFake(name: string, body: string) {
 	fs.writeFileSync(
 		at(`bin/${name}`),
-		`#!/bin/sh\necho "${name} $*" >> "${at("calls")}"\n${body}\n`,
+		`#!/bin/sh\necho ${shellQuote(`${name} `)}"$*" >> ${shellQuote(at("calls"))}\n${body}\n`,
 		{ mode: 0o755 },
 	);
 }

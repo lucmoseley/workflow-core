@@ -14,6 +14,7 @@ import { isInit } from "./orphan-hooks.js";
 import { REAL_PROC } from "./proc-root.js";
 import { FIELD, readStatFields } from "./proc-stat.js";
 import { readProcTable } from "./proc-table.js";
+import { shellQuote } from "./sh-quote.js";
 
 /** A process's state letter and process group, or null where it is gone. */
 function readStat(pid: number | string) {
@@ -51,7 +52,10 @@ export function waitFor(done: () => boolean) {
 export function startOrphan(script: string) {
 	const res = spawnSync(
 		"bash",
-		["-c", `setsid bash ${script} </dev/null >/dev/null 2>&1 & echo $!`],
+		[
+			"-c",
+			`setsid bash ${shellQuote(script)} </dev/null >/dev/null 2>&1 & echo $!`,
+		],
 		{ encoding: "utf8" },
 	);
 	const pid = Number(res.stdout.trim());

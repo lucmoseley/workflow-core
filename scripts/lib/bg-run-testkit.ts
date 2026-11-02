@@ -23,6 +23,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, expect } from "vitest";
 import { REAL_PROC } from "./proc-root.js";
 import { isDead } from "./process-fixture";
+import { shellQuote } from "./sh-quote.js";
 
 const { TEST_TIMEOUT_MS } = require("./test-ceiling.js");
 
@@ -229,7 +230,8 @@ export function expectMidCommand(name: string, pid: number | undefined) {
 
 /* A command that runs until the test creates `go`, so its runtime is the
  * test's to end rather than a guess at how long the test takes to act. */
-export const runsUntilFile = (go: string) => shWaitFor(`[ -e '${go}' ]`);
+export const runsUntilFile = (go: string) =>
+	shWaitFor(`[ -e ${shellQuote(go)} ]`);
 
 export function parseFirstLine(stdout: string) {
 	return stdout.split("\n")[0];
@@ -263,13 +265,14 @@ export function createDirLate(dir: string, withStatus: boolean) {
 	const tmp = `${dir}.tmp`;
 	const log = join(root, "polls.log");
 	const cmds = [
-		shWaitFor(`grep -qx missing '${log}' 2>/dev/null`),
-		`mkdir -p '${tmp}'`,
-		`: >'${tmp}/beat'`,
-		`: >'${tmp}/out'`,
+		shWaitFor(`grep -qx missing ${shellQuote(log)} 2>/dev/null`),
+		`mkdir -p ${shellQuote(tmp)}`,
+		`: >${shellQuote(`${tmp}/beat`)}`,
+		`: >${shellQuote(`${tmp}/out`)}`,
 	];
-	if (withStatus) cmds.push(`printf 'exit=0\\n' >'${tmp}/status'`);
-	cmds.push(`mv '${tmp}' '${dir}'`);
+	if (withStatus)
+		cmds.push(`printf 'exit=0\\n' >${shellQuote(`${tmp}/status`)}`);
+	cmds.push(`mv ${shellQuote(tmp)} ${shellQuote(dir)}`);
 	spawn("sh", ["-c", cmds.join(" && ")], { stdio: "ignore" }).unref();
 }
 

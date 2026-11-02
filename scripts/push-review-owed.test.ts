@@ -13,6 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { code, ME, PAST_FLOOR, reviewFixture } from "./lib/push-review-fixture";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const {
 	f,
@@ -282,7 +283,7 @@ describe("how its answer is read back", () => {
 		fs.writeFileSync(path.join(f.dir, "out"), out);
 		fs.writeFileSync(
 			path.join(bin, "bash"),
-			`#!/bin/sh\ncat '${path.join(f.dir, "out")}'\n`,
+			`#!/bin/sh\ncat ${shellQuote(path.join(f.dir, "out"))}\n`,
 			{ mode: 0o755 },
 		);
 		vi.stubEnv("PATH", `${bin}:${process.env.PATH}`);

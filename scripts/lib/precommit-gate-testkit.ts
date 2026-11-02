@@ -16,6 +16,7 @@
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { shellQuote } from "./sh-quote.js";
 
 /** The repository root, for a suite reading a checker it compares the hook against. */
 export const ROOT = path.join(__dirname, "..", "..");
@@ -62,7 +63,7 @@ export function holdLock(lock: string): { release: () => void } {
 		"sh",
 		[
 			"-c",
-			`exec 9>>"${lock}"; flock 9; touch "${ready}"; while [ ! -e "${stop}" ]; do sleep 0.05; done`,
+			`exec 9>>${shellQuote(lock)}; flock 9; touch ${shellQuote(ready)}; while [ ! -e ${shellQuote(stop)} ]; do sleep 0.05; done`,
 		],
 		{ stdio: "ignore" },
 	);
@@ -151,7 +152,7 @@ export function cutShellFunction(name: string, hook = POST_COMMIT): string {
  * which the live hook loads at its top and a cut function would lose. */
 export function cutInReplay(): string {
 	const lib = path.join(ROOT, "scripts", "lib", "commit-route.sh");
-	return `. "${lib}"\n${cutShellFunction("in_replay")}`;
+	return `. ${shellQuote(lib)}\n${cutShellFunction("in_replay")}`;
 }
 
 /** The line opening the hook's `.husky/pre-commit.local` load block (#437). */
