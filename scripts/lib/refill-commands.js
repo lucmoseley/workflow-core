@@ -22,6 +22,7 @@ const {
 	buildBasisLines,
 	buildOverflowStartLines,
 } = require("./overflow-notice.js");
+const { isBudgetSpent } = require("./overflow-budget-core.js");
 const {
 	buildOverflowHoldText,
 	buildPauseText,
@@ -316,8 +317,9 @@ function buildGoalChange(control, asked, now) {
  * @typedef {{bar: "week"|"5h", percent: number, ceiling: number}} FailingLimit
  * @typedef {object} SeatsView what the `seats:` line says, its seats as tilde
  *   paths (#3733)
- * @property {{seat: string, week: number|null, session: number|null,
- *   readAt: string, fresh: boolean}[]} readings in launch order
+ * @property {{seat: string, week: number|null, weekFull: boolean,
+ *   session: number|null, readAt: string, fresh: boolean}[]} readings in launch
+ *   order
  * @property {{seat: string, reason: import("./refill-decide.js").SeatReason}|null} next
  * @property {string|null} wait why no seat is next, where none is
  * @property {{seat: string, limits: FailingLimit[], hold: string|null}[]} passedOver
@@ -430,6 +432,7 @@ function buildSeatsView({ seats, overflow, typedSeat, ceilings, callerSeat }) {
 		readings: walk.map((s) => ({
 			seat: buildSeatName(s.seat),
 			week: s.week,
+			weekFull: s.weekFull,
 			session: s.session,
 			readAt: iso(s.readAt),
 			fresh: s.fresh,
@@ -753,17 +756,37 @@ function buildOverflowBasisLines({
 }
 
 /**
+ * One overflow key's entry in `status --json`: the budget gate's figures, or why
+ * they will not read.
+ * @param {string} dir the seat's config dir
+ * @param {import("./overflow-budget-core.js").Budget|{why: string}} budget
+ */
+function buildOverflowStatus(dir, budget) {
+	const seat = buildDirName(dir);
+	if ("why" in budget) return { seat, why: budget.why };
+	return {
+		seat,
+		spentUsd: budget.settledUsd,
+		grantUsd: budget.grantUsd,
+		headroomUsd: budget.headroomUsd,
+		exhausted: budget.exhausted,
+		spent: isBudgetSpent(budget),
+	};
+}
+
+/**
  * `status --json`: whether the loop runs and on what code, its pause and mode,
  * when away was switched on and the sessions handed off since, with no process
  * the stop that ended it or that it died with none, the last tick's summary and waiting reason, launches today, every candidate
  * checkout, ticked or not, with why any is disabled (#3862), the launch rows
  * `status` lists, each with its seat as a tilde path and why it was picked
- * (#3732), null on a record from before that, and the `seats:` line's fields
- * (#3733).
+ * (#3732), null on a record from before that, the `seats:` line's fields
+ * (#3733), and each overflow key's budget (#3875).
  * @param {{control: Control|null, state: LoopState, pid: number|null,
  *   seats: SeatsView, codeSha: string|null, today: string,
  *   candidates: {root: string, disabled: string|null}[],
- *   burnMode: ReturnType<typeof import("./burn-mode.js").readBurnState>}} input
+ *   burnMode: ReturnType<typeof import("./burn-mode.js").readBurnState>,
+ *   overflow: ReturnType<typeof buildOverflowStatus>[]}} input
  *   `codeSha`, lib/refill-code.js's readRunningCode; `today`, machine-local;
  *   `burnMode`, lib/burn-mode.js's readBurnState
  */
@@ -776,6 +799,7 @@ function buildStatusJson({
 	today,
 	candidates,
 	burnMode,
+	overflow,
 }) {
 	const { lastTick } = state;
 	return {
@@ -806,6 +830,7 @@ function buildStatusJson({
 			disabled,
 		})),
 		seats,
+		overflow,
 		burnMode,
 		launches: control
 			? shownLaunches(control, state).listed.map((l) => ({
@@ -824,6 +849,7 @@ function buildStatusJson({
 module.exports = {
 	checkGoalAsk,
 	buildOverflowBasisLines,
+	buildOverflowStatus,
 	buildScopeLines,
 	buildSeatsLine,
 	buildSeatsView,

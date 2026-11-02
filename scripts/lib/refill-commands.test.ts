@@ -491,6 +491,7 @@ describe("a launch row's seat and reason (#3732)", () => {
 			today: "2026-11-02",
 			candidates: [],
 			burnMode: { on: false, disagreeing: [], error: null },
+			overflow: [],
 		});
 		expect(json.running).toBe(true);
 		expect(
@@ -528,6 +529,7 @@ describe("status --json for the panel (#3873)", () => {
 			today,
 			candidates: [],
 			burnMode: { on: false, disagreeing: [], error: null },
+			overflow: [],
 		});
 
 	it("carries the code sha, and the last tick's summary and waiting reason", () => {

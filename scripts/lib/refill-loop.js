@@ -45,6 +45,7 @@ const {
 	parseOverflowStart,
 	planSeatBasisOf,
 } = require("./overflow-notice.js");
+const { isBudgetSpent } = require("./overflow-budget-core.js");
 const { OUTCOME_PREFIX } = require("./usage-probe.js");
 
 /* A finished session drops off the listing; one just launched may not be on
@@ -799,11 +800,12 @@ function overflowReadings(list, plan, budgetOf) {
 		if (!due) return { ...unread, why: "a plan seat is not weekly-full" };
 		const b = budgetOf(seat);
 		if ("why" in b) return { ...unread, why: b.why };
-		const spent = b.exhausted || b.grantUsd - b.settledUsd < b.qUsd;
 		return {
 			seat: seat.dir,
 			fits: b.fit,
-			spentUntil: spent ? localDate(new Date(b.nextCycleStart)) : null,
+			spentUntil: isBudgetSpent(b)
+				? localDate(new Date(b.nextCycleStart))
+				: null,
 			why: null,
 		};
 	});

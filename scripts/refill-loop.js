@@ -31,7 +31,8 @@
  *                                        on and the sessions handed off since,
  *                                        the goal, every candidate
  *                                        checkout, the launch rows, the
- *                                        `seats:` line's fields and burn mode
+ *                                        `seats:` line's fields, each overflow
+ *                                        key's budget and burn mode
  *   node scripts/refill-loop.js dry-run  one tick's decision, printed; reaps
  *                                        and launches nothing
  *   node scripts/refill-loop.js boot-resume  the boot unit's: restart the loop
@@ -141,7 +142,7 @@ const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | set | 
   set --goal <ref,…>                           rank these issues first in every ticked repo, replacing the goal
   set --goal-issues <ref,…> --goal-text <text> the same, for a confirmed topic: its issues, and the text they came from
   set --clear-goal                             run bare
-  status [--json]                              --json: the code sha, the stop and whether it died with none, the pause, the last tick, launches today, the mode, when away was switched on and the sessions handed off since, the goal, every candidate checkout, the launch rows, each with its seat and why, the seats line's fields, and burn mode's state
+  status [--json]                              --json: the code sha, the stop and whether it died with none, the pause, the last tick, launches today, the mode, when away was switched on and the sessions handed off since, the goal, every candidate checkout, the launch rows, each with its seat and why, the seats line's fields, each overflow key's budget, and burn mode's state
   <dir> is a checkout's directory name in the home directory; a <ref> is <dir>#N, or #N with one repo ticked, naming an open issue; set takes any of its flags together`;
 
 const lock = pidLock(files.pid, "refill-loop.js");
@@ -575,6 +576,27 @@ function refuseWrite(what, why) {
 	return 1;
 }
 
+/**
+ * Each overflow key's budget for `status --json`; the seat file's refusal stands
+ * in for the keys it hides.
+ * @param {string} root
+ */
+function readOverflowStatus(root) {
+	const declared = readDeclaredSeats();
+	if (declared.errors.length > 0)
+		return [
+			{
+				seat: "the seat file",
+				why: `it refuses: ${declared.errors.join("; ")}`,
+			},
+		];
+	return declared.seats.flatMap((s) =>
+		s.kind === "overflow"
+			? [commands.buildOverflowStatus(s.dir, seatBudget(s, root))]
+			: [],
+	);
+}
+
 /** @param {import("./lib/cli-args").Parsed} parsed */
 function status({ flags }) {
 	/* `--json`'s stdout is the one object, so a read's complaint goes to stderr. */
@@ -601,6 +623,7 @@ function status({ flags }) {
 					today: localDate(new Date()),
 					candidates: readCandidates(homeDir()),
 					burnMode: readBurnState(),
+					overflow: readOverflowStatus(root),
 				}),
 			),
 		);

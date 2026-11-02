@@ -296,7 +296,7 @@ describe("stop and status", () => {
 		);
 	});
 
-	it("prints each overflow seat's budget line", async () => {
+	const declareOverflowKey = () => {
 		fs.mkdirSync(path.join(dir, ".claude"));
 		fs.writeFileSync(
 			path.join(dir, ".claude", "refill-seats"),
@@ -313,6 +313,50 @@ describe("stop and status", () => {
 				landedByHours: [[1, 1]],
 			}),
 		);
+	};
+
+	it("carries each overflow key's budget and each plan seat's week in status --json", async () => {
+		declareOverflowKey();
+		const json = JSON.parse((await run("status", "--json")).stdout);
+		expect(json.overflow).toEqual([
+			{
+				seat: path.join(dir, ".claude2-api").replace(dir, "~"),
+				spentUsd: 0,
+				grantUsd: 200,
+				headroomUsd: 200,
+				exhausted: false,
+				spent: false,
+			},
+		]);
+		expect(json.seats.readings).toEqual([
+			expect.objectContaining({ week: null, weekFull: false }),
+		]);
+	});
+
+	it("carries no overflow key where the seat file declares none", async () => {
+		expect(JSON.parse((await run("status", "--json")).stdout).overflow).toEqual(
+			[],
+		);
+	});
+
+	it("says why a key's budget or the seat file will not read", async () => {
+		declareOverflowKey();
+		fs.rmSync(path.join(dir, "docs", "data", "session-cost-table.json"));
+		const [key] = JSON.parse((await run("status", "--json")).stdout).overflow;
+		expect(key.why).toBe("the session cost table is unreadable");
+		fs.writeFileSync(
+			path.join(dir, ".claude", "refill-seats"),
+			"~/.claude2-api api key=WFC_TEST_KEY grant=200\n",
+		);
+		const [refusal] = JSON.parse(
+			(await run("status", "--json")).stdout,
+		).overflow;
+		expect(refusal.seat).toBe("the seat file");
+		expect(refusal.why).toContain("missing cycle-day=");
+	});
+
+	it("prints each overflow seat's budget line", async () => {
+		declareOverflowKey();
 		const r = await run("status");
 		const line = r.stdout
 			.split("\n")

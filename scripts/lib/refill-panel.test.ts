@@ -1,5 +1,5 @@
 /*
- * The panel's view and press mapping (#3873, #3877). Built on the view so every loop state costs one literal rather than a terminal.
+ * The panel's view and press mapping (#3873, #3875, #3877). Built on the view so every loop state costs one literal rather than a terminal.
  * Broken, the panel reads a press as done, or a stopped loop as on.
  */
 import { describe, expect, it } from "vitest";
@@ -17,10 +17,23 @@ const LATER = AT + 60_000;
 
 const BURN_OFF = { on: false, disagreeing: [], error: null };
 const BURN_ON = { on: true, disagreeing: [], error: null };
+const planSeats = (week: number | null, weekFull = false) => ({
+	readings: [
+		{ seat: "~/.claude3", week: 47, weekFull: false },
+		{ seat: "~/.claude2", week, weekFull },
+	],
+});
+const FULL_SEATS = {
+	readings: [
+		{ seat: "~/.claude3", week: 100, weekFull: true },
+		{ seat: "~/.claude2", week: 100, weekFull: true },
+	],
+};
 const RUNNING = {
 	running: true,
 	stopRequested: false,
-	codeSha: "abc1234",
+	stop: null,
+	crashed: false,
 	paused: null,
 	lastTick: {
 		at: AT,
@@ -29,6 +42,8 @@ const RUNNING = {
 		paused: false,
 	},
 	launchesToday: 3,
+	seats: planSeats(80),
+	overflow: [],
 	burnMode: BURN_OFF,
 };
 const PAUSED_TICK = {
@@ -47,7 +62,38 @@ const PAUSED_MID_TICK = {
 	...RUNNING,
 	paused: { by: "founder", at: LATER },
 };
-const STOPPED = { ...RUNNING, running: false, codeSha: null };
+const NEVER_STARTED = { ...RUNNING, running: false };
+const STOPPED = {
+	...NEVER_STARTED,
+	stop: { reason: "explicit", at: AT, detail: "stop asked" },
+};
+const CRASHED = { ...NEVER_STARTED, crashed: true };
+const issuesIn = (...roots: string[]) =>
+	roots.map((root, i) => ({ root, number: 2518 + i }));
+const STALLED = {
+	...RUNNING,
+	paused: {
+		by: "no-progress",
+		at: AT,
+		issues: issuesIn("/h/wc", "/h/wc", "/h/wc"),
+	},
+};
+const planWaitTick = (resets: number | null) => ({
+	at: AT,
+	summary: "idle",
+	idle: "a plan resets at 2026-11-02T18:40:00.000Z",
+	paused: false,
+	planWait: { resets },
+});
+const key = (over: object = {}) => ({
+	seat: "~/.claude2-api",
+	spentUsd: 142,
+	grantUsd: 400,
+	headroomUsd: 258.5,
+	exhausted: false,
+	spent: false,
+	...over,
+});
 const STOPPING = { ...RUNNING, stopRequested: true };
 
 /* The block's top row, as a mouse report counts it. */
@@ -60,6 +106,7 @@ const noop = (): void => undefined;
 interface Row {
 	text: string;
 	role: string;
+	detail?: string;
 	control?: { state: string };
 }
 const view = (over: object) => ({
@@ -101,7 +148,7 @@ describe("the panel's rows", () => {
 			["Refill loop  [on]", "name"],
 			["3 launched today", "value"],
 			["Waiting: no free slot", "secondary"],
-			["abc1234 · idle: no free slot", "secondary"],
+			["Plans this week: .claude3 47%, .claude2 80%", "secondary"],
 		]);
 		expect(rows[0].control?.state).toBe("on");
 	});
@@ -124,7 +171,7 @@ describe("the panel's rows", () => {
 			["Refill loop  [on]", "name"],
 			["3 launched today", "value"],
 			["Waiting: the next check", "secondary"],
-			["abc1234", "secondary"],
+			["Plans this week: .claude3 47%, .claude2 80%", "secondary"],
 		]);
 	});
 
@@ -177,10 +224,88 @@ describe("the panel's rows", () => {
 		);
 	});
 
-	it("reads one word, off, for a loop not running", () => {
-		const rows = rowsOf({ status: STOPPED });
+	it("reads one word, off, for a loop never started, and offers no restart", () => {
+		const rows = rowsOf({ status: NEVER_STARTED });
 		expect(rows[0].text).toBe("Refill loop  [off]");
 		expect(rows[1].text).toBe("off");
+		expect(rows[2].text).toBe("Not running: start it from the command line");
+	});
+
+	it("reads off with its time for a loop stopped from the command line", () => {
+		const rows = rowsOf({ status: STOPPED });
+		expect(summary(rows).slice(0, 3)).toEqual([
+			["Refill loop  [off]", "name"],
+			["off", "value"],
+			[
+				"Stopped from the command line at 14:05 · click to restart",
+				"secondary",
+			],
+		]);
+	});
+
+	it("names the detail of a stop the command line did not ask for", () => {
+		const stop = { reason: "control-damaged", at: AT, detail: "bad JSON" };
+		expect(rowsOf({ status: { ...STOPPED, stop } })[2].text).toBe(
+			"Stopped at 14:05: bad JSON · click to restart",
+		);
+	});
+
+	it("reads needs you for a crash, with its restart", () => {
+		const rows = rowsOf({ status: CRASHED });
+		expect(summary(rows).slice(0, 3)).toEqual([
+			["Refill loop  [off]", "name"],
+			["needs you", "needsYou"],
+			["It died with no stop · click to restart", "value"],
+		]);
+		expect(rows[0].control?.state).toBe("off");
+	});
+
+	it("reads needs you for a founder's pause whose process died", () => {
+		const status = { ...PAUSED_BY_FOUNDER, running: false, crashed: true };
+		expect(summary(rowsOf({ status })).slice(1, 3)).toEqual([
+			["needs you", "needsYou"],
+			["It died while switched off · click to restart", "value"],
+		]);
+	});
+
+	it("reads needs you for no progress, with its issues", () => {
+		const rows = rowsOf({ status: STALLED });
+		expect(summary(rows).slice(0, 3)).toEqual([
+			["Refill loop  [off]", "name"],
+			["needs you", "needsYou"],
+			["No progress: #2518, #2519, #2520 · click to resume", "value"],
+		]);
+		expect(rows[0].control?.state).toBe("off");
+	});
+
+	it("qualifies no progress's issues by repo where they span repos", () => {
+		const paused = {
+			...STALLED.paused,
+			issues: issuesIn("/h/wc", "/h/manta"),
+		};
+		expect(rowsOf({ status: { ...STALLED, paused } })[2].text).toBe(
+			"No progress: wc#2518, manta#2519 · click to resume",
+		);
+	});
+
+	it("keeps the issues of a no-progress pause whose process died", () => {
+		const status = { ...STALLED, running: false, crashed: true };
+		expect(rowsOf({ status })[2].text).toContain("#2518");
+	});
+
+	it("keeps the switch on through an allowance wait, naming the earliest reset", () => {
+		const resets = new Date(2026, 10, 2, 18, 40).getTime();
+		const status = { ...RUNNING, lastTick: planWaitTick(resets) };
+		const rows = rowsOf({ status });
+		expect(rows[0].control?.state).toBe("on");
+		expect(rows[2].text).toBe("Waiting: a plan resets at 18:40");
+	});
+
+	it("says an allowance wait's reset is unread rather than invent one", () => {
+		const status = { ...RUNNING, lastTick: planWaitTick(null) };
+		expect(rowsOf({ status })[2].text).toBe(
+			"Waiting: a plan resets, its time unread",
+		);
 	});
 
 	it("reads off, not on, once a stop is asked of a running loop", () => {
@@ -203,7 +328,14 @@ describe("the panel's rows", () => {
 			{},
 			{ readError: "x" },
 			{ status: RUNNING },
-			{ status: { ...RUNNING, lastTick: null, codeSha: null } },
+			{ status: { ...RUNNING, lastTick: null } },
+			{ status: { ...RUNNING, seats: { readings: [] } } },
+			{ status: CRASHED },
+			{ status: STALLED },
+			{ status: NEVER_STARTED },
+			{
+				status: { ...RUNNING, seats: FULL_SEATS, overflow: [key()] },
+			},
 			{ status: PAUSED_BY_FOUNDER },
 			{ status: { ...PAUSED_BY_FOUNDER, running: false } },
 			{ status: STOPPED },
@@ -217,6 +349,116 @@ describe("the panel's rows", () => {
 	});
 });
 
+describe("the spend line", () => {
+	const line3 = (status: object) => rowsOf({ status })[3];
+
+	it("shows each plan seat's week in grey, unread where it will not read", () => {
+		const row = line3({ ...RUNNING, seats: planSeats(null) });
+		expect(row.text).toBe("Plans this week: .claude3 47%, .claude2 unread");
+		expect(row.role).toBe("secondary");
+	});
+
+	it("shows nothing about credits with no key declared, every plan full", () => {
+		const rows = rowsOf({ status: { ...RUNNING, seats: FULL_SEATS } });
+		expect(rows[3].text).toBe("Plans this week: .claude3 100%, .claude2 100%");
+		expect(rows[0].detail).toBeUndefined();
+	});
+
+	it("shows nothing about credits while a plan has room, a key declared", () => {
+		const rows = rowsOf({ status: { ...RUNNING, overflow: [key()] } });
+		expect(rows[3].text).toMatch(/^Plans this week/);
+		expect(rows[0].detail).toBeUndefined();
+	});
+
+	it("shows credits left in white, every key summed, and says so by the switch", () => {
+		const overflow = [
+			key(),
+			key({ headroomUsd: 100, grantUsd: 200 }),
+			key({ spent: true, exhausted: true, headroomUsd: 0, grantUsd: 100 }),
+		];
+		const rows = rowsOf({
+			status: { ...RUNNING, seats: FULL_SEATS, overflow },
+		});
+		expect(rows[3].text).toBe("On API credits: $358 of $700 left");
+		expect(rows[3].role).toBe("value");
+		expect(rows[0].detail).toBe("API credits · on");
+	});
+
+	it("draws the words by the switch outside its bold", () => {
+		const status = { ...RUNNING, seats: FULL_SEATS, overflow: [key()] };
+		const frame = buildFrame(rowsOf({ status }), 80);
+		expect(frame).toContain(`Refill loop  [on]${ESC}[22m  API credits · on`);
+	});
+
+	it("says all used up once every key is spent, the switch staying on", () => {
+		const status = {
+			...RUNNING,
+			seats: FULL_SEATS,
+			overflow: [key({ spent: true }), key({ spent: true })],
+			lastTick: planWaitTick(AT),
+		};
+		const rows = rowsOf({ status });
+		expect(rows[3].text).toBe("Plans and API credits all used up");
+		expect(rows[0].control?.state).toBe("on");
+		expect(rows[0].detail).toBeUndefined();
+	});
+
+	it("never calls credits used up with a key unread", () => {
+		const overflow = [key({ spent: true }), { seat: "k", why: "no table" }];
+		const row = line3({ ...RUNNING, seats: FULL_SEATS, overflow });
+		expect(row.text).toBe("API credits unread: no table");
+		expect(row.role).toBe("secondary");
+	});
+
+	it("says nothing beside a switch that is not on", () => {
+		const paused = {
+			...PAUSED_BY_FOUNDER,
+			seats: FULL_SEATS,
+			overflow: [key()],
+		};
+		expect(rowsOf({ status: paused })[0].detail).toBeUndefined();
+		const running = { ...RUNNING, seats: FULL_SEATS, overflow: [key()] };
+		expect(
+			rowsOf({ status: running, pending: { on: false, landed: false } })[0]
+				.detail,
+		).toBeUndefined();
+	});
+
+	it("stays on line 3 through a pending press", () => {
+		const rows = rowsOf({
+			status: RUNNING,
+			pending: { on: false, landed: false },
+		});
+		expect(rows[3].text).toMatch(/^Plans this week/);
+	});
+});
+
+describe("yellow", () => {
+	const yellow = "38;2;255;215;0m";
+	const framed = (status: object) => buildFrame(rowsOf({ status }), 120);
+
+	it("draws only the words needs you", () => {
+		for (const status of [CRASHED, STALLED]) {
+			const after = framed(status).split(yellow);
+			expect(after).toHaveLength(2);
+			expect(after[1].startsWith("needs you")).toBe(true);
+		}
+	});
+
+	it("appears in no other state", () => {
+		for (const status of [
+			RUNNING,
+			STOPPED,
+			NEVER_STARTED,
+			STOPPING,
+			PAUSED_BY_FOUNDER,
+			{ ...RUNNING, seats: FULL_SEATS, overflow: [key({ spent: true })] },
+			{ ...RUNNING, lastTick: planWaitTick(AT) },
+		])
+			expect(framed(status)).not.toContain(yellow);
+	});
+});
+
 describe("the panel's colours", () => {
 	const frame = buildFrame(rowsOf({ status: RUNNING }), 80);
 
@@ -227,7 +469,8 @@ describe("the panel's colours", () => {
 	});
 
 	it("uses no blue in any colour it draws", () => {
-		for (const [, r, g, b] of frame.matchAll(/38;2;(\d+);(\d+);(\d+)m/g))
+		const all = frame + buildFrame(rowsOf({ status: CRASHED }), 80);
+		for (const [, r, g, b] of all.matchAll(/38;2;(\d+);(\d+);(\d+)m/g))
 			expect(Number(b)).toBeLessThanOrEqual(Math.max(Number(r), Number(g)));
 	});
 });
@@ -236,10 +479,10 @@ describe("the panel's frame", () => {
 	it("cuts a long row rather than wrapping it into the next", () => {
 		const long = {
 			...RUNNING,
-			lastTick: { at: AT, summary: "x".repeat(99), idle: null, paused: false },
+			lastTick: { at: AT, summary: "", idle: "x".repeat(99), paused: false },
 		};
 		const frame = buildFrame(rowsOf({ status: long }), 20);
-		expect(frame).toContain("abc1234 · xxxxx…");
+		expect(frame).toContain("Waiting: xxxxxx…");
 		expect(frame).not.toContain("x".repeat(20));
 	});
 
@@ -278,6 +521,51 @@ describe("a click on the switch", () => {
 		expect(calls[1]).toEqual(["set", "--resume"]);
 	});
 
+	it.each([
+		["crashed", CRASHED],
+		["stopped", STOPPED],
+		["paused, its process dead", { ...STALLED, running: false, crashed: true }],
+	])("restarts a %s loop through `set --resume`", async (_name, status) => {
+		const { calls, run } = runnerOf({
+			"status --json": showing(status),
+			"set --resume": () => ({}),
+		});
+		const panel = panelOver(run);
+		await panel.refreshStatus();
+		await panel.click(SWITCH_ROW);
+		expect(calls).toContainEqual(["set", "--resume"]);
+		expect(panel.view.pending).toBeNull();
+	});
+
+	it.each([
+		["never started", NEVER_STARTED],
+		["stopping", STOPPING],
+	])("writes nothing for a press on a loop %s", async (_name, status) => {
+		const { calls, run } = runnerOf({ "status --json": showing(status) });
+		const panel = panelOver(run);
+		await panel.refreshStatus();
+		await panel.click(SWITCH_ROW);
+		expect(calls).toEqual([["status", "--json"]]);
+	});
+
+	it("has no argv on any row that stops the process", async () => {
+		const asked: string[][] = [];
+		for (const status of [RUNNING, STALLED, CRASHED, STOPPED, STOPPING]) {
+			const { calls, run } = runnerOf({
+				"status --json": showing(status),
+				"set --pause": () => ({}),
+				"set --resume": () => ({}),
+				on: () => ({}),
+				off: () => ({}),
+			});
+			const panel = panelOver(run);
+			await panel.refreshStatus();
+			for (let row = 1; row < 20; row++) await panel.click(row);
+			asked.push(...calls);
+		}
+		expect(asked.flat()).not.toContain("stop");
+	});
+
 	it("runs nothing before a read, or off the switch row", async () => {
 		const { calls, run } = runnerOf({ "status --json": showing(RUNNING) });
 		const panel = panelOver(run);
@@ -285,17 +573,6 @@ describe("a click on the switch", () => {
 		expect(calls).toEqual([]);
 		await panel.refreshStatus();
 		await panel.click(SWITCH_ROW + 1);
-		expect(calls).toHaveLength(1);
-	});
-
-	it.each([
-		["no process and no pause", STOPPED],
-		["a stop asked", STOPPING],
-	])("runs nothing for a loop with %s", async (_name, status) => {
-		const { calls, run } = runnerOf({ "status --json": showing(status) });
-		const panel = panelOver(run);
-		await panel.refreshStatus();
-		await panel.click(SWITCH_ROW);
 		expect(calls).toHaveLength(1);
 	});
 

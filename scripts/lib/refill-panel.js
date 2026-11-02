@@ -1,6 +1,6 @@
 /*
  * refill-panel.js — what the refill loop's panel draws and what a click does,
- * with no terminal (#3873, #3877, spec #3596): status JSON and pending presses in, rows
+ * with no terminal (#3873, #3875, #3877, spec #3596): status JSON and pending presses in, rows
  * out; a click on a row in, a `refill-loop.js` or `burn-mode.sh` argv out. The
  * panel runs those two for every read and write, and never opens a control or
  * state file, so the loop's validation, lock and wake apply to every loop press.
@@ -11,6 +11,7 @@
  * read after that exit shows it, or another writer's reversal.
  */
 
+const path = require("node:path");
 const { caught } = require("./caught.js");
 const { localDate } = require("./morning-review.js");
 
@@ -35,25 +36,35 @@ const SECTION_GAP = [
 	{ text: "", role: /** @type {Role} */ ("secondary") },
 ];
 
-/** @typedef {"name"|"value"|"secondary"} Role */
+/** @typedef {"name"|"value"|"secondary"|"needsYou"} Role */
 
 /**
- * White and #949494, from #2525 round 9 (#3596 lists the grey as untraced).
+ * White, #949494 and the one yellow, from #2525 round 9 (#3596 lists the grey as
+ * untraced; the yellow is the prototype's).
  * @type {Record<Role, {rgb: [number, number, number], bold?: boolean}>}
  */
 const ROLE_STYLES = {
 	name: { rgb: [0xf2, 0xf2, 0xf2], bold: true },
 	value: { rgb: [0xf2, 0xf2, 0xf2] },
 	secondary: { rgb: [0x94, 0x94, 0x94] },
+	needsYou: { rgb: [0xff, 0xd7, 0x00] },
 };
 
 /**
  * The fields of `refill-loop.js status --json` the panel reads.
- * @typedef {{running: boolean, stopRequested: boolean, codeSha: string|null,
- *   paused: {by: string, at: number}|null,
+ * @typedef {{root: string, number: number}} PauseIssue
+ * @typedef {{seat: string, why: string}
+ *   | {seat: string, grantUsd: number, headroomUsd: number,
+ *     spent: boolean}} OverflowKey
+ * @typedef {{running: boolean, stopRequested: boolean,
+ *   stop: {reason: string, at: number, detail: string}|null, crashed: boolean,
+ *   paused: {by: string, at: number, issues?: PauseIssue[]}|null,
  *   lastTick: {at: number, summary: string, idle: string|null,
- *     paused: boolean}|null,
+ *     paused: boolean, planWait: {resets: number|null}|null}|null,
  *   launchesToday: number,
+ *   seats: {readings: {seat: string, week: number|null,
+ *     weekFull: boolean}[]},
+ *   overflow: OverflowKey[],
  *   burnMode: ReturnType<typeof import("./burn-mode.js").readBurnState>}} PanelStatus
  */
 
@@ -78,7 +89,8 @@ const ROLE_STYLES = {
  */
 
 /**
- * @typedef {{text: string, role: Role,
+ * `detail`, drawn after `text` in regular weight whatever the role.
+ * @typedef {{text: string, role: Role, detail?: string,
  *   control?: {id: "loop"|"burn",
  *     state: "on"|"off"|"pending"|"unknown"|"failed"}}} Row
  */
@@ -105,6 +117,91 @@ function buildClock(at, now) {
 const buildCurrentTick = ({ lastTick, paused }) =>
 	lastTick?.paused && !paused ? null : lastTick;
 
+/** @type {Row} */
+const NEEDS_YOU = { text: "needs you", role: "needsYou" };
+
+/**
+ * The issues a no-progress pause names, repo-qualified where they span repos.
+ * @param {PauseIssue[]} issues
+ */
+function buildIssueRefs(issues) {
+	const spans = new Set(issues.map((i) => i.root)).size > 1;
+	return issues
+		.map((i) => `${spans ? path.basename(i.root) : ""}#${i.number}`)
+		.join(", ");
+}
+
+/**
+ * What the loop waits on: the allowance's one line, in the panel's clock, or the
+ * tick's own words.
+ * @param {PanelStatus} status
+ * @param {number} now
+ */
+function buildWaitingText(status, now) {
+	const tick = buildCurrentTick(status);
+	if (!tick?.planWait) return tick?.idle ?? "the next check";
+	const { resets } = tick.planWait;
+	return resets === null
+		? "a plan resets, its time unread"
+		: `a plan resets at ${buildClock(resets, now)}`;
+}
+
+/**
+ * The lines of a pause. A no-progress pause reads "needs you", dead or alive. So
+ * does a founder's pause whose process died: the housekeeping it promised has
+ * stopped with it.
+ * @param {NonNullable<PanelStatus["paused"]>} paused
+ * @param {PanelStatus} status
+ * @param {number} now
+ * @returns {[Row, Row]}
+ */
+function buildPausedLines(paused, { running, crashed }, now) {
+	if (paused.by !== "founder") {
+		const refs = buildIssueRefs(paused.issues ?? []);
+		return [
+			NEEDS_YOU,
+			{
+				text: `No progress${refs && `: ${refs}`} · click to resume`,
+				role: "value",
+			},
+		];
+	}
+	if (crashed)
+		return [
+			NEEDS_YOU,
+			{
+				text: "It died while switched off · click to restart",
+				role: "value",
+			},
+		];
+	return [
+		{
+			text: `You switched it off at ${buildClock(paused.at, now)}`,
+			role: "value",
+		},
+		{
+			text: running
+				? "Switch on to carry on"
+				: "Not running: switch on to start it",
+			role: "secondary",
+		},
+	];
+}
+
+/**
+ * Line 2 of a loop with no process and no pause. A click restarts a loop that
+ * ended; one never started has nothing to start from.
+ * @param {PanelStatus["stop"]} stop
+ * @param {number} now
+ */
+function buildEndedText(stop, now) {
+	if (!stop) return "Not running: start it from the command line";
+	const time = buildClock(stop.at, now);
+	return stop.reason === "explicit"
+		? `Stopped from the command line at ${time} · click to restart`
+		: `Stopped at ${time}: ${stop.detail} · click to restart`;
+}
+
 /**
  * Line 1 and line 2 of the loop block, from the observed status alone.
  * @param {PanelStatus} status
@@ -112,32 +209,17 @@ const buildCurrentTick = ({ lastTick, paused }) =>
  * @returns {[Row, Row]}
  */
 function buildObservedLines(status, now) {
-	const { running, stopRequested, paused, launchesToday } = status;
-	if (paused) {
-		const time = buildClock(paused.at, now);
+	const { running, stopRequested, paused, crashed, stop } = status;
+	if (paused) return buildPausedLines(paused, status, now);
+	if (crashed)
 		return [
-			{
-				text:
-					paused.by === "founder"
-						? `You switched it off at ${time}`
-						: `Switched off at ${time} by ${paused.by}`,
-				role: "value",
-			},
-			{
-				text: running
-					? "Switch on to carry on"
-					: "Not running: switch on to start it",
-				role: "secondary",
-			},
+			NEEDS_YOU,
+			{ text: "It died with no stop · click to restart", role: "value" },
 		];
-	}
 	if (!running)
 		return [
 			{ text: "off", role: "value" },
-			{
-				text: "Not running: start it from the command line",
-				role: "secondary",
-			},
+			{ text: buildEndedText(stop, now), role: "secondary" },
 		];
 	if (stopRequested)
 		return [
@@ -145,12 +227,70 @@ function buildObservedLines(status, now) {
 			{ text: "Stopping: sessions running finish", role: "secondary" },
 		];
 	return [
-		{ text: `${launchesToday} launched today`, role: "value" },
+		{ text: `${status.launchesToday} launched today`, role: "value" },
 		{
-			text: `Waiting: ${buildCurrentTick(status)?.idle ?? "the next check"}`,
+			text: `Waiting: ${buildWaitingText(status, now)}`,
 			role: "secondary",
 		},
 	];
+}
+
+/**
+ * What API credits hold once every plan seat's week is full: null where no key is
+ * declared, so no credits show until overflow launches can run (#2611). A key's
+ * unread budget stops the panel calling the credits spent.
+ * @param {PanelStatus} status
+ * @returns {null | {left: number, grant: number} | {spent: true} | {why: string}}
+ */
+function readCredits({ seats, overflow }) {
+	if (overflow.length === 0 || !seats.readings.every((s) => s.weekFull))
+		return null;
+	const read = overflow.flatMap((key) => ("why" in key ? [] : [key]));
+	const live = read.filter((key) => !key.spent);
+	if (live.length > 0)
+		return {
+			left: live.reduce((sum, key) => sum + key.headroomUsd, 0),
+			grant: read.reduce((sum, key) => sum + key.grantUsd, 0),
+		};
+	const unread = overflow.find((key) => "why" in key);
+	return unread && "why" in unread ? { why: unread.why } : { spent: true };
+}
+
+/**
+ * Line 3 of the loop block: each plan seat's week, or the credits past them. The
+ * seats are named since their order follows the last typed seat.
+ * @param {PanelStatus} status
+ * @returns {Row}
+ */
+function buildSpendRow(status) {
+	const credits = readCredits(status);
+	if (credits && "left" in credits)
+		return {
+			text: `On API credits: $${Math.floor(credits.left)} of $${Math.floor(credits.grant)} left`,
+			role: "value",
+		};
+	if (credits && "spent" in credits)
+		return { text: "Plans and API credits all used up", role: "value" };
+	if (credits)
+		return { text: `API credits unread: ${credits.why}`, role: "secondary" };
+	const uses = status.seats.readings.map(
+		({ seat, week }) =>
+			`${seat.replace("~/", "")} ${week === null ? "unread" : `${week}%`}`,
+	);
+	return {
+		text: uses.length > 0 ? `Plans this week: ${uses.join(", ")}` : "",
+		role: "secondary",
+	};
+}
+
+/**
+ * The words beside the switch where launches now spend money.
+ * @param {PanelView} view
+ */
+function buildSwitchDetail({ status, pending }) {
+	if (pending || !status || !isLaunching(status)) return {};
+	const credits = readCredits(status);
+	return credits && "left" in credits ? { detail: "API credits · on" } : {};
 }
 
 /**
@@ -159,14 +299,10 @@ function buildObservedLines(status, now) {
  * @returns {[Row, Row, Row]}
  */
 function buildLoopBlock({ status, readError, pending, refusal }, now) {
-	const third = {
-		text: status
-			? [status.codeSha, buildCurrentTick(status)?.summary]
-					.filter(Boolean)
-					.join(" · ")
-			: "",
-		role: /** @type {Role} */ ("secondary"),
-	};
+	/** @type {Row} */
+	const third = status
+		? buildSpendRow(status)
+		: { text: "", role: "secondary" };
 	if (pending)
 		return [
 			{
@@ -308,6 +444,7 @@ function buildRows(view, now) {
 	return [
 		{
 			text: `Refill loop  ${SWITCH_TEXT[state]}`,
+			...buildSwitchDetail(view),
 			role: "name",
 			control: { id: "loop", state },
 		},
@@ -319,14 +456,17 @@ function buildRows(view, now) {
 
 /**
  * What a press on the switch does: the argv to run and what it asks for, or
- * null where the press does nothing. A loop with no process and no pause, or one
- * stopping, has nothing to write here.
+ * null where the press does nothing. A dead loop restarts from its stored
+ * settings. One never started, or one stopping, has nothing to write here, and no
+ * press ever stops the process.
  * @param {PanelView} view
  */
 function buildPress({ status, pending }) {
 	if (pending || !status) return null;
 	if (status.paused) return { argv: ["set", "--resume"], on: true };
 	if (isLaunching(status)) return { argv: ["set", "--pause"], on: false };
+	if (!status.running && (status.crashed || status.stop))
+		return { argv: ["set", "--resume"], on: true };
 	return null;
 }
 
@@ -541,13 +681,17 @@ function fitText(text, width) {
 function buildFrame(rows, columns) {
 	const width = columns - (LEFT_COLUMN - 1) * 2;
 	const drawn = rows
-		.map(({ text, role }, i) => {
+		.map(({ text, detail, role }, i) => {
 			const { rgb, bold } = ROLE_STYLES[role];
+			const chars = [...fitText(detail ? `${text}  ${detail}` : text, width)];
+			const textChars = [...text].length;
 			return [
 				`${ESC}[${TOP_ROW + i};${LEFT_COLUMN}H`,
 				bold ? `${ESC}[1m` : "",
 				`${ESC}[38;2;${rgb.join(";")}m`,
-				fitText(text, width),
+				chars.slice(0, textChars).join(""),
+				`${ESC}[22m`,
+				chars.slice(textChars).join(""),
 				`${ESC}[0m${ESC}[K`,
 			].join("");
 		})
