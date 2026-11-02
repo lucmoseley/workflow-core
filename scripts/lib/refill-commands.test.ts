@@ -86,8 +86,8 @@ describe("what status prints", () => {
 		lastTick: { at: NOW, summary: "idle: no free slot" },
 		stopped: {
 			at: NOW - 200 * MIN,
-			reason: "no-progress",
-			detail: "three in a row",
+			reason: "control-damaged",
+			detail: "/c is damaged",
 		},
 		held: [],
 		reviewRunOn: null,
@@ -131,7 +131,7 @@ describe("what status prints", () => {
 			served,
 		}).join("\n");
 		expect(out).toContain("last stop:");
-		expect(out).toContain("no-progress — three in a row");
+		expect(out).toContain("control-damaged — /c is damaged");
 		expect(out).not.toContain("died:");
 	});
 	it("counts a park the loop stopped as parked, and says it stopped it (#2699)", () => {
@@ -540,6 +540,7 @@ describe("status --json for the panel (#3873)", () => {
 			summary: "idle: no free slot",
 			idle: "no free slot",
 			paused: false,
+			planWait: null,
 		});
 	});
 

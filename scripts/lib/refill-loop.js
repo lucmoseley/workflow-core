@@ -136,8 +136,9 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * @property {LoopLaunch[]} launches
  * @property {{at: number, summary: string,
  *   skipped?: import("./refill-decide.js").Skip[],
- *   idle?: string|null}|null} lastTick `idle` is decideTick's reason it launched
- *   nothing, the idle alarm's source for it (#3920)
+ *   idle?: string|null, planWait?: import("./refill-decide.js").PlanWait}|null}
+ *   lastTick `idle` is decideTick's reason it launched nothing, the idle alarm's
+ *   source for it (#3920); `planWait` the allowance wait's, absent on any other
  * @property {{at: number, reason: string, detail: string}|null} stopped
  * @property {number|null} [heldAt] ms, when the current run's process took the
  *   pidfile; null from a start until its process does (#3861)
@@ -218,6 +219,15 @@ function parseScope(raw, readIncluded = () => []) {
 }
 
 /**
+ * @param {unknown} raw
+ * @returns {raw is import("./refill-decide.js").PauseIssue}
+ */
+const isPauseIssue = (raw) =>
+	isRecord(raw) &&
+	typeof raw.root === "string" &&
+	typeof raw.number === "number";
+
+/**
  * The control file's pause (#3856): absent or null is no pause, and any other
  * value is one, so a garbled pause launches nothing.
  * @param {unknown} raw
@@ -230,6 +240,9 @@ function parsePause(raw) {
 		paused: {
 			by: typeof r.by === "string" ? r.by : "an unreadable record",
 			at: typeof r.at === "number" ? r.at : 0,
+			...(Array.isArray(r.issues)
+				? { issues: r.issues.filter(isPauseIssue) }
+				: {}),
 		},
 	};
 }
@@ -432,7 +445,22 @@ function parseLastTick(raw) {
 		return null;
 	const skipped = Array.isArray(raw.skipped) ? raw.skipped.filter(isSkip) : [];
 	const idle = typeof raw.idle === "string" ? raw.idle : null;
-	return { at: raw.at, summary: raw.summary, skipped, idle };
+	return {
+		at: raw.at,
+		summary: raw.summary,
+		skipped,
+		idle,
+		...(isRecord(raw.planWait)
+			? {
+					planWait: {
+						resets:
+							typeof raw.planWait.resets === "number"
+								? raw.planWait.resets
+								: null,
+					},
+				}
+			: {}),
+	};
 }
 
 /** @param {unknown} raw @returns {LaunchCount|null} */
@@ -742,7 +770,7 @@ function readSizedSeats(
  * A key is spent for its cycle where Anthropic refused it for credit, or
  * where its settled spend leaves under one launch's reservation, which no
  * running session's end reopens. A seat file that refuses reads as one
- * unread seat, so the tick waits on it rather than stopping the run (#2611).
+ * unread seat, so the tick waits on it (#2611).
  * @param {import("./refill-seats.js").SeatList} list
  * @param {SeatReading[]} plan
  * @param {(seat: import("./refill-seats.js").OverflowSeat) =>
@@ -1324,8 +1352,35 @@ const buildLaunchBatches = (decision, waiting) =>
 	"stop" in decision || waiting ? [] : batchesOf(decision.launches);
 
 /**
+ * @param {import("./refill-decide.js").Decision} decision
+ * @param {{writePause: (pause: import("./refill-decide.js").Pause) => void}} io
+ */
+function writeDecidedPause(decision, io) {
+	if (!("stop" in decision) && decision.pause) io.writePause(decision.pause);
+}
+
+/**
+ * The state's record of a tick: a stop leaves no idle reason to read.
+ * @param {import("./refill-decide.js").Decision} decision
+ * @param {number} at
+ * @param {string} summary
+ */
+const buildLastTick = (decision, at, summary) => ({
+	at,
+	summary,
+	...("stop" in decision
+		? {}
+		: {
+				skipped: decision.skipped,
+				idle: decision.idle,
+				...(decision.planWait ? { planWait: decision.planWait } : {}),
+			}),
+});
+
+/**
  * A tick from its decision on: dispatch its launches while the control asks
- * for no stop or pause, write the state, then take the morning review's step, which
+ * for no stop or pause, write the no-progress pause it decided, write the
+ * state, then take the morning review's step, which
  * starts its child detached and returns at once (reviewStep).
  * A stop that landed during the dispatches or the review is logged and
  * recorded as `stop: explicit`, or `control-damaged` where the re-read found
@@ -1339,6 +1394,7 @@ const buildLaunchBatches = (decision, waiting) =>
  * @param {{readControl: () => ControlRead,
  *   launchBatch: (batch: import("./refill-decide.js").Launch[]) => BatchOutcome,
  *   resumeHeld: ResumeHeld,
+ *   writePause: (pause: import("./refill-decide.js").Pause) => void,
  *   runReview: (lastRunOn: string|null, now: number) => string|null,
  *   writeState: (state: LoopState) => void,
  *   readOmittedDirs: () => string[],
@@ -1369,6 +1425,7 @@ function settleTick(
 		resumesStarted: started,
 	});
 	io.log(summary);
+	writeDecidedPause(decision, io);
 	const overflowStart = recordOverflowStart(
 		input,
 		{ judged: afterResumes, launched: outcome.launched },
@@ -1377,13 +1434,7 @@ function settleTick(
 	const today = localDate(new Date(input.now));
 	const next = {
 		launches: keptLaunches([...afterResumes, ...outcome.launched]),
-		lastTick: {
-			at: input.now,
-			summary,
-			...("stop" in decision
-				? {}
-				: { skipped: decision.skipped, idle: decision.idle }),
-		},
+		lastTick: buildLastTick(decision, input.now, summary),
 		/* A tick that does not stop outlives any record, a stop a `start` overtook
 		 * included. */
 		stopped: stoppedOf(decision, input.now),

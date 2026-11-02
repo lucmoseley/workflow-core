@@ -1,19 +1,19 @@
 #!/usr/bin/env node
 /*
  * check-refill-loop-stop.js — name, at the next session start, a refill loop
- * that stopped on no progress, on the allowance cut or on a damaged control
- * file (#2014, spec #1995 story 32; #3389), and its first overflow launch
+ * that stopped on a damaged control file (#3389) or that the no-progress rule
+ * paused (#2014, spec #1995 story 32; #3859), and its first overflow launch
  * after a plan-seat launch, with the plan seats it rested on (#3767).
  *
  * Usage:  node scripts/check-refill-loop-stop.js [--notify] [--json]
  *
  * READS the loop's state file (lib/refill-files.js) for its last stop, its
- * control file, and its pid lock for whether it runs. An explicit stop is not
- * named.
+ * control file for its pause, and its pid lock for whether it runs. An explicit
+ * stop and a founder's pause are not named.
  *
- * ONCE PER STOP. A `--notify` run, bar under `--json`, records the stop's time in the stop-seen
- * stamp beside the state file, and names no stop at or before it. A plain run
- * names it and records nothing. A compaction is no session start: its hook
+ * ONCE PER STOP OR PAUSE. A `--notify` run, bar under `--json`, records its time
+ * in the stop-seen stamp beside the state file, and names none at or before it. A
+ * plain run names it and records nothing. A compaction is no session start: its hook
  * payload's `source` is `compact`, and it prints and records nothing. The
  * stamp is per machine, as the loop is, so whichever session starts first on
  * any seat or repo spends it; a dispatcher's or the loop's job start, or any
@@ -39,8 +39,8 @@
  * context (lib/check.js's screenNotices, #3776). A stamp is written once the
  * notice is out.
  *
- * IMPLICIT:  at every session start but a dispatcher's or the loop's job, prints the refill loop's last stop where it was no progress, the allowance cut or a damaged control file and is newer than the stamp, then stamps it; prints its newest first overflow launch where newer than that launch's stamp, then stamps it; and names a damaged state file or a stopped loop's damaged control file.
- * JUSTIFIED: fail-safe — the loop runs outside any session, so nothing else reports its stopping or its spending.
+ * IMPLICIT:  at every session start but a dispatcher's or the loop's job, prints the refill loop's no-progress pause, or its last stop where it was a damaged control file, where newer than the stamp, then stamps it; prints its newest first overflow launch where newer than that launch's stamp, then stamps it; and names a damaged state file or a stopped loop's damaged control file.
+ * JUSTIFIED: fail-safe — the loop runs outside any session, so nothing else reports its stopping, its pausing itself or its spending.
  * DEFEAT:    none needed — it never blocks; deleting a stamp names its last event again.
  */
 
@@ -50,6 +50,7 @@ const { runCheck } = require("./lib/check");
 const hookMessage = require("./lib/hook-message");
 const { isFounderNoticeHeld } = require("./lib/background-start.js");
 const { buildOverflowStartLines } = require("./lib/overflow-notice.js");
+const { NO_PROGRESS_PAUSE, buildPauseText } = require("./lib/refill-decide.js");
 const { buildRefText } = require("./lib/refill-goal.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const loop = require("./lib/refill-loop.js");
@@ -57,13 +58,6 @@ const refillFiles = require("./lib/refill-files.js");
 const { buildSeatName } = require("./lib/refill-seats.js");
 const { expandPastePaths, scriptPath } = require("./lib/script-path.js");
 const { shellQuote } = require("./lib/sh-quote.js");
-
-/** @type {Partial<Record<import("./lib/refill-decide.js").StopReason, string>>} */
-const STOP_REASON_WORDS = {
-	"no-progress": "no progress",
-	allowance: "the allowance cut",
-	"control-damaged": "a damaged control file",
-};
 
 /** @param {string} file */
 function readSeen(file) {
@@ -144,6 +138,25 @@ function buildPickNextLines({ repos, goal }) {
 
 /**
  * @param {import("./lib/check").CheckContext} ctx
+ * @param {import("./lib/refill-loop.js").Control|null} control
+ * @param {number} seen the stamp's time
+ * @returns {number|null} the pause time it named, for the stamp
+ */
+function reportNoProgressPause(ctx, control, seen) {
+	const paused = control?.paused;
+	if (paused?.by !== NO_PROGRESS_PAUSE || paused.at <= seen) return null;
+	const text = buildPauseText(paused);
+	ctx.warn("REFILL-LOOP-PAUSED", `the refill loop is ${text}`, { ...paused });
+	ctx.sayNotice(
+		`REFILL-LOOP-PAUSED — the refill loop is ${text}. It launches nothing and stays paused; look at those issues, then resume it.\n` +
+			`  node ${scriptPath("refill-loop.js")} set --resume\n` +
+			`  Its status: ${STATUS}\n`,
+	);
+	return paused.at;
+}
+
+/**
+ * @param {import("./lib/check").CheckContext} ctx
  * @param {import("./lib/overflow-notice.js").OverflowStart|null} start
  * @param {string} seenFile
  * @returns {number|null} the launch time it named, for the stamp
@@ -184,22 +197,15 @@ runCheck({
 			ctx.sayNotice(`REFILL-LOOP-FILE-DAMAGED — ${line}.`);
 		};
 		const { stopped, overflowStart } = refillFiles.readStateFile(reportDamaged);
-		const why = stopped
-			? STOP_REASON_WORDS[
-					/** @type {import("./lib/refill-decide.js").StopReason} */ (
-						stopped.reason
-					)
-				]
-			: undefined;
+		const seen = readSeen(files.stopSeen);
 		const fresh =
 			stopped !== null &&
-			why !== undefined &&
-			stopped.at > readSeen(files.stopSeen);
+			stopped.reason === "control-damaged" &&
+			stopped.at > seen;
 		/* Silent where another line names the damage: a running loop's in
 		 * check-idle-efforts.js, a fresh control-damaged stop's below (#3927). */
 		const control = refillFiles.readControlFile(
-			pidLock(files.pid, "refill-loop.js").holder() !== null ||
-				(fresh && stopped.reason === "control-damaged")
+			pidLock(files.pid, "refill-loop.js").holder() !== null || fresh
 				? () => undefined
 				: reportDamaged,
 		);
@@ -215,14 +221,15 @@ runCheck({
 			];
 			ctx.warn(
 				"REFILL-LOOP-STOPPED",
-				`the refill loop stopped on ${why} at ${at}`,
+				`the refill loop stopped on a damaged control file at ${at}`,
 				{ reason: stopped.reason, at, detail: stopped.detail },
 			);
 			ctx.sayNotice(
-				`REFILL-LOOP-STOPPED — the refill loop stopped on ${why} at ${at}: ${stopped.detail}.${since}\n` +
+				`REFILL-LOOP-STOPPED — the refill loop stopped on a damaged control file at ${at}: ${stopped.detail}.${since}\n` +
 					lines.map((l) => `  ${l}\n`).join(""),
 			);
 		}
+		const pauseAt = reportNoProgressPause(ctx, control, seen);
 		const overflowAt = reportOverflowStart(
 			ctx,
 			overflowStart,
@@ -231,12 +238,13 @@ runCheck({
 		return {
 			afterReport() {
 				if (!ctx.notify) return;
-				if (fresh) fs.writeFileSync(files.stopSeen, `${stopped.at}\n`);
+				const named = Math.max(fresh ? stopped.at : 0, pauseAt ?? 0);
+				if (named > 0) fs.writeFileSync(files.stopSeen, `${named}\n`);
 				if (overflowAt !== null)
 					fs.writeFileSync(files.overflowSeen, `${overflowAt}\n`);
 			},
-			okLine: "no refill loop stop or overflow start to name.",
-			noun: "refill loop stop(s), overflow start(s) or damaged file(s)",
+			okLine: "no refill loop stop, pause or overflow start to name.",
+			noun: "refill loop stop(s), pause(s), overflow start(s) or damaged file(s)",
 			data: { stopped, overflowStart },
 		};
 	},
