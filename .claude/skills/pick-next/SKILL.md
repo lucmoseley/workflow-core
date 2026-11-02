@@ -964,8 +964,8 @@ node scripts/refill-loop.js start [--repo <dir>]… [--goal <§1's set or form>]
 It starts the machine's one loop, which runs until stopped, or adds to the
 running one, whose mode it leaves: this repo, plus each sibling checkout the
 founder's command named, passed by its directory name. The goal is §1's set or its
-`drain` or `unblock` text, if there is one (#2119). Never run `set --away` or `--normal`: the mode changes
-only on the founder's explicit ask. Copy the lines `start` prints —
+`drain` or `unblock` text, if there is one (#2119). Never run `set --away` or `--normal`: a session
+never sets the mode. Copy the lines `start` prints —
 mode, repos, goal, seats — and any `WARNING:`, into the message.
 **Unenforced**: no hook checks the call was made.
 

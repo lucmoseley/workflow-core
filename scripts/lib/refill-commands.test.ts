@@ -16,6 +16,7 @@ import {
 	buildStatusLines,
 	foreseeSeat,
 	mergedScope,
+	planSet,
 } from "./refill-commands.js";
 import { buildPauseText } from "./refill-decide.js";
 import { parseState } from "./refill-loop.js";
@@ -85,12 +86,13 @@ describe("what status prints", () => {
 		lastTick: { at: NOW, summary: "idle: no free slot" },
 		stopped: {
 			at: NOW - 200 * MIN,
-			reason: "no-progress",
-			detail: "three in a row",
+			reason: "control-damaged",
+			detail: "/c is damaged",
 		},
 		held: [],
 		reviewRunOn: null,
 		launchCount: null,
+		handedOff: null,
 		launchDay: null,
 		overflowStart: null,
 		goalProgress: null,
@@ -98,7 +100,7 @@ describe("what status prints", () => {
 	};
 	const served = [WFC, MH];
 
-	it("gives start, launches since the start and the last stop", () => {
+	it("gives start and launches since the start, with no stop older than the run", () => {
 		const out = buildStatusLines({
 			seats: NO_SEATS,
 			now: NOW,
@@ -118,8 +120,20 @@ describe("what status prints", () => {
 		expect(out).toContain("/implement 42  finished");
 		expect(out).not.toContain("session ");
 		expect(out).toContain("idle: no free slot");
+		expect(out).not.toContain("last stop:");
+	});
+	it("gives the last stop where no process runs", () => {
+		const out = buildStatusLines({
+			seats: NO_SEATS,
+			now: NOW,
+			control,
+			state,
+			pid: null,
+			served,
+		}).join("\n");
 		expect(out).toContain("last stop:");
-		expect(out).toContain("no-progress — three in a row");
+		expect(out).toContain("control-damaged — /c is damaged");
+		expect(out).not.toContain("died:");
 	});
 	it("counts a park the loop stopped as parked, and says it stopped it (#2699)", () => {
 		const stopped = record({
@@ -249,6 +263,7 @@ describe("what status prints", () => {
 				held: [],
 				reviewRunOn: null,
 				launchCount: null,
+				handedOff: null,
 				launchDay: null,
 				overflowStart: null,
 				goalProgress: null,
@@ -282,6 +297,7 @@ describe("the launch lines status shows (#2850)", () => {
 				held: [],
 				reviewRunOn: null,
 				launchCount: null,
+				handedOff: null,
 				launchDay: null,
 				overflowStart: null,
 				goalProgress: null,
@@ -432,6 +448,7 @@ describe("a launch row's seat and reason (#3732)", () => {
 		held: [],
 		reviewRunOn: null,
 		launchCount: null,
+		handedOff: null,
 		launchDay: null,
 		overflowStart: null,
 		goalProgress: null,
@@ -504,6 +521,7 @@ describe("status --json for the panel (#3873)", () => {
 				held: [],
 				reviewRunOn: null,
 				launchCount: null,
+				handedOff: null,
 				launchDay: null,
 				overflowStart: null,
 				goalProgress: null,
@@ -527,6 +545,7 @@ describe("status --json for the panel (#3873)", () => {
 			summary: "idle: no free slot",
 			idle: "no free slot",
 			paused: false,
+			planWait: null,
 		});
 	});
 
@@ -572,6 +591,7 @@ describe("a handed-off launch (#2659)", () => {
 				held: [],
 				reviewRunOn: null,
 				launchCount: null,
+				handedOff: null,
 				launchDay: null,
 				overflowStart: null,
 				goalProgress: null,
@@ -836,5 +856,45 @@ describe("the seats: line (#3733)", () => {
 			});
 			expect(out).toMatchObject({ week: null, session: 20, fits: null });
 		});
+	});
+});
+
+describe("planSet's resume with no process (#3861)", () => {
+	const control = {
+		noProgressFrom: 5,
+		stopRequested: false,
+		seats: ["/seat"],
+		scope: away(["/repo"], issuesGoal(["/repo", 7])),
+	};
+	const NowMs = 100;
+	const resume = (over: Record<string, unknown>, running: boolean) =>
+		planSet(
+			{ control: { ...control, ...over }, damaged: null },
+			{ pause: false },
+			{ running, now: NowMs },
+		);
+
+	it.each([
+		["crashed", {}],
+		["stopped by command", { stopRequested: true, stopRequestedAt: 6 }],
+		["paused", { paused: { by: "founder", at: 6 } }],
+		[
+			"paused and stopped",
+			{ paused: { by: "founder", at: 6 }, stopRequested: true },
+		],
+	])("starts from the stored settings where it %s", (_name, over) => {
+		const plan = resume(over, false);
+		const expected = { ...control, noProgressFrom: NowMs };
+		expect(plan).toMatchObject({ write: expected, startFrom: expected });
+		const { write } = plan as { write: object };
+		expect(write).not.toHaveProperty("paused");
+		expect(write).not.toHaveProperty("stopRequestedAt");
+	});
+
+	it("starts nothing beside a running loop, paused or not", () => {
+		expect(resume({ paused: { by: "founder", at: 6 } }, true)).toMatchObject({
+			startFrom: null,
+		});
+		expect(resume({}, true)).toMatchObject({ write: null, startFrom: null });
 	});
 });

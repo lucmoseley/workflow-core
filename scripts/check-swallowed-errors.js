@@ -40,6 +40,7 @@ const {
 } = require("./lib/staged");
 const { spawnGitSync } = require("./lib/git.js");
 const { globMatches } = require("./lib/pathspec-glob.js");
+const { pythonRouteKind } = require("./lib/python-routes.js");
 const { readConfig, resolveKey } = require("./lib/workflow-core-config.js");
 const { caught } = require("./lib/caught.js");
 
@@ -58,13 +59,10 @@ const WALK = path.join(__dirname, "swallowed_errors.py");
  * @param {Record<string, PythonKind> | undefined} declared
  * @returns {(p: string, text: string) => boolean}
  */
-const buildIsProgram = (declared) => {
-	const rows = Object.entries(declared ?? {});
-	return (p, text) => {
-		const row = rows.find(([g]) => globMatches(g, p));
-		if (row) return row[1] === "program";
-		return !globMatches("**/test/**", p) && text.startsWith("#!");
-	};
+const buildIsProgram = (declared) => (p, text) => {
+	const kind = pythonRouteKind(declared, p);
+	if (kind) return kind === "program";
+	return !globMatches("**/test/**", p) && text.startsWith("#!");
 };
 
 const PYTHON_INSTALL =
