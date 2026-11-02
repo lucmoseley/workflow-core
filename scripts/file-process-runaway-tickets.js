@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
  * file-process-runaway-tickets.js — file one `takes:triage` ticket for each
- * process runaway memwatch fired on (#3807): an episode, read from the line
+ * group memwatch fired on in a process runaway (#3807): an episode, read from the line
  * ~/memwatch.sh appends (lib/process-runaways.js). Once per episode, through
  * lib/incident-tickets.js, and at the first read rather than once it is over: a
  * firing means a process count held for 10 minutes, so it may be running now.
@@ -22,15 +22,14 @@
  */
 
 const path = require("node:path");
+const { now } = require("./lib/check.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { hostRoot } = require("./lib/host-root.js");
-const { fileIncidents } = require("./lib/incident-tickets.js");
+const { fileIncidents, LOOKBACK_MS } = require("./lib/incident-tickets.js");
 const runaways = require("./lib/process-runaways.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const USAGE = "usage: node scripts/file-process-runaway-tickets.js [--dry-run]";
-/* Untraced: file-memory-kill-tickets.js's, for the same down loop. */
-const LOOKBACK_MS = 72 * 60 * 60 * 1000;
 const STANDALONE =
 	"a process runaway has no originating ticket, so one is filed per episode (#3807)";
 
@@ -39,7 +38,7 @@ function main() {
 		usage: USAGE,
 		flags: { "--dry-run": "boolean" },
 	});
-	const { episodes, why } = runaways.readEpisodes(Date.now() - LOOKBACK_MS);
+	const { episodes, why } = runaways.readEpisodes(now() - LOOKBACK_MS);
 	if (why !== null) {
 		writeFd(2, `memwatch's runaway log unread, nothing filed: ${why}\n`);
 		return 0;
@@ -51,7 +50,7 @@ function main() {
 		what: "process runaway tickets",
 		standalone: STANDALONE,
 		incidents: episodes,
-		titleOf: runaways.episodeTitle,
+		titleOf: runaways.buildEpisodeTitle,
 		bodyOf: runaways.buildEpisodeBody,
 		readTickets: runaways.readEpisodeTickets,
 		dryRun: flags["--dry-run"] === true,

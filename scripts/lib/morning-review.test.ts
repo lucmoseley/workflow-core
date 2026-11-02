@@ -287,6 +287,32 @@ describe("renderReview (#2011)", () => {
 		expect(body).toContain("acme/b#4");
 	});
 
+	it("links an unread repo's closes from its closes start, and the carry still reads the body (#3981)", () => {
+		const start = "2026-10-15T07:00:00Z";
+		const body = renderWith({
+			repos: [
+				{
+					repo: "acme/a",
+					closesSince: start,
+					decisionsSince: SINCE,
+					stalls: [],
+					entries: [],
+					closed: null,
+				},
+			],
+			unreadEvents: [{ kind: "Closes", checkout: "a", since: start }],
+		});
+		const edge = encodeURIComponent(
+			"closed:>=2026-10-15T06:45:00+00:00",
+		).replaceAll("%20", "+");
+		expect(body).toMatch(
+			new RegExp(
+				`- acme/a: not read, so the next review to read them lists them — \\[search\\]\\(.*${edge}.*\\)\\n`,
+			),
+		);
+		expect(buildRepoStart({ number: 7, body }, "a", NOW).closes).toBe(start);
+	});
+
 	it("speaks for the repos read where the only closes did not read (#3928)", () => {
 		const body = render([
 			{ repo: "acme/a", stalls: [], entries: [], closed: null },
@@ -356,9 +382,10 @@ describe("renderReview (#2011)", () => {
 	});
 
 	it("lists the window's process runaways with what each killed and its ticket (#3807)", () => {
-		const { episodeTitle } = require("./process-runaways.js");
+		const { buildEpisodeTitle } = require("./process-runaways.js");
 		const episode = (since: string, ts: string, killed: number[]) => ({
 			since,
+			argv: "x",
 			firings: [
 				{ ts, since, procs: 750, argv: "x", size: 200, parents: [], killed },
 			],
@@ -376,16 +403,16 @@ describe("renderReview (#2011)", () => {
 		const lines = (runaways: object) =>
 			renderWith({ runaways }).split("## Process runaways\n\n")[1];
 		expect(lines(QUIET_RUNAWAYS)).toMatch(/^None in the window\.\n/);
-		const tickets = new Map([[episodeTitle(inside), 77]]);
+		const tickets = new Map([[buildEpisodeTitle(inside), 77]]);
 		const listed = lines({
 			episodes: [outside, inside],
 			tickets,
 			why: null,
 		});
 		expect(listed).toContain(
-			`- \`${episodeTitle(inside)}\` — killed 2 — #77\n`,
+			`- \`${buildEpisodeTitle(inside)}\` — \`x\` — killed 2 — #77\n`,
 		);
-		expect(listed).not.toContain(episodeTitle(outside));
+		expect(listed).not.toContain(buildEpisodeTitle(outside));
 		expect(
 			lines({ episodes: [inside], tickets: "HTTP 502", why: null }),
 		).toContain("killed 2 — ticket unread: `HTTP 502`\n");

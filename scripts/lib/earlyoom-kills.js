@@ -25,8 +25,8 @@
 
 const { spawnSync } = require("node:child_process");
 const {
+	buildProcessSpan,
 	localMinute,
-	processSpan,
 	readTicketsByPrefix,
 	utcMinute,
 } = require("./incident-tickets.js");
@@ -258,7 +258,7 @@ Lowest MemAvailable before a kill: ${lowest === null ? "unread" : `${lowest.avai
 ${i.kills
 	.map(
 		(k) =>
-			`| ${localTime(new Date(k.at))} | ${k.kind} | ${processSpan(k.name)} | ${k.pid} | ${k.uid} | ${k.rssMiB} MiB | ${k.badness} | ${mib(k.availMiB)} | ${mib(k.swapFreeMiB)} | ${k.signals} |`,
+			`| ${localTime(new Date(k.at))} | ${k.kind} | ${buildProcessSpan(k.name)} | ${k.pid} | ${k.uid} | ${k.rssMiB} MiB | ${k.badness} | ${mib(k.availMiB)} | ${mib(k.swapFreeMiB)} | ${k.signals} |`,
 	)
 	.join("\n")}
 

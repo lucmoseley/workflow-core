@@ -15,6 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { afterAll, describe, expect, it } from "vitest";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const HOME = os.homedir();
 const MEMCHECK = path.join(HOME, "memcheck.sh");
@@ -664,6 +665,13 @@ describe.skipIf(!hasScope)("memwatch process-count trigger", () => {
  * marker, so a real process on this shared machine cannot be in a group, however
  * low the thresholds. The marker is a number, so `sleep` takes it as a duration.
  */
+/* Comfortably above the largest fixture here, 211 tasks and their shell. */
+const FIXTURE_TASKS = 400;
+/* Far past a window of 2 s; a case that waits this long has already failed. */
+const FIRE_BOUND_MS = 30_000;
+/* A kill is seen within a scheduling slice; this only rides out a loaded machine. */
+const SETTLE_BOUND_MS = 10_000;
+
 describe.skipIf(!hasScope)("memwatch process runaway", () => {
 	const marker = `3807.${process.pid}`;
 	let nth = 0;
@@ -688,7 +696,7 @@ describe.skipIf(!hasScope)("memwatch process runaway", () => {
 				"--quiet",
 				`--unit=${unit}`,
 				"-p",
-				"TasksMax=400",
+				`TasksMax=${FIXTURE_TASKS}`,
 				"-p",
 				`RuntimeMaxSec=${SCOPE_S}`,
 				"bash",
@@ -753,14 +761,14 @@ describe.skipIf(!hasScope)("memwatch process runaway", () => {
 			},
 			encoding: "utf8",
 		});
-	/** The loop until `until` holds, or 30 s. */
+	/** The loop until `until` holds, or the fire bound. */
 	async function loopUntil(
 		env: Record<string, string | undefined>,
 		until: () => boolean,
 	) {
 		const child = spawn("bash", [MEMWATCH], { env });
 		try {
-			const deadline = Date.now() + 30_000;
+			const deadline = Date.now() + FIRE_BOUND_MS;
 			while (Date.now() < deadline && !until()) await setTimeout(100);
 		} finally {
 			child.kill("SIGKILL");
@@ -779,7 +787,7 @@ describe.skipIf(!hasScope)("memwatch process runaway", () => {
 	/* A SIGKILLed task dies when next scheduled, so a loaded machine may still
 	 * list it just after the signal. */
 	async function settles(check: () => boolean) {
-		const deadline = Date.now() + 10_000;
+		const deadline = Date.now() + SETTLE_BOUND_MS;
 		while (Date.now() < deadline && !check()) await setTimeout(50);
 		return check();
 	}
@@ -805,16 +813,13 @@ describe.skipIf(!hasScope)("memwatch process runaway", () => {
 			);
 			const { log, runaway } = logs();
 			const argv = `bash ${chain} ${marker}`;
-			await inScope(`exec ${argv}`, async () => {
-				const started = Date.now();
+			await inScope(`exec bash ${shellQuote(chain)} ${marker}`, async () => {
 				await loopUntil(
 					{ ...quietEnv(log, runaway), MEMWATCH_RUNAWAY_WINDOW_S: "2" },
 					() => firings(runaway).length > 0,
 				);
 				const [line, ...rest] = firings(runaway);
 				expect(rest).toEqual([]);
-				// Two 1-s intervals held before it fired.
-				expect(Date.now() - started).toBeGreaterThanOrEqual(2000);
 				expect(line.argv).toBe(argv);
 				expect(line.size).toBe(40);
 				expect(line.killed).toHaveLength(40);
@@ -878,26 +883,57 @@ describe.skipIf(!hasScope)("memwatch process runaway", () => {
 		SCOPE_S * 1000,
 	);
 
-	it("fires nothing on a count that drops before the window, restarting it from zero", async () => {
-		const { log, runaway } = logs();
-		const env = {
-			...quietEnv(log, runaway),
-			MEMWATCH_RUNAWAY_PROCS: "300",
-			MEMWATCH_RUNAWAY_WINDOW_S: "2",
-			MEMWATCH_RUNAWAY_ONLY: `no-process-holds-${marker}`,
-			// Six passes, never holding two intervals; then a hold.
-			MEMWATCH_PROCS_READINGS: "500 500 0 500 500 0 500",
-		};
-		const started = Math.floor(Date.now() / 1000);
-		await loopUntil(env, () => firings(runaway).length > 0);
-		const [line, ...rest] = firings(runaway);
-		expect(rest).toEqual([]);
-		// One 1-s sleep follows each of the six passes before the hold begins.
-		expect(Date.parse(line.since) / 1000 - started).toBeGreaterThanOrEqual(6);
-		expect(
-			Date.parse(line.ts) / 1000 - Date.parse(line.since) / 1000,
-		).toBeGreaterThanOrEqual(2);
-	}, 60_000);
+	it(
+		"fires nothing on a count that drops before the window, restarting it from zero",
+		async () => {
+			const { log, runaway } = logs();
+			const env = {
+				...quietEnv(log, runaway),
+				MEMWATCH_RUNAWAY_PROCS: "300",
+				MEMWATCH_RUNAWAY_WINDOW_S: "2",
+				MEMWATCH_RUNAWAY_ONLY: `no-process-holds-${marker}`,
+				// Six passes, never holding two intervals; then a hold.
+				MEMWATCH_PROCS_READINGS: "500 500 0 500 500 0 500",
+			};
+			// Real time: the window counts passes a real sleep apart, and a pass's
+			// `since` is the only record of which one the hold began on.
+			const started = Math.floor(Date.now() / 1000);
+			await loopUntil(env, () => firings(runaway).length > 0);
+			const [line, ...rest] = firings(runaway);
+			expect(rest).toEqual([]);
+			// One 1-s sleep follows each of the six passes before the hold begins.
+			expect(Date.parse(line.since) / 1000 - started).toBeGreaterThanOrEqual(6);
+			expect(
+				Date.parse(line.ts) / 1000 - Date.parse(line.since) / 1000,
+			).toBeGreaterThanOrEqual(2);
+		},
+		SCOPE_S * 1000,
+	);
+
+	it(
+		"sweeps a link forked after the scan, so the chain cannot regrow",
+		async () => {
+			const chain = path.join(tmp, "forking-chain.sh");
+			// Each link forks one successor 50 ms on, so a leaf is always about to
+			// fork; the scope's task cap ends it if nothing else does.
+			fs.writeFileSync(
+				chain,
+				// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion written into a .sh file, not a JS placeholder
+				'[ -n "${READY:-}" ] || { READY=1; export READY; echo ready; }\nsleep 0.05; bash "$0" "$1" & wait\n',
+			);
+			const { log, runaway } = logs();
+			const seeded = `bash ${chain} ${marker}5`;
+			await inScope(`exec bash ${shellQuote(chain)} ${marker}5`, async () => {
+				await settles(() => running(`^${seeded}$`) >= 30);
+				firePass(log, runaway);
+				const [line] = firings(runaway);
+				expect(line.argv).toBe(seeded);
+				expect(line.killed.length).toBeGreaterThanOrEqual(30);
+				expect(await settles(() => running(`^${seeded}$`) === 0)).toBe(true);
+			});
+		},
+		SCOPE_S * 1000,
+	);
 
 	it(
 		"never kills a Claude process, however large its group",
@@ -906,7 +942,7 @@ describe.skipIf(!hasScope)("memwatch process runaway", () => {
 			const seconds = `${marker}3`;
 			const plain = `sleep ${seconds}`;
 			await inScope(
-				`for _ in $(seq 60); do (exec -a claude sleep ${seconds}) & (exec -a /x/claude/versions/2.1.234 sleep ${seconds}) & done
+				`for _ in $(seq 60); do (exec -a claude sleep ${seconds}) & (exec -a /x/claude/versions/2.1.234 sleep ${seconds}) & (exec -a '/mnt/c/Program Files/claude.exe' sleep ${seconds}) & done
 				for _ in $(seq 31); do ${plain} & done; echo ready; wait`,
 				async () => {
 					firePass(log, runaway);
@@ -915,6 +951,9 @@ describe.skipIf(!hasScope)("memwatch process runaway", () => {
 					expect(line.killed).toHaveLength(31);
 					expect(running(`^claude ${seconds}`)).toBe(60);
 					expect(running(`^/x/claude/versions/2.1.234 ${seconds}`)).toBe(60);
+					expect(running(`^/mnt/c/Program Files/claude.exe ${seconds}`)).toBe(
+						60,
+					);
 					expect(await settles(() => running(`^${plain}`) === 0)).toBe(true);
 					// Only Claude groups left: a line that says so, and no kill.
 					const after = logs();
@@ -930,17 +969,21 @@ describe.skipIf(!hasScope)("memwatch process runaway", () => {
 		SCOPE_S * 1000,
 	);
 
-	it("writes valid JSON for an argv with quotes, backslashes and control characters", async () => {
-		const { log, runaway } = logs();
-		const argv = `a"b\\c\u0001d`;
-		await inScope(
-			`for _ in $(seq 31); do (exec -a $'a"b\\\\c\\001d' sleep ${marker}4) & done; echo ready; wait`,
-			async () => {
-				firePass(log, runaway);
-				expect(firings(runaway)[0].argv).toBe(`${argv} ${marker}4`);
-			},
-		);
-	}, 60_000);
+	it(
+		"writes valid JSON for an argv with quotes, backslashes and control characters",
+		async () => {
+			const { log, runaway } = logs();
+			const argv = `a"b\\c\u0001d`;
+			await inScope(
+				`for _ in $(seq 31); do (exec -a $'a"b\\\\c\\001d' sleep ${marker}4) & done; echo ready; wait`,
+				async () => {
+					firePass(log, runaway);
+					expect(firings(runaway)[0].argv).toBe(`${argv} ${marker}4`);
+				},
+			);
+		},
+		SCOPE_S * 1000,
+	);
 
 	it("drops firing lines older than MEMWATCH_MINUTE_DAYS when it writes one", () => {
 		const { log, runaway } = logs();

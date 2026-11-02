@@ -82,14 +82,16 @@ describe("file-process-runaway-tickets.js (#3807)", () => {
 		const created = readCreated();
 		expect(created).toHaveLength(2);
 		for (const c of created) {
-			expect(c.title).toMatch(/^Process runaway from .* UTC$/);
+			expect(c.title).toMatch(/^Process runaway from .* UTC \([0-9a-f]{8}\)$/);
 			expect(c.labels).toEqual(["takes:triage"]);
 			expect(c.body).toContain("Standalone: a process runaway");
 		}
 		expect(created[0].body).toContain("SIGKILL to 3 processes");
-		expect(created[0].body).toContain("| 700 | 3 | `bash /tmp/ap.sh head` |");
+		expect(created[0].body).toContain(
+			"Largest group, 700 processes: `bash /tmp/ap.sh head`",
+		);
 		/* A process's own argv cannot break out of the code span or the table. */
-		expect(created[1].body).toContain("| 700 | 0 | `other ? ?x?` |");
+		expect(created[1].body).toContain("`other ? ?x?`");
 		expect(created[1].body).toContain("It killed nothing");
 
 		const second = run();
@@ -101,6 +103,11 @@ describe("file-process-runaway-tickets.js (#3807)", () => {
 		fs.appendFileSync(logFile(), `${firing(30, 1)}\n`);
 		expect(run().status).toBe(0);
 		expect(readCreated()).toHaveLength(2);
+
+		/* A second group under the same `since` reaches a ticket of its own. */
+		fs.appendFileSync(logFile(), `${firing(30, 1, { argv: "another" })}\n`);
+		expect(run().status).toBe(0);
+		expect(readCreated()).toHaveLength(3);
 	});
 
 	it("files nothing for an episode a ticket of its title already covers", () => {

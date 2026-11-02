@@ -28,7 +28,7 @@
 
 const { requiredGroup } = require("./regex-group.js");
 const { byKind, incidentTitle, isOver } = require("./earlyoom-kills.js");
-const { episodeTitle, killedIn } = require("./process-runaways.js");
+const { buildEpisodeTitle, countKilled } = require("./process-runaways.js");
 const {
 	NONE,
 	SPREAD_CAP,
@@ -311,7 +311,7 @@ function renderKillLines({ incidents, tickets, why }, lo, hi) {
  */
 function episodeTicket(e, tickets) {
 	if (typeof tickets === "string") return `ticket unread: ${quoted(tickets)}`;
-	const n = tickets.get(episodeTitle(e));
+	const n = tickets.get(buildEpisodeTitle(e));
 	return n === undefined ? "no ticket filed yet" : `#${n}`;
 }
 
@@ -331,7 +331,7 @@ function renderRunawayLines({ episodes, tickets, why }, lo, hi) {
 	if (inWindow.length === 0) return ["None in the window."];
 	return inWindow.map(
 		(e) =>
-			`- ${quoted(episodeTitle(e))} — killed ${killedIn(e.firings)} — ${episodeTicket(e, tickets)}`,
+			`- ${quoted(buildEpisodeTitle(e))} — ${quoted(e.argv)} — killed ${countKilled(e.firings)} — ${episodeTicket(e, tickets)}`,
 	);
 }
 
@@ -516,12 +516,13 @@ function renderClosedLines(readings, since, closedTo) {
 		0,
 	);
 	const perRepo = readings.map((r) => {
-		if (r.closed === null)
-			return `- ${r.repo}: not read, so the next review to read them lists them`;
 		const from = closeEdge(r.closesSince);
-		return `- ${r.repo}: ${r.closed.length}${r.closesSince === since ? "" : ` from ${from}, as the reviews since did not read it`} — [search](${issueSearch(
+		const search = `[search](${issueSearch(
 			`repo:${r.repo} is:issue is:closed closed:>=${searchTime(from)}`,
 		)})`;
+		if (r.closed === null)
+			return `- ${r.repo}: not read, so the next review to read them lists them — ${search}`;
+		return `- ${r.repo}: ${r.closed.length}${r.closesSince === since ? "" : ` from ${from}, as the reviews since did not read it`} — ${search}`;
 	});
 	const oneWay = readings.flatMap(({ repo, closed }) =>
 		(closed ?? []).flatMap((c) => {

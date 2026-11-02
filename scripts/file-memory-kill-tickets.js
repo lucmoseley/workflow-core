@@ -29,12 +29,10 @@ const path = require("node:path");
 const { parseOrExit } = require("./lib/cli-args.js");
 const kills = require("./lib/earlyoom-kills.js");
 const { hostRoot } = require("./lib/host-root.js");
-const { fileIncidents } = require("./lib/incident-tickets.js");
+const { fileIncidents, LOOKBACK_MS } = require("./lib/incident-tickets.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const USAGE = "usage: node scripts/file-memory-kill-tickets.js [--dry-run]";
-/* Untraced: covers a refill loop down over a weekend. */
-const LOOKBACK_MS = 72 * 60 * 60 * 1000;
 const STANDALONE =
 	"a memory kill incident has no originating ticket, so one is filed per incident (#3094)";
 

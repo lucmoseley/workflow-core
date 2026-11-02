@@ -4,24 +4,26 @@
  * morning review lists.
  *
  * AN EPISODE is the firings sharing a `since`, the pass the count first held
- * memwatch's line. A chain that respawns fires on every pass until the count
- * clears, so one episode can hold many lines. Two episodes cannot share a
- * minute: each holds the line for memwatch's 10-minute window before firing.
+ * memwatch's line, and an `argv`. A group that respawns fires on every pass until
+ * the count clears, so one episode can hold many lines; a second group fired on
+ * under the same `since` is a second episode, so its argv reaches a ticket.
  *
  * A line torn by a kill mid-write is skipped. An absent log is no firings: the
  * file only exists once something has fired. WFC_RUNAWAY_LOG injects the path
  * (§N7).
  */
 
-const fs = require("node:fs");
+const crypto = require("node:crypto");
 const os = require("node:os");
 const path = require("node:path");
+const { caught } = require("./caught.js");
 const {
+	buildProcessSpan,
 	localMinute,
-	processSpan,
 	readTicketsByPrefix,
 	utcMinute,
 } = require("./incident-tickets.js");
+const { readJsonl } = require("./jsonl.js");
 const { docPath } = require("./script-path.js");
 
 const TITLE_PREFIX = "Process runaway from ";
@@ -35,24 +37,25 @@ const TITLE_PREFIX = "Process runaway from ";
  * @property {number} size
  * @property {{pid: number, kids: number, argv: string}[]} parents
  * @property {number[]} killed
- * @typedef {{since: string, firings: Firing[]}} Episode
+ * @typedef {{since: string, argv: string, firings: Firing[]}} Episode
  */
 
-const logPath = () =>
+const readLogPath = () =>
 	process.env.WFC_RUNAWAY_LOG ||
 	path.join(os.homedir(), "memwatch-runaway.jsonl");
 
-/** @param {string} line @returns {Firing|null} */
-function parseFiring(line) {
-	try {
-		const f = JSON.parse(line);
-		return Number.isNaN(Date.parse(f.since)) || Number.isNaN(Date.parse(f.ts))
-			? null
-			: f;
-	} catch {
-		return null;
-	}
-}
+/**
+ * @param {Record<string, unknown>} r
+ * @returns {r is Firing}
+ */
+const isFiring = (r) =>
+	typeof r.since === "string" &&
+	typeof r.ts === "string" &&
+	typeof r.argv === "string" &&
+	Array.isArray(r.killed) &&
+	Array.isArray(r.parents) &&
+	!Number.isNaN(Date.parse(r.since)) &&
+	!Number.isNaN(Date.parse(r.ts));
 
 /**
  * The episodes with a firing after `sinceMs`, oldest first, each read whole.
@@ -60,69 +63,58 @@ function parseFiring(line) {
  * @returns {{episodes: Episode[], why: string|null}}
  */
 function readEpisodes(sinceMs) {
-	let text;
+	let log;
 	try {
-		text = fs.readFileSync(logPath(), "utf8");
+		log = readJsonl(readLogPath());
 	} catch (e) {
-		const err = /** @type {NodeJS.ErrnoException} */ (e);
-		return err.code === "ENOENT"
-			? { episodes: [], why: null }
-			: { episodes: [], why: `${logPath()}: ${err.message}` };
+		return {
+			episodes: [],
+			why: `${readLogPath()}: ${caught(e).message}`,
+		};
 	}
 	/** @type {Map<string, Episode>} */
-	const bySince = new Map();
-	for (const line of text.split("\n")) {
-		const f = parseFiring(line);
-		if (f === null) continue;
-		const open = bySince.get(f.since);
+	const byKey = new Map();
+	for (const f of (log?.rows ?? []).filter(isFiring)) {
+		const key = `${f.since}\0${f.argv}`;
+		const open = byKey.get(key);
 		if (open) open.firings.push(f);
-		else bySince.set(f.since, { since: f.since, firings: [f] });
+		else byKey.set(key, { since: f.since, argv: f.argv, firings: [f] });
 	}
 	return {
-		episodes: [...bySince.values()].filter((e) =>
+		episodes: [...byKey.values()].filter((e) =>
 			e.firings.some((f) => Date.parse(f.ts) > sinceMs),
 		),
 		why: null,
 	};
 }
 
-/** UTC, so a run under another TZ names the episode the same. */
-const episodeTitle = (/** @type {Episode} */ e) =>
-	`${TITLE_PREFIX}${utcMinute(new Date(e.since))} UTC`;
+/**
+ * UTC, so a run under another TZ names the episode the same; the hash tells two
+ * groups fired on under one `since` apart.
+ * @param {Episode} e
+ */
+const buildEpisodeTitle = (e) =>
+	`${TITLE_PREFIX}${utcMinute(new Date(e.since))} UTC (${crypto
+		.createHash("sha1")
+		.update(e.argv)
+		.digest("hex")
+		.slice(0, 8)})`;
 
 /** @param {Firing[]} firings */
-const killedIn = (firings) =>
+const countKilled = (firings) =>
 	firings.reduce((sum, f) => sum + f.killed.length, 0);
 
 /**
- * What the episode's firings did, one row per argv.
- * @param {Episode} e
- */
-function groupRows(e) {
-	/** @type {Map<string, {size: number, killed: number}>} */
-	const rows = new Map();
-	for (const f of e.firings) {
-		const row = rows.get(f.argv) ?? { size: 0, killed: 0 };
-		row.size = Math.max(row.size, f.size);
-		row.killed += f.killed.length;
-		rows.set(f.argv, row);
-	}
-	return [...rows].map(
-		([argv, r]) => `| ${r.size} | ${r.killed} | ${processSpan(argv)} |`,
-	);
-}
-
-/**
  * The episode's ticket body, as far as the log has reached: the ticket is filed
- * while a chain may still be firing, so a person hears at once.
+ * while a group may still be firing, so a person hears at once.
  * @param {Episode} e
  */
 function buildEpisodeBody(e) {
-	const killed = killedIn(e.firings);
-	const first = /** @type {Firing} */ (e.firings[0]);
+	const killed = countKilled(e.firings);
+	const [first] = e.firings;
 	return `## What happened
 
-memwatch read ${first.procs} processes after the count had held its line since ${localMinute(new Date(e.since))} machine time (\`${docPath("environment.md")}\` §4).
+memwatch read ${first?.procs} processes after the count had held its line since ${localMinute(new Date(e.since))} machine time (\`${docPath("environment.md")}\` §4).
 
 ${
 	killed > 0
@@ -130,15 +122,13 @@ ${
 		: "It killed nothing: no group of one argv reached its size line, so the count may still be high. Read the machine now."
 }
 
-| Largest group | Killed | Argv |
-| --- | --- | --- |
-${groupRows(e).join("\n")}
+Largest group, ${Math.max(...e.firings.map((f) => f.size))} processes: ${buildProcessSpan(e.argv)}
 
 Parents at the first firing, by direct children:
 
 | PID | Children | Argv |
 | --- | --- | --- |
-${first.parents.map((p) => `| ${p.pid} | ${p.kids} | ${processSpan(p.argv)} |`).join("\n")}
+${(first?.parents ?? []).map((p) => `| ${p.pid} | ${p.kids} | ${buildProcessSpan(p.argv)} |`).join("\n")}
 
 ## What to find
 
@@ -160,8 +150,8 @@ const readEpisodeTickets = (repo) =>
 
 module.exports = {
 	buildEpisodeBody,
-	episodeTitle,
-	killedIn,
+	buildEpisodeTitle,
+	countKilled,
 	readEpisodeTickets,
 	readEpisodes,
 };

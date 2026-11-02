@@ -178,7 +178,7 @@ export function buildUsageCache(
  * stamped when it runs, as the probe's refresh does. */
 export function buildRefreshLine(bars: Bars, target: string): string {
 	const now = Date.now();
-	const [head, tail] = JSON.stringify(buildUsageCache(bars, now)).split(
+	const [head, tail = ""] = JSON.stringify(buildUsageCache(bars, now)).split(
 		`"fetchedAtMs":${now}`,
 	);
 	return `printf '%s%s%s' ${shellQuote(`${head}"fetchedAtMs":`)} "$(($(date +%s%N) / 1000000))" ${shellQuote(tail)} > ${target}`;

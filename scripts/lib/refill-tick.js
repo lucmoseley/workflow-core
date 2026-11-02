@@ -233,32 +233,20 @@ function superviseLanding(roots) {
 }
 
 /**
- * Ticket each earlyoom kill incident that is over, on the review checkout's
- * tracker (scripts/file-memory-kill-tickets.js, #3094): the kills are the
- * machine's, so one checkout files them. Logged only where it filed or failed.
+ * Run one of the machine incident filers on the review checkout's tracker: the
+ * incidents are the machine's, so one checkout files them. Logged only where it
+ * filed or failed. Earlyoom kills (scripts/file-memory-kill-tickets.js, #3094);
+ * memwatch's process runaways (scripts/file-process-runaway-tickets.js, #3807).
+ * @param {string} script
+ * @param {string} label
  */
-function fileKillTickets() {
+function fileMachineTickets(script, label) {
 	if (!hasConfig(REVIEW_ROOT)) return;
-	const r = runChild(
-		process.execPath,
-		[path.join(SCRIPTS, "file-memory-kill-tickets.js")],
-		{ cwd: REVIEW_ROOT, env: buildCheckoutEnv(REVIEW_ROOT) },
-	);
-	if (r.out || r.failed) log(blocks.buildChildLine("memory kills", r));
-}
-
-/**
- * Ticket each process runaway memwatch fired on, as fileKillTickets does its
- * kills (scripts/file-process-runaway-tickets.js, #3807).
- */
-function fileRunawayTickets() {
-	if (!hasConfig(REVIEW_ROOT)) return;
-	const r = runChild(
-		process.execPath,
-		[path.join(SCRIPTS, "file-process-runaway-tickets.js")],
-		{ cwd: REVIEW_ROOT, env: buildCheckoutEnv(REVIEW_ROOT) },
-	);
-	if (r.out || r.failed) log(blocks.buildChildLine("process runaways", r));
+	const r = runChild(process.execPath, [path.join(SCRIPTS, script)], {
+		cwd: REVIEW_ROOT,
+		env: buildCheckoutEnv(REVIEW_ROOT),
+	});
+	if (r.out || r.failed) log(blocks.buildChildLine(label, r));
 }
 
 /**
@@ -1188,8 +1176,8 @@ const blockIo = (served) => ({
 function tendCheckouts(served, launches, now) {
 	const roots = loop.landingRoots(served, launches);
 	superviseLanding(roots);
-	fileKillTickets();
-	fileRunawayTickets();
+	fileMachineTickets("file-memory-kill-tickets.js", "memory kills");
+	fileMachineTickets("file-process-runaway-tickets.js", "process runaways");
 	return tendHolds(roots, served, now, log);
 }
 

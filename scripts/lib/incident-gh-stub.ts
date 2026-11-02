@@ -1,3 +1,8 @@
+/*
+ * The stub `gh` the machine incident filers' tests run against (#3094, #3807).
+ * Break it and those tests read a tracker no filer ever meets.
+ */
+
 /**
  * `gh` over one tracker's incident tickets (`tickets.json`), logging every
  * call to `calls.log`. A create appends to `tickets.json`, so a second run

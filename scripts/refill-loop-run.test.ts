@@ -49,6 +49,7 @@ import { defineTemplate, initGitRepo } from "./lib/git-fixture";
 import {
 	API_PROMPT,
 	BOOT_PROMPT,
+	BOOT_UNREAD_PROMPT,
 	HOLD_PROMPT,
 	IDLE_PROMPT,
 	LIMIT_PROMPT,
@@ -4743,6 +4744,60 @@ describe("the launches a restart killed (#3880)", () => {
 		expect(last.status).toBe(0);
 		expect(readCalls().at(-1)).toBe(buildResumeArgs("job7"));
 		expect(readKilled()).toEqual([]);
+	});
+
+	describe("a parked launch, on a boot", () => {
+		const parkedOn = (jobId: string, issue: number, cause: string) => ({
+			...buildLaunch(jobId, issue, 10),
+			parked: true,
+			block: { cause, since: Date.now() - Min },
+		});
+
+		it("that reads UNKNOWN is asked what it waits on, not told to continue (#3980)", async () => {
+			writeState([parkedOn("job7", 7, "UNKNOWN")]);
+			fakeResumeClaude("job7", [LISTED]);
+
+			const r = await tickWith(1, () => readCalls().length === 1);
+
+			expect(r.status).toBe(0);
+			expect(readCalls()).toEqual([
+				`--bg --resume s-job7 ${BOOT_UNREAD_PROMPT}`,
+			]);
+			expect(BOOT_UNREAD_PROMPT).toContain("you may be waiting on the founder");
+			expect(BOOT_UNREAD_PROMPT).toContain(
+				"Where you parked on a question round or an act you handed him, make no tool call",
+			);
+			expect(readState().launches[0]).toMatchObject({
+				bootResumedAt: expect.any(Number),
+			});
+		});
+
+		it.each(["API_ERROR", "LIMIT"])(
+			"on %s takes the plain resume",
+			async (cause) => {
+				writeState([parkedOn("job7", 7, cause)]);
+				fakeResumeClaude("job7", [LISTED]);
+
+				const r = await tickWith(1, () => readCalls().length === 1);
+
+				expect(r.status).toBe(0);
+				expect(readCalls()).toEqual([buildResumeArgs("job7")]);
+			},
+		);
+
+		it.each(["QUESTION", "PERMISSION", "OTHER_DIALOG"])(
+			"on %s is not resumed",
+			async (cause) => {
+				writeState([parkedOn("job7", 7, cause)]);
+				fakeResumeClaude("job7", [LISTED]);
+
+				const r = await tickWith(1);
+
+				expect(r.status).toBe(0);
+				expect(readCalls()).toEqual([]);
+				expect(readKilled()).toEqual([]);
+			},
+		);
 	});
 
 	it("reads an empty listing as nothing live until they are back, as a restart leaves no session to list", async () => {

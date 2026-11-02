@@ -27,6 +27,9 @@ const { writeFd } = require("./write-fd.js");
 
 const LABEL = takesLabel("triage");
 
+/* Untraced: covers a refill loop down over a weekend. */
+const LOOKBACK_MS = 72 * 60 * 60 * 1000;
+
 /** @param {string} file @returns {Record<string, number>} */
 function readMarker(file) {
 	try {
@@ -82,7 +85,7 @@ function fileOne(title, body, standalone, root) {
 		);
 		return null;
 	}
-	process.stdout.write(`${title}: filed #${m[1]}.\n`);
+	writeFd(1, `${title}: filed #${m[1]}.\n`);
 	return Number(m[1]);
 }
 
@@ -124,8 +127,7 @@ function fileIncidents({
 	};
 	if (due().length === 0) return 0;
 	if (dryRun) {
-		for (const i of due())
-			process.stdout.write(`${titleOf(i)}\n\n${bodyOf(i)}\n`);
+		for (const i of due()) writeFd(1, `${titleOf(i)}\n\n${bodyOf(i)}\n`);
 		return 0;
 	}
 	const lock = pidLock(path.join(markers, `${marker}.lock`), script);
@@ -204,13 +206,14 @@ const localMinute = (d) =>
  * control character is replaced.
  * @param {string} name
  */
-const processSpan = (name) =>
+const buildProcessSpan = (name) =>
 	`\`${name.replace(/[`|\p{Cc}]/gu, "?") || "(empty)"}\``;
 
 module.exports = {
+	LOOKBACK_MS,
+	buildProcessSpan,
 	fileIncidents,
 	localMinute,
-	processSpan,
 	readTicketsByPrefix,
 	utcMinute,
 };
