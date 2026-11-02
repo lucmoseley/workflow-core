@@ -413,6 +413,63 @@ describe("token masking (#1031)", () => {
 		},
 	);
 
+	it.each([
+		["a hyphened name", "my-key=abcdefghij", "abcdefghij"],
+		["a dotted name", "my.key=abcdefghij", "abcdefghij"],
+		["a colon for its =", "K: abcdefghij", "abcdefghij"],
+		["a commenting #", "# K=abcdefghij", "abcdefghij"],
+		["a line break inside its quotes", 'K="abcdefgh\nijklmnopq"', "ijklmnopq"],
+		["a U+2028 inside its quotes", 'K="abcdefgh ijklmnopq"', "ijklmnopq"],
+		["a CRLF inside its quotes", 'K="abcdefgh\r\nijklmnopq"', "ijklmnopq"],
+	])(
+		"masks the bare value of a stored line with %s (#3917)",
+		(_n, line, value) => {
+			fs.writeFileSync(path.join(repo, "secrets.env"), `${line}\n`);
+			const r = run([
+				sessionLog([toolResult(`the log holds (${value}) here`)]),
+			]);
+			expect(r.status).toBe(0);
+			const out = readTranscript(r.stdout).join("\n");
+			expect(out).toContain("the log holds ([REDACTED:stored]) here");
+		},
+	);
+
+	it.each([
+		["a line break", "\n", "\n"],
+		["a U+2028", " ", " "],
+		["a CRLF, as a reader that normalises it hands on", "\r\n", "\n"],
+	])(
+		"masks a value split by %s joined, leaving no half (#3917)",
+		(_n, stored, logged) => {
+			fs.writeFileSync(
+				path.join(repo, "secrets.env"),
+				`K="abcdefgh${stored}ijklmnopq"\n`,
+			);
+			const r = run([
+				sessionLog([toolResult(`(abcdefgh${logged}ijklmnopq) and (abcdefgh)`)]),
+			]);
+			expect(r.status).toBe(0);
+			const out = readTranscript(r.stdout).join("\n");
+			expect(out).toContain("([REDACTED:stored]) and ([REDACTED:stored])");
+		},
+	);
+
+	it.each([
+		["an escaped backslash", 'K="abcdefgh\nijklmnop\\\\"', "ijklmnop\\"],
+		["its only, escaped, quote", 'K="abcdefgh\nijklmnop\\"', "ijklmnop\\"],
+		["no quote, split by U+2028", "K=abcdefgh\u2028ijklmnop", "ijklmnop"],
+	])(
+		"masks the later half of a value closed by %s (#3917)",
+		(_n, line, value) => {
+			fs.writeFileSync(path.join(repo, "secrets.env"), `${line}\n`);
+			const r = run([sessionLog([toolResult(`half (${value}) end`)])]);
+			expect(r.status).toBe(0);
+			expect(readTranscript(r.stdout).join("\n")).toContain(
+				"half ([REDACTED:stored]) end",
+			);
+		},
+	);
+
 	it("masks a stored value an object's JSON text escapes (#3908)", () => {
 		const value = 'abcd"madeupvalue';
 		fs.writeFileSync(path.join(repo, "secrets.env"), `K='${value}'\n`);

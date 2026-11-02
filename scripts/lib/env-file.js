@@ -19,6 +19,12 @@
  * `scripts/write-secret.js` replaces the value of exactly the lines this
  * reader reads, quoting it with quoteValue so unquoteValue reads it back.
  *
+ * THE MASKER READS MORE THAN THAT (#3917): readStoredSecrets also takes a line
+ * as dotenv's parser does, a dotted or hyphened name or `NAME: value`, and a
+ * quoted value across breaks; and a commented-out `NAME=value`, though no
+ * `# NAME: value`, as a comment's `Updated: 2026-11-02` is prose it would mask
+ * everywhere. Nothing else reads or writes by this reading.
+ *
  * A RETURNED VALUE IS A SECRET: a caller puts it in no log line or message.
  */
 
@@ -39,6 +45,17 @@ const ENV_LINE = new RegExp(
 
 /** The breaks a line can hold mid-way once split on `\n`. */
 const INNER_BREAK = /[\r\u2028\u2029]/;
+
+const ANY_BREAK = /\r\n|[\n\r\u2028\u2029]/g;
+
+/* What dotenv's parser takes to end a line, and what it reads inside a value. */
+const LINE_END = /\r\n|[\n\r]/;
+const SEPARATOR = /[\u2028\u2029]/;
+
+/* A line as dotenv's LINE reads one (github.com/motdotla/dotenv, lib/main.js),
+ * an `=` behind any comment marks. */
+const DOTENV_LINE =
+	/^(?:\s*(?:export\s+)?[\w.-]+:\s+|[\s#]*(?:export\s+)?[\w.-]+\s*=\s*)([^\r\n]*)$/;
 
 const BOM = "\uFEFF";
 
@@ -149,6 +166,152 @@ function parseHandWrittenValues(raw) {
 					trimmed.slice(1, trimmed.lastIndexOf(quote)),
 				];
 	return cuts.map(stripReadingEdge);
+}
+
+/**
+ * Where `text` holds `quote` after an even run of backslashes, its first from
+ * `from` on, and where after an odd run, its last before that.
+ * @param {string} text
+ * @param {string} quote
+ * @param {number} from
+ * @returns {{ closing: number, lastEscaped: number }} -1 for either it lacks
+ */
+function findQuotes(text, quote, from) {
+	let lastEscaped = -1;
+	for (
+		let at = text.indexOf(quote, from);
+		at !== -1;
+		at = text.indexOf(quote, at + 1)
+	) {
+		let before = at;
+		while (before > 0 && text.charAt(before - 1) === "\\") before--;
+		if ((at - before) % 2 === 0) return { closing: at, lastEscaped };
+		lastEscaped = at;
+	}
+	return { closing: -1, lastEscaped };
+}
+
+/** @typedef {{ lead: string, text: string }} Part a part and the break before it */
+
+/**
+ * `text` as its parts between every line break.
+ * @param {string} text
+ * @returns {Part[]}
+ */
+function splitAtBreaks(text) {
+	const parts = [];
+	let lead = "";
+	let from = 0;
+	for (const match of text.matchAll(ANY_BREAK)) {
+		parts.push({ lead, text: text.slice(from, match.index) });
+		lead = match[0];
+		from = match.index + lead.length;
+	}
+	parts.push({ lead, text: text.slice(from) });
+	return parts;
+}
+
+/**
+ * The right-hand side of a line DOTENV_LINE reads, or null where it reads none.
+ * @param {string} line
+ * @returns {string | null}
+ */
+function parseDotenvRaw(line) {
+	const m = line.match(DOTENV_LINE);
+	return m ? requiredGroup(m, 1, DOTENV_LINE) : null;
+}
+
+/**
+ * A value's parts as a masker reads it: whole, as dotenv hands on its breaks
+ * too, a CR as it normalises one, and part by part.
+ * @param {Part[]} parts
+ * @returns {string[]}
+ */
+function readingsOfSplitValue(parts) {
+	const whole = parts.map(({ lead, text }) => `${lead}${text}`).join("");
+	return [
+		whole,
+		whole.replace(/\r\n?/g, "\n"),
+		...parts.map(({ text }) => text),
+	].map(stripReadingEdge);
+}
+
+/**
+ * The quote a part opens and leaves open, with what follows it.
+ * @param {string} text
+ * @returns {{ quote: string, opened: string } | null}
+ */
+function parseOpener(text) {
+	const trimmed = parseDotenvRaw(text)?.trimStart();
+	const quote = trimmed?.charAt(0);
+	if (!trimmed || !quote || !QUOTES.includes(quote)) return null;
+	if (findQuotes(trimmed, quote, 1).closing !== -1) return null;
+	return { quote, opened: trimmed.slice(1) };
+}
+
+/**
+ * Each value a quote holds across breaks, read in one pass with one open value
+ * per quote, as a second opener of that quote closes the first. Where no later
+ * part closes one, as dotenv's regex backtracks it closes at the last escaped
+ * quote; failing that it holds no later part.
+ * @param {Part[]} parts
+ * @returns {string[]}
+ */
+function parseSplitValues(parts) {
+	/** @type {Map<string, { parts: Part[], fallback: { count: number, last: Part } | null }>} */
+	const open = new Map();
+	const values = [];
+	for (const { lead, text } of parts) {
+		for (const [quote, value] of open) {
+			const { closing, lastEscaped } = findQuotes(text, quote, 0);
+			if (closing !== -1) {
+				value.parts.push({ lead, text: text.slice(0, closing) });
+				values.push(readingsOfSplitValue(value.parts));
+				open.delete(quote);
+				continue;
+			}
+			if (lastEscaped !== -1) {
+				value.fallback = {
+					count: value.parts.length,
+					last: { lead, text: text.slice(0, lastEscaped + 1) },
+				};
+			}
+			value.parts.push({ lead, text });
+		}
+		const opener = parseOpener(text);
+		if (opener) {
+			open.set(opener.quote, {
+				parts: [{ lead: "", text: opener.opened }],
+				fallback: null,
+			});
+		}
+	}
+	for (const { parts: held, fallback } of open.values()) {
+		if (fallback) {
+			values.push(
+				readingsOfSplitValue([...held.slice(0, fallback.count), fallback.last]),
+			);
+		}
+	}
+	/* A value of many parts overflows the stack spread into a `push`. */
+	return values.flat();
+}
+
+/**
+ * Each unquoted value dotenv reads across a U+2028 or U+2029, whole and part by
+ * part.
+ * @param {string} text the file's text
+ * @returns {string[]}
+ */
+function parseSeparatedValues(text) {
+	return text.split(LINE_END).flatMap((line) => {
+		if (!SEPARATOR.test(line)) return [];
+		const raw = parseDotenvRaw(line);
+		if (raw === null || QUOTES.includes(raw.trimStart().charAt(0) || " ")) {
+			return [];
+		}
+		return [raw, ...raw.split(SEPARATOR)].map(stripReadingEdge);
+	});
 }
 
 const EXPANDED_ESCAPES = new Map([
@@ -344,14 +507,13 @@ function decodeSecrets(bytes) {
 }
 
 /**
- * Every assignment the secrets file makes, a line split at each break inside
- * it, as assignsAcrossBreak reads one (#3710).
- * @returns {{ name: string, raw: string }[]} empty where there is no file
+ * The secrets file's text.
+ * @returns {string} empty where there is no file
  * @throws where the file is there but cannot be read as UTF-8 lines, as a
  *   masker that quietly masked fewer secrets would write their values bare,
  *   its message naming the fault and the way out
  */
-function readStoredAssignments() {
+function readStoredText() {
 	const file = secretsFile();
 	let bytes;
 	try {
@@ -360,7 +522,7 @@ function readStoredAssignments() {
 		const { code, message } = caught(err);
 		/* ENOENT from a dangling symlink is a store gone wrong, not no store. */
 		if (code === "ENOENT" && !fs.lstatSync(file, { throwIfNoEntry: false }))
-			return [];
+			return "";
 		const fault =
 			err instanceof NotRegularFile
 				? message
@@ -376,27 +538,34 @@ function readStoredAssignments() {
 			`${file} is not clean UTF-8 (${decoded.fault}), ${UNMASKABLE} ${RESAVE_UTF8}`,
 		);
 	}
-	return splitEnvLines(decoded.text)
-		.lines.flatMap(({ body }) => parseAcrossBreaks(body))
-		.filter((assignment) => assignment !== null);
+	return decoded.text;
 }
 
 /**
- * Every name the secrets file assigns, what a log masker masks the value after
- * (#3661), and every non-empty value, what it masks wherever it appears
- * (#3821), from one read of the file. A line gives its value whole, as
- * readEnvFileValue reads it, and as parseHandWrittenValues cuts it, each with
- * its escapes as written and expanded (#3908).
+ * Every name the secrets file assigns, a line split at each break inside it as
+ * assignsAcrossBreak reads one (#3710): what a log masker masks the value after
+ * (#3661). And every non-empty value, what it masks wherever it appears (#3821),
+ * from one read of the file. A line dotenv reads gives its value whole, as
+ * readEnvFileValue reads it, and as parseHandWrittenValues cuts it (#3908); one
+ * across breaks as parseSplitValues and parseSeparatedValues do (#3917); each
+ * with its escapes as written and expanded (#3908).
  * @returns {{ names: string[], values: string[] }} empty where there is no file
- * @throws as readStoredAssignments does
+ * @throws as readStoredText does
  */
 function readStoredSecrets() {
-	const assignments = readStoredAssignments();
-	const values = assignments
-		.flatMap(({ raw }) => [unquoteValue(raw), ...parseHandWrittenValues(raw)])
-		.flatMap((value) => [value, unescapeValue(value)]);
+	const text = readStoredText();
+	const parts = splitAtBreaks(text);
+	const names = parts.flatMap((part) => parseEnvLine(part.text)?.name ?? []);
+	const whole = parts
+		.flatMap((part) => parseDotenvRaw(part.text) ?? [])
+		.flatMap((raw) => [unquoteValue(raw), ...parseHandWrittenValues(raw)]);
+	const values = [
+		...whole,
+		...parseSplitValues(parts),
+		...parseSeparatedValues(text),
+	].flatMap((value) => [value, unescapeValue(value)]);
 	return {
-		names: [...new Set(assignments.map(({ name }) => name))],
+		names: [...new Set(names)],
 		values: [...new Set(values.filter(Boolean))],
 	};
 }

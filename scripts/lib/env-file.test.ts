@@ -13,7 +13,9 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { readStoredSecrets } = require("./env-file.js");
+const { readEnvFileValue, readStoredSecrets } = require("./env-file.js");
+
+const LONG_RUN = 500_000;
 
 describe("the secrets file's stored names and values (#3821)", () => {
 	let dir: string;
@@ -90,6 +92,164 @@ describe("the secrets file's stored names and values (#3821)", () => {
 			expect(readStoredSecrets().values).toEqual(values);
 		},
 	);
+
+	it.each([
+		["a hyphened name", "my-key=abcdefghij", ["abcdefghij"]],
+		["a dotted name", "my.key=abcdefghij", ["abcdefghij"]],
+		["a colon and space", "K: abcdefghij", ["abcdefghij"]],
+		["a comment", "# K=abcdefghij", ["abcdefghij"]],
+		["a comment on export", "## export K = abcdefghij", ["abcdefghij"]],
+	])("reads a value, and no name, off %s (#3917)", (_name, line, values) => {
+		fs.writeFileSync(file, line);
+		expect(readStoredSecrets()).toEqual({ names: [], values });
+	});
+
+	it.each([
+		["prose around a colon", "# rotate this: every month"],
+		["a label in a comment", "# Updated: 2026-11-02"],
+		["a URL in a comment", "# see https://example.test/a"],
+		["a colon and no space", "K:abcdefghij"],
+	])("reads nothing off %s (#3917)", (_name, line) => {
+		fs.writeFileSync(file, line);
+		expect(readStoredSecrets()).toEqual({ names: [], values: [] });
+	});
+
+	it.each([
+		["a line break", "\n"],
+		["a U+2028", " "],
+		["a U+2029", " "],
+		["a CR", "\r"],
+	])(
+		"reads a quoted value across %s, whole and piece by piece (#3917)",
+		(_name, br) => {
+			fs.writeFileSync(
+				file,
+				`K="abcdefgh${br}middle part${br}ijklmnopq" # note`,
+			);
+			const { names, values } = readStoredSecrets();
+			expect(names).toEqual(["K"]);
+			expect(values).toEqual(
+				expect.arrayContaining([
+					"abcdefgh",
+					"middle part",
+					"ijklmnopq",
+					`abcdefgh${br}middle part${br}ijklmnopq`,
+				]),
+			);
+		},
+	);
+
+	it("reads a quote no later line closes as that one line alone (#3917)", () => {
+		fs.writeFileSync(file, 'K="abcdefgh\nijklmnopq\nL=second\n');
+		expect(readStoredSecrets()).toEqual({
+			names: ["K", "L"],
+			values: ["abcdefgh", "second"],
+		});
+	});
+
+	it("takes no escaped quote for the one closing a split value (#3917)", () => {
+		fs.writeFileSync(file, 'K="abcd\\"efgh\nijkl\\"mnop\nqrstuvwx"\n');
+		expect(readStoredSecrets().values).toContain(
+			'abcd\\"efgh\nijkl\\"mnop\nqrstuvwx',
+		);
+	});
+
+	it("closes a split value at a quote after an escaped backslash (#3917)", () => {
+		fs.writeFileSync(file, 'K="abcdefgh\nijklmnop\\\\"\n');
+		const { values } = readStoredSecrets();
+		expect(values).toContain("abcdefgh\nijklmnop\\\\");
+		expect(values).toContain("ijklmnop\\");
+	});
+
+	it("closes a split value at its last escaped quote where nothing else does (#3917)", () => {
+		fs.writeFileSync(file, 'K="abcdefgh\nijkl\\"mnop\nqrst\\"uvwx\nlater\n');
+		const { values } = readStoredSecrets();
+		expect(values).toContain('abcdefgh\nijkl\\"mnop\nqrst\\');
+		expect(values).toContain('ijkl\\"mnop');
+		expect(values).not.toContain("later");
+	});
+
+	it.each([
+		["a U+2028", "\u2028"],
+		["a U+2029", "\u2029"],
+	])(
+		"reads an unquoted value across %s, whole and piece by piece (#3917)",
+		(_name, br) => {
+			fs.writeFileSync(file, `K=abcdefgh${br}ijklmnop\nL=second\n`);
+			const { names, values } = readStoredSecrets();
+			expect(names).toEqual(["K", "L"]);
+			expect(values).toEqual(
+				expect.arrayContaining([
+					"abcdefgh",
+					"ijklmnop",
+					`abcdefgh${br}ijklmnop`,
+				]),
+			);
+		},
+	);
+
+	it("still reads the line a split value's opener runs over (#3917)", () => {
+		fs.writeFileSync(file, 'K="abcdefgh\nL=second\nijklmnopq"\n');
+		const { names, values } = readStoredSecrets();
+		expect(names).toEqual(["K", "L"]);
+		expect(values).toEqual(expect.arrayContaining(["second", "L=second"]));
+	});
+
+	/* These cross the real clock, as the walks expose no count: vitest's timeout
+	 * is what a superlinear walk trips. LONG_RUN squared, some 2.5e11 steps, is
+	 * far past what that timeout allows. */
+	it.each([
+		["openers", 'K="abcdefgh\n'.repeat(LONG_RUN), ["K"], "abcdefgh"],
+		[
+			"an unclosed opener's lines",
+			`K="abcdefgh\n${"ijklmnop\n".repeat(LONG_RUN)}`,
+			["K"],
+			"abcdefgh",
+		],
+		[
+			"lines inside a value that closes",
+			`K="abcdefgh\n${"ijklmnop\n".repeat(LONG_RUN)}"`,
+			["K"],
+			"ijklmnop",
+		],
+		[
+			"escaped quotes on their own lines",
+			`K="abcdefgh\n${'\\"\n'.repeat(LONG_RUN)}`,
+			["K"],
+			"abcdefgh",
+		],
+		["separators", `K=abcdefgh${"\u2028".repeat(LONG_RUN)}`, ["K"], "abcdefgh"],
+	])(
+		"reads a long run of %s within the test's timeout (#3917)",
+		(_name, text, names, value) => {
+			fs.writeFileSync(file, text);
+			const read = readStoredSecrets();
+			expect(read.names).toEqual(names);
+			expect(read.values).toContain(value);
+		},
+	);
+
+	it.each([
+		["name characters", "a".repeat(LONG_RUN)],
+		["comment marks", "#".repeat(LONG_RUN)],
+	])(
+		"reads nothing off a long run of %s within the test's timeout (#3917)",
+		(_name, text) => {
+			fs.writeFileSync(file, text);
+			expect(readStoredSecrets()).toEqual({ names: [], values: [] });
+		},
+	);
+
+	it("leaves readEnvFileValue on the writer's grammar (#3917)", () => {
+		fs.writeFileSync(
+			file,
+			'my-key=hyphened\nmy.key=dotted\nM: colon\n# C=commented\nK="abcdefgh\nijklmnopq"\n',
+		);
+		for (const name of ["my-key", "my.key", "M", "C"]) {
+			expect(readEnvFileValue(file, name)).toBeNull();
+		}
+		expect(readEnvFileValue(file, "K")).toBe("abcdefgh");
+	});
 
 	it("reads an unclosed quote of 9M characters without overflowing the stack", () => {
 		fs.writeFileSync(file, `K="${"a".repeat(9_000_000)}`);

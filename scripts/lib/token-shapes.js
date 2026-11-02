@@ -41,14 +41,18 @@
  * its shape (#3661), to the end of its line (#3710), and wherever it appears
  * as the file holds it, at MIN_BARE_VALUE characters or more (#3821). The rest
  * pass: a shorter one after `NAME:`, a JSON key or an assignment spelled some
- * way buildStored does not read, since prose shares too many short values; a
- * longer one spelled otherwise (URL-encoded, stringified, split by a control
- * sequence, or holding an escape the file's quoting undoes) with no such
- * assignment before it; one on a line the file's grammar does not read, a
- * commented-out one included; and one the file does not hold, a key set only
- * in the environment included. Where two stored values overlap in the text,
- * the first masked leaves the other's tail. A value opening `\t`, or a
- * spelling of a control sequence (`\e7`, `%1B7`, `^[[1m`), keeps that opening.
+ * way buildStored does not read, or on a line whose name the file's grammar
+ * rejects, since prose shares too many short values; a longer one spelled
+ * otherwise (URL-encoded, stringified, split by a control sequence, or holding
+ * an escape the file's quoting undoes) with no such assignment before it; one
+ * on a line `lib/env-file.js` reads no way, a name outside `[\w.-]` included;
+ * a `# NAME: value`; a part after the first of one split by a break where no
+ * later line closes its quote, or commented out line by line, which masks with
+ * its `#`; one on the line after its name; and one the file does not hold, a
+ * key set only in the environment included. Where two stored values overlap
+ * in the text, the first masked leaves the other's tail. A value opening `\t`,
+ * or a spelling of a control sequence (`\e7`, `%1B7`, `^[[1m`), keeps that
+ * opening.
  */
 
 const { SPACE } = require("./env-file.js");

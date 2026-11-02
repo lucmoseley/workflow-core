@@ -266,6 +266,20 @@ describe("write-secret", () => {
 		expect(r.stdout).toBe(`write-secret: replaced API_KEY in ${store()}\n`);
 	});
 
+	it("leaves every line only the masker reads as it found it (#3917)", () => {
+		const others =
+			"my-key=abcdefghij\nmy.key=abcdefghij\nM: abcdefghij\n# K=abcdefghij\n";
+		seed(others);
+		expect(run(["K"], SECRET).status).toBe(0);
+		expect(read()).toBe(`${others}K=${SECRET}\n`);
+	});
+
+	it("replaces only the first line of a value a break splits (#3917)", () => {
+		seed('K="abcdefgh\nijklmnopq"\n');
+		expect(run(["K"], SECRET).status).toBe(0);
+		expect(read()).toBe(`K=${SECRET}\nijklmnopq"\n`);
+	});
+
 	it("writes a CRLF line its reader reads back (#3542)", () => {
 		seed("A=1\r\nK=old\r\n");
 		expect(run(["K"], SECRET).status).toBe(0);
