@@ -804,6 +804,35 @@ describe("rewinding main is refused (#765)", () => {
 		["git branch -D {x}y,main}", "main past a literal `}` (#3578)"],
 		["git update-ref main-worktree/HEAD HEAD~1", "the shared tree's HEAD"],
 		['git update-ref "m$X" HEAD~1', "read up to inside main-worktree/HEAD"],
+		["git symbolic-ref refs/heads/main refs/heads/side", "main repointed"],
+		["git symbolic-ref -m why -q refs/heads/main refs/heads/side", "past -m"],
+		["git symbolic-ref -- refs/heads/main refs/heads/side", "past a --"],
+		["git symbolic-ref -d refs/heads/main", "main's symref deleted"],
+		["git symbolic-ref --del refs/heads/main", "deleted, abbreviated"],
+		["git symbolic-ref -qd refs/heads/main", "deleted, in a bundle"],
+		["git symbolic-ref HEAD refs/heads/side", "HEAD away from main"],
+		["git symbolic-ref HEAD refs/heads/mainline", "a name main only begins"],
+		['git symbolic-ref HEAD "$T"', "HEAD to a target it cannot read"],
+		["git symbolic-ref main-worktree/HEAD refs/heads/side", "the shared HEAD"],
+		['git symbolic-ref "$R" refs/heads/side', "a name it cannot read"],
+		["git symbolic-ref $R", "a lone word that could split into two"],
+		["git symbolic-ref refs/heads/./main refs/heads/side", "a dot component"],
+		["git symbolic-ref refs/heads//main refs/heads/side", "a doubled slash"],
+		["git symbolic-ref /refs/heads/main refs/heads/side", "a leading slash"],
+		["git symbolic-ref ../.git/refs/heads/main refs/heads/side", "up and back"],
+		["git symbolic-ref ./HEAD refs/heads/side", "HEAD, as a path"],
+		[
+			'git symbolic-ref "refs/remotes/$X" refs/heads/side',
+			"a walk it cannot read (#3915)",
+		],
+		['git symbolic-ref "x$X" refs/heads/side', "the same, off a stray head"],
+		["git symbolic-ref refs/heads/mai* refs/heads/side", "a glob at main"],
+		["git symbolic-ref H* refs/heads/side", "a glob at HEAD"],
+		[
+			"git symbolic-ref refs/heads/side refs/heads/main",
+			"another ref onto main",
+		],
+		['git symbolic-ref refs/heads/side "$T"', "onto a target it cannot read"],
 		["git branch -f main HEAD~1", "forced"],
 		["git branch --force main HEAD~1", "forced, long"],
 		["git branch -D main", "deleted"],
@@ -857,14 +886,38 @@ describe("rewinding main is refused (#765)", () => {
 			"git switch -C main HEAD~1",
 			"recreates `main` at another commit, dropping whatever came after it",
 		],
+		[
+			"git symbolic-ref refs/heads/main refs/heads/side",
+			"rewrites `main` as a pointer to another ref, or deletes one, leaving its commits behind",
+		],
+		[
+			"git symbolic-ref HEAD refs/heads/side",
+			"points the shared tree's HEAD away from `main`",
+		],
+		[
+			"git symbolic-ref refs/heads/side refs/heads/main",
+			"points another ref at `main`, so a write through it moves `main` past git's own refusal",
+		],
+		[
+			"git symbolic-ref ../.git/refs/heads/main refs/heads/side",
+			"writes a ref through a path git follows, `main` possibly among them",
+		],
 	])("%s is framed as lib/main-rewind.js frames it", (command, what) => {
 		expect(readDenyReason(command)).toBe(
 			`This ${what}: ${command}\n\n${readRewindRule()}`,
 		);
 	});
 
+	it("names the unreadable word as the reason a symbolic-ref is refused", () => {
+		expect(readDenyReason('git symbolic-ref "$R" refs/heads/side')).toContain(
+			"writes a symbolic ref I cannot read",
+		);
+	});
+
 	it.each([
 		"git update-ref refs/heads/main abc123",
+		"git symbolic-ref refs/heads/main refs/heads/side",
+		"git symbolic-ref HEAD refs/heads/side",
 		"git reset --hard HEAD~1",
 		"git branch -f main HEAD~1",
 		"git branch -D main",
@@ -929,6 +982,21 @@ describe("rewinding main is refused (#765)", () => {
 		["git reset --help", "documentation"],
 		["git update-ref refs/heads/side HEAD", "another branch"],
 		["git update-ref -m why", "nothing named"],
+		["git symbolic-ref HEAD", "a read"],
+		["git symbolic-ref --short HEAD", "a short read"],
+		["git symbolic-ref -q HEAD", "a quiet read"],
+		["git symbolic-ref --short -q HEAD", "both"],
+		["git symbolic-ref --no-recurse HEAD", "one level read"],
+		["git symbolic-ref refs/heads/main", "main itself, read"],
+		["git symbolic-ref HEAD refs/heads/main", "HEAD written onto main"],
+		["git symbolic-ref refs/heads/side refs/heads/other", "another branch"],
+		[
+			"git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main",
+			"a remote's HEAD",
+		],
+		["git symbolic-ref -d refs/heads/side", "another branch deleted"],
+		["git symbolic-ref --help", "documentation"],
+		["git symbolic-ref", "nothing named"],
 		[
 			'git update-ref "refs/reviewed/$T" "$T"',
 			"a ref whose read head rules main out (#3441)",
@@ -968,6 +1036,7 @@ describe("rewinding main is refused (#765)", () => {
 	it.each([
 		"git reset --hard HEAD~1",
 		"git update-ref HEAD HEAD~1",
+		"git symbolic-ref HEAD refs/heads/side",
 		"git branch -m renamed",
 		"git checkout -B side HEAD~1",
 	])(
@@ -981,6 +1050,13 @@ describe("rewinding main is refused (#765)", () => {
 		"git update-ref refs/heads/main HEAD",
 		"git update-ref main-worktree/HEAD HEAD",
 		'git update-ref "main-worktree/$H" HEAD',
+		"git symbolic-ref refs/heads/main refs/heads/side",
+		"git symbolic-ref main-worktree/HEAD refs/heads/side",
+		"git symbolic-ref HEAD refs/heads/main",
+		"git symbolic-ref refs/heads/side refs/heads/main",
+		'git symbolic-ref HEAD "$T"',
+		"git symbolic-ref ../../../.git/refs/heads/main refs/heads/side",
+		'git symbolic-ref "refs/heads/$B" refs/heads/side',
 		"git checkout -B main --ignore-other-worktrees HEAD",
 	])(
 		"but %s from a worktree still rewinds the one main, so is refused with the main-rewind rule",
@@ -1007,6 +1083,7 @@ describe("rewinding main is refused (#765)", () => {
 		'git -C "$UNSET" reset a.md',
 		'git -C "$UNSET" branch -m renamed',
 		'git -C "$UNSET" update-ref HEAD HEAD',
+		'git -C "$UNSET" symbolic-ref HEAD refs/heads/side',
 	])(
 		"%s is refused with the main-rewind rule: the tree it lands in is unknown",
 		(command) => {

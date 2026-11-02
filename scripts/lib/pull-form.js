@@ -36,8 +36,9 @@
  *  - It also refuses REWINDING `main` (#765), docs/agents/rules/main-rewind.txt:
  *    a `git reset` naming a commit other than HEAD in the shared tree, and —
  *    from ANY tree of the repo, `main` being one ref for all of them — `git
- *    update-ref refs/heads/main`, `git branch` forcing, deleting, renaming or
- *    copying onto `main`, and `git checkout -B main`/`git switch -C main`. A
+ *    update-ref refs/heads/main`, `git symbolic-ref` writing or deleting it,
+ *    `git branch` forcing, deleting, renaming or copying onto `main`, and `git
+ *    checkout -B main`/`git switch -C main`. A
  *    reset FORWARD is refused too: the guard never compares the commit with
  *    `main`, and the refusal names `git merge --ff-only` for that case. `git
  *    branch -f`/`-D`/`-M` and `checkout -B` naming `main` are refused by git
@@ -45,10 +46,16 @@
  *    branch word it cannot read passes on those — unless
  *    `--ignore-other-worktrees` lifts git's own refusal. `git update-ref HEAD`
  *    is refused in the shared tree only, and `--stdin` everywhere, because
- *    what it updates is unread. Pathspec resets pass, as does a `git reset
- *    --soft` or `--mixed` naming HEAD or nothing. Still unseen: `git fetch
- *    --update-head-ok . +<commit>:main`, `git symbolic-ref`, `git cherry-pick`
- *    and `git am` (which add commits rather than drop them), and `git revert`,
+ *    what it updates is unread. `git symbolic-ref HEAD` is refused in the shared
+ *    tree only, unless it writes `refs/heads/main`, which it is refused
+ *    everywhere else, as is any other ref pointed at `main` (#3915): the next
+ *    write through that ref moves `main` past git's own refusal. Its read passes
+ *    where its one name is readable; an unreadable word, or a name git would
+ *    follow as a path or a shell expand as a glob, is refused. Unseen for it,
+ *    as for `update-ref HEAD`: `--git-dir`, `GIT_DIR` and an alias. Pathspec resets pass, as does a
+ *    `git reset --soft` or `--mixed` naming HEAD or nothing. Still unseen: `git
+ *    fetch --update-head-ok . +<commit>:main`, `git cherry-pick` and `git am`
+ *    (which add commits rather than drop them), and `git revert`,
  *    which the pre-commit stack gates. Any other unreadable commit, ref or
  *    branch word, or an unresolved tree where the verdict needs one, FAILS
  *    CLOSED (#301). On a `main` that cannot be read every one of these still
@@ -196,6 +203,7 @@ const REF_VALUE_FLAGS = {
 	branch:
 		"-u --set-upstream-to --contains --no-contains --merged --no-merged --points-at --format --sort",
 	"update-ref": "-m",
+	"symbolic-ref": "-m",
 	checkout: CHECKOUT_VALUE_FLAGS,
 	switch: SWITCH_VALUE_FLAGS,
 };
@@ -451,6 +459,15 @@ const REF_ARGS = {
 	"flag:--force": { force: true },
 	"flag:-d": { mode: "delete" },
 	"flag:--delete": { mode: "delete" },
+	/* git takes an option's unique abbreviation: `git symbolic-ref --d` deletes
+	 * (#3915, measured on git 2.43.0). Only `--delete`'s are read, since a
+	 * symbolic-ref's other flags write nothing. */
+	...Object.fromEntries(
+		["--d", "--de", "--del", "--dele", "--delet"].map((flag) => [
+			`flag:${flag}`,
+			{ mode: "delete" },
+		]),
+	),
 	"flag:-D": { mode: "delete", force: true },
 	"flag:-m": { mode: "move" },
 	"flag:--move": { mode: "move" },
@@ -476,12 +493,13 @@ const REF_ARGS = {
  *   the word, read literally, the name? An unreadable word answers yes where
  *   its readable head begins the name, unless git itself refuses the name
  *   wherever it is unreadable (#3441)
+ * @property {(word: string) => string | null} known Judging's
  * @property {(what: string) => Refusal} deny
  */
 
 /**
- * A `git branch`, `git update-ref`, `git checkout` or `git switch` in ANY
- * tree of this repo, or an unresolved one.
+ * A `git branch`, `git update-ref`, `git symbolic-ref`, `git checkout` or `git
+ * switch` in ANY tree of this repo, or an unresolved one.
  * @param {Judging} j
  * @param {GitCall} call
  * @returns {Refusal | null}
@@ -510,6 +528,7 @@ function judgeRef(j, { segment, sub, tree, args }) {
 	const unreadIs = !(
 		scope === "linked" &&
 		sub !== "update-ref" &&
+		sub !== "symbolic-ref" &&
 		!a.ignoreOther
 	);
 	/** @type {RefCall} */
@@ -525,9 +544,11 @@ function judgeRef(j, { segment, sub, tree, args }) {
 			if (!l.known) return unreadIs && name.startsWith(l.head);
 			return l.head === name;
 		},
+		known: j.known,
 		deny: (what) => rewindDeny(j, segment, what),
 	};
 	if (sub === "update-ref") return judgeUpdateRef(r);
+	if (sub === "symbolic-ref") return judgeSymbolicRef(r);
 	if (sub === "branch") return judgeBranch(r);
 	return a.created.some((w) => r.refIs(w, "main"))
 		? r.deny(
@@ -555,6 +576,61 @@ function judgeUpdateRef({ a, positional, scope, refIs, deny }) {
 	)
 		return deny("writes the shared tree's HEAD, and so `main`, directly");
 	return null;
+}
+
+/* `git symbolic-ref` follows a name as a path where `git update-ref` refuses
+ * it: `../.git/refs/heads/main` writes `main` (#3915, measured on git 2.43.0).
+ * No real ref has a `.`-led component, a `//`, a leading `/` or a glob
+ * character. */
+const NOT_A_REF_NAME = /(?:^|\/)\.|\/\/|^\/|[*?[]/;
+
+/** @param {RefCall} r */
+function judgeSymbolicRef(r) {
+	const { a, positional, refIs, known, deny } = r;
+	const [name, target] = positional;
+	if (name === undefined) return null;
+	const nameText = known(name);
+	const deleting = a.mode === "delete";
+	const reading = !deleting && target === undefined;
+	if (reading && nameText !== null) return null;
+	/* An unreadable word could be any name, a `..` walk to `main` among them,
+	 * or split into a name and a target. */
+	if (nameText === null || (target !== undefined && known(target) === null))
+		return deny(
+			"writes a symbolic ref I cannot read, `main` possibly among them — spell it literally",
+		);
+	if (NOT_A_REF_NAME.test(nameText))
+		return deny(
+			"writes a ref through a path git follows, `main` possibly among them",
+		);
+	if (refIs(name, "refs/heads/main"))
+		return deny(
+			"rewrites `main` as a pointer to another ref, or deletes one, leaving its commits behind",
+		);
+	return judgeSymrefTarget(r, nameText, target);
+}
+
+/**
+ * Whether a readable name may point where `target` says: the shared HEAD only
+ * at `main`, and every other ref anywhere but.
+ * @param {RefCall} r
+ * @param {string} nameText
+ * @param {string | undefined} target undefined on a delete
+ */
+function judgeSymrefTarget({ scope, refIs, deny }, nameText, target) {
+	const sharedHead =
+		(scope !== "linked" && nameText === "HEAD") ||
+		nameText === "main-worktree/HEAD";
+	const ontoMain = refIs(target, "refs/heads/main");
+	if (sharedHead)
+		return ontoMain
+			? null
+			: deny("points the shared tree's HEAD away from `main`");
+	return ontoMain
+		? deny(
+				"points another ref at `main`, so a write through it moves `main` past git's own refusal",
+			)
+		: null;
 }
 
 /** @param {RefCall} r */
@@ -1036,7 +1112,7 @@ const WALKS = [
 		judgeRef,
 		"the ref write",
 		"repo",
-		["branch", "update-ref", "checkout", "switch"],
+		["branch", "update-ref", "symbolic-ref", "checkout", "switch"],
 	],
 	[
 		judgeDiscard,
