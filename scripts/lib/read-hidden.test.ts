@@ -19,15 +19,11 @@ import { requiredGroup } from "./regex-group";
 
 /** read-hidden.js's window, read from its source, as §G6 keeps it unexported. */
 const SETTLE_LINE = /^const SETTLE_MS = (\d+);$/m;
-const SETTLE_MS = Number(
-	requiredGroup(
-		SETTLE_LINE.exec(
-			fs.readFileSync(path.join(__dirname, "read-hidden.js"), "utf8"),
-		),
-		1,
-		SETTLE_LINE,
-	),
+const settleLine = SETTLE_LINE.exec(
+	fs.readFileSync(path.join(__dirname, "read-hidden.js"), "utf8"),
 );
+if (!settleLine) throw new Error("read-hidden.js declares no SETTLE_MS");
+const SETTLE_MS = Number(requiredGroup(settleLine, 1, SETTLE_LINE));
 
 const fakeTty = () =>
 	Object.assign(new EventEmitter(), {
