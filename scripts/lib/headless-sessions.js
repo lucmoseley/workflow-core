@@ -49,7 +49,11 @@ const {
 const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
 const { claudeBin } = require("./claude-bin.js");
-const { readEnvFileValue, secretsFile } = require("./env-file.js");
+const {
+	readEnvFileValue,
+	readSecretKeepingIgnore,
+	secretsFile,
+} = require("./env-file.js");
 const { readJsonl } = require("./jsonl.js");
 const { launchAuthRefusal } = require("./launch-auth.js");
 const { refillPath } = require("./refill-dir.js");
@@ -105,7 +109,7 @@ const storeDir = () => refillPath(".headless-runs");
 function keyCheck(keyVar) {
 	const file = secretsFile();
 	try {
-		if (readEnvFileValue(file, keyVar) !== null) return { file };
+		if (readSecretKeepingIgnore(keyVar) !== null) return { file };
 		return { why: `${keyVar} is not set in ${file}` };
 	} catch (err) {
 		return caught(err).code === "ENOENT"

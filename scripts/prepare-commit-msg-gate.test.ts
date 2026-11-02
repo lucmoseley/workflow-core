@@ -166,10 +166,10 @@ const buildTemplate = (root: string) => {
 	// the subject check (#2332), and prints commit-message.txt on its refusal.
 	for (const rel of [
 		"scripts/lib/commit-route.sh",
-		"scripts/lib/review-tier-stamp.sh",
 		"scripts/check-commit-message-closes.sh",
 		"scripts/check-commit-subject.sh",
 		"scripts/review-tier-trailer.sh",
+		"scripts/lib/review-tier-stamp.sh",
 		"scripts/lib/rule-text.sh",
 		"docs/agents/rules/commit-closes-keyword.txt",
 		"docs/agents/rules/commit-message.txt",

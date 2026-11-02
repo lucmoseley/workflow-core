@@ -8,7 +8,7 @@
  * Usage:  node scripts/check-refill-loop-stop.js [--notify] [--json]
  *
  * READS the loop's state file (lib/refill-files.js) for its last stop. An
- * expiry or an explicit stop is not named.
+ * explicit stop is not named.
  *
  * ONCE PER STOP. A `--notify` run, bar under `--json`, records the stop's time in the stop-seen
  * stamp beside the state file, and names no stop at or before it. A plain run
