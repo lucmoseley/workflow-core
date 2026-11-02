@@ -4,7 +4,8 @@
  * scripts/refill-loop.js's `run` drives it and its `dry-run` prints one. The
  * CLI logs through the same say and log, at the same files (#3392).
  *
- * A TICK: reap (the reaper's --not-a-session mode, since the loop has no
+ * A TICK: read founder presence, and in away mode write what it changes under
+ * the control lock (#2522), reap (the reaper's --not-a-session mode, since the loop has no
  * session id), stop each job that never started, judge the loop's finished
  * launches for progress, take `parked` off each answered park in every checkout
  * it could serve (lib/refill-blocks.js's unparkAnswered, #3940, #3950) and each
@@ -14,8 +15,7 @@
  * stopped by a transient API error on its schedule, stopping it between
  * tries (#2705), resume each its host restarted that took no turn and hand
  * one still idle after that to a fresh launch (#2707), read
- * admission, the allowance per seat and what its cap would launch, and
- * founder presence, hold, resume or move each blocked on its seat's limit
+ * admission, the allowance per seat and what its cap would launch, hold, resume or move each blocked on its seat's limit
  * (#3735), ask lib/refill-decide.js, and launch each repo's picks
  * through one dispatch-sessions.sh call in its checkout, so that repo's ledger,
  * duplicate drop, memory re-read and allowance cap apply. The decision core
@@ -131,6 +131,9 @@ const {
 	readIncluded,
 	readJson,
 	readStateFile,
+	withControlLock,
+	writeControlFile,
+	writeLoopPause,
 	writeJson,
 } = require("./refill-files.js");
 const refillBatch = require("./refill-batch.js");
@@ -1370,6 +1373,40 @@ function dropSettledLifted(settled) {
 	for (const { hold, jobs } of settled) dropLiftedJobs(hold, jobs, log);
 }
 
+/* Untraced: another writer holds it for one read and write, and the next tick
+ * tries again. */
+const AWAY_LOCK_WAIT_MS = 1000;
+
+/**
+ * The control after this tick's read of the founder (controlAfterPresence), the
+ * change made on a fresh read under the control lock. A lock held past the wait
+ * leaves it to the next tick. A dry run previews the change and writes none.
+ * @param {import("./refill-loop.js").Control|null} control
+ * @param {number|null} lastPromptAt
+ * @param {{dryRun: boolean, now: number}} tick
+ */
+function settleAwayMode(control, lastPromptAt, { dryRun, now }) {
+	const next = control && loop.controlAfterPresence(control, lastPromptAt, now);
+	if (!next) return control;
+	if (dryRun) return next;
+	const written = withControlLock(() => {
+		const fresh = readControl().control;
+		const write = fresh && loop.controlAfterPresence(fresh, lastPromptAt, now);
+		if (!write) return fresh;
+		writeControlFile(write);
+		if (write.scope.mode === "normal")
+			log(
+				`mode normal: the founder is back, a prompt typed at ${new Date(lastPromptAt ?? now).toISOString()} after a tick read him absent`,
+			);
+		return write;
+	}, AWAY_LOCK_WAIT_MS);
+	if ("busy" in written) {
+		log(`away mode's change waits for the next tick: ${written.busy}`);
+		return control;
+	}
+	return written.done;
+}
+
 /**
  * The log lines of stopNeverStarted, none on a dry run or a boot's tick, where a
  * job with no process is one the restart killed, due back through the resume step.
@@ -1415,7 +1452,10 @@ const settleBoot = ({ launches, bootedAt }, seen) =>
  */
 async function tick({ dryRun }) {
 	const now = Date.now();
-	const { control: parsed, damaged } = readControl();
+	const { control: stored, damaged } = readControl();
+	const declared = readDeclaredSeats();
+	const typed = readLastTyped(declared);
+	const parsed = settleAwayMode(stored, typed.at, { dryRun, now });
 	const control = parsed ?? {
 		noProgressFrom: now,
 		/* No control file is a loop nobody started: a real tick stops. */
@@ -1456,8 +1496,6 @@ async function tick({ dryRun }) {
 		roots: loop.landingRoots(served, state.launches),
 		seen,
 	});
-	const declared = readDeclaredSeats();
-	const typed = readLastTyped(declared);
 	const {
 		launches,
 		slots,
@@ -1525,12 +1563,14 @@ async function tick({ dryRun }) {
 			read,
 			probeBrokenRoots: broken,
 			bootedAt: booted.bootedAt,
+			away: control.away,
 		},
 		{
 			readControl,
 			launchBatch: (batch) => launchOrResume(batch, served),
 			resumeHeld: (resumes, held, isStopped) =>
 				blocks.resumeHeldLaunches(resumes, held, seen, isStopped),
+			writePause: (pause) => writeLoopPause(pause, control.noProgressFrom, log),
 			runReview,
 			writeState: (next) => writeJson(files.state, next),
 			readOmittedDirs: () => readOmittedDirs(declared),

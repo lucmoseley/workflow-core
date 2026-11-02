@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 const { capSet } = require("./allowance.js");
 const {
 	FULL,
+	awayChangeOf,
 	buildLimitCapText,
 	buildLoopWait,
 	decideTick,
@@ -97,6 +98,65 @@ const tick = (over: Record<string, unknown> = {}) =>
 const launched = (d: { launches?: { root: string; issues: number[] }[] }) =>
 	(d.launches ?? []).map((l) => `${l.root}#${l.issues.join("+")}`);
 
+describe("away mode's return (#3870)", () => {
+	const Switched = NOW - 8 * HOUR;
+	const PromptBeforeSwitch = Switched - 5 * 60 * 1000;
+	/** Each tick's change, a mode and absent read carried over as the tick writes them. */
+	const changesOver = (
+		ticks: { now: number; lastPromptAt: number | null }[],
+	) => {
+		let control = {
+			mode: "away",
+			away: { since: Switched, absentSeen: false },
+		};
+		return ticks.map(({ now, lastPromptAt }) => {
+			const change = awayChangeOf(control, lastPromptAt, now);
+			if (change === "absent")
+				control = { ...control, away: { ...control.away, absentSeen: true } };
+			if (change === "return") control = { ...control, mode: "normal" };
+			return change;
+		});
+	};
+
+	it("returns on the first present read after an absent one", () => {
+		expect(
+			changesOver([
+				{ now: Switched + HOUR, lastPromptAt: PromptBeforeSwitch },
+				{ now: Switched + 2 * HOUR, lastPromptAt: PromptBeforeSwitch },
+				{ now: NOW, lastPromptAt: NOW - 1000 },
+				{ now: NOW + 1000, lastPromptAt: NOW - 1000 },
+			]),
+		).toEqual(["absent", null, "return", null]);
+	});
+
+	it("stays away while every read since the switch is present", () => {
+		const typing = [1, 10, 20, 29].map((minutes) => {
+			const now = Switched + minutes * 60 * 1000;
+			return { now, lastPromptAt: now - 1000 };
+		});
+		expect(changesOver(typing)).toEqual([null, null, null, null]);
+	});
+
+	it("returns from a switch made while present, once an absent read follows", () => {
+		const typedAfterSwitch = Switched + 60 * 1000;
+		expect(
+			changesOver([
+				{ now: Switched + 2 * 60 * 1000, lastPromptAt: typedAfterSwitch },
+				{
+					now: typedAfterSwitch + PRESENT_WINDOW_MS,
+					lastPromptAt: typedAfterSwitch,
+				},
+				{ now: NOW, lastPromptAt: NOW - 1000 },
+			]),
+		).toEqual([null, "absent", "return"]);
+	});
+
+	it("reads no record of a prompt as absent, and changes nothing in normal mode", () => {
+		expect(changesOver([{ now: NOW, lastPromptAt: null }])).toEqual(["absent"]);
+		expect(awayChangeOf({ mode: "normal" }, NOW - 1000, NOW)).toBeNull();
+	});
+});
+
 describe("a repo hold (#3860)", () => {
 	const frontier = [row("wfc", 1), row("other", 2)];
 	const withheld = {
@@ -142,7 +202,7 @@ describe("a repo hold (#3860)", () => {
 	});
 });
 
-describe("decideTick stops (#2007)", () => {
+describe("decideTick's stops and pauses (#2007, #3859)", () => {
 	it("stops on an explicit stop", () => {
 		expect(tick({ stopRequested: true })).toMatchObject({ stop: "explicit" });
 	});
@@ -182,7 +242,7 @@ describe("decideTick stops (#2007)", () => {
 			});
 		});
 
-		it("comes ahead of the no-progress and the allowance stops", () => {
+		it("comes ahead of the no-progress pause and the allowance wait", () => {
 			expect(
 				tick({ paused, history: [finished(7), finished(8), finished(9)] }),
 			).toEqual(idle);
@@ -193,7 +253,9 @@ describe("decideTick stops (#2007)", () => {
 
 		it("counts no finish before a resume's new count point", () => {
 			const history = [finished(7), finished(8), finished(9)];
-			expect(tick({ history, noProgressFrom: NOW })).not.toHaveProperty("stop");
+			expect(tick({ history, noProgressFrom: NOW })).not.toHaveProperty(
+				"pause",
+			);
 		});
 	});
 
@@ -201,10 +263,28 @@ describe("decideTick stops (#2007)", () => {
 		expect(tick({ noProgressFrom: 0 })).not.toHaveProperty("stop");
 	});
 
-	it("stops after three finishes in a row with no progress", () => {
-		const d = tick({ history: [finished(7), finished(8), finished(9)] });
-		expect(d).toMatchObject({ stop: "no-progress" });
-		expect(d.detail).toContain("wfc #9");
+	it("pauses after three finishes in a row with no progress, naming their issues once (#3859)", () => {
+		const d = tick({
+			history: [
+				finished(7),
+				finished(9, { root: "/h/mh" }),
+				finished(7, { finishedAt: NOW - 1 }),
+			],
+		});
+		expect(d).not.toHaveProperty("stop");
+		expect(d).toMatchObject({
+			launches: [],
+			pause: {
+				by: "no-progress",
+				at: NOW,
+				issues: expect.arrayContaining([
+					{ root: "/h/mh", number: 9 },
+					{ root: expect.any(String), number: 7 },
+				]),
+			},
+		});
+		expect(d.idle).toContain(": no act from ");
+		expect(d.idle).toContain("mh#9");
 	});
 
 	it.each(["block", "close", "commit", "file", "gate", "relabel", "round"])(
@@ -217,7 +297,7 @@ describe("decideTick stops (#2007)", () => {
 					finished(9, { acts: { [kind]: 1 } }),
 				],
 			});
-			expect(d).not.toHaveProperty("stop");
+			expect(d).not.toHaveProperty("pause");
 		},
 	);
 
@@ -231,7 +311,7 @@ describe("decideTick stops (#2007)", () => {
 					finished(9, blocked),
 				],
 			}),
-		).not.toHaveProperty("stop");
+		).not.toHaveProperty("pause");
 	});
 
 	it("passes over an unread finish in the run, counting it neither way (#2312)", () => {
@@ -240,10 +320,10 @@ describe("decideTick stops (#2007)", () => {
 			tick({
 				history: [finished(6), finished(7, unread), finished(8), finished(9)],
 			}),
-		).toMatchObject({ stop: "no-progress" });
+		).toHaveProperty("pause.by", "no-progress");
 		expect(
 			tick({ history: [finished(7), finished(8, unread), finished(9)] }),
-		).not.toHaveProperty("stop");
+		).not.toHaveProperty("pause");
 	});
 
 	it("passes over a resume with nothing to repeat that made no act, but counts other resumes and one the loop parked again (#3949, #3942)", () => {
@@ -252,12 +332,12 @@ describe("decideTick stops (#2007)", () => {
 			tick({
 				history: [finished(7, woken), finished(8, woken), finished(9, woken)],
 			}),
-		).not.toHaveProperty("stop");
+		).not.toHaveProperty("pause");
 		expect(
 			tick({
 				history: [finished(6), finished(7, woken), finished(8), finished(9)],
 			}),
-		).toMatchObject({ stop: "no-progress" });
+		).toHaveProperty("pause.by", "no-progress");
 		const parkedAgain = { ...woken, parkStopped: NOW - HOUR };
 		expect(
 			tick({
@@ -267,7 +347,7 @@ describe("decideTick stops (#2007)", () => {
 					finished(9, parkedAgain),
 				],
 			}),
-		).toMatchObject({ stop: "no-progress" });
+		).toHaveProperty("pause.by", "no-progress");
 	});
 
 	it("passes over gate judgements that end unmet, with no act, but counts one that acted (#3092)", () => {
@@ -280,12 +360,12 @@ describe("decideTick stops (#2007)", () => {
 					finished(3073, gate),
 				],
 			}),
-		).not.toHaveProperty("stop");
+		).not.toHaveProperty("pause");
 		expect(
 			tick({
 				history: [finished(7), finished(2906, gate), finished(8), finished(9)],
 			}),
-		).toMatchObject({ stop: "no-progress" });
+		).toHaveProperty("pause.by", "no-progress");
 		expect(
 			tick({
 				history: [
@@ -294,7 +374,7 @@ describe("decideTick stops (#2007)", () => {
 					finished(2906, { ...gate, acts: { relabel: 1 } }),
 				],
 			}),
-		).not.toHaveProperty("stop");
+		).not.toHaveProperty("pause");
 	});
 
 	it("reads the run by finish order, so an older progress does not break it", () => {
@@ -306,7 +386,7 @@ describe("decideTick stops (#2007)", () => {
 				finished(9),
 			],
 		});
-		expect(d).toMatchObject({ stop: "no-progress" });
+		expect(d).toHaveProperty("pause.by", "no-progress");
 	});
 
 	it("ignores running sessions and launches from before the last start", () => {
@@ -319,21 +399,49 @@ describe("decideTick stops (#2007)", () => {
 					finished(10, { launchedAt: NOW - 5 * HOUR }),
 				],
 			}),
-		).not.toHaveProperty("stop");
+		).not.toHaveProperty("pause");
 	});
 
-	it("stops on allowance once every seat is weekly-full (#2606)", () => {
-		expect(
-			tick({
-				seats: [
-					seat("a", 100, 10),
-					{ ...seat("b", null, null, null), weekFull: true },
-				],
-			}),
-		).toMatchObject({
-			stop: "allowance",
-			detail: "every seat reads 100% of the week",
+	it("waits on the earliest weekly reset once every seat is weekly-full (#3859)", () => {
+		const earliest = NOW + 1000;
+		const d = tick({
+			seats: [
+				{ ...seat("a", 100, 10), weekResets: NOW + 5000 },
+				{
+					...seat("b", null, null, null),
+					weekFull: true,
+					weekResets: earliest,
+				},
+				{ ...seat("c", 100, 10), weekResets: null },
+			],
 		});
+		expect(d).not.toHaveProperty("stop");
+		expect(d).toMatchObject({
+			launches: [],
+			planWait: { resets: earliest },
+			idle: `a plan resets at ${new Date(earliest).toISOString()}`,
+		});
+		expect(buildLoopWait(d.idle)).toBe(d.idle);
+	});
+
+	it("waits on the allowance with the reset unread where no seat's will parse", () => {
+		expect(tick({ seats: [seat("a", 100, 10)] })).toMatchObject({
+			planWait: { resets: null },
+			idle: "a plan resets, its time unread",
+		});
+	});
+
+	it("waits on the allowance ahead of a full house of slots, launching nothing", () => {
+		expect(tick({ seats: [seat("a", 100, 10)], freeSlots: 0 })).toHaveProperty(
+			"planWait.resets",
+			null,
+		);
+	});
+
+	it("launches on the first tick a bar has reset", () => {
+		expect(
+			tick({ seats: [seat("a", 10, 10)], frontier: [row("/r", 1)] }).launches,
+		).toHaveLength(1);
 	});
 
 	it("waits through a 5-hour cap, naming the seat and its reset, and never stops (#2606)", () => {
@@ -356,10 +464,10 @@ describe("decideTick stops (#2007)", () => {
 	it("names a 5-hour wait beside the seat with room that holds the tick", () => {
 		const five = { ...seat("a", 40, 100, null), sessionResets: "3pm" };
 		expect(tick({ seats: [five, seat("b", 98, 5, 0)] })).toMatchObject({
-			idle: "the allowance cap fits no launch on b; the 5-hour bar is full on a until its 5-hour reset 3pm",
+			idle: "no plan has room right now; the 5-hour bar is full on a until its 5-hour reset 3pm",
 		});
 		expect(tick({ seats: [five, seat("b", 98, 5, null)] })).toMatchObject({
-			idle: "no seat with room has a sized allowance cap; the 5-hour bar is full on a until its 5-hour reset 3pm",
+			idle: "no plan has room right now; the 5-hour bar is full on a until its 5-hour reset 3pm",
 		});
 	});
 
@@ -386,7 +494,7 @@ describe("decideTick stops (#2007)", () => {
 		expect(d).not.toHaveProperty("stop");
 		expect(d).toMatchObject({
 			launches: [],
-			idle: "no seat with room has a sized allowance cap",
+			idle: "no plan has room right now",
 		});
 	});
 });
@@ -470,11 +578,11 @@ describe("decideTick on overflow seats (#2611)", () => {
 		expect(d).not.toHaveProperty("stop");
 		expect(d).toMatchObject({
 			launches: [],
-			idle: "every plan seat is weekly-full; overflow x budget held by running sessions, y budget unread (the session cost table is unreadable), z exhausted until 2026-10-28",
+			idle: "a plan resets, its time unread; every plan seat is weekly-full; overflow x budget held by running sessions, y budget unread (the session cost table is unreadable), z exhausted until 2026-10-28",
 		});
 	});
 
-	it("stops on allowance once every plan seat is weekly-full and every key is spent", () => {
+	it("waits on the allowance once every plan seat is weekly-full and every key is spent", () => {
 		expect(
 			tick({
 				seats: [full("a"), full("b")],
@@ -483,11 +591,7 @@ describe("decideTick on overflow seats (#2611)", () => {
 					overflow("y", 0, "2026-10-28"),
 				],
 			}),
-		).toEqual({
-			stop: "allowance",
-			detail:
-				"every plan seat reads 100% of the week and every overflow key is spent: x exhausted until 2026-11-20, y exhausted until 2026-10-28",
-		});
+		).toMatchObject({ launches: [], planWait: { resets: null } });
 	});
 
 	it("decides as before with no overflow seat declared", () => {
@@ -599,17 +703,19 @@ describe("decideTick with a limit-held launch (#3735)", () => {
 	};
 
 	it("keeps a run on spent seats alive, so the loop can resume it", () => {
-		expect(tick(spent)).toHaveProperty("stop", "allowance");
+		expect(tick(spent)).toHaveProperty("planWait.resets", null);
 		expect(tick({ ...spent, limitHeldLines: [] })).toHaveProperty(
-			"stop",
-			"allowance",
+			"planWait.resets",
+			null,
 		);
 		const held = tick({ ...spent, limitHeldLines: ["job42 on ~/.claude2"] });
 		expect(held).not.toHaveProperty("stop");
 		expect(held).toMatchObject({
 			launches: [],
+			planWait: { resets: null },
 			idle: expect.stringContaining("limit-held"),
 		});
+		expect(held.idle).toMatch(/^a plan resets/);
 	});
 
 	it("leaves every other stop standing", () => {
@@ -789,7 +895,7 @@ describe("decideTick on a seat whose cap fits only the floor's member (#2432)", 
 		expect(d).not.toHaveProperty("stop");
 		expect(d).toMatchObject({
 			launches: [],
-			idle: "the allowance cap fits no launch on s1, s2",
+			idle: "no plan has room right now",
 		});
 	});
 });
@@ -1000,12 +1106,12 @@ describe("decideTick's resumes of held sessions (#3855)", () => {
 
 	it("keeps a run on spent seats alive for a resume due, as only a running loop makes it", () => {
 		const spent = { seats: [seat("a", FULL, 10, null)] };
-		expect(tick(spent)).toHaveProperty("stop", "allowance");
+		expect(tick(spent)).toHaveProperty("planWait.resets", null);
 		const d = tick({ ...spent, freeSlots: 2, resumable: [oldest] });
 		expect(jobs(d)).toEqual(["old"]);
 		expect(d).toMatchObject({
 			launches: [],
-			idle: "every seat is spent; a resume is due",
+			idle: "a plan resets, its time unread; every seat is spent; a resume is due",
 		});
 	});
 
@@ -1056,7 +1162,7 @@ describe("decideTick free slot", () => {
 		});
 		expect(d).toMatchObject({
 			launches: [],
-			idle: "no seat with room has a sized allowance cap",
+			idle: "no plan has room right now",
 		});
 	});
 
@@ -1067,7 +1173,7 @@ describe("decideTick free slot", () => {
 		expect(d).not.toHaveProperty("stop");
 		expect(d).toMatchObject({
 			launches: [],
-			idle: "the allowance cap fits no launch on a, c",
+			idle: "no plan has room right now",
 		});
 	});
 
@@ -1104,7 +1210,7 @@ describe("decideTick free slot", () => {
 		});
 		expect(d).toMatchObject({
 			launches: [],
-			idle: "no seat has a fresh allowance reading",
+			idle: "no plan has room right now",
 		});
 	});
 });

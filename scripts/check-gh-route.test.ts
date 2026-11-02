@@ -37,6 +37,10 @@ const FIXTURE = {
 		__dirname,
 		"lib/fixtures/gh-route/claude-copies.js.txt",
 	),
+	"claude-helper-stub.ts.txt": path.join(
+		__dirname,
+		"lib/fixtures/gh-route/claude-helper-stub.ts.txt",
+	),
 	"claude-lib.js.txt": path.join(
 		__dirname,
 		"lib/fixtures/gh-route/claude-lib.js.txt",
@@ -63,6 +67,10 @@ const FIXTURE = {
 		"lib/fixtures/gh-route/env-read.js.txt",
 	),
 	"gh-lib.js.txt": path.join(__dirname, "lib/fixtures/gh-route/gh-lib.js.txt"),
+	"helper-stub.ts.txt": path.join(
+		__dirname,
+		"lib/fixtures/gh-route/helper-stub.ts.txt",
+	),
 	"literal-spawn-marked.js.txt": path.join(
 		__dirname,
 		"lib/fixtures/gh-route/literal-spawn-marked.js.txt",
@@ -74,6 +82,10 @@ const FIXTURE = {
 	"on-primitive.js.txt": path.join(
 		__dirname,
 		"lib/fixtures/gh-route/on-primitive.js.txt",
+	),
+	"other-helper-stub.ts.txt": path.join(
+		__dirname,
+		"lib/fixtures/gh-route/other-helper-stub.ts.txt",
 	),
 	"other-stub.ts.txt": path.join(
 		__dirname,
@@ -203,6 +215,21 @@ describe("check-gh-route", () => {
 		);
 		expect(r.out).toContain(
 			"Fix: point WFC_GH at the stub, with `stubGhScript` or `stubGhRoutes` from scripts/lib/gh-stub.ts, as scripts/check-issue-orphans.test.ts does.",
+		);
+	});
+
+	it("FAILs a test support prepending PATH with the directory a helper writes its stub into by name, naming file, line and each binary's fix", () => {
+		fixture("scripts/lib/kit-testkit.ts", "helper-stub.ts.txt");
+		fixture("scripts/lib/arbiter-testkit.ts", "claude-helper-stub.ts.txt");
+		fixture("scripts/lib/other-testkit.ts", "other-helper-stub.ts.txt");
+		const r = run();
+		expect(r.status).toBe(1);
+		expect(r.out).toContain(
+			"2 second binary route(s): scripts/lib/arbiter-testkit.ts:14, scripts/lib/kit-testkit.ts:3.",
+		);
+		expect(r.out).toContain("gh PATH-STUB Fix: point WFC_GH at the stub");
+		expect(r.out).toContain(
+			"claude PATH-STUB Fix: point WFC_CLAUDE_BIN at the stub",
 		);
 	});
 
