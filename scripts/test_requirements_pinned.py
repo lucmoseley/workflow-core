@@ -2,7 +2,7 @@
 compiles those pins with every transitive one, and those pins are what is installed.
 
 WHY THIS TEST EXISTS. The Python dependencies were declared as open ranges
-(`pytest>=8,<10`, `numpy>=2.4`, ...) with no lockfile, so a fresh install and this
+(`pytest>=8,<10`, ...) with no lockfile, so a fresh install and this
 laptop could resolve to different versions, and a supply-chain advisory scan had
 nothing to match against (mantahostels#930). The compiled file carries a hash for
 every pin, so CI installs in pip's hash-checking mode (#3363).
@@ -76,7 +76,7 @@ def _parse(text):
 
 
 def _canonical(name):
-    """The PEP 503 spelling pip-compile writes: `et_xmlfile` as `et-xmlfile`."""
+    """The PEP 503 spelling pip-compile writes: `pytest_xdist` as `pytest-xdist`."""
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
@@ -102,19 +102,20 @@ def _requirements(path):
 @pytest.mark.parametrize(
     "line,expected",
     [
-        ("numpy==2.4.6", [("numpy", "==2.4.6")]),
-        ("numpy==2.4.6  # pinned", [("numpy", "==2.4.6")]),
-        ('numpy==2.4.6 ; python_version >= "3.11"', [("numpy", "==2.4.6")]),
-        ("pytest[testing]==9.1.1", [("pytest", "==9.1.1")]),
-        ("pytest >= 8, < 10", [("pytest", ">= 8, < 10")]),
+        ("example==1.2.3", [("example", "==1.2.3")]),
+        ("example==1.2.3  # pinned", [("example", "==1.2.3")]),
+        ('example==1.2.3 ; python_version >= "3.11"', [("example", "==1.2.3")]),
+        ("example[testing]==1.2.3", [("example", "==1.2.3")]),
+        ("example >= 1, < 2", [("example", ">= 1, < 2")]),
+        ("first==1.0\nsecond==2.0", [("first", "==1.0"), ("second", "==2.0")]),
         ("# a comment", []),
         ("", []),
         ("-r other.txt", []),
         ("--hash=sha256:abc", []),
         (
-            "ruff==0.16.4 \\\n    --hash=sha256:abc \\\n    --hash=sha256:def\n"
+            "example==1.2.3 \\\n    --hash=sha256:abc \\\n    --hash=sha256:def\n"
             "    # via -r requirements-dev.in",
-            [("ruff", "==0.16.4")],
+            [("example", "==1.2.3")],
         ),
     ],
 )
@@ -146,7 +147,7 @@ def test_pin_version_accepts_only_an_exact_pin(spec, expected):
 
 def test_the_files_declare_requirements_at_all():
     """Guards every assertion below against passing vacuously on an empty parse."""
-    assert len(_requirements(DIRECT)) >= 5
+    assert _requirements(DIRECT)
     assert len(_requirements(COMPILED)) >= len(_requirements(DIRECT))
 
 

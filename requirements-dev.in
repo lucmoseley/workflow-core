@@ -1,5 +1,5 @@
-# Python dependencies for the data-pipeline scripts and their tests: the direct
-# ones, each at an exact `==` pin.
+# Python dependencies for testing and linting the Python scripts: the direct ones,
+# each at an exact `==` pin.
 #
 # This file is what a person edits. pip installs requirements-dev.txt, compiled
 # from it with every transitive dependency pinned and each wheel's sha256 beside
@@ -20,18 +20,6 @@ pytest==9.1.1
 #
 # A local win only; do not argue it as a CI saving (mantahostels#314).
 pytest-xdist==3.8.0
-
-# Already required at import time by scripts/collect-evidence.py, which reads the
-# master sheet, and therefore needed to load that module in a test.
-openpyxl==3.1.5
-
-# Imported by scripts/evidence_audit_stats.py: numpy runs the seeded bootstrap
-# resampling, scipy.stats supplies the pre-registered tests (Spearman,
-# Mann-Whitney, Kruskal-Wallis).
-# 2.4.6 rather than 2.4.0: PyPI has yanked 2.4.0 for a backward-compatibility bug,
-# and pip serves a yanked release only to an exact pin (mantahostels#930).
-numpy==2.4.6
-scipy==1.16.3
 
 # The Python linter (mantahostels#1135). Config, the rule set and why it is not
 # wider: ruff.toml, which owns all of that. Run it with `npm run check:py`;
