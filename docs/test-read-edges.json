@@ -456,6 +456,11 @@
 			"scripts/tooling-matrix.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
+		".github/workflows/landing-quiet.yml": [
+			"scripts/checker-registrations.test.ts",
+			"scripts/landing-quiet-workflow.test.ts",
+			"scripts/windows-script-tooling-declined.test.ts"
+		],
 		".github/workflows/named-rerun.yml": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
@@ -525,6 +530,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/guard-unpushed-commits.test.ts",
 			"scripts/husky-script-refs.test.ts",
+			"scripts/landing-quiet-workflow.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/ci-runs.test.ts",
 			"scripts/lib/commit-route.test.ts",
@@ -612,6 +618,7 @@
 			"scripts/guard-unpushed-commits.test.ts",
 			"scripts/husky-script-refs.test.ts",
 			"scripts/init-adopter.test.ts",
+			"scripts/landing-quiet-workflow.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/ci-runs.test.ts",
@@ -5908,6 +5915,11 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/landing-quiet-workflow.test.ts": [
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/landing-registry-gate.js": [
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -8555,6 +8567,7 @@
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/guard-unpushed-commits.test.ts",
+			"scripts/landing-quiet-workflow.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/ci-runs.test.ts",
 			"scripts/lib/commit-route.test.ts",
@@ -14979,6 +14992,7 @@
 			"scripts/generate-rule-fragments.test.ts",
 			"scripts/guard-unpushed-commits.test.ts",
 			"scripts/init-adopter.test.ts",
+			"scripts/landing-quiet-workflow.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/ci-runs.test.ts",

@@ -1,0 +1,63 @@
+name: Landing quiet 14h
+
+# The one report that runs off the machine (#3964): a dead machine cannot say it
+# is dead, and GitHub does not notify an account of its own tickets. GitHub sends
+# a scheduled run's failure to the user who last changed the cron or re-enabled
+# this file.
+#
+# Its own file because scheduled-checks.yml's red means a failed test.
+#
+# PLANNED ABSENCE: Actions tab > Landing quiet 14h > "..." > Disable workflow,
+# and "Enable workflow" on return.
+#
+# TEST THE MAIL: gh workflow run landing-quiet.yml -R lucmoseley/workflow-core -f force_failure=true
+on:
+  schedule:
+    # Hourly because GitHub drops scheduled runs. Off minute 0, GitHub's named
+    # high-load window.
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      force_failure:
+        description: "Fail whatever landing's age, to test the failure email."
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  quiet:
+    # This name and the workflow's are the part of the alarm an email carries.
+    name: Landing pushed in the last 14 hours - if red, wsl --list --running on Windows, then memcheck
+    if: ${{ github.repository == 'lucmoseley/workflow-core' }}
+    runs-on: ubuntu-latest
+    # A guess: one API read with retries.
+    timeout-minutes: 5
+    steps:
+      - name: Read the age of the newest push
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE_FAILURE: ${{ inputs.force_failure }}
+          # An untraced margin (#3964).
+          QUIET_HOURS: 14
+        # The push time, not the tip's commit date: a push of an older commit
+        # moves landing and must turn this green. curl for --retry-all-errors,
+        # which `gh api` lacks; 3 retries is a guess.
+        run: |
+          activity="$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/activity?ref=refs/heads/landing&per_page=1"
+          if ! pushed=$(curl -fsS --retry 3 --retry-all-errors -H "Authorization: Bearer $GH_TOKEN" "$activity" | jq -er '.[0].timestamp'); then
+            echo "::error title=Check broken, not a stall::Could not read landing's newest push from $activity. Landing's state is unknown: read git log origin/landing, then this run's log."
+            exit 1
+          fi
+          if [ "$FORCE_FAILURE" = true ]; then
+            echo "::error title=Forced failure::This run tests the email route. Newest push to landing: $pushed."
+            exit 1
+          fi
+          age=$(( $(date +%s) - $(date -d "$pushed" +%s) ))
+          echo "Newest push to landing: $pushed, $(( age / 3600 )) h ago."
+          if [ "$age" -ge $(( QUIET_HOURS * 3600 )) ]; then
+            echo "::error title=Landing quiet::No push to landing for $QUIET_HOURS hours or more. Look first at: wsl --list --running on Windows, then memcheck in WSL. Planned absence: disable this workflow from the Actions tab."
+            exit 1
+          fi
