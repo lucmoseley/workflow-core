@@ -46,7 +46,7 @@ function loopFiles() {
 	};
 }
 
-/** What the loop may serve now, read for a control in hasExcludeShape's shape. */
+/** What the loop may serve now, whatever its scope chose. */
 const readIncluded = () => discoverRepos(homeDir()).included;
 
 /* The review runner, by the name its pidfile's holder runs (lib/pid-lock.js). */
@@ -218,6 +218,7 @@ module.exports = {
 	loopFiles,
 	REVIEW_RUNNER,
 	readControlChecked,
+	readIncluded,
 	withControlLock,
 	writeControlFile,
 	readControlFile,

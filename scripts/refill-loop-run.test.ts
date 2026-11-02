@@ -122,8 +122,8 @@ const loopEnv = (over: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({
 	...over,
 });
 
-const markerPath = (session: string) =>
-	path.join(repo, ".claude", "tmp", "markers", `.parked-${session}`);
+const markerPath = (session: string, root = repo) =>
+	path.join(root, ".claude", "tmp", "markers", `.parked-${session}`);
 
 const readLines = (file: string) =>
 	fs.existsSync(file)
@@ -947,12 +947,20 @@ describe("a parked launch (#2699)", () => {
 
 		const transcript = () => path.join(seat, "projects", "p", "s-job7.jsonl");
 
+		/** `text` at marker `file`, a minute old, so a reply stamped now follows the park. */
+		const writeMarkerAMinuteOld = (file: string, text: string) => {
+			fs.mkdirSync(path.dirname(file), { recursive: true });
+			fs.writeFileSync(file, text);
+			const parkedAt = new Date(Date.now() - 60_000);
+			fs.utimesSync(file, parkedAt, parkedAt);
+		};
+
 		/** A marker listing #7, written a minute ago, and its transcript's directory. */
 		const parkedAMinuteAgo = () => {
-			fs.mkdirSync(path.dirname(markerPath("s-job7")), { recursive: true });
-			fs.writeFileSync(markerPath("s-job7"), `seat ${seat}\njob ${Job}\n7\n`);
-			const parkedAt = new Date(Date.now() - 60_000);
-			fs.utimesSync(markerPath("s-job7"), parkedAt, parkedAt);
+			writeMarkerAMinuteOld(
+				markerPath("s-job7"),
+				`seat ${seat}\njob ${Job}\n7\n`,
+			);
 			fs.mkdirSync(path.dirname(transcript()), { recursive: true });
 		};
 
@@ -968,6 +976,47 @@ describe("a parked launch (#2699)", () => {
 			expect(readLines(at("gh-calls"))).toContain(Unlabel);
 			expect(fs.existsSync(markerPath("s-job7"))).toBe(false);
 			expect(r.stdout).toContain("ended unblocked: parked off #7");
+		});
+
+		/** A checkout under HOME the loop's scope leaves out, a marker listing #9 in it. */
+		const parkedOutOfScope = (name: string, config: object) => {
+			const other = at(name);
+			gitRepo.instantiate(other);
+			fs.mkdirSync(path.join(other, ".claude"), { recursive: true });
+			fs.writeFileSync(
+				path.join(other, ".claude", "workflow-core.json"),
+				JSON.stringify({ tracker: "o/other", ...config }),
+			);
+			const marker = markerPath("s-other", other);
+			writeMarkerAMinuteOld(marker, `seat ${seat}\n9\n`);
+			const file = path.join(seat, "projects", "p", "s-other.jsonl");
+			fs.mkdirSync(path.dirname(file), { recursive: true });
+			fs.writeFileSync(
+				file,
+				`${JSON.stringify(reply("Merged.\n\nresult: closed #9"))}\n`,
+			);
+			return marker;
+		};
+
+		const UnlabelOther = "issue edit 9 --repo o/other --remove-label parked";
+
+		it("takes the label off in a checkout the loop's scope leaves out (#3950)", async () => {
+			const marker = parkedOutOfScope("other", {});
+			fakeClaude([LISTED]);
+			const r = await twoTicks();
+			expect(r.status).toBe(0);
+			expect(readLines(at("gh-calls"))).toContain(UnlabelOther);
+			expect(fs.existsSync(marker)).toBe(false);
+			expect(r.stdout).toContain("ended unblocked: parked off #9");
+		});
+
+		it("leaves the label on in a checkout opted out of the loop (#3950)", async () => {
+			const marker = parkedOutOfScope("opted-out", { refillLoop: false });
+			fakeClaude([LISTED]);
+			const r = await twoTicks();
+			expect(r.status).toBe(0);
+			expect(readLines(at("gh-calls"))).not.toContain(UnlabelOther);
+			expect(fs.existsSync(marker)).toBe(true);
 		});
 
 		it("keeps the label, logged, where its transcript will not read", async () => {

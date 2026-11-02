@@ -1214,17 +1214,17 @@ function resumeStepHeld(l, seen) {
 }
 
 /**
- * Take `parked` off what each park marker in `served` holds, where its session is
+ * Take `parked` off what each park marker in `roots` holds, where its session is
  * no longer running and took a turn since the park that left it unblocked: a `!`
  * answer fires no hook, so that turn is the only sign the question was answered
  * (#3940). Off the markers, not the launches, so a session reopened by `claude
  * attach`, one no loop launched and a failed label write are all met on a later
  * tick. An issue a newer park holds waits on that park's session. Off an unread
  * listing, nothing.
- * @param {string[]} served
+ * @param {string[]} roots
  * @param {Pick<Tick, "agents"|"io">} seen
  */
-function unparkAnswered(served, { agents, io }) {
+function unparkAnswered(roots, { agents, io }) {
 	if (!agents) return;
 	const running = new Set(
 		agents
@@ -1232,7 +1232,7 @@ function unparkAnswered(served, { agents, io }) {
 			.flatMap((a) => [a.sessionId, a.id])
 			.filter(Boolean),
 	);
-	for (const root of served) {
+	for (const root of roots) {
 		const markers = io.readParkMarkers(root) ?? [];
 		for (const marker of markers) {
 			if (running.has(marker.sessionId) || running.has(marker.job?.jobId))

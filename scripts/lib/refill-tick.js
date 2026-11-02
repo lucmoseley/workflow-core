@@ -6,8 +6,9 @@
  *
  * A TICK: reap (the reaper's --not-a-session mode, since the loop has no
  * session id), stop each job that never started, judge the loop's finished
- * launches for progress, take `parked` off each answered park and closed issue
- * (lib/refill-blocks.js's unparkAnswered, lib/parked.js's unparkClosed, #3940),
+ * launches for progress, take `parked` off each answered park in every checkout
+ * it could serve (lib/refill-blocks.js's unparkAnswered, #3940, #3950) and each
+ * closed issue on a served tracker (lib/parked.js's unparkClosed, #3940),
  * stop each parked one its cause and mode's row says
  * to and label its ticket `parked` (lib/block-act.js, #2699), resume each
  * stopped by a transient API error on its schedule, stopping it between
@@ -121,17 +122,13 @@ const {
 	readOmittedDirs,
 } = require("./refill-seats.js");
 const { runOf } = require("./headless-sessions.js");
-const {
-	checkoutEnv,
-	discoverRepos,
-	exclusionOf,
-	homeDir,
-} = require("./refill-repos.js");
+const { checkoutEnv, exclusionOf } = require("./refill-repos.js");
 const loop = require("./refill-loop.js");
 const {
 	loopFiles,
 	REVIEW_RUNNER,
 	readControlChecked,
+	readIncluded,
 	readJson,
 	readStateFile,
 	writeJson,
@@ -1329,6 +1326,23 @@ const resumesDue = (control, launches, seen) =>
 		: blocks.resumableOf(launches, seen);
 
 /**
+ * The checkouts whose answered parks a tick takes off: `served` and every other
+ * it could serve, the idle alarm's set, as a label left on an open ticket hides
+ * it from that alarm (#3950). This sets no launch running there. Discovery that
+ * will not read leaves `served`, logged.
+ * @param {string[]} served
+ * @returns {string[]}
+ */
+function readParkSweepRoots(served) {
+	try {
+		return [...new Set([...served, ...readIncluded()])];
+	} catch (e) {
+		log(`unserved parks unread: ${buildErrorText(e)}`);
+		return served;
+	}
+}
+
+/**
  * The tick's acts on its blocked and idle launches, then each away park's ledger
  * row released once normal mode is live.
  * @param {import("./refill-loop.js").LoopLaunch[]} listed
@@ -1337,7 +1351,7 @@ const resumesDue = (control, launches, seen) =>
  * @param {Parameters<typeof blocks.actOnBlocks>[2]} seen
  */
 const actOnLaunches = (listed, { scope: { mode } }, served, seen) => {
-	blocks.unparkAnswered(served, seen);
+	blocks.unparkAnswered(readParkSweepRoots(served), seen);
 	tendClosedParks(served);
 	return blocks.releaseAwayParks(
 		blocks.actOnIdle(blocks.actOnBlocks(listed, mode, seen), mode, seen),
@@ -1422,7 +1436,7 @@ async function tick({ dryRun }) {
 		/* With no set written, a dry run previews every checkout it may serve. */
 		scope: {
 			mode: "normal",
-			repos: discoverRepos(homeDir()).included,
+			repos: readIncluded(),
 			goal: null,
 		},
 	};
