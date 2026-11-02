@@ -103,7 +103,8 @@ process.stdout.write(JSON.stringify([{ data: { repository: { issues: { pageInfo:
 	);
 }
 
-async function run(
+/** The program over `issues`, whatever it exits. */
+async function runProgram(
 	issues: Record<string, ReturnType<typeof node>[]>,
 	args: string[] = [],
 	source = "startup",
@@ -122,12 +123,21 @@ async function run(
 	};
 	delete env.WFC_DISPATCH_ROOT;
 	delete env.WFC_REPO_ROOT;
-	const r = await runInProcessAsync(SCRIPT, args, {
+	return runInProcessAsync(SCRIPT, args, {
 		cwd: dir,
 		env,
 		stdin: JSON.stringify({ hook_event_name: "SessionStart", source }),
 	});
-	/* No case here reaches BROKEN, so every run exits 0 (§X3). */
+}
+
+async function run(
+	issues: Record<string, ReturnType<typeof node>[]>,
+	args?: string[],
+	source?: string,
+) {
+	const r = await runProgram(issues, args, source);
+	/* WARN never gates, so every case through here exits 0 (§X3). A bad flag or a
+	 * throw is BROKEN, exit 2: runProgram's case below. */
 	expect(r.status).toBe(0);
 	const log = path.join(dir, "calls.log");
 	return {
@@ -646,6 +656,18 @@ describe("check-idle-efforts.js", () => {
 				fs.chmodSync(store, 0o700);
 			}
 		});
+	});
+
+	it("is BROKEN on a bad flag, exit 2, reading no tracker", async () => {
+		checkout("core", "o/core");
+		const r = await runProgram({ "o/core": [node(1)] }, ["--bogus"]);
+		expect(r.status).toBe(2);
+		expect(r.stdout).toBe("");
+		expect(r.stderr).toContain("BROKEN: unknown flag: --bogus");
+		expect(r.stderr).toContain(
+			"usage: node check-idle-efforts.js [--notify] [--json]",
+		);
+		expect(fs.existsSync(path.join(dir, "calls.log"))).toBe(false);
 	});
 
 	it("is OK where nothing is idle and the loop runs", async () => {

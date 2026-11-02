@@ -57,14 +57,14 @@ const savedEnv = { ...process.env };
 /** The script, run over the fixture store, as an interactive start. */
 const read = (...args: string[]) => readIn("", ...args);
 
-/** The same, as a start in the background job `jobDir` names, if any. */
+/** The same, as a start in the background job `jobDir` names, if any; asserts exit 0. */
 const readIn = (jobDir: string, ...args: string[]) => {
 	const r = runInProcess(SCRIPT, args, {
 		env: { ...process.env, ...buildStartEnv(jobDir) },
 		cwd: path.resolve(__dirname, ".."),
 	});
 	expect(r.status).toBe(0);
-	return { status: r.status, out: `${r.stdout}${r.stderr}` };
+	return { out: `${r.stdout}${r.stderr}` };
 };
 
 /** The script under `--notify`, as a compaction's start. */
@@ -288,8 +288,7 @@ describe("injecting what the producers persisted", () => {
 			agoMs: 4 * 60 * 1000,
 		});
 
-		const { status, out } = read("--notify");
-		expect(status).toBe(0);
+		const { out } = read("--notify");
 		expect(out).toContain("WARN: 2 ghost job(s)");
 		expect(out).toContain("run A");
 		expect(out).toContain("FAIL: a wired hook is dead");
@@ -298,8 +297,7 @@ describe("injecting what the producers persisted", () => {
 	});
 
 	it("says nothing at all when no producer has written", () => {
-		const { status, out } = read("--notify");
-		expect(status).toBe(0);
+		const { out } = read("--notify");
 		expect(out).toBe("");
 	});
 
@@ -326,8 +324,7 @@ describe("injecting what the producers persisted", () => {
 		report("ghost-jobs", "WARN: 2 ghost job(s)\n");
 		fs.writeFileSync(notify.reportFile("ci-status"), "{ half-writ");
 
-		const { status, out } = read("--notify");
-		expect(status).toBe(0);
+		const { out } = read("--notify");
 		expect(out).toContain("WARN: 2 ghost job(s)");
 		expect(out).toContain("ci-status");
 		expect(out).toContain("will not parse");
@@ -483,8 +480,7 @@ describe("a report too old to be true", () => {
 			agoMs: notify.DEFAULT_STALE_MS + 60_000,
 		});
 
-		const { status, out } = read("--notify");
-		expect(status).toBe(0);
+		const { out } = read("--notify");
 		expect(out).not.toContain("the suite is red");
 		expect(out).toContain("dropped as stale");
 		expect(out).toContain("ci-status");
@@ -508,8 +504,7 @@ describe("a report too old to be true", () => {
 				agoMs: 5 * hourMs,
 				maxAgeMs: weekMs,
 			});
-			const { status, out } = read("--notify");
-			expect(status).toBe(0);
+			const { out } = read("--notify");
 			expect(out).toContain("drift gained");
 		});
 
@@ -518,8 +513,7 @@ describe("a report too old to be true", () => {
 				agoMs: 8 * 24 * hourMs,
 				maxAgeMs: weekMs,
 			});
-			const { status, out } = read("--notify");
-			expect(status).toBe(0);
+			const { out } = read("--notify");
 			expect(out).not.toContain("drift gained");
 		});
 
@@ -529,8 +523,7 @@ describe("a report too old to be true", () => {
 				maxAgeMs: weekMs,
 			});
 			report("ci-status", "FAIL: the suite is red\n", { agoMs: 5 * hourMs });
-			const { status, out } = read("--notify");
-			expect(status).toBe(0);
+			const { out } = read("--notify");
 			expect(out).toContain("drift gained");
 			expect(out).not.toContain("the suite is red");
 		});
@@ -885,8 +878,7 @@ describe("a producer the repo's hooks no longer wire", () => {
 	it("never names a repo-checks report", () => {
 		unwire();
 		report("repo-checks.o.r", "REPO-CHECKS (1) — drift gained\n");
-		const { status, out } = read("--json");
-		expect(status).toBe(0);
+		const { out } = read("--json");
 		expect(JSON.parse(out).unwired).toEqual([]);
 	});
 
@@ -944,8 +936,7 @@ describe("a producer cut off mid-run", () => {
 	it("names an open run record whose process is gone", () => {
 		deadRun("ghost-jobs", "2026-08-31T09:00:00.000Z");
 
-		const { status, out } = read("--notify");
-		expect(status).toBe(0);
+		const { out } = read("--notify");
 		expect(out).toContain("ghost-jobs was cut off mid-run");
 		expect(out).toContain("2026-08-31T09:00:00.000Z");
 	});
@@ -1041,8 +1032,7 @@ describe("a notice for the founder alone (#3707)", () => {
 
 	it("is neither shown nor stamped at a background job's start", () => {
 		idle();
-		const { status, out } = readIn(path.join(dir, "job"), "--notify");
-		expect(status).toBe(0);
+		const { out } = readIn(path.join(dir, "job"), "--notify");
 		expect(out).not.toContain("IDLE-EFFORTS (1)");
 		expect(stamps.readStamp("idle-efforts")).toBeNull();
 	});
@@ -1051,7 +1041,6 @@ describe("a notice for the founder alone (#3707)", () => {
 		idle();
 		report("ci-status", "CI-STATUS (1) — red\n");
 		const r = read("--notify");
-		expect(r.status).toBe(0);
 		const { systemMessage, hookSpecificOutput } = JSON.parse(r.out);
 		expect(systemMessage).toContain("IDLE-EFFORTS (1) — o/r: 1 idle");
 		expect(systemMessage).not.toContain("CI-STATUS (1)");
@@ -1136,8 +1125,7 @@ describe("reports a session start holds back", () => {
 
 	it("injects none of them at session start, and still injects the rest", () => {
 		held();
-		const { status, out } = read("--notify");
-		expect(status).toBe(0);
+		const { out } = read("--notify");
 		expect(out).not.toContain("REAPED (1)");
 		expect(out).not.toContain("deferring the v1.2.3");
 		expect(out).not.toContain("drift gained");
@@ -1147,8 +1135,7 @@ describe("reports a session start holds back", () => {
 	it("shows them alone under --status, as a warning", () => {
 		held();
 		read("--notify");
-		const { status, out } = read("--status");
-		expect(status).toBe(0);
+		const { out } = read("--status");
 		expect(out).toContain("REAPED (1)");
 		expect(out).toContain("deferring the v1.2.3");
 		expect(out).toContain("drift gained");
@@ -1173,8 +1160,7 @@ describe("reports a session start holds back", () => {
 
 	/* Exit 0 despite the refusal: lib/check.js holds every --notify run at 0. */
 	it("refuses --status beside --notify", () => {
-		const { status, out } = read("--status", "--notify");
+		const { out } = read("--status", "--notify");
 		expect(out).toContain("BROKEN: --status is a hand run; drop --notify.");
-		expect(status).toBe(0);
 	});
 });

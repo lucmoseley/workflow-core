@@ -2,8 +2,8 @@
  * idle-efforts.test.ts — the idle alarm's core (#3641): which efforts count as
  * idle past 2 days, the lines per tracker, and the reading of GitHub's answer,
  * driven through buildReadings, findIdleEfforts, buildIdleLines, buildIdleReport,
- * buildFindingRecords and parseIssueNodes from plain readings, since the core is
- * pure. A break here either strands an
+ * buildFindingRecords, parseIssueNodes, buildLiveLoopWait and stoppedRunOf from
+ * plain readings, since the core is pure. A break here either strands an
  * effort unreported or names one that is moving, which teaches the founder to ignore it.
  */
 
@@ -13,15 +13,18 @@ const {
 	IDLE_DAYS,
 	buildIdleLines,
 	buildIdleReport,
+	buildLiveLoopWait,
 	buildReadings,
 	findIdleEfforts,
 	buildFindingRecords,
 	parseIssueNodes,
+	stoppedRunOf,
 } = require("./idle-efforts.js");
 const {
 	PROBE_HELD,
 	buildLimitCapHoldWhy,
 	buildLoopWait,
+	buildPausedWaitText,
 	decideTick,
 } = require("./refill-decide.js");
 
@@ -1172,5 +1175,36 @@ describe("buildIdleReport", () => {
 		expect(
 			reportAtStart(one, stamp("2026-10-29", [1]), "2026-10-29").signature,
 		).toBe(stamp("2026-10-29", ["o/a#1"]));
+	});
+});
+
+describe("buildLiveLoopWait, a live loop's reason no rank launches (#3920)", () => {
+	const paused = { by: "founder", at: NOW };
+	const spent = "every seat is spent; a resume is due";
+
+	it("names a pause over the last tick's reason", () => {
+		expect(buildLiveLoopWait(paused, spent)).toBe(buildPausedWaitText(paused));
+	});
+
+	it("names the last tick's reason with no pause", () => {
+		expect(buildLiveLoopWait(undefined, spent)).toBe(spent);
+	});
+
+	it("names nothing with no pause and no tick", () => {
+		expect(buildLiveLoopWait(undefined, undefined)).toBeNull();
+	});
+});
+
+describe("stoppedRunOf, the run a stopped loop's finding is keyed on (#3892, #3927)", () => {
+	it("reads the control's count point over the last tick's", () => {
+		expect(stoppedRunOf({ noProgressFrom: 5 }, { from: 9 })).toBe(5);
+	});
+
+	it("reads the last tick's where the control is damaged", () => {
+		expect(stoppedRunOf(null, { from: 9 })).toBe(9);
+	});
+
+	it("is null where neither reads", () => {
+		expect(stoppedRunOf(null, undefined)).toBeNull();
 	});
 });
