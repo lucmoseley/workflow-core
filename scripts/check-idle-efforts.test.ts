@@ -26,7 +26,7 @@ import { stubGhScript } from "./lib/gh-stub";
 import { readJsonl } from "./lib/jsonl.js";
 import { writeParkedBy } from "./lib/parked.js";
 import { launchOrResume } from "./lib/refill-batch.js";
-import { PROBE_HELD } from "./lib/refill-decide.js";
+import { buildPauseText, PROBE_HELD } from "./lib/refill-decide.js";
 import { raiseHold } from "./lib/repo-holds.js";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 
@@ -496,6 +496,47 @@ describe("check-idle-efforts.js", () => {
 				const r = await run({ "o/core": [node(3)] });
 				expect(r.out).toContain(`skip reason: ${PROBE_HELD}`);
 				expect(r.out).not.toContain("rank");
+			});
+		});
+
+		const writeLastIdle = (refill: string, idle: string) =>
+			fs.writeFileSync(
+				path.join(refill, ".refill-loop-state.json"),
+				JSON.stringify({
+					launches: [],
+					lastTick: { at: NOW, summary: `idle: ${idle}`, idle },
+				}),
+			);
+
+		it("names a pause off its control and how to end it, not rank, ahead of the first paused tick (#3920)", async () => {
+			const refill = serveCore();
+			const controlPath = path.join(refill, ".refill-loop-control.json");
+			const paused = { by: "founder", at: NOW };
+			fs.writeFileSync(
+				controlPath,
+				JSON.stringify({
+					...JSON.parse(fs.readFileSync(controlPath, "utf8")),
+					paused,
+				}),
+			);
+			await withLiveLoop(refill, async () => {
+				const r = await run({ "o/core": [node(3)] });
+				expect(r.out).toContain(buildPauseText(paused));
+				expect(r.out).toContain("set --resume");
+				expect(r.out).not.toContain("rank");
+			});
+		});
+
+		it("names a last tick's spent seats, not rank, and rank where it only wanted a slot (#3920)", async () => {
+			const refill = serveCore();
+			await withLiveLoop(refill, async () => {
+				writeLastIdle(refill, "every seat is spent; a resume is due");
+				const spent = await run({ "o/core": [node(3)] });
+				expect(spent.out).toContain("every seat is spent; a resume is due");
+				expect(spent.out).not.toContain("rank");
+				writeLastIdle(refill, "no free slot");
+				const slot = await run({ "o/core": [node(3)] });
+				expect(slot.out).toContain("so it waits on rank");
 			});
 		});
 

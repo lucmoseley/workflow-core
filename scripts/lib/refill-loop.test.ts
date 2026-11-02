@@ -1023,6 +1023,51 @@ describe("a tick's log line (#2362)", () => {
 		expect(writes[0].lastTick?.skipped).toEqual(decision.skipped);
 	});
 
+	describe("the tick's idle reason, the idle alarm's source (#3920)", () => {
+		it("carries any reason decideTick gives through a state round trip", () => {
+			const writes: Tick["state"][] = [];
+			logged(idle("a stop no list names"), 3, [], { writes });
+			const { lastTick } = parseState(JSON.parse(JSON.stringify(writes[0])));
+			expect(lastTick?.idle).toBe("a stop no list names");
+		});
+
+		it("reads none where the tick launched", () => {
+			const writes: Tick["state"][] = [];
+			logged(
+				{
+					launches: [
+						{
+							root: "/r",
+							issues: [1],
+							prompt: "/implement 1",
+							model: "opus",
+							seat: "a",
+							reason: "overflow" as const,
+						},
+					],
+					skipped: [],
+					idle: null,
+					held: [],
+					resumes: [],
+				},
+				3,
+				[],
+				{ writes },
+			);
+			expect(parseState(writes[0]).lastTick?.idle).toBeNull();
+		});
+
+		it.each([
+			["a state file written before it", undefined],
+			["a non-string", 7],
+		])("reads none from %s", (_case, value) => {
+			expect(
+				parseState({ lastTick: { at: NOW, summary: "s", idle: value } })
+					.lastTick?.idle,
+			).toBeNull();
+		});
+	});
+
 	const held = skip(2469, "parked: its session's seat /s2 is full");
 	const kept = { ...held, since: NOW - 60_000 };
 

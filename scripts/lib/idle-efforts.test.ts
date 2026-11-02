@@ -18,7 +18,12 @@ const {
 	buildFindingRecords,
 	parseIssueNodes,
 } = require("./idle-efforts.js");
-const { PROBE_HELD, buildLimitCapHoldWhy } = require("./refill-decide.js");
+const {
+	PROBE_HELD,
+	buildLimitCapHoldWhy,
+	buildLoopWait,
+	decideTick,
+} = require("./refill-decide.js");
 
 /** The cap refill-decide.js keeps to itself, pinned here. */
 const LIMIT_PARK_CAP = 2;
@@ -317,14 +322,141 @@ describe("buildIdleLines", () => {
 			expect(only.skip).toBe(PROBE_HELD);
 		});
 
-		it("names it over a row's own hold, as the loop checks it first", () => {
+		it("names it over a full seat's hold, as the loop checks it first", () => {
 			const [only] = findings(
 				[tracker([issue(1, { labels: ["takes:implement", "parked"] })], held)],
 				{},
 				[],
-				{ "o/core#1": { why: "the cap's why", since: NOW - 3 * DAY } },
+				{ "o/core#1": { why: "a full seat's why", since: NOW - 3 * DAY } },
 			)[0].idle;
 			expect(only.skip).toBe(PROBE_HELD);
+		});
+
+		it.each([
+			["the cap's", { atCap: true }],
+			["a limit's", { onLimit: true }],
+		])(
+			"keeps %s own reason, which clearing the probe does not end (#3920)",
+			(_case, kind) => {
+				const why = "its own why";
+				const lines = buildIdleLines(
+					findings(
+						[
+							tracker(
+								[issue(1), issue(2, { labels: ["takes:implement", "parked"] })],
+								held,
+							),
+						],
+						{},
+						[],
+						{ "o/core#2": { why, since: NOW - 3 * DAY, ...kind } },
+					),
+					true,
+					[],
+				);
+				expect(lines.map((l: { text: string }) => l.text)).toContain(
+					`held #2 (issue 2), idle 3.0 days; skip reason: ${why}`,
+				);
+			},
+		);
+	});
+
+	describe("a loop launching no row whatever its rank (#3920)", () => {
+		const spentSeat = {
+			seat: "a",
+			week: 100,
+			session: 10,
+			weekFull: true,
+			sessionFull: false,
+			fits: null,
+		};
+		const waitOf = (over: Record<string, unknown>) =>
+			buildLoopWait(
+				decideTick({
+					now: NOW,
+					mode: "normal",
+					noProgressFrom: NOW,
+					stopRequested: false,
+					frontier: [],
+					retroBundles: [],
+					running: [],
+					freeSlots: 2,
+					lastPromptAt: null,
+					seats: [spentSeat],
+					history: [],
+					...over,
+				}).idle,
+			);
+		const lineOf = (
+			loopWait: string | null,
+			over: Record<string, unknown> = {},
+		) =>
+			buildIdleLines(
+				findings([tracker([issue(1)], { loopWait, ...over })]),
+				true,
+				[],
+			)[0].text;
+
+		it.each([
+			["a pause", { paused: { by: "founder", at: NOW } }, "paused by founder"],
+			[
+				"every seat spent on a limit-held session",
+				{ limitHeldLines: ["job42"] },
+				"every seat is spent",
+			],
+			[
+				"every seat spent with a resume due",
+				{ resumable: [{ jobId: "job", seat: "a", at: NOW, line: "job held" }] },
+				"every seat is spent",
+			],
+		])("names %s, not rank", (_case, over, words) => {
+			const why = waitOf(over);
+			expect(why).toContain(words);
+			const line = lineOf(why);
+			expect(line).toContain(why);
+			expect(line).not.toContain("rank");
+		});
+
+		it("still names rank where the tick only wanted a slot, as the next one goes to rank", () => {
+			const why = waitOf({
+				freeSlots: 0,
+				seats: [{ ...spentSeat, week: 10, weekFull: false, fits: 9 }],
+			});
+			expect(why).toBeNull();
+			expect(lineOf(why)).toContain("so it waits on rank");
+		});
+
+		it("names a reason buildLoopWait does not know, so a new stop cannot read as rank", () => {
+			const line = lineOf(buildLoopWait("a stop added later"));
+			expect(line).toContain("a stop added later");
+			expect(line).not.toContain("rank");
+		});
+
+		it("names it over an unread hold store, which the loop reads as no hold", () => {
+			expect(lineOf("paused", { holdsUnread: true })).toContain(
+				"launches nothing: paused",
+			);
+		});
+
+		it("names it beside a probe hold, as clearing the probe alone launches nothing", () => {
+			const line = lineOf("paused", { probeHeld: true });
+			expect(line).toContain(PROBE_HELD);
+			expect(line).toContain("launches nothing: paused");
+		});
+
+		it("leaves a tracker the loop does not serve as the filter passing it", () => {
+			const line = lineOf("paused", { served: false });
+			expect(line).not.toContain("launches nothing");
+			expect(line).toContain("none, the launch filter passes it");
+		});
+
+		it("leaves a row's own reason standing", () => {
+			const [line] = buildIdleLines(
+				findings([tracker([issue(1, { labels: [] })], { loopWait: "paused" })]),
+				true,
+				[],
+			);
+			expect(line.text).toContain("skip reason: takes:none");
 		});
 	});
 
@@ -473,11 +605,23 @@ describe("buildReadings", () => {
 				launches: [],
 				held: [],
 				repoHolds: [],
+				loopWait: null,
 				holdsUnreadRoots: [],
 				...loop,
 			},
 			now: NOW,
 		});
+
+	it("hands the loop's wait only to a tracker the loop serves (#3920)", () => {
+		const { trackers } = read([{ repo: REPO }, { repo: OTHER }], {
+			served: ["/r/core"],
+			loopWait: "paused",
+		});
+		expect(trackers.map((t: { loopWait: unknown }) => t.loopWait)).toEqual([
+			"paused",
+			null,
+		]);
+	});
 
 	it("joins each checkout's ledger to its tracker, keeping each issue's latest launch", () => {
 		const r = read([
@@ -602,6 +746,7 @@ describe("buildReadings", () => {
 				served: true,
 				probeHeld: false,
 				holdsUnread: false,
+				loopWait: null,
 				issues: [],
 				error: null,
 			},
@@ -610,6 +755,7 @@ describe("buildReadings", () => {
 				served: false,
 				probeHeld: false,
 				holdsUnread: false,
+				loopWait: null,
 				issues: [],
 				error: "HTTP 502",
 			},

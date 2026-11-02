@@ -23,8 +23,11 @@
  * with or without a loop (#3840). A running loop's served checkouts' repo holds
  * come off the store its tick reads (#3898), with the probe failures its last
  * settled tick recorded in its state, which a store that took no write cannot
- * show (#3903). RESIDUAL: a tick that throws before settling, or a refill
- * directory refusing the state file too, leaves that record a tick or more old.
+ * show (#3903), and why it launched nothing, a pause being read live off its
+ * control (#3920). RESIDUAL: a tick that throws before settling, or a refill
+ * directory refusing the state file too, leaves those records a tick or more old;
+ * a resume names the pause until the tick it wakes settles; and a refusal outside
+ * decideTick, admission's memory hold among them, reads as rank.
  *
  * WARN, never FAIL. A tracker that will not read is its own line, never
  * "none idle". So is a live loop's damaged control or state file or a hold store

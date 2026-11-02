@@ -19,11 +19,14 @@
  * the count. A stranding is counted once, at its deepest idle issue, never again
  * at each ancestor.
  *
- * The reason printed beside a tracker's oldest is, in the loop's own order, a
- * probe hold's on every checkout the loop serves of its tracker (#3898), else its
- * hold's where it is held, else the loop's launch filter (lib/refill-decide.js's
- * buildSkipReason). A row that filter passes waits on rank, unless no served
- * checkout of its tracker has a hold store that reads.
+ * The reason printed beside a tracker's oldest is a cap's or limit's hold where
+ * it has one, as clearing a probe hold frees neither (#3920); else, in the loop's
+ * own row order, a probe hold's on every checkout the loop serves of its tracker
+ * (#3898), else its hold's where it is held, else the loop's launch filter
+ * (lib/refill-decide.js's buildSkipReason). A row that filter passes waits on
+ * rank, unless no served checkout of its tracker has a hold store that reads, or
+ * the loop launches no row whatever its rank, in decideTick's own words
+ * (buildLoopWait, #3920), which a probe hold's line names beside its own.
  *
  * A damaged loop file, or a hold store that will not read, is a finding of its
  * own, named above the tracker lines (#3918).
@@ -85,6 +88,8 @@ const QUERY =
  *   of it the loop serves
  * @property {boolean} holdsUnread the hold store of every checkout of it the loop
  *   serves would not read
+ * @property {string|null} loopWait why the loop serving it launches no row
+ *   whatever its rank; null where rank decides or it does not serve it
  * @property {IssueReading[]} issues its open issues
  * @property {string|null} error why its issues would not read
  */
@@ -121,6 +126,7 @@ const QUERY =
  * @property {string} repo
  * @property {boolean} served
  * @property {boolean} holdsUnread as TrackerReading's
+ * @property {string|null} loopWait as TrackerReading's
  * @property {string|null} error
  * @property {Idle[]} idle oldest first
  */
@@ -155,6 +161,7 @@ const QUERY =
  *   rows on a full seat and launches waiting on a limit
  * @property {import("./refill-decide.js").TickHold[]} repoHolds its served
  *   checkouts' open repo holds
+ * @property {string|null} loopWait why it launches no row whatever its rank
  * @property {string[]} holdsUnreadRoots its served checkouts whose hold store
  *   would not read, whole or in part
  */
@@ -251,6 +258,7 @@ function buildReadings({ rootsOf, trackers, loop, now }) {
 				holdsUnread:
 					served.length > 0 &&
 					served.every((r) => loop.holdsUnreadRoots.includes(r)),
+				loopWait: served.length > 0 ? loop.loopWait : null,
 				issues,
 				error,
 			};
@@ -388,6 +396,25 @@ function hasIdleDescendant(key, open, idle, seen = new Set()) {
 }
 
 /**
+ * A full seat's hold stays under a probe hold's reason: it ends on its reset, so
+ * the probe is the one left to act on.
+ * @param {TrackerReading} t
+ * @param {IssueReading} i
+ * @param {IdleHold} [hold]
+ * @returns {string|null}
+ */
+function buildRowSkip(t, i, hold) {
+	if (hold?.atCap || hold?.onLimit) return hold.why;
+	if (t.probeHeld)
+		return t.loopWait
+			? `${PROBE_HELD}; and the loop launches nothing: ${t.loopWait}`
+			: PROBE_HELD;
+	return (
+		hold?.why ?? buildSkipReason({ labels: i.labels, takes: takesOf(i.labels) })
+	);
+}
+
+/**
  * Every tracker's efforts idle past 2 days.
  * @param {Readings} readings
  * @returns {TrackerFinding[]}
@@ -411,6 +438,7 @@ function findIdleEfforts(readings) {
 		repo: t.repo,
 		served: t.served,
 		holdsUnread: t.holdsUnread,
+		loopWait: t.loopWait,
 		error: t.error,
 		idle: t.issues
 			.map((i) => ({ i, key: refKey({ repo: t.repo, ...i }) }))
@@ -422,13 +450,7 @@ function findIdleEfforts(readings) {
 				urgent: i.labels.includes(URGENT_LABEL),
 				heldAtCap: readings.holds.get(key)?.atCap === true,
 				heldOnLimit: readings.holds.get(key)?.onLimit === true,
-				skip: t.probeHeld
-					? PROBE_HELD
-					: (readings.holds.get(key)?.why ??
-						buildSkipReason({
-							labels: i.labels,
-							takes: takesOf(i.labels),
-						})),
+				skip: buildRowSkip(t, i, readings.holds.get(key)),
 			}))
 			.sort((a, b) => b.idleMs - a.idleMs),
 	}));
@@ -450,12 +472,15 @@ const buildDamagedText = (damage) => `Refill loop file damaged: ${damage}`;
  * Why a row the launch filter passes has not launched. Rank starvation is this
  * alarm's to name (#3623), and rank holds back nothing the loop does not serve
  * (#3894), nor is it named where no served hold store reads (#3918), though the
- * loop launches there as if no hold were open (lib/repo-holds.js's tendHolds).
+ * loop launches there as if no hold were open (lib/repo-holds.js's tendHolds), or
+ * where the loop launches no row whatever its rank, which outranks that (#3920).
  * @param {TrackerFinding} f
  */
 function buildFilterPassedText(f) {
 	const passed = "none, the launch filter passes it";
 	if (!f.served) return passed;
+	if (f.loopWait)
+		return `${passed}, but the loop launches nothing: ${f.loopWait}`;
 	return f.holdsUnread
 		? `${passed}; a hold store would not read, and the loop reads that as no hold`
 		: `${passed}, so it waits on rank`;
@@ -520,7 +545,7 @@ function buildIdleLines(findings, omitStopLine, damaged) {
  * @typedef {object} FindingRecord
  * @property {"IDLE-EFFORTS"|"IDLE-EFFORTS-UNREAD"|"REFILL-LOOP-NOT-RUNNING"|"REFILL-LOOP-FILE-DAMAGED"} code
  * @property {string} text
- * @property {{repo: string, idle: Idle[]}} [data]
+ * @property {{repo: string, loopWait: string|null, idle: Idle[]}} [data]
  */
 
 /**
@@ -558,7 +583,7 @@ const buildFindingRecords = (findings, stopUnseen, damaged) => [
 						{
 							code: "IDLE-EFFORTS",
 							text: `${f.repo}: ${f.idle.length} effort(s) idle past ${IDLE_DAYS} days`,
-							data: { repo: f.repo, idle: f.idle },
+							data: { repo: f.repo, loopWait: f.loopWait, idle: f.idle },
 						},
 					];
 		},

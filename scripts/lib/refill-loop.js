@@ -128,7 +128,9 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * @typedef {object} LoopState
  * @property {LoopLaunch[]} launches
  * @property {{at: number, summary: string,
- *   skipped?: import("./refill-decide.js").Skip[]}|null} lastTick
+ *   skipped?: import("./refill-decide.js").Skip[],
+ *   idle?: string|null}|null} lastTick `idle` is decideTick's reason it launched
+ *   nothing, the idle alarm's source for it (#3920)
  * @property {{at: number, reason: string, detail: string}|null} stopped
  * @property {Hold[]} held the last frontier-reading tick's, for the idle
  *   alarm (#3680)
@@ -327,7 +329,8 @@ function parseLastTick(raw) {
 	)
 		return null;
 	const skipped = Array.isArray(raw.skipped) ? raw.skipped.filter(isSkip) : [];
-	return { at: raw.at, summary: raw.summary, skipped };
+	const idle = typeof raw.idle === "string" ? raw.idle : null;
+	return { at: raw.at, summary: raw.summary, skipped, idle };
 }
 
 /** @param {unknown} raw @returns {LaunchCount|null} */
@@ -1234,7 +1237,9 @@ function settleTick(
 		lastTick: {
 			at: input.now,
 			summary,
-			...("stop" in decision ? {} : { skipped: decision.skipped }),
+			...("stop" in decision
+				? {}
+				: { skipped: decision.skipped, idle: decision.idle }),
 		},
 		stopped: stoppedOf(decision, input.now) ?? state.stopped,
 		held:

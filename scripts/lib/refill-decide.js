@@ -36,6 +36,9 @@ const NOTHING_LAUNCHABLE = "nothing launchable";
  * launchable" even where the checkouts read held only skipped rows: the
  * unread work may have launched (#2561). */
 const SHORTLIST_FAILED = "shortlist failed in";
+/* The idle reasons of a tick with no slot to launch into. */
+const NO_FREE_SLOT = "no free slot";
+const SLOT_KEPT_FOR_FOUNDER = "one free slot is kept for the founder";
 /* The idle reason of a tick whose seats are all spent, with a limit-held
  * launch keeping the run alive. */
 const LIMIT_HELD_WAIT =
@@ -896,6 +899,33 @@ const buildIdleDecision = (idle, held, resumes) => ({
 const buildPauseText = ({ by, at }) =>
 	`paused by ${by} at ${new Date(at).toISOString()}`;
 
+/** @param {Pause} pause */
+const buildPausedWaitText = (pause) =>
+	`${buildPauseText(pause)}; launches nothing until \`set --resume\``;
+
+/* Idle reasons that stop no row in particular: the next slot goes to the top of
+ * rank, and a failed shortlist may be another tracker's. */
+const QUEUE_MOVING_WAITS = [
+	NO_FREE_SLOT,
+	SLOT_KEPT_FOR_FOUNDER,
+	RESUMES_TAKE_SLOTS,
+	NOTHING_LAUNCHABLE,
+];
+
+/**
+ * The reason a tick's idle gives for no row launching whatever its rank, or null
+ * where rank still decides. Any reason this does not know counts, so a new stop
+ * cannot read as rank on the idle alarm (#3920).
+ * @param {string|null} idle
+ * @returns {string|null}
+ */
+const buildLoopWait = (idle) =>
+	idle === null ||
+	QUEUE_MOVING_WAITS.includes(idle) ||
+	idle.startsWith(SHORTLIST_FAILED)
+		? null
+		: idle;
+
 /**
  * A stop's detail with what it leaves for the next start to act on.
  * @param {string} detail
@@ -951,10 +981,7 @@ function decideUnpaused(input) {
 	 */
 	const idleOn = (idle, due) => buildIdleDecision(idle, held, due);
 	if (free === 0)
-		return idleOn(
-			present ? "one free slot is kept for the founder" : "no free slot",
-			[],
-		);
+		return idleOn(present ? SLOT_KEPT_FOR_FOUNDER : NO_FREE_SLOT, []);
 	const { resumes, seatsLeft } = takeResumes(input, free);
 	const launchSlots = free - resumes.length;
 	if (launchSlots === 0) return idleOn(RESUMES_TAKE_SLOTS, resumes);
@@ -995,6 +1022,8 @@ module.exports = {
 	buildProbeHeldRoots,
 	buildOverflowHoldText,
 	buildPauseText,
+	buildPausedWaitText,
+	buildLoopWait,
 	seatHold,
 	FULL,
 	buildLimitCapHoldWhy,

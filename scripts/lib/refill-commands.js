@@ -25,6 +25,7 @@ const {
 const {
 	buildOverflowHoldText,
 	buildPauseText,
+	buildPausedWaitText,
 	hasRoom,
 	orderPlanSeats,
 	pickSeat,
@@ -407,11 +408,7 @@ function buildScopeLines(control, { served, running, seatsLine }) {
 			`${path.basename(root)} ${issues.map((n) => `#${n}`).join(", ")}`,
 	);
 	return [
-		...(control.paused
-			? [
-					`${buildPauseText(control.paused)}; launches nothing until \`set --resume\``,
-				]
-			: []),
+		...(control.paused ? [buildPausedWaitText(control.paused)] : []),
 		`mode:      ${scope.mode}`,
 		`repos:     ${buildRepoNames(served)}`,
 		`goal:      ${goals.join("; ") || "none"}`,
