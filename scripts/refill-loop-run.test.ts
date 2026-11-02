@@ -337,8 +337,8 @@ describe("run (#2435)", () => {
 			},
 		});
 		expect(Number.isFinite(Date.parse(lines[0].at))).toBe(true);
-		// No memwatch minute record in the sandbox's HOME: no figure yet.
-		expect(fs.readFileSync(at("concurrency-24h"), "utf8")).toBe("-\n");
+		// No memwatch minute record in the sandbox's HOME: the figure is unread (#3531).
+		expect(fs.readFileSync(at("concurrency-24h"), "utf8")).toBe("?\n");
 	});
 
 	it("supervises a foreign checkout's launches to landing, finished or not, skipping a gone one (#3284)", async () => {
@@ -3142,6 +3142,7 @@ process.stdout.write("Filed #${Issue}\\n");
 		expect(filed[0]?.args).toContain("takes:triage");
 		expect(filed[0]?.body).toContain(repo);
 		expect(filed[0]?.body).toContain("resolve main:");
+		expect(filed[0]?.body).not.toContain("resolve main: names no commit");
 
 		repairHead();
 		const repaired = await tickRun(close.gh);
@@ -3310,11 +3311,11 @@ process.stdout.write("Filed #${Issue}\\n");
 
 	it.each<[string, () => void, NodeJS.ProcessEnv]>([
 		[
-			"resolve main:",
+			"resolve main: names no commit",
 			() => fs.writeFileSync(dotGit("refs/heads/main"), ""),
 			{},
 		],
-		["resolve origin/landing:", () => undefined, LandingOn],
+		["resolve origin/landing: names no commit", () => undefined, LandingOn],
 	])(
 		"logs a failing probe's %s text and raises the hold",
 		async (text, breakIt, over) => {
