@@ -494,6 +494,29 @@ describe("task: one run's sandbox", () => {
 		);
 	});
 
+	it("reverse-applies an --unapply patch by its context alone, as arm-tasks.test.ts pins it, where a three-way merge would conflict (#3979)", () => {
+		const repo = sourceRepo();
+		const section = "p\nq\nr\nx\ns\nt\nu\n";
+		const write = (text: string, message: string) => {
+			fs.writeFileSync(path.join(repo, "g.txt"), text);
+			git(repo, "add", "g.txt");
+			git(repo, "commit", "-qm", message);
+		};
+		write(`top\n${section.replace("x\n", "")}mid\n${section}end\n`, "seed");
+		write(`top\n${section}mid\n${section}end\n`, "the landing");
+		const patch = path.join(tmp, "landing.patch");
+		fs.writeFileSync(
+			patch,
+			git(repo, "diff", "--full-index", "HEAD~1", "HEAD").stdout,
+		);
+		write(`top\nmid\n${section}end\n`, "the landed section moves away");
+		const r = buildTask(repo, "--unapply", patch);
+		expect(r.code, r.err).toBe(0);
+		expect(
+			fs.readFileSync(path.join(JSON.parse(r.out).repo, "g.txt"), "utf8"),
+		).toBe(`top\nmid\n${section.replace("x\n", "")}end\n`);
+	});
+
 	it("refuses a --revert that conflicts at --at, naming the way out, and builds nothing (#3350)", () => {
 		const repo = sourceRepo();
 		const root = git(repo, "rev-list", "--max-parents=0", "HEAD").stdout.trim();

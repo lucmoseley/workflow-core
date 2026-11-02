@@ -543,7 +543,7 @@ function startTask(clone, reverts, unapplied, at) {
 			return `--revert ${sha} does not revert cleanly at ${at}; pick an --at it reverts at, then build again:\n${err}`;
 	}
 	for (const patch of unapplied) {
-		const err = tryGit(["apply", "--reverse", "--3way", "--index", patch]);
+		const err = tryGit(["apply", "--reverse", "--index", patch]);
 		if (err !== null)
 			return `--unapply patch ${patch} does not reverse-apply at ${at}; regenerate it against ${at}, then build again:\n${err}`;
 	}
