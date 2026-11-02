@@ -3,8 +3,8 @@
  * session the loop launched ends; refill-wake.sh, the plugin's Stop hook,
  * appends `<ms> <session id>` to the wake file beside the
  * loop's pidfile; the loop, sleeping between ticks, sees the change and ticks.
- * `stop` and `start` append a line with no id, so a stop is seen within one
- * tick's work.
+ * `stop`, `set` and a `start` that writes append a line with no id, so a stop is
+ * seen within one tick's work.
  *
  * The directory is watched, not the file: a watch on the file's inode would
  * miss a wake file deleted and written afresh.

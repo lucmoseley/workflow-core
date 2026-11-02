@@ -24,6 +24,7 @@
 	"modules": ["roadmap", "suites", "landing"],
 	"pythonRoutes": {
 		"scripts/**/test_*.py": "test",
+		"scripts/**/*_test.py": "test",
 		"scripts/conftest.py": "test",
 		"scripts/pytest_pass_plugin.py": "test",
 		"scripts/**/*.py": "program"
@@ -41,9 +42,11 @@
 			"globs": [
 				"scripts/write-secret.js",
 				"scripts/lib/token-shapes.js",
-				"scripts/lib/env-file.js"
+				"scripts/lib/env-file.js",
+				"scripts/lib/private-group.js",
+				"scripts/lib/read-hidden.js"
 			],
-			"focus": "what secret slips past the scan or gets written where git keeps it",
+			"focus": "what secret slips past the scan, gets written where git keeps it or another user can read or swap it, or reaches the screen or the shell",
 			"live": false
 		}
 	],

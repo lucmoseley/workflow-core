@@ -49,8 +49,7 @@ accepting free text at all.
   real `<card-id> — ` title prefix. Name the ones that matched and state that the
   rest of the phase has no open issue.
 
-- **Bare issue numbers** (`#116 #117`, as a stopped loop's restart line names
-  them) — that set as written, never widened.
+- **Bare issue numbers** (`#116 #117`) — that set as written, never widened.
 
 A word naming a sibling checkout (a home-directory folder carrying
 `.claude/workflow-core.json`) is no goal text: set it aside for §8's `--repo`.
@@ -952,21 +951,26 @@ ordering for what replaces the drop.
 **Never `claude agents --model`**: that sets a view-wide default and would move
 every session launched from that view, not just this set.
 
-### 8. Start the refill loop over this repo
+### 8. Send the refill loop what this command asked
 
 **Every run ends here** — after §7's last launch call, and equally after a
 hold, an admission refusal or a launcher refusal: run once
 
 ```bash
-node scripts/refill-loop.js start [--repo <dir>]… [--goal <§1's set or form>]
+node scripts/refill-loop.js start --unless-stopped [--repo <dir>]… [--goal <§1's set or form>]
 ```
 
-It starts the machine's one loop, which runs until stopped, or adds to the
-running one, whose mode it leaves: this repo, plus each sibling checkout the
-founder's command named, passed by its directory name. The goal is §1's set or its
-`drain` or `unblock` text, if there is one (#2119). Never run `set --away` or `--normal`: the mode changes
-only on the founder's explicit ask. Copy the lines `start` prints —
-mode, repos, goal, seats — and any `WARNING:`, into the message.
+It starts the machine's one loop only where its process ended with no explicit
+stop, from its settings as they were, or on a machine's first run, ticking this
+repo. It never undoes a setting (#2526): a stopped loop stays stopped, a paused one
+paused, the no-progress pause included, and a bare run changes none. A damaged
+control file exits 1, naming it: copy that into the message. `--repo` ticks each
+sibling checkout the founder's command named, by its directory name. `--goal`
+replaces the loop's goal with §1's set, each ref written `<dir>#N`, or its `drain`
+or `unblock` text, if there is one (#2119); a ref it refuses stops the whole call,
+so copy the refusal and run it again without `--goal`. Never pass a mode. Copy the lines it
+prints — the loop's state, mode, repos, goal, seats, and that this repo is
+unchecked on the panel — and any `WARNING:`, into the message.
 **Unenforced**: no hook checks the call was made.
 
 ---
