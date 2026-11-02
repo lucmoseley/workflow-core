@@ -1,10 +1,46 @@
 // @vitest-environment node
 /*
  * The view's environment (#3886). Broken, a loop the panel restarts finds no `claude`
- * and launches nothing, in a pane that looks fine.
+ * and launches nothing, in a pane that looks fine. The width (#3956) sizes the split.
  */
 import { describe, expect, it } from "vitest";
-import { readViewEnv } from "./refill-panel-view-env.js";
+import { readViewColumns, readViewEnv } from "./refill-panel-view-env.js";
+
+describe("readViewColumns", () => {
+	const onPts = () => "/dev/pts/4";
+
+	it("reads the width off the terminal the view draws on", () => {
+		const seen: string[] = [];
+		const columns = readViewColumns(
+			42,
+			(file) => {
+				seen.push(file);
+				return "/dev/pts/4";
+			},
+			(tty) => {
+				seen.push(tty);
+				return "50 108\n";
+			},
+		);
+		expect(columns).toBe(108);
+		expect(seen).toEqual(["/proc/42/fd/1", "/dev/pts/4"]);
+	});
+
+	it.each([
+		["no terminal", () => "/dev/null", () => "50 108\n"],
+		["a size of nought", onPts, () => "0 0\n"],
+		["no output from stty", onPts, () => ""],
+	])("is null with %s", (_, readLink, readSize) => {
+		expect(readViewColumns(42, readLink, readSize)).toBeNull();
+	});
+
+	it("is null where the process has gone", () => {
+		const gone = () => {
+			throw new Error("ENOENT");
+		};
+		expect(readViewColumns(42, gone)).toBeNull();
+	});
+});
 
 describe("readViewEnv", () => {
 	it("splits the kernel's NUL-separated entries, keeping an = in a value", () => {

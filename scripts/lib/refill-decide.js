@@ -43,6 +43,7 @@ const NO_PROGRESS_PAUSE = "no-progress";
  * (#2525, #3859). Residual: the log and the idle alarm lose which seat and hold;
  * `status`'s `passed over` names them. */
 const NO_PLAN_ROOM = "no plan has room right now";
+const FIVE_HOUR_FULL = "the 5-hour bar is full on";
 /* The idle reason of a tick whose seats are all spent, with a limit-held
  * launch still to act on. */
 const LIMIT_HELD_WAIT =
@@ -441,7 +442,7 @@ function pickPlanSeat(seats) {
 	const waits = [];
 	if (noRoom > 0) waits.push(NO_PLAN_ROOM);
 	if (fiveHour.length > 0)
-		waits.push(`the 5-hour bar is full on ${fiveHour.join(", ")}`);
+		waits.push(`${FIVE_HOUR_FULL} ${fiveHour.join(", ")}`);
 	return {
 		seat: null,
 		fits: 0,
@@ -1141,7 +1142,14 @@ module.exports = {
 	buildPlanWaitText,
 	buildLoopWait,
 	isPauseText,
+	FIVE_HOUR_FULL,
+	LIMIT_HELD_WAIT,
+	NO_FREE_SLOT,
+	NO_PLAN_ROOM,
 	NO_PROGRESS_PAUSE,
+	RESUME_DUE_WAIT,
+	RESUMES_TAKE_SLOTS,
+	SHORTLIST_FAILED,
 	seatHold,
 	FULL,
 	buildLimitCapHoldWhy,

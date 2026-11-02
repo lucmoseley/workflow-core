@@ -24,7 +24,10 @@ const path = require("node:path");
 const { pidAlive } = require("./lib/arbiter-proc.js");
 const { parseOrCode } = require("./lib/cli-args");
 const { buildRoutes } = require("./lib/refill-panel-routes.js");
-const { readViewEnv: readProcEnv } = require("./lib/refill-panel-view-env.js");
+const {
+	readViewColumns: readProcColumns,
+	readViewEnv: readProcEnv,
+} = require("./lib/refill-panel-view-env.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { shellQuote } = require("./lib/sh-quote.js");
 const { readConfig } = require("./lib/workflow-core-config.js");
@@ -69,12 +72,13 @@ function runRoute({ file, args }, env) {
 /**
  * @param {string[]} [argv]
  * @param {Record<string, string | undefined>} [ownEnv]
- * @param {{ run?: (route: { name: string, file: string, args: string[] }, env: Record<string, string | undefined>) => string | null, isOnPath?: (name: string) => boolean, isAlive?: (pid: number) => boolean, readViewEnv?: typeof readProcEnv, root?: string, out?: (text: string) => void, err?: (text: string) => void }} [deps]
+ * @param {{ run?: (route: { name: string, file: string, args: string[] }, env: Record<string, string | undefined>) => string | null, isOnPath?: (name: string) => boolean, isAlive?: (pid: number) => boolean, readViewEnv?: typeof readProcEnv, readViewColumns?: typeof readProcColumns, root?: string, out?: (text: string) => void, err?: (text: string) => void }} [deps]
  */
 function main(argv = process.argv.slice(2), ownEnv = process.env, deps = {}) {
 	const {
 		run = runRoute,
 		readViewEnv = readProcEnv,
+		readViewColumns = readProcColumns,
 		isOnPath,
 		isAlive = pidAlive,
 		root,
@@ -98,12 +102,18 @@ function main(argv = process.argv.slice(2), ownEnv = process.env, deps = {}) {
 	if (!isAlive(pid)) return 0;
 	const env = { ...ownEnv, ...readViewEnv(pid) };
 	const node = process.execPath;
+	const viewColumns = readViewColumns(pid);
+	if (viewColumns === null)
+		err(
+			"refill-panel-open: the view's width did not read: sizing the split for a usual window\n",
+		);
 	const routes = buildRoutes({
 		env,
 		isOnPath: isOnPath ?? ((name) => isOnSearchPath(env.PATH, name)),
 		node,
 		panel: PANEL_PROGRAM,
 		pid,
+		viewColumns,
 	});
 	for (const route of routes) {
 		const why = run(route, env);

@@ -24,6 +24,7 @@ interface OpenOptions {
 	env?: Record<string, string>;
 	why?: (route: Route) => string | null;
 	isAlive?: () => boolean;
+	viewColumns?: number | null;
 }
 
 describe("refill-panel-open.js", () => {
@@ -57,6 +58,7 @@ describe("refill-panel-open.js", () => {
 			env = { TMUX: "/t" },
 			why = () => null,
 			isAlive = () => true,
+			viewColumns = 156,
 		}: OpenOptions = {},
 	) =>
 		main(argv, env, {
@@ -64,6 +66,7 @@ describe("refill-panel-open.js", () => {
 			isAlive,
 			isOnPath: () => true,
 			readViewEnv: () => viewEnv,
+			readViewColumns: () => viewColumns,
 			run: (route: Route) => {
 				ran.push(route);
 				return why(route);
@@ -157,11 +160,25 @@ describe("refill-panel-open.js", () => {
 		const code = main(
 			[String(process.pid)],
 			{ TMUX: "/t", PATH: `${bin}${path.delimiter}${process.env.PATH}` },
-			{ readViewEnv: () => ({}) },
+			{ readViewEnv: () => ({}), readViewColumns: () => 156 },
 		);
 		expect(code).toBe(0);
 		const words = fs.readFileSync(seen, "utf8").trim().split("\n");
 		expect(words.slice(0, 2)).toEqual(["split-window", "-h"]);
 		expect(words.slice(-2)).toEqual([String(process.pid), "tmux"]);
+	});
+
+	it("sizes the split from the view's width, and says where that will not read", () => {
+		const sizeOfRun = () => {
+			const { args } = ran.at(-1) as Route;
+			return args[args.indexOf("--size") + 1];
+		};
+		const env = { WSL_INTEROP: "/run/x" };
+		expect(open(["42"], { env, viewColumns: 206 })).toBe(0);
+		expect(sizeOfRun()).toBe("0.2");
+		expect(stderr).toBe("");
+		expect(open(["42"], { env, viewColumns: null })).toBe(0);
+		expect(sizeOfRun()).toBe("0.2625");
+		expect(stderr).toContain("the view's width did not read");
 	});
 });

@@ -7,12 +7,7 @@
  * opening hands it back.
  */
 
-const {
-	buildFrame,
-	findHoverRow,
-	buildRows,
-	createPanel,
-} = require("./refill-panel.js");
+const { buildFrame, findHoverRow, createPanel } = require("./refill-panel.js");
 const { ESC, createInputReader } = require("./refill-panel-input.js");
 
 /* Primary device attributes, then the character cell's size in pixels. */
@@ -96,6 +91,7 @@ function openPanel({
 		});
 
 	const height = () => stdout.rows ?? DEFAULT_ROWS;
+	const columns = () => stdout.columns ?? DEFAULT_COLUMNS;
 	/** @type {Set<string>} */
 	const capabilities = new Set();
 	let imagesFit = false;
@@ -115,7 +111,7 @@ function openPanel({
 		const next =
 			imagesFit && terminalRow !== null
 				? findHoverRow(
-						buildRows(panel.view, now()),
+						panel.buildViewRows(),
 						terminalRow,
 						height(),
 						panel.view.scroll,
@@ -128,12 +124,11 @@ function openPanel({
 	const draw = () => {
 		if (!restored)
 			stdout.write(
-				buildFrame(
-					buildRows(panel.view, now()),
-					stdout.columns ?? DEFAULT_COLUMNS,
-					height(),
-					{ images: imagesFit, hoverRow, scroll: panel.view.scroll },
-				),
+				buildFrame(panel.buildViewRows(), columns(), height(), {
+					images: imagesFit,
+					hoverRow,
+					scroll: panel.view.scroll,
+				}),
 			);
 	};
 	const panel = createPanel({
@@ -143,6 +138,7 @@ function openPanel({
 		resolveTopic,
 		returnFocus,
 		height,
+		columns,
 		onChange: draw,
 	});
 	const input = createInputReader();

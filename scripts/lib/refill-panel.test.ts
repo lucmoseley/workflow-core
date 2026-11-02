@@ -167,7 +167,7 @@ const buildRefusedStdout = (reason: string, remedy?: string, box?: string) =>
 		warning: null,
 		lines: [],
 	});
-const rowsOf = (over: object): Row[] => buildRows(view(over), LATER);
+const rowsOf = (over: object): Row[] => buildRows(view(over), LATER, WIDE);
 const summary = (rows: Row[]) => rows.map((r) => [r.text, r.role]);
 /* The rows of one section: to the blank row that ends it. */
 const toGap = (rows: Row[]) => {
@@ -177,6 +177,7 @@ const toGap = (rows: Row[]) => {
 const focusMoved = async () => ({ code: 0, stdout: "", stderr: "" });
 /* Every row fits. */
 const TALL = 200;
+const WIDE = 200;
 const panelOver = (
 	run: unknown,
 	runBurn: unknown = run,
@@ -184,7 +185,8 @@ const panelOver = (
 	{
 		returnFocus = focusMoved,
 		height = TALL,
-	}: { returnFocus?: unknown; height?: number } = {},
+		columns = WIDE,
+	}: { returnFocus?: unknown; height?: number; columns?: number } = {},
 ) =>
 	createPanel({
 		run,
@@ -193,6 +195,7 @@ const panelOver = (
 		resolveTopic,
 		returnFocus,
 		height: () => height,
+		columns: () => columns,
 		onChange: noop,
 	});
 
@@ -221,7 +224,7 @@ describe("the panel's rows", () => {
 			["Refill loop  [on]", "name"],
 			["", "secondary"],
 			["3 launched today", "value"],
-			["Waiting: no free slot", "secondary"],
+			["Not starting more: the machine is full", "secondary"],
 			["", "secondary"],
 			["Weekly plan usage", "secondary"],
 			["  .claude3  47% used", "secondary"],
@@ -230,16 +233,50 @@ describe("the panel's rows", () => {
 		expect(rows[0].control?.state).toBe("on");
 	});
 
-	it("waits on the next check after a tick that launched", () => {
+	it("leaves the waiting row blank after a tick that launched", () => {
 		const lastTick = {
 			at: AT,
 			summary: "launched 2",
 			idle: null,
 			paused: false,
 		};
-		expect(rowsOf({ status: { ...RUNNING, lastTick } })[3].text).toBe(
-			"Waiting: the next check",
+		expect(rowsOf({ status: { ...RUNNING, lastTick } })[3].text).toBe("");
+	});
+
+	it.each([
+		["no free slot", "Not starting more: the machine is full"],
+		["no plan has room right now", "Not starting more: no plan has room"],
+		[
+			"the 5-hour bar is full on ~/.claude3",
+			"Not starting more: a 5-hour limit is full",
+		],
+		["nothing launchable", "Not starting more: no ticket is ready"],
+		["shortlist failed in wc: boom", "Not starting more: a ticket list failed"],
+		["resumes take every free slot", "Resuming paused sessions first"],
+		[
+			"every seat is spent; a resume is due",
+			"All plans used up; a resume is due",
+		],
+		[
+			"every seat is spent; a limit-held session waits on one",
+			"All plans used up; a session waits",
+		],
+		[
+			"no plan has room right now; no overflow launch: ~/.claude2 not weekly-full",
+			"Not starting more: no plan has room",
+		],
+		["a reason unmapped; and more", "Not starting more: a reason unmapped"],
+	])("says %s in the founder's words", (idle, words) => {
+		const lastTick = { at: AT, summary: `idle: ${idle}`, idle, paused: false };
+		expect(rowsOf({ status: { ...RUNNING, lastTick } })[3].text).toBe(words);
+	});
+
+	it("gives the idle reason once in the block", () => {
+		const rows = rowsOf({ status: RUNNING });
+		expect(rows.filter((r) => r.text.includes("machine is full"))).toHaveLength(
+			1,
 		);
+		expect(rows.map((r) => r.text).join("\n")).not.toContain("idle:");
 	});
 
 	it("never shows a lifted pause's words beside a switch reading on", () => {
@@ -248,7 +285,7 @@ describe("the panel's rows", () => {
 			["Refill loop  [on]", "name"],
 			["", "secondary"],
 			["3 launched today", "value"],
-			["Waiting: the next check", "secondary"],
+			["", "secondary"],
 			["", "secondary"],
 			["Weekly plan usage", "secondary"],
 			["  .claude3  47% used", "secondary"],
@@ -569,7 +606,7 @@ describe("the plan and credit rows", () => {
 		expect(usage({ ...RUNNING, seats: FULL_SEATS, overflow })).toEqual([
 			...PlansFull,
 			["API credits unread: no table", "secondary"],
-			["  Spending unknown: a key is unread", "secondary"],
+			["  Spending unknown", "secondary"],
 		]);
 	});
 
@@ -601,7 +638,7 @@ describe("the plan and credit rows", () => {
 	it("never says not spending over a key it cannot read, plans with room or not", () => {
 		const overflow = [key(), { seat: "k", why: "no table" }];
 		expect(usage({ ...RUNNING, overflow }).at(-1)).toEqual([
-			"  Spending unknown: a key is unread",
+			"  Spending unknown",
 			"secondary",
 		]);
 	});
@@ -796,7 +833,9 @@ describe("the panel's colours", () => {
 	it("draws names bold white, live values white, secondary text #949494", () => {
 		expect(frame).toContain(`${ESC}[1m${ESC}[38;2;242;242;242mRefill loop`);
 		expect(frame).toContain(`${ESC}[38;2;242;242;242m3 launched today`);
-		expect(frame).toContain(`${ESC}[38;2;148;148;148mWaiting: no free slot`);
+		expect(frame).toContain(
+			`${ESC}[38;2;148;148;148mNot starting more: the machine is full`,
+		);
 	});
 
 	it("uses no blue in any colour it draws", () => {
@@ -807,14 +846,53 @@ describe("the panel's colours", () => {
 });
 
 describe("the panel's frame", () => {
-	it("cuts a long row rather than wrapping it into the next", () => {
-		const long = {
-			...RUNNING,
-			lastTick: { at: AT, summary: "", idle: "x".repeat(99), paused: false },
-		};
-		const frame = buildFrame(rowsOf({ status: long }), 20, 40);
-		expect(frame).toContain("Waiting: xxxxxx…");
-		expect(frame).not.toContain("x".repeat(20));
+	const tickOf = (idle: string) => ({
+		...RUNNING,
+		lastTick: { at: AT, summary: "", idle, paused: false },
+	});
+
+	it("wraps a long row whole at its word boundaries", () => {
+		const status = tickOf("a reason far longer than one row of this pane");
+		const frame = buildFrame(buildRows(view({ status }), LATER, 24), 24, 40);
+		for (const line of [
+			"Not starting more: a",
+			"reason far longer",
+			"than one row of this",
+			"pane",
+		])
+			expect(frame).toContain(`${line}${ESC}`);
+		expect(frame).not.toContain("…");
+	});
+
+	it("breaks a word longer than a row where the row ends", () => {
+		const rows = buildRows(view({ status: tickOf("x".repeat(30)) }), LATER, 24);
+		expect(rows.map((r: Row) => r.text)).toEqual(
+			expect.arrayContaining([
+				"Not starting more:",
+				"x".repeat(20),
+				"x".repeat(10),
+			]),
+		);
+	});
+
+	it("draws a row of nothing but spaces longer than a line", () => {
+		const unread = { status: null, readError: " ".repeat(40) };
+		expect(buildRows(view(unread), LATER, 24)[3].text.trim()).toBe("");
+	});
+
+	it("keeps a wrapped row's indent", () => {
+		const rows = buildRows(view({ status: RUNNING }), LATER, 20);
+		const at = rows.findIndex((r: Row) => r.text === "  .claude3  47%");
+		expect(rows[at + 1].text).toBe("  used");
+	});
+
+	it("leaves a row holding an image on its one line, cut", () => {
+		const repos = [
+			{ name: "n".repeat(40), root: "/h/n", ticked: true, disabled: null },
+		];
+		const rows = buildRows(view({ status: { ...RUNNING, repos } }), LATER, 24);
+		expect(rows.filter((r: Row) => r.text.includes("nnn"))).toHaveLength(1);
+		expect(buildFrame(rows, 24, 80)).toContain("n…");
 	});
 
 	it("erases below its last row, so a report gone from the rows goes from the screen", () => {
@@ -943,6 +1021,7 @@ describe("a click on the switch", () => {
 			now: () => at,
 			returnFocus: focusMoved,
 			height: () => TALL,
+			columns: () => WIDE,
 			onChange: noop,
 		});
 		await panel.refreshStatus();
@@ -953,7 +1032,7 @@ describe("a click on the switch", () => {
 		at += 1000;
 		await panel.refreshStatus();
 		expect(panel.view.presses.loop.pending).toBeNull();
-		expect(buildRows(panel.view, at)[2].text).toBe("needs you");
+		expect(buildRows(panel.view, at, WIDE)[2].text).toBe("needs you");
 	});
 
 	it.each([
@@ -980,7 +1059,7 @@ describe("a click on the switch", () => {
 			});
 			const panel = panelOver(run);
 			await panel.refreshStatus();
-			const rows = buildRows(panel.view, AT).length;
+			const rows = buildRows(panel.view, AT, WIDE).length;
 			for (let row = SWITCH_ROW; row < SWITCH_ROW + rows; row++)
 				await panel.click(row);
 			asked.push(...calls);
@@ -1011,7 +1090,7 @@ describe("a click on the switch", () => {
 		const panel = panelOver(run);
 		await panel.refreshStatus();
 		const clicked = panel.click(SWITCH_ROW);
-		expect(buildRows(panel.view, LATER)[2].text).toBe("turning off…");
+		expect(buildRows(panel.view, LATER, WIDE)[2].text).toBe("turning off…");
 		await panel.click(SWITCH_ROW);
 		expect(sets).toHaveLength(1);
 		release();
@@ -1074,7 +1153,7 @@ describe("the pending word", () => {
 	it("stays on a read showing the pause while the running tick finishes", async () => {
 		const { panel } = await pressed(RUNNING, PAUSED_MID_TICK);
 		expect(panel.view.presses.loop.pending).not.toBeNull();
-		expect(buildRows(panel.view, LATER)[3].text).toBe(
+		expect(buildRows(panel.view, LATER, WIDE)[3].text).toBe(
 			"Turning off when this check ends",
 		);
 	});
@@ -1083,7 +1162,7 @@ describe("the pending word", () => {
 		const { panel, show } = await pressed(RUNNING, PAUSED_MID_TICK);
 		await show({ ...PAUSED_MID_TICK, lastTick: PAUSED_TICK });
 		expect(panel.view.presses.loop.pending).toBeNull();
-		expect(buildRows(panel.view, LATER)[2].text).toBe(
+		expect(buildRows(panel.view, LATER, WIDE)[2].text).toBe(
 			"You switched it off at 14:06",
 		);
 	});
@@ -1103,9 +1182,9 @@ describe("the pending word", () => {
 			"set --resume --json",
 		);
 		expect(panel.view.presses.loop.pending).toBeNull();
-		const rows = buildRows(panel.view, LATER);
+		const rows = buildRows(panel.view, LATER, WIDE);
 		expect(rows[0].control.state).toBe("on");
-		expect(rows[3].text).toBe("Waiting: the next check");
+		expect(rows[3].text).toBe("");
 	});
 
 	it("does not clear on a read begun before the command returned, even one showing no process", async () => {
@@ -1146,10 +1225,12 @@ describe("the pending word", () => {
 		await panel.refreshStatus();
 		await panel.click(SWITCH_ROW);
 		expect(panel.view.presses.loop.pending).toBeNull();
-		const rows = buildRows(panel.view, AT + 1);
+		const rows = buildRows(panel.view, AT + 1, WIDE);
 		expect(rows[0].control.state).toBe("on");
 		expect(rows[3].text).toBe("the control is damaged; `start` rewrites it");
-		expect(buildRows(panel.view, LATER)[3].text).toBe("Waiting: no free slot");
+		expect(buildRows(panel.view, LATER, WIDE)[3].text).toBe(
+			"Not starting more: the machine is full",
+		);
 	});
 
 	it("survives an unreadable status, and claims nothing during it", async () => {
@@ -1178,7 +1259,7 @@ describe("the Burn mode switch", () => {
 	};
 	const burnRowsOf = (over: object) => burnSection(rowsOf(over));
 	const burnRows = (panel: { view: object }): Row[] =>
-		burnSection(buildRows(panel.view, LATER));
+		burnSection(buildRows(panel.view, LATER, WIDE));
 	const answerOk = { code: 0, stdout: "", stderr: "" };
 
 	/** A panel reading `status`, whose flips answer `answers` in turn, the last repeating. */
@@ -1493,7 +1574,9 @@ describe("the Away switch", () => {
 	it("turns away on through `set --away`", async () => {
 		const { calls, panel } = await clicked(RUNNING, "set --away --json", Away);
 		expect(calls).toContainEqual(["set", "--away", "--json"]);
-		expect(buildRows(panel.view, LATER)[AWAY_INDEX].text).toBe("Away  [on]");
+		expect(buildRows(panel.view, LATER, WIDE)[AWAY_INDEX].text).toBe(
+			"Away  [on]",
+		);
 	});
 
 	it("turns away off through `set --normal`", async () => {
@@ -1503,7 +1586,7 @@ describe("the Away switch", () => {
 			RUNNING,
 		);
 		expect(calls).toContainEqual(["set", "--normal", "--json"]);
-		expect(buildRows(panel.view, LATER)[AWAY_INDEX].text).toBe(
+		expect(buildRows(panel.view, LATER, WIDE)[AWAY_INDEX].text).toBe(
 			"Away  [off]  normal",
 		);
 	});
@@ -1538,12 +1621,12 @@ describe("the Away switch", () => {
 		});
 		const panel = panelOver(run);
 		await panel.refreshStatus();
-		expect(buildRows(panel.view, LATER)[AWAY_INDEX].text).toBe(
+		expect(buildRows(panel.view, LATER, WIDE)[AWAY_INDEX].text).toBe(
 			"Away  [on]  2 handed off",
 		);
 		shown = RUNNING;
 		await panel.refreshStatus();
-		expect(buildRows(panel.view, LATER)[AWAY_INDEX].text).toBe(
+		expect(buildRows(panel.view, LATER, WIDE)[AWAY_INDEX].text).toBe(
 			"Away  [off]  normal",
 		);
 		await panel.click(AWAY_ROW);
@@ -1565,7 +1648,7 @@ describe("the Away switch", () => {
 		const panel = panelOver(run);
 		await panel.refreshStatus();
 		const press = panel.click(AWAY_ROW);
-		expect(buildRows(panel.view, LATER)[AWAY_INDEX].control.state).toBe(
+		expect(buildRows(panel.view, LATER, WIDE)[AWAY_INDEX].control.state).toBe(
 			"pending",
 		);
 		await panel.refreshStatus();
@@ -1575,7 +1658,9 @@ describe("the Away switch", () => {
 		release();
 		await press;
 		expect(panel.view.presses.away.pending).toBeNull();
-		expect(buildRows(panel.view, LATER)[AWAY_INDEX].control.state).toBe("on");
+		expect(buildRows(panel.view, LATER, WIDE)[AWAY_INDEX].control.state).toBe(
+			"on",
+		);
 	});
 
 	it("clears on the command's refusal and shows it on its own row, then blanks it", async () => {
@@ -1590,14 +1675,16 @@ describe("the Away switch", () => {
 		await panel.refreshStatus();
 		await panel.click(AWAY_ROW);
 		expect(panel.view.presses.away.pending).toBeNull();
-		const rows = buildRows(panel.view, AT);
+		const rows = buildRows(panel.view, AT, WIDE);
 		expect(rows[AWAY_INDEX].control.state).toBe("off");
 		expect(rows[AWAY_INDEX + 1]).toMatchObject({
 			text: "busy",
 			role: "value",
 		});
-		expect(rows[3].text).toBe("Waiting: no free slot");
-		expect(buildRows(panel.view, AT + 60_000)[AWAY_INDEX + 1].text).toBe("");
+		expect(rows[3].text).toBe("Not starting more: the machine is full");
+		expect(buildRows(panel.view, AT + 60_000, WIDE)[AWAY_INDEX + 1].text).toBe(
+			"",
+		);
 	});
 
 	it("shows the command's warning on a loop with no process, then blanks it", async () => {
@@ -1622,13 +1709,15 @@ describe("the Away switch", () => {
 		const panel = panelOver(run);
 		await panel.refreshStatus();
 		await panel.click(AWAY_ROW);
-		const rows = buildRows(panel.view, AT);
+		const rows = buildRows(panel.view, AT, WIDE);
 		expect(rows[AWAY_INDEX].text).toBe("Away  [on]");
 		expect(rows[AWAY_INDEX + 1]).toMatchObject({
 			text: "not running; this holds from its next start",
 			role: "value",
 		});
-		expect(buildRows(panel.view, AT + 60_000)[AWAY_INDEX + 1].text).toBe("");
+		expect(buildRows(panel.view, AT + 60_000, WIDE)[AWAY_INDEX + 1].text).toBe(
+			"",
+		);
 	});
 
 	it("says why a click does nothing with no control to read, and nothing before a read", () => {
@@ -1646,7 +1735,7 @@ describe("the Away switch", () => {
 		const panel = panelOver(run);
 		await panel.refreshStatus();
 		const press = panel.click(AWAY_ROW);
-		const rows = buildRows(panel.view, LATER);
+		const rows = buildRows(panel.view, LATER, WIDE);
 		expect(rows[AWAY_INDEX].control.state).toBe("pending");
 		expect(rows[0].control.state).toBe("on");
 		release();
@@ -1676,7 +1765,7 @@ describe("the Repos section", () => {
 		rows.find((r) => r.control?.name === name);
 	const rowOfBox = (panel: { view: object }, name: string) =>
 		SWITCH_ROW +
-		buildRows(panel.view, LATER).findIndex(
+		buildRows(panel.view, LATER, WIDE).findIndex(
 			(r: Row) => r.control?.name === name,
 		);
 
@@ -1801,7 +1890,7 @@ describe("the Repos section", () => {
 		});
 		await panel.refreshStatus();
 		const clicked = panel.click(rowOfBox(panel, "design-vault"));
-		const rows = buildRows(panel.view, LATER);
+		const rows = buildRows(panel.view, LATER, WIDE);
 		expect(boxOf(rows, "design-vault")).toMatchObject({
 			text: "[…] design-vault  turning on…",
 			control: { state: "pending" },
@@ -1809,7 +1898,7 @@ describe("the Repos section", () => {
 		expect(rows.find((r: Row) => r.text === "Repos").detail).toBe("2 of 4 on");
 		await panel.refreshStatus();
 		expect(
-			boxOf(buildRows(panel.view, LATER), "design-vault")?.control?.state,
+			boxOf(buildRows(panel.view, LATER, WIDE), "design-vault")?.control?.state,
 		).toBe("pending");
 		await panel.click(rowOfBox(panel, "design-vault"));
 		shown = {
@@ -1824,7 +1913,7 @@ describe("the Repos section", () => {
 			["set", "--tick", "design-vault", "--json"],
 		]);
 		expect(
-			boxOf(buildRows(panel.view, LATER), "design-vault")?.control?.state,
+			boxOf(buildRows(panel.view, LATER, WIDE), "design-vault")?.control?.state,
 		).toBe("ticked");
 	});
 
@@ -1840,7 +1929,9 @@ describe("the Repos section", () => {
 		});
 		await panel.click(row);
 		expect(presses()).toEqual([["set", "--untick", "workflow-core", "--json"]]);
-		expect(boxOf(buildRows(panel.view, LATER), "workflow-core")).toMatchObject({
+		expect(
+			boxOf(buildRows(panel.view, LATER, WIDE), "workflow-core"),
+		).toMatchObject({
 			text: "[ ] workflow-core",
 			control: { state: "unticked" },
 		});
@@ -1858,7 +1949,7 @@ describe("the Repos section", () => {
 	it("runs nothing on a press on the heading or the note", async () => {
 		const { panel, presses } = repoPanel(WithRepos);
 		await panel.refreshStatus();
-		const rows = buildRows(panel.view, LATER);
+		const rows = buildRows(panel.view, LATER, WIDE);
 		await panel.click(
 			SWITCH_ROW + rows.findIndex((r: Row) => r.text === "Repos"),
 		);
@@ -1876,17 +1967,17 @@ describe("the Repos section", () => {
 			),
 		});
 		await panel.refreshStatus();
-		const rowsBefore = buildRows(panel.view, LATER);
+		const rowsBefore = buildRows(panel.view, LATER, WIDE);
 		const row = rowOfBox(panel, "design-vault");
 		await panel.click(row);
-		const rows = buildRows(panel.view, AT);
+		const rows = buildRows(panel.view, AT, WIDE);
 		expect(rows).toHaveLength(rowsBefore.length);
 		expect(boxOf(rows, "design-vault")?.control?.state).toBe("unticked");
 		expect(rows[row - SWITCH_ROW + 1]).toEqual({
 			text: "design-vault: no workflow-core config",
 			role: "value",
 		});
-		const expired = buildRows(panel.view, AT + 10_000);
+		const expired = buildRows(panel.view, AT + 10_000, WIDE);
 		expect(expired[row - SWITCH_ROW + 1].text).toBe("");
 	});
 });
@@ -1939,7 +2030,7 @@ describe("the Goal section", () => {
 		return rows.slice(at, at + 4);
 	};
 	const rowWhere = (panel: { view: object }, test: (r: Row) => boolean) =>
-		SWITCH_ROW + buildRows(panel.view, AT).findIndex(test);
+		SWITCH_ROW + buildRows(panel.view, AT, WIDE).findIndex(test);
 	const switchRow = (panel: { view: object }) =>
 		rowWhere(panel, (r) => r.text.startsWith("Goal"));
 	const fieldRow = (panel: { view: object }) => switchRow(panel) + 2;
@@ -2094,6 +2185,7 @@ describe("the Goal section", () => {
 				buildRows(
 					view({ status: WithGoal, ...buildNoted("goal", refused) }),
 					now,
+					WIDE,
 				).map((r: Row) => r.text);
 			expect(rows(LATER)).toContain("wc#5 is in wc, which is not ticked");
 			expect(rows(LATER)).toContain("tick wc first");
@@ -2264,7 +2356,7 @@ describe("the Goal section", () => {
 				],
 			};
 			const texts = (panel: GoalPanel) =>
-				buildRows(panel.view, AT).map((r: { text: string }) => r.text);
+				buildRows(panel.view, AT, WIDE).map((r: { text: string }) => r.text);
 			const rowOf = (panel: GoalPanel, text: string) =>
 				rowWhere(panel, (r) => r.text === text);
 			const SaveTwo = "Save these 2 · Enter";
@@ -2296,7 +2388,7 @@ describe("the Goal section", () => {
 			it("shows the set with titles, and saves it only on the confirm press", async () => {
 				const { panel, presses } = await goalPanel(WithGoal, {}, Found);
 				await typeGoal(panel, "clear Phase 0");
-				const rows = buildRows(panel.view, AT);
+				const rows = buildRows(panel.view, AT, WIDE);
 				expect(rows).toEqual(
 					expect.arrayContaining([
 						expect.objectContaining({ text: "clear Phase 0" }),
@@ -2429,7 +2521,7 @@ describe("the Goal section", () => {
 					why: "the model named no issue",
 				}));
 				await typeGoal(panel, "topic");
-				const shown = buildRows(panel.view, AT + 3_600_000).map(
+				const shown = buildRows(panel.view, AT + 3_600_000, WIDE).map(
 					(r: { text: string }) => r.text,
 				);
 				expect(shown).toContain("Topic not resolved");
@@ -2558,7 +2650,7 @@ describe("the Goal section", () => {
 			await typeGoal(panel, "wc#5");
 			expect(panel.view.presses.goal.pending).toBeNull();
 			expect(presses()).toEqual([["set", "--goal=wc#5", "--json"]]);
-			const rows: Row[] = buildRows(panel.view, AT);
+			const rows: Row[] = buildRows(panel.view, AT, WIDE);
 			const at = rows.findIndex((r) => r.text.startsWith("Goal"));
 			expect(rows[at].control?.state).toBe("on");
 			expect(rows.slice(at + 2, at + 5).map((r) => r.text)).toEqual([
@@ -2583,16 +2675,16 @@ describe("the Goal section", () => {
 				code: 1,
 				stdout: NotTicked,
 			});
-			const before = buildRows(panel.view, AT).length;
+			const before = buildRows(panel.view, AT, WIDE).length;
 			await typeGoal(panel, "wc#5");
-			const rows: Row[] = buildRows(panel.view, AT);
+			const rows: Row[] = buildRows(panel.view, AT, WIDE);
 			expect(rows).toHaveLength(before);
 			const box = rows.findIndex((r) => r.control?.name === "wc");
 			expect(rows[box + 1].text).toBe(
 				"wc#5 is in wc, which is not ticked; tick wc first",
 			);
 			await panel.click(fieldRow(panel));
-			const edited: Row[] = buildRows(panel.view, AT);
+			const edited: Row[] = buildRows(panel.view, AT, WIDE);
 			expect(edited[box + 1].text).toBe("");
 		});
 
@@ -2625,7 +2717,7 @@ describe("the Goal section", () => {
 				{ code: 2, stdout: NotTicked },
 			);
 			const others = () =>
-				buildRows(panel.view, AT)
+				buildRows(panel.view, AT, WIDE)
 					.slice(0, switchRow(panel) - SWITCH_ROW)
 					.map((r: Row) => r.text);
 			const before = others();
@@ -2693,7 +2785,7 @@ describe("the spacing scale", () => {
 		["siblings: Away to Burn mode", "Burn mode", 1],
 		["siblings: one box to the next", "[ ] dv", 1],
 		["siblings: the last box to the note", "An unticked repo", 1],
-		["inside a text block: the loop's line 2", "Waiting:", 0],
+		["inside a text block: the loop's line 2", "Not starting", 0],
 		["siblings: the loop's lines to the plan rows", "Weekly plan usage", 1],
 		["inside a text block: the plan rows", ".claude3", 0],
 		["inside a text block: the caption under the field", "Click to change", 0],
@@ -2822,10 +2914,12 @@ describe("keys and focus", () => {
 		{
 			status = Status,
 			height = TALL,
+			columns = WIDE,
 			returned = focusMoved,
 		}: {
 			status?: object;
 			height?: number;
+			columns?: number;
 			returned?: typeof focusMoved;
 		} = {},
 	) {
@@ -2842,7 +2936,11 @@ describe("keys and focus", () => {
 			returns += 1;
 			return returned();
 		};
-		const panel = panelOver(run, run, resolveTopic, { returnFocus, height });
+		const panel = panelOver(run, run, resolveTopic, {
+			returnFocus,
+			height,
+			columns,
+		});
 		await panel.refreshStatus();
 		return {
 			panel,
@@ -2852,12 +2950,14 @@ describe("keys and focus", () => {
 	}
 	type Panel = Awaited<ReturnType<typeof buildCountingPanel>>["panel"];
 	const pointedText = (panel: Panel) =>
-		(buildRows(panel.view, AT) as (Row & { pointed?: boolean })[])
+		(buildRows(panel.view, AT, WIDE) as (Row & { pointed?: boolean })[])
 			.filter((r) => r.pointed)
 			.map((r) => r.text);
 	const rowOf = (panel: Panel, start: string) =>
 		SWITCH_ROW +
-		buildRows(panel.view, AT).findIndex((r: Row) => r.text.startsWith(start));
+		buildRows(panel.view, AT, WIDE).findIndex((r: Row) =>
+			r.text.startsWith(start),
+		);
 	async function pointAt(panel: Panel, start: string) {
 		panel.takeFocus();
 		for (const _ of Walk) {
@@ -2867,6 +2967,61 @@ describe("keys and focus", () => {
 		throw new Error(`never reached ${start}`);
 	}
 
+	describe("a pane too narrow for a row", () => {
+		const Narrow = 24;
+		const drawn = (panel: Panel) => buildRows(panel.view, AT, Narrow);
+		const narrowPanel = () =>
+			buildCountingPanel(noop, undefined, { columns: Narrow });
+
+		it("presses the control showing, below a wrapped row", async () => {
+			const { panel, presses } = await narrowPanel();
+			const rows = drawn(panel);
+			expect(rows.length).toBeGreaterThan(
+				buildRows(panel.view, AT, WIDE).length,
+			);
+			const box = rows.findIndex((r: Row) => r.text.startsWith("Away"));
+			await panel.click(SWITCH_ROW + box);
+			expect(presses().flat()).toContain("--away");
+		});
+
+		it("presses a wrapped row's press from any of its rows", async () => {
+			const { panel, presses } = await buildCountingPanel(noop, undefined, {
+				columns: Narrow,
+				status: STOPPED,
+			});
+			const isPress = (r: Row & { presses?: string }) => r.presses === "loop";
+			const rows = drawn(panel);
+			expect(rows.filter(isPress).length).toBeGreaterThan(1);
+			await panel.click(SWITCH_ROW + rows.findLastIndex(isPress));
+			expect(presses().flat()).toContain("--resume");
+		});
+
+		it("moves the pointer once over a control wrapped onto two rows", async () => {
+			const goal = {
+				form: "topic",
+				text: "a goal far too long to sit on one row of this pane",
+				refs: [],
+				setAt: AT,
+				open: 1,
+				takeable: 0,
+				running: 0,
+				doneAt: null,
+			};
+			const { panel } = await buildCountingPanel(noop, undefined, {
+				columns: Narrow,
+				status: { ...Status, goal },
+			});
+			await pointAt(panel, "Goal");
+			await panel.pressKey(Down);
+			const pointed = drawn(panel).filter(
+				(r: Row & { pointed?: boolean }) => r.pointed,
+			);
+			expect(pointed).toHaveLength(1);
+			await panel.pressKey(Down);
+			expect(pointedText(panel)[0]).toMatch(/^\[/);
+		});
+	});
+
 	describe("a pane shorter than the rows", () => {
 		/* Ends on Burn mode's row, which the mark below takes; the boxes lie well below it. */
 		const Short = BURN_ROW;
@@ -2874,7 +3029,7 @@ describe("keys and focus", () => {
 		const shortPanel = () =>
 			buildCountingPanel(noop, undefined, { height: Short });
 		const frameOf = (panel: Panel) =>
-			buildFrame(buildRows(panel.view, AT), Columns, Short, {
+			buildFrame(buildRows(panel.view, AT, WIDE), Columns, Short, {
 				scroll: panel.view.scroll,
 			});
 		/* Where the frame draws a row's text, as a mouse report counts it. */
@@ -2932,7 +3087,7 @@ describe("keys and focus", () => {
 			panel.scrollBy(-1);
 			expect(frameOf(panel)).toContain("Refill loop");
 			toBottom(panel);
-			const last = buildRows(panel.view, AT).at(-1).text;
+			const last = buildRows(panel.view, AT, WIDE).at(-1).text;
 			expect(drawnRowOf(frameOf(panel), last)).toBe(Short);
 			panel.scrollBy(-99);
 			expect(frameOf(panel)).toContain("Refill loop");
@@ -2941,7 +3096,7 @@ describe("keys and focus", () => {
 		it("draws from a kept scroll only as far as the rows now reach", async () => {
 			const { panel } = await shortPanel();
 			toBottom(panel);
-			const fewer = buildRows(panel.view, AT).slice(0, Short - 1);
+			const fewer = buildRows(panel.view, AT, WIDE).slice(0, Short - 1);
 			const frame = buildFrame(fewer, Columns, Short, {
 				scroll: panel.view.scroll,
 			});
@@ -2959,8 +3114,8 @@ describe("keys and focus", () => {
 			expect(marks()).toEqual([true, true]);
 			toBottom(panel);
 			expect(marks()).toEqual([true, false]);
-			const all = buildFrame(buildRows(panel.view, AT), Columns, TALL);
-			expect(all).not.toContain(" more");
+			const all = buildFrame(buildRows(panel.view, AT, WIDE), Columns, TALL);
+			expect(all).not.toMatch(/[↑↓] more/);
 		});
 
 		it("rubs out the mark above once back at the top", async () => {
@@ -3086,7 +3241,7 @@ describe("keys and focus", () => {
 		it("draws in the column left of the rows, and erases when it moves off", async () => {
 			const { panel } = await buildCountingPanel();
 			panel.takeFocus();
-			const frame = () => buildFrame(buildRows(panel.view, AT), 60, 50);
+			const frame = () => buildFrame(buildRows(panel.view, AT, WIDE), 60, 50);
 			expect(frame()).toContain(`${ESC}[${SWITCH_ROW};1H❯`);
 			await panel.pressKey(Down);
 			expect(frame()).toContain(`${ESC}[${SWITCH_ROW};1H `);
@@ -3095,7 +3250,7 @@ describe("keys and focus", () => {
 
 		it("lists the hint under the last control, and drops it while typing", async () => {
 			const { panel } = await buildCountingPanel();
-			const last = () => buildRows(panel.view, AT).at(-1)?.text;
+			const last = () => buildRows(panel.view, AT, WIDE).at(-1)?.text;
 			const hint = "Esc leave";
 			expect(last()).toBe(hint);
 			await panel.click(rowOf(panel, "No goal"));
@@ -3260,7 +3415,7 @@ describe("keys and focus", () => {
 			});
 			panel.takeFocus();
 			await panel.pressKey(Escape);
-			const texts = buildRows(panel.view, AT).map((r: Row) => r.text);
+			const texts = buildRows(panel.view, AT, WIDE).map((r: Row) => r.text);
 			expect(texts).toContain("Focus stayed here: no wt.exe");
 			expect(pointedText(panel)[0]).toMatch(/^Refill/);
 		});

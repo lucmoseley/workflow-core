@@ -1,6 +1,6 @@
 /*
  * refill-panel.js — what the refill loop's panel draws and what a click or a key
- * does, with no terminal (#3873, #3875, #3877, #3879, #3881, #3883, #3884, #3887, #3948, #3958, #3968, spec #3596): status JSON and pending presses in, rows
+ * does, with no terminal (#3873, #3875, #3877, #3879, #3881, #3883, #3884, #3887, #3948, #3956, #3958, #3968, spec #3596): status JSON and pending presses in, rows
  * out; a click on a row or a key in, a `refill-loop.js` or `burn-mode.sh` argv out, and focus handed back. The
  * panel runs those two for every read and write, and never opens a control or
  * state file, so the loop's validation, lock and wake apply to every loop press.
@@ -18,7 +18,17 @@ const { localDate } = require("./morning-review.js");
 const { ESC } = require("./refill-panel-input.js");
 const { buildControlImage } = require("./refill-panel-sixel.js");
 const { describeAge } = require("./proc-table.js");
-const { NO_PROGRESS_PAUSE } = require("./refill-decide.js");
+const {
+	FIVE_HOUR_FULL,
+	LIMIT_HELD_WAIT,
+	NO_FREE_SLOT,
+	NO_PLAN_ROOM,
+	NO_PROGRESS_PAUSE,
+	NOTHING_LAUNCHABLE,
+	RESUME_DUE_WAIT,
+	RESUMES_TAKE_SLOTS,
+	SHORTLIST_FAILED,
+} = require("./refill-decide.js");
 const { buildProgressText, parseGoalForm } = require("./refill-goal.js");
 const { buildNotice, buildNoticeText } = require("./refill-notice.js");
 
@@ -58,7 +68,22 @@ const GOAL_CAPTION = ["Click to change it", "Enter to save · Esc to cancel"];
 const KEY_HINT = ["↑↓ move · space change", "Esc leave"];
 const POINTER_MARK = "❯";
 
-/* Two short lines, so a narrow pane cuts neither: a pulled-in blocker is held only
+const NOT_STARTING = "Not starting more";
+/* What the waiting row says for a tick's idle reason, whose constants are the log's too
+ * (#4004). An idle reason opens with its first clause, and `status` keeps the rest. */
+/** @type {[string, string][]} */
+const WAITING_WORDS = [
+	[NO_FREE_SLOT, `${NOT_STARTING}: the machine is full`],
+	[NO_PLAN_ROOM, `${NOT_STARTING}: no plan has room`],
+	[FIVE_HOUR_FULL, `${NOT_STARTING}: a 5-hour limit is full`],
+	[NOTHING_LAUNCHABLE, `${NOT_STARTING}: no ticket is ready`],
+	[SHORTLIST_FAILED, `${NOT_STARTING}: a ticket list failed`],
+	[RESUMES_TAKE_SLOTS, "Resuming paused sessions first"],
+	[RESUME_DUE_WAIT, "All plans used up; a resume is due"],
+	[LIMIT_HELD_WAIT, "All plans used up; a session waits"],
+];
+
+/* A pulled-in blocker is held only
  * by `refillLoop: false` or no checkout (#2427). */
 const REPOS_NOTE = [
 	"An unticked repo still supplies",
@@ -233,13 +258,18 @@ function buildIssueRefs(issues) {
  * @param {PanelStatus} status
  * @param {number} now
  */
-function buildWaitingText(status, now) {
+function buildWaitingRowText(status, now) {
 	const tick = buildCurrentTick(status);
-	if (!tick?.planWait) return tick?.idle ?? "the next check";
-	const { resets } = tick.planWait;
-	return resets === null
-		? "a plan resets, its time unread"
-		: `a plan resets at ${buildClock(resets, now)}`;
+	if (tick?.planWait) {
+		const { resets } = tick.planWait;
+		return resets === null
+			? "Waiting: a plan resets, its time unread"
+			: `Waiting: a plan resets at ${buildClock(resets, now)}`;
+	}
+	const idle = tick?.idle;
+	if (!idle) return "";
+	const words = WAITING_WORDS.find(([reason]) => idle.startsWith(reason));
+	return words ? words[1] : `${NOT_STARTING}: ${idle.replace(/; .*$/s, "")}`;
 }
 
 /**
@@ -351,7 +381,7 @@ function buildObservedLines(status, now) {
 	return [
 		{ text: `${status.launchesToday} launched today`, role: "value" },
 		{
-			text: `Waiting: ${buildWaitingText(status, now)}`,
+			text: buildWaitingRowText(status, now),
 			role: "secondary",
 		},
 	];
@@ -426,7 +456,7 @@ function buildSpendState(status) {
 	if (isLaunching(status) && picksKey && status.lastTick?.idle === null)
 		return { spending: true, text: "Spending now: plans are full" };
 	if (overflow.some((key) => "why" in key))
-		return { spending: false, text: "Spending unknown: a key is unread" };
+		return { spending: false, text: "Spending unknown" };
 	return {
 		spending: false,
 		text: `Not spending: ${buildNotSpendingReason(status, picksKey)}`,
@@ -736,7 +766,7 @@ function buildGoalField({ status, goalEdit, goalResolve }, now) {
 
 /**
  * What a goal press left, in the caption's two rows: the reason, then what to do
- * about it, so a narrow pane cutting the reason still shows the box to tick.
+ * about it.
  * @param {PressNote} note
  * @returns {Row[]}
  */
@@ -928,15 +958,16 @@ function buildPointerKey({ control }) {
 }
 
 /** @param {Row[]} rows */
-const buildPointerKeys = (rows) =>
-	rows.map(buildPointerKey).filter((key) => key !== null);
+const buildPointerKeys = (rows) => [
+	...new Set(rows.map(buildPointerKey).filter((key) => key !== null)),
+];
 
 /**
  * @param {PanelView} view
  * @param {number} now
  * @returns {Row[]}
  */
-function buildRows(view, now) {
+function buildUnwrappedRows(view, now) {
 	const rows = buildUnpointedRows(view, now);
 	return view.pointer === null || isFieldOpen(view)
 		? rows
@@ -1170,8 +1201,8 @@ function buildSetNote(result) {
  * during another runs after it, so a press's read starts after its command.
  * @param {{run: Runner, runBurn: Runner, now: () => number,
  *   resolveTopic: TopicResolver, returnFocus: FocusReturner, height: () => number,
- *   onChange: () => void}} deps `run`, `refill-loop.js`; `runBurn`, `burn-mode.sh`;
- *   `returnFocus`, hands focus to the agents pane; `height`, the terminal's rows
+ *   columns: () => number, onChange: () => void}} deps `run`, `refill-loop.js`; `runBurn`, `burn-mode.sh`;
+ *   `returnFocus`, hands focus to the agents pane; `height`, the terminal's rows; `columns`, its width
  */
 function createPanel({
 	run,
@@ -1180,6 +1211,7 @@ function createPanel({
 	resolveTopic,
 	returnFocus,
 	height,
+	columns,
 	onChange,
 }) {
 	/** @type {PanelView} */
@@ -1193,6 +1225,7 @@ function createPanel({
 		focusNote: null,
 		scroll: 0,
 	};
+	const buildViewRows = () => buildRows(view, now(), columns());
 	/* Off a focus report, so never set on a terminal that sends none. */
 	let focusGone = false;
 	let returning = false;
@@ -1409,7 +1442,7 @@ function createPanel({
 			return;
 		}
 		request.found = result;
-		const rows = buildRows(view, now());
+		const rows = buildViewRows();
 		revealRow(rows, rows.findIndex(isSaveRow));
 		onChange();
 	}
@@ -1516,7 +1549,7 @@ function createPanel({
 			return;
 		}
 		view.goalEdit = buildEditAfter(edit, key);
-		const rows = buildRows(view, now());
+		const rows = buildViewRows();
 		revealRow(
 			rows,
 			rows.findIndex((row) => row.caret !== undefined),
@@ -1554,7 +1587,7 @@ function createPanel({
 	 * @returns {boolean} whether the row had to come back
 	 */
 	function bringIntoView(isWanted) {
-		const rows = buildRows(view, now());
+		const rows = buildViewRows();
 		const at = rows.findIndex(isWanted);
 		if (at < 0 || isRowDrawn(rows, at)) return false;
 		revealRow(rows, at);
@@ -1564,7 +1597,7 @@ function createPanel({
 
 	/** @param {number} delta rows, negative is up, stopping at either end */
 	function scrollRows(delta) {
-		const count = buildRows(view, now()).length;
+		const count = buildViewRows().length;
 		const { first } = buildWindow(count, height(), view.scroll);
 		const next = buildWindow(count, height(), first + delta).first;
 		if (next === first) return;
@@ -1577,7 +1610,7 @@ function createPanel({
 
 	/** The first control showing, which leaves the rows where the reader has them. */
 	function buildFirstPointerKey() {
-		const rows = buildRows(view, now());
+		const rows = buildViewRows();
 		const { first, count } = buildWindow(rows.length, height(), view.scroll);
 		const showing = rows.slice(first, first + count);
 		return buildPointerKeys(showing)[0] ?? buildPointerKeys(rows)[0] ?? null;
@@ -1606,12 +1639,12 @@ function createPanel({
 	function movePointer(step) {
 		if (view.pointer === null) view.pointer = buildFirstPointerKey();
 		else {
-			const keys = buildPointerKeys(buildRows(view, now()));
+			const keys = buildPointerKeys(buildViewRows());
 			const at = keys.indexOf(view.pointer);
 			view.pointer =
 				keys[Math.min(Math.max(at + step, 0), keys.length - 1)] ?? null;
 		}
-		const rows = buildRows(view, now());
+		const rows = buildViewRows();
 		/* The last control takes the rows under it along, the key hint among them. */
 		revealRow(
 			rows,
@@ -1625,7 +1658,7 @@ function createPanel({
 	async function pressPointedRow() {
 		if (bringIntoView((row) => row.pointed === true)) return;
 		await pressRow(
-			buildRows(view, now()).find((row) => row.pointed),
+			buildViewRows().find((row) => row.pointed),
 			false,
 		);
 	}
@@ -1661,7 +1694,7 @@ function createPanel({
 	 * @param {number} terminalRow
 	 */
 	async function click(terminalRow) {
-		const rows = buildRows(view, now());
+		const rows = buildViewRows();
 		const scrollWindow = buildWindow(rows.length, height(), view.scroll);
 		const markStep = findMarkStep(scrollWindow, terminalRow, height());
 		if (markStep !== 0) {
@@ -1724,6 +1757,7 @@ function createPanel({
 		click,
 		missClick: leaveUnlessTyping,
 		pressKey,
+		buildViewRows,
 		scrollBy,
 		leave,
 		takeFocus,
@@ -1787,6 +1821,63 @@ function findDrawnRow(rows, terminalRow, height, scroll) {
 const buildDrawableChars = (text) => [...text.replace(/\p{Cc}+/gu, " ")];
 
 /**
+ * Whether a control is drawn as an image, which only a control with a state is.
+ * @param {Row["control"]} control
+ * @returns {control is Extract<NonNullable<Row["control"]>, {state: unknown}>}
+ */
+const isImaged = (control) => control !== undefined && "state" in control;
+
+/** @param {number} columns the terminal's width */
+const countRowCells = (columns) => columns - (LEFT_COLUMN - 1) * 2;
+
+/**
+ * `text` as lines of at most `width` cells, broken at spaces, each under the text's own
+ * indent. A word longer than a line breaks where the line ends.
+ * @param {string} text
+ * @param {number} width
+ * @returns {string[]}
+ */
+function buildWrappedLines(text, width) {
+	const chars = buildDrawableChars(text);
+	if (chars.length <= width || width < 1) return [chars.join("")];
+	const found = chars.findIndex((char) => char !== " ");
+	const indent = found > 0 && found < width ? found : 0;
+	const room = width - indent;
+	const margin = " ".repeat(indent);
+	const lines = [];
+	let rest = chars.slice(indent);
+	while (rest.length > room) {
+		const space = rest.lastIndexOf(" ", room);
+		const cut = space > 0 ? space : room;
+		lines.push(margin + rest.slice(0, cut).join("").trimEnd());
+		rest = [...rest.slice(cut).join("").trimStart()];
+	}
+	return rest.length > 0 ? [...lines, margin + rest.join("")] : lines;
+}
+
+/**
+ * The rows a pane of `columns` draws: a row longer than a line goes on over further
+ * rows, each pressing what it did, the pointer on the first. A row holding an image or a
+ * caret stays on its one line, where those are placed, as does a heading with its detail.
+ * @param {PanelView} view
+ * @param {number} now
+ * @param {number} columns the terminal's width
+ * @returns {Row[]}
+ */
+function buildRows(view, now, columns) {
+	const width = countRowCells(columns);
+	return buildUnwrappedRows(view, now).flatMap((row) =>
+		isImaged(row.control) || row.caret !== undefined || row.detail
+			? [row]
+			: buildWrappedLines(row.text, width).map((text, i) => ({
+					...row,
+					text,
+					pointed: row.pointed && i === 0,
+				})),
+	);
+}
+
+/**
  * `text` on one line of `width` cells: a row never wraps into the one below.
  * @param {string} text
  * @param {number} width
@@ -1806,7 +1897,7 @@ function fitText(text, width) {
  * @param {boolean} hovered
  */
 function buildImagedRow({ text, control }, width, hovered) {
-	if (!control || !("state" in control)) return null;
+	if (!isImaged(control)) return null;
 	const mark =
 		control.id === "repo"
 			? BOX_TEXT[control.state]
@@ -1826,7 +1917,7 @@ function buildImagedRow({ text, control }, width, hovered) {
  */
 const findHoverRow = (rows, terminalRow, height, scroll) => {
 	const control = findDrawnRow(rows, terminalRow, height, scroll)?.control;
-	return control && "state" in control ? terminalRow : null;
+	return isImaged(control) ? terminalRow : null;
 };
 
 /**
@@ -1850,7 +1941,7 @@ function buildFrame(
 	height,
 	{ images = false, hoverRow = null, scroll = 0 } = {},
 ) {
-	const width = columns - (LEFT_COLUMN - 1) * 2;
+	const width = countRowCells(columns);
 	let cursor = "";
 	let placed = "";
 	const { first, count, markAbove, markBelow } = buildWindow(

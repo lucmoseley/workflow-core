@@ -19,7 +19,7 @@ const WINDOWS_TERMINAL = {
 		"split-pane",
 		"-V",
 		"--size",
-		"0.3",
+		"0.2625",
 		"--title",
 		"refill",
 		"wsl.exe",
@@ -31,12 +31,13 @@ const WINDOWS_TERMINAL = {
 const TMUX = {
 	name: "tmux",
 	file: "tmux",
-	args: ["split-window", "-h", "-d", "-l", "30%", ...COMMAND, "tmux"],
+	args: ["split-window", "-h", "-d", "-l", "38", ...COMMAND, "tmux"],
 };
 
 const routes = (
 	env: Record<string, string>,
 	onPath: readonly string[] = ["cmd.exe", "wt.exe"],
+	viewColumns: number | null = null,
 ) =>
 	buildRoutes({
 		env,
@@ -44,9 +45,19 @@ const routes = (
 		node: "/n/node",
 		panel: "/p/refill-panel.js",
 		pid: 42,
+		viewColumns,
 	});
 
 describe("buildRoutes", () => {
+	it.each([
+		["a wider window", 206, "0.2"],
+		["the window the width was measured on", 156, "0.2625"],
+		["a narrow window, which keeps half for the view", 60, "0.5"],
+	])("sizes the Windows Terminal split for %s", (_, viewColumns, share) => {
+		const [route] = routes({ WSL_INTEROP: "/run/x" }, undefined, viewColumns);
+		expect(route.args[route.args.indexOf("--size") + 1]).toBe(share);
+	});
+
 	it("offers Windows Terminal, then tmux, where both are there", () => {
 		expect(routes({ WSL_INTEROP: "/run/x", TMUX: "/t" })).toEqual([
 			WINDOWS_TERMINAL,
