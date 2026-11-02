@@ -49,7 +49,8 @@
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const { listedAgents } = require("./agent-liveness.js");
+const { listedAgents, readAgentsAfterBoot } = require("./agent-liveness.js");
+const { isEmptyListingTrusted } = require("./refill-boot.js");
 const { buildDriftLines, readRegistryAgents } = require("./registry-agents.js");
 const { readActsBy } = require("./arbiter-store.js");
 const { PROBE_TIMEOUT_MS } = require("./usage-probe.js");
@@ -1368,6 +1369,44 @@ function dropSettledLifted(settled) {
 }
 
 /**
+ * The log lines of stopNeverStarted, none on a dry run or a boot's tick, where a
+ * job with no process is one the restart killed, due back through the resume step.
+ * @param {boolean} dryRun
+ * @param {import("./refill-loop.js").LoopState} state
+ * @param {Parameters<typeof stopNeverStarted>[0]} registry
+ */
+const stopsOfNeverStarted = (dryRun, state, registry) =>
+	dryRun || state.bootedAt !== undefined ? [] : stopNeverStarted(registry);
+
+/**
+ * The tick's listing, an empty one read as nothing live where a boot's killed
+ * launches allow it. A dry run judges nothing by it, so it reads the plain one.
+ * @param {boolean} dryRun
+ * @param {import("./refill-loop.js").LoopState} state
+ */
+function readTickListing(dryRun, state) {
+	const isBoot = !dryRun && isEmptyListingTrusted(state);
+	const read = isBoot
+		? readAgentsAfterBoot()
+		: listedAgents({ requireSelf: false });
+	if (isBoot && read.why)
+		log(`a restart's killed launches wait on the listing: ${read.why}`);
+	return read.agents ?? null;
+}
+
+/**
+ * The launches with those a boot's restart killed queued, and `bootedAt` gone, once
+ * a listing has read; as they were until then.
+ * @param {import("./refill-loop.js").LoopState} state
+ * @param {Parameters<typeof blocks.queueBootKilled>[1]} seen
+ * @returns {{launches: import("./refill-loop.js").LoopLaunch[], bootedAt?: number}}
+ */
+const settleBoot = ({ launches, bootedAt }, seen) =>
+	bootedAt === undefined || seen.agents === null
+		? { launches, bootedAt }
+		: { launches: blocks.queueBootKilled(launches, seen) };
+
+/**
  * One tick: its decision and the start it judged against. Under `dryRun`
  * nothing is reaped, launched or written.
  * @param {{dryRun: boolean}} opts
@@ -1393,14 +1432,13 @@ async function tick({ dryRun }) {
 	/* Relief first, off the registry alone: the CLI listing below can outrun
 	 * its caps under the very pressure relief exists for (#2665). */
 	const registry = readRegistryAgents();
-	if (!dryRun) for (const line of stopNeverStarted(registry)) log(line);
+	for (const line of stopsOfNeverStarted(dryRun, state, registry)) log(line);
 	const broken = dryRun ? [] : tendCheckouts(served, state.launches, now);
-	const agents = listedAgents({ requireSelf: false }).agents ?? null;
+	const agents = readTickListing(dryRun, state);
 	/* Read side by side here anyway, so the undocumented registry the relief
 	 * steps trust is checked against the documented listing every tick. */
 	if (agents)
 		for (const line of buildDriftLines(agents, registry.agents)) log(line);
-	const listed = judgeFinished(state.launches, agents, now, served);
 	const seen = {
 		agents,
 		now,
@@ -1408,6 +1446,8 @@ async function tick({ dryRun }) {
 		swapHold: readSwapHold(),
 		paused: control.paused !== undefined,
 	};
+	const booted = dryRun ? state : settleBoot(state, seen);
+	const listed = judgeFinished(booted.launches, agents, now, served);
 	const acted = dryRun ? listed : actOnLaunches(listed, control, served, seen);
 	const { launches: judged, settled: liftedSettled } = queueLiftedHolds(acted, {
 		setsNothingRunning: dryRun || seen.paused || control.stopRequested,
@@ -1482,6 +1522,7 @@ async function tick({ dryRun }) {
 			probes,
 			read,
 			probeBrokenRoots: broken,
+			bootedAt: booted.bootedAt,
 		},
 		{
 			readControl,

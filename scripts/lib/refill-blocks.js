@@ -24,6 +24,7 @@ const {
 	IDLE_PROMPT,
 	LIMIT_PROMPT,
 	MOVED_PROMPT,
+	BOOT_PROMPT,
 } = require("./loop-prompts.js");
 const {
 	buildLimitCapText,
@@ -45,6 +46,9 @@ const HAND_OFF_TRIES = 3;
 /* The resumes of a session stopped under the swap hold that fail before the
  * loop hands it off instead: untraced (#3093). */
 const SWAP_RESUME_TRIES = 3;
+/* A finished session drops off the listing; one just launched may not be on
+ * it yet, so a launch younger than this is never judged finished. Untraced. */
+const LISTING_GRACE_MS = 2 * 60 * 1000;
 /* The listed state of a session parked on a question
  * (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/session-state-status-skew.md §F1). */
 const PARKED_STATE = "blocked";
@@ -69,6 +73,10 @@ const PARKED_STATE = "blocked";
  *   the stop, and the resumes since tried that failed
  * @typedef {SwapHeld & {hold: string}} HoldCleared  a session parked on a repo
  *   hold since cleared (#3863): `at`, when it parked, and `hold`, that hold's id
+ * @typedef {Omit<SwapHeld, "sessionId"> & {sessionId: string|null}} BootKilled  a
+ *   session a restart killed mid-work (#3880): `at`, when it was launched, which
+ *   sets its turn among the resumes; `sessionId`, null unread, nothing then able
+ *   to resume it
  * @typedef {{bar: "weekly"|"5-hour"|null, resets: string|null}} LimitRead  the
  *   limit a seat's reading shows a session stopped on, null where neither bar
  *   read, with its reset as read; from the reading, never the limit's text
@@ -236,10 +244,19 @@ const isSwapHeld = (l) => l.swapHeld !== undefined;
 const isHoldCleared = (l) => l.holdCleared !== undefined;
 
 /**
+ * Whether `l`'s session, killed by a restart, is due back through the resume step
+ * (#3880).
+ * @param {LoopLaunch} l
+ * @returns {l is LoopLaunch & {bootKilled: BootKilled}}
+ */
+const isBootKilled = (l) => l.bootKilled !== undefined;
+
+/**
  * Whether `l`'s stopped session waits on the tick's resume step.
  * @param {LoopLaunch} l
  */
-const isStepResume = (l) => isSwapHeld(l) || isHoldCleared(l);
+const isStepResume = (l) =>
+	isSwapHeld(l) || isHoldCleared(l) || isBootKilled(l);
 
 /**
  * Whether the loop stopped `l`'s session on its seat's limit (#3735).
@@ -306,7 +323,8 @@ const nextResumeAt = (l) => resumeDueAt(blockOf(l));
  * unlisted launch, for one whose row carries no `state`, or for a held one
  * (isHeld) whose session has ended, each keeps what the last read said; one held under the swap hold whose session
  * the listing shows live again is no longer held (#3093), as one due back off a
- * cleared repo hold, its founder's answer having woken it (#3863).
+ * cleared repo hold, its founder's answer having woken it (#3863), or off a
+ * restart, its harness having brought it back (#3880).
  * @param {LoopLaunch[]} launches
  * @param {AgentRecord[]|null} agents
  * @param {CauseOf} causeOf
@@ -330,6 +348,7 @@ function markParked(launches, agents, causeOf, now) {
 			swapHeld: __,
 			limitHeld: ___,
 			holdCleared: ____,
+			bootKilled: _____,
 			...rest
 		} = l;
 		if (row.state !== PARKED_STATE) return { ...rest, parked: false };
@@ -455,15 +474,42 @@ function isResumeArrived(attachAt, prompt, timeline) {
  * @param {L} l
  */
 function endedIdle(l) {
-	const { idleResumes: _, idleSince: __, ...rest } = l;
+	const { idleResumes: _, idleSince: __, bootResumedAt: ___, ...rest } = l;
 	return rest;
 }
+
+/**
+ * Whether `l`, resumed after a restart killed it, has left the listing with no turn
+ * since, past the listing's grace: the resume took, then the session died.
+ * @param {LoopLaunch} l
+ * @param {Tick} seen
+ */
+const isDeadAfterBootResume = (l, { agents, now, io }) =>
+	isLive(l) &&
+	l.bootResumedAt !== undefined &&
+	agents !== null &&
+	now - l.bootResumedAt >= LISTING_GRACE_MS &&
+	!isLiveIn(l, agents) &&
+	!io.hasTurnedSince(l, l.bootResumedAt);
+
+/**
+ * Whether `l`, resumed after a restart killed it, still reads working with no turn
+ * since: the harness writes no restart row for a resume, so resumedIdleSince cannot
+ * see it (#3880).
+ * @param {JobLaunch} l
+ * @param {BlockIo} io
+ * @returns {l is JobLaunch & {bootResumedAt: number}}
+ */
+const isIdleSinceBootResume = (l, io) =>
+	l.bootResumedAt !== undefined &&
+	!io.hasTurnedSince(l, l.bootResumedAt) &&
+	io.jobStateOf(l)?.state === "working";
 
 /**
  * `l`'s resumed-idle reading off its job store and transcript: "turned"
  * where it took a turn after the loop's last typed resume (#2978), "ended"
  * where its job no longer reads idle, "unread" where its records will not
- * read, else when it went idle.
+ * read, else when it went idle, for one resumed after a restart its resume.
  * @param {JobLaunch} l
  * @param {BlockIo} io
  * @returns {"turned"|"ended"|"unread"|number}
@@ -471,7 +517,9 @@ function endedIdle(l) {
 function idleReading(l, io) {
 	const at = l.idleResumes?.triedAt;
 	if (at !== undefined && io.hasTurnedSince(l, at)) return "turned";
-	return io.idleSince(l) ?? "ended";
+	const since = io.idleSince(l);
+	if (since !== null) return since;
+	return isIdleSinceBootResume(l, io) ? l.bootResumedAt : "ended";
 }
 
 /**
@@ -1043,17 +1091,31 @@ const buildHoldClearedText = (l) =>
 	`${launchName(l)}, parked at ${iso(l.holdCleared.at)} on repo hold ${l.holdCleared.hold}`;
 
 /**
- * What the resume step needs of `l`, one of isStepResume's two.
+ * What the resume step needs of `l`, one of isStepResume's three: `why`, what
+ * brings it back.
  * @param {JobLaunch} l
- * @returns {{held: SwapHeld, what: string, prompt: string, isParked: boolean,
- *   rest: JobLaunch, withTries: (tries: number) => JobLaunch}}
+ * @returns {{held: SwapHeld|BootKilled, what: string, why: string, prompt: string,
+ *   isParked: boolean, rest: JobLaunch, withTries: (tries: number) => JobLaunch}}
  */
 function stepResumeOf(l) {
+	if (isBootKilled(l)) {
+		const { bootKilled, ...rest } = l;
+		return {
+			held: bootKilled,
+			what: `${launchName(l)}, launched at ${iso(l.launchedAt)}`,
+			why: "killed by a restart",
+			prompt: BOOT_PROMPT,
+			isParked: false,
+			rest,
+			withTries: (tries) => ({ ...l, bootKilled: { ...bootKilled, tries } }),
+		};
+	}
 	if (isSwapHeld(l)) {
 		const { swapHeld, ...rest } = l;
 		return {
 			held: swapHeld,
 			what: buildSwapHeldText(l),
+			why: "the hold cleared",
 			prompt: IDLE_PROMPT,
 			isParked: false,
 			rest,
@@ -1065,6 +1127,7 @@ function stepResumeOf(l) {
 	return {
 		held: holdCleared,
 		what: buildHoldClearedText({ ...l, holdCleared }),
+		why: "the hold cleared",
 		prompt: HOLD_PROMPT,
 		isParked: true,
 		rest,
@@ -1074,9 +1137,10 @@ function stepResumeOf(l) {
 
 /**
  * The sessions due back through the tick's resume step, for its decision to pace
- * (#3855): those stopped under the swap hold and those parked on a cleared repo hold
- * (#3863), none while the swap hold stands, and none off an unread listing, as one
- * live again is not yet told from one still stopped.
+ * (#3855): those stopped under the swap hold, those parked on a cleared repo hold
+ * (#3863) and those a restart killed (#3880), none while the swap hold stands, and
+ * none off an unread listing, as one live again is not yet told from one still
+ * stopped.
  * @param {LoopLaunch[]} launches
  * @param {Tick} seen
  * @returns {import("./refill-decide.js").HeldResume[]}
@@ -1105,15 +1169,22 @@ function resumableOf(launches, { agents, io, swapHold }) {
  * Resume `l`: `claude --bg --resume` of its session with its cause's prompt. One
  * whose resume fails stays held for the next tick, and after SWAP_RESUME_TRIES
  * failures is handed off instead. One parked on a repo hold no longer waits on the
- * founder either way, so its `parked` label and marker go.
+ * founder either way, so its `parked` label and marker go. One a restart killed is
+ * watched from the resume for a turn, however many holds it meets on the way
+ * (isIdleSinceBootResume).
  * @param {JobLaunch} l
  * @param {Tick} seen
  * @returns {{launch: LoopLaunch, started: boolean}}
  */
 function resumeStepHeld(l, seen) {
 	const { now, io } = seen;
-	const { held, what, prompt, isParked, rest, withTries } = stepResumeOf(l);
+	const { held, what, why, prompt, isParked, rest, withTries } =
+		stepResumeOf(l);
 	const { sessionId, cwd } = held;
+	if (!sessionId) {
+		io.log(`${what}, ${why}: no session id read to resume it by`);
+		return { launch: handOff(rest, seen, true), started: false };
+	}
 	const unpark = () => {
 		if (!isParked) return;
 		const failed = io.unparkSession(l.root, sessionId, l.issues);
@@ -1123,10 +1194,16 @@ function resumeStepHeld(l, seen) {
 	if (r.failed === null) {
 		const resumed = relaunched(rest, { ...r, fromSessionId: sessionId }, now);
 		io.log(
-			`resumed ${what}, the hold cleared, by --bg --resume, ${r.copy ? `as its copy ${resumed.jobId}` : "woken in place"}`,
+			`resumed ${what}, ${why}, by --bg --resume, ${r.copy ? `as its copy ${resumed.jobId}` : "woken in place"}`,
 		);
 		unpark();
-		return { launch: resumed, started: true };
+		return {
+			launch:
+				isBootKilled(l) || l.bootResumedAt !== undefined
+					? { ...resumed, bootResumedAt: now }
+					: resumed,
+			started: true,
+		};
 	}
 	const tries = held.tries + 1;
 	io.log(
@@ -1412,6 +1489,56 @@ function queueLifted(launches, lifted, seen) {
 		return [{ hold, jobs }];
 	});
 	return { launches: next, settled };
+}
+
+/* The job states of a session that ended on its own before the restart. Not
+ * `failed`, which a killed job may read, and a failed resume costs only its tries;
+ * an unread record is resumed for the same reason. */
+const ENDED_JOB_STATES = new Set(["done", "stopped"]);
+
+/* The blocks that wait on the founder, in a thread his answer resumes (#3584). */
+const FOUNDER_BLOCKS = new Set(["QUESTION", "PERMISSION", "OTHER_DIALOG"]);
+
+/**
+ * Whether `l`'s session was at work when a restart killed it: not listed live, not
+ * already held or being handed off, not waiting on the founder and not ended on
+ * its own between the last tick and the restart.
+ * @param {LoopLaunch} l
+ * @param {Tick} seen
+ * @returns {l is JobLaunch}
+ */
+function isBootKillable(l, { agents, io }) {
+	if (!isActionable(l) || isHeld(l) || l.handOffTries !== undefined)
+		return false;
+	if (isLiveIn(l, agents)) return false;
+	if (l.parked && FOUNDER_BLOCKS.has(l.block?.cause ?? "")) return false;
+	const state = io.jobStateOf(l)?.state;
+	return typeof state !== "string" || !ENDED_JOB_STATES.has(state);
+}
+
+/**
+ * The launches on the first tick after a boot, with each its restart killed queued
+ * for the resume step by session id, keeping its context and claim (#3880). One
+ * with no session id to resume by meets its hand-off at that step, so a pause holds
+ * it too. Every other launch stays as it was, for the tick's usual judging.
+ * @param {LoopLaunch[]} launches
+ * @param {Tick} seen
+ * @returns {LoopLaunch[]}
+ */
+function queueBootKilled(launches, seen) {
+	const { io } = seen;
+	return launches.map((l) => {
+		if (!isBootKillable(l, seen)) return l;
+		const { block: _, parked: __, ...rest } = l;
+		const { sessionId, cwd } = io.resumeTargetOf(l);
+		io.log(
+			`${launchName(l)}, killed by a restart: due back through the resume step`,
+		);
+		return {
+			...rest,
+			bootKilled: { at: l.launchedAt, sessionId, cwd, tries: 0 },
+		};
+	});
 }
 
 /**
@@ -2102,7 +2229,9 @@ function actOnLimits(launches, mode, seen) {
  */
 function actOnIdle(launches, mode, seen) {
 	const owed = launches.map((l) =>
-		isActionable(l) && l.handOffTries !== undefined && !seen.paused
+		isActionable(l) &&
+		(l.handOffTries !== undefined || isDeadAfterBootResume(l, seen)) &&
+		!seen.paused
 			? handOff(l, seen, true)
 			: l,
 	);
@@ -2153,8 +2282,10 @@ module.exports = {
 	isLive,
 	isResuming,
 	isHoldCleared,
+	isBootKilled,
 	isStepResume,
 	isSwapHeld,
+	LISTING_GRACE_MS,
 	iso,
 	launchName,
 	ledgerJobOf,
@@ -2163,6 +2294,7 @@ module.exports = {
 	nextResumeAt,
 	releaseAwayParks,
 	releaseEndedHolds,
+	queueBootKilled,
 	queueLifted,
 	resumableOf,
 	resumeHeldLaunches,

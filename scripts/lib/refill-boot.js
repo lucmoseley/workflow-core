@@ -2,8 +2,11 @@
  * refill-boot.js — whether `refill-loop.js boot-resume` restarts the loop after
  * a distro restart, of any cause (#3878, ruled at #3199), and the line that
  * says why. `refill-loop.js stop` stays the one way to stop it, and the resume
- * writes no control, so it never moves what `start` recorded.
+ * writes no control, so it never moves what `start` recorded. Also what the ticks
+ * after it trust of the listing while its killed launches come back (#3880).
  */
+
+const { isBootKilled, isHeld, isLive } = require("./refill-blocks.js");
 
 /**
  * @param {object} found
@@ -33,4 +36,15 @@ function bootVerdictOf({ control, damaged, stopped, pid, self }) {
 	};
 }
 
-module.exports = { bootVerdictOf };
+/**
+ * Whether a tick may read an empty listing as nothing live: the boot's own tick,
+ * and, while killed launches wait, any tick with no session it set running, so the
+ * listing has nothing it must name. Once one is running, an empty listing is the
+ * daemon's fault again (agent-liveness.js).
+ * @param {import("./refill-loop.js").LoopState} state
+ */
+const isEmptyListingTrusted = ({ bootedAt, launches }) =>
+	bootedAt !== undefined ||
+	(launches.some(isBootKilled) && launches.filter(isLive).every(isHeld));
+
+module.exports = { bootVerdictOf, isEmptyListingTrusted };

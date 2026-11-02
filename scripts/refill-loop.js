@@ -106,6 +106,7 @@ const {
 	readStateFile,
 	withControlLock,
 	writeControlFile,
+	writeJson,
 } = require("./lib/refill-files.js");
 const refillBatch = require("./lib/refill-batch.js");
 const { buildHoldLines, readCheckout } = require("./lib/repo-holds.js");
@@ -407,10 +408,11 @@ function bootResume() {
 		fs.appendFileSync(files.log, stamped);
 	};
 	const { control, damaged } = readControlChecked(note);
+	const state = readStateFile(note);
 	const verdict = bootVerdictOf({
 		control,
 		damaged,
-		stopped: readStateFile(note).stopped,
+		stopped: state.stopped,
 		pid: lock.holder(),
 		self: process.pid,
 	});
@@ -418,6 +420,8 @@ function bootResume() {
 		note(verdict.line);
 		return 0;
 	}
+	/* Before the launch, so a loop that dies ahead of its first tick leaves it. */
+	writeJson(files.state, { ...state, bootedAt: Date.now() });
 	const launched = launchLoop();
 	if ("error" in launched) {
 		note(`boot resume: not resumed: ${launched.error}`);

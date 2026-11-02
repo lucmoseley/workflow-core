@@ -13,6 +13,7 @@ const {
 	buildLimitText,
 	isLimitHeld,
 	isResuming,
+	isBootKilled,
 	isHoldCleared,
 	isSwapHeld,
 	iso,
@@ -496,7 +497,7 @@ function buildScopeLines(
 /**
  * Where a launch stands, for `status`.
  * @typedef {"park-stopped"|"handed-off"|"hand-off-owed"|"finished"
- *   |"resuming"|"swap-held"|"hold-cleared"|"limit-held"|"resumed-idle"|"parked"|"running"}
+ *   |"resuming"|"swap-held"|"hold-cleared"|"boot-killed"|"limit-held"|"resumed-idle"|"parked"|"running"}
  *   LaunchKind
  * @param {LoopLaunch} l
  * @returns {LaunchKind}
@@ -509,6 +510,7 @@ function launchKindOf(l) {
 	if (isResuming(l)) return "resuming";
 	if (isSwapHeld(l)) return "swap-held";
 	if (isHoldCleared(l)) return "hold-cleared";
+	if (isBootKilled(l)) return "boot-killed";
 	if (isLimitHeld(l)) return "limit-held";
 	if (l.idleSince !== undefined) return "resumed-idle";
 	return l.parked ? "parked" : "running";
@@ -550,6 +552,8 @@ function launchStateOf(l) {
 			return `stopped under the swap hold since ${iso(/** @type {number} */ (l.swapHeld?.at))}, resumed through admission once it clears`;
 		case "hold-cleared":
 			return `parked on repo hold ${l.holdCleared?.hold}, since cleared, resumed through admission`;
+		case "boot-killed":
+			return "killed by a restart, resumed through admission";
 		case "limit-held": {
 			const held = /** @type {import("./refill-blocks.js").LimitHeld} */ (
 				l.limitHeld
