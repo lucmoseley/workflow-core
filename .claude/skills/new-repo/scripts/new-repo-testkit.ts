@@ -332,10 +332,9 @@ export function sandbox({
 	sourceFiles = {} as Record<string, string | { link: string } | null>,
 	globalIgnore = null as string | null,
 	hooks = true,
+	tmpPrefix = "new-repo-",
 } = {}) {
-	const sb = fs.realpathSync(
-		fs.mkdtempSync(path.join(os.tmpdir(), "new-repo-")),
-	);
+	const sb = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), tmpPrefix)));
 	made.push(sb);
 	const home = path.join(sb, "home");
 	fs.mkdirSync(path.join(sb, "github"), { recursive: true });

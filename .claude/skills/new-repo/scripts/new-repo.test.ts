@@ -240,6 +240,15 @@ describe("new-repo.js on an empty project", () => {
 		340_000,
 	);
 
+	it("--dry-run's clone row quotes a path a shell would misread (#3989)", () => {
+		const s = sandbox({ tmpPrefix: "new-repo-$it's " });
+		const r = s.run("--dry-run");
+		expect(r.status, r.stdout + r.stderr).toBe(0);
+		expect(r.stdout).toContain(
+			`gh repo clone lucmoseley/tides ${shellQuote(s.clone)}, saving the inputs`,
+		);
+	});
+
 	it("--dry-run runs every preflight check, prints each planned step, and writes nothing", () => {
 		const s = sandbox();
 		const r = s.run("--dry-run");

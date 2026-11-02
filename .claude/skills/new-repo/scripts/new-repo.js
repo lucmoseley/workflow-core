@@ -2452,7 +2452,7 @@ function steps(inp, pre, clone, { env, noInstall, resumeCmd, dry, at }) {
 		report(
 			at.step,
 			"would",
-			`gh repo clone ${inp.repo} ${clone}, saving the inputs to .git/${RECORD}`,
+			`gh repo clone ${inp.repo} ${shellQuote(clone)}, saving the inputs to .git/${RECORD}`,
 		);
 	else {
 		gh(["repo", "clone", inp.repo, clone]);
