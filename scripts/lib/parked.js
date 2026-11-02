@@ -11,8 +11,7 @@
  * removes it when the founder types in a session either parked (#3584),
  * claim-issue.js when a session claims the issue, and the refill loop when the
  * session has left the listing having taken a turn since the park that left it
- * unblocked, the only sign a `!` answer leaves (#3940), and on every closed issue,
- * whatever route closed it.
+ * unblocked, the only sign a `!` answer leaves (#3940), and on every closed issue.
  *
  * The session marker, `.parked-<session id>` under the markers directory,
  * lists the issues parked for this session — by park-on-round.js, or by the
@@ -238,15 +237,21 @@ function writeParkedBy(
 }
 
 /**
- * Take `parked` off each of `numbers`; each it would not come off, with why.
+ * Take `parked` off each of `numbers`: those it came off, and each it would not,
+ * with why.
  * @param {string} repo
  * @param {number[]} numbers
  */
-const labelsOff = (repo, numbers) =>
-	numbers.flatMap((n) => {
+function takeLabelsOff(repo, numbers) {
+	const failed = numbers.flatMap((n) => {
 		const why = setParked(repo, n, false);
 		return why === null ? [] : [{ n, why }];
 	});
+	return {
+		cleared: numbers.filter((n) => !failed.some((f) => f.n === n)),
+		failed,
+	};
+}
 
 /**
  * Take `parked` off each of `numbers` and out of this session's marker; an issue
@@ -258,11 +263,10 @@ const labelsOff = (repo, numbers) =>
  * @returns {{n: number, why: string}[]} each that failed
  */
 function unparkIssues(repo, sessionId, numbers, root) {
-	const failed = labelsOff(repo, numbers);
-	const gone = numbers.filter((n) => !failed.some((f) => f.n === n));
+	const { cleared, failed } = takeLabelsOff(repo, numbers);
 	writeParkedBy(
 		sessionId,
-		readParkedBy(sessionId, root).filter((n) => !gone.includes(n)),
+		readParkedBy(sessionId, root).filter((n) => !cleared.includes(n)),
 		{ root },
 	);
 	return failed;
@@ -287,11 +291,7 @@ function unparkClosed(repo) {
 		"--json",
 		"number",
 	]).map((/** @type {{number: number}} */ i) => i.number);
-	const failed = labelsOff(repo, numbers);
-	return {
-		cleared: numbers.filter((n) => !failed.some((f) => f.n === n)),
-		failed,
-	};
+	return takeLabelsOff(repo, numbers);
 }
 
 module.exports = {

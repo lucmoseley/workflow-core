@@ -1143,7 +1143,7 @@ describe("unparkAnswered (#3940)", () => {
 		const { io, calls } = fakeIo({
 			readParkMarkers: () => markers,
 			hasEndedUnblocked: () => true,
-			unparkSession: ({ root }, sid, issues) => {
+			unparkSession: (root, sid, issues) => {
 				unparked.push(`${root} ${sid} ${issues.join(",")}`);
 				return null;
 			},
@@ -2637,8 +2637,8 @@ describe("queueing the sessions parked on a lifted repo hold (#3863)", () => {
 
 	it("takes the label off a session once it has gone back, resumed or handed off", () => {
 		const unparked: string[] = [];
-		const unparkSession: BlockIo["unparkSession"] = (_, sid) => {
-			unparked.push(sid);
+		const unparkSession: BlockIo["unparkSession"] = (root, sid, issues) => {
+			unparked.push(`${root} ${sid} ${issues.join(",")}`);
 			return null;
 		};
 		const { io } = fakeIo({ unparkSession });
@@ -2650,6 +2650,7 @@ describe("queueing the sessions parked on a lifted repo hold (#3863)", () => {
 		};
 		const resumes = resumableOf([due()], seen);
 		resumeHeldLaunches(resumes, [due()], seen, () => false);
-		expect(unparked).toEqual(["s-p"]);
+		const l = due();
+		expect(unparked).toEqual([`${l.root} s-p ${l.issues.join(",")}`]);
 	});
 });

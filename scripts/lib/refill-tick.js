@@ -7,7 +7,9 @@
  * A TICK: read founder presence, and in away mode write what it changes under
  * the control lock (#2522), reap (the reaper's --not-a-session mode, since the loop has no
  * session id), stop each job that never started, judge the loop's finished
- * launches for progress, stop each parked one its cause and mode's row says
+ * launches for progress, take `parked` off each answered park and closed issue
+ * (lib/refill-blocks.js's unparkAnswered, lib/parked.js's unparkClosed, #3940),
+ * stop each parked one its cause and mode's row says
  * to and label its ticket `parked` (lib/block-act.js, #2699), resume each
  * stopped by a transient API error on its schedule, stopping it between
  * tries (#2705), resume each its host restarted that took no turn and hand
@@ -795,16 +797,16 @@ function moveParked({ root, issues, seat }, from, { sessionId, jobId, cwd }) {
 		const held = readParkedBy(from, root);
 		const moved = held.filter((n) => issues.includes(n));
 		if (moved.length === 0) return;
-		writeParkedBy(
-			from,
-			held.filter((n) => !moved.includes(n)),
-			{ root },
-		);
 		if (sessionId)
 			writeParkedBy(sessionId, [...readParkedBy(sessionId, root), ...moved], {
 				root,
 				job: { seat, jobId, cwd },
 			});
+		writeParkedBy(
+			from,
+			held.filter((n) => !moved.includes(n)),
+			{ root },
+		);
 	} catch (e) {
 		log(`marker of ${from} not moved: ${buildErrorText(e)}`);
 	}
@@ -976,16 +978,16 @@ function readParkMarkersOrNull(root) {
  * unblocked (#3940): the label off and out of `sessionId`'s marker, as
  * unpark-on-prompt.js takes them. An issue whose write fails stays in the marker.
  * Null, or what failed.
- * @param {Pick<import("./refill-loop.js").LoopLaunch, "root">} l
+ * @param {string} root
  * @param {string} sessionId
  * @param {number[]} issues
  * @returns {string|null}
  */
-function unparkSession(l, sessionId, issues) {
-	const tracker = resolveKey("tracker", { root: l.root });
+function unparkSession(root, sessionId, issues) {
+	const tracker = resolveKey("tracker", { root });
 	if (typeof tracker !== "string") return "no tracker configured";
 	try {
-		const failed = unparkIssues(tracker, sessionId, issues, l.root);
+		const failed = unparkIssues(tracker, sessionId, issues, root);
 		return failed.map((f) => `#${f.n}: ${f.why}`).join("; ") || null;
 	} catch (e) {
 		return `marker not trimmed: ${buildErrorText(e)}`;
@@ -1004,20 +1006,14 @@ function readEndedUnblocked({ sessionId, job, writtenAt }) {
 	const seats = [...(job ? [job.seat] : []), ...readConfiguredSeats()];
 	const found = findNewestTranscript(seats, sessionId);
 	if (!found || found.mtimeMs <= writtenAt) return false;
-	try {
-		return hasEndedUnblocked(
-			[...mainChainRecords(readTranscript(found.file), "main")],
-			writtenAt,
-		);
-	} catch (e) {
-		log(`transcript unread for ${sessionId}: ${buildErrorText(e)}`);
-		return false;
-	}
+	const rows = readMainChain(found.file, sessionId);
+	return rows !== null && hasEndedUnblocked(rows, writtenAt);
 }
 
 /**
  * `parked` off each closed issue in `served`'s trackers (lib/parked.js's
- * unparkClosed), logged. A failure waits for the next tick.
+ * unparkClosed), logged, at one `gh issue list` a tracker a tick, on a tick that
+ * launches nothing too. A failure waits for the next tick.
  * @param {string[]} served
  */
 function tendClosedParks(served) {
@@ -1057,13 +1053,11 @@ const staggerResume = () => sleepSync(refillBatch.readStaggerMs());
 const launchOrResume = (batch, served) =>
 	refillBatch.launchOrResume(batch, {
 		readActsBefore: actsBeforeReader(served),
-		resume: ({ root, issues }, { seat, sessionId, cwd }) => {
-			const r = resumeStopped({ root, issues, seat }, PARKED_PROMPT, {
+		resume: ({ root, issues }, { seat, sessionId, cwd }) =>
+			resumeStopped({ root, issues, seat }, PARKED_PROMPT, {
 				sessionId,
 				cwd,
-			});
-			return r;
-		},
+			}),
 		admitResume,
 		stagger: staggerResume,
 		recordLaunch,
@@ -1071,6 +1065,22 @@ const launchOrResume = (batch, served) =>
 		log,
 		now: Date.now,
 	});
+
+/**
+ * Every main-chain row of transcript `file`, `who`'s; null, logged where it will
+ * not read.
+ * @param {string} file
+ * @param {string|null} who
+ * @returns {Record<string, unknown>[]|null}
+ */
+function readMainChain(file, who) {
+	try {
+		return [...mainChainRecords(readTranscript(file), "main")];
+	} catch (e) {
+		log(`transcript unread for ${who}: ${buildErrorText(e)}`);
+		return null;
+	}
+}
 
 /**
  * Every main-chain row of `l`'s transcript, at the path its job record
@@ -1081,13 +1091,7 @@ const launchOrResume = (batch, served) =>
  */
 function readTranscriptRows(l, job) {
 	const file = /** @type {{linkScanPath?: unknown}|null} */ (job)?.linkScanPath;
-	if (typeof file !== "string") return null;
-	try {
-		return [...mainChainRecords(readTranscript(file), "main")];
-	} catch (e) {
-		log(`transcript unread for ${l.jobId}: ${buildErrorText(e)}`);
-		return null;
-	}
+	return typeof file === "string" ? readMainChain(file, l.jobId) : null;
 }
 
 /**

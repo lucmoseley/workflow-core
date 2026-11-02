@@ -958,36 +958,39 @@ describe("a parked launch (#2699)", () => {
 			message: { content: [{ type: "text", text }] },
 		});
 
-		/** A marker listing #7, written a minute ago, and a transcript since holding
-		 * `row`. */
-		const sweep = async (row: object) => {
+		const transcript = () => path.join(seat, "projects", "p", "s-job7.jsonl");
+
+		/** A marker listing #7, written a minute ago, and its transcript's directory. */
+		const parkedAMinuteAgo = () => {
 			fs.mkdirSync(path.dirname(markerPath("s-job7")), { recursive: true });
 			fs.writeFileSync(markerPath("s-job7"), `seat ${seat}\njob ${Job}\n7\n`);
 			const parkedAt = new Date(Date.now() - 60_000);
 			fs.utimesSync(markerPath("s-job7"), parkedAt, parkedAt);
-			const project = path.join(seat, "projects", "p");
-			fs.mkdirSync(project, { recursive: true });
+			fs.mkdirSync(path.dirname(transcript()), { recursive: true });
+		};
+
+		it("takes the label and the marker off where it ended unblocked, as after a `!` answer", async () => {
+			parkedAMinuteAgo();
 			fs.writeFileSync(
-				path.join(project, "s-job7.jsonl"),
-				`${JSON.stringify(row)}\n`,
+				transcript(),
+				`${JSON.stringify(reply("Merged.\n\nresult: closed #7"))}\n`,
 			);
 			fakeClaude([LISTED]);
 			const r = await twoTicks();
 			expect(r.status).toBe(0);
-			return r;
-		};
-
-		it("takes the label and the marker off where it ended unblocked, as after a `!` answer", async () => {
-			const r = await sweep(reply("Merged.\n\nresult: closed #7"));
 			expect(readLines(at("gh-calls"))).toContain(Unlabel);
 			expect(fs.existsSync(markerPath("s-job7"))).toBe(false);
 			expect(r.stdout).toContain("ended unblocked: parked off #7");
 		});
 
-		it("keeps the label where it parked again on its resume", async () => {
-			await sweep(reply("Which key?\n\nneeds input: the key — #7"));
+		it("keeps the label, logged, where its transcript will not read", async () => {
+			parkedAMinuteAgo();
+			fs.mkdirSync(transcript());
+			fakeClaude([LISTED]);
+			const r = await twoTicks();
+			expect(r.status).toBe(0);
 			expect(readLines(at("gh-calls"))).not.toContain(Unlabel);
-			expect(fs.existsSync(markerPath("s-job7"))).toBe(true);
+			expect(r.stdout).toContain("transcript unread for s-job7");
 		});
 	});
 
@@ -1009,6 +1012,26 @@ describe("a parked launch (#2699)", () => {
 			"issue edit 12 --repo o/r --remove-label parked",
 		);
 		expect(r.stdout).toContain("closed o/r#12: parked off");
+	});
+
+	it("logs a closed-parks list that will not read, and ticks on (#3940)", async () => {
+		fs.mkdirSync(at("gh-routes"), { recursive: true });
+		const { gh } = stubGhRoutes(
+			at("gh-routes"),
+			{
+				"issue list --repo o/r --state closed --label parked *": {
+					status: 1,
+					stdout: "",
+					stderr: "HTTP 502\n",
+				},
+				"*": printed(),
+			},
+			{ log: at("gh-calls") },
+		);
+		fakeClaude([LISTED, blockedRow]);
+		const r = await twoTicks(gh);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("closed parks unread in o/r");
 	});
 
 	it("stops an away question park once, labels its ticket parked and logs it", async () => {
@@ -2672,6 +2695,20 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 		expect(readLines(markerPath("s-copy"))).toEqual(
 			expect.arrayContaining([`seat ${seat}`, `cwd ${repo}`, "5"]),
 		);
+	});
+
+	it("keeps the old session's marker, logged, where the copy's will not write (#3940)", async () => {
+		seed();
+		fs.mkdirSync(markerPath("s-copy"));
+		fakeResumeClaude(
+			Job,
+			[LISTED],
+			`${stopOnResume()} ${writesCopyRecord(JSON.stringify({ state: "working", sessionId: "s-copy" }))}`,
+		);
+		const r = await settled(run(1), ParkedRun);
+		expect(r.status).toBe(0);
+		expect(fs.existsSync(markerPath("s-job5"))).toBe(true);
+		expect(r.stdout).toContain("marker of s-job5 not moved");
 	});
 
 	describe("in away mode, on a weekly-full seat (#3850)", () => {
