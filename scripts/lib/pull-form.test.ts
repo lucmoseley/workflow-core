@@ -1315,6 +1315,58 @@ describe("a subcommand reached through a command-line alias is judged as itself 
 	});
 });
 
+describe("an abbreviated long option reads as git reads it (#3998)", () => {
+	it.each([
+		["git branch --forc main HEAD~1", "forced"],
+		["git branch --del main", "deleted"],
+		["git branch --mov side main", "renamed onto"],
+		["git branch --cop side main", "copied onto"],
+		["git symbolic-ref --d refs/heads/main", "main's symref deleted"],
+		["git update-ref --s", "from a list"],
+		["git switch --force-c main HEAD~1", "recreated, its value the next word"],
+		["git switch --force-c=main HEAD~1", "recreated, its value stuck on"],
+		["git reset --h HEAD~1", "--hard"],
+	])("%s is refused with the rewind rule — %s", (command) => {
+		expect(readDenyReason(command)).toContain(readRewindRule());
+	});
+
+	it.each([
+		["git reset --har", "--hard"],
+		["git reset --kee HEAD", "--keep"],
+		["git switch --dis side", "--discard-changes"],
+		["git clean --fo", "--force"],
+		["git clean --i", "--interactive"],
+		["git restore --wor --sta .", "--worktree beside --staged"],
+	])("%s is refused with the discard rule — %s", (command) => {
+		expect(readDenyReason(command)).toContain(readDiscardRule());
+	});
+
+	it.each([
+		["git merge --e side", "--edit in a merge, not rebase's --edit-todo"],
+		["git merge --edit side", "a whole name that begins a longer one"],
+		["git merge --mess --abort side", "--abort is --message's value"],
+		["git pull --reb", "--rebase"],
+	])("%s is refused with the pull rule — %s", (command) => {
+		expect(readDenyReason(command)).toContain(readPullRule());
+	});
+
+	it.each([
+		["git merge --ab", "--abort"],
+		["git merge --ff-o side", "--ff-only"],
+		["git rebase --ed", "--edit-todo, rebase's own"],
+		["git rebase --sk", "--skip"],
+		["git pull --ff-o", "--ff-only"],
+		["git branch --lis main", "--list writes nothing"],
+		["git branch --forc --cont main side", "main is --contains's value"],
+		["git branch --co main", "ambiguous, which git refuses"],
+		["git restore --sta .", "--staged writes only the index"],
+		["git clean --d", "--dry-run deletes nothing"],
+		["git reset --he", "no option, which git refuses"],
+	])("%s passes — %s", (command) => {
+		expect(verdict(command)).not.toBe("deny");
+	});
+});
+
 describe("discarding the shared tree's uncommitted work is refused (#768)", () => {
 	it.each([
 		"git reset --hard",

@@ -870,14 +870,19 @@ function skipFindOptions(texts) {
  * x. A SHORT FLAG WHOSE VALUE IS OPTIONAL is listed with a trailing ?, as
  * `-S?`: it takes the rest of its run as a value, but never the next word, and
  * keeps a leading =, as git does.
+ *
+ * `expandLong`, where given, turns a long flag as spelled into its whole name,
+ * before `spec` is read: git's abbreviations, which pflag does not take.
  * @param {string} spec
  * @param {string[]} words
  * @param {(kind: FlagKind, name: string, value: string) => boolean | undefined | void} fn
+ * @param {(flag: string) => string} [expandLong]
  */
-function scanFlags(spec, words, fn) {
+function scanFlags(spec, words, fn, expandLong = (flag) => flag) {
 	/** @type {ScanCtx} */
 	const ctx = {
 		has: (flag) => ` ${spec} `.includes(` ${flag} `),
+		expandLong,
 		emit: (kind, name, value) => {
 			if (fn(kind, name, value) === false) ctx.stopped = true;
 		},
@@ -892,6 +897,7 @@ function scanFlags(spec, words, fn) {
 /**
  * @typedef {object} ScanCtx
  * @property {(flag: string) => boolean} has whether the spec lists `flag`
+ * @property {(flag: string) => string} expandLong a long flag's whole name
  * @property {(kind: FlagKind, name: string, value: string) => void} emit
  *   sets `stopped` where the caller stopped the scan
  * @property {boolean} ended past a bare `--`
@@ -924,13 +930,14 @@ function scanWord(tok, next, ctx) {
  * @param {ScanCtx} ctx
  * @returns {number}
  */
-function scanLong(tok, next, { has, emit }) {
+function scanLong(tok, next, { has, expandLong, emit }) {
 	const eq = tok.indexOf("=");
-	if (eq >= 0) emit("opt", tok.slice(0, eq), tok.slice(eq + 1));
-	else if (!has(tok)) emit("flag", tok, "");
-	else if (next === undefined) emit("dangling", tok, "");
+	const name = expandLong(eq >= 0 ? tok.slice(0, eq) : tok);
+	if (eq >= 0) emit("opt", name, tok.slice(eq + 1));
+	else if (!has(name)) emit("flag", name, "");
+	else if (next === undefined) emit("dangling", name, "");
 	else {
-		emit("opt", tok, next);
+		emit("opt", name, next);
 		return 1;
 	}
 	return 0;

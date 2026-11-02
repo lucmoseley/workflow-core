@@ -143,6 +143,7 @@
  * lib/branch-publish.js shares.
  */
 
+const { expandLongOption } = require("./git-long-options.js");
 const { rewindReason } = require("./main-rewind.js");
 const { ruleModule, ruleUnlessModule } = require("./rule-gates.js");
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
@@ -246,28 +247,34 @@ const DISCARD = {
  * set `helping` and stop the scan; a bare word goes to `onArg`.
  * @template {{ helping: boolean }} S
  * @param {string[]} args
- * @param {{ spec: string, table: ArgTable<S>, state: S,
+ * @param {{ sub: string, spec: string, table: ArgTable<S>, state: S,
  *   onArg?: (value: string, state: S) => void }} how accumulator: `state`,
- *   which the scan and `onArg` write and which is returned; `spec` is
- *   scanFlags's value-taking flags
+ *   which the scan and `onArg` write and which is returned; `sub` is the git
+ *   subcommand whose abbreviations are read; `spec` is scanFlags's value-taking
+ *   flags
  * @returns {S}
  */
-function readArgs(args, { spec, table, state, onArg }) {
-	scanFlags(spec, args, (kind, name, value) => {
-		const key = `${kind}:${name}`;
-		if (key === "flag:--help" || key === "flag:-h") {
-			state.helping = true;
-			return false;
-		}
-		const patch = table[key];
-		if (patch)
-			Object.assign(
-				state,
-				typeof patch === "function" ? patch(value, state) : patch,
-			);
-		else if (kind === "arg") onArg?.(value, state);
-		return true;
-	});
+function readArgs(args, { sub, spec, table, state, onArg }) {
+	scanFlags(
+		spec,
+		args,
+		(kind, name, value) => {
+			const key = `${kind}:${name}`;
+			if (key === "flag:--help" || key === "flag:-h") {
+				state.helping = true;
+				return false;
+			}
+			const patch = table[key];
+			if (patch)
+				Object.assign(
+					state,
+					typeof patch === "function" ? patch(value, state) : patch,
+				);
+			else if (kind === "arg") onArg?.(value, state);
+			return true;
+		},
+		(flag) => expandLongOption(sub, flag),
+	);
 	return state;
 }
 
@@ -372,10 +379,11 @@ const RESET_ARGS = {
  * @param {GitCall} call
  * @returns {Refusal | null}
  */
-function judgeReset(j, { segment, tree, args }) {
+function judgeReset(j, { segment, sub, tree, args }) {
 	/** @type {string[]} */
 	const positional = [];
 	const a = readArgs(args, {
+		sub,
 		spec: "--pathspec-from-file",
 		table: RESET_ARGS,
 		state: { helping: false, pathspec: false, ddash: false, discarding: false },
@@ -475,15 +483,6 @@ const REF_ARGS = {
 	"flag:--force": { force: true },
 	"flag:-d": { mode: "delete" },
 	"flag:--delete": { mode: "delete" },
-	/* git takes an option's unique abbreviation: `git symbolic-ref --d` deletes
-	 * (#3915, measured on git 2.43.0). Only `--delete`'s are read, since a
-	 * symbolic-ref's other flags write nothing. */
-	...Object.fromEntries(
-		["--d", "--de", "--del", "--dele", "--delet"].map((flag) => [
-			`flag:${flag}`,
-			{ mode: "delete" },
-		]),
-	),
 	"flag:-D": { mode: "delete", force: true },
 	"flag:-m": { mode: "move" },
 	"flag:--move": { mode: "move" },
@@ -525,6 +524,7 @@ function judgeRef(j, { segment, sub, tree, args }) {
 	/** @type {string[]} */
 	const positional = [];
 	const a = readArgs(args, {
+		sub,
 		spec: tableEntry(REF_VALUE_FLAGS, sub),
 		table: REF_ARGS,
 		state: /** @type {RefArgs} */ ({
@@ -862,6 +862,7 @@ function judgeDiscard(j, { segment, sub, tree, args }) {
 	const rest = verb.word ? args.slice(1) : args;
 	if (verb.name === "save")
 		return readArgs(rest, {
+			sub,
 			spec: "-m --message",
 			table: DISCARD_ARGS,
 			state: discardArgs(),
@@ -874,6 +875,7 @@ function judgeDiscard(j, { segment, sub, tree, args }) {
 	/** @type {string[]} */
 	const post = [];
 	const a = readArgs(rest, {
+		sub,
 		spec,
 		table: DISCARD_ARGS,
 		state: discardArgs(),
@@ -1034,6 +1036,7 @@ const DIRECT_ARGS = {
 function judgeReconcile(j, { segment, sub, tree, args }) {
 	const pull = sub === "pull";
 	const a = readArgs(args, {
+		sub,
 		spec: pull ? PULL_VALUE_FLAGS : gitValueFlags(sub),
 		table: pull ? PULL_ARGS : DIRECT_ARGS,
 		state: {
