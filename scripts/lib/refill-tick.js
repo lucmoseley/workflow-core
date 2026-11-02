@@ -86,8 +86,10 @@ const { parseJsonl } = require("./jsonl.js");
 const {
 	newestMarkerListing,
 	readParkMarkers,
+	readParkMarkersOrThrow,
 	readParkedBy,
 	setParked,
+	unparkIssues,
 	writeParkedBy,
 } = require("./parked.js");
 const { read: readTranscript } = require("./session-transcript.js");
@@ -131,7 +133,12 @@ const {
 } = require("./refill-files.js");
 const refillBatch = require("./refill-batch.js");
 const blocks = require("./refill-blocks.js");
-const { readTickHolds, tendHolds } = require("./repo-holds.js");
+const {
+	dropLiftedJobs,
+	readLiftedHolds,
+	readTickHolds,
+	tendHolds,
+} = require("./repo-holds.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { localDate } = require("./morning-review.js");
 const { pidLock } = require("./pid-lock.js");
@@ -923,6 +930,41 @@ const sizeParkerSeats = (seats, parkers, root) =>
 	);
 
 /**
+ * The park markers in `root`'s checkout, null, logged, where they will not read,
+ * for the resume step to wait rather than read a parked session as answered
+ * (#3863).
+ * @param {string} root
+ */
+function readParkMarkersOrNull(root) {
+	try {
+		return readParkMarkersOrThrow(root);
+	} catch (e) {
+		if (caught(e).code === "ENOENT") return [];
+		log(`park markers unread in ${root}: ${buildErrorText(e)}`);
+		return null;
+	}
+}
+
+/**
+ * `l`'s issues no longer parked, as its session has gone back (#3863): the label
+ * off and out of `sessionId`'s marker, as unpark-on-prompt.js takes them. An issue
+ * whose write fails stays in the marker. Null, or what failed.
+ * @param {import("./refill-loop.js").LoopLaunch} l
+ * @param {string} sessionId
+ * @returns {string|null}
+ */
+function unparkResumed(l, sessionId) {
+	const tracker = resolveKey("tracker", { root: l.root });
+	if (typeof tracker !== "string") return "no tracker configured";
+	try {
+		const failed = unparkIssues(tracker, sessionId, l.issues, l.root);
+		return failed.map((f) => `#${f.n}: ${f.why}`).join("; ") || null;
+	} catch (e) {
+		return `marker not trimmed: ${buildErrorText(e)}`;
+	}
+}
+
+/**
  * The dispatcher's per-member re-read for a resume: null, or why it waits.
  * @returns {string|null}
  */
@@ -1045,6 +1087,8 @@ const blockIo = (served) => ({
 		hasRepliedSince(readTranscriptRows(l, readJobRecordOf(l)), at),
 	labelParked,
 	recordParked,
+	readParkMarkers: readParkMarkersOrNull,
+	unparkResumed,
 	comment: commentOn,
 	postHandOff,
 	release: (l) => release({ jobId: blocks.ledgerJobOf(l), root: l.root }),
@@ -1202,6 +1246,43 @@ const resumesDue = (control, launches, seen) =>
 		: blocks.resumableOf(launches, seen);
 
 /**
+ * The tick's acts on its blocked and idle launches, then each away park's ledger
+ * row released once normal mode is live.
+ * @param {import("./refill-loop.js").LoopLaunch[]} listed
+ * @param {import("./refill-loop.js").Control} control
+ * @param {string[]} served
+ * @param {Parameters<typeof blocks.actOnBlocks>[2]} seen
+ */
+const actOnLaunches = (listed, { scope: { mode } }, served, seen) =>
+	blocks.releaseAwayParks(
+		blocks.actOnIdle(blocks.actOnBlocks(listed, mode, seen), mode, seen),
+		mode,
+		served,
+		seen.io,
+	);
+
+/**
+ * `launches` with the sessions parked on each lifted hold queued for the resume
+ * step. A dry run, a paused tick or a stopping one sets nothing running, and the
+ * lifted holds keep for a later tick.
+ * @param {import("./refill-loop.js").LoopLaunch[]} launches
+ * @param {{setsNothingRunning: boolean, roots: string[],
+ *   seen: Parameters<typeof blocks.queueLifted>[2]}} tick
+ */
+const queueLiftedHolds = (launches, { setsNothingRunning, roots, seen }) =>
+	setsNothingRunning
+		? { launches, settled: [] }
+		: blocks.queueLifted(launches, readLiftedHolds(roots, log), seen);
+
+/**
+ * What of each lifted hold the written state now carries, dropped.
+ * @param {ReturnType<typeof queueLiftedHolds>["settled"]} settled
+ */
+function dropSettledLifted(settled) {
+	for (const { hold, jobs } of settled) dropLiftedJobs(hold, jobs, log);
+}
+
+/**
  * One tick: its decision and the start it judged against. Under `dryRun`
  * nothing is reaped, launched or written.
  * @param {{dryRun: boolean}} opts
@@ -1237,18 +1318,12 @@ async function tick({ dryRun }) {
 		swapHold: readSwapHold(),
 		paused: control.paused !== undefined,
 	};
-	const judged = dryRun
-		? listed
-		: blocks.releaseAwayParks(
-				blocks.actOnIdle(
-					blocks.actOnBlocks(listed, control.scope.mode, seen),
-					control.scope.mode,
-					seen,
-				),
-				control.scope.mode,
-				served,
-				seen.io,
-			);
+	const acted = dryRun ? listed : actOnLaunches(listed, control, served, seen);
+	const { launches: judged, settled: liftedSettled } = queueLiftedHolds(acted, {
+		setsNothingRunning: dryRun || seen.paused || control.stopRequested,
+		roots: loop.landingRoots(served, state.launches),
+		seen,
+	});
 	const declared = readDeclaredSeats();
 	const typed = readLastTyped(declared);
 	const {
@@ -1330,6 +1405,7 @@ async function tick({ dryRun }) {
 			now: Date.now,
 		},
 	);
+	dropSettledLifted(liftedSettled);
 	if (
 		!appendTick(
 			buildTickRecord({

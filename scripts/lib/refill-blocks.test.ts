@@ -25,6 +25,7 @@ import {
 	buildHeldStopText,
 	isHeld,
 	markParked,
+	queueLifted,
 	releaseAwayParks,
 	releaseEndedHolds,
 	resumableOf,
@@ -120,6 +121,8 @@ function fakeIo(over: Partial<BlockIo> = {}) {
 			calls.push(`record ${sid} ${ns.join(",")}`);
 			return null;
 		},
+		readParkMarkers: () => [],
+		unparkResumed: () => null,
 		comment: (_, body) => calls.push(`comment ${body}`),
 		postHandOff: (l) => {
 			calls.push(`hand-off ${l.jobId}`);
@@ -2338,5 +2341,204 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 			swapHold: NO_HOLD,
 		});
 		expect(calls).toEqual([]);
+	});
+});
+
+describe("queueing the sessions parked on a lifted repo hold (#3863)", () => {
+	const hold = {
+		root: "/repo",
+		dir: "/store/lifted/abc-1",
+		id: "abc",
+		recordJobs: ["p"],
+		jobs: ["p"],
+	};
+	const marker = {
+		issues: [7],
+		job: { seat: "/seat", jobId: "p", cwd: "/repo" },
+		sessionId: "s-p",
+		writtenAt: NOW - MIN,
+	};
+	const queue = (agents: Agents, over: Partial<BlockIo>) => {
+		const { io, calls } = fakeIo({ readParkMarkers: () => [marker], ...over });
+		return {
+			out: queueLifted([], [hold], { agents, now: NOW, io, swapHold: NO_HOLD }),
+			calls,
+		};
+	};
+
+	it("keeps a session whose stop failed for the next tick, not yet due", () => {
+		const { out, calls } = queue([agent("p", "blocked")], {
+			stop: () => ({
+				ok: false,
+				why: "refused",
+				said: null,
+				timedOut: false,
+				noJob: false,
+			}),
+		});
+		expect(out.launches).toEqual([]);
+		expect(out.settled).toEqual([{ hold, jobs: [] }]);
+		expect(logs(calls)).toEqual([
+			"could not stop session p, parked on repo hold abc now cleared, the next tick retries: refused",
+		]);
+	});
+
+	it("judges nothing off a marker directory that will not read", () => {
+		const { out } = queue([agent("other", "working")], {
+			readParkMarkers: () => null,
+		});
+		expect(out).toEqual({ launches: [], settled: [] });
+	});
+
+	it("judges nothing off an unread listing", () => {
+		const { out, calls } = queue(null, {});
+		expect(out).toEqual({ launches: [], settled: [] });
+		expect(calls).toEqual([]);
+	});
+
+	it("queues one session once, however many lifts name it", () => {
+		const { io } = fakeIo({ readParkMarkers: () => [marker] });
+		const out = queueLifted([], [hold, { ...hold, id: "def" }], {
+			agents: [agent("other", "working")],
+			now: NOW,
+			io,
+			swapHold: NO_HOLD,
+		});
+		expect(ids(out.launches)).toEqual(["p"]);
+		expect(out.settled.map((s) => s.jobs)).toEqual([["p"], ["p"]]);
+	});
+
+	it("leaves alone a session listed live, and one no marker lists", () => {
+		const live = queue([agent("p", "working")], {});
+		expect(live.out.launches).toEqual([]);
+		expect(live.out.settled).toEqual([{ hold, jobs: ["p"] }]);
+
+		const answered = queue([agent("other", "working")], {
+			readParkMarkers: () => [],
+		});
+		expect(answered.out.launches).toEqual([]);
+		expect(answered.out.settled).toEqual([{ hold, jobs: ["p"] }]);
+	});
+
+	it("stops a session its blocked round holds, then queues it", () => {
+		const { out, calls } = queue([agent("p", "blocked")], {});
+		expect(calls).toContain("stop p");
+		expect(out.launches[0]).toMatchObject({
+			jobId: "p",
+			finishedAt: null,
+			holdCleared: { sessionId: "s-p", cwd: "/repo", tries: 0, hold: "abc" },
+		});
+	});
+
+	const due = () =>
+		record({
+			jobId: "p",
+			holdCleared: {
+				at: NOW - MIN,
+				sessionId: "s-p",
+				cwd: "/repo",
+				tries: 0,
+				hold: "abc",
+			},
+		});
+
+	it("finishes one due back that its marker no longer lists", () => {
+		const { io } = fakeIo({ readParkMarkers: () => [] });
+		const out = queueLifted([due()], [], {
+			agents: [agent("other", "working")],
+			now: NOW,
+			io,
+			swapHold: NO_HOLD,
+		});
+		expect(out.launches[0]).toMatchObject({ finishedAt: NOW });
+		expect(out.launches[0]).not.toHaveProperty("holdCleared");
+	});
+
+	const queueOn = (launches: Launch[]) => {
+		const { io, calls } = fakeIo({ readParkMarkers: () => [marker] });
+		return {
+			out: queueLifted(launches, [hold], {
+				agents: [agent("other", "working")],
+				now: NOW,
+				io,
+				swapHold: NO_HOLD,
+			}),
+			calls,
+		};
+	};
+
+	it("takes up a job's newest record alone, so one session resumes once", () => {
+		const older = record({ jobId: "p", root: "/repo", finishedAt: NOW - MIN });
+		const newer = record({ jobId: "p", root: "/repo", finishedAt: NOW - MIN });
+		const { out } = queueOn([older, newer]);
+		expect(out.launches[0]).toBe(older);
+		expect(out.launches[1]).toHaveProperty("holdCleared");
+		const { io, calls } = fakeIo();
+		const seen = {
+			agents: [agent("other", "working")],
+			now: NOW,
+			io,
+			swapHold: NO_HOLD,
+		};
+		const stepped = resumeHeldLaunches(
+			resumableOf(out.launches, seen),
+			out.launches,
+			seen,
+			() => false,
+		);
+		expect(stepped.started).toBe(1);
+		expect(calls.filter((c) => c.startsWith("resume "))).toHaveLength(1);
+		expect(stepped.launches[0]).toBe(older);
+	});
+
+	it("leaves one handed off, and one whose ticket another live launch holds", () => {
+		const handed = queueOn([
+			record({ jobId: "p", handedOff: NOW, finishedAt: NOW }),
+		]);
+		expect(handed.out.launches[0]).not.toHaveProperty("holdCleared");
+		expect(handed.out.settled).toEqual([{ hold, jobs: ["p"] }]);
+
+		const held = queueOn([
+			record({ jobId: "fresh", root: "/repo", issues: [7] }),
+		]);
+		expect(ids(held.out.launches)).toEqual(["fresh"]);
+		expect(held.out.settled).toEqual([{ hold, jobs: ["p"] }]);
+		expect(logs(held.calls).join()).toContain("now holds its ticket");
+	});
+
+	it("carries every issue its marker lists, wider than its launch's", () => {
+		const { out } = queueOn([
+			record({ jobId: "p", issues: [5], finishedAt: NOW - MIN }),
+		]);
+		expect(out.launches[0]?.issues).toEqual([5, 7]);
+	});
+
+	it("waits out a swap hold like any other stopped session", () => {
+		const { io } = fakeIo();
+		const seen = { agents: [agent("other", "working")], now: NOW, io };
+		expect(
+			resumableOf([due()], { ...seen, swapHold: { held: true } as never }),
+		).toEqual([]);
+		expect(resumableOf([due()], { ...seen, swapHold: NO_HOLD })).toHaveLength(
+			1,
+		);
+	});
+
+	it("takes the label off a session once it has gone back, resumed or handed off", () => {
+		const unparked: string[] = [];
+		const unparkResumed: BlockIo["unparkResumed"] = (l, sid) => {
+			unparked.push(`${l.jobId} ${sid}`);
+			return null;
+		};
+		const { io } = fakeIo({ unparkResumed });
+		const seen = {
+			agents: [agent("other", "working")],
+			now: NOW,
+			io,
+			swapHold: NO_HOLD,
+		};
+		const resumes = resumableOf([due()], seen);
+		resumeHeldLaunches(resumes, [due()], seen, () => false);
+		expect(unparked).toEqual(["p s-p"]);
 	});
 });

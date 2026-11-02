@@ -14,8 +14,10 @@
  * the common dir at all, a worktree keys on its own `.git`, so its holds split
  * from the checkout's until git answers again.
  *
- * A LIFT IS THE UNLINK, so a tick and a hand lift racing get one winner and one
- * log line.
+ * A LIFT IS A RENAME out of the open store, under `lifted/`, so a tick and a hand
+ * lift racing get one winner and one log line, and the sessions parked on the hold
+ * outlast it, however it ended, until the tick's resume step has taken each up
+ * (#3863). Each lift has a directory of its own, as a fixed id can be lifted twice.
  *
  * THE PROBE (#3860): each tick, each served checkout's shared `.git` must fetch
  * origin and resolve `main`, and `origin/landing` with the landing module on. A
@@ -42,9 +44,12 @@
  * AN ATTACH IS A FILE OF ITS OWN beside the hold's (#3858), never a rewrite of
  * it: a rewrite could resurrect a hold a lift has just unlinked, or lose a
  * neighbour's attach. Its order against removeHold's leaves no stray: an attach
- * writes, then reads the hold; a lift unlinks the hold, then lists the attach
- * files. So either the lift's list finds the file or the attach's read finds no
- * hold and takes its file back.
+ * writes, then reads the hold; a lift renames the hold, then moves the attach
+ * files after it. So either the lift's list finds the file or the attach's read
+ * finds no hold and takes its file back. A lift gathers these in a directory
+ * beside the store's holds and renames it under `lifted/` whole, so a tick reads
+ * only finished lifts. RESIDUAL: a lift that dies part-way leaves its directory
+ * there unread, its sessions stranded on the `parked` label as any other park.
  */
 
 const fs = require("node:fs");
@@ -91,6 +96,13 @@ const { moduleReader, resolveKey } = require("./workflow-core-config.js");
  *
  * @typedef {(line: string) => void} Log
  *
+ * @typedef {object} LiftedHold
+ * @property {string} root
+ * @property {string} dir  its directory under `lifted/`
+ * @property {string} id
+ * @property {string[]} recordJobs  the job ids its record names
+ * @property {string[]} jobs  those and its attach files', the sessions parked on it
+ *
  * @typedef {{text: string, isOutage: boolean}} ProbeFailure
  */
 
@@ -107,6 +119,10 @@ const CLEAR_CHECK_KILL_AFTER_MS = 5000;
 const ID_BYTES = 3;
 
 const PROBE_ID = "probe";
+
+const LIFTED_DIR = "lifted";
+
+const LIFTING_PREFIX = "lifting-";
 
 /* How long an outage lasts before it raises a hold, and how long it may go unseen
  * by any tick and still be one outage. Past the longest in the loop's log, about 7
@@ -150,10 +166,27 @@ function holdsDir(root) {
 }
 
 /**
+ * @param {string} id
+ */
+const buildHoldFileName = (id) => `${id}.json`;
+
+/**
+ * A lift's directory name, off the hold's id; parseLiftedId reads the id back.
+ * @param {string} id
+ */
+const buildLiftedName = (id) =>
+	`${id}-${randomBytes(ID_BYTES).toString("hex")}`;
+
+/**
+ * @param {string} name  buildLiftedName's
+ */
+const parseLiftedId = (name) => name.slice(0, name.lastIndexOf("-"));
+
+/**
  * @param {string} root
  * @param {string} id
  */
-const holdFile = (root, id) => path.join(holdsDir(root), `${id}.json`);
+const holdFile = (root, id) => path.join(holdsDir(root), buildHoldFileName(id));
 
 /**
  * What an attach file's name starts with.
@@ -380,23 +413,131 @@ function findOwnHold(text) {
 }
 
 /**
- * End a hold and its attach files; false where it was already gone.
+ * End a hold, moving it and its attach files under `lifted/`; false where it was
+ * already gone.
  * @param {string} root
  * @param {string} id
  */
 function removeHold(root, id) {
 	const dir = holdsDir(root);
+	const name = buildLiftedName(id);
+	const lifting = path.join(dir, `${LIFTING_PREFIX}${name}`);
+	fs.mkdirSync(lifting, { recursive: true });
 	try {
-		fs.unlinkSync(holdFile(root, id));
+		fs.renameSync(
+			holdFile(root, id),
+			path.join(lifting, buildHoldFileName(id)),
+		);
 	} catch (err) {
+		fs.rmdirSync(lifting);
 		if (caught(err).code === "ENOENT") return false;
 		throw err;
 	}
-	for (const job of parseAttachedJobs(fs.readdirSync(dir), id))
-		fs.rmSync(path.join(dir, `${buildAttachPrefix(id)}${job}`), {
-			force: true,
-		});
+	for (const job of parseAttachedJobs(fs.readdirSync(dir), id)) {
+		const attach = `${buildAttachPrefix(id)}${job}`;
+		try {
+			fs.renameSync(path.join(dir, attach), path.join(lifting, attach));
+		} catch (err) {
+			/* The attach took its file back (#3858). */
+			if (caught(err).code !== "ENOENT") throw err;
+		}
+	}
+	fs.mkdirSync(path.join(dir, LIFTED_DIR), { recursive: true });
+	fs.renameSync(lifting, path.join(dir, LIFTED_DIR, name));
 	return true;
+}
+
+/**
+ * The job ids a lifted hold's record names: none where it is gone or torn, as a
+ * damaged record lifts too (#3857), its attach files still naming theirs; null,
+ * logged, where it will not read, for a later tick to read again (#3863).
+ * @param {string} file
+ * @param {Log} log
+ * @returns {string[]|null}
+ */
+function readLiftedRecordJobs(file, log) {
+	try {
+		const { sessions } = JSON.parse(fs.readFileSync(file, "utf8"));
+		return Array.isArray(sessions)
+			? sessions.filter((s) => typeof s === "string")
+			: [];
+	} catch (err) {
+		if (caught(err).code === "ENOENT") return [];
+		log(`lifted repo hold unread: ${file}: ${caught(err).message}`);
+		return err instanceof SyntaxError ? [] : null;
+	}
+}
+
+/**
+ * The names in `dir`: none where it is gone, or is no directory, as an open store
+ * then logs; none, logged, on any other fault, the lift waiting for a later tick
+ * (#3863).
+ * @param {string} dir
+ * @param {Log} log
+ */
+function readLiftedNames(dir, log) {
+	try {
+		return fs.readdirSync(dir);
+	} catch (err) {
+		const { code, message } = caught(err);
+		if (code !== "ENOENT" && code !== "ENOTDIR")
+			log(`lifted repo holds unread: ${dir}: ${message}`);
+		return [];
+	}
+}
+
+/**
+ * Every lifted hold in `roots`' stores whose sessions the tick has yet to take up.
+ * @param {string[]} roots
+ * @param {Log} log
+ * @returns {LiftedHold[]}
+ */
+function readLiftedHolds(roots, log) {
+	return readStoreRoots(roots).flatMap((root) => {
+		const base = path.join(holdsDir(root), LIFTED_DIR);
+		return readLiftedNames(base, log).flatMap((name) => {
+			const dir = path.join(base, name);
+			const id = parseLiftedId(name);
+			const recordJobs = readLiftedRecordJobs(
+				path.join(dir, buildHoldFileName(id)),
+				log,
+			);
+			if (recordJobs === null) return [];
+			const attached = parseAttachedJobs(readLiftedNames(dir, log), id);
+			return [
+				{
+					root,
+					dir,
+					id,
+					recordJobs,
+					jobs: [...new Set([...recordJobs, ...attached])],
+				},
+			];
+		});
+	});
+}
+
+/**
+ * Drop what `settled` names of a lifted hold, and the hold once nothing of it is
+ * left. A failure is logged and the next tick reads it again, which takes up no
+ * session twice (lib/refill-blocks.js's queueLifted).
+ * @param {LiftedHold} hold
+ * @param {string[]} settled  its job ids the tick has taken up
+ * @param {Log} log
+ */
+function dropLiftedJobs({ dir, id, recordJobs, jobs }, settled, log) {
+	try {
+		for (const job of settled)
+			fs.rmSync(path.join(dir, `${buildAttachPrefix(id)}${job}`), {
+				force: true,
+			});
+		if (!jobs.every((job) => settled.includes(job))) return;
+		if (recordJobs.every((job) => settled.includes(job)))
+			fs.rmSync(path.join(dir, buildHoldFileName(id)), { force: true });
+		fs.rmdirSync(dir);
+	} catch (err) {
+		log(`repo hold ${id}: lifted record kept: ${caught(err).message}`);
+	}
 }
 
 /**
@@ -913,11 +1054,13 @@ module.exports = {
 	buildAttachedLine,
 	buildHoldLines,
 	buildRaisedLine,
+	dropLiftedJobs,
 	findOwnHold,
 	liftHold,
 	raiseHold,
 	readCheckout,
 	readHolds,
+	readLiftedHolds,
 	readTickHolds,
 	tendHolds,
 };

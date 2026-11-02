@@ -84,7 +84,7 @@
 	"scripts/stale-write-back-gate.sh": "041c13c6ee40f37b",
 	"scripts/start-lander-on-push.js": "59340a64cc868ab5",
 	"scripts/sweep-debts-detached.sh": "87bc81d18d2a5128",
-	"scripts/unpark-on-prompt.js": "0cd5e513142cdf49",
+	"scripts/unpark-on-prompt.js": "7844751553680d9b",
 	"scripts/vitest-inflight-reporter.ts": "4e2a7bc5c13a8878",
 	"scripts/vitest-pass-reporter.ts": "dbf208883c72c7a5",
 	"scripts/vitest-tree-watch.ts": "756d880a02c20960",

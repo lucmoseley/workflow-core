@@ -48,6 +48,7 @@ import { printed, stubGhRoutes } from "./lib/gh-stub";
 import { defineTemplate, initGitRepo } from "./lib/git-fixture";
 import {
 	API_PROMPT,
+	HOLD_PROMPT,
 	IDLE_PROMPT,
 	LIMIT_PROMPT,
 	MOVED_PROMPT,
@@ -115,6 +116,7 @@ const loopEnv = (over: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({
 	CLAUDE_CONFIG_DIR: seat,
 	WFC_CLAUDE_BIN: at("claude"),
 	WFC_PRESENCE_MARKER: at("no-presence"),
+	WFC_DISPATCH_STAGGER_SECONDS: "0",
 	GITHUB_ACTIONS: "",
 	...over,
 });
@@ -1134,6 +1136,15 @@ const buildBlockedJobRecord = (detail: string, linkScanPath: string) =>
 		cwd: repo,
 		linkScanPath,
 	});
+
+/** `job`'s park marker, written `age` minutes ago, listing its issue. */
+const writeParkMarker = (job: string, issue: number, age: number) => {
+	const file = markerPath(`s-${job}`);
+	fs.mkdirSync(path.dirname(file), { recursive: true });
+	fs.writeFileSync(file, `seat ${seat}\njob ${job}\ncwd ${repo}\n${issue}\n`);
+	const parkedAt = new Date(Date.now() - age * 60_000);
+	fs.utimesSync(file, parkedAt, parkedAt);
+};
 
 const launchState = () =>
 	JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"))
@@ -3040,6 +3051,7 @@ describe("a probe hold on the real tick (#3860)", () => {
 		return stubGhRoutes(at("gh-routes"), {
 			"issue list *": printed(JSON.stringify(open)),
 			[`issue close ${Issue} *`]: printed(""),
+			"issue edit *": printed(""),
 			"*": ghAnswer(LOGGED_OUT),
 		});
 	};
@@ -3480,6 +3492,55 @@ node ${JSON.stringify(path.join(scripts, "request-stop.js"))}\n`,
 		expect(readState().probeBrokenRoots).toEqual([]);
 	});
 
+	it("resumes the sessions parked on it through admission, oldest first, once its .git is repaired (#3863)", async () => {
+		const close = serveClose();
+		breakHead();
+		await tickRun(close.gh);
+		const attachJob = (job: string, issue: number, age: number) => {
+			const attached = runInProcess(
+				path.join(__dirname, "repo-hold.js"),
+				["attach", "probe"],
+				{
+					cwd: repo,
+					env: loopEnv({
+						CLAUDE_PROJECT_DIR: repo,
+						CLAUDE_JOB_DIR: path.join(seat, "jobs", job),
+						CLAUDE_CODE_SESSION_ID: "",
+					}),
+				},
+			);
+			expect(attached.status, attached.stderr).toBe(0);
+			writeParkMarker(job, issue, age);
+		};
+		attachJob("job8", 8, 5);
+		attachJob("job9", 9, 30);
+		fakeResumeClaude("job8", [LISTED]);
+		stub(
+			"allowance.js",
+			"process.stdout.write(JSON.stringify({ cap: { launch: 9 } }));\n",
+		);
+		repairHead();
+		updateControl({ stopRequested: false });
+
+		const running = run(2, { WFC_GH: close.gh });
+		await polled(
+			() => readLines(at("calls")).length === 2,
+			"the resumes never came",
+		);
+		requestStop();
+		const repaired = await settled(running, "run with a repaired .git");
+
+		expect(repaired.status).toBe(0);
+		expect(repaired.stdout).toContain("repo hold cleared: probe in");
+		expect(readLines(at("calls"))).toEqual([
+			`--bg --resume s-job9 ${HOLD_PROMPT}`,
+			`--bg --resume s-job8 ${HOLD_PROMPT}`,
+		]);
+		expect(fs.existsSync(at("dispatches"))).toBe(false);
+		expect(repaired.stdout).toMatch(/resumed 2 of 2 due/);
+		expect(fs.existsSync(markerPath("s-job9"))).toBe(false);
+	});
+
 	it("writes over a torn record of its hold", async () => {
 		const close = serveClose();
 		breakHead();
@@ -3536,5 +3597,315 @@ node ${JSON.stringify(path.join(scripts, "request-stop.js"))}\n`,
 		);
 
 		expect(held.stdout).not.toContain("/implement 5");
+	});
+});
+
+describe("the sessions parked on a cleared repo hold (#3863)", () => {
+	const Hold = "repair main";
+	let gh: string;
+	const stateFile = () => at(".refill-loop-state.json");
+	const readState = () => JSON.parse(fs.readFileSync(stateFile(), "utf8"));
+	const resumeOf = (job: string) => `--bg --resume s-${job} ${HOLD_PROMPT}`;
+	const readCalls = () => readLines(at("calls"));
+
+	const holdAs = (job: string | null, ...args: string[]) =>
+		runInProcess(path.join(__dirname, "repo-hold.js"), args, {
+			cwd: repo,
+			env: loopEnv({
+				CLAUDE_PROJECT_DIR: repo,
+				CLAUDE_JOB_DIR: job ? path.join(seat, "jobs", job) : "",
+				CLAUDE_CODE_SESSION_ID: "",
+				WFC_GH: gh,
+			}),
+		});
+
+	/** A hold `job` raised and `attached` parked on, read off the line it prints. */
+	const raiseWith = (job: string, ...attached: string[]) => {
+		const id = parseHoldId(
+			holdAs(
+				job,
+				"raise",
+				"--act",
+				Hold,
+				"--issue",
+				"12",
+				"--clear-issue",
+				"12",
+			).stdout,
+		);
+		for (const other of attached)
+			expect(holdAs(other, "attach", id).status).toBe(0);
+		return id;
+	};
+
+	const editCalls = () =>
+		readLines(at("gh-calls")).filter((l) => l.startsWith("issue edit"));
+
+	beforeEach(() => {
+		fs.writeFileSync(
+			path.join(repo, ".claude", "workflow-core.json"),
+			JSON.stringify({ tracker: "o/r" }),
+		);
+		fs.mkdirSync(at("gh-routes"), { recursive: true });
+		gh = stubGhRoutes(
+			at("gh-routes"),
+			{ "*": printed("") },
+			{ log: at("gh-calls") },
+		).gh;
+		/* Over every tick's slots, so admission alone paces them. */
+		stub(
+			"allowance.js",
+			"process.stdout.write(JSON.stringify({ cap: { launch: 9 } }));\n",
+		);
+	});
+
+	/** One loop run with `slots` free, asked to stop once `isDone` holds; the
+	 * default is the tick's state written. */
+	const tickUntil = async (slots: number, isDone?: () => boolean) => {
+		const control = at(".refill-loop-control.json");
+		fs.writeFileSync(
+			control,
+			JSON.stringify({
+				...JSON.parse(fs.readFileSync(control, "utf8")),
+				stopRequested: false,
+			}),
+		);
+		if (fs.existsSync(stateFile()))
+			fs.writeFileSync(
+				stateFile(),
+				JSON.stringify({ ...readState(), lastTick: null }),
+			);
+		const running = run(slots, { WFC_GH: gh });
+		await polled(
+			isDone ??
+				(() => fs.existsSync(stateFile()) && Boolean(readState().lastTick)),
+			"the tick never got there",
+		);
+		requestStop();
+		return settled(running, "run with a cleared hold");
+	};
+
+	it("resumes a hold's raiser and those attached the same way off a hand lift, its labels and markers gone", async () => {
+		const id = raiseWith("job8", "job9");
+		writeParkMarker("job8", 8, 5);
+		writeParkMarker("job9", 9, 30);
+		expect(holdAs(null, "lift", id).status).toBe(0);
+		fakeResumeClaude("job8", [LISTED]);
+
+		const r = await tickUntil(2, () => readCalls().length === 2);
+
+		expect(r.status).toBe(0);
+		expect(readCalls()).toEqual([resumeOf("job9"), resumeOf("job8")]);
+		expect(fs.existsSync(at("dispatches"))).toBe(false);
+		expect(editCalls()).toEqual([
+			"issue edit 9 --repo o/r --remove-label parked",
+			"issue edit 8 --repo o/r --remove-label parked",
+		]);
+		expect(fs.existsSync(markerPath("s-job8"))).toBe(false);
+		expect(fs.existsSync(markerPath("s-job9"))).toBe(false);
+		expect(holdAs(null, "list").stdout).toContain("none open");
+		const store = fs.readdirSync(at("repo-holds"))[0] ?? "";
+		expect(fs.readdirSync(at(`repo-holds/${store}/lifted`))).toEqual([]);
+	});
+
+	it("takes up the launch the loop already holds for a session it parked, finished and stopped", async () => {
+		const id = raiseWith("job8");
+		writeParkMarker("job8", 8, 5);
+		holdAs(null, "lift", id);
+		const at0 = Date.now() - 3_600_000;
+		fs.writeFileSync(
+			stateFile(),
+			JSON.stringify({
+				launches: [
+					{
+						root: repo,
+						issues: [8],
+						prompt: "/implement 8",
+						seat,
+						reason: "first with room",
+						jobId: "job8",
+						sessionId: "s-job8",
+						launchedAt: at0,
+						finishedAt: at0,
+						parkStopped: at0,
+					},
+				],
+			}),
+		);
+		fakeResumeClaude("job8", [LISTED]);
+
+		const r = await tickUntil(1, () => readCalls().length === 1);
+
+		expect(r.status).toBe(0);
+		expect(r.stdout).toMatch(
+			/resumed repo \/implement 8, parked at .* on repo hold/,
+		);
+		const [launch] = readState().launches;
+		expect(launch).toMatchObject({
+			issues: [8],
+			prompt: "/implement 8",
+			finishedAt: null,
+			jobId: FAKE_COPY,
+			copiedFrom: "job8",
+		});
+		expect(launch).not.toHaveProperty("parkStopped");
+		expect(launch).not.toHaveProperty("holdCleared");
+	});
+
+	it("resumes those that do not fit on later ticks, new launches behind them", async () => {
+		const id = raiseWith("job7", "job8", "job9");
+		writeParkMarker("job7", 7, 30);
+		writeParkMarker("job8", 8, 20);
+		writeParkMarker("job9", 9, 10);
+		holdAs(null, "lift", id);
+		fakeResumeClaude("job7", [LISTED]);
+
+		const first = await tickUntil(2, () => readCalls().length === 2);
+
+		expect(first.status).toBe(0);
+		expect(readCalls()).toEqual([resumeOf("job7"), resumeOf("job8")]);
+		expect(fs.existsSync(at("dispatches"))).toBe(false);
+		expect(first.stdout).toMatch(/resumed 2 of 3 due/);
+
+		const last = await tickUntil(2, () => fs.existsSync(at("dispatches")));
+
+		expect(last.status).toBe(0);
+		expect(readCalls().at(-1)).toBe(resumeOf("job9"));
+		expect(readCalls()).toHaveLength(3);
+		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
+	});
+
+	it("takes the swap hold's try count on a failed resume, then its hand-off", async () => {
+		const id = raiseWith("job8");
+		writeParkMarker("job8", 8, 5);
+		holdAs(null, "lift", id);
+		fakeResumeClaude("job8", [LISTED]);
+		fs.writeFileSync(at("bg-stdout"), "");
+		fs.writeFileSync(at("bg-stderr"), "");
+		stub(
+			"rescue-sessions.js",
+			`require("node:fs").appendFileSync(${JSON.stringify(at("hand-offs"))}, process.argv.slice(2).join(" ") + "\\n");\nprocess.stdout.write("commented: #8\\n");\n`,
+		);
+
+		const failed = await tickUntil(1);
+
+		expect(failed.status).toBe(0);
+		expect(failed.stdout).toMatch(/could not resume .*try 1 of 3/);
+		expect(readState().launches[0].holdCleared.tries).toBe(1);
+		expect(editCalls()).toEqual([]);
+		expect(fs.existsSync(markerPath("s-job8"))).toBe(true);
+
+		const state = readState();
+		state.launches[0].holdCleared.tries = 2;
+		fs.writeFileSync(stateFile(), JSON.stringify(state));
+
+		const last = await tickUntil(1);
+
+		expect(last.status).toBe(0);
+		expect(last.stdout).toMatch(/could not resume .*try 3 of 3/);
+		expect(readLines(at("hand-offs"))).toEqual([
+			`hand-off --from ${seat} --job job8 --issue 8`,
+		]);
+		expect(readState().launches[0]).toMatchObject({
+			finishedAt: expect.any(Number),
+			handedOff: expect.any(Number),
+		});
+		expect(readState().launches[0]).not.toHaveProperty("holdCleared");
+		expect(editCalls()).toEqual([
+			"issue edit 8 --repo o/r --remove-label parked",
+		]);
+		expect(fs.existsSync(markerPath("s-job8"))).toBe(false);
+	});
+
+	it("leaves alone one live and one its founder's answer took out of its marker", async () => {
+		const id = raiseWith("job8", "job9");
+		writeParkMarker("job8", 8, 5);
+		holdAs(null, "lift", id);
+		fakeResumeClaude("job8", [LISTED, buildJobRow("job8", "working")]);
+
+		const r = await tickUntil(0);
+
+		expect(r.status).toBe(0);
+		expect(readCalls()).toEqual([]);
+		expect(r.stdout).toMatch(/left session job8, .* alone: it is live/);
+		expect(r.stdout).toMatch(/left session job9, .* alone: no park marker/);
+		const store = fs.readdirSync(at("repo-holds"))[0] ?? "";
+		expect(fs.readdirSync(at(`repo-holds/${store}/lifted`))).toEqual([]);
+	});
+
+	it("resumes no session its founder answers while it waits for a slot", async () => {
+		const id = raiseWith("job8");
+		writeParkMarker("job8", 8, 5);
+		holdAs(null, "lift", id);
+		fakeResumeClaude("job8", [LISTED]);
+
+		await tickUntil(0);
+		expect(readState().launches[0].holdCleared.hold).toBe(id);
+		fs.rmSync(markerPath("s-job8"));
+		const r = await tickUntil(1);
+
+		expect(r.status).toBe(0);
+		expect(readCalls()).toEqual([]);
+		expect(r.stdout).toContain("its park marker no longer lists its issues");
+		expect(readState().launches[0]).toMatchObject({
+			finishedAt: expect.any(Number),
+		});
+		expect(readState().launches[0]).not.toHaveProperty("holdCleared");
+	});
+
+	it("stops one its normal-mode round still holds, then resumes it", async () => {
+		const id = raiseWith("job8");
+		writeParkMarker("job8", 8, 5);
+		holdAs(null, "lift", id);
+		fakeResumeClaude("job8", [LISTED, buildJobRow("job8", "blocked")]);
+
+		const r = await tickUntil(1, () => readCalls().length === 2);
+
+		expect(r.status).toBe(0);
+		expect(readCalls()).toEqual(["stop job8", resumeOf("job8")]);
+	});
+
+	it("keeps a lifted hold's sessions through a tick that stops", async () => {
+		const id = raiseWith("job8");
+		writeParkMarker("job8", 8, 5);
+		holdAs(null, "lift", id);
+		fakeResumeClaude("job8", [LISTED, buildJobRow("job8", "blocked")]);
+		const control = at(".refill-loop-control.json");
+		fs.writeFileSync(
+			control,
+			JSON.stringify({
+				...JSON.parse(fs.readFileSync(control, "utf8")),
+				stopRequested: true,
+			}),
+		);
+
+		const r = await settled(run(1, { WFC_GH: gh }), "run told to stop");
+
+		expect(r.status).toBe(0);
+		expect(readCalls()).toEqual([]);
+		const store = fs.readdirSync(at("repo-holds"))[0] ?? "";
+		expect(fs.readdirSync(at(`repo-holds/${store}/lifted`))).toHaveLength(1);
+	});
+
+	it("keeps a lifted hold's sessions through a paused tick", async () => {
+		const id = raiseWith("job8");
+		writeParkMarker("job8", 8, 5);
+		holdAs(null, "lift", id);
+		fakeResumeClaude("job8", [LISTED]);
+		const control = at(".refill-loop-control.json");
+		fs.writeFileSync(
+			control,
+			JSON.stringify({
+				...JSON.parse(fs.readFileSync(control, "utf8")),
+				paused: { by: "test", at: Date.now() },
+			}),
+		);
+
+		const r = await tickUntil(1);
+
+		expect(r.status).toBe(0);
+		expect(readCalls()).toEqual([]);
+		const store = fs.readdirSync(at("repo-holds"))[0] ?? "";
+		expect(fs.readdirSync(at(`repo-holds/${store}/lifted`))).toHaveLength(1);
 	});
 });

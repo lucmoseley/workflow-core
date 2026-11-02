@@ -29,7 +29,7 @@ const {
 	isHeld,
 	isLive,
 	launchName,
-	isSwapHeld,
+	isStepResume,
 	limitWaitOf,
 	markParked,
 } = require("./refill-blocks.js");
@@ -99,7 +99,8 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * resumed-idle session (#2659), cleared once the session takes a turn;
  * `idleSince`, the time of the harness restart row it last read resumed-idle
  * on (#2978). `swapHeld`, set while the loop holds one it stopped under the
- * swap hold (#3093). `limitHeld`, while it holds one stopped on its seat's
+ * swap hold (#3093). `holdCleared`, while its session, parked on a repo hold since
+ * cleared, waits on the resume step (#3863). `limitHeld`, while it holds one stopped on its seat's
  * limit, and `limitResumes`, its resumes and moves (#3735, #3734), `limitLeft`,
  * the seats a limit moved it off. `limitParks`, the
  * limit-cap parks in a row its ticket came back from (#3804). `handOffTries` counts the hand-offs of
@@ -116,6 +117,7 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  *   resumes?: import("./refill-blocks.js").Resumes,
  *   idleResumes?: import("./refill-blocks.js").IdleResumes, idleSince?: number,
  *   swapHeld?: import("./refill-blocks.js").SwapHeld,
+ *   holdCleared?: import("./refill-blocks.js").HoldCleared,
  *   limitHeld?: import("./refill-blocks.js").LimitHeld,
  *   limitResumes?: import("./refill-blocks.js").LimitResumes,
  *   limitLeft?: import("./refill-decide.js").SeatLeft[],
@@ -1158,7 +1160,7 @@ const dueCount = (input) => input.resumable?.length ?? 0;
  */
 const leftDue = (input, launches) =>
 	(input.resumable ?? []).filter((r) =>
-		launches.some((l) => l.jobId === r.jobId && isSwapHeld(l)),
+		launches.some((l) => l.jobId === r.jobId && isStepResume(l)),
 	);
 
 /**

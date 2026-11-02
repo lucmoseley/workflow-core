@@ -234,6 +234,29 @@ function writeParkedBy(
 	fs.writeFileSync(file, `${lines.join("\n")}\n`);
 }
 
+/**
+ * Take `parked` off each of `numbers` and out of this session's marker; an issue
+ * whose label write fails stays in the marker.
+ * @param {string} repo
+ * @param {string} sessionId
+ * @param {number[]} numbers
+ * @param {string} [root]  the session's checkout; the caller's host by default
+ * @returns {{n: number, why: string}[]} each that failed
+ */
+function unparkIssues(repo, sessionId, numbers, root) {
+	const failed = numbers.flatMap((n) => {
+		const why = setParked(repo, n, false);
+		return why === null ? [] : [{ n, why }];
+	});
+	const gone = numbers.filter((n) => !failed.some((f) => f.n === n));
+	writeParkedBy(
+		sessionId,
+		readParkedBy(sessionId, root).filter((n) => !gone.includes(n)),
+		{ root },
+	);
+	return failed;
+}
+
 module.exports = {
 	PARKED_LABEL,
 	readParkMarkersOrThrow,
@@ -241,5 +264,6 @@ module.exports = {
 	readParkMarkers,
 	readParkedBy,
 	setParked,
+	unparkIssues,
 	writeParkedBy,
 };

@@ -19,6 +19,7 @@ const {
 } = require("./block-act.js");
 const {
 	API_PROMPT,
+	HOLD_PROMPT,
 	IDLE_PROMPT,
 	LIMIT_PROMPT,
 	MOVED_PROMPT,
@@ -65,6 +66,8 @@ const PARKED_STATE = "blocked";
  *   SwapHeld  a resumed-idle session the loop stopped under the swap hold
  *   (#3093): when, the session and directory its resume runs in, read before
  *   the stop, and the resumes since tried that failed
+ * @typedef {SwapHeld & {hold: string}} HoldCleared  a session parked on a repo
+ *   hold since cleared (#3863): `at`, when it parked, and `hold`, that hold's id
  * @typedef {{bar: "weekly"|"5-hour"|null, resets: string|null}} LimitRead  the
  *   limit a seat's reading shows a session stopped on, null where neither bar
  *   read, with its reset as read; from the reading, never the limit's text
@@ -151,6 +154,10 @@ const PARKED_STATE = "blocked";
  *   limitParks?: number) => string|null} recordParked  add `numbers` to the
  *   session's `.parked-` marker in its checkout (lib/parked.js), with a
  *   limit-cap park's count in a row; null, else why not, which may carry a stack
+ * @property {(root: string) => import("./parked.js").ParkMarkerRead[]|null}
+ *   readParkMarkers  those in `root`'s checkout, null where they will not read
+ * @property {(l: LoopLaunch, sessionId: string) => string|null} unparkResumed
+ *   take the `parked` label and marker off its issues, as its session has gone back
  * @property {(l: LoopLaunch, body: string) => void} comment  on each of its
  *   issues, a failure logged
  * @property {(l: JobLaunch) => {failed: string|null, out: string}}
@@ -214,6 +221,20 @@ const isResuming = (l) =>
 const isSwapHeld = (l) => l.swapHeld !== undefined;
 
 /**
+ * Whether `l`'s session is parked on a repo hold since lifted, due back through
+ * the resume step (#3863).
+ * @param {LoopLaunch} l
+ * @returns {l is LoopLaunch & {holdCleared: HoldCleared}}
+ */
+const isHoldCleared = (l) => l.holdCleared !== undefined;
+
+/**
+ * Whether `l`'s stopped session waits on the tick's resume step.
+ * @param {LoopLaunch} l
+ */
+const isStepResume = (l) => isSwapHeld(l) || isHoldCleared(l);
+
+/**
  * Whether the loop stopped `l`'s session on its seat's limit (#3735).
  * @param {LoopLaunch} l
  * @returns {l is LoopLaunch & {limitHeld: LimitHeld}}
@@ -243,7 +264,7 @@ const isLimitBlocked = (l) => isActionable(l) && l.block?.cause === "LIMIT";
  */
 const isHeld = (l) =>
 	(isResuming(l) && l.resumes?.heldAt !== undefined) ||
-	isSwapHeld(l) ||
+	isStepResume(l) ||
 	isLimitHeld(l);
 
 /**
@@ -277,7 +298,8 @@ const nextResumeAt = (l) => resumeDueAt(blockOf(l));
  * adds only on a house-decision round. Off an unread listing, for an
  * unlisted launch, for one whose row carries no `state`, or for a held one
  * (isHeld) whose session has ended, each keeps what the last read said; one held under the swap hold whose session
- * the listing shows live again is no longer held (#3093).
+ * the listing shows live again is no longer held (#3093), as one due back off a
+ * cleared repo hold, its founder's answer having woken it (#3863).
  * @param {LoopLaunch[]} launches
  * @param {AgentRecord[]|null} agents
  * @param {CauseOf} causeOf
@@ -296,7 +318,13 @@ function markParked(launches, agents, causeOf, now) {
 			causeOf(l, row);
 			return l;
 		}
-		const { block: _, swapHeld: __, limitHeld: ___, ...rest } = l;
+		const {
+			block: _,
+			swapHeld: __,
+			limitHeld: ___,
+			holdCleared: ____,
+			...rest
+		} = l;
 		if (row.state !== PARKED_STATE) return { ...rest, parked: false };
 		const reading = causeOf(l, row);
 		return {
@@ -462,7 +490,7 @@ function idleActs(launches, mode, { now, io, swapHold }) {
 			!isActionable(l) ||
 			isResuming(l) ||
 			l.handOffTries !== undefined ||
-			isSwapHeld(l) ||
+			isStepResume(l) ||
 			isLimitHeld(l)
 		)
 			return l;
@@ -999,19 +1027,48 @@ function holdIdle(b, { agents, now, io, swapHold }) {
 	return { ...stopped, swapHeld: { at: now, sessionId, cwd, tries: 0 } };
 }
 
-/**
- * @param {LoopLaunch} l
- * @returns {l is JobLaunch & {swapHeld: SwapHeld}}
- */
-const isResumableSwapHeld = (l) => isActionable(l) && isSwapHeld(l);
-
 /** @param {LoopLaunch & {swapHeld: SwapHeld}} l */
 const buildSwapHeldText = (l) =>
 	`${launchName(l)}, stopped under the swap hold at ${iso(l.swapHeld.at)}`;
 
+/** @param {LoopLaunch & {holdCleared: HoldCleared}} l */
+const buildHoldClearedText = (l) =>
+	`${launchName(l)}, parked at ${iso(l.holdCleared.at)} on repo hold ${l.holdCleared.hold}`;
+
 /**
- * The sessions stopped under the swap hold, due back now it has cleared, for
- * the tick's decision to pace (#3855); none off an unread listing, as one
+ * What the resume step needs of `l`, one of isStepResume's two.
+ * @param {JobLaunch} l
+ * @returns {{held: SwapHeld, what: string, prompt: string, isParked: boolean,
+ *   rest: JobLaunch, withTries: (tries: number) => JobLaunch}}
+ */
+function stepResumeOf(l) {
+	if (isSwapHeld(l)) {
+		const { swapHeld, ...rest } = l;
+		return {
+			held: swapHeld,
+			what: buildSwapHeldText(l),
+			prompt: IDLE_PROMPT,
+			isParked: false,
+			rest,
+			withTries: (tries) => ({ ...l, swapHeld: { ...swapHeld, tries } }),
+		};
+	}
+	const { holdCleared, ...rest } =
+		/** @type {JobLaunch & {holdCleared: HoldCleared}} */ (l);
+	return {
+		held: holdCleared,
+		what: buildHoldClearedText({ ...l, holdCleared }),
+		prompt: HOLD_PROMPT,
+		isParked: true,
+		rest,
+		withTries: (tries) => ({ ...l, holdCleared: { ...holdCleared, tries } }),
+	};
+}
+
+/**
+ * The sessions due back through the tick's resume step, for its decision to pace
+ * (#3855): those stopped under the swap hold and those parked on a cleared repo hold
+ * (#3863), none while the swap hold stands, and none off an unread listing, as one
  * live again is not yet told from one still stopped.
  * @param {LoopLaunch[]} launches
  * @param {Tick} seen
@@ -1019,53 +1076,59 @@ const buildSwapHeldText = (l) =>
  */
 function resumableOf(launches, { agents, io, swapHold }) {
 	if (swapHold.held) return [];
-	const due = launches.filter(isResumableSwapHeld);
+	const due = launches.filter(isActionable).filter(isStepResume);
 	if (!agents) {
 		for (const l of due)
-			io.log(`not resuming ${buildSwapHeldText(l)}: the listing is unread`);
+			io.log(`not resuming ${stepResumeOf(l).what}: the listing is unread`);
 		return [];
 	}
-	return due.map((l) => ({
-		jobId: l.jobId,
-		seat: l.seat,
-		root: l.root,
-		at: l.swapHeld.at,
-		line: `${l.jobId} ${buildSwapHeldText(l)}`,
-	}));
+	return due.map((l) => {
+		const { held, what } = stepResumeOf(l);
+		return {
+			jobId: l.jobId,
+			seat: l.seat,
+			root: l.root,
+			at: held.at,
+			line: `${l.jobId} ${what}`,
+		};
+	});
 }
 
 /**
- * Resume `l`: `claude --bg --resume` of its session with the restart's prompt.
- * One whose resume fails stays held for the next tick, and after
- * SWAP_RESUME_TRIES failures is handed off instead.
- * @param {JobLaunch & {swapHeld: SwapHeld}} l
+ * Resume `l`: `claude --bg --resume` of its session with its cause's prompt. One
+ * whose resume fails stays held for the next tick, and after SWAP_RESUME_TRIES
+ * failures is handed off instead. One parked on a repo hold no longer waits on the
+ * founder either way, so its `parked` label and marker go.
+ * @param {JobLaunch} l
  * @param {Tick} seen
  * @returns {{launch: LoopLaunch, started: boolean}}
  */
-function resumeSwapHeld(l, seen) {
+function resumeStepHeld(l, seen) {
 	const { now, io } = seen;
-	const { swapHeld, ...rest } = l;
-	const what = buildSwapHeldText(l);
-	const { sessionId, cwd } = swapHeld;
-	const r = io.resumeStopped(l, IDLE_PROMPT, { sessionId, cwd });
+	const { held, what, prompt, isParked, rest, withTries } = stepResumeOf(l);
+	const { sessionId, cwd } = held;
+	const unpark = () => {
+		if (!isParked) return;
+		const failed = io.unparkResumed(l, sessionId);
+		if (failed) io.log(`${what}: still labelled parked: ${failed}`);
+	};
+	const r = io.resumeStopped(l, prompt, { sessionId, cwd });
 	if (r.failed === null) {
 		const resumed = relaunched(rest, { ...r, fromSessionId: sessionId }, now);
 		io.log(
 			`resumed ${what}, the hold cleared, by --bg --resume, ${r.copy ? `as its copy ${resumed.jobId}` : "woken in place"}`,
 		);
+		unpark();
 		return { launch: resumed, started: true };
 	}
-	const tries = swapHeld.tries + 1;
+	const tries = held.tries + 1;
 	io.log(
 		`could not resume ${what}, try ${tries} of ${SWAP_RESUME_TRIES}: ${r.failed}`,
 	);
-	return {
-		launch:
-			tries < SWAP_RESUME_TRIES
-				? { ...l, swapHeld: { ...swapHeld, tries } }
-				: handOff(rest, seen, true),
-		started: false,
-	};
+	if (tries < SWAP_RESUME_TRIES)
+		return { launch: withTries(tries), started: false };
+	unpark();
+	return { launch: handOff(rest, seen, true), started: false };
 }
 
 /**
@@ -1084,33 +1147,198 @@ function resumeSwapHeld(l, seen) {
  */
 function resumeHeldLaunches(resumes, launches, seen, isStopped) {
 	const { io } = seen;
-	/** @type {Map<string, LoopLaunch>} */
+	/** @type {Map<LoopLaunch, LoopLaunch>} */
 	const acted = new Map();
 	let started = 0;
 	let waiting = false;
 	for (const { jobId, line } of resumes) {
-		const l = launches.find((x) => x.jobId === jobId);
-		if (!l || !isResumableSwapHeld(l) || isStopped()) break;
+		const l = launches.find((x) => x.jobId === jobId && isStepResume(x));
+		if (!l || !isActionable(l) || isStopped()) break;
 		const refused = io.admitResume();
 		if (refused) {
 			io.log(`not resuming ${line}, for a later tick: ${refused}`);
 			waiting = true;
 			break;
 		}
-		const out = resumeSwapHeld(l, seen);
-		acted.set(jobId, out.launch);
+		const out = resumeStepHeld(l, seen);
+		acted.set(l, out.launch);
 		if (out.started) {
 			started += 1;
 			io.stagger();
 		}
 	}
 	return {
-		launches: launches.map(
-			(l) => (l.jobId !== null && acted.get(l.jobId)) || l,
-		),
+		launches: launches.map((l) => acted.get(l) ?? l),
 		started,
 		waiting,
 	};
+}
+
+/**
+ * The launch due back for job `job`, parked on lifted hold `hold`, off the park
+ * marker that lists its issues: its launch record, where this loop has one, made
+ * unfinished again until the resume step takes it, else one made from the marker,
+ * as a session the loop never launched goes back too (#3709).
+ * @param {string} job
+ * @param {import("./parked.js").ParkMarkerRead} marker
+ * @param {import("./repo-holds.js").LiftedHold} hold
+ * @param {LoopLaunch|undefined} known
+ * @returns {JobLaunch}
+ */
+function buildClearedLaunch(job, marker, hold, known) {
+	const {
+		block: _,
+		parked: __,
+		parkStopped: ___,
+		parkedAway: ____,
+		handOffTries: _____,
+		handedOff: ______,
+		...base
+	} = known ?? {
+		root: hold.root,
+		issues: marker.issues,
+		prompt: `parked ${marker.issues.map((n) => `#${n}`).join(" ")}`,
+		seat: marker.job?.seat ?? "",
+		reason: /** @type {const} */ ("parked session's seat"),
+		jobId: job,
+		sessionId: marker.sessionId,
+		launchedAt: marker.writtenAt,
+		finishedAt: null,
+	};
+	return {
+		...base,
+		issues: [...new Set([...base.issues, ...marker.issues])],
+		jobId: job,
+		finishedAt: null,
+		holdCleared: {
+			at: marker.writtenAt,
+			sessionId: marker.sessionId,
+			cwd: marker.job?.cwd ?? hold.root,
+			tries: 0,
+			hold: hold.id,
+		},
+	};
+}
+
+/**
+ * One session parked on a lifted hold, judged: whether it is settled, and its launch
+ * where the resume step is to take it. Only a marker listing its issues reads as
+ * still parked: the founder's answer empties it (unpark-on-prompt.js), as does a
+ * resume to a copy. A session listed live with no block is awake already, and one
+ * handed off, or whose ticket another live launch holds, has been replaced. One
+ * blocked, in a normal-mode loop that leaves its round waiting, is stopped first,
+ * as `--bg --resume` takes a stopped job; a stop that fails is tried next tick.
+ * RESIDUAL: a park the loop could not label has no marker, so it is left alone, its
+ * ticket coming back through the ledger's window.
+ * @param {string} job
+ * @param {import("./repo-holds.js").LiftedHold} hold
+ * @param {{launches: LoopLaunch[],
+ *   markers: import("./parked.js").ParkMarkerRead[]}} read
+ * @param {Tick} seen
+ * @returns {{isSettled: boolean, launch?: JobLaunch}}
+ */
+function judgeClearedJob(job, hold, { launches, markers }, { agents, io }) {
+	const known = launches.findLast((l) => l.jobId === job);
+	if (known && isHoldCleared(known)) return { isSettled: true };
+	const row = agents?.find((a) => a.id === job);
+	const isBlocked = row?.state === PARKED_STATE;
+	const marker =
+		markers.find((m) => m.job?.jobId === job) ??
+		markers.find((m) => m.sessionId === known?.sessionId);
+	const name = `session ${job}, parked on repo hold ${hold.id} now cleared`;
+	if (!marker) {
+		io.log(`left ${name} alone: no park marker lists its issues`);
+		return { isSettled: true };
+	}
+	if (row && !isTerminalAgent(row) && !isBlocked) {
+		io.log(`left ${name} alone: it is live`);
+		return { isSettled: true };
+	}
+	if (known?.handedOff !== undefined) {
+		io.log(`left ${name} alone: it was handed off`);
+		return { isSettled: true };
+	}
+	const holder = launches.find(
+		(l) =>
+			isLive(l) &&
+			l.jobId !== job &&
+			l.root === hold.root &&
+			l.issues.some((n) => marker.issues.includes(n)),
+	);
+	if (holder) {
+		io.log(`left ${name} alone: ${launchName(holder)} now holds its ticket`);
+		return { isSettled: true };
+	}
+	const launch = buildClearedLaunch(job, marker, hold, known);
+	if (isBlocked) {
+		const r = io.stop(launch.seat, job);
+		if (!r.ok && !r.noJob) {
+			io.log(`could not stop ${name}, the next tick retries: ${r.why}`);
+			return { isSettled: false };
+		}
+	}
+	io.log(`${name}: due back through the resume step`);
+	return { isSettled: true, launch };
+}
+
+/**
+ * The launches with each session parked on a lifted repo hold queued for the resume
+ * step, and each one due back whose founder has since answered it finished (#3863):
+ * `settled` says what of each hold the caller may drop once the state is written, a
+ * crash before then reading it again and queuing none twice. Nothing is judged off an
+ * unread listing or marker directory.
+ * @param {LoopLaunch[]} launches
+ * @param {import("./repo-holds.js").LiftedHold[]} lifted
+ * @param {Tick} seen
+ * @returns {{launches: LoopLaunch[],
+ *   settled: {hold: import("./repo-holds.js").LiftedHold, jobs: string[]}[]}}
+ */
+function queueLifted(launches, lifted, seen) {
+	const { agents, io, now } = seen;
+	if (!agents) return { launches, settled: [] };
+	/** @type {Map<string, import("./parked.js").ParkMarkerRead[]|null>} */
+	const byRoot = new Map();
+	/** @param {string} root */
+	const readMarkersIn = (root) => {
+		const read = byRoot.get(root);
+		if (read !== undefined) return read;
+		const fresh = io.readParkMarkers(root);
+		byRoot.set(root, fresh);
+		return fresh;
+	};
+	let next = launches.map((l) => {
+		if (!isActionable(l) || !isHoldCleared(l)) return l;
+		const markers = readMarkersIn(l.root);
+		if (
+			!markers ||
+			markers.some((m) => m.sessionId === l.holdCleared.sessionId)
+		)
+			return l;
+		io.log(
+			`not resuming ${buildHoldClearedText(l)}: its park marker no longer lists its issues`,
+		);
+		const { holdCleared: _, ...rest } = l;
+		return { ...rest, ...io.progressOf(rest), finishedAt: now };
+	});
+	const settled = lifted.flatMap((hold) => {
+		const markers = readMarkersIn(hold.root);
+		if (!markers) return [];
+		const jobs = hold.jobs.filter((job) => {
+			const { isSettled, launch } = judgeClearedJob(
+				job,
+				hold,
+				{ launches: next, markers },
+				seen,
+			);
+			if (launch) {
+				const newest = next.findLastIndex((l) => l.jobId === job);
+				next = newest < 0 ? [...next, launch] : next.with(newest, launch);
+			}
+			return isSettled;
+		});
+		return [{ hold, jobs }];
+	});
+	return { launches: next, settled };
 }
 
 /**
@@ -1850,6 +2078,8 @@ module.exports = {
 	isLimitHeld,
 	isLive,
 	isResuming,
+	isHoldCleared,
+	isStepResume,
 	isSwapHeld,
 	iso,
 	launchName,
@@ -1859,6 +2089,7 @@ module.exports = {
 	nextResumeAt,
 	releaseAwayParks,
 	releaseEndedHolds,
+	queueLifted,
 	resumableOf,
 	resumeHeldLaunches,
 	unknownNews,

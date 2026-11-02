@@ -278,7 +278,7 @@ describe("repo-hold.js (#3857)", () => {
 			);
 		});
 
-		it("does not bring back a hold that was lifted, and leaves nothing behind", () => {
+		it("does not bring back a hold that was lifted, and leaves no late attach behind", () => {
 			const id = raiseFor({});
 			hold(checkout, ["attach", id], Job);
 			hold(checkout, ["lift", id]);
@@ -290,8 +290,16 @@ describe("repo-hold.js (#3857)", () => {
 			expect(late.stderr).toContain("`list` names them");
 			expect(hold(checkout, ["list"]).stdout).toContain("none open");
 			const stores = fs.readdirSync(path.join(dir, "repo-holds"));
-			for (const store of stores)
-				expect(fs.readdirSync(path.join(dir, "repo-holds", store))).toEqual([]);
+			for (const store of stores) {
+				const inStore = path.join(dir, "repo-holds", store);
+				expect(fs.readdirSync(inStore)).toEqual(["lifted"]);
+				const lifts = fs.readdirSync(path.join(inStore, "lifted"));
+				expect(lifts).toHaveLength(1);
+				const [lift] = lifts;
+				expect(
+					fs.readdirSync(path.join(inStore, "lifted", lift ?? "")).sort(),
+				).toEqual([`${id}.attached.abc123`, `${id}.json`].sort());
+			}
 		});
 
 		it("refuses a session outside a background job, attaching nothing", () => {
