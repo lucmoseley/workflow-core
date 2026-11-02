@@ -112,6 +112,7 @@ const { readLedger } = require("./lib/delegated-decision.js");
 const concurrency = require("./lib/concurrency.js");
 const kills = require("./lib/earlyoom-kills.js");
 const review = require("./lib/morning-review.js");
+const carry = require("./lib/review-carry.js");
 const {
 	readAbsence,
 	discoverRepos,
@@ -152,12 +153,12 @@ const io = scriptIo("file-morning-review");
  * @param {string} windowSince
  * @param {{number: number, body: string}[]} reviews newest first
  */
-function faultedRepo({ root, why }, windowSince, reviews) {
+function buildFaultedRepo({ root, why }, windowSince, reviews) {
 	const checkout = path.basename(root);
-	const start = review.repoStart(reviews[0], checkout, windowSince);
+	const start = carry.buildRepoStart(reviews[0], checkout, windowSince);
 	/* A JSON error quotes the config, newlines and all. */
 	const [line = ""] = why.split("\n");
-	return review.unreadRepo(checkout, start, checkout, line);
+	return carry.buildUnreadRepo(checkout, start, checkout, line);
 }
 
 /**
@@ -166,11 +167,11 @@ function faultedRepo({ root, why }, windowSince, reviews) {
  * @param {string} windowSince
  * @param {Reads} reads
  * @param {{number: number, body: string}[]} reviews newest first
- * @returns {import("./lib/morning-review.js").RepoRead}
+ * @returns {import("./lib/review-carry.js").RepoRead}
  */
 function readRepo(root, windowSince, reads, reviews) {
 	const checkout = path.basename(root);
-	const start = review.repoStart(reviews[0], checkout, windowSince);
+	const start = carry.buildRepoStart(reviews[0], checkout, windowSince);
 	let repo = checkout;
 	try {
 		repo = requireKey("tracker", { root });
@@ -181,7 +182,7 @@ function readRepo(root, windowSince, reads, reviews) {
 		const parked = readParked(repo, reads);
 		const primitives = readPrimitives(
 			root,
-			review.historyStart(start),
+			carry.buildHistoryStart(start),
 			reads,
 			review.parseHistoryCursor(reviews, repo),
 		);
@@ -199,20 +200,20 @@ function readRepo(root, windowSince, reads, reviews) {
 				primitives,
 			},
 			unread: [
-				...review.startFaults(checkout, start),
+				...carry.buildStartFaults(checkout, start),
 				...ledger.unread,
 				...closes.unread,
 				...stalls.unread,
 				...urgent.unread,
 				...parked.unread,
 			],
-			unreadEvents: review.buildCarryLines(checkout, start, {
+			unreadEvents: carry.buildCarryLines(checkout, start, {
 				closes: closes.closed === null,
 				decisions: ledger.entries === null,
 			}),
 		};
 	} catch (e) {
-		return review.unreadRepo(checkout, start, repo, parseErrLine(e));
+		return carry.buildUnreadRepo(checkout, start, repo, parseErrLine(e));
 	}
 }
 
@@ -729,8 +730,8 @@ function fileUnlessFiledToday(tracker, dryRun) {
 	const { included, faulted } = discoverRepos(home);
 	const read = [
 		...included.map((root) => readRepo(root, since, reads, reviews)),
-		...faulted.map((f) => faultedRepo(f, since, reviews)),
-		...review.buildAbsentRepos({
+		...faulted.map((f) => buildFaultedRepo(f, since, reviews)),
+		...carry.buildAbsentRepos({
 			previous,
 			listed: new Set(
 				[...included, ...faulted.map((f) => f.root)].map((root) =>

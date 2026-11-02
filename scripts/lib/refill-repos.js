@@ -86,19 +86,24 @@ function discoverRepos(home) {
 	/** @type {Discovery} */
 	const found = { included: [], excluded: [...adopters.excluded], faulted: [] };
 	for (const root of adopters.included) {
-		const why = exclusionOf(root);
-		if (why === null) found.included.push(root);
-		else (why === OPT_OUT ? found.excluded : found.faulted).push({ root, why });
+		const exclusion = readExclusion(root);
+		if (exclusion === null) found.included.push(root);
+		else
+			(exclusion.isOptOut ? found.excluded : found.faulted).push({
+				root,
+				why: exclusion.why,
+			});
 	}
 	return found;
 }
 
 /**
- * Why the loop does not serve this checkout's config, or null where it does.
+ * Whether this checkout's config keeps the loop out, by its owner's choice or
+ * by a fault, or null where the loop serves it.
  * @param {string} root
- * @returns {string|null}
+ * @returns {{isOptOut: boolean, why: string}|null}
  */
-function exclusionOf(root) {
+function readExclusion(root) {
 	/* An unreadable config excludes that one repo rather than ending
 	 * discovery for every repo (#2003). */
 	try {
@@ -106,12 +111,19 @@ function exclusionOf(root) {
 		/* A malformed value reads as its default, in; an owner who tried to
 		 * opt out is kept out instead (#2003). */
 		const malformed = cfg.faults.find((f) => f.key === "refillLoop");
-		if (malformed) return malformed.text;
-		return cfg.refillLoop ? null : OPT_OUT;
+		if (malformed) return { isOptOut: false, why: malformed.text };
+		return cfg.refillLoop ? null : { isOptOut: true, why: OPT_OUT };
 	} catch (err) {
-		return caught(err).message;
+		return { isOptOut: false, why: caught(err).message };
 	}
 }
+
+/**
+ * Why the loop does not serve this checkout's config, or null where it does.
+ * @param {string} root
+ * @returns {string|null}
+ */
+const exclusionOf = (root) => readExclusion(root)?.why ?? null;
 
 /**
  * Every checkout that gets a tick box, ticked or not, with why it cannot be
@@ -172,7 +184,7 @@ function readAbsence(root) {
 	if (git?.isFile()) return null;
 	if (!hasConfig(root))
 		return { carried: true, why: "no workflow-core config" };
-	if (exclusionOf(root) === OPT_OUT) return null;
+	if (readExclusion(root)?.isOptOut) return null;
 	return git ? null : { carried: true, why: "no .git" };
 }
 

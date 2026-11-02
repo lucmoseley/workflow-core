@@ -71,16 +71,14 @@ const io = scriptIo("answer-review-reversals");
 const requestKey = (r) => `${r.commentUrl} ${r.n}`;
 
 /**
- * A review tracker's reversal record or lock, its directory created: outside
- * any checkout, as one's own markers would give two checkouts two of each.
+ * A review tracker's reversal record or lock: outside any checkout, as one's
+ * own markers would give two checkouts two of each.
  * @param {string} tracker
  * @param {string} extension
  */
-function reversalPath(tracker, extension) {
+function buildReversalPath(tracker, extension) {
 	const slug = repoSlug(tracker).replaceAll("/", "__");
-	const file = refillPath(`review-reversals-${slug}.${extension}`);
-	fs.mkdirSync(path.dirname(file), { recursive: true });
-	return file;
+	return refillPath(`review-reversals-${slug}.${extension}`);
 }
 
 /**
@@ -90,7 +88,7 @@ function reversalPath(tracker, extension) {
 function readFiled(tracker) {
 	/** @type {Map<string, string>} */
 	const filed = new Map();
-	const read = readJsonl(reversalPath(tracker, RECORD_EXTENSION));
+	const read = readJsonl(buildReversalPath(tracker, RECORD_EXTENSION));
 	for (const r of read?.rows ?? [])
 		if (typeof r.filed === "string")
 			filed.set(
@@ -170,7 +168,7 @@ function fileReversal(run, request) {
 		const ref = `${listed.repo}#${number}`;
 		if (!dryRun)
 			fs.appendFileSync(
-				reversalPath(reviewIssue.repo, RECORD_EXTENSION),
+				buildReversalPath(reviewIssue.repo, RECORD_EXTENSION),
 				`${JSON.stringify({ ...request, filed: ref })}\n`,
 			);
 		return { filed: ref };
@@ -312,7 +310,9 @@ function answerReversals(tracker, dryRun) {
 		return requests.length === 0 ? [] : [{ issue: i, requests }];
 	});
 	if (pending.length === 0) return 0;
-	const lock = pidLock(reversalPath(tracker, LOCK_EXTENSION), ANSWERERS);
+	const lockFile = buildReversalPath(tracker, LOCK_EXTENSION);
+	fs.mkdirSync(path.dirname(lockFile), { recursive: true });
+	const lock = pidLock(lockFile, ANSWERERS);
 	if (!dryRun && !lock.acquire()) {
 		io.out("another run is answering reversals; left to it.\n");
 		return 0;

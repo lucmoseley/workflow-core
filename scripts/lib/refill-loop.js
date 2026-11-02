@@ -115,7 +115,8 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * stop and `--bg --resume` last restarted its job, from which it has the
  * listing's grace. Where a resume moved it to a copy (#2963), `copiedFrom`
  * is the job its dispatch-ledger hold names; `pastSessionIds`, the sessions
- * it ran under before `sessionId`.
+ * it ran under before `sessionId`. `actsBefore`, on a parked session resumed in
+ * place as a new launch, the acts that session had already made (#3942).
  * @typedef {import("./refill-decide.js").LaunchRecord & {
  *   prompt: string, seat: string, jobId: string|null,
  *   parked?: boolean, block?: import("./block-act.js").Block,
@@ -128,7 +129,10 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  *   limitResumes?: import("./refill-blocks.js").LimitResumes,
  *   limitLeft?: import("./refill-decide.js").SeatLeft[],
  *   limitParks?: number, handOffTries?: number, handedOff?: number, copiedFrom?: string,
- *   relaunchedAt?: number, pastSessionIds?: string[]}} LoopLaunch
+ *   relaunchedAt?: number, pastSessionIds?: string[],
+ *   actsBefore?: Record<string, number>|typeof UNREAD}} LoopLaunch
+ * @typedef {(sessionId: string, roots: string[]) =>
+ *   {acts: string[], unreadable: string[]}} ReadActsBy  lib/arbiter-ledger.js's
  */
 
 /**
@@ -972,32 +976,70 @@ function judgedLaunches(launches, agents, now, { progressOf, causeOf }) {
 }
 
 /**
- * A finished launch's progress: the acts of its session and each it ran
- * under before a resume moved it to a copy (#2969), across `roots`' stores,
- * counted per kind (#2312). UNREAD where its session id was never captured,
- * its past sessions' acts then unsummed, or where no act read and some store
- * would not, which is not "did nothing".
- * The reader is passed in so this module stays free of store reads.
- * @param {LoopLaunch} l
- * @param {string[]} roots
- * @param {(sessionId: string, roots: string[]) =>
- *   {acts: string[], unreadable: string[]}} readActsBy lib/arbiter-ledger.js's
- * @returns {{acts: Record<string, number>|typeof UNREAD}}
+ * `acts` counted per kind (#2312).
+ * @param {string[]} acts
+ * @returns {Record<string, number>}
  */
-function actsOf(l, roots, readActsBy) {
-	if (!l.sessionId) return { acts: UNREAD };
-	const ids = new Set([...(l.pastSessionIds ?? []), l.sessionId]);
-	const reads = [...ids].map((id) => readActsBy(id, roots));
-	const acts = reads.flatMap((r) => r.acts);
-	if (acts.length === 0 && reads.some((r) => r.unreadable.length > 0))
-		return { acts: UNREAD };
+function countKinds(acts) {
 	/** @type {Record<string, number>} */
 	const counts = {};
 	for (const act of acts) {
 		const { kind } = parseAct(act);
 		counts[kind] = (counts[kind] ?? 0) + 1;
 	}
-	return { acts: counts };
+	return counts;
+}
+
+/**
+ * The acts session `sessionId` has made so far, for a launch resuming it to
+ * count from (#3942). UNREAD where any store would not read, as a partial count
+ * would pass the rest off as the resume's own.
+ * @param {string} sessionId
+ * @param {string[]} roots
+ * @param {ReadActsBy} readActsBy
+ * @returns {Record<string, number>|typeof UNREAD}
+ */
+function readActsSoFar(sessionId, roots, readActsBy) {
+	const { acts, unreadable } = readActsBy(sessionId, roots);
+	return unreadable.length > 0 ? UNREAD : countKinds(acts);
+}
+
+/**
+ * A finished launch's progress: the acts of its session and each it ran
+ * under before a resume moved it to a copy (#2969), across `roots`' stores,
+ * counted per kind (#2312), less `actsBefore`, those its session made before
+ * this launch began (#3942). UNREAD where its session id was never captured,
+ * its past sessions' acts then unsummed, where `actsBefore` is, or where some
+ * store would not read and either no act did or `actsBefore` is to be taken off,
+ * neither of which is "did nothing". Residual: the loop's repos changing between
+ * the resume and the finish misjudges a store only one read saw: one served only
+ * at the finish has its earlier acts counted, one served only at the resume has
+ * its earlier acts taken off the rest.
+ * The reader is passed in so this module stays free of store reads.
+ * @param {LoopLaunch} l
+ * @param {string[]} roots
+ * @param {ReadActsBy} readActsBy
+ * @returns {{acts: Record<string, number>|typeof UNREAD}}
+ */
+function actsOf(l, roots, readActsBy) {
+	if (!l.sessionId || l.actsBefore === UNREAD) return { acts: UNREAD };
+	const ids = new Set([...(l.pastSessionIds ?? []), l.sessionId]);
+	const reads = [...ids].map((id) => readActsBy(id, roots));
+	const acts = reads.flatMap((r) => r.acts);
+	if (
+		(acts.length === 0 || l.actsBefore) &&
+		reads.some((r) => r.unreadable.length > 0)
+	)
+		return { acts: UNREAD };
+	const before = l.actsBefore ?? {};
+	return {
+		acts: Object.fromEntries(
+			Object.entries(countKinds(acts)).flatMap(([kind, n]) => {
+				const since = n - (before[kind] ?? 0);
+				return since > 0 ? [[kind, since]] : [];
+			}),
+		),
+	};
 }
 
 /**
@@ -1510,6 +1552,7 @@ module.exports = {
 	withAbsentRead,
 	FREE_SLOT_ARGS,
 	actsOf,
+	readActsSoFar,
 	capArgs,
 	parseCapFits,
 	ceilingsOf,

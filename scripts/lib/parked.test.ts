@@ -5,17 +5,20 @@
  * lets a ticket burn the cap without bound; one that survives another write
  * holds back a question waiting on the founder. A marker that will not read
  * (#3893) must not read as no hold on the idle alarm, which would hide a
- * limit-cap hold, nor blank the loop's other markers.
+ * limit-cap hold, nor blank the loop's other markers. unparkClosed (#3940) reports
+ * a label that stays, for the next tick to retry, and throws on an unread list.
  */
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { printed, stubGhRoutes } from "./gh-stub";
 import {
 	readParkedBy,
 	readParkMarkers,
 	readParkMarkersOrThrow,
+	unparkClosed,
 	writeParkedBy,
 } from "./parked.js";
 
@@ -91,5 +94,35 @@ describe("a marker that will not read (#3893)", () => {
 		expect(readParkMarkersOrThrow(root)).toMatchObject([
 			{ sessionId: "s1", issues: [7] },
 		]);
+	});
+});
+
+describe("unparkClosed (#3940)", () => {
+	const ListRoute = "issue list --repo o/r --state closed --label parked *";
+	const fail = { status: 1, stdout: "", stderr: "HTTP 502\n" };
+
+	const withGh = (routes: Parameters<typeof stubGhRoutes>[1]) => {
+		const was = process.env.WFC_GH;
+		process.env.WFC_GH = stubGhRoutes(root, routes).gh;
+		try {
+			return unparkClosed("o/r");
+		} finally {
+			if (was === undefined) delete process.env.WFC_GH;
+			else process.env.WFC_GH = was;
+		}
+	};
+
+	it("clears each closed issue, reporting one the label would not leave", () => {
+		const { cleared, failed } = withGh({
+			[ListRoute]: printed('[{"number":12},{"number":13}]'),
+			"issue edit 12 *": printed(),
+			"issue edit 13 *": fail,
+		});
+		expect(cleared).toEqual([12]);
+		expect(failed).toMatchObject([{ n: 13 }]);
+	});
+
+	it("throws where the list will not read", () => {
+		expect(() => withGh({ [ListRoute]: fail })).toThrow();
 	});
 });

@@ -70,7 +70,7 @@ function sectionHeadName(line) {
 	return name.toLowerCase();
 }
 
-/** @typedef {{ number: number, title?: string, html_url?: string, body?: string, pull_request?: object, state?: string, labels?: { name?: string }[] }} GhIssue */
+/** @typedef {Partial<import("./lib/gh.js").IssueRow> & {number: number}} GhIssue */
 
 /**
  * Text of a level-2 (`## `) markdown section by lowercased, trimmed header.

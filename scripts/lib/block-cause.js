@@ -11,6 +11,9 @@
  * `needs` (#2358 F3).
  */
 
+const { isMachineWrittenPrompt } = require("./founder-typing.js");
+const { parseStatus } = require("./status-marker.js");
+
 /* Below it the transcript carries no `permissionDecision` (#2358 F8). */
 const MIN_CLI = [2, 1, 293];
 
@@ -323,6 +326,13 @@ function hasTurnedSince(rows, at) {
 }
 
 /**
+ * Whether `r` is a reply the model wrote, not the harness's `<synthetic>` error row.
+ * @param {Record<string, any>} r
+ */
+const isModelReply = (r) =>
+	r.type === "assistant" && r.message?.model !== "<synthetic>";
+
+/**
  * Whether `rows` hold a reply the model wrote, stamped after `at`, ms: the
  * work a resume bought (#3792). A resume its limit refuses writes only the
  * harness's `<synthetic>` error row, so hasTurnedSince cannot tell the two
@@ -334,16 +344,38 @@ function hasTurnedSince(rows, at) {
  */
 function hasRepliedSince(rows, at) {
 	if (!Array.isArray(rows)) return null;
-	return rows.some(
+	return rows.some((r) => isRowAfter(r, at) && isModelReply(r));
+}
+
+/**
+ * Whether a session no longer running took a turn after `since`, ms, and that turn
+ * left it unblocked (#3940): its last user or assistant row, machine-written
+ * prompts aside (lib/founder-typing.js), a reply the model wrote after `since`,
+ * calling no tool, whose governing status marker is not `needs input:`. A pending
+ * tool call is a permission or question prompt, the harness's own row a limit or
+ * API stop, and his trailing prompt a turn never answered. Its last reply from
+ * before `since` is the park itself, whatever it says.
+ * @param {unknown[]} rows  lib/transcript.js's main-chain records, in file order
+ * @param {number} since
+ */
+function hasEndedUnblocked(rows, since) {
+	const last = rows.findLast(
 		(r) =>
-			isRowAfter(r, at) &&
-			r.type === "assistant" &&
-			r.message?.model !== "<synthetic>",
+			isObject(r) &&
+			(r.type === "assistant" ||
+				(r.type === "user" && !isMachineWrittenPrompt(rowText(r)))),
+	);
+	return (
+		isRowAfter(last, since) &&
+		isModelReply(last) &&
+		!contentOf(last).some((b) => b?.type === "tool_use") &&
+		parseStatus(textOf(last)).governing?.name !== "needs input:"
 	);
 }
 
 module.exports = {
 	blockCause,
+	hasEndedUnblocked,
 	hasRepliedSince,
 	hasTurnedSince,
 	resumedIdleSince,
