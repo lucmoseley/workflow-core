@@ -10,8 +10,8 @@
  * and prints a `Closes unread` line, so the next review repeats none of them. An
  * `Events unread` line is both kinds from one start. The line
  * outlives the checkout's absence from discovery, to the end buildAbsentRepos
- * gives it (#3835). Each review also prints the checkouts it read, so one's first
- * absence is carried from that review's window end (#3844).
+ * gives it (#3835). Each review's closing comment also names the checkouts it
+ * read, so one's first absence is carried from that review's window end (#3844).
  *
  * The lines are the only record of a carry, so a filed review's lines must go on
  * reading: their print and their parse both live here.

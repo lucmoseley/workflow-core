@@ -775,7 +775,7 @@ function fileUnlessFiledToday(tracker, dryRun) {
 			"--label",
 			REVIEW_LABEL,
 			"--standalone",
-			"the day's away-mode review, outside every map (#1995)",
+			review.STANDALONE_REASON,
 			"--body-file",
 			"-",
 		],
