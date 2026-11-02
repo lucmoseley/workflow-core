@@ -2484,3 +2484,180 @@ describe("runLander where the culprit's whole-suite confirm reaches no verdict (
 		expect(held?.red).toBeUndefined();
 	});
 });
+
+describe("runLander telling two failures in one file apart (#3937)", () => {
+	const X = FILES[0] as string;
+	const failing = (...tests: string[]): Verdict => ({
+		kind: "red",
+		files: FILES,
+		failures: tests.map((test) => ({ file: X, test })),
+	});
+	const signed = (signature: string): Verdict => ({
+		kind: "red",
+		files: FILES,
+		failures: [{ file: X, test: "scan", signature }],
+	});
+	const batch = (
+		verdicts: Record<string, Verdict>,
+		opts: Parameters<typeof run>[2] = {},
+	) =>
+		run({ main: A, landing: D }, (sha) => verdicts[sha] ?? { kind: "green" }, {
+			history: [B, C, D],
+			...opts,
+		});
+
+	it("names the commit that broke the second test where the base fails the first", async () => {
+		const r = await batch({
+			[A]: failing("one"),
+			[B]: failing("one"),
+			[C]: failing("two"),
+			[D]: failing("two"),
+		});
+		expect(r.reverted).toEqual([{ culprit: C, parent: B }]);
+		expect(r.tickets).toMatchObject([
+			{ culprit: C, failures: [{ file: X, test: "two" }] },
+		]);
+		expect(r.revertWhys[0]).toContain("red on x.test.ts > two, twice");
+		expect(r.pushes.map((p) => p.sha)).toEqual([R]);
+	});
+
+	it("falls back to the file verdict where the tester names no test", async () => {
+		const named = { kind: "red", files: FILES } as const;
+		const r = await batch({ [A]: named, [B]: named, [C]: named, [D]: named });
+		expect(r.end).toMatchObject({
+			kind: "hold",
+			cause: "already-red",
+			reason: "already red on `main`: x.test.ts",
+		});
+		expect(r.reverted).toEqual([]);
+	});
+
+	it("falls back to the file verdict where only the base names no test", async () => {
+		const r = await batch({
+			[A]: { kind: "red", files: FILES },
+			[D]: failing("two"),
+		});
+		expect(r.end).toMatchObject({ kind: "hold", cause: "already-red" });
+	});
+
+	it("reverts a culprit whose parent is main where main fails another test in its file", async () => {
+		const r = await run(
+			{ main: A, landing: D },
+			(sha) => (sha === A ? failing("one") : failing("two")),
+			{ history: [C, D] },
+		);
+		expect(r.reverted).toEqual([{ culprit: C, parent: A }]);
+	});
+
+	it("holds as already red where the tip repeats main's failure", async () => {
+		const r = await batch({ [A]: failing("one"), [D]: failing("one") });
+		expect(r.end).toMatchObject({ kind: "hold", cause: "already-red" });
+	});
+
+	it("searches for the new failure alone where the tip fails main's as well", async () => {
+		const r = await batch({
+			[A]: failing("one"),
+			[B]: failing("one"),
+			[C]: failing("one", "two"),
+			[D]: failing("one", "two"),
+		});
+		expect(r.reverted).toEqual([{ culprit: C, parent: B }]);
+		expect(r.tickets[0]?.failures).toEqual([{ file: X, test: "two" }]);
+	});
+
+	it("reads one test failing on a different signature as a different failure", async () => {
+		const r = await batch({
+			[A]: signed("first"),
+			[B]: signed("first"),
+			[C]: signed("second"),
+			[D]: signed("second"),
+		});
+		expect(r.reverted).toEqual([{ culprit: C, parent: B }]);
+	});
+
+	it("reads one test as one failure where a run gave no error", async () => {
+		const r = await batch({ [A]: failing("scan"), [D]: signed("boom") });
+		expect(r.end).toMatchObject({ kind: "hold", cause: "already-red" });
+	});
+
+	it("holds, landing nothing, where a parent that would land fails a test main does not", async () => {
+		const r = await batch({
+			[A]: failing("one"),
+			[B]: failing("one", "three"),
+			[C]: failing("two"),
+			[D]: failing("two"),
+		});
+		expect(r.end).toMatchObject({
+			kind: "hold",
+			reason: expect.stringContaining("fails the whole suite: x.test.ts"),
+		});
+		expect(r.reverted).toEqual([]);
+	});
+
+	it("holds, naming the test, where the culprit's second run fails another", async () => {
+		const r = await run(
+			{ main: A, landing: D },
+			(sha, _files, nth) => {
+				if (sha === C) return nth === 1 ? failing("two") : failing("other");
+				return sha === D ? failing("two") : { kind: "green" };
+			},
+			{ history: [B, C, D] },
+		);
+		expect(r.end).toMatchObject({
+			kind: "hold",
+			reason:
+				"culprit unconfirmed: ccccccccc passed x.test.ts > two on its second run",
+		});
+		expect(r.reverted).toEqual([]);
+	});
+
+	describe("on a culprit merge's side", () => {
+		const M = "1".repeat(40);
+		const S0 = "2".repeat(40);
+		const N = "3".repeat(40);
+		const S2 = "4".repeat(40);
+		const sides = { [M]: { base: S0, range: [N, S2], merges: [N] } };
+
+		it("reverts the real break past a reconcile merge inheriting another red", async () => {
+			const r = await run(
+				{ main: A, landing: D },
+				(sha) => {
+					if ([M, D].includes(sha)) return failing("break");
+					if (sha === N) return failing("inherited");
+					if (sha === S2) return failing("inherited", "break");
+					return { kind: "green" };
+				},
+				{ history: [B, M, D], sides },
+			);
+			expect(r.reverted).toEqual([{ culprit: S2, parent: N }]);
+			expect(r.tickets[0]?.failures).toEqual([{ file: X, test: "break" }]);
+		});
+
+		it("searches past a base red on another failure", async () => {
+			const r = await run(
+				{ main: A, landing: D },
+				(sha) => {
+					if ([M, D].includes(sha)) return failing("break");
+					if (sha === S0 || sha === N) return failing("inherited");
+					if (sha === S2) return failing("break");
+					return { kind: "green" };
+				},
+				{ history: [B, M, D], sides },
+			);
+			expect(r.reverted).toEqual([{ culprit: S2, parent: N }]);
+		});
+
+		it("reverts the merge where the side's tip fails only something else", async () => {
+			const r = await run(
+				{ main: A, landing: D },
+				(sha) => {
+					if ([M, D].includes(sha)) return failing("break");
+					if (sha === S2) return failing("inherited");
+					return { kind: "green" };
+				},
+				{ history: [B, M, D], sides },
+			);
+			expect(r.reverted).toEqual([{ culprit: M, parent: B }]);
+		});
+	});
+});

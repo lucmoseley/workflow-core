@@ -92,6 +92,16 @@ const STAMP = path.join("node_modules", ".lander-lock-hash");
 const LOCKFILE = "package-lock.json";
 const VITEST_FAIL = /^\s*FAIL\s+(\S+)/;
 const PYTEST_FAIL = /^(?:FAILED|ERROR)\s+([^\s:]+)/;
+const VITEST_TEST = /^\s*FAIL\s+(\S+)\s+(?:>\s+)?(.+?)\s*$/;
+const PYTEST_TEST = /^(?:FAILED|ERROR)\s+([^\s:]+)::(.+?)(?:\s+-\s+(.*?))?\s*$/;
+const VITEST_END = /^[✓×❯⎯↓]/;
+const DIFF_LINE = /^[-+]\s/;
+const DIFF_HEADER = /^(?:- Expected|\+ Received)\b/;
+/* Untraced: room for an assertion's first lines, kept short for the heartbeat
+ * and the tickets that carry it. */
+const MESSAGE_CHARS = 300;
+/* Untraced: 64 bits, as a signature only compares one test's few failures. */
+const SIGNATURE_HEX = 16;
 
 /**
  * @typedef {{ok: true, spawned: () => void, release: () => void}
@@ -134,7 +144,7 @@ const parsePlainLines = (out) =>
  * @param {string} out
  * @returns {string[]}
  */
-function failingFiles(out) {
+function parseFailingFiles(out) {
 	/** @type {Set<string>} */
 	const files = new Set();
 	for (const line of parsePlainLines(out))
@@ -146,6 +156,109 @@ function failingFiles(out) {
 			}
 		}
 	return [...files];
+}
+
+/**
+ * What tells one failure from another, read off its whole error before any cut
+ * for display. Less what differs between two runs of one failure: an absolute
+ * path's directories, as the tip's run is CI's and a bisect's local; shas, from
+ * 7 hex digits, git's shortest default abbreviation; and numbers, as a line
+ * number moves with any edit above it. Residual (#3937): one file's two
+ * offenders on different lines read as one failure, a message otherwise moved
+ * by a commit reads as a new failure there, naming that commit in place of the
+ * one that broke the test, one differing run to run holds on the culprit's
+ * second run, and a list of offenders compares whole, so a merged side red on
+ * only some of the tip's reads as not red and the merge is reverted.
+ * @param {string} text
+ */
+const buildSignature = (text) =>
+	crypto
+		.createHash("sha256")
+		.update(
+			text
+				.replace(/(?<![\w.])(?:\/[^\s/:'"`]+)+\//g, "")
+				.replace(/\b[0-9a-f]{7,40}\b/g, "#")
+				.replace(/\d+/g, "#"),
+		)
+		.digest("hex")
+		.slice(0, SIGNATURE_HEX);
+
+/**
+ * The failing tests a vitest or pytest run names, each with its error: on
+ * pytest's `FAILED <file>::<test> - <message>` line, or after vitest's
+ * `FAIL  <file> > <test>` lines, one error printing under every test it failed.
+ * Vitest's error is its first line and its diff's `+` and `-` lines, as a
+ * `toEqual([])` on a list of offenders prints one first line for any offender.
+ * @param {string} out
+ * @returns {import("./lander.js").Failure[]}
+ */
+function parseFailingTests(out) {
+	/** @type {Map<string, import("./lander.js").Failure>} */
+	const tests = new Map();
+	/** @param {RegExpMatchArray} m @param {RegExp} re */
+	const named = (m, re) => {
+		const file = requiredGroup(m, 1, re);
+		const test = requiredGroup(m, 2, re);
+		const key = `${file}\0${test}`;
+		const failure = tests.get(key) ?? { file, test };
+		tests.set(key, failure);
+		return failure;
+	};
+	/** @type {OpenError} */
+	const open = { unread: [], lines: [] };
+	for (const line of parsePlainLines(out)) {
+		const v = line.match(VITEST_TEST);
+		const p = line.match(PYTEST_TEST);
+		if (v) {
+			if (open.lines.length > 0) closeError(open);
+			open.unread.push(named(v, VITEST_TEST));
+		} else if (p) {
+			closeError(open);
+			if (p[3]) withError(named(p, PYTEST_TEST), p[3]);
+			else named(p, PYTEST_TEST);
+		} else readErrorLine(open, line);
+	}
+	closeError(open);
+	return [...tests.values()];
+}
+
+/**
+ * @typedef {{unread: import("./lander.js").Failure[], lines: string[]}}
+ *   OpenError the tests awaiting an error, and that error's lines so far
+ */
+
+/** @param {OpenError} open accumulator: emptied, its tests given its error */
+function closeError(open) {
+	if (open.lines.length > 0)
+		for (const failure of open.unread)
+			withError(failure, open.lines.join(" / "));
+	open.unread = [];
+	open.lines = [];
+}
+
+/**
+ * @param {OpenError} open accumulator
+ * @param {string} line
+ */
+function readErrorLine(open, line) {
+	const text = line.trim();
+	if (text === "" || open.unread.length === 0) return;
+	/* A bare `ERROR <file>` line names a file, and is no test's error. */
+	if (VITEST_END.test(text) || PYTEST_FAIL.test(line)) closeError(open);
+	else if (
+		open.lines.length === 0 ||
+		(DIFF_LINE.test(text) && !DIFF_HEADER.test(text))
+	)
+		open.lines.push(text);
+}
+
+/**
+ * @param {import("./lander.js").Failure} failure accumulator
+ * @param {string} text
+ */
+function withError(failure, text) {
+	failure.message = text.slice(0, MESSAGE_CHARS);
+	failure.signature = buildSignature(text);
 }
 
 /**
@@ -468,6 +581,8 @@ function readRunsAt(dir, pytest, files) {
 async function runEach(groups, dir, { admit, exec, treePss, tally }) {
 	/** @type {Set<string>} */
 	const failing = new Set();
+	/** @type {import("./lander.js").Failure[]} */
+	const failures = [];
 	for (const runs of groups) {
 		/** @type {Admission} */
 		let slot;
@@ -494,6 +609,7 @@ async function runEach(groups, dir, { admit, exec, treePss, tally }) {
 				treePss,
 				tally,
 				failing,
+				failures,
 			});
 			/* No verdict, never red, though an earlier shard failed: a red
 			 * would send the lander to rerun those files alone, and a pass
@@ -510,9 +626,12 @@ async function runEach(groups, dir, { admit, exec, treePss, tally }) {
 			slot.release();
 		}
 	}
-	return failing.size > 0
-		? { kind: "red", files: [...failing] }
-		: { kind: "green" };
+	if (failing.size === 0) return { kind: "green" };
+	return {
+		kind: "red",
+		files: [...failing],
+		...(failures.length > 0 ? { failures } : {}),
+	};
 }
 
 /**
@@ -521,11 +640,15 @@ async function runEach(groups, dir, { admit, exec, treePss, tally }) {
  * @param {Run[]} runs
  * @param {string} dir
  * @param {{spawned: () => void, treePss: (pid: number) => number,
- *   tally: SlotRuns["tally"], failing: Set<string>}} into accumulator:
- *   `tally` takes the runs' peak so far and `failing` the failing files so far
+ *   tally: SlotRuns["tally"], failing: Set<string>,
+ *   failures: import("./lander.js").Failure[]}} into accumulator
  * @returns {Promise<string|null>} why a run reached no verdict, or null
  */
-async function runInSlot(runs, dir, { spawned, treePss, tally, failing }) {
+async function runInSlot(
+	runs,
+	dir,
+	{ spawned, treePss, tally, failing, failures },
+) {
 	for (const run of runs) {
 		const r = await shellRun(run, dir, spawned, treePss);
 		tally.peakKb = Math.max(tally.peakKb, r.peakKb);
@@ -538,12 +661,15 @@ async function runInSlot(runs, dir, { spawned, treePss, tally, failing }) {
 		if (r.code === 0) continue;
 		/* A test that prints a runner's output as its fixture puts FAIL lines
 		 * naming files the tree lacks into the run's output (#2410). */
-		const files = failingFiles(r.out).filter((f) =>
+		const files = parseFailingFiles(r.out).filter((f) =>
 			fs.existsSync(path.join(dir, f)),
 		);
 		if (files.length === 0)
 			return `${command} exited ${r.code} ${parseCeilingKillReason(r.out) ?? "naming no failing file in the tree"}`;
 		for (const f of files) failing.add(f);
+		failures.push(
+			...parseFailingTests(r.out).filter((t) => files.includes(t.file)),
+		);
 	}
 	return null;
 }
@@ -674,4 +800,10 @@ function localTester({
 	};
 }
 
-module.exports = { failingFiles, readLiveLanders, localTester, suiteSlot };
+module.exports = {
+	parseFailingFiles,
+	parseFailingTests,
+	readLiveLanders,
+	localTester,
+	suiteSlot,
+};

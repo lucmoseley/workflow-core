@@ -134,6 +134,15 @@ it("reads a failed run as red, naming its failing jobs and the tree's failing fi
 		kind: "red",
 		files: ["scripts/lib/a.test.ts", "scripts/test_b.py"],
 		jobs: ["Full suite / Vitest (2/6)", "Full suite / Python"],
+		failures: [
+			{ file: "scripts/lib/a.test.ts", test: "a > b" },
+			{
+				file: "scripts/test_b.py",
+				test: "test_c",
+				message: "assert 1",
+				signature: expect.any(String),
+			},
+		],
 	});
 });
 
@@ -445,6 +454,7 @@ process.stdout.write(argv[1] === "list" ? a.list : argv.includes("--log-failed")
 		kind: "red",
 		files: ["scripts/lib/a.test.ts"],
 		jobs: ["Full suite / Vitest (2/6)"],
+		failures: [{ file: "scripts/lib/a.test.ts", test: "a > b" }],
 	});
 });
 
@@ -516,6 +526,15 @@ it("reads a failed named run as red on the tree's failing files, and one naming 
 	expect(await askNamed(fakeNamedReads({ conclusion: "failure" }))).toEqual({
 		kind: "red",
 		files: ["scripts/lib/a.test.ts", "scripts/test_b.py"],
+		failures: [
+			{ file: "scripts/lib/a.test.ts", test: "a > b" },
+			{
+				file: "scripts/test_b.py",
+				test: "test_c",
+				message: "assert 1",
+				signature: expect.any(String),
+			},
+		],
 	});
 	expect(
 		await askNamed(

@@ -34,7 +34,7 @@ const path = require("node:path");
 const { gitBinary, gitSpawnOptions } = require("./git.js");
 const { gh, ghJson } = require("./gh.js");
 const { parseErrorText } = require("./caught.js");
-const { failingFiles } = require("./local-tester.js");
+const { parseFailingFiles, parseFailingTests } = require("./local-tester.js");
 const { readJsonl } = require("./jsonl.js");
 const { markersDir } = require("./marker-root.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
@@ -164,19 +164,24 @@ function runVerdict(sha, reads, after) {
 		.jobsOf(id)
 		.filter((j) => j.conclusion === "failure")
 		.map((j) => j.name);
-	return { kind: "red", files: readFailedFiles(sha, id, reads), jobs };
+	return { kind: "red", ...readFailed(sha, id, reads), jobs };
 }
 
 /**
- * The tree's files a failed run's log names: a test that prints a runner's
- * output as its fixture logs FAIL lines naming files the tree lacks (#2410).
+ * The tree's files a failed run's log names, and the failing tests it names in
+ * them: a test that prints a runner's output as its fixture logs FAIL lines
+ * naming files the tree lacks (#2410).
  * @param {string} sha
  * @param {number} run
  * @param {Pick<Reads, "failedLogOf" | "presentAt">} reads
- * @returns {string[]}
+ * @returns {{files: string[], failures?: import("./lander.js").Failure[]}}
  */
-const readFailedFiles = (sha, run, reads) =>
-	reads.presentAt(sha, failingFiles(stripLogPrefix(reads.failedLogOf(run))));
+function readFailed(sha, run, reads) {
+	const log = stripLogPrefix(reads.failedLogOf(run));
+	const files = reads.presentAt(sha, parseFailingFiles(log));
+	const failures = parseFailingTests(log).filter((t) => files.includes(t.file));
+	return { files, ...(failures.length > 0 ? { failures } : {}) };
+}
 
 /**
  * Which of `asked` failed in the newest finished run on `main` to pass or fail
@@ -479,10 +484,10 @@ function namedRunVerdict(sha, title, reads) {
 	}
 	if (run.conclusion !== "failure")
 		return { kind: "unknown", reason: `run ${id} ended ${run.conclusion}` };
-	const files = readFailedFiles(sha, id, reads);
+	const failed = readFailed(sha, id, reads);
 	/* A failed checkout or install fails the run naming no test. */
-	return files.length > 0
-		? { kind: "red", files }
+	return failed.files.length > 0
+		? { kind: "red", ...failed }
 		: {
 				kind: "unknown",
 				reason: `run ${id} failed naming no failing file in the tree`,

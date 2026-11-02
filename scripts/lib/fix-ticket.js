@@ -62,6 +62,7 @@ function fixTicketIssue({
 	revert,
 	files,
 	jobs,
+	failures,
 	stale,
 	subject,
 }) {
@@ -78,7 +79,7 @@ function fixTicketIssue({
 The lander (#2261) found ${culprit} red on \`landing\` and reverted it in ${revert}. Its work is off \`landing\` until it is re-landed with these passing.
 
 Failing at ${short(culprit)}, red twice, with ${parent ? `its parent ${short(parent)}` : "no parent"} green:
-${failingList({ files, jobs })}
+${failingList({ files, jobs, failures })}
 
 Reverted commit: \`${subject.replaceAll("`", "'")}\`
 ${buildRereadSection(stale, revert)}

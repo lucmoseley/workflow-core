@@ -8,6 +8,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { ticketFiler } from "./fix-ticket.js";
+import type { FixTicket } from "./lander.js";
 
 const C = "c".repeat(40);
 const P = "b".repeat(40);
@@ -58,7 +59,12 @@ function filer(
 			reopened.push(n);
 		},
 	});
-	return { said: () => tracker.fileFixTicket(TICKET), files, reopened };
+	return {
+		said: (over: Partial<FixTicket> = {}) =>
+			tracker.fileFixTicket({ ...TICKET, ...over }),
+		files,
+		reopened,
+	};
 }
 
 const flag = (args: string[], name: string) => args[args.indexOf(name) + 1];
@@ -100,6 +106,17 @@ describe("ticketFiler", () => {
 			"- CI job `Full suite / Lint and types` (the tester named no failing file)",
 		);
 		expect(bodies[0]).not.toContain("the whole suite");
+	});
+
+	it("names each failing test and its message where the tester named them (#3937)", () => {
+		const f = filer("Add the widget");
+		f.said({
+			files: ["a.test.ts", "b.test.ts"],
+			failures: [{ file: "a.test.ts", test: "s > t", message: "boom `x`" }],
+		});
+		expect(f.files[0]?.input).toContain(
+			"- `a.test.ts > s > t`: `boom 'x'`\n- `b.test.ts`",
+		);
 	});
 
 	it("reopens a closed cited ticket before filing under it", () => {
