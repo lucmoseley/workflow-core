@@ -49,7 +49,7 @@ const closed = (number: number, closedAt: string, door?: string) => ({
 
 const MIN = 60 * 1000;
 
-const QUIET_IDLE = { trackers: [], loopRunning: true };
+const QUIET_IDLE = { trackers: [], loopRunning: true, damaged: [] };
 
 /** The readout core's 24-hour and 7-day readouts ending at NOW. */
 const concurrencyOver = (ticks: unknown[], minutes: unknown[] | null) => {
@@ -1054,9 +1054,24 @@ describe("the idle efforts section (#3644)", () => {
 			body.indexOf("## Still-caught"),
 		);
 
+	it("renders a damaged file's line above the trackers (#3918)", () => {
+		const body = idleRender({
+			loopRunning: true,
+			trackers: [{ repo: "acme/a", served: true, error: null, idle: [] }],
+			damaged: ["/r/state is damaged (x)"],
+		});
+		expect(section(body)).toContain(
+			[
+				"- `Refill loop file damaged: /r/state is damaged (x)`",
+				"- `acme/a: none idle past 2 days`",
+			].join("\n"),
+		);
+	});
+
 	it("renders the alarm's lines, each as a code span, an unserved tracker's urgent issues nested", () => {
 		const body = idleRender({
 			loopRunning: false,
+			damaged: [],
 			trackers: [
 				{ repo: "acme/a", served: true, error: null, idle: [] },
 				{

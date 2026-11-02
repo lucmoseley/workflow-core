@@ -1661,6 +1661,11 @@
 					"id": "idle-efforts-loop-not-running",
 					"kind": "notice",
 					"text": "The refill loop is not running, so it serves no tracker."
+				},
+				{
+					"id": "idle-efforts-file-damaged",
+					"kind": "notice",
+					"text": "Refill loop file damaged: "
 				}
 			]
 		},

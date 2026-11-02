@@ -245,6 +245,7 @@ describe("buildIdleLines", () => {
 				tracker([], { repo: "o/quiet" }),
 			]),
 			true,
+			[],
 		);
 		expect(lines).toEqual([
 			top(
@@ -267,6 +268,7 @@ describe("buildIdleLines", () => {
 				),
 			]),
 			true,
+			[],
 		);
 		expect(lines).toEqual([
 			top(
@@ -283,6 +285,7 @@ describe("buildIdleLines", () => {
 				"o/core#2": { why, since: NOW - 3 * DAY, onLimit: true },
 			}),
 			true,
+			[],
 		);
 		expect(lines).toEqual([
 			top(
@@ -302,6 +305,7 @@ describe("buildIdleLines", () => {
 			const [line] = buildIdleLines(
 				findings([tracker([issue(1)], held)]),
 				true,
+				[],
 			);
 			expect(line.text).toContain(`skip reason: ${PROBE_HELD}`);
 			expect(line.text).not.toContain("rank");
@@ -340,6 +344,7 @@ describe("buildIdleLines", () => {
 					"o/core#2": hold(),
 				}),
 				true,
+				[],
 			);
 			expect(lines).toEqual([
 				top(
@@ -358,6 +363,7 @@ describe("buildIdleLines", () => {
 					"o/core#2": hold(),
 				}),
 				true,
+				[],
 			);
 			expect(lines).toEqual([
 				top(
@@ -372,6 +378,7 @@ describe("buildIdleLines", () => {
 					"o/core#2": hold({ since: NOW - IDLE_MS }),
 				}),
 				true,
+				[],
 			);
 			expect(lines).toHaveLength(1);
 			expect(lines[0].text).toMatch(/^o\/core: 1 idle /);
@@ -383,6 +390,7 @@ describe("buildIdleLines", () => {
 					"o/core#2": hold({ why: "seat full", atCap: undefined }),
 				}),
 				true,
+				[],
 			);
 			expect(lines).toHaveLength(1);
 			expect(lines[0].text).toMatch(/^o\/core: 2 idle /);
@@ -393,6 +401,7 @@ describe("buildIdleLines", () => {
 		const lines = buildIdleLines(
 			findings([tracker([], { served: false })]),
 			false,
+			[],
 		);
 		expect(lines).toEqual([
 			top(
@@ -406,6 +415,7 @@ describe("buildIdleLines", () => {
 		const lines = buildIdleLines(
 			findings([tracker([], { error: "HTTP 502" })]),
 			true,
+			[],
 		);
 		expect(lines).toEqual([top("o/core: unread — HTTP 502")]);
 	});
@@ -415,7 +425,7 @@ describe("buildFindingRecords", () => {
 	it("puts a named stop's record ahead of the trackers' (#3892)", () => {
 		const f = findings([tracker([issue(1)])]);
 		expect(
-			buildFindingRecords(f, true).map((r: { code: string }) => r.code),
+			buildFindingRecords(f, true, []).map((r: { code: string }) => r.code),
 		).toEqual(["REFILL-LOOP-NOT-RUNNING", "IDLE-EFFORTS"]);
 	});
 
@@ -425,7 +435,7 @@ describe("buildFindingRecords", () => {
 			tracker([issue(1)], { repo: OTHER }),
 			tracker([], { repo: "o/quiet" }),
 		]);
-		expect(buildFindingRecords(f, false)).toEqual([
+		expect(buildFindingRecords(f, false, [])).toEqual([
 			{ code: "IDLE-EFFORTS-UNREAD", text: "o/core would not read: HTTP 502" },
 			{
 				code: "IDLE-EFFORTS",
@@ -458,7 +468,14 @@ describe("buildReadings", () => {
 				markers: [],
 				...t,
 			})),
-			loop: { served: [], launches: [], held: [], repoHolds: [], ...loop },
+			loop: {
+				served: [],
+				launches: [],
+				held: [],
+				repoHolds: [],
+				holdsUnreadRoots: [],
+				...loop,
+			},
 			now: NOW,
 		});
 
@@ -580,15 +597,50 @@ describe("buildReadings", () => {
 			served: ["/r/core2"],
 		});
 		expect(r.trackers).toEqual([
-			{ repo: REPO, served: true, probeHeld: false, issues: [], error: null },
+			{
+				repo: REPO,
+				served: true,
+				probeHeld: false,
+				holdsUnread: false,
+				issues: [],
+				error: null,
+			},
 			{
 				repo: OTHER,
 				served: false,
 				probeHeld: false,
+				holdsUnread: false,
 				issues: [],
 				error: "HTTP 502",
 			},
 		]);
+	});
+
+	describe("a tracker's unread hold stores (#3918)", () => {
+		const holdsUnread = (loop: Record<string, unknown>) =>
+			read([{ repo: REPO }], loop).trackers[0].holdsUnread;
+
+		it("reads so where every served checkout's store is unread", () => {
+			expect(
+				holdsUnread({
+					served: ["/r/core", "/r/core2"],
+					holdsUnreadRoots: ["/r/core", "/r/core2"],
+				}),
+			).toBe(true);
+		});
+
+		it("does not read so where another served checkout reads free", () => {
+			expect(
+				holdsUnread({
+					served: ["/r/core", "/r/core2"],
+					holdsUnreadRoots: ["/r/core"],
+				}),
+			).toBe(false);
+		});
+
+		it("does not read so on a tracker the loop does not serve", () => {
+			expect(holdsUnread({ served: [], holdsUnreadRoots: [] })).toBe(false);
+		});
 	});
 
 	describe("a tracker's probe hold (#3898)", () => {
@@ -701,6 +753,7 @@ describe("buildIdleReport", () => {
 	const NothingNamed = {
 		unseen: [],
 		stopUnseen: false,
+		damagedUnseen: [],
 		lines: [],
 		signature: null,
 		stampNow: null,
@@ -710,7 +763,7 @@ describe("buildIdleReport", () => {
 		deliveredStamp: string | null,
 		day: string,
 	) =>
-		buildIdleReport(trackerFindings, true, {
+		buildIdleReport(trackerFindings, true, [], {
 			stamp: deliveredStamp,
 			day,
 			held: false,
@@ -743,13 +796,13 @@ describe("buildIdleReport", () => {
 	};
 
 	it("gives a nested line its indent", () => {
-		const { lines } = buildIdleReport([unservedUrgent], true, null);
+		const { lines } = buildIdleReport([unservedUrgent], true, [], null);
 		expect(lines).toHaveLength(2);
 		expect(lines[1]).toMatch(/^ {2}urgent /);
 	});
 
 	it("names everything and stamps nothing on a plain run", () => {
-		expect(buildIdleReport([unservedUrgent], true, null)).toMatchObject({
+		expect(buildIdleReport([unservedUrgent], true, [], null)).toMatchObject({
 			unseen: [unservedUrgent],
 			signature: null,
 			stampNow: null,
@@ -767,12 +820,17 @@ describe("buildIdleReport", () => {
 	});
 
 	it("carries the signature but stamps nothing at a held start", () => {
-		const { signature, stampNow } = buildIdleReport([unservedUrgent], true, {
-			stamp: null,
-			day: "2026-10-29",
-			held: true,
-			stoppedRun: null,
-		});
+		const { signature, stampNow } = buildIdleReport(
+			[unservedUrgent],
+			true,
+			[],
+			{
+				stamp: null,
+				day: "2026-10-29",
+				held: true,
+				stoppedRun: null,
+			},
+		);
 		expect(signature).not.toBeNull();
 		expect(stampNow).toBeNull();
 	});
@@ -787,7 +845,7 @@ describe("buildIdleReport", () => {
 			day: string,
 			{ held = false, stoppedRun = 5 as number | null } = {},
 		) =>
-			buildIdleReport(trackerFindings, false, {
+			buildIdleReport(trackerFindings, false, [], {
 				stamp: deliveredStamp,
 				day,
 				held,
@@ -860,12 +918,61 @@ describe("buildIdleReport", () => {
 		});
 
 		it("names it on a plain run with no tracker, recording nothing", () => {
-			expect(buildIdleReport([], false, null)).toMatchObject({
+			expect(buildIdleReport([], false, [], null)).toMatchObject({
 				stopUnseen: true,
 				lines: [stopLine],
 				signature: null,
 				stampNow: null,
 			});
+		});
+	});
+
+	describe("a damaged file (#3918)", () => {
+		const noticeOn = (delivered: string | null) => ({
+			stamp: delivered,
+			day: "2026-10-29",
+			held: false,
+			stoppedRun: null,
+		});
+
+		it("names it above the trackers, and only an unseen one the same day", () => {
+			const first = buildIdleReport(
+				[finding("o/a", [])],
+				true,
+				["/r/state is damaged (x)"],
+				noticeOn(null),
+			);
+			expect(first.lines[0]).toBe(
+				"Refill loop file damaged: /r/state is damaged (x)",
+			);
+			expect(first.stampNow).not.toBeNull();
+
+			expect(
+				buildIdleReport(
+					[],
+					true,
+					["/r/state is damaged (x)"],
+					noticeOn(first.signature),
+				),
+			).toEqual(NothingNamed);
+
+			expect(
+				buildIdleReport(
+					[],
+					true,
+					["/r/state is damaged (x)", "/r/control is damaged (y)"],
+					noticeOn(first.signature),
+				).damagedUnseen,
+			).toEqual(["/r/control is damaged (y)"]);
+		});
+
+		it("gives a record of its own per file", () => {
+			expect(buildFindingRecords([], false, ["/r/a"])).toEqual([
+				{
+					code: "REFILL-LOOP-FILE-DAMAGED",
+					text: "Refill loop file damaged: /r/a",
+				},
+			]);
 		});
 	});
 

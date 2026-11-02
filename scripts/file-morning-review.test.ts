@@ -651,7 +651,7 @@ describe("file-morning-review.js (#2011)", () => {
 
 			expect(body).toContain("**Not read, so missing below:**");
 			expect(body).toMatch(
-				/- acme\/wfc: `repo holds: .*not a directory.*remove the file/i,
+				/- acme\/wfc: `repo holds: .*not a directory.*repair the directory/i,
 			);
 			expect(body).not.toContain(Heading);
 		});
