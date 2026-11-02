@@ -1186,6 +1186,15 @@ const lastGreenBefore = (run, judged) =>
 			GOOD.has(r.conclusion ?? ""),
 	) || null;
 
+const UNNAMED_WORKFLOW = "unnamed workflow";
+
+/**
+ * What a report calls a run's workflow, whose name `Run` leaves optional.
+ *
+ * @param {Run} run
+ */
+const workflowLabel = (run) => run.workflowName || UNNAMED_WORKFLOW;
+
 /** This checker's name, shared with its delivery-stamp file. */
 const CHECKER = "ci-status";
 
@@ -1376,7 +1385,7 @@ function reportGreen(ctx, { branch, sha, run, hasSweep, live, emitLiveness }) {
 	const age = ageOf(run);
 	const coverage = headCoverage(sha);
 	ctx.say(
-		`Newest verdict on ${branch}: ${run.workflowName} ${run.conclusion}` +
+		`Newest verdict on ${branch}: ${workflowLabel(run)} ${run.conclusion}` +
 			`${run.event ? ` (${run.event})` : ""} at ${short(sha)}, ` +
 			`${age ? `${age} ago` : "age unreadable"}.`,
 	);
@@ -1517,7 +1526,7 @@ function failRuns(ctx, failed) {
 	for (const r of failed)
 		ctx.fail(
 			carriesNoVerdict(r) ? "UNVERIFIED-RUN" : "RED-RUN",
-			`${r.workflowName}: ${r.conclusion} — ${r.url}`,
+			`${workflowLabel(r)}: ${r.conclusion} — ${r.url}`,
 			r,
 		);
 }
@@ -1551,7 +1560,7 @@ function sayFailedRun(ctx, r, { deadline, ticket }) {
 	 * sweep covering every commit since the last one, `workflow_dispatch` is
 	 * somebody's hand-fired run of one sha. */
 	ctx.say(
-		`  ${r.workflowName}: ${r.conclusion}${r.event ? ` (${r.event})` : ""}`,
+		`  ${workflowLabel(r)}: ${r.conclusion}${r.event ? ` (${r.event})` : ""}`,
 	);
 	if (!carriesNoVerdict(r)) {
 		const failures = runFailures(r.databaseId, deadline);
@@ -1569,6 +1578,28 @@ function sayFailedRun(ctx, r, { deadline, ticket }) {
 }
 
 /**
+ * How to find a last green outside the window.
+ *
+ * Not proven: a nameless workflow cannot be filtered on, so its query returns
+ * the newest green of any workflow, which may be no green of this one (#3976).
+ *
+ * @param {string} branch
+ * @param {string} [name]
+ */
+function buildNoGreenAdvice(branch, name) {
+	const lastGreen = (/** @type {string} */ subject) =>
+		`\nNo green ${subject} inside the last ${RUN_WINDOW}, so the range back to\none cannot be read from here. `;
+	const query = (/** @type {string} */ filter) =>
+		`  gh run list --branch ${shellQuote(branch)}${filter} --status success --limit 1 --json headSha${repoFlag()}`;
+	if (!name)
+		return (
+			`${lastGreen(`run of this ${UNNAMED_WORKFLOW}`)}The newest green of any workflow, ` +
+			`which says nothing about this one, is found with:\n${query("")}`
+		);
+	return `${lastGreen(`${name} run`)}Find its sha with:\n${query(` --workflow ${shellQuote(name)}`)}`;
+}
+
+/**
  * The commit range back to the newest red run's last green, or how to find
  * that green where it is outside the window.
  *
@@ -1581,11 +1612,7 @@ function sayBisectRange(ctx, branch, broken, keyed) {
 	const culprit = broken[0];
 	const green = culprit ? lastGreenBefore(culprit, keyed) : null;
 	if (culprit && !green) {
-		ctx.say(
-			`\nNo green ${culprit.workflowName} run inside the last ${RUN_WINDOW}, so the range back to\n` +
-				"one cannot be read from here. Find its sha with:\n" +
-				`  gh run list --branch ${shellQuote(branch)} --workflow ${shellQuote(culprit.workflowName ?? "")} --status success --limit 1 --json headSha${repoFlag()}`,
-		);
+		ctx.say(buildNoGreenAdvice(branch, culprit.workflowName));
 		/* `green` is redundant — the arm above took `culprit && !green` — and is
 		 * what says the range below has both its ends. */
 	} else if (culprit && green) {

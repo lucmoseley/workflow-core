@@ -1225,6 +1225,54 @@ describe("the commit range back to the last green run (mantahostels#945)", () =>
 		expect(check(["--notify"]).stdout).toContain("--workflow 'Nightly CI' ");
 	});
 
+	it.each([
+		["absent", undefined],
+		["empty", ""],
+	])(
+		"reports a culprit whose workflow name is %s without naming one (#3976)",
+		(_, workflowName) => {
+			setRuns([
+				run_({
+					databaseId: 200,
+					headSha: back(0),
+					conclusion: "failure",
+					workflowName,
+				}),
+			]);
+
+			const r = check(["--notify"]);
+			expect(r.status).toBe(0);
+			expect(r.stdout).not.toContain("undefined");
+			expect(r.stdout).not.toContain("--workflow");
+			expect(r.stdout).toContain("  unnamed workflow: failure\n");
+			expect(r.stdout).toContain(
+				"No green run of this unnamed workflow inside the last 50",
+			);
+			expect(r.stdout).toContain("--status success --limit 1 --json headSha");
+		},
+	);
+
+	it("calls a nameless run unnamed in its finding and its verdict line (#3976)", () => {
+		setRuns([
+			run_({
+				databaseId: 200,
+				headSha: back(0),
+				conclusion: "failure",
+				workflowName: "",
+			}),
+		]);
+		const red = check(["--json"]);
+		expect(red.status).toBe(1);
+		expect(red.stdout).toContain(
+			"unnamed workflow: failure — https://example.invalid/1",
+		);
+
+		setRuns([run_({ databaseId: 200, headSha: back(0), workflowName: "" })]);
+		const green = check([]);
+		expect(green.status).toBe(0);
+		expect(green.stderr).toContain(": unnamed workflow success");
+	});
+
 	it("reports a range it cannot read rather than claiming there is none", () => {
 		setRuns([
 			run_({
