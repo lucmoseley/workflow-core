@@ -6,9 +6,11 @@
  */
 
 const { ghApiSlurp } = require("./gh.js");
-const { gitOutcome } = require("./git.js");
+const { readCommit } = require("./commit-sha.js");
+const { gitOutcome, gitReader } = require("./git.js");
 const { requiredGroup } = require("./regex-group.js");
 const { rulePointer } = require("./rule-text.js");
+const { scriptPath } = require("./script-path.js");
 
 const HEX_RUN = "[0-9a-f]{7,40}";
 const SHA = `\`?(${HEX_RUN})(?![0-9a-z])\`?`;
@@ -72,7 +74,7 @@ const BASE = new RegExp(`\\bbase\\s+${SHA}`);
 /* Read from an unparsed mention, which `parseMarks` cuts at its first `\n`, so
  * the run reaches its end unanchored (#3383). */
 const UNPARSED_PATHS = new RegExp(PATHS_CLAUSE);
-const RULE_COMMAND = "`scripts/lib/rule-text.sh review-tier-records`";
+const RULE_COMMAND = `\`${scriptPath("lib/rule-text.sh")} review-tier-records\``;
 const ESCAPED = new RegExp(`\\*\\*Escaped defect:\\*\\*\\s*${SHA}`, "g");
 
 /**
@@ -455,12 +457,8 @@ function readPathFaults(r, root) {
  */
 function readLostBaseFaults(r, root) {
 	if (root === null) return [];
-	const base = gitOutcome(
-		["rev-parse", "--verify", "--quiet", `${r.base}^{commit}`],
-		[1],
-		root,
-	);
-	return base.ok && base.out === ""
+	const base = readCommit(gitReader(root), r.base);
+	return base.ok && base.sha === null
 		? [
 				{
 					tag: "UNJUDGED",
