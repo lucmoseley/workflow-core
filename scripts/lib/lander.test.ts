@@ -815,6 +815,17 @@ describe("runLander on a red batch", () => {
 		expect(r.tickets).toEqual([]);
 	});
 
+	it("holds on a revert whose commit timed out, carrying that in the reason rather than reading it as refused (#3913)", async () => {
+		const timedOut = "its commit timed out after 600 s, last printing: a gate";
+		const r = await redBatch((sha) => sha === C || sha === D, {
+			revertFails: timedOut,
+		});
+		expect(r.end).toEqual({
+			kind: "hold",
+			reason: `the revert of ccccccccc did not land on landing: ${timedOut}`,
+		});
+	});
+
 	it("holds, naming the culprit and its revert, where the fix ticket is not filed, recording the revert as the held tip", async () => {
 		const r = await redBatch((sha) => sha === C || sha === D, {
 			fileFails: "fix ticket for ccccccccc not filed: gh down",

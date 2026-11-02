@@ -10,7 +10,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { stubGhScript } from "./lib/gh-stub.js";
 import { remoteGit } from "./lib/lander.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
@@ -379,17 +379,25 @@ it("takes a revert already on landing as landed rather than reverting twice, rea
 	expect(git(remote, "rev-parse", "landing")).toBe(revert);
 });
 
-it("fails a revert whose commit prepare-commit-msg refuses, naming the gate's verdict and pushing nothing (#3123)", () => {
+/** A commit on `landing` to revert, with `body` as prepare-commit-msg. */
+const culpritWithCommitHook = (body: string) => {
 	const culprit = commit("bad");
 	git(work, "push", "-q", "origin", "HEAD:landing");
 	const hooks = path.join(tmp, "hooks");
 	fs.mkdirSync(hooks);
 	fs.writeFileSync(
 		path.join(hooks, "prepare-commit-msg"),
-		"#!/bin/sh\necho '> workflow-core@0.1.0 check:staged' >&2\necho 'FAIL: 1 fault(s) this commit adds' >&2\nexit 1\n",
+		`#!/bin/sh\n${body}\n`,
 	);
 	fs.chmodSync(path.join(hooks, "prepare-commit-msg"), 0o755);
 	git(work, "config", "core.hooksPath", hooks);
+	return culprit;
+};
+
+it("fails a revert whose commit prepare-commit-msg refuses, naming the gate's verdict and pushing nothing (#3123)", () => {
+	const culprit = culpritWithCommitHook(
+		"echo '> workflow-core@0.1.0 check:staged' >&2\necho 'FAIL: 1 fault(s) this commit adds' >&2\nexit 1",
+	);
 
 	const made = remoteGit(work).revertOnLanding(culprit, null, "why");
 
@@ -397,6 +405,44 @@ it("fails a revert whose commit prepare-commit-msg refuses, naming the gate's ve
 		failed: "its commit was refused: FAIL: 1 fault(s) this commit adds",
 	});
 	expect(git(remote, "rev-parse", "landing")).toBe(culprit);
+});
+
+it("fails a revert whose commit is killed at its timeout as timed out, not refused, naming what it last printed and pushing nothing (#3913)", () => {
+	const culprit = culpritWithCommitHook(
+		"echo '> workflow-core@0.1.0 check:staged' >&2\necho 'second gate running' >&2\nexec sleep 10",
+	);
+
+	/* Crosses the real clock: only a real kill gives git's error its ETIMEDOUT
+	 * and the stderr up to the kill. Untraced: 3 s is room for git to reach the
+	 * hook's two lines, and the sleep need only outlast it. */
+	const made = remoteGit(work, 3000).revertOnLanding(culprit, null, "why");
+
+	expect(made).toEqual({
+		failed:
+			"its commit timed out after 3 s, last printing: second gate running",
+	});
+	expect(git(remote, "rev-parse", "landing")).toBe(culprit);
+});
+
+it("keeps the failure's reason and says so where the revert's worktree will not come off (#3913)", () => {
+	const named = path.join(tmp, "worktree-path");
+	const culprit = culpritWithCommitHook(
+		`git rev-parse --show-toplevel > '${named}'\ngit worktree lock "$(cat '${named}')"\necho 'FAIL: 1 fault(s) this commit adds' >&2\nexit 1`,
+	);
+	const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+
+	const made = remoteGit(work).revertOnLanding(culprit, null, "why");
+
+	const dir = fs.readFileSync(named, "utf8").trim();
+	const printed = stderr.mock.calls.join("");
+	stderr.mockRestore();
+	git(work, "worktree", "remove", "--force", "--force", dir);
+	expect(made).toEqual({
+		failed: "its commit was refused: FAIL: 1 fault(s) this commit adds",
+	});
+	expect(printed).toContain(
+		`lander: could not remove the revert's worktree ${dir}`,
+	);
 });
 
 /**

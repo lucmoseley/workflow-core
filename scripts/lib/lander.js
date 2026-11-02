@@ -61,6 +61,9 @@ const LANDER_GIT_TIMEOUT_MS = 120 * 1000;
 /* Untraced: the push runs the checkout's pre-push hook, whose mod tests run
  * `claude plugin test` on a batch touching a mod. */
 const PUSH_TIMEOUT_MS = 20 * 60 * 1000;
+/* Measured on #3913: the gate stack fits this up to load 42-56, if time scales
+ * with load, which no run measured. */
+const REVERT_COMMIT_TIMEOUT_MS = 600 * 1000;
 const REGISTRY_CHECK = path.join(__dirname, "..", "check-guard-registry.js");
 
 /* Untraced: a revert racing that many session pushes in a row is a busier
@@ -83,6 +86,15 @@ const parseRefusal = (text) =>
 const GATE_VERDICT = /^(?:FAIL|BROKEN): .*/m;
 
 /**
+ * What a failed call printed to stderr, else its error's message.
+ * @param {unknown} err
+ */
+const readThrownText = (err) => {
+	const e = caught(err);
+	return String(e.stderr || e.message);
+};
+
+/**
  * What `call` printed to stderr where it threw, else null.
  * @param {() => unknown} call
  * @returns {string|null}
@@ -92,8 +104,7 @@ function stderrIfThrown(call) {
 		call();
 		return null;
 	} catch (err) {
-		const e = caught(err);
-		return String(e.stderr || e.message);
+		return readThrownText(err);
 	}
 }
 /* Untraced: five tries over about a minute, outlasting a DNS or connection
@@ -1773,9 +1784,10 @@ function readHeartbeat(file) {
  * updates them, where either commit is not yet local, since the relation reads
  * both and a push names `landing` by sha.
  * @param {string} root
+ * @param {number} [revertCommitTimeoutMs]
  * @returns {RemoteGit}
  */
-function remoteGit(root) {
+function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 	/**
 	 * @param {string[]} args
 	 * @param {number} [timeout]
@@ -2016,14 +2028,15 @@ function remoteGit(root) {
 		 * @param {string[]} args
 		 * @param {string} [input]
 		 * @param {NodeJS.ProcessEnv} [env]
+		 * @param {number} [timeout]
 		 */
-		const inTree = (args, input, env) =>
+		const inTree = (args, input, env, timeout = LANDER_GIT_TIMEOUT_MS) =>
 			execGit(args, {
 				cwd: dir,
 				encoding: "utf8",
 				input,
 				stdio: ["pipe", "pipe", "pipe"],
-				timeout: LANDER_GIT_TIMEOUT_MS,
+				timeout,
 				env,
 			});
 		try {
@@ -2047,17 +2060,18 @@ function remoteGit(root) {
 			);
 			if (unreverted !== null) return { failed: parseFirstLine(unreverted) };
 			const subject = git(["log", "-1", "--format=%s", culprit]).trim();
-			const uncommitted = stderrIfThrown(() =>
+			try {
 				inTree(
 					["commit", "--quiet", "--no-verify", "-F", "-"],
 					`Revert "${subject}"\n\n${buildRevertLine(culprit)}\n\n${why}\n`,
 					buildRevertEnv(culprit),
-				),
-			);
-			if (uncommitted !== null)
+					revertCommitTimeoutMs,
+				);
+			} catch (err) {
 				return {
-					failed: `its commit was refused: ${buildCommitRefusal(dir, culprit, uncommitted)}`,
+					failed: buildCommitFailure(err, dir, culprit, revertCommitTimeoutMs),
 				};
+			}
 			return {
 				sha: inTree(["rev-parse", "HEAD"]).trim(),
 				stale:
@@ -2065,9 +2079,37 @@ function remoteGit(root) {
 					null,
 			};
 		} finally {
-			git(["worktree", "remove", "--force", dir]);
+			/* Never replaces the return: a killed commit's hook can outlive it and
+			 * still be writing in `dir`, and a throw here would lose the hold's
+			 * reason (#3913). */
+			const unremoved = stderrIfThrown(() =>
+				git(["worktree", "remove", "--force", dir]),
+			);
+			if (unremoved !== null)
+				process.stderr.write(
+					`lander: could not remove the revert's worktree ${dir}: ${parseRefusal(unremoved)}\n`,
+				);
 		}
 	}
+}
+
+/**
+ * Why a revert's commit failed. A commit killed at its timeout was refused by
+ * no gate, so it names the last line printed.
+ * @param {unknown} err
+ * @param {string} dir
+ * @param {string} culprit
+ * @param {number} timeoutMs
+ */
+function buildCommitFailure(err, dir, culprit, timeoutMs) {
+	const e = caught(err);
+	if (e.code !== "ETIMEDOUT")
+		return `its commit was refused: ${buildCommitRefusal(dir, culprit, readThrownText(err))}`;
+	const last = String(e.stderr ?? "")
+		.trim()
+		.split("\n")
+		.at(-1);
+	return `its commit timed out after ${Math.round(timeoutMs / 1000)} s${last ? `, last printing: ${last}` : ""}`;
 }
 
 /**
