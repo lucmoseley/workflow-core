@@ -1431,21 +1431,27 @@ function recordOverflowStart(input, { judged, launched }, io) {
 
 /**
  * @typedef {(resumes: import("./refill-decide.js").HeldResume[],
- *   launches: LoopLaunch[], isStopped: () => boolean) =>
+ *   launches: LoopLaunch[], isStopped: () => boolean,
+ *   record: (launches: LoopLaunch[]) => void) =>
  *   {launches: LoopLaunch[], started: number, waiting: boolean}} ResumeHeld
  */
 
 /**
- * The decision's resumes made, ahead of its launches; none on a stop.
+ * The decision's resumes made, ahead of its launches; none on a stop. `record`
+ * writes the state with the launches as the step leaves each resume.
  * @param {import("./refill-decide.js").Decision} decision
  * @param {LoopLaunch[]} launches
  * @param {{readControl: () => ControlRead, resumeHeld: ResumeHeld}} io
+ * @param {(launches: LoopLaunch[]) => void} record
  */
-const resumeDecided = (decision, launches, io) =>
+const resumeDecided = (decision, launches, io, record) =>
 	"stop" in decision
 		? { launches, started: 0, waiting: false }
-		: io.resumeHeld(decision.resumes, launches, () =>
-				isLaunchBarred(io.readControl().control),
+		: io.resumeHeld(
+				decision.resumes,
+				launches,
+				() => isLaunchBarred(io.readControl().control),
+				record,
 			);
 
 /** @param {import("./refill-decide.js").TickInput} input */
@@ -1551,7 +1557,14 @@ function settleTick(
 		launches: afterResumes,
 		started,
 		waiting,
-	} = resumeDecided(decision, judged, io);
+	} = resumeDecided(decision, judged, io, (launches) =>
+		io.writeState({
+			...state,
+			launches: keptLaunches(launches),
+			bootedAt,
+			sameBootRestart,
+		}),
+	);
 	const outcome = launchUntilBarred(
 		buildLaunchBatches(decision, waiting),
 		() => io.readControl().control,

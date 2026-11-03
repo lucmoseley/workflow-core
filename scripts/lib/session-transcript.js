@@ -179,4 +179,4 @@ function readStartedAt(file) {
 	}
 }
 
-module.exports = { resolve, read, readStartedAt };
+module.exports = { resolve, read, readStartedAt, readWholeLines };
