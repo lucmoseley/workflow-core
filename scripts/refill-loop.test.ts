@@ -18,10 +18,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { writeCostTable } from "./lib/cost-table-testkit";
 import { printed, stubGhRoutes } from "./lib/gh-stub";
 import { localDate } from "./lib/morning-review.js";
 import { writeCheckout } from "./lib/refill-loop-fixture";
 import { runInProcessAsync } from "./lib/run-in-process.js";
+import { SESSION_COST_TABLE } from "./lib/session-spend.js";
 import { buildUsageCache } from "./lib/usage-probe-fake";
 
 const SCRIPT = path.resolve(__dirname, "refill-loop.js");
@@ -472,17 +474,8 @@ describe("stop and status", () => {
 			path.join(dir, ".claude", "refill-seats"),
 			`${path.join(dir, ".claude3")}\n~/.claude2-api api key=WFC_TEST_KEY grant=200 cycle-day=20\n`,
 		);
-		fs.mkdirSync(path.join(dir, "docs", "data"), { recursive: true });
-		fs.writeFileSync(
-			path.join(dir, "docs", "data", "session-cost-table.json"),
-			JSON.stringify({
-				n: 2,
-				meanUsd: 4,
-				quantilesUsd: [1, 10],
-				tailRemainderUsd: 9,
-				landedByHours: [[1, 1]],
-			}),
-		);
+		// Grant 200 over mean 4 fits 50.
+		writeCostTable(dir, { meanUsd: 4 });
 	};
 
 	const fillPlanSeat = () => {
@@ -561,7 +554,7 @@ describe("stop and status", () => {
 	it("says why a key's budget or the seat file will not read", async () => {
 		declareOverflowKey();
 		fillPlanSeat();
-		fs.rmSync(path.join(dir, "docs", "data", "session-cost-table.json"));
+		fs.rmSync(path.join(dir, SESSION_COST_TABLE));
 		const [key] = JSON.parse((await run("status", "--json")).stdout).overflow;
 		expect(key.why).toBe("the session cost table is unreadable");
 		fs.writeFileSync(

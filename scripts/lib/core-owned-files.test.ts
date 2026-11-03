@@ -16,6 +16,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { labelPlan } from "./adopter-skeleton.js";
 import { bringCoreFiles, skeletonPaths } from "./core-owned-files.js";
+import { SESSION_COST_TABLE } from "./session-spend.js";
 import { upgrade } from "./upgrade-walk.js";
 
 let root: string;
@@ -234,7 +235,7 @@ describe("the labels (#1484)", () => {
 });
 
 describe("the session cost table (#1734)", () => {
-	const tableRel = "docs/data/session-cost-table.json";
+	const tableRel = SESSION_COST_TABLE;
 	const scriptRel = "scripts/measure-session-cost.js";
 	const ledgerRel = ".claude/tmp/markers/.pick-next/dispatched.jsonl";
 	/* A stand-in for the plugin's script: the real one's pricing is

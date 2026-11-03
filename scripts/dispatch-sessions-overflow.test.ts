@@ -22,6 +22,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { writeCostTable } from "./lib/cost-table-testkit";
 import { readRecentEntries } from "./lib/dispatch-ledger.js";
 import { dispatchFixture, SCRIPT } from "./lib/dispatch-sessions-testkit";
 import { writeHeadlessRun } from "./lib/headless-runs-testkit";
@@ -54,18 +55,12 @@ function overflowEnv(
 		path.join(config, "workflow-core", "secrets.env"),
 		key ? `${KEY_VAR}=sk-fake-overflow\n` : "OTHER=1\n",
 	);
-	const table = path.join(fx.dir, "docs", "data", "session-cost-table.json");
-	fs.mkdirSync(path.dirname(table), { recursive: true });
-	fs.writeFileSync(
-		table,
-		JSON.stringify({
-			n: 1,
-			meanUsd: 10,
-			quantilesUsd: [1, 10, 30],
-			tailRemainderUsd: 20,
-			landedByHours: [[1, 1]],
-		}),
-	);
+	const table = writeCostTable(fx.dir, {
+		n: 1,
+		meanUsd: 10,
+		quantilesUsd: [1, 10, 30],
+		tailRemainderUsd: 20,
+	});
 	return {
 		CLAUDE_CONFIG_DIR: seat(),
 		WFC_REFILL_DIR: refill(),

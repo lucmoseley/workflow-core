@@ -21,6 +21,7 @@ import {
 	planSeatOf,
 	readConsoleLog,
 } from "./console-credit.js";
+import { writeCostTable } from "./cost-table-testkit";
 import { seatBudget } from "./overflow-budget.js";
 import { runInProcess } from "./run-in-process.js";
 
@@ -345,17 +346,7 @@ describe("read-console-credit.js", () => {
 
 	it("gives the gate the anchored figure, and the failure, through seatBudget", () => {
 		const root = path.join(tmp, "checkout");
-		fs.mkdirSync(path.join(root, "docs", "data"), { recursive: true });
-		fs.writeFileSync(
-			path.join(root, "docs", "data", "session-cost-table.json"),
-			JSON.stringify({
-				n: 3,
-				meanUsd: 4,
-				quantilesUsd: [1, 3, 10],
-				tailRemainderUsd: 7,
-				landedByHours: [[1, 1]],
-			}),
-		);
+		writeCostTable(root);
 		main([keyDir], { runChild: succeeded(report(PAGE)) });
 		main([keyDir], {
 			runChild: () => ({ status: 1, stdout: "", stderr: "Chrome is closed" }),

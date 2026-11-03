@@ -38,6 +38,7 @@ import {
 } from "./lib/bg-resume-fake";
 import { buildAttachBranch } from "./lib/claude-attach-fake";
 import { writeClaudeStub } from "./lib/claude-stub";
+import { writeCostTable } from "./lib/cost-table-testkit";
 import {
 	DEFAULT_WINDOW_HOURS,
 	ledgerPath,
@@ -775,20 +776,12 @@ const writeSeatFile = (grant: number | null) => {
 	);
 };
 
-/* The served checkout's table, as the tick reads it (#3683). */
-const writeCostTable = (
-	root: string,
-	costs = { meanUsd: 4, quantilesUsd: [1, 10], tailRemainderUsd: 9 },
-) => {
-	fs.mkdirSync(path.join(root, "docs", "data"), { recursive: true });
-	fs.writeFileSync(
-		path.join(root, "docs", "data", "session-cost-table.json"),
-		JSON.stringify({ n: 2, ...costs, landedByHours: [[1, 1]] }),
-	);
-};
+/* The served checkout's table, as the tick reads it (#3683): a grant of 2 fits
+ * no session, a grant of 200 does. */
+const writeKeyCostTable = () => writeCostTable(repo, { meanUsd: 4 });
 
 const runDry = () => {
-	writeCostTable(repo);
+	writeKeyCostTable();
 	return runInProcessAsync(path.join(scripts, "refill-loop.js"), ["dry-run"], {
 		cwd: dir,
 		env: loopEnv({ FAKE_SLOTS: "1" }),
@@ -850,7 +843,7 @@ describe("a due Console read on the real tick (#4071)", () => {
 	/* A spent key on a plan seat with room and no read yet: due. */
 	beforeEach(() => {
 		writeSeatFile(2);
-		writeCostTable(repo);
+		writeKeyCostTable();
 		stub(
 			"read-console-credit.js",
 			`require("node:fs").appendFileSync(${JSON.stringify(runnerCallsFile())}, process.argv[2] + "\\n");\n`,

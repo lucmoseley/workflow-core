@@ -19,6 +19,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readCurrentBootId, readProcStartOf } from "./arbiter-proc.js";
+import { writeCostTable } from "./cost-table-testkit";
 import { seatBudget } from "./overflow-budget.js";
 import { runInProcess } from "./run-in-process.js";
 
@@ -29,7 +30,6 @@ const TABLE = {
 	meanUsd: 4,
 	quantilesUsd: [1, 3, 10],
 	tailRemainderUsd: 7,
-	landedByHours: [[1, 1]] as [number, number][],
 };
 let tmp: string;
 let home: string;
@@ -53,11 +53,7 @@ beforeEach(() => {
 		`${path.join(home, ".claude2")}\n~/.claude2-api api key=WFC_TEST_KEY grant=200 cycle-day=1\n`,
 	);
 	root = path.join(tmp, "checkout");
-	fs.mkdirSync(path.join(root, "docs", "data"), { recursive: true });
-	fs.writeFileSync(
-		path.join(root, "docs", "data", "session-cost-table.json"),
-		JSON.stringify(TABLE),
-	);
+	writeCostTable(root, TABLE);
 	process.env.WFC_REFILL_DIR = refill;
 });
 

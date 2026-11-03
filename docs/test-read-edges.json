@@ -2294,9 +2294,11 @@
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/dispatch-sessions-reread.test.ts",
 			"scripts/dispatch-sessions.test.ts",
+			"scripts/lib/core-owned-files.test.ts",
 			"scripts/lib/doc-map.test.ts",
 			"scripts/lib/session-spend.test.ts",
 			"scripts/precommit-doc-map-gate.test.ts",
+			"scripts/refill-loop.test.ts",
 			"scripts/register-doc.test.ts"
 		],
 		"docs/doc-map-admissions.json": [
@@ -9254,6 +9256,17 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/cost-table-testkit.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
