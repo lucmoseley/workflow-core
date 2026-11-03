@@ -64,11 +64,13 @@ beforeEach(() => {
 	fs.writeFileSync(
 		shim,
 		`const fs = require("node:fs");
-const read = fs.readFileSync;
-fs.readFileSync = function (f, ...rest) {
-	if (f === 0) fs.writeFileSync(${JSON.stringify(readMark)}, "");
-	return read.call(fs, f, ...rest);
-};
+for (const name of ["readFileSync", "readSync"]) {
+	const read = fs[name];
+	fs[name] = function (f, ...rest) {
+		if (f === 0) fs.writeFileSync(${JSON.stringify(readMark)}, "");
+		return read.call(fs, f, ...rest);
+	};
+}
 `,
 	);
 });
