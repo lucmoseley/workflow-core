@@ -40,7 +40,7 @@ import {
 import { throughFullPipe } from "./lib/full-pipe-testkit";
 import { writeFaultyGit } from "./lib/git-fault-fake";
 import { runCore } from "./lib/guard-core-testkit";
-import { cutInReplay, cutShellFunction } from "./lib/precommit-gate-testkit";
+import { cutPostCommitBlock } from "./lib/precommit-gate-testkit";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -4552,6 +4552,21 @@ describe("release-committed — the claim goes back when the commit lands (manta
 			),
 		);
 		expect(held(subject)).toBe(true);
+		expect(
+			JSON.parse(fs.readFileSync(store.paths.keptClaimsLog(), "utf8")),
+		).toMatchObject({ path: subject, verdict: "region", own: null });
+	});
+
+	it("reads a --commit that names no full sha as a path, and still releases the rest (#3746)", () => {
+		const other = environment();
+		store.acquire(other, live(sb, "alice"));
+
+		const r = cli(["release-committed", "--commit", other], {
+			CLAUDE_CODE_SESSION_ID: "alice",
+		});
+
+		expect(r.stdout).toContain(`Released ${other}`);
+		expect(held(other)).toBe(false);
 	});
 
 	it("drops a claim on a path that takes no regions (#2058)", () => {
@@ -4798,7 +4813,7 @@ describe("releasing once the holder's own hunks have landed (#2148)", () => {
 			[
 				"-e",
 				"-c",
-				`${cutInReplay()}\n${cutShellFunction("release_committed_claims")}\nrelease_committed_claims`,
+				`${cutPostCommitBlock("release_committed_claims")}\nrelease_committed_claims`,
 			],
 			{
 				cwd: sb.repo,
@@ -4963,6 +4978,42 @@ describe("releasing once the holder's own hunks have landed (#2148)", () => {
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("on this session's word (--not-mine)");
 		expect(held()).toBe(false);
+	});
+
+	it("logs each keep with its verdict, own, session and commit, and nothing for a release (#3746)", () => {
+		aliceWrites(theirs.replace("two", "TWO"));
+		commitOnly(seed.replace("two", "TWO"));
+		const sha = git("rev-parse", "HEAD").trim();
+
+		const kept = cli(["release-committed", "--commit", sha, notes], {
+			CLAUDE_CODE_SESSION_ID: "alice",
+		});
+		expect(kept.stdout).toContain(`Kept ${notes}`);
+
+		const log = store.paths.keptClaimsLog();
+		const rows = () =>
+			fs
+				.readFileSync(log, "utf8")
+				.trim()
+				.split("\n")
+				.map((l) => JSON.parse(l));
+		expect(rows()).toEqual([
+			{
+				at: expect.any(String),
+				path: notes,
+				verdict: "dirty",
+				own: "unproven",
+				session: "alice",
+				commit: sha,
+			},
+		]);
+
+		// A hand release names no commit.
+		cli(["release-committed", notes], { CLAUDE_CODE_SESSION_ID: "alice" });
+		expect(rows()[1]).toMatchObject({ path: notes, commit: null });
+		release("--not-mine");
+		cli(["release-committed", notes], { CLAUDE_CODE_SESSION_ID: "alice" });
+		expect(rows()).toHaveLength(2);
 	});
 
 	it("still finds a clean pending hunk where another hunk conflicts", () => {

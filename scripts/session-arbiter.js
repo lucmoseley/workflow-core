@@ -67,6 +67,7 @@ const { writeFd } = require("./lib/write-fd.js");
 const { caught } = require("./lib/caught.js");
 const { readOwnPaths } = require("./lib/own-work.js");
 const { FULL_SHA } = require("./lib/commit-sha.js");
+const { appendRetained, DAY_MS } = require("./lib/retained-jsonl.js");
 
 /* How this CLI's own output names it, at the plugin root in an install (#1110). */
 
@@ -2222,6 +2223,10 @@ function releaseUnproven({ rel, verdict, content, force }) {
 	return 1;
 }
 
+/* 30 days, chosen and not measured: the span queue-exit-log.js keeps for the
+ * same kind of incident trace. */
+const KEPT_CLAIMS_RETAIN_MS = 30 * DAY_MS;
+
 /**
  * The third exit, after process death and an explicit `release` (mantahostels#2336, #2058).
  *
@@ -2250,10 +2255,13 @@ function releaseUnproven({ rel, verdict, content, force }) {
  * clobber of the holder's own bytes (mantahostels#420), and a request a
  * neighbour left on the file (mantahostels#1783). The one silent exit
  * is a commit with no session behind it, a person's in a terminal.
+ *
+ * Each keep is also a line of `kept-claims.jsonl` in the state directory (#3746).
  * @param {string} sessionId
  * @param {string[]} paths the landed commit's paths, absolute or repo-relative
+ * @param {string|null} commit the commit that landed them; null on a hand release
  */
-function cmdReleaseCommitted(sessionId, paths) {
+function cmdReleaseCommitted(sessionId, paths, commit) {
 	// Ahead of identify(), which would otherwise log "no live session entry for
 	// (no session id)" after every commit a person makes in a terminal.
 	if (!sessionId) return 0;
@@ -2275,6 +2283,21 @@ function cmdReleaseCommitted(sessionId, paths) {
 	const released = [];
 	const leftDirty = [];
 	const kept = [];
+	/** @type {(subject: string, verdict: string, own?: OwnHunks) => void} */
+	const logKept = (subject, verdict, own) => {
+		appendRetained(
+			store.paths.keptClaimsLog(),
+			{
+				at: new Date().toISOString(),
+				path: subject,
+				verdict,
+				own: own ?? null,
+				session: sessionId,
+				commit,
+			},
+			KEPT_CLAIMS_RETAIN_MS,
+		);
+	};
 	for (const subject of held) {
 		const { rel, region } = store.splitSubject(subject);
 		if (!landed.has(rel)) continue;
@@ -2282,13 +2305,17 @@ function cmdReleaseCommitted(sessionId, paths) {
 			kept.push(
 				`Kept ${subject} — a region claim, which a commit never releases; \`${buildArbiterCommand`release ${subject}`}\` does.\n`,
 			);
+			logKept(subject, "region");
 			continue;
 		}
 		const result = releaseLanded(rel, me);
 		if (result.verdict === "released") {
 			released.push(rel);
 			if (result.own === "landed") leftDirty.push(rel);
-		} else kept.push(buildKeptLine(rel, result));
+		} else {
+			kept.push(buildKeptLine(rel, result));
+			logKept(rel, result.verdict, result.own);
+		}
 	}
 	writeStdout(buildCommittedReport(released, leftDirty, kept, landed));
 	return 0;
@@ -4057,7 +4084,7 @@ const buildUsage = (lines) =>
  * parsed (#1137): `check` takes an Edit's old_string from the hook every write
  * runs, `record` rides the same hook, `request`, `decline` and `debt own` take
  * free text, and `release-committed` takes git's committed paths, any of which
- * may open `--`. lib/cli-args.js would read that as a flag and refuse it, or
+ * may open `--`, behind a `--commit <full sha>` it reads by hand. lib/cli-args.js would read that as a flag and refuse it, or
  * print usage on a `--help` inside it. So a mistyped flag on these still
  * passes unrefused, and `request <path> --help` records a request.
  * @type {Record<string, string>}
@@ -4067,7 +4094,7 @@ const PASS_THROUGH = {
 	record: "record <path> [session-id]",
 	request: 'request <path> ["<why>"]',
 	decline: 'decline <path> ["<reason>"]',
-	"release-committed": "release-committed <path> [<path>...]",
+	"release-committed": "release-committed [--commit <sha>] <path> [<path>...]",
 };
 
 /**
@@ -4353,9 +4380,12 @@ function passThrough(argv, sessionId) {
 			return 0;
 		// No positional session id, for release's reason — and the caller is
 		// .husky/post-commit, which inherits CLAUDE_CODE_SESSION_ID from the
-		// session that ran `git commit`. Every argument is a committed path.
+		// session that ran `git commit`. Every argument after `--commit <full sha>`,
+		// which the hook passes and a hand release has none of, is a committed path.
 		case "release-committed":
-			return cmdReleaseCommitted(sessionId, rest);
+			return rest[0] === "--commit" && FULL_SHA.test(rest[1] ?? "")
+				? cmdReleaseCommitted(sessionId, rest.slice(2), rest[1] ?? null)
+				: cmdReleaseCommitted(sessionId, rest, null);
 		// No positional session id on either, for release's reason: a request and a
 		// decline are this session's own acts, and argv would only offer a caller
 		// an easy way to speak as somebody else.

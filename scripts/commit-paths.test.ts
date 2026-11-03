@@ -27,8 +27,7 @@ import { writeFaultyGit } from "./lib/git-fault-fake";
 import { initGitRepo } from "./lib/git-fixture";
 import { installLib } from "./lib/lib-install-testkit";
 import {
-	cutInReplay,
-	cutShellFunction,
+	cutPostCommitBlock,
 	plantSequencer,
 	ROOT,
 } from "./lib/precommit-gate-testkit";
@@ -1099,14 +1098,15 @@ describe("post-commit's claim release after a commit-paths commit (#3254)", () =
 	const held = ["a.md", "scripts/lib/one.js", "notes.md"];
 
 	// The fixture's post-commit: the real hook's release block, calling the real arbiter.
-	beforeEach(() => {
+	const writeHook = (before = "") => {
 		const hook = path.join(hooks, "post-commit");
 		fs.writeFileSync(
 			hook,
-			`#!/bin/sh\nset -e\nWFC_PLUGIN_ROOT=${shellQuote(ROOT)}\n${cutInReplay()}\n${cutShellFunction("release_committed_claims")}\nrelease_committed_claims\n`,
+			`#!/bin/sh\nset -e\nWFC_PLUGIN_ROOT=${shellQuote(ROOT)}\n${before}${cutPostCommitBlock("release_committed_claims")}\nrelease_committed_claims\n`,
 		);
 		fs.chmodSync(hook, 0o755);
-	});
+	};
+	beforeEach(() => writeHook());
 
 	const commitHeld = () => {
 		const alice = live(sb, "alice");
@@ -1153,6 +1153,37 @@ describe("post-commit's claim release after a commit-paths commit (#3254)", () =
 				...process.env,
 				CLAUDE_CODE_SESSION_ID: "alice",
 			}),
+		);
+	});
+
+	// The shared index's reset waits on a neighbour's lock, so a neighbour's commit
+	// can land before the hook runs: as HEAD, it named none of this session's files.
+	it("drops them after a --patch commit a neighbour's commit landed behind before post-commit ran (#3746)", () => {
+		writeHook(
+			`n=$(mktemp -u)
+GIT_INDEX_FILE=$n git read-tree HEAD
+GIT_INDEX_FILE=$n git update-index --add --cacheinfo "100644,$(printf 'n\\n' | git hash-object -w --stdin),neighbour.md"
+git update-ref HEAD "$(git commit-tree "$(GIT_INDEX_FILE=$n git write-tree)" -p HEAD -m "a neighbour's")"
+rm -f "$n"
+`,
+		);
+		const alice = live(sb, "alice");
+		for (const rel of held) {
+			store.acquire(rel, alice);
+			write(rel, "alice's edit\n");
+		}
+		// The Edit tool's record of its write, then a Bash write no hook saw.
+		store.recordContent("a.md", alice);
+		write("a.md", "alice's edit\nand from Bash\n");
+		git("add", "-N", "--", ...held);
+		const patch = path.join(sb.dir, "mine.patch");
+		fs.writeFileSync(patch, git("diff", "--", "notes.md"));
+		git("reset", "-q", "--", ...held);
+		expectReleased(
+			runWith(
+				["-m", "mine", "--patch", patch, "--", "a.md", "scripts/lib/one.js"],
+				{ ...process.env, CLAUDE_CODE_SESSION_ID: "alice" },
+			),
 		);
 	});
 

@@ -22,16 +22,13 @@ import { describe, expect, it } from "vitest";
 import { newRepo, registerTempCleanup } from "./lib/precommit-gate-harness";
 import {
 	commitOverSequencer,
-	cutInReplay,
-	cutShellFunction,
+	cutPostCommitBlock,
 	POST_COMMIT,
 } from "./lib/precommit-gate-testkit";
 
 const temps = registerTempCleanup();
 
-/** The block under test, plus the shared replay test it calls. */
-const cutBlock = () =>
-	`${cutInReplay()}\n${cutShellFunction("release_committed_claims")}`;
+const cutBlock = () => cutPostCommitBlock("release_committed_claims");
 
 /**
  * A throwaway repo whose HEAD commit touches `files`, with a stub arbiter at the
@@ -114,8 +111,48 @@ describe(".husky/post-commit's release-on-commit block", () => {
 
 		expect(r.out.split("\n").filter(Boolean)).toEqual([
 			"release-committed",
+			"--commit",
+			repo.git("rev-parse", "HEAD").toString().trim(),
 			"app/page.tsx",
 			"docs/doc-map.md",
+		]);
+		expectSurvived(r);
+	});
+
+	it("takes the paths of the commit WFC_COMMITTED_SHA names, whatever HEAD has moved to (#3746)", () => {
+		const repo = hookRepo("post-commit-release-named-", ["mine.md"], ECHO_ARGV);
+		const mine = repo.git("rev-parse", "HEAD").toString().trim();
+		fs.writeFileSync(path.join(repo.root, "neighbour.md"), "x");
+		repo.git("add", "neighbour.md");
+		repo.git("commit", "-q", "-m", "a neighbour's");
+
+		const r = runBlock(repo.root, { WFC_COMMITTED_SHA: mine });
+
+		expect(r.out.split("\n").filter(Boolean)).toEqual([
+			"release-committed",
+			"--commit",
+			mine,
+			"mine.md",
+		]);
+		expectSurvived(r);
+	});
+
+	it("releases a commit WFC_COMMITTED_SHA names, whatever replay a neighbour has begun (#3746)", () => {
+		const repo = hookRepo(
+			"post-commit-release-named-replay-",
+			["mine.md"],
+			ECHO_ARGV,
+		);
+		const mine = repo.git("rev-parse", "HEAD").toString().trim();
+		fs.writeFileSync(path.join(repo.root, ".git", "CHERRY_PICK_HEAD"), "x");
+
+		const r = runBlock(repo.root, { WFC_COMMITTED_SHA: mine });
+
+		expect(r.out.split("\n").filter(Boolean)).toEqual([
+			"release-committed",
+			"--commit",
+			mine,
+			"mine.md",
 		]);
 		expectSurvived(r);
 	});
@@ -131,6 +168,8 @@ describe(".husky/post-commit's release-on-commit block", () => {
 
 		expect(r.out.split("\n").filter(Boolean)).toEqual([
 			"release-committed",
+			"--commit",
+			repo.git("rev-parse", "HEAD").toString().trim(),
 			"docs/a file.md",
 		]);
 		expectSurvived(r);
@@ -181,12 +220,13 @@ describe(".husky/post-commit's release-on-commit block", () => {
 	});
 
 	it("releases a commit made over a leftover sequencer (#3298)", () => {
-		const r = runBlock(
-			sequencedRepo("post-commit-release-leftover-", false).root,
-		);
+		const repo = sequencedRepo("post-commit-release-leftover-", false);
+		const r = runBlock(repo.root);
 
 		expect(r.out.split("\n").filter(Boolean)).toEqual([
 			"release-committed",
+			"--commit",
+			repo.git("rev-parse", "HEAD").toString().trim(),
 			"docs/doc-map.md",
 		]);
 		expectSurvived(r);

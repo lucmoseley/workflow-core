@@ -480,6 +480,11 @@ const paths = {
 	 * Unrotated: one ~40-byte line a commit, so it has not earned log-rotate.js.
 	 */
 	commitPathsLog: () => path.join(stateDir(), "commit-paths.log"),
+	/**
+	 * One JSON line per claim release-committed kept on a landed path, because
+	 * its report goes only to the committing process's stderr (#3746).
+	 */
+	keptClaimsLog: () => path.join(stateDir(), "kept-claims.jsonl"),
 };
 
 // ---------------------------------------------------------------------------

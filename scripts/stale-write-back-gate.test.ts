@@ -22,6 +22,7 @@ import {
 	store,
 } from "./lib/arbiter-testkit";
 import {
+	COMMITTED_READ,
 	coreCall,
 	cutInReplay,
 	cutShellFunction,
@@ -60,11 +61,6 @@ const neighbourCommits = (rel: string, text: string) => {
 	git("commit", "-qm", `neighbour edits ${rel}`, "--", rel);
 };
 
-/** post-commit's capture of the commit's sha, which runs ahead of every block. */
-const CAPTURE = POST_COMMIT.split("\n").findIndex((l) =>
-	l.startsWith("committed=$("),
-);
-
 interface Hooks {
 	prepareCommitMsg?: boolean;
 	postCommit?: boolean;
@@ -83,10 +79,10 @@ function hooks({ prepareCommitMsg = false, postCommit = false }: Hooks = {}) {
 	);
 	fs.mkdirSync(dir, { recursive: true });
 	if (postCommit) {
-		if (CAPTURE === -1)
+		if (COMMITTED_READ === -1)
 			throw new Error(".husky/post-commit no longer captures the sha");
 		const body = [
-			POST_COMMIT.split("\n")[CAPTURE],
+			POST_COMMIT.split("\n")[COMMITTED_READ],
 			cutInReplay(),
 			// Ahead of the advance, as in the live hook: its loop once reused
 			// `committed` and emptied the sha the advance reads (#115).
@@ -412,8 +408,8 @@ describe("post-commit's base advance, seen through the gate (#114)", () => {
 	it("reads the commit's sha before any block runs, so a neighbour's later commit is never recorded", () => {
 		const lines = POST_COMMIT.split("\n");
 		const firstBlock = lines.indexOf("report_unpushed");
-		expect(CAPTURE).toBeGreaterThan(-1);
-		expect(firstBlock).toBeGreaterThan(CAPTURE);
+		expect(COMMITTED_READ).toBeGreaterThan(-1);
+		expect(firstBlock).toBeGreaterThan(COMMITTED_READ);
 		expect(cutShellFunction("advance_committed_bases")).not.toContain(
 			"rev-parse --verify -q HEAD",
 		);

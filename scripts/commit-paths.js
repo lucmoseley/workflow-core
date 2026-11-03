@@ -267,10 +267,11 @@ const fail = (text, code) => {
 	return finish(code);
 };
 
-/** Set once a --patch commit has landed, until runPostCommit has run. */
-let postCommitOwed = false;
-const owePostCommit = () => {
-	postCommitOwed = true;
+/** The --patch commit that has landed, until runPostCommit has run. @type {string|null} */
+let owedPostCommitSha = null;
+/** @param {string} sha */
+const owePostCommit = (sha) => {
+	owedPostCommitSha = sha;
 };
 
 /** Set once `git add -N` has run: a fault after it can no longer say "nothing written". */
@@ -1204,7 +1205,7 @@ function commitIndex(message, { index, messageFile }, base, stampEnv) {
 	if (moved.status !== 0 && HEAD_MOVED_UNDER.test(moved.stderr)) return null;
 	stdoutOrRefuse(moved);
 	markTouched();
-	owePostCommit();
+	owePostCommit(sha);
 	return sha;
 }
 
@@ -1216,19 +1217,24 @@ function commitIndex(message, { index, messageFile }, base, stampEnv) {
  * as dirt nothing proves a neighbour's (#3565). finish runs it too, so a reset
  * that fails still runs the hook on the commit that landed.
  *
+ * Named to the hook in WFC_COMMITTED_SHA: the reset can wait minutes on a
+ * neighbour's index lock, and a neighbour's commit landing in them is HEAD by
+ * the time the hook runs (#3746).
+ *
  * Residual: after a failed reset the hook reads the old copies still in the
  * shared index, so its claim release keeps every committed file's claim.
  */
 function runPostCommit() {
-	if (!postCommitOwed) return;
-	postCommitOwed = false;
+	if (!owedPostCommitSha) return;
 	const env = { GIT_EDITOR: ":" };
+	const hookEnv = { ...env, WFC_COMMITTED_SHA: owedPostCommitSha };
+	owedPostCommitSha = null;
 	// git runs every hook with its stdout sent to stderr.
 	const r = git(
 		["hook", "run", "--ignore-missing", "post-commit"],
 		undefined,
 		undefined,
-		env,
+		hookEnv,
 	);
 	err(r.stderr);
 	git(["maintenance", "run", "--auto", "--quiet"], undefined, undefined, env);

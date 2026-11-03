@@ -32,7 +32,10 @@ import {
 	registerTempCleanup,
 	type TempRepo,
 } from "./lib/precommit-gate-harness";
-import { commitOverSequencer, cutInReplay } from "./lib/precommit-gate-testkit";
+import {
+	commitOverSequencer,
+	cutPostCommitBlock,
+} from "./lib/precommit-gate-testkit";
 import { runInProcess } from "./lib/run-in-process";
 
 const temps = registerTempCleanup();
@@ -1043,19 +1046,6 @@ describe(".husky/post-commit's fault-notice block", () => {
 		"utf8",
 	);
 
-	/** The `name() { … }` shell function, verbatim: from its opening line to the
-	 * next `}` at column zero. */
-	function cutFunction(name: string): string {
-		const hookLines = hookText.split("\n");
-		const start = hookLines.findIndex((l) => l.startsWith(`${name}() {`));
-		if (start === -1)
-			throw new Error(`.husky/post-commit defines no ${name}()`);
-		const end = hookLines.findIndex((l, i) => i > start && l === "}");
-		if (end === -1)
-			throw new Error(`.husky/post-commit's ${name}() is unclosed`);
-		return hookLines.slice(start, end + 1).join("\n");
-	}
-
 	/** A throwaway repo with one commit and, optionally, a stub reporter at the
 	 * path the hook looks for. */
 	function hookRepo(prefix: string, stub?: string) {
@@ -1089,7 +1079,7 @@ describe(".husky/post-commit's fault-notice block", () => {
 			[
 				"-e",
 				"-c",
-				`${cutInReplay()}\n${cutFunction("report_new_shared_faults")}\nreport_new_shared_faults\nprintf "reached-end\\n"`,
+				`${cutPostCommitBlock("report_new_shared_faults")}\nreport_new_shared_faults\nprintf "reached-end\\n"`,
 			],
 			{
 				cwd,
@@ -1112,6 +1102,20 @@ describe(".husky/post-commit's fault-notice block", () => {
 		expect(r.reachedEnd).toBe(true);
 		expect(r.code).toBe(0);
 	}
+
+	it("reports on the commit WFC_COMMITTED_SHA names, whatever HEAD has moved to (#3746)", () => {
+		const repo = hookRepo(
+			"post-commit-notice-named-",
+			'process.stdout.write(process.argv[2] + "\\n");\n',
+		);
+		const mine = repo.git("rev-parse", "HEAD").toString().trim();
+		repo.git("commit", "-q", "--allow-empty", "-m", "a neighbour's");
+
+		const r = runBlock(repo.root, { WFC_COMMITTED_SHA: mine });
+
+		expect(r.out).toBe(`${mine}\n`);
+		expectSurvived(r);
+	});
 
 	it("calls scripts/report-new-shared-faults.js, and CALLS the function it defines", () => {
 		const uncommented = hookText
