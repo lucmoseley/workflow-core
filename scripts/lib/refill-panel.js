@@ -517,7 +517,7 @@ function buildSpendState(status) {
  * (#4059); a cached bar can hold no fetch time, which says its age is unknown rather
  * than pass as current. A week the account does not report has no reading to age, and
  * shows the 0 the picker sizes it on (#3758). A week reset since its last read says so,
- * its 0 being derived rather than read.
+ * its 0 being derived rather than read, and drops "ago" to fit the split's 34 cells (#4106).
  * @param {PanelStatus["seats"]["readings"][number]} reading
  * @param {number} now
  */

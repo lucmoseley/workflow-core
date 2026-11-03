@@ -185,8 +185,8 @@ const focusMoved = async () => ({ code: 0, stdout: "", stderr: "" });
 /* Every row fits. */
 const TALL = 200;
 const WIDE = 200;
-/* The width the split asks for: what the live pane is drawn at. */
-const splitColumns = () => {
+/* A status's row texts at the width the split asks for: what the live pane is drawn at. */
+const textsInSplit = (status: object): string[] => {
 	const [{ args }] = buildRoutes({
 		env: { TMUX: "/tmp/tmux" },
 		isOnPath: () => false,
@@ -195,7 +195,11 @@ const splitColumns = () => {
 		pid: 1,
 		viewColumns: null,
 	});
-	return Number(args[args.indexOf("-l") + 1]);
+	return buildRows(
+		view({ status }),
+		LATER,
+		Number(args[args.indexOf("-l") + 1]),
+	).map((r: Row) => r.text);
 };
 const panelOver = (
 	run: unknown,
@@ -686,11 +690,7 @@ describe("the plan and credit rows", () => {
 			}),
 			key({ exhausted: true, noLaunchLeft: true, grantUsd: 200 }),
 		];
-		const texts = buildRows(
-			view({ status: { ...RUNNING, overflow } }),
-			LATER,
-			splitColumns(),
-		).map((r: Row) => r.text);
+		const texts = textsInSplit({ ...RUNNING, overflow });
 		const at = texts.indexOf("API credits left");
 		expect(texts.slice(at, at + 5)).toEqual([
 			"API credits left",
@@ -914,14 +914,12 @@ describe("the plan and credit rows", () => {
 					...seatRead("~/.claude2", null),
 					weekRead: { percent: 0, at: ago(days * 86_400_000), rolled: true },
 				};
-				const status = {
-					...RUNNING,
-					seats: { readings: [reading], next: null },
-				};
-				const texts = buildRows(view({ status }), LATER, splitColumns()).map(
-					(r: Row) => r.text,
-				);
-				expect(texts).toContain(row);
+				expect(
+					textsInSplit({
+						...RUNNING,
+						seats: { readings: [reading], next: null },
+					}),
+				).toContain(row);
 			},
 		);
 
