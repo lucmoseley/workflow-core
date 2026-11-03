@@ -1088,7 +1088,7 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 			);
 		});
 
-		describe("the ninth review's corner shapes, each measured on npm 11.16.0 (#4069)", () => {
+		describe("npm's corner selectors and script names, each measured on 11.16.0 (#4069)", () => {
 			const HoldsMore = "holds more than that one command";
 			const WouldMap = `Declare check_staged instead as '${BIOME_STAGED_COMMAND}`;
 			const expectPasses = (command: string) =>
@@ -1097,6 +1097,7 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 				const r = run(command);
 				expect(r.status).toBe(1);
 				expect(r.stderr).toContain(named);
+				expect(r.stderr).toContain("Declare check_staged");
 			};
 
 			it.each([".", "./"])(
@@ -1111,6 +1112,16 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 					expectRefused("npm run cs -ws", HoldsMore);
 				},
 			);
+
+			it("reads no top in a pattern ending in .., as npm runs none there", () => {
+				writePackage(".", {
+					workspaces: ["web/..", "web"],
+					devDependencies: Biome,
+					scripts: { cs: Writes },
+				});
+				writePackage("web", { scripts: { cs: "eslint ." } });
+				expectPasses("npm run cs -ws");
+			});
 
 			it("reads -iwr in a member as the top and that member", () => {
 				writePackage(".", {
@@ -1216,6 +1227,23 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 					expectPasses(command);
 				});
 
+				it.each([
+					"npm run x -w web -w ./",
+					'npm run x -w web -w "./!web"',
+					'npm run x -w web -w "web/.."',
+					"npm run x -w ./ -iwr",
+				])("refuses %j, whose miss may reach any member", (command) => {
+					expectMayRun(run(command));
+				});
+
+				it("refuses a miss beside a hit where the list may undercount", () => {
+					writePackage(".", {
+						workspaces: ["web", "packages/*/sub"],
+						devDependencies: Biome,
+					});
+					expectMayRun(run("npm run x -w web -w lk"));
+				});
+
 				it("passes -ws -iwr where the top declares no workspaces", () => {
 					writePackage(".", {
 						devDependencies: Biome,
@@ -1227,7 +1255,7 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 				it("still refuses the directory the answered part reaches", () => {
 					expectInWeb(run("npm run cs -w web -w nosuch"));
 					expectInWeb(run("npm run cs --no-workspace -w web"));
-					expect(run("npm run cs -w nosuch -iwr").status).toBe(1);
+					expectRefused("npm run cs -w nosuch -iwr", WouldMap);
 				});
 			});
 
@@ -1266,6 +1294,7 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 						workspaces: ["web"],
 						scripts: { "check:staged": command },
 					});
+					/* This run's Node has both, and no other route reaches the older one's. */
 					const was = owner[key as keyof typeof owner];
 					Object.assign(owner, { [key]: undefined });
 					try {

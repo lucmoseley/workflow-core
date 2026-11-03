@@ -226,12 +226,20 @@ const UNRESOLVED_SELECTOR = {
 	),
 };
 
+const SHELL_FILE_WAY_OUT =
+	"where it never runs Biome, as a shell file (sh ./your-gate.sh) holding the command";
+
+/* A selector is read through `fs.globSync` and `path.matchesGlob`, which Node
+ * 22.5 first has both of. The hook's check reads the throw as a refusal, printing
+ * this. */
+const NEEDS_NODE = `Reading an npm workspace selector needs Node 22.5, and this is ${process.version}. Upgrade Node, declare check_staged as an explicit '${OWN_FLAGS}' whose flags you own, or, ${SHELL_FILE_WAY_OUT}`;
+
 /** @type {Unmapped} */
 const UNREAD = {
 	shape:
 		"holds words not known until the shell runs it, or read otherwise by dash than by bash — an expansion or substitution, $'…' or $\"…\", a brace expansion, a here-document, a command name that is an expansion or a glob, or a command such as xargs, eval or a shell reading stdin that builds its own command line — so whether it runs biome check --staged cannot be read",
 	wayOut: declareCheckStaged(
-		`with every word written out, as an explicit '${OWN_FLAGS}', or, where it never runs Biome, as a shell file (sh ./your-gate.sh) holding the command, whose text this check does not read`,
+		`with every word written out, as an explicit '${OWN_FLAGS}', or, ${SHELL_FILE_WAY_OUT}, whose text this check does not read`,
 	),
 };
 
@@ -332,6 +340,7 @@ module.exports = {
 	BIOME_STAGED_COMMAND,
 	BIOME_STAGED_START,
 	OWN_FLAGS,
+	NEEDS_NODE,
 	OWN_FLAGS_WAY_OUT,
 	UNREAD,
 	UNRESOLVED_SELECTOR,

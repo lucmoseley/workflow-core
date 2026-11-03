@@ -533,16 +533,16 @@ function classifyCheckStaged(root, command, { inferred }) {
 				((biomeCommand || hasMatch(MENTIONS, text, tokens)) &&
 					isUnreadable(judged, top, readCachedPackage)) ||
 				writtenCommands(tokens).some(isHiddenCommand);
-			const unresolved = placed
+			const unresolvedMembers = placed
 				.map((p) => unresolvedSelectorMembers(p, top, readCachedPackage))
 				.find((members) => members !== undefined);
 			if (
-				(!unread && !unresolved && !biomeCommand) ||
-				!hasBiomeEvidence(hop, unresolved)
+				(!unread && !unresolvedMembers && !biomeCommand) ||
+				!hasBiomeEvidence(hop, unresolvedMembers)
 			)
 				return;
 			if (unread) return { hops, unread: UNREAD };
-			if (unresolved) return { hops, unread: UNRESOLVED_SELECTOR };
+			if (unresolvedMembers) return { hops, unread: UNRESOLVED_SELECTOR };
 			if (segment === undefined) return { hops, subcommand, unread: null };
 			const only = onlyCommand(tokens);
 			/* The Biome command is the text's one command, with no run shed. */

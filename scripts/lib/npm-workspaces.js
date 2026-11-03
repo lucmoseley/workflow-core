@@ -8,7 +8,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { BIOME_STAGED_COMMAND } = require("./biome-allowlist.js");
+const { NEEDS_NODE } = require("./biome-allowlist.js");
 const { findPackageDir, hasPackage } = require("./package-reader.js");
 
 /** @typedef {import("./package-reader.js").PackageReader} PackageReader */
@@ -70,22 +70,20 @@ function parseSelection(options) {
 		: undefined;
 }
 
-/* @types/node 20 predates it. Read at each call, as a Node without it refuses
- * only a selector. */
-/** @typedef {(patterns: string[], options: {cwd: string, exclude: (name: string) => boolean}) => string[]} GlobSync */
-const readGlobSync = () =>
-	/** @type {GlobSync|undefined} */ (/** @type {any} */ (fs).globSync);
-
-/* What Node 22.5 first has both of. The hook's check reads this throw as a
- * refusal, printing the message. */
-const NEEDS_NODE = `Reading an npm workspace selector needs Node 22.5, and this is ${process.version}. Upgrade Node, declare check_staged as an explicit '${BIOME_STAGED_COMMAND} <flags>' whose flags you own, or, where it never runs Biome, as a shell file (sh ./your-gate.sh) holding the command`;
-
 const NODE_MODULES = "node_modules";
 
 /** Whether a workspaces pattern is the directory it is written in, which
  * Node's glob never returns and npm's does.
  * @param {string} pattern */
-const isOwnDir = (pattern) => path.posix.normalize(pattern) === ".";
+const isOwnDir = (pattern) =>
+	/^[./]*$/.test(pattern) && !pattern.includes("..");
+
+/* A filter npm answers nothing for, where others answer, selects nothing only if
+ * it can be read as no member: a plain name or scoped name, as `./` or `a/..` may
+ * reach any, and in a list this read cannot undercount. Node's glob, unlike npm's,
+ * takes no symlink past a glob's segment and no `.` in a brace (#4069). */
+const PLAIN_FILTER = /^(?:@[\w.-]+\/)?[\w-][\w.-]*$/;
+const MAY_UNDERCOUNT = /\{|\*\*|[*?[].*\//;
 
 /**
  * The directories `patterns` match under `cwd`, none in `node_modules`, which
@@ -94,7 +92,12 @@ const isOwnDir = (pattern) => path.posix.normalize(pattern) === ".";
  * @param {string} cwd
  */
 function globDirs(patterns, cwd) {
-	const globSync = readGlobSync();
+	/* @types/node 20 predates it. Read here, not at load, so a row can stand in a
+	 * Node without it. */
+	const globSync =
+		/** @type {((patterns: string[], options: {cwd: string, exclude: (name: string) => boolean}) => string[])|undefined} */ (
+			/** @type {any} */ (fs).globSync
+		);
 	if (!globSync) throw new Error(NEEDS_NODE);
 	const found = globSync(
 		patterns.filter((p) => !isOwnDir(p)),
@@ -105,8 +108,7 @@ function globDirs(patterns, cwd) {
 	return patterns.some(isOwnDir) ? [cwd, ...found] : found;
 }
 
-/** The count of `!`s `word` opens with, an odd one negating it.
- * @param {string} word */
+/** @param {string} word */
 const countBangs = (word) => word.match(/^!+/)?.[0].length ?? 0;
 
 /**
@@ -165,8 +167,8 @@ function findWorkspaceRoot(own, root, ownRoot, read) {
 
 /**
  * Whether `filter`, written in `from`, selects `member`: by name, by directory,
- * or as the parent of its directory, a negated one as what is not. Node's glob
- * is npm's minimatch with negation off.
+ * or as the parent of its directory. Node's glob is npm's minimatch with negation
+ * off.
  * @param {string} filter
  * @param {Member} member
  * @param {string} from
@@ -187,14 +189,14 @@ function isSelected(filter, member, from) {
 }
 
 /**
- * The directories `selection` runs a script in from `from`, where none makes npm
- * fail, and the members it chose among. Inside a member, no filter is that member
+ * The directories `selection` runs a script in from `from`, the members it chose
+ * among, and whether it may reach more, or none, which makes npm fail. Inside a member, no filter is that member
  * alone; `-iwr` alone at the root runs the root.
  * @param {Selection} selection
  * @param {string} from the directory the run starts in
  * @param {string} root
  * @param {PackageReader} read
- * @returns {{dirs: string[], members: string[]}}
+ * @returns {{dirs: string[], members: string[], unresolved: boolean}}
  */
 function resolveSelection(
 	{ filters, all, withRoot, ownRoot },
@@ -205,18 +207,30 @@ function resolveSelection(
 	if (!path.matchesGlob) throw new Error(NEEDS_NODE);
 	const own = findPackageDir(from, root);
 	const found = findWorkspaceRoot(own, root, ownRoot, read);
-	const members = (found?.members ?? []).map((m) => m.dir);
+	const listed = found?.members ?? [];
+	const members = listed.map((m) => m.dir);
 	const hits = (/** @type {string} */ filter) =>
-		(found?.members ?? []).filter((m) => isSelected(filter, m, from));
+		listed.filter((m) => isSelected(filter, m, from));
 	const unfiltered = () => {
 		if (found && found.dir !== own) return [own];
 		return all ? members : [];
 	};
 	const chosen =
 		filters.length > 0 ? filters.flatMap(hits).map((m) => m.dir) : unfiltered();
+	const dirs = [
+		...new Set([...(withRoot ? [found?.dir ?? own] : []), ...chosen]),
+	];
+	const undercounts =
+		found !== undefined &&
+		read(found.dir).workspaces.some((p) => MAY_UNDERCOUNT.test(p));
+	const mayReachMore = (/** @type {string} */ filter) =>
+		filter !== "" &&
+		hits(filter).length === 0 &&
+		(undercounts || !PLAIN_FILTER.test(filter));
 	return {
-		dirs: [...new Set([...(withRoot ? [found?.dir ?? own] : []), ...chosen])],
+		dirs,
 		members,
+		unresolved: dirs.length === 0 || filters.some(mayReachMore),
 	};
 }
 

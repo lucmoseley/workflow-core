@@ -45,7 +45,8 @@ const CONTINUATION = /\\\n/g;
  * pnpm's and yarn's workspace selectors (`pnpm --filter web cs`, `yarn workspace
  * web cs`), npm's set outside the command (`npm_config_workspace=web`, `.npmrc`),
  * a run an `npm exec` or `npx` makes (`npm exec -- npm run cs`, whose npm is
- * unread, and `npx -w web npm run cs`, whose selector is),
+ * unread, and `npx -w web npm run cs`, whose selector is), a member `-ws` reaches
+ * only through a symlink past a glob's segment or a `.` in a brace,
  * a directory set any other way (`pushd`, `env -C`, `cd ~/web`), a script name
  * after a value flag other than the directory's (`pnpm --reporter silent cs`),
  * the scripts an npm command other than these runs (`npm install-test`), and
@@ -329,8 +330,9 @@ const runPackageDirs = (run, dirs, root) => [
 ];
 
 /**
- * The package directories `run` runs in from `dirs`, where a workspace selector
- * in it may answer none, and the members that selector chose among.
+ * The package directories `run` runs in from `dirs`, and where a workspace
+ * selector in it is unresolved, the members it chose among, `[]` being one with
+ * none to choose.
  * @param {Run} run
  * @param {string[]} dirs
  * @param {string} root
@@ -339,7 +341,10 @@ const runPackageDirs = (run, dirs, root) => [
 function runTargets(run, dirs, root, readCachedPackage) {
 	const { selection } = run;
 	if (!selection)
-		return { dirs: runPackageDirs(run, dirs, root), unresolved: undefined };
+		return {
+			dirs: runPackageDirs(run, dirs, root),
+			unresolvedMembers: undefined,
+		};
 	const picks = dirs.map((d) =>
 		resolveSelection(
 			selection,
@@ -350,13 +355,13 @@ function runTargets(run, dirs, root, readCachedPackage) {
 	);
 	return {
 		dirs: [...new Set(picks.flatMap((p) => p.dirs))],
-		unresolved: picks.find((p) => p.dirs.length === 0)?.members,
+		unresolvedMembers: picks.find((p) => p.unresolved)?.members,
 	};
 }
 
 /**
- * The members of a workspace selector in `placed` that selects no directory, so
- * npm fails or this read differs from its, or undefined where it has none.
+ * The members of a workspace selector in `placed` that is unresolved, or
+ * undefined where it has none.
  * @param {Placed} placed
  * @param {string} root
  * @param {PackageReader} readCachedPackage
@@ -364,7 +369,9 @@ function runTargets(run, dirs, root, readCachedPackage) {
  */
 function unresolvedSelectorMembers({ command, dirs }, root, readCachedPackage) {
 	const run = findRun(command);
-	return run && runTargets(run, dirs, root, readCachedPackage).unresolved;
+	return (
+		run && runTargets(run, dirs, root, readCachedPackage).unresolvedMembers
+	);
 }
 
 /**
