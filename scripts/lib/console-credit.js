@@ -22,7 +22,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { readJsonl } = require("./jsonl.js");
-const { isBudgetSpent, planOfKeyDir } = require("./overflow-budget-core.js");
+const { isBudgetSpent } = require("./overflow-budget-core.js");
 const { refillPath } = require("./refill-dir.js");
 
 /**
@@ -162,7 +162,7 @@ function readConsoleLog(seat) {
  */
 function isConsoleReadDue(seat, budget, plan, now) {
 	const { lastAttemptAt, running, settledUsd } = budget;
-	const planSeat = plan.find((s) => s.seat === planOfKeyDir(seat.dir));
+	const planSeat = plan.find((s) => s.seat === seat.dir);
 	return (
 		planSeat !== undefined &&
 		!planSeat.weekFull &&
@@ -170,19 +170,6 @@ function isConsoleReadDue(seat, budget, plan, now) {
 		(lastAttemptAt === null || now - lastAttemptAt >= READ_EVERY_MS) &&
 		(running > 0 || settledUsd > 0 || isBudgetSpent(budget))
 	);
-}
-
-/**
- * The plan seat whose Chrome profile holds the key's Console: the one on the
- * key's dir, else the one the dir is named for; null for neither.
- * @param {OverflowSeat} seat
- * @param {import("./refill-seats.js").SeatList} list
- */
-function planSeatOf(seat, list) {
-	if (list.seats.some((s) => s.kind === "plan" && s.dir === seat.dir))
-		return seat.dir;
-	const plan = planOfKeyDir(seat.dir);
-	return plan === seat.dir ? null : plan;
 }
 
 /**
@@ -207,7 +194,6 @@ module.exports = {
 	appendConsoleRow,
 	isConsoleReadDue,
 	parseConsoleRead,
-	planSeatOf,
 	readConsoleLog,
 	readSeatAccount,
 };

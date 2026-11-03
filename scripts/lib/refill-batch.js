@@ -81,14 +81,14 @@ function dispatchCall(batch, dispatcher, env) {
 }
 
 /**
- * The dry run's line for one dispatcher call; on an overflow seat it names the
- * headless launch the dispatcher makes there (#2611).
+ * The dry run's line for one dispatcher call, naming the key an overflow
+ * seat's members bill (#2611, #3701).
  * @param {ReturnType<typeof dispatchCall>} call
  */
 function buildWouldRunLine(call) {
 	const seat = String(call.env.CLAUDE_CONFIG_DIR);
 	const on = call.env.WFC_SEAT_KEY
-		? `overflow seat ${seat}, each member a headless \`claude -p\` (lib/headless-sessions.js)`
+		? `overflow seat ${seat}, each member billed to key=${call.env.WFC_SEAT_KEY}`
 		: seat;
 	return `would run in ${call.cwd} on ${on}: ${call.file} ${call.args.join(" ")}`;
 }

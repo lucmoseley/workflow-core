@@ -62,7 +62,10 @@ const overflowRefusal = (extra: Record<string, string>) =>
 	refusal(extra, dir, "K");
 
 const declareOverflow = (line = `${seat} api key=K grant=200 cycle-day=20`) =>
-	fs.writeFileSync(path.join(home, ".claude", "refill-seats"), `${line}\n`);
+	fs.writeFileSync(
+		path.join(home, ".claude", "refill-seats"),
+		`${seat}\n${line}\n`,
+	);
 
 describe("a plan seat", () => {
 	it("admits the seat's own login", () => {

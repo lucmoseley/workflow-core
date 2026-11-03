@@ -91,6 +91,8 @@ function runHook(
 		gh?: "ok" | "slow" | "fail";
 		timeoutMs?: number;
 		intent?: string;
+		/** The name the launch gave the job, before the hook renames it. */
+		launchName?: string;
 		extra?: Record<string, unknown>;
 	} = {},
 ): Run {
@@ -100,6 +102,7 @@ function runHook(
 		JSON.stringify({
 			state: "working",
 			...(opts.intent ? { intent: opts.intent } : {}),
+			...(opts.launchName ? { name: opts.launchName } : {}),
 		}),
 	);
 
@@ -219,6 +222,16 @@ describe("the name is written before the title is fetched", () => {
 	it("marks the job record as deliberately named, so the auto-namer leaves it", () => {
 		const r = runHook("/wayfinder 962", { gh: "slow", timeoutMs: 3000 });
 		expect(r.nameSource).toBe("user");
+	});
+
+	it("keeps the prefix an overflow launch named its job with, once (#3701)", () => {
+		const r = runHook("/implement 962", {
+			launchName: "Overflow · /implement 962",
+		});
+		expect(r.name).toBe(`Overflow · Implement 962: ${TITLE}`);
+		expect(
+			runHook("/implement 962", { launchName: "/implement 962" }).name,
+		).toBe(`Implement 962: ${TITLE}`);
 	});
 });
 

@@ -8,9 +8,11 @@
  *
  *   <config dir> api key=<env var name> grant=<usd> cycle-day=<1-28>
  *
- * so a plan seat's path holds no whitespace. Any other line is malformed and
- * refuses the whole file by name, never read as a plan seat. A leading `~/`
- * is the home dir.
+ * so a plan seat's path holds no whitespace. An overflow seat's config dir is
+ * its plan seat's, which a plan line must also declare: its sessions run as
+ * that plan dir's background jobs, billed to the key (#3701, spec #3691). Any
+ * other line is malformed and refuses the whole file by name, never read as a
+ * plan seat. A leading `~/` is the home dir.
  *
  * A seat's identity is its kind plus its dir for a plan seat, its key variable
  * for an overflow seat, which no two lines share. Plan and overflow seats may
@@ -117,6 +119,8 @@ function parseSeats(text, { home, file }) {
 	const errors = [];
 	/** @type {Map<string, number>} */
 	const keyLines = new Map();
+	/** @type {{dir: string, where: string, named: string, line: string}[]} */
+	const overflowLines = [];
 	for (const [i, raw] of text.split("\n").entries()) {
 		const line = raw.trim();
 		if (!line || line.startsWith("#")) continue;
@@ -128,12 +132,27 @@ function parseSeats(text, { home, file }) {
 			errors.push(`${file}:${i + 1}: ${fields}: ${line}`);
 			continue;
 		}
+		if (fields !== null)
+			overflowLines.push({
+				dir,
+				where: `${file}:${i + 1}`,
+				named: first,
+				line,
+			});
 		seats.push(
 			fields === null
 				? { dir, kind: "plan" }
 				: { dir, kind: "overflow", ...fields },
 		);
 	}
+	const planDirs = new Set(
+		seats.flatMap((s) => (s.kind === "plan" ? [s.dir] : [])),
+	);
+	for (const { dir, where, named, line } of overflowLines)
+		if (!planDirs.has(dir))
+			errors.push(
+				`${where}: ${named} has no plan seat line, and an overflow seat launches under its plan seat's config dir: ${line}`,
+			);
 	return { seats, errors };
 }
 
@@ -171,7 +190,7 @@ function findOverflowSeat(list, keyVar) {
 /**
  * The seat a launch under `dir` asked for: the overflow seat `keyVar` names,
  * which must be on that dir, else the plan seat on it, declared or not; why
- * not where neither holds.
+ * not where `keyVar` names none on `dir`.
  * @param {SeatList} list
  * @param {{dir: string, keyVar?: string}} asked
  * @param {string} [home]
@@ -186,13 +205,7 @@ function seatOfLaunch(list, { dir, keyVar }, home = homeDir()) {
 			? seat
 			: { why: `key=${keyVar} is ${seat.dir}'s overflow seat, not ${want}'s` };
 	}
-	const onDir = list.seats.filter((s) => s.dir === want);
-	if (onDir.length === 0 || onDir.some((s) => s.kind === "plan"))
-		return { dir: want, kind: "plan" };
-	const keys = onDir.flatMap((s) => (s.kind === "overflow" ? [s.keyVar] : []));
-	return {
-		why: `${want} is declared only as an overflow seat: name it with WFC_SEAT_KEY=${keys.join(" or ")}`,
-	};
+	return { dir: want, kind: "plan" };
 }
 
 /**

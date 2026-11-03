@@ -23,7 +23,6 @@ const {
 const {
 	appendConsoleRow,
 	parseConsoleRead,
-	planSeatOf,
 	readSeatAccount,
 } = require("./lib/console-credit.js");
 const {
@@ -99,16 +98,15 @@ function main(args, deps = { runChild: runChromeChild }) {
 	}
 	const list = readDeclaredSeats();
 	const seat = list.errors.length > 0 ? null : findOverflowSeat(list, keyVar);
-	const planDir = seat ? planSeatOf(seat, list) : null;
-	if (!seat || planDir === null) {
+	if (!seat) {
 		writeFd(
 			2,
-			`${keyVar} is no overflow seat on a plan seat's dir or named <plan>-api in the seat file${list.errors.length > 0 ? `: ${list.errors.join("; ")}` : ""}\n`,
+			`${keyVar} is no overflow seat in the seat file${list.errors.length > 0 ? `: ${list.errors.join("; ")}` : ""}\n`,
 		);
 		return 2;
 	}
 	const at = Date.now();
-	const read = parseChildRun(deps.runChild(planDir), planDir);
+	const read = parseChildRun(deps.runChild(seat.dir), seat.dir);
 	appendConsoleRow(seat, { at, ...read });
 	if ("why" in read) {
 		writeFd(2, `${seat.dir}: ${read.why}\n`);

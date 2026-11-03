@@ -23,7 +23,6 @@ const regions = require("./doc-map-regions.js");
 const { holderAlive, readProcStartOf } = require("./arbiter-proc.js");
 const { projectSlug, UNRESOLVED_ROOT_SLUG } = require("./project-slug.js");
 const { realKey } = require("./deref.js");
-const { requiredGroup } = require("./regex-group.js");
 const { hostRoot } = require("./host-root.js");
 const { caught } = require("./caught.js");
 
@@ -110,45 +109,7 @@ function seatCandidates() {
  */
 function storeConfigDir() {
 	const dir = configDir();
-	return isSeat(dir) || isOverflowSeat(dir) ? seatCandidates()[0] : dir;
-}
-
-/** @type {string[]|undefined} */
-let overflowKeys;
-
-/* A refill-seats overflow line: `<dir> api …`. */
-const OVERFLOW_LINE = /^(\S+)\s+api(?:\s|$)/;
-
-/**
- * Whether `dir` is an overflow seat `~/.claude/refill-seats` declares (#2570):
- * its headless sessions share the plan seats' store, or the refill loop reads
- * none of their acts and their claims are invisible to every other session.
- * STOPGAP: reads the file's overflow lines (`<dir> api …`) here, since
- * lib/refill-seats.js, the grammar's owner, imports this module (#2611).
- * @param {string} dir
- */
-function isOverflowSeat(dir) {
-	if (overflowKeys === undefined) {
-		const home = process.env.HOME ?? "";
-		let text = "";
-		try {
-			text = fs.readFileSync(
-				path.join(home, ".claude", "refill-seats"),
-				"utf8",
-			);
-		} catch {
-			/* No seat file declares no overflow seat. */
-		}
-		overflowKeys = text.split("\n").flatMap((line) => {
-			const m = OVERFLOW_LINE.exec(line.trim());
-			if (!m) return [];
-			const seat = requiredGroup(m, 1, OVERFLOW_LINE);
-			return [
-				realKey(seat.startsWith("~/") ? path.join(home, seat.slice(2)) : seat),
-			];
-		});
-	}
-	return overflowKeys.includes(realKey(dir));
+	return isSeat(dir) ? seatCandidates()[0] : dir;
 }
 
 /*

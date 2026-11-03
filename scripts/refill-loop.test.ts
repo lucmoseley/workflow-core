@@ -106,7 +106,7 @@ describe("start", () => {
 		fs.mkdirSync(path.join(dir, ".claude"));
 		fs.writeFileSync(
 			path.join(dir, ".claude", "refill-seats"),
-			"~/.claude2\n~/.claude2-api api key=K grant=200 cycle-day=20\n",
+			"~/.claude2\n~/.claude2 api key=K grant=200 cycle-day=20\n",
 		);
 		await run("start");
 		expect(readControl().seats).toEqual([path.join(dir, ".claude2")]);
@@ -479,7 +479,7 @@ describe("stop and status", () => {
 		fs.mkdirSync(path.join(dir, ".claude"));
 		fs.writeFileSync(
 			path.join(dir, ".claude", "refill-seats"),
-			`${path.join(dir, ".claude3")}\n~/.claude2-api api key=WFC_TEST_KEY grant=200 cycle-day=20\n`,
+			`${path.join(dir, ".claude3")}\n~/.claude3 api key=WFC_TEST_KEY grant=200 cycle-day=20\n`,
 		);
 		// Grant 200 over mean 4 fits 50.
 		writeCostTable(dir, { meanUsd: 4 });
@@ -500,7 +500,7 @@ describe("stop and status", () => {
 		const json = JSON.parse((await run("status", "--json")).stdout);
 		expect(json.overflow).toEqual([
 			{
-				seat: path.join(dir, ".claude2-api").replace(dir, "~"),
+				seat: path.join(dir, ".claude3").replace(dir, "~"),
 				keyVar: "WFC_TEST_KEY",
 				spentUsd: 0,
 				creditUsd: 200,
@@ -604,9 +604,7 @@ describe("stop and status", () => {
 		const r = await run("status");
 		const line = r.stdout
 			.split("\n")
-			.find((l) =>
-				l.startsWith(`overflow ${path.join(dir, ".claude2-api")}: `),
-			);
+			.find((l) => l.startsWith(`overflow ${path.join(dir, ".claude3")}: `));
 		expect(line?.slice(line.indexOf(": ") + 2)).toMatch(
 			/^fits 50; headroom \$200\.00 \(\$0\.00 held by 0 running\); spent \$0\.00 of \$200\.00 since \d{4}-\d{2}-20; resets \d{4}-\d{2}-20$/,
 		);
@@ -616,7 +614,7 @@ describe("stop and status", () => {
 		fs.mkdirSync(path.join(dir, ".claude"));
 		fs.writeFileSync(
 			path.join(dir, ".claude", "refill-seats"),
-			"~/.claude2\n~/.claude2-api api key=WFC_TEST_KEY grant=200 cycle-day=20\n",
+			"~/.claude2\n~/.claude2 api key=WFC_TEST_KEY grant=200 cycle-day=20\n",
 		);
 		for (const name of [".claude2", ".claude3"]) {
 			fs.mkdirSync(path.join(dir, name));
@@ -661,7 +659,7 @@ describe("stop and status", () => {
 		fs.mkdirSync(path.join(dir, ".claude"));
 		fs.writeFileSync(
 			path.join(dir, ".claude", "refill-seats"),
-			"~/.claude3\n~/.claude2-api api key=WFC_TEST_KEY grant=200 cycle-day=20\n",
+			"~/.claude3\n~/.claude3 api key=WFC_TEST_KEY grant=200 cycle-day=20\n",
 		);
 		fs.writeFileSync(
 			path.join(dir, ".refill-loop-control.json"),

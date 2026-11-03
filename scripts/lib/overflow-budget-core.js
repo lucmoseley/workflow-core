@@ -169,10 +169,4 @@ function budgetOf({
 const isBudgetSpent = ({ exhausted, creditUsd, settledUsd, qUsd }) =>
 	exhausted || creditUsd - settledUsd < qUsd;
 
-/**
- * The plan seat a key's dir is named for: `<plan>-api` (#4063).
- * @param {string} keyDir
- */
-const planOfKeyDir = (keyDir) => keyDir.replace(/-api$/, "");
-
-module.exports = { budgetOf, isBudgetSpent, planOfKeyDir };
+module.exports = { budgetOf, isBudgetSpent };

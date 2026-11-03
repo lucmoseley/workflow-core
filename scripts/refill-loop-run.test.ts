@@ -51,6 +51,7 @@ import { writeCostTable } from "./lib/cost-table-testkit";
 import {
 	DEFAULT_WINDOW_HOURS,
 	ledgerPath,
+	readOverflowLookup,
 	readRecentEntries,
 	record as recordDispatch,
 } from "./lib/dispatch-ledger.js";
@@ -805,8 +806,8 @@ const updateControl = (over: Record<string, unknown>) =>
 		}),
 	);
 
-/** The plan seat's overflow key, its directory named as planOfKeyDir reads it. */
-const overflowSeat = () => at("seat-api");
+/** The plan seat's overflow key, on the plan seat's own dir (#3701). */
+const overflowSeat = () => seat;
 
 /** The seat file: the plan seat, then an overflow seat at `grant` unless null. */
 const writeSeatFile = (grant: number | null) => {
@@ -838,7 +839,7 @@ describe("a dry run with overflow seats (#2611)", () => {
 		writeSeatFile(200);
 		const r = await runDry();
 		expect(r.stdout).toContain(
-			`would run in ${repo} on overflow seat ${overflowSeat()}, each member a headless \`claude -p\` (lib/headless-sessions.js): ${dispatch()}`,
+			`would run in ${repo} on overflow seat ${overflowSeat()}, each member billed to key=WFC_TEST_KEY: ${dispatch()}`,
 		);
 		expect(readLines(at("dispatches"))).toEqual([]);
 	});
@@ -934,6 +935,24 @@ describe("an overflow session's allowance on the real tick (#3698)", () => {
 		expect(r.status).toBe(0);
 		expect(r.stdout).not.toContain("overflow session");
 		expect(readLines(at("stops"))).toEqual([]);
+	});
+
+	it("records the session id the listing shows for a launch `--bg` gave none (#3701)", async () => {
+		recordDispatch({
+			issues: [6],
+			model: "opus",
+			prompt: "/implement 6",
+			root: repo,
+			jobId: job,
+			overflow: { keyVar: "WFC_TEST_KEY", allowanceUsd: 50, sessionId: null },
+		});
+		expect(readOverflowLookup([repo])({ jobId: job })?.sessionId).toBeNull();
+		const r = await oneTick();
+		expect(r.status).toBe(0);
+		expect(readOverflowLookup([repo])({ jobId: job })).toMatchObject({
+			sessionId,
+			allowanceUsd: 50,
+		});
 	});
 });
 
@@ -1742,6 +1761,20 @@ const launchState = () =>
 	JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"))
 		.launches[0];
 
+/** The secrets file vitest.setup.ts points every test at. */
+const keySecrets = () => String(process.env.WFC_SECRETS_FILE);
+
+/** Overflow seat `keyVar` on the plan seat's dir, its key in the secrets file. */
+const declareKey = (keyVar: string) => {
+	fs.mkdirSync(at(".claude"), { recursive: true });
+	fs.writeFileSync(
+		at(".claude/refill-seats"),
+		`${seat}\n${seat} api key=${keyVar} grant=200 cycle-day=20\n`,
+	);
+	fs.mkdirSync(path.dirname(keySecrets()), { recursive: true });
+	fs.writeFileSync(keySecrets(), `${keyVar}=sk-fake-overflow\n`);
+};
+
 const oneTick = async (what: string, slots = 0) => {
 	const running = runInProcessAsync(
 		path.join(scripts, "refill-loop.js"),
@@ -1945,6 +1978,7 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 
 	it("carries an overflow session's key to its copy: the launch, the ledger's mark, and no second hold (#4147)", async () => {
 		seed(heldDue, { keyVar: "K2" });
+		declareKey("K2");
 		fs.mkdirSync(path.dirname(markerPath("s-job7")), { recursive: true });
 		fs.writeFileSync(markerPath("s-job7"), "7\n");
 		fs.mkdirSync(path.dirname(ledgerPath(repo)), { recursive: true });
@@ -1961,6 +1995,15 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 		);
 		const r = await oneTick(ApiRun);
 		expect(r.status).toBe(0);
+		// Resumed on its key, never the plan login (#3701).
+		const resume = readLines(at("calls")).find((l) => l.startsWith("--bg"));
+		const settings = resume?.match(
+			/^--bg --resume s-job7 --settings (\{.*\}) /,
+		)?.[1];
+		expect(JSON.parse(String(settings)).apiKeyHelper).toMatch(
+			new RegExp(`/lib/overflow-key\\.js'? '?K2'? '?${keySecrets()}`),
+		);
+		expect(resume?.endsWith(` ${Prompt}`)).toBe(true);
 		expect(launchState()).toMatchObject({ jobId: FAKE_COPY, keyVar: "K2" });
 		expect(readHeldIssues()).toEqual([[7], []]);
 		expect(readLines(markerPath("s-copy"))).toContain("key K2");

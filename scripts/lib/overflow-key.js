@@ -12,6 +12,10 @@
  *   node scripts/lib/overflow-key.js <key var> <secrets file>
  *     prints the variable's value; a missing file or variable exits 1 naming
  *     the variable and the file, never a value; bad usage exits 2.
+ *   node scripts/lib/overflow-key.js --settings <key var>
+ *     prints the `--settings` JSON a launch on that key passes, or exits 1
+ *     naming why the key cannot be read, checked before the launch since the
+ *     helper runs only after it.
  */
 
 const { parseArgs } = require("node:util");
@@ -69,21 +73,55 @@ function buildKeyHelper(keyVar, file) {
 	return [process.execPath, __filename, keyVar, file].map(shellQuote).join(" ");
 }
 
-module.exports = { buildKeyHelper, keyCheck };
+/**
+ * The `--settings` JSON a launch on `keyVar` passes, or why its key cannot be
+ * read.
+ * @param {string} keyVar
+ * @returns {{settings: string}|{why: string}}
+ */
+function buildKeySettings(keyVar) {
+	const key = keyCheck(keyVar);
+	return "why" in key
+		? key
+		: {
+				settings: JSON.stringify({
+					apiKeyHelper: buildKeyHelper(keyVar, key.file),
+				}),
+			};
+}
+
+module.exports = { buildKeyHelper, buildKeySettings, keyCheck };
 
 if (require.main === module) {
-	/** @type {string[]} */
-	let args = [];
+	/** @type {{positionals: string[], settings?: string}} */
+	let args = { positionals: [] };
 	try {
-		args = parseArgs({ allowPositionals: true }).positionals;
+		const parsed = parseArgs({
+			allowPositionals: true,
+			options: { settings: { type: "string" } },
+		});
+		args = { positionals: parsed.positionals, ...parsed.values };
 	} catch {
-		/* an option: bad usage, below */
+		/* an unknown option: bad usage, below */
 	}
-	const [keyVar, file] = args;
-	if (args.length !== 2 || !keyVar || !file) {
+	const [keyVar, file] = args.positionals;
+	if (args.settings !== undefined && args.positionals.length === 0) {
+		const built = buildKeySettings(args.settings);
+		if ("settings" in built) writeFd(1, `${built.settings}\n`);
+		else {
+			writeFd(2, `${built.why}\n`);
+			process.exitCode = 1;
+		}
+	} else if (
+		args.settings !== undefined ||
+		args.positionals.length !== 2 ||
+		!keyVar ||
+		!file
+	) {
 		writeFd(
 			2,
-			`usage: node ${scriptPath("lib/overflow-key.js")} <key var> <secrets file>\n`,
+			`usage: node ${scriptPath("lib/overflow-key.js")} <key var> <secrets file>\n` +
+				`       node ${scriptPath("lib/overflow-key.js")} --settings <key var>\n`,
 		);
 		process.exitCode = 2;
 	} else {

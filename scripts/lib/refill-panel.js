@@ -17,7 +17,6 @@ const { caught } = require("./caught.js");
 const { localDate } = require("./morning-review.js");
 const { ESC } = require("./refill-panel-input.js");
 const { buildControlImage } = require("./refill-panel-sixel.js");
-const { planOfKeyDir } = require("./overflow-budget-core.js");
 const { describeAge } = require("./proc-table.js");
 const {
 	FIVE_HOUR_FULL,
@@ -424,21 +423,14 @@ const isAllUsedUp = ({ seats, overflow }) =>
 	overflow.every((key) => !("why" in key) && key.noLaunchLeft);
 
 /**
- * The plan a key bills to, by the `<plan>-api` naming of the key's dir, which the seat
- * file does not record (#4063).
- * @param {string} seat
- */
-const buildKeyPlan = planOfKeyDir;
-
-/**
- * The keys in the plan rows' order, a key named for no plan last.
+ * The keys in the plan rows' order, a key on no plan row last.
  * @param {PanelStatus} status
  */
 function buildKeysInPlanOrder({ seats, overflow }) {
 	const plans = seats.readings.map((reading) => reading.seat);
 	/** @param {OverflowKey} key */
 	const rank = (key) => {
-		const at = plans.indexOf(buildKeyPlan(key.seat));
+		const at = plans.indexOf(key.seat);
 		return at === -1 ? plans.length : at;
 	};
 	return [...overflow].sort((a, b) => rank(a) - rank(b));
@@ -560,7 +552,7 @@ function buildCreditRows(status, now) {
 		SIBLING_GAP,
 		{ text: "API credits left", role },
 		...buildKeysInPlanOrder(status).map((key) => {
-			const name = buildKeyPlan(key.seat).replace("~/", "");
+			const name = key.seat.replace("~/", "");
 			return "why" in key
 				? {
 						text: `  ${name}  unread: ${key.why}`,

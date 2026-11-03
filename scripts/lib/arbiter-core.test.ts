@@ -222,6 +222,19 @@ describe("every seat's state lives in the first seat's store (#383)", () => {
 		expect(store.stateDir()).toBe(stateIn(sb.home));
 	});
 
+	it("resolves an overflow launch on the second seat's dir to the first seat's store (#3701)", () => {
+		const home = path.dirname(sb.home);
+		fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
+		fs.writeFileSync(
+			path.join(home, ".claude", "refill-seats"),
+			"~/.claude2\n~/.claude2 api key=WFC_TEST_KEY grant=200 cycle-day=20\n",
+		);
+		process.env.CLAUDE_CONFIG_DIR = seat(".claude2");
+		process.env.WFC_SEAT_KEY = "WFC_TEST_KEY";
+		delete process.env.CLAUDE_CODE_SESSION_ID;
+		expect(store.stateDir()).toBe(stateIn(sb.home));
+	});
+
 	it("keeps a config dir that is no seat on a store of its own", () => {
 		const scratch = path.join(sb.dir, "scratch");
 		process.env.CLAUDE_CONFIG_DIR = scratch;

@@ -18,6 +18,7 @@ const { markersDir } = require("./marker-root.js");
 const path = require("node:path");
 const { hostRoot } = require("./host-root.js");
 const { requiredGroup } = require("./regex-group.js");
+const { caught } = require("./caught.js");
 const { readJsonl } = require("./jsonl.js");
 const { homeDir, readAdopterCheckouts } = require("./refill-repos.js");
 
@@ -302,15 +303,61 @@ function readOverflowLookup(roots = [ledgerRoot()]) {
 			.pop() ?? null;
 }
 
+/** Every checkout's ledger root, opted out of the loop or not. */
+const readEveryLedgerRoot = () => [
+	...new Set([ledgerRoot(), ...readAdopterCheckouts(homeDir()).included]),
+];
+
 /**
- * `readOverflowLookup` over every checkout's ledger, opted out of the loop or
- * not, for a reading of a key's spend.
+ * `readOverflowLookup` over every checkout's ledger, for a reading of a key's
+ * spend.
  * @throws where a ledger will not read, or the checkouts cannot be listed
  */
-const readEveryOverflowLookup = () =>
-	readOverflowLookup([
-		...new Set([ledgerRoot(), ...readAdopterCheckouts(homeDir()).included]),
-	]);
+const readEveryOverflowLookup = () => readOverflowLookup(readEveryLedgerRoot());
+
+/**
+ * Give each overflow launch recorded with no session id the one `agents` lists
+ * for its job, as `--bg` prints only the job id (#3692 (e), #3701): a row
+ * repeating the launch's key and allowance with the session id, under no
+ * issues, so it holds nothing. What would not read or write, one line each.
+ * @param {{id?: string, sessionId: string}[]} agents
+ * @param {string[]} [roots]
+ * @returns {string[]}
+ * @throws where the checkouts cannot be listed
+ */
+function recordListedSessionIds(agents, roots = readEveryLedgerRoot()) {
+	const listed = new Map(
+		agents.flatMap((a) => (a.id && a.sessionId ? [[a.id, a.sessionId]] : [])),
+	);
+	/** @type {string[]} */
+	const faults = [];
+	for (const root of roots) {
+		let lookup;
+		try {
+			lookup = readOverflowLookup([root]);
+		} catch (err) {
+			faults.push(caught(err).message);
+			continue;
+		}
+		for (const [jobId, sessionId] of listed) {
+			const l = lookup({ jobId });
+			if (!l || l.sessionId) continue;
+			const written = record({
+				issues: [],
+				model: l.model,
+				prompt: `session of ${jobId}`,
+				root,
+				jobId,
+				overflow: { keyVar: l.keyVar, allowanceUsd: l.allowanceUsd, sessionId },
+			});
+			if (!written)
+				faults.push(
+					`overflow job ${jobId}'s session ${sessionId} not written to ${ledgerPath(root)}`,
+				);
+		}
+	}
+	return faults;
+}
 
 /**
  * Append one line. Never throws: a ledger that cannot be written must not
@@ -381,5 +428,6 @@ module.exports = {
 	readEveryOverflowLookup,
 	readOverflowLookup,
 	record,
+	recordListedSessionIds,
 	release,
 };

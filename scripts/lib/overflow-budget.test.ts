@@ -58,12 +58,12 @@ beforeEach(() => {
 	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "overflow-budget-"));
 	home = path.join(tmp, "home");
 	refill = path.join(tmp, "refill");
-	seatDir = path.join(home, ".claude2-api");
+	seatDir = path.join(home, ".claude2");
 	fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
 	fs.mkdirSync(seatDir, { recursive: true });
 	fs.writeFileSync(
 		path.join(home, ".claude", "refill-seats"),
-		`${path.join(home, ".claude2")}\n~/.claude2-api api key=WFC_TEST_KEY grant=200 cycle-day=1\n`,
+		`${path.join(home, ".claude2")}\n~/.claude2 api key=WFC_TEST_KEY grant=200 cycle-day=1\n`,
 	);
 	root = path.join(tmp, "checkout");
 	writeCostTable(root, TABLE);

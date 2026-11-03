@@ -95,7 +95,7 @@ beforeEach(() => {
 	secrets = path.join(config, "workflow-core", "secrets.env");
 	target = path.join(tmp, "target");
 	fakeOut = path.join(tmp, "fake-out");
-	seat = path.join(home, ".claude2-api");
+	seat = path.join(home, ".claude2");
 	for (const d of [
 		path.join(home, ".claude"),
 		seat,
@@ -106,7 +106,7 @@ beforeEach(() => {
 		fs.mkdirSync(d, { recursive: true });
 	fs.writeFileSync(
 		path.join(home, ".claude", "refill-seats"),
-		`${path.join(home, ".claude2")}\n~/.claude2-api api key=${KEY_VAR} grant=200 cycle-day=20\n`,
+		`${path.join(home, ".claude2")}\n~/.claude2 api key=${KEY_VAR} grant=200 cycle-day=20\n`,
 	);
 	fs.writeFileSync(secrets, `OTHER=1\n${KEY_VAR}=${KEY}\n`);
 	fs.writeFileSync(path.join(tmp, "claude"), FAKE, { mode: 0o755 });

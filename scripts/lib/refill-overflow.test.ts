@@ -197,7 +197,7 @@ describe("the dry run's dispatch line", () => {
 				issues: [7],
 				prompt: "/implement 7",
 				model: "opus",
-				seat: "/home/u/.claude2-api",
+				seat: "/home/u/.claude2",
 				keyVar: "WFC_KEY",
 				reason: "overflow",
 			},
@@ -207,12 +207,12 @@ describe("the dry run's dispatch line", () => {
 	);
 	const { WFC_SEAT_KEY: _key, ...planEnv } = call.env;
 
-	it("names the headless launch on an overflow seat, and only there", () => {
+	it("names the key an overflow seat bills, and only there", () => {
 		expect(buildWouldRunLine(call)).toBe(
-			"would run in /home/u/wfc on overflow seat /home/u/.claude2-api, each member a headless `claude -p` (lib/headless-sessions.js): bash /core/dispatch-sessions.sh opus /implement 7",
+			"would run in /home/u/wfc on overflow seat /home/u/.claude2, each member billed to key=WFC_KEY: bash /core/dispatch-sessions.sh opus /implement 7",
 		);
 		expect(buildWouldRunLine({ ...call, env: planEnv })).toBe(
-			"would run in /home/u/wfc on /home/u/.claude2-api: bash /core/dispatch-sessions.sh opus /implement 7",
+			"would run in /home/u/wfc on /home/u/.claude2: bash /core/dispatch-sessions.sh opus /implement 7",
 		);
 	});
 });
@@ -227,7 +227,7 @@ describe("a headless launch's finish (#2611)", () => {
 		root: "/home/u/wfc",
 		issues: [Number.parseInt(jobId, 16) % 1000],
 		prompt: `/implement ${jobId}`,
-		seat: "/home/u/.claude2-api",
+		seat: "/home/u/.claude2",
 		jobId,
 		sessionId: `session-${jobId}`,
 		launchedAt,
@@ -269,7 +269,7 @@ describe("a headless launch's finish (#2611)", () => {
 				seats: [{ ...planSeat("a", true), fits: null }],
 				overflow: [
 					{
-						seat: "/home/u/.claude2-api",
+						seat: "/home/u/.claude2",
 						fits: 5,
 						spentUntil: null,
 						why: null,
@@ -283,7 +283,7 @@ describe("a headless launch's finish (#2611)", () => {
 
 describe("a spent key anchored to a Console reading", () => {
 	it("waits on a newer reading, not on the cycle day", () => {
-		const dir = "/h/.claude3-api";
+		const dir = "/h/.claude3";
 		const [reading] = overflowReadings(
 			{ seats: [overflowSeat(dir)], errors: [] },
 			[{ weekFull: true } as never],

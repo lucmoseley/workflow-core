@@ -51,7 +51,7 @@ const FULL_SEATS = { readings: FULL_READINGS, next: null };
 /* What the picker says with every plan full and a key that fits a launch. */
 const ON_KEY_SEATS = {
 	readings: FULL_READINGS,
-	next: { seat: "~/.claude2-api", reason: "overflow" },
+	next: { seat: "~/.claude2", reason: "overflow" },
 };
 const RUNNING = {
 	running: true,
@@ -116,7 +116,7 @@ const planWaitTick = (resets: number | null) => ({
 	planWait: { resets },
 });
 const key = (over: object = {}) => ({
-	seat: "~/.claude2-api",
+	seat: "~/.claude2",
 	spentUsd: 142,
 	grantUsd: 400,
 	creditReadAt: null,
@@ -630,7 +630,7 @@ describe("the plan and credit rows", () => {
 	it("gives the keys in white and says it is spending, with launches on a key", () => {
 		const overflow = [
 			key(),
-			key({ seat: "~/.claude3-api", headroomUsd: 100, grantUsd: 200 }),
+			key({ seat: "~/.claude3", headroomUsd: 100, grantUsd: 200 }),
 		];
 		expect(usage({ ...Launching, seats: ON_KEY_SEATS, overflow })).toEqual([
 			...PlansFull,
@@ -643,9 +643,9 @@ describe("the plan and credit rows", () => {
 
 	it("lists the keys in the plan rows' order, a key with no plan row last", () => {
 		const overflow = [
-			key({ seat: "~/.other-api" }),
-			key({ seat: "~/.claude2-api" }),
-			key({ seat: "~/.claude3-api" }),
+			key({ seat: "~/.other" }),
+			key({ seat: "~/.claude2" }),
+			key({ seat: "~/.claude3" }),
 		];
 		const names = keyRows({ ...RUNNING, overflow }).map(
 			([text]: string[]) => text.split("  ")[1],
@@ -655,7 +655,7 @@ describe("the plan and credit rows", () => {
 
 	it("reads a refused key as $0 with no ~, whatever the ledger leaves", () => {
 		const overflow = [
-			key({ seat: "~/.claude3-api", headroomUsd: 100.36, grantUsd: 200 }),
+			key({ seat: "~/.claude3", headroomUsd: 100.36, grantUsd: 200 }),
 			key({
 				exhausted: true,
 				noLaunchLeft: true,
@@ -671,7 +671,7 @@ describe("the plan and credit rows", () => {
 
 	it("draws a refused key in white with the rest, while spending", () => {
 		const overflow = [
-			key({ seat: "~/.claude3-api", running: 1 }),
+			key({ seat: "~/.claude3", running: 1 }),
 			key({ exhausted: true, noLaunchLeft: true, grantUsd: 200 }),
 		];
 		expect(keyRows({ ...RUNNING, overflow })).toEqual([
@@ -696,7 +696,7 @@ describe("the plan and credit rows", () => {
 	it("keeps each row of the block on one line in the width the split asks for (#4104)", () => {
 		const overflow = [
 			key({
-				seat: "~/.claude3-api",
+				seat: "~/.claude3",
 				headroomUsd: 170,
 				grantUsd: 200,
 				creditReadAt: LATER - 12 * 3600 * 1000,
@@ -747,7 +747,7 @@ describe("the plan and credit rows", () => {
 			seats: FULL_SEATS,
 			overflow: [
 				key({
-					seat: "~/.claude3-api",
+					seat: "~/.claude3",
 					exhausted: true,
 					noLaunchLeft: true,
 					grantUsd: 200,
@@ -778,7 +778,7 @@ describe("the plan and credit rows", () => {
 	it("gives the unread key's reason on its row, never used up, with none live", () => {
 		const overflow = [
 			key({ noLaunchLeft: true, exhausted: true }),
-			{ seat: "~/.claude3-api", why: "no table" },
+			{ seat: "~/.claude3", why: "no table" },
 		];
 		expect(usage({ ...RUNNING, seats: FULL_SEATS, overflow })).toEqual([
 			...PlansFull,
@@ -790,7 +790,7 @@ describe("the plan and credit rows", () => {
 	});
 
 	it("leaves the other key's figure showing with one unread, in white while spending", () => {
-		const overflow = [key(), { seat: "~/.claude3-api", why: "no table" }];
+		const overflow = [key(), { seat: "~/.claude3", why: "no table" }];
 		expect(usage({ ...Launching, seats: ON_KEY_SEATS, overflow })).toEqual([
 			...PlansFull,
 			["API credits left", "value"],
@@ -817,7 +817,7 @@ describe("the plan and credit rows", () => {
 	});
 
 	it("never says not spending over a key it cannot read, plans with room or not", () => {
-		const overflow = [key(), { seat: "~/.claude3-api", why: "no table" }];
+		const overflow = [key(), { seat: "~/.claude3", why: "no table" }];
 		expect(usage({ ...RUNNING, overflow }).slice(-3)).toEqual([
 			["  .claude3  unread: no table", "secondary"],
 			["  .claude2  ~$258 of $400", "secondary"],
@@ -837,7 +837,7 @@ describe("the plan and credit rows", () => {
 
 	it("gives a key with nothing yet spent as its whole grant, a plan with room", () => {
 		const overflow = [
-			buildOverflowStatus(overflowSeat("~/.claude2-api"), {
+			buildOverflowStatus(overflowSeat("~/.claude2"), {
 				fit: 10,
 				headroomUsd: 200,
 				settledUsd: 0,

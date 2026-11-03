@@ -13,6 +13,7 @@ import {
 	ledgerPath,
 	readOverflowLookup,
 	record,
+	recordListedSessionIds,
 	release,
 } from "./dispatch-ledger.js";
 
@@ -98,5 +99,54 @@ describe("readOverflowLookup", () => {
 	it("throws on a ledger that will not read, so an unread session never passes for a plan one", () => {
 		fs.mkdirSync(ledgerPath(root), { recursive: true });
 		expect(() => readLookup()).toThrow(/would not read/);
+	});
+});
+
+describe("recordListedSessionIds (#3701)", () => {
+	const Session = `${JOB}-0000-4000-8000-000000000000`;
+	const listed = [{ id: JOB, sessionId: Session }];
+
+	it("gives a launch recorded with no session id the one the listing shows for its job", () => {
+		recordOverflow(JOB);
+		expect(recordListedSessionIds(listed, [root])).toEqual([]);
+		expect(readLookup()({ jobId: JOB })).toMatchObject({
+			keyVar: "K2",
+			allowanceUsd: 40,
+			sessionId: Session,
+		});
+	});
+
+	it("writes once, holding no issues, and leaves plan launches and unlisted jobs alone", () => {
+		recordOverflow(JOB);
+		record({ ...launch, root, jobId: "feed0001" });
+		recordOverflow("0ff11111");
+		const listing = [...listed, { id: "feed0001", sessionId: "feed0001-x" }];
+		recordListedSessionIds(listing, [root]);
+		recordListedSessionIds(listing, [root]);
+		const rows = fs
+			.readFileSync(ledgerPath(root), "utf8")
+			.trim()
+			.split("\n")
+			.map((l) => JSON.parse(l));
+		expect(rows).toHaveLength(4);
+		expect(rows[3]).toMatchObject({
+			issues: [],
+			jobId: JOB,
+			sessionId: Session,
+		});
+		expect(readLookup()({ jobId: "0ff11111" })?.sessionId).toBeNull();
+	});
+
+	it("names a ledger that will not read, and still fills the others", () => {
+		const other = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-ledger-"));
+		try {
+			fs.mkdirSync(ledgerPath(other), { recursive: true });
+			recordOverflow(JOB);
+			const faults = recordListedSessionIds(listed, [other, root]);
+			expect(faults).toEqual([expect.stringMatching(/would not read/)]);
+			expect(readLookup()({ jobId: JOB })?.sessionId).toBe(Session);
+		} finally {
+			fs.rmSync(other, { recursive: true, force: true });
+		}
 	});
 });

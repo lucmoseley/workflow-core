@@ -77,6 +77,7 @@ const {
 	readRecentEntries,
 	readOverflowLookup,
 	record: recordLaunch,
+	recordListedSessionIds,
 	release,
 } = require("./dispatch-ledger.js");
 const { readJobs } = require("./hung-jobs.js");
@@ -90,6 +91,7 @@ const {
 const { parseResumed } = require("./bg-resume.js");
 const { stopOn } = require("./claude-stop.js");
 const { launchAuthRefusal } = require("./launch-auth.js");
+const { buildKeySettings } = require("./overflow-key.js");
 const {
 	jobDirPath,
 	readJobCwd,
@@ -802,6 +804,26 @@ const readJobRecordOf = (l) =>
 const seatEnv = (l) => ({ ...process.env, CLAUDE_CONFIG_DIR: l.seat });
 
 /**
+ * The environment and `--settings` a `--bg` launch of `l`'s session hands its
+ * child: on an overflow seat, its key's helper and neither a key nor this
+ * process's session id, as dispatch-sessions.sh launches it (#3701); why not
+ * where the key cannot be read.
+ * @param {Pick<import("./refill-loop.js").LoopLaunch, "seat"|"keyVar">} l
+ * @returns {{env: NodeJS.ProcessEnv, settings?: string}|{why: string}}
+ */
+function buildSeatLaunch(l) {
+	/** @type {NodeJS.ProcessEnv} */
+	const env = seatEnv(l);
+	if (!l.keyVar) return { env };
+	const built = buildKeySettings(l.keyVar);
+	if ("why" in built) return built;
+	delete env.ANTHROPIC_API_KEY;
+	delete env.CLAUDE_CODE_SESSION_ID;
+	delete env[l.keyVar];
+	return { env, settings: built.settings };
+}
+
+/**
  * Type `prompt` into `l`'s live session through a pseudo-terminal
  * `claude attach` (#2354 F6). Null once typed, else why not.
  * @param {import("./refill-blocks.js").JobLaunch} l
@@ -946,7 +968,9 @@ function recordOverflowCopy({ root, keyVar }, from, { jobId, sessionId }) {
  * cwd (#2354 F6). The launcher exits 0 whatever happens (F8). On 2.1.310 it
  * wakes a stopped job in place, else starts a copy under a new job and
  * session id, which carries the conversation on and takes the issue claims
- * (#2963, #2968). The resume counts where the launcher named the job it
+ * (#2963, #2968). An overflow session's carries its key's `--settings`
+ * (buildSeatLaunch), so it never bills the plan, and the flags always start a
+ * copy (#3692 (d)). The resume counts where the launcher named the job it
  * started (lib/bg-resume.js) and that job's state.json does not read failed;
  * a later tick judges the resumed turn.
  * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"issues"|"seat"|"keyVar">} l
@@ -955,13 +979,17 @@ function recordOverflowCopy({ root, keyVar }, from, { jobId, sessionId }) {
  * @returns {import("./refill-blocks.js").Resumed}
  */
 function resumeStopped(l, prompt, { sessionId, cwd }) {
-	const env = seatEnv(l);
-	const refusal = launchAuthRefusal({ bin: claudeBin(), env, cwd });
+	const launch = buildSeatLaunch(l);
+	if ("why" in launch) return { failed: launch.why };
+	const { env, settings } = launch;
+	const refusal = launchAuthRefusal({ bin: claudeBin(), env, cwd, settings });
 	if (refusal) return { failed: refusal };
-	const r = runChild(claudeBin(), ["--bg", "--resume", sessionId, prompt], {
-		cwd,
-		env,
-	});
+	const keyArgs = settings === undefined ? [] : ["--settings", settings];
+	const r = runChild(
+		claudeBin(),
+		["--bg", "--resume", sessionId, ...keyArgs, prompt],
+		{ cwd, env },
+	);
 	const failed = childFailure(r);
 	if (failed) return { failed };
 	const started = parseResumed(r);
@@ -1630,7 +1658,23 @@ const stopsOfNeverStarted = (dryRun, state, registry) =>
  */
 function capOverflowSessions(dryRun, declared, agents) {
 	if (dryRun) return;
+	const hasOverflow = declared.seats.some((s) => s.kind === "overflow");
+	if (agents && hasOverflow && declared.errors.length === 0)
+		recordListedOverflowSessions(agents);
 	for (const line of stopOverAllowance(declared, agents)) log(line);
+}
+
+/**
+ * Give each overflow launch the session id `agents` lists for its job
+ * (lib/dispatch-ledger.js's recordListedSessionIds), logging what fails.
+ * @param {import("./agent-liveness.js").AgentRecord[]} agents
+ */
+function recordListedOverflowSessions(agents) {
+	try {
+		for (const line of recordListedSessionIds(agents)) log(line);
+	} catch (e) {
+		log(`overflow session ids not recorded: ${buildErrorText(e)}`);
+	}
 }
 
 /**

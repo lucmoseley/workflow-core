@@ -20,7 +20,6 @@ import { writeClaudeStub } from "./claude-stub";
 import {
 	isConsoleReadDue,
 	parseConsoleRead,
-	planSeatOf,
 	readConsoleLog,
 } from "./console-credit.js";
 import { writeCostTable } from "./cost-table-testkit";
@@ -133,7 +132,7 @@ describe("isConsoleReadDue", () => {
 	const Now = 1_800_000_000_000;
 	const Day = 24 * 3600 * 1000;
 	const key = {
-		dir: "/h/.claude3-api",
+		dir: "/h/.claude3",
 		kind: "overflow" as const,
 		keyVar: "K",
 		grantUsd: 200,
@@ -195,42 +194,15 @@ describe("isConsoleReadDue", () => {
 	});
 });
 
-describe("planSeatOf", () => {
-	const seat = (dir: string) => ({
-		dir,
-		kind: "overflow" as const,
-		keyVar: "K",
-		grantUsd: 200,
-		cycleDay: 1,
-	});
-
-	it("drops the key dir's -api", () => {
-		expect(planSeatOf(seat("/h/.claude3-api"), { seats: [], errors: [] })).toBe(
-			"/h/.claude3",
-		);
-	});
-
-	it("names no plan for a key dir named otherwise", () => {
-		expect(planSeatOf(seat("/h/.spare"), { seats: [], errors: [] })).toBeNull();
-		expect(
-			planSeatOf(seat("/h/.claude3"), {
-				seats: [{ dir: "/h/.claude3", kind: "plan" }],
-				errors: [],
-			}),
-		).toBe("/h/.claude3");
-	});
-});
-
 describe("read-console-credit.js", () => {
 	let tmp: string;
-	let keyDir: string;
 	let planDir: string;
 	const saved = {
 		home: process.env.HOME,
 		refill: process.env.WFC_REFILL_DIR,
 	};
 	const seat = () => ({
-		dir: keyDir,
+		dir: planDir,
 		kind: "overflow" as const,
 		keyVar: "WFC_TEST_KEY",
 		grantUsd: 200,
@@ -247,10 +219,8 @@ describe("read-console-credit.js", () => {
 	beforeEach(() => {
 		tmp = fs.mkdtempSync(path.join(os.tmpdir(), "console-credit-"));
 		const home = path.join(tmp, "home");
-		keyDir = path.join(home, ".claude3-api");
 		planDir = path.join(home, ".claude3");
 		fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
-		fs.mkdirSync(keyDir);
 		fs.mkdirSync(planDir);
 		fs.writeFileSync(
 			path.join(planDir, ".claude.json"),
@@ -258,7 +228,7 @@ describe("read-console-credit.js", () => {
 		);
 		fs.writeFileSync(
 			path.join(home, ".claude", "refill-seats"),
-			`${planDir}\n~/.claude3-api api key=WFC_TEST_KEY grant=200 cycle-day=1\n`,
+			`${planDir}\n~/.claude3 api key=WFC_TEST_KEY grant=200 cycle-day=1\n`,
 		);
 		process.env.HOME = home;
 		process.env.WFC_REFILL_DIR = path.join(tmp, "refill");

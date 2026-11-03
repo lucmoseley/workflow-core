@@ -68,7 +68,7 @@
 # URL, or a command invoked with no issue at all — exits 0 and leaves the
 # session as well named as it managed.
 #
-# IMPLICIT:  renames the session (a registry write) after the issue(s) it was opened on, or /pick-next's start time, at UserPromptSubmit and SessionStart, and announces the name in a systemMessage.
+# IMPLICIT:  renames the session (a registry write) after the issue(s) it was opened on, or /pick-next's start time, at UserPromptSubmit and SessionStart, and announces the name in a systemMessage. On a background job already named `Overflow · …`, it keeps that prefix (#3701).
 # JUSTIFIED: convenience — nothing degrades but legibility: parallel sessions all read as `<repo>-76` otherwise, and telling them apart means opening each.
 # DEFEAT:    none — it renames whenever the prompt carries one of the six recognised shapes.
 
@@ -149,6 +149,15 @@ done
 renamed=0
 apply_name() {
   local name="$1"
+
+  # An overflow job is launched named `Overflow · <prompt>` (dispatch-sessions.sh,
+  # #3701): the prefix stays, so its row says it spends API credits.
+  local prefix="Overflow · "
+  if [[ -n "${CLAUDE_JOB_DIR:-}" ]] &&
+    jq -e --arg p "$prefix" '(.name // "") | startswith($p)' \
+      "$CLAUDE_JOB_DIR/state.json" >/dev/null 2>&1; then
+    name="$prefix$name"
+  fi
 
   # Session names sit in a narrow list column; a 300-character issue title
   # would make the list less readable, not more. Ellipsis marks the cut.

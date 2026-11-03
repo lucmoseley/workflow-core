@@ -2,17 +2,13 @@
 /*
  * link-config-dirs.js — makes every sibling Claude config dir (`~/.claude2`,
  * `~/.claude3`, …) share `~/.claude`'s config by symlink, so the plans cannot
- * drift apart (#107). Each overflow seat `~/.claude/refill-seats` declares
- * (lib/refill-seats.js) is created where absent and linked the same way, so
- * an overflow session runs under the plans' rules (#2605).
+ * drift apart (#107).
  *
  * Usage:
  *   node scripts/link-config-dirs.js            merge, then link
  *   node scripts/link-config-dirs.js --check    report; exit 1 on any drift.
  *                                               `npm run status` runs it.
  *   [--home <dir>]                              the dir holding `.claude*`
- *
- * Exit 2 where the seat file refuses, naming each malformed line.
  *
  * WHY. One `CLAUDE_CONFIG_DIR` per plan (docs/environment.md §13). Each plan
  * kept its own `plugins/`, so a plugin installed or upgraded under one was
@@ -47,7 +43,6 @@ const { flagValue, parseOrCode } = require("./lib/cli-args");
 const { scriptPath } = require("./lib/script-path.js");
 const { caught } = require("./lib/caught.js");
 const { CANONICAL, readSiblings } = require("./lib/plan-dirs.js");
-const { readDeclaredSeats } = require("./lib/refill-seats.js");
 
 const USAGE = `Usage: node ${scriptPath("link-config-dirs.js")} [--check] [--home <dir>]`;
 
@@ -398,40 +393,6 @@ function relinkDiverged(fix, at, want) {
 }
 
 /**
- * The overflow seats' config dirs; throws, naming each malformed line, where
- * the seat file refuses.
- * @param {string} home
- */
-function readOverflowDirs(home) {
-	const { seats, errors } = readDeclaredSeats(home);
-	if (errors.length > 0)
-		throw new Error(`the seat file refuses:\n  ${errors.join("\n  ")}`);
-	return seats.filter((s) => s.kind === "overflow").map((s) => s.dir);
-}
-
-/**
- * The overflow dirs present to link, each absent one created unless
- * `check`, and reported as drift either way.
- * @param {string} home @param {boolean} check @param {(line: string) => void} out
- */
-function linkableOverflowDirs(home, check, out) {
-	const present = [];
-	const drift = [];
-	const created = [];
-	for (const dir of readOverflowDirs(home)) {
-		if (!fs.existsSync(dir)) {
-			drift.push({ sibling: dir, entry: "", state: "missing" });
-			if (check) continue;
-			fs.mkdirSync(dir, { recursive: true });
-			out(`created ${dir}`);
-			created.push(dir);
-		}
-		present.push(dir);
-	}
-	return { present, drift, created };
-}
-
-/**
  * @param {{home: string, check?: boolean, out?: (line: string) => void}} at
  * @returns {{drift: {sibling: string, entry: string, state: string}[],
  *   fixed: string[], kept: string[]}}
@@ -448,10 +409,7 @@ function run({
 	const fixed = [];
 	/** @type {string[]} */
 	const kept = [];
-	const overflow = linkableOverflowDirs(home, check, out);
-	drift.push(...overflow.drift);
-	fixed.push(...overflow.created);
-	for (const sibling of new Set([...readSiblings(home), ...overflow.present])) {
+	for (const sibling of readSiblings(home)) {
 		for (const entry of SHARED) {
 			const s = state(sibling, canonical, entry);
 			if (s === "linked" || s === "absent") continue;

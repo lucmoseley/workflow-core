@@ -19,13 +19,17 @@
 #     cost (mantahostels#1102). `scripts/usage-probe.js` makes the call, and
 #     skips it while the cache is fresh (#2306).
 #
-# AN OVERFLOW SEAT (#2570) has no plan bars and no `claude --bg`: its
-# Console credits cover `claude -p` alone. Under one, the `/usage` probe, the
-# advisor check and the allowance cap are skipped; the key's budget gate
-# (lib/overflow-budget.js) sizes the set instead, and each member launches
-# through lib/headless-sessions.js, capped at the key's headroom at launch.
-# Only Opus launches there (#1920). WFC_SEAT_KEY, the seat's key variable, is
-# what asks for one: a dispatch without it is on the plan seat (#3693).
+# AN OVERFLOW SEAT (#2570) bills its key's API credits, not the plan's bars.
+# Under one, the `/usage` probe, the advisor check and the allowance cap are
+# skipped; the key's budget gate (lib/overflow-budget.js) sizes the set
+# instead. Each member launches as a plan member does, a `claude --bg` under
+# its plan seat's config dir, but handed the key through an `apiKeyHelper` in
+# `--settings` (lib/overflow-key.js), named `Overflow · <prompt>`, and with no
+# key or caller's session id in its environment (#3701). Its ledger row
+# records the key and its allowance, the headroom at launch, which the refill
+# tick stops it at (#3698). Only Opus launches there (#1920). WFC_SEAT_KEY,
+# the seat's key variable, is what asks for one: a dispatch without it is on
+# the plan seat (#3693).
 #
 # Usage:
 #   scripts/dispatch-sessions.sh [--dry-run] [--force] [--force-memory] \
@@ -450,9 +454,7 @@ case "$seat_kind" in
     ;;
 esac
 
-# The headless launch passes no --model, so every member gets the seat's
-# default, `claude-opus-5-5[1m]`: only that model's spellings are admitted,
-# after burn mode's remap.
+# Only Opus's spellings are admitted, after burn mode's remap.
 if [[ $overflow -eq 1 ]]; then
   for ((i = 1; i <= $#; i += 2)); do
     m="${!i}"
@@ -470,10 +472,19 @@ fi
 
 # --- launch auth -------------------------------------------------------------
 # A `--bg` launch must bill the subscription, not an API key in this shell
-# (lib/launch-auth.js, #2236). The headless launcher checks its own.
-if [[ $overflow -eq 0 ]]; then
-  node "$here/lib/launch-auth.js" || exit 2
+# (lib/launch-auth.js, #2236); an overflow one, the declared key's helper alone.
+# Both are judged in the environment the launch hands its child.
+launch_env=()
+overflow_args=()
+if [[ $overflow -eq 1 ]]; then
+  if ! key_settings="$(node "$here/lib/overflow-key.js" --settings "$seat_key" 2>&1)"; then
+    printf 'REFUSED: overflow seat %s: %s\n' "$seat_dir" "$key_settings" >&2
+    exit 2
+  fi
+  launch_env=(env -u ANTHROPIC_API_KEY -u "$seat_key" -u CLAUDE_CODE_SESSION_ID)
+  overflow_args=(--settings "$key_settings")
 fi
+"${launch_env[@]}" node "$here/lib/launch-auth.js" "${overflow_args[@]}" || exit 2
 
 # --- duplicate gate --------------------------------------------------------
 # Placed BEFORE the allowance gate on cost: the allowance read spends up to 120
@@ -853,22 +864,20 @@ while [[ $# -gt 0 ]]; do
       printf '  %s\n' "$(no_fit_line)" >&2
       continue
     fi
-    launcher="the headless launcher"
-    launch_cmd=(node "$here/lib/headless-sessions.js" launch
-      --key "$seat_key" --cwd "$PWD" --budget "$headroom" "$prompt")
-  else
-    args=(--bg)
-    # A bare `opus` passes NO --model flag on purpose (mantahostels#1093, "everything else is
-    # launched with no model flag"): the configured default is
-    # `claude-opus-5-5[1m]`, and `--model opus` would silently drop the session
-    # to the 200k context window. Residual: on a machine whose default is
-    # something else, that is what the session gets. Any other spelling,
-    # `opus[1m]` included, passes verbatim.
-    [[ "$model" == "opus" ]] || args+=(--model "$model")
-    wants_advisor "$model" && args+=(--advisor "$ADVISOR_MODEL")
-    launcher="claude"
-    launch_cmd=("$WFC_CLAUDE_BIN" "${args[@]}" "$prompt")
   fi
+  args=(--bg)
+  # A bare `opus` passes NO --model flag on purpose (mantahostels#1093, "everything else is
+  # launched with no model flag"): the configured default is
+  # `claude-opus-5-5[1m]`, and `--model opus` would silently drop the session
+  # to the 200k context window. Residual: on a machine whose default is
+  # something else, that is what the session gets. Any other spelling,
+  # `opus[1m]` included, passes verbatim.
+  [[ "$model" == "opus" ]] || args+=(--model "$model")
+  wants_advisor "$model" && args+=(--advisor "$ADVISOR_MODEL")
+  # The name name-issue-session.sh keeps the prefix of when it renames the job.
+  [[ $overflow -eq 1 ]] && args+=(-n "Overflow · $prompt" "${overflow_args[@]}")
+  launcher="claude"
+  launch_cmd=("${launch_env[@]}" "$WFC_CLAUDE_BIN" "${args[@]}" "$prompt")
   if [[ $dry_run -eq 1 ]]; then
     printf 'would launch:'
     printf ' %q' "${launch_cmd[@]}"
@@ -917,7 +926,7 @@ while [[ $# -gt 0 ]]; do
     # "unknown" a pre-mantahostels#3488 entry reads as downstream.
     job_id=""
     if [[ -n "$launch_out_file" ]]; then
-      # The headless launcher prints a bare id; real `claude --bg` prints
+      # Real `claude --bg` prints
       # `backgrounded·<ESC>[36m<id><ESC>[39m` (#27) — a middle dot and a
       # colour escape around the id, not whitespace. Strip the escape
       # sequences, then take the id as the trailing run of 8 hex characters;
@@ -933,16 +942,12 @@ while [[ $# -gt 0 ]]; do
         first_line="${first_line#*"$job_id"}"
       done
     fi
-    # The launch record that marks this session overflow (#3694): its key, the
-    # headroom it launched at, and the session id the launcher printed.
+    # The launch record that marks this session overflow (#3694): its key and
+    # the headroom it launched at. `--bg` prints no session id, so the refill
+    # tick adds it from the listing (lib/dispatch-ledger.js).
     overflow_record=()
     if [[ $overflow -eq 1 ]]; then
-      session_id=""
-      if [[ -n "$launch_out_file" ]]; then
-        session_id="$(sed -n 's/^session //p' "$launch_out_file")"
-      fi
-      overflow_record=(--overflow-key "$seat_key" --allowance-usd "$headroom"
-        --session-id "$session_id")
+      overflow_record=(--overflow-key "$seat_key" --allowance-usd "$headroom")
     fi
     # Residual: the issue list is every integer in the prompt, so a prompt
     # carrying a non-issue number records a phantom issue and refuses an

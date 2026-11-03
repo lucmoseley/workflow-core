@@ -64,16 +64,10 @@ describe("readOmittedDirs (#3767)", () => {
 		]);
 	});
 
-	it("treats a declared overflow seat, or a symlink to a seat, as declared", () => {
+	it("treats a symlink to a seat as declared", () => {
 		seatDir(".claude2", true);
-		seatDir(".claude2-api", true);
 		fs.symlinkSync(path.join(home, ".claude2"), path.join(home, ".claude9"));
-		expect(
-			readOmittedDirs(
-				parse("~/.claude2\n~/.claude2-api api key=K grant=200 cycle-day=20\n"),
-				home,
-			),
-		).toEqual([]);
+		expect(readOmittedDirs(parse("~/.claude2\n"), home)).toEqual([]);
 	});
 
 	it("reads no dirs from a home that is not there", () => {
@@ -87,14 +81,14 @@ describe("readDeclaredSeats", () => {
 	it("reads a bare path as a plan seat and an api line as an overflow seat, in order", () => {
 		expect(
 			parse(
-				`${home}/.claude2\n~/.claude3\n~/.claude2-api api key=WFC_KEY_2 grant=200 cycle-day=20\n`,
+				`${home}/.claude2\n~/.claude3\n~/.claude2 api key=WFC_KEY_2 grant=200 cycle-day=20\n`,
 			),
 		).toEqual({
 			seats: [
 				{ dir: path.join(home, ".claude2"), kind: "plan" },
 				{ dir: path.join(home, ".claude3"), kind: "plan" },
 				{
-					dir: path.join(home, ".claude2-api"),
+					dir: path.join(home, ".claude2"),
 					kind: "overflow",
 					keyVar: "WFC_KEY_2",
 					grantUsd: 200,
@@ -106,15 +100,18 @@ describe("readDeclaredSeats", () => {
 	});
 
 	it("takes an overflow line's fields in any order", () => {
-		expect(parse("/h/o api cycle-day=28 grant=12.5 key=K").seats).toEqual([
-			{
-				dir: "/h/o",
-				kind: "overflow",
-				keyVar: "K",
-				grantUsd: 12.5,
-				cycleDay: 28,
-			},
-		]);
+		expect(parse("/h/o\n/h/o api cycle-day=28 grant=12.5 key=K").seats).toEqual(
+			[
+				{ dir: "/h/o", kind: "plan" },
+				{
+					dir: "/h/o",
+					kind: "overflow",
+					keyVar: "K",
+					grantUsd: 12.5,
+					cycleDay: 28,
+				},
+			],
+		);
 	});
 
 	it("skips comments and blank lines", () => {
@@ -149,8 +146,8 @@ describe("readDeclaredSeats", () => {
 
 describe("the kind command", () => {
 	it("prints each declared seat's kind, however its dir is spelt", () => {
-		parse("~/.claude2\n~/.claude2-api api key=K grant=200 cycle-day=20\n");
-		const overflow = kind(`${path.join(home, ".claude2-api")}/`, "K");
+		parse("~/.claude2\n~/.claude2 api key=K grant=200 cycle-day=20\n");
+		const overflow = kind(`${path.join(home, ".claude2")}/`, "K");
 		expect(overflow.status).toBe(0);
 		expect(overflow.stdout).toBe("overflow\n");
 		const plan = kind(path.join(home, ".claude2"));
@@ -159,7 +156,7 @@ describe("the kind command", () => {
 	});
 
 	it("takes an undeclared dir as a plan seat", () => {
-		parse("~/.claude2-api api key=K grant=200 cycle-day=20\n");
+		parse("~/.claude2\n~/.claude2 api key=K grant=200 cycle-day=20\n");
 		const r = kind(path.join(home, ".claude"));
 		expect(r.status).toBe(0);
 		expect(r.stdout).toBe("plan\n");
@@ -177,7 +174,7 @@ describe("the kind command", () => {
 describe("a seat's identity (#3693)", () => {
 	const shared = () =>
 		parse(
-			"~/.claude2\n~/.claude2 api key=K2 grant=200 cycle-day=20\n~/.claude3-api api key=K3 grant=100 cycle-day=28\n",
+			"~/.claude2\n~/.claude2 api key=K2 grant=200 cycle-day=20\n~/.claude3\n~/.claude3 api key=K3 grant=100 cycle-day=28\n",
 		);
 
 	it("reads a plan and an overflow seat on one dir as two seats", () => {
@@ -203,9 +200,7 @@ describe("a seat's identity (#3693)", () => {
 			kind: "overflow",
 			keyVar: "K2",
 		});
-		expect(findOverflowSeat(list, "K3")?.dir).toBe(
-			path.join(home, ".claude3-api"),
-		);
+		expect(findOverflowSeat(list, "K3")?.dir).toBe(path.join(home, ".claude3"));
 		expect(findOverflowSeat(list, "NOPE")).toBeNull();
 	});
 
@@ -229,24 +224,34 @@ describe("a seat's identity (#3693)", () => {
 		const other = kind(dir, "K3");
 		expect(other.status).toBe(2);
 		expect(other.stderr).toContain(
-			`key=K3 is ${path.join(home, ".claude3-api")}'s overflow seat, not ${dir}'s`,
+			`key=K3 is ${path.join(home, ".claude3")}'s overflow seat, not ${dir}'s`,
 		);
 	});
 
-	it("refuses a keyless launch on a dir only an overflow line declares", () => {
-		shared();
-		const r = kind(path.join(home, ".claude3-api"));
-		expect(r.status).toBe(2);
-		expect(r.stderr).toContain("WFC_SEAT_KEY=K3");
+	it("refuses an overflow line naming a dir no plan line declares, by name (#3701)", () => {
+		const line = "~/.claude2-api api key=K grant=200 cycle-day=20";
+		const r = parse(`~/.claude2\n${line}\n`);
+		expect(r.errors).toEqual([
+			`${file()}:2: ~/.claude2-api has no plan seat line, and an overflow seat launches under its plan seat's config dir: ${line}`,
+		]);
+		const k = kind(path.join(home, ".claude2"));
+		expect(k.status).toBe(2);
+		expect(k.stderr).toContain("~/.claude2-api has no plan seat line");
+	});
+
+	it("takes a plan line after its overflow line", () => {
+		expect(
+			parse("~/.claude2 api key=K grant=200 cycle-day=20\n~/.claude2\n").errors,
+		).toEqual([]);
 	});
 
 	it("refuses two overflow lines with one key by name", () => {
 		const r = parse(
-			"~/.claude2-api api key=K grant=200 cycle-day=20\n~/.claude3-api api key=K grant=200 cycle-day=28\n",
+			"~/.claude2\n~/.claude3\n~/.claude2 api key=K grant=200 cycle-day=20\n~/.claude3 api key=K grant=200 cycle-day=28\n",
 		);
 		expect(r.errors).toHaveLength(1);
-		expect(r.errors[0]).toContain(`${file()}:2: key=K is already line 1's`);
-		expect(r.errors[0]).toContain("~/.claude3-api");
+		expect(r.errors[0]).toContain(`${file()}:4: key=K is already line 3's`);
+		expect(r.errors[0]).toContain("~/.claude3 api");
 	});
 });
 
