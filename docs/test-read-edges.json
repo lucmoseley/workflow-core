@@ -2288,6 +2288,7 @@
 			"scripts/check-code-standards.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
+			"scripts/lib/plugin-tree.test.ts",
 			"scripts/release-plugin.test.ts",
 			"scripts/status-report.test.ts",
 			"scripts/tooling-matrix.test.ts"

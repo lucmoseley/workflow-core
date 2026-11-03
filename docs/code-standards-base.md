@@ -115,7 +115,7 @@ A gate that skips here refuses nothing, so a finding it would have refused is no
 
 ## Primitives
 
-Copy a row's exemplar, never the nearest file doing the same job (**Primitive**, `GLOSSARY.md`). Base rows' paths resolve at the plugin root, local rows' at the host root. No program refuses a breach of a `Standards axis criterion` row: `/code-review`'s Standards axis judges it against every diff, and a diff doing the row's job without its primitive is a finding citing the row's Rule.
+Copy a row's exemplar, never the nearest file doing the same job (**Primitive**, `GLOSSARY.md`). A base row's Exemplar and Enforcing check paths resolve at the plugin root, so each names a file the release ships, never a test, and the release build refuses one it does not; local rows' resolve at the host root. No program refuses a breach of a `Standards axis criterion` row: `/code-review`'s Standards axis judges it against every diff, and a diff doing the row's job without its primitive is a finding citing the row's Rule.
 
 | Job | Primitive | Exemplar | Rule | Enforcing check |
 |---|---|---|---|---|
@@ -127,13 +127,13 @@ Copy a row's exemplar, never the nearest file doing the same job (**Primitive**,
 | Reading a JSONL file or text | `readJsonl`, `parseJsonl` or, for a streamed line, `parseJsonlRow` in `scripts/lib/jsonl.js` | `scripts/lib/dispatch-ledger.js` | §0, its floor table | `scripts/check-jsonl-reads.js` |
 | Printing a `session-arbiter.js` command | `buildArbiterCommand` in `scripts/lib/build-arbiter-command.js` | `scripts/lib/tracker-ops.js` | §0, its floor table | `scripts/check-arbiter-commands.js` |
 | Reading the clock | `now()` in `scripts/lib/check.js`, pinned by `WFC_NOW`; for a guard core, a host port's `now(env)` handed its `ctx.env` | `scripts/check-history-trim.js`, `scripts/lib/sweep-fire-host.js` | §0, its floor table | `scripts/check-clock-copies.js` |
-| Invoking `gh`, and stubbing it in a test | `gh`, `ghJson` and their kin in `scripts/lib/gh.js`, reading `WFC_GH`; `"${WFC_GH:-gh}"` in shell; a test's stub at `WFC_GH` from `scripts/lib/gh-stub.ts` | `scripts/check-issue-orphans.js`, `scripts/link-sub-issue.sh`, `scripts/check-issue-orphans.test.ts` | §X2, §N7 | `scripts/check-gh-route.js` |
-| Invoking `claude`, and stubbing it in a test | `claudeBin()` in `scripts/lib/claude-bin.js`, reading `WFC_CLAUDE_BIN`; `"${WFC_CLAUDE_BIN:-claude}"` in shell; a test's stub at `WFC_CLAUDE_BIN` | `scripts/run-mod-tests.js`, `scripts/probe-async-hook-timeout.sh`, `scripts/run-mod-tests.test.ts` | §X2, §N7 | `scripts/check-gh-route.js` |
+| Invoking `gh`, and stubbing it in a test | `gh`, `ghJson` and their kin in `scripts/lib/gh.js`, reading `WFC_GH`; `"${WFC_GH:-gh}"` in shell; a test's stub at `WFC_GH` from `scripts/lib/gh-stub.ts` | `scripts/check-issue-orphans.js`, `scripts/link-sub-issue.sh` | §X2, §N7 | `scripts/check-gh-route.js` |
+| Invoking `claude`, and stubbing it in a test | `claudeBin()` in `scripts/lib/claude-bin.js`, reading `WFC_CLAUDE_BIN`; `"${WFC_CLAUDE_BIN:-claude}"` in shell; a test's stub at `WFC_CLAUDE_BIN` | `scripts/run-mod-tests.js`, `scripts/dispatch-sessions.sh` | §X2, §N7 | `scripts/check-gh-route.js` |
 | Reading all of a program's stdin | `readFdAll` in `scripts/lib/read-fd.js` | `scripts/write-secret.js` | §N6 | Standards axis criterion |
 | Writing a program's output | `writeFd` in `scripts/lib/write-fd.js` | `scripts/check-plugin-gap.js` | §N6 | Standards axis criterion |
 | Writing a `report-*` program's output | `writeFd` in `scripts/lib/write-fd.js` | `scripts/report-new-shared-faults.js` | §N6 | `scripts/check-report-programs.js` |
 | A `report-*` program filing an issue | `createIssue` in `scripts/lib/tracking-issue.js`, or its `fileOrRefresh` | `scripts/report-remeasure-due.js` | §N3 | `scripts/check-report-programs.js` |
-| Running a program under test | `runInProcess` in `scripts/lib/run-in-process.js`, `runInProcessAsync` for an async entry | `scripts/check-cli-args.test.ts` | §X3 | `scripts/check-test-spawn.js` |
+| Running a program under test | `runInProcess` in `scripts/lib/run-in-process.js`, `runInProcessAsync` for an async entry | `scripts/lib/run-in-process.js`, its header's contract | §X3 | `scripts/check-test-spawn.js` |
 | A pre-commit gate line | the checker's own exit code passed on, `exit "$?"`, or `staged_gate`'s `status` mode in `scripts/lib/precommit-gate.sh`; a literal `exit 2` where the hook reads a probe's or lister's output, since a crash's own code may be 1 | `.husky/pre-commit` | §N4 | `scripts/check-precommit-exit.js` |
 | A pre-commit gate staging blobs out of the index | `staged_gate` in `scripts/lib/precommit-gate.sh` | `.husky/pre-commit` | §S6 | Standards axis criterion |
 | Ending a Stop hook with a block | `blockStop` in `scripts/lib/hook-block.js`, with its `charge` and `capSpent` | `scripts/guard-uncommitted-work.js` | §G10 | Standards axis criterion |

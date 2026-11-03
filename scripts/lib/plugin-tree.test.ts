@@ -946,6 +946,41 @@ describe("a render in a fixture", () => {
 		).toEqual(["js-yaml", "@scope/pkg/sub", "dyn", "side-effect", "resolved"]);
 	});
 
+	const withBaseTable = (cells: string) => {
+		const root = fixture("");
+		fs.mkdirSync(path.join(root, "docs"));
+		fs.writeFileSync(
+			path.join(root, "docs/code-standards-base.md"),
+			`## Primitives\n\n| Job | Primitive | Exemplar | Rule | Enforcing check |\n|---|---|---|---|---|\n${cells}`,
+		);
+		return root;
+	};
+
+	it("refuses a base primitives row naming a test or a left-behind script, naming each and leaving no tree (#4156)", () => {
+		const root = withBaseTable(
+			"| A job | `a` | `scripts/a.js`, `scripts/a.test.ts` | §N1 | `scripts/probe-x.sh` |\n" +
+				"| Another | `b` | `scripts/a.js` | §N1 | Standards axis criterion |\n",
+		);
+		const out = path.join(tmp, "out");
+		expect(() => buildTree(root, out)).toThrow(
+			"docs/code-standards-base.md's primitives table names paths the release does not carry: `scripts/a.test.ts` (line 5); `scripts/probe-x.sh` (line 5) — name a file the release ships (#4156)",
+		);
+		expect(fs.existsSync(out)).toBe(false);
+	});
+
+	it("renders a base primitives table naming only shipped files (#4156)", () => {
+		const out = path.join(tmp, "out");
+		buildTree(
+			withBaseTable(
+				"| A job | `a` | `scripts/a.js` | §N1 | Standards axis criterion |\n",
+			),
+			out,
+		);
+		expect(fs.existsSync(path.join(out, "docs/code-standards-base.md"))).toBe(
+			true,
+		);
+	});
+
 	it("follows a symlink, but not into a directory already on the walk (#3150)", () => {
 		const root = fixture("");
 		const out = path.join(tmp, "out");

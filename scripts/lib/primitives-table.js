@@ -1,7 +1,9 @@
 /*
  * primitives-table.js — the check-primitives core (#3451): parses the
  * primitives tables in the code standards base and a repo's local file,
- * judges every path and § id they name, and builds the count line.
+ * judges every path and § id they name, and builds the count line. The
+ * release build reads the base's paths through parseBasePaths, to refuse one
+ * the release does not ship (#4156).
  *
  * A CORE (base §T7): every read comes in through the ports below.
  *
@@ -163,35 +165,44 @@ function pathFaults(row, cell, { noun, empty, fix }, exists) {
 }
 
 /**
+ * The cells whose backticked paths are judged: the Exemplar, and the Enforcing
+ * check where a program enforces the row.
+ * @param {Row} row
+ * @returns {{ cell: string, words: { noun: string, empty: string, fix: string } }[]}
+ */
+const pathCells = (row) => [
+	{
+		cell: row.exemplar,
+		words: {
+			noun: "exemplar",
+			empty: "its Exemplar cell names no backticked path",
+			fix: " — point the cell at the file that does the job now, or drop the row",
+		},
+	},
+	...(isProgramEnforced(row)
+		? [
+				{
+					cell: row.check,
+					words: {
+						noun: "enforcing check",
+						fix: ` — name the program that refuses a breach now, or \`${AXIS_CRITERION}\``,
+						empty: `its Enforcing check cell names neither a backticked check path nor \`${AXIS_CRITERION}\``,
+					},
+				},
+			]
+		: []),
+];
+
+/**
  * @param {Row} row
  * @param {Set<string>} ids the ids this row's side may cite
  * @param {Ports["exists"]} exists
  * @returns {Finding[]}
  */
 function judgeRow(row, ids, exists) {
-	const out = pathFaults(
-		row,
-		row.exemplar,
-		{
-			noun: "exemplar",
-			empty: "its Exemplar cell names no backticked path",
-			fix: " — point the cell at the file that does the job now, or drop the row",
-		},
-		exists,
+	const out = pathCells(row).flatMap(({ cell, words }) =>
+		pathFaults(row, cell, words, exists),
 	);
-	if (isProgramEnforced(row))
-		out.push(
-			...pathFaults(
-				row,
-				row.check,
-				{
-					noun: "enforcing check",
-					fix: ` — name the program that refuses a breach now, or \`${AXIS_CRITERION}\``,
-					empty: `its Enforcing check cell names neither a backticked check path nor \`${AXIS_CRITERION}\``,
-				},
-				exists,
-			),
-		);
 	const cited = row.rule.match(RULE_ID) ?? [];
 	if (cited.length === 0) out.push(finding(row, "its Rule cell cites no § id"));
 	for (const [cell, name] of /** @type {const} */ ([
@@ -433,8 +444,25 @@ function rowChanges(side, before, after) {
 	return { changes };
 }
 
+/**
+ * Every backticked path the base table's Exemplar and Enforcing check cells
+ * name; none from a table that cannot be read, which the core's own pre-commit run FAILs (#4156).
+ * @param {string} baseText
+ * @returns {{ line: number, rel: string }[]}
+ */
+function parseBasePaths(baseText) {
+	const parsed = parseTable("base", baseText);
+	if ("unreadable" in parsed) return [];
+	return parsed.rows.flatMap((row) =>
+		pathCells(row).flatMap(({ cell }) =>
+			backticked(cell).map((rel) => ({ line: row.line, rel })),
+		),
+	);
+}
+
 module.exports = {
 	STANDARDS_DOCS,
+	parseBasePaths,
 	judgePrimitives,
 	parseBreaches,
 	rowChanges,

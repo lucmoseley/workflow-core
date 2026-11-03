@@ -109,6 +109,7 @@ const {
 } = require("./surface-closure.js");
 const { requiredGroup } = require("./regex-group.js");
 const { isUnder } = require("./is-under.js");
+const { parseBasePaths } = require("./primitives-table.js");
 const { MIGRATIONS_DIR } = require("./workflow-core-config.js");
 const { isCollectedTestOrConftest } = require("./test-kind.js");
 const { noticeFaults } = require("./vendored-notices.js");
@@ -678,6 +679,25 @@ function baseLinePinFaults(root) {
 }
 
 /**
+ * The base primitives table's paths the release does not carry, which an
+ * adopter's check-primitives would warn on as the plugin's to fix (#4156).
+ * @param {string} root
+ * @returns {string[]} one fault naming every such path, or none
+ */
+function basePrimitivesFaults(root) {
+	const doc = path.join(root, STANDARDS_BASE);
+	if (!fs.existsSync(doc)) return [];
+	const unshipped = parseBasePaths(fs.readFileSync(doc, "utf8"))
+		.filter(({ rel }) => !isShipped(root, rel))
+		.map(({ line, rel }) => `\`${rel}\` (line ${line})`);
+	return unshipped.length === 0
+		? []
+		: [
+				`${STANDARDS_BASE}'s primitives table names paths the release does not carry: ${unshipped.join("; ")} — name a file the release ships (#4156)`,
+			];
+}
+
+/**
  * A citable file's text as the release writes it, before its citations are
  * qualified.
  * @param {string} root
@@ -874,6 +894,7 @@ function buildTree(root, out) {
 		if (contract.text !== null)
 			faults.push(...citationFaults(contract.text, HOST_CONTRACT));
 		faults.push(...baseLinePinFaults(root));
+		faults.push(...basePrimitivesFaults(root));
 		faults.push(...surfaceClosureFaults(root, out));
 		faults.push(...noticeFaults(root));
 		if (faults.length > 0) throw new Error(faults.join("\n"));
