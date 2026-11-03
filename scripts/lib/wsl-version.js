@@ -1,6 +1,11 @@
 /*
  * wsl-version.js — reads this machine's installed WSL version off
- * `wsl.exe --version` (#4082).
+ * `wsl.exe --version` (#4082): the adapter, so the core never touches the bridge.
+ *
+ * THREE TRIES, each at the flat budget, as lib/interop-probe.sh's: a vsock stall
+ * fails one call, `accept4 failed 110`, and the next is normal
+ * (docs/environment.md §9), which must not read as an unread machine. A binary
+ * that will not start is no stall, so it is not retried.
  */
 
 const { spawnSync } = require("node:child_process");
@@ -16,11 +21,13 @@ const WSL_EXE = "/mnt/c/Windows/System32/wsl.exe";
  */
 const WSL_BUDGET_MS = 12_000;
 
+const TRIES = 3;
+
 /**
  * wsl.exe prints UTF-16LE, or UTF-8 under WSL_UTF8; dropping the NULs reads both.
  * @param {Buffer} raw
  */
-const readableText = (raw) => raw.toString("latin1").replaceAll("\0", "");
+const decodeWslText = (raw) => raw.toString("latin1").replaceAll("\0", "");
 
 /**
  * @param {string} bin
@@ -28,30 +35,44 @@ const readableText = (raw) => raw.toString("latin1").replaceAll("\0", "");
  * @returns {{version: string} | {why: string}}
  */
 function readInstalled(bin, budgetMs) {
+	let answer = readOnce(bin, budgetMs);
+	for (let i = 1; i < TRIES && answer.stalled; i++)
+		answer = readOnce(bin, budgetMs);
+	const { stalled: _, ...result } = answer;
+	return result;
+}
+
+/**
+ * @param {string} bin
+ * @param {number} budgetMs
+ * @returns {{version: string, stalled?: false} | {why: string, stalled: boolean}}
+ */
+function readOnce(bin, budgetMs) {
 	const r = spawnSync(bin, ["--version"], {
 		stdio: ["ignore", "pipe", "pipe"],
 		timeout: budgetMs,
 		killSignal: "SIGKILL",
 		maxBuffer: CHILD_MAX_BUFFER,
 	});
-	if (r.error)
+	if (r.error) {
+		const stalled = caught(r.error).code === "ETIMEDOUT";
 		return {
-			why:
-				caught(r.error).code === "ETIMEDOUT"
-					? `no answer within ${budgetMs / 1000} s`
-					: r.error.message,
+			why: stalled ? `no answer within ${budgetMs / 1000} s` : r.error.message,
+			stalled,
 		};
+	}
 	if (r.status !== 0) {
-		const said = readableText(r.stderr).trim().split(/\r?\n/).pop();
+		const said = decodeWslText(r.stderr).trim().split(/\r?\n/).pop();
 		return {
+			stalled: true,
 			why: `${r.signal ? `killed by ${r.signal}` : `exited ${r.status}`}${said ? `: ${said}` : ""}`,
 		};
 	}
 	const version = /\bWSL version:\s*(\d+(?:\.\d+)*)/.exec(
-		readableText(r.stdout),
+		decodeWslText(r.stdout),
 	)?.[1];
 	return version === undefined
-		? { why: "printed no version line" }
+		? { why: "printed no version line", stalled: false }
 		: { version };
 }
 

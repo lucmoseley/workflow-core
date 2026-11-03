@@ -215,7 +215,7 @@ export function morningReviewFixture(
 		STUB_DIR: path.join(sb.dir, "gh"),
 		WFC_JOURNALCTL: stub("journalctl"),
 		WFC_RUNAWAY_LOG: stub("no-runaway-log.jsonl"),
-		WFC_OSRELEASE: stub("no-osrelease"),
+		WFC_PROC: stub("no-proc"),
 		WFC_REFILL_DIR: path.join(sb.dir, "refill"),
 		MEMWATCH_MINUTE_LOG: refillFile("memwatch-minute.jsonl"),
 	});

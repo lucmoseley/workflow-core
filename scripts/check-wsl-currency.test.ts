@@ -1,6 +1,9 @@
 // @vitest-environment node
 /*
- * The check-wsl-currency.js program (#4082). The judging itself is
+ * The check-wsl-currency.js program (#4082), its reads crossed through the
+ * WFC_PROC, WFC_WSL_EXE and gh seams, so each exit and print is seen as
+ * `npm run status` and the morning review see it. Loosened, a failed read
+ * reads as clean, or the commands stop being pasteable. The judging itself is
  * lib/wsl-currency.test.ts's.
  */
 import fs from "node:fs";
@@ -11,13 +14,13 @@ import { GH_NOT_FOUND, type GhAnswer } from "./lib/gh-fake";
 import { stubGhRoutes } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process.js";
 import {
-	latestAnswer,
-	releasesAnswer,
+	buildLatestAnswer,
+	buildReleasesAnswer,
 	WSL_KERNEL,
 	type WslBehaviour,
 	writeOsrelease,
 	writeWsl,
-	wslCallLog,
+	wslCallLogPath,
 } from "./lib/wsl-fake";
 
 const SCRIPT = path.join(__dirname, "check-wsl-currency.js");
@@ -34,14 +37,14 @@ const ghLog = () => path.join(dir, "gh-calls");
 
 function run({
 	args = ["--json"],
-	osrelease = writeOsrelease(dir, WSL_KERNEL),
+	proc = writeOsrelease(dir, WSL_KERNEL),
 	wsl = { version: "2.7.11.0" },
-	latest = latestAnswer("3.0.3"),
-	releases = releasesAnswer(["3.0.3", "3.0.1"]),
+	latest = buildLatestAnswer("3.0.3"),
+	releases = buildReleasesAnswer(["3.0.3", "3.0.1"]),
 	wslExe,
 }: {
 	args?: string[];
-	osrelease?: string;
+	proc?: string;
 	wsl?: WslBehaviour;
 	latest?: GhAnswer;
 	releases?: GhAnswer;
@@ -60,7 +63,7 @@ function run({
 			...process.env,
 			...env,
 			GITHUB_ACTIONS: "",
-			WFC_OSRELEASE: osrelease,
+			WFC_PROC: proc,
 			WFC_WSL_EXE: wslExe ?? writeWsl(dir, wsl),
 		},
 	});
@@ -68,24 +71,29 @@ function run({
 
 describe("not WSL", () => {
 	it("SKIPs, exit 0, saying why, and reads nothing else", () => {
-		const r = run({ osrelease: writeOsrelease(dir, "6.8.0-45-generic") });
+		const r = run({ proc: writeOsrelease(dir, "6.8.0-45-generic") });
 		expect(r.status).toBe(0);
 		const envelope = JSON.parse(r.stdout);
 		expect(envelope.outcome).toBe("SKIP");
 		expect(envelope.summary).toContain("not WSL");
-		expect(fs.existsSync(wslCallLog(dir))).toBe(false);
+		expect(fs.existsSync(wslCallLogPath(dir))).toBe(false);
 		expect(fs.existsSync(ghLog())).toBe(false);
 	});
 
 	it("SKIPs where there is no kernel release file at all", () => {
-		const r = run({ osrelease: path.join(dir, "no-osrelease") });
-		expect(JSON.parse(r.stdout).outcome).toBe("SKIP");
+		const r = run({ proc: path.join(dir, "no-proc") });
+		expect(r.status).toBe(0);
+		const envelope = JSON.parse(r.stdout);
+		expect(envelope.outcome).toBe("SKIP");
+		expect(envelope.summary).toContain("not WSL");
 	});
 });
 
 describe("unread", () => {
 	it("warns, exit 0, on a kernel release it cannot open", () => {
-		const r = run({ osrelease: dir });
+		const proc = path.join(dir, "proc-unopenable");
+		fs.mkdirSync(path.join(proc, "sys/kernel/osrelease"), { recursive: true });
+		const r = run({ proc });
 		expect(r.status).toBe(0);
 		const envelope = JSON.parse(r.stdout);
 		expect(envelope.outcome).toBe("WARN");
@@ -127,11 +135,19 @@ describe("behind", () => {
 		expect(r.stderr).toContain(
 			"WSL 2.7.11.0 is 2 stable releases behind 3.0.3.\n",
 		);
-		expect(r.stderr).toContain(
-			"first in WSL: node scripts/refill-loop.js set --pause\n",
-		);
-		expect(r.stderr).toContain("Windows PowerShell: wsl --update\n");
+		expect(r.stderr).toContain("\nnode scripts/refill-loop.js set --pause\n");
+		expect(r.stderr).toContain("\nwsl --update\n");
 		expect(r.stderr).toContain("WARN: 1 WSL currency finding(s)");
+	});
+
+	it("counts stable releases only, in the singular", () => {
+		const r = run({
+			args: [],
+			releases: buildReleasesAnswer(["3.0.3"], ["3.1.0"]),
+		});
+		expect(r.stderr).toContain(
+			"WSL 2.7.11.0 is 1 stable release behind 3.0.3.\n",
+		);
 	});
 });
 
@@ -150,7 +166,7 @@ describe("current", () => {
 describe("what it runs", () => {
 	it("runs only the two version reads: nothing writes, updates or shuts down", () => {
 		run({});
-		expect(fs.readFileSync(wslCallLog(dir), "utf8")).toBe("--version\n");
+		expect(fs.readFileSync(wslCallLogPath(dir), "utf8")).toBe("--version\n");
 		expect(fs.readFileSync(ghLog(), "utf8").trim().split("\n").sort()).toEqual([
 			"api repos/microsoft/WSL/releases/latest --jq {tag_name}",
 			"api repos/microsoft/WSL/releases?per_page=100 --jq [.[] | {tag_name, prerelease, draft}]",
@@ -160,6 +176,8 @@ describe("what it runs", () => {
 
 describe("a bad invocation", () => {
 	it("is BROKEN, exit 2, on an unknown flag", () => {
-		expect(run({ args: ["--bogus"] }).status).toBe(2);
+		const r = run({ args: ["--bogus"] });
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("--bogus");
 	});
 });
