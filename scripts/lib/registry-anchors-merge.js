@@ -8,6 +8,8 @@
  * one can only read stale, never wrongly fresh (#4167, #3935).
  */
 
+const REGISTRY_ANCHORS = ".claude/guard-registry-anchors.json";
+
 /** @param {unknown} v @returns {v is Record<string, string>} */
 const isRows = (v) =>
 	v !== null &&
@@ -65,4 +67,4 @@ function buildMergedAnchors(base, ours, theirs) {
 	return buildAnchorsText(rows);
 }
 
-module.exports = { buildAnchorsText, buildMergedAnchors };
+module.exports = { REGISTRY_ANCHORS, buildMergedAnchors };

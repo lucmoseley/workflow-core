@@ -2397,7 +2397,7 @@ function settleConflicts(inTree, stderr, { dir, culprit, onto, side }) {
 	return inTree(["diff", "--cached", "--name-only"]).trim() === ""
 		? { failed: buildConflictFailure(stderr, conflicted) }
 		: {
-				note: `Conflicts in ${[...kept.keys()].join(", ")} kept this branch's side, so their rows may read stale.\n\n`,
+				note: `Conflicts in ${[...kept.keys()].join(", ")} kept this branch's side where both sides moved, so their rows may read stale.\n\n`,
 			};
 }
 
