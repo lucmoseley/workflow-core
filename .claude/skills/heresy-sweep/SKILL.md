@@ -166,6 +166,8 @@ before you close. Then run
 
 **Values:** <each house or untraced value the comment relies on, or none>
 
+**Outstanding:** none
+
 **Practice:** <covered — docs/practice/code-refactoring-and-architecture.md, its Researched date; ran where that date is over 6 months old>
 ```
 
