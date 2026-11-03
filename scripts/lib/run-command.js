@@ -1,6 +1,7 @@
 /*
- * run-command.js — one command's trimmed stdout, or why it failed in `error`,
- * for an installer that reports every failure rather than stopping at the first.
+ * run-command.js — one command's trimmed stdout, or why it failed in `error`, so
+ * a caller reports the failure itself: an installer every failure rather than
+ * stopping at the first, `refill-loop.js watch` its restart's.
  */
 
 const { spawnSync } = require("node:child_process");

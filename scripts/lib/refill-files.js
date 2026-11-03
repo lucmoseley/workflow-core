@@ -9,6 +9,8 @@
  *     no writer loses another's change;
  *   - state, written by the loop;
  *   - pidfile, created by the loop exclusively, so a second loop exits;
+ *   - the launch's pidfile (#4139), held by a process spawning the loop, which
+ *     `watch` reads so as to stand down;
  *   - the review runner's pidfile and result (scripts/refill-review-run.js,
  *     #3765), written by the runner, the result removed by the tick that
  *     reads it;
@@ -34,6 +36,7 @@ function loopFiles() {
 		control: refillPath(".refill-loop-control.json"),
 		state: refillPath(REFILL_STATE_FILE),
 		pid: refillPath(".refill-loop.pid"),
+		launch: refillPath(".refill-loop-launch.pid"),
 		log: refillPath(".refill-loop.log"),
 		stopSeen: refillPath(".refill-loop-stop-seen"),
 		managerRestart: refillPath(".refill-loop-manager-restart.json"),

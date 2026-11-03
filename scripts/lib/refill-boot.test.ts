@@ -7,7 +7,8 @@
  * loosen that and a dead job keeps its admission charge past the boot; tighten it
  * and a killed launch is stopped before it can queue. And whether a spawned loop
  * came to hold the lock (#4083): loosen that and a start that exited reads as a
- * running loop.
+ * running loop. And what a same-boot restart queues (#4139): loosen that and a kill
+ * of the loop alone queues a live session for a second resume.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -16,6 +17,7 @@ import {
 	bootVerdictOf,
 	isEmptyListingTrusted,
 	isSameBoot,
+	settleBootKilled,
 	withManagerRestart,
 } from "./refill-boot.js";
 import { parseState } from "./refill-loop.js";
@@ -154,6 +156,61 @@ describe("isEmptyListingTrusted (#3880)", () => {
 	it("does not with no boot and none killed", () => {
 		expect(isTrusted([buildLaunch({})])).toBe(false);
 		expect(isTrusted([])).toBe(false);
+	});
+});
+
+describe("settleBootKilled, a same-boot restart (#4139)", () => {
+	const now = START + 60 * 60 * 1000;
+	const seen = {
+		agents: [{ id: "other", sessionId: "other", state: "working" }],
+		now,
+		io: {
+			jobStateOf: () => null,
+			resumeTargetOf: () => ({ sessionId: "s", cwd: "/" }),
+			log: () => undefined,
+		},
+	} as never;
+	const settle = (launch: object, registry = CLEAR) =>
+		settleBootKilled(
+			parseState({
+				launches: [buildLaunch({ sessionId: "s", ...launch })],
+				bootedAt: now,
+				sameBootRestart: true,
+			}),
+			seen,
+			registry,
+		);
+	const longAgo = { launchedAt: now - 10 * 60 * 1000 };
+
+	it("queues a launch past the grace that neither source names, ending the wait", () => {
+		const settled = settle(longAgo);
+		expect(settled.launches[0]).toHaveProperty("bootKilled");
+		expect(settled).not.toHaveProperty("bootedAt");
+	});
+
+	it("spares a live launch the registry names though the listing does not", () => {
+		const settled = settle(longAgo, {
+			...CLEAR,
+			agents: [{ id: "x", sessionId: "s" }],
+		} as never);
+		expect(settled.launches[0]).not.toHaveProperty("bootKilled");
+		expect(settled).not.toHaveProperty("bootedAt");
+	});
+
+	it("leaves a launch inside the grace to a later tick, the wait standing", () => {
+		const settled = settle({ launchedAt: now - 1000 });
+		expect(settled.launches[0]).not.toHaveProperty("bootKilled");
+		expect(settled).toMatchObject({ bootedAt: now, sameBootRestart: true });
+	});
+
+	it("queues nothing a second time on that later tick", () => {
+		const { launches } = settle(longAgo);
+		const { launches: again } = settleBootKilled(
+			parseState({ launches, bootedAt: now, sameBootRestart: true }),
+			seen,
+			CLEAR,
+		);
+		expect(again).toEqual(launches);
 	});
 });
 

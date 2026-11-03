@@ -44,6 +44,15 @@ Researched: 2026-10-22
 - One upgrade at a time. Cloudflare's tableflip waits for the new process to report ready, die or time out. blog.cloudflare.com/graceful-upgrades-in-go/ [named expert]
 - Node's `process.execve(file, args, env)` (v23.11.0, Stability 1) replaces the image under the same pid "without triggering any exit or close events" and keeps only stdin, stdout and stderr; a failed `execve(2)` throws and "the current process continues to run with its state unchanged". So any cleanup runs first, and any other open handle is reopened by the new image. nodejs.org/api/process.html §process.execve [standard or field body]
 
+## Supervising a long-running user process
+
+- `Restart=on-failure` treats SIGTERM as a clean exit on non-oneshot types, so earlyoom's ordinary first signal restarts nothing. `Restart=always` is refused on `Type=oneshot`. freedesktop.org/software/systemd/man/latest/systemd.service.html [standard or field body]
+- A timer cannot restart its own target while it is active: an active unit is "not restarted, but simply left running". So a unit reading `active (exited)` needs a separate oneshot that restarts it. freedesktop.org/software/systemd/man/latest/systemd.timer.html [standard or field body]
+- `OnUnitInactiveSec=` counts from the unit's last deactivation, so a unit that has never run needs `OnActiveSec=` too, and `AccuracySec=` defaults to 1 minute. Measured on systemd 255, 3 Nov 2026: a 1-minute period fired every 120 s at the default accuracy and every 60-90 s at 30 s. systemd.timer as above [standard or field body]
+- `OOMScoreAdjust=` is inherited at fork, so a negative value on a process that spawns others shields them too. An unprivileged process can raise its value but not lower it, so the value has to come from the unit. systemd.exec, freedesktop.org/software/systemd/man/latest/systemd.exec.html, states nothing on permissions; that rests on a probe here [standard or field body]
+- earlyoom reads `/proc/*/oom_score` and kills "until it is above the minimum again", so plan for a restart whatever the value. github.com/rfjakob/earlyoom README [standard or field body]
+- Derived: a timer that reads the daemon's own lock covers every way the daemon was started, including outside any unit. One repo's choice, so it sets no default [unverified]
+
 ## Measuring elapsed time
 
 - Time a span on a monotonic clock, never as a difference of wall-clock readings. The wall clock "may not always be monotonically increasing", so a difference of two `Date.now()` values can be positive, negative or zero for one span; the monotonic clock "should be used for measurement, rather than user-visible times". In Node that is `performance.now()`. w3.org/TR/hr-time-3/ §1, §2.1 [standard or field body]

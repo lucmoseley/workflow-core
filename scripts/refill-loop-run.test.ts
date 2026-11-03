@@ -3737,6 +3737,104 @@ describe("boot-resume after a restart (#3878)", () => {
 		expect(fs.existsSync(at("ticks"))).toBe(false);
 	});
 
+	describe("watch, the timer's look for a dead loop (#4139)", () => {
+		const watch = (systemctlBody = "") => {
+			fs.mkdirSync(at("watch-bin"), { recursive: true });
+			fs.writeFileSync(
+				at("watch-bin/systemctl"),
+				`#!/bin/sh\necho "$*" >> ${shellQuote(at("systemctl-calls"))}\n${systemctlBody}\n`,
+				{ mode: 0o755 },
+			);
+			return runInProcessAsync(
+				path.join(scripts, "refill-loop.js"),
+				["watch"],
+				{
+					cwd: dir,
+					env: loopEnv({
+						PATH: `${at("watch-bin")}:${process.env.PATH}`,
+					}),
+				},
+			);
+		};
+		const readCalls = () => readLines(at("systemctl-calls"));
+		const logFile = at.bind(null, ".refill-loop.log");
+
+		it("restarts the boot unit past a dead loop's pidfile, so boot-resume decides", async () => {
+			writeControl();
+			const holder = spawnHolder();
+			await exited(holder);
+			expect((await watch()).status).toBe(0);
+			expect(readCalls()).toEqual(["--user restart refill-loop-boot.service"]);
+			expect(fs.existsSync(at("ticks"))).toBe(false);
+		});
+
+		it("does nothing and writes no log line for a live holder, even a paused one", async () => {
+			fs.writeFileSync(
+				loopControlFile(),
+				JSON.stringify({
+					noProgressFrom: countFrom,
+					stopRequested: false,
+					paused: { by: "command", at: countFrom },
+					seats: [seat],
+					scope: { mode: "normal", repos: [repo], goal: null },
+				}),
+			);
+			const holder = spawnHolder();
+			try {
+				expect((await watch()).status).toBe(0);
+				expect(readCalls()).toEqual([]);
+				expect(fs.existsSync(logFile())).toBe(false);
+				expect(fs.existsSync(at(".refill-loop-manager-restart.json"))).toBe(
+					false,
+				);
+			} finally {
+				await exited(holder);
+			}
+		});
+
+		it("leaves a stopped loop stopped, writing no log line", async () => {
+			writeControl();
+			await command("stop");
+			const before = readLog();
+			expect((await watch()).status).toBe(0);
+			expect(readCalls()).toEqual([]);
+			expect(readLog()).toBe(before);
+		});
+
+		it("leaves a loop with no start on record alone", async () => {
+			fs.rmSync(loopControlFile(), { force: true });
+			expect((await watch()).status).toBe(0);
+			expect(readCalls()).toEqual([]);
+		});
+
+		it("stands down while a launch is in flight, its lock live", async () => {
+			writeControl();
+			const launcher = spawnIdleHolder(loopEnv({}));
+			fs.writeFileSync(at(".refill-loop-launch.pid"), String(launcher.pid));
+			try {
+				expect((await watch()).status).toBe(0);
+				expect(readCalls()).toEqual([]);
+			} finally {
+				await exited(launcher);
+			}
+		});
+
+		it("leaves a damaged control alone, writing no log line", async () => {
+			fs.writeFileSync(loopControlFile(), "{");
+			expect((await watch()).status).toBe(0);
+			expect(readCalls()).toEqual([]);
+			expect(fs.existsSync(logFile())).toBe(false);
+		});
+
+		it("exits 1, naming the restart, where it fails, for the unit's ExecStopPost", async () => {
+			writeControl();
+			const r = await watch("echo denied >&2; exit 1");
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain("--user restart refill-loop-boot.service");
+			expect(r.stderr).toContain("denied");
+		});
+	});
+
 	describe("where the spawned loop holds no lock (#4083)", () => {
 		/* Node loads this into the spawned `run` alone: the command under test runs
 		 * in process, and a holder's own argv has no `run`. */
@@ -5441,6 +5539,7 @@ describe("the launches a restart killed (#3880)", () => {
 			expect(readState()).toMatchObject({ sameBootRestart: true });
 			expect(fs.existsSync(markerFile())).toBe(false);
 
+			fs.rmSync(path.join(seat, "sessions", `${process.pid}.json`));
 			fakeResumeClaude("job7", [LISTED]);
 			const back = await tickWith(
 				1,
@@ -5450,6 +5549,20 @@ describe("the launches a restart killed (#3880)", () => {
 
 			expect(back.status).toBe(0);
 			expect(readCalls()).toEqual([buildResumeArgs("job7")]);
+			expect(readState()).not.toHaveProperty("sameBootRestart");
+		});
+
+		it("queues no live session a populated listing leaves out, the registry naming it (#4139)", async () => {
+			writeState([buildLaunch("job7", 7, 10)], false);
+			writeMarker(readCurrentBootId());
+			writeLiveRegistry();
+			fakeResumeClaude("job7", [LISTED]);
+
+			const r = await tickWith(1, undefined, outsideSession);
+
+			expect(r.status).toBe(0);
+			expect(readCalls()).toEqual([]);
+			expect(r.stdout).not.toContain("killed by a restart");
 			expect(readState()).not.toHaveProperty("sameBootRestart");
 		});
 	});

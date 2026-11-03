@@ -1,5 +1,5 @@
 [Unit]
-Description=Restart the refill loop after a boot or user manager restart where no stop ended it
+Description=Restart the refill loop after a boot, a user manager restart or a kill where no stop ended it
 
 [Service]
 Type=oneshot
@@ -18,6 +18,10 @@ WorkingDirectory=%h
 # stop of this unit, and no kill inside its cgroup, may take it down.
 KillMode=process
 OOMPolicy=continue
+# What a typed start gets, against the manager's default of 200, which puts the
+# loop first in earlyoom's order (#4130). Its children inherit it, so a negative
+# value would shield the lander and every session.
+OOMScoreAdjust=0
 # The loop's sessions can run in this cgroup, which a default cap would count.
 TasksMax=infinity
 

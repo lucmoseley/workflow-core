@@ -9,14 +9,19 @@
  * (#4083).
  *
  * `boot-resume` runs at each start of the user manager, so on the manager's
- * restart within a boot too (#3963), which sessions in `/init.scope` outlive.
+ * restart within a boot too (#3963), which sessions in `/init.scope` outlive; and
+ * where `watch` restarts the unit over a dead loop (#4139), which all its sessions
+ * outlive.
  */
 
 const {
+	isBootKillable,
 	isBootKillCandidate,
 	isBootKilled,
 	isHeld,
 	isLive,
+	LISTING_GRACE_MS,
+	queueBootKilled,
 } = require("./refill-blocks.js");
 const { recordedStop } = require("./refill-loop.js");
 
@@ -92,6 +97,50 @@ function bootVerdictOf({ control, damaged, stopped, pid, self }) {
 }
 
 /**
+ * Whether the session registry names `l`'s job or session, whose record it keeps
+ * only for a process proven live.
+ * @param {import("./refill-loop.js").LoopLaunch} l
+ * @param {import("./registry-agents.js").RegistryListing} registry
+ */
+const isInRegistry = (l, registry) =>
+	registry.agents.some((a) => a.id === l.jobId || a.sessionId === l.sessionId);
+
+/**
+ * The launches with those a restart killed queued, and `bootedAt` gone, once a
+ * listing has read; as they were until then. On a same-boot restart (#4139), a
+ * launch the registry names is alive, and one inside the listing's grace may not be
+ * listed yet, so it waits, `bootedAt` standing, for the tick that grace ends on. Residual:
+ * past that grace, a live session both unlisted and unrecorded is queued.
+ * @param {import("./refill-loop.js").LoopState} state
+ * @param {Parameters<typeof queueBootKilled>[1]} seen
+ * @param {import("./registry-agents.js").RegistryListing} registry
+ * @returns {{launches: import("./refill-loop.js").LoopLaunch[], bootedAt?: number,
+ *   sameBootRestart?: true}}
+ */
+function settleBootKilled(
+	{ launches, bootedAt, sameBootRestart },
+	seen,
+	registry,
+) {
+	if (bootedAt === undefined || seen.agents === null)
+		return { launches, bootedAt, sameBootRestart };
+	if (!sameBootRestart)
+		return { launches: queueBootKilled(launches, seen, bootedAt) };
+	const isWaiting = (/** @type {import("./refill-loop.js").LoopLaunch} */ l) =>
+		seen.now - Math.max(l.launchedAt, l.relaunchedAt ?? 0) < LISTING_GRACE_MS &&
+		!isInRegistry(l, registry);
+	const queued = queueBootKilled(
+		launches,
+		seen,
+		bootedAt,
+		(l) => isInRegistry(l, registry) || isWaiting(l),
+	);
+	return launches.some((l) => isWaiting(l) && isBootKillable(l, seen, bootedAt))
+		? { launches: queued, bootedAt, sameBootRestart }
+		: { launches: queued };
+}
+
+/**
  * Whether a tick may read an empty listing as nothing live: the boot's own tick,
  * and, while killed launches wait, any tick with no session it set running, so the
  * listing has nothing it must name. Once one is running, an empty listing is the
@@ -111,18 +160,14 @@ const isEmptyListingTrusted = (
 			launches
 				.filter(isBootKillCandidate)
 				.every(
-					(l) =>
-						registry.seats.includes(l.seat) &&
-						!registry.agents.some(
-							(a) => a.id === l.jobId || a.sessionId === l.sessionId,
-						),
+					(l) => registry.seats.includes(l.seat) && !isInRegistry(l, registry),
 				)
 		: bootedAt !== undefined ||
 			(launches.some(isBootKilled) && launches.filter(isLive).every(isHeld));
 
 /**
  * Whether the loop last held its pidfile on the boot now running, so a
- * `boot-resume` is the user manager's restart and no boot; false where either
+ * `boot-resume` is a restart within it and no boot; false where either
  * boot is unknown.
  * @param {string|null|undefined} recorded
  * @param {string|null} current
@@ -181,5 +226,6 @@ module.exports = {
 	isEmptyListingTrusted,
 	isSameBoot,
 	resumedState,
+	settleBootKilled,
 	withManagerRestart,
 };
