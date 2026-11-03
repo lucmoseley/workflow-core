@@ -621,7 +621,6 @@ describe("the seats: line (#3733)", () => {
 		weekRead: { percent: week, atMs: NOW },
 		fits: 1,
 		fresh: true,
-		weekFresh: week !== null,
 		...over,
 	});
 	const lineOf = (
@@ -771,7 +770,7 @@ describe("the seats: line (#3733)", () => {
 		);
 	});
 
-	it("carries the week's last figure, read time and freshness on each reading", () => {
+	it("carries the week's last figure and read time on each reading", () => {
 		const view = buildSeatsView({
 			seats: [seat(".claude3", null, null, { fits: null, fresh: false })],
 			overflow: [],
@@ -781,7 +780,6 @@ describe("the seats: line (#3733)", () => {
 		expect(view.readings[0].weekRead).toEqual({
 			percent: null,
 			at: new Date(NOW).toISOString(),
-			fresh: false,
 		});
 	});
 
@@ -809,7 +807,7 @@ describe("the seats: line (#3733)", () => {
 			fetchedAtMs: NOW - 12 * MIN,
 			trust,
 		});
-		it("keeps the week fresh with only the 5-hour bar stale", () => {
+		it("keeps the week's figure with only the 5-hour bar stale", () => {
 			const out = foreseeSeat({
 				reading: seat(".claude3", 62, null),
 				bars: {
@@ -820,7 +818,7 @@ describe("the seats: line (#3733)", () => {
 				ceilings,
 				now: NOW,
 			});
-			expect(out).toMatchObject({ fresh: false, weekFresh: true });
+			expect(out).toMatchObject({ fresh: false, week: 62 });
 		});
 
 		const foresee = (

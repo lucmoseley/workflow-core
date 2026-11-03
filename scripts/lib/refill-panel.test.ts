@@ -1,5 +1,5 @@
 /*
- * The panel's view and press mapping (#3873, #3875, #3877, #3879, #3881, #3883, #3884, #3948, #3958). Built on the view so every loop state costs one literal rather than a terminal.
+ * The panel's view and press mapping (#3873, #3875, #3877, #3879, #3881, #3883, #3884, #3948, #3958, #4059). Built on the view so every loop state costs one literal rather than a terminal.
  * Broken, the panel reads a press as done, or a stopped loop as on.
  */
 
@@ -26,7 +26,7 @@ const seatRead = (seat: string, week: number | null, weekFull = false) => ({
 	seat,
 	week,
 	weekFull,
-	weekRead: { percent: week, at: READ_AT, fresh: week !== null },
+	weekRead: { percent: week, at: READ_AT },
 });
 const planSeats = (week: number | null, weekFull = false) => ({
 	readings: [
@@ -229,8 +229,8 @@ describe("the panel's rows", () => {
 			["Not starting more: the machine is full", "secondary"],
 			["", "secondary"],
 			["Weekly plan usage", "secondary"],
-			["  .claude3  47% used", "secondary"],
-			["  .claude2  80% used", "secondary"],
+			["  .claude3  47% used (61m ago)", "secondary"],
+			["  .claude2  80% used (61m ago)", "secondary"],
 		]);
 		expect(rows[0].control?.state).toBe("on");
 	});
@@ -290,8 +290,8 @@ describe("the panel's rows", () => {
 			["", "secondary"],
 			["", "secondary"],
 			["Weekly plan usage", "secondary"],
-			["  .claude3  47% used", "secondary"],
-			["  .claude2  80% used", "secondary"],
+			["  .claude3  47% used (61m ago)", "secondary"],
+			["  .claude2  80% used (61m ago)", "secondary"],
 		]);
 	});
 
@@ -543,13 +543,13 @@ describe("the plan and credit rows", () => {
 	};
 	const PlansRoom = [
 		["Weekly plan usage", "secondary"],
-		["  .claude3  47% used", "secondary"],
-		["  .claude2  80% used", "secondary"],
+		["  .claude3  47% used (61m ago)", "secondary"],
+		["  .claude2  80% used (61m ago)", "secondary"],
 	];
 	const PlansFull = [
 		["Weekly plan usage", "secondary"],
-		["  .claude3  100% used", "secondary"],
-		["  .claude2  100% used", "secondary"],
+		["  .claude3  100% used (61m ago)", "secondary"],
+		["  .claude2  100% used (61m ago)", "secondary"],
 	];
 
 	it("shows only the plans with no key declared, whatever they read", () => {
@@ -698,31 +698,51 @@ describe("the plan and credit rows", () => {
 		]);
 	});
 
-	it("reads a stale plan unread, with its last figure and age, even past its reset", () => {
-		const stale = (week: number | null, percent: number | null) => ({
+	describe("a plan's figure (#4059)", () => {
+		const buildReading = (
+			week: number | null,
+			percent: number | null,
+			at: string | null,
+		) => ({
 			...seatRead("~/.claude2", week),
-			weekRead: {
-				percent,
-				at:
-					percent === null ? null : new Date(AT - 5 * 86_400_000).toISOString(),
-				fresh: false,
-			},
+			weekRead: { percent, at },
 		});
+		const ago = (ms: number) => new Date(LATER - ms).toISOString();
 		const shown = (reading: object) =>
 			usage({
 				...RUNNING,
 				seats: { readings: [reading], next: null },
 			})[1][0];
-		expect(shown(stale(null, 100))).toBe("  .claude2  unread (100%, 5d ago)");
-		expect(shown(stale(60, 60))).toBe("  .claude2  unread (60%, 5d ago)");
-		expect(shown(stale(null, null))).toBe("  .claude2  unread");
-	});
 
-	it("reads a fresh week as used though the 5-hour bar is stale", () => {
-		const reading = { ...seatRead("~/.claude2", 62), fresh: false };
-		expect(
-			usage({ ...RUNNING, seats: { readings: [reading], next: null } })[1][0],
-		).toBe("  .claude2  62% used");
+		it.each([
+			["just read", buildReading(74, 74, ago(0)), "74% used (0m ago)"],
+			[
+				"minutes old",
+				buildReading(null, 74, ago(300_000)),
+				"74% used (5m ago)",
+			],
+			[
+				"days old",
+				buildReading(null, 100, ago(5 * 86_400_000)),
+				"100% used (5d ago)",
+			],
+		])("gives a reading %s its figure and age", (_age, reading, figure) => {
+			expect(shown(reading)).toBe(`  .claude2  ${figure}`);
+		});
+
+		it("says the age is unknown where the reading has no time", () => {
+			expect(shown(buildReading(null, 74, null))).toBe(
+				"  .claude2  74% used (age unknown)",
+			);
+		});
+
+		it("reads a seat with no reading as unread", () => {
+			expect(shown(buildReading(null, null, null))).toBe("  .claude2  unread");
+		});
+
+		it("shows the picker's 0 for a week the account does not report (#3758)", () => {
+			expect(shown(buildReading(0, null, null))).toBe("  .claude2  0% used");
+		});
 	});
 
 	it("draws no plan heading with no seat read", () => {
@@ -753,7 +773,6 @@ describe("the plan and credit rows", () => {
 			readAt: AT,
 			fits: weekFull ? 0 : 1,
 			fresh: true,
-			weekFresh: true,
 		});
 		const dir = `${process.env.HOME}/.claude2-api`;
 		const declared = {
@@ -892,7 +911,7 @@ describe("the panel's frame", () => {
 	it("keeps a wrapped row's indent", () => {
 		const rows = buildRows(view({ status: RUNNING }), LATER, 20);
 		const at = rows.findIndex((r: Row) => r.text === "  .claude3  47%");
-		expect(rows[at + 1].text).toBe("  used");
+		expect(rows[at + 1].text).toBe("  used (61m ago)");
 	});
 
 	it("leaves a row holding an image on its one line, cut", () => {
