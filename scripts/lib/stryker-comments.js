@@ -19,6 +19,7 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { caught } = require("./caught.js");
 const { parseErrorFirstLine } = require("./first-line.js");
+const { readFdAll } = require("./read-fd.js");
 const { writeFd } = require("./write-fd.js");
 
 const HOST_CONFIG_FAULT = "could not read the host's Stryker config";
@@ -217,7 +218,7 @@ function answerAndExit(result) {
 }
 
 if (require.main === module)
-	readComments(JSON.parse(fs.readFileSync(0, "utf8"))).then(
+	readComments(JSON.parse(readFdAll(0).toString("utf8"))).then(
 		(files) => answerAndExit({ files }),
 		(e) => answerAndExit({ error: parseErrorFirstLine(e) }),
 	);

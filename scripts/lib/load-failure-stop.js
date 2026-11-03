@@ -4,7 +4,8 @@
  * throws leaves every check unrun, and the registration's `|| true` swallows
  * the crash; so the guard arms this first, before any other `require`, and
  * disarms it once loaded. Node builtins alone: any other lib may be the one
- * missing.
+ * missing, lib/read-fd.js and what it loads included, so `fs.readFileSync(0)`
+ * stays here where every other program reads through `readFdAll`.
  *
  * It reads stdin itself, the one Stop-guard read outside lib/stop-guard.js,
  * because that lib may be what failed. The re-stop, whose payload carries

@@ -5,7 +5,7 @@
  * it knows (#2899).
  */
 
-const fs = require("node:fs");
+const { readFdAll } = require("./read-fd.js");
 
 /**
  * gl_log, its records naming `name`: the entry's file, or a dispatcher core's
@@ -39,7 +39,7 @@ function logger(name, root) {
 function readPayload(noun, log) {
 	let raw;
 	try {
-		raw = fs.readFileSync(0, "utf8");
+		raw = readFdAll(0).toString("utf8");
 	} catch {
 		raw = "";
 	}

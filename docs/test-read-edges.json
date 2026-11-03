@@ -7775,6 +7775,7 @@
 			"scripts/precommit-eslint-gate.test.ts",
 			"scripts/precommit-test-stamp.test.ts",
 			"scripts/priced-options-copies.test.ts",
+			"scripts/record-divergence-load.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/run-vitest.test.ts",
@@ -16183,6 +16184,7 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence-load.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
@@ -19066,6 +19068,7 @@
 			"scripts/lib/sleep-sync.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/proving-run.test.ts",
+			"scripts/record-divergence-load.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
@@ -21426,6 +21429,7 @@
 			"scripts/link-config-dirs.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/precommit-test-stamp.test.ts",
+			"scripts/record-divergence-load.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/refill-panel-open.test.ts",
 			"scripts/rule-fallback-template.test.ts",

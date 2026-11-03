@@ -45,6 +45,7 @@ const { createRequire } = require("node:module");
 const { readCiRuns } = require("./ci-runs.js");
 const { requiredGroup } = require("./regex-group.js");
 const { caught } = require("./caught.js");
+const { readFdAll } = require("./read-fd.js");
 const { writeFd } = require("./write-fd.js");
 const { readBlob } = require("./staged.js");
 const { HOOK_GIT_TIMEOUT_MS, spawnGitSync } = require("./git.js");
@@ -460,7 +461,7 @@ function printShellFiles(mode) {
 	try {
 		if (mode === "--tracked") files = readTrackedShellFiles();
 		else {
-			const paths = fs.readFileSync(0, "utf8").split("\n").filter(Boolean);
+			const paths = readFdAll(0).toString("utf8").split("\n").filter(Boolean);
 			files =
 				mode === "--index"
 					? shellFiles(paths, indexHead(), { cached: true })

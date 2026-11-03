@@ -14,7 +14,7 @@
  * the areas the second root's config narrows from the first's, one per line.
  */
 
-const fs = require("node:fs");
+const { readFdAll } = require("./read-fd.js");
 const { readConfig } = require("./workflow-core-config.js");
 const { globMatches } = require("./pathspec-glob.js");
 const { caught } = require("./caught.js");
@@ -145,8 +145,8 @@ if (require.main === module) {
 	const paths = [...positionals];
 	if (flags["--stdin"])
 		paths.push(
-			...fs
-				.readFileSync(0, "utf8")
+			...readFdAll(0)
+				.toString("utf8")
 				.split(/[\n\0]/)
 				.filter((l) => l !== ""),
 		);
