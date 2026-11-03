@@ -366,6 +366,8 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 			expect(row.win_age_s).toBeNull();
 		});
 
+		// Crosses the real clock: the stamp is the shell's EPOCHSECONDS when the
+		// background read exits, which no seam reaches.
 		it("starts the next read in the background, stamped once it ends", async () => {
 			const out = path.join(tmp, "win-launch");
 			const fake = path.join(tmp, "fake-powershell");
