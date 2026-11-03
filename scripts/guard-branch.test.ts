@@ -230,17 +230,20 @@ describe("the copied fixture is isolated from its template (mantahostels#2085)",
 	it("the copy's core.hooksPath is relinked, not left pointing at the template", () => {
 		// Anchoring on `fresh` — this instance's own root — is what tells a
 		// relinked path apart from a leaked one: the template's own no-hooks dir
-		// is exists-and-empty too.
+		// is exists-and-empty too. Both top-level repos, since a relink can write
+		// a wrong path into one and not the other (mantahostels#2193).
 		const fresh = freshCopy();
 		try {
-			const hooksPath = git(
-				path.join(fresh, "shared"),
-				"config",
-				"core.hooksPath",
-			).trim();
-			expect(hooksPath).toBe(path.join(fresh, "no-hooks"));
-			expect(fs.existsSync(hooksPath)).toBe(true);
-			expect(fs.readdirSync(hooksPath)).toEqual([]);
+			for (const repo of ["shared", "elsewhere"]) {
+				const hooksPath = git(
+					path.join(fresh, repo),
+					"config",
+					"core.hooksPath",
+				).trim();
+				expect(hooksPath).toBe(path.join(fresh, "no-hooks"));
+				expect(fs.existsSync(hooksPath)).toBe(true);
+				expect(fs.readdirSync(hooksPath)).toEqual([]);
+			}
 		} finally {
 			fs.rmSync(fresh, { recursive: true, force: true });
 		}
