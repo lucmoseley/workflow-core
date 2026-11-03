@@ -49,12 +49,12 @@ const { takesLabel, takesOf } = require("./takes-label.js");
 const { refKey } = require("./issue-ref.js");
 const { resolveGate } = require("./issue-gate.js");
 const { scriptPath } = require("./script-path.js");
+const { URGENT_LABEL } = require("./urgent-label.js");
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /* One figure for every route: house, #3588. */
 const IDLE_DAYS = 2;
 const IDLE_MS = IDLE_DAYS * DAY_MS;
-const URGENT_LABEL = "urgent";
 const HUMAN_LABEL = takesLabel("human");
 /* Blockers read inline per issue, lib/blocked-by-batch.js's INNER: 50 issues
  * of 100 labels, 25 blockers and 100 sub-issues stays far under GitHub's

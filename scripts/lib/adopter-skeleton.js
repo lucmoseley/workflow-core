@@ -27,6 +27,7 @@ const { caught } = require("./caught.js");
 const { CORE_STYLE, namespaced } = require("./output-styles.js");
 const { withoutSelfPlugin } = require("./core-hooks.js");
 const { shellQuote } = require("./sh-quote.js");
+const { URGENT_LABEL } = require("./urgent-label.js");
 
 const TEMPLATES = path.join(__dirname, "..", "templates", "adopter");
 
@@ -633,7 +634,7 @@ const CORE_LABELS = [
 			"Waits on the founder; an away-mode refill loop skips it, a normal-mode one resumes it first.",
 	},
 	{
-		name: "urgent",
+		name: URGENT_LABEL,
 		color: "D93F0B",
 		description:
 			"Jumps the selection queue, for every descendant and blocker. Holds until closed or removed.",

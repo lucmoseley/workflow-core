@@ -43,6 +43,7 @@ const { readRange, renderRange } = require("./lib/commit-range");
 const { createIssue, findTrackingIssue } = require("./lib/tracking-issue");
 const { codeRepoArgs } = require("./lib/workflow-core-config.js");
 const { takesLabel } = require("./lib/takes-label");
+const { URGENT_LABEL } = require("./lib/urgent-label.js");
 
 const TITLE = "The scheduled full-suite run is red on main";
 /* The label the dedupe matches on, and the reason it is not `urgent`: a human
@@ -51,8 +52,6 @@ const TITLE = "The scheduled full-suite run is red on main";
  * somebody tidies it and then files a second issue. `ci-red` is carried by
  * nothing else and nobody has a reason to take it off. */
 const LABEL = "ci-red";
-/* Applied as well as `LABEL`, never instead of it — mantahostels#2030 asks for it. */
-const URGENT = "urgent";
 /* `triage` and not `implement`: two thirds of the reds in mantahostels#2030's census were
  * the runner rather than the code, so the first act is deciding which this is,
  * not opening a fix. */
@@ -405,10 +404,11 @@ function main() {
 
 	/* Labelled at creation because a create from a script is invisible to
 	 * the guard-issue-create-label core, which sees Bash tool calls only —
-	 * mantahostels#464 is the live instance of an issue reaching the tracker bare (mantahostels#470). */
+	 * mantahostels#464 is the live instance of an issue reaching the tracker bare (mantahostels#470).
+	 * `urgent` as well as `LABEL`, never instead of it: mantahostels#2030 asks for it. */
 	const filed = createIssue({
 		title: TITLE,
-		labels: [LABEL, URGENT, TAKES],
+		labels: [LABEL, URGENT_LABEL, TAKES],
 		body: body(red, green),
 	});
 	writeFd(1, `Filed ${filed}\n`);

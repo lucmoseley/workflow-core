@@ -22,9 +22,10 @@ const { gateOnLineOf } = require("./issue-gate.js");
 const { similarTitles } = require("./tracker-ops.js");
 const { refresh: refreshBody } = require("./tracking-issue.js");
 const { takesLabel } = require("./takes-label.js");
+const { URGENT_LABEL } = require("./urgent-label.js");
 const { requireKey } = require("./workflow-core-config.js");
 
-const LABELS = ["urgent", "bug", takesLabel("implement"), "kind:ticket"];
+const LABELS = [URGENT_LABEL, "bug", takesLabel("implement"), "kind:ticket"];
 
 /**
  * @typedef {object} QueueIssueDeps

@@ -59,9 +59,9 @@ const { hasStandaloneLine } = require("./lib/standalone-line.js");
 const { readRuleText } = require("./lib/rule-text.js");
 const { fromEnv } = require("./lib/session-id.js");
 const { takesLabel, takesRefusal } = require("./lib/takes-label.js");
+const { URGENT_LABEL, isPassingDown } = require("./lib/urgent-label.js");
 
 const HUMAN_LABEL = takesLabel("human");
-const URGENT = "urgent";
 const {
 	basisFaults,
 	basisRefusal,
@@ -374,19 +374,18 @@ function openAncestorRemedy(repo, issue) {
 
 /**
  * The issue already passing `urgent` down to a child of open `parent`: the
- * parent, or an ancestor reached through open ones, as pick-next passes tiers
- * only from an open parent (#3250, #3637). Null where none is, or where an
- * ancestor cannot be read, saying so: a hard-coded urgent is only redundant,
- * so this check never blocks filing on a failed read (#3648).
+ * parent, or an ancestor the chain reaches by isPassingDown. Null where none is,
+ * or where an ancestor cannot be read, saying so: a hard-coded urgent is only
+ * redundant, so this check never blocks filing on a failed read (#3648).
  * @param {string} repo
  * @param {ReturnType<typeof readIssue>} parent
  */
 function readUrgentCarrier(repo, parent) {
-	if (parent.labels.includes(URGENT)) return parent;
+	if (parent.labels.includes(URGENT_LABEL)) return parent;
 	try {
 		for (const up of readAncestors(repo, parent)) {
-			if (up.state !== "open") return null;
-			if (up.labels.includes(URGENT)) return up;
+			if (!isPassingDown(up)) return null;
+			if (up.labels.includes(URGENT_LABEL)) return up;
 		}
 	} catch (e) {
 		io.out(
@@ -421,10 +420,11 @@ function readParent({ repo, number, labels }) {
 			`#${number} is ${parent.state} — a child filed under it drops off every map (#3637). ${openAncestorRemedy(repo, parent)} Nothing filed.`,
 			2,
 		);
-	const carrier = labels.includes(URGENT) && readUrgentCarrier(repo, parent);
+	const carrier =
+		labels.includes(URGENT_LABEL) && readUrgentCarrier(repo, parent);
 	if (carrier)
 		io.fail(
-			`${carrier === parent ? `#${number}` : `#${carrier.number}, an ancestor of #${number},`} carries urgent, which already covers every descendant (rule:urgent-label, #3250); a hard-coded copy keeps outranking once it is removed there. Drop --label urgent; where only some children are urgent, move urgent off #${carrier.number} onto them, or order them with blocking edges. Nothing filed.`,
+			`${carrier === parent ? `#${number}` : `#${carrier.number}, an ancestor of #${number},`} carries urgent, which already covers every descendant (rule:urgent-label, #3250); a hard-coded copy keeps outranking once it is removed there. Drop --label ${URGENT_LABEL}; where only some children are urgent, move urgent off #${carrier.number} onto them, or order them with blocking edges. Nothing filed.`,
 			2,
 		);
 	const added =

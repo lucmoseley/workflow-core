@@ -138,10 +138,10 @@ const { refillPath } = require("./lib/refill-dir.js");
 const { readControlFile } = require("./lib/refill-files.js");
 const { REVIEW_LABEL, readReviewIssues } = require("./lib/review-issues.js");
 const { freshReads, reviewReads } = require("./lib/review-reads.js");
+const { URGENT_LABEL } = require("./lib/urgent-label.js");
 
 const USAGE = "usage: node scripts/file-morning-review.js [--dry-run]";
 const FILING_LOCK = ".morning-review-filing.pid";
-const URGENT = "urgent";
 /* Untraced: the count line runs every enforcing check over the whole tree. */
 const COUNT_TIMEOUT_MS = 5 * 60 * 1000;
 /* One paged GraphQL read per tracker, run side by side. Measured on 1 Nov
@@ -614,10 +614,10 @@ function readUrgent(root, repo, reads) {
 	/** @type {Unread[]} */
 	const unread =
 		why === null ? [] : [{ repo, why: `pick-next's last run: ${why}` }];
-	const listed = readOpenLabelled(repo, URGENT);
+	const listed = readOpenLabelled(repo, URGENT_LABEL);
 	if ("why" in listed) return { read, unread: [...unread, listed] };
 	for (const { number, title } of listed.open) {
-		const age = readLabelAgeOn(repo, number, URGENT, reads);
+		const age = readLabelAgeOn(repo, number, URGENT_LABEL, reads);
 		if (age.unknown)
 			unread.push({ repo, why: `#${number}'s urgent age: ${age.error}` });
 		else

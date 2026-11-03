@@ -121,6 +121,7 @@ const selectionMarker = require("./lib/selection-marker");
 const idSeam = require("./lib/session-id");
 const { MAP_LABEL, resolveGate } = require("./lib/issue-gate");
 const { holderName, parentVerdictOf } = require("./lib/parent-claims");
+const { URGENT_LABEL, isPassingDown } = require("./lib/urgent-label.js");
 const {
 	isInOtherRepo,
 	parseIssueRef,
@@ -173,7 +174,6 @@ const REPO_DEFAULT = "{owner}/{repo}";
  * different trees — the disagreement `/pick-next` printed as CLAIMS DEGRADED.
  */
 const REPO_ROOT = process.env.WFC_REPO_ROOT || hostRoot();
-const URGENT_LABEL = "urgent";
 
 /*
  * `waiting:external` — the action has been taken and now sits with someone
@@ -272,6 +272,7 @@ async function ghGet(path) {
  * What the GitHub listing gives.
  * @typedef {object} RawIssue
  * @property {number} number
+ * @property {string} state
  * @property {string} title
  * @property {string} url
  * @property {string} createdAt ISO 8601, GitHub's `created_at`
@@ -3183,7 +3184,10 @@ async function resolveBlockers(issues, byNumber) {
 				parent:
 					parent &&
 					!isInOtherRepo(parent, i.repo) &&
-					byNumber.has(parent.number)
+					// The listing holds only open issues: a parent absent from it is closed.
+					isPassingDown({
+						state: byNumber.get(parent.number)?.state ?? "closed",
+					})
 						? parent.number
 						: null,
 				openSubIssues: i.openSubIssues,

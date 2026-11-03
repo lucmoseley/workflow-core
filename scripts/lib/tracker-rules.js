@@ -85,6 +85,7 @@ const { isJobDir } = require("./job-dir.js");
 const { parseCommand, walkCommands } = require("./shell-parse.js");
 const { isGhCommand, literal, scanFlags } = require("./shell-words.js");
 const { trimEndRun } = require("./trim-run.js");
+const { URGENT_LABEL } = require("./urgent-label.js");
 
 /**
  * @typedef {import("./guard-dispatch.js").CoreContext & {
@@ -270,7 +271,7 @@ const editsLabels = (words, { parsed }) =>
 /* A label edit naming `urgent`, or any `waiting:` value. */
 /** @type {Predicate} */
 const labelsUrgent = (words, { parsed }) =>
-	labelEdits(words, parsed.spans).includes("urgent");
+	labelEdits(words, parsed.spans).includes(URGENT_LABEL);
 /** @type {Predicate} */
 const labelsWaiting = (words, { parsed }) =>
 	labelEdits(words, parsed.spans).some((l) => l.startsWith("waiting:"));

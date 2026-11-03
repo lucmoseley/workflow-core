@@ -287,6 +287,7 @@ if (/issues\\?state=open/.test(p)) {
   if (fx.failList) return answer(${JSON.stringify(GH_LOGGED_OUT)});
   return page("issuesPage", fx.issues.map((i) => ({
     number: i.number,
+    state: "open",
     title: i.title || ("issue " + i.number),
     body: i.body || "",
     html_url: "http://example/" + i.number,
