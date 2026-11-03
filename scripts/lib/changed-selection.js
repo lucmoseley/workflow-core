@@ -4,8 +4,12 @@
  * of it, and the read graph's runtime readers of the same paths (mantahostels#2095).
  */
 
-const { execFileSync } = require("node:child_process");
-const { gitBinary, gitSpawnOptions, GIT_TIMEOUT_MS } = require("./git.js");
+const {
+	execProgram,
+	gitBinary,
+	gitSpawnOptions,
+	GIT_TIMEOUT_MS,
+} = require("./git.js");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -599,7 +603,7 @@ function expandChanged(
 	{
 		root = hostRoot(),
 		bin = path.join(root, "node_modules", ".bin", "vitest"),
-		execFn = execFileSync,
+		execFn = execProgram,
 		fs: fsImpl = fs,
 		probeConfig = probeConfigFile(),
 		loadEdges = () => readCommittedEdges(root),
@@ -1158,7 +1162,7 @@ function findDefaultEscalationReason(
 	root,
 	ref,
 	{
-		execFn = execFileSync,
+		execFn = execProgram,
 		loadEdges = () => readCommittedEdges(root),
 		renderEdges = () => liveEdges(root),
 		changed: given,

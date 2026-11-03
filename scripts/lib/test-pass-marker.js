@@ -53,8 +53,12 @@ const fs = require("node:fs");
 const { parseJsonl, readJsonl } = require("./jsonl.js");
 const { markersDir } = require("./marker-root.js");
 const path = require("node:path");
-const { execFileSync } = require("node:child_process");
-const { gitBinary, gitSpawnOptions, gitCommonDir } = require("./git.js");
+const {
+	execProgram,
+	gitBinary,
+	gitSpawnOptions,
+	gitCommonDir,
+} = require("./git.js");
 const { delta: cpuDelta } = require("./cpu-sample.js");
 const idSeam = require("./session-id.js");
 const { readCommandOrDefault } = require("./workflow-core-config.js");
@@ -96,7 +100,7 @@ const { appendLedgerLine } = require("./run-ledger.js");
  * @typedef {{closure: "*"|string[], selected?: string[],
  *   changedPaths?: string[]|null, base?: string|null,
  *   imports?: Record<string, string[]>, roots?: string[]}} Attestation
- * @typedef {{root?: string|null, execFn?: typeof execFileSync,
+ * @typedef {{root?: string|null, execFn?: typeof execProgram,
  *   cache?: Map<string, string>}} GitOptions
  * @typedef {GitOptions & {countedPaths?: Set<string>|null}} JudgeOptions
  * @typedef {{git: (args: string[]) => string, countedPaths: Set<string>|null}} DiffReader
@@ -951,11 +955,11 @@ function docsByTest(manifest) {
  * spawn of its own — is not repeated per certificate.
  *
  * @param {GitOptions} options
- * @returns {{root: string|null, execFn: typeof execFileSync, cache: Map<string, string>}}
+ * @returns {{root: string|null, execFn: typeof execProgram, cache: Map<string, string>}}
  */
 function gitContext({
 	root = repoRoot(),
-	execFn = execFileSync,
+	execFn = execProgram,
 	cache = new Map(),
 }) {
 	return { root, execFn, cache };
@@ -978,11 +982,13 @@ function gitReader(options) {
 			execFn(
 				gitBinary(),
 				args,
-				gitSpawnOptions({
-					cwd: root,
-					encoding: "utf8",
-					stdio: ["ignore", "pipe", "ignore"],
-				}),
+				gitSpawnOptions(
+					/** @type {import("node:child_process").ExecFileSyncOptions} */ ({
+						cwd: root,
+						encoding: "utf8",
+						stdio: ["ignore", "pipe", "ignore"],
+					}),
+				),
 			),
 		);
 		cache.set(key, out);

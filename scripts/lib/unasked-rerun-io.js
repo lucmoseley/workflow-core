@@ -19,7 +19,6 @@
  * unasked-rerun-io.contract.test.ts (§G7).
  */
 
-const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { ownSelection } = require("./own-selection.js");
@@ -38,7 +37,7 @@ const {
 } = require("./test-pass-marker.js");
 const { classifyFailures, readRedEvidence } = require("./already-red.js");
 const { caught } = require("./caught.js");
-const { gitAnswer, HOOK_GIT_TIMEOUT_MS } = require("./git.js");
+const { execProgram, gitAnswer, HOOK_GIT_TIMEOUT_MS } = require("./git.js");
 const { budgetMs } = require("./hook-deadline.js");
 
 /* arbiter-markers.js's sweep names the same prefix. */
@@ -69,20 +68,21 @@ function judgeIO(root, { timeoutMs = HOOK_GIT_TIMEOUT_MS } = {}) {
 	};
 	const boundedExec = () => {
 		const seen = { timedOut: false };
-		const exec = /** @type {typeof execFileSync} */ (
-			/** @type {import("./dirty-tree.js").ExecFn} */
-			(file, args, options) => {
-				try {
-					return execFileSync(file, args, {
-						...options,
-						timeout: budgetMs(timeoutMs),
-					});
-				} catch (e) {
-					if (caught(e).code === "ETIMEDOUT") seen.timedOut = true;
-					throw e;
+		const exec =
+			/** @type {typeof import("node:child_process").execFileSync} */ (
+				/** @type {import("./dirty-tree.js").ExecFn} */
+				(file, args, options) => {
+					try {
+						return execProgram(file, args, {
+							...options,
+							timeout: budgetMs(timeoutMs),
+						});
+					} catch (e) {
+						if (caught(e).code === "ETIMEDOUT") seen.timedOut = true;
+						throw e;
+					}
 				}
-			}
-		);
+			);
 		return { exec, seen };
 	};
 
@@ -148,7 +148,7 @@ function judgeIO(root, { timeoutMs = HOOK_GIT_TIMEOUT_MS } = {}) {
  * store could not be read for them.
  *
  * @param {string} root
- * @param {typeof execFileSync} exec
+ * @param {typeof import("node:child_process").execFileSync} exec
  * @param {{timedOut: boolean}} seen
  * @returns {{reds: ClassedRed[], redFault: string|null}}
  */

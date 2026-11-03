@@ -21,8 +21,12 @@
  * purpose (mantahostels#1403), which is the opposite of the null this module returns.
  */
 
-const { execFileSync } = require("node:child_process");
-const { gitBinary, gitSpawnOptions, GIT_TIMEOUT_MS } = require("./git.js");
+const {
+	execProgram,
+	gitBinary,
+	gitSpawnOptions,
+	GIT_TIMEOUT_MS,
+} = require("./git.js");
 
 /** @typedef {(file: string, args: string[], options: object) => string | Buffer} ExecFn */
 
@@ -47,7 +51,7 @@ const REFUSAL_NAMED_MAX = 10;
  * @param {string|null} [input] git's stdin, where it reads one
  * @returns {string|null}
  */
-function gitRead(args, root, execFn = execFileSync, input = null) {
+function gitRead(args, root, execFn = execProgram, input = null) {
 	try {
 		return String(
 			execFn(
@@ -100,7 +104,7 @@ function* porcelainEntries(out) {
  * @param {ExecFn} [execFn]
  * @returns {string[]|null} null where git could not answer
  */
-function readDirtyTracked(root, execFn = execFileSync) {
+function readDirtyTracked(root, execFn = execProgram) {
 	return readTrackedStatus(root, execFn)?.dirty ?? null;
 }
 
@@ -128,7 +132,7 @@ function readDirtyTracked(root, execFn = execFileSync) {
  * @returns {{ dirty: string[], renames: { path: string, source: string }[] }|null}
  *   null where git could not answer
  */
-function readTrackedStatus(root, execFn = execFileSync) {
+function readTrackedStatus(root, execFn = execProgram) {
 	const out = gitRead(["status", "--porcelain", "-z", "-uno"], root, execFn);
 	if (out === null) return null;
 	/** @type {string[]} */
@@ -158,7 +162,7 @@ function readTrackedStatus(root, execFn = execFileSync) {
  * @param {ExecFn} [execFn]
  * @returns {string[]|null} null where git could not answer
  */
-function readUntrackedFiles(root, execFn = execFileSync) {
+function readUntrackedFiles(root, execFn = execProgram) {
 	const out = gitRead(
 		["ls-files", "--others", "--exclude-standard", "-z"],
 		root,

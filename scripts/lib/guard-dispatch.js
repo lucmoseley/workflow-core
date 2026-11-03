@@ -52,6 +52,7 @@ const path = require("node:path");
 const { caught } = require("./caught.js");
 const { watchRepoFault } = require("./refuse-on-throw.js");
 const { gitOutcome, HOOK_GIT_TIMEOUT_MS } = require("./git.js");
+const { withGitReadMemo, withoutGitReadMemo } = require("./git-read-memo.js");
 const { startEntryClock } = require("./hook-deadline.js");
 const { guardDisabled } = require("./workflow-core-config.js");
 const {
@@ -201,6 +202,20 @@ function merge(parts) {
  * @returns {{ output: Output | null, latches: LatchSet[] }}
  */
 function dispatch(cores, env) {
+	/* post-write's formatter changes files between the reads of its call. */
+	const scoped =
+		env.payload.hook_event_name === "PostToolUse"
+			? withoutGitReadMemo
+			: withGitReadMemo;
+	return scoped(() => judgeAndMerge(cores, env));
+}
+
+/**
+ * @param {Core[]} cores
+ * @param {DispatchEnv} env
+ * @returns {{ output: Part | null, latches: LatchSet[] }}
+ */
+function judgeAndMerge(cores, env) {
 	const { payload, adapters, disabled } = env;
 	const host = { disabled, moduleOn: adapters.moduleOn };
 	const judged = cores
@@ -395,20 +410,11 @@ function thrown(core, msg, log) {
  * @returns {Adapters}
  */
 function hostAdapters(root, log) {
-	/** @type {Map<string, import("./git.js").GitRead>} */
-	const seen = new Map();
 	return {
 		...sharedReaders(root, log),
 		root,
-		git: (args, noMatch) => {
-			const key = JSON.stringify([args, noMatch]);
-			let r = seen.get(key);
-			if (!r) {
-				r = gitOutcome(args, noMatch, root, HOOK_GIT_TIMEOUT_MS);
-				seen.set(key, r);
-			}
-			return r;
-		},
+		git: (args, noMatch) =>
+			gitOutcome(args, noMatch, root, HOOK_GIT_TIMEOUT_MS),
 		readText: (rel) => {
 			try {
 				return fs.readFileSync(path.join(root, rel), "utf8");
@@ -463,6 +469,12 @@ function repoRel(file, root) {
  * @param {string} [only]
  */
 function runDispatch(only) {
+	/* Around the whole entry, so the root read shares the cores' memo. */
+	withGitReadMemo(() => runEntry(only));
+}
+
+/** @param {string} [only] */
+function runEntry(only) {
 	const root = hostRoot(process.cwd(), { timeoutMs: HOOK_GIT_TIMEOUT_MS });
 	if (guardDisabled(guardFile(), { root })) return;
 	const entryLog = logger(guardFile(), root);

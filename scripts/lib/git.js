@@ -12,7 +12,9 @@
  *
  * A caller whose spawn is injected for tests (an `execFn` that runs `vitest`
  * as well as `git`) passes gitBinary() to it and wraps its options in
- * gitSpawnOptions(), which carries the options every git spawn shares (#2734).
+ * gitSpawnOptions(), which carries the options every git spawn shares (#2734);
+ * execProgram is that spawn with git's reads kept in lib/git-read-memo.js, which
+ * execGit and spawnGitSync consult (#4127).
  */
 
 const { execFile, execFileSync, spawnSync } = require("node:child_process");
@@ -20,7 +22,13 @@ const { promisify } = require("node:util");
 
 const { caught } = require("./caught.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
+const {
+	consultMemo,
+	dropKeptReads,
+	stdoutOrThrow,
+} = require("./git-read-memo.js");
 const { spawnTimeout } = require("./hook-deadline.js");
+const { writeFd } = require("./write-fd.js");
 
 const pExecFile = promisify(execFile);
 
@@ -69,7 +77,42 @@ const gitSpawnOptions = (opts) => {
  * @returns {string | Buffer}
  */
 function execGit(args, opts = {}) {
-	return execFileSync(gitBinary(), args, gitSpawnOptions(opts));
+	const full = gitSpawnOptions(opts);
+	const read = consultGitMemo(args, full);
+	if (!read) return execFileSync(gitBinary(), args, full);
+	/* execFileSync echoes the stderr of a caller naming no stdio. */
+	if (opts.stdio === undefined && read.stderr?.length)
+		writeFd(2, read.stderr.toString());
+	return stdoutOrThrow(read, [gitBinary(), ...args]);
+}
+
+/**
+ * @param {readonly string[]} args
+ * @param {import("node:child_process").SpawnSyncOptions} opts
+ */
+const consultGitMemo = (args, opts) =>
+	consultMemo(
+		args,
+		opts,
+		(a, o) =>
+			/** @type {import("node:child_process").SpawnSyncReturns<Buffer>} */ (
+				spawnSync(gitBinary(), a, o)
+			),
+	);
+
+/**
+ * An `execFn` for a caller whose spawn runs other programs as well as git: git
+ * by execGit, so its reads reach the call's memo, and anything else as it is,
+ * after which the memo keeps nothing it may have changed.
+ * @param {string} file
+ * @param {readonly string[]} args
+ * @param {import("node:child_process").ExecFileSyncOptions} [opts]
+ * @returns {string | Buffer}
+ */
+function execProgram(file, args, opts) {
+	if (file === gitBinary()) return execGit(args, opts);
+	dropKeptReads();
+	return execFileSync(file, args, opts ?? {});
 }
 
 /**
@@ -163,7 +206,8 @@ function gitCommonDir(cwd, opts = {}) {
  * @returns {import("node:child_process").SpawnSyncReturns<string | Buffer>}
  */
 function spawnGitSync(args, opts = {}) {
-	return spawnSync(gitBinary(), args, gitSpawnOptions(opts));
+	const full = gitSpawnOptions(opts);
+	return consultGitMemo(args, full) ?? spawnSync(gitBinary(), args, full);
 }
 
 /* The ceiling on one git call a hook makes, sized to the tightest budget any
@@ -249,6 +293,7 @@ module.exports = {
 	gitBinary,
 	gitSpawnOptions,
 	execGit,
+	execProgram,
 	gitAnswer,
 	gitOrNull,
 	gitCommonDir,

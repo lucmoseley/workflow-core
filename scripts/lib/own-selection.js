@@ -5,8 +5,12 @@
  * narrows to (#1216).
  */
 
-const { execFileSync } = require("node:child_process");
-const { gitBinary, gitSpawnOptions, GIT_TIMEOUT_MS } = require("./git.js");
+const {
+	execProgram,
+	gitBinary,
+	gitSpawnOptions,
+	GIT_TIMEOUT_MS,
+} = require("./git.js");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -239,7 +243,7 @@ const lastCommitAt = (root, execFn) => (rel) =>
  * @param {ExecFn} [execFn]
  * @returns {string|null}
  */
-function overlayCommit(root, head, mine, execFn = execFileSync) {
+function overlayCommit(root, head, mine, execFn = execProgram) {
 	if (mine.length === 0) return head;
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "overlay-commit-"));
 	const env = {
@@ -306,7 +310,7 @@ function overlayCommit(root, head, mine, execFn = execFileSync) {
 function ownSelection(
 	root,
 	sessionId,
-	{ ledger, commitLedger, execFn = execFileSync } = {},
+	{ ledger, commitLedger, execFn = execProgram } = {},
 ) {
 	const status = readTrackedStatus(root, execFn);
 	const head = gitRead(["rev-parse", "HEAD"], root, execFn)?.trim();

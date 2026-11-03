@@ -21,21 +21,14 @@ const lines = (out) =>
 	out === null ? null : out.split("\n").filter((l) => l !== "");
 
 /**
- * One commit's reads, each git answer memoised: the state they read does not
- * move inside one hook call.
+ * One commit's reads.
  * @param {string} tree the directory the commit runs in
  * @param {string} root its top level
  * @returns {import("./registry-atomicity.js").Repo}
  */
 function openRepo(tree, root) {
-	/** @type {Map<string, string | null>} */
-	const memo = new Map();
 	/** @param {string[]} args */
-	const at = (args) => {
-		const key = args.join("\0");
-		if (!memo.has(key)) memo.set(key, git(["-C", tree, ...args]));
-		return memo.get(key) ?? null;
-	};
+	const at = (args) => git(["-C", tree, ...args]);
 	/** @param {string[]} args @returns {Set<string> | null} */
 	const listing = (args) => {
 		const out = at(args);
