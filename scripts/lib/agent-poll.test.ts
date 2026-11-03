@@ -212,6 +212,15 @@ describe("it fails open, and says so (mantahostels#103 §6, mantahostels#147)", 
 		);
 	});
 
+	it("allows a window that will not read, and says so rather than counting it empty (#4132)", () => {
+		// A directory where the window file should be: the read fails EISDIR.
+		fs.mkdirSync(stateFile(), { recursive: true });
+		expectSilentAllow(run());
+		expect(logs.join("\n")).toContain(
+			`could not read ${stateFile()} — poll allowed unchecked`,
+		);
+	});
+
 	it("allows when the payload carries no session_id, through the dispatcher", () => {
 		const r = runCore(
 			"guard-agent-poll",

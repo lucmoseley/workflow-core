@@ -14,8 +14,8 @@
  *
  * A REFUSAL IS `permissionDecision` JSON ON EXIT 0, never exit 2.
  *
- * FAILURE POLICY. A payload fault, a core that throws and an unreadable latch
- * all fail open, logged to the guard-error log gl_log writes (mantahostels#103),
+ * FAILURE POLICY. A payload fault, stdin that will not read included (#4132),
+ * a core that throws and an unreadable latch all fail open, logged to the guard-error log gl_log writes (mantahostels#103),
  * but for an entry run with `onThrow: "refuse"`, whose core's throw refuses.
  * A store fault — a rule the store cannot give, or one too large to emit at
  * all — fails closed (mantahostels#1762). An entry run by hand with arguments
@@ -348,6 +348,8 @@ function writeLatches({ root, payload, log }, latches) {
 		try {
 			fs.writeFileSync(latchPath(root, name, key), text);
 		} catch {
+			/* Said again rather than refused: a repeat costs one injection
+			 * (mantahostels#103 §6). */
 			log(`latch ${name} unwritable — said again on the next trigger`);
 		}
 	}
@@ -487,6 +489,7 @@ function run({
 			});
 		writeLatches(env, out.latches);
 	} catch (e) {
+		/* The FAILURE POLICY above: fail open, logged (mantahostels#103 §6). */
 		entryLog(`guard threw — allowed unchecked: ${caught(e).message}`);
 	}
 }

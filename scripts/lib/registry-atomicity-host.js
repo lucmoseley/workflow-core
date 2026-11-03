@@ -104,10 +104,15 @@ function openRepo(tree, root) {
 		exists: (rel) => fs.existsSync(abs(rel)),
 		isFile: (rel) =>
 			fs.statSync(abs(rel), { throwIfNoEntry: false })?.isFile() ?? false,
+		/* Null where it will not read: callers read only paths `exists` or the
+		 * disk listing has shown, so the core
+		 * reads null as unreadable, logs it and allows, its stated fail-open
+		 * (mantahostels#103 §6, #4132). */
 		read: (rel) => {
 			try {
 				return fs.readFileSync(abs(rel), "utf8");
 			} catch {
+				/* The core's logged allow, above. */
 				return null;
 			}
 		},
@@ -194,6 +199,8 @@ function pluginScripts() {
 	try {
 		return fs.realpathSync(path.join(__dirname, ".."));
 	} catch {
+		/* Only a refusal's or a record's text names it, so a placeholder costs
+		 * a path the reader cannot paste, never a verdict (mantahostels#103 §6). */
 		return "<plugin root>/scripts";
 	}
 }
@@ -231,6 +238,8 @@ function buildHostPorts() {
 					"utf8",
 				);
 			} catch {
+				/* Null, which the core logs and allows on as a needle present
+				 * (mantahostels#103 §6). */
 				return null;
 			}
 		},

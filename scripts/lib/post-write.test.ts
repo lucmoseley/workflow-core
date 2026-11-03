@@ -93,6 +93,14 @@ describe("post-write — format, then record, in that order", () => {
 		expect(store.contentState(REL, readLock()).state).toBe("same");
 	});
 
+	it("logs a written path that will not read for its digest, rather than swallowing it (#4132)", () => {
+		fs.mkdirSync(path.join(sb.repo, "scripts", "dir.js"));
+		const r = run("alice", path.join(sb.repo, "scripts", "dir.js"));
+		expect(r.logs.join("\n")).toContain(
+			"the written file did not read for its digest",
+		);
+	});
+
 	it("formats a shell script with shfmt before recording it (#1332)", () => {
 		const rel = "scripts/demo.sh";
 		const me = live(sb, "alice");

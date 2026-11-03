@@ -8,6 +8,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { caught } = require("./caught.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { makeDir } = require("./guard-entry.js");
 
@@ -21,15 +22,16 @@ function buildHostPorts() {
 	return {
 		now: () => Math.floor(Date.now() / 1000),
 		/**
-		 * The window's text; "" where it is absent or will not read, which
-		 * counts nothing: a window that cannot be read holds no calls.
+		 * The window's text; "" where it is absent, which counts nothing, and
+		 * null where it will not read, which the core logs and allows on
+		 * rather than read as an empty window (#4132).
 		 * @param {string} file
 		 */
 		readWindow: (file) => {
 			try {
 				return fs.readFileSync(file, "utf8");
-			} catch {
-				return "";
+			} catch (e) {
+				return caught(e).code === "ENOENT" ? "" : null;
 			}
 		},
 		makeDir,
@@ -42,6 +44,8 @@ function buildHostPorts() {
 				writeFileAtomic(file, text);
 				return true;
 			} catch {
+				/* The port's contract: false, which the core logs as an
+				 * unrecorded call and allows on (mantahostels#103 §6). */
 				return false;
 			}
 		},
@@ -58,6 +62,8 @@ function buildHostPorts() {
 			try {
 				names = fs.readdirSync(dir);
 			} catch {
+				/* Best effort: an unswept directory only holds stale windows a
+				 * day longer, which no count reads (mantahostels#103 §6). */
 				return;
 			}
 			for (const name of names) {
@@ -66,7 +72,7 @@ function buildHostPorts() {
 					const s = fs.lstatSync(p);
 					if (s.isFile() && s.mtimeMs < cutoff) fs.unlinkSync(p);
 				} catch {
-					/* gone, or not ours to remove */
+					/* Gone, or not ours to remove: best effort, as above (mantahostels#103 §6). */
 				}
 			}
 		},
