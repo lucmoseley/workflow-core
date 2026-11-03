@@ -235,6 +235,38 @@ function sumBreaches(rows, countBreaches) {
 		: { count: total };
 }
 
+/**
+ * The FAIL findings in what a check printed under `--json`. A breach is
+ * FAIL-severity only: a WARN, such as check-host-root's stale-allowlist note,
+ * is about the check, not a caller off the primitive, and --warn caps the
+ * outcome, never a finding's severity.
+ *
+ * SKIP reads as its empty findings, so it adds 0: check-host-root SKIPs in any
+ * repo shipping no plugin, and one such row must not blank the total (#4119).
+ * Residual: a row whose check SKIPs because its subject is out of reach rather
+ * than absent, such as GitHub being down (§N4), also adds 0, with its reason
+ * dropped. No row's check does so today.
+ *
+ * @param {string} stdout
+ * @param {number | null} status
+ * @returns {Count}
+ */
+function parseBreaches(stdout, status) {
+	/** @type {{ outcome?: unknown, findings?: unknown } | null} */
+	let envelope;
+	try {
+		envelope = JSON.parse(stdout);
+	} catch {
+		return { unknown: `it printed no --json envelope (exit ${status})` };
+	}
+	if (envelope?.outcome === "BROKEN") return { unknown: "it answered BROKEN" };
+	return Array.isArray(envelope?.findings)
+		? {
+				count: envelope.findings.filter((f) => f?.severity === "FAIL").length,
+			}
+		: { unknown: "its envelope carries no findings array" };
+}
+
 /** @param {Count} c @param {string} noun */
 const shown = (c, noun) =>
 	"unknown" in c ? `${noun} unknown (${c.unknown})` : `${c.count} ${noun}`;
@@ -401,4 +433,9 @@ function rowChanges(side, before, after) {
 	return { changes };
 }
 
-module.exports = { STANDARDS_DOCS, judgePrimitives, rowChanges };
+module.exports = {
+	STANDARDS_DOCS,
+	judgePrimitives,
+	parseBreaches,
+	rowChanges,
+};

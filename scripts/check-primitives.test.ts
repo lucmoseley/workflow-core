@@ -37,6 +37,9 @@ const write = (root: string, rel: string, body: string) => {
 const fakeCheck = (n: number) =>
 	`process.stdout.write(JSON.stringify({ outcome: ${n > 0 ? '"FAIL"' : '"OK"'}, findings: [...Array.from({ length: ${n} }, () => ({ severity: "FAIL" })), { severity: "WARN" }] }));\n`;
 
+const answering = (outcome: string) =>
+	`process.stdout.write(JSON.stringify({ outcome: "${outcome}", findings: [] }));\n`;
+
 const base = (rows: string) =>
 	`# Code standards base\n\n## §0 How to use this\n\n## §N — programs\n\n### §N6 · Output is synchronous — **hard**\n\n## Primitives\n\n${HEADER}${rows}\n## §X — tests\n`;
 
@@ -255,6 +258,34 @@ describe("check-primitives", () => {
 		expect(r.out).not.toContain("primitives: ");
 	});
 
+	describe("a check answering SKIP has no breaches to report (#4119)", () => {
+		const skipRow =
+			"| Host root | `hostRoot` | `scripts/lib/write-fd.js` | §N6 | `scripts/check-skip.js` |\n";
+		const pluginWithSkippingCheck = (root: string) => {
+			plugin(root, `${BASE_ROW}${skipRow}`);
+			write(root, "scripts/check-skip.js", answering("SKIP"));
+		};
+
+		it("adds 0, the total being the FAIL findings of the rows that ran", () => {
+			const core = path.join(dir, "core");
+			pluginWithSkippingCheck(core);
+			const r = run(core, core);
+			expect(r.status).toBe(0);
+			expect(r.out).toContain("primitives: 2 enforced, 2 open breaches,");
+		});
+
+		it("does not hide a neighbour's BROKEN", () => {
+			const core = path.join(dir, "core");
+			pluginWithSkippingCheck(core);
+			write(core, "scripts/check-out.js", answering("BROKEN"));
+			const r = run(core, core);
+			expect(r.status).toBe(0);
+			expect(r.out).toContain(
+				"open breaches unknown (scripts/check-out.js: it answered BROKEN)",
+			);
+		});
+	});
+
 	describe("a count it cannot read prints as unknown with its reason, never 0", () => {
 		it("open breaches, where a check prints no envelope", () => {
 			const core = path.join(dir, "core");
@@ -270,11 +301,7 @@ describe("check-primitives", () => {
 		it("open breaches, where a check answers BROKEN", () => {
 			const core = path.join(dir, "core");
 			plugin(core);
-			write(
-				core,
-				"scripts/check-out.js",
-				'process.stdout.write(JSON.stringify({ outcome: "BROKEN", findings: [] }));\n',
-			);
+			write(core, "scripts/check-out.js", answering("BROKEN"));
 			const r = run(core, core);
 			expect(r.out).toContain(
 				"open breaches unknown (scripts/check-out.js: it answered BROKEN)",
