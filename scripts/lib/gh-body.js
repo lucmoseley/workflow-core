@@ -9,10 +9,16 @@ const { literal } = require("./shell-words.js");
 const { trimEndRun } = require("./trim-run.js");
 
 /**
- * @typedef {object} Body what the body words of one call read, appended to
- *   across words
+ * @typedef {object} Body what gh takes from one call's body words. A repeated
+ *   flag's last word replaces the ones before it, and a --body-file beats any
+ *   --body on either side of it unless its path is empty, which gh reads as no
+ *   file, on `gh issue create` (#3614). `gh issue comment` and
+ *   `gh issue edit` refuse a --body beside a non-empty --body-file, unsent.
  * @property {string} text
  * @property {boolean} given any body word was seen
+ * @property {string | null | undefined} flag the last --body word's text; null
+ *   where it cannot be recovered, undefined where none was seen
+ * @property {boolean} fromFile the last --body-file word names a file
  * @property {boolean} hidden the text cannot be recovered
  * @property {string} missing a --body-file path absent at hook time
  * @property {string} fault why a body file could not be read
@@ -38,10 +44,32 @@ const SPACE = "[ \\t\\n\\v\\f\\r]";
 const newBody = () => ({
 	text: "",
 	given: false,
+	flag: undefined,
+	fromFile: false,
 	hidden: false,
 	missing: "",
 	fault: "",
 });
+
+/**
+ * Drops what an earlier body word read.
+ * @param {Body} body accumulator: back to no text
+ */
+function forget(body) {
+	body.text = "";
+	body.hidden = false;
+	body.missing = "";
+	body.fault = "";
+}
+
+/**
+ * @param {Body} body accumulator: the last --body word's text, or hidden
+ */
+function takeFlag(body) {
+	forget(body);
+	if (body.flag === null) body.hidden = true;
+	else body.text = body.flag ?? "";
+}
 
 /**
  * A word read back as the shell hands it over, a command substitution's
@@ -55,17 +83,16 @@ function captured(word, spans) {
 }
 
 /**
- * One --body word. Appends its text; marks the body hidden where the text
- * cannot be recovered, which is a fail-open rather than a verdict.
+ * One --body word. Takes its text; marks the body hidden where the text cannot
+ * be recovered, which is a fail-open rather than a verdict.
  * @param {Body} body accumulator: the word's text, or hidden
  * @param {string} word
  * @param {string[]} spans
  */
 function bodyWord(body, word, spans) {
 	body.given = true;
-	const text = captured(word, spans);
-	if (text === null) body.hidden = true;
-	else body.text += text;
+	body.flag = captured(word, spans);
+	if (!body.fromFile) takeFlag(body);
 }
 
 /**
@@ -76,8 +103,15 @@ function bodyWord(body, word, spans) {
  * @param {BodyEnv} env
  */
 function bodyFileWord(body, word, env) {
-	body.given = true;
 	const at = captured(word, env.spans);
+	body.fromFile = at !== "";
+	if (at === "") {
+		body.given = body.flag !== undefined;
+		takeFlag(body);
+		return;
+	}
+	body.given = true;
+	forget(body);
 	if (at === null) {
 		body.hidden = true;
 		return;
@@ -133,7 +167,7 @@ function diskBody(body, { at, before, tilde }, env) {
 		return;
 	}
 	body.hidden = false;
-	body.text += trimEndRun(text, "\n");
+	body.text = trimEndRun(text, "\n");
 }
 
 /**
@@ -218,7 +252,7 @@ function stdinHeredoc(body, env) {
 	const text = heredocText(env);
 	if (text === null) return;
 	body.hidden = false;
-	body.text += text;
+	body.text = text;
 }
 
 /**

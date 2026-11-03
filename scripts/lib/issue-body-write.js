@@ -76,6 +76,7 @@
  */
 
 const {
+	isBodyField,
 	isGraphql,
 	isIssueEndpoint,
 	mutationArgs,
@@ -85,7 +86,7 @@ const {
 const { ISSUE_VALUE_FLAGS } = require("./gh-issue-ref.js");
 const { deny, ruleOrFallback, walkVerdict } = require("./guard-verdict.js");
 const { parseCommand, unmask } = require("./shell-parse.js");
-const { QUOTED, isGhCommand, literal } = require("./shell-words.js");
+const { QUOTED, isGhCommand } = require("./shell-words.js");
 
 /**
  * @typedef {import("./kit-context.js").KitContext} BodyContext
@@ -258,9 +259,7 @@ function judgeMutation(run, segment, query) {
  * @param {import("./gh-api-call.js").ApiCall} call
  */
 function judgePatch(run, segment, call) {
-	const body = call.fields.some((f) =>
-		literal(f, run.parsed.spans).text.startsWith("body="),
-	);
+	const body = call.fields.some((f) => isBodyField(f, run.parsed.spans));
 	let hidden;
 	if (call.method.toUpperCase() === "PATCH") hidden = false;
 	else if (unread(call.method)) hidden = true;

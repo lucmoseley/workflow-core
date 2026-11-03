@@ -1099,6 +1099,82 @@ describe("the blank-body limb (mantahostels#3443)", () => {
 		expect(verdict(`${REST_CREATE} -f body=why`)).toBe("allow");
 	});
 
+	it("reads `@` on a raw REST body field as text and on -F as a file (#3614)", () => {
+		const gate = "@x\n**Gated until:** 2026-09-29 — a day live";
+		for (const flag of ["-f", "--raw-field"])
+			expect(readDenyReason(`${REST_CREATE} ${flag} 'body=${gate}'`)).toContain(
+				"sets a wait with nothing behind it",
+			);
+		for (const flag of ["-F", "--field"])
+			expect(verdict(`${REST_CREATE} ${flag} 'body=${gate}'`)).toBe("allow");
+	});
+
+	it("reads a REST `-F body=null` as the blank body gh sends (#3614)", () => {
+		expect(readDenyReason(`${REST_CREATE} -F body=null`)).toContain(
+			`${blank} is empty`,
+		);
+		expect(verdict(`${REST_CREATE} -f body=null`)).toBe("allow");
+	});
+
+	it("passes a repeated REST body field, which gh refuses unsent (#3614)", () => {
+		for (const fields of [
+			"-f body=x -f body=",
+			"-f body= -f body=x",
+			"-F body=@a.md -f body=",
+			"--raw-field body= --field body=",
+		])
+			expect(verdict(`${REST_CREATE} ${fields}`)).toBe("allow");
+		expect(
+			verdict(
+				"gh api --method POST repos/o/r/issues -f title=x -f body=x -f body=",
+			),
+		).toBe("allow");
+	});
+
+	it("reads repeated --body words as the last, which gh keeps (#3614)", () => {
+		expect(readDenyReason(`${create} --body x --body ''`)).toContain(
+			`${blank} is empty`,
+		);
+		expect(verdict(`${create} --body '' --body x`)).toBe("allow");
+		expect(verdict(`${create} --body "$UNREAD" --body ''`)).toBe("deny");
+		expect(verdict(`${create} --body '' --body "$UNREAD"`)).toBe("allow");
+	});
+
+	it("reads repeated --body-file words as the last, ahead of any --body (#3614)", () => {
+		fs.writeFileSync(path.join(shared, "present.md"), "why\n");
+		fs.writeFileSync(path.join(shared, "blank.md"), "\n");
+		const absent = `${blank} is read from a file that does not exist`;
+		expect(
+			verdict(`${create} --body-file gone.md --body-file present.md`),
+		).toBe("allow");
+		expect(
+			readDenyReason(`${create} --body-file present.md --body-file gone.md`),
+		).toContain(absent);
+		for (const call of [
+			`${create} --body why --body-file blank.md`,
+			`${create} --body-file blank.md --body why`,
+		])
+			expect(readDenyReason(call)).toContain(`${blank} is empty`);
+		expect(verdict(`${create} --body '' --body-file present.md`)).toBe("allow");
+		expect(verdict(`${create} --body-file present.md --body ''`)).toBe("allow");
+		expect(
+			readDenyReason(`${create} --body-file gone.md --body why`),
+		).toContain(absent);
+	});
+
+	it("reads an empty --body-file path as no file, as gh does (#3614)", () => {
+		fs.writeFileSync(path.join(shared, "present.md"), "why\n");
+		for (const words of [
+			"--body '' --body-file ''",
+			"--body-file present.md --body-file '' --body ''",
+		])
+			expect(readDenyReason(`${create} ${words}`)).toContain(
+				`${blank} is empty`,
+			);
+		expect(verdict(`${create} --body x --body-file ''`)).toBe("allow");
+		expect(verdict(`${create} --body-file ''`)).toBe("allow");
+	});
+
 	it("reads an unquoted `~/` --body-file under HOME (#2796)", () => {
 		vi.stubEnv("HOME", shared);
 		fs.writeFileSync(path.join(shared, "present.md"), "why\n");

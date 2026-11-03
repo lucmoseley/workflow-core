@@ -14,6 +14,9 @@ const { trimEndRun } = require("./trim-run.js");
  * @property {string} method the --method/-X value, "" where none was given
  * @property {string} endpoint the first bare word
  * @property {string[]} fields every -f/-F/--field/--raw-field value, in order
+ * @property {Set<string>} magicFields those of `fields` given on -F or --field,
+ *   whose value gh reads for `@file`, numbers, booleans and null; -f and
+ *   --raw-field send it as typed
  * @property {boolean} opaque a field's own NAME cannot be read even through
  *   literal — `-f "$FIELD"` — so which field it is cannot be told. A name
  *   merely quoted — `-f "title=x"`, `-f 'labels[]=y'` — reads back and is not
@@ -45,14 +48,20 @@ function scanApi(argv, spans) {
 		method: "",
 		endpoint: "",
 		fields: [],
+		magicFields: new Set(),
 		opaque: false,
 		input: false,
 	};
 	for (let i = 0; i < argv.length; ) {
-		const { val, step } = readWord(call, argv[i] ?? "", argv[i + 1] ?? "");
+		const { val, step, magic } = readWord(
+			call,
+			argv[i] ?? "",
+			argv[i + 1] ?? "",
+		);
 		if (val) {
 			if (isNameUnread(val, spans)) call.opaque = true;
 			call.fields.push(val);
+			if (magic) call.magicFields.add(val);
 		}
 		i += step;
 	}
@@ -69,10 +78,18 @@ function scanApi(argv, spans) {
 const isNameUnread = (val, spans) => !literal(val, spans).head.includes("=");
 
 /**
+ * Whether a field word sets the issue's `body`.
+ * @param {string} val
+ * @param {string[]} spans
+ */
+const isBodyField = (val, spans) =>
+	literal(val, spans).text.startsWith("body=");
+
+/**
  * @param {ApiCall} call
  * @param {string} tok
  * @param {string} next
- * @returns {{ val: string, step: number }}
+ * @returns {{ val: string, step: number, magic?: boolean }}
  */
 function readWord(call, tok, next) {
 	if (tok.startsWith("--")) return longWord(call, tok, next);
@@ -80,7 +97,11 @@ function readWord(call, tok, next) {
 		const short = shortBundle(tok.slice(1), next);
 		if (short.letter === "X") call.method = short.value;
 		const field = short.letter === "f" || short.letter === "F";
-		return { val: field ? short.value : "", step: short.step };
+		return {
+			val: field ? short.value : "",
+			step: short.step,
+			magic: short.letter === "F",
+		};
 	}
 	if (!call.endpoint) call.endpoint = tok;
 	return { val: "", step: 1 };
@@ -90,14 +111,15 @@ function readWord(call, tok, next) {
  * @param {ApiCall} call
  * @param {string} tok
  * @param {string} next
- * @returns {{ val: string, step: number }}
+ * @returns {{ val: string, step: number, magic?: boolean }}
  */
 function longWord(call, tok, next) {
 	const eq = tok.indexOf("=");
 	const name = eq < 0 ? tok : tok.slice(0, eq);
 	const value = eq < 0 ? next : tok.slice(eq + 1);
 	const step = eq < 0 ? 2 : 1;
-	if (name === "--field" || name === "--raw-field") return { val: value, step };
+	if (name === "--field" || name === "--raw-field")
+		return { val: value, step, magic: name === "--field" };
 	if (name === "--method") {
 		call.method = value;
 		return { val: "", step };
@@ -254,6 +276,7 @@ function mutationArgs(query, name) {
 module.exports = {
 	apiPath,
 	scanApi,
+	isBodyField,
 	defaultsToPost,
 	isIssueEndpoint,
 	isIssueCollection,

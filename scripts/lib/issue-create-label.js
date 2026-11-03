@@ -102,8 +102,9 @@
  *    word, the missed one. A REST create's `body` field is judged as the
  *    flag form's body is (#3492), but for `-F body=@<path>`, which is not
  *    read: gh refuses a file it cannot open, so an absent one files nothing.
- *    The GraphQL route is not judged, and neither is a create carrying no
- *    body at all.
+ *    The GraphQL route is not judged, nor a REST create repeating its `body`
+ *    field, which gh refuses unsent (#3614), nor a create carrying no body at
+ *    all.
  *  - THE BASIS LIMB (#672) refuses, on a body the blank-body limb read, a
  *    gate line or a prose wait with no `**Gate basis:**`, or a window in
  *    either that the basis does not name (#823), through lib/issue-gate.js.
@@ -152,6 +153,7 @@ const { addedCheckVerdict } = require("./gate-check.js");
 const {
 	defaultsToPost,
 	endpointRepo,
+	isBodyField,
 	isGraphql,
 	isIssueCollection,
 	mutationArgs,
@@ -887,6 +889,7 @@ const editBodyFile = (edit) => {
 	/* The create's file readers are tuned to a create's command shape, so a
 	 * body from a file or stdin is hidden here, and refused. */
 	edit.body.given = true;
+	edit.body.fromFile = true;
 	edit.body.hidden = true;
 };
 /** @type {(edit: Edit, value: string) => void} */
@@ -1028,6 +1031,12 @@ function judgeApi(run, cmd, args) {
 			run.ctx,
 			"could not read a field name on a gh api issue creation — create allowed unchecked",
 		);
+	/* gh exits on a repeated field, `unexpected override existing field`,
+	 * before any request (#3614), so this call files nothing to judge.
+	 * Residual: a gh that stopped refusing would file it unjudged;
+	 * gh-api-call.contract.test.ts goes red on that release. */
+	if (call.fields.filter((f) => isBodyField(f, run.parsed.spans)).length > 1)
+		return;
 	const repo = endpointRepo(endpoint);
 	/** @type {Creation} */
 	const made = {
@@ -1043,7 +1052,7 @@ function judgeApi(run, cmd, args) {
 			key: "labels[]=",
 		},
 	};
-	readApiFields(run, call.fields, made);
+	readApiFields(run, call, made);
 	judgeBody(run, cmd.segment, made);
 	judgeLabels(run, cmd.segment, made);
 	judgeSecondMap(run, cmd, made);
@@ -1056,29 +1065,32 @@ function judgeApi(run, cmd, args) {
  * creation. The value is only read where the name says it is the labels or
  * the body. A name that does not read has already failed open on call.opaque.
  * @param {Run} run
- * @param {string[]} fields
+ * @param {import("./gh-api-call.js").ApiCall} call
  * @param {Creation} made accumulator: the labels and body each field gives
  */
-function readApiFields(run, fields, made) {
-	for (const field of fields) readApiField(run, field, made);
+function readApiFields(run, call, made) {
+	for (const field of call.fields)
+		readApiField(run, field, call.magicFields.has(field), made);
 }
 
 /**
  * @param {Run} run
  * @param {string} field
+ * @param {boolean} magic it came on -F or --field
  * @param {Creation} made accumulator: the label or body this field gives
  */
-function readApiField(run, field, made) {
+function readApiField(run, field, magic, made) {
 	const { text: raw, known } = literal(field, run.parsed.spans);
 	const text = trimEndRun(raw, "\n");
 	if (text.startsWith("body=")) {
-		/* The body, for the body limbs and the takes:human one. `@file` is
-		 * gh's read-from-disk spelling on -F, and what follows it is a path
-		 * rather than the text. */
+		/* The body, for the body limbs and the takes:human one. On -F, `@file`
+		 * is gh's read-from-disk spelling, what follows it a path rather than
+		 * the text, and `null` sends JSON null: a blank body. On -f, gh sends
+		 * the value as typed. */
 		const value = text.slice("body=".length);
 		made.body.given = true;
-		if (!known || value.startsWith("@")) made.body.hidden = true;
-		else made.body.text += value;
+		if (!known || (magic && value.startsWith("@"))) made.body.hidden = true;
+		else made.body.text = magic && value === "null" ? "" : value;
 		return;
 	}
 	/* `labels[]=` is gh's array spelling and the one the endpoint wants; the
