@@ -246,7 +246,7 @@ describe("launch", () => {
 		const seen = readSeenOrNull();
 		if (!seen) throw new Error("fake never ran");
 		expect(JSON.parse(flag(seen.argv, "--settings")).apiKeyHelper).toContain(
-			SCRIPT,
+			path.join(__dirname, "overflow-key.js"),
 		);
 		expect(seen.helped).toBe(KEY);
 		expect(Object.values(seen.env)).not.toContain(KEY);

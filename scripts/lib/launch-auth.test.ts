@@ -12,12 +12,17 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildAuthStatusBranch } from "./auth-status-fake";
 import { launchAuthRefusal } from "./launch-auth.js";
+import { buildKeyHelper } from "./overflow-key.js";
+import { runInProcess } from "./run-in-process.js";
 
 let dir = "";
 let bin = "";
 let home = "";
 let seat = "";
+let secrets = "";
+const CLI = path.join(__dirname, "launch-auth.js");
 const was = process.env.HOME;
+const wasSecrets = process.env.WFC_SECRETS_FILE;
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "launch-auth-"));
@@ -27,12 +32,16 @@ beforeEach(() => {
 	});
 	home = path.join(dir, "home");
 	seat = path.join(home, ".claude-api");
+	secrets = path.join(dir, "secrets.env");
+	process.env.WFC_SECRETS_FILE = secrets;
 	fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
 	process.env.HOME = home;
 });
 
 afterEach(() => {
 	process.env.HOME = was;
+	if (wasSecrets === undefined) delete process.env.WFC_SECRETS_FILE;
+	else process.env.WFC_SECRETS_FILE = wasSecrets;
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -165,6 +174,94 @@ describe("an overflow seat (#2570)", () => {
 		expect(
 			overflowRefusal({ CLAUDE_CODE_USE_VERTEX: "1", CLAUDE_CONFIG_DIR: seat }),
 		).toContain("CLAUDE_CODE_USE_VERTEX");
+	});
+});
+
+describe("an overflow seat's helper under its plan dir (#3699)", () => {
+	const plan = () => path.join(home, ".claude2");
+	const declarePlanOverflow = () =>
+		fs.writeFileSync(
+			path.join(home, ".claude", "refill-seats"),
+			`${plan()}\n${plan()} api key=K grant=200 cycle-day=20\n`,
+		);
+	const withHelper = (extra: Record<string, string>, keyVar = "K") =>
+		launchAuthRefusal({
+			bin,
+			env: { PATH: process.env.PATH, HOME: home, ...extra },
+			cwd: dir,
+			settings: JSON.stringify({
+				apiKeyHelper: buildKeyHelper(keyVar, secrets),
+			}),
+		});
+
+	it("admits the plan login and no login", () => {
+		declarePlanOverflow();
+		expect(withHelper({ CLAUDE_CONFIG_DIR: plan() })).toBeNull();
+		expect(
+			withHelper({ WFC_FAKE_AUTH_NO_LOGIN: "1", CLAUDE_CONFIG_DIR: plan() }),
+		).toBeNull();
+	});
+
+	it("refuses a key already in force, which outranks the helper", () => {
+		declarePlanOverflow();
+		expect(
+			withHelper({ ANTHROPIC_API_KEY: "k", CLAUDE_CONFIG_DIR: plan() }),
+		).toContain("ANTHROPIC_API_KEY");
+	});
+
+	it("admits it through the CLI's --settings", () => {
+		declarePlanOverflow();
+		const settings = JSON.stringify({
+			apiKeyHelper: buildKeyHelper("K", secrets),
+		});
+		const run = (args: string[]) =>
+			runInProcess(CLI, args, {
+				env: {
+					PATH: process.env.PATH,
+					HOME: home,
+					WFC_CLAUDE_BIN: bin,
+					WFC_SECRETS_FILE: secrets,
+					WFC_FAKE_AUTH_NO_LOGIN: "1",
+					CLAUDE_CONFIG_DIR: plan(),
+				},
+			});
+		expect(run(["--settings", settings]).status).toBe(0);
+		const plain = run([]);
+		expect(plain.status).toBe(2);
+		expect(plain.stderr).toContain("REFUSED:");
+	});
+
+	it("still refuses the key on a plain launch under the same dir", () => {
+		declarePlanOverflow();
+		expect(
+			refusal({ ANTHROPIC_API_KEY: "k", CLAUDE_CONFIG_DIR: plan() }),
+		).toContain("ANTHROPIC_API_KEY");
+	});
+
+	it("refuses a helper for a key variable no overflow line declares", () => {
+		declarePlanOverflow();
+		expect(withHelper({ CLAUDE_CONFIG_DIR: plan() }, "J")).toContain(
+			"no declared overflow seat's",
+		);
+	});
+
+	it("refuses the helper under a dir that is not its seat's", () => {
+		declarePlanOverflow();
+		expect(
+			withHelper({ CLAUDE_CONFIG_DIR: path.join(home, ".claude3") }),
+		).toContain("no declared overflow seat's");
+	});
+
+	it("refuses any other apiKeyHelper in the settings", () => {
+		declarePlanOverflow();
+		expect(
+			launchAuthRefusal({
+				bin,
+				env: { PATH: process.env.PATH, HOME: home, CLAUDE_CONFIG_DIR: plan() },
+				cwd: dir,
+				settings: JSON.stringify({ apiKeyHelper: "echo K" }),
+			}),
+		).toContain("no declared overflow seat's");
 	});
 });
 

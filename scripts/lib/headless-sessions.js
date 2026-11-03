@@ -9,10 +9,10 @@
  * (mantahostels#1093).
  *
  * THE KEY reaches the child only through an `apiKeyHelper` in `--settings`,
- * this module's `key` command, which prints the seat's named variable from
- * the secrets file (lib/env-file.js).
- * It is in neither the caller's environment nor the child's, so no Bash call
- * or hook in the session sees it (#2604 (b)); the launch removes any
+ * lib/overflow-key.js, which prints the seat's named variable from the
+ * secrets file (lib/env-file.js). It is in neither the caller's environment
+ * nor the child's, so no Bash call or hook in the session sees it
+ * (#2604 (b)); the launch removes any
  * ANTHROPIC_API_KEY or seat variable it inherits. A missing file or
  * variable refuses the launch by name before anything spawns, since the
  * helper runs only after; so does any other auth in force on the seat
@@ -49,18 +49,13 @@ const {
 const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
 const { claudeBin } = require("./claude-bin.js");
-const {
-	readEnvFileValue,
-	readSecretKeepingIgnore,
-	secretsFile,
-} = require("./env-file.js");
 const { endGroup, isGroupAlive } = require("./grouped-child.js");
 const { readJsonl } = require("./jsonl.js");
 const { launchAuthRefusal } = require("./launch-auth.js");
+const { buildKeyHelper, keyCheck } = require("./overflow-key.js");
 const { refillPath } = require("./refill-dir.js");
 const { findOverflowSeat, readDeclaredSeats } = require("./refill-seats.js");
 const { scriptPath } = require("./script-path.js");
-const { shellQuote } = require("./sh-quote.js");
 const { writeFd } = require("./write-fd.js");
 
 const CONTRACT = path.join(__dirname, "headless-contract.md");
@@ -99,26 +94,6 @@ const KEY_EXHAUSTED = /credit balance is too low|billing_error/i;
  */
 
 const storeDir = () => refillPath(".headless-runs");
-
-/**
- * Why the seat's key cannot be read, or null where it can. Names the variable
- * and the file, never the value.
- * @param {string} keyVar
- * @returns {{file: string}|{why: string}}
- */
-function keyCheck(keyVar) {
-	const file = secretsFile();
-	try {
-		if (readSecretKeepingIgnore(keyVar) !== null) return { file };
-		return { why: `${keyVar} is not set in ${file}` };
-	} catch (err) {
-		return caught(err).code === "ENOENT"
-			? { why: `no ${file} to read ${keyVar} from` }
-			: {
-					why: `cannot read ${file} for ${keyVar}: ${caught(err).message}`,
-				};
-	}
-}
 
 /**
  * A fresh run directory under the store, named by a new job id.
@@ -176,9 +151,7 @@ function launch({ keyVar, cwd, budgetUsd, prompt, resume }) {
 	const log = path.join(dir, "out.jsonl");
 	const stderr = path.join(dir, "stderr.log");
 	const sessionId = resume ?? crypto.randomUUID();
-	const helper = [process.execPath, __filename, "key", seat.keyVar, key.file]
-		.map(shellQuote)
-		.join(" ");
+	const helper = buildKeyHelper(seat.keyVar, key.file);
 
 	const out = fs.openSync(log, "a");
 	const err = fs.openSync(stderr, "a");
@@ -361,7 +334,6 @@ module.exports = {
  *   list               the live runs, as a JSON array of liveness records
  *   stop <job id>      `stopped`, `killed`, `not running` or `unknown`
  *   result <job id>    the run's EndResult as JSON
- *   key <var> <file>   the variable's value: the child's apiKeyHelper
  */
 const usage = () => {
 	writeFd(
@@ -419,18 +391,10 @@ function resultCommand(jobId) {
 	return 0;
 }
 
-/** @param {string} name @param {string} file */
-function keyCommand(name, file) {
-	const value = readEnvFileValue(file, name);
-	if (value === null) return 1;
-	writeFd(1, `${value}\n`);
-	return 0;
-}
-
 /** @param {string[]} argv */
 async function main(argv) {
 	const [command, ...rest] = argv;
-	const [a, b] = rest;
+	const [a] = rest;
 	if (command === "launch") return launchCommand(rest);
 	if (command === "list" && rest.length === 0) {
 		writeFd(1, `${JSON.stringify(readLiveAgents())}\n`);
@@ -441,7 +405,6 @@ async function main(argv) {
 		return 0;
 	}
 	if (command === "result" && a && rest.length === 1) return resultCommand(a);
-	if (command === "key" && a && b && rest.length === 2) return keyCommand(a, b);
 	return usage();
 }
 
