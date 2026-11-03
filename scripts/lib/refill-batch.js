@@ -44,7 +44,7 @@ function batchesOf(launches) {
 	/** @type {Map<string, import("./refill-decide.js").Launch[]>} */
 	const batches = new Map();
 	for (const l of launches) {
-		const key = JSON.stringify([l.root, l.seat]);
+		const key = JSON.stringify([l.root, l.seat, l.keyVar]);
 		batches.set(key, [...(batches.get(key) ?? []), l]);
 	}
 	return [...batches.values()];
@@ -62,12 +62,13 @@ function batchesOf(launches) {
 function dispatchCall(batch, dispatcher, env) {
 	const [first] = batch;
 	if (!first) throw new Error("dispatchCall: an empty batch");
-	const { root, seat } = first;
+	const { root, seat, keyVar } = first;
 	/** @type {NodeJS.ProcessEnv} */
 	const childEnv = {
 		...buildCheckoutEnv(root, env),
 		CLAUDE_CONFIG_DIR: seat,
 		WFC_SEAT_REASON: first.reason,
+		...(keyVar ? { WFC_SEAT_KEY: keyVar } : {}),
 	};
 	delete childEnv.CLAUDE_CODE_SESSION_ID;
 	return {
@@ -83,11 +84,10 @@ function dispatchCall(batch, dispatcher, env) {
  * The dry run's line for one dispatcher call; on an overflow seat it names the
  * headless launch the dispatcher makes there (#2611).
  * @param {ReturnType<typeof dispatchCall>} call
- * @param {Set<string>} overflow the overflow seats' config dirs
  */
-function buildWouldRunLine(call, overflow) {
+function buildWouldRunLine(call) {
 	const seat = String(call.env.CLAUDE_CONFIG_DIR);
-	const on = overflow.has(seat)
+	const on = call.env.WFC_SEAT_KEY
 		? `overflow seat ${seat}, each member a headless \`claude -p\` (lib/headless-sessions.js)`
 		: seat;
 	return `would run in ${call.cwd} on ${on}: ${call.file} ${call.args.join(" ")}`;
@@ -217,6 +217,7 @@ function launchBatch(batch, io) {
 			issues: l.issues,
 			prompt: l.prompt,
 			seat: l.seat,
+			...(l.keyVar ? { keyVar: l.keyVar } : {}),
 			reason: l.reason,
 			jobId: entry.jobId,
 			launchedAt: Date.parse(entry.ts),

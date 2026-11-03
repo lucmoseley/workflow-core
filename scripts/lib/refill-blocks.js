@@ -2245,7 +2245,11 @@ function actOnLimits(launches, mode, seen) {
 		if (!isLimitBlocked(l)) return l;
 		if (isResumeUnjudged(l))
 			return syncLedgerHold(settleLimitResume(l, seen), seen.io);
-		const own = moveSeats.find((s) => s.seat === l.seat);
+		/* A plan reading on the same dir is not this launch's: a key has no bars. */
+		const own =
+			l.reason === "overflow"
+				? undefined
+				: moveSeats.find((s) => s.seat === l.seat);
 		if (!own) return parkOffList(l, mode, seen);
 		if (!(blocked.has(l.jobId) || isLimitHeld(l))) return l;
 		const out = actOnLimit(judgeTakenResume(l, seen.io), own, seen, {

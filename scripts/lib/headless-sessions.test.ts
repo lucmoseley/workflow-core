@@ -148,12 +148,12 @@ const env = (extra: Record<string, string> = {}) => ({
 const cli = (args: string[], extra: Record<string, string> = {}) =>
 	runInProcessAsync(SCRIPT, args, { env: env(extra) });
 
-const launch = (extra: Record<string, string> = {}, at = seat) =>
+const launch = (extra: Record<string, string> = {}, key = KEY_VAR) =>
 	cli(
 		[
 			"launch",
-			"--seat",
-			at,
+			"--key",
+			key,
 			"--cwd",
 			target,
 			"--budget",
@@ -261,7 +261,7 @@ describe("launch", () => {
 		Object.assign(process.env, env());
 		try {
 			const launched = launchRun({
-				seat,
+				keyVar: KEY_VAR,
 				cwd: target,
 				budgetUsd: 1,
 				prompt: "/implement 7",
@@ -296,10 +296,10 @@ describe("launch", () => {
 		},
 	);
 
-	it("refuses a plan seat, naming it as not an overflow seat", async () => {
-		const r = await launch({}, path.join(home, ".claude2"));
+	it("refuses a key no overflow line declares", async () => {
+		const r = await launch({}, "WFC_NO_KEY");
 		expect(r.status).toBe(1);
-		expect(r.stderr).toContain("is not an overflow seat");
+		expect(r.stderr).toContain("WFC_NO_KEY is not an overflow seat's key");
 		expect(readSeenOrNull()).toBeNull();
 	});
 });
@@ -389,6 +389,7 @@ describe("list and stop", () => {
 				procStart,
 				bootId: null,
 				seat,
+				keyVar: KEY_VAR,
 				cwd: target,
 				log: path.join(dir, "out.jsonl"),
 				stderr: path.join(dir, "stderr.log"),
@@ -432,6 +433,7 @@ describe("end result", () => {
 			bootId: null,
 			pgid: pid,
 			seat,
+			keyVar: KEY_VAR,
 			cwd: target,
 			log,
 			stderr: err,

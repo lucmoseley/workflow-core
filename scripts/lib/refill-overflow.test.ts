@@ -20,8 +20,8 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { headlessStore, writeHeadlessRun } from "./headless-runs-testkit";
 import { readLiveAgents } from "./headless-sessions.js";
-import { buildWouldRunLine, dispatchCall } from "./refill-batch.js";
-import { decideTick, FULL } from "./refill-decide.js";
+import { batchesOf, buildWouldRunLine, dispatchCall } from "./refill-batch.js";
+import { decideTick, FULL, pickSeat } from "./refill-decide.js";
 import { actsOf, judgedLaunches, overflowReadings } from "./refill-loop.js";
 
 const NOW = Date.parse("2026-10-18T12:00:00Z");
@@ -91,8 +91,8 @@ describe("each overflow seat's reading", () => {
 			budget({ fit: fits.shift() }),
 		);
 		expect(out).toEqual([
-			{ seat: "/s/x", fits: 3, spentUntil: null, why: null },
-			{ seat: "/s/y", fits: 0, spentUntil: null, why: null },
+			{ seat: "/s/x", keyVar: "KEY_x", fits: 3, spentUntil: null, why: null },
+			{ seat: "/s/y", keyVar: "KEY_y", fits: 0, spentUntil: null, why: null },
 		]);
 	});
 
@@ -115,6 +115,7 @@ describe("each overflow seat's reading", () => {
 		).toEqual([
 			{
 				seat: "/s/x",
+				keyVar: "KEY_x",
 				fits: null,
 				spentUntil: null,
 				why: "the session cost table is unreadable",
@@ -139,6 +140,55 @@ describe("each overflow seat's reading", () => {
 	});
 });
 
+describe("an overflow seat on a plan seat's dir (#3693)", () => {
+	const launch = (over: {
+		keyVar?: string;
+		reason: "overflow" | "soonest reset";
+	}) => ({
+		root: "/r",
+		issues: [7],
+		prompt: "/implement 7",
+		model: "opus" as const,
+		seat: "/h/.claude2",
+		...over,
+	});
+
+	it("is picked with its key once the plan seat is weekly-full", () => {
+		const pick = pickSeat({
+			seats: [{ ...planSeat("/h/.claude2", true), fits: 0 } as never],
+			overflow: [
+				{
+					seat: "/h/.claude2",
+					keyVar: "K2",
+					fits: 2,
+					spentUntil: null,
+					why: null,
+				},
+			],
+		});
+		expect(pick).toMatchObject({
+			seat: "/h/.claude2",
+			keyVar: "K2",
+			reason: "overflow",
+		});
+	});
+
+	it("gets a dispatcher call of its own, which alone names the key", () => {
+		const batches = batchesOf([
+			launch({ reason: "soonest reset" }),
+			launch({ keyVar: "K2", reason: "overflow" }),
+			launch({ keyVar: "K2", reason: "overflow" }),
+		]);
+		expect(batches.map((b) => b.length)).toEqual([1, 2]);
+		const [plan, overflow] = batches.map(
+			(b) => dispatchCall(b, "/d.sh", { PATH: "/usr/bin" }).env,
+		);
+		expect(plan?.WFC_SEAT_KEY).toBeUndefined();
+		expect(overflow?.WFC_SEAT_KEY).toBe("K2");
+		expect(overflow?.CLAUDE_CONFIG_DIR).toBe("/h/.claude2");
+	});
+});
+
 describe("the dry run's dispatch line", () => {
 	const call = dispatchCall(
 		[
@@ -148,18 +198,20 @@ describe("the dry run's dispatch line", () => {
 				prompt: "/implement 7",
 				model: "opus",
 				seat: "/home/u/.claude2-api",
+				keyVar: "WFC_KEY",
 				reason: "overflow",
 			},
 		],
 		"/core/dispatch-sessions.sh",
 		{ PATH: "/usr/bin" },
 	);
+	const { WFC_SEAT_KEY: _key, ...planEnv } = call.env;
 
 	it("names the headless launch on an overflow seat, and only there", () => {
-		expect(buildWouldRunLine(call, new Set(["/home/u/.claude2-api"]))).toBe(
+		expect(buildWouldRunLine(call)).toBe(
 			"would run in /home/u/wfc on overflow seat /home/u/.claude2-api, each member a headless `claude -p` (lib/headless-sessions.js): bash /core/dispatch-sessions.sh opus /implement 7",
 		);
-		expect(buildWouldRunLine(call, new Set())).toBe(
+		expect(buildWouldRunLine({ ...call, env: planEnv })).toBe(
 			"would run in /home/u/wfc on /home/u/.claude2-api: bash /core/dispatch-sessions.sh opus /implement 7",
 		);
 	});

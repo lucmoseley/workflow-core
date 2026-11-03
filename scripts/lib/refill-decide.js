@@ -101,6 +101,8 @@ const ALREADY_RUNNING = "already running";
  * the date its cycle ends where the key is spent for it, else null.
  * @typedef {object} OverflowReading
  * @property {string} seat config dir
+ * @property {string} [keyVar] the seat's identity; none on the row standing in
+ *   for a seat file that refuses
  * @property {number|null} fits
  * @property {string|null} spentUntil
  * @property {string|null} why
@@ -193,8 +195,8 @@ const ALREADY_RUNNING = "already running";
 
 /**
  * A stopped session due back: its launch's job, seat and checkout, when it was
- * stopped, and its line for a stop to name.
- * @typedef {{jobId: string, seat: string, root: string, at: number,
+ * stopped, and its line for a stop to name. `keyVar`, the overflow seat it ran on.
+ * @typedef {{jobId: string, seat: string, keyVar?: string, root: string, at: number,
  *   line: string}} HeldResume
  */
 
@@ -205,6 +207,7 @@ const ALREADY_RUNNING = "already running";
  * @property {string} prompt
  * @property {"opus"} model
  * @property {string} seat
+ * @property {string} [keyVar] the overflow seat it launches on
  * @property {SeatReason} reason
  * @property {true} [gate] a gate judgement's launch (#3092)
  * @property {({resume: ResumeTarget}|{afresh: string}) & {limitParks?: number}} [parkedRoute]
@@ -353,7 +356,7 @@ function orderPlanSeats(seats, typedSeat) {
  * whose budget fits one (#2570); else whether every seat is spent, and why
  * the tick waits where not.
  * @param {Pick<TickInput, "seats"|"overflow"|"typedSeat">} input
- * @returns {{seat: string, fits: number, reason: SeatReason}
+ * @returns {{seat: string, keyVar?: string, fits: number, reason: SeatReason}
  *   | {seat: null, fits: 0, allCut: boolean, wait: string}}
  */
 function pickSeat({ seats, overflow = [], typedSeat = null }) {
@@ -370,7 +373,13 @@ function pickSeat({ seats, overflow = [], typedSeat = null }) {
 		return { ...plan, wait: [plan.wait, wait].filter(Boolean).join("; ") };
 	}
 	const open = overflow.find(isFitted);
-	if (open) return { seat: open.seat, fits: open.fits, reason: "overflow" };
+	if (open)
+		return {
+			seat: open.seat,
+			...(open.keyVar ? { keyVar: open.keyVar } : {}),
+			fits: open.fits,
+			reason: "overflow",
+		};
 	return {
 		seat: null,
 		fits: 0,
@@ -623,6 +632,14 @@ const buildLimitCapHoldWhy = (limitParks) =>
 	isAtLimitCap(limitParks) ? `parked: ${buildLimitCapText(limitParks)}` : null;
 
 /**
+ * Whether a session ran on the plan seat on `dir`, the only seat kind a tick
+ * sizes. One with a key ran on an overflow seat, whatever dir it shares (#4147).
+ * @param {{seat: string, keyVar?: string}} ran
+ * @param {string} dir
+ */
+const ranOnPlanSeat = ({ seat, keyVar }, dir) => !keyVar && seat === dir;
+
+/**
  * How a parked row's session goes back, from the tick's reading of its park
  * marker: resumed in place (#3621); held, a skip with why, where that
  * session's seat reads full, a bar at 100% or a cap sized 0 (#3669); else
@@ -638,12 +655,15 @@ const buildLimitCapHoldWhy = (limitParks) =>
  * @returns {{resume: ResumeTarget} | {hold: string} | {afresh: string}}
  */
 function routeParkedSession(parker, seats) {
-	if (!parker.job)
+	const { job } = parker;
+	if (!job)
 		return { afresh: `its session ${parker.sessionId}'s marker names no job` };
-	const seat = seats.find((s) => s.seat === parker.job?.seat);
+	if (job.keyVar)
+		return { afresh: `its session ran on overflow seat key=${job.keyVar}` };
+	const seat = seats.find((s) => ranOnPlanSeat(job, s.seat));
 	if (!seat)
 		return {
-			afresh: `its session's seat ${parker.job.seat} is not one the loop reads`,
+			afresh: `its session's seat ${job.seat} is not one the loop reads`,
 		};
 	if (readsFull(seat))
 		return { hold: `parked: its session's seat ${seat.seat} is full` };
@@ -750,7 +770,8 @@ const spendSeatFit = (seats, seat) =>
  * slots being why the rest wait: a seat is sized for the slots alone, so one that
  * filled them reads 0 whatever room it has. Only the cap holds it, not a full bar
  * as a parked row: it was running on that seat, and a limit it meets there moves
- * it (#3735). A seat outside `seats` or unsized has no cap to charge.
+ * it (#3735). A seat outside `seats` or unsized has no cap to charge, nor has an
+ * overflow seat's session, on the dir a plan seat's cap is sized for or not.
  * @param {TickInput} input
  * @param {number} slots
  */
@@ -764,12 +785,13 @@ function takeResumes({ resumable = [], holds, seats }, slots) {
 	for (const r of resumable.toSorted((a, b) => a.at - b.at)) {
 		if (resumes.length >= slots) break;
 		if (stopped.has(r.root)) continue;
-		if (seatsLeft.find((s) => s.seat === r.seat)?.fits === 0) {
+		const planSeat = seatsLeft.find((s) => ranOnPlanSeat(r, s.seat));
+		if (planSeat?.fits === 0) {
 			capHeld.push(r);
 			continue;
 		}
 		resumes.push(r);
-		seatsLeft = spendSeatFit(seatsLeft, r.seat);
+		if (planSeat) seatsLeft = spendSeatFit(seatsLeft, planSeat.seat);
 	}
 	return { resumes, capHeld, seatsLeft };
 }
@@ -785,7 +807,7 @@ function takeResumes({ resumable = [], holds, seats }, slots) {
  * enough resumable parked rows to fill every slot hold the judgements back a
  * tick.
  * @param {TickInput} input
- * @param {{seat: string, reason: SeatReason}} on
+ * @param {{seat: string, keyVar?: string, reason: SeatReason}} on
  * @param {number} slots
  */
 function fill(
@@ -800,7 +822,7 @@ function fill(
 		history,
 		holds,
 	},
-	{ seat, reason },
+	{ seat, keyVar, reason },
 	slots,
 ) {
 	/** @type {Launch[]} */
@@ -834,6 +856,7 @@ function fill(
 			prompt,
 			model: MODEL,
 			seat,
+			...(keyVar ? { keyVar } : {}),
 			reason,
 			...(gate ? { gate: /** @type {const} */ (true) } : {}),
 			...(parkedRoute ? { parkedRoute } : {}),
@@ -1139,6 +1162,7 @@ function decideUnpaused(input) {
 }
 
 module.exports = {
+	ranOnPlanSeat,
 	EXPLICIT_STOP_DETAIL,
 	PROBE_HELD,
 	buildProbeHeldRoots,

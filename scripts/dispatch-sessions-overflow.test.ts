@@ -63,6 +63,7 @@ function overflowEnv(
 	});
 	return {
 		CLAUDE_CONFIG_DIR: seat(),
+		WFC_SEAT_KEY: KEY_VAR,
 		WFC_REFILL_DIR: refill(),
 		WFC_SECRETS_FILE: path.join(config, "workflow-core", "secrets.env"),
 		WFC_SESSION_COST_TABLE: table,
@@ -83,6 +84,7 @@ function dispatch(
 		prompt,
 		model: "opus" as const,
 		seat: seat(),
+		keyVar: KEY_VAR,
 		reason: "overflow" as const,
 	}));
 	return launchBatch(batch, {
@@ -215,6 +217,7 @@ describe("an overflow seat (#2610)", () => {
 		const run = writeHeadlessRun(refill(), "0badc0de", "spent-session", {
 			live: false,
 			seat: seat(),
+			keyVar: KEY_VAR,
 			launchedAt: Date.now(),
 		});
 		const log = path.join(run, "out.jsonl");
@@ -275,9 +278,57 @@ describe("an overflow seat (#2610)", () => {
 		);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toMatch(
-			/would launch: node \S+\/lib\/headless-sessions\.js launch --seat \S+ --cwd \S+ --budget 200 \/implement\\ 341/,
+			/would launch: node \S+\/lib\/headless-sessions\.js launch --key \S+ --cwd \S+ --budget 200 \/implement\\ 341/,
 		);
 		expect(readHeadlessLaunches()).toEqual([]);
+	});
+});
+
+describe("a plan and an overflow seat on one dir (#3693)", () => {
+	const dispatchOnShared = (extra: Record<string, string>) => {
+		const { WFC_SEAT_KEY: _key, ...env } = overflowEnv(200);
+		const dir = path.join(fx.dir, ".claude2");
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(
+			path.join(fx.dir, ".claude", "refill-seats"),
+			`~/.claude2\n~/.claude2 api key=${KEY_VAR} grant=200 cycle-day=20\n`,
+		);
+		return spawnSync("bash", [SCRIPT, "--dry-run", "opus", "/implement 341"], {
+			encoding: "utf8",
+			env: baseEnv({ ...env, CLAUDE_CONFIG_DIR: dir, ...extra }),
+		});
+	};
+
+	it("launches the overflow seat where the key is named", () => {
+		stubClaude({});
+		const r = dispatchOnShared({ WFC_SEAT_KEY: KEY_VAR });
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(`launch --key ${KEY_VAR} `);
+	});
+
+	it("launches the plan seat where it is not", () => {
+		stubClaude({});
+		const r = dispatchOnShared({});
+		expect(r.status).toBe(0);
+		expect(r.stdout).not.toContain("headless-sessions");
+		expect(r.stdout).toMatch(/would launch: \S*claude\S* --bg/);
+	});
+});
+
+describe("a dispatch naming no key on an overflow seat's dir (#3693)", () => {
+	it("refuses, naming the key to give", () => {
+		stubClaude({});
+		const { WFC_SEAT_KEY: _key, ...env } = overflowEnv(200);
+		const r = spawnSync(
+			"bash",
+			[SCRIPT, "--dry-run", "opus", "/implement 341"],
+			{
+				encoding: "utf8",
+				env: baseEnv(env),
+			},
+		);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(`WFC_SEAT_KEY=${KEY_VAR}`);
 	});
 });
 
@@ -287,6 +338,7 @@ describe("a plan seat beside an overflow seat (#2610)", () => {
 		const env = {
 			...overflowEnv(200),
 			CLAUDE_CONFIG_DIR: path.join(fx.dir, ".claude2"),
+			WFC_SEAT_KEY: "",
 		};
 		const r = spawnSync("bash", [SCRIPT, "opus", "/implement 341"], {
 			encoding: "utf8",

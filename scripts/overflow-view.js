@@ -32,7 +32,10 @@ const {
 const { hostRoot } = require("./lib/host-root.js");
 const { buildBudgetLine, seatBudget } = require("./lib/overflow-budget.js");
 const { readStateFile } = require("./lib/refill-files.js");
-const { readDeclaredSeats } = require("./lib/refill-seats.js");
+const {
+	findOverflowSeat,
+	readDeclaredSeats,
+} = require("./lib/refill-seats.js");
 
 /* Ended runs older than this are not offered as waiting. Untraced. */
 const WAITING_WINDOW_MS = 48 * 60 * 60 * 1000;
@@ -218,9 +221,8 @@ function answer(job, text) {
 	}
 	/* Gated as the dispatcher gates a launch (scripts/dispatch-sessions.sh):
 	 * nothing past the key's headroom. */
-	const seat = readDeclaredSeats().seats.find((s) => s.dir === run.seat);
-	const budget =
-		seat?.kind === "overflow" ? seatBudget(seat, hostRoot()) : null;
+	const seat = findOverflowSeat(readDeclaredSeats(), run.keyVar);
+	const budget = seat ? seatBudget(seat, hostRoot()) : null;
 	if (!budget || "why" in budget || budget.exhausted || budget.fit === 0) {
 		console.error(
 			`not sent: the key's budget does not fit an answer (${budget && "why" in budget ? budget.why : "no headroom"})`,
@@ -228,7 +230,7 @@ function answer(job, text) {
 		return 1;
 	}
 	const out = launch({
-		seat: run.seat,
+		keyVar: run.keyVar,
 		cwd: run.cwd,
 		budgetUsd: Math.min(ANSWER_BUDGET_USD, budget.headroomUsd),
 		prompt: text,

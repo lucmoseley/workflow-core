@@ -4,7 +4,7 @@
  * Billing page through a Chrome child on its plan seat, and log the result beside
  * the key's ledger (#4071, lib/console-credit.js).
  *
- *   node scripts/read-console-credit.js <overflow config dir>
+ *   node scripts/read-console-credit.js <overflow key var>
  *
  * The refill loop starts it detached on lib/console-credit.js's cadence; run by
  * hand it reads at once. The child works from `/`, so no repo's hooks reach it.
@@ -26,7 +26,10 @@ const {
 	planSeatOf,
 	readSeatAccount,
 } = require("./lib/console-credit.js");
-const { readDeclaredSeats, seatOf } = require("./lib/refill-seats.js");
+const {
+	findOverflowSeat,
+	readDeclaredSeats,
+} = require("./lib/refill-seats.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 
@@ -86,21 +89,21 @@ function main(args, deps = { runChild: runChromeChild }) {
 	} catch {
 		/* An unknown flag: no positionals, so the usage line below answers it. */
 	}
-	const [dir, ...rest] = positionals;
-	if (!dir || rest.length > 0) {
+	const [keyVar, ...rest] = positionals;
+	if (!keyVar || rest.length > 0) {
 		writeFd(
 			2,
-			`usage: node ${scriptPath("read-console-credit.js")} <overflow config dir>\n`,
+			`usage: node ${scriptPath("read-console-credit.js")} <overflow key var>\n`,
 		);
 		return 2;
 	}
 	const list = readDeclaredSeats();
-	const seat = list.errors.length > 0 ? null : seatOf(list, dir);
-	const planDir = seat?.kind === "overflow" ? planSeatOf(seat) : null;
-	if (seat?.kind !== "overflow" || planDir === null) {
+	const seat = list.errors.length > 0 ? null : findOverflowSeat(list, keyVar);
+	const planDir = seat ? planSeatOf(seat, list) : null;
+	if (!seat || planDir === null) {
 		writeFd(
 			2,
-			`${dir} is no overflow seat named <plan>-api in the seat file${list.errors.length > 0 ? `: ${list.errors.join("; ")}` : ""}\n`,
+			`${keyVar} is no overflow seat on a plan seat's dir or named <plan>-api in the seat file${list.errors.length > 0 ? `: ${list.errors.join("; ")}` : ""}\n`,
 		);
 		return 2;
 	}

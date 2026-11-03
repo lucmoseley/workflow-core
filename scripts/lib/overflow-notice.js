@@ -29,17 +29,15 @@ const planSeatBasisOf = ({ seat, weekRead, weekFull }) => ({
 /**
  * The first of `launched` on an overflow seat whose predecessor was not, or
  * null. No predecessor counts as a plan seat's.
- * @template {{seat: string}} L
- * @param {{seat: string}[]} prior the launches before these, oldest first
+ * @template {{reason?: string}} L
+ * @param {{reason?: string}[]} prior the launches before these, oldest first
  * @param {L[]} launched
- * @param {Set<string>} overflowDirs
  * @returns {L|null}
  */
-function firstOverflowLaunch(prior, launched, overflowDirs) {
+function firstOverflowLaunch(prior, launched) {
 	let last = prior.at(-1);
 	for (const l of launched) {
-		if (overflowDirs.has(l.seat) && !(last && overflowDirs.has(last.seat)))
-			return l;
+		if (l.reason === "overflow" && last?.reason !== "overflow") return l;
 		last = l;
 	}
 	return null;

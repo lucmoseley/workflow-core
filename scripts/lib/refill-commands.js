@@ -622,9 +622,13 @@ const buildDirName = (dir) => (path.isAbsolute(dir) ? buildSeatName(dir) : dir);
 function buildSeatsView({ seats, overflow, typedSeat, ceilings, callerSeat }) {
 	const pick = pickSeat({ seats, overflow, typedSeat });
 	const walk = orderPlanSeats(seats, typedSeat);
-	const taken = walk.findIndex((s) => s.seat === pick.seat);
+	const overflowPick = pick.seat !== null && pick.reason === "overflow";
+	const planPick = overflowPick ? null : pick.seat;
+	const taken = walk.findIndex((s) => s.seat === planPick);
 	const reached = taken === -1 ? walk.length : taken;
-	const overflowTaken = overflow.findIndex((o) => o.seat === pick.seat);
+	const overflowTaken = overflowPick
+		? overflow.findIndex((o) => o.keyVar === pick.keyVar)
+		: -1;
 	const overflowReached = seats.every((s) => s.weekFull)
 		? overflow.slice(0, overflowTaken === -1 ? overflow.length : overflowTaken)
 		: [];
@@ -652,11 +656,15 @@ function buildSeatsView({ seats, overflow, typedSeat, ceilings, callerSeat }) {
 		next:
 			pick.seat === null
 				? null
-				: { seat: buildDirName(pick.seat), reason: pick.reason },
+				: {
+						seat: buildDirName(pick.seat),
+						...(pick.keyVar ? { keyVar: pick.keyVar } : {}),
+						reason: pick.reason,
+					},
 		wait,
 		passedOver: [
 			...walk.flatMap((s, i) => {
-				if (s.seat === pick.seat) return [];
+				if (s.seat === planPick) return [];
 				const limits = failingLimits(s, ceilings);
 				const hold =
 					i < reached && limits.length === 0 ? HOLD_TEXT[seatHold(s)] : null;
@@ -983,14 +991,15 @@ function buildOverflowBasisLines({
 /**
  * One overflow key's entry in `status --json`: the budget gate's figures, or why
  * they will not read.
- * @param {string} dir the seat's config dir
+ * @param {import("./refill-seats.js").OverflowSeat} overflowSeat
  * @param {import("./overflow-budget.js").SeatBudget|{why: string}} budget
  */
-function buildOverflowStatus(dir, budget) {
+function buildOverflowStatus({ dir, keyVar }, budget) {
 	const seat = buildDirName(dir);
-	if ("why" in budget) return { seat, why: budget.why };
+	if ("why" in budget) return { seat, keyVar, why: budget.why };
 	return {
 		seat,
+		keyVar,
 		spentUsd: budget.settledUsd,
 		creditUsd: budget.creditUsd,
 		grantUsd: budget.grantUsd,
@@ -1016,7 +1025,7 @@ function buildOverflowStatus(dir, budget) {
  *   seats: SeatsView, codeSha: string|null,
  *   candidates: {root: string, disabled: string|null}[],
  *   burnMode: ReturnType<typeof import("./burn-mode.js").readBurnState>,
- *   overflow: ReturnType<typeof buildOverflowStatus>[],
+ *   overflow: (ReturnType<typeof buildOverflowStatus>|{seat: string, why: string})[],
  *   concurrency: ReturnType<typeof import("./concurrency.js").readConcurrencyStatus>}} input
  *   `codeSha`, lib/refill-code.js's readRunningCode; `today`, machine-local;
  *   `burnMode`, lib/burn-mode.js's readBurnState

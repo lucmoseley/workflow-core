@@ -203,11 +203,19 @@ describe("planSeatOf", () => {
 	});
 
 	it("drops the key dir's -api", () => {
-		expect(planSeatOf(seat("/h/.claude3-api"))).toBe("/h/.claude3");
+		expect(planSeatOf(seat("/h/.claude3-api"), { seats: [], errors: [] })).toBe(
+			"/h/.claude3",
+		);
 	});
 
 	it("names no plan for a key dir named otherwise", () => {
-		expect(planSeatOf(seat("/h/.spare"))).toBeNull();
+		expect(planSeatOf(seat("/h/.spare"), { seats: [], errors: [] })).toBeNull();
+		expect(
+			planSeatOf(seat("/h/.claude3"), {
+				seats: [{ dir: "/h/.claude3", kind: "plan" }],
+				errors: [],
+			}),
+		).toBe("/h/.claude3");
 	});
 });
 
@@ -263,7 +271,7 @@ describe("read-console-credit.js", () => {
 
 	it("logs a good read as the key's reading, on its plan seat", () => {
 		const seen: string[] = [];
-		const code = main([keyDir], {
+		const code = main(["WFC_TEST_KEY"], {
 			runChild: (dir: string) => {
 				seen.push(dir);
 				return succeeded(report(PAGE))();
@@ -288,24 +296,24 @@ describe("read-console-credit.js", () => {
 			"asked for a sign-in",
 		],
 	])("keeps the last reading through %s, and says why", (_, runChild, says) => {
-		main([keyDir], { runChild: succeeded(report(PAGE)) });
+		main(["WFC_TEST_KEY"], { runChild: succeeded(report(PAGE)) });
 		const held = readConsoleLog(seat()).reading;
-		expect(main([keyDir], { runChild })).toBe(1);
+		expect(main(["WFC_TEST_KEY"], { runChild })).toBe(1);
 		const log = readConsoleLog(seat());
 		expect(log.reading).toEqual(held);
 		expect(log.failure).toContain(says);
 	});
 
 	it("clears the failure at the next good read", () => {
-		main([keyDir], {
+		main(["WFC_TEST_KEY"], {
 			runChild: () => ({ status: 1, stdout: "", stderr: "no" }),
 		});
-		main([keyDir], { runChild: succeeded(report(PAGE)) });
+		main(["WFC_TEST_KEY"], { runChild: succeeded(report(PAGE)) });
 		expect(readConsoleLog(seat()).failure).toBeNull();
 	});
 
 	it("skips a log row that holds no valid reading", () => {
-		main([keyDir], { runChild: succeeded(report(PAGE)) });
+		main(["WFC_TEST_KEY"], { runChild: succeeded(report(PAGE)) });
 		fs.appendFileSync(
 			logFile(),
 			`${JSON.stringify({ at: 1, credits: [{ remainingUsd: "lots" }] })}\n`,
@@ -330,7 +338,7 @@ describe("read-console-credit.js", () => {
 		const runChild = () => {
 			throw new Error("launched");
 		};
-		expect(main([keyDir, "--force"], { runChild })).toBe(2);
+		expect(main(["WFC_TEST_KEY", "--force"], { runChild })).toBe(2);
 		expect(fs.existsSync(logFile())).toBe(false);
 	});
 
@@ -347,8 +355,8 @@ describe("read-console-credit.js", () => {
 	it("gives the gate the anchored figure, and the failure, through seatBudget", () => {
 		const root = path.join(tmp, "checkout");
 		writeCostTable(root);
-		main([keyDir], { runChild: succeeded(report(PAGE)) });
-		main([keyDir], {
+		main(["WFC_TEST_KEY"], { runChild: succeeded(report(PAGE)) });
+		main(["WFC_TEST_KEY"], {
 			runChild: () => ({ status: 1, stdout: "", stderr: "Chrome is closed" }),
 		});
 		const budget = seatBudget(seat(), root);
@@ -362,7 +370,7 @@ describe("read-console-credit.js", () => {
 	it("logs the real child's failure as a failed read", () => {
 		const r = runInProcess(
 			path.join(__dirname, "..", "read-console-credit.js"),
-			[keyDir],
+			["WFC_TEST_KEY"],
 			{
 				env: {
 					...process.env,

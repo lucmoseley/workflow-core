@@ -492,6 +492,7 @@ describe("stop and status", () => {
 		expect(json.overflow).toEqual([
 			{
 				seat: path.join(dir, ".claude2-api").replace(dir, "~"),
+				keyVar: "WFC_TEST_KEY",
 				spentUsd: 0,
 				creditUsd: 200,
 				grantUsd: 200,
@@ -506,6 +507,28 @@ describe("stop and status", () => {
 		expect(json.seats.readings).toEqual([
 			expect.objectContaining({ week: 100, weekFull: true }),
 		]);
+	});
+
+	it("tells a plan seat from the overflow seat on its dir in status --json (#3693)", async () => {
+		fs.mkdirSync(path.join(dir, ".claude"));
+		fs.writeFileSync(
+			path.join(dir, ".claude", "refill-seats"),
+			"~/.claude3\n~/.claude3 api key=WFC_TEST_KEY grant=200 cycle-day=20\n",
+		);
+		writeCostTable(dir, { meanUsd: 4 });
+		fillPlanSeat();
+		const json = JSON.parse((await run("status", "--json")).stdout);
+		expect(json.seats.readings).toEqual([
+			expect.objectContaining({ seat: "~/.claude3", weekFull: true }),
+		]);
+		expect(json.overflow).toEqual([
+			expect.objectContaining({ seat: "~/.claude3", keyVar: "WFC_TEST_KEY" }),
+		]);
+		expect(json.seats.next).toEqual({
+			seat: "~/.claude3",
+			keyVar: "WFC_TEST_KEY",
+			reason: "overflow",
+		});
 	});
 
 	it("gives a key's whole grant in dollars, with nothing spent and a plan seat with room", async () => {

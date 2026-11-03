@@ -717,7 +717,7 @@ function readOverflowStatus(root) {
 		];
 	return declared.seats.flatMap((s) =>
 		s.kind === "overflow"
-			? [commands.buildOverflowStatus(s.dir, seatBudget(s, root))]
+			? [commands.buildOverflowStatus(s, seatBudget(s, root))]
 			: [],
 	);
 }
@@ -833,16 +833,10 @@ async function printDryRun() {
 	);
 	if ("stop" in d) return 0;
 	for (const r of d.resumes) say(`would resume ${r.line}`);
-	const overflow = new Set(
-		readDeclaredSeats()
-			.seats.filter((s) => s.kind === "overflow")
-			.map((s) => s.dir),
-	);
 	for (const batch of refillBatch.batchesOf(d.launches)) {
 		say(
 			refillBatch.buildWouldRunLine(
 				refillBatch.dispatchCall(batch, DISPATCHER, process.env),
-				overflow,
 			),
 		);
 	}

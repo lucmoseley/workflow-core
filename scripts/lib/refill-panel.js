@@ -493,7 +493,7 @@ function buildSpendState(status) {
 	);
 	if (running > 0)
 		return { spending: true, text: `Spending now: ${running} on credits` };
-	const picksKey = overflow.some((key) => key.seat === seats.next?.seat);
+	const picksKey = seats.next?.reason === "overflow";
 	if (isLaunching(status) && picksKey && status.lastTick?.idle === null)
 		return { spending: true, text: "Spending now: plans are full" };
 	if (overflow.some((key) => "why" in key))

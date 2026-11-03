@@ -24,7 +24,8 @@
 # advisor check and the allowance cap are skipped; the key's budget gate
 # (lib/overflow-budget.js) sizes the set instead, and each member launches
 # through lib/headless-sessions.js, capped at the key's headroom at launch.
-# Only Opus launches there (#1920).
+# Only Opus launches there (#1920). WFC_SEAT_KEY, the seat's key variable, is
+# what asks for one: a dispatch without it is on the plan seat (#3693).
 #
 # Usage:
 #   scripts/dispatch-sessions.sh [--dry-run] [--force] [--force-memory] \
@@ -431,9 +432,12 @@ seat_dir="${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}"
 # Unset, so a launched session's own dispatch never inherits the loop's.
 seat_reason="${WFC_SEAT_REASON:-own seat}"
 unset WFC_SEAT_REASON
-if ! seat_kind="$(node "$here/lib/refill-seats.js" kind "$seat_dir" 2>/dev/null)"; then
+# The overflow seat the refill loop asked for; unset as the reason is.
+seat_key="${WFC_SEAT_KEY:-}"
+unset WFC_SEAT_KEY
+if ! seat_kind="$(node "$here/lib/refill-seats.js" kind "$seat_dir" ${seat_key:+"$seat_key"} 2>/dev/null)"; then
   printf 'REFUSED: the seat file refuses (seat %s):\n' "$seat_dir" >&2
-  node "$here/lib/refill-seats.js" kind "$seat_dir" 2>&1 >/dev/null | sed 's/^/  /' >&2
+  node "$here/lib/refill-seats.js" kind "$seat_dir" ${seat_key:+"$seat_key"} 2>&1 >/dev/null | sed 's/^/  /' >&2
   exit 2
 fi
 overflow=0
@@ -604,7 +608,7 @@ no_fit_line() {
 # indented under it, on stderr. $1: the REFUSED line's subject.
 read_budget() {
   local out
-  if ! out="$(node "$here/lib/overflow-budget.js" --json "$seat_dir" 2>&1)" ||
+  if ! out="$(node "$here/lib/overflow-budget.js" --json "$seat_key" 2>&1)" ||
     ! command -v jq >/dev/null 2>&1 || ! jq -e '.fit | numbers' <<<"$out" >/dev/null 2>&1; then
     printf 'REFUSED: %s: the overflow budget of %s cannot be read:\n' "$1" "$seat_dir" >&2
     printf '%s\n' "${out:-no output}" | sed 's/^/  /' >&2
@@ -851,7 +855,7 @@ while [[ $# -gt 0 ]]; do
     fi
     launcher="the headless launcher"
     launch_cmd=(node "$here/lib/headless-sessions.js" launch
-      --seat "$seat_dir" --cwd "$PWD" --budget "$headroom" "$prompt")
+      --key "$seat_key" --cwd "$PWD" --budget "$headroom" "$prompt")
   else
     args=(--bg)
     # A bare `opus` passes NO --model flag on purpose (mantahostels#1093, "everything else is

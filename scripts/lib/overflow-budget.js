@@ -19,7 +19,7 @@ const { hostRoot } = require("./host-root.js");
 const { readJsonl } = require("./jsonl.js");
 const { localDate } = require("./morning-review.js");
 const { refillPath } = require("./refill-dir.js");
-const { readDeclaredSeats, seatOf } = require("./refill-seats.js");
+const { findOverflowSeat, readDeclaredSeats } = require("./refill-seats.js");
 const { scriptPath } = require("./script-path.js");
 const { budgetOf } = require("./overflow-budget-core.js");
 const { readCostTableIn, sessionSpendUsd } = require("./session-spend.js");
@@ -112,7 +112,7 @@ function settle(seat, table) {
 	/** @type {RunningRun[]} */
 	const running = [];
 	for (const run of readStoredRuns()) {
-		if (run.seat !== seat.dir || settled.has(run.sessionId)) continue;
+		if (run.keyVar !== seat.keyVar || settled.has(run.sessionId)) continue;
 		const end = endResultOf(run);
 		if (end.outcome === "running") {
 			/* A `-p` run's `result` usually comes only at its end, so the
@@ -202,9 +202,9 @@ module.exports = { buildBudgetLine, seatBudget };
 
 /*
  * CLI mode, for the dispatcher and status. Exit 0 sized, 2 usage, 1 otherwise:
- * a seat file that refuses, a seat that is not overflow, an unreadable table.
+ * a seat file that refuses, a key no overflow seat has, an unreadable table.
  *
- *   [--json] <config dir>   the seat's status line, or its Budget as JSON
+ *   [--json] <key var>   the seat's status line, or its Budget as JSON
  */
 /**
  * @param {string[]} args
@@ -221,11 +221,11 @@ function main(args) {
 	} catch {
 		parsed = null;
 	}
-	const dir = parsed?.positionals[0];
-	if (!parsed || !dir || parsed.positionals.length !== 1) {
+	const keyVar = parsed?.positionals[0];
+	if (!parsed || !keyVar || parsed.positionals.length !== 1) {
 		writeFd(
 			2,
-			`usage: node ${scriptPath("lib/overflow-budget.js")} [--json] <config dir>\n`,
+			`usage: node ${scriptPath("lib/overflow-budget.js")} [--json] <key var>\n`,
 		);
 		return 2;
 	}
@@ -234,9 +234,9 @@ function main(args) {
 		writeFd(2, `${list.errors.join("\n")}\n`);
 		return 1;
 	}
-	const seat = seatOf(list, dir);
-	if (seat.kind !== "overflow") {
-		writeFd(2, `${seat.dir} is not an overflow seat in the seat file\n`);
+	const seat = findOverflowSeat(list, keyVar);
+	if (!seat) {
+		writeFd(2, `${keyVar} is not an overflow seat's key in the seat file\n`);
 		return 1;
 	}
 	const budget = seatBudget(seat, hostRoot());

@@ -895,7 +895,7 @@ describe("a due Console read on the real tick (#4071)", () => {
 			() => readLines(runnerCallsFile()).length > 0,
 			"the runner never started",
 		);
-		expect(readLines(runnerCallsFile())).toEqual([overflowSeat()]);
+		expect(readLines(runnerCallsFile())).toEqual(["WFC_TEST_KEY"]);
 		expect(readLines(consoleLogFile()).map((l) => JSON.parse(l))).toEqual([
 			{ at: expect.any(Number), started: true },
 		]);

@@ -11,6 +11,10 @@
  * so a plan seat's path holds no whitespace. Any other line is malformed and
  * refuses the whole file by name, never read as a plan seat. A leading `~/`
  * is the home dir.
+ *
+ * A seat's identity is its kind plus its dir for a plan seat, its key variable
+ * for an overflow seat, which no two lines share. Plan and overflow seats may
+ * share a dir, so no lookup goes by a dir alone (#3693).
  */
 
 const path = require("node:path");
@@ -83,6 +87,26 @@ function overflowFields(words) {
 }
 
 /**
+ * A line's overflow fields, none on a plan seat's, or why they refuse; a key
+ * is the first line's to give it.
+ * @param {string[]} words after the config dir
+ * @param {number} lineNo
+ * @param {Map<string, number>} keyLines accumulator: each key given so far, by
+ *   its line
+ * @returns {Omit<OverflowSeat, "dir"|"kind">|string|null}
+ */
+function parseLineFields(words, lineNo, keyLines) {
+	if (words.length === 0) return null;
+	const fields = overflowFields(words);
+	if (typeof fields === "string") return fields;
+	const taken = keyLines.get(fields.keyVar);
+	if (taken !== undefined)
+		return `key=${fields.keyVar} is already line ${taken}'s`;
+	keyLines.set(fields.keyVar, lineNo);
+	return fields;
+}
+
+/**
  * @param {string} text
  * @param {{home: string, file: string}} at `file` names the lines in errors
  * @returns {SeatList}
@@ -91,13 +115,15 @@ function parseSeats(text, { home, file }) {
 	/** @type {Seat[]} */
 	const seats = [];
 	const errors = [];
+	/** @type {Map<string, number>} */
+	const keyLines = new Map();
 	for (const [i, raw] of text.split("\n").entries()) {
 		const line = raw.trim();
 		if (!line || line.startsWith("#")) continue;
 		const [first, ...rest] = line.split(/\s+/);
 		if (first === undefined) continue;
 		const dir = seatDir(first, home);
-		const fields = rest.length === 0 ? null : overflowFields(rest);
+		const fields = parseLineFields(rest, i + 1, keyLines);
 		if (typeof fields === "string") {
 			errors.push(`${file}:${i + 1}: ${fields}: ${line}`);
 			continue;
@@ -132,15 +158,41 @@ function readDeclaredSeats(home = homeDir()) {
 }
 
 /**
- * The seat a config dir is: its declaration, else a plan seat.
  * @param {SeatList} list
- * @param {string} dir
- * @param {string} [home]
- * @returns {Seat}
+ * @param {string} keyVar
+ * @returns {OverflowSeat|null}
  */
-function seatOf(list, dir, home = homeDir()) {
+function findOverflowSeat(list, keyVar) {
+	for (const s of list.seats)
+		if (s.kind === "overflow" && s.keyVar === keyVar) return s;
+	return null;
+}
+
+/**
+ * The seat a launch under `dir` asked for: the overflow seat `keyVar` names,
+ * which must be on that dir, else the plan seat on it, declared or not; why
+ * not where neither holds.
+ * @param {SeatList} list
+ * @param {{dir: string, keyVar?: string}} asked
+ * @param {string} [home]
+ * @returns {Seat|{why: string}}
+ */
+function seatOfLaunch(list, { dir, keyVar }, home = homeDir()) {
 	const want = seatDir(dir, home);
-	return list.seats.find((s) => s.dir === want) ?? { dir: want, kind: "plan" };
+	if (keyVar) {
+		const seat = findOverflowSeat(list, keyVar);
+		if (!seat) return { why: `no overflow seat has key=${keyVar}` };
+		return seat.dir === want
+			? seat
+			: { why: `key=${keyVar} is ${seat.dir}'s overflow seat, not ${want}'s` };
+	}
+	const onDir = list.seats.filter((s) => s.dir === want);
+	if (onDir.length === 0 || onDir.some((s) => s.kind === "plan"))
+		return { dir: want, kind: "plan" };
+	const keys = onDir.flatMap((s) => (s.kind === "overflow" ? [s.keyVar] : []));
+	return {
+		why: `${want} is declared only as an overflow seat: name it with WFC_SEAT_KEY=${keys.join(" or ")}`,
+	};
 }
 
 /**
@@ -208,25 +260,26 @@ function unlistedSeats(seats) {
 
 module.exports = {
 	buildSeatName,
+	findOverflowSeat,
 	readConfiguredSeats,
 	readDeclaredSeats,
 	readOmittedDirs,
-	seatOf,
+	seatOfLaunch,
 	unlistedSeats,
 };
 
 /*
  * CLI mode, for the dispatcher.
  *
- *   kind <config dir>   prints `plan` or `overflow`; 2, each malformed line
- *                       on stderr, where the seat file refuses
+ *   kind <config dir> [<key var>]   prints `plan` or `overflow`; 2, each
+ *                       malformed line or seatOfLaunch's why on stderr
  */
 if (require.main === module) {
-	const [command, dir] = process.argv.slice(2);
-	if (command !== "kind" || !dir) {
+	const [command, dir, keyVar, ...rest] = process.argv.slice(2);
+	if (command !== "kind" || !dir || rest.length > 0) {
 		writeFd(
 			2,
-			`usage: node ${scriptPath("lib/refill-seats.js")} kind <config dir>\n`,
+			`usage: node ${scriptPath("lib/refill-seats.js")} kind <config dir> [<key var>]\n`,
 		);
 		process.exit(2);
 	}
@@ -235,5 +288,10 @@ if (require.main === module) {
 		for (const e of list.errors) writeFd(2, `${e}\n`);
 		process.exit(2);
 	}
-	writeFd(1, `${seatOf(list, dir).kind}\n`);
+	const seat = seatOfLaunch(list, { dir, keyVar });
+	if ("why" in seat) {
+		writeFd(2, `${seat.why}\n`);
+		process.exit(2);
+	}
+	writeFd(1, `${seat.kind}\n`);
 }

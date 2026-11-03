@@ -598,7 +598,7 @@ function startDueConsoleReads(declared, plan, root) {
 		}
 		startDetached(`console read of ${seat.dir}`, [
 			path.join(SCRIPTS, "read-console-credit.js"),
-			seat.dir,
+			seat.keyVar,
 		]);
 	}
 }

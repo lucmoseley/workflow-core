@@ -15,6 +15,13 @@ const {
 } = require("./refill-panel.js");
 const { buildRoutes } = require("./refill-panel-routes.js");
 const { buildOverflowStatus, buildSeatsView } = require("./refill-commands.js");
+const overflowSeat = (dir: string) => ({
+	dir,
+	kind: "overflow" as const,
+	keyVar: "WFC_TEST_KEY",
+	grantUsd: 200,
+	cycleDay: 1,
+});
 const { overflowReadings } = require("./refill-loop.js");
 
 const AT = new Date(2026, 10, 2, 14, 5).getTime();
@@ -830,7 +837,7 @@ describe("the plan and credit rows", () => {
 
 	it("gives a key with nothing yet spent as its whole grant, a plan with room", () => {
 		const overflow = [
-			buildOverflowStatus("~/.claude2-api", {
+			buildOverflowStatus(overflowSeat("~/.claude2-api"), {
 				fit: 10,
 				headroomUsd: 200,
 				settledUsd: 0,
@@ -1006,7 +1013,7 @@ describe("the plan and credit rows", () => {
 				typedSeat: null,
 				ceilings: { week: 100, session: 100 },
 			}),
-			overflow: [buildOverflowStatus(dir, b)],
+			overflow: [buildOverflowStatus(overflowSeat(dir), b)],
 		});
 		const lastRow = (status: object) => usage(status).at(-1)?.[0];
 		const full = reading(100, true);

@@ -714,6 +714,7 @@ describe("the seats: line (#3733)", () => {
 		const dirOf = (name: string) => `${process.env.HOME}/${name}`;
 		const row = (name: string, fits: number, spentUntil: string | null) => ({
 			seat: dirOf(name),
+			keyVar: `KEY_${name}`,
 			fits,
 			spentUntil,
 			why: null,
@@ -731,6 +732,30 @@ describe("the seats: line (#3733)", () => {
 			"next ~/.claude3-api (overflow); passed over ~/.claude3 week 100% ≥ 97%; passed over ~/.claude2-api exhausted until 2026-11-20",
 		);
 		expect(out).not.toContain("~/.claude4-api");
+	});
+
+	it("tells an overflow pick from the plan seat on its dir (#3693)", () => {
+		const full = seat(".claude3", 100, 20);
+		const view = buildSeatsView({
+			seats: [full],
+			overflow: [
+				{
+					seat: full.seat,
+					keyVar: "K3",
+					fits: 2,
+					spentUntil: null,
+					why: null,
+				},
+			],
+			typedSeat: null,
+			ceilings,
+		});
+		expect(view.next).toEqual({
+			seat: "~/.claude3",
+			keyVar: "K3",
+			reason: "overflow",
+		});
+		expect(view.passedOver.map((p) => p.seat)).toEqual(["~/.claude3"]);
 	});
 
 	it("leaves overflow seats out while a plan seat is not weekly-full", () => {

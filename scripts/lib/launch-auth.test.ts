@@ -40,17 +40,17 @@ afterEach(() => {
 const refusal = (
 	extra: Record<string, string> = {},
 	cwd = dir,
-	overflow = false,
+	overflowKey?: string,
 ) =>
 	launchAuthRefusal({
 		bin,
 		env: { PATH: process.env.PATH, HOME: home, ...extra },
 		cwd,
-		overflow,
+		overflowKey,
 	});
 /** As the headless overflow launch asks. */
 const overflowRefusal = (extra: Record<string, string>) =>
-	refusal(extra, dir, true);
+	refusal(extra, dir, "K");
 
 const declareOverflow = (line = `${seat} api key=K grant=200 cycle-day=20`) =>
 	fs.writeFileSync(path.join(home, ".claude", "refill-seats"), `${line}\n`);
@@ -127,6 +127,17 @@ describe("an overflow seat (#2570)", () => {
 		expect(
 			overflowRefusal({ WFC_FAKE_AUTH_NO_LOGIN: "1", CLAUDE_CONFIG_DIR: seat }),
 		).toBeNull();
+	});
+
+	it("admits the key only for the key the launch names, on a shared dir (#3693)", () => {
+		fs.writeFileSync(
+			path.join(home, ".claude", "refill-seats"),
+			`${seat}\n${seat} api key=K grant=200 cycle-day=20\n`,
+		);
+		const env = { ANTHROPIC_API_KEY: "k", CLAUDE_CONFIG_DIR: seat };
+		expect(overflowRefusal(env)).toBeNull();
+		expect(refusal(env)).toContain("ANTHROPIC_API_KEY");
+		expect(refusal(env, dir, "OTHER")).toContain("ANTHROPIC_API_KEY");
 	});
 
 	it("keeps the seat's login alone at every other launch site", () => {

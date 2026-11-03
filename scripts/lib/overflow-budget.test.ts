@@ -86,6 +86,7 @@ function storeRun(
 			bootId: readCurrentBootId(),
 			pgid: process.pid,
 			seat: seatDir,
+			keyVar: "WFC_TEST_KEY",
 			cwd: tmp,
 			log,
 			stderr: path.join(dir, "stderr.log"),
@@ -227,6 +228,17 @@ describe("seatBudget settlement", () => {
 	});
 });
 
+describe("a seat on a dir another seat shares (#3693)", () => {
+	it("settles only the runs of its own key", () => {
+		storeRun("0000000f", { events: [{ type: "result", total_cost_usd: 20 }] });
+		const other = { ...seat, dir: seatDir, keyVar: "WFC_OTHER_KEY" };
+		expect(seatBudget(other, root)).toMatchObject({ settledUsd: 0 });
+		expect(seatBudget({ ...seat, dir: seatDir }, root)).toMatchObject({
+			settledUsd: 20,
+		});
+	});
+});
+
 describe("the CLI", () => {
 	const cli = (...args: string[]) =>
 		runInProcess(SCRIPT, args, {
@@ -245,7 +257,7 @@ describe("the CLI", () => {
 	});
 
 	it("prints the seat's budget as JSON", () => {
-		const r = cli("--json", "~/.claude2-api");
+		const r = cli("--json", "WFC_TEST_KEY");
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
 		const { cycleStart, nextCycleStart, ...figures } = JSON.parse(r.stdout);
@@ -275,7 +287,7 @@ describe("the CLI", () => {
 	});
 
 	it("prints the seat's status line", () => {
-		const r = cli(seatDir);
+		const r = cli("WFC_TEST_KEY");
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
 		const prefix = `overflow ${seatDir}: `;
@@ -285,11 +297,11 @@ describe("the CLI", () => {
 		);
 	});
 
-	it("refuses a plan seat by name", () => {
-		const r = cli(path.join(home, ".claude2"));
+	it("refuses a key no overflow line declares by name", () => {
+		const r = cli("WFC_NO_KEY");
 		expect(r.status).toBe(1);
 		expect(r.stderr).toBe(
-			`${path.join(home, ".claude2")} is not an overflow seat in the seat file\n`,
+			"WFC_NO_KEY is not an overflow seat's key in the seat file\n",
 		);
 	});
 
@@ -324,7 +336,7 @@ describe("the status line", () => {
 				.map((row) => `${JSON.stringify(row)}\n`)
 				.join(""),
 		);
-		const r = runInProcess(SCRIPT, [seatDir], {
+		const r = runInProcess(SCRIPT, ["WFC_TEST_KEY"], {
 			env: {
 				PATH: process.env.PATH ?? "",
 				HOME: home,

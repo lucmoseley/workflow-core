@@ -58,7 +58,7 @@ const { endGroup, isGroupAlive } = require("./grouped-child.js");
 const { readJsonl } = require("./jsonl.js");
 const { launchAuthRefusal } = require("./launch-auth.js");
 const { refillPath } = require("./refill-dir.js");
-const { readDeclaredSeats, seatOf } = require("./refill-seats.js");
+const { findOverflowSeat, readDeclaredSeats } = require("./refill-seats.js");
 const { scriptPath } = require("./script-path.js");
 const { shellQuote } = require("./sh-quote.js");
 const { writeFd } = require("./write-fd.js");
@@ -82,6 +82,7 @@ const KEY_EXHAUSTED = /credit balance is too low|billing_error/i;
  * @property {string|null} bootId
  * @property {number} pgid
  * @property {string} seat config dir
+ * @property {string} keyVar the overflow seat's identity
  * @property {string} cwd
  * @property {string} log stream-json output
  * @property {string} stderr
@@ -141,16 +142,16 @@ function freshRunDir() {
  * Launch a headless run on an overflow seat. `resume`, a session id, continues
  * that session with `prompt` as its next turn, as the founder answering one
  * that ended on a question (#3685).
- * @param {{seat: string, cwd: string, budgetUsd: number, prompt: string,
+ * @param {{keyVar: string, cwd: string, budgetUsd: number, prompt: string,
  *   resume?: string}} opts
  * @returns {{record: RunRecord}|{why: string}}
  */
-function launch({ seat: seatDir, cwd, budgetUsd, prompt, resume }) {
+function launch({ keyVar, cwd, budgetUsd, prompt, resume }) {
 	const list = readDeclaredSeats();
 	if (list.errors.length > 0) return { why: list.errors.join("\n") };
-	const seat = seatOf(list, seatDir);
-	if (seat.kind !== "overflow")
-		return { why: `${seat.dir} is not an overflow seat in the seat file` };
+	const seat = findOverflowSeat(list, keyVar);
+	if (!seat)
+		return { why: `${keyVar} is not an overflow seat's key in the seat file` };
 	const key = keyCheck(seat.keyVar);
 	if ("why" in key) return key;
 
@@ -164,7 +165,7 @@ function launch({ seat: seatDir, cwd, budgetUsd, prompt, resume }) {
 		bin: claudeBin(),
 		env,
 		cwd,
-		overflow: true,
+		overflowKey: seat.keyVar,
 	});
 	if (refusal) return { why: refusal };
 
@@ -218,6 +219,7 @@ function launch({ seat: seatDir, cwd, budgetUsd, prompt, resume }) {
 		bootId: readCurrentBootId(),
 		pgid: pid,
 		seat: seat.dir,
+		keyVar: seat.keyVar,
 		cwd,
 		log,
 		stderr,
@@ -354,7 +356,7 @@ module.exports = {
  * CLI mode, for the dispatcher. Exit 0 done, 2 usage, 1 otherwise: a refusal
  * prints `REFUSED:` first, any other fault its message alone.
  *
- *   launch --seat <dir> --cwd <dir> --budget <usd> <prompt>
+ *   launch --key <key var> --cwd <dir> --budget <usd> <prompt>
  *                      first line the job id; second `session <uuid>`
  *   list               the live runs, as a JSON array of liveness records
  *   stop <job id>      `stopped`, `killed`, `not running` or `unknown`
@@ -364,7 +366,7 @@ module.exports = {
 const usage = () => {
 	writeFd(
 		2,
-		`usage: node ${scriptPath("lib/headless-sessions.js")} launch --seat <dir> --cwd <dir> --budget <usd> <prompt>\n` +
+		`usage: node ${scriptPath("lib/headless-sessions.js")} launch --key <key var> --cwd <dir> --budget <usd> <prompt>\n` +
 			"       … list | stop <job id> | result <job id>\n",
 	);
 	return 2;
@@ -378,7 +380,7 @@ function launchCommand(args) {
 			args,
 			allowPositionals: true,
 			options: {
-				seat: { type: "string" },
+				key: { type: "string" },
 				cwd: { type: "string" },
 				budget: { type: "string" },
 			},
@@ -386,12 +388,17 @@ function launchCommand(args) {
 	} catch {
 		return usage();
 	}
-	const { seat, cwd, budget } = parsed.values;
+	const { key, cwd, budget } = parsed.values;
 	const [prompt, ...extra] = parsed.positionals;
 	const budgetUsd = Number(budget);
-	if (!seat || !cwd || !(budgetUsd > 0) || !prompt || extra.length > 0)
+	if (!key || !cwd || !(budgetUsd > 0) || !prompt || extra.length > 0)
 		return usage();
-	const launched = launch({ seat, cwd: path.resolve(cwd), budgetUsd, prompt });
+	const launched = launch({
+		keyVar: key,
+		cwd: path.resolve(cwd),
+		budgetUsd,
+		prompt,
+	});
 	if ("why" in launched) {
 		writeFd(2, `REFUSED: ${launched.why}\n`);
 		return 1;

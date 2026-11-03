@@ -173,11 +173,14 @@ function isConsoleReadDue(seat, budget, plan, now) {
 }
 
 /**
- * The plan seat whose Chrome profile holds the key's Console; null for a key dir
- * not named for one.
+ * The plan seat whose Chrome profile holds the key's Console: the one on the
+ * key's dir, else the one the dir is named for; null for neither.
  * @param {OverflowSeat} seat
+ * @param {import("./refill-seats.js").SeatList} list
  */
-function planSeatOf(seat) {
+function planSeatOf(seat, list) {
+	if (list.seats.some((s) => s.kind === "plan" && s.dir === seat.dir))
+		return seat.dir;
 	const plan = planOfKeyDir(seat.dir);
 	return plan === seat.dir ? null : plan;
 }

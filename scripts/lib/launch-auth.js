@@ -11,11 +11,11 @@
  *   - `oauth_token` where CLAUDE_CODE_OAUTH_TOKEN is set and
  *     ANTHROPIC_AUTH_TOKEN is not: both report `oauth_token`, and only the
  *     first bills the subscription;
- *   - for lib/headless-sessions.js's launch alone, passing `overflow`, on a
- *     seat lib/refill-seats.js declares overflow (#2570), `api_key`, and
- *     `none`: that launch hands the seat its key through `--settings`, which
- *     `auth status` does not take. A seat file that refuses declares no
- *     overflow seat.
+ *   - for lib/headless-sessions.js's launch alone, passing `overflowKey`, under
+ *     the dir of the overflow seat lib/refill-seats.js declares for that key
+ *     (#2570), `api_key`, and `none`: that launch hands the seat its key
+ *     through `--settings`, which `auth status` does not take. A seat file that
+ *     refuses declares no overflow seat.
  * Everything else refuses: `api_key`, `api_key_helper`, `third_party` (a
  * CLAUDE_CODE_USE_* provider; ANTHROPIC_PROFILE and the rest reach it through
  * `auth status`), `none`, and a status that will not read. ANTHROPIC_BASE_URL
@@ -32,7 +32,7 @@
 
 const { spawnSync } = require("node:child_process");
 const { claudeBin } = require("./claude-bin.js");
-const { readDeclaredSeats, seatOf } = require("./refill-seats.js");
+const { readDeclaredSeats, seatOfLaunch } = require("./refill-seats.js");
 const { writeFd } = require("./write-fd.js");
 
 /* Untraced: `auth status` answers in ~0.4 s idle; CLI starts on a loaded
@@ -79,12 +79,17 @@ function readAuthStatus(bin, env, cwd) {
 	}
 }
 
-/** @param {NodeJS.ProcessEnv} env */
-function isOverflowSeat(env) {
+/**
+ * @param {NodeJS.ProcessEnv} env
+ * @param {string} keyVar
+ */
+function isOverflowSeat(env, keyVar) {
 	const dir = env.CLAUDE_CONFIG_DIR;
 	if (!isSet(dir)) return false;
 	const list = readDeclaredSeats();
-	return list.errors.length === 0 && seatOf(list, dir).kind === "overflow";
+	return (
+		list.errors.length === 0 && !("why" in seatOfLaunch(list, { dir, keyVar }))
+	);
 }
 
 /**
@@ -123,10 +128,11 @@ function sourceOf(status, env) {
  * Why a model launch of `bin` under `env` in `cwd` would not bill the
  * subscription, or null where it would.
  * @param {{bin: string, env: NodeJS.ProcessEnv, cwd: string,
- *   overflow?: boolean}} launch `overflow`: the headless overflow launch
+ *   overflowKey?: string}} launch `overflowKey`: the headless overflow
+ *   launch's seat
  * @returns {string|null}
  */
-function launchAuthRefusal({ bin, env, cwd, overflow = false }) {
+function launchAuthRefusal({ bin, env, cwd, overflowKey }) {
 	const refused = (/** @type {string} */ why) =>
 		`this model launch would not bill the subscription: ${why}. Rule: ${RULE}. Unset what set it, or launch from a shell without it.`;
 	if (isSet(env.ANTHROPIC_BASE_URL))
@@ -143,9 +149,9 @@ function launchAuthRefusal({ bin, env, cwd, overflow = false }) {
 	)
 		return null;
 	if (
-		overflow &&
+		overflowKey !== undefined &&
 		(method === "api_key" || method === "none") &&
-		isOverflowSeat(env)
+		isOverflowSeat(env, overflowKey)
 	)
 		return null;
 	return refused(sourceOf(status, env));

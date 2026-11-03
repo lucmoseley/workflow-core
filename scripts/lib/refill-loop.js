@@ -27,6 +27,7 @@ const {
 	hasRoom,
 	isParkRoutingMode,
 	orderPlanSeats,
+	ranOnPlanSeat,
 	EXPLICIT_STOP_DETAIL,
 } = require("./refill-decide.js");
 const {
@@ -128,9 +129,10 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * is the job its dispatch-ledger hold names; `pastSessionIds`, the sessions
  * it ran under before `sessionId`. `actsBefore`, on a parked session resumed as
  * a new launch, the acts that session had already made (#3942).
- * `nothingToRepeat`, on one parked on an API error or a limit (#3949).
+ * `nothingToRepeat`, on one parked on an API error or a limit (#3949). `keyVar`,
+ * the overflow seat it runs on (#4147).
  * @typedef {import("./refill-decide.js").LaunchRecord & {
- *   prompt: string, seat: string, jobId: string|null,
+ *   prompt: string, seat: string, keyVar?: string, jobId: string|null,
  *   parked?: boolean, block?: import("./block-act.js").Block,
  *   parkedAway?: boolean, sessionId?: string,
  *   resumes?: import("./refill-blocks.js").Resumes,
@@ -716,7 +718,7 @@ function sizeResumeSeats(seats, resumable, slots, sizeOf) {
 	if (slots === 0 || resumable.length === 0) return seats;
 	let spare = false;
 	return seats.map((s) => {
-		const due = resumable.filter((r) => r.seat === s.seat).length;
+		const due = resumable.filter((r) => ranOnPlanSeat(r, s.seat)).length;
 		const sized =
 			s.fits === null && hasRoom(s) && (due > 0 || !spare)
 				? { ...s, fits: sizeOf(s.seat, slots) }
@@ -859,12 +861,18 @@ function overflowReadings(list, plan, budgetOf) {
 	/** @type {import("./refill-seats.js").OverflowSeat[]} */
 	const seats = list.seats.flatMap((s) => (s.kind === "overflow" ? [s] : []));
 	return seats.map((seat) => {
-		const unread = { seat: seat.dir, fits: null, spentUntil: null };
+		const unread = {
+			seat: seat.dir,
+			keyVar: seat.keyVar,
+			fits: null,
+			spentUntil: null,
+		};
 		if (!due) return { ...unread, why: "a plan seat is not weekly-full" };
 		const b = budgetOf(seat);
 		if ("why" in b) return { ...unread, why: b.why };
 		return {
 			seat: seat.dir,
+			keyVar: seat.keyVar,
 			fits: b.fit,
 			spentUntil: isBudgetSpent(b) ? spentUntilText(b) : null,
 			why: null,
@@ -1400,8 +1408,7 @@ const stoppedOf = (d, at) =>
  * @returns {import("./overflow-notice.js").OverflowStart|null}
  */
 function recordOverflowStart(input, { judged, launched }, io) {
-	const overflowDirs = new Set((input.overflow ?? []).map((o) => o.seat));
-	const first = firstOverflowLaunch(judged, launched, overflowDirs);
+	const first = firstOverflowLaunch(judged, launched);
 	if (first === null) return null;
 	/** @type {string[]} */
 	let omitted = [];
