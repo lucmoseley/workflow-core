@@ -123,7 +123,7 @@ const CHECKS = [
  * so their body is printed even under an `OK:` line. A SKIP is no clean run:
  * it stays with the clean list.
  */
-const STANDINGS = new Set(["escape-audit", "wsl-currency"]);
+const STANDINGS = new Set(["escape-audit", "primitives", "wsl-currency"]);
 
 /**
  * @typedef {object} Result

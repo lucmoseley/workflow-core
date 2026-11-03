@@ -4099,7 +4099,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/check-primitives.test.ts": [
 			"scripts/lib/helper-surface.test.ts",
@@ -10660,6 +10661,7 @@
 			"scripts/resolve-ticket.test.ts",
 			"scripts/retire-stale-containers.test.ts",
 			"scripts/spec-commits.test.ts",
+			"scripts/status-report.test.ts",
 			"scripts/supervise-landing.test.ts",
 			"scripts/unpark-on-prompt.test.ts",
 			"scripts/wayfinder-frontier.test.ts"
@@ -15604,7 +15606,8 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
 		],
 		"scripts/lib/private-group.js": [
 			"scripts/check-guard-errors.test.ts",
@@ -23944,6 +23947,12 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/npm-run-hints.test.ts",
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/status-report.test.ts"
+		],
+		"scripts/status-report.test.ts": [
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/statusline.test.ts": [
