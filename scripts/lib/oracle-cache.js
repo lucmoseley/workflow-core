@@ -1,8 +1,8 @@
 /*
  * oracle-cache.js — single-flight over `claude agents --json`, the oracle
- * agent-liveness.js reads, and the one shared reading `wait` polls
- * (`readFresh`, #3561). No other caller of agent-liveness.js is offered a hit
- * standing alone (mantahostels#1960).
+ * agent-liveness.js reads, and the one shared reading `wait` and the refill
+ * panel's status poll take (`readFresh`, #3561, #4169). No other caller of
+ * agent-liveness.js is offered a hit standing alone (mantahostels#1960).
  *
  * WHY SINGLE-FLIGHT AND NOT A PLAIN CACHE (mantahostels#1924, measuring mantahostels#1921). It
  * was built for three SessionStart hooks launching at the SAME INSTANT, where a
@@ -151,18 +151,21 @@ function trySleep(ms) {
 
 /**
  * The cached stdout if one was written within the TTL, else null. A hit
- * standing alone goes to agent-liveness.js's `sharedSessionIds` only.
+ * standing alone goes to agent-liveness.js's `sharedSessionIds` and
+ * `readAgentsForDisplay` only.
  *
  * `minAt` narrows that to records written since a given moment, which is how a
  * follower avoids mistaking a record left by an EARLIER start for the answer the
- * leader it is waiting on has not published yet.
+ * leader it is waiting on has not published yet. `maxAgeMs` stands in for the
+ * TTL, for a reader that only shows what it reads (#4169).
  *
  * @param {string} key
  * @param {number} [minAt]
+ * @param {number} [maxAgeMs]
  * @returns {string|null}
  */
-function readFresh(key, minAt) {
-	const rec = freshRecord(key, minAt);
+function readFresh(key, minAt, maxAgeMs) {
+	const rec = freshRecord(key, minAt, maxAgeMs);
 	return typeof rec?.raw === "string" ? rec.raw : null;
 }
 
@@ -179,13 +182,15 @@ function readRefusal(key) {
 }
 
 /**
- * The record written within the TTL, and since `minAt` where given, else null.
+ * The record written within the TTL, or `maxAgeMs`, and since `minAt` where
+ * given, else null.
  *
  * @param {string} key
  * @param {number} [minAt]
+ * @param {number} [maxAgeMs]
  * @returns {{raw?: unknown, why?: unknown} | null}
  */
-function freshRecord(key, minAt) {
+function freshRecord(key, minAt, maxAgeMs = ttlMs()) {
 	if (isDisabled()) return null;
 	try {
 		const rec = JSON.parse(fs.readFileSync(cachePath(key), "utf8"));
@@ -195,7 +200,7 @@ function freshRecord(key, minAt) {
 		/* A record dated ahead of the clock is a clock that moved, not a fresh
 		 * read, and believing it would pin the cache open for the offset. */
 		const age = Date.now() - at;
-		if (age < 0 || age > ttlMs()) return null;
+		if (age < 0 || age > maxAgeMs) return null;
 		if (minAt !== undefined && at < minAt) return null;
 		return rec;
 	} catch {

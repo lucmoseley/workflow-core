@@ -2,7 +2,8 @@
 /*
  * oracle-cache.js shortens the oracle read concurrent readers pay
  * (mantahostels#1924/mantahostels#1921). A plain sequential re-read takes a cached
- * hit only through `wait`'s shared reader (mantahostels#1960, #3561); every other
+ * hit only through `wait`'s shared reader and the refill panel's display reader
+ * (mantahostels#1960, #3561, #4169); every other
  * reader takes one only as a genuinely racing follower. For every strict reader it is
  * allowed to make a read cheaper and never to change its answer:
  * every failure of the cache — concurrent or not — must land the caller on a
@@ -209,6 +210,39 @@ describe("the shared reading wait polls (#3561)", () => {
 		process.env.CLAUDE_CONFIG_DIR = overflow;
 		liveness.sharedSessionIds();
 		expect(fake.spawns()).toBeGreaterThan(plan);
+	});
+});
+
+describe("the shown reading the refill panel polls (#4169)", () => {
+	/* Ages either side of agent-liveness.js's DISPLAY_MAX_AGE_MS, 120 s. */
+	const aged = (bin: string, ageMs: number) =>
+		fs.writeFileSync(
+			cachePath(live(bin)),
+			JSON.stringify({ at: Date.now() - ageMs, raw: listing("a") }),
+		);
+
+	it("serves a reading past the TTL, inside its own age, without a spawn", () => {
+		process.env.WFC_ORACLE_CACHE_TTL_MS = "50";
+		const fake = countingClaude(listing("a", "b"));
+		aged(fake.bin, 60_000);
+		const r = liveness.readAgentsForDisplay();
+		expect(r.agents.map((a: Rec) => a.sessionId)).toEqual(["a"]);
+		expect(fake.spawns()).toBe(0);
+	});
+
+	it("spawns past its own age", () => {
+		const fake = countingClaude(listing("a", "b"));
+		aged(fake.bin, 121_000);
+		const r = liveness.readAgentsForDisplay();
+		expect(r.agents.map((a: Rec) => a.sessionId)).toEqual(["a", "b"]);
+		expect(fake.spawns()).toBe(1);
+	});
+
+	it("is never served to the budget's strict reader", () => {
+		const fake = countingClaude(listing("a", "b"));
+		aged(fake.bin, 0);
+		liveness.readAgentsForBudget();
+		expect(fake.spawns()).toBe(1);
 	});
 });
 

@@ -26,9 +26,9 @@
  * `null` throwing here). No caller may narrow the live set on a partial read.
  *
  * TWO EXEMPTIONS, DELIBERATE. `requireSelf: false` waives the self-test alone.
- * No caller but `sharedSessionIds` is offered an AGED cache hit
- * (mantahostels#1960): a cached success can be served back across a daemon
- * failure in between (mantahostels#1946).
+ * No caller but `sharedSessionIds` and `readAgentsForDisplay` is offered an
+ * AGED cache hit (mantahostels#1960): a cached success can be served back
+ * across a daemon failure in between (mantahostels#1946).
  * The self-test protects a reader whose judgement IS an absence — a session
  * missing from a short list reads dead. A reader that acts only on fields
  * present in a record can merely act less on a short list; and at
@@ -39,7 +39,10 @@
  * recorded at mantahostels#540.
  *
  * `sharedSessionIds` is `wait`'s alone (#3561): one reading per TTL for every
- * waiter. A stale record is never served; past the TTL it
+ * waiter. `readAgentsForDisplay` is `refill-loop.js`'s shown overflow budget's
+ * (#4169) — the panel's status poll, and the seats line `start` and `set`
+ * print — which acts on nothing it shows, so its hit may be older. A stale record is
+ * never served; past the TTL it
  * spawns or, with another reader already refreshing, answers `{why}`. A
  * failed refresh is published too, and served as `{why}` for the TTL. Its
  * one verdict off a hit is confirmed by a fresh read before it fires.
@@ -107,7 +110,9 @@ const headless = require("./headless-sessions.js");
  *   states: Map<string, string>, kinds: Map<string, string>,
  *   unvouched?: boolean}} SessionsListed
  * @typedef {SessionsRefused|SessionsListed} ListedSessions
- * @typedef {{requireSelf?: unknown, allowEmpty?: boolean, shared?: boolean}} ReadOpts
+ * @typedef {{requireSelf?: unknown, allowEmpty?: boolean, shared?: boolean,
+ *   shownAgeMs?: number}} ReadOpts  `shownAgeMs`, a hit up to that old for a
+ *   reader that only shows it, which otherwise reads as a strict reader does
  * @typedef {{read?: (o: ReadOpts) => any,
  *   requireSelf?: unknown, allowEmpty?: boolean}} Opts
  *   `read` answers `any` on purpose: it is the suite's seam, and its job is to
@@ -330,15 +335,15 @@ function readListing(opts) {
 	const dirs = oracleDirs();
 	const key = oracleCacheKey(bin, dirs);
 
-	/* A plain hit for the shared reader alone (module header). */
+	/* A plain hit for the shared and shown readers alone (module header). */
 	/** @param {string|null} cached */
 	const served = (cached) => {
 		if (cached === null) return null;
 		const answer = classifyRaw(cached, call, opts, runs.agents);
 		return answer.why ? null : answer;
 	};
-	if (opts?.shared) {
-		const hit = served(cache.readFresh(key));
+	if (opts?.shared || opts?.shownAgeMs !== undefined) {
+		const hit = served(cache.readFresh(key, undefined, opts.shownAgeMs));
 		if (hit) return hit;
 		const refused = cache.readRefusal(key);
 		if (refused !== null) return { why: `${refused} (a shared reading)` };
@@ -348,7 +353,8 @@ function readListing(opts) {
 	 * leader publishes — three readers launched at one instant otherwise pay
 	 * three spawns of the same binary (mantahostels#1921, #1446). A follower
 	 * given nothing usable falls through and spawns its own; a shared one
-	 * answers doubt instead (#3561). */
+	 * answers doubt instead (#3561), while a shown one spawns, as a panel row
+	 * reading unread while a slow leader finishes would flicker (#4169). */
 	const leading = cache.acquire(key);
 	if (!leading) {
 		const followed = served(cache.waitForLeader(key));
@@ -573,6 +579,29 @@ function readAgentsAfterBoot() {
  */
 function readAgentsForBudget() {
 	return refuseOnThrow(undefined, false, checkedListing, { allowEmpty: true });
+}
+
+/*
+ * HOW OLD A SHOWN LISTING MAY BE (#4169), measured 4 Nov 2026 at load ~13:
+ * one refresh of every plan's listing cost ~2.5 CPU-s and a cached
+ * `refill-loop.js status --json` ~0.16, so the panel's 3 s poll costs ~0.05
+ * core plus 2.5 s per this age, under 0.1 core from ~60 s; 120 s leaves room for a
+ * slower refresh. Any strict read writes the reading too, so beside a running
+ * loop's tick it is fresher than this.
+ */
+const DISPLAY_MAX_AGE_MS = 120_000;
+
+/**
+ * `readAgentsForBudget` off the shared reading, for what `refill-loop.js
+ * status` only shows (#4169): up to DISPLAY_MAX_AGE_MS old. The panel polls it
+ * every few seconds, and a strict read there started every plan's CLI each poll.
+ * @returns {Listing}
+ */
+function readAgentsForDisplay() {
+	return refuseOnThrow(undefined, false, checkedListing, {
+		allowEmpty: true,
+		shownAgeMs: DISPLAY_MAX_AGE_MS,
+	});
 }
 
 /**
@@ -832,6 +861,7 @@ module.exports = {
 	listedAgents,
 	readAgentsAfterBoot,
 	readAgentsForBudget,
+	readAgentsForDisplay,
 	listedSessionIds,
 	admissionSessionIds,
 	oracleCacheKey,
