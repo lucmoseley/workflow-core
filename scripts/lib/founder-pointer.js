@@ -115,10 +115,10 @@ function pointerIn(sentence, held) {
 function founderPointer(message) {
 	const prose = maskCode(message);
 	const held = hasSteps(message, prose);
-	for (const raw of prose.split(SENTENCE_BREAK)) {
-		const phrase = pointerIn(raw.replace(SENTENCE_MARKUP, ""), held);
-		if (phrase) return phrase;
-	}
+	return prose
+		.split(SENTENCE_BREAK)
+		.map((raw) => pointerIn(raw.replace(SENTENCE_MARKUP, ""), held))
+		.find(Boolean);
 }
 
 module.exports = { founderPointer };
