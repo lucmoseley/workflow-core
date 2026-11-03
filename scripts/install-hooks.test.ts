@@ -21,6 +21,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process.js";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const ROOT = path.resolve(__dirname, "..");
 const HUSKY = path.join(ROOT, "node_modules", "husky", "bin.js");
@@ -78,6 +79,14 @@ beforeEach(() => {
 		path.join(scripts, "landing-registry-gate.js"),
 	);
 	fs.symlinkSync(path.join(ROOT, "scripts", "lib"), path.join(scripts, "lib"));
+	fs.copyFileSync(
+		path.join(ROOT, "scripts", "merge-registry-anchors.js"),
+		path.join(scripts, "merge-registry-anchors.js"),
+	);
+	fs.copyFileSync(
+		path.join(ROOT, ".gitattributes"),
+		path.join(shared, ".gitattributes"),
+	);
 	for (const stub of STUBS)
 		fs.writeFileSync(path.join(scripts, stub), "process.exitCode = 0;\n");
 	writeChecker(
@@ -168,6 +177,39 @@ describe("install-hooks.js", () => {
 		expect(install(wt).status).toBe(0);
 		expect(git(wt, "config", "core.hooksPath")).toBe(
 			path.join(fs.realpathSync(shared), ".husky", "_"),
+		);
+	});
+
+	it("defines the registry anchors' merge driver absolute into the canonical checkout from a worktree too (#4171)", () => {
+		expect(install(wt).status).toBe(0);
+		expect(git(wt, "config", "merge.registry-anchors.driver")).toBe(
+			`node ${shellQuote(path.join(fs.realpathSync(shared), "scripts", "merge-registry-anchors.js"))} %O %A %B`,
+		);
+		expect(git(wt, "config", "merge.registry-anchors.name")).not.toBe("");
+	});
+
+	it("merges a registry row both sides moved with no conflict, keeping the current side's digest (#4171)", () => {
+		const anchors = path.join(wt, ".claude", "guard-registry-anchors.json");
+		const save = (rows: Record<string, string>, msg: string) => {
+			fs.mkdirSync(path.dirname(anchors), { recursive: true });
+			fs.writeFileSync(anchors, `${JSON.stringify(rows, null, "\t")}\n`);
+			git(wt, "add", "-A");
+			git(wt, "-c", "core.hooksPath=/dev/null", "commit", "-qm", msg);
+			return git(wt, "rev-parse", "HEAD");
+		};
+		const base = save({ "a.js": "a0", "b.js": "b0" }, "base");
+		const side = save({ "a.js": "a1", "b.js": "b0", "c.js": "c1" }, "side");
+		git(wt, "checkout", "-q", "--detach", base);
+		save({ "a.js": "a2", "b.js": "b2" }, "ours");
+
+		const r = spawnSync(
+			"git",
+			["-c", "core.hooksPath=/dev/null", "merge", "--no-edit", side],
+			{ cwd: wt, encoding: "utf8" },
+		);
+		expect(r.status, r.stdout + r.stderr).toBe(0);
+		expect(fs.readFileSync(anchors, "utf8")).toBe(
+			`${JSON.stringify({ "a.js": "a2", "b.js": "b2", "c.js": "c1" }, null, "\t")}\n`,
 		);
 	});
 

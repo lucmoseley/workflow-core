@@ -773,6 +773,72 @@ describe("a culprit whose revert conflicts in an anchors file (#3935)", () => {
 	});
 });
 
+describe("a culprit whose revert moves the guard registry's anchors (#4171)", () => {
+	const Registry = ".claude/guard-registry-anchors.json";
+	const writeRegistry = (rows: Record<string, string>) => {
+		fs.mkdirSync(path.join(work, ".claude"), { recursive: true });
+		fs.writeFileSync(
+			path.join(work, Registry),
+			`${JSON.stringify(rows, null, "\t")}\n`,
+		);
+	};
+
+	/** A culprit moving row `a` and adding the next row `b`, then a later commit moving `a` again. */
+	const pushRedThenLater = () => {
+		writeRegistry({ a: "seed", z: "seed" });
+		commit("base");
+		writeRegistry({ a: "culprit", b: "culprit", z: "seed" });
+		const red = commit("red");
+		writeRegistry({ a: "later", b: "culprit", z: "seed" });
+		const tip = commit("later");
+		git(work, "push", "-q", "origin", `${tip}:landing`);
+		return { red, tip };
+	};
+
+	const expectRevertedPerRow = (sha: string) => {
+		expect(git(remote, "show", `${sha}:${Registry}`)).toBe(
+			JSON.stringify({ a: "later", z: "seed" }, null, "\t"),
+		);
+		expect(
+			git(remote, "ls-tree", "--name-only", sha).split("\n"),
+		).not.toContain("red.txt");
+	};
+
+	it("settles its conflict per row where git defines no driver, reverting the row the culprit added beside the one kept", () => {
+		const { red } = pushRedThenLater();
+
+		const made = remoteGit(work).revertOnLanding(red, null, "why");
+
+		if (!("sha" in made)) throw new Error(made.failed);
+		expectRevertedPerRow(made.sha);
+		expect(git(remote, "log", "-1", "--format=%b", made.sha)).toContain(
+			`Conflicts in ${Registry} kept this branch's side`,
+		);
+	});
+
+	it("reverts with no conflict to the same bytes where the driver is defined", () => {
+		const { red } = pushRedThenLater();
+		fs.writeFileSync(
+			path.join(work, ".git", "info", "attributes"),
+			`${Registry} merge=registry-anchors\n`,
+		);
+		git(
+			work,
+			"config",
+			"merge.registry-anchors.driver",
+			`node ${shellQuote(path.resolve(__dirname, "merge-registry-anchors.js"))} %O %A %B`,
+		);
+
+		const made = remoteGit(work).revertOnLanding(red, null, "why");
+
+		if (!("sha" in made)) throw new Error(made.failed);
+		expectRevertedPerRow(made.sha);
+		expect(git(remote, "log", "-1", "--format=%b", made.sha)).not.toContain(
+			"Conflicts in",
+		);
+	});
+});
+
 it("reverts a merge culprit against the parent the bisect stepped from, undoing the session's side (#2996)", () => {
 	const { l, merge } = reconcileMerge();
 

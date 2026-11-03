@@ -1,3 +1,6 @@
 # Vendored skills (skills-lock.json): the shell gates and formatters skip them,
 # as base §0 routes vendored code to "none" (#1828).
 .agents/skills/** linguist-vendored
+# Merged per row by scripts/merge-registry-anchors.js, which install-hooks.js
+# defines; the gate then names each row both sides moved (#4171).
+.claude/guard-registry-anchors.json merge=registry-anchors
