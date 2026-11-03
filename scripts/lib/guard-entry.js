@@ -50,7 +50,8 @@ const {
  *   still resolved, so one naming nothing is a store fault, and left unlatched
  *   (mantahostels#1805)
  * @property {string} [prelude] the guard's own text, ahead of the fragments in
- *   the same envelope and outside the cap (mantahostels#2369)
+ *   the same envelope and outside the rule cap (mantahostels#2369); a dispatcher
+ *   core's stays inside the room
  * @property {string} [latchAfter] a `warn.` latch marked told once the
  *   envelope is written (mantahostels#2528)
  * @property {{ name: string, text: string }[]} [latchWrites] latches of the
@@ -167,9 +168,9 @@ function tabRecords(text, n) {
 /**
  * @typedef {{ name: string, text: string }} Latch
  * @typedef {{ deny?: string, context?: string, launch?: Launch["launch"],
- *   latches: Latch[] }} Rendered what one decision hands the session — a
- *   refusal, a context or a detached start — and the latches to write once
- *   it is out
+ *   latches: Latch[], overRoom?: boolean }} Rendered what one decision hands the
+ *   session, the latches to write once it is out, and `overRoom` where the room
+ *   dropped the guard's own text
  * @typedef {PortEnv & { name: string, room?: () => number,
  *   corePaths?: (text: string) => string }} RenderAt `name` is the guard a
  *   refusal names; `room`, what the hook entry has left, read only where the
@@ -194,8 +195,15 @@ function render(decision, at) {
 	if (!at.room || context.length <= at.room())
 		return { context, latches: decision.latchWrites ?? [] };
 	at.log("a core's context overran the persist room — dropped");
-	return { latches: [] };
+	return { latches: [], overRoom: true };
 }
+
+/**
+ * Whether a decision holds text of the guard's own, which the room can drop.
+ * @param {NonNullable<Decision>} decision
+ */
+const hasOwnText = (decision) =>
+	"context" in decision || ("injectRules" in decision && !!decision.prelude);
 
 /**
  * Each id's fragment once a session, highest priority first, as many
@@ -206,36 +214,30 @@ function render(decision, at) {
  * @returns {Rendered}
  */
 function renderInjection(decision, { payload, root, name, log, room }) {
-	const { prelude = "", latchAfter, latchWrites = [] } = decision;
+	const { prelude = "" } = decision;
+	const overRoom = !!prelude && !!room && prelude.length > room();
+	if (overRoom) log("a core's prelude overran the persist room");
+	const kept = overRoom ? "" : prelude;
+	const flagged = overRoom ? { overRoom } : {};
 	const key = agentKey(payload);
 	if (!key) {
 		log("no session_id in payload — rule injection skipped");
-		return prelude ? { context: prelude, latches: [] } : { latches: [] };
+		return { ...(kept ? { context: kept } : {}), latches: [], ...flagged };
 	}
-	const { readRuleText } = require("./rule-text.js");
-	const { readRuleCap } = require("./rule-emission.js");
-	/** @type {Map<string, string>} */
-	const texts = new Map();
-	/* A prelude alone is outside the cap, so a warn naming no rule reads none. */
-	let cap = Number.POSITIVE_INFINITY;
+	/** @type {{ cap: number, texts: Map<string, string> }} */
+	let rules;
 	try {
-		if (decision.injectRules.length > 0) cap = readRuleCap();
-		for (const id of decision.injectRules)
-			texts.set(bare(id), readRuleText(id, root));
+		rules = readRules(decision.injectRules, root);
 	} catch (e) {
 		return refuseUnreadable(e, { name, log, prelude });
 	}
+	const { cap, texts } = rules;
 	const skipped = new Set((decision.skip ?? []).map(bare));
 	const want = [...texts].filter(
 		([id]) => !skipped.has(id) && !fs.existsSync(latchPath(root, id, key)),
 	);
-	if (want.length === 0 && !prelude) return { latches: [] };
-	const fit = fitCap(
-		prelude,
-		want,
-		cap,
-		room ? room() : Number.POSITIVE_INFINITY,
-	);
+	if (want.length === 0 && !kept) return { latches: [], ...flagged };
+	const fit = fitCap(kept, want, cap, room ? room() : Number.POSITIVE_INFINITY);
 	if ("deny" in fit) {
 		log(`rule fragment over the emission ceiling — refusing: ${fit.id}`);
 		return {
@@ -250,11 +252,35 @@ function renderInjection(decision, { payload, root, name, log, room }) {
 		...(fit.out ? { context: fit.out } : {}),
 		latches: [
 			...fit.emitted.map((id) => ({ name: id, text: "" })),
-			...(latchAfter ? [{ name: warnId(latchAfter), text: "" }] : []),
-			...latchWrites,
+			...(overRoom ? [] : ownLatches(decision)),
 		],
+		...flagged,
 	};
 }
+
+/**
+ * The rule cap and each id's fragment. A prelude alone is outside the cap, so a
+ * warn naming no rule reads none.
+ * @param {string[]} ids
+ * @param {string} root
+ */
+function readRules(ids, root) {
+	const { readRuleText } = require("./rule-text.js");
+	const { readRuleCap } = require("./rule-emission.js");
+	return {
+		cap: ids.length > 0 ? readRuleCap() : Number.POSITIVE_INFINITY,
+		texts: new Map(ids.map((id) => [bare(id), readRuleText(id, root)])),
+	};
+}
+
+/**
+ * @param {Injection} decision
+ * @returns {Latch[]}
+ */
+const ownLatches = ({ latchAfter, latchWrites = [] }) => [
+	...(latchAfter ? [{ name: warnId(latchAfter), text: "" }] : []),
+	...latchWrites,
+];
 
 /**
  * The refusal for a rule the store cannot give, whatever the core's failure
@@ -468,6 +494,7 @@ function run({
 module.exports = {
 	emit,
 	guardFile,
+	hasOwnText,
 	makeDir,
 	render,
 	run,

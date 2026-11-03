@@ -110,6 +110,9 @@ const core = (
 
 const answers = (d: Decision) => () => d;
 
+/** Over the over-room notice's own length, which a drop still has to fit. */
+const tightCap = 300;
+
 const payload = (over: Record<string, unknown> = {}) => ({
 	session_id: "s1",
 	tool_name: "Bash",
@@ -208,11 +211,28 @@ describe("a context's and a deny's own latches", () => {
 
 	it("writes no latch for a context the room drops", () => {
 		const latchWrites = [{ name: "warn.mine", text: "" }];
-		expect(
-			run([core("a", answers({ context: "x".repeat(50), latchWrites }))], {
-				persistChars: 10,
-			}),
-		).toBeNull();
+		run([core("a", answers({ context: "x".repeat(500), latchWrites }))], {
+			persistChars: tightCap,
+		});
+		expect(readLatched()).toEqual([]);
+	});
+
+	it("writes no latch for a prelude the room drops", () => {
+		const latchWrites = [{ name: "warn.mine", text: "" }];
+		run(
+			[
+				core(
+					"a",
+					answers({
+						injectRules: [],
+						prelude: "p".repeat(500),
+						latchAfter: "mine",
+						latchWrites,
+					}),
+				),
+			],
+			{ persistChars: tightCap },
+		);
 		expect(readLatched()).toEqual([]);
 	});
 });
@@ -329,14 +349,146 @@ describe("every enabled core runs, none stopping the rest", () => {
 		expect(run([core("a", answers({ launch: ["x"] }))])).toBeNull();
 		expect(logs).toEqual(["a\ta dispatcher core answered a launch — dropped"]);
 	});
+});
 
-	it("never cuts a guard's own prelude to the room", () => {
-		const long = "p".repeat(150);
+/* #2733 story 39: no guard's advice is dropped in silence. */
+describe("the persist cap", () => {
+	const notice = (...names: string[]) =>
+		`Over the hook context cap, these guards' advice was dropped unread: ${names.join(", ")}.`;
+	const said = (cores: Core[], persistChars = tightCap) =>
+		String(run(cores, { persistChars })?.additionalContext ?? "");
+	const context = (name: string, size: number) =>
+		core(name, answers({ context: name.repeat(size) }));
+	const prelude = (name: string, size: number) =>
+		core(name, answers({ injectRules: [], prelude: name.repeat(size) }));
+
+	it("names each core whose context did not fit, within the cap, carrying the ones that did", () => {
+		const out = said([
+			context("big", 400),
+			context("kept", 10),
+			context("huge", 1000),
+		]);
+		expect(out).toBe(`${"kept".repeat(10)}\n\n${notice("big", "huge")}`);
+		expect(out.length).toBeLessThanOrEqual(tightCap);
+	});
+
+	it("drops a context whole, never cutting it to the room", () => {
+		expect(said([context("big", 400)])).toBe(notice("big"));
+	});
+
+	it("holds the total to the cap with a fitting prelude and an oversized context", () => {
+		const out = said([prelude("p", 150), context("big", 280)]);
+		expect(out).toBe(`${"p".repeat(150)}\n\n${notice("big")}`);
+		expect(out.length).toBeLessThanOrEqual(tightCap);
+	});
+
+	it("names a prelude that did not fit, and its fragments still get their say", () => {
+		fragment("alpha");
+		const out = said([
+			core("a", answers({ injectRules: ["alpha"], prelude: "p".repeat(400) })),
+		]);
+		expect(out).toBe(`${readText("alpha")}\n\n${notice("a")}`);
+		expect(out.length).toBeLessThanOrEqual(tightCap);
+	});
+
+	it("names a prelude that did not fit when the payload carries no session", () => {
+		const out = run([prelude("a", 400)], {
+			p: payload({ session_id: undefined }),
+			persistChars: tightCap,
+		});
+		expect(out?.additionalContext).toBe(notice("a"));
+	});
+
+	it("holds a later core's rules to the room the notice leaves", () => {
+		fragment("alpha", 200);
+		const out = said([
+			context("big", 400),
+			core("b", answers({ injectRules: ["alpha"] })),
+		]);
+		expect(out).toBe(`${readText("alpha")}\n\n${notice("big")}`);
+		expect(out.length).toBeLessThanOrEqual(tightCap);
+	});
+
+	it("names a dropped core beside a deny, which it does not soften", () => {
 		expect(
-			run([core("a", answers({ injectRules: [], prelude: long }))], {
-				persistChars: 100,
-			})?.additionalContext,
-		).toBe(long);
+			run([context("big", 400), core("b", answers({ deny: "no" }))], {
+				persistChars: tightCap,
+			}),
+		).toEqual({
+			permissionDecision: "deny",
+			permissionDecisionReason: "no",
+			additionalContext: notice("big"),
+		});
+	});
+
+	it("defers a later core's rules that would fit but for the notice", () => {
+		fragment("alpha", tightCap - 20);
+		expect(
+			said([
+				context("big", 400),
+				core("b", answers({ injectRules: ["alpha"] })),
+			]),
+		).toBe(notice("big"));
+	});
+
+	it("names a core the notice's own room pushes out", () => {
+		const out = said([context("big", 400), context("snug", 70)]);
+		expect(out).toBe(notice("big", "snug"));
+		expect(out.length).toBeLessThanOrEqual(tightCap);
+	});
+
+	it("carries text that fits, setting no room aside where nothing drops", () => {
+		const text = "x".repeat(tightCap);
+		expect(said([core("a", answers({ context: text }))])).toBe(text);
+		expect(said([core("a", answers({ injectRules: [], prelude: text }))])).toBe(
+			text,
+		);
+		expect(logs).toEqual([]);
+	});
+
+	it("holds the notice naming every core to the real cap", () => {
+		const { dispatchRows } = require("./guard-cores.js") as {
+			dispatchRows: (event: string) => Core[];
+		};
+		const { readHookPersistChars } = require("./rule-emission.js") as {
+			readHookPersistChars: () => number;
+		};
+		const cap = readHookPersistChars();
+		const names = dispatchRows("PreToolUse").map((row) => row.name);
+		const out = said(
+			names.map((name) =>
+				core(name, answers({ context: "x".repeat(cap + 1) })),
+			),
+			cap,
+		);
+		expect(out).toBe(notice(...names));
+		expect(out.length).toBeLessThanOrEqual(cap);
+	});
+
+	it("carries a dropped prelude in a refusal, whose reason the room does not bind", () => {
+		const long = "p".repeat(400);
+		const out = run(
+			[core("a", answers({ injectRules: ["absent"], prelude: long }))],
+			{ persistChars: tightCap },
+		);
+		expect(out?.permissionDecision).toBe("deny");
+		expect(out?.permissionDecisionReason).toContain(long);
+		expect(out?.additionalContext).toBeUndefined();
+	});
+
+	it("sets no room aside on a call whose cores carry only rules", () => {
+		fragment("alpha", tightCap - 1);
+		expect(said([core("a", answers({ injectRules: ["alpha"] }))])).toBe(
+			readText("alpha"),
+		);
+	});
+
+	it("logs each drop under its core's name", () => {
+		said([context("big", 400), prelude("p", 400)]);
+		expect(logs).toEqual([
+			"big\ta core's context overran the persist room — dropped",
+			"p\ta core's prelude overran the persist room",
+		]);
 	});
 });
 

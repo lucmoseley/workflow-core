@@ -3,8 +3,8 @@
  * event runs as a core inside one Node entry, scripts/guard-dispatch.js
  * (#2786, ADR-0010). The guard dispatcher, not subagent dispatch
  * (lib/dispatch-*.js). A plain call starts one Node process for them, and every
- * deny and every context still reaches the session as separate hooks would
- * deliver them.
+ * deny and every context the cap holds still reaches the session as separate
+ * hooks would deliver them.
  *
  * THE CORES are lib/guard-cores.json's, per event, in order: each row names
  * the core (its `name` is what `disabled` lists and the error log names), the
@@ -17,11 +17,16 @@
  *
  * THE MERGE. Every enabled core runs; none stops the rest. The permission is
  * the strongest any core gave, PreToolUse's `deny` > `defer` > `ask` >
- * `allow`, with every reason at that strength; every core's context is
- * carried, joined in manifest order, each core's rules fitted into what the
+ * `allow`, with every reason at that strength; every core's context that fits
+ * is carried, joined in manifest order, each core's rules fitted into what the
  * entry's HOOK_PERSIST_CHARS leaves (vendor hooks reference §PreToolUse
  * decision control, §Add context for Claude). A guard's own text is never
- * cut. A core's `updatedInput` rides on an
+ * cut: a context or prelude longer than that room is dropped whole, its latches
+ * unwritten, and a closing notice names each such core (#4126). A rule fragment
+ * over the room is deferred to its next trigger, unlatched and unnamed. The
+ * merged context stays inside the cap: the notice's room is set aside where
+ * something drops, and the notice naming every core fits HOOK_PERSIST_CHARS. A core's
+ * `updatedInput` rides on an
  * `allow`, and reaches the session only where `allow` is the merged strength:
  * any core's `ask`, `defer` or `deny` drops it. On PostToolUse the merge is
  * written in that event's own control: a deny is `decision: "block"`
@@ -52,6 +57,7 @@ const { guardDisabled } = require("./workflow-core-config.js");
 const {
 	emit,
 	guardFile,
+	hasOwnText,
 	render,
 	subjectFor,
 	writeLatches,
@@ -180,6 +186,12 @@ function merge(parts) {
  *   logFor: (name: string) => (what: string, detail?: string) => void,
  *   disabled: (name: string) => boolean, persistChars: () => number }} DispatchEnv
  * @typedef {{ latches: Latch[], log: (what: string) => void }} LatchSet
+ * @typedef {{ decision: NonNullable<CoreDecision>, name: string,
+ *   env: import("./kit-context.js").PortEnv }} Answer a core's decision, not yet
+ *   rendered
+ * @typedef {{ part?: Part, answer?: Answer }} Judgement
+ * @typedef {{ part?: Part, latchSet?: LatchSet, overRoom?: boolean }} Outcome
+ * @typedef {{ parts: Part[], latches: LatchSet[], dropped: string[] }} Fitted
  */
 
 /**
@@ -191,22 +203,63 @@ function merge(parts) {
 function dispatch(cores, env) {
 	const { payload, adapters, disabled } = env;
 	const host = { disabled, moduleOn: adapters.moduleOn };
-	/** @type {Part[]} */
-	const parts = [];
-	/** @type {LatchSet[]} */
-	const latches = [];
-	let used = 0;
-	for (const core of cores) {
-		if (!runsOn(core, payload, host)) continue;
-		const spent = used;
-		const room = () => persistRoom(env.persistChars(), spent);
-		const { part, latchSet } = runCore(core, env, room);
-		if (!part) continue;
-		parts.push(part);
-		if (part.context) used = persistUsed(used, part.context);
-		if (latchSet) latches.push(latchSet);
-	}
+	const judged = cores
+		.filter((core) => runsOn(core, payload, host))
+		.map((core) => runCore(core, env));
+	const reserve = noticeRoom(judged, env.persistChars);
+	const { parts, latches, dropped } = fitToCap(
+		judged,
+		() => env.persistChars() - reserve,
+	);
+	if (dropped.length > 0) parts.push({ context: overRoomNotice(dropped) });
 	return { output: merge(parts), latches };
+}
+
+/**
+ * Enough to name every core with text of its own, as the reserve can push more
+ * of them out; none where a silent trial fit drops nothing.
+ * @param {Judgement[]} judged
+ * @param {() => number} cap
+ */
+function noticeRoom(judged, cap) {
+	const names = judged.flatMap(({ answer }) =>
+		answer && hasOwnText(answer.decision) ? [answer.name] : [],
+	);
+	if (names.length === 0) return 0;
+	const silent = judged.map(({ part, answer }) => ({
+		part,
+		answer: answer && {
+			...answer,
+			env: { ...answer.env, log: () => undefined },
+		},
+	}));
+	return fitToCap(silent, cap).dropped.length > 0
+		? overRoomNotice(names).length + JOIN.length
+		: 0;
+}
+
+/**
+ * @param {Judgement[]} judged
+ * @param {() => number} cap
+ * @returns {Fitted}
+ */
+function fitToCap(judged, cap) {
+	/** @type {Fitted} */
+	const fitted = { parts: [], latches: [], dropped: [] };
+	let used = 0;
+	for (const { part, answer } of judged) {
+		const spent = used;
+		/** @type {Outcome} */
+		const outcome = answer
+			? answered(answer, () => persistRoom(cap(), spent))
+			: { part };
+		if (answer && outcome.overRoom) fitted.dropped.push(answer.name);
+		if (outcome.latchSet) fitted.latches.push(outcome.latchSet);
+		if (!outcome.part) continue;
+		fitted.parts.push(outcome.part);
+		if (outcome.part.context) used = persistUsed(used, outcome.part.context);
+	}
+	return fitted;
 }
 
 /**
@@ -231,14 +284,18 @@ const persistUsed = (used, context) =>
 	used + (used > 0 ? JOIN.length : 0) + context.length;
 
 /**
- * One core's answer as a part of the merge, with the latches it owes.
+ * @param {string[]} names
+ */
+const overRoomNotice = (names) =>
+	`Over the hook context cap, these guards' advice was dropped unread: ${names.join(", ")}.`;
+
+/**
+ * One core judged: the part its fault makes, or its decision to render.
  * @param {Core} core
  * @param {DispatchEnv} env
- * @param {() => number} room read only where the core injects, so a call no
- *   core speaks to never loads the cap's reader
- * @returns {{ part?: Part, latchSet?: LatchSet }}
+ * @returns {Judgement}
  */
-function runCore(core, { payload, root, adapters, logFor }, room) {
+function runCore(core, { payload, root, adapters, logFor }) {
 	const log = logFor(core.name);
 	if ("loadFault" in core) return { part: thrown(core, core.loadFault, log) };
 	const subject = subjectFor(payload, core);
@@ -273,26 +330,32 @@ function runCore(core, { payload, root, adapters, logFor }, room) {
 		}
 		return { part: thrown(core, caught(e).message, log) };
 	}
-	return decision ? answered(decision, core, { payload, root, log }, room) : {};
+	return decision
+		? { answer: { decision, name: core.name, env: { payload, root, log } } }
+		: {};
 }
 
 /**
- * A core's non-null decision as a part of the merge.
- * @param {NonNullable<CoreDecision>} decision
- * @param {Core} core
- * @param {import("./kit-context.js").PortEnv} env
- * @param {() => number} room
- * @returns {{ part?: Part, latchSet?: LatchSet }}
+ * A core's decision as a part of the merge, with the latches it owes.
+ * @param {Answer} answer
+ * @param {() => number} room read only where the core speaks, so a call no core
+ *   speaks to never loads the cap's reader
+ * @returns {Outcome}
  */
-function answered(decision, core, env, room) {
-	const r = render(decision, { ...env, name: core.name, room });
+function answered({ decision, name, env }, room) {
+	const r = render(decision, { ...env, name, room });
 	if (r.launch) {
 		env.log("a dispatcher core answered a launch — dropped");
 		return {};
 	}
 	const latchSet = { latches: r.latches, log: env.log };
+	const { overRoom } = r;
 	if (r.deny)
-		return { part: { permissionDecision: "deny", reason: r.deny }, latchSet };
+		return {
+			part: { permissionDecision: "deny", reason: r.deny },
+			latchSet,
+			overRoom,
+		};
 	const rewrite = decision.updatedInput
 		? {
 				permissionDecision: /** @type {const} */ ("allow"),
@@ -300,7 +363,9 @@ function answered(decision, core, env, room) {
 			}
 		: {};
 	const part = { ...(r.context ? { context: r.context } : {}), ...rewrite };
-	return Object.keys(part).length > 0 ? { part, latchSet } : { latchSet };
+	return Object.keys(part).length > 0
+		? { part, latchSet, overRoom }
+		: { latchSet, overRoom };
 }
 
 /**
