@@ -235,7 +235,7 @@
 			"source": "#2791, #3443, #3519"
 		},
 		"scripts/lib/agent-poll.js": {
-			"digest": "e4ec485ff6da6bd0",
+			"digest": "a4ce2264030e3e25",
 			"verdict": "too late — deny lands on the 3rd call for agents and read:<file> (and for a subagent's read), on the 2nd for noop; check and check:job never deny, warning from the 4th call inside 5 minutes. The harmful look has already run 2 times (1 for noop) before any text reaches the session. Run as a core of scripts/guard-dispatch.js, on Bash, Read and ListAgents since #3224 (#2791: its refusal and warning text byte-identical to the bash guard's, captured before its deletion); at #2896 an import move only (segment from review-suffix.js), measured by agent-poll.test.ts exact-text cases. Re-fed at 6f96cb55e under #3583 through `--only guard-agent-poll`: byte-identical to ecefc2819, aimed at 61bcf56a0's no-op regex with `true ; # done` and `exit 0 ;` (a no-op) and `true ;; ` (not one).",
 			"selfSufficient": "yes, but late — each parent deny carries the #845 mechanism and the corrected step, the agents and read denies opening with it as a command, the noop deny with \"Ending a turn is not a tool call\"; subagent variant correctly says wait inside the turn instead of ending it, on all five limbs, and carries no #845 clause. The parent's check:job warn ends \"the backgrounded watch is what wakes this session\" though its own advice names no backgrounded watch, only `sleep 120` spacing.",
 			"source": "#2791, #3583, #4129"
@@ -337,7 +337,7 @@
 			"source": "#3143, #4129"
 		},
 		"scripts/lib/root-scratch.js": {
-			"digest": "78a9f89ccdc90aa6",
+			"digest": "488fa899c3e6b884",
 			"verdict": "at need — on the write call; no latch, so every stray is refused. Run as a core of scripts/guard-dispatch.js (#2789: its refusal and warning text byte-identical to the bash guard over 78 differential cases); re-fed at #2896 through the entry: a Write and a Bash redirect to a root dotfile each gave the same deny and sanctioned target. Re-fed at 6f96cb55e under #3583 through `guard-dispatch.js --only guard-root-scratch`, whole stdout from a 48-character root: Bash redirect 884 B, Write 985 B (the root printed twice), Edit and NotebookEdit 977 B (the root once, an `mv` line as the remedy); tee, cp and a `$VAR` name denied, a repeat denied again; 0 B on a gitignored, tracked or `.claude/tmp/` target, the `mv` line and the `dd` escape. #3609's shellQuote (02f808400) leaves a safe name bare, so a Bash or Write deny is 2 B shorter than at 8c4a7741f and an Edit's 6 B; a name needing quotes is unchanged.",
 			"selfSufficient": "yes — names the rule, the reason, the corrected target (bare, whichever spelling wrote it; an `mv` line for an Edit or NotebookEdit) and the `dd` escape.",
 			"source": "#2789, #3583, #4129"
@@ -379,7 +379,7 @@
 			"source": "#1810, #3157"
 		},
 		"scripts/guard-inventory.js": {
-			"digest": "99801db03bdd52c6",
+			"digest": "f0563afd57028c2d",
 			"verdict": "at need (the ending turn of a background job; a block written on any turn, in any session, is judged for shape and carriers, 2,623 B interactive). Re-fed at 6f96cb55e under #3583 through the Stop hook line with a WFC_GH stub: no block 2,493 B at `result:`, 2,498 B at `needs input:`, census payload 2,371 B at e6b59b233, 4aa0afe9a's rule the 122 B; interactive and `waiting:` 0 B. Shape and tail 2,439–2,569 B, closed carrier 2,510 B, unreachable gh passes 0 B. Round: not posted 2,707 B, unclaimed 2,714 B, no hand-off 3,047 B, malformed 3,042 B, a stranded ledgered file 2,776 B, well-formed and claimed 0 B. Roundless park (#2849): no hand-off 3,071 B, citing nothing 2,999 B, pointer naming another question 3,049 B, unread issue 0 B, malformed beside an unread issue 3,066 B (#2965). Hand-off older than the session's start or job record with a tool call since 3,140 B on either limb (#2944, #2950, #3939), with none 0 B. Unreadable transcript (#3951): stale hand-off passes 0 B, a tail fault still refuses 2,541 B, the draft limb still reads this turn 2,784 B. Repo-hold park (#3858): unclaimed 2,611 B, claimed 0 B, no own hand-off 3,071 B. Cap 2,493, 2,493, 2,818 B with the last-block notice, then 0 B. Draft and act 2,784 B once, then 0 B; a send back to the session 0 B. A tail of `#31`, 100,000 blanks and `x` refuses in 102 ms, was 17.3 s (61bcf56a0), echoing the blanks whole, 102,488 B; refs alone after the blanks 0 B. None of the hand-off, stale, hold or #3951 draft refusals exists at e6b59b233. Against it each printed ref is 8 B longer, `.claude/workflow-core.json`'s tracker name.",
 			"selfSufficient": "yes — the defect, the exact shape to write and the whole underlying rule are inline; with docs/agents/rules/founder-deliverable.txt gone, the rule is a one-line stand-in pointing at that file (1,015 B, 960 B at e6b59b233 before 3b8cedd97)",
 			"source": "#1810, #3583, #4129"
