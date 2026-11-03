@@ -3,7 +3,7 @@
 	".husky/post-commit": "8142c9cd8febb20d",
 	".husky/post-merge": "1cb5e94a1b6dfdfc",
 	".husky/pre-applypatch": "67c3f3eda4fddf71",
-	".husky/pre-commit": "43a4e2ef5cc60599",
+	".husky/pre-commit": "3653c2bd9cfb1d17",
 	".husky/pre-merge-commit": "d0896bbe06b5b19b",
 	".husky/pre-push": "ab4495b9f1f4c75b",
 	".husky/prepare-commit-msg": "1d87038116c72216",
