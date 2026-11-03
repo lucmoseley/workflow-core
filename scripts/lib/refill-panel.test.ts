@@ -68,6 +68,7 @@ const RUNNING = {
 	burnMode: BURN_OFF,
 };
 const LAUNCHED = "3 launched today · 9 of 9 running · 24h 8.4";
+const MACHINE_FULL = "Machine full";
 const PAUSED_TICK = {
 	at: LATER,
 	summary: "idle: paused by founder",
@@ -239,7 +240,7 @@ describe("the panel's rows", () => {
 			["Refill loop  [on]", "name"],
 			["", "secondary"],
 			[LAUNCHED, "value"],
-			["Not starting more: the machine is full", "secondary"],
+			[MACHINE_FULL, "secondary"],
 			["", "secondary"],
 			["Weekly plan usage", "secondary"],
 			["  .claude3  47% used (61m ago)", "secondary"],
@@ -259,14 +260,11 @@ describe("the panel's rows", () => {
 	});
 
 	it.each([
-		["no free slot", "Not starting more: the machine is full"],
-		["no plan has room right now", "Not starting more: no plan has room"],
-		[
-			"the 5-hour bar is full on ~/.claude3",
-			"Not starting more: a 5-hour limit is full",
-		],
-		["nothing launchable", "Not starting more: no ticket is ready"],
-		["shortlist failed in wc: boom", "Not starting more: a ticket list failed"],
+		["no free slot", "Machine full"],
+		["no plan has room right now", "No plan room"],
+		["the 5-hour bar is full on ~/.claude3", "5-hour limit full"],
+		["nothing launchable", "No ticket ready"],
+		["shortlist failed in wc: boom", "Ticket list failed"],
 		["resumes take every free slot", "Resuming paused sessions first"],
 		[
 			"every seat is spent; a resume is due",
@@ -278,19 +276,24 @@ describe("the panel's rows", () => {
 		],
 		[
 			"no plan has room right now; no overflow launch: ~/.claude2 not weekly-full",
-			"Not starting more: no plan has room",
+			"No plan room",
 		],
-		["a reason unmapped; and more", "Not starting more: a reason unmapped"],
 	])("says %s in the founder's words", (idle, words) => {
 		const lastTick = { at: AT, summary: `idle: ${idle}`, idle, paused: false };
 		expect(rowsOf({ status: { ...RUNNING, lastTick } })[3].text).toBe(words);
 	});
 
+	it("falls back to an unmapped reason's first clause", () => {
+		const idle = "a reason unmapped; and more";
+		const lastTick = { at: AT, summary: `idle: ${idle}`, idle, paused: false };
+		expect(rowsOf({ status: { ...RUNNING, lastTick } })[3].text).toBe(
+			"a reason unmapped",
+		);
+	});
+
 	it("gives the idle reason once in the block", () => {
 		const rows = rowsOf({ status: RUNNING });
-		expect(rows.filter((r) => r.text.includes("machine is full"))).toHaveLength(
-			1,
-		);
+		expect(rows.filter((r) => r.text.includes(MACHINE_FULL))).toHaveLength(1);
 		expect(rows.map((r) => r.text).join("\n")).not.toContain("idle:");
 	});
 
@@ -956,9 +959,7 @@ describe("the panel's colours", () => {
 	it("draws names bold white, live values white, secondary text #949494", () => {
 		expect(frame).toContain(`${ESC}[1m${ESC}[38;2;242;242;242mRefill loop`);
 		expect(frame).toContain(`${ESC}[38;2;242;242;242m${LAUNCHED}`);
-		expect(frame).toContain(
-			`${ESC}[38;2;148;148;148mNot starting more: the machine is full`,
-		);
+		expect(frame).toContain(`${ESC}[38;2;148;148;148m${MACHINE_FULL}`);
 	});
 
 	it("uses no blue in any colour it draws", () => {
@@ -977,24 +978,19 @@ describe("the panel's frame", () => {
 	it("wraps a long row whole at its word boundaries", () => {
 		const status = tickOf("a reason far longer than one row of this pane");
 		const frame = buildFrame(buildRows(view({ status }), LATER, 24), 24, 40);
-		for (const line of [
-			"Not starting more: a",
-			"reason far longer",
-			"than one row of this",
-			"pane",
-		])
+		for (const line of ["a reason far longer", "than one row of this", "pane"])
 			expect(frame).toContain(`${line}${ESC}`);
 		expect(frame).not.toContain("…");
 	});
 
 	it("breaks a word longer than a row where the row ends", () => {
-		const rows = buildRows(view({ status: tickOf("x".repeat(30)) }), LATER, 24);
+		const rows = buildRows(
+			view({ status: tickOf(`a ${"x".repeat(30)}`) }),
+			LATER,
+			24,
+		);
 		expect(rows.map((r: Row) => r.text)).toEqual(
-			expect.arrayContaining([
-				"Not starting more:",
-				"x".repeat(20),
-				"x".repeat(10),
-			]),
+			expect.arrayContaining(["a", "x".repeat(20), "x".repeat(10)]),
 		);
 	});
 
@@ -1351,9 +1347,7 @@ describe("the pending word", () => {
 		const rows = buildRows(panel.view, AT + 1, WIDE);
 		expect(rows[0].control.state).toBe("on");
 		expect(rows[3].text).toBe("the control is damaged; `start` rewrites it");
-		expect(buildRows(panel.view, LATER, WIDE)[3].text).toBe(
-			"Not starting more: the machine is full",
-		);
+		expect(buildRows(panel.view, LATER, WIDE)[3].text).toBe(MACHINE_FULL);
 	});
 
 	it("survives an unreadable status, and claims nothing during it", async () => {
@@ -1804,7 +1798,7 @@ describe("the Away switch", () => {
 			text: "busy",
 			role: "value",
 		});
-		expect(rows[3].text).toBe("Not starting more: the machine is full");
+		expect(rows[3].text).toBe(MACHINE_FULL);
 		expect(buildRows(panel.view, AT + 60_000, WIDE)[AWAY_INDEX + 1].text).toBe(
 			"",
 		);
@@ -2908,7 +2902,7 @@ describe("the spacing scale", () => {
 		["siblings: Away to Burn mode", "Burn mode", 1],
 		["siblings: one box to the next", "[ ] dv", 1],
 		["siblings: the last box to the note", "An unticked repo", 1],
-		["inside a text block: the loop's line 2", "Not starting", 0],
+		["inside a text block: the loop's line 2", MACHINE_FULL, 0],
 		["siblings: the loop's lines to the plan rows", "Weekly plan usage", 1],
 		["inside a text block: the plan rows", ".claude3", 0],
 		["inside a text block: the caption under the field", "Click to change", 0],

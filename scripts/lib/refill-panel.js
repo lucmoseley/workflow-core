@@ -69,16 +69,15 @@ const GOAL_CAPTION = ["Click to change it", "Enter to save · Esc to cancel"];
 const KEY_HINT = ["↑↓ move · space change", "Esc leave"];
 const POINTER_MARK = "❯";
 
-const NOT_STARTING = "Not starting more";
 /* What the waiting row says for a tick's idle reason, whose constants are the log's too
  * (#4004). An idle reason opens with its first clause, and `status` keeps the rest. */
 /** @type {[string, string][]} */
 const WAITING_WORDS = [
-	[NO_FREE_SLOT, `${NOT_STARTING}: the machine is full`],
-	[NO_PLAN_ROOM, `${NOT_STARTING}: no plan has room`],
-	[FIVE_HOUR_FULL, `${NOT_STARTING}: a 5-hour limit is full`],
-	[NOTHING_LAUNCHABLE, `${NOT_STARTING}: no ticket is ready`],
-	[SHORTLIST_FAILED, `${NOT_STARTING}: a ticket list failed`],
+	[NO_FREE_SLOT, "Machine full"],
+	[NO_PLAN_ROOM, "No plan room"],
+	[FIVE_HOUR_FULL, "5-hour limit full"],
+	[NOTHING_LAUNCHABLE, "No ticket ready"],
+	[SHORTLIST_FAILED, "Ticket list failed"],
 	[RESUMES_TAKE_SLOTS, "Resuming paused sessions first"],
 	[RESUME_DUE_WAIT, "All plans used up; a resume is due"],
 	[LIMIT_HELD_WAIT, "All plans used up; a session waits"],
@@ -272,7 +271,7 @@ function buildWaitingRowText(status, now) {
 	const idle = tick?.idle;
 	if (!idle) return "";
 	const words = WAITING_WORDS.find(([reason]) => idle.startsWith(reason));
-	return words ? words[1] : `${NOT_STARTING}: ${idle.replace(/; .*$/s, "")}`;
+	return words ? words[1] : idle.replace(/; .*$/s, "");
 }
 
 /**
