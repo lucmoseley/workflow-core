@@ -28,8 +28,8 @@ lands, never held for the end.
 Read both `## Primitives` tables in full: the base one in
 `docs/code-standards-base.md` and the local one in `docs/code-standards.md`.
 Then run `node scripts/check-primitives.js` and keep its output in
-`$R/known.md`. A FAIL there is a table fault: comment it on the due issue and
-carry on.
+`$R/known.md`. A FAIL there is a table fault: file it as §4's defect and carry
+on.
 
 **A breach of a row whose Enforcing check names a program is never filed.**
 
@@ -173,4 +173,5 @@ before you close. Then run
 
 `N` is the read-back count, written as a figure even at 0: the table checker's
 new-heresies count is this line on the last closed due issue
-(`scripts/check-primitives.js`), and it prints unknown without one.
+(`scripts/check-primitives.js`), and it prints unknown without one. A comment
+naming a commit sha also owes a `**Door:**` line.
