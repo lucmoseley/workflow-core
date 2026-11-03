@@ -1,5 +1,5 @@
 /*
- * concurrency.test.ts — lib/concurrency.js's tick record and readout (#3317).
+ * concurrency.test.ts — lib/concurrency.js's tick record, readout and status read (#3317).
  * A break here names the wrong limit when the founder asks why only N
  * sessions run.
  */

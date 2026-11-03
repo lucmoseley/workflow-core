@@ -488,8 +488,7 @@ function writeSustained(r) {
 }
 
 /**
- * The 24-hour figure as last written, `?` where its file will not read, as unknown
- * is never calm (mantahostels#1206).
+ * The 24-hour figure as last written, `?` where its file will not read.
  * @param {string} file
  */
 function readSustainedFigure(file) {
@@ -503,8 +502,8 @@ function readSustainedFigure(file) {
 
 /**
  * What `refill-loop.js status --json` carries for the panel, off the precomputed
- * figure, so a poll reads no minute record. `working` and `ceiling` are null where
- * unread or the newest tick is stale or a stop, `limit` null where none binds.
+ * figure. `working` and `ceiling` are null where unread or the newest tick is stale
+ * or a stop, `limit` null where none binds.
  * @param {number} now
  */
 function readConcurrencyStatus(now) {
