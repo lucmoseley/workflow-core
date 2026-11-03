@@ -88,6 +88,16 @@ const seededIo = (
 	now: () => NOW,
 });
 
+describe("an overflow member's launch record (#4147)", () => {
+	it("keeps its key, the one mark of its seat on a dir a plan seat shares", () => {
+		const r = launchBatch(
+			[{ ...launch, keyVar: "K2", reason: "overflow" as const }],
+			seededIo([entry(launch.prompt, NOW, "j1")]),
+		);
+		expect(r.launched[0]).toMatchObject({ jobId: "j1", keyVar: "K2" });
+	});
+});
+
 describe("the dispatcher call for one batch", () => {
 	const env = {
 		PATH: "/usr/bin",

@@ -27,7 +27,7 @@
  * which the idle alarm reads whatever the loop's mode or state (#3840). A park the
  * loop stopped names its block's cause, which picks the resume's prompt (#3949);
  * any other write drops that too. One entry a line: `seat <config dir>`,
- * `job <job id>`, `cwd <directory>`, `limit-parks <count>`, `cause <cause>`, or an
+ * `key <variable>` on an overflow seat's (#4147), `job <job id>`, `cwd <directory>`, `limit-parks <count>`, `cause <cause>`, or an
  * issue number.
  */
 
@@ -64,8 +64,10 @@ function setParked(repo, n, on) {
 }
 
 /**
- * `cwd` null where the job's record would not read at park time.
- * @typedef {{seat: string, jobId: string, cwd: string|null}} ParkJob
+ * `cwd` null where the job's record would not read at park time. `keyVar`, the
+ * overflow seat it ran on, whose `seat` a plan seat may share; none on a plan
+ * seat's (#4147).
+ * @typedef {{seat: string, keyVar?: string, jobId: string, cwd: string|null}} ParkJob
  */
 /**
  * @typedef {{issues: number[], job: ParkJob|null, limitParks?: number, cause?: string}} ParkMarker
@@ -76,7 +78,7 @@ function setParked(repo, n, on) {
  */
 
 const MARKER_PREFIX = ".parked-";
-const KEYED_RE = /^(seat|job|cwd|limit-parks|cause) (.+)$/;
+const KEYED_RE = /^(seat|key|job|cwd|limit-parks|cause) (.+)$/;
 /* park-blocked.sh's record shares the prefix (lib/arbiter-markers.js). */
 const BLOCKED_PREFIX = ".parked-blocked-";
 
@@ -100,10 +102,18 @@ function parseMarker(text) {
 		const m = KEYED_RE.exec(line);
 		if (m) keyed[requiredGroup(m, 1, KEYED_RE)] = requiredGroup(m, 2, KEYED_RE);
 	}
-	const { seat, job, cwd, "limit-parks": limitParks, cause } = keyed;
+	const { seat, key, job, cwd, "limit-parks": limitParks, cause } = keyed;
 	return {
 		issues,
-		job: seat && job ? { seat, jobId: job, cwd: cwd ?? null } : null,
+		job:
+			seat && job
+				? {
+						seat,
+						...(key ? { keyVar: key } : {}),
+						jobId: job,
+						cwd: cwd ?? null,
+					}
+				: null,
 		...(limitParks ? { limitParks: Number(limitParks) } : {}),
 		...(cause ? { cause } : {}),
 	};
@@ -231,7 +241,9 @@ function writeParkedBy(
 	const prior = readParkMarker(sessionId, root).job;
 	const kept = job ? { ...job, cwd: job.cwd ?? prior?.cwd ?? null } : prior;
 	const lines = [
-		...(kept ? [`seat ${kept.seat}`, `job ${kept.jobId}`] : []),
+		...(kept ? [`seat ${kept.seat}`] : []),
+		...(kept?.keyVar ? [`key ${kept.keyVar}`] : []),
+		...(kept ? [`job ${kept.jobId}`] : []),
 		...(kept?.cwd ? [`cwd ${kept.cwd}`] : []),
 		...(limitParks ? [`limit-parks ${limitParks}`] : []),
 		...(cause ? [`cause ${cause}`] : []),

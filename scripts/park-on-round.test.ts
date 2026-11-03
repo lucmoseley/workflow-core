@@ -16,6 +16,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ledgerPath, record as recordLaunch } from "./lib/dispatch-ledger.js";
 import { stubGhScript } from "./lib/gh-stub";
 import { NEEDS_INPUT, POSTED, ROUND } from "./lib/round-ending-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
@@ -123,6 +124,30 @@ describe("a round posted on an issue this session claims", () => {
 		const seat = path.join(dir, "seat");
 		run(NEEDS_INPUT, path.join(seat, "jobs", "abcd1234"));
 		expect(readMarker()).toBe(`seat ${seat}\njob abcd1234\n31`);
+	});
+
+	describe("on a launch the dispatch ledger marks overflow (#4147)", () => {
+		it("records its key beside its seat", () => {
+			claim(31);
+			recordLaunch({
+				issues: [31],
+				model: "opus",
+				prompt: "/implement 31",
+				root: dir,
+				jobId: "abcd1234",
+				overflow: { keyVar: "K2", allowanceUsd: 100, sessionId: null },
+			});
+			const seat = path.join(dir, "seat");
+			run(NEEDS_INPUT, path.join(seat, "jobs", "abcd1234"));
+			expect(readMarker()).toBe(`seat ${seat}\nkey K2\njob abcd1234\n31`);
+		});
+
+		it("names no job where the ledger will not read, so it cannot read as a plan seat's", () => {
+			claim(31);
+			fs.mkdirSync(ledgerPath(dir), { recursive: true });
+			run(NEEDS_INPUT, path.join(dir, "seat", "jobs", "abcd1234"));
+			expect(readMarker()).toBe("31");
+		});
 	});
 
 	it("records the cwd its job record names, so the resume needs no later read of that record (#3773)", () => {

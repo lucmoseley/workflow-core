@@ -988,6 +988,24 @@ describe("decideTick's resumes of held sessions (#3855)", () => {
 	});
 
 	describe("charged to its own seat's cap (#3895)", () => {
+		it("charges an overflow seat's resume none of the plan seat's cap on its dir, and is held by none (#4147)", () => {
+			const onKey = { ...oldest, keyVar: "K2" };
+			const spare = tick({
+				freeSlots: 4,
+				seats: [seat("a", 10, 10, 1)],
+				resumable: [onKey],
+			});
+			expect(jobs(spare)).toEqual(["old"]);
+			expect(launched(spare)).toEqual(["wfc#1"]);
+			const spent = tick({
+				freeSlots: 4,
+				seats: [seat("a", 10, 10, 0)],
+				resumable: [onKey],
+			});
+			expect(jobs(spent)).toEqual(["old"]);
+			expect(spent).toMatchObject({ capHeld: [] });
+		});
+
 		it("charges a resume to its seat's cap, leaving launches what remains", () => {
 			const d = tick({
 				freeSlots: 4,
@@ -1701,6 +1719,32 @@ describe("decideTick on a parked row's session seat (#3669)", () => {
 		expect(
 			afresh(on(full, [parker({ job: { ...job, seat: "/gone" } })])),
 		).toEqual({ afresh: "its session's seat /gone is not one the loop reads" });
+	});
+
+	describe("a session parked on an overflow seat sharing a plan seat's dir (#4147)", () => {
+		const onKey = parker({ job: { ...job, keyVar: "K2" } });
+
+		it("routes it afresh, never to the plan seat's resume", () => {
+			const d = on(seat("/s2", 40, 20, null), [onKey]);
+			expect(d.launches[0].parkedRoute).toEqual({
+				afresh: "its session ran on overflow seat key=K2",
+			});
+		});
+
+		it("holds it on no reading of the plan seat, full as that seat reads", () => {
+			const d = on(seat("/s2", 100, 10), [onKey]);
+			expect(d.held).toEqual([]);
+			expect(d.launches[0].parkedRoute).toEqual({
+				afresh: "its session ran on overflow seat key=K2",
+			});
+		});
+
+		it("still resumes a marker naming no key on that seat, as a plan seat's", () => {
+			const d = on(seat("/s2", 40, 20, null), [parker()]);
+			expect(d.launches[0].parkedRoute).toMatchObject({
+				resume: { seat: "/s2" },
+			});
+		});
 	});
 });
 

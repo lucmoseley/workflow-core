@@ -9,7 +9,8 @@
  * a label that stays, for the next tick to retry, and throws on an unread list.
  * moveParkedBy (#3709, #3940) writes the copy's marker before trimming the old
  * one: the other order loses the park on a failed write, so no typing or ending
- * takes the label off.
+ * takes the label off. A key that does not read back (#4147) reads an overflow
+ * seat's session as the plan seat's on its dir, and charges that seat's cap.
  */
 
 import fs from "node:fs";
@@ -72,6 +73,23 @@ describe("a park marker's cause (#3949)", () => {
 		writeParkedBy("s1", [7], { root, job, cause: "LIMIT" });
 		writeParkedBy("s1", [7], { root });
 		expect(readParkMarkers(root)[0]).not.toHaveProperty("cause");
+	});
+});
+
+describe("a park marker's overflow key (#4147)", () => {
+	const job = { seat: "/s2", jobId: "j1", cwd: null };
+
+	it("reads back the key it was written with, and keeps it through a write naming no job", () => {
+		writeParkedBy("s-key", [7], { root, job: { ...job, keyVar: "K2" } });
+		expect(readParkMarkers(root)[0].job).toEqual({ ...job, keyVar: "K2" });
+		writeParkedBy("s-key", [7, 8], { root });
+		expect(readParkMarkers(root)[0].job).toEqual({ ...job, keyVar: "K2" });
+	});
+
+	it("reads a marker written before keys as a plan seat's: no key on its job", () => {
+		fs.mkdirSync(path.dirname(markerFile("s-old")), { recursive: true });
+		fs.writeFileSync(markerFile("s-old"), "seat /s2\njob j1\n7\n");
+		expect(readParkMarkers(root)[0].job).toEqual(job);
 	});
 });
 

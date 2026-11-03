@@ -938,6 +938,12 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 				},
 			});
 
+		it("carries a due overflow session's key, for the decision to charge none of a plan seat's cap (#4147)", () => {
+			expect(resumeDue([held({ keyVar: "K2" })]).due).toMatchObject([
+				{ jobId: "job42", keyVar: "K2" },
+			]);
+		});
+
 		it("carries each due session's seat, for the decision to charge (#3895)", () => {
 			expect(resumeDue([held()]).due).toMatchObject([
 				{ jobId: "job42", seat: "/home/u/.claude3" },
@@ -2266,6 +2272,17 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 			pastSessionIds: ["s-job42"],
 		});
 		expect(comments(calls)[0]).toContain("as its copy copy1");
+	});
+
+	it("reads no plan seat's bars for an overflow session on its dir, a marker's launch or the loop's own (#4147)", () => {
+		const { launches, calls } = limits(
+			[blocked({ keyVar: "K2", reason: "parked session's seat" })],
+			[agent("job42", "blocked")],
+			{ seats: [fiveHourFull, planSeat({ seat: "/other" })] },
+		);
+		expect(calls).toEqual([]);
+		expect(launches[0]).toMatchObject({ keyVar: "K2", seat: Seat });
+		expect(launches[0]).not.toHaveProperty("limitHeld");
 	});
 
 	it("an adopter's one seat, no overflow: hold, then resume in place at reset", () => {

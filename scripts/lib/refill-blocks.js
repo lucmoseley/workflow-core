@@ -33,6 +33,7 @@ const {
 	buildResumeWaitLine,
 	isAtLimitCap,
 	pickMoveSeat,
+	isOnPlanSeat,
 } = require("./refill-decide.js");
 const { buildSeatName } = require("./refill-seats.js");
 
@@ -1177,6 +1178,7 @@ function resumableOf(launches, { agents, io, swapHold }) {
 		return {
 			jobId: l.jobId,
 			seat: l.seat,
+			...(l.keyVar ? { keyVar: l.keyVar } : {}),
 			root: l.root,
 			at: held.at,
 			line: `${l.jobId} ${what}`,
@@ -1355,6 +1357,7 @@ const buildMarkerLaunch = (job, marker, hold, readActsBefore) => ({
 	issues: marker.issues,
 	prompt: `parked ${marker.issues.map((n) => `#${n}`).join(" ")}`,
 	seat: marker.job?.seat ?? "",
+	...(marker.job?.keyVar ? { keyVar: marker.job.keyVar } : {}),
 	reason: /** @type {const} */ ("parked session's seat"),
 	jobId: job,
 	sessionId: marker.sessionId,
@@ -2246,10 +2249,7 @@ function actOnLimits(launches, mode, seen) {
 		if (isResumeUnjudged(l))
 			return syncLedgerHold(settleLimitResume(l, seen), seen.io);
 		/* A plan reading on the same dir is not this launch's: a key has no bars. */
-		const own =
-			l.reason === "overflow"
-				? undefined
-				: moveSeats.find((s) => s.seat === l.seat);
+		const own = moveSeats.find((s) => isOnPlanSeat(l, s.seat));
 		if (!own) return parkOffList(l, mode, seen);
 		if (!(blocked.has(l.jobId) || isLimitHeld(l))) return l;
 		const out = actOnLimit(judgeTakenResume(l, seen.io), own, seen, {

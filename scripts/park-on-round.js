@@ -14,14 +14,16 @@
  * label.
  *
  * FAILS OPEN (lib/stop-guard.js): an unreadable claim store, tracker or
- * GitHub parks nothing, and a failed label write leaves the issue unmarked.
+ * GitHub parks nothing, and a failed label write leaves the issue unmarked. An
+ * unreadable dispatch ledger writes no job, so its park goes afresh (#4147).
  *
- * IMPLICIT:  at a background job's `needs input:` Stop whose round is posted on an issue this session claims, or that parks on a repo hold the job is attached to, adds the `parked` label to that issue and records it, with the session's seat, job and cwd, in its `.parked-` marker.
+ * IMPLICIT:  at a background job's `needs input:` Stop whose round is posted on an issue this session claims, or that parks on a repo hold the job is attached to, adds the `parked` label to that issue and records it, with the session's seat, any overflow key, job and cwd, in its `.parked-` marker.
  * JUSTIFIED: fail-safe — a parked ticket left on the frontier is relaunched every refill, and each relaunch re-asks the same round (#1995).
  * DEFEAT:    none needed — it never blocks.
  */
 
 const { parkTargets } = require("./guard-inventory");
+const { readOverflowLookup } = require("./lib/dispatch-ledger");
 const { parseJobDir, readJobCwd } = require("./lib/job-paths");
 const { readParkedBy, setParked, writeParkedBy } = require("./lib/parked");
 const stopGuard = require("./lib/stop-guard");
@@ -29,12 +31,26 @@ const { trackerOf } = require("./lib/outstanding-line");
 
 /**
  * The seat and job this session runs in, with the cwd its job record names,
- * for a normal-mode loop to resume it from (#3773).
+ * for a normal-mode loop to resume it from (#3773), and the overflow key its
+ * launch record names (#4147). Null where that ledger will not read.
+ * @param {string} sessionId
  * @returns {import("./lib/parked").ParkJob|null}
  */
-function readOwnJob() {
+function readOwnJob(sessionId) {
 	const job = parseJobDir(process.env.CLAUDE_JOB_DIR);
-	return job && { ...job, cwd: readJobCwd(job.seat, job.jobId) };
+	if (!job) return null;
+	let launch;
+	try {
+		launch = readOverflowLookup()({ jobId: job.jobId, sessionId });
+	} catch {
+		/* Fail safe (#4147): a job naming no key reads as a plan seat's. */
+		return null;
+	}
+	return {
+		...job,
+		...(launch ? { keyVar: launch.keyVar } : {}),
+		cwd: readJobCwd(job.seat, job.jobId),
+	};
 }
 
 /** @param {{sessionId: string, message: string}} ctx */
@@ -45,7 +61,7 @@ function review({ sessionId, message }) {
 	const parked = targets.filter((n) => setParked(tracker, n, true) === null);
 	if (parked.length > 0)
 		writeParkedBy(sessionId, [...readParkedBy(sessionId), ...parked], {
-			job: readOwnJob(),
+			job: readOwnJob(sessionId),
 		});
 }
 

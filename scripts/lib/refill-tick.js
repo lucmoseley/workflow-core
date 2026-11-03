@@ -74,6 +74,7 @@ const { parseErrLine, gh } = require("./gh.js");
 const gates = require("./gate-sweep.js");
 const {
 	readRecentEntries,
+	readOverflowLookup,
 	record: recordLaunch,
 	release,
 } = require("./dispatch-ledger.js");
@@ -118,6 +119,7 @@ const {
 	decideTick,
 	hasRoom,
 	isParked,
+	isOnPlanSeat,
 } = require("./refill-decide.js");
 const { refillFrontier } = require("./refill-frontier.js");
 const {
@@ -729,7 +731,12 @@ function recordParked(l, sessionId, numbers, limitParks) {
 		writeParkedBy(sessionId, [...readParkedBy(sessionId, l.root), ...numbers], {
 			root: l.root,
 			job: l.jobId
-				? { seat: l.seat, jobId: l.jobId, cwd: readJobCwd(l.seat, l.jobId) }
+				? {
+						seat: l.seat,
+						...(l.keyVar ? { keyVar: l.keyVar } : {}),
+						jobId: l.jobId,
+						cwd: readJobCwd(l.seat, l.jobId),
+					}
 				: null,
 			limitParks,
 			cause: l.block?.cause,
@@ -860,16 +867,20 @@ function moveClaims(l, from, to) {
 /**
  * lib/parked.js's moveParkedBy for `l`. Fails open (#3709): a marker left names a job a
  * resume then falls back from.
- * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"issues"|"seat">} l
+ * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"issues"|"seat"|"keyVar">} l
  * @param {string} from
  * @param {{sessionId: string|null, jobId: string, cwd: string}} copy
  */
-function moveParked({ root, issues, seat }, from, { sessionId, jobId, cwd }) {
+function moveParked(
+	{ root, issues, seat, keyVar },
+	from,
+	{ sessionId, jobId, cwd },
+) {
 	try {
 		moveParkedBy(from, issues, {
 			root,
 			copySessionId: sessionId,
-			job: { seat, jobId, cwd },
+			job: { seat, ...(keyVar ? { keyVar } : {}), jobId, cwd },
 		});
 	} catch (e) {
 		log(`marker of ${from} not moved: ${buildErrorText(e)}`);
@@ -893,6 +904,37 @@ function movePasses({ root }, from, to) {
 }
 
 /**
+ * Mark an overflow session's copy overflow in the dispatch ledger, the only such
+ * mark a parking session can read (#4147). No issues, so the row holds nothing:
+ * the first job keeps the ledger hold. Fails open, logged: unmarked, the copy's
+ * own park reads as a plan seat's.
+ * @param {{root: string, keyVar: string}} on
+ * @param {string} from the session it copies
+ * @param {{jobId: string, sessionId: string|null}} copy
+ */
+function recordOverflowCopy({ root, keyVar }, from, { jobId, sessionId }) {
+	const failure = `overflow copy ${jobId} of ${from} not marked in the dispatch ledger`;
+	try {
+		const first = readOverflowLookup([root])({ sessionId: from });
+		if (!first) {
+			log(`${failure}: no launch of ${from} on key=${keyVar} is recorded`);
+			return;
+		}
+		const written = recordLaunch({
+			issues: [],
+			model: MODEL,
+			prompt: `copy of ${from}`,
+			root,
+			jobId,
+			overflow: { keyVar, allowanceUsd: first.allowanceUsd, sessionId },
+		});
+		if (!written) log(failure);
+	} catch (e) {
+		log(`${failure}: ${buildErrorText(e)}`);
+	}
+}
+
+/**
  * `claude --bg --resume <full id> "<prompt>"` of `l`'s stopped job, from its
  * cwd (#2354 F6). The launcher exits 0 whatever happens (F8). On 2.1.310 it
  * wakes a stopped job in place, else starts a copy under a new job and
@@ -900,7 +942,7 @@ function movePasses({ root }, from, to) {
  * (#2963, #2968). The resume counts where the launcher named the job it
  * started (lib/bg-resume.js) and that job's state.json does not read failed;
  * a later tick judges the resumed turn.
- * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"issues"|"seat">} l
+ * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"issues"|"seat"|"keyVar">} l
  * @param {string} prompt
  * @param {{sessionId: string, cwd: string}} target
  * @returns {import("./refill-blocks.js").Resumed}
@@ -944,6 +986,11 @@ function resumeStopped(l, prompt, { sessionId, cwd }) {
 			`no session id read for copy ${jobId}: its issue claims and pass markers not moved`,
 		);
 	moveParked(l, sessionId, { sessionId: copySession, jobId, cwd });
+	if (l.keyVar)
+		recordOverflowCopy({ root: l.root, keyVar: l.keyVar }, sessionId, {
+			jobId,
+			sessionId: copySession,
+		});
 	return { failed: null, jobId, sessionId: copySession, copy: true };
 }
 
@@ -1038,7 +1085,9 @@ function readParkers(frontier) {
  */
 const sizeParkerSeats = (seats, parkers, root) =>
 	seats.map((s) =>
-		s.fits === null && hasRoom(s) && parkers.some((p) => p.job?.seat === s.seat)
+		s.fits === null &&
+		hasRoom(s) &&
+		parkers.some((p) => p.job && isOnPlanSeat(p.job, s.seat))
 			? { ...s, fits: readCapFits(root, s.seat, 1, "") }
 			: s,
 	);

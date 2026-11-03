@@ -27,6 +27,7 @@ const {
 	hasRoom,
 	isParkRoutingMode,
 	orderPlanSeats,
+	isOnPlanSeat,
 	EXPLICIT_STOP_DETAIL,
 } = require("./refill-decide.js");
 const {
@@ -128,9 +129,10 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * is the job its dispatch-ledger hold names; `pastSessionIds`, the sessions
  * it ran under before `sessionId`. `actsBefore`, on a parked session resumed as
  * a new launch, the acts that session had already made (#3942).
- * `nothingToRepeat`, on one parked on an API error or a limit (#3949).
+ * `nothingToRepeat`, on one parked on an API error or a limit (#3949). `keyVar`,
+ * the overflow seat it runs on (#4147).
  * @typedef {import("./refill-decide.js").LaunchRecord & {
- *   prompt: string, seat: string, jobId: string|null,
+ *   prompt: string, seat: string, keyVar?: string, jobId: string|null,
  *   parked?: boolean, block?: import("./block-act.js").Block,
  *   parkedAway?: boolean, sessionId?: string,
  *   resumes?: import("./refill-blocks.js").Resumes,
@@ -716,7 +718,7 @@ function sizeResumeSeats(seats, resumable, slots, sizeOf) {
 	if (slots === 0 || resumable.length === 0) return seats;
 	let spare = false;
 	return seats.map((s) => {
-		const due = resumable.filter((r) => r.seat === s.seat).length;
+		const due = resumable.filter((r) => isOnPlanSeat(r, s.seat)).length;
 		const sized =
 			s.fits === null && hasRoom(s) && (due > 0 || !spare)
 				? { ...s, fits: sizeOf(s.seat, slots) }

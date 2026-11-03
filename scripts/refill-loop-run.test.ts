@@ -1674,7 +1674,7 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 	/** A normal-mode loop holding one launch blocked on an API error for
 	 * 2 min, its job record and transcript reading API_ERROR transient, with
 	 * `resumes` as given. */
-	const seed = (resumes?: object) => {
+	const seed = (resumes?: object, launchFields: object = {}) => {
 		fs.writeFileSync(
 			path.join(repo, ".claude", "workflow-core.json"),
 			JSON.stringify({ tracker: "o/r" }),
@@ -1712,6 +1712,7 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 							since: Date.now() - 2 * 60 * 1000,
 						},
 						...(resumes ? { resumes } : {}),
+						...launchFields,
 					},
 				],
 			}),
@@ -1847,6 +1848,34 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 		expect(launchState()).toMatchObject({
 			finishedAt: null,
 			resumes: { tries: 2, heldAt: expect.any(Number) },
+		});
+	});
+
+	it("carries an overflow session's key to its copy: the launch, the ledger's mark, and no second hold (#4147)", async () => {
+		seed(heldDue, { keyVar: "K2" });
+		fs.mkdirSync(path.dirname(ledgerPath(repo)), { recursive: true });
+		fs.writeFileSync(
+			ledgerPath(repo),
+			`${JSON.stringify({ ts: new Date().toISOString(), issues: [7], prompt: "/implement 7", jobId: Job, kind: "overflow", keyVar: "K2", allowanceUsd: 50, sessionId: "s-job7" })}\n`,
+		);
+		fakeResumeClaude(
+			Job,
+			[LISTED],
+			writesCopyRecord(
+				JSON.stringify({ state: "working", sessionId: "s-copy" }),
+			),
+		);
+		const r = await oneTick(ApiRun);
+		expect(r.status).toBe(0);
+		expect(launchState()).toMatchObject({ jobId: FAKE_COPY, keyVar: "K2" });
+		expect(readHeldIssues()).toEqual([[7], []]);
+		expect(JSON.parse(readLines(ledgerPath(repo)).at(-1) ?? "")).toMatchObject({
+			issues: [],
+			jobId: FAKE_COPY,
+			kind: "overflow",
+			keyVar: "K2",
+			allowanceUsd: 50,
+			sessionId: "s-copy",
 		});
 	});
 
@@ -3234,6 +3263,56 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 		expect(r.stdout).toContain(
 			`its session's seat ${at("elsewhere")} is not one the loop reads; launching afresh`,
 		);
+	});
+
+	describe("a marker naming an overflow key on a plan seat's dir (#4147)", () => {
+		/** A marker on a second plan seat, with room and no cap sized yet; the seats each cap read asked for. */
+		const seedOnSeat2 = (keyLine: string) => {
+			const seat2 = at("seat2");
+			seed(true, seat2);
+			writeMarker(`seat ${seat2}\n${keyLine}job ${Job}\ncwd ${repo}\n5\n`);
+			fs.writeFileSync(
+				path.join(seat2, ".claude.json"),
+				JSON.stringify(buildUsageCache({ session: 10, week: 10 }, Date.now())),
+			);
+			const control = at(".refill-loop-control.json");
+			fs.writeFileSync(
+				control,
+				JSON.stringify({
+					...JSON.parse(fs.readFileSync(control, "utf8")),
+					seats: [seat, seat2],
+				}),
+			);
+			stub(
+				"allowance.js",
+				`require("node:fs").appendFileSync(${JSON.stringify(at("cap-reads"))}, process.env.CLAUDE_CONFIG_DIR + "\\n");
+process.stdout.write(JSON.stringify({ cap: { launch: 1 } }));\n`,
+			);
+			return seat2;
+		};
+
+		it("launches afresh, resuming nothing and reading none of the plan seat's cap", async () => {
+			const seat2 = seedOnSeat2("key K2\n");
+			const r = await settled(run(1), ParkedRun);
+			expect(r.status).toBe(0);
+			expect(fs.existsSync(at("calls"))).toBe(false);
+			expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
+			expect(r.stdout).toContain(
+				"its session ran on overflow seat key=K2; launching afresh",
+			);
+			expect(readLines(at("cap-reads"))).not.toContain(seat2);
+		});
+
+		it("sizes the seat for a marker naming no key, as a plan seat's", async () => {
+			const seat2 = seedOnSeat2("");
+			wakesInPlace();
+			const r = await settled(run(1), ParkedRun);
+			expect(r.status).toBe(0);
+			expect(readLines(at("calls"))).toEqual([
+				`--bg --resume s-job5 ${PARKED_PROMPT}`,
+			]);
+			expect(readLines(at("cap-reads"))).toContain(seat2);
+		});
 	});
 
 	it("launches afresh where its marker names no job", async () => {
