@@ -169,7 +169,7 @@
 			"source": "#3143, #3279, #3269, #3421, #3426"
 		},
 		"scripts/lib/tracker-rules.js": {
-			"digest": "caba42bf1d54bc51",
+			"digest": "39f94c4d37b2049a",
 			"verdict": "at need on the first engaging call of the session; latched once per session per id thereafter Run as a core of scripts/guard-dispatch.js (#2792: every bash case moved to a module case with mutation proof, the boundary set kept as program cases)",
 			"selfSufficient": "yes — each fragment carries rule, reason and the command shape inline",
 			"source": "#2792"
