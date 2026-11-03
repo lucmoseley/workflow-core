@@ -508,6 +508,7 @@ module.exports = {
 	pricedTokens,
 	writesByTtl,
 	sessionSpendUsd,
+	readSessionFiles,
 	readSessionSpendEvents,
 	sessionTokens,
 	readCostTable,

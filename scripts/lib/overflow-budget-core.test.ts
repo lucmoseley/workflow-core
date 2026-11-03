@@ -23,13 +23,12 @@ const TABLE = {
 const at = (y: number, m: number, d: number, h = 0) =>
 	new Date(y, m - 1, d, h).getTime();
 const now = at(2026, 10, 25, 12);
-const entry = (endedAt: number, costUsd: number, outcome = "success") => ({
+const entry = (endedAt: number, costUsd: number, outcome = "priced") => ({
 	sessionId: `s${endedAt}`,
 	jobId: "0000000a",
-	launchedAt: endedAt - 1000,
 	endedAt,
+	bytes: 1,
 	costUsd,
-	costSource: "result" as const,
 	outcome,
 });
 const base = {
@@ -64,7 +63,7 @@ describe("the cycle", () => {
 		]);
 	});
 
-	it("counts settled spend by the cycle each run ended in", () => {
+	it("counts settled spend by the cycle of each session's latest write", () => {
 		const b = budgetOf({
 			...base,
 			ledger: [entry(at(2026, 10, 20), 50), entry(at(2026, 10, 20) - 1, 90)],
@@ -90,6 +89,28 @@ describe("reservations and fit", () => {
 		expect(b.fit).toBe(Math.floor((200 - b.reservedUsd) / 4));
 	});
 
+	it("holds a running session's ledger row rather than settling it too", () => {
+		const row = entry(at(2026, 10, 24), 5);
+		const b = budgetOf({
+			...base,
+			ledger: [row, entry(at(2026, 10, 24) + 1, 2)],
+			running: [{ sessionId: row.sessionId, spentUsd: row.costUsd }],
+		});
+		expect(b.settledUsd).toBe(2);
+		expect(b.reservedUsd).toBe(12);
+	});
+
+	it("holds at Q a running session whose spend fell in an earlier cycle", () => {
+		const row = entry(at(2026, 10, 19), 50);
+		const b = budgetOf({
+			...base,
+			ledger: [row],
+			running: [{ sessionId: row.sessionId, spentUsd: row.costUsd }],
+		});
+		expect(b.reservedUsd).toBe(4);
+		expect(b.headroomUsd).toBe(196);
+	});
+
 	it("reads Q from the table", () => {
 		const b = budgetOf({ ...base, table: { ...TABLE, meanUsd: 8 } });
 		expect(b.qUsd).toBe(8);
@@ -111,6 +132,18 @@ describe("the exhausted mark", () => {
 		const next = budgetOf({ ...base, ledger, now: at(2026, 11, 20) });
 		expect(next.exhausted).toBe(false);
 		expect(next.fit).toBe(50);
+	});
+});
+
+describe("the exhausted mark's time", () => {
+	it("is the refusal's own, so a later write does not carry it into the next cycle", () => {
+		const ledger = [
+			{
+				...entry(at(2026, 10, 21), 3, "key-exhausted"),
+				refusedAt: at(2026, 10, 19),
+			},
+		];
+		expect(budgetOf({ ...base, ledger }).exhausted).toBe(false);
 	});
 });
 

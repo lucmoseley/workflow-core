@@ -4,143 +4,219 @@
  * lib/overflow-budget-core.js from the key's Console reading where it has one
  * (lib/console-credit.js).
  *
- * SETTLEMENT: every read, `refill-loop.js status` included, first settles
- * each ended run of the seat (lib/headless-sessions.js) once into a durable
- * per-key ledger beside the refill loop's files.
+ * SPEND IS TRANSCRIPTS ALONE (#3695): every read, `refill-loop.js status`
+ * included, prices again each session on the key whose transcript has grown,
+ * into a durable per-key ledger of one row per session beside the refill loop's
+ * files. Only the launch record marks a session in the seat's dir as on the key.
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
 const { parseArgs } = require("node:util");
+const { isTerminalAgent, readAgentsForBudget } = require("./agent-liveness.js");
+const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
 const { readConsoleLog } = require("./console-credit.js");
-const { endResultOf, readStoredRuns } = require("./headless-sessions.js");
+const { readEveryOverflowLookup } = require("./dispatch-ledger.js");
 const { hostRoot } = require("./host-root.js");
 const { readJsonl } = require("./jsonl.js");
 const { localDate } = require("./morning-review.js");
+const { pidLock, waitForLock } = require("./pid-lock.js");
+const { readSeatTranscripts } = require("./project-dirs.js");
 const { refillPath } = require("./refill-dir.js");
 const { findOverflowSeat, readDeclaredSeats } = require("./refill-seats.js");
 const { scriptPath } = require("./script-path.js");
 const { budgetOf } = require("./overflow-budget-core.js");
-const { readCostTableIn, sessionSpendUsd } = require("./session-spend.js");
-const { findTranscript } = require("./transcript.js");
+const {
+	readCostTableIn,
+	readSessionFiles,
+	sessionSpendUsd,
+} = require("./session-spend.js");
 const { writeFd } = require("./write-fd.js");
 
 /**
  * @typedef {import("./refill-seats.js").OverflowSeat} OverflowSeat
- * @typedef {import("./session-spend.js").CostTable} CostTable
- * @typedef {import("./headless-sessions.js").RunRecord} RunRecord
  * @typedef {import("./overflow-budget-core.js").LedgerEntry} LedgerEntry
  * @typedef {import("./overflow-budget-core.js").RunningRun} RunningRun
  * @typedef {import("./overflow-budget-core.js").Budget} Budget
+ * @typedef {ReturnType<typeof readEveryOverflowLookup>} OverflowLookup
  * @typedef {Budget & {readFailure: string|null, lastAttemptAt: number|null}} SeatBudget
  */
+
+/* The API's refusal for credit, as the harness writes it into a transcript:
+ * `isApiErrorMessage` with `error: "billing_error"`, the text below. The flag
+ * keeps out a session merely quoting the words. */
+const CREDIT_REFUSAL = /credit balance is too low/i;
+
+/* The scripts a ledger's lock holder runs; any other's lock reads as stale. */
+const BUDGET_READERS = [
+	"overflow-budget.js",
+	"overflow-view.js",
+	"refill-loop.js",
+];
 
 /** @param {OverflowSeat} seat */
 const ledgerFile = (seat) =>
 	refillPath(path.join(".overflow-ledger", `${seat.keyVar}.jsonl`));
 
 /**
- * The key's ledger.
+ * The key's ledger, by session.
  * @param {OverflowSeat} seat
- * @returns {LedgerEntry[]}
+ * @returns {Map<string, LedgerEntry>}
  */
 function readLedger(seat) {
 	const rows = /** @type {LedgerEntry[]} */ (
 		readJsonl(ledgerFile(seat))?.rows ?? []
 	);
-	/** @type {Map<string, LedgerEntry>} */
-	const bySession = new Map();
-	for (const e of rows)
-		if (!bySession.has(e.sessionId)) bySession.set(e.sessionId, e);
-	return [...bySession.values()];
+	return new Map(rows.map((e) => [e.sessionId, e]));
 }
 
 /**
- * The run's last log write. The launch creates the log, so one that cannot be
- * stat'd falls to the settle time: an exhaustion read late still marks the
- * cycle it was read in, never an earlier one.
- * @param {RunRecord} run
+ * Each session's main transcript under the dir.
+ * @param {string} dir a config dir
+ * @returns {{sessionId: string, file: string}[]}
+ * @throws where a project dir will not read: its sessions must not read as free
  */
-function endedAtOf(run) {
-	const times = [run.log, run.stderr].flatMap((f) => {
-		try {
-			return [fs.statSync(f).mtimeMs];
-		} catch {
-			return [];
-		}
+function readTranscripts(dir) {
+	const { files, unreadable } = readSeatTranscripts([dir]);
+	if (unreadable.length > 0)
+		throw new Error(`cannot list ${unreadable.join(", ")}`);
+	return files.map((file) => ({
+		sessionId: path.basename(file, ".jsonl"),
+		file,
+	}));
+}
+
+/**
+ * The session's transcripts' size, and their latest write.
+ * @param {string} mainFile
+ */
+function readTranscriptStat(mainFile) {
+	const stats = readSessionFiles(mainFile).flatMap((f) => {
+		const stat = fs.statSync(f, { throwIfNoEntry: false });
+		return stat ? [stat] : [];
 	});
-	return times.length > 0 ? Math.max(...times) : Date.now();
+	return {
+		bytes: stats.reduce((t, s) => t + s.size, 0),
+		endedAt: Math.max(...stats.map((s) => s.mtimeMs)),
+	};
 }
 
 /**
- * @param {OverflowSeat} seat
- * @param {string} sessionId
+ * When a transcript's latest answer from the API was a credit refusal, or null
+ * for none: a model turn since means the key had credit after it, and a
+ * synthetic line is no answer.
+ * @param {string} file
+ * @returns {{at: number}|null} `at` is NaN for a refusal that carries no timestamp
  */
-function transcriptSpendUsd(seat, sessionId) {
-	const file = findTranscript(seat.dir, sessionId);
-	return file ? sessionSpendUsd(file) : null;
-}
-
-/**
- * An ended run's cost: its last `result`'s, else its transcript priced, else Q.
- * @param {OverflowSeat} seat
- * @param {string} sessionId
- * @param {number|null} resultUsd
- * @param {CostTable} table
- * @returns {Pick<LedgerEntry, "costUsd"|"costSource">}
- */
-function settledCost(seat, sessionId, resultUsd, table) {
-	if (resultUsd !== null) return { costUsd: resultUsd, costSource: "result" };
-	const transcriptUsd = transcriptSpendUsd(seat, sessionId);
-	if (transcriptUsd !== null)
-		return { costUsd: transcriptUsd, costSource: "transcript" };
-	return { costUsd: table.meanUsd, costSource: "reservation" };
-}
-
-/**
- * Settle the seat's ended runs into its ledger. Two callers settling one run
- * at once each append a line; the read keeps the first.
- * @param {OverflowSeat} seat
- * @param {CostTable} table
- * @returns {{ledger: LedgerEntry[], running: RunningRun[]}}
- * @throws where the run store or the ledger cannot be read or written
- */
-function settle(seat, table) {
-	const ledger = readLedger(seat);
-	const settled = new Set(ledger.map((e) => e.sessionId));
-	/** @type {RunningRun[]} */
-	const running = [];
-	for (const run of readStoredRuns()) {
-		if (run.keyVar !== seat.keyVar || settled.has(run.sessionId)) continue;
-		const end = endResultOf(run);
-		if (end.outcome === "running") {
-			/* A `-p` run's `result` usually comes only at its end, so the
-			 * transcript is the live figure. */
-			running.push({
-				sessionId: run.sessionId,
-				spentUsd: transcriptSpendUsd(seat, run.sessionId) ?? end.costUsd,
-			});
-			continue;
-		}
-		/** @type {LedgerEntry} */
-		const entry = {
-			sessionId: run.sessionId,
-			jobId: run.jobId,
-			launchedAt: run.launchedAt,
-			endedAt: endedAtOf(run),
-			...settledCost(seat, run.sessionId, end.costUsd, table),
-			outcome: end.outcome,
-		};
-		fs.mkdirSync(path.dirname(ledgerFile(seat)), { recursive: true });
-		fs.appendFileSync(ledgerFile(seat), `${JSON.stringify(entry)}\n`);
-		ledger.push(entry);
+function readFileCreditRefusal(file) {
+	/** @type {{at: number}|null} */
+	let refused = null;
+	for (const row of readJsonl(file)?.rows ?? []) {
+		if (row.type !== "assistant") continue;
+		const message = /** @type {{model?: string, content?: unknown}} */ (
+			row.message ?? {}
+		);
+		if (row.isApiErrorMessage === true) {
+			if (
+				row.error === "billing_error" ||
+				CREDIT_REFUSAL.test(JSON.stringify(message.content ?? ""))
+			)
+				refused = { at: Date.parse(String(row.timestamp)) };
+		} else if (message.model !== "<synthetic>") refused = null;
 	}
-	return { ledger, running };
+	return refused;
 }
 
 /**
- * Settle the seat, then size its budget; why not where either cannot be read.
+ * A session's ledger outcome from its transcripts, a subagent's as well as its
+ * own. A later line must not carry a refusal into a later cycle, so the mark's
+ * time is the refusal's own; one with no timestamp falls to the row's `endedAt`.
+ * @param {string} mainFile
+ * @returns {Pick<LedgerEntry, "outcome"|"refusedAt">}
+ */
+function readRefusalOutcome(mainFile) {
+	const refusals = readSessionFiles(mainFile).flatMap((f) => {
+		const refusal = readFileCreditRefusal(f);
+		return refusal ? [refusal.at] : [];
+	});
+	if (refusals.length === 0) return { outcome: "priced" };
+	const stamped = refusals.filter((at) => !Number.isNaN(at));
+	return {
+		outcome: "key-exhausted",
+		...(stamped.length > 0 ? { refusedAt: Math.max(...stamped) } : {}),
+	};
+}
+
+/**
+ * Price again each session on the key whose transcript has grown, under the
+ * ledger's lock: a row a concurrent read dropped could not be priced back once
+ * its transcript has gone. A row outlives its transcript.
+ * @param {OverflowSeat} seat
+ * @param {OverflowLookup} lookup
+ * @returns {LedgerEntry[]}
+ * @throws where a transcript or the ledger cannot be read, written or locked
+ */
+function priceSessions(seat, lookup) {
+	fs.mkdirSync(path.dirname(ledgerFile(seat)), { recursive: true });
+	const lock = pidLock(`${ledgerFile(seat)}.lock`, BUDGET_READERS);
+	if (!waitForLock(lock))
+		throw new Error(`pid ${lock.holder()} holds ${ledgerFile(seat)}.lock`);
+	try {
+		const ledger = readLedger(seat);
+		let changed = false;
+		for (const { sessionId, file } of readTranscripts(seat.dir)) {
+			const launch = lookup({ sessionId });
+			if (launch?.keyVar !== seat.keyVar) continue;
+			const stat = readTranscriptStat(file);
+			if (ledger.get(sessionId)?.bytes === stat.bytes) continue;
+			ledger.set(sessionId, {
+				sessionId,
+				jobId: launch.jobId,
+				...stat,
+				costUsd: sessionSpendUsd(file),
+				...readRefusalOutcome(file),
+			});
+			changed = true;
+		}
+		if (changed)
+			writeFileAtomic(
+				ledgerFile(seat),
+				[...ledger.values()].map((e) => `${JSON.stringify(e)}\n`).join(""),
+			);
+		return [...ledger.values()];
+	} finally {
+		lock.release();
+	}
+}
+
+/**
+ * The key's sessions the listing holds running, each at its ledger row's spend.
+ * @param {OverflowSeat} seat
+ * @param {OverflowLookup} lookup
+ * @param {LedgerEntry[]} ledger
+ * @returns {RunningRun[]}
+ * @throws where the listing cannot be read: a key's running sessions must not
+ *   read as none
+ */
+function readRunning(seat, lookup, ledger) {
+	const listing = readAgentsForBudget();
+	if (listing.why !== undefined) throw new Error(listing.why);
+	const spent = new Map(ledger.map((e) => [e.sessionId, e.costUsd]));
+	return listing.agents
+		.filter(
+			(a) =>
+				!isTerminalAgent(a) &&
+				lookup({ jobId: a.id, sessionId: a.sessionId })?.keyVar === seat.keyVar,
+		)
+		.map((a) => ({
+			sessionId: a.sessionId,
+			spentUsd: spent.get(a.sessionId) ?? null,
+		}));
+}
+
+/**
+ * Price the seat, then size its budget; why not where either cannot be read.
  * The cost table is read in `root`, never the working directory's checkout:
  * the loop's daemon runs from the home directory (#3683).
  * @param {OverflowSeat} seat
@@ -152,10 +228,13 @@ function seatBudget(seat, root) {
 		return { why: "the loop serves no checkout to read the cost table in" };
 	const table = readCostTableIn(root);
 	if (!table) return { why: "the session cost table is unreadable" };
-	let settled;
+	let ledger;
+	let running;
 	let log;
 	try {
-		settled = settle(seat, table);
+		const lookup = readEveryOverflowLookup();
+		ledger = priceSessions(seat, lookup);
+		running = readRunning(seat, lookup, ledger);
 		log = readConsoleLog(seat);
 	} catch (err) {
 		return { why: caught(err).message };
@@ -167,7 +246,8 @@ function seatBudget(seat, root) {
 			table,
 			now: Date.now(),
 			reading: log.reading,
-			...settled,
+			ledger,
+			running,
 		}),
 		readFailure: log.failure,
 		lastAttemptAt: log.lastAttemptAt,

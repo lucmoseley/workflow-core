@@ -29,8 +29,7 @@
  *
  * WFC_CLAUDE_BIN names the `claude` to spawn.
  *
- * dispatch-sessions.sh launches through the CLI, lib/overflow-budget.js
- * settles ended runs through readStoredRuns() and endResultOf(), and
+ * dispatch-sessions.sh launches through the CLI, and
  * lib/agent-liveness.js merges readLiveAgents() into every listing (#2608).
  * Unbuilt caller: the shared stop library routes a headless record to stop()
  * (#2353).

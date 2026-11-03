@@ -26,9 +26,9 @@ import { writeCostTable } from "./lib/cost-table-testkit";
 import {
 	readOverflowLookup,
 	readRecentEntries,
+	record,
 } from "./lib/dispatch-ledger.js";
 import { dispatchFixture, SCRIPT } from "./lib/dispatch-sessions-testkit";
-import { writeHeadlessRun } from "./lib/headless-runs-testkit";
 import { runOf } from "./lib/headless-sessions.js";
 import { launchBatch } from "./lib/refill-batch.js";
 
@@ -125,6 +125,27 @@ function storedRun(jobId: string) {
 	}
 }
 
+/* Each `-p` launch stays running through `body`, on the real /proc its liveness
+ * reads, so the budget holds it, as between one real member and the next. `sleep`
+ * outlasts any dispatch here, and is killed at the end. */
+function withRunningLaunches<T>(body: () => T): T {
+	const stub = fx.stubPath();
+	fs.renameSync(stub, `${stub}-inner`);
+	fs.writeFileSync(
+		stub,
+		`#!/bin/bash\n"$0-inner" "$@"\ns=$?\n[[ "$1" == "-p" ]] && sleep 120\nexit $s\n`,
+		{ mode: 0o755 },
+	);
+	try {
+		return body();
+	} finally {
+		for (const job of readStoredJobIds()) {
+			const run = storedRun(job);
+			if (run) process.kill(-run.pgid, "SIGKILL");
+		}
+	}
+}
+
 const readHeadlessLaunches = () =>
 	readArgvLines().filter((l) => l.startsWith("-p "));
 const budgetsOf = (lines: string[]) =>
@@ -169,7 +190,10 @@ describe("an overflow seat (#2610)", () => {
 
 	it("cuts the set to the budget's fit in the CAPPED shape, each launch capped at the headroom left", () => {
 		stubClaude({});
-		const r = dispatch(3, overflowEnv(25));
+		const env = overflowEnv(25);
+		const r = withRunningLaunches(() =>
+			dispatch(3, { ...env, WFC_PROC: "/proc" }),
+		);
 		const capped = `CAPPED: launching 2 of 3 on the overflow budget of ${seat()} (headroom $25.00, $10.00 a session).`;
 		expect(r.out).toContain(capped);
 		expect(r.launched.map((l) => l.prompt)).toEqual(prompts.slice(0, 2));
@@ -217,23 +241,20 @@ describe("an overflow seat (#2610)", () => {
 	it("refuses a key Anthropic refused for credit, naming the cycle it is exhausted until", () => {
 		stubClaude({});
 		const env = overflowEnv(200);
-		const run = writeHeadlessRun(refill(), "0badc0de", "spent-session", {
-			live: false,
-			seat: seat(),
-			keyVar: KEY_VAR,
-			launchedAt: Date.now(),
+		const sessionId = "0badc0de-0000-4000-8000-000000000000";
+		record({
+			issues: [],
+			model: "opus",
+			prompt: "/implement 1",
+			root: fx.dir,
+			jobId: "0badc0de",
+			overflow: { keyVar: KEY_VAR, allowanceUsd: 200, sessionId },
 		});
-		const log = path.join(run, "out.jsonl");
+		const projects = path.join(seat(), "projects", "-fixture");
+		fs.mkdirSync(projects, { recursive: true });
 		fs.writeFileSync(
-			log,
-			`${JSON.stringify({ type: "result", is_error: true, result: "Credit balance is too low", total_cost_usd: 0 })}\n`,
-		);
-		const record = JSON.parse(
-			fs.readFileSync(path.join(run, "run.json"), "utf8"),
-		);
-		fs.writeFileSync(
-			path.join(run, "run.json"),
-			JSON.stringify({ ...record, log, stderr: path.join(run, "stderr.log") }),
+			path.join(projects, `${sessionId}.jsonl`),
+			`${JSON.stringify({ type: "assistant", isApiErrorMessage: true, error: "billing_error", message: { model: "<synthetic>", content: [{ type: "text", text: "Credit balance is too low" }] } })}\n`,
 		);
 		const r = dispatch(1, env);
 		expect(r.failed).toBe("exit 3");
@@ -361,7 +382,10 @@ describe("the launch record that marks a session overflow (#3694)", () => {
 
 	it("records each member's key, its own allowance and its session id, and the reader answers by either id", () => {
 		stubClaude({});
-		const [first, second] = dispatch(2, overflowEnv(25)).launched;
+		const env = overflowEnv(25);
+		const [first, second] = withRunningLaunches(() =>
+			dispatch(2, { ...env, WFC_PROC: "/proc" }),
+		).launched;
 		expect(readLaunchRow(String(first?.jobId))).toMatchObject({
 			kind: "overflow",
 			keyVar: KEY_VAR,
