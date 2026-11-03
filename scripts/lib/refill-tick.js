@@ -102,6 +102,7 @@ const {
 	unparkIssues,
 	writeParkedBy,
 } = require("./parked.js");
+const { movePassMarkers } = require("./move-pass-markers.js");
 const { read: readTranscript } = require("./session-transcript.js");
 const { findNewestTranscript, mainChainRecords } = require("./transcript.js");
 const { hasConfig, resolveKey } = require("./workflow-core-config.js");
@@ -869,6 +870,22 @@ function moveParked({ root, issues, seat }, from, { sessionId, jobId, cwd }) {
 }
 
 /**
+ * lib/move-pass-markers.js's movePassMarkers for `l`. Fails open (#4105): a marker
+ * left only owes its pass again.
+ * @param {Pick<import("./refill-loop.js").LoopLaunch, "root">} l
+ * @param {string} from
+ * @param {string} to
+ */
+function movePasses({ root }, from, to) {
+	try {
+		const left = movePassMarkers(root, from, to);
+		if (left) log(`pass markers of ${from} not moved: ${left}`);
+	} catch (e) {
+		log(`pass markers of ${from} not moved: ${buildErrorText(e)}`);
+	}
+}
+
+/**
  * `claude --bg --resume <full id> "<prompt>"` of `l`'s stopped job, from its
  * cwd (#2354 F6). The launcher exits 0 whatever happens (F8). On 2.1.310 it
  * wakes a stopped job in place, else starts a copy under a new job and
@@ -912,8 +929,13 @@ function resumeStopped(l, prompt, { sessionId, cwd }) {
 	}
 	const copySession =
 		typeof after?.sessionId === "string" ? after.sessionId : null;
-	if (copySession) moveClaims(l, sessionId, copySession);
-	else log(`no session id read for copy ${jobId}: its issue claims not moved`);
+	if (copySession) {
+		moveClaims(l, sessionId, copySession);
+		movePasses(l, sessionId, copySession);
+	} else
+		log(
+			`no session id read for copy ${jobId}: its issue claims and pass markers not moved`,
+		);
 	moveParked(l, sessionId, { sessionId: copySession, jobId, cwd });
 	return { failed: null, jobId, sessionId: copySession, copy: true };
 }

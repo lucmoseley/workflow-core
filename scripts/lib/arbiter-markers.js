@@ -24,7 +24,7 @@ const hookRecord = require("./hook-record.js");
 /* The marker directory itself — .claude/tmp/markers rather than the repo root,
  * since F8 (mantahostels#3515, #2). Required for the same reason
  * hookRecord is: one place to miss, not two. */
-const { markersDir } = require("./marker-root.js");
+const { markersDir, PASS_MARKER_PREFIXES } = require("./marker-root.js");
 /* guard-priced-options.js's markers, read off its limb table rather than
  * copied: a limb added there is swept here with no second edit (#1474). A
  * data-only leaf, so destructured like hook-record.js. */
@@ -83,9 +83,8 @@ const {
 const MARKER_PREFIXES = [
 	".concision-base-",
 	".concision-nagged-",
-	".concision-pass-",
 	".codereview-nagged-",
-	".codereview-pass-",
+	...PASS_MARKER_PREFIXES,
 	...pricedOptionsPrefixes,
 	".selection-sum-nagged-",
 	".selection-sum-shape-nagged-",
