@@ -86,7 +86,7 @@ const path = require("node:path");
  */
 delete process.env.WFC_NOTIFY_PERSIST;
 
-const { runCheck } = require("./lib/check");
+const { now, runCheck } = require("./lib/check");
 const notify = require("./lib/notify-report.js");
 const { delivered, recordDelivery } = require("./lib/delivery-stamp.js");
 const {
@@ -798,7 +798,7 @@ function printSummary(ctx, { blocks, stale }, unwired) {
  */
 const newPass = (given) => ({
 	...given,
-	now: Date.now(),
+	now: now(),
 	record: [],
 	blocks: [],
 	injected: [],
