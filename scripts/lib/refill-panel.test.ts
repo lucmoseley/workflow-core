@@ -881,11 +881,12 @@ describe("the plan and credit rows", () => {
 			weekRead: { percent, at },
 		});
 		const ago = (ms: number) => new Date(LATER - ms).toISOString();
-		const shown = (reading: object) =>
-			usage({
-				...RUNNING,
-				seats: { readings: [reading], next: null },
-			})[1][0];
+		const holding = (reading: object) => ({
+			...RUNNING,
+			seats: { readings: [reading], next: null },
+		});
+		const shown = (reading: object) => usage(holding(reading))[1][0];
+		const shownInSplit = (reading: object) => textsInSplit(holding(reading));
 
 		it.each([
 			["just read", buildReading(74, 74, ago(0)), "74% used (0m ago)"],
@@ -914,12 +915,7 @@ describe("the plan and credit rows", () => {
 			"says the age is unknown on an %s week with no read time, on one line in the width the split asks for (#4124)",
 			(_week, weekRead, row) => {
 				const reading = { ...seatRead("~/.claude2", null), weekRead };
-				expect(
-					textsInSplit({
-						...RUNNING,
-						seats: { readings: [reading], next: null },
-					}),
-				).toContain(row);
+				expect(shownInSplit(reading)).toContain(row);
 			},
 		);
 
@@ -934,12 +930,7 @@ describe("the plan and credit rows", () => {
 					...seatRead("~/.claude2", null),
 					weekRead: { percent: 0, at: ago(days * 86_400_000), rolled: true },
 				};
-				expect(
-					textsInSplit({
-						...RUNNING,
-						seats: { readings: [reading], next: null },
-					}),
-				).toContain(row);
+				expect(shownInSplit(reading)).toContain(row);
 			},
 		);
 
