@@ -185,6 +185,18 @@ const focusMoved = async () => ({ code: 0, stdout: "", stderr: "" });
 /* Every row fits. */
 const TALL = 200;
 const WIDE = 200;
+/* The width the split asks for: what the live pane is drawn at. */
+const splitColumns = () => {
+	const [{ args }] = buildRoutes({
+		env: { TMUX: "/tmp/tmux" },
+		isOnPath: () => false,
+		node: "node",
+		panel: "panel.js",
+		pid: 1,
+		viewColumns: null,
+	});
+	return Number(args[args.indexOf("-l") + 1]);
+};
 const panelOver = (
 	run: unknown,
 	runBurn: unknown = run,
@@ -674,18 +686,10 @@ describe("the plan and credit rows", () => {
 			}),
 			key({ exhausted: true, noLaunchLeft: true, grantUsd: 200 }),
 		];
-		const [{ args }] = buildRoutes({
-			env: { TMUX: "/tmp/tmux" },
-			isOnPath: () => false,
-			node: "node",
-			panel: "panel.js",
-			pid: 1,
-			viewColumns: null,
-		});
 		const texts = buildRows(
 			view({ status: { ...RUNNING, overflow } }),
 			LATER,
-			Number(args[args.indexOf("-l") + 1]),
+			splitColumns(),
 		).map((r: Row) => r.text);
 		const at = texts.indexOf("API credits left");
 		expect(texts.slice(at, at + 5)).toEqual([
@@ -899,15 +903,27 @@ describe("the plan and credit rows", () => {
 			);
 		});
 
-		it("shows a week reset since its read as 0, saying so (#4106)", () => {
-			const reading = {
-				...seatRead("~/.claude2", null),
-				weekRead: { percent: 0, at: ago(6 * 86_400_000), rolled: true },
-			};
-			const row = "  .claude2  0% (reset, read 6d ago)";
-			expect(shown(reading)).toBe(row);
-			expect(row.length).toBeLessThanOrEqual(38);
-		});
+		it.each([
+			["days", 6, "  .claude2  0% (reset, read 6d)"],
+			["tens of days", 45, "  .claude2  0% (reset, read 45d)"],
+			["hundreds of days", 365, "  .claude2  0% (reset, read 365d)"],
+		])(
+			"shows a week reset %s after its read as 0, on one line in the width the split asks for (#4106)",
+			(_age, days, row) => {
+				const reading = {
+					...seatRead("~/.claude2", null),
+					weekRead: { percent: 0, at: ago(days * 86_400_000), rolled: true },
+				};
+				const status = {
+					...RUNNING,
+					seats: { readings: [reading], next: null },
+				};
+				const texts = buildRows(view({ status }), LATER, splitColumns()).map(
+					(r: Row) => r.text,
+				);
+				expect(texts).toContain(row);
+			},
+		);
 
 		it("shows a week reset with no read time without an age (#4106)", () => {
 			const reading = {

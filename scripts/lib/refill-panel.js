@@ -74,7 +74,6 @@ const POINTER_MARK = "❯";
  * (#4004). An idle reason opens with its first clause, and `status` keeps the rest. */
 /** @type {[string, string][]} */
 const WAITING_WORDS = [
-	[NO_FREE_SLOT, "Machine full"],
 	[NO_PLAN_ROOM, "No plan room"],
 	[FIVE_HOUR_FULL, "5-hour limit full"],
 	[NOTHING_LAUNCHABLE, "No ticket ready"],
@@ -123,7 +122,6 @@ const ROLE_STYLES = {
  *   paused: {by: string, at: number, issues?: PauseIssue[], why?: string}|null,
  *   lastTick: {at: number, idle: string|null,
  *     paused: boolean, planWait: {resets: number|null}|null}|null,
- *   launchesToday: number,
  *   concurrency: ReturnType<typeof import("./concurrency.js").readConcurrencyStatus>,
  *   mode: "normal"|"away"|null,
  *   handedOffSinceAway: number,
@@ -271,7 +269,7 @@ function buildWaitingRowText(status, now) {
 			: `Waiting: a plan resets at ${buildClock(resets, now)}`;
 	}
 	const idle = tick?.idle;
-	if (!idle) return "";
+	if (!idle || idle.startsWith(NO_FREE_SLOT)) return "";
 	const words = WAITING_WORDS.find(([reason]) => idle.startsWith(reason));
 	return words ? words[1] : idle.replace(/; .*$/s, "");
 }
@@ -349,18 +347,11 @@ const buildTurningWord = (on) => `turning ${on ? "on" : "off"}…`;
 
 /**
  * Line 1 of a launching loop's block: an unread count reads `?`, as unknown is never
- * calm, and a limit shows only where one binds.
+ * calm.
  * @param {PanelStatus} status
  */
-function buildLaunchedText({ launchesToday, concurrency }) {
-	const { working, ceiling, limit, sustained } = concurrency;
-	return [
-		`${launchesToday} launched today`,
-		`${working ?? "?"} of ${ceiling ?? "?"} running`,
-		`24h ${sustained}`,
-		...(limit ? [`Limited by ${limit}`] : []),
-	].join(" · ");
-}
+const buildRunningText = ({ concurrency: { working, ceiling } }) =>
+	`${working ?? "?"} of ${ceiling ?? "?"} running`;
 
 /**
  * Line 1 and line 2 of the loop block, from the observed status alone.
@@ -403,7 +394,7 @@ function buildObservedLines(status, now) {
 			{ text: "Stopping: sessions running finish", role: "secondary" },
 		];
 	return [
-		{ text: buildLaunchedText(status), role: "value" },
+		{ text: buildRunningText(status), role: "value" },
 		{
 			text: buildWaitingRowText(status, now),
 			role: "secondary",
@@ -527,10 +518,10 @@ function buildPlanFigure({ week, weekRead }, now) {
 	const age =
 		weekRead.at === null
 			? null
-			: `${describeAge(Math.max(0, (now - Date.parse(weekRead.at)) / 1000))} ago`;
+			: describeAge(Math.max(0, (now - Date.parse(weekRead.at)) / 1000));
 	if (weekRead.rolled)
 		return `${weekRead.percent}% (reset${age ? `, read ${age}` : ""})`;
-	return `${weekRead.percent}% used (${age ?? "age unknown"})`;
+	return `${weekRead.percent}% used (${age ? `${age} ago` : "age unknown"})`;
 }
 
 /**
