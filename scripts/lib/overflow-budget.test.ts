@@ -19,11 +19,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { buildStopBranch, type StopKind } from "./agents-stop-fake";
 import { writeClaudeStub } from "./claude-stub";
 import { writeCostTable } from "./cost-table-testkit";
 import { record } from "./dispatch-ledger.js";
-import { seatBudget } from "./overflow-budget.js";
+import { seatBudget, stopOverAllowance } from "./overflow-budget.js";
 import { runInProcess } from "./run-in-process.js";
+import { shellQuote } from "./sh-quote.js";
 
 const SCRIPT = path.join(__dirname, "overflow-budget.js");
 /* Mean 4; a session 5 in, past u 3, has the tail's expected remainder of 7. */
@@ -574,5 +576,125 @@ describe("the status line", () => {
 		expect(r.stdout.trim()).toBe(
 			`overflow ${seatDir}: fits 42; headroom $170.02 ($0.00 held by 0 running); $170.02 on the Console at 2026-11-03T04:00:00.000Z, $0.00 spent since; last Console read failed: Chrome is closed`,
 		);
+	});
+});
+
+describe("the per-session cap (#3698)", () => {
+	let stops: string;
+	const declared = () => ({
+		seats: [
+			{ dir: path.join(home, ".claude2"), kind: "plan" as const },
+			{ ...seat, dir: seatDir },
+		],
+		errors: [],
+	});
+	const listed = (jobId: string, state = "working") => ({
+		id: jobId,
+		sessionId: sessionIdOf(jobId),
+		name: `Overflow · job ${jobId}`,
+		kind: "background",
+		state,
+	});
+	const readStops = () =>
+		fs.existsSync(stops)
+			? fs.readFileSync(stops, "utf8").trim().split("\n")
+			: [];
+
+	/* Every call, with the seat it ran under; a stop answers as recorded. */
+	const writeStopStub = (kind: StopKind = "ok") =>
+		writeClaudeStub(stub, [
+			`echo "$CLAUDE_CONFIG_DIR $*" >> ${shellQuote(stops)}`,
+			buildStopBranch(path.join(tmp, "stop-argv.log"), kind),
+		]);
+
+	beforeEach(() => {
+		stops = path.join(tmp, "stops.log");
+		writeStopStub();
+	});
+
+	/* Allowance US$50; at US$4 a million tokens, 15M is US$60, 5M US$20. */
+	it("stops a session past its allowance under its seat's dir, naming spend and allowance", () => {
+		appendTranscript(recordLaunch("0000a001"), buildModelTurn(15_000_000));
+		expect(stopOverAllowance(declared(), [listed("0000a001")])).toEqual([
+			`stopped overflow session Overflow · job 0000a001 (0000a001) on ${seatDir}: spent $60.00 of its $50.00 allowance`,
+		]);
+		expect(readStops()).toEqual([`${seatDir} stop 0000a001`]);
+	});
+
+	it("keeps the stopped session: a stop, never a removal, and its transcript stays", () => {
+		const id = recordLaunch("0000a001");
+		appendTranscript(id, buildModelTurn(15_000_000));
+		stopOverAllowance(declared(), [listed("0000a001")]);
+		expect(readStops().join("\n")).not.toMatch(/ rm /);
+		expect(fs.existsSync(transcriptOf(id))).toBe(true);
+	});
+
+	it("leaves one under its allowance, a plan session and another key's alone", () => {
+		appendTranscript(recordLaunch("0000a002"), buildModelTurn(5_000_000));
+		appendTranscript(sessionIdOf("0000a003"), buildModelTurn(15_000_000));
+		appendTranscript(
+			recordLaunch("0000a004", { keyVar: "WFC_OTHER_KEY" }),
+			buildModelTurn(15_000_000),
+		);
+		const agents = ["0000a002", "0000a003", "0000a004"].map((j) => listed(j));
+		expect(stopOverAllowance(declared(), agents)).toEqual([]);
+		expect(readStops()).toEqual([]);
+	});
+
+	it("stops a session once, so a reply to it afterwards runs uncapped", () => {
+		appendTranscript(recordLaunch("0000a001"), buildModelTurn(15_000_000));
+		stopOverAllowance(declared(), [listed("0000a001")]);
+		expect(stopOverAllowance(declared(), [listed("0000a001")])).toEqual([]);
+		expect(readStops()).toHaveLength(1);
+	});
+
+	it("caps without a stop one that ended past its allowance", () => {
+		appendTranscript(recordLaunch("0000a001"), buildModelTurn(15_000_000));
+		expect(stopOverAllowance(declared(), [listed("0000a001", "done")])).toEqual(
+			[],
+		);
+		expect(stopOverAllowance(declared(), [listed("0000a001")])).toEqual([]);
+		expect(readStops()).toEqual([]);
+	});
+
+	it("says why a stop failed, and tries again next tick", () => {
+		writeStopStub("noJob");
+		appendTranscript(recordLaunch("0000bad0"), buildModelTurn(15_000_000));
+		const [line] = stopOverAllowance(declared(), [listed("0000bad0")]);
+		expect(line).toMatch(
+			/^could not stop overflow session .*0000bad0.*spent \$60\.00 of its \$50\.00 allowance: .*No job matching/,
+		);
+		stopOverAllowance(declared(), [listed("0000bad0")]);
+		expect(readStops()).toHaveLength(2);
+	});
+
+	it("judges none whose launch records no allowance", () => {
+		const id = sessionIdOf("0000a005");
+		record({
+			issues: [],
+			model: "opus",
+			prompt: "/implement",
+			root,
+			jobId: "0000a005",
+			overflow: {
+				keyVar: "WFC_TEST_KEY",
+				allowanceUsd: Number.NaN,
+				sessionId: id,
+			},
+		});
+		appendTranscript(id, buildModelTurn(15_000_000));
+		expect(stopOverAllowance(declared(), [listed("0000a005")])).toEqual([
+			`overflow session Overflow · job 0000a005 (0000a005) on ${seatDir} unjudged: its launch records no allowance`,
+		]);
+		expect(readStops()).toEqual([]);
+	});
+
+	it("says so where the listing is unread, and is silent with no overflow seat", () => {
+		expect(stopOverAllowance(declared(), null)).toEqual([
+			"overflow allowances unjudged: the listing is unread",
+		]);
+		expect(
+			stopOverAllowance({ seats: [declared().seats[0]], errors: [] }, null),
+		).toEqual([]);
 	});
 });

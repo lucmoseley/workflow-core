@@ -129,7 +129,7 @@ const {
 	buildTickRecord,
 } = require("./concurrency.js");
 const { appendConsoleRow, isConsoleReadDue } = require("./console-credit.js");
-const { seatBudget } = require("./overflow-budget.js");
+const { seatBudget, stopOverAllowance } = require("./overflow-budget.js");
 const {
 	readConfiguredSeats,
 	readDeclaredSeats,
@@ -1587,6 +1587,19 @@ const stopsOfNeverStarted = (dryRun, state, registry) =>
 	dryRun ? [] : stopNeverStarted(registry, bootSparedJobs(state));
 
 /**
+ * Stop each overflow session past its allowance (lib/overflow-budget.js,
+ * #3698), logged; none on a dry run. Paused or stopping alike: a running
+ * overflow session spends either way.
+ * @param {boolean} dryRun
+ * @param {Parameters<typeof stopOverAllowance>[0]} declared
+ * @param {Parameters<typeof stopOverAllowance>[1]} agents
+ */
+function capOverflowSessions(dryRun, declared, agents) {
+	if (dryRun) return;
+	for (const line of stopOverAllowance(declared, agents)) log(line);
+}
+
+/**
  * The tick's listing, an empty one read as nothing live where a boot's killed
  * launches allow it. A dry run judges nothing by it, so it reads the plain one.
  * @param {boolean} dryRun
@@ -1697,6 +1710,7 @@ async function tick({ dryRun }) {
 	 * steps trust is checked against the documented listing every tick. */
 	if (agents)
 		for (const line of buildDriftLines(agents, registry.agents)) log(line);
+	capOverflowSessions(dryRun, declared, agents);
 	const seen = {
 		agents,
 		now,

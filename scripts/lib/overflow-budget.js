@@ -8,6 +8,14 @@
  * included, prices again each session on the key whose transcript has grown,
  * into a durable per-key ledger of one row per session beside the refill loop's
  * files. Only the launch record marks a session in the seat's dir as on the key.
+ *
+ * THE PER-SESSION CAP (#3698): `--max-budget-usd` works only with `--print`, so
+ * each refill tick stops a listed session whose spend has reached the allowance
+ * its launch recorded, with `claude stop` on the seat's dir, which keeps the
+ * conversation. Each session is capped once, so a founder's reply to it
+ * afterwards runs uncapped (spec #3691 §Out of Scope). Residual: one that
+ * ended on its own, reaped before a tick saw it, carries no mark, so the
+ * first reply that takes it past its allowance is stopped once (#4174).
  */
 
 const fs = require("node:fs");
@@ -16,9 +24,11 @@ const { parseArgs } = require("node:util");
 const { isTerminalAgent, readAgentsForBudget } = require("./agent-liveness.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
+const { stopOn } = require("./claude-stop.js");
 const { readConsoleLog } = require("./console-credit.js");
 const { readEveryOverflowLookup } = require("./dispatch-ledger.js");
 const { hostRoot } = require("./host-root.js");
+const { shortJobId } = require("./job-paths.js");
 const { readJsonl } = require("./jsonl.js");
 const { localDate } = require("./morning-review.js");
 const { pidLock, waitForLock } = require("./pid-lock.js");
@@ -58,6 +68,10 @@ const BUDGET_READERS = [
 /** @param {OverflowSeat} seat */
 const ledgerFile = (seat) =>
 	refillPath(path.join(".overflow-ledger", `${seat.keyVar}.jsonl`));
+
+/** @param {OverflowSeat} seat */
+const cappedFile = (seat) =>
+	refillPath(path.join(".overflow-ledger", `${seat.keyVar}.capped.jsonl`));
 
 /**
  * The key's ledger, by session.
@@ -261,6 +275,115 @@ function seatBudget(seat, root, readAgents = readAgentsForBudget) {
 const dollars = (usd) => `$${usd.toFixed(2)}`;
 
 /**
+ * The key's listed background sessions whose spend has reached the allowance
+ * their launch recorded. An `ended` one is past it but no longer running:
+ * capped without a stop.
+ * @param {OverflowSeat} seat
+ * @param {import("./agent-liveness.js").AgentRecord[]} agents
+ * @param {OverflowLookup} lookup
+ * @throws where a transcript or the ledger cannot be read
+ */
+function readOverAllowance(seat, agents, lookup) {
+	const spent = new Map(
+		priceSessions(seat, lookup).map((e) => [e.sessionId, e.costUsd]),
+	);
+	const capped = new Set(
+		(readJsonl(cappedFile(seat))?.rows ?? []).map((r) => r.sessionId),
+	);
+	return agents.flatMap((a) => {
+		if (a.kind !== "background" || capped.has(a.sessionId)) return [];
+		const launch = lookup({ jobId: a.id, sessionId: a.sessionId });
+		const spentUsd = spent.get(a.sessionId);
+		if (
+			launch?.keyVar !== seat.keyVar ||
+			spentUsd === undefined ||
+			spentUsd < launch.allowanceUsd
+		)
+			return [];
+		return [
+			{
+				jobId: a.id ?? shortJobId(a.sessionId),
+				sessionId: a.sessionId,
+				name: a.name ?? null,
+				spentUsd,
+				allowanceUsd: launch.allowanceUsd,
+				ended: isTerminalAgent(a),
+			},
+		];
+	});
+}
+
+/**
+ * Stop every listed overflow session past its allowance (#3698): one log line
+ * per stop and one per seat that could not be judged.
+ * A failed stop is not marked capped, so the next tick tries again. Residual:
+ * one the daemon holds no job for ("No job matching") logs its failure every
+ * tick for as long as the listing shows it.
+ * @param {import("./refill-seats.js").SeatList} declared
+ * @param {import("./agent-liveness.js").AgentRecord[]|null} agents the tick's
+ *   listing, null where it is unread
+ * @returns {string[]}
+ */
+function stopOverAllowance(declared, agents) {
+	if (declared.errors.length > 0)
+		return [`overflow allowances unjudged: ${declared.errors.join("; ")}`];
+	const seats = declared.seats.filter(
+		/** @returns {s is OverflowSeat} */ (s) => s.kind === "overflow",
+	);
+	if (seats.length === 0) return [];
+	if (!agents) return ["overflow allowances unjudged: the listing is unread"];
+	let lookup;
+	try {
+		lookup = readEveryOverflowLookup();
+	} catch (err) {
+		return [`overflow allowances unjudged: ${caught(err).message}`];
+	}
+	return seats.flatMap((seat) => {
+		let over;
+		try {
+			over = readOverAllowance(seat, agents, lookup);
+		} catch (err) {
+			return [
+				`overflow allowances on ${seat.keyVar} unjudged: ${caught(err).message}`,
+			];
+		}
+		return over.flatMap((s) => capSession(seat, s));
+	});
+}
+
+/**
+ * Stop one session at or past its allowance, unless it has ended, and mark
+ * it capped.
+ * @param {OverflowSeat} seat
+ * @param {ReturnType<typeof readOverAllowance>[number]} s
+ * @returns {string[]}
+ */
+function capSession(seat, s) {
+	const who = `overflow session ${s.name ? `${s.name} (${s.jobId})` : s.jobId} on ${seat.dir}`;
+	/* A malformed launch row must not read as an allowance of nothing. */
+	if (!Number.isFinite(s.allowanceUsd))
+		return [`${who} unjudged: its launch records no allowance`];
+	const r = s.ended ? null : stopOn(seat.dir, s.jobId);
+	const figures = `spent ${dollars(s.spentUsd)} of its ${dollars(s.allowanceUsd)} allowance`;
+	if (r && !r.ok) return [`could not stop ${who}, ${figures}: ${r.why}`];
+	const row = {
+		sessionId: s.sessionId,
+		jobId: s.jobId,
+		at: new Date().toISOString(),
+		spentUsd: s.spentUsd,
+		allowanceUsd: s.allowanceUsd,
+	};
+	try {
+		fs.appendFileSync(cappedFile(seat), `${JSON.stringify(row)}\n`);
+	} catch (err) {
+		return [
+			`${r ? "stopped" : "ended"} ${who}, ${figures}, not marked capped: ${caught(err).message}`,
+		];
+	}
+	return r ? [`stopped ${who}: ${figures}`] : [];
+}
+
+/**
  * @param {OverflowSeat} seat
  * @param {SeatBudget|{why: string}} budget
  */
@@ -281,7 +404,7 @@ function buildBudgetLine(seat, budget) {
 	return `overflow ${seat.dir}: fits ${budget.fit}; ${headroom}; ${spent}; resets ${resets}${failed}`;
 }
 
-module.exports = { buildBudgetLine, seatBudget };
+module.exports = { buildBudgetLine, seatBudget, stopOverAllowance };
 
 /*
  * CLI mode, for the dispatcher and status. Exit 0 sized, 2 usage, 1 otherwise:
