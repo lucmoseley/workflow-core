@@ -32,6 +32,7 @@ const { caught } = require("./caught.js");
 const { HOOK_GIT_TIMEOUT_MS } = require("./git.js");
 const { logger, readPayload } = require("./entry-input.js");
 const { trimEndRun } = require("./trim-run.js");
+const { writeFd } = require("./write-fd.js");
 const { AFTER_EVENTS } = require("./hook-events.js");
 const {
 	agentKey,
@@ -93,7 +94,8 @@ const contextEvent = (named, declared) =>
  * @param {Record<string, unknown>} output
  */
 function emit(event, output) {
-	process.stdout.write(
+	writeFd(
+		1,
 		JSON.stringify(require("./hook-envelope.js").envelope(event, output)),
 	);
 }
@@ -409,7 +411,8 @@ function refuseIfRunByHand(event, byHand) {
 	const instead = byHand
 		? `; run ${require("./script-path.js").resolveScriptPaths(byHand)}`
 		: "";
-	process.stderr.write(
+	writeFd(
+		2,
 		`${guardFile()}: a ${event} hook, which reads its payload on stdin and takes no arguments — refused before reading stdin, nothing done${instead}\n`,
 	);
 	process.exitCode = 1;

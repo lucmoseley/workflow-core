@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /*
- * A stand-in CLI for run-in-process.test.ts (mantahostels#1907): one entry per property
+ * A stand-in CLI for run-in-process.test.ts and run-in-process.contract.test.ts
+ * (mantahostels#1907): one entry per property
  * the seam claims to reproduce, beyond the ones it shares with the async probe
  * through in-process-probe-modes.js. Tracked rather than written to a temp dir per test
  * because the registry purge only reaches modules inside this repo, which is

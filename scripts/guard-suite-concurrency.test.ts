@@ -26,7 +26,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenLog } from "./guard-log-fixture";
-import { admits, readManifest } from "./lib/guard-cores.js";
+import { isAdmitted, readManifest } from "./lib/guard-cores.js";
 import { buildMeminfo } from "./lib/meminfo-fake";
 import {
 	buildBashPayload,
@@ -460,7 +460,7 @@ describe("the manifest row's wiring (#2303)", () => {
 	 * a declared command no clause lets through is never told. */
 	const reaches = (command: string) =>
 		row !== undefined &&
-		admits(row, { tool_name: "Bash", tool_input: { command } });
+		isAdmitted(row, { tool_name: "Bash", tool_input: { command } });
 
 	it("is one Bash row, failing closed (#4128)", () => {
 		expect(row).toMatchObject({ tools: "Bash", failure: "closed" });

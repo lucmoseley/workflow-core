@@ -30,7 +30,7 @@ import { shellQuote } from "./sh-quote.js";
 const { readRuleText } = require("./rule-text") as any;
 // biome-ignore lint/suspicious/noExplicitAny: untyped CommonJS helpers
 const { renderSessionRules } = require("./adopter-skeleton") as any;
-const { loadCores } = require("./guard-dispatch.js") as {
+const { loadCores } = require("./guard-core-load.js") as {
 	loadCores: (event: string) => Record<string, unknown>[];
 };
 const REWIND_RULE_FALLBACK =

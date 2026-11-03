@@ -302,7 +302,7 @@ function addCore(row, core, note) {
  * @param {string[]} guardDirs where the guard scripts are looked up, in order
  *   (`lib/deny-capable.js` `guardDirs`)
  * @param {{scope?: "deny" | "nondeny" | "all", event?: "PreToolUse" | "PostToolUse",
- *   manifest?: string, host?: Parameters<typeof import("./guard-cores.js").runsOn>[2]}} [options]
+ *   manifest?: string, host?: Parameters<typeof import("./guard-cores.js").isDispatchedOn>[2]}} [options]
  *   `manifest` is the lib/guard-cores.json the dispatcher runs from
  *   (`lib/guard-cores.js` `manifestAt`), this plugin's where unnamed; `host`
  *   says which cores the host has disabled or switched off by module, none
@@ -363,7 +363,7 @@ function triggerTable(settings, guardDirs, options = {}) {
  * where they name one, on.
  * @param {string} manifestFile
  * @param {string} event
- * @param {Parameters<typeof import("./guard-cores.js").runsOn>[2]} host
+ * @param {Parameters<typeof import("./guard-cores.js").isDispatchedOn>[2]} host
  * @returns {import("./guard-cores.js").CoreRow[]}
  */
 function hostCores(manifestFile, event, host) {

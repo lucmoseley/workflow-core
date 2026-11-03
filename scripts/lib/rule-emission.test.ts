@@ -25,8 +25,8 @@ interface CoreRow {
 	core: string;
 	tools: string;
 }
-const { dispatchRows, isCoreFor } = require("./guard-cores.js") as {
-	dispatchRows: (event: string) => CoreRow[];
+const { readDispatchRows, isCoreFor } = require("./guard-cores.js") as {
+	readDispatchRows: (event: string) => CoreRow[];
 	isCoreFor: (row: CoreRow, tool: string) => boolean;
 };
 const DISPATCH_ENTRY = "scripts/guard-dispatch.js";
@@ -880,7 +880,7 @@ describe("agreement with scripts/lib/hook-wiring.ts", () => {
 	/* A dispatcher core is wired where its entry is and its row names the
 	 * tool (lib/guard-cores.js). */
 	const rows = new Map(
-		dispatchRows("PreToolUse").map((r) => [
+		readDispatchRows("PreToolUse").map((r) => [
 			path.join("scripts", "lib", r.core),
 			r,
 		]),

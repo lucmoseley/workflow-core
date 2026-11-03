@@ -81,20 +81,26 @@ const isCoreFor = (row, tool) =>
 	tool !== undefined && new RegExp(`^(?:${row.tools})$`).test(tool);
 
 /**
+ * The tool `payload`'s call names, undefined where it names none as a string.
+ * @param {Record<string, unknown>} payload
+ * @returns {string | undefined}
+ */
+const toolOf = (payload) =>
+	typeof payload.tool_name === "string" ? payload.tool_name : undefined;
+
+/**
  * Whether `row`'s `if` clauses let `payload`'s call through, each matched
  * against the call's `command`; true where the row carries none.
  * @param {Pick<CoreRow, "if">} row
  * @param {Record<string, unknown>} payload
  */
-function admits(row, payload) {
+function isAdmitted(row, payload) {
 	if (!row.if) return true;
 	const input = /** @type {Record<string, unknown> | undefined} */ (
 		payload.tool_input
 	);
 	const command = typeof input?.command === "string" ? input.command : "";
-	const tool =
-		typeof payload.tool_name === "string" ? payload.tool_name : undefined;
-	return clausesAdmit(row.if, tool, command);
+	return clausesAdmit(row.if, toolOf(payload), command);
 }
 
 /**
@@ -106,12 +112,10 @@ function admits(row, payload) {
  * @param {{ disabled: (name: string) => boolean,
  *   moduleOn: (module: Module) => boolean }} host
  */
-function runsOn(row, payload, { disabled, moduleOn }) {
-	const tool =
-		typeof payload.tool_name === "string" ? payload.tool_name : undefined;
+function isDispatchedOn(row, payload, { disabled, moduleOn }) {
 	return (
-		isCoreFor(row, tool) &&
-		admits(row, payload) &&
+		isCoreFor(row, toolOf(payload)) &&
+		isAdmitted(row, payload) &&
 		!disabled(row.name) &&
 		!(row.module && !moduleOn(row.module))
 	);
@@ -121,13 +125,14 @@ function runsOn(row, payload, { disabled, moduleOn }) {
  * The PreToolUse cores able to deny that the dispatcher runs on `payload`'s
  * call, by name: what a killed dispatcher call lost (#3272).
  * @param {Record<string, unknown>} payload
- * @param {Parameters<typeof runsOn>[2]} host
+ * @param {Parameters<typeof isDispatchedOn>[2]} host
  * @returns {string[]}
  */
 function denyingCoresOn(payload, host) {
-	return dispatchRows("PreToolUse")
+	return readDispatchRows("PreToolUse")
 		.filter(
-			(row) => runsOn(row, payload, host) && isDenyingCore(corePath(row.core)),
+			(row) =>
+				isDispatchedOn(row, payload, host) && isDenyingCore(corePath(row.core)),
 		)
 		.map((row) => row.name);
 }
@@ -136,7 +141,7 @@ function denyingCoresOn(payload, host) {
  * @param {string} event
  * @returns {CoreRow[]}
  */
-function dispatchRows(event) {
+function readDispatchRows(event) {
 	return readManifest()[event] ?? [];
 }
 
@@ -194,19 +199,20 @@ function expandDispatched(event, regs, manifest = readManifest()) {
 
 module.exports = {
 	DISPATCH_ENTRY,
-	admits,
 	MANIFEST,
 	MANIFEST_REL,
 	corePath,
 	denyingCoresOn,
-	dispatchRows,
 	hostOf,
 	readDispatchedCores,
 	expandDispatched,
+	isAdmitted,
 	isCoreFor,
+	isDispatchedOn,
 	manifestAt,
 	manifestRows,
 	modulePath,
+	readDispatchRows,
 	readManifest,
-	runsOn,
+	toolOf,
 };

@@ -17,6 +17,9 @@ const { budgetMs } = require("./hook-deadline.js");
 
 const ARBITER = path.join(__dirname, "..", "session-arbiter.js");
 
+/* A guess, carried from the bash guard this ports (#2788) and never measured:
+ * that guard set it above the ~80 ms a real check took there and under its
+ * registration's 10 s, which bound it without choosing it. */
 const ARBITER_TIMEOUT_MS = 5000;
 
 /**

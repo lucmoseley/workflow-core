@@ -1330,7 +1330,7 @@ function guardDisabled(basename, opts) {
 
 /**
  * The host `root`'s config makes for a dispatcher core: the cores it disables
- * and the modules it switches on, `lib/guard-cores.js` `runsOn`'s `host`. A
+ * and the modules it switches on, `lib/guard-cores.js` `isDispatchedOn`'s `host`. A
  * config fault reads a module as off, as the dispatcher does; the
  * dispatcher's own entry logs it.
  * @param {string} root

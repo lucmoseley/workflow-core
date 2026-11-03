@@ -17,7 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { caught } from "./caught.js";
-import { ghAnswer, ghFakeScript } from "./gh-fake";
+import { ghFakeScript, readGhAnswer } from "./gh-fake";
 import { GH_FAILING_SCRIPT, stubGhScript } from "./gh-stub";
 import { runInProcess } from "./run-in-process";
 import { shellQuote } from "./sh-quote.js";
@@ -171,7 +171,7 @@ describe("JSON and pagination", () => {
 		const { ghJson } = await load();
 		inject(ghFakeScript(ISSUE_LIST));
 		expect(ghJson(["issue", "list"])).toEqual(
-			JSON.parse(ghAnswer(ISSUE_LIST).stdout),
+			JSON.parse(readGhAnswer(ISSUE_LIST).stdout),
 		);
 	});
 

@@ -654,6 +654,49 @@ describe("§N7 export blocks", () => {
 			expect(r.out).not.toContain("scripts/thing.js  review");
 		});
 
+		describe("a file building a manifest path reaches what the manifest loads (#4136)", () => {
+			const host =
+				"function buildHostPorts() {}\n\nmodule.exports = { buildHostPorts };\n";
+			const seed = () => {
+				doc(docline);
+				track(
+					"scripts/lib/guard-cores.json",
+					JSON.stringify({
+						PreToolUse: [
+							{
+								name: "x",
+								core: "x-core.js",
+								tools: "Bash",
+								failure: "open",
+								host: "x-host.js",
+							},
+						],
+					}),
+				);
+				track("scripts/lib/x-host.js", host);
+			};
+
+			it("counts the kit that requires each row's host by a built path", () => {
+				seed();
+				track(
+					"scripts/lib/kit.js",
+					'const { corePath } = require("./guard-cores.js");\nrequire(corePath(row.host)).buildHostPorts();\n',
+				);
+				expect(run().out).not.toContain("DEAD-EXPORT");
+			});
+
+			it("counts no speller that only names the manifest", () => {
+				seed();
+				track(
+					"scripts/lib/kit.js",
+					"// rows from lib/guard-cores.json\nrequire(hostPath).buildHostPorts();\n",
+				);
+				expect(run().out).toContain(
+					"DEAD-EXPORT  scripts/lib/x-host.js  buildHostPorts",
+				);
+			});
+		});
+
 		it("does not take a directory of the module's name as reaching it", () => {
 			doc(docline);
 			track("scripts/thing.js", review);
