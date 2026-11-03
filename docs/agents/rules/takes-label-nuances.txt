@@ -8,7 +8,7 @@
 
 **A founder-facing item is filed the moment it exists, and a `takes:human` body follows one template ending `**Close when:** <what finishes it>`** — `rule:founder-deliverable`. **Enforced** (#983): the same guard and `file-issue.js` refuse a `takes:human` body without that line, and `check-issue-labels.js` reports NO-CLOSE-WHEN after the fact.
 
-**A multi-step outside act gets an in-chat walk, not a re-explanation.** Where the Outside line names a walk a human must click through — a first sign-in to a third-party dashboard, credentials to capture, a one-off cutover — the walk takes the founder through the issue's body step by step, as a founder hand-over (`rule:founder-handover`) with any credential handed over as its secret line, and is never a second copy. **Unenforced** (#479): nothing detects a multi-step act walked without the hand-over, and an errand that is a *wait* on someone else earns no walk at all.
+**A multi-step outside act gets an in-chat walk, not a re-explanation.** Where the Outside line names a walk a human must click through — a first sign-in to a third-party dashboard, credentials to capture, a one-off cutover — the final message gives the founder the issue body's steps in full, as a founder hand-over (`rule:founder-handover`) with any credential handed over as its secret line. **Unenforced** (#479): nothing detects a multi-step act walked without the hand-over, and an errand that is a *wait* on someone else earns no walk at all.
 
 `takes:` is **disposition** — what to do with the issue next. `kind:` is **provenance** — what the issue is and where it came from: a `kind:spec` takes `/to-tickets` before its tickets exist and nothing afterwards, and a `kind:ticket` can take `/wayfinder` when it turns out to hide a decision.
 
