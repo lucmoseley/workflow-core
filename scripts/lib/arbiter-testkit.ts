@@ -92,6 +92,8 @@ function dropSiblingConfigs(env: NodeJS.ProcessEnv) {
 	delete env.WFC_CLAUDE_CONFIG_C;
 }
 
+const BELT = path.join(__dirname, "arbiter-belt");
+
 /**
  * Point every external oracle the arbiter shells out to at a stub inside the
  * sandbox.
@@ -114,17 +116,18 @@ function dropSiblingConfigs(env: NodeJS.ProcessEnv) {
  * WFC_CLAUDE_BIN, never on PATH, since every caller reads that var (#3455,
  * #3559).
  *
- * PATH HOLDS A BELT FOR `gh` ALONE (#4089). check-gh-route.js cannot read a
- * command-string spawn or a child whose env dropped WFC_GH, and either reaches
- * the founder's live tracker with no refusal. The belt answers no call, so a
- * caller off the var still fails its test (base §N7). A bare `claude` stays
- * unbelted (#3559).
+ * PATH HOLDS A BELT FOR BOTH (#4089, #4103). check-gh-route.js cannot read a
+ * command-string spawn or a child whose env dropped the var, and either reaches
+ * the founder's live tracker or live sessions with no refusal. The belt answers
+ * no call, so a caller off the var still fails its test (base §N7). It is
+ * tracked, in BELT, not written under `sb.dir`: a detached child keeps the PATH
+ * it was spawned with, so a belt removed with the sandbox would drop its bare
+ * call through to the real binary.
  *
  * RESIDUAL: a real session also exports `CLAUDE_PID`, `CLAUDECODE` and
  * `CLAUDE_CODE_MESSAGING_SOCKET`, and the sandbox leaves `HOME` alone
  * deliberately. None is read by the arbiter today. A detached child outliving
- * its case loses the belt with the sandbox, so its bare `gh` reaches the real
- * binary.
+ * the checkout itself, as in a removed worktree, loses the belt.
  */
 function stubOracles(sb: Sandbox) {
 	const dir = path.join(sb.dir, "stubs");
@@ -159,15 +162,7 @@ function stubOracles(sb: Sandbox) {
 		'echo "arbiter sandbox: unstubbed gh call: $*" >&2\nexit 1',
 	);
 
-	const belt = path.join(sb.dir, "belt");
-	fs.mkdirSync(belt);
-	fs.writeFileSync(
-		path.join(belt, "gh"),
-		'#!/bin/sh\necho "arbiter sandbox: bare gh call off WFC_GH: $*" >&2\nexit 1\n',
-		{ mode: 0o755 },
-	);
-	// gh-route-exempt: a belt that only refuses, so nothing reaches a stub by PATH.
-	process.env.PATH = `${belt}${path.delimiter}${process.env.PATH}`;
+	process.env.PATH = `${BELT}${path.delimiter}${process.env.PATH}`;
 }
 
 /**

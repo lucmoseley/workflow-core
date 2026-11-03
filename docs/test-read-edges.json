@@ -3583,7 +3583,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-arbiter.test.ts"
 		],
 		"scripts/check-guard-errors.test.ts": [
 			"scripts/lib/helper-surface.test.ts",
@@ -6280,7 +6281,8 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-arbiter.test.ts"
 		],
 		"scripts/lib/agent-liveness.test.ts": [
 			"scripts/check-guard-errors.test.ts",
@@ -6496,6 +6498,14 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/arbiter-belt/claude": [
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/session-arbiter.test.ts"
+		],
+		"scripts/lib/arbiter-belt/gh": [
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/session-arbiter.test.ts"
 		],
 		"scripts/lib/arbiter-breaks.js": [
 			"scripts/check-guard-errors.test.ts",
@@ -11144,7 +11154,8 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/pick-next.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-arbiter.test.ts"
 		],
 		"scripts/lib/gh.test.ts": [
 			"scripts/check-guard-errors.test.ts",
@@ -12292,7 +12303,8 @@
 			"scripts/lib/stop-guard.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-arbiter.test.ts"
 		],
 		"scripts/lib/hook-record.test.ts": [
 			"scripts/check-guard-errors.test.ts",
@@ -14146,7 +14158,8 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/park-blocked.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-arbiter.test.ts"
 		],
 		"scripts/lib/marker-root.sh": [
 			"scripts/check-guard-errors.test.ts",
@@ -14569,7 +14582,8 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-arbiter.test.ts"
 		],
 		"scripts/lib/oracle-cache.test.ts": [
 			"scripts/check-guard-errors.test.ts",
@@ -14751,7 +14765,8 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
-			"scripts/run-vitest.test.ts"
+			"scripts/run-vitest.test.ts",
+			"scripts/session-arbiter.test.ts"
 		],
 		"scripts/lib/own-work.js": [
 			"scripts/check-guard-errors.test.ts",

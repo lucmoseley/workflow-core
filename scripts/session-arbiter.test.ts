@@ -33,6 +33,7 @@ import {
 	proc,
 	readDebtOf,
 	registerSession,
+	removeSandbox,
 	SCRIPT,
 	store,
 } from "./lib/arbiter-testkit";
@@ -48,7 +49,9 @@ const { gh } = createRequire(__filename)("./lib/gh.js");
 const hookRecord = createRequire(__filename)("./lib/hook-record.js");
 const markerRoot = createRequire(__filename)("./lib/marker-root.js");
 const oracleCache = createRequire(__filename)("./lib/oracle-cache.js");
-const { oracleCacheKey } = createRequire(__filename)("./lib/agent-liveness.js");
+const { claudeBin: claudePrimitive, oracleCacheKey } = createRequire(
+	__filename,
+)("./lib/agent-liveness.js");
 const { attributeDirty } = createRequire(__filename)("./lib/own-selection.js");
 
 const sb = freshSandbox();
@@ -141,32 +144,77 @@ describe("the sandbox's isolation from the machine (mantahostels#1902)", () => {
 		expect(ghCallCount(sb)).toBe(0);
 	});
 
-	describe("a bare gh, which no var routes, stops at the PATH belt (#4089)", () => {
-		const beltRefusal = "arbiter sandbox: bare gh call off WFC_GH: auth status";
+	const refusalOf = (bin: string, stubVar: string) =>
+		`arbiter sandbox: bare ${bin} call off ${stubVar}: --version`;
 
-		it("refuses a literal spawn and a child shell's own call", () => {
-			const spawned = spawnSync("gh", ["auth", "status"], { encoding: "utf8" });
-			expect(spawned.status).toBe(1);
-			expect(spawned.stderr).toContain(beltRefusal);
-			const shell = spawnSync("sh", ["-c", "gh auth status"], {
-				encoding: "utf8",
+	describe.each([
+		{
+			bin: "gh",
+			stubVar: "WFC_GH",
+			belt: path.join(__dirname, "lib/arbiter-belt/gh"),
+		},
+		{
+			bin: "claude",
+			stubVar: "WFC_CLAUDE_BIN",
+			belt: path.join(__dirname, "lib/arbiter-belt/claude"),
+		},
+	])(
+		"a bare $bin, which no var routes, stops at the PATH belt (#4089, #4103)",
+		({ bin, stubVar, belt }) => {
+			const refusal = refusalOf(bin, stubVar);
+
+			it("resolves the bare name to the tracked belt", () => {
+				const r = spawnSync("sh", ["-c", `command -v ${bin}`], {
+					encoding: "utf8",
+				});
+				expect(r.stdout.trim()).toBe(belt);
 			});
-			expect(shell.status).toBe(1);
-			expect(shell.stderr).toContain(beltRefusal);
-		});
 
-		it("refuses lib/gh.js's own fallback once WFC_GH is gone", () => {
-			delete process.env.WFC_GH;
-			expect(() => gh(["auth", "status"])).toThrow(beltRefusal);
-		});
+			it("refuses a literal spawn and a child shell's own call, and answers none of the stub", () => {
+				const spawned = spawnSync(bin, ["--version"], { encoding: "utf8" });
+				expect(spawned.status).toBe(1);
+				expect(spawned.stdout).toBe("");
+				expect(spawned.stderr).toContain(refusal);
+				const shell = spawnSync("sh", ["-c", `${bin} --version`], {
+					encoding: "utf8",
+				});
+				expect(shell.status).toBe(1);
+				expect(shell.stderr).toContain(refusal);
+			});
 
-		it("answers none of a fakeGh, so a caller off the var fails its test rather than passing it", () => {
-			fakeGh(sb, 'echo \'{"state":"CLOSED"}\'');
-			const r = spawnSync("gh", ["auth", "status"], { encoding: "utf8" });
-			expect(r.status).toBe(1);
-			expect(r.stdout).toBe("");
-			expect(ghCallCount(sb)).toBe(0);
-		});
+			it("still refuses a detached child calling after its sandbox is gone", async () => {
+				const child = spawn("sh", ["-c", `read -r _; ${bin} --version`], {
+					detached: true,
+					stdio: ["pipe", "ignore", "pipe"],
+				});
+				let stderr = "";
+				child.stderr.on("data", (chunk) => {
+					stderr += chunk;
+				});
+				const closed = new Promise((resolve) => child.on("close", resolve));
+				removeSandbox(sb.dir);
+				child.stdin.end("go\n");
+				expect(await closed).toBe(1);
+				expect(stderr).toContain(refusal);
+			});
+		},
+	);
+
+	it("refuses each primitive's own fallback once its var is gone", () => {
+		delete process.env.WFC_GH;
+		expect(() => gh(["--version"])).toThrow(refusalOf("gh", "WFC_GH"));
+		delete process.env.WFC_CLAUDE_BIN;
+		const r = spawnSync(claudePrimitive(), ["--version"], { encoding: "utf8" });
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(refusalOf("claude", "WFC_CLAUDE_BIN"));
+	});
+
+	it("answers none of a fakeGh, so a caller off the var fails its test rather than passing it", () => {
+		fakeGh(sb, 'echo \'{"state":"CLOSED"}\'');
+		const r = spawnSync("gh", ["--version"], { encoding: "utf8" });
+		expect(r.status).toBe(1);
+		expect(r.stdout).toBe("");
+		expect(ghCallCount(sb)).toBe(0);
 	});
 
 	it("stubs claude at WFC_CLAUDE_BIN alone, never on PATH", () => {
