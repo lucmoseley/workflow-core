@@ -16492,6 +16492,7 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-panel-open.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-files.test.ts": [

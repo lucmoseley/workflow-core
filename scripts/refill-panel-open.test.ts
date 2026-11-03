@@ -4,8 +4,8 @@
  * anything, and a failed route falls through to the next, then to the printed command.
  * Broken, a view opens no panel, or a repo that never asked for one gets a pane.
  *
- * Most cases inject `run`, so no test opens a pane in the terminal it runs in; one
- * crosses the real spawn and PATH search, against a stub `tmux`. Every case injects
+ * Most cases inject `run` and `detach`, so no test opens a pane in the terminal it runs
+ * in; three cross the real spawn and PATH search, against a stub `tmux`. Every case injects
  * `wait`, so none takes the hold's real 5 seconds.
  */
 import fs from "node:fs";
@@ -32,18 +32,24 @@ describe("refill-panel-open.js", () => {
 	let root = "";
 	let stdout = "";
 	let stderr = "";
+	let logged = "";
 	let viewEnv: Record<string, string> = {};
+	let detachStarts = true;
 	const ran: Route[] = [];
+	const detached: { routes: Route[]; pid: number }[] = [];
 	const waits: number[] = [];
 
 	beforeEach(() => {
 		root = fs.mkdtempSync(path.join(os.tmpdir(), "panel-open-"));
 		fs.mkdirSync(path.join(root, ".claude"));
 		ran.length = 0;
+		detached.length = 0;
 		waits.length = 0;
 		stdout = "";
 		stderr = "";
+		logged = "";
 		viewEnv = {};
+		detachStarts = true;
 	});
 	afterEach(() => {
 		fs.rmSync(root, { recursive: true, force: true });
@@ -74,6 +80,13 @@ describe("refill-panel-open.js", () => {
 				ran.push(route);
 				return why(route);
 			},
+			detach: (routes: Route[], pid: number) => {
+				detached.push({ routes, pid });
+				return detachStarts;
+			},
+			appendLog: (text: string) => {
+				logged += text;
+			},
 			wait: (ms: number) => {
 				waits.push(ms);
 			},
@@ -96,10 +109,13 @@ describe("refill-panel-open.js", () => {
 		expect(waits).toEqual([]);
 	});
 
-	it("with --if-enabled and the key true, opens the panel", () => {
+	it("with --if-enabled and the key true, hands the routes on and runs none itself: #4080 (keys typed while the view waited were lost)", () => {
 		setKey({ refillPanel: true });
 		expect(open(["--if-enabled", "42"])).toBe(0);
-		expect(ran.map((route) => route.name)).toEqual(["tmux"]);
+		expect(ran).toEqual([]);
+		expect(detached).toHaveLength(1);
+		expect(detached[0]?.pid).toBe(42);
+		expect(detached[0]?.routes.map((route) => route.name)).toEqual(["tmux"]);
 	});
 
 	it("by hand, opens the panel whatever the key says", () => {
@@ -146,28 +162,50 @@ describe("refill-panel-open.js", () => {
 		expect(waits).toEqual([5000]);
 	});
 
-	it("from a view start with every route failing, says why after each failure: #4066 (the view covered the printed command)", () => {
+	it("from a view start where the detached copy will not start, runs the routes itself, then says why and holds", () => {
 		setKey({ refillPanel: true });
-		const code = open(["--if-enabled", "42"], {
-			env: { WSL_INTEROP: "/run/x", TMUX: "/t" },
-			why: () => "exit 1",
-		});
-		expect(code).toBe(0);
-		const reason = stderr.indexOf("no refill panel opened");
-		expect(
-			stderr.indexOf("the windows-terminal route failed: exit 1"),
-		).toBeGreaterThan(-1);
-		expect(stderr.indexOf("the tmux route failed: exit 1")).toBeGreaterThan(
-			stderr.indexOf("the windows-terminal route failed"),
-		);
-		expect(reason).toBeGreaterThan(stderr.indexOf("the tmux route failed"));
-		expect(stderr).toContain("Windows Terminal under WSL");
-		expect(stdout.trimEnd().split("\n")).toHaveLength(1);
-		expect(stdout).toMatch(/refill-panel\.js.* 42\n$/);
+		detachStarts = false;
+		expect(open(["--if-enabled", "42"], { why: () => "exit 1" })).toBe(0);
+		expect(ran.map((route) => route.name)).toEqual(["tmux"]);
+		expect(stderr).toContain("the tmux route failed: exit 1");
+		expect(stderr).toContain("no refill panel opened");
 		expect(waits).toEqual([5000]);
 	});
 
-	it("from a view start with a route that opens, neither waits nor says more", () => {
+	it("the detached run takes the next route where the first fails, and logs the failure with its time", () => {
+		const routes = [
+			{ name: "windows-terminal", file: "cmd.exe", args: [] },
+			{ name: "tmux", file: "tmux", args: [] },
+		];
+		const code = open(["--run-routes", JSON.stringify(routes), "42"], {
+			why: (route) => (route.file === "cmd.exe" ? "exit 1" : null),
+		});
+		expect(code).toBe(0);
+		expect(ran.map((route) => route.file)).toEqual(["cmd.exe", "tmux"]);
+		expect(logged).toMatch(
+			/^\d{4}-\d\d-\d\dT\S+ refill-panel-open: the windows-terminal route failed: exit 1\n$/,
+		);
+		expect(stderr).toBe("");
+		expect(stdout).toBe("");
+		expect(waits).toEqual([]);
+	});
+
+	it("the detached run with every route failing logs the command, and holds nothing", () => {
+		const routes = [{ name: "tmux", file: "tmux", args: [] }];
+		const code = open(["--run-routes", JSON.stringify(routes), "42"], {
+			why: () => "exit 1",
+		});
+		expect(code).toBe(0);
+		expect(logged).toContain("the tmux route failed: exit 1");
+		expect(logged).toMatch(
+			/no refill panel opened; run: .*refill-panel\.js.* 42\n$/,
+		);
+		expect(stderr).toBe("");
+		expect(stdout).toBe("");
+		expect(waits).toEqual([]);
+	});
+
+	it("from a view start with a route to try, neither waits nor says more", () => {
 		setKey({ refillPanel: true });
 		expect(open(["--if-enabled", "42"])).toBe(0);
 		expect(stderr).toBe("");
@@ -224,6 +262,82 @@ describe("refill-panel-open.js", () => {
 		const words = fs.readFileSync(seen, "utf8").trim().split("\n");
 		expect(words.slice(0, 2)).toEqual(["split-window", "-h"]);
 		expect(words.slice(-2)).toEqual([String(process.pid), "tmux"]);
+	});
+
+	it("from a view start, returns before a real route finishes, and that route's failure reaches only the log: #4080 (keys typed while the view waited were lost)", async () => {
+		setKey({ refillPanel: true });
+		const bin = path.join(root, "bin");
+		const release = path.join(root, "release");
+		const seen = path.join(root, "seen");
+		const log = path.join(root, ".refill-loop.log");
+		fs.mkdirSync(bin);
+		fs.writeFileSync(
+			path.join(bin, "tmux"),
+			`#!/bin/sh\nwhile [ ! -e ${shellQuote(release)} ]; do sleep 0.05; done\n: > ${shellQuote(seen)}\nexit 7\n`,
+			{ mode: 0o755 },
+		);
+		/* A guess, generous for a loaded machine: it bounds only a failure's wait. */
+		const logTimeoutMs = 15_000;
+		const code = main(
+			["--if-enabled", String(process.pid)],
+			{
+				TMUX: "/t",
+				WFC_REFILL_DIR: root,
+				PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+			},
+			{
+				root,
+				readViewEnv: () => ({}),
+				readViewColumns: () => 156,
+				out: (text: string) => {
+					stdout += text;
+				},
+				err: (text: string) => {
+					stderr += text;
+				},
+			},
+		);
+		expect(code).toBe(0);
+		expect(fs.existsSync(seen)).toBe(false);
+		fs.writeFileSync(release, "");
+		await expect
+			.poll(() => (fs.existsSync(log) ? fs.readFileSync(log, "utf8") : ""), {
+				timeout: logTimeoutMs,
+			})
+			.toContain("no refill panel opened; run: ");
+		expect(fs.existsSync(seen)).toBe(true);
+		expect(fs.readFileSync(log, "utf8")).toContain(
+			"the tmux route failed: exit 7",
+		);
+		expect(stdout).toBe("");
+		expect(stderr).toBe("");
+	});
+
+	it("from a view start with a log that will not open, still runs the route", async () => {
+		setKey({ refillPanel: true });
+		const bin = path.join(root, "bin");
+		const seen = path.join(root, "seen");
+		fs.mkdirSync(bin);
+		fs.writeFileSync(
+			path.join(bin, "tmux"),
+			`#!/bin/sh\n: > ${shellQuote(seen)}\n`,
+			{ mode: 0o755 },
+		);
+		const unopenable = path.join(root, "seen-parent-is-a-file");
+		fs.writeFileSync(unopenable, "");
+		const code = main(
+			["--if-enabled", String(process.pid)],
+			{
+				TMUX: "/t",
+				WFC_REFILL_DIR: path.join(unopenable, "x"),
+				PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+			},
+			{ root, readViewEnv: () => ({}), readViewColumns: () => 156 },
+		);
+		expect(code).toBe(0);
+		await expect
+			.poll(() => fs.existsSync(seen), { timeout: 15_000 })
+			.toBe(true);
 	});
 
 	it("sizes the split from the view's width, and says where that will not read", () => {

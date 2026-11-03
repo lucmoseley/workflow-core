@@ -35,7 +35,7 @@ const buildSplitShare = (viewColumns) =>
  * Each split tells the panel its route, which its environment cannot: a printed command may be pasted into a pane of either.
  * `wt.exe split-pane` moves focus to the new pane with no flag to stay put (its docs and `AppCommandlineArgs.cpp`),
  * so the same command line moves it back before the panel has started (#4065). Keys typed before that lands still reach the panel,
- * a chained move that fails reports nothing, and keys typed while the view waits on this split are lost (#4080).
+ * and a chained move that fails reports nothing.
  * @param {{ env: Record<string, string | undefined>, isOnPath: (name: string) => boolean, node: string, panel: string, pid: number, viewColumns: number|null }} input
  * @returns {{ name: string, file: string, args: string[] }[]}
  */

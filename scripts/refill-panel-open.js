@@ -14,16 +14,23 @@
  *
  * Joins no §N3 family: it gates nothing and is no hook.
  *
- * The alias's `exec` draws over a printed command, so under --if-enabled it says why
- * no panel opened and holds that on screen first (#4066). Keys typed in the hold stay
- * unread, for the view. Residual: every view start on a terminal with no route pays
- * the hold, and turning the key off is the only way out of it.
+ * Under --if-enabled the routes run in a detached copy of this script, called with
+ * --run-routes and JSON only this script writes, as keys typed before the view starts
+ * are lost (#4080). The view is drawn by then, so that copy writes only to the refill
+ * loop's log: a route that fails, or all of them failing, shows there and nowhere on
+ * screen. Where the copy will not start, this script runs the routes itself.
  *
- * Exit codes: 0 once a route opened it or it printed the command, or where the key
- * is off or the pid is gone; 2 on a command line it refuses.
+ * The alias's `exec` draws over a printed command, so under --if-enabled with no route
+ * to try it says why no panel opened and holds that on screen first (#4066). Keys typed
+ * in the hold stay unread, for the view. Residual: every view start on a terminal with
+ * no route pays the hold, and turning the key off is the only way out of it.
+ *
+ * Exit codes: 0 once a route opened it or it printed the command, or was handed to the
+ * detached copy, or where the key is off or the pid is gone; 2 on a command line it
+ * refuses.
  */
 
-const { spawnSync } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { pidAlive } = require("./lib/arbiter-proc.js");
@@ -48,12 +55,15 @@ Opens the refill-loop panel beside that agents view, by a Windows Terminal split
 tmux split, or printing the command to run.
 
   --if-enabled  open nothing unless this checkout's .claude/workflow-core.json sets refillPanel;
-                where only printing is left, say why and hold it on screen for ${PRINTED_HOLD_MS / 1000} seconds
+                run the routes detached, a failure going to the refill loop's log, and where
+                none exists, say why and hold it on screen for ${PRINTED_HOLD_MS / 1000} seconds
 `;
 
 const PANEL_PROGRAM = path.join(__dirname, "refill-panel.js");
-/* Untraced, a first guess: the view waits on this call. */
+/* Untraced, a first guess: a route that hangs must not hold back the next. */
 const ROUTE_TIMEOUT_MS = 10_000;
+
+/** @typedef {{ name: string, file: string, args: string[] }} Route */
 
 /**
  * @param {string | undefined} searchPath
@@ -80,13 +90,70 @@ function runRoute({ file, args }, env) {
 }
 
 /**
+ * A log that will not open costs only the log, never the panel.
+ * @param {string} text
+ */
+function appendToLoopLog(text) {
+	/* Required here, as the view's start waits on this script and the module takes tens of ms to load. */
+	const { loopFiles } = require("./lib/refill-files.js");
+	const logFile = loopFiles().log;
+	try {
+		fs.mkdirSync(path.dirname(logFile), { recursive: true });
+		fs.appendFileSync(logFile, text);
+	} catch {
+		/* Nowhere is left to say so: the view is drawn. */
+	}
+}
+
+/**
+ * @param {Route[]} routes
+ * @param {number} pid
+ * @param {Record<string, string | undefined>} env
+ * @returns {boolean} whether the copy started
+ */
+function detachRoutes(routes, pid, env) {
+	const child = spawn(
+		process.execPath,
+		[__filename, "--run-routes", JSON.stringify(routes), String(pid)],
+		{ detached: true, stdio: "ignore", env },
+	);
+	child.on("error", () => {
+		/* A failed spawn shows as no pid; unheard, this event would end the script. */
+	});
+	child.unref();
+	return child.pid !== undefined;
+}
+
+/**
+ * @param {Route[]} routes
+ * @param {Record<string, string | undefined>} env
+ * @param {NonNullable<Deps["run"]>} run
+ * @param {(text: string) => void} err
+ * @returns {boolean} whether one opened the panel
+ */
+function openByFirstRoute(routes, env, run, err) {
+	for (const route of routes) {
+		const why = run(route, env);
+		if (why === null) return true;
+		err(`refill-panel-open: the ${route.name} route failed: ${why}\n`);
+	}
+	return false;
+}
+
+/**
+ * @typedef {{ run?: (route: Route, env: Record<string, string | undefined>) => string | null, detach?: typeof detachRoutes, appendLog?: (text: string) => void, isOnPath?: (name: string) => boolean, isAlive?: (pid: number) => boolean, readViewEnv?: typeof readProcEnv, readViewColumns?: typeof readProcColumns, root?: string, out?: (text: string) => void, err?: (text: string) => void, wait?: (ms: number) => void }} Deps
+ */
+
+/**
  * @param {string[]} [argv]
  * @param {Record<string, string | undefined>} [ownEnv]
- * @param {{ run?: (route: { name: string, file: string, args: string[] }, env: Record<string, string | undefined>) => string | null, isOnPath?: (name: string) => boolean, isAlive?: (pid: number) => boolean, readViewEnv?: typeof readProcEnv, readViewColumns?: typeof readProcColumns, root?: string, out?: (text: string) => void, err?: (text: string) => void, wait?: (ms: number) => void }} [deps]
+ * @param {Deps} [deps]
  */
 function main(argv = process.argv.slice(2), ownEnv = process.env, deps = {}) {
 	const {
 		run = runRoute,
+		detach = detachRoutes,
+		appendLog = appendToLoopLog,
 		readViewEnv = readProcEnv,
 		readViewColumns = readProcColumns,
 		isOnPath,
@@ -98,7 +165,7 @@ function main(argv = process.argv.slice(2), ownEnv = process.env, deps = {}) {
 	} = deps;
 	const parsed = parseOrCode(argv, {
 		usage: USAGE,
-		flags: { "--if-enabled": "boolean" },
+		flags: { "--if-enabled": "boolean", "--run-routes": "value" },
 		min: 1,
 	});
 	if (typeof parsed === "number") return parsed;
@@ -111,8 +178,17 @@ function main(argv = process.argv.slice(2), ownEnv = process.env, deps = {}) {
 	}
 	const pid = Number(given);
 	if (!isAlive(pid)) return 0;
-	const env = { ...ownEnv, ...readViewEnv(pid) };
 	const node = process.execPath;
+	const printed = `${shellQuote(node)} ${shellQuote(PANEL_PROGRAM)} ${pid}\n`;
+	const routesJson = parsed.flags["--run-routes"];
+	if (typeof routesJson === "string") {
+		/** @param {string} text */
+		const logLine = (text) => appendLog(`${new Date().toISOString()} ${text}`);
+		if (!openByFirstRoute(JSON.parse(routesJson), ownEnv, run, logLine))
+			logLine(`refill-panel-open: no refill panel opened; run: ${printed}`);
+		return 0;
+	}
+	const env = { ...ownEnv, ...readViewEnv(pid) };
 	const viewColumns = readViewColumns(pid);
 	if (viewColumns === null)
 		err(
@@ -126,16 +202,13 @@ function main(argv = process.argv.slice(2), ownEnv = process.env, deps = {}) {
 		pid,
 		viewColumns,
 	});
-	for (const route of routes) {
-		const why = run(route, env);
-		if (why === null) return 0;
-		err(`refill-panel-open: the ${route.name} route failed: ${why}\n`);
-	}
+	if (viewStart && routes.length > 0 && detach(routes, pid, env)) return 0;
+	if (openByFirstRoute(routes, env, run, err)) return 0;
 	if (viewStart)
 		err(
 			"refill-panel-open: no refill panel opened: it needs Windows Terminal under WSL (cmd.exe and wt.exe on PATH), or tmux. From another terminal:\n",
 		);
-	out(`${shellQuote(node)} ${shellQuote(PANEL_PROGRAM)} ${pid}\n`);
+	out(printed);
 	if (viewStart) wait(PRINTED_HOLD_MS);
 	return 0;
 }
