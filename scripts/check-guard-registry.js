@@ -45,6 +45,10 @@
  *     checks nothing. A target a live neighbour holds dirty is skipped, never
  *     anchored (mantahostels#2636), and so is one any dirty input of which no
  *     claim of this session's covers (#3339).
+ *   node scripts/check-guard-registry.js --review <path>… --taking <path>
+ *     the same, the --taking path read as the caller's while its working tree
+ *     is what the gate's last refusal recorded that commit staging (#3288,
+ *     #3738).
  *   node scripts/check-guard-registry.js --review --sole-writer [<path>…]
  *     the same, every dirty input read as the caller's own: for a tree no
  *     session works yet, as init-adopter.js anchors the hooks it just wrote.
@@ -368,7 +372,6 @@ const SKIP_DIRS = new Set(["node_modules", ".git", ".next", "__pycache__"]);
  *
  * @typedef {{ holder: string, dead: boolean }} HeldEntry
  * @typedef {HeldEntry & { path: string }} HeldInput
- * @typedef {HeldEntry & { blob: string }} TakenEntry
  */
 
 // --- collecting the documents -----------------------------------------------
@@ -3325,7 +3328,7 @@ function readHeldElsewhere(targets, ours) {
 /**
  * @typedef {{
  *   held: Map<string, HeldEntry>,
- *   taken: Map<string, TakenEntry>,
+ *   taken: Map<string, HeldEntry>,
  *   mine: Set<string> | null,
  *   othersLive: boolean | null,
  * }} HeldRead
@@ -3363,9 +3366,7 @@ function sortClaims(found, snap, wanted, ours) {
 	for (const e of (snap && neighbourDirty(snap, locks, self)) ?? []) {
 		if (!wanted.has(e.path)) continue;
 		const entry = { holder: nameFor(e.sessionId), dead: e.dead };
-		const blob = ours.get(e.path);
-		if (blob === undefined) found.held.set(e.path, entry);
-		else found.taken.set(e.path, { ...entry, blob });
+		(ours.has(e.path) ? found.taken : found.held).set(e.path, entry);
 	}
 	const mine = locks.filter((l) => l?.sessionId === self && !l.unreadable);
 	found.mine = new Set(mine.flatMap((l) => (l.path ? [l.path] : [])));
@@ -3470,6 +3471,9 @@ function readStagedWhole() {
 	return { blobs, error };
 }
 
+const COMMIT_THEN_REVIEW =
+	"commit it by pathspec and re-run the --review line that commit's refusal prints";
+
 /**
  * This session's taking record, in the per-worktree git directory, which
  * outlives the hook's private index (#3288).
@@ -3496,20 +3500,15 @@ function takingRecordPath() {
 /**
  * Record the paths a refusal names `--taking`, replacing the last refusal's.
  *
- * @param {Map<string, TakenEntry>} taken
+ * @param {Map<string, string>} taking each path, with the blob the commit stages
  * @returns {string | null} why it could not be written, or null
  */
-function saveTaking(taken) {
+function saveTaking(taking) {
 	const file = takingRecordPath();
 	if (!file) return "this session or its git directory is unknown";
 	try {
 		fs.mkdirSync(path.dirname(file), { recursive: true });
-		fs.writeFileSync(
-			file,
-			JSON.stringify(
-				Object.fromEntries([...taken].map(([p, t]) => [p, t.blob])),
-			),
-		);
+		fs.writeFileSync(file, JSON.stringify(Object.fromEntries(taking)));
 		return null;
 	} catch (e) {
 		return caught(e).message;
@@ -3548,7 +3547,7 @@ function checkTaking(taking) {
 		if (blob !== undefined && why === null) ours.set(rel, blob);
 		else
 			refused.push(
-				`not taking ${rel} — ${why}, so any claim on it stands; commit it by pathspec and re-run the --review line that commit's refusal prints`,
+				`not taking ${rel} — ${why}, so any claim on it stands; ${COMMIT_THEN_REVIEW}`,
 			);
 	}
 	return { ours, refused };
@@ -3840,7 +3839,8 @@ function buildReviewSummary(
 	if (anyUnclaimed)
 		lines.push(
 			"A dirty input no claim of this session's covers matches no committed tree: claim it if it is yours " +
-				`(${buildArbiterCommand`claim <path>`}), else re-anchor in a clean worktree of HEAD outside ` +
+				`(${buildArbiterCommand`claim <path>`}); where the arbiter watches no such path, as under .husky/, the claim records nothing, ` +
+				`so ${COMMIT_THEN_REVIEW}. Else re-anchor in a clean worktree of HEAD outside ` +
 				"this checkout (git worktree add --detach <dir> HEAD) and carry its anchors file back.",
 		);
 	return lines;
@@ -3984,7 +3984,8 @@ function settleStale(ctx, added) {
 
 	const { rev: tip, head: pushed } = againstRevs(ctx);
 	const { hashedBy, inputs } = readDigestInputs(stale.map((w) => w.guard));
-	const { held, taken, unavailable } = readHeldAtGate(ctx, inputs, pushed);
+	const read = readHeldAtGate(ctx, inputs, pushed);
+	const { held, unavailable } = read;
 	/* A neighbour's dirty input stands the row down: its unstaged bytes are in any digest --review would write, and staging or
 	 * setting them aside is the neighbour's call. One this commit stages whole is this commit's own (#3255). */
 	const heldIn = (/** @type {string} */ g) => heldInputs(hashedBy.get(g), held);
@@ -4030,7 +4031,7 @@ function settleStale(ctx, added) {
 		);
 		remedy.push(...buildExpiredRow(w, via, implicitScripts.has(w.guard)));
 	}
-	const takes = takeOwed(owedInputs, taken, pushed, remedy);
+	const takes = takeOwed(owedInputs, read, pushed, remedy);
 	const review = buildReviewLine(owed.map((w) => w.guard).join(" ") + takes);
 	remedy.push(
 		...(pushed
@@ -4057,39 +4058,55 @@ function settleStale(ctx, added) {
 
 /**
  * The ` --taking <path>` words the refusal's --review line carries, and a note
- * on `remedy` where their record could not be written (#3288).
+ * on `remedy` where their record could not be written (#3288). They are the
+ * inputs this commit stages whole that a neighbour's claim holds or no claim of
+ * this session's covers, such as a .husky/ hook, which takes no claim (#3738):
+ * only this index shows either is this commit's own. Where the claims went
+ * unread (`mine` null) nothing rules out a neighbour's claim, so no unclaimed
+ * input is offered. Residual: a neighbour's unclaimed dirty file a commit stages
+ * whole is offered too.
  *
  * @param {string[]} owedInputs
- * @param {Map<string, TakenEntry>} taken
+ * @param {Pick<HeldRead, "taken" | "mine"> & { ours: Map<string, string> }} read
  * @param {string | undefined} pushed
  * @param {string[]} remedy
  */
-function takeOwed(owedInputs, taken, pushed, remedy) {
-	const owedTaken = new Map(
+function takeOwed(owedInputs, { taken, mine, ours }, pushed, remedy) {
+	const owedTaking = new Map(
 		[...new Set(owedInputs)].flatMap((p) => {
-			const t = taken.get(p);
-			return t ? [/** @type {[string, TakenEntry]} */ ([p, t])] : [];
+			const blob = ours.get(p);
+			const owed =
+				blob !== undefined && (taken.has(p) || (mine !== null && !mine.has(p)));
+			return owed ? [/** @type {[string, string]} */ ([p, blob])] : [];
 		}),
 	);
-	const unsaved = pushed ? null : saveTaking(owedTaken);
-	if (unsaved && owedTaken.size > 0)
+	const unsaved = pushed ? null : saveTaking(owedTaking);
+	if (unsaved && owedTaking.size > 0)
 		remedy.push(
 			`  taking record not written (${unsaved}), so --review keeps each --taking path's claim.`,
 		);
-	return [...owedTaken.keys()].map((p) => ` --taking ${p}`).join("");
+	return [...owedTaking.keys()].map((p) => ` --taking ${p}`).join("");
 }
 
 /**
  * The claims standing a stale row down at the gate. At push the judged bytes
  * are a commit's, which no neighbour's dirty input can reach and no
- * post-commit notice follows, so nothing stands down.
+ * post-commit notice follows, so nothing stands down. `ours` carries on the
+ * blobs this commit stages whole, which takeOwed records.
  *
  * @param {Ctx} ctx
  * @param {string[]} inputs
  * @param {string | undefined} pushed
  */
 function readHeldAtGate(ctx, inputs, pushed) {
-	if (pushed) return { held: new Map(), taken: new Map(), unavailable: null };
+	if (pushed)
+		return {
+			held: new Map(),
+			taken: new Map(),
+			mine: null,
+			ours: new Map(),
+			unavailable: null,
+		};
 	const ours = readStagedWhole();
 	/* Fails open (#3255): an unread index exempts nothing, so a claimed file
 	 * this commit stages whole still stands its row down. */
@@ -4097,7 +4114,7 @@ function readHeldAtGate(ctx, inputs, pushed) {
 		ctx.say(
 			`staged read failed (${ours.error}), so a claimed file this commit stages whole still stands its row down.`,
 		);
-	return readHeldElsewhere(inputs, ours.blobs);
+	return { ...readHeldElsewhere(inputs, ours.blobs), ours: ours.blobs };
 }
 
 /**

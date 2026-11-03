@@ -2552,6 +2552,92 @@ describe("--against HEAD refuses the commit that expires an anchor (#2617)", () 
 		expect(git("status", "--porcelain")).toBe("");
 	});
 
+	/* A committed, anchored .husky/ hook: the arbiter watches no such path, so
+	 * no session's claim ever covers it. */
+	const hookRel = ".husky/prepare-commit-msg";
+	function hookedRepo() {
+		const repo = stagingRepo();
+		const hook = path.join(repo.root, hookRel);
+		fs.mkdirSync(path.dirname(hook), { recursive: true });
+		fs.writeFileSync(
+			hook,
+			"#!/bin/sh\n# IMPLICIT:  a thing.\n# JUSTIFIED: fail-safe.\n# DEFEAT:    none\nexit 0\n",
+		);
+		review(repo.root, [hookRel]);
+		repo.git("add", "--", hookRel, ANCHORS);
+		repo.git("commit", "-qm", "hook");
+		return { ...repo, hook };
+	}
+	const printedReview = (stderr: string) => {
+		const line = /^ +node \S+ --review ([^<\n]+)$/m.exec(stderr)?.[1];
+		if (!line) throw new Error(`no --review line in\n${stderr}`);
+		return line.split(" ");
+	};
+
+	it("anchors an unwatched hook this commit stages whole, through the line its refusal prints (#3738)", () => {
+		const { root, git, hook } = hookedRepo();
+		const hookCommit = hookCommitter(root);
+		fs.appendFileSync(hook, "# more\n");
+		expect(reviewIn(root, [hookRel], claims())).toContain(
+			"commit it by pathspec and re-run the --review line that commit's refusal prints",
+		);
+		const refused = hookCommit(hookRel);
+		expect(refused.status).not.toBe(0);
+		const printed = printedReview(refused.stderr);
+		expect(printed).toEqual([hookRel, "--taking", hookRel]);
+		expect(reviewIn(root, printed, claims())).toMatch(
+			/^\s*anchored \.husky\/prepare-commit-msg/m,
+		);
+		expect(hookCommit(hookRel, ANCHORS).status).toBe(0);
+		expect(git("status", "--porcelain")).toBe("");
+	});
+
+	it("refuses an unwatched hook whose working tree moved since the refusal, as bytes no commit stages (#3738)", () => {
+		const { root, hook } = hookedRepo();
+		const hookCommit = hookCommitter(root);
+		fs.appendFileSync(hook, "# more\n");
+		const printed = printedReview(hookCommit(hookRel).stderr);
+		fs.appendFileSync(hook, "# and more\n");
+		const before = readAnchors(root);
+		const out = reviewIn(root, printed, claims());
+		expect(out).toContain(
+			`not taking ${hookRel} — its working tree is not the copy the commit staged`,
+		);
+		expect(out).toContain(
+			`not anchored ${hookRel} — ${hookRel} is dirty and not claimed by this session`,
+		);
+		expect(readAnchors(root)).toEqual(before);
+	});
+
+	it("prints no --taking for a hook staged in part, whose pathspec commit then does (#3738)", () => {
+		const { root, git, hook } = hookedRepo();
+		fs.appendFileSync(hook, "# staged\n");
+		git("add", "--", hookRel);
+		fs.appendFileSync(hook, "# unstaged\n");
+		const refused = gate(root);
+		expect(refused.code).toBe(1);
+		const printed = printedReview(refused.report);
+		expect(printed).toEqual([hookRel]);
+		expect(reviewIn(root, printed, claims())).toContain(
+			"commit it by pathspec and re-run the --review line that commit's refusal prints",
+		);
+		expect(printedReview(hookCommitter(root)(hookRel).stderr)).toEqual([
+			hookRel,
+			"--taking",
+			hookRel,
+		]);
+	});
+
+	it("prints no --taking for a file this session's own claim already covers (#3738)", () => {
+		const { root } = stagingRepo();
+		const rel = "scripts/guard-amend.sh";
+		fs.writeFileSync(path.join(root, rel), "#!/bin/sh\nexit 1\n");
+		const own = [{ ...lock(rel), sessionId: "self-session" }];
+		const refused = hookCommitter(root, own)(rel);
+		expect(refused.status).not.toBe(0);
+		expect(printedReview(refused.stderr)).toEqual([rel]);
+	});
+
 	it("--review without --taking still skips a claimed file the shared index stages whole, as the neighbour's own (#3255)", () => {
 		const { root, stage } = stagingRepo();
 		stage({ "scripts/lib/deny.sh": "deny() { exit 0; }\n" });
