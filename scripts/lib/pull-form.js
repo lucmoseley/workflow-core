@@ -53,8 +53,11 @@
  *    where its one name is readable; an unreadable word, or a name git would
  *    follow as a path or a shell expand as a glob, is refused. A git directory
  *    named by `--git-dir`, `GIT_DIR` or `GIT_COMMON_DIR` adds its tree to the one
- *    the command stands in, and a `-c alias.*` is judged as the subcommand it
- *    names; one it cannot read is refused (#3997). Pathspec resets pass, as does a
+ *    the command stands in, as does a work tree named by `--work-tree` or
+ *    `GIT_WORK_TREE`, and where a `cd` may not have run or worked, the tree it
+ *    left (#4009). An alias, on the command line or in a config file, is judged as
+ *    the subcommand it names, and a subcommand or alias it cannot read is refused
+ *    (lib/git-alias.js). Pathspec resets pass, as does a
  *    `git reset --soft` or `--mixed` naming HEAD or nothing. Still unseen: `git
  *    fetch --update-head-ok . +<commit>:main`, `git cherry-pick` and `git am`
  *    (which add commits rather than drop them), and `git revert`,
@@ -115,13 +118,17 @@
  *    exception. A store fault fails CLOSED too: the refusal carries the rule's
  *    fallback sentence (mantahostels#1648), and an injection the store cannot
  *    give refuses through the dispatcher.
- *  - A pull, merge or rebase reached through a wrapper is not seen, because
- *    only a segment's own first word is read — `xargs git pull`, `env`,
- *    `sudo`, `timeout 5 git pull --rebase` and `sh -c "git pull --rebase"`
- *    (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/hook-if-bash-matching.md §1).
- *  - Its lib/guard-cores.json row narrows it to `Bash(git *)`
- *    (mantahostels#2127) — not loaded unless some segment of the command
- *    leads with `git`.
+ *  - A command behind shell-words.js's unwrap wrappers is judged — `env`,
+ *    `sudo`, `timeout 5 git pull --rebase` (#4009). Still unseen, each measured
+ *    moving `main`: `sh -c "git ..."`, `eval`, arguments an `xargs` reads from
+ *    stdin, a dashed `git-update-ref` off `git --exec-path`, a repo's own
+ *    `core.worktree`, and an alias written to a config file by other than `git
+ *    config` earlier in the same command; so, by the `if` below, a quoted `git`
+ *    or one a tab follows. A wrapper outside that class or spelt unusually is
+ *    #4046's.
+ *  - Its lib/guard-cores.json row narrows it to `Bash(*git *)`
+ *    (mantahostels#2127, #4009) — not loaded unless the command holds the word,
+ *    unanchored because the walk reads past a wrapper.
  *  - It guards the Bash tool. A command run outside Claude Code sees no hook,
  *    and there is no override: this binds agent sessions only, and an escape
  *    a session can spell for itself is not a deny (mantahostels#109).
@@ -172,6 +179,9 @@ const { trimEndRun } = require("./trim-run.js");
  *   a refusal alone, so an allowed call reads no config (#2536)
  * @property {() => boolean} isMainUnreadable whether the shared `main` is broken
  *   rather than moved, read on a rewind's refusal alone
+ * @property {(dir: string) => import("./git-alias.js").FileAliases | null}
+ *   readFileAliases the aliases the config files a tree sees define, null where git
+ *   could not say; read only for a word no table already answers
  * @typedef {import("./kit-context.js").KitContext & PullFormPorts}
  *   PullFormContext
  * @typedef {import("./shell-parse.js").GitCall} GitCall
@@ -184,6 +194,7 @@ const { trimEndRun } = require("./trim-run.js");
  * @property {(word: string) => ReturnType<typeof literal>} read a word, read
  * @property {(dir: string) => ReturnType<PullFormContext["treeClass"]>}
  *   treeClass the walk's, memoised
+ * @property {PullFormContext["readFileAliases"]} readFileAliases the walk's, memoised
  * @property {() => void} subject marks a reconciliation the rule is about
  */
 
@@ -339,7 +350,7 @@ const resetDiscardDeny = (j, segment) =>
 // ── REWINDING `main` (#765) ──────────────────────────────────────────────
 
 /**
- * A git alias whose subcommand cannot be read could be any walk's (#3997).
+ * A git subcommand or alias that cannot be read could be any walk's (#3997).
  * @param {Judging} j
  * @param {GitCall} call
  * @returns {Refusal}
@@ -348,7 +359,7 @@ const judgeUnreadAlias = (j, { segment }) =>
 	rewindDeny(
 		j,
 		segment,
-		"runs a git alias I cannot read, a write to `main` possibly among what it does — spell the subcommand itself",
+		"runs a git subcommand or alias I cannot read, a write to `main` possibly among what it does — spell the subcommand itself",
 	);
 
 /**
@@ -1207,6 +1218,8 @@ function decide(command, ctx) {
 	const parsed = parseCommand(command);
 	/** @type {Map<string, ReturnType<PullFormContext["treeClass"]>>} */
 	const classes = new Map();
+	/** @type {Map<string, import("./git-alias.js").FileAliases | null>} */
+	const aliases = new Map();
 	let ruleSubject = false;
 	/** @type {Judging} */
 	const j = {
@@ -1222,6 +1235,11 @@ function decide(command, ctx) {
 			const cls = classes.get(dir) ?? ctx.treeClass(dir);
 			classes.set(dir, cls);
 			return cls;
+		},
+		/* One git read a tree, as the tree class is. */
+		readFileAliases: (dir) => {
+			if (!aliases.has(dir)) aliases.set(dir, ctx.readFileAliases(dir));
+			return aliases.get(dir) ?? null;
 		},
 		subject: () => {
 			ruleSubject = true;
@@ -1262,8 +1280,8 @@ function firstRefusal(parsed, j, judge, opts) {
 		(call) => {
 			refused ??= judge(j, call);
 		},
-		{ ...j.ctx, treeClass: j.treeClass },
-		{ ...opts, strict: true },
+		{ ...j.ctx, treeClass: j.treeClass, readFileAliases: j.readFileAliases },
+		{ ...opts, strict: true, unwrap: true },
 	);
 	return refused;
 }

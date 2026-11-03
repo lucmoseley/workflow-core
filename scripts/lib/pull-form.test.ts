@@ -61,6 +61,7 @@ interface Over {
 	storeFault?: boolean;
 	mainUnreadable?: boolean;
 	isDir?: (path: string) => boolean;
+	readFileAliases?: Record<string, string | null> | null;
 	corePaths?: (text: string) => string;
 	scriptPath?: (name: string) => string;
 }
@@ -97,6 +98,10 @@ function harness(over: Over = {}) {
 		pushedRef: () =>
 			over.modules?.includes("landing") ? "origin/landing" : "origin/main",
 		isMainUnreadable: () => over.mainUnreadable ?? false,
+		readFileAliases: () =>
+			over.readFileAliases === null
+				? null
+				: new Map(Object.entries(over.readFileAliases ?? {})),
 		corePaths: over.corePaths ?? ((t: string) => t),
 		...(over.scriptPath && { scriptPath: over.scriptPath }),
 	});
@@ -1324,7 +1329,7 @@ describe("a subcommand reached through a command-line alias is judged as itself 
 		],
 	])("refuses an alias it cannot read: %s (%s)", (command) => {
 		const d = run(command, { cwd: LINKED });
-		expect(d && "deny" in d && d.deny).toContain("a git alias I cannot read");
+		expect(d && "deny" in d && d.deny).toContain("or alias I cannot read");
 	});
 
 	it("reads an alias of a judged name as the builtin git runs", () => {
@@ -1780,5 +1785,264 @@ describe("the walks run in the bash guard's order, the first refusal winning", (
 		expect(run("git pull --ff-only && git reset --hard HEAD~1")).toHaveProperty(
 			"deny",
 		);
+	});
+});
+
+const OTHER_REPO = "/other";
+const MAIN_WRITE = "update-ref refs/heads/main HEAD~1";
+
+describe("a subcommand, wrapper and tree are judged as what they reach (#4009)", () => {
+	it.each([
+		[`git 'update-ref' refs/heads/main HEAD~1`, "quoted"],
+		['git up"date-ref" refs/heads/main HEAD~1', "part quoted"],
+		["git up\\date-ref refs/heads/main HEAD~1", "escaped"],
+		[`git --attr-source HEAD ${MAIN_WRITE}`, "--attr-source apart"],
+		[`git --attr-source=HEAD ${MAIN_WRITE}`, "--attr-source stuck on"],
+		[`git --shallow-file HEAD ${MAIN_WRITE}`, "--shallow-file"],
+		[`git -"c" alias.u=update-ref u refs/heads/main HEAD~1`, "a quoted -c"],
+		[`env git ${MAIN_WRITE}`, "env"],
+		[`env -u GIT_DIR git ${MAIN_WRITE}`, "env -u"],
+		[`timeout 5 git ${MAIN_WRITE}`, "timeout"],
+		[`command git ${MAIN_WRITE}`, "command"],
+		[`env -S "git ${MAIN_WRITE}"`, "env -S"],
+	])("refuses %s (%s)", (command) => {
+		expect(readDenyReason(command, { cwd: LINKED })).toContain(
+			readRewindRule(),
+		);
+	});
+
+	it.each([
+		[`git "$(echo update-ref)" refs/heads/main HEAD~1`, "a substitution"],
+		["git $S refs/heads/main HEAD~1", "a variable"],
+		[`git $NOTHING ${MAIN_WRITE}`, "a word that may expand to nothing"],
+		[`git "--git-dir=$D" ${MAIN_WRITE}`, "a quoted option it cannot read"],
+	])("refuses a subcommand it cannot read: %s (%s)", (command) => {
+		expect(readDenyReason(command, { cwd: OTHER_REPO })).toContain(
+			"or alias I cannot read",
+		);
+	});
+
+	it.each([
+		[
+			`env GIT_DIR=${SHARED}/.git git symbolic-ref HEAD refs/heads/side`,
+			"env's GIT_DIR",
+		],
+		[`env -C ${SHARED} git symbolic-ref HEAD refs/heads/side`, "env -C"],
+		[
+			`env --chdir=${SHARED} git symbolic-ref HEAD refs/heads/side`,
+			"env --chdir=",
+		],
+		[
+			`git "--git-dir=${SHARED}/.git" symbolic-ref HEAD refs/heads/side`,
+			"a quoted --git-dir",
+		],
+		[`git --work-tree=${SHARED} checkout -- .`, "--work-tree"],
+		[`git --work"-tree"=${SHARED} checkout -- .`, "part quoted"],
+		[
+			`git -"C" ${SHARED} symbolic-ref HEAD refs/heads/side`,
+			"a part-quoted -C",
+		],
+		[`git --work-tree ${SHARED} checkout -- .`, "--work-tree apart"],
+		[`GIT_WORK_TREE=${SHARED} git checkout -- .`, "GIT_WORK_TREE"],
+		[`export GIT_WORK_TREE=${SHARED}; git checkout -- .`, "an exported one"],
+		[
+			`git --git-dir=/o/.git --work-tree=${SHARED} reset --hard`,
+			"both, a reset",
+		],
+		[`GIT_DIR=/o/.git GIT_WORK_TREE=${SHARED} git clean -fd`, "both, a clean"],
+		['git --work-tree="$W" checkout -- .', "one it cannot read"],
+	])("refuses from another repo: %s (%s)", (command) => {
+		expect(verdict(command, { cwd: OTHER_REPO })).toBe("deny");
+	});
+
+	describe("a cd that may not take effect", () => {
+		const isThere = (p: string) => p !== "/gone";
+		it.each([
+			[`false && cd ${OTHER_REPO}; git ${MAIN_WRITE}`, "skipped"],
+			[`false || cd ${OTHER_REPO}; git ${MAIN_WRITE}`, "skipped on success"],
+			[`cd ${OTHER_REPO} | cat; git ${MAIN_WRITE}`, "in a pipeline"],
+			[`true | cd ${OTHER_REPO}; git ${MAIN_WRITE}`, "the pipeline's tail"],
+			[`cd ${OTHER_REPO} & git ${MAIN_WRITE}`, "in the background"],
+			[`if false; then cd ${OTHER_REPO}; fi; git ${MAIN_WRITE}`, "in a branch"],
+			[`cd /gone; git ${MAIN_WRITE}`, "a directory not there"],
+			[`cd /gone && true; git ${MAIN_WRITE}`, "past its chain"],
+			[`cd /gone || true; git ${MAIN_WRITE}`, "a failure carried on from"],
+			[
+				`if false; then true; cd ${OTHER_REPO}; fi; git ${MAIN_WRITE}`,
+				"deep in a branch",
+			],
+			[
+				`while false; do true; cd ${OTHER_REPO}; done; git ${MAIN_WRITE}`,
+				"in a loop",
+			],
+			[`false && { true; cd ${OTHER_REPO}; }; git ${MAIN_WRITE}`, "in a group"],
+			[`case x in y) cd ${OTHER_REPO};; esac; git ${MAIN_WRITE}`, "in a case"],
+			[`f() { cd ${OTHER_REPO}; }; git ${MAIN_WRITE}`, "in a function"],
+			[`{ cd ${OTHER_REPO}; } | cat; git ${MAIN_WRITE}`, "a piped group"],
+			[`cd ${OTHER_REPO} && true & git ${MAIN_WRITE}`, "a backgrounded chain"],
+			[`cd ${OTHER_REPO} junk; git ${MAIN_WRITE}`, "too many arguments"],
+			[`false && cd ${OTHER_REPO}; git -C . ${MAIN_WRITE}`, "a relative -C"],
+			[
+				`false && cd ${OTHER_REPO}; env -C . git ${MAIN_WRITE}`,
+				"a relative env -C",
+			],
+		])("%s still judges the tree it left (%s)", (command) => {
+			expect(verdict(command, { isDir: isThere })).toBe("deny");
+		});
+
+		it.each([
+			[`cd ${OTHER_REPO} && git ${MAIN_WRITE}`, "chained"],
+			[`cd ${OTHER_REPO}; git ${MAIN_WRITE}`, "there, and always run"],
+			[`cd ${OTHER_REPO}\ngit ${MAIN_WRITE}`, "on the next line"],
+			[`cd ${OTHER_REPO} &&\n git ${MAIN_WRITE}`, "chained across a line"],
+			[`(cd ${OTHER_REPO}; git ${MAIN_WRITE})`, "in a subshell"],
+			[`cd ${OTHER_REPO} && (git ${MAIN_WRITE})`, "chained into a subshell"],
+			[`cd /gone && git ${MAIN_WRITE}`, "chained, its directory not there"],
+			[
+				`cd ${OTHER_REPO} && git ${MAIN_WRITE} &`,
+				"the chain backgrounded with it",
+			],
+			[`true && cd ${OTHER_REPO} && git ${MAIN_WRITE}`, "mid-chain"],
+			[
+				`cd ${OTHER_REPO} && git -C ${OTHER_REPO} ${MAIN_WRITE}`,
+				"with its own -C",
+			],
+			[
+				`false && cd /gone; git -C ${OTHER_REPO} ${MAIN_WRITE}`,
+				"a -C past a doubt",
+			],
+		])("%s judges where it lands (%s)", (command) => {
+			expect(verdict(command, { isDir: isThere })).toBe("allow");
+		});
+	});
+
+	describe("config reached from a file", () => {
+		const readFileAliases = { u: "update-ref", st: "status", sh: "!x" };
+		it.each([
+			["git u refs/heads/main HEAD~1", "a config file's alias"],
+			["git sh refs/heads/main HEAD~1", "a shell alias"],
+			[
+				"GIT_CONFIG_KEY_0=alias.u GIT_CONFIG_VALUE_0=status git u refs/heads/main",
+				"a key past the count, which git ignores",
+			],
+		])("refuses %s (%s)", (command) => {
+			expect(verdict(command, { cwd: LINKED, readFileAliases })).toBe("deny");
+		});
+
+		it.each([
+			["git -c include.path=/f u refs/heads/main", "include.path"],
+			["git -c includeIf.x.path=/f u refs/heads/main", "includeIf"],
+			["GIT_CONFIG_GLOBAL=/f git u refs/heads/main", "GIT_CONFIG_GLOBAL"],
+			["GIT_CONFIG_SYSTEM=/f git u refs/heads/main", "GIT_CONFIG_SYSTEM"],
+			["HOME=/h git u refs/heads/main", "HOME"],
+			["XDG_CONFIG_HOME=/x git u refs/heads/main", "XDG_CONFIG_HOME"],
+			["export HOME=/h; git u refs/heads/main", "an exported HOME"],
+			["git config alias.u update-ref; git u refs/heads/main", "written first"],
+			[
+				"git config --global alias.u update-ref; git u refs/heads/main",
+				"--global",
+			],
+			[
+				"git -c alias.c=config c alias.u update-ref; git u refs/heads/main",
+				"through an alias",
+			],
+			[
+				"git config --rename-section foo alias; git u refs/heads/main",
+				"a section renamed",
+			],
+			['git config "$K" x; git u refs/heads/main', "an unread key"],
+		])("refuses a file it cannot read first: %s (%s)", (command) => {
+			expect(readDenyReason(command, { cwd: LINKED })).toContain(
+				"or alias I cannot read",
+			);
+		});
+
+		it.each([
+			["git st", "an alias of an unjudged subcommand"],
+			["git unknown", "no alias at all"],
+			["git -c alias.u=status u refs/heads/main", "-c beats the file"],
+			[
+				"GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.u GIT_CONFIG_VALUE_0=status git u refs/heads/main",
+				"a counted key beats the file",
+			],
+			["GIT_CONFIG_GLOBAL=/dev/null git unknown", "/dev/null holds no alias"],
+			["HOME=/h git status", "a command beats any alias"],
+			['git -c "$K" status', "under an unread definition too"],
+			["git config user.name x; git unknown", "another key written"],
+			['git config user.email "$E"; git unknown', "an unread value"],
+			["git config --get alias.u; git unknown", "a read"],
+			["mkdir -p x; cd x; git reflog", "a builtin past a cd"],
+		])("passes %s (%s)", (command) => {
+			expect(verdict(command, { cwd: LINKED, readFileAliases })).toBe("allow");
+		});
+
+		it("gives a counted key's value to -c, which beats it (measured)", () => {
+			expect(
+				verdict(
+					"GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.x GIT_CONFIG_VALUE_0=status git -c alias.x=update-ref x refs/heads/main HEAD~1",
+					{ cwd: LINKED },
+				),
+			).toBe("deny");
+			expect(
+				verdict(
+					"GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.x GIT_CONFIG_VALUE_0=update-ref git -c alias.x=status x refs/heads/main HEAD~1",
+					{ cwd: LINKED },
+				),
+			).toBe("allow");
+		});
+
+		it("refuses a word it cannot tell where git would not say what its config holds", () => {
+			expect(
+				readDenyReason("git u refs/heads/main", {
+					cwd: LINKED,
+					readFileAliases: null,
+				}),
+			).toContain("or alias I cannot read");
+			expect(verdict("git status", { readFileAliases: null })).toBe("allow");
+		});
+
+		it("reads a bare HOME= as a move and a mention of it as none", () => {
+			expect(verdict("HOME=/h; git u refs/heads/main", { cwd: LINKED })).toBe(
+				"deny",
+			);
+			expect(verdict("ls $HOME; git unknown", { cwd: LINKED })).toBe("allow");
+		});
+
+		it("reads no one tree's aliases where a cd may not have taken effect", () => {
+			expect(
+				readDenyReason(`false && cd ${OTHER_REPO}; git u refs/heads/main`),
+			).toContain("or alias I cannot read");
+		});
+
+		it("judges a builtin under a definition nothing can read", () => {
+			expect(readDenyReason('git -c "$K" reset --hard HEAD~1')).toContain(
+				readRewindRule(),
+			);
+			expect(verdict('git -c "$K" reset --soft HEAD')).toBe("allow");
+		});
+
+		it("reads the config of the tree the command names", () => {
+			const seen: string[] = [];
+			const { ctx } = harness();
+			decide(`git -C ${LINKED} unknown`, {
+				...ctx,
+				readFileAliases: (dir: string) => {
+					seen.push(dir);
+					return new Map();
+				},
+			});
+			expect(new Set(seen)).toEqual(new Set([LINKED]));
+			expect(seen).toHaveLength(1);
+		});
+
+		it("reads no config for a command every session runs", () => {
+			const { ctx } = harness();
+			const refuseRead = () => {
+				throw new Error("read");
+			};
+			expect(
+				decide("git status", { ...ctx, readFileAliases: refuseRead }),
+			).toBeNull();
+		});
 	});
 });

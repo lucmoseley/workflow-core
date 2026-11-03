@@ -247,6 +247,32 @@ describe("each production read, crossed once", () => {
 			);
 	});
 
+	it("reads an alias off the config the tree sees, as git does (#4009)", () => {
+		git(shared, "config", "alias.u", "update-ref");
+		git(shared, "config", "alias.st", "status");
+		git(shared, "config", "alias.sh", "!true");
+		const move = "refs/heads/main HEAD~1";
+		expect(readDenyReason(`git u ${move}`, { cwd: worktree })).toContain(
+			"writes `main` directly",
+		);
+		expect(readDenyReason(`git sh ${move}`, { cwd: worktree })).toContain(
+			"or alias I cannot read",
+		);
+		expect(verdict("git st", { cwd: worktree })).toBe("allow");
+		expect(verdict(`git -C ${elsewhere} u ${move}`)).toBe("allow");
+	});
+
+	it("reads a directory's presence for a cd that may fail, from where it stands (#4009)", () => {
+		const move = "git update-ref refs/heads/main HEAD~1";
+		expect(verdict(`cd ${elsewhere}; ${move}`)).toBe("allow");
+		expect(readDenyReason(`cd ${path.join(dir, "absent")}; ${move}`)).toContain(
+			"writes `main` directly",
+		);
+		expect(readDenyReason(`env ${move}`, { cwd: worktree })).toContain(
+			"writes `main` directly",
+		);
+	});
+
 	it("reads a linked worktree's git directory, and its .git file, as that tree (#3997)", () => {
 		const own = git(worktree, "rev-parse", "--absolute-git-dir").trim();
 		for (const named of [own, `${worktree}/.git`]) {

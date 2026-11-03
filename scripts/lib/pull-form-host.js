@@ -12,6 +12,7 @@ const {
 	gitReader,
 	HOOK_GIT_TIMEOUT_MS,
 } = require("./git.js");
+const { parseFileAliases } = require("./git-alias.js");
 const { readTopLevel } = require("./git-tree.js");
 const { pushedRef } = require("./landing-refs.js");
 const { readMainState } = require("./main-ref.js");
@@ -54,6 +55,14 @@ const buildHostPorts = (root) => ({
 	isTree: (dir, word) =>
 		isAnswered(dir, ["rev-parse", "--verify", "--quiet", `${word}^{tree}`]),
 	topLevel: (dir) => readTopLevel(dir) ?? "",
+	readFileAliases: (dir) => {
+		/* Exit 1 is no alias at all; anything else is git not saying. */
+		const r = gitReader(dir, HOOK_GIT_TIMEOUT_MS)(
+			["config", "-z", "--get-regexp", "^alias\\."],
+			[1],
+		);
+		return r.ok ? parseFileAliases(r.out) : null;
+	},
 	showPrefix: (dir) => read(dir, ["rev-parse", "--show-prefix"]),
 	/* In process, not a landing-refs.js spawn: one node start spared a
 	 * refusal. */
