@@ -30,6 +30,7 @@ import { buildBashCall } from "./lib/transcript-testkit";
 const { markersDir } = createRequire(__filename)("./lib/marker-root.js");
 
 const hookRecord = createRequire(__filename)("./lib/hook-record.js");
+const { readRuleText } = createRequire(__filename)("./lib/rule-text.js");
 
 const GUARD = path.join(__dirname, "guard-session-ceiling.js");
 
@@ -371,12 +372,7 @@ describe("the 300,000-token tripwire (#1178 Q3 (B), which made the ceiling one)"
 		expect(reason).not.toContain("successor");
 		/* The quoted founder-deliverable rule says "the ticket in hand" and
 		 * "HAND-OVER"; the guard's own words must name no hand-off. */
-		const rule = fs
-			.readFileSync(
-				path.join(__dirname, "..", "docs/agents/rules/founder-deliverable.txt"),
-				"utf8",
-			)
-			.trim();
+		const rule = readRuleText("founder-deliverable").trim();
 		expect(reason).toContain(rule);
 		expect(reason.replace(rule, "")).not.toContain("hand");
 	});

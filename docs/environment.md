@@ -471,7 +471,8 @@ pooled with it as separate sessions.
 
   **All 3 stalls on a VM under 10 minutes old fit it; the other stalling boots were 1.4-8 days old.** Six other boots hold a `t`. Boots of 2, 15 and 29 Oct open at about 60 s. Three hold large figures that fit neither VM age nor Windows uptime, unexplained: 394,682 s on 22 Sep (VM 354,668 s, Windows 644,974 s), 41,966 s stamped 28 Sep 00:23:30, after that boot's last `--list-boots` entry, so its wall clock is suspect, and 159,032 s on 7 Oct (VM 263,080 s, Windows 263,775 s).
 
-  **Why memwatch's clock line stayed silent cannot be determined.** The detector read a frozen clock at 12:22:44 over 1 s; no retained `~/memwatch.log` holds a `sched clock` line, and the passes' raw readings were not kept. The minute line's `sched` now keeps the readings, so the next freeze settles it.
+  **Why memwatch's clock line stayed silent at 12:22 cannot be determined.** The detector read a frozen clock at 12:22:44 over 1 s; memwatch wrote no `sched clock` line on that boot, and its passes' raw readings were not kept. Its line did fire over its 20 s passes in the freeze below, so the longer window alone is not the cause. The minute line's `sched` now keeps the readings, so the next freeze settles it.
+- **Second freeze the same day (3 Nov 2026) — not the leap.** On the VM of 12:39, after two Modern Standby episodes at 15:05, memwatch logged `sched clock: frozen` at 15:12:44, 15:13:26 and 15:14:12; from 15:14:12 the run queues advanced 0.0 s on every pass while the CPUs read 4-29 busy CPU-s. `sched`'s kept readings show `/proc/stat`'s total ticks stepping too: +40,211 s in one 21 s pass, back 2,549 s, and once wrapping below zero. RCU stalls followed at 15:15:14 and 15:15:24 (`timer wakeup didn't happen`, `Possible timer handling issue on cpu=3`); the journal ends at 15:18:34 and `wsl --shutdown` worked. Its largest `t`, 2,728 s, is near neither VM age (9,375 s) nor Windows uptime (9,419 s), so it reads as the 7 and 23 Oct shape. Standby as its trigger is weak, 35% (15-55%). Both freezes were on WSL 2.7.11; 3.0.3 went in at about 15:40 (#4084), and #4093 (the recurrence watch) counts from there (#4081).
 
 ---
 
@@ -537,25 +538,27 @@ Claude Code queries Windows managed policy on every launch, via the interop brid
 
 **7 Sep 2026, ~13:20 (mantahostels#3306) — a SECOND fault, and the probe could not tell it from the first.** Two `/pick-next` dispatch waves were refused minutes apart, and both times the bridge tested healthy again shortly after with no `wsl --shutdown`. Timing six consecutive probes caught the mechanism: five returned in **0.03–0.04s**, one took **10.06s** and printed `WSL (3656361 - ) ERROR: UtilAcceptVsock:273: accept4 failed 110` — `ETIMEDOUT` on the interop vsock accept.
 
-**The stall is per-call and about 10s, and the next call is normal.** The refusals clustered on session spawns (load average 3.19–7.01), not at rest.
+**That day the stall was per-call and about 10s, and the next call was normal.** The refusals clustered on session spawns (load average 3.19–7.01), not at rest.
 
 **29 Oct 2026, 10:20–11:40 (#3564) — a THIRD mode.** Every call returned, slowly: the policy query took **3.9–7.4s**. It held with every session idle and with none running, and only `wsl --shutdown` cleared it; afterwards the query took 0.03–0.07s.  **Root cause unknown.** Ruled out: fragmentation (order-7+ blocks free in both zones), PSI memory and I/O pressure (near 0), the hvsock buffer (28672, as §1 sets it), the agent-listing storm (#3561), and a vmbus channel leak (one sample).
 
+**3 Nov 2026, ~16:05–16:21 (#4102) — the vsock stall, held.** New tabs stayed blank and queries kept taking **about 10.06s**, with `accept4 failed 110` in `dmesg`, until `wsl --shutdown`; afterwards the query took 0.03–0.06s. **Root cause unknown.** Ruled out: a failed ring allocation (no `page allocation failure` that boot) and the hvsock buffer (28672, as §1 sets it). The lead is WSL 3.0.3.0: microsoft/WSL#42029 reports the same shape on that build and is open.
+
 **Three fault modes:**
 
-| | Wedge (1 Aug, 5 Sep) | Vsock stall (7 Sep) | Degraded (29 Oct) |
+| | Wedge (1 Aug, 5 Sep) | Vsock stall (7 Sep, 3 Nov) | Degraded (29 Oct) |
 | --- | --- | --- | --- |
-| Shape | queries accumulate, never return | one ~10s call, then normal | every call returns, 100–1000x slow |
-| Clears itself | no | yes, within minutes | no |
-| Remedy | `wsl --shutdown` | none — retry | `sync`, then `wsl --shutdown` |
+| Shape | queries accumulate, never return | ~10s calls: one then normal (7 Sep), or held (3 Nov) | every call returns, 100–1000x slow |
+| Clears itself | no | within minutes (7 Sep); not in 15 minutes (3 Nov) | no |
+| Remedy | `wsl --shutdown` | retry; if it holds, `sync`, then `wsl --shutdown` | `sync`, then `wsl --shutdown` |
 
-**The vsock stall's cause is known: a failed order-7 ring allocation** (fantasy-books#1268); see §1's socket-buffer file.
+**A failed order-7 ring allocation is one cause of the vsock stall** (fantasy-books#1268; §1's socket-buffer file).
 
 ### The probe itself
 
 `scripts/lib/interop-probe.sh` — `claude_interop_wedged` and `claude_interop_recovery_text`, sourced by Guards 1 and 3 alike.
 
-- **12s per attempt, three attempts, wedged only if all three expire.** The flat budget alone sits above the ~10s stall that was measured; the attempts guard only a stall LONGER than the budget or one recurring across calls, neither of which has been measured, so three is a cheap margin on an unmeasured tail rather than a derived figure. Override the budget with `CLAUDE_INTEROP_PROBE_TIMEOUT` and the count with `CLAUDE_INTEROP_PROBE_ATTEMPTS`; a non-integer or zero count is reset rather than honoured.
+- **12s per attempt, three attempts, wedged only if all three expire.** The flat budget alone sits above the ~10s stall that was measured, so this test does not call the stall wedged even when it holds (3 Nov); the attempts guard only a stall LONGER than the budget, which has not been measured, so three is a cheap margin on an unmeasured tail rather than a derived figure. Override the budget with `CLAUDE_INTEROP_PROBE_TIMEOUT` and the count with `CLAUDE_INTEROP_PROBE_ATTEMPTS`; a non-integer or zero count is reset rather than honoured.
 - **Two exit codes mean "expired", not one.** 124 is the ordinary expiry; **137** is 128+SIGKILL, what `-k` escalates to when the target ignores the TERM, which is a bridge stuck in the kernel (mantahostels#3111).
 - **Fails open** — no `reg.exe`, a non-executable one, no `timeout`, not WSL, or a library the shell cannot parse → the caller launches. The probe must never be why Claude won't start. A non-integer or zero value of either override is the one thing reset rather than honoured, and both are tested numerically so `00` cannot slip through: `timeout 0` never expires, and zero attempts would fall straight through to *wedged* with no probe made.
 - **Worst case 42s** at the defaults — 3 x (12 + 2), the graces elapsing only against a TERM-ignoring target, against the **45s** ceiling `scripts/dispatch-sessions-bridge.test.ts` pins. Raise the budget or the count and Guard 3's reporting time goes with it.
