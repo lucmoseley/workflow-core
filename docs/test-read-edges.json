@@ -10539,6 +10539,10 @@
 			"scripts/lib/gh.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
+		"scripts/lib/fixtures/gh/issue-id.json": [
+			"scripts/lib/gh.contract.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
 		"scripts/lib/fixtures/gh/issue-list-rows.json": [
 			"scripts/lib/gh.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
@@ -10546,6 +10550,10 @@
 		"scripts/lib/fixtures/gh/issue-list.json": [
 			"scripts/lib/gh.contract.test.ts",
 			"scripts/lib/gh.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/lib/fixtures/gh/issue-state.json": [
+			"scripts/lib/gh.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh/issues-page.json": [
@@ -10607,6 +10615,7 @@
 			"scripts/lib/parked.test.ts",
 			"scripts/lib/quiet-bench-tick.test.ts",
 			"scripts/lib/refill-panel-topic.test.ts",
+			"scripts/link-sub-issue.test.ts",
 			"scripts/measure-ci-billing.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/park-blocked.test.ts",
@@ -10666,6 +10675,10 @@
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh/repo.json": [
+			"scripts/lib/gh.contract.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/lib/fixtures/gh/sub-issue-numbers.json": [
 			"scripts/lib/gh.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
@@ -21802,6 +21815,7 @@
 		"scripts/link-sub-issue.sh": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/host-root-plugin-cache.test.ts",
+			"scripts/lib/gh.contract.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/link-sub-issue.test.ts",

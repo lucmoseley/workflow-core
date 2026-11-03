@@ -33,9 +33,11 @@ import IDLE_ISSUES_PAGE from "./fixtures/gh/idle-issues-page.json" with {
 import ISSUE_CREATE from "./fixtures/gh/issue-create.json" with {
 	type: "json",
 };
+import ISSUE_ID from "./fixtures/gh/issue-id.json" with { type: "json" };
 import ISSUE_LIST_ROWS from "./fixtures/gh/issue-list-rows.json" with {
 	type: "json",
 };
+import ISSUE_STATE from "./fixtures/gh/issue-state.json" with { type: "json" };
 import ISSUES_PAGE from "./fixtures/gh/issues-page.json" with { type: "json" };
 import LABELS_PAGE from "./fixtures/gh/labels-page.json" with { type: "json" };
 import LOGGED_OUT from "./fixtures/gh/logged-out.json" with { type: "json" };
@@ -46,6 +48,9 @@ import PARENT_NOT_FOUND from "./fixtures/gh/parent-not-found.json" with {
 import PARENT_PAGE from "./fixtures/gh/parent-page.json" with { type: "json" };
 import REPO from "./fixtures/gh/repo.json" with { type: "json" };
 import REPO_VIEW from "./fixtures/gh/repo-view.json" with { type: "json" };
+import SUB_ISSUE_NUMBERS from "./fixtures/gh/sub-issue-numbers.json" with {
+	type: "json",
+};
 import SUB_ISSUES from "./fixtures/gh/sub-issues.json" with { type: "json" };
 import SUB_ISSUES_NOT_FOUND from "./fixtures/gh/sub-issues-not-found.json" with {
 	type: "json",
@@ -343,3 +348,46 @@ export function subIssuesAnswer(a: SubIssuesAnswer): GhAnswer {
 	if (a === "unreachable") return LOGGED_OUT;
 	return { ...SUB_ISSUES, stdout: asRecorded("subIssuesPage", [a]) };
 }
+
+/*
+ * link-sub-issue.sh's reads, each by its `--jq` filter. A new read in the script
+ * is one row and its fixture here: every stub serving the script answers it
+ * from the row, as buildLinkReadArms in shell and answerLinkRead in node. A test
+ * passes an answer by the row's key only where the value matters to it (#3652).
+ * Residual: a row answers on its filter alone, so a filter sent to the wrong
+ * endpoint still gets an answer offline; only the live contract case sees it.
+ * A read with no `--jq`, or sharing a row's filter, cannot be a row as it stands.
+ */
+export const LINK_READS = {
+	state: { jq: ".state", answer: ISSUE_STATE as GhAnswer },
+	id: { jq: ".id", answer: ISSUE_ID as GhAnswer },
+	children: { jq: ".[].number", answer: SUB_ISSUE_NUMBERS as GhAnswer },
+};
+
+export type LinkReadAnswers = Partial<
+	Record<keyof typeof LINK_READS, GhAnswer>
+>;
+
+/**
+ * The source of `buildJqLines(...values)`, a `--jq` read printing one value a line,
+ * and of `answerLinkRead(argv, answers)`: `argv`'s row of LINK_READS, answering
+ * `answers`' entry or else the recorded one, and undefined for any other call.
+ */
+export const LINK_READ_FAKE = String.raw`function buildJqLines(...values) {
+	return { status: 0, stdout: values.map((v) => v + "\n").join(""), stderr: "" };
+}
+function answerLinkRead(argv, answers = {}) {
+	const reads = ${JSON.stringify(LINK_READS)};
+	const filter = argv.includes("--jq") ? argv[argv.indexOf("--jq") + 1] : undefined;
+	const key = Object.keys(reads).find((k) => reads[k].jq === filter);
+	return key && (answers[key] ?? reads[key].answer);
+}`;
+
+export const buildJqLines = ghComputed<(...values: unknown[]) => GhAnswer>(
+	LINK_READ_FAKE,
+	"buildJqLines",
+);
+
+export const answerLinkRead = ghComputed<
+	(argv: string[], answers?: LinkReadAnswers) => GhAnswer | undefined
+>(LINK_READ_FAKE, "answerLinkRead");

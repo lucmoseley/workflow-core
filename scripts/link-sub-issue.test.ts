@@ -27,6 +27,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { buildJqLines, GH_NOT_FOUND } from "./lib/gh-fake";
+import { buildLinkReadArms } from "./lib/gh-stub";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.resolve(__dirname, "link-sub-issue.sh");
@@ -38,7 +40,7 @@ let counter: string;
 interface Gh {
 	/** What `gh api repos/o/r/issues/<child> --jq .id` prints. */
 	dbId?: string;
-	/** Non-zero exit on the db-id lookup — the transient-network case. */
+	/** The db-id lookup fails. */
 	idFails?: boolean;
 	/** How the POST answers: ok | dup (422, one parent) | layers (422) | err. */
 	post?: "ok" | "dup" | "layers" | "err";
@@ -49,10 +51,22 @@ interface Gh {
 	state?: string;
 }
 
+/** The parent's list stays empty for its first `lag` reads, which this counts. */
+const buildPastLagCondition = (lag: number) =>
+	`{ n=0; [[ -f ${shellQuote(counter)} ]] && n="$(cat ${shellQuote(counter)})"; printf '%s' "$((n + 1))" > ${shellQuote(counter)}; (( n >= ${lag} )); }`;
+
 /** A `gh` stub for WFC_GH, logging one line of argv per call. */
 const stubGh = (g: Gh) => {
 	const bin = path.join(dir, "bin");
 	fs.mkdirSync(bin, { recursive: true });
+	const reads = buildLinkReadArms(
+		{
+			state: buildJqLines(g.state ?? "open"),
+			id: g.idFails ? GH_NOT_FOUND : buildJqLines(g.dbId ?? "987654"),
+			children: buildJqLines(...(g.children ?? [])),
+		},
+		{ childrenWhen: buildPastLagCondition(g.lag ?? 0) },
+	);
 	const script = `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> ${shellQuote(calls)}
 args="$*"
@@ -64,18 +78,7 @@ case "$args" in
       layers) echo "gh: You can't add more than 7 layers of sub-issues (HTTP 422)" >&2; exit 1 ;;
       err) echo 'gh: Bad credentials (HTTP 401)' >&2; exit 1 ;;
     esac ;;
-  *"/sub_issues"*)
-    n=0; [[ -f ${shellQuote(counter)} ]] && n="$(cat ${shellQuote(counter)})"
-    printf '%s' "$((n + 1))" > ${shellQuote(counter)}
-    (( n < ${g.lag ?? 0} )) && exit 0
-    ${(g.children ?? []).map((c) => `echo ${shellQuote(c)}`).join("; ") || "true"}
-    exit 0 ;;
-  *"--jq .state"*)
-    printf '%s\\n' ${shellQuote(g.state ?? "open")}
-    exit 0 ;;
-  *"--jq"*)
-    ${g.idFails ? "echo 'gh: network is unreachable' >&2; exit 1" : `printf '%s\\n' ${shellQuote(g.dbId ?? "987654")}`}
-    exit 0 ;;
+${reads}
 esac
 exit 0
 `;

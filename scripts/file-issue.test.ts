@@ -23,7 +23,8 @@ import HUMAN_BODIES from "./fixtures/takes-human-bodies.json" with {
 	type: "json",
 };
 import { freshSandbox, issueClaims, store } from "./lib/arbiter-testkit";
-import { stubGhScript } from "./lib/gh-stub";
+import { buildJqLines } from "./lib/gh-fake";
+import { buildLinkReadArms, stubGhScript } from "./lib/gh-stub";
 import { UNFILLED_DESTINATION as UNFILLED } from "./lib/issue-gate";
 import { MARKERS_REL } from "./lib/marker-root";
 import { readRuleText } from "./lib/rule-text";
@@ -103,9 +104,10 @@ case "$*" in
   *"--method POST"*)
     if [ -f ${shellQuote(at("post-err"))} ]; then cat ${shellQuote(at("post-err"))} >&2; exit 1; fi
     touch ${shellQuote(at("linked"))}; exit 0 ;;
-  *"/sub_issues"*) [ -f ${shellQuote(at("linked"))} ] && echo ${NEW}; exit 0 ;;
-  *"--jq .id"*) echo 987654; exit 0 ;;
-  *"--jq .state"*) echo open; exit 0 ;;
+${buildLinkReadArms(
+	{ id: buildJqLines(987_654), children: buildJqLines(NEW) },
+	{ childrenWhen: `[ -f ${shellQuote(at("linked"))} ]` },
+)}
   "api "*)
     f=${shellQuote(at("api"))}/"$(echo "$2" | tr / _)"
     [ -f "$f" ] && cat "$f" && exit 0
