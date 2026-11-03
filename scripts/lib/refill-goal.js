@@ -1,6 +1,6 @@
 /*
  * refill-goal.js — the refill loop's one loop-wide goal (#3864, spec #3596). Its
- * issues rank first in every ticked repo's frontier read. A topic's refs are the
+ * issues rank first in every served repo's frontier read. A topic's refs are the
  * set confirmed when it was resolved, and stay as stored until the next `set`.
  * A `drain` or `unblock` is stored as its one ref and worked out again by every
  * frontier read (#3866).
@@ -67,13 +67,19 @@ function parseAskedRefs(text) {
 }
 
 /**
- * The refs in `roots`' repos, or why one is refused: a bare `#N` needs exactly
- * one repo ticked, and a named repo must be ticked.
+ * The ticked roots the loop serves, and why each other ticked root is not.
+ * @typedef {ReturnType<import("./refill-loop.js")["scopeRoots"]>} Served
+ */
+
+/**
+ * The refs in `served`'s repos, or why one is refused: a bare `#N` needs exactly
+ * one repo served, and a named repo must be ticked and served — the set the
+ * panel counts "on".
  * @param {AskedRef[]} asked
- * @param {string[]} roots the ticked checkout roots
+ * @param {Served} served
  * @returns {GoalRef[]|Notice}
  */
-function qualifyRefs(asked, roots) {
+function qualifyRefs(asked, { roots, dropped }) {
 	const names = roots.map((root) => path.basename(root));
 	/** @type {Map<string, GoalRef>} */
 	const refs = new Map();
@@ -81,8 +87,15 @@ function qualifyRefs(asked, roots) {
 		const name = repo ?? (names.length === 1 ? names[0] : undefined);
 		if (name === undefined)
 			return buildNotice(
-				`#${number} names no repo with ${names.length} repos ticked`,
+				`#${number} names no repo with ${names.length} repos served`,
 				`write <repo>#${number}`,
+			);
+		const unserved = dropped.find((d) => path.basename(d.root) === name);
+		if (unserved)
+			return buildNotice(
+				`${name}#${number} is in ${name}, which the loop does not serve: ${unserved.why}`,
+				"name an issue in a served repo",
+				name,
 			);
 		if (!names.includes(name))
 			return buildNotice(
@@ -117,12 +130,12 @@ const buildGoalRefusal = (typed) =>
 /**
  * `qualifyRefs`, each ref then read as an open issue.
  * @param {AskedRef[]} asked
- * @param {string[]} roots the ticked checkout roots
+ * @param {Served} served
  * @param {(ref: GoalRef) => IssueRead} readIssue
  * @returns {GoalRef[]|Notice}
  */
-function qualifyOpenRefs(asked, roots, readIssue) {
-	const refs = qualifyRefs(asked, roots);
+function qualifyOpenRefs(asked, served, readIssue) {
+	const refs = qualifyRefs(asked, served);
 	if (isNotice(refs)) return refs;
 	for (const ref of refs) {
 		const read = readIssue(ref);
