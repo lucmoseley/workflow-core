@@ -2617,6 +2617,9 @@
 		"migrations/v2.0.1.md": [
 			"scripts/lib/migration-note.test.ts"
 		],
+		"migrations/v2.0.2.md": [
+			"scripts/lib/migration-note.test.ts"
+		],
 		"package-lock.json": [
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/lib/doc-map.test.ts",
