@@ -4,19 +4,22 @@
  * table and the time (#2609, spec #2570 story 45).
  *
  * ANCHOR: with a Console reading (lib/console-credit.js) the key has what the
- * reading's unexpired grants held, less the runs ended since, and a run ended on
- * a credit refusal since then marks it exhausted until a newer reading. A grant
- * expires at 00:00 UTC on its expiry date, the Console's dates being UTC.
+ * reading's unexpired grants held, less the sessions last written since, and one
+ * ended on a credit refusal since then marks it exhausted until a newer reading.
+ * A grant expires at 00:00 UTC on its expiry date, the Console's dates being UTC.
  *
- * CYCLE: with no reading yet, the key has its configured grant, less the runs
- * ended since the most recent `cycle-day` at local midnight, where their last
- * requests were billed, and a credit refusal marks it exhausted until the next
- * cycle.
+ * CYCLE: with no reading yet, the key has its configured grant, less the sessions
+ * last written since the most recent `cycle-day` at local midnight, where their
+ * last requests were billed, and a credit refusal marks it exhausted until the
+ * next cycle.
  *
  * RESERVATIONS, against requests and never live usage
- * (docs/practice/capacity-planning-and-admission.md): each running run holds
+ * (docs/practice/capacity-planning-and-admission.md): each running session holds
  * max(Q, spent so far + session-spend's expected remainder), and a new launch
- * holds Q, the cost table's `meanUsd` — read, never a constant (#2570).
+ * holds Q, the cost table's `meanUsd` — read, never a constant (#2570). A running
+ * session's ledger row is held, not settled, so a session counts once (#3695). One
+ * whose row falls outside the basis holds Q alone: that spend came off another
+ * cycle or is already in the reading.
  *
  *   headroom = credit − settled spend − Σ running reservations
  *   fit      = floor(headroom / Q), or 0 on an exhausted key
@@ -29,13 +32,13 @@ const { expectedRemainderUsd } = require("./session-spend.js");
  *
  * @typedef {object} LedgerEntry
  * @property {string} sessionId
- * @property {string} jobId
- * @property {number} launchedAt ms
- * @property {number} endedAt ms, the run's last log write
- * @property {number} costUsd
- * @property {"result"|"transcript"|"reservation"} costSource `reservation`:
- *   neither a `result` nor a transcript priced the run, so it is charged Q
- * @property {string} outcome lib/headless-sessions.js's EndResult outcome
+ * @property {string|null} jobId
+ * @property {number} endedAt ms, the session's latest transcript write
+ * @property {number} bytes its transcripts' size when priced
+ * @property {number} costUsd its cumulative cost at that size
+ * @property {string} outcome `key-exhausted`: its latest API answer was a credit
+ *   refusal
+ * @property {number} [refusedAt] ms, that refusal's time; absent, `endedAt` stands
  *
  * @typedef {{sessionId: string, spentUsd: number|null}} RunningRun
  *
@@ -127,13 +130,19 @@ function budgetOf({
 					endedAt >= cycle.start && endedAt < cycle.next,
 			};
 	const { creditUsd, isCounted } = basis;
+	const held = new Set(running.map((r) => r.sessionId));
 	const settledUsd = ledger
-		.filter((e) => isCounted(e.endedAt))
+		.filter((e) => !held.has(e.sessionId) && isCounted(e.endedAt))
 		.reduce((t, e) => t + e.costUsd, 0);
 	const exhausted = ledger.some(
-		(e) => e.outcome === "key-exhausted" && isCounted(e.endedAt),
+		(e) => e.outcome === "key-exhausted" && isCounted(e.refusedAt ?? e.endedAt),
 	);
-	const reservedUsd = running.reduce((t, r) => t + reservationUsd(r, table), 0);
+	const lastWrite = new Map(ledger.map((e) => [e.sessionId, e.endedAt]));
+	const reservedUsd = running.reduce((t, r) => {
+		const at = lastWrite.get(r.sessionId);
+		const spentUsd = at === undefined || isCounted(at) ? r.spentUsd : null;
+		return t + reservationUsd({ ...r, spentUsd }, table);
+	}, 0);
 	const headroomUsd = creditUsd - settledUsd - reservedUsd;
 	const qUsd = table.meanUsd;
 	return {

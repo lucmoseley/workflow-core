@@ -47,8 +47,9 @@
  * The second, `admissionSessionIds`, reads an empty listing as nothing live,
  * outside a session only, where nothing says the list must name anyone
  * (#2180). Inside a session an empty list is still a fault. It is its own
- * export, never an option, so no reader judging by absence can pass it. The one
- * reader that may is `readAgentsAfterBoot`, whose name says when (#3880).
+ * export, never an option, so no reader judging by absence can pass it. The
+ * readers that may are `readAgentsAfterBoot` and `readAgentsForBudget`, whose
+ * names say when (#3880, #3695).
  *
  * EVERY LISTING IS EVERY PLAN'S (#3512). `claude agents --json` is scoped to
  * CLAUDE_CONFIG_DIR, so the oracle is read once per `sessionDirs()` dir
@@ -564,6 +565,17 @@ function readAgentsAfterBoot() {
 }
 
 /**
+ * `listedAgents` for the overflow budget (lib/overflow-budget.js), waiving the
+ * self-test, reading an empty listing outside a session as nothing live: a loop
+ * with no session running must still size a key. Its residual is
+ * `admissionSessionIds`'s; Anthropic's refusal at the grant bounds what it grants.
+ * @returns {Listing}
+ */
+function readAgentsForBudget() {
+	return refuseOnThrow(undefined, false, checkedListing, { allowEmpty: true });
+}
+
+/**
  * Whether an oracle record is a background session that has FINISHED and not
  * exited — the reaper's gate 1.
  *
@@ -819,6 +831,7 @@ module.exports = {
 	isTerminalAgent,
 	listedAgents,
 	readAgentsAfterBoot,
+	readAgentsForBudget,
 	listedSessionIds,
 	admissionSessionIds,
 	oracleCacheKey,

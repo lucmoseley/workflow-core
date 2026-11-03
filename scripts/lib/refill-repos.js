@@ -11,7 +11,8 @@
  *
  * readAdopterCheckouts' callers: report-close-check-reading.js and
  * report-flip-line-reading.js, since every adopter runs the priced-options
- * guard whatever its refillLoop (#2121).
+ * guard whatever its refillLoop (#2121), and lib/dispatch-ledger.js, since a
+ * checkout opted out of the loop may still have spent an overflow key (#3695).
  * discoverRepos' callers: lib/refill-frontier.js, scripts/file-morning-review.js,
  * reading each repo's delegated-decision ledger (#2011),
  * scripts/answer-review-reversals.js, finding the checkout an entry's

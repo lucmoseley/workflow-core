@@ -18,6 +18,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { buildAgentsBranch, buildJobRow } from "./lib/agents-stop-fake";
+import { writeClaudeStub } from "./lib/claude-stub";
 import { writeCostTable } from "./lib/cost-table-testkit";
 import { printed, stubGhRoutes } from "./lib/gh-stub";
 import { writeCheckout } from "./lib/refill-loop-fixture";
@@ -467,6 +469,12 @@ describe("stop and status", () => {
 		);
 	});
 
+	/* The budget reads the listing. */
+	const listNoSessionOnTheKey = () =>
+		writeClaudeStub(path.join(dir, "no-claude"), [
+			buildAgentsBranch([buildJobRow("a-neighbour", "working")]),
+		]);
+
 	const declareOverflowKey = () => {
 		fs.mkdirSync(path.join(dir, ".claude"));
 		fs.writeFileSync(
@@ -475,6 +483,7 @@ describe("stop and status", () => {
 		);
 		// Grant 200 over mean 4 fits 50.
 		writeCostTable(dir, { meanUsd: 4 });
+		listNoSessionOnTheKey();
 	};
 
 	const fillPlanSeat = () => {
@@ -516,6 +525,7 @@ describe("stop and status", () => {
 			"~/.claude3\n~/.claude3 api key=WFC_TEST_KEY grant=200 cycle-day=20\n",
 		);
 		writeCostTable(dir, { meanUsd: 4 });
+		listNoSessionOnTheKey();
 		fillPlanSeat();
 		const json = JSON.parse((await run("status", "--json")).stdout);
 		expect(json.seats.readings).toEqual([
@@ -552,11 +562,10 @@ describe("stop and status", () => {
 			`${JSON.stringify({
 				sessionId: "s",
 				jobId: "j",
-				launchedAt: Date.now(),
 				endedAt: Date.now(),
+				bytes: 1,
 				costUsd: 30,
-				costSource: "result",
-				outcome: "success",
+				outcome: "priced",
 			})}\n`,
 		);
 		const json = JSON.parse((await run("status", "--json")).stdout);

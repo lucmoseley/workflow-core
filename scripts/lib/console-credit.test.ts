@@ -13,8 +13,10 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { main } from "../read-console-credit.js";
+import { buildAgentsBranch, buildJobRow } from "./agents-stop-fake";
+import { writeClaudeStub } from "./claude-stub";
 import {
 	isConsoleReadDue,
 	parseConsoleRead,
@@ -359,7 +361,14 @@ describe("read-console-credit.js", () => {
 		main(["WFC_TEST_KEY"], {
 			runChild: () => ({ status: 1, stdout: "", stderr: "Chrome is closed" }),
 		});
+		const claude = path.join(tmp, "claude");
+		writeClaudeStub(claude, [
+			buildAgentsBranch([buildJobRow("a-neighbour", "working")]),
+		]);
+		vi.stubEnv("WFC_CLAUDE_BIN", claude);
+		vi.stubEnv("WFC_DISPATCH_ROOT", root);
 		const budget = seatBudget(seat(), root);
+		vi.unstubAllEnvs();
 		expect(budget).toMatchObject({
 			creditUsd: 170.02,
 			headroomUsd: 170.02,
