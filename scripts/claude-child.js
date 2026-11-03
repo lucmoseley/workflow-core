@@ -18,7 +18,8 @@
  * chrome  the browser-ladder skill's Chrome child: the Chrome tools and no
  *         other, `file_upload` barred (#1080), 10 turns a page plus 5, the
  *         prompt on stdin, since `--allowedTools` takes a list and swallows
- *         a prompt after it; the JSON result on stdout.
+ *         a prompt after it; the JSON result on stdout. Killed after
+ *         lib/child-spawn.js's limit a page.
  *
  * --config-dir must be one of this machine's own seats (lib/arbiter-store.js's
  * configDirs). There is no free-prompt mode and no way to pass another flag.
@@ -33,6 +34,7 @@
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const { caught } = require("./lib/caught.js");
+const { CHROME_TIMEOUT_MS_A_PAGE } = require("./lib/child-spawn.js");
 const { claudeBin } = require("./lib/claude-bin.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { configDirs } = require("./lib/arbiter-store.js");
@@ -145,6 +147,7 @@ function main() {
 		];
 		opts = {
 			stdio: [promptFdOrFail(flags["--prompt-file"]), "inherit", "inherit"],
+			timeout: CHROME_TIMEOUT_MS_A_PAGE * pages,
 		};
 	}
 

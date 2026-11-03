@@ -17,6 +17,7 @@ const { caught } = require("./caught.js");
 const { localDate } = require("./morning-review.js");
 const { ESC } = require("./refill-panel-input.js");
 const { buildControlImage } = require("./refill-panel-sixel.js");
+const { planOfKeyDir } = require("./overflow-budget-core.js");
 const { describeAge } = require("./proc-table.js");
 const {
 	FIVE_HOUR_FULL,
@@ -114,6 +115,7 @@ const ROLE_STYLES = {
  * @typedef {{root: string, number: number}} PauseIssue
  * @typedef {{seat: string, why: string}
  *   | {seat: string, grantUsd: number, headroomUsd: number, exhausted: boolean,
+ *     creditReadAt: number|null,
  *     noLaunchLeft: boolean, running: number}} OverflowKey
  * @typedef {Exclude<OverflowKey, {why: string}>} ReadKey
  * @typedef {{running: boolean, stopRequested: boolean,
@@ -434,7 +436,7 @@ const isAllUsedUp = ({ seats, overflow }) =>
  * file does not record (#4063).
  * @param {string} seat
  */
-const buildKeyPlan = (seat) => seat.replace(/-api$/, "");
+const buildKeyPlan = planOfKeyDir;
 
 /**
  * The keys in the plan rows' order, a key named for no plan last.
@@ -451,14 +453,22 @@ function buildKeysInPlanOrder({ seats, overflow }) {
 }
 
 /**
- * A key's credit left (#4063). Only a credit refusal knows the figure; otherwise `~`, as
- * it is the configured grant less the loop's own ledger, blind to spend outside the loop.
+ * A key's credit left (#4063), with the Console reading's age where one anchors it
+ * (#4071). `~` only with no reading and no credit refusal: the figure is then the
+ * configured grant less the loop's own ledger, which is not what the Console holds.
  * @param {ReadKey} key
+ * @param {number} now
  */
-function buildKeyFigure({ exhausted, headroomUsd, grantUsd }) {
-	/* Running runs' reservations can pass a key's grant. */
-	const left = exhausted ? "$0" : `~$${Math.floor(Math.max(headroomUsd, 0))}`;
-	return `${left} of $${Math.floor(grantUsd)} left`;
+function buildKeyFigure(
+	{ exhausted, headroomUsd, grantUsd, creditReadAt },
+	now,
+) {
+	const figure = `of $${Math.floor(grantUsd)} left`;
+	/* Running runs' reservations can pass a key's credit. */
+	const usd = exhausted ? 0 : Math.floor(Math.max(headroomUsd, 0));
+	if (creditReadAt === null) return `${exhausted ? "" : "~"}$${usd} ${figure}`;
+	const age = describeAge(Math.max(0, (now - creditReadAt) / 1000));
+	return `$${usd} ${figure} (${age} ago)`;
 }
 
 /**
@@ -542,9 +552,10 @@ function buildPlanRows({ seats }, now) {
  * The heading, one row per key (#4063) and whether they are spending, at all times once
  * a key is declared (#3958), so the rows below never move as the figures change.
  * @param {PanelStatus} status
+ * @param {number} now
  * @returns {Row[]}
  */
-function buildCreditRows(status) {
+function buildCreditRows(status, now) {
 	if (status.overflow.length === 0) return [];
 	const { spending, text } = buildSpendState(status);
 	/** @type {Role} */
@@ -561,7 +572,7 @@ function buildCreditRows(status) {
 						text: `  ${name}  unread: ${key.why}`,
 						role: /** @type {Role} */ ("secondary"),
 					}
-				: { text: `  ${name}  ${buildKeyFigure(key)}`, role };
+				: { text: `  ${name}  ${buildKeyFigure(key, now)}`, role };
 		}),
 		SIBLING_GAP,
 		{ text: `  ${text}`, role },
@@ -576,7 +587,7 @@ function buildCreditRows(status) {
 function buildLoopBlock({ status, readError, presses }, now) {
 	const { pending, note } = presses.loop;
 	const usage = status
-		? [...buildPlanRows(status, now), ...buildCreditRows(status)]
+		? [...buildPlanRows(status, now), ...buildCreditRows(status, now)]
 		: [];
 	if (pending)
 		return [

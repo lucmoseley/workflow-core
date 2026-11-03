@@ -843,6 +843,11 @@ const seatTriedAfter = (triedAt, probes, now) => ({
  * @returns {import("./refill-decide.js").OverflowReading[]}
  */
 function overflowReadings(list, plan, budgetOf) {
+	/** @param {import("./overflow-budget-core.js").Budget} b */
+	const spentUntilText = (b) =>
+		b.readAt === null
+			? localDate(new Date(b.nextCycleStart))
+			: "a newer Console reading";
 	if (list.errors.length > 0)
 		return [
 			{
@@ -853,7 +858,7 @@ function overflowReadings(list, plan, budgetOf) {
 			},
 		];
 	/* The decision core's own test too; repeated here so a tick a plan seat
-	 * can serve settles no ledger. */
+	 * can serve sizes no key to launch on. */
 	const due = plan.every((s) => s.weekFull);
 	/** @type {import("./refill-seats.js").OverflowSeat[]} */
 	const seats = list.seats.flatMap((s) => (s.kind === "overflow" ? [s] : []));
@@ -865,9 +870,7 @@ function overflowReadings(list, plan, budgetOf) {
 		return {
 			seat: seat.dir,
 			fits: b.fit,
-			spentUntil: isBudgetSpent(b)
-				? localDate(new Date(b.nextCycleStart))
-				: null,
+			spentUntil: isBudgetSpent(b) ? spentUntilText(b) : null,
 			why: null,
 		};
 	});

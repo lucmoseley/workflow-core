@@ -3,17 +3,22 @@
  * on an overflow key, from its ledger, its running runs, the session cost
  * table and the time (#2609, spec #2570 story 45).
  *
- * CYCLE: spend counts from the most recent `cycle-day` at local midnight. A
- * settled run counts in the cycle it ended in, where its last requests were
- * billed, as a running run's reservation holds the current cycle. A run that
- * ended on a credit refusal marks the key exhausted until the next cycle.
+ * ANCHOR: with a Console reading (lib/console-credit.js) the key has what the
+ * reading's unexpired grants held, less the runs ended since, and a run ended on
+ * a credit refusal since then marks it exhausted until a newer reading. A grant
+ * expires at 00:00 UTC on its expiry date, the Console's dates being UTC.
+ *
+ * CYCLE: with no reading yet, the key has its configured grant, less the runs
+ * ended since the most recent `cycle-day` at local midnight, where their last
+ * requests were billed, and a credit refusal marks it exhausted until the next
+ * cycle.
  *
  * RESERVATIONS, against requests and never live usage
  * (docs/practice/capacity-planning-and-admission.md): each running run holds
  * max(Q, spent so far + session-spend's expected remainder), and a new launch
  * holds Q, the cost table's `meanUsd` — read, never a constant (#2570).
  *
- *   headroom = grant − settled spend − Σ running reservations
+ *   headroom = credit − settled spend − Σ running reservations
  *   fit      = floor(headroom / Q), or 0 on an exhausted key
  */
 
@@ -34,12 +39,18 @@ const { expectedRemainderUsd } = require("./session-spend.js");
  *
  * @typedef {{sessionId: string, spentUsd: number|null}} RunningRun
  *
+ * @typedef {{remainingUsd: number, grantUsd: number, grantedOn: string,
+ *   expiresOn: string}} Credit a Promotional credits row, its dates YYYY-MM-DD
+ * @typedef {{at: number, credits: Credit[]}} ConsoleReading
+ *
  * @typedef {object} Budget
  * @property {number} fit sessions that fit on the key now
  * @property {number} headroomUsd
- * @property {number} settledUsd this cycle's settled spend
+ * @property {number} settledUsd settled spend since the reading, else this cycle
  * @property {number} reservedUsd held by running runs
- * @property {number} grantUsd
+ * @property {number} creditUsd the unexpired credit at the reading, else the grant
+ * @property {number} grantUsd the unexpired grants' size, else the configured grant
+ * @property {number|null} readAt ms, the reading's time; null with none
  * @property {number} qUsd the launch reservation
  * @property {number} running
  * @property {number} cycleStart ms
@@ -76,29 +87,63 @@ function reservationUsd(run, table) {
 }
 
 /**
+ * What the key holds and which runs come off it, with a reading.
+ * @param {ConsoleReading} reading
+ * @param {number} now
+ */
+function anchoredBasis({ at, credits }, now) {
+	const live = credits.filter(
+		(c) => Date.parse(`${c.expiresOn}T00:00:00Z`) > now,
+	);
+	return {
+		creditUsd: live.reduce((t, c) => t + c.remainingUsd, 0),
+		grantUsd: live.reduce((t, c) => t + c.grantUsd, 0),
+		isCounted: (/** @type {number} */ endedAt) => endedAt > at,
+	};
+}
+
+/**
  * @param {{grantUsd: number, cycleDay: number, ledger: LedgerEntry[],
- *   running: RunningRun[], table: CostTable, now: number}} opts
+ *   running: RunningRun[], table: CostTable, now: number,
+ *   reading?: ConsoleReading|null}} opts
  * @returns {Budget}
  */
-function budgetOf({ grantUsd, cycleDay, ledger, running, table, now }) {
+function budgetOf({
+	grantUsd,
+	cycleDay,
+	ledger,
+	running,
+	table,
+	now,
+	reading,
+}) {
 	const cycle = cycleOf(now, cycleDay);
-	const inCycle = (/** @type {number} */ at) =>
-		at >= cycle.start && at < cycle.next;
+	const basis = reading
+		? anchoredBasis(reading, now)
+		: {
+				creditUsd: grantUsd,
+				grantUsd,
+				isCounted: (/** @type {number} */ endedAt) =>
+					endedAt >= cycle.start && endedAt < cycle.next,
+			};
+	const { creditUsd, isCounted } = basis;
 	const settledUsd = ledger
-		.filter((e) => inCycle(e.endedAt))
+		.filter((e) => isCounted(e.endedAt))
 		.reduce((t, e) => t + e.costUsd, 0);
 	const exhausted = ledger.some(
-		(e) => e.outcome === "key-exhausted" && inCycle(e.endedAt),
+		(e) => e.outcome === "key-exhausted" && isCounted(e.endedAt),
 	);
 	const reservedUsd = running.reduce((t, r) => t + reservationUsd(r, table), 0);
-	const headroomUsd = grantUsd - settledUsd - reservedUsd;
+	const headroomUsd = creditUsd - settledUsd - reservedUsd;
 	const qUsd = table.meanUsd;
 	return {
 		fit: exhausted ? 0 : Math.max(0, Math.floor(headroomUsd / qUsd)),
 		headroomUsd,
 		settledUsd,
 		reservedUsd,
-		grantUsd,
+		creditUsd,
+		grantUsd: basis.grantUsd,
+		readAt: reading?.at ?? null,
 		qUsd,
 		running: running.length,
 		cycleStart: cycle.start,
@@ -108,11 +153,17 @@ function budgetOf({ grantUsd, cycleDay, ledger, running, table, now }) {
 }
 
 /**
- * Whether the key has no launch left this cycle, running runs aside: a credit
- * refusal, or less unsettled grant than one launch's reservation.
+ * Whether the key has no launch left, running runs aside: a credit refusal, or
+ * less unsettled credit than one launch's reservation.
  * @param {Budget} budget
  */
-const isBudgetSpent = ({ exhausted, grantUsd, settledUsd, qUsd }) =>
-	exhausted || grantUsd - settledUsd < qUsd;
+const isBudgetSpent = ({ exhausted, creditUsd, settledUsd, qUsd }) =>
+	exhausted || creditUsd - settledUsd < qUsd;
 
-module.exports = { budgetOf, isBudgetSpent };
+/**
+ * The plan seat a key's dir is named for: `<plan>-api` (#4063).
+ * @param {string} keyDir
+ */
+const planOfKeyDir = (keyDir) => keyDir.replace(/-api$/, "");
+
+module.exports = { budgetOf, isBudgetSpent, planOfKeyDir };

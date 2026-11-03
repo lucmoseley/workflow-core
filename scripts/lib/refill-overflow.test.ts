@@ -52,7 +52,9 @@ const budget = (over: Record<string, unknown> = {}) => ({
 	headroomUsd: 20,
 	settledUsd: 100,
 	reservedUsd: 80,
+	creditUsd: 200,
 	grantUsd: 200,
+	readAt: null,
 	qUsd: 4,
 	running: 2,
 	cycleStart: new Date(2026, 9, 20).getTime(),
@@ -224,5 +226,17 @@ describe("a headless launch's finish (#2611)", () => {
 				history,
 			}),
 		).toHaveProperty("pause.by", "no-progress");
+	});
+});
+
+describe("a spent key anchored to a Console reading", () => {
+	it("waits on a newer reading, not on the cycle day", () => {
+		const dir = "/h/.claude3-api";
+		const [reading] = overflowReadings(
+			{ seats: [overflowSeat(dir)], errors: [] },
+			[{ weekFull: true } as never],
+			() => budget({ readAt: 1, creditUsd: 2, settledUsd: 0 }) as never,
+		);
+		expect(reading.spentUntil).toBe("a newer Console reading");
 	});
 });

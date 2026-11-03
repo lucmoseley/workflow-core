@@ -9,7 +9,7 @@
  * spent key, or counts a cycle's spend from the wrong day (#2609).
  */
 import { describe, expect, it } from "vitest";
-import { budgetOf } from "./overflow-budget-core.js";
+import { budgetOf, isBudgetSpent } from "./overflow-budget-core.js";
 
 /* Mean 4; a run 0.5 in has an expected remainder of (0.5 + 2.5 + 9.5) / 3,
  * the top point standing at u 3 + tail 7; one 5 in, past u, the tail's 7. */
@@ -111,5 +111,104 @@ describe("the exhausted mark", () => {
 		const next = budgetOf({ ...base, ledger, now: at(2026, 11, 20) });
 		expect(next.exhausted).toBe(false);
 		expect(next.fit).toBe(50);
+	});
+});
+
+describe("anchored to a Console reading", () => {
+	const readAt = at(2026, 10, 25, 6);
+	const credit = (remainingUsd: number, expiresOn: string) => ({
+		remainingUsd,
+		grantUsd: 200,
+		grantedOn: "2026-10-01",
+		expiresOn,
+	});
+	const reading = { at: readAt, credits: [credit(170.02, "2026-12-01")] };
+
+	it("takes off only the runs ended after the read, whatever the cycle holds", () => {
+		const b = budgetOf({
+			...base,
+			reading,
+			ledger: [entry(readAt - 1, 70), entry(readAt + 1, 10)],
+		});
+		expect(b.creditUsd).toBeCloseTo(170.02);
+		expect(b.settledUsd).toBe(10);
+		expect(b.headroomUsd).toBeCloseTo(160.02);
+		expect(b.grantUsd).toBe(200);
+		expect(b.readAt).toBe(readAt);
+	});
+
+	it("takes running reservations off too", () => {
+		const b = budgetOf({
+			...base,
+			reading,
+			running: [{ sessionId: "r", spentUsd: null }],
+		});
+		expect(b.headroomUsd).toBeCloseTo(170.02 - TABLE.meanUsd);
+	});
+
+	it("sums every unexpired grant", () => {
+		const b = budgetOf({
+			...base,
+			reading: {
+				at: readAt,
+				credits: [credit(10, "2026-12-01"), credit(20, "2027-01-01")],
+			},
+		});
+		expect(b.creditUsd).toBe(30);
+		expect(b.grantUsd).toBe(400);
+	});
+
+	it("drops a grant that expires between reads, with no new read", () => {
+		const two = {
+			at: readAt,
+			credits: [credit(50, "2026-11-01"), credit(170, "2026-12-01")],
+		};
+		const expiry = Date.UTC(2026, 10, 1);
+		expect(budgetOf({ ...base, reading: two, now: expiry - 1 }).creditUsd).toBe(
+			220,
+		);
+		const after = budgetOf({ ...base, reading: two, now: expiry });
+		expect(after.creditUsd).toBe(170);
+		expect(after.grantUsd).toBe(200);
+		expect(after.headroomUsd).toBe(170);
+	});
+
+	it("leaves nothing once every grant has expired", () => {
+		const b = budgetOf({
+			...base,
+			reading,
+			now: Date.UTC(2026, 11, 1),
+		});
+		expect([b.creditUsd, b.fit]).toEqual([0, 0]);
+		expect(isBudgetSpent(b)).toBe(true);
+	});
+
+	it("reads a credit refusal after the read as exhausted", () => {
+		const b = budgetOf({
+			...base,
+			reading,
+			ledger: [entry(readAt + 1, 0, "key-exhausted")],
+		});
+		expect([b.exhausted, b.fit]).toEqual([true, 0]);
+		expect(isBudgetSpent(b)).toBe(true);
+	});
+
+	it("lets a newer reading clear an older credit refusal", () => {
+		const b = budgetOf({
+			...base,
+			reading,
+			ledger: [entry(readAt - 1, 0, "key-exhausted")],
+		});
+		expect(b.exhausted).toBe(false);
+		expect(isBudgetSpent(b)).toBe(false);
+	});
+
+	it("counts the key spent on what the reading leaves, not the configured grant", () => {
+		const b = budgetOf({
+			...base,
+			grantUsd: 200,
+			reading: { at: readAt, credits: [credit(3, "2026-12-01")] },
+		});
+		expect(isBudgetSpent(b)).toBe(true);
 	});
 });

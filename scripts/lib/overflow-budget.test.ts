@@ -258,10 +258,14 @@ describe("the CLI", () => {
 			headroomUsd: 180,
 			settledUsd: 20,
 			reservedUsd: 0,
+			creditUsd: 200,
 			grantUsd: 200,
+			readAt: null,
 			qUsd: 4,
 			running: 0,
 			exhausted: false,
+			readFailure: null,
+			lastAttemptAt: null,
 		});
 		/* cycle-day=1: whatever the clock, the cycle runs from one 1st at
 		 * local midnight to the next. */
@@ -299,5 +303,41 @@ describe("the CLI", () => {
 			expect(r.status).toBe(2);
 			expect(r.stderr).toContain("usage:");
 		}
+	});
+});
+
+describe("the status line", () => {
+	it("names the Console figure, the spend since and a failed read", () => {
+		fs.mkdirSync(path.join(refill, ".overflow-ledger"), { recursive: true });
+		fs.writeFileSync(
+			path.join(refill, ".overflow-ledger", "WFC_TEST_KEY.console.jsonl"),
+			[
+				{
+					at: Date.parse("2026-11-03T04:00:00Z"),
+					credits: [
+						{
+							remainingUsd: 170.02,
+							grantUsd: 200,
+							grantedOn: "2026-10-28",
+							expiresOn: "2099-12-01",
+						},
+					],
+				},
+				{ at: Date.parse("2026-11-04T04:00:00Z"), why: "Chrome is closed" },
+			]
+				.map((row) => `${JSON.stringify(row)}\n`)
+				.join(""),
+		);
+		const r = runInProcess(SCRIPT, [seatDir], {
+			env: {
+				PATH: process.env.PATH ?? "",
+				HOME: home,
+				WFC_REFILL_DIR: refill,
+				CLAUDE_PROJECT_DIR: root,
+			},
+		});
+		expect(r.stdout.trim()).toBe(
+			`overflow ${seatDir}: fits 42; headroom $170.02 ($0.00 held by 0 running); $170.02 on the Console at 2026-11-03T04:00:00.000Z, $0.00 spent since; last Console read failed: Chrome is closed`,
+		);
 	});
 });

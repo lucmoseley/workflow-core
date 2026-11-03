@@ -501,7 +501,10 @@ describe("stop and status", () => {
 			{
 				seat: path.join(dir, ".claude2-api").replace(dir, "~"),
 				spentUsd: 0,
+				creditUsd: 200,
 				grantUsd: 200,
+				creditReadAt: null,
+				creditReadFailure: null,
 				headroomUsd: 200,
 				exhausted: false,
 				noLaunchLeft: false,

@@ -984,7 +984,7 @@ function buildOverflowBasisLines({
  * One overflow key's entry in `status --json`: the budget gate's figures, or why
  * they will not read.
  * @param {string} dir the seat's config dir
- * @param {import("./overflow-budget-core.js").Budget|{why: string}} budget
+ * @param {import("./overflow-budget.js").SeatBudget|{why: string}} budget
  */
 function buildOverflowStatus(dir, budget) {
 	const seat = buildDirName(dir);
@@ -992,7 +992,10 @@ function buildOverflowStatus(dir, budget) {
 	return {
 		seat,
 		spentUsd: budget.settledUsd,
+		creditUsd: budget.creditUsd,
 		grantUsd: budget.grantUsd,
+		creditReadAt: budget.readAt,
+		creditReadFailure: budget.readFailure,
 		headroomUsd: budget.headroomUsd,
 		exhausted: budget.exhausted,
 		noLaunchLeft: isBudgetSpent(budget),

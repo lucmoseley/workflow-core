@@ -112,6 +112,7 @@ const key = (over: object = {}) => ({
 	seat: "~/.claude2-api",
 	spentUsd: 142,
 	grantUsd: 400,
+	creditReadAt: null,
 	headroomUsd: 258.5,
 	exhausted: false,
 	noLaunchLeft: false,
@@ -649,6 +650,32 @@ describe("the plan and credit rows", () => {
 		]);
 	});
 
+	it("drops the ~ and shows the reading's age while a Console reading is held", () => {
+		const overflow = [
+			key({
+				headroomUsd: 170.02,
+				grantUsd: 200,
+				creditReadAt: LATER - 3 * 3600 * 1000,
+			}),
+		];
+		expect(keyRows({ ...RUNNING, overflow })).toEqual([
+			["  .claude2  $170 of $200 left (3h ago)", "secondary"],
+		]);
+	});
+
+	it("shows a refused key's $0 with its reading's age", () => {
+		const overflow = [
+			key({
+				exhausted: true,
+				noLaunchLeft: true,
+				creditReadAt: LATER - 2 * 86_400 * 1000,
+			}),
+		];
+		expect(keyRows({ ...RUNNING, overflow })).toEqual([
+			["  .claude2  $0 of $400 left (2d ago)", "secondary"],
+		]);
+	});
+
 	it("keeps the ~ on a key the ledger alone calls spent", () => {
 		const overflow = [key({ noLaunchLeft: true, headroomUsd: 3 })];
 		expect(keyRows({ ...RUNNING, overflow })).toEqual([
@@ -764,7 +791,11 @@ describe("the plan and credit rows", () => {
 				headroomUsd: 200,
 				settledUsd: 0,
 				reservedUsd: 0,
+				creditUsd: 200,
 				grantUsd: 200,
+				readAt: null,
+				readFailure: null,
+				lastAttemptAt: null,
 				qUsd: 5,
 				running: 0,
 				cycleStart: AT,
@@ -884,7 +915,9 @@ describe("the plan and credit rows", () => {
 			headroomUsd: 200 - settledUsd,
 			settledUsd,
 			reservedUsd: 0,
+			creditUsd: 200,
 			grantUsd: 200,
+			readAt: null,
 			qUsd: 5,
 			running: 0,
 			cycleStart: AT,

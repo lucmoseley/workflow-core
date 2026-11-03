@@ -119,6 +119,7 @@ const {
 	concurrencyFiles,
 	buildTickRecord,
 } = require("./concurrency.js");
+const { appendConsoleRow, isConsoleReadDue } = require("./console-credit.js");
 const { seatBudget } = require("./overflow-budget.js");
 const {
 	readConfiguredSeats,
@@ -532,31 +533,65 @@ function runReview(lastRunOn, now) {
 }
 
 /**
- * Start the review runner detached in REVIEW_ROOT, its stderr the loop's
- * log. Fails open (#3765): a failed start is logged and the next tick tries
- * again, so the review never stops the launching. A stop leaves a started run
- * to finish, its result logged on the next start.
- * @param {import("./refill-loop.js").ReviewStart} start
+ * Run a script of this directory detached in REVIEW_ROOT, its stderr the loop's
+ * log. Fails open (#3765): a failed start is logged and the next tick decides
+ * again. A stop leaves a started run to finish.
+ * @param {string} label
+ * @param {string[]} args the script and its arguments
  */
-function startReview(start) {
+function startDetached(label, args) {
 	/** @param {unknown} err */
 	const notStarted = (err) =>
-		log(`${start.label}: not started (${buildErrorText(err)})`);
+		log(`${label}: not started (${buildErrorText(err)})`);
 	try {
-		const child = spawn(
-			process.execPath,
-			[path.join(SCRIPTS, REVIEW_RUNNER), JSON.stringify(start)],
-			{
-				cwd: REVIEW_ROOT,
-				env: buildCheckoutEnv(REVIEW_ROOT),
-				detached: true,
-				stdio: ["ignore", "ignore", "inherit"],
-			},
-		);
+		const child = spawn(process.execPath, args, {
+			cwd: REVIEW_ROOT,
+			env: buildCheckoutEnv(REVIEW_ROOT),
+			detached: true,
+			stdio: ["ignore", "ignore", "inherit"],
+		});
 		child.on("error", notStarted);
 		child.unref();
 	} catch (err) {
 		notStarted(err);
+	}
+}
+
+/**
+ * Start the review runner; its result is logged on the next start.
+ * @param {import("./refill-loop.js").ReviewStart} start
+ */
+function startReview(start) {
+	startDetached(start.label, [
+		path.join(SCRIPTS, REVIEW_RUNNER),
+		JSON.stringify(start),
+	]);
+}
+
+/**
+ * Start each overflow key's Console read that is due (lib/console-credit.js),
+ * detached. The started row is what stops the next tick
+ * starting it again.
+ * @param {ReturnType<typeof readDeclaredSeats>} declared
+ * @param {import("./refill-decide.js").SeatReading[]} plan
+ * @param {string|undefined} root
+ */
+function startDueConsoleReads(declared, plan, root) {
+	const now = Date.now();
+	for (const seat of declared.seats) {
+		if (seat.kind !== "overflow") continue;
+		const budget = seatBudget(seat, root);
+		if ("why" in budget || !isConsoleReadDue(seat, budget, plan, now)) continue;
+		try {
+			appendConsoleRow(seat, { at: now, started: true });
+		} catch (err) {
+			log(`console read of ${seat.dir}: not started (${buildErrorText(err)})`);
+			continue;
+		}
+		startDetached(`console read of ${seat.dir}`, [
+			path.join(SCRIPTS, "read-console-credit.js"),
+			seat.dir,
+		]);
 	}
 }
 
@@ -1354,6 +1389,8 @@ function settleRoom({
 	const overflow = loop.overflowReadings(declared, seats, (seat) =>
 		seatBudget(seat, served[0]),
 	);
+	if (!dryRun && !control.stopRequested)
+		startDueConsoleReads(declared, seats, served[0]);
 	return { launches, slots, admission, workingChange, seats, probes, overflow };
 }
 

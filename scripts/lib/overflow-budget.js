@@ -1,7 +1,8 @@
 /*
  * overflow-budget.js — how many sessions fit on an overflow seat's key this
  * billing cycle (#2609, spec #2570 §Budget gate), sized by
- * lib/overflow-budget-core.js.
+ * lib/overflow-budget-core.js from the key's Console reading where it has one
+ * (lib/console-credit.js).
  *
  * SETTLEMENT: every read, `refill-loop.js status` included, first settles
  * each ended run of the seat (lib/headless-sessions.js) once into a durable
@@ -12,6 +13,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { parseArgs } = require("node:util");
 const { caught } = require("./caught.js");
+const { readConsoleLog } = require("./console-credit.js");
 const { endResultOf, readStoredRuns } = require("./headless-sessions.js");
 const { hostRoot } = require("./host-root.js");
 const { readJsonl } = require("./jsonl.js");
@@ -31,6 +33,7 @@ const { writeFd } = require("./write-fd.js");
  * @typedef {import("./overflow-budget-core.js").LedgerEntry} LedgerEntry
  * @typedef {import("./overflow-budget-core.js").RunningRun} RunningRun
  * @typedef {import("./overflow-budget-core.js").Budget} Budget
+ * @typedef {Budget & {readFailure: string|null, lastAttemptAt: number|null}} SeatBudget
  */
 
 /** @param {OverflowSeat} seat */
@@ -142,7 +145,7 @@ function settle(seat, table) {
  * the loop's daemon runs from the home directory (#3683).
  * @param {OverflowSeat} seat
  * @param {string|undefined} root the checkout whose cost table sizes the seat
- * @returns {Budget|{why: string}}
+ * @returns {SeatBudget|{why: string}}
  */
 function seatBudget(seat, root) {
 	if (root === undefined)
@@ -150,18 +153,25 @@ function seatBudget(seat, root) {
 	const table = readCostTableIn(root);
 	if (!table) return { why: "the session cost table is unreadable" };
 	let settled;
+	let log;
 	try {
 		settled = settle(seat, table);
+		log = readConsoleLog(seat);
 	} catch (err) {
 		return { why: caught(err).message };
 	}
-	return budgetOf({
-		grantUsd: seat.grantUsd,
-		cycleDay: seat.cycleDay,
-		table,
-		now: Date.now(),
-		...settled,
-	});
+	return {
+		...budgetOf({
+			grantUsd: seat.grantUsd,
+			cycleDay: seat.cycleDay,
+			table,
+			now: Date.now(),
+			reading: log.reading,
+			...settled,
+		}),
+		readFailure: log.failure,
+		lastAttemptAt: log.lastAttemptAt,
+	};
 }
 
 /** @param {number} usd */
@@ -169,15 +179,23 @@ const dollars = (usd) => `$${usd.toFixed(2)}`;
 
 /**
  * @param {OverflowSeat} seat
- * @param {Budget|{why: string}} budget
+ * @param {SeatBudget|{why: string}} budget
  */
 function buildBudgetLine(seat, budget) {
 	if ("why" in budget) return `overflow ${seat.dir}: unread — ${budget.why}`;
+	const failed = budget.readFailure
+		? `; last Console read failed: ${budget.readFailure}`
+		: "";
+	const headroom = `headroom ${dollars(budget.headroomUsd)} (${dollars(budget.reservedUsd)} held by ${budget.running} running)`;
+	if (budget.readAt !== null) {
+		const spent = `${dollars(budget.creditUsd)} on the Console at ${new Date(budget.readAt).toISOString()}, ${dollars(budget.settledUsd)} spent since`;
+		return `overflow ${seat.dir}: ${budget.exhausted ? "exhausted" : `fits ${budget.fit}`}; ${headroom}; ${spent}${failed}`;
+	}
 	const resets = localDate(new Date(budget.nextCycleStart));
 	const spent = `spent ${dollars(budget.settledUsd)} of ${dollars(budget.grantUsd)} since ${localDate(new Date(budget.cycleStart))}`;
 	if (budget.exhausted)
-		return `overflow ${seat.dir}: exhausted until ${resets}; headroom ${dollars(budget.headroomUsd)}; ${spent}`;
-	return `overflow ${seat.dir}: fits ${budget.fit}; headroom ${dollars(budget.headroomUsd)} (${dollars(budget.reservedUsd)} held by ${budget.running} running); ${spent}; resets ${resets}`;
+		return `overflow ${seat.dir}: exhausted until ${resets}; headroom ${dollars(budget.headroomUsd)}; ${spent}${failed}`;
+	return `overflow ${seat.dir}: fits ${budget.fit}; ${headroom}; ${spent}; resets ${resets}${failed}`;
 }
 
 module.exports = { buildBudgetLine, seatBudget };
