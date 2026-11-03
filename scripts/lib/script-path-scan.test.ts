@@ -28,8 +28,9 @@ describe("guard and lib messages", () => {
 	 * the arbiter commands stale-script and claim-warning print, and the
 	 * bg-run.sh and watcher commands suite-background, agent-poll and
 	 * wait-text say, and the issue-body fallback lead deny passes through,
-	 * which ctx.corePaths spells there; and the `byHand` commands guard-entry's
-	 * refusal spells. */
+	 * which ctx.corePaths spells there; the `byHand` commands guard-entry's
+	 * refusal spells; and the status script npm runs from an adopter's root,
+	 * where init and upgrade copy resolve-core.js (#4151). */
 	const exempt = [
 		/^\t\t"Every issue-body edit goes through node scripts\/issue-body\.js",$/,
 		/remeasure: "node scripts\/measure-turn-band\.js"/,
@@ -44,6 +45,7 @@ describe("guard and lib messages", () => {
 		/^const READ_REASON = `Instead: a subagent, one backgrounded \\`\$\{WATCH\}\\`;/,
 		/^\t"wait inside the turn — what you wait on in the foreground with `timeout: 600000`, a bg-run\.sh job with `scripts\/bg-run\.sh wait <name>`/,
 		/^\tbyHand: "`node scripts\/claim-issue\.js <n>` to claim an issue by hand",$/,
+		/^\t"node scripts\/lib\/resolve-core\.js scripts\/status-report\.js";$/,
 	];
 
 	const guardFiles = fs
