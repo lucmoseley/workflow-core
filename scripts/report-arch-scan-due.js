@@ -597,6 +597,7 @@ function daily() {
 			{
 				stamp: path.join(dir, STAMP),
 				lock: path.join(dir, LOCK),
+				script: path.basename(__filename),
 				nowMs,
 				everyMs: DAY_MS,
 			},

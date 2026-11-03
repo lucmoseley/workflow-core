@@ -6,9 +6,8 @@
  * AT MOST ONE READING A DAY, through lib/periodic-reading.js: a stamp and a
  * lock in the git common directory, so worktrees of one repo share them, the
  * stamp written before the run, so a run that dies is retried the next day
- * and never at the next session start. The lock goes stale at 45 minutes,
- * above the run's own 30-minute ceiling, so a long run is never taken for a
- * dead one.
+ * and never at the next session start. The lock stays held while its run
+ * lives, and the run's own 30-minute ceiling ends a hung one (#4016).
  *
  * AN ENTRY WHOSE GATE FAILS IS SKIP, its reason recorded, and is never
  * launched. The rest run ONE PROCESS AT A TIME, in the registry's order, each
@@ -134,7 +133,6 @@ const ISSUE_LABEL = takesLabel("triage");
 /* Spec #1510's first window, the check's own default. */
 const FIRST_SINCE_DAYS = 30;
 const DAY_MS = 24 * 3_600_000;
-const LOCK_STALE_MS = 45 * 60_000;
 /* Spec #1510's chosen ceilings, §Cost and limits. */
 const CHECK_MS = 300_000;
 const RUN_MS = 30 * 60_000;
@@ -839,7 +837,7 @@ function main() {
 				lock: path.join(dir, LOCK),
 				nowMs: startMs,
 				everyMs: DAY_MS,
-				lockStaleMs: LOCK_STALE_MS,
+				script: path.basename(__filename),
 			},
 			() => {
 				const files = {

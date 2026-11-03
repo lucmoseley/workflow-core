@@ -29,6 +29,7 @@ import {
 	writeSeatHelper,
 } from "./lib/auth-status-fake";
 import { stubGhScript } from "./lib/gh-stub.js";
+import { plantDeadLock, plantLiveLock } from "./lib/pid-lock-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -187,12 +188,25 @@ describe("the probe (--probe)", () => {
 		expect(readState().passed).toBe("2.1.302");
 	});
 
-	it("runs no probe while another holds the lock", () => {
-		fs.writeFileSync(path.join(config, "wfc-harness-canary.lock"), "");
+	it("runs no probe while a live one holds the lock, however old", () => {
+		plantLiveLock(
+			path.join(config, "wfc-harness-canary.lock"),
+			"check-harness-canary.js",
+		);
 		const r = run(["--probe"]);
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("another probe holds");
 		expect(probes()).toBe(0);
+	});
+
+	it("takes over the lock of a probe that died, and releases its own", () => {
+		const lock = path.join(config, "wfc-harness-canary.lock");
+		plantDeadLock(lock);
+		const r = run(["--probe"]);
+		expect(r.status).toBe(0);
+		expect(r.stderr).not.toContain("another probe holds");
+		expect(probes()).toBeGreaterThan(0);
+		expect(fs.existsSync(lock)).toBe(false);
 	});
 });
 

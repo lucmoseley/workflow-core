@@ -1,48 +1,21 @@
 /*
  * periodic-reading.js — the at-most-every-so-often gate a session-start
  * reporter reads behind: a STAMP holding the last reading's time, and a LOCK
- * taken with exclusive create so two session starts never both read and both
- * file (#1219, #1378).
+ * held as a pidfile so two session starts never both read and both file
+ * (#1219, #1378).
  *
  * The stamp is written before the reading, so a reading that throws is
  * retried at the next interval, never at the next session start.
+ *
+ * The lock is stale only once its holder has gone (#4016). Residual: a reading
+ * that hangs keeps it until the caller's own ceiling ends the run, or, where
+ * the caller has none, until the process is killed; only that reporter stops
+ * reading meanwhile.
  */
 
 const fs = require("node:fs");
 const { caught } = require("./caught.js");
-
-/* A guess, not a measurement: a reading takes seconds, so a lock this old
- * belongs to a run that died holding it. A caller whose reading can run longer
- * sets its own `lockStaleMs`, above its own ceiling (#1548). */
-const LOCK_STALE_MS = 10 * 60_000;
-
-/**
- * Take `file` as the lock. False where another run holds a live one.
- *
- * @param {string} file
- * @param {number} staleMs
- * @returns {boolean}
- */
-function lock(file, staleMs) {
-	for (let attempt = 0; attempt < 2; attempt++) {
-		try {
-			fs.writeFileSync(file, String(process.pid), { flag: "wx" });
-			return true;
-		} catch (e) {
-			if (caught(e).code !== "EEXIST") throw e;
-		}
-		let age;
-		try {
-			age = Date.now() - fs.statSync(file).mtimeMs;
-		} catch (e) {
-			if (caught(e).code === "ENOENT") continue;
-			throw e;
-		}
-		if (age < staleMs) return false;
-		fs.rmSync(file, { force: true });
-	}
-	return false;
-}
+const { pidLock } = require("./pid-lock.js");
 
 /**
  * When the stamp says the last reading was, or null where there is none yet.
@@ -69,8 +42,9 @@ function readStampedAt(file) {
  * run holds the lock.
  *
  * @template T
- * @param {{ stamp: string, lock: string, nowMs: number, everyMs: number,
- *   lockStaleMs?: number }} gate
+ * @param {{ stamp: string, lock: string, script: string, nowMs: number,
+ *   everyMs: number }} gate `script` is the basename of the program running
+ *   the gate, which a live holder's command line must carry
  * @param {() => T} read
  * @returns {{ ran: true, value: T }
  *   | { ran: false, why: "recent", last: number }
@@ -85,14 +59,14 @@ function periodicReading(gate, read) {
 	};
 	const last = recent();
 	if (last !== null) return { ran: false, why: "recent", last };
-	if (!lock(gate.lock, gate.lockStaleMs ?? LOCK_STALE_MS))
-		return { ran: false, why: "locked" };
+	const lock = pidLock(gate.lock, gate.script);
+	if (!lock.acquire()) return { ran: false, why: "locked" };
 	try {
 		if (recent() !== null) return { ran: false, why: "just-read" };
 		fs.writeFileSync(gate.stamp, new Date(gate.nowMs).toISOString());
 		return { ran: true, value: read() };
 	} finally {
-		fs.rmSync(gate.lock, { force: true });
+		lock.release();
 	}
 }
 

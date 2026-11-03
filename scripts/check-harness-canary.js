@@ -60,6 +60,7 @@ const { readClaudeVersion } = require("./lib/claude-version.js");
 const { configDir } = require("./lib/config-dir.js");
 const { isCoreRoot } = require("./lib/core-hooks.js");
 const { hostRoot } = require("./lib/host-root.js");
+const { pidLock } = require("./lib/pid-lock.js");
 const { scriptPath } = require("./lib/script-path.js");
 
 const PLUGIN = "wfccanary";
@@ -68,9 +69,6 @@ const CONTROL = `${PLUGIN}:control`;
 
 /** One haiku turn took 16.6 s on 2.1.302; the rest is margin. */
 const PROBE_TIMEOUT_MS = 180_000;
-
-/** A lock older than this belongs to a probe that died, and is taken over. */
-const LOCK_STALE_MS = PROBE_TIMEOUT_MS + 60_000;
 
 /** Between tries of a probe that could not run. A guess, not a measurement. */
 const RETRY_MS = 6 * 3_600_000;
@@ -137,33 +135,6 @@ function writeState(change) {
 	writeFileAtomic(statePath(), `${JSON.stringify(state, null, "\t")}\n`, {
 		mkdir: true,
 	});
-}
-
-/**
- * Take the probe lock; false where a live probe holds it. Two starts that both
- * find a stale lock can each take it and run two probes, which write the same
- * verdict — accepted, as it needs a probe to have died mid-run first (#2037).
- */
-function takeLock() {
-	fs.mkdirSync(configDir(), { recursive: true });
-	for (let attempt = 0; attempt < 2; attempt++) {
-		try {
-			fs.writeFileSync(lockPath(), new Date().toISOString(), { flag: "wx" });
-			return true;
-		} catch (e) {
-			if (caught(e).code !== "EEXIST") throw e;
-		}
-		let age;
-		try {
-			age = Date.now() - fs.statSync(lockPath()).mtimeMs;
-		} catch {
-			/* The holder released it between the two calls: try again. */
-			continue;
-		}
-		if (age < LOCK_STALE_MS) return false;
-		fs.rmSync(lockPath(), { force: true });
-	}
-	return false;
 }
 
 /**
@@ -398,7 +369,10 @@ function probeAgentIdAndRecord(version, prior) {
  * @param {{ listing: boolean, agentId: boolean }} which
  */
 function probeAndRecord(version, which) {
-	if (!takeLock()) return null;
+	fs.mkdirSync(configDir(), { recursive: true });
+	/* Held while the probe lives; `PROBE_TIMEOUT_MS` ends a hung one (#4016). */
+	const lock = pidLock(lockPath(), path.basename(__filename));
+	if (!lock.acquire()) return null;
 	try {
 		/** @type {Verdict | undefined} */
 		let last;
@@ -409,7 +383,7 @@ function probeAndRecord(version, which) {
 		if (which.agentId) probeAgentIdAndRecord(version, readState().agentId);
 		return { last };
 	} finally {
-		fs.rmSync(lockPath(), { force: true });
+		lock.release();
 	}
 }
 
