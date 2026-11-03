@@ -338,7 +338,7 @@ describe("run (#2435)", () => {
 		expect(r.stdout).not.toMatch(/morning review( reversals)?: exit/);
 	});
 
-	it("appends each tick's line to the concurrency record and refreshes the 24-hour figure (#3317)", async () => {
+	it("appends each tick's line to the concurrency record (#3317)", async () => {
 		await settled(run(1), "run after a mid-dispatch stop");
 		const lines = readLines(at("concurrency.jsonl")).map((l) => JSON.parse(l));
 		expect(lines).toHaveLength(1);
@@ -359,8 +359,6 @@ describe("run (#2435)", () => {
 			},
 		});
 		expect(Number.isFinite(Date.parse(lines[0].at))).toBe(true);
-		// No memwatch minute record in the sandbox's HOME: the figure is unread (#3531).
-		expect(fs.readFileSync(at("concurrency-24h"), "utf8")).toBe("?\n");
 	});
 
 	it("supervises a foreign checkout's launches to landing, finished or not, skipping a gone one (#3284)", async () => {

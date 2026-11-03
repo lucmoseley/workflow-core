@@ -167,7 +167,6 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * @property {LaunchCount|null} launchCount
  * @property {LaunchCount|null} handedOff handedOffSince's, `from` being the away
  *   switch
- * @property {LaunchDay|null} launchDay
  * @property {import("./overflow-notice.js").OverflowStart|null} overflowStart
  *   the newest first overflow launch after a plan-seat launch
  * @property {import("./refill-goal.js").GoalProgress|null} goalProgress the last
@@ -198,7 +197,6 @@ const parseSeatTriedAt = (raw) =>
 /**
  * The launches on `day`, machine-local, which outlast the rows keptLaunches
  * trims (#3873).
- * @typedef {{day: string, count: number}} LaunchDay
  */
 
 /**
@@ -485,12 +483,6 @@ const parseLaunchCount = (raw) =>
 		? { from: raw.from, count: raw.count }
 		: null;
 
-/** @param {unknown} raw @returns {LaunchDay|null} */
-const parseLaunchDay = (raw) =>
-	isRecord(raw) && typeof raw.day === "string" && typeof raw.count === "number"
-		? { day: raw.day, count: raw.count }
-		: null;
-
 /** @param {unknown} raw @returns {LoopState} */
 function parseState(raw) {
 	const r = isRecord(raw) ? raw : {};
@@ -503,7 +495,6 @@ function parseState(raw) {
 		reviewRunOn: typeof r.reviewRunOn === "string" ? r.reviewRunOn : null,
 		launchCount: parseLaunchCount(r.launchCount),
 		handedOff: parseLaunchCount(r.handedOff),
-		launchDay: parseLaunchDay(r.launchDay),
 		overflowStart: parseOverflowStart(r.overflowStart),
 		goalProgress: parseGoalProgress(r.goalProgress),
 		probeBrokenRoots: parseStrings(r.probeBrokenRoots),
@@ -985,14 +976,6 @@ function keptLaunches(launches) {
 	);
 	return launches.filter((l) => isLive(l) || capped.has(l));
 }
-
-/**
- * How many launches the loop made on `day`, machine-local.
- * @param {Pick<LoopState, "launchDay">} state
- * @param {string} day
- */
-const launchesOnDay = ({ launchDay }, day) =>
-	launchDay?.day === day ? launchDay.count : 0;
 
 /**
  * How many launches the loop made since `from`, the control's noProgressFrom:
@@ -1581,7 +1564,6 @@ function settleTick(
 		{ judged: afterResumes, launched: outcome.launched },
 		io,
 	);
-	const today = localDate(new Date(input.now));
 	const next = {
 		launches: keptLaunches([...afterResumes, ...outcome.launched]),
 		lastTick: buildLastTick(decision, input.now, summary),
@@ -1600,10 +1582,6 @@ function settleTick(
 				launchesSince(state, input.noProgressFrom) + outcome.launched.length,
 		},
 		handedOff: nextHandedOff(state, away, judged, input.now),
-		launchDay: {
-			day: today,
-			count: launchesOnDay(state, today) + outcome.launched.length,
-		},
 		overflowStart: overflowStart ?? state.overflowStart,
 		goalProgress: goalProgressAfter(state.goalProgress, read, input.now),
 		probeBrokenRoots,
@@ -1696,7 +1674,6 @@ module.exports = {
 	settleTick,
 	readSizedSeats,
 	sizeResumeSeats,
-	launchesOnDay,
 	launchesSince,
 	parseState,
 	stopNeverStarted,

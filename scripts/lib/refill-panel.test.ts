@@ -54,12 +54,11 @@ const RUNNING = {
 	paused: null,
 	lastTick: {
 		at: AT,
-		summary: "idle: no free slot",
-		idle: "no free slot",
+		summary: "idle: nothing launchable",
+		idle: "nothing launchable",
 		paused: false,
 	},
-	launchesToday: 3,
-	concurrency: { working: 9, ceiling: 9, limit: null, sustained: "8.4" },
+	concurrency: { working: 9, ceiling: 9 },
 	mode: "normal",
 	handedOffSinceAway: 0,
 	repos: [],
@@ -68,8 +67,8 @@ const RUNNING = {
 	overflow: [],
 	burnMode: BURN_OFF,
 };
-const LAUNCHED = "3 launched today · 9 of 9 running · 24h 8.4";
-const MACHINE_FULL = "Machine full";
+const RUNNING_COUNT = "9 of 9 running";
+const WAITING_ROW = "No ticket ready";
 const PAUSED_TICK = {
 	at: LATER,
 	summary: "idle: paused by founder",
@@ -241,15 +240,19 @@ function heldUntil() {
 }
 
 describe("the panel's rows", () => {
-	it("names the limit that binds, and an unread count as ?", () => {
+	it("reads line 1 as the running count, and an unread count as ?", () => {
 		const line1 = (concurrency: object) =>
 			summary(rowsOf({ status: { ...RUNNING, concurrency } }))[2][0];
-		expect(
-			line1({ working: 9, ceiling: 9, limit: "memory", sustained: "8.4" }),
-		).toBe(`${LAUNCHED} · Limited by memory`);
-		expect(
-			line1({ working: null, ceiling: null, limit: "memory", sustained: "?" }),
-		).toBe("3 launched today · ? of ? running · 24h ? · Limited by memory");
+		expect(line1({ working: 7, ceiling: 9 })).toBe("7 of 9 running");
+		expect(line1({ working: null, ceiling: null })).toBe("? of ? running");
+	});
+
+	it("leaves the waiting row blank on no free slot, which the count already says", () => {
+		const idle = "no free slot";
+		const lastTick = { at: AT, summary: `idle: ${idle}`, idle, paused: false };
+		const rows = rowsOf({ status: { ...RUNNING, lastTick } });
+		expect(rows[2].text).toBe(RUNNING_COUNT);
+		expect(rows[3].text).toBe("");
 	});
 
 	it("shows a running loop", () => {
@@ -257,8 +260,8 @@ describe("the panel's rows", () => {
 		expect(summary(rows).slice(0, 8)).toEqual([
 			["Refill loop  [on]", "name"],
 			["", "secondary"],
-			[LAUNCHED, "value"],
-			[MACHINE_FULL, "secondary"],
+			[RUNNING_COUNT, "value"],
+			[WAITING_ROW, "secondary"],
 			["", "secondary"],
 			["Weekly plan usage", "secondary"],
 			["  .claude3  47% used (61m ago)", "secondary"],
@@ -278,7 +281,6 @@ describe("the panel's rows", () => {
 	});
 
 	it.each([
-		["no free slot", "Machine full"],
 		["no plan has room right now", "No plan room"],
 		["the 5-hour bar is full on ~/.claude3", "5-hour limit full"],
 		["nothing launchable", "No ticket ready"],
@@ -311,7 +313,7 @@ describe("the panel's rows", () => {
 
 	it("gives the idle reason once in the block", () => {
 		const rows = rowsOf({ status: RUNNING });
-		expect(rows.filter((r) => r.text.includes(MACHINE_FULL))).toHaveLength(1);
+		expect(rows.filter((r) => r.text.includes(WAITING_ROW))).toHaveLength(1);
 		expect(rows.map((r) => r.text).join("\n")).not.toContain("idle:");
 	});
 
@@ -320,7 +322,7 @@ describe("the panel's rows", () => {
 		expect(summary(rows).slice(0, 8)).toEqual([
 			["Refill loop  [on]", "name"],
 			["", "secondary"],
-			[LAUNCHED, "value"],
+			[RUNNING_COUNT, "value"],
 			["", "secondary"],
 			["", "secondary"],
 			["Weekly plan usage", "secondary"],
@@ -814,7 +816,7 @@ describe("the plan and credit rows", () => {
 
 	it("says not spending on a key the picker takes where the last tick idled", () => {
 		const status = { ...RUNNING, seats: ON_KEY_SEATS, overflow: [key()] };
-		expect(status.lastTick.idle).toBe("no free slot");
+		expect(status.lastTick.idle).toBe("nothing launchable");
 		expect(usage(status).slice(3)).toEqual([
 			["API credits left", "secondary"],
 			["  .claude2  ~$258 of $400", "secondary"],
@@ -1057,8 +1059,8 @@ describe("the panel's colours", () => {
 
 	it("draws names bold white, live values white, secondary text #949494", () => {
 		expect(frame).toContain(`${ESC}[1m${ESC}[38;2;242;242;242mRefill loop`);
-		expect(frame).toContain(`${ESC}[38;2;242;242;242m${LAUNCHED}`);
-		expect(frame).toContain(`${ESC}[38;2;148;148;148m${MACHINE_FULL}`);
+		expect(frame).toContain(`${ESC}[38;2;242;242;242m${RUNNING_COUNT}`);
+		expect(frame).toContain(`${ESC}[38;2;148;148;148m${WAITING_ROW}`);
 	});
 
 	it("uses no blue in any colour it draws", () => {
@@ -1446,7 +1448,7 @@ describe("the pending word", () => {
 		const rows = buildRows(panel.view, AT + 1, WIDE);
 		expect(rows[0].control.state).toBe("on");
 		expect(rows[3].text).toBe("the control is damaged; `start` rewrites it");
-		expect(buildRows(panel.view, LATER, WIDE)[3].text).toBe(MACHINE_FULL);
+		expect(buildRows(panel.view, LATER, WIDE)[3].text).toBe(WAITING_ROW);
 	});
 
 	it("survives an unreadable status, and claims nothing during it", async () => {
@@ -1897,7 +1899,7 @@ describe("the Away switch", () => {
 			text: "busy",
 			role: "value",
 		});
-		expect(rows[3].text).toBe(MACHINE_FULL);
+		expect(rows[3].text).toBe(WAITING_ROW);
 		expect(buildRows(panel.view, AT + 60_000, WIDE)[AWAY_INDEX + 1].text).toBe(
 			"",
 		);
@@ -2995,13 +2997,13 @@ describe("the spacing scale", () => {
 	});
 
 	it.each([
-		["a title to its first element: the loop's block", "3 launched", 1],
+		["a title to its first element: the loop's block", RUNNING_COUNT, 1],
 		["a title to its first element: the goal's field", "No goal", 1],
 		["a title to its first element: the first box", "[✓] wc", 1],
 		["siblings: Away to Burn mode", "Burn mode", 1],
 		["siblings: one box to the next", "[ ] dv", 1],
 		["siblings: the last box to the note", "An unticked repo", 1],
-		["inside a text block: the loop's line 2", MACHINE_FULL, 0],
+		["inside a text block: the loop's line 2", WAITING_ROW, 0],
 		["siblings: the loop's lines to the plan rows", "Weekly plan usage", 1],
 		["inside a text block: the plan rows", ".claude3", 0],
 		["inside a text block: the caption under the field", "Click to change", 0],

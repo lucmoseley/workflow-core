@@ -254,7 +254,6 @@ describe("file-morning-review.js (#2011)", () => {
 				"",
 				"Sustained concurrency, the founder's own sessions counted:",
 				"",
-				"- 3.0 over the last 24 h (1.0 h with any session working)",
 				"- 3.9 over the last 7 days (1.4 h with any session working)",
 				"",
 				`Admission ceiling: 6 at the last refill-loop tick (${last.at}).`,

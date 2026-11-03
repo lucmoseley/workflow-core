@@ -29,12 +29,7 @@
 const { requiredGroup } = require("./regex-group.js");
 const { byKind, incidentTitle, isOver } = require("./earlyoom-kills.js");
 const { buildEpisodeTitle, countKilled } = require("./process-runaways.js");
-const {
-	NONE,
-	SPREAD_CAP,
-	SUSTAINED_WINDOW,
-	buildSustainedText,
-} = require("./concurrency.js");
+const { NONE, SPREAD_CAP, buildSustainedText } = require("./concurrency.js");
 const { DAY_MS } = require("./retained-jsonl.js");
 const { rowChanges } = require("./primitives-table.js");
 const { buildIdleLines } = require("./idle-efforts.js");
@@ -56,7 +51,7 @@ const CLOSE_SETTLE_MS = 15 * 60 * 1000;
 const STUCK_URGENT_DAYS = 7;
 /* The concurrency section's two readout windows; untraced (#3315). */
 const CONCURRENCY_WINDOWS = {
-	day: SUSTAINED_WINDOW,
+	day: { ms: DAY_MS, span: "24 h" },
 	week: { ms: 7 * DAY_MS, span: "7 days" },
 };
 /* Untraced: spec #1995's "first tick after 07:00", machine-local. */
@@ -359,7 +354,7 @@ const hours = (h) => `${h.toFixed(1)} h`;
 
 /**
  * The "Concurrency" lines, every figure as lib/concurrency.js's readout gives
- * it: the sustained figures, the last tick's ceiling, the day's working hours
+ * it: the 7-day sustained figure, the last tick's ceiling, the day's working hours
  * by the limit binding then, and how many sessions worked across them.
  * @param {ConcurrencyReading} c
  * @returns {string[]}
@@ -381,7 +376,6 @@ function renderConcurrencyLines({ day, week }) {
 	return [
 		"Sustained concurrency, the founder's own sessions counted:",
 		"",
-		`- ${buildSustainedText(day, CONCURRENCY_WINDOWS.day.span)}`,
 		`- ${buildSustainedText(week, CONCURRENCY_WINDOWS.week.span)}`,
 		"",
 		t

@@ -20,7 +20,6 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeCostTable } from "./lib/cost-table-testkit";
 import { printed, stubGhRoutes } from "./lib/gh-stub";
-import { localDate } from "./lib/morning-review.js";
 import { writeCheckout } from "./lib/refill-loop-fixture";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 import { SESSION_COST_TABLE } from "./lib/session-spend.js";
@@ -957,7 +956,6 @@ describe("set (#3856)", () => {
 			path.join(dir, ".refill-loop-state.json"),
 			JSON.stringify({
 				lastTick: { at, summary: "idle: no free slot", idle: "no free slot" },
-				launchDay: { day: localDate(new Date()), count: 3 },
 			}),
 		);
 		const json = JSON.parse((await run("status", "--json")).stdout);
@@ -972,13 +970,11 @@ describe("set (#3856)", () => {
 				idle: "no free slot",
 				paused: false,
 			},
-			launchesToday: 3,
 		});
 	});
 
 	it("carries the newest tick's concurrency in status --json (#4062)", async () => {
 		writeControl();
-		fs.writeFileSync(path.join(dir, "concurrency-24h"), "8.4\n");
 		fs.writeFileSync(
 			path.join(dir, "concurrency.jsonl"),
 			`${JSON.stringify({
@@ -992,8 +988,6 @@ describe("set (#3856)", () => {
 		expect(JSON.parse(r.stdout).concurrency).toEqual({
 			working: 9,
 			ceiling: 9,
-			limit: "memory",
-			sustained: "8.4",
 		});
 	});
 

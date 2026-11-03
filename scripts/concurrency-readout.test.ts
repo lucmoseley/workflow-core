@@ -8,8 +8,7 @@
  * The program runs in-process over a refill record holding a stale tick, and
  * spawns the real admission.js over fake `ps`, `/proc`, `claude` and meminfo,
  * so its live read finds one claimed pair that no listing names. Which row the
- * watch reads, tick or live, is lib/concurrency.test.ts's. It also pins the
- * precomputed 24-hour file the refill panel reads (#3498).
+ * watch reads, tick or live, is lib/concurrency.test.ts's.
  */
 
 import fs from "node:fs";
@@ -112,50 +111,6 @@ describe("the unlisted watch with the loop off (#3496)", () => {
 			/^unlisted: {2}unknown now — session listing: empty and unvouched/m,
 		);
 		expect(r.stdout).not.toContain("outside admission's listing");
-		expect(r.status).toBe(0);
-	});
-});
-
-describe("the sustained figure the refill panel reads (#3498)", () => {
-	const sustainedFile = () =>
-		fs.readFileSync(path.join(dir, "refill", "concurrency-24h"), "utf8");
-
-	it("writes the 24-hour figure and prints it", () => {
-		const at = (ago: number) => new Date(Date.now() - ago).toISOString();
-		fs.writeFileSync(
-			path.join(dir, "minutes.jsonl"),
-			[
-				{ ts: at(10 * 60 * 1000), sessions: 3 },
-				{ ts: at(5 * 60 * 1000), sessions: 3 },
-			]
-				.map((m) => `${JSON.stringify(m)}\n`)
-				.join(""),
-		);
-		const r = run({ fresh: true });
-		expect(sustainedFile()).toBe("3.0\n");
-		expect(r.stdout).toMatch(/^sustained: 3\.0 over the last 24 h /m);
-		expect(r.status).toBe(0);
-	});
-
-	it("writes `-` where no session was recorded working", () => {
-		fs.writeFileSync(
-			path.join(dir, "minutes.jsonl"),
-			`${JSON.stringify({ ts: new Date().toISOString(), sessions: 0 })}\n`,
-		);
-		const r = run({ fresh: true });
-		expect(sustainedFile()).toBe("-\n");
-		expect(r.stdout).toMatch(
-			/^sustained: no session recorded working over the last 24 h$/m,
-		);
-		expect(r.status).toBe(0);
-	});
-
-	it("writes `?` and prints unread where the minute record is missing (mantahostels#1206)", () => {
-		const r = run({ fresh: true });
-		expect(sustainedFile()).toBe("?\n");
-		expect(r.stdout).toMatch(
-			/^sustained: unread over the last 24 h — memwatch's minute record did not read$/m,
-		);
 		expect(r.status).toBe(0);
 	});
 });

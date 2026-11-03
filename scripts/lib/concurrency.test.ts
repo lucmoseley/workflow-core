@@ -215,7 +215,7 @@ describe("readout's verdict (#3317)", () => {
 		expect(r.also.map((f: { limit: string }) => f.limit)).toEqual(also);
 	});
 
-	it("prints the verdict, the also limits, memory's holder and the sustained figure", () => {
+	it("prints the verdict, the also limits and memory's holder", () => {
 		const r = readout({
 			ticks: [tickAt(T0, "allowance", ["memory"])],
 			minutes: [minute(T0, 4), minute(T0 + 30 * MIN, 0)],
@@ -228,7 +228,6 @@ describe("readout's verdict (#3317)", () => {
 				"bound by:  allowance — allowance why",
 				"also:      memory (memory why)",
 				"memory:    non-session processes holds most (1400 MB)",
-				"sustained: 4.0 over the last 24 h (0.1 h with any session working)",
 			].join("\n"),
 		);
 	});
@@ -243,30 +242,6 @@ describe("readout's verdict (#3317)", () => {
 		});
 		expect(buildBlockText(r, () => ({ count: 0, mb: 0 }))).toMatch(
 			/^unreadable: \/x\/concurrency.jsonl — EACCES\nno refill-loop tick recorded$/m,
-		);
-	});
-
-	it("prints the sustained figure unread where the minute record did not read (mantahostels#1206)", () => {
-		const r = readout({
-			ticks: [tickAt(T0, "allowance", [])],
-			minutes: null,
-			now: T0 + MIN,
-			windowMs: 24 * HOUR,
-		});
-		expect(buildBlockText(r, unread)).toMatch(
-			/^sustained: unread over the last 24 h — memwatch's minute record did not read$/m,
-		);
-	});
-
-	it("prints a null sustained figure as the morning review does", () => {
-		const r = readout({
-			ticks: [tickAt(T0, "allowance", [])],
-			minutes: [],
-			now: T0 + MIN,
-			windowMs: 24 * HOUR,
-		});
-		expect(buildBlockText(r, unread)).toMatch(
-			/^sustained: no session recorded working over the last 24 h$/m,
 		);
 	});
 });
@@ -670,7 +645,7 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 
 describe("what status --json carries for the panel (#4062)", () => {
 	let dir: string;
-	const Unread = { working: null, ceiling: null, limit: null };
+	const Unread = { working: null, ceiling: null };
 	const line = (over: object = {}, ago = MIN) =>
 		JSON.stringify({
 			at: iso(T0 - ago),
@@ -697,50 +672,25 @@ describe("what status --json carries for the panel (#4062)", () => {
 		fs.rmSync(dir, { recursive: true, force: true });
 	});
 
-	it("reads no record and no figure as unread and -", () => {
-		expect(readConcurrencyStatus(T0)).toEqual({ ...Unread, sustained: "-" });
+	it("reads no record as unread", () => {
+		expect(readConcurrencyStatus(T0)).toEqual(Unread);
 	});
 
-	it("reads the figure as written, and a file that will not read as ?", () => {
-		fs.writeFileSync(path.join(dir, "concurrency-24h"), "8.4\n");
-		expect(statusOf(line()).sustained).toBe("8.4");
-		fs.rmSync(path.join(dir, "concurrency-24h"));
-		fs.mkdirSync(path.join(dir, "concurrency-24h"));
-		expect(statusOf(line()).sustained).toBe("?");
-	});
-
-	it("takes the newest tick's count, ceiling and limit", () => {
+	it("takes the newest tick's count and ceiling", () => {
 		expect(statusOf(line({ working: 1 }), line())).toEqual({
 			working: 9,
 			ceiling: 9,
-			limit: "memory",
-			sustained: "-",
-		});
-	});
-
-	it("carries no limit where none binds", () => {
-		expect(statusOf(line({ binding: null })).limit).toBeNull();
-	});
-
-	it("keeps the limit beside an unread count", () => {
-		expect(statusOf(line({ working: null, ceiling: null }))).toEqual({
-			...Unread,
-			limit: "memory",
-			sustained: "-",
 		});
 	});
 
 	it("trusts a tick up to the staleness bound, and not past it", () => {
 		expect(statusOf(line({}, STALE_MS)).working).toBe(9);
-		expect(statusOf(line({}, STALE_MS + 1))).toEqual({
-			...Unread,
-			sustained: "-",
-		});
+		expect(statusOf(line({}, STALE_MS + 1))).toEqual(Unread);
 	});
 
 	it("reads a stop tick as unread", () => {
 		const stop = { binding: { limit: "loop not running", why: "w" } };
-		expect(statusOf(line(stop))).toEqual({ ...Unread, sustained: "-" });
+		expect(statusOf(line(stop))).toEqual(Unread);
 	});
 
 	it("falls back to the tick before a torn last line", () => {

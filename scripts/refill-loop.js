@@ -29,8 +29,8 @@
  *                                        (lib/repo-holds.js), each overflow
  *                                        seat's budget and the plan seats
  *                                        overflow rests on; `--json` the code
- *                                        sha, the stop, the pause, the last tick, launches
- *                                        today, the mode, when away was switched
+ *                                        sha, the stop, the pause, the last tick,
+ *                                        the mode, when away was switched
  *                                        on and the sessions handed off since,
  *                                        the goal, every candidate
  *                                        checkout, the launch rows, the
@@ -77,7 +77,6 @@ const refillCode = require("./lib/refill-code.js");
 const gates = require("./lib/gate-sweep.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { hostRoot } = require("./lib/host-root.js");
-const { localDate } = require("./lib/morning-review.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const { readAllowance } = require("./lib/allowance.js");
 const { buildBudgetLine, seatBudget } = require("./lib/overflow-budget.js");
@@ -162,7 +161,7 @@ const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | set | 
   set --goal-issues <ref,…> --goal-text <text> the same, for a confirmed topic: its issues, and the text they came from
   set --clear-goal                             run bare
   set --json <flags>                           print one object once its flags parse, whatever the exit: refused, null or its reason, remedy and box at fault; warning, the same for a change no process takes yet; and lines, what it says without --json
-  status [--json]                              --json: the code sha, the stop and whether it died with none, the pause, the last tick, launches today, the mode, when away was switched on and the sessions handed off since, the goal, every candidate checkout, the launch rows, each with its seat and why, the seats line's fields, each overflow key's budget, and burn mode's state
+  status [--json]                              --json: the code sha, the stop and whether it died with none, the pause, the last tick, the mode, when away was switched on and the sessions handed off since, the goal, every candidate checkout, the launch rows, each with its seat and why, the seats line's fields, each overflow key's budget, and burn mode's state
   <dir> is a checkout's directory name in the home directory; a <ref> is <dir>#N, or #N with one repo ticked, naming an open issue; set takes any of its flags together`;
 
 /** @typedef {import("./lib/refill-notice.js").Notice} Notice */
@@ -730,7 +729,6 @@ function status({ flags }) {
 					pid,
 					seats,
 					codeSha,
-					today: localDate(new Date()),
 					candidates: readCandidates(homeDir()),
 					burnMode: readBurnState(),
 					overflow: readOverflowStatus(root),

@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 /*
  * concurrency-readout.js — `npm run status`'s concurrency block (#3317): the
- * refill loop's last verdict, its "also" limits, memory's largest holder and
- * the 24-hour sustained figure, from the two records lib/concurrency.js
- * reads. Where the newest tick is stale, as it is whenever the refill loop is
+ * refill loop's last verdict, its "also" limits and memory's largest holder,
+ * from the records lib/concurrency.js reads. Where the newest tick is stale, as it is whenever the refill loop is
  * off (#3215), the unlisted watch reads `admission.js --json` live instead
- * (#3496). Refreshes the precomputed 24-hour file as it goes. Reads no
+ * (#3496). Reads no
  * transcript and runs nowhere at session start (#2038).
  *
  * In no family (§N3): it files nothing, checks nothing and always exits 0.
@@ -16,11 +15,9 @@
 const { spawnSync } = require("node:child_process");
 const path = require("node:path");
 const {
-	SUSTAINED_WINDOW,
 	buildBlockText,
 	readRecords,
-	readout,
-	writeSustained,
+	readVerdict,
 } = require("./lib/concurrency.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { childFailure, childVerdict } = require("./lib/child-failure.js");
@@ -67,12 +64,7 @@ function readLiveUnlisted() {
 
 /** @returns {number} */
 function main() {
-	const r = readout({
-		...readRecords(),
-		now: Date.now(),
-		windowMs: SUSTAINED_WINDOW.ms,
-	});
-	writeSustained(r);
+	const r = readVerdict({ ...readRecords(), now: Date.now() });
 	writeFd(1, `${buildBlockText(r, readLiveUnlisted)}\n`);
 	return 0;
 }

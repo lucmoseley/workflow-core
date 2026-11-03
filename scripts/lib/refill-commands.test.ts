@@ -49,8 +49,6 @@ const NO_SEATS = {
 const NO_CONCURRENCY = {
 	working: null,
 	ceiling: null,
-	limit: null,
-	sustained: "-",
 };
 
 describe("what status prints", () => {
@@ -83,7 +81,6 @@ describe("what status prints", () => {
 		reviewRunOn: null,
 		launchCount: null,
 		handedOff: null,
-		launchDay: null,
 		overflowStart: null,
 		goalProgress: null,
 		probeBrokenRoots: [],
@@ -255,7 +252,6 @@ describe("what status prints", () => {
 				reviewRunOn: null,
 				launchCount: null,
 				handedOff: null,
-				launchDay: null,
 				overflowStart: null,
 				goalProgress: null,
 				probeBrokenRoots: [],
@@ -290,7 +286,6 @@ describe("the launch lines status shows (#2850)", () => {
 				reviewRunOn: null,
 				launchCount: null,
 				handedOff: null,
-				launchDay: null,
 				overflowStart: null,
 				goalProgress: null,
 				probeBrokenRoots: [],
@@ -449,7 +444,6 @@ describe("a launch row's seat and reason (#3732)", () => {
 		reviewRunOn: null,
 		launchCount: null,
 		handedOff: null,
-		launchDay: null,
 		overflowStart: null,
 		goalProgress: null,
 		probeBrokenRoots: [],
@@ -493,7 +487,6 @@ describe("a launch row's seat and reason (#3732)", () => {
 			state: stateOf([typed, record({ seat })]),
 			pid: 1,
 			codeSha: null,
-			today: "2026-11-02",
 			candidates: [],
 			burnMode: { on: false, disagreeing: [], error: null },
 			overflow: [],
@@ -513,7 +506,7 @@ describe("a launch row's seat and reason (#3732)", () => {
 });
 
 describe("status --json for the panel (#3873)", () => {
-	const jsonOf = (state: object, today = "2026-11-02") =>
+	const jsonOf = (state: object) =>
 		buildStatusJson({
 			seats: NO_SEATS,
 			control: null,
@@ -525,7 +518,6 @@ describe("status --json for the panel (#3873)", () => {
 				reviewRunOn: null,
 				launchCount: null,
 				handedOff: null,
-				launchDay: null,
 				overflowStart: null,
 				goalProgress: null,
 				probeBrokenRoots: [],
@@ -534,7 +526,6 @@ describe("status --json for the panel (#3873)", () => {
 			},
 			pid: 1,
 			codeSha: "abc1234",
-			today,
 			candidates: [],
 			burnMode: { on: false, disagreeing: [], error: null },
 			overflow: [],
@@ -568,13 +559,6 @@ describe("status --json for the panel (#3873)", () => {
 			jsonOf({ lastTick: { at: 5, summary: "launched" } }).lastTick?.idle,
 		).toBeNull();
 	});
-
-	it("counts today's launches, and none from another day", () => {
-		const launchDay = { day: "2026-11-01", count: 284 };
-		expect(jsonOf({ launchDay }, "2026-11-01").launchesToday).toBe(284);
-		expect(jsonOf({ launchDay }).launchesToday).toBe(0);
-		expect(jsonOf({}).launchesToday).toBe(0);
-	});
 });
 
 describe("a handed-off launch (#2659)", () => {
@@ -598,7 +582,6 @@ describe("a handed-off launch (#2659)", () => {
 				reviewRunOn: null,
 				launchCount: null,
 				handedOff: null,
-				launchDay: null,
 				overflowStart: null,
 				goalProgress: null,
 				probeBrokenRoots: [],

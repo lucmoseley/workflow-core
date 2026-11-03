@@ -494,7 +494,6 @@ describe("renderReview (#2011)", () => {
 				"",
 				"Sustained concurrency, the founder's own sessions counted:",
 				"",
-				"- no session recorded working over the last 24 h",
 				"- no session recorded working over the last 7 days",
 				"",
 				"Admission ceiling: no refill-loop tick recorded.",
@@ -532,10 +531,10 @@ describe("renderReview (#2011)", () => {
 		);
 	});
 
-	it("reads the sustained figures and hours unread where the minute record did not read (mantahostels#1206)", () => {
+	it("reads the sustained figure and hours unread where the minute record did not read (mantahostels#1206)", () => {
 		const body = renderWith({ concurrency: concurrencyOver([], null) });
 		expect(body).toContain(
-			"- unread over the last 24 h — memwatch's minute record did not read\n- unread over the last 7 days — memwatch's minute record did not read\n",
+			"- unread over the last 7 days — memwatch's minute record did not read\n",
 		);
 		expect(body).toContain(
 			"Hours by binding limit and their spread: unread, as memwatch's minute record did not read.",

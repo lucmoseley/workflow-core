@@ -41,7 +41,6 @@ const {
 	controlInMode,
 	handedOffSince,
 	withAbsentRead,
-	launchesOnDay,
 	launchesSince,
 	recordedStop,
 } = require("./refill-loop.js");
@@ -1007,14 +1006,14 @@ function buildOverflowStatus(dir, budget) {
 /**
  * `status --json`: whether the loop runs and on what code, its pause and mode,
  * when away was switched on and the sessions handed off since, with no process
- * the stop that ended it or that it died with none, the last tick's summary and waiting reason, launches today, every candidate
+ * the stop that ended it or that it died with none, the last tick's summary and waiting reason, every candidate
  * checkout, ticked or not, with why any is disabled (#3862), the launch rows
  * `status` lists, each with its seat as a tilde path and why it was picked
  * (#3732), null on a record from before that, the `seats:` line's fields
  * (#3733), each overflow key's budget (#3875), and the newest tick's concurrency
- * with the 24-hour figure (#4062).
+ * (#4062).
  * @param {{control: Control|null, state: LoopState, pid: number|null,
- *   seats: SeatsView, codeSha: string|null, today: string,
+ *   seats: SeatsView, codeSha: string|null,
  *   candidates: {root: string, disabled: string|null}[],
  *   burnMode: ReturnType<typeof import("./burn-mode.js").readBurnState>,
  *   overflow: ReturnType<typeof buildOverflowStatus>[],
@@ -1028,7 +1027,6 @@ function buildStatusJson({
 	pid,
 	seats,
 	codeSha,
-	today,
 	candidates,
 	burnMode,
 	overflow,
@@ -1049,7 +1047,6 @@ function buildStatusJson({
 			paused: isPauseText(lastTick.idle),
 			planWait: lastTick.planWait ?? null,
 		},
-		launchesToday: launchesOnDay(state, today),
 		concurrency,
 		mode: control?.scope.mode ?? null,
 		goal: buildGoalStatus(control?.scope.goal ?? null, state.goalProgress),

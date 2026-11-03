@@ -21,7 +21,6 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readAllowance } from "./allowance";
 import { AS_ROOT, freshSandbox, store } from "./arbiter-testkit";
-import { localDate } from "./morning-review.js";
 import { buildStatusLines } from "./refill-commands.js";
 import { decideTick, FULL, hasRoom } from "./refill-decide.js";
 import {
@@ -1555,40 +1554,6 @@ describe("the launches a tick keeps (#3621)", () => {
 				resumes: [],
 			});
 			expect(printed(launched)).toContain("launches:  61 since");
-		});
-
-		it("counts a day's launches past what the trim keeps, restarting on a new day (#3873)", () => {
-			const today = localDate(new Date(NOW));
-			const launch = {
-				root: "/r/wfc",
-				issues: [5],
-				prompt: "/implement 5",
-				model: "opus" as const,
-				seat: "/s",
-				reason: "overflow" as const,
-			};
-			const launching = {
-				launches: [launch],
-				skipped: [],
-				idle: null,
-				held: [],
-				resumes: [],
-			};
-			const counted = parseState({
-				launches: since(60),
-				launchDay: { day: today, count: 284 },
-			});
-			expect(settled(counted, launching).launchDay).toEqual({
-				day: today,
-				count: 285,
-			});
-			const yesterday = parseState({
-				launchDay: { day: "2020-01-01", count: 284 },
-			});
-			expect(settled(yesterday).launchDay).toEqual({ day: today, count: 0 });
-			expect(
-				parseState(JSON.parse(JSON.stringify(settled(yesterday)))).launchDay,
-			).toEqual({ day: today, count: 0 });
 		});
 
 		it("reads a state with no counter from its kept rows", () => {
