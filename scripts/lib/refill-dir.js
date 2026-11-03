@@ -8,6 +8,8 @@
 const path = require("node:path");
 const { machineMarkerPath } = require("./machine-marker.js");
 
+const REFILL_STATE_FILE = ".refill-loop-state.json";
+
 /** @param {string} name */
 function refillPath(name) {
 	return process.env.WFC_REFILL_DIR
@@ -15,4 +17,4 @@ function refillPath(name) {
 		: machineMarkerPath(name, process.env);
 }
 
-module.exports = { refillPath };
+module.exports = { REFILL_STATE_FILE, refillPath };

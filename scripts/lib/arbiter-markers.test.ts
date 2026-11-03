@@ -17,7 +17,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	finished,
 	freshSandbox,
@@ -25,6 +25,7 @@ import {
 	markers as markersMod,
 } from "./arbiter-testkit";
 import { readParkedBy, writeParkedBy } from "./parked.js";
+import { REFILL_STATE_FILE } from "./refill-dir.js";
 
 /* An hour past arbiter-markers.js's 24-hour MARKER_AGE_MS. */
 const AGED_MS = 25 * 60 * 60 * 1000;
@@ -40,6 +41,8 @@ describe("marker sweep — the backstop's per-session files in the repo root", (
 		".codereview-pass-",
 		".parked-blocked-",
 	];
+
+	const passPrefixes = [".concision-pass-", ".codereview-pass-"];
 
 	/* Since F8 (mantahostels#3515, #2) the family lives under
 	 * .claude/tmp/markers/, not the repo root directly. A function, not a hoisted
@@ -95,7 +98,133 @@ describe("marker sweep — the backstop's per-session files in the repo root", (
 		markersMod.pruneMarkers();
 
 		expect(readParkedBy("bob")).toEqual([12]);
-		expect(surviving("bob")).toEqual([]);
+		expect(surviving("bob")).toEqual(passPrefixes);
+	});
+
+	describe("a session the refill loop still expects to resume (#4110)", () => {
+		const writeState = (launches: unknown) => {
+			vi.stubEnv("WFC_REFILL_DIR", sb.home);
+			fs.writeFileSync(
+				path.join(sb.home, REFILL_STATE_FILE),
+				JSON.stringify({ launches }),
+			);
+		};
+		afterEach(() => {
+			vi.unstubAllEnvs();
+		});
+
+		it("keeps only the pass markers of a held launch's aged session", () => {
+			markers("held", true);
+			finished(sb, "held");
+			writeState([{ finishedAt: null, jobId: "held", sessionId: "held" }]);
+
+			markersMod.pruneMarkers();
+
+			expect(surviving("held")).toEqual(passPrefixes);
+		});
+
+		it.each(["limitHeld", "swapHeld", "holdCleared", "bootKilled"])(
+			"keeps the pass markers of a session only %s names",
+			(field) => {
+				markers("nested", true);
+				finished(sb, "nested");
+				writeState([
+					{ finishedAt: null, jobId: "j", [field]: { sessionId: "nested" } },
+				]);
+
+				markersMod.pruneMarkers();
+
+				expect(surviving("nested")).toEqual(passPrefixes);
+			},
+		);
+
+		it("keeps the pass markers of a finished session's standing park", () => {
+			markers("parked", true);
+			writeParkedBy("parked", [12]);
+			finished(sb, "parked");
+			writeState([]);
+
+			markersMod.pruneMarkers();
+
+			expect(surviving("parked")).toEqual(passPrefixes);
+		});
+
+		it("sweeps the pass markers of a finished launch's session", () => {
+			markers("done", true);
+			finished(sb, "done");
+			writeState([{ finishedAt: 1, jobId: "done", sessionId: "done" }]);
+
+			markersMod.pruneMarkers();
+
+			expect(surviving("done")).toEqual([]);
+		});
+
+		it("sweeps the pass markers of a session whose park has emptied", () => {
+			markers("unparked", true);
+			writeParkedBy("unparked", []);
+			finished(sb, "unparked");
+			writeState([]);
+
+			markersMod.pruneMarkers();
+
+			expect(surviving("unparked")).toEqual([]);
+		});
+
+		it("sweeps the pass markers of a session no launch or park names", () => {
+			markers("stranger", true);
+			finished(sb, "stranger");
+			writeState([{ finishedAt: null, jobId: "held", sessionId: "held" }]);
+
+			markersMod.pruneMarkers();
+
+			expect(surviving("stranger")).toEqual([]);
+		});
+
+		it("keeps a young marker of a session no launch or park names", () => {
+			markers("young");
+			finished(sb, "young");
+			writeState([]);
+
+			markersMod.pruneMarkers();
+
+			expect(surviving("young")).toEqual(prefixes);
+		});
+
+		it.each([
+			["is torn", "{torn"],
+			["holds no list of launches", '{"launches":"x"}'],
+		])("keeps only the pass markers where the loop's state %s", (_, text) => {
+			markers("unknown", true);
+			finished(sb, "unknown");
+			vi.stubEnv("WFC_REFILL_DIR", sb.home);
+			fs.writeFileSync(path.join(sb.home, REFILL_STATE_FILE), text);
+
+			markersMod.pruneMarkers();
+
+			expect(surviving("unknown")).toEqual(passPrefixes);
+		});
+
+		it("keeps only the pass markers where a park marker will not read", () => {
+			markers("unknown", true);
+			finished(sb, "unknown");
+			writeState([]);
+			fs.mkdirSync(path.join(markersDir(), ".parked-torn"));
+
+			markersMod.pruneMarkers();
+
+			expect(surviving("unknown")).toEqual(passPrefixes);
+		});
+
+		it("reads a state with no launches as none", () => {
+			markers("stranger", true);
+			finished(sb, "stranger");
+			vi.stubEnv("WFC_REFILL_DIR", sb.home);
+			fs.writeFileSync(path.join(sb.home, REFILL_STATE_FILE), "{}");
+
+			markersMod.pruneMarkers();
+
+			expect(surviving("stranger")).toEqual([]);
+		});
 	});
 
 	it("sweeps the markers of a session that was never registered", () => {

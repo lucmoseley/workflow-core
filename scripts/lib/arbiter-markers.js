@@ -31,6 +31,7 @@ const { markersDir, PASS_MARKER_PREFIXES } = require("./marker-root.js");
 const {
 	PREFIXES: pricedOptionsPrefixes,
 } = require("./priced-options-limbs.js");
+const { readSessionsResumeExpected } = require("./resume-expected.js");
 
 // ---------------------------------------------------------------------------
 // The hook markers — under .claude/tmp/markers (F8, mantahostels#3515, issue #2),
@@ -193,7 +194,25 @@ function liveBreadcrumb(f, live) {
 }
 
 /**
- * Delete the hook markers of sessions that are both finished and old.
+ * Whether the refill loop still expects to resume a session; every session where
+ * that will not read, so doubt costs a pass marker's bytes, not its pass.
+ * @param {string} root
+ * @returns {(id: string) => boolean}
+ */
+function buildResumeExpected(root) {
+	try {
+		const expected = readSessionsResumeExpected(root);
+		return (id) => expected.has(id);
+	} catch (e) {
+		core.logError("pruneMarkers", e);
+		return () => true;
+	}
+}
+
+/**
+ * Delete the hook markers of sessions that are both finished and old, but for
+ * the pass markers of a session the refill loop still expects to resume, which
+ * lib/move-pass-markers.js hands to its copy at the resume (#4110).
  *
  * .gitignore hides every family this sweeps, so a clean `git status` is no sign
  * the repo root is clean of them — hook-block.test.ts is what keeps that true.
@@ -224,6 +243,7 @@ function pruneMarkers() {
 	const live = core.readLiveOrLog("pruneMarkers");
 	if (live === null) return; // cannot tell live from finished: delete nothing
 	const root = core.repoRoot();
+	const isResumeExpected = buildResumeExpected(root);
 	const markers = markersDir(root);
 	// Three passes because the families are kept for different lengths of time
 	// and sweepAged takes one age. Each spares everything outside its own family,
@@ -238,7 +258,11 @@ function pruneMarkers() {
 		if (!prefix) return true;
 		// The suffix is the raw session id — the backstop interpolates it
 		// unchanged — so it compares directly against the registry's ids.
-		return live.has(f.slice(prefix.length));
+		const id = f.slice(prefix.length);
+		return (
+			live.has(id) ||
+			(PASS_MARKER_PREFIXES.includes(prefix) && isResumeExpected(id))
+		);
 	});
 	/* Its own directory (mantahostels#3382), under the markers directory
 	 * rather than the repo root (F8). The prefix test stays: a

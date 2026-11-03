@@ -22,14 +22,14 @@ const path = require("node:path");
 const { caught } = require("./caught.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { pidLock, waitForLock } = require("./pid-lock.js");
-const { refillPath } = require("./refill-dir.js");
+const { REFILL_STATE_FILE, refillPath } = require("./refill-dir.js");
 const { isRecord } = require("./refill-goal.js");
 const { parseControl, parseState } = require("./refill-loop.js");
 
 function loopFiles() {
 	return {
 		control: refillPath(".refill-loop-control.json"),
-		state: refillPath(".refill-loop-state.json"),
+		state: refillPath(REFILL_STATE_FILE),
 		pid: refillPath(".refill-loop.pid"),
 		log: refillPath(".refill-loop.log"),
 		stopSeen: refillPath(".refill-loop-stop-seen"),
