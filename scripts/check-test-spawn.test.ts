@@ -152,6 +152,21 @@ describe("check-test-spawn", () => {
 		]);
 	});
 
+	it("reads the header's marker below a shebang, and refuses a marker a line of code separates from the shebang (#4117)", () => {
+		test(
+			"scripts/a.test.js",
+			`#!/usr/bin/env node\n/* header */\n// spawn-kept: a real fd\n${SPAWN}`,
+		);
+		expect(run().status).toBe(0);
+		test(
+			"scripts/b.test.js",
+			`#!/usr/bin/env node\nconst x = 1;\n// spawn-kept: a real fd\n\nconst y = 2;\n${SPAWN}`,
+		);
+		const r = run();
+		expect(r.status).toBe(1);
+		expect(r.out).toContain("scripts/b.test.js:6");
+	});
+
 	it("refuses a marker with no reason, one a line of code separates from the call, and one below the header", () => {
 		test("scripts/a.test.ts", `// spawn-kept:\n${SPAWN}`);
 		test(

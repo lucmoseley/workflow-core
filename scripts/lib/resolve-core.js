@@ -15,7 +15,8 @@
  *      The workflow steps: docs/agents/helper-surface.md.
  *   3. The installed plugin: the last `workflow-core@<marketplace>` row of
  *      `<config>/plugins/installed_plugins.json` whose `projectPath` is the
- *      adopter root, the marketplace read from the pin in the root's
+ *      adopter root or, where it has none and is a linked worktree, its main checkout, the
+ *      marketplace read from the pin in the root's
  *      `.claude/settings.json` — the read plugin-state.js makes. `<config>` is
  *      CLAUDE_CONFIG_DIR, else ~/.claude, so a git hook or an npm script run
  *      outside any session resolves too.
@@ -67,34 +68,68 @@ function isDir(dir) {
 	}
 }
 
-/*
- * The main checkout, even from a linked worktree: the install record is keyed
- * on the tree the plugin was installed for. A common dir not named `.git` — a
+/**
+ * The main checkout and the top level of the tree `options` runs git in, or
+ * null where that is no git checkout. A common dir not named `.git` — a
  * submodule's, a `--separate-git-dir` one — sits outside the tree, so the top
- * level answers there instead.
+ * level answers for the main checkout there.
+ * @param {import("node:child_process").ExecFileSyncOptions} [options]
+ * @returns {{main: string, top: string} | null}
  */
-function adopterRoot() {
+function readGitRoots(options) {
 	let out;
 	try {
-		out = execFileSync(
-			"git",
-			[
-				"rev-parse",
-				"--path-format=absolute",
-				"--git-common-dir",
-				"--show-toplevel",
-			],
-			{ encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+		out = String(
+			execFileSync(
+				"git",
+				[
+					"rev-parse",
+					"--path-format=absolute",
+					"--git-common-dir",
+					"--show-toplevel",
+				],
+				{ encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], ...options },
+			),
 		);
 	} catch {
-		/* Not a git checkout: the cwd is the only root left, and a miss still
-		 * fails naming it. */
-		return process.cwd();
+		/* Not a git checkout, or no git to ask: the caller's own directory is
+		 * the only root left, and a miss still fails naming it (#4117). */
+		return null;
 	}
 	const [common, top] = out.trim().split("\n");
 	if (common === undefined || top === undefined)
 		throw new Error(`git rev-parse printed fewer than two lines: ${out}`);
-	return path.basename(common) === ".git" ? path.dirname(common) : top;
+	return {
+		main: path.basename(common) === ".git" ? path.dirname(common) : top,
+		top,
+	};
+}
+
+/*
+ * The main checkout, even from a linked worktree: the install record is keyed
+ * on the tree the plugin was installed for. Outside a git checkout the cwd is
+ * the only root left, and a miss still fails naming it.
+ */
+function adopterRoot() {
+	return readGitRoots()?.main ?? process.cwd();
+}
+
+/**
+ * The main checkout of `root`, which a program passing its own tree spells as
+ * the linked worktree it runs in (#4117). A hook's GIT_DIR must not answer for
+ * a directory named outright, and a directory that is no tree's top level is
+ * no checkout: it answers for itself.
+ * @param {string} root
+ * @returns {string}
+ */
+function readMainCheckout(root) {
+	const env = { ...process.env };
+	for (const name of ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR"])
+		delete env[name];
+	const roots = readGitRoots({ cwd: root, env });
+	return roots && fs.realpathSync(roots.top) === fs.realpathSync(root)
+		? roots.main
+		: root;
 }
 
 /**
@@ -114,6 +149,28 @@ function readPin(root) {
 			return { marketplace, ref: known[marketplace]?.source?.ref ?? null };
 	}
 	return { marketplace: null, ref: null };
+}
+
+/**
+ * The install rows for `root`, else for its main checkout, and what was searched.
+ * @param {any} entries
+ * @param {string} root
+ * @returns {{rows: any[], searched: string}}
+ */
+function readInstallRows(entries, root) {
+	/** @param {string} tree */
+	const rowsFor = (tree) =>
+		Array.isArray(entries)
+			? entries.filter((row) => row?.projectPath === tree)
+			: [];
+	const main = readMainCheckout(root);
+	const own = rowsFor(root);
+	return main === root
+		? { rows: own, searched: root }
+		: {
+				rows: own.length > 0 ? own : rowsFor(main),
+				searched: `${root} or ${main}`,
+			};
 }
 
 /**
@@ -152,13 +209,13 @@ function resolveCore({
 	const config = env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), ".claude");
 	const record = path.join(config, "plugins", "installed_plugins.json");
 	const key = `${PLUGIN}@${marketplace}`;
-	const entries = readJson(record)?.plugins?.[key];
-	const rows = Array.isArray(entries)
-		? entries.filter((row) => row?.projectPath === root)
-		: [];
+	const { rows, searched } = readInstallRows(
+		readJson(record)?.plugins?.[key],
+		root,
+	);
 	const installPath = rows.at(-1)?.installPath;
 	if (!installPath)
-		fail(`${unset}, and ${record} records no ${key} install for ${root}`);
+		fail(`${unset}, and ${record} records no ${key} install for ${searched}`);
 	if (!isDir(installPath))
 		fail(`${record} records ${installPath}, which is not a directory`);
 

@@ -93,7 +93,7 @@ function readSource(source) {
 
 	/** @type {string[]} */
 	const header = [];
-	let edge = 0;
+	let edge = source.startsWith("#!") ? lineEndOf(0) : 0;
 	for (const c of comments) {
 		if (!isBlank(source.slice(edge, c[0]))) break;
 		header.push(text(c));

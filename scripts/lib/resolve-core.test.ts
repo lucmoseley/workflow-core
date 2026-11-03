@@ -32,18 +32,52 @@ function siblingDir(root: string, name: string) {
  * The resolver run as a git hook runs it: its own process, in `cwd`, with no
  * harness variable — `~/.claude` is a home directory linked to `configDir`.
  */
-function resolveInPlainShell(cwd: string, configDir: string) {
+function resolveInPlainShell(
+	cwd: string,
+	configDir: string,
+	{ root, env }: { root?: string; env?: Record<string, string> } = {},
+) {
 	const home = siblingDir(cwd, "home");
 	if (!fs.existsSync(path.join(home, ".claude")))
 		fs.symlinkSync(configDir, path.join(home, ".claude"));
 	const script = `process.stdout.write(require(${JSON.stringify(
 		path.join(__dirname, "resolve-core.js"),
-	)}).resolveCore())`;
+	)}).resolveCore(${root ? JSON.stringify({ root }) : ""}))`;
 	return execFileSync(process.execPath, ["-e", script], {
 		cwd,
-		env: { PATH: process.env.PATH, HOME: home },
+		env: { PATH: process.env.PATH, HOME: home, ...env },
 		encoding: "utf8",
 	});
+}
+
+function initRepo(root: string) {
+	execFileSync("git", ["init", "-q", "-b", "main"], { cwd: root });
+	execFileSync("git", ["add", ".claude"], { cwd: root });
+	execFileSync(
+		"git",
+		[
+			"-c",
+			"user.email=a@a",
+			"-c",
+			"user.name=a",
+			"commit",
+			"-q",
+			"--allow-empty",
+			"-m",
+			"x",
+		],
+		{ cwd: root },
+	);
+}
+
+/** `root` made a git checkout, and a linked worktree of it beside it. */
+function linkedWorktree(root: string) {
+	initRepo(root);
+	const worktree = path.join(path.dirname(root), "wt");
+	execFileSync("git", ["worktree", "add", "-q", "--detach", worktree], {
+		cwd: root,
+	});
+	return worktree;
 }
 
 function resolve(
@@ -109,29 +143,75 @@ describe("resolveCore's lookup order (#461)", () => {
 
 	it("resolves with no harness variables, from a git hook's plain environment and from a linked worktree", () => {
 		const { root, configDir, installPath } = fixture({ pinRef: "v1.1.8" });
-		execFileSync("git", ["init", "-q", "-b", "main"], { cwd: root });
-		execFileSync(
-			"git",
-			[
-				"-c",
-				"user.email=a@a",
-				"-c",
-				"user.name=a",
-				"commit",
-				"-q",
-				"--allow-empty",
-				"-m",
-				"x",
-			],
-			{ cwd: root },
-		);
-		const worktree = path.join(path.dirname(root), "wt");
-		execFileSync("git", ["worktree", "add", "-q", "--detach", worktree], {
-			cwd: root,
-		});
+		const worktree = linkedWorktree(root);
 
 		for (const cwd of [root, worktree])
 			expect(resolveInPlainShell(cwd, configDir)).toBe(installPath);
+	});
+
+	it("resolves a root that is a linked worktree through its main checkout, whatever the cwd and GIT_DIR (#4117)", () => {
+		const { root, configDir, installPath } = fixture({ pinRef: "v1.1.8" });
+		const worktree = linkedWorktree(root);
+		const warnings: string[] = [];
+		expect(resolve(worktree, { CLAUDE_CONFIG_DIR: configDir }, warnings)).toBe(
+			installPath,
+		);
+		expect(warnings).toEqual([]);
+
+		expect(
+			resolveInPlainShell(siblingDir(root, "elsewhere"), configDir, {
+				root: worktree,
+				env: { GIT_DIR: path.join(siblingDir(root, "not-this-repo"), ".git") },
+			}),
+		).toBe(installPath);
+	});
+
+	it.each([
+		["last", (main: object, own: object) => [main, own]],
+		["first", (main: object, own: object) => [own, main]],
+	])(
+		"takes an install recorded for the linked worktree itself over its main checkout's, that row %s",
+		(_order, rows) => {
+			const { root, configDir, installPath } = fixture({ pinRef: "v1.1.8" });
+			const worktree = linkedWorktree(root);
+			const own = siblingDir(root, "worktree-install");
+			fs.writeFileSync(
+				path.join(configDir, "plugins", "installed_plugins.json"),
+				JSON.stringify({
+					plugins: {
+						"workflow-core@wc": rows(
+							{ projectPath: root, installPath },
+							{ projectPath: worktree, installPath: own },
+						),
+					},
+				}),
+			);
+			expect(resolve(worktree, { CLAUDE_CONFIG_DIR: configDir })).toBe(own);
+		},
+	);
+
+	it("names the worktree and its main checkout where neither has an install row", () => {
+		const { root, configDir } = fixture({ pinRef: "v1.1.8" });
+		const worktree = linkedWorktree(root);
+		fs.writeFileSync(
+			path.join(configDir, "plugins", "installed_plugins.json"),
+			JSON.stringify({ plugins: {} }),
+		);
+		expect(() => resolve(worktree, { CLAUDE_CONFIG_DIR: configDir })).toThrow(
+			`install for ${worktree} or ${root}`,
+		);
+	});
+
+	it("takes no main checkout for a directory inside a checkout that is not its top level", () => {
+		const { root, configDir } = fixture({ pinRef: "v1.1.8" });
+		initRepo(root);
+		const inner = path.join(root, "inner");
+		fs.cpSync(path.join(root, ".claude"), path.join(inner, ".claude"), {
+			recursive: true,
+		});
+		expect(() => resolve(inner, { CLAUDE_CONFIG_DIR: configDir })).toThrow(
+			`records no workflow-core@wc install for ${inner}`,
+		);
 	});
 
 	it("resolves from a checkout whose git dir lives outside it", () => {

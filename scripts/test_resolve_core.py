@@ -13,6 +13,7 @@ one its JS checks use, or fail with a message naming the wrong fix.
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -337,14 +338,65 @@ def _git(cwd, *args):
     )
 
 
+def _linked_worktree(root, tmp_path):
+    """`root` made a git checkout, and a linked worktree of it beside it."""
+    _git(root, "init", "-q", "-b", "main")
+    _git(root, "add", ".claude")
+    _git(root, "commit", "-q", "-m", "x")
+    worktree = tmp_path / "wt"
+    _git(root, "worktree", "add", "-q", "--detach", str(worktree))
+    return worktree
+
+
+def test_resolves_a_root_that_is_a_linked_worktree_through_its_main_checkout(
+    adopter, tmp_path, monkeypatch
+):
+    """#4117, the GIT_DIR of a hook not answering for the named directory."""
+    root, config, install = adopter()
+    worktree = _linked_worktree(root, tmp_path)
+    env = {"CLAUDE_CONFIG_DIR": str(config)}
+
+    assert agreed(worktree, env)["value"] == str(install)
+    monkeypatch.setenv("GIT_DIR", str(tmp_path / "not-this-repo" / ".git"))
+    assert agreed(worktree, env)["value"] == str(install)
+
+
+@pytest.mark.parametrize("own_first", [True, False])
+def test_takes_an_install_recorded_for_the_linked_worktree_over_its_main_checkouts(
+    adopter, tmp_path, own_first
+):
+    root, config, install = adopter()
+    worktree = _linked_worktree(root, tmp_path)
+    own = tmp_path / "worktree-install"
+    own.mkdir()
+    rows = [
+        {"projectPath": str(worktree), "installPath": str(own)},
+        {"projectPath": str(root), "installPath": str(install)},
+    ]
+    _write_json(
+        config / "plugins" / "installed_plugins.json",
+        {"plugins": {"workflow-core@wc": rows if own_first else rows[::-1]}},
+    )
+    assert agreed(worktree, {"CLAUDE_CONFIG_DIR": str(config)})["value"] == str(own)
+
+
+def test_takes_no_main_checkout_for_a_directory_below_a_checkouts_top_level(
+    adopter, tmp_path
+):
+    root, config, _ = adopter()
+    _linked_worktree(root, tmp_path)
+    inner = root / "inner"
+    shutil.copytree(root / ".claude", inner / ".claude")
+    result = agreed(inner, {"CLAUDE_CONFIG_DIR": str(config)})
+    assert not result["ok"]
+    assert result["value"].endswith(f"install for {inner}")
+
+
 def test_resolves_with_no_harness_variables_from_a_checkout_and_a_linked_worktree(
     adopter, tmp_path
 ):
     root, config, install = adopter()
-    _git(root, "init", "-q", "-b", "main")
-    _git(root, "commit", "-q", "--allow-empty", "-m", "x")
-    worktree = tmp_path / "wt"
-    _git(root, "worktree", "add", "-q", "--detach", str(worktree))
+    worktree = _linked_worktree(root, tmp_path)
     home = tmp_path / "home"
     home.mkdir()
     (home / ".claude").symlink_to(config)

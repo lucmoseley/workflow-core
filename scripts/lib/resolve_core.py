@@ -9,7 +9,8 @@ Python 3.10 or later, because it runs before the core is found.
 
 Same lookup, same variables, same messages as resolve-core.js, whose header
 explains each step: WORKFLOW_CORE_DIR, then WORKFLOW_CORE_CHECKOUT, then the
-installed plugin's install row for the adopter root. test_resolve_core.py runs
+installed plugin's install row for the adopter root or, where it has none and
+is a linked worktree, its main checkout. test_resolve_core.py runs
 both files over the same fixtures and fails on any difference. A value the CLI
 never writes — a non-string ref or install path — fails in both, naming the
 pin, but its message text can differ.
@@ -48,8 +49,8 @@ def _get(value, key):
     return value.get(key) if isinstance(value, dict) else None
 
 
-def _adopter_root():
-    """resolve-core.js's adopterRoot: the main checkout, even from a linked worktree."""
+def _read_git_roots(**options):
+    """resolve-core.js's readGitRoots: (main checkout, top level), or None."""
     try:
         common, top = (
             subprocess.run(
@@ -63,14 +64,36 @@ def _adopter_root():
                 capture_output=True,
                 text=True,
                 check=True,
+                **options,
             )
             .stdout.strip()
             .split("\n")
         )
     except (OSError, subprocess.CalledProcessError, ValueError):
-        # Outside a git tree the working directory is the adopter (#1274).
-        return os.getcwd()
-    return os.path.dirname(common) if os.path.basename(common) == ".git" else top
+        # Outside a git tree, or with no git, the caller's own directory is the
+        # only root left (#1274, #4117).
+        return None
+    return (os.path.dirname(common) if os.path.basename(common) == ".git" else top, top)
+
+
+def _adopter_root():
+    """resolve-core.js's adopterRoot: the main checkout, even from a linked worktree."""
+    roots = _read_git_roots()
+    return roots[0] if roots else os.getcwd()
+
+
+def _read_main_checkout(root):
+    """resolve-core.js's readMainCheckout (#4117)."""
+    env = {
+        name: value
+        for name, value in os.environ.items()
+        if name not in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR")
+    }
+    roots = _read_git_roots(cwd=root, env=env)
+    if roots is None:
+        return root
+    main, top = roots
+    return main if os.path.realpath(top) == os.path.realpath(root) else root
 
 
 def _read_pin(root):
@@ -129,14 +152,21 @@ def resolve_core(
     record = os.path.join(config, "plugins", "installed_plugins.json")
     key = f"{PLUGIN}@{marketplace}"
     entries = _get(_get(_read_json(record), "plugins"), key)
-    rows = (
-        [row for row in entries if _get(row, "projectPath") == root]
-        if isinstance(entries, list)
-        else []
-    )
+
+    def rows_for(tree):
+        return (
+            [row for row in entries if _get(row, "projectPath") == tree]
+            if isinstance(entries, list)
+            else []
+        )
+
+    main = _read_main_checkout(root)
+    own = rows_for(root)
+    rows = own if own or main == root else rows_for(main)
     install_path = _get(rows[-1], "installPath") if rows else None
     if not install_path:
-        fail(f"{unset}, and {record} records no {key} install for {root}")
+        searched = root if main == root else f"{root} or {main}"
+        fail(f"{unset}, and {record} records no {key} install for {searched}")
     if not isinstance(install_path, str) or not os.path.isdir(install_path):
         fail(f"{record} records {install_path}, which is not a directory")
 
