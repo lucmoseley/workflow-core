@@ -102,6 +102,7 @@
 // cut it (mantahostels#964).
 
 const { scratchDir, tabRecords, textOf } = require("./guard-entry.js");
+const { ruleOrFallback } = require("./guard-verdict.js");
 const { segment } = require("./review-suffix.js");
 const {
 	PARENT_WAIT,
@@ -167,20 +168,25 @@ const WATCHES = {
 	check: {
 		lead: "Timed checks under two minutes apart",
 		next: `replace the next with one backgrounded \`${WATCH}\``,
-		ceiling:
+		ceiling: () =>
 			"two consecutive checks with no growth means abandon that agent and proceed without it.",
 	},
 	"check:job": {
 		lead: "Timed job beats under two minutes apart",
 		next: "space the next to `sleep 120` or more",
-		ceiling:
-			"stop waiting only on a beat no newer than the last landing's, or on KILLED or UNKNOWN twice — then say the job is lost and proceed without it.",
+		/** @param {PollContext} ctx */
+		ceiling: (ctx) =>
+			ruleOrFallback(
+				ctx,
+				"job-wait-ceiling",
+				"stop waiting only on a beat no newer than the last landing's",
+			),
 	},
 };
 
 /**
  * @typedef {Pick<import("./guard-dispatch.js").CoreContext,
- *   "input" | "tool" | "agentLabel" | "log" | "env" | "corePaths"> & {
+ *   "input" | "tool" | "agentLabel" | "log" | "env" | "corePaths" | "ruleText" | "docPath"> & {
  *   now: () => number,
  *   readWindow: (file: string) => string,
  *   makeDir: (dir: string) => boolean,
@@ -252,11 +258,13 @@ function inWindow(raw, key, now) {
  * `{ reason }` for a refusal.
  * @param {Route} r
  * @param {boolean} subagent
+ * @param {PollContext} ctx
  * @returns {{ warning: string } | { reason: string }}
  */
-function overText(r, subagent) {
+function overText(r, subagent, ctx) {
 	if (r.kind === "check" || r.kind === "check:job") {
-		const { lead, next, ceiling } = WATCHES[r.kind];
+		const { lead, next } = WATCHES[r.kind];
+		const ceiling = WATCHES[r.kind].ceiling(ctx);
 		const head = `${lead}: more than ${r.allowance} inside ${WINDOW_TEXT}. This one runs;`;
 		if (!subagent)
 			return {
@@ -306,7 +314,7 @@ function decide(session, ctx) {
 	const { recent, hits } = inWindow(ctx.readWindow(file), key, now);
 	let warning = "";
 	if (hits >= r.allowance) {
-		const over = overText(r, agent !== "main");
+		const over = overText(r, agent !== "main", ctx);
 		/* A denied call is not recorded: it is not a poll, and recording it
 		 * would keep the window alive forever under a retry loop. */
 		if ("reason" in over) return { deny: ctx.corePaths(over.reason) };

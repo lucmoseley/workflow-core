@@ -19,7 +19,7 @@ A `takes:human` BODY, in this order (modelled on mmm-infra#32):
   1. **Outside Claude Code:** <the act>
   2. Why the work exists and the facts it rests on, each dated.
   3. The deliverable verbatim in a fenced block — or each step with its surface, its literal text and what the founder should see.
-  4. **Close when:** <what finishes it> — and what the closing comment records, naming any issue that waits on the result.
+  4. {rule:close-when-line}
 
 THE ISSUE BODY IS THE HAND-OVER'S SOURCE. An in-chat walk takes the founder through it step by step and is never a second copy.
 

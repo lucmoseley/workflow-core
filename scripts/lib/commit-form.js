@@ -121,7 +121,7 @@
  */
 
 const { closingMatch } = require("./closing-keyword.js");
-const { denyText } = require("./guard-verdict.js");
+const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const { ruleModule, ruleUnlessModule } = require("./rule-gates.js");
 const {
 	normAbs,
@@ -188,13 +188,16 @@ Commit by pathspec instead, naming only the files you changed:
 
 ${untrackedEscape(ctx)} Then commit by pathspec as normal.`;
 
-const DENY_NO_VERIFY = `This flag skips none of the pre-commit gates on a plain commit or merge, and cuts them everywhere else: @CMD@
+/** @param {CommitFormContext} ctx */
+const denyNoVerify = (
+	ctx,
+) => `This flag skips none of the pre-commit gates on a plain commit or merge, and cuts them everywhere else: @CMD@
 
 On \`git commit\` and \`git merge\` the flag skips \`.husky/pre-commit\` or \`.husky/pre-merge-commit\`, but \`.husky/prepare-commit-msg\`, which no flag skips, runs that same whole stack anyway — the secrets scan, the Biome staged-paths format check, check-doc-map.js, check-digest-version.js, check-guard-registry.js and check-roadmap-valid.js — and a finding refuses the operation (mantahostels#1705). On a commit made mid-rebase or mid-cherry-pick, where \`pre-commit\` would run that whole stack, the flag leaves the secrets scan alone (mantahostels#1706). On \`git am\` it skips \`.husky/pre-applypatch\`, that route's only gate and its secrets scan (mantahostels#1707): a credential applied past it is public the moment anyone pushes. Today's git refuses it on \`git revert\` and \`git cherry-pick\` outright.
 
 Drop the flag: on a plain commit or merge it buys nothing, and everywhere else it turns gates off.
 
-There is no override, deliberately — an escape a session can spell for itself is not a deny (mantahostels#109). The git-hook escapes, \`WFC_ALLOW_BRANCH\` among them, each stand down one gate alone, and are the founder's to set, never yours: stop and ask (#916).`;
+There is no override, deliberately — ${ruleOrFallback(ctx, "self-spelt-escape", "an escape a session can spell for itself is not a deny")} The git-hook escapes, \`WFC_ALLOW_BRANCH\` among them, each stand down one gate alone, and are the founder's to set, never yours: stop and ask (#916).`;
 
 /* The opening line is a plain string so guard-fire-needles.json's
  * amend-shared-tip needle reads it byte for byte. */
@@ -909,7 +912,7 @@ function judge(j, { segment, sub, tree, args, emptyVars }) {
 		/* Nothing else about the merge family is judged: none stages a
 		 * pathspec. Judged in every tree and mid-sequence too. */
 		if (skipsHooks(/** @type {keyof typeof NV_SPELLINGS} */ (sub), args))
-			deny(DENY_NO_VERIFY);
+			deny(denyNoVerify(j.ctx));
 		return;
 	}
 	j.ruleSubject = true;
@@ -919,7 +922,7 @@ function judge(j, { segment, sub, tree, args, emptyVars }) {
 	j.ruleDir = tree;
 	const c = scanCommit(args, j.spans);
 	j.lastWords = c.words;
-	if (c.noVerify) return deny(DENY_NO_VERIFY);
+	if (c.noVerify) return deny(denyNoVerify(j.ctx));
 	const match = closingMatch(c.message);
 	if (match !== null)
 		return deny(denyClosesKeyword(j.ctx.closingRefusal(match)));

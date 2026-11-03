@@ -73,6 +73,7 @@ const { parseCommand, walkCommands } = require("./shell-parse.js");
 const { absolute, literal } = require("./shell-words.js");
 const { remedyKind } = require("./scratch-remedy.js");
 const { shellQuote } = require("./sh-quote.js");
+const { ruleOrFallback } = require("./guard-verdict.js");
 
 /**
  * @typedef {import("./guard-dispatch.js").CoreContext} CoreContext
@@ -277,7 +278,17 @@ function refusal({ shown, name }, ctx) {
 	const bare = name.replace(/^\./, "");
 	const escaped = shellQuote(name);
 	const [same, sanctioned] = remedy(ctx.tool, bare, escaped, ctx.root);
-	return `Refused: ${mdSpan(shown)} is a dot-prefixed file directly at the repo root, which git neither ignores nor tracks. \`docs/environment.md\` §12 puts in-repo scratch in \`.claude/tmp/\` and nowhere else — gitignored, out of Biome's scope and out of vitest's, and swept at 24 hours. ${same}:
+	const scratchLine = ruleOrFallback(
+		ctx,
+		"scratch-dir-sanctioned",
+		"`.claude/tmp/` is gitignored and swept",
+	);
+	const selfSpelt = ruleOrFallback(
+		ctx,
+		"self-spelt-escape",
+		"an escape a session can spell for itself is not a deny",
+	);
+	return `Refused: ${mdSpan(shown)} is a dot-prefixed file directly at the repo root, which git neither ignores nor tracks. \`docs/environment.md\` §12 puts in-repo scratch in \`.claude/tmp/\` and nowhere else — ${scratchLine} ${same}:
 
     ${sanctioned}
 
@@ -285,7 +296,7 @@ IF THIS REALLY IS A ROOT CONFIG FILE RATHER THAN SCRATCH — a mutation arm brea
 
     printf '%s' '{}' | dd of=${escaped}
 
-There is no flag, and none is wanted: an escape a session can spell for itself is not a deny (mantahostels#109).`;
+There is no flag, and none is wanted: ${selfSpelt}`;
 }
 
 module.exports = {

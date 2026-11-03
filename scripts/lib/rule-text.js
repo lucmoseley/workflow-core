@@ -6,7 +6,7 @@
  * the only thing Node-side that resolves an id to that text; scripts/lib/
  * rule-text.sh is the bash twin, and the two answer identically by construction
  * (same directories in the same order, same id grammar, same trailing-newline
- * trim).
+ * trim, same `{rule:<id>}` expansion).
  *
  * PLAIN TEXT, NOT JSON — spec mantahostels#1641's decision. The guards are half bash and
  * half Node; a fragment must be `cat`-able from one and fs.readFileSync-able
@@ -63,6 +63,9 @@ const RULE_ID_PREFIX = "rule:";
 
 /* rule-text.sh's _RT_COMMAND_RE. */
 const COMMAND_PLACEHOLDER = /\{command:([a-z_]+)\}/g;
+
+/* rule-text.sh's _RT_INCLUDE_RE. */
+const RULE_INCLUDE = /\{rule:([a-z0-9]+(?:-[a-z0-9]+)*)\}/g;
 
 /**
  * `id` with ONE leading `rule:` removed — so `rule:rule:x` bares to `rule:x`,
@@ -206,27 +209,21 @@ class RuleMissing extends Error {
 }
 
 /**
- * The operative text of rule `id`.
- *
- * Trailing newlines are trimmed so that a fragment splices into a guard's deny
- * reason without a blank line the author of the fragment never saw. Interior
- * whitespace is untouched — a fragment's paragraph breaks are its own.
+ * A fragment's own text, trailing newlines trimmed, and the file it came from.
  *
  * @param {string} id
- * @param {string} [root] as rulesDir takes it; every host read below is under
- *   it, so the root is resolved once a call
- * @returns {string}
+ * @param {string} host
+ * @returns {{ file: string, body: string }}
  * @throws {Error} on a malformed id, an id no fragment answers to, or a
  *   fragment holding nothing but whitespace; the missing id's is a RuleMissing
  */
-function readRuleText(id, root) {
+function readFragment(id, host) {
 	const bare = typeof id === "string" ? bareRuleId(id) : "";
 	if (!RULE_ID_RE.test(bare))
 		throw new Error(
 			`rule-text: "${id}" is not a rule id — ids are lowercase kebab-case ` +
 				`(${RULE_ID_RE.source}).`,
 		);
-	const host = root ?? hostRoot();
 	const file = fragmentPath(bare, host);
 	let text;
 	try {
@@ -248,9 +245,55 @@ function readRuleText(id, root) {
 			`rule-text: the fragment for rule id "${bare}" (${file}) is empty. ` +
 				"A guard printing it would deny a session and state no rule.",
 		);
+	return { file, body };
+}
+
+/**
+ * Each `{rule:<id>}` in `body` replaced by that fragment's own text, so a
+ * sentence a guard prints alone and a longer rule both hold lives in one file.
+ * One level deep: no fragment needs more, and a cycle then cannot arise.
+ *
+ * The citation qualifying below reads the outer fragment's layer, so a core
+ * sentence included by a host's own fragment keeps its `#N` bare in an install.
+ *
+ * @param {string} body
+ * @param {string} host
+ * @returns {string}
+ * @throws {Error} on a nested include, or anything readFragment throws on
+ */
+function expandIncludes(body, host) {
+	return body.replace(RULE_INCLUDE, (_, inc) => {
+		const included = readFragment(inc, host).body;
+		if (included.includes("{rule:"))
+			throw new Error(
+				`rule-text: the fragment for rule id "${inc}" is included by another and holds an include of its own.`,
+			);
+		return included;
+	});
+}
+
+/**
+ * The operative text of rule `id`.
+ *
+ * Trailing newlines are trimmed so that a fragment splices into a guard's deny
+ * reason without a blank line the author of the fragment never saw. Interior
+ * whitespace is untouched — a fragment's paragraph breaks are its own.
+ *
+ * @param {string} id
+ * @param {string} [root] as rulesDir takes it; every host read below is under
+ *   it, so the root is resolved once a call
+ * @returns {string}
+ * @throws {Error} as readFragment and expandIncludes do
+ */
+function readRuleText(id, root) {
+	const host = root ?? hostRoot();
+	const { file, body } = readFragment(id, host);
 	/* A fragment names core scripts as `scripts/x`; an install serves them
 	 * through the plugin root (#343). */
-	const resolved = expandPastePaths(resolveScriptPaths(body), host);
+	const resolved = expandPastePaths(
+		resolveScriptPaths(expandIncludes(body, host)),
+		host,
+	);
 	/* A core fragment's bare `#N` is the core's issue, which an install's host
 	 * reads as its own (#416). The host's own fragments cite its own tracker. */
 	return expandCommands(

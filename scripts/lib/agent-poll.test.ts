@@ -439,6 +439,21 @@ describe("the two timed watches do not spend each other's allowance (mantahostel
 		expectSilentAllow(bash(artefact));
 	});
 
+	it("takes the job beat's ceiling from the rule store (#4129)", () => {
+		for (let i = 0; i < sleepAllowance; i++) bash(beat);
+		const rules = path.join(dir, "rules");
+		fs.mkdirSync(rules);
+		fs.writeFileSync(path.join(rules, "job-wait-ceiling.txt"), "CEILING.\n");
+		process.env.WFC_RULES_DIR = rules;
+		try {
+			expect(expectWarn(bash(beat))).toContain(
+				"Act on what it says: CEILING. Meanwhile",
+			);
+		} finally {
+			delete process.env.WFC_RULES_DIR;
+		}
+	});
+
 	it("keeps the job beat allowed past its allowance, however often", () => {
 		for (let i = 0; i < sleepAllowance; i++) bash(beat);
 		for (let i = 0; i < 3; i++) expectWarn(bash(beat));
@@ -595,7 +610,7 @@ describe("a subagent is counted, and told, as itself (#1169)", () => {
 			parent: {
 				check:
 					"Timed checks under two minutes apart: more than 3 inside five minutes. This one runs; replace the next with one backgrounded `node scripts/watch-artefact.js <artefact> 120`. Act on what it says: two consecutive checks with no growth means abandon that agent and proceed without it. Meanwhile end the turn — the backgrounded watch is what wakes this session, and it cannot while a tool call of yours is in flight.",
-				beat: "Timed job beats under two minutes apart: more than 3 inside five minutes. This one runs; space the next to `sleep 120` or more. Act on what it says: stop waiting only on a beat no newer than the last landing's, or on KILLED or UNKNOWN twice — then say the job is lost and proceed without it. Meanwhile end the turn — the backgrounded watch is what wakes this session, and it cannot while a tool call of yours is in flight.",
+				beat: "Timed job beats under two minutes apart: more than 3 inside five minutes. This one runs; space the next to `sleep 120` or more. Act on what it says: STOP WAITING ONLY ON A BEAT NO NEWER THAN THE LAST LANDING'S, or on KILLED or UNKNOWN twice — then say the job is lost and proceed without it. Meanwhile end the turn — the backgrounded watch is what wakes this session, and it cannot while a tool call of yours is in flight.",
 				noop: "Ending a turn is not a tool call. A no-op command like `true` re-invokes this session — which is why the loop it is meant to break keeps going. End the turn by emitting your final text with NO tool call at all, and stop: the completion notification wakes the session or, arriving mid-call, is folded into the next tool result (97%, #845), so each no-op is a full-context turn spent learning nothing.",
 				read: "Instead: a subagent, one backgrounded `node scripts/watch-artefact.js <artefact> 120`; your next suite, in the foreground with `timeout: 600000`; a bg-run.sh job, `scripts/bg-run.sh wait <name>`. Then end the turn.\nRe-reading a background job's output file is a wait loop: the completion notification wakes the session or, arriving mid-call, is folded into the next tool result (97%, #845), so each re-read is a full-context turn spent for nothing.",
 				agents:
@@ -604,7 +619,7 @@ describe("a subagent is counted, and told, as itself (#1169)", () => {
 			subagent: {
 				check:
 					"Timed checks under two minutes apart: more than 3 inside five minutes. This one runs; then wait inside the turn — what you wait on in the foreground with `timeout: 600000`, a bg-run.sh job with `scripts/bg-run.sh wait <name>`, or the blocked operation retried directly. You are a subagent: ending your turn ends your work for good, since nothing wakes you to resume it.",
-				beat: "Timed job beats under two minutes apart: more than 3 inside five minutes. This one runs; then wait inside the turn — what you wait on in the foreground with `timeout: 600000`, a bg-run.sh job with `scripts/bg-run.sh wait <name>`, or the blocked operation retried directly. You are a subagent: ending your turn ends your work for good, since nothing wakes you to resume it. Waiting on beats instead, stop waiting only on a beat no newer than the last landing's, or on KILLED or UNKNOWN twice — then say the job is lost and proceed without it.",
+				beat: "Timed job beats under two minutes apart: more than 3 inside five minutes. This one runs; then wait inside the turn — what you wait on in the foreground with `timeout: 600000`, a bg-run.sh job with `scripts/bg-run.sh wait <name>`, or the blocked operation retried directly. You are a subagent: ending your turn ends your work for good, since nothing wakes you to resume it. Waiting on beats instead, STOP WAITING ONLY ON A BEAT NO NEWER THAN THE LAST LANDING'S, or on KILLED or UNKNOWN twice — then say the job is lost and proceed without it.",
 				noop: "Instead: wait inside the turn — what you wait on in the foreground with `timeout: 600000`, a bg-run.sh job with `scripts/bg-run.sh wait <name>`, or the blocked operation retried directly. You are a subagent: ending your turn ends your work for good, since nothing wakes you to resume it.\nA no-op like `true` waits on nothing. If your work is done, return your final report.",
 				read: "Instead: wait inside the turn — what you wait on in the foreground with `timeout: 600000`, a bg-run.sh job with `scripts/bg-run.sh wait <name>`, or the blocked operation retried directly. You are a subagent: ending your turn ends your work for good, since nothing wakes you to resume it.\nRe-reading a background job's output file is a wait loop, each re-read a full-context call spent for nothing.",
 				agents:

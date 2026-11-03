@@ -163,9 +163,11 @@ rt_bare_id() {
   printf '%s' "${1#rule:}"
 }
 
-# Print the operative text of rule $1.
-rule_text() {
-  local given="${1:-}" id dir file known layer=
+# rule-text.js's readFragment: sets the caller's `body` to fragment $1's own text
+# and `layer` to the store holding it, or returns 1 saying why not.
+_rt_read() {
+  local given="${1:-}" id dir file known
+  layer=
   id="$(rt_bare_id "$given")"
   if [[ ! "$id" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
     printf 'rule-text: "%s" is not a rule id — ids are lowercase kebab-case.\n' \
@@ -188,7 +190,6 @@ rule_text() {
       "${known:-The store holds no fragments.}" >&2
     return 1
   fi
-  local body
   # Command substitution already strips every trailing newline; printf puts none
   # back, so the two accessors agree byte for byte.
   body="$(<"$file")"
@@ -198,6 +199,37 @@ rule_text() {
     printf 'rule-text: the fragment for rule id "%s" (%s) is empty. A guard printing it would deny a session and state no rule.\n' \
       "$id" "$file" >&2
     return 1
+  fi
+}
+
+# rule-text.js's expandIncludes: each `{rule:<id>}` in $1 becomes that fragment's
+# own text, one level deep. Built left to right, so an included text is never
+# read again.
+_RT_INCLUDE_RE='\{rule:([a-z0-9]+(-[a-z0-9]+)*)\}'
+_rt_expand_includes() {
+  local rest="$1" out='' pre whole inc body layer
+  while [[ "$rest" =~ $_RT_INCLUDE_RE ]]; do
+    whole="${BASH_REMATCH[0]}"
+    inc="${BASH_REMATCH[1]}"
+    _rt_read "$inc" || return 1
+    if [[ "$body" == *"{rule:"* ]]; then
+      printf 'rule-text: the fragment for rule id "%s" is included by another and holds an include of its own.\n' \
+        "$inc" >&2
+      return 1
+    fi
+    pre="${rest%%"$whole"*}"
+    out+="$pre$body"
+    rest="${rest:$((${#pre} + ${#whole}))}"
+  done
+  printf '%s' "$out$rest"
+}
+
+# Print the operative text of rule $1.
+rule_text() {
+  local body layer
+  _rt_read "${1:-}" || return 1
+  if [[ "$body" == *"{rule:"* ]]; then
+    body="$(_rt_expand_includes "$body")" || return 1
   fi
   # A fragment names core scripts as `scripts/x`; an install serves them
   # through the plugin root (#343), as rule-text.js does.

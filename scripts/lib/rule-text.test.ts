@@ -808,6 +808,73 @@ describe("{command:<name>} names the host's own command (#742)", () => {
 	});
 });
 
+describe("{rule:<id>} holds a sentence another fragment owns (#4129)", () => {
+	it("both twins print the included text in place, each time it is named", () => {
+		const dir = store({
+			"whole.txt": "Before {rule:part} between {rule:part} after.\n",
+			"part.txt": "the shared sentence.\n\n",
+		});
+		const want =
+			"Before the shared sentence. between the shared sentence. after.";
+		expect(lib.readRuleText("whole")).toBe(want);
+		expect(sh(dir, "whole").out).toBe(`${want}\n`);
+	});
+
+	it("both twins read an include through the layers an id is looked up in", () => {
+		const fallback = fs.mkdtempSync(path.join(os.tmpdir(), "rule-text-core-"));
+		temps.push(fallback);
+		fs.writeFileSync(path.join(fallback, "part.txt"), "from the core.\n");
+		process.env.WFC_RULES_FALLBACK_DIR = fallback;
+		const dir = store({ "whole.txt": "Said {rule:part}\n" });
+		expect(lib.readRuleText("whole")).toBe("Said from the core.");
+		expect(sh(dir, "whole").out).toBe("Said from the core.\n");
+	});
+
+	it("both twins refuse an include no fragment answers to", () => {
+		const dir = store({ "whole.txt": "Said {rule:absent}\n" });
+		expect(() => lib.readRuleText("whole")).toThrow(
+			/no fragment for rule id "absent"/,
+		);
+		const r = sh(dir, "whole");
+		expect(r.code).toBe(1);
+		expect(r.out).toBe("");
+		expect(r.err).toContain('no fragment for rule id "absent"');
+	});
+
+	it("both twins refuse an include that holds an include", () => {
+		const dir = store({
+			"whole.txt": "Said {rule:middle}\n",
+			"middle.txt": "and {rule:part}\n",
+			"part.txt": "done.\n",
+		});
+		expect(() => lib.readRuleText("whole")).toThrow(
+			/"middle" is included by another/,
+		);
+		const r = sh(dir, "whole");
+		expect(r.code).toBe(1);
+		expect(r.out).toBe("");
+		expect(r.err).toContain('"middle" is included by another');
+	});
+
+	it("leaves a mention that is no id alone, in both twins", () => {
+		const dir = store({ "whole.txt": "Spelt {rule:Not An Id} here.\n" });
+		expect(lib.readRuleText("whole")).toBe("Spelt {rule:Not An Id} here.");
+		expect(sh(dir, "whole").out).toBe("Spelt {rule:Not An Id} here.\n");
+	});
+
+	it.each([
+		["hook-escape", "self-spelt-escape"],
+		["job-dir-scratch", "scratch-dir-sanctioned"],
+		["killed-background-job", "job-wait-ceiling"],
+		["founder-deliverable", "close-when-line"],
+		["issue-takes-label", "takes-label-unrouted"],
+	])("%s in the live store holds %s's text", (whole, part) => {
+		delete process.env.WFC_RULES_DIR;
+		expect(lib.readRuleText(whole)).toContain(lib.readRuleText(part));
+		expect(lib.readRuleText(whole)).not.toContain("{rule:");
+	});
+});
+
 describe("readRuleTextOr, for a guard that must not crash (#1044)", () => {
 	const sb = freshSandbox();
 	const readLogged = () =>

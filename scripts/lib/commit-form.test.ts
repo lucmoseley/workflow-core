@@ -38,6 +38,7 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
+import os from "node:os";
 import path from "node:path";
 import {
 	afterAll,
@@ -446,6 +447,20 @@ describe("the sweeping commit forms are denied", () => {
  * on the same reasoning as the sweeping forms (mantahostels#109).
  */
 describe("--no-verify is denied — it silently disables the secrets scan", () => {
+	it("takes its no-override line from the rule store (#4129)", () => {
+		const rules = fs.mkdtempSync(path.join(os.tmpdir(), "commit-form-rules-"));
+		fs.writeFileSync(path.join(rules, "self-spelt-escape.txt"), "ESCAPE.\n");
+		try {
+			expect(
+				run('git commit --no-verify -m "msg" -- a.md', shared, "test", {
+					WFC_RULES_DIR: rules,
+				}),
+			).toContain("There is no override, deliberately — ESCAPE. The git-hook");
+		} finally {
+			fs.rmSync(rules, { recursive: true, force: true });
+		}
+	});
+
 	it.each([
 		['git commit --no-verify -m "msg" -- a.md', "the full spelling"],
 		[

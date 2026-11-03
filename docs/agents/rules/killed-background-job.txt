@@ -41,7 +41,5 @@ Keep the cadence over two minutes and it stays a timer, not a poll:
 the poll guard warns from the fourth in five minutes and never refuses one (#518).
 
 A FRESH BEAT IS A LIVE JOB — the median wait is ~18 minutes
-(#845). STOP WAITING ONLY ON A BEAT NO NEWER THAN
-THE LAST LANDING'S, or on KILLED or UNKNOWN twice: then say the job is lost and
-proceed without it. That ceiling reads the BEAT — a subagent has no beat to
-read (mantahostels#2591).
+(#845): {rule:job-wait-ceiling} That ceiling reads the BEAT — a subagent has no
+beat to read (mantahostels#2591).

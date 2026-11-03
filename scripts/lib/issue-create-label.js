@@ -760,7 +760,7 @@ Rule: docs/agents/triage-labels.md §\`takes:\`, the nuances block (#1077, #1097
 
 Every founder errand says when it is finished (#983). Add it to the body, on its own line:
 
-  **Close when:** <what finishes it> — and what the closing comment records, naming any issue that waits on the result
+  ${ruleOrFallback(run.ctx, "close-when-line", "**Close when:** <what finishes it>")}
 
 ${deliverableRule(run.ctx)}`,
 		);
@@ -1178,7 +1178,7 @@ function warnOnce(run, segment, cannot) {
 
   ${unmask(segment)}
 
-Every open issue carries exactly one \`takes:\` value, naming the command that opens it. Without one, /pick-next shows \`none\` in its TAKES column and nothing says who or what works the issue.
+Every open issue carries exactly one \`takes:\` value, naming the command that opens it. ${ruleOrFallback(run.ctx, "takes-label-unrouted", "Without one, /pick-next shows `none` in its TAKES column")}
 
 Confirm one of the seven is applied, or file it through the flag form, which the guard can read in full:
 

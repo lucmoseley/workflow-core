@@ -46,6 +46,14 @@ must be `cat`-able from one and `fs.readFileSync`-able from the other with no
 parser. `jq` is the dependency `scripts/inject-tracker-docs.sh` fails open on,
 and a rule that fails open is a rule that reaches nobody.
 
+**One fragment can hold a sentence another owns.** Where a guard prints a
+sentence that also sits inside a longer rule, the sentence is its own fragment
+and the longer one writes `{rule:<id>}` in its place; both accessors expand it,
+one level deep, and refuse a fragment that nests a second or names an unknown
+id. A generated fragment takes none: its source document shows the text as
+written. A raw read of such a fragment shows the placeholder, which names the
+file that holds the sentence.
+
 ## Reading a fragment
 
 ```bash

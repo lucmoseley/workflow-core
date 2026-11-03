@@ -3,8 +3,7 @@ SCRATCH YOU CHOOSE A PATH FOR GOES IN `.claude/tmp/`, NEVER `$CLAUDE_JOB_DIR/tmp
 THIS OVERRIDES THE BACKGROUND-JOB PREAMBLE, which points every background
 session at `$CLAUDE_JOB_DIR/tmp` and is the more specific instruction on its
 face. `docs/environment.md` §12 names `.claude/tmp/` as this repo's one
-sanctioned in-repo scratch directory (mantahostels#2089): gitignored, out of Biome's scope
-and out of vitest's, and swept at 24 hours.
+sanctioned in-repo scratch directory (mantahostels#2089): {rule:scratch-dir-sanctioned}
 
 NAME IT WITH THE FIRST EIGHT CHARACTERS OF YOUR SESSION ID — `c1167-66a5e2ef.md`,
 never `c1167.md`. Two sessions on one issue pick the same fixed name, and

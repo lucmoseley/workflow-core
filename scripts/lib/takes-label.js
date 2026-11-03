@@ -210,7 +210,7 @@ function takesRefusal(labels, body) {
 	if (!found)
 		return CLOSE_WHEN_LINE.test(body)
 			? null
-			: `takes:human, but the body has no **${CLOSE_WHEN_MARKER}** line. Add it — **${CLOSE_WHEN_MARKER}** <what finishes it>, plus what the closing comment records, naming any issue that waits on the result. Template: ${scriptPath("lib/rule-text.sh")} founder-deliverable.`;
+			: `takes:human, but the body has no **${CLOSE_WHEN_MARKER}** line. Add it — ${require("./rule-text.js").readRuleTextOr("close-when-line", "**Close when:** <what finishes it>", "takes-label")} Template: ${scriptPath("lib/rule-text.sh")} founder-deliverable.`;
 	if (found.fault === "NO-OUTSIDE-ACT")
 		return `takes:human, but the body names no act performed outside Claude Code. Add it on its own line — **${OUTSIDE_MARKER}** <the act, in plain words>, one of the founder's own (#1077): ${acts}. Or, ${triedWayOut}. If you can honestly write neither, the label is wrong. ${rule}`;
 	if (found.fault === "NOT-A-FOUNDER-ACT")

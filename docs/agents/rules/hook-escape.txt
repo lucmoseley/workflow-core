@@ -2,8 +2,8 @@ A GIT-HOOK ESCAPE IS THE FOUNDER'S TO SET, NEVER YOURS.
 
 `WFC_ALLOW_BRANCH` and `WFC_ALLOW_GATE_INPUT_DELETE` each stand one pre-commit
 gate down for one commit. A refusal naming one hands the DECISION to the
-founder, not the command to you: an escape a session can spell for itself is
-not a deny (mantahostels#109, applied to these at #916).
+founder, not the command to you: {rule:self-spelt-escape} #916 applied that to
+these.
 
 Take the refusal's other routes first — leave the path out of the pathspec,
 restore it, rewrite the edit — wherever one fits. Where none does, stop and ask

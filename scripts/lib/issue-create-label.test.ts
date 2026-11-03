@@ -663,6 +663,23 @@ describe("the graphql spelling of a creation (mantahostels#519)", () => {
 		expect(verdict(mutation("title:$t,labelIds:$labels"))).toBe("warn");
 	});
 
+	it("takes the warning's unrouted line from the rule store (#4129)", () => {
+		const rules = fs.mkdtempSync(path.join(os.tmpdir(), "unrouted-rules-"));
+		fs.writeFileSync(
+			path.join(rules, "takes-label-unrouted.txt"),
+			"UNROUTED.\n",
+		);
+		process.env.WFC_RULES_DIR = rules;
+		try {
+			expect(said(mutation('title:"t",labelIds:["LA_kwDOx"]'))).toContain(
+				"naming the command that opens it. UNROUTED.",
+			);
+		} finally {
+			delete process.env.WFC_RULES_DIR;
+			fs.rmSync(rules, { recursive: true, force: true });
+		}
+	});
+
 	it("says in the warning that the ids cannot be resolved to names", () => {
 		const out = said(mutation('title:"t",labelIds:["LA_kwDOx"]'));
 		expect(out).toContain("takes:");
@@ -2003,6 +2020,18 @@ describe("the Close-when limb (#983)", () => {
 		const reason = readDenyReason(call);
 		expect(reason).toContain(`creates a \`takes:human\` issue ${noClose}`);
 		expect(reason).toContain(DELIVERABLE);
+	});
+
+	it("takes the line it asks for from the rule store (#4129)", () => {
+		const rules = fs.mkdtempSync(path.join(os.tmpdir(), "close-when-rules-"));
+		fs.writeFileSync(path.join(rules, "close-when-line.txt"), "CLOSE LINE.\n");
+		process.env.WFC_RULES_DIR = rules;
+		try {
+			expect(readDenyReason(create(act))).toContain("  CLOSE LINE.\n");
+		} finally {
+			delete process.env.WFC_RULES_DIR;
+			fs.rmSync(rules, { recursive: true, force: true });
+		}
 	});
 
 	it("denies a bare marker with nothing after it, on its line or the end", () => {
