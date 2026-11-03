@@ -9,7 +9,7 @@
  * Prints the commits oldest first, the files they touched, the one `git show`
  * that is their combined diff, and the newest one's sha for the triage
  * comment's `**Reviewed through:**` line. No commit at all is a decision-only
- * spec, and the review is skipped.
+ * spec, and the review is skipped, unless a child's sub-issues went unread.
  *
  * --since <sha> lists only the commits after that sha on HEAD: a spec back at
  * triage with its findings' fixes reviews those, not the whole spec again
@@ -57,7 +57,10 @@
  * 100-child cap holds its closed tickets in the container
  * archive-closed-children.js made, which holds no work itself, so its children
  * stand in its place, for both routes.
- * Residual: a hand-made container under another title reads as one ticket.
+ *
+ * ANY OTHER CHILD WITH SUB-ISSUES IS NOTED, NOT EXPANDED (#4100). A hand-made
+ * container, a sub-spec and a ticket with a follow-up all look alike on the
+ * tracker, so nothing tells whose work their sub-issues are.
  *
  * IN NO SCRIPT FAMILY (docs/code-standards-base.md §N3): a read-only lister. Exit 0
  * listed (none found included), 1 the tracker or git unreadable, 2 bad usage
@@ -70,6 +73,7 @@ const { ghApiSlurp, ghJson, parseErrLine } = require("./lib/gh");
 const {
 	buildArchiveContainerTitle,
 	readSubIssues,
+	subIssueTotal,
 } = require("./lib/issue-tree");
 const { DIGEST_HEX_LENGTH } = require("./lib/census-digest.js");
 const { sectionAMatcher } = require("./lib/doc-map");
@@ -190,22 +194,34 @@ const twinKey = (c) => `${c.authored} ${c.subject}`;
  *   holds no commit by the sha
  * @typedef {{ onHead: Map<string, number>, elsewhere: NamedElsewhere[],
  *   unresolved: Missing[] }} Named
+ * @typedef {{ number: number, title: string, total: number }} Unexpanded
+ *   a ticket holding `total` sub-issues, read as one ticket
  */
 
 /**
- * The tickets of spec `n`, each archive container replaced by what it holds. A
- * sub-issue in another repo is not cited bare from this one.
+ * The tickets of spec `n`, each archive container replaced by what it holds, and
+ * those holding sub-issues of their own. A sub-issue in another repo is not cited
+ * bare from this one.
  * @param {number} n
  * @param {string} repositoryUrl
- * @returns {{ number: number, state: string }[]}
+ * @returns {{ tickets: { number: number, state: string }[], unexpanded: Unexpanded[] }}
  */
 function readTickets(n, repositoryUrl) {
-	return readSubIssues(n)
+	const kids = readSubIssues(n)
 		.flatMap((k) =>
 			k.title === buildArchiveContainerTitle(n) ? readSubIssues(k.number) : [k],
 		)
-		.filter((k) => !k.pull_request && k.repository_url === repositoryUrl)
-		.map((k) => ({ number: k.number, state: k.state }));
+		.filter((k) => !k.pull_request && k.repository_url === repositoryUrl);
+	return {
+		tickets: kids.map((k) => ({ number: k.number, state: k.state })),
+		unexpanded: kids
+			.map((k) => ({
+				number: k.number,
+				title: k.title,
+				total: subIssueTotal(k),
+			}))
+			.filter((u) => u.total > 0),
+	};
 }
 
 /**
@@ -451,6 +467,7 @@ function readArgs(argv) {
  * @property {number[]} open
  * @property {Listed[]} commits
  * @property {Missing[]} missing
+ * @property {Unexpanded[]} unexpanded
  * @property {boolean} twinsRead
  * @property {string[]} files
  * @property {Set<string> | null} marked
@@ -475,6 +492,7 @@ function buildJsonReport(v) {
 				twin,
 			})),
 			missing: v.missing,
+			unexpanded: v.unexpanded,
 			twinsRead: v.twinsRead,
 			files: v.files.map((f) => ({ path: f, generated: v.generated.has(f) })),
 			generatedMarked: Boolean(v.marked),
@@ -526,15 +544,35 @@ const buildMissingNote = (m) =>
 		? `NOTE: #${m.ticket}'s close names ${m.sha}, which names no commit in this clone — another repository's, unfetched, or rebased away; not reviewed.`
 		: `NOTE: #${m.ticket}'s close names ${short(m.sha)} ${m.subject}, which HEAD holds under neither its hash nor its author date and subject — not landed here, so not reviewed.`;
 
-/** @param {number[]} open @param {Missing[]} missing */
-const buildNotes = (open, missing) => [
+/** @param {Unexpanded} u */
+const buildUnexpandedNote = (u) =>
+	`NOTE: #${u.number} "${u.title}" holds ${u.total} sub-issue(s), whose commits are listed only where they cite this spec or its tickets. A hand-made container's or a sub-spec's work belongs in this review; a ticket's follow-up may not. List them: gh api repos/{owner}/{repo}/issues/${u.number}/sub_issues`;
+
+/** @param {number[]} open @param {Missing[]} missing @param {Unexpanded[]} unexpanded */
+const buildNotes = (open, missing, unexpanded) => [
 	...(open.length > 0
 		? [
 				`NOTE: ${cite(open)} still open — the spec is not finished, so this is not yet its whole diff.`,
 			]
 		: []),
 	...missing.map(buildMissingNote),
+	...unexpanded.map(buildUnexpandedNote),
 ];
+
+/**
+ * @param {number} n
+ * @param {string | null} after
+ * @param {string} cites
+ * @param {boolean} hasUnread a child's sub-issues went unread
+ */
+function buildNoCommitLine(n, after, cites, hasUnread) {
+	if (after)
+		return `No commit after ${short(after)} cites ${cites} or is named in a closed ticket's resolution: nothing new to review. Say so in the triage comment, ending it with:`;
+	const found = `No commit since #${n} was filed cites ${cites} or is named in a closed ticket's resolution`;
+	return hasUnread
+		? `${found}. Read the sub-issues noted above before calling this a decision-only spec.`
+		: `${found}: a decision-only spec. Skip the review, and say so in the triage comment.`;
+}
 
 /** @param {SpecView} v */
 function buildTextReport({
@@ -544,6 +582,7 @@ function buildTextReport({
 	open,
 	commits,
 	missing,
+	unexpanded,
 	twinsRead,
 	files,
 	marked,
@@ -556,14 +595,12 @@ function buildTextReport({
 		tickets.length > 0
 			? `#${n} or its ${tickets.length} ticket(s) (${cite(tickets.map((t) => t.number))})`
 			: `#${n} (no ticket)`;
-	const lines = buildNotes(open, missing);
+	const lines = buildNotes(open, missing, unexpanded);
 	if (commits.length === 0) {
 		lines.push(
-			after
-				? `No commit after ${short(after)} cites ${cites} or is named in a closed ticket's resolution: nothing new to review. Say so in the triage comment, ending it with:`
-				: `No commit since #${n} was filed cites ${cites} or is named in a closed ticket's resolution: a decision-only spec. Skip the review, and say so in the triage comment.`,
+			buildNoCommitLine(n, after, cites, unexpanded.length > 0),
+			...(after ? buildReviewedThroughLines(after, throughOnMain) : []),
 		);
-		if (after) lines.push(...buildReviewedThroughLines(after, throughOnMain));
 		return `${lines.join("\n")}\n`;
 	}
 	lines.push(
@@ -614,10 +651,11 @@ function main(argv) {
 	/** @type {{ created_at: string, repository_url: string }} */
 	let spec;
 	let tickets;
+	let unexpanded;
 	let closes;
 	try {
 		spec = ghJson(["api", `repos/{owner}/{repo}/issues/${n}`]);
-		tickets = readTickets(n, spec.repository_url);
+		({ tickets, unexpanded } = readTickets(n, spec.repository_url));
 		closes = readCloses(tickets);
 	} catch (e) {
 		process.stderr.write(`#${n} unreadable: ${parseErrLine(e)}\n`);
@@ -670,6 +708,7 @@ function main(argv) {
 		open,
 		commits,
 		missing,
+		unexpanded,
 		twinsRead,
 		files,
 		marked,

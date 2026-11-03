@@ -46,6 +46,9 @@ const readSubIssues = (n, repo = "{owner}/{repo}", opts = {}) =>
 const buildArchiveContainerTitle = (map) =>
 	`Archive: closed children of #${map}`;
 
+/** @param {{ sub_issues_summary?: { total?: number } }} k */
+const subIssueTotal = (k) => k.sub_issues_summary?.total ?? 0;
+
 /** @param {SubIssue} k */
 const isOpenChild = (k) => k.state === "open" && !k.pull_request;
 
@@ -54,4 +57,5 @@ module.exports = {
 	localParentOf,
 	readSubIssues,
 	isOpenChild,
+	subIssueTotal,
 };

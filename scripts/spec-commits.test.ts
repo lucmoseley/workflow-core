@@ -46,7 +46,7 @@ describe("spec-commits CLI", () => {
 
 	/* Each issue's comments; none where unset. */
 	let comments: Record<number, { body: string }[]>;
-	/* What each archive container holds; none where unset. */
+	/* What each issue holds as sub-issues; none where unset. */
 	let held: Record<number, unknown[]>;
 
 	const routes = (
@@ -582,6 +582,67 @@ describe("spec-commits CLI", () => {
 			);
 			expect(r.status).toBe(0);
 			expect(JSON.parse(r.stdout).tickets).toEqual([11, 12]);
+		});
+	});
+
+	describe("a child holding sub-issues under no archive title", () => {
+		const parent = (number: number, total: number, title: string) => ({
+			...ticket(number),
+			title,
+			sub_issues_summary: { total },
+		});
+
+		it("names a hand-made container and how to list what it holds, not expanding it", () => {
+			held[50] = [ticket(12)];
+			const r = run([
+				ticket(11),
+				parent(50, 1, "Archival container for map #10's closed history"),
+			]);
+			expect(r.status).toBe(0);
+			expect(r.stdout).toContain(
+				'NOTE: #50 "Archival container for map #10\'s closed history" holds 1 sub-issue(s)',
+			);
+			expect(r.stdout).toContain(
+				"gh api repos/{owner}/{repo}/issues/50/sub_issues",
+			);
+			expect(r.stdout).not.toContain("#12 review");
+		});
+
+		it("does not read a real sub-spec's tickets as the spec's own", () => {
+			held[12] = [ticket(13)];
+			const r = run([parent(12, 1, "Spec: a part of the work")], ["--json"]);
+			expect(r.status).toBe(0);
+			const out = JSON.parse(r.stdout);
+			expect(out.tickets).toEqual([12]);
+			expect(out.unexpanded).toEqual([
+				{ number: 12, title: "Spec: a part of the work", total: 1 },
+			]);
+		});
+
+		it("names one inside the archive container, but not the container", () => {
+			held[50] = [parent(12, 2, "A ticket with follow-ups")];
+			const r = run(
+				[parent(50, 1, "Archive: closed children of #10")],
+				["--json"],
+			);
+			expect(r.status).toBe(0);
+			expect(JSON.parse(r.stdout).unexpanded).toEqual([
+				{ number: 12, title: "A ticket with follow-ups", total: 2 },
+			]);
+		});
+
+		it("does not call the spec decision-only while a child's sub-issues are unread", () => {
+			const r = run([parent(77, 3, "Hand-made")]);
+			expect(r.status).toBe(0);
+			expect(r.stdout).toContain('NOTE: #77 "Hand-made" holds 3 sub-issue(s)');
+			expect(r.stdout).toContain("Read the sub-issues noted above");
+			expect(r.stdout).not.toContain("Skip the review");
+		});
+
+		it("notes nothing for a child GitHub counts as holding none", () => {
+			const r = run([parent(11, 0, "A plain ticket")], ["--json"]);
+			expect(r.status).toBe(0);
+			expect(JSON.parse(r.stdout).unexpanded).toEqual([]);
 		});
 	});
 

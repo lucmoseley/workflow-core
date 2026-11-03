@@ -74,7 +74,10 @@ const {
 	parseErrLine,
 	raiseGhFailure,
 } = require("./lib/gh");
-const { buildArchiveContainerTitle } = require("./lib/issue-tree");
+const {
+	buildArchiveContainerTitle,
+	subIssueTotal,
+} = require("./lib/issue-tree");
 
 // `gh api` and `gh issue list --json state` disagree on case ("closed" vs
 // "CLOSED"), and the orphan search goes through the latter.
@@ -312,9 +315,7 @@ function sortClosedChildren(kids, container) {
 	const closedDirectAll = kids.filter(
 		(k) => k.state === "closed" && !k.pull_request && k !== container,
 	);
-	const containerLike = closedDirectAll.filter(
-		(k) => (k.sub_issues_summary?.total ?? 0) > 0,
-	);
+	const containerLike = closedDirectAll.filter((k) => subIssueTotal(k) > 0);
 	const closedDirect = closedDirectAll.filter(
 		(k) => !containerLike.includes(k),
 	);
