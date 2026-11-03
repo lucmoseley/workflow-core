@@ -120,27 +120,50 @@ describe("a goal's progress (#3866)", () => {
 	});
 });
 
+const served = (...roots: string[]) => ({ roots, dropped: [] });
+
 describe("a ref's repo", () => {
 	const bare = { repo: null, number: 5 };
+	const optedOut = { root: "/home/u/manta", why: "refillLoop: false" };
 
-	it("is the one ticked repo for a bare #N, each ref once", () => {
+	it("is the one served repo for a bare #N, each ref once", () => {
 		expect(
-			qualifyRefs([bare, { repo: "core", number: 5 }], ["/home/u/core"]),
+			qualifyRefs([bare, { repo: "core", number: 5 }], served("/home/u/core")),
 		).toEqual([{ repo: "core", number: 5 }]);
 	});
 
-	it("refuses a bare #N unless exactly one repo is ticked", () => {
+	it("refuses a bare #N unless exactly one repo is served", () => {
 		for (const roots of [[], ["/home/u/core", "/home/u/manta"]])
-			expect(qualifyRefs([bare], roots)).toEqual({
-				reason: `#5 names no repo with ${roots.length} repos ticked`,
+			expect(qualifyRefs([bare], served(...roots))).toEqual({
+				reason: `#5 names no repo with ${roots.length} repos served`,
 				remedy: "write <repo>#5",
 				box: null,
 			});
 	});
 
+	it("takes a bare #N into the one served repo beside a ticked one it does not serve (#4185)", () => {
+		expect(
+			qualifyRefs([bare], { roots: ["/home/u/core"], dropped: [optedOut] }),
+		).toEqual([{ repo: "core", number: 5 }]);
+	});
+
+	it("refuses a ref into a ticked repo it does not serve, naming why (#4185)", () => {
+		expect(
+			qualifyRefs([{ repo: "manta", number: 5 }], {
+				roots: ["/home/u/core"],
+				dropped: [optedOut],
+			}),
+		).toEqual({
+			reason:
+				"manta#5 is in manta, which the loop does not serve: refillLoop: false",
+			remedy: "name an issue in a served repo",
+			box: "manta",
+		});
+	});
+
 	it("refuses a ref to an unticked repo, naming it", () => {
 		expect(
-			qualifyRefs([{ repo: "manta", number: 5 }], ["/home/u/core"]),
+			qualifyRefs([{ repo: "manta", number: 5 }], served("/home/u/core")),
 		).toEqual({
 			reason: "manta#5 is in manta, which is not ticked",
 			remedy: "tick manta first",
@@ -151,16 +174,16 @@ describe("a ref's repo", () => {
 
 describe("a ref read as an open issue", () => {
 	const asked = [{ repo: "core", number: 5 }];
-	const roots = ["/home/u/core"];
+	const core = served("/home/u/core");
 
 	it("passes an open issue", () => {
-		expect(qualifyOpenRefs(asked, roots, () => ({ state: "OPEN" }))).toEqual(
+		expect(qualifyOpenRefs(asked, core, () => ({ state: "OPEN" }))).toEqual(
 			asked,
 		);
 	});
 
 	it("refuses a closed one, naming it", () => {
-		expect(qualifyOpenRefs(asked, roots, () => ({ state: "CLOSED" }))).toEqual({
+		expect(qualifyOpenRefs(asked, core, () => ({ state: "CLOSED" }))).toEqual({
 			reason: "core#5 is closed",
 			remedy: "name an open issue",
 			box: null,
@@ -168,18 +191,18 @@ describe("a ref read as an open issue", () => {
 	});
 
 	it("refuses one that will not read, naming why", () => {
-		expect(
-			qualifyOpenRefs(asked, roots, () => ({ unread: "no such" })),
-		).toEqual({
-			reason: "core#5 will not read as an open issue: no such",
-			remedy: null,
-			box: null,
-		});
+		expect(qualifyOpenRefs(asked, core, () => ({ unread: "no such" }))).toEqual(
+			{
+				reason: "core#5 will not read as an open issue: no such",
+				remedy: null,
+				box: null,
+			},
+		);
 	});
 
 	it("reads no issue for a ref its repo refuses", () => {
 		expect(
-			qualifyOpenRefs(asked, ["/home/u/manta"], () => {
+			qualifyOpenRefs(asked, served("/home/u/manta"), () => {
 				throw new Error("read");
 			}),
 		).toMatchObject({ remedy: "tick core first", box: "core" });

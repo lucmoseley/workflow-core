@@ -929,7 +929,7 @@ describe("planSet's resume with no process (#3861)", () => {
 		planSet(
 			{ control: { ...control, ...over }, damaged: null },
 			{ pause: false },
-			{ running, now: NowMs },
+			{ running, now: NowMs, readExclusionWhy: () => null },
 		);
 
 	it.each([
@@ -972,6 +972,7 @@ describe("the quiet bench route's setting and hold (#3852)", () => {
 		planSet({ control: from, damaged: null }, ask, {
 			running: true,
 			now: 7,
+			readExclusionWhy: () => null,
 		}) as { write: Record<string, unknown> | null; lines: string[] };
 
 	it("turns the route off and on", () => {
@@ -1014,6 +1015,7 @@ describe("planStart (#3868)", () => {
 		seatErrors: [] as string[],
 		stopped: null as { at: number; reason: string; detail: string } | null,
 		unlessStopped: true,
+		readExclusionWhy: () => null,
 	};
 	const sound = (control: object | null = stored) =>
 		({ control, damaged: null }) as Parameters<typeof planStart>[0];

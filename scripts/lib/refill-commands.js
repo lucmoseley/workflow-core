@@ -39,6 +39,7 @@ const {
 	buildSeatText,
 	buildSkipText,
 	controlInMode,
+	scopeRoots,
 	handedOffSince,
 	withAbsentRead,
 	launchesSince,
@@ -90,15 +91,18 @@ const NOT_RUNNING = buildNotice(
  * @typedef {{pause?: boolean, mode?: Scope["mode"], repos?: string[],
  *   tick?: string[], untick?: string[], goal?: GoalAsk|null,
  *   quietBench?: boolean}} SetAsk
- * @typedef {{running: boolean, now: number}} SetContext
+ * @typedef {{running: boolean, now: number,
+ *   readExclusionWhy: (root: string) => string|null}} SetContext
+ *   `readExclusionWhy`, why the loop does not serve a root, null where it does
  * @typedef {{write: Control|null, lines: string[]}} SetChange
  * @typedef {{write: Control|null, control: Control,
  *   action: "running"|"start"|"stopped", lines: string[]}} StartPlan
  * @typedef {{refused: Notice, exitCode: number}} StartRefusal
  * @typedef {{pid: number|null, now: number, root: string, seats: string[],
  *   seatErrors: string[], stopped: LoopState["stopped"],
- *   unlessStopped: boolean}} StartContext `seats` and `seatErrors`, the seat
- *   file's; `stopped`, the state file's
+ *   unlessStopped: boolean,
+ *   readExclusionWhy: SetContext["readExclusionWhy"]}} StartContext `seats` and
+ *   `seatErrors`, the seat file's; `stopped`, the state file's
  * @typedef {SetChange & {startFrom: Control|null, warning: Notice|null}} SetPlan
  *   `startFrom`, the control a process starts from, where a resume found none
  *   running; `warning`, what it changed but no process takes yet
@@ -181,7 +185,7 @@ function changeFields(control, ask, context) {
 		/* After the repos, so a goal is judged on the set this `set` leaves. */
 		...(goal === undefined
 			? []
-			: [(/** @type {Control} */ c) => buildGoalChange(c, goal, context.now)]),
+			: [(/** @type {Control} */ c) => buildGoalChange(c, goal, context)]),
 		...(quietBench === undefined
 			? []
 			: [(/** @type {Control} */ c) => buildQuietBenchChange(c, quietBench)]),
@@ -282,11 +286,15 @@ function readStandingStop(control, { pid, stopped, unlessStopped }) {
  */
 function planStart(read, ask, context) {
 	const { control, damaged } = read;
-	const { pid, now, root, seats, unlessStopped } = context;
+	const { pid, now, root, seats, unlessStopped, readExclusionWhy } = context;
 	const refusal = buildStartRefusal(read, context);
 	if (refusal !== null) return refusal;
 	const stored = control ?? buildFreshControl(root, seats, now);
-	const changed = changeFields(stored, ask, { running: pid !== null, now });
+	const changed = changeFields(stored, ask, {
+		running: pid !== null,
+		now,
+		readExclusionWhy,
+	});
 	if ("refused" in changed) return { ...changed, exitCode: 1 };
 	const current = changed.write ?? stored;
 	const write =
@@ -443,20 +451,22 @@ const tickedAfter = ({ scope }, { repos, tick = [], untick = [] }) =>
 	);
 
 /**
- * `ask` with its goal's refs qualified, each read as an open issue, or a
- * refusal. This runs before the control lock, whose holder reads no tracker;
- * the lock's fresh read judges the refs again against what is ticked then. A
- * control that will not read is its planner's to refuse.
+ * `ask` with its goal's refs qualified on the repos it leaves served, each read
+ * as an open issue, or a refusal. This runs before the control lock, whose
+ * holder reads no tracker; the lock's fresh read judges the refs again against
+ * what is served then. A control that will not read is its planner's to refuse.
  * @param {Control|null} control
  * @param {SetAsk} ask
- * @param {(ref: import("./refill-goal.js").GoalRef) => import("./refill-goal.js").IssueRead} readIssue
+ * @param {{readIssue: (ref: import("./refill-goal.js").GoalRef) => import("./refill-goal.js").IssueRead,
+ *   readExclusionWhy: (root: string) => string|null}} io
  * @returns {SetAsk|Notice}
  */
-function checkGoalAsk(control, ask, readIssue) {
+function checkGoalAsk(control, ask, { readIssue, readExclusionWhy }) {
 	if (!ask.goal || control === null) return ask;
+	const repos = tickedAfter(control, ask);
 	const refs = qualifyOpenRefs(
 		ask.goal.refs,
-		tickedAfter(control, ask),
+		scopeRoots({ ...control.scope, repos }, readExclusionWhy),
 		readIssue,
 	);
 	return isNotice(refs) ? refs : { ...ask, goal: { ...ask.goal, refs } };
@@ -486,14 +496,14 @@ function buildReposChange(control, ask) {
 }
 
 /**
- * Only the goal changed, or why its refs are refused on the set ticked now.
+ * Only the goal changed, or why its refs are refused on the set served now.
  * Asking for what already holds changes nothing, a repeat goal keeping its time.
  * @param {Control} control
  * @param {GoalAsk|null} asked null clears it
- * @param {number} now
+ * @param {SetContext} context
  * @returns {SetChange|{refused: Notice}}
  */
-function buildGoalChange(control, asked, now) {
+function buildGoalChange(control, asked, { now, readExclusionWhy }) {
 	const before = control.scope.goal;
 	/** @param {import("./refill-goal.js").Goal|null} after */
 	const changed = (after) => ({
@@ -504,7 +514,10 @@ function buildGoalChange(control, asked, now) {
 		return before === null
 			? { write: null, lines: ["unchanged: goal none"] }
 			: changed(null);
-	const refs = qualifyRefs(asked.refs, control.scope.repos);
+	const refs = qualifyRefs(
+		asked.refs,
+		scopeRoots(control.scope, readExclusionWhy),
+	);
 	if (isNotice(refs)) return { refused: refs };
 	const goal = { form: asked.form, text: asked.text, refs };
 	return isSameGoal(before, goal)

@@ -1637,11 +1637,24 @@ describe("the goal (#3864)", () => {
 		expect(readControl().scope.repos).toEqual([core, manta]);
 	});
 
+	it("judges refs on the repos served, not a ticked one opted out (#4185)", async () => {
+		const books = writeCheckout(dir, "books", { refillLoop: false });
+		writeControl({ mode: "normal", repos: [core, books], goal: null });
+		expect((await setGoal("--goal", "#5")).status).toBe(0);
+		expect(readControl().scope.goal).toMatchObject({ refs: [ref("core", 5)] });
+		const refused = await setGoal("--goal", "books#5");
+		expect(refused.status).toBe(2);
+		expect(refused.stderr).toContain(
+			"books#5 is in books, which the loop does not serve: refillLoop: false",
+		);
+		expect(readControl().scope.goal).toMatchObject({ refs: [ref("core", 5)] });
+	});
+
 	it.each([
 		[
 			"a bare #N with two repos ticked",
 			"#5",
-			"#5 names no repo with 2 repos ticked; write <repo>#5",
+			"#5 names no repo with 2 repos served; write <repo>#5",
 		],
 		[
 			"an unticked repo's ref",

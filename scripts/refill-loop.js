@@ -343,11 +343,10 @@ const readStoredControl = () => readControlChecked(() => undefined).control;
  */
 function checkAsk(parsedAsk, unstored) {
 	if (isNotice(parsedAsk)) return parsedAsk;
-	return commands.checkGoalAsk(
-		readStoredControl() ?? unstored,
-		parsedAsk,
-		readIssueState,
-	);
+	return commands.checkGoalAsk(readStoredControl() ?? unstored, parsedAsk, {
+		readIssue: readIssueState,
+		readExclusionWhy,
+	});
 }
 
 /**
@@ -556,6 +555,7 @@ function start(parsed) {
 				seatErrors: readDeclaredSeats().errors,
 				stopped: readStateFile(log).stopped,
 				unlessStopped: parsed.flags["--unless-stopped"] === true,
+				readExclusionWhy,
 			},
 		);
 		if ("refused" in plan) return plan;
@@ -686,6 +686,7 @@ function set(parsed) {
 			{
 				running: lock.holder() !== null,
 				now: Date.now(),
+				readExclusionWhy,
 			},
 		);
 		if ("write" in plan && plan.write) writeControlFile(plan.write);
