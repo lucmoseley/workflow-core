@@ -33,11 +33,13 @@ describe("refill-panel-open.js", () => {
 	let stderr = "";
 	let viewEnv: Record<string, string> = {};
 	const ran: Route[] = [];
+	const waits: number[] = [];
 
 	beforeEach(() => {
 		root = fs.mkdtempSync(path.join(os.tmpdir(), "panel-open-"));
 		fs.mkdirSync(path.join(root, ".claude"));
 		ran.length = 0;
+		waits.length = 0;
 		stdout = "";
 		stderr = "";
 		viewEnv = {};
@@ -71,6 +73,9 @@ describe("refill-panel-open.js", () => {
 				ran.push(route);
 				return why(route);
 			},
+			wait: (ms: number) => {
+				waits.push(ms);
+			},
 			out: (text: string) => {
 				stdout += text;
 			},
@@ -87,6 +92,7 @@ describe("refill-panel-open.js", () => {
 		expect(open(["--if-enabled", "42"])).toBe(0);
 		expect(ran).toEqual([]);
 		expect(stdout).toBe("");
+		expect(waits).toEqual([]);
 	});
 
 	it("with --if-enabled and the key true, opens the panel", () => {
@@ -112,16 +118,57 @@ describe("refill-panel-open.js", () => {
 		expect(stdout).toBe("");
 	});
 
-	it("prints the command where no route is there", () => {
+	it("by hand with no route, prints the command and returns at once", () => {
 		expect(open(["42"], { env: {} })).toBe(0);
 		expect(ran).toEqual([]);
 		expect(stdout).toContain("refill-panel.js");
 		expect(stdout).toMatch(/ 42\n$/);
+		expect(stderr).toBe("");
+		expect(waits).toEqual([]);
 	});
 
-	it("prints the command where every route fails", () => {
+	it("by hand with every route failing, prints the command and returns at once", () => {
 		expect(open(["42"], { why: () => "exit 1" })).toBe(0);
 		expect(stdout).toMatch(/ 42\n$/);
+		expect(waits).toEqual([]);
+	});
+
+	it("from a view start with no route, says why and holds the command on screen", () => {
+		setKey({ refillPanel: true });
+		expect(open(["--if-enabled", "42"], { env: {} })).toBe(0);
+		expect(stderr).toContain("no refill panel opened");
+		expect(stderr).toContain("Windows Terminal under WSL");
+		expect(stderr).toContain("cmd.exe and wt.exe on PATH");
+		expect(stderr).toContain("or tmux");
+		expect(stdout.trimEnd().split("\n")).toHaveLength(1);
+		expect(stdout).toMatch(/refill-panel\.js.* 42\n$/);
+		expect(waits).toEqual([5000]);
+	});
+
+	it("from a view start with every route failing, says why after each failure", () => {
+		setKey({ refillPanel: true });
+		expect(open(["--if-enabled", "42"], { why: () => "exit 1" })).toBe(0);
+		expect(stderr.indexOf("the tmux route failed: exit 1")).toBeGreaterThan(-1);
+		expect(stderr.indexOf("no refill panel opened")).toBeGreaterThan(
+			stderr.indexOf("the tmux route failed"),
+		);
+		expect(stdout).toMatch(/ 42\n$/);
+		expect(waits).toEqual([5000]);
+	});
+
+	it("from a view start with a route that opens, neither waits nor says more", () => {
+		setKey({ refillPanel: true });
+		expect(open(["--if-enabled", "42"])).toBe(0);
+		expect(stderr).toBe("");
+		expect(stdout).toBe("");
+		expect(waits).toEqual([]);
+	});
+
+	it("from a view start with the pid gone, neither waits nor says anything", () => {
+		setKey({ refillPanel: true });
+		expect(open(["--if-enabled", "42"], { isAlive: () => false })).toBe(0);
+		expect(stderr).toBe("");
+		expect(waits).toEqual([]);
 	});
 
 	it("opens nothing for a pid already gone", () => {
