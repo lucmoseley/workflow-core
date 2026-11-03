@@ -14,14 +14,14 @@
  * intersection below removes a neighbour's dirt outright, and the remedy is one
  * always-available command.
  *
- * IT READS THE OUTGOING MESSAGE ON ONE PATH ONLY (mantahostels#2567): the `waiting:`
- * stand-down below, reached only on a turn that would otherwise block. mantahostels#872 —
- * Stop hooks not firing at all in one background session — still reaches this
- * guard.
+ * IT READS THE OUTGOING MESSAGE ON TWO PATHS: the `waiting:` stand-down below
+ * (mantahostels#2567), reached only on a turn with dirt to name, and the
+ * clean-claim limb's marker check (#3565). mantahostels#872 — Stop hooks not firing
+ * at all in one background session — still reaches this guard.
  *
- * IT WRITES NO `.hook-ran-` BREADCRUMB, and the stand-down deliberately reads
- * the message without minting one: `hookMessage.readMessageFrom` records on every
- * call, and a guard crumbing only the rare turns it nearly blocks would read as
+ * IT WRITES NO `.hook-ran-` BREADCRUMB, and both paths deliberately read the
+ * message without minting one: `hookMessage.readMessageFrom` records on every
+ * call, and a guard crumbing only the turns those paths reach would read as
  * SILENT in `check-stop-guard-outcomes.js` on every window it crumbed none.
  *
  * A NEIGHBOUR'S DIRT IS SUBTRACTED ON TWO SIGNALS, not one: their live claim
@@ -60,16 +60,6 @@
  * Widening to unattributed dirt is refused: a change attributable to nobody is
  * billed to nobody, because over-billing sends a session to edit files a live
  * neighbour is holding.
- *
- * A SECOND LIMB WAS HERE AND IS GONE (mantahostels#2340, ruled at mantahostels#2338). It warned about
- * untracked in-repo scratch outside `.claude/tmp/` on the `systemMessage`
- * channel. mantahostels#2319 measured that text reaching the model on ZERO of 598 firings
- * and mantahostels#2338 measured every one of 1,004,194 `sessionKind` values across the
- * whole 3,915-transcript corpus as `"bg"`, so it had no reader on either side
- * and relabelling it founder-only would have documented an audience that does
- * not exist. `scripts/lib/root-scratch.js` now carries the same rule at
- * `PreToolUse`, which mantahostels#2319 proved live. `blockStop`'s own `reason` is
- * unaffected: mantahostels#2335 measured it reaching the model on all 3,631 firings.
  *
  * IMPLICIT:  reads git state at Stop and refuses the turn while this session's
  *            own tracked edits sit uncommitted in the shared tree — unless the
@@ -121,15 +111,6 @@ const REPO_ROOT = hookBlock.repoRoot();
  * move it. `capSpent` below takes it too, or the early stand-down would silence
  * the guard at three and the raise would do nothing. */
 const BLOCK_CAP = 6;
-
-/*
- * NO STAND-DOWN FOR THE CONCISION BACKSTOP. Its demand and this one do not
- * conflict — docs/agents/guard-registry.md §Conventions puts them in order, "satisfy the demand,
- * then the next tool call is the commit" — and honouring it would be unbounded:
- * `scripts/concision-backstop.sh` writes `.<kind>-nagged-<sid>` once and never
- * clears it, so a session that never ran the pass would be exempt for the rest
- * of its life (mantahostels#1555).
- */
 
 /**
  * One git read against this repo, bounded by `lib/dirty-tree.js`'s ceiling.
@@ -197,15 +178,6 @@ function readEnding(payload, sid) {
  * reaching through: a launch whose settlement that file cannot recognise stays
  * pending for the rest of the session, and here that is a standing exemption
  * rather than a missed refusal. Nothing detects it.
- *
- * A SESSION CAN STILL MINT THE ARTEFACT, in two calls rather than one — a
- * backgrounded `sleep`, then the hand-off. That is not refusable and not worth
- * refusing: backgrounding real work is what CLAUDE.md asks for, and the cost of
- * the dodge is a session that has to keep launching to keep dodging.
- *
- * IT SAYS WHY IT DECLINED. A silent decline leaves the block naming dirt and
- * not the hand-off, and the remedy it prints — re-send the message — reproduces
- * the same input, so the session blocks again on a fault nothing named.
  *
  * THE MESSAGE IS READ THROUGH `hookMessage.readMessageText`, never `readMessageFrom`, whose
  * breadcrumb this guard must not mint — see the header.

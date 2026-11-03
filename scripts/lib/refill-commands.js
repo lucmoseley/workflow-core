@@ -521,7 +521,7 @@ function buildGoalChange(control, asked, now) {
  * @typedef {object} SeatsView what the `seats:` line says, its seats as tilde
  *   paths (#3733)
  * @property {{seat: string, week: number|null, weekFull: boolean,
- *   weekRead: {percent: number|null, at: string|null},
+ *   weekRead: {percent: number|null, at: string|null, rolled?: boolean},
  *   session: number|null, readAt: string, fresh: boolean}[]} readings in launch
  *   order
  * @property {{seat: string, reason: import("./refill-decide.js").SeatReason}|null} next
@@ -644,6 +644,7 @@ function buildSeatsView({ seats, overflow, typedSeat, ceilings, callerSeat }) {
 			weekRead: {
 				percent: s.weekRead.percent,
 				at: s.weekRead.atMs === null ? null : iso(s.weekRead.atMs),
+				rolled: s.weekRead.rolled,
 			},
 			session: s.session,
 			readAt: iso(s.readAt),

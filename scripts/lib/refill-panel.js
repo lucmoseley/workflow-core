@@ -130,7 +130,7 @@ const ROLE_STYLES = {
  *   repos: {name: string, root: string, ticked: boolean, disabled: string|null}[],
  *   goal: ReturnType<typeof import("./refill-goal.js").buildGoalStatus>,
  *   seats: {readings: {seat: string, week: number|null, weekFull: boolean,
- *     weekRead: {percent: number|null, at: string|null}}[],
+ *     weekRead: {percent: number|null, at: string|null, rolled?: boolean}}[],
  *     next: {seat: string, reason: string}|null},
  *   overflow: OverflowKey[],
  *   burnMode: ReturnType<typeof import("./burn-mode.js").readBurnState>}} PanelStatus
@@ -516,7 +516,8 @@ function buildSpendState(status) {
  * The newest reading and its age, however old, so an old read cannot look current
  * (#4059); a cached bar can hold no fetch time, which says its age is unknown rather
  * than pass as current. A week the account does not report has no reading to age, and
- * shows the 0 the picker sizes it on (#3758).
+ * shows the 0 the picker sizes it on (#3758). A week reset since its last read says so,
+ * its 0 being derived rather than read.
  * @param {PanelStatus["seats"]["readings"][number]} reading
  * @param {number} now
  */
@@ -525,9 +526,11 @@ function buildPlanFigure({ week, weekRead }, now) {
 		return week === null ? "unread" : `${week}% used`;
 	const age =
 		weekRead.at === null
-			? "age unknown"
+			? null
 			: `${describeAge(Math.max(0, (now - Date.parse(weekRead.at)) / 1000))} ago`;
-	return `${weekRead.percent}% used (${age})`;
+	if (weekRead.rolled)
+		return `${weekRead.percent}% (reset${age ? `, read ${age}` : ""})`;
+	return `${weekRead.percent}% used (${age ?? "age unknown"})`;
 }
 
 /**

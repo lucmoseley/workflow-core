@@ -591,7 +591,33 @@ describe("a seat's weekly reset, from its usage cache (#3732)", () => {
 		const now = Date.now();
 		const week = new Date(now + 3 * 24 * 60 * MIN).toISOString();
 		const aged = now - 60 * MIN;
-		expect(readAt(aged, week).weekRead).toEqual({ percent: 40, atMs: aged });
+		expect(readAt(aged, week).weekRead).toEqual({
+			percent: 40,
+			atMs: aged,
+			rolled: false,
+		});
+	});
+
+	it("reads a week reset since its read as 0, rolled, and leaves the picker unread (#4106)", () => {
+		const now = Date.now();
+		const aged = now - 6 * 24 * 60 * MIN;
+		const week = new Date(now - 2 * 24 * 60 * MIN).toISOString();
+		expect(readAt(aged, week)).toMatchObject({
+			week: null,
+			weekFull: false,
+			weekRead: { percent: 0, atMs: aged, rolled: true },
+		});
+	});
+
+	it("keeps a printed figure whose reset is a date Date.parse misreads (#4106)", () => {
+		const now = Date.now();
+		const usageText = "Current week (all models): 40% used · resets Nov 8\n";
+		const bars = readAllowance({ configDir: dir, usageText, now });
+		expect(seatReadingOf(dir, bars, now).weekRead).toEqual({
+			percent: 40,
+			atMs: now,
+			rolled: false,
+		});
 	});
 
 	it("reads an unreported session bar as 0, so the seat has room (#3758)", () => {
@@ -677,7 +703,7 @@ describe("a seat's reading (#2606)", () => {
 			sessionResets: Ahead,
 			weekResets: Date.parse(Ahead),
 			readAt: NOW,
-			weekRead: { percent: 100, atMs: null },
+			weekRead: { percent: 100, atMs: null, rolled: false },
 		});
 	});
 
