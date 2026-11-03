@@ -83,7 +83,7 @@ export const GH_NOT_FOUND: GhAnswer = NOT_FOUND;
 export const GH_PARENT_NOT_FOUND: GhAnswer = PARENT_NOT_FOUND;
 export const GH_GRAPHQL_NO_REPO: GhAnswer = GRAPHQL_NO_REPO;
 
-export function ghAnswer(fixture: string): GhAnswer {
+export function readGhAnswer(fixture: string): GhAnswer {
 	return JSON.parse(fs.readFileSync(fixture, "utf8"));
 }
 
@@ -103,7 +103,7 @@ export function ghServe({
 	};
 }
 
-export const ghFake = (fixture: string) => ghServe(ghAnswer(fixture));
+export const ghFake = (fixture: string) => ghServe(readGhAnswer(fixture));
 
 /** The shell lines that print `answer`, for a stub's own `case` arm. */
 export function ghServeLines({ status, stdout, stderr }: GhAnswer): string {
@@ -116,14 +116,14 @@ export function ghServeLines({ status, stdout, stderr }: GhAnswer): string {
 
 /** The stub executable answering `fixture`, for gh-stub's `stubGhScript`. */
 export const ghFakeScript = (fixture: string) =>
-	`#!/bin/sh\n${ghServeLines(ghAnswer(fixture))}`;
+	`#!/bin/sh\n${ghServeLines(readGhAnswer(fixture))}`;
 
 /** `fixture`'s answer as node source calling `out`, `err` and `exit`. */
 function buildAnswerCalls(
 	fixture: string,
 	{ out, err, exit }: { out: string; err: string; exit: string },
 ) {
-	const { status, stdout, stderr } = ghAnswer(fixture);
+	const { status, stdout, stderr } = readGhAnswer(fixture);
 	return `${out}(${JSON.stringify(stdout)}); ${err}(${JSON.stringify(stderr)}); ${exit}(${status});`;
 }
 

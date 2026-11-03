@@ -60,6 +60,8 @@ const record = (kind, file, args, start) =>
 
 if (OUT && depth === FORK_WORKER_DEPTH) {
 	/** @type {Record<"spawnSync" | "execFileSync" | "execSync" | "spawn" | "execFile" | "exec", Function>} */
+	// `any`: each export is reassigned a plain wrapper, which none of their
+	// overloaded signatures takes without a cast.
 	const api = /** @type {any} */ (cp);
 	for (const name of /** @type {const} */ ([
 		"spawnSync",

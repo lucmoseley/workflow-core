@@ -68,12 +68,14 @@ const { logger, readPayload } = require("./entry-input.js");
 const { kitContext, sharedReaders } = require("./kit-context.js");
 const { hostRoot } = require("./host-root.js");
 const {
-	admits,
 	corePath,
-	dispatchRows,
+	isAdmitted,
 	isCoreFor,
-	runsOn,
+	isDispatchedOn,
+	readDispatchRows,
+	toolOf,
 } = require("./guard-cores.js");
+const { loadCores } = require("./guard-core-load.js");
 
 /**
  * @typedef {import("./kit-context.js").KitContext} KitContext
@@ -124,38 +126,6 @@ const PRECEDENCE = /** @type {const} */ (["deny", "defer", "ask", "allow"]);
 
 /** What joins two reasons or two contexts, counted against the persist room. */
 const JOIN = "\n\n";
-
-/**
- * One row with its module's exports, or with the fault its require threw, left
- * for dispatch so a disabled or off-module core's fault says nothing (#4125).
- * A row naming no file is the manifest's fault, so it crashes the entry.
- * @param {CoreRow} row
- * @returns {Core}
- */
-function loadCore(row) {
-	const file = corePath(row.core);
-	try {
-		return { ...row, ...require(file) };
-	} catch (e) {
-		if (!fs.existsSync(file)) throw e;
-		return {
-			...row,
-			loadFault: `scripts/lib/${row.core} failed to load — fix that module: ${caught(e).message}`,
-		};
-	}
-}
-
-/**
- * The cores of `event`'s rows that `keep` passes, each row filtered before its
- * module is required, so a call loads only the cores that can fire on it
- * (#3141).
- * @param {string} event
- * @param {(row: CoreRow) => boolean} [keep]
- * @returns {Core[]}
- */
-function loadCores(event, keep = () => true) {
-	return dispatchRows(event).filter(keep).map(loadCore);
-}
 
 /**
  * The parts merged into one hook output; null where none says anything.
@@ -220,7 +190,7 @@ function judgeAndMerge(cores, env) {
 	const { payload, adapters, disabled } = env;
 	const host = { disabled, moduleOn: adapters.moduleOn };
 	const judged = cores
-		.filter((core) => runsOn(core, payload, host))
+		.filter((core) => isDispatchedOn(core, payload, host))
 		.map((core) => runCore(core, env));
 	const reserve = noticeRoom(judged, env.persistChars);
 	const { parts, latches, dropped } = fitToCap(
@@ -277,13 +247,6 @@ function fitToCap(judged, cap) {
 	}
 	return fitted;
 }
-
-/**
- * @param {Record<string, unknown>} payload
- * @returns {string | undefined}
- */
-const toolOf = (payload) =>
-	typeof payload.tool_name === "string" ? payload.tool_name : undefined;
 
 /**
  * What the entry has left once `used` characters and a separator are spent.
@@ -497,13 +460,13 @@ function runEntry(only) {
 		event,
 		(row) =>
 			isCoreFor(row, tool) &&
-			admits(row, payload) &&
+			isAdmitted(row, payload) &&
 			(only === undefined || row.name === only),
 	);
 	if (
 		only !== undefined &&
 		cores.length === 0 &&
-		!dispatchRows(event).some((r) => r.name === only)
+		!readDispatchRows(event).some((r) => r.name === only)
 	)
 		entryLog(`--only names no ${event} core: ${only} — nothing run`);
 	const { output, latches } = dispatch(cores, {
@@ -523,7 +486,6 @@ function runEntry(only) {
 module.exports = {
 	dispatch,
 	hostAdapters,
-	loadCores,
 	merge,
 	repoRel,
 	runDispatch,

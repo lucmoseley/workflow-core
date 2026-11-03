@@ -1,6 +1,6 @@
 /*
  * The probe modes both in-process-probe.js and in-process-async-probe.js run,
- * so run-in-process.test.ts's contract rows hold each entry point to the same
+ * so run-in-process.contract.test.ts's rows hold each entry point to the same
  * spawned behaviour (#2782). A mode whose result names its own file, or reads
  * its own `module`, stays in its probe.
  *
@@ -47,6 +47,7 @@ const modes = {
 			`${process.env.PROBE ?? "<unset>"}|${String("CARRIED" in process.env)}`,
 		),
 	argv: () => say(process.argv.slice(2).join(",")),
+	uptime: () => say(String(process.uptime())),
 	child: () =>
 		say(
 			execFileSync(

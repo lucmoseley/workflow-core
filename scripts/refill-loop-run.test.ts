@@ -54,7 +54,7 @@ import {
 	readRecentEntries,
 	record as recordDispatch,
 } from "./lib/dispatch-ledger.js";
-import { ghAnswer } from "./lib/gh-fake";
+import { readGhAnswer } from "./lib/gh-fake";
 import { printed, stubGhRoutes } from "./lib/gh-stub";
 import { defineTemplate, initGitRepo } from "./lib/git-fixture";
 import {
@@ -4326,7 +4326,7 @@ describe("a repo hold on the real tick (#3857)", () => {
 		fs.mkdirSync(at("gh-routes"), { recursive: true });
 		return stubGhRoutes(at("gh-routes"), {
 			"issue view 12 *": printed(`${state}\n`),
-			"*": ghAnswer(LOGGED_OUT),
+			"*": readGhAnswer(LOGGED_OUT),
 		}).gh;
 	};
 
@@ -4466,7 +4466,7 @@ describe("a probe hold on the real tick (#3860)", () => {
 			"issue list *": printed(JSON.stringify(open)),
 			[`issue close ${Issue} *`]: printed(""),
 			"issue edit *": printed(""),
-			"*": ghAnswer(LOGGED_OUT),
+			"*": readGhAnswer(LOGGED_OUT),
 		});
 	};
 
@@ -4844,7 +4844,7 @@ node ${shellQuote(path.join(scripts, "request-stop.js"))}\n`,
 		breakHead();
 
 		const { stdout } = await tickRun(
-			stubGhRoutes(routes, { "*": ghAnswer(LOGGED_OUT) }).gh,
+			stubGhRoutes(routes, { "*": readGhAnswer(LOGGED_OUT) }).gh,
 		);
 
 		expect(stdout).toContain("could not look for an open one");
@@ -6135,8 +6135,8 @@ describe("a repo hold's phone notice on the real tick (#3871)", () => {
 				"issue edit *": printed(""),
 				[`issue view ${Issue} *`]: printed(JSON.stringify({ comments })),
 				"run list *": printed(JSON.stringify(runs)),
-				"workflow run *": isRefusing ? ghAnswer(LOGGED_OUT) : printed(""),
-				"*": ghAnswer(LOGGED_OUT),
+				"workflow run *": isRefusing ? readGhAnswer(LOGGED_OUT) : printed(""),
+				"*": readGhAnswer(LOGGED_OUT),
 			},
 			{ log: at("gh-log") },
 		).gh;
@@ -6452,7 +6452,7 @@ exec ${JSON.stringify(routed)} "$@"
 		slotWorkedAgo(31 * Min);
 		await tickRun(serve());
 		const unreadable = stubGhRoutes(at("gh-routes"), {
-			"*": ghAnswer(LOGGED_OUT),
+			"*": readGhAnswer(LOGGED_OUT),
 		}).gh;
 		const id = /^\s*([0-9a-f]+) /m.exec(holdCli("list").stdout)?.[1] ?? "";
 		const notice = JSON.parse(fs.readFileSync(noticeFile(id), "utf8"));

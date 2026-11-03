@@ -26,7 +26,6 @@ import {
 	asWritten,
 	normAbs,
 	parseCommand,
-	SCOPE_MARK,
 	unmask,
 	unsetText,
 	walkCommands,
@@ -968,12 +967,13 @@ describe("path resolution", () => {
  */
 describe("logical lines (mantahostels#182)", () => {
 	/** The segments outside every bracket, a body's `"$(…)"` lifting its own
-	 * inside one (#3375). */
+	 * inside one (#3375); a bracket's line is the one `Parsed.segments`
+	 * documents. */
 	const lines = (command: string) => {
 		let depth = 0;
 		return parseCommand(command).segments.filter((seg) => {
-			if (seg === `${SCOPE_MARK}(`) depth++;
-			else if (seg === `${SCOPE_MARK})`) depth--;
+			if (seg === "\x02(") depth++;
+			else if (seg === "\x02)") depth--;
 			else return depth === 0 && seg.trim() !== "";
 			return false;
 		});

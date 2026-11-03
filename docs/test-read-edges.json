@@ -10817,6 +10817,7 @@
 		"scripts/lib/fixtures/in-process-async-probe.js": [
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/run-in-process.contract.test.ts",
 			"scripts/lib/run-in-process.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
@@ -10833,6 +10834,7 @@
 		"scripts/lib/fixtures/in-process-probe.js": [
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/run-in-process.contract.test.ts",
 			"scripts/lib/run-in-process.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
@@ -11675,6 +11677,22 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/lib/guard-core-load.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/branch-publish.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/guard-dispatch.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/lib/guard-core-testkit.ts": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
@@ -11717,6 +11735,7 @@
 			"scripts/score-session-breaches.test.ts"
 		],
 		"scripts/lib/guard-cores.json": [
+			"scripts/check-code-standards.test.ts",
 			"scripts/check-context-budget-session-cap.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
@@ -18518,6 +18537,16 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/lib/run-in-process.contract.test.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/lib/run-in-process.js": [
 			"scripts/check-code-standards.test.ts",
 			"scripts/check-digest-render.test.ts",
@@ -21913,6 +21942,8 @@
 			"scripts/check-clock-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-guard-test-isolation.test.ts",
+			"scripts/check-instruction-surface.test.ts",
 			"scripts/check-report-programs.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
@@ -21929,11 +21960,14 @@
 			"scripts/lib/actions-tester.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/already-red.test.ts",
+			"scripts/lib/arbiter-markers.test.ts",
 			"scripts/lib/console-credit.test.ts",
+			"scripts/lib/file-claim.test.ts",
 			"scripts/lib/fix-ticket.test.ts",
 			"scripts/lib/founder-wording.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/grouped-child.test.ts",
+			"scripts/lib/guard-dispatch.test.ts",
 			"scripts/lib/headless-sessions.test.ts",
 			"scripts/lib/held-queue.test.ts",
 			"scripts/lib/lander.test.ts",

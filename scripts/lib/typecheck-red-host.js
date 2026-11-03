@@ -1,7 +1,8 @@
 /*
  * typecheck-red-host.js — the store lib/typecheck-red.js reads: one JSON file
  * per session, `.typecheck-red-<session>`, in the canonical checkout's markers
- * directory, so a commit in a worktree reaches a session rooted elsewhere.
+ * directory, so a commit in a worktree reaches a session rooted elsewhere
+ * (#3824).
  *
  * A TAKE IS A RENAME, so of two calls answering at once only one reports it.
  * A session's leftover is pruned by lib/arbiter-markers.js's prefix list.

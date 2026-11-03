@@ -24,7 +24,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import HUMAN_BODIES from "../fixtures/takes-human-bodies.json" with {
 	type: "json",
 };
-import { ghAnswer, ghFake } from "./gh-fake";
+import { ghFake, readGhAnswer } from "./gh-fake";
 import { UNFILLED_DESTINATION } from "./issue-gate";
 import { kitContextFake } from "./kit-context-fake";
 import { readRuleText } from "./rule-text";
@@ -67,7 +67,7 @@ interface Gh {
 
 function answering(fixture: string, stdout: string): string {
 	const at = path.join(dir, `answer-${calls.length}.json`);
-	fs.writeFileSync(at, JSON.stringify({ ...ghAnswer(fixture), stdout }));
+	fs.writeFileSync(at, JSON.stringify({ ...readGhAnswer(fixture), stdout }));
 	return at;
 }
 

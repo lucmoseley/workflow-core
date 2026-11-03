@@ -7,7 +7,9 @@
  *
  * THE TIMEOUTS. `npm view` gets 12 s and curl 8 s, both its own `--max-time`
  * and the spawn's: 20 s a package, which the core's 30 s budget is sized
- * against under the hook's 60 s ceiling.
+ * against under the hook's 60 s ceiling. Both are guesses, never measured,
+ * carried from the bash guard that set them at #1803: generous beside a
+ * registry answer's usual second or so.
  */
 
 const { spawnSync } = require("node:child_process");

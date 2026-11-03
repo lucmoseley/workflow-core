@@ -111,10 +111,6 @@ const {
 	withWait,
 } = require("./wait-text.js");
 
-const field = "session_id";
-const top = true;
-const noun = "poll check";
-
 /** The rolling window, in seconds: five minutes, a guess never measured —
  * wide enough to hold two beats of the prescribed `sleep 120` cadence, which
  * the timed watches' allowance is set against. */
@@ -335,4 +331,11 @@ function decide(session, ctx) {
 	return warning ? { context: ctx.corePaths(warning) } : null;
 }
 
-module.exports = { NOOP, SLEEP, decide, field, noun, top };
+module.exports = {
+	NOOP,
+	SLEEP,
+	decide,
+	field: "session_id",
+	noun: "poll check",
+	top: true,
+};

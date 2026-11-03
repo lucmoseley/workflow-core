@@ -22,6 +22,8 @@ const { budgetMs } = require("./hook-deadline.js");
 
 const STORE = path.join(__dirname, "arbiter-store.js");
 
+/* A guess, set at the port (#2788) and never measured: room for a ledger
+ * append on a loaded machine, cut further by the entry's budget. */
 const LEDGER_TIMEOUT_MS = 3000;
 
 /** The child: the store's named ledger writer over one path and session. */

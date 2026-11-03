@@ -34,7 +34,10 @@ interface Core {
 	loadFault?: string;
 	decide: (subject: string, ctx: Record<string, unknown>) => Decision;
 }
-const { dispatch, hostAdapters, loadCores, merge, repoRel } =
+const { loadCores } = require("./guard-core-load.js") as {
+	loadCores: (event: string, keep?: (row: Core) => boolean) => Core[];
+};
+const { dispatch, hostAdapters, merge, repoRel } =
 	require("./guard-dispatch.js") as {
 		dispatch: (
 			cores: Core[],
@@ -49,7 +52,6 @@ const { dispatch, hostAdapters, loadCores, merge, repoRel } =
 		) => Record<string, (...a: never[]) => unknown> & {
 			git: (args: string[], noMatch: number[]) => { ok: boolean; out?: string };
 		};
-		loadCores: (event: string, keep?: (row: Core) => boolean) => Core[];
 		merge: (
 			parts: {
 				permissionDecision?: string;
@@ -447,14 +449,14 @@ describe("the persist cap", () => {
 	});
 
 	it("holds the notice naming every core to the real cap", () => {
-		const { dispatchRows } = require("./guard-cores.js") as {
-			dispatchRows: (event: string) => Core[];
+		const { readDispatchRows } = require("./guard-cores.js") as {
+			readDispatchRows: (event: string) => Core[];
 		};
 		const { readHookPersistChars } = require("./rule-emission.js") as {
 			readHookPersistChars: () => number;
 		};
 		const cap = readHookPersistChars();
-		const names = dispatchRows("PreToolUse").map((row) => row.name);
+		const names = readDispatchRows("PreToolUse").map((row) => row.name);
 		const out = said(
 			names.map((name) =>
 				core(name, answers({ context: "x".repeat(cap + 1) })),
@@ -877,13 +879,13 @@ describe("the entry's core load", () => {
 		});
 
 	it("requires only the cores whose rows match the call's tool (#3141)", () => {
-		const { corePath, dispatchRows, isCoreFor } =
+		const { corePath, readDispatchRows, isCoreFor } =
 			require("./guard-cores.js") as {
 				corePath: (module: string) => string;
-				dispatchRows: (event: string) => Core[];
+				readDispatchRows: (event: string) => Core[];
 				isCoreFor: (row: Core, tool: string) => boolean;
 			};
-		const rows = dispatchRows("PreToolUse");
+		const rows = readDispatchRows("PreToolUse");
 		const loaded = (skill: boolean) =>
 			rows
 				.filter((r) => isCoreFor(r, "Skill") === skill)
@@ -896,14 +898,15 @@ describe("the entry's core load", () => {
 	});
 
 	it("requires no core whose `if` clauses refuse the call's command (#3224)", () => {
-		const { admits, corePath, dispatchRows } = require("./guard-cores.js") as {
-			admits: (row: Core, payload: Record<string, unknown>) => boolean;
-			corePath: (module: string) => string;
-			dispatchRows: (event: string) => Core[];
-		};
+		const { isAdmitted, corePath, readDispatchRows } =
+			require("./guard-cores.js") as {
+				isAdmitted: (row: Core, payload: Record<string, unknown>) => boolean;
+				corePath: (module: string) => string;
+				readDispatchRows: (event: string) => Core[];
+			};
 		const call = payload({ tool_input: { command: "ls" } });
-		const refused = dispatchRows("PreToolUse")
-			.filter((r) => r.if && !admits(r, call))
+		const refused = readDispatchRows("PreToolUse")
+			.filter((r) => r.if && !isAdmitted(r, call))
 			.map((r) => corePath(r.core));
 		for (const file of refused) delete require.cache[file];
 		const ran = runInProcess(
@@ -1012,12 +1015,12 @@ describe("the manifest", () => {
 	});
 
 	it("narrows each row by the `if` clauses its old registrations carried (#3224, #3226)", () => {
-		const { dispatchRows } = require("./guard-cores.js") as {
-			dispatchRows: (event: string) => Core[];
+		const { readDispatchRows } = require("./guard-cores.js") as {
+			readDispatchRows: (event: string) => Core[];
 		};
 		expect(
 			Object.fromEntries(
-				dispatchRows("PreToolUse")
+				readDispatchRows("PreToolUse")
 					.filter((r) => r.if)
 					.map((r) => [r.name, r.if]),
 			),

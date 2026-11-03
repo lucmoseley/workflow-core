@@ -135,6 +135,11 @@ class ExitSignal extends Error {
  *     ends the vitest worker. */
 const CLAIM = Symbol.for("wfc.run-in-process.claim");
 
+/** @typedef {{ startedAt: number, restore: () => string[] }} Claim */
+
+/** The global the claim sits on, typed for that one slot. */
+const slot = /** @type {{ [CLAIM]?: Claim | null }} */ (globalThis);
+
 /* Clearance added on top of TEST_TIMEOUT_MS below, against vitest's own
  * timeout-enforcement latency — unmeasured. */
 const MARGIN_MS = 5000;
@@ -198,11 +203,11 @@ const REENTRANT_MESSAGE =
  * @returns {string[]}
  */
 function takeOverStaleClaim(staleMs) {
-	const existing = /** @type {any} */ (globalThis)[CLAIM];
+	const existing = slot[CLAIM];
 	if (!existing) return [];
 	if (Date.now() - existing.startedAt < staleMs)
 		throw new Error(REENTRANT_MESSAGE);
-	/** @type {any} */ (globalThis)[CLAIM] = null;
+	slot[CLAIM] = null;
 	return existing.restore();
 }
 
@@ -210,21 +215,21 @@ function takeOverStaleClaim(staleMs) {
  * Installs a fresh claim, its `restore` to be filled in once the caller has
  * one to give it.
  *
- * @returns {{ startedAt: number, restore: () => string[] }}
+ * @returns {Claim}
  */
 function installClaim() {
-	/** @type {{ startedAt: number, restore: () => string[] }} */
+	/** @type {Claim} */
 	const claim = { startedAt: Date.now(), restore: () => [] };
-	/** @type {any} */ (globalThis)[CLAIM] = claim;
+	slot[CLAIM] = claim;
 	return claim;
 }
 
 /**
  * Whether `claim` is still the live holder, not taken over as stale.
  *
- * @param {{ startedAt: number, restore: () => string[] }} claim
+ * @param {Claim} claim
  */
-const isHolder = (claim) => /** @type {any} */ (globalThis)[CLAIM] === claim;
+const isHolder = (claim) => slot[CLAIM] === claim;
 
 /**
  * Releases `claim`, but only where it is still the live holder — a claim a
@@ -232,13 +237,13 @@ const isHolder = (claim) => /** @type {any} */ (globalThis)[CLAIM] === claim;
  * its own late settle, which would revert the new holder's patches out from
  * under it while it is still running.
  *
- * @param {{ startedAt: number, restore: () => string[] }} claim
+ * @param {Claim} claim
  * @param {() => string[]} restore
  * @returns {string[]}
  */
 function releaseClaim(claim, restore) {
 	if (!isHolder(claim)) return [];
-	/** @type {any} */ (globalThis)[CLAIM] = null;
+	slot[CLAIM] = null;
 	return restore();
 }
 
@@ -297,7 +302,7 @@ const SETTLE_MS = 200;
 function trackResources() {
 	/** @type {Set<number>} */
 	const owned = new Set();
-	/** @type {Map<number, { type: string, resource: any }>} */
+	/** @type {Map<number, { type: string, resource: { hasRef?: () => boolean } }>} */
 	const live = new Map();
 	const flags = { inSync: true, attributing: true };
 	const hook = asyncHooks
@@ -371,7 +376,9 @@ function refuseLeaks(script, leaked) {
 const toText = (chunk, enc) =>
 	typeof chunk === "string"
 		? chunk
-		: Buffer.from(/** @type {any} */ (chunk)).toString(
+		: // `any`: Buffer.from has no overload taking `unknown`, and a stream
+			// hands its write whatever the script passed.
+			Buffer.from(/** @type {any} */ (chunk)).toString(
 				typeof enc === "string" && Buffer.isEncoding(enc)
 					? /** @type {BufferEncoding} */ (enc)
 					: "utf8",
@@ -471,7 +478,7 @@ function dropAddedListeners(saved, failures) {
  * a listener that throws — and not a listener that returns, after which a
  * real process runs on.
  *
- * @param {any} e
+ * @param {unknown} e
  * @param {Map<string | symbol, Set<Function>>} saved
  * @param {(text: string) => void} write
  * @param {(code: number) => void} end
@@ -483,7 +490,7 @@ function crash(e, saved, write, end) {
 		.rawListeners("uncaughtException")
 		.filter((fn) => !before?.has(fn));
 	if (added.length === 0) {
-		write(`${e?.stack || String(e)}\n`);
+		write(`${(e instanceof Error && e.stack) || String(e)}\n`);
 		end(1);
 		return 1;
 	}
@@ -510,7 +517,7 @@ function crash(e, saved, write, end) {
  * handling via `crash`. Shared so `runInProcess`'s one call site and
  * `runInProcessAsync`'s two — load and `main()` — treat an escape identically.
  *
- * @param {any} e
+ * @param {unknown} e
  * @param {CaptureState} state accumulator: a crash's report is appended to `stderr`; `exited` is read, and set where the crash ends the process
  * @param {Map<string | symbol, Set<Function>>} listeners
  * @returns {number | null} the status to record, or null to leave `state.status` as it was
@@ -616,6 +623,8 @@ function snapshotPatches() {
 		process.uptime = saved.uptime;
 		process.exitCode = saved.exitCode;
 		process.mainModule = saved.mainModule;
+		/* `any`, as on the patches: fs's overloaded functions take no plain
+		 * assignment back without a cast. */
 		/** @type {any} */ (fs).writeSync = saved.writeSync;
 		/** @type {any} */ (fs).readFileSync = saved.readFileSync;
 		/** @type {any} */ (fs).readSync = saved.readSync;
@@ -657,6 +666,8 @@ function mutatePatches({ saved }, { script, args, options }, state) {
 	process.exitCode = undefined;
 	const startedAt = saved.uptime();
 	process.uptime = () => saved.uptime() - startedAt;
+	/* `any`: process.exit is typed `never`-returning, which no arrow that
+	 * throws satisfies without a cast. */
 	process.exit = /** @type {any} */ (
 		(/** @type {number} */ code) => {
 			/* The FIRST call wins. A catch-all that swallows this throw and then
@@ -667,6 +678,9 @@ function mutatePatches({ saved }, { script, args, options }, state) {
 			throw new ExitSignal(state.exited);
 		}
 	);
+	/* `any`: writeSync's overloads cannot be assigned one arrow without a
+	 * cast, and `data` and the rest are whatever the script passes, handed on
+	 * untouched to the real function. */
 	/** @type {any} */ (fs).writeSync = (
 		/** @type {number} */ fd,
 		/** @type {any} */ data,
@@ -680,7 +694,9 @@ function mutatePatches({ saved }, { script, args, options }, state) {
 		return Buffer.byteLength(text);
 	};
 	/* The callback forms are honoured because a script that passes one and
-	 * never sees it called can wait forever. */
+	 * never sees it called can wait forever. The `any`s, as on writeSync's:
+	 * write's overloads take a chunk, an encoding or a callback in either
+	 * second place. */
 	process.stdout.write = /** @type {any} */ (
 		(/** @type {any} */ c, /** @type {any} */ e, /** @type {any} */ cb) => {
 			if (state.exited === null) state.stdout += toText(c, e);
@@ -751,6 +767,8 @@ function mutatePatches({ saved }, { script, args, options }, state) {
  * @param {string} script
  */
 function buildEntry(script) {
+	/* `any`: `filename`, `paths` and `_nodeModulePaths` are node internals
+	 * the Module type does not declare. */
 	const entry = /** @type {any} */ (new Module(script, undefined));
 	entry.filename = script;
 	entry.paths = /** @type {any} */ (Module)._nodeModulePaths(
@@ -764,8 +782,9 @@ function buildEntry(script) {
  * @property {string} script
  * @property {CaptureState} state
  * @property {Map<string | symbol, Set<Function>>} listeners
- * @property {any} entry  the module `buildEntry` made, already patched in
- * @property {{ startedAt: number, restore: () => string[] }} claim
+ * @property {any} entry  `any`, as at `buildEntry`: node internals the
+ *   Module type does not declare. The module `buildEntry` made, already patched in
+ * @property {Claim} claim
  * @property {ReturnType<typeof trackResources>} resources  what the call has created
  * @property {string[]} takeoverFailures
  */
@@ -845,7 +864,7 @@ function releaseAndReport(call) {
  * its status.
  *
  * @param {Call} call
- * @param {any} e
+ * @param {unknown} e
  */
 function recordEscape(call, e) {
 	const status = statusOfEscape(e, call.state, call.listeners);

@@ -29,7 +29,7 @@ const {
 	DENY_GUARD_JOIN,
 	guardNameOf,
 } = require("./lib/breach-score-rule.js");
-const { dispatchRows } = require("./lib/guard-cores.js");
+const { readDispatchRows } = require("./lib/guard-cores.js");
 
 const ROOT = path.resolve(__dirname, "..");
 const cliPath = path.join(ROOT, "scripts", "score-session-breaches.js");
@@ -312,7 +312,7 @@ describe("the pre-registered classes", () => {
 	it("name no scored standalone guard as a dispatcher core is named", () => {
 		const cores = new Set(
 			["PreToolUse", "PostToolUse"].flatMap((e) =>
-				dispatchRows(e).map((r: { name: string }) => r.name),
+				readDispatchRows(e).map((r: { name: string }) => r.name),
 			),
 		);
 		const standaloneDeniers = (readRegisteredGuardSubjects(ROOT) as Subject[])
@@ -324,7 +324,7 @@ describe("the pre-registered classes", () => {
 	});
 
 	it("key the job-dir family on the dispatch core that denies it", () => {
-		const cores = dispatchRows("PreToolUse").map(
+		const cores = readDispatchRows("PreToolUse").map(
 			(r: { name: string }) => r.name,
 		);
 		expect(cores).toContain(JOB_DIR);

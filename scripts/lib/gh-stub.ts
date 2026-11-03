@@ -16,12 +16,12 @@ import {
 	asRecorded,
 	BLOCKED_BY_GRAPHQL_FAKE,
 	type GhAnswer,
-	ghAnswer,
 	ghAnswerNode,
 	ghFakeScript,
 	ghServeLines,
 	LINK_READS,
 	type LinkReadAnswers,
+	readGhAnswer,
 	type SubIssuesAnswer,
 	subIssuesAnswer,
 } from "./gh-fake";
@@ -30,7 +30,7 @@ import { shellQuote } from "./sh-quote.js";
 
 const LOGGED_OUT = path.join(__dirname, "fixtures/gh/logged-out.json");
 
-const loggedOut = ghAnswer(LOGGED_OUT);
+const loggedOut = readGhAnswer(LOGGED_OUT);
 
 /** What a logged-out gh prints on stderr for any API call, verbatim. */
 export const GH_LOGGED_OUT_STDERR = loggedOut.stderr;

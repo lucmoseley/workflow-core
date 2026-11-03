@@ -96,6 +96,11 @@ const {
 	parseLinePins,
 } = require("./lib/standards-pins");
 const { execGit } = require("./lib/git.js");
+const {
+	MANIFEST_REL,
+	manifestAt,
+	readDispatchedCores,
+} = require("./lib/guard-cores.js");
 /** @typedef {import("./lib/standards-pins").LinePin} LinePin */
 
 /* Relative to the working directory, never to __dirname: it is what lets this
@@ -681,6 +686,13 @@ function blockEntries(entries, { blockExempt, isEntryPoint }) {
  * module by naming its basename as a path's last segment (`modulesNamed`).
  * Two modules sharing a basename are reached together.
  *
+ * A FILE BUILDING A MANIFEST PATH REACHES WHAT THE MANIFEST LOADS (#4136). The
+ * dispatcher requires each core and host module by a path `corePath` builds
+ * from a lib/guard-cores.json row, so its `buildHostPorts` names no host; a
+ * file reaching lib/guard-cores.js and calling `corePath(` reaches every
+ * module the manifest's rows name. A file merely naming the manifest does
+ * not, so it masks no real dead export in a core.
+ *
  * WHY DEFINERS ARE SUBTRACTED. A file exporting `main` spells `main`, so a
  * plain speller-count has two consumer-less exporters of one name vouching for
  * each other permanently.
@@ -697,6 +709,7 @@ function blockEntries(entries, { blockExempt, isEntryPoint }) {
 function consumersOf(paths, blocks) {
 	/** @type {Map<string, Map<string, Set<string>>>} */
 	const consumers = new Map();
+	const dispatched = dispatchedModules();
 	for (const { rel, entries } of blocks)
 		for (const { name } of entries) {
 			const byExporter = consumers.get(name) ?? new Map();
@@ -707,9 +720,22 @@ function consumersOf(paths, blocks) {
 		if (BINARY_EXT.test(rel)) continue;
 		const text = readText(rel)?.replace(REQUIRE_MAIN, "require");
 		if (text === undefined) continue;
-		addConsumer(consumers, rel, text);
+		addConsumer(consumers, rel, text, dispatched);
 	}
 	return consumers;
+}
+
+/**
+ * The basenames of the modules the dispatcher's manifest loads, empty where
+ * this tree carries no manifest of its own to read.
+ * @returns {string[]}
+ */
+function dispatchedModules() {
+	const own = path.join(ROOT, MANIFEST_REL);
+	if (manifestAt(ROOT) !== own) return [];
+	return readDispatchedCores(own).map((rel) =>
+		path.basename(rel).replace(SCRIPT_EXT, ""),
+	);
 }
 
 /**
@@ -720,11 +746,12 @@ function consumersOf(paths, blocks) {
  *   joins each reached exporter's set
  * @param {string} rel
  * @param {string} text
+ * @param {string[]} dispatched the modules a built manifest path reaches
  */
-function addConsumer(consumers, rel, text) {
+function addConsumer(consumers, rel, text, dispatched) {
 	const defined = firstGroups(DEFINITION_RE, text);
 	const read = firstGroups(MEMBER_RE, text);
-	const reached = modulesNamed(text);
+	const reached = withDispatched(modulesNamed(text), text, dispatched);
 	for (const token of new Set(text.match(TOKEN_RE) ?? [])) {
 		if (defined.has(token) && !read.has(token)) continue;
 		if (token === "main" && rel === RUN_IN_PROCESS) continue;
@@ -732,6 +759,19 @@ function addConsumer(consumers, rel, text) {
 			if (reached.has(path.basename(exporter).replace(SCRIPT_EXT, "")))
 				takers.add(rel);
 	}
+}
+
+/**
+ * `reached`, plus every module the manifest loads where `text` reaches
+ * lib/guard-cores.js and builds a path with `corePath(`.
+ * @param {Set<string>} reached
+ * @param {string} text
+ * @param {string[]} dispatched
+ */
+function withDispatched(reached, text, dispatched) {
+	if (reached.has("guard-cores") && text.includes("corePath("))
+		for (const m of dispatched) reached.add(m);
+	return reached;
 }
 
 /**

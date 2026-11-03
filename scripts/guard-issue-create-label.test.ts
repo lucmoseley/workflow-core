@@ -20,7 +20,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenRecords } from "./guard-log-fixture";
-import { GH_LOGGED_OUT, ghAnswer, ghServeLines } from "./lib/gh-fake";
+import { GH_LOGGED_OUT, ghServeLines, readGhAnswer } from "./lib/gh-fake";
 import { stubGhScript } from "./lib/gh-stub";
 import { UNFILLED_DESTINATION } from "./lib/issue-gate";
 import {
@@ -67,7 +67,7 @@ const emission = (
 /** A gh at WFC_GH answering `fixture` with `stdout` swapped in; run outside
  *  `onlyIn`, where given, it answers as a logged-out gh. */
 function ghAnswering(fixture: string, stdout: string, onlyIn?: string) {
-	const answer = ghServeLines({ ...ghAnswer(fixture), stdout });
+	const answer = ghServeLines({ ...readGhAnswer(fixture), stdout });
 	const elsewhere = onlyIn
 		? `if [ "$PWD" != ${shellQuote(onlyIn)} ]; then\n${ghServeLines(GH_LOGGED_OUT)}fi\n`
 		: "";

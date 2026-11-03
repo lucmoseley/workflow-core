@@ -179,9 +179,6 @@ function burnOn(ctx) {
 	return ctx.isFile(marker);
 }
 
-const field = "prompt";
-const noun = "agent dispatch";
-
 /**
  * @param {string} _prompt the dispatch's prompt; the whole call is ctx.input
  * @param {RewriteContext} ctx
@@ -223,4 +220,4 @@ function decide(_prompt, ctx) {
 	};
 }
 
-module.exports = { decide, field, noun };
+module.exports = { decide, field: "prompt", noun: "agent dispatch" };

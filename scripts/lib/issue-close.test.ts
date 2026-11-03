@@ -34,10 +34,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	type GhAnswer,
 	GRAPHQL_FAKE,
-	ghAnswer,
 	ghComputed,
 	ghFake,
 	ghServe,
+	readGhAnswer,
 } from "./gh-fake";
 import { hexShaCommit } from "./hex-sha-fixture";
 import { kitContextFake } from "./kit-context-fake";
@@ -112,7 +112,7 @@ const ISSUES_URL = "https://github.com/acme/tracker/issues/";
 /** A fixture's answer with its stdout swapped, for a value the case owns. */
 function answering(stdout: string): string {
 	const at = path.join(dir, `answer-${calls.length}.json`);
-	fs.writeFileSync(at, JSON.stringify({ ...ghAnswer(ISSUE_BODY), stdout }));
+	fs.writeFileSync(at, JSON.stringify({ ...readGhAnswer(ISSUE_BODY), stdout }));
 	return at;
 }
 

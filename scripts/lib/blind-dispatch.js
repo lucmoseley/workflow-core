@@ -68,9 +68,6 @@ const GIT_OFF = /^(?:1|true|yes|on)$/i;
 const FORK =
 	"A fork inherits this session's whole context, so it is never blind: it knows everything you know about the answer. Dispatch the blind work as a fresh subagent (any type but fork), under the rule in docs/agents/blind-dispatch.md (#1783).";
 
-const field = "prompt";
-const noun = "agent dispatch";
-
 /** A command's output as `$(…)` keeps it: trailing newlines dropped. @param {string} s */
 const chomp = (s) => trimEndRun(s, "\n");
 
@@ -171,4 +168,4 @@ function statusBlock(status) {
 	return shown.join("\n");
 }
 
-module.exports = { decide, field, noun };
+module.exports = { decide, field: "prompt", noun: "agent dispatch" };

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /*
- * A stand-in async CLI for run-in-process.test.ts's `runInProcessAsync`
+ * A stand-in async CLI for run-in-process.test.ts's and
+ * run-in-process.contract.test.ts's `runInProcessAsync`
  * cases (mantahostels#1944) — the shape `pick-next.js` and its two siblings share:
  * `async function main()`, exported, invoked only under
  * `require.main === module`.

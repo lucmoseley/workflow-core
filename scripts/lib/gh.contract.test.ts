@@ -28,7 +28,6 @@ import {
 	buildJqLines,
 	type GhAnswer,
 	GRAPHQL_FAKE,
-	ghAnswer,
 	ghAnswerHandler,
 	ghAnswerNode,
 	ghComputed,
@@ -37,6 +36,7 @@ import {
 	ghServe,
 	LINK_READS,
 	RECORDED_SHAPES,
+	readGhAnswer,
 } from "./gh-fake";
 import { buildLinkReadArms, serveGhStub, stubGhScript } from "./gh-stub";
 import { shellQuote } from "./sh-quote.js";
@@ -580,13 +580,13 @@ describe("live: computed answers", () => {
 
 	it("each GraphQL fake builds from the fixture its live case holds", () => {
 		expect(GRAPHQL_FAKE).toContain(
-			JSON.stringify(ghAnswer(GRAPHQL_ISSUE_STATES)),
+			JSON.stringify(readGhAnswer(GRAPHQL_ISSUE_STATES)),
 		);
 		expect(GRAPHQL_FAKE).toContain(
-			JSON.stringify(ghAnswer(GRAPHQL_NO_REPO).stdout),
+			JSON.stringify(readGhAnswer(GRAPHQL_NO_REPO).stdout),
 		);
 		expect(BLOCKED_BY_GRAPHQL_FAKE).toContain(
-			JSON.stringify(ghAnswer(GRAPHQL_BLOCKED_BY)),
+			JSON.stringify(readGhAnswer(GRAPHQL_BLOCKED_BY)),
 		);
 	});
 
@@ -662,7 +662,7 @@ describe("live: computed answers", () => {
 		const log = path.join(dir, "blocked-by-calls");
 		const stub = computedStub(
 			BLOCKED_BY_GRAPHQL_FAKE,
-			`argv[1] === "graphql" ? answerBlockedBy(argv, ${blockers}) : ${JSON.stringify(ghAnswer(NOT_FOUND))}`,
+			`argv[1] === "graphql" ? answerBlockedBy(argv, ${blockers}) : ${JSON.stringify(readGhAnswer(NOT_FOUND))}`,
 			log,
 		);
 		process.env.WFC_GH = stub;
@@ -695,7 +695,7 @@ describe("live: computed answers", () => {
 		const log = path.join(dir, "since-calls");
 		process.env.WFC_GH = computedStub(
 			BLOCKED_BY_GRAPHQL_FAKE,
-			JSON.stringify(ghAnswer(ISSUES_PAGE)),
+			JSON.stringify(readGhAnswer(ISSUES_PAGE)),
 			log,
 		);
 		ghIssuesUpdatedSince("{owner}/{repo}", "2020-01-01T00:00:00Z");
@@ -768,7 +768,7 @@ describe("live: computed answers", () => {
 		const log = path.join(dir, "no-repo-calls");
 		process.env.WFC_GH = computedStub(
 			BLOCKED_BY_GRAPHQL_FAKE,
-			JSON.stringify(ghAnswer(GRAPHQL_NO_REPO)),
+			JSON.stringify(readGhAnswer(GRAPHQL_NO_REPO)),
 			log,
 		);
 		await blockedByMany([{ number: 1 }], {
@@ -849,8 +849,8 @@ exit 1
 			expect(withoutText(await observe(ghFake(fixture), args))).toEqual(
 				withoutText(real),
 			);
-			expect(answerLinkRead(args)).toEqual(ghAnswer(fixture));
-			const lines = ghAnswer(fixture).stdout.trim().split("\n");
+			expect(answerLinkRead(args)).toEqual(readGhAnswer(fixture));
+			const lines = readGhAnswer(fixture).stdout.trim().split("\n");
 			expect(
 				withoutText(await observe(ghServe(buildJqLines(...lines)), args)),
 			).toEqual(withoutText(real));
@@ -879,7 +879,7 @@ describe("offline: the recorded shapes", () => {
 			IDLE_ISSUES_PAGE,
 		])
 			expect(RECORDED_SHAPES).toContain(
-				JSON.stringify(ghAnswer(fixture).stdout),
+				JSON.stringify(readGhAnswer(fixture).stdout),
 			);
 	});
 
@@ -891,10 +891,10 @@ describe("offline: the recorded shapes", () => {
 	 *   echo x | gh issue comment <n> --body-file - >out 2>err
 	 */
 	it("a landed write's recording prints its URL and nothing else", () => {
-		const created = ghAnswer(ISSUE_CREATE);
+		const created = readGhAnswer(ISSUE_CREATE);
 		expect(created).toMatchObject({ status: 0, stderr: "" });
 		expect(created.stdout).toMatch(/^https:\/\/\S+\/issues\/\d+\n$/);
-		const commented = ghAnswer(ISSUE_COMMENT);
+		const commented = readGhAnswer(ISSUE_COMMENT);
 		expect(commented).toMatchObject({ status: 0, stderr: "" });
 		expect(commented.stdout).toMatch(
 			/^https:\/\/\S+\/issues\/\d+#issuecomment-\d+\n$/,

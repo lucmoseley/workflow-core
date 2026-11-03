@@ -88,10 +88,6 @@ const {
 	withWait,
 } = require("./wait-text.js");
 
-const field = "session_id";
-const top = true;
-const noun = "repeat check";
-
 const REASON = `This exact call has already run twice in a row and given the same answer both times — for a Read, the file unchanged since you last read it — so a third run is very unlikely to say anything new.
 
 ${WAIT_SLOT}
@@ -160,4 +156,9 @@ function decide(_session, ctx) {
 	return { deny: ctx.corePaths(withWait(REASON, waiting)) };
 }
 
-module.exports = { decide, field, noun, top };
+module.exports = {
+	decide,
+	field: "session_id",
+	noun: "repeat check",
+	top: true,
+};

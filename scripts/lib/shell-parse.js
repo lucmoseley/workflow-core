@@ -812,7 +812,7 @@ const isWriteRedirect = (kind) =>
  * @property {number[]} heredocLines the subject's lines, numbered from 0, a
  *   heredoc's body or terminator fills (#2384)
  * @property {string[]} segments the flattened segments, one command each,
- *   with SCOPE_MARK lines for the brackets
+ *   with SCOPE_MARK lines for the brackets: `\x02(` and `\x02)`
  * @property {number} conditional the segment index of the first after the
  *   subject's first `||` outside a quoted span, or -1 where it has none (#328)
  * @property {string[]} joins parseJoins's code for each segment (#4009); a lifted
@@ -2665,7 +2665,6 @@ function addIntoTarget(src, { base, dpath }, add, ctx) {
 
 module.exports = {
 	parseCommand,
-	SCOPE_MARK,
 	walkCommands,
 	TEXT_ONLY_PORTS,
 	unmask,

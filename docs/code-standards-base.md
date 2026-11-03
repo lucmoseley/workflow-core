@@ -115,7 +115,7 @@ A gate that skips here refuses nothing, so a finding it would have refused is no
 
 ## Primitives
 
-Copy a row's exemplar, never the nearest file doing the same job (**Primitive**, `GLOSSARY.md`). Base rows' paths resolve at the plugin root, local rows' at the host root. No program refuses a breach of a `Standards axis criterion` row: `/code-review`'s Standards axis judges it against every diff, and a diff doing the row's job without its primitive is a finding citing the row's Rule.
+Copy a row's exemplar, never the nearest file doing the same job (**Primitive**, `GLOSSARY.md`). Base rows' paths name the core's source tree, which a release ships only part of, so only the core judges them; local rows' resolve at the host root. No program refuses a breach of a `Standards axis criterion` row: `/code-review`'s Standards axis judges it against every diff, and a diff doing the row's job without its primitive is a finding citing the row's Rule.
 
 | Job | Primitive | Exemplar | Rule | Enforcing check |
 |---|---|---|---|---|
@@ -411,7 +411,7 @@ Stream discipline (`scripts/lib/check.js:34-38`): stdout is for machine readers 
 
 *House*: the plugin's vars take a `WFC_` prefix — `WFC_GH` for `gh`, `WFC_CLAUDE_BIN` for `claude` (`scripts/lib/claude-bin.js:9`), `WFC_GITLEAKS` for `gitleaks` (`.husky/pre-commit`), `WFC_PS` for `ps` (`scripts/lib/admission.js`), `WFC_PYTHON` for `python3` (`scripts/run-pytest.js`, `scripts/bisect-step.sh`), `WFC_NPM` for `npm` and `WFC_NODE` for `node` (`scripts/bisect-step.sh`), `WFC_CURL` for `curl` (`scripts/lib/npm-install-host.js`) and `WFC_GIT` for `git` (`scripts/lib/git.js`).
 
-**Reported, never gated** (mantahostels#1799): the plugin's citation checker WARNs each unconsumed name. **A file spelling the name counts as a consumer only if it is neither a test nor test support (§G6), does not define one of its own, and names the exporting module** — a `require` or `import` of it, or its basename in a `path.join` or a spawned command (#1616); a definer reading the name off an object is a consumer again, so a caller rebinding an import under its own name is safe. The scan is **textual**, so a name and module path spelled in a comment or a JSON value read as consumed. And the exemption is **the comment's presence, never its content**: any comment-shaped line silences the finding. A test's or test support's own exports are never scanned.
+**Reported, never gated** (mantahostels#1799): the plugin's citation checker WARNs each unconsumed name. **A file spelling the name counts as a consumer only if it is neither a test nor test support (§G6), does not define one of its own, and names the exporting module** — a `require` or `import` of it, or its basename in a `path.join` or a spawned command (#1616), or, for a module the dispatcher's manifest loads, a `corePath(` call in a file reaching `guard-cores.js` (#4136); a definer reading the name off an object is a consumer again, so a caller rebinding an import under its own name is safe. The scan is **textual**, so a name and module path spelled in a comment or a JSON value read as consumed. And the exemption is **the comment's presence, never its content**: any comment-shaped line silences the finding. A test's or test support's own exports are never scanned.
 
 ### §N8 · Every program `.js` is type-checked, and opting out owes a reason — **hard**
 

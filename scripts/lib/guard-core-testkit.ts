@@ -9,12 +9,8 @@
  * variables a command expands through and the environment a core reads.
  */
 
-import {
-	dispatch,
-	hostAdapters,
-	loadCores,
-	type Output,
-} from "./guard-dispatch.js";
+import { loadCores } from "./guard-core-load.js";
+import { dispatch, hostAdapters, type Output } from "./guard-dispatch.js";
 import { writeLatches } from "./guard-entry.js";
 import { readHookPersistChars } from "./rule-emission.js";
 
