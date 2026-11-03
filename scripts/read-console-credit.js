@@ -79,11 +79,12 @@ function parseChildRun(child, planDir) {
  * @returns {number}
  */
 function main(args, deps = { runChild: runChromeChild }) {
+	/** @type {string[]} */
 	let positionals = [];
 	try {
 		({ positionals } = parseArgs({ args, allowPositionals: true }));
 	} catch {
-		positionals = [];
+		/* An unknown flag: no positionals, so the usage line below answers it. */
 	}
 	const [dir, ...rest] = positionals;
 	if (!dir || rest.length > 0) {
