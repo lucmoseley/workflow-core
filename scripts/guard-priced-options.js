@@ -434,6 +434,7 @@ const disarmLoadFailure =
 
 const hookMessage = require("./lib/hook-message");
 const hookBlock = require("./lib/hook-block");
+const { founderPointer } = require("./lib/founder-pointer.js");
 const {
 	groupByPrefix,
 	isLive,
@@ -944,13 +945,21 @@ function handedTextFlag(number, letter, span) {
 /**
  * @param {string[]} flagged
  * @param {string[]} secrets
- * @param {string | undefined} prose the message's own secret ask outside any option
- * @param {boolean} bang whether a refused ask hands over `write-secret.js` after `!`
+ * @param {{ prose: string | undefined, bang: boolean, pointer: string | undefined }} found
+ *   the message's own secret ask outside any option; whether a refused ask hands
+ *   over `write-secret.js` after `!`; the phrase sending him away for his steps
  * @returns {string}
  */
-function buildFounderActReason(flagged, secrets, prose, bang) {
+function buildFounderActReason(flagged, secrets, { prose, bang, pointer }) {
 	/** @type {string[]} */
 	const leads = [];
+	if (pointer)
+		leads.push(
+			"This turn sends the founder away for his steps — to the tracker, or " +
+				"back to something given earlier:\n\n" +
+				`${quoted(pointer)}\n\n` +
+				"Write every step into this message instead (#4058).",
+		);
 	if (flagged.length > 0)
 		leads.push(
 			"This turn puts a founder act in a question option without the literal " +
@@ -989,7 +998,7 @@ function buildFounderActReason(flagged, secrets, prose, bang) {
 		leads.join("\n\n") +
 		"\n\n" +
 		readHandoverRule() +
-		(prose
+		(prose || pointer
 			? "\n\nRE-SEND THE CORRECTED MESSAGE."
 			: "\n\nRE-SEND ONLY THE CORRECTED QUESTION, not the whole round.")
 	);
@@ -999,7 +1008,8 @@ function buildFounderActReason(flagged, secrets, prose, bang) {
  * THE FOUNDER-ACT REFUSAL (#597): a round option that hands the founder
  * something to do, carrying a placeholder or a back-reference where the
  * literal text belongs — or has him supply a credential by any route but
- * `write-secret.js` (#1031), in an option or in the prose (#1817).
+ * `write-secret.js` (#1031), in an option or in the prose (#1817) — or sends him
+ * away for his steps (#4058).
  * @param {string} message the outgoing assistant message
  * @returns {string} the block reason, or '' if nothing is owed
  */
@@ -1026,9 +1036,11 @@ function founderActRefusal(message) {
 		}
 	}
 	const prose = proseAsk(message);
-	if (flagged.length === 0 && secrets.length === 0 && !prose) return "";
+	const pointer = founderPointer(message);
+	if (flagged.length === 0 && secrets.length === 0 && !prose && !pointer)
+		return "";
 	if (prose) bang ||= hasBangSecretRoute(message);
-	return buildFounderActReason(flagged, secrets, prose, bang);
+	return buildFounderActReason(flagged, secrets, { prose, bang, pointer });
 }
 
 /**
