@@ -544,7 +544,7 @@ Claude Code queries Windows managed policy on every launch, via the interop brid
 | Clears itself | no | within minutes (7 Sep); not in 15 minutes (3 Nov) | no |
 | Remedy | `wsl --shutdown` | retry; if it holds, `sync`, then `wsl --shutdown` | `sync`, then `wsl --shutdown` |
 
-**A failed order-7 ring allocation is one cause of the vsock stall** (fantasy-books#1268; §1's socket-buffer file), and not the only one: 3 Nov had none.
+**A failed order-7 ring allocation is one cause of the vsock stall** (fantasy-books#1268; §1's socket-buffer file).
 
 ### The probe itself
 
