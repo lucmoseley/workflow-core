@@ -20,6 +20,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { hookIsWired, readCoreHooks } from "./hook-wiring";
+import { readShellConst } from "./shell-const-testkit";
 
 interface CoreRow {
 	core: string;
@@ -440,6 +441,12 @@ describe("the cap", () => {
 		const src = fs.readFileSync(CAP_FILE, "utf8");
 		expect(lib.readRuleCap(CAP_FILE)).toBe(
 			Number(/^[ \t]*RULE_CAP=(\d+)[ \t]*$/m.exec(src)?.[1]),
+		);
+	});
+
+	it("holds RULE_CAP at 40% of HOOK_PERSIST_CHARS", () => {
+		expect(lib.readRuleCap(CAP_FILE)).toBe(
+			0.4 * readShellConst(CAP_FILE, "HOOK_PERSIST_CHARS"),
 		);
 	});
 

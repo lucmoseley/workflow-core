@@ -133,6 +133,110 @@ function call(
 const inject = (...ids: string[]) => ({ injectRules: ids });
 
 describe("injecting a rule", () => {
+	const markersIn = () => fs.readdirSync(path.join(dir, ".claude/tmp/markers"));
+
+	it("joins two fragments that both fit with one blank line, in the order given", () => {
+		fragment("alpha", 30);
+		fragment("beta", 30);
+		expect(call(inject("alpha", "beta")).out.additionalContext).toBe(
+			`${"alpha ".padEnd(30, "x")}\n\n${"beta ".padEnd(30, "x")}`,
+		);
+	});
+
+	it("hands a rule again to a different session", () => {
+		fragment("alpha");
+		call(inject("alpha"));
+		expect(call(inject("alpha"), { session: "s2" }).out).not.toBeNull();
+		expect(markersIn()).toContain(".rule-injected-alpha-main-s2");
+	});
+
+	it("latches `rule:x` and `x` as one, across calls, in either order (mantahostels#2719)", () => {
+		fragment("alpha");
+		expect(call(inject("rule:alpha")).out).not.toBeNull();
+		expect(markersIn()).toEqual([".rule-injected-alpha-main-s1"]);
+		expect(call(inject("alpha")).out).toBeNull();
+		expect(call(inject("alpha"), { session: "s2" }).out).not.toBeNull();
+		expect(call(inject("rule:alpha"), { session: "s2" }).out).toBeNull();
+	});
+
+	it("makes a session id a path segment before it names a marker", () => {
+		fragment("alpha");
+		call(inject("alpha"), { session: "../escape" });
+		expect(markersIn()).toEqual([".rule-injected-alpha-main-___escape"]);
+	});
+
+	it("tells two subagents of the same parent apart (mantahostels#1804)", () => {
+		fragment("alpha");
+		call(inject("alpha"), { agent: "aaa1" });
+		expect(call(inject("alpha"), { agent: "bbb2" }).out).not.toBeNull();
+		expect(markersIn().sort()).toEqual([
+			".rule-injected-alpha-aaaa1-s1",
+			".rule-injected-alpha-abbb2-s1",
+		]);
+	});
+
+	it("fills the cap exactly where two fragments and their separator reach it", () => {
+		fragment("a", 2000);
+		fragment("b", RULE_CAP - 2002);
+		const { out } = call(inject("a", "b"));
+		expect(Buffer.byteLength(out.additionalContext)).toBe(RULE_CAP);
+		expect(markersIn()).toContain(".rule-injected-b-main-s1");
+	});
+
+	it("counts the separator against the cap, deferring a fragment one byte over", () => {
+		fragment("a", 2000);
+		fragment("b", RULE_CAP - 2001);
+		expect(call(inject("a", "b")).out.additionalContext).toBe(
+			"a ".padEnd(2000, "x"),
+		);
+		expect(markersIn()).not.toContain(".rule-injected-b-main-s1");
+	});
+
+	it("latches nothing where the envelope's write dies, so the next call hands it (mantahostels#2261)", () => {
+		fragment("alpha");
+		const broken = path.join(dir, "broken.js");
+		fs.writeFileSync(
+			broken,
+			'const fs = require("node:fs");\nconst real = fs.writeSync;\nfs.writeSync = (fd, ...rest) => {\n\tif (fd === 1) throw new Error("stdout gone");\n\treturn real(fd, ...rest);\n};\nrequire("./guard-fixture.js");\n',
+		);
+		// spawn-kept: the wrapper replaces fs.writeSync, which an in-process run
+		// would share.
+		const r = spawnSync(process.execPath, [broken], {
+			cwd: dir,
+			encoding: "utf8",
+			input: JSON.stringify({
+				session_id: "s1",
+				hook_event_name: "PreToolUse",
+				tool_name: "Bash",
+				tool_input: { command: "anything" },
+				cwd: dir,
+			}),
+			env: {
+				...process.env,
+				CLAUDE_PROJECT_DIR: dir,
+				CLAUDE_CONFIG_DIR: config,
+				WFC_RULES_DIR: store,
+				WFC_TEST_DECISION: JSON.stringify({
+					injectRules: ["alpha"],
+					prelude: "P",
+					latchAfter: "k",
+				}),
+			},
+		});
+		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
+		const markers = path.join(dir, ".claude/tmp/markers");
+		expect(
+			fs.existsSync(path.join(markers, ".rule-injected-alpha-main-s1")),
+		).toBe(false);
+		expect(
+			fs.existsSync(path.join(markers, ".rule-injected-warn.k-main-s1")),
+		).toBe(false);
+		expect(readGuardErrorsLog(config)).toMatch(
+			/guard threw — allowed unchecked: stdout gone/,
+		);
+		expect(call(inject("alpha")).out.additionalContext).toMatch(/^alpha x+$/);
+	});
+
 	it("hands the fragment once per session, latched under the markers dir", () => {
 		fragment("alpha");
 		const first = call(inject("alpha"));
@@ -201,6 +305,94 @@ describe("injecting a rule", () => {
 describe("a guard's own text and latches beside the rules (#2785)", () => {
 	const marker = (name: string) =>
 		path.join(dir, ".claude/tmp/markers", `.rule-injected-${name}-main-s1`);
+
+	it("skips an id the skip spells with `rule:`, as one spelt bare (mantahostels#2719)", () => {
+		fragment("alpha");
+		fragment("beta");
+		expect(
+			call({ injectRules: ["alpha", "beta"], skip: ["rule:alpha"] }).out
+				.additionalContext,
+		).toMatch(/^beta x+$/);
+		expect(fs.existsSync(marker("alpha"))).toBe(false);
+	});
+
+	it("latches `warn.rule:x` and `warn.x` as one told() latch (mantahostels#2719)", () => {
+		call({ injectRules: [], prelude: "P", latchAfter: "rule:w" });
+		expect(fs.existsSync(marker("warn.w"))).toBe(true);
+		const told = (id: string) =>
+			JSON.parse(call({ probe: id }).out.additionalContext).told;
+		expect([told("w"), told("rule:w")]).toEqual([true, true]);
+	});
+
+	it("keys told() on the session and the agent, so either is told afresh (mantahostels#2275)", () => {
+		call({ injectRules: [], prelude: "P", latchAfter: "w" });
+		const told = (o: { session?: string; agent?: string }) =>
+			JSON.parse(call({ probe: "w" }, o).out.additionalContext).told;
+		expect(told({})).toBe(true);
+		expect(told({ session: "s2" })).toBe(false);
+		expect(told({ agent: "aa1" })).toBe(false);
+	});
+
+	it("keeps told() and the injection latch apart, in either direction (mantahostels#2275)", () => {
+		fragment("alpha");
+		call({ injectRules: [], prelude: "P", latchAfter: "alpha" });
+		expect(call(inject("alpha")).out.additionalContext).toMatch(/^alpha x+$/);
+		fragment("beta");
+		call(inject("beta"));
+		expect(JSON.parse(call({ probe: "beta" }).out.additionalContext).told).toBe(
+			false,
+		);
+	});
+
+	it("records each told() it cannot answer for want of a session (mantahostels#2423)", () => {
+		call({ probe: "w" }, { session: null });
+		expect(readGuardErrorsLog(config)).toMatch(
+			/no session key — rule w unlatchable, delivered again/,
+		);
+	});
+
+	it.skipIf(process.getuid?.() === 0)(
+		"records a latch it could not write, and still emits",
+		() => {
+			const markers = path.join(dir, ".claude/tmp/markers");
+			fs.mkdirSync(markers, { recursive: true });
+			fs.chmodSync(markers, 0o500);
+			try {
+				expect(
+					call({ injectRules: [], prelude: "P", latchAfter: "w" }).out
+						.additionalContext,
+				).toBe("P");
+			} finally {
+				fs.chmodSync(markers, 0o700);
+			}
+			expect(fs.readdirSync(markers)).toEqual([]);
+			expect(readGuardErrorsLog(config)).toMatch(
+				/latch warn\.w unwritable — said again on the next trigger/,
+			);
+		},
+	);
+
+	it("marks latchAfter beside the fragments it rides with (mantahostels#2528)", () => {
+		fragment("alpha", 30);
+		expect(
+			call({ injectRules: ["alpha"], prelude: "P", latchAfter: "k" }).out
+				.additionalContext,
+		).toBe(`P\n\n${"alpha ".padEnd(30, "x")}`);
+		expect(fs.existsSync(marker("warn.k"))).toBe(true);
+	});
+
+	it("marks no key it was not handed, and marks latchAfter on the prelude-only path (mantahostels#2528)", () => {
+		fragment("alpha", 30);
+		call({ injectRules: ["alpha"], prelude: "P" });
+		expect(fs.readdirSync(path.join(dir, ".claude/tmp/markers"))).toEqual([
+			".rule-injected-alpha-main-s1",
+		]);
+		expect(
+			call({ injectRules: ["alpha"], prelude: "P", latchAfter: "k" }).out
+				.additionalContext,
+		).toBe("P");
+		expect(fs.existsSync(marker("warn.k"))).toBe(true);
+	});
 
 	it("leaves a skipped id out, unlatched, so a later call hands it", () => {
 		fragment("alpha");
@@ -327,6 +519,44 @@ describe("a guard's own text and latches beside the rules (#2785)", () => {
 });
 
 describe("a context answer", () => {
+	it("spells a context's core paths at the plugin root in an install (#1010)", () => {
+		const plugin = path.join(dir, "plugin");
+		fs.mkdirSync(path.join(plugin, "docs", "agents"), { recursive: true });
+		fs.writeFileSync(path.join(plugin, "docs", "agents", "t.md"), "");
+		expect(
+			call(
+				{ context: "Rules: docs/agents/t.md." },
+				{ env: { WFC_SCRIPT_ROOT: plugin } },
+			).out,
+		).toEqual({
+			hookEventName: "PreToolUse",
+			additionalContext: `Rules: ${plugin}/docs/agents/t.md.`,
+		});
+	});
+
+	it("spells an injection prelude's core paths at the plugin root in an install", () => {
+		const plugin = path.join(dir, "plugin");
+		fs.mkdirSync(path.join(plugin, "docs", "agents"), { recursive: true });
+		fs.writeFileSync(path.join(plugin, "docs", "agents", "t.md"), "");
+		expect(
+			call(
+				{ injectRules: [], prelude: "Rules: docs/agents/t.md." },
+				{ env: { WFC_SCRIPT_ROOT: plugin } },
+			).out.additionalContext,
+		).toBe(`Rules: ${plugin}/docs/agents/t.md.`);
+	});
+
+	it("leaves a script path already spelt at the plugin root as it is, not resolving it a second time (#1758)", () => {
+		const plugin = path.join(dir, "plugin");
+		fs.mkdirSync(path.join(plugin, "scripts"), { recursive: true });
+		fs.writeFileSync(path.join(plugin, "scripts", "bg-run.sh"), "");
+		const text = `Instead: \`${plugin}/scripts/bg-run.sh wait <name>\``;
+		expect(
+			call({ context: text }, { env: { WFC_SCRIPT_ROOT: plugin } }).out
+				.additionalContext,
+		).toBe(text);
+	});
+
 	it("hands its text as additionalContext under the entry's event", () => {
 		expect(call({ context: "told" }).out).toEqual({
 			hookEventName: "PreToolUse",
@@ -381,6 +611,28 @@ describe("a PostToolUse guard (#2785)", () => {
 });
 
 describe("a store fault refuses the call, as JSON on exit 0 (mantahostels#1762)", () => {
+	it("refuses a doubly-prefixed id as not a rule id, writing no marker", () => {
+		fragment("alpha");
+		const { out } = call(inject("rule:rule:alpha"));
+		expect(out.permissionDecision).toBe("deny");
+		expect(out.permissionDecisionReason).toMatch(
+			/"rule:rule:alpha" is not a rule id/,
+		);
+		expect(fs.existsSync(path.join(dir, ".claude/tmp/markers"))).toBe(false);
+	});
+
+	it("refuses the whole call where one of several ids is unknown, handing and latching none", () => {
+		fragment("alpha");
+		const { out } = call(inject("alpha", "missing"));
+		expect(out.permissionDecision).toBe("deny");
+		expect(out.additionalContext).toBeUndefined();
+		expect(
+			fs.existsSync(
+				path.join(dir, ".claude/tmp/markers/.rule-injected-alpha-main-s1"),
+			),
+		).toBe(false);
+	});
+
 	it("refuses an id no fragment answers to", () => {
 		const r = call(inject("missing"));
 		expect(r.status).toBe(0);
@@ -399,6 +651,9 @@ describe("a store fault refuses the call, as JSON on exit 0 (mantahostels#1762)"
 		expect(r.out.permissionDecision).toBe("deny");
 		expect(r.out.permissionDecisionReason).toContain(
 			`"huge" is ${RULE_CAP + 1} bytes, over the ${RULE_CAP}-byte emission ceiling`,
+		);
+		expect(readGuardErrorsLog(config)).toMatch(
+			/guard-fixture\.js\trule fragment over the emission ceiling — refusing: huge/,
 		);
 	});
 

@@ -2664,6 +2664,7 @@ function addIntoTarget(src, { base, dpath }, add, ctx) {
 }
 
 module.exports = {
+	Lexer,
 	parseCommand,
 	walkCommands,
 	TEXT_ONLY_PORTS,

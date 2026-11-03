@@ -21,6 +21,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failOpenLogPath, readFailOpenLog } from "./guard-log-fixture";
 import {
+	expectShellHooks,
 	guardDirs,
 	nodeGuardOutput,
 	readHookLines,
@@ -100,6 +101,10 @@ const readRegistered = (event: string) =>
 describe("the registration", () => {
 	it("is one hook line, run on PreToolUse and PostToolUse alike", () => {
 		expect(new Set(LINES).size).toBe(1);
+	});
+
+	it("is shell form, carrying no `args` key, in the plugin and the self-plugin alike (mantahostels#2059)", () => {
+		expectShellHooks("scripts/guard-dispatch.js", () => ({}), 2);
 	});
 
 	it("is one PreToolUse entry over its cores' tools, fail-closed at 60 s (#3226)", () => {

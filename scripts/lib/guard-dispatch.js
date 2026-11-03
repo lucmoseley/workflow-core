@@ -408,7 +408,12 @@ function repoRel(file, root) {
 	/** @param {string} p */
 	const under = (p) => {
 		const rel = path.relative(root, p);
-		return rel && !rel.startsWith("..") && !path.isAbsolute(rel) ? rel : null;
+		return rel &&
+			rel !== ".." &&
+			!rel.startsWith(`..${path.sep}`) &&
+			!path.isAbsolute(rel)
+			? rel
+			: null;
 	};
 	const abs = path.resolve(file);
 	const direct = under(abs);
