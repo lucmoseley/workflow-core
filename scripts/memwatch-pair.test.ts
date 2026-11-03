@@ -31,6 +31,9 @@ afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 /* Every pass writes the minute line, so no run here may reach the live one. */
 process.env.MEMWATCH_MINUTE_LOG = path.join(tmp, "minute.jsonl");
 process.env.MEMWATCH_RUNAWAY_LOG = path.join(tmp, "runaway-default.jsonl");
+/* Nor may any start a real PowerShell read of Windows memory. */
+process.env.MEMWATCH_WIN_READ = "";
+process.env.MEMWATCH_WIN_OUT = path.join(tmp, "win-default");
 
 function runMemcheckLine(watchdogSrc: string): string {
 	return execFileSync("bash", [MEMCHECK, "--memwatch-line"], {
@@ -275,13 +278,29 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 			"tsc",
 			"lander",
 			"forks",
+			"swap_in",
+			"swap_out",
+			"refault_file",
+			"refault_anon",
+			"majfault",
+			"allocstall",
+			"swap_used_mb",
+			"uptime_s",
+			"win_avail_mb",
+			"win_pages_in",
+			"win_pages_out",
+			"win_commit_pct",
+			"win_age_s",
 			"sessions",
 			"sched",
 		]);
 		expect(row.ts).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d{4}$/);
 		expect(typeof row.load1).toBe("number");
-		// The first pass after a start has no CPU delta yet.
+		// The first pass after a start has no CPU or vmstat delta yet.
 		expect(row.cpu_busy_pct).toBeNull();
+		expect(row.refault_file).toBeNull();
+		expect(row.swap_used_mb).toBeGreaterThanOrEqual(0);
+		expect(row.uptime_s).toBeGreaterThan(0);
 		// The test's own node process is running.
 		expect(row.node).toBeGreaterThan(0);
 	});
@@ -315,6 +334,50 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 		expect(runtimeNs).toBeNull();
 		expect(busy).toBeGreaterThan(0);
 		expect(total).toBeGreaterThan(busy);
+	});
+
+	// The guest cannot see Windows paging (#3246), so a background read supplies it (#4159).
+	describe("Windows memory", () => {
+		const reading = (ageS: number) =>
+			`${Math.floor(Date.now() / 1000) - ageS} 1344 50538099 32868535 21980766208 33936314368\n`;
+
+		it("takes a fresh reading, with no paging delta on its first", () => {
+			const out = path.join(tmp, "win-fresh");
+			fs.writeFileSync(out, reading(5));
+			const { lines } = quietPass("minute-win-fresh", {
+				MEMWATCH_WIN_OUT: out,
+			});
+			const row = JSON.parse(lines[0]);
+			expect(row.win_avail_mb).toBe(1344);
+			expect(row.win_commit_pct).toBe(64);
+			expect(row.win_pages_in).toBeNull();
+			expect(row.win_age_s).toBeGreaterThanOrEqual(5);
+		});
+
+		it("writes nulls for a reading more than two minutes old", () => {
+			const out = path.join(tmp, "win-stale");
+			fs.writeFileSync(out, reading(600));
+			const { lines } = quietPass("minute-win-stale", {
+				MEMWATCH_WIN_OUT: out,
+			});
+			const row = JSON.parse(lines[0]);
+			expect(row.win_avail_mb).toBeNull();
+			expect(row.win_age_s).toBeNull();
+		});
+
+		it("starts the next read in the background, stamped when it ends", async () => {
+			const out = path.join(tmp, "win-launch");
+			const fake = path.join(tmp, "fake-powershell");
+			fs.writeFileSync(fake, "#!/bin/sh\nprintf '1344 1 2 3 4\\r\\n'\n", {
+				mode: 0o755,
+			});
+			quietPass("minute-win-launch", {
+				MEMWATCH_WIN_OUT: out,
+				MEMWATCH_WIN_READ: fake,
+			});
+			for (let i = 0; i < 50 && !fs.existsSync(out); i++) await setTimeout(100);
+			expect(fs.readFileSync(out, "utf8")).toMatch(/^\d+ 1344 1 2 3 4\n$/);
+		});
 	});
 
 	// A restart reads the last line back, so it never writes that minute again.
