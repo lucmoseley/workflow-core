@@ -64,9 +64,13 @@ describe("record-divergence.js's load set (#2899)", () => {
 		expect(
 			loadedAfter("On branch main\nnothing to commit", "git status"),
 		).toEqual([
+			"lib/caught.js",
 			"lib/divergence-row-host.js",
 			"lib/divergence-row.js",
 			"lib/entry-input.js",
+			"lib/read-fd.js",
+			"lib/sleep-sync.js",
+			"lib/write-fd.js",
 			"record-divergence.js",
 		]);
 	});

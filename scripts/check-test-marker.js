@@ -28,7 +28,7 @@
  * `|| :`, in `.husky/pre-push` and so in every adopter's copy (#1444).
  */
 
-const fs = require("node:fs");
+const { readFdAll } = require("./lib/read-fd.js");
 const { runCheck } = require("./lib/check.js");
 const {
 	attestationOf,
@@ -47,7 +47,7 @@ runCheck({
 	run(ctx) {
 		let stdin = "";
 		try {
-			stdin = fs.readFileSync(0, "utf8");
+			stdin = readFdAll(0).toString("utf8");
 		} catch (e) {
 			ctx.broken(
 				`could not read the pushed refs on stdin: ${caught(e).message}`,

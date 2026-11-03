@@ -21,8 +21,8 @@
  *   env      `options.env` REPLACES the environment for the call, exactly as
  *            spawnSync's `env` does, and is restored after.
  *   stdin    `options.stdin` is what fd 0 holds, read by `fs.readFileSync(0)`,
- *            which is how lib/hook-message.js takes a hook's JSON payload, or
- *            by `fs.readSync(0, …)` calls. It is spawnSync's `input` under
+ *            or by `fs.readSync(0, …)` calls, which is how lib/read-fd.js takes
+ *            a hook's JSON payload. It is spawnSync's `input` under
  *            another name. Only fd 0 and only those
  *            two: a script that reads stdin as a stream still wants a spawn.
  *   uptime   `process.uptime()` counts from the call's start, as a fresh

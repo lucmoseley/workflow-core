@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { MARKERS_REL } from "./lib/marker-root";
+import { plantDeadLock, plantLiveLock } from "./lib/pid-lock-testkit";
 import { queueExitLogPath } from "./lib/queue-exit-log";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -385,7 +386,7 @@ describe("at most hourly", () => {
 
 	it("reads nothing while another run holds a live lock", () => {
 		waited(3);
-		fs.writeFileSync(path.join(markers, LOCK), "1");
+		plantLiveLock(path.join(markers, LOCK), "report-suite-queue-wait.js");
 		const gh = stubGh();
 		const r = run(gh);
 		expect(r.status).toBe(0);
@@ -396,9 +397,7 @@ describe("at most hourly", () => {
 	it("takes over a lock a dead run left, and releases its own", () => {
 		waited(3);
 		const lock = path.join(markers, LOCK);
-		fs.writeFileSync(lock, "1");
-		const old = new Date(Date.now() - 11 * 60_000);
-		fs.utimesSync(lock, old, old);
+		plantDeadLock(lock);
 		const gh = stubGh();
 		const r = run(gh);
 		expect(r.status).toBe(0);

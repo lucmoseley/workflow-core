@@ -129,6 +129,7 @@ Copy a row's exemplar, never the nearest file doing the same job (**Primitive**,
 | Reading the clock | `now()` in `scripts/lib/check.js`, pinned by `WFC_NOW`; for a guard core, a host port's `now(env)` handed its `ctx.env` | `scripts/check-history-trim.js`, `scripts/lib/sweep-fire-host.js` | §0, its floor table | `scripts/check-clock-copies.js` |
 | Invoking `gh`, and stubbing it in a test | `gh`, `ghJson` and their kin in `scripts/lib/gh.js`, reading `WFC_GH`; `"${WFC_GH:-gh}"` in shell; a test's stub at `WFC_GH` from `scripts/lib/gh-stub.ts` | `scripts/check-issue-orphans.js`, `scripts/link-sub-issue.sh`, `scripts/check-issue-orphans.test.ts` | §X2, §N7 | `scripts/check-gh-route.js` |
 | Invoking `claude`, and stubbing it in a test | `claudeBin()` in `scripts/lib/claude-bin.js`, reading `WFC_CLAUDE_BIN`; `"${WFC_CLAUDE_BIN:-claude}"` in shell; a test's stub at `WFC_CLAUDE_BIN` | `scripts/run-mod-tests.js`, `scripts/probe-async-hook-timeout.sh`, `scripts/run-mod-tests.test.ts` | §X2, §N7 | `scripts/check-gh-route.js` |
+| Reading all of a program's stdin | `readFdAll` in `scripts/lib/read-fd.js` | `scripts/write-secret.js` | §N6 | Standards axis criterion |
 | Writing a program's output | `writeFd` in `scripts/lib/write-fd.js` | `scripts/check-plugin-gap.js` | §N6 | Standards axis criterion |
 | Writing a `report-*` program's output | `writeFd` in `scripts/lib/write-fd.js` | `scripts/report-new-shared-faults.js` | §N6 | `scripts/check-report-programs.js` |
 | A `report-*` program filing an issue | `createIssue` in `scripts/lib/tracking-issue.js`, or its `fileOrRefresh` | `scripts/report-remeasure-due.js` | §N3 | `scripts/check-report-programs.js` |
@@ -137,6 +138,7 @@ Copy a row's exemplar, never the nearest file doing the same job (**Primitive**,
 | A pre-commit gate staging blobs out of the index | `staged_gate` in `scripts/lib/precommit-gate.sh` | `.husky/pre-commit` | §S6 | Standards axis criterion |
 | Ending a Stop hook with a block | `blockStop` in `scripts/lib/hook-block.js`, with its `charge` and `capSpent` | `scripts/guard-uncommitted-work.js` | §G10 | Standards axis criterion |
 | Reading or writing an arbiter record | `paths`, `readRecord` and `writeRecord` and their kin in `scripts/lib/arbiter-core.js` | `scripts/lib/arbiter-issue-claims.js` | §N10 | Standards axis criterion |
+| Holding a lock for a program's whole run, which a crashed holder cannot wedge | `pidLock` in `scripts/lib/pid-lock.js`, stale only once its holder has gone | `scripts/file-morning-review.js` | §G1 | Standards axis criterion |
 | Printing a rule the rule-text store holds | `rule_text` in `scripts/lib/rule-text.sh`; `readRuleText` or `readRuleTextOr` in `scripts/lib/rule-text.js`; a guard core's `ruleOrFallback` in `scripts/lib/guard-verdict.js` | `scripts/stale-write-back-gate.sh`, `scripts/check-weakens-line.js` | §G11 | Standards axis criterion |
 
 ---
@@ -224,7 +226,7 @@ The push gate asks whether certificates attest a commit, so its verdict is `atte
 
 **Program, library and hook module.** §N9 holds what a function is passed; this holds the state it reaches without being passed: Fowler's Global Data smell, and the other half of his Mutable Data smell (#1308, #1821). That state is a module-scope `let`, a module-scope object, array, Map or Set, or `process.env`. It is written by one function, or only by functions whose names say what each does to it, so a reader finds every write from the declaration. Another module never writes it directly, only through one of those functions. `process.env` has no declaration, so each variable counts as state of its own, and a write through a general setter such as `setEnv` is its caller's. The breach is a second writer named for something else.
 
-`scripts/lib/suite-handoff.js:200-219` keeps `report` behind `fillRunReport` and `takeRunReport`, declared beneath it. `scripts/session-arbiter.js:172-192` keeps its oracle memo behind `listedOnce` and `relistSessions`; `scripts/check-hook-liveness.js:382`'s `saidBeforeElseQueue` names the stamp it queues as well as the question it answers.
+`scripts/lib/suite-handoff.js:200-219` keeps `report` behind `fillRunReport` and `takeRunReport`, declared beneath it. `scripts/session-arbiter.js:173-193` keeps its oracle memo behind `listedOnce` and `relistSessions`; `scripts/check-hook-liveness.js:382`'s `saidBeforeElseQueue` names the stamp it queues as well as the question it answers.
 
 The fixes, best first: return the value, so the caller holds it; pass it in, so the write shows at the call site, where §N9 holds a program to it; or move each write into a function named for it, declared beside the state (Fowler's Encapsulate Variable).
 
@@ -383,7 +385,7 @@ A program that swallows an error to keep working does so as a design choice that
 
 **Gated for Python** (#1830): the plugin's pre-commit refuses an `except` a commit adds to a program-routed `.py` that neither raises nor exits and cites no ticket, so (b) is a duplicate finding there. Whether (a)'s comment gives a reason, and (c), stay review's.
 
-The `guard-*` family swallows every error and exits 0 — *"breaking a session is worse than missing one"* (`scripts/guard-priced-options.js:359-360`) — and `scripts/session-arbiter.js:2388` names the rule's source, *"catches to fail open (mantahostels#103 §6)"*. Printed: `scripts/pick-next.js:3285` *"Assigned, but no live session recorded a claim: fail open, and say so"*.
+The `guard-*` family swallows every error and exits 0 — *"breaking a session is worse than missing one"* (`scripts/guard-priced-options.js:359-360`) — and `scripts/session-arbiter.js:2390` names the rule's source, *"catches to fail open (mantahostels#103 §6)"*. Printed: `scripts/pick-next.js:3285` *"Assigned, but no live session recorded a claim: fail open, and say so"*.
 
 ### §N6 · Output that must survive `process.exit` on a pipe is written synchronously — **hard**
 
@@ -392,6 +394,8 @@ Node programs. On any path whose output precedes a `process.exit` **and** whose 
 A bare `fs.writeSync` is not enough — `scripts/lib/write-fd.js:7-8` *"it drops the tail of a partial write without saying so, and it throws EAGAIN on a full pipe that is non-blocking"*. The writer loops until every byte is taken, waiting out EAGAIN up to a ceiling.
 
 *House, Node programs only*: that writer is `writeFd` from `scripts/lib/write-fd.js` (#1676). A bare `fs.writeSync` to fd 1 or 2 stays only where a comment says why. A `report-*` writes every path through it, a terminal-only one included (#3454).
+
+*House, production Node programs only*: a program reads all of its stdin through `readFdAll` from `scripts/lib/read-fd.js`, since `fs.readFileSync(0)` throws EAGAIN on a non-blocking pipe whose writer has not finished (#4017). A bare `fs.readFileSync(0)` stays only where a comment says why. An inline `node -e` in a shell script that never touches `process.stdin` is outside this.
 
 Stream discipline (`scripts/lib/check.js:34-38`): stdout is for machine readers (a `--json` envelope, Actions `::error::` commands); human text goes to stderr. A `SessionStart` hook inverts it, because its stdout is what is injected into the session — and it exits 0 unconditionally, BROKEN included, because a non-zero `SessionStart` hook is read as broken and dropped (`scripts/lib/check.js:1635-1638`).
 

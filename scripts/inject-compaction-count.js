@@ -43,6 +43,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const hookBlock = require("./lib/hook-block");
+const { readFdAll } = require("./lib/read-fd.js");
 const { markersDir } = require("./lib/marker-root");
 const sessionTranscript = require("./lib/session-transcript");
 const {
@@ -161,7 +162,7 @@ function main(raw) {
 
 if (require.main === module) {
 	try {
-		main(fs.readFileSync(0, "utf8"));
+		main(readFdAll(0).toString("utf8"));
 	} catch (err) {
 		logFailOpen("crashed", err);
 	}

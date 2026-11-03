@@ -46,6 +46,7 @@ const { execGit } = require("./lib/git.js");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { readFdAll } = require("./lib/read-fd.js");
 const { isZeroSha, parsePushes } = require("./lib/push-refs.js");
 const { pushedRef } = require("./lib/landing-refs.js");
 const { caught } = require("./lib/caught.js");
@@ -272,7 +273,7 @@ function main() {
 	if (parsed.flags["--all"]) return sweep();
 	let stdin = "";
 	try {
-		stdin = fs.readFileSync(0, "utf8");
+		stdin = readFdAll(0).toString("utf8");
 	} catch (e) {
 		process.stderr.write(
 			`WARN: pre-push: could not read git's ref list (${caught(e).message}); the mod's tests were not run (#857).\n`,

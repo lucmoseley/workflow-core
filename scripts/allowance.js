@@ -32,7 +32,7 @@
  * will not answer. Never changes the exit code.
  */
 
-const fs = require("node:fs");
+const { readFdAll } = require("./lib/read-fd.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { configDir: defaultConfigDir } = require("./lib/config-dir.js");
@@ -173,7 +173,7 @@ function capOf(result, args) {
 
 function readStdin() {
 	try {
-		return fs.readFileSync(0, "utf8");
+		return readFdAll(0).toString("utf8");
 	} catch {
 		return "";
 	}

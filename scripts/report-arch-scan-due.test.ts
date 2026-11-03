@@ -22,6 +22,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { GH_FAILING_SCRIPT } from "./lib/gh-stub";
 import { initGitRepo } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
+import { plantLiveLock } from "./lib/pid-lock-testkit";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -807,7 +808,7 @@ describe("the daily filing run", () => {
 	it("reads nothing while another run holds a live lock", () => {
 		const r = repo({ archScan: { threshold: 1 } });
 		commit(r, { "a.js": 5 });
-		fs.writeFileSync(path.join(r.root, ".git", LOCK), "1");
+		plantLiveLock(path.join(r.root, ".git", LOCK), "report-arch-scan-due.js");
 
 		const { code, stdout } = run(r, []);
 		expect(code).toBe(0);

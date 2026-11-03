@@ -18,6 +18,7 @@ const { errMessage, now: checkNow } = require("./check");
 const { streamRecords } = require("./encoding-use");
 const { readJsonl } = require("./jsonl.js");
 const { markersDir } = require("./marker-root");
+const { pidLock } = require("./pid-lock.js");
 const { buildSkipLine, periodicReading } = require("./periodic-reading");
 const { isFounderMessage, textOf } = require("./tool-calls-since");
 const { createIssue, findTrackingIssue } = require("./tracking-issue");
@@ -26,13 +27,9 @@ const { readAdopterCheckouts, homeDir } = require("./refill-repos");
 const { readSessionHead, repoRootOf } = require("./session-head.js");
 
 const DAY_MS = 86_400_000;
-const CLAIM = "filing";
-/* A claim this old belongs to a run that died mid-filing. A guess, not a
- * measurement: the claim spans two gh calls, each capped at 5 minutes
- * (`GH_TIMEOUT_MS`, gh.js), so only a live run held at both caps reaches it.
- * One slower than that is overwritten, and the gh check alone then stands
- * between it and a second filing. */
-const CLAIM_STALE_MS = 10 * 60_000;
+/* What a record held while a run filed before the filing lock; one still holding
+ * it reads as not filed (#4016). */
+const OLD_CLAIM = "filing";
 
 /**
  * @typedef {{ at: string, session: string, kind: string }} LimbLogLine
@@ -397,50 +394,41 @@ const buildPointLines = (sentence, { reached, cutoff, nowMs }) => [
 ];
 
 /**
- * Take `file` as this run's claim. False where another run holds a live claim
- * or the issue is already recorded.
+ * The issue the filed-once record holds, or null where none is recorded.
  *
  * @param {string} file
- * @returns {boolean}
+ * @throws where the record exists and will not read
  */
-function claim(file) {
-	for (let attempt = 0; attempt < 2; attempt++) {
-		try {
-			fs.writeFileSync(file, CLAIM, { flag: "wx" });
-			return true;
-		} catch (e) {
-			if (caught(e).code !== "EEXIST") throw e;
-		}
-		let held;
-		try {
-			held = {
-				text: fs.readFileSync(file, "utf8").trim(),
-				age: Date.now() - fs.statSync(file).mtimeMs,
-			};
-		} catch (e) {
-			/* Removed between the two calls: try the create again. */
-			if (caught(e).code === "ENOENT") continue;
-			throw e;
-		}
-		if (held.text !== CLAIM || held.age < CLAIM_STALE_MS) return false;
-		fs.rmSync(file, { force: true });
+function readFiledRecord(file) {
+	let held;
+	try {
+		held = fs.readFileSync(file, "utf8").trim();
+	} catch (e) {
+		if (caught(e).code === "ENOENT") return null;
+		throw e;
 	}
-	return false;
+	return held && held !== OLD_CLAIM ? held : null;
 }
 
 /**
- * File the reading, unless its issue already exists, open or closed.
+ * File the reading, unless its issue already exists, open or closed. A lock
+ * beside the record is held for the filing, and `gh`'s own timeout ends a call
+ * that hangs (#4016).
  *
- * @param {string} file the filed-once record
+ * @param {{ file: string, script: string }} at the filed-once record, and the
+ *   program filing, as its command line carries it
  * @param {{ title: string, label: string }} issue
  * @param {string} body
  * @returns {string} what happened, for the run to print
- * @throws where `gh` refuses; the claim is dropped so the next run retries
+ * @throws where `gh` refuses, nothing recorded, so the next run retries
  */
-function fileOnce(file, { title, label }, body) {
-	if (!claim(file))
-		return "Another run is filing the reading, or has filed it; nothing filed.";
+function fileOnce({ file, script }, { title, label }, body) {
+	const elsewhere =
+		"Another run is filing the reading, or has filed it; nothing filed.";
+	const lock = pidLock(`${file}.lock`, script);
+	if (!lock.acquire()) return elsewhere;
 	try {
+		if (readFiledRecord(file)) return elsewhere;
 		const existing = findTrackingIssue({ title }, "all");
 		if (existing) {
 			fs.writeFileSync(file, `#${existing.number}`);
@@ -449,17 +437,16 @@ function fileOnce(file, { title, label }, body) {
 		const url = createIssue({ title, labels: [label], body });
 		fs.writeFileSync(file, url);
 		return `Filed ${url}.`;
-	} catch (e) {
-		fs.rmSync(file, { force: true });
-		throw e;
+	} finally {
+		lock.release();
 	}
 }
 
 /**
  * The filing half of a reporter that files one issue, once. Once its issue
  * exists, open or closed, it never files again: `record`, in the markers
- * directory, holds the issue and is the lock two session starts filing at
- * once contend for, and a `gh` check by title across open and closed issues
+ * directory, holds the issue, a lock beside it is what two session starts
+ * filing at once contend for, and a `gh` check by title across open and closed issues
  * covers a record that is gone or was never written here (a worktree or
  * another clone). By title alone, since the session that takes the issue may
  * relabel it.
@@ -473,15 +460,15 @@ function buildFiler({ title, label, record, script, buildIssueBody }) {
 	const recordPath = () => path.join(markersDir(), record);
 	const stampPath = () => `${recordPath()}-read-at`;
 	const lockPath = () => `${recordPath()}-read.lock`;
+	const scriptName = path.basename(script);
 
 	/** The issue the record holds, or null where none is recorded. */
 	function readFiledAs() {
 		try {
-			const held = fs.readFileSync(recordPath(), "utf8").trim();
-			return held && held !== CLAIM ? held : null;
+			return readFiledRecord(recordPath());
 		} catch {
-			/* Fails open to "not recorded" (#1104): the claim and the gh check
-			 * still stop a second filing. */
+			/* Fails open to "not recorded" (#1104): `fileOnce` reads it again, and
+			 * throws there. */
 			return null;
 		}
 	}
@@ -509,7 +496,7 @@ function buildFiler({ title, label, record, script, buildIssueBody }) {
 		let outcome;
 		try {
 			outcome = fileOnce(
-				recordPath(),
+				{ file: recordPath(), script: scriptName },
 				{ title, label },
 				buildIssueBody(reading),
 			);
@@ -526,31 +513,29 @@ function buildFiler({ title, label, record, script, buildIssueBody }) {
 	/**
 	 * Run `read`, the full walk of the logs and transcripts: at once on a dry
 	 * run, otherwise at most daily and never beside another plain run's
-	 * (#3220). A walk that exits through `broken` skips `finally`, so the lock
-	 * drops on process exit; the stamp, written first, holds the next walk off
-	 * for the day, except after a failed filing, which `publish` unstamps. One
-	 * stamp serves every `--config-dir` set, so a hand run over other seats
-	 * holds the session-start walk off too.
+	 * (#3220). A walk that exits through `broken` leaves its lock naming a dead
+	 * process, for the next run to take over; the stamp, written first, holds the
+	 * next walk off for the day, except after a failed filing, which `publish`
+	 * unstamps. One stamp serves every `--config-dir` set, so a hand run over
+	 * other seats holds the session-start walk off too. No ceiling bounds the
+	 * walk: one that hangs keeps the lock until it is killed.
 	 *
 	 * @param {{ nowMs: number, dryRun: boolean }} run
 	 * @param {() => void} read
 	 */
 	function readDaily({ nowMs, dryRun }, read) {
 		if (dryRun) return read();
-		const lock = lockPath();
-		const release = () => fs.rmSync(lock, { force: true });
 		let gate;
 		try {
 			gate = periodicReading(
-				{ stamp: stampPath(), lock, nowMs, everyMs: DAY_MS },
-				() => {
-					process.once("exit", release);
-					try {
-						read();
-					} finally {
-						process.removeListener("exit", release);
-					}
+				{
+					stamp: stampPath(),
+					lock: lockPath(),
+					script: scriptName,
+					nowMs,
+					everyMs: DAY_MS,
 				},
+				read,
 			);
 		} catch (e) {
 			return broken(`the daily gate would not read — ${errMessage(e)}`);

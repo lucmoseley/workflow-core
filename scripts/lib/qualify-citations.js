@@ -307,7 +307,7 @@ function qualifyLines(body, citable, { fences, code }) {
 
 if (require.main === module) {
 	process.stdout.write(
-		qualifyProse(require("node:fs").readFileSync(0, "utf8")),
+		qualifyProse(require("./read-fd.js").readFdAll(0).toString("utf8")),
 	);
 }
 

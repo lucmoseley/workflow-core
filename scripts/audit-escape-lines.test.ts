@@ -18,6 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import audit from "./lib/escape-audit.js";
+import { plantDeadLock, plantLiveLock } from "./lib/pid-lock-testkit";
 import { runInProcessAsync } from "./lib/run-in-process";
 
 const SCRIPT = path.join(__dirname, "audit-escape-lines.js");
@@ -179,11 +180,18 @@ describe("the batch", () => {
 		expect(audit.readItems(dir)?.items).toHaveLength(1);
 	});
 
-	it("stands aside while another run holds the lock", async () => {
-		const markers = path.join(dir, ".claude", "tmp", "markers");
-		fs.mkdirSync(markers, { recursive: true });
-		fs.writeFileSync(path.join(markers, ".escape-audit-lock"), "1");
+	const lockFile = () =>
+		path.join(dir, ".claude", "tmp", "markers", ".escape-audit-lock");
+
+	it("stands aside while a live run holds the lock, however old", async () => {
+		plantLiveLock(lockFile(), "audit-escape-lines.js");
 		expect(await run()).toMatchObject({ reason: "locked" });
+	});
+
+	it("takes over a lock a dead run left, and releases its own", async () => {
+		plantDeadLock(lockFile());
+		expect(await run()).not.toMatchObject({ reason: "locked" });
+		expect(fs.existsSync(lockFile())).toBe(false);
 	});
 });
 

@@ -1,6 +1,7 @@
 /*
- * package-reader.js — a directory's `package.json` (#3947): its scripts and
- * whether it declares Biome, and which directory a runner finds it in. A file
+ * package-reader.js — a directory's `package.json` (#3947): its name, scripts,
+ * workspaces and whether it declares Biome, and which directory a runner finds
+ * it in. A file
  * that cannot be read or does not parse throws, as it shows no absence of a
  * script or of Biome.
  */
@@ -81,7 +82,13 @@ function readPackage(root) {
 		text = fs.readFileSync(file, "utf8");
 	} catch (err) {
 		throwUnlessAbsent(file, err);
-		return { scripts: {}, biome: false, biomeEvident: false };
+		return {
+			name: path.basename(root),
+			scripts: {},
+			workspaces: [],
+			biome: false,
+			biomeEvident: false,
+		};
 	}
 	let pkg;
 	try {
@@ -94,8 +101,21 @@ function readPackage(root) {
 	/** @param {string[]} sections */
 	const hasBiomeIn = (sections) =>
 		sections.some((k) => typeof pkg?.[k]?.["@biomejs/biome"] === "string");
+	/* npm's own two forms; it refuses any other, so no member is read from one. */
+	const workspaces = Array.isArray(pkg?.workspaces?.packages)
+		? pkg.workspaces.packages
+		: pkg?.workspaces;
 	return {
+		/* npm names an unnamed workspace after its folder. */
+		name:
+			typeof pkg?.name === "string" && pkg.name
+				? pkg.name
+				: path.basename(root),
 		scripts,
+		/** @type {string[]} */
+		workspaces: Array.isArray(workspaces)
+			? workspaces.filter((p) => typeof p === "string")
+			: [],
 		biome: hasBiomeIn(MAPPED_SECTIONS),
 		biomeEvident:
 			hasBiomeIn(EVIDENT_SECTIONS) ||
@@ -135,4 +155,5 @@ module.exports = {
 	buildPackageReader,
 	readPackage,
 	findPackageDir,
+	hasPackage,
 };

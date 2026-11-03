@@ -7,9 +7,7 @@
  * THE TABLE IS ASSERTED SHAPE BY SHAPE. Each mapped `gh` form gets the exact id
  * set its TRIGGERS row names and nothing else, so a row that widens silently —
  * a `--body` matched anywhere on a `--add-assignee` command, say — fails here
- * rather than costing a session a rule it did not engage. A row that narrows
- * lets a session file, label or close an issue without the tracker rule it
- * engaged ever reaching it.
+ * rather than costing a session a rule it did not engage.
  *
  * It never denies, so every case asserts `permissionDecision` is ABSENT as
  * well as asserting the text.

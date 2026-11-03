@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { printed, stubGhRoutes } from "./lib/gh-stub";
 import { initGitRepo } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
+import { plantLiveLock } from "./lib/pid-lock-testkit";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.join(__dirname, "report-heresy-sweep-due.js");
@@ -195,11 +196,21 @@ describe("the daily filing run", () => {
 	});
 
 	it("reads nothing while another run holds a live lock", () => {
-		fs.writeFileSync(path.join(root, ".git", LOCK), "1");
+		plantLiveLock(path.join(root, ".git", LOCK), "report-heresy-sweep-due.js");
 
 		const { code, stdout } = run([]);
 		expect(code).toBe(0);
 		expect(stdout).toContain("Another run is reading; nothing read.");
+		expect(ghCalls()).toBe("");
+	});
+
+	it("fails open, recorded, on a directory at the lock's path, reading nothing (#4016)", () => {
+		fs.mkdirSync(path.join(root, ".git", LOCK));
+
+		const { code, stderr } = run([]);
+		expect(code).toBe(0);
+		expect(stderr).toContain("FAILED OPEN: ");
+		expect(stderr).toContain("no lock can be taken there");
 		expect(ghCalls()).toBe("");
 	});
 

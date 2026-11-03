@@ -21,6 +21,7 @@ import { stubGhScript } from "./lib/gh-stub";
 import { initGitRepo } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { fakeIssueBody } from "./lib/issue-body-testkit";
+import { plantDeadLock, plantLiveLock } from "./lib/pid-lock-testkit";
 import { projectSlug } from "./lib/project-slug";
 import { REPO_CHECKS } from "./lib/repo-checks-registry";
 import { runInProcess } from "./lib/run-in-process";
@@ -686,25 +687,23 @@ describe("repo-checks: the daily cap and the lock", () => {
 		expect(fs.existsSync(path.join(f.common, RESULT))).toBe(true);
 	});
 
-	it("stops at a live lock younger than 45 minutes", () => {
+	it("stops at a live run's lock, however old", () => {
 		const f = fixture();
 		const lock = path.join(f.common, LOCK);
-		fs.writeFileSync(lock, "1");
-		const recent = new Date(Date.now() - 30 * 60_000);
-		fs.utimesSync(lock, recent, recent);
+		plantLiveLock(lock, "repo-checks.js");
 		const r = run(f);
 		expect(r.stderr).toContain("Another run is reading");
 		expect(f.launched()).toEqual([]);
 		expect(fs.existsSync(lock)).toBe(true);
 	});
 
-	it("takes over a lock older than 45 minutes, and releases its own", () => {
+	it("takes over a lock a dead run left, and releases its own", () => {
 		const f = fixture();
 		const lock = path.join(f.common, LOCK);
-		fs.writeFileSync(lock, "1");
-		const old = new Date(Date.now() - 46 * 60_000);
-		fs.utimesSync(lock, old, old);
-		run(f);
+		plantDeadLock(lock);
+		const r = run(f);
+		expect(r.status).toBe(0);
+		expect(r.stderr).not.toContain("Another run is reading");
 		expect(ids(f.launched())).toEqual(ROADMAP_IDS);
 		expect(fs.existsSync(lock)).toBe(false);
 	});
