@@ -1572,12 +1572,13 @@ function isBootKillable(l, { agents, io }, bootedAt) {
  * @param {LoopLaunch[]} launches
  * @param {Tick} seen
  * @param {number} bootedAt when `boot-resume` saw the restart
+ * @param {(l: LoopLaunch) => boolean} [isSpared] left as it is, though killable
  * @returns {LoopLaunch[]}
  */
-function queueBootKilled(launches, seen, bootedAt) {
+function queueBootKilled(launches, seen, bootedAt, isSpared = () => false) {
 	const { io } = seen;
 	return launches.map((l) => {
-		if (!isBootKillable(l, seen, bootedAt)) return l;
+		if (isSpared(l) || !isBootKillable(l, seen, bootedAt)) return l;
 		const { block: _, parked: __, ...rest } = l;
 		const { sessionId, cwd } = io.resumeTargetOf(l);
 		io.log(
@@ -2334,6 +2335,7 @@ module.exports = {
 	isResuming,
 	isHoldCleared,
 	isBootKillCandidate,
+	isBootKillable,
 	isBootKilled,
 	isStepResume,
 	isSwapHeld,

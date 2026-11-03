@@ -43,6 +43,10 @@
  *                                        control (install-refill-boot-unit.js);
  *                                        a loop still running is told the user
  *                                        manager restarted
+ *   node scripts/refill-loop.js watch    the watch timer's: with no live holder
+ *                                        of the lock and no stop on record,
+ *                                        restart the boot unit, so boot-resume
+ *                                        decides
  *
  * Each tick is lib/refill-tick.js's; the seats it reads, lib/refill-seats.js's;
  * what `start` and `status` print, lib/refill-commands.js's.
@@ -76,6 +80,7 @@ const { buildErrorText, caught } = require("./lib/caught.js");
 const { readBurnState } = require("./lib/burn-mode.js");
 const { readConcurrencyStatus } = require("./lib/concurrency.js");
 const refillCode = require("./lib/refill-code.js");
+const { runCommand } = require("./lib/run-command.js");
 const gates = require("./lib/gate-sweep.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { hostRoot } = require("./lib/host-root.js");
@@ -154,7 +159,7 @@ const {
 const LOG_MAX_BYTES = 1024 * 1024;
 
 const SCRIPTS = __dirname;
-const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | set | status | dry-run | boot-resume
+const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | set | status | dry-run | boot-resume | watch
   start [--repo <dir>]… [--goal <goal>]        ensure a process runs, from the stored settings, ending any stop, its count starting again; a first start ticks this checkout. On a running loop it changes only what --repo ticks and --goal replaces, as set does
   start --unless-stopped [--repo <dir>]… [--goal <goal>]  the same, but an explicit stop stands and is printed, and otherwise the stored settings start as they were
   set --pause | --resume                       launch nothing, keeping housekeeping; or launch again, starting the loop from its stored settings where no process runs
@@ -174,6 +179,7 @@ const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | set | 
 /** @typedef {import("./lib/refill-notice.js").Notice} Notice */
 
 const lock = pidLock(files.pid, "refill-loop.js");
+const launchLock = pidLock(files.launch, "refill-loop.js");
 
 /**
  * The checkout roots `names` give, or why one is refused, its box at fault.
@@ -396,12 +402,22 @@ function readSeatsView(planSeats, root, callerSeat) {
  * @returns {{error: string} | {pid: number|undefined, fetchError: string|null|undefined}}
  */
 function launchLoop() {
+	/* Held across the fetch, up to refill-code.js's timeout, so `watch` stands down. */
+	launchLock.acquire();
+	try {
+		return launchHeld();
+	} finally {
+		launchLock.release();
+	}
+}
+
+function launchHeld() {
+	trimLog();
 	const launch = refillCode.launchProgram({
 		scriptsDir: SCRIPTS,
 		codeDir: files.code,
 	});
 	if ("error" in launch) return { error: String(launch.error) };
-	trimLog();
 	const out = fs.openSync(files.log, "a");
 	const env = { ...process.env };
 	forgetSession(env);
@@ -484,6 +500,33 @@ function bootResume() {
 		note(`boot resume: ${buildFetchFailedLine(launched.fetchError)}`);
 	note(`${verdict.line}, pid ${launched.pid}`);
 	return 0;
+}
+
+/**
+ * What the watch timer's unit runs (#4139): restarts the boot unit only where
+ * `boot-resume` would resume. Each of its refusals stands until someone acts, so
+ * logging one here would repeat it at every firing, and `boot-resume` and `status`
+ * name a damaged file. A launch in flight reads as a running loop: a restart would
+ * race a `start`, or kill a `boot-resume` mid-fetch.
+ */
+function watch() {
+	const { control, damaged } = readControlChecked(() => undefined);
+	const { resume } = bootVerdictOf({
+		control,
+		damaged,
+		stopped: readStateFile(() => undefined).stopped,
+		pid: lock.holder() ?? launchLock.holder(),
+		self: process.pid,
+	});
+	if (!resume) return 0;
+	const { error } = runCommand("systemctl", [
+		"--user",
+		"restart",
+		"refill-loop-boot.service",
+	]);
+	if (error === null) return 0;
+	writeFd(2, `${error}\n`);
+	return 1;
 }
 
 /** @param {import("./lib/cli-args").Parsed} parsed */
@@ -954,6 +997,7 @@ const CLI = {
 		"dry-run": { usage: USAGE },
 		run: { usage: USAGE },
 		"boot-resume": { usage: USAGE },
+		watch: { usage: USAGE },
 	},
 };
 
@@ -965,6 +1009,7 @@ const COMMANDS = {
 	"dry-run": printDryRun,
 	run,
 	"boot-resume": bootResume,
+	watch,
 };
 
 async function main(argv = process.argv.slice(2)) {

@@ -3,7 +3,9 @@
  * install-refill-boot-unit.js — installs and enables this host's systemd user
  * unit that runs `refill-loop.js boot-resume` at each manager start (#3878), from
  * refill-loop-boot.service.template, turns linger on, and reads both back.
- * Enabled, not started: the unit first runs at the manager's next start.
+ * Enabled, not started: the unit first runs at the manager's next start. Also
+ * the timer that resumes a dead loop (`refill-loop.js watch`, #4139), enabled
+ * and started, as a loop can die before the manager next starts.
  *
  * In a checkout the unit names the boot link (lib/refill-code.js), made here
  * where no loop has made it. A plugin install names its own refill-loop.js, so
@@ -28,6 +30,8 @@ const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const UNIT = "refill-loop-boot.service";
+const WATCH_SERVICE = "refill-loop-watch.service";
+const WATCH_TIMER = "refill-loop-watch.timer";
 const USAGE = `usage: node ${scriptPath("install-refill-boot-unit.js")}`;
 
 /* Refused rather than shell-quoted: these sit inside a command string that
@@ -86,10 +90,8 @@ function install() {
 			writeFd(2, `the unit cannot quote this path: ${word}\n`);
 			return 2;
 		}
-	const template = fs.readFileSync(
-		path.join(__dirname, "refill-loop-boot.service.template"),
-		"utf8",
-	);
+	const readTemplate = (/** @type {string} */ unit) =>
+		fs.readFileSync(path.join(__dirname, `${unit}.template`), "utf8");
 	const dir = path.join(
 		process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"),
 		"systemd",
@@ -99,28 +101,50 @@ function install() {
 	const file = path.join(dir, UNIT);
 	fs.writeFileSync(
 		file,
-		buildUnitText(template, shell, boot.program, files.log),
+		buildUnitText(readTemplate(UNIT), shell, boot.program, files.log),
 	);
+	fs.writeFileSync(
+		path.join(dir, WATCH_SERVICE),
+		buildUnitText(readTemplate(WATCH_SERVICE), shell, boot.program, files.log),
+	);
+	fs.writeFileSync(path.join(dir, WATCH_TIMER), readTemplate(WATCH_TIMER));
 
 	const user = os.userInfo().username;
 	const reload = runCommand("systemctl", ["--user", "daemon-reload"]);
 	const enable = reload.error
 		? reload
 		: runCommand("systemctl", ["--user", "enable", UNIT]);
+	const watch = reload.error
+		? reload
+		: runCommand("systemctl", ["--user", "enable", "--now", WATCH_TIMER]);
 	const linger = runCommand("loginctl", ["enable-linger", user]);
 	const enabled = runCommand("systemctl", ["--user", "is-enabled", UNIT]);
+	const watchEnabled = runCommand("systemctl", [
+		"--user",
+		"is-enabled",
+		WATCH_TIMER,
+	]);
 	const lingerRead = runCommand("loginctl", [
 		"show-user",
 		user,
 		"--property=Linger",
 	]);
-	writeFd(1, `${file}\nis-enabled: ${enabled.out}\n${lingerRead.out}\n`);
-	const errors = [enable, linger, enabled, lingerRead].flatMap(
-		(r) => r.error ?? [],
+	writeFd(
+		1,
+		`${file}\nis-enabled: ${enabled.out}\n${WATCH_TIMER} is-enabled: ${watchEnabled.out}\n${lingerRead.out}\n`,
 	);
+	const errors = [
+		enable,
+		watch,
+		linger,
+		enabled,
+		watchEnabled,
+		lingerRead,
+	].flatMap((r) => r.error ?? []);
 	for (const error of errors) writeFd(2, `${error}\n`);
 	return errors.length === 0 &&
 		enabled.out === "enabled" &&
+		watchEnabled.out === "enabled" &&
 		lingerRead.out === "Linger=yes"
 		? 0
 		: 1;

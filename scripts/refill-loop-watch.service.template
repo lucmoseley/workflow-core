@@ -1,0 +1,13 @@
+[Unit]
+Description=Resume a refill loop that died with no stop on record
+
+[Service]
+Type=oneshot
+# The restart reads the boot unit's environment, not this one: only node and the
+# loop's files are found from here.
+@ENVIRONMENT@
+ExecStart=/usr/bin/env node @SCRIPT@ watch
+# One line a firing, past what `watch` cannot log: code that will not load, or a
+# restart that failed. The journal keeps the rest.
+ExecStopPost=/bin/sh -c 'if [ "$$SERVICE_RESULT" != success ]; then echo "$$(date -u +%%FT%%TZ) resume watch: the unit failed ($$EXIT_CODE $$EXIT_STATUS); journalctl --user -u refill-loop-watch.service" >> @LOG@; fi'
+WorkingDirectory=%h

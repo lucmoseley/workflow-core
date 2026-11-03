@@ -56,6 +56,7 @@ const { listedAgents, readAgentsAfterBoot } = require("./agent-liveness.js");
 const {
 	bootSparedJobs,
 	isEmptyListingTrusted,
+	settleBootKilled,
 	withManagerRestart,
 } = require("./refill-boot.js");
 const { readCurrentBootId } = require("./arbiter-proc.js");
@@ -1603,19 +1604,6 @@ function readTickListing(dryRun, state, registry) {
 }
 
 /**
- * The launches with those a boot's restart killed queued, and `bootedAt` gone, once
- * a listing has read; as they were until then.
- * @param {import("./refill-loop.js").LoopState} state
- * @param {Parameters<typeof blocks.queueBootKilled>[1]} seen
- * @returns {{launches: import("./refill-loop.js").LoopLaunch[], bootedAt?: number,
- *   sameBootRestart?: true}}
- */
-const settleBoot = ({ launches, bootedAt, sameBootRestart }, seen) =>
-	bootedAt === undefined || seen.agents === null
-		? { launches, bootedAt, sameBootRestart }
-		: { launches: blocks.queueBootKilled(launches, seen, bootedAt) };
-
-/**
  * The control after the quiet bench route's step; as it was on a dry run, with no
  * control to pause, or on a step that failed, which is logged, the next tick
  * deciding it again.
@@ -1722,7 +1710,7 @@ async function tick({ dryRun }) {
 		registry,
 		seen,
 	);
-	const booted = dryRun ? state : settleBoot(state, seen);
+	const booted = dryRun ? state : settleBootKilled(state, seen, registry);
 	const listed = judgeFinished(booted.launches, agents, now, served);
 	const acted = dryRun ? listed : actOnLaunches(listed, control, served, seen);
 	const { launches: judged, settled: liftedSettled } = queueLiftedHolds(acted, {
