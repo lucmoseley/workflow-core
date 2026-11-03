@@ -6,11 +6,9 @@
  *
  * WHY SINGLE-FLIGHT AND NOT A PLAIN CACHE (mantahostels#1924, measuring mantahostels#1921). It
  * was built for three SessionStart hooks launching at the SAME INSTANT, where a
- * TTL cache alone is missed by all three: they race, none has written yet. One
- * spawn cost 8.89 s cold and 2.75 s warm (mantahostels#1921). Two of the three
- * now run under `npm run status`, which launches its checkers concurrently
- * (`status-report.js`'s `Promise.all`), so the burst moved rather than went
- * (#1446).
+ * TTL cache alone is missed by all three: they race, none has written yet. Two
+ * of the three run under `npm run status`, which launches its checkers
+ * concurrently (`status-report.js`'s `Promise.all`), so they still race (#1446).
  *
  * NO PLAIN TTL HIT FOR A STRICT READER (mantahostels#1960): IT LET A CACHED
  * SUCCESS OUTLIVE A DAEMON FAILURE (mantahostels#1946).
@@ -92,18 +90,15 @@ const ttlMs = () => capMs("WFC_ORACLE_CACHE_TTL_MS", 30_000);
 /*
  * HOW LONG A FOLLOWER WAITS ON THE LEADER before spawning its own.
  *
- * NO HOOK BUDGET BINDS IT (#1446). A follower waits AND THEN SPAWNS, so its
- * worst case is this figure plus its own read, which agent-liveness.js caps at
- * 30 s (10 s and a 20 s retry). The SessionStart readers left are
- * reap-finished-sessions.js, async, so its timeout is inert
- * (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/async-hook-timeout-enforcement.md); check-orphaned-edits.js,
- * under a 60 s timeout and only where a dirty file is old enough; and the
- * detached `prune-markers` and scratch sweep, under none. 4 s plus 30 s sits
- * inside that 60 s. `npm run status`'s readers have no budget.
+ * NO SESSIONSTART BUDGET BINDS IT (#1446). A follower waits AND THEN SPAWNS, so
+ * its worst case is this figure plus its own read, which agent-liveness.js caps
+ * at 30 s (10 s and a 20 s retry). 4 s plus 30 s sits inside the 60 s timeout on
+ * check-orphaned-edits.js, the one SessionStart reader under a timeout that
+ * bites. guard-uncommitted-work.js's 15 s Stop hook does not fit it (#4115).
  *
  * SO 4 s STANDS ON THE LEADER'S SPEED ALONE. It catches a warm spawn — 2.75 s
- * at mantahostels#1921, 0.78-1.21 s at #1446 — and lets a cold leader go,
- * which costs a second spawn, but a STAGGERED one: the contention between
+ * at mantahostels#1921, 0.78-1.21 s at #1446 — and lets a cold leader go (8.89 s
+ * at mantahostels#1921), which costs a second spawn, but a STAGGERED one: the contention between
  * concurrent spawns is where the measured cost was. A longer wait would trade
  * that second spawn for waiting out the cold one; which is faster is unmeasured.
  */
@@ -114,10 +109,9 @@ const waitMs = () => capMs("WFC_ORACLE_CACHE_WAIT_MS", 4000);
  * behind, and without this every later start would follow a leader that is not
  * coming back.
  *
- * 60 s CLEARS THE LONGEST HONEST RUN. agent-liveness.js caps one oracle call at
- * 10 s and its single retry at 20 s, so a leader doing everything it is allowed
- * to do holds the lock for 30 s. Double that, so a merely slow leader is never
- * mistaken for a dead one. */
+ * 60 s: twice, a guess, the 30 s a leader can hold the lock (agent-liveness.js's
+ * 10 s cap and 20 s retry), so a merely slow leader is never mistaken for a dead
+ * one. */
 const lockStaleMs = () => capMs("WFC_ORACLE_CACHE_LOCK_STALE_MS", 60_000);
 
 /* HOW OFTEN A FOLLOWER LOOKS. Two spawns of the oracle cost seconds, so a
@@ -128,23 +122,20 @@ const pollMs = () => capMs("WFC_ORACLE_CACHE_POLL_MS", 100);
 /*
  * OFF BY ONE ENV VAR, so a session that suspects the cache can rule it out.
  *
- * IT IS DELIBERATELY NOT KEYED OFF `WFC_CLAUDE_BIN` BEING SET. That was tried
- * and measured wrong: a real shell may export WFC_CLAUDE_BIN, so treating it as
- * a test-only seam turned the cache off in production. The suite
- * is kept out of the way by keying every path to the binary instead, and the
+ * IT IS DELIBERATELY NOT KEYED OFF `WFC_CLAUDE_BIN` BEING SET: a real shell may
+ * export WFC_CLAUDE_BIN, so treating it as a test-only seam turns the cache off
+ * in production. The suite is kept out of the way by keying every path to the binary instead, and the
  * sweep in `write` collects what the suite leaves.
  */
 const isDisabled = () => process.env.WFC_ORACLE_CACHE === "0";
 
 /**
- * Sleep, synchronously, and say whether it could. Every caller here is a hook
- * already blocking on a subprocess, and making this module async would make
- * `readListing` async and every consumer with it.
+ * Sleep, synchronously, and say whether it could. Making this module async would
+ * make `readListing` async and every consumer with it.
  *
  * False where it could not sleep at all. The caller then abandons the wait
- * rather than polling with no delay: a hot loop of readFileSync for seconds, on
- * the machine whose whole defect is SessionStart contention, costs more than the
- * spawn it is trying to save.
+ * rather than polling with no delay: a hot loop of readFileSync for seconds
+ * costs more than the spawn it is trying to save.
  *
  * @param {number} ms
  * @returns {boolean}
@@ -342,8 +333,7 @@ function breakIfStale(key) {
  * bound, had its lock broken and its successor's taken, then finished, deletes
  * the successor's lock here — and a third caller can lead beside the second. The
  * cost of that is one extra oracle spawn, which is the cost of not having this
- * module at all, so it is bounded by the thing it optimises. An owner token
- * would fix it and needs a write-and-verify the mkdir does not give.
+ * module at all. An owner token would fix it and needs a write-and-verify the mkdir does not give.
  */
 /** @param {string} key */
 function release(key) {

@@ -1,9 +1,9 @@
 // @vitest-environment node
 /*
- * oracle-cache.js shortens the oracle read three concurrent SessionStart hooks
- * pay (mantahostels#1924/mantahostels#1921). Since mantahostels#1960 a plain sequential re-read takes a cached
- * hit only through `wait`'s shared reader (#3561); every other reader takes
- * one only as a genuinely racing follower. For every strict reader it is
+ * oracle-cache.js shortens the oracle read concurrent readers pay
+ * (mantahostels#1924/mantahostels#1921). A plain sequential re-read takes a cached
+ * hit only through `wait`'s shared reader (mantahostels#1960, #3561); every other
+ * reader takes one only as a genuinely racing follower. For every strict reader it is
  * allowed to make a read cheaper and never to change its answer:
  * every failure of the cache — concurrent or not — must land the caller on a
  * live spawn.
@@ -12,10 +12,9 @@
  * the real config dir otherwise, and this machine exports WFC_CLAUDE_BIN in
  * the live shell, so nothing about a fake oracle makes a test inert.
  *
- * The session-start reaper, and the stranded-claim and ghost-job checks under
- * `npm run status`, read session liveness through it, so a loosened case lets a cached
- * listing answer for a daemon that has since failed (mantahostels#1946) — every
- * one of them then judges live sessions off a stale read.
+ * The stranded-claim and ghost-job checks under `npm run status` read session
+ * liveness through it, so a loosened case lets a cached listing answer for a
+ * daemon that has since failed (mantahostels#1946).
  *
  * spawn-kept: two processes running at once — the racing readers are separate
  * processes, the race this cache exists for.
@@ -66,10 +65,7 @@ afterEach(() => {
 	process.env = { ...savedEnv };
 });
 
-/**
- * A `claude` stand-in that COUNTS ITS OWN RUNS — the claim under test is "one
- * spawn, not three".
- */
+/** A `claude` stand-in that COUNTS ITS OWN RUNS. */
 function countingClaude(body: string) {
 	const bin = path.join(dir, "claude");
 	const tally = path.join(dir, "spawns");
@@ -218,8 +214,8 @@ describe("the shared reading wait polls (#3561)", () => {
 
 describe("a cached record that does not answer THIS caller", () => {
 	/*
-	 * mantahostels#1924's headline invariant, on the one path that still reaches a cached
-	 * record: a genuinely racing follower. The self-test is per-caller, so a
+	 * A strict reader's one path to a cached record: a genuinely racing
+	 * follower (mantahostels#1924). The self-test is per-caller, so a
 	 * leader's published record may fail it for a follower even where it
 	 * passed for the leader; a hit that fails it costs a spawn, and must
 	 * never become a refusal.
@@ -270,7 +266,7 @@ describe("a cached record that does not answer THIS caller", () => {
 		while (!fs.existsSync(held) && Date.now() < deadline) {
 			await new Promise((r) => setTimeout(r, 10));
 		}
-		expect(fs.existsSync(held)).toBe(true); // the leader holds it
+		expect(fs.existsSync(held)).toBe(true);
 		const follower = spawn(process.execPath, [reader], {
 			env: { ...baseEnv, CLAUDE_CODE_SESSION_ID: "me", EXPECT_ME: "1" },
 			stdio: "ignore",
@@ -285,12 +281,10 @@ describe("a cached record that does not answer THIS caller", () => {
 	}, 15_000);
 
 	/*
-	 * The real session-start shape, which the test above does not have (mantahostels#1924):
-	 * all three SessionStart readers waive the self-test — two through
-	 * `listedAgents({requireSelf: false})`, this one through `sweepSessionIds` —
-	 * and every one runs inside a session the daemon has not registered. The
-	 * leader's record must then satisfy the follower, so the start pays ONE
-	 * spawn.
+	 * SessionStart's readers waive the self-test (mantahostels#1924), through
+	 * `listedAgents({requireSelf: false})` or, as here, `sweepSessionIds`, and run
+	 * inside a session the daemon has not registered. The leader's record must
+	 * then satisfy the follower, so the start pays ONE spawn.
 	 */
 	it("costs one spawn where every racing reader is a waived sweep", async () => {
 		const tally = path.join(dir, "spawns");
@@ -331,7 +325,7 @@ describe("a cached record that does not answer THIS caller", () => {
 		while (!fs.existsSync(held) && Date.now() < deadline) {
 			await new Promise((r) => setTimeout(r, 10));
 		}
-		expect(fs.existsSync(held)).toBe(true); // the leader holds it
+		expect(fs.existsSync(held)).toBe(true);
 		const follower = spawn(process.execPath, [reader], {
 			env: baseEnv,
 			stdio: "ignore",
@@ -413,8 +407,7 @@ describe("keying by binary", () => {
 	});
 });
 
-describe("the claim the whole change is for (mantahostels#1924)", () => {
-	/* Three processes reading at once, as a session start does. */
+describe("racing readers (mantahostels#1924)", () => {
 	it("spawns the oracle once when three readers race, not three times", async () => {
 		const tally = path.join(dir, "spawns");
 		const bin = path.join(dir, "claude");
@@ -490,12 +483,10 @@ describe("the single-flight lock", () => {
 		expect(cache.waitForLeader(bin)).toBeNull();
 	});
 
-	/* A leader that refused still releases, so a follower must not sit out its
-	 * whole bound waiting for a record that is never coming (mantahostels#1924). */
-	it("gives up on a leader that published nothing, rather than waiting out the clock", () => {
+	it("gives up on a leader that published nothing, rather than waiting out the clock (mantahostels#1924)", () => {
 		const bin = "/nowhere/claude";
 		cache.acquire(bin);
-		cache.release(bin); // the leader failed and left
+		cache.release(bin);
 		let polls = 0;
 		const sleep = () => {
 			polls++;
@@ -505,9 +496,7 @@ describe("the single-flight lock", () => {
 		expect(polls).toBe(1);
 	});
 
-	/* A lock left by a cancelled hook would otherwise make every later start
-	 * follow a leader that is not coming (mantahostels#1920). */
-	it("breaks a lock left behind by a killed leader", () => {
+	it("breaks a lock left behind by a killed leader (mantahostels#1920)", () => {
 		const bin = "/nowhere/claude";
 		cache.acquire(bin);
 		/* Aged by hand, not by a short bound: taking the lock and testing it in the

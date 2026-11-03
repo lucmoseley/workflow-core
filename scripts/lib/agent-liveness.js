@@ -127,9 +127,7 @@ const oracleCall = () => `\`${claudeBin()} agents --json\``;
  * WHY A TIMEOUT IS RETRIED AND NOTHING ELSE IS (mantahostels#1900). One cap is not a clean
  * wedge signal: one timed sample in six ran over it with the machine quiet,
  * the slowest at 10.8 s. The tail is load-driven, so it blows at SessionStart,
- * when the machine is busiest and a finished-session reap is worth the most
- * memory; the reaper then refuses, and gigabytes sit in finished
- * sessions until some later start catches a quiet moment. A timeout there says
+ * when the machine is busiest. A timeout there says
  * "queued behind load", not "wedged". The retry gets a LONGER cap, so a second
  * timeout is the wedge signal the first cap was meant to be. Every other
  * failure — ENOENT, a non-zero exit — is deterministic, and retrying it only

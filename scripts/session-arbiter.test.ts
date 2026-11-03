@@ -5223,7 +5223,7 @@ describe("wait: one call waits on a file or issue claim (#540)", () => {
 
 	/*
 	 * #542: the oracle's early exits. The stand-in logs each call, so the
-	 * 30 s read ceiling is asserted on a count rather than trusted.
+	 * 30 s read ceiling is asserted on a count.
 	 */
 	describe("HOLDER-ENDED and DEADLOCK (#542)", () => {
 		const calls = () => path.join(sb.dir, "oracle-calls");
