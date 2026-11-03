@@ -52,10 +52,10 @@ const FD = /\d+(?=[<>])/y;
 const NAME = /[A-Za-z_]\w*/y;
 const SPECIAL_PARAMS = "0123456789@*#?!$-";
 const BRACE_EXPANSION = /\{([^\s{}]*)\}/y;
-/* Past this many words, a brace expansion is kept as one null piece. A
- * guess, unmeasured: far above any brace expansion a check_staged command
- * writes, and low enough that a word of n braces, 2^n words, stays cheap to
- * lex. */
+/* Past this many words, a brace expansion stops building and keeps one null
+ * piece per group, opaque to its readers, so a word past the cap never makes
+ * its words (#4088). A guess, unmeasured: far above any brace expansion a
+ * check_staged command writes. */
 const MAX_BRACE_WORDS = 64;
 const ANSI_C_ESCAPE =
 	/\\(x\{[\dA-Fa-f]*\}?|x[\dA-Fa-f]{1,2}|u[\dA-Fa-f]{1,4}|U[\dA-Fa-f]{1,8}|[0-7]{1,3}|c\\\\|c.|.)/gs;
@@ -434,8 +434,8 @@ function parseWord(src, start) {
 }
 
 /**
- * Each word's pieces a brace expansion's alternatives make, or one null piece
- * for each past MAX_BRACE_WORDS.
+ * Each word's pieces a brace expansion's alternatives make, or past
+ * MAX_BRACE_WORDS one word with one null piece per group.
  * @param {(string|null|string[])[]} pieces
  * @returns {(string|null)[][]}
  */
@@ -444,11 +444,11 @@ function expandBraces(pieces) {
 	let words = [[]];
 	for (const p of pieces) {
 		const alternatives = Array.isArray(p) ? p : [p];
+		if (words.length * alternatives.length > MAX_BRACE_WORDS)
+			return [pieces.map((piece) => (Array.isArray(piece) ? null : piece))];
 		words = words.flatMap((word) => alternatives.map((a) => [...word, a]));
 	}
-	return words.length > MAX_BRACE_WORDS
-		? [pieces.map((p) => (Array.isArray(p) ? null : p))]
-		: words;
+	return words;
 }
 
 /** The index of the next `ch` from `from` that no backslash escapes, or the

@@ -7,6 +7,7 @@
  * is the lexing's and never a classifier rule's above it.
  */
 
+import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import { tokenise } from "./shell-tokens.js";
 
@@ -127,4 +128,38 @@ describe("tokenise — a glob (#3851)", () => {
 			expect(word(src)).toMatchObject({ glob: false });
 		},
 	);
+});
+
+describe("tokenise — a brace expansion's cap (#4088)", () => {
+	const buildBraces = (n: number) => "{a,b}".repeat(n);
+	const buildOpaquePieces = (n: number) => [
+		...new Array(n).fill(["", null]).flat(),
+		"",
+	];
+
+	it("expands up to the cap's 64 words", () => {
+		expect(tokenise(buildBraces(6))).toHaveLength(64);
+	});
+
+	it("keeps a word past the cap as one word of null pieces", () => {
+		const words = tokenise(buildBraces(7));
+		expect(words).toHaveLength(1);
+		expect(words[0]).toMatchObject({ value: "", pieces: buildOpaquePieces(7) });
+	});
+
+	/* 2^24 words cannot fit this heap, so a build of them kills the child. The
+	 * 64 MB is a guess at room for the child's start and a capped tokenise. */
+	it("reads 24 brace groups in a 64 MB heap, building no words", () => {
+		const script = `
+			import { tokenise } from ${JSON.stringify(new URL("./shell-tokens.js", import.meta.url).href)};
+			console.log(JSON.stringify(tokenise(${JSON.stringify(buildBraces(24))}).map((w) => w.pieces)));
+		`;
+		const child = spawnSync(
+			process.execPath,
+			["--max-old-space-size=64", "--input-type=module", "-e", script],
+			{ encoding: "utf8" },
+		);
+		expect(child.stderr).toBe("");
+		expect(JSON.parse(child.stdout)).toEqual([buildOpaquePieces(24)]);
+	});
 });
