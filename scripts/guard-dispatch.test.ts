@@ -14,7 +14,7 @@
  * every Bash, write and Skill call in the session.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -282,6 +282,32 @@ describe("each input channel", () => {
 		expect(readFailOpenLog(config, dir)).toMatch(
 			/payload did not parse as JSON/,
 		);
+	});
+
+	it("exits non-zero where stdin will not read, logged, so `onFailure: block` refuses the call (#4132)", () => {
+		// spawn-kept: a real fd — a directory as fd 0, so every read of it
+		// fails EISDIR; an in-process run takes stdin as a string.
+		const fd = fs.openSync(dir, "r");
+		try {
+			const r = spawnSync("/bin/bash", ["-c", LINES[0] ?? ""], {
+				cwd: dir,
+				encoding: "utf8",
+				stdio: [fd, "pipe", "pipe"],
+				env: {
+					...process.env,
+					CLAUDE_PROJECT_DIR: dir,
+					CLAUDE_CONFIG_DIR: config,
+				},
+			});
+			expect(r.status).not.toBe(0);
+			expect(r.status).not.toBe(2);
+			expect(r.stdout).toBe("");
+			expect(readFailOpenLog(config, dir)).toMatch(
+				/stdin unreadable: .*EISDIR.* — the entry exits non-zero/,
+			);
+		} finally {
+			fs.closeSync(fd);
+		}
 	});
 
 	it("fails open, exit 0 and silent, where node is not on PATH", () => {

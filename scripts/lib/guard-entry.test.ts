@@ -13,6 +13,7 @@
  * log. WFC_RULES_DIR points at a store each case writes.
  */
 
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -303,6 +304,20 @@ describe("a guard's own text and latches beside the rules (#2785)", () => {
 		).toBe("abc");
 	});
 
+	it("reads a latch that will not read as unwritten, logged (#4132)", () => {
+		const at = path.join(
+			dir,
+			".claude/tmp/markers/.rule-injected-sum.x-main-s1",
+		);
+		fs.mkdirSync(at, { recursive: true });
+		expect(
+			JSON.parse(call({ probe: "sum.x" }).out.additionalContext).latch,
+		).toBeNull();
+		expect(readGuardErrorsLog(config)).toMatch(
+			/latch sum\.x unreadable — read as unwritten.*EISDIR/,
+		);
+	});
+
 	it("tells an unkeyed session from a keyed one, where both read no latch (#3018)", () => {
 		const probe = (session: string | null) =>
 			JSON.parse(call({ probe: "sum.x" }, { session }).out.additionalContext);
@@ -467,6 +482,32 @@ describe("everything else fails open, on the record (mantahostels#103)", () => {
 		const r = call(inject("alpha"), { stdin });
 		expect(r).toEqual({ status: 0, stderr: "", out: null });
 		expect(readGuardErrorsLog(config)).toMatch(record);
+	});
+
+	it("allows stdin that will not read, logged rather than read as an empty payload (#4132)", () => {
+		const fd = fs.openSync(dir, "r");
+		try {
+			// spawn-kept: a real fd — a directory as fd 0, so every read of it
+			// fails EISDIR; an in-process run takes stdin as a string.
+			const r = spawnSync(process.execPath, [entry], {
+				cwd: dir,
+				encoding: "utf8",
+				stdio: [fd, "pipe", "pipe"],
+				env: {
+					...process.env,
+					CLAUDE_PROJECT_DIR: dir,
+					CLAUDE_CONFIG_DIR: config,
+					WFC_RULES_DIR: store,
+					WFC_TEST_DECISION: JSON.stringify(inject("alpha")),
+				},
+			});
+			expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
+			expect(readGuardErrorsLog(config)).toMatch(
+				/guard threw — allowed unchecked: stdin unreadable: .*EISDIR/,
+			);
+		} finally {
+			fs.closeSync(fd);
+		}
 	});
 
 	it("allows an empty payload unrecorded", () => {
