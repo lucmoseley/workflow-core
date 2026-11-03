@@ -159,34 +159,110 @@ describe("each exit path", () => {
 		expect(out.permissionDecisionReason).toContain("killed-background-job");
 	});
 
-	it("exits non-zero where the kit crashes on a malformed manifest", () => {
-		const at = path.join(dir, "broken");
-		const lib = path.join(at, "scripts", "lib");
-		fs.mkdirSync(lib, { recursive: true });
+	describe("over a planted manifest", () => {
 		/* The entry, the kit and the manifest reader copied, every other
-		 * require pointed at the real lib, so the kit reads the planted
-		 * manifest beside its copy. */
-		const copy = (rel: string, own: string[]) =>
-			fs.writeFileSync(
-				path.join(at, "scripts", rel),
-				fs
-					.readFileSync(path.join(__dirname, rel), "utf8")
-					.replace(
-						/require\("\.\/(lib\/)?([^"]+)"\)/g,
-						(whole, _lib: string, f: string) =>
-							own.includes(f)
-								? whole
-								: `require(${JSON.stringify(path.join(__dirname, "lib", f))})`,
-					),
-			);
-		copy("guard-dispatch.js", ["guard-dispatch.js"]);
-		copy("lib/guard-dispatch.js", ["guard-cores.js"]);
-		copy("lib/guard-cores.js", []);
-		fs.writeFileSync(path.join(lib, "guard-cores.json"), "{ not json");
-		const r = spawnLine(bash({ command: "ls" }), { project: at });
-		expect(r.status).not.toBe(0);
-		expect(r.stdout).toBe("");
-		expect(r.stderr).toMatch(/JSON/);
+		 * require pointed at the real lib, so the kit reads the planted manifest
+		 * and core modules beside its copy. */
+		const plantKit = (files: Record<string, string>) => {
+			const at = path.join(dir, "planted");
+			const lib = path.join(at, "scripts", "lib");
+			fs.mkdirSync(lib, { recursive: true });
+			const copy = (rel: string, own: string[]) =>
+				fs.writeFileSync(
+					path.join(at, "scripts", rel),
+					fs
+						.readFileSync(path.join(__dirname, rel), "utf8")
+						.replace(
+							/require\("\.\/(lib\/)?([^"]+)"\)/g,
+							(whole, _lib: string, f: string) =>
+								own.includes(f)
+									? whole
+									: `require(${JSON.stringify(path.join(__dirname, "lib", f))})`,
+						),
+				);
+			copy("guard-dispatch.js", ["guard-dispatch.js"]);
+			copy("lib/guard-dispatch.js", ["guard-cores.js"]);
+			copy("lib/guard-cores.js", []);
+			for (const [name, text] of Object.entries(files))
+				fs.writeFileSync(path.join(lib, name), text);
+			return at;
+		};
+
+		it("exits non-zero where the kit crashes on a malformed manifest", () => {
+			const at = plantKit({ "guard-cores.json": "{ not json" });
+			const r = spawnLine(bash({ command: "ls" }), { project: at });
+			expect(r.status).not.toBe(0);
+			expect(r.stdout).toBe("");
+			expect(r.stderr).toMatch(/JSON/);
+		});
+
+		it("exits non-zero where an open row names no file: the manifest's fault, not a core's (#4125)", () => {
+			const at = plantKit({
+				"guard-cores.json": JSON.stringify({
+					PreToolUse: [
+						{
+							name: "ghost-core",
+							core: "ghost.js",
+							tools: "Bash",
+							failure: "open",
+						},
+					],
+				}),
+			});
+			const r = spawnLine(bash({ command: "ls" }), { project: at });
+			expect(r.status).not.toBe(0);
+			expect(r.stdout).toBe("");
+			expect(r.stderr).toMatch(/ghost\.js/);
+		});
+
+		it.each([
+			["open", ""],
+			["closed", "deny"],
+		] as const)(
+			"exits 0 past a %s core's load fault, the next core still deciding (#4125)",
+			(failure, permission) => {
+				const row = (name: string, core: string, over = {}) => ({
+					name,
+					core,
+					tools: "Bash",
+					failure: "open",
+					...over,
+				});
+				const at = plantKit({
+					"guard-cores.json": JSON.stringify({
+						PreToolUse: [
+							row("broken-core", "broken.js", { failure }),
+							row("next-core", "next.js"),
+						],
+					}),
+					"broken.js": 'throw new Error("load broke");',
+					"next.js": `module.exports = { field: "command", noun: "command",
+						decide: () => { throw new Error("next ran"); } };`,
+				});
+				const r = runNodeGuard(
+					path.join(at, "scripts", "guard-dispatch.js"),
+					bash({ command: "ls" }),
+					{ project: at, config, cwd: at },
+				);
+				expect(r.status).toBe(0);
+				const log = readFailOpenLog(config, at);
+				expect(log).toContain("broken-core");
+				expect(log).toContain(
+					"scripts/lib/broken.js failed to load — fix that module: load broke",
+				);
+				expect(log).toContain("next ran");
+				if (!permission) {
+					expect(r.stdout).toBe("");
+					return;
+				}
+				const out = JSON.parse(r.stdout).hookSpecificOutput;
+				expect(out.permissionDecision).toBe(permission);
+				expect(out.permissionDecisionReason).toContain(
+					"broken-core could not judge this call",
+				);
+				expect(out.permissionDecisionReason).toContain("fix that module");
+			},
+		);
 	});
 });
 

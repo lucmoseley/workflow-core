@@ -31,6 +31,7 @@ interface Core {
 	noun: string;
 	top?: boolean;
 	if?: string[];
+	loadFault?: string;
 	decide: (subject: string, ctx: Record<string, unknown>) => Decision;
 }
 const { dispatch, hostAdapters, loadCores, merge, repoRel } =
@@ -509,6 +510,45 @@ describe("failure policy", () => {
 		]);
 	});
 
+	describe("a core whose module will not load (#4125)", () => {
+		const fault = (name: string) => `${name}.js failed to load`;
+		const unloadable = (name: string, failure: Core["failure"]) =>
+			core(name, answers(null), { failure, loadFault: fault(name) });
+
+		it("allows past an open core's fault, logged under its name, and the rest still decide", () => {
+			fragment("alpha");
+			expect(
+				run([
+					unloadable("a", "open"),
+					core("b", answers({ injectRules: ["alpha"] })),
+				]),
+			).toEqual({ additionalContext: readText("alpha") });
+			expect(logs).toEqual([
+				`a\tcore threw — allowed unchecked: ${fault("a")}`,
+			]);
+		});
+
+		it("refuses on a closed core's fault, naming it, and the rest still decide", () => {
+			fragment("alpha");
+			expect(
+				run([
+					unloadable("a", "closed"),
+					core("b", answers({ injectRules: ["alpha"] })),
+				]),
+			).toEqual({
+				permissionDecision: "deny",
+				permissionDecisionReason: `a could not judge this call, and it fails closed: ${fault("a")}`,
+				additionalContext: readText("alpha"),
+			});
+			expect(logs).toEqual([`a\tcore threw — refused: ${fault("a")}`]);
+		});
+
+		it("says nothing for a disabled core's fault", () => {
+			expect(run([unloadable("a", "closed")], { disabled: ["a"] })).toBeNull();
+			expect(logs).toEqual([]);
+		});
+	});
+
 	it.each(["open", "closed"] as const)(
 		"refuses on a %s core's store fault, naming only the missing id and its fix (mantahostels#1762)",
 		(failure) => {
@@ -739,6 +779,14 @@ describe("the entry's core load", () => {
 });
 
 describe("the manifest", () => {
+	it("loads every PostToolUse row with its core's decide", () => {
+		const rows = loadCores("PostToolUse");
+		expect(rows).not.toEqual([]);
+		expect(
+			rows.filter((c) => typeof c.decide !== "function").map((c) => c.name),
+		).toEqual([]);
+	});
+
 	it("loads each PreToolUse row with its core's field, noun and decide", () => {
 		expect(
 			loadCores("PreToolUse").map((c) => [

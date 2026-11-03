@@ -31,11 +31,11 @@ import {
 } from "./arbiter-testkit";
 import type { FileClaimContext } from "./file-claim.js";
 import { buildHostPorts } from "./file-claim-host.js";
+import { loadedCores } from "./guard-core-testkit";
 import {
 	type Adapters,
 	dispatch,
 	hostAdapters,
-	loadCores,
 	type Output,
 } from "./guard-dispatch.js";
 import { writeLatches } from "./guard-entry.js";
@@ -109,7 +109,7 @@ const run = (
 		names.push(name);
 		logs.push(what);
 	};
-	const cores = loadCores("PreToolUse").filter(
+	const cores = loadedCores("PreToolUse").filter(
 		(c) => c.name === "guard-file-claim",
 	);
 	expect(cores).toHaveLength(1);

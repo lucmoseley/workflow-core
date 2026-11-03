@@ -19,6 +19,17 @@ import { writeLatches } from "./guard-entry.js";
 import { readHookPersistChars } from "./rule-emission.js";
 
 /**
+ * `event`'s cores, a load fault thrown: the dispatcher would answer it with the
+ * row's policy, which reads to a test as that core's own allow or deny (#4125).
+ */
+export const loadedCores = (event: string) => {
+	const cores = loadCores(event);
+	for (const c of cores)
+		if ("loadFault" in c) throw new Error(`${c.name}: ${c.loadFault}`);
+	return cores;
+};
+
+/**
  * The payload of a `tool` call carrying `input`, as the harness sends it;
  * `top` is laid over its own fields, a `session_id` of undefined leaving the
  * session out.
@@ -63,7 +74,7 @@ export function runCore(
 	const log = (what: string) => {
 		logs.push(what);
 	};
-	const cores = loadCores(event).filter((c) => c.name === name);
+	const cores = loadedCores(event).filter((c) => c.name === name);
 	if (cores.length !== 1) throw new Error(`no ${event} core named ${name}`);
 	const { output, latches } = dispatch(cores, {
 		payload,

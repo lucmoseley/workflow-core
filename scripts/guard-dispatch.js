@@ -13,11 +13,14 @@
  * LIMITS
  *  - With no node on PATH the hook line exits 0: every core is skipped,
  *    unlogged.
- *  - A fault in the kit itself, before any core runs, refuses every Bash,
- *    Write, Edit, NotebookEdit, Skill, Read, ListAgents, Agent and Task call
- *    until it is fixed: the `block` that makes a fail-closed core's crash
- *    refuse covers the advisory ones too. On PostToolUse the same fault
- *    silences every core there until it is fixed.
+ *  - A fault in the kit itself refuses every Bash, Write, Edit, NotebookEdit,
+ *    Skill, Read, ListAgents, Agent and Task call until it is fixed: the crash
+ *    reaches `onFailure: block`. On PostToolUse the same fault silences every
+ *    core there until it is fixed. A core module's own load fault is no kit
+ *    fault: it gets that row's failure policy, the other cores still run, and
+ *    it is logged under the core's name. An open core's fault therefore
+ *    silences that core until it is fixed, and a fault in a lib several open
+ *    cores require silences each of them.
  *  - The PostToolUse entry's 15 s timeout is the slowest hook's it replaced,
  *    scan-injection's: a hang in any core spends it for all of them.
  *  - Each core's own limits are in its module's header.

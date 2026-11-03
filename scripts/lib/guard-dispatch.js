@@ -27,13 +27,13 @@
  * written in that event's own control: a deny is `decision: "block"`
  * (lib/hook-envelope.js).
  *
- * FAILURE POLICY. A core's throw gets its row's `failure`: `open` allows,
- * logged; `closed` refuses, but for the repo not resolving, which allows,
- * logged, as lib/refuse-on-throw.js's entries do. A store fault refuses whatever the policy
- * (mantahostels#1762). Anything else that throws here
- * crashes the entry, and the registration's `"onFailure": "block"` refuses the
- * call. There is no per-core time budget: a core does no I/O, and every
- * adapter that spawns carries its own timeout, cut to what the entry's budget
+ * FAILURE POLICY. A core's throw, or its module's while loading (#4125), gets
+ * its row's `failure`: `open` allows, logged; `closed` refuses, but for a
+ * core's own throw on the repo not resolving, which allows, logged, as
+ * lib/refuse-on-throw.js's entries do. A store fault refuses whatever the policy (mantahostels#1762). Anything
+ * else that throws here crashes the entry, and the registration's
+ * `"onFailure": "block"` refuses the call. There is no per-core time budget:
+ * a core does no I/O, and every adapter that spawns carries its own timeout, cut to what the entry's budget
  * leaves (lib/hook-deadline.js): each git and gh call's by lib/git.js and
  * lib/gh.js, the other spawns' by their hosts, and npm-install's registry
  * budget runs from the entry's start. An adapter working in process — the
@@ -78,7 +78,10 @@ const {
  *   context may carry the tool input the call runs with instead, allowed
  *   (vendor §PreToolUse decision control)
  * @typedef {CoreRow & { field: string | string[], noun: string, top?: boolean,
- *   decide: (subject: string, ctx: CoreContext) => CoreDecision }} Core
+ *   decide: (subject: string, ctx: CoreContext) => CoreDecision }} LoadedCore
+ * @typedef {CoreRow & { loadFault: string }} UnloadedCore a row whose module
+ *   threw on require, carrying what to say when the row comes to run
+ * @typedef {LoadedCore | UnloadedCore} Core
  * @typedef {"deny" | "defer" | "ask" | "allow"} Permission
  * @typedef {{ permissionDecision?: Permission, reason?: string,
  *   context?: string, updatedInput?: Record<string, unknown> }} Part
@@ -115,6 +118,26 @@ const PRECEDENCE = /** @type {const} */ (["deny", "defer", "ask", "allow"]);
 const JOIN = "\n\n";
 
 /**
+ * One row with its module's exports, or with the fault its require threw, left
+ * for dispatch so a disabled or off-module core's fault says nothing (#4125).
+ * A row naming no file is the manifest's fault, so it crashes the entry.
+ * @param {CoreRow} row
+ * @returns {Core}
+ */
+function loadCore(row) {
+	const file = corePath(row.core);
+	try {
+		return { ...row, ...require(file) };
+	} catch (e) {
+		if (!fs.existsSync(file)) throw e;
+		return {
+			...row,
+			loadFault: `scripts/lib/${row.core} failed to load — fix that module: ${caught(e).message}`,
+		};
+	}
+}
+
+/**
  * The cores of `event`'s rows that `keep` passes, each row filtered before its
  * module is required, so a call loads only the cores that can fire on it
  * (#3141).
@@ -123,12 +146,7 @@ const JOIN = "\n\n";
  * @returns {Core[]}
  */
 function loadCores(event, keep = () => true) {
-	return dispatchRows(event)
-		.filter(keep)
-		.map((row) => ({
-			...row,
-			...require(corePath(row.core)),
-		}));
+	return dispatchRows(event).filter(keep).map(loadCore);
 }
 
 /**
@@ -222,6 +240,7 @@ const persistUsed = (used, context) =>
  */
 function runCore(core, { payload, root, adapters, logFor }, room) {
 	const log = logFor(core.name);
+	if ("loadFault" in core) return { part: thrown(core, core.loadFault, log) };
 	const subject = subjectFor(payload, core);
 	if (subject === null) {
 		/* Fails open, logged (ADR-0010, #2784). */
