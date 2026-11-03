@@ -3,7 +3,8 @@
  * The seventeenth refusal (#597): a round option handing the founder an act by
  * placeholder or back-reference instead of its literal text, and its secret
  * ask: a credential the founder supplies without `write-secret.js`, in an
- * option (#1031) or in prose (#1817), or beside a line that leaks it (#2645). Driven through
+ * option (#1031) or in prose (#1817), or beside a line that leaks it (#2645); and a
+ * message sending him away for his steps (#4058). Driven through
  * the guard's Stop entry in process; the permission line the refusal prints is
  * then run, in this checkout and in a simulated plugin install — through bash,
  * because the claim is that the line works as the founder would paste it.
@@ -888,7 +889,7 @@ describe("a message sending the founder away for his steps (#4058)", () => {
 
 	it("refuses a pointer to steps given earlier when the message holds none", () => {
 		expect(stop("Follow the shorter version above.")).toContain(
-			"sends the founder away",
+			"shorter version above",
 		);
 	});
 
