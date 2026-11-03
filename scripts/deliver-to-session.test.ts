@@ -153,6 +153,7 @@ describe("owned reports", () => {
 		expect(replayState()).toEqual(before);
 
 		// The next session start is shown what it would have been with no delivery.
+		process.env.WFC_NOW = new Date().toISOString();
 		const after = run(REPLAY, ["--notify"], "next").out;
 		fs.rmSync(notify.base(), { recursive: true });
 		fs.cpSync(pristine, notify.base(), { recursive: true });
