@@ -28,18 +28,19 @@
 
 const { commitSha } = require("./commit-sha.js");
 const { spawnGitSync } = require("./git.js");
-const { buildMergedAnchors } = require("./registry-anchors-merge.js");
+const {
+	REGISTRY_ANCHORS,
+	buildMergedAnchors,
+} = require("./registry-anchors-merge.js");
 
 const LANDER_REVERT_ENV = "WFC_LANDER_REVERT";
 
 const ANCHOR_FILES = new Set([
-	".claude/guard-registry-anchors.json",
+	REGISTRY_ANCHORS,
 	"scripts/code-standards-anchors.json",
 	"scripts/code-standards-base-anchors.json",
 	"scripts/instruction-surface-anchors.json",
 ]);
-
-const REGISTRY_ANCHORS = ".claude/guard-registry-anchors.json";
 
 /** @param {string} sha */
 const buildRevertLine = (sha) => `This reverts commit ${sha}.`;
@@ -100,11 +101,11 @@ function readKeptAnchors(cwd, { culprit, onto, side }, conflicted) {
  */
 function readRegistryMerge(cwd, { culprit, onto, side }) {
 	/** @param {string} rev */
-	const at = (rev) =>
+	const readBlobAt = (rev) =>
 		gitOut(cwd, ["cat-file", "blob", `${rev}:${REGISTRY_ANCHORS}`]);
-	const base = at(culprit);
-	const ours = at(onto);
-	const theirs = at(side);
+	const base = readBlobAt(culprit);
+	const ours = readBlobAt(onto);
+	const theirs = readBlobAt(side);
 	if (base === null || ours === null || theirs === null) return null;
 	return buildMergedAnchors(base, ours, theirs);
 }

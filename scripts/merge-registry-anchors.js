@@ -16,7 +16,7 @@
  *
  * In no family (§N3): git runs it on three temporary files, and its exit is
  * git's merge-driver alphabet: 0 merged, 1 conflicted, 129 a call missing a
- * file.
+ * file or a text merge that failed.
  */
 
 const fs = require("node:fs");
@@ -47,20 +47,31 @@ if (merged !== null) {
 	fs.writeFileSync(ours, merged);
 	process.exit(0);
 }
+const text = spawnGitSync(
+	[
+		"merge-file",
+		"-L",
+		"ours",
+		"-L",
+		"base",
+		"-L",
+		"theirs",
+		ours,
+		base,
+		theirs,
+	],
+	{ encoding: "utf8" },
+);
+/* merge-file exits with its conflict count, and negative (above 127) on an error. */
+if (text.status === null || text.status > 127) {
+	writeFd(
+		2,
+		`merge-registry-anchors: a side is not a JSON object of digests, and git merge-file failed: ${String(text.stderr).trim()}\n`,
+	);
+	process.exit(129);
+}
 writeFd(
 	2,
 	"merge-registry-anchors: a side is not a JSON object of digests, so it is text-merged; resolve the markers.\n",
 );
-spawnGitSync([
-	"merge-file",
-	"-L",
-	"ours",
-	"-L",
-	"base",
-	"-L",
-	"theirs",
-	ours,
-	base,
-	theirs,
-]);
 process.exit(1);

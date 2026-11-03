@@ -22661,6 +22661,7 @@
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/registry-anchors-merge.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
