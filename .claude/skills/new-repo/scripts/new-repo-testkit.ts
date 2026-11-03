@@ -12,6 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, expect } from "vitest";
 import { withIgnoreBlock } from "../../../../scripts/lib/adopter-skeleton.js";
+import { LINK_READ_FAKE } from "../../../../scripts/lib/gh-fake";
 import {
 	type GhStubServer,
 	serveGhStub,
@@ -65,6 +66,7 @@ const made: string[] = [];
  * NEW_REPO_SB (#2877).
  */
 const STUB = String.raw`
+${LINK_READ_FAKE}
 const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
@@ -98,7 +100,10 @@ if (a[0] === "api") {
 		const find = (n) => s.issues.find((x) => x.number === n) ?? die("HTTP 404: Not Found");
 		const rest = (i) => ({ id: 1000 + i.number, number: i.number, title: i.title, state: i.state.toLowerCase(), body: i.body, labels: i.labels.map((name) => ({ name })), parent_issue_url: i.parent ? "https://api.github.com/repos/" + is[1] + "/issues/" + i.parent : null });
 		const issue = find(Number(is[2]));
-		if (!is[3]) print(flag("--jq") === ".id" ? String(1000 + issue.number) : flag("--jq") === ".state" ? rest(issue).state : rest(issue));
+		const kids = s.issues.filter((x) => x.parent === issue.number).map(rest);
+		const linkRead = answerLinkRead(a, { state: buildJqLines(rest(issue).state), id: buildJqLines(1000 + issue.number), children: buildJqLines(...kids.map((k) => k.number)) });
+		if (linkRead) { out(linkRead.stdout); err(linkRead.stderr); exit(linkRead.status); }
+		if (!is[3]) print(rest(issue));
 		if (flag("--method") === "POST") {
 			const child = find(Number(flag("-F").split("=")[1]) - 1000);
 			if (child.parent) die("HTTP 422: Sub issue may only have one parent");
@@ -106,8 +111,6 @@ if (a[0] === "api") {
 			write(is[1], s);
 			print(rest(child));
 		}
-		const kids = s.issues.filter((x) => x.parent === issue.number).map(rest);
-		if (flag("--jq") === ".[].number") print(kids.map((k) => k.number).join("\n"));
 		print(a.includes("--slurp") ? [kids] : kids);
 	}
 	die("HTTP 404: Not Found");

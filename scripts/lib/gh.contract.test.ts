@@ -21,9 +21,11 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { caught } from "./caught.js";
 import {
+	answerLinkRead,
 	asRecorded,
 	BLOCKED_BY_GRAPHQL_FAKE,
 	buildCreateAnswer,
+	buildJqLines,
 	type GhAnswer,
 	GRAPHQL_FAKE,
 	ghAnswer,
@@ -33,9 +35,11 @@ import {
 	ghFake,
 	ghFakeScript,
 	ghServe,
+	LINK_READS,
 	RECORDED_SHAPES,
 } from "./gh-fake";
-import { serveGhStub, stubGhScript } from "./gh-stub";
+import { buildLinkReadArms, serveGhStub, stubGhScript } from "./gh-stub";
+import { shellQuote } from "./sh-quote.js";
 
 const LOGGED_OUT = path.join(__dirname, "fixtures/gh/logged-out.json");
 const ISSUE_BODY = path.join(__dirname, "fixtures/gh/issue-body.json");
@@ -106,7 +110,14 @@ const VALIDATION_FAILED = path.join(
 	"fixtures/gh/validation-failed.json",
 );
 
+const LINK_FIXTURES = {
+	".state": path.join(__dirname, "fixtures/gh/issue-state.json"),
+	".id": path.join(__dirname, "fixtures/gh/issue-id.json"),
+	".[].number": path.join(__dirname, "fixtures/gh/sub-issue-numbers.json"),
+};
+
 const LIB = path.resolve(__dirname, "gh.js");
+const LINK_SCRIPT = path.resolve(__dirname, "../link-sub-issue.sh");
 
 let dir: string;
 let savedEnv: NodeJS.ProcessEnv;
@@ -747,6 +758,74 @@ describe("live: computed answers", () => {
 		expect(withoutText(await observe(ghFake(GRAPHQL_NO_REPO), args))).toEqual(
 			withoutText(real),
 		);
+	});
+});
+
+/*
+ * link-sub-issue.sh is run for real against a recording stub, so the reads sent
+ * to the live gh are the ones the script sends, and a read LINK_READS lacks turns
+ * this red. Its POST stays in the stub. #2260 (a closed spec) has closed
+ * children, of which #2327 is one, so neither answer moves (#3652).
+ */
+describe("live: link-sub-issue.sh's reads", () => {
+	it("each answers alike from the real gh, the stub and both fakes", async ({
+		skip,
+	}) => {
+		liveSkip ??= { reason: liveSkipReason() };
+		if (liveSkip.reason) return skip(liveSkip.reason);
+		const log = path.join(dir, "link-calls");
+		const stub = stubGhScript(
+			fs.mkdtempSync(path.join(dir, "link-")),
+			`#!/bin/sh
+printf '%s\\n' "$*" >> ${shellQuote(log)}
+case "$*" in
+${buildLinkReadArms({ children: buildJqLines(2327) })}
+  *"--method POST"*) exit 0 ;;
+esac
+exit 1
+`,
+		).gh;
+		const run = spawnSync("bash", [LINK_SCRIPT, "2260", "2327"], {
+			encoding: "utf8",
+			env: {
+				...process.env,
+				CLAUDE_PROJECT_DIR: dir,
+				WFC_GH: stub,
+				WFC_LINK_REPO: "{owner}/{repo}",
+				WFC_LINK_RETRIES: "1",
+				WFC_LINK_SLEEP: "0",
+			},
+		});
+		expect(run.status, run.stderr).toBe(0);
+		const reads = fs
+			.readFileSync(log, "utf8")
+			.trim()
+			.split("\n")
+			.filter((call) => !call.includes("--method POST"))
+			.map((call) => call.split(" "));
+		const filters = reads.map((args) => args.at(-1) as string);
+		expect(filters).toEqual(Object.values(LINK_READS).map((r) => r.jq));
+		expect(filters.sort()).toEqual(Object.keys(LINK_FIXTURES).sort());
+		// The script's own reader branches on these exact words; shape alone is "text".
+		expect(
+			spawnSync(realGh as string, reads[0] as string[], { encoding: "utf8" })
+				.stdout,
+		).toMatch(/^(open|closed)\n$/);
+		for (const args of reads) {
+			const fixture = LINK_FIXTURES[args.at(-1) as keyof typeof LINK_FIXTURES];
+			const real = await throughSeam(realGh as string, args);
+			expect(withoutText(await throughSeam(stubbed(fixture), args))).toEqual(
+				withoutText(real),
+			);
+			expect(withoutText(await observe(ghFake(fixture), args))).toEqual(
+				withoutText(real),
+			);
+			expect(answerLinkRead(args)).toEqual(ghAnswer(fixture));
+			const lines = ghAnswer(fixture).stdout.trim().split("\n");
+			expect(
+				withoutText(await observe(ghServe(buildJqLines(...lines)), args)),
+			).toEqual(withoutText(real));
+		}
 	});
 });
 

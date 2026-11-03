@@ -1861,6 +1861,56 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 		expect(claims).not.toContain("s-job7");
 	});
 
+	describe("a copy's resume and the pass markers its past id wrote (#4105)", () => {
+		const buildPassPath = (session: string) =>
+			path.join(
+				repo,
+				".claude",
+				"tmp",
+				"markers",
+				`.concision-pass-${session}`,
+			);
+		const resumeListing = async (listing: Row[]) => {
+			seed(heldDue);
+			ledgerLaunch(Job);
+			fs.mkdirSync(path.dirname(buildPassPath("s-job7")), { recursive: true });
+			fs.writeFileSync(buildPassPath("s-job7"), "base=x\nfindings=1\n");
+			fakeResumeClaude(
+				Job,
+				[
+					...listing,
+					buildJobRow(FAKE_COPY, "working", { sessionId: "s-copy" }),
+				],
+				writesCopyRecord(
+					JSON.stringify({ state: "working", sessionId: "s-copy" }),
+				),
+			);
+			const r = await oneTick(ApiRun);
+			expect(r.status).toBe(0);
+			return r;
+		};
+
+		it("moves them to the copy once the past id has ended", async () => {
+			await resumeListing([LISTED]);
+			expect(fs.readFileSync(buildPassPath("s-copy"), "utf8")).toBe(
+				"base=x\nfindings=1\n",
+			);
+			expect(fs.existsSync(buildPassPath("s-job7"))).toBe(false);
+		});
+
+		it("leaves them where the past id is open elsewhere, logging it", async () => {
+			const r = await resumeListing([
+				LISTED,
+				buildJobRow("elsewhere", "working", { sessionId: "s-job7" }),
+			]);
+			expect(fs.existsSync(buildPassPath("s-copy"))).toBe(false);
+			expect(fs.existsSync(buildPassPath("s-job7"))).toBe(true);
+			expect(r.stdout).toContain(
+				"pass markers of s-job7 not moved: s-job7 is still live",
+			);
+		});
+	});
+
 	it("tracks a held job its resume wakes in place under its own job and claim, never as a copy (#2968, #2987)", async () => {
 		seed(heldDue);
 		arbiterAs("s-job7", "claim-issue", "7");

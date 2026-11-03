@@ -42,8 +42,11 @@ function ensure(dir) {
  */
 const MARKERS_REL = path.join(".claude", "tmp", "markers");
 
+/* The markers vouching that a session ran a pass, each followed by its session id. */
+const PASS_MARKER_PREFIXES = [".concision-pass-", ".codereview-pass-"];
+
 function markersDir(root = hostRoot()) {
 	return ensure(path.join(root, MARKERS_REL));
 }
 
-module.exports = { MARKERS_REL, markersDir };
+module.exports = { MARKERS_REL, markersDir, PASS_MARKER_PREFIXES };

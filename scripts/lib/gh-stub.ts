@@ -20,6 +20,8 @@ import {
 	ghAnswerNode,
 	ghFakeScript,
 	ghServeLines,
+	LINK_READS,
+	type LinkReadAnswers,
 	type SubIssuesAnswer,
 	subIssuesAnswer,
 } from "./gh-fake";
@@ -265,3 +267,25 @@ export const subIssuesArm = (dir: string) => `  */sub_issues)
       exit $(cat ${shellQuote(dir)}/children-$n.status)
     fi
     ${ghServeLines(subIssuesAnswer([]))}    ;;`;
+
+/**
+ * The shell `case` arms answering link-sub-issue.sh's reads from gh-fake's
+ * LINK_READS, for a stub switching on `$*`. `childrenWhen` is a shell condition:
+ * while it fails, the parent lists nothing, as it does before a link lands.
+ */
+export const buildLinkReadArms = (
+	answers: LinkReadAnswers,
+	{ childrenWhen }: { childrenWhen?: string } = {},
+) =>
+	Object.entries(LINK_READS)
+		.map(([key, { jq, answer }]) => {
+			const lines = ghServeLines(
+				answers[key as keyof LinkReadAnswers] ?? answer,
+			);
+			const gated =
+				key === "children" && childrenWhen
+					? `if ${childrenWhen}; then\n${lines}fi\nexit 0\n`
+					: lines;
+			return `  *${shellQuote(` --jq ${jq}`)})\n${gated}    ;;`;
+		})
+		.join("\n");

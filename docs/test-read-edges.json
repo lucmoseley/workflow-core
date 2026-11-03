@@ -5102,9 +5102,11 @@
 		],
 		"scripts/fixtures/agents-stop.json": [
 			"scripts/agents-listing-count.test.ts",
+			"scripts/concision-backstop.test.ts",
 			"scripts/concurrency-readout.test.ts",
 			"scripts/lib/admission-verdict.contract.test.ts",
 			"scripts/lib/agents-stop.contract.test.ts",
+			"scripts/lib/move-pass-markers.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/refill-loop-run.test.ts",
 			"scripts/write-review-marker.test.ts"
@@ -10539,6 +10541,10 @@
 			"scripts/lib/gh.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
+		"scripts/lib/fixtures/gh/issue-id.json": [
+			"scripts/lib/gh.contract.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
 		"scripts/lib/fixtures/gh/issue-list-rows.json": [
 			"scripts/lib/gh.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
@@ -10546,6 +10552,10 @@
 		"scripts/lib/fixtures/gh/issue-list.json": [
 			"scripts/lib/gh.contract.test.ts",
 			"scripts/lib/gh.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/lib/fixtures/gh/issue-state.json": [
+			"scripts/lib/gh.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh/issues-page.json": [
@@ -10607,6 +10617,7 @@
 			"scripts/lib/parked.test.ts",
 			"scripts/lib/quiet-bench-tick.test.ts",
 			"scripts/lib/refill-panel-topic.test.ts",
+			"scripts/link-sub-issue.test.ts",
 			"scripts/measure-ci-billing.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/park-blocked.test.ts",
@@ -10666,6 +10677,10 @@
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh/repo.json": [
+			"scripts/lib/gh.contract.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/lib/fixtures/gh/sub-issue-numbers.json": [
 			"scripts/lib/gh.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
@@ -14350,6 +14365,31 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/morning-review.test.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/move-pass-markers.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/move-pass-markers.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/move-pass-markers.test.ts": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/commit-paths.test.ts",
@@ -21827,6 +21867,7 @@
 		"scripts/link-sub-issue.sh": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/host-root-plugin-cache.test.ts",
+			"scripts/lib/gh.contract.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/link-sub-issue.test.ts",
