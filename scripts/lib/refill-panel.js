@@ -114,8 +114,9 @@ const ROLE_STYLES = {
  * The fields of `refill-loop.js status --json` the panel reads.
  * @typedef {{root: string, number: number}} PauseIssue
  * @typedef {{seat: string, why: string}
- *   | {seat: string, grantUsd: number, headroomUsd: number,
+ *   | {seat: string, grantUsd: number, headroomUsd: number, exhausted: boolean,
  *     noLaunchLeft: boolean, running: number}} OverflowKey
+ * @typedef {Exclude<OverflowKey, {why: string}>} ReadKey
  * @typedef {{running: boolean, stopRequested: boolean,
  *   stop: {reason: string, at: number, detail: string}|null, crashed: boolean,
  *   paused: {by: string, at: number, issues?: PauseIssue[], why?: string}|null,
@@ -395,7 +396,7 @@ function buildObservedLines(status, now) {
 
 /**
  * @param {PanelStatus["overflow"]} overflow
- * @returns {Exclude<OverflowKey, {why: string}>[]}
+ * @returns {ReadKey[]}
  */
 const buildReadKeys = (overflow) =>
 	overflow.flatMap((key) => ("why" in key ? [] : [key]));
@@ -404,28 +405,45 @@ const buildReadKeys = (overflow) =>
 const isEveryPlanFull = (seats) => seats.readings.every((s) => s.weekFull);
 
 /**
- * What API credits hold, at all times once a key is declared (#3958). A key's unread
- * budget stops the panel calling the credits used up, and is said beside the sums,
- * which leave it out (#3875). Used up also needs every plan full: until then the
- * credits are only empty.
+ * Whether nothing can launch on a plan or a key. A key's unread budget could still
+ * hold credit (#3875), and until every plan is full the credits are only empty. A key
+ * with less left than one launch counts as spent.
  * @param {PanelStatus} status
- * @returns {null | {left: number, grant: number, unread: boolean}
- *   | {usedUp: true} | {why: string}}
  */
-function buildCredits({ seats, overflow }) {
-	if (overflow.length === 0) return null;
-	const read = buildReadKeys(overflow);
-	const live = read.filter((key) => !key.noLaunchLeft);
-	const unread = overflow.find((key) => "why" in key);
-	if (live.length === 0 && unread && "why" in unread)
-		return { why: unread.why };
-	if (live.length === 0 && isEveryPlanFull(seats)) return { usedUp: true };
-	return {
-		/* Running runs' reservations can pass a key's grant. */
-		left: live.reduce((sum, key) => sum + Math.max(key.headroomUsd, 0), 0),
-		grant: read.reduce((sum, key) => sum + key.grantUsd, 0),
-		unread: read.length < overflow.length,
+const isAllUsedUp = ({ seats, overflow }) =>
+	isEveryPlanFull(seats) &&
+	overflow.every((key) => !("why" in key) && key.noLaunchLeft);
+
+/**
+ * The plan a key bills to, by the `<plan>-api` naming of the key's dir, which the seat
+ * file does not record (#4063).
+ * @param {string} seat
+ */
+const buildKeyPlan = (seat) => seat.replace(/-api$/, "");
+
+/**
+ * The keys in the plan rows' order, a key named for no plan last.
+ * @param {PanelStatus} status
+ */
+function buildKeysInPlanOrder({ seats, overflow }) {
+	const plans = seats.readings.map((reading) => reading.seat);
+	/** @param {OverflowKey} key */
+	const rank = (key) => {
+		const at = plans.indexOf(buildKeyPlan(key.seat));
+		return at === -1 ? plans.length : at;
 	};
+	return [...overflow].sort((a, b) => rank(a) - rank(b));
+}
+
+/**
+ * A key's credit left (#4063). Only a credit refusal knows the figure; otherwise `~`, as
+ * it is the configured grant less the loop's own ledger, blind to spend outside the loop.
+ * @param {ReadKey} key
+ */
+function buildKeyFigure({ exhausted, headroomUsd, grantUsd }) {
+	/* Running runs' reservations can pass a key's grant. */
+	const left = exhausted ? "$0" : `~$${Math.floor(Math.max(headroomUsd, 0))}`;
+	return `${left} of $${Math.floor(grantUsd)} left`;
 }
 
 /**
@@ -506,27 +524,33 @@ function buildPlanRows({ seats }, now) {
 }
 
 /**
+ * The heading, one row per key (#4063) and whether they are spending, at all times once
+ * a key is declared (#3958), so the rows below never move as the figures change.
  * @param {PanelStatus} status
  * @returns {Row[]}
  */
 function buildCreditRows(status) {
-	const credits = buildCredits(status);
-	if (!credits) return [];
+	if (status.overflow.length === 0) return [];
 	const { spending, text } = buildSpendState(status);
 	/** @type {Role} */
 	const role = spending ? "value" : "secondary";
-	/** @type {Row} */
-	let balance;
-	if ("left" in credits)
-		balance = {
-			text: `API credits  $${Math.floor(credits.left)} of $${Math.floor(credits.grant)} left${credits.unread ? ", a key unread" : ""}`,
-			role,
-		};
-	else if ("usedUp" in credits)
-		balance = { text: "Plans and API credits all used up", role: "value" };
-	else
-		balance = { text: `API credits unread: ${credits.why}`, role: "secondary" };
-	return [SIBLING_GAP, balance, { text: `  ${text}`, role }];
+	return [
+		SIBLING_GAP,
+		isAllUsedUp(status)
+			? { text: "Plans and API credits all used up", role: "value" }
+			: { text: "API credits", role },
+		...buildKeysInPlanOrder(status).map((key) => {
+			const name = buildKeyPlan(key.seat).replace("~/", "");
+			return "why" in key
+				? {
+						text: `  ${name}  unread: ${key.why}`,
+						role: /** @type {Role} */ ("secondary"),
+					}
+				: { text: `  ${name}  ${buildKeyFigure(key)}`, role };
+		}),
+		SIBLING_GAP,
+		{ text: `  ${text}`, role },
+	];
 }
 
 /**
