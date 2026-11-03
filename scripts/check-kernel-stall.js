@@ -28,17 +28,28 @@
  * figure unknown. An earlier boot's `t` converts at the running kernel's
  * CONFIG_HZ.
  *
- * THE CLOCK SIGNAL reads each CPU's `rq_cpu_time` (`/proc/schedstat` field 7,
- * ns) and the non-idle ticks in `/proc/stat`, CLOCK_WAIT_MS apart. A backward `sched_clock` step on arm64 holds
- * every run queue's clock still while the CPUs stay busy (#2708), so the clock
- * is frozen where the machine was busy for at least MIN_BUSY_S and the run
- * queues' clocks advanced under FROZEN_RATIO of it. --boot reads no clock.
+ * THE CLOCK SIGNAL reads the summed `usage_usec` of the cgroup root's direct
+ * children and the non-idle ticks in `/proc/stat`, CLOCK_WAIT_MS apart. A backward
+ * `sched_clock` step on arm64 holds every run queue's clock still while the CPUs
+ * stay busy (#2708), so the clock is frozen where the machine was busy for at least
+ * MIN_BUSY_S and the tasks' run time advanced under FROZEN_RATIO of it. --boot reads
+ * no clock.
  *
- * FAILS OPEN, SILENTLY. Neither reader present, permitted or answering inside
+ * WHY THOSE FILES (#4092). A cgroup's figure takes the delta each task's
+ * sum_exec_runtime takes (kernel/sched/fair.c update_se), which stops in a freeze
+ * (#2681), and keeps an exited task's time, where a sum over tasks loses it.
+ * The children, never the root's own file: a true root's figure is built from the
+ * tick counters `/proc/stat` reads (kernel/cgroup/rstat.c root_cgroup_cputime), so
+ * it would never disagree with them.
+ *
+ * FAILS OPEN. Neither reader present, permitted or answering inside
  * READ_TIMEOUT_MS, with no clock read showing a freeze, is SKIP, which --notify
- * prints nothing for; an unreadable or absent `/proc` file is the same. The
- * kernel is subject, not apparatus (lib/check.js), and this check must never be
- * why a session or a launch is held up.
+ * prints nothing for. A clock it cannot read is WARN on a plain run, not the SKIP
+ * an unavailable subject otherwise is, since `npm run status` hides a SKIP's body;
+ * --notify raises nothing for it, as no session can act on the line (#4092). Never
+ * FAIL, whose exit would refuse every launch on a kernel lacking the source. The
+ * kernel is subject, not apparatus (lib/check.js), and this check must never be why
+ * a session or a launch is held up.
  *
  * A STALL OR A FREEZE IS FAIL, so a plain run exits 1 — the exit
  * `scripts/dispatch-sessions.sh` refuses a launch on (exit 5, beside the wedged
@@ -50,8 +61,8 @@
  * ignores --boot, and an unreadable or empty one is SKIP, as the readers are.
  * WFC_KERNEL_CONFIG replaces /proc/config.gz, and WFC_WEVTUTIL the Windows reader.
  * WFC_SCHED_CLOCK replaces the clock's reads with a directory holding
- * `before/` and `after/`, each with a `schedstat` and a `stat` in `/proc`'s
- * shape, and takes no wait.
+ * `before/` and `after/`, each with a `cgroup/` root and a `stat` in the real
+ * files' shape, and takes no wait.
  *
  * --boot <n> reads an earlier boot, journalctl's offset (-1 the last), for the
  * post-incident question docs/environment.md §8 starts from: the boot that
@@ -75,6 +86,8 @@ const { REAL_PROC } = require("./lib/proc-root.js");
 const { docPath } = require("./lib/script-path.js");
 const { sleepSync } = require("./lib/sleep-sync.js");
 
+/** @typedef {{ runtime: number, busy: number }} Clock */
+
 /** Per reader. Measured at 0.05s for a 15-hour boot's 542 lines; the rest is margin. */
 const READ_TIMEOUT_MS = 5000;
 
@@ -85,19 +98,24 @@ const READ_TIMEOUT_MS = 5000;
  */
 const MAX_BUFFER = 64 * 1024 * 1024;
 
-/** Long enough that a healthy machine's ratio sits at 1.00–1.10. */
+/** Long enough that a healthy machine's ratio stays far above FROZEN_RATIO (#4092). */
 const CLOCK_WAIT_MS = 1000;
 
 /**
- * Under this the machine was too idle for the run-queue clocks to say anything.
- * Untraced: set at #2712, unmeasured below load 19.
+ * Under this, the busy time can all be kernel work no cgroup is charged for, so a
+ * still sum says nothing. Untraced margin: about twice the largest such gap read
+ * in a second, 0.97 CPU-s under writeback at load 9-25, none read on a quiet
+ * machine (#4092). A freeze's onset read 6.5-6.9 busy CPU-s a second (#2681).
  */
-const MIN_BUSY_S = 0.5;
+const MIN_BUSY_S = 2;
 
 /**
- * Untraced: set at #2712 well below healthy (1.00–1.10) and above frozen (0).
+ * Untraced: below this source's healthy ratio, 0.82-1.25 over 1 s under five loads
+ * (#4092), and above frozen, 0 by the kernel source with no frozen sample yet.
  */
 const FROZEN_RATIO = 0.1;
+
+const CGROUP_ROOT = "/sys/fs/cgroup";
 
 /** `/proc/stat`'s tick unit, USER_HZ, which Linux fixes at 100 on arm64 and x86. */
 const USER_HZ = 100;
@@ -132,6 +150,8 @@ const WINDOWS_READ_TIMEOUT_MS = 5000;
 const WINDOWS_MAX_BUFFER = 1024 * 1024;
 
 const UNKNOWN_TIME = "an unknown time";
+
+const UNREADABLE_RESULT = { noun: "unreadable scheduler clock", count: 1 };
 
 const STALL = /\brcu: INFO: rcu_\w+ (?:detected stalls|self-detected stall)/;
 
@@ -193,57 +213,90 @@ function readKernelLog(boot) {
 }
 
 /**
- * One reading of the summed run-queue clocks and the machine's busy time, both
- * in seconds; null where either file is absent, unreadable or not in shape.
- * @param {string} schedstatPath
- * @param {string} statPath
- * @returns {{ rq: number, busy: number } | null}
+ * Seconds of run time summed over `root`'s direct children; null where none reads,
+ * which the check reports. One child alone unread is a race with its exit, so it is
+ * left out unprinted, and the fall reads as not frozen (#4092).
+ * @param {string} root
+ * @returns {number | null}
  */
-function readClock(schedstatPath, statPath) {
-	let schedstat;
-	let stat;
+function readRuntime(root) {
+	let children;
 	try {
-		schedstat = fs.readFileSync(schedstatPath, "utf8");
-		stat = fs.readFileSync(statPath, "utf8");
+		children = fs.readdirSync(root, { withFileTypes: true });
 	} catch {
-		// Fails open, as the kernel-log readers do (#2779).
+		// Fails open, as the kernel-log readers do (#2779); the check reports it (#4092).
 		return null;
 	}
-	const rqNs = schedstat
-		.split("\n")
-		.filter((l) => /^cpu\d+ /.test(l))
-		.map((l) => Number(l.split(/\s+/)[7]));
+	const usecs = children
+		.filter((c) => c.isDirectory())
+		.flatMap((c) => {
+			try {
+				const text = fs.readFileSync(`${root}/${c.name}/cpu.stat`, "utf8");
+				const usec = text.match(/^usage_usec (\d+)$/m)?.[1];
+				return usec ? [Number(usec)] : [];
+			} catch {
+				// A child gone mid-read, in this function's comment (#4092).
+				return [];
+			}
+		});
+	return usecs.length > 0 ? usecs.reduce((a, b) => a + b, 0) / 1e6 : null;
+}
+
+/**
+ * One reading of the tasks' summed run time and the machine's busy time, both
+ * in seconds; null where either is absent, unreadable or not in shape.
+ * @param {string} cgroupRoot
+ * @param {string} statPath
+ * @returns {Clock | null}
+ */
+function readClock(cgroupRoot, statPath) {
+	const runtime = readRuntime(cgroupRoot);
+	let stat;
+	try {
+		stat = fs.readFileSync(statPath, "utf8");
+	} catch {
+		// Fails open, as the kernel-log readers do (#2779); the check reports it (#4092).
+		return null;
+	}
 	const line = stat.match(/^cpu\s+(\S.*)?$/m);
-	if (rqNs.length === 0 || !line?.[1]) return null;
+	if (runtime === null || !line?.[1]) return null;
 	const cpu = line[1].split(/\s+/).map(Number);
 	if (cpu.length < 8) return null;
 	// user, nice, system, irq, softirq, steal; idle and iowait are fields 3 and 4.
 	const busy = [0, 1, 2, 5, 6, 7].reduce((sum, i) => sum + Number(cpu[i]), 0);
-	const rq = rqNs.reduce((sum, ns) => sum + ns, 0);
-	if (!Number.isFinite(rq) || !Number.isFinite(busy)) return null;
-	return { rq: rq / 1e9, busy: busy / USER_HZ };
+	if (!Number.isFinite(busy)) return null;
+	return { runtime, busy: busy / USER_HZ };
 }
 
 /**
- * How far the run-queue clocks and busy time moved across CLOCK_WAIT_MS, in
+ * How far the tasks' run time and busy time moved across CLOCK_WAIT_MS, in
  * CPU-seconds; null where either reading failed.
- * @returns {{ rq: number, busy: number } | null}
+ * @returns {Clock | null}
  */
 function sampleClock() {
 	const fixture = process.env.WFC_SCHED_CLOCK;
-	const read = (/** @type {string} */ dir) =>
-		readClock(`${dir}/schedstat`, `${dir}/stat`);
-	/* Its seam is WFC_SCHED_CLOCK; a WFC_PROC fake carries no clock. */
-	const before = read(fixture ? `${fixture}/before` : REAL_PROC);
+	const read = (/** @type {string} */ name) =>
+		fixture
+			? readClock(`${fixture}/${name}/cgroup`, `${fixture}/${name}/stat`)
+			: /* Its seam is WFC_SCHED_CLOCK; a WFC_PROC fake carries no clock. */
+				readClock(CGROUP_ROOT, `${REAL_PROC}/stat`);
+	const before = read("before");
 	if (!before) return null;
 	if (!fixture) sleepSync(CLOCK_WAIT_MS);
-	const after = read(fixture ? `${fixture}/after` : REAL_PROC);
+	const after = read("after");
 	if (!after) return null;
-	return { rq: after.rq - before.rq, busy: after.busy - before.busy };
+	return {
+		runtime: after.runtime - before.runtime,
+		busy: after.busy - before.busy,
+	};
 }
 
-/** @param {{ rq: number, busy: number }} d */
-const isFrozen = (d) => d.busy >= MIN_BUSY_S && d.rq < FROZEN_RATIO * d.busy;
+/**
+ * A negative move is a child cgroup leaving with its total, which says nothing.
+ * @param {Clock} d
+ */
+const isFrozen = (d) =>
+	d.busy >= MIN_BUSY_S && d.runtime >= 0 && d.runtime < FROZEN_RATIO * d.busy;
 
 /** @param {number} s */
 const cpuS = (s) => `${s.toFixed(1)} CPU-s`;
@@ -428,10 +481,10 @@ function stallWarning(boot, { count, first }) {
 	];
 }
 
-/** @param {{ rq: number, busy: number }} clock */
+/** @param {Clock} clock */
 const clockWarning = (clock) => [
 	"SCHED-CLOCK-FROZEN — this WSL VM is unhealthy: the scheduler clock is frozen, so the scheduler is not sharing CPU fairly.",
-	`  Over ${CLOCK_WAIT_MS / 1000} s the CPUs were busy for ${cpuS(clock.busy)} and the run-queue clocks advanced ${cpuS(clock.rq)} (${docPath("environment.md")} §7).`,
+	`  Over ${CLOCK_WAIT_MS / 1000} s the CPUs were busy for ${cpuS(clock.busy)} and the tasks ran for ${cpuS(clock.runtime)} (${docPath("environment.md")} §7).`,
 ];
 
 /** @param {boolean} stalled a stall asks for the shutdown now, a freeze at the next chance */
@@ -452,13 +505,13 @@ const recovery = (stalled) => [
  * @param {string} boot
  * @param {{ reader: Reader, lines: string[] }[]} logs
  * @param {{ count: number, figures: StallFigure[] } | null} stall
- * @param {{ rq: number, busy: number } | null} clock
+ * @param {Clock | null} clock
  */
 function buildResult(boot, logs, stall, clock) {
 	const frozen = clock !== null && isFrozen(clock);
 	const read = logs.reduce((n, l) => n + l.lines.length, 0);
 	const clockLine = clock
-		? `the scheduler clock is running (${cpuS(clock.rq)} over ${cpuS(clock.busy)} busy)`
+		? `the scheduler clock is running (${cpuS(clock.runtime)} over ${cpuS(clock.busy)} busy)`
 		: "the scheduler clock could not be read";
 	return {
 		okLine:
@@ -505,6 +558,45 @@ function reportStall(ctx, boot, stall) {
 	return warning;
 }
 
+/**
+ * @param {import("./lib/check").Ctx} ctx
+ * @param {Clock} clock
+ */
+function reportFrozen(ctx, clock) {
+	ctx.fail(
+		"SCHED-CLOCK-FROZEN",
+		`the tasks ran for ${cpuS(clock.runtime)} while the CPUs were busy for ${cpuS(clock.busy)}`,
+		{ runtime: clock.runtime, busy: clock.busy },
+	);
+	return clockWarning(clock);
+}
+
+/**
+ * @param {import("./lib/check").Ctx} ctx
+ * @param {boolean} logRead
+ */
+function reportUnreadable(ctx, logRead) {
+	const message =
+		`no reading from ${CGROUP_ROOT}/*/cpu.stat and ${REAL_PROC}/stat, so a frozen clock cannot be seen and cannot refuse a launch` +
+		(logRead ? "" : "; no reader returned the kernel log either");
+	ctx.warn("SCHED-CLOCK-UNREADABLE", message);
+	ctx.say(
+		`SCHED-CLOCK-UNREADABLE — ${message} (${docPath("environment.md")} §8).`,
+	);
+}
+
+/**
+ * @param {import("./lib/check").Ctx} ctx
+ * @param {string} boot
+ * @param {string[]} warning
+ * @param {boolean} stalled
+ */
+function sayWarning(ctx, boot, warning, stalled) {
+	if (warning.length === 0) return;
+	const steps = boot === "0" ? recovery(stalled) : [];
+	ctx.say(`${[...warning, ...steps].join("\n")}\n`);
+}
+
 runCheck({
 	name: "kernel-stall",
 	usage: "node check-kernel-stall.js [--boot <n>] [--notify] [--json]",
@@ -516,7 +608,8 @@ runCheck({
 		const logs = readKernelLog(boot);
 		const clock = boot === "0" ? sampleClock() : null;
 		const frozen = clock !== null && isFrozen(clock);
-		if (logs.length === 0 && !frozen)
+		const clockBlind = boot === "0" && !clock && !ctx.notify;
+		if (logs.length === 0 && !frozen && !clockBlind)
 			ctx.skip(
 				`no reader would return boot ${boot}'s kernel log, so whether it stalled is unknown — not no.` +
 					(clock ? " The scheduler clock is running." : ""),
@@ -526,18 +619,11 @@ runCheck({
 		const stall = found && { ...found, figures: buildStallFigures(found) };
 		/** @type {string[]} */
 		const warning = stall ? reportStall(ctx, boot, stall) : [];
-		if (clock && frozen) {
-			ctx.fail(
-				"SCHED-CLOCK-FROZEN",
-				`the run-queue clocks advanced ${cpuS(clock.rq)} while the CPUs were busy for ${cpuS(clock.busy)}`,
-				{ rq: clock.rq, busy: clock.busy },
-			);
-			warning.push(...clockWarning(clock));
-		}
-		if (warning.length > 0 && boot === "0")
-			warning.push(...recovery(stall !== null));
-		if (warning.length > 0) ctx.say(`${warning.join("\n")}\n`);
-
-		return buildResult(boot, logs, stall, clock);
+		if (clock && frozen) warning.push(...reportFrozen(ctx, clock));
+		sayWarning(ctx, boot, warning, stall !== null);
+		const result = buildResult(boot, logs, stall, clock);
+		if (!clockBlind) return result;
+		reportUnreadable(ctx, logs.length > 0);
+		return stall ? result : { ...result, ...UNREADABLE_RESULT };
 	},
 });

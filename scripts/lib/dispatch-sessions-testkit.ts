@@ -24,7 +24,7 @@ import { writeProcRoot } from "./admission-testkit";
 import { buildAuthStatusBranch } from "./auth-status-fake";
 import { loadavgLine } from "./proc-fake";
 import { writePsStub } from "./ps-stub";
-import { writeSchedClock } from "./sched-clock-fixture";
+import { writeSchedClock } from "./sched-clock-fake";
 import { shellQuote } from "./sh-quote.js";
 import { PROBE_TIMEOUT_MS } from "./usage-probe.js";
 import {
@@ -124,7 +124,7 @@ export interface DispatchFixture {
 	/** A reg.exe that never answers, so the interop probe reads the bridge as
 	 * wedged. */
 	regWedged: () => string;
-	/** A WFC_SCHED_CLOCK directory whose run-queue clocks move `ratio` of the
+	/** A WFC_SCHED_CLOCK directory whose tasks run for `ratio` of the
 	 * 2 CPU-s the machine was busy: 0 reads frozen, 1 running. */
 	schedClock: (ratio: number) => string;
 	run: (
@@ -374,7 +374,7 @@ export function dispatchFixture(): DispatchFixture {
 
 	function schedClock(ratio: number): string {
 		return writeSchedClock(path.join(fx.dir, `sched-clock-${ratio}`), {
-			rq: 2 * ratio,
+			runtime: 2 * ratio,
 			busy: 2,
 		});
 	}

@@ -2433,5 +2433,13 @@
 				"scanned": true
 			}
 		]
+	},
+	"sched-clock-busy-floor": {
+		"needles": [
+			{
+				"needle": "0.5 CPU-s",
+				"scanned": true
+			}
+		]
 	}
 }

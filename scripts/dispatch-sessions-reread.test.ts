@@ -745,6 +745,15 @@ describe("the scheduler-clock check (#2779)", () => {
 		expect(readArgvLines()).toEqual([]);
 	});
 
+	it("launches on a clock it cannot read (#4092)", () => {
+		stubClaude({});
+		const r = run(["sonnet", "/implement 341"], {
+			WFC_SCHED_CLOCK: path.join(fx.dir, "no-clock"),
+		});
+		expect(r.code).toBe(0);
+		expect(launchArgv()).toBeDefined();
+	});
+
 	it("launches once the clock moves again", () => {
 		stubClaude({});
 		const r = run(["sonnet", "/implement 341"], {

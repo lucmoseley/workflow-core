@@ -22,7 +22,7 @@ import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { dmesgLine, writeDmesg } from "./dmesg-fake";
 import { runInProcess } from "./run-in-process.js";
-import { writeSchedClock } from "./sched-clock-fixture";
+import { writeSchedClock } from "./sched-clock-fake";
 
 const KERNEL_STALL = path.join(__dirname, "..", "check-kernel-stall.js");
 
@@ -69,7 +69,7 @@ function readSide(name: string, bin: string): Side {
 		WFC_JOURNALCTL: path.join(dir, "no-journalctl"),
 		WFC_DMESG: bin,
 		WFC_SCHED_CLOCK: writeSchedClock(path.join(dir, `clock-${name}`), {
-			rq: 2,
+			runtime: 2,
 			busy: 2,
 		}),
 	};

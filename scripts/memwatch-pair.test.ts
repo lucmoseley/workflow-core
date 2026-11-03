@@ -15,6 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { afterAll, describe, expect, it } from "vitest";
+import { writeCgroupRoot } from "./lib/sched-clock-fake";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const HOME = os.homedir();
@@ -26,6 +27,7 @@ const hasProc = fs.existsSync("/proc/stat");
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "memwatch-pair-"));
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
+
 /* Every pass writes the minute line, so no run here may reach the live one. */
 process.env.MEMWATCH_MINUTE_LOG = path.join(tmp, "minute.jsonl");
 process.env.MEMWATCH_RUNAWAY_LOG = path.join(tmp, "runaway-default.jsonl");
@@ -285,30 +287,34 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 	});
 
 	// A freeze the state line misses recomputes from these (#4081).
-	it("carries each pass's raw clock readings: epoch, rq ns, busy and total ticks", () => {
-		const schedstat = path.join(tmp, "minute-sched-stat");
-		fs.writeFileSync(schedstat, "version 17\ncpu0 0 0 0 0 0 0 1000 0 0\n");
+	it("carries each pass's raw clock readings: epoch, run time ns, busy and total ticks", () => {
 		const { lines } = quietPass("minute-sched", {
-			MEMWATCH_SCHEDSTAT: schedstat,
+			// The root's own figure goes unread, so it can differ.
+			MEMWATCH_CGROUP_ROOT: writeCgroupRoot(
+				path.join(tmp, "minute-sched-root"),
+				4e-6,
+				1,
+			),
 		});
 		const { sched } = JSON.parse(lines[0]);
 		expect(sched).toHaveLength(1);
-		const [epoch, rqNs, busy, total] = sched[0];
+		const [epoch, runtimeNs, busy, total] = sched[0];
 		/* Untraced: only rules out a field in the wrong slot, so generous. */
 		const epochSlackS = 120;
 		expect(Math.abs(epoch - Date.now() / 1000)).toBeLessThan(epochSlackS);
-		expect(rqNs).toBe(1000);
+		expect(runtimeNs).toBe(4000);
 		expect(busy).toBeGreaterThan(0);
 		expect(total).toBeGreaterThan(busy);
 	});
 
-	it("keeps the busy and total ticks, rq null, on a kernel with no schedstat (#4092)", () => {
+	it("keeps the busy and total ticks, run time null, where no cgroup reads (#4092)", () => {
 		const { lines } = quietPass("minute-no-sched", {
-			MEMWATCH_SCHEDSTAT: path.join(tmp, "no-schedstat"),
+			MEMWATCH_CGROUP_ROOT: path.join(tmp, "no-cgroup"),
 		});
-		const [[, rqNs, busy]] = JSON.parse(lines[0]).sched;
-		expect(rqNs).toBeNull();
+		const [[, runtimeNs, busy, total]] = JSON.parse(lines[0]).sched;
+		expect(runtimeNs).toBeNull();
 		expect(busy).toBeGreaterThan(0);
+		expect(total).toBeGreaterThan(busy);
 	});
 
 	// A restart reads the last line back, so it never writes that minute again.
@@ -509,59 +515,85 @@ describe.skipIf(!hasProc || !present)("memwatch CPU trigger", () => {
 });
 
 /*
- * The scheduler-clock line (#2779). MEMWATCH_SCHEDSTAT points at a symlink: to
- * a file that never moves, the clock reads frozen while a spinner keeps the
- * real /proc/stat busy; re-pointed at /proc/schedstat, it runs again.
+ * The scheduler-clock line (#2779). MEMWATCH_CGROUP_ROOT points at a symlink: to
+ * a tree that never moves, the clock reads frozen while a spinner keeps the
+ * real /proc/stat busy; re-pointed at the real cgroup root, it runs again, which
+ * holds the fake to the real files (code-standards §G7).
  */
-describe.skipIf(!hasProc || !present || !fs.existsSync("/proc/schedstat"))(
-	"memwatch scheduler-clock line",
-	() => {
-		/*
-		 * Real time, as the CPU trigger's cases are: memwatch differences two
-		 * passes 1 s apart, and the spinner is what makes /proc/stat busy, so
-		 * each wait returns the moment its line lands.
-		 */
-		it("logs the onset and the clear, each dated, whatever the thresholds (#2779)", async () => {
-			const still = path.join(tmp, "schedstat-still");
-			fs.writeFileSync(still, "version 17\ncpu0 0 0 0 0 0 0 1000 0 0\n");
-			const link = path.join(tmp, "schedstat-link");
-			fs.symlinkSync(still, link);
-			const log = path.join(tmp, "sched.log");
-			const child = spawn("bash", [MEMWATCH], {
-				env: {
-					...process.env,
-					MEMWATCH_LOG: log,
-					MEMWATCH_INTERVAL: "1",
-					MEMWATCH_THRESHOLD_MB: "99999999",
-					MEMWATCH_CPU_THRESHOLD_PCT: "99999",
-					MEMWATCH_SCHEDSTAT: link,
-				},
-			});
-			const read = () =>
-				fs.existsSync(log) ? fs.readFileSync(log, "utf8") : "";
-			const waitFor = async (re: RegExp) => {
-				const deadline = Date.now() + 15_000;
-				while (Date.now() < deadline && !re.test(read())) await setTimeout(250);
-			};
-			const spinner = spawn("sh", ["-c", "while :; do :; done"]);
-			try {
-				await waitFor(/sched clock: frozen/);
-				fs.rmSync(link);
-				fs.symlinkSync("/proc/schedstat", link);
-				await waitFor(/sched clock: running/);
-			} finally {
-				spinner.kill("SIGKILL");
-				child.kill("SIGKILL");
-			}
-			const lines = read().trimEnd().split("\n");
-			expect(lines).toHaveLength(2);
-			expect(lines[0]).toMatch(
-				/^--- sched clock: frozen \d{4}-\d\d-\d\d \d\d:\d\d:\d\d: run queues advanced 0\.00 s over \d+\.\d\d busy CPU-s ---$/,
-			);
-			expect(lines[1]).toMatch(/^--- sched clock: running \d{4}-/);
+const CGROUP_ROOT = "/sys/fs/cgroup";
+/* Long enough that the one spinner alone clears the 2 CPU-s busy floor. */
+const PASS_S = "3";
+describe.skipIf(
+	!hasProc || !present || !fs.existsSync(`${CGROUP_ROOT}/cpu.stat`),
+)("memwatch scheduler-clock line", () => {
+	/*
+	 * Real time, as the CPU trigger's cases are: memwatch differences two
+	 * passes PASS_S apart, and the spinner is what makes /proc/stat busy, so
+	 * each wait returns the moment its line lands.
+	 */
+	it("logs the onset and the clear, each dated, whatever the thresholds (#2779)", async () => {
+		const still = writeCgroupRoot(path.join(tmp, "cgroup-still"), 0.001, 0);
+		const link = path.join(tmp, "cgroup-link");
+		fs.symlinkSync(still, link);
+		const log = path.join(tmp, "sched.log");
+		const child = spawn("bash", [MEMWATCH], {
+			env: {
+				...process.env,
+				MEMWATCH_LOG: log,
+				MEMWATCH_INTERVAL: PASS_S,
+				MEMWATCH_THRESHOLD_MB: "99999999",
+				MEMWATCH_CPU_THRESHOLD_PCT: "99999",
+				MEMWATCH_CGROUP_ROOT: link,
+			},
 		});
-	},
-);
+		const read = () => (fs.existsSync(log) ? fs.readFileSync(log, "utf8") : "");
+		const waitFor = async (re: RegExp) => {
+			const deadline = Date.now() + 15_000;
+			while (Date.now() < deadline && !re.test(read())) await setTimeout(250);
+		};
+		const spinner = spawn("sh", ["-c", "while :; do :; done"]);
+		try {
+			await waitFor(/sched clock: frozen/);
+			fs.rmSync(link);
+			fs.symlinkSync(CGROUP_ROOT, link);
+			await waitFor(/sched clock: running/);
+		} finally {
+			spinner.kill("SIGKILL");
+			child.kill("SIGKILL");
+		}
+		const lines = read().trimEnd().split("\n");
+		expect(lines).toHaveLength(2);
+		expect(lines[0]).toMatch(
+			/^--- sched clock: frozen \d{4}-\d\d-\d\d \d\d:\d\d:\d\d: tasks ran 0\.00 s over \d+\.\d\d busy CPU-s ---$/,
+		);
+		expect(lines[1]).toMatch(/^--- sched clock: running \d{4}-/);
+	});
+});
+
+/*
+ * Memwatch is a shell script and the check a Node one, so the shared figures can
+ * only be pinned as text.
+ */
+describe.skipIf(!present)("the two frozen-clock detectors (#4092)", () => {
+	it("apply the same ratio and the same busy floor", () => {
+		const script = fs.readFileSync(MEMWATCH, "utf8");
+		const check = fs.readFileSync(
+			path.join(__dirname, "check-kernel-stall.js"),
+			"utf8",
+		);
+		const figure = (text: string, re: RegExp) => {
+			const value = Number(text.match(re)?.[1]);
+			expect(value).toBeGreaterThan(0);
+			return value;
+		};
+		expect(figure(script, /^SCHED_MIN_BUSY_TICKS=(\d+)$/m)).toBe(
+			figure(check, /^const MIN_BUSY_S = ([\d.]+);$/m) * 100,
+		);
+		expect(figure(script, /^SCHED_FROZEN_PCT=(\d+)$/m)).toBe(
+			figure(check, /^const FROZEN_RATIO = ([\d.]+);$/m) * 100,
+		);
+	});
+});
 
 /*
  * The process-count trigger (#3402). The sleepers fork in a capped scope, so a

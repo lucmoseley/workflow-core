@@ -31,7 +31,7 @@ import {
 	writeJournalctl,
 } from "./earlyoom-journal-fake";
 import { runInProcess } from "./run-in-process.js";
-import { writeSchedClock } from "./sched-clock-fixture";
+import { writeSchedClock } from "./sched-clock-fake";
 
 const { readIncidents } = require("./earlyoom-kills.js");
 
@@ -152,7 +152,7 @@ function readKernel(bin: string, name: string): Side["kernel"] {
 		WFC_JOURNALCTL: t.at,
 		WFC_DMESG: path.join(dir, "no-dmesg"),
 		WFC_SCHED_CLOCK: writeSchedClock(path.join(dir, "clock"), {
-			rq: 2,
+			runtime: 2,
 			busy: 2,
 		}),
 	};

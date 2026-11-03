@@ -64,7 +64,8 @@ const POOL_WIDTH = 4;
  * also shows a version not yet probed, a probe that could not run, and the
  * agent_id verdict. `concurrency` (#3317) prints a standing, never a fault.
  * `interop-latency` (#3564) also runs at SessionStart, which prints only a
- * degraded bridge: here a healthy one prints its latency.
+ * degraded bridge: here a healthy one prints its latency. `kernel-stall` (#4092)
+ * also runs at SessionStart, silent on a clock it cannot read: here that is a WARN.
  *
  * `jev-flags` takes `--notify`, the one hook-style run here: it shows only the
  * flags logged since the last one it showed, and records them — a hand run
@@ -111,6 +112,7 @@ const CHECKS = [
 	["harness-canary", "check-harness-canary.js"],
 	["concurrency", "concurrency-readout.js"],
 	["interop-latency", "check-interop-latency.js"],
+	["kernel-stall", "check-kernel-stall.js"],
 	["wsl-currency", "check-wsl-currency.js"],
 	["idle-efforts", "check-idle-efforts.js"],
 	["unclosed-launches", "check-unclosed-launches.js"],

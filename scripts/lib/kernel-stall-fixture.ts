@@ -7,7 +7,7 @@ import path from "node:path";
 import { gzipSync } from "node:zlib";
 import { kernelLine } from "./earlyoom-journal-fake";
 import { runInProcess } from "./run-in-process.js";
-import { writeSchedClock } from "./sched-clock-fixture";
+import { writeSchedClock } from "./sched-clock-fake";
 
 const KERNEL_STALL = path.join(__dirname, "..", "check-kernel-stall.js");
 
@@ -44,7 +44,7 @@ export function readStallNow(
 			WFC_KERNEL_CONFIG: writeKernelConfig(path.join(dir, "config.gz"), 250),
 			WFC_WEVTUTIL: path.join(dir, "no-wevtutil"),
 			WFC_SCHED_CLOCK: writeSchedClock(path.join(dir, "clock"), {
-				rq: 2,
+				runtime: 2,
 				busy: 2,
 			}),
 			...env,

@@ -29,7 +29,7 @@ import {
 } from "./lib/earlyoom-journal-fake";
 import { stallBootLines, writeKernelConfig } from "./lib/kernel-stall-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
-import { writeSchedClock } from "./lib/sched-clock-fixture";
+import { writeSchedClock } from "./lib/sched-clock-fake";
 import { writeWevtutil } from "./lib/wevtutil-fake";
 
 const SCRIPT = path.join(__dirname, "check-kernel-stall.js");
@@ -79,10 +79,10 @@ const absent = () => path.join(dir, "no-such-reader");
 const kernelConfig = (hz: number) =>
 	writeKernelConfig(path.join(dir, `config-${hz}.gz`), hz);
 
-const clock = (move: { rq: number; busy: number }) =>
-	writeSchedClock(path.join(dir, `clock-${move.rq}-${move.busy}`), move);
-const RUNNING = { rq: 2.05, busy: 2 };
-const FROZEN = { rq: 0, busy: 2 };
+const clock = (move: { runtime: number; busy: number }) =>
+	writeSchedClock(path.join(dir, `clock-${move.runtime}-${move.busy}`), move);
+const RUNNING = { runtime: 2.05, busy: 2 };
+const FROZEN = { runtime: 0, busy: 2 };
 
 function run(args: string[], env: Record<string, string>) {
 	const base: NodeJS.ProcessEnv = { ...process.env, GITHUB_ACTIONS: "" };
@@ -196,16 +196,16 @@ describe("the scheduler clock (#2779)", () => {
 	it("counts a clock that moved under a tenth of the busy time as frozen", () => {
 		const r = run([], {
 			WFC_KERNEL_LOG: logFile(CLEAN),
-			WFC_SCHED_CLOCK: clock({ rq: 0.19, busy: 2 }),
+			WFC_SCHED_CLOCK: clock({ runtime: 0.19, busy: 2 }),
 		});
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("SCHED-CLOCK-FROZEN");
 	});
 
-	it("reads nothing into a still clock on a machine too idle to move it", () => {
+	it("reads nothing into a still clock under the busy floor: kernel work no cgroup is charged for", () => {
 		const r = run([], {
 			WFC_KERNEL_LOG: logFile(CLEAN),
-			WFC_SCHED_CLOCK: clock({ rq: 0, busy: 0.4 }),
+			WFC_SCHED_CLOCK: clock({ runtime: 0, busy: 1.9 }),
 		});
 		expect(r.status).toBe(0);
 	});
@@ -227,13 +227,99 @@ describe("the scheduler clock (#2779)", () => {
 		);
 	});
 
-	it("says so where the clock cannot be read, and gates on the log alone", () => {
+	it("reads nothing into a move below zero: a child cgroup left with its total", () => {
 		const r = run([], {
+			WFC_KERNEL_LOG: logFile(CLEAN),
+			WFC_SCHED_CLOCK: clock({ runtime: -100, busy: 2 }),
+		});
+		expect(r.status).toBe(0);
+		expect(r.stderr).toContain("OK:");
+	});
+
+	it("reads the children, never the root's own figure, which moves with the ticks", () => {
+		const at = clock(FROZEN);
+		expect(
+			fs.readFileSync(path.join(at, "after/cgroup/cpu.stat"), "utf8"),
+		).not.toBe(
+			fs.readFileSync(path.join(at, "before/cgroup/cpu.stat"), "utf8"),
+		);
+		const r = run([], {
+			WFC_KERNEL_LOG: logFile(CLEAN),
+			WFC_SCHED_CLOCK: at,
+		});
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("SCHED-CLOCK-FROZEN");
+	});
+
+	it("sums a child that reads and skips one that does not", () => {
+		const at = writeSchedClock(path.join(dir, "one-child-gone"), RUNNING);
+		fs.rmSync(path.join(at, "after/cgroup/system.slice/cpu.stat"));
+		const r = run(["--json"], {
+			WFC_KERNEL_LOG: logFile(CLEAN),
+			WFC_SCHED_CLOCK: at,
+		});
+		// One child's half of 5,002.05, less both children's 5,000.
+		expect(JSON.parse(r.stdout).clock.runtime).toBeCloseTo(2501.025 - 5000, 3);
+		expect(r.status).toBe(0);
+	});
+
+	describe("that cannot be read (#4092)", () => {
+		const blind = () => ({
 			WFC_KERNEL_LOG: logFile(CLEAN),
 			WFC_SCHED_CLOCK: path.join(dir, "absent"),
 		});
-		expect(r.status).toBe(0);
-		expect(r.stderr).toContain("the scheduler clock could not be read");
+
+		it("is a WARN on a plain run, exiting 0", () => {
+			const r = run([], blind());
+			expect(r.status).toBe(0);
+			expect(r.stderr).toContain("SCHED-CLOCK-UNREADABLE");
+			expect(r.stderr).toContain("WARN: 1 unreadable scheduler clock");
+			expect(r.stderr).toContain("environment.md §8");
+		});
+
+		it("carries a null clock in the --json envelope", () => {
+			const r = run(["--json"], blind());
+			expect(JSON.parse(r.stdout)).toMatchObject({
+				outcome: "WARN",
+				clock: null,
+			});
+		});
+
+		it("stays silent at session start, the log read or not", () => {
+			const r = run(["--notify"], blind());
+			expect(r.status).toBe(0);
+			expect(r.stdout).toBe("");
+			const neither = run(["--notify"], {
+				...blind(),
+				WFC_KERNEL_LOG: path.join(dir, "absent-log"),
+			});
+			expect(neither.stdout).toBe("");
+		});
+
+		it("is a WARN where a child holds no usage_usec line", () => {
+			const at = writeSchedClock(path.join(dir, "no-usage-line"), RUNNING);
+			for (const child of ["user.slice", "system.slice"])
+				fs.writeFileSync(
+					path.join(at, "before/cgroup", child, "cpu.stat"),
+					"nr_periods 0\n",
+				);
+			const r = run([], {
+				WFC_KERNEL_LOG: logFile(CLEAN),
+				WFC_SCHED_CLOCK: at,
+			});
+			expect(r.status).toBe(0);
+			expect(r.stderr).toContain("SCHED-CLOCK-UNREADABLE");
+		});
+
+		it("is still a WARN, not a SKIP status-report hides, where the log cannot be read either", () => {
+			const r = run([], {
+				WFC_KERNEL_LOG: path.join(dir, "absent-log"),
+				WFC_SCHED_CLOCK: path.join(dir, "absent"),
+			});
+			expect(r.status).toBe(0);
+			expect(r.stderr).toContain("WARN: 1 unreadable scheduler clock");
+			expect(r.stderr).toContain("no reader returned the kernel log either");
+		});
 	});
 
 	it("counts nothing in the --json envelope of a healthy run", () => {
