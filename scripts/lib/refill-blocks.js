@@ -71,10 +71,13 @@ const PARKED_STATE = "blocked";
  *   API error, kept across spells so the cap is the session's (#2705)
  * @typedef {{tries: number, triedAt: number}} IdleResumes  its typed
  *   resumes while resumed-idle (#2659), cleared once it takes a turn
- * @typedef {{at: number, sessionId: string, cwd: string, tries: number}}
- *   SwapHeld  a resumed-idle session the loop stopped under the swap hold
- *   (#3093): when, the session and directory its resume runs in, read before
- *   the stop, and the resumes since tried that failed
+ * @typedef {{at: number, sessionId: string, cwd: string, tries: number,
+ *   resumeStartedAt?: number}} SwapHeld  a resumed-idle session the loop
+ *   stopped under the swap hold (#3093): when, the session and directory its
+ *   resume runs in, read before the stop, and the resumes since tried that
+ *   failed. `resumeStartedAt`, on every step hold, when the step ran `--bg
+ *   --resume` on it, on record before the launcher runs and gone with the
+ *   hold (#4157)
  * @typedef {SwapHeld & {hold: string}} HoldCleared  a session parked on a repo
  *   hold since cleared (#3863): `at`, when it parked, and `hold`, that hold's id
  * @typedef {Omit<SwapHeld, "sessionId"> & {sessionId: string|null}} BootKilled  a
@@ -123,6 +126,9 @@ const PARKED_STATE = "blocked";
  *   sessionId: string|null, copy: boolean}} Resumed  a `--bg --resume`: why
  *   it failed, else the job it runs on as, its full session id, null unread,
  *   and whether that job is a copy (#2963) rather than the one woken in place
+ * @typedef {Extract<Resumed, {failed: null}>|{unread: string}|null} Adopted
+ *   the copy adopted; why the job store could not tell, or null where it
+ *   holds none
  */
 
 /**
@@ -139,6 +145,10 @@ const PARKED_STATE = "blocked";
  * @property {(l: JobLaunch, prompt: string, target: ResumeTarget &
  *   {sessionId: string}) => Resumed} resumeStopped  `claude --bg
  *   --resume` of the stopped job
+ * @property {(l: JobLaunch, target: ResumeTarget & {sessionId: string},
+ *   since: number) => Adopted} adoptResumedCopy  the copy a resume of its
+ *   session started from `since`, which a kill left out of the state, handed
+ *   what the session held
  * @property {() => string|null} admitResume  the dispatcher's per-member
  *   memory, load and session-ceiling re-read: null where it admits one more
  *   session, else why not
@@ -1112,10 +1122,12 @@ const buildHoldClearedText = (l) =>
 	`${launchName(l)}, parked at ${iso(l.holdCleared.at)} on repo hold ${l.holdCleared.hold}`;
 
 /**
- * What the resume step needs of `l`: `why`, what brings it back.
+ * What the resume step needs of `l`: `why`, what brings it back; `withStarted`,
+ * `l` with its hold's resume stamped `at`.
  * @param {JobLaunch} l
  * @returns {{held: SwapHeld|BootKilled, what: string, why: string, prompt: string,
- *   isParked: boolean, rest: JobLaunch, withTries: (tries: number) => JobLaunch}}
+ *   isParked: boolean, rest: JobLaunch, withTries: (tries: number) => JobLaunch,
+ *   withStarted: (at: number) => JobLaunch}}
  */
 function stepResumeOf(l) {
 	if (isBootKilled(l)) {
@@ -1128,6 +1140,10 @@ function stepResumeOf(l) {
 			isParked: false,
 			rest,
 			withTries: (tries) => ({ ...l, bootKilled: { ...bootKilled, tries } }),
+			withStarted: (at) => ({
+				...l,
+				bootKilled: { ...bootKilled, resumeStartedAt: at },
+			}),
 		};
 	}
 	if (isSwapHeld(l)) {
@@ -1140,6 +1156,10 @@ function stepResumeOf(l) {
 			isParked: false,
 			rest,
 			withTries: (tries) => ({ ...l, swapHeld: { ...swapHeld, tries } }),
+			withStarted: (at) => ({
+				...l,
+				swapHeld: { ...swapHeld, resumeStartedAt: at },
+			}),
 		};
 	}
 	const { holdCleared, ...rest } =
@@ -1152,6 +1172,10 @@ function stepResumeOf(l) {
 		isParked: true,
 		rest,
 		withTries: (tries) => ({ ...l, holdCleared: { ...holdCleared, tries } }),
+		withStarted: (at) => ({
+			...l,
+			holdCleared: { ...holdCleared, resumeStartedAt: at },
+		}),
 	};
 }
 
@@ -1187,44 +1211,103 @@ function resumableOf(launches, { agents, io, swapHold }) {
 }
 
 /**
+ * `l` after its step resume `r` of session `from` at `at`, `rest` being `l` off
+ * its hold: one a restart killed is watched from the resume for a turn, however
+ * many holds it meets on the way (isIdleSinceBootResume).
+ * @param {JobLaunch} l
+ * @param {JobLaunch} rest
+ * @param {Extract<Resumed, {failed: null}> & {fromSessionId: string}} r
+ * @param {number} at
+ * @returns {LoopLaunch}
+ */
+function afterStepResume(l, rest, r, at) {
+	const resumed = relaunched(rest, r, at);
+	return isBootKilled(l) || l.bootResumedAt !== undefined
+		? { ...resumed, bootResumedAt: at }
+		: resumed;
+}
+
+/**
+ * Take `parked` off a step-resumed session parked on a repo hold; logged where
+ * it stays.
+ * @param {JobLaunch} l
+ * @param {string} sessionId
+ * @param {ReturnType<typeof stepResumeOf>} step
+ * @param {BlockIo} io
+ */
+function unparkStepped(l, sessionId, { isParked, what }, io) {
+	if (!isParked) return;
+	const failed = io.unparkSession(l.root, sessionId, l.issues);
+	if (failed) io.log(`${what}: still labelled parked: ${failed}`);
+}
+
+/**
+ * `l` tracking the copy its last step resume started, where a kill came between
+ * that resume and the state write that would have recorded it (#4157); null
+ * where it carries no such resume or no copy is found, so the step resumes it.
+ * Where the job store will not tell, that is logged and the step resumes it too.
+ * @param {JobLaunch} l
+ * @param {Tick} seen
+ * @returns {LoopLaunch|null}
+ */
+function adoptUnrecordedCopy(l, seen) {
+	const step = stepResumeOf(l);
+	const { held, what, why, rest } = step;
+	const { sessionId, cwd, resumeStartedAt: at } = held;
+	if (at === undefined || !sessionId) return null;
+	const r = seen.io.adoptResumedCopy(l, { sessionId, cwd }, at);
+	if (r === null) return null;
+	if ("unread" in r) {
+		seen.io.log(
+			`${what}: whether its resume at ${iso(at)} started a copy is unread, so it is resumed again: ${r.unread}`,
+		);
+		return null;
+	}
+	const launch = afterStepResume(
+		l,
+		rest,
+		{ ...r, fromSessionId: sessionId },
+		at,
+	);
+	seen.io.log(
+		`resumed ${what}, ${why}, by --bg --resume at ${iso(at)}, as its copy ${launch.jobId}, which a kill left out of the state: tracking it, not resuming again`,
+	);
+	unparkStepped(l, sessionId, step, seen.io);
+	return launch;
+}
+
+/**
  * Resume `l`: `claude --bg --resume` of its session with its cause's prompt. One
  * whose resume fails stays held for the next tick, and after SWAP_RESUME_TRIES
  * failures is handed off instead. One parked on a repo hold no longer waits on the
- * founder either way, so its `parked` label and marker go. One a restart killed is
- * watched from the resume for a turn, however many holds it meets on the way
- * (isIdleSinceBootResume).
+ * founder either way, so its `parked` label and marker go.
  * @param {JobLaunch} l
  * @param {Tick} seen
  * @returns {{launch: LoopLaunch, started: boolean}}
  */
 function resumeStepHeld(l, seen) {
 	const { now, io } = seen;
-	const { held, what, why, prompt, isParked, rest, withTries } =
-		stepResumeOf(l);
+	const step = stepResumeOf(l);
+	const { held, what, why, prompt, rest, withTries } = step;
 	const { sessionId, cwd } = held;
 	if (!sessionId) {
 		io.log(`${what}, ${why}: no session id read to resume it by`);
 		return { launch: handOff(rest, seen, true), started: false };
 	}
-	const unpark = () => {
-		if (!isParked) return;
-		const failed = io.unparkSession(l.root, sessionId, l.issues);
-		if (failed) io.log(`${what}: still labelled parked: ${failed}`);
-	};
+	const unpark = () => unparkStepped(l, sessionId, step, io);
 	const r = io.resumeStopped(l, prompt, { sessionId, cwd });
 	if (r.failed === null) {
-		const resumed = relaunched(rest, { ...r, fromSessionId: sessionId }, now);
+		const launch = afterStepResume(
+			l,
+			rest,
+			{ ...r, fromSessionId: sessionId },
+			now,
+		);
 		io.log(
-			`resumed ${what}, ${why}, by --bg --resume, ${r.copy ? `as its copy ${resumed.jobId}` : "woken in place"}`,
+			`resumed ${what}, ${why}, by --bg --resume, ${r.copy ? `as its copy ${launch.jobId}` : "woken in place"}`,
 		);
 		unpark();
-		return {
-			launch:
-				isBootKilled(l) || l.bootResumedAt !== undefined
-					? { ...resumed, bootResumedAt: now }
-					: resumed,
-			started: true,
-		};
+		return { launch, started: true };
 	}
 	const tries = held.tries + 1;
 	io.log(
@@ -1311,36 +1394,44 @@ function unparkAndLog(root, sessionId, issues, io) {
  * @param {import("./refill-decide.js").HeldResume[]} resumes
  * @param {LoopLaunch[]} launches
  * @param {Tick} seen
- * @param {() => boolean} isStopped
+ * @param {{isStopped: () => boolean,
+ *   record: (launches: LoopLaunch[]) => void}} step  `record` writes the state
+ *   with `launches`, before each resume's launcher runs and after it (#4157)
  * @returns {{launches: LoopLaunch[], started: number, waiting: boolean}}
  */
-function resumeHeldLaunches(resumes, launches, seen, isStopped) {
+function resumeHeldLaunches(resumes, launches, seen, { isStopped, record }) {
 	const { io } = seen;
 	/** @type {Map<LoopLaunch, LoopLaunch>} */
 	const acted = new Map();
+	const current = () => launches.map((l) => acted.get(l) ?? l);
 	let started = 0;
 	let waiting = false;
 	for (const { jobId, line } of resumes) {
 		const l = launches.find((x) => x.jobId === jobId && isStepResume(x));
 		if (!l || !isActionable(l) || isStopped()) break;
+		const adopted = adoptUnrecordedCopy(l, seen);
+		if (adopted) {
+			acted.set(l, adopted);
+			record(current());
+			continue;
+		}
 		const refused = io.admitResume();
 		if (refused) {
 			io.log(buildResumeWaitLine(line, refused));
 			waiting = true;
 			break;
 		}
+		acted.set(l, stepResumeOf(l).withStarted(seen.now));
+		record(current());
 		const out = resumeStepHeld(l, seen);
 		acted.set(l, out.launch);
+		record(current());
 		if (out.started) {
 			started += 1;
 			io.stagger();
 		}
 	}
-	return {
-		launches: launches.map((l) => acted.get(l) ?? l),
-		started,
-		waiting,
-	};
+	return { launches: current(), started, waiting };
 }
 
 /**

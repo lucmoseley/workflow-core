@@ -59,6 +59,8 @@ type Agents = import("./refill-blocks.js").Tick["agents"];
 type SwapHold = import("./admission.js").SwapHold;
 
 const NO_HOLD: SwapHold = { held: false };
+/** The resume step's state write, which no case here reads. */
+const unrecorded = () => undefined;
 
 function record(over: Record<string, unknown> = {}): Launch {
 	return {
@@ -94,6 +96,7 @@ function fakeIo(over: Partial<BlockIo> = {}) {
 			return null;
 		},
 		resumeTargetOf: () => ({ sessionId: "s", cwd: "/" }),
+		adoptResumedCopy: () => null,
 		resumeStopped: (l) => {
 			calls.push(`resume ${l.jobId}`);
 			return {
@@ -924,7 +927,10 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 			return {
 				due,
 				calls,
-				...resumeHeldLaunches(due, launches, seen, isStopped),
+				...resumeHeldLaunches(due, launches, seen, {
+					isStopped,
+					record: unrecorded,
+				}),
 			};
 		};
 		const heldAs = (jobId: string, ago: number, tries = 0) =>
@@ -2671,7 +2677,7 @@ describe("queueing the sessions parked on a lifted repo hold (#3863)", () => {
 			resumableOf(out.launches, seen),
 			out.launches,
 			seen,
-			() => false,
+			{ isStopped: () => false, record: unrecorded },
 		);
 		expect(stepped.started).toBe(1);
 		expect(calls.filter((c) => c.startsWith("resume "))).toHaveLength(1);
@@ -2725,7 +2731,10 @@ describe("queueing the sessions parked on a lifted repo hold (#3863)", () => {
 			swapHold: NO_HOLD,
 		};
 		const resumes = resumableOf([due()], seen);
-		resumeHeldLaunches(resumes, [due()], seen, () => false);
+		resumeHeldLaunches(resumes, [due()], seen, {
+			isStopped: () => false,
+			record: unrecorded,
+		});
 		const l = due();
 		expect(unparked).toEqual([`${l.root} s-p ${l.issues.join(",")}`]);
 	});
@@ -2826,7 +2835,7 @@ describe("queueBootKilled (#3880)", () => {
 			resumableOf(queued, seen),
 			queued,
 			seen,
-			() => false,
+			{ isStopped: () => false, record: unrecorded },
 		);
 		return { prompts, out };
 	};
@@ -2870,14 +2879,110 @@ describe("queueBootKilled (#3880)", () => {
 		const queued = queueBootKilled([record()], seen, NOW);
 		expect(calls).not.toContain("hand-off job42");
 		expect(queued[0]).toHaveProperty("bootKilled");
-		const r = resumeHeldLaunches(
-			resumableOf(queued, seen),
-			queued,
-			seen,
-			() => false,
-		);
+		const r = resumeHeldLaunches(resumableOf(queued, seen), queued, seen, {
+			isStopped: () => false,
+			record: unrecorded,
+		});
 		expect(calls).toContain("hand-off job42");
 		expect(r.launches[0]).toMatchObject({ handedOff: NOW });
+	});
+});
+
+describe("the resume step across a kill before the state write (#4157)", () => {
+	const killed = (stamp?: number) =>
+		record({
+			bootKilled: {
+				at: NOW - MIN,
+				sessionId: "s",
+				cwd: "/",
+				tries: 0,
+				...(stamp === undefined ? {} : { resumeStartedAt: stamp }),
+			},
+		});
+	const step = (
+		l: Launch,
+		over: Partial<BlockIo> = {},
+		written: Launch[][] = [],
+	) => {
+		const { io, calls } = fakeIo(over);
+		const lines: string[] = [];
+		const seen = {
+			agents: [agent("other", "working")],
+			now: NOW,
+			io: { ...io, log: (line: string) => lines.push(line) },
+			swapHold: NO_HOLD,
+		};
+		const out = resumeHeldLaunches(resumableOf([l], seen), [l], seen, {
+			isStopped: () => false,
+			record: (launches) => written.push(launches),
+		});
+		return { out, calls, lines, written };
+	};
+
+	it("records the resume on its hold before the launcher runs, and its outcome after", () => {
+		const written: Launch[][] = [];
+		const writtenBefore: number[] = [];
+		step(
+			killed(),
+			{
+				resumeStopped: () => {
+					writtenBefore.push(written.length);
+					return { failed: null, jobId: "copy", sessionId: "s2", copy: true };
+				},
+			},
+			written,
+		);
+		expect(writtenBefore).toEqual([1]);
+		expect(written[0]?.[0]?.bootKilled?.resumeStartedAt).toBe(NOW);
+		expect(written[1]?.[0]).toMatchObject({
+			jobId: "copy",
+			copiedFrom: "job42",
+		});
+		expect(written[1]?.[0]).not.toHaveProperty("bootKilled");
+	});
+
+	it("tracks a copy found since the recorded resume, and starts none", () => {
+		const since: number[] = [];
+		const { out, calls, lines, written } = step(killed(NOW - MIN), {
+			adoptResumedCopy: (_l, _target, at) => {
+				since.push(at);
+				return { failed: null, jobId: "copy", sessionId: "s2", copy: true };
+			},
+		});
+		expect(since).toEqual([NOW - MIN]);
+		expect(calls).not.toContain("resume job42");
+		expect(out.started).toBe(0);
+		expect(out.launches[0]).toMatchObject({
+			jobId: "copy",
+			sessionId: "s2",
+			copiedFrom: "job42",
+			pastSessionIds: ["s"],
+			bootResumedAt: NOW - MIN,
+		});
+		expect(written).toHaveLength(1);
+		expect(lines.join("\n")).toMatch(/as its copy copy, which a kill left out/);
+	});
+
+	it("resumes one whose copy the job store could not tell, saying so", () => {
+		const { calls, lines } = step(killed(NOW - MIN), {
+			adoptResumedCopy: () => ({ unread: "EACCES" }),
+		});
+		expect(calls).toContain("resume job42");
+		expect(lines.join("\n")).toMatch(
+			/is unread, so it is resumed again: EACCES/,
+		);
+	});
+
+	it("looks for no copy where no resume is on record", () => {
+		const looked: string[] = [];
+		const { calls } = step(killed(), {
+			adoptResumedCopy: (l) => {
+				looked.push(String(l.jobId));
+				return null;
+			},
+		});
+		expect(looked).toEqual([]);
+		expect(calls).toContain("resume job42");
 	});
 });
 

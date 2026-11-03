@@ -5418,6 +5418,105 @@ describe("the launches a restart killed (#3880)", () => {
 		expect(readKilled()).toEqual([]);
 	});
 
+	it("tracks the copy a resume started where a kill beat the state write, its claim handed on, and starts no second (#4157)", async () => {
+		writeState([buildLaunch("job8", 8, 30)]);
+		arbiterAs("s-job8", "claim-issue", "8");
+		const transcript = (session: string) =>
+			path.join(seat, "projects", "repo", `${session}.jsonl`);
+		const opening = `${JSON.stringify({ type: "user", uuid: "u-first", sessionId: "s-job8" })}\n`;
+		fs.mkdirSync(path.dirname(transcript("s-job8")), { recursive: true });
+		fs.writeFileSync(transcript("s-job8"), opening);
+		const copyDir = path.join(seat, "jobs", FAKE_COPY);
+		const copyRecord = JSON.stringify({
+			state: "working",
+			sessionId: `s-${FAKE_COPY}`,
+			cwd: repo,
+			createdAt: "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)",
+		});
+		/* The copy started, then the loop killed before it reads the launcher's
+		 * answer: a real SIGKILL, as the gap is a process's death. */
+		fakeResumeClaude(
+			"job8",
+			[LISTED],
+			[
+				`mkdir -p ${shellQuote(copyDir)};`,
+				`echo "${copyRecord.replaceAll('"', '\\"')}" > ${shellQuote(path.join(copyDir, "state.json"))};`,
+				`cp ${shellQuote(transcript("s-job8"))} ${shellQuote(transcript(`s-${FAKE_COPY}`))};`,
+				"kill -9 $PPID;",
+			].join(" "),
+		);
+		/* spawn-kept: the kill needs a loop of its own process to land on. */
+		const killed = spawn(
+			process.execPath,
+			[path.join(scripts, "refill-loop.js"), "run"],
+			{ cwd: dir, env: loopEnv({ FAKE_SLOTS: "1" }), stdio: "ignore" },
+		);
+		const signal = await new Promise((done) =>
+			killed.on("exit", (_, s) => done(s)),
+		);
+
+		expect(signal).toBe("SIGKILL");
+		expect(readCalls()).toEqual([buildResumeArgs("job8")]);
+		expect(readState().launches[0]).toMatchObject({
+			jobId: "job8",
+			bootKilled: { resumeStartedAt: expect.any(Number) },
+		});
+		expect(arbiterAs("s-job8", "issue-claims")).toContain("s-job8");
+
+		fakeResumeClaude("job8", [LISTED]);
+		const next = await tickWith(1);
+
+		expect(next.status).toBe(0);
+		expect(readCalls()).toEqual([buildResumeArgs("job8")]);
+		expect(readKilled()).toEqual([]);
+		expect(readState().launches[0]).toMatchObject({
+			jobId: FAKE_COPY,
+			sessionId: `s-${FAKE_COPY}`,
+			copiedFrom: "job8",
+			bootResumedAt: expect.any(Number),
+		});
+		expect(readState().launches[0]).not.toHaveProperty("bootKilled");
+		expect(next.stdout).toMatch(
+			/as its copy c0de7a11, which a kill left out of the state: tracking it, not resuming again/,
+		);
+		const claims = arbiterAs(`s-${FAKE_COPY}`, "issue-claims");
+		expect(claims).toContain(`s-${FAKE_COPY}`);
+		expect(claims).not.toContain("s-job8");
+	});
+
+	it("resumes one whose recorded resume started no copy, as the kill came first (#4157)", async () => {
+		const resumedAt = Date.now() - Min;
+		const bootKilled = {
+			at: resumedAt,
+			sessionId: "s-job8",
+			cwd: repo,
+			tries: 0,
+		};
+		writeState(
+			[
+				{
+					...buildLaunch("job8", 8, 30),
+					bootKilled: { ...bootKilled, resumeStartedAt: resumedAt },
+				},
+			],
+			false,
+		);
+		const transcript = path.join(seat, "projects", "repo", "s-job8.jsonl");
+		fs.mkdirSync(path.dirname(transcript), { recursive: true });
+		fs.writeFileSync(
+			transcript,
+			`${JSON.stringify({ type: "user", uuid: "u-first", sessionId: "s-job8" })}\n`,
+		);
+		fakeResumeClaude("job8", [LISTED]);
+
+		const r = await tickWith(1, () => readCalls().length === 1);
+
+		expect(r.status).toBe(0);
+		expect(readCalls()).toEqual([buildResumeArgs("job8")]);
+		expect(readState().launches[0]).not.toHaveProperty("bootKilled");
+		expect(r.stdout).not.toContain("is unread");
+	});
+
 	describe("a parked launch, on a boot", () => {
 		const parkedOn = (jobId: string, issue: number, cause: string) => ({
 			...buildLaunch(jobId, issue, 10),

@@ -112,6 +112,7 @@ const {
 const { movePassMarkers } = require("./move-pass-markers.js");
 const { read: readTranscript } = require("./session-transcript.js");
 const { findNewestTranscript, mainChainRecords } = require("./transcript.js");
+const { findResumedCopy } = require("./resumed-copy.js");
 const { hasConfig, resolveKey } = require("./workflow-core-config.js");
 const { readLastTyped } = require("./presence.js");
 const {
@@ -917,7 +918,11 @@ function movePasses({ root }, from, to) {
 function recordOverflowCopy({ root, keyVar }, from, { jobId, sessionId }) {
 	const failure = `overflow copy ${jobId} of ${from} not marked in the dispatch ledger`;
 	try {
-		const first = readOverflowLookup([root])({ sessionId: from });
+		const lookup = readOverflowLookup([root]);
+		/* Marked already where a kill came after the mark and before the state
+		 * write, and the next step adopts the copy (#4157). */
+		if (lookup({ jobId })) return;
+		const first = lookup({ sessionId: from });
 		if (!first) {
 			log(`${failure}: no launch of ${from} on key=${keyVar} is recorded`);
 			return;
@@ -980,20 +985,48 @@ function resumeStopped(l, prompt, { sessionId, cwd }) {
 	}
 	const copySession =
 		typeof after?.sessionId === "string" ? after.sessionId : null;
-	if (copySession) {
-		moveClaims(l, sessionId, copySession);
-		movePasses(l, sessionId, copySession);
+	return settleCopy(l, sessionId, { jobId, sessionId: copySession, cwd });
+}
+
+/**
+ * Hand copy `copy` of session `from` what the session held: its issue claims,
+ * pass markers, park marker and, on an overflow seat, its ledger mark.
+ * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"issues"|"seat"|"keyVar">} l
+ * @param {string} from
+ * @param {{jobId: string, sessionId: string|null, cwd: string}} copy
+ * @returns {Extract<import("./refill-blocks.js").Resumed, {failed: null}>}
+ */
+function settleCopy(l, from, copy) {
+	const { jobId, sessionId } = copy;
+	if (sessionId) {
+		moveClaims(l, from, sessionId);
+		movePasses(l, from, sessionId);
 	} else
 		log(
 			`no session id read for copy ${jobId}: its issue claims and pass markers not moved`,
 		);
-	moveParked(l, sessionId, { sessionId: copySession, jobId, cwd });
+	moveParked(l, from, copy);
 	if (l.keyVar)
-		recordOverflowCopy({ root: l.root, keyVar: l.keyVar }, sessionId, {
+		recordOverflowCopy({ root: l.root, keyVar: l.keyVar }, from, {
 			jobId,
-			sessionId: copySession,
+			sessionId,
 		});
-	return { failed: null, jobId, sessionId: copySession, copy: true };
+	return { failed: null, jobId, sessionId, copy: true };
+}
+
+/**
+ * lib/resumed-copy.js's findResumedCopy for `l`'s seat, past `l`'s earlier
+ * sessions, handed what the session held where found (#4157); why not, where
+ * the job store or a transcript will not read.
+ * @param {import("./refill-loop.js").LoopLaunch} l
+ * @param {{sessionId: string, cwd: string}} target
+ * @param {number} since
+ * @returns {import("./refill-blocks.js").Adopted}
+ */
+function adoptResumedCopy(l, target, since) {
+	const found = findResumedCopy(l.seat, target, since, l.pastSessionIds ?? []);
+	if (found === null || "unread" in found) return found;
+	return settleCopy(l, target.sessionId, { ...found, cwd: target.cwd });
 }
 
 /**
@@ -1278,6 +1311,7 @@ const blockIo = (served) => ({
 	type: typeResume,
 	resumeTargetOf: readResumeTargetOf,
 	resumeStopped,
+	adoptResumedCopy,
 	admitResume,
 	stagger: staggerResume,
 	moveSession,
@@ -1805,8 +1839,8 @@ async function tick({ dryRun }) {
 		{
 			readControl,
 			launchBatch: (batch) => launchOrResume(batch, served),
-			resumeHeld: (resumes, held, isStopped) =>
-				blocks.resumeHeldLaunches(resumes, held, seen, isStopped),
+			resumeHeld: (resumes, held, isStopped, record) =>
+				blocks.resumeHeldLaunches(resumes, held, seen, { isStopped, record }),
 			writePause: (pause) => writeLoopPause(pause, control.noProgressFrom, log),
 			runReview,
 			writeState: (next) => writeJson(files.state, next),
