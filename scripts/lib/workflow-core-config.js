@@ -164,6 +164,7 @@ const KNOWN_KEYS = [
 	"sessionSigmaMb",
 	"fullTestShards",
 	"landingTester",
+	"founderNotice",
 	"suiteRunners",
 	"worktreeLinks",
 	/* Read off the raw file by the migration walker (`upgrade.js` and
@@ -249,6 +250,7 @@ const defaultCommand = (name) =>
  * @property {number} [sessionSigmaMb] that draw's standard deviation (#2139)
  * @property {LandingTester} [landingTester] which tester the lander runs: `local`, the suite in its own worktree (lib/local-tester.js), or `actions`, the suite workflow's push run on `landing` (lib/actions-tester.js); absent is `local` (#2413)
  * @property {number} [fullTestShards] how many `--shard=k/n` runs the lander's local tester splits `full_test` into, each in its own suite slot; absent runs it whole (#2996)
+ * @property {FounderNotice} [founderNotice] where a repo hold's phone notice goes (lib/repo-holds.js, #3871); absent, the loop sends none, so the plugin never pages a stranger
  * @property {string[]} [suiteRunners] scripts the suite guard counts and judges as suites (#330)
  * @property {string[]} [worktreeLinks] gitignored paths the suite reads, linked into each throwaway worktree a suite runs in (#1767)
  * @property {string[]} [alwaysLoaded] declared only; lib/always-loaded-pool.js defaults it
@@ -312,6 +314,23 @@ const isPositiveInt = (v) =>
 /** @param {unknown} v */
 const isPlainObject = (v) =>
 	typeof v === "object" && v !== null && !Array.isArray(v);
+
+/**
+ * @typedef {{workflow: string, repo: string, mention: string}} FounderNotice
+ */
+
+/** @param {unknown} v @returns {v is FounderNotice} */
+function isFounderNotice(v) {
+	if (!isPlainObject(v)) return false;
+	const { workflow, repo, mention } = /** @type {Record<string, unknown>} */ (
+		v
+	);
+	return (
+		[workflow, repo, mention].every((x) => typeof x === "string" && x !== "") &&
+		String(repo).includes("/") &&
+		!String(mention).startsWith("@")
+	);
+}
 
 /** @param {unknown} v @returns {v is string} */
 const isString = (v) => typeof v === "string";
@@ -876,6 +895,12 @@ function readConfig({ root = hostRoot(), rev, quiet = false } = {}) {
 		isLandingTester,
 		`one of ${LANDING_TESTERS.join(", ")}`,
 	);
+	const founderNotice = readKey(
+		cfg,
+		"founderNotice",
+		isFounderNotice,
+		'an object of "workflow", "repo" (owner/name, holding the holds\' issues) and "mention" (a login, no @)',
+	);
 
 	/* WFC_OUTPUT_STYLE REPLACES the declared value, the suite's injection point
 	 * for `overrides.output_style` as WFC_ALWAYS_LOADED is for `alwaysLoaded`.
@@ -972,6 +997,7 @@ function readConfig({ root = hostRoot(), rev, quiet = false } = {}) {
 		sessionSigmaMb,
 		fullTestShards,
 		landingTester,
+		founderNotice,
 		suiteRunners,
 		worktreeLinks,
 		alwaysLoaded,

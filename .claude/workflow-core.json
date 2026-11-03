@@ -3,6 +3,11 @@
 	"founder": "Luc Moseley",
 	"login": "lucmoseley",
 	"tracker": "lucmoseley/workflow-core-tracker",
+	"founderNotice": {
+		"workflow": "founder-notice.yml",
+		"repo": "lucmoseley/workflow-core-tracker",
+		"mention": "lucmoseley"
+	},
 	"codeRepo": "lucmoseley/workflow-core",
 	"name": "workflow-core",
 	"corpus": [

@@ -131,7 +131,11 @@ const { PARKED_LABEL } = require("./lib/parked.js");
 const { readSnapshot, whyNotLaunched } = require("./lib/pick-next-snapshot.js");
 const { STALL_TITLE } = require("./lib/stall-ticket.js");
 const { scriptIo } = require("./lib/tracker-ops.js");
-const { buildAgeText, readHolds } = require("./lib/repo-holds.js");
+const {
+	buildAgeText,
+	buildNoticeText,
+	readHolds,
+} = require("./lib/repo-holds.js");
 const { requireKey } = require("./lib/workflow-core-config.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const { refillPath } = require("./lib/refill-dir.js");
@@ -462,7 +466,7 @@ function readOpenHolds(root, now) {
 				kind,
 				age: buildAgeText(now - raisedAt),
 				attached: sessions.length,
-				notice,
+				notice: buildNoticeText(notice),
 			})),
 			unread: unread.map((why) => ({
 				repo,

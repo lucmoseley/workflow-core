@@ -642,6 +642,13 @@ describe("readConfig — each simple key's valid, malformed and absent value (#1
 		["sessionSigmaMb", 320, 320.5, "a positive integer", undefined],
 		["fullTestShards", 2, 0, "a positive integer", undefined],
 		["landingTester", "actions", "remote", "one of local, actions", undefined],
+		[
+			"founderNotice",
+			{ workflow: "notice.yml", repo: "o/r", mention: "someone" },
+			{ workflow: "notice.yml", repo: "o/r" },
+			'an object of "workflow", "repo" (owner/name, holding the holds\' issues) and "mention" (a login, no @)',
+			undefined,
+		],
 		["suiteRunners", ["a.sh"], "a.sh", arrayOfStrings, undefined],
 		[
 			"worktreeLinks",

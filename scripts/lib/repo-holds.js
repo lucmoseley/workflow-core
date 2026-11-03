@@ -50,6 +50,10 @@
  * beside the store's holds and renames it under `lifted/` whole, so a tick reads
  * only finished lifts. RESIDUAL: a lift that dies part-way leaves its directory
  * there unread, its sessions stranded on the `parked` label as any other park.
+ *
+ * A HOLD'S NOTICE STATE (#3871; lib/repo-hold-notices.js sends) is a file of its own
+ * beside the hold's, as an attach is and for the same reason, and goes under
+ * `lifted/` with it, the record outliving the lift until the clear notice is done.
  */
 
 const fs = require("node:fs");
@@ -91,8 +95,17 @@ const { moduleReader, resolveKey } = require("./workflow-core-config.js");
  * @property {number} raisedAt
  * @property {string[]} sessions  the job ids of the sessions parked on it: the
  *   raiser's in the record, each attached session's in its own file
- * @property {{raiseSent: boolean, clearSent: boolean}} notice  #3871's to read
- *   and write, the morning review's to read; nothing writes it yet
+ * @property {HoldNotice} notice  off its own file
+ *
+ * @typedef {object} NoticePhase
+ * @property {number} at  when its last dispatch went
+ * @property {number} tries  its dispatches
+ * @property {"dispatched"|"seen"|"lost"} outcome
+ *
+ * @typedef {object} HoldNotice
+ * @property {NoticePhase|null} raise
+ * @property {NoticePhase|null} clear
+ * @property {boolean} isUnsetLogged  the log has said the notice is unconfigured
  *
  * @typedef {(line: string) => void} Log
  *
@@ -102,6 +115,7 @@ const { moduleReader, resolveKey } = require("./workflow-core-config.js");
  * @property {string} id
  * @property {string[]} recordJobs  the job ids its record names
  * @property {string[]} jobs  those and its attach files', the sessions parked on it
+ * @property {boolean} isClearNoticeOwed  a raise notice went and its clear is not done
  *
  * @typedef {{text: string, isOutage: boolean}} ProbeFailure
  */
@@ -131,6 +145,21 @@ const LIFTING_PREFIX = "lifting-";
  * minutes across two ticks on 29 Oct 2026 (#3899); the margin, about double, is a
  * guess. */
 const OUTAGE_HOLD_AFTER_MS = 15 * 60_000;
+
+/** @type {HoldNotice} */
+const NO_NOTICE = { raise: null, clear: null, isUnsetLogged: false };
+
+/* A file that will not read cannot say what went, so it sends nothing and owes no
+ * clear: a page the founder has had already is the worse fault (#3871). */
+/** @type {NoticePhase} */
+const UNREAD_PHASE = { at: 0, tries: 0, outcome: "lost" };
+
+/** @type {HoldNotice} */
+const UNREAD_NOTICE = {
+	raise: UNREAD_PHASE,
+	clear: UNREAD_PHASE,
+	isUnsetLogged: true,
+};
 
 const ID_PATTERN = new RegExp(`^(?:[0-9a-f]+|${PROBE_ID})$`);
 
@@ -207,6 +236,49 @@ const parseAttachedJobs = (names, id) =>
 		.map((n) => n.slice(buildAttachPrefix(id).length));
 
 /**
+ * A hold's notice file's name; no `.json`, so it never reads as a hold.
+ * @param {string} id
+ */
+const buildNoticeName = (id) => `${id}.notice`;
+
+/** @param {unknown} value */
+const isNoticePhase = (value) => {
+	const phase = /** @type {Partial<NoticePhase>|null} */ (value);
+	return (
+		value === null ||
+		(typeof phase?.at === "number" &&
+			typeof phase.tries === "number" &&
+			["dispatched", "seen", "lost"].includes(phase.outcome ?? ""))
+	);
+};
+
+/**
+ * The notice state in `file`: none where it is gone, UNREAD_NOTICE where it will not
+ * read, which readHolds reports.
+ * @param {string} file
+ * @returns {HoldNotice}
+ */
+function readNotice(file) {
+	try {
+		const value = JSON.parse(fs.readFileSync(file, "utf8"));
+		return isNoticePhase(value?.raise) &&
+			isNoticePhase(value?.clear) &&
+			typeof value?.isUnsetLogged === "boolean"
+			? value
+			: UNREAD_NOTICE;
+	} catch (err) {
+		return caught(err).code === "ENOENT" ? NO_NOTICE : UNREAD_NOTICE;
+	}
+}
+
+/**
+ * @param {string} file
+ * @param {HoldNotice} notice
+ */
+const writeNotice = (file, notice) =>
+	writeFileAtomic(file, JSON.stringify(notice), { mkdir: true });
+
+/**
  * Whether `value` is a hold, and the one its file is named for: an id off the
  * pattern would make a path out of the store.
  * @param {unknown} value
@@ -229,8 +301,6 @@ function isHold(value, name) {
 		(typeof hold.issue === "number" ||
 			(hold.kind === "probe" && hold.issue === null)) &&
 		typeof hold.raisedAt === "number" &&
-		typeof hold.notice?.raiseSent === "boolean" &&
-		typeof hold.notice?.clearSent === "boolean" &&
 		Array.isArray(hold.sessions) &&
 		(typeof check.command === "string" ||
 			typeof check.issueClosed === "number" ||
@@ -268,9 +338,16 @@ function readHolds(root) {
 		const file = path.join(dir, name);
 		try {
 			const value = JSON.parse(fs.readFileSync(file, "utf8"));
-			if (isHold(value, name))
+			if (isHold(value, name)) {
+				const noticeFile = path.join(dir, buildNoticeName(value.id));
+				const notice = readNotice(noticeFile);
+				if (notice === UNREAD_NOTICE)
+					unread.push(
+						`${noticeFile}: not its notice state, so it sends none; remove the file`,
+					);
 				holds.push({
 					...value,
+					notice,
 					sessions: [
 						...new Set([
 							...value.sessions,
@@ -278,7 +355,7 @@ function readHolds(root) {
 						]),
 					],
 				});
-			else unread.push(`${file}: not a hold; ${HOLD_FILE_REMEDY}`);
+			} else unread.push(`${file}: not a hold; ${HOLD_FILE_REMEDY}`);
 		} catch (err) {
 			/* ENOENT: lifted between the listing and this read. */
 			if (caught(err).code !== "ENOENT")
@@ -305,12 +382,12 @@ const buildIssueText = (hold) =>
 
 /**
  * @param {string} root
- * @param {RepoHold} hold
+ * @param {Omit<RepoHold, "notice"> & {notice?: HoldNotice}} hold
  */
-const writeHold = (root, hold) =>
+const writeHold = (root, { notice: _, ...record }) =>
 	writeFileAtomic(
-		holdFile(root, hold.id),
-		`${JSON.stringify(hold, null, "\t")}\n`,
+		holdFile(root, record.id),
+		`${JSON.stringify(record, null, "\t")}\n`,
 		{ mkdir: true },
 	);
 
@@ -334,8 +411,10 @@ function raiseHold(
 		now,
 	},
 ) {
-	/** @type {RepoHold} */
-	const hold = {
+	/* A lift that raced a notice's write can leave one behind, for a fixed id. */
+	fs.rmSync(path.join(holdsDir(root), buildNoticeName(id)), { force: true });
+	/** @type {Omit<RepoHold, "notice">} */
+	const record = {
 		id,
 		checkout: root,
 		kind,
@@ -345,10 +424,9 @@ function raiseHold(
 		clearCheck,
 		raisedAt: now,
 		sessions: session === null ? [] : [session],
-		notice: { raiseSent: false, clearSent: false },
 	};
-	writeHold(root, hold);
-	return hold;
+	writeHold(root, record);
+	return { ...record, notice: NO_NOTICE };
 }
 
 /** @param {RepoHold} hold */
@@ -441,12 +519,17 @@ function removeHold(root, id) {
 		if (caught(err).code === "ENOENT") return false;
 		throw err;
 	}
-	for (const job of parseAttachedJobs(fs.readdirSync(dir), id)) {
-		const attach = `${buildAttachPrefix(id)}${job}`;
+	const beside = [
+		buildNoticeName(id),
+		...parseAttachedJobs(fs.readdirSync(dir), id).map(
+			(job) => `${buildAttachPrefix(id)}${job}`,
+		),
+	];
+	for (const file of beside) {
 		try {
-			fs.renameSync(path.join(dir, attach), path.join(lifting, attach));
+			fs.renameSync(path.join(dir, file), path.join(lifting, file));
 		} catch (err) {
-			/* The attach took its file back (#3858). */
+			/* No notice yet, or the attach took its file back (#3858). */
 			if (caught(err).code !== "ENOENT") throw err;
 		}
 	}
@@ -495,7 +578,16 @@ function readLiftedNames(dir, log) {
 }
 
 /**
- * Every lifted hold in `roots`' stores whose sessions the tick has yet to take up.
+ * @param {HoldNotice} notice
+ */
+const isClearOwed = ({ raise, clear }) =>
+	raise !== null &&
+	raise.outcome !== "lost" &&
+	(clear === null || clear.outcome === "dispatched");
+
+/**
+ * Every lifted hold in `roots`' stores whose sessions the tick has yet to take up
+ * or whose clear notice it has yet to finish.
  * @param {string[]} roots
  * @param {Log} log
  * @returns {LiftedHold[]}
@@ -519,6 +611,9 @@ function readLiftedHolds(roots, log) {
 					id,
 					recordJobs,
 					jobs: [...new Set([...recordJobs, ...attached])],
+					isClearNoticeOwed: isClearOwed(
+						readNotice(path.join(dir, buildNoticeName(id))),
+					),
 				},
 			];
 		});
@@ -526,20 +621,70 @@ function readLiftedHolds(roots, log) {
 }
 
 /**
+ * Take `settled` off a lifted record kept for its clear notice, so that no later
+ * tick judges those sessions again.
+ * @param {string} file
+ * @param {string[]} settled
+ */
+function dropRecordJobs(file, settled) {
+	if (settled.length === 0) return;
+	const record = JSON.parse(fs.readFileSync(file, "utf8"));
+	writeFileAtomic(
+		file,
+		JSON.stringify({
+			...record,
+			sessions: record.sessions.filter(
+				(/** @type {string} */ job) => !settled.includes(job),
+			),
+		}),
+	);
+}
+
+/**
+ * The hold a lifted directory's record holds, or null where it is gone or torn. Any
+ * other failure throws.
+ * @param {LiftedHold} lifted
+ * @returns {RepoHold|null}
+ */
+function readLiftedRecord({ dir, id }) {
+	const name = buildHoldFileName(id);
+	try {
+		const value = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8"));
+		return isHold(value, name)
+			? { ...value, notice: readNotice(path.join(dir, buildNoticeName(id))) }
+			: null;
+	} catch (err) {
+		if (err instanceof SyntaxError || caught(err).code === "ENOENT")
+			return null;
+		throw err;
+	}
+}
+
+/**
  * Drop what `settled` names of a lifted hold, and the hold once nothing of it is
- * left. A failure is logged and the next tick reads it again, which takes up no
- * session twice (lib/refill-blocks.js's queueLifted).
+ * left and its clear notice is done, which needs the record. A failure is logged
+ * and the next tick reads it again, which takes up no session twice
+ * (lib/refill-blocks.js's queueLifted).
  * @param {LiftedHold} hold
  * @param {string[]} settled  its job ids the tick has taken up
  * @param {Log} log
  */
-function dropLiftedJobs({ dir, id, recordJobs, jobs }, settled, log) {
+function dropLiftedJobs(
+	{ dir, id, recordJobs, jobs, isClearNoticeOwed },
+	settled,
+	log,
+) {
 	try {
 		for (const job of settled)
 			fs.rmSync(path.join(dir, `${buildAttachPrefix(id)}${job}`), {
 				force: true,
 			});
 		if (!jobs.every((job) => settled.includes(job))) return;
+		if (isClearNoticeOwed) {
+			dropRecordJobs(path.join(dir, buildHoldFileName(id)), settled);
+			return;
+		}
+		fs.rmSync(path.join(dir, buildNoticeName(id)), { force: true });
 		if (recordJobs.every((job) => settled.includes(job)))
 			fs.rmSync(path.join(dir, buildHoldFileName(id)), { force: true });
 		fs.rmdirSync(dir);
@@ -1034,6 +1179,21 @@ const readTickHolds = (roots, broken) => {
 };
 
 /**
+ * @param {NoticePhase|null} phase
+ */
+function buildPhaseText(phase) {
+	if (phase === null) return "not sent";
+	return phase.outcome === "seen" ? "sent" : phase.outcome;
+}
+
+/**
+ * A hold's notice state, for `status` and the morning review.
+ * @param {HoldNotice} notice
+ */
+const buildNoticeText = ({ raise, clear }) =>
+	`raise ${buildPhaseText(raise)}, clear ${buildPhaseText(clear)}`;
+
+/**
  * @param {number} ms
  */
 function buildAgeText(ms) {
@@ -1058,7 +1218,7 @@ function buildHoldLines(roots, now) {
 			: `holds:     ${holds.length} open`,
 		...holds.map(
 			(h) =>
-				`  ${h.id} ${path.basename(h.checkout)}: ${h.act} — ${buildIssueText(h)}, age ${buildAgeText(now - h.raisedAt)}, sessions: ${h.sessions.join(", ") || "none"}, stops launches: ${h.kind === "probe" ? "yes" : "no"}`,
+				`  ${h.id} ${path.basename(h.checkout)}: ${h.act} — ${buildIssueText(h)}, age ${buildAgeText(now - h.raisedAt)}, sessions: ${h.sessions.join(", ") || "none"}, stops launches: ${h.kind === "probe" ? "yes" : "no"}, notice: ${buildNoticeText(h.notice)}`,
 		),
 		...reads.flatMap((r) => r.unread).map((why) => `  unread: ${why}`),
 	];
@@ -1067,16 +1227,23 @@ function buildHoldLines(roots, now) {
 module.exports = {
 	buildAgeText,
 	attachHold,
+	buildNoticeName,
 	buildAttachedLine,
 	buildHoldLines,
+	buildNoticeText,
 	buildRaisedLine,
 	dropLiftedJobs,
 	findOwnHold,
+	holdsDir,
 	liftHold,
 	raiseHold,
 	readCheckout,
 	readHolds,
 	readLiftedHolds,
+	readLiftedRecord,
+	readNotice,
+	readStoreRoots,
 	readTickHolds,
 	tendHolds,
+	writeNotice,
 };

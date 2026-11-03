@@ -2495,6 +2495,7 @@ describe("queueing the sessions parked on a lifted repo hold (#3863)", () => {
 		id: "abc",
 		recordJobs: ["p"],
 		jobs: ["p"],
+		isClearNoticeOwed: false,
 	};
 	const marker = {
 		issues: [7],

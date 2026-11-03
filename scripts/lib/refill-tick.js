@@ -163,6 +163,7 @@ const {
 	readTickHolds,
 	tendHolds,
 } = require("./repo-holds.js");
+const { tendHoldNotices } = require("./repo-hold-notices.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { localDate } = require("./morning-review.js");
 const { pidLock } = require("./pid-lock.js");
@@ -1639,6 +1640,29 @@ function settleQuietBench(control, { dryRun, parsed, lastTypedAt, now }) {
 }
 
 /**
+ * Each repo hold's phone notice; a dry run sends none. The listing refuses an empty
+ * answer, so a registry that read and holds nobody stands in for it: that is the
+ * quiet the notice is for.
+ * @param {boolean} dryRun
+ * @param {string[]} roots
+ * @param {import("./registry-agents.js").RegistryListing} registry
+ * @param {{agents: Parameters<typeof tendHoldNotices>[1]["agents"], paused: boolean, now: number}} seen
+ */
+function settleHoldNotices(dryRun, roots, registry, { agents, paused, now }) {
+	if (dryRun) return;
+	const isRegistryEmpty =
+		registry.seats.length > 0 &&
+		registry.faults.length === 0 &&
+		registry.agents.length === 0;
+	tendHoldNotices(
+		roots,
+		{ agents: agents ?? (isRegistryEmpty ? [] : null), isPaused: paused },
+		now,
+		log,
+	);
+}
+
+/**
  * One tick: its decision and the start it judged against. Under `dryRun`
  * nothing is reaped, launched or written.
  * @param {{dryRun: boolean}} opts
@@ -1692,6 +1716,12 @@ async function tick({ dryRun }) {
 		swapHold: readSwapHold(),
 		paused: control.paused !== undefined,
 	};
+	settleHoldNotices(
+		dryRun,
+		loop.landingRoots(served, state.launches),
+		registry,
+		seen,
+	);
 	const booted = dryRun ? state : settleBoot(state, seen);
 	const listed = judgeFinished(booted.launches, agents, now, served);
 	const acted = dryRun ? listed : actOnLaunches(listed, control, served, seen);

@@ -75,6 +75,7 @@ import { shellQuote } from "./lib/sh-quote.js";
 import { killCarrying, killPid } from "./lib/suite-ceiling.js";
 import { OUTCOME_PREFIX } from "./lib/usage-probe.js";
 import { buildUsageCache } from "./lib/usage-probe-fake";
+import { readConfig } from "./lib/workflow-core-config.js";
 import { readProgramLibs } from "./lib-closure-fixture";
 
 /* One session, never a waker: an empty listing reads as unread, and a
@@ -4766,7 +4767,10 @@ node ${shellQuote(path.join(scripts, "request-stop.js"))}\n`,
 		expect(await readStatus()).toContain("stops launches: yes");
 		expect(await readStatus()).toContain(`issue #${Issue}`);
 		expect(readFiled()).toHaveLength(1);
-		expect(fs.readdirSync(at(`repo-holds/${store}`))).toEqual(["probe.json"]);
+		expect(fs.readdirSync(at(`repo-holds/${store}`)).sort()).toEqual([
+			"probe.json",
+			"probe.notice",
+		]);
 	});
 
 	it("closes its issue on a hand lift, and a still-broken .git raises it anew", async () => {
@@ -5767,5 +5771,452 @@ describe("the launches a restart killed (#3880)", () => {
 			"the started loop did not resume it",
 		);
 		expect(readCalls()).toEqual([buildResumeArgs("job7")]);
+	});
+});
+
+describe("a repo hold's phone notice on the real tick (#3871)", () => {
+	const Issue = 77;
+	const stateFile = () => at(".refill-loop-state.json");
+	const breakHead = () =>
+		fs.writeFileSync(path.join(repo, ".git", "HEAD"), "junk\n");
+	const repairHead = () =>
+		fs.writeFileSync(path.join(repo, ".git", "HEAD"), "ref: refs/heads/main\n");
+
+	const writeConfig = (isNoticeOn = true) =>
+		fs.writeFileSync(
+			path.join(repo, ".claude", "workflow-core.json"),
+			JSON.stringify({
+				tracker: "o/r",
+				...(isNoticeOn
+					? {
+							founderNotice: {
+								workflow: "notice.yml",
+								repo: "o/r",
+								mention: "someone-to-page",
+							},
+						}
+					: {}),
+			}),
+		);
+
+	const readGhLog = () =>
+		fs.existsSync(at("gh-log")) ? fs.readFileSync(at("gh-log"), "utf8") : "";
+	/** The markers of every dispatch so far, in order. */
+	const readDispatched = () =>
+		[...readGhLog().matchAll(/<!-- (repo-hold-notice [^>]*) -->/g)].map(
+			(m) => m[1] ?? "",
+		);
+	const readPhases = () => readDispatched().map((m) => m.split(" ").at(-1));
+
+	/**
+	 * gh for the next run: each dispatch so far has its comment on the issue unless
+	 * `isRunDropped`, as the workflow would.
+	 */
+	const serve = ({
+		isRefusing = false,
+		isRunDropped = false,
+		runs = [] as { status: string }[],
+	} = {}) => {
+		fs.mkdirSync(at("gh-routes"), { recursive: true });
+		const comments = isRunDropped
+			? []
+			: readDispatched().map((m) => ({ body: `@x hello\n\n<!-- ${m} -->` }));
+		return stubGhRoutes(
+			at("gh-routes"),
+			{
+				"issue list *": printed("[]"),
+				[`issue close ${Issue} *`]: printed(""),
+				"issue edit *": printed(""),
+				[`issue view ${Issue} *`]: printed(JSON.stringify({ comments })),
+				"run list *": printed(JSON.stringify(runs)),
+				"workflow run *": isRefusing ? ghAnswer(LOGGED_OUT) : printed(""),
+				"*": ghAnswer(LOGGED_OUT),
+			},
+			{ log: at("gh-log") },
+		).gh;
+	};
+
+	/** One run whose stop follows its first tick's state: two real ticks. */
+	const tickRun = async (gh: string) => {
+		fs.rmSync(stateFile(), { force: true });
+		updateControl({ stopRequested: false });
+		const running = run(1, { WFC_GH: gh });
+		await polled(
+			() =>
+				fs.existsSync(stateFile()) &&
+				Boolean(JSON.parse(fs.readFileSync(stateFile(), "utf8")).lastTick),
+			"no tick wrote its state",
+		);
+		requestStop();
+		const done = await settled(running, "run with a hold's notice");
+		expect(done.status).toBe(0);
+		expect(done.stdout).not.toContain("notice not tended");
+		return done;
+	};
+
+	const holdCli = (...args: string[]) =>
+		runInProcess(path.join(__dirname, "repo-hold.js"), args, {
+			cwd: repo,
+			env: loopEnv({
+				CLAUDE_PROJECT_DIR: repo,
+				CLAUDE_JOB_DIR: "",
+				CLAUDE_CODE_SESSION_ID: "",
+			}),
+		});
+	const raisePark = (act = "repair main") =>
+		holdCli(
+			"raise",
+			"--act",
+			act,
+			"--issue",
+			String(Issue),
+			"--clear-command",
+			"test -f fixed",
+		);
+	const readStatus = async () =>
+		(
+			await runInProcessAsync(
+				path.join(scripts, "refill-loop.js"),
+				["status"],
+				{ cwd: dir, env: loopEnv({}) },
+			)
+		).stdout;
+
+	const Min = 60_000;
+	/** When a slot last worked, as the tick before this one read it. */
+	const slotWorkedAgo = (ms: number) =>
+		fs.writeFileSync(
+			at("last-slot-worked.json"),
+			JSON.stringify({
+				workedAt: Date.now() - ms,
+				tickedAt: Date.now() - Min,
+			}),
+		);
+
+	const readWorked = () =>
+		fs.existsSync(at("last-slot-worked.json"))
+			? fs.readFileSync(at("last-slot-worked.json"), "utf8")
+			: "";
+	const readWorkedAt = () => Number(JSON.parse(readWorked()).workedAt);
+
+	const noticeFile = (id: string) =>
+		at(`repo-holds/${fs.readdirSync(at("repo-holds"))[0] ?? ""}/${id}.notice`);
+	/** Age the last dispatch of the hold's raise past the wait for its comment. */
+	const ageRaiseDispatch = (id: string) => {
+		const notice = JSON.parse(fs.readFileSync(noticeFile(id), "utf8"));
+		notice.raise.at -= 16 * Min;
+		fs.writeFileSync(noticeFile(id), JSON.stringify(notice));
+	};
+
+	beforeEach(() => {
+		writeConfig();
+		stub(
+			"file-issue.js",
+			`if (require("node:fs").existsSync(${JSON.stringify(at("refuse-filing"))})) process.exit(1);
+process.stdout.write("Filed #${Issue}\\n");
+`,
+		);
+	});
+
+	it("sends a probe hold one notice on raise and one on clear, with none on the ticks between", async () => {
+		breakHead();
+		const raised = await tickRun(serve());
+		expect(raised.stdout).toContain("raise notice dispatched");
+		expect(readGhLog()).toContain("mention=someone-to-page");
+		expect(readGhLog()).toContain(`issue=${Issue}`);
+		expect(readPhases()).toEqual(["raise"]);
+		expect(await readStatus()).toContain("notice: raise dispatched");
+
+		const between = await tickRun(serve());
+		expect(between.stdout).toContain("raise notice seen");
+		await tickRun(serve());
+		expect(readPhases()).toEqual(["raise"]);
+		expect(await readStatus()).toContain("notice: raise sent, clear not sent");
+
+		repairHead();
+		const cleared = await tickRun(serve());
+		expect(cleared.stdout).toContain("repo hold cleared: probe in");
+		expect(cleared.stdout).toContain("clear notice dispatched");
+		expect(readPhases()).toEqual(["raise", "clear"]);
+
+		const after = await tickRun(serve());
+		expect(after.stdout).toContain("clear notice seen");
+		await tickRun(serve());
+		expect(readPhases()).toEqual(["raise", "clear"]);
+	});
+
+	it("sends a park hold nothing while a slot worked in the last 30 min, and once when that lapses", async () => {
+		raisePark();
+		slotWorkedAgo(5 * Min);
+		await tickRun(serve());
+		expect(readPhases()).toEqual([]);
+
+		slotWorkedAgo(31 * Min);
+		await tickRun(serve());
+		expect(readPhases()).toEqual(["raise"]);
+
+		await tickRun(serve());
+		slotWorkedAgo(31 * Min);
+		await tickRun(serve());
+		expect(readPhases()).toEqual(["raise"]);
+	});
+
+	it("starts the 30 min again for a loop that has not ticked for them", async () => {
+		raisePark();
+		fs.writeFileSync(
+			at("last-slot-worked.json"),
+			JSON.stringify({
+				workedAt: Date.now() - 24 * 60 * Min,
+				tickedAt: Date.now() - 24 * 60 * Min,
+			}),
+		);
+		await tickRun(serve());
+		expect(readPhases()).toEqual([]);
+	});
+
+	it("counts a working session as a slot that has worked", async () => {
+		raisePark();
+		slotWorkedAgo(31 * Min);
+		writeClaudeStub(at("claude"), [
+			buildAgentsBranch([{ ...LISTED, state: "working", status: "busy" }]),
+		]);
+		await tickRun(serve());
+		expect(readPhases()).toEqual([]);
+	});
+
+	it("sends a clear for a park hold lifted by hand, once its raise went", async () => {
+		raisePark();
+		slotWorkedAgo(31 * Min);
+		await tickRun(serve());
+		expect(readPhases()).toEqual(["raise"]);
+		const id = /^\s*([0-9a-f]+) /m.exec(holdCli("list").stdout)?.[1] ?? "";
+
+		holdCli("lift", id);
+		await tickRun(serve());
+		expect(readPhases()).toEqual(["raise", "clear"]);
+	});
+
+	it("breaks a mention in the act's text, so it pages nobody it names", async () => {
+		raisePark("ask @stranger to repair main");
+		slotWorkedAgo(31 * Min);
+		await tickRun(serve());
+		expect(readGhLog()).toContain("ask @​stranger");
+		expect(readGhLog()).not.toContain("@stranger");
+	});
+
+	it("logs a refused dispatch, retries it next tick, and sends only one once it succeeds", async () => {
+		breakHead();
+		const refused = await tickRun(serve({ isRefusing: true }));
+		expect(refused.stdout).toContain(
+			"raise notice not dispatched, the next tick retries",
+		);
+		expect(await readStatus()).toContain("notice: raise not sent");
+		const tries = readPhases().length;
+		expect(tries).toBeGreaterThan(1);
+
+		await tickRun(serve());
+		expect(readPhases()).toHaveLength(tries + 1);
+
+		await tickRun(serve());
+		expect(readPhases()).toHaveLength(tries + 1);
+	});
+
+	it("dispatches once more where a run was lost, then reads the notice lost and sends no third", async () => {
+		breakHead();
+		await tickRun(serve({ isRunDropped: true }));
+		expect(readPhases()).toEqual(["raise"]);
+
+		await tickRun(serve({ isRunDropped: true }));
+		expect(readPhases()).toEqual(["raise"]);
+
+		ageRaiseDispatch("probe");
+		await tickRun(serve({ isRunDropped: true }));
+		expect(readPhases()).toEqual(["raise", "raise"]);
+
+		ageRaiseDispatch("probe");
+		const lost = await tickRun(serve({ isRunDropped: true }));
+		expect(lost.stdout).toContain("raise notice lost");
+		expect(readPhases()).toEqual(["raise", "raise"]);
+		expect(await readStatus()).toContain("notice: raise lost");
+	});
+
+	it("waits on a run still queued rather than page twice", async () => {
+		breakHead();
+		await tickRun(serve({ isRunDropped: true }));
+
+		ageRaiseDispatch("probe");
+		await tickRun(serve({ isRunDropped: true, runs: [{ status: "queued" }] }));
+		expect(readPhases()).toEqual(["raise"]);
+	});
+
+	it("sends nothing and logs one line with the configuration unset", async () => {
+		writeConfig(false);
+		breakHead();
+		const first = await tickRun(serve());
+		const second = await tickRun(serve());
+		repairHead();
+		const third = await tickRun(serve());
+
+		expect(readGhLog()).not.toContain("workflow run");
+		expect(
+			(first.stdout + second.stdout + third.stdout).match(/no phone notice/g),
+		).toHaveLength(1);
+	});
+
+	it("sends neither for a hold cleared before its raise notice went", async () => {
+		raisePark();
+		slotWorkedAgo(5 * Min);
+		await tickRun(serve());
+		fs.writeFileSync(path.join(repo, "fixed"), "");
+
+		const cleared = await tickRun(serve());
+
+		expect(cleared.stdout).toContain("repo hold cleared");
+		expect(readGhLog()).not.toContain("workflow run");
+	});
+
+	it("retries a probe hold's notice with its filing", async () => {
+		fs.writeFileSync(at("refuse-filing"), "");
+		breakHead();
+		await tickRun(serve());
+		expect(readPhases()).toEqual([]);
+
+		fs.rmSync(at("refuse-filing"));
+		await tickRun(serve());
+		expect(readPhases()).toEqual(["raise"]);
+	});
+
+	it("sends neither for a probe hold that clears with its filing never landed", async () => {
+		fs.writeFileSync(at("refuse-filing"), "");
+		breakHead();
+		await tickRun(serve());
+		repairHead();
+		const cleared = await tickRun(serve());
+
+		expect(cleared.stdout).toContain("repo hold cleared: probe in");
+		expect(readGhLog()).not.toContain("workflow run");
+	});
+
+	it("counts a registry and listing holding nobody as no slot working", async () => {
+		raisePark();
+		slotWorkedAgo(31 * Min);
+		fs.mkdirSync(path.join(seat, "sessions"), { recursive: true });
+		writeClaudeStub(at("claude"), [buildAgentsBranch([])]);
+		await tickRun(serve());
+		expect(readPhases()).toEqual(["raise"]);
+	});
+
+	it("does not count the 30 min while the loop is paused", async () => {
+		raisePark();
+		slotWorkedAgo(31 * Min);
+		updateControl({ paused: { at: Date.now(), why: "a test's pause" } });
+		const running = run(1, { WFC_GH: serve() });
+		await polled(
+			() =>
+				/"workedAt"/.test(readWorked()) && readWorkedAt() > Date.now() - Min,
+			"no tick restarted the count",
+		);
+		requestStop();
+		await settled(running, "run paused");
+		expect(readPhases()).toEqual([]);
+	});
+
+	it("treats a dispatch whose gh never exited as taken, checking before any second", async () => {
+		breakHead();
+		fs.mkdirSync(at("gh-routes"), { recursive: true });
+		const routed = serve();
+		const killed = at("gh-killed");
+		fs.writeFileSync(
+			killed,
+			`#!/bin/sh
+if [ "$1 $2" = "workflow run" ]; then printf '%s\\n' "$*" >> ${JSON.stringify(at("gh-log"))}; kill -TERM $$; fi
+exec ${JSON.stringify(routed)} "$@"
+`,
+			{ mode: 0o755 },
+		);
+		await tickRun(killed);
+		expect(readPhases()).toEqual(["raise"]);
+
+		await tickRun(serve());
+		expect(readPhases()).toEqual(["raise"]);
+	});
+
+	it("gives up a notice whose issue never reads, so its record does not stay for good", async () => {
+		raisePark();
+		slotWorkedAgo(31 * Min);
+		await tickRun(serve());
+		const unreadable = stubGhRoutes(at("gh-routes"), {
+			"*": ghAnswer(LOGGED_OUT),
+		}).gh;
+		const id = /^\s*([0-9a-f]+) /m.exec(holdCli("list").stdout)?.[1] ?? "";
+		const notice = JSON.parse(fs.readFileSync(noticeFile(id), "utf8"));
+		notice.raise.at -= 25 * 60 * Min;
+		fs.writeFileSync(noticeFile(id), JSON.stringify(notice));
+
+		const given = await tickRun(unreadable);
+
+		expect(given.stdout).toContain("raise notice lost");
+		expect(await readStatus()).toContain("notice: raise lost");
+	});
+
+	it("sends no clear after a lost raise", async () => {
+		breakHead();
+		await tickRun(serve({ isRunDropped: true }));
+		for (const _ of [1, 2]) {
+			ageRaiseDispatch("probe");
+			await tickRun(serve({ isRunDropped: true }));
+		}
+		repairHead();
+		const cleared = await tickRun(serve({ isRunDropped: true }));
+		expect(cleared.stdout).toContain("repo hold cleared: probe in");
+		expect(readPhases()).toEqual(["raise", "raise"]);
+	});
+
+	it("sends nothing and reports a notice file that will not read", async () => {
+		breakHead();
+		await tickRun(serve());
+		fs.writeFileSync(noticeFile("probe"), "{ torn");
+
+		const torn = await tickRun(serve());
+
+		expect(torn.stdout).toContain("not its notice state");
+		expect(readPhases()).toEqual(["raise"]);
+		expect(await readStatus()).toContain("not its notice state");
+	});
+
+	it("judges a lifted hold's session once while its clear is owed", async () => {
+		raisePark();
+		slotWorkedAgo(31 * Min);
+		await tickRun(serve());
+		const id = /^\s*([0-9a-f]+) /m.exec(holdCli("list").stdout)?.[1] ?? "";
+		const file = noticeFile(id).replace(/\.notice$/, ".json");
+		fs.writeFileSync(
+			file,
+			JSON.stringify({
+				...JSON.parse(fs.readFileSync(file, "utf8")),
+				sessions: ["gonejob"],
+			}),
+		);
+		holdCli("lift", id);
+
+		const lifted = await tickRun(serve({ isRunDropped: true }));
+		const after = await tickRun(serve({ isRunDropped: true }));
+
+		expect(lifted.stdout).toContain("gonejob");
+		expect(after.stdout).not.toContain("gonejob");
+	});
+
+	it("has this host's configuration set, so the notice is on for this repo", () => {
+		const root = path.join(__dirname, "..");
+		const declared = JSON.parse(
+			fs.readFileSync(path.join(root, ".claude/workflow-core.json"), "utf8"),
+		);
+		const { founderNotice } = readConfig({ root, quiet: true });
+		expect(founderNotice).toEqual(declared.founderNotice);
+		expect(founderNotice).toEqual({
+			workflow: "founder-notice.yml",
+			repo: "lucmoseley/workflow-core-tracker",
+			mention: "lucmoseley",
+		});
 	});
 });

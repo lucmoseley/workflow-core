@@ -1206,7 +1206,7 @@ describe("an open repo hold (#3865)", () => {
 					kind: "probe",
 					age: "5m",
 					attached: 0,
-					notice: { raiseSent: true, clearSent: false },
+					notice: "raise sent, clear not sent",
 				},
 			],
 		});

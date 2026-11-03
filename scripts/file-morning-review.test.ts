@@ -652,20 +652,6 @@ describe("file-morning-review.js (#2011)", () => {
 			);
 		});
 
-		it("files the review and names a hold record with no notice state as not read", () => {
-			seed([]);
-			const { id } = raiseIn(wfc());
-			const [store = ""] = fs.readdirSync(refillFile("repo-holds"));
-			const file = path.join(refillFile("repo-holds"), store, `${id}.json`);
-			const { notice: _, ...bare } = JSON.parse(fs.readFileSync(file, "utf8"));
-			fs.writeFileSync(file, JSON.stringify(bare));
-
-			const body = readFiledBody();
-
-			expect(body).toMatch(/- acme\/wfc: `repo holds: .*not a hold/);
-			expect(body).not.toContain(Heading);
-		});
-
 		it("files the review and says so where the hold store will not read", () => {
 			seed([]);
 			fs.mkdirSync(path.dirname(refillFile("repo-holds")), { recursive: true });

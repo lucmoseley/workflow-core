@@ -191,7 +191,7 @@ function parseOneWayDoor(comments) {
  *   parked ones
  * @typedef {{checkout: string, repo: string | null, act: string, issue: number | null,
  *   kind: import("./repo-holds.js").RepoHold["kind"], age: string,
- *   attached: number, notice: import("./repo-holds.js").RepoHold["notice"]}}
+ *   attached: number, notice: string}}
  *   OpenHold an open repo hold (lib/repo-holds.js) with its age as text, `repo`
  *   the tracker its issue is on, where that read
  * @typedef {import("./review-carry.js").UnreadEvents} UnreadEvents
@@ -505,9 +505,6 @@ function renderBookkeepingLines(repos) {
 	];
 }
 
-/** @param {boolean} sent */
-const buildSentText = (sent) => (sent ? "sent" : "not sent");
-
 /**
  * The "Open repo holds" section, absent with none open (#3865).
  * @param {OpenHold[]} holds
@@ -522,7 +519,7 @@ function renderHoldLines(holds) {
 		"",
 		...holds.map(
 			(h) =>
-				`- ${h.checkout}: ${quoted(h.act)} — ${h.issue === null ? "no issue filed yet" : `${h.repo ?? ""}#${h.issue}`} — ${h.kind === "probe" ? "probe, which stops launches" : h.kind} — age ${h.age} — ${h.attached} attached — notice: raise ${buildSentText(h.notice.raiseSent)}, clear ${buildSentText(h.notice.clearSent)}`,
+				`- ${h.checkout}: ${quoted(h.act)} — ${h.issue === null ? "no issue filed yet" : `${h.repo ?? ""}#${h.issue}`} — ${h.kind === "probe" ? "probe, which stops launches" : h.kind} — age ${h.age} — ${h.attached} attached — notice: ${h.notice}`,
 		),
 		"",
 	];
