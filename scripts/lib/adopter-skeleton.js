@@ -21,7 +21,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { MODULES, COMMANDS, CONTRACT } = require("./workflow-core-config.js");
-const { formatConfigJson } = require("./config-json.js");
+const { formatConfigJson, isObject } = require("./config-json.js");
 const { requiredGroup } = require("./regex-group.js");
 const { caught } = require("./caught.js");
 const { CORE_STYLE, namespaced } = require("./output-styles.js");
@@ -80,6 +80,9 @@ function absentAs(read, absent) {
 		throw err;
 	}
 }
+
+const STATUS_SCRIPT =
+	"node scripts/lib/resolve-core.js scripts/status-report.js";
 
 /** The template's span kept only where the adopter has a CI workflow. */
 const CI_SPAN = /\{\{#ci\}\}([\s\S]*?)\{\{\/ci\}\}/g;
@@ -750,6 +753,27 @@ function withIgnoreBlock(text, lines = IGNORED) {
 	return appendLines(text, block);
 }
 
+/**
+ * `package.json`'s text with the `status` script every adopter's
+ * `npm run status` runs (#4151), or null where it already declares one. Laid
+ * out as `npm pkg set` writes it: the file's indent and line ending, else two
+ * spaces and LF, with a final newline.
+ * Throws on a file that is not a package manifest.
+ * @param {string} text
+ * @returns {string|null}
+ */
+function withStatusScript(text) {
+	const body = text.replace(/^\uFEFF/, "");
+	const manifest = JSON.parse(body);
+	const scripts = manifest?.scripts ?? {};
+	if (!isObject(manifest) || !isObject(scripts))
+		throw new Error("it or its `scripts` is not a JSON object");
+	if (scripts.status !== undefined) return null;
+	const [, eol = "\n", indent] = body.match(/^\s*\{(\r?\n)([ \t]*)/) ?? [];
+	const next = { ...manifest, scripts: { ...scripts, status: STATUS_SCRIPT } };
+	return `${JSON.stringify(next, null, indent || "  ")}\n`.replace(/\n/g, eol);
+}
+
 module.exports = {
 	renderSessionRules,
 	renderReference,
@@ -760,6 +784,7 @@ module.exports = {
 	renderClaudeMd,
 	renderAgentsMd,
 	withIgnoreBlock,
+	withStatusScript,
 	appendLines,
 	renderDocMap,
 	renderCodeStandards,
