@@ -32,10 +32,10 @@ const {
 const {
 	RUNNER_NAMES,
 	findRun,
-	hasUnresolvedSelector,
 	namedScriptWord,
 	parseNamedDir,
 	placedCommands,
+	unresolvedSelectorMembers,
 	walkRunScripts,
 	withoutRun,
 } = require("./script-runners.js");
@@ -453,16 +453,15 @@ function pastBiomeStaged(hop) {
 }
 
 /**
- * The directory other than `top` a run to the Biome command surely went to, by
- * a hop or the command's own `cd` or runner's flag, or undefined: a `cd` no `&&`
- * settles is refused as holding more than the Biome command.
- * @param {Hop[]} hops
+ * The directory other than `top` the Biome command surely runs in, by its hop's
+ * directory and its own `cd` or runner's flag, or undefined: a `cd` no `&&`
+ * settles is refused as holding more than the Biome command. A hop passed through
+ * on the way back to `top` is no such directory (#4069).
  * @param {Placed|undefined} placed the Biome command
  * @param {string} top
  */
-function findElsewhere(hops, placed, top) {
-	const hop = hops.findLast((h) => h.dir !== top);
-	if (hop || !placed) return hop?.dir;
+function findElsewhere(placed, top) {
+	if (!placed) return;
 	const own = parseNamedDir(placed.command);
 	const dirs = placed.dirs.map((d) => path.resolve(d, own));
 	return dirs.every((d) => d !== top) ? dirs[0] : undefined;
@@ -495,16 +494,19 @@ function classifyCheckStaged(root, command, { inferred }) {
 	/**
 	 * Evidence this repo runs Biome at all: `biome` written in the hop, or
 	 * declared or in a script of the `package.json` at the top, the hop's
-	 * directory, or a directory the hop's `cd` or runner's flag names (#3851).
+	 * directory, or a directory the hop's `cd` or runner's flag names (#3851), or
+	 * a member an unresolved selector may reach (#4069).
 	 * @param {Hop} hop
+	 * @param {string[]} [members]
 	 */
-	const hasBiomeEvidence = ({ text, tokens, dir }) => {
+	const hasBiomeEvidence = ({ text, tokens, dir }, members = []) => {
 		const hasEvidence = (/** @type {string} */ d) =>
 			readCachedPackage(d).biomeEvident;
 		return (
 			hasMatch(BIOME_TEXT, text, tokens) ||
 			hasEvidence(top) ||
 			hasEvidence(dir) ||
+			members.some(hasEvidence) ||
 			allCommands(tokens).some((c) =>
 				hasEvidence(path.resolve(dir, parseNamedDir(c))),
 			)
@@ -531,10 +533,13 @@ function classifyCheckStaged(root, command, { inferred }) {
 				((biomeCommand || hasMatch(MENTIONS, text, tokens)) &&
 					isUnreadable(judged, top, readCachedPackage)) ||
 				writtenCommands(tokens).some(isHiddenCommand);
-			const unresolved = placed.some((p) =>
-				hasUnresolvedSelector(p, top, readCachedPackage),
-			);
-			if ((!unread && !unresolved && !biomeCommand) || !hasBiomeEvidence(hop))
+			const unresolved = placed
+				.map((p) => unresolvedSelectorMembers(p, top, readCachedPackage))
+				.find((members) => members !== undefined);
+			if (
+				(!unread && !unresolved && !biomeCommand) ||
+				!hasBiomeEvidence(hop, unresolved)
+			)
 				return;
 			if (unread) return { hops, unread: UNREAD };
 			if (unresolved) return { hops, unread: UNRESOLVED_SELECTOR };
@@ -549,11 +554,7 @@ function classifyCheckStaged(root, command, { inferred }) {
 				hops,
 				segment,
 				own,
-				elsewhere: findElsewhere(
-					hops,
-					placed[candidates.indexOf(segment)],
-					top,
-				),
+				elsewhere: findElsewhere(placed[candidates.indexOf(segment)], top),
 				unread: null,
 			};
 		},

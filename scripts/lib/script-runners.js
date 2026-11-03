@@ -44,6 +44,8 @@ const CONTINUATION = /\\\n/g;
  * Residual, not followed: a script reached through a shell file, `node --run`,
  * pnpm's and yarn's workspace selectors (`pnpm --filter web cs`, `yarn workspace
  * web cs`), npm's set outside the command (`npm_config_workspace=web`, `.npmrc`),
+ * a run an `npm exec` or `npx` makes (`npm exec -- npm run cs`, whose npm is
+ * unread, and `npx -w web npm run cs`, whose selector is),
  * a directory set any other way (`pushd`, `env -C`, `cd ~/web`), a script name
  * after a value flag other than the directory's (`pnpm --reporter silent cs`),
  * the scripts an npm command other than these runs (`npm install-test`), and
@@ -135,14 +137,39 @@ function eqFormValue(word, flags) {
 /** @typedef {import("./npm-workspaces.js").Selection} Selection */
 
 /** @typedef {{rules: RunnerRules, name: string, at: number, end: number, dir:
- *  string, runLess: boolean, selection?: Selection}} Run `at` the runner's index
- *  in its command, `end` past the script name's; `dir` the directory it names, or
- *  ""; `runLess` where no `run` was written, so the word may name no script at
- *  all; `selection` where a workspace selector replaces that directory. */
+ *  string, runLess: boolean, selection?: Selection, handed: Word[]}} Run `at` the
+ *  runner's index in its command, `end` past the script name's; `dir` the
+ *  directory it names, or ""; `runLess` where no `run` was written, so the word
+ *  may name no script at all; `selection` where a workspace selector replaces
+ *  that directory; `handed` the words reaching the script. */
 
 /** @typedef {{nameAt: number, script?: string, dir: string, runLess: boolean,
- *  selection?: Selection}} RunWords `nameAt` indexes the words after the runner;
- *  `script` where the script's name is not that word. */
+ *  selection?: Selection, handed: Word[]}} RunWords `nameAt` indexes the words
+ *  after the runner; `script` where the script's name is not all of that word. */
+
+/**
+ * The words npm reads as operands, each at the word that holds it. Each reaches
+ * a script as one literal word, so it counts as unquoted, and is shell-quoted
+ * where it is written out (#3545). The value of an npm flag given after a space
+ * (`-w web`) is npm's, and one given after a `=` (`--silent=foo`) is an operand
+ * if the flag takes none, at the end of its word (#559, #4069).
+ * @param {Word[]} words
+ * @returns {{at: number, word: Word}[]}
+ */
+function placeNpmOperands(words) {
+	let from = 0;
+	return parseNpmOperands(words.map((w) => w.value)).flatMap((value) => {
+		const at = words.findIndex(
+			(w, i) =>
+				i >= from && (w.value === value || w.value.endsWith(`=${value}`)),
+		);
+		const word = words[at];
+		if (!word) return [];
+		from = at + 1;
+		const raw = word.value === value ? word.raw : value;
+		return [{ at, word: { ...word, value, raw, quoted: false } }];
+	});
+}
 
 /**
  * @param {Word[]} words after `npm`
@@ -153,23 +180,36 @@ function parseNpmRun(words, rules) {
 	const canon = npmCanon(words.map((w) => w.value));
 	const cut = canon.indexOf("--");
 	const options = cut < 0 ? canon : canon.slice(0, cut);
-	const [verb, name] = [
-		...options.filter((w) => !w.startsWith("-")),
-		...(cut < 0 ? [] : canon.slice(cut + 1)),
-	];
+	const operands = placeNpmOperands(words);
+	const [verb, name] = operands;
 	if (verb === undefined) return;
-	const verbAt = words.findIndex((w) => w.value === verb);
 	/* `npmCanon` writes the flag's space form with a `=`, so only that is read. */
 	const dir =
 		options
 			.map((w) => eqFormValue(w, rules.dirFlags))
 			.findLast((v) => v !== undefined) ?? "";
 	const selection = parseSelection(options);
-	const script = scriptOfNpmCommand(verb);
-	if (script) return { nameAt: verbAt, script, dir, runLess: true, selection };
-	if (!rules.isRun(verb)) return;
-	const nameAt = words.findIndex((w, i) => i > verbAt && w.value === name);
-	return { nameAt, dir, runLess: false, selection };
+	const handedAfter = (/** @type {number} */ n) =>
+		operands.slice(n).map(({ word }) => word);
+	const script = scriptOfNpmCommand(verb.word.value);
+	if (script)
+		return {
+			nameAt: verb.at,
+			script,
+			dir,
+			runLess: true,
+			selection,
+			handed: handedAfter(1),
+		};
+	if (!rules.isRun(verb.word.value)) return;
+	return {
+		nameAt: name ? name.at : -1,
+		script: name?.word.value,
+		dir,
+		runLess: false,
+		selection,
+		handed: handedAfter(2),
+	};
 }
 
 /**
@@ -218,9 +258,10 @@ function parseOtherRun(words, rules) {
 	const nameAt = named.at;
 	const dir = parseDirFlag(words.slice(0, nameAt + 1), flags);
 	const runLess = !isVerb && !isValue;
+	const handed = words.slice(nameAt + 1).map((w) => ({ ...w, quoted: false }));
 	return runLess && rules.testAliases?.has(named.word)
-		? { nameAt, script: "test", dir, runLess }
-		: { nameAt, dir, runLess };
+		? { nameAt, script: "test", dir, runLess, handed }
+		: { nameAt, dir, runLess, handed };
 }
 
 /**
@@ -252,6 +293,7 @@ function findRun(command) {
 		dir: found.dir,
 		runLess: found.runLess,
 		selection: found.selection,
+		handed: found.handed,
 	};
 }
 
@@ -287,8 +329,8 @@ const runPackageDirs = (run, dirs, root) => [
 ];
 
 /**
- * The package directories `run` runs in from `dirs`, and whether a workspace
- * selector in it names nothing that could be found.
+ * The package directories `run` runs in from `dirs`, where a workspace selector
+ * in it may answer none, and the members that selector chose among.
  * @param {Run} run
  * @param {string[]} dirs
  * @param {string} root
@@ -297,7 +339,7 @@ const runPackageDirs = (run, dirs, root) => [
 function runTargets(run, dirs, root, readCachedPackage) {
 	const { selection } = run;
 	if (!selection)
-		return { dirs: runPackageDirs(run, dirs, root), unresolved: false };
+		return { dirs: runPackageDirs(run, dirs, root), unresolved: undefined };
 	const picks = dirs.map((d) =>
 		resolveSelection(
 			selection,
@@ -308,21 +350,21 @@ function runTargets(run, dirs, root, readCachedPackage) {
 	);
 	return {
 		dirs: [...new Set(picks.flatMap((p) => p.dirs))],
-		unresolved: picks.some((p) => p.unresolved),
+		unresolved: picks.find((p) => p.dirs.length === 0)?.members,
 	};
 }
 
 /**
+ * The members of a workspace selector in `placed` that selects no directory, so
+ * npm fails or this read differs from its, or undefined where it has none.
  * @param {Placed} placed
  * @param {string} root
  * @param {PackageReader} readCachedPackage
+ * @returns {string[]|undefined}
  */
-function hasUnresolvedSelector({ command, dirs }, root, readCachedPackage) {
+function unresolvedSelectorMembers({ command, dirs }, root, readCachedPackage) {
 	const run = findRun(command);
-	return (
-		run !== undefined &&
-		runTargets(run, dirs, root, readCachedPackage).unresolved
-	);
+	return run && runTargets(run, dirs, root, readCachedPackage).unresolved;
 }
 
 /**
@@ -368,32 +410,6 @@ function withoutRun({ command, dirs }, root, readCachedPackage) {
 		!runPackageDirs(run, dirs, root).every(isScriptIn)
 		? command
 		: [...command.slice(0, run.at), ...command.slice(run.end)];
-}
-
-/**
- * The words after a run's script name that reach the script (`ownsFlags`). Each
- * reaches the script as one literal word, so it
- * counts as unquoted, and is shell-quoted where it is written out (#3545). The
- * value of an npm flag given after a space (`-w web`) is npm's, not handed on.
- * @param {RunnerRules} rules
- * @param {Word[]} words
- * @returns {Word[]}
- */
-function parseHandedWords(rules, words) {
-	if (!rules.ownsFlags) return words.map((w) => ({ ...w, quoted: false }));
-	let from = 0;
-	return parseNpmOperands(words.map((w) => w.value)).flatMap((value) => {
-		/* `--silent=foo` hands on `foo`, the end of its word (#559). */
-		const at = words.findIndex(
-			(w, i) =>
-				i >= from && (w.value === value || w.value.endsWith(`=${value}`)),
-		);
-		const word = words[at];
-		if (!word) return [];
-		from = at + 1;
-		const raw = word.value === value ? word.raw : value;
-		return [{ ...word, value, raw, quoted: false }];
-	});
 }
 
 /** @param {Word[]} words */
@@ -528,10 +544,9 @@ function* hopsFrom(hop, root, readCachedPackage) {
 	for (const { command, dirs } of placedCommands(hop)) {
 		const run = findRun(command);
 		if (!run) continue;
-		const handed = parseHandedWords(run.rules, command.slice(run.end));
 		const targets = runTargets(run, dirs, root, readCachedPackage).dirs;
 		for (const dir of targets)
-			yield* runHops(run, handed, {
+			yield* runHops(run, run.handed, {
 				dir,
 				scripts: readCachedPackage(dir).scripts,
 				onlyDir: targets.length === 1,
@@ -584,10 +599,10 @@ function walkRunScripts(root, readCachedPackage, command, visit) {
 module.exports = {
 	RUNNER_NAMES,
 	findRun,
-	hasUnresolvedSelector,
 	namedScriptWord,
 	parseNamedDir,
 	placedCommands,
+	unresolvedSelectorMembers,
 	walkRunScripts,
 	withoutRun,
 };

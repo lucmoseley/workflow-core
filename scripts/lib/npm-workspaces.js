@@ -8,17 +8,18 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { BIOME_STAGED_COMMAND } = require("./biome-allowlist.js");
 const { findPackageDir, hasPackage } = require("./package-reader.js");
 
 /** @typedef {import("./package-reader.js").PackageReader} PackageReader */
-/** @typedef {{filters: string[], withRoot: boolean, ownRoot: boolean}} Selection
- *  `filters` each `-w`'s value, which outranks `-ws`, no filters; `withRoot`
- *  `-iwr`, which only adds to a selection; `ownRoot` where `--prefix` or
+/** @typedef {{filters: string[], all: boolean, withRoot: boolean, ownRoot:
+ *  boolean}} Selection `filters` each `-w`'s value, which outranks `all`, `-ws`;
+ *  `withRoot` `-iwr`, which adds the root; `ownRoot` where `--prefix` or
  *  `--no-workspaces` stops npm looking above for a root. */
 /** @typedef {{dir: string, name: string}} Member */
 
 /* `--no-workspace web` selects web and a bare one selects nothing, as a bare
- * `--workspace` does. */
+ * `--workspace` does, inside a member too. */
 const FILTER_FLAGS = new Set(["--workspace", "--no-workspace"]);
 const ALL_FLAGS = new Set(["--workspaces", "--no-workspaces"]);
 const ROOT_FLAGS = new Set([
@@ -57,22 +58,34 @@ function parseSelection(options) {
 		.filter(({ flag }) => FILTER_FLAGS.has(flag))
 		.map(({ value }) => value ?? "");
 	const all = lastOn(ALL_FLAGS);
+	const withRoot = lastOn(ROOT_FLAGS) === true;
 	const prefix = parsed.findLast(({ flag }) => flag === "--prefix")?.value;
-	return filters.length > 0 || all
+	return filters.length > 0 || all || (withRoot && all !== false)
 		? {
 				filters,
-				withRoot: lastOn(ROOT_FLAGS) === true,
+				all: all === true,
+				withRoot,
 				ownRoot: Boolean(prefix) || all === false,
 			}
 		: undefined;
 }
 
-/* @types/node 20 predates it. Needs Node 22, and `path.matchesGlob` 22.5: on an
- * older one a selector throws, which the hook's check reads as a refusal. */
-/** @type {(patterns: string[], options: {cwd: string, exclude: (name: string) => boolean}) => string[]} */
-const globSync = /** @type {any} */ (fs).globSync;
+/* @types/node 20 predates it. Read at each call, as a Node without it refuses
+ * only a selector. */
+/** @typedef {(patterns: string[], options: {cwd: string, exclude: (name: string) => boolean}) => string[]} GlobSync */
+const readGlobSync = () =>
+	/** @type {GlobSync|undefined} */ (/** @type {any} */ (fs).globSync);
+
+/* What Node 22.5 first has both of. The hook's check reads this throw as a
+ * refusal, printing the message. */
+const NEEDS_NODE = `Reading an npm workspace selector needs Node 22.5, and this is ${process.version}. Upgrade Node, declare check_staged as an explicit '${BIOME_STAGED_COMMAND} <flags>' whose flags you own, or, where it never runs Biome, as a shell file (sh ./your-gate.sh) holding the command`;
 
 const NODE_MODULES = "node_modules";
+
+/** Whether a workspaces pattern is the directory it is written in, which
+ * Node's glob never returns and npm's does.
+ * @param {string} pattern */
+const isOwnDir = (pattern) => path.posix.normalize(pattern) === ".";
 
 /**
  * The directories `patterns` match under `cwd`, none in `node_modules`, which
@@ -80,14 +93,26 @@ const NODE_MODULES = "node_modules";
  * @param {string[]} patterns
  * @param {string} cwd
  */
-const globDirs = (patterns, cwd) =>
-	globSync(patterns, { cwd, exclude: (n) => n === NODE_MODULES })
+function globDirs(patterns, cwd) {
+	const globSync = readGlobSync();
+	if (!globSync) throw new Error(NEEDS_NODE);
+	const found = globSync(
+		patterns.filter((p) => !isOwnDir(p)),
+		{ cwd, exclude: (n) => n === NODE_MODULES },
+	)
 		.filter((m) => !m.split(path.sep).includes(NODE_MODULES))
 		.map((m) => path.resolve(cwd, m));
+	return patterns.some(isOwnDir) ? [cwd, ...found] : found;
+}
+
+/** The count of `!`s `word` opens with, an odd one negating it.
+ * @param {string} word */
+const countBangs = (word) => word.match(/^!+/)?.[0].length ?? 0;
 
 /**
  * The members `patterns` declare in `dir`. A negated pattern is dropped by a
- * later one it matches, so that later one is kept.
+ * later one it matches, so that later one is kept. npm's glob ends each pattern
+ * in a `/`, which takes a symlink to a directory; Node's takes one only without.
  * @param {string} dir
  * @param {string[]} patterns
  * @param {PackageReader} read
@@ -99,8 +124,11 @@ function listMembers(dir, patterns, read) {
 	/** @type {string[]} */
 	let negated = [];
 	for (const written of patterns) {
-		const bangs = written.match(/^!+/)?.[0].length ?? 0;
-		const pattern = written.slice(bangs).replace(/^\.?\/+/, "");
+		const bangs = countBangs(written);
+		const pattern = written
+			.slice(bangs)
+			.replace(/^\.?\/+/, "")
+			.replace(/\/+$/, "");
 		if (bangs % 2 === 1) negated.push(pattern);
 		else {
 			negated = negated.filter((n) => !path.matchesGlob(pattern, n));
@@ -137,48 +165,58 @@ function findWorkspaceRoot(own, root, ownRoot, read) {
 
 /**
  * Whether `filter`, written in `from`, selects `member`: by name, by directory,
- * or as the parent of its directory.
+ * or as the parent of its directory, a negated one as what is not. Node's glob
+ * is npm's minimatch with negation off.
  * @param {string} filter
  * @param {Member} member
  * @param {string} from
  */
 function isSelected(filter, member, from) {
-	const parent = path.posix.normalize(filter).replace(/\/$/, "");
+	if (!filter) return false;
+	const bangs = countBangs(filter);
+	const parent = path.posix.normalize(filter.slice(bangs)).replace(/\/$/, "");
+	const under = path.matchesGlob(
+		path.relative(from, member.dir),
+		`${parent}/*`,
+	);
 	return (
 		filter === member.name ||
 		path.resolve(from, filter) === member.dir ||
-		path.matchesGlob(path.relative(from, member.dir), `${parent}/*`)
+		(bangs % 2 === 1 ? !under : under)
 	);
 }
 
 /**
- * The directories `selection` runs a script in from `from`, and whether a filter
- * selects nothing or `-ws` finds no member. Inside a member, `-ws` is that member
- * alone.
+ * The directories `selection` runs a script in from `from`, where none makes npm
+ * fail, and the members it chose among. Inside a member, no filter is that member
+ * alone; `-iwr` alone at the root runs the root.
  * @param {Selection} selection
  * @param {string} from the directory the run starts in
  * @param {string} root
  * @param {PackageReader} read
- * @returns {{dirs: string[], unresolved: boolean}}
+ * @returns {{dirs: string[], members: string[]}}
  */
-function resolveSelection({ filters, withRoot, ownRoot }, from, root, read) {
+function resolveSelection(
+	{ filters, all, withRoot, ownRoot },
+	from,
+	root,
+	read,
+) {
+	if (!path.matchesGlob) throw new Error(NEEDS_NODE);
 	const own = findPackageDir(from, root);
 	const found = findWorkspaceRoot(own, root, ownRoot, read);
-	const members = found?.members ?? [];
+	const members = (found?.members ?? []).map((m) => m.dir);
 	const hits = (/** @type {string} */ filter) =>
-		members.filter((m) => isSelected(filter, m, from));
-	const all = found?.dir === own ? members.map((m) => m.dir) : [own];
+		(found?.members ?? []).filter((m) => isSelected(filter, m, from));
+	const unfiltered = () => {
+		if (found && found.dir !== own) return [own];
+		return all ? members : [];
+	};
 	const chosen =
-		filters.length > 0 ? filters.flatMap(hits).map((m) => m.dir) : all;
+		filters.length > 0 ? filters.flatMap(hits).map((m) => m.dir) : unfiltered();
 	return {
-		dirs:
-			found || withRoot
-				? [...new Set([...(withRoot ? [found?.dir ?? own] : []), ...chosen])]
-				: [],
-		unresolved:
-			filters.length > 0
-				? filters.some((f) => hits(f).length === 0)
-				: found === undefined,
+		dirs: [...new Set([...(withRoot ? [found?.dir ?? own] : []), ...chosen])],
+		members,
 	};
 }
 

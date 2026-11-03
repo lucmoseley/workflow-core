@@ -64,12 +64,18 @@ describe("the directories npm's selectors run in", () => {
 		["-ws --iwr=false", ["web", "pkgs/a", "pkgs/b"]],
 		["--no-workspace web", ["web"]],
 		["--workspace", []],
+		["--no-workspace", []],
+		["--no-workspace -w web", ["web"]],
+		["-iwr", ["."]],
+		["-w nosuch -iwr", ["."]],
+		["-w !web", ["web", "pkgs/a", "pkgs/b"]],
+		["-w !pkgs", ["web"]],
 	])("npm %s runs in %j", (flags, dirs) => {
 		expect(select(flags)?.sort()).toEqual([...dirs].sort());
 	});
 
 	it.each([
-		"-iwr",
+		"--no-workspaces -iwr",
 		"--workspaces=false",
 		"--no-workspaces",
 		"--no-workspaces=true",
@@ -83,6 +89,8 @@ describe("the directories npm's selectors run in", () => {
 		["-ws", "web", ["web"]],
 		["-w a", "web", ["pkgs/a"]],
 		["-w a", "pkgs", ["pkgs/a"]],
+		["-iwr", "web", [".", "web"]],
+		["--workspace", "web", []],
 	])("npm %s from %s runs in %j", (flags, from, dirs) => {
 		expect(select(flags, from)).toEqual(dirs);
 	});

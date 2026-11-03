@@ -70,6 +70,15 @@ const EVIDENT_SECTIONS = [
 	"optionalDependencies",
 ];
 
+/** What npm names an unnamed workspace: its folder, under any scope folder
+ * (`@npmcli/name-from-folder`).
+ * @param {string} dir */
+function nameFromFolder(dir) {
+	const parent = path.basename(path.dirname(dir));
+	const base = path.basename(dir);
+	return parent.startsWith("@") ? `${parent}/${base}` : base;
+}
+
 /**
  * Throws a PackageReadError on a `package.json` that cannot be read or does
  * not parse, which would otherwise read as one naming no script.
@@ -83,7 +92,7 @@ function readPackage(root) {
 	} catch (err) {
 		throwUnlessAbsent(file, err);
 		return {
-			name: path.basename(root),
+			name: nameFromFolder(root),
 			scripts: {},
 			workspaces: [],
 			biome: false,
@@ -106,11 +115,10 @@ function readPackage(root) {
 		? pkg.workspaces.packages
 		: pkg?.workspaces;
 	return {
-		/* npm names an unnamed workspace after its folder. */
 		name:
 			typeof pkg?.name === "string" && pkg.name
 				? pkg.name
-				: path.basename(root),
+				: nameFromFolder(root),
 		scripts,
 		/** @type {string[]} */
 		workspaces: Array.isArray(workspaces)
