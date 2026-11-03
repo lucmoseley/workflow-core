@@ -38,6 +38,7 @@ import ISSUE_LIST_ROWS from "./fixtures/gh/issue-list-rows.json" with {
 	type: "json",
 };
 import ISSUE_STATE from "./fixtures/gh/issue-state.json" with { type: "json" };
+import ISSUE_VIEW from "./fixtures/gh/issue-view.json" with { type: "json" };
 import ISSUES_PAGE from "./fixtures/gh/issues-page.json" with { type: "json" };
 import LABELS_PAGE from "./fixtures/gh/labels-page.json" with { type: "json" };
 import LOGGED_OUT from "./fixtures/gh/logged-out.json" with { type: "json" };
@@ -291,6 +292,8 @@ export const RECORDED_SHAPES = `function asRecorded(kind, value) {
 		// gh issue list --json with every field a stub's rows carry; a real answer
 		// holds only the fields its call asks for.
 		issueListRows: JSON.parse(${JSON.stringify(ISSUE_LIST_ROWS.stdout)}),
+		// lib/issue-close.js's gh issue view --json.
+		issueView: JSON.parse(${JSON.stringify(ISSUE_VIEW.stdout)}),
 		// lib/idle-efforts.js's QUERY, --paginate --slurp.
 		idleIssuesPage: JSON.parse(${JSON.stringify(IDLE_ISSUES_PAGE.stdout)}),
 	};
