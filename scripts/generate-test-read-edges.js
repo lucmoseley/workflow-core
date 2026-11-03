@@ -10,6 +10,8 @@
  *          index holds; exit 1 on a difference, printing what moved. This is
  *          what the pre-commit gate runs, so a stale manifest cannot be
  *          committed — and the index is what the commit carries (#557).
+ *          A repo with no manifest in the index, HEAD or --only passes: the
+ *          gate applies only where the manifest exists (#4117).
  * --only   render what `git commit -- <path>...` will carry — HEAD plus those
  *          paths from disk — rather than the whole working tree; a named
  *          intent-to-add entry over a HEAD path is dropped, as the bare
@@ -107,6 +109,23 @@ function readCommittedFiles(root, only) {
 		);
 		return new Set();
 	}
+}
+
+/**
+ * Whether the repo has a manifest to judge. HEAD counts so that a commit
+ * deleting the manifest is still refused.
+ * @param {string} root
+ * @param {string[] | undefined} only
+ * @returns {boolean}
+ */
+function hasManifest(root, only) {
+	if (only?.includes(OUT)) return true;
+	if (gitList(root, ["ls-files", "-z", "--", OUT]).length > 0) return true;
+	return (
+		hasHead(root) &&
+		gitList(root, ["ls-tree", "-z", "--name-only", "HEAD", "--", OUT]).length >
+			0
+	);
 }
 
 /**
@@ -243,6 +262,7 @@ function main(argv = process.argv.slice(2)) {
 	const { root, check, only } = opts;
 	const target = path.join(root, OUT);
 	if (opts.unseen) return listUnseen(root, check || Boolean(only));
+	if (check && !hasManifest(root, only)) return 0;
 	const { text, edges, anchored, tests, read, tree, warnings, unseen } = render(
 		root,
 		{ index: check, only, sites: check },

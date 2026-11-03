@@ -105,8 +105,36 @@ describe("generate-test-read-edges.js", () => {
 		expect(stderr).toContain(`${DOC}: 1 -> 0 reader(s)`);
 	});
 
-	it("--check fails rather than passing when the manifest is absent", () => {
-		expect(runFailing("--check").status).toBe(1);
+	it("--check passes where the repo has no manifest, as base §0's gate row states (#4117)", () => {
+		const r = runFailing("--check");
+		expect(r.status).toBe(0);
+		expect(r.stderr).toBe("");
+	});
+
+	it("--check passes under --only where neither HEAD nor the paths hold a manifest", () => {
+		expect(
+			runFailing("--check", "--only", "scripts/reader.test.ts").status,
+		).toBe(0);
+	});
+
+	it("--check refuses a commit deleting the manifest HEAD holds", () => {
+		run();
+		git("add", "-A");
+		git("commit", "-qm", "manifest");
+		git("rm", "-q", OUT);
+		const { status, stderr } = runFailing("--check");
+		expect(status).toBe(1);
+		expect(stderr).toContain(`${DOC}: 0 -> 1 reader(s)`);
+		expect(stderr).toContain("Regenerate it:");
+	});
+
+	it("--check refuses a manifest staged for the first time that is stale", () => {
+		write(OUT, JSON.stringify({ edges: {} }));
+		git("add", "-A");
+		const { status, stderr } = runFailing("--check");
+		expect(status).toBe(1);
+		expect(stderr).toContain(`${DOC}: 0 -> 1 reader(s)`);
+		expect(stderr).toContain("Regenerate it:");
 	});
 
 	it("--check leaves the manifest alone, so the gate is never a writer", () => {
