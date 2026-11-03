@@ -5,6 +5,7 @@
  * it knows (#2899).
  */
 
+const { caught } = require("./caught.js");
 const { readFdAll } = require("./read-fd.js");
 
 /**
@@ -24,9 +25,22 @@ function logger(name, root) {
 				root,
 			);
 		} catch {
-			/* A log that cannot be written must not break the guard. */
+			/* A log that cannot be written must not break the guard: the record
+			 * is the fail-open's trace, never its policy (mantahostels#103 §6). */
 		}
 	};
+}
+
+/** stdin that could not be read: no payload is known, so no core can judge. */
+class PayloadUnreadable extends Error {
+	/**
+	 * @param {string} message
+	 * @param {{ cause: unknown }} options the read's own fault
+	 */
+	constructor(message, options) {
+		super(message, options);
+		this.name = "PayloadUnreadable";
+	}
 }
 
 /**
@@ -35,13 +49,17 @@ function logger(name, root) {
  * @param {string} noun what goes unchecked, for the record
  * @param {(what: string, detail?: string) => void} log
  * @returns {Record<string, unknown> | null}
+ * @throws {PayloadUnreadable} where stdin will not read: the caller's failure
+ *   policy judges it (#4132)
  */
 function readPayload(noun, log) {
 	let raw;
 	try {
 		raw = readFdAll(0).toString("utf8");
-	} catch {
-		raw = "";
+	} catch (e) {
+		throw new PayloadUnreadable(`stdin unreadable: ${caught(e).message}`, {
+			cause: e,
+		});
 	}
 	if (!raw) return null;
 	try {

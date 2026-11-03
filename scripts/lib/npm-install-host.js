@@ -41,6 +41,10 @@ function call(program, args, timeoutMs) {
 }
 
 /**
+ * A file's text, null where it is absent or will not read. The core logs a
+ * null package.json and allows, since every package would otherwise read as
+ * new, and a null manifest leaves the bin's owner unread (lib/npm-install.js
+ * LIMITS; mantahostels#103 §6, #4132).
  * @param {string} file
  * @returns {string | null}
  */
@@ -48,6 +52,7 @@ function readOrNull(file) {
 	try {
 		return fs.readFileSync(file, "utf8");
 	} catch {
+		/* Absent and unreadable alike: the core's logged allow, above. */
 		return null;
 	}
 }

@@ -36,8 +36,9 @@
  * its row's `failure`: `open` allows, logged; `closed` refuses, but for a
  * core's own throw on the repo not resolving, which allows, logged, as
  * lib/refuse-on-throw.js's entries do. A store fault refuses whatever the policy (mantahostels#1762). Anything
- * else that throws here crashes the entry, and the registration's
- * `"onFailure": "block"` refuses the call. There is no per-core time budget:
+ * else that throws here, stdin that will not read included (#4132), crashes the entry, and the registration's
+ * `"onFailure": "block"` refuses the call; on PostToolUse, which carries none,
+ * the crash shows as a hook error and the call stands. There is no per-core time budget:
  * a core does no I/O, and every adapter that spawns carries its own timeout, cut to what the entry's budget
  * leaves (lib/hook-deadline.js): each git and gh call's by lib/git.js and
  * lib/gh.js, the other spawns' by their hosts, and npm-install's registry
@@ -478,7 +479,15 @@ function runEntry(only) {
 	const root = hostRoot(process.cwd(), { timeoutMs: HOOK_GIT_TIMEOUT_MS });
 	if (guardDisabled(guardFile(), { root })) return;
 	const entryLog = logger(guardFile(), root);
-	const payload = readPayload("call", entryLog);
+	let payload;
+	try {
+		payload = readPayload("call", entryLog);
+	} catch (e) {
+		/* No core can judge without a payload: the FAILURE POLICY's crash
+		 * (#4132). */
+		entryLog(`${caught(e).message} — the entry exits non-zero`);
+		throw e;
+	}
 	if (!payload) return;
 	const event = String(payload.hook_event_name ?? "");
 	startEntryClock(event);

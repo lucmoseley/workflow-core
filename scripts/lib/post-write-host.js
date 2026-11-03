@@ -48,7 +48,14 @@ function buildHostPorts(root, log) {
 				if (fs.lstatSync(leaf).isSymbolicLink()) leaf = fs.realpathSync(leaf);
 				const dir = fs.realpathSync(path.dirname(leaf));
 				return `${dir}/`.startsWith(`${root}/`);
-			} catch {
+			} catch (e) {
+				/* Outside, so nothing is formatted: a write the hook cannot
+				 * place is left as written (mantahostels#103 §6). */
+				if (caught(e).code !== "ENOENT")
+					log(
+						"the written path did not resolve — left as written",
+						caught(e).message,
+					);
 				return false;
 			}
 		},
@@ -58,7 +65,14 @@ function buildHostPorts(root, log) {
 					.createHash("sha1")
 					.update(fs.readFileSync(abs(file)))
 					.digest("hex");
-			} catch {
+			} catch (e) {
+				/* Null: unread before the format, no reformat is reported;
+				 * unread after, one is (mantahostels#103 §6). */
+				if (caught(e).code !== "ENOENT")
+					log(
+						"the written file did not read for its digest",
+						caught(e).message,
+					);
 				return null;
 			}
 		},
