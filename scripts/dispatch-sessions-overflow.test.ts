@@ -142,6 +142,19 @@ describe("an overflow seat (#2610)", () => {
 		expect([r.launched[0]?.jobId]).toEqual(readStoredJobIds());
 	});
 
+	it("sizes the set from the batch's checkout's table, whichever checkout the loop's env names (#3700)", () => {
+		stubClaude({});
+		const elsewhere = path.join(fx.dir, "elsewhere");
+		/* $100 a session fits 2 of the $200 grant, so a gate reading this table prints "fits 2". */
+		writeCostTable(elsewhere, { meanUsd: 100, quantilesUsd: [1, 100] });
+		const r = dispatch(1, {
+			...overflowEnv(200),
+			CLAUDE_PROJECT_DIR: elsewhere,
+		});
+		expect(r.failed).toBeNull();
+		expect(r.out).toContain(`Budget OK: ${seat()} fits 20; headroom $200.00.`);
+	});
+
 	it("records the launch's session id from launch, before any listing shows it (#2611)", () => {
 		stubClaude({});
 		const [l] = dispatch(1, overflowEnv(200)).launched;
