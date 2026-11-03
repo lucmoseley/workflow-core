@@ -421,7 +421,7 @@
 			"source": "#2097"
 		},
 		"scripts/inject-compaction-count.js": {
-			"digest": "fe700dcaa07fb7cc",
+			"digest": "85925afb9602c0ec",
 			"verdict": "at need (the first model turn after an autocompaction)",
 			"selfSufficient": "yes — count plus the act (finish the unit, start nothing new, end)",
 			"source": "#1604"
