@@ -21,6 +21,6 @@ A `takes:human` BODY, in this order (modelled on mmm-infra#32):
   3. The deliverable verbatim in a fenced block — or each step with its surface, its literal text and what the founder should see.
   4. **Close when:** <what finishes it> — and what the closing comment records, naming any issue that waits on the result.
 
-THE ISSUE BODY IS THE HAND-OVER'S SOURCE. An in-chat walk takes the founder through it step by step and is never a second copy.
+THE ISSUE BODY IS THE HAND-OVER'S SOURCE for later sessions, never what the founder is sent to read: the final message asking for the act carries every step in full (`rule:founder-handover`).
 
 A DECISION'S QUESTION ROUND is posted on the issue that carries it before the session ends on `needs input:`.
