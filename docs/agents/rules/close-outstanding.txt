@@ -1,7 +1,7 @@
 EVERY CLOSE SAYS WHAT IS STILL OUTSTANDING.
 
-A line beginning `**Outstanding:**`, in the close's own `--comment` or else the
-issue's newest comment — an older marker does not count. A closed issue is
+A line beginning `**Outstanding:**`, in {rule:close-outstanding-where}
+— an older marker does not count. A closed issue is
 corpus, not a queue, so work left undone at the close is found only if someone
 re-reads the comment.
 

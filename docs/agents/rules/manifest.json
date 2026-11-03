@@ -21,6 +21,10 @@
 			"source": "docs/agents/issue-tracker.md",
 			"trigger": "a `gh issue close` on the Bash tool"
 		},
+		"close-outstanding-where": {
+			"source": "docs/agents/issue-tracker.md",
+			"trigger": "a `gh issue close` on the Bash tool"
+		},
 		"commit-closes-keyword": {
 			"source": "docs/agents/issue-tracker.md",
 			"trigger": "a `git commit` whose message names an issue-closing keyword — on the Bash tool, and at the git hooks whatever route wrote the message (#138)"
@@ -41,6 +45,14 @@
 			"source": "docs/agents/issue-tracker.md",
 			"trigger": "a `gh api` on an issue's `dependencies/blocked_by` or `sub_issues` endpoint, on the Bash tool"
 		},
+		"founder-acts": {
+			"source": "docs/agents/triage-labels.md",
+			"trigger": "a `gh issue create`, `gh issue edit` or `scripts/file-issue.js` applying `takes:human` to a body whose Outside line fails"
+		},
+		"gate-basis-line": {
+			"source": "docs/agents/issue-tracker.md",
+			"trigger": "a `gh issue create`, `scripts/file-issue.js` or `scripts/issue-body.js` write adding a gate line or a prose wait with no basis naming its windows"
+		},
 		"gh-cli-limits": {
 			"source": "docs/agents/issue-tracker.md",
 			"trigger": "a `gh pr checks`, a `gh` call naming `statusCheckRollup` or a `check-runs` endpoint, a `gh run list --commit`, or a `gh issue view --comments`, on the Bash tool"
@@ -48,6 +60,10 @@
 		"gh-job-dir-unreadable": {
 			"source": "docs/agents/issue-tracker.md",
 			"trigger": "a `gh issue create`, `comment`, `edit`, `close` or `gh api` on a Bash command naming a body file under the job directory, in a `gh` body flag or a `cat`"
+		},
+		"install-scripts-first": {
+			"source": "docs/agents/dependabot.md",
+			"trigger": "an `npm install` adding a package without `--ignore-scripts`, on the Bash tool"
 		},
 		"issue-body-raw-write": {
 			"source": "docs/agents/issue-tracker.md",
@@ -76,6 +92,14 @@
 		"kind-label-vocabulary": {
 			"source": "docs/agents/triage-labels.md",
 			"trigger": "applying or reading a `kind:` label"
+		},
+		"no-command-opens-shape": {
+			"source": "docs/agents/triage-labels.md",
+			"trigger": "a `gh issue create`, `gh issue edit` or `scripts/file-issue.js` applying `takes:human` to a body whose Outside line fails"
+		},
+		"repo-file-act": {
+			"source": "docs/agents/triage-labels.md",
+			"trigger": "a `gh issue create`, `gh issue edit` or `scripts/file-issue.js` applying `takes:human` to a body whose Outside line fails"
 		},
 		"research-artefact-scratch": {
 			"source": "docs/agents/issue-tracker.md",

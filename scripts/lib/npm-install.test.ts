@@ -34,6 +34,7 @@ import {
 	npmViewAnswer,
 	type Registry,
 } from "./npm-registry-fake";
+import { readRuleText } from "./rule-text";
 
 const { decide } = require("./npm-install.js") as {
 	decide: (command: string, ctx: object) => { deny: string } | null;
@@ -190,9 +191,24 @@ describe("check 1 — the execution window", () => {
 		expect(denial("npm install left-pad")).toBe(
 			`This install adds 1 package(s) this repo does not yet depend on — left-pad  — and does not carry \`--ignore-scripts\`: npm install left-pad
 
-A package's \`preinstall\` and \`postinstall\` run as you, before anything reads a byte of it. Re-run with \`--ignore-scripts\`; it is per-invocation, so husky's \`prepare\` bootstrap on a fresh clone is untouched (mantahostels#1767 rejected the repo-wide \`.npmrc\` form for exactly that reason).
+Without \`--ignore-scripts\`: ${readRuleText("install-scripts-first")}
+
+Re-run with \`--ignore-scripts\`; it is per-invocation, so husky's \`prepare\` bootstrap on a fresh clone is untouched (mantahostels#1767 rejected the repo-wide \`.npmrc\` form for exactly that reason).
 
 Then commit the lockfile.`,
+		);
+	});
+
+	it("ends the sentence on the store's fallback where the fragment cannot be read", () => {
+		const { ctx } = harness();
+		const d = decide("npm install left-pad", {
+			...ctx,
+			ruleText: () => {
+				throw new Error("store unreadable");
+			},
+		});
+		expect(d?.deny).toContain(
+			"Without `--ignore-scripts`: an install runs its packages' own scripts; the rule could not be read from docs/agents/rules/install-scripts-first.txt. Read that file before doing anything else.\n\nRe-run",
 		);
 	});
 

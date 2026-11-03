@@ -28,7 +28,7 @@ import { ghFake, readGhAnswer } from "./gh-fake";
 import { UNFILLED_DESTINATION } from "./issue-gate";
 import { kitContextFake } from "./kit-context-fake";
 import { readRuleText } from "./rule-text";
-import { CLOSE_WHEN_LINE, FOUNDER_ACTS, outsideLineFault } from "./takes-label";
+import { CLOSE_WHEN_LINE, outsideLineFault } from "./takes-label";
 
 type Decision = { deny: string } | { injectRules: string[]; prelude: string };
 const { decide } = require("./issue-create-label.js") as {
@@ -1580,6 +1580,22 @@ describe("the relocated rule reaches the session that trips the guard", () => {
 		).not.toContain("One shape passes");
 	});
 
+	it("prints the no-command shape from its span", () => {
+		expect(
+			readDenyReason('gh issue create --label takes:human --body "cut lines"'),
+		).toContain(readRuleText("no-command-opens-shape"));
+	});
+
+	it("prints the repo-file sentence from its span", () => {
+		expect(
+			readDenyReason(
+				'gh issue create --label takes:human --body "**Outside Claude Code:** draw the logo in Inkscape"',
+			),
+		).toContain(
+			`The rule (mantahostels#3503): ${readRuleText("repo-file-act")}`,
+		);
+	});
+
 	it.each([
 		['gh issue create --title "t" --body "b"', "no label at all"],
 		[
@@ -2119,7 +2135,7 @@ describe("the founder-act limb (#1097)", () => {
 			[relabel, env(body)],
 		] as const) {
 			const reason = readDenyReason(call, e);
-			expect(reason).toContain(`The acts are: ${FOUNDER_ACTS.join("; ")}`);
+			expect(reason).toContain(`The acts are: ${readRuleText("founder-acts")}`);
 			expect(reason).toContain("name the act from that list");
 			expect(reason).toContain("add a **Tried:** line");
 		}
@@ -2135,7 +2151,7 @@ describe("the founder-act limb (#1097)", () => {
 		"names the list, not the examples it once gave, where the body %s (#1097)",
 		(_, body) => {
 			const reason = readDenyReason(create(`${body}${CLOSE}`));
-			expect(reason).toContain(FOUNDER_ACTS.join("; "));
+			expect(reason).toContain(readRuleText("founder-acts"));
 			expect(reason).not.toContain("click through a third-party dashboard");
 			expect(reason).not.toContain("read a setting off your own phone");
 		},

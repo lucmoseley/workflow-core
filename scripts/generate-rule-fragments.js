@@ -19,6 +19,12 @@
  * The region is every line BETWEEN them, joined by newlines with one trailing
  * newline.
  *
+ * A SPAN is the same pair written inline, inside a region: its text renders
+ * as a fragment of its own, and the region's fragment carries the text with
+ * the two comments dropped. A guard printing one sentence of a longer rule
+ * reads the span (#4155). Inline comments leave the source's rendered
+ * paragraph whole, which an own-line pair would split.
+ *
  * THE MANIFEST records, per id, the document and the trigger that makes the
  * rule bind. Nothing reads that field yet. The trigger is never inferred from
  * the anchor: an anchored id with no TRIGGERS row refuses.
@@ -28,7 +34,8 @@
  *
  * EXIT CODES: 0 wrote (or, under --check, everything matches); 1 a fault —
  * an unpaired anchor, an empty region, an id the grammar refuses, an id with
- * no TRIGGERS row, or (under --check) a fragment or manifest out of step.
+ * no TRIGGERS row, a span unpaired, nested, empty or outside a region, or
+ * (under --check) a fragment or manifest out of step.
  */
 
 const fs = require("node:fs");
@@ -66,6 +73,10 @@ const SOURCES = [
 
 /* scripts/lib/test-rules-inject.js's trigger, shared by base §X8, §X9 and §X10. */
 const TEST_WRITE = "a `Write`, `Edit` or `NotebookEdit` to a test file";
+
+/* The moment the takes:human limb of the create guard and file-issue.js binds. */
+const TAKES_HUMAN =
+	"a `gh issue create`, `gh issue edit` or `scripts/file-issue.js` applying `takes:human` to a body whose Outside line fails";
 
 /* id → the observable moment the rule binds, in the words a session reads.
  * Never inferred from the anchor. */
@@ -128,11 +139,23 @@ const TRIGGERS = {
 		"writing, amending or reading a spec, or lifting one filed under a `kind:brief` up to its map with `node scripts/promote-spec.js <brief>`",
 	"takes-label-nuances":
 		"applying, removing or reading `takes:children` or `takes:human`",
+
+	/* SPANS (#4155): one sentence of a region above, printed by a guard alone. */
+	"founder-acts": TAKES_HUMAN,
+	"no-command-opens-shape": TAKES_HUMAN,
+	"repo-file-act": TAKES_HUMAN,
+	"gate-basis-line":
+		"a `gh issue create`, `scripts/file-issue.js` or `scripts/issue-body.js` write adding a gate line or a prose wait with no basis naming its windows",
+	"close-outstanding-where": "a `gh issue close` on the Bash tool",
+	"install-scripts-first":
+		"an `npm install` adding a package without `--ignore-scripts`, on the Bash tool",
 };
 
 const ID_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const BEGIN_RE = /^<!--\s*rule:([^\s:]+):begin\s*-->$/;
 const END_RE = /^<!--\s*rule:([^\s:]+):end\s*-->$/;
+const SPAN_RE = /<!--\s*rule:([^\s:]+):(begin|end)\s*-->/g;
+const HAS_SPAN = new RegExp(SPAN_RE.source);
 
 /**
  * One document's anchor scan in progress: the region open, if any, the lines
@@ -162,6 +185,8 @@ function readRegionsIn(relPath) {
 			return;
 		}
 		if (scan.open) scan.body.push(line);
+		else if (HAS_SPAN.test(line))
+			throw new Error(`${at}: a rule span sits outside every anchored region`);
 	});
 	if (scan.open)
 		throw new Error(`${relPath}: rule:${scan.open} is never closed`);
@@ -189,7 +214,8 @@ function openRegion(scan, begin, at) {
 
 /**
  * An end anchor: closes the open region into `scan.out`, refusing one that
- * closes another id or nothing, or whose region is empty.
+ * closes another id or nothing, or whose region is empty. Its spans close
+ * into out beside it.
  * @param {RegionScan} scan accumulator: the parser's scan state, its region closed into out
  * @param {RegExpExecArray} end
  * @param {string} at
@@ -200,11 +226,74 @@ function closeRegion(scan, end, at) {
 		throw new Error(
 			`${at}: rule:${end[1]} closes ${open ? `rule:${open}` : "nothing"}`,
 		);
-	const text = `${trimRun(scan.body.join("\n"), "\n")}\n`;
-	if (!text.trim())
+	const raw = `${trimRun(scan.body.join("\n"), "\n")}\n`;
+	if (!raw.trim())
 		throw new Error(`${at}: rule:${open}'s anchored region is empty`);
+	const { text, spans } = splitSpans(raw, `${at} (in rule:${open})`);
 	scan.out.push({ id: open, text, source: scan.source });
+	for (const s of spans) scan.out.push({ ...s, source: scan.source });
 	scan.open = null;
+}
+
+/**
+ * A region's text with its inline spans dropped, and each span's own text.
+ * @param {string} raw
+ * @param {string} at the region, as a fault names it
+ * @returns {{ text: string, spans: { id: string, text: string }[] }}
+ */
+function splitSpans(raw, at) {
+	/** @type {{ id: string, text: string }[]} */
+	const spans = [];
+	/** @type {{ id: string, from: number } | null} */
+	let open = null;
+	for (const m of raw.matchAll(SPAN_RE)) {
+		const id = requiredGroup(m, 1, SPAN_RE);
+		if (m[2] === "begin") open = openSpan(open, id, m, at);
+		else {
+			spans.push(closeSpan(open, id, raw.slice(open?.from, m.index), at));
+			open = null;
+		}
+	}
+	if (open) throw new Error(`${at}: span rule:${open.id} is never closed`);
+	return { text: raw.replace(SPAN_RE, ""), spans };
+}
+
+/**
+ * A span's begin comment: refused inside another span or on an id the
+ * grammar refuses.
+ * @param {{ id: string } | null} open
+ * @param {string} id
+ * @param {RegExpExecArray} m
+ * @param {string} at
+ * @returns {{ id: string, from: number }}
+ */
+function openSpan(open, id, m, at) {
+	if (open)
+		throw new Error(`${at}: span rule:${id} opens inside rule:${open.id}`);
+	if (!ID_RE.test(id))
+		throw new Error(
+			`${at}: "${id}" is not a rule id — ids are lowercase kebab-case`,
+		);
+	return { id, from: (m.index ?? 0) + m[0].length };
+}
+
+/**
+ * A span's end comment: refused where it closes another id or nothing, or
+ * the span holds nothing.
+ * @param {{ id: string } | null} open
+ * @param {string} id
+ * @param {string} body the text since the open span's begin comment
+ * @param {string} at
+ * @returns {{ id: string, text: string }}
+ */
+function closeSpan(open, id, body, at) {
+	if (open?.id !== id)
+		throw new Error(
+			`${at}: span rule:${id} closes ${open ? `rule:${open.id}` : "nothing"}`,
+		);
+	const text = body.trim();
+	if (!text) throw new Error(`${at}: span rule:${id} is empty`);
+	return { id, text: `${text}\n` };
 }
 
 /**

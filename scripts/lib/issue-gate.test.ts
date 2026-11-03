@@ -15,6 +15,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { readRuleText } from "./rule-text";
 
 const {
 	gateOf,
@@ -408,6 +409,13 @@ describe("basisFaults — a wait with nothing behind it (#672)", () => {
 describe("basisFaults — each window its basis names (#823)", () => {
 	const gate816 =
 		"**Gated on:** the repo is created — abandon if: 7 days pass after the repo is created";
+
+	it("prints the basis template from its span", () => {
+		const body = `${gate816}\n**Gate basis:**\n**Gate basis:** 3 days`;
+		expect(basisRefusal(basisFaults(body), body)).toContain(
+			`The line's template: ${readRuleText("gate-basis-line")}`,
+		);
+	});
 
 	it("names the window, not a missing basis, where the first basis is empty", () => {
 		const body = `${gate816}\n**Gate basis:**\n**Gate basis:** 3 days`;

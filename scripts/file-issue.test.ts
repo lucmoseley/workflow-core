@@ -30,9 +30,11 @@ import { MARKERS_REL } from "./lib/marker-root";
 import { readRuleText } from "./lib/rule-text";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
-import { FOUNDER_ACTS, TAKES_VALUES, TRIED_MIN } from "./lib/takes-label";
+import { TAKES_VALUES, TRIED_MIN } from "./lib/takes-label";
 
 const SCRIPT = path.resolve(__dirname, "file-issue.js");
+/* triage-labels.md's founder-act list, as every takes:human refusal prints it (#4155). */
+const ACTS = readRuleText("founder-acts");
 const ME = "sess-me";
 /** The number the stubbed create returns — nothing a caller could guess. */
 const NEW = 561;
@@ -212,14 +214,13 @@ describe("the takes: label", () => {
 		expect(readCreates()).toHaveLength(1);
 	});
 
-	it("spells the same seven values docs/agents/triage-labels.md and place-new-issue.sh's takes_values do, and the doc's founder-act list word for word", () => {
+	it("spells the same seven values docs/agents/triage-labels.md and place-new-issue.sh's takes_values do", () => {
 		const doc = fs.readFileSync(
 			path.resolve(__dirname, "..", "docs", "agents", "triage-labels.md"),
 			"utf8",
 		);
 		expect(TAKES_VALUES).toHaveLength(7);
 		for (const v of TAKES_VALUES) expect(doc).toContain(`takes:${v}`);
-		for (const act of FOUNDER_ACTS) expect(doc).toContain(act);
 		const placed = fs
 			.readFileSync(path.resolve(__dirname, "place-new-issue.sh"), "utf8")
 			.match(/^takes_values="(.*)"$/m)?.[1];
@@ -351,8 +352,7 @@ describe("takes:human — the create guard's Outside-line tests", () => {
 			expect(r.status).toBe(2);
 			expect(r.stderr).toContain(said);
 			for (const wayOut of wayOuts) expect(r.stderr).toContain(wayOut);
-			if (quotesActs)
-				for (const act of FOUNDER_ACTS) expect(r.stderr).toContain(act);
+			if (quotesActs) expect(r.stderr).toContain(ACTS);
 			expect(readGhCalls()).toEqual([]);
 		},
 	);
@@ -400,7 +400,7 @@ describe("takes:human — the shared table of bodies (#1095)", () => {
 		});
 		expect(r.status).toBe(2);
 		expect(readGhCalls()).toEqual([]);
-		for (const act of FOUNDER_ACTS) expect(r.stderr).toContain(act);
+		expect(r.stderr).toContain(ACTS);
 		expect(r.stderr).toContain("name the act from that list");
 		expect(r.stderr).toContain(
 			`**Tried:** line followed directly by at least ${TRIED_MIN}`,

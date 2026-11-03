@@ -8,8 +8,8 @@
  *   **Gated on:** <condition> — check: <command> — abandon if: <clause>
  *       (mantahostels#1419, the ticket that added the second spelling because a guessed
  *       date lies about what a machinery ticket is really waiting for)
- *   **Gate basis:** <the data that sets the date or window, and why nothing
- *       sooner fits it>  (#577)
+ *   **Gate basis:** <what sets the window>  (#577; the template is the
+ *       `gate-basis-line` rule fragment)
  *
  * A MARKER IN THE BODY, NOT A LABEL.
  *
@@ -345,9 +345,8 @@ function durationsIn(body, at) {
 		}));
 }
 
-const BASIS_RULE =
-	"Every gate line, and every wait written as prose, carries `**Gate basis:** <the data that sets the date or window, and why nothing sooner fits it>` on its own line — beneath the gate line where there is one — and the basis names every window the gate and the waits write, an `abandon if:` clause's included (#823). Wait windows are the shortest the data defends (#616, #672). This checks only that a basis names each window, never that it holds up: the derivation is the writer's. Rule: " +
-	`${docPath("agents/issue-tracker.md")} §Gating an issue.`;
+const basisRule = () =>
+	`Every gate line, and every wait written as prose, carries a \`**Gate basis:**\` line on its own line — beneath the gate line where there is one — and the basis names every window the gate and the waits write, an \`abandon if:\` clause's included (#823). Wait windows are the shortest the data defends (#616, #672). This checks only that a basis names each window, never that it holds up: the derivation is the writer's. Rule: ${docPath("agents/issue-tracker.md")} §Gating an issue. The line's template: ${require("./rule-text.js").readRuleTextOr("gate-basis-line", "a `**Gate basis:**` line naming what sets the window", "issue-gate")}`;
 
 /**
  * What in a body needs a `**Gate basis:**` and lacks one. With no live basis:
@@ -491,12 +490,12 @@ function resolveGate(body, at = Date.now()) {
 function basisRefusal(faults, body) {
 	const quoted = faults.map((f) => `"${f}"`).join(", ");
 	if (liveBases(String(body || "")).length === 0)
-		return `${quoted} with no \`**Gate basis:**\` line. ${BASIS_RULE}`;
+		return `${quoted} with no \`**Gate basis:**\` line. ${basisRule()}`;
 	const which =
 		faults.length === 1
 			? "a window the `**Gate basis:**` line does not name"
 			: "windows the `**Gate basis:**` line does not name";
-	return `${quoted}, ${which}. ${BASIS_RULE}`;
+	return `${quoted}, ${which}. ${basisRule()}`;
 }
 
 /**

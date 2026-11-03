@@ -75,39 +75,29 @@ const OUTSIDE_MARKER = "Outside Claude Code:";
 const OUTSIDE_LINE = /Outside Claude Code:[ \t*]*[^\s*]/;
 const OUTSIDE_TEXT = /Outside Claude Code:[^\n]*/;
 
-/* An act whose product is a file in this repository is never an outside act,
- * whatever tool a document names as the owner's (mantahostels#3555). No wider
+/* The `repo-file-act` rule's lexical test (mantahostels#3555). No wider
  * than mantahostels#3555 item 4 lists: a line naming the act without the path
  * passes. */
 const REPO_FILE_ACT =
 	/`(docs|app|scripts|components|lib|public)\/[^`]*`|(?<![A-Za-z0-9_-])[A-Za-z0-9_-]+\.(svg|png|md|js|ts)($|[^A-Za-z0-9_])|[Ii]nkscape|[Ff]igma|[Pp]hotoshop|[Ss]preadsheet/;
 
 /* A real outside act names an ACTION; an Outside line naming a PROHIBITION is
- * the barred-is-not-impossible mistake (mantahostels#2775). Every alternative
- * names an AGENT or a SESSION as the barred subject: a prohibition about the
- * world is often part of a real errand ("once submitted it may not be
- * edited"), so only a claim that no agent may do the thing is caught (#140). */
+ * the barred-is-not-impossible mistake (mantahostels#2775). Only a claim that
+ * no agent or session may do the thing is caught, since a bar on the world
+ * belongs to many real errands (#140; triage-labels.md says why). */
 const BARRED_ACT =
 	/[Nn]o (agent|session) (may|can)|[Aa]n agent (may not|cannot|is not permitted|is barred)|[Aa]gents? (are|is) (barred|not permitted)|(may not|cannot) be [a-z]+ by (an agent|a session)|[Nn]o agent is (allowed|permitted)/;
 
-/* Ruling 1's closed list of the founder's own acts (#1077 Q1 (A)). */
-const FOUNDER_ACTS = [
-	"pay, buy or subscribe",
-	"sign or accept terms",
-	"delete",
-	"install an app",
-	"accept an invite",
-	"grant access",
-	"OAuth Authorize",
-	"a CAPTCHA guarding an act he is taking",
-	"card entry",
-	"a one-time code",
-	"phone verification",
-	"signing a site in for the first time",
-	"an act Claude Code's automatic permission check refused (never the same act by another path)",
-	"a phone call, an in-person act, or an act in a desktop or phone app",
-	"sending anything a person outside reads",
-];
+/**
+ * Ruling 1's closed list of the founder's own acts (#1077 Q1 (A)).
+ * @returns {string}
+ */
+const readFounderActs = () =>
+	require("./rule-text.js").readRuleTextOr(
+		"founder-acts",
+		"one of the founder's own acts",
+		"takes-label",
+	);
 
 /* The vocabulary that names one of them (#1092 §The check), whole-word and
  * case-insensitive on the Outside line alone. The suffix, and the irregular
@@ -204,7 +194,7 @@ function takesRefusal(labels, body) {
 	if (label !== takesLabel("human")) return null;
 
 	const rule = `Rule: ${docPath("agents/triage-labels.md")} §\`takes:\`, the nuances block.`;
-	const acts = FOUNDER_ACTS.join("; ");
+	const acts = readFounderActs();
 	const triedWayOut = `for a website job no act on that list covers, add a **Tried:** line followed directly by at least ${TRIED_MIN} list items, one per different method you actually ran and what it showed`;
 	const found = outsideLineFault(body);
 	if (!found)
@@ -212,11 +202,11 @@ function takesRefusal(labels, body) {
 			? null
 			: `takes:human, but the body has no **${CLOSE_WHEN_MARKER}** line. Add it — ${require("./rule-text.js").readRuleTextOr("close-when-line", "**Close when:** <what finishes it>", "takes-label")} Template: ${scriptPath("lib/rule-text.sh")} founder-deliverable.`;
 	if (found.fault === "NO-OUTSIDE-ACT")
-		return `takes:human, but the body names no act performed outside Claude Code. Add it on its own line — **${OUTSIDE_MARKER}** <the act, in plain words>, one of the founder's own (#1077): ${acts}. Or, ${triedWayOut}. If you can honestly write neither, the label is wrong. ${rule}`;
+		return `takes:human, but the body names no act performed outside Claude Code. Add it on its own line — **${OUTSIDE_MARKER}** <the act, in plain words>, one of the founder's own acts this message closes on. Or, ${triedWayOut}. If you can honestly write neither, the label is wrong. ${rule} The founder's own acts (#1077): ${acts}`;
 	if (found.fault === "NOT-A-FOUNDER-ACT")
-		return `takes:human, but the Outside line names none of the founder's own acts: "${found.line}". The acts are: ${acts} (#1077). Two ways out: name the act from that list on the Outside line, or, ${triedWayOut}. Neither true means an agent can do it, and the label is wrong. ${rule}`;
+		return `takes:human, but the Outside line names none of the founder's own acts: "${found.line}". Two ways out: name the act from that list, which this message closes on, on the Outside line, or, ${triedWayOut}. Neither true means an agent can do it, and the label is wrong. ${rule} The acts are (#1077): ${acts}`;
 	if (found.fault === "BARRED-NOT-IMPOSSIBLE")
-		return `takes:human, but the Outside line names a prohibition rather than an act: "${found.line}". Being barred is not being impossible — a real bar is takes:wayfinder, to rule on it; an unreal one is takes:implement. The line names what the founder does, one of his own acts (#1077): ${acts}. ${rule}`;
+		return `takes:human, but the Outside line names a prohibition rather than an act: "${found.line}". Being barred is not being impossible — a real bar is takes:wayfinder, to rule on it; an unreal one is takes:implement. The line names what the founder does, one of his own acts. ${rule} The founder's own acts (#1077): ${acts}`;
 	return `takes:human, but the Outside line's act produces a file in this repository: "${found.line}". The file is takes:implement; the founder's review of it is takes:wayfinder. ${rule}`;
 }
 
@@ -224,7 +214,6 @@ module.exports = {
 	CLOSE_WHEN_LINE,
 	CLOSE_WHEN_MARKER,
 	COMMAND_VALUES,
-	FOUNDER_ACTS,
 	NO_COMMAND_VALUES,
 	OUTSIDE_MARKER,
 	TAKES_PREFIX,
