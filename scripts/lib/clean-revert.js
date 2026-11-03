@@ -16,6 +16,11 @@
  * stale: the fix ticket owes a guard-registry row's re-read, and a census row
  * reports on the full run.
  *
+ * The guard registry's file is settled by its merge driver's own per-row merge
+ * (#4171), so a revert and its recomputation agree whether or not the git they
+ * run under defines the driver: where it does, the file never conflicts and
+ * `merge-tree` writes those bytes itself.
+ *
  * RESIDUAL: anyone may set it, an agent session included, and a clean revert
  * of any commit then lands with the rows it leaves stale. They stay stale
  * findings on every full run, and only staleness is exempt.
@@ -23,6 +28,7 @@
 
 const { commitSha } = require("./commit-sha.js");
 const { spawnGitSync } = require("./git.js");
+const { buildMergedAnchors } = require("./registry-anchors-merge.js");
 
 const LANDER_REVERT_ENV = "WFC_LANDER_REVERT";
 
@@ -32,6 +38,8 @@ const ANCHOR_FILES = new Set([
 	"scripts/code-standards-base-anchors.json",
 	"scripts/instruction-surface-anchors.json",
 ]);
+
+const REGISTRY_ANCHORS = ".claude/guard-registry-anchors.json";
 
 /** @param {string} sha */
 const buildRevertLine = (sha) => `This reverts commit ${sha}.`;
@@ -65,19 +73,40 @@ function readKeptAnchors(cwd, { culprit, onto, side }, conflicted) {
 	const kept = new Map();
 	for (const file of conflicted) {
 		if (!ANCHOR_FILES.has(file)) return null;
-		const merged = gitOut(cwd, [
-			"merge-file",
-			"-p",
-			"--ours",
-			"--object-id",
-			`${onto}:${file}`,
-			`${culprit}:${file}`,
-			`${side}:${file}`,
-		]);
+		const merged =
+			file === REGISTRY_ANCHORS
+				? readRegistryMerge(cwd, { culprit, onto, side })
+				: gitOut(cwd, [
+						"merge-file",
+						"-p",
+						"--ours",
+						"--object-id",
+						`${onto}:${file}`,
+						`${culprit}:${file}`,
+						`${side}:${file}`,
+					]);
 		if (merged === null || !isJson(merged)) return null;
 		kept.set(file, merged);
 	}
 	return kept;
+}
+
+/**
+ * The registry file's per-row revert, its moved-on-both rows keeping `onto`'s
+ * digest, or null where a version is missing or not JSON digests.
+ * @param {string} cwd
+ * @param {{culprit: string, onto: string, side: string}} revert
+ * @returns {string|null}
+ */
+function readRegistryMerge(cwd, { culprit, onto, side }) {
+	/** @param {string} rev */
+	const at = (rev) =>
+		gitOut(cwd, ["cat-file", "blob", `${rev}:${REGISTRY_ANCHORS}`]);
+	const base = at(culprit);
+	const ours = at(onto);
+	const theirs = at(side);
+	if (base === null || ours === null || theirs === null) return null;
+	return buildMergedAnchors(base, ours, theirs);
 }
 
 /** @param {string} text */

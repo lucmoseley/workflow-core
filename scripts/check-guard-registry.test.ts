@@ -3300,6 +3300,38 @@ describe("a lander revert lands with the rows it leaves stale (#3127)", () => {
 			expect(onRemote("landing")).toBe(made.sha);
 		});
 
+		it("lands the lander's revert past both gates where the anchors' merge driver is defined, so nothing conflicts (#4171)", () => {
+			const { root, git, culprit, tip } = conflicting();
+			fs.writeFileSync(
+				path.join(root, ".git", "info", "attributes"),
+				`${Anchors} merge=registry-anchors\n`,
+			);
+			git(
+				"config",
+				"merge.registry-anchors.driver",
+				`node ${shellQuote(path.resolve(__dirname, "merge-registry-anchors.js"))} %O %A %B`,
+			);
+			const onRemote = landerCheckout(root, tip);
+
+			const made = remoteGit(root).revertOnLanding(
+				culprit,
+				git("rev-parse", `${culprit}^`),
+				"why",
+			);
+
+			expect(made).toMatchObject({
+				onto: tip,
+				stale: [
+					{ row: "STALE-PROSE scripts/guard-branch.sh", forward: review },
+				],
+			});
+			if (!("sha" in made)) throw new Error("no revert");
+			expect(onRemote("landing")).toBe(made.sha);
+			expect(git("log", "-1", "--format=%b", made.sha)).not.toContain(
+				"Conflicts in",
+			);
+		});
+
 		it("gives an anchors file holding anything else no exemption", () => {
 			const { root, git, culprit } = conflicted();
 			fs.appendFileSync(path.join(root, Anchors), "\n");

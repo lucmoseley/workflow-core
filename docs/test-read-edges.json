@@ -104,7 +104,9 @@
 			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/check-guard-registry.test.ts",
-			"scripts/init-adopter.test.ts"
+			"scripts/init-adopter.test.ts",
+			"scripts/lander.test.ts",
+			"scripts/lib/registry-anchors-merge.test.ts"
 		],
 		".claude/output-styles/core-voice.md": [
 			".claude/skills/new-repo/scripts/new-repo-page.test.ts",
@@ -423,6 +425,7 @@
 			"scripts/check-format-staged.test.ts",
 			"scripts/check-sh-changed.test.ts",
 			"scripts/check-shfmt.test.ts",
+			"scripts/install-hooks.test.ts",
 			"scripts/lib/formatters.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
 			"scripts/precommit-shellcheck-gate.test.ts"
@@ -17526,6 +17529,31 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/lib/registry-anchors-merge.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/registry-anchors-merge.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/registry-anchors-merge.test.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/lib/registry-atomicity-host.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
@@ -22703,6 +22731,17 @@
 		],
 		"scripts/memwatch-pair.test.ts": [
 			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/merge-registry-anchors.js": [
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/install-hooks.test.ts",
+			"scripts/lander.test.ts",
+			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
