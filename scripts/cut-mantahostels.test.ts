@@ -14,7 +14,7 @@
  * case and the cut swaps hooks under a live Manta session, or leaves a half-cut
  * repo with no rollback recipe.
  */
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -185,16 +185,13 @@ function fixture(pluginHooks: object = {}) {
 
 	const specPath = path.join(base, "spec.json");
 	put(base, "spec.json", JSON.stringify(SPEC));
+	const cutArgs = ["--root", dir, "--plugin-root", plugin, "--spec", specPath];
 	const cut = (env: NodeJS.ProcessEnv = {}) =>
-		runInProcess(
-			SCRIPT,
-			["--root", dir, "--plugin-root", plugin, "--spec", specPath],
-			{ env: { ...process.env, ...env } },
-		);
+		runInProcess(SCRIPT, cutArgs, { env: { ...process.env, ...env } });
 	const read = (rel: string) => fs.readFileSync(path.join(dir, rel), "utf8");
 	const tagged = () =>
 		git("tag", "--list", "pre-wfc-cut").trim() === "pre-wfc-cut";
-	return { dir, plugin, git, cut, read, tagged };
+	return { dir, plugin, git, cut, cutArgs, read, tagged };
 }
 
 describe("cut-mantahostels.js", () => {
@@ -355,6 +352,28 @@ describe("cut-mantahostels.js", () => {
 		expect(r.stderr).toContain("scripts/lib.sh → old.js");
 		expect(r.stderr).toContain("keep the target in MANTA.keep");
 		expect(f.tagged()).toBe(false);
+	});
+
+	it("reads an unclosed __dirname join of comma-less, double-spaced args once, still finding the spaced edge after it (#3605)", () => {
+		const f = fixture();
+		/* 40 args: the exponential reading took 2 s at 16, doubling or more per
+		 * arg, so it cannot finish inside the timeout below. */
+		put(
+			f.dir,
+			"scripts/runner.js",
+			`path.join(__dirname, ${'"a"  '.repeat(40)}\npath.join(__dirname , "old.js" , );\n`,
+		);
+		f.git("add", "-A");
+		f.git("commit", "-q", "-m", "an unclosed join before a real edge");
+		/* spawn-kept: a regex match blocks, so only a process timeout can stop one.
+		 * 30 s is a guess: well over this refusal's run, under the test ceiling. */
+		const r = spawnSync(process.execPath, [SCRIPT, ...f.cutArgs], {
+			encoding: "utf8",
+			timeout: 30_000,
+		});
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("scripts/runner.js → old.js");
+		expect(r.stderr).toContain("keep the target in MANTA.keep");
 	});
 
 	it("refuses a dirty tree before the recipe, naming the stray files and the way out, writing nothing", () => {

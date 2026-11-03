@@ -624,8 +624,10 @@ function rewriteClaudeMd(text, claudeMdPlan) {
 
 const RELATIVE_IMPORT =
 	/(?:(?:require|import)\(\s*|from\s+)["'](\.{1,2}\/[^"']+)["']/g;
+/* The blanks after an arg sit either side of its comma, never both sides of a
+ * missing one, so a long unclosed join is read once (#3605). */
 const DIRNAME_JOIN =
-	/path\.(?:join|resolve)\(\s*__dirname\s*,\s*((?:["'][^"']+["']\s*,?\s*)+)\)/g;
+	/path\.(?:join|resolve)\(\s*__dirname\s*,\s*((?:["'][^"']+["']\s*(?:,\s*)?)+)\)/g;
 const QUOTED = /["']([^"']+)["']/g;
 /* A shell lib sourced from beside the script, in each spelling the hooks use.
  * The indent stops at a line break, the next line's `^` reading on from there,
