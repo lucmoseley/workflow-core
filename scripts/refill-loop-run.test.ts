@@ -1311,6 +1311,25 @@ describe("a parked launch (#2699)", () => {
 		]);
 	});
 
+	it("records an overflow launch's key in the marker of a park it stops (#4147)", async () => {
+		const state = JSON.parse(
+			fs.readFileSync(at(".refill-loop-state.json"), "utf8"),
+		);
+		fs.writeFileSync(
+			at(".refill-loop-state.json"),
+			JSON.stringify({
+				...state,
+				launches: [{ ...state.launches[0], keyVar: "K2" }],
+			}),
+		);
+		fakeClaude([LISTED, blockedRow]);
+		const r = await twoTicks();
+		expect(r.status).toBe(0);
+		expect(readLines(markerPath("s-job7"))).toEqual(
+			expect.arrayContaining([`seat ${seat}`, "key K2", `job ${Job}`, "7"]),
+		);
+	});
+
 	it("counts an away park in the stored handed-off count (#3870)", async () => {
 		const control = JSON.parse(
 			fs.readFileSync(at(".refill-loop-control.json"), "utf8"),
@@ -1854,6 +1873,8 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 
 	it("carries an overflow session's key to its copy: the launch, the ledger's mark, and no second hold (#4147)", async () => {
 		seed(heldDue, { keyVar: "K2" });
+		fs.mkdirSync(path.dirname(markerPath("s-job7")), { recursive: true });
+		fs.writeFileSync(markerPath("s-job7"), "7\n");
 		fs.mkdirSync(path.dirname(ledgerPath(repo)), { recursive: true });
 		fs.writeFileSync(
 			ledgerPath(repo),
@@ -1870,6 +1891,7 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 		expect(r.status).toBe(0);
 		expect(launchState()).toMatchObject({ jobId: FAKE_COPY, keyVar: "K2" });
 		expect(readHeldIssues()).toEqual([[7], []]);
+		expect(readLines(markerPath("s-copy"))).toContain("key K2");
 		expect(JSON.parse(readLines(ledgerPath(repo)).at(-1) ?? "")).toMatchObject({
 			issues: [],
 			jobId: FAKE_COPY,
