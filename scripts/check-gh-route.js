@@ -26,10 +26,11 @@
  *     the binary's name first.
  *
  * THE OPT-OUT is a `gh-route-exempt: <why>` or `claude-route-exempt: <why>`
- * comment on the line or the line above, for a shell line naming the binary
- * only as text, such as a message telling an agent what to run, a wrapper in
- * the user's own shell, or a test of what a bare name on PATH resolves to. A
- * marker with no word after it is no marker.
+ * comment on the line or the line above. A shell line takes it where it names
+ * the binary only as text, such as a message telling an agent what to run or a
+ * wrapper in the user's own shell; a PATH line where it tests what a bare name
+ * resolves to, or holds a sandbox's belt that only refuses (base §N7). A marker
+ * with no word after it is no marker.
  *
  * IMPLICIT:  on every commit staging a path under scripts/, .claude/skills/, .husky/ or hooks/, refuses any second `gh` or `claude` route in the tree, naming the file, line, the binary's primitive and its exemplar.
  * JUSTIFIED: fail-safe — a `gh` call off WFC_GH escapes every test's stub and reaches the founder's live tracker, and a `claude` call off WFC_CLAUDE_BIN reads or launches his live sessions.
@@ -227,6 +228,8 @@ function helperDirs(bin, code) {
 const PATH_PREPEND =
 	/`\$\{([^}]+)\}(?:\$\{path\.delimiter\}|:)\$\{process\.env\.PATH\b/g;
 
+const TS_FILE = /\.[cm]?tsx?$/;
+
 /** @param {string} expr */
 const normal = (expr) =>
 	expr.replace(/^path\.join\((.*)\)$/s, "$1").replace(/\s+/g, "");
@@ -243,24 +246,23 @@ function kindOf(rel, shell) {
 }
 
 /**
- * `binDirs` holds the directories a test joins the route's binary onto,
- * itself or through a helper.
+ * `binDirs` holds the directories a file PATH-STUB reads joins the route's
+ * binary onto, itself or through a helper, and is empty for any other file.
  * @param {{ r: Route, rel: string, kind: "node" | "test" | "shell", binDirs: Set<string> }} at
  * @param {string} line
  * @returns {Shape | null}
  */
 function shapeOf({ r, rel, kind, binDirs }, line) {
 	if (r.secondVar.test(line)) return "SECOND-VAR";
-	if (kind === "node") {
-		const copies =
-			r.literalSpawn.test(line) ||
-			(rel !== r.primitive && r.envRead.test(line));
-		return copies ? "NODE-COPY" : null;
-	}
 	if (kind === "shell")
 		return r.shellRun.test(line) || r.shellProbe.test(line)
 			? "SHELL-BARE"
 			: null;
+	if (
+		kind === "node" &&
+		(r.literalSpawn.test(line) || (rel !== r.primitive && r.envRead.test(line)))
+	)
+		return "NODE-COPY";
 	for (const m of line.matchAll(PATH_PREPEND))
 		if (binDirs.has(normal(m[1] ?? ""))) return "PATH-STUB";
 	return null;
@@ -281,7 +283,7 @@ const MARKABLE = new Set(["SHELL-BARE", "PATH-STUB"]);
 function routeFindings(r, rel, kind, { raw, code }) {
 	/** @type {Set<string>} */
 	const binDirs = new Set();
-	if (kind === "test") {
+	if (kind === "test" || TS_FILE.test(rel)) {
 		const text = code.join("\n");
 		for (const m of text.matchAll(r.joinBin)) binDirs.add(normal(m[1] ?? ""));
 		for (const dir of helperDirs(r.bin, text)) binDirs.add(normal(dir));

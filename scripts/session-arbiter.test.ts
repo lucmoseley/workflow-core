@@ -44,6 +44,7 @@ import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 
 /* The breadcrumb directory, from the module that owns it (mantahostels#3382). */
+const { gh } = createRequire(__filename)("./lib/gh.js");
 const hookRecord = createRequire(__filename)("./lib/hook-record.js");
 const markerRoot = createRequire(__filename)("./lib/marker-root.js");
 const oracleCache = createRequire(__filename)("./lib/oracle-cache.js");
@@ -138,6 +139,34 @@ describe("the sandbox's isolation from the machine (mantahostels#1902)", () => {
 		fakeGh(sb, 'echo \'{"state":"CLOSED"}\'');
 		expect(process.env.WFC_GH).toBe(path.join(sb.dir, "gh-fake"));
 		expect(ghCallCount(sb)).toBe(0);
+	});
+
+	describe("a bare gh, which no var routes, stops at the PATH belt (#4089)", () => {
+		const beltRefusal = "arbiter sandbox: bare gh call off WFC_GH: auth status";
+
+		it("refuses a literal spawn and a child shell's own call", () => {
+			const spawned = spawnSync("gh", ["auth", "status"], { encoding: "utf8" });
+			expect(spawned.status).toBe(1);
+			expect(spawned.stderr).toContain(beltRefusal);
+			const shell = spawnSync("sh", ["-c", "gh auth status"], {
+				encoding: "utf8",
+			});
+			expect(shell.status).toBe(1);
+			expect(shell.stderr).toContain(beltRefusal);
+		});
+
+		it("refuses lib/gh.js's own fallback once WFC_GH is gone", () => {
+			delete process.env.WFC_GH;
+			expect(() => gh(["auth", "status"])).toThrow(beltRefusal);
+		});
+
+		it("answers none of a fakeGh, so a caller off the var fails its test rather than passing it", () => {
+			fakeGh(sb, 'echo \'{"state":"CLOSED"}\'');
+			const r = spawnSync("gh", ["auth", "status"], { encoding: "utf8" });
+			expect(r.status).toBe(1);
+			expect(r.stdout).toBe("");
+			expect(ghCallCount(sb)).toBe(0);
+		});
 	});
 
 	it("stubs claude at WFC_CLAUDE_BIN alone, never on PATH", () => {

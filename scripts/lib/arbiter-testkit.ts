@@ -110,13 +110,21 @@ function dropSiblingConfigs(env: NodeJS.ProcessEnv) {
  * every unshimmed case down the refusal branch the real oracle never took.
  *
  * The `gh` stub refuses loudly: a case that needs one says so with `fakeGh`
- * rather than reaching the network. Each stub sits at its var alone, WFC_GH
- * or WFC_CLAUDE_BIN, never on PATH, since every caller reads that var (#3455,
+ * rather than reaching the network. Each stub sits at its var, WFC_GH or
+ * WFC_CLAUDE_BIN, never on PATH, since every caller reads that var (#3455,
  * #3559).
+ *
+ * PATH HOLDS A BELT FOR `gh` ALONE (#4089). check-gh-route.js cannot read a
+ * command-string spawn or a child whose env dropped WFC_GH, and either reaches
+ * the founder's live tracker with no refusal. The belt answers no call, so a
+ * caller off the var still fails its test (base §N7). A bare `claude` stays
+ * unbelted (#3559).
  *
  * RESIDUAL: a real session also exports `CLAUDE_PID`, `CLAUDECODE` and
  * `CLAUDE_CODE_MESSAGING_SOCKET`, and the sandbox leaves `HOME` alone
- * deliberately. None is read by the arbiter today.
+ * deliberately. None is read by the arbiter today. A detached child outliving
+ * its case loses the belt with the sandbox, so its bare `gh` reaches the real
+ * binary.
  */
 function stubOracles(sb: Sandbox) {
 	const dir = path.join(sb.dir, "stubs");
@@ -150,6 +158,16 @@ function stubOracles(sb: Sandbox) {
 		"gh-unstubbed",
 		'echo "arbiter sandbox: unstubbed gh call: $*" >&2\nexit 1',
 	);
+
+	const belt = path.join(sb.dir, "belt");
+	fs.mkdirSync(belt);
+	fs.writeFileSync(
+		path.join(belt, "gh"),
+		'#!/bin/sh\necho "arbiter sandbox: bare gh call off WFC_GH: $*" >&2\nexit 1\n',
+		{ mode: 0o755 },
+	);
+	// gh-route-exempt: a belt that only refuses, so nothing reaches a stub by PATH.
+	process.env.PATH = `${belt}${path.delimiter}${process.env.PATH}`;
 }
 
 /**

@@ -233,6 +233,31 @@ describe("check-gh-route", () => {
 		);
 	});
 
+	it("FAILs a non-test .ts prepending PATH with its gh stub's directory, itself or through a helper, and leaves a non-test .js alone (#4089)", () => {
+		fixture("scripts/lib/wiring.ts", "path-stub.ts.txt");
+		fixture("scripts/lib/kit.ts", "helper-stub.ts.txt");
+		fixture("scripts/lib/wiring.js", "path-stub.ts.txt");
+		const r = run();
+		expect(r.status).toBe(1);
+		expect(r.out).toContain(
+			"2 second binary route(s): scripts/lib/kit.ts:3, scripts/lib/wiring.ts:3.",
+		);
+		expect(r.out).toContain("gh PATH-STUB Fix: point WFC_GH at the stub");
+	});
+
+	it("still reads a non-test .ts as a Node program, and honours the PATH-STUB marker there (#4089)", () => {
+		fixture("scripts/lib/spawns.ts", "literal-spawn.js.txt");
+		fixture("scripts/lib/wiring.ts", "path-stub-exempt.ts.txt");
+		const r = run();
+		expect(r.status).toBe(1);
+		expect(r.out).toContain(
+			"1 second binary route(s): scripts/lib/spawns.ts:1.",
+		);
+		expect(r.out).toContain(
+			"gh NODE-COPY Fix: call `gh`, `ghJson` or their kin from scripts/lib/gh.js",
+		);
+	});
+
 	it("passes the one route: lib/gh.js, a program on it, a shell caller on WFC_GH, a stub at WFC_GH, and gh named only in comments", () => {
 		fixture("scripts/lib/gh.js", "gh-lib.js.txt");
 		fixture("scripts/on.js", "on-primitive.js.txt");
