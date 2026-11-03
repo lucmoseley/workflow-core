@@ -753,64 +753,73 @@ process.exitCode = ${status};\n`,
 	});
 });
 
+const loopControlFile = () => at(".refill-loop-control.json");
+const updateControl = (over: Record<string, unknown>) =>
+	fs.writeFileSync(
+		loopControlFile(),
+		JSON.stringify({
+			...JSON.parse(fs.readFileSync(loopControlFile(), "utf8")),
+			...over,
+		}),
+	);
+
+/** The plan seat's overflow key, its directory named as planOfKeyDir reads it. */
+const overflowSeat = () => at("seat-api");
+
+/** The seat file: the plan seat, then an overflow seat at `grant` unless null. */
+const writeSeatFile = (grant: number | null) => {
+	fs.mkdirSync(at(".claude"), { recursive: true });
+	fs.writeFileSync(
+		at(".claude/refill-seats"),
+		`${seat}\n${grant === null ? "" : `${overflowSeat()} api key=WFC_TEST_KEY grant=${grant} cycle-day=20\n`}`,
+	);
+};
+
+/* The served checkout's table, as the tick reads it (#3683). */
+const writeCostTable = (
+	root: string,
+	costs = { meanUsd: 4, quantilesUsd: [1, 10], tailRemainderUsd: 9 },
+) => {
+	fs.mkdirSync(path.join(root, "docs", "data"), { recursive: true });
+	fs.writeFileSync(
+		path.join(root, "docs", "data", "session-cost-table.json"),
+		JSON.stringify({ n: 2, ...costs, landedByHours: [[1, 1]] }),
+	);
+};
+
+const runDry = () => {
+	writeCostTable(repo);
+	return runInProcessAsync(path.join(scripts, "refill-loop.js"), ["dry-run"], {
+		cwd: dir,
+		env: loopEnv({ FAKE_SLOTS: "1" }),
+	});
+};
+
 describe("a dry run with overflow seats (#2611)", () => {
-	const api = () => at("seat-api");
-
-	/** The seat file: the plan seat, then an overflow seat at `grant` unless null. */
-	const seats = (grant: number | null) => {
-		fs.mkdirSync(at(".claude"), { recursive: true });
-		fs.writeFileSync(
-			at(".claude/refill-seats"),
-			`${seat}\n${grant === null ? "" : `${api()} api key=WFC_TEST_KEY grant=${grant} cycle-day=20\n`}`,
-		);
-	};
-
-	/* The served checkout's table, as the tick reads it (#3683). */
-	const dryRun = () => {
-		fs.mkdirSync(path.join(repo, "docs", "data"), { recursive: true });
-		fs.writeFileSync(
-			path.join(repo, "docs", "data", "session-cost-table.json"),
-			JSON.stringify({
-				n: 2,
-				meanUsd: 4,
-				quantilesUsd: [1, 10],
-				tailRemainderUsd: 9,
-				landedByHours: [[1, 1]],
-			}),
-		);
-		return runInProcessAsync(
-			path.join(scripts, "refill-loop.js"),
-			["dry-run"],
-			{
-				cwd: dir,
-				env: loopEnv({ FAKE_SLOTS: "1" }),
-			},
-		);
-	};
 	const dispatch = () =>
 		`bash ${path.join(scripts, "dispatch-sessions.sh")} opus /implement 5`;
 
 	it("prints the headless dispatch on the overflow seat once the plan seat is weekly-full", async () => {
 		weekAt(100);
-		seats(200);
-		const r = await dryRun();
+		writeSeatFile(200);
+		const r = await runDry();
 		expect(r.stdout).toContain(
-			`would run in ${repo} on overflow seat ${api()}, each member a headless \`claude -p\` (lib/headless-sessions.js): ${dispatch()}`,
+			`would run in ${repo} on overflow seat ${overflowSeat()}, each member a headless \`claude -p\` (lib/headless-sessions.js): ${dispatch()}`,
 		);
 		expect(readLines(at("dispatches"))).toEqual([]);
 	});
 
 	it("waits on the plan's reset once every key is spent", async () => {
 		weekAt(100);
-		seats(2);
-		expect((await dryRun()).stdout).toContain("dry run: idle: a plan resets");
+		writeSeatFile(2);
+		expect((await runDry()).stdout).toContain("dry run: idle: a plan resets");
 	});
 
 	it("launches on the plan seat while it has room, as with no overflow line", async () => {
 		weekAt(10);
 		for (const grant of [200, null]) {
-			seats(grant);
-			expect((await dryRun()).stdout).toContain(
+			writeSeatFile(grant);
+			expect((await runDry()).stdout).toContain(
 				`would run in ${repo} on ${seat}: ${dispatch()}`,
 			);
 		}
@@ -818,8 +827,86 @@ describe("a dry run with overflow seats (#2611)", () => {
 
 	it("waits on the plan seat's full week as before with no overflow line", async () => {
 		weekAt(100);
-		seats(null);
-		expect((await dryRun()).stdout).toContain("dry run: idle: a plan resets");
+		writeSeatFile(null);
+		expect((await runDry()).stdout).toContain("dry run: idle: a plan resets");
+	});
+});
+
+describe("a due Console read on the real tick (#4071)", () => {
+	const consoleLogFile = () =>
+		at(".overflow-ledger/WFC_TEST_KEY.console.jsonl");
+	const runnerCallsFile = () => at("console-runs");
+	const expectNoReadStarted = () => {
+		expect(fs.existsSync(consoleLogFile())).toBe(false);
+		expect(readLines(runnerCallsFile())).toEqual([]);
+	};
+	const oneTick = async () => {
+		const running = run(0);
+		await ticked(1);
+		requestStop();
+		return settled(running, "run with a due read");
+	};
+
+	/* A spent key on a plan seat with room and no read yet: due. */
+	beforeEach(() => {
+		writeSeatFile(2);
+		writeCostTable(repo);
+		stub(
+			"read-console-credit.js",
+			`require("node:fs").appendFileSync(${JSON.stringify(runnerCallsFile())}, process.argv[2] + "\\n");\n`,
+		);
+	});
+
+	it("starts the read, its started row written", async () => {
+		expect((await oneTick()).status).toBe(0);
+		await polled(
+			() => readLines(runnerCallsFile()).length > 0,
+			"the runner never started",
+		);
+		expect(readLines(runnerCallsFile())).toEqual([overflowSeat()]);
+		expect(readLines(consoleLogFile()).map((l) => JSON.parse(l))).toEqual([
+			{ at: expect.any(Number), started: true },
+		]);
+	});
+
+	it("starts none where its started row will not write", async () => {
+		fs.mkdirSync(path.dirname(consoleLogFile()), { recursive: true });
+		/* Reads as no log and refuses the append, as a chmod would not under root. */
+		fs.symlinkSync(at("no-such-dir/log"), consoleLogFile());
+		const r = await oneTick();
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(
+			`console read of ${overflowSeat()}: not started (`,
+		);
+		expect(readLines(runnerCallsFile())).toEqual([]);
+	});
+
+	it("starts none on a paused tick", async () => {
+		updateControl({ paused: { by: "founder", at: 7 } });
+		const running = run(0);
+		await polled(
+			() => fs.existsSync(at(".refill-loop-state.json")),
+			"no paused tick wrote its state",
+		);
+		requestStop();
+		expect((await settled(running, "paused run")).status).toBe(0);
+		expectNoReadStarted();
+	});
+
+	it("starts none on a stopping tick", async () => {
+		updateControl({ stopRequested: true });
+		const r = await settled(run(0), "run asked to stop");
+		expect(r.status).toBe(0);
+		// The tick reached admission, which the start follows.
+		expect(readLines(at("ticks"))).toHaveLength(1);
+		expectNoReadStarted();
+	});
+
+	it("starts none on a dry run", async () => {
+		const r = await runDry();
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(`would run in ${repo} on ${seat}:`);
+		expectNoReadStarted();
 	});
 });
 
@@ -2676,19 +2763,12 @@ describe("a daemon whose cwd is outside every checkout (#2937)", () => {
 		weekAt(98);
 	});
 
-	const writeTable = (root: string) => {
-		fs.mkdirSync(path.join(root, "docs", "data"), { recursive: true });
-		fs.writeFileSync(
-			path.join(root, "docs", "data", "session-cost-table.json"),
-			JSON.stringify({
-				n: 2,
-				meanUsd: 0.01,
-				quantilesUsd: [0.01, 0.01],
-				tailRemainderUsd: 0.01,
-				landedByHours: [[1, 1]],
-			}),
-		);
-	};
+	const writeTable = (root: string) =>
+		writeCostTable(root, {
+			meanUsd: 0.01,
+			quantilesUsd: [0.01, 0.01],
+			tailRemainderUsd: 0.01,
+		});
 
 	const dryRun = () => {
 		const env = loopEnv({ FAKE_SLOTS: "1" });
@@ -3174,7 +3254,6 @@ const untilLoopEnded = () =>
 		"the started loop did not end",
 	);
 
-const loopControlFile = () => at(".refill-loop-control.json");
 const commandFromRepo = (...argv: string[]) =>
 	runInProcessAsync(path.join(scripts, "refill-loop.js"), argv, {
 		cwd: dir,
@@ -3981,16 +4060,6 @@ process.stdout.write("Filed #${Issue}\\n");
 		writeConfig(repo);
 		stubFiler();
 	});
-
-	const controlFile = () => at(".refill-loop-control.json");
-	const updateControl = (over: Record<string, unknown>) =>
-		fs.writeFileSync(
-			controlFile(),
-			JSON.stringify({
-				...JSON.parse(fs.readFileSync(controlFile(), "utf8")),
-				...over,
-			}),
-		);
 
 	/** One run whose stop follows its first tick's state: two real ticks. */
 	const tickRun = async (gh = "", over: NodeJS.ProcessEnv = {}) => {
