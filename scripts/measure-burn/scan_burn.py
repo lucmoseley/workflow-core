@@ -29,6 +29,9 @@ Claude Code's own placeholder for a failed call, all-zero usage under a random
 
 Every dollar is a weighting of the four token classes at Opus 5 API list
 ratios, never a bill — what a Max plan meters is unpublished (mantahostels#829).
+
+A session the launch record marks overflow is left out of every token and dollar
+figure: it bills a key, not a plan (#3696).
 """
 
 import argparse
@@ -36,6 +39,7 @@ import datetime as dt
 import json
 import os
 import statistics as st
+import subprocess
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -54,6 +58,7 @@ CLASSES = ("fi", "out", "cw", "cr")
 TOKEN_FIELDS = CLASSES + ("cw5m", "cw1h")
 # Claude Code's placeholder model, written on a record no API call returned.
 SYNTHETIC = "<synthetic>"
+OVERFLOW_CLI = Path(__file__).resolve().parent.parent / "overflow-sessions.js"
 LABELS = {"fi": "Fresh input", "out": "Output", "cw": "Cache write", "cr": "Cache read"}
 
 
@@ -211,6 +216,20 @@ def requests(tally, window=None, keep_records=False):
                 for f in ("think", "tools"):
                     cur[f] = max(cur[f], extra[f])
     yield from _in_window(agg, window)
+
+
+def overflow_sessions(session_ids):
+    """Those of `session_ids` the launch record marks overflow. Exits where the
+    record will not read: an unread overflow session would book as plan burn."""
+    done = subprocess.run(
+        ["node", str(OVERFLOW_CLI)],
+        input="\n".join(session_ids),
+        capture_output=True,
+        text=True,
+    )
+    if done.returncode != 0:
+        raise SystemExit(f"scan_burn: {done.stderr.strip()}")
+    return set(done.stdout.split())
 
 
 def _in_window(agg, window):
@@ -788,6 +807,8 @@ def main(argv=None):
         window = WINDOW
     tally = Counter()
     reqs = list(requests(tally, window, keep_records=args.audit))
+    overflow = overflow_sessions({r["owner"] for r in reqs})
+    reqs = [r for r in reqs if r["owner"] not in overflow]
     if window is None:
         label = "whole corpus"
     elif since:
@@ -805,6 +826,8 @@ def main(argv=None):
         "transcript files per root: "
         + (", ".join(counts) or "NONE — no seat root holds this repo's transcripts")
     )
+    if overflow:
+        print(f"overflow sessions left out: {len(overflow):,}")
     print()
     ok = True
     if args.audit:

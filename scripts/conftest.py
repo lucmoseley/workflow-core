@@ -144,3 +144,45 @@ def unkeyed():
         return record
 
     return strip
+
+
+@pytest.fixture
+def isolated_home(tmp_path, monkeypatch):
+    """A `HOME` holding no checkout, so a scanner's launch-record read reaches no
+    live ledger (#3696)."""
+    root = tmp_path / "isolated-home"
+    root.mkdir()
+    monkeypatch.setenv("HOME", str(root))
+    return root
+
+
+@pytest.fixture
+def mark_overflow(isolated_home):
+    """Marks a session overflow in a fixture checkout's dispatch ledger under
+    `isolated_home`, in the row's shape `scripts/lib/dispatch-ledger.js` writes."""
+    root = isolated_home / "other-checkout"
+
+    def mark(session_id):
+        (root / ".git").mkdir(parents=True)
+        (root / ".claude").mkdir()
+        (root / ".claude" / "workflow-core.json").write_text("{}\n")
+        ledger = (
+            root / ".claude" / "tmp" / "markers" / ".pick-next" / "dispatched.jsonl"
+        )
+        ledger.parent.mkdir(parents=True)
+        ledger.write_text(
+            json.dumps(
+                {
+                    "ts": "2026-08-23T09:00:00.000Z",
+                    "issues": [1],
+                    "jobId": session_id[:8],
+                    "kind": "overflow",
+                    "keyVar": "WFC_OVERFLOW_API_KEY_FAKE",
+                    "allowanceUsd": 100,
+                    "sessionId": session_id,
+                }
+            )
+            + "\n"
+        )
+
+    return mark

@@ -29,6 +29,8 @@ sc = importlib.util.module_from_spec(_spec)
 sys.modules["scan_ceiling"] = sc
 _spec.loader.exec_module(sc)
 
+pytestmark = pytest.mark.usefixtures("isolated_home")
+
 
 def rec(text, ts="2026-08-13T03:01:39.291Z", error="rate_limit", **kw):
     r = {
@@ -455,3 +457,22 @@ def test_the_daily_cost_prices_each_cache_write_at_its_ttl_rate(seat_roots):
     assert sc.activity(Counter()).cost_by_day["2026-08-13"] == pytest.approx(
         30 + 18.75 * 3 + reads
     )
+
+
+# --- leaving overflow sessions out of the plan's cost (#3696) -----------------
+
+
+def test_an_overflow_session_costs_the_plan_nothing_but_still_counts_as_working(
+    seat_roots, mark_overflow
+):
+    (root,) = seat_roots()
+    overflow = "aaaaaaaa-0000-4000-8000-000000000000"
+    mark_overflow(overflow)
+    (root / "s1.jsonl").write_text(json.dumps(write_rec("a", 1_000_000)))
+    (root / f"{overflow}.jsonl").write_text(
+        json.dumps({**write_rec("b", 2_000_000), "sessionId": overflow})
+    )
+    act = sc.activity(Counter())
+    assert act.cost_by_day["2026-08-13"] == pytest.approx(18.75 + 1.50 / 1e6)
+    assert len(act.series) == 1
+    assert overflow in act.turns

@@ -15,6 +15,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { writeOverflowCheckout } from "./lib/overflow-launch-fake";
 import { runInProcess } from "./lib/run-in-process";
 import { buildUsageCache } from "./lib/usage-probe-fake";
 
@@ -66,7 +67,7 @@ function reading() {
 
 const run = () =>
 	runInProcess(SCRIPT, ["--config-dir", seat], {
-		env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
+		env: { ...process.env, CLAUDE_PROJECT_DIR: dir, HOME: dir },
 	});
 
 describe("measure-points-per-usd.js", () => {
@@ -98,6 +99,37 @@ describe("measure-points-per-usd.js", () => {
 		expect(r.stdout).toContain(
 			`${seat} session: 10% on $10.00 = 1.00 pts/$ (reading 1 min old, 0 unpriced requests, 1 linked project dirs skipped)\n`,
 		);
+	});
+
+	it("leaves out an overflow session and its subagents, recorded by any checkout (#3696)", () => {
+		reading();
+		tenDollars(seat, "p1/plan.jsonl", now - HOUR);
+		const overflow = "aaaaaaaa-0000-4000-8000-000000000000";
+		tenDollars(seat, `p1/${overflow}.jsonl`, now - HOUR);
+		tenDollars(seat, `p1/${overflow}/subagents/agent-x.jsonl`, now - HOUR);
+		writeOverflowCheckout(dir, "other-checkout", [overflow]);
+		const r = run();
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(`${seat} session: 10% on $10.00 = 1.00 pts/$`);
+		expect(r.stdout).toContain(
+			`${seat} weekly_all: 20% on $10.00 = 2.00 pts/$`,
+		);
+	});
+
+	it("refuses where the launch record will not read, as an overflow session would count as plan", () => {
+		reading();
+		tenDollars(seat, "p1/plan.jsonl", now - HOUR);
+		const r = runInProcess(SCRIPT, ["--config-dir", seat], {
+			env: {
+				...process.env,
+				CLAUDE_PROJECT_DIR: dir,
+				HOME: path.join(dir, "absent"),
+			},
+		});
+		expect(r.status).toBe(1);
+		expect(r.stdout).toBe("");
+		expect(r.stderr).toContain(path.join(dir, "absent"));
+		expect(r.stderr).toContain("fix that read and re-run");
 	});
 
 	it("exits 1 where the seat has no reading, and says how to get one", () => {

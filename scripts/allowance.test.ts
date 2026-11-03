@@ -17,6 +17,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { writeOverflowCheckout } from "./lib/overflow-launch-fake";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 import {
@@ -175,6 +176,7 @@ describe("--cap (#371)", () => {
 			WFC_CLAUDE_BIN: bin,
 			WFC_SESSION_COST_TABLE: table,
 			CLAUDE_CONFIG_DIR: dir,
+			HOME: dir,
 		};
 	};
 	/** `--cap` over a 94% session, 7% week cache, its session bar resetting
@@ -193,6 +195,59 @@ describe("--cap (#371)", () => {
 		return JSON.parse(r.stdout).cap;
 	};
 	const thresholds = ["--session-threshold", "90", "--week-threshold", "97"];
+
+	it("projects only the plan session where a seat's dir also holds an overflow one (#3696)", () => {
+		const plan = "bbbbbbbb-0000-4000-8000-000000000000";
+		const overflow = "aaaaaaaa-0000-4000-8000-000000000000";
+		writeOverflowCheckout(dir, "other-checkout", [overflow]);
+		for (const sessionId of [plan, overflow]) {
+			const project = path.join(dir, "projects", "p1");
+			fs.mkdirSync(project, { recursive: true });
+			fs.writeFileSync(
+				path.join(project, `${sessionId}.jsonl`),
+				JSON.stringify({
+					type: "assistant",
+					requestId: "r1",
+					message: {
+						model: "claude-sonnet-5",
+						usage: { output_tokens: 1_000_000 },
+					},
+				}),
+			);
+		}
+		const listing = JSON.stringify(
+			[plan, overflow].map((sessionId) => ({
+				sessionId,
+				kind: "background",
+				state: "running",
+				startedAt: Date.now(),
+			})),
+		);
+		const cap = capRun(thresholds, listing);
+		expect(cap.error).toBeUndefined();
+		expect(
+			cap.running.map((r: { sessionId: string; spentUsd: number }) => [
+				r.sessionId,
+				r.spentUsd,
+			]),
+		).toEqual([[plan, 10]]);
+	});
+
+	it("refuses the launch where the launch record will not read", () => {
+		writeCache(dir, { session: 94, week: 7 });
+		const r = runInProcess(
+			SCRIPT,
+			["--json", "--config-dir", dir, "--cap", "3", ...thresholds],
+			{
+				stdin: "",
+				env: { ...capEnv("[]"), HOME: path.join(dir, "absent") },
+			},
+		);
+		const { cap } = JSON.parse(r.stdout);
+		expect(cap.launch).toBe(0);
+		expect(cap.error).toContain(path.join(dir, "absent"));
+		expect(cap.error).toContain("fix that read and re-run");
+	});
 
 	it("reads an empty listing as nothing running, not as unreadable", () => {
 		// Headroom 100 − 94 = 6: two 4.7-point members reach it.

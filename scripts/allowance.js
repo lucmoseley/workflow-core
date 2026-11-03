@@ -24,15 +24,17 @@
  * the caller owns, and `cap.floored` whether that launch is the floor's one
  * member alone. Only where a trusted bar is past its threshold does it read
  * the running sessions — one `claude agents --json` call and their own
- * transcripts, no allowance spent. A bar counts only the spend projected to
+ * transcripts, no allowance spent — leaving out those the launch record marks
+ * overflow, whose spend bills a key and not this seat (#3696). A bar counts only the spend projected to
  * land before its own `resetsAt`, by the cost table's `landedByHours`; spend
  * after it falls in the next window, and a reset that does not parse counts
  * all of it (#2925). `cap.error` is set, and `cap.launch` is 0,
- * where that read cannot be made: the cost table is unreadable, or the listing
- * will not answer. Never changes the exit code.
+ * where that read cannot be made: the cost table is unreadable, the listing
+ * will not answer, or the launch record will not read. Never changes the exit code.
  */
 
 const { readFdAll } = require("./lib/read-fd.js");
+const { readEveryOverflowLookup } = require("./lib/dispatch-ledger.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { configDir: defaultConfigDir } = require("./lib/config-dir.js");
@@ -137,9 +139,18 @@ function capOf(result, args) {
 		: listed.agents;
 	if (!agents)
 		return { launch: 0, error: `running sessions unreadable: ${listed.why}` };
+	let overflowLaunchOf;
+	try {
+		overflowLaunchOf = readEveryOverflowLookup();
+	} catch (e) {
+		return {
+			launch: 0,
+			error: `launch record unreadable: ${String(e)} — fix that read and re-run: until then an overflow session cannot be told from a plan one`,
+		};
+	}
 	const configDir = args.configDir || defaultConfigDir();
 	const running = runningRemainders({
-		agents,
+		agents: agents.filter((a) => !overflowLaunchOf({ sessionId: a.sessionId })),
 		table,
 		configDir,
 	});

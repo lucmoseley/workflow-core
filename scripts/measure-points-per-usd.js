@@ -15,6 +15,9 @@
  * its transcripts cannot be told apart by seat, so they are charged once, to
  * the seat that holds them.
  *
+ * A session the launch record marks overflow is left out: it bills a key, so no
+ * bar moved for it (#3696). Exits 1 where that record will not read.
+ *
  * Prints only: the rates are updated by hand. Exits 0 where at least one rate
  * printed, 1 where none could. Seats: `lib/seat-args.js`.
  */
@@ -23,6 +26,7 @@ const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const { readAllowance } = require("./lib/allowance");
+const { readEveryOverflowLookup } = require("./lib/dispatch-ledger.js");
 const { seatsFrom } = require("./lib/seat-args");
 const { parseOrCode } = require("./lib/cli-args");
 const { fileSpend, LIST_PRICES } = require("./lib/session-spend");
@@ -33,6 +37,8 @@ const SPANS = /** @type {const} */ ({
 	session: 5 * HOUR_MS,
 	weekly_all: 7 * 24 * HOUR_MS,
 });
+
+/** @typedef {ReturnType<typeof readEveryOverflowLookup>} OverflowLookup */
 
 /**
  * @param {string} dir
@@ -63,13 +69,15 @@ function writtenSince(file, fromMs) {
 /**
  * Every main and subagent transcript the seat itself holds, last written at or
  * after `fromMs` (an older file cannot hold a record inside the window), and
- * how many project directories were links into another seat's.
+ * how many project directories were links into another seat's. Overflow
+ * sessions are left out.
  * @param {string} seat
  * @param {number} fromMs
+ * @param {OverflowLookup} overflowLaunchOf
  * @returns {{ files: string[], linked: number } | null} null where the seat's
  *   `projects/` cannot be read
  */
-function readTranscriptsSince(seat, fromMs) {
+function readTranscriptsSince(seat, fromMs, overflowLaunchOf) {
 	const root = path.join(seat, "projects");
 	let projects;
 	try {
@@ -86,27 +94,34 @@ function readTranscriptsSince(seat, fromMs) {
 			continue;
 		}
 		if (!p.isDirectory()) continue;
-		for (const f of readProjectFiles(path.join(root, p.name), fromMs))
+		for (const f of readProjectFiles(
+			path.join(root, p.name),
+			fromMs,
+			overflowLaunchOf,
+		))
 			files.push(f);
 	}
 	return { files, linked };
 }
 
 /**
- * One project directory's main transcripts, each followed by its subagents',
- * last written at or after `fromMs`.
+ * One project directory's plan sessions' main transcripts, each followed by its
+ * subagents', last written at or after `fromMs`.
  * @param {string} dir
  * @param {number} fromMs
+ * @param {OverflowLookup} overflowLaunchOf
  * @returns {string[]}
  */
-function readProjectFiles(dir, fromMs) {
+function readProjectFiles(dir, fromMs, overflowLaunchOf) {
 	/** @type {string[]} */
 	const files = [];
 	for (const n of readNamesIn(dir)) {
 		if (!n.endsWith(".jsonl")) continue;
+		const sessionId = n.replace(/\.jsonl$/, "");
+		if (overflowLaunchOf({ sessionId })) continue;
 		const mainFile = path.join(dir, n);
 		if (writtenSince(mainFile, fromMs)) files.push(mainFile);
-		const subDir = path.join(dir, n.replace(/\.jsonl$/, ""), "subagents");
+		const subDir = path.join(dir, sessionId, "subagents");
 		for (const s of readNamesIn(subDir)) {
 			const sub = path.join(subDir, s);
 			if (/^agent-.*\.jsonl$/.test(s) && writtenSince(sub, fromMs))
@@ -141,10 +156,10 @@ function spendIn(files, window) {
 
 /**
  * Print one seat's rate for one bar.
- * @param {{ seat: string, bar: keyof SPANS, bars: ReturnType<typeof readAllowance>, now: number }} reading
+ * @param {{ seat: string, bar: keyof SPANS, bars: ReturnType<typeof readAllowance>, now: number, overflowLaunchOf: OverflowLookup }} reading
  * @returns {boolean} whether a rate printed — spend above zero
  */
-function printBar({ seat, bar, bars, now }) {
+function printBar({ seat, bar, bars, now, overflowLaunchOf }) {
 	const { percent, resetsAt, fetchedAtMs } = bars[bar];
 	const resetsMs = Date.parse(String(resetsAt));
 	if (percent === null || fetchedAtMs === null || !Number.isFinite(resetsMs)) {
@@ -156,7 +171,7 @@ function printBar({ seat, bar, bars, now }) {
 	}
 	const fromMs = resetsMs - SPANS[bar];
 	const toMs = Math.min(fetchedAtMs, resetsMs);
-	const found = readTranscriptsSince(seat, fromMs);
+	const found = readTranscriptsSince(seat, fromMs, overflowLaunchOf);
 	if (!found) {
 		writeFd(1, `${seat} ${bar}: ${seat}/projects is unreadable\n`);
 		return false;
@@ -178,12 +193,22 @@ function main() {
 	});
 	if (typeof parsed === "number") return parsed;
 	const seats = seatsFrom(parsed.lists["--config-dir"]);
+	let overflowLaunchOf;
+	try {
+		overflowLaunchOf = readEveryOverflowLookup();
+	} catch (e) {
+		writeFd(
+			2,
+			`measure-points-per-usd: ${String(e)} — fix that read and re-run: until then an overflow session cannot be told from a plan one\n`,
+		);
+		return 1;
+	}
 	const now = Date.now();
 	let printed = 0;
 	for (const seat of seats) {
 		const bars = readAllowance({ configDir: seat, now });
 		for (const bar of /** @type {(keyof SPANS)[]} */ (Object.keys(SPANS))) {
-			if (printBar({ seat, bar, bars, now })) printed++;
+			if (printBar({ seat, bar, bars, now, overflowLaunchOf })) printed++;
 		}
 	}
 	return printed ? 0 : 1;

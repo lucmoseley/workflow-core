@@ -31,6 +31,8 @@ sys.path.insert(0, HERE)
 
 import scan_burn as sb  # noqa: E402 - imported after HERE, which the sys.path.insert above reads (#1272)
 
+pytestmark = pytest.mark.usefixtures("isolated_home")
+
 
 def rec(
     rid,
@@ -876,3 +878,37 @@ def test_one_copy_each_keeps_the_larger_copy_of_a_session_on_two_seats(two_roots
         "s.jsonl": str(roots[1] / "s.jsonl"),
         "t.jsonl": str(roots[1] / "t.jsonl"),
     }
+
+
+def test_an_overflow_session_counts_in_no_figure(corpus, seats, capsys, mark_overflow):
+    overflow = "aaaaaaaa-0000-4000-8000-000000000000"
+    mark_overflow(overflow)
+    corpus("plan", [rec("r1", session="plan")])
+    corpus(overflow, [rec("r2", session=overflow)])
+    seats(".claude2", ["plan", overflow])
+    out = run_main(capsys, "--all", "--by-seat")
+    assert "overflow sessions left out: 1" in out
+    assert seat_block(out).count("    1 sessions") == 1
+
+
+def test_no_overflow_launch_recorded_leaves_every_session_counted(
+    corpus, seats, capsys
+):
+    corpus("s1", [rec("r1", session="s1")])
+    corpus("s2", [rec("r2", session="s2")])
+    seats(".claude2", ["s1", "s2"])
+    out = run_main(capsys, "--all", "--by-seat")
+    assert "overflow sessions left out" not in out
+    assert seat_block(out).count("    2 sessions") == 1
+
+
+def test_an_unread_launch_record_refuses_rather_than_counting_overflow_as_plan(
+    corpus, seats, isolated_home
+):
+    isolated_home.rmdir()
+    corpus("s1", [rec("r1", session="s1")])
+    seats(".claude2", ["s1"])
+    with pytest.raises(SystemExit) as e:
+        sb.main(["--all"])
+    assert str(isolated_home) in str(e.value.code)
+    assert "fix that read and re-run" in str(e.value.code)

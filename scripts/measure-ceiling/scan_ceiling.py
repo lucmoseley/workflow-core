@@ -323,12 +323,14 @@ def activity(tally):
 
     Answers what the events alone cannot: which hours the machine was working
     at all (so a 3am block can be priced at nothing), and what each blocked
-    session was doing.
+    session was doing. A session the launch record marks overflow still counts
+    as working, but out of the cost figures: it bills a key, not a plan (#3696).
     """
     turns = defaultdict(list)
     skill, title = {}, {}
     cost_by_day = defaultdict(float)
     series = []
+    priced = []
     for path in transcripts():
         # One billable unit per requestId, each field the MAX across that
         # request's records — scripts/measure-burn/scan_burn.py's rule (mantahostels#1121),
@@ -357,7 +359,7 @@ def activity(tally):
                 continue
             turns[sid].append((at, msg.get("model")))
             rid = rec.get("requestId") or msg.get("id") or rec.get("uuid")
-            cur = billed.setdefault(rid, {"ts": at, **sb.zero()})
+            cur = billed.setdefault(rid, {"ts": at, "sid": sid, **sb.zero()})
             tok = sb.tokens(use)
             for f in sb.TOKEN_FIELDS:
                 cur[f] = max(cur[f], tok[f])
@@ -368,9 +370,12 @@ def activity(tally):
             # Opus 5 API list ratios, each cache write at its TTL's rate — a
             # cost-equivalent, never a bill (mantahostels#829), put beside each
             # day's blockage as a comparable volume figure.
-            c = sb.usd(r)
-            cost_by_day[r["ts"].astimezone(SGT).date().isoformat()] += c
-            series.append((r["ts"], c))
+            priced.append((r["sid"], r["ts"], sb.usd(r)))
+    overflow = sb.overflow_sessions({sid for sid, _at, _c in priced if sid})
+    for sid, at, c in priced:
+        if sid not in overflow:
+            cost_by_day[at.astimezone(SGT).date().isoformat()] += c
+            series.append((at, c))
     return Activity(turns, skill, title, dict(cost_by_day), sorted(series))
 
 

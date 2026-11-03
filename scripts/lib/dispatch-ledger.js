@@ -19,6 +19,7 @@ const path = require("node:path");
 const { hostRoot } = require("./host-root.js");
 const { requiredGroup } = require("./regex-group.js");
 const { readJsonl } = require("./jsonl.js");
+const { homeDir, readAdopterCheckouts } = require("./refill-repos.js");
 
 /** A prompt's leading `/<skill>`, any `<plugin>:` namespace aside. */
 const COMMAND_RE = /^\s*\/(?:[\w.-]+:)?([\w.-]+)/;
@@ -279,7 +280,8 @@ const isOverflowLaunch = (rec) =>
  * launch, or null for a session none records. A session id also matches a job
  * id by its first 8 digits, as `--bg` prints only the job id (#3692 (e)). Each
  * root holds only its own checkout's launches, so a reading of a key's spend
- * names every checkout; the default suits a session asking about itself.
+ * names every checkout (`readEveryOverflowLookup`); the default suits a session
+ * asking about itself.
  * @param {string[]} [roots]
  * @returns {(session: {jobId?: string|null, sessionId?: string|null}) => OverflowLaunch|null}
  * @throws where a ledger will not read: a plan session and an unread overflow
@@ -299,6 +301,16 @@ function readOverflowLookup(roots = [ledgerRoot()]) {
 			)
 			.pop() ?? null;
 }
+
+/**
+ * `readOverflowLookup` over every checkout's ledger, opted out of the loop or
+ * not, for a reading of a key's spend.
+ * @throws where a ledger will not read, or the checkouts cannot be listed
+ */
+const readEveryOverflowLookup = () =>
+	readOverflowLookup([
+		...new Set([ledgerRoot(), ...readAdopterCheckouts(homeDir()).included]),
+	]);
 
 /**
  * Append one line. Never throws: a ledger that cannot be written must not
@@ -366,6 +378,7 @@ module.exports = {
 	readRecentEntries,
 	readLastLaunchAt,
 	readLaunchTimes,
+	readEveryOverflowLookup,
 	readOverflowLookup,
 	record,
 	release,
