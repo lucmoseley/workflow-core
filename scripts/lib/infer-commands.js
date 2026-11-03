@@ -17,6 +17,7 @@ const {
 	OWN_FLAGS,
 	OWN_FLAGS_WAY_OUT,
 	UNREAD,
+	UNRESOLVED_SELECTOR,
 	declareCheckStaged,
 	mapAsWritten,
 	mapBiome,
@@ -30,6 +31,7 @@ const {
 const {
 	RUNNER_NAMES,
 	findRun,
+	hasUnresolvedSelector,
 	parseNamedDir,
 	placedCommands,
 	walkRunScripts,
@@ -413,7 +415,7 @@ const onlyCommand = (tokens) => {
  * @param {string} top
  */
 function findElsewhere(hops, placed, top) {
-	const hop = hops.find((h) => h.dir !== top);
+	const hop = hops.findLast((h) => h.dir !== top);
 	if (hop || !placed) return hop?.dir;
 	const own = parseNamedDir(placed.command);
 	const dirs = placed.dirs.map((d) => path.resolve(d, own));
@@ -427,7 +429,7 @@ function findElsewhere(hops, placed, top) {
  * flag was dropped; or `refused`. An explicit command that would map is
  * refused naming the mapped one, and, in a repo with Biome evidence, one that
  * mentions Biome or a package manager but holds what cannot be read as dash
- * would is refused unread. A `biome <subcommand> --staged` other than `check`
+ * would, or an npm workspace selector no member answers, is refused unread. A `biome <subcommand> --staged` other than `check`
  * is refused and never mapped. One beginning with biome-staged.js is never
  * parsed. What the walk reads wider than its runner is refused where it reaches
  * Biome, as is a script name holding an expansion (#3545); for a script the walk
@@ -481,10 +483,14 @@ function classifyCheckStaged(root, command, { inferred }) {
 				((biomeCommand || hasMatch(MENTIONS, text, tokens)) &&
 					isUnreadable(tokens)) ||
 				writtenCommands(tokens).some(isHiddenCommand);
-			if ((!unread && !biomeCommand) || !hasBiomeEvidence(hop)) return;
-			if (unread) return { hops, unread: /** @type {const} */ (true) };
-			if (segment === undefined)
-				return { hops, subcommand, unread: /** @type {const} */ (false) };
+			const unresolved = placed.some((p) =>
+				hasUnresolvedSelector(p, top, readCachedPackage),
+			);
+			if ((!unread && !unresolved && !biomeCommand) || !hasBiomeEvidence(hop))
+				return;
+			if (unread) return { hops, unread: UNREAD };
+			if (unresolved) return { hops, unread: UNRESOLVED_SELECTOR };
+			if (segment === undefined) return { hops, subcommand, unread: null };
 			const only = onlyCommand(tokens);
 			/* The Biome command is the text's one command, with no run shed. */
 			const own =
@@ -500,7 +506,7 @@ function classifyCheckStaged(root, command, { inferred }) {
 					placed[candidates.indexOf(segment)],
 					top,
 				),
-				unread: /** @type {const} */ (false),
+				unread: null,
 			};
 		},
 	);
@@ -526,7 +532,8 @@ function classifyCheckStaged(root, command, { inferred }) {
 		kind: /** @type {const} */ ("refused"),
 		refusal: `${runs} biome check --staged${via}, which lints each staged path's worktree bytes, a neighbour's unstaged hunks included (#2583), and ${shape}. ${wayOut}`,
 	});
-	if (hit.unread) return refused(UNREAD.shape, UNREAD.wayOut, "may run");
+	if (hit.unread)
+		return refused(hit.unread.shape, hit.unread.wayOut, "may run");
 	if (hit.segment === undefined)
 		return {
 			kind: "refused",

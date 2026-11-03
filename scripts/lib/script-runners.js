@@ -8,7 +8,13 @@
 
 const path = require("node:path");
 const { findPackageDir } = require("./package-reader.js");
-const { isNpmRun, npmCanon, scriptOfNpmCommand } = require("./npm-options.js");
+const {
+	isNpmRun,
+	npmCanon,
+	parseNpmOperands,
+	scriptOfNpmCommand,
+} = require("./npm-options.js");
+const { parseSelection, resolveSelection } = require("./npm-workspaces.js");
 const { allCommands, isOpaque, tokenise } = require("./shell-tokens.js");
 const { shellQuote } = require("./sh-quote.js");
 
@@ -27,7 +33,8 @@ const CONTINUATION = /\\\n/g;
  * `test`, `start`, `stop` and `restart`, are runs too; so is each `pre<name>`
  * and `post<name>`, read from the `package.json` of a directory a `cd` or the
  * runner's flag writes out, or its nearest ancestor holding one, as npm finds
- * it (#3851). pnpm's, yarn's and bun's rules are their docs' (pnpm.io/cli/run,
+ * it (#3851), or in each workspace npm's selector picks (#4041). pnpm's, yarn's
+ * and bun's rules are their docs' (pnpm.io/cli/run,
  * yarnpkg.com/cli/run, bun.com/docs/cli/run); npm's are measured on 11.16.0.
  *
  * Read wider than the runner: a built-in sharing a script's name (`bun test`),
@@ -35,8 +42,9 @@ const CONTINUATION = /\\\n/g;
  * holding an expansion is not followed (#3545).
  *
  * Residual, not followed: a script reached through a shell file, `node --run`,
- * a workspace selector (`pnpm --filter web cs`, `yarn workspace web cs`), a
- * directory set any other way (`pushd`, `env -C`, `cd ~/web`), a script name
+ * pnpm's and yarn's workspace selectors (`pnpm --filter web cs`, `yarn workspace
+ * web cs`), npm's set outside the command (`npm_config_workspace=web`, `.npmrc`),
+ * a directory set any other way (`pushd`, `env -C`, `cd ~/web`), a script name
  * after a value flag other than the directory's (`pnpm --reporter silent cs`),
  * the scripts an npm command other than these runs (`npm install-test`), and
  * a script reached through a script runner (`run-s cs`, `npm-run-all cs`,
@@ -124,14 +132,17 @@ function eqFormValue(word, flags) {
 		: undefined;
 }
 
-/** @typedef {{rules: RunnerRules, name: string, at: number, end: number, dir:
- *  string, runLess: boolean}} Run `at` the runner's index in its command, `end`
- *  past the script name's; `dir` the directory it names, or ""; `runLess` where
- *  no `run` was written, so the word may name no script at all. */
+/** @typedef {import("./npm-workspaces.js").Selection} Selection */
 
-/** @typedef {{nameAt: number, script?: string, dir: string, runLess: boolean}}
- *  RunWords `nameAt` indexes the words after the runner; `script` where the
- *  script's name is not that word. */
+/** @typedef {{rules: RunnerRules, name: string, at: number, end: number, dir:
+ *  string, runLess: boolean, selection?: Selection}} Run `at` the runner's index
+ *  in its command, `end` past the script name's; `dir` the directory it names, or
+ *  ""; `runLess` where no `run` was written, so the word may name no script at
+ *  all; `selection` where a workspace selector replaces that directory. */
+
+/** @typedef {{nameAt: number, script?: string, dir: string, runLess: boolean,
+ *  selection?: Selection}} RunWords `nameAt` indexes the words after the runner;
+ *  `script` where the script's name is not that word. */
 
 /**
  * @param {Word[]} words after `npm`
@@ -153,11 +164,12 @@ function parseNpmRun(words, rules) {
 		options
 			.map((w) => eqFormValue(w, rules.dirFlags))
 			.findLast((v) => v !== undefined) ?? "";
+	const selection = parseSelection(options);
 	const script = scriptOfNpmCommand(verb);
-	if (script) return { nameAt: verbAt, script, dir, runLess: true };
+	if (script) return { nameAt: verbAt, script, dir, runLess: true, selection };
 	if (!rules.isRun(verb)) return;
 	const nameAt = words.findIndex((w, i) => i > verbAt && w.value === name);
-	return { nameAt, dir, runLess: false };
+	return { nameAt, dir, runLess: false, selection };
 }
 
 /**
@@ -239,6 +251,7 @@ function findRun(command) {
 		end: found.at + found.nameAt + 2,
 		dir: found.dir,
 		runLess: found.runLess,
+		selection: found.selection,
 	};
 }
 
@@ -274,6 +287,45 @@ const runPackageDirs = (run, dirs, root) => [
 ];
 
 /**
+ * The package directories `run` runs in from `dirs`, and whether a workspace
+ * selector in it names nothing that could be found.
+ * @param {Run} run
+ * @param {string[]} dirs
+ * @param {string} root
+ * @param {PackageReader} readCachedPackage
+ */
+function runTargets(run, dirs, root, readCachedPackage) {
+	const { selection } = run;
+	if (!selection)
+		return { dirs: runPackageDirs(run, dirs, root), unresolved: false };
+	const picks = dirs.map((d) =>
+		resolveSelection(
+			selection,
+			path.resolve(d, run.dir),
+			root,
+			readCachedPackage,
+		),
+	);
+	return {
+		dirs: [...new Set(picks.flatMap((p) => p.dirs))],
+		unresolved: picks.some((p) => p.unresolved),
+	};
+}
+
+/**
+ * @param {Placed} placed
+ * @param {string} root
+ * @param {PackageReader} readCachedPackage
+ */
+function hasUnresolvedSelector({ command, dirs }, root, readCachedPackage) {
+	const run = findRun(command);
+	return (
+		run !== undefined &&
+		runTargets(run, dirs, root, readCachedPackage).unresolved
+	);
+}
+
+/**
  * `command` with a written `run`'s runner and name shed and its handed-on words
  * kept, so words a missing script's run hands on are still read where they
  * stand (#3413). A run-less word stays, as `yarn biome check` names no script,
@@ -297,24 +349,27 @@ function withoutRun({ command, dirs }, root, readCachedPackage) {
 /**
  * The words after a run's script name that reach the script (`ownsFlags`). Each
  * reaches the script as one literal word, so it
- * counts as unquoted, and is shell-quoted where it is written out (#3545).
- * Residual: the value of an npm flag given after a space (`--loglevel
- * silent`) reads as a word handed on.
+ * counts as unquoted, and is shell-quoted where it is written out (#3545). The
+ * value of an npm flag given after a space (`-w web`) is npm's, not handed on.
  * @param {RunnerRules} rules
  * @param {Word[]} words
  * @returns {Word[]}
  */
 function parseHandedWords(rules, words) {
-	const cut = words.findIndex((w) => w.value === "--");
-	const kept = rules.ownsFlags
-		? [
-				...(cut < 0 ? words : words.slice(0, cut)).filter(
-					(w) => !w.value.startsWith("-"),
-				),
-				...(cut < 0 ? [] : words.slice(cut + 1)),
-			]
-		: words;
-	return kept.map((w) => ({ ...w, quoted: false }));
+	if (!rules.ownsFlags) return words.map((w) => ({ ...w, quoted: false }));
+	let from = 0;
+	return parseNpmOperands(words.map((w) => w.value)).flatMap((value) => {
+		/* `--silent=foo` hands on `foo`, the end of its word (#559). */
+		const at = words.findIndex(
+			(w, i) =>
+				i >= from && (w.value === value || w.value.endsWith(`=${value}`)),
+		);
+		const word = words[at];
+		if (!word) return [];
+		from = at + 1;
+		const raw = word.value === value ? word.raw : value;
+		return [{ ...word, value, raw, quoted: false }];
+	});
 }
 
 /** @param {Word[]} words */
@@ -410,11 +465,11 @@ function parseNamedDir(command) {
  * The hops `run` makes in `dir`, each with the key that says it was walked.
  * @param {Run} run
  * @param {Word[]} handed
- * @param {string} dir
- * @param {Record<string, unknown>} scripts `dir`'s
+ * @param {{dir: string, scripts: Record<string, unknown>, onlyDir: boolean}} place
+ *  `scripts` being `dir`'s; `onlyDir` where the run reaches no other directory
  * @returns {{next: Hop, key: string}[]}
  */
-function runHops(run, handed, dir, scripts) {
+function runHops(run, handed, { dir, scripts, onlyDir }) {
 	const names = scriptsRun(run, scripts);
 	return names.map((name) => {
 		/* A runner hands its words to the script named, never its pre or post
@@ -428,7 +483,7 @@ function runHops(run, handed, dir, scripts) {
 				handed: showHanded(given),
 				tokens: [...tokenise(raw), ...given],
 				dir,
-				alone: names.length === 1,
+				alone: names.length === 1 && onlyDir,
 			},
 			/* As a set, so a script handing itself more words still ends. */
 			key: JSON.stringify([
@@ -450,8 +505,13 @@ function* hopsFrom(hop, root, readCachedPackage) {
 		const run = findRun(command);
 		if (!run) continue;
 		const handed = parseHandedWords(run.rules, command.slice(run.end));
-		for (const dir of runPackageDirs(run, dirs, root))
-			yield* runHops(run, handed, dir, readCachedPackage(dir).scripts);
+		const targets = runTargets(run, dirs, root, readCachedPackage).dirs;
+		for (const dir of targets)
+			yield* runHops(run, handed, {
+				dir,
+				scripts: readCachedPackage(dir).scripts,
+				onlyDir: targets.length === 1,
+			});
 	}
 }
 
@@ -500,6 +560,7 @@ function walkRunScripts(root, readCachedPackage, command, visit) {
 module.exports = {
 	RUNNER_NAMES,
 	findRun,
+	hasUnresolvedSelector,
 	parseNamedDir,
 	placedCommands,
 	walkRunScripts,

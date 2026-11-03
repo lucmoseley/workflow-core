@@ -24,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
 import { minute } from "./lib/log-reading";
 import { MARKERS_REL } from "./lib/marker-root";
+import { plantDeadLock, plantLiveLock } from "./lib/pid-lock-testkit";
 import { CLOSE_CHECK_LOG } from "./lib/priced-options-limbs";
 import { appendEvents, logPath } from "./lib/refusal-log";
 import { runInProcess } from "./lib/run-in-process";
@@ -889,15 +890,8 @@ describe("filing the reading (#1104)", () => {
 	});
 
 	const walkLock = () => `${filedRecord()}-read.lock`;
-	/* Either side of lib/periodic-reading.js's 10-minute LOCK_STALE_MS. */
-	const LiveLockAge = 60_000;
-	const StaleLockAge = 11 * 60_000;
-	const holdWalkLock = (ageMs: number) => {
-		fs.mkdirSync(path.dirname(walkLock()), { recursive: true });
-		fs.writeFileSync(walkLock(), "1");
-		const at = new Date(Date.now() - ageMs);
-		fs.utimesSync(walkLock(), at, at);
-	};
+	const filingLock = () => `${filedRecord()}.lock`;
+	const Holder = "report-close-check-reading.js";
 
 	it("walks the transcripts at most once a day before it files (#3220)", () => {
 		allLive();
@@ -912,9 +906,9 @@ describe("filing the reading (#1104)", () => {
 		expect(touched).not.toEqual([]);
 	});
 
-	it("walks nothing while another run holds a live walk lock (#3220)", () => {
+	it("walks nothing while a live run holds the walk lock, however old (#3220)", () => {
 		reachedReading();
-		holdWalkLock(LiveLockAge);
+		plantLiveLock(walkLock(), Holder);
 		const touched = watchSeatReads();
 		const r = file();
 		expect(r.status).toBe(0);
@@ -923,7 +917,7 @@ describe("filing the reading (#1104)", () => {
 		expect(ghCalls()).toBe("");
 	});
 
-	it("drops its stamp and walk lock where gh refuses, so a re-run files at once (#3220)", () => {
+	it("drops its stamp where gh refuses and dies, so a re-run files at once (#3220)", () => {
 		reachedReading();
 		stubGh({ failing: true });
 		const r = spawnSync(
@@ -944,14 +938,13 @@ describe("filing the reading (#1104)", () => {
 		);
 		expect(r.status).toBe(2);
 		expect(fs.existsSync(`${filedRecord()}-read-at`)).toBe(false);
-		expect(fs.existsSync(walkLock())).toBe(false);
 		stubGh();
 		expect(file().stdout).toMatch(/Filed https:/);
 	});
 
 	it("takes over a walk lock left by a run that died walking (#3220)", () => {
 		reachedReading();
-		holdWalkLock(StaleLockAge);
+		plantDeadLock(walkLock());
 		const r = file();
 		expect(r.status).toBe(0);
 		expect(r.stdout).toMatch(/Filed https:/);
@@ -1001,27 +994,36 @@ describe("filing the reading (#1104)", () => {
 		},
 	);
 
-	it("files nothing while another run holds a live claim", () => {
+	it("files nothing while a live run holds the filing lock, however old", () => {
 		reachedReading();
-		fs.mkdirSync(path.dirname(filedRecord()), { recursive: true });
-		fs.writeFileSync(filedRecord(), "filing");
+		plantLiveLock(filingLock(), Holder);
 		const r = file();
 		expect(r.status).toBe(0);
 		expect(r.stdout).toMatch(/Another run is filing the reading/);
 		expect(ghCalls()).toBe("");
 	});
 
-	it("takes over a claim left by a run that died mid-filing", () => {
+	it("takes over the filing lock of a run that died mid-filing, and releases its own", () => {
+		reachedReading();
+		plantDeadLock(filingLock());
+		const r = file();
+		expect(r.status).toBe(0);
+		expect(r.stdout).toMatch(/Filed https:/);
+		expect(ghCalls()).toContain("issue create");
+		expect(fs.existsSync(filingLock())).toBe(false);
+	});
+
+	it("reads a record still holding the old claim text as not filed", () => {
 		reachedReading();
 		fs.mkdirSync(path.dirname(filedRecord()), { recursive: true });
 		fs.writeFileSync(filedRecord(), "filing");
-		const old = new Date(Date.now() - 11 * 60_000);
-		fs.utimesSync(filedRecord(), old, old);
-		expect(file().stdout).toMatch(/Filed https:/);
-		expect(ghCalls()).toContain("issue create");
+		const r = file();
+		expect(r.status).toBe(0);
+		expect(r.stdout).toMatch(/Filed https:/);
+		expect(fs.readFileSync(filedRecord(), "utf8")).toMatch(/^https:/);
 	});
 
-	it("is BROKEN, exit 2, where gh refuses, passing on its error, and drops its claim so the next run retries", () => {
+	it("is BROKEN, exit 2, where gh refuses, passing on its error, and records nothing so the next run retries", () => {
 		reachedReading();
 		stubGh({ failing: true });
 		const r = file();

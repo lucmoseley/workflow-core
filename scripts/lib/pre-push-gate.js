@@ -7,7 +7,7 @@
  * through: a refusal there would refuse every push (#2409, #1954).
  */
 
-const fs = require("node:fs");
+const { readFdAll } = require("./read-fd.js");
 const { moduleOn } = require("./workflow-core-config.js");
 const { readTopLevel } = require("./git-tree.js");
 const { caught } = require("./caught.js");
@@ -55,7 +55,7 @@ function runPrePushGate(unchecked, judge) {
 	}
 	let stdin = "";
 	try {
-		stdin = fs.readFileSync(0, "utf8");
+		stdin = readFdAll(0).toString("utf8");
 	} catch (e) {
 		unchecked(`could not read the pushed refs (${caught(e).message})`);
 		return 0;

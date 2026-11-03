@@ -18,6 +18,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { readFdAll } = require("./read-fd.js");
 const hookRecord = require("./hook-record");
 const sessionId = require("./session-id");
 const { projectSlug } = require("./project-slug.js");
@@ -122,7 +123,7 @@ function transcriptPath(input, sid) {
 function readPayload() {
 	let raw;
 	try {
-		raw = fs.readFileSync(0, "utf8");
+		raw = readFdAll(0).toString("utf8");
 	} catch {
 		return null;
 	}

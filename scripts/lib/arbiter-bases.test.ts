@@ -13,7 +13,7 @@
  * loosen a case here and a commit writes back a version a neighbour has since
  * replaced, or real work is refused as stale.
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -234,6 +234,29 @@ describe("the session-start base, a fallback for every other path (#110)", () =>
 	it("leaves a session with neither record answering null", () => {
 		expect(readJudgedBase(DOC)).toBeNull();
 	});
+
+	it("is recorded off a payload that arrives after the read began (#4017)", async () => {
+		const status = await new Promise<number | null>((resolve) => {
+			// spawn-kept: a real pipe the program's own process.stdin getter makes non-blocking, which run-in-process cannot give (§X3); the real clock leaves it idle at the read (§X9)
+			const child = spawn(
+				process.execPath,
+				[SCRIPT, "prune-markers", "--detach"],
+				{
+					cwd: sb.repo,
+					env: { ...process.env, CLAUDE_CODE_SESSION_ID: "" },
+					stdio: ["pipe", "ignore", "ignore"],
+				},
+			);
+			child.on("close", resolve);
+			// 200 ms is a guess at outlasting the arbiter's start-up: a slower boot lands the payload before the read, and the case then passes on the old reader too.
+			setTimeout(
+				() => child.stdin.end(JSON.stringify({ session_id: "alice" })),
+				200,
+			);
+		});
+		expect(status).toBe(0);
+		expect(readJudgedBase(DOC)?.source).toBe("session");
+	}, 30_000);
 });
 
 const start = (sessionId: string) =>

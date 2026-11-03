@@ -901,6 +901,197 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 		fs.writeFileSync(path.join(dir, rel, "package.json"), JSON.stringify(pkg));
 	};
 
+	describe("through npm's workspace selectors (#4041)", () => {
+		const Biome = { "@biomejs/biome": "2.5.15" };
+		const Writes = "biome check --staged --write";
+		const expectInWeb = (r: ReturnType<typeof run>) => {
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain(IN_WEB);
+		};
+		const expectMayRun = (r: ReturnType<typeof run>) => {
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain("may run biome check --staged");
+			expect(r.stderr).toContain(
+				`with the selector naming a member, or as an explicit '${BIOME_STAGED_COMMAND} <flags>'`,
+			);
+		};
+
+		beforeEach(() => {
+			writePackage(".", { workspaces: ["web"], devDependencies: Biome });
+			writePackage("web", {
+				name: "@x/web",
+				scripts: { cs: Writes, lint: "eslint ." },
+			});
+		});
+
+		it.each([
+			"npm run cs -w web",
+			"npm run cs --workspace=web",
+			"npm -w web run cs",
+			"npm --workspace web run cs",
+			"npm run cs --workspaces",
+			"npm run cs -ws",
+			"npm run --workspaces cs",
+			"npm run cs -w @x/web",
+			"npm run cs -w ./web/",
+			"npm run cs --no-workspace web",
+			"npm run cs --workspaces=true",
+			"npm run cs --no-workspaces --workspaces",
+			"npm run cs --no-workspaces=false",
+		])("refuses %j as run in that workspace", (command) => {
+			const r = run(command);
+			expectInWeb(r);
+			expect(r.stderr).not.toContain("handed");
+		});
+
+		it.each([
+			"npm run lint -w web",
+			"npm run lint --workspaces",
+			"npm run cs --no-workspaces",
+			"npm run cs --workspaces=false",
+			"npm run cs --workspaces --no-workspaces",
+		])("passes %j, which runs no Biome", (command) => {
+			expect(run(command)).toMatchObject({ status: 0, stderr: "" });
+		});
+
+		it("reads the top's own script where the selector drops it and where it stays", () => {
+			writePackage(".", {
+				workspaces: ["web"],
+				devDependencies: Biome,
+				scripts: { lint: Writes },
+			});
+			expect(run("npm run lint -w web")).toMatchObject({
+				status: 0,
+				stderr: "",
+			});
+			for (const command of ["npm run lint", "npm run lint -w web -iwr"]) {
+				const r = run(command);
+				expect(r.status).toBe(1);
+				expect(r.stderr).toContain(
+					`Declare check_staged instead as '${BIOME_STAGED_COMMAND}'`,
+				);
+			}
+		});
+
+		it("maps no script that -iwr also runs in a member", () => {
+			writePackage(".", {
+				workspaces: ["web"],
+				devDependencies: Biome,
+				scripts: { "check:staged": "npm run cs -ws -iwr", cs: Writes },
+			});
+			const c = classifyCheckStaged(dir, "npm run check:staged", {
+				inferred: true,
+			});
+			expect(c.kind).toBe("refused");
+		});
+
+		it.each(["npm run cs -w nosuch", "npm run cs -w web -w nosuch"])(
+			"refuses %j as may run where the repo has Biome evidence",
+			(command) => {
+				expectMayRun(run(command));
+			},
+		);
+
+		it.each(["npm run cs -w web", "npm run cs -ws"])(
+			"refuses %j as may run where the top declares no workspaces",
+			(command) => {
+				writePackage(".", { devDependencies: Biome });
+				expectMayRun(run(command));
+			},
+		);
+
+		it.each(["npm run lint -w nosuch", "npm run lint -ws"])(
+			"passes %j, unresolved, in a repo with no Biome evidence (#2731's story 22)",
+			(command) => {
+				writePackage(".", {});
+				writePackage("web", { scripts: { lint: "eslint ." } });
+				expect(run(command)).toMatchObject({ status: 0, stderr: "" });
+			},
+		);
+
+		it("reads workspaces' packages form, globs, a parent directory and a negation", () => {
+			writePackage(".", {
+				workspaces: { packages: ["pkgs/*", "!pkgs/old"] },
+				devDependencies: Biome,
+			});
+			writePackage("pkgs/a", { scripts: { cs: "eslint ." } });
+			writePackage("pkgs/b", { scripts: { other: Writes } });
+			writePackage("pkgs/old", { scripts: { cs: Writes, other: Writes } });
+			for (const command of ["npm run cs -ws", "npm run other -w a"])
+				expect(run(command)).toMatchObject({ status: 0, stderr: "" });
+			const r = run("npm run other -w pkgs");
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain(
+				`runs it in pkgs/b, where biome-staged.js, which runs from the work tree's top, cannot follow. ${OWN_FLAGS_WAY_OUT}`,
+			);
+			expectMayRun(run("npm run other -w old"));
+		});
+
+		it("takes no member from node_modules, nor from a directory with no package.json", () => {
+			writePackage(".", { workspaces: ["*"], devDependencies: Biome });
+			writePackage("node_modules", { scripts: { cs: Writes } });
+			fs.mkdirSync(path.join(dir, "empty"));
+			writePackage("web", { scripts: { cs: "eslint ." } });
+			expect(run("npm run cs -ws")).toMatchObject({ status: 0, stderr: "" });
+			expectMayRun(run("npm run cs -w empty"));
+		});
+
+		it("resolves a member's own selector against the root above it, as npm does", () => {
+			writePackage(".", { workspaces: ["web", "a"], devDependencies: Biome });
+			writePackage("a", { scripts: { cs: Writes } });
+			writePackage("web", {
+				scripts: {
+					named: "npm run cs -w a",
+					all: "npm run cs -ws",
+					cs: "eslint .",
+				},
+			});
+			const r = run("npm run named -w web");
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain(
+				`runs it in a, where biome-staged.js, which runs from the work tree's top, cannot follow. ${OWN_FLAGS_WAY_OUT}`,
+			);
+			/* Inside a member `-ws` is that member alone, measured on npm 11.16.0. */
+			expect(run("npm run all -w web")).toMatchObject({
+				status: 0,
+				stderr: "",
+			});
+		});
+
+		it("reads a nested member's -ws as that member, as npm finds the root above first", () => {
+			writePackage(".", { workspaces: ["web"], devDependencies: Biome });
+			writePackage("web", { workspaces: ["sub"], scripts: { cs: Writes } });
+			writePackage("web/sub", { scripts: { cs: "echo sub" } });
+			const r = run("cd web && npm run cs -ws");
+			expectInWeb(r);
+		});
+
+		it("reads a word an npm shorthand's = hands on as handed on (#559)", () => {
+			writePackage(".", {
+				workspaces: ["web"],
+				devDependencies: Biome,
+				scripts: { cs: "biome check --staged" },
+			});
+			const r = run("npm run cs --silent=foo");
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain(", handed foo,");
+			expect(r.stderr).toContain('passes the path "foo"');
+		});
+
+		it("reads a space-form npm flag's value as npm's, not handed on", () => {
+			writePackage(".", {
+				devDependencies: Biome,
+				scripts: { cs: "biome check --staged" },
+			});
+			const r = run("npm run cs --loglevel silent");
+			expect(r.status).toBe(1);
+			expect(r.stderr).not.toContain("handed");
+			expect(r.stderr).toContain(
+				`Declare check_staged instead as '${BIOME_STAGED_COMMAND}'`,
+			);
+		});
+	});
+
 	describe("in a repo declaring Biome", () => {
 		beforeEach(() => {
 			writePackage(".", {

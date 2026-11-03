@@ -47,8 +47,10 @@ const path = require("node:path");
 const { runCheck, errMessage } = require("./lib/check");
 const { parseOrExit } = require("./lib/cli-args");
 const audit = require("./lib/escape-audit");
+const { logError } = require("./lib/arbiter-core");
 const hookBlock = require("./lib/hook-block");
 const { markersDir } = require("./lib/marker-root.js");
+const { pidLock } = require("./lib/pid-lock.js");
 const { oneCopyEach, projectDirs } = require("./lib/project-dirs");
 const { scriptPath } = require("./lib/script-path.js");
 
@@ -69,8 +71,6 @@ const ABORT_MS = 20_000;
 const KICK_MS = 6 * 60 * 60_000;
 /* A boolean question's own midpoint; no threshold study stands behind it. */
 const BEARS_AT = 0.5;
-/* A lock older than a run can last belongs to a process that died. */
-const LOCK_STALE_MS = RUN_MS + 5 * 60_000;
 
 const LOCK_NAME = ".escape-audit-lock";
 const KICK_NAME = ".escape-audit-kicked";
@@ -106,30 +106,6 @@ function readTranscripts(dirs) {
 		}
 	}
 	return oneCopyEach(files);
-}
-
-/**
- * Take the lock, or return false where a live run holds it.
- * @param {string} file
- */
-function lock(file) {
-	for (let tries = 0; tries < 2; tries++) {
-		try {
-			fs.writeFileSync(file, String(process.pid), { flag: "wx" });
-			return true;
-		} catch {
-			let age = 0;
-			try {
-				age = Date.now() - fs.statSync(file).mtimeMs;
-			} catch {
-				/* the holder released it between the two calls (#671) */
-				continue;
-			}
-			if (age < LOCK_STALE_MS) return false;
-			fs.rmSync(file, { force: true });
-		}
-	}
-	return false;
 }
 
 /**
@@ -245,8 +221,15 @@ async function askWithRetries(run, text) {
  * @returns {Promise<{items: number, unreadable?: number, asked: number, answered: number, failed: number, reason?: string}>}
  */
 async function judge({ root, dirs, gapMs = GAP_MS }) {
-	const lockFile = path.join(markersDir(root), LOCK_NAME);
-	if (!lock(lockFile))
+	/* Held while the run lives: `RUN_MS` between items and `ABORT_MS` on each
+	 * ask end a hung one (#4016). */
+	const markers = markersDir(root);
+	fs.mkdirSync(markers, { recursive: true });
+	const lock = pidLock(
+		path.join(markers, LOCK_NAME),
+		path.basename(__filename),
+	);
+	if (!lock.acquire())
 		return { items: 0, asked: 0, answered: 0, failed: 0, reason: "locked" };
 	const started = Date.now();
 	try {
@@ -285,7 +268,7 @@ async function judge({ root, dirs, gapMs = GAP_MS }) {
 		const { asked, answered, failed } = run.counts;
 		return { items: unique.length, unreadable, asked, answered, failed };
 	} finally {
-		fs.rmSync(lockFile, { force: true });
+		lock.release();
 	}
 }
 
@@ -448,6 +431,8 @@ module.exports = { main };
 
 if (require.main === module)
 	main().catch((e) => {
+		/* Recorded as well, since a kicked run's stderr goes nowhere (#4016). */
+		logError("audit-escape-lines", e);
 		process.stderr.write(`audit-escape-lines: ${errMessage(e)}\n`);
 		process.exitCode = 1;
 	});

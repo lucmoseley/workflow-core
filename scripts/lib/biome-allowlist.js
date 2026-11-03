@@ -211,6 +211,15 @@ function judgeFlag(name, value, next) {
 }
 
 /** @type {Unmapped} */
+const UNRESOLVED_SELECTOR = {
+	shape:
+		"selects with npm's -w or -ws a workspace no member of package.json's workspaces answers, so whether it runs biome check --staged cannot be read",
+	wayOut: declareCheckStaged(
+		`with the selector naming a member, or as an explicit '${OWN_FLAGS}'`,
+	),
+};
+
+/** @type {Unmapped} */
 const UNREAD = {
 	shape:
 		"holds words not known until the shell runs it, or read otherwise by dash than by bash — an expansion or substitution, $'…' or $\"…\", a brace expansion, a here-document, a command name that is an expansion or a glob, or a command such as xargs, eval or a shell reading stdin that builds its own command line — so whether it runs biome check --staged cannot be read",
@@ -317,6 +326,7 @@ module.exports = {
 	OWN_FLAGS,
 	OWN_FLAGS_WAY_OUT,
 	UNREAD,
+	UNRESOLVED_SELECTOR,
 	declareCheckStaged,
 	mapAsWritten,
 	mapBiome,

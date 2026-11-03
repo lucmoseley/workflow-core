@@ -10,7 +10,7 @@
  * calls it reports and never refuses. No session id records nothing.
  */
 
-const fs = require("node:fs");
+const { readFdAll } = require("./lib/read-fd.js");
 const { caught } = require("./lib/caught.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { fromEnv } = require("./lib/session-id.js");
@@ -28,7 +28,7 @@ else if (sid) {
 	try {
 		recordRed(process.cwd(), sid, {
 			command: parsed.positionals[0] ?? "",
-			output: fs.readFileSync(0, "utf8"),
+			output: readFdAll(0).toString("utf8"),
 		});
 	} catch (e) {
 		writeFd(

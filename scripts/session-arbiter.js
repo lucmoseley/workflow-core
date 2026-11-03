@@ -62,6 +62,7 @@ const {
 } = require("./lib/detached-run.js");
 const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const { scriptPath } = require("./lib/script-path.js");
+const { readFdAll } = require("./lib/read-fd.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { caught } = require("./lib/caught.js");
 const { readOwnPaths } = require("./lib/own-work.js");
@@ -116,12 +117,12 @@ function detachPrune() {
  * The `session_id` of the hook event JSON on stdin, or "" — for a hook whose
  * environment carries no CLAUDE_CODE_SESSION_ID. A terminal is never read: it
  * would wait on the keyboard. RESIDUAL: a non-TTY stdin held open with no EOF
- * blocks here until the hook's own timeout; the harness closes it.
+ * outlasts the hook's 10 s timeout (lib/read-fd.js's RESIDUAL); the harness closes it.
  */
 function readHookSessionId() {
 	if (process.stdin.isTTY) return "";
 	try {
-		const id = JSON.parse(fs.readFileSync(0, "utf8")).session_id;
+		const id = JSON.parse(readFdAll(0).toString("utf8")).session_id;
 		return typeof id === "string" ? id : "";
 	} catch {
 		return "";

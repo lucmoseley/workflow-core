@@ -45,8 +45,7 @@
  *    scripts/issue-body.js`, `./scripts/issue-body.js` and a wrapper alike,
  *    while leaving both kinds of read to spend nothing: a read of the FILE —
  *    `grep -n foo scripts/issue-body.js` — and the script's own `show`, which
- *    writes nothing. The latch is that rule's only delivery, so a read
- *    spending it means the session's first real write goes unsaid. What still
+ *    writes nothing. What still
  *    costs a latched injection and nothing else: an UNQUOTED mention where the
  *    script is its own word and a writing subcommand is the next one — `echo
  *    node scripts/issue-body.js tick 12`. A QUOTED body does NOT: the parser
@@ -99,9 +98,7 @@ const { trimEndRun } = require("./trim-run.js");
  * @typedef {(words: string[], call: Call) => boolean} Predicate
  */
 
-/* The prelude's own latch key, in ctx.told's `warn.<id>` namespace. One
- * prelude serves every row, so it is keyed on a name of its own rather than on
- * any one rule's id. */
+/* The prelude's own latch key, in ctx.told's `warn.<id>` namespace. */
 const PRELUDE_LATCH = "tracker-rules-prelude";
 
 /* The framing sentence (mantahostels#2369). IT STANDS ALONE, never ending in a
@@ -340,7 +337,6 @@ const TRIGGERS = [
 const API_BODY_FLAGS = "-F --field --input";
 
 /**
- * What one `gh` call's flags hand it as a body path.
  * @param {string[]} args the words after `gh`
  * @param {string[]} spans
  */
@@ -368,7 +364,6 @@ function ghBodyPaths(args, spans) {
 }
 
 /**
- * The words of one command that can be a body path, read through literal.
  * @param {string[]} words the command's words, its head included
  * @param {string[]} spans
  */
@@ -387,7 +382,7 @@ function bodyPathWords([head = "", ...args], spans) {
  * text, quoting and all.
  *
  * A word opening on any other expansion (`$HOME/b.md`) could land anywhere, so
- * it is not resolved against the working directory, and neither is `~/`.
+ * it is not resolved against the working directory; `~/` expands to HOME.
  * @param {Parsed} parsed
  * @param {TrackerContext} ctx
  */

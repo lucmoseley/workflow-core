@@ -396,6 +396,50 @@ describe("the pre-commit check_staged gate on a biome check --staged command (#2
 		expect(ran("check_staged")).toBe(false);
 	});
 
+	describe("through npm's workspace selectors (#4041)", () => {
+		const inWorkspace = (command: string, scripts: object) => {
+			const fixtureRun = biomeFixture(command, {
+				workspaces: ["web"],
+				devDependencies: { "@biomejs/biome": "2.0.0" },
+			});
+			const web = path.join(fixtureRun.root, "web");
+			fs.mkdirSync(web);
+			fs.writeFileSync(
+				path.join(web, "package.json"),
+				JSON.stringify({ scripts }),
+			);
+			return fixtureRun;
+		};
+
+		it.each([
+			"npm run cs -w web",
+			"npm run cs --workspace=web",
+			"npm -w web run cs",
+			"npm --workspace web run cs",
+			"npm run cs --workspaces",
+			"npm run cs -ws",
+			"npm run --workspaces cs",
+		])("refuses %s before Biome runs", (command) => {
+			const { run: commit } = inWorkspace(command, {
+				cs: "biome check --staged --write",
+			});
+			const { code, out, ran } = commit();
+			expect(code).toBe(1);
+			expect(out).toContain("runs it in web");
+			expect(out).toContain(`'${BIOME_STAGED_COMMAND} <flags>'`);
+			expect(ran("check_staged")).toBe(false);
+		});
+
+		it("runs npm run lint -w web, whose script runs no Biome", () => {
+			const { run: commit } = inWorkspace("npm run lint -w web", {
+				lint: "touch ../RAN-check_staged",
+			});
+			const { code, ran } = commit();
+			expect(code).toBe(0);
+			expect(ran("check_staged")).toBe(true);
+		});
+	});
+
 	it.each(["b\\iome check --staged", "bi''ome check --staged"])(
 		"refuses %s, whose quoting hides the word biome, before it runs (#3414)",
 		(command) => {

@@ -355,6 +355,21 @@ function optionOf(given, eq) {
 }
 
 /**
+ * The words npm reads as operands, not options or their values, in order.
+ * @param {string[]} argv
+ */
+function parseNpmOperands(argv) {
+	const canon = npmCanon(argv);
+	const cut = canon.indexOf("--");
+	return [
+		...(cut < 0 ? canon : canon.slice(0, cut)).filter(
+			(w) => !w.startsWith("-"),
+		),
+		...(cut < 0 ? [] : canon.slice(cut + 1)),
+	];
+}
+
+/**
  * Whether `word` is npm's `run` command as npm 11.16.0's cmd-list derefs it:
  * `run`, its aliases `rum`, `urn` and `run-script`, or an abbreviation of
  * one, a camelCase word read as its kebab-case (#3627).
@@ -398,6 +413,7 @@ module.exports = {
 	boolExact,
 	isNpmRun,
 	npmCanon,
+	parseNpmOperands,
 	scriptOfNpmCommand,
 	shorthandExact,
 };

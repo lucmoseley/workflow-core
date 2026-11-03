@@ -7,14 +7,14 @@
  * and grouped-child.js's is what kills the group.
  */
 
-const fs = require("node:fs");
+const { readFdAll } = require("./read-fd.js");
 const { runGrouped } = require("./grouped-child.js");
 const { writeFd } = require("./write-fd.js");
 
 for (const signal of /** @type {const} */ (["SIGTERM", "SIGINT", "SIGHUP"]))
 	process.on(signal, () => process.exit(1));
 
-const { file, args, opts } = JSON.parse(fs.readFileSync(0, "utf8"));
+const { file, args, opts } = JSON.parse(readFdAll(0).toString("utf8"));
 runGrouped(file, args, opts).then(
 	(run) => {
 		writeFd(1, JSON.stringify(run));
