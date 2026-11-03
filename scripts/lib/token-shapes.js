@@ -1,0 +1,370 @@
+/*
+ * token-shapes.js — the credential shapes a scratch writer masks before a
+ * session log's text reaches a file other sessions read (workflow-core#1031). One list, so
+ * a later reader reuses it rather than restating it; the gitleaks pre-commit
+ * scan keeps its own rules.
+ *
+ * EACH SHAPE CARRIES A MINIMUM-LENGTH BODY, so prose sharing a prefix
+ * ("task-notification", "sk-learn", a short `hf_` name) is left alone. The
+ * minima sit under each vendor's real length — chosen, not measured against a
+ * corpus. Only an `sk-` prefix must not follow a letter or digit, so "risk-…"
+ * never reads as a key — unless that character closes an escape (`%3D`,
+ * `\u0022`), which hides the separator a log's encoding replaced (workflow-core#3394). The
+ * other prefixes plus their minimum bodies never occur mid-word, so they take
+ * no lead and no escape can hide them (workflow-core#3540).
+ *
+ * A TERMINAL CONTROL SEQUENCE IS TRANSPARENT after a token's first character,
+ * since `grep --color` puts one wherever its pattern ends (workflow-core#3540, workflow-core#3547,
+ * workflow-core#3549). A body stops before another shape's whole minimum token that its
+ * own characters cannot spell, so back-to-back tokens are each masked.
+ *
+ * RESIDUALS: a token of a vendor not listed passes unmasked, and so do an
+ * AWS secret access key (no prefix tells it from any 40-character string) and
+ * an `sk-` body holding no digit in its first 300 characters — the digit is
+ * what tells a key from a long hyphenated word. An `sk-` token after an
+ * escape `ESCAPES` does not list, such as quoted-printable's `=3D`, passes
+ * too. An escaped letter or digit (`%41`) counts as a lead, over-masking. A
+ * control sequence with a URL-encoded intermediate byte (`%1B%28B`) still
+ * splits a token, since `%2X` overlaps re-encoding's `%25` and leaves two
+ * readings. So do a URL-encoded OSC (`%1B%5D8%3B`), an OSC whose body spells
+ * ESC or BEL (`%07`, a Windows path's `\a` or `\e`) or runs past 4096
+ * characters, and an ESC after more than 64 backslashes. A body character
+ * after an OSC's closing `ESC \` that spells an escaped ESC with its `\`
+ * (`\e`, `\U0000001b`) is read as one, taking the characters after it as
+ * that sequence's, so a token near its minimum can pass (workflow-core#3549). A chain of
+ * tokens each shorter than any vendor issues and spelling the next one's
+ * prefix masks only its last links, one more per pass; and an `sk-` token a
+ * control sequence leads, inside such a token's minimum, loses its prefix to
+ * that body and passes (workflow-core#3661).
+ *
+ * A STORED SECRET'S VALUE is masked after an assignment to its name, whatever
+ * its shape (workflow-core#3661), to the end of its line (workflow-core#3710), and wherever it appears
+ * as the file holds it, at MIN_BARE_VALUE characters or more (workflow-core#3821). The rest
+ * pass: a shorter one after `NAME:`, a JSON key or an assignment spelled some
+ * way buildStored does not read, or on a line whose name the file's grammar
+ * rejects, since prose shares too many short values; a longer one spelled
+ * otherwise (URL-encoded, stringified, split by a control sequence, or holding
+ * an escape the file's quoting undoes) with no such assignment before it; one
+ * on a line `lib/env-file.js` reads no way, a name outside `[\w.-]` included;
+ * a `# NAME: value`; a part after the first of one split by a break where no
+ * later line closes its quote, or commented out line by line, which masks with
+ * its `#`; one on the line after its name; and one the file does not hold, a
+ * key set only in the environment included. Where two stored values overlap
+ * in the text, the first masked leaves the other's tail. A value opening `\t`,
+ * or a spelling of a control sequence (`\e7`, `%1B7`, `^[[1m`), keeps that
+ * opening.
+ */
+
+const { SPACE } = require("./env-file.js");
+
+/**
+ * The source for a URL-encoded byte at any depth of re-encoding.
+ * @param {string} hex the byte's hex digits, a class allowed
+ */
+const buildUrlEncoded = (hex) => `%(?:25)*${hex}`;
+
+/* ESC and BEL, raw, URL-encoded or in any common escaped spelling, the
+ * backslash doubled up to six times over (a stringified `cat -v` or Python
+ * repr, workflow-core#3549). An unbounded run overflows the regex stack on a
+ * multi-megabyte one; six doublings is a guess, not measured. */
+const BACKSLASHES = String.raw`\\{1,64}`;
+const ESC_TAIL = String.raw`u001[bB]|u\{0*1[bB]\}|x1[bB]|U0000001[bB]|033|e|E`;
+const BEL_TAIL = String.raw`u0007|u\{0*7\}|x07|U00000007|007|a`;
+const ESC_CARET = String.raw`\^\[`;
+const BEL_CARET = String.raw`\^G`;
+const ESC = String.raw`(?:\x1b|${BACKSLASHES}(?:${ESC_TAIL})|${buildUrlEncoded("1[bB]")}|(?:${BACKSLASHES})?${ESC_CARET})`;
+const BEL = String.raw`(?:\x07|${BACKSLASHES}(?:${BEL_TAIL})|${buildUrlEncoded("07")}|(?:${BACKSLASHES})?${BEL_CARET})`;
+
+/* The ECMA-48 sequence ESC opens: a CSI, its `[` and parameters raw or
+ * URL-encoded; an OSC, its numeric command then `;`, such as an OSC 8
+ * hyperlink, ended by BEL or by ESC and the backslash run of its `\`; or a
+ * two-character one such as `ESC 7` or `ESC ( B` (`tput sgr0`). Each has one
+ * reading, so the body's repetition cannot backtrack exponentially over it:
+ * the two-character form never ends in `[`, starts an encoded `[` or starts a
+ * whole OSC. An OSC body holds any character but a C0 control other than
+ * tab, DEL, ESC and BEL, and takes a backslash run whole, so it never rescans
+ * one; the closing `\` run is taken whole unless an escaped ESC follows it. */
+const CSI = String.raw`(?:\[|${buildUrlEncoded("5[bB]")})(?:[0-?]|${buildUrlEncoded("3[0-9A-Fa-f]")})*[ -/]*[@-~]`;
+const OSC_BODY_UNIT = String.raw`(?!${buildUrlEncoded("(?:1[bB]|07)")}|${ESC_CARET}|${BEL_CARET})[^\x00-\x08\x0a-\x1f\x7f\\]|${BACKSLASHES}(?!\\|${ESC_TAIL}|${BEL_TAIL}|${ESC_CARET}|${BEL_CARET})`;
+/* Unbounded, a multi-megabyte OSC body overflows the regex stack; 4096 is a
+ * guess at the longest an OSC 8 URI runs, not measured. */
+const OSC = String.raw`\][0-9]+;(?:${OSC_BODY_UNIT}){0,4096}(?:${BEL}|${ESC}(?:${BACKSLASHES}(?!\\|${ESC_TAIL}|${ESC_CARET}))?)`;
+const TWO_CHARACTER = String.raw`(?!${buildUrlEncoded("5[bB]")}|${OSC})[ -/]*[0-Z\\\]-~]`;
+const CONTROL = `${ESC}(?:${CSI}|${OSC}|${TWO_CHARACTER})`;
+
+/* The escapes an `sk-` token may follow, each ending in a letter or digit:
+ * JSON's and C's (a tool input reaches the masker stringified), octal, a
+ * URL's percent-escape at any depth of re-encoding, `\x`/`\U`/`%u` from
+ * printf, Python and old JavaScript, and a terminal control sequence. */
+const ESCAPES = [
+	String.raw`\\[abfnrtv]`,
+	String.raw`\\[0-7]{1,3}`,
+	String.raw`\\x[0-9A-Fa-f]{2}`,
+	String.raw`(?:\\u|%u)[0-9A-Fa-f]{4}`,
+	String.raw`\\U[0-9A-Fa-f]{8}`,
+	buildUrlEncoded("[0-9A-Fa-f]{2}"),
+	CONTROL,
+];
+
+/**
+ * The source for a lead: no `nameChars` character before, unless an escape
+ * `ESCAPES` lists ends there.
+ * @param {string} nameChars a class body
+ */
+const buildLead = (nameChars) =>
+	`(?:(?<![${nameChars}])|(?<=${ESCAPES.join("|")}))`;
+
+const SK_LEAD = buildLead("A-Za-z0-9");
+
+/**
+ * The source for a prefix with any control sequences between its characters;
+ * a `[…]` class is one character.
+ * @param {string} prefix
+ */
+const buildPrefix = (prefix) => prefixUnits(prefix).join(`(?:${CONTROL})*`);
+
+/**
+ * The units `buildPrefix` joins, read in one pass: a regex alternation
+ * backtracks quadratically on a run of unclosed `[` (workflow-core#3383).
+ * @param {string} prefix
+ */
+function prefixUnits(prefix) {
+	const units = [];
+	const lastClose = prefix.lastIndexOf("]");
+	for (let i = 0; i < prefix.length; i++) {
+		const end = prefix[i] === "[" && i < lastClose ? prefix.indexOf("]", i) : i;
+		units.push(prefix.slice(i, end + 1));
+		i = end;
+	}
+	return units;
+}
+
+/**
+ * The source for one body character, after any control sequences, that
+ * does not start `stop`.
+ * @param {string} chars
+ * @param {string} [stop]
+ */
+const buildBodyUnit = (chars, stop) =>
+	`(?:${CONTROL})*${stop ? `(?!${stop})` : ""}${chars}`;
+
+/** @typedef {{ prefix: string, chars: string, min: number }} Shape */
+
+/** @type {Shape} */
+const SK = { prefix: buildPrefix("sk-"), chars: "[A-Za-z0-9_-]", min: 20 };
+/** @type {Shape} */
+const ANTHROPIC = { ...SK, prefix: buildPrefix("sk-ant-") };
+/** @type {Shape} */
+const HUGGINGFACE = {
+	prefix: buildPrefix("hf_"),
+	chars: "[A-Za-z0-9]",
+	min: 30,
+};
+/** @type {Shape} */
+const GITHUB = {
+	prefix: buildPrefix("gh[pousr]_"),
+	chars: "[A-Za-z0-9]",
+	min: 30,
+};
+/** @type {Shape} */
+const GITHUB_PAT = {
+	prefix: buildPrefix("github_pat_"),
+	chars: "[A-Za-z0-9_]",
+	min: 22,
+};
+const AWS_PREFIX = buildPrefix("A[KS]IA");
+
+/** @param {Shape} shape */
+const buildShortest = ({ prefix, chars, min }) =>
+	`${prefix}(?:${buildBodyUnit(chars)}){${min}}`;
+
+/* The shortest whole token of each shape whose prefix holds a character an
+ * alphanumeric body lacks, so a real body never spells one. */
+const NEXT_SK = buildShortest(SK);
+const NEXT_TOKEN = [HUGGINGFACE, SK, GITHUB, GITHUB_PAT]
+	.map(buildShortest)
+	.join("|");
+
+/* The shortest whole token of each lead-free shape: inside its minimum a
+ * body stops before one of these alone. A stop before an `sk-` there would
+ * cut the body short and mask neither when that `sk-` has no lead (workflow-core#3661). */
+const NEXT_LEAD_FREE = [HUGGINGFACE, GITHUB, GITHUB_PAT]
+	.map(buildShortest)
+	.join("|");
+
+/**
+ * The source for a shape's prefix, `guard`, then a body of at least its
+ * minimum whose characters do not start `early`, ending at the first place
+ * past the minimum where, after any control sequences, `stop` starts or no
+ * body character follows. One lookahead ends it rather than one per
+ * character, which would hold `stop` twice and double the compiled code.
+ * @param {Shape} shape
+ * @param {{ stop?: string, early?: string, guard?: string }} [options]
+ */
+const buildToken = ({ prefix, chars, min }, { stop, early, guard = "" } = {}) =>
+	`${prefix}${guard}(?:${buildBodyUnit(chars, early)}){${min},}${
+		stop ? `?(?=(?:${CONTROL})*(?:${stop})|(?!(?:${CONTROL})*${chars}))` : ""
+	}`;
+
+/* The digit lookahead is bounded so a long digitless run stays linear. 300
+ * is a guess, not measured; a random body of the class holds no digit in its
+ * first 300 characters with odds of (54/64)^300, under 1e-22. */
+const SK_DIGIT = `(?=(?:${CONTROL}|${SK.chars}){0,300}?\\d)`;
+
+/** @param {Shape} shape */
+const buildSkToken = (shape) =>
+	`${SK_LEAD}${buildToken(shape, { guard: SK_DIGIT })}`;
+
+/** @type {{ rule: string, pattern: RegExp }[]} */
+const TOKEN_SHAPES = [
+	{
+		rule: "anthropic",
+		pattern: new RegExp(buildSkToken(ANTHROPIC)),
+	},
+	{ rule: "openai", pattern: new RegExp(buildSkToken(SK)) },
+	{
+		rule: "github-pat",
+		pattern: new RegExp(buildToken(GITHUB_PAT, { stop: NEXT_SK })),
+	},
+	{
+		rule: "huggingface",
+		pattern: new RegExp(
+			buildToken(HUGGINGFACE, { stop: NEXT_TOKEN, early: NEXT_LEAD_FREE }),
+		),
+	},
+	{
+		rule: "github",
+		pattern: new RegExp(
+			buildToken(GITHUB, { stop: NEXT_TOKEN, early: NEXT_LEAD_FREE }),
+		),
+	},
+	{
+		rule: "aws",
+		/* An uppercase body can spell another key id's prefix, so the fixed
+		 * length ends it there too. */
+		pattern: new RegExp(
+			`${AWS_PREFIX}(?:${buildBodyUnit("[0-9A-Z]")}){16}(?:(?![0-9A-Z])|(?=${AWS_PREFIX}))`,
+		),
+	},
+];
+
+/* A second pass masks an `sk-` token a first-pass mask gave its lead; a
+ * mask gives no other token a lead or a body. */
+const PASSES = 2;
+
+/* A space env-file reads around `=`, escaped as JSON, C or Python spell it. */
+const ESCAPED_SPACE = `${BACKSLASHES}(?:[tfv]|x(?:09|0[bBcC]|[aA]0)|u(?:0009|000[bBcC]|00[aA]0|1680|200[0-9aA]|202[fF]|205[fF]|3000|[fF][eE][fF][fF]))`;
+
+/* `=` raw, URL-encoded at any depth, or escaped as C, JSON or HTML spell it. */
+const EQUALS = `(?:=|${buildUrlEncoded("3[dD]")}|${BACKSLASHES}(?:x3[dD]|u003[dD]|075)|&#0*61;|&#[xX]0*3[dD];|&equals;)`;
+
+/**
+ * Each assignment to a name, as a log spells one, in two groups: the name and
+ * what runs to its value. The name, control sequences allowed between its
+ * characters as `grep --color` puts them, follows no name character unless
+ * an escape `ESCAPES` lists ends there. A subscript's closing quote and `]`
+ * may follow it (`os.environ["NAME"]`). Before `=`, in any spelling, may sit
+ * `lib/env-file.js`'s spaces, raw or escaped, control sequences, and the `+`,
+ * `:` or `?` of a shell's or Makefile's `+=`, `:=` or `?=`; after it, the raw
+ * spaces, an escaped tab, control sequences and a backslash-newline. The
+ * value takes any quote around it.
+ * @param {string[]} names
+ */
+function buildStored(names) {
+	const nameAlternation = names.map(buildPrefix).join("|");
+	const firsts = [...new Set(names.map((name) => name[0]))].join("");
+	const gap = String.raw`(?:(?:${BACKSLASHES})?["']\])?(?:${CONTROL}|${SPACE}|${ESCAPED_SPACE})*[+:?]?${EQUALS}(?:${CONTROL}|${SPACE}|\\t|\\+\r?\n)*`;
+	return `(?=[${firsts}])${buildLead("A-Za-z0-9_")}(${nameAlternation})(${gap})(?!${SPACE}).+`;
+}
+
+/* A shorter value is too often a word prose shares. GitLab's floor for a
+ * masked variable: docs.gitlab.com/ci/variables. */
+const MIN_BARE_VALUE = 8;
+
+/**
+ * `text` with every token-shaped substring masked, and how many.
+ * @param {string} text
+ * @returns {{ text: string, count: number }}
+ */
+function maskShapes(text) {
+	let count = 0;
+	let out = text;
+	let found = 0;
+	for (let pass = 0; pass < PASSES && (pass === 0 || found > 0); pass++) {
+		found = 0;
+		for (const { rule, pattern } of TOKEN_SHAPES) {
+			const every = new RegExp(pattern.source, "g");
+			found += out.match(every)?.length ?? 0;
+			out = out.replace(every, `[REDACTED:${rule}]`);
+		}
+		count += found;
+	}
+	return { text: out, count };
+}
+
+/**
+ * `text` with every occurrence of `values`, as literal text, masked, and how
+ * many.
+ * @param {string} text
+ * @param {string[]} values
+ * @returns {{ text: string, count: number }}
+ */
+function maskValues(text, values) {
+	let count = 0;
+	let out = text;
+	for (const value of values) {
+		const parts = out.split(value);
+		count += parts.length - 1;
+		out = parts.join("[REDACTED:stored]");
+	}
+	return { text: out, count };
+}
+
+/**
+ * `text` with every token-shaped substring, the value of an assignment to any
+ * of `names`, and every one of `values` long enough to tell from prose,
+ * replaced by `[REDACTED:<rule>]`. Shapes apply in list order: `sk-ant-` is
+ * named before the bare `sk-` rule can claim it, and the shapes whose bodies
+ * hold `_` or `-` run before the lead-free ones, which would otherwise split
+ * them at an `hf_` or `ghp_` inside.
+ * @param {string} text
+ * @param {string[]} [names] the secrets file's names, from
+ *   `lib/env-file.js`'s `readStoredSecrets`: identifiers, put in the pattern as
+ *   they are
+ * @param {string[]} [values] the secrets file's values, from
+ *   `lib/env-file.js`'s `readStoredSecrets`
+ * @returns {{ text: string, count: number }}
+ */
+function maskTokens(text, names = [], values = []) {
+	let count = 0;
+	let out = text;
+	if (names.length > 0) {
+		out = out.replace(
+			new RegExp(buildStored(names), "g"),
+			(_match, name, gap) => {
+				count++;
+				return `${name}${gap}[REDACTED:stored]`;
+			},
+		);
+	}
+	/* Longest first, so a value inside another leaves no tail of it. A value
+	 * holding a token goes before the shapes, which would take that token and
+	 * leave the rest of it; any other goes after, as a mask inside a token
+	 * would leave the token's tail. */
+	const bare = values
+		.filter((value) => value.length >= MIN_BARE_VALUE)
+		.sort((a, b) => b.length - a.length);
+	const holdingToken = bare.filter((value) => maskShapes(value).count > 0);
+	const first = maskValues(out, holdingToken);
+	const shaped = maskShapes(first.text);
+	const rest = maskValues(
+		shaped.text,
+		bare.filter((value) => !holdingToken.includes(value)),
+	);
+	return {
+		text: rest.text,
+		count: count + first.count + shaped.count + rest.count,
+	};
+}
+
+module.exports = { maskTokens };

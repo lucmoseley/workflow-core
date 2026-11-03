@@ -1,0 +1,14 @@
+`npm install` DOES NOT SUPPLY shellcheck, AND A FRESH MACHINE HAS NONE.
+
+`npm run check:sh` then fails to find it rather than passing vacuously — so a
+"no findings" run that never located the binary is a fault, not a clean gate.
+Read the output before believing it.
+
+Here it is a static aarch64 v0.11.0 binary in `~/.local/bin`, from the koalaman
+release — apt's candidate being 0.9.0. CI fetches the SAME version, pinned and
+checksummed in `ci.yml`'s Shellcheck step, rather than using the 0.9.0 the
+runner image preinstalls, so both sides run one binary (#124). An adopter's CI
+pins only if its own `ci.yml` does. The two DO disagree: 0.9.0 flags
+SC2015, SC2119 and SC2317 findings 0.11.0 does not (#1295,
+lucmoseley/mantahostels#3743). Bump both together, or `check:sh` stops
+predicting CI.

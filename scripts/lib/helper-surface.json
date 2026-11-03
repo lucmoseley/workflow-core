@@ -1,0 +1,181 @@
+{
+	"about": "The helper surface: every file an adopter may import or source from outside the plugin, and the names each one exports, plus every script an adopter may run as a command, and the argv each one accepts. A file, export or command not listed here is internal and may change in any release. Paths are relative to the plugin root.",
+	"versioning": "The plugin's semver is the surface's version. Removing or renaming an entry point or a listed export, or changing an export's call shape incompatibly, is a major change and needs a migration note under migrations/. So is removing a listed command, removing or reordering its listed positionals, removing a listed flag or a listed positional value, or changing what a listed exit code means. So is adding a positional or flag a caller must now pass. Adding an entry point, an export, a command, a positional value, or a positional or flag a caller may omit is a minor change.",
+	"entryPoints": {
+		"scripts/lib/caught.js": ["caught"],
+		"scripts/lib/check.js": [
+			"CheckContext",
+			"MAX_BUFFER",
+			"errMessage",
+			"runCheck"
+		],
+		"scripts/lib/doc-map.js": ["sectionAMatcher"],
+		"scripts/lib/doc-map-generator.js": [
+			"claimDataFile",
+			"parseCliArgs",
+			"releaseClaim"
+		],
+		"scripts/lib/guard-log.sh": ["gl_log"],
+		"scripts/lib/precommit-gate-harness.js": [
+			"cutGateFragment",
+			"cutGateScript",
+			"expectFixtureSupplies",
+			"newRepo",
+			"registerTempCleanup"
+		],
+		"scripts/lib/precommit-gate.sh": ["staged_gate"],
+		"scripts/lib/project_slug.py": ["slug_for_repo"],
+		"scripts/lib/run-in-process.js": ["runInProcess", "runInProcessAsync"],
+		"scripts/lib/test-ceiling.js": ["TEST_TIMEOUT_MS"],
+		"scripts/lib/write-fd.js": ["writeFd"],
+		"scripts/run-vitest.js": ["main"],
+		"scripts/vitest-inflight-reporter.ts": ["default"],
+		"scripts/vitest-pass-reporter.ts": ["default"],
+		"scripts/vitest-tree-watch.ts": ["setup", "teardown"]
+	},
+	"commands": {
+		"scripts/checker-new-faults.js": {
+			"positionals": [
+				{
+					"name": "profile",
+					"meaning": "which checker's envelope the two files hold",
+					"values": ["website-copy"]
+				},
+				{
+					"name": "staged",
+					"meaning": "path to the checker's --json envelope over this commit"
+				},
+				{
+					"name": "baseline",
+					"meaning": "path to the same checker's --json envelope over HEAD"
+				}
+			],
+			"flags": [],
+			"exit": {
+				"0": "every fault in staged is inherited from baseline",
+				"1": "stdout lists the faults staged adds, one per line",
+				"2": "could not answer; the caller must refuse, not assume inherited"
+			}
+		},
+		"scripts/lib/formatters.js": {
+			"positionals": [
+				{
+					"name": "mode",
+					"meaning": "shell-files: the shell files check:sh lints and the format gate formats, minus what .gitattributes marks linguist-vendored or linguist-generated (#1828)",
+					"values": ["shell-files"]
+				}
+			],
+			"flags": [
+				{
+					"name": "--tracked",
+					"meaning": "list every tracked shell file, one a line, read from the host root; without it, the shell files among the paths on stdin"
+				}
+			],
+			"exit": {
+				"0": "stdout lists the shell files, one per line",
+				"1": "git failed; stdout is empty and the caller must not read it as no shell files"
+			}
+		},
+		"scripts/lib/run-cost-report.js": {
+			"positionals": [
+				{
+					"name": "timings",
+					"meaning": "path to a JSON object mapping each test file the run timed, repo-relative or absolute, to its seconds"
+				}
+			],
+			"flags": [],
+			"exit": {
+				"0": "always: stdout carries the run-cost report's lines, one fail-open line, or nothing"
+			}
+		},
+		"scripts/mutation-hold-gate.js": {
+			"positionals": [],
+			"flags": [
+				{
+					"name": "--seed",
+					"meaning": "run Stryker once over every file HEAD holds on a declared sensitive path that the mutation hold would mutate, filling the hold's shared cache; judges nothing and commits nothing (#1912)"
+				}
+			],
+			"exit": {
+				"0": "the cache is seeded",
+				"1": "nothing was seeded: no mutable declared file, a missing tool, a red initial run, a Stryker that did not finish, or a fault; stderr says which"
+			}
+		},
+		"scripts/register-doc.js": {
+			"positionals": [
+				{
+					"name": "path",
+					"meaning": "the repo-relative document to register as a docs/doc-map-classes.json key"
+				}
+			],
+			"flags": [
+				{
+					"name": "--class",
+					"value": "one of the five §A class tokens"
+				},
+				{
+					"name": "--section",
+					"value": "the §A subsection the row renders under"
+				},
+				{
+					"name": "--reader",
+					"value": "agent, human or both; required on a .md or .html path, refused on any other"
+				},
+				{
+					"name": "--qualifier",
+					"value": "free text, stored as the key's classQualifier"
+				},
+				{
+					"name": "--consumes",
+					"value": "a JSON array of typed references"
+				},
+				{
+					"name": "--role",
+					"value": "the §A Role cell; alone, sets the role of a registered key"
+				},
+				{
+					"name": "--route",
+					"value": "the §A Update route cell; alone, sets the route of a registered key"
+				},
+				{
+					"name": "--new-section",
+					"meaning": "admit a --section no existing key uses"
+				},
+				{
+					"name": "--no-claim",
+					"meaning": "skip the arbiter claim on the sidecar key"
+				},
+				{
+					"name": "--claim-cmd",
+					"value": "a command run as `<cmd> <subject>` in place of the arbiter's claim"
+				},
+				{
+					"name": "--release-cmd",
+					"value": "a command run as `<cmd> <subject>` in place of the arbiter's release"
+				},
+				{
+					"name": "--data-file",
+					"value": "the sidecar read and written, in place of the host repo's docs/doc-map-classes.json"
+				}
+			],
+			"exit": {
+				"0": "registered the key, or set its role or route",
+				"1": "refused: a held claim, or a registration the sidecar or its validation forbids",
+				"2": "no path, a value flag with no value, or an unreadable sidecar"
+			}
+		},
+		"scripts/run-vitest.js": {
+			"positionals": [],
+			"flags": [
+				{
+					"name": "--changed",
+					"meaning": "select the tests from the uncommitted diff"
+				}
+			],
+			"exit": {
+				"0": "every test run passed, or a bare run under the landing module found no touched test and ran nothing",
+				"1": "a test failed, or the run stalled or was killed"
+			}
+		}
+	}
+}

@@ -1,0 +1,6 @@
+**An issue with acceptance criteria, whatever its labels, closes with them
+worked, never batch-ticked to clear a report.** Re-read the body first (`node scripts/issue-body.js show
+<n>`), and tick only what this session verified, one call each: `tick <n>
+--match "<distinctive words from that criterion>"`. Anything unverified or
+deliberately dropped stays **unticked**, annotated `annotate <n> --match "<the
+criterion>" --text "**waived:** <why>"`.

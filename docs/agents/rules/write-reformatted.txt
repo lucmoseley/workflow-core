@@ -1,0 +1,9 @@
+A `Write`/`Edit` IN BIOME'S SCOPE, SHELL OR PYTHON IS FORMATTED ON THE SPOT by
+the PostToolUse post-write core (`scripts/lib/post-write.js`), so the file on disk is no longer what you wrote: an
+`Edit` whose `old_string` quotes your own bytes can miss. Re-read the file
+before editing it again.
+
+Biome is the formatter/linter of record; `biome.json`'s `includes` carries the
+exclusions — `docs/` and `public/` among them, `.claude/skills/` not — so the
+roadmap HTML's hand-tuned CSS/JS is never auto-reformatted. Biome never runs in
+a worktree, which has no `node_modules`.

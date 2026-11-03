@@ -1,0 +1,9 @@
+| Label | Meaning | Command |
+| ----- | ------- | ------- |
+| `takes:wayfinder` | An open question whose resolution is a decision. | `/wayfinder <n>` |
+| `takes:to-spec` | A chunk large enough to need a spec before tickets. | `/to-spec <n>` |
+| `takes:to-tickets` | A spec ready to break into tickets. | `/to-tickets <n>` |
+| `takes:implement` | A specified unit of work. | `/implement <n>` |
+| `takes:triage` | Disposition not yet decided. | `/triage <n>` |
+| `takes:human` | Done outside Claude Code entirely. | — |
+| `takes:children` | A container — open a child instead. | — |

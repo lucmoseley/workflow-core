@@ -1,0 +1,33 @@
+--- a/scripts/lib/review-tier.test.ts
++++ b/scripts/lib/review-tier.test.ts
+@@ -549,16 +549,21 @@
+ 	});
+ 
+ 	// #1925, #1948: nothing holds a worktree commit, so the hold's text never
+-	// reaches it — the tier block must name a command that prints the marker
+-	// command (#2040).
++	// reaches it. The tier block may print the marker command or name a command
++	// or file that holds it; #1948's manifest-and-index route fails here.
+ 	it("hand a staged review a command printing the marker command with every flag, in a worktree too", () => {
+-		expect(readFragment("review-tier-escalated")).toContain(
+-			"Record it with the marker script, worktree too: `scripts/lib/rule-text.sh review-hold`.",
+-		);
+-		const hold = execFileSync("bash", [RULE_TEXT, "review-hold"], {
+-			encoding: "utf8",
+-		});
+-		expect(hold.trim()).toBe(readFragment("review-hold"));
++		const tier = readFragment("review-tier-escalated");
++		const hold = readFragment("review-hold");
++		if (/rule-text\.sh review-hold|review-hold\.txt/.test(tier)) {
++			const printed = execFileSync("bash", [RULE_TEXT, "review-hold"], {
++				encoding: "utf8",
++			});
++			expect(printed.trim()).toBe(hold);
++		} else {
++			expect(tier).toMatch(
++				/node scripts\/write-review-marker\.js .*--base .*--findings .*--tier .*--areas .*--paths /,
++			);
++		}
+ 		expect(hold).toMatch(
+ 			/^ {2}node scripts\/write-review-marker\.js .*--paths /m,
+ 		);

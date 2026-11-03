@@ -1,0 +1,20 @@
+NEVER DISCARD WORK ACROSS THE WHOLE SHARED TREE.
+
+Every live session edits the one shared working tree. A `git reset --hard`,
+a `git checkout .` or `git restore .`, a `git clean -f`, a bare `git stash`
+or a `git checkout -f` throws away — or sweeps into a stash — every
+uncommitted edit in it, a neighbour's included (#768).
+
+DISCARD YOUR OWN EDITS BY NAMING YOUR OWN PATHS:
+
+  git restore -- <your paths>        # or git checkout -- <your paths>
+  git clean -f -- <your paths>       # untracked files you created
+  git stash push -- <your paths>
+
+These touch no working file, and pass:
+
+  git reset                          # unstage everything
+  git restore --staged <paths>       # unstage, the working file untouched
+  git clean -n                       # a dry run
+
+The whole-tree forms are fine in your own throwaway worktree.

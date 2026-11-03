@@ -1,0 +1,13 @@
+THIS COMMIT REACHES THE GUARD REGISTRY, SO `scripts/check-guard-registry.js`
+JUDGES IT — in `.husky/pre-commit` (mantahostels#910), first to
+fire, and on the scheduled sweeps.
+
+It FAILs when a rule in a `guard-registry` region carries no enforcement tag, or
+carries one that lies — an **Enforced** or **Advisory** naming a guard path
+that does not exist or is not wired, an **Unenforced** naming no owning issue.
+
+It refuses a commit that expires an anchor HEAD's held (the sweeps only warn):
+re-read each sentence it names against its guard, run the `--review` line it
+prints, and put `.claude/guard-registry-anchors.json` in the pathspec.
+
+What each of its four assertions FAILs on: that script's own header.

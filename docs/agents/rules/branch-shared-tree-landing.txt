@@ -1,0 +1,2 @@
+THE SHARED TREE'S `main` TRACKS `origin/landing`, where sessions push: set it
+once with `git branch --set-upstream-to=origin/landing main`.

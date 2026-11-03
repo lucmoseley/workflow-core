@@ -1,0 +1,47 @@
+A KILLED BACKGROUND JOB IS NOT A FINISHED ONE, AND ITS OUTPUT FILE READS THE
+SAME EITHER WAY.
+
+GOING IDLE IS WHAT KILLS IT — SETTLED AT ~95% (mantahostels#2695). A main-session job
+arms an idle-triggered reaper on memory pressure (mantahostels#2690), which SIGTERMs its
+whole process group unless you interacted within 30 min, the main loop is
+busy, or a subagent is live. A BACKGROUND-JOB SESSION IS NOT EXEMPT: one had
+its jobs reaped (mantahostels#2694 w1).
+`CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1` turns it off and is ALREADY
+SET repo-wide in `.claude/settings.json`.
+A session launched outside this repo never reads it and is unprotected.
+Harness, not earlyoom, and idleness rather than load decides: the memory
+ladder and suite gates are the wrong place to look.
+
+Wrap anything whose partial output could pass for a verdict:
+
+  scripts/bg-run.sh run <name> <command> [args...]
+  scripts/bg-run.sh check <name>   # 0 DONE, 1 KILLED, 2 RUNNING, 3 UNKNOWN
+
+`check` reports the RUN, not the process: a SIGKILL to the wrapper alone
+orphans the command, so use `ps` where it matters.
+
+A `killed` notification often lies: 70% of the time `check` reads RUNNING
+(mantahostels#2517). It is emitted BEFORE the kill, and `check` calls a run RUNNING for
+20 s after its last beat — MECHANISM confirmed (mantahostels#2836), share stays 70%
+(50-85%) (mantahostels#2695).
+CHECK TWICE, 20+ S APART, BEFORE YOU RE-ISSUE — the first check can't
+tell live from dead. Where the SECOND check says KILLED, never read
+the output file as an answer, nor call an agent abandoned on it.
+
+A JOB THAT HAS ALREADY REPORTED OWES NO `waiting:`. A short backgrounded call
+often reports before your turn ends: read the output and carry on in the same
+turn (mantahostels#3432).
+
+A WAKE MAY NEVER ARRIVE: a job that hangs, or runs detached, never
+notifies, so a `waiting:` turn can be your last.
+
+So arm a timer in the turn that launches the job — a second backgrounded
+`sleep <n>; scripts/bg-run.sh check <name>`, on a `run`-wrapped job.
+Keep the cadence over two minutes and it stays a timer, not a poll:
+the poll guard warns from the fourth in five minutes and never refuses one (#518).
+
+A FRESH BEAT IS A LIVE JOB — the median wait is ~18 minutes
+(#845). STOP WAITING ONLY ON A BEAT NO NEWER THAN
+THE LAST LANDING'S, or on KILLED or UNKNOWN twice: then say the job is lost and
+proceed without it. That ceiling reads the BEAT — a subagent has no beat to
+read (mantahostels#2591).

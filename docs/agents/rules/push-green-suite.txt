@@ -1,0 +1,15 @@
+A PUSH WARNS UNLESS CERTIFICATES OF FULL OR ADMISSIBLE `npm run test` RUNS
+ATTEST EVERY COMMIT IT SENDS BETWEEN THEM (mantahostels#2207, #814); no full
+run is owed.
+
+ADMISSIBLE: the bare default against merge-base(HEAD, origin/main),
+`--changed` and its ref, or `--retest <tests>`, over a read graph that renders
+(mantahostels#2031, mantahostels#2146, #998); a doc read via an imported HELPER
+is selected by nothing (mantahostels#2131). Certificate keyed to HEAD at run END
+and to the tree it read (#189) — "attested by tree". Each changed file
+must lie in some holding run's diff (ADR-0009), and each test reading it pass
+in a certificate's run. Otherwise `{command:push_check}` names what no
+certificate attests: run its `--retest` command, or the narrowed default.
+
+`npm run test:py` answers for a Python range (mantahostels#1256). Never blocks
+(mantahostels#908); fires in a worktree too.

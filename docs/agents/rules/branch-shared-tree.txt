@@ -1,0 +1,29 @@
+THE SHARED WORKING TREE STAYS ON `main`.
+
+Never `git checkout` or `git switch` it onto another branch, and never open a
+worktree that carries neither a new branch nor a detached HEAD.
+
+The tree is repo-global: a switch moves every parallel session's branch at
+once, and later gates silently read the other branch's files (mantahostels#87).
+
+Work that needs a branch does it in a throwaway worktree, and `-b <name>` is
+not optional: `git worktree add <dir> main` exits 128, `main` being checked out
+already (mantahostels#301):
+
+  git worktree add -b <branch> .claude/worktrees/<name> main
+  git -C .claude/worktrees/<name> commit -m "…" -- <paths>
+  git worktree remove .claude/worktrees/<name>
+
+Spell `--detach` in place of `-b <branch>` where the work needs no branch, and
+`git worktree remove --force` where you left the worktree dirty.
+
+A WORKTREE HAS NO `node_modules`: run `<shared tree>/node_modules/.bin/<tool>`
+or `npx @biomejs/biome`. Never a bare `npx <tool>`: `npx biome` is an
+unrelated package, exit 0 even with `--no-install`.
+
+A SECOND ENFORCEMENT LIMB, WHICH NO HOOK PRINTS: `.husky/pre-commit` refuses a
+commit made in the shared tree while it is off `main`. `WFC_ALLOW_BRANCH=1`
+skips that test alone; only the founder sets it: stop and ask (#916).
+
+WHAT THIS DOES NOT CATCH: a checkout run outside Claude Code, or one reached
+through a wrapper such as `xargs git checkout -b`, `env` or `sudo`.

@@ -1,0 +1,3 @@
+THIS RUNS THE WHOLE SUITE: prefer a targeted run, naming the test files your
+change reaches, unless you were asked for the whole suite. Asked, or nothing
+narrower covers the change? Carry on.

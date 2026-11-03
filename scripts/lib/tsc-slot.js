@@ -1,0 +1,123 @@
+/*
+ * tsc-slot.js — the machine-wide type-check slot (workflow-core#3163): one `tsc` at a
+ * time, admitted against a memory rung of its own. One definition for
+ * scripts/queue-run.js `--tsc`, which waits on it, and lib/suite-concurrency.js,
+ * which refuses a bare `tsc` launch it would hold.
+ *
+ * A TYPE-CHECK IS NO SUITE: it waits in a queue directory of its own, so it
+ * never queues behind a whole suite, and the suite ladder never counts it.
+ * Both read MemAvailable live, less what the other queue's launches have yet
+ * to draw as they climb (workflow-core#3416); a launch admitted and not yet up is held by
+ * lib/suite-queue.js, which reads both queues' admission stamps (workflow-core#3203).
+ */
+
+const os = require("node:os");
+const path = require("node:path");
+const { rungMb } = require("./suite-ladder.js");
+
+/* The peak single `tsc` RSS in `~/memwatch-archive.log`, 23–27 Oct 2026
+ * (workflow-core#3163), off its `^ *PID RSS node .*\/tsc` lines. MOVE IT ONLY WITH A
+ * RE-MEASUREMENT. */
+const TSC_PEAK_MB = 1638;
+
+const TSC_RUNG_MB = rungMb(TSC_PEAK_MB);
+
+/* How many `tsc` run at once, machine-wide (workflow-core#3163): one, as docs/environment.md
+ * §6 keeps every unmeasured concurrent workload; only one `tsc` at a time has
+ * been measured. */
+const TSC_MAX = 1;
+
+/* Set to `1`, a `--tsc` launch tries the slot once rather than wait for it,
+ * and exits TSC_BUSY_EXIT, running nothing, where it is held (workflow-core#3278). The
+ * pre-commit hook sets it. 75 is sysexits.h's EX_TEMPFAIL, an exit no `tsc`
+ * gives. */
+const TSC_NO_WAIT_ENV = "WFC_TSC_NO_WAIT";
+const TSC_BUSY_EXIT = 75;
+
+/* The environment variable a `--tsc` launch hands its command: its marker's
+ * path, so a `--tsc` launch inside that command's process tree runs in the
+ * slot it holds rather than queue behind it (workflow-core#3404).
+ * Residual: nothing counts the `tsc` runs inside the slot, so a command that
+ * starts two in parallel passes TSC_MAX and the rung. */
+const TSC_SLOT_ENV = "WFC_TSC_SLOT";
+
+/* The slot's queue directory's name under the temp root, which
+ * lib/suite-queue.js also reads to find this queue's admissions (workflow-core#3203). */
+const TSC_QUEUE_NAME = "wfc-tsc-queue";
+
+/** @returns {string} */
+function defaultTscQueueDir() {
+	return path.join(os.tmpdir(), TSC_QUEUE_NAME);
+}
+
+/*
+ * The runner's line, one per `tsc`: node running `…/.bin/tsc`, or
+ * `…/typescript/bin/tsc` where typecheck-mods.js resolves it. Anchored on
+ * node's script argument, so npm's `sh -c tsc …`, a wrapper's line and a
+ * `queue-run.js --tsc -- …/.bin/tsc` waiter, which name the path further on,
+ * never count: a waiter counted as running holds the slot it waits on (workflow-core#3276).
+ */
+const TSC_RUNNER = /^ *(\S*\/)?node +\S*([.]bin|typescript\/bin)\/tsc( |$)/;
+
+/** @param {string} args  a process's command line */
+const isTscRunner = (args) => TSC_RUNNER.test(args);
+
+/**
+ * @param {import("./suite-ladder.js").PsRow[]} rows
+ * @returns {number}
+ */
+function runningTsc(rows) {
+	return rows.filter(({ args }) => isTscRunner(args)).length;
+}
+
+/**
+ * Whether the slot would refuse a `tsc` now, and on which limb. Null where it
+ * would not, and on an unread `ps` or MemAvailable that limb fails open
+ * (mantahostels#103 §6). `climbMb`, what the suite queue's launches have yet
+ * to draw (workflow-core#3416), comes off MemAvailable before the rung reads it.
+ *
+ * @param {import("./suite-ladder.js").PsRow[] | null} rows
+ * @param {number | null} mb
+ * @param {number} [climbMb]
+ * @returns {import("./suite-queue.js").GateDenial | null}
+ */
+function tscDenial(rows, mb, climbMb = 0) {
+	if (rows !== null && runningTsc(rows) >= TSC_MAX) return { limb: "count" };
+	if (mb !== null && mb - climbMb < TSC_RUNG_MB)
+		return {
+			limb: "memory",
+			mb,
+			rungMb: TSC_RUNG_MB,
+			...(climbMb > 0 ? { climbMb } : {}),
+		};
+	return null;
+}
+
+/**
+ * Whether unwrapped words launch `tsc` itself: `tsc`, a path ending `/tsc`,
+ * `npx tsc`, `npm exec tsc` or `node <path>/typescript/bin/tsc`.
+ *
+ * @param {string[]} words
+ */
+function isTscLaunch(words) {
+	const [w0 = "", w1 = "", w2 = ""] = words;
+	const isTsc = (/** @type {string} */ w) => w === "tsc" || w.endsWith("/tsc");
+	if (isTsc(w0)) return true;
+	if (w0 === "npx") return w1 === "tsc";
+	if (w0 === "npm") return w1 === "exec" && w2 === "tsc";
+	return w0 === "node" && w1.endsWith("typescript/bin/tsc");
+}
+
+module.exports = {
+	TSC_BUSY_EXIT,
+	TSC_PEAK_MB,
+	TSC_NO_WAIT_ENV,
+	TSC_QUEUE_NAME,
+	TSC_RUNG_MB,
+	TSC_MAX,
+	TSC_SLOT_ENV,
+	defaultTscQueueDir,
+	isTscRunner,
+	tscDenial,
+	isTscLaunch,
+};

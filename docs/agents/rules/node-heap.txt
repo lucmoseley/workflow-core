@@ -1,0 +1,6 @@
+THIS COMMAND TOUCHES THE NODE HEAP CAP. `~/.bashrc` sets
+`NODE_OPTIONS=--max-old-space-size=4096`, and 4096 STAYS: never remove it and
+never raise it, there or for one command. Raising it enlarges what one runaway
+can take down, and nothing has ever needed it. A heap OOM near 4 GB is that
+cap, not the machine; cut concurrent sessions instead (mantahostels#465,
+`docs/environment.md` §2). A lower value for one command is not a raise.

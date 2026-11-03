@@ -1,0 +1,16 @@
+A COMMIT MUST NOT WRITE BACK A VERSION OF A FILE A NEIGHBOUR HAS SINCE REPLACED.
+
+Your base for a path is what HEAD held when you first wrote it, moved forward
+by each commit of yours that lands it. A staged version nearer that base than
+HEAD is your old copy: committing it would silently undo the commits listed
+above.
+
+Read those commits before choosing, per path:
+
+  RE-DERIVE  regenerate the file, or re-apply your edit to HEAD's version
+             (`git show HEAD:<path>`), then stage and commit again.
+  ACCEPT     only where undoing their change is what you mean:
+             node scripts/session-arbiter.js accept-head <path>
+             It is logged for the founder to audit.
+
+`--no-verify` does not skip this.

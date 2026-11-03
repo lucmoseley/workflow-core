@@ -1,0 +1,1082 @@
+/*
+ * repo-holds.js — the repo hold's record and lifecycle (workflow-core#3857, spec workflow-core#3597): a
+ * per-checkout record that one founder-only act blocks shared state.
+ * scripts/repo-hold.js is its CLI; lib/refill-tick.js runs tendHolds each
+ * tick. It is the adapter behind that tick's I/O (workflow-core#3857's "behind the loop's
+ * port"), so it holds fs, gh and the clear checks' runs together, tested through
+ * the real tick and the CLI as that ticket asks, with no core split out.
+ *
+ * THE STORE is one file a hold, under the loop's machine-wide directory
+ * (lib/refill-dir.js), in a directory keyed on git's common dir. So every
+ * worktree of a checkout and the loop read one store, a raise overwrites no
+ * other hold, and lib/scratch-sweep.js, which reaps `.claude/tmp/`, cannot age
+ * out a hold the founder has yet to answer. RESIDUAL: where git will not name
+ * the common dir at all, a worktree keys on its own `.git`, so its holds split
+ * from the checkout's until git answers again.
+ *
+ * A LIFT IS A RENAME out of the open store, under `lifted/`, so a tick and a hand
+ * lift racing get one winner and one log line, and the sessions parked on the hold
+ * outlast it, however it ended, until the tick's resume step has taken each up
+ * (workflow-core#3863). Each lift has a directory of its own, as a fixed id can be lifted twice.
+ *
+ * THE PROBE (workflow-core#3860): each tick, each served checkout's shared `.git` must fetch
+ * origin and resolve `main`, and `origin/landing` with the landing module on. A
+ * checkout that fails holds the one `probe` hold its store can hold, under a
+ * fixed id, so a raise never makes a second and a torn one is written over. The
+ * failing roots are also returned to the tick, which stops launches on them even
+ * where no record could be written (workflow-core#3860). A ref git says will not resolve
+ * raises the hold on its tick. A failed fetch, or a git that never answered, is
+ * an outage: it reads the same as a network blip or a failed fork, so it stops
+ * launches on its tick and raises the hold only once it has lasted
+ * OUTAGE_HOLD_AFTER_MS, on a file of its own beside the holds (workflow-core#3899). A probe
+ * hold's issue is filed once its record stands, and the filing retried each tick;
+ * a hand lift of one still failing is raised anew, with a new issue, on the next
+ * tick, unless it now fails as an outage younger than the window.
+ *
+ * RESIDUAL: during an outage's window launches are withheld with no hold to show
+ * for it, so `status` reads no hold open, only the log says why, and no notice is
+ * sent. A hold rises on the first tick past the window, so a tick's gap later.
+ *
+ * RESIDUAL: a close that fails on a clear is logged and not retried, there being
+ * no hold left to retry it from. The issue's body says what to do, and the fetch
+ * that just passed makes `gh` likely to answer.
+ *
+ * AN ATTACH IS A FILE OF ITS OWN beside the hold's (workflow-core#3858), never a rewrite of
+ * it: a rewrite could resurrect a hold a lift has just unlinked, or lose a
+ * neighbour's attach. Its order against removeHold's leaves no stray: an attach
+ * writes, then reads the hold; a lift renames the hold, then moves the attach
+ * files after it. So either the lift's list finds the file or the attach's read
+ * finds no hold and takes its file back. A lift gathers these in a directory
+ * beside the store's holds and renames it under `lifted/` whole, so a tick reads
+ * only finished lifts. RESIDUAL: a lift that dies part-way leaves its directory
+ * there unread, its sessions stranded on the `parked` label as any other park.
+ */
+
+const fs = require("node:fs");
+const path = require("node:path");
+const { createHash, randomBytes } = require("node:crypto");
+const { writeFileAtomic } = require("./atomic-write.js");
+const { caught } = require("./caught.js");
+const { readCommit } = require("./commit-sha.js");
+const { spawnChild } = require("./child-spawn.js");
+const { deref } = require("./deref.js");
+const { fileThrough } = require("./file-through.js");
+const { gh, ghJson, parseErrLine } = require("./gh.js");
+const { gitCommonDir, gitOutcome, gitReader } = require("./git.js");
+const { hostRoot } = require("./host-root.js");
+const { parseJobDir } = require("./job-paths.js");
+const { mainCheckout } = require("./main-checkout.js");
+const { FETCH_TIMEOUT_MS } = require("./refill-code.js");
+const { refillPath } = require("./refill-dir.js");
+const { buildCheckoutEnv } = require("./refill-repos.js");
+const {
+	KILLED_EXIT,
+	RUN_BUDGETED,
+	TIMEOUT_EXIT,
+} = require("./run-budgeted.js");
+const { takesLabel } = require("./takes-label.js");
+const { moduleReader, resolveKey } = require("./workflow-core-config.js");
+
+/**
+ * @typedef {{command: string} | {issueClosed: number} | {probe: true}} ClearCheck
+ *
+ * @typedef {object} RepoHold
+ * @property {string} id
+ * @property {string} checkout  the main checkout's root
+ * @property {"probe"|"park"} kind  a `probe` hold alone stops launches
+ * @property {string} act  the founder act, in plain words
+ * @property {number|null} issue  the issue holding the question, null on a
+ *   probe hold whose filing has yet to land
+ * @property {ClearCheck} clearCheck
+ * @property {number} raisedAt
+ * @property {string[]} sessions  the job ids of the sessions parked on it: the
+ *   raiser's in the record, each attached session's in its own file
+ * @property {{raiseSent: boolean, clearSent: boolean}} notice  workflow-core#3871's to read
+ *   and write, the morning review's to read; nothing writes it yet
+ *
+ * @typedef {(line: string) => void} Log
+ *
+ * @typedef {object} LiftedHold
+ * @property {string} root
+ * @property {string} dir  its directory under `lifted/`
+ * @property {string} id
+ * @property {string[]} recordJobs  the job ids its record names
+ * @property {string[]} jobs  those and its attach files', the sessions parked on it
+ *
+ * @typedef {{text: string, isOutage: boolean}} ProbeFailure
+ */
+
+/* Untraced: a clear check runs inside a tick, which it must not hold for long,
+ * and has to span a slow `git fetch`. */
+const CLEAR_CHECK_TIMEOUT_MS = 30_000;
+
+/* How long the runner waits after its TERM before its KILL; a guess, as
+ * lib/gate-check.js's is. */
+const CLEAR_CHECK_KILL_AFTER_MS = 5000;
+
+/* A guess: few holds open at once, and short enough to type at `lift`. A
+ * repeat would overwrite the hold it repeats. */
+const ID_BYTES = 3;
+
+const PROBE_ID = "probe";
+
+const LIFTED_DIR = "lifted";
+
+const HOLD_FILE_REMEDY = "lift its id or remove the file";
+
+const LIFTING_PREFIX = "lifting-";
+
+/* How long an outage lasts before it raises a hold, and how long it may go unseen
+ * by any tick and still be one outage. Past the longest in the loop's log, about 7
+ * minutes across two ticks on 29 Oct 2026 (workflow-core#3899); the margin, about double, is a
+ * guess. */
+const OUTAGE_HOLD_AFTER_MS = 15 * 60_000;
+
+const ID_PATTERN = new RegExp(`^(?:[0-9a-f]+|${PROBE_ID})$`);
+
+/* A job id, as a file name's tail: no dot, so an attach file never reads as a
+ * hold's `.json`. */
+const JOB_PATTERN = /^[0-9A-Za-z_-]+$/;
+
+const PROBE_FILED_WHY =
+	"a probe hold is raised by the refill loop, with no asking session to hold its question (workflow-core#3860)";
+
+/* A guess: 48 bits of the key's hash, in a directory holding a few checkouts. */
+const STORE_KEY_LENGTH = 12;
+
+/**
+ * The checkout a command run from `cwd` holds holds in.
+ * @param {string} cwd
+ */
+const readCheckout = (cwd) => mainCheckout(cwd) ?? cwd;
+
+/**
+ * The checkout's store: named for a reader, and hashed because two paths can
+ * flatten to one name. A broken `.git` that git will not name still keys on its
+ * path, as a probe hold raised on one must be found once it is repaired.
+ * @param {string} root
+ */
+function holdsDir(root) {
+	const key = deref(gitCommonDir(root) ?? path.join(root, ".git"));
+	const hash = createHash("sha256").update(key).digest("hex");
+	return refillPath(
+		path.join(
+			"repo-holds",
+			`${path.basename(root)}-${hash.slice(0, STORE_KEY_LENGTH)}`,
+		),
+	);
+}
+
+/**
+ * @param {string} id
+ */
+const buildHoldFileName = (id) => `${id}.json`;
+
+/**
+ * A lift's directory name, off the hold's id; parseLiftedId reads the id back.
+ * @param {string} id
+ */
+const buildLiftedName = (id) =>
+	`${id}-${randomBytes(ID_BYTES).toString("hex")}`;
+
+/**
+ * @param {string} name  buildLiftedName's
+ */
+const parseLiftedId = (name) => name.slice(0, name.lastIndexOf("-"));
+
+/**
+ * @param {string} root
+ * @param {string} id
+ */
+const holdFile = (root, id) => path.join(holdsDir(root), buildHoldFileName(id));
+
+/**
+ * What an attach file's name starts with.
+ * @param {string} id
+ */
+const buildAttachPrefix = (id) => `${id}.attached.`;
+
+/**
+ * The job ids attached to hold `id`, off the store's listing.
+ * @param {string[]} names  the store's file names
+ * @param {string} id
+ */
+const parseAttachedJobs = (names, id) =>
+	names
+		.filter((n) => n.startsWith(buildAttachPrefix(id)))
+		.map((n) => n.slice(buildAttachPrefix(id).length));
+
+/**
+ * Whether `value` is a hold, and the one its file is named for: an id off the
+ * pattern would make a path out of the store.
+ * @param {unknown} value
+ * @param {string} name  the file's name
+ * @returns {value is RepoHold}
+ */
+function isHold(value, name) {
+	const hold = /** @type {Partial<RepoHold>|null} */ (value);
+	const check =
+		/** @type {Partial<{command: unknown, issueClosed: unknown, probe: unknown}>} */ (
+			hold?.clearCheck ?? {}
+		);
+	return (
+		typeof hold?.id === "string" &&
+		ID_PATTERN.test(hold.id) &&
+		name === `${hold.id}.json` &&
+		typeof hold.checkout === "string" &&
+		(hold.kind === "probe" || hold.kind === "park") &&
+		typeof hold.act === "string" &&
+		(typeof hold.issue === "number" ||
+			(hold.kind === "probe" && hold.issue === null)) &&
+		typeof hold.raisedAt === "number" &&
+		typeof hold.notice?.raiseSent === "boolean" &&
+		typeof hold.notice?.clearSent === "boolean" &&
+		Array.isArray(hold.sessions) &&
+		(typeof check.command === "string" ||
+			typeof check.issueClosed === "number" ||
+			(hold.kind === "probe" && check.probe === true))
+	);
+}
+
+/**
+ * The checkout's open holds, oldest first, and why any of them would not read,
+ * each line ending on what clears it.
+ * @param {string} root
+ * @returns {{holds: RepoHold[], unread: string[]}}
+ */
+function readHolds(root) {
+	const dir = holdsDir(root);
+	let names;
+	try {
+		names = fs.readdirSync(dir);
+	} catch (err) {
+		const { code, message } = caught(err);
+		return code === "ENOENT"
+			? { holds: [], unread: [] }
+			: {
+					holds: [],
+					unread: [
+						`${dir}: ${message}; repair the directory, as no hold in it reads`,
+					],
+				};
+	}
+	/** @type {RepoHold[]} */
+	const holds = [];
+	/** @type {string[]} */
+	const unread = [];
+	for (const name of names.filter((n) => n.endsWith(".json"))) {
+		const file = path.join(dir, name);
+		try {
+			const value = JSON.parse(fs.readFileSync(file, "utf8"));
+			if (isHold(value, name))
+				holds.push({
+					...value,
+					sessions: [
+						...new Set([
+							...value.sessions,
+							...parseAttachedJobs(names, value.id),
+						]),
+					],
+				});
+			else unread.push(`${file}: not a hold; ${HOLD_FILE_REMEDY}`);
+		} catch (err) {
+			/* ENOENT: lifted between the listing and this read. */
+			if (caught(err).code !== "ENOENT")
+				unread.push(`${file}: ${caught(err).message}; ${HOLD_FILE_REMEDY}`);
+		}
+	}
+	return { holds: holds.sort((a, b) => a.raisedAt - b.raisedAt), unread };
+}
+
+/** @param {ClearCheck} check */
+function buildCheckText(check) {
+	if ("probe" in check) return "the shared .git probe";
+	return "command" in check
+		? `command: ${check.command.replace(/\s+/g, " ").trim()}`
+		: `issue #${check.issueClosed} closed`;
+}
+
+/** @param {RepoHold} hold */
+const buildHoldRef = (hold) => `${hold.id} in ${hold.checkout}: ${hold.act}`;
+
+/** @param {RepoHold} hold */
+const buildIssueText = (hold) =>
+	hold.issue === null ? "no issue filed yet" : `issue #${hold.issue}`;
+
+/**
+ * @param {string} root
+ * @param {RepoHold} hold
+ */
+const writeHold = (root, hold) =>
+	writeFileAtomic(
+		holdFile(root, hold.id),
+		`${JSON.stringify(hold, null, "\t")}\n`,
+		{ mkdir: true },
+	);
+
+/**
+ * Record a new hold and return it.
+ * @param {string} root
+ * @param {{id?: string, kind: RepoHold["kind"], act: string,
+ *   issue: number|null, clearCheck: ClearCheck, session: string|null,
+ *   now: number}} raised  `id`, a fixed one in place of a fresh one
+ * @returns {RepoHold}
+ */
+function raiseHold(
+	root,
+	{
+		id = randomBytes(ID_BYTES).toString("hex"),
+		kind,
+		act,
+		issue,
+		clearCheck,
+		session,
+		now,
+	},
+) {
+	/** @type {RepoHold} */
+	const hold = {
+		id,
+		checkout: root,
+		kind,
+		/* One line, as the log and status print it. */
+		act: act.replace(/\s+/g, " ").trim(),
+		issue,
+		clearCheck,
+		raisedAt: now,
+		sessions: session === null ? [] : [session],
+		notice: { raiseSent: false, clearSent: false },
+	};
+	writeHold(root, hold);
+	return hold;
+}
+
+/** @param {RepoHold} hold */
+const buildRaisedLine = (hold) =>
+	`repo hold raised: ${buildHoldRef(hold)}; ${buildIssueText(hold)}; clears on ${buildCheckText(hold.clearCheck)}`;
+
+/**
+ * Attach job `job` to open hold `id`, however often it asks: the hold as it now
+ * reads and whether this call attached it, or null where no hold is open under
+ * that id. A hold with no issue yet comes back with no attach made, as a park
+ * would have none to name.
+ * @param {string} root
+ * @param {string} id
+ * @param {string} job
+ * @returns {{hold: RepoHold, isNew: boolean}|null}
+ */
+function attachHold(root, id, job) {
+	if (!ID_PATTERN.test(id)) return null;
+	if (!JOB_PATTERN.test(job)) throw new Error(`not a job id: ${job}`);
+	const file = path.join(holdsDir(root), `${buildAttachPrefix(id)}${job}`);
+	let isNew = true;
+	try {
+		fs.writeFileSync(file, "", { flag: "wx" });
+	} catch (err) {
+		const { code } = caught(err);
+		/* ENOENT: no store, so no hold. */
+		if (code === "ENOENT") return null;
+		if (code !== "EEXIST") throw err;
+		isNew = false;
+	}
+	const hold = readHolds(root).holds.find((h) => h.id === id);
+	if (hold?.issue !== null) {
+		if (hold) return { hold, isNew };
+		fs.rmSync(file, { force: true });
+		return null;
+	}
+	fs.rmSync(file, { force: true });
+	return { hold, isNew: false };
+}
+
+/**
+ * @param {RepoHold} hold
+ * @param {string} job
+ */
+const buildAttachedLine = (hold, job) =>
+	`repo hold attached: ${buildHoldRef(hold)}; session ${job}; ${hold.sessions.length} attached`;
+
+/**
+ * The open hold this background job attached to that `text` names: `hold <id>`
+ * and that hold's `#issue`, the attached park's status line (workflow-core#3858). A raiser is
+ * not attached: it parks on its round. Null where it names none, or this is no
+ * background job.
+ * @param {string} text
+ * @returns {RepoHold|null}
+ */
+function findOwnHold(text) {
+	const job = parseJobDir(process.env.CLAUDE_JOB_DIR)?.jobId;
+	if (!job) return null;
+	const root = readCheckout(hostRoot());
+	return (
+		readHolds(root).holds.find(
+			(h) =>
+				fs.existsSync(
+					path.join(holdsDir(root), `${buildAttachPrefix(h.id)}${job}`),
+				) &&
+				new RegExp(`\\bhold ${h.id}\\b`).test(text) &&
+				new RegExp(`#${h.issue}\\b`).test(text),
+		) ?? null
+	);
+}
+
+/**
+ * End a hold, moving it and its attach files under `lifted/`; false where it was
+ * already gone.
+ * @param {string} root
+ * @param {string} id
+ */
+function removeHold(root, id) {
+	const dir = holdsDir(root);
+	const name = buildLiftedName(id);
+	const lifting = path.join(dir, `${LIFTING_PREFIX}${name}`);
+	fs.mkdirSync(lifting, { recursive: true });
+	try {
+		fs.renameSync(
+			holdFile(root, id),
+			path.join(lifting, buildHoldFileName(id)),
+		);
+	} catch (err) {
+		fs.rmdirSync(lifting);
+		if (caught(err).code === "ENOENT") return false;
+		throw err;
+	}
+	for (const job of parseAttachedJobs(fs.readdirSync(dir), id)) {
+		const attach = `${buildAttachPrefix(id)}${job}`;
+		try {
+			fs.renameSync(path.join(dir, attach), path.join(lifting, attach));
+		} catch (err) {
+			/* The attach took its file back (workflow-core#3858). */
+			if (caught(err).code !== "ENOENT") throw err;
+		}
+	}
+	fs.mkdirSync(path.join(dir, LIFTED_DIR), { recursive: true });
+	fs.renameSync(lifting, path.join(dir, LIFTED_DIR, name));
+	return true;
+}
+
+/**
+ * The job ids a lifted hold's record names: none where it is gone or torn, as a
+ * damaged record lifts too (workflow-core#3857), its attach files still naming theirs; null,
+ * logged, where it will not read, for a later tick to read again (workflow-core#3863).
+ * @param {string} file
+ * @param {Log} log
+ * @returns {string[]|null}
+ */
+function readLiftedRecordJobs(file, log) {
+	try {
+		const { sessions } = JSON.parse(fs.readFileSync(file, "utf8"));
+		return Array.isArray(sessions)
+			? sessions.filter((s) => typeof s === "string")
+			: [];
+	} catch (err) {
+		if (caught(err).code === "ENOENT") return [];
+		log(`lifted repo hold unread: ${file}: ${caught(err).message}`);
+		return err instanceof SyntaxError ? [] : null;
+	}
+}
+
+/**
+ * The names in `dir`: none where it is gone, or is no directory, as an open store
+ * then logs; none, logged, on any other fault, the lift waiting for a later tick
+ * (workflow-core#3863).
+ * @param {string} dir
+ * @param {Log} log
+ */
+function readLiftedNames(dir, log) {
+	try {
+		return fs.readdirSync(dir);
+	} catch (err) {
+		const { code, message } = caught(err);
+		if (code !== "ENOENT" && code !== "ENOTDIR")
+			log(`lifted repo holds unread: ${dir}: ${message}`);
+		return [];
+	}
+}
+
+/**
+ * Every lifted hold in `roots`' stores whose sessions the tick has yet to take up.
+ * @param {string[]} roots
+ * @param {Log} log
+ * @returns {LiftedHold[]}
+ */
+function readLiftedHolds(roots, log) {
+	return readStoreRoots(roots).flatMap((root) => {
+		const base = path.join(holdsDir(root), LIFTED_DIR);
+		return readLiftedNames(base, log).flatMap((name) => {
+			const dir = path.join(base, name);
+			const id = parseLiftedId(name);
+			const recordJobs = readLiftedRecordJobs(
+				path.join(dir, buildHoldFileName(id)),
+				log,
+			);
+			if (recordJobs === null) return [];
+			const attached = parseAttachedJobs(readLiftedNames(dir, log), id);
+			return [
+				{
+					root,
+					dir,
+					id,
+					recordJobs,
+					jobs: [...new Set([...recordJobs, ...attached])],
+				},
+			];
+		});
+	});
+}
+
+/**
+ * Drop what `settled` names of a lifted hold, and the hold once nothing of it is
+ * left. A failure is logged and the next tick reads it again, which takes up no
+ * session twice (lib/refill-blocks.js's queueLifted).
+ * @param {LiftedHold} hold
+ * @param {string[]} settled  its job ids the tick has taken up
+ * @param {Log} log
+ */
+function dropLiftedJobs({ dir, id, recordJobs, jobs }, settled, log) {
+	try {
+		for (const job of settled)
+			fs.rmSync(path.join(dir, `${buildAttachPrefix(id)}${job}`), {
+				force: true,
+			});
+		if (!jobs.every((job) => settled.includes(job))) return;
+		if (recordJobs.every((job) => settled.includes(job)))
+			fs.rmSync(path.join(dir, buildHoldFileName(id)), { force: true });
+		fs.rmdirSync(dir);
+	} catch (err) {
+		log(`repo hold ${id}: lifted record kept: ${caught(err).message}`);
+	}
+}
+
+/**
+ * Lift a hold by hand, whatever its clear check reads: its log line, or null
+ * where no file has that id. A record too damaged to read lifts too, by its bare
+ * id, as nothing else could end it (workflow-core#3857). A probe hold's filed issue closes
+ * with it.
+ * @param {string} root
+ * @param {string} id
+ * @returns {string|null}
+ */
+function liftHold(root, id) {
+	if (!ID_PATTERN.test(id)) return null;
+	const hold = readHolds(root).holds.find((h) => h.id === id);
+	if (!removeHold(root, id)) return null;
+	const line = `repo hold lifted by hand: ${hold ? buildHoldRef(hold) : id}`;
+	const closeFailure =
+		hold && closeProbeIssue(hold, "Its hold was lifted by hand.");
+	return closeFailure ? `${line}; ${closeFailure}` : line;
+}
+
+/**
+ * Whether a command check passes. Run under run-budgeted.js, which reaps its
+ * whole group, as a straggler would outlive a plain spawn's timeout. One that
+ * will not start or outlives its time reads as not passing, logged (workflow-core#3857), so
+ * the hold stands and the next tick tries again.
+ * @param {RepoHold} hold
+ * @param {string} command
+ * @param {Log} log
+ */
+function isCommandPassed(hold, command, log) {
+	const run = spawnChild(
+		process.execPath,
+		[
+			RUN_BUDGETED,
+			String(CLEAR_CHECK_TIMEOUT_MS),
+			String(CLEAR_CHECK_KILL_AFTER_MS),
+			"sh",
+			"-c",
+			command,
+		],
+		{
+			cwd: hold.checkout,
+			env: buildCheckoutEnv(hold.checkout),
+			timeout: CLEAR_CHECK_TIMEOUT_MS + 2 * CLEAR_CHECK_KILL_AFTER_MS,
+		},
+	);
+	if (run.error) {
+		log(
+			`repo hold ${hold.id}: clear check did not finish: ${run.error.message}`,
+		);
+		return false;
+	}
+	if (run.status === TIMEOUT_EXIT || run.status === KILLED_EXIT)
+		log(
+			`repo hold ${hold.id}: clear check outlived ${CLEAR_CHECK_TIMEOUT_MS} ms`,
+		);
+	return run.status === 0;
+}
+
+/**
+ * The checkout's tracker, or a throw.
+ * @param {string} root
+ */
+function readTracker(root) {
+	const tracker = resolveKey("tracker", { root });
+	if (typeof tracker !== "string") throw new Error("no tracker configured");
+	return tracker;
+}
+
+/**
+ * Whether the issue reads closed; an unread issue reads as not closed, logged
+ * (workflow-core#3857).
+ * @param {RepoHold} hold
+ * @param {number} issue
+ * @param {Log} log
+ */
+function isIssueClosed(hold, issue, log) {
+	try {
+		const state = gh(
+			[
+				"issue",
+				"view",
+				String(issue),
+				"--repo",
+				readTracker(hold.checkout),
+				"--json",
+				"state",
+				"--jq",
+				".state",
+			],
+			{ timeout: CLEAR_CHECK_TIMEOUT_MS },
+		);
+		return state.trim() === "CLOSED";
+	} catch (e) {
+		log(`repo hold ${hold.id}: could not read #${issue}: ${parseErrLine(e)}`);
+		return false;
+	}
+}
+
+/**
+ * What fails of `root`'s shared `.git`, or null where the probe passes. `origin`
+ * and `main` are the shared tree's, and `landing` is read as `origin/landing`, as
+ * the shared tree keeps no local one. Reads off a config fault, logged, with the
+ * landing module off.
+ * @param {string} root
+ * @param {Log} log
+ * @returns {ProbeFailure|null}
+ */
+function readProbeFailure(root, log) {
+	const hasLanding = moduleReader(root, (what, detail) =>
+		log(`probe of ${root}: ${what}: ${detail}`),
+	)("landing");
+	const fetched = gitOutcome(
+		["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "origin"],
+		[],
+		root,
+		FETCH_TIMEOUT_MS,
+	);
+	const refs = [
+		{ name: "main", rev: "refs/heads/main" },
+		...(hasLanding
+			? [{ name: "origin/landing", rev: "refs/remotes/origin/landing" }]
+			: []),
+	];
+	const unresolved = refs.flatMap(({ name, rev }) => {
+		const read = readCommit(gitReader(root), rev);
+		if (!read.ok)
+			return [
+				{
+					text: `resolve ${name}: ${read.why}`,
+					isOutage: read.isUnrun === true,
+				},
+			];
+		return read.sha === null
+			? [{ text: `resolve ${name}: names no commit`, isOutage: false }]
+			: [];
+	});
+	const failed = [
+		...(fetched.ok
+			? []
+			: [{ text: `fetch origin: ${fetched.why}`, isOutage: true }]),
+		...unresolved,
+	];
+	return failed.length > 0
+		? {
+				text: failed.map((f) => f.text).join("; "),
+				isOutage: failed.every((f) => f.isOutage),
+			}
+		: null;
+}
+
+/**
+ * Close a probe hold's filed issue, with `why`: null once closed or where there
+ * is none to close, else what failed.
+ * @param {RepoHold} hold
+ * @param {string} why
+ */
+function closeProbeIssue(hold, why) {
+	if (hold.kind !== "probe" || hold.issue === null) return null;
+	try {
+		gh(
+			[
+				"issue",
+				"close",
+				String(hold.issue),
+				"--repo",
+				readTracker(hold.checkout),
+				"--comment",
+				`${why} The refill loop launches into ${hold.checkout} again unless it reads another failure.`,
+			],
+			{ timeout: CLEAR_CHECK_TIMEOUT_MS },
+		);
+		return null;
+	} catch (e) {
+		return `could not close #${hold.issue}: ${parseErrLine(e)}`;
+	}
+}
+
+/**
+ * @param {RepoHold} hold
+ * @param {(root: string) => ProbeFailure|null} readFailure  the tick's one probe of a
+ *   checkout, shared with its failing-tick raise
+ * @param {Log} log
+ */
+function isCheckPassed(hold, readFailure, log) {
+	if ("probe" in hold.clearCheck) return readFailure(hold.checkout) === null;
+	return "command" in hold.clearCheck
+		? isCommandPassed(hold, hold.clearCheck.command, log)
+		: isIssueClosed(hold, hold.clearCheck.issueClosed, log);
+}
+
+/**
+ * Each distinct store's root among `roots`: two can be one checkout's.
+ * @param {string[]} roots
+ */
+const readStoreRoots = (roots) => [
+	...new Map(roots.map((root) => [holdsDir(root), root])).values(),
+];
+
+/**
+ * Re-run one hold's clear check, lifting it where it passes. Any throw is logged
+ * and costs this hold alone its tick, never the launches (workflow-core#3857).
+ * @param {string} root
+ * @param {RepoHold} hold
+ * @param {(root: string) => ProbeFailure|null} readFailure  as isCheckPassed's
+ * @param {Log} log
+ */
+function settleHold(root, hold, readFailure, log) {
+	try {
+		if (!isCheckPassed(hold, readFailure, log) || !removeHold(root, hold.id))
+			return;
+		log(
+			`repo hold cleared: ${buildHoldRef(hold)}; passed ${buildCheckText(hold.clearCheck)}`,
+		);
+		const closeFailure = closeProbeIssue(
+			hold,
+			"The shared `.git` probe passes again, so its hold has cleared.",
+		);
+		if (closeFailure) log(`repo hold ${hold.id}: ${closeFailure}`);
+	} catch (err) {
+		log(`repo hold ${hold.id}: not settled: ${caught(err).message}`);
+	}
+}
+
+/**
+ * The checkout's probe hold, read by its fixed name so that a store that will not
+ * list still shows it; null where none is there or its record is torn, which the
+ * listing logs and a raise writes over (workflow-core#3860). Any other failure throws.
+ * @param {string} root
+ * @returns {RepoHold|null}
+ */
+function readProbeHold(root) {
+	try {
+		const value = JSON.parse(fs.readFileSync(holdFile(root, PROBE_ID), "utf8"));
+		return isHold(value, `${PROBE_ID}.json`) ? value : null;
+	} catch (err) {
+		if (err instanceof SyntaxError || caught(err).code === "ENOENT")
+			return null;
+		throw err;
+	}
+}
+
+/**
+ * @param {string} root
+ * @param {string} failure
+ */
+const buildProbeIssueBody = (root, failure) =>
+	`The refill loop's probe of the shared \`.git\` of \`${root}\` failed, so the loop launches nothing into that checkout until it passes.
+
+**Failure:** ${failure}
+
+**To clear:** repair the checkout. The loop re-runs the probe each tick, lifts its hold the tick it passes and closes this issue. Where \`node scripts/repo-hold.js list\` shows no \`probe\` hold for this checkout and this issue is still open, its close failed: close it.`;
+
+/**
+ * The open issue already carrying `title`, or null: a record torn since its
+ * filing, or a tick that died between filing and recording, has lost its number,
+ * and a second issue would leave this one open for good. Throws where it cannot
+ * tell. RESIDUAL: search lags a filing by moments, and only these two rare paths
+ * read it, so a second can still slip through.
+ * @param {string} root
+ * @param {string} title
+ * @returns {number|null}
+ */
+function readOpenProbeIssue(root, title) {
+	const rows = /** @type {{number: number, title: string}[]} */ (
+		ghJson(
+			[
+				"issue",
+				"list",
+				"--repo",
+				readTracker(root),
+				"--state",
+				"open",
+				"--search",
+				`"${title}" in:title`,
+				"--json",
+				"number,title",
+			],
+			{ timeout: CLEAR_CHECK_TIMEOUT_MS },
+		)
+	);
+	return rows.find((r) => r.title === title)?.number ?? null;
+}
+
+/**
+ * File the probe hold's issue, or take up the one already open, recording it on
+ * the hold. A failure is logged and the hold stands with no issue, for the next
+ * tick to retry (workflow-core#3860).
+ * @param {string} root
+ * @param {RepoHold} hold
+ * @param {string} failure
+ * @param {Log} log
+ */
+function fileProbeIssue(root, hold, failure, log) {
+	const title = `Refill loop probe: shared .git failing in ${path.basename(root)}`;
+	let open;
+	try {
+		open = readOpenProbeIssue(root, title);
+	} catch (e) {
+		log(
+			`repo hold ${hold.id} in ${root}: issue not filed, the next tick retries: could not look for an open one: ${parseErrLine(e)}`,
+		);
+		return;
+	}
+	if (open !== null) {
+		writeHold(root, { ...hold, issue: open });
+		log(`repo hold ${hold.id} in ${root}: took up open #${open}`);
+		return;
+	}
+	const filed = fileThrough(
+		[
+			"--title",
+			title,
+			"--label",
+			takesLabel("triage"),
+			"--standalone",
+			PROBE_FILED_WHY,
+			"--body-file",
+			"-",
+		],
+		buildProbeIssueBody(root, failure),
+		root,
+	);
+	const number = (filed.stdout ?? "").match(/^Filed #(\d+)/m)?.[1];
+	if (number === undefined) {
+		log(
+			`repo hold ${hold.id} in ${root}: issue not filed, the next tick retries: ${(filed.stderr || filed.error?.message || "no reason given").trim()}`,
+		);
+		return;
+	}
+	writeHold(root, { ...hold, issue: Number(number) });
+	log(`repo hold ${hold.id} in ${root}: filed #${number}`);
+}
+
+/**
+ * An outage's start off its file; `now` where none is there or no tick has seen it
+ * for the window, so a loop stopped for a day does not raise on one blip (workflow-core#3899). A
+ * torn record, logged, begins it anew, the next tick's write mending it. Any other
+ * failure throws.
+ * @param {string} file
+ * @param {number} now
+ * @param {Log} log
+ */
+function readOutageSince(file, now, log) {
+	try {
+		const { since, last } = JSON.parse(fs.readFileSync(file, "utf8"));
+		return typeof since === "number" &&
+			typeof last === "number" &&
+			now - last <= OUTAGE_HOLD_AFTER_MS
+			? since
+			: now;
+	} catch (err) {
+		if (caught(err).code === "ENOENT") return now;
+		if (!(err instanceof SyntaxError)) throw err;
+		log(`outage record torn, begun anew: ${file}`);
+		return now;
+	}
+}
+
+/**
+ * When `root`'s outage began, advanced to this tick, or dropped where the tick reads
+ * anything else. Its file's name is neither a hold's nor an attach's. A throw is
+ * logged and reads as just begun, the tick stopping launches whatever the store took
+ * (workflow-core#3899).
+ * @param {string} root
+ * @param {ProbeFailure|null} failure
+ * @param {number} now
+ * @param {Log} log
+ * @returns {number} the outage's start, `now` where there is none
+ */
+function tendOutage(root, failure, now, log) {
+	const file = path.join(holdsDir(root), `${PROBE_ID}.outage`);
+	try {
+		if (!failure?.isOutage) {
+			fs.rmSync(file, { force: true });
+			return now;
+		}
+		const since = readOutageSince(file, now, log);
+		writeFileAtomic(file, JSON.stringify({ since, last: now }), {
+			mkdir: true,
+		});
+		return since;
+	} catch (err) {
+		log(`probe of ${root}: outage record unkept: ${caught(err).message}`);
+		return now;
+	}
+}
+
+/**
+ * Raise or keep `root`'s probe hold, and file its issue where it has none. Any
+ * throw is logged and fails open on the record alone, the caller stopping
+ * launches whatever the store took (workflow-core#3860).
+ * @param {string} root
+ * @param {{failureText: string, isRaiseDue: boolean}} probed  `isRaiseDue`,
+ *   whether a hold not yet open may be raised
+ * @param {number} now
+ * @param {Log} log
+ */
+function keepProbeHold(root, { failureText, isRaiseDue }, now, log) {
+	try {
+		let hold = readProbeHold(root);
+		if (hold === null) {
+			if (!isRaiseDue) return;
+			hold = raiseHold(root, {
+				id: PROBE_ID,
+				kind: "probe",
+				act: `repair the shared .git: ${failureText}`,
+				issue: null,
+				clearCheck: { probe: true },
+				session: null,
+				now,
+			});
+			log(buildRaisedLine(hold));
+		}
+		if (hold.issue === null) fileProbeIssue(root, hold, failureText, log);
+	} catch (err) {
+		log(`repo hold ${PROBE_ID} in ${root}: not kept: ${caught(err).message}`);
+	}
+}
+
+/**
+ * One tick's holds: every open hold's clear check re-run, each that passes
+ * lifted, then each served checkout probed. An unreadable store is logged and
+ * read as holding no open hold, the tick carrying on (workflow-core#3857), but for the probe,
+ * whose failing roots it returns whatever the store took (workflow-core#3860).
+ * @param {string[]} roots  every checkout whose holds are settled
+ * @param {string[]} served  the checkouts probed
+ * @param {number} now
+ * @param {Log} log  passed, as lib/refill-tick.js, which owns the loop's, requires this
+ * @returns {string[]} the served checkouts whose probe failed
+ */
+function tendHolds(roots, served, now, log) {
+	/** @type {Map<string, ProbeFailure|null>} */
+	const probed = new Map();
+	/** One fetch a checkout a tick, for its hold's check and its probe alike.
+	 * @param {string} root */
+	const readFailure = (root) => {
+		const known = probed.get(root);
+		if (known !== undefined) return known;
+		const failure = readProbeFailure(root, log);
+		probed.set(root, failure);
+		return failure;
+	};
+	for (const root of readStoreRoots(roots)) {
+		const { holds, unread } = readHolds(root);
+		for (const why of unread)
+			log(`repo holds unread, read as not open this tick: ${why}`);
+		for (const hold of holds) settleHold(root, hold, readFailure, log);
+	}
+	return served.filter((root) => {
+		const failure = readFailure(root);
+		const lasted = now - tendOutage(root, failure, now, log);
+		if (failure === null) return false;
+		const isRaiseDue = !failure.isOutage || lasted >= OUTAGE_HOLD_AFTER_MS;
+		log(
+			`probe failed in ${root}: ${failure.text}${isRaiseDue ? "" : `; an outage for ${buildAgeText(lasted)}, a hold rises at ${buildAgeText(OUTAGE_HOLD_AFTER_MS)}`}`,
+		);
+		keepProbeHold(root, { failureText: failure.text, isRaiseDue }, now, log);
+		return true;
+	});
+}
+
+/**
+ * The open holds a tick decides on: `broken`'s probe, whatever its store took,
+ * and each checkout's stored holds; beside them, each checkout whose store would
+ * not read, whole or in part, with its lines.
+ * @param {string[]} roots
+ * @param {string[]} broken  tendHolds's answer
+ * @returns {{holds: {root: string, kind: RepoHold["kind"]}[],
+ *   unread: {root: string, lines: string[]}[]}}
+ */
+const readTickHolds = (roots, broken) => {
+	const reads = roots.map((root) => ({ root, ...readHolds(root) }));
+	return {
+		holds: [
+			...broken.map((root) => ({ root, kind: /** @type {const} */ ("probe") })),
+			...reads.flatMap(({ root, holds }) =>
+				holds.map(({ kind }) => ({ root, kind })),
+			),
+		],
+		unread: reads
+			.filter((r) => r.unread.length > 0)
+			.map(({ root, unread }) => ({ root, lines: unread })),
+	};
+};
+
+/**
+ * @param {number} ms
+ */
+function buildAgeText(ms) {
+	const minutes = Math.max(0, Math.round(ms / 60_000));
+	return minutes < 60
+		? `${minutes}m`
+		: `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+/**
+ * What the founder reads of each open hold, and of any store that would not read.
+ * @param {string[]} roots
+ * @param {number} now
+ * @returns {string[]}
+ */
+function buildHoldLines(roots, now) {
+	const reads = readStoreRoots(roots).map(readHolds);
+	const holds = reads.flatMap((r) => r.holds);
+	return [
+		holds.length === 0
+			? "holds:     none open"
+			: `holds:     ${holds.length} open`,
+		...holds.map(
+			(h) =>
+				`  ${h.id} ${path.basename(h.checkout)}: ${h.act} — ${buildIssueText(h)}, age ${buildAgeText(now - h.raisedAt)}, sessions: ${h.sessions.join(", ") || "none"}, stops launches: ${h.kind === "probe" ? "yes" : "no"}`,
+		),
+		...reads.flatMap((r) => r.unread).map((why) => `  unread: ${why}`),
+	];
+}
+
+module.exports = {
+	buildAgeText,
+	attachHold,
+	buildAttachedLine,
+	buildHoldLines,
+	buildRaisedLine,
+	dropLiftedJobs,
+	findOwnHold,
+	liftHold,
+	raiseHold,
+	readCheckout,
+	readHolds,
+	readLiftedHolds,
+	readTickHolds,
+	tendHolds,
+};

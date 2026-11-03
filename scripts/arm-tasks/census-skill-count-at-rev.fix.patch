@@ -1,0 +1,302 @@
+diff --git a/scripts/check-instruction-surface.js b/scripts/check-instruction-surface.js
+index bffb26187ba59fac0bd2f921d9beae515322400a..254cc05cf8ec52bb439f1355a1bb84c333f335c7 100644
+--- a/scripts/check-instruction-surface.js
++++ b/scripts/check-instruction-surface.js
+@@ -40,9 +40,9 @@
+  *
+  * READS HEAD, NOT THE WORKING TREE, so a neighbour's half-saved guard is not
+  * reported as a verdict expiring. Residual: a change that is committed but not
+- * yet pushed reads the same as any other, skills are counted on disk, and an
+- * untracked file falls back to disk — never an untracked settings file, which a
+- * git repo reads at the revision alone (#2052).
++ * yet pushed reads the same as any other, and an untracked file falls back to
++ * disk — never an untracked skill or settings file, which a git repo reads at
++ * the revision alone (#1977, #2052).
+  *
+  * --touched-by NAMES THE ROWS ONE COMMIT EXPIRED (#1810), for .husky/post-commit,
+  * so the session holding the change is the one told — a commit to a rule file a
+@@ -80,6 +80,8 @@ const {
+ } = require("./lib/census-digest");
+ const { brokenError, runCheck, errMessage } = require("./lib/check");
+ const { readCommitOrBroken } = require("./lib/commit-sha.js");
++const { readObjectBatch, listTree } = require("./lib/git-objects");
++const { GIT_MODE } = require("./lib/git-mode.js");
+ const { claimDataFile } = require("./lib/doc-map-generator");
+ const {
+ 	readOwnHookSources,
+@@ -114,7 +116,7 @@ const DEFAULT_THRESHOLD_PCT = 10;
+  */
+ const COUNTERS = {
+ 	hooks: (root, rev) => hookCountsPlain(root, rev),
+-	skills: (root) => skillCounts(root),
++	skills: (root, rev) => skillCounts(root, rev),
+ };
+ 
+ /** The baseline's sections, each BROKEN by its absence rather than skipped. */
+@@ -287,10 +289,82 @@ function buildHookKey(event, hook, line) {
+  * check-context-budget.js draws, and the one the census's own addendum adopted
+  * (mantahostels#1757).
+  *
++ * Read at `rev` (#1977), as the hook entries are, so a neighbour's uncommitted
++ * skill is neither reported nor anchored. Each SKILL.md is read through git's
++ * own link resolution, so a linked skill directory, a linked SKILL.md and a
++ * link to a link all reach their committed target's text (#2369). Disk answers
++ * only where `root` is no git repo; a `rev` git cannot list is BROKEN.
++ * Residual: a link resolving outside the repo is read from disk.
++ *
++ * @param {string} root
++ * @param {string} [rev]
++ * @returns {SkillCounts}
++ */
++function skillCounts(root, rev = "HEAD") {
++	let listing;
++	try {
++		listing = listTree(rev, [".claude/skills/"], {
++			cwd: root,
++			recursive: false,
++		});
++	} catch (e) {
++		if (!isGitRepo(root)) return diskSkillCounts(root);
++		throw e;
++	}
++	const listed = listing
++		.filter((e) => e.mode === GIT_MODE.tree || e.mode === GIT_MODE.symlink)
++		.map((e) => ({ link: e.mode === GIT_MODE.symlink, rel: e.path }));
++	const texts = followedTexts(
++		root,
++		rev,
++		listed.map(({ rel }) => `${rel}/SKILL.md`),
++	);
++	return tallySkills(
++		listed.map(({ link }, i) => ({ link, text: texts[i] ?? null })),
++	);
++}
++
++/**
++ * Each path's text at `rev` through git's own link resolution, null where git
++ * finds no file there.
++ *
++ * @param {string} root
++ * @param {string} rev
++ * @param {string[]} rels relative to `root`, as ls-tree prints them
++ * @returns {(string | null)[]}
++ */
++function followedTexts(root, rev, rels) {
++	const objects = readObjectBatch(
++		rels.map((rel) => `${rev}:./${rel}`),
++		`${rev}'s SKILL.md files`,
++		{ cwd: root, followSymlinks: true },
++	);
++	return rels.map((rel, i) => {
++		const object = objects[i];
++		if (object?.type === "blob") return object.body.toString("utf8");
++		/* Git prints an absolute target without the path left to walk, so the
++		 * outside read goes through the working tree's own link instead. */
++		if (object?.type === "symlink") return readIfPresent(path.join(root, rel));
++		return null;
++	});
++}
++
++/**
++ * Whether `root` is a git repo: `rev-parse --git-dir` exits 128 outside one,
++ * and any other failure is a git that will not answer, BROKEN (#3068).
++ * @param {string} root
++ */
++function isGitRepo(root) {
++	const r = gitOutcome(["-C", root, "rev-parse", "--git-dir"], [128]);
++	if (!r.ok) throw brokenError(`git rev-parse --git-dir failed: ${r.why}`);
++	return r.out !== "";
++}
++
++/**
+  * @param {string} root
+  * @returns {SkillCounts}
+  */
+-function skillCounts(root) {
++function diskSkillCounts(root) {
+ 	const dir = path.join(root, ".claude", "skills");
+ 	let names;
+ 	try {
+@@ -314,17 +388,6 @@ function skillCounts(root) {
+ 	return tallySkills(entries);
+ }
+ 
+-/**
+- * Whether `root` is a git repo: `rev-parse --git-dir` exits 128 outside one,
+- * and any other failure is a git that will not answer, BROKEN (#3068).
+- * @param {string} root
+- */
+-function isGitRepo(root) {
+-	const r = gitOutcome(["-C", root, "rev-parse", "--git-dir"], [128]);
+-	if (!r.ok) throw brokenError(`git rev-parse --git-dir failed: ${r.why}`);
+-	return r.out !== "";
+-}
+-
+ /**
+  * A directory without a SKILL.md is no skill and is skipped.
+  *
+diff --git a/scripts/check-instruction-surface.test.ts b/scripts/check-instruction-surface.test.ts
+index 9c74da0857639e009c9486e2959a7e38dc6e77ad..c1fef9ed4d3580eaffc4dcf315a667d0c34aba36 100644
+--- a/scripts/check-instruction-surface.test.ts
++++ b/scripts/check-instruction-surface.test.ts
+@@ -6,9 +6,8 @@
+  * lost its evidence (mantahostels#1716, mantahostels#1771).
+  *
+  * The checker reads HEAD and ignores an uncommitted edit, falling back to disk
+- * where git cannot answer: no repo, or a file not yet in HEAD — never the
+- * settings file, read at the revision alone (#2052). Skills are counted on
+- * disk. So every fixture
++ * where git cannot answer: no repo, or a file not yet in HEAD — never a skill
++ * or the settings file, read at the revision alone (#1977, #2052). So every fixture
+  * is a bare directory except the "reading git rather than the working tree"
+  * block's.
+  *
+@@ -1387,6 +1386,148 @@ describe("reading git rather than the working tree", () => {
+ 		expect(r.out).toMatch(/no \.claude\/settings\.json at HEAD/);
+ 	});
+ 
++	it("ignores an uncommitted skill directory, in the check and a re-anchor (#1977)", () => {
++		writeBaseline();
++		skill("gamma");
++		expect(run().out).not.toMatch(/SKILL-COUNT/);
++		run("--rebaseline", "--no-claim", "--only", "skills");
++		git("add", "-A");
++		git("commit", "-q", "-m", "skill");
++		expect(run().out).toMatch(/SKILL-COUNT/);
++	});
++
++	it("--at counts the skill directories at the tree named, not the working tree (#1977)", () => {
++		const measuredAt = git("rev-parse", "HEAD").trim();
++		writeBaseline();
++		skill("gamma");
++		git("add", "-A");
++		git("commit", "-q", "-m", "skill");
++		const r = run(
++			"--rebaseline",
++			"--no-claim",
++			"--only",
++			"skills",
++			"--at",
++			measuredAt,
++		);
++		expect(r.status).toBe(0);
++		expect(run().out).toMatch(/SKILL-COUNT/);
++	});
++
++	it("counts no committed directory that holds no SKILL.md (#1977)", () => {
++		writeBaseline();
++		write(".claude/skills/gamma/notes.md", "not a skill\n");
++		git("add", "-A");
++		git("commit", "-q", "-m", "stray dir");
++		expect(run().out).not.toMatch(/SKILL-COUNT/);
++	});
++
++	it("counts at a root below the repository's top (#1977)", () => {
++		writeBaseline();
++		const sub = path.join(dir, "sub");
++		fs.mkdirSync(sub);
++		for (const name of fs.readdirSync(dir))
++			if (name !== "sub" && name !== ".git")
++				fs.renameSync(path.join(dir, name), path.join(sub, name));
++		git("add", "-A");
++		git("commit", "-q", "-m", "move under sub");
++		const r = runInProcess(SCRIPT, ["--root", sub, "--json"], {
++			env: { ...process.env, GITHUB_ACTIONS: "" },
++		});
++		expect(JSON.parse(r.stdout).skills.live).toMatchObject({
++			own: 2,
++			disabled: 1,
++		});
++	});
++
++	const betaVendored = { distinct: 2, own: 1, vendored: 1, disabled: 1 };
++
++	it("follows a committed vendored link to its committed SKILL.md (#1977)", () => {
++		/* The repo's own shape: a relative link into .agents/skills. */
++		fs.mkdirSync(path.join(dir, ".agents/skills"), { recursive: true });
++		fs.renameSync(
++			path.join(dir, ".claude/skills/beta"),
++			path.join(dir, ".agents/skills/beta"),
++		);
++		fs.symlinkSync(
++			"../../.agents/skills/beta",
++			path.join(dir, ".claude/skills/beta"),
++		);
++		git("add", "-A");
++		git("commit", "-q", "-m", "vendor beta");
++		writeBaseline();
++		write(".agents/skills/beta/SKILL.md", "---\nname: beta\n---\n");
++		expect(run("--json").json().skills.live).toEqual(betaVendored);
++	});
++
++	it("reads a committed SKILL.md link from its committed target, as the disk route does (#2369)", () => {
++		fs.mkdirSync(path.join(dir, "shared"));
++		fs.renameSync(
++			path.join(dir, ".claude/skills/beta/SKILL.md"),
++			path.join(dir, "shared/beta.md"),
++		);
++		fs.symlinkSync(
++			"../../../shared/beta.md",
++			path.join(dir, ".claude/skills/beta/SKILL.md"),
++		);
++		git("add", "-A");
++		git("commit", "-q", "-m", "link beta's SKILL.md");
++		writeBaseline();
++		const counts = { distinct: 2, own: 2, vendored: 0, disabled: 1 };
++		expect(run("--json").json().skills.live).toEqual(counts);
++		fs.rmSync(path.join(dir, ".git"), { recursive: true });
++		expect(run("--json").json().skills.live).toEqual(counts);
++	});
++
++	it.each([
++		[
++			"a relative",
++			(outside: string) =>
++				path.relative(
++					path.join(dir, ".claude/skills"),
++					path.join(outside, "beta"),
++				),
++		],
++		["an absolute", (outside: string) => path.join(outside, "beta")],
++	])(
++		"reads %s vendored link leaving the repo from disk, as the disk route does (#2369)",
++		(_, target) => {
++			const outside = fs.mkdtempSync(path.join(os.tmpdir(), "instr-outside-"));
++			try {
++				fs.renameSync(
++					path.join(dir, ".claude/skills/beta"),
++					path.join(outside, "beta"),
++				);
++				fs.symlinkSync(target(outside), path.join(dir, ".claude/skills/beta"));
++				git("add", "-A");
++				git("commit", "-q", "-m", "vendor beta from outside");
++				writeBaseline();
++				expect(run("--json").json().skills.live).toEqual(betaVendored);
++				fs.rmSync(path.join(dir, ".git"), { recursive: true });
++				expect(run("--json").json().skills.live).toEqual(betaVendored);
++			} finally {
++				fs.rmSync(outside, { recursive: true, force: true });
++			}
++		},
++	);
++
++	it("follows a vendored link whose target is itself a link (#2369)", () => {
++		fs.mkdirSync(path.join(dir, ".agents/skills"), { recursive: true });
++		fs.renameSync(
++			path.join(dir, ".claude/skills/beta"),
++			path.join(dir, ".agents/skills/beta-v1"),
++		);
++		fs.symlinkSync("beta-v1", path.join(dir, ".agents/skills/beta"));
++		fs.symlinkSync(
++			"../../.agents/skills/beta",
++			path.join(dir, ".claude/skills/beta"),
++		);
++		git("add", "-A");
++		git("commit", "-q", "-m", "vendor beta through a second link");
++		writeBaseline();
++		expect(run("--json").json().skills.live).toEqual(betaVendored);
++	});
++
+ 	describe("--touched-by, the post-commit notice (#1810)", () => {
+ 		const commit = (msg: string) => {
+ 			git("add", "-A");
