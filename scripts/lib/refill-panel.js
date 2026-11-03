@@ -123,6 +123,7 @@ const ROLE_STYLES = {
  *   lastTick: {at: number, idle: string|null,
  *     paused: boolean, planWait: {resets: number|null}|null}|null,
  *   launchesToday: number,
+ *   concurrency: ReturnType<typeof import("./concurrency.js").readConcurrencyStatus>,
  *   mode: "normal"|"away"|null,
  *   handedOffSinceAway: number,
  *   repos: {name: string, root: string, ticked: boolean, disabled: string|null}[],
@@ -346,6 +347,21 @@ const isNoteShowing = (note, now) =>
 const buildTurningWord = (on) => `turning ${on ? "on" : "off"}…`;
 
 /**
+ * Line 1 of a launching loop's block: an unread count reads `?`, as unknown is never
+ * calm, and a limit shows only where one binds.
+ * @param {PanelStatus} status
+ */
+function buildLaunchedText({ launchesToday, concurrency }) {
+	const { working, ceiling, limit, sustained } = concurrency;
+	return [
+		`${launchesToday} launched today`,
+		`${working ?? "?"} of ${ceiling ?? "?"} running`,
+		`24h ${sustained}`,
+		...(limit ? [`Limited by ${limit}`] : []),
+	].join(" · ");
+}
+
+/**
  * Line 1 and line 2 of the loop block, from the observed status alone.
  * @param {PanelStatus} status
  * @param {number} now
@@ -386,7 +402,7 @@ function buildObservedLines(status, now) {
 			{ text: "Stopping: sessions running finish", role: "secondary" },
 		];
 	return [
-		{ text: `${status.launchesToday} launched today`, role: "value" },
+		{ text: buildLaunchedText(status), role: "value" },
 		{
 			text: buildWaitingRowText(status, now),
 			role: "secondary",

@@ -72,6 +72,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { buildErrorText, caught } = require("./lib/caught.js");
 const { readBurnState } = require("./lib/burn-mode.js");
+const { readConcurrencyStatus } = require("./lib/concurrency.js");
 const refillCode = require("./lib/refill-code.js");
 const gates = require("./lib/gate-sweep.js");
 const { parseOrCode } = require("./lib/cli-args.js");
@@ -701,6 +702,7 @@ function status({ flags }) {
 					candidates: readCandidates(homeDir()),
 					burnMode: readBurnState(),
 					overflow: readOverflowStatus(root),
+					concurrency: readConcurrencyStatus(Date.now()),
 				}),
 			),
 		);

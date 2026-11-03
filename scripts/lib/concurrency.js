@@ -25,6 +25,7 @@
  * never throw, so a broken record costs a reading, never a tick.
  */
 
+const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
@@ -46,7 +47,7 @@ const STALE_MS = 15 * MINUTE_MS;
 /* Matched to memwatch's minute record (MEMWATCH_MINUTE_DAYS), so the 7-day
  * review window always has both records. */
 const RETAIN_MS = 28 * DAY_MS;
-/* The status line's and the morning review's sustained window; untraced
+/* The refill panel's and the morning review's sustained window; untraced
  * (#3315). */
 const SUSTAINED_WINDOW = { ms: DAY_MS, span: "24 h" };
 
@@ -56,6 +57,8 @@ const NONE = "none";
 /* The spread's top bucket; a count at or past it shares one. Untraced
  * (#3315). */
 const SPREAD_CAP = 10;
+/* The 24-hour figure where no session worked, or no tick has written its file. */
+const NO_SUSTAINED_FIGURE = "-";
 
 /** @typedef {{limit: string, why: string}} Failing */
 
@@ -464,13 +467,13 @@ function readRecords() {
 /** @param {ReturnType<typeof readout>} r */
 function buildSustainedFigure(r) {
 	if (!r.minutesRead) return "?";
-	return r.sustained === null ? "-" : r.sustained.toFixed(1);
+	return r.sustained === null ? NO_SUSTAINED_FIGURE : r.sustained.toFixed(1);
 }
 
 /**
- * Write the readout's sustained figure to the precomputed file the status
- * line reads: `-` where no session worked, `?` where the minute record did
- * not read.
+ * Write the readout's sustained figure to the precomputed file the refill
+ * panel's poll reads: `-` where no session worked, `?` where the minute record
+ * did not read.
  * @param {ReturnType<typeof readout>} r
  */
 function writeSustained(r) {
@@ -480,8 +483,48 @@ function writeSustained(r) {
 			`${buildSustainedFigure(r)}\n`,
 		);
 	} catch {
-		/* Unwritable: the status line reads a stale figure, never a wrong one. */
+		/* Unwritable: the panel reads a stale figure, never a wrong one. */
 	}
+}
+
+/**
+ * The 24-hour figure as last written, `?` where its file will not read, as unknown
+ * is never calm (mantahostels#1206).
+ * @param {string} file
+ */
+function readSustainedFigure(file) {
+	try {
+		return fs.readFileSync(file, "utf8").trim() || NO_SUSTAINED_FIGURE;
+	} catch (e) {
+		/* No tick has written it yet (#4062). */
+		return caught(e).code === "ENOENT" ? NO_SUSTAINED_FIGURE : "?";
+	}
+}
+
+/**
+ * What `refill-loop.js status --json` carries for the panel, off the precomputed
+ * figure, so a poll reads no minute record. `working` and `ceiling` are null where
+ * unread or the newest tick is stale or a stop, `limit` null where none binds.
+ * @param {number} now
+ */
+function readConcurrencyStatus(now) {
+	const files = concurrencyFiles();
+	const ticks = /** @type {TickRecord[]|null} */ (
+		readJsonLines(files.record, [])
+	);
+	const newest = ticks?.at(-1);
+	const tick =
+		newest &&
+		now - Date.parse(newest.at) <= STALE_MS &&
+		newest.binding?.limit !== LOOP_OFF
+			? newest
+			: null;
+	return {
+		working: tick?.working ?? null,
+		ceiling: tick?.ceiling ?? null,
+		limit: tick?.binding?.limit ?? null,
+		sustained: readSustainedFigure(files.sustained),
+	};
 }
 
 /**
@@ -509,6 +552,7 @@ module.exports = {
 	buildBlockText,
 	buildTickRecord,
 	concurrencyFiles,
+	readConcurrencyStatus,
 	readRecords,
 	readout,
 	buildSustainedText,

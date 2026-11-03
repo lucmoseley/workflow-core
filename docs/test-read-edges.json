@@ -8882,8 +8882,7 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts",
-			"scripts/statusline.test.ts"
+			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/concurrency.test.ts": [
 			"scripts/check-guard-errors.test.ts",

@@ -9,7 +9,7 @@
  * spawns the real admission.js over fake `ps`, `/proc`, `claude` and meminfo,
  * so its live read finds one claimed pair that no listing names. Which row the
  * watch reads, tick or live, is lib/concurrency.test.ts's. It also pins the
- * precomputed 24-hour file the status line reads (#3498).
+ * precomputed 24-hour file the refill panel reads (#3498).
  */
 
 import fs from "node:fs";
@@ -116,7 +116,7 @@ describe("the unlisted watch with the loop off (#3496)", () => {
 	});
 });
 
-describe("the sustained figure the status line reads (#3498)", () => {
+describe("the sustained figure the refill panel reads (#3498)", () => {
 	const sustainedFile = () =>
 		fs.readFileSync(path.join(dir, "refill", "concurrency-24h"), "utf8");
 

@@ -19,6 +19,7 @@ const STATUS = JSON.stringify({
 	paused: null,
 	lastTick: null,
 	launchesToday: 0,
+	concurrency: { working: 1, ceiling: 2, limit: null, sustained: "-" },
 	repos: [],
 	seats: { readings: [] },
 	overflow: [],

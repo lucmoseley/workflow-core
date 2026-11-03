@@ -980,6 +980,27 @@ describe("set (#3856)", () => {
 		});
 	});
 
+	it("carries the newest tick's concurrency in status --json (#4062)", async () => {
+		writeControl();
+		fs.writeFileSync(path.join(dir, "concurrency-24h"), "8.4\n");
+		fs.writeFileSync(
+			path.join(dir, "concurrency.jsonl"),
+			`${JSON.stringify({
+				at: new Date().toISOString(),
+				working: 9,
+				ceiling: 9,
+				binding: { limit: "memory", why: "w" },
+			})}\n`,
+		);
+		const r = await run("status", "--json");
+		expect(JSON.parse(r.stdout).concurrency).toEqual({
+			working: 9,
+			ceiling: 9,
+			limit: "memory",
+			sustained: "8.4",
+		});
+	});
+
 	it("carries burn mode's state in status --json, off the marker the script writes", async () => {
 		writeControl();
 		const marker = path.join(dir, ".burn-mode");

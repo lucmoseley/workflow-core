@@ -46,6 +46,13 @@ const NO_SEATS = {
 	callerSeat: null,
 };
 
+const NO_CONCURRENCY = {
+	working: null,
+	ceiling: null,
+	limit: null,
+	sustained: "-",
+};
+
 describe("what status prints", () => {
 	const control = {
 		noProgressFrom: NOW - 60 * MIN,
@@ -490,6 +497,7 @@ describe("a launch row's seat and reason (#3732)", () => {
 			candidates: [],
 			burnMode: { on: false, disagreeing: [], error: null },
 			overflow: [],
+			concurrency: NO_CONCURRENCY,
 		});
 		expect(json.running).toBe(true);
 		expect(
@@ -530,6 +538,7 @@ describe("status --json for the panel (#3873)", () => {
 			candidates: [],
 			burnMode: { on: false, disagreeing: [], error: null },
 			overflow: [],
+			concurrency: NO_CONCURRENCY,
 		});
 
 	it("carries the code sha, and the last tick's summary and waiting reason", () => {

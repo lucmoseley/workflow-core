@@ -1,14 +1,14 @@
 // @vitest-environment node
 /*
- * The status line's concurrency segment (#3319) shows the refill loop's last
- * tick and the 24-hour sustained figure, reads "loop off" for a stale, stopped
- * or missing tick, and spawns no `node` and no `claude` per render.
+ * The status line carries burn mode only as its restart warning, while this
+ * session's model is out of step with the marker (#4062): the refill panel
+ * cannot know a session's boot state, and shows the plain on and off itself.
  *
  * The script is machine-level, at ~/.claude/statusline.sh, so what runs here
  * is its reference copy in docs/claude-user-settings.md; `npm run
- * check:settings` holds it to the live file. A miss here shows a stopped
- * loop as a full machine, or spends a node start on every render of every
- * session.
+ * check:settings` holds it to the live file. A miss here shows a burn mode
+ * flip as nothing, leaves a session on the wrong model unwarned, or spends a
+ * node start on every render of every session.
  */
 
 import { execFileSync } from "node:child_process";
@@ -27,10 +27,7 @@ import {
 import { copyBlockPattern } from "./lib/settings-copy";
 import { shellQuote } from "./lib/sh-quote.js";
 
-const { buildTickRecord, writeSustained } = require("./lib/concurrency.js");
-
 const DOC = path.resolve(__dirname, "..", "docs", "claude-user-settings.md");
-const MINUTE_MS = 60 * 1000;
 
 let dir: string;
 let script: string;
@@ -66,55 +63,19 @@ beforeEach(() => {
 	home = fs.mkdtempSync(path.join(dir, "home-"));
 	fs.mkdirSync(path.join(home, ".claude"));
 	fs.rmSync(spawned, { force: true });
-	process.env.WFC_REFILL_DIR = path.join(home, ".claude");
 });
 
-afterEach(() => {
-	delete process.env.WFC_REFILL_DIR;
-	fs.rmSync(home, { recursive: true, force: true });
-});
+afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
 
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-const admission = (over: Record<string, unknown> = {}) => ({
-	slots: 2,
-	memorySlots: 1,
-	drawNeedMb: 2000,
-	load: { overloaded: false },
-	cpu: { full: false, slots: 2 },
-	memory: { working: { count: 3, mb: 1800 } },
-	...over,
-});
-
-const tick = (
-	agoMs: number,
-	{
-		decision = { launches: [], skipped: [], idle: null },
-		admitted = admission(),
-		launched = 0,
-	}: { decision?: object; admitted?: object | null; launched?: number } = {},
-) =>
-	`${JSON.stringify(
-		buildTickRecord({
-			input: { now: Date.now() - agoMs, freeSlots: 0 },
-			decision,
-			admission: admitted,
-			workingChange: launched,
-		}),
-	)}\n`;
-
-const writeRecord = (lines: string[], sustained?: number | null) => {
-	fs.writeFileSync(
-		path.join(home, ".claude", "concurrency.jsonl"),
-		lines.join(""),
-	);
-	if (sustained !== undefined) writeSustained({ sustained, minutesRead: true });
-};
-
-/** The concurrency segment of one render, colour codes stripped. */
-const render = () => {
+/** One render, colour codes stripped. */
+const render = (projectDir = repo) => {
 	const out = execFileSync("bash", [script], {
-		input: JSON.stringify({ workspace: { project_dir: repo } }),
+		input: JSON.stringify({
+			session_id: "s1",
+			workspace: { project_dir: projectDir },
+		}),
 		env: {
 			...process.env,
 			HOME: home,
@@ -123,62 +84,50 @@ const render = () => {
 		encoding: "utf8",
 	});
 	// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escapes are what is stripped.
-	const plain = out.replace(/\x1b\[[0-9;]*m/g, "");
-	return plain.match(/Sess .*$/m)?.[0] ?? null;
+	return out.replace(/\x1b\[[0-9;]*m/g, "").trimEnd();
 };
 
-describe("concurrency segment", () => {
-	it("shows the last tick's working count, ceiling and binding limit with the 24h figure", () => {
-		writeRecord(
-			[
-				tick(9 * MINUTE_MS),
-				tick(MINUTE_MS, { admitted: admission({ memorySlots: 0 }) }),
-			],
-			4.7,
-		);
-		expect(render()).toBe("Sess 3/5 · memory · 24h 4.7");
+const CONTEXT = " Ctx: 0/200,000 tok (0.0%)";
+const setBurn = (on: boolean) => {
+	const marker = path.join(home, ".claude", ".burn-mode");
+	if (on) fs.writeFileSync(marker, "{}");
+	else fs.rmSync(marker, { force: true });
+};
+
+describe("the status line", () => {
+	it.each([false, true])(
+		"shows only context usage while burn mode stays as booted, on: %s",
+		(on) => {
+			setBurn(on);
+			expect(render()).toBe(CONTEXT);
+			expect(render()).toBe(CONTEXT);
+		},
+	);
+
+	it("warns of a restart once burn mode turns on after boot, until it is back", () => {
+		render();
+		setBurn(true);
+		expect(render()).toBe(`${CONTEXT}  burn: on (restart: model)`);
+		setBurn(false);
+		expect(render()).toBe(CONTEXT);
 	});
 
-	it("counts the last tick's launches in its working figure (#3770)", () => {
-		writeRecord([tick(MINUTE_MS, { launched: 2 })], 4.7);
-		expect(render()).toBe("Sess 5/5 · none · 24h 4.7");
+	it("warns of a restart once burn mode turns off after boot", () => {
+		setBurn(true);
+		render();
+		setBurn(false);
+		expect(render()).toBe(`${CONTEXT}  burn: off (restart: model)`);
 	});
 
-	it("names no limit as none, an unread count as ? and no 24h figure as -", () => {
-		writeRecord([tick(MINUTE_MS)], null);
-		expect(render()).toBe("Sess 3/5 · none · 24h -");
-		writeRecord([tick(MINUTE_MS, { admitted: null })]);
-		expect(render()).toBe("Sess ?/? · memory · 24h -");
-	});
-
-	it("reads a tick 14 minutes old as live and one 16 minutes old as loop off", () => {
-		writeRecord([tick(14 * MINUTE_MS)], 4.7);
-		expect(render()).toBe("Sess 3/5 · none · 24h 4.7");
-		writeRecord([tick(16 * MINUTE_MS)]);
-		expect(render()).toBe("Sess loop off · 24h 4.7");
-	});
-
-	it("reads a stop tick as loop off", () => {
-		writeRecord([
-			tick(MINUTE_MS, { decision: { stop: "explicit", detail: "stopped" } }),
-		]);
-		expect(render()).toBe("Sess loop off · 24h -");
-	});
-
-	it("reads a missing or torn record as loop off", () => {
-		expect(render()).toBe("Sess loop off · 24h -");
-		writeRecord(['{"at": "2026-'], 2);
-		expect(render()).toBe("Sess loop off · 24h 2.0");
-	});
-
-	it("shows the 24h figure as ? where the minute record did not read (#3531)", () => {
-		writeRecord([tick(MINUTE_MS)]);
-		writeSustained({ sustained: null, minutesRead: false });
-		expect(render()).toMatch(/ · 24h \?$/);
+	it("shows no burn warning outside workflow-core's world", () => {
+		const elsewhere = path.join(dir, "elsewhere");
+		fs.mkdirSync(elsewhere, { recursive: true });
+		render(elsewhere);
+		setBurn(true);
+		expect(render(elsewhere)).toBe(CONTEXT);
 	});
 
 	it("spawns no node and no claude on a render", () => {
-		writeRecord([tick(MINUTE_MS)], 4.7);
 		render();
 		expect(fs.existsSync(spawned)).toBe(false);
 	});

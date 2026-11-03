@@ -4,13 +4,17 @@
  * sessions run.
  */
 
-import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const { FULL, NOTHING_LAUNCHABLE } = require("./refill-decide.js");
 const {
 	buildBlockText,
 	readout,
 	buildTickRecord,
+	readConcurrencyStatus,
 } = require("./concurrency.js");
 
 const T0 = Date.parse("2026-10-28T00:00:00Z");
@@ -661,5 +665,85 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 			also: [],
 			memory: null,
 		});
+	});
+});
+
+describe("what status --json carries for the panel (#4062)", () => {
+	let dir: string;
+	const Unread = { working: null, ceiling: null, limit: null };
+	const line = (over: object = {}, ago = MIN) =>
+		JSON.stringify({
+			at: iso(T0 - ago),
+			working: 9,
+			ceiling: 9,
+			binding: { limit: "memory", why: "w" },
+			...over,
+		});
+	const statusOf = (...lines: string[]) => {
+		fs.writeFileSync(
+			path.join(dir, "concurrency.jsonl"),
+			`${lines.join("\n")}\n`,
+		);
+		return readConcurrencyStatus(T0);
+	};
+
+	beforeEach(() => {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "concurrency-status-"));
+		process.env.WFC_REFILL_DIR = dir;
+	});
+
+	afterEach(() => {
+		delete process.env.WFC_REFILL_DIR;
+		fs.rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("reads no record and no figure as unread and -", () => {
+		expect(readConcurrencyStatus(T0)).toEqual({ ...Unread, sustained: "-" });
+	});
+
+	it("reads the figure as written, and a file that will not read as ?", () => {
+		fs.writeFileSync(path.join(dir, "concurrency-24h"), "8.4\n");
+		expect(statusOf(line()).sustained).toBe("8.4");
+		fs.rmSync(path.join(dir, "concurrency-24h"));
+		fs.mkdirSync(path.join(dir, "concurrency-24h"));
+		expect(statusOf(line()).sustained).toBe("?");
+	});
+
+	it("takes the newest tick's count, ceiling and limit", () => {
+		expect(statusOf(line({ working: 1 }), line())).toEqual({
+			working: 9,
+			ceiling: 9,
+			limit: "memory",
+			sustained: "-",
+		});
+	});
+
+	it("carries no limit where none binds", () => {
+		expect(statusOf(line({ binding: null })).limit).toBeNull();
+	});
+
+	it("keeps the limit beside an unread count", () => {
+		expect(statusOf(line({ working: null, ceiling: null }))).toEqual({
+			...Unread,
+			limit: "memory",
+			sustained: "-",
+		});
+	});
+
+	it("trusts a tick up to the staleness bound, and not past it", () => {
+		expect(statusOf(line({}, STALE_MS)).working).toBe(9);
+		expect(statusOf(line({}, STALE_MS + 1))).toEqual({
+			...Unread,
+			sustained: "-",
+		});
+	});
+
+	it("reads a stop tick as unread", () => {
+		const stop = { binding: { limit: "loop not running", why: "w" } };
+		expect(statusOf(line(stop))).toEqual({ ...Unread, sustained: "-" });
+	});
+
+	it("falls back to the tick before a torn last line", () => {
+		expect(statusOf(line(), '{"at": "2026-').working).toBe(9);
 	});
 });

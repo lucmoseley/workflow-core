@@ -58,6 +58,7 @@ const RUNNING = {
 		paused: false,
 	},
 	launchesToday: 3,
+	concurrency: { working: 9, ceiling: 9, limit: null, sustained: "8.4" },
 	mode: "normal",
 	handedOffSinceAway: 0,
 	repos: [],
@@ -66,6 +67,7 @@ const RUNNING = {
 	overflow: [],
 	burnMode: BURN_OFF,
 };
+const LAUNCHED = "3 launched today · 9 of 9 running · 24h 8.4";
 const PAUSED_TICK = {
 	at: LATER,
 	summary: "idle: paused by founder",
@@ -220,12 +222,23 @@ function heldUntil() {
 }
 
 describe("the panel's rows", () => {
+	it("names the limit that binds, and an unread count as ?", () => {
+		const line1 = (concurrency: object) =>
+			summary(rowsOf({ status: { ...RUNNING, concurrency } }))[2][0];
+		expect(
+			line1({ working: 9, ceiling: 9, limit: "memory", sustained: "8.4" }),
+		).toBe(`${LAUNCHED} · Limited by memory`);
+		expect(
+			line1({ working: null, ceiling: null, limit: "memory", sustained: "?" }),
+		).toBe("3 launched today · ? of ? running · 24h ? · Limited by memory");
+	});
+
 	it("shows a running loop", () => {
 		const rows = rowsOf({ status: RUNNING });
 		expect(summary(rows).slice(0, 8)).toEqual([
 			["Refill loop  [on]", "name"],
 			["", "secondary"],
-			["3 launched today", "value"],
+			[LAUNCHED, "value"],
 			["Not starting more: the machine is full", "secondary"],
 			["", "secondary"],
 			["Weekly plan usage", "secondary"],
@@ -286,7 +299,7 @@ describe("the panel's rows", () => {
 		expect(summary(rows).slice(0, 8)).toEqual([
 			["Refill loop  [on]", "name"],
 			["", "secondary"],
-			["3 launched today", "value"],
+			[LAUNCHED, "value"],
 			["", "secondary"],
 			["", "secondary"],
 			["Weekly plan usage", "secondary"],
@@ -942,7 +955,7 @@ describe("the panel's colours", () => {
 
 	it("draws names bold white, live values white, secondary text #949494", () => {
 		expect(frame).toContain(`${ESC}[1m${ESC}[38;2;242;242;242mRefill loop`);
-		expect(frame).toContain(`${ESC}[38;2;242;242;242m3 launched today`);
+		expect(frame).toContain(`${ESC}[38;2;242;242;242m${LAUNCHED}`);
 		expect(frame).toContain(
 			`${ESC}[38;2;148;148;148mNot starting more: the machine is full`,
 		);

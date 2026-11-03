@@ -32,9 +32,11 @@ and the plan it names needs a hand.
 
 ## Notes
 
-- The status line's `burn:` segment lives in `~/.claude/statusline.sh` — outside
-  the repo, snapshotted in the settings snapshot (`userSettingsSnapshotPath` in
-  `.claude/workflow-core.json`, else `docs/claude-user-settings.md`). It reads the marker
-  live, so it flips at once, and latches each session's boot state to badge the
-  flip until the session restarts. Its `(restart: model)` label means the
-  effort half (#355).
+- The refill panel's Burn mode row shows on or off. The status line says
+  `burn: on (restart: model)` or `burn: off (restart: model)` only while this
+  session's model is out of step with the marker. It lives in
+  `~/.claude/statusline.sh` — outside the repo, snapshotted in the settings
+  snapshot (`userSettingsSnapshotPath` in `.claude/workflow-core.json`, else
+  `docs/claude-user-settings.md`) — and latches each session's boot state to
+  badge the flip until the session restarts. `(restart: model)` means the effort
+  half (#355).
