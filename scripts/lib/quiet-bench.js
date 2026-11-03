@@ -260,7 +260,8 @@ const BENCH_RUNNER = "quiet-bench-run.js";
  *   skipped_not_quiet?: boolean, aborted_by_watchdog?: boolean,
  *   baseline_stationary?: boolean, wall_s?: number, sessions_live?: number,
  *   avail_rest_mb?: number, avail_min_mb?: number, avail_dip_mb?: number,
- *   dip_attributable_mb?: number, all_green?: boolean}} BenchRow
+ *   dip_attributable_mb?: number, all_green?: boolean,
+ *   ceiling_killed?: number}} BenchRow
  *   the bench's `results.json` fields read here
  */
 
@@ -274,7 +275,9 @@ const BENCH_RUNNER = "quiet-bench-run.js";
  */
 
 /**
- * A row #2862 may quote: run green to its end on a baseline that held still.
+ * A row #2862 may quote: every suite ran to its end, on a baseline that held
+ * still. A suite the 840 s ceiling killed did not, so its dip stopped early; one
+ * that only failed tests did (#4031).
  * @param {BenchRow} row
  */
 const isUsableRow = (row) =>
@@ -282,7 +285,7 @@ const isUsableRow = (row) =>
 	!row.skipped_not_quiet &&
 	!row.aborted_by_watchdog &&
 	row.baseline_stationary === true &&
-	row.all_green === true;
+	row.ceiling_killed === 0;
 
 /**
  * @param {BenchRow[]} rows
@@ -301,11 +304,25 @@ const isRunComplete = (rows) =>
 	COUNTS.every((n) => (countUsableRows(rows).get(n) ?? 0) >= ROWS_PER_COUNT);
 
 /**
+ * A row the suite ceiling cut short: no rerun lifts it, so #2862 stops at
+ * what the rows reached (#4031).
+ * @param {BenchRow[]} rows
+ */
+const reachedCeiling = (rows) => rows.some((r) => (r.ceiling_killed ?? 0) > 0);
+
+/**
  * Whether a kept run already answers the ladder as it stands.
  * @param {KeptRun} run
  */
 const isRunAnswering = ({ ladder, rows }) =>
-	ladder === LADDER_STAMP && isRunComplete(rows);
+	ladder === LADDER_STAMP && (isRunComplete(rows) || reachedCeiling(rows));
+
+/** @param {BenchRow[]} rows */
+function buildRunEnd(rows) {
+	if (isRunComplete(rows)) return ", complete";
+	if (reachedCeiling(rows)) return ", reached the suite ceiling";
+	return "";
+}
 
 /**
  * The reading #2862's gate prints: each run of the ladder as it stands, with its
@@ -314,7 +331,9 @@ const isRunAnswering = ({ ladder, rows }) =>
  */
 function buildRowsReading(runs) {
 	const withRows = runs.filter(
-		({ rows, ladder }) => ladder === LADDER_STAMP && rows.some(isUsableRow),
+		({ rows, ladder }) =>
+			ladder === LADDER_STAMP &&
+			(rows.some(isUsableRow) || reachedCeiling(rows)),
 	);
 	if (withRows.length === 0) return "no usable bench rows kept";
 	return withRows
@@ -322,7 +341,7 @@ function buildRowsReading(runs) {
 			const counts = [...countUsableRows(rows)]
 				.map(([n, have]) => `${n}:${have}`)
 				.join(" ");
-			return `${id}: usable rows per suite count ${counts}${isRunComplete(rows) ? ", complete" : ""}`;
+			return `${id}: usable rows per suite count ${counts}${buildRunEnd(rows)}`;
 		})
 		.join("\n");
 }
@@ -356,7 +375,9 @@ function buildEnding(status, signal, tail) {
 function buildWallText(row) {
 	if (row.skipped_not_quiet) return "skipped: not quiet";
 	if (row.skipped_below_floor) return "skipped: below the floor";
-	return `${row.wall_s} s`;
+	return row.ceiling_killed
+		? `${row.wall_s} s, ${row.ceiling_killed} killed at the ceiling`
+		: `${row.wall_s} s`;
 }
 
 /** @param {BenchRow[]} rows */
@@ -410,6 +431,7 @@ module.exports = {
 	buildEnding,
 	buildRowsReading,
 	buildRunComment,
+	countUsableRows,
 	decideQuietBench,
 	isRunAnswering,
 	parseBenchState,

@@ -75,7 +75,7 @@ afterEach(() => {
 it("runs the bench's own command, keeps its rows and posts them", () => {
 	stubBench(`import json, os, sys
 with open(os.environ["OUTDIR"] + "/results.json", "w") as f:
-    json.dump([{"suites": 1, "wall_s": 9, "baseline_stationary": True, "all_green": True}], f)
+    json.dump([{"suites": 1, "wall_s": 9, "baseline_stationary": True, "all_green": True, "ceiling_killed": 0}], f)
 print(" ".join(sys.argv[1:]))
 `);
 	runOk();
@@ -112,7 +112,7 @@ sys.exit("refused: 9 sessions live, above the --require-quiet=3 this run demands
 it("keeps the rows unmarked where the post fails", () => {
 	stubBench(`import json, os
 with open(os.environ["OUTDIR"] + "/results.json", "w") as f:
-    json.dump([{"suites": 2, "baseline_stationary": True, "all_green": True}], f)
+    json.dump([{"suites": 2, "baseline_stationary": True, "all_green": True, "ceiling_killed": 0}], f)
 `);
 	gh = stubGhScript(sandbox, GH_FAILING_SCRIPT).gh;
 	const r = runOk();

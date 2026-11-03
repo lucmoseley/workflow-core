@@ -10,6 +10,7 @@ import {
 	buildEnding,
 	buildRowsReading,
 	buildRunComment,
+	countUsableRows,
 	decideQuietBench,
 	isRunAnswering,
 	LADDER_BENCH,
@@ -299,6 +300,7 @@ describe("the kept rows", () => {
 		suites,
 		baseline_stationary: true,
 		all_green: true,
+		ceiling_killed: 0,
 	});
 	const whole = [1, 2, 3, 1, 2, 3].map(usable);
 	const run = (rows: object[], ladder: string | null = LADDER_STAMP) => ({
@@ -328,9 +330,27 @@ describe("the kept rows", () => {
 		["skipped below the floor", { suites: 3, skipped_below_floor: true }],
 		["aborted", { ...usable(3), aborted_by_watchdog: true }],
 		["contaminated", { ...usable(3), baseline_stationary: false }],
-		["red", { ...usable(3), all_green: false }],
+		[
+			"killed at the ceiling (#4031)",
+			{ ...usable(3), all_green: false, ceiling_killed: 1 },
+		],
 	])("does not count a row %s", (_name, row) => {
-		expect(isRunAnswering(run([...whole.slice(0, 5), row]))).toBe(false);
+		expect(countUsableRows([row]).get(3)).toBe(0);
+	});
+
+	it("counts a row whose suites only failed tests, which ran to their end (#4031)", () => {
+		expect(countUsableRows([{ ...usable(3), all_green: false }]).get(3)).toBe(
+			1,
+		);
+	});
+
+	it("reads a run a row of which reached the ceiling as answering, so no rerun drains the fleet for it (#4031)", () => {
+		const cut = [usable(1), { ...usable(2), ceiling_killed: 2 }];
+		expect(isRunAnswering(run(cut))).toBe(true);
+		expect(isRunAnswering(run(cut, null))).toBe(false);
+		expect(buildRowsReading([run(cut)])).toBe(
+			"a: usable rows per suite count 1:1 2:0 3:0, reached the suite ceiling",
+		);
 	});
 
 	it("names each run in the gate's reading, and none until a row is usable", () => {
@@ -354,6 +374,7 @@ describe("a run's comment", () => {
 				{ suites: 1, wall_s: 9 },
 				{ suites: 2, skipped_not_quiet: true },
 				{ suites: 3, skipped_below_floor: true },
+				{ suites: 2, wall_s: 841, ceiling_killed: 1 },
 			],
 			machine: [
 				{
@@ -369,6 +390,7 @@ describe("a run's comment", () => {
 		expect(body).toContain("| 1 | 1 | 9 s |");
 		expect(body).toContain("skipped: not quiet");
 		expect(body).toContain("skipped: below the floor");
+		expect(body).toContain("| 4 | 2 | 841 s, 1 killed at the ceiling |");
 		expect(body).toContain(
 			"- before the bench: available 4000 MB of 9924, swap used 5 MB, load1 1.5",
 		);

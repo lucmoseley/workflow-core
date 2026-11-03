@@ -11,8 +11,8 @@ session (mantahostels#463, the ticket that measured the suite cap on a loaded ma
      read must not take the run down.
 
 It also pins the judgements behind the bench's figures — session counting,
-baseline stationarity, idle drift — and its quiet gate and suite launch, where
-a wrong call misstates the suite-concurrency cap sessions run under. Every case
+baseline stationarity, idle drift — and its quiet gate, suite launch and
+ceiling-kill reading, where a wrong call misstates the suite-concurrency cap sessions run under. Every case
 drives the module with an injected memory reader and killer, literal `/proc`
 text or a stub `ps` at WFC_PS, so no case signals a real process or reads this
 machine's load.
@@ -446,3 +446,24 @@ class TestIdleBaselineDrift:
         sessions live.
         """
         assert bench.BASELINE_SHIFT_TOLERANCE_MB >= 214.3
+
+
+class TestCeilingKill:
+    """#4031: a suite run-vitest killed at its 840 s ceiling makes its row
+    unusable, so the bench must tell one from a suite that only failed tests."""
+
+    def test_the_ceiling_report_is_read_as_a_kill(self, bench):
+        log = (
+            " ✓ scripts/a.test.ts (3 tests)\n\n"
+            "SUITE CEILING — killed 840s after vitest spawned, at the 840s ceiling"
+            " (#2667); load1 13.2.\n"
+        )
+        assert bench.killed_at_ceiling(log) is True
+
+    def test_a_failing_test_is_not_a_kill(self, bench):
+        log = " × scripts/a.test.ts > a case\n Test Files  1 failed (1)\n"
+        assert bench.killed_at_ceiling(log) is False
+
+    def test_the_marker_matches_run_vitests_own(self, bench):
+        source = (REPO / "scripts/lib/suite-ceiling.js").read_text()
+        assert f'const CEILING_LINE = "{bench.CEILING_LINE}";' in source

@@ -49,11 +49,13 @@ trustworthy row does, so it obeys the same quiet gate.
 
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import claude_sessions
@@ -343,6 +345,18 @@ def suite_env(env):
     return {**env, "WFC_TEST_STALL_MS": "0"}
 
 
+# The first words of `scripts/run-vitest.js`'s report on a suite killed at its
+# suite ceiling (`CEILING_LINE`, scripts/lib/suite-ceiling.js; #2667). The
+# ceiling stays in force here: a killed suite's dip stopped early, so its row
+# is unusable, where a suite that merely failed tests still ran to the end
+# (#4031).
+CEILING_LINE = "SUITE CEILING"
+
+
+def killed_at_ceiling(log_text):
+    return re.search(rf"^{CEILING_LINE}\b", log_text, re.MULTILINE) is not None
+
+
 def quiet_enough(sessions, required):
     """True where the machine is quiet enough to measure. `required` None = any."""
     return required is None or sessions <= required
@@ -529,6 +543,10 @@ def run_config(n, workers, *, rest_avail, rest_swap, watchdog, out, run_seq):
         for log in logs:
             log.close()
 
+    ceiling = [
+        killed_at_ceiling(Path(log.name).read_text(errors="replace")) for log in logs
+    ]
+
     aborted = watchdog.tripped_at is not None
     wall = max(f[0] for f in finished)
     # A settle, not the last sample. The sampler reads `avail` *before* the
@@ -567,9 +585,16 @@ def run_config(n, workers, *, rest_avail, rest_swap, watchdog, out, run_seq):
         ),
         "wall_s": round(wall, 1),
         "per_run": [
-            {"wall_s": f[0], "exit": f[1], "cpu_s": round(f[2], 1)} for f in finished
+            {
+                "wall_s": f[0],
+                "exit": f[1],
+                "cpu_s": round(f[2], 1),
+                "ceiling_killed": killed,
+            }
+            for f, killed in zip(finished, ceiling, strict=True)
         ],
         "all_green": all(f[1] == 0 for f in finished),
+        "ceiling_killed": sum(ceiling),
         "cpu_pct_peak": round(peak_cpu, 1),
         "cpu_s_sampled": round(last_ticks / CLK, 1),
         "cpu_s_rusage": round(rusage_cpu_s, 1),
@@ -701,13 +726,20 @@ def main(argv):
             f"  cpu {r['cpu_pct_avg_rusage']}% (valid={r['cpu_valid']})"
             f"  avail rest {r['avail_rest_mb']:.0f} -> min {r['avail_min_mb']:.0f}"
             f"  dip {r['avail_dip_mb']:.0f}MB  sessions {r['sessions_live']}"
-            f"  green={r['all_green']}  aborted={r['aborted_by_watchdog']}"
+            f"  green={r['all_green']}  ceiling-killed={r['ceiling_killed']}"
+            f"  aborted={r['aborted_by_watchdog']}"
             f"  trivial={r['trivially_aborted']}"
             f"  stationary={r['baseline_stationary']}"
             f" (shift {r['baseline_shift_mb']:.0f}MB, sessions {r['sessions_start']}->{r['sessions_live']},"
             f" attributable {r['dip_attributable_mb']:.0f}MB)",
             flush=True,
         )
+        if r["ceiling_killed"]:
+            print(
+                f"  {r['ceiling_killed']} of {n} suite(s) killed at the suite"
+                " ceiling (#2667): the row is unusable, its dip cut short",
+                flush=True,
+            )
         with open(f"{out}/results.json", "w") as f:
             json.dump(results, f, indent=1)
         if r["aborted_by_watchdog"]:
