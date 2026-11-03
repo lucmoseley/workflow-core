@@ -286,16 +286,29 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 
 	// A freeze the state line misses recomputes from these (#4081).
 	it("carries each pass's raw clock readings: epoch, rq ns, busy and total ticks", () => {
-		const { lines } = quietPass("minute-sched");
+		const schedstat = path.join(tmp, "minute-sched-stat");
+		fs.writeFileSync(schedstat, "version 17\ncpu0 0 0 0 0 0 0 1000 0 0\n");
+		const { lines } = quietPass("minute-sched", {
+			MEMWATCH_SCHEDSTAT: schedstat,
+		});
 		const { sched } = JSON.parse(lines[0]);
 		expect(sched).toHaveLength(1);
 		const [epoch, rqNs, busy, total] = sched[0];
 		/* Untraced: only rules out a field in the wrong slot, so generous. */
-		const EpochSlackS = 120;
-		expect(Math.abs(epoch - Date.now() / 1000)).toBeLessThan(EpochSlackS);
-		expect(rqNs).toBeGreaterThan(0);
+		const epochSlackS = 120;
+		expect(Math.abs(epoch - Date.now() / 1000)).toBeLessThan(epochSlackS);
+		expect(rqNs).toBe(1000);
 		expect(busy).toBeGreaterThan(0);
 		expect(total).toBeGreaterThan(busy);
+	});
+
+	it("keeps the busy and total ticks, rq null, on a kernel with no schedstat (#4092)", () => {
+		const { lines } = quietPass("minute-no-sched", {
+			MEMWATCH_SCHEDSTAT: path.join(tmp, "no-schedstat"),
+		});
+		const [[, rqNs, busy]] = JSON.parse(lines[0]).sched;
+		expect(rqNs).toBeNull();
+		expect(busy).toBeGreaterThan(0);
 	});
 
 	// A restart reads the last line back, so it never writes that minute again.
