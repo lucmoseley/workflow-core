@@ -32,6 +32,7 @@ const {
 const {
 	RUNNER_NAMES,
 	findRun,
+	isPlainWord,
 	namedScriptWord,
 	parseNamedDir,
 	placedCommands,
@@ -300,27 +301,17 @@ function withoutPrefix(command) {
 	const [first] = rest;
 	if (head.value === "command" && first && COMMAND_LOOKUP.test(first.value))
 		return [];
-	const next = rest.findIndex((w, i) => {
-		const before = rest[i - 1];
-		return (
-			!w.value.startsWith("-") &&
-			(before === undefined || !flags.has(before.value))
-		);
-	});
+	const next = rest.findIndex((w, i) => isPlainWord(w, rest[i - 1], flags));
 	return next < 0 ? [] : withoutPrefix(rest.slice(next));
 }
-
-/** @param {Word|undefined} before the word before */
-const isXargsValue = (before) =>
-	before !== undefined && XARGS_VALUE_FLAGS.has(before.value);
 
 /**
  * The command in the words after `xargs`, past its flags.
  * @param {Word[]} words
  */
 function parseXargsCommand(words) {
-	const at = words.findIndex(
-		(w, i) => !w.value.startsWith("-") && !isXargsValue(words[i - 1]),
+	const at = words.findIndex((w, i) =>
+		isPlainWord(w, words[i - 1], XARGS_VALUE_FLAGS),
 	);
 	return at < 0 ? [] : words.slice(at);
 }

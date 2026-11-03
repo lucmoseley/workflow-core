@@ -261,8 +261,8 @@ function mapBiome(words, biome, inferred) {
 	const values = words.map((w) => w.value);
 	const at = values.indexOf("check");
 	const why =
-		unwrittenWord(words) ??
-		unmappedRunner(values.slice(0, at).join(" "), biome, inferred);
+		refuseUnreadWords(words) ??
+		refuseUnmappedRunner(values.slice(0, at).join(" "), biome, inferred);
 	if (why) return why;
 	const kept = [];
 	const paths = [];
@@ -294,7 +294,7 @@ function mapBiome(words, biome, inferred) {
  * @param {boolean} inferred
  * @returns {Unmapped|null}
  */
-function unmappedRunner(runner, biome, inferred) {
+function refuseUnmappedRunner(runner, biome, inferred) {
 	if (!MAPPED_NAMES.has(runner.replace(/^npx /, "")))
 		return {
 			shape: PINNED.test(runner)
@@ -321,7 +321,7 @@ function unmappedRunner(runner, biome, inferred) {
  * @param {Word[]} words
  * @returns {Unmapped|null}
  */
-const unwrittenWord = (words) => (words.some(isUnreadWord) ? UNREAD : null);
+const refuseUnreadWords = (words) => (words.some(isUnreadWord) ? UNREAD : null);
 
 /**
  * mapBiome on a command as written, which is refused, not unquoted, where it
