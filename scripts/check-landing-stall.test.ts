@@ -19,6 +19,7 @@ const MIN = 60 * 1000;
 
 let tmp: string;
 let work: string;
+let uptimeS: string;
 
 const git = (cwd: string, args: string[], env: NodeJS.ProcessEnv = {}) =>
 	execFileSync("git", args, {
@@ -72,12 +73,14 @@ const check = (modules = "landing") => {
 		WFC_MODULES: modules,
 		CLAUDE_PROJECT_DIR: work,
 		WFC_LANDER_START_GRACE_MS: "0",
+		WFC_UPTIME_S: uptimeS,
 	};
 	delete env.WFC_NOTIFY_PERSIST;
 	return runInProcess(CHECK, ["--notify"], { cwd: work, env });
 };
 
 beforeEach(() => {
+	uptimeS = "86400";
 	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "landing-stall-"));
 	const remote = path.join(tmp, "remote.git");
 	work = path.join(tmp, "work");
@@ -114,6 +117,58 @@ it("warns of a stall where landing is ahead and main's tip is over 2 h old with 
 		`with landing ${git(work, ["rev-parse", "--short=9", "HEAD"])} ahead of it`,
 	);
 	expect(r.stdout).not.toContain("LANDER-DEAD");
+});
+
+it("warns of no stall where the machine booted within 2 h, though landing has been ahead longer (#4055)", () => {
+	mainAt(8 * 60 * MIN);
+	queue("new", MIN);
+	beat(0);
+	aheadFor(8 * 60 * MIN);
+	uptimeS = "37";
+
+	const r = check();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stdout).not.toContain("LANDING-STALLED");
+});
+
+const HOUR_S = 3600;
+const startedAgo = () => Date.now() - Number(uptimeS) * 1000;
+
+it("warns of no stall on the reading that finds the machine has slept since the last, then dates the wake from it (#4055)", () => {
+	mainAt(8 * 60 * MIN);
+	queue("new", MIN);
+	beat(0);
+	aheadFor(8 * 60 * MIN);
+	uptimeS = String(30 * HOUR_S);
+	writeMarker(".machine-wake.json", {
+		startedAt: startedAgo() - 8 * HOUR_S * 1000,
+		wokeAt: startedAgo() - 8 * HOUR_S * 1000,
+	});
+	const before = Date.now();
+
+	const r = check();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stdout).not.toContain("LANDING-STALLED");
+	const rec = JSON.parse(
+		fs.readFileSync(path.join(markers(), ".machine-wake.json"), "utf8"),
+	);
+	expect(rec.wokeAt).toBeGreaterThanOrEqual(before);
+});
+
+it("warns of a stall where the machine woke over 2 h ago and has not slept since (#4055)", () => {
+	mainAt(8 * 60 * MIN);
+	queue("new", MIN);
+	beat(0);
+	aheadFor(8 * 60 * MIN);
+	uptimeS = String(30 * HOUR_S);
+	writeMarker(".machine-wake.json", {
+		startedAt: startedAgo(),
+		wokeAt: Date.now() - 121 * MIN,
+	});
+
+	expect(check().stdout).toContain("LANDING-STALLED");
 });
 
 it("warns of no stall on the first reading of landing ahead of a main idle for hours, timing it from that reading (#3303)", () => {
