@@ -3560,8 +3560,6 @@ describe("boot-resume after a restart (#3878)", () => {
 		);
 	const command = commandFromRepo;
 	const readLog = () => readLines(at(".refill-loop.log")).join("\n");
-	/* spawn-kept: the pidfile's holder must be another live process, its command
-	 * line naming the program, or pid-lock reads it as stale. */
 	const spawnHolder = () => {
 		const holder = spawnIdleHolder(loopEnv({}));
 		fs.writeFileSync(at(".refill-loop.pid"), String(holder.pid));
