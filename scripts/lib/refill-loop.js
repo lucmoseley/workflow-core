@@ -12,7 +12,8 @@ const { parseAct } = require("./act-line.js");
 const { isTerminalAgent } = require("./agent-liveness.js");
 const { neverStartedJobs } = require("./hung-jobs.js");
 const { REVIEW_HOUR, localDate } = require("./morning-review.js");
-const { sizedPercent } = require("./allowance.js");
+const { isTrustworthy, sizedPercent } = require("./allowance.js");
+const { DAY_MS } = require("./retained-jsonl.js");
 const { batchesOf } = require("./refill-batch.js");
 const {
 	awayChangeOf,
@@ -175,7 +176,17 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * @property {string[]} probeBrokenRoots the last settled tick's served checkouts
  *   whose probe failed, for the idle alarm: such a failure may leave no hold on
  *   file (#3903)
+ * @property {Record<string, number>} seatTriedAt when each seat's `/usage` was
+ *   last probed, whatever came of it: a failed probe moves no cache stamp (#4060)
  */
+
+/** @param {unknown} raw @returns {Record<string, number>} */
+const parseSeatTriedAt = (raw) =>
+	Object.fromEntries(
+		Object.entries(isRecord(raw) ? raw : {}).flatMap(([seat, at]) =>
+			typeof at === "number" ? [[seat, at]] : [],
+		),
+	);
 
 /**
  * The launches since `from`, the control's noProgressFrom, which outlast the
@@ -495,6 +506,7 @@ function parseState(raw) {
 		overflowStart: parseOverflowStart(r.overflowStart),
 		goalProgress: parseGoalProgress(r.goalProgress),
 		probeBrokenRoots: parseStrings(r.probeBrokenRoots),
+		seatTriedAt: parseSeatTriedAt(r.seatTriedAt),
 		...(typeof r.bootedAt === "number" ? { bootedAt: r.bootedAt } : {}),
 	};
 }
@@ -606,12 +618,22 @@ const ceilingsOf = (env) => ({
 });
 
 /**
- * A seat's reading from lib/allowance.js's bars. A bar is full where it reads
- * 100% fresh, or, unfresh, its cached percent is 100 and its cached reset is
- * still ahead: a locked seat's bars age without refreshing, and neither
- * reopens before its reset (#2606). A passed or unparsed reset leaves it
- * unread. The weekly reset is kept whatever the bar's trust (#3732); one
- * passed or unparsed reads as unread. Each bar reads `sizedPercent`'s figure.
+ * Whether a bar is full: it reads 100% fresh, or, unfresh, its cached percent
+ * is 100 and its cached reset is still ahead: a locked seat's bars age without
+ * refreshing, and neither reopens before its reset (#2606). A passed or
+ * unparsed reset leaves it unread.
+ * @param {import("./allowance.js").Bar} bar
+ * @param {number} now
+ */
+const isBarFull = (bar, now) =>
+	bar.percent !== null &&
+	bar.percent >= FULL &&
+	(bar.trust === "fresh" || Date.parse(bar.resetsAt ?? "") > now);
+
+/**
+ * A seat's reading from lib/allowance.js's bars, each full by isBarFull. The
+ * weekly reset is kept whatever the bar's trust (#3732); one passed or unparsed
+ * reads as unread. Each bar reads `sizedPercent`'s figure.
  * @param {string} seat
  * @param {{session: import("./allowance.js").Bar,
  *   weekly_all: import("./allowance.js").Bar}} bars
@@ -619,12 +641,7 @@ const ceilingsOf = (env) => ({
  * @returns {SeatReading}
  */
 function seatReadingOf(seat, { session, weekly_all: week }, now) {
-	/** @param {import("./allowance.js").Bar} b */
-	const full = (b) =>
-		b.percent !== null &&
-		b.percent >= FULL &&
-		(b.trust === "fresh" || Date.parse(b.resetsAt ?? "") > now);
-	const sessionFull = full(session);
+	const sessionFull = isBarFull(session, now);
 	const weekResets = Date.parse(week.resetsAt ?? "");
 	return {
 		/* An unstamped bar is a printed `/usage`, read now, or unread. */
@@ -632,7 +649,7 @@ function seatReadingOf(seat, { session, weekly_all: week }, now) {
 		seat,
 		week: sizedPercent(week),
 		session: sizedPercent(session),
-		weekFull: full(week),
+		weekFull: isBarFull(week, now),
 		sessionFull,
 		sessionResets: session.resetsAt,
 		weekResets: weekResets > now ? weekResets : null,
@@ -769,6 +786,47 @@ function readSizedSeats(
 		if (stale.length === 0) return { seats: sized, probes };
 	}
 }
+
+/**
+ * The seats to read for the panel's figures, apart from the launch walk and
+ * whatever the machine's slots (#4060). A week read full stays full until its
+ * reset. Else a seat is due where its last reading or try predates its passed
+ * reset, is a day old (the founder's limit on a read with no reason to think the
+ * figure moved), or has had a session run since.
+ * @param {string[]} seats
+ * @param {{barsOf: (seat: string) => ReturnType<
+ *     typeof import("./allowance.js").readAllowance>,
+ *   triedAt: Record<string, number>,
+ *   hasRunSince: (seat: string, sinceMs: number) => boolean, now: number}} io
+ * @returns {string[]}
+ */
+function seatsDueRead(seats, { barsOf, triedAt, hasRunSince, now }) {
+	return seats.filter((seat) => {
+		const bars = barsOf(seat);
+		const week = bars.weekly_all;
+		const resets = Date.parse(week.resetsAt ?? "");
+		if (isBarFull(week, now) || isTrustworthy(bars)) return false;
+		const last = Math.max(week.fetchedAtMs ?? 0, triedAt[seat] ?? 0);
+		return (
+			(resets <= now && resets > last) ||
+			now - last >= DAY_MS ||
+			hasRunSince(seat, last)
+		);
+	});
+}
+
+/**
+ * `triedAt` with each probe that ran stamped `now`.
+ * @param {Record<string, number>} triedAt
+ * @param {Probe[]} probes
+ * @param {number} now
+ */
+const seatTriedAfter = (triedAt, probes, now) => ({
+	...triedAt,
+	...Object.fromEntries(
+		probes.filter((p) => p.outcome !== "cached").map((p) => [p.seat, now]),
+	),
+});
 
 /**
  * Each overflow seat's reading for the decision core, its budget read only
@@ -1541,6 +1599,7 @@ function settleTick(
 		overflowStart: overflowStart ?? state.overflowStart,
 		goalProgress: goalProgressAfter(state.goalProgress, read, input.now),
 		probeBrokenRoots,
+		seatTriedAt: seatTriedAfter(state.seatTriedAt, probes, input.now),
 		bootedAt,
 	};
 	io.writeState(next);
@@ -1624,6 +1683,8 @@ module.exports = {
 	parseProbeOutcome,
 	overflowReadings,
 	seatReadingOf,
+	seatsDueRead,
+	seatTriedAfter,
 	settleTick,
 	readSizedSeats,
 	sizeResumeSeats,

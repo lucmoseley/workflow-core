@@ -61,6 +61,7 @@ import { projectSlug } from "./lib/project-slug.js";
 import { parseHoldId } from "./lib/repo-hold-fixture";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
+import { OUTCOME_PREFIX } from "./lib/usage-probe.js";
 import { buildUsageCache } from "./lib/usage-probe-fake";
 import { readProgramLibs } from "./lib-closure-fixture";
 
@@ -656,6 +657,98 @@ const weekAt = (week: number) =>
 		path.join(seat, ".claude.json"),
 		JSON.stringify(buildUsageCache({ session: 10, week }, Date.now())),
 	);
+
+describe("the panel's read on the real tick (#4060)", () => {
+	const dayMs = 24 * 3_600_000;
+	const behindCache = () => path.join(at("behind"), ".claude.json");
+	const readState = () =>
+		JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"));
+	/** The usage probe's stub: records its seat, then exits `status`, naming `outcome`. */
+	const stubProbe = (outcome: string, status: number) =>
+		stub(
+			"usage-probe.js",
+			`require("node:fs").appendFileSync(${JSON.stringify(at("probes"))}, process.argv[3] + "\\n");
+process.stderr.write("${OUTCOME_PREFIX}${outcome}\\n");
+process.exitCode = ${status};\n`,
+		);
+	/** A control with a fresh seat with room ahead of `behind`, read at 100% before a reset now passed. */
+	const writeSeats = () => {
+		fs.mkdirSync(at("behind"), { recursive: true });
+		const now = Date.now();
+		fs.writeFileSync(
+			behindCache(),
+			JSON.stringify(
+				buildUsageCache({ week: 100 }, now - 6 * dayMs, {
+					resetsAt: { week: new Date(now - dayMs).toISOString() },
+				}),
+			),
+		);
+		fs.writeFileSync(
+			at(".refill-loop-control.json"),
+			JSON.stringify({
+				noProgressFrom: now,
+				stopRequested: false,
+				seats: [seat, at("behind")],
+				scope: { mode: "normal", repos: [repo], goal: null },
+			}),
+		);
+	};
+	const oneTick = async () => {
+		const before = readLines(at("ticks")).length;
+		const running = run(0);
+		await ticked(before + 1);
+		requestStop();
+		const r = await settled(running, "run");
+		expect(r.status).toBe(0);
+		return r;
+	};
+
+	it("reads a seat past its reset with no free slot and another seat ahead", async () => {
+		stubProbe("stopped", 0);
+		writeSeats();
+		await oneTick();
+		expect(readLines(at("probes"))).toEqual([at("behind")]);
+		expect(readState().seatTriedAt[at("behind")]).toEqual(expect.any(Number));
+	});
+
+	it("keeps a failed probe's last figure and does not retry it on the next tick", async () => {
+		stubProbe("failed (the seat is not logged in)", 1);
+		writeSeats();
+		const figure = fs.readFileSync(behindCache(), "utf8");
+		const failed = await oneTick();
+		expect(fs.readFileSync(behindCache(), "utf8")).toBe(figure);
+		expect(failed.stdout).toContain(`/usage on ${at("behind")}:`);
+		const state = readState();
+		writeSeats();
+		fs.writeFileSync(behindCache(), figure);
+		fs.writeFileSync(at(".refill-loop-state.json"), JSON.stringify(state));
+		await oneTick();
+		expect(readLines(at("probes"))).toEqual([at("behind")]);
+	});
+
+	it("reads nothing on a paused tick", async () => {
+		stubProbe("stopped", 0);
+		writeSeats();
+		const control = at(".refill-loop-control.json");
+		fs.writeFileSync(
+			control,
+			JSON.stringify({
+				...JSON.parse(fs.readFileSync(control, "utf8")),
+				paused: { by: "founder", at: 7 },
+			}),
+		);
+		const running = run(0);
+		await polled(
+			() =>
+				fs.existsSync(at(".refill-loop-state.json")) &&
+				readState().lastTick !== null,
+			"no paused tick wrote its state",
+		);
+		requestStop();
+		expect((await settled(running, "paused run")).status).toBe(0);
+		expect(readLines(at("probes"))).toEqual([]);
+	});
+});
 
 describe("a dry run with overflow seats (#2611)", () => {
 	const api = () => at("seat-api");

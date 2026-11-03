@@ -56,7 +56,9 @@ const { listedAgents, readAgentsAfterBoot } = require("./agent-liveness.js");
 const { bootSparedJobs, isEmptyListingTrusted } = require("./refill-boot.js");
 const { buildDriftLines, readRegistryAgents } = require("./registry-agents.js");
 const { readActsBy } = require("./arbiter-store.js");
-const { PROBE_TIMEOUT_MS } = require("./usage-probe.js");
+const { PROBE_CWD, PROBE_TIMEOUT_MS } = require("./usage-probe.js");
+const { hasSeatRunSince } = require("./project-dirs.js");
+const { projectSlug } = require("./project-slug.js");
 const { readAllowance } = require("./allowance.js");
 const { claudeBin } = require("./claude-bin.js");
 const { buildTypedAttach } = require("./claude-attach.js");
@@ -409,6 +411,25 @@ function readSeats(seats, slots, root, { typedSeat, sizeAll = false }) {
 		typedSeat,
 		sizeAll,
 	});
+}
+
+/**
+ * The probes of each seat due a read for the panel's figures, past the launch
+ * walk's own (lib/refill-loop.js's seatsDueRead). A probe writes its own log,
+ * under its working directory's slug, so that slug is no sign a session ran.
+ * @param {string[]} seats
+ * @param {Record<string, number>} triedAt
+ */
+function probeDueSeats(seats, triedAt) {
+	const now = Date.now();
+	const due = loop.seatsDueRead(seats, {
+		barsOf: (seat) => readAllowance({ configDir: seat, now }),
+		triedAt,
+		hasRunSince: (seat, since) =>
+			hasSeatRunSince(seat, since, projectSlug(PROBE_CWD)),
+		now,
+	});
+	return readPrintedUsage(due).probes;
 }
 
 /**
@@ -1270,7 +1291,7 @@ function actOnLimitsAndRelease(before, judged, mode, seen) {
  *   seen: Omit<Parameters<typeof actOnLimitsAndRelease>[3],
  *     "typedSeat"|"readMoveSeats"|"seatListRead"|"slots">, served: string[],
  *   declared: ReturnType<typeof readDeclaredSeats>,
- *   typedSeat: string|null}} tick
+ *   typedSeat: string|null, seatTriedAt: Record<string, number>}} tick
  */
 function settleRoom({
 	dryRun,
@@ -1282,6 +1303,7 @@ function settleRoom({
 	served,
 	declared,
 	typedSeat,
+	seatTriedAt,
 }) {
 	if (control.paused) {
 		if (!dryRun) blocks.releaseEndedHolds(before, judged, seen.io);
@@ -1296,22 +1318,39 @@ function settleRoom({
 		};
 	}
 	const { slots: free, admission } = readFreeSlots();
+	/** @type {import("./refill-loop.js").Probe[]} */
+	const moveProbes = [];
 	const { launches, slots, workingChange } = dryRun
 		? { launches: judged, slots: free, workingChange: 0 }
 		: actOnLimitsAndRelease(before, judged, control.scope.mode, {
 				...seen,
 				typedSeat,
-				readMoveSeats: () =>
-					readSeats(control.seats, 1, served[0], {
+				readMoveSeats: () => {
+					const read = readSeats(control.seats, 1, served[0], {
 						typedSeat,
 						sizeAll: true,
-					}).seats,
+					});
+					moveProbes.push(...read.probes);
+					return read.seats;
+				},
 				seatListRead,
 				slots: free,
 			});
-	const { seats, probes } = readSeats(control.seats, slots, served[0], {
+	const { seats, probes: walked } = readSeats(control.seats, slots, served[0], {
 		typedSeat,
 	});
+	const walks = [...moveProbes, ...walked];
+	/* A dry run previews launches, so it makes only the walk's probes. The walks'
+	 * stamps are for this read alone: settleTick writes the tick's own. */
+	const probes = dryRun
+		? walks
+		: [
+				...walks,
+				...probeDueSeats(
+					control.seats,
+					loop.seatTriedAfter(seatTriedAt, walks, Date.now()),
+				),
+			];
 	const overflow = loop.overflowReadings(declared, seats, (seat) =>
 		seatBudget(seat, served[0]),
 	);
@@ -1557,6 +1596,7 @@ async function tick({ dryRun }) {
 		served,
 		declared,
 		typedSeat: typed.seat,
+		seatTriedAt: state.seatTriedAt,
 	});
 	const resumable = resumesDue(control, launches, seen);
 	/** @type {import("./refill-decide.js").TickInput} */

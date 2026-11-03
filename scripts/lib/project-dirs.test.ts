@@ -15,6 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	hasSeatRunSince,
 	listTranscripts,
 	oneCopyEach,
 	projectDirs,
@@ -140,5 +141,42 @@ describe("readSeatTranscripts", () => {
 		expect(r.absent).toEqual([path.join(seat("gone"), "projects")]);
 		expect(r.unreadable).toEqual([]);
 		expect(readSeatProjectDirs([seat("a"), seat("b")]).dirs).toHaveLength(2);
+	});
+});
+
+describe("hasSeatRunSince", () => {
+	let home = "";
+	afterEach(() => {
+		fs.rmSync(home, { recursive: true, force: true });
+	});
+	const log = (seat: string, slug: string, mtimeMs: number) => {
+		const dir = path.join(seat, "projects", slug);
+		fs.mkdirSync(dir, { recursive: true });
+		const file = path.join(dir, "s.jsonl");
+		fs.writeFileSync(file, "{}\n");
+		fs.utimesSync(file, mtimeMs / 1000, mtimeMs / 1000);
+	};
+	const sinceMs = 1_800_000_000_000;
+
+	it("reads a session's log newer than the time, and not one older", () => {
+		home = fs.mkdtempSync(path.join(os.tmpdir(), "seat-run-"));
+		log(home, "-repo", sinceMs - 1000);
+		expect(hasSeatRunSince(home, sinceMs, "-")).toBe(false);
+		log(home, "-other", sinceMs + 1000);
+		expect(hasSeatRunSince(home, sinceMs, "-")).toBe(true);
+	});
+
+	it("takes no sign from the ignored slug, a symlinked slug or a seat with no projects", () => {
+		home = fs.mkdtempSync(path.join(os.tmpdir(), "seat-run-"));
+		expect(hasSeatRunSince(home, sinceMs, "-")).toBe(false);
+		log(home, "-", sinceMs + 1000);
+		expect(hasSeatRunSince(home, sinceMs, "-")).toBe(false);
+		const other = path.join(home, "other");
+		log(other, "-shared", sinceMs + 1000);
+		fs.symlinkSync(
+			path.join(other, "projects", "-shared"),
+			path.join(home, "projects", "-shared"),
+		);
+		expect(hasSeatRunSince(home, sinceMs, "-")).toBe(false);
 	});
 });

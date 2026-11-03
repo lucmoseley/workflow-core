@@ -187,7 +187,43 @@ function readSeatTranscripts(seats) {
 	return { files: oneCopyEach(files), ...listing };
 }
 
+/**
+ * Whether a session wrote to `seat` since `sinceMs`: a main log under its own
+ * projects, a symlinked slug being another seat's.
+ *
+ * @param {string} seat config dir
+ * @param {number} sinceMs
+ * @param {string} ignoredSlug a slug whose logs are no session's
+ */
+function hasSeatRunSince(seat, sinceMs, ignoredSlug) {
+	const projects = path.join(seat, "projects");
+	let slugs;
+	try {
+		slugs = fs.readdirSync(projects, { withFileTypes: true });
+	} catch {
+		// #4060: a seat that will not list falls back to its daily read.
+		return false;
+	}
+	return slugs.some((slug) => {
+		if (!slug.isDirectory() || slug.name === ignoredSlug) return false;
+		const dir = path.join(projects, slug.name);
+		let names;
+		try {
+			names = fs.readdirSync(dir);
+		} catch {
+			// #4060: as above, for one slug.
+			return false;
+		}
+		return names.some((name) => {
+			if (!name.endsWith(".jsonl")) return false;
+			const stat = fs.statSync(path.join(dir, name), { throwIfNoEntry: false });
+			return stat !== undefined && stat.mtimeMs > sinceMs;
+		});
+	});
+}
+
 module.exports = {
+	hasSeatRunSince,
 	listTranscripts,
 	oneCopyEach,
 	projectDirs,

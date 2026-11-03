@@ -47,6 +47,8 @@ import {
 	runningOf,
 	scopeRoots,
 	seatReadingOf,
+	seatsDueRead,
+	seatTriedAfter,
 	settleTick,
 	sizeResumeSeats,
 	stopNeverStarted,
@@ -765,6 +767,112 @@ function sizedRead(
 	});
 	return { probed, seats };
 }
+
+describe("the seats due a read for the panel's figures (#4060)", () => {
+	const hourMs = 3_600_000;
+	const dayMs = 24 * hourMs;
+	const unreported = {
+		percent: null,
+		severity: null,
+		resetsAt: null,
+		fetchedAtMs: null,
+		trust: "unreported" as const,
+	};
+	/** A seat's bars off a cache read `ago` before NOW, its week resetting at `resets`. */
+	const barsOf = (percent: number | null, ago: number, resets: number) => {
+		/* lib/allowance.js's trustOf, whose five-minute window it keeps private. */
+		const isFresh = percent !== null && ago < 5 * 60_000 && resets > NOW;
+		return {
+			session: unreported,
+			weekly_all: {
+				percent,
+				severity: null,
+				resetsAt: new Date(resets).toISOString(),
+				fetchedAtMs: percent === null ? null : NOW - ago,
+				trust: isFresh ? ("fresh" as const) : ("stale" as const),
+			},
+		};
+	};
+	const due = (
+		bars: ReturnType<typeof barsOf>,
+		{ tried, ran = false }: { tried?: number; ran?: boolean } = {},
+	) =>
+		seatsDueRead(["s"], {
+			barsOf: () => bars,
+			triedAt: tried === undefined ? {} : { s: tried },
+			hasRunSince: () => ran,
+			now: NOW,
+		});
+
+	it("reads a seat past its reset, behind a fresh seat with room", () => {
+		expect(
+			seatsDueRead(["ahead", "behind"], {
+				barsOf: (s) =>
+					s === "ahead"
+						? barsOf(10, 60_000, NOW + dayMs)
+						: barsOf(100, 6 * dayMs, NOW - dayMs),
+				triedAt: {},
+				hasRunSince: () => false,
+				now: NOW,
+			}),
+		).toEqual(["behind"]);
+	});
+
+	it("gives a seat at 100% before its reset no probe, however old or busy", () => {
+		expect(due(barsOf(100, 6 * dayMs, NOW + hourMs), { ran: true })).toEqual(
+			[],
+		);
+	});
+
+	it("reads a seat with nothing run on it once in 24 hours", () => {
+		const reset = NOW + 3 * dayMs;
+		expect(due(barsOf(40, dayMs - hourMs, reset))).toEqual([]);
+		expect(due(barsOf(40, dayMs, reset))).toEqual(["s"]);
+	});
+
+	it("reads sooner where a session ran since the last read", () => {
+		expect(due(barsOf(40, hourMs, NOW + dayMs), { ran: true })).toEqual(["s"]);
+	});
+
+	it("asks nothing of a fresh reading, which a probe would only find cached", () => {
+		expect(due(barsOf(40, 60_000, NOW + dayMs), { ran: true })).toEqual([]);
+	});
+
+	it("retries a failed probe under the same limit", () => {
+		const stale = barsOf(100, 6 * dayMs, NOW - 2 * hourMs);
+		expect(due(stale)).toEqual(["s"]);
+		expect(due(stale, { tried: NOW - hourMs })).toEqual([]);
+		expect(due(stale, { tried: NOW - hourMs, ran: true })).toEqual(["s"]);
+		expect(due(stale, { tried: NOW - dayMs })).toEqual(["s"]);
+	});
+
+	it("reads an unread seat, under the same limit", () => {
+		const unread = barsOf(null, 0, NOW + dayMs);
+		expect(due(unread)).toEqual(["s"]);
+		expect(due(unread, { tried: NOW - hourMs })).toEqual([]);
+	});
+
+	it("stamps a probe that ran, failed or not, and never one that found the cache fresh", () => {
+		expect(
+			seatTriedAfter(
+				{ old: 1, cachedSeat: 2 },
+				[
+					{ seat: "stopped", outcome: "stopped" },
+					{ seat: "timed", outcome: "timed-out" },
+					{ seat: "cachedSeat", outcome: "cached" },
+				],
+				NOW,
+			),
+		).toEqual({ old: 1, cachedSeat: 2, stopped: NOW, timed: NOW });
+	});
+
+	it("parses the stamps off the state file, dropping what is no time", () => {
+		expect(parseState({ seatTriedAt: { a: 5, b: "x" } }).seatTriedAt).toEqual({
+			a: 5,
+		});
+		expect(parseState(null).seatTriedAt).toEqual({});
+	});
+});
 
 describe("which seats are refreshed", () => {
 	const probedOn = (readings: ReturnType<typeof seat>[]) =>
