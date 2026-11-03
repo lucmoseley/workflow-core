@@ -306,6 +306,16 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 		const { lines } = quietPass("minute-no-sched", {
 			MEMWATCH_SCHEDSTAT: path.join(tmp, "no-schedstat"),
 		});
+		const [[, rqNs, busy, total]] = JSON.parse(lines[0]).sched;
+		expect(rqNs).toBeNull();
+		expect(busy).toBeGreaterThan(0);
+		expect(total).toBeGreaterThan(busy);
+	});
+
+	it("keeps the busy and total ticks, rq null, on a kernel with no schedstat (#4092)", () => {
+		const { lines } = quietPass("minute-no-sched", {
+			MEMWATCH_SCHEDSTAT: path.join(tmp, "no-schedstat"),
+		});
 		const [[, rqNs, busy]] = JSON.parse(lines[0]).sched;
 		expect(rqNs).toBeNull();
 		expect(busy).toBeGreaterThan(0);

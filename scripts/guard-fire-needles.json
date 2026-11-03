@@ -1484,6 +1484,11 @@
 		"guard-priced-options.js": {
 			"needles": [
 				{
+					"id": "founder-pointer",
+					"kind": "block",
+					"text": "This turn sends the founder away for his steps"
+				},
+				{
 					"id": "no-status-marker",
 					"kind": "block",
 					"text": "This turn ends a background job carrying neither status marker"
