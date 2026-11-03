@@ -44,7 +44,7 @@ function readManifest(file = MANIFEST) {
  * @param {string} [file]
  * @returns {CoreRow[]}
  */
-const manifestRows = (file = MANIFEST) =>
+const readManifestRows = (file = MANIFEST) =>
 	Object.values(readManifest(file)).flat();
 
 /**
@@ -154,7 +154,7 @@ function readDispatchRows(event) {
 function readDispatchedCores(file = MANIFEST) {
 	return [
 		...new Set(
-			manifestRows(file)
+			readManifestRows(file)
 				.flatMap((r) => [r.core, ...(r.host ? [r.host] : [])])
 				.map(modulePath),
 		),
@@ -210,7 +210,7 @@ module.exports = {
 	isCoreFor,
 	isDispatchedOn,
 	manifestAt,
-	manifestRows,
+	readManifestRows,
 	modulePath,
 	readDispatchRows,
 	readManifest,
