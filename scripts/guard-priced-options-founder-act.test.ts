@@ -877,3 +877,26 @@ describe("its budget", () => {
 		);
 	});
 });
+
+describe("a message sending the founder away for his steps (#4058)", () => {
+	it("refuses a pointer to the issue body, naming the phrase", () => {
+		const reason = stop("Then follow the steps in the issue body.");
+		expect(reason).toContain("sends the founder away");
+		expect(reason).toContain("follow the steps in the issue body");
+		expect(reason).toContain("RE-SEND THE CORRECTED MESSAGE");
+	});
+
+	it("refuses a pointer to steps given earlier when the message holds none", () => {
+		expect(stop("Follow the shorter version above.")).toContain(
+			"sends the founder away",
+		);
+	});
+
+	it("passes a message carrying the steps with its own report of the ticket", () => {
+		expect(
+			stop(
+				"1. Click the box.\n2. Close the tab.\n\nI record your answer on #4006.",
+			),
+		).toBe("");
+	});
+});
