@@ -411,7 +411,7 @@ Stream discipline (`scripts/lib/check.js:34-38`): stdout is for machine readers 
 
 *House*: the plugin's vars take a `WFC_` prefix — `WFC_GH` for `gh`, `WFC_CLAUDE_BIN` for `claude` (`scripts/lib/claude-bin.js:9`), `WFC_GITLEAKS` for `gitleaks` (`.husky/pre-commit`), `WFC_PS` for `ps` (`scripts/lib/admission.js`), `WFC_PYTHON` for `python3` (`scripts/run-pytest.js`, `scripts/bisect-step.sh`), `WFC_NPM` for `npm` and `WFC_NODE` for `node` (`scripts/bisect-step.sh`), `WFC_CURL` for `curl` (`scripts/lib/npm-install-host.js`) and `WFC_GIT` for `git` (`scripts/lib/git.js`).
 
-**Reported, never gated** (mantahostels#1799): the plugin's citation checker WARNs each unconsumed name. **A file spelling the name counts as a consumer only if it is neither a test nor test support (§G6), does not define one of its own, and names the exporting module** — a `require` or `import` of it, or its basename in a `path.join` or a spawned command (#1616); a definer reading the name off an object is a consumer again, so a caller rebinding an import under its own name is safe. The scan is **textual**, so a name and module path spelled in a comment or a JSON value read as consumed. And the exemption is **the comment's presence, never its content**: any comment-shaped line silences the finding. A test's or test support's own exports are never scanned.
+**Reported, never gated** (mantahostels#1799): the plugin's citation checker WARNs each unconsumed name. **A file spelling the name counts as a consumer only if it is neither a test nor test support (§G6), does not define one of its own, and names the exporting module** — a `require` or `import` of it, or its basename in a `path.join` or a spawned command (#1616), or, for a module the dispatcher's manifest loads, a `corePath(` call in a file reaching `guard-cores.js` (#4136); a definer reading the name off an object is a consumer again, so a caller rebinding an import under its own name is safe. The scan is **textual**, so a name and module path spelled in a comment or a JSON value read as consumed. And the exemption is **the comment's presence, never its content**: any comment-shaped line silences the finding. A test's or test support's own exports are never scanned.
 
 ### §N8 · Every program `.js` is type-checked, and opting out owes a reason — **hard**
 
@@ -552,7 +552,7 @@ A program case runs a top-level script, a lib module's `require.main === module`
 
 It binds the cases and shells a change adds or rewrites, as §X8 does. A program with no core is not in breach. A Next.js composition root owes no boundary set (#2249).
 
-- *House*: a `check-*` program's exit paths are each of the five outcomes it can reach.
+- *House*: a `check-*` program's exit paths are each of the five outcomes it can reach. One whose body does its own I/O under `runCheck` has no core.
 
 `judgement` because whether a shell's conditional dispatches or decides needs a reading: argv dispatch and a branch on output look alike to a lexical check (#2247).
 
@@ -586,7 +586,7 @@ Any hook that gates an act. A missing tool, a payload it cannot parse or a libra
 
 A gate refuses only on a structured fact where the act has no legitimate use, and warns where it is inferring (mantahostels#103). A deny that a legitimate spelling cannot escape is a wedge, not a guard.
 
-*House*: a guard never emits `permissionDecision` itself. Its core returns a `deny` or `context` decision, a refusal splicing the offending command in at the `@CMD@` placeholder through `scripts/lib/guard-verdict.js` (mantahostels#994), and `scripts/lib/guard-entry.js` owns the JSON shape (`:125-131`).
+*House*: a guard never emits `permissionDecision` itself. Its core returns a `deny` or `context` decision, a refusal splicing the offending command in at the `@CMD@` placeholder through `scripts/lib/guard-verdict.js` (mantahostels#994), and `scripts/lib/hook-envelope.js`'s `envelope` owns the JSON shape (`:15-30`).
 
 ### §S5 · A script sets the shell options its kind needs — **hard**
 
