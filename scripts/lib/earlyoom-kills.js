@@ -47,7 +47,7 @@ const SIGNAL =
 	/^sending (SIG\w+) to process (\d+) uid (\d+) "(.*)": badness (-?\d+), VmRSS (\d+) MiB$/;
 const READING = /^mem avail:\s*(\d+) of\s*\d+ MiB .*swap free:\s*(\d+) of/;
 
-/** Claude hosts, pty hosts and spares are named by version (#3082). */
+/** Hosts, pty hosts and spares read as their version; `claude -p`, `claude agents` and the daemon read `claude` (#3082, #4122). */
 const CLAUDE_HOST = /^(\d+\.\d+\.\d+|claude)$/;
 /** Every node process's comm is `MainThread`, so it counts as a test or build. */
 const TEST_OR_BUILD =
