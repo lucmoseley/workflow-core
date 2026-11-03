@@ -5,7 +5,8 @@
  * Broken, a view opens no panel, or a repo that never asked for one gets a pane.
  *
  * Most cases inject `run`, so no test opens a pane in the terminal it runs in; one
- * crosses the real spawn and PATH search, against a stub `tmux`.
+ * crosses the real spawn and PATH search, against a stub `tmux`. Every case injects
+ * `wait`, so none takes the hold's real 5 seconds.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -133,7 +134,7 @@ describe("refill-panel-open.js", () => {
 		expect(waits).toEqual([]);
 	});
 
-	it("from a view start with no route, says why and holds the command on screen", () => {
+	it("from a view start with no route, says why and holds the command on screen: #4066 (the view covered the printed command)", () => {
 		setKey({ refillPanel: true });
 		expect(open(["--if-enabled", "42"], { env: {} })).toBe(0);
 		expect(stderr).toContain("no refill panel opened");
@@ -145,14 +146,24 @@ describe("refill-panel-open.js", () => {
 		expect(waits).toEqual([5000]);
 	});
 
-	it("from a view start with every route failing, says why after each failure", () => {
+	it("from a view start with every route failing, says why after each failure: #4066 (the view covered the printed command)", () => {
 		setKey({ refillPanel: true });
-		expect(open(["--if-enabled", "42"], { why: () => "exit 1" })).toBe(0);
-		expect(stderr.indexOf("the tmux route failed: exit 1")).toBeGreaterThan(-1);
-		expect(stderr.indexOf("no refill panel opened")).toBeGreaterThan(
-			stderr.indexOf("the tmux route failed"),
+		const code = open(["--if-enabled", "42"], {
+			env: { WSL_INTEROP: "/run/x", TMUX: "/t" },
+			why: () => "exit 1",
+		});
+		expect(code).toBe(0);
+		const reason = stderr.indexOf("no refill panel opened");
+		expect(
+			stderr.indexOf("the windows-terminal route failed: exit 1"),
+		).toBeGreaterThan(-1);
+		expect(stderr.indexOf("the tmux route failed: exit 1")).toBeGreaterThan(
+			stderr.indexOf("the windows-terminal route failed"),
 		);
-		expect(stdout).toMatch(/ 42\n$/);
+		expect(reason).toBeGreaterThan(stderr.indexOf("the tmux route failed"));
+		expect(stderr).toContain("Windows Terminal under WSL");
+		expect(stdout.trimEnd().split("\n")).toHaveLength(1);
+		expect(stdout).toMatch(/refill-panel\.js.* 42\n$/);
 		expect(waits).toEqual([5000]);
 	});
 

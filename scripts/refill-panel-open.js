@@ -16,7 +16,8 @@
  *
  * The alias's `exec` draws over a printed command, so under --if-enabled it says why
  * no panel opened and holds that on screen first (#4066). Keys typed in the hold stay
- * unread, for the view.
+ * unread, for the view. Residual: every view start on a terminal with no route pays
+ * the hold, and turning the key off is the only way out of it.
  *
  * Exit codes: 0 once a route opened it or it printed the command, or where the key
  * is off or the pid is gone; 2 on a command line it refuses.
@@ -38,20 +39,21 @@ const { sleepSync } = require("./lib/sleep-sync.js");
 const { readConfig } = require("./lib/workflow-core-config.js");
 const { writeFd } = require("./lib/write-fd.js");
 
+/* Untraced, a first guess: time to read the reason before the view covers it. */
+const PRINTED_HOLD_MS = 5000;
+
 const USAGE = `usage: node ${scriptPath("refill-panel-open.js")} [--if-enabled] <agents-view-pid>
 
 Opens the refill-loop panel beside that agents view, by a Windows Terminal split, a
 tmux split, or printing the command to run.
 
   --if-enabled  open nothing unless this checkout's .claude/workflow-core.json sets refillPanel;
-                where only printing is left, say why and hold it on screen for 5 seconds
+                where only printing is left, say why and hold it on screen for ${PRINTED_HOLD_MS / 1000} seconds
 `;
 
 const PANEL_PROGRAM = path.join(__dirname, "refill-panel.js");
 /* Untraced, a first guess: the view waits on this call. */
 const ROUTE_TIMEOUT_MS = 10_000;
-/* Untraced, a first guess: time to read the reason before the view covers it. */
-const PRINTED_HOLD_MS = 5000;
 
 /**
  * @param {string | undefined} searchPath
@@ -100,8 +102,8 @@ function main(argv = process.argv.slice(2), ownEnv = process.env, deps = {}) {
 		min: 1,
 	});
 	if (typeof parsed === "number") return parsed;
-	if (parsed.flags["--if-enabled"] && !readConfig({ root }).refillPanel)
-		return 0;
+	const viewStart = parsed.flags["--if-enabled"];
+	if (viewStart && !readConfig({ root }).refillPanel) return 0;
 	const [given = ""] = parsed.positionals;
 	if (!/^[1-9]\d*$/.test(given)) {
 		err(`refill-panel-open: not a pid: ${given}\n${USAGE}`);
@@ -129,7 +131,6 @@ function main(argv = process.argv.slice(2), ownEnv = process.env, deps = {}) {
 		if (why === null) return 0;
 		err(`refill-panel-open: the ${route.name} route failed: ${why}\n`);
 	}
-	const viewStart = parsed.flags["--if-enabled"];
 	if (viewStart)
 		err(
 			"refill-panel-open: no refill panel opened: it needs Windows Terminal under WSL (cmd.exe and wt.exe on PATH), or tmux. From another terminal:\n",
