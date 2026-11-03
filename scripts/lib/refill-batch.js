@@ -278,7 +278,8 @@ function resumeParked(l, parked, io) {
 		launchedAt,
 		finishedAt: null,
 		...(r.sessionId ? { sessionId: r.sessionId } : {}),
-		...(r.copy ? {} : { actsBefore }),
+		...(r.copy ? { pastSessionIds: [parked.resume.sessionId] } : {}),
+		actsBefore,
 		...(hasNothingToRepeat(parked.resume.parkCause)
 			? { nothingToRepeat: true }
 			: {}),

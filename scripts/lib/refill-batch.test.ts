@@ -477,7 +477,7 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 		copy: false,
 	});
 
-	it("notes the acts read before the wake on a session woken in place, none on a copy (#3942)", () => {
+	it("notes the acts read before the resume, and on a copy the session it resumed (#3942, #4101)", () => {
 		const parked = member(1, { parkedRoute: { resume: target } });
 		const woken = run([parked], ok);
 		expect(woken.actsReadAfter).toEqual([0]);
@@ -488,7 +488,11 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 			sessionId: "s-copy",
 			copy: true,
 		}));
-		expect(copied.out.launched[0]).not.toHaveProperty("actsBefore");
+		expect(woken.out.launched[0]).not.toHaveProperty("pastSessionIds");
+		expect(copied.out.launched[0]).toMatchObject({
+			actsBefore: { file: 1 },
+			pastSessionIds: [target.sessionId],
+		});
 	});
 
 	it("resumes a member routed to its parker on the parker's seat, the rest through one dispatcher call", () => {

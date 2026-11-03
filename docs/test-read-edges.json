@@ -5103,7 +5103,8 @@
 			"scripts/lib/admission-verdict.contract.test.ts",
 			"scripts/lib/agents-stop.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/refill-loop-run.test.ts"
+			"scripts/refill-loop-run.test.ts",
+			"scripts/write-review-marker.test.ts"
 		],
 		"scripts/fixtures/arm-secondary/recorded-69f9fc0f.jsonl": [
 			"scripts/lib/arm-secondary.test.ts",

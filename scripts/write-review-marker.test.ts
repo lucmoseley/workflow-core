@@ -9,11 +9,18 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+	buildAgentsBranch,
+	buildJobRow,
+	type Row,
+} from "./lib/agents-stop-fake";
+import { writeClaudeStub } from "./lib/claude-stub";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "write-review-marker.js");
 const COMMIT_PATHS = path.resolve(__dirname, "commit-paths.js");
 const SID = "abcdef12-3456-7890-abcd-ef1234567890";
+const PAST = "99887766-3456-7890-abcd-ef1234567890";
 
 let repo = "";
 
@@ -29,6 +36,7 @@ beforeEach(() => {
 	fs.writeFileSync(path.join(repo, "a.js"), "one\n");
 	git("add", "-A");
 	git("commit", "-qm", "seed");
+	claudeEnv = {};
 });
 
 afterEach(() => {
@@ -36,10 +44,17 @@ afterEach(() => {
 });
 
 const env = { ...process.env, CLAUDE_PROJECT_DIR: "" };
+let claudeEnv: NodeJS.ProcessEnv = {};
 const run = (args: string[], sid = SID, cwd = repo) =>
 	runInProcess(SCRIPT, args, {
 		cwd,
-		env: { ...env, CLAUDE_PROJECT_DIR: repo, CLAUDE_CODE_SESSION_ID: sid },
+		env: {
+			...env,
+			...claudeEnv,
+			CLAUDE_PROJECT_DIR: repo,
+			CLAUDE_CODE_SESSION_ID: sid,
+			WFC_REFILL_DIR: path.join(repo, ".claude", "refill"),
+		},
 	});
 
 const marker = () =>
@@ -61,10 +76,11 @@ const artefact = (
 	axis: "standards" | "spec" | "focus" | "attack",
 	text = "- no findings\n",
 	root = repo,
+	sid8 = "abcdef12",
 ) => {
 	fs.mkdirSync(path.join(root, ".claude", "tmp"), { recursive: true });
 	fs.writeFileSync(
-		path.join(root, ".claude", "tmp", `review-${axis}-abcdef12.md`),
+		path.join(root, ".claude", "tmp", `review-${axis}-${sid8}.md`),
 		text,
 	);
 };
@@ -437,5 +453,112 @@ describe("the routes that run without one axis or without a review", () => {
 		expect(readMarkerText()).toBe(
 			`base=${git("rev-parse", "HEAD")}\nfindings=0\n`,
 		);
+	});
+});
+
+describe("a session a refill-loop resume carried to a new id (#4101)", () => {
+	const pastArtefact = (axis: "standards" | "spec") =>
+		artefact(axis, undefined, repo, PAST.slice(0, 8));
+	const loopState = (launches: object[]) => {
+		const dir = path.join(repo, ".claude", "refill");
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(
+			path.join(dir, ".refill-loop-state.json"),
+			JSON.stringify({ launches }),
+		);
+	};
+	/** The liveness oracle, listing exactly `rows` — or failing, given null. */
+	const oracle = (rows: Row[] | null) => {
+		const bin = path.join(repo, ".claude", "claude-agents");
+		fs.mkdirSync(path.dirname(bin), { recursive: true });
+		writeClaudeStub(bin, [buildAgentsBranch(rows)]);
+		claudeEnv = { WFC_CLAUDE_BIN: bin };
+	};
+	const me = buildJobRow("me", "working", { sessionId: SID });
+	const pastDone = buildJobRow("past", "done", { sessionId: PAST });
+	const pastLive = buildJobRow("past", "working", { sessionId: PAST });
+	const resumed = { sessionId: SID, pastSessionIds: [PAST] };
+
+	it("records the review its past id ran, once that session has ended", () => {
+		pastArtefact("standards");
+		pastArtefact("spec");
+		loopState([resumed]);
+		oracle([me, pastDone]);
+		const r = run(["--base", "HEAD", "--findings", "1"]);
+		expect(r.status).toBe(0);
+		expect(readMarkerText()).toBe(
+			`base=${git("rev-parse", "HEAD")}\nfindings=1\n`,
+		);
+		expect(r.stderr).toContain(
+			path.join(".claude", "tmp", "review-spec-99887766.md"),
+		);
+		expect(r.stderr).toContain("Re-run any axis");
+	});
+
+	it("takes the newest past id's artefact over an older one's", () => {
+		const older = "11223344-3456-7890-abcd-ef1234567890";
+		artefact("standards");
+		artefact("spec", undefined, repo, older.slice(0, 8));
+		pastArtefact("spec");
+		loopState([{ sessionId: SID, pastSessionIds: [older, PAST] }]);
+		oracle([me]);
+		const r = run(["--base", "HEAD", "--findings", "0"]);
+		expect(r.stderr).toContain("review-spec-99887766.md");
+		expect(r.stderr).not.toContain("review-spec-11223344.md");
+	});
+
+	it("takes each axis from whichever id ran it", () => {
+		artefact("standards");
+		pastArtefact("spec");
+		loopState([resumed]);
+		oracle([me]);
+		expect(run(["--base", "HEAD", "--findings", "0"]).status).toBe(0);
+		expect(fs.existsSync(marker())).toBe(true);
+	});
+
+	it("refuses a past id still live, whose artefacts are its own", () => {
+		pastArtefact("standards");
+		pastArtefact("spec");
+		loopState([resumed]);
+		oracle([me, pastLive]);
+		const r = run(["--base", "HEAD", "--findings", "0"]);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(`${PAST} is live`);
+		expect(r.stderr).toContain("Run the code-review skill");
+		expect(fs.existsSync(marker())).toBe(false);
+	});
+
+	it("refuses where the liveness read fails", () => {
+		pastArtefact("standards");
+		pastArtefact("spec");
+		loopState([resumed]);
+		oracle(null);
+		const r = run(["--base", "HEAD", "--findings", "0"]);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("could not be read");
+		expect(r.stderr).toContain("Run the code-review skill");
+		expect(fs.existsSync(marker())).toBe(false);
+	});
+
+	it("refuses another session's artefacts, which no launch of this session names", () => {
+		pastArtefact("standards");
+		pastArtefact("spec");
+		loopState([{ sessionId: "someone-else", pastSessionIds: [PAST] }]);
+		oracle([me]);
+		const r = run(["--base", "HEAD", "--findings", "0"]);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("no review left its artefact");
+		expect(fs.existsSync(marker())).toBe(false);
+	});
+
+	it("still owes an axis no id ran", () => {
+		pastArtefact("standards");
+		loopState([resumed]);
+		oracle([me]);
+		const r = run(["--base", "HEAD", "--findings", "0"]);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("review-spec-abcdef12.md");
+		expect(r.stderr).not.toContain("review-standards-abcdef12.md");
+		expect(fs.existsSync(marker())).toBe(false);
 	});
 });

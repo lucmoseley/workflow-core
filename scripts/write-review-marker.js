@@ -31,6 +31,11 @@
  * one the commit's hook is handed, so a shell with `CLAUDE_PROJECT_DIR` unset
  * finds the same store (#3830).
  *
+ * AFTER A RESUME UNDER A NEW ID (#4101), an artefact also counts under a past
+ * id of this session: one the refill loop's launch row names, and whose session
+ * the oracle says has ended. Doubt about either counts nothing. Stderr names each
+ * one taken for the session to judge.
+ *
  * Joins no §N3 family: it writes a marker, not a file `generate-*` owns, and
  * its exits are its own — 0 written, 1 the write or the tree failed, 2 a
  * usage error or a refusal.
@@ -39,6 +44,7 @@
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { isListedLive, listedSessionIds } = require("./lib/agent-liveness.js");
 const { caught } = require("./lib/caught.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { commitSha } = require("./lib/commit-sha.js");
@@ -46,6 +52,7 @@ const { spawnGitSync } = require("./lib/git.js");
 const { resolveCommitHost, worktreeRoot } = require("./lib/host-root.js");
 const { markersDir } = require("./lib/marker-root.js");
 const { numstatPaths } = require("./lib/patch-files.js");
+const { readStateFile } = require("./lib/refill-files.js");
 const { reviewSuffix } = require("./lib/review-suffix.js");
 const { writeFd } = require("./lib/write-fd.js");
 
@@ -92,28 +99,109 @@ function fullSha(root, rev) {
 }
 
 /**
- * @param {string[]} roots the trees an artefact counts in
- * @param {string} sid
  * @param {{noSpec: boolean, tier?: string}} o
+ * @returns {string[]} the review axes owed
  */
-function missingArtefacts(roots, sid, { noSpec, tier }) {
+function axesOwed({ noSpec, tier }) {
 	const axes = noSpec ? ["standards"] : ["standards", "spec"];
 	if (tier !== undefined) axes.push("focus");
 	if (tier === "mission-critical") axes.push("attack");
-	return axes
-		.map((axis) =>
-			path.join(".claude", "tmp", `review-${axis}${reviewSuffix(sid)}.md`),
-		)
-		.filter(
-			(rel) =>
-				!roots.some((root) => {
-					try {
-						return fs.statSync(path.join(root, rel)).size > 0;
-					} catch {
-						return false;
-					}
-				}),
-		);
+	return axes;
+}
+
+/**
+ * @param {string} axis
+ * @param {string} sid
+ */
+const artefactPath = (axis, sid) =>
+	path.join(".claude", "tmp", `review-${axis}${reviewSuffix(sid)}.md`);
+
+/**
+ * @param {string[]} roots the trees an artefact counts in
+ * @param {string} axis
+ * @param {string} sid
+ */
+const hasArtefact = (roots, axis, sid) =>
+	roots.some((root) => {
+		try {
+			return fs.statSync(path.join(root, artefactPath(axis, sid))).size > 0;
+		} catch {
+			return false;
+		}
+	});
+
+/**
+ * The ids session `sid` ran under before a refill-loop resume, newest first,
+ * as its launch row names them.
+ * @param {string} sid
+ * @returns {string[]}
+ */
+function readPastIds(sid) {
+	const { launches } = readStateFile((line) => writeFd(2, `${line}\n`));
+	const row = launches.find((l) => l.sessionId === sid);
+	return [...(row?.pastSessionIds ?? [])].reverse();
+}
+
+/**
+ * What past ids of `sid` cover of `axes`: the artefact taken for each axis one
+ * covers, and a sentence on each id that left one but is not counted.
+ * @param {string[]} roots
+ * @param {string} sid
+ * @param {string[]} axes
+ * @returns {{taken: Map<string, string>, uncountedNotes: string[]}}
+ */
+function pastCoverage(roots, sid, axes) {
+	const ran = readPastIds(sid).filter((id) =>
+		axes.some((axis) => hasArtefact(roots, axis, id)),
+	);
+	if (ran.length === 0) return { taken: new Map(), uncountedNotes: [] };
+	const listed = listedSessionIds();
+	if (listed.why !== undefined)
+		return {
+			taken: new Map(),
+			uncountedNotes: [
+				`Past session ${ran.join(", ")} left artefacts, but whether it has ended could not be read: ${listed.why}`,
+			],
+		};
+	const isLive = (/** @type {string} */ id) =>
+		isListedLive(id, listed.ids, listed.terminal);
+	const ended = ran.filter((id) => !isLive(id));
+	/** @type {Map<string, string>} */
+	const taken = new Map();
+	for (const axis of axes) {
+		const id = ended.find((e) => hasArtefact(roots, axis, e));
+		if (id !== undefined) taken.set(axis, artefactPath(axis, id));
+	}
+	return {
+		taken,
+		uncountedNotes: ran
+			.filter(isLive)
+			.map(
+				(id) =>
+					`Past session ${id} is live, so the artefacts it left are its own`,
+			),
+	};
+}
+
+/**
+ * @param {string[]} roots the trees an artefact counts in
+ * @param {string} sid
+ * @param {{noSpec: boolean, tier?: string}} o
+ * @returns {{missing: string[], taken: string[], uncountedNotes: string[]}} the
+ *   artefacts still owed, those taken from past ids, and why any past id's are not
+ */
+function readArtefacts(roots, sid, o) {
+	const absent = axesOwed(o).filter((axis) => !hasArtefact(roots, axis, sid));
+	if (absent.length === 0)
+		return { missing: [], taken: [], uncountedNotes: [] };
+	const { taken, uncountedNotes } = pastCoverage(roots, sid, absent);
+	return {
+		missing: absent
+			.filter((axis) => !taken.has(axis))
+			.map((axis) => artefactPath(axis, sid)),
+		taken: [...taken.values()],
+		uncountedNotes,
+	};
 }
 
 /**
@@ -184,7 +272,6 @@ function readTreeOf(root, paths, patch) {
 }
 
 /**
- * The flags, checked against each other; refuses on the first fault.
  * @param {Record<string, string | true>} flags
  */
 function optionsOrFail(flags) {
@@ -266,13 +353,16 @@ function main() {
 
 	const host = resolveCommitHost();
 	const treeRoot = worktreeRoot(undefined, { host });
+	/** @type {string[]} */
+	let taken = [];
 	if (o.skipped === undefined) {
-		const missing = missingArtefacts([treeRoot, host], sid, o);
-		if (missing.length > 0)
+		const read = readArtefacts([treeRoot, host], sid, o);
+		if (read.missing.length > 0)
 			fail(
-				`no review left its artefact at ${missing.join(" or ")}. Run the code-review skill, its axes appending to those paths, then re-run. A pure deletion or mechanical rename takes --skipped deletion|rename --findings 0 instead. Nothing written.`,
+				`no review left its artefact at ${read.missing.join(" or ")}.${read.uncountedNotes.map((u) => ` ${u}.`).join("")} Run the code-review skill, its axes appending to those paths, then re-run. A pure deletion or mechanical rename takes --skipped deletion|rename --findings 0 instead. Nothing written.`,
 				2,
 			);
+		taken = read.taken;
 	}
 
 	const lines = [`base=${fullSha(treeRoot, o.base)}`, `findings=${o.findings}`];
@@ -293,6 +383,11 @@ function main() {
 		fail(`could not write ${marker} (${caught(e).message}).`, 1);
 	}
 	writeFd(1, `wrote ${path.relative(host, marker)}:\n${lines.join("\n")}\n`);
+	if (taken.length > 0)
+		writeFd(
+			2,
+			`took ${taken.join(", ")} from this session's past id. Re-run any axis whose artefact a killed run part-wrote or that reviewed other work.\n`,
+		);
 }
 
 main();

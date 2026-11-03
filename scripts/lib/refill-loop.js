@@ -125,8 +125,8 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * stop and `--bg --resume` last restarted its job, from which it has the
  * listing's grace. Where a resume moved it to a copy (#2963), `copiedFrom`
  * is the job its dispatch-ledger hold names; `pastSessionIds`, the sessions
- * it ran under before `sessionId`. `actsBefore`, on a parked session resumed in
- * place as a new launch, the acts that session had already made (#3942).
+ * it ran under before `sessionId`. `actsBefore`, on a parked session resumed as
+ * a new launch, the acts that session had already made (#3942).
  * `nothingToRepeat`, on one parked on an API error or a limit (#3949).
  * @typedef {import("./refill-decide.js").LaunchRecord & {
  *   prompt: string, seat: string, jobId: string|null,
