@@ -46,6 +46,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { execGit, spawnGitSync } = require("./lib/git.js");
+const { worktreePaths } = require("./lib/worktree-paths.js");
 const { shellQuote } = require("./lib/sh-quote.js");
 const { procRoot } = require("./lib/proc-root.js");
 const { readProcCwd } = require("./lib/claude-sessions.js");
@@ -509,10 +510,7 @@ const tagExists = (root) => git(root, ["tag", "--list", TAG]).trim() === TAG;
  * @returns {string[]} one line per process
  */
 function readProcessesInside(root) {
-	const trees = git(root, ["worktree", "list", "--porcelain"])
-		.split("\n")
-		.filter((l) => l.startsWith("worktree "))
-		.map((l) => l.slice("worktree ".length));
+	const trees = worktreePaths((args) => git(root, args));
 	const inside = (/** @type {string} */ p) => isUnder(p, trees, path.sep);
 	/** @type {string[]} */
 	const hits = [];

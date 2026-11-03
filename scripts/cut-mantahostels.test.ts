@@ -290,20 +290,35 @@ describe("cut-mantahostels.js", () => {
 		}
 	});
 
-	it("reads the processes inside the adopter from a WFC_PROC root (#3538)", () => {
-		const f = fixture();
-		const fake = makeProcRoot();
-		try {
-			fake.proc(4242, { argv: "claude --resume" });
-			writeCwd(fake.root, "4242", f.dir);
-			const r = f.cut({ WFC_PROC: fake.root });
-			expect(r.status).toBe(1);
-			expect(r.stderr).toContain(`pid 4242 (claude) in ${f.dir}`);
-			expect(f.tagged()).toBe(false);
-		} finally {
-			fake.remove();
-		}
-	});
+	it.each<[string, (f: ReturnType<typeof fixture>) => string]>([
+		["the adopter (#3538)", (f) => f.dir],
+		[
+			"a linked worktree whose path holds a newline (#4054)",
+			(f) => {
+				const wt = path.join(path.dirname(f.dir), "wt\nnewline");
+				f.git("worktree", "add", "-q", "--detach", wt);
+				return wt;
+			},
+		],
+	])(
+		"refuses on a WFC_PROC process working in %s, naming it and the way out, and tags nothing",
+		(_name, workIn) => {
+			const f = fixture();
+			const cwd = workIn(f);
+			const fake = makeProcRoot();
+			try {
+				fake.proc(4242, { argv: "claude --resume" });
+				writeCwd(fake.root, "4242", cwd);
+				const r = f.cut({ WFC_PROC: fake.root });
+				expect(r.status).toBe(1);
+				expect(r.stderr).toContain(`pid 4242 (claude) in ${cwd}`);
+				expect(r.stderr).toContain("end every mantahostels session first");
+				expect(f.tagged()).toBe(false);
+			} finally {
+				fake.remove();
+			}
+		},
+	);
 
 	it("refuses while a process works inside a worktree of the adopter, naming its pid and the worktree, and tags nothing", async () => {
 		const f = fixture();
@@ -316,6 +331,7 @@ describe("cut-mantahostels.js", () => {
 			expect(r.status).toBe(1);
 			expect(r.stderr).toContain(`pid ${child.pid}`);
 			expect(r.stderr).toContain(`in ${wt}`);
+			expect(r.stderr).toContain("end every mantahostels session first");
 			expect(f.tagged()).toBe(false);
 			expect(f.git("status", "--porcelain")).toBe("");
 		} finally {

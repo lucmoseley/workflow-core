@@ -141,6 +141,7 @@
 
 const { spawn, spawnSync } = require("node:child_process");
 const { spawnGitSync } = require("./lib/git.js");
+const { worktreePaths } = require("./lib/worktree-paths.js");
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
@@ -362,21 +363,14 @@ function readWorktrees() {
 			git(["rev-parse", "--show-toplevel"]).stdout.replace(/\n$/, ""),
 		);
 		const others = [];
-		// `-z`: git prints a worktree's path raw, and a path can hold a newline (#4053).
-		for (const field of git([
-			"worktree",
-			"list",
-			"--porcelain",
-			"-z",
-		]).stdout.split("\0"))
-			if (field.startsWith("worktree ")) {
-				try {
-					const tree = fs.realpathSync(field.slice(9));
-					if (tree !== root) others.push(tree);
-				} catch {
-					/* a worktree whose directory is gone holds no file to collide with */
-				}
+		for (const listed of worktreePaths((args) => git(args).stdout)) {
+			try {
+				const tree = fs.realpathSync(listed);
+				if (tree !== root) others.push(tree);
+			} catch {
+				/* a worktree whose directory is gone holds no file to collide with */
 			}
+		}
 		treesCache = { root, others };
 	}
 	return treesCache;
