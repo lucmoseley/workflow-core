@@ -61,6 +61,8 @@ const { requiredGroup } = require("./regex-group.js");
 const { RULES_DIR } = require("./rule-text.js");
 const { scriptPath } = require("./script-path.js");
 
+const DIGEST_HEX_LENGTH = 16;
+
 /*
  * scripts/, not docs/: this is an anchor
  * store scripts read and check-instruction-surface.js writes, not a document
@@ -639,7 +641,7 @@ function digestAt(snap, rel) {
 	 * fallback, and adding the file moves the digest. */
 	for (const file of inputs.ruleFiles)
 		hash.update(`\0${file}\0`).update(readAt(snap, file) ?? "\0absent");
-	return hash.digest("hex").slice(0, 16);
+	return hash.digest("hex").slice(0, DIGEST_HEX_LENGTH);
 }
 
 /**
@@ -857,6 +859,7 @@ function censusRefusal(n, rows) {
 
 module.exports = {
 	DEFAULT_ANCHORS,
+	DIGEST_HEX_LENGTH,
 	DigestUnavailable,
 	GIT_MAX_BUFFER,
 	censusRefusal,

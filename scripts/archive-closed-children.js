@@ -74,9 +74,7 @@ const {
 	parseErrLine,
 	raiseGhFailure,
 } = require("./lib/gh");
-
-/** @param {number} map */
-const buildContainerTitle = (map) => `Archive: closed children of #${map}`;
+const { archiveContainerTitle } = require("./lib/issue-tree");
 
 // `gh api` and `gh issue list --json state` disagree on case ("closed" vs
 // "CLOSED"), and the orphan search goes through the latter.
@@ -146,7 +144,7 @@ function runBody(ctx) {
 
 	const kids = readSubIssues(map, "No child was archived.");
 
-	const title = buildContainerTitle(map);
+	const title = archiveContainerTitle(map);
 	const { container, alreadyLinked, orphan } = locateContainer(kids, title);
 
 	if (kids.length === 0 && !container)

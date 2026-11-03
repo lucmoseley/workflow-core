@@ -46,10 +46,18 @@ describe("spec-commits CLI", () => {
 
 	/* Each issue's comments; none where unset. */
 	let comments: Record<number, { body: string }[]>;
+	/* What each archive container holds; none where unset. */
+	let held: Record<number, unknown[]>;
 
 	const stub = (kids: unknown[]) =>
 		stubGhRoutes(dir, {
 			"repos/{owner}/{repo}/issues/10/sub_issues": page("subIssuesPage", kids),
+			...Object.fromEntries(
+				Object.entries(held).map(([n, rows]) => [
+					`repos/{owner}/{repo}/issues/${n}/sub_issues`,
+					page("subIssuesPage", rows),
+				]),
+			),
 			...Object.fromEntries(
 				Object.entries(comments).map(([n, rows]) => [
 					`repos/{owner}/{repo}/issues/${n}/comments`,
@@ -77,6 +85,7 @@ describe("spec-commits CLI", () => {
 
 	beforeEach(() => {
 		comments = {};
+		held = {};
 		dir = fs.mkdtempSync(path.join(os.tmpdir(), "spec-commits-"));
 		repo = path.join(dir, "repo");
 		fs.mkdirSync(repo);
@@ -510,6 +519,12 @@ describe("spec-commits CLI", () => {
 			});
 		});
 
+		it("does not report a census digest as a missing commit (#4087)", () => {
+			closeNaming(12, "HEAD holds `234707395d23d782` for the guard.");
+			const out = JSON.parse(run([ticket(11), ticket(12)], ["--json"]).stdout);
+			expect(out.missing).toEqual([]);
+		});
+
 		it("notes a sha-shaped word naming no commit in this clone, and passes over a hex word that is no sha", () => {
 			closeNaming(12, "Done in 0badc0de9 on landing; defaced.");
 			const r = run([ticket(11), ticket(12)], ["--json"]);
@@ -519,6 +534,51 @@ describe("spec-commits CLI", () => {
 			expect(run([ticket(11), ticket(12)]).out).toContain(
 				"NOTE: #12's close names 0badc0de9, which names no commit in this clone",
 			);
+		});
+	});
+
+	describe("an archive container under the spec (#4087)", () => {
+		const container = (state = "closed") => ({
+			...ticket(50, state),
+			title: "Archive: closed children of #10",
+		});
+
+		it("lists the commits its tickets cite and the shas their closes name, not the container", () => {
+			commit("u.js", "Uncited work", "2026-09-05T00:00:00Z");
+			const sha = git(["rev-parse", "HEAD"]).trim();
+			held[50] = [ticket(12), ticket(13)];
+			comments[13] = [
+				{ body: `Done in ${sha.slice(0, 9)}.\n\n**Door:** two-way.` },
+			];
+			const out = JSON.parse(run([ticket(11), container()], ["--json"]).stdout);
+			expect(out.tickets).toEqual([11, 12, 13]);
+			expect(out.commits.map((c: { subject: string }) => c.subject)).toEqual([
+				"Build the first ticket (#11)",
+				"Fix as review found (#12 review)",
+				"Uncited work",
+			]);
+			expect(out.commits.at(-1).route).toEqual({ by: "named", ticket: 13 });
+		});
+
+		it("does not call an open container unfinished work", () => {
+			held[50] = [ticket(12)];
+			const out = JSON.parse(
+				run([ticket(11), container("open")], ["--json"]).stdout,
+			);
+			expect(out.open).toEqual([]);
+		});
+
+		it("leaves a child alone titled as another map's container", () => {
+			const out = JSON.parse(
+				run(
+					[
+						ticket(11),
+						{ ...ticket(12), title: "Archive: closed children of #99" },
+					],
+					["--json"],
+				).stdout,
+			);
+			expect(out.tickets).toEqual([11, 12]);
 		});
 	});
 

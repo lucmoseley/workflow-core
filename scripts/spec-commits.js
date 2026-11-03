@@ -47,7 +47,13 @@
  *   named commit HEAD lacks is matched to its landed twin on HEAD, one of the
  *   same author date and subject, as a cherry-pick between `main` and
  *   `landing` keeps them; one with neither, or a sha-shaped word naming no
- *   commit in this clone, is printed as a NOTE and not reviewed.
+ *   commit in this clone, is printed as a NOTE and not reviewed. A word of a
+ *   census digest's length naming no commit is a digest, so no NOTE (#4087).
+ *
+ * AN ARCHIVE CONTAINER'S TICKETS ARE THE SPEC'S OWN (#4087). A spec past the
+ * 100-child cap holds its closed tickets in the container
+ * archive-closed-children.js made, which holds no work itself, so its children
+ * stand in its place, for both routes.
  *
  * IN NO SCRIPT FAMILY (docs/code-standards-base.md §N3): a read-only lister. Exit 0
  * listed (none found included), 1 the tracker or git unreadable, 2 bad usage
@@ -57,7 +63,8 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { ghApiSlurp, ghJson, parseErrLine } = require("./lib/gh");
-const { readSubIssues } = require("./lib/issue-tree");
+const { archiveContainerTitle, readSubIssues } = require("./lib/issue-tree");
+const { DIGEST_HEX_LENGTH } = require("./lib/census-digest.js");
 const { sectionAMatcher } = require("./lib/doc-map");
 const { hostRoot } = require("./lib/host-root");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
@@ -179,6 +186,22 @@ const twinKey = (c) => `${c.authored} ${c.subject}`;
  */
 
 /**
+ * The tickets of spec `n`, each archive container replaced by what it holds. A
+ * sub-issue in another repo is not cited bare from this one.
+ * @param {number} n
+ * @param {string} repositoryUrl
+ * @returns {{ number: number, state: string }[]}
+ */
+function readTickets(n, repositoryUrl) {
+	return readSubIssues(n)
+		.flatMap((k) =>
+			k.title === archiveContainerTitle(n) ? readSubIssues(k.number) : [k],
+		)
+		.filter((k) => !k.pull_request && k.repository_url === repositoryUrl)
+		.map((k) => ({ number: k.number, state: k.state }));
+}
+
+/**
  * Each closed ticket's resolution text: every comment carrying a `**Door:**`
  * line, a reopened ticket's earlier close included, else its last comment
  * naming a sha.
@@ -221,6 +244,9 @@ function isOnHead(sha) {
 	}
 }
 
+/** @param {string} word */
+const isDigestLength = (word) => word.length === DIGEST_HEX_LENGTH;
+
 /**
  * The commits `closes` name, through lib/unlanded-commits.js's resolver.
  * Throws where git would not answer.
@@ -236,7 +262,7 @@ function resolveNamed(closes) {
 	for (const { ticket, text } of closes)
 		for (const word of new Set(text.match(HEX_WORDS_RE) ?? [])) {
 			const shas = readNamedCommits(read, word);
-			if (shas.length === 0 && hasSha(word))
+			if (shas.length === 0 && hasSha(word) && !isDigestLength(word))
 				named.unresolved.push({ ticket, sha: word, subject: null });
 			for (const sha of shas.filter((x) => !seen.has(x))) {
 				seen.add(sha);
@@ -584,12 +610,7 @@ function main(argv) {
 	let closes;
 	try {
 		spec = ghJson(["api", `repos/{owner}/{repo}/issues/${n}`]);
-		/* A sub-issue in another repo is not cited bare from this one. */
-		tickets = readSubIssues(n)
-			.filter(
-				(k) => !k.pull_request && k.repository_url === spec.repository_url,
-			)
-			.map((k) => ({ number: k.number, state: k.state }));
+		tickets = readTickets(n, spec.repository_url);
 		closes = readCloses(tickets);
 	} catch (e) {
 		process.stderr.write(`#${n} unreadable: ${parseErrLine(e)}\n`);

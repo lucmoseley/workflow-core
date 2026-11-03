@@ -40,7 +40,17 @@ function localParentOf(iss) {
 const readSubIssues = (n, repo = "{owner}/{repo}", opts = {}) =>
 	ghApiSlurp([`repos/${repo}/issues/${n}/sub_issues`], opts);
 
+/** The title that marks `map`'s archival container, which holds no work of its
+ *  own: scripts/archive-closed-children.js finds it by this, never by a label.
+ *  @param {number} map */
+const archiveContainerTitle = (map) => `Archive: closed children of #${map}`;
+
 /** @param {SubIssue} k */
 const isOpenChild = (k) => k.state === "open" && !k.pull_request;
 
-module.exports = { localParentOf, readSubIssues, isOpenChild };
+module.exports = {
+	archiveContainerTitle,
+	localParentOf,
+	readSubIssues,
+	isOpenChild,
+};
