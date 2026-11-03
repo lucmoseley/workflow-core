@@ -3,7 +3,8 @@
  * The seventeenth refusal (#597): a round option handing the founder an act by
  * placeholder or back-reference instead of its literal text, and its secret
  * ask: a credential the founder supplies without `write-secret.js`, in an
- * option (#1031) or in prose (#1817), or beside a line that leaks it (#2645). Driven through
+ * option (#1031) or in prose (#1817), or beside a line that leaks it (#2645); and a
+ * message sending him away for his steps (#4058). Driven through
  * the guard's Stop entry in process; the permission line the refusal prints is
  * then run, in this checkout and in a simulated plugin install — through bash,
  * because the claim is that the line works as the founder would paste it.
@@ -875,5 +876,28 @@ describe("its budget", () => {
 		expect(stop("Done.", { job: true })).toContain(
 			"carrying neither status marker",
 		);
+	});
+});
+
+describe("a message sending the founder away for his steps (#4058)", () => {
+	it("refuses a pointer to the issue body, naming the phrase", () => {
+		const reason = stop("Then follow the steps in the issue body.");
+		expect(reason).toContain("sends the founder away");
+		expect(reason).toContain("follow the steps in the issue body");
+		expect(reason).toContain("RE-SEND THE CORRECTED MESSAGE");
+	});
+
+	it("refuses a pointer to steps given earlier when the message holds none", () => {
+		expect(stop("Follow the shorter version above.")).toContain(
+			"shorter version above",
+		);
+	});
+
+	it("passes a message carrying the steps with its own report of the ticket", () => {
+		expect(
+			stop(
+				"1. Click the box.\n2. Close the tab.\n\nI record your answer on #4006.",
+			),
+		).toBe("");
 	});
 });
