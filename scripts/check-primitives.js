@@ -14,7 +14,8 @@
  * prints no count line. A bare run counts:
  *   enforced  rows whose Enforcing check names a program
  *   breaches  the FAIL-severity findings each such program reports, run once
- *             over the whole tree with `--json --warn` at the host root
+ *             over the whole tree with `--json --warn` at the host root; one
+ *             answering SKIP adds 0
  *   heresies  the `**Filed:**` figure on the newest comment carrying one, on
  *             the most recently closed *Heresy sweep due* issue in the host's
  *             tracker
@@ -38,6 +39,7 @@ const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const {
 	STANDARDS_DOCS: DOCS,
 	judgePrimitives,
+	parseBreaches,
 } = require("./lib/primitives-table.js");
 const { SWEEP_TITLE, parseFiledHeresies } = require("./lib/heresy-sweep.js");
 
@@ -60,23 +62,7 @@ function countBreaches(script, root) {
 		maxBuffer: CHILD_MAX_BUFFER,
 	});
 	if (r.error) return { unknown: `it did not run (${r.error.message})` };
-	/** @type {{ outcome?: unknown, findings?: unknown }} */
-	let envelope;
-	try {
-		envelope = JSON.parse(r.stdout);
-	} catch {
-		return { unknown: `it printed no --json envelope (exit ${r.status})` };
-	}
-	if (envelope.outcome === "BROKEN" || envelope.outcome === "SKIP")
-		return { unknown: `it answered ${envelope.outcome}` };
-	/* A breach is a FAIL-severity finding: a WARN, such as check-host-root's
-	 * stale-allowlist note, is about the check, not a caller off the
-	 * primitive. --warn caps the outcome, never a finding's severity. */
-	return Array.isArray(envelope.findings)
-		? {
-				count: envelope.findings.filter((f) => f?.severity === "FAIL").length,
-			}
-		: { unknown: "its envelope carries no findings array" };
+	return parseBreaches(r.stdout, r.status);
 }
 
 /**
