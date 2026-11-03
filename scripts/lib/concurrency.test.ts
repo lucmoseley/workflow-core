@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 const { FULL, NOTHING_LAUNCHABLE } = require("./refill-decide.js");
 const {
 	buildBlockText,
+	buildVerdict,
 	readout,
 	buildTickRecord,
 	readConcurrencyStatus,
@@ -216,11 +217,9 @@ describe("readout's verdict (#3317)", () => {
 	});
 
 	it("prints the verdict, the also limits and memory's holder", () => {
-		const r = readout({
+		const r = buildVerdict({
 			ticks: [tickAt(T0, "allowance", ["memory"])],
-			minutes: [minute(T0, 4), minute(T0 + 30 * MIN, 0)],
 			now: T0 + 5 * MIN,
-			windowMs: 24 * HOUR,
 		});
 		expect(buildBlockText(r, unread)).toBe(
 			[
@@ -233,11 +232,9 @@ describe("readout's verdict (#3317)", () => {
 	});
 
 	it("names a record that would not read above the verdict", () => {
-		const r = readout({
+		const r = buildVerdict({
 			ticks: [],
-			minutes: [],
 			now: T0,
-			windowMs: 24 * HOUR,
 			unreadable: ["/x/concurrency.jsonl — EACCES"],
 		});
 		expect(buildBlockText(r, () => ({ count: 0, mb: 0 }))).toMatch(

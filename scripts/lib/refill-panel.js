@@ -269,6 +269,7 @@ function buildWaitingRowText(status, now) {
 			: `Waiting: a plan resets at ${buildClock(resets, now)}`;
 	}
 	const idle = tick?.idle;
+	/* Line 1's count already says no slot is free, or `?` where it went unread (#4118). */
 	if (!idle || idle.startsWith(NO_FREE_SLOT)) return "";
 	const words = WAITING_WORDS.find(([reason]) => idle.startsWith(reason));
 	return words ? words[1] : idle.replace(/; .*$/s, "");

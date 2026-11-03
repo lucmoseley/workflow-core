@@ -253,6 +253,10 @@ describe("the panel's rows", () => {
 		const rows = rowsOf({ status: { ...RUNNING, lastTick } });
 		expect(rows[2].text).toBe(RUNNING_COUNT);
 		expect(rows[3].text).toBe("");
+		const concurrency = { working: null, ceiling: null };
+		const unread = rowsOf({ status: { ...RUNNING, lastTick, concurrency } });
+		expect(unread[2].text).toBe("? of ? running");
+		expect(unread[3].text).toBe("");
 	});
 
 	it("shows a running loop", () => {

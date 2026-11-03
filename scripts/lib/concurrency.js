@@ -21,7 +21,7 @@
  * fit, as Kubernetes' PreFilter and Borg's quota check run (#2497's
  * research). Every other failing limit follows it as "also".
  *
- * `readout` and `buildBlockText` are pure; the file functions below them
+ * `buildVerdict`, `readout` and `buildBlockText` are pure; the file functions below them
  * never throw, so a broken record costs a reading, never a tick.
  */
 
@@ -280,7 +280,7 @@ const timedTicks = (ticks, now) =>
  *   `unreadable` names each record that would not read, carried through for the
  *   block to print
  */
-function readVerdict({ ticks, now, unreadable = [] }) {
+function buildVerdict({ ticks, now, unreadable = [] }) {
 	const last = timedTicks(ticks, now).at(-1);
 	const stale = !last || now - last.ms > STALE_MS;
 	/** @type {Failing|null} */
@@ -346,7 +346,7 @@ function readout({ ticks, minutes, now, windowMs, unreadable = [] }) {
 	});
 
 	return {
-		...readVerdict({ ticks, now, unreadable }),
+		...buildVerdict({ ticks, now, unreadable }),
 		minutesRead: minutes !== null,
 		sustained: activeMs > 0 ? weighted / activeMs : null,
 		activeHours: activeMs / HOUR_MS,
@@ -360,22 +360,8 @@ function readout({ ticks, minutes, now, windowMs, unreadable = [] }) {
 }
 
 /**
- * The sustained figure over `span`, as the morning review prints it; unread where the minute record did not read, as unknown is
- * never calm (mantahostels#1206).
- * @param {ReturnType<typeof readout>} r
- * @param {string} span
- */
-function buildSustainedText(r, span) {
-	if (!r.minutesRead)
-		return `unread over the last ${span} — memwatch's minute record did not read`;
-	return r.sustained === null
-		? `no session recorded working over the last ${span}`
-		: `${r.sustained.toFixed(1)} over the last ${span} (${r.activeHours.toFixed(1)} h with any session working)`;
-}
-
-/**
  * `npm run status`'s concurrency block.
- * @param {ReturnType<typeof readVerdict>} r
+ * @param {ReturnType<typeof buildVerdict>} r
  * @param {() => UnlistedRead} readLive admission's unlisted row read now
  */
 function buildBlockText(r, readLive) {
@@ -417,7 +403,7 @@ const buildUnboundText = (t) =>
  * as the loop is off unless being tested (#3215, #3496). An unread row prints,
  * as unknown is never calm (mantahostels#1206), and so does the reason a
  * counted row's memory went unread (#3509).
- * @param {ReturnType<typeof readVerdict>} r
+ * @param {ReturnType<typeof buildVerdict>} r
  * @param {() => UnlistedRead} readLive
  */
 function buildUnlistedLine(r, readLive) {
@@ -458,17 +444,22 @@ function readJsonLines(file, unreadable) {
 	}
 }
 
-function readRecords() {
-	const files = concurrencyFiles();
+function readTicks() {
 	/** @type {string[]} */
 	const unreadable = [];
+	/* No tick recorded is the loop off, which the verdict names. */
+	const ticks = /** @type {TickRecord[]} */ (
+		readJsonLines(concurrencyFiles().record, unreadable) ?? []
+	);
+	return { ticks, unreadable };
+}
+
+function readRecords() {
+	const { ticks, unreadable } = readTicks();
 	return {
-		/* No tick recorded is the loop off, which the verdict names. */
-		ticks: /** @type {TickRecord[]} */ (
-			readJsonLines(files.record, unreadable) ?? []
-		),
+		ticks,
 		minutes: /** @type {MinuteLine[]|null} */ (
-			readJsonLines(files.minutes, unreadable)
+			readJsonLines(concurrencyFiles().minutes, unreadable)
 		),
 		unreadable,
 	};
@@ -516,6 +507,6 @@ module.exports = {
 	readConcurrencyStatus,
 	readRecords,
 	readout,
-	readVerdict,
-	buildSustainedText,
+	buildVerdict,
+	readTicks,
 };

@@ -195,11 +195,6 @@ const parseSeatTriedAt = (raw) =>
  */
 
 /**
- * The launches on `day`, machine-local, which outlast the rows keptLaunches
- * trims (#3873).
- */
-
-/**
  * An issue the loop holds, and since when, ms: a parked row on its session's full
  * seat, from the first normal-mode tick of an unbroken run of frontier-reading
  * ticks that held it; or, `onLimit`, a launch waiting on a limit (limitWaitOf).

@@ -71,7 +71,6 @@ const run = ({ refused = false, empty = false, fresh = false } = {}) => {
 			...process.env,
 			...buildIsolatedEnv(dir),
 			WFC_REFILL_DIR: refill,
-			MEMWATCH_MINUTE_LOG: path.join(dir, "minutes.jsonl"),
 			WFC_MEMINFO: meminfo,
 			WFC_PS: writePsStub(dir, [
 				"111 300000 claude bg-spare --bg-spare /tmp/x/spare/abc.claim.sock",

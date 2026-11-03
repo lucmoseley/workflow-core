@@ -29,7 +29,7 @@
 const { requiredGroup } = require("./regex-group.js");
 const { byKind, incidentTitle, isOver } = require("./earlyoom-kills.js");
 const { buildEpisodeTitle, countKilled } = require("./process-runaways.js");
-const { NONE, SPREAD_CAP, buildSustainedText } = require("./concurrency.js");
+const { NONE, SPREAD_CAP } = require("./concurrency.js");
 const { DAY_MS } = require("./retained-jsonl.js");
 const { rowChanges } = require("./primitives-table.js");
 const { buildIdleLines } = require("./idle-efforts.js");
@@ -351,6 +351,20 @@ function renderRunawayLines({ episodes, tickets, why }, lo, hi) {
 
 /** @param {number} h */
 const hours = (h) => `${h.toFixed(1)} h`;
+
+/**
+ * The sustained figure over `span`; unread where the minute record did not read,
+ * as unknown is never calm (mantahostels#1206).
+ * @param {Readout} r
+ * @param {string} span
+ */
+function buildSustainedText(r, span) {
+	if (!r.minutesRead)
+		return `unread over the last ${span} — memwatch's minute record did not read`;
+	return r.sustained === null
+		? `no session recorded working over the last ${span}`
+		: `${r.sustained.toFixed(1)} over the last ${span} (${r.activeHours.toFixed(1)} h with any session working)`;
+}
 
 /**
  * The "Concurrency" lines, every figure as lib/concurrency.js's readout gives
