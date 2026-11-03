@@ -183,6 +183,12 @@ describe("divergenceRow", () => {
 			expect(fields(row)[8]).toBe(marker);
 		});
 
+	it("reads a quoted subcommand, which git runs (#4009)", () => {
+		expect(
+			divergenceRow(payload('git "pull"', FF_REFUSAL), ports(repoAt(1, 1))),
+		).not.toBeNull();
+	});
+
 	it("reads git's subcommand past its global options", () => {
 		const row = divergenceRow(
 			payload(`git -c core.pager=cat -C ${WORK} pull --ff-only`),
@@ -344,7 +350,6 @@ describe("divergenceRow", () => {
 		],
 		["an empty trailing segment, #2388", "ls; ", FF_REFUSAL],
 		["a blank line between commands", "echo a\n\necho b", FF_REFUSAL],
-		["a quoted subcommand", 'git "pull"', FF_REFUSAL],
 	] as const) {
 		it(`writes nothing for ${why}`, () => {
 			expect(

@@ -325,17 +325,136 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 	it("splits a --split-string= value the same way", () => {
 		expect(strip("env --split-string=npm test").words).toEqual(["npm", "test"]);
 	});
+});
 
-	it("keeps a quote inside the -S string welded to its word", () => {
-		expect(strip(`env -S 'npm run "test"'`).words).toEqual([
-			"npm",
-			"run",
-			'"test"',
-		]);
+describe("unwrap reads a wrapper as the shell hands it over (#4046)", () => {
+	const strip = (command: string) =>
+		one(command, (c, spans) => unwrap(c.words, spans));
+
+	it.each([
+		[`env -S 'npm run "test"'`, ["npm", "run", "test"], "its double quotes"],
+		[`env -S "npm run 'te st'"`, ["npm", "run", "te st"], "its single quotes"],
+		[
+			`env -S 'npm test\nrm -rf x'`,
+			["npm", "test", "rm", "-rf", "x"],
+			"a newline",
+		],
+		[`env -S 'npm\\_test'`, ["npm", "test"], "\\_ outside quotes"],
+		[`env -S '"npm\\_test"'`, ["npm test"], "\\_ inside quotes"],
+		[`env -S 'npm test #x'`, ["npm", "test"], "a comment"],
+		[`env -S 'npm test\\c x'`, ["npm", "test"], "\\c"],
+	])("splits %s as env does, with %j (%s)", (command, words) => {
+		expect(strip(command).words).toEqual(words);
 	});
 
-	it("reads only the -S string's first line, as read -ra does", () => {
-		expect(strip(`env -S 'npm test\nrm -rf x'`).words).toEqual(["npm", "test"]);
+	it.each([
+		[`'env' npm test`, "a quoted wrapper"],
+		[`"timeout" 5 npm test`, "a double-quoted wrapper"],
+		["\\env npm test", "an escaped wrapper"],
+		[`env "-C" /x npm test`, "a quoted flag"],
+		["env -iC /x npm test", "a cluster ending in a valued flag"],
+		["env -vC/x npm test", "a cluster with its value stuck on"],
+		["env --ch=/x npm test", "an abbreviated long flag"],
+		["env --ch /x npm test", "an abbreviated long flag apart"],
+		[`env -vS "npm test"`, "-S at a cluster's end"],
+		[`env -S"npm test"`, "-S with its string stuck on"],
+		[`env --s="npm test"`, "an abbreviated --split-string"],
+		[`env -S "-C /x npm test"`, "a flag inside the -S string"],
+		["env - npm test", "a lone dash"],
+		["env -- npm test", "a bare --"],
+		["builtin command npm test", "builtin"],
+		["exec -a name npm test", "exec"],
+		["flock /l npm test", "flock's file"],
+		["flock -w 1 /l npm test", "flock -w"],
+		["flock -nw1 /l npm test", "flock's cluster"],
+		["flock --w 1 /l npm test", "flock's abbreviation"],
+		[`flock /l -c "npm test"`, "flock -c"],
+		[`flock /l --command "npm test"`, "flock --command"],
+		["taskset 1 npm test", "taskset's mask"],
+		["taskset -ac 0 npm test", "taskset's cluster"],
+		["/usr/bin/time -o f npm test", "time's -o"],
+		["/usr/bin/time -ao f npm test", "time's cluster"],
+		["/usr/bin/time --out=f npm test", "time's abbreviation"],
+		["timeout -vs KILL 5 npm test", "timeout's cluster"],
+		["timeout -k1 5 npm test", "timeout's stuck value"],
+		["timeout --sig KILL 5 npm test", "timeout's abbreviation"],
+		["nice --adj 5 npm test", "nice's abbreviation"],
+		["nice -5 npm test", "nice's old form"],
+		["ionice -tc 3 npm test", "ionice's cluster"],
+		["xargs --max-lines npm test", "an optional value, never the next word"],
+		["xargs -i npm test", "a short optional value"],
+	])("strips %s (%s)", (command) => {
+		expect(strip(command).words).toEqual(["npm", "test"]);
+	});
+
+	it.each([
+		["env -iC /x git status", ["/x"]],
+		["env -vC/x git status", ["/x"]],
+		["env --ch=/x git status", ["/x"]],
+		[`env -S "-C /x git status"`, ["/x"]],
+		["sudo -nD /x git status", ["/x"]],
+		["sudo --chd /x git status", ["/x"]],
+	])("reads the directory %s's spelling moves to", (command, chdirs) => {
+		const stripped = strip(command);
+		expect(stripped.chdirs).toEqual(chdirs);
+		expect(stripped.words[0]).toBe("git");
+	});
+
+	it.each([
+		[`env "FOO=1" npm test`, "FOO=1"],
+		[`env 'FOO'=1 npm test`, "FOO=1"],
+		["env 1=2 npm test", "1=2"],
+		["env ./a=b npm test", "./a=b"],
+	])("takes %s's assignment, however spelt", (command, word) => {
+		const stripped = strip(command);
+		expect(stripped.wrapperWords).toEqual([word]);
+		expect(stripped.words).toEqual(["npm", "test"]);
+	});
+
+	it("reads no flag after env's first assignment, which it would exec", () => {
+		expect(strip("env A=1 -C /x git status")).toEqual({
+			words: ["-C", "/x", "git", "status"],
+			wrapperWords: ["A=1"],
+			chdirs: [],
+			watched: false,
+		});
+	});
+
+	it.each([
+		["flock /l nice npm test", ["npm", "test"]],
+		["flock /l exec npm test", ["npm", "test"]],
+		["flock /l echo hi", ["echo", "hi"]],
+		["flock /l /usr/local/bin/npm test", ["/usr/local/bin/npm", "test"]],
+		["flock - npm test", ["npm", "test"]],
+		["flock /l -n npm test", ["-n", "npm", "test"]],
+	])(
+		"reads no option in the command after flock's file: %s",
+		(command, words) => {
+			expect(strip(command).words).toEqual(words);
+		},
+	);
+
+	it("splits each word watch hands sh -c, joined or not", () => {
+		const stripped = strip(`watch npm 'run test'`);
+		expect(stripped.words).toEqual(["npm", "run", "test"]);
+		expect(stripped.watched).toBe(true);
+	});
+
+	it("takes sudo's assignment as a word of its own", () => {
+		const stripped = strip("sudo FOO=1 npm test");
+		expect(stripped.wrapperWords).toEqual(["FOO=1"]);
+		expect(stripped.words).toEqual(["npm", "test"]);
+	});
+
+	it("leaves a wrapper its caller judges standing, past the ones it strips", () => {
+		const { words } = one("nohup taskset 1 yes", (c, spans) =>
+			unwrap(c.words, spans, ["taskset"]),
+		);
+		expect(words).toEqual(["taskset", "1", "yes"]);
+	});
+
+	it("reads no flags on a word it cannot name", () => {
+		expect(strip("$W -C /x git status").words[0]).toBe("$W");
 	});
 });
 

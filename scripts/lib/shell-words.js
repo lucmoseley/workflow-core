@@ -279,90 +279,114 @@ function isInlineCode(interpreter, words) {
 }
 
 /**
- * The flags each wrapper takes its value from as a SEPARATE word, so the sweep
- * in unwrap steps two (mantahostels#2552).
- *
- * REQUIRED-value flags only. An OPTIONAL-value one takes its value joined or
- * not at all, so listing it here would eat the command word — which is why
- * `xargs -e[END]`, `-i[R]` and `-l[MAX]`, `sudo -h` (`--help` as readily as
- * `--host`) and `env`'s `--*-signal[=SIG]` family are absent, and adding any of
- * them for completeness reopens mantahostels#2552.
- *
- * `-u`, `-C`, `--unset` and `--chdir` are absent here: unwrap sweeps those four
- * for every wrapper, so `sudo -u`, `sudo -C` and `sudo --chdir` are already
- * covered.
+ * One wrapper's options, read through scanFlags's word reader (#4046): `values`
+ * its spec, the flags taking a value, and `long` every whole long name, each
+ * readable by any prefix naming just one. `sudo`'s is from its manual, unmeasured.
+ * @typedef {object} WrapperGrammar
+ * @property {string} values
+ * @property {string[]} long
+ * @property {string} [chdir] the short flag naming its working directory
+ * @property {boolean} [splits] whether `-S` is a string to split, as `env`'s is
+ * @property {number} positionals bare words it reads before the command
+ * @property {"sh-string" | "flock-command"} [command] how the words after them
+ *   read
  */
-const WRAPPER_VALUE_FLAGS = new Map([
-	["stdbuf", ["-i", "-o", "-e", "--input", "--output", "--error"]],
-	["nice", ["-n", "--adjustment"]],
+
+/**
+ * @param {string} values
+ * @param {string} flags the long names taking no separate value, space-separated
+ * @param {Partial<Pick<WrapperGrammar, "chdir" | "splits" | "positionals" | "command">>} [rest]
+ * @returns {WrapperGrammar}
+ */
+function buildGrammar(values, flags, rest = {}) {
+	const valued = values
+		.split(" ")
+		.filter((f) => f.startsWith("--"))
+		.map((f) => f.slice(2));
+	return {
+		values,
+		long: [...valued, ...flags.split(" ").filter(Boolean), "help", "version"],
+		positionals: 0,
+		...rest,
+	};
+}
+
+/** The launcher wrappers unwrap strips, by the name they run under. */
+const WRAPPERS = new Map([
 	[
-		"ionice",
-		["-c", "-n", "-p", "-P", "--class", "--classdata", "--pid", "--pgid"],
-	],
-	[
-		"xargs",
-		[
-			"-a",
-			"-d",
-			"-E",
-			"-I",
-			"-L",
-			"-n",
-			"-P",
-			"-s",
-			"--arg-file",
-			"--delimiter",
-			"--max-lines",
-			"--max-args",
-			"--max-procs",
-			"--max-chars",
-			"--process-slot-var",
-		],
+		"env",
+		buildGrammar(
+			"-u -C -S --unset --chdir --split-string",
+			"ignore-environment null block-signal default-signal ignore-signal list-signal-handling debug",
+			{ chdir: "-C", splits: true },
+		),
 	],
 	[
 		"sudo",
-		[
-			"-c",
-			"-D",
-			"-g",
-			"-p",
-			"-r",
-			"-R",
-			"-t",
-			"-T",
-			"-U",
-			"--close-from",
-			"--login-class",
-			"--group",
-			"--host",
-			"--prompt",
-			"--role",
-			"--chroot",
-			"--type",
-			"--command-timeout",
-			"--other-user",
-			"--user",
-		],
+		buildGrammar(
+			"-C -c -D -g -h? -p -R -r -T -t -U -u --close-from --chdir --group --host --login-class --prompt --chroot --role --type --command-timeout --other-user --user",
+			"askpass background bell preserve-env edit set-home login remove-timestamp reset-timestamp list non-interactive preserve-groups stdin shell validate",
+			{ chdir: "-D" },
+		),
+	],
+	["nohup", buildGrammar("", "")],
+	["builtin", buildGrammar("", "")],
+	["exec", buildGrammar("-a", "")],
+	["command", buildGrammar("", "")],
+	["setsid", buildGrammar("", "ctty fork wait")],
+	[
+		"time",
+		buildGrammar("-f -o --format --output", "append portability quiet verbose"),
+	],
+	["stdbuf", buildGrammar("-i -o -e --input --output --error", "")],
+	["nice", buildGrammar("-n --adjustment", "")],
+	[
+		"ionice",
+		buildGrammar(
+			"-c -n -p -P -u --class --classdata --pid --pgid --uid",
+			"ignore",
+		),
+	],
+	[
+		"xargs",
+		buildGrammar(
+			"-a -d -E -e? -I -i? -L -l? -n -P -s --arg-file --delimiter --max-args --max-procs --process-slot-var --max-chars",
+			"null eof replace max-lines interactive open-tty no-run-if-empty verbose show-limits exit",
+		),
+	],
+	[
+		"timeout",
+		buildGrammar(
+			"-k -s --kill-after --signal",
+			"foreground preserve-status verbose",
+			{ positionals: 1 },
+		),
+	],
+	[
+		"flock",
+		buildGrammar(
+			"-w -E -c --timeout --wait --conflict-exit-code --command",
+			"shared exclusive unlock nonblock nb close no-fork verbose",
+			{ positionals: 1, command: "flock-command" },
+		),
+	],
+	["taskset", buildGrammar("", "all-tasks pid cpu-list", { positionals: 1 })],
+	[
+		"watch",
+		buildGrammar(
+			"-d? -n -q --interval --equexit",
+			"beep color no-color differences errexit chgexit precise no-rerun no-title no-wrap exec",
+			{ command: "sh-string" },
+		),
 	],
 ]);
-
-/** The wrappers stripped with nothing read but their flags. */
-const PLAIN_WRAPPERS = [
-	"nohup",
-	"setsid",
-	"time",
-	"command",
-	"stdbuf",
-	"nice",
-	"ionice",
-	"xargs",
-	"sudo",
-];
 
 /**
  * Strip the launcher wrappers off one command's words, so the command
  * actually being run stands first (mantahostels#2511, mantahostels#2524,
- * mantahostels#2552): `{ words, wrapperWords, watched }`.
+ * mantahostels#2552): `{ words, wrapperWords, watched }`. A wrapper, its flags
+ * and an `env` assignment are read through literal as the shell hands them to it
+ * (#4046); the words left stay raw.
  *
  *   words         what is left to judge. Empty where the wrappers ran out of
  *                 words mid-strip; a caller must test that before reading
@@ -373,13 +397,14 @@ const PLAIN_WRAPPERS = [
  *                 escape from the command string must still see — inside an
  *                 `env` prefix the escape is a WORD, not a leading shell
  *                 assignment the walk has already stepped past.
- *   chdirs        each directory an `env -C` or `sudo -D` moved to, raw, in
- *                 order.
+ *   chdirs        each directory an `env -C` or `sudo -D` moved to, read through
+ *                 literal, in order.
  *   watched       a `watch` was stripped: the command reruns on a timer.
  *
  * `nohup FOO=1 cmd` execs a program literally named `FOO=1` and starts
  * nothing, so an assignment after any other wrapper is the command word and
- * stops the strip.
+ * stops the strip. `env` and `sudo` take any word holding a `=` as one, and no
+ * flag after the first.
  *
  * `bg-run.sh run <name>` is stripped alongside the launchers: wrapping a suite
  * in the kill detector (mantahostels#1900) changes nothing about what the
@@ -387,27 +412,29 @@ const PLAIN_WRAPPERS = [
  *
  * `sudo` IS STRIPPED, DELIBERATELY: stripping only ever widens what is judged.
  *
- * `watch` RUNS ITS COMMAND THROUGH `sh -c`, so a single word left after its
- * flags is split as `env -S` splits its string (#3376).
+ * `watch` AND `flock <file> -c` RUN THEIR COMMAND THROUGH `sh -c`, so the words
+ * holding it are split on whitespace (#3376, #4046); a quote, a `;` or a second
+ * line inside them is not read.
  *
- * `env -S <string>` IS SPLIT, NOT SKIPPED. The string is the command, so
- * skipping it as an ordinary flag value would leave nothing to judge and allow
- * the launch. The split is `read -ra`'s, one line on IFS whitespace, so a
- * quote INSIDE the string stays welded to its word.
+ * `env -S <string>` IS SPLIT, NOT SKIPPED, as `env` splits it, and read on as
+ * `env`'s own words.
  *
  * THE WRAPPER CLASS IS STILL NOT CLOSED (mantahostels#2629). `sh -c "…"` stands
  * as the command word, its payload a blanked span; a heredoc's body never
- * reaches a split; and a separate-value flag absent from WRAPPER_VALUE_FLAGS
- * leaves its value where the command word is looked for.
+ * reaches a split; and a launcher outside WRAPPERS, `chrt` and `unshare` among
+ * them, stands as the command word.
  * @param {string[]} words masked
  * @param {string[]} spans
+ * @param {string[]} [judged] wrappers the caller judges itself, left standing
+ *   as the command word
  * @returns {{ words: string[], wrapperWords: string[], chdirs: string[],
  *   watched: boolean }}
  */
-function unwrap(words, spans) {
+function unwrap(words, spans, judged = []) {
 	/** @type {Strip} */
 	const st = {
 		ws: [...words],
+		judged,
 		inEnv: false,
 		wrapperWords: [],
 		chdirs: [],
@@ -429,7 +456,8 @@ function unwrap(words, spans) {
 /**
  * @typedef {object} Strip unwrap's running state
  * @property {string[]} ws the words still to read
- * @property {boolean} inEnv whether the last wrapper was `env`, whose
+ * @property {string[]} judged wrappers left standing as the command word
+ * @property {boolean} inEnv whether the last wrapper was `env` or `sudo`, whose
  *   assignments are words of its own
  * @property {string[]} wrapperWords
  * @property {string[]} chdirs
@@ -439,169 +467,252 @@ function unwrap(words, spans) {
 /**
  * Strip the wrapper `st.ws` opens with: "next" to read on, "done" where the
  * command word stands first, "cut" where the words ran out mid-strip.
- * @param {Strip} st
+ * @param {Strip} st accumulator: its fields are written
  * @param {string} first `st.ws[0]`
  * @param {string[]} spans
  * @returns {"next" | "done" | "cut"}
  */
 function stripOne(st, first, spans) {
+	const { text } = literal(first, spans);
+	if (st.inEnv && text.includes("=")) {
+		/* Raw where its name is bare, so a guard still reads its value's quoting. */
+		st.wrapperWords.push(ASSIGNMENT_RE.test(first) ? first : text);
+		st.ws = st.ws.slice(1);
+		return "next";
+	}
 	/* An assignment keeps its whole word: the text after the last `/` of
 	 * `A=/x/y` is `y`, which would stop the strip before a later `FOO=1`
 	 * (#1499). */
-	const w = ASSIGNMENT_RE.test(first) ? first : afterSlash(first);
-	const skip = OWN_GRAMMAR.get(w);
-	if (skip) return stepOwn(st, w, skip(st.ws.slice(1), spans));
+	const w = ASSIGNMENT_RE.test(text) ? text : afterSlash(text);
 	if (w === "bg-run.sh") {
 		if (st.ws[1] !== "run" || st.ws.length < 3) return "done";
 		st.inEnv = false;
 		st.ws = st.ws.slice(3);
 		return "next";
 	}
-	if (w === "env" || PLAIN_WRAPPERS.includes(w)) st.inEnv = w === "env";
-	else if (ASSIGNMENT_RE.test(w) && st.inEnv) st.wrapperWords.push(first);
-	else return "done";
+	const wrapper = WRAPPERS.get(w);
+	if (!wrapper || st.judged.includes(w)) return "done";
+	st.inEnv = w === "env" || w === "sudo";
 	st.ws = st.ws.slice(1);
-	return sweepFlags(st, w, spans);
+	if (!sweepFlags(st, wrapper, spans)) return "cut";
+	if (st.ws.length < wrapper.positionals) return "cut";
+	st.ws = st.ws.slice(wrapper.positionals);
+	return stepAfterFlags(st, wrapper, spans);
 }
 
 /**
- * The wrappers read by their own stepper, not the shared sweep: `timeout`'s
- * duration is a bare positional, and `watch`'s `-C` takes no value.
- * @type {Map<string, (words: string[], spans: string[]) => string[] | null>}
- */
-const OWN_GRAMMAR = new Map([
-	["timeout", skipTimeout],
-	["watch", skipWatch],
-]);
-
-/**
- * Stand on what an OWN_GRAMMAR stepper left after wrapper `w`.
- * @param {Strip} st
- * @param {string} w
- * @param {string[] | null} rest
- * @returns {"next" | "cut"}
- */
-function stepOwn(st, w, rest) {
-	if (!rest) return "cut";
-	if (w === "watch") st.watched = true;
-	st.inEnv = false;
-	st.ws = rest;
-	return "next";
-}
-
-/** The flags unwrap sweeps with their SEPARATE value for every wrapper. */
-const SWEPT_VALUE_FLAGS = ["-u", "-C", "--unset", "--chdir"];
-
-/**
- * Sweep the flags after wrapper `w`. `-u NAME` and `-C DIR` take their value
- * as a SEPARATE word, so sweeping flags alone leaves `NAME` standing where the
- * command word is looked for; the joined spellings (`-uNAME`, `--unset=NAME`)
- * need nothing. Under `env`, a `-S` string is split into the words still to
- * read.
- * @param {Strip} st
- * @param {string} w
+ * Stand on the command after a wrapper's flags and positionals. `flock` looks
+ * for its `-c` by exact spelling after its file, no cluster or abbreviation.
+ * @param {Strip} st accumulator: its `ws` and `watched` are written
+ * @param {WrapperGrammar} wrapper
  * @param {string[]} spans
  * @returns {"next" | "cut"}
  */
-function sweepFlags(st, w, spans) {
-	for (let f = st.ws[0]; f?.startsWith("-"); f = st.ws[0]) {
-		if (st.inEnv && isSplitString(f)) return splitEnvString(st, f, spans);
-		const dir = wrapperDir(w, f, st.ws[1]);
-		if (dir !== undefined) st.chdirs.push(dir);
-		const takes =
-			SWEPT_VALUE_FLAGS.includes(f) ||
-			(WRAPPER_VALUE_FLAGS.get(w)?.includes(f) ?? false);
-		if (takes && st.ws.length < 2) return "cut";
-		st.ws = st.ws.slice(takes ? 2 : 1);
+function stepAfterFlags(st, wrapper, spans) {
+	const [head, ...tail] = st.ws;
+	if (wrapper.command === "flock-command" && head !== undefined) {
+		const f = literal(head, spans).text;
+		if (f === "-c" || f === "--command") {
+			const [string] = tail;
+			if (string === undefined) return "cut";
+			st.ws = splitString(string, spans);
+		}
+	}
+	if (wrapper.command === "sh-string") {
+		st.ws = st.ws.flatMap((w) => splitString(w, spans));
+		if (st.ws.length === 0) return "cut";
+		st.watched = true;
 	}
 	return "next";
 }
 
-/** The short flag naming a wrapper's working directory. */
-const CHDIR_FLAG = new Map([
-	["env", "-C"],
-	["sudo", "-D"],
-]);
-
 /**
- * The directory flag `f` moves wrapper `w` to, undefined where it moves none.
- * @param {string} w
- * @param {string} f
- * @param {string | undefined} next the word after it
- */
-function wrapperDir(w, f, next) {
-	const short = CHDIR_FLAG.get(w);
-	if (short === undefined) return;
-	if (f === short || f === "--chdir") return next;
-	if (f.startsWith("--chdir=")) return f.slice("--chdir=".length);
-	return f.startsWith(short) ? f.slice(short.length) : undefined;
-}
-
-/** @param {string} f */
-const isSplitString = (f) =>
-	f === "-S" || f === "--split-string" || f.startsWith("--split-string=");
-
-/**
- * Put an `env -S` string's words in its place.
- * @param {Strip} st
- * @param {string} f the flag word
- * @param {string[]} spans
- * @returns {"next" | "cut"}
- */
-function splitEnvString(st, f, spans) {
-	const rest = f.startsWith("--split-string=")
-		? [f.slice("--split-string=".length), ...st.ws.slice(1)]
-		: st.ws.slice(1);
-	const [head, ...tail] = rest;
-	if (head === undefined) return "cut";
-	st.ws = [...splitString(head, spans), ...tail];
-	return "next";
-}
-
-/**
- * The words after `timeout`'s flags and its DURATION, a bare positional the
- * shared flag sweep would stop on; null where they run out.
- * @param {string[]} words the words after `timeout`
- */
-function skipTimeout(words) {
-	let ws = words;
-	for (let f = ws[0]; f?.startsWith("-"); f = ws[0]) {
-		const takes = ["-k", "--kill-after", "-s", "--signal"].includes(f);
-		if (takes && ws.length < 2) return null;
-		ws = ws.slice(takes ? 2 : 1);
-	}
-	return ws.length > 0 ? ws.slice(1) : null;
-}
-
-/** `watch`'s flags that take the next word. */
-const WATCH_VALUE_FLAGS = ["-n", "-q", "--interval", "--equexit"];
-
-/**
- * The words after `watch`'s flags and any `--`, a single one split back into
- * the command it holds; null where none are left.
- * @param {string[]} words the words after `watch`
+ * Sweep the flags off the front of `st.ws`; false where a flag's value ran out.
+ * @param {Strip} st accumulator: its `ws` and `chdirs` are written
+ * @param {WrapperGrammar} wrapper
  * @param {string[]} spans
  */
-function skipWatch(words, spans) {
-	let ws = words;
-	for (let f = ws[0]; f?.startsWith("-"); f = ws[0]) {
+function sweepFlags(st, wrapper, spans) {
+	/** @param {string} w */
+	const read = (w) => literal(w, spans).text;
+	for (let raw = st.ws[0]; raw !== undefined; raw = st.ws[0]) {
+		const f = read(raw);
+		if (!f.startsWith("-") || (f === "-" && !wrapper.splits)) break;
 		if (f === "--") {
-			ws = ws.slice(1);
+			st.ws = st.ws.slice(1);
 			break;
 		}
-		const takes = WATCH_VALUE_FLAGS.includes(f);
-		if (takes && ws.length < 2) return null;
-		ws = ws.slice(takes ? 2 : 1);
+		const next = st.ws[1];
+		const { options, taken } = scanWrapperFlag(
+			wrapper,
+			f,
+			next === undefined ? undefined : read(next),
+		);
+		st.ws = st.ws.slice(1 + taken);
+		for (const option of options)
+			if (!takeOption(st, wrapper, option)) return false;
 	}
-	const [head, ...tail] = ws;
-	const rest =
-		head !== undefined && tail.length === 0 ? splitString(head, spans) : ws;
-	return rest.length > 0 ? rest : null;
+	return true;
 }
 
 /**
- * An `env -S` string's words: read back through literal, its first line split
- * on IFS whitespace, as `read -ra` splits it.
+ * @typedef {object} WrapperOption one option a wrapper's flag word says
+ * @property {FlagKind} kind
+ * @property {string} name
+ * @property {string} value
+ */
+
+/**
+ * What the flag word `f` says under a wrapper's grammar, and how many words after
+ * it it took.
+ * @param {WrapperGrammar} wrapper
+ * @param {string} f
+ * @param {string | undefined} next
+ */
+function scanWrapperFlag(wrapper, f, next) {
+	/** @type {WrapperOption[]} */
+	const options = [];
+	const taken = scanWord(f, next, {
+		has: specHas(wrapper.values),
+		expandLong: (flag) => wholeLongName(wrapper.long, flag),
+		endsAtEndOfOptions: false,
+		emit: (kind, name, value) => options.push({ kind, name, value }),
+		ended: false,
+		stopped: false,
+	});
+	return { options, taken };
+}
+
+/**
+ * The whole name of a long flag spelt as any prefix naming just one; as spelt
+ * otherwise, which the tool refuses.
+ * @param {string[]} long
+ * @param {string} flag with its `--`
+ */
+function wholeLongName(long, flag) {
+	const spelt = flag.slice(2);
+	if (long.includes(spelt)) return flag;
+	const [only, ...more] = long.filter((n) => n.startsWith(spelt));
+	return only !== undefined && more.length === 0 ? `--${only}` : flag;
+}
+
+/**
+ * Keep the directory an option moves to and, under `env`, put a `-S` string's
+ * words at the front of `st.ws`; false where its value ran out.
+ * @param {Strip} st accumulator: its `ws` and `chdirs` are written
+ * @param {WrapperGrammar} wrapper
+ * @param {WrapperOption} option
+ */
+function takeOption(st, wrapper, { kind, name, value }) {
+	if (kind === "dangling") return false;
+	if (kind !== "opt") return true;
+	if (wrapper.splits && (name === "-S" || name === "--split-string"))
+		st.ws = [...splitEnvString(value), ...st.ws];
+	else if (name === wrapper.chdir || name === "--chdir") st.chdirs.push(value);
+	return true;
+}
+
+/** What a backslash in an `env -S` string writes, beside the character itself. */
+const ENV_S_ESCAPES = new Map([
+	["f", "\f"],
+	["n", "\n"],
+	["r", "\r"],
+	["t", "\t"],
+	["v", "\v"],
+]);
+
+/**
+ * An `env -S` string's words as `env` itself splits them: on any whitespace, its own quotes undone, `\_` a space inside `"…"` and a
+ * separator outside, `\c` or a word-opening `#` the end. A `${NAME}` stays as
+ * written, for literal to call unknown.
+ * @param {string} s
+ * @returns {string[]}
+ */
+function splitEnvString(s) {
+	/** @type {EnvSplit} */
+	const split = { words: [], word: null, quote: "" };
+	for (let i = 0; i < s.length; )
+		i += stepEnvChar(split, s.charAt(i), s.charAt(i + 1));
+	endEnvWord(split);
+	return split.words;
+}
+
+/**
+ * @typedef {object} EnvSplit splitEnvString's running state
+ * @property {string[]} words
+ * @property {string | null} word the word being built, null between words
+ * @property {string} quote the quote it stands inside, "" for none
+ */
+
+/** @param {EnvSplit} split accumulator: its fields are written */
+function endEnvWord(split) {
+	if (split.word !== null) split.words.push(split.word);
+	split.word = null;
+}
+
+/**
+ * @param {EnvSplit} split accumulator: its fields are written
+ * @param {string} text
+ */
+function addToEnvWord(split, text) {
+	split.word = (split.word ?? "") + text;
+}
+
+/**
+ * Read the character `c`, `next` after it: how many characters it took, Infinity
+ * where the string ends there.
+ * @param {EnvSplit} split accumulator: its fields are written
+ * @param {string} c
+ * @param {string} next
+ * @returns {number}
+ */
+function stepEnvChar(split, c, next) {
+	if (split.quote === "'") return stepEnvSingleQuoted(split, c, next);
+	if (c === "\\" && next !== "") return stepEnvEscape(split, next);
+	if (split.quote === '"') {
+		if (c === '"') split.quote = "";
+		else addToEnvWord(split, c);
+	} else if (c === "'" || c === '"') {
+		split.quote = c;
+		addToEnvWord(split, "");
+	} else if (/\s/.test(c)) endEnvWord(split);
+	else if (c === "#" && split.word === null) return Number.POSITIVE_INFINITY;
+	else addToEnvWord(split, c);
+	return 1;
+}
+
+/**
+ * @param {EnvSplit} split accumulator: its fields are written
+ * @param {string} c
+ * @param {string} next
+ */
+function stepEnvSingleQuoted(split, c, next) {
+	if (c === "\\" && (next === "'" || next === "\\")) {
+		addToEnvWord(split, next);
+		return 2;
+	}
+	if (c === "'") split.quote = "";
+	else addToEnvWord(split, c);
+	return 1;
+}
+
+/**
+ * The backslash escape of `next`, outside a single-quoted span.
+ * @param {EnvSplit} split accumulator: its fields are written
+ * @param {string} next
+ */
+function stepEnvEscape(split, next) {
+	const bare = split.quote === "";
+	if (next === "c" && bare) return Number.POSITIVE_INFINITY;
+	if (next === "_" && bare) endEnvWord(split);
+	else if (next === "_") addToEnvWord(split, " ");
+	else addToEnvWord(split, ENV_S_ESCAPES.get(next) ?? next);
+	return 2;
+}
+
+/**
+ * The words of a string a wrapper hands to `sh -c`: read back through literal,
+ * its first line split on IFS whitespace.
  * @param {string} word
  * @param {string[]} spans
  */
@@ -922,7 +1033,7 @@ function skipFindOptions(texts) {
 function scanFlags(spec, words, fn, gitLong) {
 	/** @type {ScanCtx} */
 	const ctx = {
-		has: (flag) => ` ${spec} `.includes(` ${flag} `),
+		has: specHas(spec),
 		expandLong: gitLong ?? ((flag) => flag),
 		endsAtEndOfOptions: gitLong !== undefined,
 		emit: (kind, name, value) => {
@@ -935,6 +1046,12 @@ function scanFlags(spec, words, fn, gitLong) {
 		i += scanWord(w, words[i + 1], ctx);
 	return !ctx.stopped;
 }
+
+/**
+ * @param {string} spec
+ * @returns {(flag: string) => boolean}
+ */
+const specHas = (spec) => (flag) => ` ${spec} `.includes(` ${flag} `);
 
 /**
  * @typedef {object} ScanCtx

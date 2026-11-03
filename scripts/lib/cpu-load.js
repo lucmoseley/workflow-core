@@ -551,7 +551,7 @@ const JUDGES = new Map([
  * @returns {Verdict | null}
  */
 function judge(at, raw, spans, scan) {
-	const { words } = unwrap(raw, spans);
+	const { words } = unwrap(raw, spans, ["taskset"]);
 	if (words.length === 0) return null;
 	const cmd = afterSlash(lit(words[0] ?? "", spans).text);
 	const by = JUDGES.get(cmd) ?? (cmd.endsWith(".sh") ? judgeScript : null);

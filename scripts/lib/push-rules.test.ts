@@ -106,6 +106,7 @@ const run = (command: string, over: Over = {}) =>
 describe("a push is handed its rules, and refused nothing", () => {
 	it.each([
 		["git push origin main", "the spelling the conventions prescribe"],
+		['git "push" origin main', "a quoted subcommand, which git runs (#4009)"],
 		["git push", "the bare form"],
 		["git push --force origin main", "a force-push is still a push"],
 		["git -C . push", "reached through git's own -C"],
@@ -149,7 +150,6 @@ describe("things that are not a push of this repo", () => {
 		["echo 'run git push origin main when green'", "prose about a push"],
 		["grep -r 'git push' scripts", "a search for one"],
 		["timeout 60 git push origin main", "a segment's own first word is read"],
-		['git "push" origin main', "a quoted subcommand is not the one asked for"],
 	])("%s is handed nothing — %s", (command) => {
 		expect(run(command)).toBeNull();
 	});

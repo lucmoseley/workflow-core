@@ -1791,6 +1791,40 @@ describe("the walks run in the bash guard's order, the first refusal winning", (
 const OTHER_REPO = "/other";
 const MAIN_WRITE = "update-ref refs/heads/main HEAD~1";
 
+describe("a wrapper is read as the shell hands it over (#4046)", () => {
+	it.each([
+		[`'env' git ${MAIN_WRITE}`, "a quoted env"],
+		[`"timeout" 5 git ${MAIN_WRITE}`, "a quoted timeout"],
+		[`builtin command git ${MAIN_WRITE}`, "builtin"],
+		[`flock /l git ${MAIN_WRITE}`, "flock"],
+		[`flock /l -c "git ${MAIN_WRITE}"`, "flock -c"],
+		[`flock /l /usr/local/bin/git ${MAIN_WRITE}`, "a path holding c"],
+		[`flock - git ${MAIN_WRITE}`, "a lone dash as flock's file"],
+		[`watch git '${MAIN_WRITE}'`, "watch's joined words"],
+		[`taskset 1 git ${MAIN_WRITE}`, "taskset"],
+		[`/usr/bin/time -o f git ${MAIN_WRITE}`, "time -o"],
+	])("refuses %s in the shared tree's linked tree (%s)", (command) => {
+		expect(readDenyReason(command, { cwd: LINKED })).toContain(
+			readRewindRule(),
+		);
+	});
+
+	it.each([
+		[`env "GIT_DIR=${SHARED}/.git" git ${MAIN_WRITE}`, "a quoted assignment"],
+		[`env 'GIT_DIR'=${SHARED}/.git git ${MAIN_WRITE}`, "a quoted name"],
+		[`env -iC ${SHARED} git ${MAIN_WRITE}`, "a cluster"],
+		[`env -vS "git -C ${SHARED} ${MAIN_WRITE}"`, "-S in a cluster"],
+		[`env -S"git -C ${SHARED} ${MAIN_WRITE}"`, "-S stuck on"],
+		[`env -S "-C ${SHARED} git ${MAIN_WRITE}"`, "a flag inside -S"],
+		[`env --ch=${SHARED} git ${MAIN_WRITE}`, "an abbreviation"],
+		[`sudo GIT_DIR=${SHARED}/.git git ${MAIN_WRITE}`, "sudo's assignment"],
+	])("refuses %s from another repo (%s)", (command) => {
+		expect(readDenyReason(command, { cwd: OTHER_REPO })).toContain(
+			readRewindRule(),
+		);
+	});
+});
+
 describe("a subcommand, wrapper and tree are judged as what they reach (#4009)", () => {
 	it.each([
 		[`git 'update-ref' refs/heads/main HEAD~1`, "quoted"],
