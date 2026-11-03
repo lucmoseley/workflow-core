@@ -25,6 +25,10 @@ import { shellQuote } from "./sh-quote.js";
 const ISSUE_LIST = path.join(__dirname, "fixtures/gh/issue-list.json");
 const NOT_FOUND = path.join(__dirname, "fixtures/gh/not-found.json");
 const UNKNOWN_FLAG = path.join(__dirname, "fixtures/gh/unknown-flag.json");
+const CHECKS_FORBIDDEN = path.join(
+	__dirname,
+	"fixtures/gh/checks-forbidden.json",
+);
 const VALIDATION_FAILED = path.join(
 	__dirname,
 	"fixtures/gh/validation-failed.json",
@@ -318,18 +322,8 @@ describe("classifying why a gh call failed", () => {
 		expect(await reasonOf(stderr)).toBe("unreachable");
 	});
 
-	/* Hand-written, not a fixture: no read-only call reaches a scope 403 to
-	 * record. */
 	it.each([
-		[
-			"HTTP 403: `checks` scope required",
-			"a 403 that is a scope fault, not a rate limit",
-		],
-	])("reads %j as broken — %s", async (stderr) => {
-		expect(await reasonOf(stderr)).toBe("broken");
-	});
-
-	it.each([
+		[CHECKS_FORBIDDEN, "a 403 that is a scope fault, not a rate limit"],
 		[NOT_FOUND, "asking for something absent"],
 		[VALIDATION_FAILED, "a malformed request"],
 		[UNKNOWN_FLAG, "a typo in the call"],

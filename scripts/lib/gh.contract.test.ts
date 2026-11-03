@@ -90,6 +90,11 @@ const ISSUE_LIST_ROWS = path.join(
 	__dirname,
 	"fixtures/gh/issue-list-rows.json",
 );
+const ISSUE_VIEW = path.join(__dirname, "fixtures/gh/issue-view.json");
+const CHECKS_FORBIDDEN = path.join(
+	__dirname,
+	"fixtures/gh/checks-forbidden.json",
+);
 const IDLE_ISSUES_PAGE = path.join(
 	__dirname,
 	"fixtures/gh/idle-issues-page.json",
@@ -316,6 +321,20 @@ describe("live: read-only calls", () => {
 			args: ["issue", "view", "1", "--json", "body", "--jq", '.body // ""'],
 		},
 		{
+			what: "an issue as the close guard views it",
+			fixture: ISSUE_VIEW,
+			// #948: closed, commented and labelled, with a parent and sub-issues.
+			// Residual: a reaction on its first comment, or its parent unlinked,
+			// turns this red with no gh upgrade; re-record from the same call.
+			args: [
+				"issue",
+				"view",
+				"948",
+				"--json",
+				"comments,title,parent,labels,body,subIssues,url",
+			],
+		},
+		{
 			what: "a map listing, as the second-map limb reads it",
 			fixture: MAP_LIST,
 			args: [
@@ -442,6 +461,16 @@ describe("live: read-only calls", () => {
 			what: "the default-repo read",
 			fixture: REPO_VIEW,
 			args: ["repo", "view", "--json", "nameWithOwner"],
+		},
+		{
+			what: "a check-runs read, which the founder's fine-grained token is refused",
+			fixture: CHECKS_FORBIDDEN,
+			// The root commit. Residual: a token granted checks:read answers 200
+			// and turns this red; there the 403 stays recorded, not live.
+			args: [
+				"api",
+				"repos/{owner}/{repo}/commits/f46bfeab4aff66c57d6634b2f62fbbeaff833e11/check-runs",
+			],
 		},
 		{
 			what: "a malformed search",
@@ -846,6 +875,7 @@ describe("offline: the recorded shapes", () => {
 			REPO_VIEW,
 			LABELS_PAGE,
 			ISSUE_LIST_ROWS,
+			ISSUE_VIEW,
 			IDLE_ISSUES_PAGE,
 		])
 			expect(RECORDED_SHAPES).toContain(

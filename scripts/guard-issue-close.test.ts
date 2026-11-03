@@ -23,7 +23,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenRecords } from "./guard-log-fixture";
-import { GRAPHQL_FAKE } from "./lib/gh-fake";
+import { asRecorded, GRAPHQL_FAKE } from "./lib/gh-fake";
 import { stubGhScript } from "./lib/gh-stub";
 import {
 	buildBashPayload,
@@ -54,9 +54,9 @@ interface Issue {
 }
 
 /**
- * A gh at WFC_GH: `gh issue view` prints the issue's payload, `gh api
- * graphql` answers the Outstanding open-check with every carrier open but
- * `closed`.
+ * A gh at WFC_GH: `gh issue view` prints the issue's payload in its recorded
+ * shape, and `gh api graphql` answers the Outstanding open-check with every
+ * carrier open but `closed`.
  */
 function ghServing({
 	title = "An issue carrying no card-id prefix at all",
@@ -67,7 +67,7 @@ function ghServing({
 	const payload = path.join(dir, "issue.json");
 	fs.writeFileSync(
 		payload,
-		JSON.stringify({
+		asRecorded("issueView", {
 			comments: [{ body: newest }],
 			title,
 			body,

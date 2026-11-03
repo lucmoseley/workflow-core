@@ -1,0 +1,5 @@
+{
+	"status": 0,
+	"stdout": "{\"body\":\"synthetic\",\"comments\":[{\"id\":\"synthetic\",\"author\":{\"login\":\"synthetic\"},\"authorAssociation\":\"synthetic\",\"body\":\"synthetic\",\"createdAt\":\"synthetic\",\"includesCreatedEdit\":false,\"isMinimized\":false,\"minimizedReason\":\"synthetic\",\"reactionGroups\":[],\"url\":\"synthetic\",\"viewerDidAuthor\":true}],\"labels\":[{\"id\":\"synthetic\",\"name\":\"synthetic\",\"description\":\"synthetic\",\"color\":\"synthetic\"}],\"parent\":{\"id\":\"synthetic\",\"number\":1,\"state\":\"synthetic\",\"title\":\"synthetic\",\"url\":\"synthetic\"},\"subIssues\":{\"nodes\":[{\"id\":\"synthetic\",\"number\":1,\"state\":\"synthetic\",\"title\":\"synthetic\",\"url\":\"synthetic\"}],\"totalCount\":1},\"title\":\"synthetic\",\"url\":\"synthetic\"}\n",
+	"stderr": ""
+}

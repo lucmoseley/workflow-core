@@ -1,0 +1,5 @@
+{
+	"status": 1,
+	"stdout": "{\"message\":\"Resource not accessible by personal access token\",\"documentation_url\":\"https://docs.github.com/rest/checks/runs#list-check-runs-for-a-git-reference\",\"status\":\"403\"}",
+	"stderr": "gh: Resource not accessible by personal access token (HTTP 403)\n"
+}

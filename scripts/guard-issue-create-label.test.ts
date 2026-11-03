@@ -20,7 +20,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenRecords } from "./guard-log-fixture";
-import { ghFakeScript } from "./lib/gh-fake";
+import { GH_LOGGED_OUT, ghAnswer, ghServeLines } from "./lib/gh-fake";
 import { stubGhScript } from "./lib/gh-stub";
 import { UNFILLED_DESTINATION } from "./lib/issue-gate";
 import {
@@ -64,12 +64,15 @@ const emission = (
 		env,
 	});
 
-/** A gh at WFC_GH answering `fixture` with `stdout` swapped in. */
-function ghAnswering(fixture: string, stdout: string) {
-	const at = path.join(dir, path.basename(fixture));
-	const answer = JSON.parse(fs.readFileSync(fixture, "utf8"));
-	fs.writeFileSync(at, JSON.stringify({ ...answer, stdout }));
-	return stubGhScript(path.join(dir, "gh"), ghFakeScript(at)).env;
+/** A gh at WFC_GH answering `fixture` with `stdout` swapped in; run outside
+ *  `onlyIn`, where given, it answers as a logged-out gh. */
+function ghAnswering(fixture: string, stdout: string, onlyIn?: string) {
+	const answer = ghServeLines({ ...ghAnswer(fixture), stdout });
+	const elsewhere = onlyIn
+		? `if [ "$PWD" != ${shellQuote(onlyIn)} ]; then\n${ghServeLines(GH_LOGGED_OUT)}fi\n`
+		: "";
+	return stubGhScript(path.join(dir, "gh"), `#!/bin/sh\n${elsewhere}${answer}`)
+		.env;
 }
 
 describe("each exit", () => {
@@ -197,10 +200,7 @@ describe("the adapters, crossed for real", () => {
 
 	it("runs gh in the directory the edit runs in (#2796)", () => {
 		const sub = fs.mkdtempSync(path.join(dir, "sub-"));
-		const env = stubGhScript(
-			path.join(dir, "gh"),
-			`#!/bin/sh\n[ "$PWD" = ${shellQuote(sub)} ] || exit 1\nprintf 'Fill the gaps.\\n'\n`,
-		).env;
+		const env = ghAnswering(ISSUE_BODY, "Fill the gaps.\n", sub);
 		expect(
 			emission(`cd ${sub} && gh issue edit 12 --add-label takes:human`, { env })
 				.permissionDecisionReason,

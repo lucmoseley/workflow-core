@@ -10579,6 +10579,11 @@
 			"scripts/lib/gh.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
+		"scripts/lib/fixtures/gh/checks-forbidden.json": [
+			"scripts/lib/gh.contract.test.ts",
+			"scripts/lib/gh.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
 		"scripts/lib/fixtures/gh/comments-page.json": [
 			"scripts/lib/gh.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
@@ -10642,6 +10647,10 @@
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh/issue-state.json": [
+			"scripts/lib/gh.contract.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/lib/fixtures/gh/issue-view.json": [
 			"scripts/lib/gh.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
