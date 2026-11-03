@@ -83,8 +83,9 @@ const ALREADY_RUNNING = "already running";
  * @property {number|null} weekResets the weekly bar's reset, ms, from the
  *   same reading; null where it is unread, will not parse or has passed
  * @property {number} readAt ms, when the older of its bars was read
- * @property {{percent: number|null, atMs: number|null}} weekRead the weekly
- *   bar as read, whatever its trust, and when; for reporting alone
+ * @property {{percent: number|null, atMs: number|null, rolled?: boolean}} weekRead
+ *   the weekly bar as read, whatever its trust, and when; `rolled` where its reset
+ *   has since passed, `percent` then being 0; for reporting alone
  */
 
 /**

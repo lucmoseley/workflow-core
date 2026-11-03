@@ -899,6 +899,24 @@ describe("the plan and credit rows", () => {
 			);
 		});
 
+		it("shows a week reset since its read as 0, saying so (#4106)", () => {
+			const reading = {
+				...seatRead("~/.claude2", null),
+				weekRead: { percent: 0, at: ago(6 * 86_400_000), rolled: true },
+			};
+			const row = "  .claude2  0% (reset, read 6d ago)";
+			expect(shown(reading)).toBe(row);
+			expect(row.length).toBeLessThanOrEqual(38);
+		});
+
+		it("shows a week reset with no read time without an age (#4106)", () => {
+			const reading = {
+				...seatRead("~/.claude2", null),
+				weekRead: { percent: 0, at: null, rolled: true },
+			};
+			expect(shown(reading)).toBe("  .claude2  0% (reset)");
+		});
+
 		it("reads a seat with no reading as unread", () => {
 			expect(shown(buildReading(null, null, null))).toBe("  .claude2  unread");
 		});

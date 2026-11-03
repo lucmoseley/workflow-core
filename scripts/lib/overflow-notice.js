@@ -11,7 +11,8 @@ const { buildSeatName } = require("./refill-seats.js");
 /**
  * @typedef {{seat: string, percent: number|null, weekReadAt: number|null,
  *   weekFull: boolean}} PlanSeatBasis a plan seat's weekly bar as read, whatever
- *   its trust; `weekReadAt` null where the reading has no time
+ *   its trust, and 0 once its reset has passed; `weekReadAt` null where the
+ *   reading has no time
  * @typedef {{at: number, seat: string, planSeats: PlanSeatBasis[],
  *   omitted: string[]}} OverflowStart `seat`, the overflow seat launched on;
  *   `omitted`, lib/refill-seats.js's readOmittedDirs at that launch

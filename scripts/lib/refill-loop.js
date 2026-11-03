@@ -13,6 +13,7 @@ const { isTerminalAgent } = require("./agent-liveness.js");
 const { neverStartedJobs } = require("./hung-jobs.js");
 const { REVIEW_HOUR, localDate } = require("./morning-review.js");
 const { isTrustworthy, sizedPercent } = require("./allowance.js");
+const { hasResetPassed } = require("./usage-cache.js");
 const { DAY_MS } = require("./retained-jsonl.js");
 const { batchesOf } = require("./refill-batch.js");
 const {
@@ -643,6 +644,9 @@ const isBarFull = (bar, now) =>
 function seatReadingOf(seat, { session, weekly_all: week }, now) {
 	const sessionFull = isBarFull(session, now);
 	const weekResets = Date.parse(week.resetsAt ?? "");
+	/* A window that has rolled is at 0, as seat-utilisation.js's effectiveSevenDay
+	 * has it (#4106). A fresh bar's reset can be a printed date Date.parse misreads. */
+	const rolled = week.trust !== "fresh" && hasResetPassed(week.resetsAt, now);
 	return {
 		/* An unstamped bar is a printed `/usage`, read now, or unread. */
 		readAt: Math.min(session.fetchedAtMs ?? now, week.fetchedAtMs ?? now),
@@ -654,9 +658,10 @@ function seatReadingOf(seat, { session, weekly_all: week }, now) {
 		sessionResets: session.resetsAt,
 		weekResets: weekResets > now ? weekResets : null,
 		weekRead: {
-			percent: week.percent,
+			percent: rolled ? 0 : week.percent,
 			/* A printed `/usage` carries no time: it was read just now. */
 			atMs: week.fetchedAtMs ?? (week.trust === "fresh" ? now : null),
+			rolled,
 		},
 	};
 }
