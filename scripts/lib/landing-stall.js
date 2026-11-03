@@ -12,7 +12,11 @@
  * commit, tells a slow red batch, which moves `main` as it lands parents, from
  * a stuck queue. The clock starts no earlier than the first reading that found
  * `landing` ahead of the present `main`, so a push onto a `main` idle for
- * hours is not a stall the moment it lands (#3303).
+ * hours is not a stall the moment it lands (#3303), and no earlier than the
+ * guest's last boot or resume, as nothing can land while it is down or frozen
+ * (#4055). Residual: a queue stuck before one goes unreported for up to 2 h
+ * more, and a machine down or frozen within every 2 h never reports one.
+ * WFC_UPTIME_S replaces the guest's uptime, for tests.
  *
  * Both below need `landing` ahead of `main` and the pid the heartbeat names
  * not running. A live pid with a stale beat is a lander inside one push,
@@ -26,6 +30,7 @@
  */
 
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { pidAlive } = require("./arbiter-proc.js");
 const { writeFileAtomic } = require("./atomic-write.js");
@@ -56,6 +61,7 @@ const STALE_MS = 5 * HEARTBEAT_MS;
  *   where the remote has no `main`
  * @property {number|null} aheadSince when a reading first found `landing`
  *   ahead of, or diverged from, the present `main`, in ms; null where unknown
+ * @property {number} wokeAt when the guest last booted or resumed, in ms
  * @property {import("./lander.js").Heartbeat|null} heartbeat
  * @property {(pid: number) => boolean} alive
  */
@@ -70,6 +76,7 @@ function stallFindings({
 	relation,
 	mainAt,
 	aheadSince,
+	wokeAt,
 	heartbeat,
 	alive,
 }) {
@@ -80,7 +87,7 @@ function stallFindings({
 		landing !== null &&
 		queued(relation) &&
 		moved !== null &&
-		now - Math.max(moved, aheadSince ?? moved) > STALL_MS
+		now - Math.max(moved, aheadSince ?? moved, wokeAt) > STALL_MS
 	)
 		found.push({
 			tag: "LANDING-STALLED",
@@ -166,6 +173,10 @@ function readQueue(root) {
 			main: queued(refs.relation) ? refs.main : null,
 			now,
 		}),
+		wokeAt: recordWake(path.join(markersDir(root), WAKE), {
+			startedAt: now - Number(process.env.WFC_UPTIME_S ?? os.uptime()) * 1000,
+			now,
+		}),
 		heartbeat: readHeartbeat(landerFiles(root).heartbeat),
 		alive: pidAlive,
 	};
@@ -206,6 +217,47 @@ function recordAhead(file, { main, now }) {
 		/* An unwritable markers directory must not stop a dead lander's restart. */
 		return null;
 	}
+}
+
+/* When the guest last booted or resumed. */
+const WAKE = ".machine-wake.json";
+/* Untraced: wide of clock slew, and a freeze this short barely moves a 2 h
+ * clock. */
+const WAKE_SLACK_MS = 5 * 60 * 1000;
+
+/**
+ * When the guest last booted or resumed. Uptime stops while a WSL2 guest is
+ * frozen in the host's standby, so `startedAt`, the clock less the uptime,
+ * rises by each boot's or freeze's length, and the reading that finds it risen
+ * dates the wake. The first reading has only `startedAt`. Where the record
+ * cannot be written the answer is `startedAt`, so an unwritable directory
+ * never stops the clock.
+ * @param {string} file
+ * @param {{startedAt: number, now: number}} at
+ */
+function recordWake(file, { startedAt, now }) {
+	/** @type {{startedAt?: number, wokeAt?: number}|null} */
+	let rec = null;
+	try {
+		rec = JSON.parse(fs.readFileSync(file, "utf8"));
+	} catch {
+		/* Absent, or torn by a hand edit: dated from the uptime alone. */
+	}
+	if (
+		typeof rec?.startedAt === "number" &&
+		typeof rec.wokeAt === "number" &&
+		startedAt - rec.startedAt <= WAKE_SLACK_MS
+	)
+		return rec.wokeAt;
+	const wokeAt = rec === null ? startedAt : now;
+	try {
+		writeFileAtomic(file, `${JSON.stringify({ startedAt, wokeAt })}\n`, {
+			mkdir: true,
+		});
+	} catch {
+		return startedAt;
+	}
+	return wokeAt;
 }
 
 module.exports = {

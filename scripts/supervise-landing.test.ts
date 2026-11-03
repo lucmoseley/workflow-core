@@ -78,6 +78,7 @@ const supervise = (args: string[] = [], modules = "landing") =>
 			...process.env,
 			...ghEnv,
 			WFC_MODULES: modules,
+			WFC_UPTIME_S: "86400",
 			CLAUDE_PROJECT_DIR: work,
 			CLAUDE_CODE_SESSION_ID: "",
 		},
