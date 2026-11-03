@@ -79,8 +79,7 @@ const LAUNCH = new Map([
  *
  * NO MIGRATION SHIM: no marker existed at the old path anywhere on the
  * machine when this landed, and nothing here reads it now, so a leftover is
- * ignored. `~/.claude/statusline.sh` is the exception until #131 lands — it
- * still reads the old path, and would badge `burn: on` off a leftover.
+ * ignored.
  *
  * @param {Record<string, string | undefined>} [env]
  * @returns {string}

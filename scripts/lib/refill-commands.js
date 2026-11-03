@@ -1007,12 +1007,14 @@ function buildOverflowStatus(dir, budget) {
  * checkout, ticked or not, with why any is disabled (#3862), the launch rows
  * `status` lists, each with its seat as a tilde path and why it was picked
  * (#3732), null on a record from before that, the `seats:` line's fields
- * (#3733), and each overflow key's budget (#3875).
+ * (#3733), each overflow key's budget (#3875), and the newest tick's concurrency
+ * with the 24-hour figure (#4062).
  * @param {{control: Control|null, state: LoopState, pid: number|null,
  *   seats: SeatsView, codeSha: string|null, today: string,
  *   candidates: {root: string, disabled: string|null}[],
  *   burnMode: ReturnType<typeof import("./burn-mode.js").readBurnState>,
- *   overflow: ReturnType<typeof buildOverflowStatus>[]}} input
+ *   overflow: ReturnType<typeof buildOverflowStatus>[],
+ *   concurrency: ReturnType<typeof import("./concurrency.js").readConcurrencyStatus>}} input
  *   `codeSha`, lib/refill-code.js's readRunningCode; `today`, machine-local;
  *   `burnMode`, lib/burn-mode.js's readBurnState
  */
@@ -1026,6 +1028,7 @@ function buildStatusJson({
 	candidates,
 	burnMode,
 	overflow,
+	concurrency,
 }) {
 	const { lastTick } = state;
 	return {
@@ -1043,6 +1046,7 @@ function buildStatusJson({
 			planWait: lastTick.planWait ?? null,
 		},
 		launchesToday: launchesOnDay(state, today),
+		concurrency,
 		mode: control?.scope.mode ?? null,
 		goal: buildGoalStatus(control?.scope.goal ?? null, state.goalProgress),
 		awaySince: control?.away?.since ?? null,
