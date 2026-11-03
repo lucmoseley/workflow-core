@@ -13,6 +13,7 @@ const {
 	buildRows,
 	createPanel,
 } = require("./refill-panel.js");
+const { buildRoutes } = require("./refill-panel-routes.js");
 const { buildOverflowStatus, buildSeatsView } = require("./refill-commands.js");
 const { overflowReadings } = require("./refill-loop.js");
 
@@ -580,8 +581,8 @@ describe("the plan and credit rows", () => {
 	it("gives each key's estimate in grey and says it is not spending, with plans with room", () => {
 		expect(usage({ ...RUNNING, overflow: [key()] })).toEqual([
 			...PlansRoom,
-			["API credits", "secondary"],
-			["  .claude2  ~$258 of $400 left", "secondary"],
+			["API credits left", "secondary"],
+			["  .claude2  ~$258 of $400", "secondary"],
 			["  Not spending: plans have room", "secondary"],
 		]);
 	});
@@ -590,7 +591,7 @@ describe("the plan and credit rows", () => {
 		const texts = rowsOf({
 			status: { ...RUNNING, overflow: [key()] },
 		}).map((r: Row) => r.text);
-		const at = texts.indexOf("  .claude2  ~$258 of $400 left");
+		const at = texts.indexOf("  .claude2  ~$258 of $400");
 		expect(texts.slice(at + 1, at + 3)).toEqual([
 			"",
 			"  Not spending: plans have room",
@@ -604,9 +605,9 @@ describe("the plan and credit rows", () => {
 		];
 		expect(usage({ ...Launching, seats: ON_KEY_SEATS, overflow })).toEqual([
 			...PlansFull,
-			["API credits", "value"],
-			["  .claude3  ~$100 of $200 left", "value"],
-			["  .claude2  ~$258 of $400 left", "value"],
+			["API credits left", "value"],
+			["  .claude3  ~$100 of $200", "value"],
+			["  .claude2  ~$258 of $400", "value"],
 			["  Spending now: plans are full", "value"],
 		]);
 	});
@@ -634,8 +635,8 @@ describe("the plan and credit rows", () => {
 			}),
 		];
 		expect(keyRows({ ...RUNNING, overflow })).toEqual([
-			["  .claude3  ~$100 of $200 left", "secondary"],
-			["  .claude2  $0 of $200 left", "secondary"],
+			["  .claude3  ~$100 of $200", "secondary"],
+			["  .claude2  $0 of $200", "secondary"],
 		]);
 	});
 
@@ -645,8 +646,8 @@ describe("the plan and credit rows", () => {
 			key({ exhausted: true, noLaunchLeft: true, grantUsd: 200 }),
 		];
 		expect(keyRows({ ...RUNNING, overflow })).toEqual([
-			["  .claude3  ~$258 of $400 left", "value"],
-			["  .claude2  $0 of $200 left", "value"],
+			["  .claude3  ~$258 of $400", "value"],
+			["  .claude2  $0 of $200", "value"],
 		]);
 	});
 
@@ -659,7 +660,40 @@ describe("the plan and credit rows", () => {
 			}),
 		];
 		expect(keyRows({ ...RUNNING, overflow })).toEqual([
-			["  .claude2  $170 of $200 left (3h ago)", "secondary"],
+			["  .claude2  $170 of $200 (3h ago)", "secondary"],
+		]);
+	});
+
+	it("keeps each row of the block on one line in the width the split asks for (#4104)", () => {
+		const overflow = [
+			key({
+				seat: "~/.claude3-api",
+				headroomUsd: 170,
+				grantUsd: 200,
+				creditReadAt: LATER - 12 * 3600 * 1000,
+			}),
+			key({ exhausted: true, noLaunchLeft: true, grantUsd: 200 }),
+		];
+		const [{ args }] = buildRoutes({
+			env: { TMUX: "/tmp/tmux" },
+			isOnPath: () => false,
+			node: "node",
+			panel: "panel.js",
+			pid: 1,
+			viewColumns: null,
+		});
+		const texts = buildRows(
+			view({ status: { ...RUNNING, overflow } }),
+			LATER,
+			Number(args[args.indexOf("-l") + 1]),
+		).map((r: Row) => r.text);
+		const at = texts.indexOf("API credits left");
+		expect(texts.slice(at, at + 5)).toEqual([
+			"API credits left",
+			"  .claude3  $170 of $200 (12h ago)",
+			"  .claude2  $0 of $200",
+			"",
+			"  Not spending: plans have room",
 		]);
 	});
 
@@ -672,14 +706,14 @@ describe("the plan and credit rows", () => {
 			}),
 		];
 		expect(keyRows({ ...RUNNING, overflow })).toEqual([
-			["  .claude2  $0 of $400 left (2d ago)", "secondary"],
+			["  .claude2  $0 of $400 (2d ago)", "secondary"],
 		]);
 	});
 
 	it("keeps the ~ on a key the ledger alone calls spent", () => {
 		const overflow = [key({ noLaunchLeft: true, headroomUsd: 3 })];
 		expect(keyRows({ ...RUNNING, overflow })).toEqual([
-			["  .claude2  ~$3 of $400 left", "secondary"],
+			["  .claude2  ~$3 of $400", "secondary"],
 		]);
 	});
 
@@ -707,10 +741,10 @@ describe("the plan and credit rows", () => {
 		};
 		expect(usage(status)).toEqual([
 			...PlansFull,
+			["API credits left", "secondary"],
+			["  .claude3  $0 of $200", "secondary"],
+			["  .claude2  ~$3 of $400", "secondary"],
 			["Plans and API credits all used up", "value"],
-			["  .claude3  $0 of $200 left", "secondary"],
-			["  .claude2  ~$3 of $400 left", "secondary"],
-			["  Not spending: no credits left", "secondary"],
 		]);
 		expect(rowsOf({ status })[0].control?.state).toBe("on");
 	});
@@ -718,8 +752,8 @@ describe("the plan and credit rows", () => {
 	it("keeps the heading while a plan has room, every key being spent", () => {
 		const overflow = [key({ exhausted: true, noLaunchLeft: true })];
 		expect(usage({ ...RUNNING, overflow }).slice(3)).toEqual([
-			["API credits", "secondary"],
-			["  .claude2  $0 of $400 left", "secondary"],
+			["API credits left", "secondary"],
+			["  .claude2  $0 of $400", "secondary"],
 			["  Not spending: plans have room", "secondary"],
 		]);
 	});
@@ -731,9 +765,9 @@ describe("the plan and credit rows", () => {
 		];
 		expect(usage({ ...RUNNING, seats: FULL_SEATS, overflow })).toEqual([
 			...PlansFull,
-			["API credits", "secondary"],
+			["API credits left", "secondary"],
 			["  .claude3  unread: no table", "secondary"],
-			["  .claude2  $0 of $400 left", "secondary"],
+			["  .claude2  $0 of $400", "secondary"],
 			["  Spending unknown", "secondary"],
 		]);
 	});
@@ -742,9 +776,9 @@ describe("the plan and credit rows", () => {
 		const overflow = [key(), { seat: "~/.claude3-api", why: "no table" }];
 		expect(usage({ ...Launching, seats: ON_KEY_SEATS, overflow })).toEqual([
 			...PlansFull,
-			["API credits", "value"],
+			["API credits left", "value"],
 			["  .claude3  unread: no table", "secondary"],
-			["  .claude2  ~$258 of $400 left", "value"],
+			["  .claude2  ~$258 of $400", "value"],
 			["  Spending now: plans are full", "value"],
 		]);
 	});
@@ -752,7 +786,7 @@ describe("the plan and credit rows", () => {
 	it("shows a key reserved past its grant as nothing left, never less", () => {
 		const overflow = [key({ headroomUsd: -11 })];
 		expect(keyRows({ ...RUNNING, overflow })).toEqual([
-			["  .claude2  ~$0 of $400 left", "secondary"],
+			["  .claude2  ~$0 of $400", "secondary"],
 		]);
 	});
 
@@ -769,7 +803,7 @@ describe("the plan and credit rows", () => {
 		const overflow = [key(), { seat: "~/.claude3-api", why: "no table" }];
 		expect(usage({ ...RUNNING, overflow }).slice(-3)).toEqual([
 			["  .claude3  unread: no table", "secondary"],
-			["  .claude2  ~$258 of $400 left", "secondary"],
+			["  .claude2  ~$258 of $400", "secondary"],
 			["  Spending unknown", "secondary"],
 		]);
 	});
@@ -778,8 +812,8 @@ describe("the plan and credit rows", () => {
 		const status = { ...RUNNING, seats: ON_KEY_SEATS, overflow: [key()] };
 		expect(status.lastTick.idle).toBe("no free slot");
 		expect(usage(status).slice(3)).toEqual([
-			["API credits", "secondary"],
-			["  .claude2  ~$258 of $400 left", "secondary"],
+			["API credits left", "secondary"],
+			["  .claude2  ~$258 of $400", "secondary"],
 			["  Not spending: nothing launching", "secondary"],
 		]);
 	});
@@ -804,8 +838,8 @@ describe("the plan and credit rows", () => {
 			}),
 		];
 		expect(usage({ ...RUNNING, overflow }).slice(3)).toEqual([
-			["API credits", "secondary"],
-			["  .claude2  ~$200 of $200 left", "secondary"],
+			["API credits left", "secondary"],
+			["  .claude2  ~$200 of $200", "secondary"],
 			["  Not spending: plans have room", "secondary"],
 		]);
 	});
@@ -821,8 +855,8 @@ describe("the plan and credit rows", () => {
 		expect(
 			usage({ ...RUNNING, overflow: [key({ running: 2 })] }).slice(3),
 		).toEqual([
-			["API credits", "value"],
-			["  .claude2  ~$258 of $400 left", "value"],
+			["API credits left", "value"],
+			["  .claude2  ~$258 of $400", "value"],
 			["  Spending now: 2 on credits", "value"],
 		]);
 	});
@@ -952,7 +986,7 @@ describe("the plan and credit rows", () => {
 		expect(lastRow(idled)).toBe("  Not spending: nothing launching");
 		const spent = statusFor(full, budget(198, 0));
 		expect(spent.seats.next).toBeNull();
-		expect(lastRow(spent)).toBe("  Not spending: no credits left");
+		expect(lastRow(spent)).toBe("Plans and API credits all used up");
 	});
 });
 

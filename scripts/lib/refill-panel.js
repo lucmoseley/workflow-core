@@ -453,9 +453,9 @@ function buildKeysInPlanOrder({ seats, overflow }) {
 }
 
 /**
- * A key's credit left (#4063), with the Console reading's age where one anchors it
- * (#4071). `~` only with no reading and no credit refusal: the figure is then the
- * configured grant less the loop's own ledger, which is not what the Console holds.
+ * A key's credit left (#4063), which its heading says, so the row fits the pane (#4104),
+ * with the Console reading's age where one anchors it (#4071). `~` only with no reading
+ * and no credit refusal: the figure is then the configured grant less the loop's own ledger, which is not what the Console holds.
  * @param {ReadKey} key
  * @param {number} now
  */
@@ -463,7 +463,7 @@ function buildKeyFigure(
 	{ exhausted, headroomUsd, grantUsd, creditReadAt },
 	now,
 ) {
-	const figure = `of $${Math.floor(grantUsd)} left`;
+	const figure = `of $${Math.floor(grantUsd)}`;
 	/* Running runs' reservations can pass a key's credit. */
 	const usd = exhausted ? 0 : Math.floor(Math.max(headroomUsd, 0));
 	if (creditReadAt === null) return `${exhausted ? "" : "~"}$${usd} ${figure}`;
@@ -562,9 +562,7 @@ function buildCreditRows(status, now) {
 	const role = spending ? "value" : "secondary";
 	return [
 		SIBLING_GAP,
-		isAllUsedUp(status)
-			? { text: "Plans and API credits all used up", role: "value" }
-			: { text: "API credits", role },
+		{ text: "API credits left", role },
 		...buildKeysInPlanOrder(status).map((key) => {
 			const name = buildKeyPlan(key.seat).replace("~/", "");
 			return "why" in key
@@ -575,7 +573,9 @@ function buildCreditRows(status, now) {
 				: { text: `  ${name}  ${buildKeyFigure(key, now)}`, role };
 		}),
 		SIBLING_GAP,
-		{ text: `  ${text}`, role },
+		!spending && isAllUsedUp(status)
+			? { text: "Plans and API credits all used up", role: "value" }
+			: { text: `  ${text}`, role },
 	];
 }
 

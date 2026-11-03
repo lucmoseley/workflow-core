@@ -4,8 +4,9 @@
  * the environment (#3886, #3887, #4065, ruling #3571).
  */
 
-/* The widest row drawn in every state that stays on one line, 34 cells (an unread plan
- * row with a two-digit age), plus the panel's 4 cells of margin (#3956). */
+/* The widest row drawn in every state that stays on one line, 34 cells (a key's credit
+ * row with three-digit figures and a two-digit age, #4104), plus the panel's 4 cells of
+ * margin (#3956). */
 const PANEL_COLUMNS = 38;
 /* Windows Terminal's split takes only a share, of the pane's columns plus these: its 0.3
  * and 0.7 shares drew 44 and 108 columns, which fits a share of 160 less 4 (#3956). */
