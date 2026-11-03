@@ -287,9 +287,9 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 			"swap_used_mb",
 			"uptime_s",
 			"win_avail_mb",
+			"win_commit_pct",
 			"win_pages_in",
 			"win_pages_out",
-			"win_commit_pct",
 			"win_age_s",
 			"sessions",
 			"sched",
@@ -336,11 +336,12 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 		expect(total).toBeGreaterThan(busy);
 	});
 
+	/* A stored Windows reading taken ageS ago: epoch, then the five counters. */
+	const reading = (ageS: number) =>
+		`${Math.floor(Date.now() / 1000) - ageS} 1344 50538099 32868535 21980766208 33936314368\n`;
+
 	// The guest cannot see Windows paging (#3246), so a background read supplies it (#4159).
 	describe("Windows memory", () => {
-		const reading = (ageS: number) =>
-			`${Math.floor(Date.now() / 1000) - ageS} 1344 50538099 32868535 21980766208 33936314368\n`;
-
 		it("takes a fresh reading, with no paging delta on its first", () => {
 			const out = path.join(tmp, "win-fresh");
 			fs.writeFileSync(out, reading(5));
@@ -365,18 +366,129 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 			expect(row.win_age_s).toBeNull();
 		});
 
-		it("starts the next read in the background, stamped when it ends", async () => {
+		it("starts the next read in the background, stamped once it ends", async () => {
 			const out = path.join(tmp, "win-launch");
 			const fake = path.join(tmp, "fake-powershell");
-			fs.writeFileSync(fake, "#!/bin/sh\nprintf '1344 1 2 3 4\\r\\n'\n", {
-				mode: 0o755,
-			});
+			fs.writeFileSync(
+				fake,
+				"#!/bin/sh\nsleep 1\nprintf '1344 1 2 3 4\\r\\n'\n",
+				{
+					mode: 0o755,
+				},
+			);
+			const before = Math.floor(Date.now() / 1000);
 			quietPass("minute-win-launch", {
 				MEMWATCH_WIN_OUT: out,
 				MEMWATCH_WIN_READ: fake,
 			});
 			for (let i = 0; i < 50 && !fs.existsSync(out); i++) await setTimeout(100);
-			expect(fs.readFileSync(out, "utf8")).toMatch(/^\d+ 1344 1 2 3 4\n$/);
+			const [stamp, ...rest] = fs
+				.readFileSync(out, "utf8")
+				.trimEnd()
+				.split(" ");
+			expect(rest.join(" ")).toBe("1344 1 2 3 4");
+			expect(Number(stamp)).toBeGreaterThanOrEqual(before + 1);
+		});
+
+		it("keeps the last good reading when a read fails", async () => {
+			const out = path.join(tmp, "win-fail");
+			const good = reading(5);
+			fs.writeFileSync(out, good);
+			const fake = path.join(tmp, "failing-powershell");
+			fs.writeFileSync(
+				fake,
+				"#!/bin/sh\necho 'Get-CimInstance : error' >&2\nexit 1\n",
+				{ mode: 0o755 },
+			);
+			quietPass("minute-win-fail", {
+				MEMWATCH_WIN_OUT: out,
+				MEMWATCH_WIN_READ: fake,
+			});
+			await setTimeout(1500);
+			expect(fs.readFileSync(out, "utf8")).toBe(good);
+		});
+	});
+
+	/*
+	 * Deltas need a second line. A per-second stamp gives one without a
+	 * minute's wait.
+	 */
+	describe("deltas across lines", () => {
+		async function twoLines(name: string, env: Record<string, string> = {}) {
+			const minute = path.join(tmp, `${name}.jsonl`);
+			const child = spawn("bash", [MEMWATCH], {
+				env: {
+					...process.env,
+					MEMWATCH_LOG: path.join(tmp, `${name}.log`),
+					MEMWATCH_MINUTE_LOG: minute,
+					MEMWATCH_MINUTE_FMT: "%FT%T",
+					MEMWATCH_INTERVAL: "1",
+					MEMWATCH_THRESHOLD_MB: "99999999",
+					MEMWATCH_CPU_THRESHOLD_PCT: "99999",
+					...env,
+				},
+				stdio: "ignore",
+			});
+			const read = () =>
+				fs.existsSync(minute)
+					? fs.readFileSync(minute, "utf8").trimEnd().split("\n")
+					: [];
+			try {
+				for (let i = 0; i < 100 && read().length < 2; i++)
+					await setTimeout(100);
+			} finally {
+				child.kill("SIGKILL");
+			}
+			return read().map((l) => JSON.parse(l));
+		}
+
+		it("writes each vmstat counter's change on the second line", async () => {
+			const [, second] = await twoLines("delta-vmstat");
+			for (const k of [
+				"swap_in",
+				"swap_out",
+				"refault_file",
+				"refault_anon",
+				"majfault",
+				"allocstall",
+			]) {
+				expect(second[k]).toBeGreaterThanOrEqual(0);
+			}
+		});
+
+		it("writes a Windows reading's paging delta on one line only", async () => {
+			const out = path.join(tmp, "win-reuse");
+			fs.writeFileSync(out, reading(5));
+			const [first, second] = await twoLines("delta-win-reuse", {
+				MEMWATCH_WIN_OUT: out,
+			});
+			expect(first.win_avail_mb).toBe(1344);
+			expect(second.win_avail_mb).toBe(1344);
+			expect(second.win_pages_in).toBeNull();
+			expect(second.win_pages_out).toBeNull();
+		});
+
+		it("writes the paging change between two readings", async () => {
+			const out = path.join(tmp, "win-delta");
+			const now = Math.floor(Date.now() / 1000);
+			fs.writeFileSync(out, `${now - 30} 1344 1000 2000 50 100\n`);
+			const fake = path.join(tmp, "next-powershell");
+			fs.writeFileSync(
+				fake,
+				"#!/bin/sh\nprintf '1300 1100 2500 60 100\\r\\n'\n",
+				{ mode: 0o755 },
+			);
+			const rows = await twoLines("delta-win", {
+				MEMWATCH_WIN_OUT: out,
+				MEMWATCH_WIN_READ: fake,
+			});
+			const withDelta = rows.find((r) => r.win_pages_in !== null);
+			expect(withDelta).toMatchObject({
+				win_avail_mb: 1300,
+				win_pages_in: 100,
+				win_pages_out: 500,
+				win_commit_pct: 60,
+			});
 		});
 	});
 
