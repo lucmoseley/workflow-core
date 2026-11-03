@@ -76,7 +76,7 @@
 	"scripts/refill-wake.sh": "ec91afea3a88bdd2",
 	"scripts/register-doc.js": "ab9e4722084c333a",
 	"scripts/release-issue-claim.js": "9c2d0623c5ae0cbb",
-	"scripts/replay-notify-reports.js": "717f9f6df56581e1",
+	"scripts/replay-notify-reports.js": "e44812ab15dbe70c",
 	"scripts/report-suite-queue-wait.js": "57f13594659f207a",
 	"scripts/run-vitest.js": "229cb598b2386106",
 	"scripts/self-plugin-canary.sh": "98325522562d86a1",
