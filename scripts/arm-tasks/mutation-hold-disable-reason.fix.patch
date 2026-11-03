@@ -6,10 +6,10 @@ index fa23d07763e11717cd64c6274c44d1e98554ca79..3fe88f55464afc7bf6e19a1aaff18a46
 -A COMMIT CHANGING A LINE ON A DECLARED SENSITIVE PATH IS HELD WHILE A PLANTED BUG ON THAT LINE SURVIVES EVERY TEST. StrykerJS plants the bugs, its mutants, on the lines the commit adds or changes there, and the hold refuses while it cannot judge them too: tests red on HEAD plus the commit's changes, Stryker or vitest not installed, or Stryker not finishing — fix what the refusal names and commit again. Where it lists mutants, `Survived` means every test still passed with that one in place, `NoCoverage` that no test ran the line at all. Clear each one of two ways. Write a test that fails with that mutant in place — its line names the file, line, column, mutator and what the source was changed to, so no run by hand is needed. Or, where the mutant cannot change behaviour (an unreachable guard, a sort tie-break, display text), put `// Stryker disable next-line <mutator>: <why it cannot change behaviour>` above its line, or wrap a message table in `// Stryker disable <mutators>: <why>` … `// Stryker restore <mutators>`. Mutants on lines this commit did not change are never charged to it, and there is no score to meet (#1851).
 +A COMMIT CHANGING A LINE ON A DECLARED SENSITIVE PATH IS HELD WHILE A PLANTED BUG ON THAT LINE SURVIVES EVERY TEST. StrykerJS plants the bugs, its mutants, on the lines the commit adds or changes there, and the hold refuses while it cannot judge them too: tests red on HEAD plus the commit's changes, Stryker or vitest not installed, or Stryker not finishing — fix what the refusal names and commit again. Where it lists mutants, `Survived` means every test still passed with that one in place, `NoCoverage` that no test ran the line at all. Clear each one of two ways. Write a test that fails with that mutant in place — its line names the file, line, column, mutator and what the source was changed to, so no run by hand is needed. Or, where the mutant cannot change behaviour (an unreachable guard, a sort tie-break, display text), put `// Stryker disable next-line <mutator>: <why it cannot change behaviour>` above its line, or wrap a message table in `// Stryker disable <mutators>: <why>` … `// Stryker restore <mutators>`. A disable comment with no reason after its colon is refused, naming its line, where this commit adds it, turns old text into it, or widens its reach over a line it adds. Mutants on lines this commit did not change are never charged to it, and there is no score to meet (#1851).
 diff --git a/scripts/lib/stryker-comments.js b/scripts/lib/stryker-comments.js
-index 213955b3888ebdcf1885a90b0bb5c1b9ec70a48f..1cdd4d202d8c018a19e40a1c4abd678f1b75cb3d 100644
+index 213955b3888ebdcf1885a90b0bb5c1b9ec70a48f..747c1881e73f88c90bac210955cc5931062237f4 100644
 --- a/scripts/lib/stryker-comments.js
 +++ b/scripts/lib/stryker-comments.js
-@@ -1,14 +1,77 @@
+@@ -1,14 +1,78 @@
  /*
 - * stryker-comments.js — the host Stryker config, loaded as the mutation hold's
 - * wrapper loads it for Stryker.
@@ -33,6 +33,7 @@ index 213955b3888ebdcf1885a90b0bb5c1b9ec70a48f..1cdd4d202d8c018a19e40a1c4abd678f
  const { pathToFileURL } = require("node:url");
  const { caught } = require("./caught.js");
 +const { parseErrorFirstLine } = require("./first-line.js");
++const { readFdAll } = require("./read-fd.js");
 +const { writeFd } = require("./write-fd.js");
  
  const HOST_CONFIG_FAULT = "could not read the host's Stryker config";
@@ -89,7 +90,7 @@ index 213955b3888ebdcf1885a90b0bb5c1b9ec70a48f..1cdd4d202d8c018a19e40a1c4abd678f
  
  /**
   * The options object a host Stryker config at `file` exports, its default
-@@ -34,4 +97,131 @@ async function loadStrykerConfig(file) {
+@@ -34,4 +98,131 @@ async function loadStrykerConfig(file) {
  	return base;
  }
  
@@ -214,7 +215,7 @@ index 213955b3888ebdcf1885a90b0bb5c1b9ec70a48f..1cdd4d202d8c018a19e40a1c4abd678f
 +}
 +
 +if (require.main === module)
-+	readComments(JSON.parse(fs.readFileSync(0, "utf8"))).then(
++	readComments(JSON.parse(readFdAll(0).toString("utf8"))).then(
 +		(files) => answerAndExit({ files }),
 +		(e) => answerAndExit({ error: parseErrorFirstLine(e) }),
 +	);

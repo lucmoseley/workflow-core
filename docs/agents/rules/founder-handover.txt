@@ -6,7 +6,9 @@ A FOUNDER HAND-OVER — what you give when work needs the founder's own hands �
 3. End with what to send back, and what you will then check yourself. Route commands through `!` wherever they can run there — never a `sudo` that prompts, which `!` gives no terminal to prompt on — so their output lands in the session; ask for a screenshot only where the result is visible to him alone — a browser page, a Windows step.
 4. Put it at the end of the message.
 
-A HAND-OVER THE FOUNDER CANNOT FINISH IN THIS SESSION lives in an open issue's body, filed the moment it is named (`rule:founder-deliverable`); the chat walks the founder through it.
+THE FOUNDER STAYS IN CLAUDE CODE, unless the act itself happens elsewhere (#4058). Every ending that asks for an act carries every step in full, in that final message. Never send him to an issue, ticket, comment or file to read them, and never to steps given earlier: text between tool calls need not reach him. **Enforced** on the tracker and earlier-steps forms: `scripts/guard-priced-options.js`.
+
+A HAND-OVER THE FOUNDER CANNOT FINISH IN THIS SESSION is also recorded in an open issue's body, filed the moment it is named (`rule:founder-deliverable`), for later sessions.
 
 PLACEMENT. Where his whole act fits in about three lines, write the literal text inside the question's option, so "accept" is never followed by "give me the command". A longer walk comes unasked in your reply to "accept" — the option names the act and says so.
 

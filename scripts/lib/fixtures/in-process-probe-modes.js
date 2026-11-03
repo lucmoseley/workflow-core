@@ -10,6 +10,7 @@
 
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
+const { readFdAll } = require("../read-fd.js");
 
 /* Where a leak mode parks its timer, so the test that refused one can clear
  * it rather than leave it running in the vitest worker. */
@@ -42,6 +43,7 @@ const modes = {
 	cwd: () => say(process.cwd()),
 	stdin: () => say(fs.readFileSync(0, "utf8")),
 	"stdin-buffer": () => say(fs.readFileSync(0).toString("utf8")),
+	"stdin-read-fd": () => say(readFdAll(0).toString("utf8")),
 	env: () =>
 		say(
 			`${process.env.PROBE ?? "<unset>"}|${String("CARRIED" in process.env)}`,
