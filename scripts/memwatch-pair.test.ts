@@ -274,6 +274,7 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 			"lander",
 			"forks",
 			"sessions",
+			"sched",
 		]);
 		expect(row.ts).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d{4}$/);
 		expect(typeof row.load1).toBe("number");
@@ -281,6 +282,20 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 		expect(row.cpu_busy_pct).toBeNull();
 		// The test's own node process is running.
 		expect(row.node).toBeGreaterThan(0);
+	});
+
+	// A freeze the state line misses recomputes from these (#4081).
+	it("carries each pass's raw clock readings: epoch, rq ns, busy and total ticks", () => {
+		const { lines } = quietPass("minute-sched");
+		const { sched } = JSON.parse(lines[0]);
+		expect(sched).toHaveLength(1);
+		const [epoch, rqNs, busy, total] = sched[0];
+		/* Untraced: only rules out a field in the wrong slot, so generous. */
+		const EpochSlackS = 120;
+		expect(Math.abs(epoch - Date.now() / 1000)).toBeLessThan(EpochSlackS);
+		expect(rqNs).toBeGreaterThan(0);
+		expect(busy).toBeGreaterThan(0);
+		expect(total).toBeGreaterThan(busy);
 	});
 
 	// A restart reads the last line back, so it never writes that minute again.

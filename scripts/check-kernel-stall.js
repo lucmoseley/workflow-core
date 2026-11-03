@@ -19,6 +19,15 @@
  * without permission prints `-- No entries --` and exits 0, and an empty log is
  * not a clean one. Each binary is injected at WFC_JOURNALCTL / WFC_DMESG (§N7).
  *
+ * EACH STALL'S FIGURE (#4081) is its `t=<n> jiffies`, in seconds at the kernel's
+ * CONFIG_HZ, beside the VM's age and, for a large one, Windows uptime at the
+ * stall: the newest Kernel-General Event 12 before it. CLOCK-LEAP names a `t`
+ * near that uptime on a young VM, where the VM's clock leapt forward by about
+ * the host's uptime; LARGE-T names any other large `t`, giving no cause. Windows
+ * is read only once a large `t` is found, and a reading it cannot take leaves the stall reported with that
+ * figure unknown. An earlier boot's `t` converts at the running kernel's
+ * CONFIG_HZ.
+ *
  * THE CLOCK SIGNAL reads each CPU's `rq_cpu_time` (`/proc/schedstat` field 7,
  * ns) and the non-idle ticks in `/proc/stat`, CLOCK_WAIT_MS apart. A backward `sched_clock` step on arm64 holds
  * every run queue's clock still while the CPUs stay busy (#2708), so the clock
@@ -39,6 +48,7 @@
  * WFC_KERNEL_LOG replaces both readers with a file in journalctl's short-iso
  * shape, the seam lib/proc-root.js's meminfoPath takes WFC_MEMINFO by; it
  * ignores --boot, and an unreadable or empty one is SKIP, as the readers are.
+ * WFC_KERNEL_CONFIG replaces /proc/config.gz, and WFC_WEVTUTIL the Windows reader.
  * WFC_SCHED_CLOCK replaces the clock's reads with a directory holding
  * `before/` and `after/`, each with a `schedstat` and a `stat` in `/proc`'s
  * shape, and takes no wait.
@@ -52,13 +62,14 @@
  * to run; running either itself would kill every live session on a false
  * positive — §9's rule for Guard 2.
  *
- * IMPLICIT:  at every session start, reads this boot's kernel log and the scheduler clock over 1 s and, where the log holds an RCU stall or the clock is frozen, prints that the VM is unhealthy and the sync-then-shutdown recovery; prints nothing on a clean or unreadable reading.
+ * IMPLICIT:  at every session start, reads this boot's kernel log and the scheduler clock over 1 s and, where the log holds an RCU stall or the clock is frozen, prints that the VM is unhealthy and the sync-then-shutdown recovery, reading the Windows event log once where a stall's `t` is large; prints nothing on a clean or unreadable reading.
  * JUSTIFIED: fail-safe — nothing else tells a session the VM is unhealthy, and a reading it cannot take is silence, never a warning.
  * DEFEAT:    none at the hook; a reboot of the VM clears a stall, the signal being per-boot, and a freeze clears once the clock moves.
  */
 
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
+const zlib = require("node:zlib");
 const { runCheck } = require("./lib/check");
 const { REAL_PROC } = require("./lib/proc-root.js");
 const { docPath } = require("./lib/script-path.js");
@@ -91,7 +102,44 @@ const FROZEN_RATIO = 0.1;
 /** `/proc/stat`'s tick unit, USER_HZ, which Linux fixes at 100 on arm64 and x86. */
 const USER_HZ = 100;
 
+/**
+ * From here a `t` is reported. Untraced, set between the largest figure in a
+ * chain of one stall's reprints (466,907 jiffies, 1,867 s) and
+ * the smallest large one that fits no chain (1,757,889 jiffies, 7,032 s).
+ */
+const LARGE_T_S = 3600;
+
+/**
+ * Oldest VM a CLOCK-LEAP is named on. Untraced: about twice the oldest of the
+ * three measured leaps, whose VMs were 2.2-5.3 min old (#4081).
+ */
+const YOUNG_VM_S = 600;
+
+/**
+ * Widest gap between `t` and Windows uptime a CLOCK-LEAP is named on, as a
+ * fraction of uptime. Untraced: about twice the widest of the three measured
+ * gaps, 0.02-1.6% (#4081).
+ */
+const LEAP_GAP = 0.03;
+
+/**
+ * Measured at 0.12 s on 3 Nov 2026; §9's degraded bridge reads 3.9 s a call,
+ * which this still clears (#4081).
+ */
+const WINDOWS_READ_TIMEOUT_MS = 5000;
+
+/** Measured at about 8 KB for the 11 boots retained on 3 Nov 2026; this is ~130x that (#4081). */
+const WINDOWS_MAX_BUFFER = 1024 * 1024;
+
+const UNKNOWN_TIME = "an unknown time";
+
 const STALL = /\brcu: INFO: rcu_\w+ (?:detected stalls|self-detected stall)/;
+
+/** `(t=9435698 jiffies g=…` or `(detected by 1, t=15002 jiffies, g=…`. */
+const T_FIGURE = /\bt=(\d+) jiffies\b/;
+
+/** A kernel log whose first line is this starts at the boot, so dates the VM. */
+const BOOT_BANNER = /\b(?:Booting Linux|Linux version)\b/;
 
 /** @param {string} boot */
 const readers = (boot) => ({
@@ -204,6 +252,26 @@ const cpuS = (s) => `${s.toFixed(1)} CPU-s`;
 const parseRealLines = (text) =>
 	text.split("\n").filter((l) => l.trim() && !/^(?:-- |Hint:)/.test(l));
 
+/** @typedef {{ line: string, jiffies: number | null }} StallEvent */
+
+/**
+ * Each stall in `lines`, with the `t` the lines after it give, null where the
+ * log lost that line.
+ * @param {string[]} lines
+ * @returns {StallEvent[]}
+ */
+function parseStallEvents(lines) {
+	/** @type {StallEvent[]} */
+	const events = [];
+	for (const line of lines) {
+		if (STALL.test(line)) events.push({ line, jiffies: null });
+		const last = events.at(-1);
+		const t = line.match(T_FIGURE)?.[1];
+		if (last && last.jiffies === null && t) last.jiffies = Number(t);
+	}
+	return events;
+}
+
 /**
  * The first reader's stalls, journalctl's stamps being preferred; null where no
  * reader holds one.
@@ -211,17 +279,137 @@ const parseRealLines = (text) =>
  */
 function findStalls(logs) {
 	for (const { reader, lines } of logs) {
-		const stalls = lines.filter((l) => STALL.test(l));
-		const [firstLine] = stalls;
-		if (firstLine !== undefined)
+		const events = parseStallEvents(lines);
+		const [firstEvent] = events;
+		if (firstEvent !== undefined)
 			return {
 				reader,
-				count: stalls.length,
-				first: reader.time(firstLine) || "an unknown time",
+				lines,
+				events,
+				count: events.length,
+				first: reader.time(firstEvent.line) || UNKNOWN_TIME,
 			};
 	}
 	return null;
 }
+
+/**
+ * The running kernel's CONFIG_HZ; null where its config cannot be read, which
+ * the warning says (#4081).
+ * @returns {number | null}
+ */
+function readKernelHz() {
+	try {
+		const gz = fs.readFileSync(
+			process.env.WFC_KERNEL_CONFIG || `${REAL_PROC}/config.gz`,
+		);
+		const hz = zlib
+			.gunzipSync(gz)
+			.toString()
+			.match(/^CONFIG_HZ=(\d+)$/m)?.[1];
+		return hz ? Number(hz) : null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Every Windows boot the event log retains, as ms since the epoch; empty where
+ * it cannot be read, which the warning prints as uptime unknown (#4081).
+ * wevtutil's XML carries UTC stamps whatever the locale.
+ * @returns {number[]}
+ */
+function readWindowsBoots() {
+	const res = spawnSync(
+		process.env.WFC_WEVTUTIL || "wevtutil.exe",
+		[
+			"qe",
+			"System",
+			"/q:*[System[Provider[@Name='Microsoft-Windows-Kernel-General'] and EventID=12]]",
+			"/f:xml",
+		],
+		{
+			encoding: "utf8",
+			timeout: WINDOWS_READ_TIMEOUT_MS,
+			// A call stuck on the interop bridge ignores TERM (#4081, §9).
+			killSignal: "SIGKILL",
+			stdio: ["ignore", "pipe", "ignore"],
+			maxBuffer: WINDOWS_MAX_BUFFER,
+		},
+	);
+	if (res.error || res.status !== 0) return [];
+	return [...res.stdout.matchAll(/<TimeCreated SystemTime='([^']+)'/g)]
+		.flatMap((m) => (m[1] ? [Date.parse(m[1])] : []))
+		.filter(Number.isFinite);
+}
+
+/** @typedef {"clock-leap" | "large-t" | "ordinary" | "unconverted"} StallKind */
+
+/**
+ * @param {number | null} tS
+ * @param {number | null} vmAgeS
+ * @param {number | null} uptimeS
+ * @returns {StallKind}
+ */
+function classify(tS, vmAgeS, uptimeS) {
+	if (tS === null) return "unconverted";
+	if (tS < LARGE_T_S) return "ordinary";
+	const leapt =
+		vmAgeS !== null &&
+		vmAgeS <= YOUNG_VM_S &&
+		uptimeS !== null &&
+		Math.abs(tS - uptimeS) <= LEAP_GAP * uptimeS;
+	return leapt ? "clock-leap" : "large-t";
+}
+
+/**
+ * Each stall's `t`, the VM's age and, for a large `t` alone, Windows uptime,
+ * all at the stall's own stamp.
+ * @param {{ reader: Reader, lines: string[], events: StallEvent[] }} stall
+ */
+function buildStallFigures({ reader, lines, events }) {
+	const hz = readKernelHz();
+	/** @param {string} line */
+	const stampOf = (line) => Date.parse(reader.time(line) ?? "");
+	const [firstLine = ""] = lines;
+	const vmStart = BOOT_BANNER.test(firstLine) ? stampOf(firstLine) : Number.NaN;
+	/** @type {number[] | undefined} */
+	let windowsBoots;
+	return events.map(({ line, jiffies }) => {
+		const at = stampOf(line);
+		const tS = jiffies !== null && hz ? Math.round(jiffies / hz) : null;
+		const age = Math.round((at - vmStart) / 1000);
+		const vmAgeS = Number.isFinite(age) ? age : null;
+		let windowsUptimeS = null;
+		if (tS !== null && tS >= LARGE_T_S) {
+			windowsBoots ??= readWindowsBoots();
+			const before = windowsBoots.filter((b) => b <= at);
+			if (before.length > 0)
+				windowsUptimeS = Math.round((at - Math.max(...before)) / 1000);
+		}
+		return {
+			at: reader.time(line) || UNKNOWN_TIME,
+			jiffies,
+			tS,
+			vmAgeS,
+			windowsUptimeS,
+			kind: classify(tS, vmAgeS, windowsUptimeS),
+		};
+	});
+}
+/** @typedef {ReturnType<typeof buildStallFigures>[number]} StallFigure */
+
+/** @param {number | null} s */
+const seconds = (s) => (s === null ? "unknown" : `${s} s`);
+
+/** @type {Partial<Record<StallKind, { tag: string, tail: string }>>} */
+const FIGURE_REPORTS = {
+	"clock-leap": {
+		tag: "CLOCK-LEAP",
+		tail: `the VM's clock leapt forward by about the host's uptime (${docPath("environment.md")} §7)`,
+	},
+	"large-t": { tag: "LARGE-T", tail: "a large figure, no cause named" },
+};
 
 /**
  * @param {string} boot
@@ -253,13 +441,17 @@ const recovery = (stalled) => [
 		: "  Commit what you can, then at your next chance:",
 	"    sync                      # in WSL — flushes writes `wsl --shutdown` would discard",
 	"    wsl --shutdown            # in Windows PowerShell, then reopen the terminal",
+	"  If `wsl --shutdown` itself hangs, in an elevated PowerShell:",
+	"    hcsdiag list",
+	"    hcsdiag kill <GUID>",
+	`  and restart Windows only if that fails; hcsdiag's effect on a clock leap is unmeasured (${docPath("environment.md")} §8).`,
 	"  Nothing was shut down; this check only reports.",
 ];
 
 /**
  * @param {string} boot
  * @param {{ reader: Reader, lines: string[] }[]} logs
- * @param {{ count: number } | null} stall
+ * @param {{ count: number, figures: StallFigure[] } | null} stall
  * @param {{ rq: number, busy: number } | null} clock
  */
 function buildResult(boot, logs, stall, clock) {
@@ -281,9 +473,36 @@ function buildResult(boot, logs, stall, clock) {
 			readers: logs.map((l) => l.reader.cmd),
 			lines: read,
 			stalls: stall ? stall.count : 0,
+			stallFigures: stall ? stall.figures : [],
 			clock: clock && { ...clock, frozen },
 		},
 	};
+}
+
+/**
+ * @param {import("./lib/check").Ctx} ctx
+ * @param {string} boot
+ * @param {NonNullable<ReturnType<typeof findStalls>> & { figures: StallFigure[] }} stall
+ */
+function reportStall(ctx, boot, stall) {
+	ctx.fail(
+		"KERNEL-STALL",
+		`the kernel reported ${stall.count} RCU stall(s) on boot ${boot}, the first at ${stall.first}`,
+		{ first: stall.first, count: stall.count, reader: stall.reader.cmd },
+	);
+	const warning = stallWarning(boot, stall);
+	for (const f of stall.figures) {
+		const report = FIGURE_REPORTS[f.kind];
+		if (!report) continue;
+		const message = `t=${f.jiffies} jiffies, ${f.tS} s, at ${f.at}; VM age ${seconds(f.vmAgeS)}; Windows uptime ${seconds(f.windowsUptimeS)}: ${report.tail}`;
+		ctx.fail(report.tag, message, f);
+		warning.push(`${report.tag} — ${message}.`);
+	}
+	if (stall.figures.some((f) => f.kind === "unconverted"))
+		warning.push(
+			"  A stall's `t` could not be converted to seconds, so a clock leap cannot be told from it: the log lost the figure or CONFIG_HZ is unreadable.",
+		);
+	return warning;
 }
 
 runCheck({
@@ -303,17 +522,10 @@ runCheck({
 					(clock ? " The scheduler clock is running." : ""),
 			);
 
-		const stall = findStalls(logs);
+		const found = findStalls(logs);
+		const stall = found && { ...found, figures: buildStallFigures(found) };
 		/** @type {string[]} */
-		const warning = [];
-		if (stall) {
-			ctx.fail(
-				"KERNEL-STALL",
-				`the kernel reported ${stall.count} RCU stall(s) on boot ${boot}, the first at ${stall.first}`,
-				{ first: stall.first, count: stall.count, reader: stall.reader.cmd },
-			);
-			warning.push(...stallWarning(boot, stall));
-		}
+		const warning = stall ? reportStall(ctx, boot, stall) : [];
 		if (clock && frozen) {
 			ctx.fail(
 				"SCHED-CLOCK-FROZEN",

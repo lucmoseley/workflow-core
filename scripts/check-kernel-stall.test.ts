@@ -8,7 +8,9 @@
  * and point WFC_JOURNALCTL at lib/earlyoom-journal-fake.ts's stub and
  * WFC_DMESG at lib/dmesg-fake.ts's, so the machine's own kernel log is never
  * read. Every case reads the clock from a WFC_SCHED_CLOCK fixture, a running
- * one unless it says otherwise, so the machine's own is never read.
+ * one unless it says otherwise, so the machine's own is never read; likewise
+ * CONFIG_HZ from a WFC_KERNEL_CONFIG fixture, and Windows through a WFC_WEVTUTIL
+ * that is absent unless a case supplies lib/wevtutil-fake.ts's stub.
  *
  * It is a SessionStart `--notify` hook in .claude/settings.json, and
  * scripts/dispatch-sessions.sh refuses a launch on its plain run: loosen a case
@@ -25,8 +27,10 @@ import {
 	writeFailingJournalctl,
 	writeJournalctl,
 } from "./lib/earlyoom-journal-fake";
+import { stallBootLines, writeKernelConfig } from "./lib/kernel-stall-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 import { writeSchedClock } from "./lib/sched-clock-fixture";
+import { writeWevtutil } from "./lib/wevtutil-fake";
 
 const SCRIPT = path.join(__dirname, "check-kernel-stall.js");
 
@@ -72,6 +76,9 @@ function logFile(lines: string[]): string {
 
 const absent = () => path.join(dir, "no-such-reader");
 
+const kernelConfig = (hz: number) =>
+	writeKernelConfig(path.join(dir, `config-${hz}.gz`), hz);
+
 const clock = (move: { rq: number; busy: number }) =>
 	writeSchedClock(path.join(dir, `clock-${move.rq}-${move.busy}`), move);
 const RUNNING = { rq: 2.05, busy: 2 };
@@ -83,7 +90,13 @@ function run(args: string[], env: Record<string, string>) {
 	delete base.WFC_JOURNALCTL;
 	delete base.WFC_DMESG;
 	return runInProcess(SCRIPT, args, {
-		env: { ...base, WFC_SCHED_CLOCK: clock(RUNNING), ...env },
+		env: {
+			...base,
+			WFC_SCHED_CLOCK: clock(RUNNING),
+			WFC_KERNEL_CONFIG: kernelConfig(250),
+			WFC_WEVTUTIL: absent(),
+			...env,
+		},
 	});
 }
 
@@ -332,5 +345,246 @@ describe("--boot <n>, for the boot that already died", () => {
 		const r = run(["--boot", "yesterday"], {});
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("--boot takes journalctl's boot offset");
+	});
+});
+
+describe("each stall's t figure (#4081)", () => {
+	/* The retained Windows boots around these stalls (Kernel-General Event 12). */
+	const WindowsBoots = [
+		"2026-09-14T20:47:22Z",
+		"2026-10-04T13:35:35Z",
+		"2026-11-02T17:52:54Z",
+	].map(Date.parse);
+	const windows = () => writeWevtutil(path.join(dir, "win"), WindowsBoots);
+	const windowsCalls = () => path.join(dir, "win", "calls");
+	const Leap = {
+		vmStart: "2026-11-03T12:19:37+08:00",
+		stalled: "2026-11-03T12:21:48+08:00",
+		jiffies: 9_435_698,
+	};
+
+	function stalledBoot({
+		vmStart,
+		stalled,
+		jiffies,
+	}: {
+		vmStart: string;
+		stalled: string;
+		jiffies: number;
+	}) {
+		return logFile(
+			stallBootLines(Date.parse(vmStart), Date.parse(stalled), jiffies),
+		);
+	}
+
+	const figures = (stdout: string) => JSON.parse(stdout).stallFigures;
+
+	it.each([
+		{
+			when: "17 Sep",
+			vmStart: "2026-09-17T16:59:16+08:00",
+			stalled: "2026-09-17T17:04:34+08:00",
+			jiffies: 54_174_601,
+			tS: 216_698,
+			vmAgeS: 318,
+			windowsUptimeS: 217_032,
+		},
+		{
+			when: "22 Sep",
+			vmStart: "2026-09-22T16:20:35+08:00",
+			stalled: "2026-09-22T16:24:21+08:00",
+			jiffies: 158_995_772,
+			tS: 635_983,
+			vmAgeS: 226,
+			windowsUptimeS: 646_619,
+		},
+		{
+			when: "3 Nov",
+			...Leap,
+			tS: 37_743,
+			vmAgeS: 131,
+			windowsUptimeS: 37_734,
+		},
+	])("names the $when stall a CLOCK-LEAP, with its three figures", (c) => {
+		const env = {
+			WFC_KERNEL_LOG: stalledBoot(c),
+			WFC_WEVTUTIL: windows(),
+		};
+		const plain = run(["--boot", "-1"], env);
+		expect(plain.status).toBe(1);
+		expect(plain.stderr).toContain("CLOCK-LEAP");
+		expect(plain.stderr).toContain(`t=${c.jiffies} jiffies, ${c.tS} s`);
+		expect(plain.stderr).toContain(`VM age ${c.vmAgeS} s`);
+		expect(plain.stderr).toContain(`Windows uptime ${c.windowsUptimeS} s`);
+		expect(figures(run(["--boot", "-1", "--json"], env).stdout)).toEqual([
+			{
+				at: expect.any(String),
+				jiffies: c.jiffies,
+				tS: c.tS,
+				vmAgeS: c.vmAgeS,
+				windowsUptimeS: c.windowsUptimeS,
+				kind: "clock-leap",
+			},
+		]);
+	});
+
+	it.each([
+		{
+			boot: "-24",
+			vmStart: "2026-09-18T13:25:48+08:00",
+			stalled: "2026-09-22T15:56:56+08:00",
+			jiffies: 98_670_506,
+			vmAgeS: 354_668,
+			windowsUptimeS: 644_974,
+		},
+		{
+			boot: "-18",
+			vmStart: "2026-10-04T21:47:11+08:00",
+			stalled: "2026-10-07T22:51:51+08:00",
+			jiffies: 39_758_081,
+			vmAgeS: 263_080,
+			windowsUptimeS: 263_776,
+		},
+	])("names boot $boot's large t on its own line, with no cause", (c) => {
+		const r = run(["--boot", c.boot], {
+			WFC_KERNEL_LOG: stalledBoot(c),
+			WFC_WEVTUTIL: windows(),
+		});
+		expect(r.status).toBe(1);
+		expect(r.stderr).toMatch(/^LARGE-T — t=\d+ jiffies/m);
+		expect(r.stderr).not.toContain("CLOCK-LEAP");
+		expect(r.stderr).toContain(`VM age ${c.vmAgeS} s`);
+		expect(r.stderr).toContain(`Windows uptime ${c.windowsUptimeS} s`);
+	});
+
+	it("says neither of an ordinary 15,000 jiffies, and never reads Windows for one", () => {
+		const r = run([], {
+			WFC_KERNEL_LOG: stalledBoot({ ...Leap, jiffies: 15_002 }),
+			WFC_WEVTUTIL: windows(),
+		});
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("KERNEL-STALL");
+		expect(r.stderr).not.toContain("CLOCK-LEAP");
+		expect(r.stderr).not.toContain("LARGE-T");
+		expect(fs.existsSync(windowsCalls())).toBe(false);
+	});
+
+	it("spawns no Windows process on a clean run", () => {
+		const r = run(["--notify"], {
+			WFC_KERNEL_LOG: logFile(CLEAN),
+			WFC_WEVTUTIL: windows(),
+		});
+		expect(r.stdout).toBe("");
+		expect(fs.existsSync(windowsCalls())).toBe(false);
+	});
+
+	it("reads Windows once however many large figures the boot holds", () => {
+		const log = stalledBoot(Leap);
+		const later = Date.parse("2026-11-03T12:22:48+08:00");
+		fs.appendFileSync(
+			log,
+			`${kernelLine(later, STALL_MSG)}\n${kernelLine(later, "rcu: \t(detected by 1, t=9450698 jiffies, g=1, q=1 ncpus=8)")}\n`,
+		);
+		const r = run(["--json"], {
+			WFC_KERNEL_LOG: log,
+			WFC_WEVTUTIL: windows(),
+		});
+		expect(figures(r.stdout).map((f: { tS: number }) => f.tS)).toEqual([
+			37_743, 37_803,
+		]);
+		expect(fs.readFileSync(windowsCalls(), "utf8").trim().split("\n")).toEqual([
+			"wevtutil qe System /q:*[System[Provider[@Name='Microsoft-Windows-Kernel-General'] and EventID=12]] /f:xml",
+		]);
+	});
+
+	it.each([
+		{ state: "absent", bin: absent },
+		{
+			state: "failing",
+			bin: () => writeWevtutil(path.join(dir, "win"), [], { fails: true }),
+		},
+		{
+			state: "holding no boot before the stall",
+			bin: () =>
+				writeWevtutil(path.join(dir, "win"), [
+					Date.parse("2026-12-01T00:00:00Z"),
+				]),
+		},
+	])(
+		"still reports the stall, uptime unknown, with Windows $state",
+		({ bin }) => {
+			const env = { WFC_KERNEL_LOG: stalledBoot(Leap), WFC_WEVTUTIL: bin() };
+			const r = run([], env);
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain("KERNEL-STALL");
+			expect(r.stderr).toContain("LARGE-T");
+			expect(r.stderr).toContain("Windows uptime unknown");
+			const notify = run(["--notify"], env);
+			expect(notify.status).toBe(0);
+			expect(notify.stdout).toContain("Windows uptime unknown");
+		},
+	);
+
+	it("converts at the kernel's CONFIG_HZ, assuming none", () => {
+		const r = run(["--json"], {
+			WFC_KERNEL_LOG: stalledBoot(Leap),
+			WFC_KERNEL_CONFIG: kernelConfig(1000),
+			WFC_WEVTUTIL: windows(),
+		});
+		expect(figures(r.stdout)[0]).toMatchObject({ tS: 9436, kind: "large-t" });
+	});
+
+	it("says so where CONFIG_HZ is unreadable, and still reports the stall", () => {
+		const r = run([], {
+			WFC_KERNEL_LOG: stalledBoot(Leap),
+			WFC_KERNEL_CONFIG: absent(),
+			WFC_WEVTUTIL: windows(),
+		});
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("could not be converted");
+		expect(fs.existsSync(windowsCalls())).toBe(false);
+	});
+
+	it("leaves VM age unknown, and names no leap, on a log not starting at the boot", () => {
+		const at = Date.parse(Leap.stalled);
+		const r = run([], {
+			WFC_KERNEL_LOG: logFile([
+				kernelLine(at, STALL_MSG),
+				kernelLine(
+					at,
+					"rcu: \t(detected by 1, t=9435698 jiffies, g=1, q=1 ncpus=8)",
+				),
+			]),
+			WFC_WEVTUTIL: windows(),
+		});
+		expect(r.stderr).toContain("VM age unknown");
+		expect(r.stderr).toContain("LARGE-T");
+		expect(r.stderr).not.toContain("CLOCK-LEAP");
+	});
+
+	it("names no leap on an old VM whose t matches Windows uptime", () => {
+		const r = run([], {
+			WFC_KERNEL_LOG: stalledBoot({
+				...Leap,
+				vmStart: "2026-11-03T12:09:00+08:00",
+			}),
+			WFC_WEVTUTIL: windows(),
+		});
+		expect(r.stderr).toContain("LARGE-T");
+		expect(r.stderr).not.toContain("CLOCK-LEAP");
+	});
+
+	it("gives the hung-shutdown escalation with the recovery, on the running boot alone", () => {
+		const log = logFile(STALLED);
+		const now = run(["--notify"], { WFC_KERNEL_LOG: log });
+		const hang = now.stdout.indexOf("`wsl --shutdown` itself hangs");
+		expect(hang).toBeGreaterThan(now.stdout.indexOf("wsl --shutdown  "));
+		expect(now.stdout.indexOf("hcsdiag list")).toBeGreaterThan(hang);
+		expect(now.stdout.indexOf("hcsdiag kill <GUID>")).toBeGreaterThan(hang);
+		expect(now.stdout).toContain("restart Windows only if that fails");
+		expect(now.stdout).toContain("unmeasured");
+		expect(run(["--boot", "-1"], { WFC_KERNEL_LOG: log }).stderr).not.toContain(
+			"hcsdiag",
+		);
 	});
 });

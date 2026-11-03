@@ -306,7 +306,7 @@
 					{
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-kernel-stall.js --notify || true",
-						"timeout": 15
+						"timeout": 20
 					},
 					{
 						"type": "command",
