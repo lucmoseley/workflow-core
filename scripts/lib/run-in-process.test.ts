@@ -122,6 +122,10 @@ const SHARED: Row[] = [
 		options: () => ({ stdin: "raw" }),
 	},
 	{
+		behaviour: "reads fd 0 empty where no stdin is given",
+		args: ["stdin"],
+	},
+	{
 		behaviour: "passes argv beyond the script name",
 		args: ["argv", "one", "two"],
 	},
