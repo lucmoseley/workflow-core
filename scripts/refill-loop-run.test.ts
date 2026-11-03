@@ -20,7 +20,15 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	onTestFinished,
+	vi,
+} from "vitest";
 import { ADMISSION_VERDICT } from "./lib/admission-verdict-fake";
 import {
 	buildAgentsBranch,
@@ -59,10 +67,12 @@ import {
 	parkedPromptOf,
 } from "./lib/loop-prompts.js";
 import { buildMeminfo } from "./lib/meminfo-fake";
+import { REAL_PROC } from "./lib/proc-root.js";
 import { projectSlug } from "./lib/project-slug.js";
 import { parseHoldId } from "./lib/repo-hold-fixture";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
+import { killCarrying, killPid } from "./lib/suite-ceiling.js";
 import { OUTCOME_PREFIX } from "./lib/usage-probe.js";
 import { buildUsageCache } from "./lib/usage-probe-fake";
 import { readProgramLibs } from "./lib-closure-fixture";
@@ -83,6 +93,8 @@ let dir: string;
 /* A run that outlived its stop is left its sandbox: deleting it under the
  * running loop exits the worker, hiding the failure. */
 let outlived = false;
+/* The in-process loop a case has not yet seen end. */
+let liveRun: Promise<unknown> | null = null;
 let scripts: string;
 let repo: string;
 let seat: string;
@@ -235,21 +247,66 @@ node ${shellQuote(path.join(scripts, "request-stop.js"))}\n`,
 	writeClaudeStub(at("claude"), [buildAgentsBranch([LISTED])]);
 });
 
-afterEach(() => {
-	if (!outlived) fs.rmSync(dir, { recursive: true, force: true });
+/*
+ * Whichever way a case ended, nothing it started outlives it (#4140). An
+ * in-process loop can only be asked to stop. Any other process's environment
+ * names the sandbox, a tie no stale pidfile can point at a neighbour; it is read
+ * again until none is left, as a zombie's environ reads empty. Only then does the
+ * sandbox go, taking the control file a stop would need.
+ */
+afterEach(async () => {
+	const running = liveRun;
+	liveRun = null;
+	if (running && !outlived) {
+		requestStop();
+		outlived = !(await within(running)).done;
+	}
+	const keep = outlived;
 	outlived = false;
+	await polled(() => {
+		let killed = 0;
+		const unkilled = killCarrying("WFC_REFILL_DIR", dir, {
+			proc: REAL_PROC,
+			kill: (pid: number, signal: NodeJS.Signals) => {
+				killed += 1;
+				killPid(pid, signal);
+			},
+		});
+		if (unkilled) throw new Error(`${dir}: ${unkilled}`);
+		return killed === 0;
+	}, `a process of ${dir} outlived its SIGKILL`);
+	if (!keep) fs.rmSync(dir, { recursive: true, force: true });
 });
 
-const run = (slots: number, over: NodeJS.ProcessEnv = {}) =>
-	runInProcessAsync(path.join(scripts, "refill-loop.js"), ["run"], {
-		cwd: dir,
-		env: loopEnv({ FAKE_SLOTS: String(slots), ...over }),
-	});
+const run = (slots: number, over: NodeJS.ProcessEnv = {}) => {
+	const running = runInProcessAsync(
+		path.join(scripts, "refill-loop.js"),
+		["run"],
+		{
+			cwd: dir,
+			env: loopEnv({ FAKE_SLOTS: String(slots), ...over }),
+		},
+	);
+	const forget = () => {
+		if (liveRun === running) liveRun = null;
+	};
+	liveRun = running;
+	running.then(forget, forget);
+	return running;
+};
+
+/* spawn-kept: another live process, its command line naming the program, or
+ * pid-lock reads it as stale. */
+const spawnIdleHolder = (env: NodeJS.ProcessEnv) =>
+	spawn(
+		process.execPath,
+		["-e", "setInterval(() => {}, 1000)", "refill-loop.js"],
+		{ env, stdio: "ignore" },
+	);
 
 /* For a case that runs `set --resume` against the loop: pid-lock reads the
  * holder's own command line, so an in-process run reads as no process and the
- * resume starts a second, detached loop that writes into the sandbox as
- * afterEach deletes it (#3943). */
+ * resume starts a second, detached loop (#3943). */
 const runAsProcess = (slots: number) => {
 	// spawn-kept: two processes at once, and pid-lock reads the holder's command line.
 	const child = spawn(
@@ -519,28 +576,11 @@ process.stdout.write("Process runaway from 2026-10-29 19:07 UTC: filed #9.");\n`
 		const appeared = (file: string) =>
 			polled(() => fs.existsSync(file), `${file} never appeared`);
 
-		/* Before the sandbox goes, so a failed case's runner neither outlives it
-		 * nor writes it back. The runner is detached, so it leads a process group
-		 * holding the stub (#3814). */
-		afterEach(() => {
-			const pidFile = at(".refill-review.pid");
-			try {
-				process.kill(
-					-JSON.parse(fs.readFileSync(pidFile, "utf8")).pid,
-					"SIGKILL",
-				);
-			} catch (err) {
-				const { code } = err as NodeJS.ErrnoException;
-				if (code !== "ENOENT" && code !== "ESRCH") throw err;
-			}
-		});
-
 		const buildReviewRecorder = (name: string) =>
 			`const fs = require("node:fs");
 fs.appendFileSync(${JSON.stringify(at("reviews"))}, ${JSON.stringify(`${name}\n`)});`;
 
-		/** The runner and a filing stub holding until `release` exists or the
-		 * sandbox goes, which frees a stub no pidfile holder's group holds. */
+		/** The runner and a filing stub holding until `release` exists. */
 		const stubHeldFiling = () => {
 			configureCodeRoot();
 			fs.copyFileSync(
@@ -551,7 +591,7 @@ fs.appendFileSync(${JSON.stringify(at("reviews"))}, ${JSON.stringify(`${name}\n`
 			stub(
 				"file-morning-review.js",
 				`${buildReviewRecorder("file-morning-review.js")}
-while (!fs.existsSync(${release}) && fs.existsSync(${JSON.stringify(dir)})) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${POLL_MS});
+while (!fs.existsSync(${release})) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${POLL_MS});
 process.stdout.write("filed #900");\n`,
 			);
 		};
@@ -903,11 +943,7 @@ describe("a due Console read on the real tick (#4071)", () => {
 });
 
 describe("the loop's goal across ticks (#3864)", () => {
-	const startRun = () =>
-		runInProcessAsync(path.join(scripts, "refill-loop.js"), ["run"], {
-			cwd: dir,
-			env: loopEnv({ FAKE_SLOTS: "1" }),
-		});
+	const startRun = () => run(1);
 	const writeScope = (scope: object) =>
 		fs.writeFileSync(
 			at(".refill-loop-control.json"),
@@ -1083,11 +1119,7 @@ describe("a parked launch (#2699)", () => {
 			buildStopBranch(at("stops")),
 		]);
 
-	const startRun = (gh = at("gh")) =>
-		runInProcessAsync(path.join(scripts, "refill-loop.js"), ["run"], {
-			cwd: dir,
-			env: loopEnv({ WFC_GH: gh, FAKE_SLOTS: "0" }),
-		});
+	const startRun = (gh = at("gh")) => run(0, { WFC_GH: gh });
 
 	/** Two ticks of the loop, ended by a stop after the first. */
 	const twoTicks = async (gh?: string) => {
@@ -3418,6 +3450,102 @@ describe("`start` with no process (#3868)", () => {
 	});
 });
 
+describe("a case's end (#4140)", () => {
+	const readCmdline = (pid: string) =>
+		fs.readFileSync(path.join(REAL_PROC, pid, "cmdline"), "utf8");
+
+	const readPidsNaming = (sandbox: string) =>
+		fs.readdirSync(REAL_PROC).filter((name) => {
+			if (!/^\d+$/.test(name)) return false;
+			try {
+				return readCmdline(name).includes(sandbox);
+			} catch (err) {
+				const { code } = err as NodeJS.ErrnoException;
+				if (code === "ENOENT" || code === "ESRCH") return false;
+				throw err;
+			}
+		});
+
+	const failedCases: {
+		sandbox: string;
+		running: Promise<unknown>;
+		upAtThrow: boolean;
+		atDeletion?: string[];
+	}[] = [];
+
+	/* Throws, as a failing case does. The last case reads what teardown left: a
+	 * failure raised around an it.fails case, its hooks' included, counts as that
+	 * case's expected one. */
+	const failWithLoopUp = (running: Promise<unknown>, upAtThrow: boolean) => {
+		const failed: (typeof failedCases)[number] = {
+			sandbox: dir,
+			running,
+			upAtThrow,
+		};
+		failedCases.push(failed);
+		const { rmSync } = fs;
+		const spy = vi.spyOn(fs, "rmSync").mockImplementation((...args) => {
+			failed.atDeletion = readPidsNaming(failed.sandbox);
+			rmSync(...args);
+		});
+		onTestFinished(() => spy.mockRestore());
+		throw new Error("the case fails with its loop up");
+	};
+
+	it.fails("ends a loop started as a child", async () => {
+		const running = runAsProcess(0);
+		await ticked(1);
+		failWithLoopUp(running, readPidsNaming(dir).length > 0);
+	});
+
+	it.fails("ends a detached loop", async () => {
+		writeStored({ paused: { by: "founder", at: 4 } });
+		const running = commandFromRepo("start");
+		await running;
+		/* A paused loop asks no admission, so its tick reads in its state. */
+		await polled(
+			() =>
+				Boolean(
+					JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"))
+						.lastTick,
+				),
+			"the started loop never ticked",
+		);
+		failWithLoopUp(running, readPidsNaming(dir).length > 0);
+	});
+
+	it.fails("ends a loop running in process", async () => {
+		const running = run(0);
+		await ticked(1);
+		failWithLoopUp(running, liveRun === running);
+	});
+
+	it("left none of them, each gone before its sandbox", async () => {
+		expect(failedCases).toHaveLength(3);
+		for (const failed of failedCases) {
+			expect(failed.upAtThrow).toBe(true);
+			expect((await within(failed.running)).done).toBe(true);
+			expect(failed.atDeletion).toEqual([]);
+			expect(readPidsNaming(failed.sandbox)).toEqual([]);
+			expect(fs.existsSync(failed.sandbox)).toBe(false);
+		}
+	});
+
+	it("leaves a neighbour a stale pidfile names", () => {
+		/* Its environment names no sandbox, as another run's would not. */
+		const neighbour = spawnIdleHolder(process.env);
+		onTestFinished(() => {
+			try {
+				/* A killed process's command line reads empty. */
+				expect(readCmdline(String(neighbour.pid))).not.toBe("");
+			} finally {
+				neighbour.kill("SIGKILL");
+			}
+		});
+		fs.writeFileSync(at(".refill-loop.pid"), String(neighbour.pid));
+	});
+});
+
 describe("boot-resume after a restart (#3878)", () => {
 	const countFrom = Date.now() - 3 * 24 * 60 * 60 * 1000;
 	const writeControl = () =>
@@ -3435,11 +3563,7 @@ describe("boot-resume after a restart (#3878)", () => {
 	/* spawn-kept: the pidfile's holder must be another live process, its command
 	 * line naming the program, or pid-lock reads it as stale. */
 	const spawnHolder = () => {
-		const holder = spawn(
-			process.execPath,
-			["-e", "setInterval(() => {}, 1000)", "refill-loop.js"],
-			{ stdio: "ignore" },
-		);
+		const holder = spawnIdleHolder(loopEnv({}));
 		fs.writeFileSync(at(".refill-loop.pid"), String(holder.pid));
 		return holder;
 	};
@@ -3780,11 +3904,7 @@ describe("away mode's return on the real tick (#3870)", () => {
 	it("leaves the return to the next tick while another writer holds the lock", async () => {
 		seedAway(true);
 		typedAt(Date.now());
-		const holder = spawn(
-			process.execPath,
-			["-e", "setInterval(() => {}, 1000)", "refill-loop.js"],
-			{ stdio: "ignore" },
-		);
+		const holder = spawnIdleHolder(loopEnv({}));
 		try {
 			fs.writeFileSync(`${controlFile()}.lock`, String(holder.pid));
 			const running = run(1);
