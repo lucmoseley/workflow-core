@@ -143,6 +143,74 @@ describe("settings.json's layout (#1484)", () => {
 	});
 });
 
+describe("package.json's status script (#4151)", () => {
+	const statusScript =
+		"node scripts/lib/resolve-core.js scripts/status-report.js";
+	const readManifest = () =>
+		fs.readFileSync(path.join(root, "package.json"), "utf8");
+
+	it("is added to an existing adopter's scripts, in its own layout, and a second upgrade leaves it", () => {
+		write(
+			root,
+			"package.json",
+			'{\n\t"name": "a",\n\t"scripts": {\n\t\t"test": "x"\n\t},\n\t"private": true\n}\n',
+		);
+		expect(run()).toContain("rewrote package.json");
+		const once = readManifest();
+		expect(once).toBe(
+			`{\n\t"name": "a",\n\t"scripts": {\n\t\t"test": "x",\n\t\t"status": "${statusScript}"\n\t},\n\t"private": true\n}\n`,
+		);
+		expect(run().join("\n")).not.toContain("package.json");
+		expect(readManifest()).toBe(once);
+	});
+
+	it("gives a manifest with no scripts one, and reads past a byte-order mark", () => {
+		write(root, "package.json", "\uFEFF{}\n");
+		run();
+		expect(JSON.parse(readManifest())).toEqual({
+			scripts: { status: statusScript },
+		});
+	});
+
+	it("keeps a CRLF file's line ending, and gives a file with no final newline one, as npm does", () => {
+		write(root, "package.json", '{\r\n  "name": "a"\r\n}');
+		run();
+		expect(readManifest()).toBe(
+			`{\r\n  "name": "a",\r\n  "scripts": {\r\n    "status": "${statusScript}"\r\n  }\r\n}\r\n`,
+		);
+	});
+
+	it("keeps an adopter's own status script", () => {
+		const own = '{"scripts":{"status":"./mine.sh"}}';
+		write(root, "package.json", own);
+		expect(run().join("\n")).not.toContain("package.json");
+		expect(readManifest()).toBe(own);
+	});
+
+	it("gives a repo with no package.json none", () => {
+		expect(run().join("\n")).not.toContain("package.json");
+		expect(fs.existsSync(path.join(root, "package.json"))).toBe(false);
+	});
+
+	it.each([
+		["does not parse", "{nope"],
+		["is not an object", "[]"],
+		["holds scripts that are not an object", '{"scripts":[]}'],
+	])("skips with a line a manifest that %s, leaving it", (_shape, body) => {
+		write(root, "package.json", body);
+		expect(run().join("\n")).toContain("skipped package.json's status script:");
+		expect(readManifest()).toBe(body);
+	});
+
+	it("writes nothing under a dry run, naming what it would", () => {
+		write(root, "package.json", "{}\n");
+		const lines: string[] = [];
+		upgrade({ root, pluginRoot, dryRun: true, out: (l) => lines.push(l) });
+		expect(lines).toContain("would   rewrite package.json");
+		expect(readManifest()).toBe("{}\n");
+	});
+});
+
 describe("the core's own wfc-self self-plugin (#2440)", () => {
 	it("is left out of an adopter's enabledPlugins, and the adopter's own entries stay", () => {
 		const at = path.join(root, ".claude/settings.json");

@@ -8,12 +8,16 @@
  *
  * The line is built in "lib/primitives-table.js", reached through
  * "check-primitives.js"; naming both here selects this test when either changes.
+ *
+ * spawn-kept: the adopter's case proves the script npm runs, so npm is its child.
  */
 
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { withStatusScript } from "./lib/adopter-skeleton.js";
 import { printed, stubGhRoutes } from "./lib/gh-stub";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 
@@ -47,47 +51,85 @@ const write = (rel: string, body: string) => {
 	fs.writeFileSync(path.join(core, rel), body);
 };
 
+/** A clean core and one closed sweep, with the env that reaches them. */
+const buildCleanCoreEnv = () => {
+	write("docs/code-standards-base.md", BASE);
+	write("scripts/lib/write-fd.js", "");
+	write("scripts/check-out.js", CLEAN_CHECK);
+	fs.mkdirSync(path.join(dir, "gh"));
+	const gh = stubGhRoutes(path.join(dir, "gh"), {
+		"issue list*": printed(
+			JSON.stringify([
+				{
+					number: 7,
+					title: "Heresy sweep due",
+					labels: [],
+					closedAt: "2026-10-01T00:00:00Z",
+					createdAt: "2026-09-01T00:00:00Z",
+				},
+			]),
+		),
+		"issue view 7 --json comments": printed(
+			JSON.stringify({
+				comments: [{ body: "**Filed:** 3 heresies: #8, #9, #10" }],
+			}),
+		),
+	});
+	return {
+		...process.env,
+		...gh.env,
+		GITHUB_ACTIONS: "",
+		WFC_SCRIPT_ROOT: core,
+	};
+};
+
+const COUNT_LINE =
+	"primitives: 1 enforced, 0 open breaches, 3 new heresies since the last sweep.";
+
 describe("a primitives checker answering OK", () => {
 	it("prints the count line", async () => {
-		write("docs/code-standards-base.md", BASE);
-		write("scripts/lib/write-fd.js", "");
-		write("scripts/check-out.js", CLEAN_CHECK);
-		fs.mkdirSync(path.join(dir, "gh"));
-		const gh = stubGhRoutes(path.join(dir, "gh"), {
-			"issue list*": printed(
-				JSON.stringify([
-					{
-						number: 7,
-						title: "Heresy sweep due",
-						labels: [],
-						closedAt: "2026-10-01T00:00:00Z",
-						createdAt: "2026-09-01T00:00:00Z",
-					},
-				]),
-			),
-			"issue view 7 --json comments": printed(
-				JSON.stringify({
-					comments: [{ body: "**Filed:** 3 heresies: #8, #9, #10" }],
-				}),
-			),
-		});
+		const env = buildCleanCoreEnv();
 
 		const r = await runInProcessAsync(SCRIPT, ["--only", "primitives"], {
 			cwd: core,
-			env: {
-				...process.env,
-				...gh.env,
-				GITHUB_ACTIONS: "",
-				CLAUDE_PROJECT_DIR: core,
-				WFC_SCRIPT_ROOT: core,
-			},
+			env: { ...env, CLAUDE_PROJECT_DIR: core },
 		});
 
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("▸ primitives  — OK");
-		expect(r.stdout).toContain(
-			"primitives: 1 enforced, 0 open breaches, 3 new heresies since the last sweep.",
-		);
+		expect(r.stdout).toContain(COUNT_LINE);
 		expect(r.stdout).not.toContain("nothing to report from");
+	});
+
+	it("prints it through the script an adopter is given, by npm run status (#4151)", () => {
+		const env = buildCleanCoreEnv();
+		const adopter = path.join(dir, "adopter");
+		fs.mkdirSync(path.join(adopter, "scripts", "lib"), { recursive: true });
+		fs.writeFileSync(
+			path.join(adopter, "package.json"),
+			withStatusScript("{}\n") as string,
+		);
+		fs.copyFileSync(
+			path.join(__dirname, "lib", "resolve-core.js"),
+			path.join(adopter, "scripts", "lib", "resolve-core.js"),
+		);
+
+		const r = spawnSync(
+			"npm",
+			["run", "status", "--", "--only", "primitives"],
+			{
+				cwd: adopter,
+				encoding: "utf8",
+				env: {
+					...env,
+					CLAUDE_PROJECT_DIR: adopter,
+					WORKFLOW_CORE_DIR: path.resolve(__dirname, ".."),
+				},
+			},
+		);
+
+		expect(r.stderr).toBe("");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(COUNT_LINE);
 	});
 });

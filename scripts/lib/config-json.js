@@ -90,4 +90,4 @@ function formatConfigJson(value) {
 	return `${printValue(value, 0, 0, 0)}\n`;
 }
 
-module.exports = { formatConfigJson };
+module.exports = { formatConfigJson, isObject };

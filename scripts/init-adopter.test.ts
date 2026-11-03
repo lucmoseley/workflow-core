@@ -34,7 +34,8 @@ import { shellQuote } from "./lib/sh-quote.js";
 import { upgrade } from "./lib/upgrade-walk.js";
 import { MODULES } from "./lib/workflow-core-config.js";
 
-const SKELETON_PATHS = skeletonPaths(() => true);
+/* These fixtures hold no package.json, and a pathspec naming it fails. */
+const SKELETON_PATHS = skeletonPaths((rel) => rel !== "package.json");
 
 const CORE = path.resolve(__dirname, "..");
 const SCRIPT = path.join(__dirname, "init-adopter.js");
@@ -1478,15 +1479,17 @@ describe("a complete day-one config (#715)", () => {
 		expect(readConfig(dir).commands.check_staged).toBe(command);
 	});
 
-	it("maps an inferred write-flag script with --write dropped, printing the note and leaving package.json as written (#2773)", () => {
+	it("maps an inferred write-flag script with --write dropped, printing the note and leaving the script as written (#2773)", () => {
 		const { dir } = repo();
-		const pkg = JSON.stringify({
-			scripts: {
-				"check:staged": "biome check --staged --write --no-errors-on-unmatched",
-			},
-			devDependencies: { "@biomejs/biome": "2.5.15" },
-		});
-		write(dir, "package.json", pkg);
+		const script = "biome check --staged --write --no-errors-on-unmatched";
+		write(
+			dir,
+			"package.json",
+			JSON.stringify({
+				scripts: { "check:staged": script },
+				devDependencies: { "@biomejs/biome": "2.5.15" },
+			}),
+		);
 		const r = init(dir, "--founder", "A Founder", "--no-tracker");
 		expect(r.status).toBe(0);
 		expect(readConfig(dir).commands.check_staged).toBe(
@@ -1495,7 +1498,10 @@ describe("a complete day-one config (#715)", () => {
 		expect(r.stdout).toMatch(
 			/^commands .*check_staged: node "\$WFC_PLUGIN_ROOT"\/scripts\/biome-staged\.js --no-errors-on-unmatched \(inferred from package\.json — auto-fix on commit dropped; /m,
 		);
-		expect(fs.readFileSync(path.join(dir, "package.json"), "utf8")).toBe(pkg);
+		expect(
+			JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"))
+				.scripts["check:staged"],
+		).toBe(script);
 	});
 
 	it.each([
@@ -2511,6 +2517,27 @@ exit 0
 	});
 });
 
+describe("the status script init seeds (#4151)", () => {
+	it("is added to a package.json the repo holds, and its pathspec names the file", () => {
+		const { dir } = repo();
+		fs.writeFileSync(path.join(dir, "package.json"), '{\n\t"name": "a"\n}\n');
+		const r = init(dir, "--founder", "A Founder", "--no-tracker");
+		expect(r.status, r.stderr).toBe(0);
+		expect(fs.readFileSync(path.join(dir, "package.json"), "utf8")).toBe(
+			'{\n\t"name": "a",\n\t"scripts": {\n\t\t"status": "node scripts/lib/resolve-core.js scripts/status-report.js"\n\t}\n}\n',
+		);
+		expect(r.stdout).toMatch(/git add -N .* package\.json/);
+	});
+
+	it("gives a repo with no package.json none", () => {
+		const { dir } = repo();
+		const r = init(dir, "--founder", "A Founder", "--no-tracker");
+		expect(r.status, r.stderr).toBe(0);
+		expect(fs.existsSync(path.join(dir, "package.json"))).toBe(false);
+		expect(r.stdout).not.toMatch(/git add -N .* package\.json/);
+	});
+});
+
 describe("the .gitignore init writes (#737)", () => {
 	const checkIgnore = (dir: string, ...paths: string[]) =>
 		spawnSync("git", ["check-ignore", "--stdin"], {
@@ -2553,7 +2580,9 @@ describe("the skeleton pathspec", () => {
 	it("covers every path init can write, under every module at once", () => {
 		const uncovered = initPaths([...MODULES]).filter(
 			(p: string) =>
-				!SKELETON_PATHS.some((s) => p === s || p.startsWith(`${s}/`)),
+				!skeletonPaths(() => true).some(
+					(s) => p === s || p.startsWith(`${s}/`),
+				),
 		);
 		expect(uncovered).toEqual([]);
 	});

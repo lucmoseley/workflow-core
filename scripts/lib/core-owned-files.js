@@ -29,6 +29,7 @@ const {
 	renderHookShim,
 	isHookShim,
 	withIgnoreBlock,
+	withStatusScript,
 	settingsKeys,
 	labelPlan,
 	hookRootOf,
@@ -325,6 +326,26 @@ function bringIgnoreBlock(ctx) {
 	return next === null ? [] : bringFile(ctx, { rel: ".gitignore", body: next });
 }
 
+/**
+ * The `status` script in a `package.json` the adopter holds; a repo with none
+ * has no npm route and is given no file (#4151).
+ * @param {Context} ctx
+ */
+function bringStatusScript(ctx) {
+	const text = readIfPresent(path.join(ctx.root, "package.json"));
+	if (text === null) return [];
+	let body;
+	try {
+		body = withStatusScript(text);
+	} catch (err) {
+		/* A skip, not bringSettings' refusal: the script is a convenience, and a
+		 * throw would stop the upgrade's walk over it (#4151). */
+		ctx.out(`skipped package.json's status script: ${caught(err).message}`);
+		return [];
+	}
+	return body === null ? [] : bringFile(ctx, { rel: "package.json", body });
+}
+
 /** @param {Context} ctx */
 function bringCoreCost({ root, pin, measureCore, dryRun, out }) {
 	if (!measureCore || !pin) return [];
@@ -549,6 +570,7 @@ const ENTRIES = [
 	{ bring: bringRules, paths: [RULES_FILE, REFERENCE_FILE] },
 	{ bring: bringSettings, paths: [SETTINGS] },
 	{ bring: bringIgnoreBlock, paths: [".gitignore"] },
+	{ bring: bringStatusScript, paths: ["package.json"] },
 	{ bring: bringCoreCost, paths: [COST_TABLE] },
 	{ bring: bringSessionCostTable, paths: [SESSION_COST_TABLE] },
 	{ bring: bringRegistries, paths: [HOST_REGISTRATIONS, HOST_NEEDLES] },
