@@ -1,6 +1,6 @@
 /*
- * issue-tree.js — an issue's parent in its own repository, and its
- * sub-issues in every repository (#778).
+ * issue-tree.js — an issue's parent in its own repository, its sub-issues in
+ * every repository (#778), and the title that marks an archive container.
  *
  * `parent_issue_url` carries the parent's repo, and a number alone collides
  * across repos: a local child of design-vault#17 is not a child of this
@@ -43,13 +43,14 @@ const readSubIssues = (n, repo = "{owner}/{repo}", opts = {}) =>
 /** The title that marks `map`'s archival container, which holds no work of its
  *  own: scripts/archive-closed-children.js finds it by this, never by a label.
  *  @param {number} map */
-const archiveContainerTitle = (map) => `Archive: closed children of #${map}`;
+const buildArchiveContainerTitle = (map) =>
+	`Archive: closed children of #${map}`;
 
 /** @param {SubIssue} k */
 const isOpenChild = (k) => k.state === "open" && !k.pull_request;
 
 module.exports = {
-	archiveContainerTitle,
+	buildArchiveContainerTitle,
 	localParentOf,
 	readSubIssues,
 	isOpenChild,

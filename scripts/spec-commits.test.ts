@@ -49,21 +49,23 @@ describe("spec-commits CLI", () => {
 	/* What each archive container holds; none where unset. */
 	let held: Record<number, unknown[]>;
 
+	const routes = (
+		rowsByIssue: Record<number, unknown[]>,
+		route: string,
+		kind: string,
+	) =>
+		Object.fromEntries(
+			Object.entries(rowsByIssue).map(([n, rows]) => [
+				`repos/{owner}/{repo}/issues/${n}/${route}`,
+				page(kind, rows),
+			]),
+		);
+
 	const stub = (kids: unknown[]) =>
 		stubGhRoutes(dir, {
 			"repos/{owner}/{repo}/issues/10/sub_issues": page("subIssuesPage", kids),
-			...Object.fromEntries(
-				Object.entries(held).map(([n, rows]) => [
-					`repos/{owner}/{repo}/issues/${n}/sub_issues`,
-					page("subIssuesPage", rows),
-				]),
-			),
-			...Object.fromEntries(
-				Object.entries(comments).map(([n, rows]) => [
-					`repos/{owner}/{repo}/issues/${n}/comments`,
-					page("commentsPage", rows),
-				]),
-			),
+			...routes(held, "sub_issues", "subIssuesPage"),
+			...routes(comments, "comments", "commentsPage"),
 			"*/comments": page("commentsPage", []),
 			"repos/{owner}/{repo}/issues/10": {
 				kind: "issue",
@@ -521,8 +523,9 @@ describe("spec-commits CLI", () => {
 
 		it("does not report a census digest as a missing commit (#4087)", () => {
 			closeNaming(12, "HEAD holds `234707395d23d782` for the guard.");
-			const out = JSON.parse(run([ticket(11), ticket(12)], ["--json"]).stdout);
-			expect(out.missing).toEqual([]);
+			const r = run([ticket(11), ticket(12)], ["--json"]);
+			expect(r.status).toBe(0);
+			expect(JSON.parse(r.stdout).missing).toEqual([]);
 		});
 
 		it("notes a sha-shaped word naming no commit in this clone, and passes over a hex word that is no sha", () => {
@@ -550,7 +553,9 @@ describe("spec-commits CLI", () => {
 			comments[13] = [
 				{ body: `Done in ${sha.slice(0, 9)}.\n\n**Door:** two-way.` },
 			];
-			const out = JSON.parse(run([ticket(11), container()], ["--json"]).stdout);
+			const r = run([ticket(11), container()], ["--json"]);
+			expect(r.status).toBe(0);
+			const out = JSON.parse(r.stdout);
 			expect(out.tickets).toEqual([11, 12, 13]);
 			expect(out.commits.map((c: { subject: string }) => c.subject)).toEqual([
 				"Build the first ticket (#11)",
@@ -562,23 +567,21 @@ describe("spec-commits CLI", () => {
 
 		it("does not call an open container unfinished work", () => {
 			held[50] = [ticket(12)];
-			const out = JSON.parse(
-				run([ticket(11), container("open")], ["--json"]).stdout,
-			);
-			expect(out.open).toEqual([]);
+			const r = run([ticket(11), container("open")], ["--json"]);
+			expect(r.status).toBe(0);
+			expect(JSON.parse(r.stdout).open).toEqual([]);
 		});
 
 		it("leaves a child alone titled as another map's container", () => {
-			const out = JSON.parse(
-				run(
-					[
-						ticket(11),
-						{ ...ticket(12), title: "Archive: closed children of #99" },
-					],
-					["--json"],
-				).stdout,
+			const r = run(
+				[
+					ticket(11),
+					{ ...ticket(12), title: "Archive: closed children of #99" },
+				],
+				["--json"],
 			);
-			expect(out.tickets).toEqual([11, 12]);
+			expect(r.status).toBe(0);
+			expect(JSON.parse(r.stdout).tickets).toEqual([11, 12]);
 		});
 	});
 

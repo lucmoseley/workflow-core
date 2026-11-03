@@ -49,11 +49,15 @@
  *   `landing` keeps them; one with neither, or a sha-shaped word naming no
  *   commit in this clone, is printed as a NOTE and not reviewed. A word of a
  *   census digest's length naming no commit is a digest, so no NOTE (#4087).
+ *   Residual: a real sha abbreviated to that length and absent here goes
+ *   unnoted, and any other hex word naming no commit, an id or a fixture, still
+ *   prints the NOTE.
  *
  * AN ARCHIVE CONTAINER'S TICKETS ARE THE SPEC'S OWN (#4087). A spec past the
  * 100-child cap holds its closed tickets in the container
  * archive-closed-children.js made, which holds no work itself, so its children
  * stand in its place, for both routes.
+ * Residual: a hand-made container under another title reads as one ticket.
  *
  * IN NO SCRIPT FAMILY (docs/code-standards-base.md §N3): a read-only lister. Exit 0
  * listed (none found included), 1 the tracker or git unreadable, 2 bad usage
@@ -63,7 +67,10 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { ghApiSlurp, ghJson, parseErrLine } = require("./lib/gh");
-const { archiveContainerTitle, readSubIssues } = require("./lib/issue-tree");
+const {
+	buildArchiveContainerTitle,
+	readSubIssues,
+} = require("./lib/issue-tree");
 const { DIGEST_HEX_LENGTH } = require("./lib/census-digest.js");
 const { sectionAMatcher } = require("./lib/doc-map");
 const { hostRoot } = require("./lib/host-root");
@@ -195,7 +202,7 @@ const twinKey = (c) => `${c.authored} ${c.subject}`;
 function readTickets(n, repositoryUrl) {
 	return readSubIssues(n)
 		.flatMap((k) =>
-			k.title === archiveContainerTitle(n) ? readSubIssues(k.number) : [k],
+			k.title === buildArchiveContainerTitle(n) ? readSubIssues(k.number) : [k],
 		)
 		.filter((k) => !k.pull_request && k.repository_url === repositoryUrl)
 		.map((k) => ({ number: k.number, state: k.state }));

@@ -61,6 +61,7 @@ const { requiredGroup } = require("./regex-group.js");
 const { RULES_DIR } = require("./rule-text.js");
 const { scriptPath } = require("./script-path.js");
 
+/* digestAt says why sixteen. */
 const DIGEST_HEX_LENGTH = 16;
 
 /*
