@@ -8,11 +8,10 @@
  *
  * The pidfile is linked into place from a file already holding the record, so
  * no reader ever sees it empty. It records the holder's pid, start time and
- * boot id (#4083): a start time alone can recur across boots, as early-boot
- * processes land on near-identical pids and ticks. A pidfile whose process is
- * gone, whose record names another process than the one now on its pid, or whose
- * command line runs no file named as the daemon's script, is stale and taken
- * over. A bare pid, as a daemon started before the record holds, has only the
+ * boot id (#4083): a start time alone can recur across boots. A pidfile whose
+ * process is gone, whose record names another process than the one now on its
+ * pid, or whose command line runs no file named as the daemon's script, is stale
+ * and taken over. A bare pid, as a daemon started before the record holds, has only the
  * command line to go on, until that holder re-acquires and rewrites it. A process
  * re-exec'd under its own pid (the refill loop's adoption, #2361) keeps its start
  * time, so already holds it. A directory, FIFO or socket at the lock's path,
@@ -79,6 +78,10 @@ function readTargetStat(file) {
 	}
 }
 
+/**
+ * @typedef {{pid: number, procStart?: string|null, bootId?: string|null}} HolderRecord
+ */
+
 /** The record this process holds a pidfile under, read off the real kernel. */
 const buildOwnRecord = () =>
 	JSON.stringify({
@@ -91,7 +94,7 @@ const buildOwnRecord = () =>
  * A pidfile's record, a bare pid reading as one with only that; null where the
  * text names no pid.
  * @param {string|null} text
- * @returns {{pid: number, procStart?: string|null, bootId?: string|null}|null}
+ * @returns {HolderRecord|null}
  */
 function parseRecord(text) {
 	let parsed;
@@ -107,8 +110,9 @@ function parseRecord(text) {
 /**
  * Whether the record proves the process on its pid is not the one that wrote it.
  * What cannot be read proves nothing, so a lock is never taken from a live holder
- * on doubt.
- * @param {{pid: number, procStart?: string|null, bootId?: string|null}} record
+ * on doubt: arbiter-proc.js's holderAlive answers doubt the other way, so it does
+ * not fit.
+ * @param {HolderRecord} record
  */
 function isOtherProcess({ pid, procStart, bootId }) {
 	const boot = readCurrentBootId();

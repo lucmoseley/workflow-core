@@ -19,7 +19,7 @@ const { recordedStop } = require("./refill-loop.js");
 
 /* First guesses, and stated as ones: the 3 Nov boot's loop reached its lock in
  * 61 ms, so 30 s allows for a machine far busier than a boot was; a poll costs
- * two small reads. */
+ * a few small reads of the pidfile and /proc. */
 const LOOP_HOLD_WAIT_MS = 30_000;
 const LOOP_HOLD_POLL_MS = 50;
 
@@ -40,13 +40,15 @@ function awaitLoopHold({ pid, file, holder, hasHeld, isAlive, now, sleep }) {
 	for (;;) {
 		const held = holder();
 		if (held === pid) return null;
-		if (!isAlive()) {
-			if (held !== null) return `pid ${held} holds ${file}`;
-			return hasHeld() ? null : `the loop exited without holding ${file}`;
+		const alive = isAlive();
+		if (alive && now() <= deadline) {
+			sleep(LOOP_HOLD_POLL_MS);
+			continue;
 		}
-		if (now() > deadline)
+		if (held !== null) return `pid ${held} holds ${file}`;
+		if (alive)
 			return `the loop did not hold ${file} within ${LOOP_HOLD_WAIT_MS / 1000} s`;
-		sleep(LOOP_HOLD_POLL_MS);
+		return hasHeld() ? null : `the loop exited without holding ${file}`;
 	}
 }
 

@@ -34,12 +34,25 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-const ownRecord = () => ({
+const buildOwnRecord = () => ({
 	pid: process.pid,
 	procStart: readProcStartOf(process.pid),
 	bootId: readCurrentBootId(),
 });
 const readRecord = () => JSON.parse(fs.readFileSync(file, "utf8"));
+
+/* The lock pins the real /proc, so WFC_PROC's fake cannot reach it, and these
+ * reads fail only in a race no test can time: the spy is the one seam. */
+function failRead(failing: string, then?: () => void) {
+	const read = fs.readFileSync;
+	vi.spyOn(fs, "readFileSync").mockImplementation(((
+		...args: Parameters<typeof read>
+	) => {
+		if (args[0] !== failing) return read(...args);
+		then?.();
+		throw new Error("unreadable");
+	}) as typeof read);
+}
 
 /* spawn-kept: a live process other than this one, whose command line carries
  * the marker. */
@@ -60,7 +73,7 @@ describe("pidLock", () => {
 		const lock = pidLock(file, "node");
 		expect(lock.acquire()).toBe(true);
 		expect(fs.readdirSync(dir)).toEqual([".daemon.pid"]);
-		expect(readRecord()).toEqual(ownRecord());
+		expect(readRecord()).toEqual(buildOwnRecord());
 		expect(lock.holder()).toBe(process.pid);
 		lock.release();
 		expect(fs.existsSync(file)).toBe(false);
@@ -98,7 +111,7 @@ describe("pidLock", () => {
 		fs.symlinkSync(target, file);
 		expect(pidLock(file, "node").acquire()).toBe(true);
 		expect(fs.lstatSync(file).isFile()).toBe(true);
-		expect(readRecord()).toEqual(ownRecord());
+		expect(readRecord()).toEqual(buildOwnRecord());
 		expect(fs.readFileSync(target, "utf8")).not.toContain(String(process.pid));
 		expect(fs.readdirSync(dir).sort()).toEqual([".daemon.pid", "target"]);
 	});
@@ -128,24 +141,23 @@ describe("pidLock", () => {
 	});
 
 	it("holds a pidfile already naming this process, as a daemon re-exec'd under its pid finds it (#2361)", () => {
-		fs.writeFileSync(file, JSON.stringify(ownRecord()));
+		fs.writeFileSync(file, JSON.stringify(buildOwnRecord()));
 		expect(pidLock(file, "node").acquire()).toBe(true);
-		expect(readRecord()).toEqual(ownRecord());
+		expect(readRecord()).toEqual(buildOwnRecord());
 	});
 
 	it("rewrites this process's bare pid as its record once it re-acquires (#4083)", () => {
 		fs.writeFileSync(file, String(process.pid));
 		expect(pidLock(file, "node").acquire()).toBe(true);
-		expect(readRecord()).toEqual(ownRecord());
+		expect(readRecord()).toEqual(buildOwnRecord());
 		expect(fs.readdirSync(dir)).toEqual([".daemon.pid"]);
 	});
 
 	describe("a recycled pid (#4083)", () => {
-		const Boot = () => readCurrentBootId();
 		it.each([
 			[
 				"another process's start time",
-				(pid: number) => ({ pid, procStart: "1", bootId: Boot() }),
+				(pid: number) => ({ pid, procStart: "1", bootId: readCurrentBootId() }),
 			],
 			[
 				"its start time on another boot",
@@ -163,7 +175,7 @@ describe("pidLock", () => {
 				const lock = pidLock(file, "refill-loop.js");
 				expect(lock.holder()).toBeNull();
 				expect(lock.acquire()).toBe(true);
-				expect(readRecord()).toEqual(ownRecord());
+				expect(readRecord()).toEqual(buildOwnRecord());
 			},
 		);
 
@@ -172,7 +184,7 @@ describe("pidLock", () => {
 			const text = JSON.stringify({
 				pid,
 				procStart: readProcStartOf(pid),
-				bootId: Boot(),
+				bootId: readCurrentBootId(),
 			});
 			fs.writeFileSync(file, text);
 			const lock = pidLock(file, "refill-loop.js");
@@ -190,13 +202,7 @@ describe("pidLock", () => {
 
 		it("a start time unreadable for a live pid keeps the marker test", () => {
 			const pid = liveMarkerProcess("refill-loop.js");
-			const read = fs.readFileSync;
-			vi.spyOn(fs, "readFileSync").mockImplementation(((
-				...args: Parameters<typeof read>
-			) => {
-				if (args[0] === `/proc/${pid}/stat`) throw new Error("EACCES");
-				return read(...args);
-			}) as typeof read);
+			failRead(`/proc/${pid}/stat`);
 			fs.writeFileSync(
 				file,
 				JSON.stringify({ pid, procStart: "1", bootId: null }),
@@ -206,26 +212,19 @@ describe("pidLock", () => {
 
 		it("a holder ended between the check and its cmdline's read is no holder", () => {
 			const pid = liveMarkerProcess("refill-loop.js");
-			const read = fs.readFileSync;
 			const kill = process.kill.bind(process);
-			vi.spyOn(fs, "readFileSync").mockImplementation(((
-				...args: Parameters<typeof read>
-			) => {
-				if (args[0] === `/proc/${pid}/cmdline`) {
-					vi.spyOn(process, "kill").mockImplementation((target, signal) => {
-						if (target !== pid) return kill(target, signal);
-						throw Object.assign(new Error("gone"), { code: "ESRCH" });
-					});
-					throw new Error("ENOENT");
-				}
-				return read(...args);
-			}) as typeof read);
+			failRead(`/proc/${pid}/cmdline`, () => {
+				vi.spyOn(process, "kill").mockImplementation((target, signal) => {
+					if (target !== pid) return kill(target, signal);
+					throw Object.assign(new Error("gone"), { code: "ESRCH" });
+				});
+			});
 			fs.writeFileSync(file, String(pid));
 			expect(pidLock(file, "refill-loop.js").holder()).toBeNull();
 		});
 
 		it("release leaves a record of another process on this pid", () => {
-			const text = JSON.stringify({ ...ownRecord(), bootId: "another" });
+			const text = JSON.stringify({ ...buildOwnRecord(), bootId: "another" });
 			fs.writeFileSync(file, text);
 			pidLock(file, "node").release();
 			expect(fs.readFileSync(file, "utf8")).toBe(text);
@@ -238,7 +237,7 @@ describe("pidLock", () => {
 	])("takes over a pidfile whose holder %s", (_, content) => {
 		fs.writeFileSync(file, content());
 		expect(pidLock(file, "node").acquire()).toBe(true);
-		expect(readRecord()).toEqual(ownRecord());
+		expect(readRecord()).toEqual(buildOwnRecord());
 		expect(fs.readdirSync(dir)).toEqual([".daemon.pid"]);
 	});
 

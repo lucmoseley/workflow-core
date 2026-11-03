@@ -385,8 +385,8 @@ function readSeatsView(planSeats, root, callerSeat) {
 
 /**
  * Spawn the detached loop from its verified code, and wait until it holds the
- * lock: a spawn alone says nothing of a loop that then exits. One that outlasts
- * the wait is ended, so a start reported failed leaves no loop behind.
+ * lock. One that outlasts the wait is ended, so a start reported failed leaves
+ * no loop behind.
  * @returns {{error: string} | {pid: number|undefined, fetchError: string|null|undefined}}
  */
 function launchLoop() {
@@ -419,7 +419,7 @@ function launchLoop() {
 	});
 	if (error !== null) {
 		child.kill();
-		return { error };
+		return { error: `${error}; log: ${files.log}` };
 	}
 	return { pid: child.pid, fetchError: launch.fetchError };
 }
@@ -453,10 +453,15 @@ function bootResume() {
 		return 0;
 	}
 	/* Before the launch, so a loop that dies ahead of its first tick leaves it;
-	 * and until the new loop holds the pidfile, no process has died (#3861). */
+	 * and heldAt then says whether the new loop ever held the pidfile. */
 	writeJson(files.state, { ...state, bootedAt: Date.now(), heldAt: null });
 	const launched = launchLoop();
 	if ("error" in launched) {
+		/* No new loop held it, so the last one's death still stands for `status`. */
+		writeJson(files.state, {
+			...readStateFile(note),
+			heldAt: state.heldAt,
+		});
 		note(`boot resume: not resumed: ${launched.error}`);
 		return 1;
 	}
@@ -541,7 +546,13 @@ function start(parsed) {
  */
 function launchFrom(control, scopeText) {
 	const launched = launchLoop();
-	if ("error" in launched) return { error: launched.error };
+	if ("error" in launched) {
+		fs.appendFileSync(
+			files.log,
+			`${new Date().toISOString()} refill loop not started: ${launched.error}\n`,
+		);
+		return { error: launched.error };
+	}
 	return {
 		lines: [
 			...(launched.fetchError

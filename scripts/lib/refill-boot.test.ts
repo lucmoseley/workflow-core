@@ -193,6 +193,10 @@ describe("awaitLoopHold (#4083)", () => {
 		expect(polls([9], [true, false]).reply).toBe(`pid 9 holds ${File}`);
 	});
 
+	it("names another live holder where the process outlasts the wait", () => {
+		expect(polls([9], [true]).reply).toBe(`pid 9 holds ${File}`);
+	});
+
 	it("gives up on a process that outlasts the wait without the lock", () => {
 		const { reply } = polls([null], [true]);
 		expect(reply).toBe(`the loop did not hold ${File} within 30 s`);

@@ -3407,7 +3407,7 @@ describe("boot-resume after a restart (#3878)", () => {
 		};
 		const Dies = "process.exit(0);";
 		/* Plants a live holder, so the loop then loses the lock to it. */
-		const losesLock = () => `
+		const buildLosingPreload = () => `
 			const holder = require("node:child_process").spawn(
 				process.execPath,
 				["-e", "setInterval(() => {}, 1000)", "refill-loop.js"],
@@ -3427,9 +3427,22 @@ describe("boot-resume after a restart (#3878)", () => {
 			expect(readLog()).not.toContain("resumed the loop");
 		});
 
+		it("boot-resume keeps the last loop's crash on record where the loop dies", async () => {
+			writeControl();
+			fs.writeFileSync(
+				at(".refill-loop-state.json"),
+				JSON.stringify({ heldAt: 5 }),
+			);
+			await commandWithPreload(Dies, "boot-resume");
+			expect(
+				JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"))
+					.heldAt,
+			).toBe(5);
+		});
+
 		it("boot-resume names the holder where the loop loses the lock", async () => {
 			writeControl();
-			const r = await commandWithPreload(losesLock(), "boot-resume");
+			const r = await commandWithPreload(buildLosingPreload(), "boot-resume");
 			const holder = Number(fs.readFileSync(at(".refill-loop.pid"), "utf8"));
 			try {
 				expect(r.status).toBe(1);
@@ -3448,6 +3461,10 @@ describe("boot-resume after a restart (#3878)", () => {
 			const r = await commandWithPreload(Dies, "start");
 			expect(r.status).toBe(1);
 			expect(r.stderr).toContain(
+				"refill loop not started: the loop exited without holding",
+			);
+			expect(r.stderr).toContain(`log: ${at(".refill-loop.log")}`);
+			expect(readLog()).toContain(
 				"refill loop not started: the loop exited without holding",
 			);
 			expect(r.stdout).not.toContain("refill loop started");
