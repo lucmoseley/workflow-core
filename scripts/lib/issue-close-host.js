@@ -23,15 +23,19 @@ const buildHostPorts = (root) => ({
 		try {
 			return fs.readFileSync(path.join(root, rel), "utf8");
 		} catch {
+			/* Null, which the core names in its refusal or logs as unchecked
+			 * (lib/issue-close.js LIMITS; mantahostels#103 §6). */
 			return null;
 		}
 	},
-	/* A config that cannot be read resolves no tracker. */
 	tracker: () => {
 		let t;
 		try {
 			t = resolveKey("tracker", { root });
 		} catch {
+			/* A config that cannot be read resolves no tracker, so no close
+			 * reads as naming another repo and every rule still judges it
+			 * (mantahostels#103 §6). */
 			t = undefined;
 		}
 		return typeof t === "string" && t ? t : undefined;

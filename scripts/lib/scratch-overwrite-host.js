@@ -21,6 +21,7 @@ function buildHostPorts(root) {
 			try {
 				dir = markersDir(root);
 			} catch {
+				/* Null, which the core logs and allows on (mantahostels#103 §6). */
 				return null;
 			}
 			const record = path.join(dir, `.scratch-written-${sid}`);
@@ -40,6 +41,8 @@ function buildHostPorts(root) {
 						fs.appendFileSync(record, `${target}\n`);
 						return true;
 					} catch {
+						/* False, which the core logs and allows on
+						 * (mantahostels#103 §6). */
 						return false;
 					}
 				},

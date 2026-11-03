@@ -188,7 +188,7 @@ const WATCHES = {
  * @typedef {Pick<import("./guard-dispatch.js").CoreContext,
  *   "input" | "tool" | "agentLabel" | "log" | "env" | "corePaths" | "ruleText" | "docPath"> & {
  *   now: () => number,
- *   readWindow: (file: string) => string,
+ *   readWindow: (file: string) => string | null,
  *   makeDir: (dir: string) => boolean,
  *   writeWindow: (file: string, text: string) => boolean,
  *   sweep: (dir: string, now: number) => void,
@@ -310,8 +310,13 @@ function decide(session, ctx) {
 		ctx.log(`could not create ${dir} — poll allowed unchecked`);
 		return null;
 	}
+	const text = ctx.readWindow(file);
+	if (text === null) {
+		ctx.log(`could not read ${file} — poll allowed unchecked`);
+		return null;
+	}
 	const now = ctx.now();
-	const { recent, hits } = inWindow(ctx.readWindow(file), key, now);
+	const { recent, hits } = inWindow(text, key, now);
 	let warning = "";
 	if (hits >= r.allowance) {
 		const over = overText(r, agent !== "main", ctx);

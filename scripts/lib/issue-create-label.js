@@ -964,6 +964,8 @@ function fetchBody(run, cmd, number, repo) {
 	try {
 		return trimEndRun(ctx.gh(args, dir), "\n");
 	} catch {
+		/* A failed fetch fails open, recorded by the caller (LIMITS;
+		 * mantahostels#103 §6). */
 		return null;
 	}
 }

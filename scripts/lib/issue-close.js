@@ -425,6 +425,8 @@ function fetchIssue(run, close) {
 			left,
 		);
 	} catch {
+		/* gh missing or unreachable: null, a fail-open logged once, by the
+		 * Outstanding rule (LIMITS; mantahostels#103 §6). */
 		return null;
 	}
 	if (!out) return null;
@@ -435,6 +437,8 @@ function fetchIssue(run, close) {
 		const parsed = JSON.parse(out);
 		data = parsed === null ? {} : record(parsed);
 	} catch {
+		/* An answer that is not JSON: no data, which each rule logs as
+		 * unchecked (LIMITS; mantahostels#103 §6). */
 		data = undefined;
 	}
 	run.issue = { data };
@@ -792,6 +796,8 @@ function judgeRefusalRule(run, close, rule) {
 	try {
 		read = rule.read(run.ctx, n, close.comment || newest, left);
 	} catch {
+		/* A reader that throws gives no verdict, logged and allowed
+		 * (LIMITS; mantahostels#103 §6). */
 		return noVerdict();
 	}
 	if ("outOfBudget" in read) {

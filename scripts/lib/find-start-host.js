@@ -14,6 +14,8 @@ function buildHostPorts() {
 			try {
 				return fs.realpathSync(coreRoot());
 			} catch {
+				/* Null, which the core logs and allows on: its refusal names
+				 * the root, so it cannot be written without one (mantahostels#103 §6). */
 				return null;
 			}
 		},
