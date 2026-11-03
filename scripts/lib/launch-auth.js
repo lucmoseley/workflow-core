@@ -11,11 +11,18 @@
  *   - `oauth_token` where CLAUDE_CODE_OAUTH_TOKEN is set and
  *     ANTHROPIC_AUTH_TOKEN is not: both report `oauth_token`, and only the
  *     first bills the subscription;
+ *   - on a launch passing `settings` whose `apiKeyHelper` is
+ *     lib/overflow-key.js's helper for an overflow seat lib/refill-seats.js
+ *     declares on the launch's config dir (#3699), `none` as well: the helper
+ *     hands the child its key, and `auth status` does not take `--settings`,
+ *     so it reports the dir's own login. `api_key` still refuses there, since
+ *     a key already in force outranks the helper. Any other `apiKeyHelper` in
+ *     `settings` refuses, whatever the dir reports;
  *   - for lib/headless-sessions.js's launch alone, passing `overflowKey`, under
  *     the dir of the overflow seat lib/refill-seats.js declares for that key
  *     (#2570), `api_key`, and `none`: that launch hands the seat its key
- *     through `--settings`, which `auth status` does not take. A seat file that
- *     refuses declares no overflow seat.
+ *     through `--settings`, which `auth status` does not take.
+ * A seat file that refuses declares no overflow seat.
  * Everything else refuses: `api_key`, `api_key_helper`, `third_party` (a
  * CLAUDE_CODE_USE_* provider; ANTHROPIC_PROFILE and the rest reach it through
  * `auth status`), `none`, and a status that will not read. ANTHROPIC_BASE_URL
@@ -26,12 +33,16 @@
  * such as the daemon a `claude --bg` hands its session to, is not seen from
  * the dispatch site.
  *
- *   node scripts/lib/launch-auth.js   checks this process's own launch, for
- *     dispatch-sessions.sh: exits 0 silent, or 2 printing `REFUSED:` and why.
+ *   node scripts/lib/launch-auth.js [--settings <json>]   checks this
+ *     process's own launch, for dispatch-sessions.sh, `--settings` being the
+ *     one the launch passes: exits 0 silent, or 2 printing `REFUSED:` and why.
  */
 
 const { spawnSync } = require("node:child_process");
+const { parseArgs } = require("node:util");
 const { claudeBin } = require("./claude-bin.js");
+const { secretsFile } = require("./env-file.js");
+const { buildKeyHelper } = require("./overflow-key.js");
 const { readDeclaredSeats, seatOfLaunch } = require("./refill-seats.js");
 const { writeFd } = require("./write-fd.js");
 
@@ -93,6 +104,40 @@ function isOverflowSeat(env, keyVar) {
 }
 
 /**
+ * The `apiKeyHelper` the launch's `--settings` sets, or null.
+ * @param {string|undefined} settings
+ * @returns {unknown}
+ */
+function parseSettingsHelper(settings) {
+	if (settings === undefined) return null;
+	try {
+		return JSON.parse(settings)?.apiKeyHelper ?? null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Whether `helper` is lib/overflow-key.js's helper for an overflow seat
+ * declared on the launch's config dir.
+ * @param {unknown} helper
+ * @param {NodeJS.ProcessEnv} env
+ */
+function isSeatHelper(helper, env) {
+	const dir = env.CLAUDE_CONFIG_DIR;
+	if (typeof helper !== "string" || !isSet(dir)) return false;
+	const list = readDeclaredSeats();
+	if (list.errors.length > 0) return false;
+	const file = secretsFile();
+	return list.seats.some(
+		(s) =>
+			s.kind === "overflow" &&
+			helper === buildKeyHelper(s.keyVar, file) &&
+			!("why" in seatOfLaunch(list, { dir, keyVar: s.keyVar })),
+	);
+}
+
+/**
  * @param {{authMethod?: string, apiProvider?: string}} status
  * @param {NodeJS.ProcessEnv} env
  */
@@ -128,20 +173,28 @@ function sourceOf(status, env) {
  * Why a model launch of `bin` under `env` in `cwd` would not bill the
  * subscription, or null where it would.
  * @param {{bin: string, env: NodeJS.ProcessEnv, cwd: string,
- *   overflowKey?: string}} launch `overflowKey`: the headless overflow
+ *   settings?: string, overflowKey?: string}} launch `settings`: the JSON the
+ *   launch passes as `--settings`; `overflowKey`: the headless overflow
  *   launch's seat
  * @returns {string|null}
  */
-function launchAuthRefusal({ bin, env, cwd, overflowKey }) {
+function launchAuthRefusal({ bin, env, cwd, settings, overflowKey }) {
 	const refused = (/** @type {string} */ why) =>
 		`this model launch would not bill the subscription: ${why}. Rule: ${RULE}. Unset what set it, or launch from a shell without it.`;
 	if (isSet(env.ANTHROPIC_BASE_URL))
 		return refused("ANTHROPIC_BASE_URL is set");
+	const helper = parseSettingsHelper(settings);
+	const seatHelper = helper !== null && isSeatHelper(helper, env);
+	if (helper !== null && !seatHelper)
+		return refused(
+			"an apiKeyHelper in --settings is in force, and is no declared overflow seat's on this config dir",
+		);
 	const read = readAuthStatus(bin, env, cwd);
 	if ("why" in read) return refused(read.why);
 	const { status } = read;
 	const method = status.authMethod;
 	if (method === "claude.ai") return null;
+	if (seatHelper && method === "none") return null;
 	if (
 		method === "oauth_token" &&
 		isSet(env.CLAUDE_CODE_OAUTH_TOKEN) &&
@@ -158,10 +211,14 @@ function launchAuthRefusal({ bin, env, cwd, overflowKey }) {
 }
 
 if (require.main === module) {
+	const { settings } = parseArgs({
+		options: { settings: { type: "string" } },
+	}).values;
 	const why = launchAuthRefusal({
 		bin: claudeBin(),
 		env: process.env,
 		cwd: process.cwd(),
+		settings,
 	});
 	if (why) {
 		writeFd(2, `REFUSED: ${why}\n`);
