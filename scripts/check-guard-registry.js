@@ -841,7 +841,7 @@ function coreNarrowings(wired) {
 	/** @type {Map<string, Set<string>>} */
 	const cores = new Map();
 	if (!wired.has(DISPATCH_ENTRY)) return cores;
-	for (const row of manifestRows(manifestAt(root))) {
+	for (const row of readManifestRows(manifestAt(root))) {
 		const clauses = row.if ?? [];
 		if (!Array.isArray(clauses))
 			throw brokenError(
@@ -1069,7 +1069,7 @@ const {
 	DISPATCH_ENTRY,
 	MANIFEST_REL,
 	manifestAt,
-	manifestRows,
+	readManifestRows,
 	modulePath,
 	readDispatchedCores,
 } = require("./lib/guard-cores.js");
@@ -2552,7 +2552,7 @@ function readDenyFile(rel) {
  */
 function denyGroupsOf(rel, ruleText, read) {
 	if (rel === DISPATCH_ENTRY) {
-		const rows = manifestRows(manifestAt(root));
+		const rows = readManifestRows(manifestAt(root));
 		const named = rows.filter((r) => ruleText.includes(`\`${r.name}\``));
 		return (named.length > 0 ? named : rows).map((r) => {
 			const core = read(modulePath(r.core));
