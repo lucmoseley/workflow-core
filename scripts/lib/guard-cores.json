@@ -152,7 +152,7 @@
 			"name": "guard-registry-atomicity",
 			"core": "registry-atomicity.js",
 			"tools": "Bash",
-			"failure": "open",
+			"failure": "closed",
 			"host": "registry-atomicity-host.js",
 			"if": ["Bash(git *)", "Bash(*commit-paths.js*)"]
 		},
@@ -281,7 +281,7 @@
 			"name": "guard-suite-concurrency",
 			"core": "suite-concurrency.js",
 			"tools": "Bash",
-			"failure": "open",
+			"failure": "closed",
 			"host": "suite-concurrency-hook-host.js",
 			"if": [
 				"Bash(*npm *)",

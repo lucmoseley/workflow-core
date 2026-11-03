@@ -119,7 +119,7 @@ function openRepo(tree, root) {
 			}
 		},
 		/* A directory that is not there holds no caller; any other read error
-		 * throws, and the kit allows the commit, logged. */
+		 * throws, and the row refuses the commit (#4128). */
 		list: (rel) => {
 			try {
 				return fs.readdirSync(abs(rel));

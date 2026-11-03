@@ -12,8 +12,8 @@
  * temp CLAUDE_CONFIG_DIR and never the founder's.
  *
  * Break the core and a member lands without its wiring, reddening the
- * whole-repo registry tests for every session; make it deny on a fault and
- * every commit is wedged.
+ * whole-repo registry tests for every session; make it deny on a git read it
+ * cannot answer and every commit is wedged.
  */
 
 import { execFileSync } from "node:child_process";

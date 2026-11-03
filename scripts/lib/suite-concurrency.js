@@ -109,7 +109,8 @@
  * best-effort, so the count-cap deny does not rest on it: the core re-reads
  * the command itself.
  *
- * A THROW IS ALLOWED, logged: its row fails open.
+ * A THROW IS REFUSED, logged: its row fails closed, as a launch it could not
+ * judge may run into the memory cap that kills live sessions (#4128).
  */
 
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");

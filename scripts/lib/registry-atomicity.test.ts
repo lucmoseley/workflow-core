@@ -22,6 +22,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeFaultyGit } from "./git-fault-fake";
 import { defineTemplate, initGitRepo, mkScratchDir } from "./git-fixture";
+import { runCore, toolCall } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
 import { shellQuote } from "./sh-quote.js";
 
@@ -389,7 +390,7 @@ describe("a new checker", () => {
 		}
 	});
 
-	it("throws, for the kit to allow and record, when a caller directory cannot be listed", () => {
+	it("throws, for its row to refuse, when a caller directory cannot be listed", () => {
 		add("scripts/check-new.js", "// new\n");
 		add("scripts/check-new.test.ts", "// covered\n");
 		const at = path.join(repo, ".github", "workflows");
@@ -1660,6 +1661,46 @@ describe("what the review of mantahostels#2671 found", () => {
 			if (verdict) expect(verdict.denied).toBe(false);
 		} finally {
 			fs.chmodSync(path.join(repo, ".git", "objects"), 0o755);
+		}
+	});
+});
+
+describe("its row fails closed (#4128)", () => {
+	const judged = (command: string) =>
+		runCore(
+			"guard-registry-atomicity",
+			toolCall("Bash", { command }, { cwd: repo }),
+			{ root: repo },
+		);
+
+	it("refuses a commit the core throws on, naming the fault", () => {
+		add("scripts/check-new.js", "// new\n");
+		add("scripts/check-new.test.ts", "// covered\n");
+		const at = path.join(repo, ".github", "workflows");
+		fs.mkdirSync(at, { recursive: true });
+		fs.chmodSync(at, 0o000);
+		try {
+			const { output, logs } = judged(
+				commit("scripts/check-new.js scripts/check-new.test.ts"),
+			);
+			expect(output?.permissionDecision).toBe("deny");
+			expect(output?.permissionDecisionReason).toMatch(
+				/^guard-registry-atomicity could not judge this call, and it fails closed: .*EACCES/,
+			);
+			expect(logs).toEqual([expect.stringMatching(/^core threw — refused: /)]);
+		} finally {
+			fs.chmodSync(at, 0o755);
+		}
+	});
+
+	it("still allows a call it has no opinion on, beside that same unlistable directory", () => {
+		const at = path.join(repo, ".github", "workflows");
+		fs.mkdirSync(at, { recursive: true });
+		fs.chmodSync(at, 0o000);
+		try {
+			expect(judged("git status").output).toBeNull();
+		} finally {
+			fs.chmodSync(at, 0o755);
 		}
 	});
 });

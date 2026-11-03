@@ -18,7 +18,7 @@
  * The core judges PreToolUse Bash calls: break it and a second whole suite, or
  * a launch under the measured headroom, runs unrefused into the 10 GB cap that
  * earlyoom enforces by killing live sessions; make it throw and every launch
- * goes unjudged in silence, its fail-open line the only trace.
+ * it judges is refused until the fault is fixed.
  */
 
 import { spawn } from "node:child_process";
@@ -462,8 +462,8 @@ describe("the manifest row's wiring (#2303)", () => {
 		row !== undefined &&
 		admits(row, { tool_name: "Bash", tool_input: { command } });
 
-	it("is one Bash row, failing open", () => {
-		expect(row).toMatchObject({ tools: "Bash", failure: "open" });
+	it("is one Bash row, failing closed (#4128)", () => {
+		expect(row).toMatchObject({ tools: "Bash", failure: "closed" });
 	});
 
 	it("lets every common runner's test command through", () => {

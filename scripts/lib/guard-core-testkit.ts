@@ -54,6 +54,8 @@ export interface CoreRun {
 /**
  * Run the `event` core `name` on `payload` with `root` as the host root.
  * `env` is the whole environment: nothing of the test process's leaks in.
+ * `throwing` makes the row's `decide` throw it, for a core with no real fault a
+ * case can provoke to reach its row's failure policy.
  */
 export function runCore(
 	name: string,
@@ -63,11 +65,13 @@ export function runCore(
 		cwd = root,
 		env = {},
 		event = "PreToolUse",
+		throwing,
 	}: {
 		root: string;
 		cwd?: string;
 		env?: Record<string, string>;
 		event?: "PreToolUse" | "PostToolUse";
+		throwing?: string;
 	},
 ): CoreRun {
 	const logs: string[] = [];
@@ -76,7 +80,15 @@ export function runCore(
 	};
 	const cores = loadedCores(event).filter((c) => c.name === name);
 	if (cores.length !== 1) throw new Error(`no ${event} core named ${name}`);
-	const { output, latches } = dispatch(cores, {
+	const judged = throwing
+		? cores.map((c) => ({
+				...c,
+				decide: () => {
+					throw new Error(throwing);
+				},
+			}))
+		: cores;
+	const { output, latches } = dispatch(judged, {
 		payload,
 		root,
 		adapters: {

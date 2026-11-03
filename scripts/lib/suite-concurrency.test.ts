@@ -23,7 +23,11 @@
  * enforces by killing live sessions.
  */
 
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
+import { runCore, toolCall } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
 import { WHOLE_SLOT_BOUND } from "./whole-slot-bound";
 
@@ -949,6 +953,34 @@ describe("carries the watcher limb across a compound command (mantahostels#1978)
 		const out = run("npm run build && npm run test", 1000).text;
 		expect(out).toMatch(/needs resting/);
 		expect(out).not.toMatch(/WATCHER/);
+	});
+});
+
+describe("its row fails closed (#4128)", () => {
+	const judged = (command: string, throwing?: string) => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "suite-row-"));
+		try {
+			return runCore("guard-suite-concurrency", toolCall("Bash", { command }), {
+				root,
+				throwing,
+			});
+		} finally {
+			fs.rmSync(root, { recursive: true, force: true });
+		}
+	};
+
+	it("refuses a launch the core throws on, naming the fault", () => {
+		const { output, logs: said } = judged("npm run test", "core broke");
+		expect(output).toEqual({
+			permissionDecision: "deny",
+			permissionDecisionReason:
+				"guard-suite-concurrency could not judge this call, and it fails closed: core broke",
+		});
+		expect(said).toEqual(["core threw — refused: core broke"]);
+	});
+
+	it("still allows a call it has no opinion on", () => {
+		expect(judged("node --version").output).toBeNull();
 	});
 });
 

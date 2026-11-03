@@ -123,7 +123,10 @@
  *  - It FAILS OPEN, RECORDED (mantahostels#103 §6, mantahostels#147), on
  *    anything it cannot resolve: a git read that errors or times out, a
  *    `cd`/`git -C` target it cannot read — a `$(…)`, `${W:-x}` and the rest
- *    shell-parse.js's walk names — and a core that throws.
+ *    shell-parse.js's walk names. A THROW IS REFUSED, logged: its row fails
+ *    closed, as a commit it could not judge may land a member unwired and
+ *    redden the whole-repo registry tests for every session (#4128). A repo
+ *    that does not resolve still allows, logged (mantahostels#147).
  *  - An UNSET variable in that target is read as empty (#313, #310's narrow
  *    form): shell state does not carry between Bash calls, so `cd "$W"` with
  *    `W` from an earlier call runs in the cwd, and is judged there. The
