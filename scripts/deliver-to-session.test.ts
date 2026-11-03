@@ -153,13 +153,12 @@ describe("owned reports", () => {
 		expect(replayState()).toEqual(before);
 
 		// The next session start is shown what it would have been with no delivery.
-		const replayed = () =>
-			run(REPLAY, ["--notify"], "next").out.replace(/ — \d+s ago/, "");
-		const after = replayed();
+		process.env.WFC_NOW = new Date().toISOString();
+		const after = run(REPLAY, ["--notify"], "next").out;
 		fs.rmSync(notify.base(), { recursive: true });
 		fs.cpSync(pristine, notify.base(), { recursive: true });
 		expect(after).toContain("FAIL: the sweep is red on main");
-		expect(after).toBe(replayed());
+		expect(after).toBe(run(REPLAY, ["--notify"], "next").out);
 	});
 
 	it("says an unparseable report is unknown once, never an all-clear", () => {
