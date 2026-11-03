@@ -198,7 +198,7 @@ describe("file-morning-review.js (#2011)", () => {
 		const wsl = path.join(sb.dir, "wsl");
 		expect(
 			run([], {
-				WFC_OSRELEASE: writeOsrelease(wsl, WSL_KERNEL),
+				WFC_PROC: writeOsrelease(wsl, WSL_KERNEL),
 				WFC_WSL_EXE: writeWsl(wsl, { version: "2.7.11.0" }),
 			}).status,
 		).toBe(0);

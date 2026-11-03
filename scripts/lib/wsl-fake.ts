@@ -19,7 +19,11 @@ export type WslBehaviour =
 	| { version: string }
 	| { noVersionLine: true }
 	| { exits: number; says: string }
-	| { hangs: true };
+	| { hangs: true }
+	| { stallsOnce: true; version: string };
+
+/* Far over any budget a test passes; the reader's SIGKILL ends it. */
+const HANG_S = 30;
 
 const utf16 = (lines: string[]) =>
 	Buffer.from(lines.map((l) => `${l}\r\n`).join(""), "utf16le");
@@ -48,8 +52,13 @@ export function writeWsl(dir: string, behaviour: WslBehaviour): string {
 		bin,
 		[
 			"#!/bin/bash",
-			`echo "$*" >> ${shellQuote(wslCallLog(dir))}`,
-			"hangs" in behaviour ? "exec sleep 30" : `cat ${shellQuote(out)}`,
+			`echo "$*" >> ${shellQuote(wslCallLogPath(dir))}`,
+			...("stallsOnce" in behaviour
+				? [
+						`[ "$(wc -l < ${shellQuote(wslCallLogPath(dir))})" -gt 1 ] || exit 1`,
+					]
+				: []),
+			"hangs" in behaviour ? `exec sleep ${HANG_S}` : `cat ${shellQuote(out)}`,
 			`cat ${shellQuote(err)} >&2`,
 			`exit ${"exits" in behaviour ? behaviour.exits : 0}`,
 			"",
@@ -59,28 +68,39 @@ export function writeWsl(dir: string, behaviour: WslBehaviour): string {
 	return bin;
 }
 
-export const wslCallLog = (dir: string): string => path.join(dir, "wsl-calls");
+export const wslCallLogPath = (dir: string): string =>
+	path.join(dir, "wsl-calls");
 
-/** A kernel release file in `dir`, for WFC_OSRELEASE. */
+/** A /proc tree under `dir` holding a kernel release. Its root, for WFC_PROC. */
 export function writeOsrelease(dir: string, release: string): string {
-	fs.mkdirSync(dir, { recursive: true });
-	const file = path.join(dir, "osrelease");
-	fs.writeFileSync(file, `${release}\n`);
-	return file;
+	const root = path.join(dir, "proc");
+	fs.mkdirSync(path.join(root, "sys/kernel"), { recursive: true });
+	fs.writeFileSync(path.join(root, "sys/kernel/osrelease"), `${release}\n`);
+	return root;
 }
 
 export const WSL_KERNEL = "6.18.33.2-microsoft-standard-WSL2";
 
-export const latestAnswer = (tag: string): GhAnswer => ({
+export const buildLatestAnswer = (tag: string): GhAnswer => ({
 	...LATEST,
 	stdout: JSON.stringify({ ...JSON.parse(LATEST.stdout), tag_name: tag }),
 });
 
-/** The release-list read answering stable `tags`. */
-export const releasesAnswer = (tags: string[]): GhAnswer => {
+/** The release-list read answering stable `tags`, then `preReleases`. */
+export const buildReleasesAnswer = (
+	tags: string[],
+	preReleases: string[] = [],
+): GhAnswer => {
 	const [recorded] = JSON.parse(RELEASES.stdout);
 	return {
 		...RELEASES,
-		stdout: JSON.stringify(tags.map((tag) => ({ ...recorded, tag_name: tag }))),
+		stdout: JSON.stringify([
+			...tags.map((tag) => ({ ...recorded, tag_name: tag })),
+			...preReleases.map((tag) => ({
+				...recorded,
+				tag_name: tag,
+				prerelease: true,
+			})),
+		]),
 	};
 };

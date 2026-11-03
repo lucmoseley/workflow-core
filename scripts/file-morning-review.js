@@ -150,8 +150,8 @@ const COUNT_TIMEOUT_MS = 5 * 60 * 1000;
  * REVIEW_TIMEOUT_MS. */
 const IDLE_TIMEOUT_MS = 3 * 60 * 1000;
 
-/** Level with the idle alarm's, a guess: wsl.exe's 12 s, then two gh reads. */
-const WSL_CURRENCY_TIMEOUT_MS = 3 * 60 * 1000;
+/** Above the check's own worst case, 196 s: wsl.exe's 3 tries at 12 s, two gh reads at 80 s. */
+const WSL_CURRENCY_TIMEOUT_MS = 4 * 60 * 1000;
 
 const io = scriptIo("file-morning-review");
 

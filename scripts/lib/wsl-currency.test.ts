@@ -1,6 +1,7 @@
 // @vitest-environment node
 /*
- * The check-wsl-currency core (#4082). Loosened, a machine behind upstream
+ * The check-wsl-currency core (#4082), held apart so every verdict runs without
+ * a bridge or a network. Loosened, a machine behind upstream
  * reads as current, or an unread version as a pass.
  */
 import { describe, expect, it } from "vitest";
@@ -39,7 +40,10 @@ describe("not WSL", () => {
 				readLatest: notRead,
 				readReleases: notRead,
 			}),
-		).toEqual({ state: "NOT_WSL", lines: [] });
+		).toEqual({
+			state: "NOT_WSL",
+			lines: ["the kernel release carries no `microsoft`, so this is not WSL."],
+		});
 	});
 });
 
@@ -87,13 +91,15 @@ describe("behind", () => {
 	it("names both versions and the count, then the commands, in order", () => {
 		const { state, lines } = judge();
 		expect(state).toBe("BEHIND");
-		expect(lines.slice(0, 3)).toEqual([
+		expect(lines.slice(0, 5)).toEqual([
 			"WSL 2.7.11.0 is 5 stable releases behind 3.0.3.",
-			"To update, first in WSL: node scripts/refill-loop.js set --pause",
-			"Then in Windows PowerShell: wsl --update",
+			"To update, first in WSL:",
+			"node scripts/refill-loop.js set --pause",
+			"Then in Windows PowerShell:",
+			"wsl --update",
 		]);
-		expect(lines[3]).toContain("by itself when its download finishes");
-		expect(lines[3]).toContain("ends every session");
+		expect(lines[5]).toContain("by itself when its download finishes");
+		expect(lines[5]).toContain("ends every session");
 	});
 
 	it("says one release in the singular", () => {

@@ -1,6 +1,7 @@
 /*
  * wsl-currency.js — the check-wsl-currency core (#4082): judges this machine's
- * WSL version against upstream's latest stable release.
+ * WSL version against upstream's latest stable release. Held apart from its
+ * reads so each verdict is testable without a bridge or a network.
  */
 
 const { scriptPath } = require("./script-path.js");
@@ -74,7 +75,7 @@ function countStableAbove(rows, installed) {
  * @param {string} why
  * @returns {Verdict}
  */
-const unread = (why) => ({
+const buildUnread = (why) => ({
 	state: "UNREAD",
 	lines: [
 		`WSL currency not read, so whether this machine is behind is unknown: ${why}.`,
@@ -85,7 +86,7 @@ const unread = (why) => ({
  * @param {unknown} answer
  * @returns {answer is Failed}
  */
-const failed = (answer) =>
+const isFailed = (answer) =>
 	typeof answer === "object" && answer !== null && "why" in answer;
 
 /**
@@ -94,37 +95,41 @@ const failed = (answer) =>
  */
 function judgeCurrency(ports) {
 	const kernel = ports.readKernelRelease();
-	if (failed(kernel)) return unread(`the kernel release: ${kernel.why}`);
-	if (!/microsoft/i.test(kernel)) return { state: "NOT_WSL", lines: [] };
+	if (isFailed(kernel)) return buildUnread(`the kernel release: ${kernel.why}`);
+	if (!/microsoft/i.test(kernel))
+		return {
+			state: "NOT_WSL",
+			lines: ["the kernel release carries no `microsoft`, so this is not WSL."],
+		};
 
 	const installed = ports.readInstalled();
 	const latest = ports.readLatest();
 	const releases = ports.readReleases();
 	const latestTag =
-		!failed(latest) && typeof latest.tag_name === "string"
+		!isFailed(latest) && typeof latest.tag_name === "string"
 			? latest.tag_name
 			: null;
 	const faults = [
-		failed(installed) && `wsl.exe --version: ${installed.why}`,
-		failed(latest)
+		isFailed(installed) && `wsl.exe --version: ${installed.why}`,
+		isFailed(latest)
 			? `the latest release: ${latest.why}`
 			: latestTag === null && "the latest release: gh answered with no tag",
-		failed(releases)
+		isFailed(releases)
 			? `the release list: ${releases.why}`
 			: releases.length === 0 && "the release list: gh answered with none",
 	].filter(Boolean);
 	if (
-		faults.length > 0 ||
-		failed(installed) ||
-		failed(releases) ||
-		latestTag === null
+		isFailed(installed) ||
+		latestTag === null ||
+		isFailed(releases) ||
+		releases.length === 0
 	)
-		return unread(faults.join("; "));
+		return buildUnread(faults.join("; "));
 
 	const have = parseVersion(installed.version);
 	const newest = parseVersion(latestTag);
 	if (have === null || newest === null)
-		return unread(
+		return buildUnread(
 			`versions that will not compare: ${installed.version} against ${latestTag}`,
 		);
 	if (compareVersions(have, newest) >= 0)
@@ -139,8 +144,10 @@ function judgeCurrency(ports) {
 		state: "BEHIND",
 		lines: [
 			`WSL ${installed.version} is ${behind} stable ${behind === 1 ? "release" : "releases"} behind ${latestTag}.`,
-			`To update, first in WSL: node ${scriptPath("refill-loop.js")} set --pause`,
-			"Then in Windows PowerShell: wsl --update",
+			"To update, first in WSL:",
+			`node ${scriptPath("refill-loop.js")} set --pause`,
+			"Then in Windows PowerShell:",
+			"wsl --update",
 			"The update installs by itself when its download finishes, and installing ends every session, so pick the moment.",
 		],
 	};
