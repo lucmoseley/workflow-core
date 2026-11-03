@@ -112,7 +112,10 @@ const {
 	readTickRefusal,
 } = require("./lib/refill-repos.js");
 const loop = require("./lib/refill-loop.js");
-const { bootVerdictOf } = require("./lib/refill-boot.js");
+const { awaitLoopHold, bootVerdictOf } = require("./lib/refill-boot.js");
+const { readProcStartOf } = require("./lib/arbiter-proc.js");
+const { REAL_PROC } = require("./lib/proc-root.js");
+const { sleepSync } = require("./lib/sleep-sync.js");
 const {
 	forgetRunHeld,
 	recordRunHeld,
@@ -381,7 +384,9 @@ function readSeatsView(planSeats, root, callerSeat) {
 }
 
 /**
- * Spawn the detached loop from its verified code.
+ * Spawn the detached loop from its verified code, and wait until it holds the
+ * lock: a spawn alone says nothing of a loop that then exits. One that outlasts
+ * the wait is ended, so a start reported failed leaves no loop behind.
  * @returns {{error: string} | {pid: number|undefined, fetchError: string|null|undefined}}
  */
 function launchLoop() {
@@ -401,6 +406,21 @@ function launchLoop() {
 		env,
 	});
 	child.unref();
+	const error = awaitLoopHold({
+		pid: child.pid,
+		file: files.pid,
+		holder: lock.holder,
+		hasHeld: () => Boolean(readStateFile(() => undefined).heldAt),
+		/* This process never reaps it while it polls, so the exit reads as a
+		 * zombie, which the start time's reader calls ended. */
+		isAlive: () => readProcStartOf(Number(child.pid), REAL_PROC) !== null,
+		now: () => performance.now(),
+		sleep: sleepSync,
+	});
+	if (error !== null) {
+		child.kill();
+		return { error };
+	}
 	return { pid: child.pid, fetchError: launch.fetchError };
 }
 
@@ -432,8 +452,9 @@ function bootResume() {
 		note(verdict.line);
 		return 0;
 	}
-	/* Before the launch, so a loop that dies ahead of its first tick leaves it. */
-	writeJson(files.state, { ...state, bootedAt: Date.now() });
+	/* Before the launch, so a loop that dies ahead of its first tick leaves it;
+	 * and until the new loop holds the pidfile, no process has died (#3861). */
+	writeJson(files.state, { ...state, bootedAt: Date.now(), heldAt: null });
 	const launched = launchLoop();
 	if ("error" in launched) {
 		note(`boot resume: not resumed: ${launched.error}`);

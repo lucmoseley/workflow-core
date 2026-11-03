@@ -9,7 +9,16 @@ import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	onTestFinished,
+	vi,
+} from "vitest";
+import { readCurrentBootId, readProcStartOf } from "./arbiter-proc.js";
 import { endedPid } from "./arbiter-testkit";
 import { NotALock, pidLock } from "./pid-lock.js";
 
@@ -20,14 +29,38 @@ beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "pid-lock-"));
 	file = path.join(dir, ".daemon.pid");
 });
-afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+afterEach(() => {
+	vi.restoreAllMocks();
+	fs.rmSync(dir, { recursive: true, force: true });
+});
+
+const ownRecord = () => ({
+	pid: process.pid,
+	procStart: readProcStartOf(process.pid),
+	bootId: readCurrentBootId(),
+});
+const readRecord = () => JSON.parse(fs.readFileSync(file, "utf8"));
+
+/* spawn-kept: a live process other than this one, whose command line carries
+ * the marker. */
+function liveMarkerProcess(script: string) {
+	const proc = spawn(
+		process.execPath,
+		["-e", "setInterval(() => {}, 1000)", script],
+		{ stdio: "ignore" },
+	);
+	onTestFinished(() => {
+		proc.kill();
+	});
+	return proc.pid as number;
+}
 
 describe("pidLock", () => {
-	it("creates the pidfile holding this pid, leaving no aside, and releases it", () => {
+	it("creates the pidfile holding this process's record, leaving no aside, and releases it", () => {
 		const lock = pidLock(file, "node");
 		expect(lock.acquire()).toBe(true);
 		expect(fs.readdirSync(dir)).toEqual([".daemon.pid"]);
-		expect(fs.readFileSync(file, "utf8")).toBe(String(process.pid));
+		expect(readRecord()).toEqual(ownRecord());
 		expect(lock.holder()).toBe(process.pid);
 		lock.release();
 		expect(fs.existsSync(file)).toBe(false);
@@ -65,7 +98,8 @@ describe("pidLock", () => {
 		fs.symlinkSync(target, file);
 		expect(pidLock(file, "node").acquire()).toBe(true);
 		expect(fs.lstatSync(file).isFile()).toBe(true);
-		expect(fs.readFileSync(target, "utf8")).not.toBe(String(process.pid));
+		expect(readRecord()).toEqual(ownRecord());
+		expect(fs.readFileSync(target, "utf8")).not.toContain(String(process.pid));
 		expect(fs.readdirSync(dir).sort()).toEqual([".daemon.pid", "target"]);
 	});
 
@@ -94,9 +128,108 @@ describe("pidLock", () => {
 	});
 
 	it("holds a pidfile already naming this process, as a daemon re-exec'd under its pid finds it (#2361)", () => {
+		fs.writeFileSync(file, JSON.stringify(ownRecord()));
+		expect(pidLock(file, "node").acquire()).toBe(true);
+		expect(readRecord()).toEqual(ownRecord());
+	});
+
+	it("rewrites this process's bare pid as its record once it re-acquires (#4083)", () => {
 		fs.writeFileSync(file, String(process.pid));
 		expect(pidLock(file, "node").acquire()).toBe(true);
-		expect(fs.readFileSync(file, "utf8")).toBe(String(process.pid));
+		expect(readRecord()).toEqual(ownRecord());
+		expect(fs.readdirSync(dir)).toEqual([".daemon.pid"]);
+	});
+
+	describe("a recycled pid (#4083)", () => {
+		const Boot = () => readCurrentBootId();
+		it.each([
+			[
+				"another process's start time",
+				(pid: number) => ({ pid, procStart: "1", bootId: Boot() }),
+			],
+			[
+				"its start time on another boot",
+				(pid: number) => ({
+					pid,
+					procStart: readProcStartOf(pid),
+					bootId: "another",
+				}),
+			],
+		])(
+			"a record of %s, naming a live marker process, has no holder and is taken over",
+			(_, record) => {
+				const pid = liveMarkerProcess("refill-loop.js");
+				fs.writeFileSync(file, JSON.stringify(record(pid)));
+				const lock = pidLock(file, "refill-loop.js");
+				expect(lock.holder()).toBeNull();
+				expect(lock.acquire()).toBe(true);
+				expect(readRecord()).toEqual(ownRecord());
+			},
+		);
+
+		it("a matching record still refuses a second taker", () => {
+			const pid = liveMarkerProcess("refill-loop.js");
+			const text = JSON.stringify({
+				pid,
+				procStart: readProcStartOf(pid),
+				bootId: Boot(),
+			});
+			fs.writeFileSync(file, text);
+			const lock = pidLock(file, "refill-loop.js");
+			expect(lock.holder()).toBe(pid);
+			expect(lock.acquire()).toBe(false);
+			expect(fs.readFileSync(file, "utf8")).toBe(text);
+		});
+
+		it("a bare pid naming a live marker process still refuses", () => {
+			const pid = liveMarkerProcess("refill-loop.js");
+			fs.writeFileSync(file, String(pid));
+			expect(pidLock(file, "refill-loop.js").acquire()).toBe(false);
+			expect(fs.readFileSync(file, "utf8")).toBe(String(pid));
+		});
+
+		it("a start time unreadable for a live pid keeps the marker test", () => {
+			const pid = liveMarkerProcess("refill-loop.js");
+			const read = fs.readFileSync;
+			vi.spyOn(fs, "readFileSync").mockImplementation(((
+				...args: Parameters<typeof read>
+			) => {
+				if (args[0] === `/proc/${pid}/stat`) throw new Error("EACCES");
+				return read(...args);
+			}) as typeof read);
+			fs.writeFileSync(
+				file,
+				JSON.stringify({ pid, procStart: "1", bootId: null }),
+			);
+			expect(pidLock(file, "refill-loop.js").holder()).toBe(pid);
+		});
+
+		it("a holder ended between the check and its cmdline's read is no holder", () => {
+			const pid = liveMarkerProcess("refill-loop.js");
+			const read = fs.readFileSync;
+			const kill = process.kill.bind(process);
+			vi.spyOn(fs, "readFileSync").mockImplementation(((
+				...args: Parameters<typeof read>
+			) => {
+				if (args[0] === `/proc/${pid}/cmdline`) {
+					vi.spyOn(process, "kill").mockImplementation((target, signal) => {
+						if (target !== pid) return kill(target, signal);
+						throw Object.assign(new Error("gone"), { code: "ESRCH" });
+					});
+					throw new Error("ENOENT");
+				}
+				return read(...args);
+			}) as typeof read);
+			fs.writeFileSync(file, String(pid));
+			expect(pidLock(file, "refill-loop.js").holder()).toBeNull();
+		});
+
+		it("release leaves a record of another process on this pid", () => {
+			const text = JSON.stringify({ ...ownRecord(), bootId: "another" });
+			fs.writeFileSync(file, text);
+			pidLock(file, "node").release();
+			expect(fs.readFileSync(file, "utf8")).toBe(text);
+		});
 	});
 
 	it.each([
@@ -105,7 +238,7 @@ describe("pidLock", () => {
 	])("takes over a pidfile whose holder %s", (_, content) => {
 		fs.writeFileSync(file, content());
 		expect(pidLock(file, "node").acquire()).toBe(true);
-		expect(fs.readFileSync(file, "utf8")).toBe(String(process.pid));
+		expect(readRecord()).toEqual(ownRecord());
 		expect(fs.readdirSync(dir)).toEqual([".daemon.pid"]);
 	});
 

@@ -38,9 +38,12 @@ function liveProcStart(after) {
 	return after[FIELD.start] || null;
 }
 
-/** @param {number|string} pid */
-function readProcStartOf(pid) {
-	return liveProcStart(readStatFields(pid));
+/**
+ * @param {number|string} pid
+ * @param {string} [proc] the procfs root; readStatFields' default where unset
+ */
+function readProcStartOf(pid, proc) {
+	return liveProcStart(readStatFields(pid, proc));
 }
 
 /**

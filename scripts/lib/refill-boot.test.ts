@@ -5,10 +5,13 @@
  * a tick trusts an empty listing (#3880): loosen that and a daemon's fault finishes
  * sessions still running. And which jobs the never-started stop spares (#3983):
  * loosen that and a dead job keeps its admission charge past the boot; tighten it
- * and a killed launch is stopped before it can queue.
+ * and a killed launch is stopped before it can queue. And whether a spawned loop
+ * came to hold the lock (#4083): loosen that and a start that exited reads as a
+ * running loop.
  */
 import { describe, expect, it } from "vitest";
 import {
+	awaitLoopHold,
 	bootSparedJobs,
 	bootVerdictOf,
 	isEmptyListingTrusted,
@@ -138,5 +141,60 @@ describe("isEmptyListingTrusted (#3880)", () => {
 	it("does not with no boot and none killed", () => {
 		expect(isTrusted([buildLaunch({})])).toBe(false);
 		expect(isTrusted([])).toBe(false);
+	});
+});
+
+describe("awaitLoopHold (#4083)", () => {
+	const Pid = 7;
+	const File = "/x/.refill-loop.pid";
+	/** One holder and aliveness reading per poll, the last repeating. */
+	const polls = (
+		holders: (number | null)[],
+		alive: boolean[],
+		hasHeld = false,
+	) => {
+		let at = 0;
+		let turn = 0;
+		const sleeps: number[] = [];
+		const reply = awaitLoopHold({
+			pid: Pid,
+			file: File,
+			holder: () =>
+				holders[Math.min(turn, holders.length - 1)] as number | null,
+			hasHeld: () => hasHeld,
+			isAlive: () => alive[Math.min(turn, alive.length - 1)] as boolean,
+			now: () => at,
+			sleep: (ms: number) => {
+				sleeps.push(ms);
+				at += ms;
+				turn += 1;
+			},
+		});
+		return { reply, sleeps };
+	};
+
+	it("is done once the spawned process holds the lock", () => {
+		const { reply, sleeps } = polls([null, null, Pid], [true]);
+		expect(reply).toBeNull();
+		expect(sleeps).toHaveLength(2);
+	});
+
+	it("counts a loop that held the lock and has already ended", () => {
+		expect(polls([null], [false], true).reply).toBeNull();
+	});
+
+	it("says the loop exited where it never held the lock", () => {
+		expect(polls([null], [false]).reply).toBe(
+			`the loop exited without holding ${File}`,
+		);
+	});
+
+	it("names another live holder once the spawned process has gone", () => {
+		expect(polls([9], [true, false]).reply).toBe(`pid 9 holds ${File}`);
+	});
+
+	it("gives up on a process that outlasts the wait without the lock", () => {
+		const { reply } = polls([null], [true]);
+		expect(reply).toBe(`the loop did not hold ${File} within 30 s`);
 	});
 });

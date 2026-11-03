@@ -4,7 +4,9 @@
  * says why. `refill-loop.js stop` stays the one way to stop it, and the resume
  * writes no control, so it never moves what `start` recorded. Also what the ticks
  * after it trust of the listing while its killed launches come back (#3880), and
- * which jobs the never-started stop spares until they are queued (#3983).
+ * which jobs the never-started stop spares until they are queued (#3983). And
+ * whether a loop just spawned, by a boot or a `start`, came to hold the lock
+ * (#4083).
  */
 
 const {
@@ -14,6 +16,39 @@ const {
 	isLive,
 } = require("./refill-blocks.js");
 const { recordedStop } = require("./refill-loop.js");
+
+/* First guesses, and stated as ones: the 3 Nov boot's loop reached its lock in
+ * 61 ms, so 30 s allows for a machine far busier than a boot was; a poll costs
+ * two small reads. */
+const LOOP_HOLD_WAIT_MS = 30_000;
+const LOOP_HOLD_POLL_MS = 50;
+
+/**
+ * Waits until the spawned loop holds the lock, or has held it and already ended.
+ * @param {object} loop
+ * @param {number|undefined} loop.pid the spawned process
+ * @param {string} loop.file the pidfile, for the words
+ * @param {() => number|null} loop.holder the pidfile's live holder
+ * @param {() => boolean} loop.hasHeld whether a loop has held it since the launch
+ * @param {() => boolean} loop.isAlive whether the spawned process still runs
+ * @param {() => number} loop.now a monotonic clock, in ms
+ * @param {(ms: number) => void} loop.sleep
+ * @returns {string|null} why no loop started; null where one did
+ */
+function awaitLoopHold({ pid, file, holder, hasHeld, isAlive, now, sleep }) {
+	const deadline = now() + LOOP_HOLD_WAIT_MS;
+	for (;;) {
+		const held = holder();
+		if (held === pid) return null;
+		if (!isAlive()) {
+			if (held !== null) return `pid ${held} holds ${file}`;
+			return hasHeld() ? null : `the loop exited without holding ${file}`;
+		}
+		if (now() > deadline)
+			return `the loop did not hold ${file} within ${LOOP_HOLD_WAIT_MS / 1000} s`;
+		sleep(LOOP_HOLD_POLL_MS);
+	}
+}
 
 /**
  * @param {object} found
@@ -74,4 +109,9 @@ const bootSparedJobs = ({ bootedAt, launches }) =>
 			: launches.filter(isBootKillCandidate).map((l) => l.jobId),
 	);
 
-module.exports = { bootSparedJobs, bootVerdictOf, isEmptyListingTrusted };
+module.exports = {
+	awaitLoopHold,
+	bootSparedJobs,
+	bootVerdictOf,
+	isEmptyListingTrusted,
+};

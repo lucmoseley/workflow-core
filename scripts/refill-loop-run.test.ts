@@ -525,7 +525,10 @@ process.stdout.write("Process runaway from 2026-10-29 19:07 UTC: filed #9.");\n`
 		afterEach(() => {
 			const pidFile = at(".refill-review.pid");
 			try {
-				process.kill(-Number(fs.readFileSync(pidFile, "utf8")), "SIGKILL");
+				process.kill(
+					-JSON.parse(fs.readFileSync(pidFile, "utf8")).pid,
+					"SIGKILL",
+				);
 			} catch (err) {
 				const { code } = err as NodeJS.ErrnoException;
 				if (code !== "ENOENT" && code !== "ESRCH") throw err;
@@ -3382,6 +3385,73 @@ describe("boot-resume after a restart (#3878)", () => {
 		expect((await command("boot-resume")).status).toBe(1);
 		expect(readLog()).toMatch(/boot resume: not resumed: no \S+ in /);
 		expect(fs.existsSync(at("ticks"))).toBe(false);
+	});
+
+	describe("where the spawned loop holds no lock (#4083)", () => {
+		/* Node loads this into the spawned `run` alone: the command under test runs
+		 * in process, and a holder's own argv has no `run`. */
+		const commandWithPreload = (source: string, ...argv: string[]) => {
+			const preload = at("preload.js");
+			fs.writeFileSync(
+				preload,
+				`if (process.argv[2] === "run") { ${source} }\n`,
+			);
+			return runInProcessAsync(path.join(scripts, "refill-loop.js"), argv, {
+				cwd: dir,
+				env: loopEnv({
+					FAKE_SLOTS: "1",
+					CLAUDE_PROJECT_DIR: repo,
+					NODE_OPTIONS: `--require ${preload}`,
+				}),
+			});
+		};
+		const Dies = "process.exit(0);";
+		/* Plants a live holder, so the loop then loses the lock to it. */
+		const losesLock = () => `
+			const holder = require("node:child_process").spawn(
+				process.execPath,
+				["-e", "setInterval(() => {}, 1000)", "refill-loop.js"],
+				{ detached: true, stdio: "ignore" },
+			);
+			holder.unref();
+			require("node:fs").writeFileSync(${JSON.stringify(at(".refill-loop.pid"))}, String(holder.pid));
+		`;
+
+		it("boot-resume exits 1, logging a failure, where the loop dies", async () => {
+			writeControl();
+			const r = await commandWithPreload(Dies, "boot-resume");
+			expect(r.status).toBe(1);
+			expect(readLog()).toContain(
+				"boot resume: not resumed: the loop exited without holding",
+			);
+			expect(readLog()).not.toContain("resumed the loop");
+		});
+
+		it("boot-resume names the holder where the loop loses the lock", async () => {
+			writeControl();
+			const r = await commandWithPreload(losesLock(), "boot-resume");
+			const holder = Number(fs.readFileSync(at(".refill-loop.pid"), "utf8"));
+			try {
+				expect(r.status).toBe(1);
+				expect(readLog()).toContain(
+					`boot resume: not resumed: pid ${holder} holds`,
+				);
+				expect(readLog()).toContain("another refill loop holds");
+				expect(readLog()).not.toContain("resumed the loop");
+			} finally {
+				process.kill(holder, "SIGKILL");
+			}
+		});
+
+		it("`start` reports no started loop where the loop dies", async () => {
+			writeControl();
+			const r = await commandWithPreload(Dies, "start");
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain(
+				"refill loop not started: the loop exited without holding",
+			);
+			expect(r.stdout).not.toContain("refill loop started");
+		});
 	});
 });
 

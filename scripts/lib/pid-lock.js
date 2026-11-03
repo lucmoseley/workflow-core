@@ -6,11 +6,16 @@
  * write, write-secret.js's (#3539) and the refill control's (#3856), which
  * waitForLock takes.
  *
- * The pidfile is linked into place from a file already holding the pid, so
- * no reader ever sees it empty. A pidfile whose process is gone, or whose
+ * The pidfile is linked into place from a file already holding the record, so
+ * no reader ever sees it empty. It records the holder's pid, start time and
+ * boot id (#4083): a start time alone can recur across boots, as early-boot
+ * processes land on near-identical pids and ticks. A pidfile whose process is
+ * gone, whose record names another process than the one now on its pid, or whose
  * command line runs no file named as the daemon's script, is stale and taken
- * over. A process re-exec'd under its own pid (the refill loop's adoption,
- * #2361) already holds it. A directory, FIFO or socket at the lock's path,
+ * over. A bare pid, as a daemon started before the record holds, has only the
+ * command line to go on, until that holder re-acquires and rewrites it. A process
+ * re-exec'd under its own pid (the refill loop's adoption, #2361) keeps its start
+ * time, so already holds it. A directory, FIFO or socket at the lock's path,
  * or a symlink to one, is no pidfile, and taking it over would fail midway or
  * block on the read: `acquire` throws `NotALock`, moving nothing (#3663,
  * #3715). A symlink to a regular file or to nothing is moved aside like any
@@ -20,7 +25,11 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { pidAlive } = require("./arbiter-proc.js");
+const {
+	pidAlive,
+	readCurrentBootId,
+	readProcStartOf,
+} = require("./arbiter-proc.js");
 const { asidePath } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
 const { REAL_PROC } = require("./proc-root.js");
@@ -70,6 +79,44 @@ function readTargetStat(file) {
 	}
 }
 
+/** The record this process holds a pidfile under, read off the real kernel. */
+const buildOwnRecord = () =>
+	JSON.stringify({
+		pid: process.pid,
+		procStart: readProcStartOf(process.pid, REAL_PROC),
+		bootId: readCurrentBootId(),
+	});
+
+/**
+ * A pidfile's record, a bare pid reading as one with only that; null where the
+ * text names no pid.
+ * @param {string|null} text
+ * @returns {{pid: number, procStart?: string|null, bootId?: string|null}|null}
+ */
+function parseRecord(text) {
+	let parsed;
+	try {
+		parsed = JSON.parse(String(text));
+	} catch {
+		return null;
+	}
+	const record = typeof parsed === "number" ? { pid: parsed } : parsed;
+	return Number.isInteger(record?.pid) && record.pid > 0 ? record : null;
+}
+
+/**
+ * Whether the record proves the process on its pid is not the one that wrote it.
+ * What cannot be read proves nothing, so a lock is never taken from a live holder
+ * on doubt.
+ * @param {{pid: number, procStart?: string|null, bootId?: string|null}} record
+ */
+function isOtherProcess({ pid, procStart, bootId }) {
+	const boot = readCurrentBootId();
+	if (bootId && boot && bootId !== boot) return true;
+	const start = readProcStartOf(pid, REAL_PROC);
+	return Boolean(procStart) && start !== null && start !== String(procStart);
+}
+
 /**
  * The lock at `file` for the script or scripts named `marker`: a holder's
  * command line must carry an argument whose basename is one of them, so
@@ -81,13 +128,15 @@ function pidLock(file, marker) {
 	const markers = [marker].flat();
 	/** @param {string|null} text @returns {number|null} the live holder's pid */
 	const liveHolder = (text) => {
-		const pid = Number(String(text).trim());
-		if (!Number.isInteger(pid) || pid <= 0 || !pidAlive(pid)) return null;
+		const record = parseRecord(text);
+		if (!record || !pidAlive(record.pid) || isOtherProcess(record)) return null;
+		const { pid } = record;
 		/* pidAlive asked the real kernel, so its cmdline is read there too (#3587). */
 		const cmdline = readText(`${REAL_PROC}/${pid}/cmdline`);
-		/* Residual: an unreadable cmdline counts as the daemon's, so a lock is
-		 * never taken from a live holder on doubt. */
-		if (cmdline === null) return pid;
+		/* A process that ended since the check above is no holder. Residual: a live
+		 * pid's unreadable cmdline counts as the daemon's, so a lock is never taken
+		 * from a live holder on doubt. */
+		if (cmdline === null) return pidAlive(pid) ? pid : null;
 		const runs = cmdline
 			.split("\0")
 			.some((arg) => markers.includes(path.basename(arg)));
@@ -105,9 +154,14 @@ function pidLock(file, marker) {
 	const aside = () =>
 		asidePath(file, process.pid, crypto.randomBytes(4).toString("hex"));
 
-	const create = () => {
+	const writeReady = () => {
 		const ready = aside();
-		fs.writeFileSync(ready, String(process.pid), { flag: "wx" });
+		fs.writeFileSync(ready, buildOwnRecord(), { flag: "wx" });
+		return ready;
+	};
+
+	const create = () => {
+		const ready = writeReady();
 		try {
 			fs.linkSync(ready, file);
 			return true;
@@ -141,6 +195,15 @@ function pidLock(file, marker) {
 		return false;
 	};
 
+	/**
+	 * This process already holds the file reading `seen`, which may be a bare pid.
+	 * @param {string|null} seen
+	 */
+	const keepOwn = (seen) => {
+		if (seen !== buildOwnRecord()) fs.renameSync(writeReady(), file);
+		return true;
+	};
+
 	return {
 		holder: () => liveHolder(readText(file)),
 		/**
@@ -152,13 +215,14 @@ function pidLock(file, marker) {
 				if (create()) return true;
 				const seen = readPidfile();
 				const held = liveHolder(seen);
-				if (held === process.pid) return true;
+				if (held === process.pid) return keepOwn(seen);
 				if (held !== null || !removeStale(seen)) return false;
 			}
 			return false;
 		},
 		release() {
-			if (String(readText(file)).trim() === String(process.pid))
+			const record = parseRecord(readText(file));
+			if (record?.pid === process.pid && !isOtherProcess(record))
 				fs.rmSync(file, { force: true });
 		},
 	};
