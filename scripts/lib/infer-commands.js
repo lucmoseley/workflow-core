@@ -14,6 +14,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const {
 	BIOME_STAGED_COMMAND,
+	BIOME_STAGED_START,
 	OWN_FLAGS,
 	OWN_FLAGS_WAY_OUT,
 	UNREAD,
@@ -32,6 +33,7 @@ const {
 	RUNNER_NAMES,
 	findRun,
 	hasUnresolvedSelector,
+	namedScriptWord,
 	parseNamedDir,
 	placedCommands,
 	walkRunScripts,
@@ -51,6 +53,7 @@ const { writeFd } = require("./write-fd.js");
 /** @typedef {import("./shell-tokens.js").Word} Word */
 /** @typedef {import("./shell-tokens.js").Token} Token */
 /** @typedef {import("./script-runners.js").Hop} Hop */
+/** @typedef {import("./package-reader.js").PackageReader} PackageReader */
 /** @typedef {import("./script-runners.js").Placed} Placed */
 /** @typedef {import("./biome-allowlist.js").MappedCommand} MappedCommand */
 
@@ -139,11 +142,12 @@ const isBiomeGlob = (word) => {
 	return new RegExp(`^${source}$`).test("biome");
 };
 
-/** The index of `command`'s `biome` word followed by `check`, or -1.
+/** The index of `command`'s `biome` word followed by `check`, a `--` between
+ * them being npm exec's (`npm exec biome -- check`), or -1.
  * @param {Word[]} command */
 const biomeCheckAt = (command) =>
 	command.findIndex((w, i) => {
-		const next = command[i + 1];
+		const next = command[command[i + 1]?.value === "--" ? i + 2 : i + 1];
 		return (
 			next !== undefined &&
 			(isPossibly(w, BIOME_WORD) || isBiomeGlob(w)) &&
@@ -188,9 +192,19 @@ function parseBiomeSubcommand(command) {
  * command does not name, which is no evidence, so `$GATE` at the top passes
  * (write its words out, or declare Biome at the top); a runner other than
  * `parallel`, `xargs`, `eval` or a shell with an expansion for its command
- * (`find -exec`, `su -c`, `env --split-string=sh`); and a glob outside a
+ * (`find -exec`, `su -c`, `env --split-string=sh`); npx's command set outside it
+ * (`npm_config_call='biome check --staged' npx`), for which declare biome-staged.js; and a glob outside a
  * command name's or Biome's slot (`npm run c?`, `biome check --st?ged`), which
- * makes its word only from a file of that name where it runs. */
+ * makes its word only from a file of that name where it runs.
+ *
+ * Residual, refused though Biome never runs, as the words cannot be shown not to
+ * be Biome's (#4042): text naming the command, as an operand or a flag's value
+ * (`echo "run biome check --staged by hand" && eslint .`,
+ * `eslint --rule='biome check --staged'`), whose output a later word or an outer
+ * script may run, so word the text otherwise; and expansions fitting Biome's
+ * slots (`eslint $A $B $C`, `python -m ruff $OPTS check $FILES`), as any command
+ * may run its operands, so write the words out. Either may instead go in a shell
+ * file (`sh ./your-gate.sh`). */
 const PACKAGE_MANAGERS = [...RUNNER_NAMES, "bunx", "npx"];
 const MENTIONS = new RegExp(
 	`biome|(?:^|[\\s;&|(\`$"'=/])(?:${PACKAGE_MANAGERS.join("|")})(?=$|[\\s;&|)\`"'@])|\\$'[^']*\\\\`,
@@ -371,26 +385,37 @@ function isHiddenCommand(command) {
 }
 
 /**
- * Whether `tokens` hold what this classifier cannot read as dash would: an
+ * Whether `hop`'s tokens hold what this classifier cannot read as dash would: an
  * expansion or substitution, nested ones included; a construct bash reads
  * otherwise; a here-document; an INDIRECT command; or any of those in a
- * shell's `-c` script, quoted or not.
- * @param {Token[]} tokens
+ * shell's `-c` script, quoted or not. A word naming a script is no INDIRECT
+ * command (`npm run eval`, #4042).
+ * @param {Hop} hop
+ * @param {string} root
+ * @param {PackageReader} readCachedPackage
  * @returns {boolean}
  */
-const isUnreadable = (tokens) =>
-	tokens.some((t) => {
+const isUnreadable = (hop, root, readCachedPackage) =>
+	hop.tokens.some((t) => {
 		const word = wordOf(t);
 		return (
 			(t.type === "redirect" && HEREDOCS.has(t.op)) ||
 			(word?.type === "word" && isUnreadWord(word))
 		);
 	}) ||
-	allCommands(tokens).some((c) => {
-		const script = parseShellScript(c);
+	[...placedCommands(hop)].some((placed) => {
+		const script = parseShellScript(placed.command);
+		const name = namedScriptWord(placed, root, readCachedPackage);
 		return (
-			c.some((w) => INDIRECT.has(path.posix.basename(w.value))) ||
-			(script !== undefined && isUnreadable(tokenise(script.value)))
+			placed.command.some(
+				(w) => w !== name && INDIRECT.has(path.posix.basename(w.value)),
+			) ||
+			(script !== undefined &&
+				isUnreadable(
+					{ ...hop, tokens: tokenise(script.value) },
+					root,
+					readCachedPackage,
+				))
 		);
 	});
 
@@ -405,6 +430,27 @@ const onlyCommand = (tokens) => {
 	const [only, ...more] = simpleCommands(tokens);
 	return isPlain(tokens) && more.length === 0 ? only : undefined;
 };
+
+/**
+ * `hop` past a biome-staged.js command it begins with, so that command's words
+ * are not judged and what follows them is (#4042). One handed a word not known
+ * until the shell runs it, which may run anything, is left whole.
+ * @param {Hop} hop
+ * @returns {Hop}
+ */
+function pastBiomeStaged(hop) {
+	const start = BIOME_STAGED_START.exec(hop.text);
+	if (!start) return hop;
+	const end = hop.tokens.findIndex((t) => t.type !== "word");
+	const own = end < 0 ? hop.tokens : hop.tokens.slice(0, end);
+	const [, , ...handed] = own;
+	if (handed.some((t) => t.type === "word" && isUnreadWord(t))) return hop;
+	return {
+		...hop,
+		text: hop.text.slice(start[0].length),
+		tokens: end < 0 ? [] : hop.tokens.slice(end),
+	};
+}
 
 /**
  * The directory other than `top` a run to the Biome command surely went to, by
@@ -431,7 +477,8 @@ function findElsewhere(hops, placed, top) {
  * mentions Biome or a package manager but holds what cannot be read as dash
  * would, or an npm workspace selector no member answers, is refused unread. A `biome <subcommand> --staged` other than `check`
  * is refused and never mapped. One beginning with biome-staged.js is never
- * parsed. What the walk reads wider than its runner is refused where it reaches
+ * parsed; a text beginning with it in the hook's spelling of the root, or a script
+ * in either, is judged on what follows it (#4042). What the walk reads wider than its runner is refused where it reaches
  * Biome, as is a script name holding an expansion (#3545); for a script the walk
  * does not follow, declare the Biome part as biome-staged.js and the rest in a
  * gate of its own (#2599). The refusal reads after `check_staged "<command>"
@@ -469,8 +516,9 @@ function classifyCheckStaged(root, command, { inferred }) {
 		command,
 		/** @param {Hop} hop @param {Hop[]} hops */
 		(hop, hops) => {
-			const { text, tokens } = hop;
-			const placed = [...placedCommands(hop)];
+			const judged = pastBiomeStaged(hop);
+			const { text, tokens } = judged;
+			const placed = [...placedCommands(judged)];
 			const candidates = placed.map((p) =>
 				withoutRun(p, top, readCachedPackage),
 			);
@@ -481,7 +529,7 @@ function classifyCheckStaged(root, command, { inferred }) {
 			const biomeCommand = segment !== undefined || subcommand !== undefined;
 			const unread =
 				((biomeCommand || hasMatch(MENTIONS, text, tokens)) &&
-					isUnreadable(tokens)) ||
+					isUnreadable(judged, top, readCachedPackage)) ||
 				writtenCommands(tokens).some(isHiddenCommand);
 			const unresolved = placed.some((p) =>
 				hasUnresolvedSelector(p, top, readCachedPackage),

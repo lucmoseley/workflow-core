@@ -516,10 +516,12 @@ function simpleCommands(tokens) {
 /** @param {Token} t */
 const wordOf = (t) => (t.type === "redirect" ? t.target : t);
 
+const FLAG_EQUALS = /^-[^=\s]*=/;
+
 /**
  * Every simple command `tokens` holds: its own, then each substitution's,
  * and unless `quoted` is false each quoted word's, which a runner such as
- * `concurrently` or `sh -c` runs.
+ * `concurrently` or `sh -c` runs, past any flag's `=` (`npx --call='…'`, #4042).
  * @param {Token[]} tokens
  * @param {boolean} [quoted]
  * @returns {Word[][]}
@@ -529,7 +531,10 @@ function allCommands(tokens, quoted = true) {
 		tokens.flatMap((t) => {
 			const word = wordOf(t);
 			if (word?.type !== "word") return [];
-			const read = quoted && word.quoted ? [tokenise(word.value)] : [];
+			const read =
+				quoted && word.quoted
+					? [tokenise(word.value.replace(FLAG_EQUALS, ""))]
+					: [];
 			return [...word.subs, ...read].flatMap((sub) => allCommands(sub, quoted));
 		}),
 	);

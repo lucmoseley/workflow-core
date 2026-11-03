@@ -326,6 +326,30 @@ function hasUnresolvedSelector({ command, dirs }, root, readCachedPackage) {
 }
 
 /**
+ * The word naming the script `placed`'s run runs, where every directory it
+ * reaches has a script of that name, so the word can name nothing else (#4042).
+ * A prefix may set npm's selector, and another runner's flag may be a selector
+ * this walk does not read, so with either the word is not known to name one.
+ * @param {Placed} placed
+ * @param {string} root
+ * @param {PackageReader} readCachedPackage
+ * @returns {Word|undefined}
+ */
+function namedScriptWord({ command, dirs }, root, readCachedPackage) {
+	const run = findRun(command);
+	if (!run || run.at > 0) return;
+	if (!run.rules.ownsFlags && command.some((w) => w.value.startsWith("-")))
+		return;
+	const targets = runTargets(run, dirs, root, readCachedPackage).dirs;
+	return targets.length > 0 &&
+		targets.every(
+			(d) => typeof readCachedPackage(d).scripts[run.name] === "string",
+		)
+		? command[run.end - 1]
+		: undefined;
+}
+
+/**
  * `command` with a written `run`'s runner and name shed and its handed-on words
  * kept, so words a missing script's run hands on are still read where they
  * stand (#3413). A run-less word stays, as `yarn biome check` names no script,
@@ -561,6 +585,7 @@ module.exports = {
 	RUNNER_NAMES,
 	findRun,
 	hasUnresolvedSelector,
+	namedScriptWord,
 	parseNamedDir,
 	placedCommands,
 	walkRunScripts,

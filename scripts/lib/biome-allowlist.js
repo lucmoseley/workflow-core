@@ -13,6 +13,11 @@ const { shellQuote } = require("./sh-quote.js");
 
 const BIOME_STAGED_COMMAND = 'node "$WFC_PLUGIN_ROOT"/scripts/biome-staged.js';
 
+/* That command at the start of a text, its root spelt either way the hooks do
+ * (#4042). */
+const BIOME_STAGED_START =
+	/^\s*node\s+"\$(?:WFC_PLUGIN_ROOT|\{WFC_PLUGIN_ROOT:-\.\})"\/scripts\/biome-staged\.js(?=$|[\s;&|<>()])/;
+
 const PINNED = /(?:^|\s)(?:@biomejs\/)?biome@/;
 
 /* The names that find the `biome` the hook puts on PATH from
@@ -117,6 +122,8 @@ const CARRY_VALUES = new Set([
 	"--vcs-use-ignore-file",
 	"--vcs-default-branch",
 ]);
+/* A family's look, but a `--reporter` value: Biome rejects it as a flag (#4042). */
+const NOT_A_FLAG = "--json-pretty";
 const CARRY_VALUE_PREFIXES = [
 	"--javascript-",
 	"--json-",
@@ -129,7 +136,7 @@ const CARRY_VALUE_PREFIXES = [
 /** @param {string} name */
 const isValueFlag = (name) =>
 	CARRY_VALUES.has(name) ||
-	CARRY_VALUE_PREFIXES.some((p) => name.startsWith(p));
+	(name !== NOT_A_FLAG && CARRY_VALUE_PREFIXES.some((p) => name.startsWith(p)));
 
 const OWN_FLAGS = `${BIOME_STAGED_COMMAND} <flags>`;
 
@@ -323,6 +330,7 @@ const mapAsWritten = (words, biome, inferred) =>
 
 module.exports = {
 	BIOME_STAGED_COMMAND,
+	BIOME_STAGED_START,
 	OWN_FLAGS,
 	OWN_FLAGS_WAY_OUT,
 	UNREAD,

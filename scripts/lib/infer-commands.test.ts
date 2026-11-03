@@ -1264,6 +1264,202 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 			expect(run(command).status).toBe(0);
 		});
 
+		describe("biome-staged.js in a script, a script named for an indirect word and a flag's quoted value (#4042)", () => {
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
+			const HookRoot = '"${WFC_PLUGIN_ROOT:-.}"/scripts/biome-staged.js';
+			const withScripts = (scripts: object) =>
+				writePackage(".", {
+					scripts,
+					devDependencies: { "@biomejs/biome": "2.5.15" },
+				});
+
+			it.each([
+				["npm exec --call='biome check --staged'", HoldsMore],
+				["npx --call='biome check --staged'", HoldsMore],
+				["npm exec -c='biome check --staged'", HoldsMore],
+				["npx --call=biome\\ check\\ --staged", HoldsMore],
+				["npx --call='npm run cs'", HoldsMore],
+				["npm exec biome -- check --staged", Through],
+				["npx biome -- check --staged", Through],
+			])("refuses %j, its refusal naming %j", (command, named) => {
+				const r = run(command);
+				expect(r.status).toBe(1);
+				expect(r.stderr).toContain(named);
+				expect(r.stderr).toContain("Declare check_staged");
+			});
+
+			it("names no = form for a bare word a value family only looks to hold", () => {
+				const r = run("biome check --staged --json-pretty");
+				expect(r.status).toBe(1);
+				expect(r.stderr).toContain("a flag not on biome-staged.js's allowlist");
+				expect(r.stderr).toContain(OWN_FLAGS_WAY_OUT);
+				expect(r.stderr).not.toContain("--json-pretty=");
+			});
+
+			it.each([
+				BIOME_STAGED_COMMAND,
+				`node ${HookRoot}`,
+				`node ${HookRoot} --verbose`,
+			])("passes %j, as a command and as a script's whole body", (body) => {
+				expect(run(body)).toMatchObject({ status: 0, stderr: "" });
+				withScripts({ wrap: body });
+				expect(run("npm run wrap")).toMatchObject({ status: 0, stderr: "" });
+				expect(run("npm run wrap -- --verbose").status).toBe(0);
+				expect(
+					classifyCheckStaged(dir, "npm run wrap", { inferred: true }),
+				).toEqual({ kind: "none" });
+			});
+
+			it("leaves a script holding biome-staged.js to init as npm run", () => {
+				withScripts({ "check:staged": BIOME_STAGED_COMMAND });
+				expect(inferCommands(dir).check_staged?.command).toBe(
+					"npm run check:staged",
+				);
+			});
+
+			it.each([
+				[`${BIOME_STAGED_COMMAND} && biome check --staged`, HoldsMore],
+				[`${BIOME_STAGED_COMMAND} && npm run cs`, HoldsMore],
+				[`${BIOME_STAGED_COMMAND} --x=$(biome check --staged)`, UNREAD],
+				[`${BIOME_STAGED_COMMAND} | sh`, UNREAD],
+				[`${BIOME_STAGED_COMMAND} && npx eslint $X`, UNREAD],
+				[
+					// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
+					'node "${WFC_PLUGIN_ROOT:-$(biome check --staged)}"/scripts/biome-staged.js',
+					UNREAD,
+				],
+				[`${BIOME_STAGED_COMMAND}x`, UNREAD],
+				[`node ${HookRoot} && biome check --staged`, HoldsMore],
+				[`${BIOME_STAGED_COMMAND} \${X:-$(biome check --staged)}`, UNREAD],
+				[`${BIOME_STAGED_COMMAND} --x=\${X:-\`biome check --staged\`}`, UNREAD],
+				// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
+				['node "${WFC_PLUGIN_ROOT}"/scripts/biome-staged.js', UNREAD],
+				// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
+				['node "${WFC_PLUGIN_ROOT:-/other}"/scripts/biome-staged.js', UNREAD],
+			])(
+				"judges a script %j on what else it runs, naming %j",
+				(body, named) => {
+					withScripts({ wrap: body, cs: "biome check --staged" });
+					const r = run("npm run wrap");
+					expect(r.status).toBe(1);
+					expect(r.stderr).toContain(named);
+					expect(r.stderr).toContain("Declare check_staged");
+				},
+			);
+
+			it.each([
+				[`node ${HookRoot} && biome check --staged`, HoldsMore],
+				[`node ${HookRoot} --x=$(biome check --staged)`, UNREAD],
+				[`node ${HookRoot} && npm run cs`, HoldsMore],
+			])(
+				"judges the hook's spelling %j as a command, naming %j",
+				(command, named) => {
+					withScripts({ cs: "biome check --staged" });
+					const r = run(command);
+					expect(r.status).toBe(1);
+					expect(r.stderr).toContain(named);
+					expect(r.stderr).toContain("Declare check_staged");
+				},
+			);
+
+			it.each([
+				"pnpm --filter web run eval",
+				"pnpm -r run eval",
+				"pnpm eval --filter web",
+				"bun --filter web run eval",
+				"npm_config_workspace=web npm run eval",
+			])("refuses %j, whose selector this check does not read", (command) => {
+				withScripts({ eval: "eslint ." });
+				writePackage("web", { scripts: { eval: "biome check --staged" } });
+				const r = run(command);
+				expect(r.status).toBe(1);
+				expect(r.stderr).toContain(UNREAD);
+				expect(r.stderr).toContain("Declare check_staged");
+			});
+
+			it("refuses --json-pretty=<value>, naming no form Biome rejects", () => {
+				const r = run("biome check --staged --json-pretty=true");
+				expect(r.status).toBe(1);
+				expect(r.stderr).toContain("a flag not on biome-staged.js's allowlist");
+				expect(r.stderr).toContain(OWN_FLAGS_WAY_OUT);
+			});
+
+			it("still names the = form for a value flag in a family", () => {
+				const r = run("biome check --staged --json-formatter-enabled true");
+				expect(r.status).toBe(1);
+				expect(r.stderr).toContain(
+					"with the = form, --json-formatter-enabled=true",
+				);
+			});
+
+			it.each(["npm run eval", "npm run xargs", "yarn xargs", "pnpm run eval"])(
+				"passes %j, where a script of that name has an ordinary body",
+				(command) => {
+					withScripts({ eval: "eslint .", xargs: "eslint ." });
+					expect(run(command)).toMatchObject({ status: 0, stderr: "" });
+				},
+			);
+
+			it.each([
+				"npm run nosuch -- eval",
+				"yarn xargs npx eslint",
+				"cat f | xargs npm run lint",
+				"eval npm run lint",
+			])("refuses %j, whose indirect word names no script", (command) => {
+				const r = run(command);
+				expect(r.status).toBe(1);
+				expect(r.stderr).toContain(UNREAD);
+				expect(r.stderr).toContain("Declare check_staged");
+			});
+
+			it("refuses a run whose word is a script in only some directories it reaches", () => {
+				withScripts({ eval: "eslint ." });
+				writePackage("web", {});
+				const r = run("cd web; npm run eval");
+				expect(r.status).toBe(1);
+				expect(r.stderr).toContain(UNREAD);
+				expect(r.stderr).toContain("Declare check_staged");
+			});
+
+			it("refuses a script named eval running Biome", () => {
+				withScripts({ eval: "biome check --staged" });
+				const r = run("npm run eval");
+				expect(r.status).toBe(1);
+				expect(r.stderr).toContain(NeverRewritten);
+				expect(r.stderr).toContain("Declare check_staged");
+			});
+
+			it("reads a package.json opening with a BOM, as npm does", () => {
+				fs.writeFileSync(
+					path.join(dir, "package.json"),
+					`\uFEFF${JSON.stringify({
+						scripts: { lint: "eslint .", cs: "biome check --staged" },
+						devDependencies: { "@biomejs/biome": "2.5.15" },
+					})}`,
+				);
+				expect(run("npm run lint")).toMatchObject({ status: 0, stderr: "" });
+				const r = run("npm run cs");
+				expect(r.status).toBe(1);
+				expect(r.stderr).toContain(NeverRewritten);
+				expect(r.stderr).toContain("Declare check_staged");
+			});
+
+			it.each([
+				['echo "run biome check --staged by hand" && eslint .', HoldsMore],
+				["eslint --rule='biome check --staged'", HoldsMore],
+				["eslint $A $B $C", UNREAD],
+				["python -m ruff $OPTS check $FILES", UNREAD],
+			])(
+				"still refuses the stated residual %j, naming %j",
+				(command, named) => {
+					const r = run(command);
+					expect(r.status).toBe(1);
+					expect(r.stderr).toContain(named);
+					expect(r.stderr).toContain("Declare check_staged");
+				},
+			);
+		});
+
 		describe("the seventh review's rows (#3944)", () => {
 			it.each([
 				["yarn run biome check --staged --write", Through],

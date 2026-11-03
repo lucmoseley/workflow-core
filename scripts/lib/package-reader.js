@@ -92,7 +92,7 @@ function readPackage(root) {
 	}
 	let pkg;
 	try {
-		pkg = JSON.parse(text);
+		pkg = JSON.parse(text.replace(/^\uFEFF/, "")); // npm takes a BOM (#4042)
 	} catch (err) {
 		throw new PackageReadError(`${file} does not parse`, { cause: err });
 	}
