@@ -80,6 +80,7 @@ const renderWith = (overrides: object) =>
 		runaways: QUIET_RUNAWAYS,
 		concurrency: concurrencyOver([], []),
 		idle: QUIET_IDLE,
+		wslCurrency: null,
 		...overrides,
 	});
 
@@ -1101,6 +1102,30 @@ describe("primitives (#3465)", () => {
 			sha: "fff6666",
 		});
 		expect(basisFaults(body)).toEqual([]);
+	});
+});
+
+describe("the WSL currency section (#4082)", () => {
+	it("prints each of the checker's lines, between idle efforts and the decisions", () => {
+		const body = renderWith({
+			wslCurrency: { lines: ["WSL 2.7.11.0 is behind", "wsl --update"] },
+		});
+		expect(body).toContain(
+			"## WSL currency\n\n- `WSL 2.7.11.0 is behind`\n- `wsl --update`\n\n## Still-caught",
+		);
+		expect(body.indexOf("## Idle efforts")).toBeLessThan(
+			body.indexOf("## WSL currency"),
+		);
+	});
+
+	it("names an envelope that did not arrive", () => {
+		expect(
+			renderWith({ wslCurrency: { why: "check-wsl-currency.js: boom" } }),
+		).toContain("## WSL currency\n\nNot read: `check-wsl-currency.js: boom`\n");
+	});
+
+	it("prints nothing where this is not WSL", () => {
+		expect(renderWith({ wslCurrency: null })).not.toContain("WSL currency");
 	});
 });
 

@@ -215,12 +215,13 @@ export function morningReviewFixture(
 		STUB_DIR: path.join(sb.dir, "gh"),
 		WFC_JOURNALCTL: stub("journalctl"),
 		WFC_RUNAWAY_LOG: stub("no-runaway-log.jsonl"),
+		WFC_OSRELEASE: stub("no-osrelease"),
 		WFC_REFILL_DIR: path.join(sb.dir, "refill"),
 		MEMWATCH_MINUTE_LOG: refillFile("memwatch-minute.jsonl"),
 	});
 
-	const run = (argv: string[] = []) =>
-		runInProcess(script, argv, { cwd: wfc(), env: runEnv() });
+	const run = (argv: string[] = [], env: Record<string, string> = {}) =>
+		runInProcess(script, argv, { cwd: wfc(), env: { ...runEnv(), ...env } });
 
 	const readCreated = () =>
 		fs

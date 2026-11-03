@@ -9,3 +9,4 @@ Its job:
 1. Investigate the question against **primary sources** (official docs, source code, specs, first-party APIs), not a secondary write-up of them. Follow every claim back to the source that owns it.
 2. Write the findings to a single Markdown file, citing each claim's source. Name that file on an `Artefact: <path>` line in the dispatch prompt and have the agent append to it as findings land — a dispatch without that line gets one supplied under `.claude/tmp/agents/`, not where this note belongs (#515).
 3. Post it on the issue it answers, never in `docs/research/` (`docs/agents/issue-tracker.md` §Research artefacts, #2335).
+4. A ticket concluding that a host tool's fault has no fix records the installed version beside the latest version (#4082). **Unenforceable**: no guard can tell such a conclusion.

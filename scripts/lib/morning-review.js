@@ -204,9 +204,11 @@ function parseOneWayDoor(comments) {
  *   repos: RepoReading[], failed: Unread[], unreadEvents: UnreadEvents[],
  *   holds: OpenHold[], kills: KillReading, runaways: RunawayReading,
  *   concurrency: ConcurrencyReading,
- *   idle: IdleReading}}
- *   Reading the machine's earlyoom kills, its process runaways, its concurrency and the idle alarm
- *   are read once, not per repo (#3094, #3807, #3321, #3644)
+ *   idle: IdleReading, wslCurrency: WslCurrencyReading}}
+ *   Reading the machine's earlyoom kills, its process runaways, its concurrency, the idle alarm
+ *   and its WSL currency are read once, not per repo (#3094, #3807, #3321, #3644, #4082)
+ * @typedef {{lines: string[]} | {why: string} | null} WslCurrencyReading
+ *   check-wsl-currency.js's lines, why it gave none, or null where this is not WSL
  * @typedef {{trackers: import("./idle-efforts.js").TrackerFinding[],
  *   loopRunning: boolean, damaged: string[]} | {why: string}} IdleReading the idle alarm's
  *   findings, or why check-idle-efforts.js gave none
@@ -236,6 +238,23 @@ function parseOneWayDoor(comments) {
  * @param {string} text
  */
 const quoted = (text) => `\`${text.replaceAll("`", "'")}\``;
+
+/**
+ * The WSL currency section, or nothing where this is not WSL.
+ * @param {WslCurrencyReading} reading
+ * @returns {string[]}
+ */
+function renderWslCurrencyLines(reading) {
+	if (reading === null) return [];
+	return [
+		"## WSL currency",
+		"",
+		...("why" in reading
+			? [`Not read: ${quoted(reading.why)}`]
+			: reading.lines.map((line) => `- ${quoted(line)}`)),
+		"",
+	];
+}
 
 /** GitHub's search reads `+00:00`, not `Z`, as a time zone. @param {string} iso */
 const searchTime = (iso) =>
@@ -566,6 +585,7 @@ function renderReview({
 	runaways,
 	concurrency,
 	idle,
+	wslCurrency,
 }) {
 	const lo = Date.parse(since);
 	const hi = Date.parse(now);
@@ -709,6 +729,7 @@ function renderReview({
 		"",
 		...idleLines,
 		"",
+		...renderWslCurrencyLines(wslCurrency),
 		"## Still-caught delegated decisions",
 		"",
 		...(caughtLines.length === 0 ? [noDecisions, ""] : caughtLines),

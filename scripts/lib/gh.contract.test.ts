@@ -72,6 +72,14 @@ const GRAPHQL_NO_REPO = path.join(
 	"fixtures/gh/graphql-no-repo.json",
 );
 const REPO = path.join(__dirname, "fixtures/gh/repo.json");
+const WSL_LATEST_RELEASE = path.join(
+	__dirname,
+	"fixtures/gh/wsl-latest-release.json",
+);
+const WSL_RELEASES = path.join(__dirname, "fixtures/gh/wsl-releases.json");
+const { RELEASE_READS } = require("./wsl-currency.js") as {
+	RELEASE_READS: { latest: string[]; releases: string[] };
+};
 const REPO_VIEW = path.join(__dirname, "fixtures/gh/repo-view.json");
 const LABELS_PAGE = path.join(__dirname, "fixtures/gh/labels-page.json");
 const ISSUE_LIST_ROWS = path.join(
@@ -403,6 +411,16 @@ describe("live: read-only calls", () => {
 				"--paginate",
 				"--slurp",
 			],
+		},
+		{
+			what: "the WSL latest-release read",
+			fixture: WSL_LATEST_RELEASE,
+			args: RELEASE_READS.latest,
+		},
+		{
+			what: "the WSL release list",
+			fixture: WSL_RELEASES,
+			args: RELEASE_READS.releases,
 		},
 		{
 			what: "the repo read",

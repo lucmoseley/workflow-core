@@ -70,6 +70,9 @@
  * findings, which lib/morning-review.js renders through the lines
  * `npm run status` prints. A plain run, so it spends no session-start stamp.
  *
+ * WSL CURRENCY (#4082): check-wsl-currency.js's `--json` lines, in a section of
+ * its own, and none where the checker SKIPs: not WSL.
+ *
  * KEPT READS (#3765): each repo's count line and each label age, once read,
  * are kept for the day (lib/review-reads.js), so a run killed part way
  * resumes from them. `--dry-run` neither takes nor keeps them (#3813).
@@ -146,6 +149,9 @@ const COUNT_TIMEOUT_MS = 5 * 60 * 1000;
  * run, the multiplier a guess (#3771), and well inside refill-review-run.js's
  * REVIEW_TIMEOUT_MS. */
 const IDLE_TIMEOUT_MS = 3 * 60 * 1000;
+
+/** Level with the idle alarm's, a guess: wsl.exe's 12 s, then two gh reads. */
+const WSL_CURRENCY_TIMEOUT_MS = 3 * 60 * 1000;
 
 const io = scriptIo("file-morning-review");
 
@@ -577,6 +583,20 @@ function readIdle() {
 		: { why: read.missing };
 }
 
+/** @returns {import("./lib/morning-review.js").WslCurrencyReading} */
+function readWslCurrency() {
+	const read = readEnvelope(
+		"check-wsl-currency.js",
+		[],
+		WSL_CURRENCY_TIMEOUT_MS,
+	);
+	if ("why" in read) return read;
+	if (read.envelope.outcome === "SKIP") return null;
+	return Array.isArray(read.envelope.lines)
+		? { lines: read.envelope.lines }
+		: { why: read.missing };
+}
+
 /**
  * One checkout's open `urgent` issues, each with when its timeline last
  * records the label applied and why pick-next's last run there left it
@@ -786,6 +806,7 @@ function fileUnlessFiledToday(tracker, dryRun) {
 		runaways: readRunaways(tracker, since),
 		concurrency: readConcurrency(now.getTime()),
 		idle: readIdle(),
+		wslCurrency: readWslCurrency(),
 	});
 
 	if (dryRun) {

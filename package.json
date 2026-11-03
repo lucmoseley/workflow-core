@@ -18,6 +18,7 @@
 		"check:issues": "node scripts/check-issue-card-drift.js",
 		"check:tickets": "node scripts/check-ticket-criteria.js",
 		"check:gates": "node scripts/check-gates.js",
+		"check:wsl-currency": "node scripts/check-wsl-currency.js",
 		"check:citations": "node scripts/check-issue-citations.js",
 		"check:orphans": "node scripts/check-issue-orphans.js",
 		"check:labels": "node scripts/check-issue-labels.js",

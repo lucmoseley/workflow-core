@@ -135,9 +135,9 @@
 			"why": "§2 reads the taste precedent before drafting: the catalogue entries whose fit.manta.groups names the surface's project group, else whose page_parts name its page part, taking only fit.manta.take, with the brand sheet alone (brandSheetPath config key, default docs/brand-sheet.md) where neither covers the surface (mantahostels#3276, mantahostels#3336, #452, #678, #781 per design-vault#30 Q4); the right-shape list and eight restatements and no-ops cut, §2's too-similar redo reworded to stand without them (#2842)"
 		},
 		".agents/skills/research/SKILL.md": {
-			"editedHash": "3e58e1dad717cb3be58cd2e9fdddb9cdde280102eb996e4a3b137e05be76a674",
-			"issue": 2352,
-			"why": "a dispatch without an Artefact line now gets one supplied under .claude/tmp/agents/ rather than being denied (#515); the frontmatter description removed, so the skill leaves the start listing (#2036); step 3 posts the findings on their issue, never in docs/research/ (#2335); a subagent, which cannot dispatch, does the job itself, appending to its own Artefact file (#2352)"
+			"editedHash": "0e01e9e4956002d4e7519061434db2327d7ff29a3b8d27c74dfa40e81c04bf83",
+			"issue": 4082,
+			"why": "a dispatch without an Artefact line now gets one supplied under .claude/tmp/agents/ rather than being denied (#515); the frontmatter description removed, so the skill leaves the start listing (#2036); step 3 posts the findings on their issue, never in docs/research/ (#2335); a subagent, which cannot dispatch, does the job itself, appending to its own Artefact file (#2352); step 4 has a no-fix conclusion on a host tool record installed beside latest version (#4082)"
 		},
 		".agents/skills/tdd/SKILL.md": {
 			"editedHash": "96257bafaa7db389929d998f7c46248b027b8e00274ec2beb0fbb165c00db3b1",

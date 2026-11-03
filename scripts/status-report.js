@@ -111,15 +111,17 @@ const CHECKS = [
 	["harness-canary", "check-harness-canary.js"],
 	["concurrency", "concurrency-readout.js"],
 	["interop-latency", "check-interop-latency.js"],
+	["wsl-currency", "check-wsl-currency.js"],
 	["idle-efforts", "check-idle-efforts.js"],
 	["unclosed-launches", "check-unclosed-launches.js"],
 ];
 
 /**
  * Checkers whose clean run IS the report — a standing to read, not a finding —
- * so their body is printed even under an `OK:` line.
+ * so their body is printed even under an `OK:` line. A SKIP is no clean run:
+ * it stays with the clean list.
  */
-const STANDINGS = new Set(["escape-audit"]);
+const STANDINGS = new Set(["escape-audit", "wsl-currency"]);
 
 /**
  * @typedef {object} Result
@@ -245,7 +247,7 @@ async function main() {
 	const clean = [];
 	for (const r of results) {
 		const v = verdict(r);
-		if ((v === "OK" || v === "SKIP") && !STANDINGS.has(r.name)) {
+		if (v === "SKIP" || (v === "OK" && !STANDINGS.has(r.name))) {
 			clean.push(`${r.name} (${v})`);
 			continue;
 		}

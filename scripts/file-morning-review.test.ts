@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { freshSandbox } from "./lib/arbiter-testkit";
 import { HOUR, morningReviewFixture } from "./lib/morning-review-fixture";
 import { raiseHold } from "./lib/repo-holds.js";
+import { WSL_KERNEL, writeOsrelease, writeWsl } from "./lib/wsl-fake";
 
 const SCRIPT = path.resolve(__dirname, "file-morning-review.js");
 
@@ -184,6 +185,27 @@ describe("file-morning-review.js (#2011)", () => {
 				"",
 			].join("\n"),
 		);
+	});
+
+	it("has no WSL currency section where the checker SKIPs: not WSL (#4082)", () => {
+		seed([]);
+		expect(run().status).toBe(0);
+		expect(readCreated()[0].body).not.toContain("## WSL currency");
+	});
+
+	it("files the WSL currency section, a failed read named rather than dropped (#4082)", () => {
+		seed([]);
+		const wsl = path.join(sb.dir, "wsl");
+		expect(
+			run([], {
+				WFC_OSRELEASE: writeOsrelease(wsl, WSL_KERNEL),
+				WFC_WSL_EXE: writeWsl(wsl, { version: "2.7.11.0" }),
+			}).status,
+		).toBe(0);
+		const { body } = readCreated()[0];
+		expect(body).toContain("## WSL currency");
+		expect(body).toContain("WSL currency not read");
+		expect(body).toContain("the latest release: ");
 	});
 
 	it("files the concurrency section from the refill loop's ticks and memwatch's minutes (#3321)", () => {
