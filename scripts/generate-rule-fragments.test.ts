@@ -151,10 +151,61 @@ describe("a malformed anchor pair refuses rather than rendering half a rule", ()
 			"<!-- rule:a-b:begin -->\ntext\n<!-- rule:a-b:end -->\n",
 			/rule:a-b is anchored in .* but names no trigger/,
 		],
+		[
+			"an unclosed span",
+			"<!-- rule:a-b:begin -->\nx <!-- rule:c-d:begin -->y\n<!-- rule:a-b:end -->\n",
+			/span rule:c-d is never closed/,
+		],
+		[
+			"a nested span",
+			"<!-- rule:a-b:begin -->\n<!-- rule:c-d:begin -->x<!-- rule:e-f:begin -->y\n<!-- rule:a-b:end -->\n",
+			/span rule:e-f opens inside rule:c-d/,
+		],
+		[
+			"a span closing another id",
+			"<!-- rule:a-b:begin -->\n<!-- rule:c-d:begin -->x<!-- rule:e-f:end -->\n<!-- rule:a-b:end -->\n",
+			/span rule:e-f closes rule:c-d/,
+		],
+		[
+			"an empty span",
+			"<!-- rule:a-b:begin -->\nx <!-- rule:c-d:begin --> <!-- rule:c-d:end -->\n<!-- rule:a-b:end -->\n",
+			/span rule:c-d is empty/,
+		],
+		[
+			"a span outside every region",
+			"x <!-- rule:c-d:begin -->y<!-- rule:c-d:end -->\n",
+			/a rule span sits outside every anchored region/,
+		],
 	])("%s refuses", (_name, body, message) => {
 		const r = checkOver(body);
 		expect(r.status).toBe(1);
 		expect(r.stderr).toMatch(message);
+	});
+});
+
+describe("a span inside a region (#4155)", () => {
+	it("renders as its own fragment, and the region's fragment carries its text without the comments", () => {
+		scratch((dir) => {
+			const [first] = sourcesSkipped();
+			if (first === undefined) throw new Error("the generator names no source");
+			const file = path.join(dir, first);
+			fs.mkdirSync(path.dirname(file), { recursive: true });
+			fs.writeFileSync(
+				file,
+				"<!-- rule:roadmap-gating:begin -->\nGates carry <!-- rule:gate-basis-line:begin -->a basis\nline<!-- rule:gate-basis-line:end --> beneath.\n<!-- rule:roadmap-gating:end -->\n",
+			);
+			expect(runOver(dir).status).toBe(0);
+			const read = (id: string) =>
+				fs.readFileSync(path.join(dir, STORE, `${id}.txt`), "utf8");
+			expect(read("roadmap-gating")).toBe(
+				"Gates carry a basis\nline beneath.\n",
+			);
+			expect(read("gate-basis-line")).toBe("a basis\nline\n");
+			const manifest = JSON.parse(
+				fs.readFileSync(path.join(dir, MANIFEST), "utf8"),
+			).rules;
+			expect(manifest["gate-basis-line"].source).toBe(first);
+		});
 	});
 });
 

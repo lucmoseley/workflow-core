@@ -31,8 +31,8 @@
  * the comment.
  *
  * THE OUTSTANDING RULE: every close carries a line beginning
- * `**Outstanding:**` — in the close's own --comment, or else the issue's
- * newest comment; an older marker does not count (#984). It holds the bare
+ * `**Outstanding:**`, where the `close-outstanding-where` fragment says; an
+ * older marker does not count (#984). It holds the bare
  * word `none`, or items only, each `#N (what is left)` citing an OPEN issue
  * other than this one. DENY, not warn, and this is the distinction
  * mantahostels#103 draws: deny on a structured fact, warn where the hook is
@@ -818,7 +818,7 @@ function judgeRefusalRule(run, close, rule) {
 		close.segment,
 		`${rule.opening}: @CMD@
 
-${read.refusal} The close's own --comment, or else the issue's newest comment, carries it.
+${read.refusal} Where it goes: ${ruleOrFallback(run.ctx, "close-outstanding-where", "the close's own --comment, else the newest comment")}
 
 Re-run the close once ${rule.remedy} or the line is written — or, abandoning the issue, with --reason "not planned".`,
 	);

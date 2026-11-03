@@ -160,11 +160,14 @@ founder to run the install from their own terminal, which sees no hook.`;
 /**
  * @param {string[]} fresh
  * @param {string[]} unvettable
+ * @param {NpmInstallContext} ctx
  */
-const windowText = (fresh, unvettable) =>
+const windowText = (fresh, unvettable, ctx) =>
 	`This install adds ${fresh.length + unvettable.length} package(s) this repo does not yet depend on — ${fresh.join(" ")} ${unvettable.join(" ")} — and does not carry \`--ignore-scripts\`: @CMD@
 
-A package's \`preinstall\` and \`postinstall\` run as you, before anything reads a byte of it. Re-run with \`--ignore-scripts\`; it is per-invocation, so husky's \`prepare\` bootstrap on a fresh clone is untouched (mantahostels#1767 rejected the repo-wide \`.npmrc\` form for exactly that reason).
+Without \`--ignore-scripts\`: ${ruleOrFallback(ctx, "install-scripts-first", "an install runs its packages' own scripts")}
+
+Re-run with \`--ignore-scripts\`; it is per-invocation, so husky's \`prepare\` bootstrap on a fresh clone is untouched (mantahostels#1767 rejected the repo-wide \`.npmrc\` form for exactly that reason).
 
 Then commit the lockfile.`;
 
@@ -598,7 +601,7 @@ function judgeNpm(segment, args, st) {
 
 	/* Check 1, the execution window. It counts the unvettable specs too: a
 	 * tarball's `preinstall` is exactly the thing `--ignore-scripts` shuts. */
-	if (!ignore) return refuse(windowText(fresh, unvettable), segment);
+	if (!ignore) return refuse(windowText(fresh, unvettable, st.ctx), segment);
 
 	/* Check 2, legitimacy. The stand-down comes before every refusal it can
 	 * raise, the unvettable spec included — a deny whose text names an escape

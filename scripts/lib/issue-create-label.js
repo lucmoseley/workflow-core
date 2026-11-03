@@ -179,7 +179,6 @@ const { parseCommand, unmask } = require("./shell-parse.js");
 const { isGhCommand, literal, scanFlags } = require("./shell-words.js");
 const {
 	CLOSE_WHEN_LINE,
-	FOUNDER_ACTS,
 	TAKES_VALUES,
 	TRIED_MIN,
 	outsideLineFault,
@@ -288,7 +287,9 @@ function decide(command, ctx) {
 /** The seven, rendered for a human, in the order the doc's table lists them. */
 const valuesLine = () => TAKES_VALUES.map((v) => `  takes:${v}`).join("\n");
 
-const actsLine = () => FOUNDER_ACTS.join("; ");
+/** @param {LabelContext} ctx */
+const readActsLine = (ctx) =>
+	ruleOrFallback(ctx, "founder-acts", "one of the founder's own acts");
 
 /**
  * One command the call runs: `gh issue create`, `gh issue edit` and `gh api`
@@ -612,8 +613,13 @@ ${valuesLine()}`,
 	);
 }
 
-const humanRule = () =>
-	`\`takes:human\` means the next action happens OUTSIDE Claude Code ENTIRELY. It is picked from the next ACTION, never from the subject. Name the concrete outside act, one of the founder's own (#1077): ${actsLine()}. A website job no act on that list covers adds a **Tried:** list of at least ${TRIED_MIN} methods that failed.
+/** @param {LabelContext} ctx */
+const humanRule = (ctx) =>
+	`\`takes:human\` means the next action happens OUTSIDE Claude Code ENTIRELY. It is picked from the next ACTION, never from the subject. Name the concrete outside act, one of the founder's own (#1077):
+
+  ${readActsLine(ctx)}
+
+A website job no act on that list covers adds a **Tried:** list of at least ${TRIED_MIN} methods that failed.
 
 Add the act to the body, on its own line:
 
@@ -627,9 +633,9 @@ IF YOU CANNOT WRITE THAT LINE HONESTLY, THE LABEL IS WRONG. Being barred is not 
   - reading repo files and writing a ruling                → takes:wayfinder
   - a founder decision or confirmation                     → takes:wayfinder, where the founder makes it
   - applying a prescribed edit                             → takes:implement
-  - an act whose product is a file in this repository     → takes:implement; the founder's review of it is takes:wayfinder
+  - an act that ends in a repo file                        → takes:implement; the founder's review of it is takes:wayfinder
 
-There is no "no command opens this" shape: a scripted tracker whose queue has emptied closes, or moves to the command that owns what is left (mantahostels#3352).
+${ruleOrFallback(ctx, "no-command-opens-shape", "No issue sits under takes:human because no command opens it")}
 
 Rule: docs/agents/triage-labels.md §\`takes:\`, the nuances block (mantahostels#804, mantahostels#2775, mantahostels#3439, mantahostels#3555).`;
 
@@ -674,7 +680,7 @@ function denyUnreadBody(run, segment, { wrong, cite, passing }) {
 
 A \`takes:human\` body must name its outside act, and a body the guard cannot read is one nobody checked ${cite}. ${passing}
 
-${humanRule()}`,
+${humanRule(run.ctx)}`,
 	);
 }
 
@@ -694,7 +700,7 @@ function judgeHumanText(run, segment, body, verb) {
 			segment,
 			`This ${verb} whose body names no act performed outside Claude Code: @CMD@
 
-${humanRule()}`,
+${humanRule(run.ctx)}`,
 		);
 	if (found?.fault === "BARRED-NOT-IMPOSSIBLE")
 		deny(
@@ -704,7 +710,7 @@ ${humanRule()}`,
 
   ${found.line}
 
-BEING BARRED IS NOT BEING IMPOSSIBLE (mantahostels#2775). The Outside line names what the founder DOES outside Claude Code, one of his own acts (#1077): ${actsLine()}.
+BEING BARRED IS NOT BEING IMPOSSIBLE (mantahostels#2775). The Outside line names what the founder DOES outside Claude Code, one of his own acts (#1077): ${readActsLine(run.ctx)}
 
 Before relabelling, TEST the bar rather than restating it:
 
@@ -724,7 +730,7 @@ Rule: docs/agents/triage-labels.md §\`takes:\`, the nuances block (mantahostels
 
   ${found.line}
 
-An act that ends in a repo file is never an outside act, whatever tool a document names as the owner's (mantahostels#3503).
+The rule (mantahostels#3503): ${ruleOrFallback(run.ctx, "repo-file-act", "An act that ends in a repo file is never an outside act")}
 
   - the file itself                              → takes:implement, and an agent writes it
   - the founder's taste on what the agent drew  → takes:wayfinder, a review in session
@@ -741,7 +747,7 @@ Rule: docs/agents/triage-labels.md §\`takes:\`, the nuances block (mantahostels
 
   ${found.line}
 
-The acts are: ${actsLine()}.
+The acts are: ${readActsLine(run.ctx)}
 
 Two ways out:
 

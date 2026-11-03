@@ -787,7 +787,7 @@ describe("the census rows it reads", () => {
 		expect(reason).toContain(`  ${guardRel}\n`);
 		expect(reason).toContain(`--rebaseline --only ${guardRel}`);
 		expect(reason).toContain(
-			"**Census:** <why not re-anchored, and which ticket owns it>\" to the comment. The close's own --comment, or else the issue's newest comment, carries it.",
+			`**Census:** <why not re-anchored, and which ticket owns it>" to the comment. Where it goes: ${readRuleText("close-outstanding-where")}`,
 		);
 		expect(reason).toContain('--reason "not planned"');
 		expect(faults).toEqual([]);

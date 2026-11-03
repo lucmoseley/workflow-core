@@ -27,7 +27,7 @@ Commit `package.json` alongside `package-lock.json`.
 
 **Close the PR by deleting its head branch — `git push origin --delete dependabot/npm_and_yarn/<branch>`, the name read off `gh pr view <n> --json headRefName`.** `gh pr close`, a PR comment and the REST issues `PATCH` all answer `403 Resource not accessible by personal access token` (mantahostels#3351, mantahostels#3358).
 
-`--ignore-scripts` is not optional: a package's `preinstall` and `postinstall` run as you before anything reads a byte of it (mantahostels#1767). Nothing enforces it on these recipes — `scripts/guard-dispatch.js` (its `guard-npm-install` core) denies only an install naming a package `package.json` lacks.
+`--ignore-scripts` is not optional: <!-- rule:install-scripts-first:begin -->a package's `preinstall` and `postinstall` run as you before anything reads a byte of it<!-- rule:install-scripts-first:end --> (mantahostels#1767). Nothing enforces it on these recipes — `scripts/guard-dispatch.js` (its `guard-npm-install` core) denies only an install naming a package `package.json` lacks.
 
 **`npm install` can report `up to date` and leave the old version on disk** while `npm ls` reads the new one out of the lockfile. Check the installed copy directly — `grep -m1 '"version"' node_modules/<pkg>/package.json` — and where it disagrees, `rm -rf node_modules/<pkg>` and install again (mantahostels#3351).
 

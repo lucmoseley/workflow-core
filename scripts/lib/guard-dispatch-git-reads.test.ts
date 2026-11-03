@@ -15,6 +15,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeFaultyGit } from "./git-fault-fake";
 import { initGitRepo, mkScratchDir } from "./git-fixture";
+import { requireClosure } from "./require-closure";
 import { runInProcess } from "./run-in-process";
 import { shellQuote } from "./sh-quote.js";
 
@@ -118,28 +119,12 @@ describe("one PreToolUse call", () => {
 	});
 });
 
-function requireClosure(rels: string[]): string[] {
-	const seen = new Set<string>();
-	const queue = rels.map((rel) => path.join(ROOT, rel));
-	while (queue.length > 0) {
-		const file = queue.pop() as string;
-		if (seen.has(file) || !fs.existsSync(file)) continue;
-		seen.add(file);
-		const text = fs.readFileSync(file, "utf8");
-		for (const [, target] of text.matchAll(/require\(\s*"(\.[^"]+)"/g)) {
-			const abs = path.resolve(path.dirname(file), target);
-			queue.push(abs.endsWith(".js") ? abs : `${abs}.js`);
-		}
-	}
-	return [...seen].map((file) => path.relative(ROOT, file));
-}
-
 /* lander.js's is a commit, which no memo owes a repeat of. git.js's own spawns
  * are the seam, and git.test.ts refuses a spawn naming the binary anywhere. */
 const SPAWNS_GIT_ITSELF = ["scripts/lib/git.js", "scripts/lib/lander.js"];
 
 describe("what the dispatcher loads", () => {
-	const loaded = requireClosure(readDispatchedCores());
+	const loaded = requireClosure(ROOT, readDispatchedCores());
 
 	it("spawns git only through lib/git.js's memo or an injected execFn", () => {
 		const own = loaded.filter((rel) => {

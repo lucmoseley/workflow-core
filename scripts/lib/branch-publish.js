@@ -57,8 +57,8 @@
  *    name is unknowable here.
  *  - A `gh pr merge` naming no `dependabot/` branch costs one `gh pr view`,
  *    under the host's 8 s timeout: 0.95–1.45 s over five measured calls.
- *    Where the lookup fails — or cannot be aimed: an unreadable PR or repo
- *    word, a `GH_REPO` override, an unknown directory — the merge is allowed
+ *    Where the lookup fails — or cannot be aimed: a PR or repo word it
+ *    cannot read, a `GH_REPO` override, an unknown directory — the merge is allowed
  *    and recorded. The lookup runs
  *    in the segment's own directory (walkCommands' cwd). A merge through `gh
  *    api` is not read. Adopters get the limb too (#2020).
@@ -169,7 +169,7 @@ const landingRewind = (ctx, what, segment) => ({
  * @returns {Refusal}
  */
 const dependabotMerge = (ctx, segment) => ({
-	reason: `This merges a Dependabot pull request: @CMD@\n\n${ruleOrFallback(ctx, "dependabot-merge", "Never merge a Dependabot pull request — take its fix locally and commit it direct to `main`")}`,
+	reason: `This merges a Dependabot pull request: @CMD@\n\n${ruleOrFallback(ctx, "dependabot-merge", "Never merge a Dependabot pull request")}`,
 	segment,
 });
 

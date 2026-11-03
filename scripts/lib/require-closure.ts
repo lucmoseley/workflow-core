@@ -1,5 +1,6 @@
 /*
- * require-closure.ts — copy a script into a fixture with what it requires.
+ * require-closure.ts — a script's relative-require closure, and a copy of it
+ * into a fixture.
  *
  * A fixture copying a fixed list of the config reader's files broke two
  * suites when the reader gained a sibling require (#1657); walking the
@@ -18,6 +19,28 @@ const { requiredGroup } = require("./regex-group.js");
 const LOCAL_REQUIRE = /\brequire\(\s*["'](\.\.?\/[^"']+)["']\s*\)/g;
 
 /**
+ * Every file `rels` reaches by a relative `require`, `rels` included, as paths
+ * relative to `source`, in the order the walk meets them.
+ */
+export function requireClosure(source: string, rels: string[]): string[] {
+	const seen = new Set<string>();
+	const queue = [...rels];
+	for (let rel = queue.shift(); rel !== undefined; rel = queue.shift()) {
+		if (seen.has(rel)) continue;
+		seen.add(rel);
+		const text = fs.readFileSync(path.join(source, rel), "utf8");
+		for (const m of text.matchAll(LOCAL_REQUIRE)) {
+			const dep = path.join(
+				path.dirname(rel),
+				requiredGroup(m, 1, LOCAL_REQUIRE),
+			);
+			queue.push(fs.existsSync(path.join(source, dep)) ? dep : `${dep}.js`);
+		}
+	}
+	return [...seen];
+}
+
+/**
  * Copy each `rels` file from `source` into `root` at the same path, with every
  * file it reaches by a relative `require`. Pass the repo root through an
  * anchor the test read-edges extractor knows, and list in full each file
@@ -29,20 +52,8 @@ export function copyRequireClosure(
 	source: string,
 	rels: string[],
 ): void {
-	const seen = new Set<string>();
-	const queue = [...rels];
-	for (let rel = queue.shift(); rel !== undefined; rel = queue.shift()) {
-		if (seen.has(rel)) continue;
-		seen.add(rel);
-		const from = path.join(source, rel);
+	for (const rel of requireClosure(source, rels)) {
 		fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
-		fs.copyFileSync(from, path.join(root, rel));
-		for (const m of fs.readFileSync(from, "utf8").matchAll(LOCAL_REQUIRE)) {
-			const dep = path.join(
-				path.dirname(rel),
-				requiredGroup(m, 1, LOCAL_REQUIRE),
-			);
-			queue.push(fs.existsSync(path.join(source, dep)) ? dep : `${dep}.js`);
-		}
+		fs.copyFileSync(path.join(source, rel), path.join(root, rel));
 	}
 }

@@ -54,6 +54,15 @@ id. A generated fragment takes none: its source document shows the text as
 written. A raw read of such a fragment shows the placeholder, which names the
 file that holds the sentence.
 
+**Inside a generated region, the sentence is a span instead** (#4155): the same
+anchor pair written inline around it, `<!-- rule:<id>:begin -->…<!-- rule:<id>:end -->`,
+renders `<id>.txt` from the span alone, and the region's fragment carries the
+text with the two comments dropped. It takes a `TRIGGERS` row and a
+`generated-only` registration like any generated fragment. A hand-written
+fragment may `{rule:<id>}` a span. `scripts/lib/generated-rule-copies.test.ts`
+fails a dispatcher core, or a file its requires reach, holding a 10-word run
+of any generated fragment.
+
 ## Reading a fragment
 
 ```bash

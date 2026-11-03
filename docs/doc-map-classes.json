@@ -1214,6 +1214,14 @@
 		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/issue-tracker.md`. `--check` gates it in .husky/pre-commit.",
 		"consumes": null
 	},
+	"docs/agents/rules/close-outstanding-where.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored span in `docs/agents/issue-tracker.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
 	"docs/agents/rules/commit-closes-keyword.txt": {
 		"section": "Agent-skill configuration",
 		"class": "generated-only",
@@ -1246,6 +1254,14 @@
 		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/issue-tracker.md`. `--check` gates it in .husky/pre-commit.",
 		"consumes": null
 	},
+	"docs/agents/rules/founder-acts.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored span in `docs/agents/triage-labels.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
 	"docs/agents/rules/founder-deliverable.txt": {
 		"section": "Agent-skill configuration",
 		"class": "source-of-truth",
@@ -1275,6 +1291,14 @@
 			}
 		]
 	},
+	"docs/agents/rules/gate-basis-line.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored span in `docs/agents/issue-tracker.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
 	"docs/agents/rules/gh-cli-limits.txt": {
 		"section": "Agent-skill configuration",
 		"class": "generated-only",
@@ -1289,6 +1313,14 @@
 		"classQualifier": null,
 		"role": null,
 		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/issue-tracker.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/install-scripts-first.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored span in `docs/agents/dependabot.md`. `--check` gates it in .husky/pre-commit.",
 		"consumes": null
 	},
 	"docs/agents/rules/issue-body-raw-write.txt": {
@@ -1353,6 +1385,22 @@
 		"classQualifier": null,
 		"role": "The rule store's index — every generated fragment, its id and the anchored region it came from",
 		"route": "`npm run gen:rule-fragments`, which re-derives it from the generator's own `TRIGGERS` table and each anchor's source path. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/no-command-opens-shape.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored span in `docs/agents/triage-labels.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/repo-file-act.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored span in `docs/agents/triage-labels.md`. `--check` gates it in .husky/pre-commit.",
 		"consumes": null
 	},
 	"docs/agents/rules/research-artefact-scratch.txt": {

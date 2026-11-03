@@ -626,7 +626,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
 		[
 			"gh pr merge dependabot/x",
 			"",
-			"This merges a Dependabot pull request: gh pr merge dependabot/x\n\nNever merge a Dependabot pull request — take its fix locally and commit it direct to `main`; the rule could not be read from docs/agents/rules/dependabot-merge.txt. Read that file before doing anything else.",
+			"This merges a Dependabot pull request: gh pr merge dependabot/x\n\nNever merge a Dependabot pull request; the rule could not be read from docs/agents/rules/dependabot-merge.txt. Read that file before doing anything else.",
 		],
 	])(
 		"still refuses %s where the store cannot give its rule, naming the file",
