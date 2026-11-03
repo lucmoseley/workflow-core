@@ -3,8 +3,8 @@
  * Pins dispatch-sessions.sh on an overflow seat (#2610, spec #2570): no
  * `/usage` probe, advisor check or allowance cap; the set sized by the key's
  * budget gate, which --force does not lift; each member launched through
- * lib/headless-sessions.js at the key's headroom, its job id in the ledger;
- * and a plan seat still on `claude --bg`.
+ * lib/headless-sessions.js at the key's headroom, its job id, key, allowance
+ * and session id in the ledger (#3694); and a plan seat still on `claude --bg`.
  *
  * The calls go through lib/refill-batch.js's launchBatch, so a cut or refused
  * member's reason is the one the loop's refusal parser reads. Every `claude`
@@ -23,7 +23,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { writeCostTable } from "./lib/cost-table-testkit";
-import { readRecentEntries } from "./lib/dispatch-ledger.js";
+import {
+	readOverflowLookup,
+	readRecentEntries,
+} from "./lib/dispatch-ledger.js";
 import { dispatchFixture, SCRIPT } from "./lib/dispatch-sessions-testkit";
 import { writeHeadlessRun } from "./lib/headless-runs-testkit";
 import { runOf } from "./lib/headless-sessions.js";
@@ -348,5 +351,56 @@ describe("a plan seat beside an overflow seat (#2610)", () => {
 		expect(r.stdout).toContain("Allowance OK");
 		expect(readArgvLines().filter((l) => l.startsWith("--bg"))).toHaveLength(1);
 		expect(readHeadlessLaunches()).toEqual([]);
+	});
+});
+
+describe("the launch record that marks a session overflow (#3694)", () => {
+	const readLaunchRow = (jobId: string) =>
+		readRecentEntries(fx.dir, 1).entries.find((e) => e.jobId === jobId);
+	const readLookup = () => readOverflowLookup([fx.dir]);
+
+	it("records each member's key, its own allowance and its session id, and the reader answers by either id", () => {
+		stubClaude({});
+		const [first, second] = dispatch(2, overflowEnv(25)).launched;
+		expect(readLaunchRow(String(first?.jobId))).toMatchObject({
+			kind: "overflow",
+			keyVar: KEY_VAR,
+			allowanceUsd: 25,
+			sessionId: first?.sessionId,
+		});
+		// The first launch's $10 reservation leaves the second $15.
+		expect(readLaunchRow(String(second?.jobId))).toMatchObject({
+			allowanceUsd: 15,
+			sessionId: second?.sessionId,
+		});
+		const want = { keyVar: KEY_VAR, allowanceUsd: 25 };
+		expect(readLookup()({ jobId: first?.jobId })).toMatchObject(want);
+		expect(readLookup()({ sessionId: first?.sessionId })).toMatchObject(want);
+	});
+
+	it("leaves a plan launch's row as it was, and reads it as no overflow session", () => {
+		stubClaude({});
+		const r = spawnSync("bash", [SCRIPT, "opus", "/implement 341"], {
+			encoding: "utf8",
+			env: baseEnv({
+				...overflowEnv(200),
+				CLAUDE_CONFIG_DIR: path.join(fx.dir, ".claude2"),
+				WFC_SEAT_KEY: "",
+			}),
+		});
+		expect(r.status).toBe(0);
+		const [entry] = readRecentEntries(fx.dir, 1).entries;
+		expect(Object.keys(entry ?? {}).sort()).toEqual(
+			[
+				"ts",
+				"issues",
+				"model",
+				"prompt",
+				"session",
+				"jobId",
+				"seatReason",
+			].sort(),
+		);
+		expect(readLookup()({ jobId: entry?.jobId, sessionId: "any" })).toBeNull();
 	});
 });

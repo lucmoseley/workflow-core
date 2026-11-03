@@ -135,6 +135,14 @@ function entryHolds(rec, command) {
  */
 
 /**
+ * A launch on an overflow seat (#3694), the only mark of a session in a plan
+ * dir as overflow. `allowanceUsd` is the key's headroom at launch. `sessionId`
+ * is the launched job's own, unlike `session`; null until known.
+ * @typedef {DispatchRecord & {kind: "overflow", keyVar: string,
+ *            allowanceUsd: number, sessionId: string|null}} OverflowLaunch
+ */
+
+/**
  * A launch the refill loop handed off (#2744): `released` is its job id. It
  * ends that launch's hold. It carries no `jobId` or `issues`, so a reader of
  * raw lines never takes it for a launch.
@@ -227,6 +235,18 @@ function readLastLaunchAt(root) {
 }
 
 /**
+ * Every row, any age, released or not.
+ * @param {string} root
+ * @returns {(DispatchRecord|ReleaseRecord)[]}
+ * @throws where the ledger will not read
+ */
+function readEveryRow(root) {
+	const { ok, rows, error } = readCountedRows(root, Number.POSITIVE_INFINITY);
+	if (!ok) throw new Error(`${ledgerPath(root)} would not read: ${error}`);
+	return rows;
+}
+
+/**
  * Each issue's latest launch from this tree in ms, any age, released or not —
  * the idle alarm's launch log (check-idle-efforts.js); a `heldUntil` row is no
  * launch, written anew after a failed resume (#3838). Throws where it will not
@@ -235,16 +255,49 @@ function readLastLaunchAt(root) {
  * @returns {Map<number, number>}
  */
 function readLaunchTimes(root) {
-	const { ok, rows, error } = readCountedRows(root, Number.POSITIVE_INFINITY);
-	if (!ok) throw new Error(`${ledgerPath(root)} would not read: ${error}`);
 	/** @type {Map<number, number>} */
 	const last = new Map();
-	for (const e of rows.filter(isLaunch)) {
+	for (const e of readEveryRow(root).filter(isLaunch)) {
 		if (e.heldUntil) continue;
 		const at = Date.parse(e.ts);
 		for (const n of e.issues ?? []) last.set(n, Math.max(last.get(n) ?? 0, at));
 	}
 	return last;
+}
+
+/**
+ * @param {DispatchRecord|ReleaseRecord} rec
+ * @returns {rec is OverflowLaunch}
+ */
+const isOverflowLaunch = (rec) =>
+	/** @type {{kind?: unknown}} */ (rec).kind === "overflow";
+
+/**
+ * The one answer to "is this session overflow, on which key, with what
+ * allowance" (#3694): a lookup over every overflow launch in `roots`' ledgers,
+ * any age, released or not, as credits stay spent. A session's latest such
+ * launch, or null for a session none records. A session id also matches a job
+ * id by its first 8 digits, as `--bg` prints only the job id (#3692 (e)). Each
+ * root holds only its own checkout's launches, so a reading of a key's spend
+ * names every checkout; the default suits a session asking about itself.
+ * @param {string[]} [roots]
+ * @returns {(session: {jobId?: string|null, sessionId?: string|null}) => OverflowLaunch|null}
+ * @throws where a ledger will not read: a plan session and an unread overflow
+ *   one must not look alike
+ */
+function readOverflowLookup(roots = [ledgerRoot()]) {
+	const launches = roots.flatMap((root) =>
+		readEveryRow(root).filter(isOverflowLaunch),
+	);
+	return ({ jobId, sessionId }) =>
+		launches
+			.filter(
+				(l) =>
+					(jobId && l.jobId === jobId) ||
+					(sessionId &&
+						(l.sessionId === sessionId || l.jobId === sessionId.slice(0, 8))),
+			)
+			.pop() ?? null;
 }
 
 /**
@@ -281,7 +334,7 @@ function release(entry) {
 /**
  * `launchedAt` is the launch's epoch ms, from a caller whose own record of the
  * launch reads the same clock; now where absent.
- * @param {{issues: number[], model: string, prompt: string, root?: string, jobId?: string|null, launchedAt?: number, seatReason?: string, heldUntil?: number}} entry
+ * @param {{issues: number[], model: string, prompt: string, root?: string, jobId?: string|null, launchedAt?: number, seatReason?: string, heldUntil?: number, overflow?: Pick<OverflowLaunch, "keyVar"|"allowanceUsd"|"sessionId">}} entry
  * @returns {boolean} whether it was written
  */
 function record(entry) {
@@ -297,6 +350,7 @@ function record(entry) {
 			...(entry.heldUntil === undefined
 				? {}
 				: { heldUntil: new Date(entry.heldUntil).toISOString() }),
+			...(entry.overflow ? { kind: "overflow", ...entry.overflow } : {}),
 		},
 		entry.launchedAt,
 	);
@@ -312,6 +366,7 @@ module.exports = {
 	readRecentEntries,
 	readLastLaunchAt,
 	readLaunchTimes,
+	readOverflowLookup,
 	record,
 	release,
 };

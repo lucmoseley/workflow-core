@@ -933,13 +933,24 @@ while [[ $# -gt 0 ]]; do
         first_line="${first_line#*"$job_id"}"
       done
     fi
+    # The launch record that marks this session overflow (#3694): its key, the
+    # headroom it launched at, and the session id the launcher printed.
+    overflow_record=()
+    if [[ $overflow -eq 1 ]]; then
+      session_id=""
+      if [[ -n "$launch_out_file" ]]; then
+        session_id="$(sed -n 's/^session //p' "$launch_out_file")"
+      fi
+      overflow_record=(--overflow-key "$seat_key" --allowance-usd "$headroom"
+        --session-id "$session_id")
+    fi
     # Residual: the issue list is every integer in the prompt, so a prompt
     # carrying a non-issue number records a phantom issue and refuses an
     # unrelated dispatch of it, under the same command, for the ledger window
     # (#752). `--force` is the way out.
     node "$here/check-duplicate-dispatch.js" --record \
       --issues "$prompt" --model "$model" --prompt "$prompt" --job-id "$job_id" \
-      --seat-reason "$seat_reason" || true
+      --seat-reason "$seat_reason" "${overflow_record[@]}" || true
     launched_prompts+=("$prompt")
     # AFTER this launch, before the NEXT member's re-read at the top of the
     # loop — not before this spawn, which would leave the very next re-read

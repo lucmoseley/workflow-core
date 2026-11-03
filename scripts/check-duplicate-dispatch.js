@@ -389,7 +389,7 @@ function dropIndices(prompts, duplicates) {
 }
 
 /**
- * @typedef {{record: boolean, issues: number[], prompts: string[], dropIndexOut: string, model: string, prompt: string, jobId: string, seatReason: string, windowHours: number}} Args
+ * @typedef {{record: boolean, issues: number[], prompts: string[], dropIndexOut: string, model: string, prompt: string, jobId: string, seatReason: string, overflowKey: string, allowanceUsd: number, sessionId: string, windowHours: number}} Args
  */
 
 /** @typedef {(value: string) => Partial<Args>} SetFlag */
@@ -409,6 +409,9 @@ const VALUE_FLAGS = new Map(
 		["--prompt", (value) => ({ prompt: value })],
 		["--job-id", (value) => ({ jobId: value })],
 		["--seat-reason", (value) => ({ seatReason: value })],
+		["--overflow-key", (value) => ({ overflowKey: value })],
+		["--allowance-usd", (value) => ({ allowanceUsd: Number(value) })],
+		["--session-id", (value) => ({ sessionId: value })],
 		["--window-hours", (value) => ({ windowHours: Number(value) })],
 	]),
 );
@@ -426,6 +429,9 @@ function parseArgs(argv) {
 		prompt: "",
 		jobId: "",
 		seatReason: "",
+		overflowKey: "",
+		allowanceUsd: 0,
+		sessionId: "",
 		windowHours: DEFAULT_WINDOW_HOURS,
 	};
 	let i = 0;
@@ -447,7 +453,7 @@ function parseArgs(argv) {
 
 /* --record is the non-checking subcommand §N4 permits: it writes the ledger and
  * checks nothing, so it exits on its own path and never enters runCheck. */
-/** @param {{issues: number[], model: string, prompt: string, jobId: string, seatReason: string}} opts */
+/** @param {{issues: number[], model: string, prompt: string, jobId: string, seatReason: string, overflowKey: string, allowanceUsd: number, sessionId: string}} opts */
 function recordMain(opts) {
 	if (
 		!record({
@@ -456,11 +462,23 @@ function recordMain(opts) {
 			prompt: opts.prompt,
 			jobId: opts.jobId || null,
 			seatReason: opts.seatReason,
+			...(opts.overflowKey
+				? {
+						overflow: {
+							keyVar: opts.overflowKey,
+							allowanceUsd: opts.allowanceUsd,
+							sessionId: opts.sessionId || null,
+						},
+					}
+				: {}),
 		})
 	) {
 		process.stderr.write(
 			"WARNING: could not write the dispatch ledger — a resumed session will not\n" +
-				"  know this set was launched (mantahostels#1337).\n",
+				"  know this set was launched (mantahostels#1337).\n" +
+				(opts.overflowKey
+					? `  This session bills ${opts.overflowKey} but will read as a plan session (#3694).\n`
+					: ""),
 		);
 	}
 	process.exit(0);
@@ -519,7 +537,7 @@ function writeDropIndex(ctx, path, drop) {
 
 const USAGE =
 	"node check-duplicate-dispatch.js --issues <n,n> [--window-hours <h>] [--drop-index-out <path>]\n" +
-	"       node check-duplicate-dispatch.js --record --issues <n,n> --model <m> --prompt <p> [--job-id <id>]";
+	"       node check-duplicate-dispatch.js --record --issues <n,n> --model <m> --prompt <p> [--job-id <id>] [--overflow-key <var> --allowance-usd <usd> [--session-id <id>]]";
 
 function main() {
 	const opts = parseArgs(process.argv.slice(2));
