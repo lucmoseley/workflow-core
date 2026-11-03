@@ -24,8 +24,10 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { buildAgentsBranch, buildJobRow } from "./lib/agents-stop-fake";
 import { ledgerHead } from "./lib/arbiter-testkit";
+import { writeClaudeStub } from "./lib/claude-stub";
 import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { installLib } from "./lib/lib-install-testkit";
@@ -960,6 +962,42 @@ describe("the copied fixture is isolated from its template (mantahostels#2068, m
 		} finally {
 			fs.rmSync(fresh, { recursive: true, force: true });
 		}
+	});
+});
+
+describe("a copy a refill-loop resume started under a new id (#4105)", () => {
+	afterEach(() => vi.unstubAllEnvs());
+
+	const passFinishedByPastId = () =>
+		fs.writeFileSync(
+			path.join(markersDir(), `.concision-pass-${ME}`),
+			`base=${git("rev-parse", "HEAD").trim()}\nfindings=1\n`,
+		);
+	const stopCopyAfterProse = () => {
+		run("start", OTHER);
+		write("docs/mine.md", PARAGRAPH);
+		record("docs/mine.md", OTHER);
+		return run("stop", OTHER);
+	};
+
+	it("owes the pass where the marker stayed under the past id", () => {
+		passFinishedByPastId();
+		expect(stopCopyAfterProse()).toContain("has not run a concision pass");
+	});
+
+	it("owes no concision pass its past id finished, the markers moved at the resume", () => {
+		passFinishedByPastId();
+		const bin = path.join(dir, "claude-agents");
+		writeClaudeStub(bin, [
+			buildAgentsBranch([buildJobRow("copy", "working", { sessionId: OTHER })]),
+		]);
+		vi.stubEnv("WFC_CLAUDE_BIN", bin);
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "");
+		const left = createRequire(__filename)(
+			"./lib/move-pass-markers.js",
+		).movePassMarkers(repo, ME, OTHER);
+		expect(left).toBeNull();
+		expect(stopCopyAfterProse()).toBeNull();
 	});
 });
 
