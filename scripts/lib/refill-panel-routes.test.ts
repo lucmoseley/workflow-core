@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * Which splits an environment offers (#3886), and what returns focus from each
- * (#3887, #4001). Asserted on the whole argv, as a
+ * (#3887, #4065). Asserted on the whole argv, as a
  * dropped word or a flag `wt.exe` swallows opens no panel and nothing says so.
  */
 import { describe, expect, it } from "vitest";
@@ -26,6 +26,9 @@ const WINDOWS_TERMINAL = {
 		"-e",
 		...COMMAND,
 		"windows-terminal",
+		";",
+		"move-focus",
+		"left",
 	],
 };
 const TMUX = {
@@ -65,6 +68,11 @@ describe("buildRoutes", () => {
 		]);
 	});
 
+	it("chains the move back onto the Windows Terminal split (#4065)", () => {
+		const [route] = routes({ WSL_INTEROP: "/run/x" });
+		expect(route?.args.slice(-3)).toEqual([";", "move-focus", "left"]);
+	});
+
 	it("skips Windows Terminal with no interop", () => {
 		expect(routes({ TMUX: "/t" })).toEqual([TMUX]);
 	});
@@ -95,7 +103,6 @@ describe("buildFocusReturn", () => {
 			file: "cmd.exe",
 			args: ["/c", "wt.exe", "-w", "0", "move-focus", "left"],
 			env: View,
-			splitTakesFocus: true,
 		});
 	});
 
@@ -104,7 +111,6 @@ describe("buildFocusReturn", () => {
 			file: "tmux",
 			args: ["select-pane", "-L"],
 			env: { PATH: "/view", TMUX_PANE: "%2" },
-			splitTakesFocus: false,
 		});
 	});
 
@@ -114,7 +120,9 @@ describe("buildFocusReturn", () => {
 
 	it("gives each split's route a return", () => {
 		const offered = routes({ WSL_INTEROP: "/run/x", TMUX: "/t" });
-		for (const route of offered)
-			expect(buildFocusReturn(route.args.at(-1), View, Own)).not.toBeNull();
+		for (const route of offered) {
+			expect(route.args).toContain(route.name);
+			expect(buildFocusReturn(route.name, View, Own)).not.toBeNull();
+		}
 	});
 });

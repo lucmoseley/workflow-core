@@ -1806,7 +1806,6 @@ function createPanel({
 		pressKey,
 		buildViewRows,
 		scrollBy,
-		leave,
 		takeFocus,
 		loseFocus,
 	};

@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * The panel's terminal wiring (#3873, #3887, #3948, #4001): what it asks of the terminal on opening,
+ * The panel's terminal wiring (#3873, #3887, #3948, #4065): what it asks of the terminal on opening,
  * and what it hands back on each way out, over injected streams and a fake process,
  * so a signal costs no real process. Broken, a crash leaves the founder's pane raw
  * and in mouse mode, or the panel outlives its agents view.
@@ -130,30 +130,10 @@ describe("the panel's terminal", () => {
 		expect(t.text().slice(before)).not.toContain("❯");
 	});
 
-	it("hands focus back once on opening where the split took it (#4001)", async () => {
-		const t = terminal({ focusTakenOnOpening: true });
-		await vi.advanceTimersByTimeAsync(3 * POLL_MS);
-		expect(t.focusReturns()).toBe(1);
-	});
-
-	it("runs no focus command on opening where the split left it", async () => {
-		const t = terminal({ focusTakenOnOpening: false });
+	it("runs no focus command on opening (#4065)", async () => {
+		const t = terminal();
 		await vi.advanceTimersByTimeAsync(3 * POLL_MS);
 		expect(t.focusReturns()).toBe(0);
-	});
-
-	it("says why, and shows the pointer, where opening cannot hand focus back", async () => {
-		const t = terminal({
-			focusTakenOnOpening: true,
-			returnFocus: async () => ({
-				code: 1,
-				stdout: "",
-				stderr: "wt.exe: no window",
-			}),
-		});
-		await vi.advanceTimersByTimeAsync(0);
-		expect(t.text()).toContain("wt.exe: no window");
-		expect(t.text()).toContain("❯");
 	});
 
 	it("hands focus back on a click, and on Esc once its wait ends", async () => {
