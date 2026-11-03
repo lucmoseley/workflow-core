@@ -506,10 +506,11 @@ function buildSpendState(status) {
 
 /**
  * The newest reading and its age, however old, so an old read cannot look current
- * (#4059); a cached bar can hold no fetch time, which says its age is unknown rather
- * than pass as current. A week the account does not report has no reading to age, and
- * shows the 0 the picker sizes it on (#3758). A week reset since its last read says so,
- * its 0 being derived rather than read, and drops "ago" to fit the split's 34 cells (#4106).
+ * (#4059); a cached bar can hold no fetch time, which reads `age ?` rather than pass as
+ * current, short enough for the split's 34 cells (#4124). A week the account does not
+ * report has no reading to age, and shows the 0 the picker sizes it on (#3758). A week
+ * reset since its last read says so, its 0 being derived rather than read, and drops
+ * "ago" to fit those cells (#4106).
  * @param {PanelStatus["seats"]["readings"][number]} reading
  * @param {number} now
  */
@@ -521,8 +522,8 @@ function buildPlanFigure({ week, weekRead }, now) {
 			? null
 			: describeAge(Math.max(0, (now - Date.parse(weekRead.at)) / 1000));
 	if (weekRead.rolled)
-		return `${weekRead.percent}% (reset${age ? `, read ${age}` : ""})`;
-	return `${weekRead.percent}% used (${age ? `${age} ago` : "age unknown"})`;
+		return `${weekRead.percent}% (reset, ${age ? `read ${age}` : "age ?"})`;
+	return `${weekRead.percent}% used (${age ? `${age} ago` : "age ?"})`;
 }
 
 /**

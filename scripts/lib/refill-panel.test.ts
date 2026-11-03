@@ -903,11 +903,25 @@ describe("the plan and credit rows", () => {
 			expect(shown(reading)).toBe(`  .claude2  ${figure}`);
 		});
 
-		it("says the age is unknown where the reading has no time", () => {
-			expect(shown(buildReading(null, 74, null))).toBe(
-				"  .claude2  74% used (age unknown)",
-			);
-		});
+		it.each([
+			["open", { percent: 100, at: null }, "  .claude2  100% used (age ?)"],
+			[
+				"reset",
+				{ percent: 0, at: null, rolled: true },
+				"  .claude2  0% (reset, age ?)",
+			],
+		])(
+			"says the age is unknown on an %s week with no read time, on one line in the width the split asks for (#4124)",
+			(_week, weekRead, row) => {
+				const reading = { ...seatRead("~/.claude2", null), weekRead };
+				expect(
+					textsInSplit({
+						...RUNNING,
+						seats: { readings: [reading], next: null },
+					}),
+				).toContain(row);
+			},
+		);
 
 		it.each([
 			["days", 6, "  .claude2  0% (reset, read 6d)"],
@@ -928,14 +942,6 @@ describe("the plan and credit rows", () => {
 				).toContain(row);
 			},
 		);
-
-		it("shows a week reset with no read time without an age (#4106)", () => {
-			const reading = {
-				...seatRead("~/.claude2", null),
-				weekRead: { percent: 0, at: null, rolled: true },
-			};
-			expect(shown(reading)).toBe("  .claude2  0% (reset)");
-		});
 
 		it("reads a seat with no reading as unread", () => {
 			expect(shown(buildReading(null, null, null))).toBe("  .claude2  unread");
