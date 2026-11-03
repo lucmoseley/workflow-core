@@ -52,6 +52,7 @@ import {
 	DEFAULT_WINDOW_HOURS,
 	ledgerPath,
 	readRecentEntries,
+	record as recordDispatch,
 } from "./lib/dispatch-ledger.js";
 import { ghAnswer } from "./lib/gh-fake";
 import { printed, stubGhRoutes } from "./lib/gh-stub";
@@ -862,6 +863,77 @@ describe("a dry run with overflow seats (#2611)", () => {
 		weekAt(100);
 		writeSeatFile(null);
 		expect((await runDry()).stdout).toContain("dry run: idle: a plan resets");
+	});
+});
+
+describe("an overflow session's allowance on the real tick (#3698)", () => {
+	const job = "0000c001";
+	const sessionId = `s-${job}`;
+
+	/* A launch on the key at a US$50 allowance, listed working. */
+	beforeEach(() => {
+		writeSeatFile(200);
+		writeKeyCostTable();
+		writeClaudeStub(at("claude"), [
+			buildAgentsBranch([
+				buildJobRow(job, "working", { sessionId, name: "Overflow · job" }),
+			]),
+			buildStopBranch(at("stops")),
+		]);
+		recordDispatch({
+			issues: [5],
+			model: "opus",
+			prompt: "/implement 5",
+			root: repo,
+			jobId: job,
+			overflow: { keyVar: "WFC_TEST_KEY", allowanceUsd: 50, sessionId },
+		});
+	});
+
+	/* Its transcript: `inputTokens` of fresh Opus input, US$4 a million. */
+	const writeTranscript = (inputTokens: number) => {
+		const file = path.join(
+			overflowSeat(),
+			"projects",
+			"-fixture",
+			`${sessionId}.jsonl`,
+		);
+		fs.mkdirSync(path.dirname(file), { recursive: true });
+		fs.writeFileSync(
+			file,
+			`${JSON.stringify({
+				type: "assistant",
+				requestId: "r1",
+				message: {
+					model: "claude-opus-5-5",
+					usage: { input_tokens: inputTokens },
+				},
+			})}\n`,
+		);
+	};
+
+	/* A stopping tick: it runs once and exits, and caps as any tick does. */
+	const oneTick = () => {
+		updateControl({ stopRequested: true });
+		return settled(run(0, { WFC_DISPATCH_ROOT: repo }), "run asked to stop");
+	};
+
+	it("stops one past it under its seat's dir, naming spend and allowance", async () => {
+		writeTranscript(15_000_000);
+		const r = await oneTick();
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(
+			`stopped overflow session Overflow · job (${job}) on ${overflowSeat()}: spent $60.00 of its $50.00 allowance`,
+		);
+		expect(readLines(at("stops"))).toEqual([`stop ${job}`]);
+	});
+
+	it("leaves one under it alone", async () => {
+		writeTranscript(5_000_000);
+		const r = await oneTick();
+		expect(r.status).toBe(0);
+		expect(r.stdout).not.toContain("overflow session");
+		expect(readLines(at("stops"))).toEqual([]);
 	});
 });
 

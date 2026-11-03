@@ -5166,6 +5166,7 @@
 			"scripts/lib/agents-stop.contract.test.ts",
 			"scripts/lib/console-credit.test.ts",
 			"scripts/lib/move-pass-markers.test.ts",
+			"scripts/lib/overflow-budget.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/refill-loop-run.test.ts",
 			"scripts/refill-loop.test.ts",
