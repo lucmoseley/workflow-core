@@ -21,6 +21,7 @@ const {
 	readSecretKeepingIgnore,
 	secretsFile,
 } = require("./env-file.js");
+const { scriptPath } = require("./script-path.js");
 const { shellQuote } = require("./sh-quote.js");
 const { writeFd } = require("./write-fd.js");
 
@@ -32,7 +33,7 @@ const { writeFd } = require("./write-fd.js");
  * @returns {{value: string}|{why: string}}
  */
 function readKey(keyVar, file, read) {
-	const fix = `set it with \`node scripts/write-secret.js ${keyVar}\``;
+	const fix = `set it with \`node ${scriptPath("write-secret.js")} ${keyVar}\``;
 	try {
 		const value = read(keyVar);
 		return value === null
@@ -82,7 +83,7 @@ if (require.main === module) {
 	if (args.length !== 2 || !keyVar || !file) {
 		writeFd(
 			2,
-			"usage: node scripts/lib/overflow-key.js <key var> <secrets file>\n",
+			`usage: node ${scriptPath("lib/overflow-key.js")} <key var> <secrets file>\n`,
 		);
 		process.exitCode = 2;
 	} else {
