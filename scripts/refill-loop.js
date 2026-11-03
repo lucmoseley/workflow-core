@@ -87,6 +87,7 @@ const { hostRoot } = require("./lib/host-root.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const { readAllowance } = require("./lib/allowance.js");
 const { buildBudgetLine, seatBudget } = require("./lib/overflow-budget.js");
+const { readAgentsForDisplay } = require("./lib/agent-liveness.js");
 const { planSeatBasisOf } = require("./lib/overflow-notice.js");
 const {
 	readConfiguredSeats,
@@ -362,9 +363,10 @@ const sizingRoot = (served) => served[0] ?? hostRoot();
  * probe, a tick being the one to refresh it (#3733).
  * @param {string[]} planSeats
  * @param {string} root
+ * @param {BudgetOf} budgetOf  the keys' budgets
  * @param {string} [callerSeat] for `start`
  */
-function readSeatsView(planSeats, root, callerSeat) {
+function readSeatsView(planSeats, root, budgetOf, callerSeat) {
 	const now = Date.now();
 	const declared = readDeclaredSeats();
 	const ceilings = loop.ceilingsOf(process.env);
@@ -386,9 +388,7 @@ function readSeatsView(planSeats, root, callerSeat) {
 	});
 	return commands.buildSeatsView({
 		seats,
-		overflow: loop.overflowReadings(declared, seats, (seat) =>
-			seatBudget(seat, root),
-		),
+		overflow: loop.overflowReadings(declared, seats, (seat) => budgetOf(seat)),
 		typedSeat: readLastTyped(declared).seat,
 		ceilings,
 		callerSeat,
@@ -582,6 +582,7 @@ function start(parsed) {
 					readSeatsView(
 						control.seats,
 						sizingRoot(served),
+						buildShownBudgets(sizingRoot(served)),
 						seatDir(configDir(), homeDir()),
 					),
 					Date.now(),
@@ -744,12 +745,35 @@ function refuseUsage(refusal) {
 }
 
 /**
+ * @typedef {(seat: import("./lib/refill-seats.js").OverflowSeat) =>
+ *   ReturnType<typeof seatBudget>} BudgetOf
+ */
+
+/**
+ * Each key's budget for a reader only shown it — `status`, and `start`'s and
+ * `set`'s seats line — read once per key and off the shared listing (#4169):
+ * the panel polls `status --json` every few seconds.
+ * @param {string|undefined} root
+ * @returns {BudgetOf}
+ */
+function buildShownBudgets(root) {
+	/** @type {Map<string, ReturnType<typeof seatBudget>>} */
+	const read = new Map();
+	return (seat) => {
+		const budget =
+			read.get(seat.keyVar) ?? seatBudget(seat, root, readAgentsForDisplay);
+		read.set(seat.keyVar, budget);
+		return budget;
+	};
+}
+
+/**
  * Each overflow key's budget for `status --json`; the seat file's refusal stands
  * in for the keys it hides. It settles the ledger whatever the plans read, as the
  * panel shows the balance at all times (#3958).
- * @param {string} root
+ * @param {BudgetOf} budgetOf
  */
-function readOverflowStatus(root) {
+function readOverflowStatus(budgetOf) {
 	const declared = readDeclaredSeats();
 	if (declared.errors.length > 0)
 		return [
@@ -759,9 +783,7 @@ function readOverflowStatus(root) {
 			},
 		];
 	return declared.seats.flatMap((s) =>
-		s.kind === "overflow"
-			? [commands.buildOverflowStatus(s, seatBudget(s, root))]
-			: [],
+		s.kind === "overflow" ? [commands.buildOverflowStatus(s, budgetOf(s))] : [],
 	);
 }
 
@@ -776,7 +798,12 @@ function status({ flags }) {
 	const pid = lock.holder();
 	const state = readStateFile(note);
 	const root = sizingRoot(served);
-	const seats = readSeatsView(control?.seats ?? readConfiguredSeats(), root);
+	const budgetOf = buildShownBudgets(root);
+	const seats = readSeatsView(
+		control?.seats ?? readConfiguredSeats(),
+		root,
+		budgetOf,
+	);
 	const codeSha =
 		pid === null ? null : refillCode.readRunningCode(pid, files.code);
 	if (flags["--json"]) {
@@ -790,7 +817,7 @@ function status({ flags }) {
 					codeSha,
 					candidates: readCandidates(homeDir()),
 					burnMode: readBurnState(),
-					overflow: readOverflowStatus(root),
+					overflow: readOverflowStatus(budgetOf),
 					concurrency: readConcurrencyStatus(Date.now()),
 				}),
 			),
@@ -814,23 +841,22 @@ function status({ flags }) {
 		Date.now(),
 	))
 		say(line);
-	sayOverflowLines(control, state, root);
+	sayOverflowLines(control, state, budgetOf);
 	return 0;
 }
 
 /**
  * @param {import("./lib/refill-loop.js").Control|null} control
  * @param {import("./lib/refill-loop.js").LoopState} state
- * @param {string} root
+ * @param {BudgetOf} budgetOf
  */
-function sayOverflowLines(control, state, root) {
+function sayOverflowLines(control, state, budgetOf) {
 	const declared = readDeclaredSeats();
 	for (const error of declared.errors) say(`seat file refuses: ${error}`);
 	const overflow = declared.seats.flatMap((s) =>
 		s.kind === "overflow" ? [s] : [],
 	);
-	for (const seat of overflow)
-		say(buildBudgetLine(seat, seatBudget(seat, root)));
+	for (const seat of overflow) say(buildBudgetLine(seat, budgetOf(seat)));
 	if (overflow.length > 0 && declared.errors.length === 0) {
 		const now = Date.now();
 		const lines = commands.buildOverflowBasisLines({

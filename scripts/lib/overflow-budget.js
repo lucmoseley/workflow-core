@@ -195,12 +195,13 @@ function priceSessions(seat, lookup) {
  * @param {OverflowSeat} seat
  * @param {OverflowLookup} lookup
  * @param {LedgerEntry[]} ledger
+ * @param {() => import("./agent-liveness.js").Listing} readAgents
  * @returns {RunningRun[]}
  * @throws where the listing cannot be read: a key's running sessions must not
  *   read as none
  */
-function readRunning(seat, lookup, ledger) {
-	const listing = readAgentsForBudget();
+function readRunning(seat, lookup, ledger, readAgents) {
+	const listing = readAgents();
 	if (listing.why !== undefined) throw new Error(listing.why);
 	const spent = new Map(ledger.map((e) => [e.sessionId, e.costUsd]));
 	return listing.agents
@@ -221,9 +222,11 @@ function readRunning(seat, lookup, ledger) {
  * the loop's daemon runs from the home directory (#3683).
  * @param {OverflowSeat} seat
  * @param {string|undefined} root the checkout whose cost table sizes the seat
+ * @param {() => import("./agent-liveness.js").Listing} [readAgents] the
+ *   listing's reader, `readAgentsForDisplay` where the budget is only shown
  * @returns {SeatBudget|{why: string}}
  */
-function seatBudget(seat, root) {
+function seatBudget(seat, root, readAgents = readAgentsForBudget) {
 	if (root === undefined)
 		return { why: "the loop serves no checkout to read the cost table in" };
 	const table = readCostTableIn(root);
@@ -234,7 +237,7 @@ function seatBudget(seat, root) {
 	try {
 		const lookup = readEveryOverflowLookup();
 		ledger = priceSessions(seat, lookup);
-		running = readRunning(seat, lookup, ledger);
+		running = readRunning(seat, lookup, ledger, readAgents);
 		log = readConsoleLog(seat);
 	} catch (err) {
 		return { why: caught(err).message };
