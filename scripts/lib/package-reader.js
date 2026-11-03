@@ -28,7 +28,9 @@ class PackageReadError extends Error {
 	}
 }
 
-/** @typedef {ReturnType<typeof buildPackageReader>} PackageReader */
+/** @typedef {ReturnType<typeof buildPackageReader>} PackageReader One memo a
+ * classifier's call shares across its reads, so each directory is read once; the
+ * walk's modules take it rather than each keeping their own. */
 
 /** A `readPackage` that reads each directory at its first call and keeps it. */
 function buildPackageReader() {
@@ -41,7 +43,9 @@ function buildPackageReader() {
 	};
 }
 
-/* A word read as a directory may be no path at all. */
+/* A word read as a directory may be no path at all. npm fails on one too
+ * (measured on 11.16.0), so it reads as holding no `package.json` and its run as
+ * running no script (#3851). */
 const ABSENT_FILE_CODES = new Set(["ENOENT", "ENOTDIR", "ENAMETOOLONG"]);
 
 /** @param {unknown} err */

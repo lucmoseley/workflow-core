@@ -3,7 +3,7 @@
  * (#3947): `RUNNERS`, one row of command-line facts per runner, and the walk
  * from a command through each `package.json` script it runs. A classifier
  * judging a command must see the scripts it reaches, not only its own words, so
- * infer-commands.js's read each hop of this walk.
+ * infer-commands.js's classifiers read each hop of this walk.
  */
 
 const path = require("node:path");
@@ -124,11 +124,20 @@ const RUNNERS = new Map(RUNNER_ROWS);
 const RUNNER_NAMES = [...RUNNERS.keys()];
 
 /**
+ * Whether `word` is neither a flag nor a flag's value.
+ * @param {Word} word
+ * @param {Word|undefined} before the word before it
+ * @param {Set<string>} valueFlags the flags taking the next word as their value
+ */
+const isPlainWord = (word, before, valueFlags) =>
+	!word.value.startsWith("-") && !(before && valueFlags.has(before.value));
+
+/**
  * The value `word` gives one of `flags` after a `=`, or undefined.
  * @param {string} word
  * @param {Set<string>} flags
  */
-function eqFormValue(word, flags) {
+function parseEqFormValue(word, flags) {
 	const eq = word.indexOf("=");
 	return eq >= 0 && flags.has(word.slice(0, eq))
 		? word.slice(eq + 1)
@@ -187,7 +196,7 @@ function parseNpmRun(words, rules) {
 	/* `npmCanon` writes the flag's space form with a `=`, so only that is read. */
 	const dir =
 		options
-			.map((w) => eqFormValue(w, rules.dirFlags))
+			.map((w) => parseEqFormValue(w, rules.dirFlags))
 			.findLast((v) => v !== undefined) ?? "";
 	const selection = parseSelection(options);
 	const handedAfter = (/** @type {number} */ n) =>
@@ -223,7 +232,7 @@ function parseDirFlag(words, flags) {
 	for (const [i, w] of words.entries()) {
 		const next = words[i + 1];
 		if (next && flags.has(w.value)) dir = next.value;
-		else dir = eqFormValue(w.value, flags) ?? dir;
+		else dir = parseEqFormValue(w.value, flags) ?? dir;
 	}
 	return dir;
 }
@@ -240,11 +249,8 @@ function parseOtherRun(words, rules) {
 	const { dirFlags: flags, isRun } = rules;
 	/** @type {{word: string, at: number}[]} */
 	const plain = [];
-	for (const [at, w] of words.entries()) {
-		const before = words[at - 1];
-		if (!w.value.startsWith("-") && !(before && flags.has(before.value)))
-			plain.push({ word: w.value, at });
-	}
+	for (const [at, w] of words.entries())
+		if (isPlainWord(w, words[at - 1], flags)) plain.push({ word: w.value, at });
 	const [first, second, third] = plain;
 	const isValue =
 		first !== undefined &&
@@ -606,6 +612,7 @@ function walkRunScripts(root, readCachedPackage, command, visit) {
 module.exports = {
 	RUNNER_NAMES,
 	findRun,
+	isPlainWord,
 	namedScriptWord,
 	parseNamedDir,
 	placedCommands,

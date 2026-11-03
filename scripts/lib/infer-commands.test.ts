@@ -1683,7 +1683,7 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 			);
 		});
 
-		describe("the seventh review's rows (#3944)", () => {
+		describe("what a yarn or bun binary, a named directory, a test alias or a prefixed shell reaches (#3944)", () => {
 			it.each([
 				["yarn run biome check --staged --write", Through],
 				["bun run biome check --staged --write", Through],
@@ -1755,21 +1755,7 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 				);
 			});
 
-			it("refuses the script mantahostels declares, naming the mapped command", () => {
-				writePackage(".", {
-					scripts: {
-						"check:staged":
-							"biome check --staged --no-errors-on-unmatched --error-on-warnings",
-					},
-					devDependencies: { "@biomejs/biome": "2.5.15" },
-				});
-				const r = run("npm run check:staged");
-				expect(r.status).toBe(1);
-				expect(r.stderr).toContain(
-					`Declare check_staged instead as '${BIOME_STAGED_COMMAND} --no-errors-on-unmatched --error-on-warnings'.`,
-				);
-			});
-
+			/* Under uid 0, mode 000 stops no read, so this refusal cannot arise. */
 			it.skipIf(process.getuid?.() === 0)(
 				"refuses a directory it cannot read, naming the path, and reads it once readable",
 				() => {
@@ -1789,6 +1775,21 @@ describe("the check-staged CLI on Biome evidence and what a runner runs (#3851)"
 					expect(r.status).toBe(1);
 					expect(r.stderr).toContain(IN_WEB);
 				},
+			);
+		});
+
+		it("refuses the script mantahostels declares, naming the mapped command", () => {
+			writePackage(".", {
+				scripts: {
+					"check:staged":
+						"biome check --staged --no-errors-on-unmatched --error-on-warnings",
+				},
+				devDependencies: { "@biomejs/biome": "2.5.15" },
+			});
+			const r = run("npm run check:staged");
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain(
+				`Declare check_staged instead as '${BIOME_STAGED_COMMAND} --no-errors-on-unmatched --error-on-warnings'.`,
 			);
 		});
 
