@@ -66,14 +66,15 @@ let kept = null;
 
 /**
  * Whether `args` only reads, from its subcommand past git's global options. A
- * spelling this does not know is no read, which costs a spawn and never an
- * answer. `--output` is the one option the read subcommands write through.
+ * spelling this does not know is no read. `--output` is the one option the read
+ * subcommands write through.
  * @param {readonly string[]} args
  */
 function isGitRead(args) {
 	let i = 0;
-	while (args[i]?.startsWith("-")) i += VALUED_GLOBALS.has(args[i]) ? 2 : 1;
-	const sub = args[i];
+	for (let arg = args[i]; arg?.startsWith("-"); arg = args[i])
+		i += VALUED_GLOBALS.has(arg) ? 2 : 1;
+	const sub = args[i] ?? "";
 	const rest = args.slice(i + 1);
 	if (rest.some((a) => a === "--output" || a.startsWith("--output=")))
 		return false;
