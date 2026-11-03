@@ -11,7 +11,9 @@
  *   - pidfile, created by the loop exclusively, so a second loop exits;
  *   - the review runner's pidfile and result (scripts/refill-review-run.js,
  *     #3765), written by the runner, the result removed by the tick that
- *     reads it.
+ *     reads it;
+ *   - the manager-restart marker (#3971), written by `boot-resume` for a loop
+ *     still running, removed by the tick that records it.
  * `WFC_REFILL_DIR` moves them all, with the log, the stop-seen stamp
  * check-refill-loop-stop.js writes, and the code directory of worktrees the
  * loop runs from (lib/refill-code.js).
@@ -19,6 +21,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { readCurrentBootId } = require("./arbiter-proc.js");
 const { caught } = require("./caught.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { pidLock, waitForLock } = require("./pid-lock.js");
@@ -33,6 +36,7 @@ function loopFiles() {
 		pid: refillPath(".refill-loop.pid"),
 		log: refillPath(".refill-loop.log"),
 		stopSeen: refillPath(".refill-loop-stop-seen"),
+		managerRestart: refillPath(".refill-loop-manager-restart.json"),
 		overflowSeen: refillPath(".refill-overflow-seen"),
 		wake: refillPath(".refill-loop-wake"),
 		gates: refillPath(".refill-gate-readings.json"),
@@ -195,7 +199,12 @@ const readStateFile = (log) => parseState(readJson(loopFiles().state, log));
  */
 function recordRunHeld(log) {
 	const state = /** @type {object|null} */ (readJson(loopFiles().state, log));
-	writeJson(loopFiles().state, { ...state, stopped: null, heldAt: Date.now() });
+	writeJson(loopFiles().state, {
+		...state,
+		stopped: null,
+		heldAt: Date.now(),
+		bootId: readCurrentBootId(),
+	});
 }
 
 /**
@@ -209,8 +218,41 @@ function forgetRunHeld(log) {
 	if (state) writeJson(loopFiles().state, { ...state, heldAt: null });
 }
 
+/**
+ * @typedef {{bootId: string|null, at: number}} ManagerRestart  what `boot-resume`
+ *   leaves a loop that survived the user manager's restart, its own file as that
+ *   loop's tick would overwrite a change to the state (#3971)
+ */
+
+/** @param {number} at */
+const writeManagerRestart = (at) =>
+	writeJson(loopFiles().managerRestart, { bootId: readCurrentBootId(), at });
+
+/**
+ * @param {(line: string) => void} log
+ * @returns {ManagerRestart|null}
+ */
+const readManagerRestart = (log) =>
+	/** @type {ManagerRestart|null} */ (
+		readJson(loopFiles().managerRestart, log)
+	);
+
+/**
+ * Remove the marker `read` once the state records it, unless a later restart has
+ * replaced it since.
+ * @param {ManagerRestart} read
+ * @param {(line: string) => void} log
+ */
+function dropManagerRestart(read, log) {
+	if (readManagerRestart(log)?.at === read.at)
+		fs.rmSync(loopFiles().managerRestart, { force: true });
+}
+
 module.exports = {
+	dropManagerRestart,
 	forgetRunHeld,
+	readManagerRestart,
+	writeManagerRestart,
 	recordRunHeld,
 	loopFiles,
 	REVIEW_RUNNER,

@@ -7,6 +7,9 @@
  * which jobs the never-started stop spares until they are queued (#3983). And
  * whether a loop just spawned, by a boot or a `start`, came to hold the lock
  * (#4083).
+ *
+ * `boot-resume` runs at each start of the user manager, so on the manager's
+ * restart within a boot too (#3963), which sessions in `/init.scope` outlive.
  */
 
 const {
@@ -59,7 +62,9 @@ function awaitLoopHold({ pid, file, holder, hasHeld, isAlive, now, sleep }) {
  * @param {import("./refill-loop.js").LoopState["stopped"]} found.stopped
  * @param {number|null} found.pid the pidfile's live holder
  * @param {number} found.self this process's pid, which a stale pidfile can name
- * @returns {{resume: boolean, line: string}}
+ * @returns {{resume: boolean, line: string, tellLoop?: string}}
+ *   `tellLoop`, a loop outlived whatever restarted the manager: the line saying
+ *   it was told
  */
 function bootVerdictOf({ control, damaged, stopped, pid, self }) {
 	const refused = (/** @type {string} */ why) => ({
@@ -67,7 +72,10 @@ function bootVerdictOf({ control, damaged, stopped, pid, self }) {
 		line: `boot resume: not resumed: ${why}`,
 	});
 	if (pid !== null && pid !== self)
-		return refused(`already running, pid ${pid}`);
+		return {
+			...refused(`already running, pid ${pid}`),
+			tellLoop: "boot resume: told the running loop the manager restarted",
+		};
 	if (damaged !== null) return refused(damaged);
 	if (control === null) return refused("no start on record");
 	const stop = recordedStop(control, stopped);
@@ -87,20 +95,75 @@ function bootVerdictOf({ control, damaged, stopped, pid, self }) {
  * Whether a tick may read an empty listing as nothing live: the boot's own tick,
  * and, while killed launches wait, any tick with no session it set running, so the
  * listing has nothing it must name. Once one is running, an empty listing is the
- * daemon's fault again (agent-liveness.js).
+ * daemon's fault again (agent-liveness.js). On a same-boot restart a session in
+ * `/init.scope` may be running unlisted, so only where the registry also shows
+ * every launch it may have killed gone (#3971). Residual: a faulty listing and a
+ * live session's missing registry record, together, still queue that session.
  * @param {import("./refill-loop.js").LoopState} state
+ * @param {import("./registry-agents.js").RegistryListing} registry
  */
-const isEmptyListingTrusted = ({ bootedAt, launches }) =>
-	bootedAt !== undefined ||
-	(launches.some(isBootKilled) && launches.filter(isLive).every(isHeld));
+const isEmptyListingTrusted = (
+	{ bootedAt, sameBootRestart, launches },
+	registry,
+) =>
+	sameBootRestart
+		? registry.faults.length === 0 &&
+			launches
+				.filter(isBootKillCandidate)
+				.every(
+					(l) =>
+						registry.seats.includes(l.seat) &&
+						!registry.agents.some(
+							(a) => a.id === l.jobId || a.sessionId === l.sessionId,
+						),
+				)
+		: bootedAt !== undefined ||
+			(launches.some(isBootKilled) && launches.filter(isLive).every(isHeld));
+
+/**
+ * Whether the loop last held its pidfile on the boot now running, so a
+ * `boot-resume` is the user manager's restart and no boot; false where either
+ * boot is unknown.
+ * @param {string|null|undefined} recorded
+ * @param {string|null} current
+ */
+const isSameBoot = (recorded, current) =>
+	current !== null && recorded === current;
+
+/**
+ * `state` as `boot-resume` leaves it for the loop it is about to start.
+ * @param {import("./refill-loop.js").LoopState} state
+ * @param {string|null} current this boot's id
+ * @param {number} at
+ * @returns {import("./refill-loop.js").LoopState}
+ */
+const resumedState = (state, current, at) => ({
+	...state,
+	bootedAt: at,
+	sameBootRestart: isSameBoot(state.bootId, current) || undefined,
+	heldAt: null,
+});
+
+/**
+ * `state` as the restart a surviving loop's marker reports leaves it (#3971). The
+ * tick queues what the restart killed as after a boot.
+ * @param {import("./refill-loop.js").LoopState} state
+ * @param {import("./refill-files.js").ManagerRestart|null} marker
+ * @param {string|null} current this boot's id
+ * @returns {import("./refill-loop.js").LoopState}
+ */
+const withManagerRestart = (state, marker, current) =>
+	marker !== null && isSameBoot(marker.bootId, current)
+		? { ...state, bootedAt: marker.at, sameBootRestart: true }
+		: state;
 
 /**
  * The jobs the never-started stop spares (#3983): until a listing has read, the
  * launches a restart may have killed, as a stop would write `stopped` on the record
  * and the boot's queueing would read that as ended on its own. Any other job was
  * never due back, and a queued launch is resumed whatever its record reads. Unbounded
- * in time: a spared job has no process, so it holds no memory, and an unread listing
- * refuses admission, so its charge binds nothing until the read that ends the spare.
+ * in time: a spared job has no process, so it holds no memory, and admission charges
+ * only what a listing names.
  * @param {import("./refill-loop.js").LoopState} state
  * @returns {Set<string>}
  */
@@ -116,4 +179,7 @@ module.exports = {
 	bootSparedJobs,
 	bootVerdictOf,
 	isEmptyListingTrusted,
+	isSameBoot,
+	resumedState,
+	withManagerRestart,
 };

@@ -30,6 +30,7 @@ import {
 	buildStopBranch,
 	type Row,
 } from "./lib/agents-stop-fake";
+import { readCurrentBootId, readProcStartOf } from "./lib/arbiter-proc.js";
 import { writeSeatHelper } from "./lib/auth-status-fake";
 import {
 	buildRekeyedResponse,
@@ -3489,6 +3490,11 @@ describe("boot-resume after a restart (#3878)", () => {
 			expect(readLog()).toContain(
 				`boot resume: not resumed: already running, pid ${holder.pid}`,
 			);
+			expect(
+				JSON.parse(
+					fs.readFileSync(at(".refill-loop-manager-restart.json"), "utf8"),
+				),
+			).toEqual({ bootId: readCurrentBootId(), at: expect.any(Number) });
 			expect(fs.readFileSync(at(".refill-loop.pid"), "utf8")).toBe(
 				String(holder.pid),
 			);
@@ -5084,6 +5090,145 @@ describe("the launches a restart killed (#3880)", () => {
 
 		expect(back.status).toBe(0);
 		expect(readCalls()).toEqual([buildResumeArgs("job7")]);
+	});
+
+	describe("the user manager's restart within a boot (#3971)", () => {
+		const outsideSession = { CLAUDE_CODE_SESSION_ID: "" };
+		const markerFile = () => at(".refill-loop-manager-restart.json");
+		const writeMarker = (bootId: string | null) =>
+			fs.writeFileSync(
+				markerFile(),
+				JSON.stringify({ bootId, at: Date.now() }),
+			);
+		const bootResume = () =>
+			runInProcessAsync(path.join(scripts, "refill-loop.js"), ["boot-resume"], {
+				cwd: dir,
+				env: loopEnv({
+					FAKE_SLOTS: "1",
+					CLAUDE_PROJECT_DIR: repo,
+					...outsideSession,
+				}),
+			});
+		const writeStateOnBoot = (bootId: string) =>
+			fs.writeFileSync(
+				stateFile(),
+				JSON.stringify({ launches: [buildLaunch("job7", 7, 10)], bootId }),
+			);
+
+		/* job7's process is this test's own: the registry proves it alive. */
+		const writeLiveRegistry = () => {
+			fs.mkdirSync(path.join(seat, "sessions"), { recursive: true });
+			fs.writeFileSync(
+				path.join(seat, "sessions", `${process.pid}.json`),
+				JSON.stringify({
+					pid: process.pid,
+					sessionId: "s-job7",
+					procStart: readProcStartOf(process.pid),
+					jobId: "job7",
+				}),
+			);
+		};
+
+		it("queues no live session where the restarted loop's listing is empty", async () => {
+			writeStateOnBoot(String(readCurrentBootId()));
+			writeLiveRegistry();
+			fakeResumeClaude("job7", []);
+
+			expect((await bootResume()).status).toBe(0);
+			await polled(() => Boolean(readState().lastTick), "no tick ran");
+			requestStop();
+			await polled(
+				() => !fs.existsSync(at(".refill-loop.pid")),
+				"the started loop did not end",
+			);
+
+			expect(readCalls()).toEqual([]);
+			expect(readKilled()).toEqual([]);
+			const state = readState();
+			expect(state.launches[0].finishedAt).toBeNull();
+			expect(state.launches[0]).not.toHaveProperty("bootKilled");
+			expect(state).toMatchObject({
+				bootedAt: expect.any(Number),
+				sameBootRestart: true,
+				bootId: readCurrentBootId(),
+			});
+			expect(fs.readFileSync(at(".refill-loop.log"), "utf8")).toContain(
+				"a restart's killed launches wait on the listing:",
+			);
+		});
+
+		it("brings back what a total kill left, the listing and the registry both empty", async () => {
+			writeStateOnBoot(String(readCurrentBootId()));
+			fs.mkdirSync(path.join(seat, "sessions"), { recursive: true });
+			const stop = `node ${shellQuote(path.join(scripts, "request-stop.js"))};`;
+			fakeResumeClaude("job7", [], stop);
+
+			expect((await bootResume()).status).toBe(0);
+			await polled(
+				() =>
+					!fs.existsSync(at(".refill-loop.pid")) && readCalls().length === 1,
+				"the started loop did not resume it",
+			);
+
+			expect(readCalls()).toEqual([buildResumeArgs("job7")]);
+			expect(readState()).not.toHaveProperty("sameBootRestart");
+		});
+
+		it("still trusts an empty listing where the state names another boot", async () => {
+			writeStateOnBoot("another-boot");
+			const stop = `node ${shellQuote(path.join(scripts, "request-stop.js"))};`;
+			fakeResumeClaude("job7", [], stop);
+
+			expect((await bootResume()).status).toBe(0);
+			await polled(
+				() =>
+					!fs.existsSync(at(".refill-loop.pid")) && readCalls().length === 1,
+				"the started loop did not resume it",
+			);
+
+			expect(readCalls()).toEqual([buildResumeArgs("job7")]);
+			expect(readState()).not.toHaveProperty("sameBootRestart");
+		});
+
+		it("queues the sessions a surviving loop's marker says the restart killed", async () => {
+			writeState([buildLaunch("job7", 7, 10)], false);
+			writeMarker(readCurrentBootId());
+			fakeResumeClaude("job7", [LISTED]);
+
+			const r = await tickWith(1, () => readCalls().length === 1);
+
+			expect(r.status).toBe(0);
+			expect(readCalls()).toEqual([buildResumeArgs("job7")]);
+			expect(r.stdout).toContain("killed by a restart: due back");
+			expect(readState()).not.toHaveProperty("bootedAt");
+			expect(readState()).not.toHaveProperty("sameBootRestart");
+			expect(fs.existsSync(markerFile())).toBe(false);
+		});
+
+		it("carries a surviving loop's restart past an empty listing", async () => {
+			writeState([buildLaunch("job7", 7, 10)], false);
+			writeMarker(readCurrentBootId());
+			writeLiveRegistry();
+			fakeResumeClaude("job7", []);
+
+			const none = await tickWith(1, undefined, outsideSession);
+
+			expect(none.status).toBe(0);
+			expect(readCalls()).toEqual([]);
+			expect(readState()).toMatchObject({ sameBootRestart: true });
+			expect(fs.existsSync(markerFile())).toBe(false);
+
+			fakeResumeClaude("job7", [LISTED]);
+			const back = await tickWith(
+				1,
+				() => readCalls().length === 1,
+				outsideSession,
+			);
+
+			expect(back.status).toBe(0);
+			expect(readCalls()).toEqual([buildResumeArgs("job7")]);
+			expect(readState()).not.toHaveProperty("sameBootRestart");
+		});
 	});
 
 	it("waits for a read listing, the launches untouched, where the listing fails", async () => {

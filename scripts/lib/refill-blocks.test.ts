@@ -2722,13 +2722,23 @@ describe("queueBootKilled (#3880)", () => {
 		agents: Agents = [agent("other", "working")],
 	) => {
 		const { io } = fakeIo(over);
-		return queueBootKilled([l], {
-			agents,
-			now: NOW,
-			io,
-			swapHold: NO_HOLD,
-		})[0];
+		return queueBootKilled(
+			[l],
+			{
+				agents,
+				now: NOW,
+				io,
+				swapHold: NO_HOLD,
+			},
+			NOW,
+		)[0];
 	};
+
+	it("leaves one launched since the restart, which the listing may not yet show (#3971)", () => {
+		expect(killedOf(record({ launchedAt: NOW + 1 }))).not.toHaveProperty(
+			"bootKilled",
+		);
+	});
 
 	it("queues one the listing no longer shows, with its launch's time and target", () => {
 		expect(killedOf(record())).toMatchObject({
@@ -2793,7 +2803,7 @@ describe("queueBootKilled (#3880)", () => {
 			io,
 			swapHold: NO_HOLD,
 		};
-		const queued = queueBootKilled(launches, seen);
+		const queued = queueBootKilled(launches, seen, NOW);
 		const { launches: out } = resumeHeldLaunches(
 			resumableOf(queued, seen),
 			queued,
@@ -2839,7 +2849,7 @@ describe("queueBootKilled (#3880)", () => {
 			io,
 			swapHold: NO_HOLD,
 		};
-		const queued = queueBootKilled([record()], seen);
+		const queued = queueBootKilled([record()], seen, NOW);
 		expect(calls).not.toContain("hand-off job42");
 		expect(queued[0]).toHaveProperty("bootKilled");
 		const r = resumeHeldLaunches(

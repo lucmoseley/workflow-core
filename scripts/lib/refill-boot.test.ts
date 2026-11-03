@@ -15,6 +15,8 @@ import {
 	bootSparedJobs,
 	bootVerdictOf,
 	isEmptyListingTrusted,
+	isSameBoot,
+	withManagerRestart,
 } from "./refill-boot.js";
 import { parseState } from "./refill-loop.js";
 
@@ -50,7 +52,6 @@ describe("bootVerdictOf", () => {
 	});
 
 	it.each([
-		["a running loop", { pid: 8 }, "already running, pid 8"],
 		["a damaged control", { damaged: "it is damaged" }, "it is damaged"],
 		["no control", { control: null }, "no start on record"],
 		[
@@ -72,6 +73,16 @@ describe("bootVerdictOf", () => {
 		expect(bootVerdictOf({ ...found, ...over })).toEqual({
 			resume: false,
 			line: `boot resume: not resumed: ${why}`,
+		});
+	});
+});
+
+describe("bootVerdictOf, a loop still running (#3971)", () => {
+	it("refuses, saying the loop survived", () => {
+		expect(bootVerdictOf({ ...found, pid: 8 })).toEqual({
+			resume: false,
+			line: "boot resume: not resumed: already running, pid 8",
+			tellLoop: "boot resume: told the running loop the manager restarted",
 		});
 	});
 });
@@ -120,9 +131,11 @@ describe("bootSparedJobs (#3983)", () => {
 	});
 });
 
+const CLEAR = { agents: [], faults: [], seats: ["/s"] };
+
 describe("isEmptyListingTrusted (#3880)", () => {
 	const isTrusted = (launches: object[], bootedAt?: number) =>
-		isEmptyListingTrusted(buildState(launches, bootedAt));
+		isEmptyListingTrusted(buildState(launches, bootedAt), CLEAR);
 
 	it("trusts one on the boot's own tick, whatever the launches", () => {
 		expect(isTrusted([buildLaunch({})], START)).toBe(true);
@@ -141,6 +154,57 @@ describe("isEmptyListingTrusted (#3880)", () => {
 	it("does not with no boot and none killed", () => {
 		expect(isTrusted([buildLaunch({})])).toBe(false);
 		expect(isTrusted([])).toBe(false);
+	});
+});
+
+describe("a same-boot restart (#3971)", () => {
+	const sameBoot = (launches: object[]) =>
+		parseState({ launches, bootedAt: START, sameBootRestart: true });
+
+	const trusted = (registry: object) =>
+		isEmptyListingTrusted(sameBoot([buildLaunch({ sessionId: "s" })]), {
+			...CLEAR,
+			...registry,
+		});
+
+	it("trusts an empty listing where the registry shows the launches gone", () => {
+		expect(trusted({})).toBe(true);
+	});
+
+	it.each([
+		["names the launch's job", { agents: [{ id: "j", sessionId: "x" }] }],
+		["names the launch's session", { agents: [{ id: "x", sessionId: "s" }] }],
+		["has a fault", { faults: ["/s would not read"] }],
+		["did not read the launch's seat", { seats: [] }],
+	])("trusts none where the registry %s", (_name, registry) => {
+		expect(trusted(registry)).toBe(false);
+	});
+
+	it("still spares the launches it may have killed until a listing reads", () => {
+		expect([...bootSparedJobs(sameBoot([buildLaunch({})]))]).toEqual(["j"]);
+	});
+
+	it.each([
+		["the boot running as the same", "b", "b", true],
+		["another boot as a boot", "a", "b", false],
+		["none recorded as a boot", undefined, "b", false],
+		["an unread current boot as a boot", null, null, false],
+	])("reads %s by whether both ids match", (_name, recorded, current, same) => {
+		expect(isSameBoot(recorded, current)).toBe(same);
+	});
+
+	it("takes a marker from this boot as the restart", () => {
+		expect(
+			withManagerRestart(buildState([]), { bootId: "b", at: START }, "b"),
+		).toMatchObject({ bootedAt: START, sameBootRestart: true });
+	});
+
+	it.each([
+		["no marker", null],
+		["a marker from another boot", { bootId: "a", at: START }],
+	])("leaves the state as it was on %s", (_name, marker) => {
+		const state = buildState([]);
+		expect(withManagerRestart(state, marker, "b")).toBe(state);
 	});
 });
 

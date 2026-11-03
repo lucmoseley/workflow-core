@@ -17,6 +17,8 @@
  * absence is not its whole test: the job must also be past its 30-minute
  * grace with no transcript on any seat, which no running session shows; and
  * it judges a job only on a seat in `seats`, whose registry was read.
+ * A MANAGER RESTART'S EMPTY LISTING is trusted only where this read also finds
+ * the launches it may have killed gone (lib/refill-boot.js, #3971).
  * NEVER A READER THAT JUDGES BY ABSENCE ALONE — release `--force`, the claim
  * prune, admission's live set. A session whose record is missing would read
  * dead (mantahostels#104); those keep the CLI listing.

@@ -173,6 +173,9 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  *   frontier-reading tick's
  * @property {number} [bootedAt] when `boot-resume` restarted the loop, until a tick
  *   has read its listing and queued the launches the restart killed (#3880)
+ * @property {true} [sameBootRestart] that restart was the user manager's within a
+ *   boot, for as long as `bootedAt` stands (#3971)
+ * @property {string} [bootId] the boot the loop last took the pidfile on (#3971)
  * @property {string[]} probeBrokenRoots the last settled tick's served checkouts
  *   whose probe failed, for the idle alarm: such a failure may leave no hold on
  *   file (#3903)
@@ -495,6 +498,8 @@ function parseState(raw) {
 		probeBrokenRoots: parseStrings(r.probeBrokenRoots),
 		seatTriedAt: parseSeatTriedAt(r.seatTriedAt),
 		...(typeof r.bootedAt === "number" ? { bootedAt: r.bootedAt } : {}),
+		...(r.sameBootRestart === true ? { sameBootRestart: true } : {}),
+		...(typeof r.bootId === "string" ? { bootId: r.bootId } : {}),
 	};
 }
 
@@ -1506,7 +1511,7 @@ const buildLastTick = (decision, at, summary) => ({
  * @param {{input: import("./refill-decide.js").TickInput,
  *   decision: import("./refill-decide.js").Decision, state: LoopState,
  *   judged: LoopLaunch[], probes: Probe[], read: FrontierRead|null,
- *   probeBrokenRoots: string[], bootedAt?: number,
+ *   probeBrokenRoots: string[], bootedAt?: number, sameBootRestart?: true,
  *   away?: import("./refill-decide.js").AwaySwitch}} tick
  * @param {{readControl: () => ControlRead,
  *   launchBatch: (batch: import("./refill-decide.js").Launch[]) => BatchOutcome,
@@ -1530,6 +1535,7 @@ function settleTick(
 		read,
 		probeBrokenRoots,
 		bootedAt,
+		sameBootRestart,
 		away,
 	},
 	io,
@@ -1582,6 +1588,8 @@ function settleTick(
 		probeBrokenRoots,
 		seatTriedAt: seatTriedAfter(state.seatTriedAt, probes, input.now),
 		bootedAt,
+		sameBootRestart,
+		bootId: state.bootId,
 	};
 	io.writeState(next);
 	const reviewRunOn = io.runReview(state.reviewRunOn, input.now);

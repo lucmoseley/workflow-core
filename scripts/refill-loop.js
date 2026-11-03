@@ -40,7 +40,9 @@
  *                                        and launches nothing
  *   node scripts/refill-loop.js boot-resume  the boot unit's: restart the loop
  *                                        where no stop ended it, writing no
- *                                        control (install-refill-boot-unit.js)
+ *                                        control (install-refill-boot-unit.js);
+ *                                        a loop still running is told the user
+ *                                        manager restarted
  *
  * Each tick is lib/refill-tick.js's; the seats it reads, lib/refill-seats.js's;
  * what `start` and `status` print, lib/refill-commands.js's.
@@ -111,8 +113,12 @@ const {
 	readTickRefusal,
 } = require("./lib/refill-repos.js");
 const loop = require("./lib/refill-loop.js");
-const { awaitLoopHold, bootVerdictOf } = require("./lib/refill-boot.js");
-const { readProcStartOf } = require("./lib/arbiter-proc.js");
+const {
+	awaitLoopHold,
+	bootVerdictOf,
+	resumedState,
+} = require("./lib/refill-boot.js");
+const { readCurrentBootId, readProcStartOf } = require("./lib/arbiter-proc.js");
 const { REAL_PROC } = require("./lib/proc-root.js");
 const { sleepSync } = require("./lib/sleep-sync.js");
 const {
@@ -124,6 +130,7 @@ const {
 	withControlLock,
 	writeControlFile,
 	writeJson,
+	writeManagerRestart,
 } = require("./lib/refill-files.js");
 const refillBatch = require("./lib/refill-batch.js");
 const { buildHoldLines, readCheckout } = require("./lib/repo-holds.js");
@@ -428,8 +435,8 @@ const buildFetchFailedLine = (why) =>
 	`fetch failed, starting on the last fetched tip: ${why}`;
 
 /**
- * What a boot's user unit runs (lib/refill-boot.js): this process's stdout is
- * the journal, so its lines also go to the loop's log.
+ * What the user manager's boot unit runs (lib/refill-boot.js): this process's
+ * stdout is the journal, so its lines also go to the loop's log.
  */
 function bootResume() {
 	const note = (/** @type {string} */ line) => {
@@ -438,6 +445,11 @@ function bootResume() {
 		fs.mkdirSync(path.dirname(files.log), { recursive: true });
 		fs.appendFileSync(files.log, stamped);
 	};
+	const bootId = readCurrentBootId();
+	if (bootId === null)
+		note(
+			"boot resume: this boot's id will not read, so a manager restart reads as a boot (#3971)",
+		);
 	const { control, damaged } = readControlChecked(note);
 	const state = readStateFile(note);
 	const verdict = bootVerdictOf({
@@ -449,11 +461,15 @@ function bootResume() {
 	});
 	if (!verdict.resume) {
 		note(verdict.line);
+		if (verdict.tellLoop) {
+			writeManagerRestart(Date.now());
+			note(verdict.tellLoop);
+		}
 		return 0;
 	}
 	/* Before the launch, so a loop that dies ahead of its first tick leaves it;
 	 * and heldAt then says whether the new loop ever held the pidfile. */
-	writeJson(files.state, { ...state, bootedAt: Date.now(), heldAt: null });
+	writeJson(files.state, resumedState(state, bootId, Date.now()));
 	const launched = launchLoop();
 	if ("error" in launched) {
 		/* No new loop held it, so the last one's death still stands for `status`. */

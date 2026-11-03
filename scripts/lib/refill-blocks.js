@@ -1547,12 +1547,15 @@ const isBootKillCandidate = (l) =>
 
 /**
  * Whether `l`'s session was at work when a restart killed it: a candidate not
- * listed live and not ended on its own between the last tick and the restart.
+ * listed live, not ended on its own between the last tick and the restart, and not
+ * launched since it (#3971).
  * @param {LoopLaunch} l
  * @param {Tick} seen
+ * @param {number} bootedAt
  * @returns {l is JobLaunch}
  */
-function isBootKillable(l, { agents, io }) {
+function isBootKillable(l, { agents, io }, bootedAt) {
+	if (l.launchedAt > bootedAt) return false;
 	if (!isBootKillCandidate(l) || isLiveIn(l, agents)) return false;
 	const state = io.jobStateOf(l)?.state;
 	return typeof state !== "string" || !ENDED_JOB_STATES.has(state);
@@ -1565,12 +1568,13 @@ function isBootKillable(l, { agents, io }) {
  * it too.
  * @param {LoopLaunch[]} launches
  * @param {Tick} seen
+ * @param {number} bootedAt when `boot-resume` saw the restart
  * @returns {LoopLaunch[]}
  */
-function queueBootKilled(launches, seen) {
+function queueBootKilled(launches, seen, bootedAt) {
 	const { io } = seen;
 	return launches.map((l) => {
-		if (!isBootKillable(l, seen)) return l;
+		if (!isBootKillable(l, seen, bootedAt)) return l;
 		const { block: _, parked: __, ...rest } = l;
 		const { sessionId, cwd } = io.resumeTargetOf(l);
 		io.log(
