@@ -362,12 +362,16 @@ function readWorktrees() {
 			git(["rev-parse", "--show-toplevel"]).stdout.replace(/\n$/, ""),
 		);
 		const others = [];
-		for (const line of git(["worktree", "list", "--porcelain"]).stdout.split(
-			"\n",
-		))
-			if (line.startsWith("worktree ")) {
+		// `-z`: git prints a worktree's path raw, and a path can hold a newline (#4053).
+		for (const field of git([
+			"worktree",
+			"list",
+			"--porcelain",
+			"-z",
+		]).stdout.split("\0"))
+			if (field.startsWith("worktree ")) {
 				try {
-					const tree = fs.realpathSync(line.slice(9));
+					const tree = fs.realpathSync(field.slice(9));
 					if (tree !== root) others.push(tree);
 				} catch {
 					/* a worktree whose directory is gone holds no file to collide with */

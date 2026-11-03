@@ -1388,21 +1388,27 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 		expect(r.stderr).not.toContain("rm -f");
 	});
 
-	it("does not count a live git in a worktree nested inside this one, whose index is its own", async () => {
-		const nested = path.join(sb.repo, "nested");
-		git("worktree", "add", "-q", "-b", "side", nested);
-		const { done, release } = await holder(nested);
-		write("new.md");
-		fs.writeFileSync(lockFile(), "a crashed git's");
-		const r = runWith(["-m", "x", "--", "new.md"], ceiling(ShortCeilingMs));
-		release();
-		await done;
-		expect(r.status).toBe(1);
-		expect(r.stderr).toContain("no live git process in this worktree");
-		expect(r.stderr).toContain(
-			`rm -f ${shellQuote(fs.realpathSync(lockFile()))}`,
-		);
-	});
+	it.each([
+		["", "nested"],
+		[", its path holding a newline (#4053)", "nested\nwt"],
+	])(
+		"does not count a live git in a worktree nested inside this one, whose index is its own%s",
+		async (_, name) => {
+			const nested = path.join(sb.repo, name);
+			git("worktree", "add", "-q", "-b", "side", nested);
+			const { done, release } = await holder(nested);
+			write("new.md");
+			fs.writeFileSync(lockFile(), "a crashed git's");
+			const r = runWith(["-m", "x", "--", "new.md"], ceiling(ShortCeilingMs));
+			release();
+			await done;
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain("no live git process in this worktree");
+			expect(r.stderr).toContain(
+				`rm -f ${shellQuote(fs.realpathSync(lockFile()))}`,
+			);
+		},
+	);
 
 	it("passes a non-lock refusal of the intent-add through as exit 3, saying nothing was intent-added", () => {
 		write("new.md");
