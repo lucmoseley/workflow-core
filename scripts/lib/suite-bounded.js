@@ -205,10 +205,31 @@ const isVitestWatchLine = (line) =>
 function vitestLineWeigh(line, carried = null) {
 	if (isVitestWatchLine(line)) return WHOLE_RUN;
 	if (carried) return weighCarried(carried);
+	return weighFiles(lineTestFileCount(line));
+}
+
+/**
+ * The test files a vitest runner's line names; null where it names none.
+ * @param {string} line
+ */
+function lineTestFileCount(line) {
 	const words = line.trim().split(/\s+/);
 	let rest = words.slice(words.findIndex((w) => /[.]bin\/vitest$/.test(w)) + 1);
 	if (rest[0] === "run") rest = rest.slice(1);
-	return weighFiles(runnerTestFileCount(rest));
+	return runnerTestFileCount(rest);
+}
+
+/**
+ * The size a running vitest runner's line gives it, as a queue marker states
+ * its own: `part`, and `files` where a part-suite's count is known.
+ * @param {string} line
+ * @param {import("./suite-handoff.js").CarriedWeight | null} [carried]
+ * @returns {{ part: boolean, files?: number }}
+ */
+function vitestLineSize(line, carried = null) {
+	const { part } = vitestLineWeigh(line, carried);
+	const files = carried ? carried.resolvedFiles : lineTestFileCount(line);
+	return part && files !== null ? { part, files } : { part };
 }
 
 module.exports = {
@@ -223,4 +244,5 @@ module.exports = {
 	launchTestFileCount,
 	isVitestWatchLine,
 	vitestLineWeigh,
+	vitestLineSize,
 };

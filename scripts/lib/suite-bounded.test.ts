@@ -24,6 +24,7 @@ const {
 	WHOLE_SUITE_WORKERS,
 	resolvedFileCount,
 	runnerTestFileCount,
+	vitestLineSize,
 	vitestLineWeigh,
 	weighFiles,
 } = require("./suite-bounded.js") as {
@@ -34,6 +35,10 @@ const {
 		readSuite: () => string[] | null,
 	) => number | null;
 	runnerTestFileCount: (argv: string[]) => number | null;
+	vitestLineSize: (
+		line: string,
+		carried?: { resolvedFiles: number | null; wholeSlot: boolean } | null,
+	) => { part: boolean; files?: number };
 	vitestLineWeigh: (
 		line: string,
 		carried?: Weight | null,
@@ -103,6 +108,40 @@ describe("runnerTestFileCount, the files a launch is bounded to", () => {
 			expect(runnerTestFileCount(argv ? argv.split(" ") : [])).toBe(files);
 		},
 	);
+});
+
+describe("vitestLineSize, a running run's size as a marker states it (#3615)", () => {
+	const line = "node /r/node_modules/.bin/vitest run";
+	it.each([
+		["a whole run", line, null, { part: false }],
+		["a watcher", "node /r/node_modules/.bin/vitest", null, { part: false }],
+		[
+			"named files",
+			`${line} a.test.ts b.test.ts`,
+			null,
+			{ part: true, files: 2 },
+		],
+		[
+			"a carried count",
+			line,
+			{ resolvedFiles: 7, wholeSlot: false },
+			{ part: true, files: 7 },
+		],
+		[
+			"a carried part of no count",
+			line,
+			{ resolvedFiles: null, wholeSlot: false },
+			{ part: true },
+		],
+		[
+			"a carried whole slot",
+			line,
+			{ resolvedFiles: 200, wholeSlot: true },
+			{ part: false },
+		],
+	])("sizes %s as a marker would state it", (_name, l, carried, size) => {
+		expect(vitestLineSize(l, carried)).toEqual(size);
+	});
 });
 
 describe("vitestLineWeigh, the workers a running run can occupy (#2560)", () => {
