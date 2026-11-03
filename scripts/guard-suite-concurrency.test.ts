@@ -17,8 +17,8 @@
  *
  * The core judges PreToolUse Bash calls: break it and a second whole suite, or
  * a launch under the measured headroom, runs unrefused into the 10 GB cap that
- * earlyoom enforces by killing live sessions; make it throw and every launch
- * it judges is refused until the fault is fixed.
+ * earlyoom enforces by killing live sessions; make it throw and every call its
+ * row's `if` admits is refused until the fault is fixed.
  */
 
 import { spawn } from "node:child_process";

@@ -80,7 +80,7 @@ export function runCore(
 	};
 	const cores = loadedCores(event).filter((c) => c.name === name);
 	if (cores.length !== 1) throw new Error(`no ${event} core named ${name}`);
-	const judged = throwing
+	const running = throwing
 		? cores.map((c) => ({
 				...c,
 				decide: () => {
@@ -88,7 +88,7 @@ export function runCore(
 				},
 			}))
 		: cores;
-	const { output, latches } = dispatch(judged, {
+	const { output, latches } = dispatch(running, {
 		payload,
 		root,
 		adapters: {

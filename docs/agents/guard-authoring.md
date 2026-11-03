@@ -413,7 +413,8 @@ way. A timeout, a script that cannot start, invalid JSON or an exit other than
 0 or 2 then refuses the call with `hook error: … blocking because onFailure is
 "block"` (Claude Code 2.1.309, measured at #2670). Every other hook's
 cancellation still fails open, its output discarded. So a deny-capable guard
-ends every path it reaches itself through `scripts/lib/guard-entry.js`, which allows on a throw,
+ends every path it reaches itself through `scripts/lib/guard-entry.js`, which gives a throw the
+policy it declares (a core's `failure` in `scripts/lib/guard-cores.json`, an entry's `onThrow`),
 never on a stray non-zero status, which would refuse every call it matches.
 It still carries its own internal budget where it could be killed mid-verdict:
 a timeout refusal tells the model nothing about the act, while a budgeted

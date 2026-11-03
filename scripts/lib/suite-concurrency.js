@@ -110,7 +110,10 @@
  * the command itself.
  *
  * A THROW IS REFUSED, logged: its row fails closed, as a launch it could not
- * judge may run into the memory cap that kills live sessions (#4128).
+ * judge may run into the memory cap that kills live sessions (#4128). So a
+ * broken core refuses every call its `if` admits, launch or not: `node
+ * --version` and `node scripts/commit-paths.js` too. `git commit -- <paths>`
+ * stays open for the fix.
  */
 
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");

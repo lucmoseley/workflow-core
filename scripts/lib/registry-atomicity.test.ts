@@ -142,6 +142,18 @@ function add(rel: string, body: string): void {
 	git(repo, "add", "-N", "--", rel);
 }
 
+/** Run `body` with a caller directory the host's listing throws on. */
+function withUnlistableCallers(body: () => void): void {
+	const at = path.join(repo, ".github", "workflows");
+	fs.mkdirSync(at, { recursive: true });
+	fs.chmodSync(at, 0o000);
+	try {
+		body();
+	} finally {
+		fs.chmodSync(at, 0o755);
+	}
+}
+
 /** Edit a tracked file WITHOUT staging it, so only a pathspec naming it lands. */
 function edit(rel: string, body: string): void {
 	fs.writeFileSync(path.join(repo, rel), body);
@@ -393,16 +405,11 @@ describe("a new checker", () => {
 	it("throws, for its row to refuse, when a caller directory cannot be listed", () => {
 		add("scripts/check-new.js", "// new\n");
 		add("scripts/check-new.test.ts", "// covered\n");
-		const at = path.join(repo, ".github", "workflows");
-		fs.mkdirSync(at, { recursive: true });
-		fs.chmodSync(at, 0o000);
-		try {
+		withUnlistableCallers(() => {
 			expect(() =>
 				run(commit("scripts/check-new.js scripts/check-new.test.ts")),
 			).toThrow(/EACCES/);
-		} finally {
-			fs.chmodSync(at, 0o755);
-		}
+		});
 	});
 
 	it("is refused when the only file naming it is one git does not know and the commit leaves out", () => {
@@ -1676,10 +1683,7 @@ describe("its row fails closed (#4128)", () => {
 	it("refuses a commit the core throws on, naming the fault", () => {
 		add("scripts/check-new.js", "// new\n");
 		add("scripts/check-new.test.ts", "// covered\n");
-		const at = path.join(repo, ".github", "workflows");
-		fs.mkdirSync(at, { recursive: true });
-		fs.chmodSync(at, 0o000);
-		try {
+		withUnlistableCallers(() => {
 			const { output, logs } = judged(
 				commit("scripts/check-new.js scripts/check-new.test.ts"),
 			);
@@ -1688,20 +1692,13 @@ describe("its row fails closed (#4128)", () => {
 				/^guard-registry-atomicity could not judge this call, and it fails closed: .*EACCES/,
 			);
 			expect(logs).toEqual([expect.stringMatching(/^core threw — refused: /)]);
-		} finally {
-			fs.chmodSync(at, 0o755);
-		}
+		});
 	});
 
 	it("still allows a call it has no opinion on, beside that same unlistable directory", () => {
-		const at = path.join(repo, ".github", "workflows");
-		fs.mkdirSync(at, { recursive: true });
-		fs.chmodSync(at, 0o000);
-		try {
+		withUnlistableCallers(() => {
 			expect(judged("git status").output).toBeNull();
-		} finally {
-			fs.chmodSync(at, 0o755);
-		}
+		});
 	});
 });
 

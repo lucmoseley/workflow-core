@@ -12,6 +12,9 @@
  * The rule store is the real one, read through lib/rule-text.js. What the kit
  * makes of a verdict — the envelope, the latch files, the stand-down log on
  * disk, the env seams — is guard-suite-concurrency.test.ts's boundary set.
+ * The one exception is `its row fails closed`, which runs the real row of
+ * scripts/lib/guard-cores.json through the kit, as only the row gives a throw
+ * its policy.
  *
  * A verdict reads "deny" where the core refuses, "warn" where it hands the
  * session text of its own (the prelude), "allow" where it hands nothing. The
@@ -957,6 +960,7 @@ describe("carries the watcher limb across a compound command (mantahostels#1978)
 });
 
 describe("its row fails closed (#4128)", () => {
+	/** The row's run on `command`; with `throwing`, its `decide` throws that. */
 	const judged = (command: string, throwing?: string) => {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "suite-row-"));
 		try {
@@ -977,6 +981,12 @@ describe("its row fails closed (#4128)", () => {
 				"guard-suite-concurrency could not judge this call, and it fails closed: core broke",
 		});
 		expect(said).toEqual(["core threw — refused: core broke"]);
+	});
+
+	it("refuses the same throw on any call its `if` admits, launch or not", () => {
+		expect(
+			judged("node --version", "core broke").output?.permissionDecision,
+		).toBe("deny");
 	});
 
 	it("still allows a call it has no opinion on", () => {
