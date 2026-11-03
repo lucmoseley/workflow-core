@@ -1,11 +1,12 @@
 // @vitest-environment node
 /*
  * Pins how primitives-table.js reads a check's --json output into a breach
- * count (#4119). check-primitives.test.ts holds the program's boundary cases.
+ * count (#4119), and which base paths an adopter judges (#4156).
+ * check-primitives.test.ts holds the program's boundary cases.
  */
 
 import { describe, expect, it } from "vitest";
-import { parseBreaches } from "./primitives-table.js";
+import { parseBasePaths, parseBreaches } from "./primitives-table.js";
 
 const envelope = (fields: Record<string, unknown>) => JSON.stringify(fields);
 
@@ -46,5 +47,32 @@ describe("parseBreaches", () => {
 		expect(parseBreaches("null", 0)).toEqual({
 			unknown: "its envelope carries no findings array",
 		});
+	});
+});
+
+describe("parseBasePaths", () => {
+	const table = (rows: string) =>
+		`## Primitives\n\n| Job | Primitive | Exemplar | Rule | Enforcing check |\n|---|---|---|---|---|\n${rows}`;
+
+	it("names each Exemplar path and each program Enforcing check, by line, never the Primitive cell (#4156)", () => {
+		expect(
+			parseBasePaths(
+				table(
+					"| A | `scripts/p.js` | `scripts/a.js`, `scripts/b.sh` | §N1 | `scripts/check-a.js` |\n" +
+						"| B | `x` | `scripts/c.js` | §N1 | Standards axis criterion |\n",
+				),
+			),
+		).toEqual([
+			{ line: 5, rel: "scripts/a.js" },
+			{ line: 5, rel: "scripts/b.sh" },
+			{ line: 5, rel: "scripts/check-a.js" },
+			{ line: 6, rel: "scripts/c.js" },
+		]);
+	});
+
+	it("names none from a table it cannot read (#4156)", () => {
+		expect(
+			parseBasePaths("## Primitives\n\n| Job | Typo |\n|---|---|\n"),
+		).toEqual([]);
 	});
 });
