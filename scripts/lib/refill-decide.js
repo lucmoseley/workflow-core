@@ -195,8 +195,8 @@ const ALREADY_RUNNING = "already running";
 
 /**
  * A stopped session due back: its launch's job, seat and checkout, when it was
- * stopped, and its line for a stop to name. `keyVar`, the overflow seat it ran on.
- * @typedef {{jobId: string, seat: string, keyVar?: string, root: string, at: number,
+ * stopped, and its line for a stop to name.
+ * @typedef {{jobId: string, seat: string, root: string, at: number,
  *   line: string}} HeldResume
  */
 
@@ -632,14 +632,6 @@ const buildLimitCapHoldWhy = (limitParks) =>
 	isAtLimitCap(limitParks) ? `parked: ${buildLimitCapText(limitParks)}` : null;
 
 /**
- * Whether a session ran on the plan seat on `dir`, the only seat kind a tick
- * sizes. One with a key ran on an overflow seat, whatever dir it shares (#4147).
- * @param {{seat: string, keyVar?: string}} ran
- * @param {string} dir
- */
-const ranOnPlanSeat = ({ seat, keyVar }, dir) => !keyVar && seat === dir;
-
-/**
  * How a parked row's session goes back, from the tick's reading of its park
  * marker: resumed in place (#3621); held, a skip with why, where that
  * session's seat reads full, a bar at 100% or a cap sized 0 (#3669); else
@@ -655,15 +647,12 @@ const ranOnPlanSeat = ({ seat, keyVar }, dir) => !keyVar && seat === dir;
  * @returns {{resume: ResumeTarget} | {hold: string} | {afresh: string}}
  */
 function routeParkedSession(parker, seats) {
-	const { job } = parker;
-	if (!job)
+	if (!parker.job)
 		return { afresh: `its session ${parker.sessionId}'s marker names no job` };
-	if (job.keyVar)
-		return { afresh: `its session ran on overflow seat key=${job.keyVar}` };
-	const seat = seats.find((s) => ranOnPlanSeat(job, s.seat));
+	const seat = seats.find((s) => s.seat === parker.job?.seat);
 	if (!seat)
 		return {
-			afresh: `its session's seat ${job.seat} is not one the loop reads`,
+			afresh: `its session's seat ${parker.job.seat} is not one the loop reads`,
 		};
 	if (readsFull(seat))
 		return { hold: `parked: its session's seat ${seat.seat} is full` };
@@ -770,8 +759,7 @@ const spendSeatFit = (seats, seat) =>
  * slots being why the rest wait: a seat is sized for the slots alone, so one that
  * filled them reads 0 whatever room it has. Only the cap holds it, not a full bar
  * as a parked row: it was running on that seat, and a limit it meets there moves
- * it (#3735). A seat outside `seats` or unsized has no cap to charge, nor has an
- * overflow seat's session, on the dir a plan seat's cap is sized for or not.
+ * it (#3735). A seat outside `seats` or unsized has no cap to charge.
  * @param {TickInput} input
  * @param {number} slots
  */
@@ -785,13 +773,12 @@ function takeResumes({ resumable = [], holds, seats }, slots) {
 	for (const r of resumable.toSorted((a, b) => a.at - b.at)) {
 		if (resumes.length >= slots) break;
 		if (stopped.has(r.root)) continue;
-		const planSeat = seatsLeft.find((s) => ranOnPlanSeat(r, s.seat));
-		if (planSeat?.fits === 0) {
+		if (seatsLeft.find((s) => s.seat === r.seat)?.fits === 0) {
 			capHeld.push(r);
 			continue;
 		}
 		resumes.push(r);
-		if (planSeat) seatsLeft = spendSeatFit(seatsLeft, planSeat.seat);
+		seatsLeft = spendSeatFit(seatsLeft, r.seat);
 	}
 	return { resumes, capHeld, seatsLeft };
 }
@@ -1162,7 +1149,6 @@ function decideUnpaused(input) {
 }
 
 module.exports = {
-	ranOnPlanSeat,
 	EXPLICIT_STOP_DETAIL,
 	PROBE_HELD,
 	buildProbeHeldRoots,

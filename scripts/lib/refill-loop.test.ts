@@ -2612,15 +2612,6 @@ describe("sizeResumeSeats (#3895)", () => {
 		return { read, fits: out.map((s) => s.fits) };
 	};
 
-	it("sizes no plan seat for a resume due on an overflow seat on its dir (#4147)", () => {
-		expect(
-			size(
-				[reading("a", 3), reading("b", null)],
-				[{ ...due("b"), keyVar: "K2" }],
-			),
-		).toEqual({ read: [], fits: [3, null] });
-	});
-
 	it("sizes a seat behind the first that has a resume due", () => {
 		expect(size([reading("a", 3), reading("b", null)], [due("b")])).toEqual({
 			read: ["b/2"],
