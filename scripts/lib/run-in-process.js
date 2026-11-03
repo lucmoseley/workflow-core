@@ -23,7 +23,8 @@
  *   stdin    `options.stdin` is what fd 0 holds, read by `fs.readFileSync(0)`,
  *            or by `fs.readSync(0, …)` calls, which is how lib/read-fd.js takes
  *            a hook's JSON payload. It is spawnSync's `input` under
- *            another name. Only fd 0 and only those
+ *            another name, so with none given fd 0 reads empty, as a spawn's
+ *            closed pipe does. Only fd 0 and only those
  *            two: a script that reads stdin as a stream still wants a spawn.
  *   uptime   `process.uptime()` counts from the call's start, as a fresh
  *            node's does, so a clock started at the process's start
@@ -64,16 +65,14 @@
  *      two limits: a removal that throws is recorded on `restoreFailures`
  *      rather than retried, and a listener the SCRIPT removed from the
  *      worker's own set is not put back.
- *   5. A CLOSED STDIN. With no `stdin` given, a read of fd 0 reaches the
- *      worker's real one rather than the empty pipe a spawn supplied.
- *   6. A TIMER-FREE EXIT. `process.exit` abandons pending async work; here it
+ *   5. A TIMER-FREE EXIT. `process.exit` abandons pending async work; here it
  *      only unwinds the stack. A call that ends with no `process.exit`, and
  *      no throw node would have died of, and leaves a ref'd resource of its
  *      own open is refused, naming its type — that resource is what would
  *      keep a real process from exiting. The async form first gives its own
  *      resources SETTLE_MS to close. One that does end so still leaks what it
  *      left into the test process.
- *   7. A REAL FD FOR A GRANDCHILD. A script that spawns its own child with
+ *   6. A REAL FD FOR A GRANDCHILD. A script that spawns its own child with
  *      `stdio: "inherit"` on fd 1/2 (lib/check.js's `reread`, for one) hands
  *      that grandchild the real OS fd, which writes straight past the patches
  *      below — `state.stdout`/`state.stderr` never see it (mantahostels#1945).
@@ -698,37 +697,36 @@ function mutatePatches({ saved }, { script, args, options }, state) {
 		}
 	);
 
-	/* Only fd 0, and only when the caller supplied one: everything else has to
-	 * keep reading the real filesystem, the script's own fixture included.
+	/* Only fd 0: everything else has to keep reading the real filesystem, the
+	 * script's own fixture included. The worker's real fd 0 is never reached:
+	 * lib/read-fd.js would wait out its EAGAIN ceiling on an idle one.
 	 * The `any`s, as on writeSync's patch: neither function's overloads can be
 	 * assigned one arrow without a cast, and each argument is whatever the
 	 * script passes, handed on to the real function untouched off fd 0. */
-	if (options.stdin !== undefined) {
-		const stdin = Buffer.from(options.stdin);
-		/** @type {any} */ (fs).readFileSync = (
-			/** @type {fs.PathOrFileDescriptor} */ target,
-			/** @type {any} */ opts,
-		) => {
-			if (target !== 0) return saved.readFileSync(target, opts);
-			const encoding = typeof opts === "string" ? opts : opts?.encoding;
-			return encoding ? stdin.toString(encoding) : Buffer.from(stdin);
-		};
-		let consumed = 0;
-		/** @type {any} */ (fs).readSync = (
-			/** @type {number} */ target,
-			/** @type {Buffer} */ buffer,
-			/** @type {any[]} */ ...rest
-		) => {
-			if (target !== 0) return saved.readSync(target, buffer, ...rest);
-			const [offset = 0, length = buffer.length - offset] =
-				typeof rest[0] === "object" && rest[0] !== null
-					? [rest[0].offset, rest[0].length]
-					: rest;
-			const n = stdin.copy(buffer, offset, consumed, consumed + length);
-			consumed += n;
-			return n;
-		};
-	}
+	const stdin = Buffer.from(options.stdin ?? "");
+	/** @type {any} */ (fs).readFileSync = (
+		/** @type {fs.PathOrFileDescriptor} */ target,
+		/** @type {any} */ opts,
+	) => {
+		if (target !== 0) return saved.readFileSync(target, opts);
+		const encoding = typeof opts === "string" ? opts : opts?.encoding;
+		return encoding ? stdin.toString(encoding) : Buffer.from(stdin);
+	};
+	let consumed = 0;
+	/** @type {any} */ (fs).readSync = (
+		/** @type {number} */ target,
+		/** @type {Buffer} */ buffer,
+		/** @type {any[]} */ ...rest
+	) => {
+		if (target !== 0) return saved.readSync(target, buffer, ...rest);
+		const [offset = 0, length = buffer.length - offset] =
+			typeof rest[0] === "object" && rest[0] !== null
+				? [rest[0].offset, rest[0].length]
+				: rest;
+		const n = stdin.copy(buffer, offset, consumed, consumed + length);
+		consumed += n;
+		return n;
+	};
 
 	/* console is patched as well as the stream beneath it because the vitest
 	 * worker swaps in a console of its own that reports to the runner rather
