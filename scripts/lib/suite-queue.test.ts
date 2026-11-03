@@ -27,7 +27,7 @@ import { suiteRungMb, WHOLE_SUITE_WORKERS } from "./admission.js";
 import { mkScratchDir } from "./git-fixture";
 import { writePsStub } from "./ps-stub";
 import { runInProcess } from "./run-in-process.js";
-import { tscDenial } from "./tsc-slot";
+import { TSC_PEAK_MB, tscDenial } from "./tsc-slot";
 import { WHOLE_SLOT_BOUND } from "./whole-slot-bound";
 
 const {
@@ -1024,6 +1024,40 @@ describe("a suite and a `tsc` admitted on one poll (#3203)", () => {
 
 describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 	const alive = () => true;
+	/** A process table holding no runner: the machine's own are no fixture's. */
+	const noRunners = () => ({
+		ok: true as const,
+		rows: [{ pid: 1, args: "/sbin/init" }],
+	});
+	/** A suite's gate on a `tsc` climbing to 1,000 MB over three polls, the
+	 * third freeing 700 MB: MemAvailable reads 6,500 MB less what the `tsc` has
+	 * drawn, against a 5,000 MB rung, so a live reading alone admits at once. */
+	const climbingTsc = () => {
+		const polls = [
+			{ tsc: 300, freed: 0 },
+			{ tsc: 900, freed: 0 },
+			{ tsc: 1000, freed: 700 },
+		];
+		let poll = 0;
+		const at = () => polls[Math.min(poll, polls.length - 1)] ?? polls[0];
+		const live: number[] = [];
+		return {
+			live,
+			polled: () => poll,
+			treePssKb: () => at().tsc * 1024,
+			gateRead: (_c: string, _w: unknown, climbMb: number) => {
+				const mb = 6500 - at().tsc + at().freed;
+				live.push(mb);
+				return mb - climbMb < 5000
+					? { limb: "memory", mb, rungMb: 5000, climbMb }
+					: null;
+			},
+			sleepFn: () => {
+				poll++;
+				return Promise.resolve();
+			},
+		};
+	};
 	/** Sibling suite and type-check queues, as under the temp root. */
 	const queues = () => {
 		const root = qdir();
@@ -1048,6 +1082,7 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 		queueStamps("", {
 			queueDir,
 			alive: live,
+			ps: noRunners,
 			treePssKb: () => mb * 1024,
 		}).climbMb();
 
@@ -1111,6 +1146,7 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 				...queueStamps("", {
 					queueDir: tscDir,
 					alive,
+					ps: noRunners,
 					treePssKb: () => 500 * 1024,
 				}),
 				gate: (climbMb: number) => tscDenial([], 4000, climbMb),
@@ -1143,52 +1179,185 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 		spawnedIn(suiteDir, 11);
 		spawnedIn(tscDir, 22);
 		vi.stubEnv("TMPDIR", path.dirname(suiteDir));
-		expect(readQueuesClimbMb({ alive, treePssKb: () => 100 * 1024 })).toBe(
-			2148 + 1538,
-		);
+		expect(
+			readQueuesClimbMb({ alive, ps: noRunners, treePssKb: () => 100 * 1024 }),
+		).toBe(2148 + 1538);
 	});
 
-	/* MemAvailable reads 6,500 MB less what the `tsc` has drawn, against a
-	 * 5,000 MB rung, so a live reading alone admits the suite at once. */
 	it("holds a suite admitted just after a `tsc` spawns until that `tsc`'s remaining climb fits", async () => {
 		const { suiteDir, tscDir } = queues();
 		spawnedIn(tscDir, 22);
 		const suite = queueJoin({ queueDir: suiteDir, pid: 11, clock: () => 0 });
-		const polls = [
-			{ tsc: 300, freed: 0 },
-			{ tsc: 900, freed: 0 },
-			{ tsc: 1000, freed: 700 },
-		];
-		let poll = 0;
-		const at = () => polls[Math.min(poll, polls.length - 1)] ?? polls[0];
-		const live: number[] = [];
-		const read = (_c: string, _w: unknown, climbMb: number) => {
-			const mb = 6500 - at().tsc + at().freed;
-			live.push(mb);
-			return mb - climbMb < 5000
-				? { limb: "memory", mb, rungMb: 5000, climbMb }
-				: null;
-		};
+		const m = climbingTsc();
 		const outcome = await waitForGate({
-			gateRead: read,
+			gateRead: m.gateRead,
 			...queueStamps(suite, {
 				queueDir: suiteDir,
 				pid: 11,
 				alive,
-				treePssKb: () => at().tsc * 1024,
+				ps: noRunners,
+				treePssKb: m.treePssKb,
 			}),
-			sleepFn: () => {
-				poll++;
-				return Promise.resolve();
-			},
+			sleepFn: m.sleepFn,
 			out: { write: () => true },
 		});
 		expect(outcome).toBe("run");
-		expect(poll).toBe(2);
-		expect(live.slice(0, 2).every((mb) => mb >= 5000)).toBe(true);
+		expect(m.polled()).toBe(2);
+		expect(m.live.slice(0, 2).every((mb) => mb >= 5000)).toBe(true);
 		expect(fs.existsSync(path.join(tscDir, "wfc-suite-queue-22.json"))).toBe(
 			true,
 		);
+	});
+
+	describe("a launch in no queue, off `ps` (#3615)", () => {
+		const Tsc = "node /r/node_modules/.bin/tsc --noEmit";
+		const Vitest = "node /r/node_modules/.bin/vitest run";
+		const noCarried: (pid: number | null) => {
+			resolvedFiles: number | null;
+			wholeSlot: boolean;
+		} | null = () => null;
+		/** A process table of `pid: args`, with its parents. */
+		const machine = (
+			rows: Record<number, string>,
+			parents: Record<number, number> = {},
+		) => ({
+			alive: alive as (pid: number) => boolean,
+			ps: () => ({
+				ok: true as const,
+				rows: Object.entries(rows).map(([pid, args]) => ({
+					pid: Number(pid),
+					args,
+				})),
+			}),
+			parentOf: (pid: number) => parents[pid] ?? 0,
+			carriedOf: noCarried,
+			treePssKb: () => 400 * 1024,
+		});
+		const climbOn = (queueDir: string, m: ReturnType<typeof machine>) =>
+			queueStamps("", { queueDir, ...m }).climbMb();
+
+		it("holds a queued suite while a `tsc` the guard admitted is still climbing", async () => {
+			const { suiteDir } = queues();
+			const suite = queueJoin({ queueDir: suiteDir, pid: 11, clock: () => 0 });
+			const m = climbingTsc();
+			const outcome = await waitForGate({
+				gateRead: m.gateRead,
+				...queueStamps(suite, {
+					queueDir: suiteDir,
+					pid: 11,
+					...machine({ 22: Tsc }),
+					treePssKb: m.treePssKb,
+				}),
+				sleepFn: m.sleepFn,
+				out: { write: () => true },
+			});
+			expect(outcome).toBe("run");
+			expect(m.polled()).toBe(2);
+		});
+
+		it("charges a runner the real `ps` read lists at WFC_PS", () => {
+			const { suiteDir } = queues();
+			vi.stubEnv(
+				"WFC_PS",
+				writePsStub(path.dirname(suiteDir), [`22 ${Tsc}`, `23 sh -c ${Tsc}`]),
+			);
+			const { ps: _fake, ...real } = machine({});
+			expect(queueStamps("", { queueDir: suiteDir, ...real }).climbMb()).toBe(
+				TSC_PEAK_MB - 400,
+			);
+		});
+
+		it("names a sibling queue that will not read, its runners left unmarked", () => {
+			const { suiteDir } = queues();
+			const unread: string[] = [];
+			const refusing = {
+				...fs,
+				readdirSync: ((dir: string) => {
+					if (dir === suiteDir) throw new Error("EACCES");
+					return fs.readdirSync(dir);
+				}) as typeof fs.readdirSync,
+			};
+			const climb = queueStamps("", {
+				queueDir: suiteDir,
+				queueFs: refusing,
+				...machine({ 22: Tsc }),
+				onUnread: (dir: string) => unread.push(dir),
+			}).climbMb();
+			expect(climb).toBe(TSC_PEAK_MB - 400);
+			expect(unread).toEqual([suiteDir]);
+		});
+
+		it("charges each to the queue it would have waited in, the other queue's gate paying", () => {
+			const { suiteDir, tscDir } = queues();
+			const m = machine({ 22: Tsc, 33: Vitest });
+			expect(climbOn(suiteDir, m)).toBe(TSC_PEAK_MB - 400);
+			expect(climbOn(tscDir, m)).toBe(2248 - 400);
+			vi.stubEnv("TMPDIR", path.dirname(suiteDir));
+			expect(readQueuesClimbMb(m)).toBe(TSC_PEAK_MB - 400 + 2248 - 400);
+		});
+
+		it("charges a part-suite its own peak, off its words or its launch record", () => {
+			const { tscDir } = queues();
+			const named = `${Vitest} scripts/a.test.ts scripts/b.test.ts`;
+			expect(climbOn(tscDir, machine({ 33: named }))).toBe(
+				380 + 2 * 175 + 2 * 3 - 400,
+			);
+			expect(
+				climbOn(tscDir, {
+					...machine({ 33: Vitest }),
+					carriedOf: () => ({ resolvedFiles: 4, wholeSlot: false }),
+				}),
+			).toBe(380 + 4 * 175 + 4 * 3 - 400);
+		});
+
+		it("leaves out a runner under a live marker in either queue, charging it once", () => {
+			const { suiteDir, tscDir } = queues();
+			spawnedIn(tscDir, 40);
+			const inSlot = machine({ 22: Tsc }, { 22: 40 });
+			expect(climbOn(suiteDir, inSlot)).toBe(TSC_PEAK_MB - 400);
+			spawnedIn(suiteDir, 50);
+			const underSuite = machine({ 33: Tsc }, { 33: 50 });
+			expect(climbOn(tscDir, underSuite)).toBe(2248 - 400);
+		});
+
+		it("charges a runner whose marker's holder is dead", () => {
+			const { suiteDir, tscDir } = queues();
+			spawnedIn(tscDir, 40);
+			const m = machine({ 22: Tsc }, { 22: 40 });
+			expect(
+				climbOn(suiteDir, { ...m, alive: (pid: number) => pid !== 40 }),
+			).toBe(TSC_PEAK_MB - 400);
+		});
+
+		it("leaves out a runner under another runner, whose tree holds it", () => {
+			const { suiteDir } = queues();
+			const m = machine({ 33: Vitest, 22: Tsc }, { 22: 33 });
+			expect(climbOn(suiteDir, m)).toBe(0);
+		});
+
+		it("reads no shell line, waiter or `vitest list` as a runner", () => {
+			const { suiteDir, tscDir } = queues();
+			const m = machine({
+				1: `sh -c ${Vitest}`,
+				2: "node /r/scripts/queue-run.js --tsc -- /r/node_modules/.bin/tsc",
+				3: "node /r/node_modules/.bin/vitest list",
+			});
+			expect(climbOn(suiteDir, m)).toBe(0);
+			expect(climbOn(tscDir, m)).toBe(0);
+		});
+
+		it("charges none on a `ps` that will not run, naming it", () => {
+			const { suiteDir } = queues();
+			const unread: string[] = [];
+			const climb = queueStamps("", {
+				queueDir: suiteDir,
+				alive,
+				ps: () => ({ ok: false as const, error: "ps listed nothing" }),
+				onUnread: (dir: string) => unread.push(dir),
+			}).climbMb();
+			expect(climb).toBe(0);
+			expect(unread).toEqual(["ps"]);
+		});
 	});
 
 	it("names the charge apart from the reading when the rung refuses at the bound", async () => {

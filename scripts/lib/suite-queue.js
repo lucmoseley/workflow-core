@@ -15,7 +15,12 @@ const os = require("node:os");
 const path = require("node:path");
 
 const { caught } = require("./caught.js");
-const { WHOLE_SUITE_MAX } = require("./suite-ladder.js");
+const {
+	WHOLE_SUITE_MAX,
+	isVitestRunnerLine,
+	readCarriedWeightOf,
+	readPs,
+} = require("./suite-ladder.js");
 const { pidAlive } = require("./arbiter-proc.js");
 const {
 	FIELD,
@@ -25,8 +30,8 @@ const {
 } = require("./proc-stat.js");
 const { shellQuote } = require("./sh-quote.js");
 const { scriptPath } = require("./script-path.js");
-const { weighCarried } = require("./suite-bounded.js");
-const { TSC_PEAK_MB, TSC_QUEUE_NAME } = require("./tsc-slot.js");
+const { vitestLineSize, weighCarried } = require("./suite-bounded.js");
+const { TSC_PEAK_MB, TSC_QUEUE_NAME, isTscRunner } = require("./tsc-slot.js");
 
 /**
  * Which limb of the suite gate denied: its count cap, or its memory rung, with
@@ -42,7 +47,7 @@ const { TSC_PEAK_MB, TSC_QUEUE_NAME } = require("./tsc-slot.js");
  * and `climbMb`, the highest charge a poll was held on (`heldOnClimbMb`).
  * @typedef {{ limb?: HeldLimb, climbMb?: number }} WaitHold
  */
-/** @typedef {{ queueFs?: typeof fs, alive?: (pid: number) => boolean, treePssKb?: (pid: number) => number, onUnread?: (dir: string, error: unknown) => void }} ClimbOptions */
+/** @typedef {{ queueFs?: typeof fs, alive?: (pid: number) => boolean, treePssKb?: (pid: number) => number, onUnread?: (dir: string, error: unknown) => void, ps?: typeof readPs, parentOf?: (pid: number) => number, carriedOf?: typeof readCarriedWeightOf }} ClimbOptions */
 /** @typedef {{ pid: number, at: number, start?: number, role?: string, chargeMb?: number, part?: boolean, files?: number, admitted?: boolean, spawned?: boolean, memoryHeld?: boolean }} QueueRecord */
 /**
  * How a waiter's admission came out: `admitted`, or yielded to another launch
@@ -100,7 +105,7 @@ const PART_FILE_MB = 3;
  * file count, a run not counted at admission, takes its queue's.
  *
  * @param {string} name
- * @param {QueueRecord} record
+ * @param {Pick<QueueRecord, "part" | "files">} record
  * @returns {number}
  */
 function peakMbOf(name, record) {
@@ -174,6 +179,9 @@ function readPeerAdmissions(queueDir, { queueFs = fs, alive = pidAlive } = {}) {
  * its RSS, against peaks measured as RSS, so the charge errs high. A
  * directory that will not read charges none, handed to `onUnread`.
  *
+ * A launch holding no marker is charged the same way, read off `ps`
+ * (`readUnmarkedRunners`, #3615).
+ *
  * @param {string[]} queueDirs
  * @param {ClimbOptions} [options]
  * @returns {number}
@@ -185,20 +193,134 @@ function readClimbMb(
 		alive = pidAlive,
 		/* Required at the call: admission.js costs a hook ~65 ms to load. */
 		treePssKb = (pid) => require("./admission.js").readTreePssKb(pid),
-		onUnread = () => undefined,
+		onUnread = logClimbUnread,
+		ps = readPs,
+		parentOf = readParentOf,
+		carriedOf = readCarriedWeightOf,
 	} = {},
 ) {
+	/** @param {number} peakMb @param {number} pid */
+	const yetToDrawMb = (peakMb, pid) =>
+		Math.max(0, peakMb - Math.floor(treePssKb(pid) / 1024));
 	let mb = 0;
+	const unmarked = readUnmarkedRunners(queueDirs, {
+		queueFs,
+		alive,
+		onUnread,
+		ps,
+		parentOf,
+	});
 	for (const dir of queueDirs) {
 		const { markers, error } = readMarkers(dir, queueFs);
 		if (error) onUnread(dir, error);
 		for (const { record } of markers) {
 			if (record.spawned !== true || isMarkerStale(record, { alive })) continue;
-			const peakMb = peakMbOf(path.basename(dir), record);
-			mb += Math.max(0, peakMb - Math.floor(treePssKb(record.pid) / 1024));
+			mb += yetToDrawMb(peakMbOf(path.basename(dir), record), record.pid);
+		}
+		for (const row of unmarked) {
+			const runner = QUEUE_RUNNERS[path.basename(dir)];
+			if (!runner?.isRunner(row.args)) continue;
+			const peakMb = peakMbOf(
+				path.basename(dir),
+				runner.sizeOf(row, carriedOf),
+			);
+			mb += yetToDrawMb(peakMb, row.pid);
 		}
 	}
 	return mb;
+}
+
+/**
+ * A climb read that came up short, on the guard-error log.
+ * @param {string} what
+ * @param {unknown} error
+ */
+function logClimbUnread(what, error) {
+	require("./arbiter-core.js").logError(
+		"suite-queue.js",
+		error,
+		`${what} unreadable — its launches' climb charged none`,
+	);
+}
+
+/** @type {Record<string, { isRunner: (args: string) => boolean, sizeOf: (row: { pid: number, args: string }, carriedOf: typeof readCarriedWeightOf) => Pick<QueueRecord, "part" | "files"> }>} */
+const QUEUE_RUNNERS = {
+	[QUEUE_NAME]: {
+		isRunner: isVitestRunnerLine,
+		sizeOf: ({ pid, args }, carriedOf) => vitestLineSize(args, carriedOf(pid)),
+	},
+	[TSC_QUEUE_NAME]: { isRunner: isTscRunner, sizeOf: () => ({}) },
+};
+
+/**
+ * The running `tsc`s and vitest runs in no queue (#3615): a bare launch the
+ * guard admitted, or one it never judged, such as a `sh -c "…"`. A hook outlives
+ * no launch, so none can leave a marker, and `ps` is what shows them.
+ * `readClimbMb` charges each to the queue it would have waited in, so a queued
+ * suite pays for an unqueued `tsc`, and never for an unqueued suite, which its
+ * ladder rung already counts (`runningSuites`).
+ *
+ * A RUNNER UNDER A LIVE MARKER'S PID OR ANOTHER RUNNER IS LEFT OUT: the marker
+ * is charged already, and an outer runner's charge covers its tree. Markers
+ * are read from the temp root `queueDirs` sit in, so a launch queued under
+ * another `TMPDIR` reads as unmarked.
+ *
+ * FAILS OPEN, handed to `onUnread`: a `ps` that will not run charges none, and
+ * a queue directory that will not read leaves its launches' runners unmarked.
+ *
+ * Residual:
+ * - a launch is unseen from the guard's exit until its runner is on `ps`;
+ * - a `tsc` whose line `isTscRunner` misses, such as one with node flags before
+ *   its path, is charged nothing;
+ * - a `tsc` under an unqueued vitest is charged nothing at a queued suite's gate,
+ *   which does not charge that vitest;
+ * - an open watcher is charged a whole suite's rest for as long as it is open,
+ *   as its rung is (mantahostels#1927);
+ * - a `pytest`, a host's runner or a build is charged nothing, having no measured
+ *   peak.
+ *
+ * @param {string[]} queueDirs
+ * @param {Required<Pick<ClimbOptions, "queueFs" | "alive" | "onUnread" | "ps" | "parentOf">>} options
+ * @returns {{ pid: number, args: string }[]}
+ */
+function readUnmarkedRunners(
+	queueDirs,
+	{ queueFs, alive, onUnread, ps, parentOf },
+) {
+	const [firstDir] = queueDirs;
+	if (firstDir === undefined) return [];
+	const tempRoot = path.dirname(firstDir);
+	const listing = ps();
+	if (!listing.ok) {
+		onUnread("ps", listing.error);
+		return [];
+	}
+	const runners = listing.rows.flatMap(({ pid, args }) =>
+		pid !== null && Object.values(QUEUE_RUNNERS).some((q) => q.isRunner(args))
+			? [{ pid, args }]
+			: [],
+	);
+	if (runners.length === 0) return [];
+	const runnerPids = new Set(runners.map((r) => r.pid));
+	const markerPids = new Set(
+		ADMITTING_QUEUES.flatMap((name) => {
+			const dir = path.join(tempRoot, name);
+			const { markers, error } = readMarkers(dir, queueFs);
+			/* A directory in `queueDirs` is `readClimbMb`'s to report. */
+			if (error && !queueDirs.includes(dir)) onUnread(dir, error);
+			return markers
+				.map((m) => m.record)
+				.filter((r) => !isMarkerStale(r, { alive }))
+				.map((r) => r.pid);
+		}),
+	);
+	return runners.filter(
+		({ pid }) =>
+			!markerPids.has(pid) &&
+			!readAncestorsOf(pid, { parentOf }).some(
+				(a) => markerPids.has(a) || runnerPids.has(a),
+			),
+	);
 }
 
 /**

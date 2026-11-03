@@ -140,6 +140,15 @@ const WRAPPER_ARGV0 =
 const VITEST_RUNNER = /[.]bin\/vitest( |$)/;
 
 /**
+ * Whether a `ps` line is a vitest run's runner, one per run.
+ * @param {string} line
+ */
+const isVitestRunnerLine = (line) =>
+	VITEST_RUNNER.test(line) &&
+	!WRAPPER_ARGV0.test(line) &&
+	!VITEST_LIST.test(line);
+
+/**
  * @typedef {object} Running
  * @property {number} total the runs going
  * @property {number} watchers how many of them are vitest watchers
@@ -176,11 +185,7 @@ const VITEST_RUNNER = /[.]bin\/vitest( |$)/;
 function runningSuites(rows, isOther, carriedOf = () => null) {
 	const running = { total: 0, watchers: 0, whole: 0, workers: 0 };
 	for (const { pid, args: line } of rows) {
-		if (
-			VITEST_RUNNER.test(line) &&
-			!WRAPPER_ARGV0.test(line) &&
-			!VITEST_LIST.test(line)
-		) {
+		if (isVitestRunnerLine(line)) {
 			running.total++;
 			if (isVitestWatchLine(line)) running.watchers++;
 			const run = vitestLineWeigh(line, carriedOf(pid));
@@ -266,6 +271,7 @@ module.exports = {
 	SUITE_GATE_MB,
 	SUITE_LADDER_MEASURED_AT,
 	WRAPPER_ARGV0,
+	isVitestRunnerLine,
 	runningSuites,
 	readCarriedWeightOf,
 	readPs,
