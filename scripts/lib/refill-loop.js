@@ -396,6 +396,24 @@ function scopeRoots(scope, readExclusionWhy) {
 }
 
 /**
+ * `control` with each ticked root `isOptedOut` names unticked, so a return to
+ * the loop needs a fresh tick (#4188), and those roots; null where none is.
+ * @param {Control} control
+ * @param {(root: string) => boolean} isOptedOut
+ * @returns {{control: Control, dropped: string[]}|null}
+ */
+function controlWithoutOptedOut(control, isOptedOut) {
+	const { repos } = control.scope;
+	const dropped = repos.filter(isOptedOut);
+	if (dropped.length === 0) return null;
+	const kept = repos.filter((r) => !dropped.includes(r));
+	return {
+		control: { ...control, scope: { ...control.scope, repos: kept } },
+		dropped,
+	};
+}
+
+/**
  * The checkouts whose landing queue a tick supervises: `served`, then each
  * other root a recorded launch ran in (#3284). Finished launches count, since
  * a landing outlives its session. Residual: a foreign root drops out once its last launch ages out
@@ -1755,6 +1773,7 @@ module.exports = {
 	workingOf,
 	parseScope,
 	scopeRoots,
+	controlWithoutOptedOut,
 	landingRoots,
 	parseProbeOutcome,
 	overflowReadings,

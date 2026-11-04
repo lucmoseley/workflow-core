@@ -929,7 +929,12 @@ describe("planSet's resume with no process (#3861)", () => {
 		planSet(
 			{ control: { ...control, ...over }, damaged: null },
 			{ pause: false },
-			{ running, now: NowMs, readExclusionWhy: () => null },
+			{
+				running,
+				now: NowMs,
+				readExclusionWhy: () => null,
+				isOptedOut: () => false,
+			},
 		);
 
 	it.each([
@@ -957,6 +962,29 @@ describe("planSet's resume with no process (#3861)", () => {
 	});
 });
 
+describe("a set unticks a repo its owner opted out (#4188)", () => {
+	const control = {
+		noProgressFrom: 5,
+		stopRequested: false,
+		seats: ["/s"],
+		scope: normal(["/h/core", "/h/books"]),
+	};
+	const set = (ask: object) =>
+		planSet({ control, damaged: null }, ask, {
+			running: true,
+			now: 7,
+			readExclusionWhy: () => null,
+			isOptedOut: (r) => r === "/h/books",
+		});
+
+	it("drops it from the ticked set whatever the set asked, and says so", () => {
+		expect(set({ pause: true })).toMatchObject({
+			write: { scope: { repos: ["/h/core"] }, paused: { by: "founder" } },
+			lines: expect.arrayContaining(["unticked:  books (opted out)"]),
+		});
+	});
+});
+
 describe("the quiet bench route's setting and hold (#3852)", () => {
 	const control = {
 		noProgressFrom: 5,
@@ -973,6 +1001,7 @@ describe("the quiet bench route's setting and hold (#3852)", () => {
 			running: true,
 			now: 7,
 			readExclusionWhy: () => null,
+			isOptedOut: () => false,
 		}) as { write: Record<string, unknown> | null; lines: string[] };
 
 	it("turns the route off and on", () => {
@@ -1016,6 +1045,7 @@ describe("planStart (#3868)", () => {
 		stopped: null as { at: number; reason: string; detail: string } | null,
 		unlessStopped: true,
 		readExclusionWhy: () => null,
+		isOptedOut: (_root: string) => false,
 	};
 	const sound = (control: object | null = stored) =>
 		({ control, damaged: null }) as Parameters<typeof planStart>[0];
@@ -1063,6 +1093,12 @@ describe("planStart (#3868)", () => {
 				scope: { mode: "normal", repos: [root], goal: null },
 			},
 		});
+	});
+
+	it("unticks a stored repo its owner opted out while the loop was down (#4188)", () => {
+		expect(
+			plan(sound(), { unlessStopped: false, isOptedOut: () => true }),
+		).toMatchObject({ action: "start", write: { scope: { repos: [] } } });
 	});
 
 	it("takes the seat file's seats only where a plain start ends a stop with no process", () => {

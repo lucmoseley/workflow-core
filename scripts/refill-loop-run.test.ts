@@ -4257,6 +4257,37 @@ describe("a paused loop on the real tick (#3856)", () => {
 	});
 });
 
+describe("a ticked repo its owner opts out, on the real tick (#4188)", () => {
+	const controlFile = () => at(".refill-loop-control.json");
+	const readControl = () => JSON.parse(fs.readFileSync(controlFile(), "utf8"));
+	const writeConfig = (config: object) =>
+		fs.writeFileSync(
+			path.join(repo, ".claude", "workflow-core.json"),
+			JSON.stringify(config),
+		);
+
+	it("unticks it, logged, so opting back in serves it only once ticked again", async () => {
+		/* Paused, so the tick dispatches nothing and the run outlasts it. */
+		fs.writeFileSync(
+			controlFile(),
+			JSON.stringify({ ...readControl(), paused: { by: "founder", at: 7 } }),
+		);
+		writeConfig({ refillLoop: false });
+		const running = run(1);
+		await polled(
+			() => readControl().scope.repos.length === 0,
+			"no tick unticked the opted-out repo",
+		);
+		writeConfig({});
+		requestStop();
+		const r = await settled(running, "run past an opt-out");
+
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(`unticked: ${repo} (opted out)`);
+		expect(readControl().scope.repos).toEqual([]);
+	});
+});
+
 describe("away mode's return on the real tick (#3870)", () => {
 	const controlFile = () => at(".refill-loop-control.json");
 	const readControl = () => JSON.parse(fs.readFileSync(controlFile(), "utf8"));

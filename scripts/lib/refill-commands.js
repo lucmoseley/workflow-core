@@ -39,6 +39,7 @@ const {
 	buildSeatText,
 	buildSkipText,
 	controlInMode,
+	controlWithoutOptedOut,
 	scopeRoots,
 	handedOffSince,
 	withAbsentRead,
@@ -92,8 +93,10 @@ const NOT_RUNNING = buildNotice(
  *   tick?: string[], untick?: string[], goal?: GoalAsk|null,
  *   quietBench?: boolean}} SetAsk
  * @typedef {{running: boolean, now: number,
- *   readExclusionWhy: (root: string) => string|null}} SetContext
- *   `readExclusionWhy`, why the loop does not serve a root, null where it does
+ *   readExclusionWhy: (root: string) => string|null,
+ *   isOptedOut: (root: string) => boolean}} SetContext
+ *   `readExclusionWhy`, why the loop does not serve a root, null where it does;
+ *   `isOptedOut`, whether its owner opted it out
  * @typedef {{write: Control|null, lines: string[]}} SetChange
  * @typedef {{write: Control|null, control: Control,
  *   action: "running"|"start"|"stopped", lines: string[]}} StartPlan
@@ -101,7 +104,8 @@ const NOT_RUNNING = buildNotice(
  * @typedef {{pid: number|null, now: number, root: string, seats: string[],
  *   seatErrors: string[], stopped: LoopState["stopped"],
  *   unlessStopped: boolean,
- *   readExclusionWhy: SetContext["readExclusionWhy"]}} StartContext `seats` and
+ *   readExclusionWhy: SetContext["readExclusionWhy"],
+ *   isOptedOut: SetContext["isOptedOut"]}} StartContext `seats` and
  *   `seatErrors`, the seat file's; `stopped`, the state file's
  * @typedef {SetChange & {startFrom: Control|null, warning: Notice|null}} SetPlan
  *   `startFrom`, the control a process starts from, where a resume found none
@@ -189,6 +193,9 @@ function changeFields(control, ask, context) {
 		...(quietBench === undefined
 			? []
 			: [(/** @type {Control} */ c) => buildQuietBenchChange(c, quietBench)]),
+		/* On every set, not only one naming repos, so no write keeps an opted-out
+		 * tick for a later opt-in to serve unticked (#4188). */
+		(/** @type {Control} */ c) => buildOptOutChange(c, context.isOptedOut),
 	];
 	let current = control;
 	/** @type {Control|null} */
@@ -286,7 +293,8 @@ function readStandingStop(control, { pid, stopped, unlessStopped }) {
  */
 function planStart(read, ask, context) {
 	const { control, damaged } = read;
-	const { pid, now, root, seats, unlessStopped, readExclusionWhy } = context;
+	const { pid, now, root, seats, unlessStopped, readExclusionWhy, isOptedOut } =
+		context;
 	const refusal = buildStartRefusal(read, context);
 	if (refusal !== null) return refusal;
 	const stored = control ?? buildFreshControl(root, seats, now);
@@ -294,6 +302,7 @@ function planStart(read, ask, context) {
 		running: pid !== null,
 		now,
 		readExclusionWhy,
+		isOptedOut,
 	});
 	if ("refused" in changed) return { ...changed, exitCode: 1 };
 	const current = changed.write ?? stored;
@@ -492,6 +501,21 @@ function buildReposChange(control, ask) {
 	return {
 		write: { ...control, scope: { ...control.scope, repos: after } },
 		lines: [`repos:     ${buildRepoNames(after)}`],
+	};
+}
+
+/**
+ * Each ticked repo its owner has opted out unticked, as the tick does (#4188).
+ * @param {Control} control
+ * @param {SetContext["isOptedOut"]} isOptedOut
+ * @returns {SetChange}
+ */
+function buildOptOutChange(control, isOptedOut) {
+	const change = controlWithoutOptedOut(control, isOptedOut);
+	if (change === null) return { write: null, lines: [] };
+	return {
+		write: change.control,
+		lines: [`unticked:  ${buildRepoNames(change.dropped)} (opted out)`],
 	};
 }
 
