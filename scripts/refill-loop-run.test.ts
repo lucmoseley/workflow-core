@@ -2620,8 +2620,9 @@ describe("a session held on its seat's limit (#3735)", () => {
 			expect(r.stdout).toContain("first overflow launch on");
 		});
 
-		it("stops the copy and puts it back held on its plan seat where its ledger row will not write", async () => {
+		it("stops the copy and puts it back held on its plan seat, its claims kept, where its ledger row will not write", async () => {
 			seedOverflow();
+			arbiterAs("s-job7", "claim-issue", "7");
 			fs.mkdirSync(path.dirname(ledgerPath(repo)), { recursive: true });
 			fs.appendFileSync(ledgerPath(repo), "");
 			fs.chmodSync(ledgerPath(repo), 0o444);
@@ -2638,6 +2639,9 @@ describe("a session held on its seat's limit (#3735)", () => {
 			expect(`${r.stdout}${r.stderr}`).toContain(
 				"not recorded in the dispatch ledger",
 			);
+			const claims = arbiterAs("s-job7", "issue-claims");
+			expect(claims).toContain("s-job7");
+			expect(claims).not.toContain("s-copy");
 		});
 
 		it("holds it, moving nothing, while the plan seat reads under its week", async () => {

@@ -1040,8 +1040,10 @@ function settleWoken(l, { jobId, sessionId, cwd, after }, allowanceUsd) {
 }
 
 /**
- * Hand copy `copy` of session `from` what the session held: its issue claims,
- * pass markers, park marker and, on an overflow seat, its ledger mark.
+ * Hand copy `copy` of session `from` what the session held: on an overflow
+ * seat its ledger mark, then its issue claims, pass markers and park marker.
+ * The mark comes first, so a move's copy that will not record, and is
+ * stopped, takes nothing from the session it leaves held.
  * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"issues"|"seat"|"keyVar">} l
  * @param {string} from
  * @param {{jobId: string, sessionId: string|null, cwd: string}} copy
@@ -1052,6 +1054,13 @@ function settleWoken(l, { jobId, sessionId, cwd, after }, allowanceUsd) {
  */
 function settleCopy(l, from, copy, allowanceUsd) {
 	const { jobId, sessionId } = copy;
+	const unrecorded = recordOnKey(
+		l,
+		from,
+		{ jobId, sessionId },
+		{ copy: true, cwd: copy.cwd, allowanceUsd },
+	);
+	if (unrecorded) return { failed: unrecorded };
 	if (sessionId) {
 		moveClaims(l, from, sessionId);
 		movePasses(l, from, sessionId);
@@ -1060,13 +1069,6 @@ function settleCopy(l, from, copy, allowanceUsd) {
 			`no session id read for copy ${jobId}: its issue claims and pass markers not moved`,
 		);
 	moveParked(l, from, copy);
-	const unrecorded = recordOnKey(
-		l,
-		from,
-		{ jobId, sessionId },
-		{ copy: true, cwd: copy.cwd, allowanceUsd },
-	);
-	if (unrecorded) return { failed: unrecorded };
 	return { failed: null, jobId, sessionId, copy: true };
 }
 
