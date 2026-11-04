@@ -1009,6 +1009,12 @@ describe("the manifest", () => {
 			["inject-founder-wording", "Skill", "open", "function"],
 			["guard-tracker-rules", "Bash", "open", "function"],
 			["guard-branch-publish", "Bash", "closed", "function"],
+			[
+				"guard-main-checkout-write",
+				"Bash|Write|Edit|NotebookEdit",
+				"closed",
+				"function",
+			],
 			["guard-branch", "Bash", "closed", "function"],
 			["guard-commit-form", "Bash", "closed", "function"],
 			["guard-registry-atomicity", "Bash", "closed", "function"],
