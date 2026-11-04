@@ -189,6 +189,19 @@ const GUARD_PROBE_TIMEOUT_MS = 10_000;
 /* Untraced: long enough for a write in progress to land. */
 const GUARD_PROBE_RETRY_MS = 2000;
 
+/**
+ * The wait, ms, before the guard-load probe's re-run: `WFC_GUARD_PROBE_RETRY_MS`,
+ * which a sandboxed tick sets to 0 (#4282), else GUARD_PROBE_RETRY_MS. Unset,
+ * empty, negative or unreadable is the default, as a NaN would never wake
+ * sleepSync.
+ */
+function guardProbeRetryMs() {
+	const ms = Number(
+		process.env.WFC_GUARD_PROBE_RETRY_MS || GUARD_PROBE_RETRY_MS,
+	);
+	return Number.isNaN(ms) || ms < 0 ? GUARD_PROBE_RETRY_MS : ms;
+}
+
 /* The probe's own, so it leaves no latch on a real session. */
 const GUARD_PROBE_SESSION = "refill-loop-guard-probe";
 
@@ -877,7 +890,7 @@ function readHookOutput(stdout) {
 function readGuardLoadFailure(root) {
 	if (!fs.existsSync(path.join(root, "self-plugin"))) return null;
 	if (readGuardRunFailure(root) === null) return null;
-	sleepSync(GUARD_PROBE_RETRY_MS);
+	sleepSync(guardProbeRetryMs());
 	const failure = readGuardRunFailure(root);
 	return failure === null
 		? null
