@@ -34,6 +34,8 @@ beforeEach(() => {
 	main = path.join(tmp, "main");
 	worktree = path.join(tmp, "wt");
 	git(tmp, "init", "-q", "-b", "main", main);
+	git(main, "config", "user.email", "t@t");
+	git(main, "config", "user.name", "t");
 	git(main, "commit", "-q", "--allow-empty", "-m", "seed");
 	git(main, "worktree", "add", "-q", "--detach", worktree);
 });
