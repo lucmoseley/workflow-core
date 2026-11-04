@@ -49,6 +49,9 @@ const { corpusDirs } = require("./project-dirs.js");
 const { coreRoot } = require("./script-path.js");
 const { readRunningHooks } = require("./core-hooks.js");
 
+/* The wrapper a pinned guard entry runs through (scripts/run-pinned-guards.js). */
+const SHIM = "scripts/run-pinned-guards.js";
+
 /** Attachment types the harness writes when a hook produces output. */
 const HOOK_ATTACHMENTS = new Set([
 	"hook_success",
@@ -104,14 +107,17 @@ function argWords(args) {
  * (mantahostels#2059) moves it there, so a key read off `command` alone collapses two
  * registrations of one script onto one and merges their tallies (mantahostels#2106).
  *
+ * THE GUARD SHIM IS NO GUARD: a hook running an entry through
+ * scripts/run-pinned-guards.js (#4227) keys on the entry it runs.
+ *
  * @param {string} command
  * @param {string[] | string} [args] the entry's `args`, where it is in exec form
  * @returns {string} the key, or "" where no script path can be found
  */
 function guardKey(command, args) {
 	const words = [...String(command || "").split(/\s+/), ...argWords(args)];
-	const at = words.findIndex((w) =>
-		/scripts\/[\w.-]+$/.test(w.replace(/"/g, "")),
+	const at = words.findIndex(
+		(w) => /scripts\/[\w.-]+$/.test(w.replace(/"/g, "")) && !w.endsWith(SHIM),
 	);
 	const word = words[at];
 	if (word === undefined) return "";
