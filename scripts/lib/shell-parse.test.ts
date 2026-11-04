@@ -202,6 +202,11 @@ describe("literal (mantahostels#284)", () => {
 		});
 	});
 
+	it("drops a backslash-newline, bare or in a double-quoted span, as bash does (#3518)", () => {
+		expect(literal("a\\\nb", []).text).toBe("ab");
+		expect(literal(`${QUOTED}0\x01`, ['"a\\\nb']).text).toBe("ab");
+	});
+
 	it("reports a sentinel naming a span that was never recorded", () => {
 		expect(literal(`x${QUOTED}9\x01`, []).known).toBe(false);
 	});
