@@ -1,7 +1,5 @@
-const { scriptPath } = require("./script-path.js");
-
-/**
- * Why each registered checker is in the notice, and what a red there costs the
+/*
+ * shared-fault-costs.js — why each registered checker is in the notice, and what a red there costs the
  * OTHER sessions (mantahostels#1750).
  *
  * `full` is the command that shows the reader MORE than the notice already
@@ -12,9 +10,11 @@ const { scriptPath } = require("./script-path.js");
  * cost line for every profile, so registering a checker for the diff and
  * registering it for the notice are one act. A row no profile names is
  * harmless and goes unchecked.
- *
- * @type {Record<string, { why: string, cost: string, full: string }>}
  */
+
+const { scriptPath } = require("./script-path.js");
+
+/** @type {Record<string, { why: string, cost: string, full: string }>} */
 const COSTS = {
 	"guard-registry": {
 		why: "whole-repo, direction-gated in .husky/pre-commit (mantahostels#1801)",

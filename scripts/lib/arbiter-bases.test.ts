@@ -234,9 +234,23 @@ describe("the session-start base, a fallback for every other path (#110)", () =>
 
 	it("records the HEAD of the payload's worktree, not the main checkout's (#4243)", () => {
 		const wt = cutWorktree(sb.repo);
-		execFileSync("git", ["commit", "-q", "--allow-empty", "-m", "on wt"], {
-			cwd: wt,
-		});
+		execFileSync(
+			"git",
+			[
+				"-c",
+				"user.email=t@t",
+				"-c",
+				"user.name=t",
+				"commit",
+				"-q",
+				"--allow-empty",
+				"-m",
+				"on wt",
+			],
+			{
+				cwd: wt,
+			},
+		);
 		const head = execFileSync("git", ["rev-parse", "HEAD"], {
 			cwd: wt,
 			encoding: "utf8",
