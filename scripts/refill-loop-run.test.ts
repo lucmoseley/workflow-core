@@ -137,6 +137,7 @@ const loopEnv = (over: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({
 	WFC_CLAUDE_BIN: at("claude"),
 	WFC_PRESENCE_MARKER: at("no-presence"),
 	WFC_DISPATCH_STAGGER_SECONDS: "0",
+	WFC_GUARD_PROBE_RETRY_MS: "0",
 	GITHUB_ACTIONS: "",
 	...over,
 });
@@ -162,13 +163,9 @@ const readGhActs = () =>
 const stub = (name: string, body: string) =>
 	fs.writeFileSync(path.join(scripts, name), body);
 
-beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "refill-loop-run-"));
-	/* The swap hold off, so no run reads the machine's own memory (#3093). */
-	fs.writeFileSync(at("meminfo"), MEMINFO_NO_HOLD);
-	scripts = at("code/scripts");
-	fs.mkdirSync(path.join(scripts, "lib"), { recursive: true });
-	for (const f of [
+/* Once per file, not per case: the closure walk is the cost (#4282). */
+const SANDBOX_FILES = [
+	...new Set([
 		"refill-loop.js",
 		...readProgramLibs("refill-loop.js").map((l) => `lib/${l}`),
 		/* Spawned by path, not required: lib/agent-liveness.js runs the listing
@@ -179,7 +176,16 @@ beforeEach(() => {
 		/* Spawned by path: a copy's issue claims moved (#2963). */
 		"session-arbiter.js",
 		...readProgramLibs("session-arbiter.js").map((l) => `lib/${l}`),
-	])
+	]),
+];
+
+beforeEach(() => {
+	dir = fs.mkdtempSync(path.join(os.tmpdir(), "refill-loop-run-"));
+	/* The swap hold off, so no run reads the machine's own memory (#3093). */
+	fs.writeFileSync(at("meminfo"), MEMINFO_NO_HOLD);
+	scripts = at("code/scripts");
+	fs.mkdirSync(path.join(scripts, "lib"), { recursive: true });
+	for (const f of SANDBOX_FILES)
 		fs.copyFileSync(path.join(__dirname, f), path.join(scripts, f));
 
 	repo = at("repo");
