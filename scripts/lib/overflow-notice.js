@@ -1,8 +1,8 @@
 /*
  * overflow-notice.js — the refill loop's record of the plan seats an overflow
- * launch or a move onto a key rested on, and the lines naming them (#3767). A seat absent from the
- * seat file is legitimate, so the overflow trigger cannot refuse one: these
- * lines are how a seat dropped by mistake is seen.
+ * launch or a move onto a key rested on, and the lines naming them (#3767). A
+ * seat absent from the seat file is legitimate, so the overflow trigger cannot
+ * refuse one: these lines are how a seat dropped by mistake is seen.
  */
 
 const { describeAge } = require("./proc-table.js");
@@ -33,7 +33,7 @@ const planSeatBasisOf = ({ seat, weekRead, weekFull }) => ({
 
 /**
  * Whether `l` runs on an overflow seat: launched on one, or moved onto its key
- * (#3736), which keeps the session's own reason.
+ * (#3736).
  * @param {Omit<StartedLaunch, "launchedAt">|undefined} l
  */
 const isOnKey = (l) => l?.reason === "overflow" || l?.keyVar !== undefined;
@@ -45,11 +45,9 @@ const startedAt = (l) => Math.max(l.launchedAt, l.relaunchedAt ?? 0);
 /**
  * The first of `launches` to start on an overflow seat after `since` whose
  * predecessor, the session started just before it, was on a plan seat, or
- * null. Ordering by start time counts a move onto a key (#4257), which keeps
- * its launch's place in the state, when it was made; dating it after `since`
- * catches one a kill kept out of an earlier tick's record.
+ * null.
  * @template {StartedLaunch} L
- * @param {L[]} launches the state's, oldest first, then the tick's own
+ * @param {L[]} launches the state's and the tick's own
  * @param {number} since the last overflow start recorded
  * @returns {L|null}
  */
