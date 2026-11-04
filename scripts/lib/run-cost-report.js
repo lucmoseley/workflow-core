@@ -12,13 +12,22 @@
  * where `<timings.json>` maps each test file the run timed, repo-relative or
  * absolute, to its seconds.
  *
+ * AN EXISTING FILE IS JUDGED ON ITS GROWTH (#4289): against its row in the CI
+ * per-file record (`RECORD`) as committed at the base, so a change that
+ * refreshes the record never excuses itself. Past `GROWTH_BAND` times that row
+ * it is named as grown; within it, it is excepted, and the line names the open
+ * ticket for its speed-up or says none is open.
+ *
+ * UNDER `CI` IT JUDGES EVERY TIMED FILE THE RECORD HOLDS, not the diff's
+ * files alone, and prints only the grown ones and its summary: there the run
+ * and the record are the same kind of machine, and growth from any change
+ * since the record shows. It looks up no ticket there.
+ *
  * IT NEVER REFUSES (mantahostels#2255). Timings move with load, so a line here is
  * evidence for base §X8 (5), never a verdict: any failure inside prints one
  * fail-open line and the suite's own verdict stands, and the program exits 0 on
  * every path, malformed input included (§N5). Not a `report-*` program, which
  * files an issue: it joins no family (§N3).
- *
- * SILENT UNDER `CI` (#1797).
  */
 
 const fs = require("node:fs");
@@ -27,12 +36,23 @@ const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { readDefaultChangedBase } = require("./changed-selection.js");
 const { gitRead, readUntrackedFiles } = require("./dirty-tree.js");
+const { ghJson, parseErrLine } = require("./gh.js");
 const { hostRoot } = require("./host-root.js");
 const { scriptPath } = require("./script-path.js");
+const { escapeRe } = require("./shell-words.js");
+const { CI_RECORD: RECORD, parseCsv } = require("./suite-timings.js");
 const { writeFd } = require("./write-fd.js");
 
 /* 10 s of a file's own wall time: the founder's ruling at #1797 Q4 (A). */
 const BUDGET_SECONDS = 10;
+
+/* 2.5x: the p90 slowest/fastest spread across CI sweeps (#4283), so growth
+ * past it is not run-to-run noise. */
+const GROWTH_BAND = 2.5;
+
+/* A guess, never measured: a tracker slower than this costs the line its
+ * ticket, which then reads unknown, never the run its end. */
+const TICKET_TIMEOUT_MS = 20_000;
 
 /** Every line opens with this. */
 const PREFIX = "RUN COST:";
@@ -50,10 +70,29 @@ const GB = 1024 ** 3;
  * @property {number|null} availableBytes available memory, null where unknown
  * @property {"seconds"|"worker-seconds"} [unit] worker-seconds for pytest,
  *   whose per-file figure is summed across xdist workers (#1797)
+ * @property {CiRecord|null} record the CI record at `base`, null where absent
+ * @property {boolean} ci judging under `CI`: grown files and the summary only
+ * @property {TicketFinder} findTicket the open tickets naming a file: a seam
+ *   beside `WFC_GH`, so the in-process cases spawn no gh
+ */
+
+/**
+ * @typedef {{ run: string, sha: string, seconds: Map<string, number> }} CiRecord
+ * @typedef {(file: string) => { tickets: { number: number, title: string }[] } | { failed: string }} TicketFinder
  */
 
 /** @param {number} n */
 const fixed1 = (n) => (Math.round(n * 10) / 10).toFixed(1);
+
+/**
+ * @param {ReturnType<TicketFinder>} found
+ */
+function ticketText(found) {
+	if ("failed" in found)
+		return `unknown: the open-ticket lookup failed (${found.failed})`;
+	if (found.tickets.length === 0) return "none: no open issue's title names it";
+	return found.tickets.map((t) => `#${t.number} (${t.title})`).join(", ");
+}
 
 /** @param {ReportInput} input */
 function linesFor({
@@ -63,30 +102,56 @@ function linesFor({
 	load,
 	availableBytes,
 	unit = "seconds",
+	record,
+	ci,
+	findTicket,
 }) {
 	/* A file the run selected only as a reader of the diff is not in `changed`,
 	 * so it is never named. */
 	const timed = changed.flatMap(({ file, atBase }) => {
 		const seconds = timings[file];
-		return seconds === undefined ? [] : [{ file, atBase, seconds }];
+		if (seconds === undefined) return [];
+		const recorded = atBase ? record?.seconds.get(file) : undefined;
+		const grown =
+			recorded !== undefined &&
+			seconds > BUDGET_SECONDS &&
+			seconds > GROWTH_BAND * recorded;
+		return [{ file, atBase, seconds, recorded, grown }];
 	});
 	if (timed.length === 0) return [];
 	const label = unit === "worker-seconds" ? "worker-seconds" : "s";
 	const over = timed
-		.filter(({ seconds }) => seconds > BUDGET_SECONDS)
+		.filter(({ seconds, grown }) => seconds > BUDGET_SECONDS && (grown || !ci))
 		.sort((a, b) => b.seconds - a.seconds);
-	const lines = over.map(({ file, atBase, seconds }) =>
-		atBase
-			? `${PREFIX} ${file} took ${fixed1(seconds)} ${label}, over the ${BUDGET_SECONDS} s budget — pre-existing at ${base}, so base §X8 (5) excepts it and its speed-up is its own ticket.`
-			: `${PREFIX} ${file} took ${fixed1(seconds)} ${label}, over the ${BUDGET_SECONDS} s budget — new since ${base}: make it cheaper, or say why in its header (base §X8 (5)).`,
-	);
+	const ciRun = record
+		? `CI run ${record.run} at ${record.sha.slice(0, 12)}`
+		: "";
+	const lines = over.map(({ file, atBase, seconds, recorded, grown }) => {
+		const took = `${PREFIX} ${file} took ${fixed1(seconds)} ${label}`;
+		if (!atBase)
+			return `${took}, over the ${BUDGET_SECONDS} s budget — new since ${base}: make it cheaper, or say why in its header (base §X8 (5)).`;
+		if (grown && recorded !== undefined)
+			return `${took}, ${(seconds / recorded).toFixed(2)}x its ${fixed1(recorded)} s on ${ciRun} — grown past the ${GROWTH_BAND}x noise band: make it cheaper, or say why in its header (base §X8 (5)).`;
+		const judged =
+			recorded === undefined
+				? `unjudged, ${RECORD} holding no row for it there`
+				: `within ${GROWTH_BAND}x of its ${fixed1(recorded)} s on ${ciRun}, so base §X8 (5) excepts it`;
+		return `${took}, over the ${BUDGET_SECONDS} s budget — pre-existing at ${base}, ${judged}; its speed-up's open ticket: ${ticketText(findTicket(file))}.`;
+	});
+	const grownCount = timed.filter((t) => t.grown).length;
+	const unjudged = timed.filter(
+		(t) => t.atBase && t.recorded === undefined,
+	).length;
 	const loadText = load === null ? "load unknown" : `load ${load.toFixed(2)}`;
 	const memText =
 		availableBytes === null
 			? "available memory unknown"
 			: `${fixed1(availableBytes / GB)} GB available`;
+	const judgedText = ci
+		? `${grownCount} of ${timed.length} test file(s) in ${RECORD} grown past ${GROWTH_BAND}x their ${ciRun}, against ${base}`
+		: `${over.length} of ${timed.length} new or changed test file(s) over the ${BUDGET_SECONDS} s budget, ${grownCount} grown past ${GROWTH_BAND}x their CI record and ${unjudged} pre-existing without one, against ${base}`;
 	lines.push(
-		`${PREFIX} ${over.length} of ${timed.length} new or changed test file(s) over the ${BUDGET_SECONDS} s budget against ${base}; ${loadText} (1 min), ${memText}. A report, never a refusal (mantahostels#2255).`,
+		`${PREFIX} ${judgedText}; ${loadText} (1 min), ${memText}. A report, never a refusal (mantahostels#2255).`,
 	);
 	return lines;
 }
@@ -121,6 +186,59 @@ function readChangedAgainst(root, base, files) {
 	const atBase = new Set(present.split("\0"));
 	return candidates.map((file) => ({ file, atBase: atBase.has(file) }));
 }
+
+/**
+ * The CI record as committed at `base`, or null where `base` holds none.
+ * @param {string} root
+ * @param {string} base
+ * @returns {CiRecord|null}
+ */
+function readRecordAt(root, base) {
+	const text = gitRead(["show", `${base}:${RECORD}`], root);
+	if (text === null) return null;
+	const { meta, rows } = parseCsv(text);
+	/** @type {Map<string, number>} */
+	const seconds = new Map();
+	for (const row of rows)
+		if (row.seconds !== null) seconds.set(row.file, row.seconds);
+	return { run: meta.run ?? "unknown", sha: meta.sha ?? "unknown", seconds };
+}
+
+/**
+ * The open issues whose title names `file`'s basename, in the tracker `gh`
+ * reads from `root`, oldest first.
+ * @param {string} root
+ * @returns {TicketFinder}
+ */
+const openTicketFinder = (root) => (file) => {
+	const name = path.basename(file);
+	/* The whole name, so `old.test.ts` never matches `bold.test.tsx`. */
+	const named = new RegExp(`(?:^|[^\\w.-])${escapeRe(name)}(?![\\w-]|\\.\\w)`);
+	try {
+		/** @type {{ number: number, title: string }[]} */
+		const rows = ghJson(
+			[
+				"issue",
+				"list",
+				"--state",
+				"open",
+				"--search",
+				`"${name}" in:title`,
+				"--json",
+				"number,title",
+			],
+			{ cwd: root, timeout: TICKET_TIMEOUT_MS },
+		);
+		return {
+			tickets: rows
+				.filter((r) => named.test(r.title))
+				.sort((a, b) => a.number - b.number),
+		};
+	} catch (error) {
+		/* Fails open (mantahostels#2255). */
+		return { failed: parseErrLine(error) };
+	}
+};
 
 /**
  * @typedef {{ platform?: string, loadavg?: () => number[], freemem?: () => number }} MachineSeams
@@ -170,18 +288,27 @@ function timingsFrom(parsed, root) {
  * a runner calls once its suite has finished. Never throws.
  * @param {string} root
  * @param {unknown} raw
- * @param {{ unit?: ReportInput["unit"], machine?: MachineSeams }} [options]
- *   `machine` is the test's fake for the platform, load and memory
+ * @param {{ unit?: ReportInput["unit"], machine?: MachineSeams, findTicket?: TicketFinder }} [options]
+ *   `machine` and `findTicket` are a test's fakes for the platform, load and
+ *   memory, and for the tracker
  * @returns {string[]}
  */
-function reportForRun(root, raw, { unit = "seconds", machine = {} } = {}) {
-	/* Before any fail-open line, so CI stays silent on bad input too (#1797). */
-	if (process.env.CI) return [];
+function reportForRun(
+	root,
+	raw,
+	{ unit = "seconds", machine = {}, findTicket = openTicketFinder(root) } = {},
+) {
 	try {
 		const read = timingsFrom(raw, root);
 		if ("bad" in read) return [buildFailOpenLine(read.bad)];
 		const base = readDefaultChangedBase(root, execFileSync);
-		const changed = readChangedAgainst(root, base, Object.keys(read.timings));
+		const record = readRecordAt(root, base);
+		const ci = Boolean(process.env.CI);
+		const changed = ci
+			? Object.keys(read.timings)
+					.filter((file) => record?.seconds.has(file))
+					.map((file) => ({ file, atBase: true }))
+			: readChangedAgainst(root, base, Object.keys(read.timings));
 		if (changed === null)
 			return [buildFailOpenLine(`git could not diff the tree against ${base}`)];
 		return linesFor({
@@ -189,6 +316,9 @@ function reportForRun(root, raw, { unit = "seconds", machine = {} } = {}) {
 			changed,
 			base,
 			unit,
+			record,
+			ci,
+			findTicket,
 			...machineState(machine),
 		});
 	} catch (error) {
@@ -207,7 +337,6 @@ function reportForRun(root, raw, { unit = "seconds", machine = {} } = {}) {
  * @returns {string[]}
  */
 function reportForFile(root, file) {
-	if (process.env.CI) return [];
 	let text;
 	try {
 		text = fs.readFileSync(file, "utf8");
@@ -232,7 +361,6 @@ function reportForFile(root, file) {
  * @returns {string[]}
  */
 function readProgramLines(argv) {
-	if (process.env.CI) return [];
 	const [file] = argv;
 	if (argv.length !== 1 || file === undefined)
 		return [

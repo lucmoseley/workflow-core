@@ -504,7 +504,7 @@ It binds the test cases a change adds or rewrites (#1771).
 2. Reach a state by seeding it, or a subject with a real dependency removed, and keep one case on the real call or dependency. For a program with a core, the real call is each production adapter its shell wires, crossed once for real: fs and git in the test's temp directory, and a binary at its §N7 var (§X11 item 3). *House*: `gh` is crossed through `WFC_GH`, its stub held to the real binary by §G7's contract test. Any other program test's process boundary stays §X3's.
 3. Replace a per-case search over a shared input with one pass, proven byte-identical to the old output on the real input and on planted variants.
 4. A change made for speed proves the test still fails: one mutation per changed assertion, reverted, named in the commit message.
-5. A new test file that the suite's run-cost report names over budget is made cheaper, or its header says why (§G4). A line the report marks pre-existing is excepted.
+5. A test file the suite's run-cost report names as new over budget, or as grown, is made cheaper, or its header says why (§G4).
 
 - *Stack (Vitest config)*: build in `beforeAll` or at module scope, copy fresh in `beforeEach`. §X3's `beforeEach` temp-directory clause still holds: the copy lands in the directory `beforeEach` mints. `.each` is no speed lever, since each row still runs its own setup.
 - *Stack (pytest config)*: build in a `module`-scoped fixture and copy in a function-scoped one. Under xdist, a build stays in its own worker's directory, never a path another worker shares.
