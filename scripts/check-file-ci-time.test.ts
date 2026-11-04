@@ -23,7 +23,7 @@ const { hostRoot } = require("./lib/host-root.js");
 const ROOT = hostRoot();
 const SLOW = "scripts/check-file-ci-time.test.ts";
 const FAST = "scripts/lib/file-ci-time.test.ts";
-const SPOTTY = "scripts/lib/vitest-reports.js";
+const SPOTTY = "scripts/lib/suite-timings.js";
 
 let dir: string;
 beforeEach(() => {

@@ -34,7 +34,7 @@ const { SWEEPS_JUDGED, collect, judge } = require("./lib/file-ci-time.js");
 const { gh, ghJson } = require("./lib/gh.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { FILE_LIMIT_MS } = require("./lib/suite-ceiling.js");
-const { readReports } = require("./lib/vitest-reports.js");
+const { readReports } = require("./lib/suite-timings.js");
 
 /* Untraced: a week of sweeps at four a day, past the eight `collect` reads,
  * for runs with no reports in between. */

@@ -15,6 +15,7 @@ const fs = require("node:fs");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { writeFd } = require("./lib/write-fd.js");
 const {
+	readReports,
 	shares,
 	toCsv,
 	parseCsv,
@@ -22,7 +23,6 @@ const {
 	parseMeta,
 } = require("./lib/suite-timings.js");
 const { hostRoot } = require("./lib/host-root.js");
-const { readReports } = require("./lib/vitest-reports.js");
 
 const USAGE = `Usage:
   node scripts/suite-timings.js extract <vitest.json|dir> <out.csv> [key=value ...]

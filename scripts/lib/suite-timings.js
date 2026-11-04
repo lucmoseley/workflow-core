@@ -1,7 +1,10 @@
 /*
- * suite-timings.js — the pure half of the per-file suite-timing dataset:
- * vitest JSON in, rows out; rows in, percentile shares out; and the CSV
- * serialisation between them. `scripts/suite-timings.js` is the CLI over it.
+ * suite-timings.js — the per-file suite-timing dataset: vitest JSON in, rows
+ * out, from one report or every report under a directory as one sharded
+ * Actions run's shards upload them (`vitest-report-*`, #2413); rows in,
+ * percentile shares out; and the CSV serialisation between them.
+ * `readReports` is the one export that reads the filesystem; the rest are pure
+ * (#4320). `scripts/suite-timings.js` is the CLI over it.
  *
  * It exists so the suite-file-timings note's percentile table can be
  * recomputed rather than merely quoted (mantahostels#2039), docs/agents/guard-registry.md §Conventions resting
@@ -16,6 +19,7 @@
  * luck rather than on the files.
  */
 
+const fs = require("node:fs");
 const path = require("node:path");
 
 /* The committed CI per-file record (#2413). */
@@ -83,6 +87,32 @@ function rowsFrom(report, root) {
 			tests: Array.isArray(r.assertionResults) ? r.assertionResults.length : 0,
 			status: String(r.status ?? "unknown"),
 		};
+	});
+	rows.sort((a, b) => (b.seconds ?? -1) - (a.seconds ?? -1));
+	return rows;
+}
+
+/**
+ * Heaviest first. Each report is relativised on its own: every shard ran in
+ * a checkout of its own.
+ * @param {string} source a report file, or a directory of them
+ * @param {string} root the checkout the file names are made relative to
+ * @returns {ReturnType<typeof rowsFrom>}
+ */
+function readReports(source, root) {
+	const files = fs.statSync(source).isDirectory()
+		? fs
+				.readdirSync(source, { recursive: true, encoding: "utf8" })
+				.filter((f) => f.endsWith(".json"))
+				.sort()
+				.map((f) => path.join(source, f))
+		: [source];
+	const rows = files.flatMap((f) => {
+		const report = JSON.parse(fs.readFileSync(f, "utf8"));
+		return rowsFrom(
+			report,
+			reportRoot(report, root, (rel) => fs.existsSync(path.join(root, rel))),
+		);
 	});
 	rows.sort((a, b) => (b.seconds ?? -1) - (a.seconds ?? -1));
 	return rows;
@@ -224,6 +254,7 @@ module.exports = {
 	CI_RECORD,
 	reportRoot,
 	rowsFrom,
+	readReports,
 	shares,
 	toCsv,
 	parseCsv,
