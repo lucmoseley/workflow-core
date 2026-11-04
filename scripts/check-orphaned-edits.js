@@ -43,10 +43,17 @@
  *
  * WFC_ORPHAN_FILER replaces `file-issue.js` — the test seam.
  *
+ * EVERY REGISTERED WORKTREE IS WALKED (#4244). Dirt in a linked worktree
+ * belongs to the session that owns it (lib/session-worktrees.js): an orphan
+ * once that session is no longer listed live, named as its writer with no
+ * ledger guess. A worktree no session owns is judged as the main checkout is,
+ * by claim, observation and ledger at its host-relative path — or, outside
+ * the host root, where none of those can name it, passed over and counted.
+ *
  * A DELETED FILE IS NOT JUDGED: it has no mtime, so "unchanged for 24 hours"
  * cannot be read. Counted in `deleted`.
  *
- * IMPLICIT:  at every session start, files each uncommitted tracked file no live session owns and nobody has touched for 24 hours once as a takes:triage issue, printing nothing. It never reverts or writes the file.
+ * IMPLICIT:  at every session start, files each uncommitted tracked file, in the main checkout or any linked worktree, that no live session owns and nobody has touched for 24 hours once as a takes:triage issue, printing nothing. It never reverts or writes the file.
  * JUSTIFIED: fail-safe — an orphan voids certificates for days unseen, and any ownership signal that cannot be read silences the report rather than calling a live session's edit orphaned.
  * DEFEAT:    none at the hook; --hours <n> moves the threshold on a hand run.
  */
@@ -60,6 +67,12 @@ const { readDirtyTracked, gitRead } = require("./lib/dirty-tree.js");
 const { shellQuote } = require("./lib/sh-quote.js");
 const { gitCommonDir, GIT_TIMEOUT_MS } = require("./lib/git.js");
 const { hostRoot } = require("./lib/host-root.js");
+const {
+	hostRelative,
+	readLinkedWorktrees,
+	worktreeLabel,
+	worktreeOwners,
+} = require("./lib/session-worktrees.js");
 const { readDistinctFromHint } = require("./lib/similar-titles.js");
 const { isListedLive, sweepSessionIds } = require("./lib/agent-liveness");
 const proc = require("./lib/arbiter-proc");
@@ -84,7 +97,10 @@ const FILED_DIR = "orphaned-edits-filed";
 
 /**
  * @typedef {object} Orphan
- * @property {string} path
+ * @property {string} path    relative to its tree
+ * @property {string|null} worktree  the linked worktree it sits in, as
+ *   worktreeLabel names it; null for the main checkout
+ * @property {string} tree    the checkout it sits in, absolute
  * @property {number} ageHours
  * @property {string} writer  the last known writer, as printed
  * @property {string} blob    the working copy's blob id, or "unknown"
@@ -118,6 +134,10 @@ function filedDir(root) {
 	}
 }
 
+/** @param {{path: string, worktree: string|null}} o */
+const describeLocation = (o) =>
+	o.worktree ? `${o.worktree}: ${o.path}` : o.path;
+
 /**
  * Take the filing of `o` by creating its marker exclusively. "taken" means
  * this run files it; otherwise the marker's state, as printed.
@@ -127,7 +147,11 @@ function filedDir(root) {
  */
 function takeFiling(dir, o) {
 	const key = createHash("sha256")
-		.update(`${o.path}\0${o.blob}`)
+		.update(
+			o.worktree
+				? `${o.worktree}\0${o.path}\0${o.blob}`
+				: `${o.path}\0${o.blob}`,
+		)
 		.digest("hex")
 		.slice(0, 32);
 	const marker = path.join(dir, `${key}.json`);
@@ -154,9 +178,14 @@ function takeFiling(dir, o) {
 }
 
 /**
+ * `sweepSessionIds`' answer where it vouches.
+ * @typedef {Exclude<ReturnType<typeof sweepSessionIds>, {why: string}>} SweepRead
+ */
+
+/**
  * Every path a live session owns by claim, observation or ledger — or a
  * sentence saying why that cannot be read.
- * @returns {{owned: Set<string>, why?: undefined, names: Map<string, string>} | {why: string, owned?: undefined, names?: undefined}}
+ * @returns {{owned: Set<string>, why?: undefined, names: Map<string, string>, listed: SweepRead} | {why: string, owned?: undefined, names?: undefined, listed?: undefined}}
  */
 function readOwnedByLive() {
 	const locks = store.readLocks();
@@ -168,7 +197,7 @@ function readOwnedByLive() {
 	const live = readLiveSessionPaths(listed);
 	if (live.paths === undefined) return { why: live.why };
 	const owned = new Set([...held, ...live.paths]);
-	return { owned, names: listed.names };
+	return { owned, names: listed.names, listed };
 }
 
 /**
@@ -208,13 +237,14 @@ function readLiveSessionPaths(listed) {
 	return { paths };
 }
 
-/** @param {Orphan} o */
+/** @param {{path: string, worktree: string|null, tree: string}} o */
 function buildCommands(o) {
 	const p = shellQuote(o.path);
+	const git = o.worktree ? `git -C ${shellQuote(o.tree)}` : "git";
 	return {
-		inspect: `git diff HEAD -- ${p}`,
-		commit: `git commit -m "<why, in plain language>" -- ${p}`,
-		revert: `git restore --source=HEAD --staged --worktree -- ${p}`,
+		inspect: `${git} diff HEAD -- ${p}`,
+		commit: `${git} commit -m "<why, in plain language>" -- ${p}`,
+		revert: `${git} restore --source=HEAD --staged --worktree -- ${p}`,
 	};
 }
 
@@ -230,12 +260,14 @@ function fileOne(o, root) {
 	const body = [
 		"## What",
 		"",
-		`\`${o.path}\` has uncommitted changes that no live session claims, observes or has in its write ledger, unchanged for ${describeAge(o.ageHours)} (an **Orphaned edit**, \`GLOSSARY.md\`). Reported by \`scripts/check-orphaned-edits.js\` at session start (#813).`,
+		`\`${o.path}\`${o.worktree ? ` in the worktree \`${o.worktree}\`` : ""} has uncommitted changes that no live session owns, unchanged for ${describeAge(o.ageHours)} (an **Orphaned edit**, \`GLOSSARY.md\`). Reported by \`scripts/check-orphaned-edits.js\` at session start (#813).`,
 		"",
 		`- Last known writer: ${o.writer}`,
 		`- Working-copy blob: \`${o.blob}\``,
 		"",
-		"It enters every suite run that reads the shared tree, rather than a worktree at HEAD, and voids each certificate whose read closure it touches (#810). Nothing has been reverted.",
+		o.worktree
+			? "Its session has ended, so the work lands nowhere until someone commits it. Nothing has been reverted."
+			: "It enters every suite run that reads the shared tree, rather than a worktree at HEAD, and voids each certificate whose read closure it touches (#810). Nothing has been reverted.",
 		"",
 		"## Decide",
 		"",
@@ -252,7 +284,7 @@ function fileOne(o, root) {
 	const args = [
 		filerPath(),
 		"--title",
-		`Orphaned edit: ${o.path} (blob ${o.blob.slice(0, 10)})`,
+		`Orphaned edit: ${o.path}${o.worktree ? ` in ${o.worktree}` : ""} (blob ${o.blob.slice(0, 10)})`,
 		"--label",
 		ORPHAN_LABEL,
 		"--standalone",
@@ -287,27 +319,45 @@ function fileOne(o, root) {
 }
 
 /**
- * Sort the dirty files by age: those at least `hours` old, the count younger,
- * and the count deleted.
- * @param {string} root
+ * `hostPath` is the file's spelling relative to the host root, which claims
+ * and ledgers use; null for a worktree outside it, where neither can name it.
+ * @typedef {{path: string, ageHours: number, tree: string,
+ *   worktree: string|null, hostPath: string|null}} OldEdit
+ * @typedef {{root: string, worktree: string|null, inside: string|null}} Tree
+ *   `worktree` the label, null for the main checkout; `inside` the path
+ *   relative to the host root, "" for the main checkout, null outside it
+ */
+
+/**
+ * Sort one tree's dirty files by age: those at least `hours` old, the count
+ * younger, and the count deleted.
+ * @param {Tree} tree the checkout the paths are relative to
  * @param {string[]} dirty
  * @param {{hours: number, now: number}} opts
  */
-function sortByAge(root, dirty, { hours, now }) {
+function sortByAge(tree, dirty, { hours, now }) {
+	/** @type {OldEdit[]} */
 	const old = [];
 	let young = 0;
 	let deleted = 0;
 	for (const rel of dirty) {
 		let mtimeMs;
 		try {
-			mtimeMs = fs.statSync(path.join(root, rel)).mtimeMs;
+			mtimeMs = fs.statSync(path.join(tree.root, rel)).mtimeMs;
 		} catch {
 			deleted++;
 			continue;
 		}
 		const ageHours = (now - mtimeMs) / 3_600_000;
 		if (ageHours < hours) young++;
-		else old.push({ path: rel, ageHours });
+		else
+			old.push({
+				path: rel,
+				ageHours,
+				tree: tree.root,
+				worktree: tree.worktree,
+				hostPath: tree.inside === null ? null : path.join(tree.inside, rel),
+			});
 	}
 	return { old, young, deleted };
 }
@@ -328,30 +378,77 @@ function describeWriter(rel, names, now) {
  * The old files no live session owns, each with its writer and blob — or a
  * SKIP where ownership cannot be read.
  * @param {any} ctx
- * @param {{path: string, ageHours: number}[]} old
- * @param {{root: string, hours: number, now: number}} opts
- * @returns {Orphan[]}
+ * @param {OldEdit[]} old
+ * @param {{hours: number, now: number}} opts
+ * @returns {{orphans: Orphan[], unjudged: number}} `unjudged` counts the old
+ *   files in worktrees outside the host root that no session owns
  */
-function findOrphans(ctx, old, { root, hours, now }) {
+function findOrphans(ctx, old, { hours, now }) {
 	/** @type {Orphan[]} */
 	const orphans = [];
-	if (old.length === 0) return orphans;
+	let unjudged = 0;
+	if (old.length === 0) return { orphans, unjudged };
 	const live = readOwnedByLive();
 	// Who owns a file is the subject asked about, not the apparatus: SKIP (§N4, #1240).
 	if (!live.owned)
 		ctx.skip(
 			`${String(old.length)} uncommitted file(s) are over ${String(hours)}h old, but ${live.why}, so whether a live session owns them is unknown.`,
 		);
-	const { owned, names } =
-		/** @type {{owned: Set<string>, names: Map<string, string>}} */ (live);
+	const { owned, names, listed } =
+		/** @type {{owned: Set<string>, names: Map<string, string>, listed: SweepRead}} */ (
+			live
+		);
+	const trees = [...new Set(old.flatMap((o) => (o.worktree ? o.tree : [])))];
+	const owners = trees.length > 0 ? worktreeOwners(trees, listed) : new Map();
 	for (const o of old) {
-		if (owned.has(o.path)) continue;
-		const writer = describeWriter(o.path, names, now);
+		const verdict = judgeWriter(o, { owners, owned, names, listed, now });
+		if (verdict.kind === "owned") continue;
+		if (verdict.kind === "unjudged") {
+			unjudged++;
+			continue;
+		}
+		const { writer } = verdict;
 		const blob =
-			gitRead(["hash-object", "--", o.path], root)?.trim() || "unknown";
-		orphans.push({ ...o, writer, blob, filed: "" });
+			gitRead(["hash-object", "--", o.path], o.tree)?.trim() || "unknown";
+		orphans.push({
+			path: o.path,
+			worktree: o.worktree,
+			tree: o.tree,
+			ageHours: o.ageHours,
+			writer,
+			blob,
+			filed: "",
+		});
 	}
-	return orphans;
+	return { orphans, unjudged };
+}
+
+/**
+ * Whether a live session owns an old edit, and where none does, who last
+ * wrote it, as printed; `unjudged` where nothing can say.
+ *
+ * A live claim, observation or ledger entry at the host-relative spelling
+ * owns the file wherever it sits. Past that, a worktree's owner answers for
+ * every file in it, and a worktree no session owns is named by the ledger. A
+ * worktree outside the host root with no owner is one neither can name.
+ * @param {OldEdit} o
+ * @param {{owners: Map<string, import("./lib/session-worktrees.js").Owner>,
+ *   owned: Set<string>, names: Map<string, string>, listed: SweepRead, now: number}} ctx
+ * @returns {{kind: "owned"} | {kind: "unjudged"} | {kind: "orphan", writer: string}}
+ */
+function judgeWriter(o, { owners, owned, names, listed, now }) {
+	if (o.hostPath !== null && owned.has(o.hostPath)) return { kind: "owned" };
+	const owner = o.worktree === null ? undefined : owners.get(o.tree);
+	if (owner) {
+		if (isListedLive(owner.sessionId, listed.ids, listed.terminal))
+			return { kind: "owned" };
+		return {
+			kind: "orphan",
+			writer: `session ${owner.sessionId}${owner.name ? ` (${owner.name})` : ""}, whose worktree it is — no longer listed, or listed but stopped`,
+		};
+	}
+	if (o.hostPath === null) return { kind: "unjudged" };
+	return { kind: "orphan", writer: describeWriter(o.hostPath, names, now) };
 }
 
 /**
@@ -441,7 +538,7 @@ function reportOrphans(ctx, orphans, hours) {
 	for (const o of orphans)
 		ctx.warn(
 			"ORPHANED-EDIT",
-			`${o.path} — uncommitted, unchanged ${describeAge(o.ageHours)}, no live session owns it`,
+			`${describeLocation(o)} — uncommitted, unchanged ${describeAge(o.ageHours)}, no live session owns it`,
 			{ ...o, ...buildCommands(o) },
 		);
 
@@ -452,7 +549,7 @@ function reportOrphans(ctx, orphans, hours) {
 	for (const o of orphans) {
 		const c = buildCommands(o);
 		ctx.say(
-			`  ${o.path} — unchanged ${describeAge(o.ageHours)}\n` +
+			`  ${describeLocation(o)} — unchanged ${describeAge(o.ageHours)}\n` +
 				`    last known writer: ${o.writer}\n` +
 				`    inspect: ${c.inspect}\n` +
 				`    commit:  ${c.commit}\n` +
@@ -465,6 +562,28 @@ function reportOrphans(ctx, orphans, hours) {
 			"  touches until it is committed or reverted. Read the diff first: the\n" +
 			"  revert destroys the edit.\n",
 	);
+}
+
+/**
+ * What the run could not judge, as a clause for the okLine; empty where it
+ * judged everything.
+ * @param {{linked: string[]|null, unread: string[], unjudged: number}} opts
+ */
+function describeUnread({ linked, unread, unjudged }) {
+	const parts = [];
+	if (linked === null)
+		parts.push(
+			"git would not list the linked worktrees, so theirs went unread",
+		);
+	else if (unread.length > 0)
+		parts.push(
+			`${String(unread.length)} worktree(s) git would not read went unjudged: ${unread.join(", ")}`,
+		);
+	if (unjudged > 0)
+		parts.push(
+			`${String(unjudged)} old file(s) in worktrees outside the host root that no session owns went unjudged`,
+		);
+	return parts.length > 0 ? ` ${parts.join("; ")}.` : "";
 }
 
 runCheck({
@@ -487,13 +606,34 @@ runCheck({
 			);
 		const now = Date.now();
 
-		const { old, young, deleted } = sortByAge(
-			root,
-			/** @type {string[]} */ (dirty),
-			{ hours, now },
-		);
+		const main = { root, worktree: null, inside: "" };
+		const sorted = [sortByAge(main, dirty, { hours, now })];
+		let total = dirty.length;
+		const linked = readLinkedWorktrees(root);
+		/* Counted and named in the okLine, never a finding (#4244): a
+		 * registration whose directory has gone is the usual cause. */
+		/** @type {string[]} */
+		const unread = [];
+		for (const wt of linked ?? []) {
+			const wtDirty = readDirtyTracked(wt);
+			if (wtDirty === null) unread.push(wt);
+			if (!wtDirty || wtDirty.length === 0) continue;
+			total += wtDirty.length;
+			const tree = {
+				root: wt,
+				worktree: worktreeLabel(root, wt),
+				inside: hostRelative(root, wt),
+			};
+			sorted.push(sortByAge(tree, wtDirty, { hours, now }));
+		}
+		const old = sorted.flatMap((t) => t.old);
+		const young = sorted.reduce((n, t) => n + t.young, 0);
+		const deleted = sorted.reduce((n, t) => n + t.deleted, 0);
 
-		const found = findOrphans(ctx, old, { root, hours, now });
+		const { orphans: found, unjudged } = findOrphans(ctx, old, {
+			hours,
+			now,
+		});
 
 		found.sort((a, b) => b.ageHours - a.ageHours);
 
@@ -502,13 +642,15 @@ runCheck({
 		if (!ctx.notify) reportOrphans(ctx, orphans, hours);
 
 		return {
-			okLine: `no orphaned edit over ${String(hours)}h among ${String(/** @type {string[]} */ (dirty).length)} uncommitted file(s).`,
+			okLine: `no orphaned edit over ${String(hours)}h among ${String(total)} uncommitted file(s) across the main checkout and its worktrees.${describeUnread({ linked, unread, unjudged })}`,
 			noun: "orphaned edit(s)",
 			data: {
 				orphans,
 				orphanCount: orphans.length,
 				young,
 				deleted,
+				unjudged,
+				unreadWorktrees: linked === null ? null : unread,
 				filings,
 				thresholdHours: hours,
 			},

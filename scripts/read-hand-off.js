@@ -10,8 +10,11 @@
  * it, writes its diff to `.claude/tmp/`, and runs three checks before the
  * record is used:
  *   Base   an ancestor of HEAD
- *   Done   each sha in it on main
+ *   Done   each sha in it on the pushed ref, `origin/landing` with the
+ *          `landing` module on (lib/landing-refs.js)
  *   diff   `git apply --3way --check` applies it with no conflict
+ * Git runs in the session's own tree, its linked worktree where it works in
+ * one (#4244); the diff is written to the host root's scratch.
  * `--3way --check` exits 0 on a patch it would apply with conflicts (git
  * 2.43), so its "with conflicts" line fails the check too. A diff that
  * applies in reverse is already in the working tree, as where the refill
@@ -40,6 +43,8 @@ const {
 const { parseOrExit } = require("./lib/cli-args");
 const { parseIssueNumber } = require("./lib/issue-number.js");
 const { repoRoot } = require("./lib/hook-block");
+const { sessionTree } = require("./lib/host-root.js");
+const { pushedRef } = require("./lib/landing-refs.js");
 const { scriptIo } = require("./lib/tracker-ops.js");
 
 /** @type {import("./lib/tracker-ops.js").ScriptIo} */
@@ -47,14 +52,14 @@ const io = scriptIo("read-hand-off");
 const USAGE = "usage: node scripts/read-hand-off.js <issue-number>";
 
 /**
- * Run git in the repo root; whether it exited 0, and its output on both
+ * Run git in the session's tree; whether it exited 0, and its output on both
  * streams — `git apply` reports a conflict on stderr at exit 0.
  * @param {string[]} args
  * @returns {{ok: boolean, out: string}}
  */
 function git(args) {
 	const r = spawnGitSync(args, {
-		cwd: repoRoot(),
+		cwd: sessionTree({}) ?? repoRoot(),
 		encoding: "utf8",
 		stdio: ["ignore", "pipe", "pipe"],
 	});
@@ -107,9 +112,10 @@ function verdictChecks(h, diffFile) {
 	const base = h.fields.Base;
 	if (!git(["merge-base", "--is-ancestor", base, "HEAD"]).ok)
 		failed.push(`Base ${base} is not an ancestor of HEAD`);
+	const pushed = pushedRef({ root: repoRoot() });
 	for (const sha of doneShas(h))
-		if (!git(["merge-base", "--is-ancestor", sha, "main"]).ok)
-			failed.push(`Done sha ${sha} is not on main`);
+		if (!git(["merge-base", "--is-ancestor", sha, pushed]).ok)
+			failed.push(`Done sha ${sha} is not on ${pushed}`);
 	if (diffFile) {
 		const applied = git(["apply", "--3way", "--check", diffFile]);
 		const clean = applied.ok && !/with conflicts/i.test(applied.out);
