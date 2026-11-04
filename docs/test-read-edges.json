@@ -2801,6 +2801,7 @@
 			"scripts/release-plugin.test.ts",
 			"scripts/score-session-breaches.test.ts",
 			"scripts/self-plugin-canary.test.ts",
+			"scripts/session-checkout.test.ts",
 			"scripts/start-lander-on-push.test.ts"
 		],
 		"hooks/register.ts": [
@@ -12981,6 +12982,7 @@
 			"scripts/record-issue-claim.test.ts",
 			"scripts/release-issue-claim.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-checkout.test.ts",
 			"scripts/start-lander-on-push.test.ts"
 		],
 		"scripts/lib/guard-dispatch.test.ts": [
@@ -27164,6 +27166,7 @@
 			"scripts/release-plugin.test.ts",
 			"scripts/score-session-breaches.test.ts",
 			"scripts/self-plugin-canary.test.ts",
+			"scripts/session-checkout.test.ts",
 			"scripts/start-lander-on-push.test.ts"
 		],
 		"skills-lock.json": [
