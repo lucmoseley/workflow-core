@@ -1056,7 +1056,9 @@ function buildStopDetail(detail, { limitHeldLines = [], resumable = [] }) {
  * What this tick's read of the founder does to away mode (#2522): "return" at the
  * first present read after an absent one since the switch, so a prompt inside
  * the presence window the switch was made in does not undo it; "absent" at the
- * first absent read since it; otherwise null.
+ * first absent read since it; otherwise null. The switch counts as presence,
+ * since the panel click that makes it records no typed prompt (#4184), so any
+ * switch reads present for one window, whoever made it.
  * @param {{mode: "normal"|"away", away?: AwaySwitch}} control
  * @param {number|null} lastPromptAt ms
  * @param {number} now ms
@@ -1065,7 +1067,11 @@ function buildStopDetail(detail, { limitHeldLines = [], resumable = [] }) {
 function awayChangeOf({ mode, away }, lastPromptAt, now) {
 	if (mode !== "away") return null;
 	const absentSeen = away?.absentSeen === true;
-	if (presenceAt(lastPromptAt, new Date(now)) === "present")
+	const lastSeen =
+		away === undefined
+			? lastPromptAt
+			: Math.max(lastPromptAt ?? away.since, away.since);
+	if (presenceAt(lastSeen, new Date(now)) === "present")
 		return absentSeen ? "return" : null;
 	return absentSeen ? null : "absent";
 }
