@@ -224,7 +224,7 @@ index 213955b3888ebdcf1885a90b0bb5c1b9ec70a48f..747c1881e73f88c90bac210955cc5931
 +// Node finds only while this stays a literal object.
 +module.exports = { HOST_CONFIG_FAULT, RESULT_FD, loadStrykerConfig };
 diff --git a/scripts/mutation-hold-gate.js b/scripts/mutation-hold-gate.js
-index d039641485676c6bd34da8b944af6ef8b0f547f3..07a6a69fe1a82d0a18f617f3977445a43d860070 100644
+index d039641485676c6bd34da8b944af6ef8b0f547f3..dd306f672be452bc9d2dd9cbe3a3ce63a44b7712 100644
 --- a/scripts/mutation-hold-gate.js
 +++ b/scripts/mutation-hold-gate.js
 @@ -4,9 +4,9 @@
@@ -289,14 +289,18 @@ index d039641485676c6bd34da8b944af6ef8b0f547f3..07a6a69fe1a82d0a18f617f3977445a4
  
  const REFUSING = new Set(["Survived", "NoCoverage"]);
  const PASSING = new Set(["Killed", "Timeout", "Ignored"]);
-@@ -189,7 +205,22 @@ const CONFIG_NAMES = ["", "."].flatMap((dot) =>
+@@ -189,7 +205,26 @@ const CONFIG_NAMES = ["", "."].flatMap((dot) =>
  const TEST_RUNNER = "vitest";
  const CORE_DEFAULT = { testRunner: TEST_RUNNER, coverageAnalysis: "perTest" };
  
 +/* Stryker 10's own directive parser, matched against a comment's text
-+ * (instrumenter `directive-bookkeeper.js`): group 4 is the reason. */
++ * (instrumenter `directive-bookkeeper.js`): group 4 is the reason. Every
++ * disable it matches must hold DISABLE_TEXT verbatim. */
 +const DIRECTIVE =
 +	/^\s?Stryker (disable|restore)(?: (next-line))? ([a-zA-Z, ]+)(?::(.+)?)?/;
++/* The text every disable DIRECTIVE matches holds: a staged copy without it
++ * can be charged nothing, so is never parsed (#4307). */
++const DISABLE_TEXT = "Stryker disable";
 +const COMPONENT = /\.(html|vue|svelte)$/;
 +const SCRIPT = /(<script\b([^>]*)>)([\s\S]*?)<\/script\s*>/gi;
 +const ATTRIBUTE = /([^\s=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"']+)))?/g;
@@ -312,7 +316,7 @@ index d039641485676c6bd34da8b944af6ef8b0f547f3..07a6a69fe1a82d0a18f617f3977445a4
  
  const CACHE_NAME = "wfc-mutation-incremental.json";
  
-@@ -374,6 +405,24 @@ const addedRanges = (hunks) =>
+@@ -374,6 +409,24 @@ const addedRanges = (hunks) =>
  		.filter((h) => h.newCount > 0)
  		.map((h) => ({ start: h.newStart, end: h.newStart + h.newCount - 1 }));
  
@@ -337,7 +341,7 @@ index d039641485676c6bd34da8b944af6ef8b0f547f3..07a6a69fe1a82d0a18f617f3977445a4
  /**
   * Says a fail-open on stderr and writes it to the fail-open log.
   * @param {string} stderrLine after its `pre-commit: ` prefix
-@@ -384,6 +433,372 @@ function reportFailOpen(stderrLine, logLine) {
+@@ -384,6 +437,375 @@ function reportFailOpen(stderrLine, logLine) {
  	failOpenLogger("mutation-hold-gate.js")?.(logLine);
  }
  
@@ -604,18 +608,20 @@ index d039641485676c6bd34da8b944af6ef8b0f547f3..07a6a69fe1a82d0a18f617f3977445a4
 +
 +/**
 + * The unreasoned `Stryker disable` comments the commit answers for, by
-+ * chargedIn. Every comment is read through Babel's parser as Stryker reads
-+ * it, so a `//` inside a string is no comment and a directive on its own line
-+ * inside a block comment is one (#2366). A git fault reading one file's copy
-+ * costs that file alone: its staged copy unread, or its HEAD copy read as
-+ * unparseable (#2727).
++ * chargedIn. Each staged file holding DISABLE_TEXT, and its HEAD copy, is
++ * read through Babel's parser as Stryker reads it, so a `//` inside a string
++ * is no comment and a directive on its own line inside a block comment is one
++ * (#2366). A git fault reading one file's copy costs that file alone: its
++ * staged copy unread, or its HEAD copy read as unparseable (#2727).
 + * Residual: any text after the colon passes, `: x` included; one armed in a
 + * file the commit adds no line to passes, since that file is not read (and a
 + * deletion-only commit runs nothing, #1871 story 30); where HEAD's copy went
 + * unread, one armed by any edit but to its comment's opening line passes; a
-+ * region a later reasoned directive overrides is charged as its own; and the
-+ * configs are read from the working tree, Stryker's from the staged one, so
-+ * an unstaged edit to either parts the two reads.
++ * region a later reasoned directive overrides is charged as its own; a file
++ * holding no DISABLE_TEXT goes unparsed, so a read that would have failed on
++ * it is never reported; and the configs are read from the working tree,
++ * Stryker's from the staged one, so an unstaged edit to either parts the two
++ * reads.
 + * @param {string} root
 + * @param {string|null} strykerConfig the host's Stryker config the staged tree holds
 + * @param {Map<string, HunkHeader[]>} hunks each read file's
@@ -642,6 +648,7 @@ index d039641485676c6bd34da8b944af6ef8b0f547f3..07a6a69fe1a82d0a18f617f3977445a4
 +			reportUnread(file, buildFaultText(e));
 +			continue;
 +		}
++		if (!staged.includes(DISABLE_TEXT)) continue;
 +		files.push(file);
 +		entries.push({
 +			id: `:${file}`,
@@ -710,7 +717,7 @@ index d039641485676c6bd34da8b944af6ef8b0f547f3..07a6a69fe1a82d0a18f617f3977445a4
  /**
   * The mutated span's source text. A location outside the source is a report
   * that will not read, so the hold fails open on it (#2078, #1871 §Faults).
-@@ -702,7 +1117,8 @@ function judge(report, ranges) {
+@@ -702,7 +1124,8 @@ function judge(report, ranges) {
  
  /**
   * The areas the staged paths touch, under the declaration at HEAD or as
@@ -720,7 +727,7 @@ index d039641485676c6bd34da8b944af6ef8b0f547f3..07a6a69fe1a82d0a18f617f3977445a4
   * @param {ConfigCopy[]} copies
   * @param {string[]} staged
   */
-@@ -719,11 +1135,16 @@ function readHeldRanges(copies, staged) {
+@@ -719,11 +1142,16 @@ function readHeldRanges(copies, staged) {
  		}
  	/** @type {Map<string, LineRange[]>} */
  	const ranges = new Map();
@@ -740,7 +747,7 @@ index d039641485676c6bd34da8b944af6ef8b0f547f3..07a6a69fe1a82d0a18f617f3977445a4
  }
  
  /**
-@@ -799,6 +1220,16 @@ function readRuleOrPointer() {
+@@ -799,6 +1227,16 @@ function readRuleOrPointer() {
  	);
  }
  
@@ -757,7 +764,7 @@ index d039641485676c6bd34da8b944af6ef8b0f547f3..07a6a69fe1a82d0a18f617f3977445a4
  /**
   * The refusal for a run's outcome, or null where it passes.
   * @param {ReturnType<typeof runStryker>} run
-@@ -852,6 +1283,12 @@ function hold(mode) {
+@@ -852,6 +1290,12 @@ function hold(mode) {
  		const missing = missingToolRefusal(root, HOOK_VOICE);
  		if (missing !== null) return refuse(missing);
  		const tree = gitOr(["write-tree"], "could not read the staged tree").trim();
@@ -771,7 +778,7 @@ index d039641485676c6bd34da8b944af6ef8b0f547f3..07a6a69fe1a82d0a18f617f3977445a4
  			2,
  			`pre-commit: the mutation hold is running Stryker over ${[...held.ranges.values()].flat().length} changed range(s) on ${held.areas.join(", ")}.\n`,
 diff --git a/scripts/mutation-hold-gate.test.ts b/scripts/mutation-hold-gate.test.ts
-index 5a2fa7d543b9dd3ea424f4e9a64d7f8f505cea44..dd093facca52e19c2de1abf7ae5cdf67318c4ff9 100644
+index f99945d18b83e2851b98d9390dccc7157b1c11cb..b680477a772db3275063de9f7fd8b7e9f051219d 100644
 --- a/scripts/mutation-hold-gate.test.ts
 +++ b/scripts/mutation-hold-gate.test.ts
 @@ -248,6 +248,16 @@ const gitRefuses = (
@@ -791,11 +798,14 @@ index 5a2fa7d543b9dd3ea424f4e9a64d7f8f505cea44..dd093facca52e19c2de1abf7ae5cdf67
  const routeRefuses = () =>
  	onPath(
  		"sh",
-@@ -516,6 +526,339 @@ describe("mutation-hold-gate.js — the verdict", () => {
+@@ -528,6 +538,342 @@ describe("mutation-hold-gate.js — the verdict", () => {
  });
  
  describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
 +	/** SEED with `comment` added above line 2, the fee guard. */
++	const HangingBabel =
++		"await new Promise(() => setInterval(() => {}, 1000));\nexport default {};\n";
++	const HangTimeout = { WFC_MUTATION_COMMENTS_TIMEOUT_MS: "300" };
 +	const disableAbove = (comment: string) =>
 +		write(
 +			MONEY,
@@ -1131,7 +1141,7 @@ index 5a2fa7d543b9dd3ea424f4e9a64d7f8f505cea44..dd093facca52e19c2de1abf7ae5cdf67
  	it("honours a reasoned region disable over a message table, judging the mutants Stryker ignores inside it", () => {
  		write(
  			MONEY,
-@@ -528,11 +871,351 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
+@@ -540,11 +886,358 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
  		]);
  		const r = commit([MONEY]);
  		expectLanded(r);
@@ -1404,25 +1414,32 @@ index 5a2fa7d543b9dd3ea424f4e9a64d7f8f505cea44..dd093facca52e19c2de1abf7ae5cdf67
 +	});
 +
 +	it("leaves the file to Stryker, named and logged, where a host Babel config hangs the read past its timeout (#2727)", () => {
-+		write(
-+			"babel.config.mjs",
-+			"await new Promise(() => setInterval(() => {}, 1000));\nexport default {};\n",
-+		);
++		write("babel.config.mjs", HangingBabel);
 +		landHostConfig();
 +		disableAbove("// Stryker disable next-line all");
 +		report([]);
 +		// A real hang on the real clock: the child's timeout is a spawnSync
-+		// option, reached by no fake timer. 2000 ms is a guess, past the child's
-+		// Babel load and short of the test's own ceiling.
-+		const r = commit([MONEY], {
-+			extra: { WFC_MUTATION_COMMENTS_TIMEOUT_MS: "2000" },
-+		});
++		// option, reached by no fake timer. The read never ends, so any timeout
++		// times out; 300 ms keeps the wait short.
++		const r = commit([MONEY], { extra: HangTimeout });
 +		expect(r.status).toBe(0);
 +		expect(r.stderr).toContain(
-+			"could not read the added disable comments in lib/money.js: timed out after 2000 ms",
++			"could not read the added disable comments in lib/money.js: timed out after 300 ms",
 +		);
 +		expect(readRuns()).toHaveLength(1);
 +		expect(readLog()).toContain("a commit's disable comments went unchecked");
++	});
++
++	it("starts no read of a staged file holding no directive, so a host Babel config that hangs it costs nothing (#4307)", () => {
++		write("babel.config.mjs", HangingBabel);
++		landHostConfig();
++		changeLine2();
++		report([]);
++		const r = commit([MONEY], { extra: HangTimeout });
++		expect(r.status).toBe(0);
++		expect(r.stderr).not.toContain("could not read");
++		expect(readRuns()).toHaveLength(1);
++		expect(readLog()).not.toContain("disable comments went unchecked");
 +	});
 +
 +	it("leaves only the file whose staged copy git will not show to Stryker, named and logged (#2727)", () => {
