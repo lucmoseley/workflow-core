@@ -30,11 +30,10 @@ import {
 } from "./gh-fake";
 import { type GhStubServer, serveGhStub, stubGhScript } from "./gh-stub";
 import { loadavgLine, writeCwd, writeSmapsRollup } from "./proc-fake";
+import { projectSlug } from "./project-slug.js";
 import { writePsStub } from "./ps-stub";
 import { runInProcessAsync } from "./run-in-process";
 import { shellQuote } from "./sh-quote.js";
-
-const { projectSlug } = require("./project-slug.js");
 
 /** Each case's state as `beforeEach` resets it. */
 const kitDefaults = () => ({
