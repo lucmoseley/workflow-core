@@ -49,6 +49,7 @@ const { execGit, GIT_TIMEOUT_MS, spawnGitSync } = require("./git.js");
 const { gitTopLevel } = require("./host-root.js");
 const { runStartLander } = require("./lander-start.js");
 const { mainCheckout } = require("./main-checkout.js");
+const { scriptPath } = require("./script-path.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { buildModuleOffLine, moduleOn } = require("./workflow-core-config.js");
 const { writeFd } = require("./write-fd.js");
@@ -389,7 +390,7 @@ function startLanderFor(root, dir) {
 function refuseUnlandable(dir, root) {
 	if (dir === root)
 		throw new CheckoutError(
-			"the main checkout is never landed from — land from your session worktree, or cut one with `node scripts/session-checkout.js cut <session-name>`",
+			`the main checkout is never landed from — land from your session worktree, or cut one with \`node ${scriptPath("session-checkout.js")} cut <session-name>\``,
 		);
 	if (!moduleOn("landing", { root }))
 		throw new CheckoutError(
