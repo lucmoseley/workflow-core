@@ -15,7 +15,7 @@
  * the gate cases pin nothing.
  */
 
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -120,6 +120,8 @@ export interface DispatchFixture {
 	/** The env every run needs, plus whatever a case overrides. */
 	baseEnv: (extra?: Record<string, string>) => NodeJS.ProcessEnv;
 	launchArgv: () => string | undefined;
+	/** The directory each launch call ran in, in order. */
+	launchCwds: () => string[];
 	readArgvLines: (f?: string) => string[];
 	/** A reg.exe that never answers, so the interop probe reads the bridge as
 	 * wedged. */
@@ -169,6 +171,30 @@ export function writeCache(
 	);
 }
 
+/** The suite's modules with `landing` on, which vitest.setup.ts leaves off. */
+export const LANDING_MODULES = `${process.env.WFC_MODULES},landing`;
+
+/**
+ * Give the fixture's repository a bare origin under `dir` with `landing` one
+ * commit past `main`; the `origin/landing` sha a worktree is cut at. A run
+ * cuts one only under LANDING_MODULES.
+ */
+export function seedLandingCheckout(dir: string): string {
+	const git = (...args: string[]) =>
+		execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
+	const origin = path.join(dir, ".origin.git");
+	git("init", "-q", "--bare", "-b", "main", origin);
+	git("remote", "add", "origin", origin);
+	git("config", "user.email", "t@t");
+	git("config", "user.name", "t");
+	git("commit", "-q", "--allow-empty", "-m", "seed");
+	git("push", "-q", "origin", "HEAD:main", "HEAD:landing");
+	git("commit", "-q", "--allow-empty", "-m", "landed");
+	git("push", "-q", "origin", "HEAD:landing");
+	git("reset", "-q", "--hard", "origin/main");
+	return git("rev-parse", "origin/landing");
+}
+
 /** Register the beforeEach/afterEach that build and remove a fresh root. */
 export function dispatchFixture(): DispatchFixture {
 	const fx: DispatchFixture = {
@@ -179,6 +205,7 @@ export function dispatchFixture(): DispatchFixture {
 		stubPath,
 		baseEnv,
 		launchArgv,
+		launchCwds,
 		readArgvLines,
 		regWedged,
 		schedClock,
@@ -196,6 +223,9 @@ export function dispatchFixture(): DispatchFixture {
 
 	beforeEach(() => {
 		fx.dir = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-sessions-"));
+		/* A repository of its own, so a run launches each session here and
+		 * never from the real repository (#4245). */
+		spawnSync("git", ["init", "-q", fx.dir]);
 		// The per-member re-read (mantahostels#2553) calls `node scripts/admission.js`, which
 		// reads real /proc, `ps` and the reap script unless these four
 		// env vars point it elsewhere (`scripts/lib/admission.js`'s own injection
@@ -290,6 +320,7 @@ export function dispatchFixture(): DispatchFixture {
 			"fi",
 			`if [ "$1" = "agents" ]; then printf '%s\\n' ${shellQuote(agentsJson)}; exit 0; fi`,
 			envLog ? `env >> ${shellQuote(envLog)}` : "",
+			`pwd >> ${shellQuote(path.join(fx.dir, "launch-cwds"))}`,
 			launchFails
 				? "printf 'could not start\\n' >&2\nexit 1"
 				: `printf '%s\\n' ${shellQuote(launchOutput)}`,
@@ -361,6 +392,10 @@ export function dispatchFixture(): DispatchFixture {
 		return readArgvLines().find((l) => l.includes("--bg"));
 	}
 
+	function launchCwds(): string[] {
+		return readArgvLines(path.join(fx.dir, "launch-cwds"));
+	}
+
 	function readArgvLines(f: string = path.join(fx.dir, "argv")): string[] {
 		if (!fs.existsSync(f)) return [];
 		return fs.readFileSync(f, "utf8").trim().split("\n").filter(Boolean);
@@ -384,6 +419,7 @@ export function dispatchFixture(): DispatchFixture {
 		extraEnv: Record<string, string> = {},
 	): { stdout: string; stderr: string; code: number } {
 		const r = spawnSync("bash", [SCRIPT, ...args], {
+			cwd: fx.dir,
 			encoding: "utf8",
 			env: baseEnv(extraEnv),
 		});

@@ -19,6 +19,7 @@
  */
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -29,14 +30,76 @@ import {
 import {
 	agentsListing,
 	dispatchFixture,
+	LANDING_MODULES,
 	SCRIPT,
+	seedLandingCheckout,
 	writeCache,
 } from "./lib/dispatch-sessions-testkit";
 import { shellQuote } from "./lib/sh-quote.js";
 import { printedResets } from "./lib/usage-probe-fake";
 
 const fx = dispatchFixture();
-const { stubClaude, stubPath, baseEnv, launchArgv, readArgvLines, run } = fx;
+const {
+	stubClaude,
+	stubPath,
+	baseEnv,
+	launchArgv,
+	launchCwds,
+	readArgvLines,
+	run,
+} = fx;
+
+describe("the session's directory (#4245)", () => {
+	const git = (cwd: string, ...args: string[]) =>
+		execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+
+	it("starts each member in a fresh worktree detached at origin/landing", () => {
+		const landing = seedLandingCheckout(fx.dir);
+		stubClaude({});
+		const r = run(["sonnet", "/implement 341", "opus", "/wayfinder 1114"], {
+			WFC_MODULES: LANDING_MODULES,
+		});
+		expect(r.code).toBe(0);
+		const cwds = launchCwds();
+		expect(cwds).toHaveLength(2);
+		expect(new Set(cwds).size).toBe(2);
+		const worktrees = fs.realpathSync(
+			path.join(fx.dir, ".claude", "worktrees"),
+		);
+		for (const [cwd, name] of [
+			[cwds[0], /^implement-341-[0-9a-f]{6}$/],
+			[cwds[1], /^wayfinder-1114-[0-9a-f]{6}$/],
+		] as const) {
+			expect(path.dirname(cwd)).toBe(worktrees);
+			expect(path.basename(cwd)).toMatch(name);
+			expect(git(cwd, "rev-parse", "HEAD")).toBe(landing);
+			expect(() => git(cwd, "symbolic-ref", "-q", "HEAD")).toThrow();
+		}
+		expect(git(fx.dir, "status", "--porcelain", "-uno")).toBe("");
+	});
+
+	it("starts the member in the checkout itself where the repository has no landing module", () => {
+		stubClaude({});
+		expect(run(["sonnet", "/implement 341"]).code).toBe(0);
+		expect(launchCwds()).toEqual([fs.realpathSync(fx.dir)]);
+	});
+
+	it("refuses a member it finds no directory for, naming why", () => {
+		const outside = fs.mkdtempSync(path.join(os.tmpdir(), "not-a-repo-"));
+		stubClaude({});
+		const r = spawnSync("bash", [SCRIPT, "sonnet", "/implement 341"], {
+			cwd: outside,
+			encoding: "utf8",
+			env: baseEnv(),
+		});
+		fs.rmSync(outside, { recursive: true });
+		expect(r.status).toBe(0);
+		expect(r.stderr).toContain(
+			`REFUSED: /implement 341 — not launching this member.\n  session checkout: ${outside} is in no main checkout git can name — run this from inside the repository\n`,
+		);
+		expect(launchCwds()).toEqual([]);
+	});
+});
 
 describe("the advisor flag", () => {
 	it("attaches an Opus advisor to a Sonnet launch (mantahostels#1102)", () => {
@@ -75,6 +138,7 @@ describe("the advisor flag", () => {
 	it("takes the advisor model from WFC_DISPATCH_ADVISOR", () => {
 		stubClaude({});
 		execFileSync("bash", [SCRIPT, "--dry-run", "sonnet", "/implement 341"], {
+			cwd: fx.dir,
 			encoding: "utf8",
 			env: baseEnv({ WFC_DISPATCH_ADVISOR: "fable" }),
 		});
@@ -250,6 +314,7 @@ describe("the WFC_CLAUDE_BIN seam (mantahostels#1374)", () => {
 			{ mode: 0o755 },
 		);
 		const r = spawnSync("bash", [SCRIPT, "sonnet", "/implement 341"], {
+			cwd: fx.dir,
 			encoding: "utf8",
 			// claude-route-exempt: asserts a bare `claude` on PATH goes unread
 			env: baseEnv({ PATH: `${shadowDir}:${process.env.PATH}` }),

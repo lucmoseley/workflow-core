@@ -168,6 +168,34 @@ it("cuts a worktree detached at a freshly fetched origin/landing under the workt
 	);
 });
 
+it("gives a launch a worktree named for its prompt where the repository lands through landing (#4245)", () => {
+	const ahead = landOnOrigin({ "elsewhere.txt": "y" });
+
+	const first = run(main, "launch-dir", "/implement 4245");
+	const second = run(main, "launch-dir", "/implement 4245");
+
+	const dirs = [first, second].map((r) => {
+		expect(r.status, r.stderr).toBe(0);
+		const dir = r.stdout.trim();
+		expect(path.dirname(dir)).toBe(path.join(main, ".claude", "worktrees"));
+		expect(path.basename(dir)).toMatch(/^implement-4245-[0-9a-f]{6}$/);
+		expect(git(dir, "rev-parse", "HEAD")).toBe(ahead);
+		return dir;
+	});
+	expect(dirs[1]).not.toBe(dirs[0]);
+});
+
+it("gives a launch the main checkout itself where the repository has no landing module", () => {
+	const r = runInProcess(SCRIPT, ["launch-dir", "/implement 4245"], {
+		cwd: main,
+		env: { ...ENV(), WFC_MODULES: "" },
+	});
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stdout).toBe(`${main}\n`);
+	expect(fs.existsSync(path.join(main, ".claude", "worktrees"))).toBe(false);
+});
+
 it("cuts from inside a linked worktree into the main checkout's worktrees folder", () => {
 	expect(run(main, "cut", "one").status).toBe(0);
 	fs.mkdirSync(path.join(worktree("one"), "sub"));

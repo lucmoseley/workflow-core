@@ -7,6 +7,13 @@
  * `.claude/worktrees/<session-name>/` of the main checkout, and attaches its
  * dependencies.
  *
+ * LAUNCH-DIR is the directory a launcher starts a session in (#4245): a
+ * worktree cut for it where the repository lands through `landing`, else the
+ * main checkout, since a repository without the `landing` module has no
+ * `origin/landing` to cut from. Its name is the prompt's words and a random
+ * suffix, so a session's worktree reads as its task. A resume runs in
+ * the directory its job recorded, so it reopens the same worktree.
+ *
  * ATTACH points the worktree's `node_modules` at the dependency store keyed by
  * the hash of the worktree's own `package-lock.json`, building that store
  * first where none exists. A store is built once, by `npm ci --ignore-scripts`
@@ -63,6 +70,11 @@ const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 /* 64 bits of sha256: a collision among even 10^4 live lockfiles is ~3e-12
  * likely, and the name stays short enough to read in a path. */
 const KEY_HEX = 16;
+/* Untraced: enough of a prompt to name its task in a directory listing. */
+const SLUG_MAX = 40;
+/* 24 bits: two live worktrees for one prompt collide ~6e-8 of the time, and a
+ * collision costs one refused member, which the next tick launches again. */
+const SUFFIX_BYTES = 3;
 /* Untraced: room for a cold `npm ci` over a slow link. */
 const INSTALL_TIMEOUT_MS = 15 * 60_000;
 /* Untraced: a neighbour's fetch holds the ref lock for well under a second. */
@@ -455,4 +467,32 @@ function land(cwd) {
 	return { dir, head, merged, pushed: true, lander: startLanderFor(root, dir) };
 }
 
-module.exports = { attach, CheckoutError, cut, land, STORES };
+/**
+ * The worktree name for a session launched on `prompt`: its words joined by
+ * `-`, then random hex, as `/implement 4245` → `implement-4245-3fa9c1`.
+ * @param {string} prompt
+ * @returns {string}
+ */
+function buildSessionName(prompt) {
+	const slug = prompt
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.slice(0, SLUG_MAX)
+		.replace(/^-+|-+$/g, "");
+	return `${slug || "session"}-${crypto.randomBytes(SUFFIX_BYTES).toString("hex")}`;
+}
+
+/**
+ * LAUNCH-DIR, above.
+ * @param {string} cwd anywhere in the repository
+ * @param {string} prompt
+ * @returns {string}
+ */
+function launchDir(cwd, prompt) {
+	const root = rootOf(cwd);
+	return moduleOn("landing", { root })
+		? cut(root, buildSessionName(prompt)).dir
+		: root;
+}
+
+module.exports = { attach, CheckoutError, cut, land, launchDir, STORES };

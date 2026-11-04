@@ -69,7 +69,12 @@
 # WFC_DISPATCH_STAGGER_SECONDS between launches (default 2; mantahostels#2588)
 # so the next member's re-read sees the previous one's bg-spare.
 #
-# Exit codes: 0 launched (or dry-run; a member dropped by either drop above
+# EACH SESSION STARTS IN A DIRECTORY OF ITS OWN (#4229): a worktree cut from
+# `origin/landing` by `scripts/session-checkout.js launch-dir`, or this
+# checkout where the repo has no `landing` module. A member that gets no
+# directory is named on stderr and skipped, as a re-read refusal is.
+#
+# Exit codes: 0 launched (or dry-run; a member dropped by any drop above
 #             still exits 0, as does a set the allowance cap cut short),
 #             2 usage error, a seat file that refuses, or a non-Opus member
 #               on an overflow seat, 3 refused on allowance — a warned bar
@@ -86,6 +91,8 @@ set -uo pipefail
 # helper below is reached through it (#2876). `.` where run by a bare name.
 here="${BASH_SOURCE[0]%/*}"
 [[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
+# Absolute, since each launch runs from its session's own directory.
+[[ "$here" == /* ]] || here="$PWD/$here"
 
 # THE INTEROP PROBE (mantahostels#3111). A wedged WSL bridge makes `claude --bg` below never
 # return. The guard that catches this interactively is a shell FUNCTION
@@ -890,6 +897,19 @@ while [[ $# -gt 0 ]]; do
   refuse_if_interop_wedged
   refuse_if_kernel_unhealthy
 
+  # THE SESSION'S DIRECTORY (the header's). A launch that fails after the cut
+  # leaves its worktree for the reaper (#4247): clean at `origin/landing`,
+  # unless it timed out after the session started there.
+  # Its stderr, a store build's output or the refusal, goes to the launch's
+  # temp file, which the launch below overwrites, so a refusal's reason sits
+  # first under its REFUSED line, where lib/refill-batch.js reads it.
+  checkout_err="${launch_out_file:-/dev/null}"
+  if ! launch_dir="$(node "$here/session-checkout.js" launch-dir "$prompt" 2>"$checkout_err")"; then
+    printf 'REFUSED: %s — not launching this member.\n' "$prompt" >&2
+    sed 's/^/  /' "$checkout_err" >&2
+    continue
+  fi
+
   printf '%s  ' "$model"
   # SECOND LINE OF DEFENCE (mantahostels#3111): the probe reads the registry route alone, so
   # a `claude` that blocks for some other reason would still sit here forever.
@@ -901,10 +921,10 @@ while [[ $# -gt 0 ]]; do
   # file could not be made, the launch still runs; it is only the ledger's
   # `jobId` that goes missing, same as any other unrecorded field.
   if [[ -n "$launch_out_file" ]]; then
-    "${launch_ceiling[@]}" "${launch_cmd[@]}" 2>&1 |
+    (cd "$launch_dir" && exec "${launch_ceiling[@]}" "${launch_cmd[@]}") 2>&1 |
       tee "$launch_out_file" | head -1
   else
-    "${launch_ceiling[@]}" "${launch_cmd[@]}" 2>&1 | head -1
+    (cd "$launch_dir" && exec "${launch_ceiling[@]}" "${launch_cmd[@]}") 2>&1 | head -1
   fi
   launch_status=${PIPESTATUS[0]}
   # 124 is the ordinary expiry; 137 is 128+SIGKILL, what `-k` escalates to when

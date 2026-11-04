@@ -5,6 +5,9 @@
  *
  *   node scripts/session-checkout.js cut <session-name>
  *     prints the new worktree's path on stdout
+ *   node scripts/session-checkout.js launch-dir <prompt>
+ *     prints the directory a session launched on <prompt> starts in: a
+ *     worktree cut for it, or the main checkout where `landing` is off
  *   node scripts/session-checkout.js attach [<worktree>]
  *     re-points the worktree's node_modules at the store for its lockfile;
  *     the current directory's worktree where none is named
@@ -28,15 +31,20 @@ const {
 	CheckoutError,
 	cut,
 	land,
+	launchDir,
 } = require("./lib/session-checkout.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const CLI = {
 	usage:
-		"usage: node scripts/session-checkout.js cut <session-name> | attach [<worktree>] | land",
+		"usage: node scripts/session-checkout.js cut <session-name> | launch-dir <prompt> | attach [<worktree>] | land",
 	commands: {
 		cut: {
 			usage: "usage: node scripts/session-checkout.js cut <session-name>",
+			min: 1,
+		},
+		"launch-dir": {
+			usage: "usage: node scripts/session-checkout.js launch-dir <prompt>",
 			min: 1,
 		},
 		attach: {
@@ -57,6 +65,10 @@ const RUN = {
 	cut: (named) => {
 		if (named === undefined) throw new Error("cut names no session");
 		writeFd(1, `${cut(process.cwd(), named).dir}\n`);
+	},
+	"launch-dir": (named) => {
+		if (named === undefined) throw new Error("launch-dir names no prompt");
+		writeFd(1, `${launchDir(process.cwd(), named)}\n`);
 	},
 	attach: (named) => {
 		const made = attach(path.resolve(named ?? process.cwd()));

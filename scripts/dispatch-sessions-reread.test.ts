@@ -358,6 +358,7 @@ describe("the launch stagger (mantahostels#2553)", () => {
 			"bash",
 			[SCRIPT, "sonnet", "/implement 341", "opus", "/wayfinder 1114"],
 			{
+				cwd: fx.dir,
 				encoding: "utf8",
 				env: baseEnv({ WFC_DISPATCH_STAGGER_SECONDS: "1" }),
 			},
@@ -383,7 +384,7 @@ describe("the launch stagger (mantahostels#2553)", () => {
 		const r = spawnSync(
 			"bash",
 			[SCRIPT, "sonnet", "/implement 341", "opus", "/wayfinder 1114"],
-			{ encoding: "utf8", env },
+			{ cwd: fx.dir, encoding: "utf8", env },
 		);
 		expect(r.status).toBe(0);
 		expect(sleepArgs()).toEqual(["2"]);
@@ -397,6 +398,7 @@ describe("the launch stagger (mantahostels#2553)", () => {
 	it("never sleeps before the first launch, or after the last", () => {
 		stubClaude({});
 		const r = spawnSync("bash", [SCRIPT, "sonnet", "/implement 341"], {
+			cwd: fx.dir,
 			encoding: "utf8",
 			env: baseEnv({ WFC_DISPATCH_STAGGER_SECONDS: "1", ...stubSleep() }),
 		});
@@ -438,6 +440,7 @@ describe("the launch stagger (mantahostels#2553)", () => {
 			"bash",
 			[SCRIPT, "sonnet", "/implement 341", "opus", "/wayfinder 1114"],
 			{
+				cwd: fx.dir,
 				encoding: "utf8",
 				env: baseEnv({ WFC_DISPATCH_STAGGER_SECONDS: "1", ...stubSleep() }),
 			},
@@ -570,6 +573,7 @@ describe("the roster remedy on a refusal (mantahostels#2588)", () => {
 		stubClaude({ agentsJson: agentsListing(true) });
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    10 kB\n");
 		const r = spawnSync("bash", [SCRIPT, "sonnet", "/implement 341"], {
+			cwd: fx.dir,
 			encoding: "utf8",
 			// A HOME with no .claude* under it at all.
 			env: { ...baseEnv(), HOME: fx.dir },
@@ -603,6 +607,7 @@ describe("the roster remedy on a refusal (mantahostels#2588)", () => {
 		const env = baseEnv();
 		delete env.HOME;
 		const r = spawnSync("bash", [SCRIPT, "sonnet", "/implement 341"], {
+			cwd: fx.dir,
 			encoding: "utf8",
 			env,
 		});
@@ -641,6 +646,7 @@ describe("the roster remedy on a refusal (mantahostels#2588)", () => {
 		);
 
 		const r = spawnSync("bash", [SCRIPT, "sonnet", "/implement 341"], {
+			cwd: fx.dir,
 			encoding: "utf8",
 			env: baseEnv({
 				CLAUDE_CONFIG_DIR: configDir,

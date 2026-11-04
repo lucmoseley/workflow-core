@@ -36,6 +36,8 @@ describe("lib/tsc-slot.js", () => {
 		for (const runner of [
 			"node /r/node_modules/.bin/tsc --noEmit",
 			"/usr/bin/node /r/node_modules/typescript/bin/tsc -p hooks/tsconfig.json",
+			// A session worktree's cold `tsc`, its `node_modules` a store link (#4245).
+			"node /r/.claude/worktrees/implement-1-3fa9c1/node_modules/.bin/tsc --noEmit",
 		])
 			expect(tscDenial([...decoys, ...rows(runner)], 9000)).toEqual({
 				limb: "count",

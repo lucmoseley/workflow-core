@@ -44,6 +44,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 			"bash",
 			[path.join(shadow, "dispatch-sessions.sh"), "sonnet", "/implement 341"],
 			{
+				cwd: fx.dir,
 				encoding: "utf8",
 				env: fx.baseEnv({ CLAUDE_INTEROP_REG: fx.regWedged() }),
 			},

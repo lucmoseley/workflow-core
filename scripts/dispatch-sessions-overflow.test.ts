@@ -32,7 +32,9 @@ import {
 import {
 	agentsListing,
 	dispatchFixture,
+	LANDING_MODULES,
 	SCRIPT,
+	seedLandingCheckout,
 } from "./lib/dispatch-sessions-testkit";
 import { launchBatch } from "./lib/refill-batch.js";
 
@@ -189,6 +191,26 @@ describe("an overflow seat (#2610)", () => {
 		expect(r.launched.map((l) => l.jobId)).toEqual([JOB]);
 	});
 
+	it("starts the session in a fresh worktree detached at origin/landing, as a plan launch does (#4245)", () => {
+		const landing = seedLandingCheckout(fx.dir);
+		stubBg();
+		const r = dispatch(1, {
+			...overflowEnv(200),
+			WFC_MODULES: LANDING_MODULES,
+		});
+		expect(r.failed).toBeNull();
+		const [cwd = ""] = fx.launchCwds();
+		expect(path.dirname(cwd)).toBe(
+			fs.realpathSync(path.join(fx.dir, ".claude", "worktrees")),
+		);
+		expect(
+			spawnSync("git", ["rev-parse", "HEAD"], {
+				cwd,
+				encoding: "utf8",
+			}).stdout.trim(),
+		).toBe(landing);
+	});
+
 	it("sizes the set from the batch's checkout's table, whichever checkout the loop's env names (#3700)", () => {
 		stubBg();
 		const elsewhere = path.join(fx.dir, "elsewhere");
@@ -280,6 +302,7 @@ describe("an overflow seat (#2610)", () => {
 	it("refuses a non-Opus member before any gate, exit 2", () => {
 		stubBg();
 		const r = spawnSync("bash", [SCRIPT, "sonnet", "/implement 341"], {
+			cwd: fx.dir,
 			encoding: "utf8",
 			env: baseEnv(overflowEnv(200)),
 		});
@@ -357,6 +380,7 @@ describe("a plan seat on an overflow seat's dir (#3693)", () => {
 	it("launches as a plan member where no key is named: no helper, no prefix", () => {
 		stubBg();
 		const r = spawnSync("bash", [SCRIPT, "opus", "/implement 341"], {
+			cwd: fx.dir,
 			encoding: "utf8",
 			env: baseEnv({ ...overflowEnv(200), WFC_SEAT_KEY: "" }),
 		});
@@ -389,6 +413,7 @@ describe("the launch record that marks a session overflow (#3694)", () => {
 	it("leaves a plan launch's row as it was, and reads it as no overflow session", () => {
 		stubBg();
 		const r = spawnSync("bash", [SCRIPT, "opus", "/implement 341"], {
+			cwd: fx.dir,
 			encoding: "utf8",
 			env: baseEnv({ ...overflowEnv(200), WFC_SEAT_KEY: "" }),
 		});
