@@ -666,6 +666,7 @@ describe("the rules that were already here", () => {
 		expect(ctx).toContain(
 			"A no-behaviour fix gets a Standards-only re-review over its diff",
 		);
+		expect(ctx).toContain("only what you would not fix given time");
 	});
 
 	it("still gives /code-review the disposition rule alone, without the tracker pointers", () => {
