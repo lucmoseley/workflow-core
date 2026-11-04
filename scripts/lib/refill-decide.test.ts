@@ -1757,6 +1757,20 @@ describe("decideTick on a parked row's session seat (#3669)", () => {
 		});
 	});
 
+	it("launches a row whose parked label has gone on its takes: command, though a marker still lists it (#3872)", () => {
+		const unlabelled = row("wfc", 2, "implement", { parkedAt: null });
+		const d = tick({
+			mode: "normal",
+			freeSlots: 1,
+			frontier: [unlabelled],
+			seats: [seat("/s1", 10, 10), seat("/s2", 40, 20, null)],
+			parkers: [parker()],
+		});
+		expect(launched(d)).toEqual(["wfc#2"]);
+		expect(d.launches[0]).not.toHaveProperty("parkedRoute");
+		expect(d.launches[0].prompt).toBe("/implement 2");
+	});
+
 	it("routes it afresh where no resume is possible: no parker, a marker naming no job, or a seat the loop does not read", () => {
 		const full = seat("/s2", 100, 10);
 		const afresh = (d: ReturnType<typeof tick>) => d.launches[0].parkedRoute;
