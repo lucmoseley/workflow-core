@@ -192,9 +192,7 @@ function render(decision, at) {
 	if ("deny" in decision)
 		return { deny: decision.deny, latches: decision.latchWrites ?? [] };
 	if (!("context" in decision)) return renderInjection(decision, at);
-	const context = at.corePaths
-		? at.corePaths(decision.context)
-		: decision.context;
+	const context = respelled(decision.context, at.corePaths);
 	if (!at.room || context.length <= at.room())
 		return { context, latches: decision.latchWrites ?? [] };
 	at.log("a core's context overran the persist room — dropped");
@@ -220,7 +218,8 @@ function renderInjection(
 	decision,
 	{ payload, root, name, log, room, corePaths },
 ) {
-	const prelude = spelledPrelude(decision, corePaths);
+	const { prelude: written = "" } = decision;
+	const prelude = respelled(written, corePaths);
 	const overRoom = !!prelude && !!room && prelude.length > room();
 	if (overRoom) log("a core's prelude overran the persist room");
 	const kept = overRoom ? "" : prelude;
@@ -265,12 +264,12 @@ function renderInjection(
 }
 
 /**
- * An injection's prelude, its script paths respelled where `corePaths` is given.
- * @param {Injection} decision
+ * A Context or prelude, its script paths respelled where `corePaths` is given.
+ * @param {string} text
  * @param {((text: string) => string) | undefined} corePaths
  */
-const spelledPrelude = ({ prelude = "" }, corePaths) =>
-	prelude && corePaths ? corePaths(prelude) : prelude;
+const respelled = (text, corePaths) =>
+	text && corePaths ? corePaths(text) : text;
 
 /**
  * The rule cap and each id's fragment. A prelude alone is outside the cap, so a
