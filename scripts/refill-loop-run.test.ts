@@ -4308,7 +4308,15 @@ describe("away mode's return on the real tick (#3870)", () => {
 		expect(readControl().scope.mode).toBe("away");
 		expect(readControl().away.absentSeen).toBe(false);
 
-		typedAt(Date.now() - 2 * 60 * 60 * 1000);
+		/* The switch reads as presence for its first window (#4184), so both it
+		 * and the last prompt go back past one. */
+		const longAgo = Date.now() - 2 * 60 * 60 * 1000;
+		const control = readControl();
+		fs.writeFileSync(
+			controlFile(),
+			JSON.stringify({ ...control, away: { ...control.away, since: longAgo } }),
+		);
+		typedAt(longAgo);
 		wake();
 		await absentRead();
 		expect(readControl().scope.mode).toBe("away");

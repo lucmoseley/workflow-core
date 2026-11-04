@@ -303,16 +303,35 @@ const MAPPED: [string, string[], string][] = [
 	],
 ];
 
-/** The ids whose fragment text the emission carries, in the order they appear. */
-const idsIn = (ctx: string) =>
-	fs
+/** Every [start, end) at which `text` occurs in `ctx`. */
+const occurrences = (ctx: string, text: string) => {
+	const out: [number, number][] = [];
+	for (let at = ctx.indexOf(text); at >= 0; at = ctx.indexOf(text, at + 1))
+		out.push([at, at + text.length]);
+	return out;
+};
+
+/** The ids whose fragment text the emission carries, in the order they appear.
+ * An inline span's fragment is a sentence of its region's (#4155), so an id
+ * every occurrence of which lies inside another id's text was not handed. */
+const idsIn = (ctx: string) => {
+	const found = fs
 		.readdirSync(STORE)
 		.filter((f) => f.endsWith(".txt"))
 		.map((f) => f.replace(/\.txt$/, ""))
-		.map((id) => [id, ctx.indexOf(readRuleText(id))] as const)
-		.filter(([, at]) => at >= 0)
-		.sort((a, b) => a[1] - b[1])
-		.map(([id]) => id);
+		.map((id) => ({ id, at: occurrences(ctx, readRuleText(id)) }))
+		.filter(({ at }) => at.length > 0);
+	const inside = ([s, e]: [number, number], self: string) =>
+		found.some(
+			({ id, at }) =>
+				id !== self &&
+				at.some(([from, to]) => from <= s && e <= to && to - from > e - s),
+		);
+	return found
+		.filter(({ id, at }) => at.some((occ) => !inside(occ, id)))
+		.sort((a, b) => a.at[0][0] - b.at[0][0])
+		.map(({ id }) => id);
+};
 
 describe("each mapped shape is handed its row's rules, and refused nothing", () => {
 	it.each(MAPPED)("%s — %s", (command, ids) => {
