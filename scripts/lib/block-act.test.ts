@@ -62,17 +62,21 @@ describe("the LIMIT row (#3735)", () => {
 		weekRead: { percent: 50, atMs: NOW },
 		fits,
 	});
+	const moveSeatOf = ({ seat }: { seat: string | null }) =>
+		seat === null ? null : { seat };
 	/** The block a tick builds from these seats' readings, its seat "own". */
 	const limited = (seats: ReturnType<typeof reading>[], over = {}) => ({
 		cause: "LIMIT" as const,
 		since: NOW - 10 * MIN,
 		seat: "own",
-		movePick: pickMoveSeat({
-			seats,
-			typedSeat: null,
-			ownSeat: "own",
-			since: NOW - 10 * MIN,
-		}).seat,
+		movePick: moveSeatOf(
+			pickMoveSeat({
+				seats,
+				typedSeat: null,
+				ownSeat: "own",
+				since: NOW - 10 * MIN,
+			}),
+		),
 		...over,
 	});
 
@@ -87,6 +91,11 @@ describe("the LIMIT row (#3735)", () => {
 			expect(blockAct(limited([reading("own", 10)]), mode, NOW)).toBe(
 				"resume-in-place",
 			);
+		});
+
+		it(`${mode}: moves a session onto an overflow key on its own seat's dir (#3736)`, () => {
+			const onKey = { movePick: { seat: "own", keyVar: "K2" } };
+			expect(blockAct(limited([], onKey), mode, NOW)).toBe("move");
 		});
 
 		it(`${mode}: waits once held, until its seat reads open and a slot is free`, () => {

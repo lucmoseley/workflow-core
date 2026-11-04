@@ -2539,9 +2539,7 @@ function actOnLimit(l, own, seen, { mode, slots, moveSeats }) {
 	const block = {
 		...limitBlockOf(l),
 		seat: l.seat,
-		/* An overflow seat shares a plan seat's dir, its own included (#3701),
-		 * and is told apart by its key. */
-		movePick: target && (target.keyVar ? `key=${target.keyVar}` : target.seat),
+		movePick: target,
 		slotFree: slots > 0,
 	};
 	const act = blockAct(block, mode, seen.now);
