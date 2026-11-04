@@ -14,10 +14,11 @@
 const { caught } = require("./caught.js");
 
 /**
- * `ctx` with its treeClass port watched, and whether a throw is the repo
- * not resolving — the fault that stays open, for this file and for
- * lib/guard-dispatch.js's fail-closed cores alike.
- * @template {{ treeClass: (dir: string) => string }} C
+ * `ctx` with its treeClass port and any `tree` port watched, and whether a
+ * throw is the repo or the session's tree not resolving — the fault that
+ * stays open, for this file and for lib/guard-dispatch.js's fail-closed cores
+ * alike.
+ * @template {{ treeClass: (dir: string) => string, tree?: () => unknown }} C
  * @param {C} ctx
  * @returns {{ ctx: C, isRepoFault: (e: unknown) => boolean }}
  */
@@ -32,8 +33,21 @@ function watchRepoFault(ctx) {
 			throw e;
 		}
 	};
+	/* The session's tree, where the context carries one: unresolved is the
+	 * same fault (#4242). */
+	const read = ctx.tree;
+	const tree =
+		read &&
+		(() => {
+			try {
+				return read();
+			} catch (e) {
+				repoFault = e;
+				throw e;
+			}
+		});
 	return {
-		ctx: { ...ctx, treeClass },
+		ctx: { ...ctx, treeClass, ...(tree ? { tree } : {}) },
 		isRepoFault: (e) => repoFault !== undefined && e === repoFault,
 	};
 }

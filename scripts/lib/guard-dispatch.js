@@ -66,7 +66,7 @@ const {
 } = require("./guard-entry.js");
 const { logger, readPayload } = require("./entry-input.js");
 const { kitContext, sharedReaders } = require("./kit-context.js");
-const { hostRoot } = require("./host-root.js");
+const { hostRoot, sessionTree } = require("./host-root.js");
 const {
 	corePath,
 	isAdmitted,
@@ -104,22 +104,32 @@ const { loadCores } = require("./guard-core-load.js");
  *   git: import("./git.js").GitReader,
  *   readText: (rel: string) => string | null,
  *   repoRel: (file: string) => string | null,
+ * }} TreePorts one tree's reads: its root; git run there, one call per
+ *   distinct argument list; a file's text by its path from the root, null
+ *   where it is absent; and a path's spelling under the root
+ * @typedef {TreePorts & {
  *   exists: (p: string) => boolean,
  *   isFile: (p: string) => boolean,
  *   env: Record<string, string | undefined>,
  * }} CorePorts the dispatcher core contract its production adapters fill
- *   (#2786), the ports a core reads beyond the kit's: the host
- *   root; git, one call per distinct argument list; a repo-relative file's
- *   text, null where it is absent; a path's spelling under the root; whether
- *   a path exists, and whether it is a regular file; and the environment the
- *   entry was run in
+ *   (#2786), the ports a core reads beyond the kit's: the host root's tree
+ *   ports — where the shared stores live, claims, markers, ledgers, the rule
+ *   store; whether a path exists, and whether it is a regular file; and the
+ *   environment the entry was run in
  * @typedef {Pick<KitContext, "moduleOn" | "treeClass"> & CorePorts
  *   & Partial<Pick<KitContext, "fallbackCwd" | "vars">>} Adapters
  *   the hook's own directory and expansion scope, which test support fills
  *   in place of the hook's; the entry leaves both to the kit's, the process's
  *   cwd and environment
- * @typedef {KitContext & CorePorts & { session: string }} CoreContext
- *   `session` is the payload's session id, "" where it carries none
+ * @typedef {KitContext & CorePorts & { session: string,
+ *   tree: () => TreePorts }} CoreContext
+ *   `session` is the payload's session id, "" where it carries none. `tree`
+ *   is the session's tree (lib/host-root.js `sessionTree`): what a core reads
+ *   for `git status`, `HEAD`, the index or working files, which in a linked
+ *   worktree is that worktree and never the host. Resolved on first call; it
+ *   throws where git names no top level, a repo fault the core is allowed on,
+ *   logged (#4242). Each row's `tree` in lib/guard-cores.json records which
+ *   of the two its core reads.
  */
 
 const PRECEDENCE = /** @type {const} */ (["deny", "defer", "ask", "allow"]);
@@ -189,9 +199,10 @@ function dispatch(cores, env) {
 function judgeAndMerge(cores, env) {
 	const { payload, adapters, disabled } = env;
 	const host = { disabled, moduleOn: adapters.moduleOn };
+	const tree = lazyTree(payload, adapters, env.root);
 	const judged = cores
 		.filter((core) => isDispatchedOn(core, payload, host))
-		.map((core) => runCore(core, env));
+		.map((core) => runCore(core, env, tree));
 	const reserve = noticeRoom(judged, env.persistChars);
 	const { parts, latches, dropped } = fitToCap(
 		judged,
@@ -269,12 +280,42 @@ const overRoomNotice = (names) =>
 	`Over the hook context cap, these guards' advice was dropped unread: ${names.join(", ")}.`;
 
 /**
+ * The session tree's ports for one call, resolved once on first use from the
+ * payload's `cwd`, else the hook's own directory. The host's own ports are
+ * reused where the two are one tree, so a session in the main checkout reads
+ * as it always has.
+ * @param {Record<string, unknown>} payload
+ * @param {Adapters} adapters
+ * @param {string} root
+ * @returns {() => TreePorts}
+ */
+function lazyTree(payload, adapters, root) {
+	/** @type {TreePorts | undefined} */
+	let ports;
+	return () => {
+		if (ports) return ports;
+		const cwd =
+			typeof payload.cwd === "string" && payload.cwd
+				? payload.cwd
+				: (adapters.fallbackCwd ?? process.cwd());
+		const dir = sessionTree({ cwd });
+		if (dir === null)
+			throw new Error(
+				`git names no top level for ${cwd}, so the session's tree is unknown — allowed unchecked`,
+			);
+		ports = dir === root ? adapters : treePorts(dir);
+		return ports;
+	};
+}
+
+/**
  * One core judged: the part its fault makes, or its decision to render.
  * @param {Core} core
  * @param {DispatchEnv} env
+ * @param {() => TreePorts} tree
  * @returns {Judgement}
  */
-function runCore(core, { payload, root, adapters, logFor }) {
+function runCore(core, { payload, root, adapters, logFor }, tree) {
 	const log = logFor(core.name);
 	if ("loadFault" in core) return { part: thrown(core, core.loadFault, log) };
 	const subject = subjectFor(payload, core);
@@ -297,7 +338,7 @@ function runCore(core, { payload, root, adapters, logFor }) {
 		/** @type {CoreContext} */
 		const ctx = kitContext(
 			{ root, payload, log },
-			{ ...adapters, session, ...own },
+			{ ...adapters, session, tree, ...own },
 		);
 		watched = watchRepoFault(ctx);
 		decision = core.decide(subject, watched.ctx);
@@ -376,6 +417,20 @@ function thrown(core, msg, log) {
 function hostAdapters(root, log) {
 	return {
 		...sharedReaders(root, log),
+		...treePorts(root),
+		exists: (p) => fs.existsSync(p),
+		isFile: (p) => fs.statSync(p, { throwIfNoEntry: false })?.isFile() ?? false,
+		env: process.env,
+	};
+}
+
+/**
+ * The reads of the tree rooted at `root`, symlink-resolved.
+ * @param {string} root
+ * @returns {TreePorts}
+ */
+function treePorts(root) {
+	return {
 		root,
 		git: (args, noMatch) =>
 			gitOutcome(args, noMatch, root, HOOK_GIT_TIMEOUT_MS),
@@ -388,9 +443,6 @@ function hostAdapters(root, log) {
 			}
 		},
 		repoRel: (file) => repoRel(file, root),
-		exists: (p) => fs.existsSync(p),
-		isFile: (p) => fs.statSync(p, { throwIfNoEntry: false })?.isFile() ?? false,
-		env: process.env,
 	};
 }
 

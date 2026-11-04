@@ -14,6 +14,9 @@
  *  - It judges the decidable half alone: a number BOTH trackers used passes.
  *  - It is silent in an adopter, where `ec8654cd` does not resolve.
  *  - A git fault allows the write, logged (mantahostels#147).
+ *
+ * SESSION TREE (#4242): the written file is named and read in the session's
+ * tree, so a worktree's write is judged by its own path there.
  */
 
 const {
@@ -37,11 +40,12 @@ const WHY_CHARS = 300;
  * — so a write that only moves an old citation is not judged for it.
  * @param {string} rel
  * @param {CoreContext} ctx
+ * @param {import("./guard-dispatch.js").TreePorts} tree
  */
-function addedLines(rel, ctx) {
+function addedLines(rel, ctx, tree) {
 	const text = (/** @type {unknown} */ v) => (typeof v === "string" ? v : "");
 	const edit = ctx.tool === "Edit";
-	const before = edit ? text(ctx.input.old_string) : (ctx.readText(rel) ?? "");
+	const before = edit ? text(ctx.input.old_string) : (tree.readText(rel) ?? "");
 	const after = text(edit ? ctx.input.new_string : ctx.input.content);
 	const had = new Set(before.split("\n"));
 	return after.split("\n").filter((l) => !had.has(l));
@@ -56,9 +60,12 @@ function decide(file, ctx) {
 	const written = ctx.input.content ?? ctx.input.new_string;
 	if (typeof written !== "string" || !written.includes(`${PREFIX}#`))
 		return null;
-	const rel = ctx.repoRel(file);
+	const tree = ctx.tree();
+	const rel = tree.repoRel(file);
 	if (rel === null) return null;
-	const lines = addedLines(rel, ctx).filter((l) => l.includes(`${PREFIX}#`));
+	const lines = addedLines(rel, ctx, tree).filter((l) =>
+		l.includes(`${PREFIX}#`),
+	);
 	if (lines.length === 0) return null;
 	const rev = baselineRev(ctx.env);
 	const baseline = readBaselineCommit(ctx.git, rev);

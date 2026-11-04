@@ -19,6 +19,7 @@ import { defineTemplate, trioTemplate } from "./git-fixture";
 import { loadCores } from "./guard-core-load.js";
 import { dispatch, hostAdapters, type Output } from "./guard-dispatch.js";
 import { writeLatches } from "./guard-entry.js";
+import { MARKERS_REL } from "./marker-root.js";
 import { readHookPersistChars } from "./rule-emission.js";
 
 /**
@@ -61,6 +62,17 @@ export const splitCheckout = (dir: string) => {
 		main: fs.realpathSync(path.join(dir, "shared")),
 		worktree: fs.realpathSync(path.join(dir, "wt")),
 	};
+};
+
+/**
+ * The rule latches written under `root`'s marker store, by file name: where a
+ * host-root core's run left its told rules (#4242).
+ */
+export const latchesAt = (root: string) => {
+	const dir = path.join(root, MARKERS_REL);
+	return fs.existsSync(dir)
+		? fs.readdirSync(dir).filter((f) => f.startsWith(".rule-injected-"))
+		: [];
 };
 
 export interface CoreRun {

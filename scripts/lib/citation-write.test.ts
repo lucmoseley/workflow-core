@@ -10,6 +10,10 @@
  * `ec8654cd` through `WFC_CITATION_BASELINE`. The citations are built at run
  * time so the commit gate never reads this file's own lines as mis-copies.
  * The rule text and its latch are lib/guard-entry.test.ts's.
+ *
+ * The seam-2 case (#4242) runs the core through the dispatcher from a linked
+ * worktree of a main checkout: the write is named by its path in the
+ * session's tree.
  */
 
 import { execFileSync } from "node:child_process";
@@ -25,16 +29,19 @@ import {
 	it,
 	vi,
 } from "vitest";
+import { freshSandbox } from "./arbiter-testkit";
+import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
 
 const { decide } = require("./citation-write.js") as {
 	decide: (file: string, ctx: Record<string, unknown>) => unknown;
 };
 const { hostAdapters } = require("./guard-dispatch.js") as {
-	hostAdapters: (
-		root: string,
-		log: (what: string) => void,
-	) => Record<string, unknown>;
+	hostAdapters: (root: string, log: (what: string) => void) => Ports;
+};
+
+type Ports = Record<string, unknown> & {
+	git: (args: string[], noMatch: number[]) => unknown;
 };
 
 const cite = (n: number) => `${"mantahostels"}#${n}`;
@@ -76,6 +83,12 @@ const repoCopy = () => {
 	return copy;
 };
 
+/** The host's ports, standing in for the session's tree as well. */
+const portsAt = (at: string) => {
+	const ports = hostAdapters(at, () => undefined);
+	return { ...ports, tree: () => ports };
+};
+
 const judged = (
 	tool: "Write" | "Edit",
 	file: string,
@@ -85,7 +98,7 @@ const judged = (
 	decide(
 		`${at}/${file}`,
 		kitContextFake({
-			...hostAdapters(at, () => undefined),
+			...portsAt(at),
 			input: { file_path: `${at}/${file}`, ...input },
 			tool,
 			log: (what: string) => logs.push(what),
@@ -167,8 +180,8 @@ describe("any other write", () => {
 	});
 
 	it("allows a write whose inherited numbers git cannot read, logged", () => {
-		const real = hostAdapters(repo, () => undefined);
-		const git = real.git as (a: string[], n: number[]) => unknown;
+		const real = portsAt(repo);
+		const { git } = real;
 		expect(
 			decide(
 				`${repo}/f.md`,
@@ -194,7 +207,7 @@ describe("any other write", () => {
 		fs.mkdirSync(bare, { recursive: true });
 		expect(
 			decide(`${bare}/e.md`, {
-				...hostAdapters(bare, () => undefined),
+				...portsAt(bare),
 				input: { content: `See ${cite(2015)}.\n` },
 				tool: "Write",
 				log: (what: string) => logs.push(what),
@@ -205,5 +218,38 @@ describe("any other write", () => {
 				/^git did not judge e\.md \(.+\) — citation rule not injected$/,
 			),
 		]);
+	});
+});
+
+describe("a write from a session in its own worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+
+	const prelude = (file: string, worktree?: string) => {
+		const head = execFileSync("git", ["rev-parse", "HEAD"], {
+			cwd: at.main,
+			encoding: "utf8",
+		}).trim();
+		return runCore(
+			"guard-citation-tracker",
+			toolCall("Write", { file_path: file, content: `See ${cite(2015)}.\n` }),
+			{
+				root: at.main,
+				worktree,
+				env: { WFC_CITATION_BASELINE: head },
+			},
+		).output?.additionalContext;
+	};
+
+	it("names the file by its path in the worktree", () => {
+		expect(prelude(path.join(at.worktree, "notes.md"), at.worktree)).toContain(
+			`notes.md adds ${cite(2015)} (write #2015)`,
+		);
+	});
+
+	it("is silent on a worktree file judged from the main checkout, where the path lies outside its tree", () => {
+		expect(prelude(path.join(at.worktree, "notes.md"))).toBeUndefined();
 	});
 });
