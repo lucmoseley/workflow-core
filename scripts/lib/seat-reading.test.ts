@@ -1,13 +1,10 @@
 // @vitest-environment node
 /*
  * A seat's reading, its cap sizing and the overflow seats' readings
- * (lib/seat-reading.js, #4218): the reading off a seat's bars, which stale
- * seats a tick refreshes and which it sizes, the cap call's flags and count,
- * the seats due a read for the panel, and each overflow seat's reading with
- * its budget injected. No fixture touches disk but the usage caches the
- * reading cases write, the cap call run on them, and the reads of
- * dispatch-sessions.sh that pin the copies of its cap thresholds and cap-call
- * flags to the script's.
+ * (lib/seat-reading.js, #4218), each overflow seat's budget injected. No
+ * fixture touches disk but the usage caches the reading cases write, the cap
+ * call run on them, and the reads of dispatch-sessions.sh that pin the copies
+ * of its cap thresholds and cap-call flags to the script's.
  *
  * Loosen one and failover leaves its order, a full seat reopens before its
  * reset, a stale seat behind a full one is waited on rather than read, the

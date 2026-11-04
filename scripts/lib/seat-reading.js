@@ -373,8 +373,7 @@ function parseCapFits(stdout) {
 
 /**
  * A seat's bars off lib/allowance.js and its reading off them. `usageText`, a
- * printed `/usage`, stands in for a stale cache; with none the cache alone is
- * read.
+ * printed `/usage`, stands in for a stale cache.
  * @param {string} seat
  * @param {number} now
  * @param {string} [usageText]
@@ -399,8 +398,7 @@ const readSeatReadings = (seats, usage = new Map(), now = Date.now()) =>
  * read through the `allowance.js --cap` call it makes, fed the seat's printed
  * `/usage` as the dispatcher feeds its probe's, run in `root` as the
  * dispatcher runs in the checkout it launches into, so both read that host's
- * cost table (#2937); null where it cannot be sized. A cap the loop could not
- * size off a trustworthy reading is a fault.
+ * cost table (#2937); null where it cannot be sized.
  * @param {string|undefined} root
  * @param {string} seat
  * @param {number} members
@@ -444,8 +442,7 @@ const buildCapUnsizedLine = (seat, cap) =>
 
 /**
  * readCap's count in `root`, with `note` given the line naming a cap unsized:
- * readSizedSeats's `sizeOf`. With no `usageText` the seat's cache alone is
- * read.
+ * readSizedSeats's `sizeOf`.
  * @param {string|undefined} root
  * @param {(line: string) => void} note
  * @returns {(seat: string, members: number, usageText?: string) => number|null}
