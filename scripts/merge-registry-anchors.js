@@ -2,8 +2,7 @@
 /*
  * merge-registry-anchors.js — git's merge driver for
  * `.claude/guard-registry-anchors.json` (#4171), so a merge, revert or
- * cherry-pick never stops on a conflict there. `.gitattributes` names it and
- * install-hooks.js defines it:
+ * cherry-pick never stops on a conflict there:
  *
  *   node <abs>/scripts/merge-registry-anchors.js %O %A %B
  *
@@ -14,9 +13,7 @@
  * Where a side is not a JSON object of digests, it falls back to git's own
  * text merge, markers and all, and exits 1, a conflict.
  *
- * In no family (§N3): git runs it on three temporary files, and its exit is
- * git's merge-driver alphabet: 0 merged, 1 conflicted, 129 a call missing a
- * file or a text merge that failed.
+ * In no family (§N3): its exits are git's merge-driver alphabet, not runCheck's.
  */
 
 const fs = require("node:fs");
