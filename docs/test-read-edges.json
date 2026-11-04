@@ -11705,6 +11705,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/guard-dispatch.test.ts",
 			"scripts/lib/branch-publish.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/guard-dispatch.test.ts",

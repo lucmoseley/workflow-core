@@ -160,9 +160,9 @@ describe("each exit path", () => {
 	});
 
 	describe("over a planted manifest", () => {
-		/* The entry, the kit and the manifest reader copied, every other
-		 * require pointed at the real lib, so the kit reads the planted manifest
-		 * and core modules beside its copy. */
+		/* The entry, the kit, its core loader and the manifest reader copied,
+		 * every other require pointed at the real lib, so the kit reads the
+		 * planted manifest and core modules beside its copy. */
 		const plantKit = (files: Record<string, string>) => {
 			const at = path.join(dir, "planted");
 			const lib = path.join(at, "scripts", "lib");
@@ -181,7 +181,8 @@ describe("each exit path", () => {
 						),
 				);
 			copy("guard-dispatch.js", ["guard-dispatch.js"]);
-			copy("lib/guard-dispatch.js", ["guard-cores.js"]);
+			copy("lib/guard-dispatch.js", ["guard-cores.js", "guard-core-load.js"]);
+			copy("lib/guard-core-load.js", ["guard-cores.js"]);
 			copy("lib/guard-cores.js", []);
 			for (const [name, text] of Object.entries(files))
 				fs.writeFileSync(path.join(lib, name), text);
