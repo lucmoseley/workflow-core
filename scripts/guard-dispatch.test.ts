@@ -295,12 +295,17 @@ describe("each input channel", () => {
 		expect(fs.existsSync(failOpenLogPath(config, dir))).toBe(false);
 	});
 
-	it("allows a payload that is not JSON, logged", () => {
+	it("allows a payload that is not JSON, logged in the dispatcher's own name (#4134)", () => {
 		const r = fed("{not json");
 		expect([r.status, r.stdout]).toEqual([0, ""]);
-		expect(readFailOpenLog(config, dir)).toMatch(
-			/payload did not parse as JSON/,
+		const log = readFailOpenLog(config, dir);
+		expect(log).toMatch(/payload did not parse as JSON/);
+		const [when, where, ...rest] = (log.trim().split("\n")[0] ?? "").split(
+			"\t",
 		);
+		expect(rest).toHaveLength(1);
+		expect(Number.isNaN(Date.parse(when ?? ""))).toBe(false);
+		expect(where).toMatch(/guard-dispatch\.js/);
 	});
 
 	it("refuses through the shim where stdin will not read, logged (#4132)", () => {
