@@ -411,7 +411,7 @@ const stubOracle = () => {
 		path.join(kit.dir, "agents.json"),
 		JSON.stringify(
 			kit.oracleSessions.map((entry) => {
-				const [id, pid] = entry.split("@");
+				const [id = "", pid] = entry.split("@");
 				return {
 					sessionId: id,
 					...(pid ? { pid: Number(pid) } : {}),
@@ -674,7 +674,7 @@ export const run = async (
 		json: () => JSON.parse(r.stdout || "{}"),
 		/** The frontier's issue numbers, in printed order. */
 		order: () =>
-			(out.split("\nEXCLUDED")[0].match(/^#(\d+) /gm) ?? []).map((s) =>
+			(out.split("\nEXCLUDED", 1)[0]?.match(/^#(\d+) /gm) ?? []).map((s) =>
 				Number(s.slice(1)),
 			),
 		calls: () =>
