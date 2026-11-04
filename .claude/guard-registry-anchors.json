@@ -79,7 +79,7 @@
 	"scripts/replay-notify-reports.js": "ca882c128d90b023",
 	"scripts/report-suite-queue-wait.js": "57f13594659f207a",
 	"scripts/run-pinned-guards.js": "ddb8c4e1ab7ac6cf",
-	"scripts/run-vitest.js": "5524b2ef134900e4",
+	"scripts/run-vitest.js": "d27abec0cd04b700",
 	"scripts/self-plugin-canary.sh": "b779d59b4560857b",
 	"scripts/session-arbiter.js": "0e709f089a27fa4a",
 	"scripts/stale-write-back-gate.sh": "4c4b42b940031743",
