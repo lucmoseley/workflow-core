@@ -73,7 +73,6 @@ const readGhCalls = () =>
 	fs.existsSync(ghLog())
 		? fs.readFileSync(ghLog(), "utf8").split("\n").filter(Boolean)
 		: [];
-/** The issues the real file-issue.js created through the stub. */
 const readFiled = () =>
 	readGhCalls().filter((l) => l.startsWith("issue create"));
 

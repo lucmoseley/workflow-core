@@ -11,7 +11,7 @@ export const ISSUE = 77;
 export const NOW = 1_800_000_000_000;
 export const MIN = 60_000;
 
-/* The id in the line `repo-hold.js raise` prints, for tests that go on to use it. */
+/* The id in the line `repo-hold.js raise` prints. */
 export const parseHoldId = (stdout: string) => {
 	const id = /raised: ([0-9a-f]+) /.exec(stdout)?.[1];
 	if (!id) throw new Error(`no hold id in: ${stdout}`);
