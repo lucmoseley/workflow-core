@@ -823,18 +823,10 @@ describe("the queue's ordering, so waiters do not stampede (mantahostels#2024)",
 	 * waiter takes its turn during the gap before vitest is visible to the gate. */
 	it("holds its place until the run finishes", async () => {
 		const queueDir = qdir();
-		const seen: number[] = [];
 		const { spawnFn: inner } = spawnReturning({ code: 0 });
 		const atSpawn: number[] = [];
-		const admittedAtSpawn: unknown[] = [];
 		const spawnFn = ((...args: unknown[]) => {
-			const names = fs.readdirSync(queueDir);
-			atSpawn.push(names.length);
-			for (const name of names)
-				admittedAtSpawn.push(
-					JSON.parse(fs.readFileSync(path.join(queueDir, name), "utf8"))
-						.admitted,
-				);
+			atSpawn.push(fs.readdirSync(queueDir).length);
 			return (inner as (...a: unknown[]) => unknown)(...args);
 		}) as typeof inner;
 		const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
@@ -847,18 +839,12 @@ describe("the queue's ordering, so waiters do not stampede (mantahostels#2024)",
 				queueDir,
 				pid: 11,
 				clock: () => 100,
-				gate: () => {
-					seen.push(fs.readdirSync(queueDir).length);
-					return false;
-				},
+				gate: () => false,
 			});
 		} finally {
 			stdout.mockRestore();
 		}
-		expect(seen).toEqual([1]);
 		expect(atSpawn).toEqual([1]);
-		// Admitted before the launch, so no other waiter's turn comes (#2578).
-		expect(admittedAtSpawn).toEqual([true]);
 		expect(fs.readdirSync(queueDir)).toEqual([]);
 	});
 });
@@ -870,57 +856,6 @@ describe("a waiter that is KILLED, not resolved (mantahostels#2034)", {
 	 * No injected fake reaches a real signal: Node runs no pending `.finally()`
 	 * on SIGTERM, so only a killed process shows whether its marker goes.
 	 */
-	const holder = (queueDir: string) => `
-		const { main } = require(${JSON.stringify(path.resolve("scripts/run-vitest.js"))});
-		let told = false;
-		main(["--queue", "--full=coverage"], {
-			queueDir: ${JSON.stringify(queueDir)},
-			queueLog: null,
-			out: { write: () => true },
-			gate: () => {
-				if (!told) process.stdout.write("joined\\n");
-				told = true;
-				return true;
-			},
-			sleepFn: () => new Promise((r) => setTimeout(r, 50)),
-		});
-	`;
-
-	const spawnHolder = (queueDir: string) =>
-		new Promise<import("node:child_process").ChildProcess>((resolve) => {
-			const child = realSpawn(process.execPath, ["-e", holder(queueDir)], {
-				stdio: ["ignore", "pipe", "inherit"],
-			});
-			child.stdout?.on("data", () => resolve(child));
-		});
-
-	it("removes its marker when it is SIGTERMed", async () => {
-		const queueDir = fs.mkdtempSync(path.join(os.tmpdir(), "killq-"));
-		dirs.push(queueDir);
-		const child = await spawnHolder(queueDir);
-		expect(fs.readdirSync(queueDir)).toHaveLength(1);
-
-		await new Promise<void>((resolve) => {
-			child.on("exit", () => resolve());
-			child.kill("SIGTERM");
-		});
-
-		expect(fs.readdirSync(queueDir)).toEqual([]);
-	});
-
-	it("removes its marker when it is SIGINTed", async () => {
-		const queueDir = fs.mkdtempSync(path.join(os.tmpdir(), "killq-"));
-		dirs.push(queueDir);
-		const child = await spawnHolder(queueDir);
-
-		await new Promise<void>((resolve) => {
-			child.on("exit", () => resolve());
-			child.kill("SIGINT");
-		});
-
-		expect(fs.readdirSync(queueDir)).toEqual([]);
-	});
-
 	it("logs its exit when it is SIGTERMed mid-wait", async () => {
 		const queueDir = fs.mkdtempSync(path.join(os.tmpdir(), "killq-"));
 		dirs.push(queueDir);
@@ -955,6 +890,9 @@ describe("a waiter that is KILLED, not resolved (mantahostels#2034)", {
 		});
 
 		expect(code).toBe(143);
+		expect(
+			fs.readdirSync(queueDir).filter((f) => f.startsWith("wfc-suite-queue-")),
+		).toEqual([]);
 		expect(readJsonl(queueLog)).toMatchObject([
 			{
 				reason: "killed",

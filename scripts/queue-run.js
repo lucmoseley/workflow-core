@@ -56,17 +56,7 @@ const {
 	buildLaunchPorts,
 } = require("./lib/suite-concurrency-host.js");
 const { isQueueable, suiteLaunchKind } = require("./lib/suite-launch.js");
-const {
-	QUEUE_SIGNALS,
-	SEAT_ENV,
-	heldMarker,
-	queueJoin,
-	queueLeave,
-	queueStamps,
-	queueSpawned,
-	passingTurn,
-	waitForGate,
-} = require("./lib/suite-queue.js");
+const { SEAT_ENV, heldMarker, queueSeat } = require("./lib/suite-queue.js");
 const { unwrap } = require("./lib/shell-words.js");
 const {
 	TSC_BUSY_EXIT,
@@ -221,13 +211,10 @@ function exitStatus(code, signal) {
 
 /** @typedef {"seat" | "tsc" | null} Slot */
 
-/** @typedef {ReturnType<typeof queueStamps>} Stamps */
+/** @typedef {import("./lib/suite-queue.js").QueueSeat["stamps"]} Stamps */
 
 /** @param {object} gate */
-const waitOn = (gate) => (/** @type {Stamps} */ stamps) => ({
-	...gate,
-	...stamps,
-});
+const waitOn = (gate) => () => gate;
 
 const refusedRun = () => 1;
 
@@ -246,7 +233,6 @@ const tryOn = (gate) => (/** @type {Stamps} */ stamps) => {
 	let yielded = false;
 	return {
 		...gate,
-		...stamps,
 		timeoutMs: 0,
 		out: { write: () => true },
 		sleepFn: () => Promise.resolve(),
@@ -382,60 +368,46 @@ async function run(words, slot, options, err) {
 	 * held already, and queueing would wait behind it forever (#3404). */
 	const held = slot === "tsc" && heldMarker(TSC_SLOT_ENV, options) !== null;
 	const { queue, join, wait, refused, exitExtra } = slotWait(slot, options);
-	const ticket = held ? "" : queueJoin(join);
-	const stamps = queueStamps(ticket, queue);
-	const started = Date.now();
 	/** @type {import("node:child_process").ChildProcess | null} */
 	let child = null;
-	let waiting = !held;
+	/* A killed waiter exits on the spot: its poll would otherwise run on. Once
+	 * the wait has ended a signal is the command's to answer, and this process
+	 * exits on the command's exit. */
+	const seat = queueSeat({
+		queue,
+		join: held ? false : join,
+		logExit: exitExtra
+			? (reason, waitMs, extra) =>
+					logExit(reason, waitMs, {
+						...extra,
+						...(reason === "killed" ? {} : exitExtra),
+					})
+			: logExit,
+		signals: {
+			...(options.signals ? { emitter: options.signals } : {}),
+			...(options.exit ? { exit: options.exit } : {}),
+			onSignal: (signal) => {
+				child?.kill(signal);
+				return true;
+			},
+		},
+	});
 	/** @type {(code: number) => void} */
 	let finish = () => {
 		/* replaced as `done` is built */
 	};
 	const done = new Promise((resolve) => {
 		finish = (code) => {
-			queueLeave(ticket, queue);
+			seat.leave();
 			resolve(code);
 		};
 	});
 
-	/* A killed waiter exits on the spot: its poll would otherwise run on. */
-	const signals = options.signals ?? process;
-	const exit = options.exit ?? process.exit;
-	/** @param {NodeJS.Signals} signal @param {number} code */
-	const onSignal = (signal, code) => {
-		if (child) {
-			child.kill(signal);
-			return;
-		}
-		if (!waiting) return;
-		waiting = false;
-		logExit("killed", Date.now() - started, {
-			signal,
-			...stamps.killedHold(),
-		});
-		queueLeave(ticket, queue);
-		exit(code);
-	};
-	for (const [signal, code] of Object.entries(QUEUE_SIGNALS)) {
-		const name = /** @type {NodeJS.Signals} */ (signal);
-		signals.on(name, () => onSignal(name, code));
-	}
-
 	if (!held) {
-		const { turn, exitFields } = passingTurn(queue);
-		const outcome = await waitForGate({
-			turn,
+		const outcome = await seat.wait({
 			label: LABEL,
 			...queue,
-			...wait(stamps),
-			onExit: (reason, waitMs, heldBy) => {
-				waiting = false;
-				logExit(reason, waitMs, {
-					...exitFields(reason, heldBy),
-					...exitExtra,
-				});
-			},
+			...wait(seat.stamps),
 		});
 		if (outcome === "refused") {
 			finish(refused(err));
@@ -447,10 +419,10 @@ async function run(words, slot, options, err) {
 	const handed = held || !slot ? null : SLOT_ENVS[slot];
 	const running = (options.spawnFn ?? spawn)(command, args, {
 		stdio: "inherit",
-		...(handed ? { env: { ...process.env, [handed]: ticket } } : {}),
+		...(handed ? { env: { ...process.env, [handed]: seat.ticket } } : {}),
 	});
 	child = running;
-	running.once("spawn", () => queueSpawned(ticket, queue));
+	running.once("spawn", seat.spawned);
 	running.once("error", (error) => {
 		err.write(`${LABEL}: ${command} would not start — ${error.message}\n`);
 		finish(127);

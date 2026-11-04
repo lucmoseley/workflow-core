@@ -83,16 +83,11 @@ const inflight = require("./lib/test-inflight.js");
 const timings = require("./lib/test-file-timings.js");
 const { reportForFile } = require("./lib/run-cost-report.js");
 const {
-	QUEUE_SIGNALS,
 	SEAT_ENV,
+	armSeatSignals,
 	gateDenies,
 	heldSeat,
-	queueJoin,
-	queueSpawned,
-	queueStamps,
-	queueLeave,
-	passingTurn,
-	waitForGate,
+	queueSeat,
 } = require("./lib/suite-queue.js");
 const { readOwnPaths, readOwnWork } = require("./lib/own-work.js");
 const idSeam = require("./lib/session-id.js");
@@ -581,7 +576,7 @@ function runOnce(
 		session = idSeam.fromEnv(),
 		yieldCpu = yieldToWhole,
 		err = process.stderr,
-		/* What SIGKILLs the run's carriers, here and in `releaseAndExit`. */
+		/* What SIGKILLs the run's carriers, here and in `releaseRunsAndWorktrees`. */
 		killCarrier = killPid,
 		...expandOptions
 	} = {},
@@ -661,7 +656,7 @@ function runOnce(
 		/* A signal to this process would otherwise leave the group running:
 		 * the handlers exit, and the exit kills every group still held. Armed
 		 * before the spawn, so no signal lands between it and them. */
-		armSignals(fs);
+		armSignals();
 		heldRuns.set(inflightFile, killCarrier);
 		/* A group of its own, so a kill reaches every worker vitest forks. */
 		const child = spawnFn(
@@ -898,38 +893,24 @@ function runOnce(
 	});
 }
 
-/**
- * Markers `releaseAndExit` removes if this process is killed, and whether the
- * handlers that call it are armed (mantahostels#2034).
- *
- * ARMED ONCE PER PROCESS, not once per marker: `main` can run many
- * times in a test run, and a listener per call exhausts the emitter's cap and
- * leaks handlers into whatever runs next.
- */
-const heldMarkers = new Set();
-/* Isolated worktrees `releaseAndExit` removes if this process is killed
- * rather than resolved, since a `.finally()` does not run on a signal and a
- * leaked worktree is a whole checkout (mantahostels#2034, mantahostels#2169). */
+/* Isolated worktrees `releaseRunsAndWorktrees` removes on a signal, since a `.finally()`
+ * does not run on a signal and a leaked worktree is a whole checkout
+ * (mantahostels#2034, mantahostels#2169). */
 /** @type {Set<{ root: string, dir: string }>} */
 const heldWorktrees = new Set();
-/* Each still-waiting queue run's exit-log writer (#1215): a killed waiter
- * leaves the queue through the handler below, never through `waitForGate`. */
-/** @type {Set<(signal: string) => void>} */
-const waitingExits = new Set();
-/* Each live run's in-flight file, whose carriers `releaseAndExit` kills
- * (#3494), and its run's kill. */
+/* Each live run's in-flight file, whose carriers `releaseRunsAndWorktrees`
+ * kills on a signal (#3494), and its run's kill. */
 /** @type {Map<string, typeof killPid>} */
 const heldRuns = new Map();
-let signalsArmed = false;
 
 /**
- * @param {string} signal
- * @param {number} code
- * @param {typeof fs} queueFs
+ * What a signal to this process takes down before its queue seats leave:
+ * each live run's carriers and each isolated worktree. Each removal is best
+ * effort, and one that throws must not strand the rest.
+ *
  * @returns {void}
  */
-function releaseAndExit(signal, code, queueFs) {
-	for (const logExit of waitingExits) logExit(signal);
+function releaseRunsAndWorktrees() {
 	for (const [file, kill] of heldRuns) {
 		const unkilled = killCarrying(inflight.INFLIGHT_ENV, file, { kill });
 		if (!unkilled) continue;
@@ -939,16 +920,6 @@ function releaseAndExit(signal, code, queueFs) {
 			/* A lost line must not strand the removals below (#3585). */
 		}
 	}
-	for (const file of heldMarkers) {
-		try {
-			queueFs.unlinkSync(file);
-		} catch {
-			/* already gone */
-		}
-	}
-	/* Synchronous by necessity: the handler exits at the end of this tick,
-	 * so anything deferred never runs. Each removal is best effort, and one
-	 * that throws must not strand the rest. */
 	for (const held of heldWorktrees) {
 		try {
 			removeIsolated(held.root, held.dir);
@@ -956,27 +927,17 @@ function releaseAndExit(signal, code, queueFs) {
 			/* Reported inside removeIsolated. */
 		}
 	}
-	process.exit(code);
 }
 
 /**
- * Remove this process's markers if it is terminated rather than resolved.
+ * Take this process's runs and worktrees down if it is terminated rather
+ * than resolved: a promise `.finally()` does not run on a signal
+ * (mantahostels#2034). Idempotent, and shared with the queue seats' handler.
  *
- * A promise `.finally()` does not run on a signal, so without this every
- * killed waiter would leak its place in the queue and later waiters would
- * queue behind processes that had stopped waiting (mantahostels#2034).
- *
- * @param {typeof fs} queueFs
  * @returns {void}
  */
-function armSignals(queueFs) {
-	if (signalsArmed) return;
-	signalsArmed = true;
-	for (const [signal, code] of Object.entries(QUEUE_SIGNALS)) {
-		process.once(/** @type {NodeJS.Signals} */ (signal), () =>
-			releaseAndExit(String(signal), Number(code), queueFs),
-		);
-	}
+function armSignals() {
+	armSeatSignals({ cleanup: releaseRunsAndWorktrees });
 }
 
 /* What an `emptyOnly` run resolves to where its selection is not empty: a
@@ -1691,9 +1652,9 @@ function openWorktree({
 		return { dir: null, teardown: null, error: made.error };
 	const dir = made.dir;
 	/* Held from here, so a kill — which no teardown reaches — still takes it
-	 * down. `armSignals` is idempotent and shared with the queue markers. */
+	 * down. `armSignals` is idempotent and shared with the queue seats. */
 	const held = { root, dir };
-	armSignals(fs);
+	armSignals();
 	heldWorktrees.add(held);
 	let removed = false;
 	const teardown = () => {
@@ -2371,24 +2332,22 @@ async function runSeated({
 		label: "--queue",
 		err: options.err ?? process.stderr,
 	});
-	const ticket = queueJoin({ ...options, weight });
-	if (ticket) heldMarkers.add(ticket);
-	const started = Date.now();
-	const stamps = queueStamps(ticket, options);
-	const onKill = (/** @type {string} */ signal) =>
-		logExit("killed", Date.now() - started, {
-			signal,
-			...stamps.killedHold(),
-		});
-	waitingExits.add(onKill);
-	armSignals(options.queueFs ?? fs);
 	const sleep =
 		options.sleepFn ??
 		((/** @type {number} */ ms) =>
 			new Promise((resolve) => setTimeout(resolve, ms)));
 	let slept = false;
+	const seat = queueSeat({
+		queue: options,
+		join: { weight },
+		turn: () => true,
+		logExit: (reason, waitMs, extra) => {
+			if (reason !== "opened" || slept) logExit(reason, waitMs, extra);
+		},
+		signals: true,
+	});
 	try {
-		const outcome = await waitForGate({
+		const outcome = await seat.wait({
 			hold: options.loadHold,
 			...options,
 			gate: (climbMb) => {
@@ -2396,27 +2355,20 @@ async function runSeated({
 				return denial?.limb === "memory" ? denial : null;
 			},
 			turn: () => true,
-			...stamps,
 			part: true,
 			sleepFn: (ms) => {
 				slept = true;
 				return sleep(ms);
 			},
-			onExit: (reason, waitMs, heldBy) => {
-				waitingExits.delete(onKill);
-				if (reason !== "opened" || slept) logExit(reason, waitMs, heldBy);
-			},
 		});
 		if (outcome === "refused") return 1;
 		const code = await run({
 			escalationRequeues: true,
-			onSpawn: () => queueSpawned(ticket, options),
+			onSpawn: seat.spawned,
 		});
 		if (code !== REQUEUE_WHOLE) return code;
 	} finally {
-		waitingExits.delete(onKill);
-		heldMarkers.delete(ticket);
-		queueLeave(ticket, options);
+		seat.leave();
 	}
 	(options.err ?? process.stderr).write(
 		"--queue: the selection now takes the whole-suite slot, which no seat holds — joining the queue, whole (#2918).\n",
@@ -2529,26 +2481,14 @@ function main(argv = process.argv.slice(2), options = {}) {
 		/* A part-suite takes no slot, as the gate never holds it at the count
 		 * cap (#2558). */
 		const part = !weight.wholeSlot;
-		const ticket = queueJoin({ ...options, weight });
-		if (ticket) heldMarkers.add(ticket);
+		const seat = queueSeat({
+			queue: options,
+			join: { weight },
+			logExit,
+			signals: true,
+		});
 		const started = Date.now();
-		const stamps = queueStamps(ticket, options);
-		const onKill = (/** @type {string} */ signal) =>
-			logExit("killed", Date.now() - started, {
-				signal,
-				...stamps.killedHold(),
-			});
-		waitingExits.add(onKill);
-		armSignals(options.queueFs ?? fs);
-		runOptions.onSpawn = () => queueSpawned(ticket, options);
-		let held = true;
-		const release = () => {
-			if (held) {
-				heldMarkers.delete(ticket);
-				queueLeave(ticket, options);
-			}
-			held = false;
-		};
+		runOptions.onSpawn = seat.spawned;
 		/* The marker is HELD until the run finishes, not dropped when the wait
 		 * ends. Dropped at launch, a waiter could take this run's slot in the gap
 		 * before vitest is up far enough for the guard to see it. Held, queued
@@ -2558,22 +2498,15 @@ function main(argv = process.argv.slice(2), options = {}) {
 		/* The worktree is built AFTER the gate opens, so its frozen sha is the
 		 * one the run actually starts from rather than the one the wait began at. */
 		try {
-			const { turn, exitFields } = passingTurn(options);
 			const outcome = await waitOrRefuse(
 				() =>
-					waitForGate({
-						turn,
+					seat.wait({
 						leave: recheck,
 						gateWords: rest,
 						gateWeight: weight,
 						hold: options.loadHold,
 						...options,
-						...stamps,
 						part,
-						onExit: (reason, waitMs, heldBy) => {
-							waitingExits.delete(onKill);
-							logExit(reason, waitMs, exitFields(reason, heldBy));
-						},
 					}),
 				options,
 				() => logExit("refused", Date.now() - started),
@@ -2583,7 +2516,7 @@ function main(argv = process.argv.slice(2), options = {}) {
 			if (outcome === "run") {
 				const code = await run({ escalationRequeues: part });
 				if (code !== REQUEUE_WHOLE) return code;
-				release();
+				seat.leave();
 				(options.err ?? process.stderr).write(
 					"--queue: the selection now takes the whole-suite slot it was admitted without — joining the queue again, whole (#2931).\n",
 				);
@@ -2591,7 +2524,6 @@ function main(argv = process.argv.slice(2), options = {}) {
 				 * charged whole — the over-charging direction. */
 				return requeueWhole();
 			}
-			release();
 			const code = await run({ emptyOnly: true });
 			if (code !== REQUEUE) return code;
 			(options.err ?? process.stderr).write(
@@ -2599,8 +2531,7 @@ function main(argv = process.argv.slice(2), options = {}) {
 			);
 			return queued();
 		} finally {
-			waitingExits.delete(onKill);
-			release();
+			seat.leave();
 		}
 	};
 	return runSeated({

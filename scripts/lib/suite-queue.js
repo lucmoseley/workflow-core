@@ -1169,9 +1169,180 @@ function waitForGate({
 	return step();
 }
 
+/**
+ * @typedef {{ on: (signal: NodeJS.Signals, listener: () => void) => unknown }} SignalEmitter
+ * @typedef {{ waiting: () => boolean, logKilled: (signal: string) => void, leave: () => void, onSignal?: (signal: NodeJS.Signals, code: number) => boolean }} SignalSeat
+ * @typedef {{ seats: Set<SignalSeat>, cleanups: Set<(signal: string) => void>, exit: (code: number) => void }} SignalHost
+ */
+
+/* Each emitter's armed handler state, which `releaseOnSignal` reads: a
+ * handler takes no argument but its signal. */
+/** @type {WeakMap<SignalEmitter, SignalHost>} */
+const signalHosts = new WeakMap();
+
+/**
+ * Arm `emitter`'s QUEUE_SIGNALS handlers, ONCE PER EMITTER: a process that
+ * runs many seats, as a test run calls `main` many times, would otherwise
+ * exhaust the emitter's listener cap. On a signal a seat whose wait has ended
+ * and whose `onSignal` answers true, as queue-run forwarding it to its
+ * command, keeps the process alive and every marker held. Otherwise each
+ * seat still waiting writes its `killed` line, each `cleanup` runs, then each
+ * seat leaves and the process exits with the signal's code
+ * (mantahostels#2034). The markers go last, so no waiter takes a slot whose
+ * run a cleanup has yet to kill.
+ *
+ * SYNCHRONOUS BY NECESSITY: the handler exits at the end of its tick, and a
+ * promise's `.finally()` never runs on a signal. One cleanup that throws must
+ * not strand the rest.
+ *
+ * @param {{ emitter?: SignalEmitter, exit?: (code: number) => void, cleanup?: (signal: string) => void }} [options]
+ * @returns {SignalHost}
+ */
+function armSeatSignals({
+	emitter = process,
+	exit = (code) => process.exit(code),
+	cleanup,
+} = {}) {
+	let host = signalHosts.get(emitter);
+	if (!host) {
+		const armed = { seats: new Set(), cleanups: new Set(), exit };
+		for (const [signal, code] of Object.entries(QUEUE_SIGNALS)) {
+			const name = /** @type {NodeJS.Signals} */ (signal);
+			emitter.on(name, () => releaseOnSignal(armed, name, code));
+		}
+		signalHosts.set(emitter, armed);
+		host = armed;
+	}
+	if (cleanup) host.cleanups.add(cleanup);
+	return host;
+}
+
+/**
+ * @param {SignalHost} host
+ * @param {NodeJS.Signals} signal
+ * @param {number} code
+ */
+function releaseOnSignal(host, signal, code) {
+	const seats = [...host.seats];
+	const answered = seats.filter(
+		(seat) => !seat.waiting() && seat.onSignal?.(signal, code),
+	);
+	if (answered.length > 0) return;
+	for (const seat of seats) seat.logKilled(signal);
+	for (const cleanup of host.cleanups) {
+		try {
+			cleanup(signal);
+		} catch {
+			/* Reported by the cleanup itself. */
+		}
+	}
+	for (const seat of seats) seat.leave();
+	host.exit(code);
+}
+
+/**
+ * A queue seat, end to end (#4240): the marker joined, its stamps, the turn,
+ * the wait, the exit line, the spawned stamp and the leave.
+ *
+ * `queue` is the queue's options every step reads; `join` adds what the marker alone carries (`role`, `chargeMb`,
+ * `weight`), or is `false` for a caller already inside its slot, which takes
+ * no marker and keeps the seat for its signal path alone (#3404). `turn`
+ * replaces `passingTurn`'s, whose `passed` then never reaches the exit line.
+ * `logExit` writes each exit line, a `queueExitLogger`; none writes no line.
+ * `signals` opts the seat into `armSeatSignals`' handlers, with the emitter
+ * and exit they arm and an `onSignal`, asked once the wait has ended, that
+ * answers true where it handled the signal itself. A seat with one stays
+ * registered past its leave, for the rest of its caller's life; one without
+ * leaves the registry as it leaves the queue.
+ *
+ * THE LEAVE RUNS ON EVERY PATH and only once: `wait` leaves on a refusal, a
+ * leave or a throw; `leave` is the caller's for an opened wait; a signal leaves
+ * through the handler.
+ *
+ * The seat's stamps beat the caller's wait options, save an `admit` the
+ * caller wraps round `stamps.admit` (queue-run's `--tsc` try); a `turn`
+ * among them beats the seat's.
+ *
+ * @param {{ queue?: QueueOptions, join?: false | { role?: string, chargeMb?: number, weight?: import("./suite-handoff.js").CarriedWeight }, turn?: () => boolean, logExit?: (reason: import("./queue-exit-log.js").QueueExitReason, waitMs: number, extra?: object) => void, signals?: true | { emitter?: SignalEmitter, exit?: (code: number) => void, onSignal?: (signal: NodeJS.Signals, code: number) => boolean } }} [options]
+ */
+function queueSeat({ queue = {}, join = {}, turn, logExit, signals } = {}) {
+	const ticket = join === false ? "" : queueJoin({ ...queue, ...join });
+	const stamps = queueStamps(ticket, queue);
+	const passing = turn ? null : passingTurn(queue);
+	/** @type {(reason: WaitExitReason, heldBy?: WaitHold) => object} */
+	const exitFields = passing
+		? passing.exitFields
+		: (_reason, heldBy) => ({ ...heldBy });
+	const started = Date.now();
+	let waiting = false;
+	let held = true;
+	/** @type {SignalHost | null} */
+	let host = null;
+	const onSignal = signals === true ? undefined : signals?.onSignal;
+	const leave = () => {
+		if (!onSignal) host?.seats.delete(entry);
+		if (!held) return;
+		held = false;
+		queueLeave(ticket, queue);
+	};
+	/** @type {SignalSeat} */
+	const entry = {
+		waiting: () => waiting,
+		logKilled: (signal) => {
+			if (!waiting) return;
+			waiting = false;
+			logExit?.("killed", Date.now() - started, {
+				signal,
+				...stamps.killedHold(),
+			});
+		},
+		leave,
+		...(onSignal ? { onSignal } : {}),
+	};
+	if (signals) {
+		host = armSeatSignals(signals === true ? {} : signals);
+		host.seats.add(entry);
+	}
+	/**
+	 * @param {Omit<Parameters<typeof waitForGate>[0], "admit" | "onExit"> & { admit?: () => Admission }} [options]
+	 * @returns {Promise<WaitOutcome>}
+	 */
+	const wait = async (options = {}) => {
+		waiting = true;
+		try {
+			const outcome = await waitForGate({
+				turn: passing ? passing.turn : turn,
+				...options,
+				...stamps,
+				admit: options.admit ?? stamps.admit,
+				onExit: (reason, waitMs, heldBy) => {
+					waiting = false;
+					logExit?.(reason, waitMs, exitFields(reason, heldBy));
+				},
+			});
+			if (outcome !== "run") leave();
+			return outcome;
+		} catch (error) {
+			leave();
+			throw error;
+		} finally {
+			waiting = false;
+		}
+	};
+	return {
+		ticket,
+		stamps,
+		wait,
+		spawned: () => queueSpawned(ticket, queue),
+		leave,
+	};
+}
+
+/** @typedef {{ queueDir?: string, queueFs?: typeof fs, pid?: number, clock?: () => number, alive?: (pid: number) => boolean, slots?: number }} QueueOptions */
+/** @typedef {ReturnType<typeof queueSeat>} QueueSeat */
+
 module.exports = {
 	PART_PASS_AGE_MS,
-	QUEUE_SIGNALS,
 	SEAT_ENV,
 	heldMarker,
 	heldSeat,
@@ -1190,4 +1361,6 @@ module.exports = {
 	readQueuesClimbMb,
 	gateDenies,
 	waitForGate,
+	queueSeat,
+	armSeatSignals,
 };

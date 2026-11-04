@@ -31,12 +31,7 @@ const { rungMb } = require("./suite-ladder.js");
 const {
 	gateDenies,
 	readLiveRoleMarkers,
-	queueJoin,
-	queueLeave,
-	queueSpawned,
-	queueStamps,
-	queueTurn,
-	waitForGate,
+	queueSeat,
 } = require("./suite-queue.js");
 const { readConfig } = require("./workflow-core-config.js");
 
@@ -295,11 +290,14 @@ async function suiteSlot({
 	memory = readAvailableMb,
 	queueDir,
 }) {
-	const file = queueJoin({ queueDir, role: LANDER_ROLE, chargeMb });
+	const seat = queueSeat({
+		queue: { queueDir },
+		join: { role: LANDER_ROLE, chargeMb },
+	});
 	const rung = rungMb(chargeMb);
 	let mem = memory();
 	let memoryShut = false;
-	const outcome = await waitForGate({
+	const outcome = await seat.wait({
 		pollMs,
 		timeoutMs,
 		gate: (climbMb) => {
@@ -314,17 +312,10 @@ async function suiteSlot({
 				};
 			return gate(climbMb);
 		},
-		turn: () => queueTurn({ queueDir }),
-		...queueStamps(file, { queueDir }),
 		label: "lander",
 	});
 	if (outcome !== "refused")
-		return {
-			ok: true,
-			spawned: () => queueSpawned(file),
-			release: () => queueLeave(file),
-		};
-	queueLeave(file);
+		return { ok: true, spawned: seat.spawned, release: seat.leave };
 	const memoryRead = mem.ok
 		? `${mem.mb} MB available against ${rung} MB`
 		: `memory unread: ${mem.error}`;

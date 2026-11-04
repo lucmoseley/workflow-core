@@ -14,12 +14,14 @@
  * staged without a real reused pid; of the staleness cases only `readStartTimeOf`
  * reads a real process.
  * The ordering cases write real markers into a temp directory of their own.
- * That a KILLED waiter drops its marker is run-vitest.js's signal handler,
- * tested there through a real process.
+ * That a KILLED waiter drops its marker is the seat's signal handler, its
+ * signals emitted on an injected emitter; run-vitest.js's real process tests
+ * the exit it takes on a real one.
  * In the world, a wrong verdict lets `npm run test -- --queue` sweep a live
  * suite's marker and start past it on the memory-capped machine, or wait
  * behind a dead one.
  */
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -48,6 +50,8 @@ const {
 	heldSeat,
 	SEAT_ENV,
 	waitForGate,
+	queueSeat,
+	armSeatSignals,
 } = require("./suite-queue.js");
 const { yieldToWhole } = require("./cpu-yield.js");
 const { readLiveLanders } = require("./local-tester.js");
@@ -1934,6 +1938,239 @@ describe("gateDenies, against the real gate (#2421)", () => {
 		expect(ask(1450, 0)).toMatchObject({
 			limb: "memory",
 			rungMb: suiteRungMb(WHOLE_SUITE_WORKERS),
+		});
+	});
+});
+
+describe("queueSeat, one seat's lifecycle end to end (#4240)", () => {
+	const markersIn = (dir: string) =>
+		fs.readdirSync(dir).filter((f) => f.startsWith("wfc-suite-queue-"));
+	const recordIn = (dir: string) =>
+		JSON.parse(
+			fs.readFileSync(path.join(dir, markersIn(dir)[0] as string), "utf8"),
+		);
+	const never = () =>
+		new Promise<void>(() => {
+			/* never settles */
+		});
+	const seatIn = (dir: string, seatOptions: object = {}) => {
+		const lines: { reason: string; extra?: object }[] = [];
+		const seat = queueSeat({
+			queue: { queueDir: dir, alive: () => true },
+			logExit: (reason: string, _ms: number, extra?: object) =>
+				lines.push({ reason, extra }),
+			...seatOptions,
+		});
+		return { seat, lines };
+	};
+	const quiet = { out: { write: () => true } };
+
+	it("joins before the wait reads anything, and holds the marker past an opened wait until it leaves", async () => {
+		const dir = qdir();
+		const { seat, lines } = seatIn(dir);
+		const seen: number[] = [];
+		const outcome = await seat.wait({
+			...quiet,
+			gate: () => {
+				seen.push(markersIn(dir).length);
+				return null;
+			},
+		});
+		expect(outcome).toBe("run");
+		expect(seen).toEqual([1]);
+		expect(recordIn(dir).admitted).toBe(true);
+		expect(recordIn(dir).spawned).toBeUndefined();
+		seat.spawned();
+		expect(recordIn(dir).spawned).toBe(true);
+		seat.leave();
+		seat.leave();
+		expect(markersIn(dir)).toEqual([]);
+		expect(lines.map((l) => l.reason)).toEqual(["opened"]);
+	});
+
+	it("puts the older part-suites its default turn passed on the exit line (#3115)", async () => {
+		const dir = qdir();
+		fs.writeFileSync(
+			path.join(dir, "wfc-suite-queue-1.json"),
+			JSON.stringify({
+				pid: 1,
+				at: Date.now() - 1000,
+				part: true,
+				memoryHeld: true,
+			}),
+		);
+		const { seat, lines } = seatIn(dir, { join: { weight: PART } });
+		await seat.wait({ ...quiet, gate: () => null });
+		seat.leave();
+		expect(lines).toEqual([{ reason: "opened", extra: { passed: 1 } }]);
+	});
+
+	it.each([
+		{
+			ends: "a refusal",
+			wait: { gate: () => ({ limb: "memory" }), timeoutMs: -1 },
+			outcome: "refused",
+		},
+		{
+			ends: "a leave",
+			wait: { gate: () => ({ limb: "count" }), leave: () => "HEAD" },
+			outcome: "left",
+		},
+	])(
+		"leaves on $ends without the caller's leave",
+		async ({ wait, outcome }) => {
+			const dir = qdir();
+			const { seat, lines } = seatIn(dir);
+			expect(await seat.wait({ ...quiet, ...wait })).toBe(outcome);
+			expect(markersIn(dir)).toEqual([]);
+			expect(lines.map((l) => l.reason)).toEqual([outcome]);
+		},
+	);
+
+	it("leaves on a throw, and rethrows it", async () => {
+		const dir = qdir();
+		const { seat } = seatIn(dir);
+		await expect(
+			seat.wait({
+				...quiet,
+				gate: () => {
+					throw new Error("gate broke");
+				},
+			}),
+		).rejects.toThrow("gate broke");
+		expect(markersIn(dir)).toEqual([]);
+	});
+
+	it("takes no marker with `join: false` (#3404)", async () => {
+		const dir = qdir();
+		const { seat } = seatIn(dir, { join: false });
+		expect(seat.ticket).toBe("");
+		expect(markersIn(dir)).toEqual([]);
+	});
+
+	describe("on a signal (mantahostels#2034)", () => {
+		const host = () => {
+			const emitter = new EventEmitter();
+			const exits: number[] = [];
+			return { emitter, exits, exit: (code: number) => exits.push(code) };
+		};
+
+		it("leaves, writes one `killed` line and exits on a signal while waiting", async () => {
+			const dir = qdir();
+			const h = host();
+			const { seat, lines } = seatIn(dir, {
+				signals: { emitter: h.emitter, exit: h.exit },
+			});
+			seat.wait({ ...quiet, gate: () => ({ limb: "count" }), sleepFn: never });
+			await Promise.resolve();
+			expect(markersIn(dir)).toHaveLength(1);
+			h.emitter.emit("SIGINT");
+			expect(markersIn(dir)).toEqual([]);
+			expect(h.exits).toEqual([130]);
+			expect(lines).toEqual([
+				{ reason: "killed", extra: { signal: "SIGINT" } },
+			]);
+			h.emitter.emit("SIGTERM");
+			expect(lines).toHaveLength(1);
+		});
+
+		it("leaves with no `killed` line once the wait has ended", async () => {
+			const dir = qdir();
+			const h = host();
+			const { seat, lines } = seatIn(dir, {
+				signals: { emitter: h.emitter, exit: h.exit },
+			});
+			await seat.wait({ ...quiet, gate: () => null });
+			h.emitter.emit("SIGTERM");
+			expect(markersIn(dir)).toEqual([]);
+			expect(h.exits).toEqual([143]);
+			expect(lines.map((l) => l.reason)).toEqual(["opened"]);
+		});
+
+		it("keeps the marker and does not exit where `onSignal` handled it", async () => {
+			const dir = qdir();
+			const h = host();
+			const handled: string[] = [];
+			const { seat } = seatIn(dir, {
+				signals: {
+					emitter: h.emitter,
+					exit: h.exit,
+					onSignal: (signal: string) => handled.push(signal) > 0,
+				},
+			});
+			await seat.wait({ ...quiet, gate: () => null });
+			h.emitter.emit("SIGHUP");
+			expect(handled).toEqual(["SIGHUP"]);
+			expect(h.exits).toEqual([]);
+			expect(markersIn(dir)).toHaveLength(1);
+			// Past its leave too: the caller still answers for the process.
+			seat.leave();
+			h.emitter.emit("SIGTERM");
+			expect(handled).toEqual(["SIGHUP", "SIGTERM"]);
+			expect(h.exits).toEqual([]);
+		});
+
+		it("never asks `onSignal` while the seat still waits", async () => {
+			const dir = qdir();
+			const h = host();
+			const handled: string[] = [];
+			const { seat, lines } = seatIn(dir, {
+				signals: {
+					emitter: h.emitter,
+					exit: h.exit,
+					onSignal: (signal: string) => handled.push(signal) > 0,
+				},
+			});
+			seat.wait({ ...quiet, gate: () => ({ limb: "count" }), sleepFn: never });
+			await Promise.resolve();
+			h.emitter.emit("SIGTERM");
+			expect(handled).toEqual([]);
+			expect(h.exits).toEqual([143]);
+			expect(lines.map((l) => l.reason)).toEqual(["killed"]);
+		});
+
+		it("writes the `killed` line, then runs the cleanups, then leaves", async () => {
+			const dir = qdir();
+			const h = host();
+			const order: string[] = [];
+			armSeatSignals({
+				emitter: h.emitter,
+				exit: (c: number) => order.push(`exit ${c}`),
+				cleanup: () => order.push(`cleanup, ${markersIn(dir).length} marker`),
+			});
+			const seat = queueSeat({
+				queue: { queueDir: dir, alive: () => true },
+				logExit: (reason: string) => order.push(reason),
+				signals: { emitter: h.emitter },
+			});
+			seat.wait({ ...quiet, gate: () => ({ limb: "count" }), sleepFn: never });
+			await Promise.resolve();
+			h.emitter.emit("SIGINT");
+			expect(order).toEqual(["killed", "cleanup, 1 marker", "exit 130"]);
+			expect(markersIn(dir)).toEqual([]);
+		});
+
+		it("arms each emitter once, running every cleanup before the exit", () => {
+			const h = host();
+			const order: string[] = [];
+			const cleanup = () => order.push("cleanup");
+			armSeatSignals({
+				emitter: h.emitter,
+				exit: (c: number) => order.push(`exit ${c}`),
+				cleanup,
+			});
+			armSeatSignals({ emitter: h.emitter, cleanup });
+			expect(h.emitter.listenerCount("SIGTERM")).toBe(1);
+			h.emitter.emit("SIGTERM");
+			expect(order).toEqual(["cleanup", "exit 143"]);
+		});
+
+		it("arms nothing for a seat that does not opt in", () => {
+			const dir = qdir();
+			const before = process.listenerCount("SIGTERM");
+			const { seat } = seatIn(dir);
+			expect(process.listenerCount("SIGTERM")).toBe(before);
+			seat.leave();
 		});
 	});
 });
