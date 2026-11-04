@@ -55,6 +55,9 @@ export const TIDES_BLOCK = [
 
 const made: string[] = [];
 
+/** One run's own bound: a run commits through the real hook stack (§X3's timeout shape). */
+export const RUN_TIMEOUT_MS = 170_000;
+
 /**
  * The stub `gh`. State lives under `<sb>/github`: `<owner>/<name>.git` is the
  * bare repo, `<owner>/<name>.json` its labels, issues and privacy, an issue's
@@ -428,7 +431,7 @@ export function sandbox({
 			cwd: path.resolve(__dirname, "../../../.."),
 			encoding: "utf8",
 			env,
-			timeout: 170_000,
+			timeout: RUN_TIMEOUT_MS,
 		});
 	const run = (...extra: string[]) => spawn(args(...extra));
 	const resume = (...extra: string[]) =>
@@ -518,7 +521,7 @@ export const SAVED = {
 };
 
 /** What a clean run leaves, to rebuild its steps from and compare against. */
-interface Golden {
+export interface Golden {
 	issue: unknown;
 	claude: string;
 	local: string;
@@ -696,17 +699,18 @@ export const reported = (copy = false) => [
 ];
 
 /**
- * The world as left after `step`, short of the steps needing a clean run's
- * output; `opts` replaces the copy's sandbox.
+ * The world as left after `step`; `opts` replaces the copy's sandbox. A step
+ * needing a clean run's output takes `golden`.
  */
 export function builtThrough(
 	step: string,
 	copy = false,
 	opts: Parameters<typeof sandbox>[0] = { source: SOURCE_IGNORE },
+	golden?: Golden,
 ) {
 	const s = sandbox(copy ? opts : {});
 	for (const [, build] of steps(copy).slice(0, stepIndex(step, copy) + 1))
-		build(s, undefined as unknown as Golden);
+		build(s, golden as Golden);
 	return s;
 }
 
@@ -829,8 +833,9 @@ export function readEndState(s: Sandbox) {
 	};
 }
 
-export function cleanRun(copy: boolean) {
-	const s = sandbox(copy ? { source: SOURCE_IGNORE } : {});
+/** A clean run's world and end state; `hooks: false` commits with no hooks. */
+export function cleanRun(copy: boolean, { hooks = true } = {}) {
+	const s = sandbox({ ...(copy && { source: SOURCE_IGNORE }), hooks });
 	const r = s.run();
 	expect(r.status, r.stdout).toBe(0);
 	return { golden: readGolden(s), goldenEnd: readEndState(s) };
@@ -906,6 +911,15 @@ export function resumeFinishes(
 	expect(readEndState(s)).toEqual(goldenEnd);
 	return { s, r, past };
 }
+
+/** Scratch clones of the source repo left in TMPDIR, where the hook stack keeps files of its own. */
+export const readScratchLeft = (s: Sandbox) =>
+	fs
+		.readdirSync(path.join(s.sb, "tmp"))
+		.filter((f) => f.startsWith("new-repo-source-"));
+
+export const KEEP_BLOCK =
+	"# --- workflow-core: keep the core's files trackable (new-repo.js) ---\n!/CLAUDE.md\n# --- end workflow-core block ---\n";
 
 /** What init-adopter appends to every new repo's .gitignore (#737). */
 export const IGNORE_BLOCK = withIgnoreBlock("") as string;

@@ -40,6 +40,8 @@ const { newFaults } = require("./lib/fault-diff");
 const { hostRoot } = require("./lib/host-root.js");
 const { requiredGroup } = require("./lib/regex-group");
 const { caught } = require("./lib/caught.js");
+const { SIDE_ENV } = require("./lib/check-side.js");
+const { spawnAllSync } = require("./lib/spawn-all.js");
 const { parseErrorFirstLine, parseFirstLine } = require("./lib/first-line.js");
 
 /* Core content: every checker below ships beside this script, so each is named
@@ -328,19 +330,19 @@ function parseEnvelope(
 }
 
 /**
- * Runs `checker --root <root> --json` and parses its envelope, for the two
- * checkers whose whole scan lives under a `--root` directory.
+ * The `checker --root <root> --json` run of one side. `side` is the commit's
+ * `index` or its parent's `baseline`, as lib/check.js's --against marks them,
+ * so a checker skips its index-only work on the parent (lib/check-side.js).
+ * @param {string} checker
+ * @param {string} root
+ * @param {"index" | "baseline"} side
+ * @returns {import("./lib/spawn-all.js").Job}
  */
-function readEnvelope(
-	/** @type {string} */ checker,
-	/** @type {string} */ root,
-) {
-	return parseEnvelope(
-		spawnSync(process.execPath, [checker, "--root", root, "--json"], {
-			encoding: "utf8",
-		}),
-	);
-}
+const envelopeJob = (checker, root, side) => ({
+	file: process.execPath,
+	args: [checker, "--root", root, "--json"],
+	env: { ...process.env, [SIDE_ENV]: side },
+});
 
 /**
  * check-doc-map.js's --json envelope for `sha`, read without ever touching the
@@ -436,8 +438,8 @@ function hasDocMap(sha, cwd) {
  * Reads `profile`'s two envelopes via the given thunks (each already
  * bound to shaDir/parentDir, or to sha/parent for doc-map — the two
  * profile families read differently, see readDocMapEnvelope's header) and
- * pushes what's new. Stops at the first unreadable side: a staged read
- * that fails never spends a second process on the baseline.
+ * pushes what's new. Stops at the first unreadable side, so a staged read
+ * that fails is the one reported.
  * @param {{ sha: string, parent: string, err: string[], byProfile: Map<string, string[]> }} ctx
  * @param {string} profile
  * @param {() => Record<string, unknown>} readStaged
@@ -487,16 +489,41 @@ function collectNewFaults(trees) {
 	const byProfile = new Map();
 	const ctx = { sha, parent, err, byProfile };
 
-	for (const [profile, checker] of Object.entries(checkersInForce()))
-		if (
-			diffProfile(
-				ctx,
-				profile,
-				() => readEnvelope(checker, shaDir),
-				() => readEnvelope(checker, parentDir),
+	/* Every checker's two sides at once: the checkers are independent (#4297). */
+	const checkers = Object.entries(checkersInForce());
+	/** @type {import("./lib/spawn-all.js").JobResult[]} */
+	let results = [];
+	try {
+		results = spawnAllSync(
+			checkers.flatMap(([, checker]) => [
+				envelopeJob(checker, shaDir, "index"),
+				envelopeJob(checker, parentDir, "baseline"),
+			]),
+		);
+	} catch (e) {
+		err.push(
+			`report-new-shared-faults: could not run the checkers — ${caught(e).message}`,
+		);
+		broken = true;
+	}
+	if (results.length > 0)
+		checkers.forEach(([profile], i) => {
+			const index = results[2 * i];
+			const baseline = results[2 * i + 1];
+			if (index === undefined || baseline === undefined)
+				throw new Error(
+					`spawn-all.js returned ${results.length} results for ${2 * checkers.length} jobs`,
+				);
+			if (
+				diffProfile(
+					ctx,
+					profile,
+					() => parseEnvelope(index),
+					() => parseEnvelope(baseline),
+				)
 			)
-		)
-			broken = true;
+				broken = true;
+		});
 
 	// check-doc-map.js is not in CHECKERS (see readDocMapEnvelope's header): it
 	// reads a throwaway detached worktree rather than the one archived

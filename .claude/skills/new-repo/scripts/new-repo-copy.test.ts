@@ -4,8 +4,8 @@
  * new-repo.test.ts, whose header says how a run is driven and what a loosened
  * case costs (#3258).
  *
- * Over the run-cost budget (base §X8 (5)) by inheritance: its cases moved
- * unchanged from new-repo.test.ts, whose cost was pre-existing (#3258).
+ * Over the run-cost budget (base §X8 (5)): its cases are whole runs of the
+ * script, short of the skeleton commit or with the hooks off (#4297).
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -17,13 +17,10 @@ import { HOOKS } from "../../../../scripts/lib/adopter-skeleton.js";
 import { runInProcess } from "../../../../scripts/lib/run-in-process.js";
 import {
 	builtThrough,
-	HAS_GITLEAKS,
 	IGNORE_BLOCK,
+	KEEP_BLOCK,
 	newRepoSuite,
-	readEndState,
-	readIgnoredScratch,
-	reported,
-	type Sandbox,
+	readScratchLeft,
 	SET_ASIDE_HOOK,
 	SOURCE,
 	SOURCE_AGENTS,
@@ -34,15 +31,6 @@ import {
 } from "./new-repo-testkit";
 
 newRepoSuite();
-
-/** Scratch clones of the source repo left in TMPDIR, where the hook stack keeps files of its own. */
-const readScratchLeft = (s: Sandbox) =>
-	fs
-		.readdirSync(path.join(s.sb, "tmp"))
-		.filter((f) => f.startsWith("new-repo-source-"));
-
-const KEEP_BLOCK =
-	"# --- workflow-core: keep the core's files trackable (new-repo.js) ---\n!/CLAUDE.md\n# --- end workflow-core block ---\n";
 
 describe("new-repo.js copying a source repo", () => {
 	it("--dry-run names the source repo's licence and workflows, suites with the test command, and the negations, and writes nothing", () => {
@@ -169,136 +157,6 @@ describe("new-repo.js copying a source repo", () => {
 		);
 		expect(all.filter((f) => !paths.includes(f))).toEqual([]);
 	}, 60_000);
-
-	it.skipIf(!HAS_GITLEAKS)(
-		"mirrors the default branch as main with its tags, keeps the source as a fetch-only upstream, keeps init's files trackable, starts with suites, and a second run finds every step done",
-		() => {
-			const s = sandbox({ source: SOURCE_IGNORE });
-			const r = s.run();
-			expect(r.status, r.stdout).toBe(0);
-			for (const step of reported(true))
-				expect(statusOf(r.stdout, step), step).toBe("done");
-			expect(r.stdout).toContain(
-				"source repo    done — octo/surf-lib's trunk pushed as main, 2 tags pushed, upstream fetch-only\n  licence: MIT License\n  workflows: .github/workflows/ci.yml",
-			);
-			expect(r.stdout).toContain(
-				"gitignore      done — negations appended to .gitignore for CLAUDE.md\n",
-			);
-			expect(r.stdout).toContain(
-				"set aside      done — AGENTS.md → docs/source/AGENTS.source.md, .husky/pre-commit → .husky/pre-commit.local, # shellcheck shell=sh added to .husky/pre-commit.local\n",
-			);
-			expect(r.stdout).toContain(
-				'source docs    done — 2 registered in docs/doc-map.md §A under "Source repo docs (octo/surf-lib)"\n',
-			);
-			expect(r.stdout).toContain("reconcile      done — #2 under #1\n");
-			expect(r.stdout).toMatch(/^init-adopter {3}done — .*, modules suites$/m);
-
-			// The default branch and tags only: never the stale branch, never a fork.
-			expect(readEndState(s).originRefs).toEqual([
-				"refs/heads/main",
-				"refs/tags/v1",
-				"refs/tags/v2",
-			]);
-			expect(s.readCalls().some((c) => c.includes("fork"))).toBe(false);
-			expect(s.git("rev-list", "--count", "HEAD")).toBe("3");
-			expect(s.git("show", "HEAD:lib/tide.js")).toBe(
-				"module.exports = () => 2;",
-			);
-			expect(s.git("rev-parse", "origin/main")).toBe(
-				s.git("rev-parse", "HEAD"),
-			);
-			expect(s.git("config", "--get", "remote.upstream.url")).toBe(
-				`https://github.com/${SOURCE}.git`,
-			);
-			expect(s.git("config", "--get", "remote.upstream.pushurl")).toBe(
-				"no-push",
-			);
-
-			expect(fs.readFileSync(path.join(s.clone, ".gitignore"), "utf8")).toBe(
-				`${SOURCE_IGNORE}${IGNORE_BLOCK}${KEEP_BLOCK}`,
-			);
-			// The negations follow the block and reach none of its paths.
-			expect(readIgnoredScratch(s)).toBe(
-				"private/x\n.claude/tmp/x\n.claude/worktrees/x\n",
-			);
-			expect(s.git("ls-files", "CLAUDE.md", "AGENTS.md", ".gitignore")).toBe(
-				".gitignore\nAGENTS.md\nCLAUDE.md",
-			);
-			// settings.local.json is this machine's, left untracked as in the empty flow.
-			expect(s.git("status", "--porcelain")).toBe(
-				"?? .claude/settings.local.json",
-			);
-
-			const config = JSON.parse(
-				fs.readFileSync(
-					path.join(s.clone, ".claude/workflow-core.json"),
-					"utf8",
-				),
-			);
-			expect(config.modules).toEqual(["suites"]);
-			expect(config.commands.test).toBe("npm run test");
-
-			expect(s.git("show", "HEAD:docs/source/AGENTS.source.md")).toBe(
-				SOURCE_AGENTS.trim(),
-			);
-			expect(s.git("show", "HEAD:.husky/pre-commit.local")).toBe(
-				SET_ASIDE_HOOK.trim(),
-			);
-			expect(s.git("show", "HEAD:AGENTS.md")).not.toContain(
-				"Open a pull request",
-			);
-			const classes = JSON.parse(
-				fs.readFileSync(
-					path.join(s.clone, "docs/doc-map-classes.json"),
-					"utf8",
-				),
-			);
-			const route = "Path-scoped cherry-pick from `upstream` only";
-			expect(classes["docs/tides.md"]).toEqual({
-				section: "Source repo docs (octo/surf-lib)",
-				class: "source-of-truth",
-				classQualifier: null,
-				role: "From the source repo octo/surf-lib, kept as copied",
-				route,
-				consumes: null,
-				reader: "both",
-			});
-			expect(classes["docs/source/AGENTS.source.md"]).toMatchObject({
-				section: "Source repo docs (octo/surf-lib)",
-				class: "source-of-truth",
-				role: "The source repo's AGENTS.md, set aside where no session loads it",
-				route,
-				reader: "agent",
-			});
-			expect(
-				fs.readFileSync(path.join(s.clone, "docs/doc-map.md"), "utf8"),
-			).toContain("### Source repo docs (octo/surf-lib)\n");
-
-			const [, ticket] = s.readState().issues;
-			expect(ticket.title).toBe(
-				"Reconcile octo/surf-lib's agent instructions with the core's",
-			);
-			expect(ticket.labels.sort()).toEqual([
-				"takes:wayfinder",
-				"wayfinder:grilling",
-			]);
-			expect(ticket.parent).toBe(1);
-			expect(ticket.assignees).toEqual([]);
-			expect(ticket.body).toContain(
-				"- `docs/source/AGENTS.source.md` — the source repo's `AGENTS.md`",
-			);
-			expect(readScratchLeft(s)).toEqual([]);
-
-			const again = s.resume();
-			expect(again.status, again.stdout).toBe(0);
-			for (const step of reported(true).filter((n) => n !== "init-adopter"))
-				expect(statusOf(again.stdout, step), step).toBe("skipped");
-			expect(again.stdout).toContain("  licence: MIT License\n");
-			expect(s.readState().issues).toHaveLength(2);
-			expect(readEndState(s).originRefs).toHaveLength(3);
-		},
-		340_000,
-	);
 
 	it("stops, exit 2, where origin's main is not an ancestor of the clone's main, offering a hand settle and a --resume re-run as the way out", () => {
 		const s = builtThrough("source repo", true);

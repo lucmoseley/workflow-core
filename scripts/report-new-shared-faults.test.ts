@@ -247,6 +247,74 @@ describe("report-new-shared-faults", () => {
 		expect(err.join("\n")).toMatch(/invalid --json/);
 	});
 
+	it("runs each checker on the parent as the baseline side and on the commit as the index side (#4297)", () => {
+		const repo = newRepo("report-new-shared-faults-side-", temps);
+		commitEnvelope(repo, { findings: [] }, "base");
+		const child = commitEnvelope(
+			repo,
+			{ findings: [], side: "commit" },
+			"marks the commit's tree",
+		);
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "report-side-checker-"));
+		temps.push(dir);
+		const checker = path.join(dir, "checker.js");
+		fs.writeFileSync(
+			checker,
+			`
+const fs = require("node:fs");
+const path = require("node:path");
+const root = process.argv[process.argv.indexOf("--root") + 1];
+const tree = JSON.parse(fs.readFileSync(path.join(root, "envelope.json"), "utf8")).side ?? "parent";
+fs.appendFileSync(${JSON.stringify(path.join(dir, "sides"))}, tree + " " + process.env.WFC_CHECK_SIDE + "\\n");
+process.stdout.write('{"findings":[]}');
+`,
+		);
+
+		const { code, err } = run(child, {
+			checkers: { "guard-registry": checker, "host-root": checker },
+			cwd: repo.root,
+		});
+
+		expect(err).toEqual([]);
+		expect(code).toBe(0);
+		expect(
+			lines(fs.readFileSync(path.join(dir, "sides"), "utf8")).sort(),
+		).toEqual([
+			"commit index",
+			"commit index",
+			"parent baseline",
+			"parent baseline",
+		]);
+	});
+
+	it("exits 2 naming the failure, never 1, where the checkers' runs as a whole cannot be read", () => {
+		const repo = newRepo("report-new-shared-faults-runs-", temps);
+		commitEnvelope(repo, { findings: [] }, "base");
+		const child = commitEnvelope(repo, { findings: [fail()] }, "adds x");
+		/* Each side's output under the per-child cap, the four together past
+		 * the 64 MB the runs' combined result may take (lib/child-buffer.js). */
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "report-big-checker-"));
+		temps.push(dir);
+		const checker = path.join(dir, "checker.js");
+		fs.writeFileSync(
+			checker,
+			`process.stdout.write('{"findings":[],"pad":"' + "x".repeat(17e6) + '"}');\n`,
+		);
+
+		const { code, out, err } = run(child, {
+			checkers: { "guard-registry": checker, "host-root": checker },
+			cwd: repo.root,
+		});
+
+		expect(code).toBe(2);
+		expect(out).toEqual([]);
+		expect(err).toEqual([
+			expect.stringMatching(
+				/^report-new-shared-faults: could not run the checkers — /,
+			),
+		]);
+	});
+
 	it("reports a root commit as having nothing to compare, never every fault as new", () => {
 		const repo = newRepo("report-new-shared-faults-root-", temps);
 		const root = commitEnvelope(
