@@ -1179,9 +1179,10 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 		spawnedIn(suiteDir, 11);
 		spawnedIn(tscDir, 22);
 		vi.stubEnv("TMPDIR", path.dirname(suiteDir));
-		expect(
-			readQueuesClimbMb({ alive, ps: noRunners, treePssKb: () => 100 * 1024 }),
-		).toBe(2148 + 1538);
+		const options = { alive, ps: noRunners, treePssKb: () => 100 * 1024 };
+		expect(readQueuesClimbMb("all", options)).toBe(2148 + 1538);
+		/* A spawned suite not yet on `ps` is on no rung (#4111). */
+		expect(readQueuesClimbMb("off-rung", options)).toBe(2148 + 1538);
 	});
 
 	it("holds a suite admitted just after a `tsc` spawns until that `tsc`'s remaining climb fits", async () => {
@@ -1293,7 +1294,18 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 			expect(climbOn(suiteDir, m)).toBe(TSC_PEAK_MB - 400);
 			expect(climbOn(tscDir, m)).toBe(2248 - 400);
 			vi.stubEnv("TMPDIR", path.dirname(suiteDir));
-			expect(readQueuesClimbMb(m)).toBe(TSC_PEAK_MB - 400 + 2248 - 400);
+			expect(readQueuesClimbMb("all", m)).toBe(TSC_PEAK_MB - 400 + 2248 - 400);
+			expect(readQueuesClimbMb("off-rung", m)).toBe(TSC_PEAK_MB - 400);
+		});
+
+		it("charges a marked suite whose vitest is on `ps` nothing off the rung (#4111)", () => {
+			const { suiteDir, tscDir } = queues();
+			spawnedIn(suiteDir, 11);
+			spawnedIn(tscDir, 22);
+			const m = machine({ 22: Tsc, 33: Vitest }, { 33: 11 });
+			vi.stubEnv("TMPDIR", path.dirname(suiteDir));
+			expect(readQueuesClimbMb("all", m)).toBe(TSC_PEAK_MB - 400 + 2248 - 400);
+			expect(readQueuesClimbMb("off-rung", m)).toBe(TSC_PEAK_MB - 400);
 		});
 
 		it("charges a part-suite its own peak, off its words or its launch record", () => {
