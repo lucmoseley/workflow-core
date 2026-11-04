@@ -301,11 +301,6 @@ describe("the relocated rule reaches the session that trips the guard", () => {
 	);
 });
 
-/*
- * THE PRE-EMPTIVE LIMB (mantahostels#1647, spec mantahostels#1762): the rule
- * on the sanctioned command, which a refusal can never reach. An injection is
- * not a refusal: each case asserts there is no deny.
- */
 describe("once the main checkout is cut over (#4248)", () => {
 	const cut = { modules: ["landing"], upstream: "" };
 
@@ -326,6 +321,11 @@ describe("once the main checkout is cut over (#4248)", () => {
 	});
 });
 
+/*
+ * THE PRE-EMPTIVE LIMB (mantahostels#1647, spec mantahostels#1762): the rule
+ * on the sanctioned command, which a refusal can never reach. An injection is
+ * not a refusal: each case asserts there is no deny.
+ */
 describe("the rule reaches a session BEFORE it trips the guard (mantahostels#1647)", () => {
 	it.each([
 		[
