@@ -473,6 +473,8 @@ pooled with it as separate sessions.
 
   **Why memwatch's clock line stayed silent cannot be determined.** The detector read a frozen clock at 12:22:44 over 1 s; no retained `~/memwatch.log` holds a `sched clock` line, and the passes' raw readings were not kept. The minute line's `sched` now keeps the readings, so the next freeze settles it.
 
+- **Windows watchdog reset, awake and under load (4 Nov 2026).** At about 12:08 +08 Windows hung and the hardware watchdog reset it (Kernel-Power 41 and 142, bugcheck 0, no dump, `ConnectedStandbyInProgress=false`, lid open). Windows booted at 12:08:35. The guest journal stops mid-test at 12:07:23 with no shutdown. memwatch's last block, 12:07:47, read 636% of 800% busy, 247% of it sys, load 15.6, 10 Claude sessions and 6,871 MB used. earlyoom killed nothing and the kernel logged no RCU stall. No session ran a shutdown or reboot. **Both watchdog resets came under sustained load**: mean busy over the prior hour was 672% (3 Nov 01:52, not idle as its standby state suggests) and 553% here. **Load is not sufficient**: 28 Oct held 609 minutes at 600% or more, one run 136 minutes long, with no reset. A "System Hardware Update (200.0.21.0)" was pending and uninstalled. Cause unknown. **Remedy: that update, installed at 12:23, moved the firmware from 9.166.235 (27 May 2026) to 9.225.235 (24 Jun 2026)**; a further reset caps WSL at `processors=6` (#4264).
+
 ---
 
 ## 8. Post-incident triage
