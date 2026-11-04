@@ -329,8 +329,17 @@ describe("the session's own worktree (#4229)", () => {
 		expect(r.reason).not.toContain("index is every session's");
 	});
 
-	it("passes on the main checkout's dirt when the worktree is clean", () => {
+	it("blocks on its own main-checkout dirt once the worktree is clean, naming that tree", () => {
 		ledger(["tracked.md", key("tracked.md")]);
+		dirty("tracked.md");
+		const r = runIn();
+		expect(r.blocked).toBe(true);
+		expect(r.reason).toContain(`uncommitted in ${root}: tracked.md.`);
+		expect(r.reason).toContain("index is every session's");
+	});
+
+	it("passes on main-checkout dirt the session never wrote", () => {
+		ledger([key("tracked.md")]);
 		dirty("tracked.md");
 		expect(runIn().blocked).toBe(false);
 	});
@@ -346,6 +355,26 @@ describe("the session's own worktree (#4229)", () => {
 		claim(key("other.md"), sid);
 		fs.appendFileSync(path.join(wt, "other.md"), "three\n");
 		const r = runIn({ last_assistant_message: "Done.\n\nresult: shipped" });
+		expect(r.blocked).toBe(true);
+		expect(r.reason).toContain(
+			`holds 1 claim(s) on files with no uncommitted change: ${key("tracked.md")}.`,
+		);
+	});
+});
+
+describe("a claim in another session's worktree (#4243)", () => {
+	it("does not call it clean while that worktree holds it dirty", () => {
+		const other = cutWorktree(root, "s2");
+		const key = (rel: string) =>
+			path.relative(root, path.join(other, rel)).split(path.sep).join("/");
+		claim(key("tracked.md"), sid);
+		claim(key("other.md"), sid);
+		fs.appendFileSync(path.join(other, "other.md"), "three\n");
+		const r = run(
+			root,
+			{},
+			{ last_assistant_message: "Done.\n\nresult: shipped" },
+		);
 		expect(r.blocked).toBe(true);
 		expect(r.reason).toContain(
 			`holds 1 claim(s) on files with no uncommitted change: ${key("tracked.md")}.`,

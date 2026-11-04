@@ -84,8 +84,9 @@
  *            also release its own dirt by declaring it, which leaves a debt
  *            standing in the store until its issue closes. The clean-claim
  *            limb takes the house cap of three, on a counter of its own.
- * TREE:      both — dirt from the session's tree, attribution from the host
- *            root's ledger, claims, debts and observations.
+ * TREE:      both — dirt from the session's tree, then the main checkout's;
+ *            attribution from the host root's ledger, claims, debts and
+ *            observations.
  */
 
 const path = require("node:path");
@@ -206,7 +207,7 @@ function waitingHandoff(payload, sid) {
  * The refusal limb: this session's own tracked edits, still uncommitted.
  * @param {import('./lib/stop-guard.js').StopPayload} payload
  * @param {string} sid
- * @param {string} tree the session's checkout, whose dirt is read
+ * @param {string} tree the checkout whose dirt is read
  * @returns {boolean} whether a block was emitted, and so whether stdout is spent
  */
 function refuseUncommitted(payload, sid, tree) {
@@ -293,22 +294,23 @@ function refuseUncommitted(payload, sid, tree) {
 	});
 }
 
+/** A host-relative key inside a linked worktree: `.claude/worktrees/<name>/<rel>`. */
+const WORKTREE_KEY_RE = /^\.claude\/worktrees\/([^/]+)\/(.+)$/;
+
 /**
- * Whether a subject the store judged clean is clean in the session's tree too.
+ * Whether a subject the store judged clean is clean in its own worktree too.
  * The store asks the main checkout's git, which ignores everything under
  * `.claude/worktrees/`, so a dirty worktree file reads clean there; a subject
- * inside a linked worktree is asked of that worktree's own `git status`,
- * untracked files included. Unanswerable reads as not clean, which keeps the
- * claim.
+ * inside a linked worktree, this session's or another's, is asked of that
+ * worktree's own `git status`, untracked files included. Unanswerable reads as
+ * not clean, which keeps the claim.
  * @param {string} subject
- * @param {string} tree
  * @returns {boolean}
  */
-function cleanInTree(subject, tree) {
-	const host = hookBlock.repoRoot();
-	if (tree === host) return true;
-	const rel = path.relative(tree, path.join(host, subject));
-	if (rel.startsWith("..") || path.isAbsolute(rel)) return true;
+function isCleanInTree(subject) {
+	const [, name, rel] = WORKTREE_KEY_RE.exec(subject) ?? [];
+	if (name === undefined || rel === undefined) return true;
+	const tree = path.join(hookBlock.repoRoot(), ".claude", "worktrees", name);
 	return gitRead(["status", "--porcelain", "--", rel], tree) === "";
 }
 
@@ -319,9 +321,8 @@ function cleanInTree(subject, tree) {
  * its own writes holds a clean file legitimately (mantahostels#66).
  * @param {import('./lib/stop-guard.js').StopPayload} payload
  * @param {string} sid
- * @param {string} tree the session's checkout
  */
-function refuseHeldClean(payload, sid, tree) {
+function refuseHeldClean(payload, sid) {
 	/* The cheap checks first: the claim read costs one `git status` a claim. */
 	if (hookBlock.capSpent({ prefix: ".held-clean-nagged-", sessionId: sid }))
 		return;
@@ -331,7 +332,7 @@ function refuseHeldClean(payload, sid, tree) {
 	if (name !== "result:" && name !== "needs input:") return;
 	const held = store.readHeldClean(sid);
 	if (held === null) return;
-	const clean = held.filter((subject) => cleanInTree(subject, tree));
+	const clean = held.filter(isCleanInTree);
 	if (clean.length === 0) return;
 
 	const named = clean.map(shellQuote).join(" ");
@@ -354,8 +355,12 @@ function refuseHeldClean(payload, sid, tree) {
 function judge({ sessionId: sid, payload }) {
 	const tree = sessionTree(payload);
 	if (tree === null) return;
-	if (refuseUncommitted(payload, sid, tree)) return;
-	refuseHeldClean(payload, sid, tree);
+	/* The session's own tree first; then the main checkout, where a worktree
+	 * session's ledgered write there is stranded work all the same. */
+	const host = hookBlock.repoRoot();
+	for (const t of tree === host ? [tree] : [tree, host])
+		if (refuseUncommitted(payload, sid, t)) return;
+	refuseHeldClean(payload, sid);
 }
 
 if (require.main === module) stopGuard.onPayload({ review: judge });
