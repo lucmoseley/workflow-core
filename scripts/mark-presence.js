@@ -16,6 +16,7 @@
  * IMPLICIT:  at every prompt typed in an interactive session, into a running background job or as an agents-view launch, writes the time and the typing session's seat to `~/.claude/.founder-presence`.
  * JUSTIFIED: fail-safe — a missed prompt reads him as away (#1995).
  * DEFEAT:    none needed — it never blocks; `disabled` in .claude/workflow-core.json stands it down.
+ * TREE:      host — stamps machine-wide founder presence under the host root's config switch
  */
 
 const path = require("node:path");

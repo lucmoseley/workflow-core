@@ -88,6 +88,7 @@
  *            started from a script, and keeps a launch whose notification never
  *            came for the rest of the session.
  *            Silent under every band and on every failure path.
+ * TREE:      host — judges the session ceiling from the host root's markers and the transcript
  */
 
 const fs = require("node:fs");

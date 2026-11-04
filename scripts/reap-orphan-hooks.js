@@ -42,6 +42,7 @@
  * IMPLICIT:  at every session start, SIGKILLs every process on this machine that runs any `scripts/guard-*` script or a registered hook invocation, has an init for a parent and is older than the longest registered hook timeout plus a minute, together with its process group where it leads it or the group holds nothing else, else its descendant tree; appends one line per kill to `.orphan-hook-reaps.jsonl` under the canonical checkout's .claude/tmp/markers; SIGKILLs every process whose WFC_INFLIGHT_OWNER names a run-vitest.js pid no longer running; and names each kill in the session.
  * JUSTIFIED: fail-safe — an orphaned hook run has nothing waiting on its answer, and one left spinning timed out every session's hooks for eleven hours (#2922); a run that cannot read /proc kills nothing.
  * DEFEAT:    none at the hook; WFC_PROC on a hand run reads a fixture and kills nothing.
+ * TREE:      host — matches /proc against the hooks the main checkout registers
  */
 
 const { runCheck } = require("./lib/check");

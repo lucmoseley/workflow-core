@@ -23,6 +23,7 @@
  * DEFEAT:    one send-back a reply: a turn already sent back by a Stop hook
  *            (`stop_hook_active`) passes. MAX_BLOCKS a session on its own
  *            counter. Silent on every failure path.
+ * TREE:      host — checks the message against Claude Code's session registry under the host root's config switch
  */
 
 const hookBlock = require("./lib/hook-block");

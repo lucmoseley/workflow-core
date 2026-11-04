@@ -15,6 +15,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cutWorktree } from "./git-fixture";
 import { runInProcess } from "./run-in-process";
 
 const req = createRequire(__filename);
@@ -77,10 +78,12 @@ function verdict({
 	log = () => {
 		/* the red-note cases pass their own */
 	},
+	tree,
 }: {
 	log?: (what: string) => void;
+	tree?: string;
 } = {}) {
-	return sessionVerdict(SID, { root: dir, ledger, log });
+	return sessionVerdict(SID, { root: dir, tree, ledger, log });
 }
 
 function writeMarkerStore(lines: string[]) {
@@ -239,6 +242,22 @@ describe("the session's commit comes from its commit ledger (#1472 Q1 (A))", () 
 			state: "unjudged",
 			why: "commit ledger unreadable",
 		});
+	});
+});
+
+describe("the HEAD judged is the session's own tree's (#4243)", () => {
+	it("finds the session's commit on its worktree's HEAD, which the main checkout's HEAD lacks", () => {
+		const wt = cutWorktree(dir);
+		fs.writeFileSync(path.join(wt, "w.txt"), "w\n");
+		const inWt = (...args: string[]) =>
+			execFileSync("git", args, { cwd: wt, encoding: "utf8" }).trim();
+		inWt("add", "w.txt");
+		inWt("commit", "-q", "-m", "add w.txt");
+		const sha = inWt("rev-parse", "HEAD");
+		ledgers[SID] = [sha];
+		writeMarkerStore([certificate(NO_SUCH_SHA)]);
+		expect(verdict()).toEqual({ state: "attested", at: null });
+		expect(verdict({ tree: wt })).toMatchObject({ state: "owed", own: sha });
 	});
 });
 

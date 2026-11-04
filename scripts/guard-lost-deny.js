@@ -40,6 +40,7 @@
  *            the failure this exists to end, and the remedy is one command.
  * DEFEAT:    once per tool call and at most MAX_BLOCKS times per session; silent
  *            where no deny-capable guard was lost, and on every failure path.
+ * TREE:      host — reads the guards the main checkout runs and the host root's markers
  *
  * EACH GUARD IT NAMES CARRIES ITS MEASURED DENY RATE (mantahostels#3261). A
  * replay costs a second turn, and the rate is what tells a session whether to

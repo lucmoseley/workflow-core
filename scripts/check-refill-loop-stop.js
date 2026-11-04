@@ -40,6 +40,7 @@
  * IMPLICIT:  at every session start but a dispatcher's or the loop's job, prints the refill loop's no-progress pause, or its last stop where it was a damaged control file, where newer than the stamp, then stamps it; prints its newest first overflow launch where newer than that launch's stamp, then stamps it; and names a damaged state file or a stopped loop's damaged control file.
  * JUSTIFIED: fail-safe — the loop runs outside any session, so nothing else reports its stopping, its pausing itself or its spending.
  * DEFEAT:    none needed — it never blocks; deleting a stamp names its last event again.
+ * TREE:      none — judges machine-wide refill-loop state
  */
 
 const fs = require("node:fs");

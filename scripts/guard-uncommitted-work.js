@@ -1,9 +1,16 @@
 #!/usr/bin/env node
 /*
  * guard-uncommitted-work.js — Stop hook. Blocks a turn that ends with this
- * session's own tracked edits still uncommitted in the shared working tree,
- * and a `result:` or `needs input:` turn that ends with this session still
- * holding a claim on a file whose changes are all committed (#3565).
+ * session's own tracked edits still uncommitted in its checkout — its own
+ * worktree (#4229), or the main checkout where it still works there — and a
+ * `result:` or `needs input:` turn that ends with this session still holding a
+ * claim on a file whose changes are all committed (#3565).
+ *
+ * TWO TREES, ONE KEY. Dirt is read from the session's tree (`sessionTree`, the
+ * payload's cwd); the write ledger, claims, debts and observations are the host
+ * root's shared stores, keyed host-relative (`lib/neighbour-dirt.js`'s
+ * `keyPaths`). Each dirty path is matched on its key and named as git in the
+ * session's tree spells it.
  *
  * The uncommitted-work half of the turn-end rule, which this guard enforces,
  * lives in docs/agents/guard-registry.md §Conventions (#2034); the
@@ -62,7 +69,7 @@
  * neighbour is holding.
  *
  * IMPLICIT:  reads git state at Stop and refuses the turn while this session's
- *            own tracked edits sit uncommitted in the shared tree — unless the
+ *            own tracked edits sit uncommitted in its checkout — unless the
  *            turn is the `waiting:` hand-off docs/agents/guard-registry.md §Conventions makes the
  *            one exception, and a launch in this transcript is still out; and
  *            refuses a `result:` or `needs input:` turn while this session
@@ -77,7 +84,12 @@
  *            also release its own dirt by declaring it, which leaves a debt
  *            standing in the store until its issue closes. The clean-claim
  *            limb takes the house cap of three, on a counter of its own.
+ * TREE:      both — dirt from the session's tree, then the main checkout's;
+ *            attribution from the host root's ledger, claims, debts and
+ *            observations.
  */
+
+const path = require("node:path");
 
 const {
 	REFUSAL_NAMED_MAX,
@@ -85,11 +97,12 @@ const {
 	gitRead,
 } = require("./lib/dirty-tree.js");
 const { shellQuote } = require("./lib/sh-quote.js");
-const { gitCommonDir, GIT_TIMEOUT_MS } = require("./lib/git.js");
+const { sessionTree } = require("./lib/host-root.js");
 const hookBlock = require("./lib/hook-block");
 const store = require("./lib/arbiter-store");
 const hookMessage = require("./lib/hook-message");
 const {
+	keyPaths,
 	readClaimedElsewhere,
 	readObservedElsewhere,
 } = require("./lib/neighbour-dirt.js");
@@ -97,9 +110,6 @@ const { readPendingTasks } = require("./lib/pending-tasks");
 const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const { governingMarker } = require("./lib/status-marker");
 const stopGuard = require("./lib/stop-guard");
-
-/* The git commands below run here, and the block counter lands here too. */
-const REPO_ROOT = hookBlock.repoRoot();
 
 /* Six, not the house default of three (mantahostels#2791). 139 of 385 blocked sessions
  * reached the old cap, and 55% of those were still seeing a CHANGING path set
@@ -111,30 +121,6 @@ const REPO_ROOT = hookBlock.repoRoot();
  * move it. `capSpent` below takes it too, or the early stand-down would silence
  * the guard at three and the raise would do nothing. */
 const BLOCK_CAP = 6;
-
-/**
- * One git read against this repo, bounded by `lib/dirty-tree.js`'s ceiling.
- * @param {string[]} args
- * @returns {string|null} stdout, or null where git could not answer
- */
-function git(args) {
-	return gitRead(args, REPO_ROOT);
-}
-
-/**
- * Is REPO_ROOT this repo's shared working tree rather than a linked worktree?
- * The same test `scripts/lib/git-tree.js`'s treeClassifier makes: a linked
- * worktree's `--git-dir` is its own, the shared tree's equals `--git-common-dir`.
- * A directory git cannot answer for is treated as NOT the shared tree, so the
- * guard falls silent.
- * @returns {boolean}
- */
-function inSharedTree() {
-	const dir = git(["rev-parse", "--path-format=absolute", "--git-dir"]);
-	const common = gitCommonDir(REPO_ROOT, { timeout: GIT_TIMEOUT_MS });
-	if (dir === null || common === null) return false;
-	return dir.trim() === common;
-}
 
 /**
  * Read through `hookMessage.readMessageText` for the header's reason. An unreadable
@@ -221,9 +207,10 @@ function waitingHandoff(payload, sid) {
  * The refusal limb: this session's own tracked edits, still uncommitted.
  * @param {import('./lib/stop-guard.js').StopPayload} payload
  * @param {string} sid
+ * @param {string} tree the checkout whose dirt is read
  * @returns {boolean} whether a block was emitted, and so whether stdout is spent
  */
-function refuseUncommitted(payload, sid) {
+function refuseUncommitted(payload, sid, tree) {
 	/* ATTRIBUTION (mantahostels#114, mantahostels#1555). null is "the ledger could not be read", never
 	 * "wrote nothing" — and both land on silence, because a change attributable
 	 * to nobody is billed to nobody. Without this filter the guard would order a
@@ -231,8 +218,9 @@ function refuseUncommitted(payload, sid) {
 	const written = store.readWritesBy(sid);
 	if (written === null || written.length === 0) return false;
 
-	const dirty = readDirtyTracked(REPO_ROOT);
-	if (dirty === null) return false;
+	const tracked = readDirtyTracked(tree);
+	if (tracked === null) return false;
+	const dirty = keyPaths(tree, tracked);
 
 	const theirs = readClaimedElsewhere(sid);
 	/* An owned debt this session recorded is the remedy the refusal below
@@ -240,7 +228,8 @@ function refuseUncommitted(payload, sid) {
 	const declared = store.debtsOwnedBy(sid);
 	/* Already sorted, and unique by construction — see `readDirtyTracked`. */
 	const claimFiltered = dirty.filter(
-		(p) => written.includes(p) && !theirs.has(p) && !declared.has(p),
+		({ key }) =>
+			written.includes(key) && !theirs.has(key) && !declared.has(key),
 	);
 	/* Nothing to name, so nothing `readObservedElsewhere` reads could change the
 	 * answer — and this is what keeps its ~465 ms oracle off the ordinary clean
@@ -267,7 +256,9 @@ function refuseUncommitted(payload, sid) {
 	if (handoff.down) return false;
 
 	const observed = readObservedElsewhere(sid);
-	const mine = claimFiltered.filter((p) => !observed.paths.has(p));
+	const mine = claimFiltered
+		.filter(({ key }) => !observed.paths.has(key))
+		.map(({ rel }) => rel);
 	if (mine.length === 0) return false;
 
 	const truncated = mine.length > REFUSAL_NAMED_MAX;
@@ -283,10 +274,12 @@ function refuseUncommitted(payload, sid) {
 		prefix: ".uncommitted-nagged-",
 		sessionId: sid,
 		reason:
-			`This turn ends with ${String(mine.length)} tracked file(s) this session wrote still uncommitted in the shared working tree: ${list}. ` +
-			"docs/agents/guard-registry.md §Conventions: a turn never ends with uncommitted work in the shared tree, and the next tool call after any Stop-hook detour is the commit, not the summary. " +
+			`This turn ends with ${String(mine.length)} tracked file(s) this session wrote still uncommitted in ${tree}: ${list}. ` +
+			"docs/agents/guard-registry.md §Conventions: a turn never ends with uncommitted work, and the next tool call after any Stop-hook detour is the commit, not the summary. " +
 			recipe +
-			"Never `git add` first, because the index is repo-global. " +
+			(tree === hookBlock.repoRoot()
+				? "Never `git add` first, because the main checkout's index is every session's. "
+				: "") +
 			"Read `git diff` over those paths before you commit: this guard knows only that YOU wrote them at some point, so anything in there you did not write is somebody else's, and committing it puts their bytes under your message. " +
 			(observed.why
 				? `The check that subtracts a live neighbour's own writes could not run (${observed.why}), so read that diff especially carefully — a file a neighbour wrote from Bash may be named above. `
@@ -299,6 +292,26 @@ function refuseUncommitted(payload, sid) {
 			"Then re-send the message this turn was going to end on, its status marker (`result:` / `needs input:` / `waiting:`) and any priced question included — this block discarded it.",
 		max: BLOCK_CAP,
 	});
+}
+
+/** A host-relative key inside a linked worktree: `.claude/worktrees/<name>/<rel>`. */
+const WORKTREE_KEY_RE = /^\.claude\/worktrees\/([^/]+)\/(.+)$/;
+
+/**
+ * Whether a subject the store judged clean is clean in its own worktree too.
+ * The store asks the main checkout's git, which ignores everything under
+ * `.claude/worktrees/`, so a dirty worktree file reads clean there; a subject
+ * inside a linked worktree, this session's or another's, is asked of that
+ * worktree's own `git status`, untracked files included. Unanswerable reads as
+ * not clean, which keeps the claim.
+ * @param {string} subject
+ * @returns {boolean}
+ */
+function isCleanInTree(subject) {
+	const [, name, rel] = WORKTREE_KEY_RE.exec(subject) ?? [];
+	if (name === undefined || rel === undefined) return true;
+	const tree = path.join(hookBlock.repoRoot(), ".claude", "worktrees", name);
+	return gitRead(["status", "--porcelain", "--", rel], tree) === "";
 }
 
 /**
@@ -317,8 +330,10 @@ function refuseHeldClean(payload, sid) {
 	if (!message) return;
 	const { name } = governingMarker(message);
 	if (name !== "result:" && name !== "needs input:") return;
-	const clean = store.readHeldClean(sid);
-	if (clean === null || clean.length === 0) return;
+	const held = store.readHeldClean(sid);
+	if (held === null) return;
+	const clean = held.filter(isCleanInTree);
+	if (clean.length === 0) return;
 
 	const named = clean.map(shellQuote).join(" ");
 	hookBlock.blockStop({
@@ -338,8 +353,13 @@ function refuseHeldClean(payload, sid) {
  * @param {{sessionId: string, payload: import('./lib/stop-guard.js').StopPayload}} ctx
  */
 function judge({ sessionId: sid, payload }) {
-	if (!inSharedTree()) return;
-	if (refuseUncommitted(payload, sid)) return;
+	const tree = sessionTree(payload);
+	if (tree === null) return;
+	/* The session's own tree first; then the main checkout, where a worktree
+	 * session's ledgered write there is stranded work all the same. */
+	const host = hookBlock.repoRoot();
+	for (const t of tree === host ? [tree] : [tree, host])
+		if (refuseUncommitted(payload, sid, t)) return;
 	refuseHeldClean(payload, sid);
 }
 

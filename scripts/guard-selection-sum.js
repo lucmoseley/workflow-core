@@ -109,6 +109,7 @@
  * IMPLICIT:  reads the session's ending message at every Stop and blocks a selection session that dispatches work without stating the frontier arithmetic — its three terms including the count of frontier work no command opens, both of the measured ones pinned to the run's own figures — without naming the candidates its admission cap cut, or — in a background job — without a completion mark; and, once that session has dispatched a first wave, blocks every turn of it until the closing wave states the full sum.
  * JUSTIFIED: fail-safe — the error is silently one-sided: a candidate held back costs a session nobody ever sees (mantahostels#844).
  * DEFEAT:    none — the block clears by stating the arithmetic, the admission-cut line or not-launched block where the set filled the machine, and a completion mark where the run is a background job; an open wave's block clears by closing it, or by re-stating its partial line while the band read runs.
+ * TREE:      host — judges the dispatch summary against the host root's selection marker and doc map
  */
 
 const fs = require("node:fs");

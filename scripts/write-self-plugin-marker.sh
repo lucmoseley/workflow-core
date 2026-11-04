@@ -19,6 +19,7 @@
 # IMPLICIT:  writes an empty `.self-plugin-loaded-<session id>` marker under `.claude/tmp/markers/` at every session start, unasked (#2438).
 # JUSTIFIED: fail-safe — the marker is the canary's only proof the self-plugin's guards loaded; without it every session is refused.
 # DEFEAT:    none
+# TREE:      host — writes this session's self-plugin marker into the host root's markers
 
 set -uo pipefail
 

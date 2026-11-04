@@ -5,8 +5,13 @@
  * `lib/own-selection.js` subtracts for `--isolated`'s dirty-tree attribution
  * (claims only, #1922); and `readStrandedFiles`, a session's own uncommitted
  * files once they are subtracted, which a park's hand-off owes (#2391).
+ *
+ * THE STORES ARE KEYED ON THE HOST ROOT, a worktree file as
+ * `.claude/worktrees/<name>/<path>` (`relativeToRepo`), while git in the
+ * session's tree names it `<path>`. `keyPaths` pairs the two (#4243).
  */
 
+const path = require("node:path");
 const { listedSessionIds } = require("./agent-liveness");
 const proc = require("./arbiter-proc");
 const store = require("./arbiter-store");
@@ -139,25 +144,42 @@ function readObservedElsewhere(sid) {
 }
 
 /**
- * A session's ledgered files still uncommitted in `root` — tracked and dirty,
- * or new and untracked — a live neighbour's claimed files aside; [] where the
- * ledger or the tree cannot be read (#958: fail open).
+ * Each of `rels`, paths git in `tree` names, beside the key the shared stores
+ * record it under. A path the stores cannot key — a tree outside the host
+ * root — is dropped: nothing recorded it, so it is billed to nobody.
+ * @param {string} tree
+ * @param {string[]} rels
+ * @returns {{ rel: string, key: string }[]}
+ */
+function keyPaths(tree, rels) {
+	return rels.flatMap((rel) => {
+		const key = store.relativeToRepo(path.join(tree, rel));
+		return key === null ? [] : [{ rel, key }];
+	});
+}
+
+/**
+ * A session's ledgered files still uncommitted in `tree` — tracked and dirty,
+ * or new and untracked — a live neighbour's claimed files aside, named as git
+ * in `tree` names them; [] where the ledger or the tree cannot be read (#958:
+ * fail open).
  * @param {string} sessionId
- * @param {string} root
+ * @param {string} tree
  * @returns {string[]}
  */
-function readStrandedFiles(sessionId, root) {
+function readStrandedFiles(sessionId, tree) {
 	const written = store.readWritesBy(sessionId);
 	if (!written || written.length === 0) return [];
-	const dirty = readDirtyTracked(root);
+	const dirty = readDirtyTracked(tree);
 	if (!dirty) return [];
 	const theirs = readClaimedElsewhere(sessionId);
-	return [...dirty, ...(readUntrackedFiles(root) ?? [])].filter(
-		(p) => written.includes(p) && !theirs.has(p),
-	);
+	return keyPaths(tree, [...dirty, ...(readUntrackedFiles(tree) ?? [])])
+		.filter(({ key }) => written.includes(key) && !theirs.has(key))
+		.map(({ rel }) => rel);
 }
 
 module.exports = {
+	keyPaths,
 	readClaimedElsewhere,
 	readObservedElsewhere,
 	readStrandedFiles,

@@ -37,6 +37,7 @@
  *   heads off costs minutes of suite time.
  * DEFEAT: `bash -c`, a script or a heredoc wrapping the launch; deleting the
  *   registration.
+ * TREE:   host — reads the suite run log the host root's markers keep
  */
 
 const { run } = require("./lib/guard-entry.js");

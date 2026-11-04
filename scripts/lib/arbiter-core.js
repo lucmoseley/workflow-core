@@ -946,12 +946,14 @@ function boundedGit(args, opts = {}) {
 }
 
 /**
- * Run git in the repo, or null where it could not answer — no git, not a repo,
- * a non-zero exit. Every caller here treats null as "unknown", never as an answer.
+ * Run git in the repo, or in `cwd` where a caller names the session's own
+ * tree, or null where it could not answer — no git, not a repo, a non-zero
+ * exit. Every caller here treats null as "unknown", never as an answer.
  * @param {string[]} args
+ * @param {{cwd?: string}} [opts]
  */
-function git(args) {
-	return boundedGit(args)?.trim() ?? null;
+function git(args, opts = {}) {
+	return boundedGit(args, opts)?.trim() ?? null;
 }
 
 /**
