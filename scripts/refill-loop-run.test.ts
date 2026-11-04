@@ -759,8 +759,6 @@ const weekAt = (week: number) =>
 describe("the panel's read on the real tick (#4060)", () => {
 	const dayMs = 24 * 3_600_000;
 	const behindCache = () => path.join(at("behind"), ".claude.json");
-	const readState = () =>
-		JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"));
 	/** The usage probe's stub: records its seat, then exits `status`, naming `outcome`. */
 	const stubProbe = (outcome: string, status: number) =>
 		stub(
@@ -806,7 +804,9 @@ process.exitCode = ${status};\n`,
 		writeSeats();
 		await oneTick();
 		expect(readLines(at("probes"))).toEqual([at("behind")]);
-		expect(readState().seatTriedAt[at("behind")]).toEqual(expect.any(Number));
+		expect(readLoopState().seatTriedAt[at("behind")]).toEqual(
+			expect.any(Number),
+		);
 	});
 
 	it("keeps a failed probe's last figure and does not retry it on the next tick", async () => {
@@ -816,7 +816,7 @@ process.exitCode = ${status};\n`,
 		const failed = await oneTick();
 		expect(fs.readFileSync(behindCache(), "utf8")).toBe(figure);
 		expect(failed.stdout).toContain(`/usage on ${at("behind")}:`);
-		const state = readState();
+		const state = readLoopState();
 		writeSeats();
 		fs.writeFileSync(behindCache(), figure);
 		fs.writeFileSync(at(".refill-loop-state.json"), JSON.stringify(state));
@@ -839,7 +839,7 @@ process.exitCode = ${status};\n`,
 		await polled(
 			() =>
 				fs.existsSync(at(".refill-loop-state.json")) &&
-				readState().lastTick !== null,
+				readLoopState().lastTick !== null,
 			"no paused tick wrote its state",
 		);
 		requestStop();
@@ -1809,9 +1809,10 @@ const writeParkMarker = (job: string, issue: number, age: number) => {
 	fs.utimesSync(file, parkedAt, parkedAt);
 };
 
-const launchState = () =>
-	JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"))
-		.launches[0];
+const readLoopState = () =>
+	JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"));
+
+const launchState = () => readLoopState().launches[0];
 
 /** The secrets file vitest.setup.ts points every test at. */
 const keySecrets = () => String(process.env.WFC_SECRETS_FILE);
@@ -2597,6 +2598,55 @@ describe("a session held on its seat's limit (#3735)", () => {
 			const comments = readLines(at("gh-calls")).join("\n");
 			expect(comments).toContain(`to ${seat} on overflow key K2`);
 			expect(comments).toContain("its allowance there $");
+		});
+
+		it("records the overflow start on its first move onto a key, as a first overflow launch would (#4257)", async () => {
+			seedOverflow();
+			const outside = at(".claude9");
+			fs.mkdirSync(outside, { recursive: true });
+			fs.writeFileSync(path.join(outside, ".credentials.json"), "{}");
+			const before = Date.now();
+			const r = await oneTick(Run, 1);
+			expect(r.status).toBe(0);
+			expect(launchState()).toMatchObject({ keyVar: "K2" });
+			const start = readLoopState().overflowStart;
+			expect(start).toMatchObject({
+				seat,
+				planSeats: [{ seat, percent: 100, weekFull: true }],
+				omitted: [outside],
+			});
+			expect(start.at).toBeGreaterThanOrEqual(before);
+			expect(r.stdout).toContain("first overflow launch on");
+		});
+
+		it("records nothing new on a move after a launch already on a key (#4257)", async () => {
+			seedOverflow();
+			const keyLaunchAt = Date.now() - 30 * 60 * 1000;
+			const earlier = {
+				at: keyLaunchAt,
+				seat,
+				planSeats: [],
+				omitted: [],
+			};
+			const state = readLoopState();
+			state.launches.push({
+				root: repo,
+				issues: [8],
+				prompt: "/implement 8",
+				seat,
+				keyVar: "K2",
+				reason: "overflow",
+				jobId: "job8",
+				launchedAt: keyLaunchAt,
+				finishedAt: Date.now() - 10 * 60 * 1000,
+			});
+			state.overflowStart = earlier;
+			fs.writeFileSync(at(".refill-loop-state.json"), JSON.stringify(state));
+			const r = await oneTick(Run, 1);
+			expect(r.status).toBe(0);
+			expect(launchState()).toMatchObject({ keyVar: "K2" });
+			expect(readLoopState().overflowStart).toEqual(earlier);
+			expect(r.stdout).not.toContain("first overflow launch on");
 		});
 
 		it("stops the copy and puts it back held on its plan seat where its ledger row will not write", async () => {

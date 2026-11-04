@@ -47,7 +47,12 @@ const { TSC_PEAK_MB, TSC_QUEUE_NAME, isTscRunner } = require("./tsc-slot.js");
  * and `climbMb`, the highest charge a poll was held on (`heldOnClimbMb`).
  * @typedef {{ limb?: HeldLimb, climbMb?: number }} WaitHold
  */
-/** @typedef {{ queueFs?: typeof fs, alive?: (pid: number) => boolean, treePssKb?: (pid: number) => number, onUnread?: (dir: string, error: unknown) => void, ps?: typeof readPs, parentOf?: (pid: number) => number, carriedOf?: typeof readCarriedWeightOf }} ClimbOptions */
+/** @typedef {{ queueFs?: typeof fs, alive?: (pid: number) => boolean, treePssKb?: (pid: number) => number, onUnread?: (dir: string, error: unknown) => void, ps?: typeof readPs, parentOf?: (pid: number) => number, carriedOf?: typeof readCarriedWeightOf, rungQueue?: string | null }} ClimbOptions */
+/**
+ * Which climb a launch the guard judges unqueued pays (#4111): `"all"`, both
+ * queues' climb, or `"off-rung"`, what its suite rung does not count already.
+ * @typedef {"all" | "off-rung"} ClimbScope
+ */
 /** @typedef {{ pid: number, at: number, start?: number, role?: string, chargeMb?: number, part?: boolean, files?: number, admitted?: boolean, spawned?: boolean, memoryHeld?: boolean }} QueueRecord */
 /**
  * How a waiter's admission came out: `admitted`, or yielded to another launch
@@ -182,6 +187,11 @@ function readPeerAdmissions(queueDir, { queueFs = fs, alive = pidAlive } = {}) {
  * A launch holding no marker is charged the same way, read off `ps`
  * (`readUnmarkedRunners`, #3615).
  *
+ * `rungQueue` names the queue whose launches on `ps` the caller's rung counts
+ * (#4111): its runners holding no marker are charged nothing, and its markers
+ * only while no runner of theirs is on `ps` yet, the gap between a spawn and
+ * its vitest's first `ps` row.
+ *
  * @param {string[]} queueDirs
  * @param {ClimbOptions} [options]
  * @returns {number}
@@ -197,37 +207,64 @@ function readClimbMb(
 		ps = readPs,
 		parentOf = readParentOf,
 		carriedOf = readCarriedWeightOf,
+		rungQueue = null,
 	} = {},
 ) {
-	/** @param {number} peakMb @param {number} pid */
-	const yetToDrawMb = (peakMb, pid) =>
-		Math.max(0, peakMb - Math.floor(treePssKb(pid) / 1024));
-	let mb = 0;
-	const unmarked = readUnmarkedRunners(queueDirs, {
+	const { runners, unmarked } = readUnmarkedRunners(queueDirs, {
 		queueFs,
 		alive,
 		onUnread,
 		ps,
 		parentOf,
 	});
-	for (const dir of queueDirs) {
+	const onRung = readRungPids(runners, rungQueue, parentOf);
+	const charges = queueDirs.flatMap((dir) => {
+		const name = path.basename(dir);
 		const { markers, error } = readMarkers(dir, queueFs);
 		if (error) onUnread(dir, error);
-		for (const { record } of markers) {
-			if (record.spawned !== true || isMarkerStale(record, { alive })) continue;
-			mb += yetToDrawMb(peakMbOf(path.basename(dir), record), record.pid);
-		}
-		for (const row of unmarked) {
-			const runner = QUEUE_RUNNERS[path.basename(dir)];
-			if (!runner?.isRunner(row.args)) continue;
-			const peakMb = peakMbOf(
-				path.basename(dir),
-				runner.sizeOf(row, carriedOf),
-			);
-			mb += yetToDrawMb(peakMb, row.pid);
-		}
-	}
-	return mb;
+		const marked = markers
+			.map((m) => m.record)
+			.filter(
+				(r) =>
+					r.spawned === true &&
+					!isMarkerStale(r, { alive }) &&
+					!(name === rungQueue && onRung.has(r.pid)),
+			)
+			.map((r) => ({ peakMb: peakMbOf(name, r), pid: r.pid }));
+		const runner = name === rungQueue ? undefined : QUEUE_RUNNERS[name];
+		const bare = runner
+			? unmarked
+					.filter((row) => runner.isRunner(row.args))
+					.map((row) => ({
+						peakMb: peakMbOf(name, runner.sizeOf(row, carriedOf)),
+						pid: row.pid,
+					}))
+			: [];
+		return [...marked, ...bare];
+	});
+	return charges.reduce(
+		(mb, { peakMb, pid }) =>
+			mb + Math.max(0, peakMb - Math.floor(treePssKb(pid) / 1024)),
+		0,
+	);
+}
+
+/**
+ * The pids `rungQueue`'s runners on `ps` sit under, themselves included: a
+ * marker holding one is a launch the caller's rung counts (#4111).
+ * @param {{ pid: number, args: string }[]} runners
+ * @param {string | null} rungQueue
+ * @param {(pid: number) => number} parentOf
+ * @returns {Set<number>}
+ */
+function readRungPids(runners, rungQueue, parentOf) {
+	const runner = rungQueue === null ? undefined : QUEUE_RUNNERS[rungQueue];
+	if (!runner) return new Set();
+	return new Set(
+		runners
+			.filter((r) => runner.isRunner(r.args))
+			.flatMap(({ pid }) => [pid, ...readAncestorsOf(pid, { parentOf })]),
+	);
 }
 
 /**
@@ -280,27 +317,30 @@ const QUEUE_RUNNERS = {
  *   peak.
  *
  * @param {string[]} queueDirs
+ * Returns every runner on `ps` too, which `readClimbMb` matches to markers.
+ *
  * @param {Required<Pick<ClimbOptions, "queueFs" | "alive" | "onUnread" | "ps" | "parentOf">>} options
- * @returns {{ pid: number, args: string }[]}
+ * @returns {{ runners: { pid: number, args: string }[], unmarked: { pid: number, args: string }[] }}
  */
 function readUnmarkedRunners(
 	queueDirs,
 	{ queueFs, alive, onUnread, ps, parentOf },
 ) {
+	const none = { runners: [], unmarked: [] };
 	const [firstDir] = queueDirs;
-	if (firstDir === undefined) return [];
+	if (firstDir === undefined) return none;
 	const tempRoot = path.dirname(firstDir);
 	const listing = ps();
 	if (!listing.ok) {
 		onUnread("ps", listing.error);
-		return [];
+		return none;
 	}
 	const runners = listing.rows.flatMap(({ pid, args }) =>
 		pid !== null && Object.values(QUEUE_RUNNERS).some((q) => q.isRunner(args))
 			? [{ pid, args }]
 			: [],
 	);
-	if (runners.length === 0) return [];
+	if (runners.length === 0) return none;
 	const runnerPids = new Set(runners.map((r) => r.pid));
 	const markerPids = new Set(
 		ADMITTING_QUEUES.flatMap((name) => {
@@ -314,13 +354,14 @@ function readUnmarkedRunners(
 				.map((r) => r.pid);
 		}),
 	);
-	return runners.filter(
+	const unmarked = runners.filter(
 		({ pid }) =>
 			!markerPids.has(pid) &&
 			!readAncestorsOf(pid, { parentOf }).some(
 				(a) => markerPids.has(a) || runnerPids.has(a),
 			),
 	);
+	return { runners, unmarked };
 }
 
 /**
@@ -333,16 +374,18 @@ const readPeerClimbMb = (queueDir, options) =>
 	readClimbMb(peerQueueDirs(queueDir), options);
 
 /**
- * What every admitting queue's launches have yet to draw, in MB (#3488): the
- * charge a launch the guard judges unqueued takes, being in neither queue.
- * Read at call time, so a caller's `TMPDIR` redirects it.
+ * What the admitting queues' launches have yet to draw, in MB (#3488): the
+ * charge a launch the guard judges unqueued takes, being in neither queue. A
+ * bare `tsc` pays `"all"`; a suite or build pays `"off-rung"` (#4111). Read at
+ * call time, so a caller's `TMPDIR` redirects it.
+ * @param {ClimbScope} scope
  * @param {ClimbOptions} [options]
  */
-const readQueuesClimbMb = (options) =>
-	readClimbMb(
-		[defaultQueueDir(), ...peerQueueDirs(defaultQueueDir())],
-		options,
-	);
+const readQueuesClimbMb = (scope, options) =>
+	readClimbMb([defaultQueueDir(), ...peerQueueDirs(defaultQueueDir())], {
+		...options,
+		rungQueue: scope === "off-rung" ? QUEUE_NAME : null,
+	});
 
 /**
  * A process's start time, in clock ticks since boot, from `/proc/<pid>/stat`.

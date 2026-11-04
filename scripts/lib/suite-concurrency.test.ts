@@ -32,6 +32,7 @@ import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { runCore, toolCall } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
+import type { ClimbScope } from "./suite-queue.js";
 import { WHOLE_SLOT_BOUND } from "./whole-slot-bound";
 
 type Gate =
@@ -157,7 +158,7 @@ beforeEach(() => {
 interface Over {
 	mb?: number | null;
 	ps?: string | null;
-	climb?: number;
+	climb?: Partial<Record<ClimbScope, number>>;
 	vars?: Record<string, string>;
 	declaredTest?: string | null;
 	modules?: string[];
@@ -179,7 +180,7 @@ function harness(over: Over = {}) {
 		told: (id: string) => (over.told ?? []).includes(id),
 		readLatch: (name: string) => (over.latches ?? LADDER_LATCHES)[name] ?? null,
 		availableMb: () => (over.mb === undefined ? ROOMY_MB : over.mb),
-		climbMb: () => over.climb ?? 0,
+		climbMb: (scope: ClimbScope) => over.climb?.[scope] ?? 0,
 		psRows: () => {
 			const text = over.ps === undefined ? psWith(0) : over.ps;
 			return text
@@ -392,10 +393,10 @@ describe("the memory ladder queues a launch under its rung (#2305)", () => {
 		).toEqual({ limb: "count" });
 	});
 
-	it("charges what the queues' running launches have yet to draw (#3488)", () => {
+	it("charges a suite only the climb its rung does not count (#3488, #4111)", () => {
 		expect(gated("npm run test", 3000, 0).verdict?.gate).toBeUndefined();
 		const { verdict: charged, text } = judge("npm run test", 3000, psWith(0), {
-			climb: 500,
+			climb: { "off-rung": 500, all: 900 },
 		});
 		expect(charged?.gate).toEqual({
 			limb: "memory",
@@ -404,7 +405,7 @@ describe("the memory ladder queues a launch under its rung (#2305)", () => {
 			climbMb: 500,
 		});
 		expect(text).toContain(
-			"MemAvailable is 3000 MB, less 500 MB the queues' running launches have yet to draw, under the ~2900 MB",
+			"MemAvailable is 3000 MB, less 500 MB the queues' running launches its rung does not count have yet to draw, under the ~2900 MB",
 		);
 	});
 
@@ -2925,7 +2926,7 @@ describe("a bare `tsc` the type-check slot would hold is sent to `queue-run.js -
 		const mb = TSC_RUNG_MB + 100;
 		expect(outcome(judge("tsc --noEmit", mb, psWith(0)).verdict)).toBe("allow");
 		const { verdict: charged, text } = judge("tsc --noEmit", mb, psWith(0), {
-			climb: 200,
+			climb: { "off-rung": 0, all: 200 },
 		});
 		expect(outcome(charged)).toBe("deny");
 		expect(text).toContain(
