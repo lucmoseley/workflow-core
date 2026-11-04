@@ -2,7 +2,7 @@
 /*
  * Holds lib/admission-verdict-fake.ts, the verdict refill-loop-run.test.ts's
  * admission stub prints, to what the real admission.js prints under the
- * loop's own arguments (lib/refill-loop.js's FREE_SLOT_ARGS), run against a
+ * loop's own arguments (lib/refill-tick-core.js's FREE_SLOT_ARGS), run against a
  * fake `/proc`, meminfo, `ps` and `claude` (#3331). Breaking it costs the
  * concurrency record: a field admission renames still passes the run test,
  * and the loop records null for it live.
@@ -22,7 +22,7 @@ import { buildAgentsBranch, buildJobRow } from "./agents-stop-fake";
 import { writeClaudeStub } from "./claude-stub";
 import { buildMeminfo } from "./meminfo-fake";
 import { writePsStub } from "./ps-stub";
-import { FREE_SLOT_ARGS } from "./refill-loop.js";
+import { FREE_SLOT_ARGS } from "./refill-tick-core.js";
 import { runInProcess } from "./run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "..", "admission.js");

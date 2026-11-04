@@ -43,8 +43,8 @@ import {
 	unparkAnswered,
 } from "./refill-blocks.js";
 import { buildLimitCapText } from "./refill-decide.js";
-import { judgedLaunches } from "./refill-loop.js";
 import { buildSeatName } from "./refill-seats.js";
+import { judgedLaunches } from "./refill-tick-core.js";
 
 const MIN = 60 * 1000;
 const DAY = 24 * 60 * MIN;

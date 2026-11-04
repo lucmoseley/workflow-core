@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * The refill loop's `run` driven end to end (#2435): tick()'s wiring into
- * lib/refill-loop.js's settleTick, which #2286 tests only from fixtures, and
+ * lib/refill-tick-core.js's runTick, which #2286 tests only from fixtures, and
  * run()'s exit on a returned stop or a stop's wake.
  *
  * The program and its lib/ closure are copied into a sandbox `scripts/`, its

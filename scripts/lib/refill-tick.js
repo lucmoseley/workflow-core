@@ -1,40 +1,10 @@
 /*
- * refill-tick.js — one tick of the refill loop (#2012, #2123, spec #1995),
- * with the child processes, files and listings it reads and writes:
- * scripts/refill-loop.js's `run` drives it and its `dry-run` prints one. The
- * CLI logs through the same say and log, at the same files (#3392).
- *
- * A TICK: read founder presence, and in away mode write what it changes under
- * the control lock (#2522), reap (the reaper's --not-a-session mode, since the loop has no
- * session id), take the quiet bench route's step (lib/quiet-bench-tick.js, #3852),
- * stop each job that never started, judge the loop's finished
- * launches for progress, take `parked` off each answered park in every checkout
- * it could serve (lib/refill-blocks.js's unparkAnswered, #3940, #3950) and each
- * closed issue on a served tracker (lib/parked.js's unparkClosed, #3940),
- * stop each parked one its cause and mode's row says
- * to and label its ticket `parked` (lib/block-act.js, #2699), resume each
- * stopped by a transient API error on its schedule, stopping it between
- * tries (#2705), resume each its host restarted that took no turn and hand
- * one still idle after that to a fresh launch (#2707), read
- * admission, the allowance per seat and what its cap would launch, hold, resume or move each blocked on its seat's limit
- * (#3735), ask lib/refill-decide.js, and launch each repo's picks
- * through one dispatch-sessions.sh call in its checkout, so that repo's ledger,
- * duplicate drop, memory re-read and allowance cap apply. The decision core
- * is asked first with an empty frontier: the per-repo shortlists cost GitHub
- * calls, so they are read only on a tick that could launch. Before the
- * decision, the landing queue of each served checkout, and of each checkout
- * a recorded launch ran in, is supervised
- * (scripts/supervise-landing.js, #2692): a dead lander started, a stall
- * ticketed, each earlyoom kill incident that is over is ticketed
- * (scripts/file-memory-kill-tickets.js, #3094), each process runaway memwatch
- * fired on is ticketed (scripts/file-process-runaway-tickets.js, #3807), each repo hold whose clear
- * check passes is lifted (lib/repo-holds.js, #3857), and each served checkout's
- * shared `.git` is probed, a failure stopping launches into it (#3860). Last, the morning review is
- * filed from the first tick after 07:00, and its reversals are answered on
- * every tick (scripts/answer-review-reversals.js, #2017), each by a detached
- * runner the tick never waits on (scripts/refill-review-run.js, #3765). Then
- * the tick's line is
- * appended to the concurrency record (lib/concurrency.js, #2497).
+ * refill-tick.js — the refill loop's tick adapter (#2012, #2123, spec #1995,
+ * #4212): the child processes, files and listings lib/refill-tick-core.js's
+ * runTick reads and writes, which owns the tick's step order and its dry-run
+ * policy. scripts/refill-loop.js's `run` drives it and its `dry-run` prints
+ * one, through the dry-run adapter, whose acts are no-ops. The CLI logs through
+ * the same say and log, at the same files (#3392).
  *
  * SEATS, in failover order, are the plan seats `~/.claude/refill-seats`
  * declares (lib/refill-seats.js), else the seat `start` ran on alone. Its
@@ -54,14 +24,8 @@ const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { listedAgents, readAgentsAfterBoot } = require("./agent-liveness.js");
-const {
-	bootSparedJobs,
-	isEmptyListingTrusted,
-	settleBootKilled,
-	withManagerRestart,
-} = require("./refill-boot.js");
 const { readCurrentBootId } = require("./arbiter-proc.js");
-const { buildDriftLines, readRegistryAgents } = require("./registry-agents.js");
+const { readRegistryAgents } = require("./registry-agents.js");
 const { readActsBy } = require("./arbiter-store.js");
 const { PROBE_CWD, PROBE_TIMEOUT_MS } = require("./usage-probe.js");
 const { hasSeatRunSince } = require("./project-dirs.js");
@@ -120,19 +84,9 @@ const { findNewestTranscript, mainChainRecords } = require("./transcript.js");
 const { findResumed } = require("./resumed-copy.js");
 const { hasConfig, resolveKey } = require("./workflow-core-config.js");
 const { readLastTyped } = require("./presence.js");
-const {
-	MODEL,
-	NOTHING_LAUNCHABLE,
-	decideTick,
-	hasRoom,
-	isParked,
-} = require("./refill-decide.js");
+const { MODEL, hasRoom, isParked } = require("./refill-decide.js");
 const { refillFrontier } = require("./refill-frontier.js");
-const {
-	appendTick,
-	concurrencyFiles,
-	buildTickRecord,
-} = require("./concurrency.js");
+const { appendTick, concurrencyFiles } = require("./concurrency.js");
 const { appendConsoleRow, isConsoleReadDue } = require("./console-credit.js");
 const { seatBudget, stopOverAllowance } = require("./overflow-budget.js");
 const {
@@ -150,6 +104,8 @@ const {
 	readExclusionWhy,
 } = require("./refill-repos.js");
 const loop = require("./refill-loop.js");
+const core = require("./refill-tick-core.js");
+const { runTick } = core;
 const {
 	dropManagerRestart,
 	loopFiles,
@@ -238,14 +194,14 @@ function reapFinished(dryRun) {
 
 /**
  * Stop the working jobs with no live process and no transcript past the grace
- * (lib/refill-loop.js's stopNeverStarted, #2467): admission charges each a
+ * (lib/refill-tick-core.js's stopNeverStarted, #2467): admission charges each a
  * full session until it goes. The log lines. `spared` go unjudged (#3983).
  * @param {import("./registry-agents.js").RegistryListing} registry
  * @param {Set<string>} spared
  */
 function stopNeverStarted(registry, spared) {
 	const jobs = readJobs()?.filter((j) => !spared.has(j.job)) ?? null;
-	return loop.stopNeverStarted(registry, jobs, (j) => {
+	return core.stopNeverStarted(registry, jobs, (j) => {
 		const r = stopOn(j.seat, j.job);
 		return r.ok ? null : r.why;
 	});
@@ -288,7 +244,7 @@ function fileMachineTickets(script, label) {
 
 /**
  * Admission's free slots, read as the dispatcher's re-read reads them
- * (lib/refill-loop.js's FREE_SLOT_ARGS); 0 where it could not judge, so a
+ * (lib/refill-tick-core.js's FREE_SLOT_ARGS); 0 where it could not judge, so a
  * broken read launches nothing (#2012). `admission` is the verdict behind
  * them, for the concurrency record, or null where it did not read.
  * @returns {{slots: number,
@@ -297,7 +253,7 @@ function fileMachineTickets(script, label) {
 function readFreeSlots() {
 	const r = runChild(process.execPath, [
 		path.join(SCRIPTS, "admission.js"),
-		...loop.FREE_SLOT_ARGS,
+		...core.FREE_SLOT_ARGS,
 	]);
 	try {
 		/* admission.js's own `--json` shape (writeJson), typed, not checked. */
@@ -333,7 +289,7 @@ function readPrintedUsage(seats) {
 		// Exit 3 is the probe's "none ran, the cache being fresh".
 		if (r.failed && r.status !== 3) log(`/usage on ${seat}: ${r.failed}`);
 		usage.set(seat, r.stdout);
-		probes.push({ seat, outcome: loop.parseProbeOutcome(r.stderr, r.failed) });
+		probes.push({ seat, outcome: core.parseProbeOutcome(r.stderr, r.failed) });
 	}
 	return { usage, probes };
 }
@@ -398,7 +354,7 @@ function launchBatch(batch) {
 		entriesOf: (root) => readRecentEntries(root, LEDGER_WINDOW_HOURS).entries,
 		now: Date.now,
 	});
-	log(blocks.buildChildLine(`dispatch ${loop.buildLaunchesLine(batch)}`, r));
+	log(blocks.buildChildLine(`dispatch ${core.buildLaunchesLine(batch)}`, r));
 	gates.dropTried(files.gates, r.tried, log);
 	return { launched: r.launched, refused: r.refused };
 }
@@ -439,7 +395,7 @@ const isReviewRunning = () =>
  */
 function runReview(lastRunOn, now) {
 	if (!hasConfig(REVIEW_ROOT)) {
-		const skip = loop.buildReviewSkip({
+		const skip = core.buildReviewSkip({
 			due: loop.isReviewRunDue(new Date(now), lastRunOn),
 			root: REVIEW_ROOT,
 			lastRunOn,
@@ -525,22 +481,6 @@ function startDueConsoleReads(declared, plan, root) {
 }
 
 /**
- * The launches judged against this tick's listing (lib/refill-loop.js's
- * judgedLaunches), each newly finished one's acts read from every served
- * repo's store and its own, and logged.
- * @param {import("./refill-loop.js").LoopLaunch[]} launches
- * @param {import("./agent-liveness.js").AgentRecord[]|null} agents
- * @param {number} now
- * @param {string[]} served
- */
-function judgeFinished(launches, agents, now, served) {
-	return loop.judgedLaunches(launches, agents, now, {
-		progressOf: (l) => readProgress(l, served),
-		causeOf: readCause,
-	});
-}
-
-/**
  * The stores a launch in `root`'s acts are read from: every served repo's and
  * its own.
  * @param {string} root
@@ -564,7 +504,7 @@ const buildActsBeforeReader = (served) => (root, sessionId) =>
  */
 function readProgress(l, served) {
 	const progress = loop.actsOf(l, actRootsOf(l.root, served), readActsBy);
-	log(loop.buildFinishLine({ ...l, ...progress }));
+	log(core.buildFinishLine({ ...l, ...progress }));
 	return progress;
 }
 
@@ -1127,7 +1067,7 @@ const writeLaunch = (l) => updateState(launchRecorded(l), log);
  * @param {string[]} served
  */
 const adoptKilledLaunches = (state, served) =>
-	loop.settleLaunching(state, (launching) => {
+	core.settleLaunching(state, (launching) => {
 		const launched = refillBatch.adoptLaunching(launching, {
 			entriesOf: (root) => readRecentEntries(root, LEDGER_WINDOW_HOURS).entries,
 			readActsBefore: buildActsBeforeReader(served),
@@ -1479,60 +1419,6 @@ function tendCheckouts(served, launches, now) {
 }
 
 /**
- * The decision, and the shortlist read's size and time, null where it was not
- * read.
- * @param {import("./refill-decide.js").TickInput} input
- * @param {import("./refill-loop.js").Scope} scope
- * @returns {Promise<{decision: import("./refill-decide.js").Decision,
- *   read: import("./refill-loop.js").FrontierRead|null}>}
- */
-async function decide(input, scope) {
-	const first = decideTick(input);
-	/* A tick launching gate judgements alone may still have slots for the
-	 * ranking, so it reads the shortlists too. */
-	if (
-		"stop" in first ||
-		(first.idle !== null && first.idle !== NOTHING_LAUNCHABLE)
-	)
-		return { decision: first, read: null };
-	const served = servedRoots(scope);
-	for (const d of served.dropped) log(`not served: ${d.root} (${d.why})`);
-	const readStart = Date.now();
-	const merged = await refillFrontier(served.roots, scope.goal);
-	const read = {
-		rows: merged.frontier.length,
-		ms: Date.now() - readStart,
-		goal: merged.goal,
-	};
-	for (const f of merged.failed)
-		log(`shortlist failed in ${f.root}: ${f.error}`);
-	for (const h of merged.held)
-		log(
-			`held outside the loop: ${h.ref} (${h.why}), holding ${h.holds.join(", ")}`,
-		);
-	const frontier = /** @type {import("./refill-decide.js").MergedRow[]} */ (
-		merged.frontier
-	);
-	const parkers = readParkers(frontier);
-	const decision = decideTick({
-		...input,
-		seats: sizeParkerSeats(input.seats, parkers, served.roots[0]),
-		frontier,
-		retroBundles: merged.retroBundles,
-		failedShortlists: merged.failed,
-		parkers,
-	});
-	return { decision, read };
-}
-
-/**
- * Whether a tick's seats are the loop's own list: read off a sound control that
- * names some (#3790).
- * @param {{seats: string[]}|null} parsed
- */
-const isSeatListRead = (parsed) => parsed !== null && parsed.seats.length > 0;
-
-/**
  * `actOnLimits`, then the ledger holds it ended released.
  * @param {import("./refill-loop.js").LoopLaunch[]} before the launches as the last tick left them
  * @param {Parameters<typeof blocks.actOnLimits>[0]} judged
@@ -1544,105 +1430,6 @@ function actOnLimitsAndRelease(before, judged, mode, seen) {
 	blocks.releaseEndedHolds(before, acted.launches, seen.io);
 	return acted;
 }
-
-/**
- * The limit acts made, and what a tick decides its launches on: the free slots
- * and the seats. A paused tick launches nothing, so it reads none of them, making
- * no admission, `/usage` or cap read, and leaves the limit acts, which need them,
- * for the tick after the resume (#3856); a hold its finishes ended is still
- * released, as that tick's `before` no longer shows it holding.
- * @param {{dryRun: boolean, control: import("./refill-loop.js").Control,
- *   seatListRead: boolean, before: import("./refill-loop.js").LoopLaunch[],
- *   judged: import("./refill-loop.js").LoopLaunch[],
- *   seen: Omit<Parameters<typeof actOnLimitsAndRelease>[3],
- *     "typedSeat"|"readMoveSeats"|"seatListRead"|"slots">, served: string[],
- *   declared: ReturnType<typeof readDeclaredSeats>,
- *   typedSeat: string|null, seatTriedAt: Record<string, number>}} tick
- */
-function settleRoom({
-	dryRun,
-	control,
-	seatListRead,
-	before,
-	judged,
-	seen,
-	served,
-	declared,
-	typedSeat,
-	seatTriedAt,
-}) {
-	if (control.paused) {
-		if (!dryRun) blocks.releaseEndedHolds(before, judged, seen.io);
-		return {
-			launches: judged,
-			slots: 0,
-			admission: null,
-			workingChange: 0,
-			seats: [],
-			probes: [],
-			overflow: [],
-		};
-	}
-	const { slots: free, admission } = readFreeSlots();
-	/** @type {import("./seat-reading.js").Probe[]} */
-	const moveProbes = [];
-	const { launches, slots, workingChange } = dryRun
-		? { launches: judged, slots: free, workingChange: 0 }
-		: actOnLimitsAndRelease(before, judged, control.scope.mode, {
-				...seen,
-				typedSeat,
-				readMoveSeats: () => {
-					const read = readSeats(control.seats, 1, served[0], {
-						typedSeat,
-						sizeAll: true,
-					});
-					moveProbes.push(...read.probes);
-					return {
-						seats: read.seats,
-						overflow: seatReading.overflowReadings(
-							declared,
-							read.seats,
-							(seat) => seatBudget(seat, served[0]),
-						),
-					};
-				},
-				seatListRead,
-				slots: free,
-			});
-	const { seats, probes: walked } = readSeats(control.seats, slots, served[0], {
-		typedSeat,
-	});
-	const walks = [...moveProbes, ...walked];
-	/* A dry run previews launches, so it makes only the walk's probes. The walks'
-	 * stamps are for this read alone: settleTick writes the tick's own. */
-	const probes = dryRun
-		? walks
-		: [
-				...walks,
-				...probeDueSeats(
-					control.seats,
-					seatReading.seatTriedAfter(seatTriedAt, walks, Date.now()),
-				),
-			];
-	const overflow = seatReading.overflowReadings(declared, seats, (seat) =>
-		seatBudget(seat, served[0]),
-	);
-	if (!dryRun && !control.stopRequested)
-		startDueConsoleReads(declared, seats, served[0]);
-	return { launches, slots, admission, workingChange, seats, probes, overflow };
-}
-
-/**
- * The stopped sessions due back: none on a paused tick, which resumes none,
- * though a stop still names those it leaves.
- * @param {import("./refill-loop.js").Control} control
- * @param {import("./refill-loop.js").LoopLaunch[]} launches
- * @param {Parameters<typeof blocks.resumableOf>[1]} seen
- */
-const resumesDue = (control, launches, seen) =>
-	control.paused && !control.stopRequested
-		? []
-		: blocks.resumableOf(launches, seen);
 
 /**
  * The checkouts whose answered parks a tick takes off: `served` and every other
@@ -1665,11 +1452,11 @@ function readParkSweepRoots(served) {
  * The tick's acts on its blocked and idle launches, then each away park's ledger
  * row released once normal mode is live.
  * @param {import("./refill-loop.js").LoopLaunch[]} listed
- * @param {import("./refill-loop.js").Control} control
+ * @param {"normal"|"away"} mode
  * @param {string[]} served
  * @param {Parameters<typeof blocks.actOnBlocks>[2]} seen
  */
-const actOnLaunches = (listed, { scope: { mode } }, served, seen) => {
+function actOnLaunches(listed, mode, served, seen) {
 	blocks.unparkAnswered(readParkSweepRoots(served), seen);
 	tendClosedParks(served);
 	return blocks.releaseAwayParks(
@@ -1677,23 +1464,6 @@ const actOnLaunches = (listed, { scope: { mode } }, served, seen) => {
 		mode,
 		served,
 		seen.io,
-	);
-};
-
-/**
- * The state file as this tick starts on it: on a live tick, what a kill left out
- * of it settled (settleKilled), then the manager's restart applied, which is
- * never written, as the marker is its record until the tick's own write.
- * @param {ReturnType<typeof readManagerRestart>} managerRestart
- * @param {string[]} served
- * @param {boolean} dryRun
- */
-function readTickState(managerRestart, served, dryRun) {
-	const onDisk = readState(log);
-	return withManagerRestart(
-		dryRun ? onDisk : settleKilled(onDisk, served),
-		managerRestart,
-		readCurrentBootId(),
 	);
 }
 
@@ -1721,123 +1491,39 @@ function settleKilled(read, served) {
 }
 
 /**
- * `launches` with the sessions parked on each lifted hold queued for the resume
- * step. A dry run, a paused tick or a stopping one sets nothing running, and the
- * lifted holds keep for a later tick.
- * @param {import("./refill-loop.js").LoopLaunch[]} launches
- * @param {{setsNothingRunning: boolean, roots: string[],
- *   seen: Parameters<typeof blocks.queueLifted>[2]}} tick
- */
-const queueLiftedHolds = (launches, { setsNothingRunning, roots, seen }) =>
-	setsNothingRunning
-		? { launches, settled: [] }
-		: blocks.queueLifted(launches, readLiftedHolds(roots, log), seen);
-
-/**
  * What of each lifted hold the written state now carries, dropped.
- * @param {ReturnType<typeof queueLiftedHolds>["settled"]} settled
+ * @param {ReturnType<typeof blocks.queueLifted>["settled"]} settled
  */
 function dropSettledLifted(settled) {
 	for (const { hold, jobs } of settled) dropLiftedJobs(hold, jobs, log);
 }
 
-/* Untraced: another writer holds it for one read and write, and the next tick
- * tries again. */
-const TICK_LOCK_WAIT_MS = 1000;
-
 /**
- * The control `change` leaves, made on a fresh read under the control lock and
- * `said` called on what it wrote; `control` where it changes nothing. A lock
- * held past the wait leaves the change to the next tick, this one going on as
- * stored. A dry run previews the change and writes none.
- * @param {import("./refill-loop.js").Control|null} control
+ * The control lock's half of a control change: `change` made on a fresh read
+ * and written, or the lock's holder where it stayed held past `waitMs`.
  * @param {(c: import("./refill-loop.js").Control) => import("./refill-loop.js").Control|null} change
- * @param {{dryRun: boolean, what: string,
- *   said: (write: import("./refill-loop.js").Control, fresh: import("./refill-loop.js").Control) => void}} how
- *   `what`, the change's name in the busy line
+ * @param {number} waitMs
+ * @returns {import("./refill-tick-core.js").ControlWrite|{busy: string}}
  */
-function settleUnderLock(control, change, { dryRun, what, said }) {
-	const next = control && change(control);
-	if (!next) return control;
-	if (dryRun) return next;
+function changeControl(change, waitMs) {
 	const written = withControlLock(() => {
 		const fresh = readControl().control;
 		const write = fresh && change(fresh);
-		if (!fresh || !write) return fresh;
+		if (!fresh || !write) return { control: fresh, wrote: null };
 		writeControlFile(write);
-		said(write, fresh);
-		return write;
-	}, TICK_LOCK_WAIT_MS);
-	if ("busy" in written) {
-		log(`${what} waits for the next tick: ${written.busy}`);
-		return control;
-	}
-	return written.done;
+		return { control: write, wrote: { write, fresh } };
+	}, waitMs);
+	return "busy" in written ? { busy: written.busy } : written.done;
 }
 
 /**
- * The control after this tick's read of the founder (controlAfterPresence).
- * @param {import("./refill-loop.js").Control|null} control
- * @param {number|null} lastPromptAt
- * @param {{dryRun: boolean, now: number}} tick
- */
-const settleAwayMode = (control, lastPromptAt, { dryRun, now }) =>
-	settleUnderLock(
-		control,
-		(c) => loop.controlAfterPresence(c, lastPromptAt, now),
-		{
-			dryRun,
-			what: "away mode's change",
-			said: (write) => {
-				if (write.scope.mode === "normal")
-					log(
-						`mode normal: the founder is back, a prompt typed at ${new Date(lastPromptAt ?? now).toISOString()} after a tick read him absent`,
-					);
-			},
-		},
-	);
-
-/**
- * The control with each ticked repo its owner has opted out unticked
- * (controlWithoutOptedOut). A busy lock leaves it ticked a tick longer, which
- * serves nothing: scopeRoots drops it meanwhile.
- * @param {import("./refill-loop.js").Control|null} control
- * @param {boolean} dryRun
- */
-const settleOptedOut = (control, dryRun) =>
-	settleUnderLock(
-		control,
-		(c) => loop.controlWithoutOptedOut(c, isOptedOut)?.control ?? null,
-		{
-			dryRun,
-			what: "the opt-out untick",
-			said: (write, fresh) => {
-				for (const root of fresh.scope.repos)
-					if (!write.scope.repos.includes(root))
-						log(`unticked: ${root} (opted out); a return needs a fresh tick`);
-			},
-		},
-	);
-
-/**
- * The log lines of stopNeverStarted, none on a dry run.
- * @param {boolean} dryRun
- * @param {import("./refill-state.js").LoopState} state
- * @param {Parameters<typeof stopNeverStarted>[0]} registry
- */
-const stopsOfNeverStarted = (dryRun, state, registry) =>
-	dryRun ? [] : stopNeverStarted(registry, bootSparedJobs(state));
-
-/**
  * Stop each overflow session past its allowance (lib/overflow-budget.js,
- * #3698), logged; none on a dry run. Paused or stopping alike: a running
- * overflow session spends either way.
- * @param {boolean} dryRun
+ * #3698), logged. Paused or stopping alike: a running overflow session spends
+ * either way.
  * @param {Parameters<typeof stopOverAllowance>[0]} declared
  * @param {Parameters<typeof stopOverAllowance>[1]} agents
  */
-function capOverflowSessions(dryRun, declared, agents) {
-	if (dryRun) return;
+function capOverflowSessions(declared, agents) {
 	const hasOverflow = declared.seats.some((s) => s.kind === "overflow");
 	if (agents && hasOverflow && declared.errors.length === 0)
 		recordListedOverflowSessions(agents);
@@ -1858,39 +1544,14 @@ function recordListedOverflowSessions(agents) {
 }
 
 /**
- * The tick's listing, an empty one read as nothing live where a boot's killed
- * launches allow it. A dry run judges nothing by it, so it reads the plain one.
- * @param {boolean} dryRun
- * @param {import("./refill-state.js").LoopState} state
- * @param {import("./registry-agents.js").RegistryListing} registry
- */
-function readTickListing(dryRun, state, registry) {
-	const trusted = !dryRun && isEmptyListingTrusted(state, registry);
-	const read = trusted
-		? readAgentsAfterBoot()
-		: listedAgents({ requireSelf: false });
-	if (read.why && (trusted || (!dryRun && state.sameBootRestart)))
-		log(`a restart's killed launches wait on the listing: ${read.why}`);
-	return read.agents ?? null;
-}
-
-/**
- * The control after the quiet bench route's step; as it was on a dry run, with no
- * control to pause, or on a step that failed, which is logged, the next tick
- * deciding it again.
+ * The quiet bench route's step; the control as it was on a step that failed,
+ * which is logged, the next tick deciding it again.
  * @param {import("./refill-loop.js").Control} control
- * @param {{dryRun: boolean, parsed: unknown, lastTypedAt: number|null, now: number}} tick
+ * @param {{lastTypedAt: number|null, served: string[], now: number}} tick
  */
-function settleQuietBench(control, { dryRun, parsed, lastTypedAt, now }) {
-	if (dryRun || parsed === null || control.stopRequested) return control;
+function stepQuietBench(control, { lastTypedAt, served, now }) {
 	try {
-		return tendQuietBench({
-			control,
-			lastTypedAt,
-			served: servedRoots(control.scope).roots,
-			now,
-			log,
-		});
+		return tendQuietBench({ control, lastTypedAt, served, now, log });
 	} catch (e) {
 		/* Fails open, as a failed read inside a tick does (#3852). */
 		log(`quiet bench: step failed: ${buildErrorText(e)}`);
@@ -1898,202 +1559,119 @@ function settleQuietBench(control, { dryRun, parsed, lastTypedAt, now }) {
 	}
 }
 
-/**
- * Each repo hold's phone notice; a dry run sends none. The listing refuses an empty
- * answer, so a registry that read and holds nobody stands in for it: that is the
- * quiet the notice is for.
- * @param {boolean} dryRun
- * @param {string[]} roots
- * @param {import("./registry-agents.js").RegistryListing} registry
- * @param {{agents: Parameters<typeof tendHoldNotices>[1]["agents"], paused: boolean, now: number}} seen
- */
-function settleHoldNotices(dryRun, roots, registry, { agents, paused, now }) {
-	if (dryRun) return;
-	const isRegistryEmpty =
-		registry.seats.length > 0 &&
-		registry.faults.length === 0 &&
-		registry.agents.length === 0;
-	tendHoldNotices(
-		roots,
-		{ agents: agents ?? (isRegistryEmpty ? [] : null), isPaused: paused },
-		now,
-		log,
-	);
-}
+/* Untraced: another writer holds it for one read and write, and the next tick
+ * tries again. */
+const TICK_LOCK_WAIT_MS = 1000;
 
 /**
- * One tick: its decision and the start it judged against. Under `dryRun`
- * nothing is reaped, launched or written.
+ * The production adapter of lib/refill-tick-core.js's runTick: this module's
+ * reads, writes and child processes.
+ * @type {import("./refill-tick-core.js").TickIo}
+ */
+const productionIo = {
+	now: Date.now,
+	log,
+	readControl,
+	changeControl: (change) => changeControl(change, TICK_LOCK_WAIT_MS),
+	isOptedOut,
+	readConfiguredSeats,
+	readIncluded,
+	servedRoots,
+	reap: () => reapFinished(false),
+	tendQuietBench: stepQuietBench,
+	readManagerRestart: () => readManagerRestart(log),
+	readCurrentBootId,
+	readState: () => readState(log),
+	settleKilled,
+	readRegistry: readRegistryAgents,
+	stopNeverStarted,
+	tendCheckouts,
+	readListing: (trusted) =>
+		trusted ? readAgentsAfterBoot() : listedAgents({ requireSelf: false }),
+	capOverflowSessions,
+	blockIo,
+	readSwapHold,
+	sendHoldNotices: (roots, { agents, isPaused }, now) =>
+		tendHoldNotices(roots, { agents, isPaused }, now, log),
+	progressOf: readProgress,
+	causeOf: readCause,
+	actOnLaunches,
+	attachProbeParks: (broken, launches) =>
+		attachProbeParks(broken, launches, log),
+	readLiftedHolds: (roots) => readLiftedHolds(roots, log),
+	releaseEndedHolds: blocks.releaseEndedHolds,
+	readFreeSlots,
+	actOnLimits: actOnLimitsAndRelease,
+	readSeats,
+	probeDueSeats,
+	seatBudget,
+	startDueConsoleReads,
+	capSizer: (root) => seatReading.capSizer(root, log),
+	readGateJudgements: () => gates.readGateStore(files.gates, log).pending,
+	readTickHolds,
+	readFrontier: refillFrontier,
+	readParkers,
+	sizeParkerSeats,
+	launchBatch: launchOrResume,
+	resumeHeld: (resumes, held, seen, how) =>
+		blocks.resumeHeldLaunches(resumes, held, seen, how),
+	writePause: (pause, noProgressFrom) =>
+		writeLoopPause(pause, noProgressFrom, log),
+	runReview,
+	updateState: (transition) => updateState(transition, log),
+	readOmittedDirs,
+	dropSettledLifted,
+	dropManagerRestart: (marker) => dropManagerRestart(marker, log),
+	appendTick: (record) => {
+		if (!appendTick(record))
+			log(`concurrency record: not written to ${concurrencyFiles().record}`);
+	},
+};
+
+/** A dry run's act: none. */
+const noAct = () => undefined;
+
+/**
+ * The dry run's adapter: the production one with every act a no-op answering as
+ * though nothing was done, and the reap its own dry run.
+ * @type {import("./refill-tick-core.js").TickIo}
+ */
+const dryRunIo = {
+	...productionIo,
+	changeControl: () => null,
+	reap: () => reapFinished(true),
+	tendQuietBench: (control) => control,
+	settleKilled: (read) => read,
+	stopNeverStarted: () => [],
+	tendCheckouts: () => [],
+	capOverflowSessions: noAct,
+	sendHoldNotices: noAct,
+	actOnLaunches: (listed) => listed,
+	attachProbeParks: noAct,
+	releaseEndedHolds: noAct,
+	actOnLimits: (_before, judged, _mode, { slots }) => ({
+		launches: judged,
+		slots,
+		workingChange: 0,
+	}),
+	probeDueSeats: () => [],
+	startDueConsoleReads: noAct,
+};
+
+/**
+ * One tick (lib/refill-tick-core.js's runTick): its decision and the start it
+ * judged against. Under `dryRun` nothing is reaped, launched or written.
  * @param {{dryRun: boolean}} opts
  */
-async function tick({ dryRun }) {
+function tick({ dryRun }) {
 	const now = Date.now();
-	const { control: stored, damaged } = readControl();
+	const control = readControl();
 	const declared = readDeclaredSeats();
-	const typed = readLastTyped(declared);
-	const parsed = settleOptedOut(
-		settleAwayMode(stored, typed.at, { dryRun, now }),
+	return runTick(dryRun ? dryRunIo : productionIo, {
 		dryRun,
-	);
-	const unsettled = parsed ?? {
-		noProgressFrom: now,
-		/* No control file is a loop nobody started: a real tick stops. */
-		stopRequested: !dryRun,
-		seats: readConfiguredSeats(),
-		/* With no set written, a dry run previews every checkout it may serve. */
-		scope: {
-			mode: "normal",
-			repos: readIncluded(),
-			goal: null,
-		},
-	};
-	reapFinished(dryRun);
-	const control = settleQuietBench(unsettled, {
-		dryRun,
-		parsed,
-		lastTypedAt: typed.at,
 		now,
+		opening: { control, declared, typed: readLastTyped(declared) },
 	});
-	const managerRestart = dryRun ? null : readManagerRestart(log);
-	const served = servedRoots(control.scope).roots;
-	const state = readTickState(managerRestart, served, dryRun);
-	/* Relief first, off the registry alone: the CLI listing below can outrun
-	 * its caps under the very pressure relief exists for (#2665). */
-	const registry = readRegistryAgents();
-	for (const line of stopsOfNeverStarted(dryRun, state, registry)) log(line);
-	const broken = dryRun ? [] : tendCheckouts(served, state.launches, now);
-	const agents = readTickListing(dryRun, state, registry);
-	/* Read side by side here anyway, so the undocumented registry the relief
-	 * steps trust is checked against the documented listing every tick. */
-	if (agents)
-		for (const line of buildDriftLines(agents, registry.agents)) log(line);
-	capOverflowSessions(dryRun, declared, agents);
-	const seen = {
-		agents,
-		now,
-		io: blockIo(served),
-		swapHold: readSwapHold(),
-		paused: control.paused !== undefined,
-	};
-	settleHoldNotices(
-		dryRun,
-		loop.landingRoots(served, state.launches),
-		registry,
-		seen,
-	);
-	const booted = dryRun ? state : settleBootKilled(state, seen, registry);
-	const listed = judgeFinished(booted.launches, agents, now, served);
-	const acted = dryRun ? listed : actOnLaunches(listed, control, served, seen);
-	attachProbeParks(broken, acted, log);
-	const { launches: judged, settled: liftedSettled } = queueLiftedHolds(acted, {
-		setsNothingRunning: dryRun || seen.paused || control.stopRequested,
-		roots: loop.landingRoots(served, state.launches),
-		seen,
-	});
-	const {
-		launches,
-		slots,
-		admission,
-		workingChange: limitChange,
-		seats,
-		probes,
-		overflow,
-	} = settleRoom({
-		dryRun,
-		control,
-		seatListRead: isSeatListRead(parsed),
-		before: state.launches,
-		judged,
-		seen,
-		served,
-		declared,
-		typedSeat: typed.seat,
-		seatTriedAt: state.seatTriedAt,
-	});
-	const resumable = resumesDue(control, launches, seen);
-	/** @type {import("./refill-decide.js").TickInput} */
-	const input = {
-		now,
-		mode: control.scope.mode,
-		noProgressFrom: control.noProgressFrom,
-		stopRequested: control.stopRequested,
-		...(control.paused ? { paused: control.paused } : {}),
-		/* A dry run previews launches over any control, as over none. */
-		controlDamaged: dryRun ? null : damaged,
-		frontier: [],
-		retroBundles: [],
-		running: loop.runningOf(launches),
-		freeSlots: slots,
-		limitHeldLines: launches
-			.filter(blocks.isLimitHeld)
-			.map(blocks.buildHeldStopText),
-		typedSeat: typed.seat,
-		seats: seatReading.sizeResumeSeats(
-			seats,
-			resumable,
-			slots,
-			seatReading.capSizer(served[0], log),
-		),
-		overflow,
-		history: launches,
-		judgements: gates
-			.readGateStore(files.gates, log)
-			.pending.filter((j) => served.includes(j.root)),
-		resumable,
-		holds: readTickHolds(served, broken).holds,
-	};
-	const { decision, read } = await decide(input, control.scope);
-	if (dryRun)
-		return {
-			decision,
-			read,
-			noProgressFrom: control.noProgressFrom,
-			agents,
-		};
-	const { decision: settled, launched } = loop.settleTick(
-		{
-			input,
-			decision,
-			state,
-			judged: launches,
-			probes,
-			read,
-			probeBrokenRoots: broken,
-			bootedAt: booted.bootedAt,
-			sameBootRestart: booted.sameBootRestart,
-			away: control.away,
-		},
-		{
-			readControl,
-			launchBatch: (batch) => launchOrResume(batch, served),
-			resumeHeld: (resumes, held, isStopped, record) =>
-				blocks.resumeHeldLaunches(resumes, held, seen, { isStopped, record }),
-			writePause: (pause) => writeLoopPause(pause, control.noProgressFrom, log),
-			runReview,
-			updateState: (transition) => updateState(transition, log),
-			readOmittedDirs: () => readOmittedDirs(declared),
-			log,
-			now: Date.now,
-		},
-	);
-	dropSettledLifted(liftedSettled);
-	if (managerRestart) dropManagerRestart(managerRestart, log);
-	if (
-		!appendTick(
-			buildTickRecord({
-				input,
-				decision: settled,
-				admission,
-				workingChange: limitChange + launched,
-			}),
-		)
-	)
-		log(`concurrency record: not written to ${concurrencyFiles().record}`);
-	return {
-		decision: settled,
-		noProgressFrom: control.noProgressFrom,
-		agents,
-	};
 }
 
 module.exports = {

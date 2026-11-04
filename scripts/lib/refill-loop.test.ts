@@ -24,25 +24,17 @@ import { buildStatusLines } from "./refill-commands.js";
 import { decideTick } from "./refill-decide.js";
 import {
 	actsOf,
-	buildFinishLine,
-	buildReviewSkip,
 	controlWithoutOptedOut,
-	FREE_SLOT_ARGS,
 	isRestartedSince,
 	isReviewRunDue,
-	judgedLaunches,
 	landingRoots,
 	limitHoldsOf,
 	parseControl,
-	parseProbeOutcome,
 	parseScope,
 	readActsSoFar,
 	reviewStep,
 	runningOf,
 	scopeRoots,
-	settleLaunching,
-	settleTick,
-	stopNeverStarted,
 	summaryOf,
 	workingOf,
 } from "./refill-loop.js";
@@ -62,6 +54,16 @@ import {
 import { buildSeatName } from "./refill-seats.js";
 import { launchRecorded } from "./refill-state.js";
 import { loopStateOf } from "./refill-state-testkit";
+import {
+	buildFinishLine,
+	buildReviewSkip,
+	FREE_SLOT_ARGS,
+	judgedLaunches,
+	parseProbeOutcome,
+	settleLaunching,
+	settleTick,
+	stopNeverStarted,
+} from "./refill-tick-core.js";
 
 const agent = (id: string, state: string) => ({
 	sessionId: `s-${id}`,
