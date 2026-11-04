@@ -14,7 +14,9 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { parseFileAliases } from "./git-alias.js";
 import { fakeTreeClassifier } from "./git-tree-fake.js";
+import { Lexer } from "./shell-lexer.js";
 import type {
 	Command,
 	GitCall,
@@ -198,6 +200,11 @@ describe("literal (mantahostels#284)", () => {
 			known: false,
 			head: "-f query=",
 		});
+	});
+
+	it("drops a backslash-newline, bare or in a double-quoted span, as bash does (#3518)", () => {
+		expect(literal("a\\\nb", []).text).toBe("ab");
+		expect(literal(`${QUOTED}0\x01`, ['"a\\\nb']).text).toBe("ab");
 	});
 
 	it("reports a sentinel naming a span that was never recorded", () => {
@@ -1201,7 +1208,25 @@ describe("logical lines (mantahostels#182)", () => {
 			"a 40 KB body on one physical line",
 			`gh issue create --title t --body "${`it's \\"q\\" line. `.repeat(2500)}" --label takes:triage`,
 		],
-	])("joins %s (#510)", (_, command) => {
+	])("joins %s inside the bound (#510, #1916)", (_, command) => {
+		// Counted, not clocked (#1916): a join that re-lexes its pending lines
+		// goes quadratic and far over three passes of the text. Three passes is
+		// the bash parser's bound (#1916); these inputs measure 2.0–2.97 (#4134).
+		let lexed = 0;
+		const lex = Lexer.prototype.lex;
+		Lexer.prototype.lex = function (
+			this: InstanceType<typeof Lexer>,
+			text: string,
+		) {
+			lexed += text.length;
+			return lex.call(this, text);
+		};
+		try {
+			parseCommand(command);
+		} finally {
+			Lexer.prototype.lex = lex;
+		}
+		expect(lexed).toBeLessThanOrEqual(3 * command.length);
 		const out = lines(command);
 		expect(out).toHaveLength(1);
 		expect(out[0]).toContain("--label takes:triage");
@@ -1316,12 +1341,11 @@ interface GitWalkRun {
 	details: string[];
 }
 
-/** Every call a git walk made, judged from `cwd`, the hook's own directory. */
-const walkGitRun = (
+/** Every call a git walk made, its ports as `over` sets them over the defaults. */
+const walkGitWith = (
 	command: string,
-	opts: Partial<GitWalkOpts> = {},
-	cwd = SHARED,
-	vars: Record<string, string> = ENV,
+	opts: Partial<GitWalkOpts>,
+	over: Partial<GitWalkPorts>,
 ): GitWalkRun => {
 	const run: GitWalkRun = { out: "", calls: [], logged: [], details: [] };
 	walkGit(
@@ -1331,12 +1355,13 @@ const walkGitRun = (
 			run.out += `${bracket([call.segment, call.sub, call.tree, ...call.args])}\n`;
 		},
 		{
-			...ports({ fallbackCwd: cwd, vars }),
+			...ports({ fallbackCwd: SHARED, vars: ENV }),
 			treeClass,
 			log: (what, detail) => {
 				run.logged.push(what);
 				run.details.push(detail ?? "");
 			},
+			...over,
 		},
 		{
 			subs: ["checkout", "switch"],
@@ -1347,6 +1372,14 @@ const walkGitRun = (
 	);
 	return run;
 };
+
+/** Every call a git walk made, judged from `cwd`, the hook's own directory. */
+const walkGitRun = (
+	command: string,
+	opts: Partial<GitWalkOpts> = {},
+	cwd = SHARED,
+	vars: Record<string, string> = ENV,
+) => walkGitWith(command, opts, { fallbackCwd: cwd, vars });
 
 const repoWalk = (command: string, cwd?: string) =>
 	walkGitRun(command, { scope: "repo" }, cwd);
@@ -1425,6 +1458,91 @@ describe("walkGit reads the repository and the subcommand git will use (#3997)",
 				WORKTREE,
 			).calls[0]?.tree,
 		).toBe(SHARED);
+	});
+});
+
+describe("walkGit reads an alias wherever git defines one (#4009)", () => {
+	/* `git config -z --get-regexp ^alias\\.`'s output for the tree, as the host
+	 * reads it: `st` and `u` defined, `x.y` the subsection form, `bare` with no
+	 * value. */
+	const fileAliases =
+		"alias.st\nstatus -s\0alias.x.y\nlog\0alias.bare\0alias.u\n!x\0";
+	const unread = "unread alias";
+
+	/** `[sub, ...args]` of each call, `file` being the config files' aliases
+	 * and `null` where git could not read them, or each tree's. */
+	const subs = (
+		command: string,
+		file: string | null | ((dir: string) => string) = fileAliases,
+		opts: Partial<GitWalkOpts> = {},
+	) =>
+		walkGitWith(
+			command,
+			{ subs: ["checkout", "status", unread], noun: "x", ...opts },
+			{
+				readFileAliases: (dir) =>
+					file === null
+						? null
+						: parseFileAliases(typeof file === "string" ? file : file(dir)),
+			},
+		).calls.map((c) => [c.sub, ...c.args].join(" "));
+
+	it("reads an alias the config files define (#4009)", () => {
+		expect(subs("git st")).toEqual(["status -s"]);
+		expect(subs("git st", "")).toEqual([]);
+	});
+
+	it("reads the files' subsection form, a name with no value and a shell alias as unread (#4009)", () => {
+		expect(subs("git x")).toEqual([unread]);
+		expect(subs("git bare")).toEqual([unread]);
+		expect(subs("git u")).toEqual([unread]);
+		expect(subs("git -c 'alias.k=!x' k", "")).toEqual([unread]);
+	});
+
+	it("leaves the files' aliases read under a key that is neither an alias nor an include (#4009)", () => {
+		expect(subs("git -c core.pager=less st")).toEqual(["status -s"]);
+		expect(subs("git -c color.st=checkout st")).toEqual(["status -s"]);
+		expect(subs('git -c "core.$X" st')).toEqual(["status -s"]);
+	});
+
+	it("reads every name as unread under an include or a key it cannot read (#4009)", () => {
+		expect(subs("git -c include.path=/x st")).toEqual([unread]);
+		expect(subs('git -c "alias.$N=checkout" st')).toEqual([unread]);
+	});
+
+	it("reads a dotted alias name as one that could define any word (#4009)", () => {
+		expect(subs("git -c alias.k.y=checkout k", "")).toEqual([unread]);
+	});
+
+	it("reads a GIT_CONFIG_KEY_<n> pair below the count, and nothing from another variable (#4009)", () => {
+		expect(
+			subs(
+				"GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.st GIT_CONFIG_VALUE_0=checkout git st",
+			),
+		).toEqual(["checkout"]);
+		expect(subs("GIT_CONFIG_COUNT=alias.st git st")).toEqual(["status -s"]);
+	});
+
+	it("reads the config files of the tree a -C names (#4009)", () => {
+		const own = (dir: string) => (dir === WORKTREE ? fileAliases : "");
+		expect(subs(`git -C ${WORKTREE} st`, own, { scope: "repo" })).toEqual([
+			"status -s",
+		]);
+	});
+
+	it("reads every name as unread once a variable naming a config file may have moved (#4009)", () => {
+		expect(subs("HOME=/tmp/h; git st")).toEqual([unread]);
+		expect(subs('git config --global "$K" v; git st')).toEqual([unread]);
+		expect(subs("echo $HOME; git st")).toEqual(["status -s"]);
+	});
+
+	it("reads the value a git option takes as no config key (#4009)", () => {
+		expect(subs('git --namespace "$NS" st')).toEqual(["status -s"]);
+	});
+
+	it("reads the files' aliases where a cd stays put or an absolute -C overrides it (#4009)", () => {
+		expect(subs('cd ""; git st')).toEqual(["status -s"]);
+		expect(subs(`cd ${WORKTREE}; git -C ${SHARED} st`)).toEqual(["status -s"]);
 	});
 });
 
@@ -1561,6 +1679,17 @@ describe('walkGit, scope "shared"', () => {
 	it("hands the arguments over raw, still masked", () => {
 		const [call] = walkGitRun('git checkout -m "a b"').calls;
 		expect(call?.args[1]).toContain(QUOTED);
+	});
+
+	it("hands the git walk its arguments without redirections (#764)", () => {
+		expect(
+			walkGitRun("git push origin main 2>&1 >| log", {
+				subs: ["push"],
+				noun: "push",
+			}).out,
+		).toBe(
+			`[git push origin main 2>&1 >| log][push][${SHARED}][origin][main]\n`,
+		);
 	});
 
 	it("judges a git command behind a wrapper only under unwrap (#1731)", () => {
@@ -1755,10 +1884,11 @@ describe("path resolution through the git walk", () => {
 	it("reads an empty path as the cwd, which is where the shell leaves it (#301)", () => {
 		// Judged from `elsewhere`, so staying put means no verdict — and no
 		// fail-open record either, which is the half that matters.
-		expect(judged('cd "" && git checkout x').out).toBe("");
-		const r = judged('git -C "" checkout x');
-		expect(r.out).toBe("");
-		expect(r.logged).toEqual([]);
+		for (const command of ['cd "" && git checkout x', 'git -C "" checkout x']) {
+			const r = judged(command);
+			expect(r.out).toBe("");
+			expect(r.logged).toEqual([]);
+		}
 		expect(judged(`cd "${SHARED}" && cd "" && git checkout x`).out).toContain(
 			`[checkout][${SHARED}]`,
 		);
@@ -2096,4 +2226,266 @@ describe("the guarded heads stay git and gh (mantahostels#2346)", () => {
 			expect(walkMap(command, (c) => c.words[0])).toEqual(["node"]);
 		},
 	);
+});
+
+const wordsOf = (command: string) => walkMap(command, (c) => c.words);
+
+/*
+ * Cases a differential mutation run over the parser found unpinned (#4134):
+ * each input tells the parser apart from a one-token change to it.
+ */
+describe("the lexer reads quotes, comments and heredocs as bash does", () => {
+	it("comments out a word opening on #, and only to its line's end (#490, #510)", () => {
+		expect(wordsOf("# git checkout x\ngit status")).toEqual([
+			["git", "status"],
+		]);
+		expect(parseCommand('# c\necho "a\\').segments).toEqual(
+			parseCommand('\necho "a\\').segments,
+		);
+	});
+
+	it("closes a single quote on the first character of a later line (#490, #510)", () => {
+		expect(parseCommand("echo 'a\n' b").spans).toEqual(["'a\n"]);
+	});
+
+	it("reads one unclosed quote as one segment (#490, #510)", () => {
+		expect(parseCommand("'").segments).toEqual(["'"]);
+	});
+
+	it("reads on past a quoted $(…)'s close to the quote's own (#3375)", () => {
+		expect(parseCommand('echo "$(a) b"').spans).toEqual(['"$(a) b']);
+	});
+
+	it("closes a quoted $((…)) at its own brackets (#490, #510)", () => {
+		expect(parseCommand('echo "$((1 + 2))"').spans).toEqual(['"$((1 + 2))']);
+	});
+
+	it("reads a here-string inside a quoted $(…) as no heredoc (#490, #510)", () => {
+		expect(parseCommand('echo "$(cat <<< x)"').spans).toEqual([
+			'"$(cat <<< x)',
+		]);
+	});
+
+	it("keeps a quoted $(…)'s heredoc body open to its terminator line (#490, #510)", () => {
+		expect(parseCommand('echo "$(cat <<EOF\nx\n"\nEOF\n)"').spans).toEqual([
+			'"$(cat <<EOF\nx\n"\nEOF\n)',
+		]);
+	});
+});
+
+describe("the flatten splits brackets, backticks and joins", () => {
+	it("runs a backtick pair as a subshell, whose cd moves nothing after it (#3375)", () => {
+		expect(walkMap("echo `cd /tmp`; pwd", (c) => c.cwd)).toEqual([
+			"/start",
+			"/start",
+			"/start",
+		]);
+	});
+
+	it("joins a subshell's first command to the `(` (#4009)", () => {
+		expect(
+			repoWalk(`cd ${WORKTREE} && (git checkout x)`).calls.map((c) => c.tree),
+		).toEqual([WORKTREE]);
+	});
+
+	it("counts a subshell's bracket lines ahead of the conditional (#328)", () => {
+		expect(parseCommand("(a) || b").conditional).toBe(5);
+	});
+});
+
+describe("commandWords skips what runs ahead of the command", () => {
+	it("skips `time`, and `exec`'s flags, `-a` alone taking a value (#1013)", () => {
+		expect(wordsOf("time git status")).toEqual([["git", "status"]]);
+		expect(wordsOf("exec -c git status")).toEqual([["git", "status"]]);
+	});
+
+	it("reads a line opening `exec` as no command in the line join (mantahostels#1818)", () => {
+		expect(seesEvil('echo "a\nexec git checkout evil\nb"')).toBe(false);
+	});
+});
+
+describe("redirections cut out of the words (#1488)", () => {
+	const redirects = (command: string) =>
+		walkMap(command, (c) =>
+			c.redirects().map((r) => `${r.fd}${r.kind}:${r.target}`),
+		);
+
+	it("cuts two operators glued in one word (#1488)", () => {
+		expect(redirects("cat <in>out")).toEqual([["0read:in", "1truncate:out"]]);
+		expect(redirects("echo x >a&>b")).toEqual([["1truncate:a", "&truncate:b"]]);
+	});
+
+	it("keeps a word glued ahead of a `&>` whole (#1488)", () => {
+		expect(walkMap("echo ab&>f", (c) => c.words)).toEqual([["echo", "ab"]]);
+	});
+
+	it("cuts a redirection written ahead of a `[[` (#1488)", () => {
+		expect(redirects("echo x >f [[ y ]]")).toEqual([["1truncate:f"]]);
+	});
+
+	it("reads a `>` in a bracket inside arithmetic as a comparison (#1488)", () => {
+		expect(redirects("(( (a > b) ))")).toEqual([[]]);
+	});
+});
+
+describe("a double-quoted span's substitutions run as commands of their own", () => {
+	const words = (command: string) => walkMap(command, (c) => c.words.join(" "));
+
+	it("lifts a $(…) past text before it, and one opening on a quote (#3375)", () => {
+		expect(words('echo "a $(git status)"')).toContain("git status");
+		expect(parseCommand('echo "$("$G" status)"').segments).toHaveLength(4);
+	});
+
+	it("lifts a backtick pair, and nothing from one left open (#3375)", () => {
+		expect(words('echo "`pwd`"')).toEqual(["pwd", `echo ${QUOTED}0\x01`]);
+		expect(parseCommand('echo "a`b"').segments).toEqual([
+			`echo ${QUOTED}0\x01`,
+		]);
+	});
+
+	it("lifts no command out of a quoted $((…)) (#3375)", () => {
+		expect(words('x="$((1 + 2))"')).toEqual([]);
+	});
+});
+
+describe("a line continued or skipped as a heredoc body (#490)", () => {
+	it("continues a line opening on a quote, then skips a heredoc body after it (#490)", () => {
+		expect(seesEvil('"a" \\\nb\ncat <<EOF\ngit checkout evil\nEOF')).toBe(
+			false,
+		);
+	});
+
+	it("drops a quote the heredoc opener's line leaves open (#490)", () => {
+		expect(
+			seesEvil("cat <<EOF 'x\nbody\nEOF\necho a \\\ngit checkout evil"),
+		).toBe(false);
+	});
+});
+
+describe("walkGit follows where a cd leaves the command (#4009)", () => {
+	const trees = (command: string) =>
+		walkGitRun(command, { scope: "repo" }, SHARED, ENV).calls.map(
+			(c) => c.tree,
+		);
+	const sure = (command: string, dirs: string[]) =>
+		walkGitWith(
+			command,
+			{ subs: ["checkout"], noun: "x", scope: "repo" },
+			{ isDir: (d) => dirs.includes(d) },
+		).calls.map((c) => c.tree);
+
+	it("is sure of a cd to a directory that is there, and of no other (#4009)", () => {
+		expect(sure(`cd ${WORKTREE}; git checkout x`, [WORKTREE])).toEqual([
+			WORKTREE,
+		]);
+		expect(trees(`cd ${WORKTREE}; git checkout x`)).toEqual([WORKTREE, SHARED]);
+		expect(sure(`cd ${WORKTREE} x; git checkout x`, [WORKTREE])).toEqual([
+			WORKTREE,
+			SHARED,
+		]);
+	});
+
+	it("moves nothing for a cd behind `&` (#4009)", () => {
+		expect(trees(`cd ${WORKTREE} & git checkout x`)).toEqual([SHARED]);
+	});
+
+	it("holds a doubt across a lifted substitution (#4009)", () => {
+		expect(trees(`cd ${WORKTREE}; echo "$(git checkout x)"`)).toEqual([
+			WORKTREE,
+			SHARED,
+		]);
+	});
+
+	it("records nothing for a cd to an empty name that stays put (#325)", () => {
+		expect(
+			walkGitRun('cd "$GIT_DIR"; git checkout x', { emptyUnset: true }).logged,
+		).toEqual([]);
+	});
+});
+
+describe("walkGit reads the repository variables an export moves (#3997)", () => {
+	const trees = (command: string) =>
+		walkGitRun(command, { scope: "repo" }).calls.map((c) => c.tree);
+
+	it("reads an exported or declared variable into a later git (#3997)", () => {
+		expect(trees(`export GIT_DIR=${WORKTREE}/.git; git checkout x`)).toEqual([
+			WORKTREE,
+			SHARED,
+		]);
+		expect(
+			trees(`declare -x GIT_WORK_TREE=${WORKTREE}; git checkout x`),
+		).toEqual([WORKTREE, SHARED]);
+	});
+
+	it("drops one that `unset` or `export -n` takes back (#3997)", () => {
+		for (const drop of ["unset GIT_DIR", "export -n GIT_DIR"])
+			expect(
+				walkGitRun(`export GIT_DIR=${WORKTREE}/.git; ${drop}; git checkout x`, {
+					scope: "repo",
+				}),
+			).toMatchObject({ calls: [{ tree: SHARED }], logged: [] });
+	});
+
+	it("reads a named work tree, and no tree where git and common dirs are both named (#3997)", () => {
+		expect(trees(`git --work-tree ${WORKTREE} checkout x`)).toEqual([
+			WORKTREE,
+			SHARED,
+		]);
+		expect(
+			trees(
+				`GIT_DIR=${WORKTREE}/.git GIT_COMMON_DIR=${WORKTREE}/.git git checkout x`,
+			),
+		).toEqual([SHARED]);
+	});
+
+	it("records an unread work tree beside the tree it stands in (#3997)", () => {
+		expect(
+			walkGitRun("GIT_WORK_TREE=$(pwd); git checkout x", { scope: "repo" })
+				.logged,
+		).toEqual([FAIL_OPEN]);
+	});
+
+	it("names the part it could not resolve in the record (#320)", () => {
+		const detail = (command: string) =>
+			walkGitRun(command, { scope: "repo" }).details[0] ?? "";
+		expect(detail(`cd ~; git --git-dir ${WORKTREE}/.git checkout x`)).toMatch(
+			/^target=cd ~ /,
+		);
+		expect(detail("cd $X; git --work-tree=wt checkout x")).toMatch(
+			/^target=--work-tree wt /,
+		);
+	});
+});
+
+describe("Command.writeTargets reads redirects, copies and deletes", () => {
+	const targets = (command: string) =>
+		walkMap(command, (c) =>
+			c.writeTargets().map((t) => `${t.mode}:${t.target}`),
+		);
+
+	it("reads `<&` onto a name as no write (#1827)", () => {
+		expect(targets("cat <&f")).toEqual([[]]);
+	});
+
+	it("reads `git rm`'s paths as deletes (#1827)", () => {
+		expect(targets("git rm x")).toEqual([["delete:x"]]);
+	});
+
+	it("reads no in-place switch after `--` (#1827)", () => {
+		expect(targets("sed s/a/b/ -- -i")).toEqual([[]]);
+	});
+
+	it("reads no destination from a cp with none, or an empty one (#1827)", () => {
+		expect(targets("cp")).toEqual([[]]);
+		expect(targets('cp a ""')).toEqual([[]]);
+	});
+
+	it("names a copy into a directory by its source's basename, masked where unread (#1827)", () => {
+		expect(targets(`cp "$F" ${WORKTREE}/`)).toEqual([
+			[`write:${WORKTREE}/${QUOTED}0\x01`],
+		]);
+		expect(targets(`cp -t ${WORKTREE} 'a b'`)).toEqual([
+			[`write:${WORKTREE}/a b`],
+		]);
+	});
 });

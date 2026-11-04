@@ -47,7 +47,12 @@ const { TSC_PEAK_MB, TSC_QUEUE_NAME, isTscRunner } = require("./tsc-slot.js");
  * and `climbMb`, the highest charge a poll was held on (`heldOnClimbMb`).
  * @typedef {{ limb?: HeldLimb, climbMb?: number }} WaitHold
  */
-/** @typedef {{ queueFs?: typeof fs, alive?: (pid: number) => boolean, treePssKb?: (pid: number) => number, onUnread?: (dir: string, error: unknown) => void, ps?: typeof readPs, parentOf?: (pid: number) => number, carriedOf?: typeof readCarriedWeightOf }} ClimbOptions */
+/** @typedef {{ queueFs?: typeof fs, alive?: (pid: number) => boolean, treePssKb?: (pid: number) => number, onUnread?: (dir: string, error: unknown) => void, ps?: typeof readPs, parentOf?: (pid: number) => number, carriedOf?: typeof readCarriedWeightOf, rungQueue?: string | null }} ClimbOptions */
+/**
+ * Which climb a launch the guard judges unqueued pays (#4111): `"all"`, both
+ * queues' climb, or `"off-rung"`, what its suite rung does not count already.
+ * @typedef {"all" | "off-rung"} ClimbScope
+ */
 /** @typedef {{ pid: number, at: number, start?: number, role?: string, chargeMb?: number, part?: boolean, files?: number, admitted?: boolean, spawned?: boolean, memoryHeld?: boolean }} QueueRecord */
 /**
  * How a waiter's admission came out: `admitted`, or yielded to another launch
@@ -182,6 +187,11 @@ function readPeerAdmissions(queueDir, { queueFs = fs, alive = pidAlive } = {}) {
  * A launch holding no marker is charged the same way, read off `ps`
  * (`readUnmarkedRunners`, #3615).
  *
+ * `rungQueue` names the queue whose launches on `ps` the caller's rung counts
+ * (#4111): its runners holding no marker are charged nothing, and its markers
+ * only while no runner of theirs is on `ps` yet, the gap between a spawn and
+ * its vitest's first `ps` row.
+ *
  * @param {string[]} queueDirs
  * @param {ClimbOptions} [options]
  * @returns {number}
@@ -197,37 +207,64 @@ function readClimbMb(
 		ps = readPs,
 		parentOf = readParentOf,
 		carriedOf = readCarriedWeightOf,
+		rungQueue = null,
 	} = {},
 ) {
-	/** @param {number} peakMb @param {number} pid */
-	const yetToDrawMb = (peakMb, pid) =>
-		Math.max(0, peakMb - Math.floor(treePssKb(pid) / 1024));
-	let mb = 0;
-	const unmarked = readUnmarkedRunners(queueDirs, {
+	const { runners, unmarked } = readUnmarkedRunners(queueDirs, {
 		queueFs,
 		alive,
 		onUnread,
 		ps,
 		parentOf,
 	});
-	for (const dir of queueDirs) {
+	const onRung = readRungPids(runners, rungQueue, parentOf);
+	const charges = queueDirs.flatMap((dir) => {
+		const name = path.basename(dir);
 		const { markers, error } = readMarkers(dir, queueFs);
 		if (error) onUnread(dir, error);
-		for (const { record } of markers) {
-			if (record.spawned !== true || isMarkerStale(record, { alive })) continue;
-			mb += yetToDrawMb(peakMbOf(path.basename(dir), record), record.pid);
-		}
-		for (const row of unmarked) {
-			const runner = QUEUE_RUNNERS[path.basename(dir)];
-			if (!runner?.isRunner(row.args)) continue;
-			const peakMb = peakMbOf(
-				path.basename(dir),
-				runner.sizeOf(row, carriedOf),
-			);
-			mb += yetToDrawMb(peakMb, row.pid);
-		}
-	}
-	return mb;
+		const marked = markers
+			.map((m) => m.record)
+			.filter(
+				(r) =>
+					r.spawned === true &&
+					!isMarkerStale(r, { alive }) &&
+					!(name === rungQueue && onRung.has(r.pid)),
+			)
+			.map((r) => ({ peakMb: peakMbOf(name, r), pid: r.pid }));
+		const runner = name === rungQueue ? undefined : QUEUE_RUNNERS[name];
+		const bare = runner
+			? unmarked
+					.filter((row) => runner.isRunner(row.args))
+					.map((row) => ({
+						peakMb: peakMbOf(name, runner.sizeOf(row, carriedOf)),
+						pid: row.pid,
+					}))
+			: [];
+		return [...marked, ...bare];
+	});
+	return charges.reduce(
+		(mb, { peakMb, pid }) =>
+			mb + Math.max(0, peakMb - Math.floor(treePssKb(pid) / 1024)),
+		0,
+	);
+}
+
+/**
+ * The pids `rungQueue`'s runners on `ps` sit under, themselves included: a
+ * marker holding one is a launch the caller's rung counts (#4111).
+ * @param {{ pid: number, args: string }[]} runners
+ * @param {string | null} rungQueue
+ * @param {(pid: number) => number} parentOf
+ * @returns {Set<number>}
+ */
+function readRungPids(runners, rungQueue, parentOf) {
+	const runner = rungQueue === null ? undefined : QUEUE_RUNNERS[rungQueue];
+	if (!runner) return new Set();
+	return new Set(
+		runners
+			.filter((r) => runner.isRunner(r.args))
+			.flatMap(({ pid }) => [pid, ...readAncestorsOf(pid, { parentOf })]),
+	);
 }
 
 /**
@@ -280,27 +317,30 @@ const QUEUE_RUNNERS = {
  *   peak.
  *
  * @param {string[]} queueDirs
+ * Returns every runner on `ps` too, which `readClimbMb` matches to markers.
+ *
  * @param {Required<Pick<ClimbOptions, "queueFs" | "alive" | "onUnread" | "ps" | "parentOf">>} options
- * @returns {{ pid: number, args: string }[]}
+ * @returns {{ runners: { pid: number, args: string }[], unmarked: { pid: number, args: string }[] }}
  */
 function readUnmarkedRunners(
 	queueDirs,
 	{ queueFs, alive, onUnread, ps, parentOf },
 ) {
+	const none = { runners: [], unmarked: [] };
 	const [firstDir] = queueDirs;
-	if (firstDir === undefined) return [];
+	if (firstDir === undefined) return none;
 	const tempRoot = path.dirname(firstDir);
 	const listing = ps();
 	if (!listing.ok) {
 		onUnread("ps", listing.error);
-		return [];
+		return none;
 	}
 	const runners = listing.rows.flatMap(({ pid, args }) =>
 		pid !== null && Object.values(QUEUE_RUNNERS).some((q) => q.isRunner(args))
 			? [{ pid, args }]
 			: [],
 	);
-	if (runners.length === 0) return [];
+	if (runners.length === 0) return none;
 	const runnerPids = new Set(runners.map((r) => r.pid));
 	const markerPids = new Set(
 		ADMITTING_QUEUES.flatMap((name) => {
@@ -314,13 +354,14 @@ function readUnmarkedRunners(
 				.map((r) => r.pid);
 		}),
 	);
-	return runners.filter(
+	const unmarked = runners.filter(
 		({ pid }) =>
 			!markerPids.has(pid) &&
 			!readAncestorsOf(pid, { parentOf }).some(
 				(a) => markerPids.has(a) || runnerPids.has(a),
 			),
 	);
+	return { runners, unmarked };
 }
 
 /**
@@ -333,16 +374,18 @@ const readPeerClimbMb = (queueDir, options) =>
 	readClimbMb(peerQueueDirs(queueDir), options);
 
 /**
- * What every admitting queue's launches have yet to draw, in MB (#3488): the
- * charge a launch the guard judges unqueued takes, being in neither queue.
- * Read at call time, so a caller's `TMPDIR` redirects it.
+ * What the admitting queues' launches have yet to draw, in MB (#3488): the
+ * charge a launch the guard judges unqueued takes, being in neither queue. A
+ * bare `tsc` pays `"all"`; a suite or build pays `"off-rung"` (#4111). Read at
+ * call time, so a caller's `TMPDIR` redirects it.
+ * @param {ClimbScope} scope
  * @param {ClimbOptions} [options]
  */
-const readQueuesClimbMb = (options) =>
-	readClimbMb(
-		[defaultQueueDir(), ...peerQueueDirs(defaultQueueDir())],
-		options,
-	);
+const readQueuesClimbMb = (scope, options) =>
+	readClimbMb([defaultQueueDir(), ...peerQueueDirs(defaultQueueDir())], {
+		...options,
+		rungQueue: scope === "off-rung" ? QUEUE_NAME : null,
+	});
 
 /**
  * A process's start time, in clock ticks since boot, from `/proc/<pid>/stat`.
@@ -1126,9 +1169,180 @@ function waitForGate({
 	return step();
 }
 
+/**
+ * @typedef {{ on: (signal: NodeJS.Signals, listener: () => void) => unknown }} SignalEmitter
+ * @typedef {{ waiting: () => boolean, logKilled: (signal: string) => void, leave: () => void, onSignal?: (signal: NodeJS.Signals, code: number) => boolean }} SignalSeat
+ * @typedef {{ seats: Set<SignalSeat>, cleanups: Set<(signal: string) => void>, exit: (code: number) => void }} SignalHost
+ */
+
+/* Each emitter's armed handler state, which `releaseOnSignal` reads: a
+ * handler takes no argument but its signal. */
+/** @type {WeakMap<SignalEmitter, SignalHost>} */
+const signalHosts = new WeakMap();
+
+/**
+ * Arm `emitter`'s QUEUE_SIGNALS handlers, ONCE PER EMITTER: a process that
+ * runs many seats, as a test run calls `main` many times, would otherwise
+ * exhaust the emitter's listener cap. On a signal a seat whose wait has ended
+ * and whose `onSignal` answers true, as queue-run forwarding it to its
+ * command, keeps the process alive and every marker held. Otherwise each
+ * seat still waiting writes its `killed` line, each `cleanup` runs, then each
+ * seat leaves and the process exits with the signal's code
+ * (mantahostels#2034). The markers go last, so no waiter takes a slot whose
+ * run a cleanup has yet to kill.
+ *
+ * SYNCHRONOUS BY NECESSITY: the handler exits at the end of its tick, and a
+ * promise's `.finally()` never runs on a signal. One cleanup that throws must
+ * not strand the rest.
+ *
+ * @param {{ emitter?: SignalEmitter, exit?: (code: number) => void, cleanup?: (signal: string) => void }} [options]
+ * @returns {SignalHost}
+ */
+function armSeatSignals({
+	emitter = process,
+	exit = (code) => process.exit(code),
+	cleanup,
+} = {}) {
+	let host = signalHosts.get(emitter);
+	if (!host) {
+		const armed = { seats: new Set(), cleanups: new Set(), exit };
+		for (const [signal, code] of Object.entries(QUEUE_SIGNALS)) {
+			const name = /** @type {NodeJS.Signals} */ (signal);
+			emitter.on(name, () => releaseOnSignal(armed, name, code));
+		}
+		signalHosts.set(emitter, armed);
+		host = armed;
+	}
+	if (cleanup) host.cleanups.add(cleanup);
+	return host;
+}
+
+/**
+ * @param {SignalHost} host
+ * @param {NodeJS.Signals} signal
+ * @param {number} code
+ */
+function releaseOnSignal(host, signal, code) {
+	const seats = [...host.seats];
+	const answered = seats.filter(
+		(seat) => !seat.waiting() && seat.onSignal?.(signal, code),
+	);
+	if (answered.length > 0) return;
+	for (const seat of seats) seat.logKilled(signal);
+	for (const cleanup of host.cleanups) {
+		try {
+			cleanup(signal);
+		} catch {
+			/* Reported by the cleanup itself. */
+		}
+	}
+	for (const seat of seats) seat.leave();
+	host.exit(code);
+}
+
+/**
+ * A queue seat, end to end (#4240): the marker joined, its stamps, the turn,
+ * the wait, the exit line, the spawned stamp and the leave.
+ *
+ * `queue` is the queue's options every step reads; `join` adds what the marker alone carries (`role`, `chargeMb`,
+ * `weight`), or is `false` for a caller already inside its slot, which takes
+ * no marker and keeps the seat for its signal path alone (#3404). `turn`
+ * replaces `passingTurn`'s, whose `passed` then never reaches the exit line.
+ * `logExit` writes each exit line, a `queueExitLogger`; none writes no line.
+ * `signals` opts the seat into `armSeatSignals`' handlers, with the emitter
+ * and exit they arm and an `onSignal`, asked once the wait has ended, that
+ * answers true where it handled the signal itself. A seat with one stays
+ * registered past its leave, for the rest of its caller's life; one without
+ * leaves the registry as it leaves the queue.
+ *
+ * THE LEAVE RUNS ON EVERY PATH and only once: `wait` leaves on a refusal, a
+ * leave or a throw; `leave` is the caller's for an opened wait; a signal leaves
+ * through the handler.
+ *
+ * The seat's stamps beat the caller's wait options, save an `admit` the
+ * caller wraps round `stamps.admit` (queue-run's `--tsc` try); a `turn`
+ * among them beats the seat's.
+ *
+ * @param {{ queue?: QueueOptions, join?: false | { role?: string, chargeMb?: number, weight?: import("./suite-handoff.js").CarriedWeight }, turn?: () => boolean, logExit?: (reason: import("./queue-exit-log.js").QueueExitReason, waitMs: number, extra?: object) => void, signals?: true | { emitter?: SignalEmitter, exit?: (code: number) => void, onSignal?: (signal: NodeJS.Signals, code: number) => boolean } }} [options]
+ */
+function queueSeat({ queue = {}, join = {}, turn, logExit, signals } = {}) {
+	const ticket = join === false ? "" : queueJoin({ ...queue, ...join });
+	const stamps = queueStamps(ticket, queue);
+	const passing = turn ? null : passingTurn(queue);
+	/** @type {(reason: WaitExitReason, heldBy?: WaitHold) => object} */
+	const exitFields = passing
+		? passing.exitFields
+		: (_reason, heldBy) => ({ ...heldBy });
+	const started = Date.now();
+	let waiting = false;
+	let held = true;
+	/** @type {SignalHost | null} */
+	let host = null;
+	const onSignal = signals === true ? undefined : signals?.onSignal;
+	const leave = () => {
+		if (!onSignal) host?.seats.delete(entry);
+		if (!held) return;
+		held = false;
+		queueLeave(ticket, queue);
+	};
+	/** @type {SignalSeat} */
+	const entry = {
+		waiting: () => waiting,
+		logKilled: (signal) => {
+			if (!waiting) return;
+			waiting = false;
+			logExit?.("killed", Date.now() - started, {
+				signal,
+				...stamps.killedHold(),
+			});
+		},
+		leave,
+		...(onSignal ? { onSignal } : {}),
+	};
+	if (signals) {
+		host = armSeatSignals(signals === true ? {} : signals);
+		host.seats.add(entry);
+	}
+	/**
+	 * @param {Omit<Parameters<typeof waitForGate>[0], "admit" | "onExit"> & { admit?: () => Admission }} [options]
+	 * @returns {Promise<WaitOutcome>}
+	 */
+	const wait = async (options = {}) => {
+		waiting = true;
+		try {
+			const outcome = await waitForGate({
+				turn: passing ? passing.turn : turn,
+				...options,
+				...stamps,
+				admit: options.admit ?? stamps.admit,
+				onExit: (reason, waitMs, heldBy) => {
+					waiting = false;
+					logExit?.(reason, waitMs, exitFields(reason, heldBy));
+				},
+			});
+			if (outcome !== "run") leave();
+			return outcome;
+		} catch (error) {
+			leave();
+			throw error;
+		} finally {
+			waiting = false;
+		}
+	};
+	return {
+		ticket,
+		stamps,
+		wait,
+		spawned: () => queueSpawned(ticket, queue),
+		leave,
+	};
+}
+
+/** @typedef {{ queueDir?: string, queueFs?: typeof fs, pid?: number, clock?: () => number, alive?: (pid: number) => boolean, slots?: number }} QueueOptions */
+/** @typedef {ReturnType<typeof queueSeat>} QueueSeat */
+
 module.exports = {
 	PART_PASS_AGE_MS,
-	QUEUE_SIGNALS,
 	SEAT_ENV,
 	heldMarker,
 	heldSeat,
@@ -1147,4 +1361,6 @@ module.exports = {
 	readQueuesClimbMb,
 	gateDenies,
 	waitForGate,
+	queueSeat,
+	armSeatSignals,
 };

@@ -879,6 +879,22 @@ describe("the error log — the only thing that breaks fail-open's silence", () 
 			.filter(Boolean);
 		expect(lines[0].split("\t").length).toBe(3);
 	});
+
+	it("collapses a tab or newline in a record's detail, so it can neither shift a field nor forge a record (#320)", () => {
+		// The git walk hands an unresolved target over as typed; this is where
+		// its tab or newline stops being one.
+		store.logError("where", "what broke", 'target=-C "a\tb\nc" pwd=/p');
+		const lines = fs
+			.readFileSync(store.errorLog(), "utf8")
+			.split("\n")
+			.filter(Boolean);
+		expect(lines).toHaveLength(1);
+		expect(lines[0].split("\t").slice(1)).toEqual([
+			"where",
+			"what broke",
+			'target=-C "a b c" pwd=/p',
+		]);
+	});
 });
 
 /*

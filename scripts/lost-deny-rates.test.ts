@@ -1130,7 +1130,7 @@ describe("main — the CLI surface", () => {
 		const { status, json } = run("--dir", empty, "--json");
 		expect(status).toBe(0);
 		const body = json();
-		expect(body.corpus.dir).toBe(empty);
+		expect(body.corpus.dirs).toEqual([empty]);
 		expect(Array.isArray(body.rows)).toBe(true);
 	});
 

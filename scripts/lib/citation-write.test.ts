@@ -10,10 +10,6 @@
  * `ec8654cd` through `WFC_CITATION_BASELINE`. The citations are built at run
  * time so the commit gate never reads this file's own lines as mis-copies.
  * The rule text and its latch are lib/guard-entry.test.ts's.
- *
- * The seam-2 case (#4242) runs the core through the dispatcher from a linked
- * worktree of a main checkout: the write is named by its path in the
- * session's tree.
  */
 
 import { execFileSync } from "node:child_process";

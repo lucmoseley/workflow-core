@@ -40,6 +40,12 @@
  *
  * A HAND RUN itemises everything standing, annotating which paths are dirty.
  *
+ * IT ALSO REPORTS A STRANDED WORKTREE (#4244): a linked worktree carrying
+ * uncommitted work whose owning session (lib/session-worktrees.js) is not
+ * listed live, untouched past the same threshold, its files listed under that
+ * session in both modes. A claim's file counts as carrying work where it is
+ * dirty in the main checkout or in a worktree its holder owns.
+ *
  * IT ALSO REPORTS AN UNANSWERED RELEASE REQUEST (mantahostels#1784, spec mantahostels#1702's story
  * 18) — the one route to a holder that stays idle forever, since the in-band
  * notice at `claim`/`release` only fires when the holder next does something.
@@ -49,7 +55,7 @@
  * ever reads the request register — nothing here answers, declines or drops
  * a request.
  *
- * IMPLICIT:  on `npm run status` (scripts/status-report.js), reports the standing count of file claims whose holder has plausibly finished, itemising those that carry uncommitted work; and any release request nobody has answered past the threshold. It never breaks a claim and never answers a request.
+ * IMPLICIT:  on `npm run status` (scripts/status-report.js), reports the standing count of file claims whose holder has plausibly finished, itemising those that carry uncommitted work; each finished session's worktree that carries uncommitted work; and any release request nobody has answered past the threshold. It never breaks a claim and never answers a request.
  * JUSTIFIED: fail-safe — a claim outliving its host blocks every later session's write to that path and nothing else notices; a request nobody answers reaches no holder that stays idle forever except through the founder acting on this line. A run that cannot tell live from finished reports nothing rather than calling a claim dead.
  * DEFEAT:    none; --hours <n> moves both reporting thresholds on a hand run.
  */
@@ -62,9 +68,14 @@ const {
 	STRANDED_AFTER_HOURS,
 	hoursHeld,
 	readDirtyPaths,
+	readDirtyWorktrees,
+	attributeWorktreeDirt,
+	dirtByHolder,
+	classifyWorktrees,
 	isDirtyClaim,
 	classifyClaims,
 } = require("./lib/stranded-count");
+const { worktreeLabel } = require("./lib/session-worktrees.js");
 
 // The arbiter's module, not its CLI: session-arbiter.js exports nothing (mantahostels#158).
 const { readLocks, readRequests, paths } = require("./lib/arbiter-store");
@@ -85,6 +96,7 @@ const describeAge = (hours) =>
 /** @typedef {import("./lib/check").Ctx} Ctx */
 /** @typedef {import("./lib/arbiter-store").RequestRecord} RequestRecord */
 /** @typedef {import("./lib/arbiter-store").ListedLock} Lock */
+/** @typedef {import("./lib/stranded-count").WorktreeDirt} WorktreeDirt */
 /**
  * @typedef {{path: string, sessionId: string, pid: number | null,
  *   claimedAt: string | null, hoursHeld: number | null}} Stranded
@@ -252,18 +264,18 @@ function sayStrandedHeadline(
  * One itemised claim: one line under --notify, two on a hand run.
  * @param {Ctx} ctx
  * @param {Stranded} s
- * @param {(p: string) => boolean} isDirty
+ * @param {(s: Stranded) => boolean} isDirty
  */
 function buildItemLine(ctx, s, isDirty) {
 	if (ctx.notify)
 		return `  ${s.path} — ${describeAge(s.hoursHeld)} by ${s.sessionId.slice(0, 8)}`;
-	return `  ${s.path}${isDirty(s.path) ? "  [uncommitted work]" : ""}\n    ${s.sessionId} (pid ${s.pid ?? "unknown"}), ${describeAge(s.hoursHeld)}, since ${s.claimedAt || "unknown"}`;
+	return `  ${s.path}${isDirty(s) ? "  [uncommitted work]" : ""}\n    ${s.sessionId} (pid ${s.pid ?? "unknown"}), ${describeAge(s.hoursHeld)}, since ${s.claimedAt || "unknown"}`;
 }
 
 /**
  * @param {Ctx} ctx
  * @param {{itemised: Stranded[], carrying: Stranded[],
- *   isDirty: (p: string) => boolean}} opts
+ *   isDirty: (s: Stranded) => boolean}} opts
  */
 function sayItemised(ctx, { itemised, carrying, isDirty }) {
 	if (itemised.length === 0) return;
@@ -275,6 +287,54 @@ function sayItemised(ctx, { itemised, carrying, isDirty }) {
 	// where a dozen two-line entries is most of a screen.
 	for (const s of itemised) ctx.say(buildItemLine(ctx, s, isDirty));
 }
+
+/**
+ * A finished session's worktree carrying uncommitted work, listed under that
+ * session in both modes: every one is work to recover (#4244).
+ * @param {Ctx} ctx
+ * @param {{trees: WorktreeDirt[], hours: number, root: string,
+ *   nameOf: (id: string) => string}} opts
+ */
+function sayStrandedWorktrees(ctx, { trees, hours, root, nameOf }) {
+	for (const t of trees)
+		ctx.warn(
+			"STRANDED-WORKTREE",
+			`${worktreeLabel(root, t.worktree)} — ${t.dirty.size} uncommitted file(s) of ${ownerName(t, nameOf)}, which is no longer listed or which the oracle has marked done, failed or stopped`,
+			strandedWorktreeData(t),
+		);
+	if (trees.length === 0) return;
+	ctx.say(
+		`\nSTRANDED-WORKTREE (${trees.length}) — a worktree carrying uncommitted work whose session is not listed by ${claudeBin()} agents, or listed but no longer working, untouched over ${hours}h:`,
+	);
+	for (const t of trees) {
+		const label = worktreeLabel(root, t.worktree);
+		ctx.say(
+			`  ${ownerName(t, nameOf)} — ${label}, last written ${t.writtenMs === null ? "at an unreadable time" : `${ageOf((Date.now() - t.writtenMs) / 3_600_000)} ago`}`,
+		);
+		for (const p of [...t.dirty].sort()) ctx.say(`    ${p}`);
+	}
+	ctx.say(
+		"\n  Read each diff in its worktree (`git -C <worktree> diff HEAD`, and\n" +
+			"  `git -C <worktree> status` for new files), then commit and land it or\n" +
+			"  discard it. Nothing was touched.\n",
+	);
+}
+
+/**
+ * @param {WorktreeDirt} t
+ * @param {(id: string) => string} nameOf
+ */
+const ownerName = (t, nameOf) =>
+	`${t.owner.name || nameOf(t.owner.sessionId)} (${t.owner.sessionId.slice(0, 8)})`;
+
+/** @param {WorktreeDirt} t */
+const strandedWorktreeData = (t) => ({
+	worktree: t.worktree,
+	sessionId: t.owner.sessionId,
+	name: t.owner.name,
+	files: [...t.dirty].sort(),
+	writtenAt: t.writtenMs === null ? null : new Date(t.writtenMs).toISOString(),
+});
 
 /**
  * @param {Ctx} ctx
@@ -307,6 +367,19 @@ function okLineFor({ stranded, dirty, locks, hours }) {
 	if (stranded.length === 0)
 		return `every one of ${locks.length} file claim(s) is held by a listed session or younger than ${hours}h.`;
 	return `${stranded.length} stranded file claim(s) standing, ${dirty === null ? "and whether any carries uncommitted work could not be read." : "none of them carrying uncommitted work."}`;
+}
+
+/**
+ * What the run could not read of the worktrees, as a clause for the okLine:
+ * empty where it read them all (#4244). Never a finding: a registration whose
+ * directory has gone is the usual cause, and the reaper prunes it (#4247).
+ * @param {import("./lib/stranded-count").DirtyWorktrees["unreadable"]} unreadable
+ */
+function unreadWorktrees(unreadable) {
+	if (unreadable === null)
+		return " git would not list the worktrees, so whether one carries a finished session's work is unknown.";
+	if (unreadable.length === 0) return "";
+	return ` ${unreadable.length} registered worktree(s) git would not read went unjudged: ${unreadable.join(", ")}.`;
 }
 
 runCheck({
@@ -358,10 +431,13 @@ runCheck({
 				`the file-claim store at ${paths.locksDir()} could not be read, so what is held is unknown — not nothing. See: node ${scriptPath("check-guard-errors.js")}`,
 			);
 		}
-		if (locks.length === 0) {
+		/* Read before the oracle, so a run with no claim and no dirty worktree
+		 * still spends no oracle call. */
+		const dirtyTrees = readDirtyWorktrees();
+		if (locks.length === 0 && dirtyTrees.found.length === 0) {
 			sayUnanswered();
 			return {
-				okLine: "no files are claimed.",
+				okLine: `no files are claimed, and no worktree carries uncommitted work.${unreadWorktrees(dirtyTrees.unreadable)}`,
 				data: {
 					claims: 0,
 					unanswered,
@@ -384,14 +460,14 @@ runCheck({
 		 * mantahostels#250's hazard. So the self-test refuses, and the claims go unjudged.
 		 * pick-next.js's headline reads the same strict answer.
 		 */
-		const { ids, why, names, terminal } = listedSessionIds();
+		const { ids, why, names, terminal, cwds } = listedSessionIds();
 		// Counted over the records that PARSE. An unreadable one did not go
 		// unjudged for want of the oracle, and readLocks() surfaces those rather
 		// than dropping them (mantahostels#1692), so `locks.length` would fold them in.
 		if (!ids) {
 			sayUnanswered();
 			ctx.skip(
-				`${why}. ${locks.filter((l) => !l.unreadable).length} file claim(s) went unjudged — none of them is being called stranded on an oracle this run could not read.`,
+				`${why}. ${locks.filter((l) => !l.unreadable).length} file claim(s) and ${dirtyTrees.found.length} dirty worktree(s) went unjudged — none of them is being called stranded on an oracle this run could not read.`,
 			);
 		}
 		nameOf = (/** @type {string} */ id) => names?.get(id) || id;
@@ -422,8 +498,12 @@ runCheck({
 		 * matching and its region caveat belong to lib/stranded-count.js (mantahostels#1780).
 		 */
 		const dirty = readDirtyPaths();
-		const isDirty = (/** @type {string} */ p) => isDirtyClaim(dirty, p);
-		const carrying = dirty ? stranded.filter((s) => isDirty(s.path)) : [];
+		const worktrees = attributeWorktreeDirt(dirtyTrees.found, { cwds, names });
+		const held = dirtByHolder(worktrees);
+		const isDirty = (/** @type {Stranded} */ s) =>
+			isDirtyClaim(dirty, s.path, held.get(s.sessionId));
+		const carrying = dirty ? stranded.filter(isDirty) : [];
+		const trees = classifyWorktrees(worktrees, ids, { hours, terminal });
 		const oldest = oldestHours(stranded);
 
 		const itemised = ctx.notify ? carrying : stranded;
@@ -439,15 +519,21 @@ runCheck({
 		sayStrandedHeadline(ctx, { stranded, hours, oldest, dirty, carrying });
 		sayItemised(ctx, { itemised, carrying, isDirty });
 		sayUnreadableLocks(ctx, unreadable);
+		sayStrandedWorktrees(ctx, {
+			trees: trees.stranded,
+			hours,
+			root: paths.repoRoot(),
+			nameOf,
+		});
 		sayUnanswered();
 		sayClosingAdvice(ctx, { itemised, unreadable });
 
 		return {
-			okLine: okLineFor({ stranded, dirty, locks, hours }),
+			okLine: `${okLineFor({ stranded, dirty, locks, hours })}${unreadWorktrees(dirtyTrees.unreadable)}`,
 			noun:
 				unanswered.length > 0
-					? "possibly-stranded file claim(s) or unanswered release request(s)"
-					: "possibly-stranded file claim(s)",
+					? "possibly-stranded file claim(s) or worktree(s), or unanswered release request(s)"
+					: "possibly-stranded file claim(s) or worktree(s)",
 			data: {
 				stranded,
 				strandedCount: stranded.length,
@@ -462,6 +548,9 @@ runCheck({
 				claims: locks.length,
 				listed: ids.size,
 				thresholdHours: hours,
+				strandedWorktrees: trees.stranded.map(strandedWorktreeData),
+				strandedWorktreeCount: trees.stranded.length,
+				youngWorktrees: trees.young,
 				unanswered,
 				unansweredCount: unanswered.length,
 				requestsReadable: requests !== null,

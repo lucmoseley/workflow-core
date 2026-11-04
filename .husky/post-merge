@@ -11,6 +11,9 @@ set -e # an adopter's git runs this file itself, outside husky's errexit wrapper
 # The repo this hook runs in, not an inherited CLAUDE_PROJECT_DIR (#3307); skipped where the lib is missing.
 # shellcheck source=scripts/lib/hook-root.sh
 [ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh"
+# Every `node` and `bash` below under one wall-clock limit (#4187); unbounded where the lib is missing.
+# shellcheck source=scripts/lib/hook-bound.sh
+[ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh"
 
 toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 script="${WFC_PLUGIN_ROOT:-$toplevel}/scripts/keep-hook-shims.js"
@@ -19,4 +22,7 @@ command -v node >/dev/null 2>&1 || exit 0
 
 # git exports GIT_DIR and GIT_INDEX_FILE into a hook; post-commit's
 # report_new_shared_faults says why each is unset. The keeper always exits 0.
-env -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE node "$script" --lazy
+(
+  unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE
+  node "$script" --lazy
+)

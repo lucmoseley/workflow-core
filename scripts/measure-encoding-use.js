@@ -35,8 +35,8 @@ const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const {
-	transcriptDir,
-	readTranscriptFiles,
+	transcriptDirs,
+	readTranscriptCorpus,
 	sessionKeyFor,
 } = require("./lib/guard-fires");
 const {
@@ -264,13 +264,13 @@ const renderUse = (r) =>
 
 /**
  * @param {ReturnType<typeof rows>} data
- * @param {{dir: string, files: number, unreadable: string[]}} corpus
+ * @param {{dirs: string[], files: number, unreadable: string[]}} corpus
  * @returns {string}
  */
 function render(data, corpus) {
 	const out = [];
 	out.push(
-		`CORPUS  ${corpus.files} transcripts in ${corpus.dir}, read ${new Date().toISOString().slice(0, 10)}.`,
+		`CORPUS  ${corpus.files} transcripts in ${corpus.dirs.join(", ")}, read ${new Date().toISOString().slice(0, 10)}.`,
 		"        It grows daily — sessions write into it while this runs — so carry the count with",
 		"        the figures. Both tiers are read: a main session's own file and every subagent",
 		"        it dispatched, under that session's subagents/ directory (mantahostels#1779).",
@@ -344,7 +344,8 @@ function render(data, corpus) {
  */
 function main(argv) {
 	const { flags } = parseOrExit(argv, CLI);
-	const dir = flagValue(flags, "--dir") ?? transcriptDir(ROOT);
+	const given = flagValue(flags, "--dir");
+	const dirs = given ? [given] : transcriptDirs();
 	// The defaults are first guesses: 25 invocations across 5 sessions is low
 	// enough that this corpus prints ~30 shapes rather than a handful.
 	const bar = { minCount: 25, minSessions: 5, top: 25 };
@@ -362,9 +363,9 @@ function main(argv) {
 		bar[key] = value;
 	}
 
-	const files = readTranscriptFiles(dir);
-	if (files === null) {
-		writeFd(2, `Cannot read transcripts in ${dir}.\n`);
+	const { files, unreadable } = readTranscriptCorpus(dirs);
+	if (unreadable.length > 0) {
+		writeFd(2, `Cannot read transcripts in ${unreadable.join(", ")}.\n`);
 		return 2;
 	}
 
@@ -376,7 +377,7 @@ function main(argv) {
 			JSON.stringify(
 				{
 					corpus: {
-						dir,
+						dirs,
 						transcripts: files.length,
 						unreadable: scanned.unreadable,
 						read: new Date().toISOString(),
@@ -391,7 +392,7 @@ function main(argv) {
 	}
 
 	say(
-		render(data, { dir, files: files.length, unreadable: scanned.unreadable }),
+		render(data, { dirs, files: files.length, unreadable: scanned.unreadable }),
 	);
 	return 0;
 }

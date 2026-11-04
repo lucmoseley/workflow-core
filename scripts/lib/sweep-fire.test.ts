@@ -26,10 +26,7 @@
  * store. The hook line is scripts/guard-dispatch.test.ts's boundary set.
  *
  * Loosen a case here and a hand-typed `gh workflow run` spends past the day's
- * sweep budget unrefused, the CI-minute spend mantahostels#2188 capped. *
- * The seam-2 case (#4242) runs it from a linked worktree of a main checkout:
- * the budget spent is the main checkout's, in the git common dir the two
- * share.
+ * sweep budget unrefused, the CI-minute spend mantahostels#2188 capped.
  */
 
 import { execFileSync } from "node:child_process";

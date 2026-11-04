@@ -23,6 +23,7 @@ const {
 	LISTING_GRACE_MS,
 	queueBootKilled,
 } = require("./refill-blocks.js");
+const { startedAt } = require("./refill-decide.js");
 const { recordedStop } = require("./refill-loop.js");
 
 /* First guesses, and stated as ones: the 3 Nov boot's loop reached its lock in
@@ -127,8 +128,7 @@ function settleBootKilled(
 	if (!sameBootRestart)
 		return { launches: queueBootKilled(launches, seen, bootedAt) };
 	const isWaiting = (/** @type {import("./refill-loop.js").LoopLaunch} */ l) =>
-		seen.now - Math.max(l.launchedAt, l.relaunchedAt ?? 0) < LISTING_GRACE_MS &&
-		!isInRegistry(l, registry);
+		seen.now - startedAt(l) < LISTING_GRACE_MS && !isInRegistry(l, registry);
 	const queued = queueBootKilled(
 		launches,
 		seen,

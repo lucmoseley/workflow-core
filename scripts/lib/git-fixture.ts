@@ -627,6 +627,25 @@ export function trioTemplate(options: TrioOptions = {}): BuildFn {
 }
 
 /**
+ * A linked worktree of the repository at `root`, cut detached at its `HEAD`
+ * under `.claude/worktrees/<name>/` as the session checkout module cuts one,
+ * that folder excluded from `root`'s status as the host's `.gitignore`
+ * excludes it. Its real path; removed with `root`.
+ */
+export function cutWorktree(root: string, name = "s1"): string {
+	const dir = path.join(root, ".claude", "worktrees", name);
+	const exclude = path.join(
+		git(root, "rev-parse", "--path-format=absolute", "--git-common-dir").trim(),
+		"info",
+		"exclude",
+	);
+	fs.mkdirSync(path.dirname(exclude), { recursive: true });
+	fs.appendFileSync(exclude, ".claude/worktrees/\n");
+	git(root, "worktree", "add", "-q", "--detach", dir);
+	return fs.realpathSync(dir);
+}
+
+/**
  * Defines a git-fixture template. The single-function form builds one
  * template on first `instantiate()`; the named-variant form
  * (`{ name: buildFn, ... }`) builds a separate template per name, each lazily

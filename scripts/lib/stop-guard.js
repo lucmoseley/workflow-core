@@ -42,7 +42,7 @@ const { guardDisabled } = require("./workflow-core-config");
 /**
  * @typedef {{session_id?: string, hook_event_name?: string,
  *   last_assistant_message?: string, transcript_path?: string,
- *   stop_hook_active?: unknown}} StopPayload
+ *   cwd?: unknown, stop_hook_active?: unknown}} StopPayload
  */
 
 /**

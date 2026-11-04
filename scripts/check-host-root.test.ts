@@ -431,6 +431,172 @@ describe("the mirror fault through the session's tree (#4234)", () => {
 	});
 });
 
+describe("the mirror fault through a hook's cwd (#4259)", () => {
+	const { fileFaults } = require("./check-host-root.js") as {
+		fileFaults: (root: string, rel: string) => string[];
+	};
+	/** Registers `script` as a hook in the registration file `at`. */
+	const register = (script: string, at = "hooks/hooks.json") =>
+		write(
+			at,
+			JSON.stringify({
+				hooks: {
+					PreToolUse: [
+						{
+							hooks: [
+								{
+									type: "command",
+									command: `node "${DOLLAR}{CLAUDE_PLUGIN_ROOT}"/${script}`,
+								},
+							],
+						},
+					],
+				},
+			}),
+		);
+	/** Registers `scripts/hook.<ext>` as a hook, holding `body`. */
+	const hook = (ext: "js" | "sh", body: string, at?: string) => {
+		register(`scripts/hook.${ext}`, at);
+		write(`scripts/hook.${ext}`, body);
+	};
+	const failsAt = (line: string) => {
+		const e = run();
+		expect(tags(e)).toContain("HOST-ROOTED-CORE");
+		expect(messages(e)).toMatch(new RegExp(line));
+	};
+
+	it.each([
+		["process.cwd()", 'path.join(process.cwd(), "scripts", "x.js")'],
+		["a payload's .cwd", 'path.join(payload.cwd, "scripts", "x.js")'],
+		["a core context's ?.cwd", `\`${DOLLAR}{ctx?.input.cwd}/scripts/x.js\``],
+		[
+			"$PWD read from process.env",
+			'path.join(process.env.PWD, "scripts/x.js")',
+		],
+	])("fails %s joined onto a core directory in a hook entry", (_, expr) => {
+		clean();
+		hook("js", `const p = ${expr};\n`);
+		failsAt("hook\\.js:1 .*session's tree");
+	});
+
+	it.each([
+		[
+			"a destructured cwd",
+			'const { cwd } = payload;\nconst p = path.join(cwd, "scripts", "x.js");\n',
+		],
+		[
+			"a destructured cwd under an alias",
+			'function f({ cwd: dir }) {\nreturn path.join(dir, "scripts", "x.js");\n}\n',
+		],
+		[
+			"a parameter defaulting to process.cwd()",
+			'function f(top = process.cwd()) {\nreturn path.join(top, "scripts", "x.js");\n}\n',
+		],
+	])("fails %s joined onto a core directory in a hook entry", (_, body) => {
+		clean();
+		hook("js", body);
+		failsAt("hook\\.js:2 .*session's tree");
+	});
+
+	it.each([".claude/settings.json", "self-plugin/hooks/hooks.json"])(
+		"fails a hook entry registered in %s",
+		(at) => {
+			clean();
+			hook(
+				"js",
+				'const p = path.join(process.cwd(), "scripts", "x.js");\n',
+				at,
+			);
+			failsAt("hook\\.js:1");
+		},
+	);
+
+	it("fails a variable holding a payload's cwd, in a lib the hook loads", () => {
+		clean();
+		hook("js", 'require("./lib/loaded.js");\n');
+		write(
+			"scripts/lib/loaded.js",
+			'const tree = input.cwd;\nconst p = path.join(tree, "scripts", "x.js");\n',
+		);
+		failsAt("lib/loaded\\.js:2");
+	});
+
+	it("fails a guard core the dispatcher loads from guard-cores.json", () => {
+		clean();
+		register("scripts/guard-dispatch.js");
+		write("scripts/guard-dispatch.js", "");
+		write(
+			"scripts/lib/guard-cores.json",
+			JSON.stringify({
+				PreToolUse: [
+					{ name: "g", core: "g.js", tools: "Bash", failure: "open" },
+				],
+			}),
+		);
+		write(
+			"scripts/lib/g.js",
+			'const p = path.join(process.cwd(), "scripts/x.js");\n',
+		);
+		failsAt("lib/g\\.js:1");
+	});
+
+	it.each([
+		["$PWD", '"$PWD/scripts/x.sh"'],
+		[`${DOLLAR}{PWD}`, `"${DOLLAR}{PWD}/scripts/x.sh"`],
+		["$(pwd)", '"$(pwd)/scripts/x.sh"'],
+		[
+			"a --show-toplevel result",
+			'"$(git rev-parse --show-toplevel)/scripts/x.sh"',
+		],
+		[
+			"a variable holding a --show-toplevel result",
+			'top=$(git rev-parse --show-toplevel)\n"$top/scripts/x.sh"',
+		],
+	])("fails %s joined onto a core directory in a hook's shell", (_, body) => {
+		clean();
+		hook("sh", `#!/bin/sh\n${body}\n`);
+		failsAt("hook\\.sh:\\d .*session's tree");
+	});
+
+	it("passes a checker rooting its --root default on process.cwd(), which no hook runs", () => {
+		clean();
+		hook("js", "");
+		write(
+			"scripts/check-x.js",
+			'const root = args.root ?? process.cwd();\nconst p = path.join(root, "scripts", "x.js");\n',
+		);
+		write("scripts/x.sh", '#!/bin/sh\n"$PWD/scripts/y.sh"\n');
+		expect(tags(run())).not.toContain("HOST-ROOTED-CORE");
+	});
+
+	it("passes a hook passing { cwd: root } as an option, which binds no cwd", () => {
+		clean();
+		hook(
+			"js",
+			'const { hostRoot } = require("./lib/host-root.js");\nconst root = "/x";\nspawn("git", [], { cwd: root });\nconst p = path.join(root, "scripts", "x.js");\n',
+		);
+		expect(tags(run())).not.toContain("HOST-ROOTED-CORE");
+	});
+
+	it("passes a hook's cwd joined onto no core directory", () => {
+		clean();
+		hook("js", 'const p = path.join(process.cwd(), "docs", "a.md");\n');
+		expect(tags(run())).not.toContain("HOST-ROOTED-CORE");
+	});
+
+	it("judges a lone hook file as the whole-repo pass does, and leaves a checker alone", () => {
+		hook("js", 'const p = path.join(process.cwd(), "scripts", "x.js");\n');
+		write(
+			"scripts/check-x.js",
+			'const p = path.join(process.cwd(), "scripts", "x.js");\n',
+		);
+		expect(fileFaults(dir, "scripts/hook.js").join("\n")).toMatch(
+			/hook\.js:1 .*session's tree/,
+		);
+		expect(fileFaults(dir, "scripts/check-x.js")).toEqual([]);
+	});
+});
+
 describe("the mirror fault through a variable (#14)", () => {
 	const rooted = (body: string) =>
 		`const { hostRoot } = require("./lib/host-root.js");\nconst root = hostRoot();\n${body}`;

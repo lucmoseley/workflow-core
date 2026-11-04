@@ -7,6 +7,11 @@
  * NEVER drop the redirects: without WFC_REPO_ROOT the block counters resolve to
  * the real repo root, where a fixed session id spends the shared allowance and
  * a later case passes vacuously once an earlier one has run three times.
+ *
+ * `worktree` is the split a session in its own worktree runs under (#4229):
+ * `dir` stays the main checkout every root resolves to, while the hook's cwd
+ * and the payload's `cwd` are the linked worktree `lib/git-fixture.ts`'s
+ * `cutWorktree` makes.
  */
 
 import { spawnSync } from "node:child_process";
@@ -34,6 +39,8 @@ export interface StopRun {
 	payload?: Record<string, unknown>;
 	/** Sent in place of the whole payload, for a malformed one. */
 	stdin?: string;
+	/** A linked worktree of `dir`, run from as the session's tree. */
+	worktree?: string;
 }
 
 /**
@@ -57,6 +64,7 @@ function stopGuardInput({
 	env: extra = {},
 	payload = {},
 	stdin,
+	worktree,
 }: StopRun): { env: NodeJS.ProcessEnv; stdin: string } {
 	const env: NodeJS.ProcessEnv = {
 		...process.env,
@@ -78,6 +86,7 @@ function stopGuardInput({
 				hook_event_name: "Stop",
 				...(message === undefined ? {} : { last_assistant_message: message }),
 				transcript_path: transcript,
+				...(worktree === undefined ? {} : { cwd: worktree }),
 				...payload,
 			}),
 	};
@@ -95,7 +104,11 @@ export function readStopGuardBlock(
 	run: StopRun,
 ): StopBlock | null {
 	const { env, stdin } = stopGuardInput(run);
-	const out = runInProcess(guard, [], { stdin, cwd: run.dir, env });
+	const out = runInProcess(guard, [], {
+		stdin,
+		cwd: run.worktree ?? run.dir,
+		env,
+	});
 	return parseBlock(out.status, out.stdout);
 }
 
@@ -110,7 +123,7 @@ export function readStopGuardBlockWithin(
 	const { env, stdin } = stopGuardInput(run);
 	const out = spawnSync(process.execPath, [guard], {
 		input: stdin,
-		cwd: run.dir,
+		cwd: run.worktree ?? run.dir,
 		env,
 		encoding: "utf8",
 		timeout: HANG_TIMEOUT_MS,

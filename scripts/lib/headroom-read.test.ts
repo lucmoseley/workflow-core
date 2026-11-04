@@ -5,9 +5,6 @@
  * break it and a session reads a short figure and abandons work the machine
  * had room for. The latch, the emission and the hook boundary are
  * guard-entry.test.ts's and guard-headroom-read.test.ts's.
- *
- * The seam-2 case (#4242) runs it through the dispatcher from a linked
- * worktree of a main checkout: the rule's latch is the main checkout's.
  */
 
 import path from "node:path";

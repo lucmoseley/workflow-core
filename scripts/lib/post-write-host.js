@@ -5,8 +5,7 @@
  *
  * The formatting and scan ports take the root of the tree they act in, which
  * the core passes as the session's (#4242): a linked worktree's file is
- * formatted by that worktree's Biome and config, never the host's. The record
- * is the arbiter's, on the host.
+ * formatted by that worktree's Biome and config, never the host's.
  */
 
 const crypto = require("node:crypto");

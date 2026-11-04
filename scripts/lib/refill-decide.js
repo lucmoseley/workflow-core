@@ -1169,7 +1169,13 @@ function decideUnpaused(input) {
 	};
 }
 
+/** When `l` last started its job, from which it has the listing's grace: its
+ * launch, or a resume or move since.
+ * @param {{launchedAt: number, relaunchedAt?: number}} l */
+const startedAt = (l) => Math.max(l.launchedAt, l.relaunchedAt ?? 0);
+
 module.exports = {
+	startedAt,
 	isOnPlanSeat,
 	EXPLICIT_STOP_DETAIL,
 	PROBE_HELD,

@@ -25,8 +25,7 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { ledgerPath } = require("./lib/dispatch-ledger");
 const { readJsonl } = require("./lib/jsonl.js");
-const { oneCopyEach } = require("./lib/project-dirs");
-const { slugForRepo } = require("./lib/project-slug");
+const { oneCopyEach, projectDirs } = require("./lib/project-dirs");
 const { seatsFrom } = require("./lib/seat-args");
 const { parseOrCode } = require("./lib/cli-args");
 const {
@@ -55,11 +54,9 @@ function jobPrefix(raw) {
  * @param {string} prefix
  */
 function findByPrefix(seats, prefix) {
-	const project = slugForRepo();
 	/** @type {string[]} */
 	const hits = [];
-	for (const seat of seats) {
-		const dir = path.join(seat, "projects", project);
+	for (const dir of projectDirs(seats)) {
 		let names;
 		try {
 			names = fs.readdirSync(dir);

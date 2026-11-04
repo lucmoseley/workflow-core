@@ -19,10 +19,6 @@
  * what makes a silent change to either constant fail something. It is the
  * only vetting of a new dependency, so a loosened case lets an unvetted
  * install through.
- *
- * The seam-2 cases (#4242) run it through the dispatcher from a linked
- * worktree of a main checkout, on real files: the package.json read is the
- * worktree's.
  */
 
 import fs from "node:fs";
@@ -80,7 +76,18 @@ interface Over {
 	now?: () => number;
 	startedAt?: number;
 	vars?: Record<string, string>;
+	/** Each entry on the fake disk, the link's target or "" for no link. */
+	disk?: Record<string, string>;
+	cwd?: string;
 }
+
+/** A session worktree whose `node_modules` links its store. */
+const WORKTREE = {
+	"/repo/.claude/worktrees/s1/package.json": "",
+	"/repo/.claude/worktrees/s1/node_modules":
+		"/repo/.claude/worktrees/.dep-stores/0123abcd/node_modules",
+};
+const IN_WORKTREE = { disk: WORKTREE, cwd: "/repo/.claude/worktrees/s1" };
 
 function harness(reg: Partial<Registry> = {}, over: Over = {}) {
 	const logs: string[] = [];
@@ -109,6 +116,10 @@ function harness(reg: Partial<Registry> = {}, over: Over = {}) {
 		now: over.now ?? (() => NOW),
 		startedAt: () => over.startedAt ?? NOW,
 		allowNewPackage: over.allow ?? false,
+		...(over.cwd === undefined ? {} : { cwd: over.cwd }),
+		pathExists: (p: string) => over.disk?.[p] !== undefined,
+		linkTarget: (p: string) => over.disk?.[p] || null,
+		storesDir: () => "/repo/.claude/worktrees/.dep-stores",
 	});
 	return { ctx, logs, calls };
 }
@@ -190,6 +201,117 @@ describe("what it does not judge", () => {
 
 	it("reads npm by its basename, reached by path", () => {
 		expect(denial("/usr/bin/npm install left-pad")).toMatch(/--ignore-scripts/);
+	});
+});
+
+describe("check 0 — a store link", () => {
+	it("denies an install through a store link, naming the link, the store and the route, in full", () => {
+		expect(denial("npm install", {}, IN_WORKTREE)).toBe(
+			`\`npm install\` would write through /repo/.claude/worktrees/s1/node_modules, a link to /repo/.claude/worktrees/.dep-stores/0123abcd/node_modules: a dependency store every worktree on this lockfile shares, and none installs into (#4255).
+To change the dependencies, run the same command with \`--package-lock-only\`, which writes package.json and package-lock.json alone; then \`node scripts/session-checkout.js attach\` points this worktree at the store for its new lockfile, building it once where none exists. A lockfile left unchanged already has its store.`,
+		);
+	});
+
+	it.each([
+		["npm ci", "ci"],
+		["npm i --ignore-scripts left-pad", "install"],
+		["npm rm js-yaml", "uninstall"],
+		["npm up", "update"],
+		["npm ddp", "dedupe"],
+		["npm prune", "prune"],
+		["npm rb", "rebuild"],
+		["npm ln ../other", "link"],
+		["npm audit fix", "audit"],
+		["npm installTest", "install-test"],
+		["npm clean-install-t", "install-ci-test"],
+		["npm --loglevel warn install", "install"],
+		["npm i --location=user js-yaml", "install"],
+		["npm i -L user js-yaml", "install"],
+	])("denies `%s` as npm %s, every spelling npm derefs", (command, as) => {
+		expect(denial(command, {}, IN_WORKTREE)).toMatch(
+			new RegExp(`^\`npm ${as}\` would write through`),
+		);
+	});
+
+	it("finds the install directory from a subdirectory, as npm's local prefix does", () => {
+		expect(
+			denial(
+				"npm install",
+				{},
+				{ disk: WORKTREE, cwd: `${IN_WORKTREE.cwd}/scripts/lib` },
+			),
+		).toMatch(/write through \/repo\/\.claude\/worktrees\/s1\/node_modules,/);
+	});
+
+	it("follows a `cd` in the command, and a `--prefix` into the worktree", () => {
+		expect(
+			denial(`cd ${IN_WORKTREE.cwd} && npm ci`, {}, { disk: WORKTREE }),
+		).toMatch(/would write through/);
+		expect(
+			denial(
+				"npm --prefix .claude/worktrees/s1 ci",
+				{},
+				{ disk: WORKTREE, cwd: "/repo" },
+			),
+		).toMatch(/would write through/);
+	});
+
+	it.each([
+		"npm install --package-lock-only js-yaml",
+		"npm i --package-lock-only",
+		"npm install --dry-run",
+		"npm install -g js-yaml",
+		"npm install --location=global js-yaml",
+		"npm audit",
+		"npm ci --help",
+		"npm test",
+		"npm run build",
+		"npm ls",
+	])("allows `%s`, which writes no tree through the link", (command) => {
+		expect(allows(command, {}, IN_WORKTREE)).toBe(true);
+	});
+
+	it.each([
+		["into the main checkout", "/repo/node_modules"],
+		[
+			"relatively, beside the stores",
+			"../.dep-stores-old/0123abcd/node_modules",
+		],
+	])("allows an install through a node_modules linked %s", (_l, target) => {
+		const disk = { ...WORKTREE, [`${IN_WORKTREE.cwd}/node_modules`]: target };
+		expect(allows("npm ci", {}, { disk, cwd: IN_WORKTREE.cwd })).toBe(true);
+	});
+
+	it("denies one linking the stores folder itself, where builds stage", () => {
+		const disk = {
+			...WORKTREE,
+			[`${IN_WORKTREE.cwd}/node_modules`]:
+				"/repo/.claude/worktrees/.dep-stores",
+		};
+		expect(denial("npm ci", {}, { disk, cwd: IN_WORKTREE.cwd })).toMatch(
+			/would write through/,
+		);
+	});
+
+	it("denies one linking a store by a relative path", () => {
+		const disk = {
+			...WORKTREE,
+			[`${IN_WORKTREE.cwd}/node_modules`]:
+				"../.dep-stores/0123abcd/node_modules",
+		};
+		expect(denial("npm ci", {}, { disk, cwd: IN_WORKTREE.cwd })).toMatch(
+			/a link to \/repo\/\.claude\/worktrees\/\.dep-stores\/0123abcd\/node_modules:/,
+		);
+	});
+
+	it("allows an install where node_modules is a directory of its own", () => {
+		expect(
+			allows(
+				"npm ci",
+				{},
+				{ disk: { "/repo/package.json": "", "/repo/node_modules": "" } },
+			),
+		).toBe(true);
 	});
 });
 

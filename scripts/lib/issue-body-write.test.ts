@@ -543,8 +543,6 @@ describe("the relocated rule reaches the session that trips the guard", () => {
 	});
 });
 
-/* A host core reading no store: from a worktree it judges the command alone,
- * and latches nothing in either tree (#4242). */
 describe("a session in its own worktree (#4242)", () => {
 	let at: { main: string; worktree: string };
 	freshSandbox((sb) => {

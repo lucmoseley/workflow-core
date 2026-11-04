@@ -152,17 +152,20 @@ const {
 const { isNpmRun, npmCanon } = require("./npm-options.js");
 const { TSC_RUNG_MB, isTscLaunch, tscDenial } = require("./tsc-slot.js");
 const { trimEndRun, trimRun, trimStartRun } = require("./trim-run.js");
+const { treeOr } = require("./tree-or.js");
 
 /**
  * @typedef {import("./suite-launch.js").Launch} Launch
  * @typedef {import("./suite-ladder.js").Running} Running
+ * @typedef {import("./suite-queue.js").ClimbScope} ClimbScope
  * @typedef {import("./shell-parse.js").Command} Command
  * @typedef {{ limb: "count" } | { limb: "memory", mb: number, rungMb: number, climbMb?: number }} Gate
  * @typedef {import("./guard-entry.js").Decision | ({ deny: string, gate: Gate })} Verdict
  * @typedef {object} SuitePorts
  * @property {() => number | null} availableMb MemAvailable, in MB
- * @property {() => number} climbMb what the queues' running launches have
- *   yet to draw, in MB, which MemAvailable does not yet count (#3488)
+ * @property {(scope: ClimbScope) => number} climbMb what the queues'
+ *   running launches in `scope` have yet to draw, in MB, which MemAvailable
+ *   does not yet count (#3488, #4111)
  * @property {() => import("./suite-ladder.js").PsRow[] | null} psRows `ps`,
  *   read once a call
  * @property {(pid: number | null) => import("./suite-handoff.js").CarriedWeight | null} carriedOf
@@ -187,10 +190,15 @@ const { trimEndRun, trimRun, trimStartRun } = require("./trim-run.js");
  *   told: (id: string) => boolean,
  *   readLatch: (name: string) => string | null,
  *   session: string,
+ *   root: string,
  *   tree: () => Pick<import("./guard-dispatch.js").TreePorts, "root">,
  * }} Ctx the kit's context, the part this core reads, and its own ports;
- *   `tree` the session's, whose npm scripts and read graph are read (#4242)
+ *   `tree` the session's, whose npm scripts and read graph are read (#4242),
+ *   else the host's at `root`
  */
+
+/** @param {Ctx} ctx @returns {string} */
+const treeRoot = (ctx) => treeOr(ctx, ctx).root;
 
 /* The id the plain-`--full` limb latches under (#181), in the `warn.<id>`
  * namespace and never a rule-text id: the limb composes its own wording. */
@@ -350,7 +358,7 @@ function queuedLaunch(segment, spans, queueRun) {
  * @property {import("./suite-launch.js").LaunchPorts} launchPorts
  * @property {() => import("./suite-ladder.js").PsRow[] | null} readPs `ps`,
  *   read once a command
- * @property {() => number} readClimb
+ * @property {(scope: ClimbScope) => number} readClimb
  * @property {string} watcherSegment the first segment opening a watcher
  * @property {boolean} escaped whether the command carries the escape
  * @property {string} trimmedCommand the raw command, comment cut and trimmed
@@ -405,8 +413,8 @@ function buildState(command, parsed, ctx) {
 	let runners;
 	/** @type {import("./suite-ladder.js").PsRow[] | null | undefined} */
 	let ps;
-	/** @type {number | undefined} */
-	let climb;
+	/** @type {Partial<Record<ClimbScope, number>>} */
+	const climb = {};
 	return {
 		ctx,
 		spans,
@@ -420,15 +428,15 @@ function buildState(command, parsed, ctx) {
 				runners ??= ctx.runners();
 				return runners;
 			},
-			isWrapperScript: (script) => ctx.isWrapperScript(script, ctx.tree().root),
+			isWrapperScript: (script) => ctx.isWrapperScript(script, treeRoot(ctx)),
 		},
 		readPs: () => {
 			if (ps === undefined) ps = ctx.psRows();
 			return ps;
 		},
-		readClimb: () => {
-			climb ??= ctx.climbMb();
-			return climb;
+		readClimb: (scope) => {
+			climb[scope] ??= ctx.climbMb(scope);
+			return climb[scope];
 		},
 		watcherSegment: "",
 		escaped: false,
@@ -682,7 +690,7 @@ function denyBareTsc(st, segment) {
 		st.ctx.log(
 			"MemAvailable unreadable — a `tsc` launch judged off its count alone",
 		);
-	const denial = tscDenial(ps, mb, mb === null ? 0 : st.readClimb());
+	const denial = tscDenial(ps, mb, mb === null ? 0 : st.readClimb("all"));
 	if (denial === null) return;
 	const launch = queuedLaunch(
 		segment,
@@ -704,9 +712,10 @@ function denyBareTsc(st, segment) {
 /**
  * @param {number | undefined} mb
  * @param {number | undefined} climbMb
+ * @param {ClimbScope} [scope]
  */
-const readingOf = (mb, climbMb) =>
-	`MemAvailable is ${mb} MB${climbMb ? `, less ${climbMb} MB the queues' running launches have yet to draw` : ""}`;
+const readingOf = (mb, climbMb, scope = "all") =>
+	`MemAvailable is ${mb} MB${climbMb ? `, less ${climbMb} MB the queues' running launches ${scope === "off-rung" ? "its rung does not count " : ""}have yet to draw` : ""}`;
 
 /**
  * A segment's launch as typed: comment cut, quoted spans put back, trimmed.
@@ -825,8 +834,9 @@ function judgedOf(st, at, s, readMb) {
 		(!(s.other || s.plain) &&
 			s.launchKind !== "npm-watch" &&
 			hasQueueFlag(words));
-	/* A queued launch's own gate charges the climb its way (#3416). */
-	const climbMb = queued ? 0 : st.readClimb();
+	/* A queued launch's own gate charges the climb its way (#3416); the rung
+	 * counts every suite on `ps` (#4111). */
+	const climbMb = queued ? 0 : st.readClimb("off-rung");
 	return {
 		segment,
 		words,
@@ -1028,7 +1038,7 @@ function memoryVerdict(st, j) {
 					...(j.climbMb > 0 ? { climbMb: j.climbMb } : {}),
 				},
 				watchLever: `Reap finished sessions (\`${reapCmd}\`) or wait for MemAvailable to reach ~${j.floor} MB`,
-				why: `${readingOf(j.readMb, j.climbMb)}, under the ~${j.floor} MB docs/environment.md §6 says a test run needs resting${rung}, and earlyoom's SIGTERM line is 8% of the cap.`,
+				why: `${readingOf(j.readMb, j.climbMb, "off-rung")}, under the ~${j.floor} MB docs/environment.md §6 says a test run needs resting${rung}, and earlyoom's SIGTERM line is 8% of the cap.`,
 				waiter: `${reapNote} Do not write your own waiter.`,
 				escapeLead: "Genuinely need it now?",
 			});
@@ -1040,7 +1050,7 @@ function memoryVerdict(st, j) {
 		: `Reap the finished-but-resident sessions first (\`${reapCmd}\`) and re-read — a stopped session gives back ${REAP_GAIN}, though a shortfall held by LIVE neighbours is reaped by nothing`;
 	return buildWarnVerdict(
 		st,
-		`${readingOf(j.readMb, j.climbMb)}, under the ~${j.floor} MB docs/environment.md §6 says a ${j.s.kind} run needs resting${rung} — earlyoom's SIGTERM line is 8% of the cap. ${reapLever}. Only a machine still short after that is a §Machine limits refusal, ${j.lever}${j.tail}`,
+		`${readingOf(j.readMb, j.climbMb, "off-rung")}, under the ~${j.floor} MB docs/environment.md §6 says a ${j.s.kind} run needs resting${rung} — earlyoom's SIGTERM line is 8% of the cap. ${reapLever}. Only a machine still short after that is a §Machine limits refusal, ${j.lever}${j.tail}`,
 	);
 }
 
@@ -1096,7 +1106,7 @@ function judge(st, cmd) {
  */
 function fullLimb(st) {
 	if (!st.fullLaunchWords || st.ctx.told(FULL_LIMB_ID)) return false;
-	const full = st.ctx.fullLaunchPlain(st.fullLaunchWords, st.ctx.tree().root);
+	const full = st.ctx.fullLaunchPlain(st.fullLaunchWords, treeRoot(st.ctx));
 	if ("plain" in full) return full.plain;
 	st.ctx.log(
 		`the plain-\`--full\` check did not run — limb unsaid: ${full.fault || "no message"}`,

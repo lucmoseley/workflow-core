@@ -82,10 +82,11 @@ const sb = freshSandbox((fresh) => {
 const git = (...args: string[]) =>
 	execFileSync("git", args, { cwd: sb.repo, encoding: "utf8" }).trim();
 
-const declare = (sensitivePaths?: unknown[]) => {
-	fs.mkdirSync(path.join(sb.repo, ".claude"), { recursive: true });
+/** Declares in `tree`, whose own config the core reads (#4242). */
+const declare = (sensitivePaths?: unknown[], tree = sb.repo) => {
+	fs.mkdirSync(path.join(tree, ".claude"), { recursive: true });
 	fs.writeFileSync(
-		path.join(sb.repo, ".claude", "workflow-core.json"),
+		path.join(tree, ".claude", "workflow-core.json"),
 		JSON.stringify(sensitivePaths === undefined ? {} : { sensitivePaths }),
 	);
 };
@@ -303,6 +304,7 @@ describe("a session in a linked worktree (#2386)", () => {
 	it("escalates on a path staged in a worktree under the root", () => {
 		declare([RLS]);
 		const tree = worktree(inRoot());
+		declare([RLS], tree);
 		stage(SQL, tree);
 		const text = envelope({ cwd: path.join(tree, "supabase") }) ?? "";
 		expect(text).toContain(`- \`RLS and auth boundaries\` (${SQL})`);
@@ -312,6 +314,7 @@ describe("a session in a linked worktree (#2386)", () => {
 	it("escalates on a path staged in a worktree outside the root", () => {
 		declare([RLS]);
 		const tree = worktree(path.join(sb.dir, "elsewhere"));
+		declare([RLS], tree);
 		stage(SQL, tree);
 		expect(envelope({ cwd: tree })).toContain("Tier owed: escalated.");
 	});
@@ -319,6 +322,7 @@ describe("a session in a linked worktree (#2386)", () => {
 	it("escalates on an unstaged file this session wrote in the worktree", () => {
 		declare([RLS]);
 		const tree = worktree(inRoot());
+		declare([RLS], tree);
 		recordBase();
 		write(SQL, "x\n", tree);
 		record(path.join(tree, SQL));
@@ -328,12 +332,15 @@ describe("a session in a linked worktree (#2386)", () => {
 	it("leaves a path staged in the shared tree unmatched, from a worktree (#4242)", () => {
 		declare([RLS]);
 		stage(SQL);
-		expect(envelope({ cwd: worktree(inRoot()) })).toBeNull();
+		const tree = worktree(inRoot());
+		declare([RLS], tree);
+		expect(envelope({ cwd: tree })).toBeNull();
 	});
 
 	it("leaves a file this session wrote in the shared tree unmatched, from a worktree (#4242)", () => {
 		declare([RLS]);
 		const tree = worktree(inRoot());
+		declare([RLS], tree);
 		recordBase();
 		write(SQL);
 		record(SQL);
@@ -862,6 +869,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
 		recordBase(ME);
 		const tree = path.join(sb.dir, "elsewhere");
 		git("worktree", "add", "-q", "--detach", tree);
+		declare([RLS], tree);
 		fs.rmSync(path.join(tree, SQL));
 		expect(envelope({ cwd: tree })).toBeNull();
 	});

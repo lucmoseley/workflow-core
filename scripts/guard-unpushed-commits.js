@@ -46,6 +46,8 @@
  * DEFEAT:    once per commit and at most three blocks a session; silent where
  *            the pushed ref does not resolve, with no ledger, and on every
  *            failure path.
+ * TREE:      both — the session tree's HEAD and branch, the host root's commit
+ *            ledger, markers and config.
  */
 
 const fs = require("node:fs");
@@ -68,6 +70,7 @@ const { pushGateState } = require("./lib/test-gate.js");
 const store = require("./lib/arbiter-store");
 const { governingMarker } = require("./lib/status-marker");
 const stopGuard = require("./lib/stop-guard");
+const { sessionTree } = require("./lib/host-root.js");
 
 const REPO_ROOT = hookBlock.repoRoot();
 
@@ -82,14 +85,6 @@ const SEEN_PREFIX = ".unpushed-seen-";
 /* How many commits the warning names; the rest are counted. A first guess,
  * unmeasured: 30 Sep's backlog, the case that raised #766, was 8. */
 const NAMED_MAX = 10;
-
-/**
- * @param {string[]} args
- * @returns {string|null}
- */
-function git(args) {
-	return gitRead(args, REPO_ROOT);
-}
 
 /** @param {string} sid */
 function seenPath(sid) {
@@ -139,13 +134,14 @@ function readCommitLedger(sid) {
  * the ref's name — or null where there is nothing to say or git would not
  * answer.
  * @param {string} sid
+ * @param {string} tree the session's checkout
  * @returns {{ref: string, commits: string[]}|null}
  */
-function readUnpushedMine(sid) {
+function readUnpushedMine(sid, tree) {
 	const mine = readCommitLedger(sid);
 	if (mine === null || mine.length === 0) return null;
-	const ref = readUnpushedRef({ root: REPO_ROOT });
-	const ahead = git(["rev-list", `${ref}..HEAD`]);
+	const ref = readUnpushedRef({ root: REPO_ROOT, tree });
+	const ahead = gitRead(["rev-list", `${ref}..HEAD`], tree);
 	if (ahead === null) return null;
 	const own = new Set(mine);
 	const commits = ahead.split("\n").filter((c) => own.has(c));
@@ -199,7 +195,9 @@ function buildPushStep(ref) {
  * @param {{sessionId: string, payload: import('./lib/stop-guard.js').StopPayload}} ctx
  */
 function judge({ sessionId: sid, payload }) {
-	const found = readUnpushedMine(sid);
+	const tree = sessionTree(payload);
+	if (tree === null) return;
+	const found = readUnpushedMine(sid, tree);
 	if (!found) return;
 	const seen = readSeen(sid);
 	if (found.commits.every((c) => seen.has(c))) return;
@@ -210,7 +208,7 @@ function judge({ sessionId: sid, payload }) {
 	const { ref, commits } = found;
 	const named = commits.slice(0, NAMED_MAX);
 	const lines =
-		git(["show", "-s", "--format=%h %s", ...named])
+		gitRead(["show", "-s", "--format=%h %s", ...named], tree)
 			?.split("\n")
 			.filter(Boolean) ?? named.map((c) => c.slice(0, 8));
 	const more =

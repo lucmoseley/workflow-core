@@ -25,8 +25,7 @@
  *    or its own commits touched them, lib/code-signal.sh's attribution over
  *    `writes --committed` (mantahostels#114, #2390). Staged paths count
  *    whoever staged them: the staged state is what the commit carries.
- *  - The session's tree alone is matched (#4242): from a linked worktree the
- *    root's own staged and changed paths are another session's, unmatched.
+ *  - The session's tree alone is matched (#4242).
  *    A worktree outside the root adds its staged paths only (#2386). The
  *    declaration read is the root's in any worktree.
  *  - It fires on the Skill TOOL only, as guard-review-rules does. A typed
@@ -42,6 +41,7 @@ const { matchSensitivePaths, narrowedAreas } = require("./sensitive-paths.js");
 const { reviewSuffix } = require("./review-suffix.js");
 const { caught } = require("./caught.js");
 const { ruleOrFallback } = require("./guard-verdict.js");
+const { treeOr } = require("./tree-or.js");
 
 /**
  * @typedef {import("./sensitive-paths.js").Match} Match
@@ -51,8 +51,8 @@ const { ruleOrFallback } = require("./guard-verdict.js");
  *   sessionBase: (sid: string, tree: string) => string | null,
  *   changedSince: (tree: string, base: string) => string[] | null,
  *   billed: (sid: string) => string[] | null,
- *   declared: () => import("./workflow-core-config.js").SensitivePath[] | undefined,
- *   declaredAtHead: () => import("./workflow-core-config.js").SensitivePath[] | undefined,
+ *   declared: (tree: string) => import("./workflow-core-config.js").SensitivePath[] | undefined,
+ *   declaredAtHead: (tree: string) => import("./workflow-core-config.js").SensitivePath[] | undefined,
  * }} TierPorts git's absolute common dir of a directory, null where git
  *   will not say; a tree's staged paths, null where git will not say; the
  *   session's start point, placed on that tree's HEAD, null where none is
@@ -96,7 +96,7 @@ function decide(skill, ctx) {
 	/* A config warning is the config reader's to report, not this core's. */
 	let declared;
 	try {
-		declared = ctx.declared();
+		declared = ctx.declared(tree);
 	} catch (e) {
 		ctx.log(
 			`the workflow-core config did not read — review tier not stated: ${caught(e).message}`,
@@ -107,7 +107,7 @@ function decide(skill, ctx) {
 		matchSensitivePaths(declared, paths),
 		declared,
 		paths,
-		ctx,
+		{ tree, ctx },
 	);
 
 	/* Unlatched, so every review is told until the key exists (spec #1612
@@ -140,12 +140,13 @@ Focus and attack Artefact paths: \`.claude/tmp/review-focus${suffix}.md\`, \`.cl
  * @param {Match} match
  * @param {import("./workflow-core-config.js").SensitivePath[] | undefined} declared
  * @param {string[]} paths
- * @param {TierContext} ctx
+ * @param {{ tree: string, ctx: TierContext }} at the tree whose HEAD the
+ *   declaration is read at
  * @returns {Match}
  */
-function withNarrowing(match, declared, paths, ctx) {
+function withNarrowing(match, declared, paths, { tree, ctx }) {
 	if (!paths.includes(DECLARATION)) return match;
-	const before = ctx.declaredAtHead();
+	const before = ctx.declaredAtHead(tree);
 	const narrowed = narrowedAreas(before, declared);
 	const added = (before ?? [])
 		.filter(
@@ -227,7 +228,7 @@ function tierDecision(prelude, notLive, globless) {
  * @returns {string}
  */
 function treeOf(ctx) {
-	const { root } = ctx.tree();
+	const { root } = treeOr(ctx, ctx);
 	if (root === ctx.root) return root;
 	/* A git before 2.31 rejects --path-format (#2529). */
 	const common = ctx.commonDir(root);

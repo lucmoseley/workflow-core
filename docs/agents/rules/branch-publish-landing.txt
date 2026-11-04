@@ -11,7 +11,7 @@ From the shared tree:
 
 From a worktree:
 
-  git -C <worktree> push origin HEAD:landing   # rejected? landing moved — git -C <worktree> fetch origin, merge origin/landing there, retry
+  node scripts/session-checkout.js land   # merges origin/landing, pushes; refused? do as it says, land again
 
 A REFUSED `git pull --ff-only`: `rule:pull-fast-forward-landing` says what next.
 

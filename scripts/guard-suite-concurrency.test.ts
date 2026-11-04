@@ -90,6 +90,27 @@ const seams = (over: Record<string, string | undefined> = {}) => ({
 	...over,
 });
 
+/** Run `body` beside a live process holding a spawned suite marker. */
+const withSpawnedSuite = (body: (pid: number) => void) => {
+	const suite = spawn("sleep", ["30"]);
+	try {
+		const queue = path.join(dir, "wfc-suite-queue");
+		fs.mkdirSync(queue, { recursive: true });
+		fs.writeFileSync(
+			path.join(queue, `wfc-suite-queue-${suite.pid}.json`),
+			JSON.stringify({
+				pid: suite.pid,
+				at: 0,
+				admitted: true,
+				spawned: true,
+			}),
+		);
+		body(suite.pid ?? 0);
+	} finally {
+		suite.kill();
+	}
+};
+
 /** The hook output for `command`, parsed; null where it said nothing. */
 const emission = (
 	command: string,
@@ -404,39 +425,77 @@ describe("the production adapters, crossed for real", () => {
 		};
 		setMb(TSC_RUNG_MB + 500);
 		expect(emission("tsc --noEmit")).toBeNull();
-		const suite = spawn("sleep", ["30"]);
-		try {
-			const queue = path.join(dir, "wfc-suite-queue");
-			fs.mkdirSync(queue);
-			fs.writeFileSync(
-				path.join(queue, `wfc-suite-queue-${suite.pid}.json`),
-				JSON.stringify({
-					pid: suite.pid,
-					at: 0,
-					admitted: true,
-					spawned: true,
-				}),
-			);
+		withSpawnedSuite(() => {
 			const out = emission("tsc --noEmit");
 			expect(out.permissionDecision).toBe("deny");
 			expect(out.permissionDecisionReason).toContain(
 				"the queues' running launches have yet to draw",
 			);
-		} finally {
-			suite.kill();
-		}
+		});
+	});
+
+	describe("a part-suite beside a spawned suite (#4111)", () => {
+		const launch = "npm run test -- scripts/a.test.ts";
+		/** The rung `launch` is judged on beside `runner`, off its refusal at
+		 * 1000 MB. */
+		const rungBeside = (runner: string) => {
+			setMb(1000);
+			const out = emission(launch, {
+				env: { WFC_PS: psOf([runner], "ps-rung") },
+			});
+			expect(out.permissionDecision).toBe("deny");
+			const floor = Number(
+				/under the ~(\d+) MB/.exec(out.permissionDecisionReason)?.[1],
+			);
+			expect(floor).toBeGreaterThan(1000);
+			return floor;
+		};
+
+		it("is judged on its rung alone where the suite is on `ps`", () => {
+			withSpawnedSuite((pid) => {
+				const ps = `${pid} ${RUNNER}`;
+				setMb(rungBeside(ps));
+				const out = emission(launch, {
+					env: { WFC_PS: psOf([ps], "ps-suite") },
+				});
+				expect(out?.permissionDecision).not.toBe("deny");
+			});
+		});
+
+		it("is charged the suite's climb while it is not yet on `ps`", () => {
+			setMb(rungBeside("sleep 1"));
+			expect(emission(launch)?.permissionDecision).not.toBe("deny");
+			withSpawnedSuite(() => {
+				const out = emission(launch);
+				expect(out.permissionDecision).toBe("deny");
+				expect(out.permissionDecisionReason).toContain(
+					"the queues' running launches its rung does not count have yet to draw",
+				);
+			});
+		});
 	});
 
 	it("reaches the real read-graph render without faulting", () => {
 		// EVERY OTHER CASE DRIVES WFC_READ_GRAPH_RENDERS, so only this one
 		// requires lib/read-edges-render.js and calls `render`. A fault
 		// there — a renamed export, a wrong repo root — is swallowed into
-		// the fail-open log, whose silence is the assertion. The verdict
-		// depends on the tree this run reads, so it is not asserted.
-		const out = emission("npm run test -- --full", {
-			session: "sess-real",
-			env: { WFC_READ_GRAPH_RENDERS: undefined },
-		});
+		// the fail-open log, whose silence is the assertion. The graph renders
+		// from the session's tree, so the payload's cwd is this checkout, a
+		// real one (#4242). The verdict depends on that tree, so it is not
+		// asserted.
+		const out = dispatchCoreOutput(
+			CORE,
+			{
+				...buildBashPayload("npm run test -- --full", "sess-real"),
+				cwd: path.resolve(__dirname, ".."),
+			},
+			{
+				project: root,
+				config,
+				cwd: root,
+				env: seams({ WFC_READ_GRAPH_RENDERS: undefined }),
+			},
+		);
 		expect(out.additionalContext).toContain(readRuleText("suite-tree-dirty"));
 		expect(failOpenLog()).toBe("");
 	});

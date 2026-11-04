@@ -27,6 +27,7 @@ import {
 	type TempRepo,
 } from "./lib/precommit-gate-harness";
 import {
+	HOOK_BOUND_LIB,
 	holdLock,
 	LIB,
 	LIB_COMMANDS,
@@ -121,7 +122,7 @@ function gateLaunch(repo: GateRepo): {
 	// execFileSync surfaces only on a non-zero exit — the warn-and-pass case
 	// would otherwise assert against an empty string and pass whatever the hook
 	// printed.
-	const script = `exec 2>&1\n${LIB}\n${gateFragment()}\n:\n`;
+	const script = `exec 2>&1\n${HOOK_BOUND_LIB}\n${LIB}\n${gateFragment()}\n:\n`;
 	// An isolated fixture withheld the stub, so its bin holds only git and grep
 	// and must stand ALONE as PATH — appending the real one would hand the
 	// fragment the machine's own shellcheck back.
@@ -385,15 +386,19 @@ describe("the pre-commit shellcheck gate", () => {
 		let code = 0;
 		let output = "";
 		try {
-			execFileSync("sh", ["-c", `exec 2>&1\n${LIB}\n${gateFragment()}\n:\n`], {
-				cwd: repo.root,
-				encoding: "utf8",
-				env: {
-					...process.env,
-					PATH: `${repo.bin}${path.delimiter}${process.env.PATH ?? ""}`,
-					WFC_PLUGIN_ROOT: "/nonexistent",
+			execFileSync(
+				"sh",
+				["-c", `exec 2>&1\n${HOOK_BOUND_LIB}\n${LIB}\n${gateFragment()}\n:\n`],
+				{
+					cwd: repo.root,
+					encoding: "utf8",
+					env: {
+						...process.env,
+						PATH: `${repo.bin}${path.delimiter}${process.env.PATH ?? ""}`,
+						WFC_PLUGIN_ROOT: "/nonexistent",
+					},
 				},
-			});
+			);
 		} catch (e) {
 			const err = e as { status?: number; stdout?: string };
 			code = err.status ?? 1;

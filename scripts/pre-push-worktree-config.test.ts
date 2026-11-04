@@ -97,7 +97,7 @@ it("refuses a worktree's unledgered push to main while the shared config turns l
 	const r = pushToMain();
 	expect(r.stderr).toContain("pre-push: refused");
 	expect(r.stderr).toContain(sha);
-	expect(r.stderr).toContain("HEAD:landing from a worktree");
+	expect(r.stderr).toContain("land from a session worktree");
 	expect(r.status).not.toBe(0);
 });
 

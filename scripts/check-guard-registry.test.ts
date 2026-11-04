@@ -4198,6 +4198,7 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 		"# IMPLICIT:  rewrites the file the session just wrote.",
 		"# JUSTIFIED: fail-safe — an unformatted file is read as a clobber later.",
 		"# DEFEAT:    none — every failure path exits 0.",
+		"# TREE:      host — reads the host root's stores.",
 		"exit 0",
 		"",
 	].join("\n");
@@ -4351,7 +4352,8 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 		const root = build({
 			claude: rules,
 			files: {
-				"scripts/x.sh": "#!/bin/sh\n# IMPLICIT:  does a thing.\nexit 0\n",
+				"scripts/x.sh":
+					"#!/bin/sh\n# IMPLICIT:  does a thing.\n# TREE:      host — reads the host root's stores.\nexit 0\n",
 				[SELF_PLUGIN_HOOKS]: wiredAt("Stop", "scripts/x.sh"),
 			},
 		});
@@ -4372,6 +4374,7 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 					"# IMPLICIT:  does a thing.",
 					"# JUSTIFIED: convenience — nothing degrades.",
 					"# DEFEAT:",
+					"# TREE:      host — reads the host root's stores.",
 					"exit 0",
 					"",
 				].join("\n"),
@@ -4397,6 +4400,7 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 					"# IMPLICIT:  renames the session after its issue.",
 					"# JUSTIFIED: convenience — nothing degrades but legibility.",
 					"# DEFEAT:    none",
+					"# TREE:      host — reads the host root's stores.",
 					"exit 0",
 					"",
 				].join("\n"),
@@ -4441,6 +4445,49 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 		expect(run(root).kinds).toEqual(["BAD-JUSTIFICATION"]);
 	});
 
+	it("owes a hook's header the tree it reads, as NO-TREE (#4243)", () => {
+		const root = build({
+			claude: rules,
+			files: {
+				"scripts/x.sh": annotated.replace(/^# TREE:.*\n/m, ""),
+				[SELF_PLUGIN_HOOKS]: wiredAt("Stop", "scripts/x.sh"),
+			},
+		});
+		const r = run(root);
+		expect(r.code).toBe(1);
+		expect(r.kinds).toEqual(["NO-TREE"]);
+	});
+
+	it("fails a tree outside session, host, both and none, or with no reason, as BAD-TREE (#4243)", () => {
+		for (const line of [
+			"# TREE:      sometimes — it depends.",
+			"# TREE:      session",
+		]) {
+			const root = build({
+				claude: rules,
+				files: {
+					"scripts/x.sh": annotated.replace(/^# TREE:.*$/m, line),
+					[SELF_PLUGIN_HOOKS]: wiredAt("Stop", "scripts/x.sh"),
+				},
+			});
+			expect(run(root).kinds, line).toEqual(["BAD-TREE"]);
+		}
+	});
+
+	it("owes no tree from the dispatcher, whose cores carry their own (#4242)", () => {
+		const root = build({
+			claude: rules,
+			files: {
+				"scripts/guard-dispatch.js": annotated
+					.replace(/^# TREE:.*\n/m, "")
+					.replaceAll("# ", "// ")
+					.replace("#!/bin/sh", "#!/usr/bin/env node"),
+				[SELF_PLUGIN_HOOKS]: wiredAt("PreToolUse", "scripts/guard-dispatch.js"),
+			},
+		});
+		expect(run(root).kinds).not.toContain("NO-TREE");
+	});
+
 	it("reads only the header, not an annotation buried in the body", () => {
 		// A reader arriving at the file must meet the annotation without
 		// scrolling (mantahostels#102).
@@ -4455,6 +4502,7 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 					"# IMPLICIT:  does a thing.",
 					"# JUSTIFIED: fail-safe — because.",
 					"# DEFEAT:    none",
+					"# TREE:      host — reads the host root's stores.",
 					"",
 				].join("\n"),
 				[SELF_PLUGIN_HOOKS]: wiredAt("Stop", "scripts/x.sh"),
@@ -4475,6 +4523,7 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 					" * IMPLICIT:  injects a report into the session's context.",
 					" * JUSTIFIED: fail-safe — nothing else reports it.",
 					" * DEFEAT:    none",
+					" * TREE:      host — reads the host root's stores.",
 					" */",
 					"process.exit(0);",
 					"",
@@ -4483,6 +4532,7 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 					"// IMPLICIT:  records the run's verdict.",
 					"// JUSTIFIED: fail-safe — any doubt reads as not-green.",
 					"// DEFEAT:    none",
+					"// TREE:      host — reads the host root's stores.",
 					"export default {};",
 					"",
 				].join("\n"),
@@ -4674,6 +4724,7 @@ describe("implicit behaviours share the guards' anchor sidecar (mantahostels#126
 		"# IMPLICIT:  does a thing to a session that never asked.",
 		"# JUSTIFIED: fail-safe — nothing else covers it.",
 		"# DEFEAT:    none",
+		"# TREE:      host — reads the host root's stores.",
 		"exit 0",
 		"",
 	].join("\n");
@@ -4806,6 +4857,7 @@ describe("the roster names what the wiring reached (mantahostels#1261)", () => {
 							"# IMPLICIT:  sweeps every session's expired markers.",
 							"# JUSTIFIED: fail-safe — an unswept store grows without bound.",
 							"# DEFEAT:    none",
+							"# TREE:      host — reads the host root's stores.",
 							"exit 0",
 							"",
 						].join("\n")

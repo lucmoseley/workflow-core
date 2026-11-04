@@ -29,6 +29,7 @@ const {
 	orderPlanSeats,
 	isOnPlanSeat,
 	EXPLICIT_STOP_DETAIL,
+	startedAt,
 } = require("./refill-decide.js");
 const {
 	buildChildLine,
@@ -51,7 +52,7 @@ const { buildSeatName } = require("./refill-seats.js");
 const { unclosedLaunches } = require("./unclosed-launch.js");
 const {
 	buildOverflowStartLines,
-	firstOverflowLaunch,
+	firstOverflowStart,
 	parseOverflowStart,
 	planSeatBasisOf,
 } = require("./overflow-notice.js");
@@ -130,7 +131,8 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * it ran under before `sessionId`. `actsBefore`, on a parked session resumed as
  * a new launch, the acts that session had already made (#3942).
  * `nothingToRepeat`, on one parked on an API error or a limit (#3949). `keyVar`,
- * the overflow seat it runs on (#4147).
+ * the overflow seat it runs on (#4147); `movedAt`, when a limit last moved it
+ * to another seat (#4257).
  * @typedef {import("./refill-decide.js").LaunchRecord & {
  *   prompt: string, seat: string, keyVar?: string, jobId: string|null,
  *   parked?: boolean, block?: import("./block-act.js").Block,
@@ -145,7 +147,7 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  *   limitResumes?: import("./refill-blocks.js").LimitResumes,
  *   limitLeft?: import("./refill-decide.js").SeatLeft[],
  *   limitParks?: number, handOffTries?: number, handedOff?: number, copiedFrom?: string,
- *   relaunchedAt?: number, pastSessionIds?: string[],
+ *   relaunchedAt?: number, movedAt?: number, pastSessionIds?: string[],
  *   resumeStarted?: import("./refill-blocks.js").ResumeStarted,
  *   actsBefore?: Record<string, number>|typeof UNREAD}} LoopLaunch
  * @typedef {(sessionId: string, roots: string[]) =>
@@ -1017,7 +1019,7 @@ function newlyFinished(launches, agents, now) {
 	return launches.filter(
 		(l) =>
 			isLive(l) &&
-			now - Math.max(l.launchedAt, l.relaunchedAt ?? 0) >= LISTING_GRACE_MS &&
+			now - startedAt(l) >= LISTING_GRACE_MS &&
 			!listed.has(l.jobId) &&
 			!isHeld(l) &&
 			l.handOffTries === undefined &&
@@ -1462,16 +1464,19 @@ const stoppedOf = (d, at) =>
 	"stop" in d ? { at, reason: d.stop, detail: d.detail } : null;
 
 /**
- * The record of `launched`'s first overflow launch after a plan-seat launch,
- * logged, or null. The credential scan runs only then; its failure is logged,
- * since the launches it follows are not yet in the state.
+ * The record of the first start on an overflow seat after one on a plan seat,
+ * since `since`, the last record's time, logged, or null. The credential scan
+ * runs only then; its failure is logged, since the launches it follows are not
+ * yet in the state.
  * @param {import("./refill-decide.js").TickInput} input
- * @param {{judged: LoopLaunch[], launched: LoopLaunch[]}} launches
+ * @param {LoopLaunch[]} launches the state's, the tick's acts made, and its
+ *   launches
+ * @param {number|null} since
  * @param {{readOmittedDirs: () => string[], log: (line: string) => void}} io
  * @returns {import("./overflow-notice.js").OverflowStart|null}
  */
-function recordOverflowStart(input, { judged, launched }, io) {
-	const first = firstOverflowLaunch(judged, launched);
+function recordOverflowStart(input, launches, since, io) {
+	const first = firstOverflowStart(launches, since);
 	if (first === null) return null;
 	/** @type {string[]} */
 	let omitted = [];
@@ -1481,13 +1486,13 @@ function recordOverflowStart(input, { judged, launched }, io) {
 		io.log(`credentials scan failed: ${buildErrorText(err)}`);
 	}
 	const start = {
-		at: first.launchedAt,
-		seat: first.seat,
+		at: first.at,
+		seat: first.launch.seat,
 		planSeats: input.seats.map(planSeatBasisOf),
 		omitted,
 	};
 	io.log(
-		`first overflow launch on ${buildSeatName(first.seat)}: ${buildOverflowStartLines(start).join("; ")}`,
+		`first overflow launch on ${buildSeatName(first.launch.seat)}: ${buildOverflowStartLines(start).join("; ")}`,
 	);
 	return start;
 }
@@ -1667,7 +1672,8 @@ function settleTick(
 	writeDecidedPause(decision, io);
 	const overflowStart = recordOverflowStart(
 		input,
-		{ judged: afterResumes, launched: outcome.launched },
+		[...afterResumes, ...outcome.launched],
+		state.overflowStart?.at ?? null,
 		io,
 	);
 	const next = {

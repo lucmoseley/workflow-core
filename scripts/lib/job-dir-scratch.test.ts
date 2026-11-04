@@ -32,6 +32,7 @@ import { freshSandbox } from "./arbiter-testkit";
 import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 import { latchPath } from "./kit-context.js";
 import { kitContextFake } from "./kit-context-fake";
+import { TreeUnresolved } from "./tree-or.js";
 
 /* The shape the third predicate limb keys on, for the case where the hook
  * environment did not carry CLAUDE_JOB_DIR at all. */
@@ -543,6 +544,9 @@ describe("the cases a mutant must not survive (#2789)", () => {
 				env: {},
 				fallbackCwd: "/",
 				root: dir,
+				tree: () => {
+					throw new TreeUnresolved("/");
+				},
 				ruleText: () => {
 					throw new Error("unreadable");
 				},

@@ -1158,6 +1158,8 @@ describe("a batch on record before its dispatch (#4180)", () => {
 
 describe("the first overflow launch's record (#3767)", () => {
 	const apiSeat = "/h/.claude3-api";
+	/** When a past launch launched, unless it says otherwise. */
+	const pastAt = NOW - 3_600_000;
 	const planSeat = (dir: string, percent: number, weekFull: boolean) => ({
 		seat: dir,
 		week: percent,
@@ -1171,24 +1173,43 @@ describe("the first overflow launch's record (#3767)", () => {
 		fits: null,
 	});
 	const settleOverflowLaunch = (
-		launchSeat: string,
-		past: { seat: string; reason?: string }[],
+		launchSeat: string | null,
+		past: {
+			seat: string;
+			reason?: string;
+			keyVar?: string;
+			launchedAt?: number;
+			relaunchedAt?: number;
+			movedAt?: number;
+		}[],
 		readOmitted?: () => string[],
+		recordedAt?: number,
 	) => {
 		const writes: Tick["state"][] = [];
-		const launch = {
-			root: "/r/repo",
-			issues: [1],
-			prompt: "/implement 1",
-			model: "opus" as const,
-			seat: launchSeat,
-			reason:
-				launchSeat === apiSeat
-					? ("overflow" as const)
-					: ("soonest reset" as const),
-		};
+		const launches =
+			launchSeat === null
+				? []
+				: [
+						{
+							root: "/r/repo",
+							issues: [1],
+							prompt: "/implement 1",
+							model: "opus" as const,
+							seat: launchSeat,
+							reason:
+								launchSeat === apiSeat
+									? ("overflow" as const)
+									: ("soonest reset" as const),
+						},
+					];
 		const { lines } = settleOnce(
-			{ launches: [launch], skipped: [], idle: null, held: [], resumes: [] },
+			{
+				launches,
+				skipped: [],
+				idle: null,
+				held: [],
+				resumes: [],
+			},
 			1,
 			[],
 			{
@@ -1205,8 +1226,22 @@ describe("the first overflow launch's record (#3767)", () => {
 				}),
 				past: past.map((l) => ({
 					issues: [],
+					launchedAt: pastAt,
 					...l,
 				})) as unknown as Tick["judged"],
+				...(recordedAt === undefined
+					? {}
+					: {
+							state: {
+								...parseState(null),
+								overflowStart: {
+									at: recordedAt,
+									seat: apiSeat,
+									planSeats: [],
+									omitted: [],
+								},
+							},
+						}),
 				writes,
 				seats: [planSeat("/h/.claude2", 100, true)],
 				overflow: [{ seat: apiSeat, fits: 3, spentUntil: null, why: null }],
@@ -1236,13 +1271,67 @@ describe("the first overflow launch's record (#3767)", () => {
 	});
 
 	it("records nothing on a second overflow launch or a plan-seat launch", () => {
-		expect(
-			settleOverflowLaunch(apiSeat, [{ seat: apiSeat, reason: "overflow" }])
-				.start,
-		).toBeNull();
+		const second = settleOverflowLaunch(
+			apiSeat,
+			[{ seat: apiSeat, reason: "overflow" }],
+			undefined,
+			pastAt,
+		);
+		expect(second.start?.at).toBe(pastAt);
+		expect(second.lines.join("\n")).not.toContain("first overflow launch");
 		expect(
 			settleOverflowLaunch("/h/.claude2", [{ seat: "/h/.claude2" }]).start,
 		).toBeNull();
+	});
+
+	const movedAt = NOW - 600_000;
+	const moved = {
+		seat: apiSeat,
+		keyVar: "K2",
+		reason: "moved from ~/.claude2",
+		movedAt,
+	};
+
+	it("records a move onto a key a kill kept out of the tick that made it, dated at the move (#4257)", () => {
+		expect(settleOverflowLaunch(null, [moved]).start).toMatchObject({
+			at: movedAt,
+			seat: apiSeat,
+		});
+	});
+
+	it("records nothing on an overflow launch after a move onto a key, though a plan-seat launch since holds a later place (#4257)", () => {
+		const plan = { seat: "/h/.claude2", launchedAt: NOW - 1_800_000 };
+		const { start, lines } = settleOverflowLaunch(
+			apiSeat,
+			[moved, plan],
+			undefined,
+			movedAt,
+		);
+		expect(start?.at).toBe(movedAt);
+		expect(lines.join("\n")).not.toContain("first overflow launch");
+	});
+
+	it("records nothing where a session already on a key resumes after a plan-seat launch (#4257)", () => {
+		const plan = { seat: "/h/.claude2", launchedAt: pastAt + 60_000 };
+		const resumed = {
+			seat: apiSeat,
+			keyVar: "K2",
+			reason: "overflow",
+			relaunchedAt: NOW - 60_000,
+		};
+		const { lines } = settleOverflowLaunch(
+			null,
+			[resumed, plan],
+			undefined,
+			pastAt,
+		);
+		expect(lines.join("\n")).not.toContain("first overflow launch");
+	});
+
+	it("records nothing on an overflow launch whose recorded predecessor on a key has left the state (#4257)", () => {
+		const plan = { seat: "/h/.claude2", launchedAt: pastAt - 60_000 };
+		const { lines } = settleOverflowLaunch(apiSeat, [plan], undefined, pastAt);
+		expect(lines.join("\n")).not.toContain("first overflow launch");
 	});
 
 	it("still writes the state where the credentials scan throws", () => {

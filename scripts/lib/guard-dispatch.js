@@ -48,6 +48,7 @@
  * to run on that call its say.
  */
 
+const { CORE_FAULT_TEXT } = require("./core-fault.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
@@ -67,6 +68,7 @@ const {
 const { logger, readPayload } = require("./entry-input.js");
 const { kitContext, sharedReaders } = require("./kit-context.js");
 const { hostRoot, sessionTree } = require("./host-root.js");
+const { TreeUnresolved } = require("./tree-or.js");
 const {
 	corePath,
 	isAdmitted,
@@ -282,9 +284,8 @@ const overRoomNotice = (names) =>
 /**
  * The session tree's ports for one call, resolved once on first use from the
  * payload's `cwd`, else the hook's own directory; an unresolved tree throws
- * the same fault on every read of the call, from one git call. The host's own ports are
- * reused where the two are one tree, so a session in the main checkout reads
- * as it always has.
+ * the same fault on every read of the call, from one git call. The host's own
+ * ports are reused where the two are one tree.
  * @param {Record<string, unknown>} payload
  * @param {Adapters} adapters
  * @param {string} root
@@ -312,12 +313,7 @@ function resolveTree(payload, adapters, root) {
 			? payload.cwd
 			: (adapters.fallbackCwd ?? process.cwd());
 	const dir = sessionTree({ cwd });
-	if (dir === null)
-		return {
-			fault: new Error(
-				`git names no top level for ${cwd}, so the session's tree is unknown — allowed unchecked`,
-			),
-		};
+	if (dir === null) return { fault: new TreeUnresolved(cwd) };
 	return { ports: dir === root ? adapters : treePorts(dir) };
 }
 
@@ -417,7 +413,7 @@ function thrown(core, msg, log) {
 	log(`core threw — refused: ${msg}`);
 	return {
 		permissionDecision: "deny",
-		reason: `${core.name} could not judge this call, and it fails closed: ${msg}`,
+		reason: `${core.name} ${CORE_FAULT_TEXT}, and it fails closed: ${msg}`,
 	};
 }
 
@@ -473,7 +469,12 @@ function repoRel(file, root) {
 	/** @param {string} p */
 	const under = (p) => {
 		const rel = path.relative(root, p);
-		return rel && !rel.startsWith("..") && !path.isAbsolute(rel) ? rel : null;
+		return rel &&
+			rel !== ".." &&
+			!rel.startsWith(`..${path.sep}`) &&
+			!path.isAbsolute(rel)
+			? rel
+			: null;
 	};
 	const abs = path.resolve(file);
 	const direct = under(abs);

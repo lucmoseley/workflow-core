@@ -3,8 +3,7 @@
  * guard-pull-form in a session's own worktree (#4242): with
  * CLAUDE_PROJECT_DIR on the main checkout and the session in a linked
  * worktree, a reset is judged in the tree the command stands in — the
- * worktree's own ref — not the host's. Real git, built by `splitCheckout()`,
- * inside an arbiter sandbox.
+ * worktree's own ref — not the host's.
  */
 
 import path from "node:path";

@@ -33,6 +33,14 @@
  * a hand lift of one still failing is raised anew, with a new issue, on the next
  * tick, unless it now fails as an outage younger than the window.
  *
+ * THE GUARD-LOAD PROBE (#4226): a self-plugin host's sessions load their guards
+ * from its shared tree, so the probe also runs that tree's PreToolUse entry on a
+ * benign `Read`, as a session would. A failure is run once more after
+ * GUARD_PROBE_RETRY_MS; a second raises the hold on its tick, with no outage
+ * window. While it stands, each loop session that parks there is attached to it
+ * (attachProbeParks). An adopter loads its guards from its pinned plugin
+ * release, so runs no step.
+ *
  * RESIDUAL: during an outage's window launches are withheld with no hold to show
  * for it, so `status` reads no hold open, only the log says why, and no notice is
  * sent. A hold rises on the first tick past the window, so a tick's gap later.
@@ -70,9 +78,10 @@ const { gitCommonDir, gitOutcome, gitReader } = require("./git.js");
 const { hostRoot } = require("./host-root.js");
 const { parseJobDir } = require("./job-paths.js");
 const { mainCheckout } = require("./main-checkout.js");
-const { FETCH_TIMEOUT_MS } = require("./refill-code.js");
+const { FETCH_TIMEOUT_MS } = require("./pinned-code.js");
 const { refillPath } = require("./refill-dir.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
+const { sleepSync } = require("./sleep-sync.js");
 const {
 	KILLED_EXIT,
 	RUN_BUDGETED,
@@ -172,6 +181,19 @@ const PROBE_FILED_WHY =
 
 /* A guess: 48 bits of the key's hash, in a directory holding a few checkouts. */
 const STORE_KEY_LENGTH = 12;
+
+/* Untraced: under the hook's own 60 s, and about 200 times a healthy run's
+ * 0.05 s, measured on this repo's tree. */
+const GUARD_PROBE_TIMEOUT_MS = 10_000;
+
+/* Untraced: long enough for a write in progress to land. */
+const GUARD_PROBE_RETRY_MS = 2000;
+
+/* The probe's own, so it leaves no latch on a real session. */
+const GUARD_PROBE_SESSION = "refill-loop-guard-probe";
+
+/* The probe's `Read` names it, as it is tracked wherever the step runs. */
+const SELF_PLUGIN_HOOKS = path.join("self-plugin", "hooks", "hooks.json");
 
 /**
  * The checkout a command run from `cwd` holds holds in.
@@ -792,10 +814,81 @@ function isIssueClosed(hold, issue, log) {
 }
 
 /**
- * What fails of `root`'s shared `.git`, or null where the probe passes. `origin`
- * and `main` are the shared tree's, and `landing` is read as `origin/landing`, as
- * the shared tree keeps no local one. Reads off a config fault, logged, with the
- * landing module off.
+ * What one run of `root`'s own guard entry fails on, or null where it allows a
+ * benign `Read`, run from the shared tree's files, never the loop's code copy.
+ * @param {string} root
+ * @returns {string|null}
+ */
+function readGuardRunFailure(root) {
+	/* Not under RUN_BUDGETED, which closes stdin, and the payload goes on it. */
+	const run = spawnChild(
+		process.execPath,
+		[path.join(root, "scripts", "guard-dispatch.js")],
+		{
+			cwd: root,
+			env: buildCheckoutEnv(root),
+			input: JSON.stringify({
+				session_id: GUARD_PROBE_SESSION,
+				hook_event_name: "PreToolUse",
+				cwd: root,
+				tool_name: "Read",
+				tool_input: { file_path: path.join(root, SELF_PLUGIN_HOOKS), limit: 1 },
+			}),
+			timeout: GUARD_PROBE_TIMEOUT_MS,
+		},
+	);
+	if (run.error)
+		return caught(run.error).code === "ETIMEDOUT"
+			? `outlived ${GUARD_PROBE_TIMEOUT_MS} ms`
+			: run.error.message;
+	const firstLine = (/** @type {string} */ text) =>
+		text
+			.split("\n")
+			.find((l) => l.trim() !== "")
+			?.trim();
+	if (run.status !== 0) return firstLine(run.stderr) ?? `exited ${run.status}`;
+	const out = readHookOutput(run.stdout);
+	if (out?.permissionDecision !== "deny") return null;
+	const reason = firstLine(String(out.permissionDecisionReason ?? ""));
+	return `refused a benign Read${reason ? `: ${reason}` : ""}`;
+}
+
+/**
+ * A hook run's `hookSpecificOutput`, or null where its stdout carries none: plain
+ * text on exit 0 refuses nothing.
+ * @param {string} stdout
+ * @returns {{permissionDecision?: unknown, permissionDecisionReason?: unknown}|null}
+ */
+function readHookOutput(stdout) {
+	try {
+		return JSON.parse(stdout)?.hookSpecificOutput ?? null;
+	} catch {
+		/* Not JSON: no decision, so no refusal (#4226). */
+		return null;
+	}
+}
+
+/**
+ * The guard-load probe's failure in `root`, or null where it passes or `root` is
+ * no self-plugin host.
+ * @param {string} root
+ * @returns {ProbeFailure|null}
+ */
+function readGuardLoadFailure(root) {
+	if (!fs.existsSync(path.join(root, "self-plugin"))) return null;
+	if (readGuardRunFailure(root) === null) return null;
+	sleepSync(GUARD_PROBE_RETRY_MS);
+	const failure = readGuardRunFailure(root);
+	return failure === null
+		? null
+		: { text: `guard entry: ${failure}`, isOutage: false };
+}
+
+/**
+ * What fails of `root`'s shared `.git` and guard entry, or null where the probe
+ * passes. `origin` and `main` are the shared tree's, and `landing` is read as
+ * `origin/landing`, as the shared tree keeps no local one. Reads off a config
+ * fault, logged, with the landing module off.
  * @param {string} root
  * @param {Log} log
  * @returns {ProbeFailure|null}
@@ -834,6 +927,7 @@ function readProbeFailure(root, log) {
 			? []
 			: [{ text: `fetch origin: ${fetched.why}`, isOutage: true }]),
 		...unresolved,
+		...[readGuardLoadFailure(root)].filter((f) => f !== null),
 	];
 	return failed.length > 0
 		? {
@@ -908,7 +1002,7 @@ function settleHold(root, hold, readFailure, log) {
 		);
 		const closeFailure = closeProbeIssue(
 			hold,
-			"The shared `.git` probe passes again, so its hold has cleared.",
+			"The probe of the shared tree passes again, so its hold has cleared.",
 		);
 		if (closeFailure) log(`repo hold ${hold.id}: ${closeFailure}`);
 	} catch (err) {
@@ -939,7 +1033,7 @@ function readProbeHold(root) {
  * @param {string} failure
  */
 const buildProbeIssueBody = (root, failure) =>
-	`The refill loop's probe of the shared \`.git\` of \`${root}\` failed, so the loop launches nothing into that checkout until it passes.
+	`The refill loop's probe of the shared tree of \`${root}\` failed, so the loop launches nothing into that checkout until it passes.
 
 **Failure:** ${failure}
 
@@ -1098,7 +1192,7 @@ function keepProbeHold(root, { failureText, isRaiseDue }, now, log) {
 			hold = raiseHold(root, {
 				id: PROBE_ID,
 				kind: "probe",
-				act: `repair the shared .git: ${failureText}`,
+				act: `repair the shared tree: ${failureText}`,
 				issue: null,
 				clearCheck: { probe: true },
 				session: null,
@@ -1110,6 +1204,50 @@ function keepProbeHold(root, { failureText, isRaiseDue }, now, log) {
 	} catch (err) {
 		log(`repo hold ${PROBE_ID} in ${root}: not kept: ${caught(err).message}`);
 	}
+}
+
+/**
+ * Attach to each of `broken`'s probe holds every loop session there that has
+ * blocked since the hold rose, stopped for its park or not, for the clear's
+ * resume step to take up: none can attach itself while its guards refuse every
+ * call (#4226). A hold with no issue yet takes none, and the next tick retries.
+ * A throw is logged and costs that checkout's attaches.
+ * @param {string[]} broken  tendHolds's answer
+ * @param {import("./refill-loop.js").LoopLaunch[]} launches
+ * @param {Log} log
+ */
+function attachProbeParks(broken, launches, log) {
+	for (const root of broken) {
+		try {
+			const hold = readProbeHold(root);
+			if (hold === null) continue;
+			for (const l of launches) {
+				if (l.jobId === null || !isBlockedSinceRaise(l, hold)) continue;
+				const attached = attachHold(root, PROBE_ID, l.jobId);
+				if (attached?.isNew) log(buildAttachedLine(attached.hold, l.jobId));
+			}
+		} catch (err) {
+			log(
+				`repo hold ${PROBE_ID} in ${root}: parks not attached: ${caught(err).message}`,
+			);
+		}
+	}
+}
+
+/**
+ * Whether live launch `l` in `hold`'s checkout has blocked since the hold rose.
+ * A stop for a park keeps its block, so a park-stop reads the same.
+ * @param {import("./refill-loop.js").LoopLaunch} l
+ * @param {RepoHold} hold
+ */
+function isBlockedSinceRaise(l, hold) {
+	const since = l.block?.since;
+	return (
+		l.root === hold.checkout &&
+		l.finishedAt === null &&
+		since !== undefined &&
+		since >= hold.raisedAt
+	);
 }
 
 /**
@@ -1227,6 +1365,7 @@ function buildHoldLines(roots, now) {
 module.exports = {
 	buildAgeText,
 	attachHold,
+	attachProbeParks,
 	buildNoticeName,
 	buildAttachedLine,
 	buildHoldLines,

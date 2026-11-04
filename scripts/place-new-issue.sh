@@ -47,6 +47,7 @@
 #            surface 4): anchored at mantahostels#2127, it now also declines to exec this
 #            script on the wrapped spellings — but CREATE_RE was already
 #            refusing them, so the set this script acts on is unchanged.
+# TREE:      none — reads the payload, the session and job records and GitHub, no repository
 
 set -uo pipefail
 

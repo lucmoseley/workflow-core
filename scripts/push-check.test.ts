@@ -451,3 +451,50 @@ describe("push:check names the tests to re-run where a certificate holds test by
 		expect(run(dir).status).toBe(0);
 	});
 });
+
+/*
+ * Seam 2 (#4244, spec #4229): run from a linked worktree, with the host root
+ * the main checkout, it judges the worktree's `HEAD` and not local `main`.
+ */
+describe("from a linked worktree", () => {
+	/** A worktree of `dir` detached at origin/main. */
+	function worktree(dir: string) {
+		const wt = path.join(dir, ".claude", "worktrees", "w1");
+		git(dir, "worktree", "add", "-q", "--detach", wt, "origin/main");
+		return fs.realpathSync(wt);
+	}
+	const runIn = (wt: string, dir: string) =>
+		runInProcess(SCRIPT, [], {
+			cwd: wt,
+			env: {
+				...process.env,
+				CLAUDE_PROJECT_DIR: dir,
+				CLAUDE_CONFIG_DIR: home(dir),
+				CLAUDE_CODE_SESSION_ID: "me",
+			},
+		});
+
+	it("owes a run for the worktree's own commit, not for main's", () => {
+		const dir = repo();
+		commitTouching(dir, "main-only.js");
+		const wt = worktree(dir);
+		const c = commitTouching(wt, "wt.js");
+
+		const r = runIn(wt, dir);
+
+		expect(r.status).toBe(1);
+		expect(r.stdout).toContain(`wt.js — commit ${c.slice(0, 12)}`);
+		expect(r.stdout).not.toContain("main-only.js");
+	});
+
+	it("has nothing to push where the worktree's HEAD is at the pushed ref, main ahead or not", () => {
+		const dir = repo();
+		commitTouching(dir, "main-only.js");
+		const wt = worktree(dir);
+
+		const r = runIn(wt, dir);
+
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("nothing to push: HEAD is at");
+	});
+});

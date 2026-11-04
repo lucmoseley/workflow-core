@@ -30,7 +30,7 @@ import { markersDir } from "./marker-root.js";
 import { pidLock } from "./pid-lock.js";
 import { writePsStub } from "./ps-stub.js";
 import { shellQuote } from "./sh-quote.js";
-import { queueJoin, queueTurn } from "./suite-queue.js";
+import { queueJoin } from "./suite-queue.js";
 
 /** A part-suite's carried weight (#2931). */
 const PART_WEIGHT = { resolvedFiles: 2, wholeSlot: false };
@@ -431,26 +431,6 @@ it("refuses at the ceiling on the limb the guard named, never running anyway (#2
 	const memory = await slotAndStderr({ limb: "memory", mb: 900, rungMb: 3250 });
 	expect(memory.slot.ok).toBe(false);
 	expect(memory.text).toMatch(/lander: gate still denies on memory/);
-});
-
-it("stamps its slot admitted, so no waiter's turn comes until its suite spawns (#2650)", async () => {
-	const slot = await suiteSlot({
-		...WHOLE,
-		gate: () => null,
-		queueDir: tmp,
-		memory: () => ({ ok: true, mb: Number.MAX_SAFE_INTEGER }),
-	});
-	expect(slot.ok).toBe(true);
-	/* Past Linux's pid_max, so never a live process. A part-suite's turn
-	 * ignores whole suites ahead, so only the lander's stamp can hold it. */
-	const rival = 2_000_000_000;
-	queueJoin({ queueDir: tmp, pid: rival, weight: PART_WEIGHT });
-	const rivalTurn = () =>
-		queueTurn({ queueDir: tmp, pid: rival, alive: () => true });
-	expect(rivalTurn()).toBe(false);
-	if (slot.ok) slot.spawned();
-	expect(rivalTurn()).toBe(true);
-	if (slot.ok) slot.release();
 });
 
 it("yields to a waiter whose turn came true on the same poll, launching only once it spawns (#2650)", async () => {

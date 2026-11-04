@@ -20,6 +20,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { hookIsWired, readCoreHooks } from "./hook-wiring";
+import { readShellConst } from "./shell-const-testkit";
 
 interface CoreRow {
 	core: string;
@@ -440,6 +441,12 @@ describe("the cap", () => {
 		const src = fs.readFileSync(CAP_FILE, "utf8");
 		expect(lib.readRuleCap(CAP_FILE)).toBe(
 			Number(/^[ \t]*RULE_CAP=(\d+)[ \t]*$/m.exec(src)?.[1]),
+		);
+	});
+
+	it("holds RULE_CAP at 40% of HOOK_PERSIST_CHARS", () => {
+		expect(lib.readRuleCap(CAP_FILE)).toBe(
+			0.4 * readShellConst(CAP_FILE, "HOOK_PERSIST_CHARS"),
 		);
 	});
 
@@ -904,11 +911,22 @@ describe("agreement with scripts/lib/hook-wiring.ts", () => {
 
 	function liveSettingsFigures() {
 		const settings = readCoreHooks();
+		/* A line that runs the dispatcher is its cores alone: the pinned-guards
+		 * shim ahead of it is no guard (#4266). Restated from guard-cores.js's
+		 * expandDispatched rather than called, so the wired set is not drawn from
+		 * the code under test. Residual: a real guard put on the dispatcher's line
+		 * escapes this check, as it escapes the lib. */
 		const wired = new Set(
 			(settings.hooks?.PreToolUse ?? [])
 				.flatMap((entry) => entry.hooks ?? [])
-				.flatMap((h) => [...(h.command ?? "").matchAll(lib.WIRED_SCRIPT_RE)])
-				.flatMap((m) => (m[1] === DISPATCH_ENTRY ? [...rows.keys()] : [m[1]])),
+				.map((h) => lib.buildHookCommandLine(h) as string)
+				.flatMap((line) =>
+					line.includes(DISPATCH_ENTRY)
+						? [...rows.keys()]
+						: [...line.matchAll(lib.WIRED_SCRIPT_RE)].map(
+								(m: RegExpMatchArray) => m[1],
+							),
+				),
 		);
 		const sources: Record<string, string> = {};
 		for (const rel of wired) sources[rel] = guard(["stub"]);

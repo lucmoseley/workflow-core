@@ -58,8 +58,7 @@
  *
  * THE SESSION'S TREE (#4242): the roadmap and the register are read in the
  * session's tree, the linked worktree it runs in, never the host root's
- * working copies, so a card the session's own tree calls or re-phases is the
- * one judged.
+ * working copies.
  *
  * THE FIRST VERDICT ENDS THE CALL. A deny stops the walk, and so does a
  * fail-open, which is logged and lets the whole call through unjudged.

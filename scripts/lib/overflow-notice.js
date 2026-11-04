@@ -1,8 +1,8 @@
 /*
  * overflow-notice.js — the refill loop's record of the plan seats an overflow
- * launch rested on, and the lines naming them (#3767). A seat absent from the
- * seat file is legitimate, so the overflow trigger cannot refuse one: these
- * lines are how a seat dropped by mistake is seen.
+ * launch or a move onto a key rested on, and the lines naming them (#3767). A
+ * seat absent from the seat file is legitimate, so the overflow trigger cannot
+ * refuse one: these lines are how a seat dropped by mistake is seen.
  */
 
 const { describeAge } = require("./proc-table.js");
@@ -14,8 +14,8 @@ const { buildSeatName } = require("./refill-seats.js");
  *   its trust, and 0 once its reset has passed; `weekReadAt` null where the
  *   reading has no time
  * @typedef {{at: number, seat: string, planSeats: PlanSeatBasis[],
- *   omitted: string[]}} OverflowStart `seat`, the overflow seat launched on;
- *   `omitted`, lib/refill-seats.js's readOmittedDirs at that launch
+ *   omitted: string[]}} OverflowStart `seat`, the overflow seat started on;
+ *   `omitted`, lib/refill-seats.js's readOmittedDirs at that start
  */
 
 /** @param {import("./refill-decide.js").SeatReading} s @returns {PlanSeatBasis} */
@@ -27,18 +27,56 @@ const planSeatBasisOf = ({ seat, weekRead, weekFull }) => ({
 });
 
 /**
- * The first of `launched` on an overflow seat whose predecessor was not, or
- * null. No predecessor counts as a plan seat's.
- * @template {{reason?: string}} L
- * @param {{reason?: string}[]} prior the launches before these, oldest first
- * @param {L[]} launched
- * @returns {L|null}
+ * @typedef {{reason?: string, keyVar?: string, launchedAt: number,
+ *   movedAt?: number}} StartedLaunch
  */
-function firstOverflowLaunch(prior, launched) {
-	let last = prior.at(-1);
-	for (const l of launched) {
-		if (l.reason === "overflow" && last?.reason !== "overflow") return l;
-		last = l;
+
+/**
+ * Whether `l` runs on an overflow seat: launched on one, or moved onto its key
+ * (#3736).
+ * @param {Omit<StartedLaunch, "launchedAt">} l
+ */
+const isOnOverflowSeat = (l) =>
+	l.reason === "overflow" || l.keyVar !== undefined;
+
+/**
+ * The seat starts `l` made: its launch, and its last move where that put it on
+ * a key, which only a plan seat's session is moved onto (#4257). A resume
+ * starts none.
+ * @template {StartedLaunch} L
+ * @param {L} l
+ * @returns {{at: number, onKey: boolean, launch: L}[]}
+ */
+function seatStartsOf(l) {
+	const onKey = isOnOverflowSeat(l);
+	const launch = {
+		at: l.launchedAt,
+		onKey: onKey && l.movedAt === undefined,
+		launch: l,
+	};
+	return onKey && l.movedAt !== undefined
+		? [launch, { at: l.movedAt, onKey: true, launch: l }]
+		: [launch];
+}
+
+/**
+ * The first start on an overflow seat after `since` whose predecessor was on
+ * a plan seat, or null. The first start after a record follows one on a key;
+ * with no record, the first start follows a plan seat's.
+ * @template {StartedLaunch} L
+ * @param {L[]} launches
+ * @param {number|null} since the last record's time
+ * @returns {{at: number, launch: L}|null}
+ */
+function firstOverflowStart(launches, since) {
+	let lastOnKey = since !== null;
+	const starts = launches
+		.flatMap(seatStartsOf)
+		.filter((s) => since === null || s.at > since)
+		.sort((x, y) => x.at - y.at);
+	for (const s of starts) {
+		if (s.onKey && !lastOnKey) return s;
+		lastOnKey = s.onKey;
 	}
 	return null;
 }
@@ -110,7 +148,7 @@ const buildOverflowStartLines = ({ at, planSeats, omitted }) =>
 module.exports = {
 	buildBasisLines,
 	buildOverflowStartLines,
-	firstOverflowLaunch,
+	firstOverflowStart,
 	parseOverflowStart,
 	planSeatBasisOf,
 };

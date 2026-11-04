@@ -129,7 +129,10 @@ function run(
 	const r = dispatch(cores, {
 		payload: p,
 		root: dir,
-		adapters: hostAdapters(dir, (w) => logs.push(`entry\t${w}`)),
+		adapters: {
+			...hostAdapters(dir, (w) => logs.push(`entry\t${w}`)),
+			fallbackCwd: dir,
+		},
 		logFor: (name: string) => (what: string) => logs.push(`${name}\t${what}`),
 		disabled: (name: string) => disabled.includes(name),
 		persistChars: () => persistChars,
@@ -784,6 +787,31 @@ describe("the entry's fail-open record", () => {
 });
 
 describe("repoRel, the reading of a written path", () => {
+	it("is null for a sibling whose name starts with the root's (#2546)", () => {
+		expect(
+			repoRel(`${dir}/repository/a.md`, path.join(dir, "repo")),
+		).toBeNull();
+	});
+
+	it("reads a name inside the root that starts with `..` as inside it (#4134)", () => {
+		expect(repoRel(`${dir}/repo/..foo/a.md`, path.join(dir, "repo"))).toBe(
+			"..foo/a.md",
+		);
+	});
+
+	it("reads every absolute path under a root of `/` (#2546)", () => {
+		expect(repoRel("/a/../b.md", "/")).toBe("b.md");
+	});
+
+	it("resolves a `..` through a symlink to the checkout, and refuses the link itself or a path out of it (#2553)", () => {
+		const repo = path.join(dir, "repo");
+		fs.mkdirSync(path.join(repo, "sub"), { recursive: true });
+		fs.symlinkSync(repo, path.join(dir, "link"));
+		expect(repoRel(`${dir}/link/nope/../a.ts`, repo)).toBe("a.ts");
+		for (const tail of ["", "/", "/../x.ts"])
+			expect(repoRel(`${dir}/link${tail}`, repo)).toBeNull();
+	});
+
 	it.each([
 		["/a.ts", "a.ts"],
 		["/sub/../tests/a.ts", "tests/a.ts"],

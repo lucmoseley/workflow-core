@@ -126,8 +126,7 @@ function synthesise(s, ph) {
 
 /**
  * Whether the session's tree is this repository's: the host's own, or a
- * linked worktree of it. Another repository's root is that repository's
- * business; one git cannot place is allowed, logged.
+ * linked worktree of it. One git cannot place is allowed, logged.
  * @param {string} root
  * @param {CoreContext} ctx
  */
@@ -143,8 +142,8 @@ function isThisRepo(root, ctx) {
 
 /**
  * Is `p` a dot-prefixed path at the root of the session's tree that git there
- * treats as neither ignored nor tracked? A SYNTHETIC `p` comes with `syn`: the same target as the caller
- * wrote it, which the refusal quotes so a placeholder never reaches the page,
+ * treats as neither ignored nor tracked? A SYNTHETIC `p` comes with `syn`:
+ * the same target as the caller wrote it, which the refusal quotes so a placeholder never reaches the page,
  * and with each span as `*` for the tracked limb.
  * @param {string} given
  * @param {CoreContext} ctx
