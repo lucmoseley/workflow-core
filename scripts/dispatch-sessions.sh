@@ -227,12 +227,6 @@ ADVISOR_MODEL="${WFC_DISPATCH_ADVISOR:-opus}"
 # neither knows launches as written. The advisor is NOT remapped: it attaches
 # only to a spelling the remap left as Sonnet, which is none of the known ones.
 BURN_LIB="$here/lib/burn-mode.js"
-burn=0
-if BURN_MARKER="$(node "$BURN_LIB" marker 2>/dev/null)"; then
-  [[ -f "$BURN_MARKER" ]] && burn=1
-else
-  printf 'WARNING: burn-mode marker path unresolved — launching as if burn mode were off\n' >&2
-fi
 
 dry_run=0
 force=0
@@ -434,9 +428,12 @@ wants_advisor() {
 refuse_if_interop_wedged
 refuse_if_kernel_unhealthy
 
-# --- seat kind -------------------------------------------------------------
-# The seat this runs under, from the one reader of `~/.claude/refill-seats`
-# (lib/refill-seats.js).
+# --- seat kind, overflow key, launch auth and burn mode ----------------------
+# One node start for four gates (lib/dispatch-gates.js, #4321): the seat this
+# runs under, from the one reader of `~/.claude/refill-seats`; an overflow
+# seat's `--settings`; that the launch bills its seat — the subscription, or an
+# overflow seat's declared key's helper alone (#2236) — judged in the
+# environment the launch hands its child; and whether burn mode's marker is set.
 seat_dir="${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}"
 # Why the launches go on this seat, for the ledger: the refill loop names its
 # pick (lib/refill-batch.js); a direct run takes its caller's own seat (#3732).
@@ -446,11 +443,14 @@ unset WFC_SEAT_REASON
 # The overflow seat the refill loop asked for; unset as the reason is.
 seat_key="${WFC_SEAT_KEY:-}"
 unset WFC_SEAT_KEY
-if ! seat_kind="$(node "$here/lib/refill-seats.js" kind "$seat_dir" ${seat_key:+"$seat_key"} 2>/dev/null)"; then
-  printf 'REFUSED: the seat file refuses (seat %s):\n' "$seat_dir" >&2
-  node "$here/lib/refill-seats.js" kind "$seat_dir" ${seat_key:+"$seat_key"} 2>&1 >/dev/null | sed 's/^/  /' >&2
-  exit 2
-fi
+gates="$(node "$here/lib/dispatch-gates.js" -- "$seat_dir" ${seat_key:+"$seat_key"})" || exit 2
+{
+  read -r seat_kind burn_state
+  IFS= read -r key_settings
+  read -ra key_unset
+} <<<"$gates"
+burn=0
+[[ "$burn_state" == on ]] && burn=1
 overflow=0
 case "$seat_kind" in
   plan) ;;
@@ -477,21 +477,15 @@ if [[ $overflow -eq 1 ]]; then
   done
 fi
 
-# --- launch auth -------------------------------------------------------------
-# A `--bg` launch must bill the subscription, not an API key in this shell
-# (lib/launch-auth.js, #2236); an overflow one, the declared key's helper alone.
-# Both are judged in the environment the launch hands its child.
+# An overflow launch's child runs without the variables the gates name, under
+# the key's `--settings`.
 launch_env=()
 overflow_args=()
 if [[ $overflow -eq 1 ]]; then
-  if ! key_settings="$(node "$here/lib/overflow-key.js" --settings "$seat_key" 2>&1)"; then
-    printf 'REFUSED: overflow seat %s: %s\n' "$seat_dir" "$key_settings" >&2
-    exit 2
-  fi
-  launch_env=(env -u ANTHROPIC_API_KEY -u "$seat_key" -u CLAUDE_CODE_SESSION_ID)
+  launch_env=(env)
+  for v in "${key_unset[@]}"; do launch_env+=(-u "$v"); done
   overflow_args=(--settings "$key_settings")
 fi
-"${launch_env[@]}" node "$here/lib/launch-auth.js" "${overflow_args[@]}" || exit 2
 
 # --- duplicate gate --------------------------------------------------------
 # Placed BEFORE the allowance gate on cost: the allowance read spends up to 120

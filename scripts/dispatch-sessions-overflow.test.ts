@@ -299,7 +299,7 @@ describe("an overflow seat (#2610)", () => {
 		expect(readBgLaunches()).toEqual([]);
 	});
 
-	it("refuses a non-Opus member before any gate, exit 2", () => {
+	it("refuses a non-Opus member before the duplicate and budget gates, exit 2", () => {
 		stubBg();
 		const r = spawnSync("bash", [SCRIPT, "sonnet", "/implement 341"], {
 			cwd: fx.dir,

@@ -1,10 +1,10 @@
 // @vitest-environment node
 /*
  * Pins lib/refill-seats.js, the one reader of `~/.claude/refill-seats`: plan
- * and overflow lines, the malformed lines it refuses by name, and the
- * dispatcher's `kind` command. The parse is read through readDeclaredSeats() over
- * a seat file in a temp home; `kind` is driven as the dispatcher drives it,
- * through its CLI, since that is its only caller.
+ * and overflow lines, the malformed lines it refuses by name, and which seat
+ * a launch resolves to. The parse is read through readDeclaredSeats() over a
+ * seat file in a temp home. The dispatcher's seat gate is
+ * lib/dispatch-gates.test.ts's.
  *
  * Loosen one and a mistyped overflow line launches as a plan seat, or the loop
  * and the dispatcher disagree about which seats exist (#2605).
@@ -22,9 +22,6 @@ import {
 	seatOfLaunch,
 	unlistedSeats,
 } from "./refill-seats.js";
-import { runInProcess } from "./run-in-process.js";
-
-const SCRIPT = path.join(__dirname, "refill-seats.js");
 
 let home: string;
 beforeEach(() => {
@@ -41,10 +38,6 @@ const parse = (text: string) => {
 	fs.writeFileSync(file(), text);
 	return readDeclaredSeats(home);
 };
-const kind = (...identity: string[]) =>
-	runInProcess(SCRIPT, ["kind", ...identity], {
-		env: { ...process.env, HOME: home },
-	});
 
 describe("readOmittedDirs (#3767)", () => {
 	const seatDir = (name: string, credentials: boolean) => {
@@ -146,33 +139,6 @@ describe("readDeclaredSeats", () => {
 	});
 });
 
-describe("the kind command", () => {
-	it("prints each declared seat's kind, however its dir is spelt", () => {
-		parse("~/.claude2\n~/.claude2 api key=K grant=200 cycle-day=20\n");
-		const overflow = kind(`${path.join(home, ".claude2")}/`, "K");
-		expect(overflow.status).toBe(0);
-		expect(overflow.stdout).toBe("overflow\n");
-		const plan = kind(path.join(home, ".claude2"));
-		expect(plan.status).toBe(0);
-		expect(plan.stdout).toBe("plan\n");
-	});
-
-	it("takes an undeclared dir as a plan seat", () => {
-		parse("~/.claude2\n~/.claude2 api key=K grant=200 cycle-day=20\n");
-		const r = kind(path.join(home, ".claude"));
-		expect(r.status).toBe(0);
-		expect(r.stdout).toBe("plan\n");
-	});
-
-	it("refuses a malformed seat file, naming the line", () => {
-		parse("~/.claude2\n~/.claude2-api api key=K grant=200\n");
-		const r = kind(path.join(home, ".claude2"));
-		expect(r.status).toBe(2);
-		expect(r.stdout).toBe("");
-		expect(r.stderr).toContain(`${file()}:2: missing cycle-day=`);
-	});
-});
-
 describe("a seat's identity (#3693)", () => {
 	const shared = () =>
 		parse(
@@ -206,39 +172,12 @@ describe("a seat's identity (#3693)", () => {
 		expect(findOverflowSeat(list, "NOPE")).toBeNull();
 	});
 
-	it("prints each kind on a shared dir through the kind command", () => {
-		shared();
-		const dir = path.join(home, ".claude2");
-		const plan = kind(dir);
-		expect(plan.status).toBe(0);
-		expect(plan.stdout).toBe("plan\n");
-		const overflow = kind(dir, "K2");
-		expect(overflow.status).toBe(0);
-		expect(overflow.stdout).toBe("overflow\n");
-	});
-
-	it("refuses a key no line declares, or one on another dir", () => {
-		shared();
-		const dir = path.join(home, ".claude2");
-		const none = kind(dir, "NOPE");
-		expect(none.status).toBe(2);
-		expect(none.stderr).toContain("no overflow seat has key=NOPE");
-		const other = kind(dir, "K3");
-		expect(other.status).toBe(2);
-		expect(other.stderr).toContain(
-			`key=K3 is ${path.join(home, ".claude3")}'s overflow seat, not ${dir}'s`,
-		);
-	});
-
 	it("refuses an overflow line naming a dir no plan line declares, by name (#3701)", () => {
 		const line = "~/.claude2-api api key=K grant=200 cycle-day=20";
 		const r = parse(`~/.claude2\n${line}\n`);
 		expect(r.errors).toEqual([
 			`${file()}:2: ~/.claude2-api has no plan seat line, and an overflow seat launches under its plan seat's config dir: ${line}`,
 		]);
-		const k = kind(path.join(home, ".claude2"));
-		expect(k.status).toBe(2);
-		expect(k.stderr).toContain("~/.claude2-api has no plan seat line");
 	});
 
 	it("takes a plan line after its overflow line", () => {

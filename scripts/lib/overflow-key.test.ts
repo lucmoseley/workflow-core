@@ -14,9 +14,8 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildKeyHelper } from "./overflow-key.js";
-import { runInProcess } from "./run-in-process.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { buildKeyHelper, buildKeySettings } from "./overflow-key.js";
 
 const KEY = "sk-fake-overflow-key";
 let dir = "";
@@ -83,32 +82,25 @@ describe("the key helper", () => {
 	});
 });
 
-describe("--settings, the launch's `--settings` (#3701)", () => {
-	const runSettings = (keyVar: string) =>
-		runInProcess(
-			path.join(__dirname, "overflow-key.js"),
-			["--settings", keyVar],
-			{
-				env: { PATH: process.env.PATH, WFC_SECRETS_FILE: secrets },
-			},
-		);
+describe("buildKeySettings, the launch's `--settings` (#3701)", () => {
+	beforeEach(() => vi.stubEnv("WFC_SECRETS_FILE", secrets));
+	afterEach(() => vi.unstubAllEnvs());
 
-	it("prints the JSON whose helper prints the key", () => {
-		const r = runSettings("WFC_K");
-		expect(r.status).toBe(0);
-		const { apiKeyHelper } = JSON.parse(r.stdout);
+	it("builds the JSON whose helper prints the key", () => {
+		const built = buildKeySettings("WFC_K");
+		if (!("settings" in built)) throw new Error(built.why);
+		const { apiKeyHelper } = JSON.parse(built.settings);
 		expect(apiKeyHelper).toBe(buildKeyHelper("WFC_K", secrets));
-		expect(r.stdout).not.toContain("sk-fake");
+		expect(built.settings).not.toContain("sk-fake");
 	});
 
-	it("fails on a missing variable before any launch, naming it and printing no value", () => {
-		const r = runSettings("WFC_MISSING");
-		expect(r.status).toBe(1);
-		expect(r.stdout).toBe("");
-		expect(r.stderr).toContain("WFC_MISSING is not set in");
-		expect(r.stderr).toMatch(
+	it("refuses a missing variable before any launch, naming it and holding no value", () => {
+		const built = buildKeySettings("WFC_MISSING");
+		if (!("why" in built)) throw new Error("built settings for a missing key");
+		expect(built.why).toContain("WFC_MISSING is not set in");
+		expect(built.why).toMatch(
 			/set it with `node \S*write-secret\.js WFC_MISSING`/,
 		);
-		expect(r.stdout + r.stderr).not.toContain("sk-fake");
+		expect(built.why).not.toContain("sk-fake");
 	});
 });

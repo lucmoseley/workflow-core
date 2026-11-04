@@ -12,10 +12,6 @@
  *   node scripts/lib/overflow-key.js <key var> <secrets file>
  *     prints the variable's value; a missing file or variable exits 1 naming
  *     the variable and the file, never a value; bad usage exits 2.
- *   node scripts/lib/overflow-key.js --settings <key var>
- *     prints the `--settings` JSON a launch on that key passes, or exits 1
- *     naming why the key cannot be read, checked before the launch since the
- *     helper runs only after it.
  */
 
 const { parseArgs } = require("node:util");
@@ -90,38 +86,21 @@ function buildKeySettings(keyVar) {
 			};
 }
 
-module.exports = { buildKeyHelper, buildKeySettings, keyCheck };
+module.exports = { buildKeyHelper, buildKeySettings };
 
 if (require.main === module) {
-	/** @type {{positionals: string[], settings?: string}} */
-	let args = { positionals: [] };
+	/** @type {string[]} */
+	let positionals = [];
 	try {
-		const parsed = parseArgs({
-			allowPositionals: true,
-			options: { settings: { type: "string" } },
-		});
-		args = { positionals: parsed.positionals, ...parsed.values };
+		({ positionals } = parseArgs({ allowPositionals: true }));
 	} catch {
 		/* an unknown option: bad usage, below */
 	}
-	const [keyVar, file] = args.positionals;
-	if (args.settings !== undefined && args.positionals.length === 0) {
-		const built = buildKeySettings(args.settings);
-		if ("settings" in built) writeFd(1, `${built.settings}\n`);
-		else {
-			writeFd(2, `${built.why}\n`);
-			process.exitCode = 1;
-		}
-	} else if (
-		args.settings !== undefined ||
-		args.positionals.length !== 2 ||
-		!keyVar ||
-		!file
-	) {
+	const [keyVar, file] = positionals;
+	if (positionals.length !== 2 || !keyVar || !file) {
 		writeFd(
 			2,
-			`usage: node ${scriptPath("lib/overflow-key.js")} <key var> <secrets file>\n` +
-				`       node ${scriptPath("lib/overflow-key.js")} --settings <key var>\n`,
+			`usage: node ${scriptPath("lib/overflow-key.js")} <key var> <secrets file>\n`,
 		);
 		process.exitCode = 2;
 	} else {

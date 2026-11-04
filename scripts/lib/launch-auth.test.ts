@@ -132,26 +132,19 @@ describe("an overflow seat's helper under its plan dir (#3699)", () => {
 		).toContain("ANTHROPIC_API_KEY");
 	});
 
-	it("admits it through the CLI's --settings", () => {
+	it("refuses through the CLI, which takes no settings", () => {
 		declarePlanOverflow();
-		const settings = JSON.stringify({
-			apiKeyHelper: buildKeyHelper("K", secrets),
+		const r = runInProcess(CLI, [], {
+			env: {
+				PATH: process.env.PATH,
+				HOME: home,
+				WFC_CLAUDE_BIN: bin,
+				WFC_FAKE_AUTH_NO_LOGIN: "1",
+				CLAUDE_CONFIG_DIR: plan(),
+			},
 		});
-		const run = (args: string[]) =>
-			runInProcess(CLI, args, {
-				env: {
-					PATH: process.env.PATH,
-					HOME: home,
-					WFC_CLAUDE_BIN: bin,
-					WFC_SECRETS_FILE: secrets,
-					WFC_FAKE_AUTH_NO_LOGIN: "1",
-					CLAUDE_CONFIG_DIR: plan(),
-				},
-			});
-		expect(run(["--settings", settings]).status).toBe(0);
-		const plain = run([]);
-		expect(plain.status).toBe(2);
-		expect(plain.stderr).toContain("REFUSED:");
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("REFUSED:");
 	});
 
 	it("still refuses the key on a plain launch under the same dir", () => {

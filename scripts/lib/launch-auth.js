@@ -29,9 +29,9 @@
  * such as the daemon a `claude --bg` hands its session to, is not seen from
  * the dispatch site.
  *
- *   node scripts/lib/launch-auth.js [--settings <json>]   checks this
- *     process's own launch, for dispatch-sessions.sh, `--settings` being the
- *     one the launch passes: exits 0 silent, or 2 printing `REFUSED:` and why.
+ *   node scripts/lib/launch-auth.js   checks this process's own launch, for
+ *     a shell or spawning caller: exits 0 silent, or 2 printing `REFUSED:`
+ *     and why.
  */
 
 const { spawnSync } = require("node:child_process");
@@ -187,14 +187,11 @@ function launchAuthRefusal({ bin, env, cwd, settings }) {
 }
 
 if (require.main === module) {
-	const { settings } = parseArgs({
-		options: { settings: { type: "string" } },
-	}).values;
+	parseArgs({});
 	const why = launchAuthRefusal({
 		bin: claudeBin(),
 		env: process.env,
 		cwd: process.cwd(),
-		settings,
 	});
 	if (why) {
 		writeFd(2, `REFUSED: ${why}\n`);
