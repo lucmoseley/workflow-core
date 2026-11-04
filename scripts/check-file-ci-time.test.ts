@@ -39,8 +39,7 @@ function writeSweep(runId: string, files: Record<string, number>) {
 	fs.mkdirSync(shard, { recursive: true });
 	const testResults = Object.entries(files).map(([file, seconds]) => ({
 		name: path.join(ROOT, file),
-		startTime: 1_000_000,
-		endTime: 1_000_000 + seconds * 1000,
+		duration: seconds * 1000,
 		status: "passed",
 		assertionResults: [],
 	}));

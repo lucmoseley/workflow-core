@@ -29,7 +29,7 @@ const USAGE = `Usage:
   node scripts/suite-timings.js shares <dataset.csv>
 
 Produce the JSON with:
-  npm run test -- --full=<cause> --reporter=default --reporter=json --outputFile.json=<vitest.json>
+  WFC_VITEST_JSON=<vitest.json> npm run test -- --full=<cause>
 A dir merges every *.json under it, as one sharded run's reports:
   gh run download <run-id> -R lucmoseley/workflow-core -p 'vitest-report-*' -D <dir>
 `;

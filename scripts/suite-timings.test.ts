@@ -49,8 +49,7 @@ const report = (files: [string, number][]) =>
 	JSON.stringify({
 		testResults: files.map(([name, ms]) => ({
 			name: `${REPO}/${name}`,
-			startTime: 0,
-			endTime: ms,
+			duration: ms,
 			status: "passed",
 			assertionResults: [{}],
 		})),

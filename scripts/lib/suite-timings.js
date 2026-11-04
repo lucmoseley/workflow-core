@@ -7,8 +7,10 @@
  * recomputed rather than merely quoted (mantahostels#2039), docs/agents/guard-registry.md §Conventions resting
  * a live rule on it.
  *
- * DURATION IS endTime - startTime PER FILE, which is wall time inside the
- * worker and so overlaps across workers: the file-seconds total exceeds the
+ * DURATION IS EACH FILE'S `duration`, which `scripts/vitest-json-reporter.ts`
+ * adds to vitest's report: the file's run, its beforeAll and afterAll hooks
+ * included, as the default reporter prints it (#4313). It is wall time inside
+ * the worker and so overlaps across workers: the file-seconds total exceeds the
  * run's wall clock by roughly the worker count. That is deliberately what the
  * shares are fractions of — a share of wall clock would depend on scheduling
  * luck rather than on the files.
@@ -59,7 +61,7 @@ function reportRoot(report, root, exists) {
 /**
  * Per-file rows from vitest's JSON reporter output, heaviest first.
  *
- * A FILE MISSING EITHER TIMESTAMP IS KEPT WITH A NULL DURATION, never dropped
+ * A FILE MISSING ITS DURATION IS KEPT WITH A NULL ONE, never dropped
  * and never zeroed (mantahostels#2039). Dropping it would silently inflate every share
  * below it; a zero would misreport a file as instant.
  *
@@ -71,12 +73,13 @@ function rowsFrom(report, root) {
 	const results = Array.isArray(report.testResults) ? report.testResults : [];
 	const rows = results.map((raw) => {
 		const r = /** @type {Record<string, unknown>} */ (raw);
-		const start = Number(r.startTime);
-		const end = Number(r.endTime);
-		const timed = Number.isFinite(start) && Number.isFinite(end);
+		const ms = r.duration;
 		return {
 			file: path.relative(root, String(r.name ?? "")),
-			seconds: timed ? Math.round((end - start) / 10) / 100 : null,
+			seconds:
+				typeof ms === "number" && Number.isFinite(ms)
+					? Math.round(ms / 10) / 100
+					: null,
 			tests: Array.isArray(r.assertionResults) ? r.assertionResults.length : 0,
 			status: String(r.status ?? "unknown"),
 		};

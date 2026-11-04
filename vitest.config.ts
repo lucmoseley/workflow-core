@@ -78,10 +78,10 @@ export default defineConfig({
 			// `suite-timings.js extract` refreshes the shard timings from (#2413).
 			...(process.env.WFC_VITEST_JSON
 				? [
-						["json", { outputFile: process.env.WFC_VITEST_JSON }] as [
-							"json",
-							{ outputFile: string },
-						],
+						[
+							"./scripts/vitest-json-reporter.ts",
+							{ outputFile: process.env.WFC_VITEST_JSON },
+						] as [string, { outputFile: string }],
 					]
 				: []),
 		],
