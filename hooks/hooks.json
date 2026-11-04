@@ -247,6 +247,16 @@
 				]
 			},
 			{
+				"matcher": "startup",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-main-checkout-job.js || true",
+						"timeout": 960
+					}
+				]
+			},
+			{
 				"hooks": [
 					{
 						"type": "command",

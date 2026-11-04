@@ -1394,6 +1394,20 @@
 			"needles": [],
 			"silent": "Writes a raw `gh` close, round, `takes:` relabel or blocked-by edge to the session's acts ledger."
 		},
+		"guard-main-checkout-job.js": {
+			"needles": [
+				{
+					"id": "relaunch-failed",
+					"kind": "notice",
+					"text": "and its relaunch in its own worktree failed: "
+				},
+				{
+					"id": "original-kept",
+					"kind": "notice",
+					"text": "Removing this original copy failed ("
+				}
+			]
+		},
 		"name-issue-session.sh": {
 			"needles": [
 				{
