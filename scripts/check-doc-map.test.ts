@@ -286,12 +286,14 @@ const writeMap = (
 		? sectionB
 		: [sectionB, BASELINE_ENTRY].filter(Boolean).join("\n\n");
 	const body = opts.rawEntries ? stated : withSettled(stated);
-	track(MAP, mapDoc(rows, body));
+	write(MAP, mapDoc(rows, body));
 	// Keyed to the map's first entry so it is never an orphan; overwrite it with
-	// writeRestatements() where the test is about the data itself.
+	// writeRestatements() where the test is about the data itself. It stages the
+	// map it restamps, so the map is staged once.
 	const first = body.match(/^### (B\d+)/m);
 	if (first)
 		writeRestatements({ [first[1]]: { paths: [{ path: "docs/notes.md" }] } });
+	else git("add", "--", MAP);
 	// Assertion 11 reconciles `Supersedes` bullets against this file, so it must
 	// exist.
 	writeSuperseded({});
@@ -4394,15 +4396,15 @@ describe("the pool-tranche trigger verdict", () => {
 	});
 
 	/*
-	 * `git cat-file` exits 128 for a missing path, an unresolvable rev and a
-	 * broken repository alike. Reading a git that cannot answer as "no rev
-	 * resolves" would skip assertion 16 quietly, so it is BROKEN (#3152).
+	 * A missing pool file is a `missing` line, never a non-zero exit, so an exit
+	 * is a git that cannot answer. Reading it as "no rev resolves" would skip
+	 * assertion 16 quietly, so it is BROKEN (#3152).
 	 */
 	it("is BROKEN where git will not size a pool file, never a skipped verdict", () => {
 		base(ledger(bullet(8)));
 		writeMap(baselineRows, ledger(bullet(8)));
 		const faulty = writeFaultyGit(
-			{ words: ["cat-file", "-s"] },
+			{ words: ["cat-file", "--batch-check=%(objectsize)"] },
 			{ exit: 128 },
 			{ under: repo },
 		);
@@ -4506,9 +4508,9 @@ describe("the pool-tranche trigger verdict", () => {
 	});
 
 	/*
-	 * The index limb of the same widening: a pool file on disk but unstaged
-	 * draws `exists on disk, but not in the index` from `cat-file -s :<p>`,
-	 * which is 0 staged bytes rather than a git that could not answer. No CLI
+	 * The index limb of the creating commit below: a pool file on disk but
+	 * unstaged draws `:<p> missing` from `cat-file --batch-check`, which is 0
+	 * staged bytes rather than a git that could not answer. No CLI
 	 * case reaches it — every rev the checker asks about is `HEAD`, and the
 	 * index always holds the file a test staged.
 	 */
@@ -4529,9 +4531,8 @@ describe("the pool-tranche trigger verdict", () => {
 	});
 
 	/*
-	 * The commit that CREATES a pool file. Git refuses `cat-file -s HEAD:<p>`
-	 * there with a spelling of its own — `exists on disk, but not in 'HEAD'` —
-	 * and reading that as a broken apparatus nulled the delta, skipping
+	 * The commit that CREATES a pool file, whose `HEAD:<p>` is missing. Reading
+	 * that as a broken apparatus nulled the delta, skipping
 	 * assertion 16 on precisely the commit it exists to gate (mantahostels#3526).
 	 *
 	 * docs/working-contract.md is the pool member the fixture's HEAD does not

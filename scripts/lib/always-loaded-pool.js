@@ -99,82 +99,56 @@ const TRIGGER_VERDICT_MARKER = "**Trigger:**";
 const TRIGGER_VERDICT_MIN_WORDS = 3;
 
 /**
- * The `git cat-file` failures that mean 0 bytes rather than a broken
- * apparatus. Git 2.43 spells absence four ways, two per limb:
- *
- * - absent from both sides — `does not exist in '<rev>'`, and its index
- *   spelling `does not exist (neither on disk nor in the index)`;
- * - present on disk but not in what was asked for — `exists on disk, but not
- *   in '<rev>'`, and `... but not in the index`. This limb is the one a
- *   commit that CREATES a pool file hits (mantahostels#3526).
- *
- * Read off stderr rather than the exit code, which is 128 for a missing path,
- * an unresolvable rev and a broken repository alike.
- *
- * Residual: the four are git 2.43's, read off it. A later git wording a fifth
- * nulls the delta again and assertion 16 silently skips — the failure mantahostels#3526
- * fixed, returning by the same route.
- */
-const PATH_ABSENT = /path .* (does not exist|exists on disk, but not in)/;
-
-/**
- * Bytes of `rev`'s copy of `rel`, or 0 where that rev holds no such file. A git
- * that will not answer is BROKEN, never an absent file (#3152).
- *
- * `git cat-file -s` rather than reading the blob: the pool is ~50 KB across
- * four files and only its size is wanted. `rev` is `""` for the INDEX, which
+ * The pool's whole-file bytes in each of `treeishes`, `""` for the INDEX, which
  * `:<path>` addresses — what .husky/pre-commit's doc-map gate hands the
- * checker, since a pathspec commit gives the hook its own GIT_INDEX_FILE.
+ * checker, since a pathspec commit gives the hook its own GIT_INDEX_FILE. A
+ * file a treeish does not hold is 0 bytes, the creating commit's case
+ * (mantahostels#3526). A git that will not answer is BROKEN, never an absent
+ * file (#3152).
  *
- * @param {string} rev
- * @param {string} rel
- * @returns {number}
+ * One `git cat-file --batch-check` for every file in every treeish rather than
+ * the blobs: the pool is ~50 KB across four files and only its size is wanted.
+ * It prints `<spec> missing` for an object it cannot find, whatever the reason
+ * and in any locale, an unresolvable rev included, so each treeish must
+ * already resolve; a corrupt index or no repository at all exits 128.
+ *
+ * Residual: a resolvable rev whose blob is gone from the object store is also
+ * `missing`, so 0 bytes, where `cat-file -s` was BROKEN; a store that corrupt
+ * is fsck's to find.
+ *
+ * @param {string[]} treeishes
+ * @returns {number[]}
  */
-function readBlobBytesAt(rev, rel) {
+function readPoolBytesIn(treeishes) {
+	const files = getPoolFiles();
+	const specs = treeishes.flatMap((t) => files.map((rel) => `${t}:${rel}`));
 	let out;
 	try {
-		out = execGit(["cat-file", "-s", `${rev}:${rel}`], {
+		out = execGit(["cat-file", "--batch-check=%(objectsize)"], {
 			encoding: "utf8",
-			stdio: ["ignore", "pipe", "pipe"],
-			// PATH_ABSENT reads git's English stderr.
-			env: { ...process.env, LC_ALL: "C" },
-		}).trim();
+			input: specs.map((spec) => `${spec}\n`).join(""),
+			stdio: ["pipe", "pipe", "pipe"],
+		});
 	} catch (e) {
 		const { stderr, message } = caught(e);
-		if (PATH_ABSENT.test(String(stderr ?? ""))) return 0;
 		throw brokenError(
-			`git would not read ${rev}:${rel}: ${String(stderr ?? "").trim() || message}`,
+			`git would not read the pool's sizes in ${treeishes.map((t) => t || "the index").join(", ")}: ${String(stderr ?? "").trim() || message}`,
 		);
 	}
-	const n = Number(out);
-	if (out && Number.isFinite(n)) return n;
-	throw brokenError(
-		`git cat-file -s ${rev}:${rel} printed ${out.slice(0, 80)}`,
+	const lines = out.split("\n");
+	const sizes = specs.map((spec, i) => {
+		const line = lines[i] ?? "";
+		if (line === `${spec} missing`) return 0;
+		if (/^\d+$/.test(line)) return Number(line);
+		throw brokenError(
+			`git cat-file --batch-check ${spec} printed ${line.slice(0, 80)}`,
+		);
+	});
+	return treeishes.map((_, t) =>
+		sizes
+			.slice(t * files.length, (t + 1) * files.length)
+			.reduce((a, b) => a + b, 0),
 	);
-}
-
-/**
- * The pool's whole-file bytes in `treeish`, `""` for the index, which must
- * resolve.
- *
- * @param {string} treeish
- * @returns {number}
- */
-const readPoolBytesIn = (treeish) =>
-	getPoolFiles().reduce(
-		(total, rel) => total + readBlobBytesAt(treeish, rel),
-		0,
-	);
-
-/**
- * The pool's whole-file bytes at `rev`, or null where `rev` names no commit.
- * A git that will not answer is BROKEN (#3152).
- *
- * @param {string} rev
- * @returns {number | null}
- */
-function readCommittedPoolBytes(rev) {
-	return readCommitOrBroken(rev) === null ? null : readPoolBytesIn(rev);
 }
 
 /**
@@ -186,19 +160,15 @@ function readCommittedPoolBytes(rev) {
  *
  * Returns null where no committed rev resolves — a first commit on a fresh
  * checkout. A caller reads that as "cannot tell whether this commit adds pool
- * bytes" and asserts nothing. A git that will not answer is BROKEN.
+ * bytes" and asserts nothing. A git that will not answer is BROKEN (#3152).
  *
  * @param {string[]} revs the already-committed revs, `readParentRevs()`
  * @returns {number | null}
  */
 function stagedPoolDelta(revs) {
-	const staged = readPoolBytesIn("");
-	let base = null;
-	for (const rev of revs) {
-		const n = readCommittedPoolBytes(rev);
-		if (n !== null) base = base === null ? n : Math.max(base, n);
-	}
-	return base === null ? null : staged - base;
+	const committed = revs.filter((rev) => readCommitOrBroken(rev) !== null);
+	const [staged, ...bases] = readPoolBytesIn(["", ...committed]);
+	return bases.length === 0 ? null : staged - Math.max(...bases);
 }
 
 /**

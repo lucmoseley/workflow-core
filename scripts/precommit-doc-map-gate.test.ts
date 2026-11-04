@@ -1665,7 +1665,7 @@ describe("mutations of the gate are caught by the cases above", () => {
 	});
 
 	/* mantahostels#1922's blocker: --root moves the FILESYSTEM reads, and assertion 16's pool
-	 * delta is an INDEX read (`git cat-file -s ":<path>"`), which only
+	 * delta is an INDEX read (`:<path>`, through `git cat-file --batch-check`), which only
 	 * GIT_INDEX_FILE can point at HEAD. Dropped, both sides measure this commit's
 	 * own pool growth, agree, and a commit adding pool bytes with no §B entry
 	 * passes as INHERITED. */
