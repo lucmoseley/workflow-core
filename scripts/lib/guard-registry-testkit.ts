@@ -488,7 +488,7 @@ export function landerRevertKit() {
 		for (const [hook, script] of [
 			["prepare-commit-msg", '"$GATES/check-guard-registry.js" --against HEAD'],
 			["pre-push", '"$GATES/landing-registry-gate.js"'],
-		]) {
+		] as const) {
 			fs.writeFileSync(
 				path.join(hooks, hook),
 				`#!/bin/sh\nGATES=${shellQuote(`${root}/scripts`)}\nexec node ${script}\n`,
