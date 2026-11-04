@@ -2544,6 +2544,9 @@
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/sweep-debts-detached.test.ts"
 		],
+		"docs/data/ci-shard-timings.csv": [
+			"scripts/run-vitest.test.ts"
+		],
 		"docs/data/close-rounds-2026-10-09/answered-close-rounds.json": [
 			"scripts/report-close-check-reading.test.ts"
 		],
@@ -11847,6 +11850,7 @@
 			"scripts/lib/parked.test.ts",
 			"scripts/lib/quiet-bench-tick.test.ts",
 			"scripts/lib/refill-panel-topic.test.ts",
+			"scripts/lib/run-cost-report.test.ts",
 			"scripts/link-sub-issue.test.ts",
 			"scripts/measure-ci-billing.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
@@ -11875,6 +11879,7 @@
 			"scripts/rescue-sessions-hand-off.test.ts",
 			"scripts/resolve-ticket.test.ts",
 			"scripts/retire-stale-containers.test.ts",
+			"scripts/run-vitest.test.ts",
 			"scripts/spec-commits.test.ts",
 			"scripts/status-report.test.ts",
 			"scripts/supervise-landing.test.ts",

@@ -86,7 +86,7 @@ At commit, the core's `commands.check_staged` is Biome over the staged paths (ma
 | shfmt, `ruff format` | refuse — shfmt in this job, `ruff format` in the `python` job |
 | Vitest, pytest | refuses |
 | The read-shape warning, `scripts/generate-test-read-edges.js --check` | not run; `--unseen` lists every read the diff selector cannot attribute, on demand |
-| The run-cost report, `scripts/run-vitest.js` and `scripts/run-pytest.js` (a new or changed test file over 10 s of its own wall time, base §X8 (5); pytest's in worker-seconds) | not run — silent under `CI` (#1797). Locally it **reports only, never refuses**: printed after every suite run through either wrapper, never at commit, and never changing the suite's exit code (#1883, #1884) |
+| The run-cost report, `scripts/run-vitest.js` and `scripts/run-pytest.js` (a new or changed test file over 10 s of its own wall time, or an existing one grown past 2.5× its CI record, base §X8 (5); pytest's in worker-seconds) | **reports only, never refuses** (#1797): printed after every suite run through either wrapper, never at commit, and never changing the suite's exit code (#1883, #1884). Under `CI` it names each file of the CI record grown past 2.5× its row, changed or not (#4289) |
 
 Every push to `landing` runs the full suite, and the lander reads that run as its tester (#2413), so a pushed head's CI verdict lags it by one run: 8.2 min at worst, or up to 30 min where a red is re-run (measured on #3349). Four scheduled sweeps a day (mantahostels#3490) re-test the still tree. The cron asks for a 6h gap; GitHub delivers the slots late, and the gap is not this repo's to set (mantahostels#2204).
 
