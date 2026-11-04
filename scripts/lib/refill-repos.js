@@ -128,6 +128,14 @@ function readExclusion(root) {
 const readExclusionWhy = (root) => readExclusion(root)?.why ?? null;
 
 /**
+ * Whether this checkout's owner has opted it out of the loop, which unticks it
+ * (#4188). A faulted config is no opt-out and keeps its tick: a fault is no
+ * choice of the owner's, and the loop serves the repo again once it is fixed.
+ * @param {string} root
+ */
+const isOptedOut = (root) => readExclusion(root)?.isOptOut === true;
+
+/**
  * Every checkout that gets a tick box, ticked or not, with why it cannot be
  * ticked, null where it can.
  * @param {string} home
@@ -284,5 +292,6 @@ module.exports = {
 	readCheckoutRefusal,
 	readTickRefusal,
 	readExclusionWhy,
+	isOptedOut,
 	homeDir,
 };

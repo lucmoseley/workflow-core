@@ -141,6 +141,7 @@ const {
 	buildCheckoutEnv,
 	discoverRepos,
 	homeDir,
+	isOptedOut,
 	readExclusionWhy,
 } = require("./refill-repos.js");
 const loop = require("./refill-loop.js");
@@ -1661,37 +1662,81 @@ function dropSettledLifted(settled) {
 
 /* Untraced: another writer holds it for one read and write, and the next tick
  * tries again. */
-const AWAY_LOCK_WAIT_MS = 1000;
+const TICK_LOCK_WAIT_MS = 1000;
 
 /**
- * The control after this tick's read of the founder (controlAfterPresence), the
- * change made on a fresh read under the control lock. A lock held past the wait
- * leaves it to the next tick. A dry run previews the change and writes none.
+ * The control `change` leaves, made on a fresh read under the control lock and
+ * `said` called on what it wrote; `control` where it changes nothing. A lock
+ * held past the wait leaves the change to the next tick, this one going on as
+ * stored. A dry run previews the change and writes none.
  * @param {import("./refill-loop.js").Control|null} control
- * @param {number|null} lastPromptAt
- * @param {{dryRun: boolean, now: number}} tick
+ * @param {(c: import("./refill-loop.js").Control) => import("./refill-loop.js").Control|null} change
+ * @param {{dryRun: boolean, what: string,
+ *   said: (write: import("./refill-loop.js").Control, fresh: import("./refill-loop.js").Control) => void}} how
+ *   `what`, the change's name in the busy line
  */
-function settleAwayMode(control, lastPromptAt, { dryRun, now }) {
-	const next = control && loop.controlAfterPresence(control, lastPromptAt, now);
+function settleUnderLock(control, change, { dryRun, what, said }) {
+	const next = control && change(control);
 	if (!next) return control;
 	if (dryRun) return next;
 	const written = withControlLock(() => {
 		const fresh = readControl().control;
-		const write = fresh && loop.controlAfterPresence(fresh, lastPromptAt, now);
-		if (!write) return fresh;
+		const write = fresh && change(fresh);
+		if (!fresh || !write) return fresh;
 		writeControlFile(write);
-		if (write.scope.mode === "normal")
-			log(
-				`mode normal: the founder is back, a prompt typed at ${new Date(lastPromptAt ?? now).toISOString()} after a tick read him absent`,
-			);
+		said(write, fresh);
 		return write;
-	}, AWAY_LOCK_WAIT_MS);
+	}, TICK_LOCK_WAIT_MS);
 	if ("busy" in written) {
-		log(`away mode's change waits for the next tick: ${written.busy}`);
+		log(`${what} waits for the next tick: ${written.busy}`);
 		return control;
 	}
 	return written.done;
 }
+
+/**
+ * The control after this tick's read of the founder (controlAfterPresence).
+ * @param {import("./refill-loop.js").Control|null} control
+ * @param {number|null} lastPromptAt
+ * @param {{dryRun: boolean, now: number}} tick
+ */
+const settleAwayMode = (control, lastPromptAt, { dryRun, now }) =>
+	settleUnderLock(
+		control,
+		(c) => loop.controlAfterPresence(c, lastPromptAt, now),
+		{
+			dryRun,
+			what: "away mode's change",
+			said: (write) => {
+				if (write.scope.mode === "normal")
+					log(
+						`mode normal: the founder is back, a prompt typed at ${new Date(lastPromptAt ?? now).toISOString()} after a tick read him absent`,
+					);
+			},
+		},
+	);
+
+/**
+ * The control with each ticked repo its owner has opted out unticked
+ * (controlWithoutOptedOut). A busy lock leaves it ticked a tick longer, which
+ * serves nothing: scopeRoots drops it meanwhile.
+ * @param {import("./refill-loop.js").Control|null} control
+ * @param {boolean} dryRun
+ */
+const settleOptedOut = (control, dryRun) =>
+	settleUnderLock(
+		control,
+		(c) => loop.controlWithoutOptedOut(c, isOptedOut)?.control ?? null,
+		{
+			dryRun,
+			what: "the opt-out untick",
+			said: (write, fresh) => {
+				for (const root of fresh.scope.repos)
+					if (!write.scope.repos.includes(root))
+						log(`unticked: ${root} (opted out); a return needs a fresh tick`);
+			},
+		},
+	);
 
 /**
  * The log lines of stopNeverStarted, none on a dry run.
@@ -1789,7 +1834,10 @@ async function tick({ dryRun }) {
 	const { control: stored, damaged } = readControl();
 	const declared = readDeclaredSeats();
 	const typed = readLastTyped(declared);
-	const parsed = settleAwayMode(stored, typed.at, { dryRun, now });
+	const parsed = settleOptedOut(
+		settleAwayMode(stored, typed.at, { dryRun, now }),
+		dryRun,
+	);
 	const unsettled = parsed ?? {
 		noProgressFrom: now,
 		/* No control file is a loop nobody started: a real tick stops. */

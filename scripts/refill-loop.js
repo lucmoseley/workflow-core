@@ -112,6 +112,7 @@ const { readLastTyped } = require("./lib/presence.js");
 const {
 	buildCheckoutEnv,
 	readExclusionWhy,
+	isOptedOut,
 	homeDir,
 	readCandidates,
 	readCheckoutRefusal,
@@ -556,6 +557,7 @@ function start(parsed) {
 				stopped: readStateFile(log).stopped,
 				unlessStopped: parsed.flags["--unless-stopped"] === true,
 				readExclusionWhy,
+				isOptedOut,
 			},
 		);
 		if ("refused" in plan) return plan;
@@ -687,6 +689,7 @@ function set(parsed) {
 				running: lock.holder() !== null,
 				now: Date.now(),
 				readExclusionWhy,
+				isOptedOut,
 			},
 		);
 		if ("write" in plan && plan.write) writeControlFile(plan.write);

@@ -29,6 +29,7 @@ import {
 	buildReviewSkip,
 	capArgs,
 	ceilingsOf,
+	controlWithoutOptedOut,
 	FREE_SLOT_ARGS,
 	isRestartedSince,
 	isReviewRunDue,
@@ -2304,6 +2305,26 @@ describe("the repos a tick serves", () => {
 				roots: [WFC],
 				dropped: [{ root: MH, why: "refillLoop: false" }],
 			});
+	});
+});
+
+describe("unticking a repo its owner opted out (#4188)", () => {
+	const control = {
+		noProgressFrom: 1,
+		stopRequested: false,
+		seats: ["/s"],
+		scope: normal([WFC, MH]),
+	};
+
+	it("drops the opted-out repo from the ticked set, keeping the rest", () => {
+		expect(controlWithoutOptedOut(control, (r) => r === MH)).toEqual({
+			control: { ...control, scope: normal([WFC]) },
+			dropped: [MH],
+		});
+	});
+
+	it("changes nothing where none opted out", () => {
+		expect(controlWithoutOptedOut(control, () => false)).toBeNull();
 	});
 });
 

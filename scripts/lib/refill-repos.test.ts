@@ -7,6 +7,7 @@ const {
 	readAdopterCheckouts,
 	readCheckoutTracking,
 	discoverRepos,
+	isOptedOut,
 	readAbsence,
 } = require("./refill-repos.js");
 
@@ -77,6 +78,22 @@ describe("discoverRepos (#2003)", () => {
 			excluded: [],
 			faulted: [{ root, why: '"refillLoop" is not a boolean' }],
 		});
+	});
+});
+
+describe("isOptedOut (#4188)", () => {
+	it("reads an owner's refillLoop: false as an opt-out, and a fault or a served repo as none", () => {
+		const out = checkout("books", { refillLoop: false });
+		const typo = checkout("typo", { refillLoop: "false" });
+		const broken = checkout("broken", {});
+		fs.writeFileSync(path.join(broken, ".claude", "workflow-core.json"), "{");
+		const served = checkout("served", {});
+		expect([out, typo, broken, served].map(isOptedOut)).toEqual([
+			true,
+			false,
+			false,
+			false,
+		]);
 	});
 });
 

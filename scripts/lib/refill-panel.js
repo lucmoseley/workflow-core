@@ -927,8 +927,9 @@ function buildGoalRows(view, now) {
 }
 
 /**
- * A disabled box is off whatever the control holds: the loop never serves an
- * opted-out tick.
+ * A disabled box is off whatever the control holds: the loop serves no repo it
+ * excludes. An opt-out leaves no tick past one tick (#4188); a faulted config
+ * keeps its tick, served again once fixed.
  * @param {PanelStatus["repos"][number]} repo
  * @param {Pending|null|undefined} pending
  * @returns {Row[]}
