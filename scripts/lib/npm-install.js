@@ -15,8 +15,7 @@
  *      `node_modules` links a store every worktree on its lockfile shares
  *      (lib/session-checkout.js, #4255), so a write through it lands under
  *      each neighbour. `--package-lock-only`, `--dry-run` and a global
- *      install write no project tree and pass; the refusal routes the change
- *      through `--package-lock-only` and re-attaching.
+ *      install write no project tree and pass.
  *
  *   1. THE EXECUTION WINDOW. An install naming a package `package.json` does
  *      not already list must carry `--ignore-scripts`. Between `npm install`
