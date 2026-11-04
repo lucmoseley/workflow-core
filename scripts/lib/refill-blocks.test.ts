@@ -38,6 +38,7 @@ import {
 	releaseEndedHolds,
 	resumableOf,
 	resumeHeldLaunches,
+	settleStartedResumes,
 	unknownNews,
 	unparkAnswered,
 } from "./refill-blocks.js";
@@ -86,6 +87,8 @@ const agent = (id: string, state: string) => ({
  * `calls`. */
 function fakeIo(over: Partial<BlockIo> = {}) {
 	const calls: string[] = [];
+	/* Each launch writeLaunch wrote, its resume on record (#4180). */
+	const started: Launch[] = [];
 	const io: BlockIo = {
 		stop: (_, id) => {
 			calls.push(`stop ${id}`);
@@ -96,7 +99,7 @@ function fakeIo(over: Partial<BlockIo> = {}) {
 			return null;
 		},
 		resumeTargetOf: () => ({ sessionId: "s", cwd: "/" }),
-		adoptResumedCopy: () => null,
+		adoptResumed: () => null,
 		resumeStopped: (l) => {
 			calls.push(`resume ${l.jobId}`);
 			return {
@@ -151,9 +154,12 @@ function fakeIo(over: Partial<BlockIo> = {}) {
 			return null;
 		},
 		stagger: () => calls.push("stagger"),
+		writeLaunch: (l) => {
+			started.push(l);
+		},
 		...over,
 	};
-	return { io, calls };
+	return { io, calls, started };
 }
 
 const logs = (calls: string[]) =>
@@ -2944,7 +2950,7 @@ describe("the resume step across a kill before the state write (#4157)", () => {
 	it("tracks a copy found since the recorded resume, and starts none", () => {
 		const since: number[] = [];
 		const { out, calls, lines, written } = step(killed(NOW - MIN), {
-			adoptResumedCopy: (_l, _target, at) => {
+			adoptResumed: (_l, _target, at) => {
 				since.push(at);
 				return { failed: null, jobId: "copy", sessionId: "s2", copy: true };
 			},
@@ -2965,7 +2971,7 @@ describe("the resume step across a kill before the state write (#4157)", () => {
 
 	it("resumes one whose copy the job store could not tell, saying so", () => {
 		const { calls, lines } = step(killed(NOW - MIN), {
-			adoptResumedCopy: () => ({ unread: "EACCES" }),
+			adoptResumed: () => ({ unread: "EACCES" }),
 		});
 		expect(calls).toContain("resume job42");
 		expect(lines.join("\n")).toMatch(
@@ -2976,7 +2982,7 @@ describe("the resume step across a kill before the state write (#4157)", () => {
 	it("looks for no copy where no resume is on record", () => {
 		const looked: string[] = [];
 		const { calls } = step(killed(), {
-			adoptResumedCopy: (l) => {
+			adoptResumed: (l) => {
 				looked.push(String(l.jobId));
 				return null;
 			},
@@ -3040,5 +3046,294 @@ describe("a boot's resumed session gone from the listing (#3880)", () => {
 		expect(act(gone, {}, { paused: true }).calls).not.toContain(
 			"hand-off job42",
 		);
+	});
+});
+
+describe("a block's resume across a kill before the state write (#4180)", () => {
+	const Seat = "/home/u/.claude3";
+	const Other = "/home/u/.claude2";
+	const limitHeld = {
+		at: NOW - 5 * MIN,
+		sessionId: "s-job42",
+		cwd: "/home/u/design-vault",
+		limit: { bar: "5-hour", resets: "2026-10-18T15:00:00Z" },
+	};
+	const apiBlocked = (over = {}) =>
+		record({
+			parked: true,
+			block: { cause: "API_ERROR", sub: "transient", since: NOW - 2 * MIN },
+			resumes: { tries: 1, triedAt: NOW - 10 * MIN, nextAt: NOW - 1000 },
+			...over,
+		});
+	const limitBlocked = (over = {}) =>
+		record({
+			sessionId: "s-job42",
+			parked: true,
+			block: { cause: "LIMIT", since: NOW - 5 * MIN },
+			limitHeld,
+			...over,
+		});
+	/** Seat `seat`'s reading: open, or its 5-hour bar full. */
+	const sized = (seat: string, full: boolean) => ({
+		seat,
+		week: 10,
+		session: full ? 100 : 10,
+		weekFull: false,
+		sessionFull: full,
+		sessionResets: full ? "2026-10-18T15:00:00Z" : null,
+		weekResets: null,
+		readAt: NOW,
+		weekRead: { percent: 10, atMs: NOW },
+		fits: full ? null : 1,
+	});
+	/** actOnLimits over `l`, `seats` read, those in `full` full, its io's
+	 * calls and stamps. */
+	const limits = (l: Launch, seats: string[], full: string[] = []) => {
+		const { io, calls, started } = fakeIo({
+			writeLaunch: (x) => {
+				calls.push(`recorded ${x.resumeStarted?.act.kind}`);
+				started.push(x);
+			},
+		});
+		const out = actOnLimits([l], "normal", {
+			agents: [],
+			now: NOW,
+			io,
+			swapHold: NO_HOLD,
+			typedSeat: null,
+			readMoveSeats: () => seats.map((s) => sized(s, full.includes(s))),
+			seatListRead: true,
+			slots: 1,
+		});
+		return { out: out.launches, calls, started };
+	};
+	const stopped = () => ({ state: "stopped" });
+	const settle = (l: Launch, over: Partial<BlockIo> = {}) => {
+		const { io, calls } = fakeIo(over);
+		return { ...settleStartedResumes([l], io), calls };
+	};
+
+	describe("on record before its launcher runs", () => {
+		it("puts an API-error fallback on record before its stop, its route kept, and its outcome after", () => {
+			const { io, calls, started } = fakeIo({
+				writeLaunch: (l) => {
+					calls.push("recorded");
+					started.push(l);
+				},
+			});
+			const heldDue = {
+				tries: 1,
+				triedAt: NOW - 10 * MIN,
+				nextAt: NOW - 1000,
+				heldAt: NOW - 10 * MIN,
+			};
+			const out = actOnBlocks([apiBlocked({ resumes: heldDue })], "normal", {
+				agents: [],
+				now: NOW,
+				io,
+				swapHold: NO_HOLD,
+			});
+			expect(calls.slice(0, 3)).toEqual([
+				"recorded",
+				"stop job42",
+				"resume job42",
+			]);
+			expect(calls.at(-1)).toBe("recorded");
+			expect(started[0]).toMatchObject({
+				jobId: "job42",
+				resumeStarted: {
+					at: NOW,
+					sessionId: "s",
+					cwd: "/",
+					act: { kind: "api", route: "stop and --bg --resume", again: false },
+				},
+			});
+			expect(out[0]).not.toHaveProperty("resumeStarted");
+			expect(started.at(-1)).toEqual(out[0]);
+		});
+
+		it("puts a limit resume on its own seat on record before its launcher, its hold carried", () => {
+			const { calls, started, out } = limits(limitBlocked(), [Seat]);
+			expect(calls.indexOf("recorded in-place")).toBeLessThan(
+				calls.indexOf("resume job42"),
+			);
+			expect(started[0]).toMatchObject({
+				limitHeld,
+				resumeStarted: {
+					at: NOW,
+					sessionId: "s-job42",
+					act: { kind: "in-place", held: { sessionId: "s-job42" } },
+				},
+			});
+			expect(out[0]).not.toHaveProperty("resumeStarted");
+		});
+
+		it("puts a limit move on record before its launcher, naming the seat it goes to", () => {
+			const { calls, started } = limits(limitBlocked(), [Seat, Other], [Seat]);
+			const recorded = calls.indexOf("recorded move");
+			expect(recorded).toBeGreaterThan(-1);
+			expect(recorded).toBeLessThan(
+				calls.findIndex((c) => c.startsWith("move job42")),
+			);
+			expect(started[0]?.resumeStarted?.act).toMatchObject({
+				kind: "move",
+				to: Other,
+			});
+		});
+	});
+
+	describe("settled on the next tick", () => {
+		const apiStarted = (over = {}) =>
+			apiBlocked({
+				resumeStarted: {
+					at: NOW - MIN,
+					sessionId: "s-job42",
+					cwd: "/home/u/design-vault",
+					act: { kind: "api", route: "stop and --bg --resume", again: false },
+				},
+				...over,
+			});
+
+		it("tracks the copy an API-error resume started, its try counted, and resumes nothing", () => {
+			const looked: unknown[] = [];
+			const { launches, settled, calls } = settle(apiStarted(), {
+				adoptResumed: (l, target, since) => {
+					looked.push([l.seat, target.sessionId, since]);
+					return { failed: null, jobId: "c-1", sessionId: "s-c", copy: true };
+				},
+			});
+			expect(settled).toBe(true);
+			expect(looked).toEqual([[Seat, "s-job42", NOW - MIN]]);
+			expect(calls.filter((c) => /^(stop|resume) /.test(c))).toEqual([]);
+			expect(launches[0]).toMatchObject({
+				jobId: "c-1",
+				sessionId: "s-c",
+				copiedFrom: "job42",
+				pastSessionIds: ["s-job42"],
+				relaunchedAt: NOW - MIN,
+				resumes: { tries: 2, triedAt: NOW - MIN },
+			});
+			expect(launches[0]).not.toHaveProperty("resumeStarted");
+			expect(launches[0]?.resumes).not.toHaveProperty("heldAt");
+			expect(logs(calls).join("\n")).toMatch(
+				/resume at 2026-10-18T11:59:00.000Z started copy c-1, which a kill came between it and the state write left out of the state: tracking it, not resuming again/,
+			);
+		});
+
+		it("keeps one woken in place under its own job", () => {
+			const { launches } = settle(apiStarted(), {
+				adoptResumed: () => ({
+					failed: null,
+					jobId: "job42",
+					sessionId: "s-job42",
+					copy: false,
+				}),
+			});
+			expect(launches[0]).toMatchObject({
+				jobId: "job42",
+				relaunchedAt: NOW - MIN,
+			});
+			expect(launches[0]).not.toHaveProperty("copiedFrom");
+		});
+
+		it("counts a failed try, held for the schedule, where the resume started nothing", () => {
+			const { launches, calls } = settle(apiStarted(), { jobStateOf: stopped });
+			expect(launches[0]).toMatchObject({
+				jobId: "job42",
+				resumes: { tries: 2, heldAt: NOW - MIN },
+			});
+			expect(logs(calls).join("\n")).toMatch(
+				/a kill came between it and the state write, and it started no job/,
+			);
+		});
+
+		it("counts a failed try where the job store will not tell, saying why", () => {
+			const { launches, calls } = settle(apiStarted(), {
+				adoptResumed: () => ({ unread: "EACCES" }),
+				jobStateOf: stopped,
+			});
+			expect(launches[0]?.resumes?.heldAt).toBe(NOW - MIN);
+			expect(logs(calls).join("\n")).toMatch(
+				/whether it started a job is unread: EACCES/,
+			);
+		});
+
+		it("tracks a limit resume's copy as resumed and unjudged", () => {
+			const { launches } = settle(
+				limitBlocked({
+					resumeStarted: {
+						at: NOW - MIN,
+						sessionId: "s-job42",
+						cwd: "/home/u/design-vault",
+						act: { kind: "in-place", held: limitHeld },
+					},
+				}),
+				{
+					adoptResumed: () => ({
+						failed: null,
+						jobId: "c-1",
+						sessionId: "s-c",
+						copy: true,
+					}),
+				},
+			);
+			expect(launches[0]).toMatchObject({
+				jobId: "c-1",
+				parked: false,
+				limitHeld: { resumedAt: NOW - MIN },
+				limitResumes: { tries: 1, takenAt: NOW - MIN },
+			});
+		});
+
+		it("looks for a move's job on the seat it went to, and tracks it there", () => {
+			const seats: string[] = [];
+			const { launches } = settle(
+				limitBlocked({
+					resumeStarted: {
+						at: NOW - MIN,
+						sessionId: "s-job42",
+						cwd: "/home/u/design-vault",
+						act: { kind: "move", to: Other, held: limitHeld },
+					},
+				}),
+				{
+					adoptResumed: (l) => {
+						seats.push(l.seat);
+						return {
+							failed: null,
+							jobId: "job42",
+							sessionId: "s-job42",
+							copy: false,
+						};
+					},
+				},
+			);
+			expect(seats).toEqual([Other]);
+			expect(launches[0]).toMatchObject({
+				seat: Other,
+				limitHeld: { resumedAt: NOW - MIN, movedFrom: { seat: Seat } },
+			});
+		});
+
+		it("leaves to its act one the kill caught before its stop, its job still live", () => {
+			const l = apiStarted();
+			const { launches, calls } = settle(l);
+			const { resumeStarted: _, ...before } = l;
+			expect(launches).toEqual([before]);
+			expect(logs(calls).join("\n")).toMatch(
+				/before its stop, so it is left to its act/,
+			);
+		});
+
+		it("leaves a launch with no resume on record as it was", () => {
+			const l = apiBlocked();
+			const { launches, settled } = settle(l, {
+				adoptResumed: () => {
+					throw new Error("looked");
+				},
+			});
+			expect(settled).toBe(false);
+			expect(launches).toEqual([l]);
+		});
 	});
 });

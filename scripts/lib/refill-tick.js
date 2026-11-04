@@ -114,7 +114,7 @@ const {
 const { movePassMarkers } = require("./move-pass-markers.js");
 const { read: readTranscript } = require("./session-transcript.js");
 const { findNewestTranscript, mainChainRecords } = require("./transcript.js");
-const { findResumedCopy } = require("./resumed-copy.js");
+const { findResumed } = require("./resumed-copy.js");
 const { hasConfig, resolveKey } = require("./workflow-core-config.js");
 const { readLastTyped } = require("./presence.js");
 const {
@@ -1043,19 +1043,64 @@ function settleCopy(l, from, copy) {
 }
 
 /**
- * lib/resumed-copy.js's findResumedCopy for `l`'s seat, past `l`'s earlier
- * sessions, handed what the session held where found (#4157); why not, where
- * the job store or a transcript will not read.
- * @param {import("./refill-loop.js").LoopLaunch} l
+ * lib/resumed-copy.js's findResumed for `l`'s seat, past `l`'s earlier
+ * sessions: a copy found is handed what the session held (#4157, #4180); why
+ * not, where the job store or a transcript will not read.
+ * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"issues"|"seat"|"keyVar"|"pastSessionIds">} l
  * @param {{sessionId: string, cwd: string}} target
  * @param {number} since
  * @returns {import("./refill-blocks.js").Adopted}
  */
-function adoptResumedCopy(l, target, since) {
-	const found = findResumedCopy(l.seat, target, since, l.pastSessionIds ?? []);
+function adoptResumed(l, target, since) {
+	const found = findResumed(l.seat, target, since, l.pastSessionIds ?? []);
 	if (found === null || "unread" in found) return found;
-	return settleCopy(l, target.sessionId, { ...found, cwd: target.cwd });
+	const { jobId, sessionId } = found;
+	return found.copy
+		? settleCopy(l, target.sessionId, { jobId, sessionId, cwd: target.cwd })
+		: { failed: null, jobId, sessionId, copy: false };
 }
+
+/**
+ * The state file with launch `l` in place of the unfinished one it was, matched
+ * by the job its ledger rows name, or added where none is (#4180).
+ * @param {import("./refill-loop.js").LoopLaunch} l
+ */
+function writeLaunch(l) {
+	const state = readStateFile(log);
+	const job = blocks.ledgerJobOf(l);
+	/** @param {import("./refill-loop.js").LoopLaunch} x */
+	const isIt = (x) => x.finishedAt === null && blocks.ledgerJobOf(x) === job;
+	const launches = state.launches.some(isIt)
+		? state.launches.map((x) => (isIt(x) ? l : x))
+		: [...state.launches, l];
+	writeJson(files.state, { ...state, launches });
+}
+
+/**
+ * `state` with the members of the batch a kill cut off that started tracked
+ * (lib/refill-batch.js's adoptLaunching, #4180), each gated one's judgement
+ * dropped as its launch would have.
+ * @param {import("./refill-loop.js").LoopState} state
+ * @param {string[]} served
+ */
+const adoptKilledLaunches = (state, served) =>
+	loop.settleLaunching(state, (launching) => {
+		const launched = refillBatch.adoptLaunching(launching, {
+			entriesOf: (root) => readRecentEntries(root, LEDGER_WINDOW_HOURS).entries,
+			sessionOf: readHeadlessSession,
+			readActsBefore: buildActsBeforeReader(served),
+			recordLaunch,
+			adoptResumed: (l, { seat, sessionId, cwd }, since) =>
+				adoptResumed({ ...l, seat }, { sessionId, cwd }, since),
+			log,
+		});
+		for (const l of launched)
+			log(
+				`${blocks.launchName(l)}'s launch at ${blocks.iso(launching.at)} started job ${l.jobId}, which a kill left out of the state: tracking it`,
+			);
+		gates.dropTried(files.gates, launched, log);
+		return launched;
+	});
 
 /**
  * Remove any job record for session `sessionId`'s short id on seat `seat`
@@ -1339,7 +1384,8 @@ const blockIo = (served) => ({
 	type: typeResume,
 	resumeTargetOf: readResumeTargetOf,
 	resumeStopped,
-	adoptResumedCopy,
+	adoptResumed,
+	writeLaunch,
 	admitResume,
 	stagger: staggerResume,
 	moveSession,
@@ -1585,6 +1631,42 @@ const actOnLaunches = (listed, { scope: { mode } }, served, seen) => {
 };
 
 /**
+ * The state file as this tick starts on it: the manager's restart applied, and,
+ * on a live tick, what a kill left out of it settled (settleKilled).
+ * @param {ReturnType<typeof readManagerRestart>} managerRestart
+ * @param {string[]} served
+ * @param {boolean} dryRun
+ */
+function readTickState(managerRestart, served, dryRun) {
+	const onDisk = withManagerRestart(
+		readStateFile(log),
+		managerRestart,
+		readCurrentBootId(),
+	);
+	return dryRun ? onDisk : settleKilled(onDisk, served);
+}
+
+/**
+ * `state` with what a kill before the last tick's own write left out of it
+ * settled (#4180): its cut-off batch's launches adopted, then each resume left
+ * with no outcome (lib/refill-blocks.js's settleStartedResumes), ahead of any
+ * judging of the launches. Written at once where either changed it, so a stamp
+ * later this tick lands on what was settled.
+ * @param {import("./refill-loop.js").LoopState} read
+ * @param {string[]} served
+ */
+function settleKilled(read, served) {
+	const adopted = adoptKilledLaunches(read, served);
+	const { launches, settled } = blocks.settleStartedResumes(
+		adopted.launches,
+		blockIo(served),
+	);
+	const state = settled ? { ...adopted, launches } : adopted;
+	if (state !== read) writeJson(files.state, state);
+	return state;
+}
+
+/**
  * `launches` with the sessions parked on each lifted hold queued for the resume
  * step. A dry run, a paused tick or a stopping one sets nothing running, and the
  * lifted holds keep for a later tick.
@@ -1772,12 +1854,8 @@ async function tick({ dryRun }) {
 		now,
 	});
 	const managerRestart = dryRun ? null : readManagerRestart(log);
-	const state = withManagerRestart(
-		readStateFile(log),
-		managerRestart,
-		readCurrentBootId(),
-	);
 	const served = servedRoots(control.scope).roots;
+	const state = readTickState(managerRestart, served, dryRun);
 	/* Relief first, off the registry alone: the CLI listing below can outrun
 	 * its caps under the very pressure relief exists for (#2665). */
 	const registry = readRegistryAgents();

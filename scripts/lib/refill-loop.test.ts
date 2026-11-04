@@ -48,6 +48,7 @@ import {
 	seatReadingOf,
 	seatsDueRead,
 	seatTriedAfter,
+	settleLaunching,
 	settleTick,
 	sizeResumeSeats,
 	stopNeverStarted,
@@ -1026,6 +1027,12 @@ function settleOnce(
 }
 const logged = (...args: Parameters<typeof settleOnce>) =>
 	settleOnce(...args).line;
+/** The tick's own state write, past each batch it put on record first (#4180). */
+const tickWrite = (writes: Tick["state"][]) => {
+	const written = writes.find((w) => !w.launching && w.lastTick?.at === NOW);
+	if (!written) throw new Error("the tick wrote no state of its own");
+	return written;
+};
 
 it("refuses every batch behind a parked resume the re-read made wait, naming why (#3872)", () => {
 	const member = (root: string, n: number) => ({
@@ -1063,6 +1070,91 @@ it("refuses every batch behind a parked resume the re-read made wait, naming why
 	expect(line).toContain(`refused b /implement 9: ${reason}`);
 });
 
+describe("a batch on record before its dispatch (#4180)", () => {
+	const member = (root: string, n: number) => ({
+		root,
+		issues: [n],
+		prompt: `/implement ${n}`,
+		model: "opus" as const,
+		seat: "/s",
+		reason: "soonest reset" as const,
+	});
+	const decision = {
+		launches: [member("/a", 1), member("/b", 9)],
+		skipped: [],
+		idle: null,
+		held: [],
+		resumes: [],
+	};
+
+	it("writes each batch in flight, with the launches before it, before the dispatcher runs, and none once the tick is written", () => {
+		const writes: Tick["state"][] = [];
+		const seenAtDispatch: number[] = [];
+		settleOnce(decision, 2, [], {
+			writes,
+			dispatch: (batch) => {
+				seenAtDispatch.push(writes.length);
+				return {
+					launched: batch.map((l) => ({
+						...l,
+						jobId: `job${l.issues[0]}`,
+						launchedAt: NOW,
+						finishedAt: null,
+					})),
+					refused: [],
+				};
+			},
+		});
+		expect(seenAtDispatch).toEqual([1, 2]);
+		expect(writes[0].launching).toEqual({ at: NOW, batch: [member("/a", 1)] });
+		expect(writes[0].launches).toEqual([]);
+		expect(writes[1].launching).toEqual({ at: NOW, batch: [member("/b", 9)] });
+		expect(writes[1].launches.map((l) => l.jobId)).toEqual(["job1"]);
+		expect(writes[1].launchCount).toEqual({ from: NOW, count: 1 });
+		expect(writes.at(-1)).not.toHaveProperty("launching");
+		expect(writes.at(-1)?.launches.map((l) => l.jobId)).toEqual([
+			"job1",
+			"job9",
+		]);
+	});
+
+	it("reads a batch in flight back, and drops a malformed one", () => {
+		const launching = { at: NOW, batch: [member("/a", 1)] };
+		expect(parseState({ launches: [], launching }).launching).toEqual(
+			launching,
+		);
+		expect(
+			parseState({ launches: [], launching: { at: "x" } }),
+		).not.toHaveProperty("launching");
+	});
+
+	it("tracks and counts the members a kill cut off that the adopter finds started, the batch gone", () => {
+		const state = {
+			...parseState(null),
+			launches: [],
+			launchCount: { from: NOW - 1000, count: 2 },
+			launching: { at: NOW, batch: [member("/a", 1)] },
+		};
+		const found = {
+			...member("/a", 1),
+			jobId: "j1",
+			launchedAt: NOW,
+			finishedAt: null,
+		};
+		const batches: unknown[] = [];
+		const next = settleLaunching(state, (l) => {
+			batches.push(l);
+			return [found];
+		});
+		expect(batches).toEqual([state.launching]);
+		expect(next.launches).toEqual([found]);
+		expect(next.launchCount).toEqual({ from: NOW - 1000, count: 3 });
+		expect(next).not.toHaveProperty("launching");
+		const quiet = parseState(null);
+		expect(settleLaunching(quiet, () => [found])).toBe(quiet);
+	});
+});
+
 describe("the first overflow launch's record (#3767)", () => {
 	const apiSeat = "/h/.claude3-api";
 	const planSeat = (dir: string, percent: number, weekFull: boolean) => ({
@@ -1077,7 +1169,7 @@ describe("the first overflow launch's record (#3767)", () => {
 		weekRead: { percent, atMs: NOW - 120_000 },
 		fits: null,
 	});
-	const settleLaunching = (
+	const settleOverflowLaunch = (
 		launchSeat: string,
 		past: { seat: string; reason?: string }[],
 		readOmitted?: () => string[],
@@ -1121,11 +1213,13 @@ describe("the first overflow launch's record (#3767)", () => {
 				readOmitted,
 			},
 		);
-		return { start: writes[0]?.overflowStart, lines };
+		return { start: tickWrite(writes)?.overflowStart, lines };
 	};
 
 	it("records each plan seat's reading and the omitted dirs", () => {
-		expect(settleLaunching(apiSeat, [{ seat: "/h/.claude2" }]).start).toEqual({
+		expect(
+			settleOverflowLaunch(apiSeat, [{ seat: "/h/.claude2" }]).start,
+		).toEqual({
 			at: NOW,
 			seat: apiSeat,
 			planSeats: [
@@ -1142,15 +1236,16 @@ describe("the first overflow launch's record (#3767)", () => {
 
 	it("records nothing on a second overflow launch or a plan-seat launch", () => {
 		expect(
-			settleLaunching(apiSeat, [{ seat: apiSeat, reason: "overflow" }]).start,
+			settleOverflowLaunch(apiSeat, [{ seat: apiSeat, reason: "overflow" }])
+				.start,
 		).toBeNull();
 		expect(
-			settleLaunching("/h/.claude2", [{ seat: "/h/.claude2" }]).start,
+			settleOverflowLaunch("/h/.claude2", [{ seat: "/h/.claude2" }]).start,
 		).toBeNull();
 	});
 
 	it("still writes the state where the credentials scan throws", () => {
-		const { start, lines } = settleLaunching(apiSeat, [], () => {
+		const { start, lines } = settleOverflowLaunch(apiSeat, [], () => {
 			throw new Error("EACCES");
 		});
 		expect(start?.omitted).toEqual([]);
@@ -1158,7 +1253,7 @@ describe("the first overflow launch's record (#3767)", () => {
 	});
 
 	it("survives the state file's round trip", () => {
-		const { start } = settleLaunching(apiSeat, []);
+		const { start } = settleOverflowLaunch(apiSeat, []);
 		expect(parseState({ overflowStart: start }).overflowStart).toEqual(start);
 		expect(parseState({ overflowStart: { at: "x" } }).overflowStart).toBeNull();
 	});
@@ -1295,7 +1390,7 @@ describe("a tick's log line (#2362)", () => {
 				[],
 				{ writes },
 			);
-			expect(parseState(writes[0]).lastTick?.idle).toBeNull();
+			expect(parseState(tickWrite(writes)).lastTick?.idle).toBeNull();
 		});
 
 		it.each([
@@ -1533,7 +1628,10 @@ describe("the launches a tick keeps (#3621)", () => {
 		const settled = (
 			state: Tick["state"],
 			decision: Tick["decision"] = idle("no free slot"),
-		) => settleOnce(decision, 1, [], { state, past: state.launches }).writes[0];
+		) =>
+			tickWrite(
+				settleOnce(decision, 1, [], { state, past: state.launches }).writes,
+			);
 
 		it("prints the true count past what the trim keeps, across ticks and a launch", () => {
 			const uncounted = parseState({ launches: since(60) });

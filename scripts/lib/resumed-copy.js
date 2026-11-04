@@ -1,18 +1,22 @@
 /*
- * resumed-copy.js — the copy a `claude --bg --resume` started, found in a seat's
- * job store with nothing but the resume's target and time (#4157). A copy's job
- * record names only its own session, but its transcript carries its source's
- * rows, uuids and all, so the two open on the same user row.
+ * resumed-copy.js — the job a `claude --bg --resume` started, found in a seat's
+ * job store with nothing but the resume's target and time (#4157, #4180): the
+ * stopped job woken in place, or a copy. A copy's job record names only its own
+ * session, but its transcript carries its source's rows, uuids and all, so the
+ * two open on the same user row.
  *
  * Residual: a copy of the session started by hand in the same cwd since the
- * resume opens on that row too, and is taken for the loop's.
+ * resume opens on that row too, and is taken for the loop's; so is a wake by
+ * hand, such as a `claude attach`, of the stopped job in place.
  */
 
 const fs = require("node:fs");
-const { jobStorePath, readJobRecord } = require("./job-paths.js");
+const { jobStorePath, readJobRecord, shortJobId } = require("./job-paths.js");
 const { parseJsonl } = require("./jsonl.js");
 const { readWholeLines } = require("./session-transcript.js");
 const { findTranscript } = require("./transcript.js");
+
+const ENDED_STATES = new Set(["stopped", "failed", "done"]);
 
 /**
  * The uuid of the first user row in transcript `file`, read as far as that row;
@@ -81,6 +85,42 @@ function findResumedCopy(seat, { sessionId, cwd }, since, past) {
 }
 
 /**
+ * The job a `--bg --resume` of `target`'s session on `seat` started from `since`
+ * on: its own job woken in place, else findResumedCopy's copy.
+ * @param {string} seat
+ * @param {{sessionId: string, cwd: string}} target
+ * @param {number} since
+ * @param {string[]} past  as findResumedCopy's
+ * @returns {{jobId: string, sessionId: string, copy: boolean}|{unread: string}|null}
+ */
+function findResumed(seat, target, since, past) {
+	const woken = findWokenInPlace(seat, target, since);
+	if (woken) return { ...woken, copy: false };
+	const copy = findResumedCopy(seat, target, since, past);
+	return copy && !("unread" in copy) ? { ...copy, copy: true } : copy;
+}
+
+/**
+ * `target`'s own job, woken in place on `seat` from `since` on: a stopped job's
+ * resume keeps its job and session ids (lib/bg-resume.js), so its record, under
+ * the session's short id, reads live again, not ENDED_STATES, and updated since.
+ * @param {string} seat
+ * @param {{sessionId: string, cwd: string}} target
+ * @param {number} since
+ * @returns {{jobId: string, sessionId: string}|null}
+ */
+function findWokenInPlace(seat, { sessionId, cwd }, since) {
+	const jobId = shortJobId(sessionId);
+	const rec = readJobRecord(seat, jobId);
+	return rec?.sessionId === sessionId &&
+		rec.cwd === cwd &&
+		!ENDED_STATES.has(rec.state) &&
+		Date.parse(rec.updatedAt) >= since
+		? { jobId, sessionId }
+		: null;
+}
+
+/**
  * Whether job record `rec` may be the copy: a session not in `skipped`, in
  * `cwd`, not failed, created from `since` on.
  * @param {any} rec  untyped: the harness owns its schema
@@ -106,4 +146,4 @@ function readUuidOrNull(file) {
 	}
 }
 
-module.exports = { findResumedCopy };
+module.exports = { findResumed };

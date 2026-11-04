@@ -146,6 +146,7 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  *   limitLeft?: import("./refill-decide.js").SeatLeft[],
  *   limitParks?: number, handOffTries?: number, handedOff?: number, copiedFrom?: string,
  *   relaunchedAt?: number, pastSessionIds?: string[],
+ *   resumeStarted?: import("./refill-blocks.js").ResumeStarted,
  *   actsBefore?: Record<string, number>|typeof UNREAD}} LoopLaunch
  * @typedef {(sessionId: string, roots: string[]) =>
  *   {acts: string[], unreadable: string[]}} ReadActsBy  lib/arbiter-ledger.js's
@@ -183,6 +184,8 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  *   file (#3903)
  * @property {Record<string, number>} seatTriedAt when each seat's `/usage` was
  *   last probed, whatever came of it: a failed probe moves no cache stamp (#4060)
+ * @property {import("./refill-batch.js").Launching} [launching] the batch a tick
+ *   was launching, which only a kill leaves on record (#4180)
  */
 
 /** @param {unknown} raw @returns {Record<string, number>} */
@@ -502,8 +505,49 @@ function parseState(raw) {
 		...(typeof r.bootedAt === "number" ? { bootedAt: r.bootedAt } : {}),
 		...(r.sameBootRestart === true ? { sameBootRestart: true } : {}),
 		...(typeof r.bootId === "string" ? { bootId: r.bootId } : {}),
+		...(isLaunching(r.launching) ? { launching: r.launching } : {}),
 	};
 }
+
+/**
+ * @param {LoopState} state
+ * @returns {LoopState}
+ */
+function withoutLaunching(state) {
+	const { launching: _, ...rest } = state;
+	return rest;
+}
+
+/**
+ * `state` with the members of the batch a kill cut off that `adopt` finds
+ * started tracked as launches and counted (#4180); as it was where none was in
+ * flight.
+ * Residual: the kill leaves the dispatcher running, and a member it launches
+ * after `adopt` reads the ledger is never tracked.
+ * @param {LoopState} state
+ * @param {(launching: import("./refill-batch.js").Launching) => LoopLaunch[]} adopt
+ * @returns {LoopState}
+ */
+function settleLaunching(state, adopt) {
+	if (!state.launching) return state;
+	const launched = adopt(state.launching);
+	const rest = withoutLaunching(state);
+	return {
+		...rest,
+		launches: [...rest.launches, ...launched],
+		launchCount: rest.launchCount && {
+			...rest.launchCount,
+			count: rest.launchCount.count + launched.length,
+		},
+	};
+}
+
+/**
+ * @param {unknown} raw
+ * @returns {raw is import("./refill-batch.js").Launching}
+ */
+const isLaunching = (raw) =>
+	isRecord(raw) && typeof raw.at === "number" && Array.isArray(raw.batch);
 
 /**
  * Whether this tick files the morning review: the first tick at or after
@@ -1521,6 +1565,8 @@ const buildLastTick = (decision, at, summary) => ({
  * recorded as `stop: explicit`, or `control-damaged` where the re-read found
  * the control damaged, so the loop ends at this tick's end, which
  * `stop` promises (#2126).
+ * Each resume and each batch is on record in the state before its launcher
+ * runs (#4157, #4180).
  * @param {{input: import("./refill-decide.js").TickInput,
  *   decision: import("./refill-decide.js").Decision, state: LoopState,
  *   judged: LoopLaunch[], probes: Probe[], read: FrontierRead|null,
@@ -1553,22 +1599,42 @@ function settleTick(
 	},
 	io,
 ) {
+	/** @type {LoopLaunch[]} */
+	const launchedSoFar = [];
+	/** @type {(launches: LoopLaunch[],
+	 *   launching?: import("./refill-batch.js").Launching) => void} */
+	const record = (launches, launching) =>
+		io.writeState({
+			...withoutLaunching(state),
+			launches: keptLaunches(launches),
+			bootedAt,
+			sameBootRestart,
+			...(launching
+				? {
+						launching,
+						launchCount: {
+							from: input.noProgressFrom,
+							count:
+								launchesSince(state, input.noProgressFrom) +
+								launchedSoFar.length,
+						},
+					}
+				: {}),
+		});
 	const {
 		launches: afterResumes,
 		started,
 		waiting,
-	} = resumeDecided(decision, judged, io, (launches) =>
-		io.writeState({
-			...state,
-			launches: keptLaunches(launches),
-			bootedAt,
-			sameBootRestart,
-		}),
-	);
+	} = resumeDecided(decision, judged, io, record);
 	const outcome = launchUntilBarred(
 		buildLaunchBatches(decision, waiting),
 		() => io.readControl().control,
-		io.launchBatch,
+		(batch) => {
+			record([...afterResumes, ...launchedSoFar], { at: io.now(), batch });
+			const r = io.launchBatch(batch);
+			launchedSoFar.push(...r.launched);
+			return r;
+		},
 	);
 	const summary = buildTickLine(decision, outcome, {
 		freeSlots: input.paused ? null : input.freeSlots,
@@ -1661,6 +1727,7 @@ function stopNeverStarted(registry, jobs, stop) {
 }
 
 module.exports = {
+	settleLaunching,
 	controlAfterPresence,
 	controlInMode,
 	handedOffSince,
