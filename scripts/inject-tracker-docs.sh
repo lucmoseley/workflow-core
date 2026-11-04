@@ -286,116 +286,123 @@ other_takes=""
 other_takes="${other_takes#takes:}"
 [[ "$other_takes" == "$matched" ]] && other_takes=""
 
-# The vendored code-review skill does not name how to dispatch its two axes.
-# Named here so a review runs both axes in parallel rather than one
-# after the other in a single context.
-#
-# THESE REACH A TYPED /code-review ONLY. A review loaded through the Skill tool —
-# /implement's closing step — takes the same rules from scripts/lib/review-rules.js
-# at that call (mantahostels#3451), as docs/agents/rules/review-*.txt. Keep the two in step.
-
-# The Standards axis has no repo-specific rules unless it is handed the paths
-# (mantahostels#992): the base at the resolved core root and the host's local
-# file, in four states (#886, #965). scripts/concision-backstop.sh carries the
-# same four texts for the sessions neither command reaches, and its test fails
-# where the two differ (#2097).
-# The literal path default and the both-state text, last, are what
-# check-context-budget.js measures: it cannot evaluate a command substitution,
-# so the four texts shorten docs/agents/rules/review-standards-axis*.txt
-# rather than print them (base §G11).
-# The default is for an unresolved core root, spelt here and not in
-# lib/review-standards.sh because this file's text leaves through an emitter
-# that resolves a doc path, as the lib's does not (script-path-scan.test.ts).
-# shellcheck source=scripts/lib/review-standards.sh
-source "$here/lib/review-standards.sh" 2>/dev/null
-standards_base="docs/code-standards-base.md"
-base_shown="$(review_standards_base_shown 2>/dev/null)" && standards_base="$base_shown"
-standards_state="$(review_standards_state 2>/dev/null)" || standards_state=both
-if [[ "$standards_state" == base ]]; then
-  standards="Hand the Standards axis the base \`${standards_base}\` in its prompt; its §0 routes the paths. No local \`docs/code-standards.md\` exists, so its report opens \`No local standards file: the base applies unchanged.\`, or \`Base unreadable: <path>\` if its Read of the base is refused. Cite a breach by its rule id; never restate a rule tooling enforces."
-elif [[ "$standards_state" == local ]]; then
-  standards="The standards base \`${standards_base}\` is absent: hand the Standards axis only the local \`docs/code-standards.md\` in its prompt, never raising a smell its \"Smells not raised\" (or \"Suppressions\") names. It reviews against that file and the smell baseline, and its report opens \`No standards base: ${standards_base} is absent.\` Cite a breach by its rule id; never restate a rule tooling enforces."
-elif [[ "$standards_state" == neither ]]; then
-  standards="This repo has neither the standards base \`${standards_base}\` nor a local \`docs/code-standards.md\`: hand the Standards axis neither. Tell it in its prompt to review against the smell baseline and any other standards source the skill's step 3 found, its report opening \`No standards base or local file: ${standards_base} and docs/code-standards.md are absent.\`"
-else
-  standards="Hand the Standards axis, in its prompt, base \`${standards_base}\` and local \`docs/code-standards.md\`. Base §0 routes the paths; a local change binds only via its changes table, cited \"§X2 (base), excepted by local row 2\", and no local \"Smells not raised\" (or \"Suppressions\") smell is raised. A refused base Read opens the report \`Base unreadable: <path>\`. Cite a breach by its rule id; never restate a rule tooling enforces."
-fi
-# Base §G8 binds names to the host's glossary terms, so the axis gets the
-# glossary where one exists (#1373). Spelled out rather than taken from
-# review_standards_glossary_line, which the other two writers use, because
-# check-context-budget.js measures only literal text, and the literal default
-# here; concision-backstop.test.ts fails where the two differ (#2097).
-glossary="GLOSSARY.md"
-if glossary="$(review_standards_glossary 2>/dev/null)"; then
-  glossary="$(review_standards_shown "$glossary")"
-  standards="${standards} Hand the Standards axis \`${glossary}\` too, for base §G8."
-fi
-
-# The two review-axis Artefact paths are suffixed with THIS session's id so
-# concurrent /code-review dispatches land on different files rather than one
-# session's review overwriting a neighbour's (mantahostels#2220). Interpolated here, by the
-# script, because a Write/Edit the SUBAGENT makes expands no environment
-# variable (mantahostels#2088) — the literal path has to already be in the text the Agent
-# call hands it. Falls back to the bare name — reinstating the exact collision
-# mantahostels#2220 fixed — where no session id is available, or where lib/review-suffix.sh
-# did not load.
-# shellcheck source=scripts/lib/review-suffix.sh
-source "$here/lib/review-suffix.sh" 2>/dev/null
+# The core's script paths, which emit resolves every command's text through.
 # shellcheck source=scripts/lib/script-path.sh
 source "$here/lib/script-path.sh" 2>/dev/null
-# The empty default is the value scripts/check-context-budget.js measures: it
-# cannot evaluate the command substitution, and without it BROKENs $dispatch.
-sid_suffix=""
-sid_suffix="$(review_suffix "$session" 2>/dev/null)"
-# The core's bare `code-reviewer` or an adopter's plugin spelling (#741). The
-# literal default is what check-context-budget.js measures, as above.
-# shellcheck source=scripts/lib/review-agent-type.sh
-source "$here/lib/review-agent-type.sh" 2>/dev/null
-review_type="workflow-core:code-reviewer"
-review_type="$(review_agent_type 2>/dev/null)" || review_type="workflow-core:code-reviewer"
 
 # The host's declared output style, which the priced-options text points at
 # (#448) — core-voice.md where undeclared, or where lib/wfc-config.sh did not
-# load. The literal default is what check-context-budget.js measures, as above.
+# load. The literal default is what check-context-budget.js measures: it cannot
+# evaluate the command substitution.
 # shellcheck source=scripts/lib/wfc-config.sh
 source "$here/lib/wfc-config.sh" 2>/dev/null
 output_style=".claude/output-styles/core-voice.md"
 style_read="$(wfc_output_style 2>/dev/null)" && output_style="$style_read"
 
-# The dispatch rule is docs/agents/rules/review-dispatch-shape.txt, the one copy
-# scripts/lib/review-rules.js and scripts/concision-backstop.sh print too
-# (#1697). It names the subagent type and Artefact paths as "named above", so
-# they lead. check-context-budget.js reads this one `rule_text` spelling as the
-# fragment's text; any other is unparsed. So the load, fallback and lead-in are
-# repeated, and the miss logged, in concision-backstop.sh rather than shared: it would count a
-# helper's output as zero.
-# shellcheck source=scripts/lib/rule-text.sh
-source "$here/lib/rule-text.sh" 2>/dev/null
-dispatch_shape="$(rule_text review-dispatch-shape 2>/dev/null)"
-# The miss is logged where $dispatch is printed, below, so a /code-review that
-# reserve() suppresses logs none (#3514).
-[[ -n "$dispatch_shape" ]] || dispatch_shape_missed=1
-[[ -n "$dispatch_shape" ]] || dispatch_shape="Dispatch the review runs as docs/agents/rules/review-dispatch-shape.txt says."
-dispatch="Reviewer type \`${review_type}\`; Artefact paths \`.claude/tmp/review-standards${sid_suffix}.md\` and \`.claude/tmp/review-spec${sid_suffix}.md\`. ${dispatch_shape}"
+# Built inside this arm alone: its fragment lookups and subshells cost every other
+# command about half its run.
+if [[ "$matched" == "code-review" ]]; then
+  # The vendored code-review skill does not name how to dispatch its two axes.
+  # Named here so a review runs both axes in parallel rather than one
+  # after the other in a single context.
+  #
+  # THESE REACH A TYPED /code-review ONLY. A review loaded through the Skill tool —
+  # /implement's closing step — takes the same rules from scripts/lib/review-rules.js
+  # at that call (mantahostels#3451), as docs/agents/rules/review-*.txt. Keep the two in step.
 
-# The ultrareview axis (mantahostels#834; ask-then-run, #1572, #1623). A pointer to
-# the guide's steps, where docs/agents/rules/review-ultra-axis.txt carries them,
-# because the injected docs' cap has no room for them. Deliberately NOT folded into $dispatch, which is
-# restated verbatim in scripts/concision-backstop.sh's nag: that nag fires
-# BEFORE a review, where this line has nothing to say.
-ultra="AFTER fixing the findings, before the shared-tree commit, judge this diff against \`docs/effort-guide.md\` §The fourth axis; failing its test, the normal case, say NOTHING, and meeting it, follow that section's steps. NEVER START ONE UNASKED."
+  # The Standards axis has no repo-specific rules unless it is handed the paths
+  # (mantahostels#992): the base at the resolved core root and the host's local
+  # file, in four states (#886, #965). scripts/concision-backstop.sh carries the
+  # same four texts for the sessions neither command reaches, and its test fails
+  # where the two differ (#2097).
+  # The literal path default and the both-state text, last, are what
+  # check-context-budget.js measures: it cannot evaluate a command substitution,
+  # so the four texts shorten docs/agents/rules/review-standards-axis*.txt
+  # rather than print them (base §G11).
+  # The default is for an unresolved core root, spelt here and not in
+  # lib/review-standards.sh because this file's text leaves through an emitter
+  # that resolves a doc path, as the lib's does not (script-path-scan.test.ts).
+  # shellcheck source=scripts/lib/review-standards.sh
+  source "$here/lib/review-standards.sh" 2>/dev/null
+  standards_base="docs/code-standards-base.md"
+  base_shown="$(review_standards_base_shown 2>/dev/null)" && standards_base="$base_shown"
+  standards_state="$(review_standards_state 2>/dev/null)" || standards_state=both
+  if [[ "$standards_state" == base ]]; then
+    standards="Hand the Standards axis the base \`${standards_base}\` in its prompt; its §0 routes the paths. No local \`docs/code-standards.md\` exists, so its report opens \`No local standards file: the base applies unchanged.\`, or \`Base unreadable: <path>\` if its Read of the base is refused. Cite a breach by its rule id; never restate a rule tooling enforces."
+  elif [[ "$standards_state" == local ]]; then
+    standards="The standards base \`${standards_base}\` is absent: hand the Standards axis only the local \`docs/code-standards.md\` in its prompt, never raising a smell its \"Smells not raised\" (or \"Suppressions\") names. It reviews against that file and the smell baseline, and its report opens \`No standards base: ${standards_base} is absent.\` Cite a breach by its rule id; never restate a rule tooling enforces."
+  elif [[ "$standards_state" == neither ]]; then
+    standards="This repo has neither the standards base \`${standards_base}\` nor a local \`docs/code-standards.md\`: hand the Standards axis neither. Tell it in its prompt to review against the smell baseline and any other standards source the skill's step 3 found, its report opening \`No standards base or local file: ${standards_base} and docs/code-standards.md are absent.\`"
+  else
+    standards="Hand the Standards axis, in its prompt, base \`${standards_base}\` and local \`docs/code-standards.md\`. Base §0 routes the paths; a local change binds only via its changes table, cited \"§X2 (base), excepted by local row 2\", and no local \"Smells not raised\" (or \"Suppressions\") smell is raised. A refused base Read opens the report \`Base unreadable: <path>\`. Cite a breach by its rule id; never restate a rule tooling enforces."
+  fi
+  # Base §G8 binds names to the host's glossary terms, so the axis gets the
+  # glossary where one exists (#1373). Spelled out rather than taken from
+  # review_standards_glossary_line, which the other two writers use, because
+  # check-context-budget.js measures only literal text, and the literal default
+  # here; concision-backstop.test.ts fails where the two differ (#2097).
+  glossary="GLOSSARY.md"
+  if glossary="$(review_standards_glossary 2>/dev/null)"; then
+    glossary="$(review_standards_shown "$glossary")"
+    standards="${standards} Hand the Standards axis \`${glossary}\` too, for base §G8."
+  fi
 
-# The deviations record (mantahostels#1242), the half the REVIEWER needs. RE-CLASSIFY, NOT
-# SUPPRESS: a documented deviation is never a decision the reviewer should not
-# flag (mantahostels#1163) — a deviation note is the builder asserting its own
-# intent, and an author judging its own output is not a pass.
-deviations_read="$(rule_text review-deviations-read 2>/dev/null)"
-[[ -n "$deviations_read" ]] || deviations_read="Fetch the originating issue's \`**Deviations:**\` comment for the Spec axis, as docs/agents/rules/review-deviations-read.txt says."
+  # The two review-axis Artefact paths are suffixed with THIS session's id so
+  # concurrent /code-review dispatches land on different files rather than one
+  # session's review overwriting a neighbour's (mantahostels#2220). Interpolated here, by the
+  # script, because a Write/Edit the SUBAGENT makes expands no environment
+  # variable (mantahostels#2088) — the literal path has to already be in the text the Agent
+  # call hands it. Falls back to the bare name — reinstating the exact collision
+  # mantahostels#2220 fixed — where no session id is available, or where lib/review-suffix.sh
+  # did not load.
+  # shellcheck source=scripts/lib/review-suffix.sh
+  source "$here/lib/review-suffix.sh" 2>/dev/null
+  # The empty default is the value scripts/check-context-budget.js measures: it
+  # cannot evaluate the command substitution, and without it BROKENs $dispatch.
+  sid_suffix=""
+  sid_suffix="$(review_suffix "$session" 2>/dev/null)"
+  # The core's bare `code-reviewer` or an adopter's plugin spelling (#741). The
+  # literal default is what check-context-budget.js measures, as above.
+  # shellcheck source=scripts/lib/review-agent-type.sh
+  source "$here/lib/review-agent-type.sh" 2>/dev/null
+  review_type="workflow-core:code-reviewer"
+  review_type="$(review_agent_type 2>/dev/null)" || review_type="workflow-core:code-reviewer"
 
-# The disposition rule (mantahostels#185): the code-review skill ends at "aggregate the
-# findings" and names no destination for one.
-disposition="$(rule_text review-finding-destination 2>/dev/null)"
-[[ -n "$disposition" ]] || disposition="Give every review finding a destination, as docs/agents/rules/review-finding-destination.txt says."
+  # The dispatch rule is docs/agents/rules/review-dispatch-shape.txt, the one copy
+  # scripts/lib/review-rules.js and scripts/concision-backstop.sh print too
+  # (#1697). It names the subagent type and Artefact paths as "named above", so
+  # they lead. check-context-budget.js reads this one `rule_text` spelling as the
+  # fragment's text; any other is unparsed. So the load, fallback and lead-in are
+  # repeated, and the miss logged, in concision-backstop.sh rather than shared: it would count a
+  # helper's output as zero.
+  # shellcheck source=scripts/lib/rule-text.sh
+  source "$here/lib/rule-text.sh" 2>/dev/null
+  dispatch_shape="$(rule_text review-dispatch-shape 2>/dev/null)"
+  # The miss is logged where $dispatch is printed, below, so a /code-review that
+  # reserve() suppresses logs none (#3514).
+  [[ -n "$dispatch_shape" ]] || dispatch_shape_missed=1
+  [[ -n "$dispatch_shape" ]] || dispatch_shape="Dispatch the review runs as docs/agents/rules/review-dispatch-shape.txt says."
+  dispatch="Reviewer type \`${review_type}\`; Artefact paths \`.claude/tmp/review-standards${sid_suffix}.md\` and \`.claude/tmp/review-spec${sid_suffix}.md\`. ${dispatch_shape}"
+
+  # The ultrareview axis (mantahostels#834; ask-then-run, #1572, #1623). A pointer to
+  # the guide's steps, where docs/agents/rules/review-ultra-axis.txt carries them,
+  # because the injected docs' cap has no room for them. Deliberately NOT folded into $dispatch, which is
+  # restated verbatim in scripts/concision-backstop.sh's nag: that nag fires
+  # BEFORE a review, where this line has nothing to say.
+  ultra="AFTER fixing the findings, before the shared-tree commit, judge this diff against \`docs/effort-guide.md\` §The fourth axis; failing its test, the normal case, say NOTHING, and meeting it, follow that section's steps. NEVER START ONE UNASKED."
+
+  # The deviations record (mantahostels#1242), the half the REVIEWER needs. RE-CLASSIFY, NOT
+  # SUPPRESS: a documented deviation is never a decision the reviewer should not
+  # flag (mantahostels#1163) — a deviation note is the builder asserting its own
+  # intent, and an author judging its own output is not a pass.
+  deviations_read="$(rule_text review-deviations-read 2>/dev/null)"
+  [[ -n "$deviations_read" ]] || deviations_read="Fetch the originating issue's \`**Deviations:**\` comment for the Spec axis, as docs/agents/rules/review-deviations-read.txt says."
+
+  # The disposition rule (mantahostels#185): the code-review skill ends at "aggregate the
+  # findings" and names no destination for one.
+  disposition="$(rule_text review-finding-destination 2>/dev/null)"
+  [[ -n "$disposition" ]] || disposition="Give every review finding a destination, as docs/agents/rules/review-finding-destination.txt says."
+fi
 
 # Every one of these commands can put a choice to the founder, and the vendored
 # skills defer to `grilling`, which fixes the shape of the QUESTION and says

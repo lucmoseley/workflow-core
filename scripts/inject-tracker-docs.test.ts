@@ -1558,8 +1558,20 @@ describe("the residue index replaces both full-document pointers (mantahostels#2
 		"card-close",
 	];
 
+	/* Each command's payload, run once and read by every case below: with no
+	 * session id the hook keeps no marker, so a rerun returns the same bytes. */
+	const payloads = new Map<string, string>();
+	const injected = (cmd: string): string => {
+		let ctx = payloads.get(cmd);
+		if (ctx === undefined) {
+			ctx = inject(`/${cmd} 2499`);
+			payloads.set(cmd, ctx);
+		}
+		return ctx;
+	};
+
 	it.each(sixCommands)("gives /%s the residue index framing", (cmd) => {
-		const ctx = inject(`/${cmd} 2499`);
+		const ctx = injected(cmd);
 		expect(ctx).toContain("THE TRACKER RULES ARE NOT BELOW");
 		expect(ctx).toContain("docs/agents/issue-tracker.md");
 		expect(ctx).toContain("docs/agents/triage-labels.md");
@@ -1570,7 +1582,7 @@ describe("the residue index replaces both full-document pointers (mantahostels#2
 	it.each(sixCommands)(
 		"carries mantahostels#1118's never-act-from-memory line verbatim on /%s",
 		(cmd) => {
-			expect(inject(`/${cmd} 2499`)).toContain(
+			expect(injected(cmd)).toContain(
 				"Never act on a trigger from memory or inference",
 			);
 		},
@@ -1581,7 +1593,7 @@ describe("the residue index replaces both full-document pointers (mantahostels#2
 	it.each(sixCommands)(
 		"names an id and a moment, never a rule's content, on /%s",
 		(cmd) => {
-			const ctx = inject(`/${cmd} 2499`);
+			const ctx = injected(cmd);
 			const lines = ctx.split("\n").filter((l) => l.startsWith("- `rule:"));
 			expect(lines.length).toBeGreaterThan(0);
 			for (const line of lines) expect(line).toMatch(/^- `rule:[a-z-]+` — /);
@@ -1612,7 +1624,7 @@ describe("the residue index replaces both full-document pointers (mantahostels#2
 		"carries `rule:%s` only to the commands that can trigger it",
 		(id, owners) => {
 			for (const cmd of sixCommands) {
-				const has = inject(`/${cmd} 2499`).includes(`\`rule:${id}\``);
+				const has = injected(cmd).includes(`\`rule:${id}\``);
 				expect(has, `/${cmd} × ${id}`).toBe(owners.includes(cmd));
 			}
 		},
@@ -1632,7 +1644,7 @@ describe("the residue index replaces both full-document pointers (mantahostels#2
 	it.each(sixCommands)(
 		"keeps the two guard-enforced acts out of /%s's index",
 		(cmd) => {
-			const ctx = inject(`/${cmd} 2499`);
+			const ctx = injected(cmd);
 			expect(ctx).not.toContain("`rule:issue-body-raw-write`");
 			expect(ctx).not.toContain("`rule:close-outstanding-line`");
 		},
@@ -1643,7 +1655,7 @@ describe("the residue index replaces both full-document pointers (mantahostels#2
 	it.each(sixCommands)(
 		"pastes the foreground re-run line, not the background rule, into /%s",
 		(cmd) => {
-			const ctx = inject(`/${cmd} 2499`);
+			const ctx = injected(cmd);
 			expect(ctx).not.toContain("background every one");
 			expect(ctx).not.toContain("A foreground Bash `gh` HANGS");
 			expect(ctx).toContain(
@@ -1658,7 +1670,7 @@ describe("the residue index replaces both full-document pointers (mantahostels#2
 	it.each(sixCommands)(
 		"names the fetch command in /%s's own payload, not just a comment",
 		(cmd) => {
-			expect(inject(`/${cmd} 2499`)).toContain(
+			expect(injected(cmd)).toContain(
 				"`scripts/lib/rule-text.sh <id> [<id>…]`",
 			);
 		},
@@ -1670,13 +1682,13 @@ describe("the residue index replaces both full-document pointers (mantahostels#2
 	 * covered by other describe blocks in this file — this one only re-checks
 	 * that dropping the two document pointers left them alone. */
 	it("still gives /implement its opening step alongside the new index", () => {
-		const ctx = inject("/implement 2499");
+		const ctx = injected("implement");
 		expect(ctx).toContain("`## Parent`");
 		expect(ctx).toContain("THE TRACKER RULES ARE NOT BELOW");
 	});
 
 	it("still gives /wayfinder the `**Bound:**` line alongside the new index", () => {
-		const ctx = inject("/wayfinder 2499");
+		const ctx = injected("wayfinder");
 		expect(ctx).toContain("**Bound:**");
 		expect(ctx).toContain("THE TRACKER RULES ARE NOT BELOW");
 	});
@@ -1692,7 +1704,7 @@ describe("the residue index replaces both full-document pointers (mantahostels#2
 	 * scripts/check-injector-margin.sh already prices, so a regression on this
 	 * one command fails a test rather than only a pre-commit hook. */
 	it("keeps /implement's payload the margin gate's tight headroom under the threshold", () => {
-		expect(inject("/implement 2499").length).toBeLessThan(
+		expect(injected("implement").length).toBeLessThan(
 			PERSIST_CHARS - TIGHT_HEADROOM_CHARS,
 		);
 	});
@@ -1713,7 +1725,7 @@ describe("the residue index replaces both full-document pointers (mantahostels#2
 				{ prompt: `/${cmd} 2499`, hook_event_name: "UserPromptSubmit" },
 				{ CLAUDE_PROJECT_DIR: empty },
 			);
-			expect(ctx, cmd).toBe(inject(`/${cmd} 2499`));
+			expect(ctx, cmd).toBe(injected(cmd));
 			expect(ctx, cmd).toContain(`You invoked /${cmd}`);
 		}
 	});
