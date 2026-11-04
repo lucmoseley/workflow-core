@@ -37,7 +37,7 @@ const DEFAULT_WINDOW_HOURS = 1;
  * The tree the ledger lives under.
  *
  * WFC_DISPATCH_ROOT redirects the ledger ALONE, leaving WFC_REPO_ROOT to
- * mean what it means everywhere else: `scripts/dispatch-sessions.test.ts` drives
+ * mean what it means everywhere else: `scripts/dispatch-sessions*.test.ts` drive
  * the real launcher against a stubbed `claude`, so without it those runs would
  * append fake launches to the working ledger and refuse the next real dispatch.
  * Every reader resolves it here, so a caller passing its own repo root cannot

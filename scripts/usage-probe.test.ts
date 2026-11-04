@@ -3,7 +3,7 @@
  * Pins the probe CLI as the refill loop's stale-seat read calls it (#2306):
  * `--config-dir` names the seat, even an empty one (#2095), a fresh cache runs
  * no `claude`, and a stale one hands the probe's printed bars to stdout. The
- * dispatcher's own route through it is pinned in dispatch-sessions.test.ts.
+ * dispatcher's own route through it is pinned in dispatch-sessions-allowance.test.ts.
  * Break it and the loop reads a seat it never probed, or probes one it need
  * not.
  */

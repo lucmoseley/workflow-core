@@ -1,12 +1,14 @@
 // @vitest-environment node
 /*
  * Pins the dispatch's interop-bridge probe (mantahostels#3111): a wedged Windows
- * bridge refuses the set, or the rest of it, before a launch hangs on it.
+ * bridge refuses the set, or the rest of it, before a launch hangs on it. The
+ * shipped budget's end-to-end case is dispatch-sessions-bridge-budget.test.ts's.
  *
  * Loosen a test here and a set launches into a wedged bridge, and hangs.
  *
- * Over the run-cost budget (base §X8 (5)) by inheritance: its cases moved
- * unchanged from dispatch-sessions.test.ts, whose cost was pre-existing (#2413).
+ * Over the run-cost budget (base §X8 (5)): each case runs the real dispatcher,
+ * about 0.9 s of node starts, and the wedge cases a real 1 s probe expiry on
+ * top (#4299's profile).
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -24,13 +26,21 @@ import { buildUsageBranch } from "./lib/usage-probe-fake";
 const fx = dispatchFixture();
 const { stubClaude, stubPath, launchArgv, readArgvLines, regWedged, run } = fx;
 
+/* One 1 s attempt for a wedge case: what it pins is the verdict, and the
+ * three-attempt loop is pinned by the transient-stall case here and the
+ * budget case in dispatch-sessions-bridge-budget.test.ts (#4299). */
+const ONE_SHORT_ATTEMPT = {
+	CLAUDE_INTEROP_PROBE_TIMEOUT: "1",
+	CLAUDE_INTEROP_PROBE_ATTEMPTS: "1",
+};
+
 describe("the interop-bridge probe (mantahostels#3111)", () => {
 	/** A reg.exe that never answers. */
 	it("refuses the whole call, with the recovery text, and launches nothing", () => {
 		stubClaude({});
 		const r = run(["sonnet", "/implement 341", "opus", "/wayfinder 1114"], {
 			CLAUDE_INTEROP_REG: regWedged(),
-			CLAUDE_INTEROP_PROBE_TIMEOUT: "1",
+			...ONE_SHORT_ATTEMPT,
 		});
 		expect(r.code).toBe(5);
 		expect(r.stderr).toContain("interop bridge is wedged");
@@ -44,7 +54,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 		stubClaude({});
 		run(["sonnet", "/implement 341"], {
 			CLAUDE_INTEROP_REG: regWedged(),
-			CLAUDE_INTEROP_PROBE_TIMEOUT: "1",
+			...ONE_SHORT_ATTEMPT,
 		});
 		const ledger = path.join(
 			fx.dir,
@@ -75,7 +85,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 		);
 		const r = run(["sonnet", "/implement 341"], {
 			CLAUDE_INTEROP_REG: at,
-			CLAUDE_INTEROP_PROBE_TIMEOUT: "1",
+			...ONE_SHORT_ATTEMPT,
 		});
 		expect(r.code).toBe(5);
 		expect(r.stderr).toContain("interop bridge is wedged");
@@ -89,19 +99,6 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 			"dispatched.jsonl",
 		);
 		expect(fs.existsSync(ledger)).toBe(false);
-	});
-
-	it("refuses inside 45s at the shipped probe budget", {
-		timeout: 90_000,
-	}, () => {
-		stubClaude({});
-		const started = Date.now();
-		const r = run(["sonnet", "/implement 341"], {
-			CLAUDE_INTEROP_REG: regWedged(),
-		});
-		expect(r.code).toBe(5);
-		// §X9: a process timeout: the shipped probe budget is the guarantee, and it bounds a real hung child.
-		expect(Date.now() - started).toBeLessThan(45_000);
 	});
 
 	// The fault mantahostels#3306 fixed: the bridge's vsock accept times out per call at
@@ -177,7 +174,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 		});
 		const r = run(["sonnet", "/implement 341"], {
 			CLAUDE_INTEROP_REG: at,
-			CLAUDE_INTEROP_PROBE_TIMEOUT: "1",
+			...ONE_SHORT_ATTEMPT,
 		});
 		expect(r.code).toBe(5);
 		expect(r.stderr).toContain("interop bridge is wedged");
@@ -205,7 +202,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 		);
 		const r = run(["sonnet", "/implement 341", "opus", "/wayfinder 1114"], {
 			CLAUDE_INTEROP_REG: at,
-			CLAUDE_INTEROP_PROBE_TIMEOUT: "1",
+			...ONE_SHORT_ATTEMPT,
 		});
 		expect(r.code).toBe(5);
 		expect(r.stderr).toContain("1 member(s) HAD already launched");

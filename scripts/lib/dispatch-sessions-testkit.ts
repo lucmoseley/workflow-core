@@ -365,7 +365,7 @@ export function dispatchFixture(): DispatchFixture {
 			// Isolates the allowance gate's JSON source (#294) from this machine's
 			// real `~/.claude/.claude.json` — absent here, so every case falls back
 			// to the stub `claude -p "/usage"` transcript above.
-			// dispatch-sessions.test.ts's JSON-path cases override it.
+			// dispatch-sessions-allowance.test.ts's JSON-path cases override it.
 			CLAUDE_CONFIG_DIR: path.join(fx.dir, "no-such-config"),
 			// The seat kind is read from `$HOME/.claude/refill-seats`, host
 			// configuration this machine's real file must not reach.
@@ -382,7 +382,7 @@ export function dispatchFixture(): DispatchFixture {
 			WFC_GH: ghNoParent,
 			// The allowance gate sizes its cap off the committed cost table, read
 			// off the host where unpinned — no checkout under test (#3334).
-			// dispatch-sessions.test.ts's cap cases override it.
+			// dispatch-sessions-allowance.test.ts's cap cases override it.
 			WFC_SESSION_COST_TABLE: COMMITTED_COST_TABLE,
 			...extra,
 		};
