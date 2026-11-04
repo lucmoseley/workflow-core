@@ -446,9 +446,11 @@ if [[ "$matched" == "code-review" ]]; then
   # shellcheck source=scripts/lib/rule-text.sh
   source "$here/lib/rule-text.sh" 2>/dev/null
   dispatch_shape="$(rule_text review-dispatch-shape 2>/dev/null)"
-  # The miss is logged where $dispatch is printed, below, so a /code-review that
-  # reserve() suppresses logs none (#3514).
-  [[ -n "$dispatch_shape" ]] || dispatch_shape_missed=1
+  # After reserve(), so a /code-review it suppresses logs no miss (#3514).
+  # shellcheck source=scripts/lib/guard-log.sh
+  if [[ -z "$dispatch_shape" ]] && source "$here/lib/guard-log.sh" 2>/dev/null; then
+    gl_log "rule:review-dispatch-shape unreadable — /code-review named its path instead"
+  fi
   [[ -n "$dispatch_shape" ]] || dispatch_shape="Dispatch the review runs as docs/agents/rules/review-dispatch-shape.txt says."
   dispatch="Reviewer type \`${review_type}\`; Artefact paths \`.claude/tmp/review-standards${sid_suffix}.md\` and \`.claude/tmp/review-spec${sid_suffix}.md\`. ${dispatch_shape}"
 
@@ -471,10 +473,6 @@ if [[ "$matched" == "code-review" ]]; then
   disposition="$(rule_text review-finding-destination 2>/dev/null)"
   [[ -n "$disposition" ]] || disposition="Give every review finding a destination, as docs/agents/rules/review-finding-destination.txt says."
 
-  # shellcheck source=scripts/lib/guard-log.sh
-  if [[ -n "${dispatch_shape_missed:-}" ]] && source "$here/lib/guard-log.sh" 2>/dev/null; then
-    gl_log "rule:review-dispatch-shape unreadable — /code-review named its path instead"
-  fi
   tier="$(review_tier)"
   # Unloaded, the threshold reads 0 and the tier leads: the order that survives
   # persistence (#1746).
