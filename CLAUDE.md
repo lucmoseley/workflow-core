@@ -8,7 +8,7 @@ workflow-core — the hooks, guards, skills and checks that let many Claude Code
 
 ## Ground truth
 
-- **Where two rules conflict, the more specific wins, and a guard's deny text wins over any file.** Where they are equally specific: a closed issue's ruling beats the file it contradicts until re-ruled, a re-rule being a merit call; `CLAUDE.md` beats `docs/working-contract.md`; and both beat the harness's own defaults. **Where you cannot rank them, do the safer act and say in your reply which two rules you were choosing between.**
+- **Where two rules conflict, the more specific wins, and a guard's deny text wins over any file.** Where they are equally specific: where a closed issue's ruling and a file contradict, weigh both on their reasons and say which you followed and why; `CLAUDE.md` beats `docs/working-contract.md`; and both beat the harness's own defaults. **Where you cannot rank them, do the safer act and say in your reply which two rules you were choosing between.**
 - `docs/reference-roadmap.html` is the sole authority for card status, phase and card content. Never answer a card-state question from a summary or the digest body — grep/read the HTML at the time of use. When building a card, open the HTML and read that card in full.
 - **Before answering any question about card status, phase or content, read `docs/roadmap-digest.md`.** It is a derived map, not auto-loaded: state, dependencies, effort tier and execution note only.
 - **Closed GitHub issues are corpus, not history** — some things, ledger items and rejected options among them, live only there. Never call a figure, term or card unsourced, undefined or undesigned on the strength of a file search; search closed issues too (`docs/agents/issue-tracker.md` §Where decisions get written).
