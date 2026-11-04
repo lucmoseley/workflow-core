@@ -34,6 +34,8 @@ import { writePsStub } from "./ps-stub";
 import { runInProcessAsync } from "./run-in-process";
 import { shellQuote } from "./sh-quote.js";
 
+const { projectSlug } = require("./project-slug.js");
+
 /** Each case's state as `beforeEach` resets it. */
 const kitDefaults = () => ({
 	dir: "",
@@ -450,7 +452,7 @@ const stubClaims = (fx: Fixture) => {
 	const claimsDir = path.join(
 		home,
 		"projects",
-		repo.replace(/[^a-zA-Z0-9]/g, "-"),
+		projectSlug(repo),
 		"issue-claims",
 	);
 	// Cleared, not merely topped up: a test that runs twice in one sandbox would
@@ -464,12 +466,7 @@ const stubClaims = (fx: Fixture) => {
 		);
 	if (fx.corruptClaim)
 		fs.writeFileSync(path.join(claimsDir, "bogus.json"), "not json");
-	const locksDir = path.join(
-		home,
-		"projects",
-		repo.replace(/[^a-zA-Z0-9]/g, "-"),
-		"locks",
-	);
+	const locksDir = path.join(home, "projects", projectSlug(repo), "locks");
 	fs.rmSync(locksDir, { recursive: true, force: true });
 	fs.mkdirSync(locksDir, { recursive: true });
 	for (const [rel, sessionId] of Object.entries(fx.heldFiles ?? {})) {
@@ -494,12 +491,7 @@ const stubClaims = (fx: Fixture) => {
 		);
 	}
 
-	const debtsDir = path.join(
-		home,
-		"projects",
-		repo.replace(/[^a-zA-Z0-9]/g, "-"),
-		"debts",
-	);
+	const debtsDir = path.join(home, "projects", projectSlug(repo), "debts");
 	fs.rmSync(debtsDir, { recursive: true, force: true });
 	fs.mkdirSync(debtsDir, { recursive: true });
 	(fx.debts ?? []).forEach((d, i) => {

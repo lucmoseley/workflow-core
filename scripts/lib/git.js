@@ -182,6 +182,23 @@ function gitCommonDir(cwd, opts = {}) {
 }
 
 /**
+ * The absolute git dir and common dir of the checkout holding `cwd`, from one
+ * `rev-parse`; equal in a main checkout, different in a linked worktree or a
+ * submodule. Null where git will not say.
+ * @param {string} cwd
+ * @returns {{ gitDir: string, common: string } | null}
+ */
+function gitDirs(cwd) {
+	const [gitDir, common] = (
+		gitOrNull(
+			["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"],
+			{ cwd },
+		) ?? ""
+	).split("\n");
+	return gitDir && common ? { gitDir, common } : null;
+}
+
+/**
  * spawnSync on git: never throws; the caller reads `status` and `error`.
  * @overload
  * @param {readonly string[]} args
@@ -297,6 +314,7 @@ module.exports = {
 	gitAnswer,
 	gitOrNull,
 	gitCommonDir,
+	gitDirs,
 	gitCommonDirOrThrow,
 	spawnGitSync,
 	gitOutcome,

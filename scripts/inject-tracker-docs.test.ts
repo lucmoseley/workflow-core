@@ -1037,6 +1037,12 @@ describe("a typed /code-review takes the Skill route's review tier (#1697)", () 
 		declare([rls]);
 		const tree = path.join(repo, ".claude", "worktrees", "wt");
 		git("worktree", "add", "-q", "--detach", tree);
+		/* The session's own tree carries the declaration it is judged by (#4242). */
+		fs.mkdirSync(path.join(tree, ".claude"), { recursive: true });
+		fs.copyFileSync(
+			path.join(repo, ".claude", "workflow-core.json"),
+			path.join(tree, ".claude", "workflow-core.json"),
+		);
 		fs.mkdirSync(path.join(tree, "supabase", "migrations"), {
 			recursive: true,
 		});

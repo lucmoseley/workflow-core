@@ -151,7 +151,7 @@ const {
 	retroLaunches,
 } = require("./lib/retro-bundles");
 const { hostRoot } = require("./lib/host-root.js");
-const { execGit, gitOrNull } = require("./lib/git.js");
+const { execGit, gitDirs } = require("./lib/git.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
 const {
 	readRecentEntries: recentDispatches,
@@ -1025,14 +1025,9 @@ function readRealOrNull(dir) {
  * @param {string} dir
  */
 function readCanonicalCheckoutOf(dir) {
-	/* One `rev-parse` for both dirs, not `gitCommonDir` and a second fork (#4302). */
-	const [gitDir, common] = (
-		gitOrNull(
-			["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"],
-			{ cwd: dir },
-		) ?? ""
-	).split("\n");
-	if (!common || !gitDir) return null;
+	const dirs = gitDirs(dir);
+	if (!dirs) return null;
+	const { gitDir, common } = dirs;
 	return gitDir === common
 		? readRealOrNull(dir)
 		: readRealOrNull(nodePath.dirname(common));
