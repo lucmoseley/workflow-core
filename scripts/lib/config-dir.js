@@ -12,6 +12,9 @@
  * them, never in the live ~/.claude (#2095). lib/guard-root.sh's gr_config_dir
  * is the shell twin, and resolve-core.js spells the rule itself, as it ships to
  * adopters alone and requires node builtins only.
+ *
+ * `seatDir` puts a config dir in the seat file's form, so two spellings of one
+ * dir compare equal.
  */
 
 const os = require("node:os");
