@@ -15,6 +15,7 @@
 
 import { describe, expect, it } from "vitest";
 import { fakeTreeClassifier } from "./git-tree-fake.js";
+import { Lexer } from "./shell-lexer.js";
 import type {
 	Command,
 	GitCall,
@@ -24,7 +25,6 @@ import type {
 } from "./shell-parse.js";
 import {
 	asWritten,
-	Lexer,
 	normAbs,
 	parseCommand,
 	unmask,
@@ -1204,7 +1204,8 @@ describe("logical lines (mantahostels#182)", () => {
 		],
 	])("joins %s inside the bound (#510, #1916)", (_, command) => {
 		// Counted, not clocked (#1916): a join that re-lexes its pending lines
-		// goes quadratic and far over three passes of the text.
+		// goes quadratic and far over three passes of the text. Three passes is
+		// the bash parser's bound (#1916); these inputs measure 2.0–2.97 (#4134).
 		let lexed = 0;
 		const lex = Lexer.prototype.lex;
 		Lexer.prototype.lex = function (

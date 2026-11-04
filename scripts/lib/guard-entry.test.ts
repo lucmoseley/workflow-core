@@ -11,6 +11,9 @@
  * guard of its own. CLAUDE_PROJECT_DIR and CLAUDE_CONFIG_DIR sit in that temp
  * dir, so no latch or fail-open record lands in the checkout or the founder's
  * log. WFC_RULES_DIR points at a store each case writes.
+ *
+ * spawn-kept: the dying-envelope case wraps fs.writeSync, which an in-process
+ * run would share with the test process.
  */
 
 import { spawnSync } from "node:child_process";
@@ -199,8 +202,6 @@ describe("injecting a rule", () => {
 			broken,
 			'const fs = require("node:fs");\nconst real = fs.writeSync;\nfs.writeSync = (fd, ...rest) => {\n\tif (fd === 1) throw new Error("stdout gone");\n\treturn real(fd, ...rest);\n};\nrequire("./guard-fixture.js");\n',
 		);
-		// spawn-kept: the wrapper replaces fs.writeSync, which an in-process run
-		// would share.
 		const r = spawnSync(process.execPath, [broken], {
 			cwd: dir,
 			encoding: "utf8",
@@ -534,7 +535,7 @@ describe("a context answer", () => {
 		});
 	});
 
-	it("spells an injection prelude's core paths at the plugin root in an install", () => {
+	it("spells an injection prelude's core paths at the plugin root in an install (#4134)", () => {
 		const plugin = path.join(dir, "plugin");
 		fs.mkdirSync(path.join(plugin, "docs", "agents"), { recursive: true });
 		fs.writeFileSync(path.join(plugin, "docs", "agents", "t.md"), "");
