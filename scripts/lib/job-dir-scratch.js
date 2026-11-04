@@ -89,6 +89,7 @@ const { literal } = require("./shell-words.js");
 const { isJobDir, jobRel } = require("./job-dir.js");
 const { remedyKind } = require("./scratch-remedy.js");
 const { ruleOrFallback } = require("./guard-verdict.js");
+const { treeOr } = require("./tree-or.js");
 
 /**
  * @typedef {import("./guard-dispatch.js").CoreContext} CoreContext
@@ -221,12 +222,14 @@ const REMEDY = {
 };
 
 /**
+ * The remedy names the session's own checkout's `.claude/tmp/`: in a linked
+ * worktree, the worktree's (#4242).
  * @param {Found} found
  * @param {string} rule
  * @param {CoreContext} ctx
  */
 function refusal(found, rule, ctx) {
-	const sanctioned = `${ctx.root}/.claude/tmp/${found.flatName}`;
+	const sanctioned = `${treeOr(ctx, ctx).root}/.claude/tmp/${found.flatName}`;
 	return `Refused: this writes a file straight into the job directory's own tmp folder — ${found.flat}
 
 Session scratch goes in \`.claude/tmp/\`. ${REMEDY[remedyKind(ctx.tool)](sanctioned)}

@@ -37,12 +37,16 @@
  *  - A script named as an ARGUMENT is not a run: only the first word that is a
  *    file is read, because everything after it belongs to that script.
  *  - In a worktree the paths resolve outside the shared repo root and nothing
- *    warns — right, because a worktree runs its own copy of the file.
+ *    warns — right, because a worktree runs its own copy of the file. An
+ *    `npm run` body is read from the session's tree's package.json and its
+ *    paths resolved there, for the same reason (#4242); the claims and the
+ *    dirt they warn of stay the host's.
  *  - It fails open throughout (mantahostels#103 §6): no session id is
  *    recorded, and an unreadable claim store or a git that cannot say is
  *    silence.
  */
 
+const path = require("node:path");
 const { literal } = require("./shell-words.js");
 const { requiredGroup } = require("./regex-group.js");
 const { scriptRuns, SHELL_NAMES } = require("./script-runs.js");
@@ -176,7 +180,7 @@ function watchedPaths(candidates, ctx) {
 	const out = [];
 	for (const raw of candidates) {
 		const paths = raw.startsWith("npm-script:")
-			? readNpmScriptPaths(raw.slice("npm-script:".length), ctx)
+			? npmRunPaths(raw.slice("npm-script:".length), ctx)
 			: [raw];
 		for (const p of paths) {
 			const rel = ctx.relativeToRepo(p);
@@ -188,16 +192,28 @@ function watchedPaths(candidates, ctx) {
 }
 
 /**
+ * The scripts/ files an `npm run <name>` body mentions, absolute in the
+ * session's tree: npm runs the package.json of the tree it stands in, and the
+ * copies of the scripts there.
+ * @param {string} name
+ * @param {StaleContext} ctx
+ */
+function npmRunPaths(name, ctx) {
+	const tree = ctx.tree();
+	return readNpmScriptPaths(name, tree).map((rel) => path.join(tree.root, rel));
+}
+
+/**
  * The scripts/ paths an `npm run <name>` body mentions. Text, not a shell
  * parse: a false warning costs a sentence where a missed one costs the hang
  * this core exists for.
  * @param {string} name
- * @param {StaleContext} ctx
+ * @param {import("./guard-dispatch.js").TreePorts} tree
  */
-function readNpmScriptPaths(name, ctx) {
+function readNpmScriptPaths(name, tree) {
 	let body;
 	try {
-		body = JSON.parse(ctx.readText("package.json") ?? "")?.scripts?.[name];
+		body = JSON.parse(tree.readText("package.json") ?? "")?.scripts?.[name];
 	} catch {
 		// An unreadable package.json is "unknown": warn about nothing rather than
 		// guess (mantahostels#103 §6).

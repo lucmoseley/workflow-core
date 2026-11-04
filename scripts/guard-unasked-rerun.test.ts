@@ -12,6 +12,10 @@
  *
  * Each case copies a throwaway git repository with its own marker store, so
  * the refusal is the real judge's over real git.
+ *
+ * The seam-2 cases (#4242) run it from a linked worktree of that repository,
+ * CLAUDE_PROJECT_DIR on the main checkout: the worktree's HEAD is judged,
+ * against the main checkout's certificate store.
  */
 
 import { execFileSync } from "node:child_process";
@@ -125,10 +129,11 @@ afterEach(() => {
 describe("the guard, end to end", () => {
 	it("refuses the first bare run over an attested HEAD as JSON on exit 0, carrying the judge's text and the whole rule, then lets the same command through", () => {
 		const sha = attestHead();
-		/* The payload's cwd stands outside the repo; the cd, resolved against
-		 * the real tree, carries the run into it. */
+		/* The payload's cwd stands below the tree's top; the cd, resolved
+		 * against the real tree, carries the run to it. */
 		const command = `cd ${project} && npm run test`;
-		const out = emission(command, { cwd: dir });
+		const below = path.join(project, ".claude");
+		const out = emission(command, { cwd: below });
 		expect(out.permissionDecision).toBe("deny");
 		const reason = out.permissionDecisionReason as string;
 		expect(reason).toContain(
@@ -141,7 +146,7 @@ describe("the guard, end to end", () => {
 			"this refuses once a session.\n\nAN UNASKED RE-RUN IS REFUSED ONCE A SESSION",
 		);
 		expect(readRefusals()).toHaveLength(1);
-		expect(emission(command, { cwd: dir })).toBeNull();
+		expect(emission(command, { cwd: below })).toBeNull();
 		expect(fs.existsSync(failOpenLogPath(config, project))).toBe(false);
 	});
 
@@ -174,13 +179,27 @@ describe("a refusal whose rule it cannot read still refuses", () => {
 });
 
 describe("the fail-open record", () => {
-	it("records a working directory git cannot read, from the payload's cwd, allowing", () => {
+	it("records a session tree git cannot name, from the payload's cwd, allowing", () => {
 		attestHead();
 		const outside = path.join(dir, "outside");
 		fs.mkdirSync(outside);
 		expect(
 			emission("npm run test", {
 				cwd: outside,
+				env: { GIT_CEILING_DIRECTORIES: dir },
+			}),
+		).toBeNull();
+		expect(readFailOpenLog(config, project)).toContain(
+			`git names no top level for ${outside}, so the session's tree is unknown`,
+		);
+	});
+
+	it("records a working directory git cannot read, from a cd in the command, allowing", () => {
+		attestHead();
+		const outside = path.join(dir, "outside");
+		fs.mkdirSync(outside);
+		expect(
+			emission(`cd ${outside} && npm run test`, {
 				env: { GIT_CEILING_DIRECTORIES: dir },
 			}),
 		).toBeNull();
@@ -192,19 +211,30 @@ describe("the fail-open record", () => {
 			"git could not resolve the run's working directory",
 		]);
 	});
+});
 
-	it("records a repository root git cannot read, from CLAUDE_PROJECT_DIR, allowing", () => {
+describe("a bare run from a session in its own worktree (#4242)", () => {
+	let worktree: string;
+	beforeEach(() => {
+		worktree = path.join(dir, "wt");
+		gitIn(project, "worktree", "add", "-q", "--detach", worktree);
+	});
+
+	it("refuses the run the main checkout's store attests at the worktree's HEAD", () => {
 		attestHead();
-		const outside = path.join(dir, "outside");
-		fs.mkdirSync(outside);
 		expect(
-			emission("npm run test", {
-				root: outside,
-				env: { GIT_CEILING_DIRECTORIES: dir },
-			}),
-		).toBeNull();
-		expect(readFailOpenLog(config, outside)).toContain(
-			"git could not resolve the repository root",
-		);
+			emission("npm run test", { cwd: worktree })?.permissionDecision,
+		).toBe("deny");
+		expect(readRefusals()).toHaveLength(1);
+	});
+
+	it("allows it once the worktree's HEAD moves past what is attested, the main checkout's HEAD still attested", () => {
+		attestHead();
+		fs.writeFileSync(path.join(worktree, "b.js"), "b.js\n");
+		gitIn(worktree, "add", "b.js");
+		gitIn(worktree, "commit", "-q", "-m", "b");
+		expect(emission("npm run test", { cwd: worktree })).toBeNull();
+		expect(readRefusals()).toEqual([]);
+		expect(emission("npm run test")?.permissionDecision).toBe("deny");
 	});
 });

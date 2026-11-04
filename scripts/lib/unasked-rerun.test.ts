@@ -319,9 +319,9 @@ describe("where it cannot judge, it says why", () => {
 		});
 	});
 
-	it("a repository root git cannot read", () => {
-		expect(why({ rootGitDir: "unresolved" })).toEqual({
-			why: "git could not resolve the repository root",
+	it("a session tree git cannot read", () => {
+		expect(why({ treeGitDir: "unresolved" })).toEqual({
+			why: "git could not resolve the session's tree",
 		});
 	});
 
@@ -372,9 +372,9 @@ describe("a git read that times out allows, and says so (ADR-0010)", () => {
 			"git timed out resolving the run's working directory",
 		],
 		[
-			"resolving the repository root",
-			{ rootGitDir: "timedOut" },
-			"git timed out resolving the repository root",
+			"resolving the session's tree",
+			{ treeGitDir: "timedOut" },
+			"git timed out resolving the session's tree",
 		],
 		[
 			"finding the write ledger",

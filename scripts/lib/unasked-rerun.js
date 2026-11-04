@@ -78,7 +78,8 @@ const {
  * @property {(record: object) => void} logRefusal appends a refusal-log line; throws where it cannot
  * @property {(cwd: string) => { dir: string|null, timedOut: boolean }} gitDir
  *   the absolute git dir of the checkout holding `cwd`
- * @property {() => { dir: string|null, timedOut: boolean }} rootGitDir the repository root's
+ * @property {() => { dir: string|null, timedOut: boolean }} treeGitDir the
+ *   session's tree's (#4242)
  * @property {() => { sha: string|null, timedOut: boolean }} head
  * @property {(sessionId: string) => { readable: boolean, timedOut: boolean }} ledger
  *   whether the session's write ledger reads
@@ -129,9 +130,9 @@ function judge({ sessionId, cwd, command = "" }, io) {
 }
 
 /**
- * `{}` for a run in another checkout — a throwaway worktree — which reads
- * that tree's HEAD, no certificate in this store attesting it; `{why}` where
- * git cannot say; null for a run in the repository's own checkout.
+ * `{}` for a run in a checkout other than the session's tree, whose HEAD
+ * and own work are not the ones judged; `{why}` where git cannot say; null
+ * for a run in the session's own tree (#4242).
  *
  * @param {string} cwd
  * @param {JudgeIO} io
@@ -145,12 +146,12 @@ function checkoutVerdict(cwd, io) {
 				? "git timed out resolving the run's working directory"
 				: "git could not resolve the run's working directory",
 		};
-	const home = io.rootGitDir();
+	const home = io.treeGitDir();
 	if (home.dir === null)
 		return {
 			why: home.timedOut
-				? "git timed out resolving the repository root"
-				: "git could not resolve the repository root",
+				? "git timed out resolving the session's tree"
+				: "git could not resolve the session's tree",
 		};
 	return run.dir === home.dir ? null : {};
 }

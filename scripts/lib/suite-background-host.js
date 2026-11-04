@@ -1,19 +1,19 @@
 /*
  * suite-background-host.js — the production ports lib/suite-background.js
  * reads through the dispatcher (#2790): the host's declared `suiteRunners`,
- * and whether an npm script runs run-vitest.js. Each loads on first use, so a
- * Bash call naming no suite pays nothing.
+ * and whether an npm script of the session's tree runs run-vitest.js (#4242).
+ * Each loads on first use, so a Bash call naming no suite pays nothing.
  */
 
 /**
  * @param {string} root
  * @param {(what: string, detail?: string) => void} log
- * @returns {import("./suite-launch.js").LaunchPorts}
+ * @returns {import("./suite-background.js").BackgroundPorts}
  */
 function buildHostPorts(root, log) {
 	/** @type {string[] | undefined} */
 	let runners;
-	/** @type {((script: string) => boolean) | undefined} */
+	/** @type {((script: string, tree: string) => boolean) | undefined} */
 	let isWrapper;
 	return {
 		runners: () => {
@@ -34,14 +34,12 @@ function buildHostPorts(root, log) {
 			}
 			return /** @type {string[]} */ (runners);
 		},
-		isWrapperScript: (script) => {
-			isWrapper ??= require("./suite-concurrency-host.js").buildIsWrapperScript(
-				{
-					root,
-					log,
-				},
-			);
-			return /** @type {(script: string) => boolean} */ (isWrapper)(script);
+		isWrapperScript: (script, tree) => {
+			isWrapper ??=
+				require("./suite-concurrency-host.js").buildTreeIsWrapperScript(log);
+			return /** @type {(script: string, tree: string) => boolean} */ (
+				isWrapper
+			)(script, tree);
 		},
 	};
 }

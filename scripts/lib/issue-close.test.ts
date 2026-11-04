@@ -49,15 +49,21 @@ const { decide } = require("./issue-close.js") as {
 };
 const { buildHostPorts } = require("./issue-close-host.js") as {
 	buildHostPorts: (root: string) => Record<string, unknown> & {
-		census: (n: number, ms: number) => unknown;
+		census: (n: number, ms: number, tree: string) => unknown;
 		landing: (
 			n: number,
 			comment: string,
 			ms: number,
-			cwd?: string,
+			tree: string,
 		) => { refusal: string } | { outOfBudget: true };
 	};
 };
+const { hostAdapters } = require("./guard-dispatch.js") as {
+	hostAdapters: (root: string, log: (what: string) => void) => object;
+};
+
+/** The reads of the tree rooted at `at`, as ctx.tree() hands a core them. */
+const treeAt = (at: string) => () => hostAdapters(at, () => undefined);
 
 const ISSUE_BODY = path.join(__dirname, "fixtures/gh/issue-body.json");
 const LOGGED_OUT = path.join(__dirname, "fixtures/gh/logged-out.json");
@@ -169,6 +175,7 @@ const run = (
 			log: (what: string) => faults.push(what),
 			gh: ghPort(setup),
 			now: () => clock,
+			tree: treeAt(shared),
 			...ports,
 		}),
 	);
@@ -539,6 +546,38 @@ describe("the card's issue it refuses to close by hand", () => {
 		// The FIRST rule still applies to a card issue: both bind /card-close's
 		// own step 8, which writes that line itself (mantahostels#281).
 		expect(said("done", { comments: ["**Outstanding:** none"] })).toBe("allow");
+	});
+
+	describe("from a session in a linked worktree (#4242)", () => {
+		/** The session tree's roadmap holding the card at `state`. */
+		const worktreeRoadmap = (state: string) => {
+			const wt = path.join(dir, "wt");
+			fs.mkdirSync(path.join(wt, "docs"), { recursive: true });
+			fs.writeFileSync(
+				path.join(wt, "docs", "reference-roadmap.html"),
+				`<script>const CARDS=[\n{id:"id-match",p:0,a:["tech"],kind:"decision",state:"${state}",t:"A card",m:"—",mn:"note"}\n];</script>\n`,
+			);
+			return wt;
+		};
+		const fromWorktree = (inMain: string, inWorktree: string) => {
+			writeRoadmap([["id-match", inMain]]);
+			const wt = worktreeRoadmap(inWorktree);
+			return (
+				run(
+					"gh issue close 12",
+					{ issue: { title: CardTitle, comments: ["**Outstanding:** none"] } },
+					{ tree: treeAt(wt) },
+				)?.deny ?? "allow"
+			);
+		};
+
+		it("allows the close the worktree's roadmap marks done, the main checkout's still active", () => {
+			expect(fromWorktree("active", "done")).toBe("allow");
+		});
+
+		it("denies the close the worktree's roadmap holds active, the main checkout's done", () => {
+			expect(fromWorktree("done", "active")).toContain(CARD_STILL);
+		});
 	});
 
 	it("allows a child ticket that merely inherited the card's id (mantahostels#275)", () => {
@@ -917,7 +956,7 @@ describe("the census rows it reads", () => {
 		// The real read, handed no time: its git ceiling passes before git runs.
 		expect(
 			verdict("gh issue close 12", lined, {
-				census: (n: number) => host().census(n, 0),
+				census: (n: number) => host().census(n, 0, shared),
 			}),
 		).toBe("allow");
 		expect(faults).toEqual([
@@ -1048,27 +1087,37 @@ describe("the commits the pushed ref lacks (#3101)", () => {
 		);
 	});
 
-	it("reads the HEAD of the linked worktree the close runs from", () => {
-		push();
-		const wt = path.join(dir, "wt");
-		git("worktree", "add", "-q", "--detach", wt);
-		execFileSync(
-			"git",
-			[
-				"-c",
-				"user.email=t@t",
-				"-c",
-				"user.name=t",
-				"commit",
-				"-q",
-				"--allow-empty",
-				"-m",
-				"Mend the gate (#12)",
-			],
-			{ cwd: wt },
-		);
-		expect(buildHostPorts(shared).landing(12, "", 4000, wt)).toEqual({
-			refusal: expect.stringContaining("#12's commit is not on origin/landing"),
+	describe("from a session in a linked worktree (#4242)", () => {
+		const wt = () => path.join(dir, "wt");
+		/* Cut from the pushed ref, before the main checkout's unpushed commit. */
+		const cut = () =>
+			git("worktree", "add", "-q", "--detach", wt(), "origin/landing");
+		const fromWorktree = () =>
+			verdict("gh issue close 12", lined, { tree: treeAt(wt()) });
+
+		it("leaves the main checkout's unpushed commit unjudged", () => {
+			cut();
+			expect(fromWorktree()).toBe("allow");
+		});
+
+		it("denies over a commit unpushed on the worktree's own HEAD", () => {
+			cut();
+			execFileSync(
+				"git",
+				[
+					"-c",
+					"user.email=t@t",
+					"-c",
+					"user.name=t",
+					"commit",
+					"-q",
+					"--allow-empty",
+					"-m",
+					"Mend the gate (#12)",
+				],
+				{ cwd: wt() },
+			);
+			expect(fromWorktree()).toBe("deny");
 		});
 	});
 
@@ -1079,7 +1128,7 @@ describe("the commits the pushed ref lacks (#3101)", () => {
 	it("fails open, recorded, where the landing read runs out of the budget", () => {
 		expect(
 			verdict("gh issue close 12", lined, {
-				landing: (n: number, c: string) => host().landing(n, c, 0),
+				landing: (n: number, c: string) => host().landing(n, c, 0, shared),
 			}),
 		).toBe("allow");
 		expect(faults).toEqual([

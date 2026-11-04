@@ -12,18 +12,19 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
-const { coreRoot } = require("./script-path.js");
 
 /**
  * Whether a `--full` launch's argv is plain — nothing narrows it past the
- * whole suite, no `--project` — and the read graph renders from this tree
- * (#181, #998). Both halves are the launch's and the generator's own
- * (lib/launch-route.js, lib/read-edges-render.js), required here rather than
- * re-read. Required lazily.
+ * whole suite, no `--project` — and the read graph renders from `tree`, the
+ * session's, where the launch runs (#181, #998, #4242). Both halves are the
+ * launch's and the generator's own (lib/launch-route.js,
+ * lib/read-edges-render.js), required here rather than re-read. Required
+ * lazily.
  * @param {string[]} argv
+ * @param {string} tree
  * @returns {{ plain: boolean } | { fault: string }}
  */
-function readFullLaunchPlain(argv) {
+function readFullLaunchPlain(argv, tree) {
 	const seam = process.env.WFC_READ_GRAPH_RENDERS ?? "";
 	try {
 		const { isFullRunArgv, stripWrapperFlags } = require("./launch-route.js");
@@ -35,8 +36,8 @@ function readFullLaunchPlain(argv) {
 		if (project || !isFullRunArgv(rest)) return { plain: false };
 		if (seam === "") {
 			const { render, OUT } = require("./read-edges-render.js");
-			JSON.parse(fs.readFileSync(path.join(coreRoot(), OUT), "utf8"));
-			render(coreRoot());
+			JSON.parse(fs.readFileSync(path.join(tree, OUT), "utf8"));
+			render(tree);
 		}
 		return { plain: seam === "" || seam === "1" };
 	} catch (e) {

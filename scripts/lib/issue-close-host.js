@@ -7,8 +7,6 @@
  * only a close reaches is required inside its port.
  */
 
-const fs = require("node:fs");
-const path = require("node:path");
 const { budgetMs } = require("./hook-deadline.js");
 const { resolveKey } = require("./workflow-core-config.js");
 
@@ -19,15 +17,6 @@ const { resolveKey } = require("./workflow-core-config.js");
 const buildHostPorts = (root) => ({
 	gh: (args, timeoutMs) => require("./gh.js").gh(args, { timeout: timeoutMs }),
 	now: Date.now,
-	readFile: (rel) => {
-		try {
-			return fs.readFileSync(path.join(root, rel), "utf8");
-		} catch {
-			/* Null, which the core names in its refusal or logs as unchecked
-			 * (lib/issue-close.js LIMITS; mantahostels#103 §6). */
-			return null;
-		}
-	},
 	tracker: () => {
 		let t;
 		try {
@@ -40,28 +29,19 @@ const buildHostPorts = (root) => ({
 		}
 		return typeof t === "string" && t ? t : undefined;
 	},
-	census: (n, timeoutMs) =>
+	census: (n, timeoutMs, tree) =>
 		readUnderCeiling("the census reader", budgetMs(timeoutMs), (ceiling) => {
 			const { censusRefusal, readExpiredRows } = require("./census-digest.js");
-			const rows = readExpiredRows(root, n, { ceiling });
+			const rows = readExpiredRows(tree, n, { ceiling });
 			return rows.length > 0 ? censusRefusal(n, rows) : "";
 		}),
-	landing: (n, comment, timeoutMs, cwd) =>
+	landing: (n, comment, timeoutMs, tree) =>
 		readUnderCeiling("the landing reader", budgetMs(timeoutMs), (ceiling) => {
 			const {
 				readUnlandedCommits,
 				unlandedRefusal,
 			} = require("./unlanded-commits.js");
-			const { worktreeRoot } = require("./host-root.js");
-			/* The close's own checkout, whose HEAD may be a linked worktree's. */
-			const unlanded = readUnlandedCommits(
-				worktreeRoot(cwd ?? root, { host: root }),
-				n,
-				comment,
-				{
-					ceiling,
-				},
-			);
+			const unlanded = readUnlandedCommits(tree, n, comment, { ceiling });
 			return unlanded.commits.length > 0 ? unlandedRefusal(n, unlanded) : "";
 		}),
 });

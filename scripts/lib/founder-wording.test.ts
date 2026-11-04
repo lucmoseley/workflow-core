@@ -26,7 +26,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { runCore } from "./guard-core-testkit";
+import { freshSandbox } from "./arbiter-testkit";
+import { latchesAt, runCore, splitCheckout } from "./guard-core-testkit";
 import { readGuardErrorsLog } from "./guard-errors-log";
 import { kitContextFake } from "./kit-context-fake";
 import { runInProcess } from "./run-in-process";
@@ -538,5 +539,36 @@ describe("cases a mutant must not survive", () => {
 			"recurrence-checks fragment unreadable — recurrence checks not injected",
 		);
 		expect(skillInjected("diagnosing-bugs")).toContain(PREFIX);
+	});
+});
+
+describe("a session in its own worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+
+	const fromWorktree = () =>
+		runCore(
+			"inject-founder-wording",
+			{
+				session_id: "s1",
+				hook_event_name: "PreToolUse",
+				tool_name: "Skill",
+				tool_input: { skill: "diagnosing-bugs" },
+			},
+			{ root: at.main, worktree: at.worktree },
+		).output?.additionalContext;
+
+	it("names the main checkout's declared corpus and latches there", () => {
+		fs.mkdirSync(path.join(at.main, ".claude"), { recursive: true });
+		fs.writeFileSync(
+			path.join(at.main, ".claude", "workflow-core.json"),
+			JSON.stringify({ corpus: ["main/only"] }),
+		);
+		expect(fromWorktree()).toContain("`main/only`");
+		expect(latchesAt(at.main)).not.toEqual([]);
+		expect(latchesAt(at.worktree)).toEqual([]);
+		expect(fromWorktree()).toBeUndefined();
 	});
 });

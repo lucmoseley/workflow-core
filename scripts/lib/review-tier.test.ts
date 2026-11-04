@@ -320,31 +320,19 @@ describe("a session in a linked worktree (#2386)", () => {
 		expect(envelope({ cwd: tree })).toContain("Tier owed: escalated.");
 	});
 
-	it("escalates on a path staged in the shared tree, from a worktree (#2529)", () => {
+	it("leaves a path staged in the shared tree unmatched, from a worktree (#4242)", () => {
 		declare([RLS]);
 		stage(SQL);
-		const text = envelope({ cwd: worktree(inRoot()) }) ?? "";
-		expect(text).toContain(`- \`RLS and auth boundaries\` (${SQL})`);
-		expect(text).toContain(readFragment("review-tier-escalated"));
+		expect(envelope({ cwd: worktree(inRoot()) })).toBeNull();
 	});
 
-	it("escalates on a file this session wrote in the shared tree, from a worktree (#2529)", () => {
+	it("leaves a file this session wrote in the shared tree unmatched, from a worktree (#4242)", () => {
 		declare([RLS]);
 		const tree = worktree(inRoot());
 		recordBase();
 		write(SQL);
 		record(SQL);
-		expect(envelope({ cwd: tree })).toContain("Tier owed: escalated.");
-	});
-
-	it("names a path staged in both trees once (#2529)", () => {
-		declare([RLS]);
-		stage(SQL);
-		const tree = worktree(inRoot());
-		stage(SQL, tree);
-		expect(envelope({ cwd: tree })).toContain(
-			`- \`RLS and auth boundaries\` (${SQL}),`,
-		);
+		expect(envelope({ cwd: tree })).toBeNull();
 	});
 
 	/**
@@ -878,10 +866,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
 				Date.now() - process.uptime() * 1000 - 7500,
 			);
 			const ports = require("./review-tier-host.js").buildHostPorts(sb.repo);
-			expect(() => ports.topLevel(sb.repo)).toThrow(
-				expect.objectContaining({ code: "ETIMEDOUT" }),
-			);
-			expect(() => ports.sessionBase(ME)).toThrow(
+			expect(() => ports.sessionBase(ME, sb.repo)).toThrow(
 				"git merge-base overran its timeout",
 			);
 			expect(ports.staged(sb.repo)).toBeNull();
@@ -906,10 +891,9 @@ describe("the cases a mutant must not survive (#2792)", () => {
 	/** decide over a stub context: the ports the kit and the host would give. */
 	const stubCtx = (over: Record<string, unknown>) => ({
 		root: "/r",
-		cwd: undefined,
 		session: "",
 		isFile: () => true,
-		topLevel: () => null,
+		tree: () => ({ root: "/r" }),
 		commonDir: () => null,
 		staged: () => [SQL],
 		sessionBase: () => null,
@@ -937,26 +921,14 @@ describe("the cases a mutant must not survive (#2792)", () => {
 		);
 	});
 
-	it("reads no worktree for a payload naming no cwd", () => {
-		expect(
-			decide(
-				"code-review",
-				stubCtx({
-					topLevel: () => "/wt",
-					commonDir: () => "/c",
-					staged: (t: string) => (t === "/wt" ? [SQL] : []),
-				}) as never,
-			),
-		).toBeNull();
-	});
-
-	it("reads no common dir where the cwd is in the root itself", () => {
+	it("reads no common dir where the session's tree is the root itself", () => {
 		const said: string[] = [];
 		decide(
 			"code-review",
 			stubCtx({
-				cwd: "/r/src",
-				topLevel: () => "/r",
+				commonDir: () => {
+					throw new Error("common dir read");
+				},
 				log: (what: string) => said.push(what),
 			}) as never,
 		);
@@ -982,9 +954,8 @@ describe("the cases a mutant must not survive (#2792)", () => {
 			decide(
 				"code-review",
 				stubCtx({
-					cwd: "/r/wt",
 					session: ME,
-					topLevel: () => "/r/wt",
+					tree: () => ({ root: "/r/wt" }),
 					commonDir: () => "/c",
 					staged: () => [],
 					sessionBase: () => "b",
@@ -1011,12 +982,6 @@ describe("the cases a mutant must not survive (#2792)", () => {
 	it("logs a staged listing git will not give (#3446)", () => {
 		expect(logged({ staged: () => null })).toEqual([
 			"git diff --cached failed in /r — its staged paths left unmatched",
-		]);
-	});
-
-	it("logs a top level that overran, and matches the root alone (#3446)", () => {
-		expect(logged({ cwd: "/wt", topLevel: overran })).toEqual([
-			"the top level of /wt did not read — worktree paths left unmatched: git overran its timeout",
 		]);
 	});
 
@@ -1159,14 +1124,14 @@ rm -f "$mine"`,
 		declare(paths.map((p) => ({ name: p, description: "d", globs: [p] })));
 		const { buildHostPorts } = require("./review-tier-host.js") as {
 			buildHostPorts: (root: string) => {
-				sessionBase: (sid: string) => string;
+				sessionBase: (sid: string, tree: string) => string;
 			};
 		};
 		const text = envelope() ?? "";
 		const billed = [...text.matchAll(/^- `([^`]+)` \(/gm)]
 			.map((m) => m[1] as string)
 			.sort();
-		return { base: buildHostPorts(sb.repo).sessionBase(ME), billed };
+		return { base: buildHostPorts(sb.repo).sessionBase(ME, sb.repo), billed };
 	};
 
 	/*

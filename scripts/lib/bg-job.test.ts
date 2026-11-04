@@ -8,10 +8,21 @@
  *
  * Module cases on the core; the latch, the cap and the store fault are
  * lib/guard-entry.test.ts's and lib/guard-dispatch.test.ts's.
+ *
+ * The seam-2 case (#4242) runs it through the dispatcher from a linked
+ * worktree of a main checkout: the rule's latch is the main checkout's.
  */
 
+import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { freshSandbox } from "./arbiter-testkit";
 import { decide } from "./bg-job.js";
+import {
+	latchesAt,
+	runCore,
+	splitCheckout,
+	toolCall,
+} from "./guard-core-testkit";
 import { readRuleCap } from "./rule-emission";
 /* The store's Node accessor, so a test asks for the rule by id rather than
  * holding a second copy of its text. */
@@ -165,5 +176,27 @@ describe("the injected rule still carries its operative clauses", () => {
 		expect(
 			Buffer.byteLength(readRuleText("killed-background-job"), "utf8"),
 		).toBeLessThan(readRuleCap());
+	});
+});
+
+describe("a backgrounded call from a session in its own worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+
+	const fromWorktree = () =>
+		runCore(
+			"guard-bg-job",
+			toolCall("Bash", { command: "sleep 1", run_in_background: true }),
+			{ root: at.main, worktree: at.worktree },
+		).output?.additionalContext ?? "";
+
+	it("hands the rule once, latched in the main checkout's marker store", () => {
+		const rule = readRuleText("killed-background-job");
+		expect(fromWorktree()).toContain(rule);
+		expect(latchesAt(at.main).length).toBe(1);
+		expect(latchesAt(at.worktree)).toEqual([]);
+		expect(fromWorktree()).not.toContain(rule);
 	});
 });

@@ -27,7 +27,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { runCore } from "./guard-core-testkit";
+import { freshSandbox } from "./arbiter-testkit";
+import {
+	latchesAt,
+	runCore,
+	splitCheckout,
+	toolCall,
+} from "./guard-core-testkit";
 
 let dir: string;
 /** The fixture repo, resolved through the same symlink flattening the core uses. */
@@ -417,10 +423,10 @@ describe("it fails open, and says so in the record", () => {
 		expect(logs.join("\n")).toContain("outside [A-Za-z0-9._-]");
 	});
 
-	it("on a root git cannot list, leaving nothing to expand to", () => {
-		fs.rmSync(path.join(repo, ".git"), { recursive: true, force: true });
+	it("on a root git lists nothing in, leaving nothing to expand to", () => {
 		for (const f of fs.readdirSync(repo))
 			fs.rmSync(path.join(repo, f), { recursive: true, force: true });
+		git("init", "-q");
 		expect(emission("grep -rn PAT .")).toBeNull();
 		expect(logs.join("\n")).toContain("no usable entry");
 	});
@@ -553,5 +559,39 @@ describe("the cases a mutant must not survive (#2791)", () => {
 		expect(replacement(warning("grep -rn PAT .", { cwd: link }))).toBe(
 			`grep -rn PAT ${EXPANSION}`,
 		);
+	});
+});
+
+describe("from a linked worktree, the project directory is the session's tree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+		/* Each tree holds a top-level directory the other lacks. */
+		for (const [root, name] of [
+			[at.worktree, "wtonly"],
+			[at.main, "mainonly"],
+		] as const) {
+			fs.mkdirSync(path.join(root, name));
+			fs.writeFileSync(path.join(root, name, "x.ts"), "x\n");
+		}
+	});
+
+	const fromWorktree = (command: string) =>
+		runCore("guard-recursive-dot-read", toolCall("Bash", { command }), {
+			root: at.main,
+			worktree: at.worktree,
+		});
+
+	it("warns a search at the worktree's root, expanded from the worktree's own tree and never the main checkout's", () => {
+		const out = fromWorktree("grep -rn PAT .").output;
+		expect(replacement(String(out?.additionalContext))).toBe(
+			"grep -rn PAT a.md wtonly",
+		);
+	});
+
+	it("latches the heavy-tree rule in the main checkout's marker store, not the worktree's", () => {
+		fromWorktree("grep -rn PAT .");
+		expect(latchesAt(at.main).length).toBe(1);
+		expect(latchesAt(at.worktree)).toEqual([]);
 	});
 });

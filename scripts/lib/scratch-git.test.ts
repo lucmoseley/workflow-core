@@ -18,6 +18,10 @@
  *
  * Loosen a fire case and a probe's failed `cd` reaches the shared `.git/`
  * again; widen it and a script that reads git, or fails closed, is refused.
+ *
+ * The seam-2 cases (#4242) run it from a linked worktree of a main checkout:
+ * whether the script is tracked is the worktree's index's answer, whatever
+ * the main checkout's says.
  */
 
 import { execFileSync } from "node:child_process";
@@ -25,7 +29,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { runCore, toolCall } from "./guard-core-testkit";
+import { freshSandbox } from "./arbiter-testkit";
+import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 
 let dir: string;
 let repo: string;
@@ -264,5 +269,42 @@ describe("allows a script that fails closed, writes no git state, or is reviewed
 		const s = script(UNGUARDED);
 		expect(refusal(`bash $X ${s}`)).toBeNull();
 		expect(refusal(`bash .claude/tmp/absent.sh ${s}`)).toBeNull();
+	});
+});
+
+describe("a script run from a session in its own worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+		for (const root of [at.main, at.worktree])
+			fs.writeFileSync(
+				path.join(root, "probe.sh"),
+				"#!/bin/bash\ngit commit -qm junk\n",
+			);
+	});
+
+	const commitIn = (root: string) => {
+		execFileSync("git", ["add", "--", "probe.sh"], { cwd: root });
+		execFileSync("git", ["commit", "-qm", "probe"], { cwd: root });
+	};
+
+	const verdict = () =>
+		runCore(
+			"guard-scratch-git",
+			toolCall("Bash", { command: "bash probe.sh" }),
+			{
+				root: at.main,
+				worktree: at.worktree,
+			},
+		).output?.permissionDecision;
+
+	it("refuses the worktree's untracked script, though the main checkout tracks its own", () => {
+		commitIn(at.main);
+		expect(verdict()).toBe("deny");
+	});
+
+	it("allows the script the worktree tracks, though the main checkout does not", () => {
+		commitIn(at.worktree);
+		expect(verdict()).toBeUndefined();
 	});
 });

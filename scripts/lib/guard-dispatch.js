@@ -281,7 +281,8 @@ const overRoomNotice = (names) =>
 
 /**
  * The session tree's ports for one call, resolved once on first use from the
- * payload's `cwd`, else the hook's own directory. The host's own ports are
+ * payload's `cwd`, else the hook's own directory; an unresolved tree throws
+ * the same fault on every read of the call, from one git call. The host's own ports are
  * reused where the two are one tree, so a session in the main checkout reads
  * as it always has.
  * @param {Record<string, unknown>} payload
@@ -290,22 +291,34 @@ const overRoomNotice = (names) =>
  * @returns {() => TreePorts}
  */
 function lazyTree(payload, adapters, root) {
-	/** @type {TreePorts | undefined} */
-	let ports;
+	/** @type {{ ports: TreePorts } | { fault: Error } | undefined} */
+	let found;
 	return () => {
-		if (ports) return ports;
-		const cwd =
-			typeof payload.cwd === "string" && payload.cwd
-				? payload.cwd
-				: (adapters.fallbackCwd ?? process.cwd());
-		const dir = sessionTree({ cwd });
-		if (dir === null)
-			throw new Error(
-				`git names no top level for ${cwd}, so the session's tree is unknown — allowed unchecked`,
-			);
-		ports = dir === root ? adapters : treePorts(dir);
-		return ports;
+		found ??= resolveTree(payload, adapters, root);
+		if ("fault" in found) throw found.fault;
+		return found.ports;
 	};
+}
+
+/**
+ * @param {Record<string, unknown>} payload
+ * @param {Adapters} adapters
+ * @param {string} root
+ * @returns {{ ports: TreePorts } | { fault: Error }}
+ */
+function resolveTree(payload, adapters, root) {
+	const cwd =
+		typeof payload.cwd === "string" && payload.cwd
+			? payload.cwd
+			: (adapters.fallbackCwd ?? process.cwd());
+	const dir = sessionTree({ cwd });
+	if (dir === null)
+		return {
+			fault: new Error(
+				`git names no top level for ${cwd}, so the session's tree is unknown — allowed unchecked`,
+			),
+		};
+	return { ports: dir === root ? adapters : treePorts(dir) };
 }
 
 /**

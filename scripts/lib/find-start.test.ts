@@ -11,7 +11,10 @@
  * out here rather than read from the core.
  */
 
+import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { freshSandbox } from "./arbiter-testkit";
+import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
 
 const { decide } = require("./find-start.js") as {
@@ -202,5 +205,27 @@ describe("every other start point passes silently", () => {
 		"cat <<'EOF'\nfind / -name x\nEOF",
 	])("a mention is not a run: %s", (command) => {
 		expect(judge(command)).toBeNull();
+	});
+});
+
+describe("from a linked worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+	const fromWorktree = (command: string) =>
+		runCore("guard-root-find", toolCall("Bash", { command }), {
+			root: at.main,
+			worktree: at.worktree,
+		}).output;
+
+	/* It reads no store and no tree: the refusal names the plugin's own root. */
+	it("refuses a find at / and names neither checkout as the root to search", () => {
+		const reason = String(
+			fromWorktree("find / -name x")?.permissionDecisionReason,
+		);
+		expect(reason).not.toBe("undefined");
+		expect(reason).not.toContain(at.worktree);
+		expect(reason).not.toContain(at.main);
 	});
 });

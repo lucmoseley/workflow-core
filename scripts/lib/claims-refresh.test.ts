@@ -12,6 +12,9 @@
  *
  * Loosen a case and a session's own `sed` reads as a clobber at its next write,
  * or a Bash-route overwrite goes unbaselined.
+ *
+ * The seam-2 case (#4242) runs it from a linked worktree of a main checkout:
+ * the claim store it refreshes is the host's, at the main checkout.
  */
 
 import { execFileSync } from "node:child_process";
@@ -19,7 +22,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { core, freshSandbox, live, store } from "./arbiter-testkit";
-import { runCore } from "./guard-core-testkit";
+import { runCore, splitCheckout } from "./guard-core-testkit";
 
 const sb = freshSandbox();
 const REL = "scripts/evidence-audit.py";
@@ -154,5 +157,39 @@ describe("refresh-claims — re-record what this session holds, after a Bash cal
 			run("alice");
 			expect(baselined()).toBe(2 * first);
 		});
+	});
+});
+
+describe("a Bash call from a session in its own worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	const split = freshSandbox((fresh) => {
+		at = splitCheckout(path.join(fresh.dir, "split"));
+		/* The claim store is the main checkout's, as the harness names it. */
+		process.env.CLAUDE_PROJECT_DIR = at.main;
+		process.env.WFC_REPO_ROOT = at.main;
+		process.env.WFC_DISPATCH_ROOT = at.main;
+		fs.mkdirSync(path.join(at.main, "scripts"));
+	});
+
+	it("refreshes the session's claim in the main checkout's store", () => {
+		const file = path.join(at.main, REL);
+		fs.writeFileSync(file, "v1.35\n");
+		const me = live(split, "alice");
+		store.acquire(REL, me);
+		store.recordContent(REL, me);
+		fs.writeFileSync(file, "v1.36\n");
+		const lock = () => core.readRecord(store.paths.lock(REL));
+		expect(store.contentState(REL, lock()).state).toBe("changed");
+		const r = runCore(
+			"refresh-claims",
+			{
+				session_id: "alice",
+				tool_name: "Bash",
+				tool_input: { command: "true" },
+			},
+			{ root: at.main, worktree: at.worktree, event: "PostToolUse" },
+		);
+		expect(r).toEqual({ output: null, logs: [] });
+		expect(store.contentState(REL, lock()).state).toBe("same");
 	});
 });

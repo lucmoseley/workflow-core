@@ -8,18 +8,30 @@
  * Module cases on the core, its path read by the real repo-relative spelling over a temp
  * checkout; the latch, the cap and its deferral are lib/guard-entry.test.ts's,
  * the symlinked spelling of a path lib/guard-dispatch.test.ts's.
+ *
+ * The seam-2 cases (#4242) run the core through the dispatcher from a linked
+ * worktree of a main checkout: the test is named by its path in the session's
+ * tree, and the rules' latch lands in the host's marker store.
  */
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { freshSandbox } from "./arbiter-testkit";
+import {
+	latchesAt,
+	runCore,
+	splitCheckout,
+	toolCall,
+} from "./guard-core-testkit";
+import { readRuleText } from "./rule-text.js";
 import { COLLECTED_TEST, isTestKind } from "./test-kind.js";
 
 const { decide } = require("./test-rules-inject.js") as {
 	decide: (
 		file: string,
-		ctx: { repoRel: (file: string) => string | null },
+		ctx: { tree: () => { repoRel: (file: string) => string | null } },
 	) => unknown;
 };
 const { repoRel } = require("./guard-dispatch.js") as {
@@ -38,7 +50,9 @@ beforeAll(() => {
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 const judged = (file: string) =>
-	decide(`${repo}/${file}`, { repoRel: (f) => repoRel(f, repo) });
+	decide(`${repo}/${file}`, {
+		tree: () => ({ repoRel: (f) => repoRel(f, repo) }),
+	});
 
 const RULES = {
 	injectRules: ["test-run-cost", "test-time-seam", "test-reads-visible"],
@@ -91,4 +105,31 @@ describe("any other write", () => {
 			expect(judged(file)).toBeNull();
 		},
 	);
+});
+
+describe("a test write from a session in its own worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+
+	const told = (worktree?: string) =>
+		runCore(
+			"inject-test-rules",
+			toolCall("Write", {
+				file_path: path.join(at.worktree, "tests", "a.ts"),
+				content: "x\n",
+			}),
+			{ root: at.main, worktree },
+		).output?.additionalContext ?? "";
+
+	it("hands the rules on a test named by its path in the worktree, latched at the main checkout", () => {
+		expect(told(at.worktree)).toContain(readRuleText("test-run-cost"));
+		expect(latchesAt(at.main)).not.toEqual([]);
+		expect(latchesAt(at.worktree)).toEqual([]);
+	});
+
+	it("is silent on the same file judged from the main checkout, where it lies outside the tree", () => {
+		expect(told()).toBe("");
+	});
 });

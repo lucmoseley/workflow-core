@@ -54,7 +54,9 @@
  * THE TIER TEST IS THIS CORE'S, AND CHOOSES ONLY WHETHER TO SPEAK. The arbiter
  * stays the authority on what is claimed and refused (mantahostels#102); a
  * prefix drifted out of step here costs a hint not given, never a wrong
- * verdict. It refuses on docs/, .claude/, CLAUDE.md and AGENTS.md; scripts/ is
+ * verdict. It reads the path as the session's tree spells it, and that tree's
+ * register, so a linked worktree's write is read by its own repo-relative path
+ * (#4242). It refuses on docs/, .claude/, CLAUDE.md and AGENTS.md; scripts/ is
  * a detect-only tier (mantahostels#287) never denied on; everything further
  * out is left to git (mantahostels#103). ONE HOLE: .claude/tmp/, the sanctioned
  * scratch directory (mantahostels#2089, mantahostels#2103), which
@@ -114,6 +116,7 @@ const { caught } = require("./caught.js");
 const { ruleModule } = require("./rule-gates.js");
 const { JS_TEST_FILE } = require("./test-kind.js");
 const { trimEndRun } = require("./trim-run.js");
+const { treeOr } = require("./tree-or.js");
 
 /** The anchor's argv share, below Linux's 128 KB single-argument cap. */
 const ANCHOR_MAX = 8000;
@@ -261,13 +264,15 @@ function readAnswer(stdout, ctx) {
 
 /**
  * The register's class for `rel`, where its qualifier is blank; "" where the
- * host has no register, does not list the path, or cannot be read (logged).
+ * session's tree has no register, does not list the path, or cannot be read
+ * (logged).
  * @param {string} rel
  * @param {FileClaimContext} ctx
+ * @param {import("./guard-dispatch.js").TreePorts} tree
  */
-function readAuthorityClass(rel, ctx) {
+function readAuthorityClass(rel, ctx, tree) {
 	try {
-		const text = ctx.readText(CLASSES);
+		const text = tree.readText(CLASSES);
 		if (text === null) return "";
 		const reg = JSON.parse(text);
 		if (!reg || typeof reg !== "object" || Array.isArray(reg))
@@ -284,7 +289,7 @@ function readAuthorityClass(rel, ctx) {
 		return typeof row.class === "string" ? row.class : "";
 	} catch (e) {
 		ctx.log(
-			`could not read ${ctx.root}/${CLASSES} — authority class of ${rel} unchecked: ${caught(e).message}`,
+			`could not read ${tree.root}/${CLASSES} — authority class of ${rel} unchecked: ${caught(e).message}`,
 		);
 		return "";
 	}
@@ -322,13 +327,13 @@ function arbiterAnswer(file, ctx) {
  * The docs arm's injection: the deny tier's cluster, led by whichever
  * path-tied, class or agent-doc rule this path keeps.
  * @param {string} rel
- * @param {boolean} agentDoc
+ * @param {{ agentDoc: boolean, cls: string }} kind whether the path is an
+ *   agent doc, and its authority class in the session tree's register
  * @param {string} note
  * @param {FileClaimContext} ctx
  * @returns {Decision}
  */
-function docsRules(rel, agentDoc, note, ctx) {
-	const cls = readAuthorityClass(rel, ctx);
+function docsRules(rel, { agentDoc, cls }, note, ctx) {
 	return {
 		prelude: note,
 		skip: [
@@ -408,8 +413,12 @@ function decide(file, ctx) {
 	const answer = arbiterAnswer(file, ctx);
 	if ("decision" in answer) return answer.decision;
 	const { note } = answer;
-	/* A root spelled with a trailing slash once made every strip a no-op. */
-	const root = trimEndRun(ctx.root, "/");
+	/* The rules follow the path in the session's tree, so a linked worktree's
+	 * write is read by its own spelling there (#4242); the claim itself is the
+	 * arbiter's, on the host. A root spelled with a trailing slash once made
+	 * every strip a no-op. */
+	const tree = treeOr(ctx, ctx);
+	const root = trimEndRun(tree.root, "/");
 	const rel = (
 		file.startsWith(`${root}/`) ? file.slice(root.length + 1) : file
 	).replace(/^\.\//, "");
@@ -418,7 +427,12 @@ function decide(file, ctx) {
 		/(?:^|\/)(?:CLAUDE|AGENTS)\.md$/.test(rel);
 	if (rel.startsWith(".claude/tmp/")) return note ? { context: note } : null;
 	if (/^(?:docs|\.claude)\//.test(rel) || /^(?:CLAUDE|AGENTS)\.md$/.test(rel))
-		return docsRules(rel, agentDoc, note, ctx);
+		return docsRules(
+			rel,
+			{ agentDoc, cls: readAuthorityClass(rel, ctx, tree) },
+			note,
+			ctx,
+		);
 	if (rel.startsWith("scripts/"))
 		return scriptRules(rel, agentDoc, creating, note);
 	/* A vendored skill under .agents/, or a nested CLAUDE.md: the one rule,

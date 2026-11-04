@@ -30,6 +30,12 @@
  * paths cost one `git ls-files` first, so scratch under `.claude/tmp/` is
  * never noted. A host whose tests never read the ledger notes nothing (#1245).
  *
+ * THE SESSION'S TREE (#4242): every repo-relative spelling, the `HEAD` a
+ * restore is judged against, the index a deletion is read from and the
+ * package.json naming the ledger's reader are the session's own checkout's —
+ * in a linked worktree, the worktree's. The tier-1 targets go out absolute,
+ * for the claim store, which is the host's, to place.
+ *
  * WHAT IT COSTS is on mantahostels#2854: its firing and false-warn rates, and
  * the per-session candidate distribution the budget rests on. Those rates
  * OVER-COUNT by an unmeasured margin (mantahostels#2865): they predate the
@@ -95,6 +101,7 @@
 
 const { normAbs, parseCommand, walkCommands } = require("./shell-parse.js");
 const { literal } = require("./shell-words.js");
+const { treeOr } = require("./tree-or.js");
 
 /**
  * lib/code-signal.sh's CODE globs, spelled again here, in TWO LIMBS because
@@ -136,6 +143,7 @@ const RESTORE_ROUTES = ["cp", "mv", "git restore", "git checkout"];
 
 /**
  * @typedef {import("./guard-dispatch.js").CoreContext} Ctx
+ * @typedef {import("./guard-dispatch.js").TreePorts} Tree
  * @typedef {{ targets: string[], credit: string[], select: string[],
  *   deleted: string[], restored: string[] }} Writes what one command writes:
  *   the tier-1 targets, absolute; the code paths to credit, the paths for the
@@ -144,7 +152,8 @@ const RESTORE_ROUTES = ["cp", "mv", "git restore", "git checkout"];
  */
 
 /**
- * A word's repo-relative spelling, or null where it is not inside the repo.
+ * A word's repo-relative spelling, or null where it is not inside the repo:
+ * the session's tree, so in a linked worktree the worktree (#4242).
  * Purely textual: a write target need not exist, nor its parents, so two
  * spellings of one path can reach the judge separately, which costs a
  * duplicate line at worst. A `..` segment climbs back out of the repo and the
@@ -221,9 +230,10 @@ function inlineInterp(prog, args, redirects) {
 
 /**
  * @typedef {{ abs: string, rel: string }} Place
- * @typedef {{ spans: string[], seed: string, cwd: string, root: string,
+ * @typedef {{ spans: string[], seed: string, cwd: string, tree: () => Tree,
  *   out: Writes }} Reading `seed` is where the walk starts, `cwd` where the
- *   command now stands, "" where unknown
+ *   command now stands, "" where unknown; `tree` the session's, resolved on
+ *   the first word placed, so a command writing nothing resolves none
  */
 
 /**
@@ -242,7 +252,7 @@ function place(word, rd, away) {
 	const text = lit.text.replace(/^\.\//, "");
 	if (!text.startsWith("/") && away) return null;
 	const abs = text.startsWith("/") ? text : `${rd.seed}/${text}`;
-	const rel = relPath(abs, rd.root);
+	const rel = relPath(abs, rd.tree().root);
 	return rel === null ? null : { abs, rel };
 }
 
@@ -359,9 +369,10 @@ function readCommand(cmd, rd) {
  * What `subject` writes, read off its parse.
  * @param {string} subject
  * @param {Ctx} ctx
+ * @param {() => Tree} tree
  * @returns {Writes}
  */
-function writes(subject, ctx) {
+function writes(subject, ctx, tree) {
 	const parsed = parseCommand(subject);
 	const seed = normAbs(
 		typeof ctx.cwd === "string" && ctx.cwd.startsWith("/")
@@ -373,7 +384,7 @@ function writes(subject, ctx) {
 		spans: parsed.spans,
 		seed,
 		cwd: seed,
-		root: ctx.root,
+		tree,
 		out: { targets: [], credit: [], select: [], deleted: [], restored: [] },
 	};
 	let inline = false;
@@ -426,11 +437,12 @@ function noteRestores(words, rows, rd, away) {
  * in a path is no glob. A git that will not answer notes none of them, logged.
  * @param {string[]} deleted
  * @param {Ctx} ctx
+ * @param {() => Tree} tree
  * @returns {string[]}
  */
-function readTrackedDeletions(deleted, ctx) {
+function readTrackedDeletions(deleted, ctx, tree) {
 	if (deleted.length === 0) return [];
-	const r = ctx.git(
+	const r = tree().git(
 		["--literal-pathspecs", "ls-files", "-z", "--", ...deleted],
 		[],
 	);
@@ -444,18 +456,19 @@ function readTrackedDeletions(deleted, ctx) {
 }
 
 /**
- * Whether the host's tests read the selection ledger. Its one reader is
+ * Whether the session tree's tests read the selection ledger. Its one reader is
  * run-vitest.js's overlay, so a host whose `test` script never runs it notes
  * nothing nothing reads (#1245). The match is lexical, on the script's text:
  * mantahostels's resolve-core.js wrapper names run-vitest.js and matches, and
  * a wrapper that does not name it drops the note. A host with no or an
  * unreadable package.json is the expected non-reader, no fault worth logging.
- * @param {Ctx} ctx
+ * @param {() => Tree} tree
  */
-function isSelectionReader(ctx) {
+function isSelectionReader(tree) {
+	const { readText } = tree();
 	let text;
 	try {
-		text = ctx.readText("package.json");
+		text = readText("package.json");
 	} catch {
 		/* An unreadable package.json is a non-reader, as an absent one is. */
 		return false;
@@ -470,15 +483,17 @@ function isSelectionReader(ctx) {
  * stays silent on the restore, and logs why.
  * @param {string[]} restored
  * @param {Ctx} ctx
+ * @param {() => Tree} tree
  */
-function restoreOwed(restored, ctx) {
+function restoreOwed(restored, ctx, tree) {
 	if (restored.length === 0) return false;
-	const head = ctx.git(["rev-parse", "--verify", "--quiet", "HEAD"], [1]);
+	const { git } = tree();
+	const head = git(["rev-parse", "--verify", "--quiet", "HEAD"], [1]);
 	if (!head.ok || !head.out.trim()) {
 		ctx.log("HEAD did not resolve — a whole-file restore went unjudged");
 		return false;
 	}
-	const diff = ctx.git(
+	const diff = git(
 		["--literal-pathspecs", "diff", "--name-only", "HEAD", "--", ...restored],
 		[],
 	);
@@ -499,10 +514,22 @@ function restoreOwed(restored, ctx) {
  * @returns {Writes & { owed: boolean }}
  */
 function plan(subject, ctx) {
-	const w = writes(subject, ctx);
-	w.select.push(...readTrackedDeletions(w.deleted, ctx));
-	if (!isSelectionReader(ctx)) w.select = [];
-	return { ...w, owed: restoreOwed(w.restored, ctx) };
+	const tree = sessionTree(ctx);
+	const w = writes(subject, ctx, tree);
+	w.select.push(...readTrackedDeletions(w.deleted, ctx, tree));
+	/* Asked only where there is a path to note: every other command reads no
+	 * package.json and resolves no tree. */
+	if (w.select.length > 0 && !isSelectionReader(tree)) w.select = [];
+	return { ...w, owed: restoreOwed(w.restored, ctx, tree) };
 }
+
+/**
+ * The session's tree; the host's own ports where git names no tree for the
+ * session's directory, since a command run from outside every repository
+ * still writes the host's files by absolute path.
+ * @param {Ctx} ctx
+ * @returns {() => Tree}
+ */
+const sessionTree = (ctx) => () => treeOr(ctx, ctx);
 
 module.exports = { plan };

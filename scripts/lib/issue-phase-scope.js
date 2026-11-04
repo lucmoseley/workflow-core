@@ -47,13 +47,19 @@
  *    (mantahostels#109).
  *  - ANY SESSION WRITES THE REGISTER (mantahostels#3483); only the founder
  *    CALLS a card. Nothing checks a row against his instruction, and this
- *    core reads the file from disk, so a row need not even be committed.
+ *    core reads the file from disk in the session's tree, so a row need not
+ *    even be committed there.
  *  - It FAILS OPEN, house style (mantahostels#103 §6): an unreadable title,
  *    an unreadable roadmap or a missing register allow the creation, and all
  *    are RECORDED (mantahostels#147) for check-guard-errors.js to report
  *    under `npm run status`.
  *
  * A CORE: it does no I/O; lib/issue-phase-scope-host.js builds its ports.
+ *
+ * THE SESSION'S TREE (#4242): the roadmap and the register are read in the
+ * session's tree, the linked worktree it runs in, never the host root's
+ * working copies, so a card the session's own tree calls or re-phases is the
+ * one judged.
  *
  * THE FIRST VERDICT ENDS THE CALL. A deny stops the walk, and so does a
  * fail-open, which is logged and lets the whole call through unjudged.
@@ -78,11 +84,13 @@ const {
 
 /**
  * @typedef {object} PhasePorts
- * @property {(rel: string) => boolean} readable whether the file at `rel`,
- *   relative to the host root, can be opened for reading
- * @property {(rel: string) => string} readFile its text; throws where it
- *   cannot be read
- * @typedef {import("./kit-context.js").KitContext & PhasePorts} PhaseContext
+ * @property {(tree: string, rel: string) => boolean} readable whether the
+ *   file at `rel`, relative to the tree rooted at `tree`, can be opened for
+ *   reading
+ * @property {(tree: string, rel: string) => string} readFile its text;
+ *   throws where it cannot be read
+ * @typedef {import("./kit-context.js").KitContext & PhasePorts
+ *   & Pick<import("./guard-dispatch.js").CoreContext, "tree">} PhaseContext
  * @typedef {import("./shell-parse.js").Command} Command
  * @typedef {import("./shell-parse.js").Parsed} Parsed
  * @typedef {import("./guard-entry.js").Decision} Decision
@@ -173,7 +181,7 @@ function judge(run, cmd) {
  * @param {Run} run
  */
 function openIfRoadmapUnreadable(run) {
-	if (!run.ctx.readable(ROADMAP))
+	if (!run.ctx.readable(run.ctx.tree().root, ROADMAP))
 		open(
 			run.ctx,
 			`${ROADMAP} is unreadable — issue creation allowed unchecked`,
@@ -326,7 +334,7 @@ function cardOf(title) {
 function phaseOf(run, card) {
 	if (run.roadmap === undefined) {
 		try {
-			run.roadmap = run.ctx.readFile(ROADMAP);
+			run.roadmap = run.ctx.readFile(run.ctx.tree().root, ROADMAP);
 		} catch {
 			run.roadmap = null;
 		}
@@ -352,7 +360,7 @@ function phaseOf(run, card) {
 function isCalled(run, card) {
 	let text = "";
 	try {
-		text = run.ctx.readFile(REGISTER);
+		text = run.ctx.readFile(run.ctx.tree().root, REGISTER);
 	} catch {
 		/* no rows */
 	}
@@ -379,7 +387,7 @@ function judgeTitle(run, segment, title) {
 	if (card === null) return;
 	const phase = phaseOf(run, card);
 	if (phase === null || phase === "0") return;
-	if (!run.ctx.readable(REGISTER))
+	if (!run.ctx.readable(run.ctx.tree().root, REGISTER))
 		open(
 			run.ctx,
 			`${REGISTER} is unreadable — issue creation for ${card} allowed unchecked`,

@@ -14,12 +14,23 @@
  * Loosen a case here and a bare vitest run parks on a hung call with no
  * output and no filename, unwarned — the hang mantahostels#1910's watchdog
  * was built for.
+ *
+ * The seam-2 case (#4242) runs it through the dispatcher from a linked
+ * worktree of a main checkout: the warn's latch is the main checkout's.
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { freshSandbox } from "./arbiter-testkit";
+import {
+	latchesAt,
+	runCore,
+	splitCheckout,
+	toolCall,
+} from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
+import { readRuleText } from "./rule-text";
 
 type Verdict = {
 	injectRules?: string[];
@@ -327,5 +338,31 @@ describe("a rule the store cannot give", () => {
 			},
 		});
 		expect(v?.context).toContain("rule:vitest-wrapper");
+	});
+});
+
+describe("a bare vitest run from a session in its own worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+
+	const fromWorktree = () =>
+		runCore(
+			"guard-vitest-wrapper",
+			toolCall("Bash", { command: "npx vitest run a.test.ts" }),
+			{ root: at.main, worktree: at.worktree },
+		).output?.additionalContext ?? "";
+
+	it("tells the rule once, latched in the main checkout's marker store, then the standing line", () => {
+		const rule = readRuleText("vitest-wrapper");
+		expect(fromWorktree()).toContain(rule);
+		expect(latchesAt(at.main).length).toBe(1);
+		expect(latchesAt(at.worktree)).toEqual([]);
+		const later = fromWorktree();
+		expect(later).not.toContain(rule);
+		expect(later).toContain(
+			"A vitest run outside `scripts/run-vitest.js` has no stall watchdog (`rule:vitest-wrapper`).",
+		);
 	});
 });

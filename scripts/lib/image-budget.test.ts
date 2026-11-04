@@ -9,13 +9,16 @@
  * payload is the stored Read result #1784's probes captured. Loosen the naming
  * cases and an agent is told an image it still sees is gone, or never told of
  * one it lost; loosen the silent ones and every Read carries the notice.
+ *
+ * The seam-2 case (#4242) reads from a linked worktree of a main checkout:
+ * the store is keyed on the session, never on a tree, so the two count as one.
  */
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runCore } from "./guard-core-testkit";
+import { runCore, splitCheckout } from "./guard-core-testkit";
 
 let tmp: string;
 let project: string;
@@ -210,5 +213,27 @@ describe("the store", () => {
 		expect(logs[0]).toMatch(
 			/^could not create .*wfc-image-budget — an image Read went uncounted$/,
 		);
+	});
+});
+
+describe("images read from a session in its own worktree (#4242)", () => {
+	it("count with the same session's Reads from the main checkout, one budget", () => {
+		const at = splitCheckout(path.join(tmp, "split"));
+		const from = (worktree?: string) =>
+			runCore(
+				"guard-image-budget",
+				imageRead(path.join(worktree ?? at.main, "a.png"), 400),
+				{
+					root: at.main,
+					worktree,
+					event: "PostToolUse",
+					env: {
+						WFC_IMAGE_BUDGET_CHARS: "1000",
+						WFC_IMAGE_WARN_CHARS: "750",
+					},
+				},
+			).output?.additionalContext ?? "";
+		expect(from()).toBe("");
+		expect(from(at.worktree)).not.toBe("");
 	});
 });

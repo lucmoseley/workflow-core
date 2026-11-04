@@ -11,7 +11,11 @@
  */
 
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { freshSandbox } from "./arbiter-testkit";
+import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
 
 type Decision = {
@@ -380,5 +384,47 @@ describe("the refusal's text", () => {
 
 	it("reads a CMD placeholder as nothing", () => {
 		refused("rm -rf $T/@CMD@", varSlash("$T/"));
+	});
+});
+
+describe("from a linked worktree, its latch and rule are the main checkout's (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+	/** A rule fragment of `id` reading `text`, in `tree`'s own rule store. */
+	const plantRule = (tree: string, id: string, text: string) => {
+		/* The suite pins every read to the plugin's store (vitest.setup.ts);
+		 * lifted, a checkout's own store is read first. */
+		process.env.WFC_RULES_DIR = "";
+		const rules = path.join(tree, "docs", "agents", "rules");
+		fs.mkdirSync(rules, { recursive: true });
+		fs.writeFileSync(path.join(rules, `${id}.txt`), `${text}\n`);
+	};
+	const fromWorktree = (command: string) =>
+		runCore("guard-rm-unchecked", toolCall("Bash", { command }), {
+			root: at.main,
+			worktree: at.worktree,
+		}).output;
+
+	/** The refusal latches under `tree`'s marker store. */
+	const rmLatches = (tree: string) => {
+		const markers = path.join(tree, ".claude", "tmp", "markers");
+		return fs.existsSync(markers)
+			? fs.readdirSync(markers).filter((f) => f.includes("rm-unchecked"))
+			: [];
+	};
+
+	it("refuses with the main checkout's fragment and latches there, so the repeat passes", () => {
+		plantRule(at.main, "rm-unchecked", "HOST RM RULE");
+		plantRule(at.worktree, "rm-unchecked", "WORKTREE RM RULE");
+		const reason = String(
+			fromWorktree("sudo rm -rf $T/*")?.permissionDecisionReason,
+		);
+		expect(reason).toContain("HOST RM RULE");
+		expect(reason).not.toContain("WORKTREE RM RULE");
+		expect(rmLatches(at.main)).toHaveLength(1);
+		expect(rmLatches(at.worktree)).toEqual([]);
+		expect(fromWorktree("sudo rm -rf $T/*")).toBeNull();
 	});
 });

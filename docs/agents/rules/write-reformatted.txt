@@ -5,5 +5,6 @@ before editing it again.
 
 Biome is the formatter/linter of record; `biome.json`'s `includes` carries the
 exclusions — `docs/` and `public/` among them, `.claude/skills/` not — so the
-roadmap HTML's hand-tuned CSS/JS is never auto-reformatted. Biome never runs in
-a worktree, which has no `node_modules`.
+roadmap HTML's hand-tuned CSS/JS is never auto-reformatted. Biome runs from the
+checkout the file is in — a linked worktree's own `node_modules` and
+`biome.json` — and never in a checkout with no `node_modules`.

@@ -28,7 +28,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { runCore, toolCall } from "./guard-core-testkit";
+import { freshSandbox } from "./arbiter-testkit";
+import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
 
 /* The shape the third predicate limb keys on, for the case where the hook
@@ -553,7 +554,7 @@ describe("the cases a mutant must not survive (#2789)", () => {
 });
 
 describe("the root it names", () => {
-	it("offers .claude/tmp/ under the host root, not the hook's directory", () => {
+	it("offers .claude/tmp/ under the host root where the hook's directory lies in no repository", () => {
 		const elsewhere = fs.mkdtempSync(path.join(dir, "cwd-"));
 		const { output } = runCore(
 			"guard-job-dir-scratch",
@@ -566,6 +567,32 @@ describe("the root it names", () => {
 		);
 		expect(output?.permissionDecisionReason).toContain(
 			`sanctioned target: ${dir}/.claude/tmp/x.out`,
+		);
+	});
+});
+
+describe("a refusal for a session in its own worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+
+	const named = (worktree?: string) =>
+		runCore(
+			"guard-job-dir-scratch",
+			toolCall("Bash", { command: "echo hi > $CLAUDE_JOB_DIR/tmp/x.out" }),
+			{ root: at.main, worktree, env: { CLAUDE_JOB_DIR: JOB_DIR } },
+		).output?.permissionDecisionReason;
+
+	it("offers the worktree's own .claude/tmp/", () => {
+		expect(named(at.worktree)).toContain(
+			`sanctioned target: ${at.worktree}/.claude/tmp/x.out`,
+		);
+	});
+
+	it("offers the main checkout's to a session there", () => {
+		expect(named()).toContain(
+			`sanctioned target: ${at.main}/.claude/tmp/x.out`,
 		);
 	});
 });

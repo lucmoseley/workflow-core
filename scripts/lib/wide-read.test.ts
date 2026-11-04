@@ -27,7 +27,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { runCore } from "./guard-core-testkit";
+import { freshSandbox } from "./arbiter-testkit";
+import {
+	latchesAt,
+	runCore,
+	splitCheckout,
+	toolCall,
+} from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
 import { decide } from "./wide-read.js";
 import { buildHostPorts } from "./wide-read-host.js";
@@ -627,5 +633,49 @@ describe("a dumper behind a launcher (#3519)", () => {
 
 	it("stays silent on a dumper inside a shell's -c string", () => {
 		expect(run('sh -c "cat big.md"')).toEqual(silent);
+	});
+});
+
+describe("from a linked worktree, the file read is the worktree's (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+
+	const catFromWorktree = () =>
+		runCore("guard-wide-read", toolCall("Bash", { command: "cat big.txt" }), {
+			root: at.main,
+			worktree: at.worktree,
+			env: envWith({}),
+		}).output;
+	const big = "x".repeat(WIDE_BYTES * 2);
+
+	it("warns on the worktree's wide file, read from the hook's own directory", () => {
+		fs.writeFileSync(path.join(at.worktree, "big.txt"), big);
+		fs.writeFileSync(path.join(at.main, "big.txt"), "x\n");
+		expect(catFromWorktree()?.additionalContext).toBeDefined();
+	});
+
+	it("latches a wide Read in the main checkout's marker store, never the worktree's", () => {
+		const file = path.join(at.worktree, "big.txt");
+		fs.writeFileSync(file, big);
+		const out = runCore(
+			"guard-wide-read",
+			toolCall("Read", { file_path: file }),
+			{
+				root: at.main,
+				worktree: at.worktree,
+				env: envWith({}),
+			},
+		).output;
+		expect(out?.additionalContext).toBeDefined();
+		expect(latchesAt(at.main)).toHaveLength(1);
+		expect(latchesAt(at.worktree)).toEqual([]);
+	});
+
+	it("passes the worktree's small file, however wide the main checkout's", () => {
+		fs.writeFileSync(path.join(at.worktree, "big.txt"), "x\n");
+		fs.writeFileSync(path.join(at.main, "big.txt"), big);
+		expect(catFromWorktree()).toBeNull();
 	});
 });

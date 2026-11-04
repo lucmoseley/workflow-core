@@ -54,6 +54,8 @@ const JUDGE_DENY = "Not run: what this run would test is already attested.";
 const RULE = readCheckoutRuleText("unasked-rerun");
 
 let calls: JudgeInput[];
+/** The session tree each judge call was handed. */
+let trees: string[];
 let logged: [string, string | undefined][];
 
 /** The core on `command`, the judge answering `answer` (or throwing it). */
@@ -85,8 +87,10 @@ function run(
 			ruleText,
 			docPath,
 			moduleOn,
-			judge: (input: JudgeInput) => {
+			tree: () => ({ root: "/repo" }),
+			judge: (input: JudgeInput, tree: string) => {
 				calls.push(input);
+				trees.push(tree);
 				if (answer instanceof Error) throw answer;
 				return answer;
 			},
@@ -98,6 +102,7 @@ const REFUSED = { deny: `${JUDGE_DENY}\n\n${RULE}` };
 
 beforeEach(() => {
 	calls = [];
+	trees = [];
 	logged = [];
 });
 
@@ -135,6 +140,11 @@ describe("a bare test run is judged", () => {
 		expect(calls).toEqual([
 			{ sessionId: SID, cwd: "/work/sub", command: "npm run test" },
 		]);
+	});
+
+	it("with the session's tree, whose HEAD and own work it judges (#4242)", () => {
+		run("npm run test");
+		expect(trees).toEqual(["/repo"]);
 	});
 
 	it("in no directory where the walk cannot know it, leaving the judge to skip the checkout test", () => {

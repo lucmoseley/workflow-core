@@ -19,13 +19,19 @@
  * what makes a silent change to either constant fail something. It is the
  * only vetting of a new dependency, so a loosened case lets an unvetted
  * install through.
+ *
+ * The seam-2 cases (#4242) run it through the dispatcher from a linked
+ * worktree of a main checkout, on real files: the package.json read is the
+ * worktree's.
  */
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { freshSandbox } from "./arbiter-testkit";
 import { fakeTreeClassifier } from "./git-tree-fake.js";
+import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
 import {
 	buildPassingRegistry,
@@ -86,11 +92,12 @@ function harness(reg: Partial<Registry> = {}, over: Over = {}) {
 		treeClass: fakeTreeClassifier({ "/repo": "shared" }),
 		log: (what: string, detail?: string) =>
 			logs.push(detail ? `${what}\t${detail}` : what),
+		tree: () => ({ root: "/repo" }),
 		readPackageJson: () => ({
 			path: "/repo/package.json",
 			text: over.pkg === undefined ? JSON.stringify(PKG) : over.pkg,
 		}),
-		readManifest: (dep: string) => over.manifests?.[dep] ?? null,
+		readManifest: (_root: string, dep: string) => over.manifests?.[dep] ?? null,
 		npmView: (pkg: string): Call => {
 			calls.push(`npm view ${pkg} time.created --json`);
 			return npmViewAnswer(full);
@@ -1252,5 +1259,32 @@ describe("fail-closed, where the registry cannot be asked", () => {
 				viewOut: "",
 			}),
 		).toMatch(/could not be reached/);
+	});
+});
+
+describe("an install from a session in its own worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+
+	const listedPkg = JSON.stringify({ dependencies: { "left-pad": "^1.3.0" } });
+	const verdict = () =>
+		runCore(
+			"guard-npm-install",
+			toolCall("Bash", { command: "npm install left-pad" }),
+			{ root: at.main, worktree: at.worktree },
+		).output?.permissionDecision;
+
+	it("takes a package the worktree's package.json lists as already listed", () => {
+		fs.writeFileSync(path.join(at.worktree, "package.json"), listedPkg);
+		fs.writeFileSync(path.join(at.main, "package.json"), "{}");
+		expect(verdict()).toBeUndefined();
+	});
+
+	it("refuses it unlisted in the worktree, though the main checkout lists it", () => {
+		fs.writeFileSync(path.join(at.worktree, "package.json"), "{}");
+		fs.writeFileSync(path.join(at.main, "package.json"), listedPkg);
+		expect(verdict()).toBe("deny");
 	});
 });

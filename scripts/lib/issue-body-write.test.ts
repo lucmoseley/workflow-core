@@ -18,7 +18,15 @@
  */
 
 import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { freshSandbox } from "./arbiter-testkit";
+import {
+	latchesAt,
+	runCore,
+	splitCheckout,
+	toolCall,
+} from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
 import { readRuleText } from "./rule-text";
 
@@ -532,5 +540,25 @@ describe("the relocated rule reaches the session that trips the guard", () => {
 			`This writes an issue body whole, erasing any parallel session's edit: gh issue edit 132 --body "…"\n\nEvery issue-body edit goes through node scripts/issue-body.js; the rule could not be read from docs/agents/rules/issue-body-clobber.txt. Read that file before doing anything else.`,
 		);
 		expect(faults).toEqual([]);
+	});
+});
+
+/* A host core reading no store: from a worktree it judges the command alone,
+ * and latches nothing in either tree (#4242). */
+describe("a session in its own worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+
+	it("refuses the raw body write as from the main checkout, latching nothing", () => {
+		const out = runCore(
+			"guard-issue-body",
+			toolCall("Bash", { command: 'gh issue edit 132 --body "x"' }),
+			{ root: at.main, worktree: at.worktree },
+		).output;
+		expect(out?.permissionDecision).toBe("deny");
+		expect(latchesAt(at.main)).toEqual([]);
+		expect(latchesAt(at.worktree)).toEqual([]);
 	});
 });

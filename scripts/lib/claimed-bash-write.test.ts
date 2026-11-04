@@ -16,6 +16,10 @@
  *
  * Nothing else announces a Bash-route write to a claimed file: a missed write
  * route lets a session overwrite a neighbour's tier-1 doc unwarned.
+ *
+ * The seam-2 cases (#4242) run it from a linked worktree of a main checkout:
+ * whether a restore discards uncommitted edits is the worktree's `HEAD` and
+ * working files' answer.
  */
 
 import { spawnSync } from "node:child_process";
@@ -26,7 +30,7 @@ import { freshSandbox, live, store } from "./arbiter-testkit";
 import { plan } from "./bash-write-plan.js";
 import { decide } from "./claimed-bash-write.js";
 import { buildHostPorts } from "./claimed-bash-write-host.js";
-import { runCore } from "./guard-core-testkit";
+import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 import { hostAdapters } from "./guard-dispatch.js";
 import { registrationsOf } from "./hook-wiring";
 import { kitContext } from "./kit-context.js";
@@ -56,17 +60,20 @@ function ctxFor(command: string) {
 		logs.push(what);
 	};
 	const payload = buildBashPayload(command, "mine");
+	/* The host's ports stand in for the session's tree as well. */
+	const ports = hostAdapters(sb.repo, log);
 	return {
 		...kitContext(
 			{ root: sb.repo, payload, log },
 			{
-				...hostAdapters(sb.repo, log),
+				...ports,
 				fallbackCwd: sb.repo,
 				vars: {},
 				env: {},
 			},
 		),
 		session: "mine",
+		tree: () => ports,
 		...buildHostPorts(),
 	};
 }
@@ -1081,5 +1088,30 @@ describe("cases a mutant must not survive", () => {
 			expect(r.output).toBe(null);
 			expect(r.logs.join("\n")).toContain("HEAD did not resolve");
 		});
+	});
+});
+
+describe("a restore from a session in its own worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((fresh) => {
+		at = splitCheckout(path.join(fresh.dir, "split"));
+	});
+
+	const told = () =>
+		runCore(NAME, toolCall("Bash", { command: "git restore -- a.md" }), {
+			root: at.main,
+			worktree: at.worktree,
+		}).output?.additionalContext ?? "";
+
+	const Rule = "A WHOLE-FILE RESTORE THROWS AWAY EVERY UNCOMMITTED EDIT";
+
+	it("hands the rule where the worktree's own copy holds uncommitted edits", () => {
+		fs.appendFileSync(path.join(at.worktree, "a.md"), "mine\n");
+		expect(told()).toContain(Rule);
+	});
+
+	it("is silent where only the main checkout's copy is dirty", () => {
+		fs.appendFileSync(path.join(at.main, "a.md"), "theirs\n");
+		expect(told()).not.toContain(Rule);
 	});
 });

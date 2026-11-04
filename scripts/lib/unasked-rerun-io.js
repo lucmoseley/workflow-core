@@ -2,7 +2,11 @@
  * unasked-rerun-io.js — the production `JudgeIO` lib/unasked-rerun.js's
  * `judge` decides over (#2913): the latch and refusal log under the markers
  * directory, git, the write ledger, the own-work selection, the
- * pass-marker store and the red store, at one repository root.
+ * pass-marker store and the red store.
+ *
+ * TWO TREES (#4242). The stores are the host root's; HEAD, the own-work
+ * selection and the checkout a run must be in are the session's tree's,
+ * `tree`, which is the host root where the two are one.
  *
  * A CLASSED RED STANDS BESIDE THE CERTIFICATES (#3633), asked only where
  * certificates alone do not attest: a red-store run whose every failure
@@ -48,11 +52,12 @@ const REFUSAL_LOG = ".unasked-rerun-refusals.jsonl";
 const slug = (sid) => sid.replace(/[^A-Za-z0-9_-]/g, "_");
 
 /**
- * @param {string} root
- * @param {{ timeoutMs?: number }} [options]
+ * @param {string} root the host root, where the stores live
+ * @param {{ tree?: string, timeoutMs?: number }} [options] `tree` the
+ *   session's tree, the host root where omitted
  * @returns {import("./unasked-rerun.js").JudgeIO}
  */
-function judgeIO(root, { timeoutMs = HOOK_GIT_TIMEOUT_MS } = {}) {
+function judgeIO(root, { tree = root, timeoutMs = HOOK_GIT_TIMEOUT_MS } = {}) {
 	/** @param {string} sid */
 	const latchPath = (sid) =>
 		path.join(markersDir(root), LATCH_PREFIX + slug(sid));
@@ -95,9 +100,9 @@ function judgeIO(root, { timeoutMs = HOOK_GIT_TIMEOUT_MS } = {}) {
 				`${JSON.stringify(record)}\n`,
 			),
 		gitDir,
-		rootGitDir: () => gitDir(root),
+		treeGitDir: () => gitDir(tree),
 		head: () => {
-			const { out, timedOut } = git(["rev-parse", "HEAD"], root);
+			const { out, timedOut } = git(["rev-parse", "HEAD"], tree);
 			return { sha: out, timedOut };
 		},
 		/* The ledger's path is found through the store's repo root, a git read. */
@@ -110,7 +115,7 @@ function judgeIO(root, { timeoutMs = HOOK_GIT_TIMEOUT_MS } = {}) {
 		selection: (sid) => {
 			const { exec, seen } = boundedExec();
 			const { value, overran } = store.withGitTimeout(timeoutMs, () =>
-				ownSelection(root, sid, { execFn: exec }),
+				ownSelection(tree, sid, { execFn: exec }),
 			);
 			return { selection: value, timedOut: seen.timedOut || overran };
 		},

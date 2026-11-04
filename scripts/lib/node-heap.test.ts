@@ -6,9 +6,20 @@
  * once-a-session rule on commands that never touch the heap. The latch, the
  * emission and the hook boundary are guard-entry.test.ts's and
  * guard-node-heap.test.ts's.
+ *
+ * The seam-2 case (#4242) runs it through the dispatcher from a linked
+ * worktree of a main checkout: the rule's latch is the main checkout's.
  */
 
+import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { freshSandbox } from "./arbiter-testkit";
+import {
+	latchesAt,
+	runCore,
+	splitCheckout,
+	toolCall,
+} from "./guard-core-testkit";
 import { decide } from "./node-heap.js";
 import { readRuleText } from "./rule-text";
 
@@ -45,5 +56,32 @@ describe("the rule carries its operative clauses", () => {
 		["is not a raise", "a per-command lowering is allowed"],
 	])("names %s — %s", (clause) => {
 		expect(readRuleText("node-heap").replace(/\s+/g, " ")).toContain(clause);
+	});
+});
+
+describe("a heap flag from a session in its own worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+
+	const fromWorktree = () =>
+		runCore(
+			"guard-node-heap",
+			toolCall("Bash", {
+				command: "NODE_OPTIONS=--max-old-space-size=2048 node x.js",
+			}),
+			{
+				root: at.main,
+				worktree: at.worktree,
+			},
+		).output?.additionalContext ?? "";
+
+	it("hands the rule once, latched in the main checkout's marker store", () => {
+		const rule = readRuleText("node-heap");
+		expect(fromWorktree()).toContain(rule);
+		expect(latchesAt(at.main).length).toBe(1);
+		expect(latchesAt(at.worktree)).toEqual([]);
+		expect(fromWorktree()).not.toContain(rule);
 	});
 });

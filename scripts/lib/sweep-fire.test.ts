@@ -26,7 +26,10 @@
  * store. The hook line is scripts/guard-dispatch.test.ts's boundary set.
  *
  * Loosen a case here and a hand-typed `gh workflow run` spends past the day's
- * sweep budget unrefused, the CI-minute spend mantahostels#2188 capped.
+ * sweep budget unrefused, the CI-minute spend mantahostels#2188 capped. *
+ * The seam-2 case (#4242) runs it from a linked worktree of a main checkout:
+ * the budget spent is the main checkout's, in the git common dir the two
+ * share.
  */
 
 import { execFileSync } from "node:child_process";
@@ -35,7 +38,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { type CoreRun, runCore } from "./guard-core-testkit";
+import { type CoreRun, runCore, splitCheckout } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
 
 const req = createRequire(__filename);
@@ -425,5 +428,29 @@ describe("a budget it cannot count refuses nothing", () => {
 			cap: budget.AUTOFIRE_DAILY_CAP,
 			day: "2026-08-31",
 		});
+	});
+});
+
+describe("a hand-fire from a session in its own worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	beforeEach(() => {
+		at = splitCheckout(path.join(dir, "split"));
+	});
+
+	it("spends the main checkout's budget, refusing the fire the main checkout's day has no unit left for", () => {
+		const main = budget.markerPath(at.main);
+		const t = Date.parse(NOON);
+		for (let i = 0; i < budget.AUTOFIRE_DAILY_CAP; i++)
+			budget.recordFiring(
+				main,
+				t,
+				budget.spentToday(budget.readState(main).state, t),
+			);
+		const { output } = runCore(
+			"guard-sweep-fire",
+			{ session_id: "test", tool_name: "Bash", tool_input: { command: FIRE } },
+			{ root: at.main, worktree: at.worktree, env: { WFC_NOW: NOON } },
+		);
+		expect(output?.permissionDecision).toBe("deny");
 	});
 });

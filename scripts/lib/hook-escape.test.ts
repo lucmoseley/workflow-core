@@ -10,8 +10,12 @@
  * guard-hook-escape.test.ts.
  */
 
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { freshSandbox } from "./arbiter-testkit";
 import { fakeTreeClassifier } from "./git-tree-fake.js";
+import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
 
 type Decision = { deny: string } | null;
@@ -221,5 +225,37 @@ describe("the refusal's text", () => {
 		expect(reason).toBe(
 			`${FRAMING}: WFC_ALLOW_BRANCH=1 node scripts/x.js\n\nsee /plugin/scripts/x.sh`,
 		);
+	});
+});
+
+describe("from a linked worktree, its rule is read from the main checkout's store (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+	/** A rule fragment of `id` reading `text`, in `tree`'s own rule store. */
+	const plantRule = (tree: string, id: string, text: string) => {
+		/* The suite pins every read to the plugin's store (vitest.setup.ts);
+		 * lifted, a checkout's own store is read first. */
+		process.env.WFC_RULES_DIR = "";
+		const rules = path.join(tree, "docs", "agents", "rules");
+		fs.mkdirSync(rules, { recursive: true });
+		fs.writeFileSync(path.join(rules, `${id}.txt`), `${text}\n`);
+	};
+	const fromWorktree = (command: string) =>
+		runCore("guard-hook-escape", toolCall("Bash", { command }), {
+			root: at.main,
+			worktree: at.worktree,
+		}).output;
+
+	it("refuses with the main checkout's hook-escape fragment, not the worktree's", () => {
+		plantRule(at.main, "hook-escape", "HOST ESCAPE RULE");
+		plantRule(at.worktree, "hook-escape", "WORKTREE ESCAPE RULE");
+		const reason = String(
+			fromWorktree("WFC_ALLOW_BRANCH=1 git commit -m x -- a")
+				?.permissionDecisionReason,
+		);
+		expect(reason).toContain("HOST ESCAPE RULE");
+		expect(reason).not.toContain("WORKTREE ESCAPE RULE");
 	});
 });

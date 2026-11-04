@@ -77,7 +77,7 @@ const ANSWERS = {
 		unresolved: { dir: null, timedOut: false },
 		timedOut: { dir: null, timedOut: true },
 	},
-	rootGitDir: {
+	treeGitDir: {
 		resolved: { dir: ROOT_GIT_DIR, timedOut: false },
 		unresolved: { dir: null, timedOut: false },
 		timedOut: { dir: null, timedOut: true },
@@ -378,7 +378,7 @@ function fakeIO(picks = {}) {
 			refusals.push(record);
 		},
 		gitDir: () => answer("gitDir"),
-		rootGitDir: () => answer("rootGitDir"),
+		treeGitDir: () => answer("treeGitDir"),
 		head: () => answer("head"),
 		ledger: () => answer("ledger"),
 		selection: () => answer("selection"),

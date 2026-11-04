@@ -16,7 +16,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { runCore } from "./guard-core-testkit";
+import { freshSandbox } from "./arbiter-testkit";
+import { runCore, splitCheckout } from "./guard-core-testkit";
 
 let dir: string;
 let project: string;
@@ -283,7 +284,7 @@ describe("the cases a mutant must not survive (#2791)", () => {
 		);
 	});
 
-	it("reads git in the payload's cwd, falling back to the host root", () => {
+	it("reads git in the payload's cwd, falling back to the hook's own tree", () => {
 		const other = path.join(dir, "other");
 		fs.mkdirSync(other);
 		const head = git("rev-parse", "--short", "HEAD");
@@ -302,4 +303,53 @@ describe("the cases a mutant must not survive (#2791)", () => {
 		);
 		expect(reason.match(/^ {2}[0-9a-f]+ c\d+$/gm)).toHaveLength(20);
 	});
+});
+
+describe("from a linked worktree, the snapshot is the worktree's (#4242)", () => {
+	let at: { main: string; worktree: string };
+	/** `at`'s tree moved on by one commit; its short HEAD. */
+	const advance = (root: string, subject: string) => {
+		const g = (...args: string[]) =>
+			spawnSync(
+				"git",
+				["-C", root, "-c", "user.name=t", "-c", "user.email=t@t", ...args],
+				{ encoding: "utf8" },
+			).stdout.trim();
+		g("commit", "-q", "--allow-empty", "-m", subject);
+		return g("rev-parse", "--short", "HEAD");
+	};
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+
+	const fromWorktree = (prompt: string, top: Record<string, unknown> = {}) =>
+		runCore(
+			"guard-blind-dispatch",
+			{
+				session_id: "s1",
+				tool_name: "Agent",
+				...top,
+				tool_input: {
+					description: "score",
+					subagent_type: "general-purpose",
+					prompt,
+				},
+			},
+			{ root: at.main, worktree: at.worktree },
+		).output;
+
+	it.each([
+		["the payload's cwd", {}],
+		["the hook's own directory, where the payload's cwd is empty", { cwd: "" }],
+	])(
+		"passes the worktree's HEAD and refuses the main checkout's, read from %s",
+		(_, top) => {
+			const wt = advance(at.worktree, "worktree work");
+			const main = advance(at.main, "main work");
+			expect(fromWorktree(`blind run\nBlind-checked: ${wt}`, top)).toBeNull();
+			const out = fromWorktree(`blind run\nBlind-checked: ${main}`, top);
+			expect(out?.permissionDecision).toBe("deny");
+			expect(out?.permissionDecisionReason).toContain(`Blind-checked: ${wt}`);
+		},
+	);
 });

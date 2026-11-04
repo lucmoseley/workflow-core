@@ -114,6 +114,10 @@
  * broken core refuses every call its `if` admits, launch or not: `node
  * --version` and `node scripts/commit-paths.js` too. `git commit -- <paths>`
  * stays open for the fix.
+ *
+ * SESSION TREE (#4242): a launch's npm script and the `--full` limb's read
+ * graph are the session's tree's, where the launch runs; the machine, the
+ * queues, the host's config and the stand-down log are the host's.
  */
 
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
@@ -166,11 +170,13 @@ const { trimEndRun, trimRun, trimStartRun } = require("./trim-run.js");
  * @property {import("./suite-handoff.js").CarriedWeight | null} [launchWeight]
  *   the judged launch's own carried weight, where the queue asks for it
  * @property {() => string[]} runners the host's declared `suiteRunners`
- * @property {(script: string) => boolean} isWrapperScript whether the host's
- *   npm script runs run-vitest.js; yes where it cannot be read
+ * @property {(script: string, tree: string) => boolean} isWrapperScript
+ *   whether the npm script of the tree at `tree`, the session's (#4242), runs
+ *   run-vitest.js; yes where it cannot be read
  * @property {() => string | null} declaredTest the host's `commands.test`
- * @property {(argv: string[]) => { plain: boolean } | { fault: string }} fullLaunchPlain
- *   whether a `--full` launch's argv is plain and the read graph renders
+ * @property {(argv: string[], tree: string) => { plain: boolean } | { fault: string }} fullLaunchPlain
+ *   whether a `--full` launch's argv is plain and the read graph renders from
+ *   the tree at `tree`, the session's
  * @property {(line: string) => boolean} appendStanddown one record appended
  *   to the stand-down log; false where it could not be
  * @property {() => string} now gl_when's timestamp
@@ -181,7 +187,9 @@ const { trimEndRun, trimRun, trimStartRun } = require("./trim-run.js");
  *   told: (id: string) => boolean,
  *   readLatch: (name: string) => string | null,
  *   session: string,
- * }} Ctx the kit's context, the part this core reads, and its own ports
+ *   tree: () => Pick<import("./guard-dispatch.js").TreePorts, "root">,
+ * }} Ctx the kit's context, the part this core reads, and its own ports;
+ *   `tree` the session's, whose npm scripts and read graph are read (#4242)
  */
 
 /* The id the plain-`--full` limb latches under (#181), in the `warn.<id>`
@@ -412,7 +420,7 @@ function buildState(command, parsed, ctx) {
 				runners ??= ctx.runners();
 				return runners;
 			},
-			isWrapperScript: ctx.isWrapperScript,
+			isWrapperScript: (script) => ctx.isWrapperScript(script, ctx.tree().root),
 		},
 		readPs: () => {
 			if (ps === undefined) ps = ctx.psRows();
@@ -519,7 +527,8 @@ function wholeSuiteLaunch(st, parsed) {
 			if (words.length === 0 || launchKey(st, words) !== key) return;
 			const launch = launchOf(st, words);
 			if (launch?.kind === "wrapper") return;
-			if (launch?.script && st.ctx.isWrapperScript(launch.script)) return;
+			if (launch?.script && st.launchPorts.isWrapperScript(launch.script))
+				return;
 			found = true;
 		},
 		st.ctx,
@@ -582,7 +591,7 @@ function buildTestSubject(st, launch, words) {
 	/* `test:watch` runs the whole suite and takes no `--full`. */
 	s.narrowed = files !== null || (!watch && !hasFullFlag(words));
 	s.reaps = launch.kind === "npm-vitest";
-	s.plain = !!launch.script && !st.ctx.isWrapperScript(launch.script);
+	s.plain = !!launch.script && !st.launchPorts.isWrapperScript(launch.script);
 	/* The FIRST `--full` launch in the command, kept for the limb (#181). */
 	if (!watch && !st.fullLaunchWords && hasFullFlag(words))
 		st.fullLaunchWords = words.slice(launch.taken).map(st.typed);
@@ -1087,7 +1096,7 @@ function judge(st, cmd) {
  */
 function fullLimb(st) {
 	if (!st.fullLaunchWords || st.ctx.told(FULL_LIMB_ID)) return false;
-	const full = st.ctx.fullLaunchPlain(st.fullLaunchWords);
+	const full = st.ctx.fullLaunchPlain(st.fullLaunchWords, st.ctx.tree().root);
 	if ("plain" in full) return full.plain;
 	st.ctx.log(
 		`the plain-\`--full\` check did not run — limb unsaid: ${full.fault || "no message"}`,

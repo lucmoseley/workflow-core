@@ -60,16 +60,19 @@ function readOrNull(file) {
 }
 
 /**
- * @param {string} root
+ * The two file reads take the session's tree from the core (#4242): the
+ * install edits that tree's package.json, and its `npx` resolves there.
  * @returns {import("./npm-install.js").NpmInstallPorts}
  */
-function buildHostPorts(root) {
+function buildHostPorts() {
 	const npm = process.env.WFC_NPM || "npm";
 	const curl = process.env.WFC_CURL || "curl";
-	const pkg = path.join(root, "package.json");
 	return {
-		readPackageJson: () => ({ path: pkg, text: readOrNull(pkg) }),
-		readManifest: (dep) =>
+		readPackageJson: (root) => {
+			const pkg = path.join(root, "package.json");
+			return { path: pkg, text: readOrNull(pkg) };
+		},
+		readManifest: (root, dep) =>
 			readOrNull(path.join(root, "node_modules", dep, "package.json")),
 		npmView: (name) =>
 			call(npm, ["view", name, "time.created", "--json"], NPM_TIMEOUT_MS),

@@ -60,7 +60,8 @@
  *    even though `typescript` is a dependency. That is intended: the refusal
  *    names the dependency whose installed `bin` carries it,
  *    `npx -p typescript tsc` (#1806). Only direct dependencies are read, and
- *    only from the host root's `node_modules`.
+ *    only from the session tree's `node_modules` (#4242): the tree the
+ *    session's own `npx` resolves `node_modules/.bin` in.
  *  - `npm` and `npx` options are read as npm's parser (nopt) reads them —
  *    abbreviations, single-dash long forms and shorthands included (#563,
  *    #571) — by lib/npm-options.js, against npm 11.16.0's config list. A
@@ -130,11 +131,12 @@ const NPX_REMOVED = new Set(
  *   a registry call: `missing` where its program could not be started, else
  *   its exit status (null where it was killed) and stdout
  * @typedef {object} NpmInstallPorts
- * @property {() => { path: string, text: string | null }} readPackageJson the
- *   host root's package.json, `text` null where it cannot be read
- * @property {(dep: string) => string | null} readManifest
- *   `node_modules/<dep>/package.json` under the host root, null where it
- *   cannot be read
+ * @property {(root: string) => { path: string, text: string | null }} readPackageJson
+ *   the package.json of the tree at `root`, the session's (#4242), `text` null
+ *   where it cannot be read
+ * @property {(root: string, dep: string) => string | null} readManifest
+ *   `node_modules/<dep>/package.json` under `root`, the session's tree, null
+ *   where it cannot be read
  * @property {(pkg: string) => Call} npmView `npm view <pkg> time.created --json`
  * @property {(pkg: string) => Call} downloads last month's downloads endpoint
  *   for `pkg`
@@ -143,7 +145,9 @@ const NPX_REMOVED = new Set(
  *   milliseconds; the budget runs from it
  * @property {boolean} allowNewPackage `WFC_ALLOW_NEW_PACKAGE` set in the
  *   hook's own environment
- * @typedef {import("./kit-context.js").KitContext & NpmInstallPorts} NpmInstallContext
+ * @typedef {import("./kit-context.js").KitContext & NpmInstallPorts
+ *   & Pick<import("./guard-dispatch.js").CoreContext, "tree">} NpmInstallContext
+ *   `tree` the session's, whose package.json and `node_modules` are read
  * @typedef {{ deny: string }} Verdict
  */
 
@@ -290,7 +294,7 @@ const DEP_FIELDS = [
  * @returns {string[] | null}
  */
 function loadDeps(ctx) {
-	const pkg = ctx.readPackageJson();
+	const pkg = ctx.readPackageJson(ctx.tree().root);
 	if (pkg.text === null) {
 		ctx.log(
 			`no readable package.json at ${pkg.path} — install allowed unchecked`,
@@ -342,7 +346,8 @@ function depNames(text) {
  * @returns {string | null | undefined}
  */
 function binOwner(bin, deps, ctx) {
-	const texts = deps.map((dep) => ctx.readManifest(dep));
+	const { root } = ctx.tree();
+	const texts = deps.map((dep) => ctx.readManifest(root, dep));
 	let whole = texts.every((t) => t !== null);
 	/** @type {string | null} */
 	let owner = null;

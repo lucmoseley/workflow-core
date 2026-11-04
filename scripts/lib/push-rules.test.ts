@@ -62,6 +62,7 @@ interface Over {
 	hasSweep?: boolean;
 	cwd?: string;
 	vars?: Record<string, string>;
+	sessionTree?: string;
 }
 
 const treeClass = fakeTreeClassifier({
@@ -84,6 +85,7 @@ function harness(over: Over = {}) {
 		told: (id) => (over.told ?? []).includes(id),
 		readLatch: (name) => over.latches?.[name] ?? null,
 		session: SID,
+		tree: () => ({ root: over.sessionTree ?? SHARED }),
 		reviewOwed: (tree: string) => {
 			reviewed.push(tree);
 			return owed(tree);
@@ -172,10 +174,10 @@ describe("a push whose tree it cannot resolve is handed the rules (#319)", () =>
 		expect(logs).toEqual([]);
 	});
 
-	it("its review is read at the repo root, the tree handed over as empty", () => {
-		const { ctx, reviewed } = harness();
+	it('its review is read in the session\'s tree, which git -C "" runs in (#4242)', () => {
+		const { ctx, reviewed } = harness({ sessionTree: LINKED });
 		decide('git -C "$W" push origin main', ctx);
-		expect(reviewed).toEqual([""]);
+		expect(reviewed).toEqual([LINKED]);
 	});
 });
 

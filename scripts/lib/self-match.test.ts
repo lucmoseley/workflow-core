@@ -26,7 +26,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { runCore } from "./guard-core-testkit";
+import { freshSandbox } from "./arbiter-testkit";
+import {
+	latchesAt,
+	runCore,
+	splitCheckout,
+	toolCall,
+} from "./guard-core-testkit";
 
 let dir: string;
 
@@ -496,5 +502,23 @@ describe("cases a mutant must not survive", () => {
 		["grep claude /tmp/comm", "a comm path outside /proc"],
 	])("hands no rule on %s — %s", (command) => {
 		expect(context(command)).not.toContain("NEVER `comm`");
+	});
+});
+
+describe("from a linked worktree, its rule latch is the main checkout's (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+	const fromWorktree = (command: string) =>
+		runCore("guard-self-match", toolCall("Bash", { command }), {
+			root: at.main,
+			worktree: at.worktree,
+		}).output;
+
+	it("latches claude-process-count in the main checkout's marker store, never the worktree's", () => {
+		expect(fromWorktree("pgrep -c claude")).not.toBeNull();
+		expect(latchesAt(at.main)).toHaveLength(1);
+		expect(latchesAt(at.worktree)).toEqual([]);
 	});
 });

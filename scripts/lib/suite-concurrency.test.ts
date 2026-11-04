@@ -24,13 +24,20 @@
  * Loosen a case here and a second whole suite, or a launch under the measured
  * headroom, runs unrefused or unwarned into the 10 GB cap that earlyoom
  * enforces by killing live sessions.
+ *
+ * The seam-2 cases (#4242) run it through the dispatcher from a linked
+ * worktree of a main checkout, over a roomy MemAvailable and a quiet `ps`
+ * planted at their seams: whether the launch's npm script runs run-vitest.js
+ * is read from the worktree's package.json, the declared command from the
+ * main checkout's config.
  */
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { runCore, toolCall } from "./guard-core-testkit";
+import { freshSandbox } from "./arbiter-testkit";
+import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
 import { WHOLE_SLOT_BOUND } from "./whole-slot-bound";
 
@@ -204,6 +211,7 @@ function harness(over: Over = {}) {
 		},
 		now: () => NOW,
 		session: "test",
+		tree: () => ({ root: "/repo" }),
 	});
 }
 
@@ -2964,5 +2972,52 @@ describe("a bare `tsc` the type-check slot would hold is sent to `queue-run.js -
 				judge("tsc --noEmit", ROOMY_MB, running, { vars: ESCAPED }).verdict,
 			),
 		).toBe("deny");
+	});
+});
+
+describe("a whole-suite launch from a session in its own worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+		const meminfo = path.join(sb.dir, "meminfo");
+		fs.writeFileSync(meminfo, "MemAvailable: 67108864 kB\n");
+		const ps = path.join(sb.dir, "ps");
+		fs.writeFileSync(ps, "#!/bin/sh\necho '1 sleep 1'\n", { mode: 0o755 });
+		/* The sandbox restores the environment after each case. */
+		process.env.WFC_MEMINFO = meminfo;
+		process.env.WFC_PS = ps;
+		fs.mkdirSync(path.join(at.main, ".claude"), { recursive: true });
+		fs.writeFileSync(
+			path.join(at.main, ".claude", "workflow-core.json"),
+			JSON.stringify({
+				commands: { test: "npm run test" },
+				modules: ["suites"],
+			}),
+		);
+	});
+	const plainScript = JSON.stringify({ scripts: { test: "vitest run" } });
+	const wrappedScript = JSON.stringify({
+		scripts: { test: "node scripts/run-vitest.js" },
+	});
+	const told = () =>
+		runCore(
+			"guard-suite-concurrency",
+			toolCall("Bash", { command: "npm run test" }),
+			{
+				root: at.main,
+				worktree: at.worktree,
+			},
+		).output?.additionalContext ?? "";
+
+	it("hands rule:targeted-runs where the worktree's test script is a plain vitest run", () => {
+		fs.writeFileSync(path.join(at.worktree, "package.json"), plainScript);
+		fs.writeFileSync(path.join(at.main, "package.json"), wrappedScript);
+		expect(told()).toContain(readRuleText("targeted-runs"));
+	});
+
+	it("withholds it where the worktree's test script runs run-vitest.js, whatever the main checkout's says", () => {
+		fs.writeFileSync(path.join(at.worktree, "package.json"), wrappedScript);
+		fs.writeFileSync(path.join(at.main, "package.json"), plainScript);
+		expect(told()).not.toContain(readRuleText("targeted-runs"));
 	});
 });
