@@ -326,7 +326,9 @@ function checkCensusOrFail(comment, n) {
 function checkLandedOrFail(comment, n) {
 	if (hasUnlandedLine(comment)) return;
 	checkRefusalOrFail("landing", n, () => {
-		const unlanded = readUnlandedCommits(worktreeRoot(), n, comment);
+		const unlanded = readUnlandedCommits(worktreeRoot(), n, comment, {
+			host: hostRoot(),
+		});
 		return unlanded.commits.length > 0 ? unlandedRefusal(n, unlanded) : "";
 	});
 }

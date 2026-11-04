@@ -1072,6 +1072,19 @@ describe("the commits the pushed ref lacks (#3101)", () => {
 		});
 	});
 
+	it("takes the pushed ref from the host root's config, not the worktree's (#4280)", () => {
+		const wt = path.join(dir, "wt");
+		git("worktree", "add", "-q", "--detach", wt);
+		fs.mkdirSync(path.join(wt, ".claude"), { recursive: true });
+		fs.writeFileSync(
+			path.join(wt, ".claude", "workflow-core.json"),
+			JSON.stringify({ contract: 1, tracker: "acme/tracker", modules: [] }),
+		);
+		git("update-ref", "refs/remotes/origin/main", "HEAD");
+		const d = run("gh issue close 12", lined, { cwd: wt });
+		expect(d?.deny).toContain("#12's commit is not on origin/landing");
+	});
+
 	it("allows a not-planned close over an unpushed commit", () => {
 		expect(verdict('gh issue close 12 --reason "not planned"')).toBe("allow");
 	});

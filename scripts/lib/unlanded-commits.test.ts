@@ -54,7 +54,7 @@ const push = (ref = "HEAD") =>
 	git("update-ref", "refs/remotes/origin/landing", ref);
 
 const unlanded = (n: number, comment = "") =>
-	readUnlandedCommits(root, n, comment).commits.map(
+	readUnlandedCommits(root, n, comment, { host: root }).commits.map(
 		(c: { subject: string }) => c.subject,
 	);
 
@@ -142,10 +142,23 @@ describe("the ticket's commits (#3092, #2983 closed over unpushed ones)", () => 
 		);
 		expect(unlanded(12)).toEqual([]);
 		expect(
-			readUnlandedCommits(wt, 12, "").commits.map(
+			readUnlandedCommits(wt, 12, "", { host: root }).commits.map(
 				(c: { subject: string }) => c.subject,
 			),
 		).toEqual(["Fix the stop (#12)"]);
+		fs.rmSync(wt, { recursive: true, force: true });
+	});
+
+	it("reads the pushed ref from the host's config, not the worktree's (#4280)", () => {
+		const wt = `${root}-wt`;
+		git("worktree", "add", "-q", "--detach", wt);
+		fs.writeFileSync(
+			path.join(wt, ".claude/workflow-core.json"),
+			JSON.stringify({ contract: 1, modules: [] }),
+		);
+		expect(readUnlandedCommits(wt, 12, "", { host: root }).pushed).toBe(
+			"origin/landing",
+		);
 		fs.rmSync(wt, { recursive: true, force: true });
 	});
 
@@ -237,22 +250,25 @@ describe("the pushed ref it compares against", () => {
 describe("where git cannot answer", () => {
 	it("throws outside a repository, never an empty answer", () => {
 		fs.rmSync(path.join(root, ".git"), { recursive: true });
-		expect(() => readUnlandedCommits(root, 12, "")).toThrow();
+		expect(() => readUnlandedCommits(root, 12, "", { host: root })).toThrow();
 	});
 
 	it("throws CeilingPassed where its ceiling passes", () => {
 		commit("Fix the stop (#12)");
 		const ceiling = buildGitCeiling({ label: "t", ms: 0 });
-		expect(() => readUnlandedCommits(root, 12, "", { ceiling })).toThrow(
-			CeilingPassed,
-		);
+		expect(() =>
+			readUnlandedCommits(root, 12, "", { ceiling, host: root }),
+		).toThrow(CeilingPassed);
 	});
 });
 
 describe("the refusal and its escape", () => {
 	it("names each commit by short sha and subject, the ref, and the Unlanded line", () => {
 		const sha = commit("Fix the stop (#12)");
-		const text = unlandedRefusal(12, readUnlandedCommits(root, 12, ""));
+		const text = unlandedRefusal(
+			12,
+			readUnlandedCommits(root, 12, "", { host: root }),
+		);
 		expect(text).toContain("#12's commit is not on origin/landing");
 		expect(text).toContain(
 			`  ${git("rev-parse", "--short", sha)} Fix the stop (#12)\n`,

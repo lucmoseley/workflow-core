@@ -58,9 +58,7 @@ const buildHostPorts = (root) => ({
 				worktreeRoot(cwd ?? root, { host: root }),
 				n,
 				comment,
-				{
-					ceiling,
-				},
+				{ ceiling, host: root },
 			);
 			return unlanded.commits.length > 0 ? unlandedRefusal(n, unlanded) : "";
 		}),
