@@ -2598,12 +2598,18 @@ describe("queueing the sessions parked on a lifted repo hold (#3863)", () => {
 		const live = queue([agent("p", "working")], {});
 		expect(live.out.launches).toEqual([]);
 		expect(live.out.settled).toEqual([{ hold, jobs: ["p"] }]);
+		expect(logs(live.calls)).toEqual([
+			"left session p, parked on repo hold abc now cleared alone: it is live",
+		]);
 
 		const answered = queue([agent("other", "working")], {
 			readParkMarkers: () => [],
 		});
 		expect(answered.out.launches).toEqual([]);
 		expect(answered.out.settled).toEqual([{ hold, jobs: ["p"] }]);
+		expect(logs(answered.calls)).toEqual([
+			"left session p, parked on repo hold abc now cleared alone: no park marker lists its issues",
+		]);
 	});
 
 	it("stops a session its blocked round holds, then queues it", () => {
@@ -2629,7 +2635,7 @@ describe("queueing the sessions parked on a lifted repo hold (#3863)", () => {
 		});
 
 	it("finishes one due back that its marker no longer lists", () => {
-		const { io } = fakeIo({ readParkMarkers: () => [] });
+		const { io, calls } = fakeIo({ readParkMarkers: () => [] });
 		const out = queueLifted([due()], [], {
 			agents: [agent("other", "working")],
 			now: NOW,
@@ -2638,6 +2644,9 @@ describe("queueing the sessions parked on a lifted repo hold (#3863)", () => {
 		});
 		expect(out.launches[0]).toMatchObject({ finishedAt: NOW });
 		expect(out.launches[0]).not.toHaveProperty("holdCleared");
+		expect(logs(calls).join("\n")).toContain(
+			"on repo hold abc: its park marker no longer lists its issues",
+		);
 	});
 
 	const queueOn = (launches: Launch[]) => {

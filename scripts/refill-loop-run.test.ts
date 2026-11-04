@@ -56,7 +56,6 @@ import {
 } from "./lib/dispatch-ledger.js";
 import { readGhAnswer } from "./lib/gh-fake";
 import { printed, stubGhRoutes } from "./lib/gh-stub";
-import { defineTemplate, initGitRepo } from "./lib/git-fixture";
 import {
 	API_PROMPT,
 	BOOT_PROMPT,
@@ -70,13 +69,12 @@ import {
 import { buildMeminfo } from "./lib/meminfo-fake";
 import { REAL_PROC } from "./lib/proc-root.js";
 import { projectSlug } from "./lib/project-slug.js";
-import { parseHoldId } from "./lib/repo-hold-fixture";
+import { parseHoldId, probedCheckout } from "./lib/repo-hold-fixture";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 import { killCarrying, killPid } from "./lib/suite-ceiling.js";
 import { OUTCOME_PREFIX } from "./lib/usage-probe.js";
 import { buildUsageCache } from "./lib/usage-probe-fake";
-import { readConfig } from "./lib/workflow-core-config.js";
 import { readProgramLibs } from "./lib-closure-fixture";
 
 /* One session, never a waker: an empty listing reads as unread, and a
@@ -102,17 +100,6 @@ let repo: string;
 let seat: string;
 
 const at = (name: string) => path.join(dir, name);
-/* A served checkout's shared `.git` the tick's probe passes (#3860): `main`, and
- * an origin it fetches from, kept inside the copy so each case has its own. */
-const gitRepo = defineTemplate((root) => {
-	const hooks = path.join(root, ".no-hooks");
-	fs.mkdirSync(hooks);
-	initGitRepo(root, hooks);
-	const origin = path.join(root, ".origin.git");
-	execFileSync("git", ["init", "-q", "--bare", "-b", "main", origin]);
-	execFileSync("git", ["remote", "add", "origin", origin], { cwd: root });
-	execFileSync("git", ["push", "-q", "origin", "main"], { cwd: root });
-});
 
 /* Swap under a quarter free and MemAvailable under the hold's line (#2690),
  * or neither. */
@@ -189,7 +176,7 @@ beforeEach(() => {
 		fs.copyFileSync(path.join(__dirname, f), path.join(scripts, f));
 
 	repo = at("repo");
-	gitRepo.instantiate(repo);
+	probedCheckout.instantiate(repo);
 	fs.mkdirSync(path.join(repo, ".claude"), { recursive: true });
 	fs.writeFileSync(path.join(repo, ".claude", "workflow-core.json"), "{}\n");
 	seat = at("seat");
@@ -1325,7 +1312,7 @@ describe("a parked launch (#2699)", () => {
 		/** A checkout under HOME the loop's scope leaves out, a marker listing #9 in it. */
 		const parkedOutOfScope = (name: string, config: object) => {
 			const other = at(name);
-			gitRepo.instantiate(other);
+			probedCheckout.instantiate(other);
 			fs.mkdirSync(path.join(other, ".claude"), { recursive: true });
 			fs.writeFileSync(
 				path.join(other, ".claude", "workflow-core.json"),
@@ -4477,18 +4464,6 @@ describe("a repo hold on the real tick (#3857)", () => {
 	const holdTick = (gh = "") =>
 		settled(run(1, gh ? { WFC_GH: gh } : {}), "run with a hold");
 
-	const serveIssue = (state: string) => {
-		fs.writeFileSync(
-			path.join(repo, ".claude", "workflow-core.json"),
-			JSON.stringify({ tracker: "o/r" }),
-		);
-		fs.mkdirSync(at("gh-routes"), { recursive: true });
-		return stubGhRoutes(at("gh-routes"), {
-			"issue view 12 *": printed(`${state}\n`),
-			"*": readGhAnswer(LOGGED_OUT),
-		}).gh;
-	};
-
 	it("stays while its command fails, launching on, and lifts the tick it passes", async () => {
 		raise("--clear-command", "test -f fixed");
 
@@ -4507,84 +4482,6 @@ describe("a repo hold on the real tick (#3857)", () => {
 		expect(passing.stdout).toContain("repair main");
 		expect(passing.stdout).toContain("passed command: test -f fixed");
 		expect(listed()).toContain("none open");
-	});
-
-	it("goes on the next tick where its check passes at once, with one line for its raise and one for its clear", async () => {
-		raise("--clear-command", "true");
-
-		const { status, stdout } = await holdTick();
-
-		expect(status).toBe(0);
-		expect(listed()).toContain("none open");
-		expect(stdout.match(/repo hold cleared/g)).toHaveLength(1);
-		const raised = readLines(at(".refill-loop.log")).filter((l) =>
-			l.includes("repo hold raised"),
-		);
-		expect(raised).toHaveLength(1);
-	});
-
-	it("stays while its issue is open and lifts once it is closed", async () => {
-		raise("--clear-issue", "12");
-		expect((await holdTick(serveIssue("OPEN"))).status).toBe(0);
-		expect(listed()).toContain("repair main");
-
-		const { status, stdout } = await holdTick(serveIssue("CLOSED"));
-
-		expect(status).toBe(0);
-		expect(stdout).toContain("passed issue #12 closed");
-		expect(listed()).toContain("none open");
-	});
-
-	it("stays, logged, where its issue will not read", async () => {
-		raise("--clear-issue", "13");
-
-		const { status, stdout } = await holdTick(serveIssue("CLOSED"));
-
-		expect(status).toBe(0);
-		expect(stdout).toContain("could not read #13:");
-		expect(listed()).toContain("repair main");
-	});
-
-	it("logs an unreadable store and launches as if no hold were open", async () => {
-		fs.writeFileSync(at("repo-holds"), "a file, not a directory\n");
-
-		const { status, stdout } = await holdTick();
-
-		expect(status).toBe(0);
-		expect(stdout).toContain("repo holds unread, read as not open this tick");
-		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
-	});
-
-	it("leaves a record that will not settle to its own tick, launching on", async () => {
-		raise("--clear-command", "true");
-		const store = fs.readdirSync(at("repo-holds"))[0] ?? "";
-		const name = fs.readdirSync(at(`repo-holds/${store}`))[0] ?? "";
-		const file = at(`repo-holds/${store}/${name}`);
-		const record = JSON.parse(fs.readFileSync(file, "utf8"));
-		record.clearCheck.command = "tr\0ue";
-		fs.writeFileSync(file, JSON.stringify(record));
-
-		const { status, stdout } = await holdTick();
-
-		expect(status).toBe(0);
-		expect(stdout).toContain(`repo hold ${record.id}: not settled`);
-		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
-	});
-
-	it("reads a record whose id would leave the store as no hold", async () => {
-		fs.writeFileSync(at("victim"), "kept\n");
-		raise("--clear-command", "true");
-		const store = fs.readdirSync(at("repo-holds"))[0] ?? "";
-		const name = fs.readdirSync(at(`repo-holds/${store}`))[0] ?? "";
-		const file = at(`repo-holds/${store}/${name}`);
-		const record = JSON.parse(fs.readFileSync(file, "utf8"));
-		fs.writeFileSync(file, JSON.stringify({ ...record, id: "../../victim" }));
-
-		const { status, stdout } = await holdTick();
-
-		expect(status).toBe(0);
-		expect(stdout).toContain("not a hold");
-		expect(fs.existsSync(at("victim"))).toBe(true);
 	});
 
 	it("lifts nothing on a dry run", async () => {
@@ -4615,14 +4512,11 @@ describe("a probe hold on the real tick (#3860)", () => {
 			path.join(root, ".claude", "workflow-core.json"),
 			JSON.stringify({ tracker: "o/r" }),
 		);
-	/* The suite's injection point for the modules a config declares. */
-	const LandingOn = { WFC_MODULES: "landing" };
 
-	const ProbeTitle = "Refill loop probe: shared .git failing in repo";
-	const serveClose = (open: { number: number; title: string }[] = []) => {
+	const serveClose = () => {
 		fs.mkdirSync(at("gh-routes"), { recursive: true });
 		return stubGhRoutes(at("gh-routes"), {
-			"issue list *": printed(JSON.stringify(open)),
+			"issue list *": printed("[]"),
 			[`issue close ${Issue} *`]: printed(""),
 			"issue edit *": printed(""),
 			"*": readGhAnswer(LOGGED_OUT),
@@ -4634,10 +4528,6 @@ describe("a probe hold on the real tick (#3860)", () => {
 		stub(
 			"file-issue.js",
 			`const fs = require("node:fs");
-if (fs.existsSync(${JSON.stringify(at("refuse-filing"))})) {
-	process.stderr.write("label list unread\\n");
-	process.exit(1);
-}
 fs.appendFileSync(${JSON.stringify(at("filed"))}, JSON.stringify({ args: process.argv.slice(2), body: fs.readFileSync(0, "utf8"), cwd: process.cwd() }) + "\\n");
 process.stdout.write("Filed #${Issue}\\n");
 `,
@@ -4677,16 +4567,6 @@ process.stdout.write("Filed #${Issue}\\n");
 		return settled(running, "run with a probe hold");
 	};
 
-	const holdCli = (gh: string, ...args: string[]) =>
-		runInProcess(path.join(__dirname, "repo-hold.js"), args, {
-			cwd: repo,
-			env: loopEnv({
-				CLAUDE_PROJECT_DIR: repo,
-				CLAUDE_JOB_DIR: "",
-				CLAUDE_CODE_SESSION_ID: "",
-				WFC_GH: gh,
-			}),
-		});
 	const readStatus = async () =>
 		(
 			await runInProcessAsync(
@@ -4730,227 +4610,9 @@ process.stdout.write("Filed #${Issue}\\n");
 		expect(readFiled()).toHaveLength(1);
 	});
 
-	it("clears a hold raised by an unreadable main the tick after a session runs the repair script, with launches resuming and no hand lift (#3867)", async () => {
-		const close = serveClose();
-		const mainRef = dotGit("refs/heads/main");
-		const tip = fs.readFileSync(mainRef, "utf8");
-		fs.writeFileSync(mainRef, "");
-
-		const broken = await tickRun(close.gh);
-
-		expect(broken.stdout).toContain("repo hold raised: probe in");
-		expect(fs.existsSync(at("dispatches"))).toBe(false);
-
-		const repaired = runInProcess(path.join(__dirname, "repair-main.js"), [], {
-			cwd: repo,
-			env: loopEnv({
-				CLAUDE_PROJECT_DIR: repo,
-				CLAUDE_CODE_SESSION_ID: "repairing-session",
-			}),
-		});
-		expect(repaired.status).toBe(0);
-		expect(fs.readFileSync(mainRef, "utf8")).toBe(tip);
-
-		const cleared = await tickRun(close.gh);
-
-		expect(cleared.stdout).toContain("repo hold cleared: probe in");
-		expect(cleared.stdout).not.toContain("repo hold lifted");
-		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
-		expect(await readStatus()).toContain("holds:     none open");
-	});
-
-	const setOriginUrl = (url: string) => {
-		const config = dotGit("config");
-		fs.writeFileSync(
-			config,
-			fs.readFileSync(config, "utf8").replace(/url = .*/, `url = ${url}`),
-		);
-	};
-	const breakOrigin = () => setOriginUrl(at("gone"));
-	const repairOrigin = () => setOriginUrl(path.join(repo, ".origin.git"));
-	/* This fixture serves one checkout, so one store. */
-	const outageFile = () =>
-		at(`repo-holds/${fs.readdirSync(at("repo-holds"))[0] ?? ""}/probe.outage`);
-	const ageOutage = (over: { since?: number; last?: number }) =>
-		fs.writeFileSync(
-			outageFile(),
-			JSON.stringify({
-				...JSON.parse(fs.readFileSync(outageFile(), "utf8")),
-				...over,
-			}),
-		);
-
-	describe("an outage (#3899)", () => {
-		const OutageLine = "a hold rises at 15m";
-
-		it("stops launches on each failing tick, raising no hold and filing no issue", async () => {
-			const close = serveClose();
-			breakOrigin();
-
-			for (const _ of [1, 2]) {
-				const { status, stdout } = await tickRun(close.gh);
-
-				expect(status).toBe(0);
-				expect(stdout).toContain(`probe failed in ${repo}: fetch origin:`);
-				expect(stdout).toContain(OutageLine);
-				expect(stdout).not.toContain("repo hold raised");
-			}
-			expect(fs.existsSync(at("dispatches"))).toBe(false);
-			expect(readFiled()).toHaveLength(0);
-			expect(await readStatus()).toContain("holds:     none open");
-		});
-
-		it("reads a git that never answers the same way", async () => {
-			const { status, stdout } = await tickRun(serveClose().gh, {
-				WFC_GIT: at("no-such-git"),
-			});
-
-			expect(status).toBe(0);
-			expect(stdout).toContain(`probe failed in ${repo}: fetch origin:`);
-			expect(stdout).toContain(OutageLine);
-			expect(stdout).not.toContain("repo hold raised");
-			expect(fs.existsSync(at("dispatches"))).toBe(false);
-			expect(readFiled()).toHaveLength(0);
-		});
-
-		it("launches again the tick the fetch passes, with nothing filed", async () => {
-			const close = serveClose();
-			breakOrigin();
-			await tickRun(close.gh);
-			repairOrigin();
-
-			const { stdout } = await tickRun(close.gh);
-
-			expect(stdout).not.toContain("probe failed");
-			expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
-			expect(readFiled()).toHaveLength(0);
-		});
-
-		it("raises the hold and files its issue once it has lasted the window", async () => {
-			const close = serveClose();
-			breakOrigin();
-			await tickRun(close.gh);
-			ageOutage({ since: 0 });
-
-			const { status, stdout } = await tickRun(close.gh);
-
-			expect(status).toBe(0);
-			expect(stdout).toContain("repo hold raised: probe in");
-			expect(readFiled()).toHaveLength(1);
-			expect(await readStatus()).toContain("stops launches: yes");
-		});
-
-		it("begins anew after a fetch that passes", async () => {
-			const close = serveClose();
-			breakOrigin();
-			await tickRun(close.gh);
-			ageOutage({ since: 0 });
-			repairOrigin();
-			await tickRun(close.gh);
-			breakOrigin();
-
-			const { status, stdout } = await tickRun(close.gh);
-
-			expect(status).toBe(0);
-			expect(stdout).toContain(OutageLine);
-			expect(stdout).not.toContain("repo hold raised");
-			expect(readFiled()).toHaveLength(0);
-		});
-
-		it("begins anew where no tick has seen the last one for the window", async () => {
-			const close = serveClose();
-			breakOrigin();
-			await tickRun(close.gh);
-			ageOutage({ since: 0, last: 0 });
-
-			const { status, stdout } = await tickRun(close.gh);
-
-			expect(status).toBe(0);
-			expect(stdout).toContain(OutageLine);
-			expect(stdout).not.toContain("repo hold raised");
-			expect(readFiled()).toHaveLength(0);
-		});
-
-		it("begins anew, logged, on a torn record", async () => {
-			const close = serveClose();
-			breakOrigin();
-			await tickRun(close.gh);
-			fs.writeFileSync(outageFile(), "{ torn");
-
-			const { status, stdout } = await tickRun(close.gh);
-
-			expect(status).toBe(0);
-			expect(stdout).toContain("outage record torn, begun anew:");
-			expect(stdout).toContain(OutageLine);
-			expect(readFiled()).toHaveLength(0);
-		});
-
-		it("raises at once where a ref fails too", async () => {
-			const close = serveClose();
-			breakOrigin();
-			fs.writeFileSync(dotGit("refs/heads/main"), "");
-
-			const { stdout } = await tickRun(close.gh);
-
-			expect(stdout).toContain("repo hold raised: probe in");
-			expect(readFiled()).toHaveLength(1);
-		});
-
-		it("keeps a hold already open, then clears it the tick the fetch passes", async () => {
-			const close = serveClose();
-			const main = fs.readFileSync(dotGit("refs/heads/main"));
-			breakOrigin();
-			fs.writeFileSync(dotGit("refs/heads/main"), "");
-			await tickRun(close.gh);
-			fs.writeFileSync(dotGit("refs/heads/main"), main);
-
-			await tickRun(close.gh);
-			expect(await readStatus()).toContain("stops launches: yes");
-
-			repairOrigin();
-			const { stdout } = await tickRun(close.gh);
-			expect(stdout).toContain("repo hold cleared: probe in");
-		});
-	});
-
-	it.each<[string, () => void, NodeJS.ProcessEnv]>([
-		[
-			"resolve main: names no commit",
-			() => fs.writeFileSync(dotGit("refs/heads/main"), ""),
-			{},
-		],
-		["resolve origin/landing: names no commit", () => undefined, LandingOn],
-	])(
-		"logs a failing probe's %s text and raises the hold",
-		async (text, breakIt, over) => {
-			breakIt();
-
-			const { status, stdout } = await tickRun(serveClose().gh, over);
-
-			expect(status).toBe(0);
-			expect(stdout).toContain(`probe failed in ${repo}: `);
-			expect(stdout).toContain(text);
-			expect(fs.existsSync(at("dispatches"))).toBe(false);
-			expect(await readStatus()).toContain("stops launches: yes");
-		},
-	);
-
-	it("passes with the landing module on once origin/landing resolves", async () => {
-		fs.mkdirSync(dotGit("refs/remotes/origin"), { recursive: true });
-		fs.copyFileSync(
-			dotGit("refs/heads/main"),
-			dotGit("refs/remotes/origin/landing"),
-		);
-
-		const { stdout } = await tickRun(serveClose().gh, LandingOn);
-
-		expect(stdout).not.toContain("probe failed");
-		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
-	});
-
 	it("keeps launching into the other served checkout", async () => {
 		const other = at("other");
-		gitRepo.instantiate(other);
+		probedCheckout.instantiate(other);
 		fs.mkdirSync(path.join(other, ".claude"));
 		writeConfig(other);
 		updateControl({
@@ -4969,71 +4631,6 @@ node ${shellQuote(path.join(scripts, "request-stop.js"))}\n`,
 		expect(stdout).toContain(`probe failed in ${repo}`);
 		expect(stdout).not.toContain(`probe failed in ${other}`);
 		expect(readLines(at("dispatches"))).toEqual([other]);
-	});
-
-	it("stands with no issue where the filing fails, logged, and files on a later tick", async () => {
-		const close = serveClose();
-		fs.writeFileSync(at("refuse-filing"), "");
-		breakHead();
-
-		const refused = await tickRun(close.gh);
-
-		expect(refused.stdout).toContain(
-			"issue not filed, the next tick retries: label list unread",
-		);
-		expect(readFiled()).toHaveLength(0);
-		expect(await readStatus()).toMatch(
-			/no issue filed yet.*stops launches: yes/,
-		);
-		expect(fs.existsSync(at("dispatches"))).toBe(false);
-
-		fs.rmSync(at("refuse-filing"));
-		const filed = await tickRun(close.gh);
-
-		expect(filed.stdout).toContain(
-			`repo hold probe in ${repo}: filed #${Issue}`,
-		);
-		expect(readFiled()).toHaveLength(1);
-		expect(await readStatus()).toContain(`issue #${Issue}`);
-	});
-
-	it("files nothing where it cannot tell whether an issue is already open", async () => {
-		const routes = at("gh-routes-out");
-		fs.mkdirSync(routes);
-		breakHead();
-
-		const { stdout } = await tickRun(
-			stubGhRoutes(routes, { "*": readGhAnswer(LOGGED_OUT) }).gh,
-		);
-
-		expect(stdout).toContain("could not look for an open one");
-		expect(readFiled()).toHaveLength(0);
-		expect(await readStatus()).toContain("no issue filed yet");
-	});
-
-	it("clears, logged, where its issue will not close", async () => {
-		breakHead();
-		await tickRun(serveClose().gh);
-		repairHead();
-
-		const { stdout } = await tickRun();
-
-		expect(stdout).toContain("repo hold cleared: probe in");
-		expect(stdout).toContain(`could not close #${Issue}:`);
-		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
-	});
-
-	it("stops launches where the store takes no record, filing nothing", async () => {
-		fs.writeFileSync(at("repo-holds"), "a file, not a directory\n");
-		breakHead();
-
-		const { status, stdout } = await tickRun(serveClose().gh);
-
-		expect(status).toBe(0);
-		expect(stdout).toContain("repo holds unread, read as not open this tick");
-		expect(stdout).toContain(`repo hold probe in ${repo}: not kept:`);
-		expect(fs.existsSync(at("dispatches"))).toBe(false);
-		expect(readFiled()).toHaveLength(0);
 	});
 
 	it("records a failed probe in the loop's state, and drops it the tick the probe passes (#3903)", async () => {
@@ -5103,43 +4700,6 @@ node ${shellQuote(path.join(scripts, "request-stop.js"))}\n`,
 		expect(fs.existsSync(at("dispatches"))).toBe(false);
 		expect(repaired.stdout).toMatch(/resumed 2 of 2 due/);
 		expect(fs.existsSync(markerPath("s-job9"))).toBe(false);
-	});
-
-	it("writes over a torn record of its hold", async () => {
-		const close = serveClose();
-		breakHead();
-		await tickRun(close.gh);
-		const store = fs.readdirSync(at("repo-holds"))[0] ?? "";
-		fs.writeFileSync(at(`repo-holds/${store}/probe.json`), "{ torn");
-
-		await tickRun(serveClose([{ number: Issue, title: ProbeTitle }]).gh);
-
-		expect(await readStatus()).not.toContain("unread:");
-		expect(await readStatus()).toContain("stops launches: yes");
-		expect(await readStatus()).toContain(`issue #${Issue}`);
-		expect(readFiled()).toHaveLength(1);
-		expect(fs.readdirSync(at(`repo-holds/${store}`)).sort()).toEqual([
-			"probe.json",
-			"probe.notice",
-		]);
-	});
-
-	it("closes its issue on a hand lift, and a still-broken .git raises it anew", async () => {
-		const close = serveClose();
-		breakHead();
-		await tickRun(close.gh);
-
-		const lifted = holdCli(close.gh, "lift", "probe");
-
-		expect(lifted.status).toBe(0);
-		expect(lifted.stdout).toContain("repo hold lifted by hand: probe in");
-		expect(lifted.stdout).not.toContain("could not close");
-		expect(holdCli(close.gh, "list").stdout).toContain("none open");
-
-		await tickRun(close.gh);
-
-		expect(holdCli(close.gh, "list").stdout).toContain("stops launches: yes");
-		expect(readFiled()).toHaveLength(2);
 	});
 
 	it("probes nothing on a dry run, and leaves a stored hold's launches out of its preview", async () => {
@@ -5230,76 +4790,6 @@ ${body}`,
 					tool_input: expect.objectContaining({ file_path: hooksFile() }),
 				}),
 			});
-		});
-
-		it("reads a deny of its benign Read as a failure", async () => {
-			writeGuardEntry(
-				`process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "kit fault\\nmore" } }));\n`,
-			);
-
-			const { stdout } = await tickRun(serveClose().gh);
-
-			expect(stdout).toContain("guard entry: refused a benign Read: kit fault");
-			expect(fs.existsSync(at("dispatches"))).toBe(false);
-		});
-
-		it("raises nothing and launches on where the re-run passes", async () => {
-			writeGuardEntry(
-				`const once = ${JSON.stringify(at("failed-once"))};
-if (!fs.existsSync(once)) { fs.writeFileSync(once, ""); process.exit(1); }
-process.exit(0);
-`,
-			);
-
-			const { status, stdout } = await tickRun(serveClose().gh);
-
-			expect(status).toBe(0);
-			/* One tick, its launch's stop ending the run: a run and its re-run. */
-			expect(guardRuns()).toHaveLength(2);
-			expect(stdout).not.toContain("probe failed");
-			expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
-			expect(readFiled()).toHaveLength(0);
-		});
-
-		it("clears the tick the entry loads again, closing its issue and launching", async () => {
-			const routes = at("gh-routes");
-			fs.mkdirSync(routes, { recursive: true });
-			const { gh } = stubGhRoutes(
-				routes,
-				{
-					"issue list *": printed("[]"),
-					[`issue close ${Issue} *`]: printed(""),
-					"issue edit *": printed(""),
-					"*": readGhAnswer(LOGGED_OUT),
-				},
-				{ log: at("gh-log") },
-			);
-			writeGuardEntry(Failing);
-			await tickRun(gh);
-			writeGuardEntry(Healthy);
-
-			const { stdout } = await tickRun(gh);
-
-			expect(stdout).toContain("repo hold cleared: probe in");
-			expect(stdout).not.toContain("could not close");
-			expect(
-				readLines(at("gh-log")).filter((l) =>
-					l.startsWith(`issue close ${Issue} `),
-				),
-			).toHaveLength(1);
-			expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
-			expect(await readStatus()).toContain("holds:     none open");
-		});
-
-		it("runs no step in a checkout with no self-plugin", async () => {
-			fs.rmSync(path.join(repo, "self-plugin"), { recursive: true });
-			writeGuardEntry(Failing);
-
-			const { stdout } = await tickRun(serveClose().gh);
-
-			expect(guardRuns()).toHaveLength(0);
-			expect(stdout).not.toContain("probe failed");
-			expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
 		});
 
 		it("attaches a session that parks while it stands, and resumes it through admission once the entry loads", async () => {
@@ -5573,42 +5063,6 @@ describe("the sessions parked on a cleared repo hold (#3863)", () => {
 			"issue edit 8 --repo o/r --remove-label parked",
 		]);
 		expect(fs.existsSync(markerPath("s-job8"))).toBe(false);
-	});
-
-	it("leaves alone one live and one its founder's answer took out of its marker", async () => {
-		const id = raiseWith("job8", "job9");
-		writeParkMarker("job8", 8, 5);
-		holdAs(null, "lift", id);
-		fakeResumeClaude("job8", [LISTED, buildJobRow("job8", "working")]);
-
-		const r = await tickUntil(0);
-
-		expect(r.status).toBe(0);
-		expect(readCalls()).toEqual([]);
-		expect(r.stdout).toMatch(/left session job8, .* alone: it is live/);
-		expect(r.stdout).toMatch(/left session job9, .* alone: no park marker/);
-		const store = fs.readdirSync(at("repo-holds"))[0] ?? "";
-		expect(fs.readdirSync(at(`repo-holds/${store}/lifted`))).toEqual([]);
-	});
-
-	it("resumes no session its founder answers while it waits for a slot", async () => {
-		const id = raiseWith("job8");
-		writeParkMarker("job8", 8, 5);
-		holdAs(null, "lift", id);
-		fakeResumeClaude("job8", [LISTED]);
-
-		await tickUntil(0);
-		expect(readState().launches[0].holdCleared.hold).toBe(id);
-		fs.rmSync(markerPath("s-job8"));
-		const r = await tickUntil(1);
-
-		expect(r.status).toBe(0);
-		expect(readCalls()).toEqual([]);
-		expect(r.stdout).toContain("its park marker no longer lists its issues");
-		expect(readState().launches[0]).toMatchObject({
-			finishedAt: expect.any(Number),
-		});
-		expect(readState().launches[0]).not.toHaveProperty("holdCleared");
 	});
 
 	it("stops one its normal-mode round still holds, then resumes it", async () => {
@@ -6464,19 +5918,13 @@ describe("a repo hold's phone notice on the real tick (#3871)", () => {
 		);
 	const readPhases = () => readDispatched().map((m) => m.split(" ").at(-1));
 
-	/**
-	 * gh for the next run: each dispatch so far has its comment on the issue unless
-	 * `isRunDropped`, as the workflow would.
-	 */
-	const serve = ({
-		isRefusing = false,
-		isRunDropped = false,
-		runs = [] as { status: string }[],
-	} = {}) => {
+	/** gh for the next run: each dispatch so far has its comment on the issue, as
+	 * the workflow would. */
+	const serve = () => {
 		fs.mkdirSync(at("gh-routes"), { recursive: true });
-		const comments = isRunDropped
-			? []
-			: readDispatched().map((m) => ({ body: `@x hello\n\n<!-- ${m} -->` }));
+		const comments = readDispatched().map((m) => ({
+			body: `@x hello\n\n<!-- ${m} -->`,
+		}));
 		return stubGhRoutes(
 			at("gh-routes"),
 			{
@@ -6484,8 +5932,8 @@ describe("a repo hold's phone notice on the real tick (#3871)", () => {
 				[`issue close ${Issue} *`]: printed(""),
 				"issue edit *": printed(""),
 				[`issue view ${Issue} *`]: printed(JSON.stringify({ comments })),
-				"run list *": printed(JSON.stringify(runs)),
-				"workflow run *": isRefusing ? readGhAnswer(LOGGED_OUT) : printed(""),
+				"run list *": printed("[]"),
+				"workflow run *": printed(""),
 				"*": readGhAnswer(LOGGED_OUT),
 			},
 			{ log: at("gh-log") },
@@ -6549,27 +5997,11 @@ describe("a repo hold's phone notice on the real tick (#3871)", () => {
 			}),
 		);
 
-	const readWorked = () =>
-		fs.existsSync(at("last-slot-worked.json"))
-			? fs.readFileSync(at("last-slot-worked.json"), "utf8")
-			: "";
-	const readWorkedAt = () => Number(JSON.parse(readWorked()).workedAt);
-
-	const noticeFile = (id: string) =>
-		at(`repo-holds/${fs.readdirSync(at("repo-holds"))[0] ?? ""}/${id}.notice`);
-	/** Age the last dispatch of the hold's raise past the wait for its comment. */
-	const ageRaiseDispatch = (id: string) => {
-		const notice = JSON.parse(fs.readFileSync(noticeFile(id), "utf8"));
-		notice.raise.at -= 16 * Min;
-		fs.writeFileSync(noticeFile(id), JSON.stringify(notice));
-	};
-
 	beforeEach(() => {
 		writeConfig();
 		stub(
 			"file-issue.js",
-			`if (require("node:fs").existsSync(${JSON.stringify(at("refuse-filing"))})) process.exit(1);
-process.stdout.write("Filed #${Issue}\\n");
+			`process.stdout.write("Filed #${Issue}\\n");
 `,
 		);
 	});
@@ -6601,158 +6033,6 @@ process.stdout.write("Filed #${Issue}\\n");
 		expect(readPhases()).toEqual(["raise", "clear"]);
 	});
 
-	it("sends a park hold nothing while a slot worked in the last 30 min, and once when that lapses", async () => {
-		raisePark();
-		slotWorkedAgo(5 * Min);
-		await tickRun(serve());
-		expect(readPhases()).toEqual([]);
-
-		slotWorkedAgo(31 * Min);
-		await tickRun(serve());
-		expect(readPhases()).toEqual(["raise"]);
-
-		await tickRun(serve());
-		slotWorkedAgo(31 * Min);
-		await tickRun(serve());
-		expect(readPhases()).toEqual(["raise"]);
-	});
-
-	it("starts the 30 min again for a loop that has not ticked for them", async () => {
-		raisePark();
-		fs.writeFileSync(
-			at("last-slot-worked.json"),
-			JSON.stringify({
-				workedAt: Date.now() - 24 * 60 * Min,
-				tickedAt: Date.now() - 24 * 60 * Min,
-			}),
-		);
-		await tickRun(serve());
-		expect(readPhases()).toEqual([]);
-	});
-
-	it("counts a working session as a slot that has worked", async () => {
-		raisePark();
-		slotWorkedAgo(31 * Min);
-		writeClaudeStub(at("claude"), [
-			buildAgentsBranch([{ ...LISTED, state: "working", status: "busy" }]),
-		]);
-		await tickRun(serve());
-		expect(readPhases()).toEqual([]);
-	});
-
-	it("sends a clear for a park hold lifted by hand, once its raise went", async () => {
-		raisePark();
-		slotWorkedAgo(31 * Min);
-		await tickRun(serve());
-		expect(readPhases()).toEqual(["raise"]);
-		const id = /^\s*([0-9a-f]+) /m.exec(holdCli("list").stdout)?.[1] ?? "";
-
-		holdCli("lift", id);
-		await tickRun(serve());
-		expect(readPhases()).toEqual(["raise", "clear"]);
-	});
-
-	it("breaks a mention in the act's text, so it pages nobody it names", async () => {
-		raisePark("ask @stranger to repair main");
-		slotWorkedAgo(31 * Min);
-		await tickRun(serve());
-		expect(readGhLog()).toContain("ask @​stranger");
-		expect(readGhLog()).not.toContain("@stranger");
-	});
-
-	it("logs a refused dispatch, retries it next tick, and sends only one once it succeeds", async () => {
-		breakHead();
-		const refused = await tickRun(serve({ isRefusing: true }));
-		expect(refused.stdout).toContain(
-			"raise notice not dispatched, the next tick retries",
-		);
-		expect(await readStatus()).toContain("notice: raise not sent");
-		const tries = readPhases().length;
-		expect(tries).toBeGreaterThan(1);
-
-		await tickRun(serve());
-		expect(readPhases()).toHaveLength(tries + 1);
-
-		await tickRun(serve());
-		expect(readPhases()).toHaveLength(tries + 1);
-	});
-
-	it("dispatches once more where a run was lost, then reads the notice lost and sends no third", async () => {
-		breakHead();
-		await tickRun(serve({ isRunDropped: true }));
-		expect(readPhases()).toEqual(["raise"]);
-
-		await tickRun(serve({ isRunDropped: true }));
-		expect(readPhases()).toEqual(["raise"]);
-
-		ageRaiseDispatch("probe");
-		await tickRun(serve({ isRunDropped: true }));
-		expect(readPhases()).toEqual(["raise", "raise"]);
-
-		ageRaiseDispatch("probe");
-		const lost = await tickRun(serve({ isRunDropped: true }));
-		expect(lost.stdout).toContain("raise notice lost");
-		expect(readPhases()).toEqual(["raise", "raise"]);
-		expect(await readStatus()).toContain("notice: raise lost");
-	});
-
-	it("waits on a run still queued rather than page twice", async () => {
-		breakHead();
-		await tickRun(serve({ isRunDropped: true }));
-
-		ageRaiseDispatch("probe");
-		await tickRun(serve({ isRunDropped: true, runs: [{ status: "queued" }] }));
-		expect(readPhases()).toEqual(["raise"]);
-	});
-
-	it("sends nothing and logs one line with the configuration unset", async () => {
-		writeConfig(false);
-		breakHead();
-		const first = await tickRun(serve());
-		const second = await tickRun(serve());
-		repairHead();
-		const third = await tickRun(serve());
-
-		expect(readGhLog()).not.toContain("workflow run");
-		expect(
-			(first.stdout + second.stdout + third.stdout).match(/no phone notice/g),
-		).toHaveLength(1);
-	});
-
-	it("sends neither for a hold cleared before its raise notice went", async () => {
-		raisePark();
-		slotWorkedAgo(5 * Min);
-		await tickRun(serve());
-		fs.writeFileSync(path.join(repo, "fixed"), "");
-
-		const cleared = await tickRun(serve());
-
-		expect(cleared.stdout).toContain("repo hold cleared");
-		expect(readGhLog()).not.toContain("workflow run");
-	});
-
-	it("retries a probe hold's notice with its filing", async () => {
-		fs.writeFileSync(at("refuse-filing"), "");
-		breakHead();
-		await tickRun(serve());
-		expect(readPhases()).toEqual([]);
-
-		fs.rmSync(at("refuse-filing"));
-		await tickRun(serve());
-		expect(readPhases()).toEqual(["raise"]);
-	});
-
-	it("sends neither for a probe hold that clears with its filing never landed", async () => {
-		fs.writeFileSync(at("refuse-filing"), "");
-		breakHead();
-		await tickRun(serve());
-		repairHead();
-		const cleared = await tickRun(serve());
-
-		expect(cleared.stdout).toContain("repo hold cleared: probe in");
-		expect(readGhLog()).not.toContain("workflow run");
-	});
-
 	it("counts a registry and listing holding nobody as no slot working", async () => {
 		raisePark();
 		slotWorkedAgo(31 * Min);
@@ -6760,119 +6040,5 @@ process.stdout.write("Filed #${Issue}\\n");
 		writeClaudeStub(at("claude"), [buildAgentsBranch([])]);
 		await tickRun(serve());
 		expect(readPhases()).toEqual(["raise"]);
-	});
-
-	it("does not count the 30 min while the loop is paused", async () => {
-		raisePark();
-		slotWorkedAgo(31 * Min);
-		updateControl({ paused: { at: Date.now(), why: "a test's pause" } });
-		const running = run(1, { WFC_GH: serve() });
-		await polled(
-			() =>
-				/"workedAt"/.test(readWorked()) && readWorkedAt() > Date.now() - Min,
-			"no tick restarted the count",
-		);
-		requestStop();
-		await settled(running, "run paused");
-		expect(readPhases()).toEqual([]);
-	});
-
-	it("treats a dispatch whose gh never exited as taken, checking before any second", async () => {
-		breakHead();
-		fs.mkdirSync(at("gh-routes"), { recursive: true });
-		const routed = serve();
-		const killed = at("gh-killed");
-		fs.writeFileSync(
-			killed,
-			`#!/bin/sh
-if [ "$1 $2" = "workflow run" ]; then printf '%s\\n' "$*" >> ${JSON.stringify(at("gh-log"))}; kill -TERM $$; fi
-exec ${JSON.stringify(routed)} "$@"
-`,
-			{ mode: 0o755 },
-		);
-		await tickRun(killed);
-		expect(readPhases()).toEqual(["raise"]);
-
-		await tickRun(serve());
-		expect(readPhases()).toEqual(["raise"]);
-	});
-
-	it("gives up a notice whose issue never reads, so its record does not stay for good", async () => {
-		raisePark();
-		slotWorkedAgo(31 * Min);
-		await tickRun(serve());
-		const unreadable = stubGhRoutes(at("gh-routes"), {
-			"*": readGhAnswer(LOGGED_OUT),
-		}).gh;
-		const id = /^\s*([0-9a-f]+) /m.exec(holdCli("list").stdout)?.[1] ?? "";
-		const notice = JSON.parse(fs.readFileSync(noticeFile(id), "utf8"));
-		notice.raise.at -= 25 * 60 * Min;
-		fs.writeFileSync(noticeFile(id), JSON.stringify(notice));
-
-		const given = await tickRun(unreadable);
-
-		expect(given.stdout).toContain("raise notice lost");
-		expect(await readStatus()).toContain("notice: raise lost");
-	});
-
-	it("sends no clear after a lost raise", async () => {
-		breakHead();
-		await tickRun(serve({ isRunDropped: true }));
-		for (const _ of [1, 2]) {
-			ageRaiseDispatch("probe");
-			await tickRun(serve({ isRunDropped: true }));
-		}
-		repairHead();
-		const cleared = await tickRun(serve({ isRunDropped: true }));
-		expect(cleared.stdout).toContain("repo hold cleared: probe in");
-		expect(readPhases()).toEqual(["raise", "raise"]);
-	});
-
-	it("sends nothing and reports a notice file that will not read", async () => {
-		breakHead();
-		await tickRun(serve());
-		fs.writeFileSync(noticeFile("probe"), "{ torn");
-
-		const torn = await tickRun(serve());
-
-		expect(torn.stdout).toContain("not its notice state");
-		expect(readPhases()).toEqual(["raise"]);
-		expect(await readStatus()).toContain("not its notice state");
-	});
-
-	it("judges a lifted hold's session once while its clear is owed", async () => {
-		raisePark();
-		slotWorkedAgo(31 * Min);
-		await tickRun(serve());
-		const id = /^\s*([0-9a-f]+) /m.exec(holdCli("list").stdout)?.[1] ?? "";
-		const file = noticeFile(id).replace(/\.notice$/, ".json");
-		fs.writeFileSync(
-			file,
-			JSON.stringify({
-				...JSON.parse(fs.readFileSync(file, "utf8")),
-				sessions: ["gonejob"],
-			}),
-		);
-		holdCli("lift", id);
-
-		const lifted = await tickRun(serve({ isRunDropped: true }));
-		const after = await tickRun(serve({ isRunDropped: true }));
-
-		expect(lifted.stdout).toContain("gonejob");
-		expect(after.stdout).not.toContain("gonejob");
-	});
-
-	it("has this host's configuration set, so the notice is on for this repo", () => {
-		const root = path.join(__dirname, "..");
-		const declared = JSON.parse(
-			fs.readFileSync(path.join(root, ".claude/workflow-core.json"), "utf8"),
-		);
-		const { founderNotice } = readConfig({ root, quiet: true });
-		expect(founderNotice).toEqual(declared.founderNotice);
-		expect(founderNotice).toEqual({
-			workflow: "founder-notice.yml",
-			repo: "lucmoseley/workflow-core-tracker",
-			mention: "lucmoseley",
-		});
 	});
 });

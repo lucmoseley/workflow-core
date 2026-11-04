@@ -134,11 +134,17 @@ const blockerRow = (r: {
  * n from the rows of its `blockedByPage` route keyed exactly
  * `…/issues/n/dependencies/blocked_by`, and null — sending n to that REST
  * path — where that route fails or there is none. `failing` is stubGhScript's.
+ * `bodies` takes the body a call pipes to `--body-file -`, read as gh reads
+ * it, so the writer never fails EPIPE on a stub that reads no stdin.
  */
 export function stubGhRoutes(
 	dir: string,
 	routes: Record<string, RouteAnswer>,
-	{ log, failing = false }: { log?: string; failing?: boolean } = {},
+	{
+		log,
+		bodies,
+		failing = false,
+	}: { log?: string; bodies?: string; failing?: boolean } = {},
 ): StubGh {
 	const arms = Object.entries(routes).map(
 		([key, a]) =>
@@ -164,7 +170,7 @@ serveAnswer(answerBlockedBy(process.argv.slice(2), (n) => blockers[n] ?? null));
 		arms.unshift(`  graphql) exec node ${shellQuote(file)} "$@" ;;`);
 	}
 	const script = `#!/bin/sh
-${log ? `printf '%s\\n' "$*" >> ${shellQuote(log)}\n` : ""}route_key() {
+${log ? `printf '%s\\n' "$*" >> ${shellQuote(log)}\n` : ""}${bodies ? `case " $* " in *" --body-file - "*) cat >> ${shellQuote(bodies)} ;; esac\n` : ""}route_key() {
   [ "$1" = api ] || { printf '%s' "$*"; return; }
   [ "$2" = graphql ] && { printf graphql; return; }
   key=$2 sep='?' fields= get=
