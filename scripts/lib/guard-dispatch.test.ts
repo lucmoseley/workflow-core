@@ -129,7 +129,10 @@ function run(
 	const r = dispatch(cores, {
 		payload: p,
 		root: dir,
-		adapters: hostAdapters(dir, (w) => logs.push(`entry\t${w}`)),
+		adapters: {
+			...hostAdapters(dir, (w) => logs.push(`entry\t${w}`)),
+			fallbackCwd: dir,
+		},
 		logFor: (name: string) => (what: string) => logs.push(`${name}\t${what}`),
 		disabled: (name: string) => disabled.includes(name),
 		persistChars: () => persistChars,

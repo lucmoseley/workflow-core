@@ -15,10 +15,6 @@
  * card moved phase, and would go green for the wrong reason once every card
  * was called. The entry's own cases — the JSON it prints, the hook line, the
  * failure policy — are guard-issue-phase-scope.test.ts's.
- *
- * The seam-2 cases (#4242) run the core through the dispatcher from a linked
- * worktree of a main checkout, real git built by `splitCheckout()`: the
- * register read is the worktree's, the main checkout's left unread.
  */
 
 import fs from "node:fs";

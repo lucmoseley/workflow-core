@@ -18,10 +18,6 @@
  *
  * Loosen a fire case and a probe's failed `cd` reaches the shared `.git/`
  * again; widen it and a script that reads git, or fails closed, is refused.
- *
- * The seam-2 cases (#4242) run it from a linked worktree of a main checkout:
- * whether the script is tracked is the worktree's index's answer, whatever
- * the main checkout's says.
  */
 
 import { execFileSync } from "node:child_process";

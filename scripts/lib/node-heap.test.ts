@@ -6,9 +6,6 @@
  * once-a-session rule on commands that never touch the heap. The latch, the
  * emission and the hook boundary are guard-entry.test.ts's and
  * guard-node-heap.test.ts's.
- *
- * The seam-2 case (#4242) runs it through the dispatcher from a linked
- * worktree of a main checkout: the rule's latch is the main checkout's.
  */
 
 import path from "node:path";

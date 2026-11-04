@@ -193,8 +193,7 @@ function watchedPaths(candidates, ctx) {
 
 /**
  * The scripts/ files an `npm run <name>` body mentions, absolute in the
- * session's tree: npm runs the package.json of the tree it stands in, and the
- * copies of the scripts there.
+ * session's tree.
  * @param {string} name
  * @param {StaleContext} ctx
  */

@@ -19,10 +19,6 @@
  * what makes a silent change to either constant fail something. It is the
  * only vetting of a new dependency, so a loosened case lets an unvetted
  * install through.
- *
- * The seam-2 cases (#4242) run it through the dispatcher from a linked
- * worktree of a main checkout, on real files: the package.json read is the
- * worktree's.
  */
 
 import fs from "node:fs";

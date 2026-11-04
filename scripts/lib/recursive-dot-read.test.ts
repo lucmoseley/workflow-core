@@ -423,6 +423,12 @@ describe("it fails open, and says so in the record", () => {
 		expect(logs.join("\n")).toContain("outside [A-Za-z0-9._-]");
 	});
 
+	it("on a root whose index git cannot read, leaving nothing to expand to", () => {
+		fs.writeFileSync(path.join(repo, ".git", "index"), "not an index\n");
+		expect(emission("grep -rn PAT .")).toBeNull();
+		expect(logs.join("\n")).toContain("no usable entry");
+	});
+
 	it("on a root git lists nothing in, leaving nothing to expand to", () => {
 		for (const f of fs.readdirSync(repo))
 			fs.rmSync(path.join(repo, f), { recursive: true, force: true });

@@ -67,6 +67,7 @@ const {
 const { logger, readPayload } = require("./entry-input.js");
 const { kitContext, sharedReaders } = require("./kit-context.js");
 const { hostRoot, sessionTree } = require("./host-root.js");
+const { TreeUnresolved } = require("./tree-or.js");
 const {
 	corePath,
 	isAdmitted,
@@ -282,9 +283,8 @@ const overRoomNotice = (names) =>
 /**
  * The session tree's ports for one call, resolved once on first use from the
  * payload's `cwd`, else the hook's own directory; an unresolved tree throws
- * the same fault on every read of the call, from one git call. The host's own ports are
- * reused where the two are one tree, so a session in the main checkout reads
- * as it always has.
+ * the same fault on every read of the call, from one git call. The host's own
+ * ports are reused where the two are one tree.
  * @param {Record<string, unknown>} payload
  * @param {Adapters} adapters
  * @param {string} root
@@ -312,12 +312,7 @@ function resolveTree(payload, adapters, root) {
 			? payload.cwd
 			: (adapters.fallbackCwd ?? process.cwd());
 	const dir = sessionTree({ cwd });
-	if (dir === null)
-		return {
-			fault: new Error(
-				`git names no top level for ${cwd}, so the session's tree is unknown — allowed unchecked`,
-			),
-		};
+	if (dir === null) return { fault: new TreeUnresolved(cwd) };
 	return { ports: dir === root ? adapters : treePorts(dir) };
 }
 

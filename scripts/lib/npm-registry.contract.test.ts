@@ -107,6 +107,7 @@ function verdictOf(port: Port, pkg: string, answer: Call): string | null {
 	const ctx = kitContextFake({
 		isDir: () => true,
 		treeClass: fakeTreeClassifier({ "/repo": "shared" }),
+		tree: () => ({ root: "/repo" }),
 		readPackageJson: () => ({ path: "/repo/package.json", text: "{}" }),
 		readManifest: () => null,
 		npmView: () => npmViewAnswer(PASSING),

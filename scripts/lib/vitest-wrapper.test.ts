@@ -14,9 +14,6 @@
  * Loosen a case here and a bare vitest run parks on a hung call with no
  * output and no filename, unwarned — the hang mantahostels#1910's watchdog
  * was built for.
- *
- * The seam-2 case (#4242) runs it through the dispatcher from a linked
- * worktree of a main checkout: the warn's latch is the main checkout's.
  */
 
 import fs from "node:fs";

@@ -514,7 +514,7 @@ function restoreOwed(restored, ctx, tree) {
  * @returns {Writes & { owed: boolean }}
  */
 function plan(subject, ctx) {
-	const tree = sessionTree(ctx);
+	const tree = lazyTreeOrHost(ctx);
 	const w = writes(subject, ctx, tree);
 	w.select.push(...readTrackedDeletions(w.deleted, ctx, tree));
 	/* Asked only where there is a path to note: every other command reads no
@@ -530,6 +530,13 @@ function plan(subject, ctx) {
  * @param {Ctx} ctx
  * @returns {() => Tree}
  */
-const sessionTree = (ctx) => () => treeOr(ctx, ctx);
+function lazyTreeOrHost(ctx) {
+	/** @type {Tree | undefined} */
+	let tree;
+	return () => {
+		tree ??= treeOr(ctx, ctx);
+		return tree;
+	};
+}
 
 module.exports = { plan };

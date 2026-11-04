@@ -152,6 +152,7 @@ const {
 const { isNpmRun, npmCanon } = require("./npm-options.js");
 const { TSC_RUNG_MB, isTscLaunch, tscDenial } = require("./tsc-slot.js");
 const { trimEndRun, trimRun, trimStartRun } = require("./trim-run.js");
+const { treeOr } = require("./tree-or.js");
 
 /**
  * @typedef {import("./suite-launch.js").Launch} Launch
@@ -187,10 +188,15 @@ const { trimEndRun, trimRun, trimStartRun } = require("./trim-run.js");
  *   told: (id: string) => boolean,
  *   readLatch: (name: string) => string | null,
  *   session: string,
+ *   root: string,
  *   tree: () => Pick<import("./guard-dispatch.js").TreePorts, "root">,
  * }} Ctx the kit's context, the part this core reads, and its own ports;
- *   `tree` the session's, whose npm scripts and read graph are read (#4242)
+ *   `tree` the session's, whose npm scripts and read graph are read (#4242),
+ *   else the host's at `root`
  */
+
+/** @param {Ctx} ctx @returns {string} */
+const treeRoot = (ctx) => treeOr(ctx, ctx).root;
 
 /* The id the plain-`--full` limb latches under (#181), in the `warn.<id>`
  * namespace and never a rule-text id: the limb composes its own wording. */
@@ -420,7 +426,7 @@ function buildState(command, parsed, ctx) {
 				runners ??= ctx.runners();
 				return runners;
 			},
-			isWrapperScript: (script) => ctx.isWrapperScript(script, ctx.tree().root),
+			isWrapperScript: (script) => ctx.isWrapperScript(script, treeRoot(ctx)),
 		},
 		readPs: () => {
 			if (ps === undefined) ps = ctx.psRows();
@@ -1096,7 +1102,7 @@ function judge(st, cmd) {
  */
 function fullLimb(st) {
 	if (!st.fullLaunchWords || st.ctx.told(FULL_LIMB_ID)) return false;
-	const full = st.ctx.fullLaunchPlain(st.fullLaunchWords, st.ctx.tree().root);
+	const full = st.ctx.fullLaunchPlain(st.fullLaunchWords, treeRoot(st.ctx));
 	if ("plain" in full) return full.plain;
 	st.ctx.log(
 		`the plain-\`--full\` check did not run — limb unsaid: ${full.fault || "no message"}`,

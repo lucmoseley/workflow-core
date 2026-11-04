@@ -17,10 +17,6 @@
  *
  * Loosen a case and every formatted write reads as a clobber at the next one,
  * or a written file reaches the commit gate unformatted.
- *
- * The seam-2 cases (#4242) run it from a linked worktree of a main checkout:
- * the worktree's file is formatted by the worktree's own Biome, never the
- * main checkout's.
  */
 
 import { execFileSync } from "node:child_process";

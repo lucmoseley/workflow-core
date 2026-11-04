@@ -179,6 +179,7 @@ function readGate(command, root, weight = null, climbMb = 0) {
 		told: () => true,
 		readLatch: () => "",
 		session: "",
+		root: host,
 		...buildHostPorts(host, log),
 		climbMb: () => climbMb,
 		launchWeight: weight,
@@ -196,6 +197,5 @@ module.exports = {
 	buildHostPorts,
 	buildLaunchPorts,
 	readGate,
-	buildIsWrapperScript,
 	buildTreeIsWrapperScript,
 };

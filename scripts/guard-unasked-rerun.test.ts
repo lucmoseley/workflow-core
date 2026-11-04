@@ -12,10 +12,6 @@
  *
  * Each case copies a throwaway git repository with its own marker store, so
  * the refusal is the real judge's over real git.
- *
- * The seam-2 cases (#4242) run it from a linked worktree of that repository,
- * CLAUDE_PROJECT_DIR on the main checkout: the worktree's HEAD is judged,
- * against the main checkout's certificate store.
  */
 
 import { execFileSync } from "node:child_process";

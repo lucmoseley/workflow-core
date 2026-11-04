@@ -114,7 +114,6 @@ describe("the registration", () => {
 		});
 	});
 
-	/* Which tree a core reads is decided per core, never by default (#4242). */
 	it("records every core's tree: the session's, the host root's or both", () => {
 		const unrecorded = readManifestRows()
 			.filter((r) => !["session", "host", "both"].includes(r.tree))

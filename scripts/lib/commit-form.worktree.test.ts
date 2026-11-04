@@ -3,9 +3,7 @@
  * guard-commit-form in a session's own worktree (#4242): with
  * CLAUDE_PROJECT_DIR on the main checkout and the session in a linked
  * worktree, a pathspec commit's untracked-path warn reads the worktree's
- * files, never the main checkout's. Real git, built by `splitCheckout()`,
- * inside an arbiter sandbox so the core's ledger reads stay out of the real
- * one.
+ * files, never the main checkout's.
  */
 
 import fs from "node:fs";

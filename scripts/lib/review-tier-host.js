@@ -112,14 +112,16 @@ function buildHostPorts(root) {
 				return null;
 			}
 		},
-		declared: () =>
-			require("./workflow-core-config.js").readConfig({ root, quiet: true })
-				.sensitivePaths,
-		declaredAtHead: () => {
+		declared: (tree) =>
+			require("./workflow-core-config.js").readConfig({
+				root: tree,
+				quiet: true,
+			}).sensitivePaths,
+		declaredAtHead: (tree) => {
 			const { readConfig } = require("./workflow-core-config.js");
 			let atHead = null;
 			try {
-				atHead = readConfig({ root, rev: "HEAD", quiet: true });
+				atHead = readConfig({ root: tree, rev: "HEAD", quiet: true });
 			} catch {
 				// #3905: a HEAD with no readable copy has no declaration to narrow.
 			}

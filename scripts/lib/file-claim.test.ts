@@ -17,10 +17,6 @@
  *
  * A payload it misreads lets one session clobber another's live edit, and a
  * fault that denies instead of logging wedges every write.
- *
- * The seam-2 cases (#4242) run it on a payload from a linked worktree of a
- * main checkout: the rules follow the path and the authority register in the
- * worktree, never the main checkout's.
  */
 
 import fs from "node:fs";

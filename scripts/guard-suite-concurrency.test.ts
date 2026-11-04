@@ -431,12 +431,23 @@ describe("the production adapters, crossed for real", () => {
 		// EVERY OTHER CASE DRIVES WFC_READ_GRAPH_RENDERS, so only this one
 		// requires lib/read-edges-render.js and calls `render`. A fault
 		// there — a renamed export, a wrong repo root — is swallowed into
-		// the fail-open log, whose silence is the assertion. The verdict
-		// depends on the tree this run reads, so it is not asserted.
-		const out = emission("npm run test -- --full", {
-			session: "sess-real",
-			env: { WFC_READ_GRAPH_RENDERS: undefined },
-		});
+		// the fail-open log, whose silence is the assertion. The graph renders
+		// from the session's tree, so the payload's cwd is this checkout, a
+		// real one (#4242). The verdict depends on that tree, so it is not
+		// asserted.
+		const out = dispatchCoreOutput(
+			CORE,
+			{
+				...buildBashPayload("npm run test -- --full", "sess-real"),
+				cwd: path.resolve(__dirname, ".."),
+			},
+			{
+				project: root,
+				config,
+				cwd: root,
+				env: seams({ WFC_READ_GRAPH_RENDERS: undefined }),
+			},
+		);
 		expect(out.additionalContext).toContain(readRuleText("suite-tree-dirty"));
 		expect(failOpenLog()).toBe("");
 	});
