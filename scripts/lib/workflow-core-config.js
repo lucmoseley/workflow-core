@@ -814,6 +814,19 @@ function checkKeyNames(cfg) {
 }
 
 /**
+ * Whether a config could ever fire the mutation hold: `mutation` on and a
+ * sensitive path declared with a glob.
+ * @param {readonly string[]} modules
+ * @param {SensitivePath[]|undefined} sensitivePaths
+ */
+function isHoldArmable(modules, sensitivePaths) {
+	return (
+		modules.includes("mutation") &&
+		(sensitivePaths ?? []).some((entry) => entry.globs.length > 0)
+	);
+}
+
+/**
  * The config with every key at its declared value or its default: the
  * working copy's, or with `rev` the one committed at that revision of
  * `root`'s repository (#3132).
@@ -937,7 +950,7 @@ function readConfig({ root = hostRoot(), rev, quiet = false } = {}) {
 	if (
 		Array.isArray(raw.modules) &&
 		raw.modules.includes("mutation") &&
-		!(sensitivePaths ?? []).some((entry) => entry.globs.length > 0)
+		!isHoldArmable(raw.modules, sensitivePaths)
 	)
 		warnings.push(
 			'module "mutation" is on but no "sensitivePaths" entry has a glob, so the mutation hold never fires',
@@ -1573,6 +1586,7 @@ module.exports = {
 	requireKey,
 	deriveTracker,
 	moduleOn,
+	isHoldArmable,
 	moduleReader,
 	firstModuleOff,
 	MANUAL_HALF,
