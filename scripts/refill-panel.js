@@ -35,7 +35,7 @@ const { resolveTopic } = require("./lib/refill-panel-topic.js");
 const { readViewEnv } = require("./lib/refill-panel-view-env.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
-const { FETCH_TIMEOUT_MS } = require("./lib/refill-code.js");
+const { FETCH_TIMEOUT_MS } = require("./lib/pinned-code.js");
 
 const USAGE = `usage: node ${scriptPath("refill-panel.js")} <agents-view-pid> [windows-terminal|tmux]
 

@@ -5,6 +5,10 @@ import { TEST_TIMEOUT_MS, WORKER_HEAP_MB } from "./scripts/lib/test-ceiling";
 import ShardSequencer from "./scripts/vitest-shard-sequencer";
 
 export default defineConfig({
+	// Vite's default, `node_modules/.vite`, is inside a session worktree's
+	// dependency store, which every worktree on that lockfile shares and none
+	// may write (#4255); vitest's results cache lives under it.
+	cacheDir: ".vite",
 	plugins: [react()],
 	resolve: {
 		alias: {

@@ -35,13 +35,13 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { copyLibs, readProgramLibs } from "../lib-closure-fixture.js";
+import { SHA_SHOWN } from "./pinned-code.js";
 import { makeProcRoot, writeCwd } from "./proc-fake";
 import {
 	bootProgram,
 	codeUpdater,
 	launchProgram,
 	readRunningCode,
-	SHA_SHOWN,
 } from "./refill-code.js";
 import { runInProcessAsync } from "./run-in-process.js";
 

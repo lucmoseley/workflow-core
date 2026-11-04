@@ -176,7 +176,8 @@ function tabRecords(text, n) {
  * @typedef {PortEnv & { name: string, room?: () => number,
  *   corePaths?: (text: string) => string }} RenderAt `name` is the guard a
  *   refusal names; `room`, what the hook entry has left, read only where the
- *   decision says something; `corePaths` respells a Context's script paths
+ *   decision says something; `corePaths` respells the script paths of a
+ *   Context or an injection's prelude
  */
 
 /**
@@ -215,8 +216,11 @@ const hasOwnText = (decision) =>
  * @param {RenderAt} at
  * @returns {Rendered}
  */
-function renderInjection(decision, { payload, root, name, log, room }) {
-	const { prelude = "" } = decision;
+function renderInjection(
+	decision,
+	{ payload, root, name, log, room, corePaths },
+) {
+	const prelude = spelledPrelude(decision, corePaths);
 	const overRoom = !!prelude && !!room && prelude.length > room();
 	if (overRoom) log("a core's prelude overran the persist room");
 	const kept = overRoom ? "" : prelude;
@@ -259,6 +263,14 @@ function renderInjection(decision, { payload, root, name, log, room }) {
 		...flagged,
 	};
 }
+
+/**
+ * An injection's prelude, its script paths respelled where `corePaths` is given.
+ * @param {Injection} decision
+ * @param {((text: string) => string) | undefined} corePaths
+ */
+const spelledPrelude = ({ prelude = "" }, corePaths) =>
+	prelude && corePaths ? corePaths(prelude) : prelude;
 
 /**
  * The rule cap and each id's fragment. A prelude alone is outside the cap, so a

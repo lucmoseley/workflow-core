@@ -474,6 +474,8 @@ pooled with it as separate sessions.
   **Why memwatch's clock line stayed silent at 12:22 cannot be determined.** The detector read a frozen clock at 12:22:44 over 1 s; memwatch wrote no `sched clock` line on that boot, and its passes' raw readings were not kept. Its line did fire over its 20 s passes in the freeze below, so the longer window alone is not the cause. The minute line's `sched` now keeps the readings, so the next freeze settles it.
 - **Second freeze the same day (3 Nov 2026) — not the leap.** On the VM of 12:39, after two Modern Standby episodes at 15:05, memwatch logged `sched clock: frozen` at 15:12:44, 15:13:26 and 15:14:12; from 15:14:12 the run queues advanced 0.0 s on every pass while the CPUs read 4-29 busy CPU-s. `sched`'s kept readings show `/proc/stat`'s total ticks stepping too: +40,211 s in one 21 s pass, back 2,549 s, and once wrapping below zero. RCU stalls followed at 15:15:14 and 15:15:24 (`timer wakeup didn't happen`, `Possible timer handling issue on cpu=3`); the journal ends at 15:18:34 and `wsl --shutdown` worked. Its largest `t`, 2,728 s, is near neither VM age (9,375 s) nor Windows uptime (9,419 s), so it reads as the 7 and 23 Oct shape. Standby as its trigger is weak, 35% (15-55%). Both freezes were on WSL 2.7.11; 3.0.3 went in at about 15:40 (#4084), and #4093 (the recurrence watch) counts from there (#4081).
 
+- **Windows watchdog reset, awake and under load (4 Nov 2026).** At about 12:08 +08 Windows hung and the hardware watchdog reset it (Kernel-Power 41 and 142, bugcheck 0, no dump, `ConnectedStandbyInProgress=false`, lid open). Windows booted at 12:08:35. The guest journal stops mid-test at 12:07:23 with no shutdown. memwatch's last block, 12:07:47, read 636% of 800% busy, 247% of it sys, load 15.6, 10 Claude sessions and 6,871 MB used. earlyoom killed nothing and the kernel logged no RCU stall. No session ran a shutdown or reboot. **Both watchdog resets came under sustained load**: mean busy over the prior hour was 672% (3 Nov 01:52, not idle as its standby state suggests) and 553% here. **Load is not sufficient**: 28 Oct held 609 minutes at 600% or more, one run 136 minutes long, with no reset. A "System Hardware Update (200.0.21.0)" was pending and uninstalled. Cause unknown. **Remedy: that update, installed at 12:23, moved the firmware from 9.166.235 (27 May 2026) to 9.225.235 (24 Jun 2026)**; a further reset caps WSL at `processors=6` (#4264).
+
 ---
 
 ## 8. Post-incident triage
@@ -743,6 +745,12 @@ claude plugin marketplace add '<absolute path to the main checkout>/self-plugin'
 ```
 
 then restart any session open there. It enables nothing: the committed `enabledPlugins` entry in `.claude/settings.json` enables the plugin for this repo alone, and no `claude plugin install` is needed (#2446). Never enable `wfc-self` at user scope: its hooks would run in every repo on the machine. Re-copy `~/.claude/settings.json` into `docs/claude-user-settings.md` after the run.
+
+**Those guards run from pinned guard code, not the main checkout's working copy** (#4227): `scripts/run-pinned-guards.js` runs `scripts/guard-dispatch.js` through `~/.claude/.guard-code.current`, a worktree of the newest `origin/main` sha whose guards passed a load probe (`scripts/lib/guard-code.js`). The lander adopts each `main` it pushes; a sha that fails the probe is never adopted and the previous code stays live. Set it up once per machine, and again by hand where the shim's refusal says so:
+
+```
+node '<absolute path to the main checkout>'/scripts/adopt-guard-code.js
+```
 
 **A cloud session of this repo is always refused by the canary**: no repo-declared plugin's hooks run in the cloud (#1892), so it would run with no guards. **A guard added to `self-plugin/hooks/hooks.json` reaches a live session only at its next start or `/reload-plugins`**: plugin hooks are read at session start and do not reload live, unlike `.claude/settings.json`'s (spec #2295).
 

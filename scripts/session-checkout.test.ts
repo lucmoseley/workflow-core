@@ -5,14 +5,19 @@
  * worktrees each cut adds. `npm` is a stub that records each install.
  *
  * Loosen it and a session starts on stale work or local `main`, two sessions
- * install into one tree, or a lockfile change runs against a tree built for
- * another lockfile.
+ * install into one tree, a tool writes under a store every neighbour on its
+ * lockfile reads, or a lockfile change runs against a tree built for another
+ * lockfile.
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import {
+	buildBashPayload,
+	dispatchCoreOutput,
+} from "./lib/pretool-guard-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -56,6 +61,12 @@ const stores = () => path.join(main, ".claude", "worktrees", ".dep-stores");
 const storeOf = (name: string) =>
 	fs.realpathSync(path.join(worktree(name), "node_modules"));
 
+/** Remove `dir`, a frozen store's write bits given back first. */
+const removeTree = (dir: string) => {
+	if (fs.existsSync(dir)) execFileSync("chmod", ["-R", "u+w", dir]);
+	fs.rmSync(dir, { recursive: true, force: true });
+};
+
 const landOnOrigin = (files: Record<string, string>) => {
 	const other = path.join(tmp, "other");
 	git(tmp, "clone", "-q", "-b", "landing", origin, other);
@@ -96,7 +107,7 @@ beforeEach(() => {
 	git(main, "reset", "-q", "--hard", "origin/main");
 });
 
-afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
+afterEach(() => removeTree(tmp));
 
 it("cuts a worktree detached at a freshly fetched origin/landing under the worktrees folder", () => {
 	const ahead = landOnOrigin({ "elsewhere.txt": "y" });
@@ -160,6 +171,42 @@ it("re-attaches a worktree whose work changed the lockfile to a store built for 
 	expect(git(dir, "status", "--porcelain")).toBe("M package-lock.json");
 });
 
+it("leaves a built store read-only, so nothing run in a worktree writes under it", () => {
+	expect(run(main, "cut", "one").status).toBe(0);
+	const link = path.join(worktree("one"), "node_modules");
+
+	/* Vite's config bundle and vitest's cache are the writes ordinary use makes
+	 * under node_modules; vite falls back beside its source on EACCES. */
+	expect(() => fs.mkdirSync(path.join(link, ".vite-temp"))).toThrow(/EACCES/);
+	expect(() => fs.writeFileSync(path.join(link, "lock"), "x")).toThrow(
+		/EACCES/,
+	);
+	expect(fs.readFileSync(path.join(link, "lock"), "utf8")).toBe("lock-1\n");
+});
+
+it("refuses an install aimed at a cut worktree with the re-attach route, and lets the lockfile-only change through", () => {
+	expect(run(main, "cut", "one").status).toBe(0);
+	const config = path.join(tmp, "config");
+	fs.mkdirSync(config);
+	const guard = (command: string) =>
+		dispatchCoreOutput(
+			"guard-npm-install",
+			{ ...buildBashPayload(command, "test"), cwd: worktree("one") },
+			{ project: main, config, cwd: main, env: { WFC_NPM: npmStub } },
+		);
+
+	const refused = guard("npm install");
+
+	expect(refused?.permissionDecision).toBe("deny");
+	expect(refused?.permissionDecisionReason).toContain(
+		`would write through ${worktree("one")}/node_modules, a link to ${storeOf("one")}`,
+	);
+	expect(refused?.permissionDecisionReason).toMatch(
+		/--package-lock-only`.*then `node \S*session-checkout\.js attach`/,
+	);
+	expect(guard("npm install --package-lock-only")).toBeNull();
+});
+
 it("attaches a worktree named on the command line", () => {
 	expect(run(main, "cut", "one").status).toBe(0);
 	fs.writeFileSync(path.join(worktree("one"), "package-lock.json"), "lock-4\n");
@@ -176,7 +223,7 @@ it("waits on a live builder of the same store and reuses what it built, running 
 	expect(run(main, "cut", "one").status).toBe(0);
 	fs.writeFileSync(path.join(worktree("one"), "package-lock.json"), "lock-5\n");
 	const key = String(fs.readdirSync(stores()).find((n) => !n.startsWith(".")));
-	fs.rmSync(path.join(stores(), key), { recursive: true });
+	removeTree(path.join(stores(), key));
 	const lock = path.join(stores(), `.build-${key}.lock`);
 	const built = path.join(stores(), key, "node_modules");
 	/* A real neighbour process and the real clock: the lock is read by pid
@@ -205,7 +252,7 @@ it("waits on a live builder of the same store and reuses what it built, running 
 it("takes over a build lock whose holder is dead", () => {
 	expect(run(main, "cut", "probe").status).toBe(0);
 	const key = String(fs.readdirSync(stores()).find((n) => !n.startsWith(".")));
-	fs.rmSync(path.join(stores(), key), { recursive: true });
+	removeTree(path.join(stores(), key));
 	const lock = path.join(stores(), `.build-${key}.lock`);
 	const dead = spawnSync("sh", ["-c", "echo $$"], { encoding: "utf8" });
 	fs.writeFileSync(lock, dead.stdout);

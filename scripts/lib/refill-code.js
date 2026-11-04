@@ -1,7 +1,8 @@
 /*
  * refill-code.js — the code the refill loop runs (#2361): a detached worktree
  * the loop owns per sha of the verified ref (lib/landing-refs.js's
- * VERIFIED_REF), under loopFiles()'s code directory.
+ * VERIFIED_REF), under loopFiles()'s code directory: lib/pinned-code.js's
+ * first instance.
  *
  * Only a loop whose scripts sit in a git checkout does this. A plugin install
  * has none.
@@ -23,156 +24,38 @@
  */
 
 const { spawnSync } = require("node:child_process");
-const { execGit, GIT_TIMEOUT_MS } = require("./git.js");
 const fs = require("node:fs");
 const path = require("node:path");
-const { caught } = require("./caught.js");
-const { commitSha } = require("./commit-sha.js");
 const { isUnder } = require("./is-under.js");
-const { procRoot } = require("./proc-root.js");
 const {
-	REMOTE,
-	trackingRefspec,
-	VERIFIED_BRANCH,
-	VERIFIED_REF,
-} = require("./landing-refs.js");
+	LOAD_TIMEOUT_MS,
+	checkoutOf,
+	fetchVerified,
+	git,
+	linkOf,
+	pointLink,
+	readLink,
+	readVerifiedSha,
+	removeWorktree,
+	short,
+	whyOf,
+	worktreeAt,
+} = require("./pinned-code.js");
+const { procRoot } = require("./proc-root.js");
+const { VERIFIED_REF } = require("./landing-refs.js");
 const { isTestKind } = require("./test-kind.js");
 
 const PROGRAM_NAME = "refill-loop.js";
 const PROGRAM = path.join("scripts", PROGRAM_NAME);
-/* Untraced: git log --oneline's width in this repo, unique across its
- * history, so a logged sha can be pasted into git as it is. */
-const SHA_SHOWN = 9;
-/* Untraced: a fetch over a slow link, and a cold node start requiring the
- * loop's libs at the machine's worst load. */
-const FETCH_TIMEOUT_MS = 120 * 1000;
-const LOAD_TIMEOUT_MS = 60 * 1000;
-
-/**
- * @param {string} cwd
- * @param {string[]} args
- * @param {number} [timeout]
- */
-const git = (cwd, args, timeout = GIT_TIMEOUT_MS) =>
-	execGit(args, {
-		cwd,
-		encoding: "utf8",
-		stdio: ["ignore", "pipe", "pipe"],
-		timeout,
-	}).trim();
-
-/** @param {string} sha */
-const short = (sha) => sha.slice(0, SHA_SHOWN);
-
-/**
- * A failure's one telling line: an Error line in its stderr, else its last.
- * @param {unknown} err
- */
-function whyOf(err) {
-	const e = caught(err);
-	const text = (e.stderr ?? "").trim() || e.message;
-	const lines = text.split("\n").filter((l) => l.trim());
-	return (lines.find((l) => /^\S*Error\b/.test(l)) ?? lines.pop() ?? "").trim();
-}
-
-/**
- * `dir` where it sits in a git checkout, every git call below running from
- * there; else null, a plugin install. Not hostRoot(): the checkout asked
- * about is the loop's code's, never the host's.
- * @param {string} dir
- * @throws where git itself fails, which is no answer either way
- */
-function checkoutOf(dir) {
-	try {
-		return git(dir, ["rev-parse", "--is-inside-work-tree"]) === "true"
-			? dir
-			: null;
-	} catch (err) {
-		if (/not a git repository/.test(caught(err).stderr ?? "")) return null;
-		throw err;
-	}
-}
 
 /** @param {string} program a loop program's path @returns {string} its checkout's root */
 const rootOf = (program) => path.dirname(path.dirname(program));
 
 /**
- * Fetch the verified ref into `repo`: null, or why it failed. FETCH_HEAD is
- * left alone, being shared with every session in the checkout.
- * @param {string} repo
- */
-function fetchVerified(repo) {
-	try {
-		git(
-			repo,
-			[
-				"fetch",
-				"--quiet",
-				"--no-tags",
-				"--no-write-fetch-head",
-				REMOTE,
-				trackingRefspec(VERIFIED_BRANCH),
-			],
-			FETCH_TIMEOUT_MS,
-		);
-		return null;
-	} catch (err) {
-		return whyOf(err);
-	}
-}
-
-/**
- * The verified ref's sha as `repo` last fetched it, or null.
- * @param {string} repo
- */
-const readVerifiedSha = (repo) => commitSha(repo, VERIFIED_REF);
-
-/**
- * Whether `git worktree add` finished at `dir`: it writes the index only after
- * every file, so a kill mid-checkout leaves none.
- * @param {string} dir
- */
-function isWholeWorktree(dir) {
-	if (!fs.existsSync(path.join(dir, PROGRAM))) return false;
-	try {
-		return fs.existsSync(
-			path.resolve(dir, git(dir, ["rev-parse", "--git-path", "index"])),
-		);
-	} catch {
-		// A directory git no longer reads as a worktree: not whole.
-		return false;
-	}
-}
-
-/**
- * The worktree at `sha` in `codeDir`, checked out where it is not yet.
  * @param {string} repo
  * @param {string} codeDir
- * @param {string} sha
  */
-function worktreeAt(repo, codeDir, sha) {
-	const dir = path.join(codeDir, sha);
-	if (isWholeWorktree(dir)) return dir;
-	/* A checkout a kill cut short: --force takes over its registration. */
-	fs.rmSync(dir, { recursive: true, force: true });
-	fs.mkdirSync(codeDir, { recursive: true });
-	git(repo, ["worktree", "add", "--force", "--detach", dir, sha]);
-	return dir;
-}
-
-/**
- * @param {string} repo
- * @param {string} dir
- */
-function removeWorktree(repo, dir) {
-	try {
-		git(repo, ["worktree", "remove", "--force", dir]);
-	} catch {
-		/* A directory git no longer registers, or a half-made one: removed by
-		 * hand, the registration left to the next `git worktree prune`. */
-		fs.rmSync(dir, { recursive: true, force: true });
-	}
-}
+const instance = (repo, codeDir) => ({ repo, codeDir, program: PROGRAM });
 
 /**
  * Null where the program at `dir` loads, else why not.
@@ -241,7 +124,7 @@ function launchProgram({ scriptsDir, codeDir }) {
 		};
 	let dir;
 	try {
-		dir = worktreeAt(repo, codeDir, sha);
+		dir = worktreeAt(instance(repo, codeDir), sha);
 	} catch (err) {
 		return { error: `no worktree at ${short(sha)}: ${whyOf(err)}` };
 	}
@@ -266,33 +149,7 @@ function realPathOf(dir) {
 }
 
 /** @param {string} codeDir */
-const bootLinkOf = (codeDir) => `${codeDir}.current`;
-
-/**
- * The worktree the boot link names, or null where there is no link.
- * @param {string} codeDir
- */
-function readBootTarget(codeDir) {
-	try {
-		return fs.readlinkSync(bootLinkOf(codeDir));
-	} catch {
-		// No link yet, as before a first install or a first tick.
-		return null;
-	}
-}
-
-/**
- * Point the boot link at `worktree`, in one rename, so no boot sees it absent.
- * @param {string} codeDir
- * @param {string} worktree
- */
-function pointBootLink(codeDir, worktree) {
-	const link = bootLinkOf(codeDir);
-	const tmp = `${link}.${process.pid}`;
-	fs.rmSync(tmp, { force: true });
-	fs.symlinkSync(worktree, tmp);
-	fs.renameSync(tmp, link);
-}
+const bootLinkOf = (codeDir) => linkOf(codeDir, "current");
 
 /**
  * The program a boot unit names: its own in a plugin install; else through the
@@ -310,7 +167,7 @@ function bootProgram({ scriptsDir, codeDir }) {
 	if ("error" in launch) return launch;
 	const root = rootOf(launch.program);
 	try {
-		pointBootLink(codeDir, root);
+		pointLink(bootLinkOf(codeDir), root);
 	} catch (err) {
 		return { error: `no boot link to ${root}: ${whyOf(err)}` };
 	}
@@ -396,7 +253,7 @@ function codeUpdater({ program, codeDir, log }) {
 		/** @type {string|null} */
 		let dir = null;
 		try {
-			dir = worktreeAt(root, codeDir, tip);
+			dir = worktreeAt(instance(root, codeDir), tip);
 			const why = loadFailure(dir);
 			if (why !== null) throw new Error(`its program does not load: ${why}`);
 			log(`adopting ${short(running)}..${short(tip)}`);
@@ -415,7 +272,7 @@ function codeUpdater({ program, codeDir, log }) {
 			log(
 				`not adopting ${short(tip)}: ${whyOf(err)}; running ${short(running)}`,
 			);
-			if (dir !== null && dir !== readBootTarget(codeDir))
+			if (dir !== null && dir !== readLink(bootLinkOf(codeDir)))
 				removeWorktree(root, dir);
 		}
 	};
@@ -442,7 +299,7 @@ function codeUpdater({ program, codeDir, log }) {
 			const realCodeDir = realPathOf(codeDir);
 			if (path.dirname(root) !== realCodeDir) return;
 			try {
-				pointBootLink(codeDir, root);
+				pointLink(bootLinkOf(codeDir), root);
 			} catch (err) {
 				log(`boot link not moved to ${root}: ${whyOf(err)}`);
 				return;
@@ -456,10 +313,8 @@ function codeUpdater({ program, codeDir, log }) {
 }
 
 module.exports = {
-	FETCH_TIMEOUT_MS,
 	bootProgram,
 	codeUpdater,
 	launchProgram,
 	readRunningCode,
-	SHA_SHOWN,
 };
