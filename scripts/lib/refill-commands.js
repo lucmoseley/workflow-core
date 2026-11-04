@@ -53,7 +53,7 @@ const {
 	qualifyOpenRefs,
 	qualifyRefs,
 } = require("./refill-goal.js");
-const { buildSeatName } = require("./refill-seats.js");
+const { buildSeatName, seatIdOf } = require("./refill-seats.js");
 
 /* Untraced. */
 const STATUS_LAUNCHES = 10;
@@ -694,8 +694,7 @@ function buildSeatsView({ seats, overflow, typedSeat, ceilings, callerSeat }) {
 			pick.seat === null
 				? null
 				: {
-						seat: buildDirName(pick.seat),
-						...(pick.keyVar ? { keyVar: pick.keyVar } : {}),
+						...seatIdOf({ seat: buildDirName(pick.seat), keyVar: pick.keyVar }),
 						reason: pick.reason,
 					},
 		wait,

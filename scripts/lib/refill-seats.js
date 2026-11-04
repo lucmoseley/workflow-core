@@ -209,6 +209,28 @@ function seatOfLaunch(list, { dir, keyVar }, home = homeDir()) {
 }
 
 /**
+ * A seat's identity as a launch, park marker or pick carries it: its dir, and
+ * its key where it is an overflow seat. No key is the plan seat on that dir.
+ * @typedef {{seat: string, keyVar?: string}} SeatId
+ */
+
+/**
+ * The identity `of` carries, with no key field on a plan seat's.
+ * @param {{seat: string, keyVar?: string|null}} of
+ * @returns {SeatId}
+ */
+const seatIdOf = ({ seat, keyVar }) => (keyVar ? { seat, keyVar } : { seat });
+
+/**
+ * Whether `a` and `b` carry one seat: a plan seat is never the overflow seat
+ * that shares its dir (#4147).
+ * @param {{seat: string, keyVar?: string|null}} a
+ * @param {{seat: string, keyVar?: string|null}} b
+ */
+const isSameSeat = (a, b) =>
+	a.seat === b.seat && (a.keyVar || null) === (b.keyVar || null);
+
+/**
  * The plan seats readDeclaredSeats reads, in failover order, else the seat
  * this runs on, as where the seat file refuses. Overflow seats are read each
  * refill tick (#2611).
@@ -274,9 +296,11 @@ function unlistedSeats(seats) {
 module.exports = {
 	buildSeatName,
 	findOverflowSeat,
+	isSameSeat,
 	readConfiguredSeats,
 	readDeclaredSeats,
 	readOmittedDirs,
+	seatIdOf,
 	seatOfLaunch,
 	unlistedSeats,
 };

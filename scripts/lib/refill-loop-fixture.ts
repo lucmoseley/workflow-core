@@ -4,6 +4,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { FULL } from "./refill-decide.js";
 
 export const MIN = 60 * 1000;
 export const NOW = Date.parse("2026-10-18T12:00:00Z");
@@ -68,3 +69,20 @@ export function record(over: Record<string, unknown> = {}) {
 }
 
 export type Launch = import("./refill-loop.js").LoopLaunch;
+
+/** A plan seat's reading off its two bars, each null where unread. */
+export const seat = (
+	name: string,
+	week: number | null,
+	session: number | null,
+) => ({
+	seat: name,
+	week,
+	session,
+	weekFull: week !== null && week >= FULL,
+	sessionFull: session !== null && session >= FULL,
+	sessionResets: null,
+	weekResets: null,
+	readAt: NOW,
+	weekRead: { percent: null, atMs: null },
+});

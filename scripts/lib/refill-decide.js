@@ -10,6 +10,7 @@
 const path = require("node:path");
 const { WAITING_LABEL } = require("./frontier-order.js");
 const { PARKED_LABEL } = require("./parked.js");
+const { isSameSeat, seatIdOf } = require("./refill-seats.js");
 const {
 	COMMAND_VALUES,
 	TAKES_PREFIX,
@@ -71,7 +72,7 @@ const ALREADY_RUNNING = "already running";
 /**
  * One seat's bars, in percent; null where the reading is not fresh. A bar is
  * full where it reads 100% fresh, or cached with its reset still ahead
- * (lib/refill-loop.js's seatReadingOf), so a fresh `week` of 100 is always
+ * (lib/seat-reading.js's seatReadingOf), so a fresh `week` of 100 is always
  * `weekFull`.
  * @typedef {object} SeatReading
  * @property {string} seat config dir
@@ -377,8 +378,7 @@ function pickSeat({ seats, overflow = [], typedSeat = null }) {
 	const open = overflow.find(isFitted);
 	if (open)
 		return {
-			seat: open.seat,
-			...(open.keyVar ? { keyVar: open.keyVar } : {}),
+			...seatIdOf(open),
 			fits: open.fits,
 			reason: "overflow",
 		};
@@ -634,14 +634,6 @@ const buildLimitCapHoldWhy = (limitParks) =>
 	isAtLimitCap(limitParks) ? `parked: ${buildLimitCapText(limitParks)}` : null;
 
 /**
- * Whether a session ran on the plan seat on `dir`, the only seat kind a tick
- * sizes. One with a key ran on an overflow seat, whatever dir it shares (#4147).
- * @param {{seat: string, keyVar?: string}} ran
- * @param {string} dir
- */
-const isOnPlanSeat = ({ seat, keyVar }, dir) => !keyVar && seat === dir;
-
-/**
  * How a parked row's session goes back, from the tick's reading of its park
  * marker: resumed in place (#3621); held, a skip with why, where that
  * session's seat reads full, a bar at 100% or a cap sized 0 (#3669); else
@@ -662,7 +654,7 @@ function routeParkedSession(parker, seats) {
 		return { afresh: `its session ${parker.sessionId}'s marker names no job` };
 	if (job.keyVar)
 		return { afresh: `its session ran on overflow seat key=${job.keyVar}` };
-	const seat = seats.find((s) => isOnPlanSeat(job, s.seat));
+	const seat = seats.find((s) => isSameSeat(job, s));
 	if (!seat)
 		return {
 			afresh: `its session's seat ${job.seat} is not one the loop reads`,
@@ -787,7 +779,7 @@ function takeResumes({ resumable = [], holds, seats }, slots) {
 	for (const r of resumable.toSorted((a, b) => a.at - b.at)) {
 		if (resumes.length >= slots) break;
 		if (stopped.has(r.root)) continue;
-		const planSeat = seatsLeft.find((s) => isOnPlanSeat(r, s.seat));
+		const planSeat = seatsLeft.find((s) => isSameSeat(r, s));
 		if (planSeat?.fits === 0) {
 			capHeld.push(r);
 			continue;
@@ -857,8 +849,7 @@ function fill(
 			issues,
 			prompt,
 			model: MODEL,
-			seat,
-			...(keyVar ? { keyVar } : {}),
+			...seatIdOf({ seat, keyVar }),
 			reason,
 			...(gate ? { gate: /** @type {const} */ (true) } : {}),
 			...(parkedRoute ? { parkedRoute } : {}),
@@ -1176,7 +1167,6 @@ const startedAt = (l) => Math.max(l.launchedAt, l.relaunchedAt ?? 0);
 
 module.exports = {
 	startedAt,
-	isOnPlanSeat,
 	EXPLICIT_STOP_DETAIL,
 	PROBE_HELD,
 	buildProbeHeldRoots,

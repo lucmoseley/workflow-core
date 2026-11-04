@@ -21,7 +21,7 @@ const {
 	decideTick,
 	pickMoveSeat,
 } = require("./refill-decide.js");
-const { parseCapFits, readSizedSeats } = require("./refill-loop.js");
+const { parseCapFits, readSizedSeats } = require("./seat-reading.js");
 const { mergeFrontiers } = require("./frontier-order.js");
 const { buildVerifyPrompt } = require("./unclosed-launch.js");
 

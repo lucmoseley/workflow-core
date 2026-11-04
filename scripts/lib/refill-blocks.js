@@ -33,9 +33,8 @@ const {
 	buildResumeWaitLine,
 	isAtLimitCap,
 	pickMoveSeat,
-	isOnPlanSeat,
 } = require("./refill-decide.js");
-const { buildSeatName } = require("./refill-seats.js");
+const { buildSeatName, isSameSeat, seatIdOf } = require("./refill-seats.js");
 
 /* #2359's "within one tick": a typed line reaches the timeline at once
  * (#2354 F8), so a minute is ample; untraced. */
@@ -1239,8 +1238,7 @@ function resumableOf(launches, { agents, io, swapHold }) {
 		const { held, what } = stepResumeOf(l);
 		return {
 			jobId: l.jobId,
-			seat: l.seat,
-			...(l.keyVar ? { keyVar: l.keyVar } : {}),
+			...seatIdOf(l),
 			root: l.root,
 			at: held.at,
 			line: `${l.jobId} ${what}`,
@@ -1486,8 +1484,7 @@ const buildMarkerLaunch = (job, marker, hold, readActsBefore) => ({
 	root: hold.root,
 	issues: marker.issues,
 	prompt: `parked ${marker.issues.map((n) => `#${n}`).join(" ")}`,
-	seat: marker.job?.seat ?? "",
-	...(marker.job?.keyVar ? { keyVar: marker.job.keyVar } : {}),
+	...seatIdOf({ seat: marker.job?.seat ?? "", keyVar: marker.job?.keyVar }),
 	reason: /** @type {const} */ ("parked session's seat"),
 	jobId: job,
 	sessionId: marker.sessionId,
@@ -2068,8 +2065,7 @@ function unmoved(l, from) {
  */
 const movedOnto = (l, { seat, keyVar }) => ({
 	...l,
-	seat,
-	...(keyVar ? { keyVar } : {}),
+	...seatIdOf({ seat, keyVar }),
 });
 
 /** @param {MoveTarget} target */
@@ -2565,10 +2561,8 @@ function actOnLimit(l, own, seen, { mode, slots, moveSeats }) {
  * @returns {MoveSeats}
  */
 const withSeatTaken = ({ seats, overflow }, l) => ({
-	seats: seats.map((s) => (isOnPlanSeat(l, s.seat) ? { ...s, fits: 0 } : s)),
-	overflow: overflow.map((o) =>
-		l.keyVar && o.keyVar === l.keyVar ? { ...o, fits: 0 } : o,
-	),
+	seats: seats.map((s) => (isSameSeat(l, s) ? { ...s, fits: 0 } : s)),
+	overflow: overflow.map((o) => (isSameSeat(l, o) ? { ...o, fits: 0 } : o)),
 });
 
 /**
@@ -2614,7 +2608,7 @@ function actOnLimits(launches, mode, seen) {
 		if (isResumeUnjudged(l))
 			return syncLedgerHold(settleLimitResume(l, seen), seen.io);
 		/* A plan reading on the same dir is not this launch's: a key has no bars. */
-		const own = moveSeats.seats.find((s) => isOnPlanSeat(l, s.seat));
+		const own = moveSeats.seats.find((s) => isSameSeat(l, s));
 		if (!own) return parkOffList(l, mode, seen);
 		if (!(blocked.has(l.jobId) || isLimitHeld(l))) return l;
 		const out = actOnLimit(judgeTakenResume(l, seen.io), own, seen, {

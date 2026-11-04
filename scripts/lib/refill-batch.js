@@ -10,6 +10,7 @@
 const { hasNothingToRepeat } = require("./loop-prompts.js");
 const { launchName } = require("./refill-blocks.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
+const { seatIdOf } = require("./refill-seats.js");
 
 /* Untraced: the dispatcher call's one-off gates and a `claude --bg` that hangs
  * up to dispatch-sessions.sh's own launch ceiling. */
@@ -227,8 +228,7 @@ function readLaunched(batch, calledAt, io) {
 			root: l.root,
 			issues: l.issues,
 			prompt: l.prompt,
-			seat: l.seat,
-			...(l.keyVar ? { keyVar: l.keyVar } : {}),
+			...seatIdOf(l),
 			reason: l.reason,
 			jobId: entry.jobId,
 			launchedAt: Date.parse(entry.ts),

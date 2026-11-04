@@ -22,7 +22,7 @@ const overflowSeat = (dir: string) => ({
 	grantUsd: 200,
 	cycleDay: 1,
 });
-const { overflowReadings } = require("./refill-loop.js");
+const { overflowReadings } = require("./seat-reading.js");
 
 const AT = new Date(2026, 10, 2, 14, 5).getTime();
 const LATER = AT + 60_000;

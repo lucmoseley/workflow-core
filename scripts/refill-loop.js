@@ -85,7 +85,6 @@ const gates = require("./lib/gate-sweep.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { pidLock } = require("./lib/pid-lock.js");
-const { readAllowance } = require("./lib/allowance.js");
 const { buildBudgetLine, seatBudget } = require("./lib/overflow-budget.js");
 const { readAgentsForDisplay } = require("./lib/agent-liveness.js");
 const { planSeatBasisOf } = require("./lib/overflow-notice.js");
@@ -120,6 +119,7 @@ const {
 	readTickRefusal,
 } = require("./lib/refill-repos.js");
 const loop = require("./lib/refill-loop.js");
+const seatReading = require("./lib/seat-reading.js");
 const {
 	awaitLoopHold,
 	bootVerdictOf,
@@ -149,8 +149,6 @@ const {
 	DISPATCHER,
 	files,
 	log,
-	buildCapUnsizedLine,
-	readCap,
 	isReviewRunning,
 	say,
 	servedRoots,
@@ -369,26 +367,21 @@ const sizingRoot = (served) => served[0] ?? hostRoot();
 function readSeatsView(planSeats, root, budgetOf, callerSeat) {
 	const now = Date.now();
 	const declared = readDeclaredSeats();
-	const ceilings = loop.ceilingsOf(process.env);
+	const ceilings = seatReading.ceilingsOf(process.env);
+	const sizeCap = seatReading.capSizer(root, (line) => writeFd(2, `${line}\n`));
 	const seats = planSeats.map((seat) => {
-		const bars = readAllowance({ configDir: seat, now });
-		const reading = loop.seatReadingOf(seat, bars, now);
+		const { bars, reading } = seatReading.readSeat(seat, now);
 		return commands.foreseeSeat({
 			reading,
 			bars,
-			sizeCap: () => {
-				const cap = readCap(root, seat, 1, "");
-				if (cap.fits === null)
-					writeFd(2, `${buildCapUnsizedLine(seat, cap)}\n`);
-				return cap.fits;
-			},
+			sizeCap: () => sizeCap(seat, 1),
 			ceilings,
 			now,
 		});
 	});
 	return commands.buildSeatsView({
 		seats,
-		overflow: loop.overflowReadings(declared, seats, (seat) => budgetOf(seat)),
+		overflow: seatReading.overflowReadings(declared, seats, budgetOf),
 		typedSeat: readLastTyped(declared).seat,
 		ceilings,
 		callerSeat,
@@ -865,13 +858,7 @@ function sayOverflowLines(control, state, budgetOf) {
 		const now = Date.now();
 		const lines = commands.buildOverflowBasisLines({
 			planSeats: (control?.seats ?? readConfiguredSeats()).map((seat) =>
-				planSeatBasisOf(
-					loop.seatReadingOf(
-						seat,
-						readAllowance({ configDir: seat, now }),
-						now,
-					),
-				),
+				planSeatBasisOf(seatReading.readSeat(seat, now).reading),
 			),
 			filePlanSeats: declared.seats
 				.filter((s) => s.kind === "plan")

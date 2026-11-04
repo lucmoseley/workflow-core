@@ -1,137 +1,20 @@
 // @vitest-environment node
 /*
- * The refill loop's overflow seats (#2611, spec #2570): each seat's budget
- * read for the decision core only once every plan seat is weekly-full, a key
- * spent for its cycle told from one held by running sessions, and the dry
- * run's line naming the key a launch bills.
+ * The refill loop's overflow seats (#2611, spec #2570) past their reading:
+ * an overflow seat on a plan seat's dir picked as its own seat (#3693), and
+ * the dry run's line naming the key a launch bills. The readings themselves
+ * are seat-reading.test.ts's.
  *
- * The readings and the line are module cases with the budget gate injected,
- * since its settling is overflow-budget.test.ts's.
- *
- * Loosen one and the loop spends credits while plan allowance remains, or
- * stops while a key's running sessions are about to reopen it.
+ * Loosen one and a launch bills the wrong key, or a shared dir's two seats
+ * are taken as one.
  */
-import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { batchesOf, buildWouldRunLine, dispatchCall } from "./refill-batch.js";
 import { FULL, pickSeat } from "./refill-decide.js";
-import { overflowReadings } from "./refill-loop.js";
+import { seat } from "./refill-loop-fixture";
 
-const NOW = Date.parse("2026-10-18T12:00:00Z");
-
-const planSeat = (seat: string, weekFull: boolean) => ({
-	seat,
-	week: weekFull ? FULL : 50,
-	session: 10,
-	weekFull,
-	sessionFull: false,
-	sessionResets: null,
-	weekResets: null,
-	readAt: NOW,
-	weekRead: { percent: null, atMs: null },
-});
-
-const overflowSeat = (dir: string) => ({
-	dir,
-	kind: "overflow" as const,
-	keyVar: `KEY_${path.basename(dir)}`,
-	grantUsd: 200,
-	cycleDay: 20,
-});
-
-const budget = (over: Record<string, unknown> = {}) => ({
-	fit: 5,
-	headroomUsd: 20,
-	settledUsd: 100,
-	reservedUsd: 80,
-	creditUsd: 200,
-	grantUsd: 200,
-	readAt: null,
-	qUsd: 4,
-	running: 2,
-	cycleStart: new Date(2026, 9, 20).getTime(),
-	nextCycleStart: new Date(2026, 10, 20).getTime(),
-	exhausted: false,
-	...over,
-});
-
-describe("each overflow seat's reading", () => {
-	const list = (...overflow: ReturnType<typeof overflowSeat>[]) => ({
-		seats: [{ dir: "/s/plan", kind: "plan" as const }, ...overflow],
-		errors: [],
-	});
-	const both = list(overflowSeat("/s/x"), overflowSeat("/s/y"));
-	const first = list(overflowSeat("/s/x"));
-
-	it("reads no budget while a plan seat is not weekly-full", () => {
-		const read: string[] = [];
-		const out = overflowReadings(
-			both,
-			[planSeat("a", true), planSeat("b", false)],
-			(s) => {
-				read.push(s.dir);
-				return budget();
-			},
-		);
-		expect(read).toEqual([]);
-		expect(out.map((o) => o.fits)).toEqual([null, null]);
-	});
-
-	it("gives each seat's fit and headroom once every plan seat is weekly-full", () => {
-		const fits = [3, 0];
-		const out = overflowReadings(both, [planSeat("a", true)], () =>
-			budget({ fit: fits.shift() }),
-		);
-		const read = { headroomUsd: 20, spentUntil: null, why: null };
-		expect(out).toEqual([
-			{ seat: "/s/x", keyVar: "KEY_x", fits: 3, ...read },
-			{ seat: "/s/y", keyVar: "KEY_y", fits: 0, ...read },
-		]);
-	});
-
-	it("marks a key spent until its cycle ends where refused for credit or settled past one reservation", () => {
-		const until = "2026-11-20";
-		for (const b of [
-			budget({ fit: 0, exhausted: true }),
-			budget({ fit: 0, settledUsd: 197, reservedUsd: 0, headroomUsd: 3 }),
-		])
-			expect(
-				overflowReadings(first, [planSeat("a", true)], () => b)[0],
-			).toMatchObject({ fits: 0, spentUntil: until });
-	});
-
-	it("passes an unread budget's reason on", () => {
-		expect(
-			overflowReadings(first, [planSeat("a", true)], () => ({
-				why: "the session cost table is unreadable",
-			})),
-		).toEqual([
-			{
-				seat: "/s/x",
-				keyVar: "KEY_x",
-				fits: null,
-				spentUntil: null,
-				why: "the session cost table is unreadable",
-			},
-		]);
-	});
-
-	it("reads a seat file that refuses as one unread seat, so the tick waits on it", () => {
-		const out = overflowReadings(
-			{ seats: [], errors: ["refill-seats:2: missing cycle-day="] },
-			[planSeat("a", true)],
-			() => budget(),
-		);
-		expect(out).toEqual([
-			{
-				seat: "the seat file",
-				fits: null,
-				spentUntil: null,
-				why: "it refuses: refill-seats:2: missing cycle-day=",
-			},
-		]);
-	});
-});
+const planSeat = (name: string, weekFull: boolean) =>
+	seat(name, weekFull ? FULL : 50, 10);
 
 describe("an overflow seat on a plan seat's dir (#3693)", () => {
 	const launch = (over: {
@@ -207,17 +90,5 @@ describe("the dry run's dispatch line", () => {
 		expect(buildWouldRunLine({ ...call, env: planEnv })).toBe(
 			"would run in /home/u/wfc on /home/u/.claude2: bash /core/dispatch-sessions.sh opus /implement 7",
 		);
-	});
-});
-
-describe("a spent key anchored to a Console reading", () => {
-	it("waits on a newer reading, not on the cycle day", () => {
-		const dir = "/h/.claude3";
-		const [reading] = overflowReadings(
-			{ seats: [overflowSeat(dir)], errors: [] },
-			[{ weekFull: true } as never],
-			() => budget({ readAt: 1, creditUsd: 2, settledUsd: 0 }) as never,
-		);
-		expect(reading.spentUntil).toBe("a newer Console reading");
 	});
 });

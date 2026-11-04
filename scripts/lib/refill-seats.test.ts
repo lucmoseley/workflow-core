@@ -15,8 +15,10 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	findOverflowSeat,
+	isSameSeat,
 	readDeclaredSeats,
 	readOmittedDirs,
+	seatIdOf,
 	seatOfLaunch,
 	unlistedSeats,
 } from "./refill-seats.js";
@@ -252,6 +254,40 @@ describe("a seat's identity (#3693)", () => {
 		expect(r.errors).toHaveLength(1);
 		expect(r.errors[0]).toContain(`${file()}:4: key=K is already line 3's`);
 		expect(r.errors[0]).toContain("~/.claude3 api");
+	});
+});
+
+describe("a seat's identity as one value (#4218)", () => {
+	const plan = { seat: "/h/.claude2" };
+	const overflow = { seat: "/h/.claude2", keyVar: "K2" };
+	it.each([
+		["a plan seat and itself", plan, { seat: "/h/.claude2" }, true],
+		["an overflow seat and itself", overflow, { ...overflow }, true],
+		[
+			"a plan seat and the overflow seat on its dir (#4147)",
+			plan,
+			overflow,
+			false,
+		],
+		["two keys on one dir", overflow, { ...overflow, keyVar: "K3" }, false],
+		[
+			"one key on two dirs",
+			overflow,
+			{ ...overflow, seat: "/h/.claude3" },
+			false,
+		],
+		["two plan seats", plan, { seat: "/h/.claude3" }, false],
+		["an empty key and none", { ...plan, keyVar: "" }, plan, true],
+		["a null key and none", { ...plan, keyVar: null }, plan, true],
+	])("reads %s as one seat: %s", (_case, a, b, same) => {
+		expect(isSameSeat(a, b)).toBe(same);
+		expect(isSameSeat(b, a)).toBe(same);
+	});
+
+	it("carries no key field on a plan seat's, whatever else rides along", () => {
+		expect(seatIdOf({ seat: "/h/.claude2", keyVar: "" })).toEqual(plan);
+		expect(seatIdOf({ seat: "/h/.claude2" })).not.toHaveProperty("keyVar");
+		expect(seatIdOf({ ...overflow, jobId: "j1" } as never)).toEqual(overflow);
 	});
 });
 

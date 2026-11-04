@@ -68,6 +68,7 @@ const { hasSeatRunSince } = require("./project-dirs.js");
 const { projectSlug } = require("./project-slug.js");
 const { fileSpend, sessionSpendUsd } = require("./session-spend.js");
 const { readAllowance } = require("./allowance.js");
+const seatReading = require("./seat-reading.js");
 const { claudeBin } = require("./claude-bin.js");
 const { buildTypedAttach } = require("./claude-attach.js");
 const { buildErrorText, caught } = require("./caught.js");
@@ -125,7 +126,6 @@ const {
 	decideTick,
 	hasRoom,
 	isParked,
-	isOnPlanSeat,
 } = require("./refill-decide.js");
 const { refillFrontier } = require("./refill-frontier.js");
 const {
@@ -139,6 +139,8 @@ const {
 	readConfiguredSeats,
 	readDeclaredSeats,
 	readOmittedDirs,
+	isSameSeat,
+	seatIdOf,
 } = require("./refill-seats.js");
 const {
 	buildCheckoutEnv,
@@ -306,24 +308,6 @@ function readFreeSlots() {
 }
 
 /**
- * Each seat's reading (lib/refill-loop.js's seatReadingOf). `usage` maps a
- * seat to a printed `/usage`, the fallback when its cache is stale.
- * @param {string[]} seats
- * @param {Map<string, string>} [usage]
- * @returns {import("./refill-loop.js").SeatReading[]}
- */
-function readSeatReadings(seats, usage = new Map()) {
-	const now = Date.now();
-	return seats.map((seat) =>
-		loop.seatReadingOf(
-			seat,
-			readAllowance({ configDir: seat, usageText: usage.get(seat), now }),
-			now,
-		),
-	);
-}
-
-/**
  * A printed `/usage` per seat named, through the dispatcher's own probe
  * (scripts/usage-probe.js, #2306): empty where it found the cache fresh or
  * stopped once it refreshed it, with each probe's outcome. A failed one is
@@ -333,7 +317,7 @@ function readSeatReadings(seats, usage = new Map()) {
  */
 function readPrintedUsage(seats) {
 	const usage = new Map();
-	/** @type {import("./refill-loop.js").Probe[]} */
+	/** @type {import("./seat-reading.js").Probe[]} */
 	const probes = [];
 	for (const seat of seats) {
 		const r = runChild(
@@ -350,68 +334,8 @@ function readPrintedUsage(seats) {
 }
 
 /**
- * How many of `members` the dispatcher's allowance cap launches on `seat`,
- * read through the `allowance.js --cap` call it makes, fed the seat's printed
- * `/usage` as the dispatcher feeds its probe's, run in `root` as the
- * dispatcher runs in the checkout it launches into, so both read that host's
- * cost table (#2937); null, logged, where it cannot be sized. A cap the loop
- * could not size off a trustworthy reading logs as a fault.
- * @param {string|undefined} root
- * @param {string} seat
- * @param {number} members
- * @param {string} usageText
- * @returns {{fits: number, why?: undefined, fault?: undefined}
- *   | {fits: null, why: string, fault: boolean}}
- */
-function readCap(root, seat, members, usageText) {
-	if (root === undefined)
-		return {
-			fits: null,
-			why: "the loop serves no checkout to size it in",
-			fault: true,
-		};
-	const r = runChild(
-		process.execPath,
-		[
-			path.join(SCRIPTS, "allowance.js"),
-			...loop.capArgs(seat, members, loop.ceilingsOf(process.env)),
-		],
-		{
-			input: usageText,
-			cwd: root,
-			env: { ...buildCheckoutEnv(root), CLAUDE_CONFIG_DIR: seat },
-		},
-	);
-	const cap = loop.parseCapFits(r.stdout);
-	if (cap.fits !== null || !r.failed) return cap;
-	return { fits: null, why: `${cap.why} (${r.failed})`, fault: true };
-}
-
-/**
- * The line naming a cap unsized; a fault where it could not be sized off a
- * trustworthy reading.
- * @param {string} seat
- * @param {{why: string, fault: boolean}} cap
- */
-const buildCapUnsizedLine = (seat, cap) =>
-	`${cap.fault ? "fault: " : ""}cap on ${seat} unsized: ${cap.why}`;
-
-/**
- * readCap's count for a tick, logged where it is unsized.
- * @param {string|undefined} root
- * @param {string} seat
- * @param {number} members
- * @param {string} usageText
- */
-function readCapFits(root, seat, members, usageText) {
-	const cap = readCap(root, seat, members, usageText);
-	if (cap.fits === null) log(buildCapUnsizedLine(seat, cap));
-	return cap.fits;
-}
-
-/**
  * Each seat's reading, refreshed and sized for this tick by
- * lib/refill-loop.js's readSizedSeats; with the refreshing probes' outcomes.
+ * lib/seat-reading.js's readSizedSeats; with the refreshing probes' outcomes.
  * Seats are sized before any repo is picked, so against the first served
  * checkout, `root` (#2937). Residual: a launch into a later served checkout
  * whose cost table differs is capped by the dispatcher on that table instead.
@@ -422,11 +346,10 @@ function readCapFits(root, seat, members, usageText) {
  *   seat with room sized, for a move
  */
 function readSeats(seats, slots, root, { typedSeat, sizeAll = false }) {
-	return loop.readSizedSeats(slots, {
-		read: (usage) => readSeatReadings(seats, usage),
+	return seatReading.readSizedSeats(slots, {
+		read: (usage) => seatReading.readSeatReadings(seats, usage),
 		probe: readPrintedUsage,
-		sizeOf: (seat, members, usageText) =>
-			readCapFits(root, seat, members, usageText),
+		sizeOf: seatReading.capSizer(root, log),
 		typedSeat,
 		sizeAll,
 	});
@@ -434,14 +357,14 @@ function readSeats(seats, slots, root, { typedSeat, sizeAll = false }) {
 
 /**
  * The probes of each seat due a read for the panel's figures, past the launch
- * walk's own (lib/refill-loop.js's seatsDueRead). A probe writes its own log,
+ * walk's own (lib/seat-reading.js's seatsDueRead). A probe writes its own log,
  * under its working directory's slug, so that slug is no sign a session ran.
  * @param {string[]} seats
  * @param {Record<string, number>} triedAt
  */
 function probeDueSeats(seats, triedAt) {
 	const now = Date.now();
-	const due = loop.seatsDueRead(seats, {
+	const due = seatReading.seatsDueRead(seats, {
 		barsOf: (seat) => readAllowance({ configDir: seat, now }),
 		triedAt,
 		hasRunSince: (seat, since) =>
@@ -723,8 +646,7 @@ function recordParked(l, sessionId, numbers, limitParks) {
 			root: l.root,
 			job: l.jobId
 				? {
-						seat: l.seat,
-						...(l.keyVar ? { keyVar: l.keyVar } : {}),
+						...seatIdOf(l),
 						jobId: l.jobId,
 						cwd: readJobCwd(l.seat, l.jobId),
 					}
@@ -891,7 +813,7 @@ function moveParked(
 		moveParkedBy(from, issues, {
 			root,
 			copySessionId: sessionId,
-			job: { seat, ...(keyVar ? { keyVar } : {}), jobId, cwd },
+			job: { ...seatIdOf({ seat, keyVar }), jobId, cwd },
 		});
 	} catch (e) {
 		log(`marker of ${from} not moved: ${buildErrorText(e)}`);
@@ -1327,8 +1249,8 @@ const sizeParkerSeats = (seats, parkers, root) =>
 	seats.map((s) =>
 		s.fits === null &&
 		hasRoom(s) &&
-		parkers.some((p) => p.job && isOnPlanSeat(p.job, s.seat))
-			? { ...s, fits: readCapFits(root, s.seat, 1, "") }
+		parkers.some((p) => p.job && isSameSeat(p.job, s))
+			? { ...s, fits: seatReading.capSizer(root, log)(s.seat, 1) }
 			: s,
 	);
 
@@ -1673,7 +1595,7 @@ function settleRoom({
 		};
 	}
 	const { slots: free, admission } = readFreeSlots();
-	/** @type {import("./refill-loop.js").Probe[]} */
+	/** @type {import("./seat-reading.js").Probe[]} */
 	const moveProbes = [];
 	const { launches, slots, workingChange } = dryRun
 		? { launches: judged, slots: free, workingChange: 0 }
@@ -1688,8 +1610,10 @@ function settleRoom({
 					moveProbes.push(...read.probes);
 					return {
 						seats: read.seats,
-						overflow: loop.overflowReadings(declared, read.seats, (seat) =>
-							seatBudget(seat, served[0]),
+						overflow: seatReading.overflowReadings(
+							declared,
+							read.seats,
+							(seat) => seatBudget(seat, served[0]),
 						),
 					};
 				},
@@ -1708,10 +1632,10 @@ function settleRoom({
 				...walks,
 				...probeDueSeats(
 					control.seats,
-					loop.seatTriedAfter(seatTriedAt, walks, Date.now()),
+					seatReading.seatTriedAfter(seatTriedAt, walks, Date.now()),
 				),
 			];
-	const overflow = loop.overflowReadings(declared, seats, (seat) =>
+	const overflow = seatReading.overflowReadings(declared, seats, (seat) =>
 		seatBudget(seat, served[0]),
 	);
 	if (!dryRun && !control.stopRequested)
@@ -2111,8 +2035,11 @@ async function tick({ dryRun }) {
 			.filter(blocks.isLimitHeld)
 			.map(blocks.buildHeldStopText),
 		typedSeat: typed.seat,
-		seats: loop.sizeResumeSeats(seats, resumable, slots, (seat, members) =>
-			readCapFits(served[0], seat, members, ""),
+		seats: seatReading.sizeResumeSeats(
+			seats,
+			resumable,
+			slots,
+			seatReading.capSizer(served[0], log),
 		),
 		overflow,
 		history: launches,
@@ -2180,8 +2107,6 @@ module.exports = {
 	DISPATCHER,
 	files,
 	log,
-	buildCapUnsizedLine,
-	readCap,
 	isReviewRunning,
 	say,
 	servedRoots,
