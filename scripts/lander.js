@@ -189,8 +189,8 @@ function liveFiler(root) {
 }
 
 /**
- * The levelling pass, header. A failed start is said, and the next move or
- * refill-loop tick starts another.
+ * The levelling pass, header. Fails open (#3765): a failed start is said, and
+ * the next move or refill-loop tick starts another.
  * @param {string} root
  */
 function startLevelling(root) {

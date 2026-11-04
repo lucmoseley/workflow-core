@@ -244,6 +244,8 @@ const HOOK_GIT_TIMEOUT_MS = 3000;
  * or a Stop hook: dirty-tree.js's `gitRead` answers null, `gitOutcome`
  * `ok: false`. */
 const GIT_TIMEOUT_MS = 30_000;
+/* Untraced: long enough to stay unique in a repository this size. */
+const SHORT_SHA = 9;
 
 /**
  * @typedef {{ ok: true, out: string } | { ok: false, why: string, isUnrun?: true }} GitRead
@@ -311,6 +313,7 @@ async function execGitAsync(args, opts = {}) {
 }
 
 module.exports = {
+	SHORT_SHA,
 	gitBinary,
 	gitSpawnOptions,
 	execGit,

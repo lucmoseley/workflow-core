@@ -1,15 +1,14 @@
 #!/usr/bin/env node
 /*
  * cutover-main-checkout.js — the main checkout's one move to the worktree
- * model (#4248); the pass and its mark are lib/cutover.js.
+ * model (#4248).
  *
  *   node scripts/cutover-main-checkout.js
  *     cuts over the main checkout of the repository the current directory is
  *     in, from it or from any linked worktree of it; run again, it reports
  *     the edits left there and runs a levelling pass
  *
- * In no family (§N3): it moves a branch's upstream and lands commits, so it is
- * no `check-*` gate, and it files nothing.
+ * In no family (§N3).
  *
  * The report goes to stderr. Exit 0 cut over, 1 refused or failed, 2 a usage
  * error.

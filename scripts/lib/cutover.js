@@ -8,29 +8,28 @@
  * tracks nothing. So a `main` whose upstream is `landing` is a main checkout
  * not yet cut over, and every other is cut over: a fresh clone, whose `main`
  * tracks `origin/main`, included. The write refusal, the pre-commit limb and
- * the levelling step all read this one mark, so they turn on together, at
- * the moment the pass below removes that upstream.
+ * the levelling step all read this one mark, and turn on when the pass below
+ * removes that upstream.
  *
  * THE PASS refuses while any session `claude agents --json` lists stands in
- * the main checkout, since its next edit would be the dirt it then reports.
- * Otherwise it lands the commits local `main` carries that `origin/landing`
+ * the main checkout. Otherwise it lands the commits local `main` carries that `origin/landing`
  * lacks — a session worktree cut from `origin/landing`, `main` merged into
  * it, then lib/session-checkout.js's land — reports every edit left in the
- * main checkout by name, age and last writer, never discarding one, removes
+ * main checkout, never discarding one, removes
  * the upstream, and runs one levelling pass. A merge that conflicts or is
  * refused leaves its worktree for a session to finish in, and the upstream
- * stays, so the pass runs again once that worktree has landed.
+ * stays.
  */
 
+const fs = require("node:fs");
+const path = require("node:path");
 const { caught } = require("./caught.js");
-const { execGit, gitReader, GIT_TIMEOUT_MS } = require("./git.js");
+const { execGit, gitReader, GIT_TIMEOUT_MS, SHORT_SHA } = require("./git.js");
 const { scriptPath } = require("./script-path.js");
 
 const BRANCH = "main";
 const SHARED_MERGE = "refs/heads/landing";
 const UPSTREAM_KEY = `branch.${BRANCH}.merge`;
-/* Untraced: long enough to stay unique in a repository this size. */
-const SHORT_SHA = 9;
 
 /**
  * Whether the main checkout `git` reads is cut over, or null where git could
@@ -44,8 +43,44 @@ function readCutOver(gitRead) {
 }
 
 /**
+ * Whether `cwd` is the main checkout or a directory in it outside every
+ * linked worktree, each spelling resolved.
+ * @param {string} cwd
+ * @param {string} root
+ * @param {string[]} worktrees
+ */
+function standsIn(cwd, root, worktrees) {
+	const real = realOr(cwd);
+	const inside = (/** @type {string} */ dir) =>
+		real === dir || real.startsWith(dir + path.sep);
+	return inside(realOr(root)) && !worktrees.some(inside);
+}
+
+/** @param {string} p */
+function realOr(p) {
+	try {
+		return fs.realpathSync(p);
+	} catch {
+		return path.resolve(p);
+	}
+}
+
+/**
+ * The linked worktrees' directories, each resolved.
+ * @param {string} root
+ */
+function linkedWorktrees(root) {
+	const home = realOr(root);
+	return git(["worktree", "list", "--porcelain"], root)
+		.split("\n")
+		.filter((l) => l.startsWith("worktree "))
+		.map((l) => realOr(l.slice("worktree ".length)))
+		.filter((d) => d !== home);
+}
+
+/**
  * Whether the main checkout at `root` is cut over. A config git cannot read
- * answers not cut over: the shared-tree model refuses nothing new.
+ * answers not cut over.
  * @param {string} root
  */
 const isCutOver = (root) =>
@@ -140,7 +175,6 @@ function mergeMain(dir) {
 }
 
 /**
- * The pass, above.
  * @param {string} root the main checkout
  * @param {CutoverPorts} ports
  * @returns {CutoverResult}
@@ -153,13 +187,19 @@ function cutover(root, ports) {
 	if (!already) {
 		const listing = ports.listed();
 		if ("why" in listing) return { status: "unlisted", why: listing.why };
+		const worktrees = linkedWorktrees(root);
 		const sessions = listing.agents
-			.filter((a) => a.cwd === root)
+			.filter((a) => a.cwd && standsIn(a.cwd, root, worktrees))
 			.map((a) => a.name || a.sessionId);
 		if (sessions.length > 0) return { status: "occupied", sessions };
 		git(["fetch", "--quiet", "origin", "landing"], root);
 		const local = git(
-			["rev-list", `refs/remotes/origin/landing..${BRANCH}`],
+			[
+				"rev-list",
+				"--right-only",
+				"--cherry-pick",
+				`refs/remotes/origin/landing...${BRANCH}`,
+			],
 			root,
 		)
 			.split("\n")
@@ -185,7 +225,7 @@ function cutover(root, ports) {
 }
 
 /**
- * The result as report lines, each refusal with its way out.
+ * The result as report lines.
  * @param {CutoverResult} r
  * @param {{ describeAge: (ms: number) => string,
  *   renderLevel: (o: LevelOutcome) => string[], now: number }} how

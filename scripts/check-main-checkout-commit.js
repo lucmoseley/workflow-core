@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 /*
  * check-main-checkout-commit.js — refuses a commit made in the main checkout
- * once it is cut over to the worktree model (#4248, spec #4229): every
- * session commits in its own worktree, and the main checkout's `main` moves by
- * the levelling step's fast-forward alone, which makes no commit.
+ * once it is cut over to the worktree model (#4248, spec #4229).
  *
  * Usage:
  *   node check-main-checkout-commit.js [--json] [--warn]

@@ -49,6 +49,10 @@ JS_TEST_ERE='\.(test|spec)\.[cm]?[jt]sx?$'
 # shellcheck source=scripts/lib/precommit-gate.sh
 . "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/precommit-gate.sh
 
+# Once the main checkout is cut over to the worktree model (#4248), it takes no
+# commit at all: its main moves by the levelling step's fast-forward alone.
+node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-main-checkout-commit.js || exit "$?"
+
 # Layer two of mantahostels#100's shared-tree pin, and the one that actually holds: the
 # PreToolUse guard (the guard-branch core of scripts/guard-dispatch.js) reads a command string and fails
 # open, and sees nothing at all in a plain terminal. A linked worktree is exempt
@@ -69,10 +73,6 @@ if [ "$(git rev-parse --git-dir)" = "$(git rev-parse --git-common-dir)" ] &&
   echo "  Deliberate? The escape is the founder's to set, never an agent's (#916): an agent stops and asks. The founder runs, from their own terminal, WFC_ALLOW_BRANCH=1 git commit -m '…' -- <paths>  — never --no-verify, which also skips gitleaks." >&2
   exit 1
 fi
-
-# Once the main checkout is cut over to the worktree model (#4248), it takes no
-# commit at all: its main moves by the levelling step's fast-forward alone.
-node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-main-checkout-commit.js || exit "$?"
 
 # Scoped to the commit's own paths, not the whole repo (mantahostels#179). The tree is
 # repo-global, so a whole-repo `biome check .` here fails on a parallel

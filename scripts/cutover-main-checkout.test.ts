@@ -109,6 +109,23 @@ it("refuses while a session stands in the main checkout, changing nothing", () =
 	expect(render(r)).toContain("still stand in the main checkout");
 });
 
+it("counts a session in a subdirectory of the main checkout, not one in a linked worktree under it", () => {
+	const sub = path.join(main, "docs");
+	fs.mkdirSync(sub);
+	const linked = path.join(main, ".claude", "worktrees", "wt");
+	git(main, "worktree", "add", "-q", "--detach", linked);
+	const r = cutover(
+		main,
+		ports({
+			agents: [
+				{ name: "below", sessionId: "b", cwd: `${sub}/` },
+				{ name: "linked", sessionId: "l", cwd: linked },
+			],
+		}),
+	);
+	expect(r).toEqual({ status: "occupied", sessions: ["below"] });
+});
+
 it("refuses where no listing can show the main checkout empty", () => {
 	expect(cutover(main, ports({ agents: { why: "no oracle" } }))).toEqual({
 		status: "unlisted",

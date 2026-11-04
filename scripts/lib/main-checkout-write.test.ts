@@ -4,7 +4,11 @@
  * CLAUDE_PROJECT_DIR on the main checkout and the session in a linked
  * worktree, a write to the main checkout's tracked tree is refused once it is
  * cut over, naming the worktree; the worktree's own files and gitignored
- * stores stay writable.
+ * stores stay writable. Driven through runCore on the testkit's split
+ * checkout, so the dispatcher's root and tree come from a real worktree pair.
+ *
+ * Loosen it and a session's edit lands as dirt in the main checkout, which
+ * the levelling fast-forward then refuses on.
  */
 
 import { execFileSync } from "node:child_process";

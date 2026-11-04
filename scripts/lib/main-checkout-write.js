@@ -2,21 +2,15 @@
  * main-checkout-write.js — the dispatcher core that refuses a write to the
  * main checkout's tracked tree once it is cut over (#4248, spec #4229).
  *
- * Why: under the worktree model the main checkout's `main` follows
- * `origin/main` by a fast-forward alone (lib/level-main.js), and any edit
- * there is the dirt that refuses it. Each session edits and commits in its
- * own worktree, so a write here has no legitimate use: DENY, not warn
- * (mantahostels#103).
+ * DENY, not warn (mantahostels#103).
  *
  * WHAT IT REFUSES, with the `landing` module on and the main checkout cut
  * over (lib/cutover.js): a Write, Edit or NotebookEdit path, or a Bash write,
  * move or delete by any spelling lib/shell-parse.js's writeTargets reads,
  * resolving into the main checkout's own tree — not into a linked worktree
- * under it, not under `.git` — at a path git does not ignore, tracked or not,
- * since an untracked file blocks a fast-forward as an edit does; and a git
- * command that writes the main checkout's index, `HEAD` or files
- * (`WRITERS`). The refusal names the session's worktree as the route, or the
- * cut where the session stands in the main checkout itself.
+ * under it, not under `.git` — at a path git does not ignore, tracked or not;
+ * and a git command that writes the main checkout's index, `HEAD` or files
+ * (`WRITERS`).
  *
  * GITIGNORED STORES STAY WRITABLE: claims, markers, ledgers and scratch under
  * `.claude/` are what every session shares, and git ignores them.
@@ -38,8 +32,7 @@ const { denyText } = require("./guard-verdict.js");
 const { absolute } = require("./shell-words.js");
 const { parseCommand, walkCommands, walkGit } = require("./shell-parse.js");
 
-/* git verbs that write a work tree's index, HEAD or files; each read-only
- * form is in READ_ONLY. */
+/* git verbs that write a work tree's index, HEAD or files. */
 const WRITERS = [
 	"add",
 	"am",
@@ -80,7 +73,6 @@ class GitUnanswered extends Error {}
  */
 
 /**
- * The nearest directory at or above `p` that exists.
  * @param {string} p
  */
 function existingDir(p) {
@@ -120,8 +112,6 @@ function refusedPath(p, ctx) {
 }
 
 /**
- * What the call writes in the main checkout: a path, a git command, or
- * nothing.
  * @param {string} subject
  * @param {CoreContext} ctx
  * @returns {{ rel: string } | { git: string } | null}
@@ -158,8 +148,6 @@ function findWrite(subject, ctx) {
 }
 
 /**
- * The route: the session's worktree, or the cut where it stands in the main
- * checkout.
  * @param {{ rel: string } | { git: string }} w
  * @param {CoreContext} ctx
  */

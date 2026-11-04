@@ -9,13 +9,11 @@
  * because under the worktree model nothing should be written here at all. A
  * failed fetch is reported, and the pass levels against the `origin/main` last
  * fetched. A main checkout not yet cut over (lib/cutover.js) is refused, never
- * moved: a session may still be writing there.
+ * moved.
  *
  * A REFUSAL NAMES EACH BLOCKING FILE — a tracked edit, staged or not, or an
  * untracked file, at a path the fast-forward changes or at a directory above
- * or below one — with its age (mtime) and its last writer (the write ledger),
- * so a stale edit gets judged rather than waited on. The paths are read before
- * git is asked, not parsed from its refusal text.
+ * or below one — with its age (mtime) and its last writer (the write ledger).
  *
  * THE INSTALL runs where `main` is level, after any fast-forward, and the
  * lockfile blob at `HEAD` is not the one `node_modules` was built for, read
@@ -37,7 +35,12 @@ const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
-const { execGit, gitCommonDirOrThrow, GIT_TIMEOUT_MS } = require("./git.js");
+const {
+	execGit,
+	gitCommonDirOrThrow,
+	GIT_TIMEOUT_MS,
+	SHORT_SHA,
+} = require("./git.js");
 const { isCutOver } = require("./cutover.js");
 const { pidLock } = require("./pid-lock.js");
 const { scriptPath } = require("./script-path.js");
@@ -52,8 +55,6 @@ const MARKER = ".wfc-lockfile-blob";
 const HOLDERS = ["level-main.js", "refill-loop.js", "lander.js"];
 /* Untraced: room for a cold `npm ci` over a slow link. */
 const INSTALL_TIMEOUT_MS = 15 * 60_000;
-/* Untraced: long enough to stay unique in a repository this size. */
-const SHORT_SHA = 9;
 
 /**
  * @typedef {(dir: string) => void} Install builds `node_modules` in `dir`,
@@ -166,7 +167,6 @@ function readBlocker(root, rel, now, lastWriter) {
 }
 
 /**
- * Every edited path in `root`, sorted, each with its age and last writer.
  * @param {string} root
  * @param {number} now
  * @param {LastWriter} lastWriter
@@ -322,7 +322,16 @@ function readUnlanded(root, local) {
 		if (caught(err).status !== 1) throw err;
 		return local;
 	}
-	return git(["rev-list", "--reverse", "origin/landing..HEAD"], root)
+	return git(
+		[
+			"rev-list",
+			"--reverse",
+			"--right-only",
+			"--cherry-pick",
+			"origin/landing...HEAD",
+		],
+		root,
+	)
 		.split("\n")
 		.filter(Boolean);
 }
