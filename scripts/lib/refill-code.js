@@ -28,11 +28,17 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { isUnder } = require("./is-under.js");
 const {
+	PROGRAM,
+	PROGRAM_NAME,
+	bootLinkOf,
+	bootLinkProgram,
+	readRunningProgram,
+} = require("./refill-control-code.js");
+const {
 	LOAD_TIMEOUT_MS,
 	checkoutOf,
 	fetchVerified,
 	git,
-	linkOf,
 	pointLink,
 	readLink,
 	readVerifiedSha,
@@ -41,12 +47,8 @@ const {
 	whyOf,
 	worktreeAt,
 } = require("./pinned-code.js");
-const { procRoot } = require("./proc-root.js");
 const { VERIFIED_REF } = require("./landing-refs.js");
 const { isTestKind } = require("./test-kind.js");
-
-const PROGRAM_NAME = "refill-loop.js";
-const PROGRAM = path.join("scripts", PROGRAM_NAME);
 
 /** @param {string} program a loop program's path @returns {string} its checkout's root */
 const rootOf = (program) => path.dirname(path.dirname(program));
@@ -148,9 +150,6 @@ function realPathOf(dir) {
 	}
 }
 
-/** @param {string} codeDir */
-const bootLinkOf = (codeDir) => linkOf(codeDir, "current");
-
 /**
  * The program a boot unit names: its own in a plugin install; else through the
  * boot link, which outlives any tip the loop adopts. A link that resolves stays
@@ -161,7 +160,7 @@ const bootLinkOf = (codeDir) => linkOf(codeDir, "current");
 function bootProgram({ scriptsDir, codeDir }) {
 	const found = locateCode(scriptsDir);
 	if (!("repo" in found)) return found;
-	const program = path.join(bootLinkOf(codeDir), PROGRAM);
+	const program = bootLinkProgram(codeDir);
 	if (fs.existsSync(program)) return { program };
 	const launch = launchProgram({ scriptsDir, codeDir });
 	if ("error" in launch) return launch;
@@ -183,19 +182,14 @@ function bootProgram({ scriptsDir, codeDir }) {
  */
 function readRunningCode(pid, codeDir) {
 	try {
-		const args = fs
-			.readFileSync(`${procRoot()}/${pid}/cmdline`, "utf8")
-			.split("\0");
-		const arg = args.find((a) => path.basename(a) === PROGRAM_NAME);
-		if (!arg) return null;
-		const root = rootOf(
-			path.resolve(fs.readlinkSync(`${procRoot()}/${pid}/cwd`), arg),
-		);
+		const program = readRunningProgram(pid);
+		if (program === null) return null;
+		const root = rootOf(program);
 		if (checkoutOf(root) === null) return "a plugin install";
 		const sha = short(git(root, ["rev-parse", "HEAD"]));
 		return path.dirname(root) === codeDir ? sha : `${sha} in ${root}`;
 	} catch {
-		// A process gone or a git read failed mid-status: nothing to name.
+		// A process unreadable or a git read failed mid-status: nothing to name.
 		return null;
 	}
 }

@@ -8,7 +8,10 @@
  *
  * `start` and `boot-resume` each run once, from a checkout holding the real
  * refill-loop.js and its libs, and the loop spawned is killed as soon as its
- * command line is read.
+ * command line is read. The control commands (#4337) run from such a
+ * checkout made stale, each a spawned caller handing off to a second node, so
+ * this file runs past its CI record: four real-loop checkouts and their
+ * node starts are what proves the hand-off, which no in-process run can.
  *
  * The running loop is otherwise a fixture program at the checkout's
  * scripts/refill-loop.js that requires this module by its absolute path, ticks
@@ -288,6 +291,126 @@ describe("start", () => {
 		} finally {
 			process.kill(-pid, "SIGKILL");
 		}
+	});
+});
+
+describe("control commands from a stale checkout (#4337)", () => {
+	let state: string;
+	let main: string;
+	let pinned: string;
+
+	const controlFile = () => path.join(state, ".refill-loop-control.json");
+	const readControl = () => JSON.parse(fs.readFileSync(controlFile(), "utf8"));
+
+	/* The pinned code, then a caller beside it whose control parse predates
+	 * quietBenchOff, whose status is not the loop's, whose argument parser
+	 * exits 2 silently and whose refill-code.js exports nothing. */
+	function plant(
+		install: (where: { scriptsDir: string; codeDir: string }) => string,
+	) {
+		({ main } = pushRealLoop());
+		state = path.join(dir, "state");
+		pinned = install({
+			scriptsDir: path.join(main, "scripts"),
+			codeDir: path.join(state, ".refill-loop-code"),
+		});
+		fs.appendFileSync(
+			path.join(main, "scripts/lib/refill-loop.js"),
+			"\n{ const real = module.exports.parseControl; module.exports.parseControl = (raw) => { const c = real(raw); if (c) delete c.quietBenchOff; return c; }; }\n",
+		);
+		fs.appendFileSync(
+			path.join(main, "scripts/lib/refill-commands.js"),
+			"\nmodule.exports.buildStatusJson = () => ({ stale: true });\n",
+		);
+		fs.appendFileSync(
+			path.join(main, "scripts/lib/cli-args.js"),
+			"\nmodule.exports.parseOrCode = () => 2;\n",
+		);
+		fs.appendFileSync(
+			path.join(main, "scripts/lib/refill-code.js"),
+			"\nmodule.exports = {};\n",
+		);
+		fs.writeFileSync(
+			controlFile(),
+			JSON.stringify({
+				noProgressFrom: 5,
+				stopRequested: false,
+				quietBenchOff: true,
+				seats: [],
+				scope: { mode: "normal", repos: [], goal: null },
+			}),
+		);
+	}
+
+	const fromStale = (...argv: string[]) =>
+		// spawn-kept: the hand-off's child inherits fd 1 and 2, which an in-process run does not capture
+		spawnSync(
+			process.execPath,
+			[path.join(main, "scripts", "refill-loop.js"), ...argv],
+			{
+				cwd: main,
+				encoding: "utf8",
+				env: {
+					...gitEnv,
+					HOME: dir,
+					WFC_REFILL_DIR: state,
+					CLAUDE_PROJECT_DIR: main,
+					CLAUDE_CONFIG_DIR: path.join(dir, ".claude"),
+					WFC_CLAUDE_BIN: path.join(dir, "no-claude"),
+				},
+			},
+		);
+
+	function expectPinnedRan() {
+		const status = fromStale("status", "--json");
+		expect(status.status, status.stderr).toBe(0);
+		expect(JSON.parse(status.stdout)).not.toHaveProperty("stale");
+		const set = fromStale("set", "--pause");
+		expect(set.status, set.stderr).toBe(0);
+		const stop = fromStale("stop");
+		expect(stop.status, stop.stderr).toBe(0);
+		expect(readControl()).toMatchObject({
+			quietBenchOff: true,
+			paused: { by: "founder" },
+			stopRequested: true,
+		});
+		const refused = fromStale("set", "--no-such-flag");
+		expect(refused.status).toBe(2);
+		expect(refused.stderr).toContain("usage:");
+	}
+
+	it("runs set, stop and status from the running loop's code", () => {
+		plant((where) => {
+			const launch = launchProgram(where);
+			if ("error" in launch) throw new Error(launch.error);
+			return launch.program;
+		});
+		// spawn-kept: an idle process whose command line names the pinned program, the lock's holder
+		loopProc = spawn(
+			process.execPath,
+			["-e", "setInterval(() => {}, 1000)", pinned],
+			{ stdio: "ignore" },
+		);
+		fs.writeFileSync(
+			path.join(state, ".refill-loop.pid"),
+			String(loopProc.pid),
+		);
+		expect(
+			readRunningCode(
+				Number(loopProc.pid),
+				path.join(state, ".refill-loop-code"),
+			),
+		).not.toBeNull();
+		expectPinnedRan();
+	});
+
+	it("runs set, stop and status from the boot link's code where no loop runs", () => {
+		plant((where) => {
+			const boot = bootProgram(where);
+			if ("error" in boot) throw new Error(boot.error);
+			return boot.program;
+		});
+		expectPinnedRan();
 	});
 });
 

@@ -61,7 +61,8 @@
  * between ticks adopts a newer tip that changes its code by re-exec under the
  * same pid, keeping its lock, control, state and gate store
  * (lib/refill-code.js, #2361). Not while a gate sweep it started runs or a
- * stop is pending. From a
+ * stop is pending. `start`, `stop`, `set` and `status` run from that code too,
+ * whichever checkout they are typed in (lib/refill-control-code.js, #4337). From a
  * plugin install it does neither: its code changes only with a release bump.
  *
  * Joins no §N3 family: it is a daemon, not a checker or a guard. A tick that
@@ -72,6 +73,15 @@
  * `set` and `start --unless-stopped`, no sound control to change; 2 on a command
  * line, a goal ref it refuses first or, at `start`, a seat file it refuses.
  */
+
+/* Before any other lib loads or an argument parses, so a checkout whose libs
+ * or flags lag the loop's runs the loop's code whole (#4337). */
+const { handOff } = require("./lib/refill-control-code.js");
+
+if (require.main === module) {
+	const handedOff = handOff(process.argv.slice(2), __filename);
+	if (handedOff !== null) process.exit(handedOff);
+}
 
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");

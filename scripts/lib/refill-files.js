@@ -24,6 +24,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { readCurrentBootId } = require("./arbiter-proc.js");
 const { pidLock, waitForLock } = require("./pid-lock.js");
+const { CODE_DIR, PID_FILE } = require("./refill-control-code.js");
 const { refillPath } = require("./refill-dir.js");
 const { isRecord } = require("./refill-goal.js");
 const { readJson, readJsonOutcome, writeJson } = require("./refill-json.js");
@@ -32,7 +33,7 @@ const { parseControl } = require("./refill-loop.js");
 function loopFiles() {
 	return {
 		control: refillPath(".refill-loop-control.json"),
-		pid: refillPath(".refill-loop.pid"),
+		pid: refillPath(PID_FILE),
 		launch: refillPath(".refill-loop-launch.pid"),
 		log: refillPath(".refill-loop.log"),
 		stopSeen: refillPath(".refill-loop-stop-seen"),
@@ -40,7 +41,7 @@ function loopFiles() {
 		overflowSeen: refillPath(".refill-overflow-seen"),
 		wake: refillPath(".refill-loop-wake"),
 		gates: refillPath(".refill-gate-readings.json"),
-		code: refillPath(".refill-loop-code"),
+		code: refillPath(CODE_DIR),
 		review: refillPath(".refill-review-result.json"),
 		reviewPid: refillPath(".refill-review.pid"),
 	};
