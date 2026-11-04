@@ -9,7 +9,7 @@
  * A launch whose auth would not bill the subscription fails before it
  * spawns (lib/launch-auth.js, #2236).
  * The fresh-cache, early-stop and run-to-end cases are pinned through the
- * dispatcher's CLI in dispatch-sessions.test.ts.
+ * dispatcher's CLI in dispatch-sessions-allowance.test.ts.
  */
 import fs from "node:fs";
 import os from "node:os";

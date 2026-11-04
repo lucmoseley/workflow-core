@@ -6,7 +6,7 @@
  * left alone (#355).
  *
  * The hook's shell half is tested in ../guard-dispatch-rewrite.test.ts,
- * the launcher's in ../dispatch-sessions.test.ts, the toggle's in
+ * the launcher's in ../dispatch-sessions-launch.test.ts, the toggle's in
  * ../burn-mode.test.ts. Here the table's functions are called in process, and
  * its CLI run as a program, since the shell halves read it through that CLI.
  *
