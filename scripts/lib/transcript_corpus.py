@@ -9,16 +9,20 @@ deduped by realpath. Kept in sync by hand — a JS and a Python caller do not sh
 a runtime.
 
 Each seat keeps its own sessions under its own `projects/<slug>`, a real
-directory (#375), so reading one alone drops the others'.
+directory (#375), so reading one alone drops the others'. A session in a linked
+worktree under `.claude/worktrees/` writes under that worktree's own slug
+(#4229), so `roots()` returns those beside the main checkout's.
 """
 
 import functools
 import glob
 import json
 import os
+import subprocess
 from collections import defaultdict
 
-from project_slug import slug_for_repo
+from host_root import host_root
+from project_slug import project_slug
 
 # The two skip counts every transcript scanner prints (#1274), one spelling each.
 UNREADABLE = "unreadable files"
@@ -68,22 +72,44 @@ def seats():
 
 
 @functools.cache
-def _slug(_declared, _cwd):
-    """`slug_for_repo()`, once per CLAUDE_PROJECT_DIR and working directory, the
-    two it reads: it runs git, and `seat_of` runs once per transcript (#1275).
-    A repo moved under an unchanged working directory keeps its old slug until
-    the process ends."""
-    return slug_for_repo()
+def _slugs(_declared, _cwd):
+    """(main checkout's slug, worktree slug prefix) — project-dirs.js's
+    `repoCheckout()` and `repoSlugMatcher()`. Once per CLAUDE_PROJECT_DIR and
+    working directory, the two it reads: it runs git, and `seat_of` runs once
+    per transcript (#1275). A repo moved under an unchanged working directory
+    keeps its old slugs until the process ends."""
+    root = host_root()
+    try:
+        common = subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        # No common dir: the host root's slug alone is read, as project-dirs.js's
+        # `repoCheckout()` (#4236).
+        common = ""
+    if os.path.basename(common) == ".git":
+        root = os.path.realpath(os.path.dirname(common))
+    worktrees = os.path.join(root, ".claude", "worktrees")
+    return project_slug(root), project_slug(worktrees) + "-"
+
+
+def _repo_slugs():
+    return _slugs(os.environ.get("CLAUDE_PROJECT_DIR"), os.getcwd())
 
 
 def roots():
-    """Every seat's projects directory for this repo, deduped by realpath —
-    project-dirs.js's `projectDirs()`. Read at each call, so a test points it
-    at a temp dir by CLAUDE_CONFIG_DIR and the WFC_CLAUDE_CONFIG_* knobs."""
-    slug = _slug(os.environ.get("CLAUDE_PROJECT_DIR"), os.getcwd())
+    """Every seat's projects directories for this repo, deduped by realpath —
+    project-dirs.js's `projectDirs()`: each seat's main-checkout slug, in seat
+    order, then each worktree slug a seat lists. Read at each call, so a test
+    points it at a temp dir by CLAUDE_CONFIG_DIR and the WFC_CLAUDE_CONFIG_*
+    knobs."""
+    per_seat = [roots_on(d) for d in seats()]
     out, seen = [], set()
-    for d in seats():
-        p = os.path.join(d, "projects", slug)
+    for p in [r[0] for r in per_seat] + [p for r in per_seat for p in r[1:]]:
         k = _resolved(p)
         if k not in seen:
             seen.add(k)
@@ -91,13 +117,32 @@ def roots():
     return out
 
 
+def roots_on(seat):
+    """One seat's projects directories for this repo: the main checkout's slug
+    first, whether or not it exists, so a caller reports a seat it could not
+    read; then each worktree slug the seat lists."""
+    main, worktree = _repo_slugs()
+    projects = os.path.join(seat, "projects")
+    try:
+        names = sorted(os.listdir(projects))
+    except OSError:
+        # The main slug carries this seat's failure to its caller (#1520).
+        names = []
+    return [os.path.join(projects, main)] + [
+        os.path.join(projects, n) for n in names if n != main and n.startswith(worktree)
+    ]
+
+
 def seat_of(path):
     """The label of the seat whose root holds `path`, or None."""
-    labels = {_resolved(d): lab for d, lab in seats().items()}
-    for root in roots():
-        if path.startswith(root.rstrip(os.sep) + os.sep):
-            seat = os.path.dirname(os.path.dirname(root))
-            return labels.get(_resolved(seat), os.path.basename(seat))
+    main, worktree = _repo_slugs()
+    for d, label in seats().items():
+        projects = os.path.join(d, "projects").rstrip(os.sep) + os.sep
+        if not path.startswith(projects):
+            continue
+        slug = path[len(projects) :].split(os.sep, 1)[0]
+        if slug == main or slug.startswith(worktree):
+            return label
     return None
 
 

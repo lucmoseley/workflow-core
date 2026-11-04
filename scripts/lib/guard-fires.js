@@ -45,9 +45,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { mainChainRecords, isSubagentTranscript } = require("./transcript");
-/* Not re-exported: `project-slug.js` owns the rule (mantahostels#2009). */
-const { projectSlug } = require("./project-slug.js");
-const { configDir } = require("./config-dir.js");
+const { corpusDirs } = require("./project-dirs.js");
 const { coreRoot } = require("./script-path.js");
 const { readRunningHooks } = require("./core-hooks.js");
 
@@ -580,21 +578,19 @@ function readRegisteredGuardSubjects(root) {
 }
 
 /**
- * Where this project's retained transcripts live.
- *
- * The root is lib/config-dir.js's `configDir()`; the project directory is
- * `projectSlug`, whose own module owns the spelling.
+ * Where this project's retained transcripts live on this seat: the main
+ * checkout's project directory and each worktree's (`project-dirs.js`'s
+ * `corpusDirs`).
  *
  * `transcript.js` `findTranscript` refuses to reproduce the slugging and
  * looks a session up by id instead; there is no session id here, the subject
  * being a whole corpus. The escape is `--dir`, and a wrong directory reports as
  * unreadable, never as an empty corpus.
  *
- * @param {string} [cwd]
- * @returns {string}
+ * @returns {string[]}
  */
-function transcriptDir(cwd = process.cwd()) {
-	return path.join(configDir(), "projects", projectSlug(cwd));
+function transcriptDirs() {
+	return corpusDirs();
 }
 
 /**
@@ -674,6 +670,26 @@ function readTranscriptFiles(dir) {
 }
 
 /**
+ * `readTranscriptFiles` over several directories, with each one that cannot
+ * be read named in `unreadable`, which a caller must say out loud.
+ *
+ * @param {string[]} dirs
+ * @returns {{ files: TranscriptFile[], unreadable: string[] }}
+ */
+function readTranscriptCorpus(dirs) {
+	/** @type {TranscriptFile[]} */
+	const files = [];
+	/** @type {string[]} */
+	const unreadable = [];
+	for (const dir of dirs) {
+		const found = readTranscriptFiles(dir);
+		if (found === null) unreadable.push(dir);
+		else files.push(...found);
+	}
+	return { files, unreadable };
+}
+
+/**
  * The unit a "sessions" count should dedupe on: one main session's own file
  * is already unique per session, but a subagent's file is one of possibly
  * several dispatched by the SAME session, sharing that session's `sessionId`
@@ -703,7 +719,8 @@ module.exports = {
 	transcriptFires,
 	transcriptMentions,
 	tally,
-	transcriptDir,
+	transcriptDirs,
+	readTranscriptCorpus,
 	readTranscriptFiles,
 	sessionKeyFor,
 };

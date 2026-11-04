@@ -711,6 +711,6 @@ describe("sessionKeyFor", () => {
 	});
 });
 
-/* The slug `transcriptDir` spells its project directory with is
+/* The slug `transcriptDirs` spells its project directories with is
  * `project-slug.test.ts`'s, which asserts the rule across every caller at once
  * — the fault is divergence, and a per-caller suite cannot see it. */

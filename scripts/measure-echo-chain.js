@@ -54,25 +54,25 @@ const crypto = require("node:crypto");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
 const { isNeighbours } = require("./lib/echo-chain.js");
 const { parseJsonl } = require("./lib/jsonl.js");
-const { slugForRepo } = require("./lib/project-slug");
-
-/* Derived, never spelled: scripts/lib/project-slug-scan.test.ts scans this tree for
- * the founder's own slug written out (mantahostels#2008). */
-const DEFAULT_ROOT = path.join(
-	process.env.HOME || path.join(path.sep, "root"),
-	".claude",
-	"projects",
-	slugForRepo(),
-);
+const { corpusDirs, listTranscripts } = require("./lib/project-dirs");
 
 const { flags } = parseOrExit(process.argv.slice(2), {
 	usage:
 		"usage: node scripts/measure-echo-chain.js [--root <dir>] [--read-chains]",
 	flags: { "--root": "value", "--read-chains": "boolean" },
 });
-const ROOT = flagValue(flags, "--root") ?? DEFAULT_ROOT;
-if (!fs.existsSync(ROOT)) {
-	console.error(`no corpus at ${ROOT} — pass --root <dir>`);
+const given = flagValue(flags, "--root");
+/* Derived, never spelled: scripts/lib/project-slug-scan.test.ts scans this tree for
+ * the founder's own slug written out (mantahostels#2008). The main checkout's
+ * project directory and each worktree's, on the first seat. */
+const ROOTS = corpusDirs(
+	given,
+	path.join(process.env.HOME || path.join(path.sep, "root"), ".claude"),
+);
+const listing = listTranscripts(ROOTS);
+const missed = [...listing.absent, ...listing.unreadable];
+if (missed.length > 0) {
+	console.error(`no corpus at ${missed.join(", ")} — pass --root <dir>`);
 	process.exit(1);
 }
 
@@ -371,20 +371,20 @@ function scoreRefusal(tally, { st, c, res, same, edits }) {
 	}
 }
 
-const files = fs.readdirSync(ROOT).filter((f) => f.endsWith(".jsonl"));
+const files = listing.found;
 const transcripts = [];
 let unreadable = 0;
 for (const f of files) {
-	const t = readTranscript(path.join(ROOT, f));
+	const t = readTranscript(f);
 	if (t === null) unreadable++;
-	else if (t.turns) transcripts.push({ file: f, ...t });
+	else if (t.turns) transcripts.push({ file: path.basename(f), ...t });
 }
 
 /** @param {string} label @param {ReturnType<typeof score>} r */
 const line = (label, r) =>
 	`${label.padEnd(34)} denies=${String(r.denies).padStart(5)}  right=${String(r.right).padStart(5)} (${r.pct.toFixed(1)}%)  wrong=${String(r.wrong).padStart(4)}  unscored=${String(r.unscored).padStart(3)}  sessions=${r.sessions}`;
 
-console.log(`corpus root : ${ROOT}`);
+console.log(`corpus root : ${ROOTS.join(", ")}`);
 console.log(
 	`transcripts : ${files.length} top-level (${transcripts.length} with a main-thread turn, ${unreadable} unreadable)`,
 );
