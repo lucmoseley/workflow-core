@@ -18,8 +18,18 @@ const SCRIPT = path.resolve(__dirname, "answer-review-reversals.js");
 const FILING = path.resolve(__dirname, "file-morning-review.js");
 
 const sb = freshSandbox();
-const { ago, home, readCreated, refillFile, run, runEnv, seed, stub, wfc } =
-	morningReviewFixture(sb, SCRIPT);
+const {
+	ago,
+	heldGh,
+	home,
+	readCreated,
+	refillFile,
+	run,
+	runEnv,
+	seed,
+	stub,
+	wfc,
+} = morningReviewFixture(sb, SCRIPT);
 const { run: runFiling } = morningReviewFixture(sb, FILING);
 
 /* A guess: a node start and its gh reads, on a machine running full suites. */
@@ -311,7 +321,7 @@ describe("answer-review-reversals.js (#2017)", () => {
 			// spawn-kept: two processes at once — the lock's holder is a real program, read by its command line, while the other runs.
 			const holder = spawn(process.execPath, [holderScript], {
 				cwd: wfc(),
-				env: runEnv(),
+				env: { ...runEnv(), ...heldGh() },
 				stdio: "ignore",
 			});
 			const exited = new Promise((done) => holder.on("exit", done));

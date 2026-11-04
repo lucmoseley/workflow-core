@@ -194,6 +194,27 @@ esac
 	return stubGhScript(dir, script, { failing });
 }
 
+/**
+ * A `serveGhStub` handler as a gh started per call, for a call that must wait
+ * mid-answer: the server answers one call at a time, so a wait there stalls
+ * every other program's calls. Binds the handler's eight names as the server
+ * does, stdin read only where an argument names it (`-`, `…@-`) (#4311).
+ */
+export function stubGhHandler(dir: string, handler: string): StubGh {
+	return stubGhScript(
+		dir,
+		`#!/usr/bin/env node
+const argv = process.argv.slice(2);
+const env = process.env;
+const cwd = process.cwd();
+const stdin = argv.some((x) => x === "-" || x.endsWith("@-")) ? require("node:fs").readFileSync(0, "utf8") : "";
+const out = (s) => process.stdout.write(s);
+const err = (s) => process.stderr.write(s);
+const exit = (code) => process.exit(code);
+${handler}`,
+	);
+}
+
 export interface GhStubServer {
 	/** The stub executable's text, for `stubGhScript`. */
 	script: string;

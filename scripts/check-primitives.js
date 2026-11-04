@@ -26,7 +26,7 @@
  * DEFEAT:    --warn caps findings below the gating line; a path outside backticks in the Exemplar or Enforcing check cell goes unread, as does any path in the Primitive cell; a local row rewording a base row's job passes as a job of its own.
  */
 
-const { spawnSync } = require("node:child_process");
+const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
@@ -35,11 +35,13 @@ const { isCoreRoot } = require("./lib/core-hooks.js");
 const { caught } = require("./lib/caught.js");
 const { ghJson } = require("./lib/gh.js");
 const { findTrackingIssue } = require("./lib/tracking-issue.js");
-const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
+const { pool } = require("./lib/pool.js");
 const {
 	STANDARDS_DOCS: DOCS,
+	countPrimitives,
 	judgePrimitives,
 	parseBreaches,
+	primitivesOutcome,
 } = require("./lib/primitives-table.js");
 const { SWEEP_TITLE, parseFiledHeresies } = require("./lib/heresy-sweep.js");
 
@@ -48,21 +50,35 @@ const { SWEEP_TITLE, parseFiledHeresies } = require("./lib/heresy-sweep.js");
 /** @typedef {import("./lib/primitives-table.js").Side} Side */
 const { runCheck } = require("./lib/check");
 
+/* How many breach-count checks run at once (#4311). A guess, not a
+ * measurement: each is a node start of some 50 MB, against the 10 GB cap every
+ * session shares (CLAUDE.md §Machine limits), and `npm run status` runs this
+ * beside three other checkers. Neither the 50 MB nor the width was measured. */
+const COUNT_WIDTH = 4;
+
 /**
  * The FAIL findings `script` reports over the whole tree.
  * @param {string} script
  * @param {string} root
- * @returns {Count}
+ * @returns {Promise<Count>}
  */
 function countBreaches(script, root) {
-	const r = spawnSync(process.execPath, [script, "--json", "--warn"], {
-		cwd: root,
-		env: { ...process.env, CLAUDE_PROJECT_DIR: root, GITHUB_ACTIONS: "" },
-		encoding: "utf8",
-		maxBuffer: CHILD_MAX_BUFFER,
+	return new Promise((resolve) => {
+		const child = spawn(process.execPath, [script, "--json", "--warn"], {
+			cwd: root,
+			env: { ...process.env, CLAUDE_PROJECT_DIR: root, GITHUB_ACTIONS: "" },
+			stdio: ["ignore", "pipe", "ignore"],
+		});
+		let out = "";
+		child.stdout.setEncoding("utf8");
+		child.stdout.on("data", (d) => {
+			out += d;
+		});
+		child.on("error", (e) =>
+			resolve({ unknown: `it did not run (${e.message})` }),
+		);
+		child.on("close", (status) => resolve(parseBreaches(out, status)));
 	});
-	if (r.error) return { unknown: `it did not run (${r.error.message})` };
-	return parseBreaches(r.stdout, r.status);
 }
 
 /**
@@ -108,20 +124,20 @@ function report(ctx, findings, inAdopter) {
 	}
 }
 
-runCheck({
-	name: "primitives",
-	usage:
-		"node scripts/check-primitives.js [--root <dir>] [--paths-only] [--json] [--warn]",
-	valueFlags: ["--root"],
-	flags: ["--paths-only"],
-	run(/** @type {Ctx} */ ctx) {
-		const root = path.resolve(ctx.value("--root") ?? hostRoot());
-		const plugin = coreRoot();
-		/** @type {Record<Side, string>} */
-		const roots = { base: plugin, local: root };
-		const inAdopter = !isCoreRoot(root, { core: plugin });
-		const result = judgePrimitives(
-			{
+const main = () =>
+	runCheck({
+		name: "primitives",
+		usage:
+			"node scripts/check-primitives.js [--root <dir>] [--paths-only] [--json] [--warn]",
+		valueFlags: ["--root"],
+		flags: ["--paths-only"],
+		run(/** @type {Ctx} */ ctx) {
+			const root = path.resolve(ctx.value("--root") ?? hostRoot());
+			const plugin = coreRoot();
+			/** @type {Record<Side, string>} */
+			const roots = { base: plugin, local: root };
+			const inAdopter = !isCoreRoot(root, { core: plugin });
+			const result = judgePrimitives({
 				read: (side) => {
 					const at = path.join(roots[side], DOCS[side]);
 					try {
@@ -136,26 +152,37 @@ runCheck({
 					}
 				},
 				exists: (side, rel) => fs.existsSync(path.join(roots[side], rel)),
-				countBreaches: (side, rel) =>
-					countBreaches(path.join(roots[side], rel), root),
+			});
+			if (result.broken)
+				return ctx.broken(
+					`${result.broken} (${path.join(plugin, DOCS.base)}) — nothing was judged`,
+				);
+			report(ctx, result.findings, inAdopter);
+			/** @param {string | null} countLine */
+			const outcome = (countLine) => {
+				const { okLine, extraLine } = primitivesOutcome({
+					rows: result.rows.length,
+					line: countLine,
+					findings: ctx.findings.length,
+				});
+				if (extraLine) ctx.say(`  ${extraLine}`);
+				return {
+					okLine,
+					noun: "primitives table fault(s)",
+					count: ctx.findings.length,
+					data: { rows: result.rows.length, countLine },
+				};
+			};
+			if (ctx.has("--paths-only")) return outcome(null);
+			return countPrimitives(result, {
+				countBreaches: (checks) =>
+					pool(checks, COUNT_WIDTH, ({ side, rel }) =>
+						countBreaches(path.join(roots[side], rel), root),
+					),
 				readNewHeresies: () => readNewHeresies(root),
-			},
-			{ counts: !ctx.has("--paths-only") },
-		);
-		if (result.broken)
-			return ctx.broken(
-				`${result.broken} (${path.join(plugin, DOCS.base)}) — nothing was judged`,
-			);
-		report(ctx, result.findings, inAdopter);
-		/* The OK line carries it on a clean run; with findings, nothing would. */
-		if (result.countLine && ctx.findings.length > 0)
-			ctx.say(`  ${result.countLine}.`);
-		const table = `${result.rows.length} primitives row(s), every path and § id real`;
-		return {
-			okLine: result.countLine ? `${table}. ${result.countLine}.` : `${table}.`,
-			noun: "primitives table fault(s)",
-			count: ctx.findings.length,
-			data: { rows: result.rows.length, countLine: result.countLine },
-		};
-	},
-});
+			}).then(outcome);
+		},
+	});
+
+module.exports = { main };
+if (require.main === module) main();

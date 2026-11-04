@@ -5,6 +5,9 @@
  *
  * Usage:  npm run status  [-- --only <substring>] [-- --serial]
  *
+ * `--serial` runs the checkers one at a time; a checker's own children are its
+ * own, and check-primitives.js still counts four checks at once.
+ *
  * TWO WERE KEPT ON SessionStart and are not listed here: `check-ci-status.js`,
  * a red `main` being a correctness signal, and `check-orphan-wait-loops.js`,
  * whose report names the `kill` for a shell holding memory against a 10 GB cap.
@@ -30,6 +33,7 @@ const path = require("node:path");
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { hostRoot } = require("./lib/host-root.js");
+const { pool } = require("./lib/pool.js");
 
 /* Core content: every checker below ships beside this script, so its path is
  * named from THIS DIRECTORY (#1) — a plugin install keeps it beside the
@@ -201,26 +205,6 @@ function run(entry) {
 			resolve({ name, code, signal, out: out.trim() }),
 		);
 	});
-}
-
-/**
- * @template T, R
- * @param {ReadonlyArray<T>} items
- * @param {number} width
- * @param {(item: T) => Promise<R>} fn
- * @returns {Promise<R[]>}
- */
-async function pool(items, width, fn) {
-	/** @type {R[]} */
-	const results = new Array(items.length);
-	// One iterator shared by every worker, so each item is taken exactly once.
-	const queue = items.entries();
-	await Promise.all(
-		Array.from({ length: Math.min(width, items.length) }, async () => {
-			for (const [i, item] of queue) results[i] = await fn(item);
-		}),
-	);
-	return results;
 }
 
 /**

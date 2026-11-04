@@ -1367,10 +1367,13 @@ describe("file-morning-review.js (#2011)", () => {
 		});
 	});
 
-	it("prints the body and files nothing on --dry-run", () => {
+	it("prints the body and files nothing on --dry-run, counting the real core's primitives", () => {
 		seed([]);
-		const r = run(["--dry-run"]);
+		const r = run(["--dry-run"], { WFC_SCRIPT_ROOT: "" });
 		expect(r.status).toBe(0);
+		expect(r.stdout).toMatch(
+			/`primitives: [1-9]\d* enforced, \d+ open breaches/,
+		);
 		expect(r.stdout).toContain(`${TODAY}\n\n## Question`);
 		expect(r.stdout).toContain("no previous review issue");
 		expect(readCreated()).toHaveLength(0);

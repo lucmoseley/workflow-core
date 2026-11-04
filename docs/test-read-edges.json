@@ -438,12 +438,16 @@
 			"scripts/upgrade.test.ts"
 		],
 		".git-blame-ignore-revs": [
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/markdown-tooling-declined.test.ts"
 		],
 		".gitattributes": [
+			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-format-staged.test.ts",
 			"scripts/check-sh-changed.test.ts",
 			"scripts/check-shfmt.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/install-hooks.test.ts",
 			"scripts/lib/formatters.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
@@ -520,7 +524,9 @@
 			".claude/skills/new-repo/scripts/new-repo-resume-hook.test.ts",
 			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
+			"scripts/answer-review-reversals.test.ts",
 			"scripts/commit-paths.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/guard-dispatch.test.ts",
 			"scripts/lib/arbiter-markers.test.ts",
 			"scripts/lib/commit-form.test.ts",
@@ -779,9 +785,13 @@
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		".shellcheckrc": [
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/markdown-tooling-declined.test.ts"
 		],
 		".sonarcloud.properties": [
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/lib/test-kind.test.ts",
 			"scripts/markdown-tooling-declined.test.ts"
 		],
@@ -796,6 +806,7 @@
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
+			"scripts/answer-review-reversals.test.ts",
 			"scripts/build-arm-sandbox.test.ts",
 			"scripts/check-context-budget-session-cap.test.ts",
 			"scripts/check-context-budget.test.ts",
@@ -812,6 +823,7 @@
 			"scripts/check-guard-test-isolation.test.ts",
 			"scripts/check-plugin-gap.test.ts",
 			"scripts/commit-paths.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/guard-refusal-length.test.ts",
 			"scripts/host-root-plugin-cache.test.ts",
 			"scripts/init-adopter.test.ts",
@@ -840,7 +852,9 @@
 		],
 		"GLOSSARY.md": [
 			"scripts/adopter-rule-copies.test.ts",
+			"scripts/answer-review-reversals.test.ts",
 			"scripts/concision-backstop.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/commit-form.test.ts",
 			"scripts/lib/doc-map.test.ts",
@@ -851,6 +865,8 @@
 			"scripts/register-doc.test.ts"
 		],
 		"biome.json": [
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
 			"scripts/precommit-staged-gate.test.ts",
 			"scripts/tooling-matrix.test.ts"
@@ -2520,14 +2536,22 @@
 		"docs/agents/verification.md": [
 			"scripts/lib/self-match.test.ts"
 		],
+		"docs/always-loaded-passes.json": [
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/file-morning-review.test.ts"
+		],
 		"docs/called-cards.md": [
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/init-adopter.test.ts"
 		],
 		"docs/claude-user-settings.md": [
 			".claude/skills/new-repo/scripts/new-repo-page.test.ts",
+			"scripts/answer-review-reversals.test.ts",
 			"scripts/browser-profile-guard.test.ts",
 			"scripts/check-citation-ceiling.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/guard-agent-poll.test.ts",
 			"scripts/guard-disabled.test.ts",
 			"scripts/guard-dispatch.test.ts",
@@ -2544,10 +2568,14 @@
 			"scripts/statusline.test.ts"
 		],
 		"docs/clobber-reviewed.json": [
-			"scripts/check-clobbered-bodies.test.ts"
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/check-clobbered-bodies.test.ts",
+			"scripts/file-morning-review.test.ts"
 		],
 		"docs/code-standards-base.md": [
+			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-code-standards.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/plugin-tree.test.ts",
@@ -2557,9 +2585,11 @@
 		],
 		"docs/code-standards.md": [
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			"scripts/answer-review-reversals.test.ts",
 			"scripts/arm-tasks.test.ts",
 			"scripts/check-code-standards.test.ts",
 			"scripts/concision-backstop.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2628,6 +2658,8 @@
 		],
 		"docs/doc-map-admissions.json": [
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/init-adopter.test.ts"
 		],
 		"docs/doc-map-classes.json": [
@@ -2638,9 +2670,11 @@
 			".claude/skills/new-repo/scripts/new-repo-resume-hook.test.ts",
 			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
+			"scripts/answer-review-reversals.test.ts",
 			"scripts/archive-core-classes.test.ts",
 			"scripts/arm-tasks.test.ts",
 			"scripts/check-citation-tracker.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/generate-doc-map-section-a.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2649,11 +2683,15 @@
 		],
 		"docs/doc-map-high-water.json": [
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/precommit-doc-map-gate.test.ts"
 		],
 		"docs/doc-map-restatements.json": [
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/lib/doc-map.test.ts",
 			"scripts/lib/residue-patterns.test.ts",
@@ -2661,11 +2699,15 @@
 		],
 		"docs/doc-map-retired-vocabulary.json": [
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/precommit-doc-map-gate.test.ts"
 		],
 		"docs/doc-map-superseded.json": [
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/lib/residue-patterns.test.ts",
 			"scripts/precommit-doc-map-gate.test.ts"
@@ -2678,9 +2720,11 @@
 			".claude/skills/new-repo/scripts/new-repo-resume-hook.test.ts",
 			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
+			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-host-root.test.ts",
 			"scripts/check-test-marker.test.ts",
 			"scripts/count-guard-fires.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/generate-doc-map-section-a.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2699,26 +2743,38 @@
 		],
 		"docs/effort-guide.md": [
 			".claude/skills/roadmap-edit/scripts/gen-roadmap-digest.test.ts",
+			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-cleared-trackers.test.ts",
 			"scripts/check-context-budget.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/lib/launch-models.test.ts",
 			"scripts/report-retro-due.test.ts"
 		],
 		"docs/environment.md": [
+			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/check-suite-margin.test.ts",
 			"scripts/check-suite-size-drift.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/lib/plugin-tree.test.ts",
 			"scripts/lib/suite-background.test.ts"
 		],
 		"docs/machinery-superseded.json": [
+			"scripts/answer-review-reversals.test.ts",
 			"scripts/arm-tasks.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/repo-checks.test.ts"
 		],
 		"docs/new-repo.md": [
-			".claude/skills/new-repo/scripts/new-repo-page.test.ts"
+			".claude/skills/new-repo/scripts/new-repo-page.test.ts",
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/file-morning-review.test.ts"
+		],
+		"docs/pool-admission-ledger.json": [
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/file-morning-review.test.ts"
 		],
 		"docs/practice/code-review-process.md": [
 			"scripts/practice-guard.test.ts"
@@ -2731,8 +2787,10 @@
 		],
 		"docs/reference-roadmap.html": [
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-digest-render.test.ts",
 			"scripts/check-roadmap-pair.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/init-adopter-subjects.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/lib/commit-form.test.ts",
@@ -2758,8 +2816,10 @@
 		"docs/roadmap-digest.md": [
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			".claude/skills/roadmap-edit/scripts/gen-roadmap-digest.test.ts",
+			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-digest-render.test.ts",
 			"scripts/check-roadmap-pair.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/guard-commit-form.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/lib/commit-form.test.ts",
@@ -2768,9 +2828,11 @@
 		],
 		"docs/test-read-edges.json": [
 			"scripts/admissible-share.test.ts",
+			"scripts/answer-review-reversals.test.ts",
 			"scripts/arm-tasks.test.ts",
 			"scripts/check-marker-integrity.test.ts",
 			"scripts/check-test-marker.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/guard-unasked-rerun.test.ts",
 			"scripts/lib/already-red.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2788,7 +2850,9 @@
 		],
 		"docs/working-contract.md": [
 			"scripts/adopter-rule-copies.test.ts",
+			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-context-budget-session-cap.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/lib/config-json.test.ts",
 			"scripts/lib/plugin-tree.test.ts",
 			"scripts/precommit-context-budget-gate.test.ts",
@@ -2796,10 +2860,14 @@
 		],
 		"eslint.config.mjs": [
 			"eslint.config.test.ts",
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
 			"scripts/precommit-eslint-gate.test.ts"
 		],
 		"eslint.config.test.ts": [
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/lib/suite-timings.test.ts",
 			"scripts/markdown-tooling-declined.test.ts"
 		],
@@ -2955,7 +3023,9 @@
 			"scripts/lib/migration-note.test.ts"
 		],
 		"package-lock.json": [
+			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/lib/doc-map.test.ts",
 			"scripts/lib/local-tester.test.ts",
 			"scripts/lib/suite-queue.test.ts",
@@ -2975,6 +3045,7 @@
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
+			"scripts/answer-review-reversals.test.ts",
 			"scripts/arm-tasks.test.ts",
 			"scripts/build-arm-sandbox.test.ts",
 			"scripts/check-digest-render.test.ts",
@@ -2988,6 +3059,7 @@
 			"scripts/check-test-marker.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/coverage-declined.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/guard-issue-close.test.ts",
 			"scripts/guard-lost-deny.test.ts",
 			"scripts/guard-suite-concurrency.test.ts",
@@ -3044,29 +3116,37 @@
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"pytest.ini": [
+			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-test-marker.test.ts",
 			"scripts/coverage-declined.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/lib/infer-commands.test.ts",
 			"scripts/lib/test-kind.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
 			"scripts/precommit-staged-gate.test.ts"
 		],
 		"requirements-dev.in": [
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/lib/formatters.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
 			"scripts/precommit-ruff-gate.test.ts"
 		],
 		"requirements-dev.txt": [
+			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-test-marker.test.ts",
 			"scripts/coverage-declined.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
 			"scripts/run-pytest.test.ts"
 		],
 		"ruff.toml": [
+			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-code-standards.test.ts",
 			"scripts/check-format-staged.test.ts",
 			"scripts/check-ruff-introduced.test.ts",
 			"scripts/check-swallowed-errors.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/lib/formatters.test.ts",
 			"scripts/lib/plugin-tree.test.ts",
@@ -23259,6 +23339,51 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/lib/pool.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-revert-conflict.test.ts",
+			"scripts/check-guard-registry-revert.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/pool.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/pool.test.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-revert-conflict.test.ts",
+			"scripts/check-guard-registry-revert.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/lib/posix-ere.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
@@ -38297,7 +38422,9 @@
 			"scripts/start-lander-on-push.test.ts"
 		],
 		"skills-lock.json": [
+			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-vendored-skills.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/lib/doc-map.test.ts",
 			"scripts/lib/plugin-tree.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
@@ -38306,20 +38433,28 @@
 			"scripts/register-doc.test.ts"
 		],
 		"tsconfig.build.json": [
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/markdown-tooling-declined.test.ts"
 		],
 		"tsconfig.json": [
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
 			"scripts/precommit-declared-commands.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
 		"tsconfig.strict.json": [
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
 		"vitest.config.ts": [
+			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-guard-registry-implicit.test.ts",
 			"scripts/coverage-declined.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/lib/doc-map.test.ts",
 			"scripts/lib/suite-bounded.test.ts",
 			"scripts/lib/test-kind.test.ts",
@@ -38328,10 +38463,14 @@
 			"scripts/vitest-tree-watch.test.ts"
 		],
 		"vitest.setup.test.ts": [
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/markdown-tooling-declined.test.ts"
 		],
 		"vitest.setup.ts": [
+			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-context-budget.test.ts",
+			"scripts/file-morning-review.test.ts",
 			"scripts/lib/python-routes.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
 			"scripts/session-checkout.test.ts",

@@ -6,7 +6,12 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { parseBasePaths, parseBreaches } from "./primitives-table.js";
+import {
+	countPrimitives,
+	parseBasePaths,
+	parseBreaches,
+	primitivesOutcome,
+} from "./primitives-table.js";
 
 const envelope = (fields: Record<string, unknown>) => JSON.stringify(fields);
 
@@ -74,5 +79,60 @@ describe("parseBasePaths", () => {
 		expect(
 			parseBasePaths("## Primitives\n\n| Job | Typo |\n|---|---|\n"),
 		).toEqual([]);
+	});
+});
+
+describe("countPrimitives", () => {
+	const row = (check: string) => ({
+		side: "base" as const,
+		line: 1,
+		job: "J",
+		primitive: "P",
+		exemplar: "`e.js`",
+		rule: "§0",
+		check,
+	});
+	const heresies = () => ({ count: 0 });
+
+	it("sums each check's count once, in the order asked", async () => {
+		const asked: string[] = [];
+		const line = await countPrimitives(
+			{ rows: [row("`a.js`"), row("`b.js`, `a.js`")], unreadable: [] },
+			{
+				countBreaches: async (checks: { rel: string }[]) => {
+					asked.push(...checks.map((c) => c.rel));
+					return checks.map((_, i) => ({ count: i + 1 }));
+				},
+				readNewHeresies: heresies,
+			},
+		);
+		expect(asked).toEqual(["a.js", "b.js"]);
+		expect(line).toContain("2 enforced, 3 open breaches");
+	});
+
+	it("names a check whose count never came back, never reading it as 0", async () => {
+		const line = await countPrimitives(
+			{ rows: [row("`a.js`"), row("`b.js`")], unreadable: [] },
+			{ countBreaches: async () => [{ count: 2 }], readNewHeresies: heresies },
+		);
+		expect(line).toContain("open breaches unknown (b.js: no count came back)");
+	});
+});
+
+describe("primitivesOutcome", () => {
+	it("carries the count line on the OK line, and beside findings only where there are some", () => {
+		const line =
+			"primitives: 1 enforced, 0 open breaches, 0 new heresies since the last sweep";
+		expect(primitivesOutcome({ rows: 2, line, findings: 0 })).toEqual({
+			okLine: `2 primitives row(s), every path and § id real. ${line}.`,
+			extraLine: null,
+		});
+		expect(primitivesOutcome({ rows: 2, line, findings: 1 }).extraLine).toBe(
+			`${line}.`,
+		);
+		expect(primitivesOutcome({ rows: 2, line: null, findings: 1 })).toEqual({
+			okLine: "2 primitives row(s), every path and § id real.",
+			extraLine: null,
+		});
 	});
 });

@@ -18,7 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { printed, stubGhRoutes, stubGhScript } from "./lib/gh-stub";
-import { runInProcess } from "./lib/run-in-process.js";
+import { runInProcessAsync } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-primitives.js");
 
@@ -75,13 +75,13 @@ const sweepGh = (
 		"issue view 7 --json comments": printed(JSON.stringify({ comments })),
 	});
 
-const run = (
+const run = async (
 	pluginRoot: string,
 	hostRoot: string,
 	args: string[] = [],
 	gh = sweepGh(),
 ) => {
-	const r = runInProcess(SCRIPT, ["--root", hostRoot, ...args], {
+	const r = await runInProcessAsync(SCRIPT, ["--root", hostRoot, ...args], {
 		cwd: hostRoot,
 		env: {
 			...process.env,
@@ -103,7 +103,7 @@ afterEach(() => {
 });
 
 describe("check-primitives", () => {
-	it("OKs a clean pair of tables and prints the count line", () => {
+	it("OKs a clean pair of tables and prints the count line", async () => {
 		const core = path.join(dir, "core");
 		plugin(core);
 		write(
@@ -114,17 +114,17 @@ describe("check-primitives", () => {
 			),
 		);
 		write(core, "lib/x.ts", "");
-		const r = run(core, core);
+		const r = await run(core, core);
 		expect(r.status).toBe(0);
 		expect(r.out).toContain(
 			"OK: 2 primitives row(s), every path and § id real. primitives: 1 enforced, 2 open breaches, 3 new heresies since the last sweep.",
 		);
 	});
 
-	it("prints a sweep that filed none as 0, never unknown", () => {
+	it("prints a sweep that filed none as 0, never unknown", async () => {
 		const core = path.join(dir, "core");
 		plugin(core);
-		const r = run(
+		const r = await run(
 			core,
 			core,
 			[],
@@ -134,54 +134,54 @@ describe("check-primitives", () => {
 		expect(r.out).toContain(", 0 new heresies since the last sweep.");
 	});
 
-	it("FAILs a missing exemplar, naming the row and the path", () => {
+	it("FAILs a missing exemplar, naming the row and the path", async () => {
 		const core = path.join(dir, "core");
 		plugin(core);
 		fs.rmSync(path.join(core, "scripts/lib/write-fd.js"));
-		const r = run(core, core);
+		const r = await run(core, core);
 		expect(r.status).toBe(1);
 		expect(r.out).toContain(
 			'docs/code-standards-base.md:13 (row "Writing output"): its exemplar `scripts/lib/write-fd.js` does not exist',
 		);
 	});
 
-	it("FAILs a missing enforcing check path, naming the row", () => {
+	it("FAILs a missing enforcing check path, naming the row", async () => {
 		const core = path.join(dir, "core");
 		plugin(core);
 		fs.rmSync(path.join(core, "scripts/check-out.js"));
-		const r = run(core, core, ["--paths-only"]);
+		const r = await run(core, core, ["--paths-only"]);
 		expect(r.status).toBe(1);
 		expect(r.out).toContain(
 			'(row "Writing output"): its enforcing check `scripts/check-out.js` does not exist',
 		);
 	});
 
-	it("FAILs a § id no standards file defines, naming the row", () => {
+	it("FAILs a § id no standards file defines, naming the row", async () => {
 		const core = path.join(dir, "core");
 		plugin(
 			core,
 			"| Writing output | `writeFd` | `scripts/lib/write-fd.js` | §N9 | `scripts/check-out.js` |\n",
 		);
-		const r = run(core, core, ["--paths-only"]);
+		const r = await run(core, core, ["--paths-only"]);
 		expect(r.status).toBe(1);
 		expect(r.out).toContain(
 			'(row "Writing output"): its Rule cell cites §N9, which no standards file defines — cite the § that states the primitive',
 		);
 	});
 
-	it("FAILs a base row citing a local § id, which the base cannot see", () => {
+	it("FAILs a base row citing a local § id, which the base cannot see", async () => {
 		const core = path.join(dir, "core");
 		plugin(
 			core,
 			"| Writing output | `writeFd` | `scripts/lib/write-fd.js` | §LX1 | `scripts/check-out.js` |\n",
 		);
 		write(core, "docs/code-standards.md", local(""));
-		const r = run(core, core, ["--paths-only"]);
+		const r = await run(core, core, ["--paths-only"]);
 		expect(r.status).toBe(1);
 		expect(r.out).toContain("its Rule cell cites §LX1");
 	});
 
-	it("FAILs a local row naming a base row's job", () => {
+	it("FAILs a local row naming a base row's job", async () => {
 		const core = path.join(dir, "core");
 		plugin(core);
 		write(
@@ -191,14 +191,14 @@ describe("check-primitives", () => {
 				"| writing  output | `mine` | `scripts/lib/write-fd.js` | §N6 | Standards axis criterion |\n",
 			),
 		);
-		const r = run(core, core, ["--paths-only"]);
+		const r = await run(core, core, ["--paths-only"]);
 		expect(r.status).toBe(1);
 		expect(r.out).toContain(
 			'docs/code-standards.md:9 (row "writing  output"): it names the job of the base row at line 13, whose primitive is `writeFd`',
 		);
 	});
 
-	it("FAILs a Primitives heading whose table header is misspelt, rather than reading it empty", () => {
+	it("FAILs a Primitives heading whose table header is misspelt, rather than reading it empty", async () => {
 		const core = path.join(dir, "core");
 		plugin(core);
 		write(
@@ -206,7 +206,7 @@ describe("check-primitives", () => {
 			"docs/code-standards.md",
 			"# Local\n\n## Primitives\n\n| Job | Primitive | Exemplar |\n|---|---|---|\n",
 		);
-		const r = run(core, core);
+		const r = await run(core, core);
 		expect(r.status).toBe(1);
 		expect(r.out).toContain(
 			"docs/code-standards.md: its Primitives table's header is not | Job | Primitive | Exemplar | Rule | Enforcing check |",
@@ -216,7 +216,7 @@ describe("check-primitives", () => {
 		);
 	});
 
-	it("resolves a local row at the host root and a base row at the plugin root, a base fault only warning in an adopter", () => {
+	it("resolves a local row at the host root and a base row at the plugin root, a base fault only warning in an adopter", async () => {
 		const pluginRoot = path.join(dir, "plugin");
 		const host = path.join(dir, "host");
 		plugin(pluginRoot);
@@ -229,7 +229,7 @@ describe("check-primitives", () => {
 			),
 		);
 		write(host, "lib/x.ts", "");
-		const r = run(pluginRoot, host, ["--paths-only"]);
+		const r = await run(pluginRoot, host, ["--paths-only"]);
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("WARN: 1 primitives table fault(s)");
 		expect(r.out).toContain(
@@ -238,19 +238,19 @@ describe("check-primitives", () => {
 		expect(r.out).not.toContain("lib/x.ts");
 	});
 
-	it("is BROKEN where the base cannot be read", () => {
-		const r = run(path.join(dir, "nowhere"), dir);
+	it("is BROKEN where the base cannot be read", async () => {
+		const r = await run(path.join(dir, "nowhere"), dir);
 		expect(r.status).toBe(2);
 		expect(r.out).toContain(
 			`the code standards base is unreadable at the plugin root (${path.join(dir, "nowhere", "docs/code-standards-base.md")}) — nothing was judged`,
 		);
 	});
 
-	it("prints no count line and calls no gh under --paths-only", () => {
+	it("prints no count line and calls no gh under --paths-only", async () => {
 		const core = path.join(dir, "core");
 		plugin(core);
 		const gh = stubGhScript(path.join(dir, "gh"), "", { failing: true });
-		const r = run(core, core, ["--paths-only"], gh);
+		const r = await run(core, core, ["--paths-only"], gh);
 		expect(r.status).toBe(0);
 		expect(r.out).toContain(
 			"OK: 1 primitives row(s), every path and § id real.",
@@ -266,19 +266,19 @@ describe("check-primitives", () => {
 			write(root, "scripts/check-skip.js", answering("SKIP"));
 		};
 
-		it("adds 0, the total being the FAIL findings of the rows that ran", () => {
+		it("adds 0, the total being the FAIL findings of the rows that ran", async () => {
 			const core = path.join(dir, "core");
 			pluginWithSkippingCheck(core);
-			const r = run(core, core);
+			const r = await run(core, core);
 			expect(r.status).toBe(0);
 			expect(r.out).toContain("primitives: 2 enforced, 2 open breaches,");
 		});
 
-		it("does not hide a neighbour's BROKEN", () => {
+		it("does not hide a neighbour's BROKEN", async () => {
 			const core = path.join(dir, "core");
 			pluginWithSkippingCheck(core);
 			write(core, "scripts/check-out.js", answering("BROKEN"));
-			const r = run(core, core);
+			const r = await run(core, core);
 			expect(r.status).toBe(0);
 			expect(r.out).toContain(
 				"open breaches unknown (scripts/check-out.js: it answered BROKEN)",
@@ -287,49 +287,54 @@ describe("check-primitives", () => {
 	});
 
 	describe("a count it cannot read prints as unknown with its reason, never 0", () => {
-		it("open breaches, where a check prints no envelope", () => {
+		it("open breaches, where a check prints no envelope", async () => {
 			const core = path.join(dir, "core");
 			plugin(core);
 			write(core, "scripts/check-out.js", "process.exitCode = 2;\n");
-			const r = run(core, core);
+			const r = await run(core, core);
 			expect(r.status).toBe(0);
 			expect(r.out).toContain(
 				"open breaches unknown (scripts/check-out.js: it printed no --json envelope (exit 2))",
 			);
 		});
 
-		it("open breaches, where a check answers BROKEN", () => {
+		it("open breaches, where a check answers BROKEN", async () => {
 			const core = path.join(dir, "core");
 			plugin(core);
 			write(core, "scripts/check-out.js", answering("BROKEN"));
-			const r = run(core, core);
+			const r = await run(core, core);
 			expect(r.out).toContain(
 				"open breaches unknown (scripts/check-out.js: it answered BROKEN)",
 			);
 		});
 
-		it("new heresies, where gh cannot be reached", () => {
+		it("new heresies, where gh cannot be reached", async () => {
 			const core = path.join(dir, "core");
 			plugin(core);
 			const gh = stubGhScript(path.join(dir, "gh"), "", { failing: true });
-			const r = run(core, core, [], gh);
+			const r = await run(core, core, [], gh);
 			expect(r.status).toBe(0);
 			expect(r.out).toContain(
 				"2 open breaches, new heresies since the last sweep unknown (the tracker did not answer",
 			);
 		});
 
-		it("new heresies, where the closed sweep carries no Filed line", () => {
+		it("new heresies, where the closed sweep carries no Filed line", async () => {
 			const core = path.join(dir, "core");
 			plugin(core);
-			const r = run(core, core, [], sweepGh([{ body: "Closed by hand." }]));
+			const r = await run(
+				core,
+				core,
+				[],
+				sweepGh([{ body: "Closed by hand." }]),
+			);
 			expect(r.status).toBe(0);
 			expect(r.out).toContain(
 				"new heresies since the last sweep unknown (#7 has no **Filed:** comment)",
 			);
 		});
 
-		it("new heresies, where the closed sweep's comments cannot be read", () => {
+		it("new heresies, where the closed sweep's comments cannot be read", async () => {
 			const core = path.join(dir, "core");
 			plugin(core);
 			const gh = stubGhRoutes(path.join(dir, "gh"), {
@@ -350,20 +355,20 @@ describe("check-primitives", () => {
 					stderr: "HTTP 502",
 				},
 			});
-			const r = run(core, core, [], gh);
+			const r = await run(core, core, [], gh);
 			expect(r.status).toBe(0);
 			expect(r.out).toContain(
 				"new heresies since the last sweep unknown (the tracker did not answer",
 			);
 		});
 
-		it("new heresies, where no sweep issue has closed", () => {
+		it("new heresies, where no sweep issue has closed", async () => {
 			const core = path.join(dir, "core");
 			plugin(core);
 			const gh = stubGhRoutes(path.join(dir, "gh"), {
 				"issue list*": printed("[]"),
 			});
-			const r = run(core, core, [], gh);
+			const r = await run(core, core, [], gh);
 			expect(r.out).toContain(
 				"new heresies since the last sweep unknown (no *Heresy sweep due* issue has closed yet)",
 			);

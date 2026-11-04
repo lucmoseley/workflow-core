@@ -11,8 +11,11 @@
  *   exists(side, rel)        whether `rel` names a file or directory at the
  *                            side's root: the plugin root for `base`, the
  *                            host root for `local`, as base §0 reads line pins
- *   countBreaches(side, rel) the findings check program `rel` reports over
- *                            the whole tree, or why it could not be read
+ *   countBreaches(checks)    resolves to the findings each check program
+ *                            `{ side, rel }` reports over the whole tree, or
+ *                            why it could not be read, in `checks`' order; all
+ *                            are asked for in one call, so the adapter sets
+ *                            how many run at once
  *   readNewHeresies()        the `**Filed:**` figure on the last closed *Heresy
  *                            sweep due* issue, or why it could not be read
  *
@@ -63,7 +66,7 @@ const BACKTICKED = /`([^`]+)`/g;
  * @typedef {{
  *   read: (side: Side) => string | null,
  *   exists: (side: Side, rel: string) => boolean,
- *   countBreaches: (side: Side, rel: string) => Count,
+ *   countBreaches: (checks: { side: Side, rel: string }[]) => Promise<Count[]>,
  *   readNewHeresies: () => Count,
  * }} Ports
  */
@@ -225,22 +228,25 @@ function judgeRow(row, ids, exists) {
  * check counted once.
  * @param {Row[]} rows
  * @param {Ports["countBreaches"]} countBreaches
- * @returns {Count}
+ * @returns {Promise<Count>}
  */
-function sumBreaches(rows, countBreaches) {
+async function sumBreaches(rows, countBreaches) {
+	/** @type {Map<string, { side: Side, rel: string }>} */
+	const checks = new Map();
+	for (const row of rows.filter(isProgramEnforced))
+		for (const rel of backticked(row.check))
+			checks.set(`${row.side}:${rel}`, { side: row.side, rel });
+	const asked = [...checks.values()];
+	const counts = await countBreaches(asked);
 	let total = 0;
 	/** @type {string[]} */
 	const reasons = [];
-	const seen = new Set();
-	for (const row of rows.filter(isProgramEnforced))
-		for (const rel of backticked(row.check)) {
-			const key = `${row.side}:${rel}`;
-			if (seen.has(key)) continue;
-			seen.add(key);
-			const c = countBreaches(row.side, rel);
-			if ("unknown" in c) reasons.push(`${rel}: ${c.unknown}`);
-			else total += c.count;
-		}
+	asked.forEach(({ rel }, i) => {
+		const c = counts[i];
+		if (!c) reasons.push(`${rel}: no count came back`);
+		else if ("unknown" in c) reasons.push(`${rel}: ${c.unknown}`);
+		else total += c.count;
+	});
 	return reasons.length > 0
 		? { unknown: reasons.join("; ") }
 		: { count: total };
@@ -256,7 +262,7 @@ function sumBreaches(rows, countBreaches) {
  * repo shipping no plugin, and one such row must not blank the total (#4119).
  * Residual: a row whose check SKIPs because its subject is out of reach rather
  * than absent, such as GitHub being down (§N4), also adds 0, with its reason
- * dropped. No row's check does so today.
+ * dropped.
  *
  * @param {string} stdout
  * @param {number | null} status
@@ -287,6 +293,20 @@ const shown = (c, noun) =>
  */
 const countLine = ({ enforced, breaches, heresies }) =>
 	`primitives: ${shown(enforced, "enforced")}, ${shown(breaches, "open breaches")}, ${shown(heresies, "new heresies since the last sweep")}`;
+
+/**
+ * With findings, no OK line is printed to carry the count line, so it goes
+ * beside them.
+ * @param {{ rows: number, line: string | null, findings: number }} judged
+ * @returns {{ okLine: string, extraLine: string | null }}
+ */
+function primitivesOutcome({ rows, line, findings }) {
+	const table = `${rows} primitives row(s), every path and § id real`;
+	return {
+		okLine: line ? `${table}. ${line}.` : `${table}.`,
+		extraLine: line && findings > 0 ? `${line}.` : null,
+	};
+}
 
 /**
  * Both sides' rows, with a finding and a reason for each side whose table
@@ -332,21 +352,20 @@ function twinFinding(row, baseJobs) {
 }
 
 /**
- * Judge both tables. `counts` false reads stat calls alone and leaves the
- * count line out, for the pre-commit run.
- * @param {Ports} ports
- * @param {{ counts: boolean }} opts
+ * Judge both tables, by stat calls alone. `unreadable` names each side whose
+ * table would not parse, for countPrimitives.
+ * @param {Pick<Ports, "read" | "exists">} ports
  * @returns {{ rows: Row[], findings: Finding[], broken: string | null,
- *   countLine: string | null }}
+ *   unreadable: string[] }}
  */
-function judgePrimitives(ports, { counts }) {
+function judgePrimitives(ports) {
 	const baseText = ports.read("base");
 	if (baseText === null)
 		return {
 			rows: [],
 			findings: [],
 			broken: "the code standards base is unreadable at the plugin root",
-			countLine: null,
+			unreadable: [],
 		};
 	const localText = ports.read("local");
 	const { rows, findings, unreadable } = parseTables(baseText, localText);
@@ -362,20 +381,23 @@ function judgePrimitives(ports, { counts }) {
 		const twin = twinFinding(row, baseJobs);
 		if (twin) findings.push(twin);
 	}
-	if (!counts) return { rows, findings, broken: null, countLine: null };
+	return { rows, findings, broken: null, unreadable };
+}
+
+/**
+ * @param {{ rows: Row[], unreadable: string[] }} judged
+ * @param {Pick<Ports, "countBreaches" | "readNewHeresies">} ports
+ * @returns {Promise<string>}
+ */
+async function countPrimitives({ rows, unreadable }, ports) {
 	/** @type {Count | null} */
 	const blind =
 		unreadable.length > 0 ? { unknown: unreadable.join("; ") } : null;
-	return {
-		rows,
-		findings,
-		broken: null,
-		countLine: countLine({
-			enforced: blind ?? { count: rows.filter(isProgramEnforced).length },
-			breaches: blind ?? sumBreaches(rows, ports.countBreaches),
-			heresies: ports.readNewHeresies(),
-		}),
-	};
+	return countLine({
+		enforced: blind ?? { count: rows.filter(isProgramEnforced).length },
+		breaches: blind ?? (await sumBreaches(rows, ports.countBreaches)),
+		heresies: ports.readNewHeresies(),
+	});
 }
 
 /** @type {Record<string, keyof Row>} */
@@ -463,7 +485,9 @@ function parseBasePaths(baseText) {
 module.exports = {
 	STANDARDS_DOCS,
 	parseBasePaths,
+	countPrimitives,
 	judgePrimitives,
 	parseBreaches,
+	primitivesOutcome,
 	rowChanges,
 };

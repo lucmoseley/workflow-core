@@ -12,7 +12,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it } from "vitest";
-import { type GhStubServer, serveGhStub, stubGhScript } from "./gh-stub";
+import {
+	type GhStubServer,
+	serveGhStub,
+	stubGhHandler,
+	stubGhScript,
+} from "./gh-stub";
 
 const HANDLER = String.raw`
 if (argv[0] === "echo") { out(JSON.stringify({ argv, cwd, stdin, sb: env.SB }) + "\n"); err("on stderr\n"); exit(3); }
@@ -97,4 +102,28 @@ it("exits 70 naming the port where no server answers", async () => {
 	});
 	expect(r.status).toBe(70);
 	expect(r.stderr).toBe(`gh stub: no answer from the server on port ${port}\n`);
+});
+
+it("answers as stubGhHandler's per-call gh does, for the same handler and call (#4311)", () => {
+	const perCall = stubGhHandler(path.join(dir, "held"), HANDLER).gh;
+	for (const [args, input] of [
+		[["echo", "a b", "--body-file", "-"], "body\n"],
+		[["echo", "--input", "x@-"], "piped\n"],
+		[["echo"], "unread"],
+		[["other"], undefined],
+	] as const) {
+		const opts = {
+			cwd: dir,
+			env: { ...process.env, SB: "a=b" },
+			encoding: "utf8" as const,
+			input,
+		};
+		const held = spawnSync(perCall, [...args], opts);
+		const served = call([...args], input);
+		expect([held.status, held.stdout, held.stderr]).toEqual([
+			served.status,
+			served.stdout,
+			served.stderr,
+		]);
+	}
 });
