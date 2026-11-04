@@ -62,57 +62,89 @@ function nextOnLine(text, endAt) {
 }
 
 /**
- * Where a line prefix may end in a match. `hit[prefixEnd]` is the tail read
- * when a prefix ends at `prefixEnd`: at a line start the tail opens there,
- * and before a `boundary` character it opens just past that character; null
- * where neither gives one. `nextHit[i]` is the first `prefixEnd` at or after
- * `i` whose hit is not null, or -1.
- * @param {string} text
- * @param {RegExp} boundary
- * @param {(tailStart: number) => {end: number, value: string} | null} tailAt
- */
-function headHits(text, boundary, tailAt) {
-	const n = text.length;
-	/** @type {({end: number, value: string} | null)[]} */
-	const hit = new Array(n + 1).fill(null);
-	const nextHit = new Int32Array(n + 2).fill(-1);
-	for (let prefixEnd = n; prefixEnd >= 0; prefixEnd--) {
-		let found = atLineStart(text, prefixEnd) ? tailAt(prefixEnd) : null;
-		if (!found && prefixEnd < n && boundary.test(text[prefixEnd] ?? ""))
-			found = tailAt(prefixEnd + 1);
-		hit[prefixEnd] = found;
-		nextHit[prefixEnd] = found ? prefixEnd : (nextHit[prefixEnd + 1] ?? -1);
-	}
-	return { hit, nextHit };
-}
-
-/**
  * The matches a `gm` regex `^([^#\n]*?)(?:^|<boundary>)<tail>` finds, in
  * order, each as its prefix (the text from the line start to the boundary)
  * and the value `tailAt` reads off the tail.
+ *
+ * A prefix may end at `prefixEnd` where, at a line start, the tail opens
+ * there, or, before a `boundary` character, just past it. A tail opens only
+ * on one of `heads`, so only the positions of those are read: in increasing
+ * prefix end, the boundary just before each, then the head itself as a line
+ * start. Each head's next position is kept, so no stretch is searched twice.
  * @param {string} text
  * @param {RegExp} boundary one character
+ * @param {string[]} heads every tail `tailAt` reads opens with one of these
  * @param {(tailStart: number) => {end: number, value: string} | null} tailAt
  *   the tail's end and value where it opens at `tailStart`, else null
  * @returns {{prefix: string, value: string}[]}
  */
-function lineHeadMatches(text, boundary, tailAt) {
+function lineHeadMatches(text, boundary, heads, tailAt) {
 	const n = text.length;
-	const { hit, nextHit } = headHits(text, boundary, tailAt);
-	// Where each lazy prefix must stop: the next `#` or `\n`.
-	const stop = new Int32Array(n + 1).fill(n);
-	for (let i = n - 1; i >= 0; i--)
-		stop[i] = text[i] === "#" || text[i] === "\n" ? i : (stop[i + 1] ?? n);
+	const nextAt = heads.map(() => -1);
+	/** The first head at or after `from`, or -1. @param {number} from */
+	const nextHead = (from) => {
+		let best = -1;
+		heads.forEach((head, k) => {
+			if ((nextAt[k] ?? -1) < from && nextAt[k] !== n + 1)
+				nextAt[k] = text.indexOf(head, from);
+			if (nextAt[k] === -1) nextAt[k] = n + 1;
+			const at = nextAt[k] ?? n + 1;
+			if (at <= n && (best === -1 || at < best)) best = at;
+		});
+		return best;
+	};
+	/** @param {number} tailStart @param {number} from the line's start @param {number} stop */
+	const hitAt = (tailStart, from, stop) => {
+		const before = tailStart - 1;
+		const afterBoundary =
+			before >= from && before <= stop && boundary.test(text[before] ?? "");
+		const opensLine = tailStart <= stop && atLineStart(text, tailStart);
+		const found = afterBoundary || opensLine ? tailAt(tailStart) : null;
+		if (!found) return null;
+		return { prefixEnd: afterBoundary ? before : tailStart, found };
+	};
 	const out = [];
-	for (let lineStart = 0; lineStart < n; lineStart++) {
-		if (!atLineStart(text, lineStart)) continue;
-		const prefixEnd = nextHit[lineStart] ?? -1;
-		const found = hit[prefixEnd];
-		if (prefixEnd < 0 || prefixEnd > (stop[lineStart] ?? n) || !found) continue;
-		out.push({ prefix: text.slice(lineStart, prefixEnd), value: found.value });
-		lineStart = found.end - 1;
+	let lineStart = 0;
+	while (lineStart < n) {
+		if (!atLineStart(text, lineStart)) {
+			lineStart++;
+			continue;
+		}
+		// The lazy prefix runs to the next `#` or `\n`, which may end it too.
+		let stop = lineStart;
+		while (stop < n && text[stop] !== "#" && text[stop] !== "\n") stop++;
+		let hit = null;
+		for (
+			let tailStart = nextHead(lineStart);
+			tailStart >= 0 && tailStart <= stop + 1 && !hit;
+			tailStart = nextHead(tailStart + 1)
+		)
+			hit = hitAt(tailStart, lineStart, stop);
+		if (!hit) {
+			lineStart = stop + 1;
+			continue;
+		}
+		out.push({
+			prefix: text.slice(lineStart, hit.prefixEnd),
+			value: hit.found.value,
+		});
+		lineStart = hit.found.end;
 	}
 	return out;
+}
+
+/** Whether `text` holds a `lib/<name>.sh` anywhere, as every match of
+ * parseSourcedLibs does: most texts hold none.
+ * Each `lib/` opens a name run the next `/` ends, so no run
+ * is read twice. */
+function hasLibPath(/** @type {string} */ text) {
+	for (let at = text.indexOf(LIB); at >= 0; at = text.indexOf(LIB, at + 1)) {
+		let end = at + LIB.length;
+		while (end < text.length && /[\w.-]/.test(text[end] ?? "")) end++;
+		const name = text.slice(at + LIB.length, end);
+		if (name.lastIndexOf(SH) > 0) return true;
+	}
+	return false;
 }
 
 /**
@@ -125,6 +157,7 @@ function lineHeadMatches(text, boundary, tailAt) {
  * @returns {string[]} each `lib/….sh` path, in order
  */
 function parseSourcedLibs(text) {
+	if (!hasLibPath(text)) return [];
 	const sh = lastMarkInRun(text, /[\w.-]/, SH);
 	/** @param {number} libStart */
 	const libEnd = (libStart) => {
@@ -142,7 +175,7 @@ function parseSourcedLibs(text) {
 		if (text.startsWith(SOURCE, at)) return at + SOURCE.length;
 		return text[at] === "." ? at + 1 : -1;
 	};
-	return lineHeadMatches(text, /\s/, (tailStart) => {
+	return lineHeadMatches(text, /\s/, [SOURCE, "."], (tailStart) => {
 		const end = keywordEnd(tailStart);
 		if (end < 0) return null;
 		const argStart = blankEnd(text, end);
@@ -163,6 +196,14 @@ function afterNodeDollar(/** @type {string} */ text, /** @type {number} */ at) {
 	return text[argStart] === "$" ? argStart + 1 : -1;
 }
 
+/** Whether `afterNodeDollar` finds a `node` run anywhere in `text`, which
+ * every match of the two parsers below opens with: most texts have none. */
+function hasNodeDollar(/** @type {string} */ text) {
+	for (let at = text.indexOf(NODE); at >= 0; at = text.indexOf(NODE, at + 1))
+		if (afterNodeDollar(text, at) >= 0) return true;
+	return false;
+}
+
 /**
  * The programs a shell text runs self-relatively: on each line, before any
  * `#`, a `node` that opens the line or follows one of `\s(|;&`, then blanks,
@@ -176,6 +217,7 @@ function afterNodeDollar(/** @type {string} */ text, /** @type {number} */ at) {
  *   `node`, and the path after the `/`
  */
 function parseNodeRuns(text) {
+	if (!hasNodeDollar(text)) return [];
 	const js = lastMarkInRun(text, /[\w./-]/, JS);
 	/** @param {number} slash */
 	const tailEnd = (slash) => {
@@ -188,7 +230,7 @@ function parseNodeRuns(text) {
 			: -1;
 	};
 	const nextTail = nextOnLine(text, tailEnd);
-	return lineHeadMatches(text, /[\s(|;&]/, (tailStart) => {
+	return lineHeadMatches(text, /[\s(|;&]/, [NODE], (tailStart) => {
 		const pathFrom = afterNodeDollar(text, tailStart);
 		const slash = pathFrom < 0 ? -1 : (nextTail[pathFrom] ?? -1);
 		if (slash < 0) return null;
@@ -209,7 +251,8 @@ function parseNodeRuns(text) {
  *   `node`, and the variable's name
  */
 function parseNodeVars(text) {
-	return lineHeadMatches(text, /[\s(|;&]/, (tailStart) => {
+	if (!hasNodeDollar(text)) return [];
+	return lineHeadMatches(text, /[\s(|;&]/, [NODE], (tailStart) => {
 		let nameStart = afterNodeDollar(text, tailStart);
 		if (nameStart < 0) return null;
 		if (text[nameStart] === "{") nameStart++;

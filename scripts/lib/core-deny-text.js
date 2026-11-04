@@ -183,14 +183,12 @@ const callRe = (name) =>
  */
 function lex(source) {
 	const { comments, literals } = scanJs(source);
-	let blank = source;
-	for (const [from, to] of comments)
-		blank = blank.slice(0, from) + " ".repeat(to - from) + blank.slice(to);
-	for (const { at, raw } of literals)
-		blank =
-			blank.slice(0, at) +
-			"0".repeat(raw.length) +
-			blank.slice(at + raw.length);
+	// One code unit per slot, filled in place: rebuilding the string per span
+	// is quadratic on a large core (#4170).
+	const units = source.split("");
+	for (const [from, to] of comments) units.fill(" ", from, to);
+	for (const { at, raw } of literals) units.fill("0", at, at + raw.length);
+	const blank = units.join("");
 
 	/** @type {Lexed} */
 	const lx = {

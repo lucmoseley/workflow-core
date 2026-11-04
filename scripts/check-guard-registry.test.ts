@@ -1159,6 +1159,92 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		expect(w[0].guard).toBe("scripts/guard-b.sh");
 	});
 
+	describe("--review --stale, the list and the re-anchor in one call (#4170)", () => {
+		/* Refused before any scan or write, so one bare tree serves every row. */
+		let bare = "";
+		beforeAll(() => {
+			bare = build({ claude: region() });
+			/* Out of `temps`, which afterEach empties after the first case. */
+			temps.splice(temps.indexOf(bare), 1);
+		});
+		afterAll(() => fs.rmSync(bare, { recursive: true, force: true }));
+
+		function staleA(): string {
+			const root = build({
+				claude: region(
+					"- One. **Enforced** (#1): `scripts/guard-a.sh`.",
+					"- Two. **Enforced** (#2): `scripts/guard-b.sh`.",
+				),
+				files: {
+					"scripts/guard-a.sh": "#!/bin/sh\nexit 0\n",
+					"scripts/guard-b.sh": "#!/bin/sh\nexit 0\n",
+					[SELF_PLUGIN_HOOKS]: hooksWiring(
+						"scripts/guard-a.sh",
+						"scripts/guard-b.sh",
+					),
+				},
+			});
+			reviewIn(root);
+			fs.writeFileSync(
+				path.join(root, "scripts", "guard-a.sh"),
+				"#!/bin/sh\nexit 1\n",
+			);
+			return root;
+		}
+
+		it("re-anchors only the stale row, printing the rule it asserts was re-read", () => {
+			const root = staleA();
+			const before = readAnchors(root)["scripts/guard-b.sh"];
+			const out = reviewIn(root, ["--stale"]);
+			expect(out).toContain("anchored scripts/guard-a.sh");
+			expect(out).toContain("describes: CLAUDE.md:");
+			expect(out).not.toContain("anchored scripts/guard-b.sh");
+			expect(readAnchors(root)["scripts/guard-b.sh"]).toBe(before);
+			expect(run(root).json.warnings).toEqual([]);
+		});
+
+		it("drops an orphan row, one no rule names any more", () => {
+			const root = staleA();
+			reviewIn(root, ["--stale"]);
+			fs.writeFileSync(
+				path.join(root, ANCHORS),
+				JSON.stringify({
+					...readAnchors(root),
+					"scripts/guard-gone.sh": "deadbeefdeadbeef",
+				}),
+			);
+			expect(reviewIn(root, ["--stale"])).toContain(
+				"dropped scripts/guard-gone.sh",
+			);
+			expect(readAnchors(root)).not.toHaveProperty("scripts/guard-gone.sh");
+			expect(run(root).json.warnings).toEqual([]);
+		});
+
+		it("leaves the anchors file untouched where no row is stale", () => {
+			const root = staleA();
+			reviewIn(root, ["--stale"]);
+			const before = fs.readFileSync(path.join(root, ANCHORS), "utf8");
+			expect(reviewIn(root, ["--stale"])).toContain("No stale row");
+			expect(fs.readFileSync(path.join(root, ANCHORS), "utf8")).toBe(before);
+		});
+
+		it.each([
+			[["--stale"], "--stale only qualifies --review."],
+			[
+				["--review", "--stale", "scripts/guard-a.sh"],
+				"--stale re-anchors the rows the scan finds stale, so it takes no path.",
+			],
+		])("refuses %j as BROKEN, naming the misuse", (args, message) => {
+			const r = runInProcess(
+				path.join(bare, "scripts", "check-guard-registry.js"),
+				args,
+				{ env: reviewEnv(bare) },
+			);
+			expect(r.status).toBe(2);
+			expect(r.stderr).toContain(message);
+		});
+	});
+
 	/*
 	 * mantahostels#2636's fixture. Two guards, so a per-path run has something it must
 	 * leave alone — and a real git repo, because the claim check reads the
@@ -5586,6 +5672,57 @@ describe("gitignored scratch under a scan root (mantahostels#2243)", () => {
 				expect(r.json).toMatchObject({
 					outcome: "BROKEN",
 					summary: expect.stringMatching(message),
+				});
+			} finally {
+				fs.chmodSync(sub, 0o755);
+			}
+		},
+	);
+
+	it.each([
+		["a document", "AGENTS.md", "notes/agents.md", "notes/agents.md"],
+		["a directory", "docs", "notes", "notes/rules.md"],
+	])(
+		"scans through a scan root that is a symlink to %s (#4170)",
+		(_name, link, target, doc) => {
+			const root = gitRepo({ claude, files: { ...files, [doc]: trigger } });
+			fs.symlinkSync(target, path.join(root, link));
+			const r = run(root);
+			expect(r.kinds).toContain("ORPHAN-TRIGGER");
+			expect(r.code).toBe(1);
+		},
+	);
+
+	it("scans an untracked repository nested under a scan root, which git lists as its directory alone (#4170)", () => {
+		const root = gitRepo({
+			claude,
+			files: { ...files, "docs/nested/rules.md": trigger },
+		});
+		execFileSync("git", ["init", "-q", "."], {
+			cwd: path.join(root, "docs", "nested"),
+		});
+		const r = run(root);
+		expect(r.kinds).toContain("ORPHAN-TRIGGER");
+		expect(r.code).toBe(1);
+	});
+
+	/* git's untracked listing only warns past it, exit 0 (#4170). */
+	it.skipIf(asRoot)(
+		"is BROKEN over an untracked directory it cannot list, in a repo",
+		() => {
+			const root = gitRepo({
+				claude,
+				ignore: ".claude/tmp/\n",
+				files: { ...files, "docs/sub/rules.md": "An untracked document.\n" },
+			});
+			const sub = path.join(root, "docs", "sub");
+			fs.chmodSync(sub, 0o000);
+			try {
+				const r = run(root);
+				expect(r.code).toBe(2);
+				expect(r.json).toMatchObject({
+					outcome: "BROKEN",
+					summary: expect.stringMatching(/EACCES.*scandir.*docs\/sub/),
 				});
 			} finally {
 				fs.chmodSync(sub, 0o755);
