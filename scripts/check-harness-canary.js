@@ -42,6 +42,7 @@
  * IMPLICIT:  at every session start, reads the installed Claude Code version; where no probe has passed on it, launches one detached `claude -p` haiku turn against a throwaway plugin, and prints a red verdict at each start until a version passes, or a fault reading its state file at the start that finds it (#3436). In the core's checkout, also reads the binary once per version for `agent_id` on a subagent's compaction payloads, and on finding it comments once on #1837 and prints it at each start.
  * JUSTIFIED: fail-safe — nothing else notices a harness update restoring the listing cost or breaking every description-less skill, and an unreadable version or a failed probe is silence at start, never a block. The agent_id probe replaces #1837's hand re-check per release (#2819).
  * DEFEAT:    none at the hook; a later version that passes ends it, and `--probe` re-runs the probe by hand for a red suspected false; `--probe-agent-id` re-reads the binary for a fixed suspected false.
+ * TREE:      host — probes the harness from a scratch directory and asks whether the host root is the core
  */
 
 const { spawn, spawnSync } = require("node:child_process");

@@ -23,6 +23,7 @@
 # IMPLICIT:  appends to the refill loop's wake file when a session it launched ends
 # JUSTIFIED: convenience — the loop refills the slot without waiting out its poll
 # DEFEAT:    none
+# TREE:      none — stamps machine-wide refill-loop state
 
 set -uo pipefail
 

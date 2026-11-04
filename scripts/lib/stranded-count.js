@@ -15,6 +15,11 @@
  * change), so a `--hours` sweep and pick-next's default-threshold headline can
  * still disagree, at that one call site only.
  *
+ * WORKTREES (#4244). A claim's file carries work where it is dirty in the main
+ * checkout or in a linked worktree its holder owns (lib/session-worktrees.js),
+ * and `classifyWorktrees` judges a dirty worktree whose owner has finished by
+ * the same threshold a claim takes.
+ *
  * "NEVER DRIFT APART" IS THE SHARED LOOP'S GUARANTEE AND THE READER'S. Both
  * read the STRICT `listedSessionIds()` (#1390), so the two never answer from
  * different readers (mantahostels#2555): neither the sweep nor pick-next is a
@@ -28,11 +33,17 @@
  * against pick-next's frozen default (above).
  */
 
+const fs = require("node:fs");
+const path = require("node:path");
 const { isListedLive } = require("./agent-liveness.js");
 
 // The arbiter's module, not its CLI: session-arbiter.js exports nothing (mantahostels#158).
 const { paths, subjectPath } = require("./arbiter-store");
 const { gitOrNull } = require("./git.js");
+const {
+	readLinkedWorktrees,
+	worktreeOwners,
+} = require("./session-worktrees.js");
 
 /*
  * How long a claim must stand after its holder stops being listed before the
@@ -92,12 +103,12 @@ function hoursHeld(claimedAt) {
  * per-claim test and costs three git calls each, which neither caller can
  * spend (mantahostels#1780).
  *
+ * @param {string} [root] the tree read; the main checkout where not given
  * @returns {Set<string> | null} null where git could not answer at all — the
  *   caller then reports the count and itemises nothing, rather than calling
  *   every claim clean.
  */
-function readDirtyPaths() {
-	const root = paths.repoRoot();
+function readDirtyPaths(root = paths.repoRoot()) {
 	const out = gitOrNull(["status", "--porcelain", "-z", "-uall"], {
 		cwd: root,
 	});
@@ -120,7 +131,138 @@ function readDirtyPaths() {
 }
 
 /**
- * Whether a claim's subject carries uncommitted work.
+ * @typedef {import("./session-worktrees.js").ListedCwds} ListedCwds
+ * @typedef {{worktree: string, owner: import("./session-worktrees.js").Owner,
+ *   dirty: Set<string>, writtenMs: number | null}} WorktreeDirt
+ * @typedef {{found: {worktree: string, dirty: Set<string>}[],
+ *   unreadable: string[] | null}} DirtyWorktrees
+ */
+
+/**
+ * Every linked worktree carrying uncommitted work, with its dirty paths as
+ * readDirtyPaths reads them (#4244), and each worktree git would not read —
+ * most often a registration whose directory has gone. `unreadable` is null
+ * where git would not list the worktrees at all: the caller says so rather
+ * than calling them clean.
+ * @param {string} [root] the main checkout
+ * @returns {DirtyWorktrees}
+ */
+function readDirtyWorktrees(root = paths.repoRoot()) {
+	const listed = readLinkedWorktrees(root);
+	/** @type {DirtyWorktrees["found"]} */
+	const found = [];
+	/** @type {string[]} */
+	const unreadable = [];
+	for (const worktree of listed ?? []) {
+		const dirty = readDirtyPaths(worktree);
+		if (dirty === null) unreadable.push(worktree);
+		else if (dirty.size > 0) found.push({ worktree, dirty });
+	}
+	return { found, unreadable: listed === null ? null : unreadable };
+}
+
+/**
+ * The dirty worktrees that belong to a session, each with its owner and when
+ * its newest dirty file was written. Job records are read only where some
+ * worktree is dirty.
+ * @param {DirtyWorktrees["found"]} found readDirtyWorktrees()'s `found`
+ * @param {ListedCwds} [listed] the oracle read, whose sessions own a worktree
+ *   ahead of any job record
+ * @returns {WorktreeDirt[]}
+ */
+function attributeWorktreeDirt(found, listed) {
+	if (found.length === 0) return [];
+	const owners = worktreeOwners(
+		found.map((f) => f.worktree),
+		listed,
+	);
+	return found.flatMap(({ worktree, dirty }) => {
+		const owner = owners.get(worktree);
+		return owner
+			? [
+					{
+						worktree,
+						owner,
+						dirty,
+						writtenMs: readNewestWrite(worktree, dirty),
+					},
+				]
+			: [];
+	});
+}
+
+/**
+ * readDirtyWorktrees then attributeWorktreeDirt, for a caller holding the
+ * oracle read already.
+ * @param {ListedCwds} [listed]
+ */
+const readWorktreeDirt = (listed) =>
+	attributeWorktreeDirt(readDirtyWorktrees().found, listed);
+
+/**
+ * The newest mtime among `rels` in `root`, or null where none can be read.
+ * @param {string} root
+ * @param {Iterable<string>} rels
+ */
+function readNewestWrite(root, rels) {
+	let newest = null;
+	for (const rel of rels) {
+		try {
+			const { mtimeMs } = fs.statSync(path.join(root, rel));
+			if (newest === null || mtimeMs > newest) newest = mtimeMs;
+		} catch {
+			// Deleted: it has no mtime to count.
+		}
+	}
+	return newest;
+}
+
+/**
+ * Each owning session's dirty paths across its worktrees.
+ * @param {WorktreeDirt[]} worktrees
+ * @returns {Map<string, Set<string>>}
+ */
+function dirtByHolder(worktrees) {
+	/** @type {Map<string, Set<string>>} */
+	const out = new Map();
+	for (const { owner, dirty } of worktrees) {
+		const held = out.get(owner.sessionId) ?? new Set();
+		for (const p of dirty) held.add(p);
+		out.set(owner.sessionId, held);
+	}
+	return out;
+}
+
+/**
+ * The worktrees whose session has plausibly finished, by strandedVerdict's
+ * rule: the owner is not listed live, and the newest dirty file is at least
+ * `hours` old. An unreadable age is reported, as a claim's is.
+ * @param {WorktreeDirt[]} worktrees
+ * @param {Set<string>} listedIds
+ * @param {{ hours?: number, terminal?: Set<string> }} [opts]
+ * @returns {{ stranded: WorktreeDirt[], young: number }}
+ */
+function classifyWorktrees(
+	worktrees,
+	listedIds,
+	{ hours = STRANDED_AFTER_HOURS, terminal = EMPTY_IDS } = {},
+) {
+	const now = Date.now();
+	/** @type {WorktreeDirt[]} */
+	const stranded = [];
+	let young = 0;
+	for (const w of worktrees) {
+		if (isListedLive(w.owner.sessionId, listedIds, terminal)) continue;
+		if (w.writtenMs !== null && (now - w.writtenMs) / 3_600_000 < hours)
+			young++;
+		else stranded.push(w);
+	}
+	return { stranded, young };
+}
+
+/**
+ * Whether a claim's subject carries uncommitted work: in the main checkout,
+ * or in a worktree its holder owns.
  *
  * THROUGH subjectPath, NEVER the raw claim. A lock's `path` is a claim SUBJECT,
  * so a region claim spells itself `docs/doc-map.md#B42` and git has never heard
@@ -129,9 +271,11 @@ function readDirtyPaths() {
  *
  * @param {Set<string> | null} dirty readDirtyPaths()'s result.
  * @param {string} subject the lock's `path`.
+ * @param {Set<string>} [held] the holder's worktree dirt, from dirtByHolder
  */
-function isDirtyClaim(dirty, subject) {
-	return dirty?.has(subjectPath(subject)) === true;
+function isDirtyClaim(dirty, subject, held) {
+	const p = subjectPath(subject);
+	return dirty?.has(p) === true || held?.has(p) === true;
 }
 
 /** @typedef {import("./arbiter-store").ListedLock} Lock */
@@ -222,32 +366,48 @@ function classifyClaims(
  * The stranded-claim headline counts pick-next.js prints: the standing count,
  * and the actionable subset carrying uncommitted work.
  *
- * Returns `{ ok:false, error }` or `{ ok:true, stranded, carrying }`, where
- * `carrying` is null on a `dirty` of null — a working tree git would not report
- * on, which is NOT the same as none of them being dirty.
+ * Returns `{ ok:false, error }` or `{ ok:true, stranded, carrying,
+ * strandedWorktrees }`, where `carrying` is null on a `dirty` of null — a
+ * working tree git would not report on, which is NOT the same as none of them
+ * being dirty — and `strandedWorktrees` counts classifyWorktrees' stranded
+ * ones, so the headline and the report's STRANDED-WORKTREE section agree.
  *
  * @param {Lock[] | null} locks readLocks()'s result, or null where the store
  *   could not be read.
  * @param {Set<string> | null | undefined} listedIds
  *   either oracle reader's ids, or null/undefined where the running-session
  *   oracle could not be read.
- * @param {Set<string> | null} [dirty] readDirtyPaths()'s result; omitted where the
- *   caller wants the standing count alone.
- * @param {Set<string>} [terminal] the same oracle read's stopped-but-resident
- *   pool — see `EMPTY_IDS` above for why omitting it is not a safe default
- *   (mantahostels#2765, mantahostels#2774).
+ * @param {{dirty?: Set<string> | null, terminal?: Set<string>,
+ *   worktrees?: WorktreeDirt[]}} [opts] `dirty` is readDirtyPaths()'s result,
+ *   omitted where the caller wants the standing count alone; `terminal` the
+ *   same oracle read's stopped-but-resident pool — see `EMPTY_IDS` above for
+ *   why omitting it is not a safe default (mantahostels#2765, mantahostels#2774);
+ *   `worktrees` readWorktreeDirt()'s result.
  */
-function countStranded(locks, listedIds, dirty = null, terminal = EMPTY_IDS) {
+function countStranded(
+	locks,
+	listedIds,
+	{ dirty = null, terminal = EMPTY_IDS, worktrees = [] } = {},
+) {
 	if (locks === null)
 		return { ok: false, error: "the file-claim store could not be read" };
 	if (!listedIds)
 		return { ok: false, error: "the running-session oracle could not be read" };
 
 	const { stranded } = classifyClaims(locks, listedIds, { terminal });
+	const held = dirtByHolder(worktrees);
 	const carrying = dirty
-		? stranded.filter((lock) => isDirtyClaim(dirty, lock.path)).length
+		? stranded.filter((lock) =>
+				isDirtyClaim(dirty, lock.path, held.get(lock.sessionId)),
+			).length
 		: null;
-	return { ok: true, stranded: stranded.length, carrying };
+	return {
+		ok: true,
+		stranded: stranded.length,
+		carrying,
+		strandedWorktrees: classifyWorktrees(worktrees, listedIds, { terminal })
+			.stranded.length,
+	};
 }
 
 module.exports = {
@@ -255,6 +415,11 @@ module.exports = {
 	hoursHeld,
 	classifyClaims,
 	readDirtyPaths,
+	readDirtyWorktrees,
+	attributeWorktreeDirt,
+	readWorktreeDirt,
+	dirtByHolder,
+	classifyWorktrees,
 	isDirtyClaim,
 	countStranded,
 };

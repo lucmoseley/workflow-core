@@ -80,6 +80,7 @@
  *            already worked around it.
  * DEFEAT:    none at the hook; --notify is silent unless one of those notices
  *            holds or the ladder declaration falls back (#410).
+ * TREE:      host — reads seat usage and the capacity ladder the host root's config names
  */
 
 const { configDirs } = require("./lib/arbiter-store");

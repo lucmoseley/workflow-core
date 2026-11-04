@@ -2900,6 +2900,7 @@ describe("owed work (mantahostels#1206)", () => {
 			strandedClaimsUnknown: null,
 			strandedClaimsCarrying: 0,
 			strandedClaimsCarryingUnknown: null,
+			strandedWorktrees: 0,
 		});
 	});
 

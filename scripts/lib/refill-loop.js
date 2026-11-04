@@ -51,9 +51,10 @@ const { buildSeatName } = require("./refill-seats.js");
 const { unclosedLaunches } = require("./unclosed-launch.js");
 const {
 	buildOverflowStartLines,
-	firstOverflowLaunch,
+	firstOverflowStart,
 	parseOverflowStart,
 	planSeatBasisOf,
+	startedAt,
 } = require("./overflow-notice.js");
 const { isBudgetSpent } = require("./overflow-budget-core.js");
 const { OUTCOME_PREFIX } = require("./usage-probe.js");
@@ -1017,7 +1018,7 @@ function newlyFinished(launches, agents, now) {
 	return launches.filter(
 		(l) =>
 			isLive(l) &&
-			now - Math.max(l.launchedAt, l.relaunchedAt ?? 0) >= LISTING_GRACE_MS &&
+			now - startedAt(l) >= LISTING_GRACE_MS &&
 			!listed.has(l.jobId) &&
 			!isHeld(l) &&
 			l.handOffTries === undefined &&
@@ -1462,16 +1463,18 @@ const stoppedOf = (d, at) =>
 	"stop" in d ? { at, reason: d.stop, detail: d.detail } : null;
 
 /**
- * The record of `launched`'s first overflow launch after a plan-seat launch,
- * logged, or null. The credential scan runs only then; its failure is logged,
- * since the launches it follows are not yet in the state.
+ * The record of the first session to start on an overflow seat after one on a
+ * plan seat, since the last recorded, logged, or null. The credential scan
+ * runs only then; its failure is logged, since the launches it follows are not
+ * yet in the state.
  * @param {import("./refill-decide.js").TickInput} input
- * @param {{judged: LoopLaunch[], launched: LoopLaunch[]}} launches
+ * @param {{judged: LoopLaunch[], launched: LoopLaunch[],
+ *   since: number}} launches `since`, the last record's time
  * @param {{readOmittedDirs: () => string[], log: (line: string) => void}} io
  * @returns {import("./overflow-notice.js").OverflowStart|null}
  */
-function recordOverflowStart(input, { judged, launched }, io) {
-	const first = firstOverflowLaunch(judged, launched);
+function recordOverflowStart(input, { judged, launched, since }, io) {
+	const first = firstOverflowStart([...judged, ...launched], since);
 	if (first === null) return null;
 	/** @type {string[]} */
 	let omitted = [];
@@ -1481,7 +1484,7 @@ function recordOverflowStart(input, { judged, launched }, io) {
 		io.log(`credentials scan failed: ${buildErrorText(err)}`);
 	}
 	const start = {
-		at: first.launchedAt,
+		at: startedAt(first),
 		seat: first.seat,
 		planSeats: input.seats.map(planSeatBasisOf),
 		omitted,
@@ -1667,7 +1670,11 @@ function settleTick(
 	writeDecidedPause(decision, io);
 	const overflowStart = recordOverflowStart(
 		input,
-		{ judged: afterResumes, launched: outcome.launched },
+		{
+			judged: afterResumes,
+			launched: outcome.launched,
+			since: state.overflowStart?.at ?? Number.NEGATIVE_INFINITY,
+		},
 		io,
 	);
 	const next = {

@@ -420,6 +420,7 @@
  * IMPLICIT:  reads the session's ending message at every Stop and blocks the turn where it sends the founder away for his steps (#4058) or a question to the founder is not in the lettered priced form, naming the fault to the founder and sending the correction on the model-only limb; where its top two rivals sit close or its top option is priced 65 or less, once per question whatever `Checked:` or `Unmeasured:` line it carries (#1061), and, re-sent still caught by either, until each research-ladder rung shows a tool call (#2006), past the session ceiling (#1067); where it is sent under 10 tool calls after the founder's last message (#1710), past the ceiling too; where an option hands the founder an act by placeholder or back-reference rather than its literal text, or has him supply a credential by any route but `write-secret.js`, in an option (#1031) or in prose (#1817); where one option has the founder perform an act and another has the agent, and no `Blocked:` line says what stops the agent; where its recommendation names an option the same message priced below another, unexplained; and, in a background job, where a `result:` names a commit no green suite run attests and a push still owes one (#2933), where a status marker carries nothing after its colon, where a `waiting:` rests on nothing the transcript shows still running, or where a `needs input:` puts its decision as prose rather than as a lettered priced round, a lone founder hand-over (#926), a `Qn` pointer to a round still unanswered (#924) or a park on an open repo hold the job is attached to (#3858) excepted; and, once a turn, where a lib of its own will not load (#2645).
  * JUSTIFIED: fail-safe — the rule was written down and kept losing (mantahostels#802), and the turn ending is the last moment the defect can still be fixed.
  * DEFEAT:    the pointer block clears by writing the steps into the message; the format block clears by rewriting the question, never by a switch — the close-rivals block (#488) by sending the corrected question a second time (#1061) and, where the shape limb is silent, a fixed shape (#1742), or by its own cap of 3, its research-ladder block (#2006) by a qualifying tool call on each rung, a re-send no test still catches or its own cap of 3, and its re-price refusal (#489) by a tool call or the refused figures, the under-researched block (#1710) by any tool call before the re-send and, where the shape limb is silent, a fixed shape (#1730), or its own cap of 3, the founder-act block (#597) by the literal text, a secret ask's `write-secret.js` line (#1031), or its own cap of 3, the actor-only block (#598) by acting instead, a `Blocked:` line or its own cap of 3 — or, past `SESSION_MAX` blocks in one session, by the ceiling going quiet on every shape and filing limb at once, the close-rivals, research-ladder and under-researched limbs excepted (mantahostels#2786, #1067), shape limbs one block sooner (mantahostels#3430). The evidence block (mantahostels#1253) clears by stopping a second time — `max: 1` — which is the deliberate escape for the two cases a session cannot fix: a machine still under the one-suite rung AFTER the suite's own reap of finished sessions (scripts/pretest-reap.js; mantahostels#1843 — a pre-run headroom read is not that case), and a `main` red in files it never touched (mantahostels#1842). The load-failure block (#2645) clears by stopping again.
+ * TREE:      both — the `result:` gate judges the session tree's HEAD; certificates, ledgers, holds, markers and config are the host root's
  */
 
 /* Armed before every other `require` (#2645, `lib/load-failure-stop.js`). */
@@ -1532,9 +1533,11 @@ const FAIL_OPEN_WHERE = "guard-priced-options green-suite";
  *
  * @param {StatusReading} status the message's status reading
  * @param {string} sessionId whose commit ledger names the commit
+ * @param {{cwd?: unknown}|null|undefined} payload whose cwd names the session's
+ *   tree, the `HEAD` judged
  * @returns {string} the block reason, or '' if nothing is owed
  */
-function resultWithoutGreenSuite(status, sessionId) {
+function resultWithoutGreenSuite(status, sessionId, payload) {
 	if (!status.last["result:"]) return "";
 
 	/* Required here, not at the top: a Stop hook must cost a missed check when a
@@ -1544,8 +1547,10 @@ function resultWithoutGreenSuite(status, sessionId) {
 	if (!log) return "";
 	let verdict;
 	try {
+		const tree = require("./lib/host-root").sessionTree(payload ?? {});
 		verdict = require("./lib/session-verdict").sessionVerdict(sessionId, {
 			log,
+			...(tree === null ? {} : { tree }),
 		});
 	} catch (e) {
 		log(`could not read the evidence: ${e}`);
@@ -2308,7 +2313,7 @@ function reviewParts(message, evidence = {}, status = jobStatus(message)) {
  * The whole of this guard's judgement on one turn; `lib/stop-guard.js` owns
  * everything around it.
  * @param {{sessionId: string, message: string,
- *   payload?: {transcript_path?: string}|null}} ctx
+ *   payload?: {transcript_path?: string, cwd?: unknown}|null}} ctx
  */
 function judge({ sessionId, message, payload }) {
 	const transcript = hookMessage.transcriptPath(payload, sessionId);
@@ -2381,7 +2386,9 @@ function judge({ sessionId, message, payload }) {
 	 * trip either way. */
 	const live = liveGroups(groupByPrefix(parts), sessionId);
 	const afterBatch = () => {
-		const unattested = status ? resultWithoutGreenSuite(status, sessionId) : "";
+		const unattested = status
+			? resultWithoutGreenSuite(status, sessionId, payload)
+			: "";
 		return unattested
 			? liveGroups(
 					[{ prefix: GREEN_SUITE_PREFIX, reasons: [unattested] }],

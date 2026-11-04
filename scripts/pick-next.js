@@ -1386,12 +1386,11 @@ function debtCount() {
  * @param {ListedSessions} listed
  */
 function strandedClaimCount(listed) {
-	return strandedCount.countStranded(
-		arbiter.readLocks(),
-		listed.ids,
-		strandedCount.readDirtyPaths(),
-		listed.terminal,
-	);
+	return strandedCount.countStranded(arbiter.readLocks(), listed.ids, {
+		dirty: strandedCount.readDirtyPaths(),
+		terminal: listed.terminal,
+		worktrees: strandedCount.readWorktreeDirt(listed),
+	});
 }
 
 // ------------------------------------------------------------------------ main
@@ -1693,6 +1692,7 @@ function owedWorkJson(state) {
 		strandedClaims: stranded.ok ? stranded.stranded : null,
 		strandedClaimsUnknown: stranded.ok ? null : stranded.error,
 		strandedClaimsCarrying: stranded.ok ? stranded.carrying : null,
+		strandedWorktrees: stranded.ok ? stranded.strandedWorktrees : null,
 		// A null `carrying` two ways, and a consumer must not read either as
 		// zero: the count was never read — `strandedClaimsUnknown` says so —
 		// or it was read and git would not name the dirty files (mantahostels#1780).
@@ -2187,7 +2187,7 @@ function renderOwedWork(state) {
 	console.log(
 		`  stranded claims    ${
 			stranded.ok
-				? `${stranded.stranded}, ${stranded.carrying ?? "unknown how many"} carrying uncommitted work`
+				? `${stranded.stranded}, ${stranded.carrying ?? "unknown how many"} carrying uncommitted work; ${stranded.strandedWorktrees} finished session worktree(s) carrying it`
 				: `unknown (${stranded.error})`
 		}  — node ${scriptPath("check-stranded-file-claims.js")}`,
 	);
@@ -3069,7 +3069,7 @@ function renderRunSummary(state) {
 		`  ${pad("owed work", 19)}${summary.debtEntries ?? "unknown"} debt entries, ${
 			summary.strandedClaims === null
 				? "unknown stranded claims"
-				: `${summary.strandedClaims} stranded claims (${summary.strandedClaimsCarrying ?? "unknown how many"} carrying uncommitted work)`
+				: `${summary.strandedClaims} stranded claims (${summary.strandedClaimsCarrying ?? "unknown how many"} carrying uncommitted work), ${summary.strandedWorktrees} stranded worktrees`
 		}`,
 	);
 	printSummaryFlags(summary);
@@ -3865,6 +3865,7 @@ function summaryOf(run) {
 		debtEntries: debts.ok ? debts.count : null,
 		strandedClaims: stranded.ok ? stranded.stranded : null,
 		strandedClaimsCarrying: stranded.ok ? stranded.carrying : null,
+		strandedWorktrees: stranded.ok ? stranded.strandedWorktrees : null,
 	};
 }
 

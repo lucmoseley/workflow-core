@@ -37,6 +37,7 @@
  *            from later.
  * DEFEAT:    name `jev-advisory` in `.claude/workflow-core.json`'s `disabled`
  *            list, or set `WFC_JEV_ADVISORY=0` for one session.
+ * TREE:      host — judges the outgoing message, logging under the host root's markers
  *
  * WHAT LEAVES THIS MACHINE, AND NOTHING ELSE (#172): the outgoing message text,
  * swept by gitleaks' own rule set first. No file content, no diff, no index

@@ -115,9 +115,9 @@
 			"why": "a fact-finding sub-agent dispatch names an Artefact: line, one being supplied under .claude/tmp/agents/ where it is missing (#515, #928); v1.3.1's --- between questions in the round template declined, which scripts/guard-priced-options.js refuses (#879 Q3); the decisions-are-the-user's line split, a decision research settles being the session's to treat as settled and report with its source and only a house decision the user's, the frontier round asking house decisions alone (#1701, built at #1706); the frontmatter description removed, so the skill leaves the start listing (#2036)"
 		},
 		".agents/skills/implement/SKILL.md": {
-			"editedHash": "e814de92368d42fe752e11350c54fbfce85874c6e20e70b9cfffcd96ad58d2d3",
-			"issue": 2700,
-			"why": "the blanket 'use /tdd where possible' line deleted (this repo picks the seam per ticket, mantahostels#1777); the closing full-suite run swapped for npm run test, narrowed to own unpushed and uncommitted work, since test:changed selects nothing once committed and --changed <ref> takes on neighbours' commits (mantahostels#2047, #2182); the document-change carve-out back to the full suite dropped, the run selecting document readers since mantahostels#2095 (#1147); the review step names workflow-core:code-review for a project without its own code-review skill, where the bare name is the harness's built-in reviewer (#1165); a dispatched subagent runs its touched files' tests in one named run at the end, never one per file (#1537, from #1517); the pick-up step after a claim runs read-hand-off.js on a parked session's hand-off (#2700)"
+			"editedHash": "54ede39bfccc4863b4e2e6fd14f6600a9265acf1377b3d5eaf285c35f04bab18",
+			"issue": 4244,
+			"why": "the hand-off check names the pushed ref (origin/landing with the landing module on) for each Done sha (#4244)"
 		},
 		".agents/skills/prototype/SKILL.md": {
 			"editedHash": "eb787032b8449d81bb5d41022a26fefbd7bfa0e582b8834fe3e5ec4666a2687e",
@@ -165,9 +165,9 @@
 			"why": "an out-of-scope entry states the current rule citing the requesting issues by number, with no prior-requests list (#2259 row 1, #3358)"
 		},
 		".agents/skills/wayfinder/SKILL.md": {
-			"editedHash": "734c733380d9c6f135613d746913eb1e4b907853ea9a0fc3ca294beb08cdb8e3",
-			"issue": 2700,
-			"why": "a HITL ticket's live exchange narrowed to its house decisions, so a ticket research settles may be resolved with no question (#1701, built at #1706); the claim step runs read-hand-off.js on a parked session's hand-off (#2700)"
+			"editedHash": "4bebc44b9af92bfc72311802d410db082d271c6729a24d851f344fc40901e421",
+			"issue": 4244,
+			"why": "the hand-off check names the pushed ref (origin/landing with the landing module on) for each Done sha (#4244)"
 		},
 		".agents/skills/writing-for-agents/SKILL.md": {
 			"editedHash": "132fe4536311a1f8c04ea6343104bed4d05a3402cb711474828d75bb4605280b",

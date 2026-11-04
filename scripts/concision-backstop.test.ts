@@ -28,7 +28,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildAgentsBranch, buildJobRow } from "./lib/agents-stop-fake";
 import { ledgerHead } from "./lib/arbiter-testkit";
 import { writeClaudeStub } from "./lib/claude-stub";
-import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
+import { cutWorktree, defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { installLib } from "./lib/lib-install-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
@@ -191,6 +191,35 @@ beforeEach(() => {
 });
 
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+describe("the session's own worktree (#4243)", () => {
+	const stopIn = (cwd: string) => {
+		const r = spawnSync(BACKSTOP, ["stop"], {
+			cwd,
+			encoding: "utf8",
+			input: JSON.stringify({ session_id: ME, cwd }),
+			env: env(),
+		});
+		return r.stdout?.trim() ? (JSON.parse(r.stdout).reason as string) : null;
+	};
+
+	it("demands the pass for prose this session wrote in its worktree", () => {
+		const wt = cutWorktree(repo);
+		fs.mkdirSync(path.join(wt, "docs"));
+		fs.writeFileSync(path.join(wt, "docs", "mine.md"), PARAGRAPH);
+		record(path.join(wt, "docs", "mine.md"), ME);
+		const reason = stopIn(wt);
+		expect(reason).toContain("concision-pass");
+		expect(reason).toContain("docs/mine.md");
+	});
+
+	it("bills nothing from the main checkout's prose to a session in its worktree", () => {
+		const wt = cutWorktree(repo);
+		write("docs/mine.md", PARAGRAPH);
+		record("docs/mine.md", ME);
+		expect(stopIn(wt)).toBeNull();
+	});
+});
 
 describe("attribution — the mantahostels#114 regression", () => {
 	it("bills nothing to a session that wrote nothing, however busy the tree", () => {

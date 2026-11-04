@@ -43,8 +43,16 @@ const { GIT_MODE } = require("./git-mode.js");
  */
 const BASE_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** HEAD's sha, or null on an unborn branch or a git that will not answer. */
-const readHeadSha = () => core.git(["rev-parse", "--verify", "-q", "HEAD"]);
+/**
+ * HEAD's sha, in `tree` where named, or null on an unborn branch or a git
+ * that will not answer.
+ * @param {string} [tree]
+ */
+const readHeadSha = (tree) =>
+	core.git(
+		["rev-parse", "--verify", "-q", "HEAD"],
+		tree === undefined ? {} : { cwd: tree },
+	);
 
 /**
  * `rel`'s blob sha at `head`, or null where the path is absent there — an addition,
@@ -104,15 +112,17 @@ function mintBase(rel, sessionId) {
 
 /**
  * Record HEAD as `sessionId`'s fallback base, once per session: SessionStart
- * fires again on resume, clear and compact, and those keep the first.
+ * fires again on resume, clear and compact, and those keep the first. HEAD is
+ * `tree`'s, the session's own checkout, where named (#4243).
  * @param {string|null} sessionId
+ * @param {string} [tree]
  */
-function mintSessionBase(sessionId) {
+function mintSessionBase(sessionId, tree) {
 	if (!sessionId) return null;
 	const file = core.paths.sessionBase(sessionId);
 	try {
 		if (fs.existsSync(file)) return core.readRecord(file);
-		const head = readHeadSha();
+		const head = readHeadSha(tree);
 		if (!head) return null;
 		const record = { sessionId, head, at: new Date().toISOString() };
 		fs.mkdirSync(core.paths.sessionBasesDir(), { recursive: true });

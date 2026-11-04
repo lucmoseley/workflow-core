@@ -64,6 +64,7 @@
  * IMPLICIT:  at every session start, injects a report naming each orphaned wait loop still running on this machine — every time, while it runs. It never kills one.
  * JUSTIFIED: fail-safe — such a loop is invisible to every other checker here, and a run that cannot read /proc reports nothing rather than calling a process orphaned.
  * DEFEAT:    none at the hook; --minutes <n> moves the threshold on a hand run.
+ * TREE:      none — sweeps the machine's process table
  */
 
 const path = require("node:path");

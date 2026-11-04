@@ -15,9 +15,6 @@
  * in a linked worktree, so the host root never says which tree is the
  * session's; only the hook input's `cwd` does.
  *
- * Unbuilt caller: the session-tree guards #4229's hook audit moves onto
- * `sessionTree()` (#4229).
- *
  * NEVER `__dirname`. In a plugin install the core's files live in the plugin
  * cache, so a root resolved from this file's own location names the cache and
  * every host read lands in the wrong tree (mantahostels#3515).

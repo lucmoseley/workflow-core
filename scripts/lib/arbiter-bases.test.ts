@@ -29,6 +29,7 @@ import {
 	SCRIPT,
 	store,
 } from "./arbiter-testkit";
+import { cutWorktree } from "./git-fixture";
 import { runInProcess } from "./run-in-process";
 
 const sb = freshSandbox();
@@ -229,6 +230,23 @@ describe("the session-start base, a fallback for every other path (#110)", () =>
 			source: "session",
 			blob: null,
 		});
+	});
+
+	it("records the HEAD of the payload's worktree, not the main checkout's (#4243)", () => {
+		const wt = cutWorktree(sb.repo);
+		execFileSync("git", ["commit", "-q", "--allow-empty", "-m", "on wt"], {
+			cwd: wt,
+		});
+		const head = execFileSync("git", ["rev-parse", "HEAD"], {
+			cwd: wt,
+			encoding: "utf8",
+		}).trim();
+		expect(head).not.toBe(git("rev-parse", "HEAD"));
+		cli(["prune-markers", "--detach"], {
+			env: { CLAUDE_CODE_SESSION_ID: "" },
+			stdin: JSON.stringify({ session_id: "alice", cwd: wt }),
+		});
+		expect(readJudgedBase(DOC)).toMatchObject({ source: "session", head });
 	});
 
 	it("leaves a session with neither record answering null", () => {

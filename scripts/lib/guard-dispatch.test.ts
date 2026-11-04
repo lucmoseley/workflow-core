@@ -790,7 +790,7 @@ describe("repoRel, the reading of a written path", () => {
 		).toBeNull();
 	});
 
-	it("reads a name inside the root that starts with `..` as inside it", () => {
+	it("reads a name inside the root that starts with `..` as inside it (#4134)", () => {
 		expect(repoRel(`${dir}/repo/..foo/a.md`, path.join(dir, "repo"))).toBe(
 			"..foo/a.md",
 		);

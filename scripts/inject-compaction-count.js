@@ -38,6 +38,7 @@
  *            parse or names no session, and a missing trigger marker, are
  *            nothing to report; every other failure is logged to the
  *            guard-error log `npm run check:guard-errors` reads.
+ * TREE:      host — reads a compaction marker in the host root's markers and the transcript
  */
 
 const fs = require("node:fs");

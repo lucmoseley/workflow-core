@@ -15,8 +15,7 @@
  *      `node_modules` links a store every worktree on its lockfile shares
  *      (lib/session-checkout.js, #4255), so a write through it lands under
  *      each neighbour. `--package-lock-only`, `--dry-run` and a global
- *      install write no project tree and pass; the refusal routes the change
- *      through `--package-lock-only` and re-attaching.
+ *      install write no project tree and pass.
  *
  *   1. THE EXECUTION WINDOW. An install naming a package `package.json` does
  *      not already list must carry `--ignore-scripts`. Between `npm install`
@@ -556,7 +555,7 @@ function jsonOf(text) {
  * the `--prefix` it names, "" where none.
  * @param {string[]} canon
  */
-function readTreeWrite(canon) {
+function parseTreeWrite(canon) {
 	/** @type {string | undefined} */
 	let command;
 	let positional = 0;
@@ -571,7 +570,7 @@ function readTreeWrite(canon) {
 			return;
 		}
 		if (name === "--prefix") prefix = value;
-		if (writesNoTree(name, value)) off = true;
+		if (isTreelessOption(name, value)) off = true;
 	});
 	if (off || (command === "audit" && !fix)) command = undefined;
 	return { command, prefix };
@@ -582,8 +581,8 @@ function readTreeWrite(canon) {
  * @param {string} name
  * @param {string} value
  */
-const writesNoTree = (name, value) =>
-	(name === "--location" && value !== "project") ||
+const isTreelessOption = (name, value) =>
+	(name === "--location" && value === "global") ||
 	["global", "package-lock-only", "dry-run", "usage"].some(
 		(config) => switchOf(config, name, value) === true,
 	);
@@ -615,9 +614,12 @@ function localPrefix(dir, ctx) {
  * @param {State} st
  * @returns {string | null}
  */
-function storeWrite(canon, cwd, st) {
-	const { command, prefix } = readTreeWrite(canon);
+function storeRefusal(canon, cwd, st) {
+	const { command, prefix } = parseTreeWrite(canon);
 	if (command === undefined) return null;
+	/* Residual (#4255): a cwd the walk cannot resolve, a `cd "$DIR"` among
+	 * them, is let through, logged; the store's own write bits refuse the
+	 * write. pnpm, yarn and bun are not read at all. */
 	if (cwd === "") {
 		st.ctx.log(
 			`npm ${command}: where it runs did not resolve — a linked node_modules left unchecked`,
@@ -698,7 +700,7 @@ function judgeNpm(segment, args, cwd, st) {
 	const named = args.map((w) => w.slice(w.lastIndexOf("=") + 1));
 	if (!named.some((w) => treeCommandOf(w) !== undefined)) return null;
 	const canon = npmCanon(args);
-	const store = storeWrite(canon, cwd, st);
+	const store = storeRefusal(canon, cwd, st);
 	if (store !== null) return refuse(store, segment);
 	if (!named.some((w) => INSTALL_SUBS.has(w))) return null;
 	const { sub, specs, ignore, helping } = readInstall(canon);
