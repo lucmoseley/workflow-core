@@ -8,14 +8,20 @@
  *
  * FOUR CHECKS, in the order they run.
  *
- *   0. A LINKED `node_modules`. A command that writes `node_modules` —
- *      install, ci, uninstall, update, dedupe, prune, rebuild, link,
- *      `audit fix`, every spelling npm derefs — where the directory it
- *      installs into holds a symbolic link there. A session worktree's
+ *   0. A STORE LINK. A command that writes `node_modules` — install, ci,
+ *      uninstall, update, dedupe, prune, rebuild, link, `audit fix`, every
+ *      spelling npm derefs — where the directory it installs into holds a
+ *      `node_modules` linking under the host root's dependency stores
+ *      (lib/session-checkout.js `STORES`). A session worktree's
  *      `node_modules` links a store every worktree on its lockfile shares
- *      (lib/session-checkout.js, #4255), so a write through it lands under
- *      each neighbour. `--package-lock-only`, `--dry-run` and a global
- *      install write no project tree and pass.
+ *      (#4255), so a write through it lands under each neighbour. A
+ *      `node_modules` linked anywhere else is not judged here.
+ *      `--package-lock-only`, `--dry-run` and a global install write no
+ *      project tree and pass.
+ *      Residual: where the cwd does not resolve (`cd "$D" && npm ci`), check
+ *      0 logs and allows; the frozen store then refuses the write with npm's
+ *      raw EACCES (exit 243), leaving the store and the link unchanged
+ *      (measured on #4267).
  *
  *   1. THE EXECUTION WINDOW. An install naming a package `package.json` does
  *      not already list must carry `--ignore-scripts`. Between `npm install`
@@ -97,6 +103,7 @@ const {
 	treeCommandOf,
 } = require("./npm-options.js");
 const { ruleOrFallback, spliceCmd } = require("./guard-verdict.js");
+const { isUnder } = require("./is-under.js");
 const { parseCommand, walkCommands } = require("./shell-parse.js");
 const { literal, scanFlags } = require("./shell-words.js");
 
@@ -115,11 +122,6 @@ const MIN_DOWNLOADS = 1000;
  * the dispatcher's start, not this core's, so the cores ahead of it spend from
  * them, and 30 + 20 leaves 10 s for the output write. */
 const BUDGET_S = 30;
-
-/* npm's install aliases, as npm itself accepts them. */
-const INSTALL_SUBS = new Set(
-	"install i in ins inst insta instal add isnt isnta isntal isntall".split(" "),
-);
 
 /* npx rewrites its argv before npm's parser sees it (npm 11.16.0's
  * `bin/npx-cli.js`): it matches each option's key exactly, never as an
@@ -161,7 +163,9 @@ const NPX_REMOVED = new Set(
  * @property {(p: string) => boolean} pathExists an entry at `p`, a dangling
  *   link included
  * @property {(p: string) => string | null} linkTarget the target `p` links
- *   to, null where `p` is no symbolic link
+ *   to, null where `p` is absent or no symbolic link
+ * @property {() => string} storesDir the host root's dependency-store
+ *   directory, absolute
  * @typedef {import("./kit-context.js").KitContext & NpmInstallPorts} NpmInstallContext
  * @typedef {{ deny: string }} Verdict
  */
@@ -546,7 +550,7 @@ function jsonOf(text) {
 }
 
 /* ----------------------------------------------------------------------- */
-/* Check 0 — a linked `node_modules` is never installed into.               */
+/* Check 0 — a dependency store is never installed into.                   */
 /* ----------------------------------------------------------------------- */
 
 /**
@@ -606,23 +610,22 @@ function localPrefix(dir, ctx) {
 }
 
 /**
- * The refusal of a command that writes through a linked `node_modules` — a
- * session worktree's dependency store, which every worktree on its lockfile
- * shares (lib/session-checkout.js) — or null.
+ * The refusal of a command that writes through a `node_modules` linking a
+ * dependency store, which every worktree on its lockfile shares
+ * (lib/session-checkout.js), or null.
  * @param {string[]} canon
  * @param {string} cwd "" where the walk cannot know it
  * @param {State} st
  * @returns {string | null}
  */
-function storeRefusal(canon, cwd, st) {
+function storeWriteRefusal(canon, cwd, st) {
 	const { command, prefix } = parseTreeWrite(canon);
 	if (command === undefined) return null;
-	/* Residual (#4255): a cwd the walk cannot resolve, a `cd "$DIR"` among
-	 * them, is let through, logged; the store's own write bits refuse the
-	 * write. pnpm, yarn and bun are not read at all. */
+	/* The unresolved cwd is the header's check-0 residual. pnpm, yarn and bun
+	 * are not read at all. */
 	if (cwd === "") {
 		st.ctx.log(
-			`npm ${command}: where it runs did not resolve — a linked node_modules left unchecked`,
+			`npm ${command}: where it runs did not resolve — a store link left unchecked`,
 		);
 		return null;
 	}
@@ -632,7 +635,9 @@ function storeRefusal(canon, cwd, st) {
 	const link = path.join(at, "node_modules");
 	const target = st.ctx.linkTarget(link);
 	if (target === null) return null;
-	return `\`npm ${command}\` would write through ${link}, a link to ${path.resolve(at, target)}: a dependency store every worktree on this lockfile shares, and none installs into (#4255).
+	const store = path.resolve(at, target);
+	if (!isUnder(store, [st.ctx.storesDir()], path.sep)) return null;
+	return `\`npm ${command}\` would write through ${link}, a link to ${store}: a dependency store every worktree on this lockfile shares, and none installs into (#4255).
 To change the dependencies, run the same command with \`--package-lock-only\`, which writes package.json and package-lock.json alone; then \`node ${st.ctx.scriptPath("session-checkout.js")} attach\` points this worktree at the store for its new lockfile, building it once where none exists. A lockfile left unchanged already has its store.`;
 }
 
@@ -700,11 +705,11 @@ function judgeNpm(segment, args, cwd, st) {
 	const named = args.map((w) => w.slice(w.lastIndexOf("=") + 1));
 	if (!named.some((w) => treeCommandOf(w) !== undefined)) return null;
 	const canon = npmCanon(args);
-	const store = storeRefusal(canon, cwd, st);
+	const store = storeWriteRefusal(canon, cwd, st);
 	if (store !== null) return refuse(store, segment);
-	if (!named.some((w) => INSTALL_SUBS.has(w))) return null;
+	if (!named.some((w) => treeCommandOf(w) === "install")) return null;
 	const { sub, specs, ignore, helping } = readInstall(canon);
-	if (helping || !INSTALL_SUBS.has(sub)) return null;
+	if (helping || treeCommandOf(sub) !== "install") return null;
 	/* `npm install` from the lockfile: untouched. */
 	if (specs.length === 0) return null;
 

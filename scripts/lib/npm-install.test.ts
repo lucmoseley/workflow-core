@@ -116,6 +116,7 @@ function harness(reg: Partial<Registry> = {}, over: Over = {}) {
 		...(over.cwd === undefined ? {} : { cwd: over.cwd }),
 		pathExists: (p: string) => over.disk?.[p] !== undefined,
 		linkTarget: (p: string) => over.disk?.[p] || null,
+		storesDir: () => "/repo/.claude/worktrees/.dep-stores",
 	});
 	return { ctx, logs, calls };
 }
@@ -200,7 +201,7 @@ describe("what it does not judge", () => {
 	});
 });
 
-describe("check 0 — a linked node_modules", () => {
+describe("check 0 — a store link", () => {
 	it("denies an install through a store link, naming the link, the store and the route, in full", () => {
 		expect(denial("npm install", {}, IN_WORKTREE)).toBe(
 			`\`npm install\` would write through /repo/.claude/worktrees/s1/node_modules, a link to /repo/.claude/worktrees/.dep-stores/0123abcd/node_modules: a dependency store every worktree on this lockfile shares, and none installs into (#4255).
@@ -265,6 +266,39 @@ To change the dependencies, run the same command with \`--package-lock-only\`, w
 		"npm ls",
 	])("allows `%s`, which writes no tree through the link", (command) => {
 		expect(allows(command, {}, IN_WORKTREE)).toBe(true);
+	});
+
+	it.each([
+		["into the main checkout", "/repo/node_modules"],
+		[
+			"relatively, beside the stores",
+			"../.dep-stores-old/0123abcd/node_modules",
+		],
+	])("allows an install through a node_modules linked %s", (_l, target) => {
+		const disk = { ...WORKTREE, [`${IN_WORKTREE.cwd}/node_modules`]: target };
+		expect(allows("npm ci", {}, { disk, cwd: IN_WORKTREE.cwd })).toBe(true);
+	});
+
+	it("denies one linking the stores folder itself, where builds stage", () => {
+		const disk = {
+			...WORKTREE,
+			[`${IN_WORKTREE.cwd}/node_modules`]:
+				"/repo/.claude/worktrees/.dep-stores",
+		};
+		expect(denial("npm ci", {}, { disk, cwd: IN_WORKTREE.cwd })).toMatch(
+			/would write through/,
+		);
+	});
+
+	it("denies one linking a store by a relative path", () => {
+		const disk = {
+			...WORKTREE,
+			[`${IN_WORKTREE.cwd}/node_modules`]:
+				"../.dep-stores/0123abcd/node_modules",
+		};
+		expect(denial("npm ci", {}, { disk, cwd: IN_WORKTREE.cwd })).toMatch(
+			/a link to \/repo\/\.claude\/worktrees\/\.dep-stores\/0123abcd\/node_modules:/,
+		);
 	});
 
 	it("allows an install where node_modules is a directory of its own", () => {

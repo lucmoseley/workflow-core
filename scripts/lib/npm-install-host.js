@@ -75,12 +75,15 @@ function buildHostPorts(root) {
 				return fs.readlinkSync(p);
 			} catch (err) {
 				/* Absent, or no link: nothing links there (#4255). Any other
-				 * fault throws, so the core's closed row denies. */
+				 * fault throws, and the entry refuses on the record. */
 				const code = /** @type {NodeJS.ErrnoException} */ (err).code;
 				if (code === "ENOENT" || code === "EINVAL") return null;
 				throw err;
 			}
 		},
+		/* Loaded on a judged write only: the module brings the lander and git
+		 * with it (#4269). */
+		storesDir: () => path.join(root, require("./session-checkout.js").STORES),
 		readManifest: (dep) =>
 			readOrNull(path.join(root, "node_modules", dep, "package.json")),
 		npmView: (name) =>
