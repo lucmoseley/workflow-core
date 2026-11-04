@@ -1,0 +1,276 @@
+/*
+ * session-checkout.js — the one owner of a session worktree's lifecycle
+ * (#4229): every launcher and session goes through it, and no caller runs
+ * `git worktree` itself.
+ *
+ * CUT fetches `landing`, adds a worktree detached at `origin/landing` under
+ * `.claude/worktrees/<session-name>/` of the main checkout, and attaches its
+ * dependencies.
+ *
+ * ATTACH points the worktree's `node_modules` at the dependency store keyed by
+ * the hash of the worktree's own `package-lock.json`, building that store
+ * first where none exists. A store is built once, by `npm ci --ignore-scripts`
+ * (docs/practice/dependency-and-release-management.md), into a staging
+ * directory renamed into place whole, and is never installed into again. One build runs per key: a cut finding a live builder's lock waits for
+ * its store rather than running a second `npm ci` against the memory cap.
+ *
+ * THE STORES LIVE UNDER `.claude/worktrees/.dep-stores/`, so the ignores every
+ * tool already carries for the worktrees folder cover them too. A session name may not start with a dot, so none collides with it.
+ *
+ * Residual: nothing yet keeps a store immutable — a tool caching under
+ * `node_modules` writes through the link (#4255) — and nothing removes a store
+ * no worktree links; the reaper does that (#4247).
+ */
+
+const crypto = require("node:crypto");
+const { spawnSync } = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
+const { pidAlive } = require("./arbiter-proc.js");
+const { caught } = require("./caught.js");
+const { execGit, GIT_TIMEOUT_MS } = require("./git.js");
+const { gitTopLevel } = require("./host-root.js");
+const { mainCheckout } = require("./main-checkout.js");
+const { sleepSync } = require("./sleep-sync.js");
+
+const WORKTREES = path.join(".claude", "worktrees");
+const STORES = path.join(WORKTREES, ".dep-stores");
+const LOCKFILE = "package-lock.json";
+/* What `npm ci` reads besides the lockfile; `.npmrc` only where present. */
+const MANIFESTS = ["package.json", LOCKFILE, ".npmrc"];
+const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+/* 64 bits of sha256: a collision among even 10^4 live lockfiles is ~3e-12
+ * likely, and the name stays short enough to read in a path. */
+const KEY_HEX = 16;
+/* Untraced: room for a cold `npm ci` over a slow link. */
+const INSTALL_TIMEOUT_MS = 15 * 60_000;
+/* Untraced: a neighbour's fetch holds the ref lock for well under a second. */
+const FETCH_TRIES = 3;
+const POLL_MS = 1000;
+
+/** A refusal the CLI prints as it stands. */
+class CheckoutError extends Error {}
+
+/**
+ * `npm ci` into `dir`, its output on stderr so a caller's stdout stays the
+ * path. `WFC_NPM` names the program.
+ * @param {string} dir
+ */
+function npmCi(dir) {
+	const r = spawnSync(
+		process.env.WFC_NPM || "npm",
+		["ci", "--ignore-scripts", "--no-audit", "--no-fund"],
+		{ cwd: dir, stdio: ["ignore", 2, 2], timeout: INSTALL_TIMEOUT_MS },
+	);
+	if (r.error) throw r.error;
+	if (r.status !== 0)
+		throw new Error(
+			`npm ci exited ${r.status ?? r.signal} building a store in ${dir} — its output is above; fix the lockfile or the network, then attach again`,
+		);
+}
+
+/**
+ * @param {string[]} args
+ * @param {string} cwd
+ * @returns {string}
+ */
+const git = (args, cwd) =>
+	execGit(args, {
+		cwd,
+		encoding: "utf8",
+		stdio: ["ignore", "pipe", "pipe"],
+		timeout: GIT_TIMEOUT_MS,
+	}).trim();
+
+/**
+ * The main checkout `cwd` belongs to, symlinks dereferenced.
+ * @param {string} cwd
+ * @returns {string}
+ */
+function rootOf(cwd) {
+	const root = mainCheckout(cwd);
+	if (root === null)
+		throw new CheckoutError(
+			`${cwd} is in no main checkout git can name — run this from inside the repository`,
+		);
+	return fs.realpathSync(root);
+}
+
+/**
+ * Fetch `landing` into `origin/landing`, again where a neighbour's fetch held
+ * the ref's lock.
+ * @param {string} root
+ */
+function fetchLanding(root) {
+	for (let tries = 1; ; tries++)
+		try {
+			git(
+				[
+					"fetch",
+					"--quiet",
+					"origin",
+					"+refs/heads/landing:refs/remotes/origin/landing",
+				],
+				root,
+			);
+			return;
+		} catch (err) {
+			if (tries >= FETCH_TRIES || !/cannot lock ref/.test(String(err)))
+				throw err;
+			sleepSync(POLL_MS);
+		}
+}
+
+/**
+ * Take the build lock for a store, or wait out a live holder. True where the
+ * lock is ours; false where the holder's store now stands.
+ * @param {string} lock
+ * @param {string} store
+ * @returns {boolean}
+ */
+function takeBuildLock(lock, store) {
+	const deadline = Date.now() + INSTALL_TIMEOUT_MS;
+	for (;;) {
+		try {
+			fs.writeFileSync(lock, `${process.pid}\n`, { flag: "wx" });
+			return true;
+		} catch (err) {
+			if (caught(err).code !== "EEXIST") throw err;
+		}
+		if (fs.existsSync(path.join(store, "node_modules"))) return false;
+		let holder = 0;
+		try {
+			holder = Number(fs.readFileSync(lock, "utf8").trim());
+		} catch {
+			continue;
+		}
+		if (!(holder > 0) || !pidAlive(holder)) {
+			fs.rmSync(lock, { force: true });
+			continue;
+		}
+		if (Date.now() > deadline)
+			throw new Error(
+				`pid ${holder} has held ${lock} past the install timeout — end that process, or remove the lock if it is gone, then attach again`,
+			);
+		sleepSync(POLL_MS);
+	}
+}
+
+/**
+ * The store for the lockfile in `from`, built from its manifests where absent.
+ * @param {string} root the main checkout
+ * @param {string} from
+ * @returns {{ store: string, built: boolean }}
+ */
+function ensureStore(root, from) {
+	const key = crypto
+		.createHash("sha256")
+		.update(fs.readFileSync(path.join(from, LOCKFILE)))
+		.digest("hex")
+		.slice(0, KEY_HEX);
+	const store = path.join(root, STORES, key);
+	if (fs.existsSync(path.join(store, "node_modules")))
+		return { store, built: false };
+	fs.mkdirSync(path.dirname(store), { recursive: true });
+	const lock = path.join(root, STORES, `.build-${key}.lock`);
+	if (!takeBuildLock(lock, store)) return { store, built: false };
+	const staging = path.join(root, STORES, `.build-${key}-${process.pid}`);
+	try {
+		if (fs.existsSync(path.join(store, "node_modules")))
+			return { store, built: false };
+		/* A store directory without `node_modules` is a dead build's leftover. */
+		fs.rmSync(store, { recursive: true, force: true });
+		fs.rmSync(staging, { recursive: true, force: true });
+		fs.mkdirSync(staging);
+		for (const name of MANIFESTS)
+			if (fs.existsSync(path.join(from, name)))
+				fs.copyFileSync(path.join(from, name), path.join(staging, name));
+		npmCi(staging);
+		if (!fs.existsSync(path.join(staging, "node_modules")))
+			throw new Error(
+				`npm ci exited 0 but left no node_modules in ${staging} — check what WFC_NPM or npm names, then attach again`,
+			);
+		fs.renameSync(staging, store);
+		return { store, built: true };
+	} finally {
+		fs.rmSync(staging, { recursive: true, force: true });
+		fs.rmSync(lock, { force: true });
+	}
+}
+
+/**
+ * Point the `node_modules` of the worktree holding `cwd` at the store for its
+ * lockfile, building the store where none exists. A worktree with no lockfile
+ * gets no link.
+ * @param {string} cwd anywhere in the worktree
+ * @returns {{ dir: string, store: string | null, built: boolean }}
+ */
+function attach(cwd) {
+	const dir = gitTopLevel(cwd, GIT_TIMEOUT_MS);
+	const root = rootOf(dir);
+	if (dir === root)
+		throw new CheckoutError(
+			"the main checkout installs its own dependencies — run attach from a session worktree, or name one",
+		);
+	if (!fs.existsSync(path.join(dir, LOCKFILE)))
+		return { dir, store: null, built: false };
+	const link = path.join(dir, "node_modules");
+	let held = null;
+	try {
+		held = fs.lstatSync(link);
+	} catch (err) {
+		if (caught(err).code !== "ENOENT") throw err;
+	}
+	if (held && !held.isSymbolicLink())
+		throw new CheckoutError(
+			`${link} is a directory, not a store link — move it aside, then attach again`,
+		);
+	const made = ensureStore(root, dir);
+	/* One rename, so no reader of the worktree sees `node_modules` absent. */
+	const tmp = `${link}.attach-${process.pid}`;
+	fs.rmSync(tmp, { force: true });
+	fs.symlinkSync(path.join(made.store, "node_modules"), tmp, "dir");
+	fs.renameSync(tmp, link);
+	return { dir, ...made };
+}
+
+/**
+ * Cut the session worktree for `name`: detached at a freshly fetched
+ * `origin/landing`, its dependencies attached. A worktree whose attach fails
+ * is removed.
+ * @param {string} cwd anywhere in the repository
+ * @param {string} name the session's name
+ * @returns {{ dir: string, head: string, store: string | null, built: boolean }}
+ */
+function cut(cwd, name) {
+	if (!NAME.test(name))
+		throw new CheckoutError(
+			`${JSON.stringify(name)} is no session name: letters, digits, '.', '_' and '-', starting with a letter or digit`,
+		);
+	const root = rootOf(cwd);
+	const dir = path.join(root, WORKTREES, name);
+	if (fs.existsSync(dir))
+		throw new CheckoutError(
+			`${dir} already exists — pick another session name, or resume the session that worktree belongs to`,
+		);
+	fetchLanding(root);
+	fs.mkdirSync(path.dirname(dir), { recursive: true });
+	git(["worktree", "add", "--quiet", "--detach", dir, "origin/landing"], root);
+	try {
+		const head = git(["rev-parse", "HEAD"], dir);
+		const { store, built } = attach(dir);
+		return { dir, head, store, built };
+	} catch (err) {
+		try {
+			git(["worktree", "remove", "--force", dir], root);
+		} catch (removeErr) {
+			throw new Error(
+				`${caught(err).message}; and the half-cut worktree would not go (${caught(removeErr).message}) — remove it with \`git worktree remove --force ${dir}\``,
+				{ cause: removeErr },
+			);
+		}
+		throw err;
+	}
+}
+
+module.exports = { attach, CheckoutError, cut };
