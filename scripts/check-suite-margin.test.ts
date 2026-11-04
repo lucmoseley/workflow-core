@@ -2,8 +2,11 @@
 /*
  * Pins that check-suite-margin.js names the latest green whole vitest
  * suite, or the latest green run of any of its shards, over its target —
- * sha, duration, target, ceiling, machine reading and slowest files — stays
- * silent on one under it, on a part-suite and on a red run, and exits 0 on a breach (#1797, the report-only ruling).
+ * sha, duration, target, ceiling, machine reading and slowest files — and any
+ * file at the target in a red run since, with that run's sha (#4291); reads
+ * OK on one under it, and on a part-suite or red certificate beside one; reads
+ * nothing judged as unjudged, never OK; and exits 0 on a breach (#1797, the
+ * report-only ruling).
  *
  * Loosen a case and a suite over its target goes unreported until a push
  * gate is killed at the ceiling, or a slow run starts refusing.
@@ -231,7 +234,9 @@ describe("a sharded whole suite (#3090)", () => {
 		writeJsonl(store, half(1, { durationMs: TARGET_MS + 60_000 }));
 		const out = run().out;
 		expect(out).toContain("SUITE-MARGIN");
-		expect(out).toContain("2 run(s) over the target or shard(s) unjudged");
+		expect(out).toContain(
+			"2 finding(s): 1 run(s) over the target, 1 shard(s) with no green run",
+		);
 		expect(out).toContain("No green run of shard 2/2 is recorded");
 		expect(out).not.toMatch(/ {2}No green run/);
 	});
@@ -362,6 +367,10 @@ describe("a ceiling kill in the fail store (#3237)", () => {
 });
 
 describe("silence", () => {
+	const inside = marker({
+		at: "2026-10-24T08:00:00.000Z",
+		durationMs: TARGET_MS - 1000,
+	});
 	it.each([
 		["one under the target", marker({ durationMs: TARGET_MS - 1000 })],
 		[
@@ -379,17 +388,139 @@ describe("silence", () => {
 			}),
 		],
 		["a ceiling kill", marker({ ceilingKill: true })],
-	])("%s reports nothing", (_name, m) => {
-		writeJsonl(store, m);
+	])("%s after a green whole suite under the target reads OK", (_name, m) => {
+		writeJsonl(store, inside, m);
 		const r = run();
 		expect(r.status).toBe(0);
 		expect(r.out).not.toContain("SUITE-MARGIN");
+		expect(r.out).toMatch(/^OK/m);
+	});
+});
+
+describe("nothing judged (#4291)", () => {
+	it.each([
+		["an absent store", []],
+		[
+			"a part-suite alone",
+			[marker({ scope: { ...WHOLE, fileFilters: ["x"] } })],
+		],
+	])(
+		"%s reads as unjudged, a WARN and never OK, with its way out",
+		(_n, ms) => {
+			writeJsonl(store, ...ms);
+			const r = run();
+			expect(r.status).toBe(0);
+			expect(r.out).not.toMatch(/^OK/m);
+			expect(r.out).toMatch(/^WARN: 1 whole suite with no green run/m);
+			expect(r.out).toContain("No green whole vitest suite is recorded");
+			expect(r.out).toContain("--full=other --queue");
+		},
+	);
+});
+
+describe("a red run's slowest files (#4291)", () => {
+	const redSha = "d".repeat(40);
+	const red = (fields: Record<string, unknown> = {}) => ({
+		sha: redSha,
+		at: "2026-10-24T10:00:00.000Z",
+		suite: "vitest",
+		durationMs: 400_000,
+		scope: {
+			...WHOLE,
+			full: undefined,
+			modulesRun: 40,
+			fileFilters: ["scripts/x.test.ts"],
+			failures: [{ file: "scripts/x.test.ts", tests: ["t"] }],
+		},
+		slowest: [
+			{ file: "scripts/slow-fixture.test.ts", seconds: 311 },
+			{ file: "scripts/fast.test.ts", seconds: 12 },
+		],
+		...fields,
 	});
 
-	it("an absent store reports nothing", () => {
+	it("names a file at or over the target with its run's sha, while no green run is recorded", () => {
+		writeJsonl(failStore, red());
 		const r = run();
 		expect(r.status).toBe(0);
+		expect(r.out).not.toMatch(/^OK/m);
+		expect(r.out).toContain(
+			`SUITE-MARGIN — scripts/slow-fixture.test.ts took 311.0 s in a red run at ${redSha.slice(0, 12)}`,
+		);
+		expect(r.out).not.toContain("fast.test.ts");
+		expect(r.out).toContain("No green whole vitest suite is recorded");
+		expect(r.out).toContain(
+			"2 finding(s): 1 red-run file(s) over the target, 1 whole suite with no green run",
+		);
+		expect(r.out).toContain("cut it by measured cost (#2729)");
+	});
+
+	it("names a file at exactly the target", () => {
+		writeJsonl(
+			failStore,
+			red({
+				slowest: [{ file: "scripts/edge.test.ts", seconds: TARGET_MS / 1000 }],
+			}),
+		);
+		const r = run();
+		expect(r.status).toBe(0);
+		expect(r.out).toContain("SUITE-MARGIN — scripts/edge.test.ts took");
+		expect(r.out).toContain("cut it by measured cost (#2729)");
+	});
+
+	it("names one newer than a green whole suite under the target, beside that run's inside line", () => {
+		writeJsonl(store, marker({ durationMs: TARGET_MS - 1000 }));
+		writeJsonl(failStore, red());
+		const r = run();
+		expect(r.out).toContain(`inside the ${secs(TARGET_MS)} target`);
+		expect(r.out).toContain("scripts/slow-fixture.test.ts took 311.0 s");
+		expect(r.out).toMatch(/^WARN: 1 red-run file\(s\) over the target/m);
+	});
+
+	it("names one between two shards' green runs, whose later green lists only its own files", () => {
+		const half = (index: number, at: string) =>
+			marker({
+				at,
+				scope: { ...WHOLE, modulesRun: 300, shard: { index, count: 2 } },
+				durationMs: TARGET_MS - 1000,
+				slowest: [],
+			});
+		writeJsonl(
+			store,
+			half(1, "2026-10-24T09:00:00.000Z"),
+			half(2, "2026-10-24T11:00:00.000Z"),
+		);
+		writeJsonl(failStore, red());
+		expect(run().out).toContain("scripts/slow-fixture.test.ts took 311.0 s");
+	});
+
+	it("names one in an undated red run while no green run is recorded", () => {
+		writeJsonl(failStore, red({ at: undefined }));
+		expect(run().out).toContain("scripts/slow-fixture.test.ts took 311.0 s");
+	});
+
+	it.each([
+		[
+			"one older than the latest green whole suite",
+			[red({ at: "2026-10-24T08:00:00.000Z" })],
+		],
+		[
+			"a file whose newest red reading is under the target",
+			[
+				red(),
+				red({
+					at: "2026-10-24T11:00:00.000Z",
+					slowest: [{ file: "scripts/slow-fixture.test.ts", seconds: 30 }],
+				}),
+			],
+		],
+		["another suite's red", [red({ suite: "pytest" })]],
+	])("reports nothing on %s", (_n, reds) => {
+		writeJsonl(store, marker({ durationMs: TARGET_MS - 1000 }));
+		writeJsonl(failStore, ...reds);
+		const r = run();
 		expect(r.out).not.toContain("SUITE-MARGIN");
+		expect(r.out).toMatch(/^OK/m);
 	});
 });
 
