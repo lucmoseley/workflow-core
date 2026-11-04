@@ -51,10 +51,10 @@ const { buildSeatName } = require("./refill-seats.js");
 const { unclosedLaunches } = require("./unclosed-launch.js");
 const {
 	buildOverflowStartLines,
-	firstOverflowLaunch,
-	isOnKey,
+	firstOverflowStart,
 	parseOverflowStart,
 	planSeatBasisOf,
+	startedAt,
 } = require("./overflow-notice.js");
 const { isBudgetSpent } = require("./overflow-budget-core.js");
 const { OUTCOME_PREFIX } = require("./usage-probe.js");
@@ -1018,7 +1018,7 @@ function newlyFinished(launches, agents, now) {
 	return launches.filter(
 		(l) =>
 			isLive(l) &&
-			now - Math.max(l.launchedAt, l.relaunchedAt ?? 0) >= LISTING_GRACE_MS &&
+			now - startedAt(l) >= LISTING_GRACE_MS &&
 			!listed.has(l.jobId) &&
 			!isHeld(l) &&
 			l.handOffTries === undefined &&
@@ -1463,41 +1463,18 @@ const stoppedOf = (d, at) =>
 	"stop" in d ? { at, reason: d.stop, detail: d.detail } : null;
 
 /**
- * The launches in `launches` a move this tick put on an overflow seat's key
- * (#3736): each on a key, its `movedFrom` off one, and the job it left still
- * off a key in `before`, the state the tick started from. A move rewrites its
- * launch in place, adding none to the tick's launches.
- * @param {LoopLaunch[]} before
- * @param {LoopLaunch[]} launches
- */
-function movedOntoKeys(before, launches) {
-	const unkeyed = new Set(
-		before.filter((l) => !isOnKey(l)).map((l) => l.jobId),
-	);
-	return launches.filter((l) => {
-		const from = l.limitHeld?.movedFrom;
-		return isOnKey(l) && from && !isOnKey(from) && unkeyed.has(from.jobId);
-	});
-}
-
-/**
- * The record of the tick's first session on an overflow seat after one on a
- * plan seat, logged, or null. Its moves come ahead of its launches, after
- * every launch before them. The credential scan runs only then; its failure is
- * logged, since the launches it follows are not yet in the state.
+ * The record of the first session to start on an overflow seat after one on a
+ * plan seat, since the last recorded, logged, or null. The credential scan
+ * runs only then; its failure is logged, since the launches it follows are not
+ * yet in the state.
  * @param {import("./refill-decide.js").TickInput} input
- * @param {{before: LoopLaunch[], judged: LoopLaunch[],
- *   launched: LoopLaunch[]}} launches `before`, the state's at the tick's
- *   start; `judged`, the tick's own, its moves and resumes made
+ * @param {{judged: LoopLaunch[], launched: LoopLaunch[],
+ *   since: number}} launches `since`, the last record's time
  * @param {{readOmittedDirs: () => string[], log: (line: string) => void}} io
  * @returns {import("./overflow-notice.js").OverflowStart|null}
  */
-function recordOverflowStart(input, { before, judged, launched }, io) {
-	const moved = movedOntoKeys(before, judged);
-	const first = firstOverflowLaunch(
-		judged.filter((l) => !moved.includes(l)),
-		[...moved, ...launched],
-	);
+function recordOverflowStart(input, { judged, launched, since }, io) {
+	const first = firstOverflowStart([...judged, ...launched], since);
 	if (first === null) return null;
 	/** @type {string[]} */
 	let omitted = [];
@@ -1507,7 +1484,7 @@ function recordOverflowStart(input, { before, judged, launched }, io) {
 		io.log(`credentials scan failed: ${buildErrorText(err)}`);
 	}
 	const start = {
-		at: Math.max(first.launchedAt, first.relaunchedAt ?? 0),
+		at: startedAt(first),
 		seat: first.seat,
 		planSeats: input.seats.map(planSeatBasisOf),
 		omitted,
@@ -1694,9 +1671,9 @@ function settleTick(
 	const overflowStart = recordOverflowStart(
 		input,
 		{
-			before: state.launches,
 			judged: afterResumes,
 			launched: outcome.launched,
+			since: state.overflowStart?.at ?? Number.NEGATIVE_INFINITY,
 		},
 		io,
 	);
