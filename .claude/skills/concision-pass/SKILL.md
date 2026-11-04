@@ -114,7 +114,8 @@ or from the main session.
   where its cut is under 25 words and leaves no reader wrong, naming it in the
   commit message (§3 surfaces it again on the next pass over that file, #3234);
   **file** it only where `docs/doc-map.md` §A bars the edit, another session
-  claims the file, or a lookup stays `UNRESOLVED`, one issue per pass carrying
+  claims the file, a lookup stays `UNRESOLVED`, or a reader acting on the text
+  would be wrong (below), one issue per pass carrying
   all of that pass's filed findings.
 
 One call gathers every lookup and renders no verdict:
@@ -186,7 +187,7 @@ A refusal goes in the commit message beside the cuts it accompanied.
 
 Done when: every finding against text this change added is applied, relocated,
 or refused with quoted evidence — and every pre-existing finding is cut
-after clearing tenure, filed, dropped, marked in place, or refused with quoted
+after clearing tenure, filed, dropped, or refused with quoted
 evidence.
 
 ## 5. Verify mechanically, not by eye

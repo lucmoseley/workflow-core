@@ -638,7 +638,7 @@ describe("the rules that were already here", () => {
 	it("tells a whole-spec review to fix first, classing only what it leaves unfixed (#4284)", () => {
 		const triage = inject("/triage 849");
 		expect(triage).toContain(
-			"On any pass, fix first: a finding is FIXED here unless the code-review destination rule names a reason not to",
+			"On any pass, fix first: a finding is FIXED here unless the `review-finding-destination` rule /code-review is handed names a reason not to",
 		);
 		expect(triage).toContain(
 			"From the second pass on, each finding left unfixed gets one class",
@@ -653,7 +653,7 @@ describe("the rules that were already here", () => {
 		expect(fragment).toContain(
 			"A whole-spec review's fix ticket files under the spec only a live fault",
 		);
-		expect(fragment).toContain("others go standalone, citing it");
+		expect(fragment).toContain("the rest go standalone, citing the spec");
 		expect(inject("/code-review")).toContain(fragment.trim());
 	});
 
@@ -662,8 +662,10 @@ describe("the rules that were already here", () => {
 		expect(ctx).toContain(
 			"FIX FIRST any finding in code the reviewed work wrote",
 		);
-		expect(ctx).toContain("ticket what the change exposed but did not cause");
-		expect(ctx).toContain("A no-behaviour fix gets a Standards-only re-review");
+		expect(ctx).toContain("ticket those and what the change only exposed");
+		expect(ctx).toContain(
+			"A no-behaviour fix gets a Standards-only re-review over its diff",
+		);
 	});
 
 	it("still gives /code-review the disposition rule alone, without the tracker pointers", () => {

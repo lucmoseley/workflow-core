@@ -83,7 +83,7 @@ A hand `gh issue close` on a card's own issue is **denied** by the `guard-issue-
 
 <!-- rule:close-outstanding-line:end -->
 
-The findings that feed that line come from `/code-review`: every finding is **fixed** (name the commit), **ticketed** (name the open issue), or **declined** (say why). **Fix first** (#4284): a finding in code the reviewed work wrote is fixed in the session that found it, unless another session claims its file or it needs its own design. A ticket is for what the change exposed but did not cause. A fix that changes no behaviour is re-reviewed by the Standards axis alone over its own diff, and its findings are fixed or declined, never ticketed.
+The findings that feed that line come from `/code-review`: every finding is **fixed** (name the commit), **ticketed** (name the open issue), or **declined** (say why). **Fix first** (#4284): `docs/agents/rules/review-finding-destination.txt`, which `/code-review` is handed, says which findings are fixed in the session that found them and which are ticketed.
 
 **Only a live fault keeps a spec in re-review** (#3811). From a whole-spec review's second pass on, and on a fix ticket's own `/code-review` at any pass, each finding left unfixed gets one class:
 
