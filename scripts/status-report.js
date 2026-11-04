@@ -66,6 +66,8 @@ const POOL_WIDTH = 4;
  * `interop-latency` (#3564) also runs at SessionStart, which prints only a
  * degraded bridge: here a healthy one prints its latency. `kernel-stall` (#4092)
  * also runs at SessionStart, silent on a clock it cannot read: here that is a WARN.
+ * `file-ci-time` (#4292) also runs in the scheduled sweep, and downloads the
+ * last few sweeps' vitest reports, ~11 MB each.
  *
  * `jev-flags` takes `--notify`, the one hook-style run here: it shows only the
  * flags logged since the last one it showed, and records them — a hand run
@@ -91,6 +93,7 @@ const CHECKS = [
 	["scripts-typecheck", "check-scripts-typecheck.js"],
 	["suite-size", "check-suite-size-drift.js"],
 	["suite-margin", "check-suite-margin.js"],
+	["file-ci-time", "check-file-ci-time.js"],
 	["pick-next-model", "check-pick-next-model.js"],
 	["history-trim", "check-history-trim.js"],
 	["gates", "check-gates.js"],

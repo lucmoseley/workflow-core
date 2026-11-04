@@ -12,12 +12,9 @@
  */
 
 const fs = require("node:fs");
-const path = require("node:path");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { writeFd } = require("./lib/write-fd.js");
 const {
-	reportRoot,
-	rowsFrom,
 	shares,
 	toCsv,
 	parseCsv,
@@ -25,6 +22,7 @@ const {
 	parseMeta,
 } = require("./lib/suite-timings.js");
 const { hostRoot } = require("./lib/host-root.js");
+const { readReports } = require("./lib/vitest-reports.js");
 
 const USAGE = `Usage:
   node scripts/suite-timings.js extract <vitest.json|dir> <out.csv> [key=value ...]
@@ -60,32 +58,6 @@ const err = (s) => writeFd(2, `${s}\n`);
 const ROOT = hostRoot();
 
 /**
- * The rows of one vitest JSON report, or of every report under a directory,
- * as the shard jobs of one Actions run upload them (#2413). Each report is
- * relativised on its own: every shard ran in a checkout of its own.
- * @param {string} source
- * @returns {ReturnType<typeof rowsFrom>}
- */
-function readRows(source) {
-	const files = fs.statSync(source).isDirectory()
-		? fs
-				.readdirSync(source, { recursive: true, encoding: "utf8" })
-				.filter((f) => f.endsWith(".json"))
-				.sort()
-				.map((f) => path.join(source, f))
-		: [source];
-	const rows = files.flatMap((f) => {
-		const report = JSON.parse(fs.readFileSync(f, "utf8"));
-		return rowsFrom(
-			report,
-			reportRoot(report, ROOT, (rel) => fs.existsSync(path.join(ROOT, rel))),
-		);
-	});
-	rows.sort((a, b) => (b.seconds ?? -1) - (a.seconds ?? -1));
-	return rows;
-}
-
-/**
  * @param {string[]} argv
  * @returns {number} exit code
  */
@@ -105,7 +77,7 @@ function main(argv = process.argv.slice(2)) {
 			);
 			return 1;
 		}
-		const rows = readRows(source);
+		const rows = readReports(source, ROOT);
 		fs.writeFileSync(target, toCsv(rows, meta));
 		out(`${rows.length} files → ${target}`);
 		out(formatShares(shares(rows)));
