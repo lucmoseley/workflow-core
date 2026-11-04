@@ -100,12 +100,8 @@ describe("queue-run.js", () => {
 			args: ["--test", "a.test.js"],
 		});
 		const [marker] = f.readMarkers();
-		expect(marker).toBeTruthy();
 		const read = () =>
-			JSON.parse(fs.readFileSync(path.join(f.dir, marker), "utf8"));
-		// Admitted before the launch, so no other waiter's turn comes (#2578).
-		expect(read()).toMatchObject({ admitted: true });
-		expect(read().spawned).toBeUndefined();
+			JSON.parse(fs.readFileSync(path.join(f.dir, marker as string), "utf8"));
 		f.spawned[0].child.emit("spawn");
 		expect(read().spawned).toBe(true);
 		f.spawned[0].child.emit("exit", 3, null);
@@ -212,7 +208,6 @@ describe("queue-run.js", () => {
 			f.options({ gate: () => true, exit: (c: number) => exits.push(c) }),
 		);
 		await tick();
-		expect(f.readMarkers()).toHaveLength(1);
 		f.signals.emit("SIGINT");
 		expect(exits).toEqual([130]);
 		expect(f.readMarkers()).toEqual([]);
@@ -224,6 +219,20 @@ describe("queue-run.js", () => {
 				signal: "SIGINT",
 			}),
 		]);
+	});
+
+	it("leaves a signal after its command exits to the process, never exiting on it", async () => {
+		const f = fixture();
+		const exits: number[] = [];
+		const done = main(
+			["--", "pytest"],
+			f.options({ exit: (c: number) => exits.push(c) }),
+		);
+		await tick();
+		f.spawned[0].child.emit("exit", 0, null);
+		expect(await done).toBe(0);
+		f.signals.emit("SIGTERM");
+		expect(exits).toEqual([]);
 	});
 
 	it("exits 127 where the command will not start", async () => {

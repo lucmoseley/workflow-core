@@ -232,7 +232,7 @@ The fixes, best first: return the value, so the caller holds it; pass it in, so 
 
 **Outside the rule:** a memo its one getter fills; a binding set once at load and only read after; an environment variable set for a child process (§G7); and an environment variable test support sets for the code under test.
 
-**The good reason to differ is state a signal or exit handler reads**, since nothing can hand a handler an argument. Each write sits beside its undo in the function that took the thing, and the declaration names the handler, as `heldMarkers` and `heldWorktrees` in `scripts/run-vitest.js` do; `releaseAndExit` drains both on a kill.
+**The good reason to differ is state a signal or exit handler reads**, since nothing can hand a handler an argument. Each write sits beside its undo in the function that took the thing, and the declaration names the handler, as `heldWorktrees` and `heldRuns` in `scripts/run-vitest.js` do; `releaseRunsAndWorktrees` drains both on a kill.
 
 **Not test or shell, on purpose.** In a test, a setup hook resets the shared fake and each test writes the answer its own case needs, so the write and its reader sit in one test; a test reading what an earlier test left is order dependence, a different defect. A shell function hands back more than its exit status only by printing or by setting a global, so a global written by several functions is the language's return channel.
 
