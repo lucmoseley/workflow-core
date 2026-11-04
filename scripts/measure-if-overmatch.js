@@ -59,7 +59,7 @@ const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const readline = require("node:readline");
 const { parseJsonlRow } = require("./lib/jsonl.js");
-const { transcriptDir, readTranscriptFiles } = require("./lib/guard-fires");
+const { transcriptDirs, readTranscriptCorpus } = require("./lib/guard-fires");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
 
 const { unwrapped } = require("./lib/issue-phase-scope");
@@ -372,7 +372,7 @@ function scanLine(line, file, onCommand) {
 const write = (text) => writeFd(1, text);
 
 /**
- * @returns {{ asJson: boolean, dump: string | null, dir: string, limit: number }}
+ * @returns {{ asJson: boolean, dump: string | null, dirs: string[], limit: number }}
  */
 function readFlags() {
 	const { flags } = parseOrExit(process.argv.slice(2), {
@@ -387,10 +387,11 @@ function readFlags() {
 	});
 	const asJson = flags["--json"] === true;
 	const dump = flagValue(flags, "--dump") ?? null;
-	const dir = flagValue(flags, "--dir") ?? transcriptDir(process.cwd());
+	const given = flagValue(flags, "--dir");
+	const dirs = given ? [given] : transcriptDirs();
 	const limitArg = flagValue(flags, "--limit");
 	const limit = limitArg === undefined ? Number.NaN : Number(limitArg);
-	return { asJson, dump, dir, limit };
+	return { asJson, dump, dirs, limit };
 }
 
 /**
@@ -605,11 +606,11 @@ function writeText(out, tools) {
 }
 
 async function main() {
-	const { asJson, dump, dir, limit } = readFlags();
+	const { asJson, dump, dirs, limit } = readFlags();
 
-	const files = readTranscriptFiles(dir);
-	if (!files) {
-		write(`measure-if-overmatch: cannot read ${dir}\n`);
+	const { files, unreadable: unlisted } = readTranscriptCorpus(dirs);
+	if (unlisted.length > 0) {
+		write(`measure-if-overmatch: cannot read ${unlisted.join(", ")}\n`);
 		process.exit(1);
 	}
 	const chosen = chooseFiles(files, limit);
@@ -628,7 +629,7 @@ async function main() {
 
 	/** @type {Report} */
 	const out = {
-		dir,
+		dirs,
 		transcripts: chosen.length,
 		unreadable,
 		bashCalls: acc.calls,

@@ -78,6 +78,7 @@ describe("every caller derives the slug from that one function", () => {
 	const dirs: string[] = [];
 
 	afterEach(() => {
+		vi.unstubAllEnvs();
 		process.chdir(saved.cwd);
 		for (const d of dirs.splice(0))
 			fs.rmSync(d, { recursive: true, force: true });
@@ -85,14 +86,17 @@ describe("every caller derives the slug from that one function", () => {
 		else process.env.CLAUDE_CONFIG_DIR = saved.config;
 	});
 
-	it("guard-fires transcriptDir spells the project directory with it", () => {
-		const { transcriptDir } = require("./guard-fires.js");
-		expect(transcriptDir("/a.b/c")).toBe(
+	it("guard-fires transcriptDirs spells the main checkout's directory with it", () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "manta.slug."));
+		dirs.push(root);
+		vi.stubEnv("CLAUDE_PROJECT_DIR", root);
+		const { transcriptDirs } = require("./guard-fires.js");
+		expect(transcriptDirs()[0]).toBe(
 			path.join(
 				process.env.CLAUDE_CONFIG_DIR ||
 					path.join(process.env.HOME || "", ".claude"),
 				"projects",
-				projectSlug("/a.b/c"),
+				projectSlug(fs.realpathSync(root)),
 			),
 		);
 	});

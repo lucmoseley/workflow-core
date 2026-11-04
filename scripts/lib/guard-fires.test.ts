@@ -138,6 +138,14 @@ describe("guardKey", () => {
 		);
 	});
 
+	it("keys a hook run through the pinned-guards shim on the entry it runs (#4227)", () => {
+		expect(
+			guardKey(
+				'command -v node >/dev/null 2>&1 || exit 0; node "$CLAUDE_PROJECT_DIR"/scripts/run-pinned-guards.js "$HOME"/.claude/.guard-code.current/scripts/guard-dispatch.js',
+			),
+		).toBe("guard-dispatch.js");
+	});
+
 	it("is empty for a command naming no script in this repo", () => {
 		expect(guardKey('bash "$CLAUDE_PLUGIN_ROOT/hooks/check-config.sh"')).toBe(
 			"",
@@ -711,6 +719,6 @@ describe("sessionKeyFor", () => {
 	});
 });
 
-/* The slug `transcriptDir` spells its project directory with is
+/* The slug `transcriptDirs` spells its project directories with is
  * `project-slug.test.ts`'s, which asserts the rule across every caller at once
  * — the fault is divergence, and a per-caller suite cannot see it. */

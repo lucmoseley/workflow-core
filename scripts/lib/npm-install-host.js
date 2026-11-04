@@ -69,6 +69,15 @@ function buildHostPorts(root) {
 	const pkg = path.join(root, "package.json");
 	return {
 		readPackageJson: () => ({ path: pkg, text: readOrNull(pkg) }),
+		pathExists: (p) => fs.lstatSync(p, { throwIfNoEntry: false }) !== undefined,
+		linkTarget: (p) => {
+			try {
+				return fs.readlinkSync(p);
+			} catch {
+				/* Absent, or no link: either way nothing links there. */
+				return null;
+			}
+		},
 		readManifest: (dep) =>
 			readOrNull(path.join(root, "node_modules", dep, "package.json")),
 		npmView: (name) =>

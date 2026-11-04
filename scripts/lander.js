@@ -17,6 +17,9 @@
  * exit 1 red with each non-empty stdout line a failing file, any other exit
  * no verdict.
  *
+ * After each move of `main` it adopts the new tip as the code this repo's
+ * guard hooks run, where its guards load (lib/guard-code.js, #4227).
+ *
  * Does nothing where the `landing` module is off. Joins no §N3 family: it
  * gates nothing and is no hook.
  *
@@ -31,6 +34,7 @@ const { parseErrorText } = require("./lib/caught.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
 const { ticketFiler } = require("./lib/fix-ticket.js");
 const { gh } = require("./lib/gh.js");
+const { adoptGuardCodeAt, adoptionLine } = require("./lib/guard-code.js");
 const { heldQueueFiler } = require("./lib/held-queue.js");
 const {
 	buildActionLine,
@@ -213,6 +217,10 @@ async function main(argv = process.argv.slice(2)) {
 		lastMoved: () => readHeartbeat(files.heartbeat)?.movedAt ?? null,
 		log: (a) => say(`${new Date().toISOString()} ${buildActionLine(a)}`),
 		say,
+		mainMoved: () => {
+			const adoption = adoptGuardCodeAt(root, { fetch: false });
+			if (adoption) say(adoptionLine(adoption));
+		},
 	});
 	return 0;
 }
