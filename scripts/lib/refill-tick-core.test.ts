@@ -12,6 +12,8 @@
  * stop on an absent or damaged control, or write, launch or drop a marker.
  */
 import { describe, expect, it } from "vitest";
+import { ADMISSION_VERDICT } from "./admission-verdict-fake";
+import { buildHeldStopText } from "./refill-blocks.js";
 import {
 	type Launch,
 	MIN,
@@ -357,6 +359,73 @@ describe("a restart's killed launches on the tick (#3880, #3971)", () => {
 		expect(disk().sameBootRestart).toBeUndefined();
 		expect(disk().launching).toBeUndefined();
 		expect(calls).toContain("dropManagerRestart");
+	});
+});
+
+describe("a limit-held launch through the tick (#3735)", () => {
+	const held = record({
+		seat: SEAT,
+		parked: true,
+		block: { cause: "LIMIT", since: NOW - 60 * MIN },
+		limitHeld: {
+			at: NOW - 60 * MIN,
+			sessionId: "s-job42",
+			cwd: "/home/u/design-vault",
+			limit: { bar: "weekly", resets: "2026-11-01T00:00:00.000Z" },
+			ledgerHeldUntil: NOW + 60 * MIN,
+		},
+	}) as Launch;
+	const spent = {
+		readSeats: () => ({
+			seats: [{ ...sized, week: 100, weekFull: true, fits: null }],
+			probes: [],
+		}),
+	};
+
+	it("waits named on its seat while every seat is spent, and a stop names it (#3785)", async () => {
+		const idle = await tickOf(fakeIo(stateOf({ launches: [held] }), spent).io);
+		expect(idle.decision).toMatchObject({
+			idle: expect.stringContaining(
+				"every seat is spent; a limit-held session waits on one",
+			),
+		});
+		const stopped = await tickOf(
+			fakeIo(stateOf({ launches: [held] }), spent).io,
+			control({ stopRequested: true }),
+		);
+		expect(stopped.decision).toMatchObject({
+			stop: "explicit",
+			detail: expect.stringContaining(buildHeldStopText(held as never)),
+		});
+	});
+
+	it("nets the limit acts' working change into the tick's record (#3778)", async () => {
+		const records: { working: number | null }[] = [];
+		const { io } = fakeIo(
+			stateOf(),
+			{
+				readFreeSlots: () => ({
+					slots: 1,
+					/* The run test's fake carries only the fields concurrency.js reads. */
+					admission: ADMISSION_VERDICT as never,
+				}),
+				actOnLimits: (_b, judged, _m, { slots }) => ({
+					launches: judged,
+					slots,
+					workingChange: -1,
+				}),
+				appendTick: (r) => {
+					records.push(r);
+				},
+			},
+			{ frontier: [] },
+		);
+		await tickOf(io);
+		expect(records).toEqual([
+			expect.objectContaining({
+				working: ADMISSION_VERDICT.memory.working.count - 1,
+			}),
+		]);
 	});
 });
 

@@ -1729,25 +1729,6 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 		);
 	});
 
-	it("falls back to stop and --bg --resume where the typed resume never reached the timeline", async () => {
-		seed(tried({ attachAt: Date.now() - 2 * 60 * 1000 }));
-		fakeResumeClaude(Job, [LISTED, blockedRow]);
-		const r = await oneTick(ApiRun);
-		expect(r.status).toBe(0);
-		expect(readLines(at("calls"))).toEqual([
-			`stop ${Job}`,
-			`--bg --resume s-job7 ${Prompt}`,
-		]);
-		expect(launchState().resumes).toEqual({
-			tries: 1,
-			triedAt: expect.any(Number),
-			nextAt: expect.any(Number),
-		});
-		expect(r.stdout).toMatch(
-			/resume 1 of 16 after an API error, repo \/implement 7, by stop and --bg --resume, the typed one unseen/,
-		);
-	});
-
 	it("refuses the --bg --resume where its auth would not bill the subscription (#2236)", async () => {
 		seed(tried({ attachAt: Date.now() - 2 * 60 * 1000 }));
 		fakeResumeClaude(Job, [LISTED, blockedRow]);
@@ -1757,49 +1738,6 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 		expect(readLines(at("calls"))).toEqual([`stop ${Job}`]);
 		expect(r.stdout).toMatch(
 			/could not resume .*an apiKeyHelper setting is in force.*#2236/,
-		);
-	});
-
-	it("leaves a typed resume that reached the timeline", async () => {
-		const attachAt = Date.now() - 2 * 60 * 1000;
-		seed(tried({ attachAt }));
-		fs.writeFileSync(
-			path.join(jobDir(), "timeline.jsonl"),
-			`${JSON.stringify({
-				at: new Date(attachAt + 1000).toISOString(),
-				state: "blocked",
-				detail: Prompt,
-				text: "",
-			})}\n`,
-		);
-		fakeResumeClaude(Job, [LISTED, blockedRow]);
-		const r = await oneTick(ApiRun);
-		expect(r.status).toBe(0);
-		expect(readLines(at("calls"))).toEqual([]);
-		expect(launchState().resumes).not.toHaveProperty("attachAt");
-	});
-
-	it("checks no typed resume off an unread listing", async () => {
-		seed(tried({ attachAt: Date.now() - 2 * 60 * 1000 }));
-		fakeResumeClaude(Job, null);
-		const r = await oneTick(ApiRun);
-		expect(r.status).toBe(0);
-		expect(readLines(at("calls"))).toEqual([]);
-		expect(launchState().resumes).toHaveProperty("attachAt");
-	});
-
-	it("stops a session blocked again until its next resume", async () => {
-		seed(tried({ tries: 2, triedAt: Date.now() - 5 * 60 * 1000 }));
-		fakeResumeClaude(Job, [LISTED, blockedRow]);
-		const r = await oneTick(ApiRun);
-		expect(r.status).toBe(0);
-		expect(readLines(at("calls"))).toEqual([`stop ${Job}`]);
-		expect(launchState().resumes).toMatchObject({
-			tries: 2,
-			heldAt: expect.any(Number),
-		});
-		expect(r.stdout).toMatch(
-			/stopped repo \/implement 7 until its next resume/,
 		);
 	});
 
@@ -1902,76 +1840,6 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 		expect(claims).not.toContain("s-job7");
 	});
 
-	it("tracks the copy a resume started where a kill beat the state write, and starts no second (#4180)", async () => {
-		seed(heldDue);
-		arbiterAs("s-job7", "claim-issue", "7");
-		const transcript = (session: string) =>
-			path.join(seat, "projects", "repo", `${session}.jsonl`);
-		fs.mkdirSync(path.dirname(transcript("s-job7")), { recursive: true });
-		fs.writeFileSync(
-			transcript("s-job7"),
-			`${JSON.stringify({ type: "user", uuid: "u-first", sessionId: "s-job7" })}\n`,
-		);
-		const copyDir = path.join(seat, "jobs", FAKE_COPY);
-		const copyRecord = JSON.stringify({
-			state: "working",
-			sessionId: "s-copy",
-			cwd: repo,
-			createdAt: "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)",
-		});
-		/* The copy starts, then the loop dies before it reads the launcher's
-		 * answer: a real SIGKILL, as the gap is a process's death. */
-		fakeResumeClaude(
-			Job,
-			[LISTED],
-			[
-				`mkdir -p ${shellQuote(copyDir)};`,
-				`echo "${copyRecord.replaceAll('"', '\\"')}" > ${shellQuote(path.join(copyDir, "state.json"))};`,
-				`cp ${shellQuote(transcript("s-job7"))} ${shellQuote(transcript("s-copy"))};`,
-				"kill -9 $PPID;",
-			].join(" "),
-		);
-		/* spawn-kept: the kill needs a loop of its own process to land on. */
-		const killed = spawn(
-			process.execPath,
-			[path.join(scripts, "refill-loop.js"), "run"],
-			{
-				cwd: dir,
-				env: loopEnv({ WFC_GH: at("gh"), FAKE_SLOTS: "0" }),
-				stdio: "ignore",
-			},
-		);
-		const signal = await new Promise((done) =>
-			killed.on("exit", (_, sig) => done(sig)),
-		);
-		expect(signal).toBe("SIGKILL");
-		expect(launchState()).toMatchObject({
-			jobId: Job,
-			resumeStarted: { sessionId: "s-job7", act: { kind: "api" } },
-		});
-
-		fakeResumeClaude(Job, [LISTED]);
-		const r = await oneTick(ApiRun);
-
-		expect(r.status).toBe(0);
-		expect(readLines(at("calls")).filter((l) => l.startsWith("--bg"))).toEqual([
-			`--bg --resume s-job7 ${Prompt}`,
-		]);
-		expect(launchState()).toMatchObject({
-			jobId: FAKE_COPY,
-			copiedFrom: Job,
-			sessionId: "s-copy",
-			resumes: { tries: 2 },
-		});
-		expect(launchState()).not.toHaveProperty("resumeStarted");
-		expect(r.stdout).toMatch(
-			/resume at .* started copy c0de7a11, which a kill came between it and the state write left out of the state/,
-		);
-		const claims = arbiterAs("s-copy", "issue-claims");
-		expect(claims).toContain("s-copy");
-		expect(claims).not.toContain("s-job7");
-	});
-
 	describe("a copy's resume and the pass markers its past id wrote (#4105)", () => {
 		const buildPassPath = (session: string) =>
 			path.join(
@@ -2008,46 +1876,6 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 			);
 			expect(fs.existsSync(buildPassPath("s-job7"))).toBe(false);
 		});
-
-		it("leaves them where the past id is open elsewhere, logging it", async () => {
-			const r = await resumeListing([
-				LISTED,
-				buildJobRow("elsewhere", "working", { sessionId: "s-job7" }),
-			]);
-			expect(fs.existsSync(buildPassPath("s-copy"))).toBe(false);
-			expect(fs.existsSync(buildPassPath("s-job7"))).toBe(true);
-			expect(r.stdout).toContain(
-				"pass markers of s-job7 not moved: s-job7 is still live",
-			);
-		});
-	});
-
-	it("tracks a held job its resume wakes in place under its own job and claim, never as a copy (#2968, #2987)", async () => {
-		seed(heldDue);
-		arbiterAs("s-job7", "claim-issue", "7");
-		fakeResumeClaude(Job, [LISTED], "", "woke");
-		const r = await oneTick(ApiRun);
-		expect(r.status).toBe(0);
-		expect(readLines(at("calls"))).toEqual([
-			`stop ${Job}`,
-			`--bg --resume s-job7 ${Prompt}`,
-		]);
-		const state = launchState();
-		expect(state).toMatchObject({
-			jobId: Job,
-			sessionId: "s-job7",
-			finishedAt: null,
-			relaunchedAt: expect.any(Number),
-			resumes: { tries: 2 },
-		});
-		expect(state).not.toHaveProperty("copiedFrom");
-		expect(state).not.toHaveProperty("pastSessionIds");
-		expect(r.stdout).toMatch(/by stop and --bg --resume, woken in place/);
-		expect(r.stdout).not.toMatch(/as its copy/);
-		const comments = readLines(at("gh-calls")).join("\n");
-		expect(comments).toMatch(/by stop and --bg --resume, woken in place/);
-		expect(comments).not.toMatch(/as its copy/);
-		expect(arbiterAs("s-job7", "issue-claims")).toContain("s-job7");
 	});
 
 	it("reads a launcher line naming no job as a failed resume, the session held for its next (#2963)", async () => {
@@ -2118,19 +1946,6 @@ describe("a session held on its seat's limit (#3735)", () => {
 			{ mode: 0o755 },
 		);
 	};
-	it("stays held, unfinished and unstopped, while its seat is spent", async () => {
-		seed();
-		weekAt(100);
-		fakeResumeClaude(Job, [LISTED], "", "woke");
-		const r = await oneTick(Run, 1);
-		expect(r.status).toBe(0);
-		expect(readLines(at("calls"))).toEqual([]);
-		expect(launchState()).toMatchObject({
-			finishedAt: null,
-			limitHeld: { sessionId: "s-job7" },
-		});
-		expect(r.stdout).toContain("limit-held session waits");
-	});
 
 	it("resumes under its own seat once a fresh reading reads open, takes its slot, comments, counts it working (#3778)", async () => {
 		seed();
@@ -2159,32 +1974,6 @@ describe("a session held on its seat's limit (#3735)", () => {
 		expect(r.stdout).toContain("no free slot");
 		expect(concurrencyRow()).toMatchObject({
 			working: Admitted + 1,
-			ceiling: Admitted + 1,
-		});
-	});
-
-	it("stops a live session at its spent limit, and takes it off the record's working figure (#3778)", async () => {
-		seed("s-job7", false);
-		const transcript = at("transcript.jsonl");
-		fs.writeFileSync(
-			transcript,
-			`${JSON.stringify({
-				type: "assistant",
-				message: { content: [{ type: "text", text: "Working." }] },
-			})}\n`,
-		);
-		fs.writeFileSync(
-			jobFile(),
-			buildBlockedJobRecord("You've hit your weekly limit", transcript),
-		);
-		weekAt(100);
-		fakeResumeClaude(Job, [LISTED, buildJobRow(Job, "blocked")], "", "woke");
-		const r = await oneTick(Run, 1);
-		expect(r.status).toBe(0);
-		expect(r.stdout).toContain(`held ${Job}`);
-		expect(launchState().limitHeld).toMatchObject({ sessionId: "s-job7" });
-		expect(concurrencyRow()).toMatchObject({
-			working: Admitted - 1,
 			ceiling: Admitted + 1,
 		});
 	});
@@ -2435,33 +2224,6 @@ describe("a session held on its seat's limit (#3735)", () => {
 			expect(claims).toContain("s-job7");
 			expect(claims).not.toContain("s-copy");
 		});
-
-		it("holds it, moving nothing, while the plan seat reads under its week", async () => {
-			seedOverflow();
-			weekAt(10);
-			fs.writeFileSync(
-				path.join(seat, ".claude.json"),
-				JSON.stringify(buildUsageCache({ session: 100, week: 10 }, Date.now())),
-			);
-			const r = await oneTick(Run, 1);
-			expect(r.status).toBe(0);
-			expect(
-				readLines(at("calls")).filter((l) => l.startsWith("--bg")),
-			).toEqual([]);
-			expect(launchState()).not.toHaveProperty("keyVar");
-			expect(readOverflowLookup([repo])({ jobId: FAKE_COPY })).toBeFalsy();
-		});
-	});
-
-	it("waits on a free slot, its seat open", async () => {
-		seed();
-		weekAt(10);
-		fakeResumeClaude(Job, [LISTED], "", "woke");
-		const r = await oneTick(Run, 0);
-		expect(r.status).toBe(0);
-		expect(readLines(at("calls"))).toEqual([]);
-		expect(launchState()).toHaveProperty("limitHeld");
-		expect(r.stdout).toContain("reads open, and waits on a free slot");
 	});
 
 	it("stays held where the launcher named a job its state.json reads stopped", async () => {

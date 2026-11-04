@@ -762,7 +762,9 @@ describe("decideTick with a limit-held launch (#3735)", () => {
 		expect(held).toMatchObject({
 			launches: [],
 			planWait: { resets: null },
-			idle: expect.stringContaining("limit-held"),
+			idle: expect.stringContaining(
+				"every seat is spent; a limit-held session waits on one",
+			),
 		});
 		expect(held.idle).toMatch(/^a plan resets/);
 	});

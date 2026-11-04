@@ -450,10 +450,15 @@ describe("the loop's resumes after a transient API stop (#2705)", () => {
 			},
 		);
 		expect(out[0]).toMatchObject({ jobId: "p", relaunchedAt: NOW });
+		expect(out[0]).toMatchObject({ sessionId: "s", resumes: { tries: 2 } });
 		expect(out[0]).not.toHaveProperty("copiedFrom");
 		expect(out[0]).not.toHaveProperty("pastSessionIds");
-		expect(calls.join("\n")).toMatch(/woken in place/);
-		expect(calls.join("\n")).not.toMatch(/as its copy/);
+		expect(calls.filter((c) => c.startsWith("stop "))).toEqual(["stop p"]);
+		const line = `resume 2 of ${RESUME_CAP} after an API error, design-vault /implement 42, by stop and --bg --resume, woken in place; next due ${new Date(NOW + 10 * MIN).toISOString()}`;
+		expect(logs(calls)).toEqual([line]);
+		expect(calls.filter((c) => c.startsWith("comment "))).toEqual([
+			`comment Refill loop: ${line}.`,
+		]);
 	});
 
 	it("never resumes before it is due, nor while a typed resume awaits its check", () => {
@@ -482,11 +487,10 @@ describe("the loop's resumes after a transient API stop (#2705)", () => {
 			held(resuming({ resumes: tried(2, 4, 6) }), [agent("p", "working")]),
 		).toEqual([]);
 		expect(
-			logs(
-				blocks([resuming({ resumes: tried(2, 4, 6) })], blocked, "away").calls,
-			),
+			blocks([resuming({ resumes: tried(2, 4, 6) })], blocked, "away").calls,
 		).toEqual([
-			`stopped design-vault /implement 42 until its next resume, due ${new Date(NOW + 6 * MIN).toISOString()}`,
+			"stop p",
+			`log stopped design-vault /implement 42 until its next resume, due ${new Date(NOW + 6 * MIN).toISOString()}`,
 		]);
 	});
 
@@ -594,6 +598,46 @@ describe("the loop's resumes after a transient API stop (#2705)", () => {
 		expect(fellBack([row(NOW - MIN, IDLE_PROMPT)])).toBe(true);
 		expect(fellBack([row(NOW - MIN, "API Error: 529")])).toBe(true);
 		expect(fellBack(null)).toBe(true);
+	});
+
+	it("falls back by stop and --bg --resume, the same try, where a typed resume never reached the timeline", () => {
+		const typed = resuming({
+			resumes: tried(1, 2, 2, { attachAt: NOW - 2 * MIN }),
+		});
+		const { out, calls } = blocks([typed], blocked, "normal");
+		const line = `resume 1 of ${RESUME_CAP} after an API error, design-vault /implement 42, by stop and --bg --resume, the typed one unseen, as its copy p-copy; next due ${new Date(NOW + 2 * MIN).toISOString()}`;
+		expect(calls).toEqual([
+			"stop p",
+			"resume p",
+			`log ${line}`,
+			`comment Refill loop: ${line}.`,
+		]);
+		expect(out[0]?.resumes).toEqual({
+			tries: 1,
+			triedAt: NOW - 2 * MIN,
+			nextAt: NOW + 2 * MIN,
+		});
+	});
+
+	it("checks a typed resume once: no act where it arrived, its mark dropped, and none off an unread listing, its mark kept", () => {
+		const attachAt = NOW - 2 * MIN;
+		const typed = resuming({ resumes: tried(1, 2, 2, { attachAt }) });
+		const arrived = blocks([typed], blocked, "normal", {
+			io: {
+				readTimeline: () => [
+					{
+						at: new Date(attachAt + 1000).toISOString(),
+						state: "blocked",
+						detail: API_PROMPT,
+					},
+				],
+			},
+		});
+		expect(arrived.calls).toEqual([]);
+		expect(arrived.out[0]?.resumes).toEqual(tried(1, 2, 2));
+		const unread = blocks([typed], null, "normal");
+		expect(unread.calls).toEqual([]);
+		expect(unread.out[0]?.resumes).toEqual(tried(1, 2, 2, { attachAt }));
 	});
 
 	it("logs and comments a resume with its count, route and next due time, and a morning park as such", () => {
@@ -2333,9 +2377,36 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 		});
 	});
 
-	it("logs a held one whose seat reads open, waiting on a slot", () => {
-		const { calls } = limits([held()], [], { slots: 0 });
-		expect(logs(calls).join("\n")).toContain("waits on a free slot");
+	/** held, its dispatch-ledger hold already written. */
+	const ledgerHeld = () =>
+		held({ limitHeld: { ...LimitHeld, ledgerHeldUntil: NOW + DAY } });
+
+	it("logs a held one whose seat reads open, waiting on a slot, and acts on nothing", () => {
+		const { launches, calls } = limits([ledgerHeld()], [], {
+			slots: 0,
+			mode: "normal",
+		});
+		expect(calls).toEqual([
+			`log design-vault /implement 42 on ${Seat} reads open, and waits on a free slot`,
+		]);
+		expect(launches[0]).toMatchObject({
+			finishedAt: null,
+			limitHeld: { sessionId: "s-job42" },
+		});
+	});
+
+	it("leaves a held one held, unstopped and unresumed, while its seat is spent", () => {
+		const { launches, calls, slots } = limits([ledgerHeld()], [], {
+			seats: [fiveHourFull],
+			mode: "normal",
+		});
+		expect(calls).toEqual([]);
+		expect(launches[0]).toMatchObject({
+			finishedAt: null,
+			limitHeld: { sessionId: "s-job42" },
+		});
+		expect(launches[0]?.limitHeld).not.toHaveProperty("resumedAt");
+		expect(slots).toBe(1);
 	});
 
 	it("reads no seat with none limit-blocked", () => {
@@ -2596,6 +2667,14 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 			expect(calls.filter((c) => c.startsWith("move "))).toEqual([]);
 			expect(launches[0]).not.toHaveProperty("keyVar");
 			expect(launches[0]).toHaveProperty("limitHeld");
+			const one = limits([ledgerHeld()], [], {
+				seats: [fiveHourFull],
+				overflow: [key(3)],
+				mode: "normal",
+			});
+			expect(one.calls).toEqual([]);
+			expect(one.launches[0]).not.toHaveProperty("keyVar");
+			expect(one.launches[0]).toMatchObject({ seat: Seat, limitHeld: {} });
 		});
 
 		it("holds where every plan seat is weekly-full and the key fits none", () => {
