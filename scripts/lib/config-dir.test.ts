@@ -115,4 +115,9 @@ describe("configDirFrom", () => {
 		expect(configDirFrom(null)).toBe(path.join(os.homedir(), ".claude"));
 		expect(configDirFrom("")).toBe("");
 	});
+
+	it("resolves an unset value under the home it is given", () => {
+		expect(configDirFrom(undefined, "/h")).toBe(path.join("/h", ".claude"));
+		expect(configDirFrom("/c", "/h")).toBe("/c");
+	});
 });

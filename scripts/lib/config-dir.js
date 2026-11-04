@@ -24,10 +24,11 @@ const path = require("node:path");
  * The config dir a CLAUDE_CONFIG_DIR value names: this process's own, or one
  * read from another process's environ.
  * @param {string|null|undefined} value
+ * @param {string} [home] the home an unset value resolves under
  * @returns {string}
  */
-function configDirFrom(value) {
-	return value ?? path.join(os.homedir(), ".claude");
+function configDirFrom(value, home = os.homedir()) {
+	return value ?? path.join(home, ".claude");
 }
 
 /**

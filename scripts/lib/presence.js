@@ -17,9 +17,8 @@
 
 const fs = require("node:fs");
 const os = require("node:os");
-const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
-const { seatDir } = require("./config-dir.js");
+const { configDirFrom, seatDir } = require("./config-dir.js");
 const { machineMarkerPath } = require("./machine-marker.js");
 
 /* Untraced: spec #1995's value, not a measurement. */
@@ -39,8 +38,7 @@ const markerPath = (env) =>
  */
 function markPresent(now, env = process.env) {
 	const home = env.HOME || os.homedir();
-	const dir = env.CLAUDE_CONFIG_DIR ?? path.join(home, ".claude");
-	const seat = seatDir(dir, home);
+	const seat = seatDir(configDirFrom(env.CLAUDE_CONFIG_DIR, home), home);
 	writeFileAtomic(markerPath(env), `${now.toISOString()}\n${seat}\n`);
 }
 
