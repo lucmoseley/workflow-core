@@ -100,13 +100,14 @@ const launched = (d: { launches?: { root: string; issues: number[] }[] }) =>
 describe("away mode's return (#3870)", () => {
 	const Switched = NOW - 8 * HOUR;
 	const PromptBeforeSwitch = Switched - 5 * 60 * 1000;
-	/** Each tick's change, a mode and absent read carried over as the tick writes them. */
+	/** Each tick's change, a mode and absent read carried over as the tick writes them; the switch at `since`, Switched where omitted. */
 	const changesOver = (
 		ticks: { now: number; lastPromptAt: number | null }[],
+		since = Switched,
 	) => {
 		let control = {
 			mode: "away",
-			away: { since: Switched, absentSeen: false },
+			away: { since, absentSeen: false },
 		};
 		return ticks.map(({ now, lastPromptAt }) => {
 			const change = awayChangeOf(control, lastPromptAt, now);
@@ -148,6 +149,31 @@ describe("away mode's return (#3870)", () => {
 				{ now: NOW, lastPromptAt: NOW - 1000 },
 			]),
 		).toEqual([null, "absent", "return"]);
+	});
+
+	it("stays away through a prompt soon after a switch made long after the last one (#4184)", () => {
+		const oneMinuteOn = NOW + 60 * 1000;
+		expect(
+			changesOver(
+				[
+					{ now: NOW, lastPromptAt: NOW - PRESENT_WINDOW_MS - 10 * 60 * 1000 },
+					{ now: oneMinuteOn, lastPromptAt: oneMinuteOn },
+				],
+				NOW,
+			),
+		).toEqual([null, null]);
+	});
+
+	it("reads no record of a prompt as present for one window after the switch (#4184)", () => {
+		expect(
+			changesOver(
+				[
+					{ now: NOW, lastPromptAt: null },
+					{ now: NOW + PRESENT_WINDOW_MS, lastPromptAt: null },
+				],
+				NOW,
+			),
+		).toEqual([null, "absent"]);
 	});
 
 	it("reads no record of a prompt as absent, and changes nothing in normal mode", () => {
