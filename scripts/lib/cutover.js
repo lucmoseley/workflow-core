@@ -24,6 +24,7 @@
 
 const { caught } = require("./caught.js");
 const { execGit, gitReader, GIT_TIMEOUT_MS } = require("./git.js");
+const { scriptPath } = require("./script-path.js");
 
 const BRANCH = "main";
 const SHARED_MERGE = "refs/heads/landing";
@@ -208,8 +209,8 @@ function renderCutover(r, { describeAge, renderLevel, now }) {
 		case "unmerged":
 			return [
 				r.files.length > 0
-					? `refused: merging main's ${r.local} local commit(s) into ${r.dir} conflicts, so nothing was cut over — resolve there and \`git commit\`, run \`node scripts/session-checkout.js land\` from it, then run this again:`
-					: `refused: the merge of main's ${r.local} local commit(s) into ${r.dir} was refused, so nothing was cut over — fix what it names and \`git commit\` there, run \`node scripts/session-checkout.js land\` from it, then run this again: ${r.why}`,
+					? `refused: merging main's ${r.local} local commit(s) into ${r.dir} conflicts, so nothing was cut over — resolve there and \`git commit\`, run \`node ${scriptPath("session-checkout.js")} land\` from it, then run this again:`
+					: `refused: the merge of main's ${r.local} local commit(s) into ${r.dir} was refused, so nothing was cut over — fix what it names and \`git commit\` there, run \`node ${scriptPath("session-checkout.js")} land\` from it, then run this again: ${r.why}`,
 				...r.files.map((f) => `  ${f}`),
 			];
 		case "cut-over": {

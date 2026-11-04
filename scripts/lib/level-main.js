@@ -40,6 +40,7 @@ const { caught } = require("./caught.js");
 const { execGit, gitCommonDirOrThrow, GIT_TIMEOUT_MS } = require("./git.js");
 const { isCutOver } = require("./cutover.js");
 const { pidLock } = require("./pid-lock.js");
+const { scriptPath } = require("./script-path.js");
 
 const BRANCH = "main";
 const UPSTREAM = `origin/${BRANCH}`;
@@ -472,7 +473,7 @@ function renderOutcome(o, now) {
 			break;
 		case "shared":
 			lines.push(
-				`refused: the main checkout's main still tracks origin/landing, so it has not been cut over to the worktree model and main was not moved — run \`node scripts/cutover-main-checkout.js\`, ${next}`,
+				`refused: the main checkout's main still tracks origin/landing, so it has not been cut over to the worktree model and main was not moved — run \`node ${scriptPath("cutover-main-checkout.js")}\`, ${next}`,
 			);
 			break;
 		case "ahead":

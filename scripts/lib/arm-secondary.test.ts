@@ -231,6 +231,7 @@ const GATE_SOURCES: Record<string, string[]> = {
 	"gate-switches": ["scripts/check-gate-switches.js"],
 	"lockfile-sync": ["scripts/check-lockfile-sync.js"],
 	"research-added": ["scripts/check-research-added.js"],
+	"main-checkout-commit": ["scripts/check-main-checkout-commit.js"],
 	"digest-version": [
 		"scripts/check-digest-version.js",
 		"scripts/lib/precommit-gate.sh",

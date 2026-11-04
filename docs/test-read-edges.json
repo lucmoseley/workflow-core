@@ -4645,6 +4645,7 @@
 		"scripts/check-main-checkout-commit.js": [
 			"scripts/check-main-checkout-commit.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",

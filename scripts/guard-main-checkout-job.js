@@ -56,6 +56,7 @@ const {
 	shortJobId,
 } = require("./lib/job-paths.js");
 const { mainCheckout } = require("./lib/main-checkout.js");
+const { scriptPath } = require("./lib/script-path.js");
 const { launchDir } = require("./lib/session-checkout.js");
 const { forgetSession } = require("./lib/session-id.js");
 
@@ -83,7 +84,7 @@ const LAUNCH_ROOM_MS = 2 * CLAUDE_TIMEOUT_MS + 10_000;
 
 /** @param {string} dir */
 const workThere = (dir) =>
-	`Your first tool call is Bash \`cd ${dir}\`; then read, edit and commit only under ${dir}, and land with \`node scripts/session-checkout.js land\`.`;
+	`Your first tool call is Bash \`cd ${dir}\`; then read, edit and commit only under ${dir}, and land with \`node ${scriptPath("session-checkout.js")} land\`.`;
 
 const STARTED_HERE =
 	"This background job started in the main checkout, where no session edits or commits (#4229),";
@@ -102,7 +103,7 @@ function decide(source, io) {
 		dir = io.cut(job);
 	} catch (err) {
 		return {
-			context: `${STARTED_HERE} and cutting its own worktree failed: ${caught(err).message}. Cut one yourself with \`node scripts/session-checkout.js cut <name>\`, which prints its path. ${workThere("<that path>")}`,
+			context: `${STARTED_HERE} and cutting its own worktree failed: ${caught(err).message}. Cut one yourself with \`node ${scriptPath("session-checkout.js")} cut <name>\`, which prints its path. ${workThere("<that path>")}`,
 		};
 	}
 	if (dir === job.root) return null;

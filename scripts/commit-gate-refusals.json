@@ -17,6 +17,10 @@
 			"lines": ["pre-commit: the shared working tree is on '"]
 		},
 		{
+			"id": "main-checkout-commit",
+			"lines": ["commit(s) in the main checkout"]
+		},
+		{
 			"id": "biome",
 			"tool": "Biome",
 			"lines": ["Some errors were emitted while running checks."]

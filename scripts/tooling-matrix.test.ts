@@ -888,6 +888,7 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 			"check-gate-switches",
 			"check-lockfile-sync",
 			"check-research-added",
+			"check-main-checkout-commit",
 			"check-digest-version",
 			"check-digest-render",
 			"gen-roadmap-digest",
