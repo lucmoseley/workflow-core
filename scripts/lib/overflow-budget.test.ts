@@ -101,7 +101,13 @@ function recordLaunch(
 		keyVar = "WFC_TEST_KEY",
 		at = root,
 		withSessionId = true,
-	}: { keyVar?: string; at?: string; withSessionId?: boolean } = {},
+		copyOf,
+	}: {
+		keyVar?: string;
+		at?: string;
+		withSessionId?: boolean;
+		copyOf?: string;
+	} = {},
 ) {
 	const sessionId = sessionIdOf(jobId);
 	record({
@@ -114,6 +120,7 @@ function recordLaunch(
 			keyVar,
 			allowanceUsd: 50,
 			sessionId: withSessionId ? sessionId : null,
+			...(copyOf ? { copyOf } : {}),
 		},
 	});
 	return sessionId;
@@ -666,6 +673,129 @@ describe("the per-session cap (#3698)", () => {
 		);
 		stopOverAllowance(declared(), [listed("0000bad0")]);
 		expect(readStops()).toHaveLength(2);
+	});
+
+	/* A `--bg --resume` copy repeats its parent's main-thread requests up to the
+	 * fork, never the parent's subagents or what the parent spends after it
+	 * (#4195's measurement). */
+	describe("a resumed copy", () => {
+		const subagentOf = (sessionId: string) =>
+			path.join(
+				path.dirname(transcriptOf(sessionId)),
+				sessionId,
+				"subagents",
+				"agent-a1.jsonl",
+			);
+		const writeSubagent = (sessionId: string, ...rows: object[]) => {
+			const file = subagentOf(sessionId);
+			fs.mkdirSync(path.dirname(file), { recursive: true });
+			fs.writeFileSync(
+				file,
+				rows.map((r) => `${JSON.stringify(r)}\n`).join(""),
+			);
+		};
+
+		it("stops a copy once its chain's spend reaches the allowance, the shared requests counted once", () => {
+			const parent = recordLaunch("0000c001");
+			appendTranscript(parent, buildModelTurn(5_000_000, "r1"));
+			writeSubagent(parent, buildModelTurn(5_000_000, "rs"));
+			const copy = recordLaunch("0000c002", { copyOf: parent });
+			appendTranscript(
+				copy,
+				buildModelTurn(5_000_000, "r1"),
+				buildModelTurn(3_000_000, "r2"),
+			);
+			expect(
+				stopOverAllowance(declared(), [
+					listed("0000c001", "done"),
+					listed("0000c002"),
+				]),
+			).toEqual([
+				`stopped overflow session Overflow · job 0000c002 (0000c002) on ${seatDir}: spent $52.00 of its $50.00 allowance`,
+			]);
+			expect(readStops()).toEqual([`${seatDir} stop 0000c002`]);
+		});
+
+		it("counts what the parent spent after the fork, and a copy of a copy", () => {
+			const parent = recordLaunch("0000c001");
+			appendTranscript(
+				parent,
+				buildModelTurn(5_000_000, "r1"),
+				buildModelTurn(4_000_000, "r9"),
+			);
+			const copy = recordLaunch("0000c002", { copyOf: parent });
+			appendTranscript(copy, buildModelTurn(5_000_000, "r1"));
+			const second = recordLaunch("0000c003", { copyOf: copy });
+			appendTranscript(
+				second,
+				buildModelTurn(5_000_000, "r1"),
+				buildModelTurn(3_500_000, "r2"),
+			);
+			expect(stopOverAllowance(declared(), [listed("0000c003")])).toEqual([
+				`stopped overflow session Overflow · job 0000c003 (0000c003) on ${seatDir}: spent $50.00 of its $50.00 allowance`,
+			]);
+			expect(readStops()).toEqual([`${seatDir} stop 0000c003`]);
+		});
+
+		it("counts a parent whose transcript is gone at its ledger row", () => {
+			const parent = recordLaunch("0000c001");
+			appendTranscript(parent, buildModelTurn(5_000_000, "r1"));
+			writeSubagent(parent, buildModelTurn(5_000_000, "rs"));
+			const copy = recordLaunch("0000c002", { copyOf: parent });
+			appendTranscript(copy, buildModelTurn(5_000_000, "r1"));
+			expect(stopOverAllowance(declared(), [listed("0000c002")])).toEqual([]);
+			fs.rmSync(transcriptOf(parent));
+			fs.rmSync(path.dirname(path.dirname(subagentOf(parent))), {
+				recursive: true,
+			});
+			appendTranscript(copy, buildModelTurn(3_000_000, "r2"));
+			expect(stopOverAllowance(declared(), [listed("0000c002")])).toEqual([
+				`stopped overflow session Overflow · job 0000c002 (0000c002) on ${seatDir}: spent $72.00 of its $50.00 allowance`,
+			]);
+		});
+
+		it("caps a chain once, so a copy that carries a reply to a capped session runs uncapped", () => {
+			const parent = recordLaunch("0000c001");
+			appendTranscript(parent, buildModelTurn(15_000_000, "r1"));
+			stopOverAllowance(declared(), [listed("0000c001")]);
+			const copy = recordLaunch("0000c002", { copyOf: parent });
+			appendTranscript(
+				copy,
+				buildModelTurn(15_000_000, "r1"),
+				buildModelTurn(1_000_000, "r2"),
+			);
+			expect(stopOverAllowance(declared(), [listed("0000c002")])).toEqual([]);
+			expect(readStops()).toEqual([`${seatDir} stop 0000c001`]);
+		});
+
+		it("counts a request with no id once per file, a residual", () => {
+			const idless = {
+				type: "assistant",
+				message: {
+					model: "claude-opus-5-5",
+					usage: { input_tokens: 5_000_000 },
+				},
+			};
+			const parent = recordLaunch("0000c001");
+			appendTranscript(parent, idless);
+			const copy = recordLaunch("0000c002", { copyOf: parent });
+			appendTranscript(copy, idless, buildModelTurn(3_000_000, "r2"));
+			expect(stopOverAllowance(declared(), [listed("0000c002")])).toEqual([
+				`stopped overflow session Overflow · job 0000c002 (0000c002) on ${seatDir}: spent $52.00 of its $50.00 allowance`,
+			]);
+		});
+
+		it("leaves a copy whose chain is under the allowance", () => {
+			const parent = recordLaunch("0000c001");
+			appendTranscript(parent, buildModelTurn(5_000_000, "r1"));
+			const copy = recordLaunch("0000c002", { copyOf: parent });
+			appendTranscript(
+				copy,
+				buildModelTurn(5_000_000, "r1"),
+				buildModelTurn(3_000_000, "r2"),
+			);
+			expect(stopOverAllowance(declared(), [listed("0000c002")])).toEqual([]);
+		});
 	});
 
 	it("judges none whose launch records no allowance", () => {

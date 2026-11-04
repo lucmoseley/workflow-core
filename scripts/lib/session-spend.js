@@ -192,6 +192,9 @@ function fileSpend(file, { window, prices = PRICES } = {}) {
 	return spendOf(readFileRequests(file, window).values(), prices);
 }
 
+/* The key prefix of a request its transcript gives no id. */
+const NO_REQUEST_ID = "__norid__";
+
 /**
  * One transcript file's requests, each deduped to its fullest usage; empty
  * where the file cannot be read.
@@ -213,7 +216,7 @@ function readFileRequests(file, window) {
 	for (const row of rows) {
 		const r = usageRecordOf(row, window);
 		if (r === null) continue;
-		const rid = r.requestId || `__norid__${n++}`;
+		const rid = r.requestId || `${NO_REQUEST_ID}${n++}`;
 		const cur = mergeRequest(best, rid, flatUsage(r.message.usage));
 		cur.model = r.message.model || cur.model;
 		if (Number.isNaN(cur.atMs ?? Number.NaN))
@@ -289,6 +292,26 @@ const fileCostUsd = (file) => fileSpend(file).usd;
  */
 function sessionSpendUsd(mainFile) {
 	return readSessionFiles(mainFile).reduce((t, f) => t + fileCostUsd(f), 0);
+}
+
+/**
+ * The cost so far of sessions that share requests, each request once: a
+ * `--bg --resume` copy repeats its parent's main-thread requests up to the
+ * fork under the parent's request ids (#4195). Residual: a request with no
+ * id is keyed per file, so one a copy repeats counts twice.
+ * @param {string[]} mainFiles
+ * @returns {number}
+ */
+function readChainSpendUsd(mainFiles) {
+	/** @type {Map<string, RequestUsage>} */
+	const best = new Map();
+	for (const f of mainFiles.flatMap(readSessionFiles))
+		for (const [rid, req] of readFileRequests(f)) {
+			const key = rid.startsWith(NO_REQUEST_ID) ? `${f}\0${rid}` : rid;
+			const cur = mergeRequest(best, key, req.usage);
+			cur.model = req.model || cur.model;
+		}
+	return spendOf(best.values(), PRICES).usd;
 }
 
 /** @typedef {{ atMs: number, usd: number }} SpendEvent */
@@ -508,6 +531,7 @@ module.exports = {
 	pricedTokens,
 	writesByTtl,
 	sessionSpendUsd,
+	readChainSpendUsd,
 	readSessionFiles,
 	readSessionSpendEvents,
 	sessionTokens,

@@ -931,7 +931,8 @@ function movePasses({ root }, from, to) {
 
 /**
  * Mark an overflow session's copy overflow in the dispatch ledger, the only such
- * mark a parking session can read (#4147). No issues, so the row holds nothing:
+ * mark a parking session can read (#4147), naming the session it copies so the
+ * cap prices the two together (#4195). No issues, so the row holds nothing:
  * the first job keeps the ledger hold. Fails open, logged: unmarked, the copy's
  * own park reads as a plan seat's.
  * @param {{root: string, keyVar: string}} on
@@ -956,7 +957,12 @@ function recordOverflowCopy({ root, keyVar }, from, { jobId, sessionId }) {
 			prompt: `copy of ${from}`,
 			root,
 			jobId,
-			overflow: { keyVar, allowanceUsd: first.allowanceUsd, sessionId },
+			overflow: {
+				keyVar,
+				allowanceUsd: first.allowanceUsd,
+				sessionId,
+				copyOf: from,
+			},
 		});
 		if (!written) log(failure);
 	} catch (e) {

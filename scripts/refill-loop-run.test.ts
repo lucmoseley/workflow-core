@@ -2066,6 +2066,7 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 			keyVar: "K2",
 			allowanceUsd: 50,
 			sessionId: "s-copy",
+			copyOf: "s-job7",
 		});
 	});
 
