@@ -374,10 +374,11 @@ runCheck({
 			[runs.length === 0 ? 1 : 0, "whole suite with no green run"],
 		];
 		const counted = parts.filter(([n]) => n > 0);
+		const [only] = counted;
 		return {
 			noun:
-				counted.length === 1
-					? counted[0][1]
+				counted.length === 1 && only
+					? only[1]
 					: `finding(s): ${counted.map(([n, noun]) => `${n} ${noun}`).join(", ")}`,
 			count: counted.reduce((sum, [n]) => sum + n, 0),
 			data: { breaches: records, slowFiles, unjudged },
