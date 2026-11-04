@@ -261,25 +261,31 @@ describe("a seat's identity as one value (#4218)", () => {
 	const plan = { seat: "/h/.claude2" };
 	const overflow = { seat: "/h/.claude2", keyVar: "K2" };
 	it.each([
-		["a plan seat and itself", plan, { seat: "/h/.claude2" }, true],
-		["an overflow seat and itself", overflow, { ...overflow }, true],
+		["a plan seat and itself", plan, { seat: "/h/.claude2" }, "one seat"],
+		["an overflow seat and itself", overflow, { ...overflow }, "one seat"],
 		[
 			"a plan seat and the overflow seat on its dir (#4147)",
 			plan,
 			overflow,
-			false,
+			"two seats",
 		],
-		["two keys on one dir", overflow, { ...overflow, keyVar: "K3" }, false],
+		[
+			"two keys on one dir",
+			overflow,
+			{ ...overflow, keyVar: "K3" },
+			"two seats",
+		],
 		[
 			"one key on two dirs",
 			overflow,
 			{ ...overflow, seat: "/h/.claude3" },
-			false,
+			"two seats",
 		],
-		["two plan seats", plan, { seat: "/h/.claude3" }, false],
-		["an empty key and none", { ...plan, keyVar: "" }, plan, true],
-		["a null key and none", { ...plan, keyVar: null }, plan, true],
-	])("reads %s as one seat: %s", (_case, a, b, same) => {
+		["two plan seats", plan, { seat: "/h/.claude3" }, "two seats"],
+		["an empty key and none", { ...plan, keyVar: "" }, plan, "one seat"],
+		["a null key and none", { ...plan, keyVar: null }, plan, "one seat"],
+	])("reads %s as %s", (_case, a, b, verdict) => {
+		const same = verdict === "one seat";
 		expect(isSameSeat(a, b)).toBe(same);
 		expect(isSameSeat(b, a)).toBe(same);
 	});

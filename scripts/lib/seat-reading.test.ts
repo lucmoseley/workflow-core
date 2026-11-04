@@ -21,12 +21,15 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readAllowance } from "./allowance";
 import { decideTick, FULL, hasRoom } from "./refill-decide.js";
 import { MIN, NOW, seat } from "./refill-loop-fixture";
+import { seatIdOf } from "./refill-seats.js";
 import { runInProcess } from "./run-in-process";
 import {
 	capArgs,
+	capSizer,
 	ceilingsOf,
 	overflowReadings,
 	parseCapFits,
+	readSeat,
 	readSizedSeats,
 	seatReadingOf,
 	seatsDueRead,
@@ -676,8 +679,7 @@ describe("sizeResumeSeats (#3895)", () => {
 	});
 	const due = (name: string, keyVar?: string) => ({
 		jobId: `on-${name}`,
-		seat: name,
-		...(keyVar ? { keyVar } : {}),
+		...seatIdOf({ seat: name, keyVar }),
 		root: "wfc",
 		at: NOW,
 		line: "held",
@@ -825,5 +827,32 @@ describe("a spent key anchored to a Console reading", () => {
 			() => budget({ readAt: 1, creditUsd: 2, settledUsd: 0 }) as never,
 		);
 		expect(reading.spentUntil).toBe("a newer Console reading");
+	});
+});
+
+describe("the reads both callers share (#4218)", () => {
+	let dir: string;
+	beforeEach(() => {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "seat-read-"));
+	});
+	afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+	it("reads a seat's bars and its reading off them, the cache alone with no printed /usage", () => {
+		const now = Date.now();
+		fs.writeFileSync(
+			path.join(dir, ".claude.json"),
+			JSON.stringify(buildUsageCache({ session: 10, week: 40 }, now)),
+		);
+		const { bars, reading } = readSeat(dir, now);
+		expect(bars).toEqual(readAllowance({ configDir: dir, now }));
+		expect(reading).toMatchObject({ seat: dir, week: 40, session: 10 });
+	});
+
+	it("hands the caller's note a cap it cannot size, as a fault, and sizes it null", () => {
+		const lines: string[] = [];
+		expect(capSizer(undefined, (l) => lines.push(l))(dir, 1)).toBeNull();
+		expect(lines).toEqual([
+			`fault: cap on ${dir} unsized: the loop serves no checkout to size it in`,
+		]);
 	});
 });

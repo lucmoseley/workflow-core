@@ -1,13 +1,13 @@
 // @vitest-environment node
 /*
  * The refill loop's pure readings (#2012) and the repos a tick serves
- * (#2123). No fixture
- * touches disk but the reads of dispatch-sessions.sh that pin the loop's copies
- * of its cap thresholds and cap-call flags to the script's, and the acts
- * ledgers the progress cases write in arbiter-testkit's sandbox.
+ * (#2123); a seat's reading and sizing are seat-reading.test.ts's. No fixture
+ * touches disk but the read of dispatch-sessions.sh that pins the free-slot
+ * count's admission flags to the script's, and the acts ledgers the progress
+ * cases write in arbiter-testkit's sandbox.
  *
  * Loosen one and a working session can be judged finished and stop the run
- * for no progress, failover leave its order, a stop written mid-tick let the rest
+ * for no progress, a stop written mid-tick let the rest
  * of the tick's picks launch or one written during the review go unrecorded,
  * or a launch be judged without the session id its listing gave, or by
  * anything but what its own session did, or a job that never started stay
