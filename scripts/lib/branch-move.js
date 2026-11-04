@@ -58,6 +58,9 @@
  *  - A branch move reached through a wrapper is not seen — `xargs`, `env`,
  *    `sudo`, `timeout 5 git checkout …`, `sh -c "git checkout …"`
  *    (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/hook-if-bash-matching.md §1).
+ *  - Once the main checkout is cut over (lib/cutover.js), its checkout and
+ *    switch limb stands down: lib/main-checkout-write.js refuses every git
+ *    write there, a branch move among them. The worktree limb stays.
  *  - No override: this binds agent sessions only, and an escape a session can
  *    spell for itself is not a deny (mantahostels#109). `WFC_ALLOW_BRANCH`
  *    escapes the pre-commit block, not this.
@@ -66,6 +69,7 @@
  *    rule was not (mantahostels#1648).
  */
 
+const { readCutOver } = require("./cutover.js");
 const { ruleModule } = require("./rule-gates.js");
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const { parseCommand, unsetText, walkGit } = require("./shell-parse.js");
@@ -97,7 +101,9 @@ const MOVE_FLAGS = [
  *   resolves in the repo at `dir`
  * @property {(p: string) => boolean} exists anything is at `p`, relative to the
  *   hook's own directory where not absolute
- * @typedef {import("./kit-context.js").KitContext & BranchPorts} BranchContext
+ * @typedef {import("./kit-context.js").KitContext & BranchPorts
+ *   & { git: import("./git.js").GitReader }} BranchContext `git` runs in the
+ *   main checkout
  */
 
 /**
@@ -107,13 +113,20 @@ const MOVE_FLAGS = [
  */
 function decide(command, ctx) {
 	const parsed = parseCommand(command);
+	/** @type {boolean | undefined} */
+	let cutOver;
+	const isCutOver = () => {
+		if (cutOver === undefined)
+			cutOver = ctx.moduleOn("landing") && readCutOver(ctx.git) === true;
+		return cutOver;
+	};
 	let ruleSubject = false;
 	/** @type {string | null} */
 	let refusal = null;
 	walkGit(
 		parsed,
 		({ segment, sub, tree, args, emptyVars }) => {
-			if (refusal !== null) return;
+			if (refusal !== null || (sub !== "worktree" && isCutOver())) return;
 			const verdict = judge(sub, tree, args, ctx);
 			if (verdict === "rule") ruleSubject = true;
 			else if (verdict !== "allow")
@@ -129,10 +142,13 @@ function decide(command, ctx) {
 	);
 	if (refusal !== null) return { deny: refusal };
 	if (!ruleSubject) return null;
-	/* With `landing` on, the shared tree's upstream line rides with it (#2409). */
+	/* With `landing` on, the shared tree's upstream line rides with it (#2409),
+	 * until the cutover removes that upstream. */
 	return {
 		injectRules: ["branch-shared-tree", "branch-shared-tree-landing"],
-		skip: [...ruleModule(ctx, "landing", ["branch-shared-tree-landing"])],
+		skip: isCutOver()
+			? ["branch-shared-tree-landing"]
+			: [...ruleModule(ctx, "landing", ["branch-shared-tree-landing"])],
 	};
 }
 

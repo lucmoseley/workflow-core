@@ -252,11 +252,48 @@ it("refuses where main carries a commit of its own, naming it and the way out", 
 	const r = run(main);
 
 	expect(r.status).toBe(1);
-	expect(r.stderr).toContain("main carries 1 commit(s) not on origin/main");
-	expect(r.stderr).toContain("push them to landing");
+	expect(r.stderr).toContain(
+		"main carries 1 commit(s) on neither origin/main nor origin/landing",
+	);
+	expect(r.stderr).toContain("land them from a session worktree");
 	expect(r.stderr).toContain(own.slice(0, 9));
 	expect(git(main, "rev-parse", "HEAD")).toBe(own);
 	expect(installs()).toEqual([]);
+});
+
+it("waits where main's own commits are all on origin/landing, for the lander to take them", () => {
+	commitIn(main, { "local.txt": "mine\n" }, "local only");
+	git(main, "push", "-q", "origin", "HEAD:landing");
+	git(main, "fetch", "-q", "origin");
+
+	const r = run(main);
+
+	expect(r.status).toBe(1);
+	expect(r.stderr).toContain(
+		"waiting: main carries 1 commit(s) not yet on origin/main, all on origin/landing",
+	);
+});
+
+it("refuses a main checkout not yet cut over, its main tracking landing (#4248)", () => {
+	const before = git(main, "rev-parse", "HEAD");
+	landOnMain({ "hook.js": "v2\n" });
+	git(main, "config", "branch.main.merge", "refs/heads/landing");
+
+	const r = run(main);
+
+	expect(r.status).toBe(1);
+	expect(r.stderr).toContain("has not been cut over");
+	expect(r.stderr).toContain("cutover-main-checkout.js");
+	expect(git(main, "rev-parse", "HEAD")).toBe(before);
+	expect(run(main, "--quiet").stderr).toBe("");
+});
+
+it("prints nothing under --quiet where main was already level", () => {
+	const r = run(main, "--quiet");
+	expect(r.status).toBe(0);
+	expect(r.stderr).toBe("");
+	landOnMain({ "hook.js": "v2\n" });
+	expect(run(main, "--quiet").stderr).toContain("main fast-forwarded");
 });
 
 it("refuses where the main checkout is off main", () => {

@@ -71,6 +71,8 @@ beforeEach(() => {
 	worktree = path.join(dir, "wt");
 	elsewhere = path.join(dir, "elsewhere");
 	template.instantiate(dir);
+	/* The shared-tree model: the main checkout not yet cut over (#4248). */
+	git(shared, "config", "branch.main.merge", "refs/heads/landing");
 });
 
 afterEach(() => {

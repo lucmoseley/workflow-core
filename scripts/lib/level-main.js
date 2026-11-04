@@ -8,7 +8,8 @@
  * local commit or a blocking edit is reported, never moved or discarded,
  * because under the worktree model nothing should be written here at all. A
  * failed fetch is reported, and the pass levels against the `origin/main` last
- * fetched.
+ * fetched. A main checkout not yet cut over (lib/cutover.js) is refused, never
+ * moved: a session may still be writing there.
  *
  * A REFUSAL NAMES EACH BLOCKING FILE — a tracked edit, staged or not, or an
  * untracked file, at a path the fast-forward changes or at a directory above
@@ -37,6 +38,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
 const { execGit, gitCommonDirOrThrow, GIT_TIMEOUT_MS } = require("./git.js");
+const { isCutOver } = require("./cutover.js");
 const { pidLock } = require("./pid-lock.js");
 
 const BRANCH = "main";
@@ -62,7 +64,8 @@ const SHORT_SHA = 9;
  *   | { status: "level", head: string }
  *   | { status: "forwarded", from: string, head: string }
  *   | { status: "off-branch", branch: string | null }
- *   | { status: "ahead", local: string[] }
+ *   | { status: "shared" }
+ *   | { status: "ahead", local: string[], unlanded: string[] }
  *   | { status: "blocked", from: string, to: string, blockers: Blocker[] }
  *   | { status: "refused", from: string, to: string, why: string }
  * )} Moved
@@ -160,6 +163,18 @@ function readBlocker(root, rel, now, lastWriter) {
 	}
 	return { path: rel, ageMs, writer: lastWriter(rel) };
 }
+
+/**
+ * Every edited path in `root`, sorted, each with its age and last writer.
+ * @param {string} root
+ * @param {number} now
+ * @param {LastWriter} lastWriter
+ * @returns {Blocker[]}
+ */
+const readDirt = (root, now, lastWriter) =>
+	[...readEditedPaths(root)]
+		.sort()
+		.map((p) => readBlocker(root, p, now, lastWriter));
 
 /**
  * The blob id of `name` at `HEAD`, or null where `HEAD` has none.
@@ -290,6 +305,28 @@ function installIfStale(root, work, install) {
 }
 
 /**
+ * Which of `local` the last-fetched `origin/landing` lacks: all of them where
+ * there is none.
+ * @param {string} root
+ * @param {string[]} local
+ * @returns {string[]}
+ */
+function readUnlanded(root, local) {
+	try {
+		git(
+			["rev-parse", "--verify", "--quiet", "refs/remotes/origin/landing"],
+			root,
+		);
+	} catch (err) {
+		if (caught(err).status !== 1) throw err;
+		return local;
+	}
+	return git(["rev-list", "--reverse", "origin/landing..HEAD"], root)
+		.split("\n")
+		.filter(Boolean);
+}
+
+/**
  * The fast-forward half of a pass: what `main` did, no install.
  * @param {string} root the main checkout
  * @param {number} now
@@ -305,13 +342,19 @@ function forward(root, now, lastWriter) {
 		if (caught(err).status !== 1) throw err;
 	}
 	if (branch !== BRANCH) return { status: "off-branch", branch };
+	if (!isCutOver(root)) return { status: "shared" };
 	const from = git(["rev-parse", "HEAD"], root).trim();
 	const to = git(["rev-parse", UPSTREAM], root).trim();
 	if (from === to) return { status: "level", head: from };
 	const local = git(["rev-list", "--reverse", `${UPSTREAM}..HEAD`], root)
 		.split("\n")
 		.filter(Boolean);
-	if (local.length > 0) return { status: "ahead", local };
+	if (local.length > 0)
+		return {
+			status: "ahead",
+			local,
+			unlanded: readUnlanded(root, local),
+		};
 	const changed = parseNulList(
 		git(["diff", "--name-only", "--no-renames", "-z", from, to], root),
 	);
@@ -427,10 +470,17 @@ function renderOutcome(o, now) {
 				`refused: the main checkout is ${o.branch === null ? "on a detached HEAD" : `on ${o.branch}`}, not main, so main was not moved — switch it back to main, ${next}`,
 			);
 			break;
+		case "shared":
+			lines.push(
+				`refused: the main checkout's main still tracks origin/landing, so it has not been cut over to the worktree model and main was not moved — run \`node scripts/cutover-main-checkout.js\`, ${next}`,
+			);
+			break;
 		case "ahead":
 			lines.push(
-				`refused: main carries ${o.local.length} commit(s) not on ${UPSTREAM}, which a fast-forward cannot keep — push them to landing; once the lander takes them, ${UPSTREAM} carries them and the next pass levels main:`,
-				...o.local.map((sha) => `  ${short(sha)}`),
+				o.unlanded.length === 0
+					? `waiting: main carries ${o.local.length} commit(s) not yet on ${UPSTREAM}, all on origin/landing — once the lander takes them, ${next}`
+					: `refused: main carries ${o.unlanded.length} commit(s) on neither ${UPSTREAM} nor origin/landing, which a fast-forward cannot keep — land them from a session worktree; once the lander takes them, ${next}:`,
+				...o.unlanded.map((sha) => `  ${short(sha)}`),
 			);
 			break;
 		case "blocked":
@@ -461,4 +511,4 @@ function renderOutcome(o, now) {
 	return lines;
 }
 
-module.exports = { level, renderOutcome };
+module.exports = { describeAge, level, readDirt, renderOutcome };

@@ -227,6 +227,22 @@ function superviseLanding(roots) {
 }
 
 /**
+ * Start a levelling pass over each checkout's main checkout
+ * (scripts/level-main.js, #4248), detached: an `npm ci` in it may outlast a
+ * tick. Its pid lock turns away a pass started while one runs.
+ * @param {string[]} roots
+ */
+function levelCheckouts(roots) {
+	for (const root of roots)
+		if (hasConfig(root))
+			startDetached(
+				`levelling ${root}`,
+				[path.join(SCRIPTS, "level-main.js"), "--quiet"],
+				root,
+			);
+}
+
+/**
  * Run one of the machine incident filers on the review checkout's tracker: the
  * incidents are the machine's, so one checkout files them. Logged only where it
  * filed or failed. Earlyoom kills (scripts/file-memory-kill-tickets.js, #3094);
@@ -419,20 +435,21 @@ function runReview(lastRunOn, now) {
 }
 
 /**
- * Run a script of this directory detached in REVIEW_ROOT, its stderr the loop's
+ * Run a script of this directory detached in `root`, its stderr the loop's
  * log. Fails open (#3765): a failed start is logged and the next tick decides
  * again. A stop leaves a started run to finish.
  * @param {string} label
  * @param {string[]} args the script and its arguments
+ * @param {string} [root]
  */
-function startDetached(label, args) {
+function startDetached(label, args, root = REVIEW_ROOT) {
 	/** @param {unknown} err */
 	const notStarted = (err) =>
 		log(`${label}: not started (${buildErrorText(err)})`);
 	try {
 		const child = spawn(process.execPath, args, {
-			cwd: REVIEW_ROOT,
-			env: buildCheckoutEnv(REVIEW_ROOT),
+			cwd: root,
+			env: buildCheckoutEnv(root),
 			detached: true,
 			stdio: ["ignore", "ignore", "inherit"],
 		});
@@ -1414,6 +1431,7 @@ const blockIo = (served) => ({
 function tendCheckouts(served, launches, now) {
 	const roots = loop.landingRoots(served, launches);
 	superviseLanding(roots);
+	levelCheckouts(roots);
 	fileMachineTickets("file-memory-kill-tickets.js", "memory kills");
 	fileMachineTickets("file-process-runaway-tickets.js", "process runaways");
 	return tendHolds(roots, served, now, log);

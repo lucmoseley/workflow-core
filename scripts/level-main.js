@@ -4,9 +4,12 @@
  * `main` fast-forwarded to `origin/main`, and `node_modules` rebuilt where the
  * lockfile changed. The pass itself is lib/level-main.js.
  *
- *   node scripts/level-main.js
+ *   node scripts/level-main.js [--quiet]
  *     levels the main checkout of the repository the current directory is in,
- *     from it or from any linked worktree of it
+ *     from it or from any linked worktree of it; `--quiet` prints nothing
+ *     where main was already level, another pass held the lock or the
+ *     checkout is not yet cut over (lib/cutover.js), and nothing failed —
+ *     the refill loop's tick and the lander run it so
  *
  * In no family (§N3): it moves a branch and rebuilds a tree, so it is no
  * `check-*` gate, and it files nothing.
@@ -23,7 +26,11 @@ const { mainCheckout } = require("./lib/main-checkout.js");
 const store = require("./lib/arbiter-store");
 const { writeFd } = require("./lib/write-fd.js");
 
-const CLI = { usage: "usage: node scripts/level-main.js" };
+/** @type {import("./lib/cli-args.js").CliSpec} */
+const CLI = {
+	usage: "usage: node scripts/level-main.js [--quiet]",
+	flags: { "--quiet": "boolean" },
+};
 
 /**
  * @param {string[]} [argv]
@@ -44,11 +51,17 @@ function main(argv = process.argv.slice(2)) {
 			lastWriter: (rel) => store.readLastWriterOf(rel, root),
 			now: at,
 		});
-		writeFd(2, `${renderOutcome(outcome, at).join("\n")}\n`);
 		const moved = outcome.status === "level" || outcome.status === "forwarded";
-		return moved && outcome.fetchError === null && !outcome.install.error
-			? 0
-			: 1;
+		const clean =
+			moved && outcome.fetchError === null && !outcome.install.error;
+		const quiet =
+			parsed.flags["--quiet"] === true &&
+			outcome.fetchError === null &&
+			!outcome.install.error &&
+			!outcome.install.installed &&
+			["level", "busy", "shared"].includes(outcome.status);
+		if (!quiet) writeFd(2, `${renderOutcome(outcome, at).join("\n")}\n`);
+		return clean ? 0 : 1;
 	} catch (err) {
 		writeFd(2, `level main: failed: ${caught(err).message.trim()}\n`);
 		return 1;

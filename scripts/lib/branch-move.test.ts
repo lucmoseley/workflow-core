@@ -53,6 +53,8 @@ interface Over {
 	files?: string[];
 	tree?: ReturnType<typeof fakeTreeClassifier>;
 	ruleText?: (id: string) => string;
+	/** `main`'s upstream; the shared-tree model's `landing` unless given. */
+	upstream?: string;
 }
 
 const LAYOUT = { [SHARED]: "shared", [LINKED]: "linked" } as const;
@@ -73,6 +75,7 @@ function harness(over: Over = {}) {
 		exists: (p: string) =>
 			(over.files ?? [`${SHARED}/a.md`, `${SHARED}/file.txt`]).includes(p),
 		ruleText: over.ruleText ?? readRuleText,
+		git: () => ({ ok: true, out: over.upstream ?? "refs/heads/landing\n" }),
 	});
 	return { ctx, logs };
 }
@@ -303,6 +306,26 @@ describe("the relocated rule reaches the session that trips the guard", () => {
  * on the sanctioned command, which a refusal can never reach. An injection is
  * not a refusal: each case asserts there is no deny.
  */
+describe("once the main checkout is cut over (#4248)", () => {
+	const cut = { modules: ["landing"], upstream: "" };
+
+	it("leaves a branch move to the main-checkout write refusal", () => {
+		expect(run("git checkout -b fresh", cut)).toBeNull();
+		expect(run("git switch other", cut)).toBeNull();
+	});
+
+	it("still refuses a worktree with neither a branch nor a detached HEAD", () => {
+		expect(reason("git worktree add ../x", cut)).toContain(WORKTREE);
+	});
+
+	it("no longer hands the origin/landing upstream line", () => {
+		expect(run("git worktree add --detach ../x", cut)).toEqual({
+			injectRules: ["branch-shared-tree", "branch-shared-tree-landing"],
+			skip: ["branch-shared-tree-landing"],
+		});
+	});
+});
+
 describe("the rule reaches a session BEFORE it trips the guard (mantahostels#1647)", () => {
 	it.each([
 		[

@@ -153,6 +153,13 @@
 			"host": "branch-publish-host.js"
 		},
 		{
+			"name": "guard-main-checkout-write",
+			"core": "main-checkout-write.js",
+			"tools": "Bash|Write|Edit|NotebookEdit",
+			"failure": "closed",
+			"tree": "both"
+		},
+		{
 			"name": "guard-branch",
 			"core": "branch-move.js",
 			"tools": "Bash",

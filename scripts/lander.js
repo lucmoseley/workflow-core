@@ -18,7 +18,9 @@
  * no verdict.
  *
  * After each move of `main` it adopts the new tip as the code this repo's
- * guard hooks run, where its guards load (lib/guard-code.js, #4227).
+ * guard hooks run, where its guards load (lib/guard-code.js, #4227), and
+ * starts a levelling pass over the main checkout (scripts/level-main.js,
+ * #4248), detached, since an `npm ci` in it may outlast the next landing.
  *
  * Does nothing where the `landing` module is off. Joins no §N3 family: it
  * gates nothing and is no hook.
@@ -29,6 +31,7 @@
  */
 
 const { spawn } = require("node:child_process");
+const path = require("node:path");
 const { spawnGitSync } = require("./lib/git.js");
 const { parseErrorText } = require("./lib/caught.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
@@ -185,6 +188,28 @@ function liveFiler(root) {
 	};
 }
 
+/**
+ * The levelling pass, header. A failed start is said, and the next move or
+ * refill-loop tick starts another.
+ * @param {string} root
+ */
+function startLevelling(root) {
+	/** @param {unknown} err */
+	const notStarted = (err) =>
+		say(`levelling not started: ${parseErrorText(err)}`);
+	try {
+		const child = spawn(
+			process.execPath,
+			[path.join(__dirname, "level-main.js"), "--quiet"],
+			{ cwd: root, detached: true, stdio: ["ignore", "ignore", "inherit"] },
+		);
+		child.on("error", notStarted);
+		child.unref();
+	} catch (err) {
+		notStarted(err);
+	}
+}
+
 /** @param {string[]} [argv] @returns {Promise<number>} */
 async function main(argv = process.argv.slice(2)) {
 	const parsed = parseOrCode(argv, CLI);
@@ -220,6 +245,7 @@ async function main(argv = process.argv.slice(2)) {
 		mainMoved: () => {
 			const adoption = adoptGuardCodeAt(root, { fetch: false });
 			if (adoption) say(adoptionLine(adoption));
+			startLevelling(root);
 		},
 	});
 	return 0;

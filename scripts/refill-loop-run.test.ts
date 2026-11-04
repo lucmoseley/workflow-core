@@ -209,6 +209,10 @@ process.stdout.write(JSON.stringify({ ...${JSON.stringify(ADMISSION_VERDICT)}, s
 process.stdout.write("started the lander");\n`,
 	);
 	stub(
+		"level-main.js",
+		`require("node:fs").appendFileSync(${JSON.stringify(at("levelled"))}, process.cwd() + " " + process.argv.slice(2).join(" ") + "\\n");\n`,
+	);
+	stub(
 		"pick-next.js",
 		`process.stdout.write(JSON.stringify({
 	frontier: [{ number: 5, urgent: false, goal: false, stallDays: 0, asksQuestions: false, reach: 0, collision: "", takes: ["implement"], labels: [] }],
@@ -375,6 +379,14 @@ describe("run (#2435)", () => {
 		expect(r.status).toBe(0);
 		// The tick supervised the served repo's landing queue, in it (#2692).
 		expect(readLines(at("supervised"))).toEqual([fs.realpathSync(repo)]);
+		// And started a levelling pass over its main checkout, in it (#4248).
+		await polled(
+			() => readLines(at("levelled")).length > 0,
+			"no levelling pass started",
+		);
+		expect(readLines(at("levelled"))).toEqual([
+			`${fs.realpathSync(repo)} --quiet`,
+		]);
 		expect(r.stdout).toContain(
 			`landing in ${repo}: exit 0\n  started the lander`,
 		);
