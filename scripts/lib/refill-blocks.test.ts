@@ -673,7 +673,9 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 			]);
 			expect(r.out?.idleResumes).toEqual({ tries: 1, triedAt: NOW });
 		}
-		expect(idle(record(), 4.9, { agents: listed }).calls).toEqual([]);
+		const early = idle(record(), 4.9, { agents: listed });
+		expect(early.calls).toEqual([]);
+		expect(early.out).not.toHaveProperty("idleResumes");
 	});
 
 	it("types once more into one still idle 5 min after its first typed resume, never stopping it", () => {
@@ -681,6 +683,7 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 		const r = idle(typed(1, 5), 30, { agents: listed });
 		expect(r.calls[0]).toBe("type job42");
 		expect(r.calls).not.toContain("stop job42");
+		expect(r.calls).not.toContain("hand-off job42");
 		expect(r.out?.idleResumes).toEqual({ tries: 2, triedAt: NOW });
 	});
 
@@ -783,9 +786,11 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 
 	it("types off an unread listing but never stops off one", () => {
 		expect(idle(record(), 5, { agents: null }).calls[0]).toBe("type job42");
-		expect(idle(typed(2, 5), 30, { agents: null }).calls).toEqual([
+		const unread = idle(typed(2, 5), 30, { agents: null });
+		expect(unread.calls).toEqual([
 			"log not handing off design-vault /implement 42: the listing is unread",
 		]);
+		expect(unread.out?.finishedAt).toBeNull();
 	});
 
 	it("counts a resume it could not type, so the hand-off still follows", () => {
@@ -844,6 +849,28 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 		const r = idle(record({ handOffTries: 1 }), 30, { agents: listed });
 		expect(r.calls[0]).toBe("hand-off job42");
 		expect(r.out).toMatchObject({ finishedAt: NOW, handedOff: NOW });
+	});
+
+	it("keeps a failed hand-off owed and its ledger hold, and gives up at the third, the hold kept (#2744)", () => {
+		const failing: Partial<BlockIo> = {
+			postHandOff: () => ({ failed: "exit 1", out: "" }),
+			release: (l) => {
+				throw new Error(`released ${l.jobId}`);
+			},
+		};
+		const first = idle(typed(2, 5), 30, { agents: listed, io: failing });
+		expect(first.calls[0]).toBe("stop job42");
+		expect(first.out).toMatchObject({ finishedAt: null, handOffTries: 1 });
+		const last = idle(record({ handOffTries: 2 }), 30, {
+			agents: listed,
+			io: failing,
+		});
+		expect(last.calls).not.toContain("stop job42");
+		expect(logs(last.calls).at(-1)).toBe(
+			"gave up handing off design-vault /implement 42 after 3 tries",
+		);
+		expect(last.out).toMatchObject({ finishedAt: NOW, handedOff: NOW });
+		expect(last.out).not.toHaveProperty("handOffTries");
 	});
 
 	describe("under the swap hold (#3093)", () => {

@@ -2269,6 +2269,10 @@ describe("a resume the tick's step left held (#3855)", () => {
 	const settle = (
 		resumed: typeof startedAsCopy | typeof refused,
 		lateStop = false,
+		{
+			resumable = [due],
+			capHeld,
+		}: { resumable?: (typeof due)[]; capHeld?: (typeof due)[] } = {},
 	) => {
 		const lines: string[] = [];
 		const launched: unknown[] = [];
@@ -2287,7 +2291,7 @@ describe("a resume the tick's step left held (#3855)", () => {
 					seats: [],
 					overflow: [],
 					history: [],
-					resumable: [due],
+					resumable,
 				},
 				decision: {
 					launches: [launch],
@@ -2295,6 +2299,7 @@ describe("a resume the tick's step left held (#3855)", () => {
 					idle: null,
 					held: [],
 					resumes: [due],
+					...(capHeld ? { capHeld } : {}),
 				},
 				state: loopStateOf(null),
 				judged: [heldLaunch],
@@ -2336,6 +2341,20 @@ describe("a resume the tick's step left held (#3855)", () => {
 
 	it("launches behind one that started", () => {
 		expect(settle(startedAsCopy).launched).toEqual([launch]);
+	});
+
+	it("counts the resumes started of all due, and names each its seat's cap held (#3895, #3911)", () => {
+		const seat2 = path.join(process.env.HOME || os.homedir(), "seat2");
+		const onSeat2 = { ...due, jobId: "j2", seat: seat2, line: "j2 held" };
+		const third = { ...due, jobId: "j3", line: "j3 held" };
+		const { lines } = settle(startedAsCopy, false, {
+			resumable: [due, onSeat2, third],
+			capHeld: [onSeat2],
+		});
+		expect(lines).toContain(
+			"not resuming j2 held, for a later tick: the cap on ~/seat2 has no fit left",
+		);
+		expect(lines.join("\n")).toMatch(/resumed 1 of 3 due/);
 	});
 
 	it("names on a late stop only what it left held", () => {
