@@ -21,9 +21,15 @@
  * A WHOLE SUITE IS `scope.full` SET AND EVERY MODULE RUN (`isFullRun`); A
  * SHARD IS `scope.full` SET, NARROWED BY NOTHING ELSE (`isUnnarrowedScope`).
  *
+ * A RED RUN'S SLOWEST FILES TOO (#4291), any scope, since the earliest
+ * green run judged: a red suite has no green run to show them.
+ * Residual: a red run narrowed to a few files under load can name a file
+ * that a whole run times under the target, and a slow file seen only in
+ * green part-suites is never named.
+ *
  * WARN-ONLY, ALWAYS (#1797).
  *
- * IMPLICIT:  on `npm run status` (scripts/status-report.js), says when the latest green whole vitest suite, or any of its latest green shards, took the target scripts/lib/suite-ceiling.js sets or longer, or was killed at the ceiling since, with its sha, machine reading and slowest files, and names a shard with no run to judge. It refuses nothing.
+ * IMPLICIT:  on `npm run status` (scripts/status-report.js), says when the latest green whole vitest suite, or any of its latest green shards, took the target scripts/lib/suite-ceiling.js sets or longer, or was killed at the ceiling since, with its sha, machine reading and slowest files; names a file at the target in a red run since, with its sha; and names a suite or shard with no run to judge. It refuses nothing.
  * JUSTIFIED: fail-safe — a suite over its target is otherwise silent until a push gate is killed at the ceiling.
  * DEFEAT:    convenience — --store and --fail-store read other marker files on a hand run.
  */
@@ -156,6 +162,38 @@ function latestRuns(markers, failures) {
 	return { runs, unjudged };
 }
 
+/** @typedef {{file: string, seconds: number, sha: string, at: string|null}} SlowRedFile */
+
+/**
+ * Each file at or over the target in a red run newer than `since`, or in any
+ * red run, undated included, where `since` is null; at its newest reading.
+ * @param {Marker[]} failures
+ * @param {string|null} since
+ * @returns {SlowRedFile[]}
+ */
+function slowRedFiles(failures, since) {
+	/** @type {Map<string, SlowRedFile>} */
+	const newest = new Map();
+	const reds = failures
+		.filter(
+			(m) =>
+				suiteOf(m) === DEFAULT_SUITE &&
+				(since === null || (m.at ?? "") > since),
+		)
+		.sort(byAt);
+	for (const m of reds)
+		for (const s of m.slowest ?? [])
+			newest.set(s.file, {
+				file: s.file,
+				seconds: s.seconds,
+				sha: m.sha,
+				at: m.at ?? null,
+			});
+	return [...newest.values()]
+		.filter((f) => f.seconds * 1000 >= TARGET_MS)
+		.sort((a, b) => b.seconds - a.seconds);
+}
+
 /** @param {Marker} m */
 const subjectOf = (m) => {
 	const shard = shardOf(m);
@@ -234,6 +272,56 @@ function reportBreach(ctx, marker, target) {
 	return record;
 }
 
+/**
+ * Warns on each slot with no run to judge — the whole suite where nothing is
+ * recorded, or each shard. An unjudged slot
+ * may be the one over the target, so it never reads OK.
+ * @param {import("./lib/check.js").Ctx} ctx
+ * @param {boolean} noRun
+ * @param {string[]} shards
+ * @returns {string[]}
+ */
+function warnUnjudged(ctx, noRun, shards) {
+	/** @param {string[]} slots */
+	const shardText = (slots) =>
+		`No green run of shard ${slots.join(", ")} is recorded, so it is unjudged: run it with \`npm run test -- --full=other --shard=<k/n>\`, or wait for the lander's next shard runs.`;
+	const lines = [];
+	if (noRun) {
+		const text =
+			"No green whole vitest suite is recorded, so the margin is unjudged: run one with `npm run test -- --full=other --queue`, or wait for the lander's next run.";
+		ctx.warn("SUITE-MARGIN-UNJUDGED", text, {}, "SUITE-MARGIN-UNJUDGED");
+		lines.push(text);
+	}
+	for (const slot of shards)
+		ctx.warn(
+			"SUITE-MARGIN-UNJUDGED",
+			shardText([slot]),
+			{ shard: slot },
+			`SUITE-MARGIN-UNJUDGED\t${slot}`,
+		);
+	if (shards.length > 0) lines.push(shardText(shards));
+	return lines;
+}
+
+/**
+ * Warns on one red-run file at or over the target.
+ * @param {import("./lib/check.js").Ctx} ctx
+ * @param {SlowRedFile} f
+ * @param {string} target
+ */
+function reportSlowFile(ctx, f, target) {
+	const took = `${f.file} took ${f.seconds.toFixed(1)} s in a red run at ${shortSha(f.sha)}`;
+	ctx.warn(
+		"SUITE-MARGIN-SLOW-FILE",
+		`${took}, at or over ${target}.`,
+		f,
+		`SUITE-MARGIN-SLOW-FILE\t${f.file}`,
+	);
+	ctx.say(
+		`SUITE-MARGIN — ${took} (${f.at ?? "undated"}): at or over the ${secs(TARGET_MS)} target on its own.`,
+	);
+}
+
 runCheck({
 	name: "suite-margin",
 	usage:
@@ -246,47 +334,53 @@ runCheck({
 		const failures = failStore ? readStoreFile(failStore) : readFailures();
 		const { runs, unjudged } = latestRuns(markers, failures);
 		const target = `the ${secs(TARGET_MS)} target (the ${secs(CEILING_MS)} ceiling is the backstop)`;
-		if (runs.length === 0)
-			return { okLine: "no green whole vitest suite is recorded." };
-		/* An unjudged shard may be the one over the target, so it never reads
-		 * OK. */
-		/** @param {string[]} slots */
-		const buildUnjudgedText = (slots) =>
-			`No green run of shard ${slots.join(", ")} is recorded, so it is unjudged: run it with \`npm run test -- --full=other --shard=<k/n>\`, or wait for the lander's next shard runs.`;
-		const unjudgedLine = buildUnjudgedText(unjudged);
-		for (const slot of unjudged)
-			ctx.warn(
-				"SUITE-MARGIN-UNJUDGED",
-				buildUnjudgedText([slot]),
-				{ shard: slot },
-				`SUITE-MARGIN-UNJUDGED\t${slot}`,
+		/* The earliest judged green run: a shard's green names only its own
+		 * files, so a red between two shards' greens stays in. */
+		const since = runs
+			.filter((m) => !m.ceilingKill)
+			.map((m) => m.at ?? "")
+			.reduce(
+				(at, x) => (at === null || x < at ? x : at),
+				/** @type {string|null} */ (null),
 			);
+		const slowFiles = slowRedFiles(failures, since);
+		const unjudgedLines = warnUnjudged(ctx, runs.length === 0, unjudged);
 
 		const over = runs.filter((m) => m.ceilingKill || m.durationMs >= TARGET_MS);
-		if (over.length === 0) {
-			const inside = `${runs.map((m) => `${subjectOf(m)}, took ${secs(m.durationMs)}`).join("; ")}: inside ${target}.`;
-			if (unjudged.length === 0) return { okLine: inside };
-			ctx.say(inside);
-			ctx.say(unjudgedLine);
-			return {
-				noun: "shard(s) with no green run",
-				count: unjudged.length,
-				data: { unjudged },
-			};
-		}
+		const inside =
+			runs.length > 0 && over.length === 0
+				? `${runs.map((m) => `${subjectOf(m)}, took ${secs(m.durationMs)}`).join("; ")}: inside ${target}.`
+				: null;
+		if (inside && slowFiles.length === 0 && unjudged.length === 0)
+			return { okLine: inside };
 
+		if (inside) ctx.say(inside);
 		const records = over.map((m) => reportBreach(ctx, m, target));
-		if (unjudged.length > 0) ctx.say(unjudgedLine);
-		ctx.say(
-			"  A run past the ceiling is killed and the push gate goes red (#2667). Cut its heavy tail by measured cost (#2729), or raise `fullTestShards` (#2996).",
-		);
+		for (const f of slowFiles) reportSlowFile(ctx, f, target);
+		for (const line of unjudgedLines) ctx.say(line);
+		if (over.length > 0)
+			ctx.say(
+				"  A run past the ceiling is killed and the push gate goes red (#2667). Cut its heavy tail by measured cost (#2729), or raise `fullTestShards` (#2996).",
+			);
+		if (slowFiles.length > 0)
+			ctx.say(
+				"  A file runs whole on one worker, so no shard count brings the suite under it: cut it by measured cost (#2729).",
+			);
+		/** @type {[number, string][]} */
+		const parts = [
+			[over.length, "run(s) over the target"],
+			[slowFiles.length, "red-run file(s) over the target"],
+			[unjudged.length, "shard(s) with no green run"],
+			[runs.length === 0 ? 1 : 0, "whole suite with no green run"],
+		];
+		const counted = parts.filter(([n]) => n > 0);
 		return {
 			noun:
-				unjudged.length === 0
-					? "run(s) over the target"
-					: "run(s) over the target or shard(s) unjudged",
-			count: over.length + unjudged.length,
-			data: { breaches: records, unjudged },
+				counted.length === 1
+					? counted[0][1]
+					: `finding(s): ${counted.map(([n, noun]) => `${n} ${noun}`).join(", ")}`,
+			count: counted.reduce((sum, [n]) => sum + n, 0),
+			data: { breaches: records, slowFiles, unjudged },
 		};
 	},
 });
