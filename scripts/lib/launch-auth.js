@@ -34,7 +34,7 @@
  * the dispatch site.
  *
  *   node scripts/lib/launch-auth.js [--settings <json>]   checks this
- *     process's own launch, for dispatch-sessions.sh, `--settings` being the
+ *     process's own launch, for a shell or spawning caller, `--settings` being the
  *     one the launch passes: exits 0 silent, or 2 printing `REFUSED:` and why.
  */
 

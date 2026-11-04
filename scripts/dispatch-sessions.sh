@@ -216,12 +216,6 @@ ADVISOR_MODEL="${WFC_DISPATCH_ADVISOR:-opus}"
 # neither knows launches as written. The advisor is NOT remapped: it attaches
 # only to a spelling the remap left as Sonnet, which is none of the known ones.
 BURN_LIB="$here/lib/burn-mode.js"
-burn=0
-if BURN_MARKER="$(node "$BURN_LIB" marker 2>/dev/null)"; then
-  [[ -f "$BURN_MARKER" ]] && burn=1
-else
-  printf 'WARNING: burn-mode marker path unresolved — launching as if burn mode were off\n' >&2
-fi
 
 dry_run=0
 force=0
@@ -423,9 +417,12 @@ wants_advisor() {
 refuse_if_interop_wedged
 refuse_if_kernel_unhealthy
 
-# --- seat kind -------------------------------------------------------------
-# The seat this runs under, from the one reader of `~/.claude/refill-seats`
-# (lib/refill-seats.js).
+# --- seat kind, burn mode and launch auth -----------------------------------
+# One node start for three gates (lib/dispatch-gates.js, #4321): the seat this
+# runs under, from the one reader of `~/.claude/refill-seats`; whether burn
+# mode's marker is set; and, on a plan seat, that a `--bg` launch bills the
+# subscription rather than an API key in this shell (#2236). The headless
+# launcher checks an overflow seat's auth itself.
 seat_dir="${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}"
 # Why the launches go on this seat, for the ledger: the refill loop names its
 # pick (lib/refill-batch.js); a direct run takes its caller's own seat (#3732).
@@ -435,11 +432,10 @@ unset WFC_SEAT_REASON
 # The overflow seat the refill loop asked for; unset as the reason is.
 seat_key="${WFC_SEAT_KEY:-}"
 unset WFC_SEAT_KEY
-if ! seat_kind="$(node "$here/lib/refill-seats.js" kind "$seat_dir" ${seat_key:+"$seat_key"} 2>/dev/null)"; then
-  printf 'REFUSED: the seat file refuses (seat %s):\n' "$seat_dir" >&2
-  node "$here/lib/refill-seats.js" kind "$seat_dir" ${seat_key:+"$seat_key"} 2>&1 >/dev/null | sed 's/^/  /' >&2
-  exit 2
-fi
+gates="$(node "$here/lib/dispatch-gates.js" -- "$seat_dir" ${seat_key:+"$seat_key"})" || exit 2
+read -r seat_kind burn_state <<<"$gates"
+burn=0
+[[ "$burn_state" == on ]] && burn=1
 overflow=0
 case "$seat_kind" in
   plan) ;;
@@ -466,13 +462,6 @@ if [[ $overflow -eq 1 ]]; then
         ;;
     esac
   done
-fi
-
-# --- launch auth -------------------------------------------------------------
-# A `--bg` launch must bill the subscription, not an API key in this shell
-# (lib/launch-auth.js, #2236). The headless launcher checks its own.
-if [[ $overflow -eq 0 ]]; then
-  node "$here/lib/launch-auth.js" || exit 2
 fi
 
 # --- duplicate gate --------------------------------------------------------

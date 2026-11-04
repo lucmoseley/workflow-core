@@ -24,8 +24,6 @@ const { caught } = require("./caught.js");
 const { realKey } = require("./deref.js");
 const { configDir, seatDir } = require("./config-dir.js");
 const { homeDir } = require("./refill-repos.js");
-const { scriptPath } = require("./script-path.js");
-const { writeFd } = require("./write-fd.js");
 
 /**
  * @typedef {{dir: string, kind: "plan"}} PlanSeat
@@ -267,31 +265,3 @@ module.exports = {
 	seatOfLaunch,
 	unlistedSeats,
 };
-
-/*
- * CLI mode, for the dispatcher.
- *
- *   kind <config dir> [<key var>]   prints `plan` or `overflow`; 2, each
- *                       malformed line or seatOfLaunch's why on stderr
- */
-if (require.main === module) {
-	const [command, dir, keyVar, ...rest] = process.argv.slice(2);
-	if (command !== "kind" || !dir || rest.length > 0) {
-		writeFd(
-			2,
-			`usage: node ${scriptPath("lib/refill-seats.js")} kind <config dir> [<key var>]\n`,
-		);
-		process.exit(2);
-	}
-	const list = readDeclaredSeats();
-	if (list.errors.length > 0) {
-		for (const e of list.errors) writeFd(2, `${e}\n`);
-		process.exit(2);
-	}
-	const seat = seatOfLaunch(list, { dir, keyVar });
-	if ("why" in seat) {
-		writeFd(2, `${seat.why}\n`);
-		process.exit(2);
-	}
-	writeFd(1, `${seat.kind}\n`);
-}
