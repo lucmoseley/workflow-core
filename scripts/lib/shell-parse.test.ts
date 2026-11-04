@@ -1341,12 +1341,11 @@ interface GitWalkRun {
 	details: string[];
 }
 
-/** Every call a git walk made, judged from `cwd`, the hook's own directory. */
-const walkGitRun = (
+/** Every call a git walk made, its ports as `over` sets them over the defaults. */
+const walkGitWith = (
 	command: string,
-	opts: Partial<GitWalkOpts> = {},
-	cwd = SHARED,
-	vars: Record<string, string> = ENV,
+	opts: Partial<GitWalkOpts>,
+	over: Partial<GitWalkPorts>,
 ): GitWalkRun => {
 	const run: GitWalkRun = { out: "", calls: [], logged: [], details: [] };
 	walkGit(
@@ -1356,12 +1355,13 @@ const walkGitRun = (
 			run.out += `${bracket([call.segment, call.sub, call.tree, ...call.args])}\n`;
 		},
 		{
-			...ports({ fallbackCwd: cwd, vars }),
+			...ports({ fallbackCwd: SHARED, vars: ENV }),
 			treeClass,
 			log: (what, detail) => {
 				run.logged.push(what);
 				run.details.push(detail ?? "");
 			},
+			...over,
 		},
 		{
 			subs: ["checkout", "switch"],
@@ -1372,6 +1372,14 @@ const walkGitRun = (
 	);
 	return run;
 };
+
+/** Every call a git walk made, judged from `cwd`, the hook's own directory. */
+const walkGitRun = (
+	command: string,
+	opts: Partial<GitWalkOpts> = {},
+	cwd = SHARED,
+	vars: Record<string, string> = ENV,
+) => walkGitWith(command, opts, { fallbackCwd: cwd, vars });
 
 const repoWalk = (command: string, cwd?: string) =>
 	walkGitRun(command, { scope: "repo" }, cwd);
@@ -1457,38 +1465,27 @@ describe("walkGit reads an alias wherever git defines one (#4009)", () => {
 	/* `git config -z --get-regexp ^alias\\.`'s output for the tree, as the host
 	 * reads it: `st` and `u` defined, `x.y` the subsection form, `bare` with no
 	 * value. */
-	const File = "alias.st\nstatus -s\0alias.x.y\nlog\0alias.bare\0alias.u\n!x\0";
-	const Unread = "unread alias";
+	const fileAliases =
+		"alias.st\nstatus -s\0alias.x.y\nlog\0alias.bare\0alias.u\n!x\0";
+	const unread = "unread alias";
 
 	/** `[sub, ...args]` of each call, `file` being the config files' aliases
 	 * and `null` where git could not read them, or each tree's. */
 	const subs = (
 		command: string,
-		file: string | null | ((dir: string) => string) = File,
+		file: string | null | ((dir: string) => string) = fileAliases,
 		opts: Partial<GitWalkOpts> = {},
-	) => {
-		const out: string[] = [];
-		walkGit(
-			parseCommand(command),
-			(call) => out.push([call.sub, ...call.args].join(" ")),
+	) =>
+		walkGitWith(
+			command,
+			{ subs: ["checkout", "status", unread], noun: "x", ...opts },
 			{
-				...ports({ fallbackCwd: SHARED, vars: ENV }),
-				treeClass,
-				log: () => undefined,
 				readFileAliases: (dir) =>
 					file === null
 						? null
 						: parseFileAliases(typeof file === "string" ? file : file(dir)),
 			},
-			{
-				subs: ["checkout", "status", Unread],
-				noun: "x",
-				scope: "shared",
-				...opts,
-			},
-		);
-		return out;
-	};
+		).calls.map((c) => [c.sub, ...c.args].join(" "));
 
 	it("reads an alias the config files define (#4009)", () => {
 		expect(subs("git st")).toEqual(["status -s"]);
@@ -1496,10 +1493,10 @@ describe("walkGit reads an alias wherever git defines one (#4009)", () => {
 	});
 
 	it("reads the files' subsection form, a name with no value and a shell alias as unread (#4009)", () => {
-		expect(subs("git x")).toEqual([Unread]);
-		expect(subs("git bare")).toEqual([Unread]);
-		expect(subs("git u")).toEqual([Unread]);
-		expect(subs("git -c 'alias.k=!x' k", "")).toEqual([Unread]);
+		expect(subs("git x")).toEqual([unread]);
+		expect(subs("git bare")).toEqual([unread]);
+		expect(subs("git u")).toEqual([unread]);
+		expect(subs("git -c 'alias.k=!x' k", "")).toEqual([unread]);
 	});
 
 	it("leaves the files' aliases read under a key that is neither an alias nor an include (#4009)", () => {
@@ -1509,12 +1506,12 @@ describe("walkGit reads an alias wherever git defines one (#4009)", () => {
 	});
 
 	it("reads every name as unread under an include or a key it cannot read (#4009)", () => {
-		expect(subs("git -c include.path=/x st")).toEqual([Unread]);
-		expect(subs('git -c "alias.$N=checkout" st')).toEqual([Unread]);
+		expect(subs("git -c include.path=/x st")).toEqual([unread]);
+		expect(subs('git -c "alias.$N=checkout" st')).toEqual([unread]);
 	});
 
 	it("reads a dotted alias name as one that could define any word (#4009)", () => {
-		expect(subs("git -c alias.k.y=checkout k", "")).toEqual([Unread]);
+		expect(subs("git -c alias.k.y=checkout k", "")).toEqual([unread]);
 	});
 
 	it("reads a GIT_CONFIG_KEY_<n> pair below the count, and nothing from another variable (#4009)", () => {
@@ -1527,15 +1524,15 @@ describe("walkGit reads an alias wherever git defines one (#4009)", () => {
 	});
 
 	it("reads the config files of the tree a -C names (#4009)", () => {
-		const own = (dir: string) => (dir === WORKTREE ? File : "");
+		const own = (dir: string) => (dir === WORKTREE ? fileAliases : "");
 		expect(subs(`git -C ${WORKTREE} st`, own, { scope: "repo" })).toEqual([
 			"status -s",
 		]);
 	});
 
 	it("reads every name as unread once a variable naming a config file may have moved (#4009)", () => {
-		expect(subs("HOME=/tmp/h; git st")).toEqual([Unread]);
-		expect(subs('git config --global "$K" v; git st')).toEqual([Unread]);
+		expect(subs("HOME=/tmp/h; git st")).toEqual([unread]);
+		expect(subs('git config --global "$K" v; git st')).toEqual([unread]);
 		expect(subs("echo $HOME; git st")).toEqual(["status -s"]);
 	});
 
@@ -2231,25 +2228,27 @@ describe("the guarded heads stay git and gh (mantahostels#2346)", () => {
 	);
 });
 
+const wordsOf = (command: string) => walkMap(command, (c) => c.words);
+
 /*
  * Cases a differential mutation run over the parser found unpinned (#4134):
  * each input tells the parser apart from a one-token change to it.
  */
 describe("the lexer reads quotes, comments and heredocs as bash does", () => {
-	const words = (command: string) => walkMap(command, (c) => c.words);
-
-	it("comments out a word opening on #, and only to its line's end (#4134)", () => {
-		expect(words("# git checkout x\ngit status")).toEqual([["git", "status"]]);
+	it("comments out a word opening on #, and only to its line's end (#490, #510)", () => {
+		expect(wordsOf("# git checkout x\ngit status")).toEqual([
+			["git", "status"],
+		]);
 		expect(parseCommand('# c\necho "a\\').segments).toEqual(
 			parseCommand('\necho "a\\').segments,
 		);
 	});
 
-	it("closes a single quote on the first character of a later line (#4134)", () => {
+	it("closes a single quote on the first character of a later line (#490, #510)", () => {
 		expect(parseCommand("echo 'a\n' b").spans).toEqual(["'a\n"]);
 	});
 
-	it("reads one unclosed quote as one segment (#4134)", () => {
+	it("reads one unclosed quote as one segment (#490, #510)", () => {
 		expect(parseCommand("'").segments).toEqual(["'"]);
 	});
 
@@ -2257,17 +2256,17 @@ describe("the lexer reads quotes, comments and heredocs as bash does", () => {
 		expect(parseCommand('echo "$(a) b"').spans).toEqual(['"$(a) b']);
 	});
 
-	it("closes a quoted $((…)) at its own brackets (#4134)", () => {
+	it("closes a quoted $((…)) at its own brackets (#490, #510)", () => {
 		expect(parseCommand('echo "$((1 + 2))"').spans).toEqual(['"$((1 + 2))']);
 	});
 
-	it("reads a here-string inside a quoted $(…) as no heredoc (#4134)", () => {
+	it("reads a here-string inside a quoted $(…) as no heredoc (#490, #510)", () => {
 		expect(parseCommand('echo "$(cat <<< x)"').spans).toEqual([
 			'"$(cat <<< x)',
 		]);
 	});
 
-	it("keeps a quoted $(…)'s heredoc body open to its terminator line (#4134)", () => {
+	it("keeps a quoted $(…)'s heredoc body open to its terminator line (#490, #510)", () => {
 		expect(parseCommand('echo "$(cat <<EOF\nx\n"\nEOF\n)"').spans).toEqual([
 			'"$(cat <<EOF\nx\n"\nEOF\n)',
 		]);
@@ -2295,11 +2294,9 @@ describe("the flatten splits brackets, backticks and joins", () => {
 });
 
 describe("commandWords skips what runs ahead of the command", () => {
-	const words = (command: string) => walkMap(command, (c) => c.words);
-
 	it("skips `time`, and `exec`'s flags, `-a` alone taking a value (#1013)", () => {
-		expect(words("time git status")).toEqual([["git", "status"]]);
-		expect(words("exec -c git status")).toEqual([["git", "status"]]);
+		expect(wordsOf("time git status")).toEqual([["git", "status"]]);
+		expect(wordsOf("exec -c git status")).toEqual([["git", "status"]]);
 	});
 
 	it("reads a line opening `exec` as no command in the line join (mantahostels#1818)", () => {
@@ -2370,24 +2367,12 @@ describe("walkGit follows where a cd leaves the command (#4009)", () => {
 		walkGitRun(command, { scope: "repo" }, SHARED, ENV).calls.map(
 			(c) => c.tree,
 		);
-	const sure = (command: string, dirs: string[]) => {
-		const out: string[] = [];
-		walkGit(
-			parseCommand(command),
-			(c) => out.push(c.tree),
-			{
-				...ports({
-					fallbackCwd: SHARED,
-					vars: ENV,
-					isDir: (d) => dirs.includes(d),
-				}),
-				treeClass,
-				log: () => undefined,
-			},
+	const sure = (command: string, dirs: string[]) =>
+		walkGitWith(
+			command,
 			{ subs: ["checkout"], noun: "x", scope: "repo" },
-		);
-		return out;
-	};
+			{ isDir: (d) => dirs.includes(d) },
+		).calls.map((c) => c.tree);
 
 	it("is sure of a cd to a directory that is there, and of no other (#4009)", () => {
 		expect(sure(`cd ${WORKTREE}; git checkout x`, [WORKTREE])).toEqual([
