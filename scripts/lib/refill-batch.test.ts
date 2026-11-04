@@ -678,7 +678,6 @@ describe("the members of a batch a kill cut off (#4180)", () => {
 			{ at: NOW, batch },
 			{
 				entriesOf: () => entries,
-				sessionOf: () => undefined,
 				readActsBefore: () => ({ file: 1 }),
 				recordLaunch: (e) => {
 					recorded.push(e);

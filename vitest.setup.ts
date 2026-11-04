@@ -105,7 +105,7 @@ process.env.CLAUDE_PROJECT_DIR = testHostDir;
 afterAll(() => fs.rmSync(testHostDir, { recursive: true, force: true }));
 
 /*
- * NO TEST READS OR WRITES THE MACHINE'S REFILL FILES (#2608): the loop's
+ * NO TEST READS OR WRITES THE MACHINE'S REFILL FILES: the loop's
  * ledgers, markers and budget records would join every case that reads them.
  * An override, as above, and for the same reason.
  */

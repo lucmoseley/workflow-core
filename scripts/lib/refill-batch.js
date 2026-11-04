@@ -201,7 +201,7 @@ function launchBatch(batch, io) {
  * `missing`, the rest.
  * @param {import("./refill-decide.js").Launch[]} batch one of batchesOf's
  * @param {number} calledAt
- * @param {Pick<Parameters<typeof launchBatch>[1], "entriesOf"|"sessionOf">} io
+ * @param {Pick<Parameters<typeof launchBatch>[1], "entriesOf">} io
  */
 function readLaunched(batch, calledAt, io) {
 	const [first] = batch;
@@ -234,7 +234,6 @@ function readLaunched(batch, calledAt, io) {
 			launchedAt: Date.parse(entry.ts),
 			finishedAt: null,
 			...(l.gate ? { gate: l.gate } : {}),
-
 			...limitParksOf(l),
 		});
 	}
@@ -346,7 +345,7 @@ function buildParkedRecord(l, target, r, { launchedAt, actsBefore }) {
  * made before it.
  * @param {Launching} launching
  * @param {Pick<ResumeIo, "readActsBefore"|"recordLaunch"|"log"> &
- *   Pick<Parameters<typeof launchBatch>[1], "entriesOf"|"sessionOf"> & {
+ *   Pick<Parameters<typeof launchBatch>[1], "entriesOf"> & {
  *   adoptResumed: (l: import("./refill-decide.js").Launch,
  *     target: import("./refill-decide.js").ResumeTarget, since: number) =>
  *     import("./refill-blocks.js").Adopted}} io

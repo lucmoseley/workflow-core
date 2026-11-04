@@ -1077,7 +1077,6 @@ const adoptKilledLaunches = (state, served) =>
 	loop.settleLaunching(state, (launching) => {
 		const launched = refillBatch.adoptLaunching(launching, {
 			entriesOf: (root) => readRecentEntries(root, LEDGER_WINDOW_HOURS).entries,
-			sessionOf: readHeadlessSession,
 			readActsBefore: buildActsBeforeReader(served),
 			recordLaunch,
 			adoptResumed: (l, { seat, sessionId, cwd }, since) =>
