@@ -270,12 +270,15 @@ function readLines(file, what) {
  * harness mints today. A ledger that will not read is passed over: this answers
  * "who last touched it", for a report, never an ownership test (#813).
  * @param {string} rel
+ * @param {string} [root] the host root whose store to read, where the caller
+ *   holds one other than its own
  * @returns {{sessionId: string, at: number}|null}
  */
-function readLastWriterOf(rel) {
+function readLastWriterOf(rel, root) {
+	const dir = core.paths.writesDir(root);
 	let entries;
 	try {
-		entries = fs.readdirSync(core.paths.writesDir());
+		entries = fs.readdirSync(dir);
 	} catch {
 		return null;
 	}
@@ -283,7 +286,7 @@ function readLastWriterOf(rel) {
 	let best = null;
 	for (const name of entries) {
 		if (!name.endsWith(".txt")) continue;
-		const file = path.join(core.paths.writesDir(), name);
+		const file = path.join(dir, name);
 		const lines = readLedger(file, `writes ${name}`);
 		if (!lines?.includes(rel)) continue;
 		let at;

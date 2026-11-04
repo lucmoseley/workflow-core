@@ -45,11 +45,12 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { mainChainRecords, isSubagentTranscript } = require("./transcript");
-/* Not re-exported: `project-slug.js` owns the rule (mantahostels#2009). */
-const { projectSlug } = require("./project-slug.js");
-const { configDir } = require("./config-dir.js");
+const { corpusDirs } = require("./project-dirs.js");
 const { coreRoot } = require("./script-path.js");
 const { readRunningHooks } = require("./core-hooks.js");
+
+/* The wrapper a pinned guard entry runs through (scripts/run-pinned-guards.js). */
+const SHIM = "scripts/run-pinned-guards.js";
 
 /** Attachment types the harness writes when a hook produces output. */
 const HOOK_ATTACHMENTS = new Set([
@@ -106,14 +107,17 @@ function argWords(args) {
  * (mantahostels#2059) moves it there, so a key read off `command` alone collapses two
  * registrations of one script onto one and merges their tallies (mantahostels#2106).
  *
+ * THE GUARD SHIM IS NO GUARD: a hook running an entry through
+ * scripts/run-pinned-guards.js (#4227) keys on the entry it runs.
+ *
  * @param {string} command
  * @param {string[] | string} [args] the entry's `args`, where it is in exec form
  * @returns {string} the key, or "" where no script path can be found
  */
 function guardKey(command, args) {
 	const words = [...String(command || "").split(/\s+/), ...argWords(args)];
-	const at = words.findIndex((w) =>
-		/scripts\/[\w.-]+$/.test(w.replace(/"/g, "")),
+	const at = words.findIndex(
+		(w) => /scripts\/[\w.-]+$/.test(w.replace(/"/g, "")) && !w.endsWith(SHIM),
 	);
 	const word = words[at];
 	if (word === undefined) return "";
@@ -580,21 +584,19 @@ function readRegisteredGuardSubjects(root) {
 }
 
 /**
- * Where this project's retained transcripts live.
- *
- * The root is lib/config-dir.js's `configDir()`; the project directory is
- * `projectSlug`, whose own module owns the spelling.
+ * Where this project's retained transcripts live on this seat: the main
+ * checkout's project directory and each worktree's (`project-dirs.js`'s
+ * `corpusDirs`).
  *
  * `transcript.js` `findTranscript` refuses to reproduce the slugging and
  * looks a session up by id instead; there is no session id here, the subject
  * being a whole corpus. The escape is `--dir`, and a wrong directory reports as
  * unreadable, never as an empty corpus.
  *
- * @param {string} [cwd]
- * @returns {string}
+ * @returns {string[]}
  */
-function transcriptDir(cwd = process.cwd()) {
-	return path.join(configDir(), "projects", projectSlug(cwd));
+function transcriptDirs() {
+	return corpusDirs();
 }
 
 /**
@@ -674,6 +676,26 @@ function readTranscriptFiles(dir) {
 }
 
 /**
+ * `readTranscriptFiles` over several directories, with each one that cannot
+ * be read named in `unreadable`, which a caller must say out loud.
+ *
+ * @param {string[]} dirs
+ * @returns {{ files: TranscriptFile[], unreadable: string[] }}
+ */
+function readTranscriptCorpus(dirs) {
+	/** @type {TranscriptFile[]} */
+	const files = [];
+	/** @type {string[]} */
+	const unreadable = [];
+	for (const dir of dirs) {
+		const found = readTranscriptFiles(dir);
+		if (found === null) unreadable.push(dir);
+		else files.push(...found);
+	}
+	return { files, unreadable };
+}
+
+/**
  * The unit a "sessions" count should dedupe on: one main session's own file
  * is already unique per session, but a subagent's file is one of possibly
  * several dispatched by the SAME session, sharing that session's `sessionId`
@@ -703,7 +725,8 @@ module.exports = {
 	transcriptFires,
 	transcriptMentions,
 	tally,
-	transcriptDir,
+	transcriptDirs,
+	readTranscriptCorpus,
 	readTranscriptFiles,
 	sessionKeyFor,
 };

@@ -105,8 +105,8 @@ const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const {
 	guardKey,
-	transcriptDir,
-	readTranscriptFiles,
+	transcriptDirs,
+	readTranscriptCorpus,
 	fireSpans,
 	needleIn,
 } = require("./lib/guard-fires.js");
@@ -1054,7 +1054,7 @@ function num(n, dp) {
 
 /**
  * @param {ReturnType<typeof rows>} data
- * @param {{dir: string, event: string, files: number, scanned: number, unreadable: string[],
+ * @param {{dirs: string[], event: string, files: number, scanned: number, unreadable: string[],
  *   window: {since: string|null, until: string|null}, undated: number,
  *   first: string|null, last: string|null, lostCalls: number, unresolved: number,
  *   unpinned: string[], skipped: number, scope: string, guards: number}} corpus
@@ -1062,7 +1062,7 @@ function num(n, dp) {
  */
 function render(data, corpus) {
 	const lines = [];
-	lines.push(`corpus  ${corpus.dir}`);
+	lines.push(`corpus  ${corpus.dirs.join(", ")}`);
 	lines.push(
 		`SCOPE   ${corpus.scope} — ${corpus.guards} ${corpus.event} guard(s). A figure read off this table` +
 			"\n        prices that population and no other.",
@@ -1258,7 +1258,8 @@ function main(argv) {
 	if (!chosen) return 2;
 	const { scope, event } = chosen;
 
-	const dir = flagValue(flags, "--dir") ?? transcriptDir(HOST);
+	const given = flagValue(flags, "--dir");
+	const corpusDirs = given ? [given] : transcriptDirs();
 
 	const sources = readHookSourcesOrNull(err);
 	if (!sources) return 2;
@@ -1291,9 +1292,9 @@ function main(argv) {
 	}
 	const needles = denyNeedlesByGuard(needlesRead.value, triggers);
 
-	const files = readTranscriptFiles(dir);
-	if (files === null) {
-		err(`cannot read the corpus directory: ${dir}`);
+	const { files, unreadable: unlisted } = readTranscriptCorpus(corpusDirs);
+	if (unlisted.length > 0) {
+		err(`cannot read the corpus directory: ${unlisted.join(", ")}`);
 		err("A wrong --dir reports here, never as an empty corpus.");
 		return 2;
 	}
@@ -1308,7 +1309,7 @@ function main(argv) {
 	const unionReport = union ? unionShare(acc.union) : null;
 	const data = rows(triggers, acc, needles);
 	const corpus = {
-		dir,
+		dirs: corpusDirs,
 		event,
 		files: files.length,
 		scanned,
