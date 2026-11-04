@@ -28,7 +28,12 @@ import { describe, expect, it } from "vitest";
 import { core, freshSandbox, store } from "./arbiter-testkit";
 import { writeFaultyGit } from "./git-fault-fake";
 import { initGitRepo, mkDirOutsideRepo } from "./git-fixture";
-import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
+import {
+	runCore,
+	splitCheckout,
+	toolCall,
+	writeHostConfig,
+} from "./guard-core-testkit";
 import { runInProcess } from "./run-in-process";
 import { shellQuote } from "./sh-quote.js";
 import { readShellConst } from "./shell-const-testkit";
@@ -402,13 +407,8 @@ describe("a session in a linked worktree (#2386)", () => {
 });
 
 describe("from a session in its own worktree, the declaration is the main checkout's (#4274)", () => {
-	const declareIn = (root: string, sensitivePaths: unknown[]) => {
-		fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
-		fs.writeFileSync(
-			path.join(root, ".claude", "workflow-core.json"),
-			JSON.stringify({ sensitivePaths }),
-		);
-	};
+	const declareIn = (root: string, sensitivePaths: unknown[]) =>
+		writeHostConfig(root, { sensitivePaths });
 	/* The namespaced name skips the bare name's SKILL.md check at the root. */
 	const reviewFromWorktree = (at: { main: string; worktree: string }) => {
 		stage(SQL, at.worktree);

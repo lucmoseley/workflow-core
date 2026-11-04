@@ -64,6 +64,14 @@ export const splitCheckout = (dir: string) => {
 	};
 };
 
+export const writeHostConfig = (root: string, config: object) => {
+	fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
+	fs.writeFileSync(
+		path.join(root, ".claude", "workflow-core.json"),
+		JSON.stringify(config),
+	);
+};
+
 /**
  * The rule latches written under `root`'s marker store, by file name: where a
  * host-root core's run left its told rules (#4242).

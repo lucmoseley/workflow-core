@@ -40,7 +40,12 @@ import {
 	readGhAnswer,
 } from "./gh-fake";
 import { printed, stubGhRoutes } from "./gh-stub";
-import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
+import {
+	runCore,
+	splitCheckout,
+	toolCall,
+	writeHostConfig,
+} from "./guard-core-testkit";
 import { hexShaCommit } from "./hex-sha-fixture";
 import { kitContextFake } from "./kit-context-fake";
 import { readRuleText } from "./rule-text";
@@ -583,8 +588,8 @@ describe("the card's issue it refuses to close by hand", () => {
 	});
 
 	/*
-	 * The other half (#4274): the card is the session tree's, the tracker the
-	 * main checkout's config. Through the dispatcher, gh a stub serving the
+	 * The card is the session tree's, the tracker the main checkout's config.
+	 * Through the dispatcher, gh a stub serving the
 	 * card's own issue on another repo, so only the tracker read decides
 	 * whether the card rule stands down.
 	 */
@@ -616,13 +621,8 @@ describe("the card's issue it refuses to close by hand", () => {
 				}).gh,
 			);
 		});
-		const declare = (root: string, config: object) => {
-			fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
-			fs.writeFileSync(
-				path.join(root, ".claude", "workflow-core.json"),
-				JSON.stringify({ contract: 1, ...config }),
-			);
-		};
+		const declare = (root: string, config: object) =>
+			writeHostConfig(root, { contract: 1, ...config });
 		const close = () =>
 			runCore(
 				"guard-issue-close",

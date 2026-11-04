@@ -46,10 +46,7 @@ describe("a pathspec commit from a worktree is judged on the worktree's files (#
 });
 
 /*
- * The host's own stores, read at the main checkout from the worktree (#4274):
- * the rule a closing-keyword refusal states, read from the host's rule layer,
- * and the write ledger a bare commit to the shared tree is judged against,
- * the arbiter's on the host. The ledger is the arbiter store's, keyed by the
+ * The ledger is the arbiter store's, keyed by the
  * process's CLAUDE_PROJECT_DIR, which runCore's env does not reach, so the
  * process's is set to the checkout whose store is seeded.
  */

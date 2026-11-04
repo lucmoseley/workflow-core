@@ -183,11 +183,7 @@ describe("a push whose tree it cannot resolve is handed the rules (#319)", () =>
 	});
 });
 
-/*
- * The host's stores, read at the main checkout from a session's worktree
- * (#4274), through the real host ports: the scheduled sweep the CI-lag rule
- * premises is the main checkout's workflow, never the worktree's copy.
- */
+/* Through the real host ports, unlike the rest of this file. */
 describe("a push from a worktree reads the host's sweep at the main checkout (#4274)", () => {
 	let at: { main: string; worktree: string };
 	freshSandbox((sb) => {

@@ -22,7 +22,7 @@ import { freshSandbox } from "./arbiter-testkit";
 import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
 import { storePath } from "./test-pass-marker.js";
-import { gitIn } from "./unasked-rerun-fixture";
+import { gitIn, narrowedIn } from "./unasked-rerun-fixture";
 
 interface Verdict {
 	deny?: string;
@@ -309,11 +309,6 @@ describe("the verdict, spent", () => {
 	});
 });
 
-/*
- * The other half of the two trees (#4274): HEAD is the session tree's, but
- * the certificates attesting it are the host root's store, so a worktree's
- * attested commit is refused on the main checkout's certificate alone.
- */
 describe("from a session in a linked worktree, the certificates are the main checkout's (#4274)", () => {
 	let at: { main: string; worktree: string };
 	let head: string;
@@ -341,28 +336,7 @@ describe("from a session in a linked worktree, the certificates are the main che
 		fs.mkdirSync(path.dirname(storePath(root)), { recursive: true });
 		fs.writeFileSync(
 			storePath(root),
-			`${JSON.stringify({
-				sha: head,
-				at: "RUN-A",
-				suite: "vitest",
-				dirtyAtStart: false,
-				foreign: [],
-				scope: {
-					modulesRun: 1,
-					modulesTotal: 9,
-					tests: 3,
-					passed: 3,
-					skipped: 0,
-					failed: 0,
-					nameFilter: null,
-					fileFilters: [],
-					changed: "x",
-					admissible: true,
-				},
-				treeAtEnd: gitIn(at.worktree, "rev-parse", `${head}^{tree}`),
-				closure: ["a.js"],
-				changedPaths: ["a.js"],
-			})}\n`,
+			`${JSON.stringify(narrowedIn(at.worktree, head, ["a.js"], "RUN-A"))}\n`,
 		);
 	};
 	const rerun = () =>

@@ -7,11 +7,15 @@
  * inside an arbiter sandbox.
  */
 
-import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { freshSandbox } from "./arbiter-testkit";
-import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
+import {
+	runCore,
+	splitCheckout,
+	toolCall,
+	writeHostConfig,
+} from "./guard-core-testkit";
 
 let at: { main: string; worktree: string };
 
@@ -43,13 +47,8 @@ describe("a reset is judged in the tree the session stands in (#4242)", () => {
  * on there names `landing`, wherever the session stands.
  */
 describe("the refusal names the host's pushed ref, from the main checkout's config (#4274)", () => {
-	const landingOn = (root: string) => {
-		fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
-		fs.writeFileSync(
-			path.join(root, ".claude", "workflow-core.json"),
-			JSON.stringify({ modules: ["landing"] }),
-		);
-	};
+	const landingOn = (root: string) =>
+		writeHostConfig(root, { modules: ["landing"] });
 
 	/* The suite injects its modules over every config (vitest.setup.ts);
 	 * uninjected, the config read declares them. */

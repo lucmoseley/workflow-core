@@ -37,7 +37,12 @@ import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox } from "./arbiter-testkit";
-import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
+import {
+	runCore,
+	splitCheckout,
+	toolCall,
+	writeHostConfig,
+} from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
 import { WHOLE_SLOT_BOUND } from "./whole-slot-bound";
 
@@ -3024,17 +3029,11 @@ describe("a whole-suite launch from a session in its own worktree (#4242)", () =
 	it("reads the declared test command from the main checkout's config, never the worktree's (#4274)", () => {
 		fs.writeFileSync(path.join(at.worktree, "package.json"), plainScript);
 		expect(told()).toContain(readRuleText("targeted-runs"));
-		const config = (commands: object) =>
-			JSON.stringify({ commands, modules: ["suites"] });
-		fs.writeFileSync(
-			path.join(at.main, ".claude", "workflow-core.json"),
-			config({}),
-		);
-		fs.mkdirSync(path.join(at.worktree, ".claude"), { recursive: true });
-		fs.writeFileSync(
-			path.join(at.worktree, ".claude", "workflow-core.json"),
-			config({ test: "npm run test" }),
-		);
+		writeHostConfig(at.main, { commands: {}, modules: ["suites"] });
+		writeHostConfig(at.worktree, {
+			commands: { test: "npm run test" },
+			modules: ["suites"],
+		});
 		expect(told()).not.toContain(readRuleText("targeted-runs"));
 	});
 });

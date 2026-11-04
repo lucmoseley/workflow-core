@@ -27,7 +27,12 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox } from "./arbiter-testkit";
-import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
+import {
+	runCore,
+	splitCheckout,
+	toolCall,
+	writeHostConfig,
+} from "./guard-core-testkit";
 
 const CORE = path.resolve(__dirname, "suite-background.js");
 
@@ -612,13 +617,8 @@ describe("a queued suite detached from a session in its own worktree (#4242)", (
 	});
 
 	it("counts the suite runners the host root declares, not the worktree's (#4274)", () => {
-		const declare = (root: string, runners: string[]) => {
-			fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
-			fs.writeFileSync(
-				path.join(root, ".claude", "workflow-core.json"),
-				JSON.stringify({ suiteRunners: runners }),
-			);
-		};
+		const declare = (root: string, runners: string[]) =>
+			writeHostConfig(root, { suiteRunners: runners });
 		const detached = () =>
 			runCore(
 				"guard-suite-background",

@@ -57,6 +57,38 @@ const template = defineTemplate((root) => {
 	gitIn(root, "update-ref", "refs/remotes/origin/main", "HEAD");
 });
 
+/**
+ * An admissible narrowed certificate on `sha` in `tree`, selected for `rels`
+ * and reading them alone.
+ */
+export const narrowedIn = (
+	tree: string,
+	sha: string,
+	rels: string[],
+	at: string,
+) => ({
+	sha,
+	at,
+	suite: "vitest",
+	dirtyAtStart: false,
+	foreign: [],
+	scope: {
+		modulesRun: 1,
+		modulesTotal: 9,
+		tests: 3,
+		passed: 3,
+		skipped: 0,
+		failed: 0,
+		nameFilter: null,
+		fileFilters: [],
+		changed: "x",
+		admissible: true,
+	},
+	treeAtEnd: gitIn(tree, "rev-parse", `${sha}^{tree}`),
+	closure: rels,
+	changedPaths: rels,
+});
+
 export function rerunFixture() {
 	const f = { dir: "", project: "" };
 	const saved: Record<string, string | undefined> = {};
@@ -91,29 +123,8 @@ export function rerunFixture() {
 		return git("rev-parse", "HEAD");
 	}
 
-	/** An admissible narrowed certificate on `sha`, selected for `rels` and reading them alone. */
-	const narrowedOn = (sha: string, rels: string[], at: string) => ({
-		sha,
-		at,
-		suite: "vitest",
-		dirtyAtStart: false,
-		foreign: [],
-		scope: {
-			modulesRun: 1,
-			modulesTotal: 9,
-			tests: 3,
-			passed: 3,
-			skipped: 0,
-			failed: 0,
-			nameFilter: null,
-			fileFilters: [],
-			changed: "x",
-			admissible: true,
-		},
-		treeAtEnd: git("rev-parse", `${sha}^{tree}`),
-		closure: rels,
-		changedPaths: rels,
-	});
+	const narrowedOn = (sha: string, rels: string[], at: string) =>
+		narrowedIn(f.project, sha, rels, at);
 
 	const writeLines = (store: string, entries: unknown[]) =>
 		fs.writeFileSync(
