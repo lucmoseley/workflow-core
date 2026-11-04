@@ -626,7 +626,7 @@ describe("the rules that were already here", () => {
 			"Tidying: it changes no behaviour; file it standalone as one ticket per pass, or decline it with a reason",
 		);
 		expect(triage).toContain(
-			"The first pass with no live finding closes the spec, naming any open standalone tickets on `**Outstanding:**`",
+			"The first pass that files no live finding closes the spec, naming any open standalone tickets on `**Outstanding:**`",
 		);
 		expect(triage).toContain("No pass count stops a spec");
 		expect(triage).toContain(
@@ -635,18 +635,35 @@ describe("the rules that were already here", () => {
 		expect(inject("/implement 186")).not.toContain("Corner: it needs");
 	});
 
+	it("tells a whole-spec review to fix first, classing only what it leaves unfixed (#4284)", () => {
+		const triage = inject("/triage 849");
+		expect(triage).toContain(
+			"On any pass, fix first: a finding is FIXED here unless the code-review destination rule names a reason not to",
+		);
+		expect(triage).toContain(
+			"From the second pass on, each finding left unfixed gets one class",
+		);
+	});
+
 	it("tells a fix ticket's own /code-review that only a live fault goes under the spec (#3811)", () => {
 		const fragment = fs.readFileSync(
 			path.join(ROOT, "docs/agents/rules/review-finding-destination.txt"),
 			"utf8",
 		);
 		expect(fragment).toContain(
-			"A fix ticket, one filed from a whole-spec review, files under the spec only a live fault",
+			"A whole-spec review's fix ticket files under the spec only a live fault",
 		);
-		expect(fragment).toContain(
-			"Its corner or tidying goes standalone, citing the spec",
-		);
+		expect(fragment).toContain("others go standalone, citing it");
 		expect(inject("/code-review")).toContain(fragment.trim());
+	});
+
+	it("tells /code-review to fix first and give a no-behaviour fix a Standards-only re-review (#4284)", () => {
+		const ctx = inject("/code-review");
+		expect(ctx).toContain(
+			"FIX FIRST any finding in code the reviewed work wrote",
+		);
+		expect(ctx).toContain("ticket what the change exposed but did not cause");
+		expect(ctx).toContain("A no-behaviour fix gets a Standards-only re-review");
 	});
 
 	it("still gives /code-review the disposition rule alone, without the tracker pointers", () => {

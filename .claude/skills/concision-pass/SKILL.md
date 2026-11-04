@@ -53,9 +53,7 @@ roadmap, the per-card word counts of `b`/`log`/`mn`/`c.x` against the baseline.
 whole file is the text under judgement:
 take no fixed point, record no net-words figure, and go straight to step 3. Its
 findings are all pre-existing text, so step 4's tenure procedure runs on every
-one (mantahostels#603). **A commissioned audit is
-the draining session, so §4's no-cut gate does not bind it** (mantahostels#2677). Clear
-tenure and cut.
+one (mantahostels#603).
 
 Done when: every file the change touched has a net-words-added figure, or the
 audit is a declared whole-file one and step 3 is next.
@@ -109,17 +107,17 @@ or from the main session.
 
 - **Text this change added** — apply the cuts.
 - **Pre-existing text has tenure** — it survived an earlier pass, so cutting it
-  takes evidence — **and is never cut in the pass that surfaced it** (mantahostels#2677).
-  Three dispositions, and no fourth: **refuse** it where tenure plainly holds,
-  quoting the evidence; **drop** it where its cut is under 25 words and leaves
-  no reader wrong, naming it in the pass's commit message (§3 surfaces it again
-  on the next pass over that file, #3234); otherwise **file** it, one issue per
-  pass carrying all of that pass's filed findings. Cutting, compressing and
-  relocating are the draining session's to do, on the ticket.
+  takes evidence: never cut on the fresh reader's say-so alone (mantahostels#2677).
+  Four dispositions, and no fifth: **refuse** it where tenure holds, quoting the
+  evidence; **cut** it here, compressing or relocating as below, once the steps
+  below clear tenure, naming it in the pass's commit message (#4284); **drop** it
+  where its cut is under 25 words and leaves no reader wrong, naming it in the
+  commit message (§3 surfaces it again on the next pass over that file, #3234);
+  **file** it only where `docs/doc-map.md` §A bars the edit, another session
+  claims the file, or a lookup stays `UNRESOLVED`, one issue per pass carrying
+  all of that pass's filed findings.
 
-Clearing tenure is the draining session's job; run it here only to decide
-whether a finding is worth filing at all. One call gathers every lookup and
-renders no verdict:
+One call gathers every lookup and renders no verdict:
 
 ```bash
 node .claude/skills/concision-pass/scripts/tenure.js '<phrase>' <path>
@@ -187,8 +185,9 @@ held → ticket it and register the debt rather than waiting.
 A refusal goes in the commit message beside the cuts it accompanied.
 
 Done when: every finding against text this change added is applied, relocated,
-or refused with quoted evidence — and every pre-existing finding is filed,
-dropped, marked in place, or refused with quoted evidence, none of them cut here.
+or refused with quoted evidence — and every pre-existing finding is cut
+after clearing tenure, filed, dropped, marked in place, or refused with quoted
+evidence.
 
 ## 5. Verify mechanically, not by eye
 
