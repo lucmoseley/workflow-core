@@ -21,6 +21,7 @@ set -e # an adopter's git runs this file itself, outside husky's errexit wrapper
 # Every `node` and `bash` below under one wall-clock limit (#4187); unbounded where the lib is missing.
 # shellcheck source=scripts/lib/hook-bound.sh
 [ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh"
+command -v hook_bound >/dev/null 2>&1 || hook_bound() { "$@"; }
 
 # The pre-lock stamps the test gate and the mutation hold below may stand down
 # on (#1650, #1910), read once and unset here so no gate's child — the in-lock

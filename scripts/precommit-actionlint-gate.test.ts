@@ -26,7 +26,12 @@ import {
 	stagedRepo,
 	type TempRepo,
 } from "./lib/precommit-gate-harness";
-import { LIB, LIB_COMMANDS, ROOT } from "./lib/precommit-gate-testkit";
+import {
+	HOOK_BOUND_LIB,
+	LIB,
+	LIB_COMMANDS,
+	ROOT,
+} from "./lib/precommit-gate-testkit";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const temps = registerTempCleanup();
@@ -117,7 +122,7 @@ function runGate(repo: { root: string; bin: string; isolated?: boolean }): {
 	// execFileSync surfaces only on a non-zero exit — the warn-and-pass case
 	// would otherwise assert against an empty string and pass whatever the hook
 	// printed.
-	const script = `exec 2>&1\n${LIB}\n${gateFragment()}\n:\n`;
+	const script = `exec 2>&1\n${HOOK_BOUND_LIB}\n${LIB}\n${gateFragment()}\n:\n`;
 	// An isolated fixture withheld the stub, so its bin holds only the NEEDED
 	// commands and must stand ALONE as PATH — appending the real one would hand
 	// the fragment the machine's own actionlint back.
@@ -337,7 +342,9 @@ describe("the pre-commit actionlint gate", () => {
 		expect(pkg.scripts["check:actions"]).toBe("actionlint");
 		// The path list and nothing else between the command and the `|| { … }`
 		// failure block.
-		const invocation = /^\s*actionlint ([^|]*)\|\| \{/m.exec(gateFragment());
+		const invocation = /^\s*hook_bound actionlint ([^|]*)\|\| \{/m.exec(
+			gateFragment(),
+		);
 		expect(
 			invocation,
 			"the gate no longer invokes actionlint ahead of a `||`",

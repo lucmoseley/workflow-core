@@ -859,6 +859,7 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 			"record-typecheck-red",
 			"lib/precommit-gate",
 			"lib/hook-root",
+			"lib/hook-bound",
 			"lib/serialised",
 			"lib/workflow-core-config",
 			"lib/formatters",
