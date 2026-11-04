@@ -28,35 +28,55 @@ const planSeatBasisOf = ({ seat, weekRead, weekFull }) => ({
 
 /**
  * @typedef {{reason?: string, keyVar?: string, launchedAt: number,
- *   relaunchedAt?: number}} StartedLaunch
+ *   movedAt?: number}} StartedLaunch
  */
 
 /**
  * Whether `l` runs on an overflow seat: launched on one, or moved onto its key
  * (#3736).
- * @param {Omit<StartedLaunch, "launchedAt">|undefined} l
+ * @param {Omit<StartedLaunch, "launchedAt">} l
  */
-const isOnKey = (l) => l?.reason === "overflow" || l?.keyVar !== undefined;
-
-/** When `l` last started on its seat: its launch, or a resume or move since.
- * @param {StartedLaunch} l */
-const startedAt = (l) => Math.max(l.launchedAt, l.relaunchedAt ?? 0);
+const isOnOverflowSeat = (l) =>
+	l.reason === "overflow" || l.keyVar !== undefined;
 
 /**
- * The first of `launches` to start on an overflow seat after `since` whose
- * predecessor, the session started just before it, was on a plan seat, or
- * null.
+ * The seat starts `l` made: its launch, and its last move where that put it on
+ * a key, which only a plan seat's session is moved onto (#4257). A resume
+ * starts none.
  * @template {StartedLaunch} L
- * @param {L[]} launches the state's and the tick's own
- * @param {number} since the last overflow start recorded
- * @returns {L|null}
+ * @param {L} l
+ * @returns {{at: number, onKey: boolean, launch: L}[]}
+ */
+function seatStartsOf(l) {
+	const onKey = isOnOverflowSeat(l);
+	const launch = {
+		at: l.launchedAt,
+		onKey: onKey && l.movedAt === undefined,
+		launch: l,
+	};
+	return onKey && l.movedAt !== undefined
+		? [launch, { at: l.movedAt, onKey: true, launch: l }]
+		: [launch];
+}
+
+/**
+ * The first start on an overflow seat after `since` whose predecessor was on
+ * a plan seat, or null. The first start after a record follows one on a key;
+ * with no record, the first start follows a plan seat's.
+ * @template {StartedLaunch} L
+ * @param {L[]} launches
+ * @param {number|null} since the last record's time
+ * @returns {{at: number, launch: L}|null}
  */
 function firstOverflowStart(launches, since) {
-	/** @type {L|undefined} */
-	let last;
-	for (const l of [...launches].sort((x, y) => startedAt(x) - startedAt(y))) {
-		if (isOnKey(l) && !isOnKey(last) && startedAt(l) > since) return l;
-		last = l;
+	let lastOnKey = since !== null;
+	const starts = launches
+		.flatMap(seatStartsOf)
+		.filter((s) => since === null || s.at > since)
+		.sort((x, y) => x.at - y.at);
+	for (const s of starts) {
+		if (s.onKey && !lastOnKey) return s;
+		lastOnKey = s.onKey;
 	}
 	return null;
 }
@@ -129,7 +149,6 @@ module.exports = {
 	buildBasisLines,
 	buildOverflowStartLines,
 	firstOverflowStart,
-	startedAt,
 	parseOverflowStart,
 	planSeatBasisOf,
 };

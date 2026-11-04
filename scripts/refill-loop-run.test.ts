@@ -2616,37 +2616,8 @@ describe("a session held on its seat's limit (#3735)", () => {
 				omitted: [outside],
 			});
 			expect(start.at).toBeGreaterThanOrEqual(before);
+			expect(launchState().movedAt).toBe(start.at);
 			expect(r.stdout).toContain("first overflow launch on");
-		});
-
-		it("records nothing new on a move after a launch already on a key (#4257)", async () => {
-			seedOverflow();
-			const keyLaunchAt = Date.now() - 30 * 60 * 1000;
-			const earlier = {
-				at: keyLaunchAt,
-				seat,
-				planSeats: [],
-				omitted: [],
-			};
-			const state = readLoopState();
-			state.launches.push({
-				root: repo,
-				issues: [8],
-				prompt: "/implement 8",
-				seat,
-				keyVar: "K2",
-				reason: "overflow",
-				jobId: "job8",
-				launchedAt: keyLaunchAt,
-				finishedAt: Date.now() - 10 * 60 * 1000,
-			});
-			state.overflowStart = earlier;
-			fs.writeFileSync(at(".refill-loop-state.json"), JSON.stringify(state));
-			const r = await oneTick(Run, 1);
-			expect(r.status).toBe(0);
-			expect(launchState()).toMatchObject({ keyVar: "K2" });
-			expect(readLoopState().overflowStart).toEqual(earlier);
-			expect(r.stdout).not.toContain("first overflow launch on");
 		});
 
 		it("stops the copy and puts it back held on its plan seat where its ledger row will not write", async () => {
@@ -2663,6 +2634,7 @@ describe("a session held on its seat's limit (#3735)", () => {
 				limitHeld: { failedTries: 1 },
 			});
 			expect(launchState()).not.toHaveProperty("keyVar");
+			expect(launchState()).not.toHaveProperty("movedAt");
 			expect(`${r.stdout}${r.stderr}`).toContain(
 				"not recorded in the dispatch ledger",
 			);

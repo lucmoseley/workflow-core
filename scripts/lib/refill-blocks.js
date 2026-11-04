@@ -2033,6 +2033,7 @@ const MOVED_FIELDS = /** @type {const} */ ([
 	"sessionId",
 	"copiedFrom",
 	"pastSessionIds",
+	"movedAt",
 ]);
 
 /**
@@ -2146,6 +2147,7 @@ function settleMove(l, target, r, { now, io }) {
 		{
 			...movedOnto(l, target),
 			reason: `moved from ${buildSeatName(l.seat)}`,
+			movedAt: now,
 			parked: false,
 			block: { ...l.block, since: now },
 			limitLeft: [
