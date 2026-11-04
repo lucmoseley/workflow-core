@@ -2700,7 +2700,6 @@ module.exports = {
 	buildLimitText,
 	indented,
 	isHeld,
-	isLimitBlocked,
 	isLimitHeld,
 	isLive,
 	isResuming,
