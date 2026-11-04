@@ -1461,6 +1461,14 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 		expect(live.launches[0]).toMatchObject({ limitHeld: { resumedAt: NOW } });
 	});
 
+	it("resumes one held session in place a tick on a reset seat, sized for one", () => {
+		const two = [held(), held({ jobId: "job43", issues: [43] })];
+		const out = limits(two, [], { slots: 2 });
+		expect(out.launches[0]).toMatchObject({ limitHeld: { resumedAt: NOW } });
+		expect(out.launches[1]?.limitHeld).not.toHaveProperty("resumedAt");
+		expect(out.slots).toBe(1);
+	});
+
 	it("a failed resume stays held and names the failure in log and comment", () => {
 		const { launches, calls, slots } = limits([held()], [], {
 			io: {

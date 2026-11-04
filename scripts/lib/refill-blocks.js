@@ -2547,8 +2547,8 @@ function actOnLimit(l, own, seen, { mode, slots, moveSeats }) {
 }
 
 /**
- * `seats` with the seat `l` was moved onto sized 0, as its next sizing needs a
- * fresh read.
+ * `seats` with the seat `l` was moved or resumed onto sized 0, as its next
+ * sizing needs a fresh read.
  * @param {MoveSeats} seats
  * @param {LoopLaunch} l
  * @returns {MoveSeats}
@@ -2580,8 +2580,8 @@ function limitWorkingChange(l, out) {
  * held whose seat has left the loop's list is parked (#3790), so a restart on
  * fewer seats parks each hold on those dropped. Each one resumed or moved from
  * held takes a slot, so a seat's reset lets them back only as admission has
- * room. A seat is sized for one session, so it takes one move a tick, and the
- * next waits a tick for a fresh sizing. The launches, the slots left, and the
+ * room. A seat is sized for one session, so it takes one move or one resume
+ * from held a tick, and the next waits a tick for a fresh sizing. The launches, the slots left, and the
  * net sessions added to those admission read. Nothing off an unread listing, and with none
  * limit-blocked no seat is read.
  * @param {LoopLaunch[]} launches
@@ -2609,9 +2609,11 @@ function actOnLimits(launches, mode, seen) {
 			slots,
 			moveSeats,
 		});
-		if (out.seat !== l.seat || out.keyVar !== l.keyVar)
-			moveSeats = withSeatTaken(moveSeats, out);
 		const change = limitWorkingChange(l, out);
+		/* A resume from held fills a seat as a move onto it does; a live one's
+		 * stop and resume in place keeps the slot it holds. */
+		if (out.seat !== l.seat || out.keyVar !== l.keyVar || change > 0)
+			moveSeats = withSeatTaken(moveSeats, out);
 		if (change > 0) slots -= 1;
 		workingChange += change;
 		return syncLedgerHold(out, seen.io);
