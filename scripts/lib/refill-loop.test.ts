@@ -946,6 +946,23 @@ describe("the first overflow launch's record (#3767)", () => {
 		});
 	});
 
+	it("records nothing new on a move after a launch already on a key (#4257)", () => {
+		const onKey = {
+			seat: apiSeat,
+			keyVar: "K2",
+			reason: "overflow",
+			launchedAt: pastAt,
+		};
+		const { start, lines } = settleOverflowLaunch(
+			null,
+			[onKey, moved],
+			undefined,
+			pastAt,
+		);
+		expect(start?.at).toBe(pastAt);
+		expect(lines.join("\n")).not.toContain("first overflow launch");
+	});
+
 	it("records nothing on an overflow launch after a move onto a key, though a plan-seat launch since holds a later place (#4257)", () => {
 		const plan = { seat: "/h/.claude2", launchedAt: NOW - 1_800_000 };
 		const { start, lines } = settleOverflowLaunch(
