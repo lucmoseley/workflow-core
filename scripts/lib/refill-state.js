@@ -1,6 +1,5 @@
 /*
- * refill-state.js — the refill loop's state file (#4232, #4213): its shape, its
- * one reader and its one writer, and the named transitions every write applies.
+ * refill-state.js — the refill loop's state file (#4232, #4213).
  *
  * `readState` is the only read of the file and `updateState` the only write;
  * scripts/refill-wake.sh's `jq` read of its unfinished launches is the one
@@ -160,7 +159,6 @@ const isLaunching = (raw) =>
 	isRecord(raw) && typeof raw.at === "number" && Array.isArray(raw.batch);
 
 /**
- * A launch row carrying the fields every reader of one relies on.
  * @param {unknown} raw
  * @returns {raw is LoopLaunch}
  */
@@ -280,7 +278,7 @@ function mergeLaunches(onDisk, read, launches) {
 
 /**
  * `s` with the tick's `launches` laid on its own (mergeLaunches) and no batch in
- * flight: what every tick write starts from.
+ * flight.
  * @param {LoopState} s the fresh read
  * @param {LoopState} read the state the tick started on
  * @param {LoopLaunch[]} launches
