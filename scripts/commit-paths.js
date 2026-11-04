@@ -167,7 +167,7 @@ const {
 	writeStamp,
 } = require("./lib/commit-key.js");
 const { testGate } = require("./lib/test-gate.js");
-const { moduleOn } = require("./lib/workflow-core-config.js");
+const { isHoldArmable, readConfig } = require("./lib/workflow-core-config.js");
 const { runInTree } = require("./lib/isolated-worktree.js");
 const { trimEndRun } = require("./lib/trim-run.js");
 
@@ -1653,13 +1653,15 @@ function sweptRunFiles() {
 const MUTATION_HOLD = path.join(__dirname, "mutation-hold-gate.js");
 
 /**
- * Whether the config on disk turns the mutation module on, so a host with it
- * off spawns nothing. A commit turning it off, on at HEAD alone, is left to
- * the hook, which holds on either; an unreadable config is too.
+ * Whether the config on disk could fire the mutation hold, so a host where it
+ * never can spawns nothing (#4306). A commit changing that, at HEAD alone or
+ * staged alone, is left to the hook, which holds on both copies; an
+ * unreadable config is too.
  */
-function isMutationOn() {
+function isHoldArmed() {
 	try {
-		return moduleOn("mutation");
+		const { modules, sensitivePaths } = readConfig();
+		return isHoldArmable(modules, sensitivePaths);
 	} catch {
 		// Fails open to the hook, whose hold reads the config itself and says
 		// so where it will not read (#1910).
@@ -1692,7 +1694,7 @@ const runHold = (root, env, mode) =>
  * @param {() => RunFiles} runFilesNow the private index the runs see, where
  *   each green stamp goes and where the hook's gates are copied to run;
  *   called only once a run may be due, so a plain commit gated at push, the
- *   mutation module off, starts no sweeper (#1639 story 14)
+ *   mutation hold unarmed, starts no sweeper (#1639 story 14)
  * @param {(index: string) => void} build (re)builds `index` as the commit will
  *   carry it, before each run and again after it; throws, saying why, where
  *   git refuses — or refuses outright, exiting, as the --patch build does
@@ -1711,7 +1713,7 @@ function preLockRun(runFilesNow, build) {
 		return;
 	}
 	const command = found.gate === "commit" ? found.command : null;
-	const holdOn = isMutationOn();
+	const holdOn = isHoldArmed();
 	if (command === null && !holdOn) return;
 	const { index, stamps, gates } = runFilesNow();
 

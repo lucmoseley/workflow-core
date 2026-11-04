@@ -24,7 +24,7 @@ import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox, live, store } from "./lib/arbiter-testkit";
 import { writeFaultyGit } from "./lib/git-fault-fake";
-import { initGitRepo } from "./lib/git-fixture";
+import { defineTemplate, initGitRepo } from "./lib/git-fixture";
 import { installLib } from "./lib/lib-install-testkit";
 import {
 	cutPostCommitBlock,
@@ -37,11 +37,21 @@ import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.resolve(__dirname, "commit-paths.js");
 
+/* Built once and copied per case; each copy points its hooks at its own
+ * sandbox, a path the template cannot know. The placeholder hooks directory
+ * is removed so no copy carries it as an untracked directory. */
+const repoTemplate = defineTemplate((dir) => {
+	const none = path.join(dir, ".git-no-hooks");
+	fs.mkdirSync(none);
+	initGitRepo(dir, none);
+	fs.rmdirSync(none);
+});
 let hooks = "";
 const sb = freshSandbox((s) => {
 	hooks = path.join(s.dir, "hooks");
 	fs.mkdirSync(hooks);
-	initGitRepo(s.repo, hooks);
+	repoTemplate.instantiate(s.repo);
+	execFileSync("git", ["config", "core.hooksPath", hooks], { cwd: s.repo });
 });
 
 const git = (...args: string[]) =>
