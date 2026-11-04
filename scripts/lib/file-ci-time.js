@@ -10,9 +10,9 @@
  * cancelled say, is judged on the latest SWEEPS_JUDGED sweeps it was timed in,
  * read back to MAX_SWEEPS_READ sweeps; short of that it is unjudged.
  *
- * THE TIME IS vitest's JSON endTime - startTime, the per-file figure every
- * other reader of these reports takes (`scripts/lib/suite-timings.js`).
- * RESIDUAL: it leaves out a file's beforeAll and afterAll time (#4313).
+ * THE TIME IS the file's run, its beforeAll and afterAll hooks included, as
+ * `scripts/lib/suite-timings.js` reads it from the reports (#4313).
+ * RESIDUAL: it leaves out the file's import, which holds the worker too.
  */
 
 const { FILE_LIMIT_MS } = require("./suite-ceiling.js");

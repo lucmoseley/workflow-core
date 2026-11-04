@@ -27,11 +27,12 @@ import {
 
 const ROOT = "/repo";
 
-/** One vitest-shaped file result, its start and end given in milliseconds. */
-const fileResult = (name: string, start: number, end: number, tests = 1) => ({
+/** One file result as scripts/vitest-json-reporter.ts writes it, in ms. */
+const fileResult = (name: string, duration: number, tests = 1) => ({
 	name: `${ROOT}/${name}`,
-	startTime: start,
-	endTime: end,
+	startTime: 0,
+	endTime: 0,
+	duration,
 	status: "passed",
 	assertionResults: Array.from({ length: tests }, () => ({})),
 });
@@ -70,8 +71,8 @@ describe("reading a vitest JSON report", () => {
 		const rows = rowsFrom(
 			{
 				testResults: [
-					fileResult("a.test.ts", 0, 1000),
-					fileResult("b.test.ts", 0, 4000),
+					fileResult("a.test.ts", 1000),
+					fileResult("b.test.ts", 4000),
 				],
 			},
 			ROOT,
@@ -82,7 +83,12 @@ describe("reading a vitest JSON report", () => {
 		]);
 	});
 
-	it("keeps a file missing its timestamps, with a null duration rather than a zero (mantahostels#2039)", () => {
+	it("times a file by its duration, hooks included, not by its tests' endTime - startTime (#4313)", () => {
+		const hooked = { ...fileResult("h.test.ts", 82_100), endTime: 63_100 };
+		expect(rowsFrom({ testResults: [hooked] }, ROOT)[0]?.seconds).toBe(82.1);
+	});
+
+	it("keeps a file missing its duration, with a null one rather than a zero (mantahostels#2039)", () => {
 		expect(
 			rowsFrom(
 				{

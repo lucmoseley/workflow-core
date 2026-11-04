@@ -86,6 +86,7 @@
 	"scripts/sweep-debts-detached.sh": "86cfbe026f2fedc6",
 	"scripts/unpark-on-prompt.js": "7844751553680d9b",
 	"scripts/vitest-inflight-reporter.ts": "f7935d8793c77085",
+	"scripts/vitest-json-reporter.ts": "6caf007578bc2159",
 	"scripts/vitest-pass-reporter.ts": "7dfd571a676174f5",
 	"scripts/vitest-tree-watch.ts": "1b149129b24d570d",
 	"scripts/watch-artefact.js": "fbc1c2f11dd666d0",
