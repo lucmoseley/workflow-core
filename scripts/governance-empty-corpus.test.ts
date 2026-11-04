@@ -20,6 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate, mkDirOutsideRepo } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 
 const CORE = path.resolve(__dirname, "..");
@@ -29,11 +30,10 @@ let dir: string;
 
 /* The scripts read git history, so the skeleton is committed as an adopter's
  * would be; its hook stack is init-adopter-commit.test.ts's to prove, not
- * this file's. */
-function skeleton(modules: string) {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "governance-empty-"));
+ * this file's. Each module set is built once and copied per case. */
+const buildSkeleton = (modules: string) => (root: string) => {
 	const git = (...args: string[]) =>
-		execFileSync("git", args, { cwd: dir, encoding: "utf8" });
+		execFileSync("git", args, { cwd: root, encoding: "utf8" });
 	git("init", "-q", "-b", "main", ".");
 	git("config", "user.email", "fixture@example.invalid");
 	git("config", "user.name", "Governance Fixture");
@@ -41,7 +41,7 @@ function skeleton(modules: string) {
 		script("init-adopter.js"),
 		[
 			"--root",
-			dir,
+			root,
 			"--plugin-root",
 			CORE,
 			"--no-plugin-install",
@@ -51,11 +51,22 @@ function skeleton(modules: string) {
 			"--modules",
 			modules,
 		],
-		{ cwd: dir, env: process.env },
+		{ cwd: root, env: process.env },
 	);
 	if (init.status !== 0) throw new Error(`init failed: ${init.stderr}`);
 	git("add", "-A");
 	git("-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", "skeleton");
+};
+
+const SKELETONS = {
+	withRoadmap: buildSkeleton("governance,roadmap"),
+	roadmapOff: buildSkeleton("governance"),
+};
+const skeletons = defineTemplate(SKELETONS);
+
+function instantiate(variant: keyof typeof SKELETONS) {
+	dir = mkDirOutsideRepo("governance-empty-");
+	skeletons.instantiate(dir, variant);
 }
 
 afterEach(() => {
@@ -112,7 +123,7 @@ const B_HALF: [string, string[], string][] = [
 ];
 
 describe("governance on an empty corpus", () => {
-	beforeEach(() => skeleton("governance,roadmap"), 60_000);
+	beforeEach(() => instantiate("withRoadmap"), 60_000);
 
 	it("starts from a skeleton init wrote no placeholder corpus into", () => {
 		const docs = path.join(dir, "docs");
@@ -170,7 +181,7 @@ describe("governance on an empty corpus", () => {
 });
 
 describe("governance with roadmap off", () => {
-	beforeEach(() => skeleton("governance"), 60_000);
+	beforeEach(() => instantiate("roadmapOff"), 60_000);
 
 	const roadmapOff =
 		'SKIP: module "roadmap" is off — .claude/workflow-core.json does not list it under "modules"';
