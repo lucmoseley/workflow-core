@@ -60,7 +60,8 @@ import {
 	WFC,
 } from "./refill-loop-fixture";
 import { buildSeatName } from "./refill-seats.js";
-import { launchRecorded, parseState } from "./refill-state.js";
+import { launchRecorded } from "./refill-state.js";
+import { loopStateOf } from "./refill-state-testkit";
 
 const agent = (id: string, state: string) => ({
 	sessionId: `s-${id}`,
@@ -580,7 +581,7 @@ function settleOnce(
 		}),
 		read = null,
 		writes = [],
-		state = parseState(null),
+		state = loopStateOf(null),
 		past = [],
 		seats = [],
 		overflow = [],
@@ -739,8 +740,8 @@ describe("a batch on record before its dispatch (#4180)", () => {
 
 	it("keeps a launch a launcher recorded mid-tick that the tick does not carry (#4232)", () => {
 		const writes: Tick["state"][] = [];
-		const updateState = stateFileFake(parseState(null), writes);
-		const adopted = parseState({ launches: [record({ jobId: "adopted" })] })
+		const updateState = stateFileFake(loopStateOf(null), writes);
+		const adopted = loopStateOf({ launches: [record({ jobId: "adopted" })] })
 			.launches[0];
 		settleOnce(decision, 2, [], {
 			writes,
@@ -767,17 +768,17 @@ describe("a batch on record before its dispatch (#4180)", () => {
 
 	it("reads a batch in flight back, and drops a malformed one", () => {
 		const launching = { at: NOW, batch: [member("/a", 1)] };
-		expect(parseState({ launches: [], launching }).launching).toEqual(
+		expect(loopStateOf({ launches: [], launching }).launching).toEqual(
 			launching,
 		);
 		expect(
-			parseState({ launches: [], launching: { at: "x" } }),
+			loopStateOf({ launches: [], launching: { at: "x" } }),
 		).not.toHaveProperty("launching");
 	});
 
 	it("tracks and counts the members a kill cut off that the adopter finds started, the batch gone", () => {
 		const state = {
-			...parseState(null),
+			...loopStateOf(null),
 			launches: [],
 			launchCount: { from: NOW - 1000, count: 2 },
 			launching: { at: NOW, batch: [member("/a", 1)] },
@@ -797,7 +798,7 @@ describe("a batch on record before its dispatch (#4180)", () => {
 		expect(next.launches).toEqual([found]);
 		expect(next.launchCount).toEqual({ from: NOW - 1000, count: 3 });
 		expect(next).not.toHaveProperty("launching");
-		const quiet = parseState(null);
+		const quiet = loopStateOf(null);
 		expect(settleLaunching(quiet, () => [found])).toBe(quiet);
 	});
 });
@@ -879,7 +880,7 @@ describe("the first overflow launch's record (#3767)", () => {
 					? {}
 					: {
 							state: {
-								...parseState(null),
+								...loopStateOf(null),
 								overflowStart: {
 									at: recordedAt,
 									seat: apiSeat,
@@ -990,8 +991,10 @@ describe("the first overflow launch's record (#3767)", () => {
 
 	it("survives the state file's round trip", () => {
 		const { start } = settleOverflowLaunch(apiSeat, []);
-		expect(parseState({ overflowStart: start }).overflowStart).toEqual(start);
-		expect(parseState({ overflowStart: { at: "x" } }).overflowStart).toBeNull();
+		expect(loopStateOf({ overflowStart: start }).overflowStart).toEqual(start);
+		expect(
+			loopStateOf({ overflowStart: { at: "x" } }).overflowStart,
+		).toBeNull();
 	});
 });
 
@@ -1076,7 +1079,7 @@ describe("a tick's log line (#2362)", () => {
 			logged(idle("nothing launchable"), 3, [], {
 				read,
 				writes,
-				state: { ...parseState(null), goalProgress },
+				state: { ...loopStateOf(null), goalProgress },
 			});
 			return writes[0].goalProgress;
 		};
@@ -1099,7 +1102,7 @@ describe("a tick's log line (#2362)", () => {
 		it("carries any reason decideTick gives through a state round trip", () => {
 			const writes: Tick["state"][] = [];
 			logged(idle("a stop no list names"), 3, [], { writes });
-			const { lastTick } = parseState(JSON.parse(JSON.stringify(writes[0])));
+			const { lastTick } = loopStateOf(JSON.parse(JSON.stringify(writes[0])));
 			expect(lastTick?.idle).toBe("a stop no list names");
 		});
 
@@ -1126,7 +1129,7 @@ describe("a tick's log line (#2362)", () => {
 				[],
 				{ writes },
 			);
-			expect(parseState(tickWrite(writes)).lastTick?.idle).toBeNull();
+			expect(loopStateOf(tickWrite(writes)).lastTick?.idle).toBeNull();
 		});
 
 		it.each([
@@ -1134,7 +1137,7 @@ describe("a tick's log line (#2362)", () => {
 			["a non-string", 7],
 		])("reads none from %s", (_case, value) => {
 			expect(
-				parseState({ lastTick: { at: NOW, summary: "s", idle: value } })
+				loopStateOf({ lastTick: { at: NOW, summary: "s", idle: value } })
 					.lastTick?.idle,
 			).toBeNull();
 		});
@@ -1150,7 +1153,7 @@ describe("a tick's log line (#2362)", () => {
 			held: [held, fresh],
 		};
 		const writes: Tick["state"][] = [];
-		const state = { ...parseState(null), held: [kept] };
+		const state = { ...loopStateOf(null), held: [kept] };
 		logged(decision, 3, [], {
 			read: { rows: 2, ms: 900, goal: null },
 			writes,
@@ -1163,7 +1166,7 @@ describe("a tick's log line (#2362)", () => {
 
 	it("keeps a full-seat hold's start across an away tick, so its 2 days do not restart (#3850)", () => {
 		const writes: Tick["state"][] = [];
-		const state = { ...parseState(null), held: [kept] };
+		const state = { ...loopStateOf(null), held: [kept] };
 		logged(heldDecision, 1, [], {
 			mode: "away",
 			read: { rows: 1, ms: 900, goal: null },
@@ -1185,14 +1188,14 @@ describe("a tick's log line (#2362)", () => {
 
 	it("keeps the last holds across a tick that reads no frontier", () => {
 		const writes: Tick["state"][] = [];
-		const state = { ...parseState(null), held: [kept] };
+		const state = { ...loopStateOf(null), held: [kept] };
 		logged(idle("no free slot"), 0, [], { state, writes });
 		expect(writes[0].held).toEqual([kept]);
 	});
 
 	it("reads a stored hold with no start, or no skip, as none", () => {
 		expect(
-			parseState({ held: [kept, held, { root: "/r/wfc", since: NOW }] }).held,
+			loopStateOf({ held: [kept, held, { root: "/r/wfc", since: NOW }] }).held,
 		).toEqual([kept]);
 	});
 
@@ -1370,11 +1373,11 @@ describe("the launches a tick keeps (#3621)", () => {
 			);
 
 		it("prints the true count past what the trim keeps, across ticks and a launch", () => {
-			const uncounted = parseState({ launches: since(60) });
+			const uncounted = loopStateOf({ launches: since(60) });
 			const first = settled(uncounted);
 			expect(first.launches).toHaveLength(50);
 			expect(printed(first)).toContain("launches:  60 since");
-			const second = settled(parseState(JSON.parse(JSON.stringify(first))));
+			const second = settled(loopStateOf(JSON.parse(JSON.stringify(first))));
 			expect(printed(second)).toContain("launches:  60 since");
 			const launched = settled(second, {
 				launches: [
@@ -1396,13 +1399,13 @@ describe("the launches a tick keeps (#3621)", () => {
 		});
 
 		it("reads a state with no counter from its kept rows", () => {
-			expect(printed(parseState({ launches: since(3) }))).toContain(
+			expect(printed(loopStateOf({ launches: since(3) }))).toContain(
 				"launches:  3 since",
 			);
 		});
 
 		it("counts from the kept rows again once the start moves", () => {
-			const moved = settled(parseState({ launches: since(60) }));
+			const moved = settled(loopStateOf({ launches: since(60) }));
 			expect(printed(moved, NOW + 55)).toContain("launches:  5 since");
 		});
 	});
@@ -1446,10 +1449,10 @@ describe("the launches a tick keeps (#3621)", () => {
 
 describe("the seats' probe stamps on the state file (#4060)", () => {
 	it("parses the stamps off the state file, dropping what is no time", () => {
-		expect(parseState({ seatTriedAt: { a: 5, b: "x" } }).seatTriedAt).toEqual({
+		expect(loopStateOf({ seatTriedAt: { a: 5, b: "x" } }).seatTriedAt).toEqual({
 			a: 5,
 		});
-		expect(parseState(null).seatTriedAt).toEqual({});
+		expect(loopStateOf(null).seatTriedAt).toEqual({});
 	});
 });
 
@@ -1631,7 +1634,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 			{
 				input,
 				decision,
-				state: parseState(null),
+				state: loopStateOf(null),
 				judged: [],
 				probes: [],
 				read: null,
@@ -1680,7 +1683,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 					onReview(stop);
 					return lastRunOn;
 				},
-				updateState: stateFileFake(parseState(null), writes),
+				updateState: stateFileFake(loopStateOf(null), writes),
 				log: () => undefined,
 				now: () => NOW,
 			},
@@ -1727,7 +1730,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 					held: [],
 					resumes: [],
 				},
-				state: parseState(null),
+				state: loopStateOf(null),
 				judged: [],
 				probes: [],
 				read: null,
@@ -1747,7 +1750,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 					reviews.push(lastRunOn);
 					return lastRunOn;
 				},
-				updateState: stateFileFake(parseState(null), []),
+				updateState: stateFileFake(loopStateOf(null), []),
 				log: (line) => {
 					expect(line).not.toContain("free slots");
 				},
@@ -2012,10 +2015,10 @@ describe("when a tick files the morning review (#2017)", () => {
 	});
 
 	it("keeps the last run's date across a state round trip", () => {
-		expect(parseState({ reviewRunOn: "2026-10-19" }).reviewRunOn).toBe(
+		expect(loopStateOf({ reviewRunOn: "2026-10-19" }).reviewRunOn).toBe(
 			"2026-10-19",
 		);
-		expect(parseState({}).reviewRunOn).toBeNull();
+		expect(loopStateOf({}).reviewRunOn).toBeNull();
 	});
 });
 
@@ -2255,7 +2258,7 @@ describe("a resume the tick's step left held (#3855)", () => {
 					held: [],
 					resumes: [due],
 				},
-				state: parseState(null),
+				state: loopStateOf(null),
 				judged: [heldLaunch],
 				probes: [],
 				read: null,
@@ -2280,7 +2283,7 @@ describe("a resume the tick's step left held (#3855)", () => {
 				runReview: (lastRunOn) => lastRunOn,
 				updateState: (transition) => {
 					written = true;
-					return transition(parseState(null));
+					return transition(loopStateOf(null));
 				},
 				readOmittedDirs: () => [],
 				log: (line) => lines.push(line),

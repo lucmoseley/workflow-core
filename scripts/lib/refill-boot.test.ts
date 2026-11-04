@@ -19,7 +19,8 @@ import {
 	settleBootKilled,
 	withManagerRestart,
 } from "./refill-boot.js";
-import { isSameBoot, parseState } from "./refill-state.js";
+import { isSameBoot } from "./refill-state.js";
+import { loopStateOf } from "./refill-state-testkit";
 
 const START = 1000;
 const control = {
@@ -103,7 +104,7 @@ const KILLED = {
 };
 
 const buildState = (launches: object[], bootedAt?: number) =>
-	parseState({ launches, ...(bootedAt ? { bootedAt } : {}) });
+	loopStateOf({ launches, ...(bootedAt ? { bootedAt } : {}) });
 
 describe("bootSparedJobs (#3983)", () => {
 	const spared = (over: object, bootedAt?: number) => [
@@ -171,7 +172,7 @@ describe("settleBootKilled, a same-boot restart (#4139)", () => {
 	} as never;
 	const settle = (launch: object, registry = CLEAR) =>
 		settleBootKilled(
-			parseState({
+			loopStateOf({
 				launches: [buildLaunch({ sessionId: "s", ...launch })],
 				bootedAt: now,
 				sameBootRestart: true,
@@ -205,7 +206,7 @@ describe("settleBootKilled, a same-boot restart (#4139)", () => {
 	it("queues nothing a second time on that later tick", () => {
 		const { launches } = settle(longAgo);
 		const { launches: again } = settleBootKilled(
-			parseState({ launches, bootedAt: now, sameBootRestart: true }),
+			loopStateOf({ launches, bootedAt: now, sameBootRestart: true }),
 			seen,
 			CLEAR,
 		);
@@ -215,7 +216,7 @@ describe("settleBootKilled, a same-boot restart (#4139)", () => {
 
 describe("a same-boot restart (#3971)", () => {
 	const sameBoot = (launches: object[]) =>
-		parseState({ launches, bootedAt: START, sameBootRestart: true });
+		loopStateOf({ launches, bootedAt: START, sameBootRestart: true });
 
 	const trusted = (registry: object) =>
 		isEmptyListingTrusted(sameBoot([buildLaunch({ sessionId: "s" })]), {

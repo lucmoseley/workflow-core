@@ -36,7 +36,7 @@ import {
 	record,
 	WFC,
 } from "./refill-loop-fixture";
-import { parseState } from "./refill-state.js";
+import { loopStateOf } from "./refill-state-testkit";
 
 const NO_SEATS = {
 	readings: [],
@@ -166,7 +166,7 @@ describe("what status prints", () => {
 	});
 
 	it("reads back only well-formed skipped rows from the state file", () => {
-		const parsed = parseState({
+		const parsed = loopStateOf({
 			lastTick: {
 				at: NOW,
 				summary: "idle: nothing launchable",
@@ -180,7 +180,7 @@ describe("what status prints", () => {
 		expect(parsed.lastTick?.skipped).toEqual([
 			{ root: WFC, number: 1, why: "parked" },
 		]);
-		expect(parseState({ lastTick: { at: NOW } }).lastTick).toBeNull();
+		expect(loopStateOf({ lastTick: { at: NOW } }).lastTick).toBeNull();
 	});
 
 	it("shows a launch's session id where captured (#2311)", () => {

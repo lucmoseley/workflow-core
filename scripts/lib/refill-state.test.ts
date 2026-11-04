@@ -8,6 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { REFILL_STATE_FILE } from "./refill-dir.js";
 import { MIN, NOW, record } from "./refill-loop-fixture";
 import {
 	batchLaunching,
@@ -17,21 +18,20 @@ import {
 	type LoopState,
 	lateStopped,
 	launchRecorded,
-	parseState,
 	readState,
 	runForgotten,
 	runHeld,
-	stateFile,
 	type Transition,
 	tickSettled,
 	updateState,
 } from "./refill-state.js";
+import { loopStateOf } from "./refill-state-testkit";
 
 const launch = (over: Record<string, unknown> = {}) =>
-	parseState({ launches: [record(over)] }).launches[0];
+	loopStateOf({ launches: [record(over)] }).launches[0];
 
 /* Every field parseState returns, each set off its default. */
-const FULL: LoopState = parseState({
+const FULL: LoopState = loopStateOf({
 	launches: [record()],
 	lastTick: { at: NOW, summary: "a tick", skipped: [], idle: null },
 	stopped: { at: NOW, reason: "explicit", detail: "d" },
@@ -138,7 +138,7 @@ describe("runHeld and runForgotten (#3861)", () => {
 
 	it("forgets a hold, and hands back a state holding none unchanged", () => {
 		expect(runForgotten()(FULL).heldAt).toBeNull();
-		const none = parseState(null);
+		const none = loopStateOf(null);
 		expect(runForgotten()(none)).toBe(none);
 	});
 });
@@ -188,7 +188,7 @@ describe("launchRecorded (#4180)", () => {
 });
 
 describe("the tick's writes", () => {
-	const read = parseState({ launches: [record({ jobId: "a" })] });
+	const read = loopStateOf({ launches: [record({ jobId: "a" })] });
 
 	it("batchLaunching puts the batch and its count on record", () => {
 		const launching = {
@@ -251,7 +251,7 @@ describe("the tick's writes", () => {
 describe("parseState's launch rows", () => {
 	it("drops a malformed row and logs it", () => {
 		const lines: string[] = [];
-		const { launches } = parseState(
+		const { launches } = loopStateOf(
 			{ launches: [record(), { jobId: "x" }, null] },
 			(l) => lines.push(l),
 		);
@@ -263,7 +263,7 @@ describe("parseState's launch rows", () => {
 	it("reads launches that are no list as none, and logs it", () => {
 		const lines: string[] = [];
 		expect(
-			parseState({ launches: "x" }, (l) => lines.push(l)).launches,
+			loopStateOf({ launches: "x" }, (l) => lines.push(l)).launches,
 		).toEqual([]);
 		expect(lines).toEqual([expect.stringMatching(/launches is not a list/)]);
 	});
@@ -294,13 +294,13 @@ describe("the state file", () => {
 
 	it("writes nothing for a transition that changes nothing", () => {
 		updateState(runForgotten(), ignore);
-		expect(fs.existsSync(stateFile())).toBe(false);
+		expect(fs.existsSync(path.join(dir, REFILL_STATE_FILE))).toBe(false);
 	});
 
 	it("reads a damaged file as the defaults, logging it", () => {
-		fs.writeFileSync(stateFile(), "{");
+		fs.writeFileSync(path.join(dir, REFILL_STATE_FILE), "{");
 		const lines: string[] = [];
-		expect(readState((l) => lines.push(l))).toEqual(parseState(null));
+		expect(readState((l) => lines.push(l))).toEqual(loopStateOf(null));
 		expect(lines[0]).toMatch(/is damaged/);
 	});
 });
