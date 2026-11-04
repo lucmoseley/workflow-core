@@ -164,6 +164,7 @@ const {
 const refillBatch = require("./refill-batch.js");
 const blocks = require("./refill-blocks.js");
 const {
+	attachProbeParks,
 	dropLiftedJobs,
 	readLiftedHolds,
 	readTickHolds,
@@ -2066,6 +2067,7 @@ async function tick({ dryRun }) {
 	const booted = dryRun ? state : settleBootKilled(state, seen, registry);
 	const listed = judgeFinished(booted.launches, agents, now, served);
 	const acted = dryRun ? listed : actOnLaunches(listed, control, served, seen);
+	attachProbeParks(broken, acted, log);
 	const { launches: judged, settled: liftedSettled } = queueLiftedHolds(acted, {
 		setsNothingRunning: dryRun || seen.paused || control.stopRequested,
 		roots: loop.landingRoots(served, state.launches),
