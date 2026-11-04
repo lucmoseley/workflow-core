@@ -160,7 +160,7 @@ const QUERY =
  * @typedef {object} LoopReading
  * @property {string[]} served the checkouts its scope serves
  * @property {{root: string, issues: number[]}[]} launches its launches at work
- * @property {import("./refill-loop.js").Hold[]} held the issues it holds: parked
+ * @property {import("./refill-state.js").Hold[]} held the issues it holds: parked
  *   rows on a full seat and launches waiting on a limit
  * @property {import("./refill-decide.js").TickHold[]} repoHolds its served
  *   checkouts' open repo holds

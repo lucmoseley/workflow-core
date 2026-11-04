@@ -23,7 +23,7 @@ const { runCheck } = require("./lib/check");
 const { caught } = require("./lib/caught.js");
 const { ghIssueListAll } = require("./lib/gh");
 const { PARKED_LABEL } = require("./lib/parked.js");
-const { readStateFile } = require("./lib/refill-files.js");
+const { readState } = require("./lib/refill-state.js");
 const { readHostTracker } = require("./lib/refill-repos");
 const { takesLabel } = require("./lib/takes-label.js");
 const { unclosedLaunches } = require("./lib/unclosed-launch.js");
@@ -73,7 +73,7 @@ const SPEC = {
 	name: "check-unclosed-launches",
 	usage: "node check-unclosed-launches.js [--json]",
 	async run(/** @type {import("./lib/check").Ctx} */ ctx) {
-		const { launches } = readStateFile((line) =>
+		const { launches } = readState((line) =>
 			ctx.warn("REFILL-LOOP-FILE-DAMAGED", line),
 		);
 		const unclosed = unclosedLaunches(launches);

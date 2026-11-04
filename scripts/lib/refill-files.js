@@ -7,7 +7,6 @@
  *   - control, written by `start`, `stop`, `set`, the tick's away changes and the
  *     loop's own no-progress pause, each read and write under withControlLock, so
  *     no writer loses another's change;
- *   - state, written by the loop;
  *   - pidfile, created by the loop exclusively, so a second loop exits;
  *   - the launch's pidfile (#4139), held by a process spawning the loop, which
  *     `watch` reads so as to stand down;
@@ -24,17 +23,15 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { readCurrentBootId } = require("./arbiter-proc.js");
-const { caught } = require("./caught.js");
-const { writeFileAtomic } = require("./atomic-write.js");
 const { pidLock, waitForLock } = require("./pid-lock.js");
-const { REFILL_STATE_FILE, refillPath } = require("./refill-dir.js");
+const { refillPath } = require("./refill-dir.js");
 const { isRecord } = require("./refill-goal.js");
-const { parseControl, parseState } = require("./refill-loop.js");
+const { readJson, readJsonOutcome, writeJson } = require("./refill-json.js");
+const { parseControl } = require("./refill-loop.js");
 
 function loopFiles() {
 	return {
 		control: refillPath(".refill-loop-control.json"),
-		state: refillPath(REFILL_STATE_FILE),
 		pid: refillPath(".refill-loop.pid"),
 		launch: refillPath(".refill-loop-launch.pid"),
 		log: refillPath(".refill-loop.log"),
@@ -51,54 +48,6 @@ function loopFiles() {
 
 /* The review runner, by the name its pidfile's holder runs (lib/pid-lock.js). */
 const REVIEW_RUNNER = "refill-review-run.js";
-
-/**
- * The file's read: `found` false where it is absent, else its parsed `value`,
- * or why it would not read or parse in `damage`.
- * @param {string} file
- * @returns {{found: boolean, value: unknown, damage: string|null}}
- */
-function readJsonOutcome(file) {
-	try {
-		const value = JSON.parse(fs.readFileSync(file, "utf8"));
-		return { found: true, value, damage: null };
-	} catch (err) {
-		const { code, message } = caught(err);
-		return code === "ENOENT"
-			? { found: false, value: null, damage: null }
-			: /* One line: JSON.parse's message can quote a multi-line source (#3814). */
-				{ found: true, value: null, damage: message.replace(/\s*\n\s*/g, " ") };
-	}
-}
-
-/**
- * The parsed file, or null where it is absent or damaged. A damaged file is a
- * fault, so `log` gets a line naming it and the error (#3380).
- * @param {string} file
- * @param {(line: string) => void} log
- * @returns {unknown}
- */
-function readJson(file, log) {
-	/* Fail open (#2012): each caller's parse reads null as its defaults, so a
-	 * damaged file costs the remembered state rather than stopping the loop;
-	 * the control alone stops it, through readControlChecked. */
-	const { value, damage } = readJsonOutcome(file);
-	if (damage !== null)
-		log(
-			`${file} is damaged (${damage}); read as absent, so its defaults stand until its next write replaces it`,
-		);
-	return value;
-}
-
-/**
- * @param {string} file
- * @param {unknown} value
- */
-function writeJson(file, value) {
-	writeFileAtomic(file, `${JSON.stringify(value, null, "\t")}\n`, {
-		mkdir: true,
-	});
-}
 
 /**
  * The control file, parsed, and why where it exists
@@ -188,40 +137,6 @@ function writeLoopPause(paused, noProgressFrom, log, waitMs) {
 }
 
 /**
- * The state file the loop writes, parsed; absent or damaged reads as parseState's
- * defaults, with `log` told of damage.
- * @param {(line: string) => void} log
- * @returns {import("./refill-loop.js").LoopState}
- */
-const readStateFile = (log) => parseState(readJson(loopFiles().state, log));
-
-/**
- * Record that the calling process holds the pidfile: the last stop no longer
- * describes the loop, and any death from here on is a crash (#3861).
- * @param {(line: string) => void} log
- */
-function recordRunHeld(log) {
-	const state = /** @type {object|null} */ (readJson(loopFiles().state, log));
-	writeJson(loopFiles().state, {
-		...state,
-		stopped: null,
-		heldAt: Date.now(),
-		bootId: readCurrentBootId(),
-	});
-}
-
-/**
- * Forget the last process's hold, before starting another: until the new one
- * holds the pidfile, no process has died (#3861). Called with none running, so
- * no tick's write can overtake it.
- * @param {(line: string) => void} log
- */
-function forgetRunHeld(log) {
-	const state = /** @type {object|null} */ (readJson(loopFiles().state, log));
-	if (state) writeJson(loopFiles().state, { ...state, heldAt: null });
-}
-
-/**
  * @typedef {{bootId: string|null, at: number}} ManagerRestart  what `boot-resume`
  *   leaves a loop that survived the user manager's restart, its own file as that
  *   loop's tick would overwrite a change to the state (#3971)
@@ -253,10 +168,8 @@ function dropManagerRestart(read, log) {
 
 module.exports = {
 	dropManagerRestart,
-	forgetRunHeld,
 	readManagerRestart,
 	writeManagerRestart,
-	recordRunHeld,
 	loopFiles,
 	REVIEW_RUNNER,
 	readControlChecked,
@@ -264,7 +177,4 @@ module.exports = {
 	writeControlFile,
 	writeLoopPause,
 	readControlFile,
-	readJson,
-	readStateFile,
-	writeJson,
 };

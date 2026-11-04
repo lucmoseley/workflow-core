@@ -477,7 +477,17 @@ describe("a session a refill-loop resume carried to a new id (#4101)", () => {
 	const me = buildJobRow("me", "working", { sessionId: SID });
 	const pastDone = buildJobRow("past", "done", { sessionId: PAST });
 	const pastLive = buildJobRow("past", "working", { sessionId: PAST });
-	const resumed = { sessionId: SID, pastSessionIds: [PAST] };
+	const resumed = {
+		root: "/r",
+		issues: [1],
+		prompt: "/implement 1",
+		seat: "/home/u/.claude",
+		jobId: "job1",
+		launchedAt: 0,
+		finishedAt: null,
+		sessionId: SID,
+		pastSessionIds: [PAST],
+	};
 
 	it("records the review its past id ran, once that session has ended", () => {
 		pastArtefact("standards");
@@ -500,7 +510,7 @@ describe("a session a refill-loop resume carried to a new id (#4101)", () => {
 		artefact("standards");
 		artefact("spec", undefined, repo, older.slice(0, 8));
 		pastArtefact("spec");
-		loopState([{ sessionId: SID, pastSessionIds: [older, PAST] }]);
+		loopState([{ ...resumed, pastSessionIds: [older, PAST] }]);
 		oracle([me]);
 		const r = run(["--base", "HEAD", "--findings", "0"]);
 		expect(r.stderr).toContain("review-spec-99887766.md");
@@ -543,7 +553,7 @@ describe("a session a refill-loop resume carried to a new id (#4101)", () => {
 	it("refuses another session's artefacts, which no launch of this session names", () => {
 		pastArtefact("standards");
 		pastArtefact("spec");
-		loopState([{ sessionId: "someone-else", pastSessionIds: [PAST] }]);
+		loopState([{ ...resumed, sessionId: "someone-else" }]);
 		oracle([me]);
 		const r = run(["--base", "HEAD", "--findings", "0"]);
 		expect(r.status).toBe(2);

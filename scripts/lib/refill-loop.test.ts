@@ -36,7 +36,6 @@ import {
 	parseControl,
 	parseProbeOutcome,
 	parseScope,
-	parseState,
 	readActsSoFar,
 	reviewStep,
 	runningOf,
@@ -57,9 +56,11 @@ import {
 	normal,
 	record,
 	seat,
+	stateFileFake,
 	WFC,
 } from "./refill-loop-fixture";
 import { buildSeatName } from "./refill-seats.js";
+import { launchRecorded, parseState } from "./refill-state.js";
 
 const agent = (id: string, state: string) => ({
 	sessionId: `s-${id}`,
@@ -586,7 +587,9 @@ function settleOnce(
 		omitted = [],
 		readOmitted,
 		mode = "normal",
+		updateState = stateFileFake(state, writes),
 	}: Partial<{
+		updateState: Io["updateState"];
 		dispatch: Io["launchBatch"];
 		readControl: Io["readControl"];
 		read: Tick["read"];
@@ -633,7 +636,7 @@ function settleOnce(
 				waiting: false,
 			}),
 			runReview: (lastRunOn) => lastRunOn,
-			writeState: (next) => writes.push(next),
+			updateState,
 			readOmittedDirs: readOmitted ?? (() => omitted),
 			log: (line) => lines.push(line),
 			now: () => NOW,
@@ -731,6 +734,34 @@ describe("a batch on record before its dispatch (#4180)", () => {
 		expect(writes.at(-1)?.launches.map((l) => l.jobId)).toEqual([
 			"job1",
 			"job9",
+		]);
+	});
+
+	it("keeps a launch a launcher recorded mid-tick that the tick does not carry (#4232)", () => {
+		const writes: Tick["state"][] = [];
+		const updateState = stateFileFake(parseState(null), writes);
+		const adopted = parseState({ launches: [record({ jobId: "adopted" })] })
+			.launches[0];
+		settleOnce(decision, 2, [], {
+			writes,
+			updateState,
+			dispatch: (batch) => {
+				updateState(launchRecorded(adopted));
+				return {
+					launched: batch.map((l) => ({
+						...l,
+						jobId: `job${l.issues[0]}`,
+						launchedAt: NOW,
+						finishedAt: null,
+					})),
+					refused: [],
+				};
+			},
+		});
+		expect(tickWrite(writes).launches.map((l) => l.jobId)).toEqual([
+			"job1",
+			"job9",
+			"adopted",
 		]);
 	});
 
@@ -1649,7 +1680,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 					onReview(stop);
 					return lastRunOn;
 				},
-				writeState: (s) => writes.push(s),
+				updateState: stateFileFake(parseState(null), writes),
 				log: () => undefined,
 				now: () => NOW,
 			},
@@ -1716,7 +1747,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 					reviews.push(lastRunOn);
 					return lastRunOn;
 				},
-				writeState: () => undefined,
+				updateState: stateFileFake(parseState(null), []),
 				log: (line) => {
 					expect(line).not.toContain("free slots");
 				},
@@ -2247,8 +2278,9 @@ describe("a resume the tick's step left held (#3855)", () => {
 				writePause: () => undefined,
 				resumeHeld: () => resumed,
 				runReview: (lastRunOn) => lastRunOn,
-				writeState: () => {
+				updateState: (transition) => {
 					written = true;
+					return transition(parseState(null));
 				},
 				readOmittedDirs: () => [],
 				log: (line) => lines.push(line),

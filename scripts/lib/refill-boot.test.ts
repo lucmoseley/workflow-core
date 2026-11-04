@@ -16,11 +16,10 @@ import {
 	bootSparedJobs,
 	bootVerdictOf,
 	isEmptyListingTrusted,
-	isSameBoot,
 	settleBootKilled,
 	withManagerRestart,
 } from "./refill-boot.js";
-import { parseState } from "./refill-loop.js";
+import { isSameBoot, parseState } from "./refill-state.js";
 
 const START = 1000;
 const control = {

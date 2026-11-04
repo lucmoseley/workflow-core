@@ -120,25 +120,25 @@ const {
 } = require("./lib/refill-repos.js");
 const loop = require("./lib/refill-loop.js");
 const seatReading = require("./lib/seat-reading.js");
-const {
-	awaitLoopHold,
-	bootVerdictOf,
-	resumedState,
-} = require("./lib/refill-boot.js");
+const { awaitLoopHold, bootVerdictOf } = require("./lib/refill-boot.js");
 const { readCurrentBootId, readProcStartOf } = require("./lib/arbiter-proc.js");
 const { REAL_PROC } = require("./lib/proc-root.js");
 const { sleepSync } = require("./lib/sleep-sync.js");
 const {
-	forgetRunHeld,
-	recordRunHeld,
 	readControlChecked,
 	readControlFile,
-	readStateFile,
 	withControlLock,
 	writeControlFile,
-	writeJson,
 	writeManagerRestart,
 } = require("./lib/refill-files.js");
+const {
+	bootResumeFailed,
+	bootResumed,
+	readState,
+	runForgotten,
+	runHeld,
+	updateState,
+} = require("./lib/refill-state.js");
 const refillBatch = require("./lib/refill-batch.js");
 const { buildHoldLines, readCheckout } = require("./lib/repo-holds.js");
 const { scriptPath } = require("./lib/script-path.js");
@@ -425,7 +425,7 @@ function launchHeld() {
 		pid: child.pid,
 		file: files.pid,
 		holder: lock.holder,
-		hasHeld: () => Boolean(readStateFile(() => undefined).heldAt),
+		hasHeld: () => Boolean(readState(() => undefined).heldAt),
 		/* This process never reaps it while it polls, so the exit reads as a
 		 * zombie, which the start time's reader calls ended. */
 		isAlive: () => readProcStartOf(Number(child.pid), REAL_PROC) !== null,
@@ -460,7 +460,7 @@ function bootResume() {
 			"boot resume: this boot's id will not read, so a manager restart reads as a boot (#3971)",
 		);
 	const { control, damaged } = readControlChecked(note);
-	const state = readStateFile(note);
+	const state = readState(note);
 	const verdict = bootVerdictOf({
 		control,
 		damaged,
@@ -478,14 +478,11 @@ function bootResume() {
 	}
 	/* Before the launch, so a loop that dies ahead of its first tick leaves it;
 	 * and heldAt then says whether the new loop ever held the pidfile. */
-	writeJson(files.state, resumedState(state, bootId, Date.now()));
+	updateState(bootResumed(bootId, Date.now()), note);
 	const launched = launchLoop();
 	if ("error" in launched) {
 		/* No new loop held it, so the last one's death still stands for `status`. */
-		writeJson(files.state, {
-			...readStateFile(note),
-			heldAt: state.heldAt,
-		});
+		updateState(bootResumeFailed(state.heldAt), note);
 		note(`boot resume: not resumed: ${launched.error}`);
 		return 1;
 	}
@@ -507,7 +504,7 @@ function watch() {
 	const { resume } = bootVerdictOf({
 		control,
 		damaged,
-		stopped: readStateFile(() => undefined).stopped,
+		stopped: readState(() => undefined).stopped,
 		pid: lock.holder() ?? launchLock.holder(),
 		self: process.pid,
 	});
@@ -547,7 +544,7 @@ function start(parsed) {
 				root,
 				seats: readConfiguredSeats(),
 				seatErrors: readDeclaredSeats().errors,
-				stopped: readStateFile(log).stopped,
+				stopped: readState(log).stopped,
 				unlessStopped: parsed.flags["--unless-stopped"] === true,
 				readExclusionWhy,
 				isOptedOut,
@@ -555,7 +552,7 @@ function start(parsed) {
 		);
 		if ("refused" in plan) return plan;
 		if (plan.write) writeControlFile(plan.write);
-		if (plan.action === "start") forgetRunHeld(log);
+		if (plan.action === "start") updateState(runForgotten(), log);
 		return plan;
 	});
 	if ("busy" in written)
@@ -686,7 +683,7 @@ function set(parsed) {
 			},
 		);
 		if ("write" in plan && plan.write) writeControlFile(plan.write);
-		if ("startFrom" in plan && plan.startFrom) forgetRunHeld(log);
+		if ("startFrom" in plan && plan.startFrom) updateState(runForgotten(), log);
 		return plan;
 	});
 	const plan =
@@ -793,7 +790,7 @@ function status({ flags }) {
 	const control = readControlFile(note);
 	const served = control ? servedRoots(control.scope).roots : [];
 	const pid = lock.holder();
-	const state = readStateFile(note);
+	const state = readState(note);
 	const root = sizingRoot(served);
 	const budgetOf = buildShownBudgets(root);
 	const seats = readSeatsView(
@@ -844,7 +841,7 @@ function status({ flags }) {
 
 /**
  * @param {import("./lib/refill-loop.js").Control|null} control
- * @param {import("./lib/refill-loop.js").LoopState} state
+ * @param {import("./lib/refill-state.js").LoopState} state
  * @param {BudgetOf} budgetOf
  */
 function sayOverflowLines(control, state, budgetOf) {
@@ -887,7 +884,7 @@ async function printDryRun() {
 	const { decision: d, read } = await tick({ dryRun: true });
 	say(`dry run: ${loop.summaryOf(d)}`);
 	if (read) say(loop.buildFrontierReadText(read));
-	const { reviewRunOn } = readStateFile(log);
+	const { reviewRunOn } = readState(log);
 	say(
 		`morning review: ${loop.isReviewRunDue(new Date(), reviewRunOn) ? "the filing is due, then reversals" : "reversals only"}`,
 	);
@@ -927,7 +924,7 @@ async function run() {
 		return 0;
 	}
 	process.on("exit", lock.release);
-	recordRunHeld(log);
+	updateState(runHeld(Date.now(), readCurrentBootId()), log);
 	for (const sig of /** @type {const} */ (["SIGTERM", "SIGINT", "SIGHUP"]))
 		process.on(sig, () => process.exit(0));
 	log(`refill loop running, pid ${process.pid}, from ${SCRIPTS}`);

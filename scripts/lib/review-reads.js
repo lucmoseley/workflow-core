@@ -14,7 +14,7 @@
 
 const { writeFileAtomic } = require("./atomic-write.js");
 const { refillPath } = require("./refill-dir.js");
-const { readJson } = require("./refill-files.js");
+const { readJson } = require("./refill-json.js");
 const { writeFd } = require("./write-fd.js");
 
 const READS_FILE = ".morning-review-reads.json";

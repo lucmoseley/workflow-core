@@ -26,6 +26,7 @@ import {
 } from "./arbiter-testkit";
 import { readParkedBy, writeParkedBy } from "./parked.js";
 import { REFILL_STATE_FILE } from "./refill-dir.js";
+import { record } from "./refill-loop-fixture";
 
 /* An hour past arbiter-markers.js's 24-hour MARKER_AGE_MS. */
 const AGED_MS = 25 * 60 * 60 * 1000;
@@ -102,11 +103,11 @@ describe("marker sweep — the backstop's per-session files in the repo root", (
 	});
 
 	describe("a session the refill loop still expects to resume (#4110)", () => {
-		const writeState = (launches: unknown) => {
+		const writeState = (launches: Record<string, unknown>[]) => {
 			vi.stubEnv("WFC_REFILL_DIR", sb.home);
 			fs.writeFileSync(
 				path.join(sb.home, REFILL_STATE_FILE),
-				JSON.stringify({ launches }),
+				JSON.stringify({ launches: launches.map((l) => record(l)) }),
 			);
 		};
 		afterEach(() => {

@@ -37,11 +37,10 @@ const {
 const { QUIET_BENCH_PAUSE } = require("./refill-decide.js");
 const {
 	readControlChecked,
-	readJson,
 	withControlLock,
 	writeControlFile,
-	writeJson,
 } = require("./refill-files.js");
+const { readJson, writeJson } = require("./refill-json.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
 const { PS_BIN } = require("./suite-ladder.js");
 const { resolveKey } = require("./workflow-core-config.js");

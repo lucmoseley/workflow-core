@@ -2,10 +2,10 @@
  * refill-loop.js — the refill loop's logic around lib/refill-decide.js, with
  * no I/O of its own (#2012, spec #1995, #3392): parsing its files' contents,
  * judging its launches and settling its tick, each step taking its effects and
- * clock as arguments. The files themselves are lib/refill-files.js's; a seat's
- * reading and sizing, lib/seat-reading.js's; launching a tick's picks,
- * lib/refill-batch.js's; what `start` and `status` print,
- * lib/refill-commands.js's.
+ * clock as arguments. The files themselves are lib/refill-files.js's, the
+ * state file lib/refill-state.js's; a seat's reading and sizing,
+ * lib/seat-reading.js's; launching a tick's picks, lib/refill-batch.js's; what
+ * `start` and `status` print, lib/refill-commands.js's.
  */
 
 const path = require("node:path");
@@ -35,18 +35,19 @@ const {
 	markParked,
 } = require("./refill-blocks.js");
 const { buildErrorText } = require("./caught.js");
-const {
-	buildGoalProgress,
-	isRecord,
-	parseGoal,
-	parseGoalProgress,
-} = require("./refill-goal.js");
+const { buildGoalProgress, isRecord, parseGoal } = require("./refill-goal.js");
 const { buildSeatName } = require("./refill-seats.js");
+const {
+	batchLaunching,
+	lateStopped,
+	parseStrings,
+	tickSettled,
+	withoutLaunching,
+} = require("./refill-state.js");
 const { unclosedLaunches } = require("./unclosed-launch.js");
 const {
 	buildOverflowStartLines,
 	firstOverflowStart,
-	parseOverflowStart,
 	planSeatBasisOf,
 } = require("./overflow-notice.js");
 const { seatTriedAfter } = require("./seat-reading.js");
@@ -143,69 +144,10 @@ const LINE_SKIPS = 3;
  *   {acts: string[], unreadable: string[]}} ReadActsBy  lib/arbiter-ledger.js's
  */
 
-/**
- * @typedef {object} LoopState
- * @property {LoopLaunch[]} launches
- * @property {{at: number, summary: string,
- *   skipped?: import("./refill-decide.js").Skip[],
- *   idle?: string|null, planWait?: import("./refill-decide.js").PlanWait}|null}
- *   lastTick `idle` is decideTick's reason it launched nothing, the idle alarm's
- *   source for it (#3920); `planWait` the allowance wait's, absent on any other
- * @property {{at: number, reason: string, detail: string}|null} stopped
- * @property {number|null} [heldAt] ms, when the current run's process took the
- *   pidfile; null from a start until its process does (#3861)
- * @property {Hold[]} held the last frontier-reading tick's, for the idle
- *   alarm (#3680)
- * @property {string|null} reviewRunOn machine-local date of the last morning
- *   review filing
- * @property {LaunchCount|null} launchCount
- * @property {LaunchCount|null} handedOff handedOffSince's, `from` being the away
- *   switch
- * @property {import("./overflow-notice.js").OverflowStart|null} overflowStart
- *   the newest first overflow launch after a plan-seat launch
- * @property {import("./refill-goal.js").GoalProgress|null} goalProgress the last
- *   frontier-reading tick's
- * @property {number} [bootedAt] when `boot-resume` restarted the loop, until a tick
- *   has read its listing and queued the launches the restart killed (#3880)
- * @property {true} [sameBootRestart] that restart was the user manager's within a
- *   boot, for as long as `bootedAt` stands (#3971)
- * @property {string} [bootId] the boot the loop last took the pidfile on (#3971)
- * @property {string[]} probeBrokenRoots the last settled tick's served checkouts
- *   whose probe failed, for the idle alarm: such a failure may leave no hold on
- *   file (#3903)
- * @property {Record<string, number>} seatTriedAt when each seat's `/usage` was
- *   last probed, whatever came of it: a failed probe moves no cache stamp (#4060)
- * @property {import("./refill-batch.js").Launching} [launching] the batch a tick
- *   was launching, which only a kill leaves on record (#4180)
- */
-
-/** @param {unknown} raw @returns {Record<string, number>} */
-const parseSeatTriedAt = (raw) =>
-	Object.fromEntries(
-		Object.entries(isRecord(raw) ? raw : {}).flatMap(([seat, at]) =>
-			typeof at === "number" ? [[seat, at]] : [],
-		),
-	);
-
-/**
- * The launches since `from`, the control's noProgressFrom, which outlast the
- * rows keptLaunches trims (#3889).
- * @typedef {{from: number, count: number}} LaunchCount
- */
-
-/**
- * An issue the loop holds, and since when, ms: a parked row on its session's full
- * seat, from the first normal-mode tick of an unbroken run of frontier-reading
- * ticks that held it; or, `onLimit`, a launch waiting on a limit (limitWaitOf).
- * @typedef {import("./refill-decide.js").Skip & {since: number,
- *   onLimit?: boolean}} Hold
- */
-
+/** @typedef {import("./refill-state.js").LoopState} LoopState */
+/** @typedef {import("./refill-state.js").LaunchCount} LaunchCount */
+/** @typedef {import("./refill-state.js").Hold} Hold */
 /** @typedef {import("./refill-batch.js").BatchOutcome} BatchOutcome */
-
-/** @param {unknown} raw */
-const parseStrings = (raw) =>
-	Array.isArray(raw) ? raw.filter((s) => typeof s === "string") : [];
 
 /**
  * The control file's scope. A scope that does not say normal reads as away
@@ -414,32 +356,6 @@ const landingRoots = (served, launches) => [
 	...new Set([...served, ...launches.map((l) => l.root)]),
 ];
 
-/** @param {unknown} raw @returns {LoopState["stopped"]} */
-function parseStopped(raw) {
-	if (
-		!isRecord(raw) ||
-		typeof raw.at !== "number" ||
-		typeof raw.reason !== "string"
-	)
-		return null;
-	return {
-		at: raw.at,
-		reason: raw.reason,
-		detail: typeof raw.detail === "string" ? raw.detail : "",
-	};
-}
-
-/** @param {unknown} raw */
-const isSkip = (raw) =>
-	isRecord(raw) &&
-	typeof raw.root === "string" &&
-	typeof raw.number === "number" &&
-	typeof raw.why === "string";
-
-/** @param {unknown} raw @returns {raw is Hold} */
-const isHold = (raw) =>
-	isRecord(raw) && isSkip(raw) && typeof raw.since === "number";
-
 /**
  * The holds a frontier-reading tick leaves. An away tick opens none, as a seat's
  * reset would launch nothing there (#2355), but keeps one whose seat still reads
@@ -458,72 +374,6 @@ const holdsOf = (held, before, now, mode) =>
 		if (since !== undefined) return [{ ...h, since }];
 		return isParkRoutingMode(mode) ? [{ ...h, since: now }] : [];
 	});
-
-/** @param {unknown} raw @returns {LoopState["lastTick"]} */
-function parseLastTick(raw) {
-	if (
-		!isRecord(raw) ||
-		typeof raw.at !== "number" ||
-		typeof raw.summary !== "string"
-	)
-		return null;
-	const skipped = Array.isArray(raw.skipped) ? raw.skipped.filter(isSkip) : [];
-	const idle = typeof raw.idle === "string" ? raw.idle : null;
-	return {
-		at: raw.at,
-		summary: raw.summary,
-		skipped,
-		idle,
-		...(isRecord(raw.planWait)
-			? {
-					planWait: {
-						resets:
-							typeof raw.planWait.resets === "number"
-								? raw.planWait.resets
-								: null,
-					},
-				}
-			: {}),
-	};
-}
-
-/** @param {unknown} raw @returns {LaunchCount|null} */
-const parseLaunchCount = (raw) =>
-	isRecord(raw) && typeof raw.from === "number" && typeof raw.count === "number"
-		? { from: raw.from, count: raw.count }
-		: null;
-
-/** @param {unknown} raw @returns {LoopState} */
-function parseState(raw) {
-	const r = isRecord(raw) ? raw : {};
-	return {
-		launches: Array.isArray(r.launches) ? r.launches : [],
-		lastTick: parseLastTick(r.lastTick),
-		stopped: parseStopped(r.stopped),
-		heldAt: typeof r.heldAt === "number" ? r.heldAt : null,
-		held: Array.isArray(r.held) ? r.held.filter(isHold) : [],
-		reviewRunOn: typeof r.reviewRunOn === "string" ? r.reviewRunOn : null,
-		launchCount: parseLaunchCount(r.launchCount),
-		handedOff: parseLaunchCount(r.handedOff),
-		overflowStart: parseOverflowStart(r.overflowStart),
-		goalProgress: parseGoalProgress(r.goalProgress),
-		probeBrokenRoots: parseStrings(r.probeBrokenRoots),
-		seatTriedAt: parseSeatTriedAt(r.seatTriedAt),
-		...(typeof r.bootedAt === "number" ? { bootedAt: r.bootedAt } : {}),
-		...(r.sameBootRestart === true ? { sameBootRestart: true } : {}),
-		...(typeof r.bootId === "string" ? { bootId: r.bootId } : {}),
-		...(isLaunching(r.launching) ? { launching: r.launching } : {}),
-	};
-}
-
-/**
- * @param {LoopState} state
- * @returns {LoopState}
- */
-function withoutLaunching(state) {
-	const { launching: _, ...rest } = state;
-	return rest;
-}
 
 /**
  * `state` with the members of the batch a kill cut off that `adopt` finds
@@ -548,13 +398,6 @@ function settleLaunching(state, adopt) {
 		},
 	};
 }
-
-/**
- * @param {unknown} raw
- * @returns {raw is import("./refill-batch.js").Launching}
- */
-const isLaunching = (raw) =>
-	isRecord(raw) && typeof raw.at === "number" && Array.isArray(raw.batch);
 
 /**
  * Whether this tick files the morning review: the first tick at or after
@@ -1259,7 +1102,8 @@ const buildLastTick = (decision, at, summary) => ({
  *   resumeHeld: ResumeHeld,
  *   writePause: (pause: import("./refill-decide.js").Pause) => void,
  *   runReview: (lastRunOn: string|null, now: number) => string|null,
- *   writeState: (state: LoopState) => void,
+ *   updateState: (transition: import("./refill-state.js").Transition) =>
+ *     LoopState,
  *   readOmittedDirs: () => string[],
  *   log: (line: string) => void, now: () => number}} io
  * @returns {{decision: import("./refill-decide.js").Decision,
@@ -1284,25 +1128,27 @@ function settleTick(
 	/** @type {LoopLaunch[]} */
 	const launchedSoFar = [];
 	/** @type {(launches: LoopLaunch[],
-	 *   launching?: import("./refill-batch.js").Launching) => void} */
+	 *   launching?: import("./refill-batch.js").Launching) => LoopState} */
 	const record = (launches, launching) =>
-		io.writeState({
-			...withoutLaunching(state),
-			launches: keptLaunches(launches),
-			bootedAt,
-			sameBootRestart,
-			...(launching
-				? {
-						launching,
-						launchCount: {
-							from: input.noProgressFrom,
-							count:
-								launchesSince(state, input.noProgressFrom) +
-								launchedSoFar.length,
-						},
-					}
-				: {}),
-		});
+		io.updateState(
+			batchLaunching(keptLaunches(launches), state, {
+				bootedAt,
+				sameBootRestart,
+				...(launching
+					? {
+							launching: {
+								launching,
+								launchCount: {
+									from: input.noProgressFrom,
+									count:
+										launchesSince(state, input.noProgressFrom) +
+										launchedSoFar.length,
+								},
+							},
+						}
+					: {}),
+			}),
+		);
 	const {
 		launches: afterResumes,
 		started,
@@ -1334,34 +1180,36 @@ function settleTick(
 		state.overflowStart?.at ?? null,
 		io,
 	);
-	const next = {
-		launches: keptLaunches([...afterResumes, ...outcome.launched]),
-		lastTick: buildLastTick(decision, input.now, summary),
-		/* A tick that does not stop outlives any record, a stop a `start` overtook
-		 * included. */
-		stopped: stoppedOf(decision, input.now),
-		heldAt: state.heldAt,
-		held:
-			"stop" in decision || read === null
-				? state.held
-				: holdsOf(decision.held, state.held, input.now, input.mode),
-		reviewRunOn: state.reviewRunOn,
-		launchCount: {
-			from: input.noProgressFrom,
-			count:
-				launchesSince(state, input.noProgressFrom) + outcome.launched.length,
-		},
-		handedOff: nextHandedOff(state, away, judged, input.now),
-		overflowStart: overflowStart ?? state.overflowStart,
-		goalProgress: goalProgressAfter(state.goalProgress, read, input.now),
-		probeBrokenRoots,
-		seatTriedAt: seatTriedAfter(state.seatTriedAt, probes, input.now),
-		bootedAt,
-		sameBootRestart,
-		bootId: state.bootId,
-	};
-	io.writeState(next);
-	const reviewRunOn = io.runReview(state.reviewRunOn, input.now);
+	const settledState = io.updateState(
+		tickSettled(
+			{
+				launches: keptLaunches([...afterResumes, ...outcome.launched]),
+				lastTick: buildLastTick(decision, input.now, summary),
+				/* A tick that does not stop outlives any record, a stop a `start`
+				 * overtook included. */
+				stopped: stoppedOf(decision, input.now),
+				held:
+					"stop" in decision || read === null
+						? state.held
+						: holdsOf(decision.held, state.held, input.now, input.mode),
+				launchCount: {
+					from: input.noProgressFrom,
+					count:
+						launchesSince(state, input.noProgressFrom) +
+						outcome.launched.length,
+				},
+				handedOff: nextHandedOff(state, away, judged, input.now),
+				overflowStart: overflowStart ?? state.overflowStart,
+				goalProgress: goalProgressAfter(state.goalProgress, read, input.now),
+				probeBrokenRoots,
+				seatTriedAt: seatTriedAfter(state.seatTriedAt, probes, input.now),
+				bootedAt,
+				sameBootRestart,
+			},
+			state,
+		),
+	);
+	const reviewRunOn = io.runReview(settledState.reviewRunOn, input.now);
 	const reread = "stop" in decision ? null : io.readControl();
 	const late =
 		reread === null || !isStopRequested(reread.control)
@@ -1373,12 +1221,13 @@ function settleTick(
 					resumable: leftDue(input, afterResumes),
 				});
 	if (late) io.log(summaryOf(late));
-	if (late || reviewRunOn !== state.reviewRunOn)
-		io.writeState({
-			...next,
-			stopped: (late && stoppedOf(late, io.now())) ?? next.stopped,
-			reviewRunOn,
-		});
+	if (late || reviewRunOn !== settledState.reviewRunOn)
+		io.updateState(
+			lateStopped(
+				(late && stoppedOf(late, io.now())) ?? settledState.stopped,
+				reviewRunOn,
+			),
+		);
 	return {
 		decision: late ?? decision,
 		launched: outcome.launched.length + started,
@@ -1440,7 +1289,6 @@ module.exports = {
 	parseProbeOutcome,
 	settleTick,
 	launchesSince,
-	parseState,
 	stopNeverStarted,
 	summaryOf,
 };

@@ -30,7 +30,7 @@ const { spawn } = require("node:child_process");
 const path = require("node:path");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { PRINTING_FIX, REPAIR_STATES } = require("./gate-check.js");
-const { readJson, writeJson } = require("./refill-files.js");
+const { readJson, writeJson } = require("./refill-json.js");
 
 /* A guess: often enough that a met gate waits on its judge about as long as
  * a session takes to start, rare enough that a sweep of slow checks (one runs

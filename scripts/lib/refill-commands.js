@@ -63,7 +63,7 @@ const STATUS_SKIPS = 10;
 /** @typedef {import("./refill-loop.js").Control} Control */
 /** @typedef {import("./refill-loop.js").Scope} Scope */
 /** @typedef {import("./refill-loop.js").LoopLaunch} LoopLaunch */
-/** @typedef {import("./refill-loop.js").LoopState} LoopState */
+/** @typedef {import("./refill-state.js").LoopState} LoopState */
 
 /** @param {number} from */
 const buildCountingLine = (from) =>

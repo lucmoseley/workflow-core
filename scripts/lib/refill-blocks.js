@@ -35,6 +35,7 @@ const {
 	pickMoveSeat,
 } = require("./refill-decide.js");
 const { buildSeatName, isSameSeat, seatIdOf } = require("./refill-seats.js");
+const { ledgerJobOf } = require("./refill-state.js");
 
 /* #2359's "within one tick": a typed line reaches the timeline at once
  * (#2354 F8), so a minute is ample; untraced. */
@@ -2348,14 +2349,6 @@ function syncLedgerHold(l, io) {
 }
 
 /**
- * The job a launch's ledger rows name, which a copy keeps.
- * @template {string|null} J
- * @param {{copiedFrom?: string, jobId: J}} l
- * @returns {string|J}
- */
-const ledgerJobOf = (l) => l.copiedFrom ?? l.jobId;
-
-/**
  * @param {LoopLaunch} l
  * @returns {l is JobLaunch & {limitHeld: LimitHeld & {ledgerHeldUntil: number}}}
  */
@@ -2698,7 +2691,6 @@ module.exports = {
 	LISTING_GRACE_MS,
 	iso,
 	launchName,
-	ledgerJobOf,
 	movedOnto,
 	limitWaitOf,
 	markParked,

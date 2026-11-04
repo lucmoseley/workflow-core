@@ -156,13 +156,18 @@ const {
 	readManagerRestart,
 	REVIEW_RUNNER,
 	readControlChecked,
-	readJson,
-	readStateFile,
 	withControlLock,
 	writeControlFile,
 	writeLoopPause,
-	writeJson,
 } = require("./refill-files.js");
+const { readJson } = require("./refill-json.js");
+const {
+	killSettled,
+	launchRecorded,
+	ledgerJobOf,
+	readState,
+	updateState,
+} = require("./refill-state.js");
 const refillBatch = require("./refill-batch.js");
 const blocks = require("./refill-blocks.js");
 const {
@@ -1112,27 +1117,14 @@ function settleAdoptedWoken(l, target, { jobId, sessionId }, allowanceUsd) {
 		: { failed: null, jobId, sessionId, copy: false };
 }
 
-/**
- * The state file with launch `l` in place of the unfinished one it was, matched
- * by the job its ledger rows name, or added where none is (#4180).
- * @param {import("./refill-loop.js").LoopLaunch} l
- */
-function writeLaunch(l) {
-	const state = readStateFile(log);
-	const job = blocks.ledgerJobOf(l);
-	/** @param {import("./refill-loop.js").LoopLaunch} x */
-	const isIt = (x) => x.finishedAt === null && blocks.ledgerJobOf(x) === job;
-	const launches = state.launches.some(isIt)
-		? state.launches.map((x) => (isIt(x) ? l : x))
-		: [...state.launches, l];
-	writeJson(files.state, { ...state, launches });
-}
+/** @param {import("./refill-loop.js").LoopLaunch} l */
+const writeLaunch = (l) => updateState(launchRecorded(l), log);
 
 /**
  * `state` with the members of the batch a kill cut off that started tracked
  * (lib/refill-batch.js's adoptLaunching, #4180), each gated one's judgement
  * dropped as its launch would have.
- * @param {import("./refill-loop.js").LoopState} state
+ * @param {import("./refill-state.js").LoopState} state
  * @param {string[]} served
  */
 const adoptKilledLaunches = (state, served) =>
@@ -1451,7 +1443,7 @@ const blockIo = (served) => ({
 			model: MODEL,
 			prompt: l.prompt,
 			root: l.root,
-			jobId: blocks.ledgerJobOf(l),
+			jobId: ledgerJobOf(l),
 			heldUntil: until,
 		}),
 	readTimeline: readTimelineOf,
@@ -1468,7 +1460,7 @@ const blockIo = (served) => ({
 	unparkSession,
 	comment: commentOn,
 	postHandOff,
-	release: (l) => release({ jobId: blocks.ledgerJobOf(l), root: l.root }),
+	release: (l) => release({ jobId: ledgerJobOf(l), root: l.root }),
 	progressOf: (l) => readProgress(l, served),
 	readActsBefore: buildActsBeforeReader(served),
 	log,
@@ -1700,7 +1692,7 @@ const actOnLaunches = (listed, { scope: { mode } }, served, seen) => {
  */
 function readTickState(managerRestart, served, dryRun) {
 	const onDisk = withManagerRestart(
-		readStateFile(log),
+		readState(log),
 		managerRestart,
 		readCurrentBootId(),
 	);
@@ -1713,7 +1705,7 @@ function readTickState(managerRestart, served, dryRun) {
  * with no outcome (lib/refill-blocks.js's settleStartedResumes), ahead of any
  * judging of the launches. Written at once where either changed it, so a stamp
  * later this tick lands on what was settled.
- * @param {import("./refill-loop.js").LoopState} read
+ * @param {import("./refill-state.js").LoopState} read
  * @param {string[]} served
  */
 function settleKilled(read, served) {
@@ -1722,9 +1714,13 @@ function settleKilled(read, served) {
 		adopted.launches,
 		blockIo(served),
 	);
-	const state = settled ? { ...adopted, launches } : adopted;
-	if (state !== read) writeJson(files.state, state);
-	return state;
+	if (adopted === read && !settled) return read;
+	const settle = killSettled(
+		{ launches, launchCount: adopted.launchCount },
+		read,
+	);
+	updateState(settle, log);
+	return settle(read);
 }
 
 /**
@@ -1829,7 +1825,7 @@ const settleOptedOut = (control, dryRun) =>
 /**
  * The log lines of stopNeverStarted, none on a dry run.
  * @param {boolean} dryRun
- * @param {import("./refill-loop.js").LoopState} state
+ * @param {import("./refill-state.js").LoopState} state
  * @param {Parameters<typeof stopNeverStarted>[0]} registry
  */
 const stopsOfNeverStarted = (dryRun, state, registry) =>
@@ -1868,7 +1864,7 @@ function recordListedOverflowSessions(agents) {
  * The tick's listing, an empty one read as nothing live where a boot's killed
  * launches allow it. A dry run judges nothing by it, so it reads the plain one.
  * @param {boolean} dryRun
- * @param {import("./refill-loop.js").LoopState} state
+ * @param {import("./refill-state.js").LoopState} state
  * @param {import("./registry-agents.js").RegistryListing} registry
  */
 function readTickListing(dryRun, state, registry) {
@@ -2077,7 +2073,7 @@ async function tick({ dryRun }) {
 				blocks.resumeHeldLaunches(resumes, held, seen, { isStopped, record }),
 			writePause: (pause) => writeLoopPause(pause, control.noProgressFrom, log),
 			runReview,
-			writeState: (next) => writeJson(files.state, next),
+			updateState: (transition) => updateState(transition, log),
 			readOmittedDirs: () => readOmittedDirs(declared),
 			log,
 			now: Date.now,

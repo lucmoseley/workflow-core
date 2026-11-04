@@ -7,7 +7,7 @@
  *
  * Usage:  node scripts/check-refill-loop-stop.js [--notify] [--json]
  *
- * READS the loop's state file (lib/refill-files.js) for its last stop, its
+ * READS the loop's state file (lib/refill-state.js) for its last stop, its
  * control file for its pause, and its pid lock for whether it runs. An explicit
  * stop and a founder's pause are not named.
  *
@@ -52,6 +52,7 @@ const { NO_PROGRESS_PAUSE, buildPauseText } = require("./lib/refill-decide.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const loop = require("./lib/refill-loop.js");
 const refillFiles = require("./lib/refill-files.js");
+const { readState } = require("./lib/refill-state.js");
 const { buildSeatName } = require("./lib/refill-seats.js");
 const { expandPastePaths, scriptPath } = require("./lib/script-path.js");
 
@@ -130,7 +131,7 @@ runCheck({
 			ctx.warn("REFILL-LOOP-FILE-DAMAGED", line);
 			ctx.sayNotice(`REFILL-LOOP-FILE-DAMAGED — ${line}.`);
 		};
-		const { stopped, overflowStart } = refillFiles.readStateFile(reportDamaged);
+		const { stopped, overflowStart } = readState(reportDamaged);
 		const seen = readSeen(files.stopSeen);
 		const fresh =
 			stopped !== null &&

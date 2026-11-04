@@ -21,11 +21,8 @@ const path = require("node:path");
 const { spawnChild } = require("./lib/child-spawn.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { pidLock } = require("./lib/pid-lock.js");
-const {
-	loopFiles,
-	REVIEW_RUNNER,
-	writeJson,
-} = require("./lib/refill-files.js");
+const { loopFiles, REVIEW_RUNNER } = require("./lib/refill-files.js");
+const { writeJson } = require("./lib/refill-json.js");
 
 const USAGE =
 	"usage: node scripts/refill-review-run.js '<reviewStep start, as JSON>'";

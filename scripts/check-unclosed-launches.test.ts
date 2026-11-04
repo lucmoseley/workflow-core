@@ -22,6 +22,7 @@ const buildLaunch = (n: number, over: Record<string, unknown> = {}) => ({
 	root,
 	issues: [n],
 	prompt: `/implement ${n}`,
+	seat: "/home/u/.claude",
 	launchedAt: Date.parse("2026-10-29T18:00:00Z"),
 	finishedAt: Date.parse("2026-10-29T19:00:00Z"),
 	jobId: `job${n}`,

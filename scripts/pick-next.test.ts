@@ -840,6 +840,8 @@ describe("readiness", () => {
 						root: repoRoot,
 						issues: [9],
 						prompt: "/implement 9",
+						seat: "/home/u/.claude",
+						jobId: "job9",
 						launchedAt: Date.parse("2026-10-29T18:00:00Z"),
 						finishedAt: Date.parse("2026-10-29T19:00:00Z"),
 						sessionId: "s9",

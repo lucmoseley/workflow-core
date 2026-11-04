@@ -14,6 +14,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentRecord } from "./agent-liveness.js";
 import { loopFiles } from "./refill-files.js";
+import { stateFile } from "./refill-state.js";
 import type { TickResult, Wake } from "./refill-wake.js";
 import { runTicks, touchWake, wakeWatcher } from "./refill-wake.js";
 
@@ -61,7 +62,7 @@ function runHook(sessionId: string, payload: object = {}) {
 
 function writeLoop(launches: object[]) {
 	fs.writeFileSync(files.pid, "1");
-	fs.writeFileSync(files.state, JSON.stringify({ launches }));
+	fs.writeFileSync(stateFile(), JSON.stringify({ launches }));
 }
 
 const open = (fields: object) => ({
@@ -77,7 +78,7 @@ const readWakeLines = () =>
 describe("refill-wake.sh", () => {
 	it("does nothing where the loop's pidfile is absent", () => {
 		fs.writeFileSync(
-			files.state,
+			stateFile(),
 			JSON.stringify({ launches: [open({ sessionId: SID })] }),
 		);
 		const r = runHook(SID);
@@ -149,7 +150,7 @@ describe("refill-wake.sh", () => {
 
 	it("does nothing on an unreadable state file", () => {
 		fs.writeFileSync(files.pid, "1");
-		fs.writeFileSync(files.state, "{");
+		fs.writeFileSync(stateFile(), "{");
 		expect(runHook(SID).status).toBe(0);
 		expect(fs.existsSync(wake)).toBe(false);
 	});

@@ -24,7 +24,6 @@ import {
 	buildPauseText,
 	QUIET_BENCH_PAUSE,
 } from "./refill-decide.js";
-import { parseState } from "./refill-loop.js";
 import {
 	away,
 	DV,
@@ -37,6 +36,7 @@ import {
 	record,
 	WFC,
 } from "./refill-loop-fixture";
+import { parseState } from "./refill-state.js";
 
 const NO_SEATS = {
 	readings: [],

@@ -1,10 +1,12 @@
 /*
  * The refill loop's fixtures its pure-core tests share (#2012, #3370): a
- * clock, three checkout roots, a scope in each mode and a launch record.
+ * clock, three checkout roots, a scope in each mode, a launch record and a
+ * state file.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { FULL } from "./refill-decide.js";
+import type { LoopState, Transition } from "./refill-state.js";
 
 export const MIN = 60 * 1000;
 export const NOW = Date.parse("2026-10-18T12:00:00Z");
@@ -86,3 +88,16 @@ export const seat = (
 	readAt: NOW,
 	weekRead: { percent: null, atMs: null },
 });
+
+/**
+ * A state file held in memory: each transition lands on the last write, and
+ * each write is pushed to `writes`.
+ */
+export function stateFileFake(initial: LoopState, writes: LoopState[]) {
+	let onDisk = initial;
+	return (transition: Transition) => {
+		onDisk = transition(onDisk);
+		writes.push(onDisk);
+		return onDisk;
+	};
+}

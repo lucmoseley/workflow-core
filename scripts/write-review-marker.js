@@ -52,7 +52,7 @@ const { spawnGitSync } = require("./lib/git.js");
 const { resolveCommitHost, worktreeRoot } = require("./lib/host-root.js");
 const { markersDir } = require("./lib/marker-root.js");
 const { numstatPaths } = require("./lib/patch-files.js");
-const { readStateFile } = require("./lib/refill-files.js");
+const { readState } = require("./lib/refill-state.js");
 const { reviewSuffix } = require("./lib/review-suffix.js");
 const { writeFd } = require("./lib/write-fd.js");
 
@@ -137,7 +137,7 @@ const hasArtefact = (roots, axis, sid) =>
  * @returns {string[]}
  */
 function readPastIds(sid) {
-	const { launches } = readStateFile((line) => writeFd(2, `${line}\n`));
+	const { launches } = readState((line) => writeFd(2, `${line}\n`));
 	const row = launches.find((l) => l.sessionId === sid);
 	return [...(row?.pastSessionIds ?? [])].reverse();
 }

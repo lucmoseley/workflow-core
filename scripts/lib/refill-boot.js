@@ -25,6 +25,7 @@ const {
 } = require("./refill-blocks.js");
 const { startedAt } = require("./refill-decide.js");
 const { recordedStop } = require("./refill-loop.js");
+const { isSameBoot } = require("./refill-state.js");
 
 /* First guesses, and stated as ones: the 3 Nov boot's loop reached its lock in
  * 61 ms, so 30 s allows for a machine far busier than a boot was; a poll costs
@@ -65,7 +66,7 @@ function awaitLoopHold({ pid, file, holder, hasHeld, isAlive, now, sleep }) {
  * @param {object} found
  * @param {import("./refill-loop.js").Control|null} found.control
  * @param {string|null} found.damaged why the control would not read
- * @param {import("./refill-loop.js").LoopState["stopped"]} found.stopped
+ * @param {import("./refill-state.js").LoopState["stopped"]} found.stopped
  * @param {number|null} found.pid the pidfile's live holder
  * @param {number} found.self this process's pid, which a stale pidfile can name
  * @returns {{resume: boolean, line: string, tellLoop?: string}}
@@ -112,7 +113,7 @@ const isInRegistry = (l, registry) =>
  * launch the registry names is alive, and one inside the listing's grace may not be
  * listed yet, so it waits, `bootedAt` standing, for the tick that grace ends on. Residual:
  * past that grace, a live session both unlisted and unrecorded is queued.
- * @param {import("./refill-loop.js").LoopState} state
+ * @param {import("./refill-state.js").LoopState} state
  * @param {Parameters<typeof queueBootKilled>[1]} seen
  * @param {import("./registry-agents.js").RegistryListing} registry
  * @returns {{launches: import("./refill-loop.js").LoopLaunch[], bootedAt?: number,
@@ -148,7 +149,7 @@ function settleBootKilled(
  * `/init.scope` may be running unlisted, so only where the registry also shows
  * every launch it may have killed gone (#3971). Residual: a faulty listing and a
  * live session's missing registry record, together, still queue that session.
- * @param {import("./refill-loop.js").LoopState} state
+ * @param {import("./refill-state.js").LoopState} state
  * @param {import("./registry-agents.js").RegistryListing} registry
  */
 const isEmptyListingTrusted = (
@@ -166,36 +167,12 @@ const isEmptyListingTrusted = (
 			(launches.some(isBootKilled) && launches.filter(isLive).every(isHeld));
 
 /**
- * Whether the loop last held its pidfile on the boot now running, so a
- * `boot-resume` is a restart within it and no boot; false where either
- * boot is unknown.
- * @param {string|null|undefined} recorded
- * @param {string|null} current
- */
-const isSameBoot = (recorded, current) =>
-	current !== null && recorded === current;
-
-/**
- * `state` as `boot-resume` leaves it for the loop it is about to start.
- * @param {import("./refill-loop.js").LoopState} state
- * @param {string|null} current this boot's id
- * @param {number} at
- * @returns {import("./refill-loop.js").LoopState}
- */
-const resumedState = (state, current, at) => ({
-	...state,
-	bootedAt: at,
-	sameBootRestart: isSameBoot(state.bootId, current) || undefined,
-	heldAt: null,
-});
-
-/**
  * `state` as the restart a surviving loop's marker reports leaves it (#3971). The
  * tick queues what the restart killed as after a boot.
- * @param {import("./refill-loop.js").LoopState} state
+ * @param {import("./refill-state.js").LoopState} state
  * @param {import("./refill-files.js").ManagerRestart|null} marker
  * @param {string|null} current this boot's id
- * @returns {import("./refill-loop.js").LoopState}
+ * @returns {import("./refill-state.js").LoopState}
  */
 const withManagerRestart = (state, marker, current) =>
 	marker !== null && isSameBoot(marker.bootId, current)
@@ -209,7 +186,7 @@ const withManagerRestart = (state, marker, current) =>
  * never due back, and a queued launch is resumed whatever its record reads. Unbounded
  * in time: a spared job has no process, so it holds no memory, and admission charges
  * only what a listing names.
- * @param {import("./refill-loop.js").LoopState} state
+ * @param {import("./refill-state.js").LoopState} state
  * @returns {Set<string>}
  */
 const bootSparedJobs = ({ bootedAt, launches }) =>
@@ -224,8 +201,6 @@ module.exports = {
 	bootSparedJobs,
 	bootVerdictOf,
 	isEmptyListingTrusted,
-	isSameBoot,
-	resumedState,
 	settleBootKilled,
 	withManagerRestart,
 };

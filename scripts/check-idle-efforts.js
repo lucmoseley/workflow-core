@@ -77,6 +77,7 @@ const { readParkMarkersOrThrow } = require("./lib/parked.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const loop = require("./lib/refill-loop.js");
 const refillFiles = require("./lib/refill-files.js");
+const { readState } = require("./lib/refill-state.js");
 const {
 	discoverRepos,
 	homeDir,
@@ -139,7 +140,7 @@ function readLoop(reportDamaged) {
 		/* check-refill-loop-stop.js names either file's damage here; a damaged
 		 * control's run is the last tick's count point (#3892, #3927). */
 		const lastControl = refillFiles.readControlFile(() => undefined);
-		const { launchCount } = refillFiles.readStateFile(() => undefined);
+		const { launchCount } = readState(() => undefined);
 		return {
 			running: false,
 			stoppedRun: stoppedRunOf(lastControl, launchCount),
@@ -152,7 +153,7 @@ function readLoop(reportDamaged) {
 		};
 	}
 	const control = refillFiles.readControlFile(reportDamaged);
-	const state = refillFiles.readStateFile(reportDamaged);
+	const state = readState(reportDamaged);
 	const served = control ? servedRoots(control.scope).roots : [];
 	const { holds: repoHolds, unread } = readTickHolds(
 		served,

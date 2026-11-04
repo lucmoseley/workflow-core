@@ -12,10 +12,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { decideTick } from "./refill-decide.js";
 import {
 	readControlChecked,
-	readJson,
 	withControlLock,
 	writeLoopPause,
 } from "./refill-files.js";
+import { readJson } from "./refill-json.js";
 import { NOW } from "./refill-loop-fixture";
 
 describe("a loop file's read (#3380)", () => {
