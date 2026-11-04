@@ -58,7 +58,7 @@
 	"scripts/guard-unpushed-commits.js": "111bab3f69bb4f67",
 	"scripts/inject-compaction-count.js": "d5d1db71fe22ce96",
 	"scripts/inject-founder-wording.js": "423e7dbe6fbab6e6",
-	"scripts/inject-tracker-docs.sh": "c09d8210d2862fd6",
+	"scripts/inject-tracker-docs.sh": "12a9b5c5d2dd1411",
 	"scripts/landing-registry-gate.js": "9ef8559bf848411f",
 	"scripts/mark-presence.js": "b1e72f71b771a66b",
 	"scripts/measure-turn-band.js": "f94fe6df726af2b7",
