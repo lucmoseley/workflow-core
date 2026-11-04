@@ -1,6 +1,7 @@
 /*
- * git-read-memo.js — one tool call's git reads, each distinct one run once
- * (dispatcher contract 5, #2733; #4127). lib/git.js consults it on every sync
+ * git-read-memo.js — one run's git reads, each distinct one run once: a tool
+ * call's under the dispatcher (contract 5, #2733; #4127), and a
+ * check-doc-map.js reading's (#4305). lib/git.js consults it on every sync
  * spawn, so a core, its host and the libraries under them share it with no port
  * threaded through them. Off, as it is outside withGitReadMemo, every spawn runs.
  *
