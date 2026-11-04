@@ -173,7 +173,7 @@
  *      skipped rather than counted. The word count runs to the end of the line
  *      or to the next bold element, whichever comes first, so an empty verdict
  *      cannot borrow the residual's words. NOT softened by `--map-dirty`, for
- *      assertion 15's reason. Reads HEAD alone, never readCommittedRevs(): a
+ *      assertion 15's reason. Reads HEAD alone, never readParentRevs(): a
  *      second parent would NARROW this one, refusing a merge for a compaction
  *      the other branch committed. Three residuals are outside it deliberately — a
  *      missing prediction, a verdict that is STALE rather than absent, and a
@@ -341,7 +341,7 @@
  * untracked files at all, so resolving them against the root would answer
  * "absent" for every one and turn each softened WARN back into the refusal
  * those two tickets removed. The rev-keyed reads — readMapTextAt,
- * readCommittedRevs, pairingHalfAgeMs, buildFileAgeReader, the always-loaded pool's `cat-file -s` and
+ * readParentRevs, pairingHalfAgeMs, buildFileAgeReader, the always-loaded pool's `cat-file -s` and
  * the conflicted-index SKIP — ask the real repo too, and are about revisions
  * rather than about the worktree, so --root has nothing to say to them.
  *
@@ -404,7 +404,7 @@ const {
 	shedLedgerEntries,
 	compactionVerdictFaults,
 	VERDICT_MARKER,
-	readCommittedRevs,
+	readParentRevs,
 	readMapTextAt,
 	LEDGER_ENTRY_CAP_BYTES,
 	PROSE_CAP_WORDS,
@@ -2414,7 +2414,7 @@ function checkTriggerVerdict(r) {
 	 *
 	 * NOT softened by mapDirty — see the header note on assertion 16.
 	 */
-	const revs = readCommittedRevs();
+	const revs = readParentRevs();
 	const poolDelta = stagedPoolDelta(revs);
 	const ledgerEntries = shedLedgerEntries(text);
 	/** @type {{ label: string, fault: string }[]} */

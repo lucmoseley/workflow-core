@@ -26,6 +26,7 @@ const { caught } = require("./caught.js");
 const { isUnder } = require("./is-under.js");
 const { execGit, gitOrNull } = require("./git.js");
 const { readCommitOrBroken } = require("./commit-sha.js");
+const { brokenError } = require("./outcome-error.js");
 const { siblingTests } = require("./test-kind.js");
 
 /** One inline-code span, capturing its text. */
@@ -1078,7 +1079,7 @@ function verdictWordCount(text, issue) {
  * Rejected (mantahostels#1890), the discriminator being exact: a date proxy for
  * "postdates mantahostels#1719", and a provenance opt-out, which mantahostels#1885 forbids.
  *
- * HEAD ALONE, never `readCommittedRevs()`. An in-flight second parent widens
+ * HEAD ALONE, never `readParentRevs()`. A merge's other parent widens
  * assertions 14 and 16 — a merge's other side has already paid for what it
  * added — but it would NARROW this one, refusing a merge for a compaction the
  * other branch committed (mantahostels#1968's review).
@@ -1195,46 +1196,61 @@ function readHeadMapText(mapPath) {
 }
 
 /**
- * The pseudo-refs naming a second parent while an operation is mid-flight. A
- * resolved merge is committed with the index holding both sides' work, and
- * every entry arriving from the OTHER parent is absent from `HEAD` — so
- * without these an assertion comparing against HEAD alone refuses a merge for
- * entries somebody else already committed (mantahostels#1384). Rebase, cherry-pick and
- * revert have the same shape.
- */
-const IN_FLIGHT_REFS = [
-	"MERGE_HEAD",
-	"REBASE_HEAD",
-	"CHERRY_PICK_HEAD",
-	"REVERT_HEAD",
-];
-
-/**
- * `HEAD`, plus the sha of each of `refs` that resolves. An absent ref is the
- * ordinary case, nothing mid-flight; a git that will not answer is BROKEN,
- * never a quiet HEAD alone (#3184).
- * @param {readonly string[]} refs
+ * Every rev whose copy of the map counts as already committed: `HEAD`, plus
+ * each other parent of a merge in flight. A resolved merge is committed with
+ * the index holding every side's work, and an entry arriving from another
+ * parent is absent from `HEAD` — so comparing against HEAD alone refuses a
+ * merge for entries somebody else already committed (mantahostels#1384).
+ *
+ * `MERGE_HEAD` alone: `CHERRY_PICK_HEAD`, `REVERT_HEAD` and `REBASE_HEAD` name
+ * the commit being applied, never a parent, so what it adds is new here
+ * (#4205). Every line of `$GIT_DIR/MERGE_HEAD` is read, since an octopus merge
+ * run `--no-commit` holds several and `rev-parse` answers the first only. An
+ * absent ref is the ordinary case; a git that will not answer is BROKEN, never
+ * a quiet HEAD alone (#3184).
  * @returns {string[]}
  */
-function readHeadAnd(refs) {
-	const revs = ["HEAD"];
-	for (const ref of refs) {
-		const sha = readCommitOrBroken(ref);
-		if (sha !== null) revs.push(sha);
-	}
-	return revs;
+function readParentRevs() {
+	if (readCommitOrBroken("MERGE_HEAD") === null) return ["HEAD"];
+	const sides = readMergeHeadLines().map((line) => {
+		const sha = readCommitOrBroken(line);
+		if (sha === null)
+			throw brokenError(
+				`MERGE_HEAD names ${line}, which is no commit — run \`git rev-parse --git-path MERGE_HEAD\` and read the file`,
+			);
+		return sha;
+	});
+	return ["HEAD", ...new Set(sides)];
 }
 
 /**
- * Every rev whose copy of the map counts as "already committed" right now:
- * `HEAD`, plus any in-flight second parent that resolves.
+ * The non-empty lines of `$GIT_DIR/MERGE_HEAD`, one per side. BROKEN where git
+ * will not locate the file or it will not read.
  * @returns {string[]}
  */
-const readCommittedRevs = () => readHeadAnd(IN_FLIGHT_REFS);
+function readMergeHeadLines() {
+	try {
+		const file = String(
+			execGit(["rev-parse", "--git-path", "MERGE_HEAD"], {
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "pipe"],
+			}),
+		).trim();
+		return fs
+			.readFileSync(file, "utf8")
+			.split("\n")
+			.map((l) => l.trim())
+			.filter(Boolean);
+	} catch (e) {
+		throw brokenError(
+			`git would not locate MERGE_HEAD: ${caught(e).message} — run \`git rev-parse --git-path MERGE_HEAD\` to see git's own error`,
+		);
+	}
+}
 
 /**
- * The §B ids ALREADY COMMITTED — HEAD's, widened by whatever is mid-flight
- * (`readCommittedRevs`), read through `sectionBEntryProseWords` rather than a
+ * The §B ids ALREADY COMMITTED — HEAD's, widened by a merge's other parents
+ * (`readParentRevs`), read through `sectionBEntryProseWords` rather than a
  * heading scan so both callers measure by the one canonical parser (mantahostels#1311).
  *
  * The baseline behind every added-vs-edited discriminator here: an id in this
@@ -1249,7 +1265,7 @@ function readCommittedEntryIds(mapPath) {
 	const head = readHeadMapText(mapPath);
 	if (head === null) return null;
 	const ids = new Set();
-	for (const rev of readCommittedRevs()) {
+	for (const rev of readParentRevs()) {
 		const t = rev === "HEAD" ? head : readMapTextAt(rev, mapPath);
 		if (t === null) continue;
 		for (const id of Object.keys(sectionBEntryProseWords(t))) ids.add(id);
@@ -1446,16 +1462,6 @@ function admissionRowFault(row, named) {
 		return `\`commentUrl\` points at issue #${m[1]}, but \`settledAt\` names #${settledAt}`;
 	return null;
 }
-
-/**
- * The revs whose map counts as this commit's BASELINE: `HEAD`, plus a merge's
- * other parent. Narrower than `readCommittedRevs()` on purpose (mantahostels#2050's review):
- * this one takes a MAXIMUM word count, and `REVERT_HEAD` and `CHERRY_PICK_HEAD`
- * name the SOURCE commit rather than a parent, so a fat source would raise the
- * baseline and mask real growth.
- * @returns {string[]}
- */
-const readParentRevs = () => readHeadAnd(["MERGE_HEAD"]);
 
 /**
  * Over-cap §B entries carrying an `Over cap by ruling (#n)` marker whose prose
@@ -4650,7 +4656,7 @@ module.exports = {
 	readMapTextAt,
 	// Consumed by check-doc-map.js's assertion 16 (mantahostels#1788) — it reads the
 	// same already-committed rev list for the pool delta and for the ledger.
-	readCommittedRevs,
+	readParentRevs,
 	newOverCapEntries,
 	unrecordedAdmissions,
 	HIGH_WATER_MARK_REMEDY,

@@ -4429,7 +4429,7 @@ describe("the pool-tranche trigger verdict", () => {
 		expect(r.out).not.toContain("trigger verdict was not checked");
 	});
 
-	it("is BROKEN where git will not probe an in-flight ref, never a HEAD-alone baseline (#3184)", () => {
+	it("is BROKEN where git will not probe MERGE_HEAD, never a HEAD-alone baseline (#3184)", () => {
 		base(ledger(bullet(8)));
 		writeMap(baselineRows, ledger(bullet(8)));
 		const faulty = writeFaultyGit(
@@ -4444,7 +4444,25 @@ describe("the pool-tranche trigger verdict", () => {
 		expect(r.out).toContain("git rev-parse --verify MERGE_HEAD");
 	});
 
-	it("passes an absent in-flight ref silently", () => {
+	it("is BROKEN where git will not locate MERGE_HEAD's file", () => {
+		base(ledger(bullet(8)));
+		fs.writeFileSync(
+			path.join(repo, ".git/MERGE_HEAD"),
+			`${git("rev-parse", "HEAD").trim()}\n`,
+		);
+		writeMap(baselineRows, ledger(bullet(8)));
+		const faulty = writeFaultyGit(
+			{ argPrefix: "--git-path" },
+			{ exit: 128 },
+			{ under: repo },
+		);
+		const r = check({ WFC_GIT: faulty.git });
+		expect(faulty.hits()).toBeGreaterThan(0);
+		expect(r.status).toBe(2);
+		expect(r.out).toContain("git would not locate MERGE_HEAD");
+	});
+
+	it("passes an absent MERGE_HEAD silently", () => {
 		base(ledger(bullet(8)));
 		writeMap(baselineRows, ledger(bullet(9), bullet(8)));
 		const faulty = writeFaultyGit(
@@ -4547,6 +4565,89 @@ describe("the pool-tranche trigger verdict", () => {
 		expect(r.out).toContain(
 			"§5's newest ledger entry answers step 2 for this commit's 61 B",
 		);
+	});
+
+	/*
+	 * #4205: CHERRY_PICK_HEAD names the commit being applied, never a parent,
+	 * so the picked entry is new here and HEAD alone is the pool baseline.
+	 */
+	const conflictedPick = (tail: string) => {
+		base(ledger(bullet(8, verdict)));
+		git("checkout", "-qb", "picked");
+		const rows = createPoolFile();
+		writeMap(rows, ledger(bullet(9, tail), bullet(8, verdict)));
+		git("add", "--", MAP);
+		commit("the picked tranche");
+		const sha = git("rev-parse", "HEAD").trim();
+		git("checkout", "-q", "-");
+		growPool(100);
+		writeMap(baselineRows, ledger(bullet(10, verdict), bullet(8, verdict)));
+		git("add", "--", MAP);
+		commit("the target branch's newer tranche");
+		expect(() => git("cherry-pick", sha)).toThrow();
+		expect(git("rev-parse", "CHERRY_PICK_HEAD").trim()).toBe(sha);
+		writeMap(
+			rows,
+			ledger(bullet(9, tail), bullet(10, verdict), bullet(8, verdict)),
+		);
+		git("add", "--", MAP);
+	};
+
+	it("passes a conflicted cherry-pick whose picked entry carries a verdict", () => {
+		conflictedPick(verdict);
+		const r = check();
+		expect(r.status).toBe(0);
+		expect(r.out).toContain(
+			"§5's newest ledger entry answers step 2 for this commit's 61 B",
+		);
+	});
+
+	it("fails a conflicted cherry-pick whose picked entry carries no verdict", () => {
+		conflictedPick("");
+		const r = check();
+		expect(r.status).toBe(1);
+		expect(r.out).toContain(
+			"#9 — the newest ledger entry carries no `**Trigger:**` verdict",
+		);
+	});
+
+	/* An octopus merge run `--no-commit` holds a sha per side. */
+	it("counts every MERGE_HEAD line as a committed side", () => {
+		base(ledger(bullet(8)));
+		git("checkout", "-qb", "first-side");
+		track("docs/other.md");
+		commit("the first side, no tranche");
+		const first = git("rev-parse", "HEAD").trim();
+		git("checkout", "-q", "-");
+		git("checkout", "-qb", "second-side");
+		growPool(50);
+		writeMap(baselineRows, ledger(bullet(9), bullet(8)));
+		git("add", "--", MAP);
+		commit("the second side's tranche");
+		const second = git("rev-parse", "HEAD").trim();
+		git("checkout", "-q", "-");
+		growPool(50);
+		writeMap(baselineRows, ledger(bullet(9), bullet(8)));
+		fs.writeFileSync(
+			path.join(repo, ".git/MERGE_HEAD"),
+			`${first}\n${second}\n`,
+		);
+		const r = check();
+		expect(r.status).toBe(0);
+		expect(r.out).not.toContain("LEDGER-TRIGGER-VERDICT");
+	});
+
+	it("is BROKEN where a MERGE_HEAD line names no commit", () => {
+		base(ledger(bullet(8)));
+		const head = git("rev-parse", "HEAD").trim();
+		writeMap(baselineRows, ledger(bullet(8)));
+		fs.writeFileSync(
+			path.join(repo, ".git/MERGE_HEAD"),
+			`${head}\n${"0".repeat(40)}\n`,
+		);
+		const r = check();
+		expect(r.status).toBe(2);
+		expect(r.out).toContain(`MERGE_HEAD names ${"0".repeat(40)}`);
 	});
 
 	it("says the verdict went unchecked where no committed rev resolves", () => {
@@ -4782,7 +4883,7 @@ describe("the compaction verdict", () => {
 	});
 
 	/*
-	 * MERGE_HEAD and friends WIDEN assertions 14 and 16 — a merge's other side
+	 * A merge's other parents WIDEN assertions 14 and 16 — a merge's other side
 	 * has already paid for what it added. Here they would NARROW, refusing a
 	 * merge for a compaction the other branch committed.
 	 */

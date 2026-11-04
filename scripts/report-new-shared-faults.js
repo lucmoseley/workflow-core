@@ -468,7 +468,7 @@ function readEnvelope(
  * doc-map block uses that for staged-vs-HEAD) only fixes `git ls-files` — the
  * scope check-doc-map.js asks git for directly, with no flag to redirect it.
  * It does NOT fix a literal `"HEAD"` rev, and lib/doc-map.js's `mapAtHead()`
- * and `readCommittedRevs()` both read one — always the live branch tip, whichever
+ * and `readParentRevs()` both read one — always the live branch tip, whichever
  * `sha` was asked for. A throwaway DETACHED WORKTREE fixes both at once: its
  * `HEAD` genuinely IS `sha` there, so every git call check-doc-map.js makes —
  * `ls-files`, a literal `HEAD` rev, anything else — reads that commit and

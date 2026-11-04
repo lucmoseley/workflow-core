@@ -188,7 +188,7 @@ function readCommittedPoolBytes(rev) {
  * checkout. A caller reads that as "cannot tell whether this commit adds pool
  * bytes" and asserts nothing. A git that will not answer is BROKEN.
  *
- * @param {string[]} revs the already-committed revs, `readCommittedRevs()`
+ * @param {string[]} revs the already-committed revs, `readParentRevs()`
  * @returns {number | null}
  */
 function stagedPoolDelta(revs) {
