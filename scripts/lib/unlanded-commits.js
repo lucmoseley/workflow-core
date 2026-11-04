@@ -69,18 +69,19 @@ const ceilingReader = (root, ceiling) => (args, noMatch) => {
  * Issue `n`'s commits, cited on HEAD or named by sha in `comment`, that the
  * pushed ref holds under no hash, and that ref. `root` is the checkout the
  * close ran from, whose HEAD may be a linked worktree's rather than the host
- * root's. Each half is read on its own: a HEAD git cannot walk still leaves
- * the named commits judged, and throws only where they leave nothing to
- * refuse. Throws where the pushed ref is absent or git cannot answer;
+ * root's; `host` is the host root, whose config names the pushed ref (#4280).
+ * Each half is read on its own: a HEAD git cannot walk
+ * still leaves the named commits judged, and throws only where they leave
+ * nothing to refuse. Throws where the pushed ref is absent or git cannot answer;
  * CeilingPassed where `ceiling` passes.
  *
  * @param {string} root
  * @param {number} n
  * @param {string} comment
- * @param {{ ceiling?: import("./git-ceiling.js").GitCeiling }} [opts]
+ * @param {{ ceiling?: import("./git-ceiling.js").GitCeiling, host: string }} opts
  * @returns {{ pushed: string, commits: Commit[] }}
  */
-function readUnlandedCommits(root, n, comment, { ceiling = NO_CEILING } = {}) {
+function readUnlandedCommits(root, n, comment, { ceiling = NO_CEILING, host }) {
 	const read = ceilingReader(root, ceiling);
 	/**
 	 * @param {string[]} args
@@ -91,7 +92,7 @@ function readUnlandedCommits(root, n, comment, { ceiling = NO_CEILING } = {}) {
 		if (!r.ok) throw new Error(`git ${args[0]}: ${r.why}`);
 		return r.out;
 	};
-	const pushed = pushedRef({ root });
+	const pushed = pushedRef({ root: host });
 	if (!commitOrThrow(read, pushed))
 		throw new Error(`no ${pushed} to compare against`);
 	const format = "--format=%h%x00%at%x00%s";

@@ -28,6 +28,7 @@
 # IMPLICIT: refuses every tool call of a session whose self-plugin marker is absent
 # JUSTIFIED: fail-safe — a session the self-plugin did not load would otherwise run with no guards and nothing said
 # DEFEAT: none
+# TREE:   host — checks this session's self-plugin marker in the host root's markers
 
 set -uo pipefail
 

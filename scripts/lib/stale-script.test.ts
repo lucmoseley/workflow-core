@@ -17,6 +17,10 @@
  *
  * A missed run route lets a session run a neighbour's half-saved script
  * unwarned; a mention parsed as a run warns on every read.
+ *
+ * The seam-2 cases (#4242) run it from a linked worktree of a main checkout:
+ * an `npm run` there runs the worktree's own package.json and scripts, so a
+ * neighbour's half-written copy in the main checkout is no warning.
  */
 
 import { execFileSync } from "node:child_process";
@@ -32,7 +36,7 @@ import {
 	locks as locksMod,
 	store,
 } from "./arbiter-testkit";
-import { runCore, toolCall } from "./guard-core-testkit";
+import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 
 const sb = freshSandbox((fresh) => {
 	fs.mkdirSync(path.join(fresh.repo, "scripts"), { recursive: true });
@@ -370,5 +374,41 @@ describe("the cases a mutant must not survive (#2789)", () => {
 		).toContain(
 			"so silence is not proof the file is settled.\n\nscripts/pick-next.js is uncommitted",
 		);
+	});
+});
+
+describe("an `npm run` from a session in its own worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((fresh) => {
+		at = splitCheckout(path.join(fresh.dir, "split"));
+		/* The claim store is the main checkout's, as the harness names it. */
+		process.env.CLAUDE_PROJECT_DIR = at.main;
+		process.env.WFC_REPO_ROOT = at.main;
+		process.env.WFC_DISPATCH_ROOT = at.main;
+		for (const root of [at.main, at.worktree]) {
+			fs.mkdirSync(path.join(root, "scripts"));
+			fs.writeFileSync(path.join(root, "scripts", "x.js"), "console.log(1)\n");
+			fs.writeFileSync(
+				path.join(root, "package.json"),
+				JSON.stringify({ scripts: { go: "node scripts/x.js" } }),
+			);
+		}
+		/* A neighbour holds the main checkout's copy, half-written. */
+		store.acquire("scripts/x.js", live(fresh, "neighbour-session"));
+	});
+
+	const npmGo = (worktree?: string) =>
+		runCore(
+			"guard-stale-script",
+			toolCall("Bash", { command: "npm run go" }, { session_id: "mine" }),
+			{ root: at.main, worktree, cwd: worktree ?? at.main },
+		).output?.additionalContext ?? "";
+
+	it("warns from the main checkout, which runs the neighbour's copy", () => {
+		expect(named(npmGo())).toEqual(["scripts/x.js"]);
+	});
+
+	it("is silent from the worktree, which reads its own package.json and runs its own copy", () => {
+		expect(npmGo(at.worktree)).toBe("");
 	});
 });

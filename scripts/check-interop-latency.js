@@ -30,6 +30,7 @@
  * IMPLICIT:  at every session start, times one Windows policy query through the interop bridge, and a second where the first is slow; where both are slow, appends one evidence record to `.interop-degraded.jsonl` under .claude/tmp/markers and prints that the bridge is degraded with the sync-then-shutdown recovery; prints nothing on a fast or unprobeable bridge.
  * JUSTIFIED: fail-safe — a degraded bridge otherwise reads as load, and the record is the only trace of its cause once the VM restarts.
  * DEFEAT:    none at the hook; a `wsl --shutdown` clears the fault.
+ * TREE:      host — times the machine, logging under the host root's markers
  */
 
 const { spawnSync } = require("node:child_process");

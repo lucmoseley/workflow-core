@@ -248,6 +248,26 @@ describe("fail-closed, where the registry cannot be asked", () => {
 	});
 });
 
+describe("a link that will not read", () => {
+	// Needs a non-root runner: root reads through a directory with no search
+	// bit, so no EACCES arises.
+	it("refuses on the record, never reading it as no link", () => {
+		// readlink under a directory with no search bit fails EACCES, not
+		// ENOENT: the core cannot tell a store link from none.
+		const locked = path.join(dir, "locked");
+		fs.mkdirSync(locked);
+		fs.chmodSync(locked, 0o600);
+		try {
+			expect(denial(`npm --prefix ${locked} ci`)).toMatch(/EACCES/);
+			expect(readFailOpenLog(config, shared)).toMatch(
+				/core threw — refused: .*EACCES/,
+			);
+		} finally {
+			fs.chmodSync(locked, 0o700);
+		}
+	});
+});
+
 describe("the fail-open record", () => {
 	it.each([
 		[

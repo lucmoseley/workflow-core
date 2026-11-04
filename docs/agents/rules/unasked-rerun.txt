@@ -10,5 +10,6 @@ file with the record showing it red on the base. It never licenses a push.
 Before a push, `{command:push_check}` says what is owed; run the suite for that.
 Re-typing the refused command runs it — a reason you can name is reason enough.
 
-Never refused: a run naming files or a filter, `--full=<cause>`, a run in
-another checkout, a session with no id, or anything after the first refusal.
+Never refused: a run naming files or a filter, `--full=<cause>`, a run in a
+checkout other than your session's own, a session with no id, or anything
+after the first refusal.

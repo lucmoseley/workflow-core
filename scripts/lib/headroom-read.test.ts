@@ -7,7 +7,15 @@
  * guard-entry.test.ts's and guard-headroom-read.test.ts's.
  */
 
+import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { freshSandbox } from "./arbiter-testkit";
+import {
+	latchesAt,
+	runCore,
+	splitCheckout,
+	toolCall,
+} from "./guard-core-testkit";
 import { decide } from "./headroom-read.js";
 import { kitContextFake } from "./kit-context-fake";
 /* The store's Node accessor, so a test asks for the rule by id rather than
@@ -112,5 +120,26 @@ describe("the injected rule still carries its operative clauses", () => {
 		expect(reap).toBeGreaterThanOrEqual(0);
 		expect(script).toBeGreaterThanOrEqual(0);
 		expect(reap).toBeLessThan(script);
+	});
+});
+
+describe("a memory reading from a session in its own worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+
+	const fromWorktree = () =>
+		runCore("guard-headroom-read", toolCall("Bash", { command: "free -m" }), {
+			root: at.main,
+			worktree: at.worktree,
+		}).output?.additionalContext ?? "";
+
+	it("hands the rule once, latched in the main checkout's marker store", () => {
+		const rule = readRuleText("headroom-reap");
+		expect(fromWorktree()).toContain(rule);
+		expect(latchesAt(at.main).length).toBe(1);
+		expect(latchesAt(at.worktree)).toEqual([]);
+		expect(fromWorktree()).not.toContain(rule);
 	});
 });

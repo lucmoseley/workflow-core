@@ -3,20 +3,18 @@
  * the dispatcher (#2792): git's view of the trees a review covers, this
  * session's start point and the paths it wrote or committed, and the host's
  * declared sensitive paths. Every git read carries the hook's git timeout; a
- * path listing that overruns answers as an erroring one, null, and the top
- * level and session base throw, so the core logs each fail-open (#3446).
+ * path listing that overruns answers as an erroring one, null, and the
+ * session base throws, so the core logs each fail-open (#3446).
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { caught } = require("./caught.js");
 const {
 	gitAnswer,
 	gitCommonDir,
 	gitOrNull,
 	HOOK_GIT_TIMEOUT_MS,
 } = require("./git.js");
-const { gitTopLevel } = require("./host-root.js");
 const { markersDir } = require("./marker-root.js");
 const { trimEndRun } = require("./trim-run.js");
 
@@ -61,22 +59,14 @@ const gitInTime = (dir, command, args) => {
  */
 function buildHostPorts(root) {
 	return {
-		topLevel: (dir) => {
-			try {
-				return gitTopLevel(dir, HOOK_GIT_TIMEOUT_MS);
-			} catch (e) {
-				if (caught(e).code === "ETIMEDOUT") throw e;
-				/* Not a git tree, or no git to ask: no worktree to read. */
-				return null;
-			}
-		},
 		commonDir: (dir) => gitCommonDir(dir, { timeout: HOOK_GIT_TIMEOUT_MS }),
 		staged: (tree) => lines(tree, ["diff", "--cached", "--name-only"]),
 		/* lib/concision-marker.sh's concision_session_base, its twin
 		 * (#2971). Existence is not
 		 * validity (mantahostels#114): a parallel session's rebase leaves the
-		 * recorded commit off HEAD's line, so the merge base stands in. */
-		sessionBase: (sid) => {
+		 * recorded commit off HEAD's line, so the merge base stands in. The
+		 * base is the host's store, the HEAD the session tree's (#4242). */
+		sessionBase: (sid, tree) => {
 			let base;
 			try {
 				base = trimEndRun(
@@ -92,10 +82,10 @@ function buildHostPorts(root) {
 			}
 			if (!base) return null;
 			if (
-				gitInTime(root, "merge-base", ["--is-ancestor", base, "HEAD"]) !== null
+				gitInTime(tree, "merge-base", ["--is-ancestor", base, "HEAD"]) !== null
 			)
 				return base;
-			return gitInTime(root, "merge-base", [base, "HEAD"])?.trim() || null;
+			return gitInTime(tree, "merge-base", [base, "HEAD"])?.trim() || null;
 		},
 		/* lib/code-signal.sh's written_paths before attribution, its twin
 		 * (#2971): what changed since `base` in the working tree,
@@ -122,14 +112,16 @@ function buildHostPorts(root) {
 				return null;
 			}
 		},
-		declared: () =>
-			require("./workflow-core-config.js").readConfig({ root, quiet: true })
-				.sensitivePaths,
-		declaredAtHead: () => {
+		declared: (tree) =>
+			require("./workflow-core-config.js").readConfig({
+				root: tree,
+				quiet: true,
+			}).sensitivePaths,
+		declaredAtHead: (tree) => {
 			const { readConfig } = require("./workflow-core-config.js");
 			let atHead = null;
 			try {
-				atHead = readConfig({ root, rev: "HEAD", quiet: true });
+				atHead = readConfig({ root: tree, rev: "HEAD", quiet: true });
 			} catch {
 				// #3905: a HEAD with no readable copy has no declaration to narrow.
 			}

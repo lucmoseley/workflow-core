@@ -1,6 +1,6 @@
 /*
- * shell-lexer.js — the guard parser's quote lexer (#490, #510), split out of
- * shell-parse.js so its counted bound can be tested (#4134).
+ * shell-lexer.js — the guard parser's quote lexer (#490, #510), its own module
+ * so the parser and the #510 bound test reach one Lexer (#4134).
  *
  * A CORE: it does no I/O and never runs the text.
  */

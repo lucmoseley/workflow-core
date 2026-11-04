@@ -12,7 +12,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runCore, toolCall } from "./guard-core-testkit";
+import { freshSandbox } from "./arbiter-testkit";
+import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 import { raiseHold, readCheckout } from "./repo-holds.js";
 
 const ROUND = "❓ **Q1** Who repairs main?\n\n(A) You.\n";
@@ -161,5 +162,29 @@ describe("where it cannot judge, it passes on the record", () => {
 		} finally {
 			fs.chmodSync(markers, 0o700);
 		}
+	});
+});
+
+describe("a background job in its own worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+
+	it("is refused on the hold the main checkout's store holds", () => {
+		const hold = raiseHold(readCheckout(at.main), {
+			kind: "park",
+			act: "repair main",
+			issue: 12,
+			clearCheck: { issueClosed: 12 },
+			session: "other",
+			now: Date.now(),
+		});
+		const run = runCore(
+			"guard-round-holds",
+			toolCall("Bash", { command: `gh issue comment 31 --body "${ROUND}"` }),
+			{ root: at.main, worktree: at.worktree, env: JOB },
+		);
+		expect(denyOf(run)).toContain(hold.id);
 	});
 });

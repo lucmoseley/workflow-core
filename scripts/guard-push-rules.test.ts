@@ -246,6 +246,25 @@ describe("the review warn, end to end (#1163)", () => {
 		expect(emission(f, "git push origin main", { session: ME })).toBeNull();
 	});
 
+	/* An unresolved push target is `git -C ""`, which git runs where the
+	 * session stands: its review is read over the session's tree's HEAD, never
+	 * the main checkout's (#4242). */
+	const unresolvedFromWorktree = () =>
+		emission(f, 'git -C "$W" push origin main', {
+			session: ME,
+			cwd: f.worktree,
+		}).additionalContext as string;
+
+	it("reads an unresolved push's review in the session's worktree, its HEAD carrying the code", () => {
+		commitBy("scripts/mine.ts", code(PAST_FLOOR), ME, f.worktree);
+		expect(unresolvedFromWorktree()).toContain(warn);
+	});
+
+	it("leaves an unresolved push from a worktree unwarned for code only the main checkout's HEAD carries", () => {
+		commitBy("scripts/mine.ts", code(PAST_FLOOR));
+		expect(unresolvedFromWorktree()).not.toContain(warn);
+	});
+
 	it("warns on a later push whose rules were already said, in a prelude-only envelope", () => {
 		expect(
 			emission(f, "git push origin main", { session: ME }).additionalContext,

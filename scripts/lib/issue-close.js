@@ -12,6 +12,11 @@
  * census read, the landing read and the rule store arrive as ports;
  * lib/issue-close-host.js builds the real ones.
  *
+ * THE SESSION'S TREE (#4242): the roadmap card's state, the commits the census
+ * reads and the commits the landing read checks are read in the session's
+ * tree, its HEAD and its working roadmap, so a linked worktree's close is
+ * judged on its own work. The tracker is the host's config.
+ *
  * THE FIRST VERDICT ENDS THE CALL. A deny stops the walk, and so does a
  * fail-open that lets the whole call through, logged. A fault that leaves the
  * other rules a verdict to reach is logged and the walk goes on.
@@ -130,20 +135,19 @@ const { trimEndRun } = require("./trim-run.js");
  * @property {(args: string[], timeoutMs: number) => string} gh gh's stdout;
  *   throws where gh fails, cannot be found or outlasts `timeoutMs`
  * @property {() => number} now the clock, in ms
- * @property {(rel: string) => string | null} readFile a file under the host
- *   root, null where it cannot be read
  * @property {() => string | undefined} tracker the tracker the config
  *   declares, else the origin remote's; undefined where none resolves
- * @property {(n: number, timeoutMs: number) => RefusalRead} census the census
- *   refusal over issue n's expired rows, "" where none is; outOfBudget where
- *   the read passed `timeoutMs`; throws where git, the anchors file or a
- *   formatter cannot answer
+ * @property {(n: number, timeoutMs: number, tree: string) => RefusalRead} census
+ *   the census refusal over the rows issue n's commits on `tree`'s HEAD
+ *   expired, "" where none is; outOfBudget where the read passed
+ *   `timeoutMs`; throws where git, the anchors file or a formatter cannot
+ *   answer
  * @property {(n: number, comment: string, timeoutMs: number,
- *   cwd: string | undefined) => RefusalRead} landing the refusal over issue
- *   n's commits, cited on the HEAD of the checkout at `cwd` (the host root
- *   where undefined) or named by sha in `comment`, that the pushed ref lacks,
- *   "" where none is; outOfBudget and throws as census
- * @typedef {import("./kit-context.js").KitContext & ClosePorts} CloseContext
+ *   tree: string) => RefusalRead} landing the refusal over issue n's
+ *   commits, cited on `tree`'s HEAD or named by sha in `comment`, that the
+ *   pushed ref lacks, "" where none is; outOfBudget and throws as census
+ * @typedef {import("./kit-context.js").KitContext & ClosePorts
+ *   & Pick<import("./guard-dispatch.js").CoreContext, "tree">} CloseContext
  * @typedef {import("./shell-parse.js").Command} Command
  * @typedef {import("./shell-parse.js").Parsed} Parsed
  * @typedef {import("./guard-entry.js").Decision} Decision
@@ -488,6 +492,20 @@ function judgeCard(run, close) {
 }
 
 /**
+ * The session tree's working roadmap, null where it cannot be read.
+ * @param {import("./guard-dispatch.js").TreePorts} tree
+ * @returns {string | null}
+ */
+function readRoadmap(tree) {
+	try {
+		return tree.readText(ROADMAP);
+	} catch {
+		/* Unreadable: the card check names it and goes unchecked. */
+		return null;
+	}
+}
+
+/**
  * @param {Run} run
  * @param {Close} close
  * @returns {string} the reason the card went unchecked, "" where it was
@@ -518,7 +536,7 @@ function cardFault(run, close) {
 				.join(" ")
 		: "";
 	if (` ${labels} `.includes(" wayfinder:map ")) return "";
-	const roadmap = run.ctx.readFile(ROADMAP);
+	const roadmap = readRoadmap(run.ctx.tree());
 	if (roadmap === null) return `could not read the roadmap, so card ${id}`;
 	/* Exactly one card, or we cannot say which card this is — /card-close step
 	 * 2 stops on the same test rather than guessing. Every occurrence counts,
@@ -733,7 +751,7 @@ const CENSUS_RULE = {
 	reading: (at) => `${at}'s census rows`,
 	line: "a Census line",
 	hasLine: (text) => require("./census-digest.js").hasCensusLine(text),
-	read: (ctx, n, _comment, ms) => ctx.census(n, ms),
+	read: (ctx, n, _comment, ms) => ctx.census(n, ms, ctx.tree().root),
 	opening: "This close leaves census rows its commits expired",
 	remedy: "each row is re-anchored",
 };
@@ -745,7 +763,7 @@ const LANDING_RULE = {
 	reading: (at) => `whether ${at}'s commits landed`,
 	line: "an Unlanded line",
 	hasLine: (text) => require("./unlanded-commits.js").hasUnlandedLine(text),
-	read: (ctx, n, comment, ms) => ctx.landing(n, comment, ms, ctx.cwd),
+	read: (ctx, n, comment, ms) => ctx.landing(n, comment, ms, ctx.tree().root),
 	opening: "This close reports work that has not landed",
 	remedy: "they are pushed",
 };

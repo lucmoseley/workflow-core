@@ -24,8 +24,9 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { freshSandbox } from "./arbiter-testkit";
 import { decide } from "./dispatch-rewrite.js";
-import { runCore } from "./guard-core-testkit";
+import { latchesAt, runCore, splitCheckout } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
 
 const FILE = "/repo/.claude/tmp/agents/d-0badf00d.md";
@@ -572,5 +573,24 @@ describe("the cases a mutant must not survive (#2791)", () => {
 		expect(v.additionalContext).toContain(
 			readFragment("dispatch-search-tracker"),
 		);
+	});
+});
+
+describe("from a linked worktree, the artefact is the main checkout's (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+
+	it("names an artefact under the main checkout's .claude/tmp/agents, never the worktree's", () => {
+		const out = runCore("guard-dispatch-rewrite", dispatch({}), {
+			root: at.main,
+			worktree: at.worktree,
+			env: { WFC_BURN_MARKER: marker },
+		}).output;
+		const text = JSON.stringify(out);
+		expect(text).toContain(path.join(at.main, ".claude", "tmp", "agents"));
+		expect(text).not.toContain(at.worktree);
+		expect(latchesAt(at.worktree)).toEqual([]);
 	});
 });

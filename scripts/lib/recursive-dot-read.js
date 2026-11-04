@@ -70,7 +70,10 @@
  *    a symlink, which matches no literal it compares against.
  *  - The dot limb fires only where the shell already stands in the project
  *    directory, read from the payload's `cwd` as mantahostels#2682 established.
- *    A `.` somewhere else is a different tree, which this guard knows nothing
+ *    The project directory is the session's own tree — its linked worktree
+ *    where it works in one, not the host checkout `$CLAUDE_PROJECT_DIR` names
+ *    (#4242) — and its expansion is that tree's `git ls-files`. A `.`
+ *    somewhere else is a different tree, which this guard knows nothing
  *    about.
  *  - A command carrying MORE THAN ONE standalone root spelling is allowed. The
  *    substitution is textual, and a second one — inside a quoted pattern, say —
@@ -127,6 +130,7 @@ const {
 	unwrap,
 } = require("./shell-words.js");
 const { trimEndRun, trimRun } = require("./trim-run.js");
+const { treeOr } = require("./tree-or.js");
 
 /**
  * @typedef {object} DotReadPorts
@@ -173,8 +177,11 @@ const PATTERN_FLAGS = ["-e", "--regexp", "-f", "--file"];
  *
  * @typedef {object} Scene what every judge of one call reads
  * @property {string} raw the command as typed
- * @property {string} root the repo root
- * @property {string} rootReal the repo root resolved physical
+ * @property {string} root the session tree's root, "" where it stands in none
+ * @property {import("./guard-dispatch.js").TreePorts | null} tree the
+ *   session's tree, null where the shell stands in no repository
+ * @property {string} rootReal the session tree's root resolved physical, ""
+ *   where there is none
  * @property {number} roots how many standalone root spellings it carries
  * @property {boolean} atRoot the shell stands at the repo root
  * @property {boolean} showsPrompt the permission mode can show a prompt
@@ -189,13 +196,6 @@ const PATTERN_FLAGS = ["-e", "--regexp", "-f", "--file"];
  * @returns {import("./guard-dispatch.js").CoreDecision}
  */
 function decide(raw, ctx) {
-	const { root } = ctx;
-	if (!root) {
-		ctx.log(
-			"the repo root did not resolve — a recursive dot search was allowed unjudged",
-		);
-		return null;
-	}
 	/* Cheap pre-test before any of the machinery below: a command naming no
 	 * search cannot be one. */
 	if (!/grep|rg|find/.test(raw)) return null;
@@ -206,16 +206,21 @@ function decide(raw, ctx) {
 		);
 		return null;
 	}
-	/* The heavy-tree limb judges wherever the shell stands. */
-	const rootReal = ctx.realpath(root);
+	/* The heavy-tree limb judges wherever the shell stands, in a tree or not. */
+	const tree = treeOr(ctx, null);
+	const root = tree?.root ?? "";
+	const rootReal = tree ? ctx.realpath(root) : "";
 	const parsed = parseCommand(raw);
 	/** @type {Scene} */
 	const scene = {
 		raw,
 		root,
+		tree,
 		rootReal,
-		roots: raw.split(/[ \t\n]/).filter((w) => isRootSpelling(w, root)).length,
-		atRoot: ctx.realpath(ctx.cwd) === rootReal,
+		roots: tree
+			? raw.split(/[ \t\n]/).filter((w) => isRootSpelling(w, root)).length
+			: 0,
+		atRoot: tree !== null && ctx.realpath(ctx.cwd) === rootReal,
 		showsPrompt: mode !== "auto" && mode !== "bypassPermissions",
 		spans: parsed.spans,
 		ctx,
@@ -249,8 +254,10 @@ function decide(raw, ctx) {
  * @param {string} mode
  * @returns {import("./guard-dispatch.js").CoreDecision}
  */
-function rewrite({ raw, root, showsPrompt, ctx, judgement }, mode) {
-	const expansion = expand(root, ctx);
+function rewrite({ raw, root, tree, showsPrompt, ctx, judgement }, mode) {
+	/* A search fires only where the shell stands at the tree's root. */
+	if (tree === null) return null;
+	const expansion = expand(tree, ctx);
 	if (expansion === null) return null;
 	/* Textual substitution on the raw string, so quoting everywhere else
 	 * survives untouched. For a named root, exactly one standalone root is
@@ -320,13 +327,14 @@ files. For \`rg\` it WIDENS the search to the hidden directories \`rg PAT .\` sk
  * directory named with a leading dot, which would be dropped silently; no such
  * directory exists here, and a tracked one — `.claude`, `.github` — comes
  * through the first list.
- * @param {string} root
+ * @param {import("./guard-dispatch.js").TreePorts} tree the session's tree
  * @param {DotReadContext} ctx
  * @returns {string | null}
  */
-function expand(root, ctx) {
+function expand(tree, ctx) {
+	const { root } = tree;
 	const lines = (/** @type {string[]} */ args) => {
-		const r = ctx.git(args, []);
+		const r = tree.git(args, []);
 		return r.ok ? r.out.split("\n") : [];
 	};
 	const paths = [
@@ -380,7 +388,7 @@ const afterSlash = (w) => w.slice(w.lastIndexOf("/") + 1);
  * @param {string} word
  * @param {string} cwd
  */
-function namesTree({ spans, ctx }, word, cwd) {
+function namesTree({ spans, ctx, tree }, word, cwd) {
 	const { text, known } = literal(word, spans);
 	if (!known) return false;
 	let lit = text;
@@ -389,7 +397,9 @@ function namesTree({ spans, ctx }, word, cwd) {
 	if (base === "node_modules" || base === ".next" || base === ".git")
 		return true;
 	if (!["dist", "build", "out", "coverage"].includes(base)) return false;
-	const r = ctx.git(
+	/* `-C cwd` names where the search runs; outside any tree the host's git
+	 * carries it. */
+	const r = (tree ?? ctx).git(
 		[...(cwd ? ["-C", cwd] : []), "check-ignore", "--", `${lit}/`],
 		[1],
 	);

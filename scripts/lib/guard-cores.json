@@ -4,25 +4,29 @@
 			"name": "guard-bg-job",
 			"core": "bg-job.js",
 			"tools": "Bash",
-			"failure": "open"
+			"failure": "open",
+			"tree": "host"
 		},
 		{
 			"name": "inject-test-rules",
 			"core": "test-rules-inject.js",
 			"tools": "Write|Edit|NotebookEdit",
-			"failure": "open"
+			"failure": "open",
+			"tree": "session"
 		},
 		{
 			"name": "guard-citation-tracker",
 			"core": "citation-write.js",
 			"tools": "Write|Edit",
-			"failure": "open"
+			"failure": "open",
+			"tree": "both"
 		},
 		{
 			"name": "guard-stale-script",
 			"core": "stale-script.js",
 			"tools": "Bash",
 			"failure": "open",
+			"tree": "both",
 			"host": "stale-script-host.js"
 		},
 		{
@@ -30,44 +34,51 @@
 			"core": "scratch-git.js",
 			"tools": "Bash",
 			"failure": "open",
+			"tree": "session",
 			"host": "scratch-git-host.js"
 		},
 		{
 			"name": "guard-job-dir-scratch",
 			"core": "job-dir-scratch.js",
 			"tools": "Bash|Write|Edit|NotebookEdit",
-			"failure": "closed"
+			"failure": "closed",
+			"tree": "both"
 		},
 		{
 			"name": "guard-root-scratch",
 			"core": "root-scratch.js",
 			"tools": "Bash|Write|Edit|NotebookEdit",
-			"failure": "closed"
+			"failure": "closed",
+			"tree": "session"
 		},
 		{
 			"name": "guard-scratch-overwrite",
 			"core": "scratch-overwrite.js",
 			"tools": "Write",
 			"failure": "closed",
+			"tree": "host",
 			"host": "scratch-overwrite-host.js"
 		},
 		{
 			"name": "guard-self-match",
 			"core": "self-match.js",
 			"tools": "Bash",
-			"failure": "closed"
+			"failure": "closed",
+			"tree": "host"
 		},
 		{
 			"name": "guard-wait-loop",
 			"core": "wait-loop.js",
 			"tools": "Bash",
-			"failure": "closed"
+			"failure": "closed",
+			"tree": "host"
 		},
 		{
 			"name": "guard-suite-background",
 			"core": "suite-background.js",
 			"tools": "Bash",
 			"failure": "closed",
+			"tree": "both",
 			"host": "suite-background-host.js"
 		},
 		{
@@ -75,6 +86,7 @@
 			"core": "sweep-fire.js",
 			"tools": "Bash",
 			"failure": "closed",
+			"tree": "host",
 			"host": "sweep-fire-host.js"
 		},
 		{
@@ -82,6 +94,7 @@
 			"core": "claimed-bash-write.js",
 			"tools": "Bash",
 			"failure": "open",
+			"tree": "both",
 			"host": "claimed-bash-write-host.js"
 		},
 		{
@@ -89,19 +102,22 @@
 			"core": "file-claim.js",
 			"tools": "Write|Edit|NotebookEdit",
 			"failure": "closed",
+			"tree": "both",
 			"host": "file-claim-host.js"
 		},
 		{
 			"name": "guard-last30days",
 			"core": "last30days.js",
 			"tools": "Skill",
-			"failure": "closed"
+			"failure": "closed",
+			"tree": "host"
 		},
 		{
 			"name": "inject-review-tier",
 			"core": "review-tier.js",
 			"tools": "Skill",
 			"failure": "open",
+			"tree": "both",
 			"host": "review-tier-host.js"
 		},
 		{
@@ -109,6 +125,7 @@
 			"core": "review-rules.js",
 			"tools": "Skill",
 			"failure": "closed",
+			"tree": "host",
 			"host": "review-rules-host.js"
 		},
 		{
@@ -116,6 +133,7 @@
 			"core": "founder-wording.js",
 			"tools": "Skill",
 			"failure": "open",
+			"tree": "host",
 			"host": "founder-wording-host.js"
 		},
 		{
@@ -123,6 +141,7 @@
 			"core": "tracker-rules.js",
 			"tools": "Bash",
 			"failure": "open",
+			"tree": "host",
 			"host": "tracker-rules-host.js"
 		},
 		{
@@ -130,6 +149,7 @@
 			"core": "branch-publish.js",
 			"tools": "Bash",
 			"failure": "closed",
+			"tree": "session",
 			"host": "branch-publish-host.js"
 		},
 		{
@@ -137,6 +157,7 @@
 			"core": "branch-move.js",
 			"tools": "Bash",
 			"failure": "closed",
+			"tree": "session",
 			"host": "branch-move-host.js",
 			"if": ["Bash(git *)"]
 		},
@@ -145,6 +166,7 @@
 			"core": "commit-form.js",
 			"tools": "Bash",
 			"failure": "closed",
+			"tree": "both",
 			"host": "commit-form-host.js",
 			"if": ["Bash(git *)", "Bash(*commit-paths.js*)"]
 		},
@@ -153,6 +175,7 @@
 			"core": "registry-atomicity.js",
 			"tools": "Bash",
 			"failure": "closed",
+			"tree": "session",
 			"host": "registry-atomicity-host.js",
 			"if": ["Bash(git *)", "Bash(*commit-paths.js*)"]
 		},
@@ -161,6 +184,7 @@
 			"core": "pull-form.js",
 			"tools": "Bash",
 			"failure": "closed",
+			"tree": "both",
 			"host": "pull-form-host.js",
 			"if": ["Bash(*git *)"]
 		},
@@ -169,6 +193,7 @@
 			"core": "push-rules.js",
 			"tools": "Bash",
 			"failure": "open",
+			"tree": "both",
 			"host": "push-rules-host.js",
 			"if": ["Bash(git *)"]
 		},
@@ -177,6 +202,7 @@
 			"core": "node-heap.js",
 			"tools": "Bash",
 			"failure": "open",
+			"tree": "host",
 			"if": ["Bash(*max-old-space-size*)", "Bash(*max_old_space_size*)"]
 		},
 		{
@@ -184,6 +210,7 @@
 			"core": "round-holds.js",
 			"tools": "Bash",
 			"failure": "open",
+			"tree": "host",
 			"host": "round-holds-host.js",
 			"if": ["Bash(gh *)"]
 		},
@@ -192,6 +219,7 @@
 			"core": "unchecked-rm.js",
 			"tools": "Bash",
 			"failure": "open",
+			"tree": "host",
 			"host": "unchecked-rm-host.js",
 			"if": ["Bash(*rm *)"]
 		},
@@ -200,6 +228,7 @@
 			"core": "npm-install.js",
 			"tools": "Bash",
 			"failure": "closed",
+			"tree": "session",
 			"host": "npm-install-host.js",
 			"if": ["Bash(*npm *)", "Bash(*npx *)"]
 		},
@@ -208,6 +237,7 @@
 			"core": "anthropic-report.js",
 			"tools": "Bash",
 			"failure": "closed",
+			"tree": "host",
 			"host": "anthropic-report-host.js",
 			"if": ["Bash(*gh *)"]
 		},
@@ -216,6 +246,7 @@
 			"core": "cpu-load.js",
 			"tools": "Bash",
 			"failure": "closed",
+			"tree": "session",
 			"host": "cpu-load-host.js",
 			"if": [
 				"Bash(*yes*)",
@@ -230,6 +261,7 @@
 			"core": "check-sh-rules.js",
 			"tools": "Bash",
 			"failure": "open",
+			"tree": "host",
 			"if": ["Bash(*shellcheck *)", "Bash(*npm *)"]
 		},
 		{
@@ -237,6 +269,7 @@
 			"core": "issue-body-write.js",
 			"tools": "Bash",
 			"failure": "closed",
+			"tree": "host",
 			"if": ["Bash(gh *)"]
 		},
 		{
@@ -244,6 +277,7 @@
 			"core": "issue-close.js",
 			"tools": "Bash",
 			"failure": "closed",
+			"tree": "both",
 			"host": "issue-close-host.js",
 			"if": ["Bash(gh *)"]
 		},
@@ -252,6 +286,7 @@
 			"core": "issue-create-label.js",
 			"tools": "Bash",
 			"failure": "closed",
+			"tree": "host",
 			"host": "issue-create-label-host.js",
 			"if": ["Bash(gh *)"]
 		},
@@ -260,6 +295,7 @@
 			"core": "issue-phase-scope.js",
 			"tools": "Bash",
 			"failure": "closed",
+			"tree": "session",
 			"host": "issue-phase-scope-host.js",
 			"if": ["Bash(*gh *)"]
 		},
@@ -268,6 +304,7 @@
 			"core": "headroom-read.js",
 			"tools": "Bash",
 			"failure": "open",
+			"tree": "host",
 			"if": ["Bash(*free *)", "Bash(*/proc/meminfo*)"]
 		},
 		{
@@ -275,6 +312,7 @@
 			"core": "hook-escape.js",
 			"tools": "Bash",
 			"failure": "closed",
+			"tree": "host",
 			"if": ["Bash(*WFC_ALLOW_*)"]
 		},
 		{
@@ -282,6 +320,7 @@
 			"core": "suite-concurrency.js",
 			"tools": "Bash",
 			"failure": "closed",
+			"tree": "both",
 			"host": "suite-concurrency-hook-host.js",
 			"if": [
 				"Bash(*npm *)",
@@ -304,6 +343,7 @@
 			"core": "unasked-rerun-guard.js",
 			"tools": "Bash",
 			"failure": "closed",
+			"tree": "both",
 			"host": "unasked-rerun-guard-host.js",
 			"if": ["Bash(*npm *)"]
 		},
@@ -312,6 +352,7 @@
 			"core": "vitest-wrapper.js",
 			"tools": "Bash",
 			"failure": "open",
+			"tree": "host",
 			"if": ["Bash(*vitest *)", "Bash(*npx *)"]
 		},
 		{
@@ -319,6 +360,7 @@
 			"core": "find-start.js",
 			"tools": "Bash",
 			"failure": "closed",
+			"tree": "host",
 			"host": "find-start-host.js",
 			"if": ["Bash(*find *)"]
 		},
@@ -327,6 +369,7 @@
 			"core": "ugrep-pattern.js",
 			"tools": "Bash",
 			"failure": "open",
+			"tree": "host",
 			"if": ["Bash(grep *)"]
 		},
 		{
@@ -334,6 +377,7 @@
 			"core": "recursive-dot-read.js",
 			"tools": "Bash",
 			"failure": "open",
+			"tree": "both",
 			"host": "recursive-dot-read-host.js"
 		},
 		{
@@ -341,6 +385,7 @@
 			"core": "wide-read.js",
 			"tools": "Bash|Read",
 			"failure": "open",
+			"tree": "both",
 			"host": "wide-read-host.js",
 			"if": ["Bash(*cat *)", "Bash(*sed *)", "Bash(*awk *)"]
 		},
@@ -349,6 +394,7 @@
 			"core": "agent-poll.js",
 			"tools": "Bash|Read|ListAgents",
 			"failure": "closed",
+			"tree": "host",
 			"host": "agent-poll-host.js",
 			"if": ["Bash(*sleep *)", "Bash(true*)", "Bash(:*)", "Bash(exit*)"]
 		},
@@ -357,6 +403,7 @@
 			"core": "echo-call.js",
 			"tools": "Bash|Read",
 			"failure": "closed",
+			"tree": "host",
 			"host": "echo-call-host.js"
 		},
 		{
@@ -364,13 +411,15 @@
 			"core": "dispatch-rewrite.js",
 			"tools": "Agent|Task",
 			"failure": "closed",
+			"tree": "host",
 			"host": "dispatch-rewrite-host.js"
 		},
 		{
 			"name": "guard-blind-dispatch",
 			"core": "blind-dispatch.js",
 			"tools": "Agent|Task",
-			"failure": "closed"
+			"failure": "closed",
+			"tree": "session"
 		}
 	],
 	"PostToolUse": [
@@ -379,6 +428,7 @@
 			"core": "echo-record.js",
 			"tools": "Bash|Read",
 			"failure": "open",
+			"tree": "host",
 			"host": "echo-record-host.js"
 		},
 		{
@@ -386,6 +436,7 @@
 			"core": "claims-refresh.js",
 			"tools": "Bash",
 			"failure": "open",
+			"tree": "host",
 			"host": "claims-refresh-host.js"
 		},
 		{
@@ -393,19 +444,22 @@
 			"core": "post-write.js",
 			"tools": "Write|Edit|NotebookEdit",
 			"failure": "open",
+			"tree": "both",
 			"host": "post-write-host.js"
 		},
 		{
 			"name": "scan-injection",
 			"core": "injection-scan.js",
 			"tools": "WebFetch|WebSearch|Read",
-			"failure": "open"
+			"failure": "open",
+			"tree": "host"
 		},
 		{
 			"name": "guard-image-budget",
 			"core": "image-budget.js",
 			"tools": "Read",
 			"failure": "open",
+			"tree": "host",
 			"host": "image-budget-host.js"
 		},
 		{
@@ -413,6 +467,7 @@
 			"core": "typecheck-red.js",
 			"tools": "Bash",
 			"failure": "open",
+			"tree": "host",
 			"host": "typecheck-red-host.js"
 		}
 	]

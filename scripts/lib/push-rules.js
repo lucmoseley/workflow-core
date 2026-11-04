@@ -22,7 +22,8 @@
  *    (mantahostels#1213).
  *  - A push whose tree the walk CANNOT RESOLVE — `git -C "$W" push` with W
  *    unset — is handed the rules too (#319). Such a push may go to ANOTHER
- *    repo and still spend the session's latch.
+ *    repo and still spend the session's latch. Its review is read in the
+ *    session's tree (#4242): `git -C ""` runs where the session stands.
  *  - `git push --help` and `git push --dry-run` push nothing: the latch would
  *    spend the injection the real push needed. A ref deletion IS a push and is not filtered.
  *  - Only a segment's own first word is read, so `xargs git push`, `env`,
@@ -63,7 +64,7 @@ const REVIEW_SUM = "sum.push-review-warn";
  * @typedef {import("./push-review.js").ReviewOwed} ReviewOwed
  * @typedef {object} PushPorts
  * @property {(tree: string, session: string) => ReviewOwed | null} reviewOwed
- *   `tree` "" reads the repo root
+ *   the review owed over `tree`'s HEAD
  * @property {(session: string) => string} markerSum a checksum of the
  *   session's review marker; "" where there is none
  * @property {() => boolean} pushOwesCertificate lib/test-gate.js's push-gate skip
@@ -73,8 +74,10 @@ const REVIEW_SUM = "sum.push-review-warn";
  * @property {() => boolean} hasSweep the host runs the scheduled sweep
  *   check-ci-status.js reads
  * @typedef {import("./kit-context.js").KitContext & PushPorts & {
- *   session: string }} PushContext `session` is the payload's session id, raw;
- *   "" where it carries none
+ *   session: string,
+ *   tree: () => Pick<import("./guard-dispatch.js").TreePorts, "root"> }}
+ *   PushContext `session` is the payload's session id, raw; "" where it
+ *   carries none
  */
 
 /**
@@ -132,8 +135,10 @@ function decide(command, ctx) {
 
 /**
  * The review warn and its latches, as the injection's prelude; nothing where
- * no warn is owed or this one was already said.
- * @param {string} tree
+ * no warn is owed or this one was already said. The marker and latches are
+ * the host's stores; the pushed HEAD is the push's tree, the session's where
+ * the walk could not resolve one.
+ * @param {string} tree "" where unresolved
  * @param {PushContext} ctx
  * @returns {{ prelude?: string, latchAfter?: string,
  *   latchWrites?: { name: string, text: string }[] }}
@@ -143,7 +148,7 @@ function reviewWarn(tree, ctx) {
 	const markerChanged = (ctx.readLatch(REVIEW_SUM) ?? "") !== markerSum;
 	const toldEscalated = ctx.told(REVIEW_LATCH_ESCALATED);
 	if (toldEscalated && !markerChanged) return {};
-	const owed = ctx.reviewOwed(tree, ctx.session);
+	const owed = ctx.reviewOwed(tree || ctx.tree().root, ctx.session);
 	if (!owed) return {};
 	const rearm = owed.passFault !== "" && markerChanged;
 	let latch = null;

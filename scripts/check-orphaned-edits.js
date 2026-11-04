@@ -56,6 +56,7 @@
  * IMPLICIT:  at every session start, files each uncommitted tracked file, in the main checkout or any linked worktree, that no live session owns and nobody has touched for 24 hours once as a takes:triage issue, printing nothing. It never reverts or writes the file.
  * JUSTIFIED: fail-safe — an orphan voids certificates for days unseen, and any ownership signal that cannot be read silences the report rather than calling a live session's edit orphaned.
  * DEFEAT:    none at the hook; --hours <n> moves the threshold on a hand run.
+ * TREE:      host — reports the main checkout's unowned dirt; walking every worktree is #4244's
  */
 
 const { spawnSync } = require("node:child_process");

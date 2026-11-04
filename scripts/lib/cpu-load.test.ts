@@ -16,6 +16,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { freshSandbox } from "./arbiter-testkit";
+import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
 
 type Decision = { deny: string } | null;
@@ -714,5 +716,30 @@ describe("the script reader port (contract: fake against production)", () => {
 		} finally {
 			fs.rmSync(dir, { recursive: true, force: true });
 		}
+	});
+});
+
+describe("a script run from a session in its own worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+
+	const loadScript = "yes > /dev/null &\n";
+	const verdict = () =>
+		runCore("guard-cpu-load", toolCall("Bash", { command: "bash load.sh" }), {
+			root: at.main,
+			worktree: at.worktree,
+		}).output?.permissionDecision;
+
+	it("reads the worktree's script, refusing the generator it holds", () => {
+		fs.writeFileSync(path.join(at.worktree, "load.sh"), loadScript);
+		expect(verdict()).toBe("deny");
+	});
+
+	it("never reads the main checkout's script of the same name", () => {
+		fs.writeFileSync(path.join(at.main, "load.sh"), loadScript);
+		fs.writeFileSync(path.join(at.worktree, "load.sh"), "echo hi\n");
+		expect(verdict()).toBeUndefined();
 	});
 });

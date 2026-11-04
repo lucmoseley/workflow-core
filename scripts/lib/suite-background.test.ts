@@ -16,13 +16,18 @@
  * Loosen a case and a suite detached in the shell runs unwatched while its
  * session waits for a wake that never comes; widen it and a properly
  * backgrounded suite is refused.
+ *
+ * The seam-2 cases (#4242) run it from a linked worktree of a main checkout:
+ * whether a queued npm script runs run-vitest.js is read from the worktree's
+ * package.json.
  */
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { runCore } from "./guard-core-testkit";
+import { freshSandbox } from "./arbiter-testkit";
+import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 
 const CORE = path.resolve(__dirname, "suite-background.js");
 
@@ -572,5 +577,37 @@ describe("lib/suite-background.js", () => {
 			"`WFC_SUITE_TIMEOUT=<non-empty>`",
 		])
 			expect(entry, needle).toContain(needle);
+	});
+});
+
+describe("a queued suite detached from a session in its own worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+
+	const Plain = JSON.stringify({ scripts: { test: "vitest run" } });
+	const wrappedScript = JSON.stringify({
+		scripts: { test: "node scripts/run-vitest.js" },
+	});
+	const queuedVerdict = () =>
+		runCore(
+			"guard-suite-background",
+			toolCall("Bash", {
+				command: "node scripts/queue-run.js -- npm run test &",
+			}),
+			{ root: at.main, worktree: at.worktree },
+		).output?.permissionDecision;
+
+	it("refuses it where the worktree's test script skips run-vitest.js, so the queue takes it", () => {
+		fs.writeFileSync(path.join(at.worktree, "package.json"), Plain);
+		fs.writeFileSync(path.join(at.main, "package.json"), wrappedScript);
+		expect(queuedVerdict()).toBe("deny");
+	});
+
+	it("reads no suite where the worktree's test script runs run-vitest.js, whatever the main checkout's says", () => {
+		fs.writeFileSync(path.join(at.worktree, "package.json"), wrappedScript);
+		fs.writeFileSync(path.join(at.main, "package.json"), Plain);
+		expect(queuedVerdict()).toBeUndefined();
 	});
 });

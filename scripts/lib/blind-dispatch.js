@@ -36,8 +36,9 @@
  *  - The `includeGitInstructions` setting hides the snapshot too, but a hook
  *    cannot read a session's settings, so that child is still asked for the
  *    line. The recipe uses the environment variable for this reason.
- *  - An unborn branch, or a cwd outside any repository, passes: no commit
- *    subject can leak, though status entries on an unborn branch still do.
+ *  - An unborn branch passes: no commit subject can leak, though its status
+ *    entries still do. A cwd outside any repository passes too, logged: the
+ *    session's tree is unknown there.
  *  - It passes, unrecorded, wherever git cannot say what HEAD is
  *    (mantahostels#147); a branch, log or status git cannot give prints empty.
  */
@@ -103,16 +104,19 @@ function decide(prompt, ctx) {
 }
 
 /**
- * A blind dispatch judged against the git snapshot of the payload's cwd, or
- * the host root's where it names none.
+ * A blind dispatch judged against the git snapshot of the session's tree —
+ * its linked worktree where it works in one, never the host checkout (#4242)
+ * — read from the payload's cwd as the subagent's own snapshot is, else from
+ * the tree's root.
  * @param {string} prompt
  * @param {Ctx} ctx
  * @returns {Decision}
  */
 function judge(prompt, ctx) {
-	const cwd = ctx.cwd || ctx.root;
+	const tree = ctx.tree();
+	const cwd = ctx.cwd || tree.root;
 	/** @type {import("./git.js").GitReader} */
-	const read = (args, noMatch) => ctx.git(["-C", cwd, ...args], noMatch);
+	const read = (args, noMatch) => tree.git(["-C", cwd, ...args], noMatch);
 	/** @param {string[]} args @returns {string | null} */
 	const git = (...args) => {
 		const r = read(args, []);

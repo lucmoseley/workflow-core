@@ -99,7 +99,7 @@ const SHAPES: Record<string, (v: unknown, rootDir: string) => unknown> = {
 		if (dir === null) return { dir, timedOut };
 		return { dir: dir === rootDir ? "root" : "elsewhere", timedOut };
 	},
-	rootGitDir: (v) => {
+	treeGitDir: (v) => {
 		const { dir, timedOut } = v as Dir;
 		return { dir: dir === null ? null : "dir", timedOut };
 	},
@@ -201,10 +201,10 @@ const SITUATIONS: Record<string, Record<string, () => unknown>> = {
 		unresolved: () => io().gitDir(fx.outside()),
 		timedOut: () => slowGit().gitDir(f.project),
 	},
-	rootGitDir: {
-		resolved: () => io().rootGitDir(),
-		unresolved: () => judgeIO(fx.outside()).rootGitDir(),
-		timedOut: () => slowGit().rootGitDir(),
+	treeGitDir: {
+		resolved: () => io().treeGitDir(),
+		unresolved: () => judgeIO(fx.outside()).treeGitDir(),
+		timedOut: () => slowGit().treeGitDir(),
 	},
 	head: {
 		sha: () => io().head(),

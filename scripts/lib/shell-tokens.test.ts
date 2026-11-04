@@ -9,7 +9,12 @@
 
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { tokenise } from "./shell-tokens.js";
+import {
+	allCommands,
+	simpleCommands,
+	tokenise,
+	writtenCommands,
+} from "./shell-tokens.js";
 
 /** The value of each word token `src` makes. */
 const values = (src: string) =>
@@ -161,5 +166,128 @@ describe("tokenise — a brace expansion's cap (#4088)", () => {
 		);
 		expect(child.stderr).toBe("");
 		expect(JSON.parse(child.stdout)).toEqual([buildOpaquePieces(24)]);
+	});
+});
+
+describe("tokenise — a word's escapes, quotes and expansions read as bash reads them", () => {
+	it("joins a line a backslash continues, in a word or a double quote (#4134)", () => {
+		expect(values("a\\\nb")).toEqual(["ab"]);
+		expect(values('"a\\\nb"')).toEqual(["ab"]);
+		expect(values('a\\"\nb')).toEqual(['a"', "b"]);
+	});
+
+	it("reads a comment after a continued line as no word (#4134)", () => {
+		expect(values("y \\\n# c")).toEqual(["y"]);
+	});
+
+	it("keeps a backslash a backslash escapes, marking the word quoted (#4134)", () => {
+		expect(values("a\\\\b")).toEqual(["a\\b"]);
+		expect(tokenise("\\x")[0]).toMatchObject({ value: "x", quoted: true });
+	});
+
+	it("ends a word at an operator after a closed double quote (#4134)", () => {
+		expect(values('a "b";c')).toEqual(["a", "b", "c"]);
+		expect(tokenise('a "b";c').map((t) => t.type)).toEqual([
+			"word",
+			"word",
+			"op",
+			"word",
+		]);
+	});
+
+	it("reads an expansion as no text beside the text around it (#4134)", () => {
+		expect(values('"$E"x')).toEqual(["x"]);
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
+		expect(values("echo ${X}y")).toEqual(["echo", "y"]);
+		expect(values("echo `a` b")).toEqual(["echo", "", "b"]);
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
+		expect(values("echo ${}; b")).toEqual(["echo", "", "b"]);
+	});
+
+	it("ends a subshell after a braced expansion at its own `)` (#4134)", () => {
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion, not a JS template
+		expect(tokenise("( cd ${X} )").at(-1)).toMatchObject({
+			type: "op",
+			value: ")",
+		});
+	});
+
+	it("reads a process substitution as an expansion word, not a redirect (#4134)", () => {
+		expect(tokenise("diff <(a) <(b)").map((t) => t.type)).toEqual([
+			"word",
+			"word",
+			"word",
+		]);
+		expect(values("diff <(a) <(b)")).toEqual(["diff", "", ""]);
+	});
+
+	it("keeps one command for each substitution a word holds (#4134)", () => {
+		const [, word] = tokenise("echo $(id)");
+		expect(word.type === "word" && word.subs).toHaveLength(1);
+	});
+
+	it("leaves a redirect with no word after it without a target (#4134)", () => {
+		expect(tokenise("echo x >").at(-1)).toEqual({
+			type: "redirect",
+			op: ">",
+			target: null,
+		});
+	});
+
+	it("reads a group's braces as operators (#4134)", () => {
+		expect(
+			tokenise("{ a; }").map((t) => (t.type === "op" ? t.value : "w")),
+		).toEqual(["{", "w", ";", "}"]);
+	});
+
+	it("marks no word of a [[ test a glob (#3851)", () => {
+		expect(tokenise("[[ a ]]").map((t) => t.type === "word" && t.glob)).toEqual(
+			[false, false, false],
+		);
+	});
+
+	it("marks a brace expansion's words bash-only (#4088)", () => {
+		expect(
+			tokenise("echo {a,b}").map((t) => t.type === "word" && t.bashOnly),
+		).toEqual([false, true, true]);
+	});
+
+	it("expands an empty brace member and leaves a sequence or {} as written (#4088)", () => {
+		expect(values("echo {,b}")).toEqual(["echo", "b"]);
+		expect(values("echo a{1..3} {}")).toEqual(["echo", "a", "{}"]);
+	});
+});
+
+describe("tokenise — a `$'…'` escape past the ASCII range (#3896)", () => {
+	it("reads \\u80 as U+0080's two bytes", () => {
+		expect(values("$'\\u80'")).toEqual(["\u0080"]);
+	});
+
+	it("drops a \\U past 0x7FFFFFFF and ends the span at \\0 (#3896)", () => {
+		expect(values("$'\\U80000000'")).toEqual([""]);
+		expect(values("$'\\0ab' x")).toEqual(["", "x"]);
+	});
+});
+
+describe("the command lists a token list holds", () => {
+	const commands = (src: string, read = allCommands) =>
+		read(tokenise(src)).map((c) => c.map((w) => w.value).join(" "));
+
+	it("splits at operators, leaving a redirect out of the words (#4134)", () => {
+		expect(commands("cmd >f x; b", simpleCommands)).toEqual(["cmd x", "b"]);
+	});
+
+	it("adds each substitution's command after the line's own (#3445)", () => {
+		expect(commands("echo $(git status)")).toEqual(["echo ", "git status"]);
+	});
+
+	it("reads arithmetic as no command (#3546)", () => {
+		expect(commands('echo "$((1 + 2))"')).toEqual(["echo "]);
+	});
+
+	it("reads a quoted word as no command when only the written ones count (#3545)", () => {
+		expect(commands("bash -c 'git status'", writtenCommands)).toEqual([
+			"bash -c git status",
+		]);
 	});
 });

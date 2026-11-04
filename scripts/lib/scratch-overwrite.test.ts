@@ -13,15 +13,19 @@
  *
  * Break it and one session overwrites a neighbour's `.claude/tmp/` scratch
  * unrefused, with no claim or version to recover it from.
+ *
+ * The seam-2 case (#4242) runs it from a linked worktree of a main checkout:
+ * the session's record is the host's store, kept at the main checkout.
  */
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { sweptMarkers } from "./arbiter-testkit";
-import { runCore, toolCall } from "./guard-core-testkit";
+import { freshSandbox, sweptMarkers } from "./arbiter-testkit";
+import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
+import { MARKERS_REL } from "./marker-root.js";
 
 const A = "aaaaaaaa-1111-2222-3333-444444444444";
 const B = "bbbbbbbb-5555-6666-7777-888888888888";
@@ -230,5 +234,33 @@ describe("the cases a mutant must not survive (#2789)", () => {
 		expect(seen).toEqual([
 			"repo root unresolved — a scratch write allowed unrecorded",
 		]);
+	});
+});
+
+describe("a session in its own worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+
+	const fromWorktree = (target: string) =>
+		runCore(
+			"guard-scratch-overwrite",
+			toolCall("Write", { file_path: target, content: "x" }, { session_id: A }),
+			{ root: at.main, worktree: at.worktree },
+		).output?.permissionDecision;
+
+	it("keeps its record at the main checkout, where the re-sent call finds it", () => {
+		const target = path.join(at.worktree, ".claude", "tmp", "held.md");
+		fs.mkdirSync(path.dirname(target), { recursive: true });
+		fs.writeFileSync(target, "a neighbour's");
+		expect(fromWorktree(target)).toBe("deny");
+		expect(
+			fs
+				.readdirSync(path.join(at.main, MARKERS_REL))
+				.filter((f) => f.startsWith(".scratch-written-")),
+		).toEqual([`.scratch-written-${A}`]);
+		expect(fs.existsSync(path.join(at.worktree, MARKERS_REL))).toBe(false);
+		expect(fromWorktree(target)).toBeUndefined();
 	});
 });

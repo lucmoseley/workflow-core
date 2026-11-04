@@ -21,7 +21,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { runCore } from "./guard-core-testkit";
+import { freshSandbox } from "./arbiter-testkit";
+import { latchesAt, runCore, splitCheckout } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
 
 const { readRuleCap } = require("./rule-emission.js") as {
@@ -588,5 +589,45 @@ describe("the cases a mutant must not survive (#2792)", () => {
 			}),
 		);
 		expect(logs).toEqual([]);
+	});
+});
+
+describe("a session in its own worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+
+	const fromWorktree = () =>
+		runCore(
+			"guard-review-rules",
+			{
+				tool_name: "Skill",
+				tool_input: { skill: "code-review" },
+				session_id: "abcdef12-3456",
+			},
+			{
+				root: at.main,
+				worktree: at.worktree,
+				env: { WFC_SCRIPT_ROOT: core },
+			},
+		).output;
+
+	it("reads the main checkout's own code-review skill, the worktree carrying none", () => {
+		fs.mkdirSync(path.join(at.main, ...LOCAL_SKILL.slice(0, -1)), {
+			recursive: true,
+		});
+		fs.writeFileSync(
+			path.join(at.main, ...LOCAL_SKILL),
+			"---\nname: code-review\n---\n",
+		);
+		const out = fromWorktree();
+		expect(out?.permissionDecision).toBeUndefined();
+		expect(out?.additionalContext).toContain(
+			readRuleText("review-dispatch-shape"),
+		);
+		expect(latchesAt(at.main)).not.toEqual([]);
+		expect(latchesAt(at.worktree)).toEqual([]);
+		expect(fromWorktree()).toBeNull();
 	});
 });

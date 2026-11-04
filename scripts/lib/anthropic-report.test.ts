@@ -16,6 +16,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { freshSandbox } from "./arbiter-testkit";
+import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
 import { readRuleText } from "./rule-text";
 
@@ -316,5 +318,31 @@ describe("a repo it cannot read", () => {
 		expect(
 			verdict(`cd "${at}" && gh issue create --title "x" --body "y"`),
 		).toBe("deny");
+	});
+});
+
+/* The remotes are the repository's shared config: a worktree reads the main
+ * checkout's (#4242). */
+describe("a write naming no repo, from a session in its own worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+
+	it("refuses it on a remote the main checkout added", () => {
+		spawnSync("git", [
+			"-C",
+			at.main,
+			"remote",
+			"add",
+			"upstream",
+			"https://github.com/anthropics/claude-code.git",
+		]);
+		const out = runCore(
+			"guard-anthropic-report",
+			toolCall("Bash", { command: 'gh issue create --title "x" --body "y"' }),
+			{ root: at.main, worktree: at.worktree },
+		).output;
+		expect(out?.permissionDecision).toBe("deny");
 	});
 });

@@ -62,10 +62,13 @@ const LAUNCH_PORTS = { runners: () => [], isWrapperScript: () => true };
  * @typedef {({ deny?: string, note?: string, why?: string, unread?: string })} Verdict
  *   lib/unasked-rerun.js's `judge` answer
  * @typedef {object} UnaskedPorts
- * @property {(input: { sessionId: string, cwd: string, command: string }) => Verdict} judge
- *   whether the run is an unasked re-run; latches and logs a refusal itself
- * @typedef {import("./kit-context.js").KitContext & UnaskedPorts & { session: string }} UnaskedContext
- *   `session` the payload's, "" where it carries none
+ * @property {(input: { sessionId: string, cwd: string, command: string }, tree: string) => Verdict} judge
+ *   whether the run is an unasked re-run of `tree`, the session's; latches
+ *   and logs a refusal itself
+ * @typedef {import("./kit-context.js").KitContext & UnaskedPorts & { session: string }
+ *   & Pick<import("./guard-dispatch.js").CoreContext, "tree">} UnaskedContext
+ *   `session` the payload's, "" where it carries none; `tree` the session's,
+ *   whose HEAD and own work are judged (#4242)
  */
 
 /**
@@ -113,14 +116,18 @@ function bareSegment(command, ports) {
 function decide(command, ctx) {
 	const bare = bareSegment(command, ctx);
 	if (!bare || !ctx.session) return null;
+	const { root: tree } = ctx.tree();
 	/** @type {Verdict} */
 	let out;
 	try {
-		out = ctx.judge({
-			sessionId: ctx.session,
-			cwd: bare.cwd,
-			command: unmask(bare.segment),
-		});
+		out = ctx.judge(
+			{
+				sessionId: ctx.session,
+				cwd: bare.cwd,
+				command: unmask(bare.segment),
+			},
+			tree,
+		);
 	} catch (e) {
 		out = { why: `the judge threw: ${caught(e).message}` };
 	}

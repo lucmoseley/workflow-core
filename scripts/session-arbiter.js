@@ -37,10 +37,13 @@
  * is not given a timeout: any expiry is the timeout mantahostels#104 rejected wearing another
  * name, and it would fire on precisely the long tool calls.
  *
- * IMPLICIT:  wired at SessionStart as `prune-markers --detach`, which records HEAD as the session's fallback base (#110) and launches a detached `prune-markers` and returns at once; that child sweeps EVERY session's expired markers, breaks, observations, snapshots, pinned blob refs, wants, requests, issue claims, bases and accept-head logs — not just this session's.
+ * IMPLICIT:  wired at SessionStart as `prune-markers --detach`, which records the session tree's HEAD as its fallback base (#110) and launches a detached `prune-markers` and returns at once; that child sweeps EVERY session's expired markers, breaks, observations, snapshots, pinned blob refs, wants, requests, issue claims, bases and accept-head logs — not just this session's.
  * JUSTIFIED: fail-safe — each record pins a git blob open, so an unswept store grows without bound; a run that cannot tell live from finished deletes nothing.
  * DEFEAT:    `--detach` is the registration's only flag and changes who runs the sweep, never what it sweeps; the sweep always exits 0.
+ * TREE:      both — the fallback base is the HEAD of the payload's session tree; every record it writes and sweeps is the host root's store.
  */
+
+const { sessionTree } = require("./lib/host-root.js");
 
 const {
 	listedSessionIds,
@@ -115,18 +118,21 @@ function detachPrune() {
 }
 
 /**
- * The `session_id` of the hook event JSON on stdin, or "" — for a hook whose
- * environment carries no CLAUDE_CODE_SESSION_ID. A terminal is never read: it
- * would wait on the keyboard. RESIDUAL: a non-TTY stdin held open with no EOF
- * outlasts the hook's 10 s timeout (lib/read-fd.js's RESIDUAL); the harness closes it.
+ * The hook event JSON on stdin, as `{}` where there is none — its
+ * `session_id` serves a hook whose environment carries no
+ * CLAUDE_CODE_SESSION_ID, its `cwd` names the session's tree. A terminal is
+ * never read: it would wait on the keyboard. RESIDUAL: a non-TTY stdin held
+ * open with no EOF outlasts the hook's 10 s timeout (lib/read-fd.js's
+ * RESIDUAL); the harness closes it.
+ * @returns {{session_id?: unknown, cwd?: unknown}}
  */
-function readHookSessionId() {
-	if (process.stdin.isTTY) return "";
+function readHookPayload() {
+	if (process.stdin.isTTY) return {};
 	try {
-		const id = JSON.parse(readFdAll(0).toString("utf8")).session_id;
-		return typeof id === "string" ? id : "";
+		const payload = JSON.parse(readFdAll(0).toString("utf8"));
+		return payload && typeof payload === "object" ? payload : {};
 	} catch {
-		return "";
+		return {};
 	}
 }
 
@@ -4240,7 +4246,9 @@ function cmdPruneMarkers(detach, sessionId) {
 	if (detach) {
 		// The one SessionStart registration this script has, so the session's
 		// fallback base (#110) rides it — synchronously, being HEAD NOW.
-		store.mintSessionBase(sessionId || readHookSessionId());
+		const payload = readHookPayload();
+		const id = typeof payload.session_id === "string" ? payload.session_id : "";
+		store.mintSessionBase(sessionId || id, sessionTree(payload) ?? undefined);
 		return detachPrune();
 	}
 	// Which families, and the order the pin-holding ones have to run in:

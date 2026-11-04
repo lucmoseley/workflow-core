@@ -42,20 +42,26 @@ const reviewText = (opts: { worktree?: string }) =>
 		...opts,
 	}).output?.additionalContext ?? "";
 
+/** The declaration of `db/**` as sensitive, written in `tree`. */
+const declareIn = (tree: string) => {
+	fs.mkdirSync(path.join(tree, ".claude"), { recursive: true });
+	fs.writeFileSync(
+		path.join(tree, ".claude", "workflow-core.json"),
+		JSON.stringify({
+			sensitivePaths: [
+				{ name: "RLS", description: "who may read what", globs: ["db/**"] },
+			],
+		}),
+	);
+};
+
+/** The host's own code-review skill, and `db/a.sql` staged in the worktree. */
 const stageSensitiveInWorktree = () => {
 	const skill = path.join(at.main, ".claude", "skills", "code-review");
 	fs.mkdirSync(skill, { recursive: true });
 	fs.writeFileSync(
 		path.join(skill, "SKILL.md"),
 		"---\nname: code-review\n---\n",
-	);
-	fs.writeFileSync(
-		path.join(at.main, ".claude", "workflow-core.json"),
-		JSON.stringify({
-			sensitivePaths: [
-				{ name: "RLS", description: "who may read what", globs: ["db/**"] },
-			],
-		}),
 	);
 	fs.mkdirSync(path.join(at.worktree, "db"));
 	fs.writeFileSync(path.join(at.worktree, "db", "a.sql"), "x\n");
@@ -84,13 +90,23 @@ describe("the worktree option", () => {
 
 	it("hands the payload the worktree as its cwd, so a path staged there escalates the review", () => {
 		stageSensitiveInWorktree();
+		declareIn(at.worktree);
 		expect(reviewText({ worktree: at.worktree })).toContain(
+			"Tier owed: escalated.",
+		);
+	});
+
+	it("reads the declaration in the worktree, so the main checkout's alone escalates nothing", () => {
+		stageSensitiveInWorktree();
+		declareIn(at.main);
+		expect(reviewText({ worktree: at.worktree })).not.toContain(
 			"Tier owed: escalated.",
 		);
 	});
 
 	it("leaves the main checkout's own run blind to that worktree's staged path", () => {
 		stageSensitiveInWorktree();
+		declareIn(at.main);
 		expect(reviewText({})).not.toContain("Tier owed: escalated.");
 	});
 });

@@ -21,6 +21,7 @@
  * the worktree (vitest.config.ts `cacheDir`); guard-npm-install refuses an
  * install through the link. A frozen tree is removed by giving its
  * directories their owner's write bit back first (`removeTree`).
+ * Residual: the owner's own `chmod`, or a root process, still writes through.
  *
  * LAND merges a freshly fetched `origin/landing` into the worktree's `HEAD` and
  * pushes `HEAD:landing`, then starts the lander. A merge, never a rebase: git
@@ -48,6 +49,7 @@ const { execGit, GIT_TIMEOUT_MS, spawnGitSync } = require("./git.js");
 const { gitTopLevel } = require("./host-root.js");
 const { runStartLander } = require("./lander-start.js");
 const { mainCheckout } = require("./main-checkout.js");
+const { scriptPath } = require("./script-path.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { buildModuleOffLine, moduleOn } = require("./workflow-core-config.js");
 const { writeFd } = require("./write-fd.js");
@@ -388,7 +390,7 @@ function startLanderFor(root, dir) {
 function refuseUnlandable(dir, root) {
 	if (dir === root)
 		throw new CheckoutError(
-			"the main checkout is never landed from — land from your session worktree, or cut one with `node scripts/session-checkout.js cut <session-name>`",
+			`the main checkout is never landed from — land from your session worktree, or cut one with \`node ${scriptPath("session-checkout.js")} cut <session-name>\``,
 		);
 	if (!moduleOn("landing", { root }))
 		throw new CheckoutError(
@@ -453,4 +455,4 @@ function land(cwd) {
 	return { dir, head, merged, pushed: true, lander: startLanderFor(root, dir) };
 }
 
-module.exports = { attach, CheckoutError, cut, land };
+module.exports = { attach, CheckoutError, cut, land, STORES };

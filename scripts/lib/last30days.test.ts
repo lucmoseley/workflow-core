@@ -17,7 +17,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { runCore } from "./guard-core-testkit";
+import { freshSandbox } from "./arbiter-testkit";
+import { runCore, splitCheckout } from "./guard-core-testkit";
 
 let root: string;
 
@@ -124,5 +125,26 @@ describe("the cases a mutant must not survive (#2792)", () => {
 		expect(
 			run({ tool_input: { skill: "last30days:" } }).output?.permissionDecision,
 		).toBe("deny");
+	});
+});
+
+describe("from a linked worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+
+	/* It reads no store and no tree: the refusal is a constant. */
+	it("refuses the same in the main session wherever it stands", () => {
+		const r = runCore(
+			"guard-last30days",
+			{
+				tool_name: "Skill",
+				session_id: "s1",
+				tool_input: { skill: "last30days" },
+			},
+			{ root: at.main, worktree: at.worktree },
+		);
+		expect(r.output?.permissionDecision).toBe("deny");
 	});
 });

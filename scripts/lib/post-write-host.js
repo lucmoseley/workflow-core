@@ -2,6 +2,10 @@
  * post-write-host.js — the production ports lib/post-write.js formats,
  * records and scans through (#2787). Each fails open on its own, so a broken
  * formatter never costs the record behind it.
+ *
+ * The formatting and scan ports take the root of the tree they act in, which
+ * the core passes as the session's (#4242): a linked worktree's file is
+ * formatted by that worktree's Biome and config, never the host's.
  */
 
 const crypto = require("node:crypto");
@@ -29,22 +33,26 @@ function fromRoot(root, fn) {
 	}
 }
 
+/** @param {string} root */
+const biomeIn = (root) => path.join(root, "node_modules", ".bin", "biome");
+
 /**
- * @param {string} root symlink-resolved
+ * @param {string} _root the host's, which only the record reads, through the
+ *   arbiter's own
  * @param {(what: string, detail?: string) => void} log
+ * @returns {import("./post-write.js").WritePorts}
  */
-function buildHostPorts(root, log) {
-	const biome = path.join(root, "node_modules", ".bin", "biome");
-	/** @param {string} file */
-	const abs = (file) => path.resolve(root, file);
+function buildHostPorts(_root, log) {
+	/** @param {string} root @param {string} file */
+	const abs = (root, file) => path.resolve(root, file);
 	return {
 		/* The path resolved as the root is — its directory physically, a
 		 * symlinked leaf to its target, since Biome writes through the link —
 		 * and a relative path against the root. Anything unresolvable is
 		 * outside. */
-		inRoot: (/** @type {string} */ file) => {
+		inRoot: (root, file) => {
 			try {
-				let leaf = abs(file);
+				let leaf = abs(root, file);
 				if (fs.lstatSync(leaf).isSymbolicLink()) leaf = fs.realpathSync(leaf);
 				const dir = fs.realpathSync(path.dirname(leaf));
 				return `${dir}/`.startsWith(`${root}/`);
@@ -59,11 +67,11 @@ function buildHostPorts(root, log) {
 				return false;
 			}
 		},
-		digest: (/** @type {string} */ file) => {
+		digest: (root, file) => {
 			try {
 				return crypto
 					.createHash("sha1")
-					.update(fs.readFileSync(abs(file)))
+					.update(fs.readFileSync(abs(root, file)))
 					.digest("hex");
 			} catch (e) {
 				/* Null: unread before the format, no reformat is reported;
@@ -79,15 +87,15 @@ function buildHostPorts(root, log) {
 		/* The binary by path, never `npx`: in a worktree there is no
 		 * node_modules, and npx then FETCHES an unrelated package called biome
 		 * that prints nothing and exits 0. */
-		hasBiome: () => fs.existsSync(biome),
-		runBiome: (/** @type {string} */ file) => {
-			spawnSync(biome, ["format", "--write", "--", file], {
+		hasBiome: (root) => fs.existsSync(biomeIn(root)),
+		runBiome: (root, file) => {
+			spawnSync(biomeIn(root), ["format", "--write", "--", file], {
 				cwd: root,
 				stdio: "ignore",
 				timeout: require("./formatters.js").WRITE_FORMAT_TIMEOUT_MS,
 			});
 		},
-		formatOther: (/** @type {string} */ file) => {
+		formatOther: (root, file) => {
 			try {
 				return fromRoot(root, () =>
 					require("./formatters.js").formatWritten(file),
@@ -100,10 +108,7 @@ function buildHostPorts(root, log) {
 				return "";
 			}
 		},
-		recordWrite: (
-			/** @type {string} */ file,
-			/** @type {string} */ session,
-		) => {
+		recordWrite: (file, session) => {
 			try {
 				require("./arbiter-tool-record.js").recordToolWrite(file, session);
 			} catch (e) {
@@ -113,7 +118,7 @@ function buildHostPorts(root, log) {
 				);
 			}
 		},
-		scanFaults: (/** @type {string} */ file) => {
+		scanFaults: (root, file) => {
 			try {
 				return require("./write-scan.js").writeFaults(root, file);
 			} catch {

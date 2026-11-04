@@ -25,9 +25,13 @@ const MANIFEST = path.join(__dirname, "guard-cores.json");
 /**
  * @typedef {import("./workflow-core-config.js").Module} Module
  * @typedef {{ name: string, core: string, tools: string,
- *   failure: "open" | "closed", module?: Module, host?: string,
- *   if?: string[] }} CoreRow `if` narrows the row's calls of the tools its
- *   clauses name, as a registration's `if` would (lib/if-clause.js)
+ *   failure: "open" | "closed", tree: "session" | "host" | "both",
+ *   module?: Module, host?: string,
+ *   if?: string[] }} CoreRow `tree` is which tree the core reads (#4242):
+ *   the session's, for `git status`, `HEAD`, the index or working files; the
+ *   host root's, for the shared stores; or both. `if` narrows the row's calls
+ *   of the tools its clauses name, as a registration's `if` would
+ *   (lib/if-clause.js)
  * @typedef {Record<string, CoreRow[]>} Manifest
  */
 

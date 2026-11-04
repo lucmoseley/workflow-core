@@ -12,7 +12,8 @@
  *
  * Then it says what step 1 did, in one context with the scan's fault (#2019):
  * that it reformatted the file, or that a JS, TS or JSON write went
- * unformatted for want of Biome (a worktree), with `rule:write-reformatted`;
+ * unformatted for want of Biome (a checkout with no `node_modules` of its
+ * own), with `rule:write-reformatted`;
  * and on a shell file `rule:shell-lint-blind`. Each fragment is said once a
  * session; the notice on every such write, as each reformat strands an
  * `old_string` quoting the tool's bytes.
@@ -24,32 +25,35 @@
  * DEFEAT:    none — the formatters' own ignore rules (ruff's `ruffExclude` among them) and a file outside the repo root (#96) are the only exclusions.
  */
 
+const { treeOr } = require("./tree-or.js");
+
 /* What Biome formats, and so what a checkout without it leaves unformatted. */
 const BIOME_KIND = /\.(c|m)?[jt]sx?$|\.jsonc?$/;
 
 /**
  * @typedef {{
- *   inRoot: (file: string) => boolean,
- *   digest: (file: string) => string | null,
- *   hasBiome: () => boolean,
- *   runBiome: (file: string) => void,
- *   formatOther: (file: string) => "shell" | "",
+ *   inRoot: (root: string, file: string) => boolean,
+ *   digest: (root: string, file: string) => string | null,
+ *   hasBiome: (root: string) => boolean,
+ *   runBiome: (root: string, file: string) => void,
+ *   formatOther: (root: string, file: string) => "shell" | "",
  *   recordWrite: (file: string, session: string) => void,
- *   scanFaults: (file: string) => string,
- * }} WritePorts the host's, each failing open on its own: whether a path lies
- *   inside the root, as Biome would write it; a file's content digest, null
- *   where unreadable; Biome present and run; shfmt or ruff run; the arbiter's
- *   record; and the scan's fault text, "" where there is none
+ *   scanFaults: (root: string, file: string) => string,
+ * }} WritePorts the host's, each failing open on its own, each but the
+ *   record acting in the tree rooted at `root`: whether a path lies inside
+ *   it, as Biome would write it; a file's content digest, null where
+ *   unreadable; that tree's Biome present and run; shfmt or ruff run; the
+ *   arbiter's record; and the scan's fault text, "" where there is none
  */
 
 /**
  * What the session must know about its file: that it was reformatted, or that
  * no Biome ran on a file Biome would have formatted.
  * @param {string} file
- * @param {{ root: string }} ctx
+ * @param {string} root the tree it was formatted in
  * @param {{ changed: boolean, unformatted: boolean }} what
  */
-function noticeOf(file, { root }, { changed, unformatted }) {
+function noticeOf(file, root, { changed, unformatted }) {
 	const rel = file.startsWith(`${root}/`) ? file.slice(root.length + 1) : file;
 	if (changed)
 		return `post-write reformatted ${rel}: re-read it before your next Edit to it.`;
@@ -67,20 +71,22 @@ function decide(written, ctx) {
 	 * about a notebook. */
 	const file =
 		typeof ctx.input.file_path === "string" ? ctx.input.file_path : "";
-	/* Only a file inside the root: one in another repo belongs to that repo's
-	 * formatter or none (#96). */
-	const inside = file !== "" && ctx.inRoot(file);
-	const before = inside ? ctx.digest(file) : null;
-	const biome = inside && ctx.hasBiome();
-	if (biome) ctx.runBiome(file);
-	const kind = inside ? ctx.formatOther(file) : "";
+	/* Formatted in the session's tree, by its own Biome and config: in a
+	 * linked worktree, the worktree's (#4242). Only a file inside it: one in
+	 * another repo belongs to that repo's formatter or none (#96). */
+	const root = file === "" ? ctx.root : treeOr(ctx, ctx).root;
+	const inside = file !== "" && ctx.inRoot(root, file);
+	const before = inside ? ctx.digest(root, file) : null;
+	const biome = inside && ctx.hasBiome(root);
+	if (biome) ctx.runBiome(root, file);
+	const kind = inside ? ctx.formatOther(root, file) : "";
 	const session = ctx.session || ctx.env.CLAUDE_CODE_SESSION_ID;
 	if (session) ctx.recordWrite(written, session);
 	/* After the record, so a slow scan can never cost it. */
-	const fault = inside ? ctx.scanFaults(file) : "";
+	const fault = inside ? ctx.scanFaults(root, file) : "";
 
-	const notice = noticeOf(file, ctx, {
-		changed: before !== null && ctx.digest(file) !== before,
+	const notice = noticeOf(file, root, {
+		changed: before !== null && ctx.digest(root, file) !== before,
 		unformatted: inside && !biome && BIOME_KIND.test(file),
 	});
 

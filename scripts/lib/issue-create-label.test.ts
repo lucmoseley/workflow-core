@@ -24,7 +24,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import HUMAN_BODIES from "../fixtures/takes-human-bodies.json" with {
 	type: "json",
 };
+import { freshSandbox } from "./arbiter-testkit";
 import { ghFake, readGhAnswer } from "./gh-fake";
+import {
+	latchesAt,
+	runCore,
+	splitCheckout,
+	toolCall,
+} from "./guard-core-testkit";
 import { UNFILLED_DESTINATION } from "./issue-gate";
 import { kitContextFake } from "./kit-context-fake";
 import { readRuleText } from "./rule-text";
@@ -2156,4 +2163,26 @@ describe("the founder-act limb (#1097)", () => {
 			expect(reason).not.toContain("read a setting off your own phone");
 		},
 	);
+});
+
+/* A host core reading no store: from a worktree it judges the command alone,
+ * and latches nothing in either tree (#4242). */
+describe("a session in its own worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+
+	it("refuses an unlabelled create as from the main checkout, latching nothing", () => {
+		const out = runCore(
+			"guard-issue-create-label",
+			toolCall("Bash", {
+				command: 'gh issue create --title "A thing" --body "some prose"',
+			}),
+			{ root: at.main, worktree: at.worktree },
+		).output;
+		expect(out?.permissionDecision).toBe("deny");
+		expect(latchesAt(at.main)).toEqual([]);
+		expect(latchesAt(at.worktree)).toEqual([]);
+	});
 });

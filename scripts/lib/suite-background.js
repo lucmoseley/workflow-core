@@ -68,6 +68,9 @@
  * FIRST — `nohup`, `setsid`, `env`, `timeout`, `time`, `command`, `stdbuf`,
  * `nice`, `ionice`, `xargs`, `sudo` and `bg-run.sh run <name>` — by
  * lib/shell-words.js's `unwrap` (mantahostels#2524, mantahostels#2552).
+ * Whether an npm script behind `queue-run.js` runs run-vitest.js is read from
+ * the session's tree's package.json, where the launch runs (#4242); the
+ * declared runners are the host's.
  *
  * ITS ESCAPE IS `WFC_SUITE_DETACH=<anything non-empty>` AS A PREFIX ON THE
  * COMMAND — `=0` exempts too — read from the command string rather than from
@@ -135,8 +138,12 @@ const { launchTestFileCount } = require("./suite-bounded.js");
 const { endRun, trimEndRun } = require("./trim-run.js");
 
 /**
- * @typedef {import("./guard-dispatch.js").CoreContext &
- *   import("./suite-launch.js").LaunchPorts} Ctx
+ * @typedef {object} BackgroundPorts
+ * @property {() => string[]} runners the host's declared `suiteRunners`
+ * @property {(script: string, tree: string) => boolean} isWrapperScript
+ *   whether the npm script of the tree at `tree`, the session's (#4242), runs
+ *   run-vitest.js; yes where it cannot be read
+ * @typedef {import("./guard-dispatch.js").CoreContext & BackgroundPorts} Ctx
  */
 
 /** `[[:space:]]` within one line. */
@@ -319,6 +326,11 @@ function decide(command, ctx) {
 		const lit = literal(w, spans);
 		return lit.known ? lit.text : w;
 	};
+	/** @type {import("./suite-launch.js").LaunchPorts} */
+	const launchPorts = {
+		runners: ctx.runners,
+		isWrapperScript: (script) => ctx.isWrapperScript(script, ctx.tree().root),
+	};
 	let foundSuite = false;
 	let escaped = false;
 	/** @type {{ from: string, to: string }[]} */
@@ -334,7 +346,7 @@ function decide(command, ctx) {
 				nwrap > 0 &&
 				cmd.words.slice(0, nwrap).some((w) => afterSlash(w) === "timeout");
 			if (words.length === 0) return;
-			const launch = suiteLaunchKind(words.map(typed), ctx);
+			const launch = suiteLaunchKind(words.map(typed), launchPorts);
 			if (!launch) return;
 			if (carriesVar("WFC_SUITE_DETACH", cmd.leading, cmd.words, spans))
 				escaped = true;

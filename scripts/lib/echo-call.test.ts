@@ -27,11 +27,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { freshSandbox } from "./arbiter-testkit";
 import { decide, type EchoContext } from "./echo-call.js";
 import { buildHostPorts } from "./echo-call-host.js";
 import chain from "./echo-chain.js";
 import { fakeTreeClassifier } from "./git-tree-fake.js";
-import { runCore } from "./guard-core-testkit";
+import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 import type { CoreDecision } from "./guard-dispatch.js";
 import { kitContext } from "./kit-context.js";
 import { resolveScriptPaths } from "./script-path.js";
@@ -672,5 +673,31 @@ describe("the cases a mutant must not survive (#2791)", () => {
 			},
 		);
 		expect(seen).toEqual(["s_1.main"]);
+	});
+});
+
+describe("from a linked worktree, the echo chain is the machine's, not a tree's (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+
+	const judgeFrom = (worktree?: string) =>
+		runCore("guard-echo-call", toolCall("Bash", LS), {
+			root: at.main,
+			...(worktree ? { worktree } : {}),
+		}).output;
+	const recordAtMain = () =>
+		runCore("record-tool-echo", toolCall("Bash", LS, { tool_response: SAME }), {
+			root: at.main,
+			event: "PostToolUse",
+		});
+
+	it("refuses the worktree's third identical call after two answered in the main checkout", () => {
+		for (let i = 0; i < 2; i++) {
+			expect(judgeFrom()).toBeNull();
+			recordAtMain();
+		}
+		expect(judgeFrom(at.worktree)?.permissionDecision).toBe("deny");
 	});
 });

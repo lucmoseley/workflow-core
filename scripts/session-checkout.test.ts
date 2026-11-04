@@ -23,6 +23,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import vitestConfig from "../vitest.config";
+import { isUnder } from "./lib/is-under.js";
 import {
 	buildBashPayload,
 	dispatchCoreOutput,
@@ -226,7 +227,10 @@ it("leaves a built store read-only, so nothing run in a worktree writes under it
 	expect(fs.readFileSync(path.join(link, "lock"), "utf8")).toBe("lock-1\n");
 	/* Vite's own default, `node_modules/.vite`, would sit in the store. */
 	expect(vitestConfig.cacheDir).toBeTypeOf("string");
-	expect(String(vitestConfig.cacheDir).split("/")).not.toContain(
+	const treeRoot = path.resolve(__dirname, "..");
+	const cache = path.resolve(treeRoot, String(vitestConfig.cacheDir));
+	expect(isUnder(cache, [treeRoot], path.sep)).toBe(true);
+	expect(path.relative(treeRoot, cache).split(path.sep)).not.toContain(
 		"node_modules",
 	);
 });

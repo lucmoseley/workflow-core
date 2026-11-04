@@ -97,6 +97,7 @@
  *            `claude` runs, and nothing is installed, rotated, walked or
  *            written. (The four-record read still spawns `git` up to twice, to
  *            learn which ref the supply clone sits on.)
+ * TREE:      host — reconciles the main checkout's pinned plugin and walks its migrations there
  *
  * FAILS OPEN AND QUIET on anything unexpected (#247), naming the error on
  * one line and stopping: a session END broken by this hook is worse than an

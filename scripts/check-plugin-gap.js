@@ -77,6 +77,7 @@
  * DEFEAT:    for the gap report only, a decline for this exact repo+tag
  *            (scripts/lib/adopter-consent.js, #245); the three independent
  *            blocks have none.
+ * TREE:      host — compares the main checkout's pinned, supplied and installed plugin and its git-hook shims
  */
 
 const { spawnSync } = require("node:child_process");

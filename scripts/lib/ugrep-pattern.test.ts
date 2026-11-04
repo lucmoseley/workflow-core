@@ -12,7 +12,15 @@
  * guard-ugrep-pattern.test.ts's boundary set.
  */
 
+import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { freshSandbox } from "./arbiter-testkit";
+import {
+	latchesAt,
+	runCore,
+	splitCheckout,
+	toolCall,
+} from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
 
 interface Decision {
@@ -293,5 +301,26 @@ describe("what passes", () => {
 
 	it("is silent once the session was told", () => {
 		expect(run('grep -oE ".{0,80}x.{0,80}" f', ctx({ told: true }))).toBeNull();
+	});
+});
+
+describe("from a linked worktree, its latch is the main checkout's (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+	const fromWorktree = (command: string) =>
+		runCore("guard-ugrep-pattern", toolCall("Bash", { command }), {
+			root: at.main,
+			worktree: at.worktree,
+		}).output;
+
+	const Bounded = 'grep -o -h -E ".{0,80}(x|y).{0,80}" f 2>/dev/null';
+
+	it("latches in the main checkout's marker store, where the next run finds it and stays silent", () => {
+		expect(fromWorktree(Bounded)).not.toBeNull();
+		expect(latchesAt(at.main)).toHaveLength(1);
+		expect(latchesAt(at.worktree)).toEqual([]);
+		expect(fromWorktree(Bounded)).toBeNull();
 	});
 });

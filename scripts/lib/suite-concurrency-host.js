@@ -52,6 +52,26 @@ function buildIsWrapperScript({ root, log }) {
 }
 
 /**
+ * Whether the npm script `script` of the tree at `tree` runs run-vitest.js:
+ * the package.json read is the session's tree's, the one its `npm run`
+ * runs (#4242), each tree's read once.
+ * @param {(what: string, detail?: string) => void} log
+ * @returns {(script: string, tree: string) => boolean}
+ */
+function buildTreeIsWrapperScript(log) {
+	/** @type {Map<string, (script: string) => boolean>} */
+	const byTree = new Map();
+	return (script, tree) => {
+		let read = byTree.get(tree);
+		if (!read) {
+			read = buildIsWrapperScript({ root: tree, log });
+			byTree.set(tree, read);
+		}
+		return read(script);
+	};
+}
+
+/**
  * The host's declared runners and npm scripts, the two ports
  * lib/suite-launch.js reads.
  * @param {{ root: string, log: (m: string) => void }} env
@@ -90,7 +110,8 @@ function buildHostPorts(root, log) {
 			return ps.ok ? ps.rows : null;
 		},
 		carriedOf: readCarriedWeightOf,
-		...buildLaunchPorts({ root, log }),
+		runners: buildLaunchPorts({ root, log }).runners,
+		isWrapperScript: buildTreeIsWrapperScript(log),
 		declaredTest: () => {
 			try {
 				return readCommandFor("test", { root });
@@ -113,8 +134,8 @@ function buildHostPorts(root, log) {
 		now,
 		/* Required at the call: full-launch-plain.js requires run-vitest.js,
 		 * which requires the queue, which requires this file. */
-		fullLaunchPlain: (argv) =>
-			require("./full-launch-plain.js").readFullLaunchPlain(argv),
+		fullLaunchPlain: (argv, tree) =>
+			require("./full-launch-plain.js").readFullLaunchPlain(argv, tree),
 	};
 }
 
@@ -126,6 +147,8 @@ function buildHostPorts(root, log) {
  * disabled guard reads open. `weight` is the launch's carried admission
  * weight (#2931), which the gate charges in place of its words' file count.
  * `climbMb` is what the type-check slot's launches have yet to draw (#3416).
+ * `root` names the host and the tree whose npm scripts are read; absent, the
+ * host is `hostRoot()` and the tree the polling process's own (#4242).
  * @param {string} command
  * @param {string} [root]
  * @param {import("./suite-handoff.js").CarriedWeight | null} [weight]
@@ -156,9 +179,13 @@ function readGate(command, root, weight = null, climbMb = 0) {
 		told: () => true,
 		readLatch: () => "",
 		session: "",
+		root: host,
 		...buildHostPorts(host, log),
 		climbMb: () => climbMb,
 		launchWeight: weight,
+		tree: () => ({
+			root: root ?? require("./host-root.js").sessionTree({}) ?? host,
+		}),
 		/* Never asked: `told` answers yes, so the limb is never weighed. */
 		fullLaunchPlain: () => ({ plain: false }),
 	});
@@ -170,5 +197,5 @@ module.exports = {
 	buildHostPorts,
 	buildLaunchPorts,
 	readGate,
-	buildIsWrapperScript,
+	buildTreeIsWrapperScript,
 };

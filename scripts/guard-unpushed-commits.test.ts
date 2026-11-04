@@ -19,6 +19,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { cutWorktree } from "./lib/git-fixture";
 import { newRepo, registerTempCleanup } from "./lib/precommit-gate-harness";
 import {
 	commitOverSequencer,
@@ -114,6 +115,41 @@ beforeEach(() => {
 
 afterEach(() => {
 	fs.rmSync(path.dirname(root), { recursive: true, force: true });
+});
+
+describe("the session's own worktree (#4243)", () => {
+	const runIn = (wt: string) =>
+		readStopGuardBlock(GUARD, {
+			dir: root,
+			worktree: wt,
+			sid,
+			config: config(),
+			message: "result: done.",
+		});
+
+	it("names a commit on the worktree's HEAD, read against the host's ledger", () => {
+		const wt = cutWorktree(root);
+		execFileSync("git", ["commit", "-q", "--allow-empty", "-m", "in wt"], {
+			cwd: wt,
+		});
+		ledger([
+			execFileSync("git", ["rev-parse", "HEAD"], {
+				cwd: wt,
+				encoding: "utf8",
+			}).trim(),
+		]);
+		const out = runIn(wt);
+		expect(out?.reason).toContain(
+			"1 commit(s) this session made are not on origin/main",
+		);
+		expect(out?.reason).toContain("in wt");
+	});
+
+	it("passes on the main checkout's unpushed commit when the worktree's HEAD carries none", () => {
+		const wt = cutWorktree(root);
+		ledger([commit("in main")]);
+		expect(runIn(wt)).toBeNull();
+	});
 });
 
 describe("the warning", () => {

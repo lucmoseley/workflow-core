@@ -14,6 +14,7 @@
  *            established.
  * DEFEAT:    WFC_NO_DIVERGENCE_LOG=1 — recording stops entirely. There is no
  *            partial setting.
+ * TREE:      session — counts the refused pull or push's own checkout, the payload's cwd or its `-C`, against its pushed ref; the log lands under that checkout's project slug, which divergence-report.js reads with every other
  * Overrides (test seams): WFC_PS, WFC_NOW.
  *
  * In no §N3 family: it refuses nothing, and `guard-*` names a hook that can

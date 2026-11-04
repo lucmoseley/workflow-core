@@ -15,7 +15,15 @@
  * shell-gate run is wedged.
  */
 
+import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { freshSandbox } from "./arbiter-testkit";
+import {
+	latchesAt,
+	runCore,
+	splitCheckout,
+	toolCall,
+} from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
 
 const { decide } = require("./check-sh-rules.js") as {
@@ -78,5 +86,23 @@ describe("things that are not the shell gate", () => {
 		["grep -rn 'shellcheck' scripts", "a search for it"],
 	])("%s is handed nothing — %s", (command) => {
 		expect(decide(command, ctx)).toBeNull();
+	});
+});
+
+describe("from a linked worktree, its rule latches are the main checkout's (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+	const fromWorktree = (command: string) =>
+		runCore("guard-check-sh", toolCall("Bash", { command }), {
+			root: at.main,
+			worktree: at.worktree,
+		}).output;
+
+	it("latches the shellcheck rules in the main checkout's marker store, never the worktree's", () => {
+		expect(fromWorktree("npm run check:sh")).not.toBeNull();
+		expect(latchesAt(at.main)).toHaveLength(THREE.injectRules.length);
+		expect(latchesAt(at.worktree)).toEqual([]);
 	});
 });

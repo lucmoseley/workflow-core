@@ -71,6 +71,7 @@
 # IMPLICIT:  renames the session (a registry write) after the issue(s) it was opened on, or /pick-next's start time, at UserPromptSubmit and SessionStart, and announces the name in a systemMessage. On a background job already named `Overflow · …`, it keeps that prefix (#3701).
 # JUSTIFIED: convenience — nothing degrades but legibility: parallel sessions all read as `<repo>-76` otherwise, and telling them apart means opening each.
 # DEFEAT:    none — it renames whenever the prompt carries one of the six recognised shapes.
+# TREE:      none — it cds to the payload's cwd only so gh finds the repository; it reads the session registry and GitHub
 
 set -uo pipefail
 

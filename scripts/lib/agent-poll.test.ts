@@ -27,8 +27,9 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { decide, type PollContext } from "./agent-poll.js";
 import { buildHostPorts } from "./agent-poll-host.js";
+import { freshSandbox } from "./arbiter-testkit";
 import { fakeTreeClassifier } from "./git-tree-fake.js";
-import { runCore } from "./guard-core-testkit";
+import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 import type { CoreDecision } from "./guard-dispatch.js";
 import { kitContext } from "./kit-context.js";
 import { WAIT_SLOT } from "./wait-text.js";
@@ -837,5 +838,25 @@ describe("the cases a mutant must not survive (#2791)", () => {
 		fs.utimesSync(path.join(stateDir(), "old"), dayAgo, dayAgo);
 		expectDeny(run());
 		expect(fs.existsSync(path.join(stateDir(), "old"))).toBe(true);
+	});
+});
+
+describe("from a linked worktree, the poll window is the machine's, not a tree's (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+
+	const readFrom = (worktree?: string) =>
+		runCore("guard-agent-poll", toolCall("Read", { file_path: OUT }), {
+			root: at.main,
+			...(worktree ? { worktree } : {}),
+			env: { TMPDIR: tmp },
+		}).output;
+
+	it("counts reads made in the main checkout toward the worktree's third", () => {
+		expect(readFrom()).toBeNull();
+		expect(readFrom()).toBeNull();
+		expect(readFrom(at.worktree)?.permissionDecision).toBe("deny");
 	});
 });

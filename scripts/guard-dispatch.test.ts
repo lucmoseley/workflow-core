@@ -20,6 +20,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failOpenLogPath, readFailOpenLog } from "./guard-log-fixture";
+import { readManifestRows } from "./lib/guard-cores.js";
 import {
 	expectShellHooks,
 	guardDirs,
@@ -125,6 +126,13 @@ describe("the registration", () => {
 			timeout: 60,
 			onFailure: "block",
 		});
+	});
+
+	it("records every core's tree: the session's, the host root's or both", () => {
+		const unrecorded = readManifestRows()
+			.filter((r) => !["session", "host", "both"].includes(r.tree))
+			.map((r) => r.name);
+		expect(unrecorded).toEqual([]);
 	});
 
 	/* Every PostToolUse core fails open, and a PostToolUse exit cannot undo a
@@ -556,7 +564,7 @@ describe("the skill, tracker and publish cores through the hook line (#2792)", (
 			".rule-injected-warn.review-rules-prelude-main-s1",
 		);
 		expect(
-			emission(skill("workflow-core:code-review")).additionalContext,
+			emission(skill("workflow-core:code-review"))?.additionalContext ?? "",
 		).not.toContain("Rules for the code-review you are loading.");
 	});
 

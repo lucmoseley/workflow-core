@@ -12,7 +12,7 @@
  * long areas list pushes the review rules, not the tier, past the preview
  * (#1619), as inject-tracker-docs.sh's typed route does.
  *
- * IMPLICIT: on a Skill call naming `code-review`, matches the staged paths and the paths this session changed since its base, in the root and in the worktree of the root's repository the payload's `cwd` sits in, against the declared sensitive paths (lib/sensitive-paths.js), with each area a change to the declaration narrows from HEAD's; where an area matched or any globless area is declared, injects the tier owed, each area's focus, examples and `live` flag, the focus and attack Artefact paths, the escalated-review rules, the focused and attacker run briefs and the records to write (#1621); where `sensitivePaths` is absent, injects one line saying so.
+ * IMPLICIT: on a Skill call naming `code-review`, matches the staged paths and the paths this session changed since its base, in the session's tree — the linked worktree of the root's repository the session runs in, else the root — against the declared sensitive paths (lib/sensitive-paths.js), with each area a change to the declaration narrows from HEAD's; where an area matched or any globless area is declared, injects the tier owed, each area's focus, examples and `live` flag, the focus and attack Artefact paths, the escalated-review rules, the focused and attacker run briefs and the records to write (#1621); where `sensitivePaths` is absent, injects one line saying so.
  * JUSTIFIED: fail-safe — a change to a sensitive path reviewed at the standard tier misses the defects that cost money or leak data, and the vendored skill cannot carry the tier (spec #1612).
  * DEFEAT: any array value of `sensitivePaths`, `[]` included, silences the undeclared line; `scripts/clear-rule-latch.sh` clears the fragments' latch; listing `inject-review-tier` under the host's `disabled` silences it whole.
  *
@@ -25,7 +25,8 @@
  *    or its own commits touched them, lib/code-signal.sh's attribution over
  *    `writes --committed` (mantahostels#114, #2390). Staged paths count
  *    whoever staged them: the staged state is what the commit carries.
- *  - A worktree outside the root adds its staged paths only (#2386). The
+ *  - The session's tree alone is matched (#4242).
+ *    A worktree outside the root adds its staged paths only (#2386). The
  *    declaration read is the root's in any worktree.
  *  - It fires on the Skill TOOL only, as guard-review-rules does. A typed
  *    `/code-review` reaches it through scripts/inject-tracker-docs.sh, which
@@ -40,23 +41,22 @@ const { matchSensitivePaths, narrowedAreas } = require("./sensitive-paths.js");
 const { reviewSuffix } = require("./review-suffix.js");
 const { caught } = require("./caught.js");
 const { ruleOrFallback } = require("./guard-verdict.js");
+const { treeOr } = require("./tree-or.js");
 
 /**
  * @typedef {import("./sensitive-paths.js").Match} Match
  * @typedef {{
- *   topLevel: (dir: string) => string | null,
  *   commonDir: (dir: string) => string | null,
  *   staged: (tree: string) => string[] | null,
- *   sessionBase: (sid: string) => string | null,
+ *   sessionBase: (sid: string, tree: string) => string | null,
  *   changedSince: (tree: string, base: string) => string[] | null,
  *   billed: (sid: string) => string[] | null,
- *   declared: () => import("./workflow-core-config.js").SensitivePath[] | undefined,
- *   declaredAtHead: () => import("./workflow-core-config.js").SensitivePath[] | undefined,
- * }} TierPorts git's top level and absolute common dir of a directory, null
- *   where git will not say, the top level throwing where git overran; a
- *   tree's staged paths, null where git will not say; the session's start
- *   point, null where none is recorded or git cannot place it, throwing where
- *   git overran; a tree's paths changed since a commit, untracked ones
+ *   declared: (tree: string) => import("./workflow-core-config.js").SensitivePath[] | undefined,
+ *   declaredAtHead: (tree: string) => import("./workflow-core-config.js").SensitivePath[] | undefined,
+ * }} TierPorts git's absolute common dir of a directory, null where git
+ *   will not say; a tree's staged paths, null where git will not say; the
+ *   session's start point, placed on that tree's HEAD, null where none is
+ *   recorded or git cannot place it, throwing where git overran; a tree's paths changed since a commit, untracked ones
  *   included, null where git will not say; the paths from the root the
  *   session wrote or its own commits touched, null where its write ledger
  *   will not read; and the host's
@@ -91,15 +91,12 @@ function decide(skill, ctx) {
 	)
 		return null;
 
-	const trees = treesOf(ctx);
-	const paths = [
-		...trees.flatMap((t) => stagedIn(t, ctx)),
-		...ownChanges(trees, ctx),
-	];
+	const tree = treeOf(ctx);
+	const paths = [...stagedIn(tree, ctx), ...ownChanges(tree, ctx)];
 	/* A config warning is the config reader's to report, not this core's. */
 	let declared;
 	try {
-		declared = ctx.declared();
+		declared = ctx.declared(tree);
 	} catch (e) {
 		ctx.log(
 			`the workflow-core config did not read — review tier not stated: ${caught(e).message}`,
@@ -110,7 +107,7 @@ function decide(skill, ctx) {
 		matchSensitivePaths(declared, paths),
 		declared,
 		paths,
-		ctx,
+		{ tree, ctx },
 	);
 
 	/* Unlatched, so every review is told until the key exists (spec #1612
@@ -143,12 +140,13 @@ Focus and attack Artefact paths: \`.claude/tmp/review-focus${suffix}.md\`, \`.cl
  * @param {Match} match
  * @param {import("./workflow-core-config.js").SensitivePath[] | undefined} declared
  * @param {string[]} paths
- * @param {TierContext} ctx
+ * @param {{ tree: string, ctx: TierContext }} at the tree whose HEAD the
+ *   declaration is read at
  * @returns {Match}
  */
-function withNarrowing(match, declared, paths, ctx) {
+function withNarrowing(match, declared, paths, { tree, ctx }) {
 	if (!paths.includes(DECLARATION)) return match;
-	const before = ctx.declaredAtHead();
+	const before = ctx.declaredAtHead(tree);
 	const narrowed = narrowedAreas(before, declared);
 	const added = (before ?? [])
 		.filter(
@@ -222,35 +220,26 @@ function tierDecision(prelude, notLive, globless) {
 }
 
 /**
- * The trees whose paths are matched: the root, and the payload's cwd where it
- * sits in another worktree of the root's repository, since a throwaway
- * worktree keeps CLAUDE_PROJECT_DIR on the shared tree (#2386, spec #1612
- * §Detection moments).
+ * The tree whose paths are matched: the session's (#4242), where it is a
+ * linked worktree of the root's repository, since the harness keeps
+ * CLAUDE_PROJECT_DIR on the shared tree (#2386, spec #1612 §Detection
+ * moments); else the root.
  * @param {TierContext} ctx
+ * @returns {string}
  */
-function treesOf(ctx) {
-	const trees = [ctx.root];
-	if (!ctx.cwd) return trees;
-	let top;
-	try {
-		top = ctx.topLevel(ctx.cwd);
-	} catch (e) {
-		/* git overran: the fail-open is recorded (#3446). */
-		ctx.log(
-			`the top level of ${ctx.cwd} did not read — worktree paths left unmatched: ${caught(e).message}`,
-		);
-		return trees;
-	}
-	if (top === null || top === ctx.root) return trees;
+function treeOf(ctx) {
+	const { root } = treeOr(ctx, ctx);
+	if (root === ctx.root) return root;
 	/* A git before 2.31 rejects --path-format (#2529). */
-	const common = ctx.commonDir(ctx.cwd);
+	const common = ctx.commonDir(root);
 	const rootCommon = ctx.commonDir(ctx.root);
-	if (common === null || rootCommon === null)
+	if (common === null || rootCommon === null) {
 		ctx.log(
-			`git rev-parse --git-common-dir failed in ${ctx.cwd} or ${ctx.root} — worktree paths left unmatched`,
+			`git rev-parse --git-common-dir failed in ${root} or ${ctx.root} — worktree paths left unmatched`,
 		);
-	else if (common === rootCommon) trees.push(top);
-	return trees;
+		return ctx.root;
+	}
+	return common === rootCommon ? root : ctx.root;
 }
 
 /**
@@ -268,18 +257,18 @@ function stagedIn(tree, ctx) {
 }
 
 /**
- * This session's own changes since its base in each tree, or none where the
+ * This session's own changes since its base in its tree, or none where the
  * base or the write ledger will not read: unattributable, they are billed to
  * nobody.
- * @param {string[]} trees
+ * @param {string} tree
  * @param {TierContext} ctx
  */
-function ownChanges(trees, ctx) {
+function ownChanges(tree, ctx) {
 	if (!ctx.session) return [];
 	/* No base yet is a session that has recorded none, not a fault. */
 	let base;
 	try {
-		base = ctx.sessionBase(ctx.session);
+		base = ctx.sessionBase(ctx.session, tree);
 	} catch (e) {
 		/* git overran: the fail-open is recorded (#3446). */
 		ctx.log(
@@ -295,18 +284,16 @@ function ownChanges(trees, ctx) {
 		);
 		return [];
 	}
-	return trees.flatMap((t) => {
-		const changed = ctx.changedSince(t, base);
-		/* git would not list them: the fail-open is recorded (#3446). */
-		if (changed === null) {
-			ctx.log(
-				`git diff or ls-files failed in ${t} — this session's unstaged changes there left unmatched`,
-			);
-			return [];
-		}
-		const mine = new Set(ledgerInTree(t, ledger, ctx.root));
-		return changed.filter((p) => mine.has(p));
-	});
+	const changed = ctx.changedSince(tree, base);
+	/* git would not list them: the fail-open is recorded (#3446). */
+	if (changed === null) {
+		ctx.log(
+			`git diff or ls-files failed in ${tree} — this session's unstaged changes there left unmatched`,
+		);
+		return [];
+	}
+	const mine = new Set(ledgerInTree(tree, ledger, ctx.root));
+	return changed.filter((p) => mine.has(p));
 }
 
 /**

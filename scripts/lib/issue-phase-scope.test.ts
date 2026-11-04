@@ -21,6 +21,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { freshSandbox } from "./arbiter-testkit";
+import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
 
 type Decision = { deny: string } | { injectRules: string[] } | null;
@@ -75,6 +77,7 @@ const run = (command: string, ports: Record<string, unknown> = {}) =>
 				fs.statSync(p, { throwIfNoEntry: false })?.isDirectory() ?? false,
 			log: (what: string) => faults.push(what),
 			...buildHostPorts(dir),
+			tree: () => ({ root: dir }),
 			...ports,
 		}),
 	);
@@ -527,5 +530,42 @@ describe("what it fails open on, and records", () => {
 		expect(readFaults()).toEqual([
 			"docs/called-cards.md is unreadable — issue creation for search-core allowed unchecked",
 		]);
+	});
+});
+
+describe("a creation from a session in its own worktree (#4242)", () => {
+	let split: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		split = splitCheckout(path.join(sb.dir, "split"));
+	});
+
+	/** Write the fixtures into `tree`, its register calling `called`. */
+	const fixturesIn = (tree: string, ...called: string[]) => {
+		fs.mkdirSync(path.join(tree, "docs"), { recursive: true });
+		fs.writeFileSync(path.join(tree, "docs/reference-roadmap.html"), ROADMAP);
+		fs.writeFileSync(
+			path.join(tree, "docs/called-cards.md"),
+			register(...called),
+		);
+	};
+	const fromWorktree = () =>
+		runCore(
+			"guard-issue-phase-scope",
+			toolCall("Bash", {
+				command: 'gh issue create --title "search-core — a thing"',
+			}),
+			{ root: split.main, worktree: split.worktree },
+		).output?.permissionDecision;
+
+	it("allows a card the worktree's register calls, the main checkout's calling none", () => {
+		fixturesIn(split.main);
+		fixturesIn(split.worktree, "search-core");
+		expect(fromWorktree()).not.toBe("deny");
+	});
+
+	it("denies a card the worktree's register leaves uncalled, the main checkout's calling it", () => {
+		fixturesIn(split.main, "search-core");
+		fixturesIn(split.worktree);
+		expect(fromWorktree()).toBe("deny");
 	});
 });

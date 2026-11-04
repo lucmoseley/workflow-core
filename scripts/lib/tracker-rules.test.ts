@@ -22,7 +22,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runCore } from "./guard-core-testkit";
+import { freshSandbox } from "./arbiter-testkit";
+import { latchesAt, runCore, splitCheckout } from "./guard-core-testkit";
 /* The rule latch lives under the markers directory, not the throwaway root
  * itself. */
 import { markersDir } from "./marker-root.js";
@@ -892,5 +893,25 @@ describe("the cases a mutant must not survive (#2792)", () => {
 				env: { CLAUDE_JOB_DIR: job },
 			}),
 		).toEqual(["gh-job-dir-unreadable", "citation-number-first"]);
+	});
+});
+
+describe("a session in its own worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+
+	const fromWorktree = () =>
+		runCore(CORE, bash(CREATE, "sess-wt"), {
+			root: at.main,
+			worktree: at.worktree,
+		}).output;
+
+	it("latches its rules in the main checkout's marker store, and reads them there", () => {
+		expect(fromWorktree()).not.toBeNull();
+		expect(latchesAt(at.main)).not.toEqual([]);
+		expect(latchesAt(at.worktree)).toEqual([]);
+		expect(fromWorktree()).toBeNull();
 	});
 });

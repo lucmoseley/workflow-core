@@ -306,6 +306,10 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 		]);
 	});
 
+	it("answers no words for bg-run.sh run with a job name and no command (mantahostels#1900)", () => {
+		expect(strip("bg-run.sh run suite").words).toEqual([]);
+	});
+
 	it.each(["bg-run.sh run", "bg-run.sh status suite"])(
 		"leaves %s standing, a malformed or other bg-run.sh call",
 		(command) => {
@@ -345,6 +349,28 @@ describe("unwrap reads a wrapper as the shell hands it over (#4046)", () => {
 		[`env -S 'npm test\\c x'`, ["npm", "test"], "\\c"],
 	])("splits %s as env does, with %j (%s)", (command, words) => {
 		expect(strip(command).words).toEqual(words);
+	});
+
+	it("keeps a space inside env -S's double quotes in its word (#4046)", () => {
+		expect(strip(`env -S 'npm run "te st"'`).words).toEqual([
+			"npm",
+			"run",
+			"te st",
+		]);
+	});
+
+	it("reads \\' inside env -S's single quotes as a quote (#4046)", () => {
+		expect(strip(`env -S "'it\\\\'s'"`).words).toEqual(["it's"]);
+	});
+
+	it("answers no words for flock -c with no string after it (#4046)", () => {
+		expect(strip("flock /l -c").words).toEqual([]);
+	});
+
+	it("moves nowhere on a --chdir its wrapper does not take (#4134)", () => {
+		const stripped = strip("nice --chdir npm test");
+		expect(stripped.chdirs).toEqual([]);
+		expect(stripped.words).toEqual(["npm", "test"]);
 	});
 
 	it.each([

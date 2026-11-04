@@ -372,6 +372,24 @@ correction to the founder's screen alone and never to the session that has to
 act on it. Where a refusal's wording would confuse the founder, shorten it;
 never route it.
 
+## Which tree a core reads
+
+A session works in its own linked worktree while the harness still sets
+`CLAUDE_PROJECT_DIR` to the main checkout (#4229), so a dispatcher core holds
+two trees. `ctx.root`, `ctx.git`, `ctx.readText` and `ctx.repoRel` are the
+host root's: read the shared stores there — claims, markers, latches, ledgers,
+test-pass markers, the rule store, host config. `ctx.tree()` hands the same
+four reads rooted on the session's tree, the git top level of the hook input's
+`cwd`: read `git status`, `HEAD`, the index and working files there. Call it
+after the core's cheap early returns, since it spawns git; where git names no
+top level it throws, and the core is allowed, logged. Never choose a tree from
+`CLAUDE_PROJECT_DIR` yourself. Record the choice as the row's `tree` in
+`scripts/lib/guard-cores.json` — `session`, `host` or `both` — and pin it with
+a test run through `runCore`'s `worktree` option
+(`scripts/lib/guard-core-testkit.ts`): a session-tree core's verdict follows
+the worktree's state and not the main checkout's; a host-root core's store is
+read at the main checkout (#4242).
+
 ## Fail open, and the log that makes it visible
 
 **Every `PreToolUse` guard fails open by default** (mantahostels#103, mantahostels#147): a missing `jq`, an

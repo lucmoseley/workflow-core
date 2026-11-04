@@ -30,7 +30,7 @@ import {
 	registerSession,
 	store,
 } from "./arbiter-testkit";
-import { runCore } from "./guard-core-testkit";
+import { runCore, splitCheckout } from "./guard-core-testkit";
 import { REAL_RUFF } from "./ruff-testkit";
 
 /* The store's Node accessor, so a test asks for a rule by id rather than
@@ -408,5 +408,49 @@ describe("post-write — format, then record, in that order", () => {
 				process.chdir(back);
 			}
 		});
+	});
+});
+
+describe("a write from a session in its own worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((fresh) => {
+		at = splitCheckout(path.join(fresh.dir, "split"));
+		process.env.CLAUDE_PROJECT_DIR = at.main;
+		process.env.WFC_REPO_ROOT = at.main;
+		process.env.WFC_DISPATCH_ROOT = at.main;
+	});
+
+	/** A stand-in Biome under `root` that writes `mark` over the file. */
+	const biomeWriting = (root: string, mark: string) =>
+		fakeBiome({ repo: root }, `#!/bin/sh\nprintf '${mark}\\n' > "$4"\n`);
+
+	const written = () => {
+		const file = path.join(at.worktree, "demo.js");
+		fs.writeFileSync(file, "const  x=1\n");
+		const r = runCore(
+			"post-write",
+			{
+				session_id: "alice",
+				tool_name: "Edit",
+				tool_input: { file_path: file },
+			},
+			{ root: at.main, worktree: at.worktree, event: "PostToolUse" },
+		);
+		return { text: fs.readFileSync(file, "utf8"), said: context(r) ?? "" };
+	};
+
+	it("formats with the worktree's Biome, not the main checkout's", () => {
+		biomeWriting(at.main, "main");
+		biomeWriting(at.worktree, "worktree");
+		const { text, said } = written();
+		expect(text).toBe("worktree\n");
+		expect(said).toContain("post-write reformatted demo.js");
+	});
+
+	it("leaves the file as written where only the main checkout has a Biome", () => {
+		biomeWriting(at.main, "main");
+		const { text, said } = written();
+		expect(text).toBe("const  x=1\n");
+		expect(said).toContain("post-write ran no Biome on demo.js");
 	});
 });

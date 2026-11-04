@@ -22,7 +22,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { runCore } from "./guard-core-testkit";
+import { freshSandbox } from "./arbiter-testkit";
+import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 
 /* Their file arguments are the only change from the ticket, which writes
  * `<file>` as a placeholder. */
@@ -359,5 +360,34 @@ describe("fail-open", () => {
 		);
 		expect(output).toBeNull();
 		expect(logs).toEqual([]);
+	});
+});
+
+describe("from a linked worktree, its rule is read from the main checkout's store (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+	/** A rule fragment of `id` reading `text`, in `tree`'s own rule store. */
+	const plantRule = (tree: string, id: string, text: string) => {
+		/* The suite pins every read to the plugin's store (vitest.setup.ts);
+		 * lifted, a checkout's own store is read first. */
+		process.env.WFC_RULES_DIR = "";
+		const rules = path.join(tree, "docs", "agents", "rules");
+		fs.mkdirSync(rules, { recursive: true });
+		fs.writeFileSync(path.join(rules, `${id}.txt`), `${text}\n`);
+	};
+	const fromWorktree = (command: string) =>
+		runCore("guard-wait-loop", toolCall("Bash", { command }), {
+			root: at.main,
+			worktree: at.worktree,
+		}).output;
+
+	it("refuses with the main checkout's wait-length fragment, not the worktree's", () => {
+		plantRule(at.main, "wait-length", "HOST WAIT RULE");
+		plantRule(at.worktree, "wait-length", "WORKTREE WAIT RULE");
+		const reason = String(fromWorktree("sleep 2h")?.permissionDecisionReason);
+		expect(reason).toContain("HOST WAIT RULE");
+		expect(reason).not.toContain("WORKTREE WAIT RULE");
 	});
 });

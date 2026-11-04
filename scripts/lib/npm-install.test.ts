@@ -25,7 +25,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { freshSandbox } from "./arbiter-testkit";
 import { fakeTreeClassifier } from "./git-tree-fake.js";
+import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
 import {
 	buildPassingRegistry,
@@ -97,11 +99,12 @@ function harness(reg: Partial<Registry> = {}, over: Over = {}) {
 		treeClass: fakeTreeClassifier({ "/repo": "shared" }),
 		log: (what: string, detail?: string) =>
 			logs.push(detail ? `${what}\t${detail}` : what),
+		tree: () => ({ root: "/repo" }),
 		readPackageJson: () => ({
 			path: "/repo/package.json",
 			text: over.pkg === undefined ? JSON.stringify(PKG) : over.pkg,
 		}),
-		readManifest: (dep: string) => over.manifests?.[dep] ?? null,
+		readManifest: (_root: string, dep: string) => over.manifests?.[dep] ?? null,
 		npmView: (pkg: string): Call => {
 			calls.push(`npm view ${pkg} time.created --json`);
 			return npmViewAnswer(full);
@@ -116,6 +119,7 @@ function harness(reg: Partial<Registry> = {}, over: Over = {}) {
 		...(over.cwd === undefined ? {} : { cwd: over.cwd }),
 		pathExists: (p: string) => over.disk?.[p] !== undefined,
 		linkTarget: (p: string) => over.disk?.[p] || null,
+		storesDir: () => "/repo/.claude/worktrees/.dep-stores",
 	});
 	return { ctx, logs, calls };
 }
@@ -200,7 +204,7 @@ describe("what it does not judge", () => {
 	});
 });
 
-describe("check 0 — a linked node_modules", () => {
+describe("check 0 — a store link", () => {
 	it("denies an install through a store link, naming the link, the store and the route, in full", () => {
 		expect(denial("npm install", {}, IN_WORKTREE)).toBe(
 			`\`npm install\` would write through /repo/.claude/worktrees/s1/node_modules, a link to /repo/.claude/worktrees/.dep-stores/0123abcd/node_modules: a dependency store every worktree on this lockfile shares, and none installs into (#4255).
@@ -265,6 +269,39 @@ To change the dependencies, run the same command with \`--package-lock-only\`, w
 		"npm ls",
 	])("allows `%s`, which writes no tree through the link", (command) => {
 		expect(allows(command, {}, IN_WORKTREE)).toBe(true);
+	});
+
+	it.each([
+		["into the main checkout", "/repo/node_modules"],
+		[
+			"relatively, beside the stores",
+			"../.dep-stores-old/0123abcd/node_modules",
+		],
+	])("allows an install through a node_modules linked %s", (_l, target) => {
+		const disk = { ...WORKTREE, [`${IN_WORKTREE.cwd}/node_modules`]: target };
+		expect(allows("npm ci", {}, { disk, cwd: IN_WORKTREE.cwd })).toBe(true);
+	});
+
+	it("denies one linking the stores folder itself, where builds stage", () => {
+		const disk = {
+			...WORKTREE,
+			[`${IN_WORKTREE.cwd}/node_modules`]:
+				"/repo/.claude/worktrees/.dep-stores",
+		};
+		expect(denial("npm ci", {}, { disk, cwd: IN_WORKTREE.cwd })).toMatch(
+			/would write through/,
+		);
+	});
+
+	it("denies one linking a store by a relative path", () => {
+		const disk = {
+			...WORKTREE,
+			[`${IN_WORKTREE.cwd}/node_modules`]:
+				"../.dep-stores/0123abcd/node_modules",
+		};
+		expect(denial("npm ci", {}, { disk, cwd: IN_WORKTREE.cwd })).toMatch(
+			/a link to \/repo\/\.claude\/worktrees\/\.dep-stores\/0123abcd\/node_modules:/,
+		);
 	});
 
 	it("allows an install where node_modules is a directory of its own", () => {
@@ -1344,5 +1381,32 @@ describe("fail-closed, where the registry cannot be asked", () => {
 				viewOut: "",
 			}),
 		).toMatch(/could not be reached/);
+	});
+});
+
+describe("an install from a session in its own worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+
+	const listedPkg = JSON.stringify({ dependencies: { "left-pad": "^1.3.0" } });
+	const verdict = () =>
+		runCore(
+			"guard-npm-install",
+			toolCall("Bash", { command: "npm install left-pad" }),
+			{ root: at.main, worktree: at.worktree },
+		).output?.permissionDecision;
+
+	it("takes a package the worktree's package.json lists as already listed", () => {
+		fs.writeFileSync(path.join(at.worktree, "package.json"), listedPkg);
+		fs.writeFileSync(path.join(at.main, "package.json"), "{}");
+		expect(verdict()).toBeUndefined();
+	});
+
+	it("refuses it unlisted in the worktree, though the main checkout lists it", () => {
+		fs.writeFileSync(path.join(at.worktree, "package.json"), "{}");
+		fs.writeFileSync(path.join(at.main, "package.json"), listedPkg);
+		expect(verdict()).toBe("deny");
 	});
 });

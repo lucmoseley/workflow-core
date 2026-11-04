@@ -8,6 +8,10 @@
  *
  * Built on a real git repository and the real store, as the record is found
  * through git's common directory, which a fake would not cross.
+ *
+ * The seam-2 case (#4242) runs it from a linked worktree of a main checkout,
+ * CLAUDE_PROJECT_DIR on the main one: the record is taken from the main
+ * checkout's store.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -15,7 +19,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { runCore } from "./guard-core-testkit";
+import { runCore, splitCheckout } from "./guard-core-testkit";
 import { recordRed, takeRed } from "./typecheck-red-host.js";
 
 const SID = "11111111-2222-3333-4444-555555555555";
@@ -100,6 +104,22 @@ describe("guard-typecheck-red", () => {
 		execFileSync("git", ["-C", root, "worktree", "add", "-q", tree]);
 		recordRed(tree, SID, { command: COMMAND, output: "e" });
 		expect(bash(SID)).toContain("ran RED");
+	});
+});
+
+describe("a Bash answer to a session in its own worktree (#4242)", () => {
+	it("takes the record from the main checkout's store, once", () => {
+		const at = splitCheckout(path.join(root, "split"));
+		recordRed(at.main, SID, { command: COMMAND, output: "e" });
+		const fromWorktree = () =>
+			runCore(
+				"guard-typecheck-red",
+				{ session_id: SID, tool_name: "Bash", tool_input: { command: "ls" } },
+				{ root: at.main, worktree: at.worktree, event: "PostToolUse" },
+			).output?.additionalContext ?? "";
+		expect(fromWorktree()).toContain("ran RED");
+		expect(takeRed(at.main, SID, log)).toBeNull();
+		expect(fromWorktree()).toBe("");
 	});
 });
 

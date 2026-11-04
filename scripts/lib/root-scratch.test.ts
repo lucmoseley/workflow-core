@@ -20,6 +20,9 @@
  *
  * Loosen a fire case and untracked dot-files pile up at the repo root again;
  * widen it and a read or an ignored write is refused.
+ *
+ * The seam-2 cases (#4242) run it from a linked worktree of a main checkout:
+ * the root, the `.gitignore` and the index judged are the worktree's.
  */
 
 import { execFileSync } from "node:child_process";
@@ -27,7 +30,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { type CoreRun, runCore, toolCall } from "./guard-core-testkit";
+import { freshSandbox } from "./arbiter-testkit";
+import {
+	type CoreRun,
+	runCore,
+	splitCheckout,
+	toolCall,
+} from "./guard-core-testkit";
 import { runInProcess } from "./run-in-process.js";
 
 let dir: string;
@@ -158,7 +167,7 @@ function runTool(tool: "Write" | "Edit" | "NotebookEdit", target: string) {
 }
 
 describe("a git that cannot answer", () => {
-	it("allows the write, recorded (mantahostels#103 §6)", () => {
+	it("allows the write where git names no tree for the session, recorded (mantahostels#103 §6)", () => {
 		const bare = fs.mkdtempSync(path.join(dir, "no-git-"));
 		const { output, logs } = runCore(
 			"guard-root-scratch",
@@ -171,7 +180,7 @@ describe("a git that cannot answer", () => {
 		);
 		expect(output).toBeNull();
 		expect(logs.join("\n")).toMatch(
-			/git check-ignore could not answer for \.i2340\.out — write allowed unchecked/,
+			/git names no top level for .*no-git-.* — allowed unchecked/,
 		);
 	});
 });
@@ -571,5 +580,37 @@ describe("the cases a mutant must not survive (#2789)", () => {
 
 	it("refuses a redirect standing alone, with no command before it", () => {
 		expect(denies("> .stray.md")).toBe(true);
+	});
+});
+
+describe("a stray from a session in its own worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+
+	const ignoring = (root: string) =>
+		fs.appendFileSync(path.join(root, ".gitignore"), ".i4242.out\n");
+
+	const refused = () =>
+		refusalOf(
+			runCore(
+				"guard-root-scratch",
+				toolCall("Write", {
+					file_path: path.join(at.worktree, ".i4242.out"),
+					content: "x\n",
+				}),
+				{ root: at.main, worktree: at.worktree },
+			).output,
+		);
+
+	it("refuses a dotfile at the worktree's root, naming its own .claude/tmp/, though the main checkout ignores it", () => {
+		ignoring(at.main);
+		expect(refused()).toContain(`${at.worktree}/.claude/tmp/i4242.out`);
+	});
+
+	it("allows the dotfile the worktree's .gitignore claims, though the main checkout's does not", () => {
+		ignoring(at.worktree);
+		expect(refused()).toBeNull();
 	});
 });

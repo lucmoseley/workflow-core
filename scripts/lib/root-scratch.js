@@ -24,6 +24,10 @@
  *   - NOT TRACKED, because `.gitignore` and `.mcp.json` are root dotfiles that
  *     are neither ignored nor scratch.
  *
+ * THE REPO ROOT IS THE SESSION'S TREE (#4242): in a linked worktree, the
+ * worktree's top level, its `.gitignore` and its index, never the host's. A
+ * session standing in another repository is that repository's business.
+ *
  * TWO LEGITIMATE ROOT WRITES ARE REFUSED BY IT, and the `dd` escape the
  * refusal names is what carries them: a mutation arm breaking the
  * declined-Markdown-tooling guarantee, across every name
@@ -121,9 +125,25 @@ function synthesise(s, ph) {
 }
 
 /**
- * Is `p` a repo-root dot-prefixed path that git treats as neither ignored nor
- * tracked? A SYNTHETIC `p` comes with `syn`: the same target as the caller
- * wrote it, which the refusal quotes so a placeholder never reaches the page,
+ * Whether the session's tree is this repository's: the host's own, or a
+ * linked worktree of it. One git cannot place is allowed, logged.
+ * @param {string} root
+ * @param {CoreContext} ctx
+ */
+function isThisRepo(root, ctx) {
+	if (root === ctx.root) return true;
+	const cls = ctx.treeClass(root);
+	if (cls === "unknown")
+		ctx.log(
+			`git could not say whether ${root} is this repo's tree — write allowed unchecked`,
+		);
+	return cls === "linked" || cls === "shared";
+}
+
+/**
+ * Is `p` a dot-prefixed path at the root of the session's tree that git there
+ * treats as neither ignored nor tracked? A SYNTHETIC `p` comes with `syn`:
+ * the same target as the caller wrote it, which the refusal quotes so a placeholder never reaches the page,
  * and with each span as `*` for the tracked limb.
  * @param {string} given
  * @param {CoreContext} ctx
@@ -135,15 +155,22 @@ function readStrayName(given, ctx, syn) {
 	const abs = (s) => absolute(s, ctx.fallbackCwd);
 	/* `./.foo` and `.foo` are the same target; nothing else is normalised. */
 	const p = abs(given).replace("/./", "/");
+	/* Only a dot-prefixed leaf can be a root stray, so every other write
+	 * leaves before the session's tree is resolved. */
+	if (!/^\./.test(p.slice(p.lastIndexOf("/") + 1))) return null;
+	/* The root is the session's tree's, and git is asked there: in a linked
+	 * worktree, the worktree's own root and `.gitignore` (#4242). */
+	const tree = ctx.tree();
 	/* The same fold on the original could land inside a span the placeholder
 	 * stands for, deleting a `.` the session wrote. */
 	const orig = syn ? abs(syn.orig) : p;
-	const prefix = `${ctx.root}/`;
+	const prefix = `${tree.root}/`;
 	if (!p.startsWith(prefix)) return null;
 	const name = p.slice(prefix.length);
 	/* A slash left means a subdirectory, which is a chosen location. */
 	if (name.includes("/") || !/^\..+$/s.test(name) || name === "..") return null;
-	const ignored = ctx.git(["check-ignore", "--", name], [1]);
+	if (!isThisRepo(tree.root, ctx)) return null;
+	const ignored = tree.git(["check-ignore", "--", name], [1]);
 	if (!ignored.ok)
 		throw new GitUnanswered(
 			`git check-ignore could not answer for ${name} — write allowed unchecked`,
@@ -152,7 +179,7 @@ function readStrayName(given, ctx, syn) {
 	/* ASKED AS A GLOB where the name is synthetic: `name` carries a
 	 * placeholder no tracked file can hold. */
 	const spec = syn ? abs(syn.glob).slice(prefix.length) : name;
-	const tracked = ctx.git(
+	const tracked = tree.git(
 		syn
 			? ["ls-files", "--", spec]
 			: ["ls-files", "--error-unmatch", "--", spec],
@@ -277,7 +304,7 @@ function remedy(tool, bare, escaped, root) {
 function refusal({ shown, name }, ctx) {
 	const bare = name.replace(/^\./, "");
 	const escaped = shellQuote(name);
-	const [same, sanctioned] = remedy(ctx.tool, bare, escaped, ctx.root);
+	const [same, sanctioned] = remedy(ctx.tool, bare, escaped, ctx.tree().root);
 	const scratchLine = ruleOrFallback(
 		ctx,
 		"scratch-dir-sanctioned",

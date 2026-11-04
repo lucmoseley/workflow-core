@@ -31,7 +31,7 @@ import {
 } from "./arbiter-testkit";
 import type { FileClaimContext } from "./file-claim.js";
 import { buildHostPorts } from "./file-claim-host.js";
-import { loadedCores } from "./guard-core-testkit";
+import { loadedCores, splitCheckout } from "./guard-core-testkit";
 import {
 	type Adapters,
 	dispatch,
@@ -1605,5 +1605,43 @@ describe("the cases a mutant must not survive (#2788)", () => {
 		expect(output?.additionalContext).toContain(
 			readRuleText("claim-bash-route"),
 		);
+	});
+});
+
+describe("a write from a session in its own worktree (#4242)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((fresh) => {
+		at = splitCheckout(path.join(fresh.dir, "split"));
+	});
+
+	const classed = (root: string) => {
+		fs.mkdirSync(path.join(root, "docs"), { recursive: true });
+		fs.writeFileSync(
+			path.join(root, "docs/doc-map-classes.json"),
+			JSON.stringify({ "docs/digest.md": { class: "derived" } }),
+		);
+	};
+
+	const envelope = () =>
+		run(
+			writePayload(path.join(at.worktree, "docs/digest.md"), {
+				session_id: "a",
+				cwd: at.worktree,
+			}),
+			{ root: at.main, arbiterCheck: standIn() },
+		).output?.additionalContext ?? "";
+
+	it("leads with the authority-class rule on a doc the worktree's register lists", () => {
+		classed(at.worktree);
+		expect(envelope().startsWith(readRuleText("doc-authority-class"))).toBe(
+			true,
+		);
+	});
+
+	it("hands the docs cluster without it where only the main checkout's register lists the doc", () => {
+		classed(at.main);
+		const said = envelope();
+		expect(said).toContain(readRuleText("file-claim"));
+		expect(said).not.toContain(readRuleText("doc-authority-class"));
 	});
 });
