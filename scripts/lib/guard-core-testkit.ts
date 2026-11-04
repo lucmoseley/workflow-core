@@ -7,8 +7,15 @@
  * The hook's own directory and environment are the case's, never the test
  * process's: `cwd` stands in for the hook's cwd, `env` for both the shell
  * variables a command expands through and the environment a core reads.
+ *
+ * `worktree` is the split a session in its own worktree runs under (#4229):
+ * `CLAUDE_PROJECT_DIR` names the main checkout, the root, while the hook's cwd
+ * is a linked worktree of it.
  */
 
+import fs from "node:fs";
+import path from "node:path";
+import { defineTemplate, trioTemplate } from "./git-fixture";
 import { loadCores } from "./guard-core-load.js";
 import { dispatch, hostAdapters, type Output } from "./guard-dispatch.js";
 import { writeLatches } from "./guard-entry.js";
@@ -41,6 +48,21 @@ export const toolCall = (
 	...top,
 });
 
+const split = defineTemplate(trioTemplate({ worktree: "detach" }));
+
+/**
+ * A main checkout and a linked worktree of it, cut detached from its `main` as
+ * a session's is, built in `dir`: each holds a committed `a.md`. The caller
+ * removes `dir`.
+ */
+export const splitCheckout = (dir: string) => {
+	split.instantiate(dir);
+	return {
+		main: fs.realpathSync(path.join(dir, "shared")),
+		worktree: fs.realpathSync(path.join(dir, "wt")),
+	};
+};
+
 export interface CoreRun {
 	/** Null where silent. */
 	output: Output | null;
@@ -49,7 +71,11 @@ export interface CoreRun {
 
 /**
  * Run the `event` core `name` on `payload` with `root` as the host root.
- * `env` is the whole environment: nothing of the test process's leaks in.
+ * `env` is the whole environment, `worktree`'s one variable aside: nothing of
+ * the test process's leaks in.
+ * `worktree` runs it from that linked worktree of `root`: the hook's cwd and
+ * the payload's `cwd`, unless the payload names one, with `CLAUDE_PROJECT_DIR`
+ * still `root`.
  * `throwing` makes the row's `decide` throw it, for a core with no real fault a
  * case can provoke to reach its row's failure policy.
  */
@@ -58,18 +84,22 @@ export function runCore(
 	payload: Record<string, unknown>,
 	{
 		root,
-		cwd = root,
-		env = {},
+		worktree,
+		cwd = worktree ?? root,
+		env: given = {},
 		event = "PreToolUse",
 		throwing,
 	}: {
 		root: string;
+		worktree?: string;
 		cwd?: string;
 		env?: Record<string, string>;
 		event?: "PreToolUse" | "PostToolUse";
 		throwing?: string;
 	},
 ): CoreRun {
+	const env = worktree ? { CLAUDE_PROJECT_DIR: root, ...given } : given;
+	const input = worktree ? { cwd: worktree, ...payload } : payload;
 	const logs: string[] = [];
 	const log = (what: string) => {
 		logs.push(what);
@@ -85,7 +115,7 @@ export function runCore(
 			}))
 		: cores;
 	const { output, latches } = dispatch(running, {
-		payload,
+		payload: input,
 		root,
 		adapters: {
 			...hostAdapters(root, log),
@@ -97,6 +127,7 @@ export function runCore(
 		disabled: () => false,
 		persistChars: readHookPersistChars,
 	});
-	for (const l of latches) writeLatches({ root, payload, log }, l.latches);
+	for (const l of latches)
+		writeLatches({ root, payload: input, log }, l.latches);
 	return { output, logs };
 }

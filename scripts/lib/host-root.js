@@ -7,6 +7,17 @@
  * `resolveCommitHost()` is the other contract, the host a git hook is handed,
  * for a script that must agree with one; its docblock states it.
  *
+ * TWO TREES A HOOK CAN MEAN (#4229). The host root is the shared tree, where
+ * the shared stores live: claims, markers, ledgers. `sessionTree()` is the
+ * session's own tree, a linked worktree of it where the session runs in one:
+ * a hook reading `git status`, `HEAD`, the index or working files reads that.
+ * The harness sets `CLAUDE_PROJECT_DIR` to the shared tree even for a session
+ * in a linked worktree, so the host root never says which tree is the
+ * session's; only the hook input's `cwd` does.
+ *
+ * Unbuilt caller: the session-tree guards #4229's hook audit moves onto
+ * `sessionTree()` (#4229).
+ *
  * NEVER `__dirname`. In a plugin install the core's files live in the plugin
  * cache, so a root resolved from this file's own location names the cache and
  * every host read lands in the wrong tree (mantahostels#3515).
@@ -98,6 +109,23 @@ function hostRoot(cwd = process.cwd(), { timeoutMs, onTimeout } = {}) {
 }
 
 /**
+ * The session's tree: the git top level of the hook input's `cwd`, symlinks
+ * dereferenced. Takes the payload, or a core's context, whose `cwd` is the
+ * payload's; where it carries none, the process's cwd. Null where git names no
+ * top level — outside every repository, or git failing — never the host.
+ * @param {{ cwd?: unknown }} input
+ * @returns {string | null}
+ */
+function sessionTree({ cwd }) {
+	const dir = typeof cwd === "string" && cwd ? cwd : process.cwd();
+	try {
+		return gitTopLevel(dir);
+	} catch {
+		return null;
+	}
+}
+
+/**
  * The tree a test run reads: the git top level of the working directory where
  * that is a linked worktree of the host repository, else `hostRoot()`.
  *
@@ -174,4 +202,10 @@ function resolveCommitHost(cwd = process.cwd()) {
 	}
 }
 
-module.exports = { gitTopLevel, hostRoot, resolveCommitHost, worktreeRoot };
+module.exports = {
+	gitTopLevel,
+	hostRoot,
+	resolveCommitHost,
+	sessionTree,
+	worktreeRoot,
+};

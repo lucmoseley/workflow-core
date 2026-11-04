@@ -396,6 +396,41 @@ describe("nothing to scan", () => {
 	});
 });
 
+describe("the mirror fault through the session's tree (#4234)", () => {
+	it("fails a core directory joined onto sessionTree() as HOST-ROOTED-CORE, naming the file and line", () => {
+		clean();
+		write(
+			"scripts/bad.js",
+			'const { sessionTree } = require("./lib/host-root.js");\nconst p = path.join(sessionTree(ctx), "scripts", "x.js");\n',
+		);
+		const e = run();
+		expect(tags(e)).toContain("HOST-ROOTED-CORE");
+		expect(messages(e)).toMatch(
+			/bad\.js:2 .*reached through the host root or the session's tree/,
+		);
+	});
+
+	it("fails a core directory joined onto a variable holding the session's tree as HOST-ROOTED-CORE", () => {
+		clean();
+		write(
+			"scripts/bad.js",
+			'const { sessionTree } = require("./lib/host-root.js");\nconst tree = sessionTree(payload);\nconst p = path.join(tree, "scripts", "x.js");\n',
+		);
+		const e = run();
+		expect(tags(e)).toContain("HOST-ROOTED-CORE");
+		expect(messages(e)).toMatch(/bad\.js:3/);
+	});
+
+	it("passes a session-tree file that is no core path", () => {
+		clean();
+		write(
+			"scripts/ok.js",
+			'const { sessionTree } = require("./lib/host-root.js");\nconst p = path.join(sessionTree(ctx), "a.md");\n',
+		);
+		expect(tags(run())).not.toContain("HOST-ROOTED-CORE");
+	});
+});
+
 describe("the mirror fault through a variable (#14)", () => {
 	const rooted = (body: string) =>
 		`const { hostRoot } = require("./lib/host-root.js");\nconst root = hostRoot();\n${body}`;

@@ -47,9 +47,11 @@
  *                       session-arbiter.js"`, `path.join(hostRoot(),
  *                       "scripts", …)`. The host repo has none of the core's
  *                       scripts, so in a plugin install this names a file that
- *                       is not there. Name the sibling from `$here` or
- *                       `__dirname` instead. In JS the root may sit in a
- *                       variable first (`const root = hostRoot()`), and the
+ *                       is not there. Reached through `sessionTree(…)`, the
+ *                       session's worktree, it is a copy of another version
+ *                       than the hook's own (#4229). Name the sibling from
+ *                       `$here` or `__dirname` instead. In JS the root may sit
+ *                       in a variable first (`const root = hostRoot()`), and the
  *                       core path in a constant (`"scripts/…"` or
  *                       `path.join("scripts", …)`) — this file's, or one it
  *                       destructures from a `require` or an `await import()`
@@ -287,12 +289,25 @@ const hostCoreJoin = (root) =>
 const hostCoreTemplate = (/** @type {string} */ root) =>
 	new RegExp(String.raw`\$\{\s*${root}\s*\}/(?:scripts|\.husky)/`, "g");
 
-/** An identifier assigned from an expression calling `hostRoot()`: the
+/** An identifier assigned from an expression calling `hostRoot()` or
+ * `sessionTree(…)`: the
  * assignment, then the rest of its statement's line naming the call. Only the
  * head's first reading can reach the call: a shorter `(?:\s*\n)?` leaves the
  * call's search on a line of blanks. */
 const JS_ROOT_VAR = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=(?:\s*\n)?/g;
-const JS_ROOT_CALL = /[^;\n]*\bhostRoot\(\)/y;
+/** The calls that answer a tree a core file must never be reached through:
+ * the host and the session's tree (#4234). Residual: a
+ * `sessionTree` argument holding parentheses, such as `sessionTree(pick(ctx))`,
+ * is not matched inline, nor is a root taken from `process.cwd()` or a
+ * payload's `.cwd`. */
+const ROOT_CALLS = [
+	String.raw`hostRoot\(\)`,
+	String.raw`sessionTree\([^()]*\)`,
+];
+const JS_ROOT_CALL = new RegExp(
+	String.raw`[^;\n]*\b(?:${ROOT_CALLS.join("|")})`,
+	"y",
+);
 
 /** A constant naming a core path: `"scripts/…"` or `path.join("scripts", …)`. */
 const JS_CORE_CONST = new RegExp(
@@ -473,7 +488,7 @@ function judgeHostRootedCore(ctx, rel, text, importable) {
 		return exported !== undefined && importable.has(exported);
 	};
 	const roots = [
-		"hostRoot\\(\\)",
+		...ROOT_CALLS,
 		...new Set(
 			segmentTailMatches(text, JS_ROOT_VAR, JS_ROOT_CALL, ";\n").map((m) =>
 				escapeRe(requiredGroup(m.head, 1, JS_ROOT_VAR)),
@@ -486,7 +501,7 @@ function judgeHostRootedCore(ctx, rel, text, importable) {
 		const line = lineOf(text, index);
 		ctx.fail(
 			"HOST-ROOTED-CORE",
-			`${rel}:${line} — ${spelling}: a file that ships with the core, reached through the host root. The host repo has none of the core's scripts; name the sibling from __dirname (import.meta.dirname in ESM) instead.`,
+			`${rel}:${line} — ${spelling}: a file that ships with the core, reached through the host root or the session's tree. Neither holds the copy that ships with this file; name the sibling from __dirname (import.meta.dirname in ESM) instead.`,
 			{ file: rel, line },
 			`${rel}:${line}`,
 		);

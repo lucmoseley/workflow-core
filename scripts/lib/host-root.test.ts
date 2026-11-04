@@ -3,7 +3,9 @@
  * Pins `worktreeRoot()` (#2940): a test run launched inside a linked worktree
  * reads that worktree's files, though the harness points `CLAUDE_PROJECT_DIR`
  * at the shared tree. Pins `resolveCommitHost()` too (#3830): a script answers the
- * host `hook-root.sh` hands a hook, whatever its shell inherited. The seam's cases read `a.md` through the resolved root,
+ * host `hook-root.sh` hands a hook, whatever its shell inherited. Pins
+ * `sessionTree()` (#4234): a hook input's cwd in a linked worktree names that
+ * worktree, though the hook itself runs in the shared tree. The seam's cases read `a.md` through the resolved root,
  * the worktree's copy differing from the shared tree's; the runners' cases
  * read the worktree's own config.
  *
@@ -19,7 +21,12 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { defineTemplate, mkScratchDir, trioTemplate } from "./git-fixture";
+import {
+	defineTemplate,
+	mkDirOutsideRepo,
+	mkScratchDir,
+	trioTemplate,
+} from "./git-fixture";
 import { runInProcessAsync } from "./run-in-process";
 
 const SEAM = path.join(__dirname, "host-root.js");
@@ -124,6 +131,58 @@ describe("the host seam", () => {
 				undefined,
 			),
 		).toBe("a\n");
+	});
+
+	describe("sessionTree, the tree a hook input's cwd names (#4234)", () => {
+		/** `a.md` through the session tree of `input`, from a hook run in the
+		 * shared tree with CLAUDE_PROJECT_DIR on it. */
+		const readFromSession = (input: Record<string, string>) =>
+			readThrough(
+				`require(${JSON.stringify(SEAM)}).sessionTree(${JSON.stringify(input)})`,
+				at.shared,
+				at.shared,
+			);
+
+		it("answers the linked worktree for a cwd inside it", () => {
+			const sub = path.join(at.wt, "sub");
+			fs.mkdirSync(sub);
+			expect(readFromSession({ cwd: sub })).toBe("worktree\n");
+		});
+
+		it("answers the shared tree for a cwd that is the shared tree", () => {
+			expect(readFromSession({ cwd: at.shared })).toBe("a\n");
+		});
+
+		it("answers the process's tree for an input naming no cwd", () => {
+			expect(
+				readThrough(
+					`require(${JSON.stringify(SEAM)}).sessionTree({})`,
+					at.wt,
+					at.shared,
+				),
+			).toBe("worktree\n");
+		});
+
+		it("answers null for a cwd outside any repository, never the shared tree", () => {
+			const outside = mkDirOutsideRepo("session-tree-");
+			try {
+				const r = spawnSync(
+					process.execPath,
+					[
+						"-e",
+						`process.stdout.write(String(require(${JSON.stringify(SEAM)}).sessionTree({ cwd: ${JSON.stringify(outside)} })))`,
+					],
+					{
+						cwd: at.shared,
+						encoding: "utf8",
+						env: { ...process.env, CLAUDE_PROJECT_DIR: at.shared },
+					},
+				);
+				expect(r.stdout).toBe("null");
+			} finally {
+				fs.rmSync(outside, { recursive: true, force: true });
+			}
+		});
 	});
 
 	describe("resolveCommitHost, the JS half of hook-root.sh (#3830)", () => {
