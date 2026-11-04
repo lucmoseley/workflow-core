@@ -14,8 +14,8 @@ const { buildSeatName } = require("./refill-seats.js");
  *   its trust, and 0 once its reset has passed; `weekReadAt` null where the
  *   reading has no time
  * @typedef {{at: number, seat: string, planSeats: PlanSeatBasis[],
- *   omitted: string[]}} OverflowStart `seat`, the overflow seat launched on;
- *   `omitted`, lib/refill-seats.js's readOmittedDirs at that launch
+ *   omitted: string[]}} OverflowStart `seat`, the overflow seat started on;
+ *   `omitted`, lib/refill-seats.js's readOmittedDirs at that start
  */
 
 /** @param {import("./refill-decide.js").SeatReading} s @returns {PlanSeatBasis} */
