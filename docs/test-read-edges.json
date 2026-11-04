@@ -6767,7 +6767,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-checkout.test.ts"
 		],
 		"scripts/lander.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -15766,6 +15767,7 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/guard-dispatch.test.ts",
 			"scripts/lib/held-queue.test.ts",
+			"scripts/lib/lander-start.test.ts",
 			"scripts/lib/lander.test.ts",
 			"scripts/lib/local-tester.test.ts",
 			"scripts/lib/marker-root.test.ts",
@@ -18800,6 +18802,7 @@
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
+			"scripts/lib/lander-start.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/quiet-bench-tick.test.ts",
 			"scripts/lib/refill-frontier.test.ts",
@@ -20940,6 +20943,7 @@
 			"scripts/guard-selection-sum.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
+			"scripts/lib/lander-start.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/lib/session-id.test.ts",
@@ -21361,6 +21365,7 @@
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
+			"scripts/lib/lander-start.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/lib/sleep-sync.test.ts",
@@ -23430,6 +23435,7 @@
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
+			"scripts/lib/lander-start.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/lib/user-scope.test.ts",
@@ -24872,7 +24878,8 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/registry-anchors-merge.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-checkout.test.ts"
 		],
 		"scripts/move-stray-doc-map-entries.js": [
 			"scripts/checker-registrations.test.ts",
@@ -26613,6 +26620,7 @@
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
+			"scripts/lib/lander-start.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts",

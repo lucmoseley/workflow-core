@@ -14,6 +14,15 @@
  * directory renamed into place whole, and is never installed into again. One build runs per key: a cut finding a live builder's lock waits for
  * its store rather than running a second `npm ci` against the memory cap.
  *
+ * LAND merges a freshly fetched `origin/landing` into the worktree's `HEAD` and
+ * pushes `HEAD:landing`, then starts the lander. A merge, never a rebase: git
+ * runs `pre-merge-commit`, and so the whole pre-commit stack, on a merge
+ * commit, and no hook at all on a rebase (#3106), which would skip the
+ * re-anchor the merge owes. A registry-anchor conflict is settled by the
+ * per-row merge driver git config names (#4171). Neither the merge nor the
+ * push carries a timeout of its own: every checker their hooks run is bounded
+ * already (#4187).
+ *
  * THE STORES LIVE UNDER `.claude/worktrees/.dep-stores/`, so the ignores every
  * tool already carries for the worktrees folder cover them too. A session name may not start with a dot, so none collides with it.
  *
@@ -28,10 +37,13 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { pidAlive } = require("./arbiter-proc.js");
 const { caught } = require("./caught.js");
-const { execGit, GIT_TIMEOUT_MS } = require("./git.js");
+const { execGit, GIT_TIMEOUT_MS, spawnGitSync } = require("./git.js");
 const { gitTopLevel } = require("./host-root.js");
+const { runStartLander } = require("./lander-start.js");
 const { mainCheckout } = require("./main-checkout.js");
 const { sleepSync } = require("./sleep-sync.js");
+const { buildModuleOffLine, moduleOn } = require("./workflow-core-config.js");
+const { writeFd } = require("./write-fd.js");
 
 const WORKTREES = path.join(".claude", "worktrees");
 const STORES = path.join(WORKTREES, ".dep-stores");
@@ -273,4 +285,133 @@ function cut(cwd, name) {
 	}
 }
 
-module.exports = { attach, CheckoutError, cut };
+/**
+ * A git command whose output the session reads — hook output included — on
+ * stderr, so a caller's stdout stays clean.
+ * @param {string[]} args
+ * @param {string} cwd
+ * @returns {{ ok: boolean, output: string }}
+ */
+function gitShown(args, cwd) {
+	const r = spawnGitSync(args, {
+		cwd,
+		encoding: "utf8",
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+	if (r.error) throw r.error;
+	const output = `${r.stdout}${r.stderr}`;
+	if (output) writeFd(2, output);
+	return { ok: r.status === 0, output };
+}
+
+/**
+ * Whether `a` is an ancestor of `b`, or the same commit.
+ * @param {string} a
+ * @param {string} b
+ * @param {string} cwd
+ */
+const isAncestor = (a, b, cwd) =>
+	spawnGitSync(["merge-base", "--is-ancestor", a, b], {
+		cwd,
+		stdio: "ignore",
+		timeout: GIT_TIMEOUT_MS,
+	}).status === 0;
+
+/** git's words for a push refused because the remote ref moved past ours. */
+const MOVED = /\[rejected\][^\n]*\((?:fetch first|non-fast-forward)\)/;
+
+/**
+ * Start the lander after a push: the post-push hook sees no push made inside
+ * a script. The main checkout's start-lander.js where this code runs from a
+ * linked worktree of it, so no lander runs from a tree the reaper may remove.
+ * @param {string} root the main checkout
+ * @param {string} dir the worktree
+ * @returns {string} start-lander.js's line, or why it did not start
+ */
+function startLanderFor(root, dir) {
+	const own = path.join(__dirname, "..", "start-lander.js");
+	const inTree = path.relative(dir, own);
+	const script = inTree.startsWith("..") ? own : path.join(root, inTree);
+	try {
+		const r = runStartLander(root, { script });
+		return r.ok
+			? r.line
+			: `the lander did not start (${r.line}) — run \`node ${script}\``;
+	} catch (err) {
+		return `the lander did not start (${caught(err).message}) — run \`node ${script}\``;
+	}
+}
+
+/**
+ * @param {string} dir
+ * @param {string} root
+ */
+function refuseUnlandable(dir, root) {
+	if (dir === root)
+		throw new CheckoutError(
+			"the main checkout is never landed from — land from your session worktree, or cut one with `node scripts/session-checkout.js cut <session-name>`",
+		);
+	if (!moduleOn("landing", { root }))
+		throw new CheckoutError(
+			`${buildModuleOffLine("landing")}, so nothing lands through it — push to main as \`rule:branch-publish\` says`,
+		);
+	if (fs.existsSync(git(["rev-parse", "--git-path", "MERGE_HEAD"], dir)))
+		throw new CheckoutError(
+			"a merge is in progress in this worktree — resolve it and `git commit`, or `git merge --abort`, then land again",
+		);
+	const dirty = git(["diff", "--name-only", "HEAD"], dir);
+	if (dirty)
+		throw new CheckoutError(
+			`uncommitted changes to ${dirty.split("\n").join(", ")} would not land — commit them, or set them aside, then land again`,
+		);
+}
+
+/**
+ * Merge `origin/landing` into `HEAD`.
+ * @param {string} dir
+ */
+function mergeLanding(dir) {
+	if (gitShown(["merge", "--no-edit", "origin/landing"], dir).ok) return;
+	if (!fs.existsSync(git(["rev-parse", "--git-path", "MERGE_HEAD"], dir)))
+		throw new CheckoutError(
+			"git did not start the merge of origin/landing, its output above — clear what it names, then land again",
+		);
+	const conflicted = git(["diff", "--name-only", "--diff-filter=U"], dir);
+	throw new CheckoutError(
+		conflicted
+			? `merging origin/landing conflicts in ${conflicted.split("\n").join(", ")} — resolve them and \`git commit\` (it runs the pre-commit gates), or \`git merge --abort\`, then land again`
+			: "the merge of origin/landing was refused, its output above — fix the finding and `git commit` (it runs the same gates), or `git merge --abort`, then land again",
+	);
+}
+
+/**
+ * @param {string} cwd anywhere in the worktree
+ * @returns {{ dir: string, head: string, merged: boolean, pushed: boolean, lander: string | null }}
+ */
+function land(cwd) {
+	const dir = gitTopLevel(cwd, GIT_TIMEOUT_MS);
+	const root = rootOf(dir);
+	refuseUnlandable(dir, root);
+	fetchLanding(root);
+	if (isAncestor("HEAD", "origin/landing", dir))
+		return {
+			dir,
+			head: git(["rev-parse", "HEAD"], dir),
+			merged: false,
+			pushed: false,
+			lander: null,
+		};
+	const merged = !isAncestor("origin/landing", "HEAD", dir);
+	if (merged) mergeLanding(dir);
+	const head = git(["rev-parse", "HEAD"], dir);
+	const push = gitShown(["push", "origin", "HEAD:landing"], dir);
+	if (!push.ok)
+		throw new CheckoutError(
+			MOVED.test(push.output)
+				? "landing moved after the fetch: a neighbour pushed first — land again, which merges the newer origin/landing into HEAD and pushes"
+				: "the push to landing was refused, its output above — fix the finding, then land again",
+		);
+	return { dir, head, merged, pushed: true, lander: startLanderFor(root, dir) };
+}
+
+module.exports = { attach, CheckoutError, cut, land };

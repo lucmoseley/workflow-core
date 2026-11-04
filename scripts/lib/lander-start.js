@@ -3,7 +3,7 @@
  * (#2405, spec #2261).
  */
 
-const { spawn } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { markersDir } = require("./marker-root.js");
@@ -74,11 +74,43 @@ function launcherName(listAgents, sessionId = fromEnv(), pause = sleepSync) {
 /** @param {string} root the canonical checkout's root */
 const landerLog = (root) => path.join(markersDir(root), ".lander.log");
 
+/* Untraced: start-lander.js names its launcher in up to NAME_TRIES reads
+ * NAME_PAUSE_MS apart, then reads the remote once. */
+const START_TIMEOUT_MS = 60_000;
+
+/**
+ * start-lander.js run to its end in `root`, its line appended to the lander's
+ * log as a hook's detached start appends it: for a caller that reports the
+ * line.
+ * @param {string} root the canonical checkout
+ * @param {{ script?: string, args?: string[] }} [o] `script` the start-lander.js
+ *   to run; `args` its flags
+ * @returns {{ ok: boolean, line: string }} `ok` false where it exited non-zero
+ *   or did not run, `line` then saying why
+ */
+function runStartLander(
+	root,
+	{ script = path.join(__dirname, "..", "start-lander.js"), args = [] } = {},
+) {
+	const r = spawnSync(process.execPath, [script, ...args], {
+		cwd: root,
+		encoding: "utf8",
+		timeout: START_TIMEOUT_MS,
+	});
+	if (r.status !== 0)
+		return {
+			ok: false,
+			line: `start-lander.js ended ${r.status ?? r.signal}: ${(r.stderr || r.error?.message || "").trim()}`,
+		};
+	const line = r.stdout.trim();
+	fs.appendFileSync(landerLog(root), `${line}\n`);
+	return { ok: true, line };
+}
+
 /**
  * `node <script> run [--tester <command>]` in `root`, in a session of its own
  * so no hook's process-group kill reaches it, appending its output to `log`,
- * behind `wrap`'s words; with none, the log says the lander shares its
- * starter's cgroup. It runs as no session: under the starting one's id and
+ * behind `wrap`'s words. It runs as no session: under the starting one's id and
  * root, admission counts that session as itself, the fix tickets it files are
  * claimed for it, and its suite read the shared tree (#2410).
  * Residual: a scope the probe allowed can still fail to start, and then
@@ -134,4 +166,5 @@ module.exports = {
 	launcherName,
 	spawnDetachedRun,
 	landerLog,
+	runStartLander,
 };
