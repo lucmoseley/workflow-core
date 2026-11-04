@@ -1140,12 +1140,14 @@ function settleTick(
 				sameBootRestart,
 				...(launching
 					? {
-							launching,
-							launchCount: {
-								from: input.noProgressFrom,
-								count:
-									launchesSince(state, input.noProgressFrom) +
-									launchedSoFar.length,
+							inFlight: {
+								launching,
+								launchCount: {
+									from: input.noProgressFrom,
+									count:
+										launchesSince(state, input.noProgressFrom) +
+										launchedSoFar.length,
+								},
 							},
 						}
 					: {}),

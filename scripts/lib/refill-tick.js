@@ -1684,19 +1684,20 @@ const actOnLaunches = (listed, { scope: { mode } }, served, seen) => {
 };
 
 /**
- * The state file as this tick starts on it: the manager's restart applied, and,
- * on a live tick, what a kill left out of it settled (settleKilled).
+ * The state file as this tick starts on it: on a live tick, what a kill left out
+ * of it settled (settleKilled), then the manager's restart applied, which is
+ * never written, as the marker is its record until the tick's own write.
  * @param {ReturnType<typeof readManagerRestart>} managerRestart
  * @param {string[]} served
  * @param {boolean} dryRun
  */
 function readTickState(managerRestart, served, dryRun) {
-	const onDisk = withManagerRestart(
-		readState(log),
+	const onDisk = readState(log);
+	return withManagerRestart(
+		dryRun ? onDisk : settleKilled(onDisk, served),
 		managerRestart,
 		readCurrentBootId(),
 	);
-	return dryRun ? onDisk : settleKilled(onDisk, served);
 }
 
 /**
@@ -1704,7 +1705,8 @@ function readTickState(managerRestart, served, dryRun) {
  * settled (#4180): its cut-off batch's launches adopted, then each resume left
  * with no outcome (lib/refill-blocks.js's settleStartedResumes), ahead of any
  * judging of the launches. Written at once where either changed it, so a stamp
- * later this tick lands on what was settled.
+ * later this tick lands on what was settled; what was written is returned, so
+ * the tick reads on from the file (#4232).
  * @param {import("./refill-state.js").LoopState} read
  * @param {string[]} served
  */

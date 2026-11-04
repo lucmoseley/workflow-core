@@ -4,7 +4,8 @@
  *
  * `readState` is the only read of the file and `updateState` the only write;
  * scripts/refill-wake.sh's `jq` read of its unfinished launches is the one
- * reader outside, a Stop hook kept off Node. A
+ * reader outside, a Stop hook kept off Node. Residual: it still sees a
+ * malformed row parseState drops, until the loop's next write erases it. A
  * write reads the file fresh and applies a pure transition to it, so a later
  * write in a tick always lands on an earlier one. Each transition owns only the
  * fields it names and spreads the rest, so a new field is one edit, here.
@@ -265,7 +266,9 @@ const ledgerJobOf = (l) => l.copiedFrom ?? l.jobId;
  * The tick's `launches` laid on `onDisk`, the launches as the file holds them
  * now: the tick's word stands on every launch it read in `read` or carries, and
  * one recorded since its read that it does not carry is kept. A launch is known
- * by its ledger job.
+ * by its ledger job, so a mid-tick write that replaces a row the tick read
+ * stands only where the tick carries the replacement too, as each writeLaunch
+ * caller does.
  * @param {LoopLaunch[]} onDisk
  * @param {LoopLaunch[]} read
  * @param {LoopLaunch[]} launches
@@ -390,17 +393,17 @@ const killSettled =
  * (#4157, #4180): `launching`, with its count, the batch it is about to launch.
  * @param {LoopLaunch[]} launches
  * @param {LoopState} read the state the tick started on
- * @param {TickOwned & {launching?: Launching, launchCount?: LaunchCount}} owned
- *   `launchCount` is written only beside a `launching`
+ * @param {TickOwned & {inFlight?: Pick<LoopState, "launchCount"> &
+ *   {launching: Launching}}} owned
  * @returns {Transition}
  */
 const batchLaunching =
-	(launches, read, { bootedAt, sameBootRestart, launching, launchCount }) =>
+	(launches, read, { bootedAt, sameBootRestart, inFlight }) =>
 	(s) => ({
 		...withTickLaunches(s, read, launches),
 		bootedAt,
 		sameBootRestart,
-		...(launching ? { launching, launchCount: launchCount ?? null } : {}),
+		...inFlight,
 	});
 
 /**

@@ -6222,6 +6222,25 @@ describe("the launches a restart killed (#3880)", () => {
 			expect(fs.existsSync(markerFile())).toBe(false);
 		});
 
+		it("queues them where a kill also left a batch in flight (#4232)", async () => {
+			fs.writeFileSync(
+				stateFile(),
+				JSON.stringify({
+					launches: [buildLaunch("job7", 7, 10)],
+					launching: { at: Date.now(), batch: [] },
+				}),
+			);
+			writeMarker(readCurrentBootId());
+			fakeResumeClaude("job7", [LISTED]);
+
+			const r = await tickWith(1, () => readCalls().length === 1);
+
+			expect(r.status).toBe(0);
+			expect(readCalls()).toEqual([buildResumeArgs("job7")]);
+			expect(r.stdout).toContain("killed by a restart: due back");
+			expect(readState()).not.toHaveProperty("launching");
+		});
+
 		it("carries a surviving loop's restart past an empty listing", async () => {
 			writeState([buildLaunch("job7", 7, 10)], false);
 			writeMarker(readCurrentBootId());

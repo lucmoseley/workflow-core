@@ -93,6 +93,16 @@ const TRANSITIONS: [string, Transition, (keyof LoopState)[]][] = [
 		["launches", "bootedAt", "sameBootRestart", "launching"],
 	],
 	[
+		"batchLaunching, a batch in flight",
+		batchLaunching([], FULL, {
+			inFlight: {
+				launching: { at: NOW, batch: [] },
+				launchCount: { from: NOW, count: 9 },
+			},
+		}),
+		["launches", "bootedAt", "sameBootRestart", "launching", "launchCount"],
+	],
+	[
 		"tickSettled",
 		tickSettled(tickOwned, FULL),
 		[...(Object.keys(tickOwned) as (keyof LoopState)[]), "launching" as const],
@@ -195,9 +205,9 @@ describe("the tick's writes", () => {
 			launching: { at: NOW, batch: [] },
 			launchCount: { from: NOW, count: 2 },
 		};
-		expect(batchLaunching(read.launches, read, launching)(read)).toMatchObject(
-			launching,
-		);
+		expect(
+			batchLaunching(read.launches, read, { inFlight: launching })(read),
+		).toMatchObject(launching);
 	});
 
 	it("batchLaunching without a batch leaves none in flight", () => {
