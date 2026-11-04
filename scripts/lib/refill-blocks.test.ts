@@ -1435,7 +1435,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 		});
 	});
 
-	it("names the limit its block text names, the bars only where it names none", () => {
+	it("names the limit its block text names, the bars only where it names none (#3730)", () => {
 		const seats = [planSeat({ sessionResets: "2026-10-18T15:00:00Z" })];
 		const named = (bar: object) =>
 			comments(
@@ -1477,7 +1477,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 		expect(live.launches[0]).toMatchObject({ limitHeld: { resumedAt: NOW } });
 	});
 
-	it("resumes one held session in place a tick on a reset seat, sized for one", () => {
+	it("resumes one held session in place a tick on a reset seat, sized for one (#3730)", () => {
 		const two = [held(), held({ jobId: "job43", issues: [43] })];
 		const out = limits(two, [], { slots: 2 });
 		expect(out.launches[0]).toMatchObject({ limitHeld: { resumedAt: NOW } });
@@ -2413,6 +2413,14 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 			expect(targets).toEqual([
 				{ seat: Seat, keyVar: "K3", allowanceUsd: 42.5 },
 			]);
+		});
+
+		it("moves nothing onto a key whose headroom is unread (#3730)", () => {
+			const { calls } = limits([weekly()], [agent("job42", "blocked")], {
+				seats: [weekFull(Seat), weekFull("/other")],
+				overflow: [{ ...key(1), headroomUsd: undefined }],
+			});
+			expect(calls.filter((c) => c.startsWith("move "))).toEqual([]);
 		});
 
 		it("holds a 5-hour block while another plan seat is not weekly-full, whatever the key fits", () => {

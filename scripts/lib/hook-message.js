@@ -21,7 +21,7 @@ const path = require("node:path");
 const { readFdAll } = require("./read-fd.js");
 const hookRecord = require("./hook-record");
 const sessionId = require("./session-id");
-const { projectSlug } = require("./project-slug.js");
+const { transcriptPath: seatTranscriptPath } = require("./project-slug.js");
 const { configDir } = require("./config-dir.js");
 const { parseJsonl } = require("./jsonl.js");
 
@@ -103,7 +103,7 @@ function conventionalTranscript(sid) {
 		const file = path.join(dir, name);
 		if (fs.existsSync(file)) return file;
 	}
-	return path.join(configDir(), "projects", projectSlug(), name);
+	return seatTranscriptPath(configDir(), process.cwd(), sid);
 }
 
 /**

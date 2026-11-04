@@ -393,7 +393,7 @@ function markParked(launches, agents, causeOf, now) {
 		return {
 			...rest,
 			parked: true,
-			block: blockFrom(reading, l.block?.since ?? now),
+			block: buildBlock(reading, l.block?.since ?? now),
 		};
 	});
 }
@@ -405,7 +405,7 @@ function markParked(launches, agents, causeOf, now) {
  * @param {number} since
  * @returns {import("./block-act.js").Block}
  */
-const blockFrom = (reading, since) => ({
+const buildBlock = (reading, since) => ({
 	cause: reading.cause,
 	...("sub" in reading ? { sub: reading.sub } : {}),
 	...("bar" in reading ? { bar: reading.bar } : {}),
@@ -2520,11 +2520,12 @@ function pickMoveTarget(l, seen, { seats, overflow }) {
 	});
 	if (pick.seat === null) return null;
 	if (!pick.keyVar) return { seat: pick.seat };
-	return {
-		seat: pick.seat,
-		keyVar: pick.keyVar,
-		allowanceUsd: overflow.find((o) => o.keyVar === pick.keyVar)?.headroomUsd,
-	};
+	const allowanceUsd = overflow.find(
+		(o) => o.keyVar === pick.keyVar,
+	)?.headroomUsd;
+	/* Unread, the move could not be charged to the key (#3730). */
+	if (allowanceUsd === undefined) return null;
+	return { seat: pick.seat, keyVar: pick.keyVar, allowanceUsd };
 }
 
 /**
@@ -2630,7 +2631,7 @@ function actOnLimits(launches, mode, seen) {
 		});
 		const change = limitWorkingChange(l, out);
 		/* A resume from held fills a seat as a move onto it does; a live one's
-		 * stop and resume in place keeps the slot it holds. */
+		 * stop and resume in place keeps the slot it holds (#3730). */
 		if (out.seat !== l.seat || out.keyVar !== l.keyVar || change > 0)
 			moveSeats = withSeatTaken(moveSeats, out);
 		if (change > 0) slots -= 1;

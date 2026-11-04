@@ -49,7 +49,8 @@ const IDLE_TRIES = 2;
  * @typedef {{cause: Cause, sub?: import("./block-cause.js").ApiErrorKind,
  *   bar?: import("./block-cause.js").LimitBar, since: number, tries?: number, nextAt?: number, triedAt?: number,
  *   held?: boolean, typing?: boolean, swapHeld?: boolean, seat?: string,
- *   movePick?: {seat: string, keyVar?: string}|null, slotFree?: boolean,
+ *   movePick?: Pick<import("./refill-blocks.js").MoveTarget, "seat"|"keyVar">|null,
+ *   slotFree?: boolean,
  *   dryResumes?: number, heldAt?: number}} Block  `since`,
  *   the first tick that
  *   read this cause, ms, or for RESUMED_IDLE the later of the harness's

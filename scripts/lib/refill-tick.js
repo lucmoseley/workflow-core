@@ -898,17 +898,19 @@ function recordOverflowCopy({ root, keyVar }, from, { jobId, sessionId }) {
  */
 function recordOnKey({ root, seat, keyVar }, from, run, how) {
 	if (!keyVar) return null;
-	const { copy } = how;
-	const allowanceUsd = how.move?.allowanceUsd;
-	if (allowanceUsd === undefined) {
+	const { copy, move } = how;
+	if (!move) {
 		if (copy) recordOverflowCopy({ root, keyVar }, from, run);
 		return null;
 	}
-	const failed = recordMovedOverflow({ root, keyVar }, from, {
-		...run,
-		allowanceUsd,
-		offKeyUsd: readOffKeyUsd({ seat, from, cwd: how.cwd, copy }),
-	});
+	const failed =
+		move.allowanceUsd === undefined
+			? "no allowance read for the key"
+			: recordMovedOverflow({ root, keyVar }, from, {
+					...run,
+					allowanceUsd: move.allowanceUsd,
+					offKeyUsd: readOffKeyUsd({ seat, from, cwd: how.cwd, copy }),
+				});
 	if (!failed) return null;
 	/* Unrecorded, it would run on the key uncapped and unreserved. */
 	const stop = stopOn(seat, run.jobId);

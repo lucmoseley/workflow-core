@@ -946,16 +946,10 @@ describe("the first overflow launch's record (#3767)", () => {
 		});
 	});
 
-	it("records nothing new on a move after a launch already on a key (#4257)", () => {
-		const onKey = {
-			seat: apiSeat,
-			keyVar: "K2",
-			reason: "overflow",
-			launchedAt: pastAt,
-		};
+	it("records nothing new on a move after a recorded start on a key (#4257)", () => {
 		const { start, lines } = settleOverflowLaunch(
 			null,
-			[onKey, moved],
+			[moved],
 			undefined,
 			pastAt,
 		);

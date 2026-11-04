@@ -25,11 +25,12 @@ const PERMISSION_WAITS = new Set([
 ]);
 /* A tool approval's `needs` (#2358 F3; #2699's live reading). */
 const APPROVE_TOOL = /^approve (?!plan$)[^:]+: /;
-const LIMIT_TEXT = /^You've (hit|reached) your .*limit/;
-/* The bar a limit text names: its session limit is the 5-hour one. */
+const LIMIT_OPENING = "^You've (hit|reached) your ";
+const LIMIT_TEXT = new RegExp(`${LIMIT_OPENING}.*limit`);
+/* The bar a limit text names: the 5-hour bar is its "session limit" (#2128). */
 const LIMIT_BARS = /** @type {const} */ ([
-	[/^You've (hit|reached) your session limit/, "5-hour"],
-	[/^You've (hit|reached) your weekly limit/, "weekly"],
+	[new RegExp(`${LIMIT_OPENING}session limit`), "5-hour"],
+	[new RegExp(`${LIMIT_OPENING}weekly limit`), "weekly"],
 ]);
 const LIMIT_NEEDS = new Set([
 	"usage limit reached — check plan",
