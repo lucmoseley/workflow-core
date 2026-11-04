@@ -299,9 +299,79 @@ source "$here/lib/wfc-config.sh" 2>/dev/null
 output_style=".claude/output-styles/core-voice.md"
 style_read="$(wfc_output_style 2>/dev/null)" && output_style="$style_read"
 
-# Built inside this arm alone: its fragment lookups and subshells cost every other
-# command about half its run.
+# Every one of these commands can put a choice to the founder, and the vendored
+# skills defer to `grilling`, which fixes the shape of the QUESTION and says
+# nothing about the OPTIONS inside one — which pulls toward an unpriced menu. The
+# pricing rule exists in the host's output style and in the founder's memory, but
+# neither fires on a turn that presents as asking a question rather than making a
+# claim. mantahostels#1503 scoped the lettered form to a round, so the clause below routes a
+# real choice INTO one rather than letting it arrive unlettered. Do not reword the lettered
+# shape below: it is the founder's own, and the wording is the requirement. The
+# opening scope — the house decision a resolution or fork turns on, never every
+# resolution — is #1752's, the sum-to-100 sentence answers #38, and the
+# no-stakes-threshold sentence mantahostels#570.
+priced_options_whole=$'\n\n'"EVERY CHOICE PUT TO THE FOUNDER SHIPS PRICED OPTIONS — each house decision a resolution or mid-session fork turns on. Enumerate the real alternatives (not motives, not diagnoses) and price each on its own line in exactly this shape, with nothing added:"$'\n\n'"(A) <the option, stated in plain words>"$'\n'"Confidence: 70% (60% - 80%). <what drives the estimate, and what would move it>"$'\n\n'"(B) <the next option>"$'\n'"Confidence: 30% (20% - 40%). <as above>"$'\n\n'"Relation: <rivals: which options actually conflict, and on what — or: independent, so any combination is takeable>"$'\n\n'"Options are ALWAYS lettered (A), (B), (C) — never numbered, never bulleted, never unlabelled — and the letter is what the founder replies with, so it is repeated in full wherever the option is referred to again. A choice put to the founder is put AS a numbered \`❓ **Q1**\` round, because the lettered priced form is owed inside a round (${output_style}); an ordinary question that is NOT a choice between alternatives is asked plainly instead, with one confidence figure and a recommendation, and takes no letters. The \`grilling\` skill's round shape governs the QUESTIONS you ask; the options inside any one question still take the lettered priced form here. Wherever there is more than one option the \`Relation:\` line is required, because the lettered shape reads as a ballot — rivals for one slot — and options that could be taken together must say so. THE FIGURES MEAN DIFFERENT THINGS BY RELATION: where the options are rivals for one slot, each figure is the probability that option is the right choice, so the headline figures sum to 100% (as 70% and 30% above) and the \`Relation:\` line says \`rivals\`; where options can be combined, each figure is that option's own chance of being worth taking and they need not sum. Then name the recommendation by its letter, every letter it takes where more than one is takeable, and the one assumption that would flip it. NO tables, NO horizontal rules, NO bold or titled option names. Never emit a filler percentage, and where a claim cannot be grounded say it is unknowable or subjective instead of inventing one. THE RULE HAS NO STAKES THRESHOLD: a choice that looks like a formality — a yes/no follow-on, a lopsided binary with one obvious answer — still ships the lettered priced form ((A) yes at ~90% is right; no options at all is not), and the only escape is saying a number is unknowable, never omitting the pricing. Research before you ask, as far as any source could answer it; ask only what research leaves open, naming that gap: \`rule:house-decision\`."
+
+# Core voice carries the shape itself, so a session it loads into gets a pointer
+# rather than a second copy (#2039). Where lib/wfc-config.sh did not load, the
+# whole shape goes. check-context-budget.js measures the pointer, being the last
+# `priced_options=` line; the whole shape's bound is the per-command
+# persistence test in inject-tracker-docs.test.ts.
+priced_options=$'\n\n'"EVERY CHOICE PUT TO THE FOUNDER SHIPS PRICED OPTIONS, in the lettered shape your Core voice output style gives, put as a numbered \`❓ **Q1**\` round. Research before you ask, and ask only what research leaves open, naming that gap: \`rule:house-decision\`."
+wfc_core_voice_loaded 2>/dev/null || priced_options="$priced_options_whole"
+
+# /code-review takes that rule ALONE, not the docs below: it files an issue only
+# where a finding needs one, so the placement and labelling rules would cost far
+# more context than the one rule it is missing.
+#
+# The review tier a declared sensitive path owes (#1697): the dispatcher's
+# inject-review-tier core fires on the Skill tool alone, so it is run here,
+# alone (`guard-dispatch.js --only`), on the payload that call would carry. It
+# latches its rules as told, so the marker is reserved first and a losing
+# duplicate never runs it. Its rules are capped at RULE_CAP and
+# its areas prelude is not: where the whole would cross the harness's
+# persistence threshold, HOOK_PERSIST_CHARS, the tier leads, so it lands in the
+# preview. WFC_REVIEW_TIER_HOOK, the entry it is run through, is the test seam,
+# as WFC_GH is for the `takes:` read.
+#
+# A bare typed name goes namespaced: the tier core passes over a bare
+# `code-review` where the host has no local skill, as lib/review-rules.js
+# refuses that Skill call (#1165), but a typed command is never refused (#1746).
+# Any prefix but `code-review:` serves, as the tier core matches the rest of
+# `*:code-review`, so a renamed plugin still gets its tier.
+#
+# The hook's 10 s (self-plugin/hooks/hooks.json, hooks/hooks.json) less 2 for the rest
+# of this arm, a margin judged, not measured. A kill skips the core's own
+# fail-open record, so it is recorded here.
+TIER_HOOK_TIMEOUT_S=8
+# The cwd rides too: the tier core reads a worktree the session works in from it
+# (#2386).
+skill_call() {
+  jq -nc --arg s "$session" --arg k "${matched_ns:-workflow-core:}code-review" --arg c "$1" \
+    '{hook_event_name: "PreToolUse", tool_name: "Skill", tool_input: {skill: $k}, session_id: $s, cwd: $c}'
+}
+review_tier() {
+  local hook out rc
+  hook="${WFC_REVIEW_TIER_HOOK:-$here/guard-dispatch.js}"
+  [[ -f "$hook" ]] || return 0
+  out="$(skill_call "$payload_cwd" 2>/dev/null |
+    {
+      [[ -z "$payload_cwd" ]] || cd "$payload_cwd" 2>/dev/null
+      timeout "$TIER_HOOK_TIMEOUT_S" node "$hook" --only inject-review-tier 2>/dev/null
+    })"
+  rc=$?
+  # shellcheck source=scripts/lib/guard-log.sh
+  if ((rc == 124)) && source "$here/lib/guard-log.sh" 2>/dev/null; then
+    gl_log "inject-review-tier outran ${TIER_HOOK_TIMEOUT_S} s — a typed /code-review went without its review tier"
+  fi
+  printf '%s' "$out" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null
+}
 if [[ "$matched" == "code-review" ]]; then
+  # shellcheck source=scripts/lib/review-standards.sh
+  source "$here/lib/review-standards.sh" 2>/dev/null
+  review_standards_log_missing_base 2>/dev/null
+  reserve || exit 0
+
   # The vendored code-review skill does not name how to dispatch its two axes.
   # Named here so a review runs both axes in parallel rather than one
   # after the other in a single context.
@@ -322,8 +392,6 @@ if [[ "$matched" == "code-review" ]]; then
   # The default is for an unresolved core root, spelt here and not in
   # lib/review-standards.sh because this file's text leaves through an emitter
   # that resolves a doc path, as the lib's does not (script-path-scan.test.ts).
-  # shellcheck source=scripts/lib/review-standards.sh
-  source "$here/lib/review-standards.sh" 2>/dev/null
   standards_base="docs/code-standards-base.md"
   base_shown="$(review_standards_base_shown 2>/dev/null)" && standards_base="$base_shown"
   standards_state="$(review_standards_state 2>/dev/null)" || standards_state=both
@@ -402,78 +470,7 @@ if [[ "$matched" == "code-review" ]]; then
   # findings" and names no destination for one.
   disposition="$(rule_text review-finding-destination 2>/dev/null)"
   [[ -n "$disposition" ]] || disposition="Give every review finding a destination, as docs/agents/rules/review-finding-destination.txt says."
-fi
 
-# Every one of these commands can put a choice to the founder, and the vendored
-# skills defer to `grilling`, which fixes the shape of the QUESTION and says
-# nothing about the OPTIONS inside one — which pulls toward an unpriced menu. The
-# pricing rule exists in the host's output style and in the founder's memory, but
-# neither fires on a turn that presents as asking a question rather than making a
-# claim. mantahostels#1503 scoped the lettered form to a round, so the clause below routes a
-# real choice INTO one rather than letting it arrive unlettered. Do not reword the lettered
-# shape below: it is the founder's own, and the wording is the requirement. The
-# opening scope — the house decision a resolution or fork turns on, never every
-# resolution — is #1752's, the sum-to-100 sentence answers #38, and the
-# no-stakes-threshold sentence mantahostels#570.
-priced_options_whole=$'\n\n'"EVERY CHOICE PUT TO THE FOUNDER SHIPS PRICED OPTIONS — each house decision a resolution or mid-session fork turns on. Enumerate the real alternatives (not motives, not diagnoses) and price each on its own line in exactly this shape, with nothing added:"$'\n\n'"(A) <the option, stated in plain words>"$'\n'"Confidence: 70% (60% - 80%). <what drives the estimate, and what would move it>"$'\n\n'"(B) <the next option>"$'\n'"Confidence: 30% (20% - 40%). <as above>"$'\n\n'"Relation: <rivals: which options actually conflict, and on what — or: independent, so any combination is takeable>"$'\n\n'"Options are ALWAYS lettered (A), (B), (C) — never numbered, never bulleted, never unlabelled — and the letter is what the founder replies with, so it is repeated in full wherever the option is referred to again. A choice put to the founder is put AS a numbered \`❓ **Q1**\` round, because the lettered priced form is owed inside a round (${output_style}); an ordinary question that is NOT a choice between alternatives is asked plainly instead, with one confidence figure and a recommendation, and takes no letters. The \`grilling\` skill's round shape governs the QUESTIONS you ask; the options inside any one question still take the lettered priced form here. Wherever there is more than one option the \`Relation:\` line is required, because the lettered shape reads as a ballot — rivals for one slot — and options that could be taken together must say so. THE FIGURES MEAN DIFFERENT THINGS BY RELATION: where the options are rivals for one slot, each figure is the probability that option is the right choice, so the headline figures sum to 100% (as 70% and 30% above) and the \`Relation:\` line says \`rivals\`; where options can be combined, each figure is that option's own chance of being worth taking and they need not sum. Then name the recommendation by its letter, every letter it takes where more than one is takeable, and the one assumption that would flip it. NO tables, NO horizontal rules, NO bold or titled option names. Never emit a filler percentage, and where a claim cannot be grounded say it is unknowable or subjective instead of inventing one. THE RULE HAS NO STAKES THRESHOLD: a choice that looks like a formality — a yes/no follow-on, a lopsided binary with one obvious answer — still ships the lettered priced form ((A) yes at ~90% is right; no options at all is not), and the only escape is saying a number is unknowable, never omitting the pricing. Research before you ask, as far as any source could answer it; ask only what research leaves open, naming that gap: \`rule:house-decision\`."
-
-# Core voice carries the shape itself, so a session it loads into gets a pointer
-# rather than a second copy (#2039). Where lib/wfc-config.sh did not load, the
-# whole shape goes. check-context-budget.js measures the pointer, being the last
-# `priced_options=` line; the whole shape's bound is the per-command
-# persistence test in inject-tracker-docs.test.ts.
-priced_options=$'\n\n'"EVERY CHOICE PUT TO THE FOUNDER SHIPS PRICED OPTIONS, in the lettered shape your Core voice output style gives, put as a numbered \`❓ **Q1**\` round. Research before you ask, and ask only what research leaves open, naming that gap: \`rule:house-decision\`."
-wfc_core_voice_loaded 2>/dev/null || priced_options="$priced_options_whole"
-
-# /code-review takes that rule ALONE, not the docs below: it files an issue only
-# where a finding needs one, so the placement and labelling rules would cost far
-# more context than the one rule it is missing.
-#
-# The review tier a declared sensitive path owes (#1697): the dispatcher's
-# inject-review-tier core fires on the Skill tool alone, so it is run here,
-# alone (`guard-dispatch.js --only`), on the payload that call would carry. It
-# latches its rules as told, so the marker is reserved first and a losing
-# duplicate never runs it. Its rules are capped at RULE_CAP and
-# its areas prelude is not: where the whole would cross the harness's
-# persistence threshold, HOOK_PERSIST_CHARS, the tier leads, so it lands in the
-# preview. WFC_REVIEW_TIER_HOOK, the entry it is run through, is the test seam,
-# as WFC_GH is for the `takes:` read.
-#
-# A bare typed name goes namespaced: the tier core passes over a bare
-# `code-review` where the host has no local skill, as lib/review-rules.js
-# refuses that Skill call (#1165), but a typed command is never refused (#1746).
-# Any prefix but `code-review:` serves, as the tier core matches the rest of
-# `*:code-review`, so a renamed plugin still gets its tier.
-#
-# The hook's 10 s (self-plugin/hooks/hooks.json, hooks/hooks.json) less 2 for the rest
-# of this arm, a margin judged, not measured. A kill skips the core's own
-# fail-open record, so it is recorded here.
-TIER_HOOK_TIMEOUT_S=8
-# The cwd rides too: the tier core reads a worktree the session works in from it
-# (#2386).
-skill_call() {
-  jq -nc --arg s "$session" --arg k "${matched_ns:-workflow-core:}code-review" --arg c "$1" \
-    '{hook_event_name: "PreToolUse", tool_name: "Skill", tool_input: {skill: $k}, session_id: $s, cwd: $c}'
-}
-review_tier() {
-  local hook out rc
-  hook="${WFC_REVIEW_TIER_HOOK:-$here/guard-dispatch.js}"
-  [[ -f "$hook" ]] || return 0
-  out="$(skill_call "$payload_cwd" 2>/dev/null |
-    {
-      [[ -z "$payload_cwd" ]] || cd "$payload_cwd" 2>/dev/null
-      timeout "$TIER_HOOK_TIMEOUT_S" node "$hook" --only inject-review-tier 2>/dev/null
-    })"
-  rc=$?
-  # shellcheck source=scripts/lib/guard-log.sh
-  if ((rc == 124)) && source "$here/lib/guard-log.sh" 2>/dev/null; then
-    gl_log "inject-review-tier outran ${TIER_HOOK_TIMEOUT_S} s — a typed /code-review went without its review tier"
-  fi
-  printf '%s' "$out" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null
-}
-if [[ "$matched" == "code-review" ]]; then
-  review_standards_log_missing_base 2>/dev/null
-  reserve || exit 0
   # shellcheck source=scripts/lib/guard-log.sh
   if [[ -n "${dispatch_shape_missed:-}" ]] && source "$here/lib/guard-log.sh" 2>/dev/null; then
     gl_log "rule:review-dispatch-shape unreadable — /code-review named its path instead"
