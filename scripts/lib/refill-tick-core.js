@@ -3,9 +3,10 @@
  * #4212): its step order, its dry-run policy and its own readings, with no I/O
  * of its own. Every read, write and child process goes through the TickIo port,
  * whose production adapter is lib/refill-tick.js; a dry run takes that adapter
- * with its writes no-ops, so the policy branches here are the only place a dry
- * run differs: it previews over no control as over a stopped one, judges no
- * listing by a boot's kills and stops at its decision.
+ * with its writes no-ops. A dry run differs in the policy branches here (it
+ * previews over no control as over a stopped one, judges no listing by a boot's
+ * kills and stops at its decision) and in what those no-ops answer, which is
+ * policy too.
  *
  * A TICK: read founder presence, and in away mode write what it changes under
  * the control lock (#2522), untick each repo its owner opted out (#4188), reap,
@@ -20,16 +21,13 @@
  * seats and act on the limit-held launches (#3735), then decide
  * (lib/refill-decide.js), first with an empty frontier, the per-repo
  * shortlists being read only on a tick that could launch. From the decision on,
- * settleTick: resumes, then each batch on record before its launcher runs
- * (#4157, #4180), the pause, the state, the morning review (#2017, #3765). Then
+ * lib/refill-tick-settle.js's settleTick. Then
  * the tick's row is appended to the concurrency record (lib/concurrency.js,
  * #2497).
  */
 
-const { isTerminalAgent } = require("./agent-liveness.js");
 const { buildTickRecord } = require("./concurrency.js");
 const { neverStartedJobs } = require("./hung-jobs.js");
-const { batchesOf } = require("./refill-batch.js");
 const blocks = require("./refill-blocks.js");
 const {
 	bootSparedJobs,
@@ -40,57 +38,29 @@ const {
 const {
 	actsRead,
 	awayChangeOf,
-	buildResumeWaitLine,
 	decideTick,
-	isParkRoutingMode,
 	NOTHING_LAUNCHABLE,
-	startedAt,
 	UNREAD,
 } = require("./refill-decide.js");
-const { buildErrorText } = require("./caught.js");
-const { buildGoalProgress } = require("./refill-goal.js");
 const {
-	buildFrontierReadText,
-	buildLaunchLine,
-	buildSkipText,
 	controlInMode,
 	controlWithoutOptedOut,
-	handedOffSince,
+	judgedLaunches,
 	landingRoots,
-	launchesSince,
 	runningOf,
-	summaryOf,
 	withAbsentRead,
 } = require("./refill-loop.js");
-const { buildSeatName } = require("./refill-seats.js");
-const {
-	batchLaunching,
-	lateStopped,
-	tickSettled,
-	withoutLaunching,
-} = require("./refill-state.js");
+const { settleTick } = require("./refill-tick-settle.js");
+const { withoutLaunching } = require("./refill-state.js");
 const { buildDriftLines } = require("./registry-agents.js");
 const {
 	overflowReadings,
 	seatTriedAfter,
 	sizeResumeSeats,
 } = require("./seat-reading.js");
-const { unclosedLaunches } = require("./unclosed-launch.js");
-const {
-	buildOverflowStartLines,
-	firstOverflowStart,
-	planSeatBasisOf,
-} = require("./overflow-notice.js");
 const { OUTCOME_PREFIX } = require("./usage-probe.js");
 
-const {
-	isHeld,
-	isLive,
-	isStepResume,
-	launchName,
-	LISTING_GRACE_MS,
-	markParked,
-} = blocks;
+const { launchName } = blocks;
 
 /** @typedef {import("./refill-loop.js").Control} Control */
 /** @typedef {import("./refill-loop.js").ControlRead} ControlRead */
@@ -99,14 +69,6 @@ const {
 /** @typedef {import("./refill-state.js").Hold} Hold */
 /** @typedef {import("./refill-batch.js").BatchOutcome} BatchOutcome */
 /** @typedef {import("./refill-loop.js").FrontierRead} FrontierRead */
-
-/* Enough for the no-progress run and for `status`. Untraced. */
-const HISTORY_KEPT = 50;
-/* A bound on the state file, since a ticket outranked for weeks must keep its
- * record: roomy against the 7 the live file held on 2 Nov 2026. A guess. */
-const UNCLOSED_KEPT = 50;
-/* The skipped rows an idle tick's log line names. Untraced. */
-const LINE_SKIPS = 3;
 
 /**
  * The control this tick's read of the founder leaves (awayChangeOf), null where
@@ -128,44 +90,6 @@ function controlAfterPresence(control, lastPromptAt, now) {
 		? controlInMode(control, "normal", now)
 		: withAbsentRead(control, true, now);
 }
-
-/**
- * The stored count after a tick that parked `launches`' rows stamped `now`.
- * @param {Pick<LoopState, "handedOff">} state
- * @param {import("./refill-decide.js").AwaySwitch|undefined} away the switch,
- *   absent in normal mode
- * @param {LoopLaunch[]} launches
- * @param {number} now
- */
-function nextHandedOff(state, away, launches, now) {
-	if (!away) return state.handedOff;
-	const parked = launches.filter(
-		(l) => l.parkedAway === true && l.parkStopped === now,
-	).length;
-	return {
-		from: away.since,
-		count: handedOffSince(state, away.since) + parked,
-	};
-}
-
-/**
- * The holds a frontier-reading tick leaves. An away tick opens none, as a seat's
- * reset would launch nothing there (#2355), but keeps one whose seat still reads
- * full, so its start stands (#3850).
- * @param {import("./refill-decide.js").Skip[]} held this tick's
- * @param {Hold[]} before
- * @param {number} now
- * @param {"normal"|"away"} mode
- * @returns {Hold[]}
- */
-const holdsOf = (held, before, now, mode) =>
-	held.flatMap((h) => {
-		const since = before.find(
-			(b) => b.root === h.root && b.number === h.number,
-		)?.since;
-		if (since !== undefined) return [{ ...h, since }];
-		return isParkRoutingMode(mode) ? [{ ...h, since: now }] : [];
-	});
 
 /**
  * `state` with the members of the batch a kill cut off that `adopt` finds
@@ -216,98 +140,6 @@ const buildReviewSkip = ({ due, root, lastRunOn, today }) =>
 const FREE_SLOT_ARGS = ["--json", "--launch", "--skip-allowance"];
 
 /**
- * The launches whose session has left the listing or ended, and are not
- * judged yet. Nothing is judged off an unread listing, and a launch with no
- * job id is never judged: nothing ties it to a listed session. One owed a hand-off
- * or still watched after a boot's resume is actOnIdle's to settle (#3880). The listing
- * must span every seat the loop launches on (lib/refill-tick.js's SEATS).
- * @param {LoopLaunch[]} launches
- * @param {import("./agent-liveness.js").AgentRecord[]|null} agents
- * @param {number} now
- */
-function newlyFinished(launches, agents, now) {
-	if (!agents) return [];
-	const listed = new Set(
-		agents.filter((a) => a.id && !isTerminalAgent(a)).map((a) => a.id),
-	);
-	return launches.filter(
-		(l) =>
-			isLive(l) &&
-			now - startedAt(l) >= LISTING_GRACE_MS &&
-			!listed.has(l.jobId) &&
-			!isHeld(l) &&
-			l.handOffTries === undefined &&
-			l.bootResumedAt === undefined,
-	);
-}
-
-/**
- * The launches a tick's state keeps, order unchanged (#3775): every live one,
- * however old, since blockedActs and runningOf see only what is kept, and of
- * the rest the HISTORY_KEPT latest to finish, or to launch where none did.
- * Admission bounds the running ones; a limit-held launch, stopped so outside
- * admission, stays until it resumes or parks (#3790, #3793).
- * Also the UNCLOSED_KEPT latest unclosed launches, which a low-ranked ticket can
- * otherwise outwait, as #3609's record did (#3782).
- * @param {LoopLaunch[]} launches
- */
-function keptLaunches(launches) {
-	const settledAt = (/** @type {LoopLaunch} */ l) =>
-		l.finishedAt ?? l.launchedAt;
-	const capped = new Set(
-		launches
-			.filter((l) => !isLive(l))
-			.sort((a, b) => settledAt(a) - settledAt(b))
-			.slice(-HISTORY_KEPT)
-			.concat(unclosedLaunches(launches).slice(-UNCLOSED_KEPT)),
-	);
-	return launches.filter((l) => isLive(l) || capped.has(l));
-}
-
-/**
- * The launches with `sessionId` taken from the listing for each that has none
- * yet and whose job it shows (#2311), for the wake on a session's end and
- * actsOf. Off an unread listing, or for a job it does not show, a launch is
- * returned as it was.
- * @param {LoopLaunch[]} launches
- * @param {import("./agent-liveness.js").AgentRecord[]|null} agents
- */
-function withSessionIds(launches, agents) {
-	if (!agents) return launches;
-	const sessions = new Map(
-		agents.flatMap((a) => (a.id && a.sessionId ? [[a.id, a.sessionId]] : [])),
-	);
-	return launches.map((l) => {
-		const sessionId = l.jobId === null ? undefined : sessions.get(l.jobId);
-		return l.sessionId === undefined && sessionId !== undefined
-			? { ...l, sessionId }
-			: l;
-	});
-}
-
-/**
- * The launches after one listing: each the listing first shows given its
- * session id, then each newly finished one marked with `progressOf`'s fields,
- * then each still listed marked parked or not (markParked). The id comes first, so a
- * launch whose first listing already shows it ended is judged with it.
- * @template {object} P
- * @param {LoopLaunch[]} launches
- * @param {import("./agent-liveness.js").AgentRecord[]|null} agents
- * @param {number} now
- * @param {{progressOf: (l: LoopLaunch) => P,
- *   causeOf: import("./refill-blocks.js").CauseOf}} read
- * @returns {LoopLaunch[]}
- */
-function judgedLaunches(launches, agents, now, { progressOf, causeOf }) {
-	const listed = withSessionIds(launches, agents);
-	const done = new Set(newlyFinished(listed, agents, now));
-	const judged = listed.map((l) =>
-		done.has(l) ? { ...l, ...progressOf(l), finishedAt: now } : l,
-	);
-	return markParked(judged, agents, causeOf, now);
-}
-
-/**
  * The loop log's line for a finished launch.
  * @param {LoopLaunch} l
  */
@@ -322,61 +154,6 @@ function buildFinishLine(l) {
 }
 
 /**
- * Whether a control read mid-tick asks the loop to stop. A control gone
- * missing does, as at the tick's start.
- * @param {Control|null} control
- */
-const isStopRequested = (control) => control?.stopRequested !== false;
-
-/**
- * Whether a control read mid-tick holds back the tick's next launch: a stop or
- * a pause.
- * @param {Control|null} control
- */
-const isLaunchBarred = (control) =>
-	isStopRequested(control) || control?.paused !== undefined;
-
-/**
- * What the dispatches did, dispatching each batch in turn after re-reading the
- * control, and none once it asks for a stop (#2126) or a pause: one dispatch can
- * hold the tick for minutes. Residual: a dispatch already running still launches
- * every member.
- * @param {import("./refill-decide.js").Launch[][]} batches
- * @param {() => Control|null} readControl
- * @param {(batch: import("./refill-decide.js").Launch[]) => BatchOutcome} launch
- * @returns {Outcome}
- */
-function launchUntilBarred(batches, readControl, launch) {
-	/** @type {Outcome} */
-	const outcome = { launched: [], refused: [], unreached: [] };
-	for (const [i, batch] of batches.entries()) {
-		if (isLaunchBarred(readControl())) {
-			outcome.unreached = batches.slice(i).flat();
-			break;
-		}
-		const r = launch(batch);
-		outcome.launched.push(...r.launched);
-		outcome.refused.push(...r.refused);
-		const { resumeRefused: reason } = r;
-		if (reason) {
-			outcome.refused.push(
-				...batches
-					.slice(i + 1)
-					.flat()
-					.map((l) => ({ launch: l, reason })),
-			);
-			break;
-		}
-	}
-	return outcome;
-}
-
-/**
- * @param {{root: string, prompt: string}[]} launches
- */
-const buildLaunchesLine = (launches) => launches.map(launchName).join("; ");
-
-/**
  * A probed seat's outcome: the outcome line scripts/usage-probe.js writes on
  * stderr, else how its run failed.
  * @param {string} stderr
@@ -387,379 +164,6 @@ function parseProbeOutcome(stderr, failed) {
 	return line
 		? line.slice(OUTCOME_PREFIX.length).trim()
 		: `no outcome line, ${failed ?? "exit 0"}`;
-}
-
-/**
- * An idle tick's account of the frontier it read (#2561).
- * @param {Extract<import("./refill-decide.js").Decision, {idle: unknown}>} d
- * @param {FrontierRead|null} read
- */
-function frontierNotes(d, read) {
-	if (read === null) return [];
-	/** @type {Map<string, number>} */
-	const counts = new Map();
-	for (const s of d.skipped) counts.set(s.why, (counts.get(s.why) ?? 0) + 1);
-	return [
-		buildFrontierReadText(read),
-		...(counts.size > 0
-			? [
-					`skipped ${[...counts].map(([why, n]) => `${n} ${why}`).join(", ")}`,
-					`first ${d.skipped.slice(0, LINE_SKIPS).map(buildSkipText).join(", ")}`,
-				]
-			: []),
-	];
-}
-
-/**
- * What a tick's dispatches did: the members launched, each refused with its
- * reason, and those a stop left undispatched.
- * @typedef {BatchOutcome & {unreached: import("./refill-decide.js").Launch[]}} Outcome
- */
-
-/**
- * A launching tick's line: what launched, and each member the dispatcher
- * refused as refused, with its reason (#2500).
- * @param {Outcome} o
- */
-const buildOutcomeLine = (o) =>
-	[
-		...(o.launched.length > 0 ? [buildLaunchLine(o.launched)] : []),
-		...o.refused.map(
-			(r) => `refused ${buildLaunchesLine([r.launch])}: ${r.reason}`,
-		),
-		...(o.unreached.length > 0
-			? [
-					`not dispatched ${buildLaunchesLine(o.unreached)}: a stop or a pause landed first`,
-				]
-			: []),
-	].join("; ");
-
-/**
- * The decision's log line, an idle one naming admission's free slots and its
- * frontier, a launching one its dispatches' outcome and its frontier read's
- * time, which sizes the shortlist cap (#2677), and a tick that probed
- * naming each seat's outcome, so the log alone tells a stale-reading wait
- * that had a slot from one that had none (#2362).
- * @param {import("./refill-decide.js").Decision} d
- * @param {Outcome} outcome
- * @param {{freeSlots: number|null, probes: import("./seat-reading.js").Probe[], read: FrontierRead|null,
- *   resumesDue: number, resumesStarted: number}} seen
- */
-function buildTickLine(
-	d,
-	outcome,
-	{ freeSlots, probes, read, resumesDue, resumesStarted },
-) {
-	if ("stop" in d) return summaryOf(d);
-	const head = d.launches.length > 0 ? buildOutcomeLine(outcome) : summaryOf(d);
-	const notes = [
-		...(resumesDue > 0
-			? [`resumed ${resumesStarted} of ${resumesDue} due`]
-			: []),
-		...(d.launches.length === 0
-			? [
-					...(freeSlots === null ? [] : [`free slots: ${freeSlots}`]),
-					...frontierNotes(d, read),
-				]
-			: []),
-		...(d.launches.length > 0 && read ? [buildFrontierReadText(read)] : []),
-		...(probes.length > 0
-			? [`probed ${probes.map((p) => `${p.seat}: ${p.outcome}`).join(", ")}`]
-			: []),
-	];
-	return `${head}${notes.length > 0 ? ` (${notes.join("; ")})` : ""}`;
-}
-
-/**
- * A log line for each resume the decision left waiting on its seat's cap (#3911).
- * @param {import("./refill-decide.js").Decision} d
- */
-const buildCapHeldLines = (d) =>
-	"stop" in d
-		? []
-		: (d.capHeld ?? []).map(({ line, seat }) =>
-				buildResumeWaitLine(
-					line,
-					`the cap on ${buildSeatName(seat)} has no fit left`,
-				),
-			);
-
-/**
- * The state's stop record for a stop decision, else null.
- * @param {import("./refill-decide.js").Decision} d
- * @param {number} at
- */
-const stoppedOf = (d, at) =>
-	"stop" in d ? { at, reason: d.stop, detail: d.detail } : null;
-
-/**
- * The record of the first start on an overflow seat after one on a plan seat,
- * since `since`, the last record's time, logged, or null. The credential scan
- * runs only then; its failure is logged, since the launches it follows are not
- * yet in the state.
- * @param {import("./refill-decide.js").TickInput} input
- * @param {LoopLaunch[]} launches the state's, the tick's acts made, and its
- *   launches
- * @param {number|null} since
- * @param {{readOmittedDirs: () => string[], log: (line: string) => void}} io
- * @returns {import("./overflow-notice.js").OverflowStart|null}
- */
-function recordOverflowStart(input, launches, since, io) {
-	const first = firstOverflowStart(launches, since);
-	if (first === null) return null;
-	/** @type {string[]} */
-	let omitted = [];
-	try {
-		omitted = io.readOmittedDirs();
-	} catch (err) {
-		io.log(`credentials scan failed: ${buildErrorText(err)}`);
-	}
-	const start = {
-		at: first.at,
-		seat: first.launch.seat,
-		planSeats: input.seats.map(planSeatBasisOf),
-		omitted,
-	};
-	io.log(
-		`first overflow launch on ${buildSeatName(first.launch.seat)}: ${buildOverflowStartLines(start).join("; ")}`,
-	);
-	return start;
-}
-
-/**
- * @typedef {(resumes: import("./refill-decide.js").HeldResume[],
- *   launches: LoopLaunch[], isStopped: () => boolean,
- *   record: (launches: LoopLaunch[]) => void) =>
- *   {launches: LoopLaunch[], started: number, waiting: boolean}} ResumeHeld
- */
-
-/**
- * The decision's resumes made, ahead of its launches; none on a stop. `record`
- * writes the state with the launches as the step leaves each resume.
- * @param {import("./refill-decide.js").Decision} decision
- * @param {LoopLaunch[]} launches
- * @param {{readControl: () => ControlRead, resumeHeld: ResumeHeld}} io
- * @param {(launches: LoopLaunch[]) => void} record
- */
-const resumeDecided = (decision, launches, io, record) =>
-	"stop" in decision
-		? { launches, started: 0, waiting: false }
-		: io.resumeHeld(
-				decision.resumes,
-				launches,
-				() => isLaunchBarred(io.readControl().control),
-				record,
-			);
-
-/** @param {import("./refill-decide.js").TickInput} input */
-const dueCount = (input) => input.resumable?.length ?? 0;
-
-/**
- * The state's goal progress after a tick, as it stands where the tick read no
- * frontier.
- * @param {LoopState["goalProgress"]} before
- * @param {FrontierRead|null} read
- * @param {number} now
- */
-const goalProgressAfter = (before, read, now) =>
-	read === null ? before : buildGoalProgress(before, read.goal, now);
-
-/**
- * The input's resumes the step left held, for a late stop to name.
- * @param {import("./refill-decide.js").TickInput} input
- * @param {LoopLaunch[]} launches
- */
-const leftDue = (input, launches) =>
-	(input.resumable ?? []).filter((r) =>
-		launches.some((l) => l.jobId === r.jobId && isStepResume(l)),
-	);
-
-/**
- * The tick's launches as batches: none on a stop, nor behind a resume the
- * re-read made wait, which a fresh start would overtake.
- * @param {import("./refill-decide.js").Decision} decision
- * @param {boolean} waiting
- */
-const buildLaunchBatches = (decision, waiting) =>
-	"stop" in decision || waiting ? [] : batchesOf(decision.launches);
-
-/**
- * @param {import("./refill-decide.js").Decision} decision
- * @param {{writePause: (pause: import("./refill-decide.js").Pause) => void}} io
- */
-function writeDecidedPause(decision, io) {
-	if (!("stop" in decision) && decision.pause) io.writePause(decision.pause);
-}
-
-/**
- * The state's record of a tick: a stop leaves no idle reason to read.
- * @param {import("./refill-decide.js").Decision} decision
- * @param {number} at
- * @param {string} summary
- */
-const buildLastTick = (decision, at, summary) => ({
-	at,
-	summary,
-	...("stop" in decision
-		? {}
-		: {
-				skipped: decision.skipped,
-				idle: decision.idle,
-				...(decision.planWait ? { planWait: decision.planWait } : {}),
-			}),
-});
-
-/**
- * A tick from its decision on: dispatch its launches while the control asks
- * for no stop or pause, write the no-progress pause it decided, write the
- * state, then take the morning review's step, which
- * starts its child detached and returns at once (reviewStep).
- * A stop that landed during the dispatches or the review is logged and
- * recorded as `stop: explicit`, or `control-damaged` where the re-read found
- * the control damaged, so the loop ends at this tick's end, which
- * `stop` promises (#2126).
- * Each resume and each batch is on record in the state before its launcher
- * runs (#4157, #4180).
- * @param {{input: import("./refill-decide.js").TickInput,
- *   decision: import("./refill-decide.js").Decision, state: LoopState,
- *   judged: LoopLaunch[], probes: import("./seat-reading.js").Probe[], read: FrontierRead|null,
- *   probeBrokenRoots: string[], bootedAt?: number, sameBootRestart?: true,
- *   away?: import("./refill-decide.js").AwaySwitch}} tick
- * @param {{readControl: () => ControlRead,
- *   launchBatch: (batch: import("./refill-decide.js").Launch[]) => BatchOutcome,
- *   resumeHeld: ResumeHeld,
- *   writePause: (pause: import("./refill-decide.js").Pause) => void,
- *   runReview: (lastRunOn: string|null, now: number) => string|null,
- *   updateState: (transition: import("./refill-state.js").Transition) =>
- *     LoopState,
- *   readOmittedDirs: () => string[],
- *   log: (line: string) => void, now: () => number}} io
- * @returns {{decision: import("./refill-decide.js").Decision,
- *   launched: number}} the late stop where one landed, else the tick's
- *   decision, and how many sessions the tick started
- */
-function settleTick(
-	{
-		input,
-		decision,
-		state,
-		judged,
-		probes,
-		read,
-		probeBrokenRoots,
-		bootedAt,
-		sameBootRestart,
-		away,
-	},
-	io,
-) {
-	/** @type {LoopLaunch[]} */
-	const launchedSoFar = [];
-	/** @type {(launches: LoopLaunch[],
-	 *   launching?: import("./refill-batch.js").Launching) => LoopState} */
-	const record = (launches, launching) =>
-		io.updateState(
-			batchLaunching(keptLaunches(launches), state, {
-				bootedAt,
-				sameBootRestart,
-				...(launching
-					? {
-							inFlight: {
-								launching,
-								launchCount: {
-									from: input.noProgressFrom,
-									count:
-										launchesSince(state, input.noProgressFrom) +
-										launchedSoFar.length,
-								},
-							},
-						}
-					: {}),
-			}),
-		);
-	const {
-		launches: afterResumes,
-		started,
-		waiting,
-	} = resumeDecided(decision, judged, io, record);
-	const outcome = launchUntilBarred(
-		buildLaunchBatches(decision, waiting),
-		() => io.readControl().control,
-		(batch) => {
-			record([...afterResumes, ...launchedSoFar], { at: io.now(), batch });
-			const r = io.launchBatch(batch);
-			launchedSoFar.push(...r.launched);
-			return r;
-		},
-	);
-	const summary = buildTickLine(decision, outcome, {
-		freeSlots: input.paused ? null : input.freeSlots,
-		probes,
-		read,
-		resumesDue: dueCount(input),
-		resumesStarted: started,
-	});
-	for (const line of buildCapHeldLines(decision)) io.log(line);
-	io.log(summary);
-	writeDecidedPause(decision, io);
-	const overflowStart = recordOverflowStart(
-		input,
-		[...afterResumes, ...outcome.launched],
-		state.overflowStart?.at ?? null,
-		io,
-	);
-	const settledState = io.updateState(
-		tickSettled(
-			{
-				launches: keptLaunches([...afterResumes, ...outcome.launched]),
-				lastTick: buildLastTick(decision, input.now, summary),
-				/* A tick that does not stop outlives any record, a stop a `start`
-				 * overtook included. */
-				stopped: stoppedOf(decision, input.now),
-				held:
-					"stop" in decision || read === null
-						? state.held
-						: holdsOf(decision.held, state.held, input.now, input.mode),
-				launchCount: {
-					from: input.noProgressFrom,
-					count:
-						launchesSince(state, input.noProgressFrom) +
-						outcome.launched.length,
-				},
-				handedOff: nextHandedOff(state, away, judged, input.now),
-				overflowStart: overflowStart ?? state.overflowStart,
-				goalProgress: goalProgressAfter(state.goalProgress, read, input.now),
-				probeBrokenRoots,
-				seatTriedAt: seatTriedAfter(state.seatTriedAt, probes, input.now),
-				bootedAt,
-				sameBootRestart,
-			},
-			state,
-		),
-	);
-	const reviewRunOn = io.runReview(settledState.reviewRunOn, input.now);
-	const reread = "stop" in decision ? null : io.readControl();
-	const late =
-		reread === null || !isStopRequested(reread.control)
-			? null
-			: decideTick({
-					...input,
-					stopRequested: true,
-					controlDamaged: reread.damaged,
-					resumable: leftDue(input, afterResumes),
-				});
-	if (late) io.log(summaryOf(late));
-	if (late || reviewRunOn !== settledState.reviewRunOn)
-		io.updateState(
-			lateStopped(
-				(late && stoppedOf(late, io.now())) ?? settledState.stopped,
-				reviewRunOn,
-			),
-		);
-	return {
-		decision: late ?? decision,
-		launched: outcome.launched.length + started,
-	};
 }
 
 /**
@@ -787,8 +191,7 @@ function stopNeverStarted(registry, jobs, stop) {
 }
 
 /**
- * The reads, writes and child processes a tick runs through. Each act a dry run
- * skips is a port, whose dry-run adapter answers as though it did nothing.
+ * The reads, writes and child processes a tick runs through.
  * @typedef {ReturnType<typeof import("./refill-seats.js").readDeclaredSeats>} DeclaredSeats
  * @typedef {import("./refill-blocks.js").BlockIo} BlockIo
  * @typedef {import("./refill-blocks.js").Tick} Seen
@@ -825,8 +228,8 @@ function stopNeverStarted(registry, jobs, stop) {
  *   readSwapHold: () => Seen["swapHold"],
  *   sendHoldNotices: (roots: string[],
  *     seen: {agents: AgentRecord[]|null, isPaused: boolean}, now: number) => void,
- *   progressOf: (l: LoopLaunch, served: string[]) => object,
- *   causeOf: import("./refill-blocks.js").CauseOf,
+ *   readProgress: (l: LoopLaunch, served: string[]) => object,
+ *   readCause: import("./refill-blocks.js").CauseOf,
  *   actOnLaunches: (listed: LoopLaunch[], mode: "normal"|"away",
  *     served: string[], seen: Seen) => LoopLaunch[],
  *   attachProbeParks: (broken: string[], launches: LoopLaunch[]) => void,
@@ -872,9 +275,7 @@ function stopNeverStarted(registry, jobs, stop) {
 
 /**
  * The control `change` leaves, made on a fresh read under the control lock and
- * `said` called on what it wrote; `control` where it changes nothing. A lock
- * held past the wait leaves the change to the next tick, this one going on as
- * stored. A dry run's adapter writes nothing, answering null, and the tick
+ * `said` called on what it wrote; `control` where it changes nothing. A dry run's adapter writes nothing, answering null, and the tick
  * goes on over the change previewed.
  * @param {TickIo} io
  * @param {Control|null} control
@@ -944,7 +345,7 @@ const settleOptedOut = (io, control) =>
 
 /**
  * The tick's listing, an empty one read as nothing live where a boot's killed
- * launches allow it. A dry run judges nothing by it, so it reads the plain one.
+ * launches allow it.
  * @param {TickIo} io
  * @param {boolean} dryRun
  * @param {LoopState} state
@@ -982,8 +383,7 @@ const isSeatListRead = (parsed) => parsed !== null && parsed.seats.length > 0;
 
 /**
  * The limit acts made, and what a tick decides its launches on: the free slots
- * and the seats. A paused tick launches nothing, so it reads none of them, making
- * no admission, `/usage` or cap read, and leaves the limit acts, which need them,
+ * and the seats. A paused tick launches nothing, so it reads none of them, and leaves the limit acts, which need them,
  * for the tick after the resume (#3856); a hold its finishes ended is still
  * released, as that tick's `before` no longer shows it holding. The walks'
  * probe stamps are for this read alone: settleTick writes the tick's own.
@@ -1058,6 +458,7 @@ function settleRoom(
 			seatTriedAfter(seatTriedAt, walks, io.now()),
 		),
 	];
+	const overflow = overflowOf(seats);
 	if (!control.stopRequested)
 		io.startDueConsoleReads(declared, seats, served[0]);
 	return {
@@ -1067,7 +468,7 @@ function settleRoom(
 		workingChange,
 		seats,
 		probes,
-		overflow: overflowOf(seats),
+		overflow,
 	};
 }
 
@@ -1131,9 +532,7 @@ const dueResumes = (control, launches, seen) =>
 		: blocks.resumableOf(launches, seen);
 
 /**
- * A live tick from its decision on (settleTick), then what of the lifted holds
- * and the manager's restart marker the written state now carries dropped, and
- * the tick's concurrency row appended; the decision it settled on.
+ * A live tick from its decision on (settleTick); the decision it settled on.
  * @param {TickIo} io
  * @param {{input: import("./refill-decide.js").TickInput,
  *   decision: import("./refill-decide.js").Decision, state: LoopState,
@@ -1213,7 +612,7 @@ function settleDecided(
  * @param {number} now
  * @returns {Control}
  */
-const standInControl = (io, dryRun, now) => ({
+const buildStandInControl = (io, dryRun, now) => ({
 	noProgressFrom: now,
 	stopRequested: !dryRun,
 	seats: io.readConfiguredSeats(),
@@ -1222,10 +621,7 @@ const standInControl = (io, dryRun, now) => ({
 
 /**
  * One tick: its decision and the start it judged against. `opening` is what
- * the tick reads before its first write. Under `dryRun` the tick previews: no
- * control reads as a stopped loop's would not, a damaged one stops nothing, no
- * listing is trusted off a boot's kills, and the tick returns at its decision,
- * its adapter having made no act.
+ * the tick reads before its first write.
  * @param {TickIo} io
  * @param {{dryRun: boolean, now: number, opening: {control: ControlRead,
  *   declared: DeclaredSeats,
@@ -1238,7 +634,7 @@ async function runTick(io, { dryRun, now, opening }) {
 	const { control: stored, damaged } = opening.control;
 	const { declared, typed } = opening;
 	const parsed = settleOptedOut(io, settleAwayMode(io, stored, typed.at, now));
-	const unsettled = parsed ?? standInControl(io, dryRun, now);
+	const unsettled = parsed ?? buildStandInControl(io, dryRun, now);
 	io.reap();
 	const control =
 		parsed === null || unsettled.stopRequested
@@ -1269,27 +665,28 @@ async function runTick(io, { dryRun, now, opening }) {
 	if (agents)
 		for (const line of buildDriftLines(agents, registry.agents)) io.log(line);
 	io.capOverflowSessions(declared, agents);
+	const paused = control.paused !== undefined;
 	/** @type {Seen} */
 	const seen = {
 		agents,
 		now,
 		io: io.blockIo(served),
 		swapHold: io.readSwapHold(),
-		paused: control.paused !== undefined,
+		paused,
 	};
 	const roots = landingRoots(served, state.launches);
 	io.sendHoldNotices(
 		roots,
 		{
 			agents: noticeAgentsOf(agents, registry),
-			isPaused: control.paused !== undefined,
+			isPaused: paused,
 		},
 		now,
 	);
 	const booted = dryRun ? state : settleBootKilled(state, seen, registry);
 	const listed = judgedLaunches(booted.launches, agents, now, {
-		progressOf: (l) => io.progressOf(l, served),
-		causeOf: io.causeOf,
+		progressOf: (l) => io.readProgress(l, served),
+		causeOf: io.readCause,
 	});
 	const acted = io.actOnLaunches(listed, control.scope.mode, served, seen);
 	io.attachProbeParks(broken, acted);
@@ -1326,7 +723,6 @@ async function runTick(io, { dryRun, now, opening }) {
 		noProgressFrom: control.noProgressFrom,
 		stopRequested: control.stopRequested,
 		...(control.paused ? { paused: control.paused } : {}),
-		/* A dry run previews launches over any control, as over none. */
 		controlDamaged: dryRun ? null : damaged,
 		frontier: [],
 		retroBundles: [],
@@ -1369,13 +765,10 @@ async function runTick(io, { dryRun, now, opening }) {
 
 module.exports = {
 	buildFinishLine,
-	buildLaunchesLine,
 	buildReviewSkip,
 	FREE_SLOT_ARGS,
-	judgedLaunches,
 	parseProbeOutcome,
 	runTick,
 	settleLaunching,
-	settleTick,
 	stopNeverStarted,
 };

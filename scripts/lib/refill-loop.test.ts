@@ -27,6 +27,7 @@ import {
 	controlWithoutOptedOut,
 	isRestartedSince,
 	isReviewRunDue,
+	judgedLaunches,
 	landingRoots,
 	limitHoldsOf,
 	parseControl,
@@ -58,12 +59,11 @@ import {
 	buildFinishLine,
 	buildReviewSkip,
 	FREE_SLOT_ARGS,
-	judgedLaunches,
 	parseProbeOutcome,
 	settleLaunching,
-	settleTick,
 	stopNeverStarted,
 } from "./refill-tick-core.js";
+import { settleTick } from "./refill-tick-settle.js";
 
 const agent = (id: string, state: string) => ({
 	sessionId: `s-${id}`,

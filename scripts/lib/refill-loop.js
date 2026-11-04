@@ -12,12 +12,20 @@
 const path = require("node:path");
 const { parseAct } = require("./act-line.js");
 const { REVIEW_HOUR, localDate } = require("./morning-review.js");
-const { UNREAD, EXPLICIT_STOP_DETAIL } = require("./refill-decide.js");
+const { isTerminalAgent } = require("./agent-liveness.js");
+const {
+	EXPLICIT_STOP_DETAIL,
+	startedAt,
+	UNREAD,
+} = require("./refill-decide.js");
 const {
 	buildChildLine,
+	isHeld,
 	isLive,
 	launchName,
 	limitWaitOf,
+	LISTING_GRACE_MS,
+	markParked,
 } = require("./refill-blocks.js");
 const { isRecord, parseGoal, parseStrings } = require("./refill-goal.js");
 const { buildSeatName } = require("./refill-seats.js");
@@ -541,7 +549,77 @@ const buildFrontierReadText = (read) =>
 /** @param {import("./refill-decide.js").Skip} s */
 const buildSkipText = (s) => `${path.basename(s.root)} #${s.number} ${s.why}`;
 
+/**
+ * The launches whose session has left the listing or ended, and are not
+ * judged yet. Nothing is judged off an unread listing, and a launch with no
+ * job id is never judged: nothing ties it to a listed session. One owed a hand-off
+ * or still watched after a boot's resume is actOnIdle's to settle (#3880). The listing
+ * must span every seat the loop launches on (lib/refill-tick.js's SEATS).
+ * @param {LoopLaunch[]} launches
+ * @param {import("./agent-liveness.js").AgentRecord[]|null} agents
+ * @param {number} now
+ */
+function newlyFinished(launches, agents, now) {
+	if (!agents) return [];
+	const listed = new Set(
+		agents.filter((a) => a.id && !isTerminalAgent(a)).map((a) => a.id),
+	);
+	return launches.filter(
+		(l) =>
+			isLive(l) &&
+			now - startedAt(l) >= LISTING_GRACE_MS &&
+			!listed.has(l.jobId) &&
+			!isHeld(l) &&
+			l.handOffTries === undefined &&
+			l.bootResumedAt === undefined,
+	);
+}
+
+/**
+ * The launches with `sessionId` taken from the listing for each that has none
+ * yet and whose job it shows (#2311), for the wake on a session's end and
+ * actsOf. Off an unread listing, or for a job it does not show, a launch is
+ * returned as it was.
+ * @param {LoopLaunch[]} launches
+ * @param {import("./agent-liveness.js").AgentRecord[]|null} agents
+ */
+function withSessionIds(launches, agents) {
+	if (!agents) return launches;
+	const sessions = new Map(
+		agents.flatMap((a) => (a.id && a.sessionId ? [[a.id, a.sessionId]] : [])),
+	);
+	return launches.map((l) => {
+		const sessionId = l.jobId === null ? undefined : sessions.get(l.jobId);
+		return l.sessionId === undefined && sessionId !== undefined
+			? { ...l, sessionId }
+			: l;
+	});
+}
+
+/**
+ * The launches after one listing: each the listing first shows given its
+ * session id, then each newly finished one marked with `progressOf`'s fields,
+ * then each still listed marked parked or not (markParked). The id comes first, so a
+ * launch whose first listing already shows it ended is judged with it.
+ * @template {object} P
+ * @param {LoopLaunch[]} launches
+ * @param {import("./agent-liveness.js").AgentRecord[]|null} agents
+ * @param {number} now
+ * @param {{progressOf: (l: LoopLaunch) => P,
+ *   causeOf: import("./refill-blocks.js").CauseOf}} read
+ * @returns {LoopLaunch[]}
+ */
+function judgedLaunches(launches, agents, now, { progressOf, causeOf }) {
+	const listed = withSessionIds(launches, agents);
+	const done = new Set(newlyFinished(listed, agents, now));
+	const judged = listed.map((l) =>
+		done.has(l) ? { ...l, ...progressOf(l), finishedAt: now } : l,
+	);
+	return markParked(judged, agents, causeOf, now);
+}
+
 module.exports = {
+	judgedLaunches,
 	controlInMode,
 	handedOffSince,
 	withAbsentRead,

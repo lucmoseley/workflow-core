@@ -105,6 +105,7 @@ const {
 } = require("./refill-repos.js");
 const loop = require("./refill-loop.js");
 const core = require("./refill-tick-core.js");
+const { buildLaunchesLine } = require("./refill-tick-settle.js");
 const { runTick } = core;
 const {
 	dropManagerRestart,
@@ -354,7 +355,7 @@ function launchBatch(batch) {
 		entriesOf: (root) => readRecentEntries(root, LEDGER_WINDOW_HOURS).entries,
 		now: Date.now,
 	});
-	log(blocks.buildChildLine(`dispatch ${core.buildLaunchesLine(batch)}`, r));
+	log(blocks.buildChildLine(`dispatch ${buildLaunchesLine(batch)}`, r));
 	gates.dropTried(files.gates, r.tried, log);
 	return { launched: r.launched, refused: r.refused };
 }
@@ -1593,8 +1594,8 @@ const productionIo = {
 	readSwapHold,
 	sendHoldNotices: (roots, { agents, isPaused }, now) =>
 		tendHoldNotices(roots, { agents, isPaused }, now, log),
-	progressOf: readProgress,
-	causeOf: readCause,
+	readProgress,
+	readCause,
 	actOnLaunches,
 	attachProbeParks: (broken, launches) =>
 		attachProbeParks(broken, launches, log),

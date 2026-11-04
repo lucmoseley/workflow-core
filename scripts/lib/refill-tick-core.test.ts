@@ -3,7 +3,9 @@
  * The refill tick's core (#4212, #4231) against a fake adapter: the order of
  * its steps, what a kill between two of them leaves the next tick, and its
  * dry-run policy. Every port records its call, so a case reads the order off
- * one list; the state file is held in memory (stateFileFake).
+ * one list; the state file is held in memory (stateFileFake). The fake
+ * answers in the ports' shapes but no contract test pins it to the adapter:
+ * scripts/refill-loop-run.test.ts runs the real one.
  *
  * Loosen one and a tick can judge launches a kill left out of the state, list
  * before the relief steps, dispatch a batch not yet on record, or a dry run can
@@ -65,10 +67,7 @@ const row = (number: number) => ({
 /** Thrown by a port to stand for a SIGKILL landing on that step. */
 class Killed extends Error {}
 
-/**
- * A fake adapter over an in-memory state file: each port pushes its name to
- * `calls`, and `over` replaces any port.
- */
+/** A fake adapter; `over` replaces any port. */
 function fakeIo(
 	initial: LoopState,
 	over: Partial<TickIo> = {},
@@ -78,7 +77,7 @@ function fakeIo(
 	const writes: LoopState[] = [];
 	const lines: string[] = [];
 	const onDisk = stateFileFake(initial, writes);
-	const at =
+	const recorded =
 		<A extends unknown[], R>(name: string, f: (...args: A) => R) =>
 		(...args: A) => {
 			calls.push(name);
@@ -87,57 +86,60 @@ function fakeIo(
 	const io: TickIo = {
 		now: () => NOW,
 		log: (line) => lines.push(line),
-		readControl: at("readControl", () => ({
+		readControl: recorded("readControl", () => ({
 			control: control(),
 			damaged: null,
 		})),
-		changeControl: at("changeControl", () => null),
+		changeControl: recorded("changeControl", () => null),
 		isOptedOut: () => false,
 		readConfiguredSeats: () => [SEAT],
 		readIncluded: () => [WFC],
 		servedRoots: (scope) => ({ roots: scope.repos, dropped: [] }),
-		reap: at("reap", () => undefined),
-		tendQuietBench: at("tendQuietBench", (c) => c),
-		readManagerRestart: at("readManagerRestart", () => null),
+		reap: recorded("reap", () => undefined),
+		tendQuietBench: recorded("tendQuietBench", (c) => c),
+		readManagerRestart: recorded("readManagerRestart", () => null),
 		readCurrentBootId: () => null,
-		readState: at("readState", () => onDisk((s) => s)),
-		settleKilled: at("settleKilled", (read) => read),
-		readRegistry: at("readRegistry", () => ({
+		readState: recorded("readState", () => onDisk((s) => s)),
+		settleKilled: recorded("settleKilled", (read) => read),
+		readRegistry: recorded("readRegistry", () => ({
 			seats: [SEAT],
 			faults: [],
 			agents: [],
 		})),
-		stopNeverStarted: at("stopNeverStarted", () => []),
-		tendCheckouts: at("tendCheckouts", () => []),
-		readListing: at("readListing", () => ({ agents: [], why: null })),
-		capOverflowSessions: at("capOverflowSessions", () => undefined),
+		stopNeverStarted: recorded("stopNeverStarted", () => []),
+		tendCheckouts: recorded("tendCheckouts", () => []),
+		readListing: recorded("readListing", () => ({ agents: [], why: null })),
+		capOverflowSessions: recorded("capOverflowSessions", () => undefined),
 		blockIo: () =>
 			({ log: (line: string) => lines.push(line) }) as unknown as ReturnType<
 				TickIo["blockIo"]
 			>,
 		readSwapHold: () =>
 			({ held: false }) as unknown as ReturnType<TickIo["readSwapHold"]>,
-		sendHoldNotices: at("sendHoldNotices", () => undefined),
-		progressOf: at("progressOf", () => ({ acts: {} })),
-		causeOf: () => null as never,
-		actOnLaunches: at("actOnLaunches", (listed) => listed),
-		attachProbeParks: at("attachProbeParks", () => undefined),
-		readLiftedHolds: at("readLiftedHolds", () => []),
-		releaseEndedHolds: at("releaseEndedHolds", () => undefined),
-		readFreeSlots: at("readFreeSlots", () => ({ slots: 1, admission: null })),
-		actOnLimits: at("actOnLimits", (_b, judged, _m, { slots }) => ({
+		sendHoldNotices: recorded("sendHoldNotices", () => undefined),
+		readProgress: recorded("readProgress", () => ({ acts: {} })),
+		readCause: () => null as never,
+		actOnLaunches: recorded("actOnLaunches", (listed) => listed),
+		attachProbeParks: recorded("attachProbeParks", () => undefined),
+		readLiftedHolds: recorded("readLiftedHolds", () => []),
+		releaseEndedHolds: recorded("releaseEndedHolds", () => undefined),
+		readFreeSlots: recorded("readFreeSlots", () => ({
+			slots: 1,
+			admission: null,
+		})),
+		actOnLimits: recorded("actOnLimits", (_b, judged, _m, { slots }) => ({
 			launches: judged,
 			slots,
 			workingChange: 0,
 		})),
-		readSeats: at("readSeats", () => ({ seats: [sized], probes: [] })),
-		probeDueSeats: at("probeDueSeats", () => []),
+		readSeats: recorded("readSeats", () => ({ seats: [sized], probes: [] })),
+		probeDueSeats: recorded("probeDueSeats", () => []),
 		seatBudget: () => ({ why: "none" }) as never,
-		startDueConsoleReads: at("startDueConsoleReads", () => undefined),
+		startDueConsoleReads: recorded("startDueConsoleReads", () => undefined),
 		capSizer: () => () => null,
 		readGateJudgements: () => [],
 		readTickHolds: () => ({ holds: [] }),
-		readFrontier: at("readFrontier", async () => ({
+		readFrontier: recorded("readFrontier", async () => ({
 			frontier,
 			retroBundles: [],
 			failed: [],
@@ -146,7 +148,7 @@ function fakeIo(
 		})) as unknown as TickIo["readFrontier"],
 		readParkers: () => [],
 		sizeParkerSeats: (seats) => seats,
-		launchBatch: at("launchBatch", (batch) => ({
+		launchBatch: recorded("launchBatch", (batch) => ({
 			launched: batch.map((l) => ({
 				...l,
 				jobId: `job${l.issues[0]}`,
@@ -155,18 +157,18 @@ function fakeIo(
 			})),
 			refused: [],
 		})),
-		resumeHeld: at("resumeHeld", (_r, held) => ({
+		resumeHeld: recorded("resumeHeld", (_r, held) => ({
 			launches: held,
 			started: 0,
 			waiting: false,
 		})),
-		writePause: at("writePause", () => undefined),
-		runReview: at("runReview", (lastRunOn) => lastRunOn),
-		updateState: at("updateState", onDisk),
+		writePause: recorded("writePause", () => undefined),
+		runReview: recorded("runReview", (lastRunOn) => lastRunOn),
+		updateState: recorded("updateState", onDisk),
 		readOmittedDirs: () => [],
-		dropSettledLifted: at("dropSettledLifted", () => undefined),
-		dropManagerRestart: at("dropManagerRestart", () => undefined),
-		appendTick: at("appendTick", () => undefined),
+		dropSettledLifted: recorded("dropSettledLifted", () => undefined),
+		dropManagerRestart: recorded("dropManagerRestart", () => undefined),
+		appendTick: recorded("appendTick", () => undefined),
 		...over,
 	};
 	return { io, calls, writes, lines, disk: () => onDisk((s) => s) };
@@ -340,8 +342,10 @@ describe("the dry-run policy (#4212)", () => {
 		])
 			expect(calls).not.toContain(port);
 	});
+});
 
-	it("goes on over a control change previewed, logging no write, where the adapter writes none", async () => {
+describe("a control change under the lock (#2522)", () => {
+	it("goes on over a change the adapter answers no write for, logging none", async () => {
 		const away = awayControl();
 		const { io, lines } = fakeIo(stateOf());
 		const r = await runTick(io, {
