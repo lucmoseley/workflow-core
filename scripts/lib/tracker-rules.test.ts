@@ -312,24 +312,22 @@ const occurrences = (ctx: string, text: string) => {
 };
 
 /** The ids whose fragment text the emission carries, in the order they appear.
- * An inline span's fragment is a sentence of its region's (#4155), so an id
- * every occurrence of which lies inside another id's text was not handed. */
+ * An inline span's fragment is a sentence of its region's (#4155), so an
+ * occurrence lying inside a longer fragment's text is not a handing. */
 const idsIn = (ctx: string) => {
 	const found = fs
 		.readdirSync(STORE)
 		.filter((f) => f.endsWith(".txt"))
 		.map((f) => f.replace(/\.txt$/, ""))
-		.map((id) => ({ id, at: occurrences(ctx, readRuleText(id)) }))
-		.filter(({ at }) => at.length > 0);
-	const inside = ([s, e]: [number, number], self: string) =>
-		found.some(
-			({ id, at }) =>
-				id !== self &&
-				at.some(([from, to]) => from <= s && e <= to && to - from > e - s),
+		.map((id) => ({ id, spans: occurrences(ctx, readRuleText(id)) }));
+	const nested = ([s, e]: [number, number]) =>
+		found.some(({ spans }) =>
+			spans.some(([from, to]) => from <= s && e <= to && to - from > e - s),
 		);
 	return found
-		.filter(({ id, at }) => at.some((occ) => !inside(occ, id)))
-		.sort((a, b) => a.at[0][0] - b.at[0][0])
+		.map(({ id, spans }) => ({ id, first: spans.find((sp) => !nested(sp)) }))
+		.filter(({ first }) => first !== undefined)
+		.sort((a, b) => (a.first?.[0] ?? 0) - (b.first?.[0] ?? 0))
 		.map(({ id }) => id);
 };
 

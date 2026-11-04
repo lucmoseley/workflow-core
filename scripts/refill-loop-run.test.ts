@@ -4305,6 +4305,15 @@ describe("away mode's return on the real tick (#3870)", () => {
 			}),
 		);
 	};
+	/* Safe beside the running loop, which writes the control file only on a
+	 * tick and ticks only on a wake. */
+	const backdateSwitch = (ms: number) => {
+		const control = readControl();
+		fs.writeFileSync(
+			controlFile(),
+			JSON.stringify({ ...control, away: { ...control.away, since: ms } }),
+		);
+	};
 	const typedAt = (ms: number) =>
 		fs.writeFileSync(at("no-presence"), `${new Date(ms).toISOString()}\n`);
 	const wake = () =>
@@ -4341,13 +4350,9 @@ describe("away mode's return on the real tick (#3870)", () => {
 		expect(readControl().away.absentSeen).toBe(false);
 
 		/* The switch reads as presence for its first window (#4184), so both it
-		 * and the last prompt go back past one. */
+		 * and the last prompt go back four of presence.js's 30-minute windows. */
 		const longAgo = Date.now() - 2 * 60 * 60 * 1000;
-		const control = readControl();
-		fs.writeFileSync(
-			controlFile(),
-			JSON.stringify({ ...control, away: { ...control.away, since: longAgo } }),
-		);
+		backdateSwitch(longAgo);
 		typedAt(longAgo);
 		wake();
 		await absentRead();
