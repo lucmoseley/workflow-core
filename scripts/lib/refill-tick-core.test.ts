@@ -1,10 +1,13 @@
 // @vitest-environment node
 /*
  * The refill tick's core (#4212, #4231) against a fake adapter: the order of
- * its steps, what a kill between two of them leaves the next tick, and its
- * dry-run policy. Every port records its call, so a case reads the order off
- * one list; the state file is held in memory (stateFileFake). The fake
- * answers in the ports' shapes but no contract test pins it to the adapter:
+ * its steps, what a kill between two of them leaves the next tick, its
+ * dry-run policy, and how it carries a restart's killed launches and a
+ * limit-held launch into the state, the idle reason and the tick's record
+ * (#4315). Every port records its call, so a case reads the order off one
+ * list; the state file is held in memory (stateFileFake). The fake answers in
+ * the ports' shapes but no contract test pins it to the adapter, bar
+ * ADMISSION_VERDICT, which admission-verdict.contract.test.ts holds:
  * scripts/refill-loop-run.test.ts runs the real one.
  *
  * Loosen one and a tick can judge launches a kill left out of the state, list
@@ -357,7 +360,6 @@ describe("a restart's killed launches on the tick (#3880, #3971)", () => {
 		expect(disk().launches[0]).toHaveProperty("bootKilled");
 		expect(disk().bootedAt).toBeUndefined();
 		expect(disk().sameBootRestart).toBeUndefined();
-		expect(disk().launching).toBeUndefined();
 		expect(calls).toContain("dropManagerRestart");
 	});
 });

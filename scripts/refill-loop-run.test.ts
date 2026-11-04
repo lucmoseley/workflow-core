@@ -1876,6 +1876,18 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 			);
 			expect(fs.existsSync(buildPassPath("s-job7"))).toBe(false);
 		});
+
+		it("leaves them where the past id is open elsewhere, logging it", async () => {
+			const r = await resumeListing([
+				LISTED,
+				buildJobRow("elsewhere", "working", { sessionId: "s-job7" }),
+			]);
+			expect(fs.existsSync(buildPassPath("s-copy"))).toBe(false);
+			expect(fs.existsSync(buildPassPath("s-job7"))).toBe(true);
+			expect(r.stdout).toContain(
+				"pass markers of s-job7 not moved: s-job7 is still live",
+			);
+		});
 	});
 
 	it("reads a launcher line naming no job as a failed resume, the session held for its next (#2963)", async () => {
@@ -1947,9 +1959,10 @@ describe("a session held on its seat's limit (#3735)", () => {
 		);
 	};
 
-	it("resumes under its own seat once a fresh reading reads open, takes its slot, comments, counts it working (#3778)", async () => {
+	it("resumes under its own seat once a fresh reading reads open, takes its slot, comments, counts it working, its claim kept (#3778, #2968)", async () => {
 		seed();
 		weekAt(10);
+		arbiterAs("s-job7", "claim-issue", "7");
 		fakeResumeClaude(
 			Job,
 			[LISTED],
@@ -1976,6 +1989,7 @@ describe("a session held on its seat's limit (#3735)", () => {
 			working: Admitted + 1,
 			ceiling: Admitted + 1,
 		});
+		expect(arbiterAs("s-job7", "issue-claims")).toContain("s-job7");
 	});
 
 	describe("moved to another plan seat (#3734)", () => {
@@ -4857,6 +4871,28 @@ describe("the launches a restart killed (#3880)", () => {
 				finishedAt: null,
 			});
 		});
+	});
+
+	it("is set off by boot-resume itself, on the tick of the loop it starts", async () => {
+		writeState([buildLaunch("job7", 7, 10)], false);
+		const stop = `node ${shellQuote(path.join(scripts, "request-stop.js"))};`;
+		fakeResumeClaude("job7", [LISTED], stop);
+
+		const r = await runInProcessAsync(
+			path.join(scripts, "refill-loop.js"),
+			["boot-resume"],
+			{
+				cwd: dir,
+				env: loopEnv({ FAKE_SLOTS: "1", CLAUDE_PROJECT_DIR: repo }),
+			},
+		);
+
+		expect(r.status).toBe(0);
+		await polled(
+			() => !fs.existsSync(at(".refill-loop.pid")) && readCalls().length === 1,
+			"the started loop did not resume it",
+		);
+		expect(readCalls()).toEqual([buildResumeArgs("job7")]);
 	});
 });
 

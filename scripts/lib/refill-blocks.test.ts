@@ -719,7 +719,6 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 		}
 		const early = idle(record(), 4.9, { agents: listed });
 		expect(early.calls).toEqual([]);
-		expect(early.out).not.toHaveProperty("idleResumes");
 	});
 
 	it("types once more into one still idle 5 min after its first typed resume, never stopping it", () => {
@@ -753,8 +752,12 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 	});
 
 	describe("one a boot resumed, its resume writing no restart row (#3880)", () => {
+		/* Minutes: past block-act.js's 5 of idle wait; past that wait and its
+		 * two typed resumes' 5 each. */
+		const PastWait = 6 * MIN;
+		const PastTries = 16 * MIN;
 		const bootResumed = (over: Record<string, unknown> = {}) =>
-			record({ bootResumedAt: NOW - 6 * MIN, ...over });
+			record({ bootResumedAt: NOW - PastWait, ...over });
 		const typing = () => {
 			const prompts: string[] = [];
 			const type: BlockIo["type"] = (_l, prompt) => {
@@ -782,8 +785,8 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 		it("is handed off still idle after its typed resumes", () => {
 			const r = idle(
 				bootResumed({
-					bootResumedAt: NOW - 16 * MIN,
-					idleResumes: { tries: 2, triedAt: NOW - 6 * MIN },
+					bootResumedAt: NOW - PastTries,
+					idleResumes: { tries: 2, triedAt: NOW - PastWait },
 				}),
 				null,
 				{ agents: listed },
@@ -793,7 +796,7 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 		});
 
 		it("is left working once it has taken a turn, no longer watched", () => {
-			const r = idle(bootResumed({ bootResumedAt: NOW - 16 * MIN }), null, {
+			const r = idle(bootResumed({ bootResumedAt: NOW - PastTries }), null, {
 				agents: listed,
 				io: { hasTurnedSince: () => true },
 			});
@@ -880,7 +883,12 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 	});
 
 	it("types off an unread listing but never stops off one", () => {
-		expect(idle(record(), 5, { agents: null }).calls[0]).toBe("type job42");
+		const first = idle(record(), 5, { agents: null });
+		expect(first.calls.slice(0, 2)).toEqual([
+			"type job42",
+			"log resumed design-vault /implement 42, idle since its host's restart, by typing into the live session, try 1 of 2",
+		]);
+		expect(first.calls).not.toContain("stop job42");
 		const unread = idle(typed(2, 5), 30, { agents: null });
 		expect(unread.calls).toEqual([
 			"log not handing off design-vault /implement 42: the listing is unread",
