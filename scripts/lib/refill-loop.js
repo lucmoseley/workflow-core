@@ -936,6 +936,7 @@ function overflowReadings(list, plan, budgetOf) {
 			seat: seat.dir,
 			keyVar: seat.keyVar,
 			fits: b.fit,
+			headroomUsd: b.headroomUsd,
 			spentUntil: isBudgetSpent(b) ? spentUntilText(b) : null,
 			why: null,
 		};

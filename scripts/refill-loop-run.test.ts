@@ -1827,13 +1827,17 @@ const declareKey = (keyVar: string) => {
 	fs.writeFileSync(keySecrets(), `${keyVar}=sk-fake-overflow\n`);
 };
 
-const oneTick = async (what: string, slots = 0) => {
+const oneTick = async (
+	what: string,
+	slots = 0,
+	env: Record<string, string> = {},
+) => {
 	const running = runInProcessAsync(
 		path.join(scripts, "refill-loop.js"),
 		["run"],
 		{
 			cwd: dir,
-			env: loopEnv({ WFC_GH: at("gh"), FAKE_SLOTS: String(slots) }),
+			env: loopEnv({ WFC_GH: at("gh"), FAKE_SLOTS: String(slots), ...env }),
 		},
 	);
 	await ticked(1);
@@ -2530,6 +2534,104 @@ describe("a session held on its seat's limit (#3735)", () => {
 				readLines(at("calls")).filter((c) => c.startsWith("--bg")),
 			).toEqual([]);
 			expect(launchState()).toMatchObject({ seat });
+		});
+	});
+
+	describe("moved onto an overflow seat (#3736)", () => {
+		const transcript = () =>
+			path.join(seat, "projects", projectSlug(repo), "s-job7.jsonl");
+
+		const seedOverflow = () => {
+			seed();
+			weekAt(100);
+			declareKey("K2");
+			writeKeyCostTable();
+			fs.mkdirSync(path.dirname(transcript()), { recursive: true });
+			fs.writeFileSync(transcript(), `${JSON.stringify({ type: "user" })}\n`);
+			/* The resume's environment: its key and session id, set or unset. */
+			const envSeen = `echo "env key=\${K2-unset} api=\${ANTHROPIC_API_KEY-unset} session=\${CLAUDE_CODE_SESSION_ID-unset} dir=$CLAUDE_CONFIG_DIR" >> "$calls";`;
+			fakeResumeClaude(
+				Job,
+				[LISTED],
+				`${envSeen} ${writesCopyRecord(
+					JSON.stringify({ state: "working", sessionId: "s-copy" }),
+				)}`,
+			);
+		};
+
+		it("resumes it on the key in one tick, recorded as that key's launch with its allowance", async () => {
+			seedOverflow();
+			const r = await oneTick(Run, 1, {
+				K2: "sk-must-not-pass",
+				ANTHROPIC_API_KEY: "sk-must-not-pass",
+			});
+			expect(r.status).toBe(0);
+			expect(readLines(at("calls"))).toContain(
+				`env key=unset api=unset session=unset dir=${seat}`,
+			);
+			const resume = readLines(at("calls")).find((l) => l.startsWith("--bg"));
+			const settings = resume?.match(
+				/^--bg --resume s-job7 --settings (\{.*\}) /,
+			)?.[1];
+			expect(JSON.parse(String(settings)).apiKeyHelper).toMatch(
+				/overflow-key\.js'? '?K2/,
+			);
+			expect(launchState()).toMatchObject({
+				seat,
+				keyVar: "K2",
+				jobId: FAKE_COPY,
+				reason: expect.stringMatching(/^moved from /),
+				finishedAt: null,
+				issues: [7],
+			});
+			const row = readOverflowLookup([repo])({ jobId: FAKE_COPY });
+			expect(row).toMatchObject({
+				keyVar: "K2",
+				sessionId: "s-copy",
+				allowanceUsd: expect.any(Number),
+			});
+			expect(row?.allowanceUsd).toBeGreaterThan(0);
+			expect(
+				JSON.parse(readLines(ledgerPath(repo)).at(-1) ?? ""),
+			).toMatchObject({ issues: [], jobId: FAKE_COPY, kind: "overflow" });
+			const comments = readLines(at("gh-calls")).join("\n");
+			expect(comments).toContain(`to ${seat} on overflow key K2`);
+			expect(comments).toContain("its allowance there $");
+		});
+
+		it("stops the copy and puts it back held on its plan seat where its ledger row will not write", async () => {
+			seedOverflow();
+			fs.mkdirSync(path.dirname(ledgerPath(repo)), { recursive: true });
+			fs.appendFileSync(ledgerPath(repo), "");
+			fs.chmodSync(ledgerPath(repo), 0o444);
+			const r = await oneTick(Run, 1);
+			expect(r.status).toBe(0);
+			expect(readLines(at("calls"))).toContain(`stop ${FAKE_COPY}`);
+			expect(launchState()).toMatchObject({
+				seat,
+				jobId: Job,
+				limitHeld: { failedTries: 1 },
+			});
+			expect(launchState()).not.toHaveProperty("keyVar");
+			expect(`${r.stdout}${r.stderr}`).toContain(
+				"not recorded in the dispatch ledger",
+			);
+		});
+
+		it("holds it, moving nothing, while the plan seat reads under its week", async () => {
+			seedOverflow();
+			weekAt(10);
+			fs.writeFileSync(
+				path.join(seat, ".claude.json"),
+				JSON.stringify(buildUsageCache({ session: 100, week: 10 }, Date.now())),
+			);
+			const r = await oneTick(Run, 1);
+			expect(r.status).toBe(0);
+			expect(
+				readLines(at("calls")).filter((l) => l.startsWith("--bg")),
+			).toEqual([]);
+			expect(launchState()).not.toHaveProperty("keyVar");
+			expect(readOverflowLookup([repo])({ jobId: FAKE_COPY })).toBeFalsy();
 		});
 	});
 

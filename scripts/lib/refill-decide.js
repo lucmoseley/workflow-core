@@ -104,6 +104,8 @@ const ALREADY_RUNNING = "already running";
  * @property {string} [keyVar] the seat's identity; none on the row standing in
  *   for a seat file that refuses
  * @property {number|null} fits
+ * @property {number} [headroomUsd] the key's headroom where its budget read,
+ *   the allowance a session moved onto it takes (#3736)
  * @property {string|null} spentUntil
  * @property {string|null} why
  */

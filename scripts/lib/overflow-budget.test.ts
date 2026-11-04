@@ -102,11 +102,13 @@ function recordLaunch(
 		at = root,
 		withSessionId = true,
 		copyOf,
+		offKeyUsd,
 	}: {
 		keyVar?: string;
 		at?: string;
 		withSessionId?: boolean;
 		copyOf?: string;
+		offKeyUsd?: number;
 	} = {},
 ) {
 	const sessionId = sessionIdOf(jobId);
@@ -121,6 +123,7 @@ function recordLaunch(
 			allowanceUsd: 50,
 			sessionId: withSessionId ? sessionId : null,
 			...(copyOf ? { copyOf } : {}),
+			...(offKeyUsd === undefined ? {} : { offKeyUsd }),
 		},
 	});
 	return sessionId;
@@ -174,6 +177,16 @@ const readLedgerLines = () =>
 		.map((l) => JSON.parse(l));
 
 describe("seatBudget pricing", () => {
+	it("prices a session moved onto the key at what it spent there (#3736)", () => {
+		const id = recordLaunch("0000d001", { offKeyUsd: 40 });
+		appendTranscript(
+			id,
+			buildModelTurn(10_000_000, "r1"),
+			buildModelTurn(5_000_000, "r2"),
+		);
+		expect(budget()).toMatchObject({ settledUsd: 20 });
+	});
+
 	it("prices a session from its transcript", () => {
 		const id = recordLaunch("0000000b");
 		appendTranscript(id, buildModelTurn(2_000_000));
@@ -673,6 +686,45 @@ describe("the per-session cap (#3698)", () => {
 		);
 		stopOverAllowance(declared(), [listed("0000bad0")]);
 		expect(readStops()).toHaveLength(2);
+	});
+
+	/* Its transcript repeats US$40 of requests its plan paid before the move. */
+	describe("a session moved onto the key (#3736)", () => {
+		const moved = (jobId: string) => {
+			const id = recordLaunch(jobId, { offKeyUsd: 40 });
+			appendTranscript(id, buildModelTurn(10_000_000, "r1"));
+			return id;
+		};
+
+		it("is charged only what it spends on the key", () => {
+			appendTranscript(moved("0000d001"), buildModelTurn(5_000_000, "r2"));
+			expect(stopOverAllowance(declared(), [listed("0000d001")])).toEqual([]);
+			appendTranscript(
+				sessionIdOf("0000d001"),
+				buildModelTurn(8_000_000, "r3"),
+			);
+			expect(stopOverAllowance(declared(), [listed("0000d001")])).toEqual([
+				`stopped overflow session Overflow · job 0000d001 (0000d001) on ${seatDir}: spent $52.00 of its $50.00 allowance`,
+			]);
+		});
+
+		it("charges a copy of it on the key only the chain's spend since the move", () => {
+			const first = moved("0000d001");
+			appendTranscript(first, buildModelTurn(2_000_000, "r2"));
+			const copy = recordLaunch("0000d002", { copyOf: first });
+			appendTranscript(
+				copy,
+				buildModelTurn(10_000_000, "r1"),
+				buildModelTurn(2_000_000, "r2"),
+				buildModelTurn(3_000_000, "r3"),
+			);
+			expect(
+				stopOverAllowance(declared(), [
+					listed("0000d001", "done"),
+					listed("0000d002"),
+				]),
+			).toEqual([]);
+		});
 	});
 
 	/* A `--bg --resume` copy repeats its parent's main-thread requests up to the

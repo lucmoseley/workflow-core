@@ -141,10 +141,11 @@ function entryHolds(rec, command) {
  * dir as overflow. `allowanceUsd` is the key's headroom at launch. `sessionId`
  * is the launched job's own, unlike `session`; null until known. `copyOf` is
  * the session a `--bg --resume` copy continues, whose allowance it shares
- * (#4195).
+ * (#4195). `offKeyUsd` is the spend its transcript carries from before a move
+ * put it on the key, which a plan paid (#3736).
  * @typedef {DispatchRecord & {kind: "overflow", keyVar: string,
  *            allowanceUsd: number, sessionId: string|null,
- *            copyOf?: string}} OverflowLaunch
+ *            copyOf?: string, offKeyUsd?: number}} OverflowLaunch
  */
 
 /**
@@ -396,7 +397,7 @@ function release(entry) {
 /**
  * `launchedAt` is the launch's epoch ms, from a caller whose own record of the
  * launch reads the same clock; now where absent.
- * @param {{issues: number[], model: string, prompt: string, root?: string, jobId?: string|null, launchedAt?: number, seatReason?: string, heldUntil?: number, overflow?: Pick<OverflowLaunch, "keyVar"|"allowanceUsd"|"sessionId"|"copyOf">}} entry
+ * @param {{issues: number[], model: string, prompt: string, root?: string, jobId?: string|null, launchedAt?: number, seatReason?: string, heldUntil?: number, overflow?: Pick<OverflowLaunch, "keyVar"|"allowanceUsd"|"sessionId"|"copyOf"|"offKeyUsd">}} entry
  * @returns {boolean} whether it was written
  */
 function record(entry) {

@@ -66,6 +66,7 @@ const { readActsBy } = require("./arbiter-store.js");
 const { PROBE_CWD, PROBE_TIMEOUT_MS } = require("./usage-probe.js");
 const { hasSeatRunSince } = require("./project-dirs.js");
 const { projectSlug } = require("./project-slug.js");
+const { fileSpend, sessionSpendUsd } = require("./session-spend.js");
 const { readAllowance } = require("./allowance.js");
 const { claudeBin } = require("./claude-bin.js");
 const { buildTypedAttach } = require("./claude-attach.js");
@@ -954,6 +955,87 @@ function recordOverflowCopy({ root, keyVar }, from, { jobId, sessionId }) {
 }
 
 /**
+ * The dispatch-ledger row for job `run`, which a resume of session `from`
+ * started on `l`'s overflow seat, where it owes one: a move onto the key's
+ * first launch there, at its allowance (#3736), else a copy's, at its first
+ * job's. A plan seat's job, or one woken in place on its key, owes none.
+ * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"seat"|"keyVar">} l
+ * @param {string} from
+ * @param {{jobId: string, sessionId: string|null}} run
+ * @param {{copy: boolean, cwd: string, allowanceUsd?: number}} how
+ * @returns {string|null} why a move's job could not be recorded, which stops
+ *   it, else null
+ */
+function recordOnKey({ root, seat, keyVar }, from, run, how) {
+	if (!keyVar) return null;
+	const { copy, allowanceUsd } = how;
+	if (allowanceUsd === undefined) {
+		if (copy) recordOverflowCopy({ root, keyVar }, from, run);
+		return null;
+	}
+	const failed = recordMovedOverflow({ root, keyVar }, from, {
+		...run,
+		allowanceUsd,
+		offKeyUsd: readOffKeyUsd({ seat, from, cwd: how.cwd, copy }),
+	});
+	if (!failed) return null;
+	/* Unrecorded, it would run on the key uncapped and unreserved. */
+	const stop = stopOn(seat, run.jobId);
+	return stop.ok || stop.noJob
+		? failed
+		: `${failed}, and its job not stopped: ${stop.why}`;
+}
+
+/**
+ * What a session moved onto a key carries in its new transcript from before
+ * the move, which its plan paid (#3736): a copy repeats its parent's
+ * main-thread requests (#4195), and a job woken in place keeps its whole
+ * session. Read off the parent's transcript the move put on `seat`; 0 where it
+ * will not read, which charges the key for it.
+ * @param {{seat: string, from: string, cwd: string, copy: boolean}} moved
+ */
+function readOffKeyUsd({ seat, from, cwd, copy }) {
+	const file = path.join(seat, "projects", projectSlug(cwd), `${from}.jsonl`);
+	return copy ? fileSpend(file).usd : sessionSpendUsd(file);
+}
+
+/**
+ * Record the job a move onto an overflow seat started as a launch on its key,
+ * with the allowance it moved with (#3736), so the budget gate reserves for it
+ * and the allowance stop caps it as any overflow launch. No issues, as a
+ * copy's: the launch it moved keeps the ledger hold.
+ * @param {{root: string, keyVar: string}} on
+ * @param {string} from the session it moved
+ * @param {{jobId: string, sessionId: string|null, allowanceUsd: number,
+ *   offKeyUsd: number}} run
+ * @returns {string|null} why it was not recorded, else null
+ */
+function recordMovedOverflow({ root, keyVar }, from, run) {
+	const failure = `moved overflow job ${run.jobId} of ${from} not recorded in the dispatch ledger`;
+	try {
+		/* Recorded already where a kill came after the record and before the
+		 * state write, and the next step adopts the job (#4180). */
+		if (readOverflowLookup([root])({ jobId: run.jobId })) return null;
+		const written = recordLaunch({
+			issues: [],
+			model: MODEL,
+			prompt: `move of ${from}`,
+			root,
+			jobId: run.jobId,
+			overflow: {
+				keyVar,
+				allowanceUsd: run.allowanceUsd,
+				sessionId: run.sessionId,
+				offKeyUsd: run.offKeyUsd,
+			},
+		});
+		return written ? null : failure;
+	} catch (e) {
+		return `${failure}: ${buildErrorText(e)}`;
+	}
+}
+
+/**
  * `claude --bg --resume <full id> "<prompt>"` of `l`'s stopped job, from its
  * cwd (#2354 F6). The launcher exits 0 whatever happens (F8). On 2.1.310 it
  * wakes a stopped job in place, else starts a copy under a new job and
@@ -965,10 +1047,10 @@ function recordOverflowCopy({ root, keyVar }, from, { jobId, sessionId }) {
  * a later tick judges the resumed turn.
  * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"issues"|"seat"|"keyVar">} l
  * @param {string} prompt
- * @param {{sessionId: string, cwd: string}} target
+ * @param {{sessionId: string, cwd: string, allowanceUsd?: number}} target
  * @returns {import("./refill-blocks.js").Resumed}
  */
-function resumeStopped(l, prompt, { sessionId, cwd }) {
+function resumeStopped(l, prompt, { sessionId, cwd, allowanceUsd }) {
 	const launch = buildSeatLaunch(l);
 	if ("why" in launch) return { failed: launch.why };
 	const { env, settings } = launch;
@@ -992,18 +1074,41 @@ function resumeStopped(l, prompt, { sessionId, cwd }) {
 		sessionId?: unknown}|null} */ (readJobRecordOf({ ...l, jobId }));
 	if (after?.state === "failed")
 		return { failed: `state failed: ${after.detail}` };
-	if (!started.copy) {
-		/* A stopped job's record already names its session, so its state says
-		 * whether it woke. */
-		return after?.sessionId === sessionId && after.state !== "stopped"
-			? { failed: null, jobId, sessionId, copy: false }
-			: {
-					failed: `not confirmed: job ${jobId}'s state.json reads ${after?.state ?? "(unread)"}, session ${after?.sessionId ?? "(unread)"}, not ${sessionId}`,
-				};
-	}
+	if (!started.copy)
+		return settleWoken(l, { jobId, sessionId, cwd, after }, allowanceUsd);
 	const copySession =
 		typeof after?.sessionId === "string" ? after.sessionId : null;
-	return settleCopy(l, sessionId, { jobId, sessionId: copySession, cwd });
+	return settleCopy(
+		l,
+		sessionId,
+		{ jobId, sessionId: copySession, cwd },
+		allowanceUsd,
+	);
+}
+
+/**
+ * A resume that woke the stopped job itself: confirmed where its state.json,
+ * which already names its session, reads it no longer stopped; on a move onto
+ * a key, recorded as that key's launch.
+ * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"seat"|"keyVar">} l
+ * @param {{jobId: string, sessionId: string, cwd: string,
+ *   after: {state?: unknown, sessionId?: unknown}|null}} woken
+ * @param {number} [allowanceUsd]
+ * @returns {import("./refill-blocks.js").Resumed}
+ */
+function settleWoken(l, { jobId, sessionId, cwd, after }, allowanceUsd) {
+	if (after?.sessionId !== sessionId || after.state === "stopped")
+		return {
+			failed: `not confirmed: job ${jobId}'s state.json reads ${after?.state ?? "(unread)"}, session ${after?.sessionId ?? "(unread)"}, not ${sessionId}`,
+		};
+	const unrecorded = recordOnKey(
+		l,
+		sessionId,
+		{ jobId, sessionId },
+		{ copy: false, cwd, allowanceUsd },
+	);
+	if (unrecorded) return { failed: unrecorded };
+	return { failed: null, jobId, sessionId, copy: false };
 }
 
 /**
@@ -1012,9 +1117,12 @@ function resumeStopped(l, prompt, { sessionId, cwd }) {
  * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"issues"|"seat"|"keyVar">} l
  * @param {string} from
  * @param {{jobId: string, sessionId: string|null, cwd: string}} copy
- * @returns {Extract<import("./refill-blocks.js").Resumed, {failed: null}>}
+ * @param {number} [allowanceUsd] a move onto the key's allowance, where the
+ *   copy is that key's first launch of the session (#3736)
+ * @returns {import("./refill-blocks.js").Resumed} failed only where a move's
+ *   job will not record, and is stopped
  */
-function settleCopy(l, from, copy) {
+function settleCopy(l, from, copy, allowanceUsd) {
 	const { jobId, sessionId } = copy;
 	if (sessionId) {
 		moveClaims(l, from, sessionId);
@@ -1024,11 +1132,13 @@ function settleCopy(l, from, copy) {
 			`no session id read for copy ${jobId}: its issue claims and pass markers not moved`,
 		);
 	moveParked(l, from, copy);
-	if (l.keyVar)
-		recordOverflowCopy({ root: l.root, keyVar: l.keyVar }, from, {
-			jobId,
-			sessionId,
-		});
+	const unrecorded = recordOnKey(
+		l,
+		from,
+		{ jobId, sessionId },
+		{ copy: true, cwd: copy.cwd, allowanceUsd },
+	);
+	if (unrecorded) return { failed: unrecorded };
 	return { failed: null, jobId, sessionId, copy: true };
 }
 
@@ -1037,7 +1147,7 @@ function settleCopy(l, from, copy) {
  * sessions: a copy found is handed what the session held (#4157, #4180); why
  * not, where the job store or a transcript will not read.
  * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"issues"|"seat"|"keyVar"|"pastSessionIds">} l
- * @param {{sessionId: string, cwd: string}} target
+ * @param {{sessionId: string, cwd: string, allowanceUsd?: number}} target
  * @param {number} since
  * @returns {import("./refill-blocks.js").Adopted}
  */
@@ -1045,8 +1155,37 @@ function adoptResumed(l, target, since) {
 	const found = findResumed(l.seat, target, since, l.pastSessionIds ?? []);
 	if (found === null || "unread" in found) return found;
 	const { jobId, sessionId } = found;
-	return found.copy
-		? settleCopy(l, target.sessionId, { jobId, sessionId, cwd: target.cwd })
+	const { allowanceUsd } = target;
+	const r = found.copy
+		? settleCopy(
+				l,
+				target.sessionId,
+				{ jobId, sessionId, cwd: target.cwd },
+				allowanceUsd,
+			)
+		: settleAdoptedWoken(l, target, { jobId, sessionId }, allowanceUsd);
+	/* A move's job that will not record is stopped, so it reads as no job. */
+	return r.failed === null ? r : { unread: r.failed };
+}
+
+/**
+ * The job a resume woke in place, found after a kill; on a move onto a key,
+ * recorded as that key's launch.
+ * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"seat"|"keyVar">} l
+ * @param {{sessionId: string, cwd: string}} target
+ * @param {{jobId: string, sessionId: string|null}} found
+ * @param {number} [allowanceUsd]
+ * @returns {import("./refill-blocks.js").Resumed}
+ */
+function settleAdoptedWoken(l, target, { jobId, sessionId }, allowanceUsd) {
+	const unrecorded = recordOnKey(
+		l,
+		target.sessionId,
+		{ jobId, sessionId },
+		{ copy: false, cwd: target.cwd, allowanceUsd },
+	);
+	return unrecorded
+		? { failed: unrecorded }
 		: { failed: null, jobId, sessionId, copy: false };
 }
 
@@ -1118,20 +1257,23 @@ function removeJobRecord(seat, sessionId, cwd) {
  * stopped, and two live processes never share the id; the old seat's
  * transcript is left whole, for its next try.
  * @param {import("./refill-blocks.js").JobLaunch} l
- * @param {string} target
+ * @param {import("./refill-blocks.js").MoveTarget} target
  * @param {string} prompt
  * @param {{sessionId: string, cwd: string}} ids
  * @returns {import("./refill-blocks.js").Resumed}
  */
-function moveSession(l, target, prompt, ids) {
+function moveSession(l, { seat, keyVar, allowanceUsd }, prompt, ids) {
 	const { sessionId, cwd } = ids;
 	const prepared =
-		copyTranscript({ from: l.seat, to: target, sessionId, cwd }) ??
-		removeJobRecord(target, sessionId, cwd);
+		copyTranscript({ from: l.seat, to: seat, sessionId, cwd }) ??
+		removeJobRecord(seat, sessionId, cwd);
 	if (prepared) return { failed: prepared };
-	const r = resumeStopped({ ...l, seat: target }, prompt, ids);
+	const r = resumeStopped(blocks.movedOnto(l, { seat, keyVar }), prompt, {
+		...ids,
+		allowanceUsd,
+	});
 	if (r.failed === null) return r;
-	const stop = stopOn(target, shortJobId(sessionId));
+	const stop = stopOn(seat, shortJobId(sessionId));
 	if (!stop.ok && !stop.noJob)
 		log(`could not stop ${shortJobId(sessionId)}'s failed resume: ${stop.why}`);
 	return r;
@@ -1543,7 +1685,12 @@ function settleRoom({
 						sizeAll: true,
 					});
 					moveProbes.push(...read.probes);
-					return read.seats;
+					return {
+						seats: read.seats,
+						overflow: loop.overflowReadings(declared, read.seats, (seat) =>
+							seatBudget(seat, served[0]),
+						),
+					};
 				},
 				seatListRead,
 				slots: free,

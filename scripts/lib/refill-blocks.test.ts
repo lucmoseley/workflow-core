@@ -110,7 +110,10 @@ function fakeIo(over: Partial<BlockIo> = {}) {
 			};
 		},
 		moveSession: (l, target, _prompt, moved) => {
-			calls.push(`move ${l.jobId} ${l.seat} ${target} ${moved.sessionId}`);
+			const key = target.keyVar ? ` key=${target.keyVar}` : "";
+			calls.push(
+				`move ${l.jobId} ${l.seat} ${target.seat}${key} ${moved.sessionId}`,
+			);
 			return {
 				failed: null,
 				jobId: l.jobId,
@@ -1346,6 +1349,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 		agents: Agents,
 		{
 			seats = [planSeat()],
+			overflow = [],
 			slots = 1,
 			mode = "away",
 			seatListRead = true,
@@ -1353,6 +1357,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 			io: over = {},
 		}: {
 			seats?: Sized[];
+			overflow?: import("./refill-decide.js").OverflowReading[];
 			seatListRead?: boolean;
 			slots?: number;
 			now?: number;
@@ -1378,7 +1383,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 			io,
 			swapHold: NO_HOLD,
 			typedSeat: null,
-			readMoveSeats: () => seats,
+			readMoveSeats: () => ({ seats, overflow }),
 			seatListRead,
 			slots,
 		});
@@ -2311,6 +2316,172 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 		expect(reset.launches[0]).toMatchObject({ limitHeld: { resumedAt: NOW } });
 	});
 
+	describe("a move onto an overflow seat (#3736)", () => {
+		const weekFull = (seat: string) =>
+			planSeat({
+				seat,
+				week: 100,
+				weekFull: true,
+				weekRead: { percent: 100, atMs: NOW },
+				fits: null,
+			});
+		const key = (fits: number) => ({
+			seat: Seat,
+			keyVar: "K3",
+			fits,
+			headroomUsd: 42.5,
+			spentUntil: null,
+			why: null,
+		});
+		const weekly = (over: Record<string, unknown> = {}) =>
+			blocked({
+				limitHeld: { ...LimitHeld, limit: { bar: "weekly", resets: null } },
+				...over,
+			});
+
+		it.each(["away", "normal"] as const)(
+			"%s: moves a weekly-blocked session onto the key once every plan seat is weekly-full, charged the headroom",
+			(mode) => {
+				const { launches, calls } = limits(
+					[weekly()],
+					[agent("job42", "blocked")],
+					{
+						seats: [weekFull(Seat), weekFull("/other")],
+						overflow: [key(1)],
+						mode,
+					},
+				);
+				expect(calls).toContain(`move job42 ${Seat} ${Seat} key=K3 s-job42`);
+				expect(launches[0]).toMatchObject({
+					seat: Seat,
+					keyVar: "K3",
+					reason: `moved from ${Seat}`,
+					limitHeld: {
+						resumedAt: NOW,
+						movedFrom: { seat: Seat, jobId: "job42" },
+					},
+				});
+				expect(comments(calls)).toHaveLength(1);
+				expect(comments(calls)[0]).toContain(
+					`from ${Seat} to ${Seat} on overflow key K3`,
+				);
+				expect(comments(calls)[0]).toContain("its allowance there $42.50");
+			},
+		);
+
+		it("hands the move the key and its headroom as the allowance", () => {
+			const targets: unknown[] = [];
+			limits([weekly()], [agent("job42", "blocked")], {
+				seats: [weekFull(Seat), weekFull("/other")],
+				overflow: [key(1)],
+				io: {
+					moveSession: (_l, target) => {
+						targets.push(target);
+						return {
+							failed: null,
+							jobId: "copy1",
+							sessionId: "s-copy",
+							copy: true,
+						};
+					},
+				},
+			});
+			expect(targets).toEqual([
+				{ seat: Seat, keyVar: "K3", allowanceUsd: 42.5 },
+			]);
+		});
+
+		it("holds a 5-hour block while another plan seat is not weekly-full, whatever the key fits", () => {
+			const { launches, calls } = limits(
+				[blocked()],
+				[agent("job42", "blocked")],
+				{
+					seats: [fiveHourFull, { ...fiveHourFull, seat: "/other" }],
+					overflow: [key(3)],
+				},
+			);
+			expect(calls.filter((c) => c.startsWith("move "))).toEqual([]);
+			expect(launches[0]).not.toHaveProperty("keyVar");
+			expect(launches[0]).toHaveProperty("limitHeld");
+		});
+
+		it("holds where every plan seat is weekly-full and the key fits none", () => {
+			const { launches, calls } = limits(
+				[weekly()],
+				[agent("job42", "blocked")],
+				{ seats: [weekFull(Seat)], overflow: [key(0)] },
+			);
+			expect(calls.filter((c) => c.startsWith("move "))).toEqual([]);
+			expect(launches[0]).toMatchObject({ seat: Seat, limitHeld: {} });
+		});
+
+		it("moves one session a tick onto a key, the next waiting on a fresh sizing", () => {
+			const other = weekly({ jobId: "job43", sessionId: "s-job43" });
+			const { calls } = limits(
+				[weekly(), other],
+				[agent("job42", "blocked"), agent("job43", "blocked")],
+				{ seats: [weekFull(Seat)], overflow: [key(5)], slots: 2 },
+			);
+			expect(calls.filter((c) => c.startsWith("move "))).toHaveLength(1);
+		});
+
+		it("puts a failed copy back on the plan seat it left, its job, session and no key", () => {
+			const moved = limits([weekly()], [agent("job42", "blocked")], {
+				seats: [weekFull(Seat)],
+				overflow: [key(1)],
+				io: {
+					moveSession: () => ({
+						failed: null,
+						jobId: "copy1",
+						sessionId: "s-copy",
+						copy: true,
+					}),
+				},
+			}).launches as Launch[];
+			expect(moved[0]).toMatchObject({ jobId: "copy1", keyVar: "K3" });
+			const { launches, calls } = limits(moved, [], {
+				seats: [weekFull(Seat)],
+				io: { jobStateOf: () => ({ state: "failed", detail: "nope" }) },
+			});
+			expect(launches[0]).toMatchObject({
+				seat: Seat,
+				jobId: "job42",
+				sessionId: "s-job42",
+			});
+			expect(launches[0]).not.toHaveProperty("keyVar");
+			expect(launches[0]).not.toHaveProperty("copiedFrom");
+			expect(calls).toContain("stop copy1");
+			expect(comments(calls)[0]).toContain("could not move");
+		});
+
+		it("removes the job it left once a copy on the same dir took, never the copy's", () => {
+			const moved = limits([weekly()], [agent("job42", "blocked")], {
+				seats: [weekFull(Seat)],
+				overflow: [key(1)],
+				io: {
+					moveSession: () => ({
+						failed: null,
+						jobId: "copy1",
+						sessionId: "s-copy",
+						copy: true,
+					}),
+				},
+			}).launches as Launch[];
+			const removed: string[] = [];
+			const { launches } = limits(moved, [], {
+				seats: [weekFull(Seat)],
+				io: {
+					removeJobRecord: (seat, sessionId) => {
+						removed.push(`${seat} ${sessionId}`);
+						return null;
+					},
+				},
+			});
+			expect(removed).toEqual([`${Seat} s-job42`]);
+			expect(launches[0]).toMatchObject({ jobId: "copy1", keyVar: "K3" });
+		});
+	});
+
 	describe("a move to another seat (#3734)", () => {
 		const other = () => planSeat({ seat: "/other" });
 		const moveLine = (from: string, to: string) => `move job42 ${from} ${to} s`;
@@ -3101,7 +3272,10 @@ describe("a block's resume across a kill before the state write (#4180)", () => 
 			io,
 			swapHold: NO_HOLD,
 			typedSeat: null,
-			readMoveSeats: () => seats.map((s) => sized(s, full.includes(s))),
+			readMoveSeats: () => ({
+				seats: seats.map((s) => sized(s, full.includes(s))),
+				overflow: [],
+			}),
 			seatListRead: true,
 			slots: 1,
 		});
@@ -3177,7 +3351,7 @@ describe("a block's resume across a kill before the state write (#4180)", () => 
 			);
 			expect(started[0]?.resumeStarted?.act).toMatchObject({
 				kind: "move",
-				to: Other,
+				to: { seat: Other },
 			});
 		});
 	});
@@ -3293,7 +3467,7 @@ describe("a block's resume across a kill before the state write (#4180)", () => 
 						at: NOW - MIN,
 						sessionId: "s-job42",
 						cwd: "/home/u/design-vault",
-						act: { kind: "move", to: Other, held: limitHeld },
+						act: { kind: "move", to: { seat: Other }, held: limitHeld },
 					},
 				}),
 				{
@@ -3312,6 +3486,41 @@ describe("a block's resume across a kill before the state write (#4180)", () => 
 			expect(launches[0]).toMatchObject({
 				seat: Other,
 				limitHeld: { resumedAt: NOW - MIN, movedFrom: { seat: Seat } },
+			});
+		});
+
+		it("hands a killed overflow move's adoption the key and allowance it moved with (#3736)", () => {
+			const adopted: unknown[] = [];
+			const { launches } = settle(
+				limitBlocked({
+					resumeStarted: {
+						at: NOW - MIN,
+						sessionId: "s-job42",
+						cwd: "/home/u/design-vault",
+						act: {
+							kind: "move",
+							to: { seat: Seat, keyVar: "K3", allowanceUsd: 40 },
+							held: limitHeld,
+						},
+					},
+				}),
+				{
+					adoptResumed: (l, target) => {
+						adopted.push([l.seat, l.keyVar, target.allowanceUsd]);
+						return {
+							failed: null,
+							jobId: "copy1",
+							sessionId: "s-copy",
+							copy: true,
+						};
+					},
+				},
+			);
+			expect(adopted).toEqual([[Seat, "K3", 40]]);
+			expect(launches[0]).toMatchObject({
+				seat: Seat,
+				keyVar: "K3",
+				jobId: "copy1",
 			});
 		});
 

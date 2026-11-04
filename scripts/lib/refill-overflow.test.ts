@@ -77,14 +77,15 @@ describe("each overflow seat's reading", () => {
 		expect(out.map((o) => o.fits)).toEqual([null, null]);
 	});
 
-	it("gives each seat's fit once every plan seat is weekly-full", () => {
+	it("gives each seat's fit and headroom once every plan seat is weekly-full", () => {
 		const fits = [3, 0];
 		const out = overflowReadings(both, [planSeat("a", true)], () =>
 			budget({ fit: fits.shift() }),
 		);
+		const read = { headroomUsd: 20, spentUntil: null, why: null };
 		expect(out).toEqual([
-			{ seat: "/s/x", keyVar: "KEY_x", fits: 3, spentUntil: null, why: null },
-			{ seat: "/s/y", keyVar: "KEY_y", fits: 0, spentUntil: null, why: null },
+			{ seat: "/s/x", keyVar: "KEY_x", fits: 3, ...read },
+			{ seat: "/s/y", keyVar: "KEY_y", fits: 0, ...read },
 		]);
 	});
 

@@ -186,7 +186,10 @@ function priceSessions(seat, lookup) {
 				sessionId,
 				jobId: launch.jobId,
 				...stat,
-				costUsd: sessionSpendUsd(file),
+				costUsd: Math.max(
+					0,
+					sessionSpendUsd(file) - offKeyOf(lookup, sessionId),
+				),
 				...readRefusalOutcome(file),
 			});
 			changed = true;
@@ -289,6 +292,16 @@ function chainRootOf(lookup, sessionId) {
 }
 
 /**
+ * What a session's transcript repeats from before a move put its chain on the
+ * key, which a plan paid: its chain root's record, as each copy repeats the
+ * root's history (#3736).
+ * @param {OverflowLookup} lookup
+ * @param {string} sessionId
+ */
+const offKeyOf = (lookup, sessionId) =>
+	lookup({ sessionId: chainRootOf(lookup, sessionId) })?.offKeyUsd ?? 0;
+
+/**
  * Each session's spend with every copy in its chain, by session: a copy
  * repeats its parent's main-thread requests up to the fork, but neither the
  * parent's subagents nor what the parent spends after it, so a copy priced
@@ -312,13 +325,14 @@ function readChainSpend(seat, lookup, ledger) {
 		const root = chainRootOf(lookup, sessionId);
 		chains.set(root, [...(chains.get(root) ?? []), sessionId]);
 	}
-	for (const members of chains.values()) {
+	for (const [root, members] of chains) {
 		if (members.length < 2) continue;
 		const listed = members.flatMap((m) => files.get(m) ?? []);
 		const gone = members
 			.filter((m) => !files.has(m))
 			.reduce((t, m) => t + (spent.get(m) ?? 0), 0);
-		const usd = readChainSpendUsd(listed) + gone;
+		const offKey = files.has(root) ? offKeyOf(lookup, root) : 0;
+		const usd = Math.max(0, readChainSpendUsd(listed) - offKey) + gone;
 		for (const m of members) spent.set(m, Math.max(usd, spent.get(m) ?? 0));
 	}
 	return spent;

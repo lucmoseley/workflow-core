@@ -58,7 +58,8 @@ const IDLE_TRIES = 2;
  *   and `nextAt`, when the next is due; `held`, its session stopped until
  *   then; `typing`, a typed resume not yet seen arrive; `swapHeld`, the swap
  *   hold (#2690) binding this tick; for a LIMIT, `seat`, its session's seat,
- *   `movePick`, the seat lib/refill-decide.js's pickMoveSeat walks to,
+ *   `movePick`, the seat lib/refill-decide.js's pickMoveSeat walks to, an
+ *   overflow seat as `key=<its key var>`, as it shares a plan seat's dir (#3736),
  *   `slotFree`, whether admission has a slot for one held stopped,
  *   `tries`, this hold's failed resumes and moves alone, `dryResumes`, those in
  *   a row that took and bought no reply, and `heldAt`, when this hold began

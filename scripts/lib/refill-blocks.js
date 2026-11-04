@@ -88,16 +88,18 @@ const PARKED_STATE = "blocked";
  *   read, with its reset as read; from the reading, never the limit's text
  * @typedef {{at: number, sessionId: string, cwd: string, limit: LimitRead,
  *   resumedAt?: number, ledgerHeldUntil?: number, failedTries?: number,
- *   movedFrom?: {seat: string,
- *   reason?: import("./refill-decide.js").SeatReason}}}
+ *   movedFrom?: MovedFrom}}
  *   LimitHeld  a limit-blocked session the loop stopped (#3735): when, the
  *   session and directory its resume runs in, read before the stop, and its
  *   limit, read then, as a reset seat no longer shows it; `resumedAt`, a
  *   resume not yet judged; `ledgerHeldUntil`, when the ledger hold written for
  *   it ends;
  *   `failedTries`, its failed resumes this hold, which park it at the cap;
- *   `movedFrom`, the seat and reason a move not yet judged left, for a failed
- *   one to go back to
+ *   `movedFrom`, the launch a move not yet judged left, for a failed one to go
+ *   back to
+ * @typedef {Partial<Pick<LoopLaunch, (typeof MOVED_FIELDS)[number]>> &
+ *   {seat: string, jobId: string}} MovedFrom  what a move rewrites: its seat, reason and key, and the job and
+ *   session a copy replaced
  * @typedef {{tries: number, triedAt: number, nextAt: number, failed?: string,
  *   takenAt?: number, dryResumes?: number}}
  *   LimitResumes  its resumes and moves, kept for the launch's life, each
@@ -117,11 +119,17 @@ const PARKED_STATE = "blocked";
  *   tick's listing, null unread; its clock; the program's I/O; the swap hold
  *   (#2690) as read this tick; whether the loop is paused
  * @typedef {Tick & {typedSeat: string|null, slots: number,
- *   readMoveSeats: () => import("./refill-decide.js").SizedSeat[],
+ *   readMoveSeats: () => MoveSeats,
  *   seatListRead: boolean}} LimitTick  `seatListRead`, whether the seats read
  *   are the loop's own list, not a damaged or empty control's stand-in
  *   a tick read further for its limit-blocked launches: the plan seats sized
- *   for one session each, and admission's free slots
+ *   for one session each, the overflow seats on those readings, and
+ *   admission's free slots
+ * @typedef {{seats: import("./refill-decide.js").SizedSeat[],
+ *   overflow: import("./refill-decide.js").OverflowReading[]}} MoveSeats
+ * @typedef {{seat: string, keyVar?: string, allowanceUsd?: number}} MoveTarget
+ *   a move's seat: on an overflow seat, its key and the allowance the session
+ *   takes there, the key's headroom at the move (#3736)
  * @typedef {{failed: string}|{failed: null, jobId: string,
  *   sessionId: string|null, copy: boolean}} Resumed  a `--bg --resume`: why
  *   it failed, else the job it runs on as, its full session id, null unread,
@@ -129,8 +137,8 @@ const PARKED_STATE = "blocked";
  * @typedef {Extract<Resumed, {failed: null}>|{unread: string}|null} Adopted
  *   the job a resume started, woken in place or a copy handed what the session
  *   held; why the job store could not tell, or null where it holds neither
- * @typedef {{kind: "in-place"}|{kind: "move", to: string}} LimitAct  a limit
- *   resume on its own seat, or a move to seat `to`
+ * @typedef {{kind: "in-place"}|{kind: "move", to: MoveTarget}} LimitAct  a
+ *   limit resume on its own seat, or a move to `to`
  * @typedef {{kind: "api", route: string, again: boolean}|
  *   (LimitAct & {held: LimitHeld})} StartedAct  the act a resume was made for:
  *   an API-error fallBack, told by `route`, `again` its typed resume's
@@ -154,8 +162,9 @@ const PARKED_STATE = "blocked";
  * @property {(l: JobLaunch, prompt: string, target: ResumeTarget &
  *   {sessionId: string}) => Resumed} resumeStopped  `claude --bg
  *   --resume` of the stopped job
- * @property {(l: JobLaunch, target: ResumeTarget & {sessionId: string},
- *   since: number) => Adopted} adoptResumed  the job a resume of its session
+ * @property {(l: JobLaunch, target: ResumeTarget & {sessionId: string,
+ *   allowanceUsd?: number}, since: number) => Adopted} adoptResumed  the job a
+ *   resume of its session
  *   on `l`'s seat started from `since`
  * @property {(l: LoopLaunch) => void} writeLaunch  write the state file with
  *   `l` in place of the launch it was: a resume's stamp before its stop, and its
@@ -165,9 +174,10 @@ const PARKED_STATE = "blocked";
  *   session, else why not
  * @property {() => void} stagger  the dispatcher's pause between one launch
  *   and the next member's re-read
- * @property {(l: JobLaunch, target: string, prompt: string, ids: ResumeTarget &
+ * @property {(l: JobLaunch, target: MoveTarget, prompt: string, ids: ResumeTarget &
  *   {sessionId: string}) => Resumed} moveSession  the stopped session carried
- *   to seat `target` and resumed there
+ *   to `target` and resumed there, on an overflow seat recorded as a launch on
+ *   its key with its allowance
  * @property {(seat: string, sessionId: string, cwd: string) => string|null}
  *   removeJobRecord  `claude rm` of any job record for it on `seat`, which
  *   keeps transcripts
@@ -2015,16 +2025,69 @@ function settleInPlace(l, r, now, io) {
 	return afterLimitTry(resumed, now);
 }
 
+const MOVED_FIELDS = /** @type {const} */ ([
+	"seat",
+	"reason",
+	"keyVar",
+	"jobId",
+	"sessionId",
+	"copiedFrom",
+	"pastSessionIds",
+]);
+
 /**
- * Move `l`'s limit-blocked session to seat `target` under its own session id:
+ * @param {JobLaunch} l
+ * @returns {MovedFrom}
+ */
+const movedFromOf = (l) => ({
+	...Object.fromEntries(
+		MOVED_FIELDS.flatMap((k) => (l[k] === undefined ? [] : [[k, l[k]]])),
+	),
+	seat: l.seat,
+	jobId: l.jobId,
+});
+
+/**
+ * @template {JobLaunch} L
+ * @param {L} l
+ * @param {MovedFrom} from
+ * @returns {L}
+ */
+function unmoved(l, from) {
+	const back = { ...l };
+	for (const k of MOVED_FIELDS) delete back[k];
+	return { ...back, ...from };
+}
+
+/**
+ * @template {JobLaunch} L
+ * @param {L} l
+ * @param {MoveTarget} target
+ * @returns {L}
+ */
+const movedOnto = (l, { seat, keyVar }) => ({
+	...l,
+	seat,
+	...(keyVar ? { keyVar } : {}),
+});
+
+/** @param {MoveTarget} target */
+const buildTargetText = (target) =>
+	target.keyVar
+		? `${target.seat} on overflow key ${target.keyVar}`
+		: target.seat;
+
+/**
+ * Move `l`'s limit-blocked session to `target` under its own session id:
  * stopped on its seat, unless held already, then carried and resumed
- * there, from its own cwd. The launch stays the same launch, its seat and
- * reason rewritten, so stop, reap and status address `target` from here, and
- * its block dated now, so no reading older than the move sends it back. A
- * failure leaves it held on its seat; a resume that the launcher ran as a copy
- * tracks the copy.
+ * there, from its own cwd. The launch stays the same launch, its seat, key
+ * and reason rewritten, so stop, reap, status and the allowance stop address
+ * `target` from here, and its block dated now, so no reading older than the
+ * move sends it back. A failure leaves it held on its seat; a resume that the
+ * launcher ran as a copy tracks the copy, as an overflow seat's always does
+ * (#3692 (d)).
  * @param {JobLaunch & {block: import("./block-act.js").Block}} l
- * @param {string} target
+ * @param {MoveTarget} target
  * @param {LimitRead} limit  what a live session's seat reads now
  * @param {LimitTick} seen
  * @returns {LoopLaunch}
@@ -2057,17 +2120,17 @@ function moveToSeat(l, target, limit, seen) {
 /**
  * What moveToSeat's lines call its move of `l` to `target` at `limit`.
  * @param {JobLaunch} l
- * @param {string} target
+ * @param {MoveTarget} target
  * @param {LimitRead} limit
  */
 const buildMoveWhat = (l, target, limit) =>
-	`${l.jobId} ${launchName(l)} from ${l.seat} to ${target}, at its ${buildLimitText(limit)}`;
+	`${l.jobId} ${launchName(l)} from ${l.seat} to ${buildTargetText(target)}, at its ${buildLimitText(limit)}`;
 
 /**
  * `l`, stopped, after moveToSeat's resume `r` on `target` at `now`, reported.
  * @param {JobLaunch & {block: import("./block-act.js").Block,
  *   limitHeld: LimitHeld}} l
- * @param {string} target
+ * @param {MoveTarget} target
  * @param {{failed: string}|(Resumed & {fromSessionId: string})} r
  * @param {{now: number, io: BlockIo}} seen
  * @returns {LoopLaunch}
@@ -2081,8 +2144,7 @@ function settleMove(l, target, r, { now, io }) {
 	}
 	const moved = relaunched(
 		{
-			...l,
-			seat: target,
+			...movedOnto(l, target),
 			reason: `moved from ${buildSeatName(l.seat)}`,
 			parked: false,
 			block: { ...l.block, since: now },
@@ -2093,14 +2155,7 @@ function settleMove(l, target, r, { now, io }) {
 			limitHeld: {
 				...l.limitHeld,
 				resumedAt: now,
-				...(r.copy
-					? {}
-					: {
-							movedFrom: {
-								seat: l.seat,
-								...(l.reason ? { reason: l.reason } : {}),
-							},
-						}),
+				movedFrom: movedFromOf(l),
 			},
 		},
 		r,
@@ -2109,10 +2164,14 @@ function settleMove(l, target, r, { now, io }) {
 	const how = r.copy
 		? `as its copy ${moved.jobId}`
 		: "under its own session id";
-	io.log(`moved ${what}: ${how}`);
+	const charged =
+		target.allowanceUsd === undefined
+			? ""
+			: `, its allowance there $${target.allowanceUsd.toFixed(2)}`;
+	io.log(`moved ${what}: ${how}${charged}`);
 	io.comment(
 		l,
-		`Refill loop: moved this session after its ${limitText}: from ${l.seat} to ${target}, ${how}. ${LIMIT_LOSS_TEXT}`,
+		`Refill loop: moved this session after its ${limitText}: from ${l.seat} to ${buildTargetText(target)}, ${how}${charged}. ${LIMIT_LOSS_TEXT}`,
 	);
 	/* Spacing is for tries that fail: one that took may move again at once. */
 	const tried = afterLimitTry(moved, now);
@@ -2151,8 +2210,9 @@ function settleStartedResumes(launches, io) {
  * @returns {LoopLaunch}
  */
 function settleStarted(l, { at, sessionId, cwd, act }, io) {
-	const seat = act.kind === "move" ? act.to : l.seat;
-	const found = io.adoptResumed({ ...l, seat }, { sessionId, cwd }, at);
+	const on = act.kind === "move" ? movedOnto(l, act.to) : l;
+	const allowanceUsd = act.kind === "move" ? act.to.allowanceUsd : undefined;
+	const found = io.adoptResumed(on, { sessionId, cwd, allowanceUsd }, at);
 	const killed = "a kill came between it and the state write";
 	const what = `${launchName(l)}'s resume at ${iso(at)}`;
 	/** @type {{failed: string}|(Resumed & {fromSessionId: string})} */
@@ -2201,7 +2261,10 @@ function settleLimitResume(l, { now, io }) {
 	if (job && job.state !== "failed") {
 		const { limitHeld: _, block: __, ...rest } = l;
 		const { movedFrom, sessionId } = l.limitHeld;
-		const failed = movedFrom
+		/* The job it left, unless it woke in that job, in the dir it shares. */
+		const left =
+			movedFrom && (movedFrom.seat !== l.seat || movedFrom.jobId !== l.jobId);
+		const failed = left
 			? io.removeJobRecord(movedFrom.seat, sessionId, l.limitHeld.cwd)
 			: null;
 		if (failed) io.log(`${launchName(l)}: ${failed}`);
@@ -2224,8 +2287,7 @@ function settleLimitResume(l, { now, io }) {
 	);
 	const stopFailed = stopJob(l, io);
 	if (stopFailed) io.log(`could not stop ${name}'s failed move: ${stopFailed}`);
-	const { reason: _reason, ...rest } = l;
-	return afterLimitTry({ ...rest, ...movedFrom, limitHeld }, now, why);
+	return afterLimitTry(unmoved({ ...l, limitHeld }, movedFrom), now, why);
 }
 
 /**
@@ -2429,26 +2491,46 @@ function parkOffList(l, mode, seen) {
 }
 
 /**
- * The move pick and the table's act on one limit-blocked launch on a plan seat.
+ * Where pickMoveSeat sends `l`, null nowhere.
  * @param {JobLaunch & {block: import("./block-act.js").Block}} l
- * @param {import("./refill-decide.js").SizedSeat} own  its seat's reading
  * @param {LimitTick} seen
- * @param {{mode: "away"|"normal", slots: number,
- *   moveSeats: import("./refill-decide.js").SizedSeat[]}} how
- * @returns {LoopLaunch}
+ * @param {MoveSeats} moveSeats
+ * @returns {MoveTarget|null}
  */
-function actOnLimit(l, own, seen, { mode, slots, moveSeats }) {
-	const { seat: movePick } = pickMoveSeat({
-		seats: moveSeats,
+function pickMoveTarget(l, seen, { seats, overflow }) {
+	const pick = pickMoveSeat({
+		seats,
+		overflow,
 		typedSeat: seen.typedSeat,
 		ownSeat: l.seat,
 		since: l.block.since,
 		left: l.limitLeft,
 	});
+	if (pick.seat === null) return null;
+	if (!pick.keyVar) return { seat: pick.seat };
+	return {
+		seat: pick.seat,
+		keyVar: pick.keyVar,
+		allowanceUsd: overflow.find((o) => o.keyVar === pick.keyVar)?.headroomUsd,
+	};
+}
+
+/**
+ * The move pick and the table's act on one limit-blocked launch on a plan seat.
+ * @param {JobLaunch & {block: import("./block-act.js").Block}} l
+ * @param {import("./refill-decide.js").SizedSeat} own  its seat's reading
+ * @param {LimitTick} seen
+ * @param {{mode: "away"|"normal", slots: number, moveSeats: MoveSeats}} how
+ * @returns {LoopLaunch}
+ */
+function actOnLimit(l, own, seen, { mode, slots, moveSeats }) {
+	const target = pickMoveTarget(l, seen, moveSeats);
 	const block = {
 		...limitBlockOf(l),
 		seat: l.seat,
-		movePick,
+		/* An overflow seat shares a plan seat's dir, its own included (#3701),
+		 * and is told apart by its key. */
+		movePick: target && (target.keyVar ? `key=${target.keyVar}` : target.seat),
 		slotFree: slots > 0,
 	};
 	const act = blockAct(block, mode, seen.now);
@@ -2465,13 +2547,27 @@ function actOnLimit(l, own, seen, { mode, slots, moveSeats }) {
 	const limit = limitReadOf(own);
 	if (act === "hold") return holdForLimit(l, limit, seen);
 	if (act === "resume-in-place") return resumeInPlace(l, limit, seen);
-	if (act === "move" && movePick) return moveToSeat(l, movePick, limit, seen);
-	if (movePick === l.seat && slots <= 0)
+	if (act === "move" && target) return moveToSeat(l, target, limit, seen);
+	if (target?.seat === l.seat && !target.keyVar && slots <= 0)
 		seen.io.log(
 			`${launchName(l)} on ${l.seat} reads open, and waits on a free slot`,
 		);
 	return l;
 }
+
+/**
+ * `seats` with the seat `l` was moved onto sized 0, as its next sizing needs a
+ * fresh read.
+ * @param {MoveSeats} seats
+ * @param {LoopLaunch} l
+ * @returns {MoveSeats}
+ */
+const withSeatTaken = ({ seats, overflow }, l) => ({
+	seats: seats.map((s) => (isOnPlanSeat(l, s.seat) ? { ...s, fits: 0 } : s)),
+	overflow: overflow.map((o) =>
+		l.keyVar && o.keyVar === l.keyVar ? { ...o, fits: 0 } : o,
+	),
+});
 
 /**
  * The sessions an act on `l` added to the listing (#3778): one resumed from
@@ -2516,7 +2612,7 @@ function actOnLimits(launches, mode, seen) {
 		if (isResumeUnjudged(l))
 			return syncLedgerHold(settleLimitResume(l, seen), seen.io);
 		/* A plan reading on the same dir is not this launch's: a key has no bars. */
-		const own = moveSeats.find((s) => isOnPlanSeat(l, s.seat));
+		const own = moveSeats.seats.find((s) => isOnPlanSeat(l, s.seat));
 		if (!own) return parkOffList(l, mode, seen);
 		if (!(blocked.has(l.jobId) || isLimitHeld(l))) return l;
 		const out = actOnLimit(judgeTakenResume(l, seen.io), own, seen, {
@@ -2524,10 +2620,8 @@ function actOnLimits(launches, mode, seen) {
 			slots,
 			moveSeats,
 		});
-		if (out.seat !== l.seat)
-			moveSeats = moveSeats.map((s) =>
-				s.seat === out.seat ? { ...s, fits: 0 } : s,
-			);
+		if (out.seat !== l.seat || out.keyVar !== l.keyVar)
+			moveSeats = withSeatTaken(moveSeats, out);
 		const change = limitWorkingChange(l, out);
 		if (change > 0) slots -= 1;
 		workingChange += change;
@@ -2609,6 +2703,7 @@ module.exports = {
 	iso,
 	launchName,
 	ledgerJobOf,
+	movedOnto,
 	limitWaitOf,
 	markParked,
 	nextResumeAt,

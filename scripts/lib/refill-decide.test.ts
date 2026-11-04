@@ -719,6 +719,30 @@ describe("pickMoveSeat (#3735)", () => {
 		const weeklyOwn = own(FULL, 10, { fits: null });
 		expect(pick([weeklyOwn, weeklyOther], null, overflow).seat).toBe("api");
 	});
+
+	it("holds a weekly block while another plan seat is full on its 5-hour bar alone, or the key fits none (#3736)", () => {
+		const weeklyOwn = own(FULL, 10, { fits: null });
+		const fiveHourOther = seat("other", 50, FULL, null);
+		expect(
+			pick([weeklyOwn, fiveHourOther], null, { overflow: [api] }).seat,
+		).toBeNull();
+		const weeklyOther = seat("other", FULL, 10, null);
+		expect(
+			pick([weeklyOwn, weeklyOther], null, {
+				overflow: [{ ...api, fits: 0 }],
+			}).seat,
+		).toBeNull();
+	});
+
+	it("returns the key of the overflow seat it picks, on a dir a plan seat shares (#3736)", () => {
+		const weeklyOwn = own(FULL, 10, { fits: null });
+		const onOwnDir = { ...api, seat: "own", keyVar: "K" };
+		expect(pick([weeklyOwn], null, { overflow: [onOwnDir] })).toMatchObject({
+			seat: "own",
+			keyVar: "K",
+			reason: "overflow",
+		});
+	});
 });
 
 describe("decideTick with a limit-held launch (#3735)", () => {
