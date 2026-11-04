@@ -25,9 +25,7 @@ const {
 	planShard,
 	secondsByFile,
 } = require("./lib/shard-plan.js");
-const { parseCsv } = require("./lib/suite-timings.js");
-
-const DATASET = "docs/data/ci-shard-timings.csv";
+const { CI_RECORD: DATASET, parseCsv } = require("./lib/suite-timings.js");
 
 /** The specs `paths` name, in that order; each path came from `byPath`. */
 function specsAt(

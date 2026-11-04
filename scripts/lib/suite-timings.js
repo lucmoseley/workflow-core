@@ -16,6 +16,9 @@
 
 const path = require("node:path");
 
+/* The committed CI per-file record (#2413). */
+const CI_RECORD = "docs/data/ci-shard-timings.csv";
+
 /** Metadata lines are `# key: value` above the header row. */
 const META_PREFIX = "# ";
 
@@ -215,6 +218,7 @@ function parseMeta(pairs) {
 }
 
 module.exports = {
+	CI_RECORD,
 	reportRoot,
 	rowsFrom,
 	shares,

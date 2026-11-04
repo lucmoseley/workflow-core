@@ -49,6 +49,7 @@ import {
 	it,
 	vi,
 } from "vitest";
+import { stubGhScript } from "./lib/gh-stub";
 import { defineTemplate, initGitRepo, mkScratchDir } from "./lib/git-fixture";
 import { writeEnviron } from "./lib/proc-fake";
 import { isDead } from "./lib/process-fixture";
@@ -2112,10 +2113,17 @@ describe("the run-cost report after the suite's summary (#1883)", () => {
 	const costPrefix = "RUN COST:";
 
 	/* Built once and only read: the wrapper diffs it and writes nothing to it.
-	 * `old` and `reader` are committed; `old` is then edited and `new` left
-	 * untracked, so `reader` is a file the run only selected as a reader. */
+	 * `old` and `reader` are committed beside a CI record holding `reader` at
+	 * 5 s; `old` is then edited and `new` left untracked, so `reader` is a file
+	 * the run only selected as a reader. */
 	let tree: string;
+	let ghDir: string;
+	/* A tracker with no open ticket, so the pre-existing file's lookup never
+	 * reaches the real one. */
+	let ghStub: string;
 	beforeAll(() => {
+		ghDir = fs.mkdtempSync(path.join(os.tmpdir(), "run-cost-gh-"));
+		ghStub = stubGhScript(ghDir, "#!/bin/sh\necho '[]'\n").gh;
 		tree = repo();
 		/* Kept past each case's cleanup. */
 		dirs.pop();
@@ -2123,12 +2131,20 @@ describe("the run-cost report after the suite's summary (#1883)", () => {
 			require("node:child_process").spawnSync("git", args, { cwd: tree });
 		fs.writeFileSync(path.join(tree, "old.test.ts"), "// old\n");
 		fs.writeFileSync(path.join(tree, "reader.test.ts"), "// reader\n");
+		fs.mkdirSync(path.join(tree, "docs/data"), { recursive: true });
+		fs.writeFileSync(
+			path.join(tree, "docs/data/ci-shard-timings.csv"),
+			"# run: 41\n# sha: a21957804bab\nfile,seconds,tests,status\nreader.test.ts,5.00,1,passed\n",
+		);
 		git("add", ".");
 		git("commit", "-q", "-m", "tests");
 		fs.writeFileSync(path.join(tree, "old.test.ts"), "// old, edited\n");
 		fs.writeFileSync(path.join(tree, "new.test.ts"), "// new\n");
 	});
-	afterAll(() => fs.rmSync(tree, { recursive: true, force: true }));
+	afterAll(() => {
+		fs.rmSync(tree, { recursive: true, force: true });
+		fs.rmSync(ghDir, { recursive: true, force: true });
+	});
 
 	/** A child that leaves `written` where the wrapper names the timings
 	 * file, as the in-flight reporter does at the run's end — the seam the
@@ -2178,6 +2194,7 @@ describe("the run-cost report after the suite's summary (#1883)", () => {
 
 	beforeEach(() => {
 		vi.stubEnv("CI", "");
+		vi.stubEnv("WFC_GH", ghStub);
 	});
 
 	it.each([0, 3])(
@@ -2189,7 +2206,9 @@ describe("the run-cost report after the suite's summary (#1883)", () => {
 			);
 			expect(result).toBe(code);
 			expect(costLines).toHaveLength(3);
-			expect(costLines[0]).toMatch(/old\.test\.ts took 15\.0 s.*pre-existing/);
+			expect(costLines[0]).toMatch(
+				/old\.test\.ts took 15\.0 s.*pre-existing.*open ticket: none/,
+			);
 			expect(costLines[1]).toMatch(
 				/new\.test\.ts took 12\.0 s.*new since HEAD/,
 			);
@@ -2217,10 +2236,16 @@ describe("the run-cost report after the suite's summary (#1883)", () => {
 		expect(costLines[0]).toContain("the suite's verdict stands");
 	});
 
-	it("prints nothing under CI", async () => {
+	it("under CI names a recorded file grown past its record, though the diff never touched it", async () => {
 		vi.stubEnv("CI", "true");
-		const { costLines } = await run(timed({ "new.test.ts": 12 }));
-		expect(costLines).toEqual([]);
+		const { costLines } = await run(
+			timed({ "new.test.ts": 12, "reader.test.ts": 30 }),
+		);
+		expect(costLines).toHaveLength(2);
+		expect(costLines[0]).toMatch(
+			/reader\.test\.ts took 30\.0 s, 6\.00x its 5\.0 s on CI run 41.*grown/,
+		);
+		expect(costLines[1]).toContain("1 of 1 test file(s)");
 	});
 });
 
