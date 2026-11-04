@@ -1931,21 +1931,25 @@ function holdForLimit(l, limit, { now, io }) {
 }
 
 /**
- * `l` stopped for a resume or move, held from now on, or, where no session id
- * read or the stop failed, `gaveUp`: `l` after that failed try, reported.
+ * Limit act `act` on `l`: its session stopped, unless held already, and held
+ * from now on, then `resume` run on it and the launch it leaves written. Where
+ * no session id read or the stop failed, `l` after that failed try, reported
+ * under `failedLine` of the limit it is held at.
  * @param {JobLaunch} l
- * @param {LimitHeld|(ResumeTarget & {at: number, limit: LimitRead})} held
- * @param {{act: LimitAct, failedLine: string}} how
+ * @param {LimitRead} limit  what a live session's seat reads now
+ * @param {{act: LimitAct, failedLine: (held: LimitRead) => string,
+ *   resume: (stopped: JobLaunch & {limitHeld: LimitHeld},
+ *   ids: ResumeTarget) => LoopLaunch}} how
  * @param {LimitTick} seen
- * @returns {{gaveUp: LoopLaunch}|{stopped: JobLaunch & {limitHeld: LimitHeld},
- *   sessionId: string, cwd: string}}
+ * @returns {LoopLaunch}
  */
-function stopForLimitAct(l, held, { act, failedLine }, { now, io }) {
+function runLimitAct(l, limit, { act, failedLine, resume }, { now, io }) {
+	const held = l.limitHeld ?? { ...io.resumeTargetOf(l), at: now, limit };
 	const { sessionId, cwd } = held;
 	/** @param {string} why */
 	const gaveUp = (why) => {
-		reportLimitFailure(l, failedLine, why, io);
-		return { gaveUp: afterLimitTry(l, now, why) };
+		reportLimitFailure(l, failedLine(held.limit), why, io);
+		return afterLimitTry(l, now, why);
 	};
 	if (!sessionId) return gaveUp("no session id read for it");
 	io.writeLaunch({
@@ -1959,11 +1963,12 @@ function stopForLimitAct(l, held, { act, failedLine }, { now, io }) {
 	});
 	const stopFailed = isLimitHeld(l) ? null : stopJob(l, io);
 	if (stopFailed) return gaveUp(`stop: ${stopFailed}`);
-	return {
-		stopped: { ...l, limitHeld: { ...held, sessionId } },
-		sessionId,
-		cwd,
-	};
+	const out = resume(
+		{ ...l, limitHeld: { ...held, sessionId } },
+		{ sessionId, cwd },
+	);
+	io.writeLaunch(out);
+	return out;
 }
 
 /**
@@ -1979,27 +1984,25 @@ function stopForLimitAct(l, held, { act, failedLine }, { now, io }) {
  */
 function resumeInPlace(l, limit, seen) {
 	const { now, io } = seen;
-	const held = l.limitHeld ?? { ...io.resumeTargetOf(l), at: now, limit };
-	const ready = stopForLimitAct(
+	return runLimitAct(
 		l,
-		held,
+		limit,
 		{
 			act: { kind: "in-place" },
-			failedLine: `could not resume ${buildInPlaceWhat(l, held.limit)}`,
+			failedLine: (at) => `could not resume ${buildInPlaceWhat(l, at)}`,
+			resume: (stopped, ids) =>
+				settleInPlace(
+					stopped,
+					{
+						...io.resumeStopped(stopped, LIMIT_PROMPT, ids),
+						fromSessionId: ids.sessionId,
+					},
+					now,
+					io,
+				),
 		},
 		seen,
 	);
-	if ("gaveUp" in ready) return ready.gaveUp;
-	const { stopped, sessionId, cwd } = ready;
-	const r = io.resumeStopped(stopped, LIMIT_PROMPT, { sessionId, cwd });
-	const out = settleInPlace(
-		stopped,
-		{ ...r, fromSessionId: sessionId },
-		now,
-		io,
-	);
-	io.writeLaunch(out);
-	return out;
 }
 
 /**
@@ -2112,27 +2115,25 @@ const buildTargetText = (target) =>
  */
 function moveToSeat(l, target, limit, seen) {
 	const { now, io } = seen;
-	const held = l.limitHeld ?? { ...io.resumeTargetOf(l), at: now, limit };
-	const ready = stopForLimitAct(
+	return runLimitAct(
 		l,
-		held,
+		limit,
 		{
 			act: { kind: "move", to: target },
-			failedLine: `could not move ${buildMoveWhat(l, target, held.limit)}`,
+			failedLine: (at) => `could not move ${buildMoveWhat(l, target, at)}`,
+			resume: (stopped, ids) =>
+				settleMove(
+					{ ...stopped, block: l.block },
+					target,
+					{
+						...io.moveSession(stopped, target, MOVED_PROMPT, ids),
+						fromSessionId: ids.sessionId,
+					},
+					{ now, io },
+				),
 		},
 		seen,
 	);
-	if ("gaveUp" in ready) return ready.gaveUp;
-	const { stopped, sessionId, cwd } = ready;
-	const r = io.moveSession(stopped, target, MOVED_PROMPT, { sessionId, cwd });
-	const out = settleMove(
-		{ ...stopped, block: l.block },
-		target,
-		{ ...r, fromSessionId: sessionId },
-		{ now, io },
-	);
-	io.writeLaunch(out);
-	return out;
 }
 
 /**

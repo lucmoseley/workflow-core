@@ -1029,14 +1029,7 @@ function settleWoken(l, { jobId, sessionId, cwd, after }, allowanceUsd) {
 		return {
 			failed: `not confirmed: job ${jobId}'s state.json reads ${after?.state ?? "(unread)"}, session ${after?.sessionId ?? "(unread)"}, not ${sessionId}`,
 		};
-	const unrecorded = recordOnKey(
-		l,
-		sessionId,
-		{ jobId, sessionId },
-		{ copy: false, cwd, allowanceUsd },
-	);
-	if (unrecorded) return { failed: unrecorded };
-	return { failed: null, jobId, sessionId, copy: false };
+	return recordWoken(l, { sessionId, cwd }, { jobId, sessionId }, allowanceUsd);
 }
 
 /**
@@ -1093,21 +1086,21 @@ function adoptResumed(l, target, since) {
 				{ jobId, sessionId, cwd: target.cwd },
 				allowanceUsd,
 			)
-		: settleAdoptedWoken(l, target, { jobId, sessionId }, allowanceUsd);
+		: recordWoken(l, target, { jobId, sessionId }, allowanceUsd);
 	/* A move's job that will not record is stopped, so it reads as no job. */
 	return r.failed === null ? r : { unread: r.failed };
 }
 
 /**
- * The job a resume woke in place, found after a kill; on a move onto a key,
- * recorded as that key's launch.
+ * The job a resume woke in place, confirmed or found after a kill; on a move
+ * onto a key, recorded as that key's launch.
  * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"seat"|"keyVar">} l
  * @param {{sessionId: string, cwd: string}} target
  * @param {{jobId: string, sessionId: string|null}} found
  * @param {number} [allowanceUsd]
  * @returns {import("./refill-blocks.js").Resumed}
  */
-function settleAdoptedWoken(l, target, { jobId, sessionId }, allowanceUsd) {
+function recordWoken(l, target, { jobId, sessionId }, allowanceUsd) {
 	const unrecorded = recordOnKey(
 		l,
 		target.sessionId,
