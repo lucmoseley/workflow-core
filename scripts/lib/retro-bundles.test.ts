@@ -2,7 +2,7 @@
 /*
  * retro-bundles.test.ts — the bundling rule alone, on plain issue objects:
  * the runs of 1, 8 and 9 #1105's criteria name, and what is not a finding.
- * pick-next.test.ts covers the slot and floor accounting the run builds on it.
+ * pick-next-claims.test.ts covers the slot and floor accounting the run builds on it.
  * Plain objects because the rule is a pure function of the issue list: each
  * case states the exact run it means, with no `gh` stub or tracker between,
  * and a bundling fault cannot hide behind a slot-accounting one.

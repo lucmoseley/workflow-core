@@ -151,7 +151,7 @@ const {
 	retroLaunches,
 } = require("./lib/retro-bundles");
 const { hostRoot } = require("./lib/host-root.js");
-const { execGit, gitCommonDir, gitOrNull } = require("./lib/git.js");
+const { execGit, gitOrNull } = require("./lib/git.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
 const {
 	readRecentEntries: recentDispatches,
@@ -1025,11 +1025,13 @@ function readRealOrNull(dir) {
  * @param {string} dir
  */
 function readCanonicalCheckoutOf(dir) {
-	const common = gitCommonDir(dir);
-	const gitDir =
-		gitOrNull(["rev-parse", "--path-format=absolute", "--git-dir"], {
-			cwd: dir,
-		})?.trim() ?? null;
+	/* One `rev-parse` for both dirs, not `gitCommonDir` and a second fork (#4302). */
+	const [gitDir, common] = (
+		gitOrNull(
+			["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"],
+			{ cwd: dir },
+		) ?? ""
+	).split("\n");
 	if (!common || !gitDir) return null;
 	return gitDir === common
 		? readRealOrNull(dir)
@@ -4140,7 +4142,7 @@ async function main() {
  * assertion run on a plain `state` object, no fake repo and no `gh` stub.
  * `main` is a second departure, mantahostels#1944's: it is the live GitHub fan-out entry
  * point, exported only so `scripts/lib/run-in-process.js`'s `runInProcessAsync`
- * can call and await it directly in `pick-next.test.ts` — requiring the module
+ * can call and await it directly in `lib/pick-next-testkit.ts` — requiring the module
  * never runs it, since it fires only under `require.main === module` or where
  * a caller invokes the export itself. */
 module.exports = { main };

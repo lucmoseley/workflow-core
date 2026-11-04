@@ -890,7 +890,7 @@ function runInProcess(scriptPath, args = [], options = {}) {
 }
 
 /**
- * The async counterpart (mantahostels#1944): `pick-next.test.ts` is the one file the sync
+ * The async counterpart (mantahostels#1944): `lib/pick-next-testkit.ts` is the one file the sync
  * seam above cannot take, because its script's entry point is
  * `async function main()` and `runInProcess` returns as soon as `entry.load`
  * does — before an async `main()` has done anything, since loading only runs
