@@ -43,11 +43,15 @@ function parseHeader(line) {
  * @returns {string}
  */
 function formatHeader(h) {
-	/** @type {(start: number, count: number) => string} */
-	const side = (start, count) =>
-		count === 1 ? `${start}` : `${start},${count}`;
-	return `@@ -${side(h.oldStart, h.oldCount)} +${side(h.newStart, h.newCount)} @@${h.rest}`;
+	return `@@ -${formatSide(h.oldStart, h.oldCount)} +${formatSide(h.newStart, h.newCount)} @@${h.rest}`;
 }
+
+/**
+ * One side of a header, `<start>[,<count>]`, a count of 1 omitted.
+ * @type {(start: number, count: number) => string}
+ */
+const formatSide = (start, count) =>
+	count === 1 ? `${start}` : `${start},${count}`;
 
 /**
  * The new-side start and line count of a hunk header, or null where `line`
@@ -61,4 +65,4 @@ function parseNewSide(line) {
 	return h === null ? null : { start: h.newStart, count: h.newCount };
 }
 
-module.exports = { formatHeader, parseHeader, parseNewSide };
+module.exports = { formatHeader, formatSide, parseHeader, parseNewSide };

@@ -565,6 +565,58 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 		expect(readPrivates()).toEqual([]);
 	});
 
+	it("refuses a patch whose added lines this tree's files lack, as one cut in another worktree, naming each such file (#4338)", () => {
+		write("b.md", "b\n");
+		git("add", "b.md");
+		git("commit", "-qm", "seed b");
+		const patch = shared();
+		write("b.md", "b\nmine b\n");
+		fs.appendFileSync(patch, git("diff", "HEAD", "-U0", "--", "b.md"));
+		git("checkout", "--", "a.md", "b.md");
+		const tip = readHead();
+		const before = readIndex();
+		for (const args of [
+			["-m", "x", "--patch", patch],
+			["--tree", "--patch", patch],
+		]) {
+			const r = run(args);
+			expect(r.status).toBe(2);
+			expect(r.stderr).toMatch(
+				/lines are not in this tree's files for a\.md \(lacks the lines of hunk \+1\); b\.md \(lacks the lines of hunk \+2\)\..*Cut the patch from `git diff HEAD -U0 -- <path>` in the tree you commit from\. Nothing written/s,
+			);
+		}
+		expect(readHead()).toBe(tip);
+		expect(readIndex()).toBe(before);
+	});
+
+	it("commits a patch cut from a CRLF checkout, whose diff git prints in LF (#4338)", () => {
+		git("config", "core.autocrlf", "true");
+		const patch = shared();
+		write("a.md", "mine\r\na\r\ntheirs\r\n");
+		const r = run(["-m", "mine", "--patch", patch]);
+		expect(r.status).toBe(0);
+		expect(git("show", "HEAD:a.md")).toBe("mine\na\n");
+	});
+
+	it("refuses a patch deleting a file this tree still holds (#4338)", () => {
+		write("b.md", "b\n");
+		git("add", "b.md");
+		git("commit", "-qm", "seed b");
+		fs.rmSync(path.join(sb.repo, "b.md"));
+		const patch = path.join(sb.dir, "rm.patch");
+		fs.writeFileSync(patch, git("diff", "HEAD", "-U0", "--", "b.md"));
+		git("checkout", "--", "b.md");
+		const tip = readHead();
+		const before = readIndex();
+		const r = run(["-m", "rm", "--patch", patch]);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toMatch(
+			/for b\.md \(deleted, still on disk\)\..*Cut the patch from `git diff HEAD -U0 -- <path>` in the tree you commit from\. Nothing written/s,
+		);
+		expect(readHead()).toBe(tip);
+		expect(readIndex()).toBe(before);
+	});
+
 	it("refuses a file both in the patch and named whole, and a patch that does not apply, writing neither index", () => {
 		const patch = shared();
 		const tip = readHead();

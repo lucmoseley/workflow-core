@@ -24,7 +24,8 @@
  * would still hold the old blob and stage the reverse of this commit for the
  * next bare `git commit` (docs/agents/partial-commit.md). A neighbour's staged
  * copy of a patched file instead moves onto the new HEAD, their hunks still
- * staged, unless they conflict with the commit's (#3723).
+ * staged, unless they conflict with the commit's (#3723). The patch's lines
+ * must already be in this tree's files, or the commit is refused (#4338).
  *
  * HEAD moving between the private index's `read-tree` and the commit would
  * write HEAD's older blobs back over the neighbour's commit. The base is
@@ -130,7 +131,7 @@
  * commit, to the ceiling, or under --patch HEAD kept moving while the index was built — re-run later; 2
  * refused, nothing written (usage, no paths, unknown, ignored, a directory
  * with untracked files or no tracked ones, nothing to commit, a patch not cut
- * against HEAD or not applying to it — under --patch, after a green pre-lock
+ * against HEAD, not applying to it or whose lines this tree lacks — under --patch, after a green pre-lock
  * run or a HEAD-moved retry too, a neighbour's commit having left it so); 3 a pre-lock gate or the
  * pre-lock test run was red or the pre-lock mutation hold refused, nothing written — or git or a hook refused once the index was touched, the
  * intent-add entries left in place so the same command re-run after the fix
@@ -154,6 +155,7 @@ const { procRoot } = require("./lib/proc-root.js");
 const { shellQuote } = require("./lib/sh-quote.js");
 const { isUnder } = require("./lib/is-under.js");
 const { numstatPaths } = require("./lib/patch-files.js");
+const { notInTree } = require("./lib/patch-in-tree.js");
 const { formatHeader, parseHeader } = require("./lib/hunk-header.js");
 const { requiredGroup } = require("./lib/regex-group.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
@@ -944,23 +946,39 @@ function readPatchFiles(root, patch) {
 	return { files: numstatPaths(r.stdout), why: "" };
 }
 
+/** @typedef {import("./lib/patch-in-tree.js").PatchSection} PatchSection */
+
+/**
+ * Each `diff --git` section of `patch` with the file it touches; a section
+ * git names no file for is left out.
+ * @param {string} root
+ * @param {string} patch
+ * @returns {PatchSection[]}
+ */
+function readPatchSections(root, patch) {
+	/** @type {PatchSection[]} */
+	const sections = [];
+	for (const section of patch.split(/^(?=diff --git )/m)) {
+		const file = readPatchFiles(root, section).files?.[0];
+		if (file) sections.push({ section, file });
+	}
+	return sections;
+}
+
 /**
  * The patch's files whose `index <old>..` line names a blob other than
  * `base`'s: a patch cut against something else, or this command re-run after
  * its commit landed, where a zero-context hunk that only adds lines applies
  * again and lands them twice. A section with no `index` line, or a new file's
  * all-zero one, is left to `git apply`.
- * @param {string} root
- * @param {string} patch
+ * @param {PatchSection[]} sections
  * @param {string} base
  */
-function stalePreimages(root, patch, base) {
+function stalePreimages(sections, base) {
 	const stale = [];
-	for (const section of patch.split(/^(?=diff --git )/m)) {
+	for (const { section, file } of sections) {
 		const pre = /^index ([0-9a-f]+)\.\./m.exec(section)?.[1];
 		if (!pre || /^0+$/.test(pre)) continue;
-		const file = readPatchFiles(root, section).files?.[0];
-		if (!file) continue;
 		const blob = readBlobSha(base, file);
 		if (!blob.startsWith(pre))
 			stale.push(
@@ -1049,7 +1067,7 @@ function renumberHeader(line, shift) {
  * @returns {never}
  */
 function commitPatch(message, cut, whole) {
-	const { patch, root, patched } = preparePatch(cut, whole);
+	const { patch, root, patched, sections } = preparePatch(cut, whole);
 
 	warnNeighbours(whole);
 
@@ -1058,7 +1076,7 @@ function commitPatch(message, cut, whole) {
 	const files = sweptRunFiles();
 	const { index } = files;
 
-	const patchBuild = { index, whole, root, patch };
+	const patchBuild = { index, whole, root, patch, sections };
 	let base = buildOnSteadyHead(patchBuild);
 	// A refused rebuild exits, nothing written, rather than falling back to
 	// the hook (#1653).
@@ -1241,8 +1259,8 @@ function runPostCommit() {
 }
 
 /**
- * The patch renumbered, the top level it applies from and the files it
- * touches; refuses where `whole` or the patch cannot be committed together.
+ * The patch renumbered, the top level it applies from, the files it
+ * touches and its sections as cut; refuses where `whole` or the patch cannot be committed together.
  * @param {string} cut the patch as the session cut it
  * @param {string[]} whole
  */
@@ -1253,6 +1271,8 @@ function preparePatch(cut, whole) {
 	const patched = readPatched(root, patch);
 
 	refuseWholeInPatch(whole, patched);
+	const sections = readPatchSections(root, cut);
+	refuseNotInTree(root, sections);
 
 	if (!hasHeadCommit())
 		fail("--patch needs a HEAD to apply the patch to. Nothing written.", 2);
@@ -1264,7 +1284,64 @@ function preparePatch(cut, whole) {
 				`${ref} is set: a merge, cherry-pick or revert is in progress, and --patch commits outside one. Finish or abort it first. Nothing written.`,
 				2,
 			);
-	return { patch, root, patched };
+	return { patch, root, patched, sections };
+}
+
+/**
+ * Refuses a patch whose post-image lines this tree's files lack (#4338), the
+ * next bare commit staging the reverse of it. Takes the cut's sections, whose new-side lines number the file they
+ * were cut from.
+ * @param {string} root
+ * @param {PatchSection[]} sections
+ */
+function refuseNotInTree(root, sections) {
+	const refusals = [];
+	for (const s of sections) {
+		const why = notInTree(s, (file) => readTreeText(root, file));
+		if (why !== null) refusals.push(`${s.file} (${why})`);
+	}
+	if (refusals.length > 0)
+		fail(
+			`the patch's lines are not in this tree's files for ${refusals.join("; ")}. --patch never writes the working tree, so this tree would show the commit reversed. Cut the patch from \`git diff HEAD -U0 -- <path>\` in the tree you commit from. Nothing written.`,
+			2,
+		);
+}
+
+/**
+ * A top-level path's text as git would store it — cleaned by its attributes,
+ * so a CRLF checkout reads as its LF diff does — a symlink's target, or a
+ * submodule's `Subproject commit` line; null where nothing is on disk there.
+ * The clean writes the blob to the object store, where gc prunes it if unused.
+ * @param {string} root
+ * @param {string} file
+ * @returns {string|null}
+ */
+function readTreeText(root, file) {
+	const p = path.join(root, file);
+	let stat;
+	try {
+		stat = fs.lstatSync(p);
+	} catch {
+		return null;
+	}
+	if (stat.isSymbolicLink()) return fs.readlinkSync(p);
+	if (stat.isDirectory()) {
+		const sub = git(["-C", p, "rev-parse", "HEAD"]);
+		return sub.status === 0 ? `Subproject commit ${sub.stdout}` : null;
+	}
+	const blob = git(["-C", root, "hash-object", "-w", "--", file]);
+	if (blob.status !== 0)
+		fail(
+			`git could not read ${file} from the working tree (${blob.stderr.trim()}). Nothing written.`,
+			2,
+		);
+	const clean = git(["cat-file", "blob", blob.stdout.trim()]);
+	if (clean.status !== 0)
+		fail(
+			`git could not read back ${file}'s cleaned blob (${clean.stderr.trim()}). Nothing written.`,
+			2,
+		);
+	return clean.stdout;
 }
 
 /**
@@ -1309,7 +1386,7 @@ function refuseWholeInPatch(whole, patched) {
 }
 
 /**
- * @typedef {{index: string, whole: string[], root: string, patch: string}} PatchBuild
+ * @typedef {{index: string, whole: string[], root: string, patch: string, sections: PatchSection[]}} PatchBuild
  */
 
 /**
@@ -1342,7 +1419,7 @@ function buildOnSteadyHead(b) {
  * @param {PatchBuild} b
  * @param {string} base
  */
-function buildIndex({ index, whole, root, patch }, base) {
+function buildIndex({ index, whole, root, patch, sections }, base) {
 	fs.rmSync(index, { force: true });
 	const tree = git(["read-tree", base], index);
 	if (tree.status !== 0)
@@ -1369,7 +1446,7 @@ function buildIndex({ index, whole, root, patch }, base) {
 				2,
 			);
 	}
-	const stale = stalePreimages(root, patch, base);
+	const stale = stalePreimages(sections, base);
 	if (stale.length > 0)
 		fail(
 			`the patch was not cut against HEAD for ${stale.join("; ")}. Where this command already committed it, it is done; otherwise cut it again from \`git diff HEAD -U0 -- <path>\`. Nothing written.`,
@@ -2094,8 +2171,8 @@ function printTree(whole, cut) {
 			fail(`${caught(e).message}. Nothing written.`, 2);
 		}
 	} else {
-		const { patch, root } = preparePatch(cut, whole);
-		buildOnSteadyHead({ index, whole, root, patch });
+		const { patch, root, sections } = preparePatch(cut, whole);
+		buildOnSteadyHead({ index, whole, root, patch, sections });
 	}
 	const r = git(["write-tree"], index);
 	if (r.status !== 0)
