@@ -1,15 +1,15 @@
 // @vitest-environment node
 /*
- * findResumedCopy (#4157): the copy a `--bg --resume` started, off a seat's job
- * store and transcripts in a temp seat. Loosen it and the loop adopts a job
- * that is no copy of the session, so the session is never resumed, or misses
- * the copy, so it starts a second.
+ * findResumed (#4157, #4180): the job a `--bg --resume` started, woken in place
+ * or a copy, off a seat's job store and transcripts in a temp seat. Loosen it
+ * and the loop adopts a job the resume never started, so the session is never
+ * resumed, or misses the job, so it starts a second.
  */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { findResumedCopy } from "./resumed-copy.js";
+import { findResumed } from "./resumed-copy.js";
 
 const SINCE = Date.parse("2026-11-03T12:00:00Z");
 const CWD = "/home/u/repo";
@@ -33,7 +33,13 @@ const writeTranscript = (session: string, firstUuid: string) => {
 const writeJob = (
 	jobId: string,
 	session: string,
-	{ cwd = CWD, at = SINCE + 1000, first = "u-first", state = "working" } = {},
+	{
+		cwd = CWD,
+		at = SINCE + 1000,
+		updated = undefined as number | undefined,
+		first = "u-first",
+		state = "working",
+	} = {},
 ) => {
 	fs.mkdirSync(path.join(seat, "jobs", jobId), { recursive: true });
 	fs.writeFileSync(
@@ -43,23 +49,52 @@ const writeJob = (
 			state,
 			cwd,
 			createdAt: new Date(at).toISOString(),
+			updatedAt: new Date(updated ?? at).toISOString(),
 		}),
 	);
 	writeTranscript(session, first);
 };
 
 const find = (past: string[] = []) =>
-	findResumedCopy(seat, { sessionId: "s-source", cwd: CWD }, SINCE, past);
+	findResumed(seat, { sessionId: "s-source", cwd: CWD }, SINCE, past);
 
 beforeEach(() => {
 	seat = fs.mkdtempSync(path.join(os.tmpdir(), "resumed-copy-"));
-	writeJob("s-source", "s-source", { at: SINCE - 60_000 });
+	writeJob("s-source", "s-source", { at: SINCE - 60_000, state: "stopped" });
 });
 
-describe("findResumedCopy", () => {
+describe("findResumed, woken in place", () => {
+	const wake = (over: object) =>
+		writeJob("s-source", "s-source", { at: SINCE - 60_000, ...over });
+
+	it("finds the session's own job reading live and updated since", () => {
+		wake({ updated: SINCE + 1000 });
+		expect(find()).toEqual({
+			jobId: "s-source",
+			sessionId: "s-source",
+			copy: false,
+		});
+	});
+
+	it.each([
+		["still reads stopped", { state: "stopped", updated: SINCE + 1000 }],
+		["failed", { state: "failed", updated: SINCE + 1000 }],
+		["was last updated before the resume", { updated: SINCE - 1 }],
+		["runs in another cwd", { cwd: "/home/u/other", updated: SINCE + 1000 }],
+	])("passes over its own job where it %s", (_, over) => {
+		wake(over);
+		expect(find()).toBeNull();
+	});
+});
+
+describe("findResumed, a copy", () => {
 	it("finds the job created since that opens on the source's first user row", () => {
 		writeJob("c0de7a11", "c0de7a11-s");
-		expect(find()).toEqual({ jobId: "c0de7a11", sessionId: "c0de7a11-s" });
+		expect(find()).toEqual({
+			jobId: "c0de7a11",
+			sessionId: "c0de7a11-s",
+			copy: true,
+		});
 	});
 
 	it("takes the earliest of two", () => {

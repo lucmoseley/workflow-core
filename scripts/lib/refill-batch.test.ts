@@ -7,7 +7,8 @@
  * dispatch-sessions.sh that pins the member lines a refusal keys on.
  *
  * The resume cases (#3621) drive launchOrResume with the resume and the
- * dispatcher call injected.
+ * dispatcher call injected; the adoption cases (#4180), adoptLaunching with
+ * the ledger and the job store's answer injected.
  *
  * Loosen one and a loop launch can run outside its repo's gates or on the
  * wrong seat, a batch's launches go unrecorded or mis-stamped, a stale ledger
@@ -21,6 +22,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readRecentEntries } from "./dispatch-ledger.js";
 import {
+	adoptLaunching,
 	batchesOf,
 	dispatchCall,
 	launchBatch,
@@ -645,6 +647,125 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 		expect(lines).toEqual([
 			"parked design-vault /implement 1 not resumed: its session s-1's marker names no job; launching afresh",
 			"parked design-vault /implement 2 not resumed: exit 1; launching afresh",
+		]);
+	});
+});
+
+describe("the members of a batch a kill cut off (#4180)", () => {
+	type Io = Parameters<typeof adoptLaunching>[1];
+	type Launch = Parameters<typeof adoptLaunching>[0]["batch"][number];
+	const target = {
+		seat: "/home/u/.claude2",
+		sessionId: "s-1",
+		cwd: "/home/u/design-vault",
+	};
+	const member = (n: number, over: Partial<Launch> = {}): Launch => ({
+		...launch,
+		issues: [n],
+		prompt: `/implement ${n}`,
+		...over,
+	});
+	const parked = member(1, { parkedRoute: { resume: target } });
+	function adopt(
+		batch: Launch[],
+		{
+			entries = [] as ReturnType<typeof entry>[],
+			found = null as ReturnType<Io["adoptResumed"]>,
+		} = {},
+	) {
+		const lines: string[] = [];
+		const recorded: unknown[] = [];
+		const looked: unknown[] = [];
+		const launched = adoptLaunching(
+			{ at: NOW, batch },
+			{
+				entriesOf: () => entries,
+				sessionOf: () => undefined,
+				readActsBefore: () => ({ file: 1 }),
+				recordLaunch: (e) => {
+					recorded.push(e);
+					return true;
+				},
+				adoptResumed: (_l, t, since) => {
+					looked.push([t, since]);
+					return found;
+				},
+				log: (line) => lines.push(line),
+			},
+		);
+		return { launched, lines, recorded, looked };
+	}
+
+	it("tracks a member the ledger shows launched since, stamped with its entry, and drops one it does not", () => {
+		const { launched, looked } = adopt([member(2), member(3)], {
+			entries: [
+				entry("/implement 2", NOW + 5000, "j2"),
+				entry("/implement 3", NOW - 10 * MIN, "old"),
+			],
+		});
+		expect(launched).toEqual([
+			{
+				root: launch.root,
+				issues: [2],
+				prompt: "/implement 2",
+				seat: launch.seat,
+				reason: launch.reason,
+				jobId: "j2",
+				launchedAt: NOW + 5000,
+				finishedAt: null,
+			},
+		]);
+		expect(looked).toEqual([]);
+	});
+
+	it("tracks a parked member's resume the job store shows, writing the ledger row the kill beat", () => {
+		const { launched, recorded, looked } = adopt([parked], {
+			found: { failed: null, jobId: "c-1", sessionId: "s-c", copy: true },
+		});
+		expect(looked).toEqual([[target, NOW]]);
+		expect(launched).toEqual([
+			{
+				root: launch.root,
+				issues: [1],
+				prompt: "/implement 1",
+				seat: target.seat,
+				reason: "parked session's seat",
+				jobId: "c-1",
+				launchedAt: NOW,
+				finishedAt: null,
+				sessionId: "s-c",
+				pastSessionIds: ["s-1"],
+				actsBefore: { file: 1 },
+			},
+		]);
+		expect(recorded).toEqual([
+			expect.objectContaining({ jobId: "c-1", prompt: "/implement 1" }),
+		]);
+	});
+
+	it("writes no second ledger row for a parked resume the ledger already holds", () => {
+		const { launched, recorded } = adopt([parked], {
+			entries: [entry("/implement 1", NOW + 3000, "j-9")],
+			found: { failed: null, jobId: "j-9", sessionId: "s-1", copy: false },
+		});
+		expect(recorded).toEqual([]);
+		expect(launched[0]).toMatchObject({ jobId: "j-9", launchedAt: NOW + 3000 });
+	});
+
+	it("looks in the ledger for a parked member whose resume started nothing, as it then launched afresh", () => {
+		const { launched } = adopt([parked], {
+			entries: [entry("/implement 1", NOW + 4000, "fresh")],
+		});
+		expect(launched[0]).toMatchObject({ jobId: "fresh", seat: launch.seat });
+	});
+
+	it("says where the job store will not tell, and reads the ledger alone", () => {
+		const { launched, lines } = adopt([parked], {
+			found: { unread: "EACCES" },
+		});
+		expect(launched).toEqual([]);
+		expect(lines).toEqual([
+			"whether parked design-vault /implement 1's resume started a job is unread: EACCES",
 		]);
 	});
 });

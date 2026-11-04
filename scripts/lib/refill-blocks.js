@@ -127,8 +127,17 @@ const PARKED_STATE = "blocked";
  *   it failed, else the job it runs on as, its full session id, null unread,
  *   and whether that job is a copy (#2963) rather than the one woken in place
  * @typedef {Extract<Resumed, {failed: null}>|{unread: string}|null} Adopted
- *   the copy adopted; why the job store could not tell, or null where it
- *   holds none
+ *   the job a resume started, woken in place or a copy handed what the session
+ *   held; why the job store could not tell, or null where it holds neither
+ * @typedef {{kind: "in-place"}|{kind: "move", to: string}} LimitAct  a limit
+ *   resume on its own seat, or a move to seat `to`
+ * @typedef {{kind: "api", route: string, again: boolean}|
+ *   (LimitAct & {held: LimitHeld})} StartedAct  the act a resume was made for:
+ *   an API-error fallBack, told by `route`, `again` its typed resume's
+ *   fallback; or a limit act, `held` its hold as the stop leaves it
+ * @typedef {{at: number, sessionId: string, cwd: string, act: StartedAct}}
+ *   ResumeStarted  a stop and `--bg --resume` of `sessionId` from `cwd` the
+ *   loop made at `at` (#4180)
  */
 
 /**
@@ -146,9 +155,11 @@ const PARKED_STATE = "blocked";
  *   {sessionId: string}) => Resumed} resumeStopped  `claude --bg
  *   --resume` of the stopped job
  * @property {(l: JobLaunch, target: ResumeTarget & {sessionId: string},
- *   since: number) => Adopted} adoptResumedCopy  the copy a resume of its
- *   session started from `since`, which a kill left out of the state, handed
- *   what the session held
+ *   since: number) => Adopted} adoptResumed  the job a resume of its session
+ *   on `l`'s seat started from `since`
+ * @property {(l: LoopLaunch) => void} writeLaunch  write the state file with
+ *   `l` in place of the launch it was: a resume's stamp before its stop, and its
+ *   outcome after (#4180)
  * @property {() => string|null} admitResume  the dispatcher's per-member
  *   memory, load and session-ceiling re-read: null where it admits one more
  *   session, else why not
@@ -808,14 +819,17 @@ function holdForResume(l, { now, io }) {
 
 /**
  * Stop `l`'s job, then `claude --bg --resume <full id> "<API_PROMPT>"`
- * (#2354 F6). The resume's outcome; `fromSessionId`, the session it resumed.
+ * (#2354 F6). The resume's
+ * outcome; `fromSessionId`, the session it resumed.
  * @param {JobLaunch} l
- * @param {BlockIo} io
+ * @param {Extract<StartedAct, {kind: "api"}>} act
+ * @param {Tick} seen
  * @returns {{failed: string}|(Resumed & {fromSessionId: string})}
  */
-function relaunchResume(l, io) {
+function relaunchResume(l, act, { now, io }) {
 	const { sessionId, cwd } = io.resumeTargetOf(l);
 	if (!sessionId) return { failed: "no session id read for it" };
+	io.writeLaunch({ ...l, resumeStarted: { at: now, sessionId, cwd, act } });
 	const stopFailed = stopJob(l, io);
 	if (stopFailed) return { failed: `stop: ${stopFailed}` };
 	return {
@@ -894,18 +908,32 @@ function fallBack(l, seen, { route, again }) {
 		);
 		return l;
 	}
-	const r = relaunchResume(l, seen.io);
+	const act = /** @type {const} */ ({ kind: "api", route, again });
+	const out = settleFallBack(l, relaunchResume(l, act, seen), seen, act);
+	seen.io.writeLaunch(out);
+	return out;
+}
+
+/**
+ * `l` after fallBack's resume `r` at `now`, reported.
+ * @param {JobLaunch} l
+ * @param {{failed: string}|(Resumed & {fromSessionId: string})} r
+ * @param {{now: number, io: BlockIo}} seen
+ * @param {{route: string, again: boolean}} how  as fallBack's
+ * @returns {LoopLaunch}
+ */
+function settleFallBack(l, r, { now, io }, { route, again }) {
 	let resumed = l;
 	let told = route;
 	if (r.failed === null) {
-		resumed = relaunched(l, r, seen.now);
+		resumed = relaunched(l, r, now);
 		told = `${route}, ${r.copy ? `as its copy ${resumed.jobId}` : "woken in place"}`;
 	}
 	const tried = {
-		...afterFallBack(resumed, seen.now, { failed: r.failed !== null, again }),
+		...afterFallBack(resumed, now, { failed: r.failed !== null, again }),
 		jobId: resumed.jobId,
 	};
-	reportResume(tried, buildResumeLine(tried, told, r.failed), seen.io);
+	reportResume(tried, buildResumeLine(tried, told, r.failed), io);
 	return tried;
 }
 
@@ -1242,9 +1270,10 @@ function unparkStepped(l, sessionId, { isParked, what }, io) {
 }
 
 /**
- * `l` tracking the copy its last step resume started, where a kill came between
- * that resume and the state write that would have recorded it (#4157); null
- * where it carries no such resume or no copy is found, so the step resumes it.
+ * `l` tracking the job its last step resume started, woken in place or a copy,
+ * where a kill came between that resume and the state write that would have
+ * recorded it (#4157); null where it carries no such resume or no job is found,
+ * so the step resumes it.
  * Where the job store will not tell, that is logged and the step resumes it too.
  * @param {JobLaunch} l
  * @param {Tick} seen
@@ -1255,7 +1284,7 @@ function adoptUnrecordedCopy(l, seen) {
 	const { held, what, why, rest } = step;
 	const { sessionId, cwd, resumeStartedAt: at } = held;
 	if (at === undefined || !sessionId) return null;
-	const r = seen.io.adoptResumedCopy(l, { sessionId, cwd }, at);
+	const r = seen.io.adoptResumed(l, { sessionId, cwd }, at);
 	if (r === null) return null;
 	if ("unread" in r) {
 		seen.io.log(
@@ -1270,7 +1299,7 @@ function adoptUnrecordedCopy(l, seen) {
 		at,
 	);
 	seen.io.log(
-		`resumed ${what}, ${why}, by --bg --resume at ${iso(at)}, as its copy ${launch.jobId}, which a kill left out of the state: tracking it, not resuming again`,
+		`resumed ${what}, ${why}, by --bg --resume at ${iso(at)}, ${r.copy ? `as its copy ${launch.jobId}` : "woken in place"}, which a kill left out of the state: tracking it, not resuming again`,
 	);
 	unparkStepped(l, sessionId, step, seen.io);
 	return launch;
@@ -1878,12 +1907,12 @@ function holdForLimit(l, limit, { now, io }) {
  * read or the stop failed, `gaveUp`: `l` after that failed try, reported.
  * @param {JobLaunch} l
  * @param {LimitHeld|(ResumeTarget & {at: number, limit: LimitRead})} held
- * @param {string} failedLine
+ * @param {{act: LimitAct, failedLine: string}} how
  * @param {LimitTick} seen
  * @returns {{gaveUp: LoopLaunch}|{stopped: JobLaunch & {limitHeld: LimitHeld},
  *   sessionId: string, cwd: string}}
  */
-function stopForLimitAct(l, held, failedLine, { now, io }) {
+function stopForLimitAct(l, held, { act, failedLine }, { now, io }) {
 	const { sessionId, cwd } = held;
 	/** @param {string} why */
 	const gaveUp = (why) => {
@@ -1891,6 +1920,15 @@ function stopForLimitAct(l, held, failedLine, { now, io }) {
 		return { gaveUp: afterLimitTry(l, now, why) };
 	};
 	if (!sessionId) return gaveUp("no session id read for it");
+	io.writeLaunch({
+		...l,
+		resumeStarted: {
+			at: now,
+			sessionId,
+			cwd,
+			act: { ...act, held: { ...held, sessionId } },
+		},
+	});
 	const stopFailed = isLimitHeld(l) ? null : stopJob(l, io);
 	if (stopFailed) return gaveUp(`stop: ${stopFailed}`);
 	return {
@@ -1914,24 +1952,58 @@ function stopForLimitAct(l, held, failedLine, { now, io }) {
 function resumeInPlace(l, limit, seen) {
 	const { now, io } = seen;
 	const held = l.limitHeld ?? { ...io.resumeTargetOf(l), at: now, limit };
-	const limitText = buildLimitText(held.limit);
-	const what = `${l.jobId} ${launchName(l)} on ${l.seat}, after its ${limitText}`;
-	const failedLine = `could not resume ${what}`;
-	const ready = stopForLimitAct(l, held, failedLine, seen);
+	const ready = stopForLimitAct(
+		l,
+		held,
+		{
+			act: { kind: "in-place" },
+			failedLine: `could not resume ${buildInPlaceWhat(l, held.limit)}`,
+		},
+		seen,
+	);
 	if ("gaveUp" in ready) return ready.gaveUp;
 	const { stopped, sessionId, cwd } = ready;
 	const r = io.resumeStopped(stopped, LIMIT_PROMPT, { sessionId, cwd });
+	const out = settleInPlace(
+		stopped,
+		{ ...r, fromSessionId: sessionId },
+		now,
+		io,
+	);
+	io.writeLaunch(out);
+	return out;
+}
+
+/**
+ * What resumeInPlace's lines call its resume of `l` after `limit`.
+ * @param {JobLaunch} l
+ * @param {LimitRead} limit
+ */
+const buildInPlaceWhat = (l, limit) =>
+	`${l.jobId} ${launchName(l)} on ${l.seat}, after its ${buildLimitText(limit)}`;
+
+/**
+ * `l`, stopped, after resumeInPlace's resume `r` at `now`, reported.
+ * @param {JobLaunch & {limitHeld: LimitHeld}} l
+ * @param {{failed: string}|(Resumed & {fromSessionId: string})} r
+ * @param {number} now
+ * @param {BlockIo} io
+ * @returns {LoopLaunch}
+ */
+function settleInPlace(l, r, now, io) {
+	const limitText = buildLimitText(l.limitHeld.limit);
+	const what = buildInPlaceWhat(l, l.limitHeld.limit);
 	if (r.failed !== null) {
-		reportLimitFailure(stopped, failedLine, r.failed, io);
-		return afterLimitTry(stopped, now, r.failed);
+		reportLimitFailure(l, `could not resume ${what}`, r.failed, io);
+		return afterLimitTry(l, now, r.failed);
 	}
 	const resumed = relaunched(
 		{
-			...stopped,
+			...l,
 			parked: false,
-			limitHeld: { ...stopped.limitHeld, resumedAt: now },
+			limitHeld: { ...l.limitHeld, resumedAt: now },
 		},
-		{ ...r, fromSessionId: sessionId },
+		r,
 		now,
 	);
 	const how = r.copy ? `as its copy ${resumed.jobId}` : "woken in place";
@@ -1960,20 +2032,56 @@ function resumeInPlace(l, limit, seen) {
 function moveToSeat(l, target, limit, seen) {
 	const { now, io } = seen;
 	const held = l.limitHeld ?? { ...io.resumeTargetOf(l), at: now, limit };
-	const limitText = buildLimitText(held.limit);
-	const what = `${l.jobId} ${launchName(l)} from ${l.seat} to ${target}, at its ${limitText}`;
-	const failedLine = `could not move ${what}`;
-	const ready = stopForLimitAct(l, held, failedLine, seen);
+	const ready = stopForLimitAct(
+		l,
+		held,
+		{
+			act: { kind: "move", to: target },
+			failedLine: `could not move ${buildMoveWhat(l, target, held.limit)}`,
+		},
+		seen,
+	);
 	if ("gaveUp" in ready) return ready.gaveUp;
 	const { stopped, sessionId, cwd } = ready;
 	const r = io.moveSession(stopped, target, MOVED_PROMPT, { sessionId, cwd });
+	const out = settleMove(
+		{ ...stopped, block: l.block },
+		target,
+		{ ...r, fromSessionId: sessionId },
+		{ now, io },
+	);
+	io.writeLaunch(out);
+	return out;
+}
+
+/**
+ * What moveToSeat's lines call its move of `l` to `target` at `limit`.
+ * @param {JobLaunch} l
+ * @param {string} target
+ * @param {LimitRead} limit
+ */
+const buildMoveWhat = (l, target, limit) =>
+	`${l.jobId} ${launchName(l)} from ${l.seat} to ${target}, at its ${buildLimitText(limit)}`;
+
+/**
+ * `l`, stopped, after moveToSeat's resume `r` on `target` at `now`, reported.
+ * @param {JobLaunch & {block: import("./block-act.js").Block,
+ *   limitHeld: LimitHeld}} l
+ * @param {string} target
+ * @param {{failed: string}|(Resumed & {fromSessionId: string})} r
+ * @param {{now: number, io: BlockIo}} seen
+ * @returns {LoopLaunch}
+ */
+function settleMove(l, target, r, { now, io }) {
+	const limitText = buildLimitText(l.limitHeld.limit);
+	const what = buildMoveWhat(l, target, l.limitHeld.limit);
 	if (r.failed !== null) {
-		reportLimitFailure(stopped, failedLine, r.failed, io);
-		return afterLimitTry(stopped, now, r.failed);
+		reportLimitFailure(l, `could not move ${what}`, r.failed, io);
+		return afterLimitTry(l, now, r.failed);
 	}
 	const moved = relaunched(
 		{
-			...stopped,
+			...l,
 			seat: target,
 			reason: `moved from ${buildSeatName(l.seat)}`,
 			parked: false,
@@ -1983,7 +2091,7 @@ function moveToSeat(l, target, limit, seen) {
 				{ seat: l.seat, since: l.block.since },
 			],
 			limitHeld: {
-				...stopped.limitHeld,
+				...l.limitHeld,
 				resumedAt: now,
 				...(r.copy
 					? {}
@@ -1995,7 +2103,7 @@ function moveToSeat(l, target, limit, seen) {
 						}),
 			},
 		},
-		{ ...r, fromSessionId: sessionId },
+		r,
 		now,
 	);
 	const how = r.copy
@@ -2009,6 +2117,73 @@ function moveToSeat(l, target, limit, seen) {
 	/* Spacing is for tries that fail: one that took may move again at once. */
 	const tried = afterLimitTry(moved, now);
 	return { ...tried, limitResumes: { ...tried.limitResumes, nextAt: now } };
+}
+
+/**
+ * The launches with each resume a kill left out of the state settled (#4180):
+ * one carrying `resumeStarted` gets the outcome its act would have given it,
+ * the job the resume started where the job store holds one, else a failed try,
+ * which its act's own schedule tries again. Where the store will not tell, the
+ * try counts failed too, and says why, as #4157's step resumes it. `settled`,
+ * whether any was.
+ * @param {LoopLaunch[]} launches
+ * @param {BlockIo} io
+ * @returns {{launches: LoopLaunch[], settled: boolean}}
+ */
+function settleStartedResumes(launches, io) {
+	let settled = false;
+	const out = launches.map((launch) => {
+		const { resumeStarted: started, ...l } = launch;
+		if (!started || l.jobId === null) return launch;
+		settled = true;
+		return settleStarted({ ...l, jobId: l.jobId }, started, io);
+	});
+	return { launches: out, settled };
+}
+
+/**
+ * `l` after the resume `started`, which a kill left with no outcome on record:
+ * the job it started tracked; else, where `l`'s own job reads stopped, a failed
+ * try; else the kill came before the stop, and `l` is left to its act.
+ * @param {JobLaunch} l  as it was before the stop
+ * @param {ResumeStarted} started
+ * @param {BlockIo} io
+ * @returns {LoopLaunch}
+ */
+function settleStarted(l, { at, sessionId, cwd, act }, io) {
+	const seat = act.kind === "move" ? act.to : l.seat;
+	const found = io.adoptResumed({ ...l, seat }, { sessionId, cwd }, at);
+	const killed = "a kill came between it and the state write";
+	const what = `${launchName(l)}'s resume at ${iso(at)}`;
+	/** @type {{failed: string}|(Resumed & {fromSessionId: string})} */
+	let r;
+	if (found && !("unread" in found)) {
+		io.log(
+			`${what} started ${found.copy ? `copy ${found.jobId}` : "its job in place"}, which ${killed} left out of the state: tracking it, not resuming again`,
+		);
+		r = { ...found, fromSessionId: sessionId };
+	} else if (io.jobStateOf(l)?.state === "stopped")
+		r = {
+			failed: found
+				? `${killed}, and whether it started a job is unread: ${found.unread}`
+				: `${killed}, and it started no job`,
+		};
+	else {
+		io.log(`${what}: ${killed} before its stop, so it is left to its act`);
+		return l;
+	}
+	if (act.kind === "api") return settleFallBack(l, r, { now: at, io }, act);
+	if (!l.block) {
+		io.log(`${what} is dropped: its launch is no longer blocked`);
+		return l;
+	}
+	const held = { ...l, block: l.block, limitHeld: act.held };
+	return syncLedgerHold(
+		act.kind === "in-place"
+			? settleInPlace(held, r, at, io)
+			: settleMove(held, act.to, r, { now: at, io }),
+		io,
+	);
 }
 
 /**
@@ -2443,5 +2618,6 @@ module.exports = {
 	queueLifted,
 	resumableOf,
 	resumeHeldLaunches,
+	settleStartedResumes,
 	unknownNews,
 };

@@ -475,6 +475,58 @@ node ${shellQuote(path.join(scripts, "request-stop.js"))}\n`,
 		expect(line).toMatchObject({ working: count + 1, ceiling: count + 1 });
 	});
 
+	it("tracks a launch a kill cut off between the dispatcher's start and the state write (#4180)", async () => {
+		const file = ledgerPath(repo);
+		fs.mkdirSync(path.dirname(file), { recursive: true });
+		/* The dispatcher launches, then the loop dies before it reads the
+		 * ledger back: a real SIGKILL on the loop, the dispatcher's parent. */
+		stub(
+			"dispatch-sessions.sh",
+			`printf '{"ts":"%s","issues":[5],"prompt":"/implement 5","jobId":"job5"}\\n' "$(date -u +%FT%TZ)" >> ${shellQuote(file)}
+printf '%s\\n' "$*" >> ${shellQuote(at("dispatches"))}
+kill -9 $PPID\n`,
+		);
+		/* spawn-kept: the kill needs a loop of its own process to land on. */
+		const killed = spawn(
+			process.execPath,
+			[path.join(scripts, "refill-loop.js"), "run"],
+			{ cwd: dir, env: loopEnv({ FAKE_SLOTS: "1" }), stdio: "ignore" },
+		);
+		const signal = await new Promise((done) =>
+			killed.on("exit", (_, sig) => done(sig)),
+		);
+		const stateFile = at(".refill-loop-state.json");
+		const readState = () => JSON.parse(fs.readFileSync(stateFile, "utf8"));
+		expect(signal).toBe("SIGKILL");
+		expect(readState().launches).toEqual([]);
+		expect(readState().launching.batch).toMatchObject([
+			{ prompt: "/implement 5" },
+		]);
+
+		stub(
+			"dispatch-sessions.sh",
+			`printf '%s\\n' "$*" >> ${shellQuote(at("dispatches"))}\n`,
+		);
+		/* job5 fills the one slot, so nothing launches to ask for the stop. */
+		requestStop();
+		const r = await settled(run(1), "run after a killed launch");
+
+		expect(r.status).toBe(0);
+		expect(readState().launches).toEqual([
+			expect.objectContaining({
+				prompt: "/implement 5",
+				jobId: "job5",
+				finishedAt: null,
+			}),
+		]);
+		expect(readState()).not.toHaveProperty("launching");
+		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
+		expect(readState().launchCount.count).toBe(1);
+		expect(r.stdout).toMatch(
+			/repo \/implement 5's launch at .* started job job5, which a kill left out of the state: tracking it/,
+		);
+	});
+
 	it("logs a damaged state file and ticks on the defaults (#3380)", async () => {
 		const state = at(".refill-loop-state.json");
 		fs.writeFileSync(state, "{ not json");
@@ -2003,6 +2055,76 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 		});
 		expect(r.stdout).toMatch(
 			/resume 2 of 16 after an API error, repo \/implement 7, by stop and --bg --resume, as its copy c0de7a11/,
+		);
+		const claims = arbiterAs("s-copy", "issue-claims");
+		expect(claims).toContain("s-copy");
+		expect(claims).not.toContain("s-job7");
+	});
+
+	it("tracks the copy a resume started where a kill beat the state write, and starts no second (#4180)", async () => {
+		seed(heldDue);
+		arbiterAs("s-job7", "claim-issue", "7");
+		const transcript = (session: string) =>
+			path.join(seat, "projects", "repo", `${session}.jsonl`);
+		fs.mkdirSync(path.dirname(transcript("s-job7")), { recursive: true });
+		fs.writeFileSync(
+			transcript("s-job7"),
+			`${JSON.stringify({ type: "user", uuid: "u-first", sessionId: "s-job7" })}\n`,
+		);
+		const copyDir = path.join(seat, "jobs", FAKE_COPY);
+		const copyRecord = JSON.stringify({
+			state: "working",
+			sessionId: "s-copy",
+			cwd: repo,
+			createdAt: "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)",
+		});
+		/* The copy starts, then the loop dies before it reads the launcher's
+		 * answer: a real SIGKILL, as the gap is a process's death. */
+		fakeResumeClaude(
+			Job,
+			[LISTED],
+			[
+				`mkdir -p ${shellQuote(copyDir)};`,
+				`echo "${copyRecord.replaceAll('"', '\\"')}" > ${shellQuote(path.join(copyDir, "state.json"))};`,
+				`cp ${shellQuote(transcript("s-job7"))} ${shellQuote(transcript("s-copy"))};`,
+				"kill -9 $PPID;",
+			].join(" "),
+		);
+		/* spawn-kept: the kill needs a loop of its own process to land on. */
+		const killed = spawn(
+			process.execPath,
+			[path.join(scripts, "refill-loop.js"), "run"],
+			{
+				cwd: dir,
+				env: loopEnv({ WFC_GH: at("gh"), FAKE_SLOTS: "0" }),
+				stdio: "ignore",
+			},
+		);
+		const signal = await new Promise((done) =>
+			killed.on("exit", (_, sig) => done(sig)),
+		);
+		expect(signal).toBe("SIGKILL");
+		expect(launchState()).toMatchObject({
+			jobId: Job,
+			resumeStarted: { sessionId: "s-job7", act: { kind: "api" } },
+		});
+
+		fakeResumeClaude(Job, [LISTED]);
+		const r = await oneTick(ApiRun);
+
+		expect(r.status).toBe(0);
+		expect(readLines(at("calls")).filter((l) => l.startsWith("--bg"))).toEqual([
+			`--bg --resume s-job7 ${Prompt}`,
+		]);
+		expect(launchState()).toMatchObject({
+			jobId: FAKE_COPY,
+			copiedFrom: Job,
+			sessionId: "s-copy",
+			resumes: { tries: 2 },
+		});
+		expect(launchState()).not.toHaveProperty("resumeStarted");
+		expect(r.stdout).toMatch(
+			/resume at .* started copy c0de7a11, which a kill came between it and the state write left out of the state/,
 		);
 		const claims = arbiterAs("s-copy", "issue-claims");
 		expect(claims).toContain("s-copy");

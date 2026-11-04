@@ -191,22 +191,40 @@ function launchBatch(batch, io) {
 	const call = dispatchCall(batch, io.dispatcher, io.env);
 	const calledAt = io.now();
 	const r = io.run(call);
-	const entries = io
-		.entriesOf(call.cwd)
-		.filter((e) => Date.parse(e.ts) >= calledAt - LEDGER_SLACK_MS);
+	const { launched, reached, missing } = readLaunched(batch, calledAt, io);
+	const refused = missing.map((l) => ({
+		launch: l,
+		reason: parseRefusalReason(r.out, l.prompt, r.failed),
+	}));
+	return { launched, refused, tried: r.failed ? reached : batch, ...r };
+}
+
+/**
+ * The members of `batch` the dispatch ledger shows launched by a call made at
+ * `calledAt`: an entry written since for a member's prompt is its launch, and
+ * its record is stamped with that entry's time. `reached`, those members;
+ * `missing`, the rest.
+ * @param {import("./refill-decide.js").Launch[]} batch one of batchesOf's
+ * @param {number} calledAt
+ * @param {Pick<Parameters<typeof launchBatch>[1], "entriesOf"|"sessionOf">} io
+ */
+function readLaunched(batch, calledAt, io) {
+	const [first] = batch;
+	const entries = first
+		? io
+				.entriesOf(first.root)
+				.filter((e) => Date.parse(e.ts) >= calledAt - LEDGER_SLACK_MS)
+		: [];
 	/** @type {import("./refill-loop.js").LoopLaunch[]} */
 	const launched = [];
 	/** @type {import("./refill-decide.js").Launch[]} */
 	const reached = [];
-	/** @type {Refusal[]} */
-	const refused = [];
+	/** @type {import("./refill-decide.js").Launch[]} */
+	const missing = [];
 	for (const l of batch) {
 		const entry = entries.filter((e) => e.prompt === l.prompt).pop();
 		if (!entry) {
-			refused.push({
-				launch: l,
-				reason: parseRefusalReason(r.out, l.prompt, r.failed),
-			});
+			missing.push(l);
 			continue;
 		}
 		reached.push(l);
@@ -227,7 +245,7 @@ function launchBatch(batch, io) {
 			...limitParksOf(l),
 		});
 	}
-	return { launched, refused, tried: r.failed ? reached : batch, ...r };
+	return { launched, reached, missing };
 }
 
 /**
@@ -255,7 +273,25 @@ function resumeParked(l, parked, io) {
 	const r = io.resume(l, parked.resume);
 	if (r.failed !== null) return afresh(r.failed);
 	io.log(`resumed parked ${launchName(l)} as job ${r.jobId}`);
-	const launchedAt = io.now();
+	return recordParkedResume(l, parked.resume, r, {
+		launchedAt: io.now(),
+		actsBefore,
+		io,
+	});
+}
+
+/**
+ * The launch record of parked `l`'s resume `r` of `target` at `launchedAt`, the
+ * resume written to the dispatch ledger as a launch (resumeParked).
+ * @param {import("./refill-decide.js").Launch} l
+ * @param {import("./refill-decide.js").ResumeTarget} target
+ * @param {Extract<import("./refill-blocks.js").Resumed, {failed: null}>} r
+ * @param {{launchedAt: number,
+ *   actsBefore: NonNullable<import("./refill-loop.js").LoopLaunch["actsBefore"]>,
+ *   io: Pick<ResumeIo, "recordLaunch"|"log">}} at
+ * @returns {import("./refill-loop.js").LoopLaunch}
+ */
+function recordParkedResume(l, target, r, { launchedAt, actsBefore, io }) {
 	if (
 		!io.recordLaunch({
 			issues: l.issues,
@@ -269,23 +305,94 @@ function resumeParked(l, parked, io) {
 		io.log(
 			`resume of ${launchName(l)} not written to the dispatch ledger: the idle alarm dates it from its last launch`,
 		);
+	return buildParkedRecord(l, target, r, { launchedAt, actsBefore });
+}
+
+/**
+ * The launch record of parked `l`'s resume `r` of `target` at `launchedAt`.
+ * @param {import("./refill-decide.js").Launch} l
+ * @param {import("./refill-decide.js").ResumeTarget} target
+ * @param {Extract<import("./refill-blocks.js").Resumed, {failed: null}>} r
+ * @param {{launchedAt: number,
+ *   actsBefore: NonNullable<import("./refill-loop.js").LoopLaunch["actsBefore"]>}} at
+ * @returns {import("./refill-loop.js").LoopLaunch}
+ */
+function buildParkedRecord(l, target, r, { launchedAt, actsBefore }) {
 	return {
 		root: l.root,
 		issues: l.issues,
 		prompt: l.prompt,
-		seat: parked.resume.seat,
+		seat: target.seat,
 		reason: "parked session's seat",
 		jobId: r.jobId,
 		launchedAt,
 		finishedAt: null,
 		...(r.sessionId ? { sessionId: r.sessionId } : {}),
-		...(r.copy ? { pastSessionIds: [parked.resume.sessionId] } : {}),
+		...(r.copy ? { pastSessionIds: [target.sessionId] } : {}),
 		actsBefore,
-		...(hasNothingToRepeat(parked.resume.parkCause)
-			? { nothingToRepeat: true }
-			: {}),
+		...(hasNothingToRepeat(target.parkCause) ? { nothingToRepeat: true } : {}),
 		...limitParksOf(l),
 	};
+}
+
+/**
+ * @typedef {{at: number, batch: import("./refill-decide.js").Launch[]}}
+ *   Launching  the batch the loop was launching from `at`, on record before
+ *   its first member starts and gone with the tick's own write (#4180)
+ */
+
+/**
+ * The members of `launching` that started, which a kill left out of the state
+ * (#4180), recorded as the launch would have: a parked member routed to resume
+ * whose session's job the store shows started since (lib/resumed-copy.js's
+ * findResumed), handed what the session held; else a member the dispatch ledger
+ * shows launched (readLaunched). The ledger row a parked resume owes is written
+ * where the kill came first. A store that will not tell is logged, and the
+ * member is looked for in the ledger alone.
+ * Residual: a parked session woken in place has its acts since the wake read as
+ * made before it.
+ * @param {Launching} launching
+ * @param {Pick<ResumeIo, "readActsBefore"|"recordLaunch"|"log"> &
+ *   Pick<Parameters<typeof launchBatch>[1], "entriesOf"|"sessionOf"> & {
+ *   adoptResumed: (l: import("./refill-decide.js").Launch,
+ *     target: import("./refill-decide.js").ResumeTarget, since: number) =>
+ *     import("./refill-blocks.js").Adopted}} io
+ * @returns {import("./refill-loop.js").LoopLaunch[]}
+ */
+function adoptLaunching({ at, batch }, io) {
+	const resumed = [];
+	const rest = [];
+	for (const l of batch) {
+		const target =
+			l.parkedRoute && "resume" in l.parkedRoute ? l.parkedRoute.resume : null;
+		const r = target && io.adoptResumed(l, target, at);
+		if (r && "unread" in r)
+			io.log(
+				`whether parked ${launchName(l)}'s resume started a job is unread: ${r.unread}`,
+			);
+		if (!target || !r || "unread" in r) {
+			rest.push(l);
+			continue;
+		}
+		const entry = io
+			.entriesOf(l.root)
+			.find(
+				(e) =>
+					e.jobId === r.jobId &&
+					e.prompt === l.prompt &&
+					Date.parse(e.ts) >= at - LEDGER_SLACK_MS,
+			);
+		const actsBefore = io.readActsBefore(l.root, target.sessionId);
+		resumed.push(
+			entry
+				? buildParkedRecord(l, target, r, {
+						launchedAt: Date.parse(entry.ts),
+						actsBefore,
+					})
+				: recordParkedResume(l, target, r, { launchedAt: at, actsBefore, io }),
+		);
+	}
+	return [...resumed, ...readLaunched(rest, at, io).launched];
 }
 
 /**
@@ -331,6 +438,7 @@ function launchOrResume(batch, io) {
 }
 
 module.exports = {
+	adoptLaunching,
 	batchesOf,
 	buildWouldRunLine,
 	dispatchCall,
