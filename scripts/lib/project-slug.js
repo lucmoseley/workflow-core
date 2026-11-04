@@ -16,6 +16,7 @@
  * guard invocation.
  */
 
+const path = require("node:path");
 const { hostRoot } = require("./host-root.js");
 
 /**
@@ -80,4 +81,21 @@ const UNRESOLVED_ROOT_SLUG = "unresolved-root";
  */
 const slugForRepo = () => projectSlug(hostRoot());
 
-module.exports = { projectSlug, slugForRepo, UNRESOLVED_ROOT_SLUG };
+/**
+ * Where session `sessionId`'s transcript lives on seat `seat`: under the
+ * project directory for its cwd. Derived rather than read from the job
+ * record's own `linkScanPath`, which on a RESUMED session still names the
+ * transcript it resumed FROM (mantahostels#655).
+ * @param {string} seat
+ * @param {string} cwd
+ * @param {string} sessionId
+ */
+const transcriptPath = (seat, cwd, sessionId) =>
+	path.join(seat, "projects", projectSlug(cwd), `${sessionId}.jsonl`);
+
+module.exports = {
+	projectSlug,
+	slugForRepo,
+	transcriptPath,
+	UNRESOLVED_ROOT_SLUG,
+};

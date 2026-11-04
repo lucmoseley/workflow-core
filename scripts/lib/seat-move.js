@@ -7,7 +7,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
-const { projectSlug } = require("./project-slug.js");
+const { transcriptPath } = require("./project-slug.js");
 
 /**
  * Copy session `sessionId`'s transcript from seat `from` into seat `to`, each
@@ -19,10 +19,8 @@ const { projectSlug } = require("./project-slug.js");
  * @returns {string|null}
  */
 function copyTranscript({ from, to, sessionId, cwd }) {
-	const file = `${sessionId}.jsonl`;
-	const slug = projectSlug(cwd);
-	const source = path.join(from, "projects", slug, file);
-	const dest = path.join(to, "projects", slug, file);
+	const source = transcriptPath(from, cwd, sessionId);
+	const dest = transcriptPath(to, cwd, sessionId);
 	const partial = `${dest}.moving`;
 	try {
 		fs.mkdirSync(path.dirname(dest), { recursive: true });

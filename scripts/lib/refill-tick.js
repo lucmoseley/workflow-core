@@ -65,7 +65,7 @@ const { buildDriftLines, readRegistryAgents } = require("./registry-agents.js");
 const { readActsBy } = require("./arbiter-store.js");
 const { PROBE_CWD, PROBE_TIMEOUT_MS } = require("./usage-probe.js");
 const { hasSeatRunSince } = require("./project-dirs.js");
-const { projectSlug } = require("./project-slug.js");
+const { projectSlug, transcriptPath } = require("./project-slug.js");
 const { fileSpend, sessionSpendUsd } = require("./session-spend.js");
 const { readAllowance } = require("./allowance.js");
 const seatReading = require("./seat-reading.js");
@@ -923,7 +923,7 @@ function recordOnKey({ root, seat, keyVar }, from, run, how) {
  * @param {{seat: string, from: string, cwd: string, copy: boolean}} moved
  */
 function readOffKeyUsd({ seat, from, cwd, copy }) {
-	const file = path.join(seat, "projects", projectSlug(cwd), `${from}.jsonl`);
+	const file = transcriptPath(seat, cwd, from);
 	return copy ? fileSpend(file).usd : sessionSpendUsd(file);
 }
 

@@ -22,7 +22,11 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { projectSlug, slugForRepo } = require("./project-slug.js");
+const {
+	projectSlug,
+	slugForRepo,
+	transcriptPath,
+} = require("./project-slug.js");
 
 describe("projectSlug — the spelling the harness writes", () => {
 	it("maps a dot to a hyphen, not only the slashes", () => {
@@ -41,6 +45,14 @@ describe("projectSlug — the spelling the harness writes", () => {
 
 	it("defaults to the cwd", () => {
 		expect(projectSlug()).toBe(projectSlug(process.cwd()));
+	});
+});
+
+describe("transcriptPath — a session's transcript on a seat", () => {
+	it("sits under the seat's project directory for its cwd", () => {
+		expect(transcriptPath("/h/.claude2", "/r/repo.x", "s1")).toBe(
+			path.join("/h/.claude2", "projects", "-r-repo-x", "s1.jsonl"),
+		);
 	});
 });
 
@@ -120,8 +132,8 @@ describe("every caller derives the slug from that one function", () => {
 		dirs.push(root);
 		process.chdir(root);
 		process.env.CLAUDE_CONFIG_DIR = "/cfg";
-		const { transcriptPath } = require("./hook-message.js");
-		const got = transcriptPath(null, "sid1");
+		const hookMessage = require("./hook-message.js");
+		const got = hookMessage.transcriptPath(null, "sid1");
 		expect(got).toBe(
 			path.join("/cfg", "projects", projectSlug(process.cwd()), "sid1.jsonl"),
 		);

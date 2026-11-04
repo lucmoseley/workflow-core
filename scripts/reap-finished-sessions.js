@@ -111,7 +111,7 @@ const { procRoot } = require("./lib/proc-root.js");
 const { readOwnJob, stopSession } = require("./lib/claude-stop.js");
 const { readRegistryAgents } = require("./lib/registry-agents.js");
 const { readLocks, subjectDirty } = require("./lib/arbiter-store");
-const { projectSlug } = require("./lib/project-slug.js");
+const { transcriptPath } = require("./lib/project-slug.js");
 const { lastTurn } = require("./lib/transcript.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { scriptPath } = require("./lib/script-path.js");
@@ -349,19 +349,6 @@ function claimHolders() {
 	}
 	return { held, unnamed };
 }
-
-/**
- * Where a session's transcript lives. The project dir is `projectSlug`'s
- * spelling of its cwd (mantahostels#1982). Derived rather than read from the job record's
- * own `linkScanPath`, which on a RESUMED session still names the transcript it
- * resumed FROM (mantahostels#655).
- *
- * @param {string} seat
- * @param {string} cwd
- * @param {string} sessionId
- */
-const transcriptPath = (seat, cwd, sessionId) =>
-	path.join(seat, "projects", projectSlug(cwd), `${sessionId}.jsonl`);
 
 /**
  * When a session actually finished, in ms, or null where that cannot be shown.
