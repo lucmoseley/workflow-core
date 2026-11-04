@@ -5159,6 +5159,197 @@ node ${shellQuote(path.join(scripts, "request-stop.js"))}\n`,
 
 		expect(held.stdout).not.toContain("/implement 5");
 	});
+
+	describe("a guard entry that will not load (#4226)", () => {
+		const guardEntry = () => path.join(repo, "scripts", "guard-dispatch.js");
+		/* The shared tree's own entry, under the served checkout: the loop runs
+		 * from its code copy, whose entry stays healthy. */
+		const writeGuardEntry = (body: string) => {
+			fs.mkdirSync(path.dirname(guardEntry()), { recursive: true });
+			fs.writeFileSync(
+				guardEntry(),
+				`const fs = require("node:fs");
+fs.appendFileSync(${JSON.stringify(at("guard-runs"))}, JSON.stringify({ cwd: process.cwd(), dir: process.env.CLAUDE_PROJECT_DIR, payload: JSON.parse(fs.readFileSync(0, "utf8")) }) + "\\n");
+${body}`,
+			);
+		};
+		const Failing =
+			'process.stderr.write("\\nLexer is not defined\\n");\nprocess.exit(1);\n';
+		const Healthy = "process.exit(0);\n";
+		const hooksFile = () =>
+			path.join(repo, "self-plugin", "hooks", "hooks.json");
+		const guardRuns = () =>
+			readLines(at("guard-runs")).map(
+				(l) =>
+					JSON.parse(l) as {
+						cwd: string;
+						dir: string;
+						payload: {
+							session_id: string;
+							tool_name: string;
+							tool_input: { file_path: string };
+						};
+					},
+			);
+
+		beforeEach(() => {
+			fs.mkdirSync(path.dirname(hooksFile()), { recursive: true });
+			fs.writeFileSync(hooksFile(), "{}\n");
+		});
+
+		it("stops launches, raises the hold and files its issue on its first tick, off the shared tree's own entry", async () => {
+			writeGuardEntry(Failing);
+
+			const broken = await tickRun(serveClose().gh);
+
+			expect(broken.status).toBe(0);
+			expect(broken.stdout).toContain(
+				`probe failed in ${repo}: guard entry: Lexer is not defined`,
+			);
+			expect(broken.stdout).not.toContain("a hold rises at");
+			expect(broken.stdout).toContain("repo hold raised: probe in");
+			expect(fs.existsSync(at("dispatches"))).toBe(false);
+			const filed = readFiled();
+			expect(filed).toHaveLength(1);
+			expect(filed[0]?.body).toContain("guard entry: Lexer is not defined");
+			/* Two ticks, each probe a run and its re-run. */
+			const runs = guardRuns();
+			expect(runs).toHaveLength(4);
+			expect(runs[0]).toEqual({
+				cwd: fs.realpathSync(repo),
+				dir: repo,
+				payload: expect.objectContaining({
+					session_id: "refill-loop-guard-probe",
+					tool_name: "Read",
+					tool_input: expect.objectContaining({ file_path: hooksFile() }),
+				}),
+			});
+		});
+
+		it("reads a deny of its benign Read as a failure", async () => {
+			writeGuardEntry(
+				`process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "kit fault\\nmore" } }));\n`,
+			);
+
+			const { stdout } = await tickRun(serveClose().gh);
+
+			expect(stdout).toContain("guard entry: refused a benign Read: kit fault");
+			expect(fs.existsSync(at("dispatches"))).toBe(false);
+		});
+
+		it("raises nothing and launches on where the re-run passes", async () => {
+			writeGuardEntry(
+				`const once = ${JSON.stringify(at("failed-once"))};
+if (!fs.existsSync(once)) { fs.writeFileSync(once, ""); process.exit(1); }
+process.exit(0);
+`,
+			);
+
+			const { status, stdout } = await tickRun(serveClose().gh);
+
+			expect(status).toBe(0);
+			/* One tick, its launch's stop ending the run: a run and its re-run. */
+			expect(guardRuns()).toHaveLength(2);
+			expect(stdout).not.toContain("probe failed");
+			expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
+			expect(readFiled()).toHaveLength(0);
+		});
+
+		it("clears the tick the entry loads again, closing its issue and launching", async () => {
+			const routes = at("gh-routes");
+			fs.mkdirSync(routes, { recursive: true });
+			const { gh } = stubGhRoutes(
+				routes,
+				{
+					"issue list *": printed("[]"),
+					[`issue close ${Issue} *`]: printed(""),
+					"issue edit *": printed(""),
+					"*": readGhAnswer(LOGGED_OUT),
+				},
+				{ log: at("gh-log") },
+			);
+			writeGuardEntry(Failing);
+			await tickRun(gh);
+			writeGuardEntry(Healthy);
+
+			const { stdout } = await tickRun(gh);
+
+			expect(stdout).toContain("repo hold cleared: probe in");
+			expect(stdout).not.toContain("could not close");
+			expect(
+				readLines(at("gh-log")).filter((l) =>
+					l.startsWith(`issue close ${Issue} `),
+				),
+			).toHaveLength(1);
+			expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
+			expect(await readStatus()).toContain("holds:     none open");
+		});
+
+		it("runs no step in a checkout with no self-plugin", async () => {
+			fs.rmSync(path.join(repo, "self-plugin"), { recursive: true });
+			writeGuardEntry(Failing);
+
+			const { stdout } = await tickRun(serveClose().gh);
+
+			expect(guardRuns()).toHaveLength(0);
+			expect(stdout).not.toContain("probe failed");
+			expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
+		});
+
+		it("attaches a session that parks while it stands, and resumes it through admission once the entry loads", async () => {
+			const close = serveClose();
+			writeGuardEntry(Failing);
+			fs.writeFileSync(
+				stateFile(),
+				JSON.stringify({
+					launches: [
+						{
+							root: repo,
+							issues: [7],
+							prompt: "/implement 7",
+							seat,
+							jobId: "job7",
+							sessionId: "s-job7",
+							launchedAt: Date.now() - 10 * 60_000,
+							finishedAt: null,
+						},
+					],
+				}),
+			);
+			writeClaudeStub(at("claude"), [
+				buildAgentsBranch([buildJobRow("job7", "blocked")]),
+				buildStopBranch(at("stops")),
+			]);
+
+			const broken = await tickOnState(close.gh);
+
+			expect(broken.stdout).toContain("repo hold raised: probe in");
+			expect(broken.stdout).toMatch(
+				/repo hold attached: probe in .*; session job7; 1 attached/,
+			);
+
+			writeParkMarker("job7", 7, 5);
+			fakeResumeClaude("job7", [LISTED]);
+			stub(
+				"allowance.js",
+				"process.stdout.write(JSON.stringify({ cap: { launch: 9 } }));\n",
+			);
+			writeGuardEntry(Healthy);
+			updateControl({ stopRequested: false });
+			const running = run(2, { WFC_GH: close.gh });
+			await polled(
+				() => readLines(at("calls")).some((l) => l.startsWith("--bg")),
+				"the resume never came",
+			);
+			requestStop();
+			const repaired = await settled(running, "run with a loading entry");
+
+			expect(repaired.stdout).toContain("repo hold cleared: probe in");
+			expect(readLines(at("calls"))).toContain(
+				`--bg --resume s-job7 ${HOLD_PROMPT}`,
+			);
+		});
+	});
 });
 
 describe("the sessions parked on a cleared repo hold (#3863)", () => {
