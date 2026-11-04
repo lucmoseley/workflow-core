@@ -608,4 +608,4 @@ function namedRerun({
 	};
 }
 
-module.exports = { actionsTester, namedRerun };
+module.exports = { SUITE_WORKFLOW, actionsTester, namedRerun };

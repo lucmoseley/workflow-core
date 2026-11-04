@@ -109,6 +109,32 @@ jobs:
       contents: read
     uses: ./.github/workflows/roadmap-digest.yml
 
+  # After the suite, a red one included, so this sweep's own shard reports are
+  # among the three it judges. Report-only (#4292): `verdict` does not need it,
+  # and `continue-on-error` keeps a broken run from turning the sweep red. Not
+  # on a `landing` push: the lander's tester waits on the whole run's
+  # conclusion (scripts/lib/actions-tester.js), and that run's reports are read
+  # by the next sweep regardless.
+  file-times:
+    name: Test file CI times
+    needs: [suite]
+    if: ${{ !cancelled() && github.event_name != 'push' && github.repository == 'lucmoseley/workflow-core' }}
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      # Dependency-free, so no install.
+      - name: Files over the per-file limit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/check-file-ci-time.js
+
   # THE ONE CHECK `main`'S RULESET REQUIRES (#2414): its name is pinned in that
   # ruleset, so renaming this job locks `main` until the ruleset is edited to
   # match. One aggregate job rather than the suite's own jobs, so a change to

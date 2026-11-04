@@ -40,6 +40,11 @@ const CEILING_MS = 840_000;
  * by shard against this same figure, so shards each under it do not show the
  * lone whole suite is. */
 const TARGET_MS = 180_000;
+/* The limit one test file's CI time is held to, judged on its median over the
+ * last `SWEEPS_JUDGED` sweeps (`scripts/lib/file-ci-time.js`): delegated on
+ * #4283, 4 Nov 2026, resting on Bazel's 60 s short-test timeout and the
+ * TARGET_MS above. `check-file-ci-time.js` reports a file over it. */
+const FILE_LIMIT_MS = 60_000;
 const CEILING_ENV = "WFC_SUITE_CEILING_MS";
 /* Where a run writes `<deadline s> <pgid>`, one line, for bg-run's
  * `read -r` to take. The deadline is on CLOCK_MONOTONIC, the clock this
@@ -331,6 +336,7 @@ module.exports = {
 	CEILING_LINE,
 	CEILING_MS,
 	DEADLINE_ENV,
+	FILE_LIMIT_MS,
 	OWNER_ENV,
 	SETTLE_MS,
 	TARGET_MS,

@@ -67,7 +67,7 @@
 	"scripts/place-new-issue.sh": "160c43155c783f8b",
 	"scripts/queue-run.js": "3976ae99e61e4092",
 	"scripts/reap-finished-sessions.js": "53205957e667ef9f",
-	"scripts/reap-orphan-hooks.js": "74e40816bde7ed56",
+	"scripts/reap-orphan-hooks.js": "b4299866139fa5e8",
 	"scripts/reconcile-plugin.js": "3357bb3f324fc623",
 	"scripts/record-acts.js": "b907d4ce120885b5",
 	"scripts/record-delegated-decision.js": "8f1649ab69cdb3fd",
