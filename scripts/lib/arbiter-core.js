@@ -267,8 +267,11 @@ const paths = {
 	 *   or at the latest when its process does. The backstop reads at Stop,
 	 *   asking a question about the whole session, so it needs a record that
 	 *   survives a broken lock.
+	 *
+	 * @param {string} [root] the host root, where the caller holds one other
+	 *   than its own
 	 */
-	writesDir: () => path.join(stateDir(), "writes"),
+	writesDir: (root) => path.join(stateDirOf(root), "writes"),
 
 	/**
 	 * The selection ledger (#1220): paths an inline `python`/`node` program
