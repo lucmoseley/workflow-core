@@ -2599,6 +2599,54 @@ describe("a session held on its seat's limit (#3735)", () => {
 			expect(comments).toContain("its allowance there $");
 		});
 
+		const readState = () =>
+			JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"));
+
+		it("records the overflow start on its first move onto a key, as a first overflow launch would (#4257)", async () => {
+			seedOverflow();
+			const before = Date.now();
+			const r = await oneTick(Run, 1);
+			expect(r.status).toBe(0);
+			expect(launchState()).toMatchObject({ keyVar: "K2" });
+			const start = readState().overflowStart;
+			expect(start).toMatchObject({
+				seat,
+				planSeats: [{ seat, percent: 100, weekFull: true }],
+				omitted: expect.any(Array),
+			});
+			expect(start.at).toBeGreaterThanOrEqual(before);
+			expect(r.stdout).toContain("first overflow launch on");
+		});
+
+		it("records nothing new on a move after a launch already on a key (#4257)", async () => {
+			seedOverflow();
+			const earlier = {
+				at: Date.now() - 30 * 60 * 1000,
+				seat,
+				planSeats: [],
+				omitted: [],
+			};
+			const state = readState();
+			state.launches.push({
+				root: repo,
+				issues: [8],
+				prompt: "/implement 8",
+				seat,
+				keyVar: "K2",
+				reason: "overflow",
+				jobId: "job8",
+				launchedAt: Date.now() - 30 * 60 * 1000,
+				finishedAt: Date.now() - 10 * 60 * 1000,
+			});
+			state.overflowStart = earlier;
+			fs.writeFileSync(at(".refill-loop-state.json"), JSON.stringify(state));
+			const r = await oneTick(Run, 1);
+			expect(r.status).toBe(0);
+			expect(launchState()).toMatchObject({ keyVar: "K2" });
+			expect(readState().overflowStart).toEqual(earlier);
+			expect(r.stdout).not.toContain("first overflow launch on");
+		});
+
 		it("stops the copy and puts it back held on its plan seat where its ledger row will not write", async () => {
 			seedOverflow();
 			fs.mkdirSync(path.dirname(ledgerPath(repo)), { recursive: true });

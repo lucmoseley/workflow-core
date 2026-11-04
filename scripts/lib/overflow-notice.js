@@ -27,17 +27,25 @@ const planSeatBasisOf = ({ seat, weekRead, weekFull }) => ({
 });
 
 /**
+ * Whether `l` runs on an overflow seat: launched on one, or moved onto its key
+ * (#3736), which keeps the session's own reason.
+ * @param {{reason?: string, keyVar?: string}|undefined} l
+ */
+const isOnKey = (l) => l?.reason === "overflow" || l?.keyVar !== undefined;
+
+/**
  * The first of `launched` on an overflow seat whose predecessor was not, or
  * null. No predecessor counts as a plan seat's.
- * @template {{reason?: string}} L
- * @param {{reason?: string}[]} prior the launches before these, oldest first
+ * @template {{reason?: string, keyVar?: string}} L
+ * @param {{reason?: string, keyVar?: string}[]} prior the launches before
+ *   these, oldest first
  * @param {L[]} launched
  * @returns {L|null}
  */
 function firstOverflowLaunch(prior, launched) {
 	let last = prior.at(-1);
 	for (const l of launched) {
-		if (l.reason === "overflow" && last?.reason !== "overflow") return l;
+		if (isOnKey(l) && !isOnKey(last)) return l;
 		last = l;
 	}
 	return null;
@@ -111,6 +119,7 @@ module.exports = {
 	buildBasisLines,
 	buildOverflowStartLines,
 	firstOverflowLaunch,
+	isOnKey,
 	parseOverflowStart,
 	planSeatBasisOf,
 };

@@ -1245,6 +1245,14 @@ describe("the first overflow launch's record (#3767)", () => {
 		).toBeNull();
 	});
 
+	it("records nothing on an overflow launch after a session moved onto a key (#4257)", () => {
+		expect(
+			settleOverflowLaunch(apiSeat, [
+				{ seat: apiSeat, keyVar: "K2", reason: "moved from ~/.claude2" },
+			]).start,
+		).toBeNull();
+	});
+
 	it("still writes the state where the credentials scan throws", () => {
 		const { start, lines } = settleOverflowLaunch(apiSeat, [], () => {
 			throw new Error("EACCES");
