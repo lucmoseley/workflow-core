@@ -162,10 +162,10 @@ const PARKED_STATE = "blocked";
  * @property {(l: JobLaunch, prompt: string, target: ResumeTarget &
  *   {sessionId: string}) => Resumed} resumeStopped  `claude --bg
  *   --resume` of the stopped job
- * @property {(l: JobLaunch, target: ResumeTarget & {sessionId: string,
- *   allowanceUsd?: number}, since: number) => Adopted} adoptResumed  the job a
- *   resume of its session
- *   on `l`'s seat started from `since`
+ * @property {(l: JobLaunch, target: ResumeTarget & {sessionId: string},
+ *   since: number, move?: MoveTarget) => Adopted} adoptResumed  the job a
+ *   resume of its session on `l`'s seat started from `since`, `move` the
+ *   target of a move onto that seat
  * @property {(l: LoopLaunch) => void} writeLaunch  write the state file with
  *   `l` in place of the launch it was: a resume's stamp before its stop, and its
  *   outcome after (#4180)
@@ -1939,7 +1939,7 @@ function holdForLimit(l, limit, { now, io }) {
  * @param {LimitRead} limit  what a live session's seat reads now
  * @param {{act: LimitAct, failedLine: (held: LimitRead) => string,
  *   resume: (stopped: JobLaunch & {limitHeld: LimitHeld},
- *   ids: ResumeTarget) => LoopLaunch}} how
+ *   ids: ResumeTarget & {sessionId: string}) => LoopLaunch}} how
  * @param {LimitTick} seen
  * @returns {LoopLaunch}
  */
@@ -2230,9 +2230,9 @@ function settleStartedResumes(launches, io) {
  * @returns {LoopLaunch}
  */
 function settleStarted(l, { at, sessionId, cwd, act }, io) {
-	const on = act.kind === "move" ? movedOnto(l, act.to) : l;
-	const allowanceUsd = act.kind === "move" ? act.to.allowanceUsd : undefined;
-	const found = io.adoptResumed(on, { sessionId, cwd, allowanceUsd }, at);
+	const move = act.kind === "move" ? act.to : undefined;
+	const on = move ? movedOnto(l, move) : l;
+	const found = io.adoptResumed(on, { sessionId, cwd }, at, move);
 	const killed = "a kill came between it and the state write";
 	const what = `${launchName(l)}'s resume at ${iso(at)}`;
 	/** @type {{failed: string}|(Resumed & {fromSessionId: string})} */

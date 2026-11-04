@@ -890,13 +890,16 @@ function recordOverflowCopy({ root, keyVar }, from, { jobId, sessionId }) {
  * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"seat"|"keyVar">} l
  * @param {string} from
  * @param {{jobId: string, sessionId: string|null}} run
- * @param {{copy: boolean, cwd: string, allowanceUsd?: number}} how
+ * @param {{copy: boolean, cwd: string,
+ *   move?: import("./refill-blocks.js").MoveTarget}} how  `move`, the target
+ *   of a move onto the key
  * @returns {string|null} why a move's job could not be recorded, which stops
  *   it, else null
  */
 function recordOnKey({ root, seat, keyVar }, from, run, how) {
 	if (!keyVar) return null;
-	const { copy, allowanceUsd } = how;
+	const { copy } = how;
+	const allowanceUsd = how.move?.allowanceUsd;
 	if (allowanceUsd === undefined) {
 		if (copy) recordOverflowCopy({ root, keyVar }, from, run);
 		return null;
@@ -975,10 +978,12 @@ function recordMovedOverflow({ root, keyVar }, from, run) {
  * a later tick judges the resumed turn.
  * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"issues"|"seat"|"keyVar">} l
  * @param {string} prompt
- * @param {{sessionId: string, cwd: string, allowanceUsd?: number}} target
+ * @param {{sessionId: string, cwd: string}} target
+ * @param {import("./refill-blocks.js").MoveTarget} [move] the target of a
+ *   move onto `l`'s seat, which `l` already names
  * @returns {import("./refill-blocks.js").Resumed}
  */
-function resumeStopped(l, prompt, { sessionId, cwd, allowanceUsd }) {
+function resumeStopped(l, prompt, { sessionId, cwd }, move) {
 	const launch = buildSeatLaunch(l);
 	if ("why" in launch) return { failed: launch.why };
 	const { env, settings } = launch;
@@ -1003,15 +1008,10 @@ function resumeStopped(l, prompt, { sessionId, cwd, allowanceUsd }) {
 	if (after?.state === "failed")
 		return { failed: `state failed: ${after.detail}` };
 	if (!started.copy)
-		return settleWoken(l, { jobId, sessionId, cwd, after }, allowanceUsd);
+		return settleWoken(l, { jobId, sessionId, cwd, after }, move);
 	const copySession =
 		typeof after?.sessionId === "string" ? after.sessionId : null;
-	return settleCopy(
-		l,
-		sessionId,
-		{ jobId, sessionId: copySession, cwd },
-		allowanceUsd,
-	);
+	return settleCopy(l, sessionId, { jobId, sessionId: copySession, cwd }, move);
 }
 
 /**
@@ -1021,15 +1021,15 @@ function resumeStopped(l, prompt, { sessionId, cwd, allowanceUsd }) {
  * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"seat"|"keyVar">} l
  * @param {{jobId: string, sessionId: string, cwd: string,
  *   after: {state?: unknown, sessionId?: unknown}|null}} woken
- * @param {number} [allowanceUsd]
+ * @param {import("./refill-blocks.js").MoveTarget} [move]
  * @returns {import("./refill-blocks.js").Resumed}
  */
-function settleWoken(l, { jobId, sessionId, cwd, after }, allowanceUsd) {
+function settleWoken(l, { jobId, sessionId, cwd, after }, move) {
 	if (after?.sessionId !== sessionId || after.state === "stopped")
 		return {
 			failed: `not confirmed: job ${jobId}'s state.json reads ${after?.state ?? "(unread)"}, session ${after?.sessionId ?? "(unread)"}, not ${sessionId}`,
 		};
-	return recordWoken(l, { sessionId, cwd }, { jobId, sessionId }, allowanceUsd);
+	return recordWoken(l, { sessionId, cwd }, { jobId, sessionId }, move);
 }
 
 /**
@@ -1040,18 +1040,19 @@ function settleWoken(l, { jobId, sessionId, cwd, after }, allowanceUsd) {
  * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"issues"|"seat"|"keyVar">} l
  * @param {string} from
  * @param {{jobId: string, sessionId: string|null, cwd: string}} copy
- * @param {number} [allowanceUsd] a move onto the key's allowance, where the
- *   copy is that key's first launch of the session (#3736)
+ * @param {import("./refill-blocks.js").MoveTarget} [move] a move onto the
+ *   key, whose allowance the copy, that key's first launch of the session,
+ *   runs at (#3736)
  * @returns {import("./refill-blocks.js").Resumed} failed only where a move's
  *   job will not record, and is stopped
  */
-function settleCopy(l, from, copy, allowanceUsd) {
+function settleCopy(l, from, copy, move) {
 	const { jobId, sessionId } = copy;
 	const unrecorded = recordOnKey(
 		l,
 		from,
 		{ jobId, sessionId },
-		{ copy: true, cwd: copy.cwd, allowanceUsd },
+		{ copy: true, cwd: copy.cwd, move },
 	);
 	if (unrecorded) return { failed: unrecorded };
 	if (sessionId) {
@@ -1070,23 +1071,24 @@ function settleCopy(l, from, copy, allowanceUsd) {
  * sessions: a copy found is handed what the session held (#4157, #4180); why
  * not, where the job store or a transcript will not read.
  * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"issues"|"seat"|"keyVar"|"pastSessionIds">} l
- * @param {{sessionId: string, cwd: string, allowanceUsd?: number}} target
+ * @param {{sessionId: string, cwd: string}} target
  * @param {number} since
+ * @param {import("./refill-blocks.js").MoveTarget} [move] the target of a
+ *   move onto `l`'s seat, which `l` already names
  * @returns {import("./refill-blocks.js").Adopted}
  */
-function adoptResumed(l, target, since) {
+function adoptResumed(l, target, since, move) {
 	const found = findResumed(l.seat, target, since, l.pastSessionIds ?? []);
 	if (found === null || "unread" in found) return found;
 	const { jobId, sessionId } = found;
-	const { allowanceUsd } = target;
 	const r = found.copy
 		? settleCopy(
 				l,
 				target.sessionId,
 				{ jobId, sessionId, cwd: target.cwd },
-				allowanceUsd,
+				move,
 			)
-		: recordWoken(l, target, { jobId, sessionId }, allowanceUsd);
+		: recordWoken(l, target, { jobId, sessionId }, move);
 	/* A move's job that will not record is stopped, so it reads as no job. */
 	return r.failed === null ? r : { unread: r.failed };
 }
@@ -1097,15 +1099,15 @@ function adoptResumed(l, target, since) {
  * @param {Pick<import("./refill-loop.js").LoopLaunch, "root"|"seat"|"keyVar">} l
  * @param {{sessionId: string, cwd: string}} target
  * @param {{jobId: string, sessionId: string|null}} found
- * @param {number} [allowanceUsd]
+ * @param {import("./refill-blocks.js").MoveTarget} [move]
  * @returns {import("./refill-blocks.js").Resumed}
  */
-function recordWoken(l, target, { jobId, sessionId }, allowanceUsd) {
+function recordWoken(l, target, { jobId, sessionId }, move) {
 	const unrecorded = recordOnKey(
 		l,
 		target.sessionId,
 		{ jobId, sessionId },
-		{ copy: false, cwd: target.cwd, allowanceUsd },
+		{ copy: false, cwd: target.cwd, move },
 	);
 	return unrecorded
 		? { failed: unrecorded }
@@ -1172,16 +1174,14 @@ function removeJobRecord(seat, sessionId, cwd) {
  * @param {{sessionId: string, cwd: string}} ids
  * @returns {import("./refill-blocks.js").Resumed}
  */
-function moveSession(l, { seat, keyVar, allowanceUsd }, prompt, ids) {
+function moveSession(l, target, prompt, ids) {
+	const { seat } = target;
 	const { sessionId, cwd } = ids;
 	const prepared =
 		copyTranscript({ from: l.seat, to: seat, sessionId, cwd }) ??
 		removeJobRecord(seat, sessionId, cwd);
 	if (prepared) return { failed: prepared };
-	const r = resumeStopped(blocks.movedOnto(l, { seat, keyVar }), prompt, {
-		...ids,
-		allowanceUsd,
-	});
+	const r = resumeStopped(blocks.movedOnto(l, target), prompt, ids, target);
 	if (r.failed === null) return r;
 	const stop = stopOn(seat, shortJobId(sessionId));
 	if (!stop.ok && !stop.noJob)

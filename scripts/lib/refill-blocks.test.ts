@@ -3529,8 +3529,8 @@ describe("a block's resume across a kill before the state write (#4180)", () => 
 					},
 				}),
 				{
-					adoptResumed: (l, target) => {
-						adopted.push([l.seat, l.keyVar, target.allowanceUsd]);
+					adoptResumed: (l, _target, _since, move) => {
+						adopted.push([l.seat, l.keyVar, move?.allowanceUsd]);
 						return {
 							failed: null,
 							jobId: "copy1",
