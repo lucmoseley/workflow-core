@@ -588,8 +588,8 @@ function clearRed(r, s) {
 		};
 	if ("next" in step)
 		return { kind: "rerun", sha: step.next, files: r.files, why: "bisect" };
-	const loose = soughtByName(r, step, s);
-	if (loose) return clearRed(r, { ...s, sought: loose });
+	const byName = soughtByName(r, step, s);
+	if (byName) return clearRed(r, { ...s, sought: byName });
 	return confirmAction(r, step, s) ?? culpritAction(r, step, s);
 }
 
@@ -597,7 +597,10 @@ function clearRed(r, s) {
  * `sought` matched by file and test alone, where the bisected parent's whole
  * suite fails one of them on another message and `main` fails no test of
  * that name: a commit that rewords a broken test's message then reads red,
- * not as the break (#4336). Null where no signature would drop.
+ * not as the break (#4336). Null where no signature would drop. Residual: a
+ * test `main` fails by name keeps its signature, so its rewording still holds
+ * at parentAction; and a commit turning a broken test into a truly different
+ * failure is passed over for the one that first broke it.
  * @param {Red} r
  * @param {Culprit} bisected
  * @param {Pick<Clearing, "main" | "sought">} s
@@ -606,20 +609,22 @@ function clearRed(r, s) {
 function soughtByName(r, { parent }, { main, sought }) {
 	if (parent === null || parent === main) return null;
 	const before = r.confirm[parent];
-	/** @param {Failure} want @param {Failure} f */
-	const isNamed = (want, f) => f.test === want.test;
+	/** @param {Failure} a @param {Failure} b */
+	const isSameTest = (a, b) => a.test === b.test;
 	const drops = sought.filter(
 		(want) =>
 			want.signature !== undefined &&
 			failuresIn(before, want.file).some(
-				(f) => isNamed(want, f) && !isSameFailure(f, want),
+				(f) => isSameTest(want, f) && !isSameFailure(f, want),
 			) &&
-			!failuresIn(r.onMain, want.file).some((m) => isNamed(want, m)),
+			!failuresIn(r.onMain, want.file).some((m) => isSameTest(want, m)),
 	);
 	if (drops.length === 0) return null;
-	return sought.map((want) =>
-		drops.includes(want) ? { file: want.file, test: want.test } : want,
-	);
+	return sought.map((want) => {
+		if (!drops.includes(want)) return want;
+		const { signature: _, ...unsigned } = want;
+		return unsigned;
+	});
 }
 
 /**
@@ -1003,6 +1008,23 @@ function culpritSought(r, culprit, sought) {
 }
 
 /**
+ * culpritSought, each failure the merge's second run repeats carrying that
+ * run's signature: a side's own red inherited from `landing` is often the
+ * same test on another message, which a failure matched by name alone would
+ * read as the break (#3926, #4336).
+ * @param {Red} r
+ * @param {string} merge
+ * @param {Failure[]} sought
+ * @returns {Failure[]}
+ */
+function mergeSigned(r, merge, sought) {
+	const v = r.confirm[merge];
+	return culpritSought(r, merge, sought).map(
+		(s) => failuresIn(v, s.file).find((f) => isSameFailure(f, s)) ?? s,
+	);
+}
+
+/**
  * The commit to revert for a confirmed culprit, or the run that finds it.
  * Reverting a merge undoes the whole side it merged in, so where the culprit
  * is one, the line of that side its parent lacks is bisected on `r.files`, and its
@@ -1061,7 +1083,7 @@ const endAtMerge = (merge, why) => ({
  * @returns {Action | Culprit | {whyNoSideCommit: string}}
  */
 function sideCulprit(r, side, bisectedParent, { redJobs, isGreen, sought }) {
-	const search = { redJobs, sought: culpritSought(r, side.merge, sought) };
+	const search = { redJobs, sought: mergeSigned(r, side.merge, sought) };
 	const tip = /** @type {string} */ (side.range.at(-1));
 	const runs = [...Object.values(side.bisect), side.confirm];
 	if (runs.some((v) => v?.kind === "unknown"))

@@ -2601,7 +2601,28 @@ describe("runLander telling two failures in one file apart (#3937)", () => {
 			[D]: signed("reworded"),
 		});
 		expect(r.reverted).toEqual([{ culprit: B, parent: A }]);
-		expect(r.end).not.toMatchObject({ kind: "hold" });
+		expect(r.end).toMatchObject({ kind: "exit" });
+	});
+
+	it("searches a merge's side on the merge's own message where the bisect matched by name (#4336)", async () => {
+		const M = "1".repeat(40);
+		const S0 = "2".repeat(40);
+		const N = "3".repeat(40);
+		const S2 = "4".repeat(40);
+		const r = await run(
+			{ main: A, landing: D },
+			(sha) => {
+				if (sha === S0 || sha === N) return signed("inherited");
+				if (sha === M || sha === S2) return signed("broke");
+				if (sha === C || sha === D) return signed("reworded");
+				return { kind: "green" };
+			},
+			{
+				history: [M, C, D],
+				sides: { [M]: { base: S0, range: [N, S2], merges: [] } },
+			},
+		);
+		expect(r.reverted).toEqual([{ culprit: S2, parent: N }]);
 	});
 
 	it("reads one test as one failure where a run gave no error", async () => {
