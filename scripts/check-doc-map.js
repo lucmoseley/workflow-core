@@ -438,6 +438,7 @@ const {
 	scriptPath,
 } = require("./lib/script-path");
 const { caught } = require("./lib/caught.js");
+const { withGitReadMemo } = require("./lib/git-read-memo.js");
 
 /**
  * How advice names a generator: its npm script in the core, the plugin's copy
@@ -2696,165 +2697,173 @@ function countFailItems(ctx) {
 	return failItemCount;
 }
 
+/**
+ * One reading of the map, every git read it makes sharing one memo: the
+ * checker writes nothing, and asks the same in-flight refs and `HEAD:` blobs
+ * once per assertion that reads them.
+ * @param {Ctx} ctx
+ */
+function checkDocMap(ctx) {
+	const { root, underRoot, mapPath, dataDir } = resolveLocations(ctx);
+	skipOnConflict(ctx);
+	const { text, stamp, entries } = readMap(ctx, mapPath);
+	const sidecar = readClassSidecar(ctx, { dataDir, underRoot });
+	const { allTracked, resolvable } = walkTree(ctx, root);
+	/** @type {Run} */
+	const r = {
+		ctx,
+		underRoot,
+		mapPath,
+		dataDir,
+		text,
+		entries,
+		...sidecar,
+		allTracked,
+		resolvable,
+		tracked: inScope(allTracked),
+		presentUntracked: untrackedMatcher(),
+	};
+	const { tracked } = r;
+
+	const { uncoveredSplit, deadSplit, untracked } = checkCoverage(r);
+	const { badClasses, badReaders } = checkSidecarVocabulary(r);
+	reportUntrackedEntries(ctx, untracked);
+	const { routes, reached, deadRoutes, untrackedRoutes } = checkRoutes(r);
+	const routeIdFaults = checkRouteIds(r);
+	const {
+		restatementData,
+		figures,
+		restatementPaths,
+		figuresRestated,
+		deadRestatements,
+	} = checkRestatements(r);
+	const lineLocators = checkLineLocators(r, { restatementData, figures });
+	const deadAnchors = checkDeadAnchors(r, restatementData);
+	const deadRefs = checkSectionRefs(r);
+	const unreached = reportCensus(r, {
+		restatementPaths,
+		figuresRestated,
+		figures,
+		reached,
+	});
+
+	const sectionBWords = roundedSectionBWords(text);
+
+	const { headings, seen, duplicates } = checkDuplicateIds(r);
+	const rowDuplicates = checkDuplicateKeys(r);
+	const classesDrift = checkCanonicalSidecar(r);
+	const strays = checkStrays(ctx, headings);
+	const settledMissing = checkSettledAt(ctx, figures);
+	const pointers = checkPointerShapes(r, { restatementData, figures });
+	const mapDirty = isMapDirty(ctx, mapPath);
+	const pointerFaults = [
+		...pointers.pointerFaults,
+		...reconcilePointerSidecars(r, figures, pointers),
+	];
+	checkHighWaterMark(r);
+	const malformedConsumes = checkConsumes(r, { headings, mapDirty });
+	checkPairScope(r);
+	reportPointerShape(r, pointerFaults, mapDirty);
+	const newOverCap = checkNewEntryCap(r);
+	const { unrecorded, unrecordedOrNull } = checkAdmissions(r, figures);
+	const staleMarkers = checkStaleMarkers(r);
+	checkMalformedMarkers(r);
+	checkGrownEntries(r);
+	checkDroppedMarkers(r);
+	const { overCapLedger, overCapLedgerOrNull } = checkLedgerCap(r);
+	const { poolDelta, ledgerEntries, triggerFaults } = checkTriggerVerdict(r);
+	checkCompactionVerdict(r, ledgerEntries);
+	const classes = loadClassesUnlessFaulted(r, {
+		badClasses,
+		badReaders,
+		malformedConsumes,
+	});
+	const { hasRegisterTable, renderFaults } = checkSectionA(r, classes);
+	const overCapRoleList = checkRoleCap(ctx, classes);
+	const failItemCount = countFailItems(ctx);
+
+	return {
+		okLine:
+			`doc map covers all ${tracked.length} tracked files in scope ` +
+			`(${entries.length} register entries, ${routes.length} question routes ` +
+			"with no id gap, " +
+			"every route path and every §B restatement path live, no line-number locator, every quoted anchor held, every doc-map section reference live; " +
+			`${seen.size} distinct §B entry ids, each with a \`Settled at\` bullet ` +
+			"and a sidecar-agreeing pointer; no id at or below the high-water mark reused, and none removed above it; " +
+			`no entry new since HEAD over the ${PROSE_CAP_WORDS}-word prose cap; ` +
+			// Silent where HEAD held no copy to compare against, the ledger
+			// clause's reasoning: an OK line claiming the record held, above a
+			// `ctx.say` that it went unchecked, contradicts.
+			(unrecordedOrNull === null
+				? ""
+				: "every entry new since HEAD carrying an admission row; ") +
+			"no stale over-cap marker" +
+			// Silent where there was no ledger to read: an OK line claiming the
+			// cap held, above a `ctx.say` that it went unchecked, contradicts.
+			(overCapLedgerOrNull === null
+				? ""
+				: "; every shed-ledger entry but the newest at or under " +
+					`${LEDGER_ENTRY_CAP_BYTES} B`) +
+			(poolDelta !== null && poolDelta > 0 && ledgerEntries !== null
+				? `; §5's newest ledger entry answers step 2 for this commit's ` +
+					`${poolDelta} B of new pool bytes`
+				: "") +
+			(classes && hasRegisterTable
+				? "; §A matches the generator against " +
+					`${Object.keys(classes).length} sidecar rows, every \`role\` ` +
+					`override at or under ${ROLE_CAP_WORDS} words, every ` +
+					"pair-scope prefix naming the reference beside it"
+				: "") +
+			"); " +
+			`§B ~${sectionBWords.toLocaleString("en-GB")} ` +
+			`words — ${stamp[0].split(" · ")[0]}`,
+		noun: "doc-map problem(s)",
+		count: failItemCount,
+		data: {
+			// Out-of-grace only (mantahostels#1785): lib/fault-profiles.js's `doc-map`
+			// profile diffs every item here as gate material — it has no
+			// `gating` predicate, unlike `findings` — so an in-grace item left
+			// in would be flagged "not in baseline" and refuse a commit the
+			// moment the doc map ALSO carries any unrelated, already-FAILing
+			// entry, exactly the split-commit-pair case grace exists to let
+			// through. The in-grace half is still reported, under its own
+			// UNCOVERED-GRACE/DEAD-ENTRY-GRACE tag in `findings`.
+			uncovered: uncoveredSplit.outOfGrace,
+			dead: deadSplit.outOfGrace,
+			untracked,
+			duplicates,
+			strays,
+			rowDuplicates,
+			pointerFaults,
+			deadRoutes,
+			untrackedRoutes,
+			deadRestatements,
+			lineLocators,
+			deadAnchors,
+			sectionRefs: deadRefs,
+			routeIdFaults,
+			settledMissing,
+			newOverCap,
+			unrecorded,
+			staleMarkers,
+			overCapLedger,
+			triggerFaults,
+			renderFaults,
+			overCapRoles: overCapRoleList,
+			classesDrift,
+			unreached,
+			tracked: tracked.length,
+			entries: entries.length,
+			routes: routes.length,
+		},
+	};
+}
+
 runCheck({
 	name: "doc-map",
 	usage:
 		"node check-doc-map.js [<doc-map.md>] [--data-dir <dir>] [--root <dir>]",
 	valueFlags: ["--data-dir", "--root"],
 	flags: ["--map-dirty"],
-	run(/** @type {Ctx} */ ctx) {
-		const { root, underRoot, mapPath, dataDir } = resolveLocations(ctx);
-		skipOnConflict(ctx);
-		const { text, stamp, entries } = readMap(ctx, mapPath);
-		const sidecar = readClassSidecar(ctx, { dataDir, underRoot });
-		const { allTracked, resolvable } = walkTree(ctx, root);
-		/** @type {Run} */
-		const r = {
-			ctx,
-			underRoot,
-			mapPath,
-			dataDir,
-			text,
-			entries,
-			...sidecar,
-			allTracked,
-			resolvable,
-			tracked: inScope(allTracked),
-			presentUntracked: untrackedMatcher(),
-		};
-		const { tracked } = r;
-
-		const { uncoveredSplit, deadSplit, untracked } = checkCoverage(r);
-		const { badClasses, badReaders } = checkSidecarVocabulary(r);
-		reportUntrackedEntries(ctx, untracked);
-		const { routes, reached, deadRoutes, untrackedRoutes } = checkRoutes(r);
-		const routeIdFaults = checkRouteIds(r);
-		const {
-			restatementData,
-			figures,
-			restatementPaths,
-			figuresRestated,
-			deadRestatements,
-		} = checkRestatements(r);
-		const lineLocators = checkLineLocators(r, { restatementData, figures });
-		const deadAnchors = checkDeadAnchors(r, restatementData);
-		const deadRefs = checkSectionRefs(r);
-		const unreached = reportCensus(r, {
-			restatementPaths,
-			figuresRestated,
-			figures,
-			reached,
-		});
-
-		const sectionBWords = roundedSectionBWords(text);
-
-		const { headings, seen, duplicates } = checkDuplicateIds(r);
-		const rowDuplicates = checkDuplicateKeys(r);
-		const classesDrift = checkCanonicalSidecar(r);
-		const strays = checkStrays(ctx, headings);
-		const settledMissing = checkSettledAt(ctx, figures);
-		const pointers = checkPointerShapes(r, { restatementData, figures });
-		const mapDirty = isMapDirty(ctx, mapPath);
-		const pointerFaults = [
-			...pointers.pointerFaults,
-			...reconcilePointerSidecars(r, figures, pointers),
-		];
-		checkHighWaterMark(r);
-		const malformedConsumes = checkConsumes(r, { headings, mapDirty });
-		checkPairScope(r);
-		reportPointerShape(r, pointerFaults, mapDirty);
-		const newOverCap = checkNewEntryCap(r);
-		const { unrecorded, unrecordedOrNull } = checkAdmissions(r, figures);
-		const staleMarkers = checkStaleMarkers(r);
-		checkMalformedMarkers(r);
-		checkGrownEntries(r);
-		checkDroppedMarkers(r);
-		const { overCapLedger, overCapLedgerOrNull } = checkLedgerCap(r);
-		const { poolDelta, ledgerEntries, triggerFaults } = checkTriggerVerdict(r);
-		checkCompactionVerdict(r, ledgerEntries);
-		const classes = loadClassesUnlessFaulted(r, {
-			badClasses,
-			badReaders,
-			malformedConsumes,
-		});
-		const { hasRegisterTable, renderFaults } = checkSectionA(r, classes);
-		const overCapRoleList = checkRoleCap(ctx, classes);
-		const failItemCount = countFailItems(ctx);
-
-		return {
-			okLine:
-				`doc map covers all ${tracked.length} tracked files in scope ` +
-				`(${entries.length} register entries, ${routes.length} question routes ` +
-				"with no id gap, " +
-				"every route path and every §B restatement path live, no line-number locator, every quoted anchor held, every doc-map section reference live; " +
-				`${seen.size} distinct §B entry ids, each with a \`Settled at\` bullet ` +
-				"and a sidecar-agreeing pointer; no id at or below the high-water mark reused, and none removed above it; " +
-				`no entry new since HEAD over the ${PROSE_CAP_WORDS}-word prose cap; ` +
-				// Silent where HEAD held no copy to compare against, the ledger
-				// clause's reasoning: an OK line claiming the record held, above a
-				// `ctx.say` that it went unchecked, contradicts.
-				(unrecordedOrNull === null
-					? ""
-					: "every entry new since HEAD carrying an admission row; ") +
-				"no stale over-cap marker" +
-				// Silent where there was no ledger to read: an OK line claiming the
-				// cap held, above a `ctx.say` that it went unchecked, contradicts.
-				(overCapLedgerOrNull === null
-					? ""
-					: "; every shed-ledger entry but the newest at or under " +
-						`${LEDGER_ENTRY_CAP_BYTES} B`) +
-				(poolDelta !== null && poolDelta > 0 && ledgerEntries !== null
-					? `; §5's newest ledger entry answers step 2 for this commit's ` +
-						`${poolDelta} B of new pool bytes`
-					: "") +
-				(classes && hasRegisterTable
-					? "; §A matches the generator against " +
-						`${Object.keys(classes).length} sidecar rows, every \`role\` ` +
-						`override at or under ${ROLE_CAP_WORDS} words, every ` +
-						"pair-scope prefix naming the reference beside it"
-					: "") +
-				"); " +
-				`§B ~${sectionBWords.toLocaleString("en-GB")} ` +
-				`words — ${stamp[0].split(" · ")[0]}`,
-			noun: "doc-map problem(s)",
-			count: failItemCount,
-			data: {
-				// Out-of-grace only (mantahostels#1785): lib/fault-profiles.js's `doc-map`
-				// profile diffs every item here as gate material — it has no
-				// `gating` predicate, unlike `findings` — so an in-grace item left
-				// in would be flagged "not in baseline" and refuse a commit the
-				// moment the doc map ALSO carries any unrelated, already-FAILing
-				// entry, exactly the split-commit-pair case grace exists to let
-				// through. The in-grace half is still reported, under its own
-				// UNCOVERED-GRACE/DEAD-ENTRY-GRACE tag in `findings`.
-				uncovered: uncoveredSplit.outOfGrace,
-				dead: deadSplit.outOfGrace,
-				untracked,
-				duplicates,
-				strays,
-				rowDuplicates,
-				pointerFaults,
-				deadRoutes,
-				untrackedRoutes,
-				deadRestatements,
-				lineLocators,
-				deadAnchors,
-				sectionRefs: deadRefs,
-				routeIdFaults,
-				settledMissing,
-				newOverCap,
-				unrecorded,
-				staleMarkers,
-				overCapLedger,
-				triggerFaults,
-				renderFaults,
-				overCapRoles: overCapRoleList,
-				classesDrift,
-				unreached,
-				tracked: tracked.length,
-				entries: entries.length,
-				routes: routes.length,
-			},
-		};
-	},
+	run: (/** @type {Ctx} */ ctx) => withGitReadMemo(() => checkDocMap(ctx)),
 });
