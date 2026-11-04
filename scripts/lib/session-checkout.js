@@ -14,6 +14,14 @@
  * directory renamed into place whole, and is never installed into again. One build runs per key: a cut finding a live builder's lock waits for
  * its store rather than running a second `npm ci` against the memory cap.
  *
+ * A STORE IS READ-ONLY: its `node_modules` loses every write bit before the
+ * rename, so a tool caching under `node_modules` fails or falls back rather
+ * than writing under each neighbour on the lockfile (#4255). Vite falls back
+ * on its own, bundling its config beside the source; vitest's cache sits in
+ * the worktree (vitest.config.ts `cacheDir`); guard-npm-install refuses an
+ * install through the link. Removing a store gives its directories their
+ * owner's write bit back first.
+ *
  * LAND merges a freshly fetched `origin/landing` into the worktree's `HEAD` and
  * pushes `HEAD:landing`, then starts the lander. A merge, never a rebase: git
  * runs `pre-merge-commit`, and so the whole pre-commit stack, on a merge
@@ -26,9 +34,8 @@
  * THE STORES LIVE UNDER `.claude/worktrees/.dep-stores/`, so the ignores every
  * tool already carries for the worktrees folder cover them too. A session name may not start with a dot, so none collides with it.
  *
- * Residual: nothing yet keeps a store immutable — a tool caching under
- * `node_modules` writes through the link (#4255) — and nothing removes a store
- * no worktree links; the reaper does that (#4247).
+ * Residual: nothing removes a store no worktree links; the reaper does that
+ * (#4247).
  */
 
 const crypto = require("node:crypto");
@@ -169,6 +176,36 @@ function takeBuildLock(lock, store) {
 }
 
 /**
+ * Every write bit off under `dir`, a directory's after its entries'. Links
+ * are left: their modes are never read.
+ * @param {string} dir
+ */
+function freeze(dir) {
+	for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+		const at = path.join(dir, entry.name);
+		if (entry.isDirectory()) freeze(at);
+		else if (entry.isFile()) fs.chmodSync(at, fs.statSync(at).mode & ~0o222);
+	}
+	fs.chmodSync(dir, fs.statSync(dir).mode & ~0o222);
+}
+
+/**
+ * Remove `dir`, absent or frozen: each directory gets its owner's write bit
+ * back, which is all a removal of its entries needs.
+ * @param {string} dir
+ */
+function removeTree(dir) {
+	/** @param {string} at */
+	const thaw = (at) => {
+		fs.chmodSync(at, fs.statSync(at).mode | 0o200);
+		for (const entry of fs.readdirSync(at, { withFileTypes: true }))
+			if (entry.isDirectory()) thaw(path.join(at, entry.name));
+	};
+	if (fs.lstatSync(dir, { throwIfNoEntry: false })?.isDirectory()) thaw(dir);
+	fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/**
  * The store for the lockfile in `from`, built from its manifests where absent.
  * @param {string} root the main checkout
  * @param {string} from
@@ -192,7 +229,7 @@ function ensureStore(root, from) {
 			return { store, built: false };
 		/* A store directory without `node_modules` is a dead build's leftover. */
 		fs.rmSync(store, { recursive: true, force: true });
-		fs.rmSync(staging, { recursive: true, force: true });
+		removeTree(staging);
 		fs.mkdirSync(staging);
 		for (const name of MANIFESTS)
 			if (fs.existsSync(path.join(from, name)))
@@ -202,10 +239,11 @@ function ensureStore(root, from) {
 			throw new Error(
 				`npm ci exited 0 but left no node_modules in ${staging} — check what WFC_NPM or npm names, then attach again`,
 			);
+		freeze(path.join(staging, "node_modules"));
 		fs.renameSync(staging, store);
 		return { store, built: true };
 	} finally {
-		fs.rmSync(staging, { recursive: true, force: true });
+		removeTree(staging);
 		fs.rmSync(lock, { force: true });
 	}
 }

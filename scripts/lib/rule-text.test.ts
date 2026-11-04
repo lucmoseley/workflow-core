@@ -894,6 +894,14 @@ describe("readRuleTextOr, for a guard that must not crash (#1044)", () => {
 		expect(readLogged()).toContain("guard-x rule-text a-rule");
 	});
 
+	it("answers the lead in the fallback template where the store cannot be read at all (#772)", () => {
+		process.env.WFC_RULES_DIR = path.join(store({}), "gone");
+		expect(lib.readRuleTextOr("a-rule", "Short", "guard-x")).toBe(
+			"Short; the rule could not be read from docs/agents/rules/a-rule.txt. Read that file before doing anything else.",
+		);
+		expect(readLogged()).toContain("guard-x rule-text a-rule");
+	});
+
 	/* A failed root read is never memoised, so the record re-reading the root
 	 * would spawn git a second time. A subprocess, so no earlier read in this
 	 * one has memoised it. */
