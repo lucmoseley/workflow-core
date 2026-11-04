@@ -2594,6 +2594,16 @@ describe("runLander telling two failures in one file apart (#3937)", () => {
 		expect(r.reverted).toEqual([{ culprit: C, parent: B }]);
 	});
 
+	it("bisects below a parent that fails the sought test with another message (#4336)", async () => {
+		const r = await batch({
+			[B]: signed("broke"),
+			[C]: signed("reworded"),
+			[D]: signed("reworded"),
+		});
+		expect(r.reverted).toEqual([{ culprit: B, parent: A }]);
+		expect(r.end).not.toMatchObject({ kind: "hold" });
+	});
+
 	it("reads one test as one failure where a run gave no error", async () => {
 		const r = await batch({ [A]: failing("scan"), [D]: signed("boom") });
 		expect(r.end).toMatchObject({ kind: "hold", cause: "already-red" });

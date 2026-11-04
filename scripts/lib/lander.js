@@ -588,7 +588,38 @@ function clearRed(r, s) {
 		};
 	if ("next" in step)
 		return { kind: "rerun", sha: step.next, files: r.files, why: "bisect" };
+	const loose = soughtByName(r, step, s);
+	if (loose) return clearRed(r, { ...s, sought: loose });
 	return confirmAction(r, step, s) ?? culpritAction(r, step, s);
+}
+
+/**
+ * `sought` matched by file and test alone, where the bisected parent's whole
+ * suite fails one of them on another message and `main` fails no test of
+ * that name: a commit that rewords a broken test's message then reads red,
+ * not as the break (#4336). Null where no signature would drop.
+ * @param {Red} r
+ * @param {Culprit} bisected
+ * @param {Pick<Clearing, "main" | "sought">} s
+ * @returns {Failure[]|null}
+ */
+function soughtByName(r, { parent }, { main, sought }) {
+	if (parent === null || parent === main) return null;
+	const before = r.confirm[parent];
+	/** @param {Failure} want @param {Failure} f */
+	const isNamed = (want, f) => f.test === want.test;
+	const drops = sought.filter(
+		(want) =>
+			want.signature !== undefined &&
+			failuresIn(before, want.file).some(
+				(f) => isNamed(want, f) && !isSameFailure(f, want),
+			) &&
+			!failuresIn(r.onMain, want.file).some((m) => isNamed(want, m)),
+	);
+	if (drops.length === 0) return null;
+	return sought.map((want) =>
+		drops.includes(want) ? { file: want.file, test: want.test } : want,
+	);
 }
 
 /**
