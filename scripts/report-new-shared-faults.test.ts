@@ -37,6 +37,7 @@ import {
 	cutPostCommitBlock,
 } from "./lib/precommit-gate-testkit";
 import { runInProcess } from "./lib/run-in-process";
+import { COSTS } from "./lib/shared-fault-costs";
 
 const temps = registerTempCleanup();
 
@@ -893,8 +894,7 @@ describe("the notice the session reads", () => {
 		expect(text).toContain(child);
 		expect(text).toContain("guard-registry");
 		expect(text).toContain("CLAUDE.md");
-		// mantahostels#1750's cost line for this checker: who the red now refuses.
-		expect(text).toContain("refuses every other session's commit touching");
+		expect(text).toContain("warns every other session's commit touching docs/");
 		expect(text).toContain("REPORTS and never blocks");
 		// The route in, so the one-line summary is not a dead end (story 10).
 		expect(text).toContain("In full, WARNs and context included: node");
@@ -1030,6 +1030,46 @@ describe("the notice the session reads", () => {
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
 	}, 30_000);
+});
+
+/**
+ * A row's `why` states whether .husky/pre-commit runs its checker `--against`
+ * (#4221). doc-map is direction-gated by its own staged-vs-HEAD block.
+ */
+describe("each COSTS row's direction-gate claim", () => {
+	const OwnDirectionGate = new Set(["doc-map"]);
+	const hook = fs.readFileSync(
+		path.join(REPO_ROOT, ".husky", "pre-commit"),
+		"utf8",
+	);
+	const scriptOf = (full: string) => {
+		const m = /scripts\/([\w-]+\.js)/.exec(full);
+		if (!m?.[1]) throw new Error(`no checker script in ${full}`);
+		return m[1];
+	};
+	const cases = Object.entries(COSTS).map(([profile, { why, full }]) => {
+		const script = scriptOf(full);
+		const runs = hook
+			.split("\n")
+			.filter(
+				(l) =>
+					!l.trimStart().startsWith("#") && l.includes(`scripts/${script}`),
+			);
+		return { profile, why, script, runs };
+	});
+
+	it.each(cases)(
+		"$profile's why names the direction gate the hook runs $script with",
+		({ profile, why, runs }) => {
+			expect(runs.length).toBeGreaterThan(0);
+			const claimsGate = why.includes("direction-gated");
+			if (OwnDirectionGate.has(profile)) {
+				expect(claimsGate).toBe(true);
+				return;
+			}
+			expect(runs.some((l) => l.includes("--against"))).toBe(claimsGate);
+		},
+	);
 });
 
 /*
