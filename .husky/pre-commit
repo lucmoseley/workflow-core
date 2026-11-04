@@ -18,7 +18,7 @@ set -e # an adopter's git runs this file itself, outside husky's errexit wrapper
 # The repo this hook runs in, not an inherited CLAUDE_PROJECT_DIR (#3307); skipped where the lib is missing.
 # shellcheck source=scripts/lib/hook-root.sh
 [ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh"
-# Every `node` and `bash` below under one wall-clock limit (#4187); unbounded where the lib is missing.
+# Every `node` and `bash` below under one wall-clock limit (#4187); unbounded where the lib is missing or defines no hook_bound (#4266).
 # shellcheck source=scripts/lib/hook-bound.sh
 [ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh"
 command -v hook_bound >/dev/null 2>&1 || hook_bound() { "$@"; }

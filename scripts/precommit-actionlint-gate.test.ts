@@ -347,7 +347,7 @@ describe("the pre-commit actionlint gate", () => {
 		);
 		expect(
 			invocation,
-			"the gate no longer invokes actionlint ahead of a `||`",
+			"the gate no longer invokes `hook_bound actionlint` ahead of a `||`",
 		).not.toBeNull();
 		expect((invocation as RegExpExecArray)[1].trim()).toBe("$tool_paths");
 	});
