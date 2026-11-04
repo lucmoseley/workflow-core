@@ -9,6 +9,7 @@
  * IMPLICIT:  injects the four recurrence checks and this host's tracker corpus into a session whose prompt names a fault coming back, or starts with `/diagnosing-bugs`, and the `/wait-what` re-pitch into one whose prompt asks for a simpler re-pitch — without the session asking.
  * JUSTIFIED: fail-safe — a recurrence diagnosed from scratch repeats the earlier fix's blind spot; a reply that missed is otherwise re-pitched from the agent's own defaults, since the founder never types `/wait-what` (#628).
  * DEFEAT:    the host's `disabled` list naming `inject-founder-wording`; otherwise none — keyed to the prompt's wording.
+ * TREE:      host — injects rule texts and the host root's corpus config
  *
  * It answers under the dispatcher row's name, so one `disabled` entry,
  * `inject-founder-wording`, silences both routes (#569).

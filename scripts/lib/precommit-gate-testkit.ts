@@ -88,6 +88,13 @@ export const LIB = fs.readFileSync(
 	"utf8",
 );
 
+/** `scripts/lib/hook-bound.sh`, which the hook sources ahead of every gate
+ * that opens `hook_bound` (#4187). */
+export const HOOK_BOUND_LIB = fs.readFileSync(
+	path.join(ROOT, "scripts", "lib", "hook-bound.sh"),
+	"utf8",
+);
+
 /** The commands LIB's arming read and temp-dir trap shell out to, which a
  * fixture running a gate on a PATH of its own must hold. */
 export const LIB_COMMANDS = [

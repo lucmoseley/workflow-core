@@ -757,8 +757,9 @@ function sessionIdsOf(opts, how = {}) {
  * added back, as `{ids}`, with `names` mapping each listed id to its display
  * name, `finished` holding the subset that has FINISHED but is still
  * resident, mirroring `listedSessionIds`'s field (mantahostels#2765), and `terminal`
- * holding the wider subset that has stopped working HOWEVER it ended (mantahostels#2774) —
- * or `{why}`, the sentence explaining why nothing can be said.
+ * holding the wider subset that has stopped working HOWEVER it ended (mantahostels#2774),
+ * and `cwds` each listed session's cwd — or `{why}`, the sentence explaining
+ * why nothing can be said.
  *
  * See `isTerminalAgent` for why they are not one predicate.
  *
@@ -784,8 +785,8 @@ function sessionIdsOf(opts, how = {}) {
  * the shortlist while its session works on — a deliberate fail-open (.claude/skills/pick-next/SKILL.md).
  *
  * @param {Opts} [opts]
- * @returns {{ids: Set<string>, names: Map<string, string>, finished: Set<string>, terminal: Set<string>, why?: undefined}
- *   | {why: string, ids?: undefined, names?: undefined, finished?: undefined, terminal?: undefined}}
+ * @returns {{ids: Set<string>, names: Map<string, string>, finished: Set<string>, terminal: Set<string>, cwds: Map<string, string>, why?: undefined}
+ *   | {why: string, ids?: undefined, names?: undefined, finished?: undefined, terminal?: undefined, cwds?: undefined}}
  */
 function sweepSessionIds(opts) {
 	return refuseOnThrow(opts, false, (listed) => {
@@ -806,7 +807,8 @@ function sweepSessionIds(opts) {
 		const terminal = new Set(
 			listed.agents.filter(isTerminalAgent).map((a) => a.sessionId),
 		);
-		return { ids, names, finished, terminal };
+		const { cwds } = agentFieldMaps(listed.agents);
+		return { ids, names, finished, terminal, cwds };
 	});
 }
 

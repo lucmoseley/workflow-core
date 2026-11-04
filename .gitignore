@@ -53,6 +53,12 @@ __pycache__/
 # graphify knowledge-graph output — a one-off discovery aid, regenerable, not a tracked artefact
 graphify-out/
 
+# vite's cache (vitest.config.ts `cacheDir`), and the bundled config vite writes
+# beside its source when a read-only dependency store refuses it
+# `node_modules/.vite-temp/` (#4255)
+.vite/
+vitest.config.ts.timestamp-*.mjs
+
 # pytest
 .pytest_cache/
 .ruff_cache/

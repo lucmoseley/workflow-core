@@ -1,6 +1,6 @@
 # workflow-core document map
 
-v1.13 · 23 October 2026
+v1.14 · 4 November 2026
 
 > Three things live here. **Section A** says what each document is and who may edit it, rendered from `docs/doc-map-classes.json` by `npm run gen:doc-map-section-a`. **Section B** is the figure registry: a number or claim restated in more than one place, with its owner. **Section C** routes a question to the document that answers it. `scripts/check-doc-map.js` gates all three, and refuses a `docs/doc-map.md §<name>` reference that names no section here, outside binary assets and tests. **§The propagation pass** carries a settled fact to every copy of it; **§Capture and placement**, last, says where a settled fact goes and caps what every session loads.
 
@@ -311,6 +311,9 @@ None registered.
 
 ### C1 · How do I start a new repo from workflow-core?
 - **Read:** `docs/new-repo.md`.
+
+### C2 · How do I start a session by hand?
+- **Run:** `scripts/start-session.sh [<session-name>] [<claude args>...]` from inside the repo; its header gives the plan and exit codes.
 
 ## The propagation pass
 

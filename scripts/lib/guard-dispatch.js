@@ -48,6 +48,7 @@
  * to run on that call its say.
  */
 
+const { CORE_FAULT_TEXT } = require("./core-fault.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
@@ -412,7 +413,7 @@ function thrown(core, msg, log) {
 	log(`core threw — refused: ${msg}`);
 	return {
 		permissionDecision: "deny",
-		reason: `${core.name} could not judge this call, and it fails closed: ${msg}`,
+		reason: `${core.name} ${CORE_FAULT_TEXT}, and it fails closed: ${msg}`,
 	};
 }
 
@@ -468,7 +469,12 @@ function repoRel(file, root) {
 	/** @param {string} p */
 	const under = (p) => {
 		const rel = path.relative(root, p);
-		return rel && !rel.startsWith("..") && !path.isAbsolute(rel) ? rel : null;
+		return rel &&
+			rel !== ".." &&
+			!rel.startsWith(`..${path.sep}`) &&
+			!path.isAbsolute(rel)
+			? rel
+			: null;
 	};
 	const abs = path.resolve(file);
 	const direct = under(abs);

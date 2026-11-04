@@ -61,19 +61,36 @@ function readOrNull(file) {
 
 /**
  * The two file reads take the session's tree from the core (#4242): the
- * install edits that tree's package.json, and its `npx` resolves there.
+ * install edits that tree's package.json, and its `npx` resolves there. The
+ * dependency stores are the host root's.
+ * @param {string} root the host root
  * @returns {import("./npm-install.js").NpmInstallPorts}
  */
-function buildHostPorts() {
+function buildHostPorts(root) {
 	const npm = process.env.WFC_NPM || "npm";
 	const curl = process.env.WFC_CURL || "curl";
 	return {
-		readPackageJson: (root) => {
-			const pkg = path.join(root, "package.json");
+		readPackageJson: (tree) => {
+			const pkg = path.join(tree, "package.json");
 			return { path: pkg, text: readOrNull(pkg) };
 		},
-		readManifest: (root, dep) =>
-			readOrNull(path.join(root, "node_modules", dep, "package.json")),
+		pathExists: (p) => fs.lstatSync(p, { throwIfNoEntry: false }) !== undefined,
+		linkTarget: (p) => {
+			try {
+				return fs.readlinkSync(p);
+			} catch (err) {
+				/* Absent, or no link: nothing links there (#4255). Any other
+				 * fault throws, and the entry refuses on the record. */
+				const code = /** @type {NodeJS.ErrnoException} */ (err).code;
+				if (code === "ENOENT" || code === "EINVAL") return null;
+				throw err;
+			}
+		},
+		/* Loaded on a judged write only: the module brings the lander and git
+		 * with it (#4269). */
+		storesDir: () => path.join(root, require("./session-checkout.js").STORES),
+		readManifest: (tree, dep) =>
+			readOrNull(path.join(tree, "node_modules", dep, "package.json")),
 		npmView: (name) =>
 			call(npm, ["view", name, "time.created", "--json"], NPM_TIMEOUT_MS),
 		downloads: (name) =>

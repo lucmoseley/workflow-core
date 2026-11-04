@@ -176,7 +176,8 @@ function tabRecords(text, n) {
  * @typedef {PortEnv & { name: string, room?: () => number,
  *   corePaths?: (text: string) => string }} RenderAt `name` is the guard a
  *   refusal names; `room`, what the hook entry has left, read only where the
- *   decision says something; `corePaths` respells a Context's script paths
+ *   decision says something; `corePaths` respells the script paths of a
+ *   Context or an injection's prelude
  */
 
 /**
@@ -191,9 +192,7 @@ function render(decision, at) {
 	if ("deny" in decision)
 		return { deny: decision.deny, latches: decision.latchWrites ?? [] };
 	if (!("context" in decision)) return renderInjection(decision, at);
-	const context = at.corePaths
-		? at.corePaths(decision.context)
-		: decision.context;
+	const context = respelled(decision.context, at.corePaths);
 	if (!at.room || context.length <= at.room())
 		return { context, latches: decision.latchWrites ?? [] };
 	at.log("a core's context overran the persist room — dropped");
@@ -215,8 +214,12 @@ const hasOwnText = (decision) =>
  * @param {RenderAt} at
  * @returns {Rendered}
  */
-function renderInjection(decision, { payload, root, name, log, room }) {
-	const { prelude = "" } = decision;
+function renderInjection(
+	decision,
+	{ payload, root, name, log, room, corePaths },
+) {
+	const { prelude: written = "" } = decision;
+	const prelude = respelled(written, corePaths);
 	const overRoom = !!prelude && !!room && prelude.length > room();
 	if (overRoom) log("a core's prelude overran the persist room");
 	const kept = overRoom ? "" : prelude;
@@ -259,6 +262,14 @@ function renderInjection(decision, { payload, root, name, log, room }) {
 		...flagged,
 	};
 }
+
+/**
+ * A Context or prelude, its script paths respelled where `corePaths` is given.
+ * @param {string} text
+ * @param {((text: string) => string) | undefined} corePaths
+ */
+const respelled = (text, corePaths) =>
+	text && corePaths ? corePaths(text) : text;
 
 /**
  * The rule cap and each id's fragment. A prelude alone is outside the cap, so a

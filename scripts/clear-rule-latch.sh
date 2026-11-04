@@ -13,6 +13,7 @@
 # IMPLICIT:  at every compaction, deletes this session's (and its subagents') rule-injection latch markers from .claude/tmp/markers, so each relocated rule is handed to the session once more after its context is cut.
 # JUSTIFIED: fail-safe — a latch outliving the text it latched leaves a session holding neither the rule nor any prospect of being given it, which is worse than never having injected it.
 # DEFEAT:    none; remove the PreCompact entry in self-plugin/hooks/hooks.json to turn it off.
+# TREE:      host — clears this session's rule latches from the host root's markers
 
 set -uo pipefail
 

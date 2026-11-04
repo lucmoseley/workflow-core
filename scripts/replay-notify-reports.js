@@ -71,6 +71,7 @@
  * DEFEAT:    none at the hook. --notify shows and consumes only what is fresh
  *            and unshown, so a start with nothing outstanding is silent, and a
  *            plain hand run shows everything and records nothing.
+ * TREE:      host — replays reports from the host root's notify store against the hooks it registers
  */
 
 const crypto = require("node:crypto");

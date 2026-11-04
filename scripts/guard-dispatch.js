@@ -13,10 +13,13 @@
  * LIMITS
  *  - With no node on PATH the hook line exits 0: every core is skipped,
  *    unlogged.
- *  - A fault in the kit itself refuses every Bash, Write, Edit, NotebookEdit,
- *    Skill, Read, ListAgents, Agent and Task call until it is fixed: the crash
- *    reaches `onFailure: block`. On PostToolUse the same fault silences every
- *    core there until it is fixed. A core module's own load fault is no kit
+ *  - The hook line runs this entry from the pinned guard code through
+ *    scripts/run-pinned-guards.js (lib/guard-code.js, #4227), so a working copy's
+ *    edit never reaches it. A fault in the kit there refuses every Bash,
+ *    Write, Edit, NotebookEdit, Skill, Read, ListAgents, Agent and Task call
+ *    until it is repaired: the shim refuses, naming the founder's repair, and
+ *    a crash it cannot catch reaches `onFailure: block`. On PostToolUse the
+ *    same fault silences every core there until it is repaired. A core module's own load fault is no kit
  *    fault: it gets that row's failure policy, the other cores still run, and
  *    it is logged under the core's name. An open core's fault therefore
  *    silences that core until it is fixed, and a fault in a lib several open

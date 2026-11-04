@@ -215,7 +215,7 @@ describe("the CLI boundary — argv, exit codes and what the message names", () 
 		expect(status).toBe(0);
 		const data = JSON.parse(stdout);
 		expect(data.corpus).toEqual(
-			expect.objectContaining({ dir, transcripts: 1, unreadable: [] }),
+			expect.objectContaining({ dirs: [dir], transcripts: 1, unreadable: [] }),
 		);
 	});
 

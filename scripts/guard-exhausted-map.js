@@ -33,6 +33,7 @@
  *            or loops (#3570).
  * DEFEAT:    at most three blocks a session; silent with no claim, on a parking
  *            turn, and on every read error.
+ * TREE:      both — its park targets come from guard-inventory.js, whose hand-off read is the session tree's, the hook's cwd; claims, ledgers and the tracker are the host root's
  */
 
 const { parkTargets } = require("./guard-inventory");

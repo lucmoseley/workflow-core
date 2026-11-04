@@ -89,6 +89,7 @@ async function run(
 	const revertWhys: string[] = [];
 	const actions: unknown[] = [];
 	const mainJobsRead: string[][] = [];
+	const moved: string[] = [];
 	let refsRead = 0;
 	let released = 0;
 	const waits: number[] = [];
@@ -206,9 +207,13 @@ async function run(
 		say: (line) => {
 			said.push(line);
 		},
+		mainMoved: () => {
+			moved.push(remote.main ?? "");
+		},
 	});
 	return {
 		end,
+		moved,
 		pushes,
 		stuck: [...noVerdict],
 		tested,
@@ -240,6 +245,20 @@ describe("runLander", () => {
 		]);
 		expect(r.pushes).toEqual([{ sha: B, ledgerAtPush: [B] }]);
 		expect(r.released).toBe(1);
+	});
+
+	it("tells the guard code's adoption after each move of main, and never after a refused push (#4227)", async () => {
+		const remote = { main: A, landing: B as string | null };
+		const r = await run(remote, green, {
+			onTest: (sha) => {
+				if (sha === B) remote.landing = C;
+			},
+		});
+		expect(r.moved).toEqual([B, C]);
+		const refused = await run({ main: A, landing: B }, green, {
+			pushRefused: " ! [remote rejected] bbbbbbbbb -> main (declined)\n",
+		});
+		expect(refused.moved).toEqual([]);
 	});
 
 	it("records in its beats when it moved main, from the push on (#2692)", async () => {

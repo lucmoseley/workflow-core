@@ -20,6 +20,7 @@
  * IMPLICIT:  at a background job's `needs input:` Stop whose round is posted on an issue this session claims, or that parks on a repo hold the job is attached to, adds the `parked` label to that issue and records it, with the session's seat, any overflow key, job and cwd, in its `.parked-` marker.
  * JUSTIFIED: fail-safe — a parked ticket left on the frontier is relaunched every refill, and each relaunch re-asks the same round (#1995).
  * DEFEAT:    none needed — it never blocks.
+ * TREE:      both — its park targets come from guard-inventory.js, whose hand-off read is the session tree's, the hook's cwd; claims, holds and the parked marker are the host root's
  */
 
 const { parkTargets } = require("./guard-inventory");

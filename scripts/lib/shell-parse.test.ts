@@ -15,6 +15,7 @@
 
 import { describe, expect, it } from "vitest";
 import { fakeTreeClassifier } from "./git-tree-fake.js";
+import { Lexer } from "./shell-lexer.js";
 import type {
 	Command,
 	GitCall,
@@ -1201,7 +1202,25 @@ describe("logical lines (mantahostels#182)", () => {
 			"a 40 KB body on one physical line",
 			`gh issue create --title t --body "${`it's \\"q\\" line. `.repeat(2500)}" --label takes:triage`,
 		],
-	])("joins %s (#510)", (_, command) => {
+	])("joins %s inside the bound (#510, #1916)", (_, command) => {
+		// Counted, not clocked (#1916): a join that re-lexes its pending lines
+		// goes quadratic and far over three passes of the text. Three passes is
+		// the bash parser's bound (#1916); these inputs measure 2.0–2.97 (#4134).
+		let lexed = 0;
+		const lex = Lexer.prototype.lex;
+		Lexer.prototype.lex = function (
+			this: InstanceType<typeof Lexer>,
+			text: string,
+		) {
+			lexed += text.length;
+			return lex.call(this, text);
+		};
+		try {
+			parseCommand(command);
+		} finally {
+			Lexer.prototype.lex = lex;
+		}
+		expect(lexed).toBeLessThanOrEqual(3 * command.length);
 		const out = lines(command);
 		expect(out).toHaveLength(1);
 		expect(out[0]).toContain("--label takes:triage");
@@ -1563,6 +1582,17 @@ describe('walkGit, scope "shared"', () => {
 		expect(call?.args[1]).toContain(QUOTED);
 	});
 
+	it("hands the git walk its arguments without redirections (#764)", () => {
+		expect(
+			walkGitRun("git push origin main 2>&1 >| log", {
+				subs: ["push"],
+				noun: "push",
+			}).out,
+		).toBe(
+			`[git push origin main 2>&1 >| log][push][${SHARED}][origin][main]\n`,
+		);
+	});
+
 	it("judges a git command behind a wrapper only under unwrap (#1731)", () => {
 		expect(walkGitRun("env X=1 git checkout x").calls).toEqual([]);
 		expect(
@@ -1755,10 +1785,11 @@ describe("path resolution through the git walk", () => {
 	it("reads an empty path as the cwd, which is where the shell leaves it (#301)", () => {
 		// Judged from `elsewhere`, so staying put means no verdict — and no
 		// fail-open record either, which is the half that matters.
-		expect(judged('cd "" && git checkout x').out).toBe("");
-		const r = judged('git -C "" checkout x');
-		expect(r.out).toBe("");
-		expect(r.logged).toEqual([]);
+		for (const command of ['cd "" && git checkout x', 'git -C "" checkout x']) {
+			const r = judged(command);
+			expect(r.out).toBe("");
+			expect(r.logged).toEqual([]);
+		}
 		expect(judged(`cd "${SHARED}" && cd "" && git checkout x`).out).toContain(
 			`[checkout][${SHARED}]`,
 		);

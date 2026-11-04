@@ -22,6 +22,13 @@ from inside a script skips the memory gate, which only sees the outer command
 (docs/environment.md §6). `--seat` refuses a driver that is itself a suite,
 such as `pytest`.
 
+## Plant the mutant in a throwaway worktree
+
+**Plant a mutant only in a throwaway worktree, never in the shared tree**
+(`git worktree add --detach <dir> HEAD`). Every other session's git hooks
+load the shared tree's working copy, so a mutant there runs in their gates
+(#4170, #4187). **Unenforced**: no guard detects a mutant in the shared tree.
+
 ## Prove the mutation landed
 
 - **`perl -pi -e 's/…/…/'` exits 0 when the pattern matches nothing**, so a

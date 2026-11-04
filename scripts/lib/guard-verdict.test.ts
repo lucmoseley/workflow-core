@@ -76,6 +76,16 @@ describe("walkVerdict", () => {
 });
 
 describe("denyText", () => {
+	it("splices a segment holding & or $& as typed, never as a replacement pattern", () => {
+		expect(denyText(ctx, "foo & bar $& baz", "ran: @CMD@")).toBe(
+			"ran: foo & bar $& baz",
+		);
+	});
+
+	it("splices a segment holding a backslash as typed", () => {
+		expect(denyText(ctx, "a\\b", "ran: @CMD@")).toBe("ran: a\\b");
+	});
+
 	it("splices the segment as unmask shows it, after the path rewrite", () => {
 		const segments: string[] = [];
 		walkCommands(

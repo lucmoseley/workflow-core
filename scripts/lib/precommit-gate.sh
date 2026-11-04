@@ -178,14 +178,15 @@ tool_gate() {
 #   0  sets $declared_command to what it printed, and returns 0 to run it;
 #   1  returns 1 — the reader has printed its own SKIP line;
 #   2  a config it cannot read: EXITS 1, refusing the commit rather than
-#      skipping.
+#      skipping. So does any higher status, a reader hook-bound.sh killed at
+#      its limit (124, 137) among them (#4187).
 #
 # Severity stays at the call site: the typecheck gate only reports a red.
 declared_cmd() {
   dc_status=0
   # shellcheck disable=SC2034 # read by the hook that sources this file.
   declared_command="$("$@")" || dc_status=$?
-  if [ "$dc_status" -eq 2 ]; then
+  if [ "$dc_status" -ge 2 ]; then
     exit 1
   fi
   return "$dc_status"

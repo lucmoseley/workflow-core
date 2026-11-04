@@ -18,6 +18,10 @@ set -e # an adopter's git runs this file itself, outside husky's errexit wrapper
 # The repo this hook runs in, not an inherited CLAUDE_PROJECT_DIR (#3307); skipped where the lib is missing.
 # shellcheck source=scripts/lib/hook-root.sh
 [ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh"
+# Every `node` and `bash` below under one wall-clock limit (#4187); unbounded where the lib is missing or defines no hook_bound (#4266).
+# shellcheck source=scripts/lib/hook-bound.sh
+[ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh"
+command -v hook_bound >/dev/null 2>&1 || hook_bound() { "$@"; }
 
 # The pre-lock stamps the test gate and the mutation hold below may stand down
 # on (#1650, #1910), read once and unset here so no gate's child — the in-lock
@@ -101,7 +105,7 @@ if declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/workflow-core-config.js
   sh -c "$declared_command" || exit 1
 fi
 
-"${WFC_GITLEAKS:-gitleaks}" git --staged --redact || exit 1
+hook_bound "${WFC_GITLEAKS:-gitleaks}" git --staged --redact || exit 1
 
 # A session's commit writing back a file a neighbour changed since its base
 # (#113). The script owns its skips and its fail-open.
@@ -667,9 +671,16 @@ if armed '^(docs/|\.claude/|hooks/|self-plugin/|AGENTS\.md$|CLAUDE\.md$|PRODUCT\
       # no directory can stand in for. Without it the baseline measures this
       # commit's own pool growth, both sides agree, and a commit adding pool
       # bytes with no §B entry reads as INHERITED and passes (mantahostels#1922).
-      GIT_INDEX_FILE="$dm_base_dir/index" node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-doc-map.js \
-        --root "$dm_base_dir/tree" --json \
-        >"$dm_base_dir/baseline.json" 2>/dev/null || true
+      # Exported in a subshell, never as a prefix: `node` is hook-bound.sh's
+      # function, and a prefix assignment to a function outlives the call in
+      # an older bash's POSIX mode, macOS's /bin/sh among them (#4187).
+      (
+        GIT_INDEX_FILE="$dm_base_dir/index"
+        export GIT_INDEX_FILE
+        node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-doc-map.js \
+          --root "$dm_base_dir/tree" --json \
+          >"$dm_base_dir/baseline.json" 2>/dev/null
+      ) || true
       gate_direction doc-map "mantahostels#1688" node "${WFC_PLUGIN_ROOT:-.}"/scripts/checker-new-faults.js \
         doc-map "$dm_base_dir/staged.json" "$dm_base_dir/baseline.json" ||
         exit "$dm_status"
@@ -974,7 +985,7 @@ fi
 if armed_shell; then
   if tool_gate shellcheck "see CLAUDE.md §Gotchas for the aarch64 binary this machine uses."; then
     # shellcheck disable=SC2086 # one path per line.
-    sh "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/serialised.sh pre-commit shellcheck shellcheck -x --severity=style --exclude=SC2016 $tool_paths || {
+    hook_bound sh "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/serialised.sh pre-commit shellcheck shellcheck -x --severity=style --exclude=SC2016 $tool_paths || {
       sc_rc=$?
       echo "pre-commit: shellcheck failed on this commit's own shell paths." >&2
       echo "  These are YOUR staged files, not a neighbour's: the gate reads no others (mantahostels#1134)." >&2
@@ -1007,7 +1018,7 @@ fi
 if armed '^\.github/workflows/.*\.ya?ml$'; then
   if tool_gate actionlint "see package.json's comments[\"scripts.check:actions\"] for the release to fetch."; then
     # shellcheck disable=SC2086 # one path per line.
-    actionlint $tool_paths || {
+    hook_bound actionlint $tool_paths || {
       echo "pre-commit: actionlint failed on this commit's own workflow paths." >&2
       echo "  These are YOUR staged files, not a neighbour's: the gate reads no others (mantahostels#1137)." >&2
       exit 1
@@ -1155,7 +1166,8 @@ if declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/test-gate.js commit; th
     echo "pre-commit: running '$tg_cmd' in the lock — no pre-lock green stands it down: $tg_why." >&2
     tg_rc=0
     tg_shared=0
-    tg_out="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/isolated-worktree.js run "$tg_cmd")" || tg_rc=$?
+    # `command node`: the suite runs under its own ceiling (#2667), past any checker limit (#4187).
+    tg_out="$(command node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/isolated-worktree.js run "$tg_cmd")" || tg_rc=$?
     # 3 is the suite's red; 2 no worktree; anything else the runner itself failing.
     case "$tg_rc" in
       0 | 2 | 3) ;;
@@ -1203,7 +1215,8 @@ if [ -z "$mh_stamp" ] || ! mh_why="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/co
   if [ -n "$mh_why" ]; then
     echo "pre-commit: running the mutation hold in the lock — no pre-lock green stands it down: $mh_why." >&2
   fi
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/mutation-hold-gate.js || exit "$?"
+  # `command node`: Stryker runs under the hold's own timeout, past any checker limit (#4187).
+  command node "${WFC_PLUGIN_ROOT:-.}"/scripts/mutation-hold-gate.js || exit "$?"
 fi
 
 # THE ADOPTER'S OWN GATES: `.husky/pre-commit.local` (#437). An adopter that

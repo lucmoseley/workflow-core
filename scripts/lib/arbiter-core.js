@@ -267,8 +267,11 @@ const paths = {
 	 *   or at the latest when its process does. The backstop reads at Stop,
 	 *   asking a question about the whole session, so it needs a record that
 	 *   survives a broken lock.
+	 *
+	 * @param {string} [root] the host root, where the caller holds one other
+	 *   than its own
 	 */
-	writesDir: () => path.join(stateDir(), "writes"),
+	writesDir: (root) => path.join(stateDirOf(root), "writes"),
 
 	/**
 	 * The selection ledger (#1220): paths an inline `python`/`node` program
@@ -943,12 +946,14 @@ function boundedGit(args, opts = {}) {
 }
 
 /**
- * Run git in the repo, or null where it could not answer — no git, not a repo,
- * a non-zero exit. Every caller here treats null as "unknown", never as an answer.
+ * Run git in the repo, or in `cwd` where a caller names the session's own
+ * tree, or null where it could not answer — no git, not a repo, a non-zero
+ * exit. Every caller here treats null as "unknown", never as an answer.
  * @param {string[]} args
+ * @param {{cwd?: string}} [opts]
  */
-function git(args) {
-	return boundedGit(args)?.trim() ?? null;
+function git(args, opts = {}) {
+	return boundedGit(args, opts)?.trim() ?? null;
 }
 
 /**

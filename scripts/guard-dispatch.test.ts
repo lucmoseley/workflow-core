@@ -22,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failOpenLogPath, readFailOpenLog } from "./guard-log-fixture";
 import { readManifestRows } from "./lib/guard-cores.js";
 import {
+	expectShellHooks,
 	guardDirs,
 	nodeGuardOutput,
 	readHookLines,
@@ -57,6 +58,15 @@ afterEach(() => {
 
 type Payload = Record<string, unknown>;
 
+/* The hook line runs the entry through the shim from the pinned guard code
+ * (#4227): here `project` itself, through a link beside it. */
+const pinnedAt = (project: string) => {
+	const code = path.join(project, ".guard-code");
+	if (!fs.existsSync(`${code}.current`))
+		fs.symlinkSync(project, `${code}.current`);
+	return { WFC_GUARD_CODE_DIR: code };
+};
+
 const spawnLine = (
 	payload: Payload,
 	{
@@ -70,7 +80,7 @@ const spawnLine = (
 		config,
 		cwd: project,
 		args: ["-c", LINES[0] ?? ""],
-		env,
+		env: { ...pinnedAt(project), ...env },
 		stdin,
 	});
 
@@ -101,6 +111,10 @@ const readRegistered = (event: string) =>
 describe("the registration", () => {
 	it("is one hook line, run on PreToolUse and PostToolUse alike", () => {
 		expect(new Set(LINES).size).toBe(1);
+	});
+
+	it("is shell form, carrying no `args` key, in the plugin and the self-plugin alike (mantahostels#2059)", () => {
+		expectShellHooks("scripts/guard-dispatch.js", () => ({}), 2);
 	});
 
 	it("is one PreToolUse entry over its cores' tools, fail-closed at 60 s (#3226)", () => {
@@ -188,6 +202,10 @@ describe("each exit path", () => {
 									: `require(${JSON.stringify(path.join(__dirname, "lib", f))})`,
 						),
 				);
+			fs.copyFileSync(
+				path.join(__dirname, "run-pinned-guards.js"),
+				path.join(at, "scripts", "run-pinned-guards.js"),
+			);
 			copy("guard-dispatch.js", ["guard-dispatch.js"]);
 			copy("lib/guard-dispatch.js", ["guard-cores.js", "guard-core-load.js"]);
 			copy("lib/guard-core-load.js", ["guard-cores.js"]);
@@ -197,15 +215,15 @@ describe("each exit path", () => {
 			return at;
 		};
 
-		it("exits non-zero where the kit crashes on a malformed manifest", () => {
+		it("refuses through the shim where the kit crashes on a malformed manifest", () => {
 			const at = plantKit({ "guard-cores.json": "{ not json" });
 			const r = spawnLine(bash({ command: "ls" }), { project: at });
-			expect(r.status).not.toBe(0);
+			expect(r.status).toBe(2);
 			expect(r.stdout).toBe("");
-			expect(r.stderr).toMatch(/JSON/);
+			expect(r.stderr).toMatch(/^Guard code failed .*JSON/);
 		});
 
-		it("exits non-zero where an open row names no file: the manifest's fault, not a core's (#4125)", () => {
+		it("refuses through the shim where an open row names no file: the manifest's fault, not a core's (#4125)", () => {
 			const at = plantKit({
 				"guard-cores.json": JSON.stringify({
 					PreToolUse: [
@@ -219,9 +237,9 @@ describe("each exit path", () => {
 				}),
 			});
 			const r = spawnLine(bash({ command: "ls" }), { project: at });
-			expect(r.status).not.toBe(0);
+			expect(r.status).toBe(2);
 			expect(r.stdout).toBe("");
-			expect(r.stderr).toMatch(/ghost\.js/);
+			expect(r.stderr).toMatch(/^Guard code failed .*ghost\.js/);
 		});
 
 		it.each([
@@ -285,15 +303,20 @@ describe("each input channel", () => {
 		expect(fs.existsSync(failOpenLogPath(config, dir))).toBe(false);
 	});
 
-	it("allows a payload that is not JSON, logged", () => {
+	it("allows a payload that is not JSON, logged in the dispatcher's own name (#4134)", () => {
 		const r = fed("{not json");
 		expect([r.status, r.stdout]).toEqual([0, ""]);
-		expect(readFailOpenLog(config, dir)).toMatch(
-			/payload did not parse as JSON/,
+		const log = readFailOpenLog(config, dir);
+		expect(log).toMatch(/payload did not parse as JSON/);
+		const [when, where, ...rest] = (log.trim().split("\n")[0] ?? "").split(
+			"\t",
 		);
+		expect(rest).toHaveLength(1);
+		expect(Number.isNaN(Date.parse(when ?? ""))).toBe(false);
+		expect(where).toMatch(/guard-dispatch\.js/);
 	});
 
-	it("exits non-zero where stdin will not read, logged, so `onFailure: block` refuses the call (#4132)", () => {
+	it("refuses through the shim where stdin will not read, logged (#4132)", () => {
 		// spawn-kept: a real fd — a directory as fd 0, so every read of it
 		// fails EISDIR; an in-process run takes stdin as a string.
 		const fd = fs.openSync(dir, "r");
@@ -306,10 +329,11 @@ describe("each input channel", () => {
 					...process.env,
 					CLAUDE_PROJECT_DIR: dir,
 					CLAUDE_CONFIG_DIR: config,
+					...pinnedAt(dir),
 				},
 			});
-			expect(r.status).not.toBe(0);
-			expect(r.status).not.toBe(2);
+			expect(r.status).toBe(2);
+			expect(r.stderr).toMatch(/^Guard code failed .*EISDIR/);
 			expect(r.stdout).toBe("");
 			expect(readFailOpenLog(config, dir)).toMatch(
 				/stdin unreadable: .*EISDIR.* — the entry exits non-zero/,

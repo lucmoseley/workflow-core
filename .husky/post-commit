@@ -21,6 +21,9 @@ set -e # an adopter's git runs this file itself, outside husky's errexit wrapper
 # The repo this hook runs in, not an inherited CLAUDE_PROJECT_DIR (#3307); skipped where the lib is missing.
 # shellcheck source=scripts/lib/hook-root.sh
 [ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh"
+# Every `node` and `bash` below under one wall-clock limit (#4187); unbounded where the lib is missing.
+# shellcheck source=scripts/lib/hook-bound.sh
+[ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh"
 
 # THIS commit, read before any block runs: report_new_shared_faults takes
 # seconds, and a neighbour's commit landing in them would otherwise be the
@@ -137,9 +140,14 @@ report_new_shared_faults() {
   # side of this could not be read" code, which mantahostels#1750 wants louder than
   # silence. Every other non-zero is the script crashing rather than
   # reporting, and is dropped.
+  #
+  # The three are unset in a subshell, not by `env -u`, which would run the
+  # binary past hook-bound.sh's `node` and so past its limit (#4187).
   errfile=$(mktemp 2>/dev/null) || return 0
-  if out=$(env -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
-    node "$script" "$committed" 2>"$errfile"); then
+  if out=$(
+    unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE
+    node "$script" "$committed" 2>"$errfile"
+  ); then
     status=0
   else
     status=$?
@@ -179,8 +187,10 @@ report_touched_by() {
 
   # The report is on stderr; stdout carries only Actions' annotations. The
   # three redirects are unset for report_new_shared_faults's reason, above.
-  if out=$(env -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
-    node "$script" --root "$toplevel" --touched-by "$committed" 2>&1 >/dev/null); then
+  if out=$(
+    unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE
+    node "$script" --root "$toplevel" --touched-by "$committed" 2>&1 >/dev/null
+  ); then
     case "$out" in
       "" | OK:*) ;;
       *) printf '%s\n' "$out" ;;
@@ -247,8 +257,10 @@ EOF
   # bytes as it releases, and that is the last site it is ever said (mantahostels#420).
   # `if`: a non-zero exit must not abort the hook under `set -e`, as in
   # report_new_shared_faults.
-  if env -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
-    node "$script" release-committed --commit "$committed" "$@"; then
+  if (
+    unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE
+    node "$script" release-committed --commit "$committed" "$@"
+  ); then
     :
   fi
   return 0
@@ -287,8 +299,10 @@ advance_committed_bases() {
   [ -n "$committed" ] || return 0
 
   # `if`, as in release_committed_claims.
-  if env -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
-    node "$script" advance-bases "$committed"; then
+  if (
+    unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE
+    node "$script" advance-bases "$committed"
+  ); then
     :
   fi
   return 0
@@ -323,9 +337,11 @@ record_session_commit() {
   esac
 
   # `if`, as in release_committed_claims.
-  if env -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
+  if (
+    unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE
     CLAUDE_PROJECT_DIR="$main_tree" \
-    node "$script" record-commit "$committed"; then
+      node "$script" record-commit "$committed"
+  ); then
     :
   fi
   return 0
@@ -342,8 +358,10 @@ keep_hook_shims() {
 
   # The three redirects are unset for report_new_shared_faults's reason, above.
   # `if`, as in release_committed_claims.
-  if env -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
-    node "$script" --lazy; then
+  if (
+    unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE
+    node "$script" --lazy
+  ); then
     :
   fi
   return 0

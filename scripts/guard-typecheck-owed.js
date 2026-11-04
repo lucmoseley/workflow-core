@@ -34,6 +34,7 @@
  *            or no declared command; silent on every failure path. A commit
  *            made with no session id is in no session's lines and leaves no
  *            record.
+ * TREE:      host — reads the red and held type-check records in the host root's markers
  */
 
 const { logger } = require("./lib/entry-input.js");
