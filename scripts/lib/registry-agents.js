@@ -33,12 +33,11 @@ const { readProcStartOf } = require("./arbiter-proc.js");
 const { readRecord, sessionDirs } = require("./arbiter-core.js");
 const { readOwnJob } = require("./claude-stop.js");
 const { caught } = require("./caught.js");
-const headless = require("./headless-sessions.js");
 
 /**
  * @typedef {import("./agent-liveness.js").AgentRecord} AgentRecord
  * @typedef {{agents: AgentRecord[], faults: string[], seats: string[]}} RegistryListing
- *   `faults` names each seat, or the headless store, that would not read;
+ *   `faults` names each seat that would not read;
  *   `seats` the config dirs whose registry was read
  * @typedef {{pid?: unknown, sessionId?: unknown, procStart?: unknown,
  *   jobId?: unknown, name?: unknown, cwd?: unknown, kind?: unknown,
@@ -129,8 +128,7 @@ function readSeatAgents(seat) {
 }
 
 /**
- * Every pid-verified session on every seat, with the live headless runs
- * merged in as lib/agent-liveness.js merges them.
+ * Every pid-verified session on every seat.
  * @returns {RegistryListing}
  */
 function readRegistryAgents() {
@@ -145,13 +143,6 @@ function readRegistryAgents() {
 		if ("fault" in read) faults.push(read.fault);
 		else agents.push(...read.agents);
 		if ("read" in read && read.read) seats.push(seat);
-	}
-	try {
-		agents.push(...headless.readLiveAgents());
-	} catch (e) {
-		faults.push(
-			`the headless-run store would not read (${caught(e).code || caught(e).message})`,
-		);
 	}
 	return { agents, faults, seats };
 }

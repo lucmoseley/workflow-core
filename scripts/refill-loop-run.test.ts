@@ -886,7 +886,7 @@ describe("a dry run with overflow seats (#2611)", () => {
 	const dispatch = () =>
 		`bash ${path.join(scripts, "dispatch-sessions.sh")} opus /implement 5`;
 
-	it("prints the headless dispatch on the overflow seat once the plan seat is weekly-full", async () => {
+	it("prints the overflow dispatch on the overflow seat once the plan seat is weekly-full", async () => {
 		weekAt(100);
 		writeSeatFile(200);
 		const r = await runDry();

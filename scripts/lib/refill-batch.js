@@ -174,16 +174,11 @@ const limitParksOf = (l) =>
  * since the call proves its launch.
  * After a non-zero exit only the launched members count as tried, as the
  * rest may never have been reached and the next tick retries them.
- * A headless launch's session id is fixed at launch, so its record carries it
- * from the start (#2611): a run ending before any listing shows it still has
- * its acts read.
  * @param {import("./refill-decide.js").Launch[]} batch one of batchesOf's
  * @param {{dispatcher: string, env: NodeJS.ProcessEnv,
  *   run: (call: ReturnType<typeof dispatchCall>) => {failed: string|null, out: string},
  *   entriesOf: (root: string) => import("./dispatch-ledger.js").DispatchRecord[],
- *   sessionOf: (jobId: string) => string|undefined, now: () => number}} io
- *   `sessionOf` is lib/headless-sessions.js's record of the job, undefined
- *   for any other; `now` is read once, before the call
+ *   now: () => number}} io  `now` is read once, before the call
  * @returns {BatchOutcome & {tried: import("./refill-decide.js").Launch[],
  *   failed: string|null, out: string}}
  */
@@ -228,8 +223,6 @@ function readLaunched(batch, calledAt, io) {
 			continue;
 		}
 		reached.push(l);
-		const sessionId =
-			entry.jobId === null ? undefined : io.sessionOf(entry.jobId);
 		launched.push({
 			root: l.root,
 			issues: l.issues,
@@ -241,7 +234,7 @@ function readLaunched(batch, calledAt, io) {
 			launchedAt: Date.parse(entry.ts),
 			finishedAt: null,
 			...(l.gate ? { gate: l.gate } : {}),
-			...(sessionId === undefined ? {} : { sessionId }),
+
 			...limitParksOf(l),
 		});
 	}

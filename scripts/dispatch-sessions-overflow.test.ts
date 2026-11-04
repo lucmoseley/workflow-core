@@ -136,7 +136,6 @@ function dispatch(
 			};
 		},
 		entriesOf: (root) => readRecentEntries(root, 1).entries,
-		sessionOf: () => undefined,
 		now: Date.now,
 	});
 }

@@ -191,7 +191,7 @@ describe("buildDriftLines", () => {
 		expect(
 			buildDriftLines(
 				[bg({ kind: "interactive" })],
-				[bg({ kind: "headless" })],
+				[bg({ kind: "interactive" })],
 			),
 		).toEqual([]);
 	});

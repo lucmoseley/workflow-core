@@ -61,11 +61,7 @@ const { writeFd } = require("./write-fd.js");
 const CREDIT_REFUSAL = /credit balance is too low/i;
 
 /* The scripts a ledger's lock holder runs; any other's lock reads as stale. */
-const BUDGET_READERS = [
-	"overflow-budget.js",
-	"overflow-view.js",
-	"refill-loop.js",
-];
+const BUDGET_READERS = ["overflow-budget.js", "refill-loop.js"];
 
 /** @param {OverflowSeat} seat */
 const ledgerFile = (seat) =>

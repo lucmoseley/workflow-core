@@ -15,7 +15,6 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { writeHeadlessRun } from "./headless-runs-testkit";
 import { shellQuote } from "./sh-quote.js";
 
 // The module is CommonJS and stays that way — it is required by plain node
@@ -31,7 +30,6 @@ beforeEach(() => {
 	// Outside a session there is nothing for the self-test to test against; each
 	// test that wants it opts in.
 	process.env.CLAUDE_CODE_SESSION_ID = "";
-	process.env.WFC_REFILL_DIR = path.join(dir, "refill");
 });
 
 afterEach(() => {
@@ -468,90 +466,6 @@ describe("every plan's listing (#3512)", () => {
 		const r = liveness.listedAgents();
 		expect(r.agents).toBeUndefined();
 		expect(r.why).toContain("exit 4");
-	});
-});
-
-describe("headless runs (#2608)", () => {
-	const store = () => path.join(dir, "refill", ".headless-runs");
-	const headlessRun = (jobId: string, sessionId: string, live = true) =>
-		writeHeadlessRun(path.join(dir, "refill"), jobId, sessionId, {
-			live,
-			cwd: dir,
-		});
-
-	it("merges each live run into every listing as a headless record", () => {
-		fakeClaude(listing("a"));
-		headlessRun("0123abcd", "h");
-		expect(liveness.listedAgents().agents).toEqual([
-			expect.objectContaining({ sessionId: "a" }),
-			{
-				id: "0123abcd",
-				sessionId: "h",
-				pid: process.pid,
-				cwd: dir,
-				startedAt: 1000,
-				state: "working",
-				kind: "headless",
-			},
-		]);
-		const ids = liveness.listedSessionIds();
-		expect([...ids.ids]).toEqual(["a", "h"]);
-		expect(ids.kinds.get("h")).toBe("headless");
-		expect([...liveness.sweepSessionIds().ids]).toContain("h");
-	});
-
-	it("lists no ended run, a reused pid included", () => {
-		fakeClaude(listing("a"));
-		headlessRun("0123abcd", "h", false);
-		expect([...liveness.listedSessionIds().ids]).toEqual(["a"]);
-	});
-
-	it("never writes a run into the oracle cache", () => {
-		fakeClaude(listing("a"));
-		headlessRun("0123abcd", "h");
-		expect(liveness.listedAgents().agents).toHaveLength(2);
-		const config = String(process.env.CLAUDE_CONFIG_DIR);
-		const cached = fs
-			.readdirSync(config)
-			.filter((f) => f.startsWith("wfc-oracle-cache-") && f.endsWith(".json"))
-			.map((f) => fs.readFileSync(path.join(config, f), "utf8"));
-		expect(cached.length).toBeGreaterThan(0);
-		for (const c of cached) expect(c).not.toContain("0123abcd");
-	});
-
-	it("refuses every reader where the store will not read", () => {
-		fakeClaude(listing("a"));
-		fs.mkdirSync(path.dirname(store()), { recursive: true });
-		fs.writeFileSync(store(), "not a directory");
-		for (const read of [
-			liveness.listedAgents,
-			liveness.listedSessionIds,
-			liveness.admissionSessionIds,
-			liveness.sweepSessionIds,
-		]) {
-			const r = read();
-			expect(r.why).toContain("headless-run store could not be read");
-			expect(r.agents ?? r.ids).toBeUndefined();
-		}
-	});
-
-	it("passes the self-test for a headless session the oracle cannot list", () => {
-		process.env.CLAUDE_CODE_SESSION_ID = "h";
-		headlessRun("0123abcd", "h");
-		fakeClaude(listing("a"));
-		expect(liveness.listedSessionIds().ids.has("h")).toBe(true);
-		// The daemon may have nothing of its own to list beside it.
-		fakeClaude("[]");
-		expect(liveness.listedSessionIds().ids).toEqual(new Set(["h"]));
-	});
-
-	it("still fails the self-test once the session's run has ended", () => {
-		process.env.CLAUDE_CODE_SESSION_ID = "h";
-		headlessRun("0123abcd", "h", false);
-		fakeClaude(listing("a"));
-		expect(liveness.listedSessionIds().why).toContain(
-			"does not list this very session",
-		);
 	});
 });
 

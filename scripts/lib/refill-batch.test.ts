@@ -86,7 +86,6 @@ const seededIo = (
 	env: {},
 	run: () => ({ failed: null, out: "" }),
 	entriesOf: () => entries,
-	sessionOf: () => undefined,
 	now: () => NOW,
 });
 
@@ -270,7 +269,6 @@ done
 				};
 			},
 			entriesOf: (root) => readRecentEntries(root, 1).entries,
-			sessionOf: () => undefined,
 			now: Date.now,
 		};
 		for (const batch of batchesOf(launches)) {

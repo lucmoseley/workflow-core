@@ -58,16 +58,6 @@
  * CLAUDE_CONFIG_DIR, so the oracle is read once per `sessionDirs()` dir
  * (lib/arbiter-core.js). One dir's read failing refuses the whole listing.
  *
- * EVERY LISTING CARRIES THE LIVE HEADLESS RUNS (lib/headless-sessions.js,
- * #2608), which the oracle cannot see: `claude -p` on an overflow seat has no
- * daemon job. They are merged on every read and never cached, and the
- * self-test finds a headless caller among them. A store that will not read
- * is a `why`, as an oracle fault is, read before the oracle so no
- * single-flight follower spawns on one.
- *
- * RESIDUAL: inside a headless run an empty daemon listing is taken as
- * complete, since an overflow-only machine lists no daemon session. A daemon
- * fault answering `[]` there (#2180) reads as no background session live.
  */
 
 const { execFileSync } = require("node:child_process");
@@ -79,7 +69,6 @@ const cache = require("./oracle-cache");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { caught } = require("./caught.js");
 const { claudeBin } = require("./claude-bin.js");
-const headless = require("./headless-sessions.js");
 
 /**
  * One record as `claude agents --json` reports it. Every field but the id is
@@ -92,9 +81,6 @@ const headless = require("./headless-sessions.js");
  * `startedAt` is EPOCH MILLISECONDS, not an ISO string — the oracle emits a
  * number. `lib/scratch-sweep.js` reads it: a file is safe to delete exactly
  * where no live session predates its mtime.
- *
- * `kind: "headless"` marks a run lib/headless-sessions.js listed, which
- * `claude stop` cannot reach.
  *
  * @typedef {{sessionId: string, id?: string, name?: string, pid?: number,
  *   kind?: string, state?: string, status?: string, tempo?: string,
@@ -224,7 +210,7 @@ function runOracle(bin, timeoutMs, dirs) {
 
 /**
  * One oracle stdout as its parsed array, or `{why}` where it is not one. Its
- * records are `any`, as `mergedListing` takes them: each is judged there field
+ * records are `any`, as `judgedListing` takes them: each is judged there field
  * by field.
  * @param {string} raw
  * @param {string} call
@@ -247,7 +233,7 @@ function parseListing(raw, call) {
  * session id kept, unless it is terminal and a later one is not: a session
  * moved between seats reads live though its old seat's dir leads (#3734). `{why}`
  * where any one is not an array. A record with no id is kept for
- * `mergedListing` to judge.
+ * `judgedListing` to judge.
  *
  * @param {string} out  the runner's stdout
  * @param {string} call
@@ -276,7 +262,7 @@ function unionOf(out, call) {
 /**
  * `records` with one per session id, in first-seen order: the first, unless it
  * is terminal and a later one is not. A record with no id is always kept. `any`,
- * as `mergedListing` takes them: each is judged there field by field.
+ * as `judgedListing` takes them: each is judged there field by field.
  * @param {any[]} records
  * @returns {any[]}
  */
@@ -330,8 +316,6 @@ function failure(e) {
 function readListing(opts) {
 	const bin = claudeBin();
 	const call = oracleCall();
-	const runs = readHeadlessRuns();
-	if ("why" in runs) return runs;
 	const dirs = oracleDirs();
 	const key = oracleCacheKey(bin, dirs);
 
@@ -339,7 +323,7 @@ function readListing(opts) {
 	/** @param {string|null} cached */
 	const served = (cached) => {
 		if (cached === null) return null;
-		const answer = classifyRaw(cached, call, opts, runs.agents);
+		const answer = classifyRaw(cached, call, opts);
 		return answer.why ? null : answer;
 	};
 	if (opts?.shared || opts?.shownAgeMs !== undefined) {
@@ -383,7 +367,7 @@ function readListing(opts) {
 		if (leading) cache.release(key);
 	}
 
-	return classifyRaw(raw, call, opts, runs.agents);
+	return classifyRaw(raw, call, opts);
 }
 
 /**
@@ -429,34 +413,27 @@ function spawnUnion(bin, call, dirs) {
  * @param {string} raw
  * @param {string} call
  * @param {Opts|undefined} opts
- * @param {AgentRecord[]} headlessAgents
  * @returns {Listing}
  */
-function classifyRaw(raw, call, opts, headlessAgents) {
+function classifyRaw(raw, call, opts) {
 	const parsed = parseListing(raw, call);
 	if ("why" in parsed) return parsed;
-	return mergedListing(parsed.agents, headlessAgents, call, opts);
+	return judgedListing(parsed.agents, call, opts);
 }
 
 /**
- * The oracle's parsed array with the live headless runs merged in, as
- * `{agents}` — or `{why}` where the empty-list or self-test guard refuses it.
+ * The oracle's parsed array as `{agents}`, its records with no id dropped —
+ * or `{why}` where the empty-list or self-test guard refuses it.
  *
  * @param {any[]} agents
- * @param {AgentRecord[]} headlessAgents
  * @param {string} call
  * @param {Opts} [opts]
  * @returns {Listing}
  */
-function mergedListing(agents, headlessAgents, call, opts) {
+function judgedListing(agents, call, opts) {
 	const me = process.env.CLAUDE_CODE_SESSION_ID;
-	/* A headless caller's own run is no daemon's, so a daemon listing nothing
-	 * beside it says nothing of the daemon. */
-	const meHeadless =
-		Boolean(me) && headlessAgents.some((a) => a.sessionId === me);
 	if (agents.length === 0) {
-		if ((opts?.allowEmpty === true && !me) || meHeadless)
-			return { agents: headlessAgents };
+		if (opts?.allowEmpty === true && !me) return { agents: [] };
 		return {
 			why: `${call} listed no agents at all — a daemon that is running lists at least the session this ran in`,
 		};
@@ -478,35 +455,16 @@ function mergedListing(agents, headlessAgents, call, opts) {
 	 * claim would read dead. Absent outside a session, where there is nothing to
 	 * test against, and waived wherever `requireSelf: false` is passed.
 	 */
-	if (opts?.requireSelf !== false && me && !ids.has(me) && !meHeadless)
+	if (opts?.requireSelf !== false && me && !ids.has(me))
 		return {
 			why: `${call} does not list this very session (${me}), so its list is not a list of what is live`,
 		};
 
 	return {
-		agents: [
-			...agents.filter(
-				(a) => a && typeof a.sessionId === "string" && a.sessionId,
-			),
-			...headlessAgents,
-		],
+		agents: agents.filter(
+			(a) => a && typeof a.sessionId === "string" && a.sessionId,
+		),
 	};
-}
-
-/**
- * The live headless runs as `{agents}`, or `{why}` where the store will not
- * read.
- * @returns {{agents: AgentRecord[]} | {why: string}}
- */
-function readHeadlessRuns() {
-	try {
-		return { agents: headless.readLiveAgents() };
-	} catch (e) {
-		const { code, message } = caught(e);
-		return {
-			why: `the headless-run store could not be read (${code || String(message).slice(0, QUOTE_CHARS)})`,
-		};
-	}
 }
 
 /**

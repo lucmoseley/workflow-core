@@ -2,30 +2,22 @@
 /*
  * The refill loop's overflow seats (#2611, spec #2570): each seat's budget
  * read for the decision core only once every plan seat is weekly-full, a key
- * spent for its cycle told from one held by running sessions, the dry run's
- * line naming the headless launch, and a headless launch judged finished by
- * its absence from the listing, its acts read by the session id it carried
- * from launch.
+ * spent for its cycle told from one held by running sessions, and the dry
+ * run's line naming the key a launch bills.
  *
  * The readings and the line are module cases with the budget gate injected,
- * since its settling is overflow-budget.test.ts's; the finish reads the real
- * headless store under the setup's WFC_REFILL_DIR.
+ * since its settling is overflow-budget.test.ts's.
  *
- * Loosen one and the loop spends credits while plan allowance remains, stops
- * while a key's running sessions are about to reopen it, or never counts an
- * overflow launch toward the no-progress pause.
+ * Loosen one and the loop spends credits while plan allowance remains, or
+ * stops while a key's running sessions are about to reopen it.
  */
-import fs from "node:fs";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { headlessStore, writeHeadlessRun } from "./headless-runs-testkit";
-import { readLiveAgents } from "./headless-sessions.js";
+import { describe, expect, it } from "vitest";
 import { batchesOf, buildWouldRunLine, dispatchCall } from "./refill-batch.js";
-import { decideTick, FULL, pickSeat } from "./refill-decide.js";
-import { actsOf, judgedLaunches, overflowReadings } from "./refill-loop.js";
+import { FULL, pickSeat } from "./refill-decide.js";
+import { overflowReadings } from "./refill-loop.js";
 
 const NOW = Date.parse("2026-10-18T12:00:00Z");
-const MIN = 60 * 1000;
 
 const planSeat = (seat: string, weekFull: boolean) => ({
 	seat,
@@ -214,70 +206,6 @@ describe("the dry run's dispatch line", () => {
 		expect(buildWouldRunLine({ ...call, env: planEnv })).toBe(
 			"would run in /home/u/wfc on /home/u/.claude2: bash /core/dispatch-sessions.sh opus /implement 7",
 		);
-	});
-});
-
-describe("a headless launch's finish (#2611)", () => {
-	const refill = String(process.env.WFC_REFILL_DIR);
-	afterEach(() =>
-		fs.rmSync(headlessStore(refill), { recursive: true, force: true }),
-	);
-
-	const launch = (jobId: string, launchedAt = NOW - 10 * MIN) => ({
-		root: "/home/u/wfc",
-		issues: [Number.parseInt(jobId, 16) % 1000],
-		prompt: `/implement ${jobId}`,
-		seat: "/home/u/.claude2",
-		jobId,
-		sessionId: `session-${jobId}`,
-		launchedAt,
-		finishedAt: null,
-	});
-	const judge = (launches: ReturnType<typeof launch>[]) =>
-		judgedLaunches(launches, readLiveAgents(), NOW, {
-			progressOf: (l) =>
-				actsOf(l, ["/home/u/wfc"], (sessionId) => ({
-					acts: sessionId === "session-0000000a" ? ["claim #10"] : [],
-					unreadable: [],
-				})),
-			causeOf: () => ({ cause: "QUESTION" }) as never,
-		});
-
-	it("is judged by its absence from the listing, its acts read by its launch-time session id", () => {
-		writeHeadlessRun(refill, "0000000b", "session-0000000b");
-		writeHeadlessRun(refill, "0000000a", "session-0000000a", { live: false });
-		const [ended, live] = judge([launch("0000000a"), launch("0000000b")]);
-		expect(ended).toMatchObject({ finishedAt: NOW, acts: { claim: 1 } });
-		expect(live).toMatchObject({ finishedAt: null });
-	});
-
-	it("counts toward the no-progress pause", () => {
-		const history = judge(
-			["0000000c", "0000000d", "0000000e"].map((id) => launch(id)),
-		);
-		expect(history.map((l) => l.acts)).toEqual([{}, {}, {}]);
-		expect(
-			decideTick({
-				now: NOW,
-				mode: "normal" as const,
-				noProgressFrom: NOW - 60 * MIN,
-				stopRequested: false,
-				frontier: [],
-				retroBundles: [],
-				running: [],
-				freeSlots: 2,
-				seats: [{ ...planSeat("a", true), fits: null }],
-				overflow: [
-					{
-						seat: "/home/u/.claude2",
-						fits: 5,
-						spentUntil: null,
-						why: null,
-					},
-				],
-				history,
-			}),
-		).toHaveProperty("pause.by", "no-progress");
 	});
 });
 

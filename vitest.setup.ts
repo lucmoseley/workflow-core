@@ -105,9 +105,9 @@ process.env.CLAUDE_PROJECT_DIR = testHostDir;
 afterAll(() => fs.rmSync(testHostDir, { recursive: true, force: true }));
 
 /*
- * NO TEST READS THE MACHINE'S REFILL FILES (#2608): every liveness read lists
- * the live headless runs in their store, so a run on this machine would join
- * every case's listing. An override, as above, and for the same reason.
+ * NO TEST READS OR WRITES THE MACHINE'S REFILL FILES (#2608): the loop's
+ * ledgers, markers and budget records would join every case that reads them.
+ * An override, as above, and for the same reason.
  */
 const testRefillDir = fs.mkdtempSync(
 	path.join(os.tmpdir(), "wfc-test-refill-"),

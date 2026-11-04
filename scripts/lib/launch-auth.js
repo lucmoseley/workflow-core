@@ -17,11 +17,7 @@
  *     hands the child its key, and `auth status` does not take `--settings`,
  *     so it reports the dir's own login. `api_key` still refuses there, since
  *     a key already in force outranks the helper. Any other `apiKeyHelper` in
- *     `settings` refuses, whatever the dir reports;
- *   - for lib/headless-sessions.js's launch alone, passing `overflowKey`, under
- *     the dir of the overflow seat lib/refill-seats.js declares for that key
- *     (#2570), `api_key`, and `none`: that launch hands the seat its key
- *     through `--settings`, which `auth status` does not take.
+ *     `settings` refuses, whatever the dir reports.
  * A seat file that refuses declares no overflow seat.
  * Everything else refuses: `api_key`, `api_key_helper`, `third_party` (a
  * CLAUDE_CODE_USE_* provider; ANTHROPIC_PROFILE and the rest reach it through
@@ -88,19 +84,6 @@ function readAuthStatus(bin, env, cwd) {
 			why: `\`${bin} auth status\` printed no JSON (exit ${r.status}${said ? `: ${said}` : ""})`,
 		};
 	}
-}
-
-/**
- * @param {NodeJS.ProcessEnv} env
- * @param {string} keyVar
- */
-function isOverflowSeat(env, keyVar) {
-	const dir = env.CLAUDE_CONFIG_DIR;
-	if (!isSet(dir)) return false;
-	const list = readDeclaredSeats();
-	return (
-		list.errors.length === 0 && !("why" in seatOfLaunch(list, { dir, keyVar }))
-	);
 }
 
 /**
@@ -173,12 +156,11 @@ function sourceOf(status, env) {
  * Why a model launch of `bin` under `env` in `cwd` would not bill the
  * subscription, or null where it would.
  * @param {{bin: string, env: NodeJS.ProcessEnv, cwd: string,
- *   settings?: string, overflowKey?: string}} launch `settings`: the JSON the
- *   launch passes as `--settings`; `overflowKey`: the headless overflow
- *   launch's seat
+ *   settings?: string}} launch `settings`: the JSON the launch passes as
+ *   `--settings`
  * @returns {string|null}
  */
-function launchAuthRefusal({ bin, env, cwd, settings, overflowKey }) {
+function launchAuthRefusal({ bin, env, cwd, settings }) {
 	const refused = (/** @type {string} */ why) =>
 		`this model launch would not bill the subscription: ${why}. Rule: ${RULE}. Unset what set it, or launch from a shell without it.`;
 	if (isSet(env.ANTHROPIC_BASE_URL))
@@ -199,12 +181,6 @@ function launchAuthRefusal({ bin, env, cwd, settings, overflowKey }) {
 		method === "oauth_token" &&
 		isSet(env.CLAUDE_CODE_OAUTH_TOKEN) &&
 		!isSet(env.ANTHROPIC_AUTH_TOKEN)
-	)
-		return null;
-	if (
-		overflowKey !== undefined &&
-		(method === "api_key" || method === "none") &&
-		isOverflowSeat(env, overflowKey)
 	)
 		return null;
 	return refused(sourceOf(status, env));

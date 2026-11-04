@@ -38,10 +38,11 @@
  *
  * SEATS, in failover order, are the plan seats `~/.claude/refill-seats`
  * declares (lib/refill-seats.js), else the seat `start` ran on alone. Its
- * overflow seats, read each tick, launch headless `claude -p` billed to a
- * plan's API credits once every plan seat is weekly-full, sized by their
- * budget gate and never probed with `/usage` (#2611, spec #2570). Host
- * configuration, not code, because the plugin ships to adopters. Every
+ * overflow seats, read each tick, launch `--bg` jobs under their plan seat's
+ * config dir billed to that plan's API credits once every plan seat is
+ * weekly-full, sized by their budget gate and never probed with `/usage`
+ * (#2611, spec #2570; #3701). Host configuration, not code, because the
+ * plugin ships to adopters. Every
  * listing a tick and its reaper read must span them all
  * (scripts/refill-loop.js's LISTING).
  *
@@ -138,7 +139,6 @@ const {
 	readDeclaredSeats,
 	readOmittedDirs,
 } = require("./refill-seats.js");
-const { runOf } = require("./headless-sessions.js");
 const {
 	buildCheckoutEnv,
 	discoverRepos,
@@ -466,28 +466,11 @@ function launchBatch(batch) {
 				timeout: call.timeout,
 			}),
 		entriesOf: (root) => readRecentEntries(root, LEDGER_WINDOW_HOURS).entries,
-		sessionOf: readHeadlessSession,
 		now: Date.now,
 	});
 	log(blocks.buildChildLine(`dispatch ${loop.buildLaunchesLine(batch)}`, r));
 	gates.dropTried(files.gates, r.tried, log);
 	return { launched: r.launched, refused: r.refused };
-}
-
-/**
- * The session id lib/headless-sessions.js recorded for `jobId` at launch
- * (#2611); undefined for a job it did not launch or a record that will not
- * read, the first listing that shows the job then giving it.
- * @param {string} jobId
- */
-function readHeadlessSession(jobId) {
-	let record = null;
-	try {
-		record = runOf(jobId);
-	} catch (err) {
-		log(`headless record unread for job ${jobId}: ${buildErrorText(err)}`);
-	}
-	return record?.sessionId;
 }
 
 /**

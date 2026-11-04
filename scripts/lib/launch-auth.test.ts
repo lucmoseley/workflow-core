@@ -18,7 +18,6 @@ import { runInProcess } from "./run-in-process.js";
 let dir = "";
 let bin = "";
 let home = "";
-let seat = "";
 let secrets = "";
 const CLI = path.join(__dirname, "launch-auth.js");
 const was = process.env.HOME;
@@ -31,7 +30,6 @@ beforeEach(() => {
 		mode: 0o755,
 	});
 	home = path.join(dir, "home");
-	seat = path.join(home, ".claude-api");
 	secrets = path.join(dir, "secrets.env");
 	process.env.WFC_SECRETS_FILE = secrets;
 	fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
@@ -46,26 +44,12 @@ afterEach(() => {
 });
 
 /** A bare environment: none of the parent's auth leaks into a case. */
-const refusal = (
-	extra: Record<string, string> = {},
-	cwd = dir,
-	overflowKey?: string,
-) =>
+const refusal = (extra: Record<string, string> = {}, cwd = dir) =>
 	launchAuthRefusal({
 		bin,
 		env: { PATH: process.env.PATH, HOME: home, ...extra },
 		cwd,
-		overflowKey,
 	});
-/** As the headless overflow launch asks. */
-const overflowRefusal = (extra: Record<string, string>) =>
-	refusal(extra, dir, "K");
-
-const declareOverflow = (line = `${seat} api key=K grant=200 cycle-day=20`) =>
-	fs.writeFileSync(
-		path.join(home, ".claude", "refill-seats"),
-		`${seat}\n${line}\n`,
-	);
 
 describe("a plan seat", () => {
 	it("admits the seat's own login", () => {
@@ -113,70 +97,6 @@ describe("a plan seat", () => {
 		expect(refusal({ WFC_FAKE_AUTH_NO_LOGIN: "1" })).toContain(
 			"the seat is not logged in",
 		);
-	});
-
-	it("refuses an API key on a seat the seat file does not declare overflow", () => {
-		declareOverflow();
-		expect(
-			overflowRefusal({
-				ANTHROPIC_API_KEY: "k",
-				CLAUDE_CONFIG_DIR: path.join(home, ".claude"),
-			}),
-		).toContain("ANTHROPIC_API_KEY");
-	});
-});
-
-describe("an overflow seat (#2570)", () => {
-	it("admits its API key on the headless launch", () => {
-		declareOverflow();
-		expect(
-			overflowRefusal({ ANTHROPIC_API_KEY: "k", CLAUDE_CONFIG_DIR: seat }),
-		).toBeNull();
-	});
-
-	it("admits no login on the headless launch, which supplies the key itself", () => {
-		declareOverflow();
-		expect(
-			overflowRefusal({ WFC_FAKE_AUTH_NO_LOGIN: "1", CLAUDE_CONFIG_DIR: seat }),
-		).toBeNull();
-	});
-
-	it("admits the key only for the key the launch names, on a shared dir (#3693)", () => {
-		fs.writeFileSync(
-			path.join(home, ".claude", "refill-seats"),
-			`${seat}\n${seat} api key=K grant=200 cycle-day=20\n`,
-		);
-		const env = { ANTHROPIC_API_KEY: "k", CLAUDE_CONFIG_DIR: seat };
-		expect(overflowRefusal(env)).toBeNull();
-		expect(refusal(env)).toContain("ANTHROPIC_API_KEY");
-		expect(refusal(env, dir, "OTHER")).toContain("ANTHROPIC_API_KEY");
-	});
-
-	it("keeps the seat's login alone at every other launch site", () => {
-		declareOverflow();
-		expect(
-			refusal({ ANTHROPIC_API_KEY: "k", CLAUDE_CONFIG_DIR: seat }),
-		).toContain("ANTHROPIC_API_KEY");
-	});
-
-	it("refuses the key once the seat file refuses", () => {
-		declareOverflow(`${seat} api key=K grant=200 cycle-day=99`);
-		expect(
-			overflowRefusal({ ANTHROPIC_API_KEY: "k", CLAUDE_CONFIG_DIR: seat }),
-		).toContain("ANTHROPIC_API_KEY");
-	});
-
-	it("still refuses ANTHROPIC_BASE_URL and a third-party provider", () => {
-		declareOverflow();
-		expect(
-			overflowRefusal({
-				ANTHROPIC_BASE_URL: "http://x",
-				CLAUDE_CONFIG_DIR: seat,
-			}),
-		).toContain("ANTHROPIC_BASE_URL");
-		expect(
-			overflowRefusal({ CLAUDE_CODE_USE_VERTEX: "1", CLAUDE_CONFIG_DIR: seat }),
-		).toContain("CLAUDE_CODE_USE_VERTEX");
 	});
 });
 
