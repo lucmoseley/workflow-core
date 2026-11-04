@@ -61,7 +61,7 @@
 	"scripts/inject-tracker-docs.sh": "c09d8210d2862fd6",
 	"scripts/landing-registry-gate.js": "9ef8559bf848411f",
 	"scripts/mark-presence.js": "b1e72f71b771a66b",
-	"scripts/measure-turn-band.js": "67a8a90e6dd9091f",
+	"scripts/measure-turn-band.js": "f94fe6df726af2b7",
 	"scripts/name-issue-session.sh": "72c4c43b5022af4d",
 	"scripts/park-on-round.js": "6b3dc55773438826",
 	"scripts/place-new-issue.sh": "160c43155c783f8b",

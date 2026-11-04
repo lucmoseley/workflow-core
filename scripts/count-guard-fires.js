@@ -49,8 +49,8 @@ const {
 	transcriptFires,
 	transcriptMentions,
 	tally,
-	transcriptDir,
-	readTranscriptFiles,
+	transcriptDirs,
+	readTranscriptCorpus,
 	sessionKeyFor,
 } = require("./lib/guard-fires");
 const {
@@ -438,7 +438,7 @@ function rows(needles, settings, scanned) {
 }
 
 /**
- * @typedef {{dir: string, files: number, unreadable: string[], mentions: boolean, since: string | null, undatedFires: number, undatedMentions: number}} Corpus
+ * @typedef {{dirs: string[], files: number, unreadable: string[], mentions: boolean, since: string | null, undatedFires: number, undatedMentions: number}} Corpus
  * @typedef {ReturnType<typeof rows>["guards"][number]} GuardRow
  */
 
@@ -448,7 +448,7 @@ function rows(needles, settings, scanned) {
  */
 function buildCorpusLines(corpus) {
 	const out = [
-		`CORPUS  ${corpus.files} transcripts in ${corpus.dir}, read ${new Date().toISOString().slice(0, 10)}.`,
+		`CORPUS  ${corpus.files} transcripts in ${corpus.dirs.join(", ")}, read ${new Date().toISOString().slice(0, 10)}.`,
 		"        It grows daily — sessions write into it while this runs — so carry the count",
 		"        with the figures. Both tiers are read: a main session's own file and every",
 		"        subagent it dispatched, under that session's subagents/ directory (mantahostels#1779).",
@@ -690,7 +690,8 @@ function main(argv) {
 	const { flags } = parseOrExit(argv, CLI);
 	/* Host content: the settings file and the transcript directory belong to
 	 * the repository being worked on, so both read the host root (#1). */
-	const dir = flagValue(flags, "--dir") ?? transcriptDir(hostRoot());
+	const given = flagValue(flags, "--dir");
+	const dirs = given ? [given] : transcriptDirs();
 	const { needles, hostKeys, clashes, extra } = mergeNeedles(
 		readJson(NEEDLES),
 		readHostNeedles(HOST_NEEDLES),
@@ -702,9 +703,9 @@ function main(argv) {
 
 	warnDrift(registryDrift(needles, settings), origins, hostKeys);
 
-	const files = readTranscriptFiles(dir);
-	if (files === null) {
-		writeFd(2, `Cannot read transcripts in ${dir}.\n`);
+	const { files, unreadable } = readTranscriptCorpus(dirs);
+	if (unreadable.length > 0) {
+		writeFd(2, `Cannot read transcripts in ${unreadable.join(", ")}.\n`);
 		return 2;
 	}
 
@@ -726,7 +727,7 @@ function main(argv) {
 			JSON.stringify(
 				{
 					corpus: {
-						dir,
+						dirs,
 						transcripts: files.length,
 						unreadable: scanned.unreadable,
 						read: new Date().toISOString(),
@@ -745,7 +746,7 @@ function main(argv) {
 
 	say(
 		render(data, {
-			dir,
+			dirs,
 			files: files.length,
 			unreadable: scanned.unreadable,
 			mentions: wantMentions,

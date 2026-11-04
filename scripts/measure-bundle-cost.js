@@ -46,13 +46,10 @@
 
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
-const path = require("node:path");
-const { configDir } = require("./lib/config-dir.js");
 const { mainChainRecords, standingContext } = require("./lib/transcript.js");
-const { errMessage } = require("./lib/check.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
 const { writesByTtl } = require("./lib/session-spend.js");
-const { slugForRepo } = require("./lib/project-slug.js");
+const { corpusDirs, listTranscripts } = require("./lib/project-dirs.js");
 
 /** Human-readable output, written so it survives `process.exit` (§N6). */
 const out = (/** @type {string} */ text) => writeFd(1, `${text}\n`);
@@ -200,24 +197,23 @@ function main(argv) {
 	/* Derived from THIS CHECKOUT, never a literal and never the cwd: the slug
 	 * was hard-coded to the founder's own path until mantahostels#1982, so the corpus read
 	 * as unreadable on any other machine. */
-	const dir =
-		process.env.WFC_TRANSCRIPT_DIR ||
-		path.join(configDir(), "projects", slugForRepo());
+	const dirs = corpusDirs(process.env.WFC_TRANSCRIPT_DIR);
+	const where = dirs.join(", ");
 
-	let files;
-	try {
-		files = fs.readdirSync(dir).filter((f) => f.endsWith(".jsonl"));
-	} catch (e) {
-		fail(`Cannot read the transcript corpus at ${dir}: ${errMessage(e)}`);
+	const listing = listTranscripts(dirs);
+	const missed = [...listing.absent, ...listing.unreadable];
+	if (missed.length > 0) {
+		fail(`Cannot read the transcript corpus at ${missed.join(", ")}.`);
 		return 2;
 	}
+	const files = listing.found;
 
 	/** @type {ReturnType<typeof sessionRow>[]} */
 	const rows = [];
 	for (const f of files) {
 		let text;
 		try {
-			text = fs.readFileSync(path.join(dir, f), "utf8");
+			text = fs.readFileSync(f, "utf8");
 		} catch {
 			continue;
 		}
@@ -226,11 +222,11 @@ function main(argv) {
 		rows.push(r);
 	}
 	if (rows.length === 0) {
-		fail(`No issue-closing session in ${dir} since the window opened.`);
+		fail(`No issue-closing session in ${where} since the window opened.`);
 		return 2;
 	}
 
-	out(`Corpus: ${files.length} transcripts in ${dir}`);
+	out(`Corpus: ${files.length} transcripts in ${where}`);
 	out(
 		`${rows.length} issue-closing \`cli\` sessions, ${rows.reduce((a, r) => a + r.members, 0)} issues closed\n`,
 	);

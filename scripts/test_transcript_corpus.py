@@ -9,6 +9,7 @@ reads a temp transcript, so no case reads this machine's real seats.
 """
 
 import os
+import subprocess
 import sys
 from collections import Counter
 
@@ -16,6 +17,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import transcript_corpus as tc
+from project_slug import project_slug
 
 KNOBS = ("WFC_CLAUDE_CONFIG_A", "WFC_CLAUDE_CONFIG_B", "WFC_CLAUDE_CONFIG_C")
 
@@ -122,3 +124,73 @@ def test_jlen_measures_utf8_bytes_and_zero_for_what_will_not_dump():
     assert tc.jlen("é") == 2
     assert tc.jlen({"a": "é"}) == len('{"a": "é"}'.encode())
     assert tc.jlen({1, 2}) == 0
+
+
+def test_a_worktree_slug_is_a_root_beside_the_main_checkouts(
+    home, monkeypatch, tmp_path
+):
+    # #4236.
+    main = tmp_path / "main"
+    main.mkdir()
+    git = ["git", "-C", str(main)]
+    subprocess.run([*git, "init", "-q"], check=True)
+    subprocess.run(
+        [
+            *git,
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "i",
+        ],
+        check=True,
+    )
+    worktree = main / ".claude" / "worktrees" / "w1"
+    subprocess.run(
+        [*git, "worktree", "add", "-q", "--detach", str(worktree)], check=True
+    )
+
+    def slug(p):
+        return project_slug(str(p.resolve()))
+
+    projects = home / ".claude" / "projects"
+    for p in (worktree, main / "elsewhere"):
+        (projects / slug(p)).mkdir(parents=True)
+    want = [str(projects / slug(main)), str(projects / slug(worktree))]
+    for declared in (main, worktree):
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(declared))
+        roots = tc.roots()
+        assert set(want) <= set(roots)
+        assert str(projects / slug(main / "elsewhere")) not in roots
+        assert tc.seat_of(want[1] + "/s.jsonl") == "plan A"
+
+
+def test_a_worktree_sessions_transcript_is_read_with_no_main_slug_dir(
+    home, monkeypatch, tmp_path
+):
+    # #4236: a seat whose sessions all ran in worktrees has no main-slug dir.
+    main = tmp_path / "main"
+    main.mkdir()
+    git = ["git", "-C", str(main)]
+    subprocess.run([*git, "init", "-q"], check=True)
+    subprocess.run(
+        [*git, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q"]
+        + ["--allow-empty", "-m", "i"],
+        check=True,
+    )
+    worktree = main / ".claude" / "worktrees" / "w1"
+    subprocess.run(
+        [*git, "worktree", "add", "-q", "--detach", str(worktree)], check=True
+    )
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(main))
+    root = home / ".claude" / "projects" / project_slug(str(worktree.resolve()))
+    root.mkdir(parents=True)
+    (root / "s1.jsonl").write_text("{}\n")
+    assert [p for _rel, p, _sub, _o in tc.transcript_files()] == [
+        str(root / "s1.jsonl")
+    ]
+    assert str(root) in tc.roots_on(str(home / ".claude"))

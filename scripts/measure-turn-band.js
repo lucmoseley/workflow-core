@@ -38,11 +38,9 @@
 
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
-const path = require("node:path");
-const { configDir } = require("./lib/config-dir.js");
 const { errMessage } = require("./lib/check.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args");
-const { slugForRepo } = require("./lib/project-slug.js");
+const { corpusDirs, listTranscripts } = require("./lib/project-dirs.js");
 const {
 	mainChainRecords,
 	standingContext,
@@ -168,11 +166,10 @@ function readNumbers(flags) {
 /**
  * One row per `cli` session that made at least one API response, and the
  * transcripts that would not open.
- * @param {string} dir
- * @param {string[]} files
+ * @param {string[]} files paths
  * @param {number} threshold
  */
-function readRows(dir, files, threshold) {
+function readRows(files, threshold) {
 	/** @type {ReturnType<typeof sessionRow>[]} */
 	const rows = [];
 	/** @type {string[]} */
@@ -180,7 +177,7 @@ function readRows(dir, files, threshold) {
 	for (const f of files) {
 		let text;
 		try {
-			text = fs.readFileSync(path.join(dir, f), "utf8");
+			text = fs.readFileSync(f, "utf8");
 		} catch (e) {
 			/* Never silent: a transcript that would not open is a session missing
 			 * from the denominator, and a calibration whose `n` is quietly short
@@ -251,28 +248,27 @@ function main(argv) {
 	}
 
 	/* Derived from THIS CHECKOUT, never a literal and never the cwd (mantahostels#1982). */
-	const dir =
-		process.env.WFC_TRANSCRIPT_DIR ||
-		path.join(configDir(), "projects", slugForRepo());
+	const dirs = corpusDirs(process.env.WFC_TRANSCRIPT_DIR);
+	const where = dirs.join(", ");
 
-	let files;
-	try {
-		files = fs.readdirSync(dir).filter((f) => f.endsWith(".jsonl"));
-	} catch (e) {
-		fail(`Cannot read the transcript corpus at ${dir}: ${errMessage(e)}`);
+	const listing = listTranscripts(dirs);
+	const missed = [...listing.absent, ...listing.unreadable];
+	if (missed.length > 0) {
+		fail(`Cannot read the transcript corpus at ${missed.join(", ")}.`);
 		return 2;
 	}
+	const files = listing.found;
 
-	const { rows, unread } = readRows(dir, files, threshold);
+	const { rows, unread } = readRows(files, threshold);
 	if (rows.length === 0) {
-		fail(`No \`cli\` session with a usage record in ${dir}.`);
+		fail(`No \`cli\` session with a usage record in ${where}.`);
 		return 2;
 	}
 
 	const responses = rows.map((r) => r.responses);
 	const reaching = rows.filter((r) => r.responses >= band).length;
 
-	out(`Corpus: ${num(files.length)} transcripts in ${dir}`);
+	out(`Corpus: ${num(files.length)} transcripts in ${where}`);
 	if (unread.length > 0) {
 		out(`${num(unread.length)} could not be read and are excluded:`);
 		for (const line of unread) out(`  ${line}`);

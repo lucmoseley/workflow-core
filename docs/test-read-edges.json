@@ -4085,7 +4085,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/worktree-transcript-readers.test.ts"
 		],
 		"scripts/check-hook-liveness.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -5454,7 +5455,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/worktree-transcript-readers.test.ts"
 		],
 		"scripts/count-guard-fires.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -13647,7 +13649,8 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/worktree-transcript-readers.test.ts"
 		],
 		"scripts/lib/hook-message.test.ts": [
 			"scripts/check-guard-errors.test.ts",
@@ -24109,7 +24112,8 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lost-deny-rates.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/worktree-transcript-readers.test.ts"
 		],
 		"scripts/lost-deny-rates.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -24170,7 +24174,8 @@
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
-			"scripts/npm-run-hints-scan.test.ts"
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/worktree-transcript-readers.test.ts"
 		],
 		"scripts/measure-bash-write-firing/lib.js": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -24198,7 +24203,8 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/measure-bundle-cost.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/worktree-transcript-readers.test.ts"
 		],
 		"scripts/measure-bundle-cost.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -24275,7 +24281,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/worktree-transcript-readers.test.ts"
 		],
 		"scripts/measure-doc-read-rate/scan_doc_reads.py": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -24354,7 +24361,8 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/worktree-transcript-readers.test.ts"
 		],
 		"scripts/measure-effort-arms/scan_effort_arms.py": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -24399,7 +24407,8 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/measure-encoding-use.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/worktree-transcript-readers.test.ts"
 		],
 		"scripts/measure-encoding-use.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -24465,7 +24474,8 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/measure-if-overmatch.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/worktree-transcript-readers.test.ts"
 		],
 		"scripts/measure-if-overmatch.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -24570,7 +24580,8 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/measure-session-cost.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/worktree-transcript-readers.test.ts"
 		],
 		"scripts/measure-session-cost.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -24718,7 +24729,8 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/measure-turn-band.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/worktree-transcript-readers.test.ts"
 		],
 		"scripts/measure-turn-band.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -26991,6 +27003,12 @@
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/windows-script-tooling-declined.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/worktree-transcript-readers.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
