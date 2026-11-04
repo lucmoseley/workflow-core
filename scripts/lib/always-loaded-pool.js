@@ -168,6 +168,8 @@ function readPoolBytesIn(treeishes) {
 function stagedPoolDelta(revs) {
 	const committed = revs.filter((rev) => readCommitOrBroken(rev) !== null);
 	const [staged, ...bases] = readPoolBytesIn(["", ...committed]);
+	if (staged === undefined)
+		throw new Error("readPoolBytesIn returned no size for the index");
 	return bases.length === 0 ? null : staged - Math.max(...bases);
 }
 
