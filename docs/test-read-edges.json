@@ -149,6 +149,7 @@
 			"scripts/check-context-budget-session-cap.test.ts",
 			"scripts/check-context-budget.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-host-root.test.ts",
 			"scripts/check-output-style.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-session-ceiling.test.ts",
@@ -2742,6 +2743,7 @@
 			"scripts/markdown-tooling-declined.test.ts"
 		],
 		"hooks/hooks.json": [
+			"scripts/check-host-root.test.ts",
 			"scripts/clear-rule-latch.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/generate-plugin-hooks.test.ts",
@@ -3599,6 +3601,7 @@
 		],
 		"scripts/check-cli-args.js": [
 			"scripts/check-cli-args.test.ts",
+			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
@@ -3739,6 +3742,7 @@
 			"scripts/check-context-budget-materialise.test.ts",
 			"scripts/check-context-budget-session-cap.test.ts",
 			"scripts/check-context-budget.test.ts",
+			"scripts/check-host-root.test.ts",
 			"scripts/checker-new-faults.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/guard-vitest-wrapper.test.ts",
@@ -3987,6 +3991,7 @@
 		"scripts/check-guard-registry.js": [
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-host-root.test.ts",
 			"scripts/checker-new-faults.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/hook-registrations.test.ts",
@@ -4510,6 +4515,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-plugin-gap.js": [
+			"scripts/check-host-root.test.ts",
 			"scripts/check-plugin-gap.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
@@ -4579,6 +4585,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-registrations.js": [
+			"scripts/check-host-root.test.ts",
 			"scripts/check-registrations.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/init-adopter.test.ts",
@@ -4973,6 +4980,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-suite-size-drift.js": [
+			"scripts/check-host-root.test.ts",
 			"scripts/check-suite-size-drift.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
@@ -5356,6 +5364,7 @@
 		],
 		"scripts/commit-paths.js": [
 			"scripts/arm-tasks.test.ts",
+			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
@@ -5439,6 +5448,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/count-guard-fires.js": [
+			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-commit-form.test.ts",
@@ -5468,6 +5478,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/cut-mantahostels.js": [
+			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/cut-mantahostels.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
@@ -5952,6 +5963,7 @@
 			"scripts/check-context-budget-session-cap.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/check-guard-test-isolation.test.ts",
+			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/credit-chain-e2e.test.ts",
@@ -6526,6 +6538,7 @@
 			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/archive-core-classes.test.ts",
+			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/cut-mantahostels.test.ts",
 			"scripts/governance-empty-corpus.test.ts",
@@ -9446,6 +9459,21 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/closing-keyword.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/code-edges.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -12609,6 +12637,7 @@
 		"scripts/lib/git-tree.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
@@ -12869,6 +12898,7 @@
 			"scripts/check-context-budget-session-cap.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-host-root.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/count-guard-fires.test.ts",
@@ -13316,6 +13346,7 @@
 		"scripts/lib/heresy-scan.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
@@ -13410,6 +13441,22 @@
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/hook-code.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/check-host-root.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
@@ -13943,6 +13990,7 @@
 		"scripts/lib/husky-shim.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
@@ -14246,6 +14294,7 @@
 			"scripts/check-clock-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
@@ -14273,6 +14322,7 @@
 		"scripts/lib/isolated-worktree.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
@@ -15210,6 +15260,7 @@
 		"scripts/lib/line-scan.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
@@ -19146,6 +19197,7 @@
 		"scripts/lib/repo-holds.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
@@ -19267,6 +19319,7 @@
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-host-root.test.ts",
 			"scripts/check-plugin-gap.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
@@ -19952,6 +20005,7 @@
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/check-guard-test-isolation.test.ts",
+			"scripts/check-host-root.test.ts",
 			"scripts/check-instruction-surface.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
@@ -20357,6 +20411,7 @@
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/check-guard-test-isolation.test.ts",
+			"scripts/check-host-root.test.ts",
 			"scripts/check-instruction-surface.test.ts",
 			"scripts/check-roadmap-valid.test.ts",
 			"scripts/check-suite-size-drift.test.ts",
@@ -21397,6 +21452,7 @@
 		"scripts/lib/strip-comments.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
@@ -21497,6 +21553,7 @@
 		"scripts/lib/suite-apparatus.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
@@ -22110,6 +22167,7 @@
 		"scripts/lib/test-kind.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
@@ -22404,6 +22462,7 @@
 		"scripts/lib/tracked-scripts.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
@@ -23999,6 +24058,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lost-deny-rates.js": [
+			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/guard-lost-deny.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
@@ -25568,6 +25628,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/repo-checks.js": [
+			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -26093,6 +26154,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/score-session-breaches.js": [
+			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -26932,6 +26994,7 @@
 			"scripts/check-code-standards.test.ts",
 			"scripts/check-context-budget-session-cap.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/clear-rule-latch.test.ts",
 			"scripts/count-guard-fires.test.ts",
