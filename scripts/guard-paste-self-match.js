@@ -35,6 +35,7 @@
  * DEFEAT:    MAX_BLOCKS refusals a session on its own counter; past the cap the
  *            finding goes to the founder's screen instead. Silent on every
  *            failure path.
+ * TREE:      host — scans the message, refusing through the host root's markers
  */
 
 const hookBlock = require("./lib/hook-block");

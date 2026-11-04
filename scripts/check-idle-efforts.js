@@ -57,6 +57,7 @@
  * IMPLICIT:  at every session start, reads every adopting checkout's tracker and reports a stopped refill loop, a live loop's damaged file and each tracker holding an effort idle past 2 days, or unread, whose finding was not yet shown that machine-local day; a dispatcher's or the loop's job start, or any job's resume, stamps none of it, and through the hooks shows none of it.
  * JUSTIFIED: fail-safe — a stopped loop, or a route it skips, strands an effort with nothing else to say so.
  * DEFEAT:    none needed — it never blocks; deleting its delivery stamp names today's findings again.
+ * TREE:      host — reads every served main checkout's launch stores
  */
 
 const { now: clockNow, runCheck } = require("./lib/check");

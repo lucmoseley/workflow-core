@@ -19,6 +19,7 @@
  * IMPLICIT:  at every prompt the founder types in a session whose `.parked-` marker lists an issue, removes the `parked` label from it and drops it from the marker.
  * JUSTIFIED: fail-safe — an answered ticket left parked stays off the frontier, and no picker launches it again (#1995).
  * DEFEAT:    none needed — it never blocks; `disabled` in .claude/workflow-core.json stands it down.
+ * TREE:      host — reads this session's parked marker in the host root's markers
  */
 
 const path = require("node:path");

@@ -46,8 +46,10 @@ const { shortSha } = markerLib;
  * whose pushes owe no certificate, `why` the predicate's line.
  *
  * @param {string} sessionId
- * @param {{root?: string|null, ledger?: CommitLedger, execFn?: ExecFn,
- *   log?: (what: string) => void}} [options] `log` hears what the red note
+ * @param {{root?: string|null, tree?: string, ledger?: CommitLedger,
+ *   execFn?: ExecFn, log?: (what: string) => void}} [options] `root` holds
+ *   the certificate store and config, `tree` the `HEAD` judged — the session's
+ *   own worktree (#4243), `root` where left off; `log` hears what the red note
  *   could not read, which leaves the verdict standing
  * @returns {SessionVerdict}
  */
@@ -55,6 +57,7 @@ function sessionVerdict(
 	sessionId,
 	{
 		root = markerLib.repoRoot(),
+		tree,
 		ledger = arbiterLedger,
 		execFn,
 		log = () => {
@@ -72,7 +75,8 @@ function sessionVerdict(
 		? ledger.readCommitsBy(sessionId, ledgerRoot)
 		: null;
 	if (!commits) return { state: "unjudged", why: "commit ledger unreadable" };
-	const own = newestContained(commits, root, execFn);
+	const head = tree ?? root;
+	const own = newestContained(commits, head, execFn);
 	if (!own) return { state: "attested", at: null };
 
 	/* readMarkers() returns [] for an absent store, an unreadable one and one
@@ -86,7 +90,7 @@ function sessionVerdict(
 		};
 	const attestation = markerLib.sessionAttestation(own, markers, {
 		root,
-		within: readOwnWork(sessionId, root, ledger, execFn),
+		within: readOwnWork(sessionId, { root, tree: head }, ledger, execFn),
 	});
 	if (!attestation.judged)
 		return {
@@ -124,15 +128,16 @@ function newestContained(commits, root, execFn) {
  * null — the whole range — where git or the ledger will not answer. `tip`
  * keeps the shared tree's uncommitted files out: a commit is what is judged.
  * @param {string} sessionId
- * @param {string} root
+ * @param {{root: string, tree: string}} roots the config's root and
+ *   the tree whose `HEAD` is read
  * @param {CommitLedger} ledger
  * @param {ExecFn} [execFn]
  */
-function readOwnWork(sessionId, root, ledger, execFn) {
-	const head = gitRead(["rev-parse", "HEAD"], root, execFn)?.trim();
+function readOwnWork(sessionId, { root, tree }, ledger, execFn) {
+	const head = gitRead(["rev-parse", "HEAD"], tree, execFn)?.trim();
 	const base = gitRead(
 		["merge-base", "HEAD", pushedRef({ root })],
-		root,
+		tree,
 		execFn,
 	)?.trim();
 	if (!head || !base) return null;

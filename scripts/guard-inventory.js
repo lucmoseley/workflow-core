@@ -68,6 +68,7 @@
  * IMPLICIT:  reads the session's ending message at every Stop and blocks the turn where a background job's `result:` or `needs input:` carries no `waits on you:` inventory, or where any session's inventory is misshapen, cites an issue that is not open, disagrees with its status-line tail, or leaves a `needs input:` round posted on no cited issue, on none this session claims, or with no well-formed hand-off in its comment, or parks at `needs input:` with no round and no well-formed hand-off on a cited issue, or parks on a hand-off older than its start or last resume having made a tool call since, or parks while its ledgered files sit uncommitted; and, once a session, where a background job's owed `waits on you: nothing` follows a turn that handed the founder a draft to act on.
  * JUSTIFIED: fail-safe — work left waiting on the founder in chat or a closed issue is lost when the conversation scrolls away (#958), and the ending is the last moment it can still be filed.
  * DEFEAT:    the block clears by writing the inventory the refusal names, or the hand-off into the round comment — or, at a park asking no round, a comment on a cited issue — and committing or restoring the session's files, or by its own cap of 3 a session; the draft-and-act block by ending a second time, its cap being 1.
+ * TREE:      both — a park's hand-off is judged against the session tree's dirt; ledgers, claims, holds and markers are the host root's
  *
  * WHAT IT CAN NEVER SEE: founder-facing work the session never put in a
  * draft-and-act turn; a gist that misstates the act; an open issue under the
@@ -103,6 +104,7 @@ const {
 const { listIssueClaims } = require("./lib/arbiter-store");
 const { readOwnJob } = require("./lib/claude-stop");
 const { readStrandedFiles } = require("./lib/neighbour-dirt");
+const { sessionTree } = require("./lib/host-root.js");
 const { findOwnHold } = require("./lib/repo-holds");
 const sessionTranscript = require("./lib/session-transcript");
 const { governingMarker } = require("./lib/status-marker");
@@ -387,9 +389,10 @@ const holdsRound = (comment, title) =>
  * @param {string|undefined} question  the round's first question number,
  *   which `Blocked on:` must name; undefined where the park asks no round
  * @param {string} sessionId
+ * @param {string|null} tree the session's checkout, whose dirt is read
  * @returns {string} the fault, or ""
  */
-function handOffFault(body, question, sessionId) {
+function handOffFault(body, question, sessionId, tree) {
 	const faults = handOffFaults(body, question);
 	const remedy = question
 		? "Edit the round comment to end"
@@ -397,7 +400,7 @@ function handOffFault(body, question, sessionId) {
 	if (faults.length > 0)
 		return `this \`needs input:\` park leaves no well-formed hand-off on its ticket (#2391): ${faults.join("; ")}. ${remedy} with the block a fresh session picks up from:\n\n${HAND_OFF_SHAPE}`;
 	const named = new Set(parseHandOff(body)?.uncommitted ?? []);
-	const stranded = readStrandedFiles(sessionId, hookBlock.repoRoot());
+	const stranded = tree === null ? [] : readStrandedFiles(sessionId, tree);
 	if (stranded.length === 0) return "";
 	const list = (/** @type {string[]} */ ps) =>
 		ps.map((p) => `\`${p}\``).join(", ");
@@ -558,7 +561,12 @@ function parkFault(verdict, pointed, sessionId, payload) {
 	if (!newest && hasUnchecked(verdict)) return "";
 	return (
 		staleHandOffFault(newest, sessionId, payload) ||
-		handOffFault(newest?.body ?? "", pointed, sessionId)
+		handOffFault(
+			newest?.body ?? "",
+			pointed,
+			sessionId,
+			sessionTree(payload ?? {}),
+		)
 	);
 }
 
@@ -603,6 +611,7 @@ function roundFault(verdict, question, sessionId, payload) {
 						"",
 					number,
 					sessionId,
+					sessionTree(payload ?? {}),
 				)
 			);
 		return `this \`needs input:\` ending's round sits on #${unclaimed.join(", #")}, which this session holds no claim on, so \`/pick-next\` lists it as free work and a second session re-asks the round (#1066) — run \`node ${scriptPath("claim-issue.js")} ${unclaimed[0]}\`, then end again. Where it refuses on a live holder, that session is already asking: stop and report the collision`;

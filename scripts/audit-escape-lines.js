@@ -39,6 +39,7 @@
  * IMPLICIT:  at every session start, at most once in six hours, starts a detached batch that reads every seat's transcripts for this repo and sends each close question block that passed on an escape line, gitleaks-swept, to the Vercel AI Gateway.
  * JUSTIFIED: fail-safe — it refuses nothing, a missing key, SDK or gitleaks sends nothing, and a store that will not read reports that rather than zeros; #671 made the loosening reversible on this evidence.
  * DEFEAT:    `WFC_ESCAPE_AUDIT=0` for a session stops the batch starting.
+ * TREE:      host — judges escape lines in transcripts filed under the host root's project slug
  */
 
 const { spawn } = require("node:child_process");

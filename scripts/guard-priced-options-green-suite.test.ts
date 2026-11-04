@@ -19,6 +19,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenLog } from "./guard-log-fixture";
+import { cutWorktree } from "./lib/git-fixture";
 import { readStopGuardBlock, type StopBlock } from "./lib/stop-guard-testkit";
 import { researchCalls } from "./lib/transcript-testkit";
 
@@ -128,7 +129,11 @@ function committedUnattested(file = "a.txt"): string {
 
 function runGuard(
 	text: string,
-	{ job = true, env = {} }: { job?: boolean; env?: NodeJS.ProcessEnv } = {},
+	{
+		job = true,
+		env = {},
+		worktree,
+	}: { job?: boolean; env?: NodeJS.ProcessEnv; worktree?: string } = {},
 ): StopBlock | null {
 	const file = path.join(dir, `${sid}.jsonl`);
 	fs.writeFileSync(
@@ -149,6 +154,7 @@ function runGuard(
 		job: job ? dir : false,
 		config: home,
 		env,
+		worktree,
 	});
 }
 
@@ -185,6 +191,25 @@ describe("a background job's result: on work the session verdict says is owed (m
 			runGuard(DONE, { env: { WFC_MODULES: "suites,landing" } }),
 		).toBeNull();
 		expect(failOpenLog()).toBe("");
+	});
+
+	it("judges the session's worktree HEAD, not the main checkout's (#4243)", () => {
+		const wt = cutWorktree(dir);
+		const inWt = (...args: string[]) =>
+			execFileSync("git", args, { cwd: wt, encoding: "utf8" }).trim();
+		fs.writeFileSync(path.join(wt, "w.txt"), "w\n");
+		inWt("add", "w.txt");
+		inWt("commit", "-q", "-m", "add w.txt");
+		const sha = inWt("rev-parse", "HEAD");
+		const ledger = ledgerFile(sid);
+		fs.mkdirSync(path.dirname(ledger), { recursive: true });
+		fs.appendFileSync(ledger, `${sha}\n`);
+		writeMarkerStore([certificate(NO_SUCH_SHA)]);
+
+		expect(runGuard(DONE)).toBeNull();
+		expect(runGuard(DONE, { worktree: wt })?.reason).toContain(
+			sha.slice(0, 12),
+		);
 	});
 
 	it("allows it once a marker names that commit", () => {

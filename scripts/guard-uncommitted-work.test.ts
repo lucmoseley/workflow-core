@@ -1,12 +1,13 @@
 // @vitest-environment node
 /*
  * guard-uncommitted-work.js blocks a turn's end while this session's own
- * tracked edits sit uncommitted in the shared tree — not a neighbour's dirt,
- * not untracked scratch, not a linked worktree (mantahostels#1555).
+ * tracked edits sit uncommitted in its checkout — the main checkout or its own
+ * linked worktree (#4229) — not a neighbour's dirt, not untracked scratch
+ * (mantahostels#1555).
  *
  * Driven end-to-end through the CLI — a payload on stdin, a real git repo on
  * disk, a real write ledger, the block JSON on stdout. Only end-to-end
- * exercises the shared-tree limb, which needs an actual linked worktree to be
+ * exercises the worktree split, which needs an actual linked worktree to be
  * wrong about. Through `runInProcess` (§X3): the guard's own git reads are
  * real subprocesses either way, so nothing here needs a spawn of the guard
  * itself.
@@ -26,6 +27,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { readCurrentBootId, readProcStartOf } from "./lib/arbiter-proc";
 import { AS_ROOT } from "./lib/arbiter-testkit";
+import { cutWorktree } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 import { readStopGuardBlock, type StopBlock } from "./lib/stop-guard-testkit";
@@ -294,39 +296,65 @@ describe("the deleted stray-scratch limb", () => {
 	});
 });
 
-describe("the shared-tree carve-out", () => {
-	it("passes inside a linked worktree", () => {
-		ledger(["tracked.md"]);
-		dirty("tracked.md");
-		const wt = path.join(root, "..", `wt-${path.basename(root)}`);
-		execFileSync("git", ["worktree", "add", "--detach", "-q", wt], {
-			cwd: root,
-			stdio: "ignore",
-		});
-		try {
-			const real = fs.realpathSync(wt);
-			/* The ledger is keyed on CLAUDE_PROJECT_DIR, so without this second
-			 * copy the worktree run finds no ledger and passes for the wrong
-			 * reason — the mutation that removes inSharedTree() would go
-			 * undetected. */
-			ledger(["tracked.md"], real);
-			fs.appendFileSync(path.join(wt, "tracked.md"), "three\n");
-			/* Untracked too: the warn limb stands down with the rest of the guard,
-			 * and without this file it would pass for having nothing to say. */
-			fs.writeFileSync(path.join(wt, ".i0.out"), "captured\n");
-			const r = run(real);
-			expect(r.blocked).toBe(false);
-			expect(r.warn).toBe("");
-		} finally {
-			execFileSync("git", ["worktree", "remove", "--force", wt], {
-				cwd: root,
-				stdio: "ignore",
-			});
-		}
+describe("the session's own worktree (#4229)", () => {
+	let wt: string;
+	beforeEach(() => {
+		wt = cutWorktree(root);
 	});
 
-	/* Double-covered on purpose, and so unable to isolate inSharedTree(): outside
-	 * a repo the ledger is keyed elsewhere and readDirtyTracked() returns null too. */
+	/* The key the recorder writes for a worktree file: host-relative. */
+	const key = (rel: string) =>
+		path.relative(root, path.join(wt, rel)).split(path.sep).join("/");
+
+	const runIn = (payload: Record<string, unknown> = {}): Run => {
+		const out = readStopGuardBlock(GUARD, {
+			dir: root,
+			worktree: wt,
+			sid,
+			config: path.join(root, ".claude-home"),
+			payload: { transcript_path: undefined, ...payload },
+		});
+		return out
+			? { blocked: out.decision === "block", reason: out.reason, warn: "" }
+			: { blocked: false, reason: "", warn: "" };
+	};
+
+	it("blocks on the worktree's dirt, naming it as the worktree spells it", () => {
+		ledger([key("tracked.md")]);
+		fs.appendFileSync(path.join(wt, "tracked.md"), "three\n");
+		const r = runIn();
+		expect(r.blocked).toBe(true);
+		expect(r.reason).toContain(`uncommitted in ${wt}: tracked.md.`);
+		expect(r.reason).toContain("-- tracked.md`");
+		expect(r.reason).not.toContain("index is every session's");
+	});
+
+	it("passes on the main checkout's dirt when the worktree is clean", () => {
+		ledger(["tracked.md", key("tracked.md")]);
+		dirty("tracked.md");
+		expect(runIn().blocked).toBe(false);
+	});
+
+	it("passes on worktree dirt the ledger records only for the main checkout's file", () => {
+		ledger(["tracked.md"]);
+		fs.appendFileSync(path.join(wt, "tracked.md"), "three\n");
+		expect(runIn().blocked).toBe(false);
+	});
+
+	it("does not call a claimed file clean while it is dirty in the worktree", () => {
+		claim(key("tracked.md"), sid);
+		claim(key("other.md"), sid);
+		fs.appendFileSync(path.join(wt, "other.md"), "three\n");
+		const r = runIn({ last_assistant_message: "Done.\n\nresult: shipped" });
+		expect(r.blocked).toBe(true);
+		expect(r.reason).toContain(
+			`holds 1 claim(s) on files with no uncommitted change: ${key("tracked.md")}.`,
+		);
+	});
+});
+
+describe("outside a repository", () => {
+	/* Outside a repo `sessionTree` finds no tree, so the guard reads no dirt. */
 	it("passes where the cwd is not a git repository at all", () => {
 		ledger(["tracked.md"]);
 		dirty("tracked.md");

@@ -51,13 +51,15 @@ function pushedRef(opts) {
  * The remote ref a checkout's unpushed count reads: a named branch other than
  * `main` with an upstream, such as `spike/*`, pushes there; anything else
  * pushes to the pushed ref.
- * @param {{root?: string}} [opts] the checkout, whose config is read
+ * @param {{root?: string, tree?: string}} [opts] the host root, whose config
+ *   is read, and the checkout whose `HEAD` is, where that is a session's own
+ *   worktree (#4243); `root` serves for both where `tree` is left off
  * @returns {string}
  */
 function readUnpushedRef(opts) {
 	const git = (/** @type {string[]} */ args) =>
 		execGit(args, {
-			cwd: opts?.root,
+			cwd: opts?.tree ?? opts?.root,
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "ignore"],
 		}).trim();

@@ -173,6 +173,7 @@ const { hostRoot, worktreeRoot } = require("./lib/host-root.js");
 const { deref } = require("./lib/deref.js");
 const { HOOK_EVENTS } = require("./lib/hook-events.js");
 const {
+	isCoreRoot,
 	readRunningHooks,
 	readOwnHooks,
 	ownHooksFile,
@@ -1114,6 +1115,19 @@ function unwiredNarrowingFindings(wired) {
  * and it says nothing about what it does to a session". Staleness against the
  * content digest is the same WARN the guards get, sharing
  * guard-registry-anchors.json and --review rather than a second sidecar.
+ *
+ * WHICH TREE IT READS (#4229, #4243). At the core, every script a Claude Code
+ * hook runs also carries
+ *
+ *     TREE:      session | host | both | none — <why>
+ *
+ * a hook's cwd being the session's own worktree while `CLAUDE_PROJECT_DIR`
+ * names the main checkout. `session` reads git state or working files through
+ * `sessionTree()`, `host` reads the shared stores through `hostRoot()`, `both`
+ * reads each, `none` reads no repository. A missing line is NO-TREE, one
+ * opening with another word BAD-TREE. Not owed by `scripts/guard-dispatch.js`,
+ * whose cores are classified one by one (#4242), nor by a git hook or an
+ * adopter's own script.
  */
 
 const REFUSING_EVENT = "PreToolUse";
@@ -1342,15 +1356,19 @@ function isBlockOpenAfter(
  * the line. */
 const ANNOTATION_KEYS = ["IMPLICIT", "JUSTIFIED", "DEFEAT"];
 const JUSTIFICATIONS = ["fail-safe", "convenience"];
+const TREE_KEY = "TREE";
+const TREES = ["session", "host", "both", "none"];
+const TREE_EXEMPT = "scripts/guard-dispatch.js";
 
 const ANNOTATION_RE = new RegExp(
-	`^\\s*(?:#+|\\*|//)\\s*(${ANNOTATION_KEYS.join("|")}):[ \\t]*(.*)$`,
+	`^\\s*(?:#+|\\*|//)\\s*(${[...ANNOTATION_KEYS, TREE_KEY].join("|")}):[ \\t]*(.*)$`,
 );
 /* The reason is required, not decoration: "fail-safe" alone asserts a verdict
  * and shows no working, which is the stale label mantahostels#102 ruled out. */
 const JUSTIFIED_RE = new RegExp(
 	`^(?:${JUSTIFICATIONS.join("|")})\\s*[—:-]\\s*\\S`,
 );
+const TREE_RE = new RegExp(`^(?:${TREES.join("|")})\\s*[—:-]\\s*\\S`);
 
 /**
  * path → parsed annotation (or null), memoised: implicitWiring asks too.
@@ -1443,6 +1461,35 @@ function implicitJustifications(scripts) {
 }
 
 /**
+ * A trigger a Claude Code hook event names, the declared refusing one included.
+ * @param {string} trigger
+ */
+function isHookTrigger(trigger) {
+	return HOOK_EVENTS.some((e) => trigger === e || trigger.startsWith(`${e} `));
+}
+
+/**
+ * The `TREE:` line a hook-run script owes at the core (#4243).
+ * @param {{atCore: boolean, rel: string, triggers: string[],
+ *   ann: Record<string, string>}} script
+ * @param {(kind: string, detail: string) => void} report
+ */
+function reportTree({ atCore, rel, triggers, ann }, report) {
+	if (!atCore || rel === TREE_EXEMPT || !triggers.some(isHookTrigger)) return;
+	const tree = ann[TREE_KEY];
+	if (tree === undefined)
+		report(
+			"NO-TREE",
+			`wired at ${triggers.join(", ")}, and its header has no \`TREE:\` line saying whether it reads the session's worktree, the main checkout's shared stores, both or neither`,
+		);
+	else if (!TREE_RE.test(tree))
+		report(
+			"BAD-TREE",
+			`\`TREE: ${tree}\` — it must open with one of ${TREES.join(" | ")} and then give the reason, as \`TREE: session — <why>\``,
+		);
+}
+
+/**
  * Walk the acting wiring and judge each script's annotation.
  *
  * Returns the FAIL findings and the roster — `path → { triggers, annotation }` —
@@ -1453,6 +1500,7 @@ function scanImplicit() {
 	const findings = [];
 	/** @type {Map<string, WiredScript>} */
 	const scripts = new Map();
+	const atCore = isCoreRoot(root, { core: CORE_ROOT });
 
 	for (const [rel, triggers] of implicitWiring()) {
 		const ann = readAnnotation(rel);
@@ -1503,6 +1551,8 @@ function scanImplicit() {
 					" | ",
 				)} and then give the reason, as \`JUSTIFIED: fail-safe — <why>\``,
 			);
+
+		reportTree({ atCore, rel, triggers, ann }, report);
 	}
 
 	return { findings, scripts };

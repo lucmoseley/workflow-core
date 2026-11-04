@@ -46,6 +46,7 @@
 # IMPLICIT:  records the session's base sha at SessionStart, and at Stop blocks the turn ending once per unmet signal — demanding the concision pass over prose added, or code-review over code changed or a declared sensitive path written; in an /implement session either nag ends with rule:implement-closing-steps, the only place a session meets those steps (#2031).
 # JUSTIFIED: fail-safe — both are closing steps, and a session that has finished writing has no reason left of its own to run them.
 # DEFEAT:    none — each signal fires once per session, the code signal again only on new news (above), and is cleared by doing the pass, not by a switch.
+# TREE:      both — base and diffs from the session's tree; markers, the write ledger and the standards files from the host root.
 
 set -uo pipefail
 
@@ -107,21 +108,29 @@ rule_or_path() {
   printf '%s %s%s' "$2" "$where" "$3"
 }
 
-cd "$(gr_root)" 2>/dev/null || exit 0
-# Resolved once, after the cd above, so every marker path below is this
-# absolute directory plus a bare filename.
+host="$(gr_root)"
+cd "$host" 2>/dev/null || exit 0
+# Resolved once, at the host root, so every marker path below is this absolute
+# directory plus a bare filename.
 markers_dir="$(gr_markers_dir)"
 [[ -n "$markers_dir" ]] || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
-git rev-parse --git-dir >/dev/null 2>&1 || exit 0
 # node reads the ledger, and a missing one would leave the ledger empty rather
 # than absent — which reads exactly like a session that wrote nothing, so the
 # backstop would fall silent for good with nothing to show for it.
 command -v node >/dev/null 2>&1 || exit 0
 
 mode="${1:-stop}"
-sid=$(cat | jq -r '.session_id // empty' 2>/dev/null)
+payload=$(cat)
+sid=$(jq -r '.session_id // empty' <<<"$payload" 2>/dev/null)
 [[ -n "$sid" ]] || exit 0
+
+# Every git read below runs in the session's own tree, the payload's cwd's top
+# level (#4243): its HEAD is the base, its diff the signal. Markers, the ledger
+# and the standards files stay the host root's.
+cwd=$(jq -r '.cwd // empty' <<<"$payload" 2>/dev/null)
+tree=$(git -C "${cwd:-.}" rev-parse --show-toplevel 2>/dev/null) || exit 0
+cd "$tree" 2>/dev/null || exit 0
 
 # The two review-axis Artefact paths alone take the shortened suffix; every
 # OTHER $sid use in this file (the marker filenames below) keeps the full id.
@@ -186,6 +195,16 @@ fi
 # Removable without changing the output — an empty ledger already yields an empty
 # match below. It skips the git diffs for read-only sessions, the common case.
 [[ -s "$mine" ]] || exit 0
+# The ledger names a worktree's file from the host root; git in the tree names
+# it from the tree, so the ledger is re-spelt, and a tree outside the host root
+# holds nothing it recorded.
+if [[ "$tree" != "$host" ]]; then
+  prefix="${tree#"$host"/}/"
+  [[ "$prefix" != "$tree/" ]] || exit 0
+  own=$(awk -v p="$prefix" 'index($0, p) == 1 { print substr($0, length(p) + 1) }' "$mine")
+  printf '%s\n' "$own" >"$mine"
+  [[ -n "$own" ]] || exit 0
+fi
 
 # quotePath=false on every git command feeding it: attributed_to's header.
 attributed() { attributed_to "$mine"; }

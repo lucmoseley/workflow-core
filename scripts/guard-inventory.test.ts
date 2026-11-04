@@ -23,6 +23,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GH_FAILING_SCRIPT, stubGhScript } from "./lib/gh-stub";
+import { cutWorktree } from "./lib/git-fixture";
 import { INVENTORY } from "./lib/inventory-format";
 import { parkedPromptOf } from "./lib/loop-prompts.js";
 import {
@@ -493,6 +494,23 @@ describe("the hand-off on a posted round (#2391)", () => {
 		it("leaves a dirty file only a neighbour wrote alone", () => {
 			wrote("src/a.txt", `${sid}-other`);
 			expect(withHandOff(HAND_OFF)).toBe("");
+		});
+
+		it("reads the dirt of the session's own worktree, naming it as the worktree does (#4243)", () => {
+			commit("checkout", "-q", "src/a.txt");
+			const wt = cutWorktree(dir);
+			fs.writeFileSync(path.join(wt, "src", "a.txt"), "three\n");
+			wrote(path.join(wt, "src", "a.txt"));
+			const reason = withHandOff(HAND_OFF, { worktree: wt });
+			expect(reason).toContain(
+				"`src/a.txt` is uncommitted and unnamed in the hand-off",
+			);
+		});
+
+		it("leaves the main checkout's dirt alone for a session in its worktree (#4243)", () => {
+			wrote("src/a.txt");
+			const wt = cutWorktree(dir);
+			expect(withHandOff(HAND_OFF, { worktree: wt })).toBe("");
 		});
 	});
 

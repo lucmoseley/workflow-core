@@ -30,6 +30,7 @@
  * DEFEAT:    once per refused call and at most MAX_BLOCKS times per session;
  *            silent where the turn carries no refusal, and on every failure
  *            path.
+ * TREE:      host — judges the transcript against a rule text the core ships
  */
 
 const hookBlock = require("./lib/hook-block");

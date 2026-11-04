@@ -36,6 +36,7 @@
  * IMPLICIT:  after a `gh issue close <n>`, drops this session's arbiter claim on that issue.
  * JUSTIFIED: convenience — the release was written down in two places and no close path ever called it; a claim outliving its issue costs a stale line in `issue-claims` and nothing else.
  * DEFEAT:    evadable by spelling — `--repo`, a shell variable, `gh api` or the web UI all miss the seam — but there is no switch.
+ * TREE:      host — drops this session's issue claim from the host root's arbiter store
  */
 
 const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
