@@ -73,9 +73,12 @@ function buildHostPorts(root) {
 		linkTarget: (p) => {
 			try {
 				return fs.readlinkSync(p);
-			} catch {
-				/* Absent, or no link: either way nothing links there. */
-				return null;
+			} catch (err) {
+				/* Absent, or no link: nothing links there (#4255). Any other
+				 * fault throws, so the core's closed row denies. */
+				const code = /** @type {NodeJS.ErrnoException} */ (err).code;
+				if (code === "ENOENT" || code === "EINVAL") return null;
+				throw err;
 			}
 		},
 		readManifest: (dep) =>

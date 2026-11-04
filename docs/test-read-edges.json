@@ -27005,6 +27005,7 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-checkout.test.ts",
 			"scripts/vitest-inflight-reporter.test.ts"
 		],
 		"scripts/vitest-pass-reporter.test.ts": [
@@ -27021,6 +27022,7 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-checkout.test.ts",
 			"scripts/vitest-pass-reporter.test.ts"
 		],
 		"scripts/vitest-shard-sequencer.ts": [
@@ -27045,6 +27047,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/run-vitest.test.ts",
+			"scripts/session-checkout.test.ts",
 			"scripts/vitest-tree-watch.test.ts"
 		],
 		"scripts/warm-fraction.js": [
@@ -27299,6 +27302,7 @@
 			"scripts/check-context-budget.test.ts",
 			"scripts/lib/python-routes.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
+			"scripts/session-checkout.test.ts",
 			"vitest.setup.test.ts"
 		]
 	}
