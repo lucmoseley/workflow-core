@@ -67,7 +67,7 @@ describe("buildMergedAnchors", () => {
 	});
 });
 
-it("writes the committed file back byte for byte, as --review wrote it", () => {
+it("writes the committed file back byte for byte", () => {
 	const committed = fs.readFileSync(
 		path.resolve(__dirname, "../../.claude/guard-registry-anchors.json"),
 		"utf8",

@@ -4,8 +4,7 @@
  *
  * A row both sides moved keeps the current side's digest. Neither side's is
  * an attestation of the merged content, so the gate names it stale and its
- * `--review` re-read writes the right one; a digest is content-bound, so a kept
- * one can only read stale, never wrongly fresh (#4167, #3935).
+ * `--review` re-read writes the right one (#4167, #3935).
  */
 
 const REGISTRY_ANCHORS = ".claude/guard-registry-anchors.json";
