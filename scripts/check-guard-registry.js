@@ -52,6 +52,9 @@
  *   node scripts/check-guard-registry.js --review --sole-writer [<path>…]
  *     the same, every dirty input read as the caller's own: for a tree no
  *     session works yet, as init-adopter.js anchors the hooks it just wrote.
+ *   node scripts/check-guard-registry.js --review --stale
+ *     the same over exactly the rows a bare run names stale, listing each
+ *     with what it asserts was re-read (#4170).
  *
  * THE PROBLEM (mantahostels#112, ruled by mantahostels#102).
  * CLAUDE.md rules read with uniform authority while having wildly different
@@ -433,6 +436,9 @@ function walk(rel, out) {
 let ignoreDropped = 0;
 let ignoreFailure = "";
 let ignoreSkipped = false;
+let listedByGit = false;
+
+const UNOPENED_DIR_RE = /^warning: could not open directory '([^'\n]+)'/gm;
 
 /* What the declared-side loop in scanIfNarrowing() (mantahostels#2234) did with a read it
  * could not complete — same purpose as ignoreDropped above. */
@@ -509,10 +515,79 @@ function isMaterialised(dir) {
 }
 
 function scannedFiles() {
+	/* A symlinked scan root (AGENTS.md onto CLAUDE.md) is one git lists as the
+	 * link alone, so walk() follows it, as it follows every root. */
+	const linked = SCAN_ROOTS.filter((r) =>
+		fs
+			.lstatSync(path.join(root, r), { throwIfNoEntry: false })
+			?.isSymbolicLink(),
+	);
+	const listable = SCAN_ROOTS.filter((r) => !linked.includes(r));
+	const listed =
+		rootGiven && isMaterialised(root) ? null : listUnignored(listable);
 	/** @type {string[]} */
 	const out = [];
-	for (const r of SCAN_ROOTS) walk(r, out);
-	return dropIgnored(out).sort();
+	for (const r of listed ? [...linked, ...listed.nested] : SCAN_ROOTS)
+		walk(r, out);
+	const walked = dropIgnored(out);
+	return listed
+		? [...new Set([...listed.files, ...walked])].sort()
+		: walked.sort();
+}
+
+/**
+ * The scope walk() and dropIgnored() reach together, asked of git in one call:
+ * tracked files and untracked unignored ones under SCAN_ROOTS, without
+ * reading the ignored ones (#4170). A tracked path stays in scope however
+ * .gitignore reads, as dropIgnored() keeps it; a symlink below a root stays
+ * off, as in walk(). An untracked nested repository git names as `dir/`
+ * alone, so `nested` hands it to walk(). Null where git cannot answer, so
+ * the walk runs and its filter reports FAILED OPEN.
+ *
+ * @param {string[]} roots
+ * @returns {{ files: string[], nested: string[] } | null}
+ */
+function listUnignored(roots) {
+	// No pathspec would list the whole repo.
+	if (roots.length === 0) return { files: [], nested: [] };
+	const r = spawnGitSync(
+		[
+			"-C",
+			root,
+			"ls-files",
+			"-z",
+			"--cached",
+			"--others",
+			"--exclude-standard",
+			"--",
+			...roots,
+		],
+		{
+			encoding: "utf8",
+			maxBuffer: MAX_BUFFER,
+			// The warning read below is localised.
+			env: { ...process.env, LC_ALL: "C" },
+		},
+	);
+	if (r.error || r.status !== 0) return null;
+	/* Git only warns past a directory it cannot open, so its listing would
+	 * read short: the readdir raises the error the walk would have, BROKEN
+	 * via runCheck's catch. An ignored one git never opens (#3974). */
+	for (const m of r.stderr.matchAll(UNOPENED_DIR_RE))
+		fs.readdirSync(path.join(root, m[1] ?? ""));
+	/** @type {Set<string>} */
+	const out = new Set();
+	/** @type {string[]} */
+	const nested = [];
+	for (const rel of r.stdout.split("\0")) {
+		if (rel.endsWith("/")) nested.push(rel.slice(0, -1));
+		if (!rel.endsWith(".md")) continue;
+		if (rel.split("/").some((part) => SKIP_DIRS.has(part))) continue;
+		const st = fs.lstatSync(path.join(root, rel), { throwIfNoEntry: false });
+		if (st?.isFile()) out.add(rel);
+	}
+	listedByGit = true;
+	return { files: [...out], nested };
 }
 
 // --- the wiring corpus ------------------------------------------------------
@@ -1695,6 +1770,30 @@ const VAR_PATH_RE =
  * @param {string} [base] the tree run targets and the dispatch manifest resolve in
  */
 function sourcedBy(rel, text, base = root) {
+	const key = `${base}\0${rel}`;
+	const known = sourcedCache.get(key);
+	if (known?.text === text) return [...known.deps];
+	const deps = parseSourcedBy(rel, text, base);
+	sourcedCache.set(key, { text, deps });
+	return [...deps];
+}
+
+/**
+ * sourcedBy's answers, by tree and path, each with the text it was read from.
+ * Every guard's digest re-reads its whole library closure, and the emitter scan
+ * reads them all again (#4170). Keyed on the text too, so a file that changes mid-run is
+ * parsed afresh.
+ *
+ * @type {Map<string, { text: string, deps: string[] }>}
+ */
+const sourcedCache = new Map();
+
+/**
+ * @param {string} rel
+ * @param {string} text
+ * @param {string} base
+ */
+function parseSourcedBy(rel, text, base) {
 	const dir = path.dirname(rel);
 	const shell = parseSourcedLibs(text).map((lib) => path.join(dir, lib));
 	// Resolve first, then keep only lib/: `session-arbiter.js` reaches its store
@@ -2201,6 +2300,24 @@ function stalenessWarnings(describedBy, implicitScripts, anchors) {
 			});
 
 	return warnings;
+}
+
+/**
+ * The rows stalenessWarnings names, for `--review --stale` (#4170). Ends the run where none is stale, since an
+ * empty path list would re-anchor everything.
+ *
+ * @param {Map<string, RuleRef[]>} describedBy
+ * @param {Map<string, WiredScript>} implicitScripts
+ * @param {Record<string, string>} anchors
+ * @returns {string[]}
+ */
+function staleGuards(describedBy, implicitScripts, anchors) {
+	const stale = stalenessWarnings(describedBy, implicitScripts, anchors)
+		.filter((w) => STALE_KINDS.has(w.kind))
+		.map((w) => w.guard);
+	if (stale.length > 0) return [...new Set(stale)];
+	printLine(`No stale row: ${ANCHORS} left untouched.`);
+	process.exit(0);
 }
 
 /**
@@ -2937,19 +3054,23 @@ function emitRuleCalls(text) {
 }
 
 /**
- * The files wiring reaches, directly or along `deps`.
+ * The files wiring reaches, directly or along their sourcedBy() deps. Only a
+ * reached file's deps are parsed (#4170).
  *
- * @param {Map<string, string[]>} deps
+ * @param {Map<string, string>} texts emitter → its text
  * @param {string} wiring
+ * @param {string} [base] the tree the emitters sit in
  * @returns {Set<string>}
  */
-function liveFiles(deps, wiring) {
-	const live = new Set([...deps.keys()].filter((rel) => wiring.includes(rel)));
+function liveFiles(texts, wiring, base = root) {
+	const live = new Set([...texts.keys()].filter((rel) => wiring.includes(rel)));
 	const queue = [...live];
 	while (queue.length > 0) {
 		const rel = queue.shift();
 		if (!rel) continue;
-		for (const dep of deps.get(rel) ?? [])
+		const text = texts.get(rel);
+		if (text === undefined) continue;
+		for (const dep of sourcedBy(rel, text, base))
 			if (!live.has(dep)) {
 				live.add(dep);
 				queue.push(dep);
@@ -2975,16 +3096,16 @@ function corePrintedBy(wiring) {
 	/** @type {Map<string, string[]>} */
 	const printed = new Map();
 	if (rootIsCore()) return printed;
-	/** @type {Map<string, string[]>} */
-	const deps = new Map();
+	/** @type {Map<string, string>} */
+	const texts = new Map();
 	/** @type {Map<string, { id: string }[]>} */
 	const callsBy = new Map();
 	for (const rel of emitterFiles(CORE_ROOT, ["scripts"])) {
 		const text = fs.readFileSync(path.join(CORE_ROOT, rel), "utf8");
-		deps.set(rel, sourcedBy(rel, text, CORE_ROOT));
+		texts.set(rel, text);
 		callsBy.set(rel, accessorCalls(text));
 	}
-	const live = liveFiles(deps, wiring);
+	const live = liveFiles(texts, wiring, CORE_ROOT);
 	for (const [rel, calls] of callsBy)
 		if (live.has(rel))
 			for (const { id } of calls)
@@ -3003,9 +3124,9 @@ function scanRuleStore(triggerRefs, wiring) {
 	const fragments = storedRuleIds();
 	const manifest = loadManifest();
 	const indexed = readIndexedRuleIds(wiring);
-	const { callsBy, deps, citationsBy } = readEmitters();
+	const { callsBy, texts, citationsBy } = readEmitters();
 
-	const live = liveFiles(deps, wiring);
+	const live = liveFiles(texts, wiring);
 
 	const { printedBy, findings } = emittedCalls(callsBy, live, fragments);
 	for (const [id, rels] of corePrintedBy(wiring))
@@ -3021,11 +3142,11 @@ function scanRuleStore(triggerRefs, wiring) {
 }
 
 /**
- * Every emitter's accessor calls, source deps and `rule:<id>` citations.
+ * Every emitter's accessor calls, text and `rule:<id>` citations.
  *
  * @returns {{
  *   callsBy: Map<string, { id: string, line: number }[]>,
- *   deps: Map<string, string[]>,
+ *   texts: Map<string, string>,
  *   citationsBy: Map<string, { id: string, line: number }[]>,
  * }}
  */
@@ -3033,9 +3154,9 @@ function readEmitters() {
 	/** file → the ids it names, with the line each call sits on. */
 	/** @type {Map<string, { id: string, line: number }[]>} */
 	const callsBy = new Map();
-	/** file → the libs and delegates it reaches, for the liveness walk. */
-	/** @type {Map<string, string[]>} */
-	const deps = new Map();
+	/** file → its text, whose deps the liveness walk parses. */
+	/** @type {Map<string, string>} */
+	const texts = new Map();
 	/** file → the `rule:<id>` citations its comments and strings carry. */
 	/** @type {Map<string, { id: string, line: number }[]>} */
 	const citationsBy = new Map();
@@ -3046,13 +3167,13 @@ function readEmitters() {
 		 * Swallowing it drops that file's calls, and a fragment it really does print
 		 * then reports UNPRINTED-RULE — a FAIL naming the wrong thing. */
 		const text = fs.readFileSync(path.join(root, rel), "utf8");
-		deps.set(rel, sourcedBy(rel, text));
+		texts.set(rel, text);
 		const cited = citationsIn(text);
 		if (cited.length > 0) citationsBy.set(rel, cited);
 		const calls = accessorCalls(text);
 		if (calls.length > 0) callsBy.set(rel, calls);
 	}
-	return { callsBy, deps, citationsBy };
+	return { callsBy, texts, citationsBy };
 }
 
 /**
@@ -4422,13 +4543,49 @@ function reviewIndex(ctx) {
 	return reviewAt;
 }
 
+/**
+ * What `--review` was asked to anchor: the bare arguments after it, where
+ * none means "every guard the registry names", or under `stale` the rows the
+ * scan finds stale; null where there is no `--review`. Read before the scan,
+ * so a misuse costs none.
+ *
+ * @param {Ctx} ctx
+ * @param {number} reviewAt
+ * @returns {{ named: string[], stale: boolean, taking: string[], soleWriter: boolean } | null}
+ */
+function parseReviewRequest(ctx, reviewAt) {
+	if (reviewAt === -1) {
+		for (const flag of ["--sole-writer", "--stale"])
+			if (ctx.has(flag)) ctx.usageError(`${flag} only qualifies --review.`);
+		return null;
+	}
+	const after = ctx.argv.slice(reviewAt + 1);
+	const named = after.filter(
+		(a, i) => !a.startsWith("--") && after[i - 1] !== "--taking",
+	);
+	const stale = ctx.has("--stale");
+	if (stale && named.length > 0)
+		ctx.usageError(
+			"--stale re-anchors the rows the scan finds stale, so it takes no path.",
+		);
+	return {
+		named,
+		stale,
+		taking: ctx.argv.filter((_, i) => ctx.argv[i - 1] === "--taking"),
+		soleWriter: ctx.has("--sole-writer"),
+	};
+}
+
 /** The summary's last line: what the gitignore filter did to the walk. */
 function buildIgnoreLine() {
 	if (ignoreFailure)
 		return `Gitignore filter FAILED OPEN — ${ignoreFailure}. Scope is the whole walk, scratch included.`;
 	if (ignoreSkipped)
 		return "Gitignore filter: not run — a materialised tree holds tracked files only.";
-	return `Gitignore filter: ${ignoreDropped} path(s) dropped as ignored.`;
+	const docs = listedByGit
+		? "documents listed by git, ignored ones left out; "
+		: "";
+	return `Gitignore filter: ${docs}${ignoreDropped} path(s) dropped as ignored.`;
 }
 
 /**
@@ -4453,7 +4610,8 @@ function sayWarnings(ctx, warnings) {
 		ctx.say(
 			`${staleCount} guard(s) whose registry prose may have gone stale.\n` +
 				"  Re-read each rule above against its guard, then clear it with\n" +
-				"  node scripts/check-guard-registry.js --review <guard-path>.\n" +
+				"  node scripts/check-guard-registry.js --review <guard-path>,\n" +
+				"  or every one at once with --review --stale.\n" +
 				"  Warnings here; .husky/pre-commit refuses the commit that adds one.\n",
 		);
 
@@ -4536,7 +4694,7 @@ function sayFindings(
 
 runCheck({
 	name: "guard-registry",
-	usage: `node check-guard-registry.js [--warn] [--json] [--roster] [--root <dir>] [--against <rev>] [--head <rev>] | --touched-by <rev> [--root <dir>] (BROKEN past ${TOUCHED_BY_CEILING_MS / 1000}s) | --review [--sole-writer] [<path>…] [--taking <path>]…`,
+	usage: `node check-guard-registry.js [--warn] [--json] [--roster] [--root <dir>] [--against <rev>] [--head <rev>] | --touched-by <rev> [--root <dir>] (BROKEN past ${TOUCHED_BY_CEILING_MS / 1000}s) | --review [--sole-writer] [<path>…] [--taking <path>]… | --review --stale`,
 	valueFlags: ["--root", "--touched-by", "--taking"],
 	/* Whole-tree, not a pathspec: scanRegistry walks CLAUDE.md, AGENTS.md, docs/
 	 * and .claude/ AND every guard path a rule names, which is a scope no list
@@ -4558,14 +4716,11 @@ runCheck({
 		},
 		settle: settleAdded,
 	},
-	flags: ["--review", "--roster", "--sole-writer"],
+	flags: ["--review", "--roster", "--sole-writer", "--stale"],
 	run(ctx) {
 		setRoot(ctx.value("--root"));
 		if (ctx.has("--touched-by")) return runTouched(ctx);
-		const reviewAt = reviewIndex(ctx);
-		const reviewing = reviewAt !== -1;
-		if (ctx.has("--sole-writer") && !reviewing)
-			ctx.usageError("--sole-writer only qualifies --review.");
+		const request = parseReviewRequest(ctx, reviewIndex(ctx));
 
 		const {
 			findings: registryFindings,
@@ -4592,21 +4747,19 @@ runCheck({
 		];
 		const anchors = loadAnchors();
 
-		if (reviewing) {
-			/* Bare arguments after --review; empty means "every guard the registry
-			 * names". */
-			const after = ctx.argv.slice(reviewAt + 1);
-			const reviewPaths = after.filter(
-				(a, i) => !a.startsWith("--") && after[i - 1] !== "--taking",
-			);
-			const taking = ctx.argv.filter((_, i) => ctx.argv[i - 1] === "--taking");
+		if (request)
 			reanchor(
-				{ paths: reviewPaths, taking, soleWriter: ctx.has("--sole-writer") },
+				{
+					paths: request.stale
+						? staleGuards(describedBy, implicitScripts, anchors)
+						: request.named,
+					taking: request.taking,
+					soleWriter: request.soleWriter,
+				},
 				describedBy,
 				implicitScripts,
 				anchors,
 			);
-		}
 
 		const warnings = [
 			...stalenessWarnings(describedBy, implicitScripts, anchors),

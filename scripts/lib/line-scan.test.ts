@@ -59,6 +59,19 @@ const PLANTED = [
 	'if node $script; then node "${b}"',
 	"node $\nnode $x",
 	"a&node $v)",
+	// Several heads on one line, a head opening the next line, a `#` stop,
+	// and a `.` inside a word (#4170's head-jumping engine).
+	"x . y source lib/a.sh . lib/b.sh",
+	"a\nnode $x/y.js",
+	"a #node $x/y.js\nnode $z/w.js",
+	"a.b lib/x.sh\nb.c . lib/y.sh",
+	"node node $a/b.js node $c/d.js",
+	// A tail opening just past a mid-line break, which is a boundary and a
+	// line start at once: the prefix stops before the break.
+	"a\rnode $x/y.js",
+	"a\u2028node $v",
+	// A name that runs on past its `.sh`, which the lib-path prefilter must pass.
+	"source lib/a.sh.x",
 ];
 
 describe("parseSourcedLibs", () => {
@@ -90,6 +103,62 @@ describe("parseNodeRuns", () => {
 describe("parseNodeVars", () => {
 	it.each(PLANTED)("matches the regex it stands in for on %j", (text) => {
 		expect(parseNodeVars(text)).toEqual(groups(NODE_VAR_RE, text));
+	});
+});
+
+/* Texts built from the tokens the three grammars turn on (#4170). Short
+ * texts, so the oracle's quadratic case costs nothing. */
+describe("every parser against its regex over generated texts", () => {
+	const Tokens = [
+		"source",
+		"lib/",
+		".sh",
+		"node",
+		"$",
+		'"',
+		"#",
+		"\n",
+		"\r",
+		" ",
+		"\t",
+		".",
+		"x",
+		"/",
+		".js",
+		"{",
+		"}",
+		"a-b",
+		"(",
+		";",
+		"|",
+		"&",
+		"\u2028",
+		"so",
+		"no",
+	];
+	let seed = 11;
+	const next = () => {
+		seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
+		return seed / 2_147_483_648;
+	};
+	const texts = Array.from({ length: 5000 }, () =>
+		Array.from(
+			{ length: 1 + Math.floor(next() * 30) },
+			() => Tokens[Math.floor(next() * Tokens.length)],
+		).join(""),
+	);
+
+	it("finds exactly the oracle's matches on each", () => {
+		const off = texts.filter(
+			(t) =>
+				JSON.stringify(parseSourcedLibs(t)) !==
+					JSON.stringify([...t.matchAll(SOURCE_RE)].map((m) => m[1])) ||
+				JSON.stringify(parseNodeRuns(t)) !==
+					JSON.stringify(groups(NODE_RUN_RE, t)) ||
+				JSON.stringify(parseNodeVars(t)) !==
+					JSON.stringify(groups(NODE_VAR_RE, t)),
+		);
+		expect(off).toEqual([]);
 	});
 });
 
