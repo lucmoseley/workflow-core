@@ -296,4 +296,5 @@ module.exports = {
 	isGroupAlive,
 	killGroup,
 	runGrouped,
+	SYNC_GRACE_MS,
 };

@@ -526,6 +526,7 @@
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/commit-route.test.ts",
 			"scripts/lib/formatters.test.ts",
+			"scripts/lib/hook-bound.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts"
 		],
@@ -549,6 +550,7 @@
 			"scripts/lib/ci-runs.test.ts",
 			"scripts/lib/commit-route.test.ts",
 			"scripts/lib/formatters.test.ts",
+			"scripts/lib/hook-bound.test.ts",
 			"scripts/lib/precommit-gate-harness.test.ts",
 			"scripts/lib/precommit-gate.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
@@ -589,6 +591,7 @@
 			"scripts/husky-script-refs.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/formatters.test.ts",
+			"scripts/lib/hook-bound.test.ts",
 			"scripts/lib/project-slug-scan.test.ts"
 		],
 		".husky/pre-applypatch": [
@@ -640,6 +643,7 @@
 			"scripts/lib/commit-form.test.ts",
 			"scripts/lib/commit-route.test.ts",
 			"scripts/lib/formatters.test.ts",
+			"scripts/lib/hook-bound.test.ts",
 			"scripts/lib/plugin-tree.test.ts",
 			"scripts/lib/precommit-gate-harness.test.ts",
 			"scripts/lib/precommit-gate.test.ts",
@@ -712,6 +716,7 @@
 			"scripts/landing-push-gate.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/formatters.test.ts",
+			"scripts/lib/hook-bound.test.ts",
 			"scripts/lib/post-write.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/precommit-shellcheck-gate.test.ts",
@@ -730,6 +735,7 @@
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/commit-route.test.ts",
 			"scripts/lib/formatters.test.ts",
+			"scripts/lib/hook-bound.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/pre-applypatch-gate.test.ts",
 			"scripts/pre-merge-commit-gate.test.ts",
@@ -13404,6 +13410,34 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/hook-block.test.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/hook-bound.sh": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/hook-bound.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/windows-script-tooling-declined.test.ts"
+		],
+		"scripts/lib/hook-bound.test.ts": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/commit-paths.test.ts",
