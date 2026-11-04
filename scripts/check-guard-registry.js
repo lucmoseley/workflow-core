@@ -328,8 +328,8 @@ const END = "<!-- guard-registry:end -->";
 
 /*
  * Scanned scope: the documents that carry instructions to a session. Not the
- * same scope as scripts/check-doc-map.js, which reads `git ls-files` — this is
- * an fs walk minus the gitignored (dropIgnored below).
+ * same scope as scripts/check-doc-map.js, which reads `git ls-files` tracked
+ * only — this is the tracked and the untracked unignored (gitListing below).
  */
 const SCAN_ROOTS = ["CLAUDE.md", "AGENTS.md", "docs", ".claude"];
 
@@ -515,42 +515,106 @@ function isMaterialised(dir) {
 	return !fs.existsSync(path.join(dir, ".git"));
 }
 
-function scannedFiles() {
-	/* A symlinked scan root (AGENTS.md onto CLAUDE.md) is one git lists as the
-	 * link alone, so walk() follows it, as it follows every root. */
-	const linked = SCAN_ROOTS.filter((r) =>
+/**
+ * The roots of `roots` that are symlinks: git lists such a root as the link
+ * alone, so each corpus walks it, as it walks every root.
+ * @param {string[]} roots
+ */
+function findLinkedRoots(roots) {
+	return roots.filter((r) =>
 		fs
 			.lstatSync(path.join(root, r), { throwIfNoEntry: false })
 			?.isSymbolicLink(),
 	);
-	const listable = SCAN_ROOTS.filter((r) => !linked.includes(r));
-	const listed =
-		rootGiven && isMaterialised(root) ? null : listUnignored(listable);
+}
+
+/** @param {string[]} roots */
+function walkDocs(roots) {
 	/** @type {string[]} */
 	const out = [];
-	for (const r of listed ? [...linked, ...listed.nested] : SCAN_ROOTS)
-		walk(r, out);
-	const walked = dropIgnored(out);
-	return listed
-		? [...new Set([...listed.files, ...walked])].sort()
-		: walked.sort();
+	for (const r of roots) walk(r, out);
+	return out;
+}
+
+function scannedFiles() {
+	const listed = listScope(
+		SCAN_ROOTS,
+		(rel) => rel.endsWith(".md"),
+		SKIP_DIRS,
+		walkDocs,
+	);
+	if (!listed) return dropIgnored(walkDocs(SCAN_ROOTS)).sort();
+	listedByGit = true;
+	return listed;
+}
+
+/** `rel` is `r` or lies under it, for some `r` of `roots`. */
+const isUnder = (/** @type {string} */ rel, /** @type {string[]} */ roots) =>
+	roots.some((r) => rel === r || rel.startsWith(`${r}/`));
+
+/**
+ * The files under `roots` that `accept` keeps, out of directories `skip`
+ * names, as git lists them: tracked files and untracked unignored ones,
+ * without reading the ignored ones (#4170). A tracked path stays in scope
+ * however .gitignore reads, as dropIgnored() keeps it. A symlinked root, and
+ * an untracked nested repository git names as `dir/` alone, go to `walkInto`
+ * and then dropIgnored(). A symlink below a root stays off, as in the walks,
+ * so a listed path counts only as a regular file. Null where git cannot
+ * answer, so the caller walks and its filter reports FAILED OPEN.
+ *
+ * @param {string[]} roots
+ * @param {(rel: string) => boolean} accept
+ * @param {Set<string>} skip
+ * @param {(roots: string[]) => string[]} walkInto
+ * @returns {string[] | null}
+ */
+function listScope(roots, accept, skip, walkInto) {
+	const listing = readGitListing();
+	if (!listing) return null;
+	const linked = findLinkedRoots(roots);
+	const isSkipped = (/** @type {string} */ rel) =>
+		rel.split("/").some((part) => skip.has(part));
+	/** @type {string[]} */
+	const files = [];
+	/** @type {string[]} */
+	const nested = [];
+	for (const entry of listing) {
+		const rel = entry.replace(/\/$/, "");
+		if (!isUnder(rel, roots) || isUnder(rel, linked) || isSkipped(rel))
+			continue;
+		if (entry.endsWith("/")) nested.push(rel);
+		else if (
+			accept(rel) &&
+			fs.lstatSync(path.join(root, rel), { throwIfNoEntry: false })?.isFile()
+		)
+			files.push(rel);
+	}
+	const walked = dropIgnored(walkInto([...linked, ...nested]));
+	return [...new Set([...files, ...walked])].sort();
+}
+
+/** listGit()'s answer, read once: setRoot() runs before any scan. */
+/** @type {string[] | null | undefined} */
+let gitListing;
+
+/** @returns {string[] | null} */
+function readGitListing() {
+	if (gitListing === undefined) gitListing = listGit();
+	return gitListing;
 }
 
 /**
- * The scope walk() and dropIgnored() reach together, asked of git in one call:
- * tracked files and untracked unignored ones under SCAN_ROOTS, without
- * reading the ignored ones (#4170). A tracked path stays in scope however
- * .gitignore reads, as dropIgnored() keeps it; a symlink below a root stays
- * off, as in walk(). An untracked nested repository git names as `dir/`
- * alone, so `nested` hands it to walk(). Null where git cannot answer, so
- * the walk runs and its filter reports FAILED OPEN.
+ * Every path git lists under SCAN_ROOTS and EMITTER_ROOTS, asked in one call
+ * both corpora share (#4294), relative to `root`. Null where git cannot
+ * answer, and never asked on a materialised tree, which holds tracked files
+ * only.
  *
- * @param {string[]} roots
- * @returns {{ files: string[], nested: string[] } | null}
+ * @returns {string[] | null}
  */
-function listUnignored(roots) {
-	// No pathspec would list the whole repo.
-	if (roots.length === 0) return { files: [], nested: [] };
+function listGit() {
+	if (rootGiven && isMaterialised(root)) return null;
+	const roots = [...new Set([...SCAN_ROOTS, ...EMITTER_ROOTS])];
+	const linked = findLinkedRoots(roots);
 	const r = spawnGitSync(
 		[
 			"-C",
@@ -561,7 +625,7 @@ function listUnignored(roots) {
 			"--others",
 			"--exclude-standard",
 			"--",
-			...roots,
+			...roots.filter((x) => !linked.includes(x)),
 		],
 		{
 			encoding: "utf8",
@@ -576,19 +640,7 @@ function listUnignored(roots) {
 	 * via runCheck's catch. An ignored one git never opens (#3974). */
 	for (const m of r.stderr.matchAll(UNOPENED_DIR_RE))
 		fs.readdirSync(path.join(root, m[1] ?? ""));
-	/** @type {Set<string>} */
-	const out = new Set();
-	/** @type {string[]} */
-	const nested = [];
-	for (const rel of r.stdout.split("\0")) {
-		if (rel.endsWith("/")) nested.push(rel.slice(0, -1));
-		if (!rel.endsWith(".md")) continue;
-		if (rel.split("/").some((part) => SKIP_DIRS.has(part))) continue;
-		const st = fs.lstatSync(path.join(root, rel), { throwIfNoEntry: false });
-		if (st?.isFile()) out.add(rel);
-	}
-	listedByGit = true;
-	return { files: [...out], nested };
+	return r.stdout.split("\0").filter(Boolean);
 }
 
 // --- the wiring corpus ------------------------------------------------------
@@ -2986,18 +3038,47 @@ function isEmitterFile(/** @type {string} */ name, /** @type {string} */ file) {
  * @returns {string[]}
  */
 function emitterFiles(base = root, roots = EMITTER_ROOTS) {
+	/* git answers for `root`'s repo alone, and the core's scripts/ holds
+	 * nothing ignored that EMITTER_SKIP does not already name. */
+	if (base !== root) return walkEmitters(base, roots);
+	rootEmitters ??= readRootEmitters();
+	return rootEmitters.filter((rel) => isUnder(rel, roots));
+}
+
+/** readRootEmitters()' answer, read once: setRoot() runs before any scan. */
+/** @type {string[] | undefined} */
+let rootEmitters;
+
+/**
+ * @param {string} base
+ * @param {string[]} roots
+ */
+function walkEmitters(base, roots) {
 	/** @type {string[]} */
 	const out = [];
 	for (const r of roots) walkEmitterDir(base, r, out);
-	/* check-ignore answers for `root`'s repo alone, and the core's scripts/ holds
-	 * nothing ignored that EMITTER_SKIP does not already name. */
-	if (base !== root) return out.sort();
-	/* The same filter scannedFiles() takes, and for a sharper reason: the read
-	 * below is deliberately unguarded, so an ENOENT surfaces as BROKEN — and
-	 * .claude/tmp/ is the one directory where a neighbouring session creates and
-	 * deletes files while this runs, between the readdir and the read (mantahostels#2243).
-	 * EMITTER_SKIP names `worktrees` and cannot name every ignored path. */
-	return dropIgnored(out.sort());
+	return out.sort();
+}
+
+/**
+ * The emitters under `root`, minus the gitignored: the read below is
+ * deliberately unguarded, so an ENOENT surfaces as BROKEN — and .claude/tmp/
+ * is the one directory where a neighbouring session creates and deletes files
+ * while this runs, between the readdir and the read (mantahostels#2243).
+ * EMITTER_SKIP names `worktrees` and cannot name every ignored path. Listed by
+ * git where it can answer, in the call scannedFiles() shares (#4294); walked
+ * and filtered where it cannot.
+ */
+function readRootEmitters() {
+	const walkInto = (/** @type {string[]} */ roots) => walkEmitters(root, roots);
+	return (
+		listScope(
+			EMITTER_ROOTS,
+			(rel) => isEmitterFile(path.basename(rel), rel),
+			EMITTER_SKIP,
+			walkInto,
+		) ?? dropIgnored(walkInto(EMITTER_ROOTS))
+	);
 }
 
 /**
@@ -4632,7 +4713,7 @@ function buildIgnoreLine() {
 	if (ignoreSkipped)
 		return "Gitignore filter: not run — a materialised tree holds tracked files only.";
 	const docs = listedByGit
-		? "documents listed by git, ignored ones left out; "
+		? "documents and emitters listed by git, ignored ones left out; "
 		: "";
 	return `Gitignore filter: ${docs}${ignoreDropped} path(s) dropped as ignored.`;
 }
