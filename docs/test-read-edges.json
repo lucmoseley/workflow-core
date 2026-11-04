@@ -89,7 +89,6 @@
 			"scripts/check-host-root.test.ts",
 			"scripts/check-output-style.test.ts",
 			"scripts/generate-plugin-hooks.test.ts",
-			"scripts/init-adopter.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/plugin-tree.test.ts",
 			"scripts/release-plugin.test.ts",
@@ -142,7 +141,6 @@
 		".claude/plugin-context-cost.json": [
 			"scripts/check-context-budget-materialise.test.ts",
 			"scripts/check-context-budget.test.ts",
-			"scripts/init-adopter.test.ts",
 			"scripts/lib/doc-map.test.ts",
 			"scripts/precommit-context-budget-gate.test.ts",
 			"scripts/precommit-doc-map-gate.test.ts",
@@ -508,7 +506,6 @@
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/guard-dispatch.test.ts",
-			"scripts/init-adopter.test.ts",
 			"scripts/lib/arbiter-markers.test.ts",
 			"scripts/lib/commit-form.test.ts",
 			"scripts/lib/headless-sessions.test.ts",
@@ -652,7 +649,6 @@
 			"scripts/generate-rule-fragments.test.ts",
 			"scripts/guard-unpushed-commits.test.ts",
 			"scripts/husky-script-refs.test.ts",
-			"scripts/init-adopter.test.ts",
 			"scripts/landing-quiet-workflow.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
@@ -2956,6 +2952,7 @@
 			"scripts/guard-issue-close.test.ts",
 			"scripts/guard-lost-deny.test.ts",
 			"scripts/host-root-plugin-cache.test.ts",
+			"scripts/init-adopter-commit.test.ts",
 			"scripts/init-adopter-subjects.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -3007,7 +3004,6 @@
 		"pytest.ini": [
 			"scripts/check-test-marker.test.ts",
 			"scripts/coverage-declined.test.ts",
-			"scripts/init-adopter.test.ts",
 			"scripts/lib/infer-commands.test.ts",
 			"scripts/lib/test-kind.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
@@ -3776,7 +3772,6 @@
 			"scripts/checker-new-faults.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/guard-vitest-wrapper.test.ts",
-			"scripts/init-adopter.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -3860,7 +3855,6 @@
 			"scripts/check-doc-map.test.ts",
 			"scripts/checker-new-faults.test.ts",
 			"scripts/checker-registrations.test.ts",
-			"scripts/init-adopter.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/commit-form.test.ts",
@@ -4695,7 +4689,6 @@
 		"scripts/check-registrations.js": [
 			"scripts/check-registrations.test.ts",
 			"scripts/checker-registrations.test.ts",
-			"scripts/init-adopter.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -6078,7 +6071,7 @@
 			"scripts/guard-refusal-length.test.ts",
 			"scripts/guard-uncommitted-work.test.ts",
 			"scripts/hook-registrations.test.ts",
-			"scripts/init-adopter.test.ts",
+			"scripts/init-adopter-commit.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/core-deny-text.live.test.ts",
@@ -6629,6 +6622,19 @@
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
+		"scripts/init-adopter-commit.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/init-adopter-fixture.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/init-adopter-subjects.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
@@ -6644,6 +6650,7 @@
 			"scripts/checker-registrations.test.ts",
 			"scripts/cut-mantahostels.test.ts",
 			"scripts/governance-empty-corpus.test.ts",
+			"scripts/init-adopter-commit.test.ts",
 			"scripts/init-adopter-subjects.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
@@ -23074,7 +23081,6 @@
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
 			"scripts/guard-unpushed-commits.test.ts",
-			"scripts/init-adopter.test.ts",
 			"scripts/landing-quiet-workflow.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
@@ -36876,7 +36882,6 @@
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/templates/adopter/session-rules.md": [
-			"scripts/init-adopter.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/residue-patterns.test.ts",
