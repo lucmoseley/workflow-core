@@ -23,7 +23,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stampFile, writeStamp } from "./lib/commit-key.js";
 import { writeFaultyGit } from "./lib/git-fault-fake";
-import { mkScratchDir } from "./lib/git-fixture";
+import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import {
 	CORE_ROOT,
@@ -375,11 +375,17 @@ const expectHeld = (r: ReturnType<typeof commit>) => {
 	expect(commitCount()).toBe(1);
 };
 
-beforeEach(() => {
-	scratch = mkScratchDir("mutation-hold-gate-");
-	repo = path.join(scratch, "repo");
-	hooks = path.join(scratch, "hooks");
-	stubDir = path.join(scratch, "stub");
+/** Points the fixture's paths at the tree under `root`. */
+const placeAt = (root: string) => {
+	scratch = root;
+	repo = path.join(root, "repo");
+	hooks = path.join(root, "hooks");
+	stubDir = path.join(root, "stub");
+};
+
+/* The seeded repo, hook and stub, built once and copied per case. */
+const fixture = defineTemplate((root) => {
+	placeAt(root);
 	fs.mkdirSync(repo);
 	fs.mkdirSync(stubDir);
 	fs.mkdirSync(path.join(scratch, "bin"));
@@ -411,6 +417,12 @@ beforeEach(() => {
 	git("commit", "-qm", "seed");
 	fs.mkdirSync(hooks);
 	writeHook();
+});
+
+beforeEach(() => {
+	const root = mkScratchDir("mutation-hold-gate-");
+	fixture.instantiate(root);
+	placeAt(root);
 });
 
 afterEach(() => {
@@ -527,6 +539,9 @@ describe("mutation-hold-gate.js — the verdict", () => {
 
 describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
 	/** SEED with `comment` added above line 2, the fee guard. */
+	const HangingBabel =
+		"await new Promise(() => setInterval(() => {}, 1000));\nexport default {};\n";
+	const HangTimeout = { WFC_MUTATION_COMMENTS_TIMEOUT_MS: "300" };
 	const disableAbove = (comment: string) =>
 		write(
 			MONEY,
@@ -1140,25 +1155,32 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
 	});
 
 	it("leaves the file to Stryker, named and logged, where a host Babel config hangs the read past its timeout (#2727)", () => {
-		write(
-			"babel.config.mjs",
-			"await new Promise(() => setInterval(() => {}, 1000));\nexport default {};\n",
-		);
+		write("babel.config.mjs", HangingBabel);
 		landHostConfig();
 		disableAbove("// Stryker disable next-line all");
 		report([]);
 		// A real hang on the real clock: the child's timeout is a spawnSync
-		// option, reached by no fake timer. 2000 ms is a guess, past the child's
-		// Babel load and short of the test's own ceiling.
-		const r = commit([MONEY], {
-			extra: { WFC_MUTATION_COMMENTS_TIMEOUT_MS: "2000" },
-		});
+		// option, reached by no fake timer. The read never ends, so any timeout
+		// times out; 300 ms keeps the wait short.
+		const r = commit([MONEY], { extra: HangTimeout });
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain(
-			"could not read the added disable comments in lib/money.js: timed out after 2000 ms",
+			"could not read the added disable comments in lib/money.js: timed out after 300 ms",
 		);
 		expect(readRuns()).toHaveLength(1);
 		expect(readLog()).toContain("a commit's disable comments went unchecked");
+	});
+
+	it("starts no read of a staged file holding no directive, so a host Babel config that hangs it costs nothing (#4307)", () => {
+		write("babel.config.mjs", HangingBabel);
+		landHostConfig();
+		changeLine2();
+		report([]);
+		const r = commit([MONEY], { extra: HangTimeout });
+		expect(r.status).toBe(0);
+		expect(r.stderr).not.toContain("could not read");
+		expect(readRuns()).toHaveLength(1);
+		expect(readLog()).not.toContain("disable comments went unchecked");
 	});
 
 	it("leaves only the file whose staged copy git will not show to Stryker, named and logged (#2727)", () => {
