@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-const { kitContext, sharedReaders } =
+const { agentKey, kitContext, latchPath, sharedReaders } =
 	require("./kit-context.js") as typeof import("./kit-context.js");
 
 let dir: string;
@@ -65,5 +65,25 @@ describe("the rule store and the install spellings on the context (#3018)", () =
 			if (was === undefined) delete process.env.WFC_SCRIPT_ROOT;
 			else process.env.WFC_SCRIPT_ROOT = was;
 		}
+	});
+});
+
+describe("a latch's path (mantahostels#2411)", () => {
+	it("keys it on the agent, so a subagent gets its own", () => {
+		const key = agentKey({ session_id: "sid-1", agent_id: "sub" });
+		expect(key).toEqual({ agent: "asub", sid: "sid-1" });
+		expect(latchPath("/r", "led.x", key as NonNullable<typeof key>)).toBe(
+			"/r/.claude/tmp/markers/.rule-injected-led.x-asub-sid-1",
+		);
+	});
+
+	it("replaces anything in the id that would move the marker, keeping the dot", () => {
+		expect(latchPath("/r", "../led.x", { agent: "main", sid: "sid-1" })).toBe(
+			"/r/.claude/tmp/markers/.rule-injected-.._led.x-main-sid-1",
+		);
+	});
+
+	it("has no key for a payload carrying no session", () => {
+		expect(agentKey({ tool_name: "Bash" })).toBeNull();
 	});
 });

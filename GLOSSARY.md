@@ -17,7 +17,7 @@ The set of paths a run's verdict depends on: the tests it ran, everything they i
 _Avoid_: coverage (a per-line figure, not a path set), scope (how much of the suite ran)
 
 **Orphaned edit**:
-An uncommitted change in the shared working tree that no live session holds, claims or wrote. Nobody may have abandoned it: its last writer can believe it belongs to someone else.
+An uncommitted change in the main checkout or a linked worktree that no live session holds, claims, wrote or owns the worktree of. Nobody may have abandoned it: its last writer can believe it belongs to someone else.
 _Avoid_: stray dirt, abandoned work, neighbour's dirt (a live session's uncommitted edit, which has an owner)
 
 **Founder hand-over**:

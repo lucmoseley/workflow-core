@@ -7,7 +7,7 @@ in that message why the push is held.
   {command:typecheck}
   {command:check}
   <the edited file's own checker>
-  git push origin main:landing   # HEAD:landing from a worktree
+  git push origin main:landing   # worktree: node scripts/session-checkout.js land
 
 A push costs nothing; holding one back buys nothing. `.husky/post-commit`'s
 unpushed count is a reminder, not a prompt.

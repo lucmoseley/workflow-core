@@ -663,3 +663,78 @@ describe("it degrades to silence, never to dead", () => {
 		expect(report(run())).toContain("no files are claimed");
 	});
 });
+
+/*
+ * Seam 2 (#4244, spec #4229): a linked worktree of the main checkout, owned
+ * by the session whose job record names it as its cwd.
+ */
+describe("a finished session's worktree", () => {
+	/** A worktree detached at HEAD, owned through `sessionId`'s job record,
+	 * with `rel` dirtied in it and back-dated `hours`. */
+	function worktreeOf(sessionId: string, rel: string, hours: number) {
+		gitRepo();
+		const wt = path.join(sb.repo, ".claude", "worktrees", "w1");
+		fs.mkdirSync(path.dirname(wt), { recursive: true });
+		const r = spawnSync("git", ["worktree", "add", "-q", "--detach", wt], {
+			cwd: sb.repo,
+			encoding: "utf8",
+		});
+		if (r.status !== 0) throw new Error(r.stderr);
+		const job = path.join(sb.home, "jobs", sessionId.slice(0, 8));
+		fs.mkdirSync(job, { recursive: true });
+		fs.writeFileSync(
+			path.join(job, "state.json"),
+			JSON.stringify({ sessionId, name: "Worker one", cwd: wt }),
+		);
+		const file = path.join(wt, rel);
+		fs.mkdirSync(path.dirname(file), { recursive: true });
+		fs.writeFileSync(file, "worktree edit\n");
+		const at = new Date(Date.now() - hours * 3_600_000);
+		fs.utimesSync(file, at, at);
+	}
+
+	it("lists its uncommitted files under that session, with no claim standing", () => {
+		worktreeOf("dead-owner-1", "notes/new.md", 30);
+		fakeClaude(agentsListing("live-session"));
+
+		const r = run(["--notify"]);
+
+		expect(r.stdout).toContain("STRANDED-WORKTREE (1)");
+		expect(r.stdout).toContain(
+			"Worker one (dead-own) — .claude/worktrees/w1, last written 30h ago",
+		);
+		expect(r.stdout).toContain("    notes/new.md");
+	});
+
+	it("says nothing of one whose session is listed live, or younger than the threshold", () => {
+		worktreeOf("live-owner-1", "notes/new.md", 30);
+		fakeClaude(agentsListing("live-owner-1"));
+		expect(report(run())).not.toContain("STRANDED-WORKTREE");
+
+		fakeClaude(agentsListing("live-session"));
+		expect(report(run(["--hours", "40"]))).not.toContain("STRANDED-WORKTREE");
+	});
+
+	it("counts a stranded claim as carrying work where its file is dirty in its holder's worktree", () => {
+		worktreeOf("dead-owner-2", "docs/doc-map.md", 30);
+		claim("docs/doc-map.md", "dead-owner-2", 30);
+		fakeClaude(agentsListing("live-session"));
+
+		const r = run(["--notify"]);
+
+		expect(r.stdout).toContain("1 of them carries UNCOMMITTED WORK");
+	});
+
+	it("names a registration whose directory has gone rather than calling it clean", () => {
+		worktreeOf("dead-owner-3", "notes/new.md", 30);
+		fs.rmSync(path.join(sb.repo, ".claude", "worktrees", "w1"), {
+			recursive: true,
+			force: true,
+		});
+		fakeClaude(agentsListing("live-session"));
+
+		expect(report(run())).toContain(
+			"1 registered worktree(s) git would not read went unjudged",
+		);
+	});
+});

@@ -42,6 +42,7 @@ beforeEach(() => {
 	git("init", "-q", "-b", "main");
 	git("add", "a.txt");
 	git("commit", "-qm", "base");
+	git("update-ref", "refs/remotes/origin/main", "HEAD");
 	gh = stubGhScript(dir, catFixture(path.join(dir, "comments.json"))).gh;
 });
 afterEach(() => {
@@ -123,7 +124,7 @@ describe("read-hand-off.js", () => {
 		);
 	});
 
-	it("reads a Base off HEAD's line, a Done off main and a conflicting diff as reference only", () => {
+	it("reads a Base off HEAD's line, a Done off the pushed ref and a conflicting diff as reference only", () => {
 		const diff = realDiff();
 		git("checkout", "-qb", "side");
 		fs.writeFileSync(path.join(dir, "a.txt"), "side\n");
@@ -135,9 +136,46 @@ describe("read-hand-off.js", () => {
 		serve(handOff(side, `${side} side`, diff));
 		const out = run().stdout;
 		expect(out).toContain(`Base ${side} is not an ancestor of HEAD`);
-		expect(out).toContain(`Done sha ${side} is not on main`);
+		expect(out).toContain(`Done sha ${side} is not on origin/main`);
 		expect(out).toContain("the diff does not apply cleanly");
 		expect(out).toContain("Reference only:");
 		expect(out).toContain("Say so on #31");
+	});
+});
+
+/*
+ * Seam 2 (#4244, spec #4229): run from a linked worktree with the `landing`
+ * module on, it reads Done off `origin/landing` and checks the diff against
+ * the worktree's files, not the main checkout's.
+ */
+describe("read-hand-off.js from a linked worktree", () => {
+	it("reads Done off origin/landing and applies the diff in the worktree", () => {
+		const diff = realDiff();
+		const head = git("rev-parse", "HEAD");
+		git("update-ref", "refs/remotes/origin/landing", head);
+		const wt = path.join(dir, "wt");
+		git("worktree", "add", "-q", "--detach", wt, head);
+		/* The main checkout moves on, so the diff no longer applies there. */
+		fs.writeFileSync(path.join(dir, "a.txt"), "three\n");
+		git("commit", "-qam", "moved");
+		const unlanded = git("rev-parse", "HEAD");
+		serve(handOff(head, `${head} base, ${unlanded} moved`, diff));
+
+		const out = runInProcess(SCRIPT, ["31"], {
+			cwd: wt,
+			env: {
+				...process.env,
+				WFC_GH: gh,
+				CLAUDE_PROJECT_DIR: dir,
+				WFC_REPO_ROOT: dir,
+				CLAUDE_CODE_SESSION_ID: "abcdef123456",
+				WFC_MODULES: "landing",
+			},
+		}).stdout;
+
+		expect(out).not.toContain(`Done sha ${head}`);
+		expect(out).toContain(`Done sha ${unlanded} is not on origin/landing`);
+		expect(out).not.toContain("the diff does not apply cleanly");
+		expect(out).not.toContain("not an ancestor of HEAD");
 	});
 });

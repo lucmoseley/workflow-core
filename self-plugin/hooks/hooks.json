@@ -6,7 +6,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-dispatch.js",
+						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/run-pinned-guards.js \"${WFC_GUARD_CODE_DIR:-$HOME/.claude/.guard-code}\".current/scripts/guard-dispatch.js",
 						"timeout": 60,
 						"onFailure": "block"
 					}
@@ -19,7 +19,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-dispatch.js",
+						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/run-pinned-guards.js \"${WFC_GUARD_CODE_DIR:-$HOME/.claude/.guard-code}\".current/scripts/guard-dispatch.js",
 						"timeout": 15
 					}
 				]

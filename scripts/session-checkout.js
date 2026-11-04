@@ -8,6 +8,10 @@
  *   node scripts/session-checkout.js attach [<worktree>]
  *     re-points the worktree's node_modules at the store for its lockfile;
  *     the current directory's worktree where none is named
+ *   node scripts/session-checkout.js land
+ *     merges origin/landing into the current directory's worktree and pushes
+ *     HEAD:landing, saying on stderr what it did; refused, it says why and
+ *     what to do before landing again
  *
  * Exit 0 done, 1 refused or failed (why on stderr), 2 a usage error.
  *
@@ -19,12 +23,17 @@
 const path = require("node:path");
 const { caught } = require("./lib/caught.js");
 const { parseOrCode } = require("./lib/cli-args.js");
-const { attach, CheckoutError, cut } = require("./lib/session-checkout.js");
+const {
+	attach,
+	CheckoutError,
+	cut,
+	land,
+} = require("./lib/session-checkout.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const CLI = {
 	usage:
-		"usage: node scripts/session-checkout.js cut <session-name> | attach [<worktree>]",
+		"usage: node scripts/session-checkout.js cut <session-name> | attach [<worktree>] | land",
 	commands: {
 		cut: {
 			usage: "usage: node scripts/session-checkout.js cut <session-name>",
@@ -34,6 +43,38 @@ const CLI = {
 			usage: "usage: node scripts/session-checkout.js attach [<worktree>]",
 			max: 1,
 		},
+		land: {
+			usage: "usage: node scripts/session-checkout.js land",
+		},
+	},
+};
+
+/**
+ * Each command's run, saying what it did; a refusal throws.
+ * @type {Record<string, (named: string | undefined) => void>}
+ */
+const RUN = {
+	cut: (named) => {
+		if (named === undefined) throw new Error("cut names no session");
+		writeFd(1, `${cut(process.cwd(), named).dir}\n`);
+	},
+	attach: (named) => {
+		const made = attach(path.resolve(named ?? process.cwd()));
+		writeFd(
+			2,
+			made.store === null
+				? `session checkout: ${made.dir} has no lockfile, so nothing is attached\n`
+				: `session checkout: ${made.dir} uses ${made.store}${made.built ? ", built now" : ""}\n`,
+		);
+	},
+	land: () => {
+		const made = land(process.cwd());
+		writeFd(
+			2,
+			made.pushed
+				? `session checkout: pushed ${made.head} to landing${made.merged ? ", origin/landing merged in first" : ""}\n${made.lander}\n`
+				: `session checkout: nothing to land — every commit of ${made.dir}'s HEAD is on origin/landing already\n`,
+		);
 	},
 };
 
@@ -45,20 +86,10 @@ function main(argv = process.argv.slice(2)) {
 	const parsed = parseOrCode(argv, CLI);
 	if (typeof parsed === "number") return parsed;
 	try {
-		const [named] = parsed.positionals;
-		if (parsed.command === "cut" && named !== undefined) {
-			const made = cut(process.cwd(), named);
-			writeFd(1, `${made.dir}\n`);
-			return 0;
-		}
-		const dir = path.resolve(named ?? process.cwd());
-		const made = attach(dir);
-		writeFd(
-			2,
-			made.store === null
-				? `session checkout: ${made.dir} has no lockfile, so nothing is attached\n`
-				: `session checkout: ${made.dir} uses ${made.store}${made.built ? ", built now" : ""}\n`,
-		);
+		const command = RUN[String(parsed.command)];
+		if (command === undefined)
+			throw new Error(`no run for command ${parsed.command}`);
+		command(parsed.positionals[0]);
 		return 0;
 	} catch (err) {
 		const why = caught(err).message.trim();
