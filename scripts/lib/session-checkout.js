@@ -19,8 +19,8 @@
  * than writing under each neighbour on the lockfile (#4255). Vite falls back
  * on its own, bundling its config beside the source; vitest's cache sits in
  * the worktree (vitest.config.ts `cacheDir`); guard-npm-install refuses an
- * install through the link. Removing a store gives its directories their
- * owner's write bit back first.
+ * install through the link. A frozen tree is removed by giving its
+ * directories their owner's write bit back first (`removeTree`).
  *
  * THE STORES LIVE UNDER `.claude/worktrees/.dep-stores/`, so the ignores every
  * tool already carries for the worktrees folder cover them too. A session name may not start with a dot, so none collides with it.
@@ -164,32 +164,33 @@ function takeBuildLock(lock, store) {
 }
 
 /**
- * Every write bit off under `dir`, a directory's after its entries'. Links
- * are left: their modes are never read.
+ * Every write bit off under `dir`, or its owner's back on. A mode is changed
+ * with no write bit on its directory, so the order is free. Links are left:
+ * their modes are never read.
  * @param {string} dir
+ * @param {boolean} on
  */
-function freeze(dir) {
+function setWriteBits(dir, on) {
+	/** @param {string} at */
+	const set = (at) => {
+		const { mode } = fs.statSync(at);
+		fs.chmodSync(at, on ? mode | 0o200 : mode & ~0o222);
+	};
 	for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
 		const at = path.join(dir, entry.name);
-		if (entry.isDirectory()) freeze(at);
-		else if (entry.isFile()) fs.chmodSync(at, fs.statSync(at).mode & ~0o222);
+		if (entry.isDirectory()) setWriteBits(at, on);
+		else if (entry.isFile()) set(at);
 	}
-	fs.chmodSync(dir, fs.statSync(dir).mode & ~0o222);
+	set(dir);
 }
 
 /**
- * Remove `dir`, absent or frozen: each directory gets its owner's write bit
- * back, which is all a removal of its entries needs.
+ * Remove `dir`, absent or frozen.
  * @param {string} dir
  */
 function removeTree(dir) {
-	/** @param {string} at */
-	const thaw = (at) => {
-		fs.chmodSync(at, fs.statSync(at).mode | 0o200);
-		for (const entry of fs.readdirSync(at, { withFileTypes: true }))
-			if (entry.isDirectory()) thaw(path.join(at, entry.name));
-	};
-	if (fs.lstatSync(dir, { throwIfNoEntry: false })?.isDirectory()) thaw(dir);
+	if (fs.lstatSync(dir, { throwIfNoEntry: false })?.isDirectory())
+		setWriteBits(dir, true);
 	fs.rmSync(dir, { recursive: true, force: true });
 }
 
@@ -227,7 +228,7 @@ function ensureStore(root, from) {
 			throw new Error(
 				`npm ci exited 0 but left no node_modules in ${staging} — check what WFC_NPM or npm names, then attach again`,
 			);
-		freeze(path.join(staging, "node_modules"));
+		setWriteBits(path.join(staging, "node_modules"), false);
 		fs.renameSync(staging, store);
 		return { store, built: true };
 	} finally {

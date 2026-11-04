@@ -221,6 +221,8 @@ To change the dependencies, run the same command with \`--package-lock-only\`, w
 		["npm installTest", "install-test"],
 		["npm clean-install-t", "install-ci-test"],
 		["npm --loglevel warn install", "install"],
+		["npm i --location=user js-yaml", "install"],
+		["npm i -L user js-yaml", "install"],
 	])("denies `%s` as npm %s, every spelling npm derefs", (command, as) => {
 		expect(denial(command, {}, IN_WORKTREE)).toMatch(
 			new RegExp(`^\`npm ${as}\` would write through`),

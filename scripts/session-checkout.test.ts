@@ -8,12 +8,16 @@
  * install into one tree, a tool writes under a store every neighbour on its
  * lockfile reads, or a lockfile change runs against a tree built for another
  * lockfile.
+ *
+ * Every case cuts real worktrees off a real bare origin, seam 1's fixture
+ * (#4229), so the file runs over the 10 s budget (base §X8 (5)).
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import vitestConfig from "../vitest.config";
 import {
 	buildBashPayload,
 	dispatchCoreOutput,
@@ -182,6 +186,11 @@ it("leaves a built store read-only, so nothing run in a worktree writes under it
 		/EACCES/,
 	);
 	expect(fs.readFileSync(path.join(link, "lock"), "utf8")).toBe("lock-1\n");
+	/* Vite's own default, `node_modules/.vite`, would sit in the store. */
+	expect(vitestConfig.cacheDir).toBeTypeOf("string");
+	expect(String(vitestConfig.cacheDir).split("/")).not.toContain(
+		"node_modules",
+	);
 });
 
 it("refuses an install aimed at a cut worktree with the re-attach route, and lets the lockfile-only change through", () => {
