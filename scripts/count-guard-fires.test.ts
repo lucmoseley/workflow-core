@@ -664,7 +664,7 @@ describe("the CLI, run as a command", () => {
 		const { out, code } = run(["--dir", corpus, "--json"]);
 		expect(code).toBe(0);
 		const parsed = JSON.parse(out);
-		expect(parsed.corpus).toMatchObject({ dir: corpus, transcripts: 1 });
+		expect(parsed.corpus).toMatchObject({ dirs: [corpus], transcripts: 1 });
 		const claim = parsed.guards.find(
 			(g: { key: string }) => g.key === "guard-dispatch.js",
 		);

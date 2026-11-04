@@ -14,6 +14,7 @@
  * files the same orphan at every session start.
  */
 
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -381,5 +382,135 @@ describe("check-orphaned-edits", () => {
 		const file = path.join(sb.repo, "a.txt");
 		expect(fs.readFileSync(file, "utf8")).toBe("precious weekend work\n");
 		expect(fs.statSync(file).mtimeMs).toBe(before);
+	});
+});
+
+/*
+ * Seam 2 (#4244, spec #4229): the host root is the main checkout and the dirt
+ * sits in a linked worktree of it, owned by the session whose job record
+ * names that worktree as its cwd.
+ */
+describe("a linked worktree's dirt", () => {
+	/** A worktree of the sandbox repo, detached at HEAD, which job record
+	 * `sessionId` names as its cwd; `a.txt` in it dirtied and back-dated. */
+	function worktreeOf(
+		sessionId: string | null,
+		hours: number,
+		wt = path.join(sb.repo, ".claude", "worktrees", "w1"),
+	) {
+		fs.mkdirSync(path.dirname(wt), { recursive: true });
+		const r = spawnSync("git", ["worktree", "add", "-q", "--detach", wt], {
+			cwd: sb.repo,
+			encoding: "utf8",
+		});
+		if (r.status !== 0) throw new Error(r.stderr);
+		if (sessionId) {
+			const job = path.join(sb.home, "jobs", sessionId.slice(0, 8));
+			fs.mkdirSync(job, { recursive: true });
+			fs.writeFileSync(
+				path.join(job, "state.json"),
+				JSON.stringify({
+					sessionId,
+					name: "Worker one",
+					cwd: wt,
+					updatedAt: new Date().toISOString(),
+				}),
+			);
+		}
+		const file = path.join(wt, "a.txt");
+		fs.writeFileSync(file, "worktree edit\n");
+		const at = new Date(Date.now() - hours * HOUR);
+		fs.utimesSync(file, at, at);
+		return fs.realpathSync(wt);
+	}
+
+	it("is an orphan under its owning session once that session is no longer listed", () => {
+		const wt = worktreeOf("dead-owner-1", 30);
+
+		const r = run();
+
+		expect(r.out).toContain("ORPHANED-EDIT (1)");
+		expect(r.out).toContain(".claude/worktrees/w1: a.txt — unchanged 30h");
+		expect(r.out).toContain(
+			"last known writer: session dead-owner-1 (Worker one), whose worktree it is",
+		);
+		expect(r.out).toContain(`inspect: git -C ${wt} diff HEAD -- a.txt`);
+		const [filing] = readFilings();
+		expect(filing?.argv.join(" ")).toContain(
+			"Orphaned edit: a.txt in .claude/worktrees/w1 (blob",
+		);
+	});
+
+	it("is owned while its session is listed live, though no claim or ledger names it", () => {
+		worktreeOf("live-owner-1", 30);
+		fakeClaude("bystander", "live-owner-1");
+
+		expect(run().out).not.toContain("ORPHANED-EDIT");
+		expect(readFilings()).toEqual([]);
+	});
+
+	it("falls back to the ledger's host-relative spelling where no session owns the worktree", () => {
+		worktreeOf(null, 30);
+		fakeClaude("bystander", "ledger-owner");
+		fs.mkdirSync(store.paths.writesDir(), { recursive: true });
+		fs.writeFileSync(
+			store.paths.ledger("ledger-owner"),
+			".claude/worktrees/w1/a.txt\n",
+		);
+
+		expect(run().out).not.toContain("ORPHANED-EDIT");
+	});
+
+	it("is judged by the worktree's file, not the main checkout's", () => {
+		worktreeOf("dead-owner-2", 2);
+		dirty("a.txt", 30);
+		fakeClaude("bystander");
+
+		const r = run(["--json"]);
+
+		const data = JSON.parse(r.stdout);
+		expect(
+			data.orphans.map((o: { worktree: string | null }) => o.worktree),
+		).toEqual([null]);
+		expect(data.young).toBe(1);
+	});
+
+	it("is owned by a live session's ledger though the worktree's owner has ended", () => {
+		worktreeOf("dead-owner-3", 30);
+		fakeClaude("bystander", "mover");
+		fs.mkdirSync(store.paths.writesDir(), { recursive: true });
+		fs.writeFileSync(
+			store.paths.ledger("mover"),
+			".claude/worktrees/w1/a.txt\n",
+		);
+
+		expect(run().out).not.toContain("ORPHANED-EDIT");
+		expect(readFilings()).toEqual([]);
+	});
+
+	it("counts, never files, an old file in an unowned worktree outside the host root", () => {
+		worktreeOf(null, 30, path.join(sb.dir, "outside-wt"));
+		fakeClaude("bystander");
+
+		const r = run(["--json"]);
+
+		const data = JSON.parse(r.stdout);
+		expect(data.orphanCount).toBe(0);
+		expect(data.unjudged).toBe(1);
+		expect(readFilings()).toEqual([]);
+		expect(run().out).toContain(
+			"1 old file(s) in worktrees outside the host root that no session owns went unjudged",
+		);
+	});
+
+	it("names a registration whose directory has gone, and judges the rest", () => {
+		const wt = worktreeOf("dead-owner-4", 30);
+		fs.rmSync(wt, { recursive: true, force: true });
+		dirty("a.txt", 30);
+
+		const data = JSON.parse(run(["--json"]).stdout);
+
+		expect(data.orphanCount).toBe(1);
+		expect(data.unreadWorktrees).toEqual([wt]);
 	});
 });

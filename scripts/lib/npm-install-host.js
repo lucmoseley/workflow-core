@@ -69,6 +69,18 @@ function buildHostPorts(root) {
 	const pkg = path.join(root, "package.json");
 	return {
 		readPackageJson: () => ({ path: pkg, text: readOrNull(pkg) }),
+		pathExists: (p) => fs.lstatSync(p, { throwIfNoEntry: false }) !== undefined,
+		linkTarget: (p) => {
+			try {
+				return fs.readlinkSync(p);
+			} catch (err) {
+				/* Absent, or no link: nothing links there (#4255). Any other
+				 * fault throws, so the core's closed row denies. */
+				const code = /** @type {NodeJS.ErrnoException} */ (err).code;
+				if (code === "ENOENT" || code === "EINVAL") return null;
+				throw err;
+			}
+		},
 		readManifest: (dep) =>
 			readOrNull(path.join(root, "node_modules", dep, "package.json")),
 		npmView: (name) =>

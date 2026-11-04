@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 /*
  * push-check.js — `npm run push:check` (#814, #790 Q2): whether certificates
- * from any sessions attest, between them, every commit the next push of `main`
- * would send (ADR-0009), each suite answering for itself (mantahostels#1256).
+ * from any sessions attest, between them, every commit the next push of `HEAD`
+ * would send (ADR-0009), each suite answering for itself (mantahostels#1256). `HEAD`
+ * is the session's own tree's, its linked worktree's where it works in one
+ * (#4244).
  * It never pushes and never runs tests.
  *
- * THE RANGE is merge-base(main, <pushed ref>)..main, `attestationOf`'s default
+ * THE RANGE is merge-base(HEAD, <pushed ref>)..HEAD, `attestationOf`'s default
  * and the base the narrowed default resolves, the pushed ref being
  * lib/landing-refs.js's `pushedRef`; nothing is fetched, so a stale ref only
  * widens it.
@@ -162,12 +164,12 @@ function main() {
 	}
 	let sha;
 	try {
-		sha = execGit(["rev-parse", "--verify", "-q", "main"], {
+		sha = execGit(["rev-parse", "--verify", "-q", "HEAD"], {
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "ignore"],
 		}).trim();
 	} catch {
-		say("could not judge: this checkout has no `main` branch to push");
+		say("could not judge: this checkout has no commit at HEAD to push");
 		return 2;
 	}
 	const verdict = attestationOf(sha, readMarkers({ root }));
@@ -175,7 +177,7 @@ function main() {
 	 * wrong for a push that sends nothing. */
 	if (verdict.judged && verdict.base === sha) {
 		say(
-			`✓  nothing to push: main is at ${shortSha(sha)}, its merge-base with ${pushedRef({ root })}.`,
+			`✓  nothing to push: HEAD is at ${shortSha(sha)}, its merge-base with ${pushedRef({ root })}.`,
 		);
 		return 0;
 	}

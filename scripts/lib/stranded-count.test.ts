@@ -148,7 +148,7 @@ describe("countStranded", () => {
 	it("returns carrying null on a dirty set of null, and on no dirty set at all", () => {
 		const locks = [lock("a.md", "dead", 24)];
 		const ids = new Set(["live"]);
-		expect(mod.countStranded(locks, ids, null).carrying).toBeNull();
+		expect(mod.countStranded(locks, ids, { dirty: null }).carrying).toBeNull();
 		expect(mod.countStranded(locks, ids).carrying).toBeNull();
 	});
 
@@ -156,7 +156,7 @@ describe("countStranded", () => {
 		const r = mod.countStranded(
 			[lock("a.md", "dead", 24), lock("b.md", "dead", 24)],
 			new Set(["live"]),
-			new Set(["a.md"]),
+			{ dirty: new Set(["a.md"]) },
 		);
 		expect(r).toMatchObject({ ok: true, stranded: 2, carrying: 1 });
 	});
@@ -168,7 +168,7 @@ describe("countStranded", () => {
 		const r = mod.countStranded(
 			[lock("a.md", "live", 24), lock("b.md", "dead", 2)],
 			new Set(["live"]),
-			dirty,
+			{ dirty },
 		);
 		expect(r).toMatchObject({ stranded: 0, carrying: 0 });
 	});
@@ -179,18 +179,33 @@ describe("countStranded", () => {
 		const r = mod.countStranded(
 			[lock("docs/doc-map.md#B42", "dead", 24)],
 			new Set(["live"]),
-			new Set(["docs/doc-map.md"]),
+			{ dirty: new Set(["docs/doc-map.md"]) },
 		);
 		expect(r.carrying).toBe(1);
 	});
 
-	it("counts a claim whose holder is listed but the oracle calls terminal, past the threshold", () => {
+	it("counts a claim as carrying work where its file is dirty in its holder's worktree, not another's (#4244)", () => {
+		const tree = (sessionId: string, ...paths: string[]) => ({
+			worktree: `/wt/${sessionId}`,
+			owner: { sessionId, name: null },
+			dirty: new Set(paths),
+			writtenMs: null,
+		});
 		const r = mod.countStranded(
-			[lock("a.md", "live", 24)],
+			[lock("a.md", "dead", 24), lock("b.md", "dead", 24)],
 			new Set(["live"]),
-			null,
-			new Set(["live"]),
+			{
+				dirty: new Set(),
+				worktrees: [tree("dead", "a.md"), tree("other", "b.md")],
+			},
 		);
+		expect(r).toMatchObject({ stranded: 2, carrying: 1 });
+	});
+
+	it("counts a claim whose holder is listed but the oracle calls terminal, past the threshold", () => {
+		const r = mod.countStranded([lock("a.md", "live", 24)], new Set(["live"]), {
+			terminal: new Set(["live"]),
+		});
 		expect(r).toMatchObject({ ok: true, stranded: 1 });
 	});
 });

@@ -694,14 +694,17 @@ describe("declared_cmd (#1504)", () => {
 		expect(output).not.toContain("RUN");
 	});
 
-	it("refuses the commit on the reader's 2", () => {
-		const { code, output } = run(
-			`if ${reader(2)}; then echo RUN; fi\necho PASSED`,
-		);
-		expect(code).toBe(1);
-		expect(output).not.toContain("RUN");
-		expect(output).not.toContain("PASSED");
-	});
+	it.each([2, 124, 137])(
+		"refuses the commit on the reader's %i, a reader killed at hook-bound.sh's limit among them (#4187)",
+		(status) => {
+			const { code, output } = run(
+				`if ${reader(status)}; then echo RUN; fi\necho PASSED`,
+			);
+			expect(code).toBe(1);
+			expect(output).not.toContain("RUN");
+			expect(output).not.toContain("PASSED");
+		},
+	);
 });
 
 describe("the library and the hook", () => {

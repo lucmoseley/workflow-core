@@ -102,11 +102,8 @@ const {
 	baseLinePinFault,
 	parseLinePins,
 } = require("./standards-pins.js");
-const {
-	JS_SPEC,
-	jsSpecifier,
-	surfaceClosureFaults,
-} = require("./surface-closure.js");
+const { JS_SPEC, jsSpecifier } = require("./code-edges.js");
+const { surfaceClosureFaults } = require("./surface-closure.js");
 const { requiredGroup } = require("./regex-group.js");
 const { isUnder } = require("./is-under.js");
 const { parseBasePaths } = require("./primitives-table.js");

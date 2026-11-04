@@ -1333,6 +1333,8 @@ function nextAction(s) {
  * @property {(action: Action) => void} [log]
  * @property {(line: string) => void} [say] reports what the fix-ticket and
  *   held-queue filers did
+ * @property {() => void} [mainMoved] after each move of `main`: the guard
+ *   code's adoption (lib/guard-code.js)
  */
 
 /**
@@ -1376,6 +1378,7 @@ async function act(deps, action, state, main) {
 		const refusal = await pushRefusal(deps, action.sha);
 		if (refusal !== null)
 			return { ...state, refused: { sha: action.sha, reason: refusal } };
+		deps.mainMoved?.();
 		return {
 			...state,
 			tested: null,

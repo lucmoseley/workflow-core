@@ -80,8 +80,10 @@ function textPartsOf(rec) {
 }
 
 /**
- * Where this session's transcript lives when the payload does not say. The
- * project directory is `projectSlug`'s spelling of the cwd.
+ * Where this session's transcript lives when the payload does not say: the
+ * first of this repo's project directories on this seat to hold it, the main
+ * checkout's or a worktree's (`project-dirs.js`'s `corpusDirs`), else the
+ * one `projectSlug` spells from the cwd.
  *
  * This site mapped the SLASHES ALONE until mantahostels#1982, so any project root holding a
  * dot resolved to a directory that does not exist — and the caller reported
@@ -93,8 +95,15 @@ function textPartsOf(rec) {
  * @returns {string}
  */
 function conventionalTranscript(sid) {
-	const slug = projectSlug();
-	return path.join(configDir(), "projects", slug, `${sid}.jsonl`);
+	/* Required here, not at the top: it costs ~30 ms, and the Stop hooks that
+	 * load this file reach this fallback only when the payload names no file. */
+	const { corpusDirs } = require("./project-dirs.js");
+	const name = `${sid}.jsonl`;
+	for (const dir of corpusDirs()) {
+		const file = path.join(dir, name);
+		if (fs.existsSync(file)) return file;
+	}
+	return path.join(configDir(), "projects", projectSlug(), name);
 }
 
 /**

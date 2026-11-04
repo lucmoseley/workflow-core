@@ -9,7 +9,8 @@ after a CLI upgrade rather than re-deriving the argument.
 
 Method. Every job record under <config>/jobs/*/state.json whose `intent` opens
 with one of the injected slash commands, joined to that job's own transcript at
-<config>/projects/<project-slug>/<sessionId>.jsonl. A firing counts only from a
+<config>/projects/<project-slug>/<sessionId>.jsonl, the slug the main
+checkout's or a worktree's (transcript_corpus.py's `roots_on`). A firing counts only from a
 hook attachment on matcher `SessionStart:startup` — a fresh start, so a resume,
 a compact, a fork and a clear are all excluded. Two markers are looked for in
 the attachment's stdout/content:
@@ -84,7 +85,7 @@ def scan_transcript(path, tally):
     return named, injected
 
 
-def scan(jobs_dir, projects_dir):
+def scan(jobs_dir, projects_dirs):
     by_version = defaultdict(lambda: {"jobs": 0, "named": 0, "injected": 0})
     jobs = []
     skipped_no_transcript = 0
@@ -105,8 +106,15 @@ def scan(jobs_dir, projects_dir):
         command = intent.split()[0].lstrip("/")
         if command not in INJECTED_COMMANDS:
             continue
-        transcript = os.path.join(projects_dir, session_id + ".jsonl")
-        if not os.path.exists(transcript):
+        transcript = next(
+            (
+                p
+                for p in (os.path.join(d, session_id + ".jsonl") for d in projects_dirs)
+                if os.path.exists(p)
+            ),
+            None,
+        )
+        if transcript is None:
             skipped_no_transcript += 1
             continue
         named, injected = scan_transcript(transcript, tally)
@@ -167,11 +175,6 @@ def merge(results):
     return merged
 
 
-def project_slug(cwd):
-    """The transcript directory Claude Code writes for a working directory."""
-    return cwd.replace("/", "-")
-
-
 def config_dirs():
     """Every seat's config dir holding jobs — transcript_corpus.py's seat set."""
     seen = []
@@ -203,14 +206,10 @@ def main():
     if args.jobs_dir or args.projects_dir:
         if not (args.jobs_dir and args.projects_dir):
             parser.error("--jobs-dir and --projects-dir go together")
-        pairs = [(args.jobs_dir, args.projects_dir)]
+        pairs = [(args.jobs_dir, [args.projects_dir])]
     else:
-        slug = project_slug(os.getcwd())
         roots = args.config_dir or config_dirs()
-        pairs = [
-            (os.path.join(root, "jobs"), os.path.join(root, "projects", slug))
-            for root in roots
-        ]
+        pairs = [(os.path.join(root, "jobs"), tc.roots_on(root)) for root in roots]
 
     result = merge([scan(jobs_dir, projects_dir) for jobs_dir, projects_dir in pairs])
     result["scanned"] = [jobs_dir for jobs_dir, _ in pairs]

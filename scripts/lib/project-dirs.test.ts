@@ -10,6 +10,7 @@
  * resumed session twice (#375, #382), or drop a seat without saying (#1054).
  */
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -22,11 +23,12 @@ import {
 	readSeatProjectDirs,
 	readSeatTranscripts,
 } from "./project-dirs.js";
-import { slugForRepo } from "./project-slug.js";
+import { projectSlug, slugForRepo } from "./project-slug.js";
 
 describe("projectDirs", () => {
 	const knobs = [
 		"CLAUDE_CONFIG_DIR",
+		"CLAUDE_PROJECT_DIR",
 		"WFC_CLAUDE_CONFIG_A",
 		"WFC_CLAUDE_CONFIG_B",
 		"WFC_CLAUDE_CONFIG_C",
@@ -54,6 +56,42 @@ describe("projectDirs", () => {
 		process.env.WFC_CLAUDE_CONFIG_B = seat(".claude2");
 		process.env.WFC_CLAUDE_CONFIG_C = seat(".claude3");
 		expect(projectDirs()).toEqual([projects(".claude"), projects(".claude2")]);
+	});
+
+	it("adds each worktree's slug a seat lists, from the main checkout or a worktree (#4236)", () => {
+		home = fs.realpathSync(
+			fs.mkdtempSync(path.join(os.tmpdir(), "project-dirs-")),
+		);
+		const main = path.join(home, "main");
+		fs.mkdirSync(main);
+		const git = (...args: string[]) =>
+			execFileSync("git", args, { cwd: main, stdio: "ignore" });
+		git("init", "-q");
+		git(
+			"-c",
+			"user.name=t",
+			"-c",
+			"user.email=t@t",
+			"commit",
+			"-q",
+			"--allow-empty",
+			"-m",
+			"i",
+		);
+		const worktree = path.join(main, ".claude", "worktrees", "w1");
+		git("worktree", "add", "-q", "--detach", worktree);
+		const seat = path.join(home, ".claude");
+		const at = (p: string) => path.join(seat, "projects", projectSlug(p));
+		for (const p of [worktree, path.join(main, "elsewhere"), `${main}2`])
+			fs.mkdirSync(at(p), { recursive: true });
+		process.env.CLAUDE_CONFIG_DIR = seat;
+		for (const k of knobs.slice(2)) process.env[k] = seat;
+
+		const want = [at(main), at(worktree)];
+		process.env.CLAUDE_PROJECT_DIR = main;
+		expect(projectDirs()).toEqual(want);
+		process.env.CLAUDE_PROJECT_DIR = worktree;
+		expect(projectDirs()).toEqual(want);
 	});
 });
 

@@ -7,37 +7,112 @@
  * seat was counted twice (#382); a new transcript walk belongs here. The
  * every-repo listing is the retro picker's pool (#960), which reports a seat
  * it could not read (#1054).
+ *
+ * This repo's sessions write under more than one slug: a session in a linked
+ * worktree under `.claude/worktrees/` writes under that worktree's own slug
+ * (#4229), so `projectDirs()` returns those beside the main checkout's.
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
 
 const { configDirs } = require("./arbiter-store");
-const { slugForRepo } = require("./project-slug");
+const { projectSlug } = require("./project-slug");
+const { hostRoot } = require("./host-root.js");
+const { mainCheckout } = require("./main-checkout.js");
+const { configDir } = require("./config-dir.js");
 const { caught } = require("./caught.js");
-const { realKey } = require("./deref.js");
+const { deref, realKey } = require("./deref.js");
+
+const WORKTREES_DIR = path.join(".claude", "worktrees");
 
 /**
- * Every seat's projects directory for this repo, deduped by realpath.
+ * The checkout whose slug this repo's transcripts key on: the main checkout,
+ * since a script run by hand in a worktree gets the worktree as its host root
+ * (#4236). Where git names no common dir the host root stands, and only its
+ * slug is read.
+ *
+ * @returns {string}
+ */
+function repoCheckout() {
+	const root = hostRoot();
+	const main = mainCheckout(root);
+	return main === null ? root : deref(main);
+}
+
+/**
+ * Whether a name under `projects/` is this repo's: the main checkout's slug,
+ * or a worktree's under `WORKTREES_DIR`. Matched on the spelling, never on
+ * `git worktree list`, because a reaped worktree's transcripts stay behind
+ * (#4236).
+ *
+ * @param {string} root the main checkout
+ * @returns {(name: string) => boolean}
+ */
+function repoSlugMatcher(root) {
+	const main = projectSlug(root);
+	const worktree = `${projectSlug(path.join(root, WORKTREES_DIR))}-`;
+	return (name) => name === main || name.startsWith(worktree);
+}
+
+/**
+ * Every seat's projects directories for this repo, deduped by realpath: each
+ * seat's main-checkout slug first, in seat order, then each worktree slug.
  *
  * Each seat's `projects/<slug>` is a real directory (#375); the realpath
- * dedupe keeps one symlinked at another seat's from being counted twice.
+ * dedupe keeps one symlinked at another seat's from being counted twice. The
+ * main slug is returned whether or not it exists, so a caller reports a seat
+ * it could not read; a worktree slug only where the seat lists it.
  *
+ * @param {string[]} [seats] config dirs
  * @returns {string[]}
  */
-function projectDirs() {
-	const slug = slugForRepo();
+function projectDirs(seats = configDirs()) {
+	const root = repoCheckout();
+	const main = projectSlug(root);
+	const isRepo = repoSlugMatcher(root);
 	/** @type {string[]} */
 	const out = [];
 	const seen = new Set();
-	for (const dir of configDirs()) {
-		const projects = path.join(dir, "projects", slug);
-		const key = realKey(projects);
-		if (seen.has(key)) continue;
+	/** @param {string} dir */
+	const add = (dir) => {
+		const key = realKey(dir);
+		if (seen.has(key)) return;
 		seen.add(key);
-		out.push(projects);
+		out.push(dir);
+	};
+	for (const seat of seats) add(path.join(seat, "projects", main));
+	for (const seat of seats) {
+		let names;
+		try {
+			names = fs.readdirSync(path.join(seat, "projects"));
+		} catch {
+			/* The main slug above carries this seat's failure to its caller,
+			 * which reports it (#1520). */
+			continue;
+		}
+		for (const name of names.sort())
+			if (name !== main && isRepo(name)) add(path.join(seat, "projects", name));
 	}
 	return out;
+}
+
+/**
+ * The directories a one-seat corpus reader reads: `override` alone where
+ * given, else those of this repo's on the current seat that exist. A seat
+ * whose sessions all ran in worktrees has no main-slug directory, and that
+ * is no reason to refuse (#4236); where none exists, the main slug alone, so
+ * the reader reports it absent rather than reading an empty corpus.
+ *
+ * @param {string | undefined} [override] a directory named by flag or env
+ * @param {string} [seat] the config dir to read
+ * @returns {string[]}
+ */
+function corpusDirs(override, seat = configDir()) {
+	if (override) return [override];
+	const dirs = projectDirs([seat]);
+	const present = dirs.filter((d) => fs.existsSync(d));
+	return present.length > 0 ? present : dirs.slice(0, 1);
 }
 
 /**
@@ -224,6 +299,7 @@ function hasSeatRunSince(seat, sinceMs, ignoredSlug) {
 
 module.exports = {
 	hasSeatRunSince,
+	corpusDirs,
 	listTranscripts,
 	oneCopyEach,
 	projectDirs,

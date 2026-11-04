@@ -114,6 +114,7 @@ const detachedRun = require("./lib/detached-run.js");
 const { REAP_LIVE_DEATHS_TO_REPORT } = require("./reap-finished-sessions.js");
 const { runCheck } = require("./lib/check");
 const { projectSlug: slugFor } = require("./lib/project-slug.js");
+const { projectDirs } = require("./lib/project-dirs.js");
 const {
 	readSessionStartRoster,
 	KEY_OVERRIDES: ROSTER_KEY_OVERRIDES,
@@ -426,7 +427,8 @@ function flushStamps(ctx) {
 
 /**
  * Every transcript this project has under every config dir on this machine that
- * a record inside the retention window could be in, newest first.
+ * a record inside the retention window could be in, newest first: the main
+ * checkout's and each worktree's (`project-dirs.js`'s `projectDirs`).
  *
  * THE UNION, NOT `CLAUDE_CONFIG_DIR` ALONE: sessions run across all three plans
  * (lib/arbiter-core.js `sessionDirs`), and a hook failing only on the plan this
@@ -449,14 +451,12 @@ function flushStamps(ctx) {
  * @returns {{ files: Array<{file: string, mtimeMs: number, size: number, id: string}>, dirs: string[], unreadable: string[] }}
  */
 function readCorpusFiles(cutoff) {
-	const slug = projectSlug();
 	/** @type {TranscriptsByRel} */
 	const byRel = new Map();
 	const dirs = [];
 	const unreadable = [];
 
-	for (const cfg of configDirs()) {
-		const dir = path.join(cfg, "projects", slug);
+	for (const dir of projectDirs()) {
 		let entries;
 		try {
 			entries = fs.readdirSync(dir, { withFileTypes: true });

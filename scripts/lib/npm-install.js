@@ -2,10 +2,20 @@
  * npm-install.js — the guard-npm-install core (#2800, #3226): the npm install
  * boundary (mantahostels#1803, ruled at mantahostels#1767).
  *
- * The gate on a new dependency: three refusals on one hook, all of them
- * denies (mantahostels#103).
+ * The gate on a new dependency, and on any install through a shared
+ * dependency store: four refusals on one hook, all of them denies
+ * (mantahostels#103).
  *
- * THREE CHECKS, in the order they run.
+ * FOUR CHECKS, in the order they run.
+ *
+ *   0. A LINKED `node_modules`. A command that writes `node_modules` —
+ *      install, ci, uninstall, update, dedupe, prune, rebuild, link,
+ *      `audit fix`, every spelling npm derefs — where the directory it
+ *      installs into holds a symbolic link there. A session worktree's
+ *      `node_modules` links a store every worktree on its lockfile shares
+ *      (lib/session-checkout.js, #4255), so a write through it lands under
+ *      each neighbour. `--package-lock-only`, `--dry-run` and a global
+ *      install write no project tree and pass.
  *
  *   1. THE EXECUTION WINDOW. An install naming a package `package.json` does
  *      not already list must carry `--ignore-scripts`. Between `npm install`
@@ -80,7 +90,12 @@
  */
 
 const path = require("node:path");
-const { boolExact, npmCanon, shorthandExact } = require("./npm-options.js");
+const {
+	boolExact,
+	npmCanon,
+	shorthandExact,
+	treeCommandOf,
+} = require("./npm-options.js");
 const { ruleOrFallback, spliceCmd } = require("./guard-verdict.js");
 const { parseCommand, walkCommands } = require("./shell-parse.js");
 const { literal, scanFlags } = require("./shell-words.js");
@@ -143,6 +158,10 @@ const NPX_REMOVED = new Set(
  *   milliseconds; the budget runs from it
  * @property {boolean} allowNewPackage `WFC_ALLOW_NEW_PACKAGE` set in the
  *   hook's own environment
+ * @property {(p: string) => boolean} pathExists an entry at `p`, a dangling
+ *   link included
+ * @property {(p: string) => string | null} linkTarget the target `p` links
+ *   to, null where `p` is no symbolic link
  * @typedef {import("./kit-context.js").KitContext & NpmInstallPorts} NpmInstallContext
  * @typedef {{ deny: string }} Verdict
  */
@@ -527,6 +546,97 @@ function jsonOf(text) {
 }
 
 /* ----------------------------------------------------------------------- */
+/* Check 0 — a linked `node_modules` is never installed into.               */
+/* ----------------------------------------------------------------------- */
+
+/**
+ * What a canonical npm argv writes: the command where it is one that writes
+ * `node_modules` and the project's tree is its target, else undefined, and
+ * the `--prefix` it names, "" where none.
+ * @param {string[]} canon
+ */
+function parseTreeWrite(canon) {
+	/** @type {string | undefined} */
+	let command;
+	let positional = 0;
+	let fix = false;
+	let prefix = "";
+	let off = false;
+	scanFlags("", canon, (kind, name, value) => {
+		if (kind === "arg") {
+			positional++;
+			if (positional === 1) command = treeCommandOf(value);
+			else if (positional === 2) fix = value === "fix";
+			return;
+		}
+		if (name === "--prefix") prefix = value;
+		if (isTreelessOption(name, value)) off = true;
+	});
+	if (off || (command === "audit" && !fix)) command = undefined;
+	return { command, prefix };
+}
+
+/**
+ * Whether an option word keeps a command off the project's `node_modules`.
+ * @param {string} name
+ * @param {string} value
+ */
+const isTreelessOption = (name, value) =>
+	(name === "--location" && value === "global") ||
+	["global", "package-lock-only", "dry-run", "usage"].some(
+		(config) => switchOf(config, name, value) === true,
+	);
+
+/**
+ * The directory npm installs into from `dir`, as npm finds its local prefix:
+ * the nearest of `dir` and its ancestors holding a `package.json` or a
+ * `node_modules`, else `dir` itself.
+ * @param {string} dir absolute
+ * @param {NpmInstallContext} ctx
+ */
+function localPrefix(dir, ctx) {
+	for (let at = dir; ; at = path.dirname(at)) {
+		if (
+			ctx.pathExists(path.join(at, "package.json")) ||
+			ctx.pathExists(path.join(at, "node_modules"))
+		)
+			return at;
+		if (path.dirname(at) === at) return dir;
+	}
+}
+
+/**
+ * The refusal of a command that writes through a linked `node_modules` — a
+ * session worktree's dependency store, which every worktree on its lockfile
+ * shares (lib/session-checkout.js) — or null.
+ * @param {string[]} canon
+ * @param {string} cwd "" where the walk cannot know it
+ * @param {State} st
+ * @returns {string | null}
+ */
+function storeRefusal(canon, cwd, st) {
+	const { command, prefix } = parseTreeWrite(canon);
+	if (command === undefined) return null;
+	/* Residual (#4255): a cwd the walk cannot resolve, a `cd "$DIR"` among
+	 * them, is let through, logged; the store's own write bits refuse the
+	 * write. pnpm, yarn and bun are not read at all. */
+	if (cwd === "") {
+		st.ctx.log(
+			`npm ${command}: where it runs did not resolve — a linked node_modules left unchecked`,
+		);
+		return null;
+	}
+	const at = prefix
+		? path.resolve(cwd, literal(prefix, st.spans).text)
+		: localPrefix(cwd, st.ctx);
+	const link = path.join(at, "node_modules");
+	const target = st.ctx.linkTarget(link);
+	if (target === null) return null;
+	return `\`npm ${command}\` would write through ${link}, a link to ${path.resolve(at, target)}: a dependency store every worktree on this lockfile shares, and none installs into (#4255).
+To change the dependencies, run the same command with \`--package-lock-only\`, which writes package.json and package-lock.json alone; then \`node ${st.ctx.scriptPath("session-checkout.js")} attach\` points this worktree at the store for its new lockfile, building it once where none exists. A lockfile left unchanged already has its store.`;
+}
+
+/* ----------------------------------------------------------------------- */
 /* `npm install` — checks 1 and 2.                                          */
 /* ----------------------------------------------------------------------- */
 
@@ -580,14 +690,20 @@ function switchOf(config, name, value) {
 /**
  * @param {string} segment masked
  * @param {string[]} args the words after `npm`, masked
+ * @param {string} cwd where it runs, "" where the walk cannot know it
  * @param {State} st
  * @returns {Verdict | null}
  */
-function judgeNpm(segment, args, st) {
-	/* Only an install is judged, and every spelling of one names its alias. */
-	if (!args.some((w) => INSTALL_SUBS.has(w.slice(w.lastIndexOf("=") + 1))))
-		return null;
-	const { sub, specs, ignore, helping } = readInstall(npmCanon(args));
+function judgeNpm(segment, args, cwd, st) {
+	/* Only a tree write is judged, and every spelling of one names its
+	 * command. */
+	const named = args.map((w) => w.slice(w.lastIndexOf("=") + 1));
+	if (!named.some((w) => treeCommandOf(w) !== undefined)) return null;
+	const canon = npmCanon(args);
+	const store = storeRefusal(canon, cwd, st);
+	if (store !== null) return refuse(store, segment);
+	if (!named.some((w) => INSTALL_SUBS.has(w))) return null;
+	const { sub, specs, ignore, helping } = readInstall(canon);
 	if (helping || !INSTALL_SUBS.has(sub)) return null;
 	/* `npm install` from the lockfile: untouched. */
 	if (specs.length === 0) return null;
@@ -858,7 +974,7 @@ function decide(command, ctx) {
 			if (verdict !== null) return;
 			const [head = "", ...args] = cmd.words;
 			const name = path.basename(head);
-			if (name === "npm") verdict = judgeNpm(cmd.segment, args, st);
+			if (name === "npm") verdict = judgeNpm(cmd.segment, args, cmd.cwd, st);
 			else if (name === "npx") verdict = judgeNpx(cmd.segment, args, st);
 		},
 		ctx,

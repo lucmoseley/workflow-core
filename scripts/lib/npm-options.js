@@ -409,6 +409,36 @@ const SCRIPT_COMMANDS = new Map(
  */
 const scriptOfNpmCommand = (word) => SCRIPT_COMMANDS.get(word);
 
+/* Each word npm 11.16.0's cmd-list derefs to a command that writes the
+ * project's `node_modules`, measured off its `deref` over every prefix of
+ * every command and alias. `audit` writes only as `audit fix`. */
+const TREE_COMMANDS = new Map(
+	Object.entries({
+		install: "add i in ins inst insta instal install isnt isnta isntal isntall",
+		ci: "ci clean-install ic install-cl install-cle install-clea install-clean isntall- isntall-c isntall-cl isntall-cle isntall-clea isntall-clean",
+		"install-test": "install-t install-te install-tes install-test it",
+		"install-ci-test":
+			"cit clean-install- clean-install-t clean-install-te clean-install-tes clean-install-test install-ci install-ci- install-ci-t install-ci-te install-ci-tes install-ci-test si sit",
+		uninstall:
+			"r rem remo remov remove rm un uni unin unins uninst uninsta uninstal uninstall unl unli unlin unlink",
+		update:
+			"u ud udp udpa udpat udpate up upd upda updat update upg upgr upgra upgrad upgrade",
+		dedupe: "dd ddp ded dedu dedup dedupe",
+		prune: "pru prun prune",
+		rebuild: "rb reb rebu rebui rebuil rebuild",
+		link: "lin link ln",
+		audit: "aud audi audit",
+	}).flatMap(([command, list]) => words(list).map((w) => [w, command])),
+);
+
+/**
+ * The command `word` names where npm's deref makes it one that can write
+ * `node_modules`, a camelCase word read as its kebab-case; else undefined.
+ * @param {string} word
+ */
+const treeCommandOf = (word) =>
+	TREE_COMMANDS.get(word.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`));
+
 module.exports = {
 	boolExact,
 	isNpmRun,
@@ -416,4 +446,5 @@ module.exports = {
 	parseNpmOperands,
 	scriptOfNpmCommand,
 	shorthandExact,
+	treeCommandOf,
 };

@@ -85,7 +85,7 @@ INJECTED = hook_line(
 
 def scan(tmp_path, jobs):
     jobs_dir, projects_dir = build(tmp_path, jobs)
-    return ssi.scan(jobs_dir, projects_dir)
+    return ssi.scan(jobs_dir, [projects_dir])
 
 
 def test_counts_both_markers_on_a_fresh_start(tmp_path):
