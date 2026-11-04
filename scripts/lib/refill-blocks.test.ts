@@ -708,6 +708,57 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 		expect(r.out).toMatchObject({ finishedAt: NOW, handedOff: NOW });
 	});
 
+	describe("one a boot resumed, its resume writing no restart row (#3880)", () => {
+		const bootResumed = (over: Record<string, unknown> = {}) =>
+			record({ bootResumedAt: NOW - 6 * MIN, ...over });
+		const typing = () => {
+			const prompts: string[] = [];
+			const type: BlockIo["type"] = (_l, prompt) => {
+				prompts.push(prompt);
+				return null;
+			};
+			return { prompts, type };
+		};
+
+		it("is typed its prompt once idle past the wait, the unread one where a restart killed it on an unread block (#3980)", () => {
+			for (const [over, wanted] of [
+				[{}, IDLE_PROMPT],
+				[{ blockUnread: true }, BOOT_UNREAD_PROMPT],
+			] as const) {
+				const { prompts, type } = typing();
+				const r = idle(bootResumed(over), null, {
+					agents: listed,
+					io: { type },
+				});
+				expect(prompts).toEqual([wanted]);
+				expect(r.out?.idleResumes).toEqual({ tries: 1, triedAt: NOW });
+			}
+		});
+
+		it("is handed off still idle after its typed resumes", () => {
+			const r = idle(
+				bootResumed({
+					bootResumedAt: NOW - 16 * MIN,
+					idleResumes: { tries: 2, triedAt: NOW - 6 * MIN },
+				}),
+				null,
+				{ agents: listed },
+			);
+			expect(r.calls.slice(0, 2)).toEqual(["stop job42", "hand-off job42"]);
+			expect(r.out).toMatchObject({ finishedAt: NOW, handedOff: NOW });
+		});
+
+		it("is left working once it has taken a turn, no longer watched", () => {
+			const r = idle(bootResumed({ bootResumedAt: NOW - 16 * MIN }), null, {
+				agents: listed,
+				io: { hasTurnedSince: () => true },
+			});
+			expect(r.calls).toEqual([]);
+			expect(r.out).not.toHaveProperty("bootResumedAt");
+			expect(r.out?.finishedAt).toBeNull();
+		});
+	});
+
 	it("ends the episode of a typed resume answered by a turn, read off the transcript", () => {
 		const row = (type: string, ago: number, over = {}) => ({
 			type,
@@ -3110,6 +3161,12 @@ describe("queueBootKilled (#3880)", () => {
 		},
 	);
 
+	it("leaves one still live in the listing", () => {
+		expect(
+			killedOf(record(), {}, [agent("job42", "working")]),
+		).not.toHaveProperty("bootKilled");
+	});
+
 	it.each(["failed", null])("queues a job that reads %s", (state) => {
 		const jobStateOf = () => (state ? { state } : null);
 		expect(killedOf(record(), { jobStateOf })).toHaveProperty("bootKilled");
@@ -3186,6 +3243,24 @@ describe("queueBootKilled (#3880)", () => {
 		expect(prompts).toEqual([BOOT_UNREAD_PROMPT]);
 	});
 
+	it.each([
+		["UNKNOWN", [BOOT_UNREAD_PROMPT]],
+		["API_ERROR", [BOOT_PROMPT]],
+		["QUESTION", []],
+	])(
+		"resumes one parked on %s with its prompt, watched from the resume",
+		(cause, wanted) => {
+			const { prompts, out } = resumedWith([blockedOn(cause)]);
+			expect(prompts).toEqual(wanted);
+			if (wanted.length === 0) {
+				expect(out[0]).not.toHaveProperty("bootKilled");
+				return;
+			}
+			expect(out[0]).toMatchObject({ bootResumedAt: NOW });
+			expect(out[0]?.blockUnread).toBe(cause === "UNKNOWN" || undefined);
+		},
+	);
+
 	it("leaves one already held or owed a hand-off", () => {
 		const swapHeld = { at: NOW, sessionId: "s", cwd: "/", tries: 0 };
 		expect(killedOf(record({ swapHeld }))).not.toHaveProperty("bootKilled");
@@ -3212,6 +3287,9 @@ describe("queueBootKilled (#3880)", () => {
 			record: unrecorded,
 		});
 		expect(calls).toContain("hand-off job42");
+		expect(logs(calls)).toContain(
+			`design-vault /implement 42, launched at ${new Date(NOW - 10 * MIN).toISOString()}, killed by a restart: no session id read to resume it by`,
+		);
 		expect(r.launches[0]).toMatchObject({ handedOff: NOW });
 	});
 });
@@ -3311,6 +3389,41 @@ describe("the resume step across a kill before the state write (#4157)", () => {
 		});
 		expect(looked).toEqual([]);
 		expect(calls).toContain("resume job42");
+	});
+
+	it("resumes again one whose recorded resume started no copy, as the kill came first", () => {
+		const { out, calls, lines } = step(killed(NOW - MIN));
+		expect(calls).toContain("resume job42");
+		expect(out.started).toBe(1);
+		expect(out.launches[0]).not.toHaveProperty("bootKilled");
+		expect(lines.join("\n")).not.toContain("is unread");
+	});
+
+	it("counts a failed resume a try, and hands it off at the third", () => {
+		const what = `design-vault /implement 42, launched at ${new Date(NOW - 10 * MIN).toISOString()}`;
+		const failing = { resumeStopped: () => ({ failed: "exit 1" }) } as never;
+		const first = step(killed(), failing);
+		expect(first.lines).toContain(
+			`could not resume ${what}, try 1 of 3: exit 1`,
+		);
+		expect(first.out.launches[0]?.bootKilled?.tries).toBe(1);
+		expect(first.calls).not.toContain("hand-off job42");
+
+		const third = step(
+			record({
+				bootKilled: { at: NOW - MIN, sessionId: "s", cwd: "/", tries: 2 },
+			}),
+			failing,
+		);
+		expect(third.lines).toContain(
+			`could not resume ${what}, try 3 of 3: exit 1`,
+		);
+		expect(third.calls).toContain("hand-off job42");
+		expect(third.out.launches[0]).toMatchObject({
+			finishedAt: NOW,
+			handedOff: NOW,
+		});
+		expect(third.out.launches[0]).not.toHaveProperty("bootKilled");
 	});
 });
 

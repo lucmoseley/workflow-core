@@ -1115,6 +1115,16 @@ describe("planStart (#3868)", () => {
 		});
 	});
 
+	it("ends a stop still pending beside a running loop, so a boot resumes it", () => {
+		const pending = { ...stored, stopRequested: true, stopRequestedAt: 6 };
+		const { write } = plan(sound(pending), {
+			unlessStopped: false,
+			pid: 9,
+		}) as { write: object };
+		expect(write).toMatchObject({ stopRequested: false });
+		expect(write).not.toHaveProperty("stopRequestedAt");
+	});
+
 	it("refuses a seat file only where it would write seats", () => {
 		const seatErrors = ["refill-seats:2: missing cycle-day="];
 		for (const [read, over] of [

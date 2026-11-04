@@ -292,6 +292,74 @@ describe("a kill between two steps (#4157, #4180)", () => {
 	});
 });
 
+describe("a restart's killed launches on the tick (#3880, #3971)", () => {
+	const killed = record({ sessionId: "s-job42", seat: SEAT }) as Launch;
+	/** The block port queueBootKilled reads: no job record, its lines kept. */
+	const bootPorts = (lines: string[]) =>
+		({
+			log: (line: string) => lines.push(line),
+			jobStateOf: () => null,
+			resumeTargetOf: (l: Launch) => ({ sessionId: l.sessionId, cwd: l.root }),
+		}) as unknown as ReturnType<TickIo["blockIo"]>;
+
+	it("waits for a read listing, the launches and the wait kept and spared the never-started stop", async () => {
+		const blockLines: string[] = [];
+		const spared: string[][] = [];
+		const trusted: boolean[] = [];
+		const { io, lines, disk } = fakeIo(
+			stateOf({ launches: [killed], bootedAt: NOW - MIN }),
+			{
+				blockIo: () => bootPorts(blockLines),
+				stopNeverStarted: (_registry, jobs) => {
+					spared.push([...jobs]);
+					return [];
+				},
+				readListing: (isTrusted) => {
+					trusted.push(isTrusted);
+					return { agents: null, why: "the listing failed" };
+				},
+			},
+		);
+		await tickOf(io);
+		expect(trusted).toEqual([true]);
+		expect(spared).toEqual([["job42"]]);
+		expect(lines).toContain(
+			"a restart's killed launches wait on the listing: the listing failed",
+		);
+		expect(disk().bootedAt).toBe(NOW - MIN);
+		expect(disk().launches[0]).not.toHaveProperty("bootKilled");
+		expect(disk().launches[0]?.finishedAt).toBeNull();
+	});
+
+	it("queues what a surviving loop's marker says the restart killed, a batch in flight beside it, and drops the marker (#4232)", async () => {
+		const blockLines: string[] = [];
+		const initial = stateOf({
+			launches: [killed],
+			launching: { at: NOW, batch: [] },
+		});
+		const marker = { bootId: "b", at: NOW - MIN };
+		const { io, calls, disk } = fakeIo(initial, {
+			blockIo: () => bootPorts(blockLines),
+			readManagerRestart: () => marker,
+			readCurrentBootId: () => "b",
+			/* The adapter hands on the state it wrote, which holds no restart. */
+			settleKilled: () => {
+				const { launching: _, ...settled } = initial;
+				return settled;
+			},
+		});
+		await tickOf(io);
+		expect(blockLines).toContain(
+			"design-vault /implement 42, killed by a restart: due back through the resume step",
+		);
+		expect(disk().launches[0]).toHaveProperty("bootKilled");
+		expect(disk().bootedAt).toBeUndefined();
+		expect(disk().sameBootRestart).toBeUndefined();
+		expect(disk().launching).toBeUndefined();
+		expect(calls).toContain("dropManagerRestart");
+	});
+});
+
 describe("the dry-run policy (#4212)", () => {
 	it("previews a loop with no control file without stopping, and stops a real tick on it", async () => {
 		const dry = fakeIo(stateOf());

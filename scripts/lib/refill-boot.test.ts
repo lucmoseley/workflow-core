@@ -214,6 +214,41 @@ describe("settleBootKilled, a same-boot restart (#4139)", () => {
 	});
 });
 
+describe("settleBootKilled, a boot (#3880)", () => {
+	const listing = (agents: object[] | null) =>
+		({
+			agents,
+			now: START,
+			io: {
+				jobStateOf: () => null,
+				resumeTargetOf: () => ({ sessionId: "s", cwd: "/" }),
+				log: () => undefined,
+			},
+		}) as never;
+	const settle = (agents: object[] | null, bootedAt?: number) =>
+		settleBootKilled(
+			buildState([buildLaunch({ launchedAt: START - 1 })], bootedAt),
+			listing(agents),
+			CLEAR,
+		);
+
+	it("queues a launch the listing does not name once one reads, ending the wait", () => {
+		const settled = settle([], START);
+		expect(settled.launches[0]).toHaveProperty("bootKilled");
+		expect(settled).not.toHaveProperty("bootedAt");
+	});
+
+	it("leaves the launches and the wait as they were where the listing is unread", () => {
+		const settled = settle(null, START);
+		expect(settled.launches[0]).not.toHaveProperty("bootKilled");
+		expect(settled.bootedAt).toBe(START);
+	});
+
+	it("queues nothing with no boot unsettled", () => {
+		expect(settle([]).launches[0]).not.toHaveProperty("bootKilled");
+	});
+});
+
 describe("a same-boot restart (#3971)", () => {
 	const sameBoot = (launches: object[]) =>
 		loopStateOf({ launches, bootedAt: START, sameBootRestart: true });

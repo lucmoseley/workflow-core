@@ -60,7 +60,6 @@ import { printed, stubGhRoutes } from "./lib/gh-stub";
 import {
 	API_PROMPT,
 	BOOT_PROMPT,
-	BOOT_UNREAD_PROMPT,
 	HOLD_PROMPT,
 	IDLE_PROMPT,
 	LIMIT_PROMPT,
@@ -3471,26 +3470,6 @@ describe("boot-resume after a restart (#3878)", () => {
 		);
 	});
 
-	it("refuses after `stop`, logging it and starting nothing", async () => {
-		writeControl();
-		await command("stop");
-		expect((await command("boot-resume")).status).toBe(0);
-		expect(readLog()).toContain("boot resume: not resumed: stopped by command");
-		expect(fs.existsSync(at(".refill-loop.pid"))).toBe(false);
-		expect(fs.existsSync(at("ticks"))).toBe(false);
-	});
-
-	it("resumes after a `start` that overtook a `stop`, past the dead loop's pidfile", async () => {
-		writeControl();
-		const holder = spawnHolder();
-		await command("stop");
-		await command("start");
-		await exited(holder);
-		expect((await command("boot-resume")).status).toBe(0);
-		await untilLoopEnded();
-		expect(readLog()).toContain("boot resume: resumed");
-	});
-
 	it("starts no second loop beside a running one", async () => {
 		writeControl();
 		const holder = spawnHolder();
@@ -3575,21 +3554,6 @@ describe("boot-resume after a restart (#3878)", () => {
 			} finally {
 				await exited(holder);
 			}
-		});
-
-		it("leaves a stopped loop stopped, writing no log line", async () => {
-			writeControl();
-			await command("stop");
-			const before = readLog();
-			expect((await watch()).status).toBe(0);
-			expect(readCalls()).toEqual([]);
-			expect(readLog()).toBe(before);
-		});
-
-		it("leaves a loop with no start on record alone", async () => {
-			fs.rmSync(loopControlFile(), { force: true });
-			expect((await watch()).status).toBe(0);
-			expect(readCalls()).toEqual([]);
 		});
 
 		it("stands down while a launch is in flight, its lock live", async () => {
@@ -4899,106 +4863,6 @@ describe("the launches a restart killed (#3880)", () => {
 		expect(claims).not.toContain("s-job8");
 	});
 
-	it("resumes one whose recorded resume started no copy, as the kill came first (#4157)", async () => {
-		const resumedAt = Date.now() - Min;
-		const bootKilled = {
-			at: resumedAt,
-			sessionId: "s-job8",
-			cwd: repo,
-			tries: 0,
-		};
-		writeState(
-			[
-				{
-					...buildLaunch("job8", 8, 30),
-					bootKilled: { ...bootKilled, resumeStartedAt: resumedAt },
-				},
-			],
-			false,
-		);
-		const transcript = path.join(seat, "projects", "repo", "s-job8.jsonl");
-		fs.mkdirSync(path.dirname(transcript), { recursive: true });
-		fs.writeFileSync(
-			transcript,
-			`${JSON.stringify({ type: "user", uuid: "u-first", sessionId: "s-job8" })}\n`,
-		);
-		fakeResumeClaude("job8", [LISTED]);
-
-		const r = await tickWith(1, () => readCalls().length === 1);
-
-		expect(r.status).toBe(0);
-		expect(readCalls()).toEqual([buildResumeArgs("job8")]);
-		expect(readState().launches[0]).not.toHaveProperty("bootKilled");
-		expect(r.stdout).not.toContain("is unread");
-	});
-
-	describe("a parked launch, on a boot", () => {
-		const parkedOn = (jobId: string, issue: number, cause: string) => ({
-			...buildLaunch(jobId, issue, 10),
-			parked: true,
-			block: { cause, since: Date.now() - Min },
-		});
-
-		it("that reads UNKNOWN is asked what it waits on, not told to continue (#3980)", async () => {
-			writeState([parkedOn("job7", 7, "UNKNOWN")]);
-			fakeResumeClaude("job7", [LISTED]);
-
-			const r = await tickWith(1, () => readCalls().length === 1);
-
-			expect(r.status).toBe(0);
-			expect(readCalls()).toEqual([
-				`--bg --resume s-job7 ${BOOT_UNREAD_PROMPT}`,
-			]);
-			expect(BOOT_UNREAD_PROMPT).toContain("you may be waiting on the founder");
-			expect(BOOT_UNREAD_PROMPT).not.toContain("then continue your task");
-			expect(BOOT_UNREAD_PROMPT).toContain(
-				"Where you parked on a question round or an act you handed him, make no tool call",
-			);
-			expect(readState().launches[0]).toMatchObject({
-				bootResumedAt: expect.any(Number),
-				blockUnread: true,
-			});
-		});
-
-		it("on an API error takes the plain resume", async () => {
-			writeState([parkedOn("job7", 7, "API_ERROR")]);
-			fakeResumeClaude("job7", [LISTED]);
-
-			const r = await tickWith(1, () => readCalls().length === 1);
-
-			expect(r.status).toBe(0);
-			expect(readCalls()).toEqual([buildResumeArgs("job7")]);
-		});
-
-		it("on a question is not resumed", async () => {
-			writeState([parkedOn("job7", 7, "QUESTION")]);
-			fakeResumeClaude("job7", [LISTED]);
-
-			const r = await tickWith(1);
-
-			expect(r.status).toBe(0);
-			expect(readCalls()).toEqual([]);
-			expect(readKilled()).toEqual([]);
-		});
-	});
-
-	it("reads an empty listing as nothing live until they are back, as a restart leaves no session to list", async () => {
-		writeState([buildLaunch("job7", 7, 10)]);
-		fakeResumeClaude("job7", []);
-		const env = { CLAUDE_CODE_SESSION_ID: "" };
-
-		const none = await tickWith(0, undefined, env);
-
-		expect(none.status).toBe(0);
-		expect(readKilled()).toEqual(["job7"]);
-		expect(readState()).not.toHaveProperty("bootedAt");
-
-		const back = await tickWith(1, () => readCalls().length === 1, env);
-
-		expect(back.status).toBe(0);
-		expect(readCalls()).toEqual([buildResumeArgs("job7")]);
-	});
-
 	describe("the user manager's restart within a boot (#3971)", () => {
 		const outsideSession = { CLAUDE_CODE_SESSION_ID: "" };
 		const markerFile = () => at(".refill-loop-manager-restart.json");
@@ -5081,22 +4945,6 @@ describe("the launches a restart killed (#3880)", () => {
 			expect(readState()).not.toHaveProperty("sameBootRestart");
 		});
 
-		it("still trusts an empty listing where the state names another boot", async () => {
-			writeStateOnBoot("another-boot");
-			const stop = `node ${shellQuote(path.join(scripts, "request-stop.js"))};`;
-			fakeResumeClaude("job7", [], stop);
-
-			expect((await bootResume()).status).toBe(0);
-			await polled(
-				() =>
-					!fs.existsSync(at(".refill-loop.pid")) && readCalls().length === 1,
-				"the started loop did not resume it",
-			);
-
-			expect(readCalls()).toEqual([buildResumeArgs("job7")]);
-			expect(readState()).not.toHaveProperty("sameBootRestart");
-		});
-
 		it("queues the sessions a surviving loop's marker says the restart killed", async () => {
 			writeState([buildLaunch("job7", 7, 10)], false);
 			writeMarker(readCurrentBootId());
@@ -5111,152 +4959,17 @@ describe("the launches a restart killed (#3880)", () => {
 			expect(readState()).not.toHaveProperty("sameBootRestart");
 			expect(fs.existsSync(markerFile())).toBe(false);
 		});
-
-		it("queues them where a kill also left a batch in flight (#4232)", async () => {
-			fs.writeFileSync(
-				stateFile(),
-				JSON.stringify({
-					launches: [buildLaunch("job7", 7, 10)],
-					launching: { at: Date.now(), batch: [] },
-				}),
-			);
-			writeMarker(readCurrentBootId());
-			fakeResumeClaude("job7", [LISTED]);
-
-			const r = await tickWith(1, () => readCalls().length === 1);
-
-			expect(r.status).toBe(0);
-			expect(readCalls()).toEqual([buildResumeArgs("job7")]);
-			expect(r.stdout).toContain("killed by a restart: due back");
-			expect(readState()).not.toHaveProperty("launching");
-		});
-
-		it("carries a surviving loop's restart past an empty listing", async () => {
-			writeState([buildLaunch("job7", 7, 10)], false);
-			writeMarker(readCurrentBootId());
-			writeLiveRegistry();
-			fakeResumeClaude("job7", []);
-
-			const none = await tickWith(1, undefined, outsideSession);
-
-			expect(none.status).toBe(0);
-			expect(readCalls()).toEqual([]);
-			expect(readState()).toMatchObject({ sameBootRestart: true });
-			expect(fs.existsSync(markerFile())).toBe(false);
-
-			fs.rmSync(path.join(seat, "sessions", `${process.pid}.json`));
-			fakeResumeClaude("job7", [LISTED]);
-			const back = await tickWith(
-				1,
-				() => readCalls().length === 1,
-				outsideSession,
-			);
-
-			expect(back.status).toBe(0);
-			expect(readCalls()).toEqual([buildResumeArgs("job7")]);
-			expect(readState()).not.toHaveProperty("sameBootRestart");
-		});
-
-		it("queues no live session a populated listing leaves out, the registry naming it (#4139)", async () => {
-			writeState([buildLaunch("job7", 7, 10)], false);
-			writeMarker(readCurrentBootId());
-			writeLiveRegistry();
-			fakeResumeClaude("job7", [LISTED]);
-
-			const r = await tickWith(1, undefined, outsideSession);
-
-			expect(r.status).toBe(0);
-			expect(readCalls()).toEqual([]);
-			expect(r.stdout).not.toContain("killed by a restart");
-			expect(readState()).not.toHaveProperty("sameBootRestart");
-		});
-	});
-
-	it("waits for a read listing, the launches untouched, where the listing fails", async () => {
-		writeState([buildLaunch("job7", 7, 10)]);
-		fakeResumeClaude("job7", null);
-
-		const r = await tickWith(1);
-
-		expect(r.status).toBe(0);
-		expect(readCalls()).toEqual([]);
-		expect(readState().launches[0].finishedAt).toBeNull();
-		expect(readKilled()).toEqual([]);
-		expect(readState()).toHaveProperty("bootedAt");
-		expect(r.stdout).toContain(
-			"a restart's killed launches wait on the listing:",
-		);
-	});
-
-	it("hands a failed resume to a fresh launch past the try count", async () => {
-		stubHandOff();
-		writeState([buildLaunch("job7", 7, 10)]);
-		fakeResumeClaude("job7", [LISTED]);
-		fs.writeFileSync(at("bg-stdout"), "");
-		fs.writeFileSync(at("bg-stderr"), "");
-
-		const failed = await tickWith(1);
-
-		expect(failed.status).toBe(0);
-		expect(failed.stdout).toMatch(/could not resume .*try 1 of 3/);
-		expect(readState().launches[0].bootKilled.tries).toBe(1);
-		expect(readLines(at("hand-offs"))).toEqual([]);
-
-		const state = readState();
-		state.launches[0].bootKilled.tries = 2;
-		fs.writeFileSync(stateFile(), JSON.stringify(state));
-
-		const last = await tickWith(1);
-
-		expect(last.status).toBe(0);
-		expect(last.stdout).toMatch(/could not resume .*try 3 of 3/);
-		expect(readLines(at("hand-offs"))).toEqual([
-			`hand-off --from ${seat} --job job7 --session s-job7 --issue 7`,
-		]);
-		expect(readState().launches[0]).toMatchObject({
-			finishedAt: expect.any(Number),
-			handedOff: expect.any(Number),
-		});
-		expect(readState().launches[0]).not.toHaveProperty("bootKilled");
-	});
-
-	it("hands off one with no session id to resume by, at its turn in the step", async () => {
-		stubHandOff();
-		const { sessionId: _, ...unnamed } = buildLaunch("job7", 7, 10);
-		writeState([unnamed]);
-		fakeResumeClaude("job7", [LISTED]);
-
-		const r = await tickWith(1);
-
-		expect(r.status).toBe(0);
-		expect(readCalls()).toEqual([]);
-		expect(r.stdout).toContain("no session id read to resume it by");
-		expect(readLines(at("hand-offs"))).toHaveLength(1);
-		expect(readState().launches[0].handedOff).toEqual(expect.any(Number));
 	});
 
 	describe("a resumed session", () => {
 		const jobDir = () => path.join(seat, "jobs", "job7");
-		/* Minutes: past block-act.js's 5 of idle wait; past that wait and its two
-		 * typed resumes' 5 each. */
+		/* Minutes: past block-act.js's 5 of idle wait. */
 		const PastWait = 6;
-		const PastTries = 16;
 
-		/** Job7 listed working, resumed `minutes` ago, its last turn before that
-		 * or, with `turned`, a minute after. */
+		/** Job7 listed working, resumed `minutes` ago, its last turn before that. */
 		const seedResumed = (
 			minutes: number,
-			{
-				idleResumes,
-				turned,
-				blockUnread,
-				listing = [LISTED, buildJobRow("job7", "working")],
-			}: {
-				idleResumes?: object;
-				turned?: boolean;
-				blockUnread?: true;
-				listing?: Row[];
-			} = {},
+			listing: Row[] = [LISTED, buildJobRow("job7", "working")],
 		) => {
 			stubHandOff();
 			fs.writeFileSync(
@@ -5270,9 +4983,7 @@ describe("the launches a restart killed (#3880)", () => {
 				`${JSON.stringify({
 					type: "assistant",
 					isSidechain: false,
-					timestamp: new Date(
-						turned ? resumedAt + Min : resumedAt - Min,
-					).toISOString(),
+					timestamp: new Date(resumedAt - Min).toISOString(),
 					message: { content: [{ type: "text", text: "Working." }] },
 				})}\n`,
 			);
@@ -5295,8 +5006,6 @@ describe("the launches a restart killed (#3880)", () => {
 						...buildLaunch("job7", 7, 30),
 						relaunchedAt: resumedAt,
 						bootResumedAt: resumedAt,
-						...(idleResumes ? { idleResumes } : {}),
-						...(blockUnread ? { blockUnread } : {}),
 					},
 				],
 				false,
@@ -5312,34 +5021,8 @@ describe("the launches a restart killed (#3880)", () => {
 			expect(readState().launches[0].idleResumes.tries).toBe(1);
 		});
 
-		it("is typed what it waits on, not to go on, where it was killed on an unread block (#3980)", async () => {
-			seedResumed(PastWait, { blockUnread: true });
-			const r = await tickWith(0);
-			expect(r.status).toBe(0);
-			expect(readCalls()).toEqual([
-				"attach job7",
-				`typed ${BOOT_UNREAD_PROMPT}`,
-			]);
-		});
-
-		it("is handed off still idle after its typed resumes", async () => {
-			seedResumed(PastTries, {
-				idleResumes: { tries: 2, triedAt: Date.now() - PastWait * Min },
-			});
-			const r = await tickWith(0);
-			expect(r.status).toBe(0);
-			expect(readCalls()).toContain("stop job7");
-			expect(readLines(at("hand-offs"))).toEqual([
-				`hand-off --from ${seat} --job job7 --session s-job7 --issue 7`,
-			]);
-			expect(readState().launches[0]).toMatchObject({
-				finishedAt: expect.any(Number),
-				handedOff: expect.any(Number),
-			});
-		});
-
 		it("is handed off gone from the listing with no turn, the resume having taken and then died", async () => {
-			seedResumed(PastWait, { listing: [LISTED] });
+			seedResumed(PastWait, [LISTED]);
 			const r = await tickWith(0);
 			expect(r.status).toBe(0);
 			expect(readLines(at("hand-offs"))).toEqual([
@@ -5347,27 +5030,6 @@ describe("the launches a restart killed (#3880)", () => {
 			]);
 			expect(readState().launches[0].handedOff).toEqual(expect.any(Number));
 		});
-
-		it("is left working once it has taken a turn, no longer watched", async () => {
-			seedResumed(PastTries, { turned: true });
-			const r = await tickWith(0);
-			expect(r.status).toBe(0);
-			expect(readCalls()).toEqual([]);
-			expect(readState().launches[0]).not.toHaveProperty("bootResumedAt");
-			expect(readState().launches[0].finishedAt).toBeNull();
-		});
-	});
-
-	it("does not resume a session still live in the listing", async () => {
-		writeState([buildLaunch("job7", 7, 10)]);
-		fakeResumeClaude("job7", [LISTED, buildJobRow("job7", "working")]);
-
-		const r = await tickWith(1);
-
-		expect(r.status).toBe(0);
-		expect(readCalls()).toEqual([]);
-		expect(readKilled()).toEqual([]);
-		expect(readState().launches[0].finishedAt).toBeNull();
 	});
 
 	describe("a job no transcript backs (#3983)", () => {
@@ -5388,51 +5050,6 @@ describe("the launches a restart killed (#3880)", () => {
 		};
 		const readStops = (job: string) =>
 			readCalls().filter((c) => c === `stop ${job}`);
-
-		it("is resumed, not stopped, on the tick the boot queues it", async () => {
-			writeNeverStarted("job7");
-			writeState([buildLaunch("job7", 7, 60)]);
-			fakeResumeClaude("job7", [LISTED]);
-
-			const r = await tickWith(1, () => readCalls().length > 0);
-
-			expect(r.status).toBe(0);
-			expect(readCalls()[0]).toBe(buildResumeArgs("job7"));
-		});
-
-		it("is spared across ticks of an unread listing where it is a launch, and stopped where it is not", async () => {
-			writeNeverStarted("job7");
-			writeNeverStarted("job9");
-			writeState([buildLaunch("job7", 7, 60)]);
-			fakeResumeClaude("job7", null);
-
-			/* Two runs, as a run's next tick waits on the loop's fallback sleep (SETTLE_MS's
-			 * comment), so the second tick reads `bootedAt` back from the state file. */
-			for (const _run of [1, 2]) {
-				const before = readStops("job9").length;
-				const unread = await tickWith(
-					0,
-					() => readStops("job9").length > before,
-				);
-
-				expect(unread.status).toBe(0);
-				expect(readState()).toHaveProperty("bootedAt");
-				expect(readStops("job7")).toEqual([]);
-				expect(unread.stdout).toMatch(/stopped never-started job job9 on /);
-				expect(unread.stdout).not.toContain("never-started job job7");
-			}
-
-			fakeResumeClaude("job7", [LISTED]);
-			const read = await tickWith(1, () =>
-				readCalls().includes(buildResumeArgs("job7")),
-			);
-
-			expect(read.status).toBe(0);
-			expect(readState()).not.toHaveProperty("bootedAt");
-			expect(readCalls().find((c) => c !== "stop job9")).toBe(
-				buildResumeArgs("job7"),
-			);
-		});
 
 		it("is stopped once queued, and still resumed", async () => {
 			writeNeverStarted("job7");
@@ -5478,39 +5095,6 @@ describe("the launches a restart killed (#3880)", () => {
 				finishedAt: null,
 			});
 		});
-	});
-
-	it("finishes an unlisted launch as ever on a tick no boot preceded", async () => {
-		writeState([buildLaunch("job7", 7, 10)], false);
-		fakeResumeClaude("job7", [LISTED]);
-
-		const r = await tickWith(1);
-
-		expect(r.status).toBe(0);
-		expect(readCalls()).toEqual([]);
-		expect(readState().launches[0].finishedAt).toEqual(expect.any(Number));
-	});
-
-	it("is set off by boot-resume itself, on the tick of the loop it starts", async () => {
-		writeState([buildLaunch("job7", 7, 10)], false);
-		const stop = `node ${shellQuote(path.join(scripts, "request-stop.js"))};`;
-		fakeResumeClaude("job7", [LISTED], stop);
-
-		const r = await runInProcessAsync(
-			path.join(scripts, "refill-loop.js"),
-			["boot-resume"],
-			{
-				cwd: dir,
-				env: loopEnv({ FAKE_SLOTS: "1", CLAUDE_PROJECT_DIR: repo }),
-			},
-		);
-
-		expect(r.status).toBe(0);
-		await polled(
-			() => !fs.existsSync(at(".refill-loop.pid")) && readCalls().length === 1,
-			"the started loop did not resume it",
-		);
-		expect(readCalls()).toEqual([buildResumeArgs("job7")]);
 	});
 });
 

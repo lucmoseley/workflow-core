@@ -5,7 +5,11 @@
  * a tool call, or one on a permission to post nothing and be refused for it.
  */
 import { describe, expect, it } from "vitest";
-import { hasNothingToRepeat, parkedPromptOf } from "./loop-prompts.js";
+import {
+	BOOT_UNREAD_PROMPT,
+	hasNothingToRepeat,
+	parkedPromptOf,
+} from "./loop-prompts.js";
 
 describe("a parked session's resume, by the block its marker names (#3949)", () => {
 	it.each(["API_ERROR", "LIMIT"])("%s has nothing to repeat", (cause) => {
@@ -28,4 +32,14 @@ describe("a parked session's resume, by the block its marker names (#3949)", () 
 			expect(parkedPromptOf(cause)).not.toContain("Repeat the tool call");
 		},
 	);
+});
+
+describe("a session a restart killed on a block the loop could not read (#3980)", () => {
+	it("is asked what it waits on, not told to continue", () => {
+		expect(BOOT_UNREAD_PROMPT).toContain("you may be waiting on the founder");
+		expect(BOOT_UNREAD_PROMPT).not.toContain("then continue your task");
+		expect(BOOT_UNREAD_PROMPT).toContain(
+			"Where you parked on a question round or an act you handed him, make no tool call",
+		);
+	});
 });
