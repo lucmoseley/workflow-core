@@ -20,12 +20,9 @@
  * or a refused filing among them; 2 on a command line it refuses.
  */
 
-const { spawnSync } = require("node:child_process");
-const fs = require("node:fs");
-const path = require("node:path");
 const { parseErrorText } = require("./lib/caught.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
-const { landerLog } = require("./lib/lander-start.js");
+const { runStartLander } = require("./lib/lander-start.js");
 const { readQueue, supervision } = require("./lib/landing-stall.js");
 const { liveQueueDeps } = require("./lib/queue-issue.js");
 const { scriptPath } = require("./lib/script-path.js");
@@ -69,29 +66,20 @@ function main(argv = process.argv.slice(2)) {
 
 /**
  * start-lander.js in `root`, naming the refill loop its launcher; its line is
- * printed and appended to the lander's log, which it opens as start-lander.js
- * run from a hook does.
+ * printed and appended to the lander's log.
  * @param {string} root
  * @param {string|undefined} tester
  */
 function startLander(root, tester) {
-	const r = spawnSync(
-		process.execPath,
-		[
-			path.join(__dirname, "start-lander.js"),
+	const r = runStartLander(root, {
+		args: [
 			"--launched-by",
 			"the refill loop",
 			...(tester === undefined ? [] : ["--tester", tester]),
 		],
-		{ cwd: root, encoding: "utf8" },
-	);
-	if (r.status !== 0)
-		throw new Error(
-			`start-lander.js ended ${r.status ?? r.signal}: ${(r.stderr || r.error?.message || "").trim()}`,
-		);
-	const line = r.stdout.trim();
-	fs.appendFileSync(landerLog(root), `${line}\n`);
-	say(line);
+	});
+	if (!r.ok) throw new Error(r.line);
+	say(r.line);
 }
 
 if (require.main === module) {
