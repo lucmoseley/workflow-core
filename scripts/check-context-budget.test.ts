@@ -846,6 +846,15 @@ describe("an adopter's rendered tracker payload (#1956)", () => {
 		pool(CAP - 1000);
 		expect(run("--json").json().injection.rendered).toBeNull();
 	});
+
+	it("renders nothing on an --against run's silent baseline side (#4296)", () => {
+		pool(CAP - 1000);
+		coreInjector();
+		const r = runInProcess(SCRIPT, ["--root", dir, "--json"], {
+			env: { ...process.env, WFC_CHECK_SIDE: "baseline" },
+		});
+		expect(JSON.parse(r.stdout).injection.rendered).toBeNull();
+	});
 });
 
 describe("the injected tracker docs", () => {

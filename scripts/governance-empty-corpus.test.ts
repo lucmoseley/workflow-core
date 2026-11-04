@@ -28,8 +28,8 @@ const script = (name: string) => path.join(__dirname, name);
 let dir: string;
 
 /* The scripts read git history, so the skeleton is committed as an adopter's
- * would be; its hook stack is init-adopter.test.ts's to prove, not this
- * file's. */
+ * would be; its hook stack is init-adopter-commit.test.ts's to prove, not
+ * this file's. */
 function skeleton(modules: string) {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "governance-empty-"));
 	const git = (...args: string[]) =>

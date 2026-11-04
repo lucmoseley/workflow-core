@@ -2080,7 +2080,11 @@ const SPEC = {
 		const headroom = CAP_BYTES - total;
 
 		const { files: injected, fromCore, script } = readInjectedDocs(ctx, root);
-		const rendered = fromCore ? renderedFor(script, root) : null;
+		/* The rendering runs the injector once per command, and only the table
+		 * and the index side's envelope show it: the baseline side is silent and
+		 * its profile compares no rendered figure (#4296). */
+		const rendered =
+			fromCore && !isBaselineSide() ? renderedFor(script, root) : null;
 		const injTotal = sum(injected, (f) => f.bytes);
 		const injHeadroom = INJECTION_CAP_BYTES - injTotal;
 

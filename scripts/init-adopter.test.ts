@@ -12,89 +12,35 @@
  *
  * init is the one command a new adopter runs to bootstrap: loosen a case here
  * and that adopter's first commit is refused by the gates init itself installed,
- * or its sessions run from a skeleton that is missing pieces.
+ * or its sessions run from a skeleton that is missing pieces. The cases that
+ * commit through the whole hook stack are init-adopter-commit.test.ts's
+ * (#4296).
  */
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, describe, expect, it, vi } from "vitest";
-import { failOpenLogPath } from "./guard-log-fixture";
+import { describe, expect, it } from "vitest";
 import { initPaths } from "./init-adopter.js";
+import {
+	CORE,
+	init,
+	initIn,
+	initialised,
+	made,
+	repo,
+	SCRIPT,
+	SKELETON_PATHS,
+	upgradeAfterInit,
+} from "./init-adopter-fixture";
 import { HOOKS, renderHookShim, TOOLS } from "./lib/adopter-skeleton.js";
 import { skeletonPaths } from "./lib/core-owned-files.js";
 import { RUFF_INSTALL } from "./lib/formatters.js";
 import { stubGhScript } from "./lib/gh-stub";
-import { defineTemplate, mkDirOutsideRepo } from "./lib/git-fixture";
 import { installPathFor } from "./lib/plugin-state.js";
-import { gateTmpdir } from "./lib/precommit-gate-harness.js";
-import { allRegistrations, buildCommandLine } from "./lib/registrations.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
-import { upgrade } from "./lib/upgrade-walk.js";
 import { MODULES } from "./lib/workflow-core-config.js";
-
-/* These fixtures hold no package.json, and a pathspec naming it fails. */
-const SKELETON_PATHS = skeletonPaths((rel) => rel !== "package.json");
-
-const CORE = path.resolve(__dirname, "..");
-const SCRIPT = path.join(__dirname, "init-adopter.js");
-
-const made: string[] = [];
-afterAll(() => {
-	for (const dir of made) fs.rmSync(dir, { recursive: true, force: true });
-});
-
-/* The template builds under git-fixture's scratch base, inside this checkout,
- * so the ceiling stops a failed `git init` from letting `git config` write
- * into the checkout's own .git/config (#2875). */
-const emptyRepo = defineTemplate((dir) => {
-	const env = { ...process.env, GIT_CEILING_DIRECTORIES: path.dirname(dir) };
-	const git = (...args: string[]) =>
-		execFileSync("git", args, { cwd: dir, env });
-	git("init", "-q", "-b", "main", ".");
-	/* An identity, so the tests' commits are not refused for want of one. */
-	git("config", "user.email", "fixture@example.invalid");
-	git("config", "user.name", "Adopter Fixture");
-});
-
-/* Copies land outside any repository, not under the scratch base, so no
- * test's adopter repo sits inside this checkout. Residual: they are back on
- * the shared /tmp, where mantahostels#3144 saw a fixture deleted mid-copy. */
-function repo() {
-	const dir = mkDirOutsideRepo("adopter-");
-	made.push(dir);
-	emptyRepo.instantiate(dir);
-	const git = (...args: string[]) =>
-		execFileSync("git", args, { cwd: dir, encoding: "utf8" });
-	return { dir, git };
-}
-
-const init = (dir: string, ...args: string[]) =>
-	initIn(process.env, dir, ...args);
-
-const initIn = (env: NodeJS.ProcessEnv, dir: string, ...args: string[]) =>
-	runInProcess(
-		SCRIPT,
-		[
-			"--root",
-			dir,
-			"--plugin-root",
-			CORE,
-			/* Every fixture skips it: a real `claude plugin install` mutates this
-			 * machine's own plugin registry and is exercised on its own, against a
-			 * stub `claude`, below (#75). */
-			"--no-plugin-install",
-			...args,
-		],
-		{
-			cwd: dir,
-			/* init() passes NO CLAUDE_PROJECT_DIR: init sets it for its own
-			 * children, so supplying it would prove the harness rather than the
-			 * script (#5). */
-			env,
-		},
-	);
 
 /**
  * A stub `claude` that logs its own argv, one line per call, to `log`.
@@ -112,35 +58,6 @@ function stubClaude(log: string) {
 		{ mode: 0o755 },
 	);
 	return stub;
-}
-
-/** A pathspec commit of `paths` in the adopter, through its own hooks. */
-function commitThroughHooks(
-	dir: string,
-	message: string,
-	paths = SKELETON_PATHS,
-	env = process.env,
-) {
-	/* Intent-to-add, so the pathspec commit the convention asks for can name
-	 * files git has never seen. */
-	execFileSync("git", ["add", "-N", ...paths], { cwd: dir });
-	/* The shims run this checkout, as CI's WORKFLOW_CORE_CHECKOUT would: the
-	 * fixture has no install row for them to resolve (#1839). The skeleton's
-	 * hooks arm the real shellcheck gate, so the commit takes the fixture's own
-	 * TMPDIR for its lock, set after `env` so no caller's replaces it (#2648).
-	 * CLAUDE_PROJECT_DIR is the adopter's, as its own session's would be: a
-	 * session's inherited value names this checkout, and the hooks would read
-	 * its config and run its `npm run check:staged` in the adopter (#3296). */
-	return spawnSync("git", ["commit", "-m", message, "--", ...paths], {
-		cwd: dir,
-		encoding: "utf8",
-		env: {
-			WORKFLOW_CORE_DIR: CORE,
-			...env,
-			CLAUDE_PROJECT_DIR: dir,
-			TMPDIR: gateTmpdir(dir),
-		},
-	});
 }
 
 describe("init in a fresh repository", () => {
@@ -1171,8 +1088,7 @@ describe("init in a fresh repository", () => {
 	});
 
 	it("keeps the repo-owned half and rewrites the core-owned half", () => {
-		const { dir } = repo();
-		expect(init(dir, "--founder", "A Founder", "--no-tracker").status).toBe(0);
+		const { dir } = initialised();
 		fs.appendFileSync(path.join(dir, "CLAUDE.md"), "\n- the adopter's own\n");
 		const rules = path.join(dir, ".claude/workflow-core.md");
 		const marker = fs.readFileSync(rules, "utf8").split("\n")[0];
@@ -1190,8 +1106,7 @@ describe("init in a fresh repository", () => {
 	});
 
 	it("leaves a rules file that does not open on the CORE-OWNED marker, and says so (#1501)", () => {
-		const { dir } = repo();
-		expect(init(dir, "--founder", "A Founder", "--no-tracker").status).toBe(0);
+		const { dir } = initialised();
 		const rules = path.join(dir, ".claude/workflow-core.md");
 		fs.writeFileSync(rules, "the adopter's own\n");
 		const again = init(dir, "--founder", "A Founder", "--no-tracker");
@@ -1203,8 +1118,7 @@ describe("init in a fresh repository", () => {
 	});
 
 	it("copies the browser helper in executable, and deliberately registers nothing (#133)", () => {
-		const { dir } = repo();
-		expect(init(dir, "--founder", "A Founder", "--no-tracker").status).toBe(0);
+		const { dir } = initialised();
 		const at = path.join(dir, "scripts/browse.py");
 		const body = fs.readFileSync(at, "utf8");
 		/* Byte-identical to the core's, since nothing is rewritten on the way in
@@ -1224,8 +1138,7 @@ describe("init in a fresh repository", () => {
 	});
 
 	it("copies in the resolver the hook shims run, byte-identical to the core's (#1839)", () => {
-		const { dir } = repo();
-		expect(init(dir, "--founder", "A Founder", "--no-tracker").status).toBe(0);
+		const { dir } = initialised();
 		expect(
 			fs.readFileSync(path.join(dir, "scripts/lib/resolve-core.js"), "utf8"),
 		).toBe(
@@ -1236,8 +1149,7 @@ describe("init in a fresh repository", () => {
 	it("replaces an adopter's edit to the browser helper on a re-run (#133)", () => {
 		/* The other half of `generated-only`: unlike CLAUDE.md this is NOT kept,
 		 * so a bump actually delivers a fixed helper rather than skipping it. */
-		const { dir } = repo();
-		expect(init(dir, "--founder", "A Founder", "--no-tracker").status).toBe(0);
+		const { dir } = initialised();
 		fs.writeFileSync(path.join(dir, "scripts/browse.py"), "clobbered\n");
 		const again = init(dir, "--founder", "A Founder", "--no-tracker");
 		expect(again.status).toBe(0);
@@ -1247,8 +1159,7 @@ describe("init in a fresh repository", () => {
 	});
 
 	it("leaves an adopter's .husky/pre-commit.local byte-identical on a re-run (#437)", () => {
-		const { dir } = repo();
-		expect(init(dir, "--founder", "A Founder", "--no-tracker").status).toBe(0);
+		const { dir } = initialised();
 		const local = path.join(dir, ".husky/pre-commit.local");
 		const body = '# mine\nnode scripts/own-gate.js || exit "$?"\n';
 		fs.writeFileSync(local, body);
@@ -1599,8 +1510,7 @@ describe("a complete day-one config (#715)", () => {
 	});
 
 	it("leaves a kept config's biome check --staged check_staged to the hook (#2774)", () => {
-		const { dir } = repo();
-		expect(init(dir, "--founder", "A Founder", "--no-tracker").status).toBe(0);
+		const { dir } = initialised();
 		write(
 			dir,
 			"package.json",
@@ -1767,8 +1677,7 @@ describe("a complete day-one config (#715)", () => {
 	});
 
 	it("reports a kept config's commands on a re-run, not a search it never made", () => {
-		const { dir } = repo();
-		expect(init(dir, "--founder", "A Founder", "--no-tracker").status).toBe(0);
+		const { dir } = initialised();
 		write(dir, "package.json", JSON.stringify({ scripts: { test: "x" } }));
 		const r = init(dir, "--no-tracker");
 		expect(r.stdout).toContain(
@@ -1791,8 +1700,7 @@ describe("a complete day-one config (#715)", () => {
 	);
 
 	it("switches a module on when its config's modules is edited and init re-run (#708 Q4)", () => {
-		const { dir } = repo();
-		expect(init(dir, "--founder", "A Founder", "--no-tracker").status).toBe(0);
+		const { dir } = initialised();
 		const edited = readConfig(dir);
 		edited.modules = ["roadmap"];
 		write(dir, ".claude/workflow-core.json", JSON.stringify(edited));
@@ -1870,8 +1778,7 @@ describe("a complete day-one config (#715)", () => {
 	});
 
 	it("adds no pin on a re-run of an unpinned install (#730)", () => {
-		const { dir } = repo();
-		expect(init(dir, "--founder", "A Founder", "--no-tracker").status).toBe(0);
+		const { dir } = initialised();
 		const r = init(dir, "--no-tracker");
 		expect(r.status, r.stderr).toBe(0);
 		expect(
@@ -1883,8 +1790,7 @@ describe("a complete day-one config (#715)", () => {
 	});
 
 	it("keeps a directory source's declared checkout on a bare re-run from another plugin root (#731)", () => {
-		const { dir } = repo();
-		expect(init(dir, "--founder", "A Founder", "--no-tracker").status).toBe(0);
+		const { dir } = initialised();
 		const readSource = () =>
 			readSettings(dir).extraKnownMarketplaces["workflow-core"].source;
 		const declareSource = (declared: object) => {
@@ -1930,102 +1836,9 @@ describe("a complete day-one config (#715)", () => {
 	});
 });
 
-/*
- * Slow by nature: it runs the whole pre-commit stack in a foreign repo,
- * gitleaks and every checker included. Skipped where gitleaks is absent, since
- * `.husky/pre-commit` refuses every commit without it; CI installs it (#55). The
- * probe resolves the binary as the hooks' `"${WFC_GITLEAKS:-gitleaks}"` does
- * (#224) — `||`, not `??`, so an empty value falls back rather than skipping
- * both cases.
- */
-const HAS_GITLEAKS = (() => {
-	try {
-		execFileSync(process.env.WFC_GITLEAKS || "gitleaks", ["version"], {
-			stdio: "ignore",
-		});
-		return true;
-	} catch {
-		return false;
-	}
-})();
-
-describe("the skeleton's first commit", () => {
-	it.skipIf(!HAS_GITLEAKS)(
-		"lands green through the full husky stack with no modules",
-		() => {
-			const { dir } = repo();
-			expect(init(dir, "--founder", "A Founder", "--no-tracker").status).toBe(
-				0,
-			);
-			/* A session's leaked CLAUDE_PROJECT_DIR, so CI too checks the
-			 * helper's override (#3296). */
-			const r = commitThroughHooks(
-				dir,
-				"Start the repo: the workflow-core skeleton",
-				SKELETON_PATHS,
-				{ ...process.env, CLAUDE_PROJECT_DIR: CORE },
-			);
-			expect(`${r.stdout}\n${r.stderr}`).not.toMatch(/^(FAIL|BROKEN):/m);
-			expect(r.status).toBe(0);
-			expect(
-				execFileSync("git", ["ls-files", ".gitignore"], {
-					cwd: dir,
-					encoding: "utf8",
-				}),
-			).toBe(".gitignore\n");
-		},
-		180_000,
-	);
-
-	it.skipIf(!HAS_GITLEAKS)(
-		"lands green with the roadmap module on",
-		() => {
-			const { dir } = repo();
-			expect(
-				init(
-					dir,
-					"--founder",
-					"A Founder",
-					"--modules",
-					"roadmap",
-					"--category",
-					"core=Core",
-					"--no-tracker",
-				).status,
-			).toBe(0);
-			const r = commitThroughHooks(
-				dir,
-				"Start the repo: skeleton with the roadmap",
-			);
-			expect(`${r.stdout}\n${r.stderr}`).not.toMatch(/^(FAIL|BROKEN):/m);
-			expect(r.status).toBe(0);
-		},
-		180_000,
-	);
-});
-
-/**
- * The suite injects WFC_MODULES, which replaces the declared list; the
- * spawned init never saw it, so the upgrade must not either.
- */
-function upgradeAfterInit(
-	dir: string,
-	labels?: Parameters<typeof upgrade>[0]["labels"],
-) {
-	const lines: string[] = [];
-	vi.stubEnv("WFC_MODULES", undefined);
-	try {
-		upgrade({ root: dir, pluginRoot: CORE, out: (l) => lines.push(l), labels });
-	} finally {
-		vi.unstubAllEnvs();
-	}
-	return lines;
-}
-
 describe("the rules file's core commands (#654)", () => {
 	it("a fresh init spells them at the plugin root, and an upgrade at the same root leaves the file byte-identical", () => {
-		const { dir } = repo();
-		expect(init(dir, "--founder", "A", "--no-tracker").status).toBe(0);
+		const { dir } = initialised("A");
 		const at = path.join(dir, ".claude/workflow-core.md");
 		const written = fs.readFileSync(at, "utf8");
 		const ref = path.join(dir, ".claude/workflow-core.reference.md");
@@ -2064,8 +1877,7 @@ describe("init then upgrade (#1501)", () => {
 	}
 
 	it("an upgrade with no version change leaves every file init wrote byte-identical, no mode changed", () => {
-		const { dir } = repo();
-		expect(init(dir, "--founder", "A", "--no-tracker").status).toBe(0);
+		const { dir } = initialised("A");
 		const before = snapshot(dir);
 		const lines = upgradeAfterInit(dir);
 		expect(snapshot(dir)).toEqual(before);
@@ -2114,144 +1926,6 @@ describe("init then upgrade (#1501)", () => {
 			own,
 		);
 	});
-});
-
-/*
- * An adopter from before the host registries, with gaps of its own, commits
- * everything upgrade changed: the registry guard and the husky stack must both
- * let it through (#1671). Gitleaks-gated, and given the skeleton's first
- * commit's budget, as it runs the same stack.
- */
-describe("an unseeded adopter's first commit after upgrade (#1671)", () => {
-	const ownGuard = "scripts/guard-own.sh";
-	const ownChecker = "scripts/check-own.js";
-
-	/** init's tree, put back to a pre-v1.3.14 adopter's and committed. */
-	function unseededAdopter() {
-		const { dir, git } = repo();
-		expect(init(dir, "--founder", "A", "--no-tracker").status).toBe(0);
-		for (const rel of [
-			".claude/registrations.json",
-			".claude/guard-fire-needles.json",
-		])
-			fs.rmSync(path.join(dir, rel));
-		/* A hook from before #1839, which upgrade turns into its shim. */
-		fs.writeFileSync(
-			path.join(dir, ".husky/pre-commit"),
-			`#!/usr/bin/env sh\nWFC_PLUGIN_ROOT=${shellQuote(CORE)}\nexport WFC_PLUGIN_ROOT\n`,
-		);
-		/* Settings with a core key missing, so the merge rewrites the file, and a
-		 * hook of the adopter's own that no registry pins or counts. */
-		const at = path.join(dir, ".claude/settings.json");
-		const settings = JSON.parse(fs.readFileSync(at, "utf8"));
-		delete settings.env.CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP;
-		settings.hooks = {
-			PreToolUse: [
-				{
-					matcher: "Bash",
-					hooks: [
-						{
-							type: "command",
-							command: `bash "$CLAUDE_PROJECT_DIR"/${ownGuard}`,
-						},
-					],
-				},
-			],
-		};
-		fs.writeFileSync(at, `${JSON.stringify(settings, null, "\t")}\n`);
-		fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
-		fs.writeFileSync(path.join(dir, ownGuard), "#!/usr/bin/env bash\n", {
-			mode: 0o755,
-		});
-		fs.writeFileSync(path.join(dir, ownChecker), "// nothing calls this\n");
-		git("add", "-A");
-		/* With no hooks, so the gaps land as HEAD's and read as inherited below. */
-		git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "before upgrade");
-		return { dir, git };
-	}
-
-	const readHookLines = (dir: string) =>
-		allRegistrations(
-			JSON.parse(
-				fs.readFileSync(path.join(dir, ".claude/settings.json"), "utf8"),
-			),
-		).map(buildCommandLine);
-
-	it.skipIf(!HAS_GITLEAKS)(
-		"lands the whole change set through the registry guard and the husky stack",
-		() => {
-			const { dir, git } = unseededAdopter();
-			const hooksBefore = readHookLines(dir);
-			upgradeAfterInit(dir);
-			/* Upgrade adds no hook to settings.json, so it owes no `hooks` row:
-			 * a change here reopens #1671's second question. */
-			expect(readHookLines(dir)).toEqual(hooksBefore);
-
-			const changed = git("status", "--porcelain", "-uall")
-				.split("\n")
-				.filter(Boolean)
-				.map((l) => l.slice(3));
-			expect(changed).toEqual(
-				expect.arrayContaining([
-					".claude/settings.json",
-					".claude/registrations.json",
-					".claude/guard-fire-needles.json",
-					".husky/pre-commit",
-				]),
-			);
-			const message = "Upgrade workflow-core";
-			const config = fs.mkdtempSync(path.join(os.tmpdir(), "adopter-config-"));
-			made.push(config);
-			const env = {
-				...process.env,
-				CLAUDE_PROJECT_DIR: dir,
-				CLAUDE_CONFIG_DIR: config,
-			};
-			const guardOn = (paths: string[]) => {
-				git("add", "-N", "--", ...paths);
-				return runInProcess(
-					path.join(__dirname, "guard-dispatch.js"),
-					["--only", "guard-registry-atomicity"],
-					{
-						cwd: dir,
-						env,
-						stdin: JSON.stringify({
-							hook_event_name: "PreToolUse",
-							session_id: "upgrader",
-							tool_name: "Bash",
-							tool_input: {
-								command: `git commit -m "${message}" -- ${paths.join(" ")}`,
-							},
-						}),
-					},
-				);
-			};
-
-			/* The upgrade moves no hook and adds no member, so the guard passes it
-			 * on judging, not by failing open... */
-			const allowed = guardOn(changed);
-			expect(allowed.status).toBe(0);
-			expect(allowed.stdout).not.toContain('"deny"');
-			expect(fs.existsSync(failOpenLogPath(config, dir))).toBe(false);
-			/* ...and the same tree refuses an unregistered guard riding along. */
-			const extra = "scripts/guard-new.sh";
-			fs.writeFileSync(path.join(dir, extra), "#!/usr/bin/env bash\n");
-			const refused = guardOn([...changed, extra]);
-			expect(refused.stdout).toContain('"deny"');
-			expect(refused.stdout).toContain(extra);
-			git("rm", "-q", "--cached", "--", extra);
-			fs.rmSync(path.join(dir, extra));
-
-			const commit = commitThroughHooks(dir, message, changed, env);
-			const commitOutput = `${commit.stdout}\n${commit.stderr}`;
-			expect(commitOutput).not.toMatch(/^(FAIL|BROKEN):/m);
-			expect(commit.status).toBe(0);
-			expect(commitOutput).toContain(`${ownGuard} has no sibling test`);
-			expect(commitOutput).toContain(`${ownChecker} is run by no husky hook`);
-			expect(commitOutput).toMatch(/inherited fault/);
-		},
-		180_000,
-	);
 });
 
 describe("where a url pin's hooks and rules file run from (#736)", () => {
@@ -2752,8 +2426,7 @@ describe("the host registries (#1456)", () => {
 	}
 
 	it("init seeds both empty, the checker finds nothing unregistered, and the guard allows the first commit", () => {
-		const { dir } = repo();
-		expect(init(dir, "--founder", "A", "--no-tracker").status).toBe(0);
+		const { dir } = initialised("A");
 		const registry = JSON.parse(
 			fs.readFileSync(path.join(dir, registries[0]), "utf8"),
 		);
@@ -2779,8 +2452,7 @@ describe("the host registries (#1456)", () => {
 	});
 
 	it("upgrade seeds an adopter that lacks them, and leaves a filled one alone", () => {
-		const { dir } = repo();
-		expect(init(dir, "--founder", "A", "--no-tracker").status).toBe(0);
+		const { dir } = initialised("A");
 		fs.rmSync(path.join(dir, registries[0]));
 		const filled = '{"guards": {"x.sh": {"needles": []}}}\n';
 		fs.writeFileSync(path.join(dir, registries[1]), filled);

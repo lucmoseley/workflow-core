@@ -3217,7 +3217,10 @@ function liveFiles(texts, wiring, base = root) {
  * of them is
  * printed from there. Read for liveness ONLY: a fault in the core's own files is
  * the core's gate to report, never an adopter's commit to carry. Empty in a
- * core tree, whose emitters the main walk already reads.
+ * core tree, whose emitters the main walk already reads. Empty too where the
+ * adopter has no store of its own: both liveness tests then skip every id as
+ * foreign, and the walk over the core's whole scripts/ is most of such a run
+ * (#4296).
  *
  * @param {string} wiring
  * @returns {Map<string, string[]>}
@@ -3225,7 +3228,7 @@ function liveFiles(texts, wiring, base = root) {
 function corePrintedBy(wiring) {
 	/** @type {Map<string, string[]>} */
 	const printed = new Map();
-	if (rootIsCore()) return printed;
+	if (rootIsCore() || foreignStore()) return printed;
 	/** @type {Map<string, string>} */
 	const texts = new Map();
 	/** @type {Map<string, { id: string }[]>} */
