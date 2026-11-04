@@ -206,9 +206,13 @@ const TEST_RUNNER = "vitest";
 const CORE_DEFAULT = { testRunner: TEST_RUNNER, coverageAnalysis: "perTest" };
 
 /* Stryker 10's own directive parser, matched against a comment's text
- * (instrumenter `directive-bookkeeper.js`): group 4 is the reason. */
+ * (instrumenter `directive-bookkeeper.js`): group 4 is the reason. Every
+ * disable it matches must hold DISABLE_TEXT verbatim. */
 const DIRECTIVE =
 	/^\s?Stryker (disable|restore)(?: (next-line))? ([a-zA-Z, ]+)(?::(.+)?)?/;
+/* The text every disable DIRECTIVE matches holds: a staged copy without it
+ * can be charged nothing, so is never parsed (#4307). */
+const DISABLE_TEXT = "Stryker disable";
 const COMPONENT = /\.(html|vue|svelte)$/;
 const SCRIPT = /(<script\b([^>]*)>)([\s\S]*?)<\/script\s*>/gi;
 const ATTRIBUTE = /([^\s=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"']+)))?/g;
@@ -696,18 +700,20 @@ function reportDegraded(file, why) {
 
 /**
  * The unreasoned `Stryker disable` comments the commit answers for, by
- * chargedIn. Every comment is read through Babel's parser as Stryker reads
- * it, so a `//` inside a string is no comment and a directive on its own line
- * inside a block comment is one (#2366). A git fault reading one file's copy
- * costs that file alone: its staged copy unread, or its HEAD copy read as
- * unparseable (#2727).
+ * chargedIn. Each staged file holding DISABLE_TEXT, and its HEAD copy, is
+ * read through Babel's parser as Stryker reads it, so a `//` inside a string
+ * is no comment and a directive on its own line inside a block comment is one
+ * (#2366). A git fault reading one file's copy costs that file alone: its
+ * staged copy unread, or its HEAD copy read as unparseable (#2727).
  * Residual: any text after the colon passes, `: x` included; one armed in a
  * file the commit adds no line to passes, since that file is not read (and a
  * deletion-only commit runs nothing, #1871 story 30); where HEAD's copy went
  * unread, one armed by any edit but to its comment's opening line passes; a
- * region a later reasoned directive overrides is charged as its own; and the
- * configs are read from the working tree, Stryker's from the staged one, so
- * an unstaged edit to either parts the two reads.
+ * region a later reasoned directive overrides is charged as its own; a file
+ * holding no DISABLE_TEXT goes unparsed, so a read that would have failed on
+ * it is never reported; and the configs are read from the working tree,
+ * Stryker's from the staged one, so an unstaged edit to either parts the two
+ * reads.
  * @param {string} root
  * @param {string|null} strykerConfig the host's Stryker config the staged tree holds
  * @param {Map<string, HunkHeader[]>} hunks each read file's
@@ -734,6 +740,7 @@ function unreasonedDisables(root, strykerConfig, hunks) {
 			reportUnread(file, buildFaultText(e));
 			continue;
 		}
+		if (!staged.includes(DISABLE_TEXT)) continue;
 		files.push(file);
 		entries.push({
 			id: `:${file}`,
