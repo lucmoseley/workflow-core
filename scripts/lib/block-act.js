@@ -47,13 +47,14 @@ const IDLE_TRIES = 2;
  *   `resume-in-place`, a limit-blocked one back on its own seat; `move`, one
  *   onto the other seat the move pick walks to, under its own session id
  * @typedef {{cause: Cause, sub?: import("./block-cause.js").ApiErrorKind,
- *   since: number, tries?: number, nextAt?: number, triedAt?: number,
+ *   bar?: import("./block-cause.js").LimitBar, since: number, tries?: number, nextAt?: number, triedAt?: number,
  *   held?: boolean, typing?: boolean, swapHeld?: boolean, seat?: string,
  *   movePick?: string|null, slotFree?: boolean,
  *   dryResumes?: number, heldAt?: number}} Block  `since`,
  *   the first tick that
  *   read this cause, ms, or for RESUMED_IDLE the later of the harness's
  *   restart row and the loop's last resume; `sub`, an API_ERROR's kind;
+ *   `bar`, the bar a LIMIT's text names;
  *   `tries`, the resumes made for the launch so far, the last at `triedAt`,
  *   and `nextAt`, when the next is due; `held`, its session stopped until
  *   then; `typing`, a typed resume not yet seen arrive; `swapHeld`, the swap

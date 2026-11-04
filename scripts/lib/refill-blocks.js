@@ -393,14 +393,24 @@ function markParked(launches, agents, causeOf, now) {
 		return {
 			...rest,
 			parked: true,
-			block: {
-				cause: reading.cause,
-				...("sub" in reading ? { sub: reading.sub } : {}),
-				since: l.block?.since ?? now,
-			},
+			block: blockFrom(reading, l.block?.since ?? now),
 		};
 	});
 }
+
+/**
+ * The block a cause `reading` read first at `since` makes: its cause, and
+ * an API_ERROR's kind or the bar a LIMIT's text names.
+ * @param {import("./block-cause.js").Reading} reading
+ * @param {number} since
+ * @returns {import("./block-act.js").Block}
+ */
+const blockFrom = (reading, since) => ({
+	cause: reading.cause,
+	...("sub" in reading ? { sub: reading.sub } : {}),
+	...("bar" in reading ? { bar: reading.bar } : {}),
+	since,
+});
 
 /**
  * The job ids the listing shows blocked.
@@ -1789,17 +1799,27 @@ function actOnBlocks(launches, mode, seen) {
 }
 
 /**
- * The limit a seat's reading shows: a full bar, the weekly first, as it
- * outlasts the 5-hour one, else the fuller, a session reaching its limit
- * ahead of the cached reading.
+ * The limit `l` hit, its reset off its seat's reading `s`: the bar its block
+ * text names, else the one the reading shows, a full bar, the weekly first,
+ * as it outlasts the 5-hour one, else the fuller, a session reaching its
+ * limit ahead of the cached reading.
  * @param {import("./refill-decide.js").SizedSeat} s
+ * @param {import("./block-cause.js").LimitBar} [named]  the bar the block
+ *   text names
  * @returns {LimitRead}
  */
-function limitReadOf(s) {
-	if (s.week === null && s.session === null && !s.weekFull && !s.sessionFull)
+function limitReadOf(s, named) {
+	if (
+		!named &&
+		s.week === null &&
+		s.session === null &&
+		!s.weekFull &&
+		!s.sessionFull
+	)
 		return { bar: null, resets: null };
-	const isWeekly =
-		s.weekFull || (!s.sessionFull && (s.week ?? 0) >= (s.session ?? 0));
+	const isWeekly = named
+		? named === "weekly"
+		: s.weekFull || (!s.sessionFull && (s.week ?? 0) >= (s.session ?? 0));
 	return isWeekly
 		? {
 				bar: "weekly",
@@ -2535,7 +2555,7 @@ function actOnLimit(l, own, seen, { mode, slots, moveSeats }) {
 			? parkHeld(l, why, mode, seen)
 			: stopPark(l, { act, ...why }, mode, seen);
 	}
-	const limit = limitReadOf(own);
+	const limit = limitReadOf(own, l.block.bar);
 	if (act === "hold") return holdForLimit(l, limit, seen);
 	if (act === "resume-in-place") return resumeInPlace(l, limit, seen);
 	if (act === "move" && target) return moveToSeat(l, target, limit, seen);

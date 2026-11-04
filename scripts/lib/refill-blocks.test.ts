@@ -1435,6 +1435,22 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 		});
 	});
 
+	it("names the limit its block text names, the bars only where it names none", () => {
+		const seats = [planSeat({ sessionResets: "2026-10-18T15:00:00Z" })];
+		const named = (bar: object) =>
+			comments(
+				limits(
+					[blocked({ block: { cause: "LIMIT", since: Since, ...bar } })],
+					[agent("job42", "blocked")],
+					{ seats },
+				).calls,
+			)[0];
+		expect(named({ bar: "5-hour" })).toContain(
+			"5-hour limit (reset 2026-10-18T15:00:00Z)",
+		);
+		expect(named({})).toContain("weekly limit (reset unread)");
+	});
+
 	it("resumes a held one without a second stop, and its comment says what was lost", () => {
 		const { launches, calls, slots } = limits([held()], []);
 		expect(calls).not.toContain("stop job42");

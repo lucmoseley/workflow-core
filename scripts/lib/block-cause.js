@@ -26,6 +26,11 @@ const PERMISSION_WAITS = new Set([
 /* A tool approval's `needs` (#2358 F3; #2699's live reading). */
 const APPROVE_TOOL = /^approve (?!plan$)[^:]+: /;
 const LIMIT_TEXT = /^You've (hit|reached) your .*limit/;
+/* The bar a limit text names: its session limit is the 5-hour one. */
+const LIMIT_BARS = /** @type {const} */ ([
+	[/^You've (hit|reached) your session limit/, "5-hour"],
+	[/^You've (hit|reached) your weekly limit/, "weekly"],
+]);
 const LIMIT_NEEDS = new Set([
 	"usage limit reached — check plan",
 	"choose: continue on usage credits or switch models",
@@ -62,10 +67,14 @@ const API_NEEDS = new Set([
 
 /**
  * @typedef {"transient"|"auth"|"invalid_request"} ApiErrorKind
+ * @typedef {"5-hour"|"weekly"} LimitBar  the bar a LIMIT's text names, where
+ *   it names one
  * @typedef {"PERMISSION"|"QUESTION"|"LIMIT"|"API_ERROR"|"OTHER_DIALOG"
  *   |"RESUMED_IDLE"|"UNKNOWN"} Cause  RESUMED_IDLE is read from a `working`
  *   job by resumedIdleSince, not by blockCause (#2659)
- * @typedef {{cause: Exclude<Cause, "API_ERROR"|"RESUMED_IDLE"|"UNKNOWN">}
+ * @typedef {{cause: Exclude<Cause,
+ *   "API_ERROR"|"LIMIT"|"RESUMED_IDLE"|"UNKNOWN">}
+ *   | {cause: "LIMIT", bar?: LimitBar}
  *   | {cause: "API_ERROR", sub: ApiErrorKind}
  *   | {cause: "UNKNOWN", why: string}} Reading
  * @typedef {{row: unknown, job: unknown, tail: unknown}} Records
@@ -184,7 +193,13 @@ const RULES = [
 			(isApiError(f) &&
 				f.said.error === "rate_limit" &&
 				LIMIT_TEXT.test(textOf(f.said))),
-		{ cause: "LIMIT" },
+		(f) => {
+			const said = isApiError(f) ? textOf(f.said) : "";
+			const hit = LIMIT_BARS.find(([text]) =>
+				[f.detail, said].some((t) => text.test(t)),
+			);
+			return hit ? { cause: "LIMIT", bar: hit[1] } : { cause: "LIMIT" };
+		},
 	],
 	[
 		(f) =>

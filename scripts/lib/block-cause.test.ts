@@ -142,7 +142,30 @@ describe("a seat or plan limit (rule 5)", () => {
 					"You've hit your session limit · resets 7:40pm (Asia/Singapore)",
 				),
 			]),
-		).toEqual({ cause: "LIMIT" });
+		).toEqual({ cause: "LIMIT", bar: "5-hour" });
+	});
+
+	it("names the bar the limit text names, and none where it names neither", () => {
+		expect(
+			cause(
+				row(),
+				job({ detail: "You've hit your session limit · resets 6pm" }),
+			),
+		).toEqual({ cause: "LIMIT", bar: "5-hour" });
+		expect(
+			cause(
+				row(),
+				job({ detail: "You've hit your weekly limit · resets Oct 24" }),
+			),
+		).toEqual({ cause: "LIMIT", bar: "weekly" });
+		expect(
+			cause(row(), job({ detail: null, needs: null }), [
+				apiErrorRow("rate_limit", "You've hit your weekly limit"),
+			]),
+		).toEqual({ cause: "LIMIT", bar: "weekly" });
+		expect(cause(row(), job({ detail: "You've hit your limit" }))).toEqual({
+			cause: "LIMIT",
+		});
 	});
 });
 
