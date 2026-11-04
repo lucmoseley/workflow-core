@@ -26,6 +26,11 @@ const HOST_SETTINGS = ".claude/settings.json";
 /* The core's scripts/ directory as a hook command spells it, in either form. */
 const SCRIPT_PREFIX =
 	/"\$CLAUDE_PROJECT_DIR"\/scripts\/|\$\{CLAUDE_PROJECT_DIR\}\/scripts\//g;
+/* The self-plugin's guard entry, run through the shim from the pinned guard
+ * code (lib/guard-code.js, #4227): the core's own route, which a render
+ * spells as the plugin root's scripts/ like any other. */
+const PINNED_GUARD_PREFIX =
+	/"\$CLAUDE_PROJECT_DIR"\/scripts\/run-pinned-guards\.js "\$\{WFC_GUARD_CODE_DIR:-\$HOME\/\.claude\/\.guard-code\}"\.current\/scripts\//g;
 /* The self-plugin's session-marker writer. It feeds the canary in the core's
  * settings, so it registers in the self-plugin alone (#2438). */
 const MARKER_WRITER = "write-self-plugin-marker.sh";
@@ -482,6 +487,7 @@ module.exports = {
 	CANARY_COMMAND,
 	HOST_SETTINGS,
 	MARKER_WRITER,
+	PINNED_GUARD_PREFIX,
 	SCRIPT_PREFIX,
 	SELF_PLUGIN_DIR,
 	SELF_PLUGIN_HOOKS,

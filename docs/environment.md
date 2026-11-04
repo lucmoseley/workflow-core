@@ -744,6 +744,12 @@ claude plugin marketplace add '<absolute path to the main checkout>/self-plugin'
 
 then restart any session open there. It enables nothing: the committed `enabledPlugins` entry in `.claude/settings.json` enables the plugin for this repo alone, and no `claude plugin install` is needed (#2446). Never enable `wfc-self` at user scope: its hooks would run in every repo on the machine. Re-copy `~/.claude/settings.json` into `docs/claude-user-settings.md` after the run.
 
+**Those guards run from pinned guard code, not the main checkout's working copy** (#4227): `scripts/run-pinned-guards.js` runs `scripts/guard-dispatch.js` through `~/.claude/.guard-code.current`, a worktree of the newest `origin/main` sha whose guards passed a load probe (`scripts/lib/guard-code.js`). The lander adopts each `main` it pushes; a sha that fails the probe is never adopted and the previous code stays live. Set it up once per machine, and again by hand where the shim's refusal says so:
+
+```
+node '<absolute path to the main checkout>'/scripts/adopt-guard-code.js
+```
+
 **A cloud session of this repo is always refused by the canary**: no repo-declared plugin's hooks run in the cloud (#1892), so it would run with no guards. **A guard added to `self-plugin/hooks/hooks.json` reaches a live session only at its next start or `/reload-plugins`**: plugin hooks are read at session start and do not reload live, unlike `.claude/settings.json`'s (spec #2295).
 
 ⚠ **A `claude plugin` command writes enablement keys into `.claude/settings.json` — this repo's tracked file — and can empty the user one.** Measured at mantahostels#3246. **Read `git diff .claude/settings.json` and the user file's `enabledPlugins` after any plugin command**, and reverse what you did not intend with a targeted edit, never `git checkout --` (mantahostels#250).

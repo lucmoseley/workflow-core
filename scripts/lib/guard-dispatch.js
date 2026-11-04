@@ -48,6 +48,7 @@
  * to run on that call its say.
  */
 
+const { CORE_FAULT_TEXT } = require("./core-fault.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
@@ -363,7 +364,7 @@ function thrown(core, msg, log) {
 	log(`core threw — refused: ${msg}`);
 	return {
 		permissionDecision: "deny",
-		reason: `${core.name} could not judge this call, and it fails closed: ${msg}`,
+		reason: `${core.name} ${CORE_FAULT_TEXT}, and it fails closed: ${msg}`,
 	};
 }
 
