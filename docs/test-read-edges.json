@@ -38519,6 +38519,7 @@
 			"scripts/guard-issue-create-label.test.ts",
 			"scripts/guard-issue-phase-scope.test.ts",
 			"scripts/guard-lost-verdict.test.ts",
+			"scripts/guard-main-checkout-job.test.ts",
 			"scripts/guard-node-heap.test.ts",
 			"scripts/guard-npm-install.test.ts",
 			"scripts/guard-priced-options-founder-act.test.ts",

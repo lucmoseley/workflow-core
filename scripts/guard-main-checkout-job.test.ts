@@ -3,22 +3,24 @@
  * scripts/guard-main-checkout-job.js against real git (#4340): a bare origin
  * carrying `main` and `landing`, a main checkout cloned from it, a job
  * directory holding the harness's record, and a fake `claude` that records
- * each call. `npm` is a stub, as in session-checkout.test.ts.
+ * each call.
  *
- * Loosen it and an agents-view job edits in the main checkout, a job already
- * in its worktree or a resumed one is relaunched, the copy runs on another
- * plan or under the original's job identity, or a failed relaunch leaves the
- * session unaware of the worktree cut for it.
+ * Loosen it and an agents-view job edits in the main checkout, the copy runs
+ * on another plan or under the original's job identity, or a failed relaunch
+ * leaves the session unaware of the worktree cut for it.
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { decide } from "./guard-main-checkout-job.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.resolve(__dirname, "guard-main-checkout-job.js");
+/* The guard's two claude calls at 60 s each, and 10 s for node. */
+const LAUNCH_ROOM_MS = 130_000;
 
 let tmp: string;
 let main: string;
@@ -36,6 +38,7 @@ const RECORD = {
 	respawnFlags: ["--agent", "claude", "--model", "claude-opus-5-5[1m]"],
 	daemonShort: "0b42764c",
 	sessionId: "0b42764c-6d71-45ce-b78a-d6773460aead",
+	providerEnv: { WFC_PROBE_PROVIDER: "carried" },
 };
 
 const writeRecord = (record: object) => {
@@ -104,6 +107,7 @@ fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify({
 	configDir: process.env.CLAUDE_CONFIG_DIR ?? null,
 	jobDir: process.env.CLAUDE_JOB_DIR ?? null,
 	sessionId: process.env.CLAUDE_CODE_SESSION_ID ?? null,
+	provider: process.env.WFC_PROBE_PROVIDER ?? null,
 }) + "\\n");
 const fail = args[0] === "--bg" ? process.env.FAKE_BG_FAIL : process.env.FAKE_RM_FAIL;
 if (fail) { process.stderr.write(fail); process.exit(1); }
@@ -155,14 +159,15 @@ it("relaunches a job started in the main checkout in a worktree cut for its prom
 		configDir: seat,
 		jobDir: null,
 		sessionId: null,
+		provider: "carried",
 	});
 	expect(removal.args).toEqual(["rm", RECORD.daemonShort]);
 	expect(readCalls()).toHaveLength(2);
 });
 
-it("leaves alone an interactive session, a job already in a worktree, a resume, and a repository without the landing module", () => {
+it("leaves alone an interactive session, a job already in a worktree, a compaction, and a repository without the landing module", () => {
 	expect(run(startup(), { CLAUDE_JOB_DIR: undefined }).status).toBe(0);
-	expect(run({ ...startup(), source: "resume" }).status).toBe(0);
+	expect(run({ ...startup(), source: "compact" }).status).toBe(0);
 	expect(run(startup(), { WFC_MODULES: "" }).status).toBe(0);
 	expect(readCalls()).toEqual([]);
 	expect(cutNames()).toEqual([]);
@@ -198,7 +203,80 @@ it("tells the original to end at once where it cannot be removed after its copy 
 	expect(told).toContain("end this turn at once");
 });
 
-it("fails open, saying why, on a payload it cannot read", () => {
+it.each([
+	["a resumed job", "resume", RECORD],
+	["a job with no prompt", "startup", { ...RECORD, intent: "" }],
+])(
+	"cuts a worktree for %s and tells it to work there, relaunching nothing",
+	(_, source, record) => {
+		writeRecord(record);
+		const r = run({ ...startup(), source });
+
+		expect(r.status, r.stderr).toBe(0);
+		const [name] = cutNames();
+		const told = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
+		expect(told).toContain(
+			"is not relaunched, so a worktree is cut for it at ",
+		);
+		expect(told).toContain(`Bash \`cd ${path.join(worktrees(), name)}\``);
+		expect(readCalls()).toEqual([]);
+	},
+);
+
+it("launches nothing where the cut leaves too little of the hook's timeout for both claude calls", () => {
+	const made: string[] = [];
+	const io = (msLeft: number) => ({
+		job: () => ({ root: "/r", intent: "x" }),
+		cut: () => "/r/.claude/worktrees/x-1",
+		msLeft: () => msLeft,
+		launch: () => {
+			made.push("launch");
+			return { ok: true, output: "" };
+		},
+		remove: () => {
+			made.push("rm");
+			return { ok: true, output: "" };
+		},
+	});
+
+	const late = decide("startup", io(LAUNCH_ROOM_MS - 1) as never);
+	expect(late && "context" in late && late.context).toContain(
+		"was cut too late to relaunch the job there.",
+	);
+	expect(made).toEqual([]);
+	expect(decide("startup", io(LAUNCH_ROOM_MS) as never)).toBeNull();
+	expect(made).toEqual(["launch", "rm"]);
+});
+
+it("tells the session to cut its own worktree where the cut throws", () => {
+	const told = decide("startup", {
+		job: () => ({ root: "/r", intent: "x" }),
+		cut: () => {
+			throw new Error("fetch refused");
+		},
+	} as never);
+
+	expect(told && "context" in told && told.context).toContain(
+		"and cutting its own worktree failed: fetch refused",
+	);
+});
+
+it("is registered for the cut's own bounds summed, 1200 s", () => {
+	const hooks = JSON.parse(
+		fs.readFileSync(
+			path.resolve(__dirname, "../self-plugin/hooks/hooks.json"),
+			"utf8",
+		),
+	).hooks.SessionStart.flatMap(
+		(g: { hooks: { command: string; timeout: number }[] }) => g.hooks,
+	);
+	const mine = hooks.filter((h: { command: string }) =>
+		h.command.includes("guard-main-checkout-job.js"),
+	);
+	expect(mine.map((h: { timeout: number }) => h.timeout)).toEqual([1200]);
+});
+
+it("fails open on a payload it cannot read", () => {
 	const r = runInProcess(SCRIPT, [], {
 		cwd: main,
 		stdin: "not json",
@@ -207,5 +285,4 @@ it("fails open, saying why, on a payload it cannot read", () => {
 
 	expect(r.status).toBe(0);
 	expect(r.stdout).toBe("");
-	expect(r.stderr).toContain("left the job where it started");
 });

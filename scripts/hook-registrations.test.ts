@@ -475,7 +475,7 @@ const REGISTRATIONS: Registration[] = [
 	{
 		event: "SessionStart",
 		id: "scripts/guard-main-checkout-job.js",
-		matcher: "startup",
+		matcher: "startup|resume",
 		covers: [],
 	},
 	{

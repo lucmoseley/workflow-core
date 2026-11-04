@@ -1405,6 +1405,21 @@
 					"id": "original-kept",
 					"kind": "notice",
 					"text": "Removing this original copy failed ("
+				},
+				{
+					"id": "cut-failed",
+					"kind": "notice",
+					"text": "and cutting its own worktree failed: "
+				},
+				{
+					"id": "work-in-cut",
+					"kind": "notice",
+					"text": "is not relaunched, so a worktree is cut for it at "
+				},
+				{
+					"id": "cut-too-late",
+					"kind": "notice",
+					"text": "was cut too late to relaunch the job there."
 				}
 			]
 		},
