@@ -2234,7 +2234,7 @@ describe("a resume the tick's step left held (#3855)", () => {
 	) => {
 		const lines: string[] = [];
 		const launched: unknown[] = [];
-		let written = false;
+		const writes: Tick["state"][] = [];
 		const settled = settleTick(
 			{
 				input: {
@@ -2268,7 +2268,7 @@ describe("a resume the tick's step left held (#3855)", () => {
 				readControl: () => ({
 					control: {
 						noProgressFrom: NOW,
-						stopRequested: lateStop && written,
+						stopRequested: lateStop && writes.length > 0,
 						seats: [],
 						scope: away([]),
 					},
@@ -2281,10 +2281,7 @@ describe("a resume the tick's step left held (#3855)", () => {
 				writePause: () => undefined,
 				resumeHeld: () => resumed,
 				runReview: (lastRunOn) => lastRunOn,
-				updateState: (transition) => {
-					written = true;
-					return transition(loopStateOf(null));
-				},
+				updateState: stateFileFake(loopStateOf(null), writes),
 				readOmittedDirs: () => [],
 				log: (line) => lines.push(line),
 				now: () => NOW,

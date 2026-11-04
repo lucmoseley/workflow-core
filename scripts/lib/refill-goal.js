@@ -48,6 +48,10 @@ const FORMS = ["issues", "drain", "unblock", "topic"];
 /** @param {unknown} raw @returns {raw is Record<string, unknown>} */
 const isRecord = (raw) => typeof raw === "object" && raw !== null;
 
+/** @param {unknown} raw */
+const parseStrings = (raw) =>
+	Array.isArray(raw) ? raw.filter((s) => typeof s === "string") : [];
+
 /** @param {{repo: string|null, number: number}} ref */
 const buildRefText = ({ repo, number }) => `${repo ?? ""}#${number}`;
 
@@ -372,6 +376,7 @@ module.exports = {
 	buildShortlistGoal,
 	buildGoalRefusal,
 	isRecord,
+	parseStrings,
 	isSameGoal,
 	parseAskedRefs,
 	parseGoal,

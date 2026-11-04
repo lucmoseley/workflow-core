@@ -91,13 +91,15 @@ export const seat = (
 
 /**
  * A state file held in memory: each transition lands on the last write, and
- * each write is pushed to `writes`.
+ * each write is pushed to `writes`; one handing its state back unchanged
+ * writes nothing, as lib/refill-state.js's updateState.
  */
 export function stateFileFake(initial: LoopState, writes: LoopState[]) {
 	let onDisk = initial;
 	return (transition: Transition) => {
-		onDisk = transition(onDisk);
-		writes.push(onDisk);
+		const next = transition(onDisk);
+		if (next !== onDisk) writes.push(next);
+		onDisk = next;
 		return onDisk;
 	};
 }

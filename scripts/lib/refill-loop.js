@@ -35,12 +35,16 @@ const {
 	markParked,
 } = require("./refill-blocks.js");
 const { buildErrorText } = require("./caught.js");
-const { buildGoalProgress, isRecord, parseGoal } = require("./refill-goal.js");
+const {
+	buildGoalProgress,
+	isRecord,
+	parseGoal,
+	parseStrings,
+} = require("./refill-goal.js");
 const { buildSeatName } = require("./refill-seats.js");
 const {
 	batchLaunching,
 	lateStopped,
-	parseStrings,
 	tickSettled,
 	withoutLaunching,
 } = require("./refill-state.js");
@@ -1136,14 +1140,12 @@ function settleTick(
 				sameBootRestart,
 				...(launching
 					? {
-							launching: {
-								launching,
-								launchCount: {
-									from: input.noProgressFrom,
-									count:
-										launchesSince(state, input.noProgressFrom) +
-										launchedSoFar.length,
-								},
+							launching,
+							launchCount: {
+								from: input.noProgressFrom,
+								count:
+									launchesSince(state, input.noProgressFrom) +
+									launchedSoFar.length,
 							},
 						}
 					: {}),

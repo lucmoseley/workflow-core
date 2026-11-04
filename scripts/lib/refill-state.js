@@ -2,7 +2,9 @@
  * refill-state.js — the refill loop's state file (#4232, #4213): its shape, its
  * one reader and its one writer, and the named transitions every write applies.
  *
- * `readState` is the only read of the file and `updateState` the only write. A
+ * `readState` is the only read of the file and `updateState` the only write;
+ * scripts/refill-wake.sh's `jq` read of its unfinished launches is the one
+ * reader outside, a Stop hook kept off Node. A
  * write reads the file fresh and applies a pure transition to it, so a later
  * write in a tick always lands on an earlier one. Each transition owns only the
  * fields it names and spreads the rest, so a new field is one edit, here.
@@ -17,7 +19,11 @@
 
 const { parseOverflowStart } = require("./overflow-notice.js");
 const { REFILL_STATE_FILE, refillPath } = require("./refill-dir.js");
-const { isRecord, parseGoalProgress } = require("./refill-goal.js");
+const {
+	isRecord,
+	parseGoalProgress,
+	parseStrings,
+} = require("./refill-goal.js");
 const { readJson, writeJson } = require("./refill-json.js");
 
 /** @typedef {import("./refill-loop.js").LoopLaunch} LoopLaunch */
@@ -76,10 +82,6 @@ const { readJson, writeJson } = require("./refill-json.js");
 /** @typedef {(state: LoopState) => LoopState} Transition */
 
 const stateFile = () => refillPath(REFILL_STATE_FILE);
-
-/** @param {unknown} raw */
-const parseStrings = (raw) =>
-	Array.isArray(raw) ? raw.filter((s) => typeof s === "string") : [];
 
 /** @param {unknown} raw @returns {Record<string, number>} */
 const parseSeatTriedAt = (raw) =>
@@ -172,8 +174,9 @@ const isLaunch = (raw) =>
 	(raw.jobId === null || typeof raw.jobId === "string");
 
 /**
- * The launch rows, each malformed one dropped and logged; none, logged, where
- * the file holds something other than a list of them.
+ * The launch rows, each malformed one dropped and logged, failing open as the
+ * file's damage does (#4232); none, logged, where the file holds something
+ * other than a list of them.
  * @param {unknown} raw
  * @param {(line: string) => void} log
  * @returns {LoopLaunch[]}
@@ -273,6 +276,19 @@ function mergeLaunches(onDisk, read, launches) {
 }
 
 /**
+ * `s` with the tick's `launches` laid on its own (mergeLaunches) and no batch in
+ * flight: what every tick write starts from.
+ * @param {LoopState} s the fresh read
+ * @param {LoopState} read the state the tick started on
+ * @param {LoopLaunch[]} launches
+ * @returns {LoopState}
+ */
+const withTickLaunches = (s, read, launches) => ({
+	...withoutLaunching(s),
+	launches: mergeLaunches(s.launches, read.launches, launches),
+});
+
+/**
  * The calling process now holds the pidfile: the last stop no longer describes
  * the loop, and any death from here on is a crash (#3861).
  * @param {number} now
@@ -361,11 +377,7 @@ const launchRecorded = (l) => (s) => {
  */
 const killSettled =
 	({ launches, launchCount }, read) =>
-	(s) => ({
-		...withoutLaunching(s),
-		launches: mergeLaunches(s.launches, read.launches, launches),
-		launchCount,
-	});
+	(s) => ({ ...withTickLaunches(s, read, launches), launchCount });
 
 /**
  * @typedef {object} TickOwned the fields a tick writes, from the state it read
@@ -378,18 +390,17 @@ const killSettled =
  * (#4157, #4180): `launching`, with its count, the batch it is about to launch.
  * @param {LoopLaunch[]} launches
  * @param {LoopState} read the state the tick started on
- * @param {TickOwned & {launching?: {launching: Launching,
- *   launchCount: LaunchCount}}} owned
+ * @param {TickOwned & {launching?: Launching, launchCount?: LaunchCount}} owned
+ *   `launchCount` is written only beside a `launching`
  * @returns {Transition}
  */
 const batchLaunching =
-	(launches, read, { bootedAt, sameBootRestart, launching }) =>
+	(launches, read, { bootedAt, sameBootRestart, launching, launchCount }) =>
 	(s) => ({
-		...withoutLaunching(s),
-		launches: mergeLaunches(s.launches, read.launches, launches),
+		...withTickLaunches(s, read, launches),
 		bootedAt,
 		sameBootRestart,
-		...(launching ?? {}),
+		...(launching ? { launching, launchCount: launchCount ?? null } : {}),
 	});
 
 /**
@@ -403,11 +414,7 @@ const batchLaunching =
  */
 const tickSettled =
 	({ launches, ...owned }, read) =>
-	(s) => ({
-		...withoutLaunching(s),
-		...owned,
-		launches: mergeLaunches(s.launches, read.launches, launches),
-	});
+	(s) => ({ ...withTickLaunches(s, read, launches), ...owned });
 
 /**
  * After the tick's write: a stop that landed late, and the morning review's
@@ -431,7 +438,6 @@ module.exports = {
 	lateStopped,
 	launchRecorded,
 	ledgerJobOf,
-	parseStrings,
 	readState,
 	runForgotten,
 	runHeld,

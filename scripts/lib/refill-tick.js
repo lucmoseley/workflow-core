@@ -1715,12 +1715,10 @@ function settleKilled(read, served) {
 		blockIo(served),
 	);
 	if (adopted === read && !settled) return read;
-	const settle = killSettled(
-		{ launches, launchCount: adopted.launchCount },
-		read,
+	return updateState(
+		killSettled({ launches, launchCount: adopted.launchCount }, read),
+		log,
 	);
-	updateState(settle, log);
-	return settle(read);
 }
 
 /**

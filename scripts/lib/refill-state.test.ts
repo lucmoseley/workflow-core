@@ -195,9 +195,9 @@ describe("the tick's writes", () => {
 			launching: { at: NOW, batch: [] },
 			launchCount: { from: NOW, count: 2 },
 		};
-		expect(
-			batchLaunching(read.launches, read, { launching })(read),
-		).toMatchObject(launching);
+		expect(batchLaunching(read.launches, read, launching)(read)).toMatchObject(
+			launching,
+		);
 	});
 
 	it("batchLaunching without a batch leaves none in flight", () => {

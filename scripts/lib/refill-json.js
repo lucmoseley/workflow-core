@@ -1,7 +1,7 @@
 /*
  * refill-json.js — the refill loop's JSON files, read and written atomically: a
  * leaf, so lib/refill-state.js reads the state file without loading the arbiter
- * store lib/refill-files.js does.
+ * store lib/refill-files.js does (#4232).
  */
 
 const fs = require("node:fs");
