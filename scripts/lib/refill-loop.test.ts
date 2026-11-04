@@ -971,6 +971,7 @@ function settleOnce(
 		omitted = [],
 		readOmitted,
 		mode = "normal",
+		awaySwitch,
 	}: Partial<{
 		dispatch: Io["launchBatch"];
 		readControl: Io["readControl"];
@@ -983,6 +984,7 @@ function settleOnce(
 		omitted: string[];
 		readOmitted: () => string[];
 		mode: Tick["input"]["mode"];
+		awaySwitch: Tick["away"];
 	}> = {},
 ) {
 	const lines: string[] = [];
@@ -1007,6 +1009,7 @@ function settleOnce(
 			probes,
 			read,
 			probeBrokenRoots: [],
+			...(awaySwitch ? { away: awaySwitch } : {}),
 		},
 		{
 			readControl,
@@ -1436,6 +1439,28 @@ describe("a tick's log line (#2362)", () => {
 			state,
 		});
 		expect(writes[0].held).toEqual([kept]);
+	});
+
+	it("counts a park this away tick stopped in the stored handed-off count (#3870)", () => {
+		const writes: Tick["state"][] = [];
+		const parked = {
+			root: "/r",
+			issues: [7],
+			prompt: "/implement 7",
+			seat: "/s",
+			jobId: "job7",
+			launchedAt: NOW - 60_000,
+			finishedAt: null,
+			parkStopped: NOW,
+			parkedAway: true,
+		};
+		settleOnce(idle("nothing launchable"), 1, [], {
+			mode: "away",
+			awaySwitch: { since: 7, absentSeen: false },
+			past: [parked, { ...parked, jobId: "job8", parkStopped: NOW - 1 }],
+			writes,
+		});
+		expect(tickWrite(writes).handedOff).toEqual({ from: 7, count: 1 });
 	});
 
 	it("opens no hold on an away tick, as a seat's reset would launch nothing there (#2355)", () => {

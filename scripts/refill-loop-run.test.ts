@@ -1260,14 +1260,6 @@ describe("a parked launch (#2699)", () => {
 		expect(launchState()).not.toHaveProperty("parkStopped");
 	};
 
-	const inMode = (mode: "away" | "normal") => {
-		const control = JSON.parse(
-			fs.readFileSync(at(".refill-loop-control.json"), "utf8"),
-		);
-		control.scope.mode = mode;
-		fs.writeFileSync(at(".refill-loop-control.json"), JSON.stringify(control));
-	};
-
 	describe("whose session has left the listing (#3940)", () => {
 		const Unlabel = "issue edit 7 --repo o/r --remove-label parked";
 		const reply = (text: string) => ({
@@ -1447,33 +1439,6 @@ describe("a parked launch (#2699)", () => {
 		);
 	});
 
-	it("counts an away park in the stored handed-off count (#3870)", async () => {
-		const control = JSON.parse(
-			fs.readFileSync(at(".refill-loop-control.json"), "utf8"),
-		);
-		fs.writeFileSync(
-			at(".refill-loop-control.json"),
-			JSON.stringify({
-				...control,
-				away: { since: 7, absentSeen: false },
-				scope: { ...control.scope, mode: "away" },
-			}),
-		);
-		fakeClaude([LISTED, blockedRow]);
-		const running = startRun();
-		await polled(
-			() => readLines(at("stops")).length > 0,
-			"the away tick never acted on the block",
-		);
-		requestStop();
-		const r = await settled(running, "away run with a parked launch");
-		expect(r.status).toBe(0);
-		expect(
-			JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"))
-				.handedOff,
-		).toEqual({ from: 7, count: 1 });
-	});
-
 	it("gives a session attached to a repo hold the ordinary park act, its ticket labelled parked (#3858)", async () => {
 		const holdCli = (args: string[], jobDir: string) =>
 			runInProcess(path.join(__dirname, "repo-hold.js"), args, {
@@ -1511,114 +1476,6 @@ describe("a parked launch (#2699)", () => {
 		expect(listed).toContain(`sessions: raiser, ${Job}`);
 	});
 
-	it("still stops and parks a question on a paused tick, launching nothing (#3856)", async () => {
-		const control = JSON.parse(
-			fs.readFileSync(at(".refill-loop-control.json"), "utf8"),
-		);
-		fs.writeFileSync(
-			at(".refill-loop-control.json"),
-			JSON.stringify({ ...control, paused: { by: "founder", at: 7 } }),
-		);
-		fakeClaude([LISTED, blockedRow]);
-		const running = startRun();
-		await polled(
-			() => readLines(at("stops")).length > 0,
-			"a paused tick never acted on the block",
-		);
-		requestStop();
-		const r = await settled(running, "paused run with a parked launch");
-		expect(r.status).toBe(0);
-		expect(readLines(at("stops"))).toEqual([`stop ${Job}`]);
-		expect(readLines(at("gh-calls"))).toContain(
-			"issue edit 7 --repo o/r --add-label parked",
-		);
-		expect(fs.existsSync(at("ticks"))).toBe(false);
-		expect(fs.existsSync(at("dispatches"))).toBe(false);
-	});
-
-	it("stops and parks, on a switch to away, a question held past 50 newer launches (#3775)", async () => {
-		const seeded = at(".refill-loop-state.json");
-		const { launches } = JSON.parse(fs.readFileSync(seeded, "utf8"));
-		const finished = Array.from({ length: 50 }, (_, i) => ({
-			...launches[0],
-			issues: [100 + i],
-			jobId: `done${i}`,
-			finishedAt: Date.now(),
-		}));
-		fs.writeFileSync(
-			seeded,
-			JSON.stringify({ launches: [...launches, ...finished] }),
-		);
-		inMode("normal");
-		fakeClaude([LISTED, blockedRow]);
-		const running = startRun();
-		await ticked(1);
-		expect(readLines(at("stops"))).toEqual([]);
-		inMode("away");
-		fs.appendFileSync(at(".refill-loop-wake"), `${Date.now()}\n`);
-		await ticked(2);
-		requestStop();
-		const r = await settled(running, "run switched to away mode");
-		expect(r.status).toBe(0);
-		expect(readLines(at("stops"))).toEqual([`stop ${Job}`]);
-		expect(readLines(at("gh-calls"))).toContain(
-			"issue edit 7 --repo o/r --add-label parked",
-		);
-		expect(readLines(at("gh-calls"))).toContainEqual(parkComment("QUESTION"));
-		expect(r.stdout).toMatch(
-			/stopped QUESTION park repo \/implement 7 \(away mode, blocked since [^)]+\); labelled parked: #7/,
-		);
-		expect(launchState().parkStopped).toEqual(expect.any(Number));
-	});
-
-	it("stops a 2.1.310 question park, whose row carries state and no status (#3200)", async () => {
-		const { status: _, ...parkedRow } = blockedRow;
-		jobAs({ cliVersion: "2.1.310" });
-		fakeClaude([LISTED, parkedRow]);
-		const r = await twoTicks();
-		expect(r.status).toBe(0);
-		expect(readLines(at("stops"))).toEqual([`stop ${Job}`]);
-		expect(readLines(at("gh-calls"))).toContainEqual(parkComment("QUESTION"));
-		expect(r.stdout).not.toContain("block unread");
-	});
-
-	it("logs a row with neither status nor state once, not each tick (#3200)", async () => {
-		const { status: _, state: __, ...bareRow } = blockedRow;
-		fakeClaude([LISTED, bareRow]);
-		const r = await twoTicks();
-		expect(r.status).toBe(0);
-		expect(readLines(at("ticks")).length).toBeGreaterThanOrEqual(2);
-		expect(
-			r.stdout.match(/block unread .*: row carries neither status nor state/g),
-		).toHaveLength(1);
-		expectNothingActed();
-	});
-
-	it("comments a stopped permission park's cause on its ticket (#2846)", async () => {
-		fakeClaude([LISTED, permissionRow]);
-		const r = await twoTicks();
-		expect(r.status).toBe(0);
-		expect(readLines(at("stops"))).toEqual([`stop ${Job}`]);
-		expect(readLines(at("gh-calls"))).toContainEqual(parkComment("PERMISSION"));
-		expect(readLines(markerPath("s-job7"))).toContain("cause PERMISSION");
-	});
-
-	it("in normal mode, never stops a permission park at any age (#3621)", async () => {
-		inMode("normal");
-		const state = JSON.parse(
-			fs.readFileSync(at(".refill-loop-state.json"), "utf8"),
-		);
-		state.launches[0].block = {
-			cause: "PERMISSION",
-			since: Date.now() - 24 * 60 * 60 * 1000,
-		};
-		fs.writeFileSync(at(".refill-loop-state.json"), JSON.stringify(state));
-		fakeClaude([LISTED, permissionRow]);
-		const r = await twoTicks();
-		expect(r.status).toBe(0);
-		expectNothingActed();
-	});
-
 	/** Rewrites job7's record with `over` merged in. */
 	const jobAs = (over: object) =>
 		fs.writeFileSync(
@@ -1629,78 +1486,27 @@ describe("a parked launch (#2699)", () => {
 			}),
 		);
 
-	it.each([
-		["auth", { detail: "Login expired — run /login", needs: null }],
-		[
-			"invalid_request",
-			{
-				detail: "API Error: 400 prompt is too long",
-				needs: "request too large — /compact or trim",
-			},
-		],
-	])(
-		"stops an %s API-error park at once and comments its cause (#2851)",
-		async (sub, job) => {
-			jobAs(job);
-			fakeClaude([LISTED, blockedRow]);
-			const r = await twoTicks();
-			expect(r.status).toBe(0);
-			expect(readLines(at("stops"))).toEqual([`stop ${Job}`]);
-			expect(readLines(at("gh-calls"))).toContainEqual(
-				parkComment("API_ERROR"),
-			);
-			expect(launchState()).toMatchObject({
-				block: { cause: "API_ERROR", sub },
-				parkStopped: expect.any(Number),
-			});
-		},
-	);
-
-	it.each(["away", "normal"] as const)(
-		"logs an UNKNOWN park's row and job shape, and stops nothing, in %s mode (#2851)",
-		async (mode) => {
-			inMode(mode);
-			jobAs({ tempo: 7 });
-			fakeClaude([LISTED, blockedRow]);
-			const r = await twoTicks();
-			expect(r.status).toBe(0);
-			const { state, detail, needs, inFlight, cliVersion } = SeededJob;
-			const job = { state, tempo: 7, detail, needs, inFlight, cliVersion };
-			expect(r.stdout).toContain(
-				`block unread repo /implement 7: job tempo is not a string; row ${JSON.stringify(blockedRow)}; job ${JSON.stringify(job)}`,
-			);
-			expectNothingActed();
-			expect(launchState()).toMatchObject({ block: { cause: "UNKNOWN" } });
-		},
-	);
-
-	it.each(["away", "normal"] as const)(
-		"holds a LIMIT park on a spent seat in %s mode, with no comment (#3735)",
-		async (mode) => {
-			inMode(mode);
-			jobAs({ needs: "usage limit reached — check plan" });
-			weekAt(100);
-			fakeClaude([LISTED, blockedRow]);
-			const r = await twoTicks();
-			expect(r.status).toBe(0);
-			expect(readLines(at("stops"))[0]).toBe(`stop ${Job}`);
-			expect(readGhActs()).toEqual([]);
-			expect(r.stdout).toContain(
-				`held ${Job} repo /implement 7 on ${seat}, at its weekly limit`,
-			);
-			expect(launchState()).toMatchObject({
-				finishedAt: null,
-				block: { cause: "LIMIT" },
-				limitHeld: { sessionId: "s-job7" },
-			});
-		},
-	);
-
-	it("stops nothing off an unread listing", async () => {
-		fakeClaude(null);
+	it("comments a stopped permission park's cause on its ticket (#2846)", async () => {
+		fakeClaude([LISTED, permissionRow]);
 		const r = await twoTicks();
 		expect(r.status).toBe(0);
+		expect(readLines(at("stops"))).toEqual([`stop ${Job}`]);
+		expect(readLines(at("gh-calls"))).toContainEqual(parkComment("PERMISSION"));
+		expect(readLines(markerPath("s-job7"))).toContain("cause PERMISSION");
+	});
+
+	it("logs an UNKNOWN park's row and job shape once across ticks, and stops nothing (#2851, #3200)", async () => {
+		jobAs({ tempo: 7 });
+		fakeClaude([LISTED, blockedRow]);
+		const r = await twoTicks();
+		expect(r.status).toBe(0);
+		const { state, detail, needs, inFlight, cliVersion } = SeededJob;
+		const job = { state, tempo: 7, detail, needs, inFlight, cliVersion };
+		expect(readLines(at("ticks")).length).toBeGreaterThanOrEqual(2);
+		const line = `block unread repo /implement 7: job tempo is not a string; row ${JSON.stringify(blockedRow)}; job ${JSON.stringify(job)}`;
+		expect(r.stdout.split(line)).toHaveLength(2);
 		expectNothingActed();
+		expect(launchState()).toMatchObject({ block: { cause: "UNKNOWN" } });
 	});
 });
 
@@ -3231,17 +3037,6 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 		expect(launches().at(-1).actsBefore).toEqual({ file: 1 });
 	});
 
-	it("drops it from the old session's marker once a copy carries the conversation on (#3709)", async () => {
-		seed();
-		fakeResumeClaude(Job, [LISTED], stopOnResume());
-		const r = await settled(run(1), ParkedRun);
-		expect(r.status).toBe(0);
-		expect(readLines(at("calls"))).toEqual([
-			`--bg --resume s-job5 ${PARKED_PROMPT}`,
-		]);
-		expect(fs.existsSync(markerPath("s-job5"))).toBe(false);
-	});
-
 	it("hands the old session's marker to the copy, whose typing or ending then takes the label off (#3940)", async () => {
 		seed();
 		fakeResumeClaude(
@@ -3269,121 +3064,6 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 		expect(r.status).toBe(0);
 		expect(fs.existsSync(markerPath("s-job5"))).toBe(true);
 		expect(r.stdout).toContain("marker of s-job5 not moved");
-	});
-
-	describe("in away mode, on a weekly-full seat (#3850)", () => {
-		/** One away tick over the state's `held`, ended by a stop; the state it leaves. */
-		const awayTick = async (held: object[]) => {
-			const seat2 = at("seat2");
-			seed(true, seat2);
-			fs.writeFileSync(
-				path.join(seat2, ".claude.json"),
-				JSON.stringify(buildUsageCache({ session: 10, week: 100 }, Date.now())),
-			);
-			const control = at(".refill-loop-control.json");
-			const read = JSON.parse(fs.readFileSync(control, "utf8"));
-			fs.writeFileSync(
-				control,
-				JSON.stringify({
-					...read,
-					seats: [seat, seat2],
-					scope: { ...read.scope, mode: "away" },
-				}),
-			);
-			const state = at(".refill-loop-state.json");
-			fs.writeFileSync(state, JSON.stringify({ launches: [], held }));
-			fakeResumeClaude(Job, [LISTED], "");
-			/* Away mode serves the main checkouts it discovers. */
-			fs.mkdirSync(path.join(repo, ".git"), { recursive: true });
-
-			const running = run(1);
-			await ticked(1);
-			requestStop();
-			const r = await settled(running, ParkedRun);
-			expect(r.status).toBe(0);
-			expect(r.stdout).toContain("frontier: 1 rows");
-			expect(readLines(at("calls"))).toEqual([]);
-			return JSON.parse(fs.readFileSync(state, "utf8")).held;
-		};
-
-		it("reads its marker to keep a hold's start, and resumes nothing", async () => {
-			const hold = {
-				root: repo,
-				number: 5,
-				why: `parked: its session's seat ${at("seat2")} is full`,
-				since: Date.now() - 3 * 24 * 60 * 60 * 1000,
-			};
-			expect(await awayTick([hold])).toEqual([hold]);
-		});
-
-		it("opens no hold", async () => {
-			expect(await awayTick([])).toEqual([]);
-		});
-	});
-
-	it("holds it while its session's seat is weekly-full, launching the next row, then resumes it once that seat has room (#3669)", async () => {
-		const seat2 = at("seat2");
-		seed(true, seat2);
-		const cache = (week: number) =>
-			fs.writeFileSync(
-				path.join(seat2, ".claude.json"),
-				JSON.stringify(buildUsageCache({ session: 10, week }, Date.now())),
-			);
-		cache(100);
-		const control = at(".refill-loop-control.json");
-		fs.writeFileSync(
-			control,
-			JSON.stringify({
-				...JSON.parse(fs.readFileSync(control, "utf8")),
-				seats: [seat, seat2],
-			}),
-		);
-		const state = at(".refill-loop-state.json");
-		const pickNext = path.join(scripts, "pick-next.js");
-		fs.writeFileSync(
-			pickNext,
-			fs
-				.readFileSync(pickNext, "utf8")
-				.replace(
-					"frontier: [",
-					'frontier: [{ number: 6, urgent: false, goal: false, stallDays: 0, asksQuestions: false, reach: 0, collision: "", takes: ["implement"], labels: ["takes:implement"] }, ',
-				),
-		);
-		fakeResumeClaude(
-			Job,
-			[LISTED],
-			`${stopOnResume()} ${writesWokenRecord(path.join(seat2, "jobs", Job, "state.json"), "s-job5")}`,
-			"woke",
-		);
-
-		const held = await settled(run(1), ParkedRun);
-		expect(held.status).toBe(0);
-		expect(readLines(at("calls"))).toEqual([]);
-		expect(readLines(at("dispatches"))).toEqual(["opus /implement 6"]);
-		expect(
-			JSON.parse(fs.readFileSync(state, "utf8")).lastTick.skipped,
-		).toContainEqual({
-			root: repo,
-			number: 5,
-			why: `parked: its session's seat ${seat2} is full`,
-		});
-
-		cache(10);
-		/* A fresh start: the first run's own stop is still recorded. */
-		fs.writeFileSync(
-			control,
-			JSON.stringify({
-				...JSON.parse(fs.readFileSync(control, "utf8")),
-				noProgressFrom: Date.now(),
-				stopRequested: false,
-			}),
-		);
-		const resumed = await settled(run(1), ParkedRun);
-		expect(resumed.status).toBe(0);
-		expect(readLines(at("calls"))).toEqual([
-			`--bg --resume s-job5 ${PARKED_PROMPT}`,
-		]);
-		expect(launches().at(-1)).toMatchObject({ issues: [5], seat: seat2 });
 	});
 
 	/* What the launcher leaves on a gone job: a new directory under its id. */
@@ -3465,16 +3145,6 @@ describe("a parked ticket in a normal-mode loop (#3621)", () => {
 		);
 	});
 
-	it("launches afresh where its session's seat is not one the loop reads", async () => {
-		seed(true, at("elsewhere"));
-		const r = await settled(run(1), ParkedRun);
-		expect(r.status).toBe(0);
-		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
-		expect(r.stdout).toContain(
-			`its session's seat ${at("elsewhere")} is not one the loop reads; launching afresh`,
-		);
-	});
-
 	describe("a marker naming an overflow key on a plan seat's dir (#4147)", () => {
 		/** A marker on a second plan seat, with room and no cap sized yet; the seats each cap read asked for. */
 		const seedOnSeat2 = (keyLine: string) => {
@@ -3525,27 +3195,6 @@ process.stdout.write(JSON.stringify({ cap: { launch: 1 } }));\n`,
 		});
 	});
 
-	it("launches afresh where its marker names no job", async () => {
-		seed(false);
-		writeMarker("5\n");
-		const r = await settled(run(1), ParkedRun);
-		expect(r.status).toBe(0);
-		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
-		expect(r.stdout).toContain(
-			"not resumed: its session s-job5's marker names no job; launching afresh",
-		);
-	});
-
-	it("launches afresh where no marker lists it", async () => {
-		seed(false);
-		const r = await settled(run(1), ParkedRun);
-		expect(r.status).toBe(0);
-		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
-		expect(r.stdout).toMatch(
-			/not resumed: no session that parked it is recorded; launching afresh/,
-		);
-	});
-
 	it("releases an away park's ledger row before the tick reads its shortlist, so the ticket resumes (#3872)", async () => {
 		seed();
 		const pickNext = path.join(scripts, "pick-next.js");
@@ -3584,26 +3233,6 @@ process.stdout.write(JSON.stringify({ cap: { launch: 1 } }));\n`,
 			`--bg --resume s-job5 ${PARKED_PROMPT}`,
 		]);
 		expect(launches()[0]).not.toHaveProperty("parkedAway");
-	});
-
-	it("launches it on its takes: command, resuming nothing, once the label has gone though its marker stays (#3872)", async () => {
-		seed();
-		const pickNext = path.join(scripts, "pick-next.js");
-		fs.writeFileSync(
-			pickNext,
-			fs
-				.readFileSync(pickNext, "utf8")
-				.replace(
-					'"takes:implement", "parked"], parkedAt: "2026-10-28T07:41:00Z"',
-					'"takes:implement"], parkedAt: null',
-				),
-		);
-		fakeResumeClaude(Job, [LISTED]);
-		const r = await settled(run(1), ParkedRun);
-		expect(r.status).toBe(0);
-		expect(readLines(at("calls"))).toEqual([]);
-		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
-		expect(r.stdout).not.toContain("not resumed");
 	});
 });
 

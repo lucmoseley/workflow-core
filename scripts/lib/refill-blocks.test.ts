@@ -169,11 +169,21 @@ function blocks(
 	launches: Launch[],
 	agents: Agents,
 	mode: "away" | "normal",
-	{ now = NOW, io: over = {} }: { now?: number; io?: Partial<BlockIo> } = {},
+	{
+		now = NOW,
+		io: over = {},
+		paused,
+	}: { now?: number; io?: Partial<BlockIo>; paused?: boolean } = {},
 ) {
 	const { io, calls } = fakeIo(over);
 	return {
-		out: actOnBlocks(launches, mode, { agents, now, io, swapHold: NO_HOLD }),
+		out: actOnBlocks(launches, mode, {
+			agents,
+			now,
+			io,
+			swapHold: NO_HOLD,
+			...(paused ? { paused } : {}),
+		}),
 		calls,
 	};
 }
@@ -209,6 +219,50 @@ describe("which parks the loop stops (#2699)", () => {
 	it("leaves every other cause as today", () => {
 		for (const cause of ["LIMIT", "OTHER_DIALOG", "UNKNOWN"] as const)
 			expect(stops(parkedFor(cause, 600), "away")).toEqual([]);
+	});
+
+	it.each(["away", "normal"] as const)(
+		"acts on no UNKNOWN park in %s mode (#2851)",
+		(mode) => {
+			const r = blocks([parkedFor("UNKNOWN", 600)], blocked, mode);
+			expect(r.calls).toEqual([]);
+			expect(r.out[0]).not.toHaveProperty("parkStopped");
+		},
+	);
+
+	it("marks an away mode stop as away's, for the handed-off count, and a normal-mode one not (#3870)", () => {
+		expect(
+			blocks([parkedFor("QUESTION", 0)], blocked, "away").out[0],
+		).toMatchObject({ parkStopped: NOW, parkedAway: true });
+		const auth = parkedFor("API_ERROR", 0, {
+			block: { cause: "API_ERROR", sub: "auth", since: NOW },
+		});
+		const normal = blocks([auth], blocked, "normal").out[0];
+		expect(normal).toMatchObject({ parkStopped: NOW });
+		expect(normal).not.toHaveProperty("parkedAway");
+	});
+
+	it("still stops a park on a paused tick, a stop setting nothing running (#3856)", () => {
+		const labelled: string[] = [];
+		const { out, calls } = blocks([parkedFor("QUESTION", 0)], blocked, "away", {
+			paused: true,
+			io: {
+				labelParked: (l) => {
+					labelled.push(l.jobId ?? "");
+					return [];
+				},
+			},
+		});
+		const since = new Date(NOW).toISOString();
+		const line = `stopped QUESTION park design-vault /implement 42 (away mode, blocked since ${since}); labelled parked: #42`;
+		expect(calls).toEqual([
+			"stop p",
+			"record s-p 42",
+			`log ${line}`,
+			`comment Refill loop: ${line}. The conversation is kept: \`claude attach\` reopens it.`,
+		]);
+		expect(labelled).toEqual(["p"]);
+		expect(out[0]).toMatchObject({ parkStopped: NOW });
 	});
 
 	it("stops nothing off an unread listing", () => {
@@ -444,6 +498,16 @@ describe("the loop's resumes after a transient API stop (#2705)", () => {
 					).out.filter((o) => o.parkStopped === NOW),
 				),
 			).toEqual(["p"]);
+		const auth = blocks([resuming({ block: block("auth") })], blocked, "away");
+		const since = new Date(NOW - 2 * MIN).toISOString();
+		const line = `stopped API_ERROR park design-vault /implement 42 (away mode, blocked since ${since}); labelled parked: #42; left parked until claimed, not on his typing: no session id read`;
+		expect(logs(auth.calls)).toEqual([line]);
+		expect(auth.calls).toContain(
+			`comment Refill loop: ${line}. The conversation is kept: \`claude attach\` reopens it.`,
+		);
+		expect(auth.out[0]).toMatchObject({
+			block: { cause: "API_ERROR", sub: "auth" },
+		});
 		const at = (tries: number) =>
 			resuming({ resumes: tried(tries, 30, 0, { heldAt: NOW - MIN }) });
 		const capped = blocks([at(RESUME_CAP)], [], "normal");
@@ -1388,28 +1452,47 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 		calls.filter((c) => c.startsWith("comment "));
 
 	describe.each(["away", "normal"] as const)("in %s mode", (mode) => {
-		it("holds: stops the job, logs session, seat and limit, comments nothing", () => {
-			const { launches, calls } = limits(
-				[blocked()],
-				[agent("job42", "blocked")],
-				{ seats: [fiveHourFull], mode },
-			);
-			expect(calls).toContain("stop job42");
-			expect(comments(calls)).toEqual([]);
-			expect(logs(calls)).toEqual([
-				`held job42 design-vault /implement 42 on ${Seat}, at its 5-hour limit (reset 2026-10-18T15:00:00Z): stopped until a seat has room`,
-			]);
-			expect(launches[0]).toMatchObject({
-				finishedAt: null,
-				limitHeld: {
-					at: NOW,
-					sessionId: "s",
-					cwd: "/",
-					limit: { bar: "5-hour" },
-				},
-			});
-			expect(isHeld(launches[0] as Launch)).toBe(true);
+		const weekFull = planSeat({
+			week: 100,
+			weekFull: true,
+			weekResets: NOW + DAY,
+			fits: null,
 		});
+		it.each([
+			["5-hour", fiveHourFull, "2026-10-18T15:00:00Z"],
+			["weekly", weekFull, new Date(NOW + DAY).toISOString()],
+		] as const)(
+			"holds on a spent %s bar: stops the job, logs session, seat and limit, labels and comments nothing",
+			(bar, seat, reset) => {
+				const labelled: string[] = [];
+				const { launches, calls } = limits(
+					[blocked()],
+					[agent("job42", "blocked")],
+					{
+						seats: [seat],
+						mode,
+						io: {
+							labelParked: (l) => {
+								labelled.push(l.jobId ?? "");
+								return [];
+							},
+						},
+					},
+				);
+				expect(calls[0]).toBe("stop job42");
+				expect(comments(calls)).toEqual([]);
+				expect(labelled).toEqual([]);
+				expect(logs(calls)).toEqual([
+					`held job42 design-vault /implement 42 on ${Seat}, at its ${bar} limit (reset ${reset}): stopped until a seat has room`,
+				]);
+				expect(launches[0]).toMatchObject({
+					finishedAt: null,
+					block: { cause: "LIMIT" },
+					limitHeld: { at: NOW, sessionId: "s", cwd: "/", limit: { bar } },
+				});
+				expect(isHeld(launches[0] as Launch)).toBe(true);
+			},
+		);
 
 		it("resumes a live one: stops, resumes under its seat, comments once", () => {
 			const { launches, calls } = limits(
