@@ -344,6 +344,16 @@ export function registerSession(
 }
 
 /** A registered session running on this test's own live pid. */
+/**
+ * Point this process's arbiter store at `root`'s, as a hook process on that
+ * host finds it: both variables, since WFC_REPO_ROOT outranks
+ * CLAUDE_PROJECT_DIR for some readers. freshSandbox restores them.
+ */
+export function storeAt(root: string) {
+	process.env.CLAUDE_PROJECT_DIR = root;
+	process.env.WFC_REPO_ROOT = root;
+}
+
 export function live(sb: Sandbox, sessionId: string, name?: string) {
 	registerSession(sb, sessionId, process.pid, { name });
 	return store.identify(sessionId);

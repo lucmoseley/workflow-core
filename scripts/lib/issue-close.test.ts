@@ -39,6 +39,8 @@ import {
 	ghServe,
 	readGhAnswer,
 } from "./gh-fake";
+import { printed, stubGhRoutes } from "./gh-stub";
+import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 import { hexShaCommit } from "./hex-sha-fixture";
 import { kitContextFake } from "./kit-context-fake";
 import { readRuleText } from "./rule-text";
@@ -577,6 +579,71 @@ describe("the card's issue it refuses to close by hand", () => {
 
 		it("denies the close the worktree's roadmap holds active, the main checkout's done", () => {
 			expect(fromWorktree("done", "active")).toContain(CARD_STILL);
+		});
+	});
+
+	/*
+	 * The other half (#4274): the card is the session tree's, the tracker the
+	 * main checkout's config. Through the dispatcher, gh a stub serving the
+	 * card's own issue on another repo, so only the tracker read decides
+	 * whether the card rule stands down.
+	 */
+	describe("the tracker, from a session in a linked worktree (#4274)", () => {
+		let at: { main: string; worktree: string };
+		/* No freshSandbox: its wholesale env restore would cut this file's
+		 * vi.stubEnv calls off from process.env. */
+		beforeEach(() => {
+			at = splitCheckout(path.join(dir, "split"));
+			vi.stubEnv("CLAUDE_PROJECT_DIR", at.main);
+			fs.mkdirSync(path.join(at.worktree, "docs"), { recursive: true });
+			fs.writeFileSync(
+				path.join(at.worktree, "docs", "reference-roadmap.html"),
+				`<script>const CARDS=[\n{id:"id-match",p:0,a:["tech"],kind:"decision",state:"active",t:"A card",m:"—",mn:"note"}\n];</script>\n`,
+			);
+			const issue = {
+				comments: [{ body: "**Outstanding:** none" }],
+				title: CardTitle,
+				body: "",
+				labels: [],
+				parent: null,
+				subIssues: { nodes: [] },
+				url: "https://github.com/owner/other/issues/12",
+			};
+			vi.stubEnv(
+				"WFC_GH",
+				stubGhRoutes(dir, {
+					"issue view 12 *": printed(JSON.stringify(issue)),
+				}).gh,
+			);
+		});
+		const declare = (root: string, config: object) => {
+			fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
+			fs.writeFileSync(
+				path.join(root, ".claude", "workflow-core.json"),
+				JSON.stringify({ contract: 1, ...config }),
+			);
+		};
+		const close = () =>
+			runCore(
+				"guard-issue-close",
+				toolCall("Bash", { command: "gh issue close 12 --repo owner/other" }),
+				{ root: at.main, worktree: at.worktree },
+			);
+
+		it("stands the card rule down where the main checkout's config names another tracker", () => {
+			declare(at.main, { tracker: "acme/tracker" });
+			const { output, logs } = close();
+			expect(output).toBeNull();
+			/* Judged and allowed, not let through on a fault. */
+			expect(logs).toEqual([]);
+		});
+
+		it("refuses where only the worktree's config names one", () => {
+			declare(at.main, {});
+			declare(at.worktree, { tracker: "acme/tracker" });
+			const out = close().output;
+			expect(out?.permissionDecision).toBe("deny");
+			expect(String(out?.permissionDecisionReason)).toContain(CARD_STILL);
 		});
 	});
 

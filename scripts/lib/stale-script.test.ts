@@ -35,6 +35,7 @@ import {
 	live,
 	locks as locksMod,
 	store,
+	storeAt,
 } from "./arbiter-testkit";
 import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 
@@ -379,7 +380,7 @@ describe("the cases a mutant must not survive (#2789)", () => {
 
 describe("an `npm run` from a session in its own worktree (#4242)", () => {
 	let at: { main: string; worktree: string };
-	freshSandbox((fresh) => {
+	const split = freshSandbox((fresh) => {
 		at = splitCheckout(path.join(fresh.dir, "split"));
 		/* The claim store is the main checkout's, as the harness names it. */
 		process.env.CLAUDE_PROJECT_DIR = at.main;
@@ -410,5 +411,46 @@ describe("an `npm run` from a session in its own worktree (#4242)", () => {
 
 	it("is silent from the worktree, which reads its own package.json and runs its own copy", () => {
 		expect(npmGo(at.worktree)).toBe("");
+	});
+
+	/** The main checkout's own copy of `rel`, run by its absolute path from the worktree. */
+	const hostCopyRun = (rel: string) =>
+		runCore(
+			"guard-stale-script",
+			toolCall(
+				"Bash",
+				{ command: `node ${path.join(at.main, rel)}` },
+				{ session_id: "mine" },
+			),
+			{ root: at.main, worktree: at.worktree },
+		).output?.additionalContext ?? "";
+
+	const commitInMain = (rel: string) => {
+		const git = (...args: string[]) =>
+			execFileSync("git", args, { cwd: at.main, stdio: "ignore" });
+		git("add", "--", rel);
+		git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", rel);
+	};
+
+	it("reads the dirt of the host's copy from the worktree, never the worktree's own (#4274)", () => {
+		/* Committed in the main checkout alone: the worktree's copy stays
+		 * untracked, which a session-tree `git status` would call dirty. */
+		commitInMain("scripts/x.js");
+		expect(hostCopyRun("scripts/x.js")).toBe("");
+		fs.appendFileSync(path.join(at.main, "scripts", "x.js"), "// half\n");
+		expect(named(hostCopyRun("scripts/x.js"))).toEqual(["scripts/x.js"]);
+	});
+
+	it("warns on the host root's claim store alone, not one keyed to the worktree (#4274)", () => {
+		fs.writeFileSync(path.join(at.main, "scripts", "y.js"), "console.log(2)\n");
+		commitInMain("scripts/y.js");
+		fs.appendFileSync(path.join(at.main, "scripts", "y.js"), "// half\n");
+		/* The neighbour's claim filed under the worktree's own store. */
+		storeAt(at.worktree);
+		store.acquire("scripts/y.js", live(split, "neighbour-session"));
+		storeAt(at.main);
+		expect(hostCopyRun("scripts/y.js")).toBe("");
+		store.acquire("scripts/y.js", live(split, "neighbour-session"));
+		expect(named(hostCopyRun("scripts/y.js"))).toEqual(["scripts/y.js"]);
 	});
 });

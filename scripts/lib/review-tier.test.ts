@@ -28,7 +28,7 @@ import { describe, expect, it } from "vitest";
 import { core, freshSandbox, store } from "./arbiter-testkit";
 import { writeFaultyGit } from "./git-fault-fake";
 import { initGitRepo, mkDirOutsideRepo } from "./git-fixture";
-import { runCore } from "./guard-core-testkit";
+import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 import { runInProcess } from "./run-in-process";
 import { shellQuote } from "./sh-quote.js";
 import { readShellConst } from "./shell-const-testkit";
@@ -398,6 +398,43 @@ describe("a session in a linked worktree (#2386)", () => {
 		stage(SQL, other);
 		expect(envelope({ cwd: other })).toBeNull();
 		expect(logs.join("\n")).not.toContain("worktree paths left unmatched");
+	});
+});
+
+describe("from a session in its own worktree, the declaration is the main checkout's (#4274)", () => {
+	const declareIn = (root: string, sensitivePaths: unknown[]) => {
+		fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
+		fs.writeFileSync(
+			path.join(root, ".claude", "workflow-core.json"),
+			JSON.stringify({ sensitivePaths }),
+		);
+	};
+	/* The namespaced name skips the bare name's SKILL.md check at the root. */
+	const reviewFromWorktree = (at: { main: string; worktree: string }) => {
+		stage(SQL, at.worktree);
+		return runCore(
+			"inject-review-tier",
+			toolCall(
+				"Skill",
+				{ skill: "workflow-core:code-review" },
+				{ session_id: ME },
+			),
+			{ root: at.main, worktree: at.worktree },
+		).output?.additionalContext;
+	};
+
+	it("escalates on the worktree's staged path where only the main checkout declares its area", () => {
+		const at = splitCheckout(path.join(sb.dir, "split"));
+		declareIn(at.main, [RLS]);
+		expect(reviewFromWorktree(at)).toContain("Tier owed: escalated.");
+	});
+
+	it("reads no declaration where only the worktree holds one", () => {
+		const at = splitCheckout(path.join(sb.dir, "split"));
+		declareIn(at.worktree, [RLS]);
+		const said = reviewFromWorktree(at) ?? "";
+		expect(said).toContain("NO SENSITIVE PATHS ARE DECLARED");
+		expect(said).not.toContain("Tier owed: escalated.");
 	});
 });
 

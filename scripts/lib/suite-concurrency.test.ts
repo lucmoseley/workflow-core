@@ -3020,4 +3020,21 @@ describe("a whole-suite launch from a session in its own worktree (#4242)", () =
 		fs.writeFileSync(path.join(at.main, "package.json"), plainScript);
 		expect(told()).not.toContain(readRuleText("targeted-runs"));
 	});
+
+	it("reads the declared test command from the main checkout's config, never the worktree's (#4274)", () => {
+		fs.writeFileSync(path.join(at.worktree, "package.json"), plainScript);
+		expect(told()).toContain(readRuleText("targeted-runs"));
+		const config = (commands: object) =>
+			JSON.stringify({ commands, modules: ["suites"] });
+		fs.writeFileSync(
+			path.join(at.main, ".claude", "workflow-core.json"),
+			config({}),
+		);
+		fs.mkdirSync(path.join(at.worktree, ".claude"), { recursive: true });
+		fs.writeFileSync(
+			path.join(at.worktree, ".claude", "workflow-core.json"),
+			config({ test: "npm run test" }),
+		);
+		expect(told()).not.toContain(readRuleText("targeted-runs"));
+	});
 });

@@ -252,4 +252,30 @@ describe("a write from a session in its own worktree (#4242)", () => {
 	it("is silent on a worktree file judged from the main checkout, where the path lies outside its tree", () => {
 		expect(prelude(path.join(at.worktree, "notes.md"))).toBeUndefined();
 	});
+
+	it("judges against the host root's baseline, not the worktree's (#4274)", () => {
+		/* `HEAD` is per worktree, so a baseline spelled by it is the one store
+		 * read whose answer differs between the two trees: only the main
+		 * checkout's HEAD has used #2015. */
+		const told = () =>
+			runCore(
+				"guard-citation-tracker",
+				toolCall("Write", {
+					file_path: path.join(at.worktree, "notes.md"),
+					content: `See ${cite(2015)}.\n`,
+				}),
+				{
+					root: at.main,
+					worktree: at.worktree,
+					env: { WFC_CITATION_BASELINE: "HEAD" },
+				},
+			).output?.additionalContext;
+		expect(told()).toContain(`notes.md adds ${cite(2015)} (write #2015)`);
+		fs.writeFileSync(path.join(at.main, "old.md"), `Cites ${cite(2015)}.\n`);
+		const git = (...args: string[]) =>
+			execFileSync("git", args, { cwd: at.main, stdio: "ignore" });
+		git("add", "old.md");
+		git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "used");
+		expect(told()).toBeUndefined();
+	});
 });

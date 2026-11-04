@@ -610,4 +610,25 @@ describe("a queued suite detached from a session in its own worktree (#4242)", (
 		fs.writeFileSync(path.join(at.main, "package.json"), Plain);
 		expect(queuedVerdict()).toBeUndefined();
 	});
+
+	it("counts the suite runners the host root declares, not the worktree's (#4274)", () => {
+		const declare = (root: string, runners: string[]) => {
+			fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
+			fs.writeFileSync(
+				path.join(root, ".claude", "workflow-core.json"),
+				JSON.stringify({ suiteRunners: runners }),
+			);
+		};
+		const detached = () =>
+			runCore(
+				"guard-suite-background",
+				toolCall("Bash", { command: "node scripts/build-site.js &" }),
+				{ root: at.main, worktree: at.worktree },
+			).output?.permissionDecision;
+		declare(at.worktree, ["scripts/build-site.js"]);
+		declare(at.main, []);
+		expect(detached()).toBeUndefined();
+		declare(at.main, ["scripts/build-site.js"]);
+		expect(detached()).toBe("deny");
+	});
 });

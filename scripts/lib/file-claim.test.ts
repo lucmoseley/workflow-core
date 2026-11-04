@@ -32,10 +32,11 @@ import {
 	gitRepo,
 	live,
 	store,
+	storeAt,
 } from "./arbiter-testkit";
 import type { FileClaimContext } from "./file-claim.js";
 import { buildHostPorts } from "./file-claim-host.js";
-import { loadedCores, splitCheckout } from "./guard-core-testkit";
+import { loadedCores, runCore, splitCheckout } from "./guard-core-testkit";
 import {
 	type Adapters,
 	dispatch,
@@ -1614,7 +1615,7 @@ describe("the cases a mutant must not survive (#2788)", () => {
 
 describe("a write from a session in its own worktree (#4242)", () => {
 	let at: { main: string; worktree: string };
-	freshSandbox((fresh) => {
+	const split = freshSandbox((fresh) => {
 		at = splitCheckout(path.join(fresh.dir, "split"));
 	});
 
@@ -1647,5 +1648,37 @@ describe("a write from a session in its own worktree (#4242)", () => {
 		const said = envelope();
 		expect(said).toContain(readRuleText("file-claim"));
 		expect(said).not.toContain(readRuleText("doc-authority-class"));
+	});
+
+	/*
+	 * The claim store is the arbiter's, on the host: the real host port spawns
+	 * it, and it finds its store by the hook process's CLAUDE_PROJECT_DIR, which
+	 * the harness keeps on the main checkout. runCore's env reaches the core
+	 * alone, so the process is pointed at the store each step reads.
+	 */
+	const aliceHoldsIn = (root: string) => {
+		storeAt(root);
+		store.acquire("docs/plain.md", live(split, "alice"));
+	};
+	const bobWrites = () => {
+		storeAt(at.main);
+		live(split, "bob");
+		return runCore(
+			"guard-file-claim",
+			writePayload(path.join(at.main, "docs/plain.md"), { session_id: "bob" }),
+			{ root: at.main, worktree: at.worktree },
+		).output;
+	};
+
+	it("denies the shared tree's file a session holds in the host's claim store (#4274)", () => {
+		aliceHoldsIn(at.main);
+		const refused = bobWrites();
+		expect(refused?.permissionDecision).toBe("deny");
+		expect(refused?.permissionDecisionReason).toContain("alice");
+	});
+
+	it("allows it where only the worktree's claim store holds the claim (#4274)", () => {
+		aliceHoldsIn(at.worktree);
+		expect(bobWrites()?.permissionDecision).toBeUndefined();
 	});
 });

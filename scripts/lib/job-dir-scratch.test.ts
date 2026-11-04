@@ -30,6 +30,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox } from "./arbiter-testkit";
 import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
+import { latchPath } from "./kit-context.js";
 import { kitContextFake } from "./kit-context-fake";
 
 /* The shape the third predicate limb keys on, for the case where the hook
@@ -594,5 +595,33 @@ describe("a refusal for a session in its own worktree (#4242)", () => {
 		expect(named()).toContain(
 			`sanctioned target: ${at.main}/.claude/tmp/x.out`,
 		);
+	});
+
+	it("bounds its warning by the host root's latch, not the worktree's (#4274)", () => {
+		/* Each run its own session, so the latch the kit writes after a warning
+		 * never decides a later run: only the seeded one does. */
+		const warnedAs = (sid: string, seededIn: string) => {
+			const latch = latchPath(seededIn, "warn.job-dir-scratch", {
+				agent: "main",
+				sid,
+			});
+			fs.mkdirSync(path.dirname(latch), { recursive: true });
+			fs.writeFileSync(latch, "");
+			return runCore(
+				"guard-job-dir-scratch",
+				toolCall(
+					"Bash",
+					{ command: "echo hi > $CLAUDE_JOB_DIR/tmp/fx/a.out" },
+					{ session_id: sid },
+				),
+				{
+					root: at.main,
+					worktree: at.worktree,
+					env: { CLAUDE_JOB_DIR: JOB_DIR },
+				},
+			).output?.additionalContext;
+		};
+		expect(warnedAs("in-worktree", at.worktree)).toContain("Warn only");
+		expect(warnedAs("in-main", at.main)).toBeUndefined();
 	});
 });

@@ -26,7 +26,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { freshSandbox, live, store } from "./arbiter-testkit";
+import { freshSandbox, live, store, storeAt } from "./arbiter-testkit";
 import { plan } from "./bash-write-plan.js";
 import { decide } from "./claimed-bash-write.js";
 import { buildHostPorts } from "./claimed-bash-write-host.js";
@@ -1093,7 +1093,7 @@ describe("cases a mutant must not survive", () => {
 
 describe("a restore from a session in its own worktree (#4242)", () => {
 	let at: { main: string; worktree: string };
-	freshSandbox((fresh) => {
+	const split = freshSandbox((fresh) => {
 		at = splitCheckout(path.join(fresh.dir, "split"));
 	});
 
@@ -1113,5 +1113,29 @@ describe("a restore from a session in its own worktree (#4242)", () => {
 	it("is silent where only the main checkout's copy is dirty", () => {
 		fs.appendFileSync(path.join(at.main, "a.md"), "theirs\n");
 		expect(told()).not.toContain(Rule);
+	});
+
+	it("credits a code write against the host root's claims and ledger, not a store keyed to the worktree (#4274)", () => {
+		const write = (rel: string) =>
+			runCore(
+				NAME,
+				toolCall(
+					"Bash",
+					{ command: `echo hi > ${rel}` },
+					{ session_id: "mine" },
+				),
+				{ root: at.main, worktree: at.worktree },
+			);
+		/* A neighbour's claim on a.js filed under the worktree's own store, and
+		 * one on b.js under the host root's. */
+		storeAt(at.worktree);
+		store.acquire("scripts/a.js", live(split, "theirs"));
+		storeAt(at.main);
+		store.acquire("scripts/b.js", live(split, "theirs"));
+		write("scripts/a.js");
+		write("scripts/b.js");
+		expect(store.readWritesBy("mine")).toEqual(["scripts/a.js"]);
+		storeAt(at.worktree);
+		expect(store.readWritesBy("mine") ?? []).toEqual([]);
 	});
 });

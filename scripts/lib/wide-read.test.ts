@@ -35,6 +35,7 @@ import {
 	toolCall,
 } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
+import { MARKERS_REL } from "./marker-root.js";
 import { decide } from "./wide-read.js";
 import { buildHostPorts } from "./wide-read-host.js";
 
@@ -671,6 +672,30 @@ describe("from a linked worktree, the file read is the worktree's (#4242)", () =
 		expect(out?.additionalContext).toBeDefined();
 		expect(latchesAt(at.main)).toHaveLength(1);
 		expect(latchesAt(at.worktree)).toEqual([]);
+	});
+
+	it("stands down on a wide Read whose latch the main checkout's marker store holds, never the worktree's (#4274)", () => {
+		const file = path.join(at.worktree, "big.txt");
+		fs.writeFileSync(file, big);
+		const read = () =>
+			runCore("guard-wide-read", toolCall("Read", { file_path: file }), {
+				root: at.main,
+				worktree: at.worktree,
+				env: envWith({}),
+			}).output;
+		expect(read()?.additionalContext).toBeDefined();
+		const [name] = latchesAt(at.main);
+		if (!name) throw new Error("the warned Read left no latch");
+		const inMain = path.join(at.main, MARKERS_REL, name);
+		const inWorktree = path.join(at.worktree, MARKERS_REL, name);
+		fs.mkdirSync(path.dirname(inWorktree), { recursive: true });
+		fs.renameSync(inMain, inWorktree);
+		expect(read()?.additionalContext).toBeDefined();
+		/* That warning latched again in the main checkout; the seed alone is
+		 * laid back. */
+		fs.rmSync(inMain);
+		fs.renameSync(inWorktree, inMain);
+		expect(read()).toBeNull();
 	});
 
 	it("passes the worktree's small file, however wide the main checkout's", () => {

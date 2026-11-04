@@ -7,7 +7,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { freshSandbox } from "./arbiter-testkit";
 import { fakeTreeClassifier } from "./git-tree-fake.js";
+import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
 
 type Answer =
@@ -178,6 +180,47 @@ describe("a push whose tree it cannot resolve is handed the rules (#319)", () =>
 		const { ctx, reviewed } = harness({ sessionTree: LINKED });
 		decide('git -C "$W" push origin main', ctx);
 		expect(reviewed).toEqual([LINKED]);
+	});
+});
+
+/*
+ * The host's stores, read at the main checkout from a session's worktree
+ * (#4274), through the real host ports: the scheduled sweep the CI-lag rule
+ * premises is the main checkout's workflow, never the worktree's copy.
+ */
+describe("a push from a worktree reads the host's sweep at the main checkout (#4274)", () => {
+	let at: { main: string; worktree: string };
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+	});
+
+	const sweepIn = (root: string) => {
+		const dir = path.join(root, ".github", "workflows");
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(
+			path.join(dir, "scheduled-checks.yml"),
+			"on:\n  schedule:\n    - cron: '0 * * * *'\n",
+		);
+	};
+
+	const said = () =>
+		String(
+			runCore("guard-push-rules", toolCall("Bash", { command: "git push" }), {
+				root: at.main,
+				worktree: at.worktree,
+			}).output?.additionalContext,
+		);
+
+	it("hands the CI-lag rule where the main checkout schedules the sweep", () => {
+		sweepIn(at.main);
+		expect(said()).toContain(readRuleText("ci-status-lag"));
+	});
+
+	it("withholds it where only the worktree schedules one", () => {
+		sweepIn(at.worktree);
+		const text = said();
+		expect(text).toContain(readRuleText("push-cadence"));
+		expect(text).not.toContain(readRuleText("ci-status-lag"));
 	});
 });
 

@@ -15,9 +15,14 @@
  * judge refuses, or allows with no record.
  */
 
+import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
+import { freshSandbox } from "./arbiter-testkit";
+import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
+import { storePath } from "./test-pass-marker.js";
+import { gitIn } from "./unasked-rerun-fixture";
 
 interface Verdict {
 	deny?: string;
@@ -301,5 +306,82 @@ describe("the verdict, spent", () => {
 		});
 		expect(out).toEqual({ deny: `${JUDGE_DENY}\n\n${UNASKED_RULE_FALLBACK}` });
 		expect(logged).toEqual([]);
+	});
+});
+
+/*
+ * The other half of the two trees (#4274): HEAD is the session tree's, but
+ * the certificates attesting it are the host root's store, so a worktree's
+ * attested commit is refused on the main checkout's certificate alone.
+ */
+describe("from a session in a linked worktree, the certificates are the main checkout's (#4274)", () => {
+	let at: { main: string; worktree: string };
+	let head: string;
+	freshSandbox((sb) => {
+		at = splitCheckout(path.join(sb.dir, "split"));
+		gitIn(at.main, "update-ref", "refs/remotes/origin/main", "HEAD");
+		fs.writeFileSync(path.join(at.worktree, "a.js"), "a.js\n");
+		gitIn(at.worktree, "add", "--", "a.js");
+		gitIn(
+			at.worktree,
+			"-c",
+			"user.email=t@t",
+			"-c",
+			"user.name=t",
+			"commit",
+			"-q",
+			"-m",
+			"c",
+		);
+		head = gitIn(at.worktree, "rev-parse", "HEAD");
+	});
+
+	/** An admissible narrowed certificate on the worktree's HEAD, under `root`'s store. */
+	const certify = (root: string) => {
+		fs.mkdirSync(path.dirname(storePath(root)), { recursive: true });
+		fs.writeFileSync(
+			storePath(root),
+			`${JSON.stringify({
+				sha: head,
+				at: "RUN-A",
+				suite: "vitest",
+				dirtyAtStart: false,
+				foreign: [],
+				scope: {
+					modulesRun: 1,
+					modulesTotal: 9,
+					tests: 3,
+					passed: 3,
+					skipped: 0,
+					failed: 0,
+					nameFilter: null,
+					fileFilters: [],
+					changed: "x",
+					admissible: true,
+				},
+				treeAtEnd: gitIn(at.worktree, "rev-parse", `${head}^{tree}`),
+				closure: ["a.js"],
+				changedPaths: ["a.js"],
+			})}\n`,
+		);
+	};
+	const rerun = () =>
+		runCore(
+			"guard-unasked-rerun",
+			toolCall("Bash", { command: "npm run test" }),
+			{ root: at.main, worktree: at.worktree },
+		);
+
+	it("refuses the worktree's attested HEAD on the main checkout's certificate", () => {
+		certify(at.main);
+		expect(rerun().output?.permissionDecision).toBe("deny");
+	});
+
+	it("allows it where only the worktree's own store holds the certificate", () => {
+		certify(at.worktree);
+		const r = rerun();
+		expect(r.output).toBeNull();
+		/* Judged and found unattested, not let through unjudged. */
+		expect(r.logs.join("\n")).not.toContain("could not judge");
 	});
 });
