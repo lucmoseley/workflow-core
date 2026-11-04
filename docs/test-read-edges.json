@@ -829,7 +829,7 @@
 			"scripts/lib/workflow-core-config.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
 			"scripts/npx-bare-name.test.ts",
-			"scripts/pick-next.test.ts",
+			"scripts/pick-next-output.test.ts",
 			"scripts/precommit-context-budget-gate.test.ts",
 			"scripts/precommit-doc-map-gate.test.ts",
 			"scripts/register-doc.test.ts",
@@ -2690,7 +2690,8 @@
 			"scripts/lib/doc-map.test.ts",
 			"scripts/lib/plugin-tree.test.ts",
 			"scripts/lib/write-set-predict.test.ts",
-			"scripts/pick-next.test.ts",
+			"scripts/pick-next-claims.test.ts",
+			"scripts/pick-next-output.test.ts",
 			"scripts/precommit-doc-map-gate.test.ts",
 			"scripts/register-doc.test.ts",
 			"scripts/repo-checks.test.ts",
@@ -3101,7 +3102,7 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/pick-next.test.ts",
+			"scripts/pick-next-claims.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/refill-loop-run.test.ts",
 			"scripts/rule-fallback-template.test.ts",
@@ -5783,7 +5784,6 @@
 			"scripts/lib/seat-reading.test.ts",
 			"scripts/measure-spare-warm.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/pick-next.test.ts",
 			"scripts/refill-loop-run.test.ts",
 			"scripts/rescue-sessions-takeover.test.ts",
 			"scripts/rule-fallback-template.test.ts",
@@ -5882,7 +5882,7 @@
 			"scripts/admission.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/pick-next.test.ts"
+			"scripts/pick-next-claims.test.ts"
 		],
 		"scripts/fixtures/agent-id-2.1.310.txt": [
 			"scripts/check-harness-canary.test.ts",
@@ -14886,7 +14886,6 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/park-blocked.test.ts",
 			"scripts/park-on-round.test.ts",
-			"scripts/pick-next.test.ts",
 			"scripts/place-new-issue.test.ts",
 			"scripts/promote-spec.test.ts",
 			"scripts/quiet-bench-run.test.ts",
@@ -15852,7 +15851,7 @@
 			"scripts/lib/wfc-config.test.ts",
 			"scripts/lib/workflow-core-config.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/pick-next.test.ts",
+			"scripts/pick-next-output.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts"
@@ -17023,7 +17022,7 @@
 			"scripts/lib/shared-tree-skip.test.ts",
 			"scripts/lib/test-read-edges.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/pick-next.test.ts",
+			"scripts/pick-next-output.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
@@ -22904,6 +22903,27 @@
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/pick-next-testkit.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-revert-conflict.test.ts",
+			"scripts/check-guard-registry-revert.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
@@ -29555,6 +29575,7 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/pick-next-claims.test.ts",
 			"scripts/pick-next.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
@@ -34256,7 +34277,6 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/lib/warm-fraction-log.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/pick-next.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/warm-fraction.test.ts"
@@ -35917,6 +35937,18 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/pick-next-claims.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/pick-next-output.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/pick-next.js": [
 			"scripts/check-duplicate-dispatch.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -35929,6 +35961,8 @@
 			"scripts/lib/write-set-predict.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/npm-run-hints.test.ts",
+			"scripts/pick-next-claims.test.ts",
+			"scripts/pick-next-output.test.ts",
 			"scripts/pick-next.test.ts",
 			"scripts/refill-loop-run.test.ts",
 			"scripts/rule-fallback-template.test.ts",
@@ -37416,7 +37450,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/park-blocked.test.ts",
 			"scripts/park-on-round.test.ts",
-			"scripts/pick-next.test.ts",
+			"scripts/pick-next-output.test.ts",
 			"scripts/promote-spec.test.ts",
 			"scripts/proving-run.test.ts",
 			"scripts/push-review-owed.test.ts",

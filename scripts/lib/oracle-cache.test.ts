@@ -121,7 +121,7 @@ describe("no plain TTL hit, for any strict caller (mantahostels#1960)", () => {
 	});
 
 	/* Every sequential read re-spawns regardless (above), so spawn count no
-	 * longer discriminates the flag. `pick-next.test.ts` still rests its
+	 * longer discriminates the flag. `lib/pick-next-testkit.ts` still rests its
 	 * whole-file cache isolation on this switch — it must still do something. */
 	it("writes no cache file at all under WFC_ORACLE_CACHE=0", () => {
 		process.env.WFC_ORACLE_CACHE = "0";
