@@ -152,12 +152,13 @@ const TRAILER =
 
 const COMMENT = `## Resolution\n\nDone.\n\n${TRAILER}none\n**Outstanding:** none.\n`;
 
-const run = (args: string[], comment = COMMENT) => {
+const run = (args: string[], comment = COMMENT, cwd?: string) => {
 	put("comment.md", comment);
 	return runInProcess(
 		SCRIPT,
 		["534", "--comment-file", state("comment.md"), ...args],
 		{
+			cwd,
 			env: {
 				...process.env,
 				...stubGhScript(sb.dir, STUB).env,
@@ -818,6 +819,22 @@ describe("commits the pushed ref lacks (#3101)", () => {
 		fix();
 		push();
 		expect(run([]).status).toBe(0);
+	});
+
+	it("takes the pushed ref from the host root's config, not the worktree's (#4280)", () => {
+		setUp({ parentLabels: null });
+		fix();
+		delete process.env.WFC_MODULES;
+		const wt = path.join(sb.dir, "wt");
+		git("worktree", "add", "-q", "--detach", wt);
+		fs.writeFileSync(
+			path.join(wt, ".claude", "workflow-core.json"),
+			JSON.stringify({ contract: 1, tracker: "acme/widgets", modules: [] }),
+		);
+		git("update-ref", "refs/remotes/origin/main", "HEAD");
+		const r = run([], COMMENT, wt);
+		expect(r.stderr).toContain("#534's commit is not on origin/landing");
+		untouched();
 	});
 
 	it("refuses a close whose comment names a commit off HEAD that origin/landing lacks (#3092)", () => {
