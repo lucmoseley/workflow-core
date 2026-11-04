@@ -13,10 +13,12 @@
  *
  * SPAWNED, NOT RUN IN PROCESS (§X3's timeout shape): a run commits through the
  * new repo's real hook stack, so each carries a 170 s timeout of its own. A
- * case that reaches that commit is skipped without gitleaks, whose secret scan
- * the stack runs. The two --resume groups, in new-repo-resume.test.ts and
- * new-repo-copy-resume.test.ts, resume with the hooks off, save the
- * hook-refusal case, and reach a hooked clean run's end state (#1150).
+ * case committing through that stack is skipped without gitleaks, whose secret
+ * scan the stack runs. That stack is most of a run's time, so only a case about
+ * the commit runs it, one to a file (this file's first, `*-hook`, `*-mirror`);
+ * the rest commit with the hooks off, needing no gitleaks. The --resume files
+ * reach a clean run's end state built with the hooks off, which the two
+ * end-to-end cases hold equal to a hooked run's (#1150, #4297).
  *
  * The founder runs the script through /new-repo and approves one confirmed
  * run: loosen a case and that run can leave a GitHub repo, clone or
@@ -35,6 +37,7 @@ import { shellQuote } from "../../../../scripts/lib/sh-quote.js";
 import {
 	BASHRC,
 	buildLiveBlock,
+	cleanRun,
 	gitConfig,
 	HAS_GITLEAKS,
 	IDEA,
@@ -42,6 +45,8 @@ import {
 	MAINTENANCE_OFF,
 	newRepoSuite,
 	pinned,
+	RUN_TIMEOUT_MS,
+	readEndState,
 	readIgnoredScratch,
 	sandbox,
 	statusOf,
@@ -58,6 +63,11 @@ describe("new-repo.js on an empty project", () => {
 			const r = s.run();
 			expect(r.stderr).toBe("");
 			expect(r.status, r.stdout).toBe(0);
+			/* The world the --resume files build their golden from, with the hooks
+			 * off, is the one the real hook stack leaves (#1150). */
+			expect(readEndState(s)).toEqual(
+				cleanRun(false, { hooks: false }).goldenEnd,
+			);
 
 			for (const step of [
 				"preflight",
@@ -224,21 +234,20 @@ describe("new-repo.js on an empty project", () => {
 			expect(fs.readFileSync(s.rc, "utf8")).toBe(`${BASHRC}\n${TIDES_BLOCK}\n`);
 			expect(s.readBackups()).toHaveLength(1);
 		},
-		340_000,
+		4 * RUN_TIMEOUT_MS, // a run, a hooks-off clean run, a re-run and a resume
 	);
 
-	it.skipIf(!HAS_GITLEAKS)(
-		"commits the skeleton where a global gitignore hides .claude/settings.local.json, which stopped the #725 live trial",
-		() => {
-			const s = sandbox({ globalIgnore: "**/.claude/settings.local.json\n" });
-			const r = s.run();
-			expect(r.status, r.stdout + r.stderr).toBe(0);
-			expect(statusOf(r.stdout, "commit")).toBe("done");
-			expect(s.git("ls-files", ".claude/settings.local.json")).toBe("");
-			expect(s.git("status", "--porcelain", "--untracked-files=all")).toBe("");
-		},
-		340_000,
-	);
+	it("commits the skeleton where a global gitignore hides .claude/settings.local.json, which stopped the #725 live trial", () => {
+		const s = sandbox({
+			globalIgnore: "**/.claude/settings.local.json\n",
+			hooks: false,
+		});
+		const r = s.run();
+		expect(r.status, r.stdout + r.stderr).toBe(0);
+		expect(statusOf(r.stdout, "commit")).toBe("done");
+		expect(s.git("ls-files", ".claude/settings.local.json")).toBe("");
+		expect(s.git("status", "--porcelain", "--untracked-files=all")).toBe("");
+	}, 340_000);
 
 	it("--dry-run's clone row quotes a path a shell would misread (#3989)", () => {
 		const s = sandbox({ tmpPrefix: "new-repo-$it's " });
@@ -436,50 +445,44 @@ describe("new-repo.js after a part-way stop", () => {
 		expect(fs.existsSync(path.join(s.clone, ".git/new-repo.json"))).toBe(true);
 	});
 
-	it.skipIf(!HAS_GITLEAKS)(
-		"stops at exit 1 when an issue create lands but reports failure, and --resume keeps the lowest map, closing every duplicate",
-		() => {
-			const s = sandbox();
-			fs.writeFileSync(path.join(s.sb, "fail/issue-create"), "");
-			const r = s.run();
-			expect(r.status, r.stdout).toBe(1);
-			expect(statusOf(r.stdout, "first map")).toBe("STOPPED");
-			expect(r.stdout).toContain(
-				"Re-run: node .claude/skills/new-repo/scripts/new-repo.js --resume tides --no-plugin-install\n",
-			);
-			expect(r.stdout).not.toContain("Manual step:");
-			expect(s.readState().issues).toHaveLength(1);
+	it("stops at exit 1 when an issue create lands but reports failure, and --resume keeps the lowest map, closing every duplicate", () => {
+		const s = sandbox({ hooks: false });
+		fs.writeFileSync(path.join(s.sb, "fail/issue-create"), "");
+		const r = s.run();
+		expect(r.status, r.stdout).toBe(1);
+		expect(statusOf(r.stdout, "first map")).toBe("STOPPED");
+		expect(r.stdout).toContain(
+			"Re-run: node .claude/skills/new-repo/scripts/new-repo.js --resume tides --no-plugin-install\n",
+		);
+		expect(r.stdout).not.toContain("Manual step:");
+		expect(s.readState().issues).toHaveLength(1);
 
-			/* Two more failed runs each filed a map before this one. */
-			fs.rmSync(path.join(s.sb, "fail/issue-create"));
-			const gh = s.readState();
-			gh.issues.push(
-				{ ...gh.issues[0], number: 2 },
-				{ ...gh.issues[0], number: 3 },
-			);
-			fs.writeFileSync(
-				path.join(s.sb, "github/lucmoseley/tides.json"),
-				JSON.stringify(gh),
-			);
+		/* Two more failed runs each filed a map before this one. */
+		fs.rmSync(path.join(s.sb, "fail/issue-create"));
+		const gh = s.readState();
+		gh.issues.push(
+			{ ...gh.issues[0], number: 2 },
+			{ ...gh.issues[0], number: 3 },
+		);
+		fs.writeFileSync(
+			path.join(s.sb, "github/lucmoseley/tides.json"),
+			JSON.stringify(gh),
+		);
 
-			const again = s.resume();
-			expect(again.status, again.stdout).toBe(0);
-			expect(again.stdout).toMatch(/^first map {6}repaired — #1$/m);
-			const [kept, ...dups] = s.readState().issues;
-			expect(kept.state).toBe("OPEN");
-			expect(kept.body).toContain("/wayfinder Chart the map on #1.");
-			for (const dup of dups) {
-				expect(dup.state).toBe("CLOSED");
-				expect(dup.comments).toEqual([
-					"duplicate of #1, filed by a failed new-repo run",
-				]);
-			}
-			expect(s.git("rev-parse", "origin/main")).toBe(
-				s.git("rev-parse", "HEAD"),
-			);
-		},
-		340_000,
-	);
+		const again = s.resume();
+		expect(again.status, again.stdout).toBe(0);
+		expect(again.stdout).toMatch(/^first map {6}repaired — #1$/m);
+		const [kept, ...dups] = s.readState().issues;
+		expect(kept.state).toBe("OPEN");
+		expect(kept.body).toContain("/wayfinder Chart the map on #1.");
+		for (const dup of dups) {
+			expect(dup.state).toBe("CLOSED");
+			expect(dup.comments).toEqual([
+				"duplicate of #1, filed by a failed new-repo run",
+			]);
+		}
+		expect(s.git("rev-parse", "origin/main")).toBe(s.git("rev-parse", "HEAD"));
+	}, 340_000);
 });
 
 describe("new-repo.js and the ~/.bashrc launch block", () => {
@@ -591,22 +594,18 @@ describe("new-repo.js and the ~/.bashrc launch block", () => {
 		expect(r.stdout).not.toContain("warning:");
 	});
 
-	it.skipIf(!HAS_GITLEAKS)(
-		"never names a launch alias that a block kept as found does not define",
-		() => {
-			const old = [
-				"# --- tides, one alias per plan ---",
-				"alias td1='(cd ~/tides && claude agents)'",
-				"# --- end tides block ---",
-			].join("\n");
-			const s = sandbox({ bashrc: `${BASHRC}\n${old}\n` });
-			const r = s.run();
-			expect(r.status, r.stdout).toBe(0);
-			expect(r.stdout).toContain(
-				"Open a new terminal tab and start a session in ~/tides: the kept ~/.bashrc block defines no td2",
-			);
-			expect(r.stdout).not.toContain("and run: td2");
-		},
-		170_000,
-	);
+	it("never names a launch alias that a block kept as found does not define", () => {
+		const old = [
+			"# --- tides, one alias per plan ---",
+			"alias td1='(cd ~/tides && claude agents)'",
+			"# --- end tides block ---",
+		].join("\n");
+		const s = sandbox({ bashrc: `${BASHRC}\n${old}\n`, hooks: false });
+		const r = s.run();
+		expect(r.status, r.stdout).toBe(0);
+		expect(r.stdout).toContain(
+			"Open a new terminal tab and start a session in ~/tides: the kept ~/.bashrc block defines no td2",
+		);
+		expect(r.stdout).not.toContain("and run: td2");
+	}, 170_000);
 });

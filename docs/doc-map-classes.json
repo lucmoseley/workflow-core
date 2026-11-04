@@ -467,6 +467,22 @@
 		"consumes": null,
 		"reader": "agent"
 	},
+	".claude/skills/new-repo/scripts/new-repo-copy-mirror.test.ts": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": null
+	},
+	".claude/skills/new-repo/scripts/new-repo-copy-resume-hook.test.ts": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": null
+	},
 	".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts": {
 		"section": "Skills & settings",
 		"class": "source-of-truth",
@@ -489,6 +505,14 @@
 		"classQualifier": null,
 		"role": null,
 		"route": "Direct; extend as above",
+		"consumes": null
+	},
+	".claude/skills/new-repo/scripts/new-repo-resume-hook.test.ts": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
 		"consumes": null
 	},
 	".claude/skills/new-repo/scripts/new-repo-resume.test.ts": {
