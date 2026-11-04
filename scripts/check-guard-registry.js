@@ -1469,7 +1469,6 @@ function isHookTrigger(trigger) {
 }
 
 /**
- * The `TREE:` line a hook-run script owes at the core (#4243).
  * @param {{atCore: boolean, rel: string, triggers: string[],
  *   ann: Record<string, string>}} script
  * @param {(kind: string, detail: string) => void} report

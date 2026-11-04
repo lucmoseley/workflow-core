@@ -126,8 +126,7 @@ sid=$(jq -r '.session_id // empty' <<<"$payload" 2>/dev/null)
 [[ -n "$sid" ]] || exit 0
 
 # Every git read below runs in the session's own tree, the payload's cwd's top
-# level (#4243): its HEAD is the base, its diff the signal. Markers, the ledger
-# and the standards files stay the host root's.
+# level (#4243): its HEAD is the base, its diff the signal.
 cwd=$(jq -r '.cwd // empty' <<<"$payload" 2>/dev/null)
 tree=$(git -C "${cwd:-.}" rev-parse --show-toplevel 2>/dev/null) || exit 0
 cd "$tree" 2>/dev/null || exit 0
