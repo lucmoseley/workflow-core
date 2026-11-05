@@ -473,7 +473,7 @@ describe("a rules-file command rewritten for an adopter (#654)", () => {
 				});
 			expect(
 				run(`${command("lib/rule-text\\.sh")} file-claim`).stdout,
-			).toContain("A FILE A LIVE SESSION HAS WRITTEN IS TAKEN");
+			).toContain("A FILE A LIVE SESSION HAS WRITTEN IS CLAIMED");
 			expect(run(`${command("bg-run\\.sh")} check nosuch`).stderr).toMatch(
 				/no run named nosuch/,
 			);

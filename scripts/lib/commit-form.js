@@ -37,18 +37,12 @@
  *                                  stood down mid-sequence.
  *   commit -m "…Fixes #n"   deny   Zero legitimate uses (#129, #118). Binds in
  *                                  every tree and stands down for nothing.
- *   commit -- <pathspec>    warn   A pathspec takes the working-tree copy of
- *                                  every path it names (mantahostels#1539), so
- *                                  a live neighbour's claimed, unsaved edits
- *                                  land under this message. Shared-tree-only
- *                                  and stood down mid-sequence.
  *   commit -- <untracked>   warn   A pathspec cannot reach a path git does not
  *                                  track (mantahostels#1612): git exits 1 and
  *                                  commits nothing, and a session reads that
  *                                  as "nothing to do". Binds in a worktree too;
- *                                  stood down mid-sequence. It OUTRANKS the
- *                                  sweep warn, git rejecting the whole commit,
- *                                  and is silent on a word an EARLIER SEGMENT
+ *                                  stood down mid-sequence. It is silent on a
+ *                                  word an EARLIER SEGMENT
  *                                  intent-adds (mantahostels#3280), where that
  *                                  ground is false.
  *   commit -- <directory>   warn   A directory word holding a tracked and an
@@ -139,7 +133,6 @@ const {
 } = require("./shell-words.js");
 
 /**
- * @typedef {{ rel: string, region: string | null, holder: string }} Sweep
  * @typedef {"cached" | "others" | "others-standard"} LsMode
  * @typedef {object} CommitFormPorts
  * @property {string} root the host root, as the arbiter's repoRoot() reads it
@@ -153,10 +146,9 @@ const {
  * @property {(dir: string, file: string) => string[] | null} patchFiles
  * @property {(file: string) => string | null} readList a pathspec list file's
  *   text; null where it is not a readable regular file
- * @property {(paths: string[], sessionId: string) => { sweeps: Sweep[] | null,
- *   written: string[] | null, fault: string }} commitCheck the arbiter's
- *   answer for that session: the sweep risks among `paths`, and the write
- *   ledger, each null where it is unavailable, `fault` saying why
+ * @property {(sessionId: string) => { written: string[] | null,
+ *   fault: string }} commitCheck the arbiter's write ledger for that session,
+ *   null where it is unavailable, `fault` saying why
  * @property {(match: string) => string} closingRefusal what the
  *   closing-keyword deny says after its opening line
  * @typedef {import("./kit-context.js").KitContext & CommitFormPorts & {
@@ -169,10 +161,6 @@ const {
  * nothing has measured what a session stops reading at. The budget is the
  * whole message's, not each word's. */
 const PATHS_SHOWN_CAP = 10;
-
-/* A session name is a whole ticket title. 60 is a guess at the width that
- * still names the ticket; nothing has measured it. */
-const HOLDER_WIDTH = 60;
 
 /** @param {CommitFormContext} ctx */
 const untrackedEscape = (ctx) =>
@@ -486,17 +474,13 @@ function treeClassOf(j, dir) {
 }
 
 /**
- * The arbiter's answer. No session is a defined state of the harness, so it
- * is no fault: the sweep check finds nothing and the bare warn stays
- * index-wide.
+ * The arbiter's write ledger. No session is a defined state of the harness,
+ * so it is no fault: the bare warn stays index-wide.
  * @param {Judging} j
- * @param {string[]} paths
  */
-function commitCheck({ ctx }, paths) {
+function commitCheck({ ctx }) {
 	const session = ctx.session || ctx.env.CLAUDE_CODE_SESSION_ID || "";
-	return session
-		? ctx.commitCheck(paths, session)
-		: { sweeps: /** @type {Sweep[]} */ ([]), written: null, fault: "" };
+	return session ? ctx.commitCheck(session) : { written: null, fault: "" };
 }
 
 /**
@@ -513,76 +497,6 @@ function listUnder({ ctx }, { dir, abs }, mode, ticket) {
 			`git could not list ${mode === "cached" ? "tracked" : "untracked"} files under ${abs} in ${dir} — that pathspec word was left unjudged for ${ticket}`,
 		);
 	return out;
-}
-
-/**
- * Each claimed path's paragraph and its declared-sweep line, the first
- * PATHS_SHOWN_CAP of them.
- * @param {Sweep[]} sweeps
- */
-function sweepLines(sweeps) {
-	let body = "";
-	let swept = "";
-	for (const { rel, region, holder: who } of sweeps.slice(0, PATHS_SHOWN_CAP)) {
-		const holder =
-			who.length > HOLDER_WIDTH ? `${who.slice(0, HOLDER_WIDTH)}…` : who;
-		const subject = region ? `a claim on §${region} of it` : "a claim on it";
-		body += `This commit names ${rel}, and a live session (${holder}) holds ${subject} with unsaved edits in the working tree. A pathspec commit takes the whole working-tree file, ${region ? "their region included, " : ""}so their work would be swept in under your message — that is mantahostels#1539.\n\n`;
-		/* The declared-sweep line mantahostels#3270 prescribes, composed
-		 * literally, not left as a template (mantahostels#3272). */
-		swept += `  Swept: ${region ? `§${region}` : rel} (${holder})\n`;
-	}
-	const omitted = sweeps.length - PATHS_SHOWN_CAP;
-	if (omitted > 0) {
-		body += `… and ${omitted} more claimed path(s) this commit names.\n\n`;
-		swept += `  … and ${omitted} more\n`;
-	}
-	return { body, swept };
-}
-
-/**
- * The pathspec-sweep warn (mantahostels#1539, whole-file and warn-only by
- * mantahostels#1560). `dir` is the commit's cwd: a pathspec is cwd-relative
- * and the arbiter resolves against the repo root.
- * @param {Judging} j
- * @param {string[]} words
- * @param {string} dir
- */
-function sweepWarn(j, words, dir) {
-	const { ctx } = j;
-	const lits = words.map((w) => known(j, w));
-	const resolved = lits.flatMap((l) => (l === null ? [] : [absAt(l, dir)]));
-	if (resolved.length === 0) return;
-	const { sweeps, fault } = commitCheck(j, resolved);
-	if (sweeps === null)
-		return ctx.log(
-			`${fault} — the mantahostels#1539 sweep check was skipped for this pathspec commit`,
-		);
-	if (sweeps.length === 0) return;
-	/* Does the pathspec name anything beyond the colliding files? Both sides
-	 * are lexical, as the arbiter's are (mantahostels#3315); an unreadable word
-	 * fails open to "there are other paths". */
-	const collided = sweptPaths(sweeps);
-	const others =
-		lits.includes(null) ||
-		resolved.some((p) => !collided.has(relativeTo(ctx.root, p)));
-	j.warning = sweepWarning(sweeps, others);
-}
-
-/** @param {Sweep[]} sweeps */
-const sweptPaths = (sweeps) => new Set(sweeps.map((s) => s.rel));
-
-/**
- * The whole sweep warn: where the pathspec names other paths, it points at
- * them; where it does not, it hands over the Swept lines to declare.
- * @param {Sweep[]} sweeps
- * @param {boolean} others
- */
-function sweepWarning(sweeps, others) {
-	const { body, swept } = sweepLines(sweeps);
-	return others
-		? `${body}Commit your own paths instead:\n  git commit -m "…" -- <your other paths>`
-		: `${body}This file is the whole pathspec, so there are no other paths to commit instead.\nCommit anyway and declare the sweep — put these lines in the commit message body (mantahostels#3270):\n${swept}`;
 }
 
 /**
@@ -823,7 +737,7 @@ function listRewritten(j, file) {
  * @param {string[]} staged
  */
 function bareWarn(j, staged) {
-	const { written, fault } = commitCheck(j, []);
+	const { written, fault } = commitCheck(j);
 	if (written === null && fault)
 		j.ctx.log(
 			`${fault} — the write ledger was unread, so this bare commit's warn stays index-wide`,
@@ -879,15 +793,15 @@ function untrackedWarns(j, words, tree) {
 }
 
 /**
- * A shared-tree commit's index warns: the sweep warn on a pathspec, the bare
- * warn on whatever the index holds without one.
+ * A shared-tree commit's index warn: the bare warn on whatever the index holds
+ * when the commit names no pathspec.
  * @param {Judging} j
  * @param {ReturnType<typeof scanCommit>} c
  * @param {string} tree
  */
 function indexWarn(j, c, tree) {
 	if (j.warning) return;
-	if (c.hasPathspec) return sweepWarn(j, c.words, tree);
+	if (c.hasPathspec) return;
 	const staged = j.ctx.stagedFiles(tree);
 	if (staged === null)
 		return j.ctx.log(
@@ -1125,6 +1039,4 @@ module.exports = {
 	field: "command",
 	noun: "command",
 	decide,
-	sweepWarning,
-	sweptPaths,
 };

@@ -95,13 +95,5 @@ you has written there since (mantahostels#250):
 
 ## If the unstaged hunk vanishes anyway
 
-It was a session, not machinery — but check one command first.
-`node scripts/session-arbiter.js release --park <path>` writes `HEAD` over the
-file, and the arbiter *recommends* it unprompted to a session whose commit is
-blocked (`scripts/session-arbiter.js:1579`), so it is the reachable one. It
-copies the bytes aside into the arbiter's `parked/` directory before it writes,
-and it refuses while any other live session is a writer on the path — so a
-vanished hunk with no `parked/` copy on disk did not come from there.
-
-Nothing else in the repo restores committed content over a working-tree file
-(mantahostels#2384).
+It was a session, not machinery: nothing in the repo restores committed content
+over a working-tree file (mantahostels#2384).

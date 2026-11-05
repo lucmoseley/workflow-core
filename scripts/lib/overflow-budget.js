@@ -206,29 +206,42 @@ function priceSessions(seat, lookup) {
 }
 
 /**
- * The key's sessions the listing holds running, each at its ledger row's spend.
+ * The key's sessions the listing holds running.
  * @param {OverflowSeat} seat
  * @param {OverflowLookup} lookup
- * @param {LedgerEntry[]} ledger
  * @param {() => import("./agent-liveness.js").Listing} readAgents
- * @returns {RunningRun[]}
+ * @returns {string[]}
  * @throws where the listing cannot be read: a key's running sessions must not
  *   read as none
  */
-function readRunning(seat, lookup, ledger, readAgents) {
+function readRunning(seat, lookup, readAgents) {
 	const listing = readAgents();
 	if (listing.why !== undefined) throw new Error(listing.why);
-	const spent = new Map(ledger.map((e) => [e.sessionId, e.costUsd]));
 	return listing.agents
 		.filter(
 			(a) =>
 				!isTerminalAgent(a) &&
 				lookup({ jobId: a.id, sessionId: a.sessionId })?.keyVar === seat.keyVar,
 		)
-		.map((a) => ({
-			sessionId: a.sessionId,
-			spentUsd: spent.get(a.sessionId) ?? null,
-		}));
+		.map((a) => a.sessionId);
+}
+
+/**
+ * Running sessions, each at its ledger row's spend and its chain share (#4369).
+ * @param {string[]} sessionIds
+ * @param {LedgerEntry[]} ledger
+ * @param {LedgerEntry[]} chainPriced the ledger, its chain members at their
+ *   shares
+ * @returns {RunningRun[]}
+ */
+function priceRunning(sessionIds, ledger, chainPriced) {
+	const spent = new Map(ledger.map((e) => [e.sessionId, e.costUsd]));
+	const share = new Map(chainPriced.map((e) => [e.sessionId, e.costUsd]));
+	return sessionIds.map((sessionId) => ({
+		sessionId,
+		spentUsd: spent.get(sessionId) ?? null,
+		shareUsd: share.get(sessionId),
+	}));
 }
 
 /**
@@ -248,11 +261,17 @@ function seatBudget(seat, root, readAgents = readAgentsForBudget) {
 	if (!table) return { why: "the session cost table is unreadable" };
 	let ledger;
 	let running;
+	let settled;
 	let log;
 	try {
 		const lookup = readEveryOverflowLookup();
 		ledger = priceSessions(seat, lookup);
-		running = readRunning(seat, lookup, ledger, readAgents);
+		settled = settleChainsOnce(seat, lookup, ledger);
+		running = priceRunning(
+			readRunning(seat, lookup, readAgents),
+			ledger,
+			settled,
+		);
 		log = readConsoleLog(seat);
 	} catch (err) {
 		return { why: caught(err).message };
@@ -264,7 +283,7 @@ function seatBudget(seat, root, readAgents = readAgentsForBudget) {
 			table,
 			now: Date.now(),
 			reading: log.reading,
-			ledger,
+			ledger: settled,
 			running,
 		}),
 		readFailure: log.failure,
@@ -276,20 +295,29 @@ function seatBudget(seat, root, readAgents = readAgentsForBudget) {
 const dollars = (usd) => `$${usd.toFixed(2)}`;
 
 /**
- * The session a chain of `--bg --resume` copies started from (#4195).
+ * The session a chain of `--bg --resume` copies started from, and how many
+ * copies deep a session is in it (#4195).
  * @param {OverflowLookup} lookup
  * @param {string} sessionId
+ * @returns {{root: string, depth: number}}
  */
-function chainRootOf(lookup, sessionId) {
+function chainOf(lookup, sessionId) {
 	const seen = new Set([sessionId]);
 	let id = sessionId;
 	for (;;) {
 		const parent = lookup({ sessionId: id })?.copyOf;
-		if (!parent || seen.has(parent)) return id;
+		if (!parent || seen.has(parent)) return { root: id, depth: seen.size - 1 };
 		seen.add(parent);
 		id = parent;
 	}
 }
+
+/**
+ * The session a chain of `--bg --resume` copies started from (#4195).
+ * @param {OverflowLookup} lookup
+ * @param {string} sessionId
+ */
+const chainRootOf = (lookup, sessionId) => chainOf(lookup, sessionId).root;
 
 /**
  * What a session's transcript repeats from before a move put its chain on the
@@ -300,6 +328,51 @@ function chainRootOf(lookup, sessionId) {
  */
 const offKeyOf = (lookup, sessionId) =>
 	lookup({ sessionId: chainRootOf(lookup, sessionId) })?.offKeyUsd ?? 0;
+
+/**
+ * The key's sessions grouped by chain root, each chain's root first and every
+ * copy after its parent, with each session's transcript where it is listed and
+ * its ledger row's spend.
+ * @param {OverflowSeat} seat
+ * @param {OverflowLookup} lookup
+ * @param {LedgerEntry[]} ledger
+ * @throws where the dir's project dirs will not list
+ */
+function readChains(seat, lookup, ledger) {
+	const files = new Map(
+		readTranscripts(seat.dir).map((t) => [t.sessionId, t.file]),
+	);
+	const spent = new Map(ledger.map((e) => [e.sessionId, e.costUsd]));
+	/** @type {Map<string, {sessionId: string, depth: number}[]>} */
+	const byRoot = new Map();
+	for (const sessionId of new Set([...files.keys(), ...spent.keys()])) {
+		if (lookup({ sessionId })?.keyVar !== seat.keyVar) continue;
+		const { root, depth } = chainOf(lookup, sessionId);
+		byRoot.set(root, [...(byRoot.get(root) ?? []), { sessionId, depth }]);
+	}
+	/** @type {Map<string, string[]>} */
+	const chains = new Map();
+	for (const [root, members] of byRoot)
+		chains.set(
+			root,
+			members
+				.sort(
+					(x, y) => x.depth - y.depth || x.sessionId.localeCompare(y.sessionId),
+				)
+				.map((m) => m.sessionId),
+		);
+	return { files, spent, chains };
+}
+
+/**
+ * The spend of a chain's listed transcripts, each request once, less what its
+ * root's move repeats from off the key.
+ * @param {OverflowLookup} lookup
+ * @param {string} root
+ * @param {string[]} listed
+ */
+const readListedChainUsd = (lookup, root, listed) =>
+	Math.max(0, readChainSpendUsd(listed) - offKeyOf(lookup, root));
 
 /**
  * Each session's spend with every copy in its chain, by session: a copy
@@ -314,28 +387,53 @@ const offKeyOf = (lookup, sessionId) =>
  * @throws where the dir's project dirs will not list
  */
 function readChainSpend(seat, lookup, ledger) {
-	const files = new Map(
-		readTranscripts(seat.dir).map((t) => [t.sessionId, t.file]),
-	);
-	const spent = new Map(ledger.map((e) => [e.sessionId, e.costUsd]));
-	/** @type {Map<string, string[]>} */
-	const chains = new Map();
-	for (const sessionId of new Set([...files.keys(), ...spent.keys()])) {
-		if (lookup({ sessionId })?.keyVar !== seat.keyVar) continue;
-		const root = chainRootOf(lookup, sessionId);
-		chains.set(root, [...(chains.get(root) ?? []), sessionId]);
-	}
+	const { files, spent, chains } = readChains(seat, lookup, ledger);
 	for (const [root, members] of chains) {
 		if (members.length < 2) continue;
 		const listed = members.flatMap((m) => files.get(m) ?? []);
 		const gone = members
 			.filter((m) => !files.has(m))
 			.reduce((t, m) => t + (spent.get(m) ?? 0), 0);
-		const offKey = files.has(root) ? offKeyOf(lookup, root) : 0;
-		const usd = Math.max(0, readChainSpendUsd(listed) - offKey) + gone;
+		const usd = readListedChainUsd(lookup, root, listed) + gone;
 		for (const m of members) spent.set(m, Math.max(usd, spent.get(m) ?? 0));
 	}
 	return spent;
+}
+
+/**
+ * The ledger with each chain member's row at what it adds to the members
+ * before it, so a parent and its copies settle the requests they share once
+ * (#4208). Rows stay one per session, each settled or held by its own last
+ * write. A member whose transcript is gone keeps its row, which may count the
+ * repeated requests twice.
+ * @param {OverflowSeat} seat
+ * @param {OverflowLookup} lookup
+ * @param {LedgerEntry[]} ledger
+ * @returns {LedgerEntry[]}
+ * @throws where the dir's project dirs will not list
+ */
+function settleChainsOnce(seat, lookup, ledger) {
+	const { files, chains } = readChains(seat, lookup, ledger);
+	/** @type {Map<string, number>} */
+	const added = new Map();
+	for (const [root, members] of chains) {
+		if (members.length < 2) continue;
+		/** @type {string[]} */
+		const listed = [];
+		let before = 0;
+		for (const m of members) {
+			const file = files.get(m);
+			if (file === undefined) continue;
+			listed.push(file);
+			const after = readListedChainUsd(lookup, root, listed);
+			added.set(m, after - before);
+			before = after;
+		}
+	}
+	return ledger.map((e) => {
+		const costUsd = added.get(e.sessionId);
+		return costUsd === undefined ? e : { ...e, costUsd };
+	});
 }
 
 /**

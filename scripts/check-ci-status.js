@@ -154,6 +154,13 @@ const { openTrackingIssue } = require("./lib/tracking-issue");
 /* scheduled-checks.yml's aggregate that `main`'s ruleset requires (#2414). It
  * goes red only where another job did, so it owes no ticket of its own. */
 const VERDICT_JOB = "Suite passed";
+/* scheduled-checks.yml's per-file CI time job, which turns the sweep red once
+ * #4293 makes it a need of `Suite passed`. Its red is a median
+ * over three sweeps, so it has no culprit commit to bisect, and its tickets
+ * are the per-file cut tickets under #2729 (#4290), never a filer's. */
+const FILE_TIMES_JOB = "Test file CI times";
+const FILE_TIMES_ROUTE =
+	"each file over the limit is cut under its own profiled ticket (a sub-issue of #2729, #4290) — `node scripts/check-file-ci-time.js` names the files";
 
 // The red-suite filer's own spellings (#532).
 const redSuite = require("./report-red-suite");
@@ -828,7 +835,10 @@ function buildTicketLines(isSweep, failures, ticket, indent) {
 	const filerOwns = (name) => isSweep && name.startsWith(redSuite.SUITE_JOB);
 	const lines = failures.jobs
 		.filter((name) => !filerOwns(name) && !(isSweep && name === VERDICT_JOB))
-		.map((name) => `${indent}Ticket for ${name}: no filer covers this job`);
+		.map(
+			(name) =>
+				`${indent}Ticket for ${name}: ${isSweep && name === FILE_TIMES_JOB ? FILE_TIMES_ROUTE : "no filer covers this job"}`,
+		);
 	if (!isSweep) return lines;
 	if (redSuite.filesFor(failures.rows))
 		lines.unshift(`${indent}Ticket for ${redSuite.SUITE_JOB}: ${ticket()}`);
@@ -1471,9 +1481,11 @@ function reportRed(ctx, st) {
 	/* The failing STEP, per red run — the strongest single narrowing signal
 	 * this can print, since a red is as often Biome, shellcheck or a doc guard
 	 * as it is a test. Not asked for an unfinished run: nothing in it failed. */
-	for (const r of failed) sayFailedRun(ctx, r, { deadline, ticket });
+	const failuresOf = new Map(
+		failed.map((r) => [r, sayFailedRun(ctx, r, { deadline, ticket })]),
+	);
 
-	sayBisectRange(ctx, branch, broken, st.keyed);
+	sayBisectRange(ctx, branch, broken, { keyed: st.keyed, failuresOf });
 
 	const coverage = headCoverage(sha);
 	if (coverage.line) ctx.say(`\n${coverage.line}`);
@@ -1555,6 +1567,7 @@ function sayVerdict(ctx, { branch, sha, broken, unfinished }) {
  * @param {Ctx} ctx
  * @param {Run} r
  * @param {{deadline: number|null, ticket: SuiteTicket}} opts
+ * @returns {RunFailures|null} null where unread, or for a run with no verdict
  */
 function sayFailedRun(ctx, r, { deadline, ticket }) {
 	/* The trigger, because it changes what the verdict means: `schedule` is a
@@ -1563,19 +1576,35 @@ function sayFailedRun(ctx, r, { deadline, ticket }) {
 	ctx.say(
 		`  ${workflowLabel(r)}: ${r.conclusion}${r.event ? ` (${r.event})` : ""}`,
 	);
-	if (!carriesNoVerdict(r)) {
-		const failures = runFailures(r.databaseId, deadline);
-		for (const line of buildStepLines(failures?.steps ?? null, "    "))
-			ctx.say(line);
-		for (const line of buildTicketLines(
-			r.workflowName === redSuite.SWEEP_NAME,
-			failures,
-			ticket,
-			"    ",
-		))
-			ctx.say(line);
+	if (carriesNoVerdict(r)) {
+		ctx.say(`    ${r.url}`);
+		return null;
 	}
+	const failures = runFailures(r.databaseId, deadline);
+	for (const line of buildStepLines(failures?.steps ?? null, "    "))
+		ctx.say(line);
+	for (const line of buildTicketLines(
+		r.workflowName === redSuite.SWEEP_NAME,
+		failures,
+		ticket,
+		"    ",
+	))
+		ctx.say(line);
 	ctx.say(`    ${r.url}`);
+	return failures;
+}
+
+/**
+ * Whether a sweep's red is the per-file CI time gate's alone: a median over
+ * three sweeps, which no single commit caused.
+ *
+ * @param {Run} r
+ * @param {RunFailures|null|undefined} failures
+ */
+function isFileTimesRedAlone(r, failures) {
+	if (r.workflowName !== redSuite.SWEEP_NAME || !failures) return false;
+	const jobs = failures.jobs.filter((name) => name !== VERDICT_JOB);
+	return jobs.length > 0 && jobs.every((name) => name === FILE_TIMES_JOB);
 }
 
 /**
@@ -1607,10 +1636,19 @@ function buildNoGreenAdvice(branch, name) {
  * @param {Ctx} ctx
  * @param {string} branch
  * @param {Run[]} broken
- * @param {Run[]} keyed
+ * @param {{keyed: Run[], failuresOf: Map<Run, RunFailures|null>}} opts
  */
-function sayBisectRange(ctx, branch, broken, keyed) {
-	const culprit = broken[0];
+function sayBisectRange(ctx, branch, broken, { keyed, failuresOf }) {
+	const bisectable = broken.filter(
+		(r) => !isFileTimesRedAlone(r, failuresOf.get(r)),
+	);
+	const culprit = bisectable[0];
+	if (!culprit && broken.length > 0) {
+		ctx.say(
+			`\nNo bisect: ${FILE_TIMES_JOB} judges a median over three sweeps, which no single commit caused.`,
+		);
+		return;
+	}
 	const green = culprit ? lastGreenBefore(culprit, keyed) : null;
 	if (culprit && !green) {
 		ctx.say(buildNoGreenAdvice(branch, culprit.workflowName));

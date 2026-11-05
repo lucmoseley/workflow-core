@@ -3,7 +3,8 @@
  * Pins lib/overflow-budget.js: a session on the key priced from its transcript,
  * priced again as it grows and counted once; only sessions the launch record
  * marks on the key counted, from any checkout; the exhausted mark from a credit
- * refusal in a transcript; a listed session held, not settled; and the CLI's JSON
+ * refusal in a transcript; a listed session held, not settled; a resumed copy's
+ * shared requests settled once (#4208); and the CLI's JSON
  * and status line for a fixture seat, every figure read from a fixed cost table
  * in a fixture checkout, and read there from a working directory that is no
  * checkout (#3683, #3695).
@@ -451,6 +452,97 @@ describe("a listed session", () => {
 	});
 });
 
+describe("a resumed copy's settled spend (#4208)", () => {
+	it("settles the requests a copy shares with its parent once, keeping a row each", () => {
+		const parent = recordLaunch("0000c001");
+		appendTranscript(parent, buildModelTurn(5_000_000, "r1"));
+		const copy = recordLaunch("0000c002", { copyOf: parent });
+		appendTranscript(
+			copy,
+			buildModelTurn(5_000_000, "r1"),
+			buildModelTurn(3_000_000, "r2"),
+		);
+		expect(budget()).toMatchObject({ settledUsd: 32 });
+		expect(readLedgerLines()).toMatchObject([
+			{ sessionId: parent, costUsd: 20 },
+			{ sessionId: copy, costUsd: 32 },
+		]);
+	});
+
+	it("counts what the parent spent after the fork, and a copy of a copy", () => {
+		const parent = recordLaunch("0000c001");
+		appendTranscript(
+			parent,
+			buildModelTurn(5_000_000, "r1"),
+			buildModelTurn(4_000_000, "r9"),
+		);
+		const copy = recordLaunch("0000c002", { copyOf: parent });
+		appendTranscript(copy, buildModelTurn(5_000_000, "r1"));
+		const second = recordLaunch("0000c003", { copyOf: copy });
+		appendTranscript(
+			second,
+			buildModelTurn(5_000_000, "r1"),
+			buildModelTurn(3_500_000, "r2"),
+		);
+		expect(budget()).toMatchObject({ settledUsd: 50 });
+	});
+
+	it("settles a copy at what it adds while its parent is held", () => {
+		const parent = recordLaunch("0000c001");
+		appendTranscript(parent, buildModelTurn(5_000_000, "r1"));
+		const copy = recordLaunch("0000c002", { copyOf: parent });
+		appendTranscript(
+			copy,
+			buildModelTurn(5_000_000, "r1"),
+			buildModelTurn(3_000_000, "r2"),
+		);
+		writeListing([{ id: "0000c001", sessionId: parent, state: "working" }]);
+		/* the root held as before: spent 20 + remainder 7. */
+		expect(budget()).toMatchObject({
+			running: 1,
+			settledUsd: 12,
+			reservedUsd: 27,
+		});
+	});
+
+	it("takes a moved chain's off-key spend off once", () => {
+		const parent = recordLaunch("0000d001", { offKeyUsd: 40 });
+		appendTranscript(
+			parent,
+			buildModelTurn(10_000_000, "r1"),
+			buildModelTurn(5_000_000, "r2"),
+		);
+		const copy = recordLaunch("0000d002", { copyOf: parent });
+		appendTranscript(
+			copy,
+			buildModelTurn(10_000_000, "r1"),
+			buildModelTurn(5_000_000, "r2"),
+			buildModelTurn(1_000_000, "r3"),
+		);
+		expect(budget()).toMatchObject({ settledUsd: 24 });
+	});
+});
+
+describe("a running resumed copy (#4369)", () => {
+	it("is held at what it adds to its settled parent, plus its own spend's remainder", () => {
+		const parent = recordLaunch("0000c001");
+		appendTranscript(parent, buildModelTurn(5_000_000, "r1"));
+		const copy = recordLaunch("0000c002", { copyOf: parent });
+		appendTranscript(
+			copy,
+			buildModelTurn(5_000_000, "r1"),
+			buildModelTurn(3_000_000, "r2"),
+		);
+		writeListing([{ id: "0000c002", sessionId: copy, state: "working" }]);
+		/* spent 32, past u 3: share 12 + remainder 7 = 19 held. */
+		expect(budget()).toMatchObject({
+			running: 1,
+			settledUsd: 20,
+			reservedUsd: 19,
+		});
+	});
+});
+
 describe("a seat on a dir another seat shares (#3693)", () => {
 	it("prices only the sessions of its own key", () => {
 		const id = recordLaunch("0000000f");
@@ -724,6 +816,19 @@ describe("the per-session cap (#3698)", () => {
 					listed("0000d002"),
 				]),
 			).toEqual([]);
+		});
+
+		it("takes the move's off-key spend off a copy whose root's transcript is gone", () => {
+			const first = moved("0000d001");
+			const copy = recordLaunch("0000d002", { copyOf: first });
+			appendTranscript(
+				copy,
+				buildModelTurn(10_000_000, "r1"),
+				buildModelTurn(3_000_000, "r2"),
+			);
+			expect(stopOverAllowance(declared(), [listed("0000d002")])).toEqual([]);
+			fs.rmSync(transcriptOf(first));
+			expect(stopOverAllowance(declared(), [listed("0000d002")])).toEqual([]);
 		});
 	});
 
