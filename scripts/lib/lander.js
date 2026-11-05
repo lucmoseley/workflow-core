@@ -62,6 +62,7 @@ const {
 	buildRevertEnv,
 	buildRevertLine,
 	isAnchorFile,
+	parseRevertLine,
 	readKeptAnchors,
 } = require("./clean-revert.js");
 
@@ -87,8 +88,11 @@ const NO_SIDE = { base: null, range: [], merges: [] };
  * (#3936). */
 const SIDE_MERGES_SEARCHED = 3;
 
-/* Untraced (#4453): start at 3, and record each hold that meets it. */
-const DEPENDENTS_REVERTED = 3;
+/* Untraced (#4453): start at 3; a hold that meets it cites #4453, so each is
+ * found from there. */
+const MAX_DEPENDENTS_REVERTED = 3;
+/* docs/doc-map.md §A's classes, where a `generated-only` file is named. */
+const DOC_CLASSES = "docs/doc-map-classes.json";
 
 /* Untraced: a revert racing that many session pushes in a row is a busier
  * `landing` than any seen. */
@@ -2197,7 +2201,7 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 		let onto = git(["rev-parse", `${sha}^`]).trim();
 		for (;;) {
 			const body = git(["log", "-1", "--format=%B", onto]);
-			const commit = REVERTS_COMMIT.exec(body)?.[1];
+			const commit = parseRevertLine(body);
 			if (!commit || !body.includes(buildRevertedWithLine(culprit))) break;
 			dependents.unshift({ commit, revert: onto, files: [] });
 			onto = git(["rev-parse", `${onto}^`]).trim();
@@ -2206,7 +2210,7 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 			sha,
 			onto,
 			stale:
-				readRegistryRows(root, revertOrder(culprit, dependents), [
+				readRegistryRows(root, buildRevertOrder(culprit, dependents), [
 					onto,
 					"--head",
 					sha,
@@ -2374,7 +2378,7 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 				try {
 					push(
 						`${made.sha}:refs/heads/${LANDING_BRANCH}`,
-						buildRevertEnv(revertOrder(culprit, made.dependents)),
+						buildRevertEnv(buildRevertOrder(culprit, made.dependents)),
 					);
 					return { ...made, onto: tip };
 				} catch (err) {
@@ -2383,7 +2387,7 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 						return buildPushRefusal(
 							root,
 							{
-								reverted: revertOrder(culprit, made.dependents),
+								reverted: buildRevertOrder(culprit, made.dependents),
 								tip,
 								sha: made.sha,
 							},
@@ -2406,7 +2410,9 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
 	 * in any other file reverts first each later commit that changed one,
 	 * newest first, each its own commit, then the culprit (#4453): Zuul drops
 	 * a failed change with the changes that depend on it, and `landing` is never
-	 * rewritten, so here the drop is a revert. Past DEPENDENTS_REVERTED of them,
+	 * rewritten, so here the drop is a revert. A generated-only file's conflict
+	 * reverts none, as no dependent need be red for it. Past
+	 * MAX_DEPENDENTS_REVERTED of them,
 	 * or where one's own revert fails or the culprit's still conflicts after
 	 * them, it holds, naming why.
 	 * @param {string} culprit
@@ -2464,26 +2470,14 @@ function remoteGit(root, revertCommitTimeoutMs = REVERT_COMMIT_TIMEOUT_MS) {
  * @returns {{sha: string, stale: RegistryRow[]|null, dependents?: Dependent[]} | {failed: string}}
  */
 function revertWithDependents(tree, { culprit, parent, tip, why }) {
-	let staged = stageRevert(tree, culprit, parent);
-	/** @type {Dependent[]} */
-	let dependents = [];
-	if ("failed" in staged && staged.unsettled.length > 0) {
-		const first = staged.failed;
-		const reverted = revertDependents(tree, culprit, tip, staged.unsettled);
-		if ("failed" in reverted) return { failed: `${first}; ${reverted.failed}` };
-		dependents = reverted.dependents;
-		staged = stageRevert(tree, culprit, parent);
-		if ("failed" in staged)
-			return {
-				failed: `${first}; with ${listShort(dependents)} reverted first, it still did not apply: ${staged.failed}`,
-			};
-	}
-	if ("failed" in staged) return { failed: staged.failed };
+	const staged = stageWithDependents(tree, { culprit, parent, tip });
+	if ("failed" in staged) return staged;
+	const { note, dependents } = staged;
 	const after =
 		dependents.length > 0
 			? `Reverted after ${dependents.map((d) => d.commit).join(", ")}, later commits its revert conflicted with.\n\n`
 			: "";
-	const made = commitRevert(tree, culprit, `${staged.note}${after}${why}`);
+	const made = commitRevert(tree, culprit, `${note}${after}${why}`);
 	if ("failed" in made)
 		return dependents.length > 0
 			? { failed: `${made.failed}, after reverting ${listShort(dependents)}` }
@@ -2491,13 +2485,74 @@ function revertWithDependents(tree, { culprit, parent, tip, why }) {
 	return {
 		sha: made.sha,
 		stale:
-			readRegistryRows(tree.dir, revertOrder(culprit, dependents), [
+			readRegistryRows(tree.dir, buildRevertOrder(culprit, dependents), [
 				tip,
 				"--head",
 				"HEAD",
 			])?.exempted ?? null,
 		...(dependents.length > 0 ? { dependents } : {}),
 	};
+}
+
+/**
+ * The culprit's revert staged on `tree`'s HEAD, with each dependent's revert
+ * committed under it where its first try conflicted in a hand-written file;
+ * else why not.
+ * @param {RevertTree} tree
+ * @param {{culprit: string, parent: string|null, tip: string}} revert
+ * @returns {{note: string, dependents: Dependent[]} | {failed: string}}
+ */
+function stageWithDependents(tree, { culprit, parent, tip }) {
+	const first = stageRevert(tree, culprit, parent);
+	if (!("failed" in first)) return { note: first.note, dependents: [] };
+	if (first.unsettled.length === 0) return { failed: first.failed };
+	const generated = whyGenerated(tree.dir, first.unsettled);
+	if (generated !== null) return { failed: `${first.failed}; ${generated}` };
+	const reverted = revertDependents(tree, culprit, tip, first.unsettled);
+	if ("failed" in reverted)
+		return { failed: `${first.failed}; ${reverted.failed}` };
+	const again = stageRevert(tree, culprit, parent);
+	if ("failed" in again)
+		return {
+			failed: `${first.failed}; with ${listShort(reverted.dependents)} reverted first, it still did not apply: ${again.failed}`,
+		};
+	return { note: again.note, dependents: reverted.dependents };
+}
+
+/**
+ * Why `files` holds a generated-only file, its conflict one no dependent's
+ * revert need settle, or null where none is; a register that cannot be read
+ * is a reason too, as it may name one.
+ * @param {string} dir
+ * @param {string[]} files
+ * @returns {string|null}
+ */
+function whyGenerated(dir, files) {
+	const at = path.join(dir, DOC_CLASSES);
+	if (!fs.existsSync(at)) return null;
+	/** @type {Record<string, {class?: unknown, classQualifier?: unknown}>} */
+	let classes;
+	try {
+		classes = JSON.parse(fs.readFileSync(at, "utf8"));
+	} catch (err) {
+		return `${DOC_CLASSES} could not be read to tell a generated file: ${caught(err).message}`;
+	}
+	const generated = Object.entries(classes)
+		.filter(
+			([, row]) =>
+				row.class === "generated-only" &&
+				(typeof row.classQualifier !== "string" ||
+					row.classQualifier.trim() === ""),
+		)
+		.map(([key]) => key);
+	const named = files.filter((file) =>
+		generated.some((key) =>
+			key.endsWith("*") ? file.startsWith(key.slice(0, -1)) : key === file,
+		),
+	);
+	return named.length > 0
+		? `${named.join(", ")} ${named.length === 1 ? "is" : "are"} generated, which no later commit's revert settles`
+		: null;
 }
 
 /** @param {Dependent[]} dependents */
@@ -2519,15 +2574,16 @@ function revertDependents(tree, culprit, tip, unsettled) {
 	const later = readLines([
 		"rev-list",
 		"--no-merges",
+		"--topo-order",
 		`${culprit}..${tip}`,
 		"--",
 		...unsettled,
 	]);
 	if (later.length === 0)
 		return { failed: "no later commit but a merge changed them" };
-	if (later.length > DEPENDENTS_REVERTED)
+	if (later.length > MAX_DEPENDENTS_REVERTED)
 		return {
-			failed: `${later.length} later commits changed them, past the ${DEPENDENTS_REVERTED} the lander reverts with one culprit: ${later.map(short).join(", ")}`,
+			failed: `${later.length} later commits changed them, past the ${MAX_DEPENDENTS_REVERTED} the lander reverts with one culprit (#4453): ${later.map(short).join(", ")}`,
 		};
 	/** @type {Dependent[]} */
 	const dependents = [];
@@ -2726,7 +2782,6 @@ const buildRowsLine = (rows) =>
 /* The line a dependent's revert carries, naming the culprit it went with. */
 const buildRevertedWithLine = (/** @type {string} */ culprit) =>
 	`Reverted with ${culprit}, `;
-const REVERTS_COMMIT = /This reverts commit ([0-9a-f]{40})\./;
 
 /**
  * The commits a culprit's revert line reverts, in the order it committed
@@ -2734,7 +2789,7 @@ const REVERTS_COMMIT = /This reverts commit ([0-9a-f]{40})\./;
  * @param {string} culprit
  * @param {Dependent[]} [dependents]
  */
-const revertOrder = (culprit, dependents = []) => [
+const buildRevertOrder = (culprit, dependents = []) => [
 	...dependents.map((d) => d.commit),
 	culprit,
 ];

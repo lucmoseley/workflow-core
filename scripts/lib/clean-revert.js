@@ -49,6 +49,13 @@ const ANCHOR_FILES = new Set([
 const buildRevertLine = (sha) => `This reverts commit ${sha}.`;
 
 /**
+ * The commit `message`'s revert line names, or null where it carries none.
+ * @param {string} message
+ */
+const parseRevertLine = (message) =>
+	/This reverts commit ([0-9a-f]{40})\./.exec(message)?.[1] ?? null;
+
+/**
  * The commits WFC_LANDER_REVERT names, in the order their reverts were
  * committed, or null where it names none.
  * @returns {string[]|null}
@@ -216,38 +223,56 @@ function whyNotCleanRevert(cwd, { culprit, onto, tree }) {
  * @returns {string|null}
  */
 function whyNotLanderRevert(cwd, { culprits, sha, tip }) {
-	const full = culprits.map((c) => commitSha(cwd, c));
-	const unknown = culprits.find((_, i) => !full[i]);
-	if (unknown !== undefined) return `${unknown} is not a commit here`;
+	/** @type {string[]} */
+	const full = [];
+	for (const c of culprits) {
+		const resolved = commitSha(cwd, c);
+		if (!resolved) return `${c} is not a commit here`;
+		full.push(resolved);
+	}
 	const [head, base] = [sha, tip].map((rev) => commitSha(cwd, rev));
 	if (!head || !base) return `${sha} or ${tip} is not a commit here`;
+	const line = readLine(cwd, base, head, full.length);
+	if (line === null)
+		return `${sha} is not ${culprits.length === 1 ? "one commit" : `a line of ${culprits.length} commits`} on ${tip}`;
+	for (const [i, step] of line.entries()) {
+		const culprit = full[i];
+		if (culprit === undefined) break;
+		const why = whyNotOneRevert(cwd, { culprit, ...step });
+		if (why !== null) return why;
+	}
+	return null;
+}
+
+/**
+ * The `length` commits `base..head`, oldest first, each with its one parent,
+ * where they form a single line on `base`; else null.
+ * @param {string} cwd
+ * @param {string} base
+ * @param {string} head
+ * @param {number} length
+ * @returns {{commit: string, onto: string}[]|null}
+ */
+function readLine(cwd, base, head, length) {
 	const listed = gitOut(cwd, [
 		"rev-list",
 		"--reverse",
 		"--parents",
 		`${base}..${head}`,
 	]);
-	const line = (listed ?? "")
-		.split("\n")
-		.filter(Boolean)
-		.map((l) => l.split(" "));
-	const isLine =
-		line.length === culprits.length &&
-		line.every(
-			([, ...parents], i) =>
-				parents.length === 1 && parents[0] === (line[i - 1]?.[0] ?? base),
-		);
-	if (!isLine)
-		return `${sha} is not ${culprits.length === 1 ? "one commit" : `a line of ${culprits.length} commits`} on ${tip}`;
-	for (const [i, [commit = "", onto = ""]] of line.entries()) {
-		const why = whyNotOneRevert(cwd, {
-			culprit: full[i] ?? "",
-			commit,
-			onto,
-		});
-		if (why !== null) return why;
+	const rows = (listed ?? "").split("\n").filter(Boolean);
+	if (rows.length !== length) return null;
+	/** @type {{commit: string, onto: string}[]} */
+	const line = [];
+	let onto = base;
+	for (const row of rows) {
+		const [commit, ...parents] = row.split(" ");
+		if (commit === undefined || parents.length !== 1 || parents[0] !== onto)
+			return null;
+		line.push({ commit, onto });
+		onto = commit;
 	}
-	return null;
+	return line;
 }
 
 /**
@@ -272,6 +297,7 @@ module.exports = {
 	buildRevertEnv,
 	buildRevertLine,
 	isAnchorFile,
+	parseRevertLine,
 	readKeptAnchors,
 	readLanderRevert,
 	whyNotCleanRevert,

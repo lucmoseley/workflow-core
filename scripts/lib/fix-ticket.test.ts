@@ -100,7 +100,7 @@ describe("ticketFiler", () => {
 		const said = f.said({
 			dependents: [{ commit: D, revert: R, files: ["shared.txt"] }],
 		});
-		expect(said).toBe("fix ticket already open: #7\nFiled #9: https://x/9");
+		expect(said).toBe("re-land ticket already open: #7\nFiled #9: https://x/9");
 		const [{ input }] = f.files;
 		expect(input).toContain(`- ${D.slice(0, 9)}, reverted in ${R}: #7`);
 	});
@@ -194,7 +194,7 @@ describe("ticketFiler", () => {
 				},
 			],
 		});
-		expect(f.said()).toBe("fix ticket already open: #5");
+		expect(f.said()).toBe("re-land ticket already open: #5");
 		expect(f.files).toEqual([]);
 	});
 
@@ -267,7 +267,7 @@ describe("ticketFiler", () => {
 			reopen: () => undefined,
 		});
 		expect(() => tracker.fileFixTicket(TICKET)).toThrow(
-			"fix ticket for ccccccccc not filed: gh issue create failed",
+			"re-land ticket for ccccccccc not filed: gh issue create failed",
 		);
 	});
 });

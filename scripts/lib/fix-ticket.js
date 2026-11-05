@@ -93,7 +93,10 @@ const FILED_ISSUE = /#\d+/;
  *   and its revert, and the dependent's own subject
  * @returns {{title: string, body: string}}
  */
-function dependentIssue({ commit, revert, files }, { culprit, subject, ...t }) {
+function buildDependentIssue(
+	{ commit, revert, files },
+	{ culprit, subject, ...t },
+) {
 	return {
 		title: `Re-land ${short(commit)}, reverted with ${short(culprit)} by the lander: ${cutSubject(subject)}`,
 		body: `## What to build
@@ -163,6 +166,9 @@ ${stale === null || stale.length > 0 ? "- [ ] Each stale row above is re-read an
 function ticketFiler(deps) {
 	return {
 		fileFixTicket(t) {
+			/* A dependent's filing that throws leaves the culprit's unfiled too:
+			 * the lander holds on it and files again, each one already filed
+			 * then found open rather than filed twice. */
 			const relands = (t.dependents ?? []).map((dependent) => {
 				const subject = parseFirstLine(deps.messageOf(dependent.commit));
 				return {
@@ -170,7 +176,7 @@ function ticketFiler(deps) {
 					filed: fileReland(deps, {
 						sha: dependent.commit,
 						subject,
-						...dependentIssue(dependent, { ...t, subject }),
+						...buildDependentIssue(dependent, { ...t, subject }),
 						reopenNote: `Reopened by the lander: ${dependent.commit} is reverted in ${dependent.revert} with ${t.culprit}, which was red on \`landing\` and whose revert conflicted with it. Its re-land ticket follows as a sub-issue.`,
 					}),
 				};
@@ -201,7 +207,7 @@ function fileReland(deps, { sha, subject, title, body, reopenNote }) {
 	const filed = listed.find((c) =>
 		c.title.startsWith(`Re-land ${short(sha)},`),
 	);
-	if (filed) return `fix ticket already open: #${filed.number}`;
+	if (filed) return `re-land ticket already open: #${filed.number}`;
 	const distinct =
 		listed.length > 0
 			? ["--distinct-from", listed.map((c) => c.number).join(",")]
@@ -233,7 +239,7 @@ function fileReland(deps, { sha, subject, title, body, reopenNote }) {
 	const ran = file(["--standalone", placed.why]);
 	if (ran.status === 0) return ran.stdout.trim();
 	throw new Error(
-		`fix ticket for ${short(sha)} not filed: ${parseFirstLine(ran.stderr)}`,
+		`re-land ticket for ${short(sha)} not filed: ${parseFirstLine(ran.stderr)}`,
 	);
 }
 

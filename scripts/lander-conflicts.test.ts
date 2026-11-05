@@ -9,10 +9,12 @@
  * the cap or the dependents' own reverts and it reverts past what it can
  * name.
  *
- * Over the 10 s file budget: five of its six cases are real lander runs that
+ * Over the 10 s file budget: seven of its ten cases are real lander runs that
  * bisect and revert, ~100–170 forks a run and a registry check (#4301's
- * profile); #4326 cuts the script's own forks.
+ * profile); #4326 cuts the script's own forks. The #4453 holds call the
+ * revert alone.
  */
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -51,19 +53,13 @@ describe("a culprit merge whose own revert conflicts (#3932)", () => {
 
 	/** Whether reverting `merge` against `parent` on `work`'s HEAD conflicts. */
 	const revertConflicts = (merge: string, parent: string) => {
-		try {
-			git(
-				work,
-				"merge-tree",
-				"--write-tree",
-				`--merge-base=${merge}`,
-				"HEAD",
-				parent,
-			);
-			return false;
-		} catch {
-			return true;
-		}
+		const r = spawnSync(
+			"git",
+			["merge-tree", "--write-tree", `--merge-base=${merge}`, "HEAD", parent],
+			{ cwd: work, encoding: "utf8" },
+		);
+		if (r.status !== 0 && r.status !== 1) throw new Error(r.stderr);
+		return r.status === 1;
 	};
 
 	const expectRedRevertedAndLanded = () => {
@@ -283,20 +279,36 @@ describe("a culprit whose revert conflicts in a hand-written file (#4453)", () =
 		expect(fix?.body).toContain(`#${reland?.number}`);
 	});
 
-	it("holds, naming the cap, where more later commits changed the conflicting files than it reverts with one culprit", async () => {
-		const { m, tip } = pushRedThen("a", "b", "c", "d");
-		const { gh } = stubTracker();
-		const r = await runLander(stubRedWhile("red"), "landing", gh.env);
+	it("fails, naming the cap and #4453, where more later commits changed the conflicting files than it reverts with one culprit", () => {
+		const { m, red, tip } = pushRedThen("a", "b", "c", "d");
 
-		expect(r.status, r.stderr).toBe(0);
-		expect(r.stdout).toContain(
-			"(conflicts in shared.txt); 4 later commits changed them, past the 3 the lander reverts with one culprit",
-		);
+		expect(remoteGit(work).revertOnLanding(red, m, "why")).toEqual({
+			failed: expect.stringContaining(
+				"(conflicts in shared.txt); 4 later commits changed them, past the 3 the lander reverts with one culprit (#4453)",
+			),
+		});
 		expect(git(remote, "rev-parse", "landing")).toBe(tip);
-		expect(git(remote, "rev-parse", "main")).toBe(m);
 	});
 
-	it("holds, naming the later commit, where its own revert does not apply", async () => {
+	it("fails, reverting nothing, where the conflicting file is generated-only", () => {
+		fs.mkdirSync(path.join(work, "docs"), { recursive: true });
+		fs.writeFileSync(
+			path.join(work, "docs", "doc-map-classes.json"),
+			JSON.stringify({
+				"shared.txt": { section: "A", class: "generated-only" },
+			}),
+		);
+		const { m, red, tip } = pushRedThen("later");
+
+		expect(remoteGit(work).revertOnLanding(red, m, "why")).toEqual({
+			failed: expect.stringContaining(
+				"(conflicts in shared.txt); shared.txt is generated",
+			),
+		});
+		expect(git(remote, "rev-parse", "landing")).toBe(tip);
+	});
+
+	it("fails, naming the later commit, where its own revert does not apply", () => {
 		writeShared("seed");
 		const m = commit("m");
 		writeShared("red");
@@ -315,14 +327,11 @@ describe("a culprit whose revert conflicts in a hand-written file (#4453)", () =
 		const tip = commit("resolved");
 		git(work, "push", "-q", "origin", `${m}:main`, `${tip}:landing`);
 
-		const { gh } = stubTracker();
-		const r = await runLander(stubRedWhile("red"), "landing", gh.env);
-
-		expect(r.status, r.stderr).toBe(0);
-		expect(r.stdout).toContain(
-			"a later commit that changed them, did not apply",
-		);
+		expect(remoteGit(work).revertOnLanding(red, m, "why")).toEqual({
+			failed: expect.stringContaining(
+				"a later commit that changed them, did not apply",
+			),
+		});
 		expect(git(remote, "rev-parse", "landing")).toBe(tip);
-		expect(git(remote, "rev-parse", "main")).toBe(m);
 	});
 });
