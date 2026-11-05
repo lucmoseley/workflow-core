@@ -428,7 +428,7 @@ module.exports = {
 
 /*
  * THE CLI, which is how the SessionStart launcher runs it
- * (`scripts/sweep-debts-detached.sh`, fifth job). Silent and always 0: nothing
+ * (`scripts/session-start-sweeps.sh`, fourth job). Silent and always 0: nothing
  * waits on it, and its faults go to the arbiter's error log, which
  * `npm run check:guard-errors` reports under `npm run status`.
  *

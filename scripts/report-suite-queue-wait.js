@@ -28,7 +28,7 @@
  * holds the last reading's time; a run within the hour of it reads nothing.
  * LOCK keeps two session starts from both reading and both filing.
  *
- * RUNS DETACHED AT EVERY SESSION START, from scripts/sweep-debts-detached.sh,
+ * RUNS DETACHED AT EVERY SESSION START, from scripts/session-start-sweeps.sh,
  * because the log is machine-local and no CI runner can read it.
  *
  * EVERY REPO WITH THE `suites` MODULE ON (#1454); where it is off it prints a

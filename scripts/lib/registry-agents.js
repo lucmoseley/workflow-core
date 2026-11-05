@@ -19,8 +19,8 @@
  * it judges a job only on a seat in `seats`, whose registry was read.
  * A MANAGER RESTART'S EMPTY LISTING is trusted only where this read also finds
  * the launches it may have killed gone (lib/refill-boot.js, #3971).
- * NEVER A READER THAT JUDGES BY ABSENCE ALONE — release `--force`, the claim
- * prune, admission's live set. A session whose record is missing would read
+ * NEVER A READER THAT JUDGES BY ABSENCE ALONE — the claim prune, admission's
+ * live set. A session whose record is missing would read
  * dead (mantahostels#104); those keep the CLI listing.
  *
  * PARTIAL BY DESIGN. A record of unrecognised shape is skipped. A seat whose

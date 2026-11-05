@@ -8,7 +8,7 @@
  * synthetic transcripts written to a temp dir, turns spaced by hand to sit
  * either side of each threshold.
  *
- * `check-self-throttling.js`, swept daily from `sweep-debts-detached.sh`, appends
+ * `check-self-throttling.js`, swept daily from `session-start-sweeps.sh`, appends
  * its readings to the history a seat cut is judged against; loosen a case and
  * that history gains a false episode or misses the real one, with nothing
  * downstream to catch it.

@@ -5,10 +5,6 @@
  * PURE: readings in, a verdict out. It reads no store, no clock and no
  * registry — session-arbiter.js takes every reading and keeps every line of
  * wording, the timer and the exit codes.
- *
- * It sits above the families, as arbiter-sweep.js does: the walk needs the
- * lock family's holder answer, which arbiter-wants.js may not require
- * (arbiter-store.js's SPLIT RULE). Here that answer is a parameter instead.
  */
 
 /** @typedef {import("./arbiter-records.js").IssueClaimRecord} IssueClaimRecord */
@@ -20,20 +16,14 @@
  */
 
 /**
- * #1492's holder query for one file subject, as `sessionId` asks — `null`
- * where the store could not be read.
- * @typedef {(subject: string, sessionId: string) => ({holder: {sessionId: string|null}|null} | null)} FileHolder
+ * @typedef {"RELEASED"|"NOT-HELD"|"HOLDER-ENDED"|"DEADLOCK"|"CEILING"} Verdict
  */
 
-/**
- * @typedef {"RELEASED"|"HOLDER-DEAD"|"NOT-HELD"|"HOLDER-ENDED"|"DEADLOCK"|"CEILING"} Verdict
- */
-
-/** The want subject an issue wait registers — never a path any file claims. */
+/** The want subject an issue wait registers. */
 const issueWant = (/** @type {number} */ n) => `issue #${n}`;
 
 /**
- * The issue number a want names, or null for a file subject.
+ * The issue number a want names, or null for a subject that names none.
  * @param {string} subject
  */
 function issueOfWant(subject) {
@@ -57,28 +47,27 @@ function issueHolders(claims, n, sessionId) {
 }
 
 /**
- * Follow each waiter to whoever holds what it wants, and that session to
+ * Follow each waiter to whoever claims the issue it wants, and that session to
  * whatever IT is waiting for, until the walk repeats a session or runs out.
  *
  * A repeat is a deadlock: every member is blocked by another, so none will ever
  * release (mantahostels#1195).
  *
- * An issue want is followed to that issue's claimant (#542) — one already
- * waiting where there are several, as the one that can close a ring. `claims`
- * is ONE reading for the whole walk, so every step judges the same store state.
+ * Where an issue has several claimants the walk follows one already waiting
+ * (#542), as the one that can close a ring. `claims` is ONE reading for the
+ * whole walk, so every step judges the same store state.
  * @template {Want} W
  * @param {W[]} wants
- * @param {FileHolder} fileHolder
  * @param {IssueClaimRecord[]|null} claims null where the store would not read
  * @returns {W[][]}
  */
-function findCycles(wants, fileHolder, claims) {
+function findCycles(wants, claims) {
 	const byId = new Map(wants.map((w) => [w.sessionId, w]));
 	const cycles = [];
 	const seenCycle = new Set();
 	for (const start of wants) {
 		const ring = walkToRing(start, (here) => {
-			const blocker = blockerOf(here, byId, fileHolder, claims);
+			const blocker = blockerOf(here, byId, claims);
 			return blocker ? byId.get(blocker) : undefined;
 		});
 		if (ring === null) continue;
@@ -116,26 +105,22 @@ function walkToRing(start, next) {
 }
 
 /**
- * The session id of whoever blocks `here` — a waiting one where several hold
- * it — or null where nobody does or the holder is unknown. A holder that is
- * not itself waiting is returned too; the walk ends on it finding no want.
+ * The session id of whoever blocks `here` — a waiting one where several claim
+ * the issue — or null where nobody does or the claimant is unknown. A
+ * claimant that is not itself waiting is returned too; the walk ends on it
+ * finding no want.
  * @param {Want} here
  * @param {Map<string, Want>} byId the wants by session id
- * @param {FileHolder} fileHolder
  * @param {IssueClaimRecord[]|null} claims
  */
-function blockerOf(here, byId, fileHolder, claims) {
+function blockerOf(here, byId, claims) {
 	const issue = issueOfWant(here.wants);
+	// An unreadable store ends the walk as an unnamed claimant does: a ring
+	// cannot be asserted over a session the walk cannot name (mantahostels#174).
 	const holders =
-		issue === null
-			? [fileHolder(here.wants, here.sessionId)?.holder]
-			: // An unreadable store ends the walk as an UNKNOWN holder does,
-				// for the reason below — never a ring asserted (mantahostels#174).
-				(issueHolders(claims, issue, here.sessionId) ?? []);
+		issue === null ? [] : (issueHolders(claims, issue, here.sessionId) ?? []);
 	const blocker =
-		holders.find((h) => h?.sessionId && byId.has(h.sessionId)) ?? holders[0];
-	// An UNKNOWN holder ends the walk: a ring cannot be asserted over a
-	// session the walk cannot name.
+		holders.find((h) => h.sessionId && byId.has(h.sessionId)) ?? holders[0];
 	return blocker?.sessionId ?? null;
 }
 
@@ -155,20 +140,19 @@ function ringThrough(cycles, sessionId) {
  *
  * The order: free before held, a ring before the
  * oracle, and the ceiling last. A free target is NOT-HELD on the first poll —
- * there was nothing to wait for — and afterwards HOLDER-DEAD where a dead
- * claim is still on disk, else RELEASED. DOUBT NEVER FREES: a poll neither held
- * nor free only ever reaches CEILING. An issue is stale only once EVERY
- * claimant is terminal.
+ * there was nothing to wait for — and RELEASED afterwards. DOUBT NEVER FREES:
+ * a poll neither held nor free only ever reaches CEILING. An issue is stale
+ * only once EVERY claimant is terminal.
  *
  * `ring` and `terminal` are read only where the table reaches them, because
- * each costs: the ring a read of three stores, the oracle ~465 ms
+ * each costs: the ring a read of two stores, the oracle ~465 ms
  * (mantahostels#317). `left` is read last, so time those reads took counts
  * against the ceiling.
  * @template {Want} W
  * @param {object} r
  * @param {{held?: {sessionId: string|null}, free?: unknown, holders?: {sessionId: string|null}[], doubt?: string}} r.poll
- *   this poll: `free` set (null where the claim is gone) or `held`, or neither
- *   where the poll was in doubt
+ *   this poll: `free` set (null: no claim stands) or `held`, or neither where
+ *   the poll was in doubt
  * @param {boolean} [r.first] the poll before any wait
  * @param {() => W[]|null} [r.ring] the ring through this session
  * @param {() => Set<string>|null|undefined} [r.terminal] the oracle's terminal
@@ -177,10 +161,8 @@ function ringThrough(cycles, sessionId) {
  * @returns {{verdict: Verdict, ring?: W[]} | null}
  */
 function nextVerdict({ poll, first = false, ring, terminal, left }) {
-	if (poll.free !== undefined) {
-		if (first) return { verdict: "NOT-HELD" };
-		return { verdict: poll.free ? "HOLDER-DEAD" : "RELEASED" };
-	}
+	if (poll.free !== undefined)
+		return { verdict: first ? "NOT-HELD" : "RELEASED" };
 	if (first) return null;
 	const stuck = poll.held
 		? heldVerdict(poll.held, poll.holders, ring, terminal)
@@ -194,7 +176,7 @@ function nextVerdict({ poll, first = false, ring, terminal, left }) {
  * where the oracle refused, and never for a holder naming no session.
  * @template {Want} W
  * @param {{sessionId: string|null}} held
- * @param {{sessionId: string|null}[]|undefined} holders an issue's claimants
+ * @param {{sessionId: string|null}[]|undefined} holders the issue's claimants
  * @param {(() => W[]|null)|undefined} ring
  * @param {(() => Set<string>|null|undefined)|undefined} terminal
  * @returns {{verdict: Verdict, ring?: W[]} | null}

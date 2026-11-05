@@ -279,7 +279,7 @@ describe("takeover: an ENDED holder still listed is stopped too (#623)", () => {
 		const r = await takeover();
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("not stopped: exit 1: no such job");
-		expect(r.stderr).toContain("release --force");
+		expect(r.stderr).toContain("the next write to each takes it");
 		expect(r.stdout).toContain("held while its host runs");
 		expect(readComment()).toContain("Ended session, not stopped");
 		expect(readHolders()).toContain("sandbox");

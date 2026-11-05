@@ -47,8 +47,6 @@
  * invisibly — such a session would be a candidate in no reap log.
  *
  * A FILE CLAIM DOES NOT KEEP A SESSION (mantahostels#747).
- * `release --force` cannot serve this case either, its gate being whether the
- * holder is LISTED (mantahostels#411).
  *
  * AND THE CLAIMS ARE NOT RELEASED — nothing here touches a lock. A lock is
  * breakable once its holder's HOST PROCESS is dead (arbiter-core.js's

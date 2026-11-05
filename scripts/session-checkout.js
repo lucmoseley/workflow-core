@@ -5,11 +5,12 @@
  *
  *   node scripts/session-checkout.js cut <session-name>
  *     prints the new worktree's path on stdout
- *   node scripts/session-checkout.js launch-dir [--no-build] <prompt>
+ *   node scripts/session-checkout.js launch-dir [--no-build] [--into <worktree>] <prompt>
  *     prints the directory a session launched on <prompt> starts in: a
  *     worktree cut for it, or the main checkout where `landing` is off;
- *     with --no-build, a cut finding no dependency store refuses rather than
- *     build one
+ *     with --into, that existing session worktree, refused where a live
+ *     process still works in it; with --no-build, a cut or attach finding no
+ *     dependency store refuses rather than build one
  *   node scripts/session-checkout.js warm
  *     builds the dependency store for origin/landing's lockfile where none
  *     stands, leaving a live builder to finish
@@ -60,7 +61,7 @@ const { writeFd } = require("./lib/write-fd.js");
 /** @type {import("./lib/cli-args.js").CliSpec} */
 const CLI = {
 	usage:
-		"usage: node scripts/session-checkout.js cut <session-name> | launch-dir [--no-build] <prompt> | warm | attach [<worktree>] | land | reap | reopen <job-id>",
+		"usage: node scripts/session-checkout.js cut <session-name> | launch-dir [--no-build] [--into <worktree>] <prompt> | warm | attach [<worktree>] | land | reap | reopen <job-id>",
 	commands: {
 		cut: {
 			usage: "usage: node scripts/session-checkout.js cut <session-name>",
@@ -68,9 +69,9 @@ const CLI = {
 		},
 		"launch-dir": {
 			usage:
-				"usage: node scripts/session-checkout.js launch-dir [--no-build] <prompt>",
+				"usage: node scripts/session-checkout.js launch-dir [--no-build] [--into <worktree>] <prompt>",
 			min: 1,
-			flags: { "--no-build": "boolean" },
+			flags: { "--no-build": "boolean", "--into": "value" },
 		},
 		warm: {
 			usage: "usage: node scripts/session-checkout.js warm",
@@ -163,7 +164,14 @@ const RUN = {
 	"launch-dir": (named, flags) => {
 		if (named === undefined) throw new Error("launch-dir names no prompt");
 		const noBuild = flags["--no-build"] === true;
-		writeFd(1, `${launchDir(process.cwd(), named, { noBuild })}\n`);
+		const into = flags["--into"];
+		writeFd(
+			1,
+			`${launchDir(process.cwd(), named, {
+				noBuild,
+				...(typeof into === "string" ? { into } : {}),
+			})}\n`,
+		);
 	},
 	warm: () => {
 		const made = warm(process.cwd());

@@ -1,5 +1,5 @@
 /*
- * arbiter-wants.js — the waiter register — who is blocked on which claim (mantahostels#1195).
+ * arbiter-wants.js — the waiter register — who is waiting on which issue (mantahostels#1195).
  *
  * A want is dropped the moment its wait ends by any route; the age sweep is for
  * the case none of that reaches. It is what `list` reads to print DEADLOCK.
@@ -14,7 +14,6 @@ const { readCurrentBootId, holderAlive } = require("./arbiter-proc.js");
 const core = require("./arbiter-core.js");
 const { caught } = require("./caught.js");
 
-/** @typedef {import("./arbiter-records.js").LockRecord} LockRecord */
 /** @typedef {import("./arbiter-records.js").Identity} Identity */
 
 // ---------------------------------------------------------------------------
@@ -23,7 +22,7 @@ const { caught } = require("./caught.js");
 
 /**
  * A want outlives nothing: it is dropped the moment its wait ends by any route,
- * and readWants() deletes one whose session is gone. The age sweep is for the
+ * and readWants() skips one whose session is gone. The age sweep is for the
  * case none of that reaches — a session killed mid-wait on a machine that then
  * reboots, where the pid check cannot even be attempted.
  */
@@ -34,19 +33,18 @@ const { caught } = require("./caught.js");
 const WANT_AGE_MS = 12 * 60 * 60 * 1000;
 
 /**
- * Record that this session is blocked on `rel`.
+ * Record that this session is waiting on `subject`, an issue want.
  *
- * Written on the deny paths and nowhere else, so a session that never waits
- * never appears here. Without this record a stranded claim and a deadlock are
+ * Written by `wait` and nowhere else, so a session that never waits never
+ * appears here. Without this record a long-held claim and a deadlock are
  * indistinguishable (mantahostels#1195).
  *
  * FAILS SILENT BY DESIGN. A want that cannot be written costs a diagnosis, never
- * a claim, so nothing on the claim path may throw on it.
- * @param {string} rel
+ * the wait, so nothing on the wait path may throw on it.
+ * @param {string} subject
  * @param {Identity} me
- * @param {LockRecord|null} [blocker]
  */
-function recordWant(rel, me, blocker = null) {
+function recordWant(subject, me) {
 	// An unidentifiable session takes no claims either, so it can neither enter a
 	// cycle nor be named in one.
 	if (!me?.sessionId) return;
@@ -54,25 +52,19 @@ function recordWant(rel, me, blocker = null) {
 		fs.mkdirSync(core.paths.wantsDir(), { recursive: true });
 		core.writeRecord(core.paths.want(me.sessionId), {
 			sessionId: me.sessionId,
-			wants: rel,
-			// The subject actually held, which is not always the one asked for
-			// (mantahostels#970): a whole-file lock blocks a claim on one region of it. The cycle
-			// walk re-derives this from the locks rather than trusting it; it is
-			// recorded for the report to quote.
-			heldSubject: blocker?.path || null,
-			blockedBy: blocker?.sessionId || null,
+			wants: subject,
 			pid: me.pid ?? null,
 			procStart: me.procStart ?? null,
 			bootId: readCurrentBootId() || undefined,
 			since: new Date().toISOString(),
 		});
 	} catch (e) {
-		core.logError(`want record ${rel}`, e);
+		core.logError(`want record ${subject}`, e);
 	}
 }
 
 /**
- * The wait ended — by a claim taken, or by the waiter giving up.
+ * The wait ended, by any route.
  * @param {string|null} sessionId
  */
 function dropWant(sessionId) {
@@ -85,10 +77,8 @@ function dropWant(sessionId) {
 }
 
 /**
- * Every LIVE want. A dead waiter is not waiting, and unlike a dead lock nothing
- * is wedged by its record, so it is deleted here rather than reported — the
- * opposite of listLocks(), which must show a stale lock precisely because it
- * still blocks somebody.
+ * Every LIVE want. A dead waiter is not waiting, and nothing is wedged by its
+ * record, so it is skipped here rather than reported.
  *
  * Returns null where the register itself could not be read, [] where it is
  * genuinely empty. The caller must not print the first as the second: a

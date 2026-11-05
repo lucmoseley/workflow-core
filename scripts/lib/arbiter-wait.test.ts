@@ -11,15 +11,6 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-	core,
-	DEAD,
-	freshSandbox,
-	liveHolder,
-	putLock,
-	registerSession,
-	store,
-} from "./arbiter-testkit";
-import {
 	findCycles,
 	issueHolders,
 	issueOfWant,
@@ -37,12 +28,6 @@ const buildWant = (sessionId: string, wants: string): Want => ({
 	wants,
 });
 
-const buildHolderQuery =
-	(held: Record<string, string>) => (subject: string, sessionId: string) => {
-		const h = held[subject];
-		return { holder: h && h !== sessionId ? { sessionId: h } : null };
-	};
-
 const buildClaim = (issue: number, sessionId: string) => ({
 	issue,
 	sessionId,
@@ -52,9 +37,9 @@ const buildClaim = (issue: number, sessionId: string) => ({
 const ids = (ring: Want[]) => ring.map((w) => w.sessionId);
 
 describe("issue wants", () => {
-	it("names an issue want and reads it back, never a file subject", () => {
+	it("names an issue want and reads it back, and null for any other subject", () => {
 		expect(issueOfWant(issueWant(542))).toBe(542);
-		expect(issueOfWant("docs/a.md")).toBeNull();
+		expect(issueOfWant("issue 542")).toBeNull();
 		expect(issueOfWant("issue #0")).toBeNull();
 	});
 
@@ -70,33 +55,20 @@ describe("issue wants", () => {
 });
 
 describe("findCycles — the deadlock walk (mantahostels#1195)", () => {
-	it("names a two-session ring once, whichever member the walk entered from", () => {
+	it("follows an issue want to its claimant, naming a two-session ring once (#542)", () => {
 		const cycles = findCycles(
-			[buildWant("a", "docs/b.md"), buildWant("b", "docs/a.md")],
-			buildHolderQuery({ "docs/a.md": "a", "docs/b.md": "b" }),
-			[],
+			[buildWant("alice", issueWant(541)), buildWant("bob", issueWant(540))],
+			[buildClaim(540, "alice"), buildClaim(541, "bob")],
 		);
 		expect(cycles).toHaveLength(1);
-		expect(ids(cycles[0]).sort()).toEqual(["a", "b"]);
+		expect(ids(cycles[0]).sort()).toEqual(["alice", "bob"]);
 	});
 
-	it("finds no ring behind a busy holder that is not itself waiting", () => {
+	it("finds no ring behind a busy claimant that is not itself waiting", () => {
 		expect(
 			findCycles(
-				[buildWant("mine", "docs/a.md")],
-				buildHolderQuery({ "docs/a.md": "neighbour" }),
-				[],
-			),
-		).toEqual([]);
-	});
-
-	it("ends the walk on an unknown holder rather than asserting a ring (mantahostels#174)", () => {
-		expect(
-			findCycles(
-				[buildWant("a", "docs/b.md"), buildWant("b", "docs/a.md")],
-				(subject) =>
-					subject === "docs/a.md" ? null : { holder: { sessionId: "b" } },
-				[],
+				[buildWant("mine", issueWant(540))],
+				[buildClaim(540, "neighbour")],
 			),
 		).toEqual([]);
 	});
@@ -104,33 +76,25 @@ describe("findCycles — the deadlock walk (mantahostels#1195)", () => {
 	it("leaves a session leading into a ring out of it, and ringThrough finds it in none", () => {
 		const cycles = findCycles(
 			[
-				buildWant("a", "docs/b.md"),
-				buildWant("b", "docs/a.md"),
-				buildWant("c", "docs/a.md"),
+				buildWant("a", issueWant(541)),
+				buildWant("b", issueWant(540)),
+				buildWant("c", issueWant(540)),
 			],
-			buildHolderQuery({ "docs/a.md": "a", "docs/b.md": "b" }),
-			[],
+			[buildClaim(540, "a"), buildClaim(541, "b")],
 		);
 		expect(cycles).toHaveLength(1);
 		expect(ringThrough(cycles, "c")).toBeNull();
 		expect(ids(ringThrough(cycles, "a") ?? []).sort()).toEqual(["a", "b"]);
 	});
 
-	it("follows an issue want to its claimant (#542)", () => {
-		const cycles = findCycles(
-			[buildWant("alice", issueWant(541)), buildWant("bob", issueWant(540))],
-			buildHolderQuery({}),
-			[buildClaim(540, "alice"), buildClaim(541, "bob")],
-		);
-		expect(cycles).toHaveLength(1);
-		expect(ids(cycles[0]).sort()).toEqual(["alice", "bob"]);
-	});
-
 	it("follows the claimant that is itself waiting where an issue has several", () => {
 		const cycles = findCycles(
-			[buildWant("alice", "docs/b.md"), buildWant("bob", issueWant(540))],
-			buildHolderQuery({ "docs/b.md": "bob" }),
-			[buildClaim(540, "carol"), buildClaim(540, "alice")],
+			[buildWant("alice", issueWant(541)), buildWant("bob", issueWant(540))],
+			[
+				buildClaim(541, "bob"),
+				buildClaim(540, "carol"),
+				buildClaim(540, "alice"),
+			],
 		);
 		expect(cycles).toHaveLength(1);
 	});
@@ -139,57 +103,18 @@ describe("findCycles — the deadlock walk (mantahostels#1195)", () => {
 		expect(
 			findCycles(
 				[buildWant("alice", issueWant(541)), buildWant("bob", issueWant(540))],
-				buildHolderQuery({}),
 				null,
 			),
 		).toEqual([]);
-	});
-
-	describe("over the real holder query", () => {
-		const sb = freshSandbox();
-		const onDisk = () => {
-			const locks = store.readLocks();
-			const resumed = core.resumedHolderTest("test", "registry dark");
-			return (subject: string, sessionId: string) =>
-				store.whoHolds(subject, sessionId, resumed, locks);
-		};
-
-		it("still names the ring when a member was RESUMED onto a new pid (#259)", () => {
-			// The lock records a dead pid, but the registry has sess-a running on
-			// this one: read as dead, the ring breaks in the report while it is
-			// still a ring on disk.
-			registerSession(sb, "sess-a", process.pid);
-			putLock("docs/a.md", { sessionId: "sess-a", ...DEAD });
-			putLock("docs/b.md", { sessionId: "sess-b", ...liveHolder() });
-			const cycles = findCycles(
-				[buildWant("sess-a", "docs/b.md"), buildWant("sess-b", "docs/a.md")],
-				onDisk(),
-				[],
-			);
-			expect(cycles).toHaveLength(1);
-		});
-
-		it("sees a ring closed by the region umbrella, not just by equal paths", () => {
-			// sess-a holds the WHOLE map; sess-b wants one region of it, which only
-			// the umbrella rule connects to sess-a's lock (mantahostels#970).
-			putLock("docs/doc-map.md", { sessionId: "sess-a", ...liveHolder() });
-			putLock("docs/other.md", { sessionId: "sess-b", ...liveHolder() });
-			const cycles = findCycles(
-				[
-					buildWant("sess-a", "docs/other.md"),
-					buildWant("sess-b", "docs/doc-map.md#B999"),
-				],
-				onDisk(),
-				[],
-			);
-			expect(cycles).toHaveLength(1);
-		});
 	});
 });
 
 describe("nextVerdict — wait's table, one poll at a time (#540, #542)", () => {
 	const alice = { sessionId: "alice" };
-	const ring = [buildWant("bob", "docs/a.md"), buildWant("alice", "docs/b.md")];
+	const ring = [
+		buildWant("bob", issueWant(540)),
+		buildWant("alice", issueWant(541)),
+	];
 	const never = () => {
 		throw new Error("read where the table never reaches it");
 	};
@@ -203,12 +128,9 @@ describe("nextVerdict — wait's table, one poll at a time (#540, #542)", () => 
 		).toBeNull();
 	});
 
-	it("is RELEASED once the claim is gone, and HOLDER-DEAD where a dead one is still on disk", () => {
+	it("is RELEASED once the claim is gone", () => {
 		expect(nextVerdict({ poll: { free: null }, ring: never })).toEqual({
 			verdict: "RELEASED",
-		});
-		expect(nextVerdict({ poll: { free: alice }, ring: never })).toEqual({
-			verdict: "HOLDER-DEAD",
 		});
 	});
 

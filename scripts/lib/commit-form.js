@@ -147,7 +147,7 @@ const {
  * @property {(file: string) => string | null} readList a pathspec list file's
  *   text; null where it is not a readable regular file
  * @property {(sessionId: string) => { written: string[] | null,
- *   fault: string }} commitCheck the arbiter's write ledger for that session,
+ *   fault: string }} readWriteLedger the arbiter's write ledger for that session,
  *   null where it is unavailable, `fault` saying why
  * @property {(match: string) => string} closingRefusal what the
  *   closing-keyword deny says after its opening line
@@ -478,9 +478,9 @@ function treeClassOf(j, dir) {
  * so it is no fault: the bare warn stays index-wide.
  * @param {Judging} j
  */
-function commitCheck({ ctx }) {
+function readSessionWriteLedger({ ctx }) {
 	const session = ctx.session || ctx.env.CLAUDE_CODE_SESSION_ID || "";
-	return session ? ctx.commitCheck(session) : { written: null, fault: "" };
+	return session ? ctx.readWriteLedger(session) : { written: null, fault: "" };
 }
 
 /**
@@ -737,7 +737,7 @@ function listRewritten(j, file) {
  * @param {string[]} staged
  */
 function bareWarn(j, staged) {
-	const { written, fault } = commitCheck(j);
+	const { written, fault } = readSessionWriteLedger(j);
 	if (written === null && fault)
 		j.ctx.log(
 			`${fault} — the write ledger was unread, so this bare commit's warn stays index-wide`,

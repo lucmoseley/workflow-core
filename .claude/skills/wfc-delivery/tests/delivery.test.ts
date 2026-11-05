@@ -3,7 +3,7 @@
  * main-loop turn, and there only when a watched store changes or its 10-minute
  * CI interval comes round, offers each non-empty report once as a row the
  * model reads, obeys its floor and its two loads, and reads no repo-wide
- * switch (#854, #855, #856, #944, #1467, #3247).
+ * switch (#854, #856, #944, #1467, #3247).
  *
  * The mod's own seam (#849 §Testing Decisions, seam 2), run by
  * `claude plugin test .claude/skills/wfc-delivery`. The ordinary vitest suite
@@ -28,21 +28,13 @@ import { register } from "../hooks/register";
 const TICK = 30_000;
 const CWD = "/repo";
 const CI_INTERVAL = 10 * 60_000;
-const PATHS = JSON.stringify({
-	notifyReports: "/store",
-	requests: "/req",
-	locks: "/locks",
-});
+const PATHS = JSON.stringify({ notifyReports: "/store" });
 const REPORT = "▸ ci-status\nmain is red at a1b2c3d";
-const REQUEST =
-	"▸ release-request\nAnother session is waiting on a file this one holds:";
 
 interface World {
 	version?: string;
 	/** What each `--reports` run prints, in order; then nothing. */
 	prints?: string[];
-	/** What each `--requests` run prints, in order; then nothing. */
-	requestPrints?: string[];
 	/** Which `--reports` runs (1-based) reject. */
 	failRuns?: number[];
 	/** What each `--ci` run prints, in order; then nothing. */
@@ -63,13 +55,12 @@ function world(on: On, w: World = {}) {
 	const clock = mock.clock(on);
 	const seen = {
 		reportRuns: 0,
-		requestRuns: 0,
 		ciRuns: 0,
 		ciTimeouts: [] as (number | undefined)[],
 		pathRuns: 0,
 		stats: 0,
 		submits: 0,
-		mtime: { "/store": 1, "/req": 1, "/locks": 1 } as Record<string, number>,
+		mtime: { "/store": 1 } as Record<string, number>,
 		logs: [] as string[],
 		appendCalls: 0,
 		/** The text of each row appended, rejected and refused ones aside. */
@@ -78,11 +69,9 @@ function world(on: On, w: World = {}) {
 		exists: [] as string[],
 		/** Each `--paths` run, as `<plugin> <script> in <cwd> as <session id>`. */
 		scripts: [] as string[],
-		forks: () =>
-			seen.pathRuns + seen.reportRuns + seen.requestRuns + seen.ciRuns,
+		forks: () => seen.pathRuns + seen.reportRuns + seen.ciRuns,
 	};
 	const prints = [...(w.prints ?? [])];
-	const requestPrints = [...(w.requestPrints ?? [])];
 	const ciPrints = [...(w.ciPrints ?? [])];
 	const heldRuns = w.heldRun === undefined ? [] : [w.heldRun];
 	// A call on `$` is answered `{ value }`; `{ deny }` rejects the caller.
@@ -170,10 +159,6 @@ function world(on: On, w: World = {}) {
 				return { deny: "process.run timed out" };
 			return out(ciPrints.shift() ?? "");
 		}
-		if (e.argv.includes("--requests")) {
-			seen.requestRuns++;
-			return out(requestPrints.shift() ?? "");
-		}
 		seen.reportRuns++;
 		await heldRuns.shift();
 		if (w.failRuns?.includes(seen.reportRuns))
@@ -256,9 +241,8 @@ describe("wfc-delivery, a thin loop over the delivery script (#854)", () => {
 		await clock.advance(TICK);
 		const forks = seen.forks();
 		await clock.advance(TICK * 5);
-		/* Three directories a tick (the store, the register and the claims),
-		 * on the turn's start and six intervals. */
-		expect(seen.stats).toBe(21);
+		// The store once a tick, on the turn's start and six intervals.
+		expect(seen.stats).toBe(7);
 		expect(seen.forks()).toBe(forks);
 		seen.mtime["/store"] = 2;
 		await clock.advance(TICK);
@@ -321,46 +305,6 @@ describe("wfc-delivery, a thin loop over the delivery script (#854)", () => {
 		expect(seen.logs).toContainEqual(
 			expect.stringContaining("delivered ci-status, reap-finished-sessions"),
 		);
-	});
-
-	test("a request against a held file is offered as one row (#855)", async ($, on) => {
-		const { clock, seen } = world(on, { requestPrints: [REQUEST] });
-		await start($);
-		await clock.advance(TICK);
-		expect(seen.requestRuns).toBe(1);
-		expect(seen.rows).toEqual([expect.stringContaining("release-request")]);
-		expect(seen.submits).toBe(0);
-	});
-
-	test("a changed request register forks the requests source alone (#855)", async ($, on) => {
-		const { clock, seen } = world(on);
-		await start($);
-		await clock.advance(TICK);
-		seen.mtime["/req"] = 2;
-		await clock.advance(TICK);
-		expect(seen.requestRuns).toBe(2);
-		expect(seen.reportRuns).toBe(1);
-	});
-
-	test("a changed claim store forks the requests source alone (#855)", async ($, on) => {
-		const { clock, seen } = world(on);
-		await start($);
-		await clock.advance(TICK);
-		seen.mtime["/locks"] = 2;
-		await clock.advance(TICK);
-		expect(seen.requestRuns).toBe(2);
-		expect(seen.reportRuns).toBe(1);
-	});
-
-	test("a failing reports run never starves the requests source (#855)", async ($, on) => {
-		const { clock, seen } = world(on, {
-			failRuns: [1],
-			requestPrints: [REQUEST],
-		});
-		await start($);
-		await clock.advance(TICK);
-		expect(seen.requestRuns).toBe(1);
-		expect(seen.rows).toEqual([expect.stringContaining("release-request")]);
 	});
 
 	test("the CI re-check runs only on its 10-minute interval (#856)", async ($, on) => {
@@ -429,14 +373,13 @@ describe("wfc-delivery runs only inside a main-loop turn (#3247)", () => {
 		const stats = seen.stats;
 		const forks = seen.forks();
 		seen.mtime["/store"] = 2;
-		seen.mtime["/req"] = 2;
 		await clock.advance(CI_INTERVAL * 3);
 		expect(seen.stats).toBe(stats);
 		expect(seen.forks()).toBe(forks);
 		expect(seen.ciRuns).toBe(0);
 	});
 
-	test("a turn ending mid-tick stops the tick's later forks and its append", async ($, on) => {
+	test("a turn ending mid-tick stops the tick's append", async ($, on) => {
 		let release: () => void = () => undefined;
 		const heldRun = new Promise<void>((resolve) => {
 			release = resolve;
@@ -450,7 +393,6 @@ describe("wfc-delivery runs only inside a main-loop turn (#3247)", () => {
 		await turn;
 		await clock.advance(CI_INTERVAL);
 		expect(seen.reportRuns).toBe(1);
-		expect(seen.requestRuns).toBe(0);
 		expect(seen.appendCalls).toBe(0);
 	});
 
@@ -465,9 +407,9 @@ describe("wfc-delivery runs only inside a main-loop turn (#3247)", () => {
 	});
 
 	test("the turn's first row is appended before turn.start resolves", async ($, on) => {
-		const { seen } = world(on, { requestPrints: [REQUEST] });
+		const { seen } = world(on, { prints: [REPORT] });
 		await start($);
-		expect(seen.rows).toEqual([expect.stringContaining("release-request")]);
+		expect(seen.rows).toEqual([expect.stringContaining("ci-status")]);
 		expect(seen.ciRuns).toBe(0);
 	});
 
@@ -481,16 +423,16 @@ describe("wfc-delivery runs only inside a main-loop turn (#3247)", () => {
 	});
 
 	test("the next turn's start ticks at once, and its next tick re-checks CI", async ($, on) => {
-		const { clock, seen } = world(on, { requestPrints: ["", REQUEST] });
+		const { clock, seen } = world(on, { prints: ["", REPORT] });
 		await start($);
 		await turnEnd($);
-		seen.mtime["/req"] = 2;
+		seen.mtime["/store"] = 2;
 		await clock.advance(CI_INTERVAL);
-		expect(seen.requestRuns).toBe(1);
+		expect(seen.reportRuns).toBe(1);
 		await turnStart($);
-		expect(seen.requestRuns).toBe(2);
+		expect(seen.reportRuns).toBe(2);
 		expect(seen.ciRuns).toBe(0);
-		expect(seen.rows).toEqual([expect.stringContaining("release-request")]);
+		expect(seen.rows).toEqual([expect.stringContaining("ci-status")]);
 		await clock.advance(TICK);
 		expect(seen.ciRuns).toBe(1);
 	});

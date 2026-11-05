@@ -59,9 +59,7 @@ describe("no file under scripts/ regresses to a known-bad spelling", () => {
 	// known to restate this class) (mantahostels#2246).
 	const pyRestatement = 're.sub(r"[^a-zA-Z0-9]", "-", ';
 
-	// proving-run.ts restates the same regex class directly — that same
-	// exemption, extended to the one other deliberate site.
-	const restatementExempt = new Set(["project-slug.js", "proving-run.ts"]);
+	const restatementExempt = new Set(["project-slug.js"]);
 
 	// Every measure script derives the slug via scripts/lib/project_slug.py
 	// instead of hard-coding it (mantahostels#2148). The list stays, empty, so a
@@ -76,8 +74,8 @@ describe("no file under scripts/ regresses to a known-bad spelling", () => {
 	 * `node -e` rather than restate the rule (mantahostels#2008, scripts/snapshot-memory.sh)
 	 * — `guard-log.sh` is the one exception, see shRestatements above.
 	 *
-	 * `.ts`, `.husky/*` and `.py` join in mantahostels#2052: `proving-run.ts` restates the
-	 * regex class directly (excluded below, same as `project-slug.js`);
+	 * `.ts`, `.husky/*` and `.py` join in mantahostels#2052: a `.ts` harness may
+	 * restate the regex class as readily as a script;
 	 * `.husky/*` hooks are tracked shell scripts the `.sh` glob never reaches,
 	 * having no extension; and `scripts/**\/*.py` hard-codes the bare literal
 	 * outright (pyBareLiteralExempt above). `*.test.ts` is excluded from
@@ -212,7 +210,6 @@ describe("no file under scripts/ regresses to a known-bad spelling", () => {
 		// scan's own positive control.
 		expect(holding(restatements[0])).toEqual([
 			path.join(__dirname, "project-slug.js"),
-			path.join(__dirname, "..", "proving-run.ts"),
 		]);
 		expect(holding(shRestatements[0])).toEqual([
 			path.join(__dirname, "guard-log.sh"),

@@ -443,12 +443,12 @@ const REGISTRATIONS: Registration[] = [
 		matcher: null,
 		covers: [],
 	},
-	// The other SessionStart entry that nothing waits on: it detaches its sweep and
-	// returns (mantahostels#1251). What it must do once detached is proved behaviourally in
-	// sweep-debts-detached.test.ts.
+	// The other SessionStart entry that nothing waits on: it detaches its sweeps
+	// and returns. What it must do once detached is proved behaviourally in
+	// session-start-sweeps.test.ts.
 	{
 		event: "SessionStart",
-		id: "scripts/sweep-debts-detached.sh",
+		id: "scripts/session-start-sweeps.sh",
 		matcher: null,
 		covers: [],
 	},

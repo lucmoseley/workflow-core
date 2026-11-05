@@ -43,13 +43,11 @@
  *
  * THE ANSWER. A note — exactly `{ hookSpecificOutput: { hookEventName:
  * "PreToolUse", additionalContext } }` — rides ahead of the rules in one
- * envelope (mantahostels#2369), spending the same ceiling. A DENIAL displaces
- * the rules: a refusal carries a permissionDecision, and the rules defer
- * unlatched to the next write. Any other shape is relayed as far as a
- * dispatcher part can carry it — its denial, else its additionalContext — the
- * rules again deferred, and every field it cannot carry is named in the error
- * log (mantahostels#2387): a future arbiter field is dropped on the record,
- * never in silence. Output that is not JSON is logged and the write allowed.
+ * envelope (mantahostels#2369), spending the same ceiling. Any other shape is
+ * relayed as far as a dispatcher part can carry it — its additionalContext —
+ * the rules deferred unlatched to the next write, and every field it cannot
+ * carry is named in the error log (mantahostels#2387): a future arbiter field
+ * is dropped on the record, never in silence. Output that is not JSON is logged and the write allowed.
  *
  * THE TIER TEST IS THIS CORE'S, AND CHOOSES ONLY WHETHER TO SPEAK. The arbiter
  * stays the authority on what is claimed and contended (mantahostels#102); a
@@ -184,8 +182,8 @@ function editFields(file, ctx) {
 }
 
 /**
- * What a hook object the arbiter printed can be relayed as: its denial, else
- * its context; every field a dispatcher part cannot carry named in the log.
+ * What a hook object the arbiter printed can be relayed as: its context; every
+ * field a dispatcher part cannot carry named in the log.
  * @param {Record<string, unknown>} out
  * @param {FileClaimContext} ctx
  * @returns {Decision}
@@ -197,27 +195,14 @@ function relay(out, ctx) {
 			: {}
 	);
 	const dropped = Object.keys(out).filter((k) => k !== "hookSpecificOutput");
-	const reason = hso.permissionDecisionReason;
 	const said = hso.additionalContext;
-	const denies =
-		hso.permissionDecision === "deny" && typeof reason === "string";
 	for (const k of Object.keys(hso))
-		if (
-			![
-				"hookEventName",
-				"permissionDecision",
-				"permissionDecisionReason",
-			].includes(k) &&
-			!(k === "additionalContext" && !denies)
-		)
+		if (!["hookEventName", "additionalContext"].includes(k))
 			dropped.push(`hookSpecificOutput.${k}`);
-	if (hso.permissionDecision !== undefined && !denies)
-		dropped.push("hookSpecificOutput.permissionDecision");
 	if (dropped.length > 0)
 		ctx.log(
 			`arbiter answered fields a dispatcher part cannot carry — dropped: ${dropped.join(", ")}`,
 		);
-	if (denies) return { deny: ctx.corePaths(reason) };
 	return typeof said === "string" && said
 		? { context: ctx.corePaths(said) }
 		: null;
@@ -225,7 +210,7 @@ function relay(out, ctx) {
 
 /**
  * The arbiter's answer, parsed: a note to carry with the rules, or the
- * decision that displaces them.
+ * decision that defers them.
  * @param {string} stdout
  * @param {FileClaimContext} ctx
  * @returns {{ note: string } | { decision: Decision }}

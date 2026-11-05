@@ -479,8 +479,7 @@ function pruneIssueClaims(liveness) {
 	)
 		return;
 
-	// Not a default argument: the oracle is injected the way forceRelease takes
-	// it, so a caller that forgets it must not silently fall back to the registry
+	// Not a default argument: the oracle is injected, so a caller that forgets it must not silently fall back to the registry
 	// alone.
 	const listed = typeof liveness === "function" ? liveness() : {};
 	if (!listed?.ids) {

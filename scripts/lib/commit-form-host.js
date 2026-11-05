@@ -5,7 +5,7 @@
  */
 
 const fs = require("node:fs");
-const { readCommitCheck } = require("./commit-check.js");
+const { readWriteLedger } = require("./write-ledger.js");
 const { closingRefusal } = require("./closing-keyword.js");
 const { gitOrNull, HOOK_GIT_TIMEOUT_MS } = require("./git.js");
 const { patchFiles, readTopLevel } = require("./git-tree.js");
@@ -85,7 +85,7 @@ function buildHostPorts(root) {
 				return null;
 			}
 		},
-		commitCheck: readCommitCheck,
+		readWriteLedger,
 		closingRefusal: (match) => closingRefusal(match, root),
 	};
 }

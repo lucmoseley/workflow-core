@@ -78,7 +78,7 @@ git status --porcelain docs/reference-roadmap.html   # empty, or poll below
 gh issue view $ARGUMENTS --json number,title,state,body,comments
 ```
 
-- Roadmap working copy dirty → **poll and retry; this is not a stop and never an escalation to the founder** (mantahostels#1074). Run the `roadmap-edit` skill's step 1 poll-and-claim loop, which owns the recipe, and on its non-zero exit register the debt against this issue and report the card left unmarked: `node scripts/session-arbiter.js debt own docs/reference-roadmap.html $ARGUMENTS "<card-id>: close log"`.
+- Roadmap working copy dirty → **poll and retry; this is not a stop and never an escalation to the founder** (mantahostels#1074). Run the `roadmap-edit` skill's step 1 poll-and-claim loop, which owns the recipe, and on its non-zero exit report the card left unmarked, naming it and this issue.
 - Issue not found, or already `CLOSED` → **stop.** Report which.
 
 ### 2. Resolve the card id

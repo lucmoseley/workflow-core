@@ -51,7 +51,7 @@ Add `--ids` to take only the sessions you are rescuing. Copies each
 ### 4a. One session: adopt it here
 
 Claim its issue (`node scripts/claim-issue.js <n>`), read
-`<short-id>.narration.txt` whole and its job's `commitsLanded` and `artefactsSurvived` in `index.json`, then continue
+`<short-id>.narration.txt` whole and its job's `commitsLanded` and `artefactsSurvived` in `index.json`, `cd` to its worktree (that job's `cwd`), then continue
 under the same command from where it died: a `/wayfinder` stays a `/wayfinder`.
 `references/RESUMPTION.md` §2–§5 bind you as they would a dispatched successor,
 its commit command run as `node scripts/commit-paths.js`.
@@ -81,18 +81,24 @@ one short brief per ticket, `<ticket>-brief.md`, carrying only:
 - anything that has changed *under* the ticket since it died — a neighbour's
   commit touching its files, a blocker that has cleared.
 
-Dispatch one ticket first and read its result:
+Dispatch one ticket first, into its dead session's worktree, and read its
+result:
 
-    scripts/dispatch-sessions.sh \
+    scripts/dispatch-sessions.sh --into <cwd> \
       opus "/implement <n> — RESUMED from <plan> session <short-id>; read .claude/tmp/rescue/RESUMPTION.md then <n>-brief.md FIRST"
+
+`--into` starts the successor with that worktree as its cwd, and refuses one
+a live process still works in — a source session step 3 did not stop. Where
+`index.json`'s `cwd` is the main checkout, drop `--into`.
 
 Add `--force` only on the exit-4 refusal, which means the source plan's dispatch
 of that issue is still inside the ledger's one-hour window. `--force` also skips
 the allowance gate, so read the allowance yourself first; never add
 `--force-memory`, which skips the per-member memory re-read.
 
-Then dispatch the rest in one call — `dispatch-sessions.sh` staggers them and
-re-reads memory per member.
+Then dispatch the rest, one call per ticket, each `--into` its own dead
+session's worktree, with `sleep 2` between calls so each memory re-read sees
+the launch before it (mantahostels#2553).
 
 ### 5. Watch
 
@@ -150,8 +156,10 @@ narration path, death point, commits landed, artefacts survived and file
 claims. **Read `RESUMPTION.md` and the narration file yourself, then continue
 that intent in this session**: an `/implement` stays an `/implement`, from
 where it died. Its dirty files are now yours to finish: your next write to each
-takes its claim, unless the takeover says its claims stay held — then free
-one with `node scripts/session-arbiter.js release --force <path>`.
+takes its claim, unless the takeover says its claims stay held — then they
+stay listed, and your writes go ahead with a conflict warning, until its host
+process ends; after that they are ordinary stale claims your next write to
+each takes.
 
 ## Reference
 

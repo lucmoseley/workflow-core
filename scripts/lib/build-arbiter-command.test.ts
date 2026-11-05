@@ -25,8 +25,8 @@ describe("buildArbiterCommand", () => {
 	});
 
 	it("quotes a word holding a space, a quote or a #", () => {
-		expect(buildArbiterCommand`wait ${"docs/it's a.md"}`).toBe(
-			"node scripts/session-arbiter.js wait 'docs/it'\\''s a.md'",
+		expect(buildArbiterCommand`release ${"docs/it's a.md"}`).toBe(
+			"node scripts/session-arbiter.js release 'docs/it'\\''s a.md'",
 		);
 		expect(buildArbiterCommand`release ${"docs/doc-map.md#B1"}`).toBe(
 			"node scripts/session-arbiter.js release 'docs/doc-map.md#B1'",
@@ -34,8 +34,8 @@ describe("buildArbiterCommand", () => {
 	});
 
 	it("keeps fixed text and placeholders round the word as written", () => {
-		expect(buildArbiterCommand`debt own ${"a b"} <issue> "<one line>"`).toBe(
-			`node scripts/session-arbiter.js debt own 'a b' <issue> "<one line>"`,
+		expect(buildArbiterCommand`claim ${"a b"} "<session id>" --generator`).toBe(
+			`node scripts/session-arbiter.js claim 'a b' "<session id>" --generator`,
 		);
 	});
 

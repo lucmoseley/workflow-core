@@ -33,7 +33,6 @@
 		"check:orphaned-edits": "node scripts/check-orphaned-edits.js",
 		"check:stray-scratch": "node scripts/check-stray-scratch.js",
 		"check:suite-queue": "node scripts/check-stale-suite-queue.js",
-		"check:debts": "node scripts/session-arbiter.js debt sweep",
 		"check:open-maps": "node scripts/check-open-maps.js",
 		"check:cycles": "node scripts/check-issue-cycles.js",
 		"check:tracker-sweep": "node scripts/check-tracker-sweep.js",
