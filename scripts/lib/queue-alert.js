@@ -1,15 +1,15 @@
 /*
- * queue-alert.js — the landing queue's alert (#4485, spec #4458): once per
- * crossing of a limit lib/queue-gauge.js sets, the oldest waiting ref's wait
- * or the queue's depth, the refill loop files that crossing's ticket, as
- * lib/queue-issue.js files the stall ticket (#4443), and closes it once the
- * queue is back within the limit.
+ * queue-alert.js — the landing queue's alert: for a crossing of a limit
+ * lib/queue-gauge.js sets, the oldest waiting ref's wait or the queue's
+ * depth, the refill loop files that crossing's ticket, as lib/queue-issue.js
+ * files the stall ticket, and closes it once the queue is back within the
+ * limit.
  *
  * ONCE PER CROSSING: a record in the markers directory names the crossings
  * already alerted, so a pass still past a limit files nothing and reads no
  * tracker, and a pass back within it closes the ticket and re-arms it. A
- * torn record reads as none alerted, so a crossing still standing is filed
- * again, which refreshes the open ticket.
+ * torn record is named and dropped, and reads as none alerted, so a crossing
+ * still standing is filed again, which refreshes the open ticket.
  */
 
 const fs = require("node:fs");
@@ -18,6 +18,10 @@ const { writeFileAtomic } = require("./atomic-write.js");
 const { formatHoursMin } = require("./landing-stall.js");
 const { buildCrossingLines } = require("./queue-gauge.js");
 const { queueIssueCloser, queueIssueFiler } = require("./queue-issue.js");
+const {
+	QUEUE_ALERT_TITLES: TITLES,
+	readTicketRecord,
+} = require("./queue-tickets.js");
 
 /**
  * @typedef {"age"|"depth"} Crossing
@@ -25,11 +29,6 @@ const { queueIssueCloser, queueIssueFiler } = require("./queue-issue.js");
  */
 
 const KINDS = /** @type {const} */ (["age", "depth"]);
-
-const TITLES = {
-	age: "Landing queue stalled: a queue ref has waited past its limit",
-	depth: "Landing queue deep: more queue refs wait than its limit",
-};
 
 const RECORD = ".queue-alert.json";
 
@@ -48,18 +47,20 @@ function alertStep(record, crossed) {
 }
 
 /**
+ * The crossings on record; null where none is, "torn" where it will not
+ * parse. A read failing for any reason but absence throws.
  * @param {string} file
- * @returns {AlertRecord}
+ * @returns {AlertRecord|null|"torn"}
  */
-function readAlertRecord(file) {
-	try {
-		const rec = JSON.parse(fs.readFileSync(file, "utf8"));
-		return { age: rec.age === true, depth: rec.depth === true };
-	} catch {
-		/* Absent, or torn by a hand edit: none alerted. */
-		return { age: false, depth: false };
-	}
-}
+const readAlertRecord = (file) =>
+	readTicketRecord(file, (rec) => {
+		const { age, depth } = /** @type {{age?: unknown, depth?: unknown}} */ (
+			rec ?? {}
+		);
+		return typeof age === "boolean" && typeof depth === "boolean"
+			? { age, depth }
+			: null;
+	});
 
 /**
  * @param {Crossing} kind
@@ -68,7 +69,7 @@ function readAlertRecord(file) {
  */
 const buildAlertBody = (kind, line, g) => `## What to build
 
-${line} (#4485).
+${line}.
 
 - Refs waiting: ${g.waiting.length > 0 ? g.waiting.map((w) => `\`queue/${w.name}\` since ${new Date(w.since).toISOString()}`).join(", ") : "none"}
 
@@ -108,14 +109,25 @@ function queueAlertTender(deps, markers) {
 	const close = queueIssueCloser(deps);
 	const recordFile = path.join(markers, RECORD);
 	return (g, c) => {
-		const record = readAlertRecord(recordFile);
+		/** @type {string[]} */
+		const said = [];
+		const read = readAlertRecord(recordFile);
+		if (read === "torn") {
+			/* Fail-open, as the stall ticket's record: a crossing still standing
+			 * is filed again, and a ticket open over a queue back within its
+			 * limit stays open until its next crossing. */
+			fs.rmSync(recordFile, { force: true });
+			said.push(
+				`queue alert: ${recordFile} would not parse and is dropped; an open queue alert stays open until its next crossing.`,
+			);
+		}
+		const record =
+			read === null || read === "torn" ? { age: false, depth: false } : read;
 		const lines = buildCrossingLines(c, g.baseline);
 		const { fire, rearm } = alertStep(record, {
 			age: c.age !== null,
 			depth: c.depth !== null,
 		});
-		/** @type {string[]} */
-		const said = [];
 		const save = () =>
 			writeFileAtomic(recordFile, `${JSON.stringify(record)}\n`, {
 				mkdir: true,
@@ -146,4 +158,4 @@ function queueAlertTender(deps, markers) {
 	};
 }
 
-module.exports = { QUEUE_ALERT_TITLES: TITLES, queueAlertTender };
+module.exports = { queueAlertTender };

@@ -323,3 +323,20 @@ it("warns of no queue finding where every queue ref is within its limits", () =>
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stdout).not.toContain("QUEUE-");
 });
+
+it("names a queue it cannot read as its own finding, the landing stall still reported", () => {
+	mainAt(121 * MIN);
+	queue("new", MIN);
+	beat(0);
+	aheadFor(121 * MIN);
+	fs.mkdirSync(path.join(markers(), ".queue-log.jsonl"));
+
+	const r = check();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stdout).toContain("LANDING-STALLED");
+	expect(r.stdout).toMatch(
+		/QUEUE-UNREAD — could not read the landing queue: .*EISDIR/,
+	);
+	expect(r.stdout).not.toContain("Run the queue lander by hand");
+});

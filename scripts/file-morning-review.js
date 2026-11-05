@@ -129,7 +129,7 @@ const {
 const { labelAge } = require("./lib/label-age.js");
 const { PARKED_LABEL } = require("./lib/parked.js");
 const { readSnapshot, whyNotLaunched } = require("./lib/pick-next-snapshot.js");
-const { STALL_TITLE } = require("./lib/stall-ticket.js");
+const { STALL_TITLE } = require("./lib/queue-tickets.js");
 const { scriptIo } = require("./lib/tracker-ops.js");
 const {
 	buildAgeText,

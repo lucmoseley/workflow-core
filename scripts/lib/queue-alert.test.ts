@@ -13,9 +13,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { QUEUE_ALERT_TITLES, queueAlertTender } from "./queue-alert.js";
+import { queueAlertTender } from "./queue-alert.js";
 import { queueCrossings } from "./queue-gauge.js";
 import { queueBaseline } from "./queue-log.js";
+import { QUEUE_ALERT_TITLES } from "./queue-tickets.js";
 
 const MIN = 60_000;
 const NOW = Date.parse("2026-11-06T12:00:00Z");
@@ -106,11 +107,23 @@ describe("queueAlertTender", () => {
 		expect(calls).toEqual([]);
 	});
 
-	it("files again where the record is torn, refreshing the open ticket", () => {
+	it("names a torn record, drops it, and files again, refreshing the open ticket", () => {
 		pass(gauge(61));
-		fs.writeFileSync(path.join(markers, ".queue-alert.json"), "{torn");
+		const record = path.join(markers, ".queue-alert.json");
+		fs.writeFileSync(record, "{torn");
 		expect(pass(gauge(61))).toEqual([
+			expect.stringMatching(/^queue alert: .* would not parse and is dropped/),
 			expect.stringMatching(/^queue alert: refreshed/),
 		]);
+		expect(JSON.parse(fs.readFileSync(record, "utf8"))).toEqual({
+			age: true,
+			depth: false,
+		});
+	});
+
+	it("throws where the record cannot be read for any reason but absence", () => {
+		fs.mkdirSync(path.join(markers, ".queue-alert.json"));
+		expect(() => pass(gauge(61))).toThrow(/EISDIR/);
+		expect(calls).toEqual([]);
 	});
 });

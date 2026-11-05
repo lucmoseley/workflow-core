@@ -163,6 +163,20 @@ it("ends on the queue's line: the refs waiting, the oldest's wait and the 7-day 
 	]);
 });
 
+it("dates a queue ref pushed again from its earliest pending push", () => {
+	const first = commit("first");
+	git(work, "push", "-q", "origin", "HEAD:refs/heads/queue/alpha");
+	const again = commit("again");
+	git(work, "push", "-q", "origin", "HEAD:refs/heads/queue/alpha");
+	queueLog([90, "enqueue", "alpha", first], [5, "enqueue", "alpha", again]);
+	ledger();
+
+	const r = runStatus();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stdout).toMatch(/the oldest queue\/alpha for 1 h 30 min;/);
+});
+
 it("says so where the session made no commit", () => {
 	ledger();
 
